@@ -3,12 +3,7 @@
 
 #include "../../config.h"
 
-typedef void (fd_topo_config_fn)( config_t * config );
-
-extern fd_topo_config_fn fd_topo_frankendancer;
-extern fd_topo_config_fn fd_topo_firedancer;
-
-FD_FN_CONST fd_topo_config_fn *
-fd_topo_kind_str_to_topo_config_fn( char const * topo_kind_str );
+void
+fd_topo_initialize( config_t * config );
 
 #endif /* HEADER_fd_src_app_fdctl_run_topos_h */

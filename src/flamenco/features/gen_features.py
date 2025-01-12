@@ -30,8 +30,6 @@ def generate(feature_map_path, header_path, body_path):
         )
         fd_features_t_params.append(f"    /* {short_id} */ ulong {x['name']};")
         rmap[x["pubkey"]] = x["name"]
-        if "old" in x:
-            rmap[x["old"]] = x["name"]
     fd_features_t_params = "\n".join(fd_features_t_params)
 
     # Write header file.
@@ -81,7 +79,10 @@ fd_feature_id_t const ids[] = {{""",
             end="",
         )
         if x.get("cleaned_up"):
-            print(f",\n    .cleaned_up = {x.get('cleaned_up')}", file=body, end="")
+            cleaned_up_values = ', '.join(map(str, x.get('cleaned_up')))
+            print(f",\n    .cleaned_up = {{{cleaned_up_values}}}", file=body, end="")
+        else:
+            print(f",\n    .cleaned_up = {{UINT_MAX, UINT_MAX, UINT_MAX}}", file=body, end="")
         if x.get("reverted"):
             print(f",\n    .reverted   = {x.get('reverted')}", file=body, end="")
         print(" },\n", file=body)
@@ -98,8 +99,6 @@ fd_feature_id_query( ulong prefix ) {{
         file=body)
     for i, x in enumerate(fm):
         print(f'''  case {"0x%016x" % struct.unpack("<Q", fd58.dec32(x["pubkey"].encode('ascii'))[:8])}: return &ids[{"% 4d" % (i)} ];''',  file=body)
-        if "old" in x:
-            print(f'''  case {"0x%016x" % struct.unpack("<Q", fd58.dec32(x["old"].encode('ascii'))[:8])}: return &ids[{"% 4d" % (i)} ];''',  file=body)
     print(
         f"""  default: break;
   }}

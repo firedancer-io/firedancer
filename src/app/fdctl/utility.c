@@ -1,6 +1,8 @@
 #define _GNU_SOURCE
 #include "utility.h"
+#include "../../util/fd_util.h"
 
+#include <errno.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <stdarg.h>

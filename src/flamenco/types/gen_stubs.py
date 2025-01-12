@@ -52,18 +52,55 @@ fixedsizetypes = dict()
 for t,t2 in [("bool",1),
              ("char",1),
              ("uchar",1),
-             ("double",8),
              ("short",2),
              ("ushort",2),
              ("int",4),
              ("uint",4),
              ("long",8),
              ("ulong",8),
-             ("pubkey",32)]:
+             ("double",8),
+             ("uint128",16),
+             ("pubkey",32),
+             ("hash",32),
+             ("uchar[32]",32),
+             ("signature",64),
+             ("uchar[128]",128),
+             ("uchar[2048]",2048),]:
     fixedsizetypes[t] = t2
-class PrimitiveMember:
-    def __init__(self, container, json):
+
+# Types that are fixed size and valid for all possible bit patterns
+# (e.g. ulong is in here, but bool is not)
+fuzzytypes = {
+    "char", "uchar",
+    "short", "ushort",
+    "int", "uint",
+    "long", "ulong",
+    "double",
+    "uint128",
+    "pubkey",
+    "hash",
+    "uchar[32]",
+    "signature",
+    "uchar[128]",
+    "uchar[2048]",
+}
+
+class TypeNode:
+    def __init__(self, json):
         self.name = json["name"]
+
+    def isFixedSize(self):
+        return False
+
+    def fixedSize(self):
+        return
+
+    def isFuzzy(self):
+        return False
+
+class PrimitiveMember(TypeNode):
+    def __init__(self, container, json):
+        super().__init__(json)
         self.type = json["type"]
         self.varint = ("modifier" in json and json["modifier"] == "varint")
         self.decode = ("decode" not in json or json["decode"])
@@ -112,47 +149,22 @@ class PrimitiveMember:
     def emitOffsetUnionMember(self):
         print(f'{indent}  uint {self.name}_off;', file=header)
 
-    isFixedSizeMap = {
-        "bool" :       True,
-        "char" :       True,
-        "char[32]" :   True,
-        "double" :     True,
-        "long" :       True,
-        "uint" :       True,
-        "uint128" :    True,
-        "uchar" :      True,
-        "uchar[32]" :  True,
-        "uchar[128]" : True,
-        "uchar[2048]": True,
-        "ulong" :      True,
-        "ushort" :     True
-    }
-
     def isFixedSize(self):
         if self.varint:
             return False
-        return PrimitiveMember.isFixedSizeMap.get(self.type, False)
-
-    fixedSizeMap = {
-        "bool" :       1,
-        "char" :       1,
-        "char[32]" :   32,
-        "double" :     8,
-        "long" :       8,
-        "uint" :       4,
-        "uint128" :    16,
-        "uchar" :      1,
-        "uchar[32]" :  32,
-        "uchar[128]" : 128,
-        "uchar[2048]": 2048,
-        "ulong" :      8,
-        "ushort" :     2
-    }
+        if self.encode != self.decode:
+            return False
+        return self.type in fixedsizetypes
 
     def fixedSize(self):
+        if not self.encode:
+            return 0
+        return fixedsizetypes[self.type]
+
+    def isFuzzy(self):
         if self.varint:
-            return False;
-        return PrimitiveMember.fixedSizeMap[self.type]
+            return False
+        return self.type in fuzzytypes
 
     def string_decode_preflight(n, varint):
         print(f'{indent}  ulong slen;', file=body)
@@ -340,9 +352,9 @@ class PrimitiveMember:
 
 
 # This is a member which IS a struct, NOT a member OF a struct
-class StructMember:
+class StructMember(TypeNode):
     def __init__(self, container, json):
-        self.name = json["name"]
+        super().__init__(json)
         self.type = json["type"]
         self.ignore_underflow = (bool(json["ignore_underflow"]) if "ignore_underflow" in json else False)
 
@@ -369,6 +381,9 @@ class StructMember:
     def fixedSize(self):
         return fixedsizetypes[self.type]
 
+    def isFuzzy(self):
+        return self.type in fuzzytypes
+
     def emitOffsetMember(self):
         print(f'  uint {self.name}_off;', file=header)
 
@@ -383,11 +398,7 @@ class StructMember:
 
     def emitDecodePreflight(self, archival):
         atag = ('_archival' if archival else '')
-        if self.isFixedSize() and not archival:
-            fixedsize = self.fixedSize()
-            print(f'{indent}  err = fd_bincode_bytes_decode_preflight( {fixedsize}, ctx );', file=body)
-        else:
-            print(f'{indent}  err = {namespace}_{self.type}_decode{atag}_preflight( ctx );', file=body)
+        print(f'{indent}  err = {namespace}_{self.type}_decode{atag}_preflight( ctx );', file=body)
         print(f'{indent}  if( FD_UNLIKELY( err ) ) return err;', file=body)
 
     def emitDecodeUnsafe(self, archival):
@@ -405,19 +416,21 @@ class StructMember:
     def emitWalk(self, inner):
         print(f'{indent}  {namespace}_{self.type}_walk( w, &self->{inner}{self.name}, fun, "{self.name}", level );', file=body)
 
-
-class VectorMember:
+class VectorMember(TypeNode):
     def __init__(self, container, json):
-        self.name = json["name"]
+        super().__init__(json)
         self.element = json["element"]
         self.compact = ("modifier" in json and json["modifier"] == "compact")
         self.ignore_underflow = (bool(json["ignore_underflow"]) if "ignore_underflow" in json else False)
 
+
+    def propogateArchival(self, nametypes):
+        fulltype = f'{namespace}_{self.element}'
+        if fulltype in nametypes:
+            nametypes[fulltype].propogateArchival(nametypes)
+
     def metaTag(self):
         return "FD_ARCHIVE_META_VECTOR"
-
-    def isFixedSize(self):
-        return False
 
     def emitPreamble(self):
         pass
@@ -572,7 +585,7 @@ class VectorMember:
             return
         else:
             print(f'  if( self->{self.name}_len ) {{', file=body)
-            print(f'    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR, "{self.name}", level++ );', file=body)
+            print(f'    fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR, "array", level++ );', file=body)
             print(f'    for( ulong i=0; i < self->{self.name}_len; i++ )', file=body)
 
         if self.element in VectorMember.emitWalkMap:
@@ -581,14 +594,176 @@ class VectorMember:
         else:
             print(f'      {namespace}_{self.element}_walk(w, self->{self.name} + i, fun, "{self.element}", level );', file=body)
 
-        print(f'    fun( w, NULL, NULL, FD_FLAMENCO_TYPE_ARR_END, "{self.name}", level-- );', file=body)
+        print(f'    fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );', file=body)
         print('  }', file=body)
 
+class StaticVectorMember(TypeNode):
+    def __init__(self, container, json):
+        super().__init__(json)
+        self.element = json["element"]
+        self.size = (json["size"] if "size" in json else None)
+        self.ignore_underflow = (bool(json["ignore_underflow"]) if "ignore_underflow" in json else False)
+
+    def propogateArchival(self, nametypes):
+        fulltype = f'{namespace}_{self.element}'
+        if fulltype in nametypes:
+            nametypes[fulltype].propogateArchival(nametypes)
+
+    def metaTag(self):
+        return "FD_ARCHIVE_META_STATIC_VECTOR"
+
+    def isFixedSize(self):
+        return False
+
+    def emitPreamble(self):
+        pass
+
+    def emitPostamble(self):
+        pass
+
+    def emitMember(self):
+        print(f'  ulong {self.name}_len;', file=header)
+        print(f'  ulong {self.name}_size;', file=header)
+        print(f'  ulong {self.name}_offset;', file=header)
+
+        if self.element in simpletypes:
+            print(f'  {self.element} {self.name}[{self.size}];', file=header)
+        else:
+            print(f'  {namespace}_{self.element}_t {self.name}[{self.size}];', file=header)
+
+    def emitOffsetMember(self):
+        print(f'  uint {self.name}_off;', file=header)
+
+    def emitNew(self):
+        size = self.size
+        print(f'  self->{self.name}_size = {self.size};', file=body)
+        if self.element in simpletypes:
+            pass
+        else:
+            print(f'  for( ulong i=0; i<{size}; i++ )', file=body)
+            print(f'    {namespace}_{self.element}_new( self->{self.name} + i );', file=body)
+
+
+    def emitDestroy(self):
+        size = self.size
+
+        if self.element in simpletypes:
+            pass
+        else:
+            print(f'  for( ulong i=0; i<{size}; i++ )', file=body)
+            print(f'    {namespace}_{self.element}_destroy( self->{self.name} + i, ctx );', file=body)
+
+    def emitDecodePreflight(self, archival):
+        atag = ('_archival' if archival else '')
+        print(f'  ulong {self.name}_len;', file=body)
+        print(f'  err = fd_bincode_uint64_decode( &{self.name}_len, ctx );', file=body)
+        print(f'  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+        print(f'  if( {self.name}_len ) {{', file=body)
+        el = f'{namespace}_{self.element}'
+        el = el.upper()
+
+        if self.element == "uchar":
+            print(f'    err = fd_bincode_bytes_decode_preflight( {self.name}_len, ctx );', file=body)
+            print(f'    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+
+        else:
+            print(f'    for( ulong i=0; i < {self.name}_len; i++ ) {{', file=body)
+
+            if self.element in simpletypes:
+                print(f'      err = fd_bincode_{simpletypes[self.element]}_decode_preflight( ctx );', file=body)
+            else:
+                print(f'      err = {namespace}_{self.element}_decode{atag}_preflight( ctx );', file=body)
+
+            print(f'      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+            print('    }', file=body)
+
+        print('  }', file=body)
+
+    def emitDecodeUnsafe(self, archival):
+        atag = ('_archival' if archival else '')
+        print(f'  fd_bincode_uint64_decode_unsafe( &self->{self.name}_len, ctx );', file=body)
+        print(f'  self->{self.name}_size = {self.size};', file=body)
+        print(f'  self->{self.name}_offset = 0;', file=body)
+
+        if self.element == "uchar":
+            print(f'  fd_bincode_bytes_decode_unsafe( self->{self.name}, self->{self.name}_len, ctx );', file=body)
+            return
+
+        print(f'  for( ulong i=0; i<self->{self.name}_len; i++ ) {{', file=body)
+        if self.element in simpletypes:
+            print(f'    fd_bincode_{simpletypes[self.element]}_decode_unsafe( self->{self.name} + i, ctx );', file=body)
+        else:
+            print(f'    {namespace}_{self.element}_decode{atag}_unsafe( self->{self.name} + i, ctx );', file=body)
+        print('  }', file=body)
+
+    def emitEncode(self, archival):
+        atag = ('_archival' if archival else '')
+
+        atag = ('_archival' if archival else '')
+        print(f'  err = fd_bincode_uint64_encode( self->{self.name}_len, ctx );', file=body)
+        print(f'  if( FD_UNLIKELY(err) ) return err;', file=body)
+        print(f'  if( FD_UNLIKELY( 0 == self->{self.name}_len ) ) return FD_BINCODE_SUCCESS;', file=body)
+
+        if self.element == "uchar":
+            #print(f'  err = fd_bincode_bytes_encode( self->{self.name}, self->{self.name}_len, ctx );', file=body)
+            print(f'  TODO: implement this windowed properly', file=body)
+            print('  if( FD_UNLIKELY( err ) ) return err;', file=body)
+            return
+
+        print(f'  for( ulong i=0; i<self->{self.name}_len; i++ ) {{', file=body)
+        if (self.size & (self.size - 1)) == 0:
+            print(f'    ulong idx = ( i + self->{self.name}_offset ) & ({self.size} - 1);', file=body)
+        else:
+            print(f'    ulong idx = ( i + self->{self.name}_offset ) % self->{self.name}_size;', file=body)
+        if self.element in simpletypes:
+            print(f'    err = fd_bincode_{simpletypes[self.element]}_encode( self->{self.name}[idx], ctx );', file=body)
+        else:
+            print(f'    err = {namespace}_{self.element}_encode{atag}( self->{self.name} + idx, ctx );', file=body)
+        print('    if( FD_UNLIKELY( err ) ) return err;', file=body)
+        print('  }', file=body)
+
+    def emitSize(self, inner):
+        print('  size += sizeof(ulong);', file=body)
+        if self.element == "uchar":
+            print(f'  size += self->{self.name}_len;', file=body)
+        elif self.element in simpletypes:
+            print(f'  size += self->{self.name}_len * sizeof({self.element});', file=body)
+        else:
+            print(f'  for( ulong i=0; i<self->{self.name}_len; i++ )', file=body)
+            print(f'    size += {namespace}_{self.element}_size( self->{self.name} + i );', file=body)
+
+    emitWalkMap = {
+        "double" :  lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_DOUBLE,  "double",  level );', file=body),
+        "long" :    lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_LONG,    "long",    level );', file=body),
+        "uint" :    lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_UINT,    "uint",    level );', file=body),
+        "uint128" : lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_UINT128, "uint128", level );', file=body),
+        "ulong" :   lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_ULONG,   "ulong",   level );', file=body),
+        "ushort" :  lambda n: print(f'  fun( w, self->{n} + idx, "{n}", FD_FLAMENCO_TYPE_USHORT,  "ushort",  level );', file=body)
+    }
+
+    def emitWalk(self, inner):
+        if self.element == "uchar":
+            print(f'  TODO: IMPLEMENT', file=body),
+            return
+
+        print(f'  fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR, "{self.element}[]", level++ );', file=body)
+        print(f'  for( ulong i=0; i<self->{self.name}_len; i++ ) {{', file=body)
+        if (self.size & (self.size - 1)) == 0:
+            print(f'    ulong idx = ( i + self->{self.name}_offset ) & ({self.size} - 1);', file=body)
+        else:
+            print(f'    ulong idx = ( i + self->{self.name}_offset ) % self->{self.name}_size;', file=body)
+        if self.element in VectorMember.emitWalkMap:
+            body.write("  ")
+            VectorMember.emitWalkMap[self.element](self.name)
+        else:
+            print(f'    {namespace}_{self.element}_walk( w, self->{self.name} + idx, fun, "{self.element}", level );', file=body)
+        print('  }', file=body)
+        print(f'  fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR_END, "{self.element}[]", level-- );', file=body)
 
 class StringMember(VectorMember):
     def __init__(self, container, json):
-        self.name = json["name"]
-        self.element = "uchar"
+        json["element"] = "uchar"
+        super().__init__(container, json)
         self.compact = False
         self.ignore_underflow = False
 
@@ -608,10 +783,9 @@ class StringMember(VectorMember):
 
         print('  }', file=body)
 
-
-class DequeMember:
+class DequeMember(TypeNode):
     def __init__(self, container, json):
-        self.name = json["name"]
+        super().__init__(json)
         self.element = json["element"]
         self.compact = ("modifier" in json and json["modifier"] == "compact")
         self.min = json.get("min", None)
@@ -633,9 +807,6 @@ class DequeMember:
 
     def prefix(self):
         return f'deq_{self.elem_type()}'
-
-    def isFixedSize(self):
-        return False
 
     def emitPreamble(self):
         dp = self.prefix()
@@ -695,9 +866,8 @@ class DequeMember:
             print(f'  err = fd_bincode_uint64_decode( &{self.name}_len, ctx );', file=body)
         print(f'  if( FD_UNLIKELY( err ) ) return err;', file=body)
 
-        elem_type = f"{namespace}_{self.element}"
-        if elem_type in fixedsizetypes:
-            fixedsize = fixedsizetypes[elem_type]
+        if self.element in fuzzytypes:
+            fixedsize = fixedsizetypes[self.element]
             print(f'  ulong {self.name}_sz;', file=body)
             print(f'  if( FD_UNLIKELY( __builtin_umull_overflow( {self.name}_len, {fixedsize}, &{self.name}_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;', file=body)
             print(f'  err = fd_bincode_bytes_decode_preflight( {self.name}_sz, ctx );', file=body)
@@ -829,9 +999,9 @@ class DequeMember:
 ''', file=body)
 
 
-class MapMember:
+class MapMember(TypeNode):
     def __init__(self, container, json):
-        self.name = json["name"]
+        super().__init__(json)
         self.element = json["element"]
         self.key = json["key"]
         self.compact = ("modifier" in json and json["modifier"] == "compact")
@@ -851,9 +1021,6 @@ class MapMember:
         else:
             return f'{namespace}_{self.element}_t'
 
-    def isFixedSize(self):
-        return False
-
     def emitPreamble(self):
         element_type = self.elem_type()
         mapname = element_type + "_map"
@@ -866,8 +1033,6 @@ class MapMember:
         print(f"#define REDBLK_NAME {mapname}", file=header)
         print(f"#define REDBLK_IMPL_STYLE 1", file=header)
         print(f'#include "../../util/tmpl/fd_redblack.c"', file=header)
-        print(f"#undef REDBLK_T", file=header)
-        print(f"#undef REDBLK_NAME", file=header)
         print(f"struct {nodename} {{", file=header)
         print(f"    {element_type} elem;", file=header)
         print(f"    ulong redblack_parent;", file=header)
@@ -893,8 +1058,6 @@ class MapMember:
         print(f'#define REDBLK_NAME {mapname}', file=body)
         print(f'#define REDBLK_IMPL_STYLE 2', file=body)
         print(f'#include "../../util/tmpl/fd_redblack.c"', file=body)
-        print(f'#undef REDBLK_T', file=body)
-        print(f'#undef REDBLK_NAME', file=body)
         print(f'long {mapname}_compare( {nodename} * left, {nodename} * right ) {{', file=body)
         key = self.key
         if key == "pubkey" or key == "account" or key == "key":
@@ -1043,9 +1206,9 @@ class MapMember:
         print(f'  }}', file=body)
 
 
-class TreapMember:
+class TreapMember(TypeNode):
     def __init__(self, container, json):
-        self.name = json["name"]
+        super().__init__(json)
         self.treap_t = json["treap_t"]
         self.treap_query_t = json["treap_query_t"]
         self.treap_cmp = json["treap_cmp"]
@@ -1053,6 +1216,7 @@ class TreapMember:
         self.min = int(json["min"])
         self.compact = ("modifier" in json and json["modifier"] == "compact")
         self.treap_prio = (json["treap_prio"] if "treap_prio" in json else None)
+        self.treap_optimize = (json["optimize"] if "optimize" in json else None)
         self.rev = json.get("rev", False)
         self.upsert = json.get("upsert", False)
         self.min_name = f"{self.name.upper()}_MIN"
@@ -1064,9 +1228,6 @@ class TreapMember:
 
     def metaTag(self):
         return "FD_ARCHIVE_META_TREAP"
-
-    def isFixedSize(self):
-        return False
 
     def emitPreamble(self):
         name = self.name
@@ -1098,6 +1259,8 @@ class TreapMember:
         print(f"#define TREAP_QUERY_T {treap_query_t}", file=header)
         print(f"#define TREAP_CMP(q,e) {treap_cmp}", file=header)
         print(f"#define TREAP_LT(e0,e1) {treap_lt}", file=header)
+        if self.treap_optimize is not None:
+            print(f"#define TREAP_OPTIMIZE_ITERATION 1", file=header)
         if self.treap_prio is not None:
             print(f"#define TREAP_PRIO {self.treap_prio}", file=header)
         print("#include \"../../util/tmpl/fd_treap.c\"", file=header)
@@ -1282,9 +1445,9 @@ class TreapMember:
         print(f'  }}', file=body)
 
 
-class OptionMember:
+class OptionMember(TypeNode):
     def __init__(self, container, json):
-        self.name = json["name"]
+        super().__init__(json)
         self.element = json["element"]
         self.flat = json.get("flat", False)
         self.ignore_underflow = (bool(json["ignore_underflow"]) if "ignore_underflow" in json else False)
@@ -1302,9 +1465,6 @@ class OptionMember:
 
     def emitPostamble(self):
         pass
-
-    def isFixedSize(self):
-        return False
 
     def emitMember(self):
         if self.flat:
@@ -1466,12 +1626,16 @@ class OptionMember:
                 print(f'    {namespace}_{self.element}_walk( w, self->{self.name}, fun, "{self.name}", level );', file=body)
             print( '  }', file=body)
 
-
-class ArrayMember:
+class ArrayMember(TypeNode):
     def __init__(self, container, json):
-        self.name = json["name"]
+        super().__init__(json)
         self.element = json["element"]
         self.length = int(json["length"])
+
+    def propogateArchival(self, nametypes):
+        fulltype = f'{namespace}_{self.element}'
+        if fulltype in nametypes:
+            nametypes[fulltype].propogateArchival(nametypes)
 
     def metaTag(self):
         return "FD_ARCHIVE_META_ARRAY"
@@ -1481,6 +1645,9 @@ class ArrayMember:
 
     def fixedSize(self):
         return self.length * fixedsizetypes[self.element]
+
+    def isFuzzy(self):
+        return self.element in fuzzytypes
 
     def emitPreamble(self):
         pass
@@ -1590,8 +1757,8 @@ class ArrayMember:
             print(f'    {namespace}_{self.element}_walk( w, self->{self.name} + i, fun, "{self.element}", level );', file=body)
         print(f'  fun( w, NULL, "{self.name}", FD_FLAMENCO_TYPE_ARR_END, "{self.element}[]", level-- );', file=body)
 
-
 memberTypeMap = {
+    "static_vector" :    StaticVectorMember,
     "vector" :    VectorMember,
     "string" :    StringMember,
     "deque" :     DequeMember,
@@ -1613,8 +1780,9 @@ def parseMember(namespace, json):
     return c(namespace, json)
 
 
-class OpaqueType:
+class OpaqueType(TypeNode):
     def __init__(self, json):
+        super().__init__(json)
         self.fullname = f'{namespace}_{json["name"]}'
         self.walktype = (json["walktype"] if "walktype" in json else None)
         self.size = (int(json["size"]) if "size" in json else None)
@@ -1695,8 +1863,9 @@ class OpaqueType:
         pass
 
 
-class StructType:
+class StructType(TypeNode):
     def __init__(self, json):
+        super().__init__(json)
         self.fullname = f'{namespace}_{json["name"]}'
         self.fields = []
         index = 0
@@ -1737,6 +1906,12 @@ class StructType:
         for f in self.fields:
             size += f.fixedSize()
         return size
+
+    def isFuzzy(self):
+        for f in self.fields:
+            if not f.isFuzzy():
+                return False
+        return True
 
     def emitHeader(self):
         for f in self.fields:
@@ -1798,14 +1973,23 @@ class StructType:
     def emitEncodeDecode(self, archival):
         n = self.fullname
         atag = ('_archival' if archival else '')
-
-
         if archival:
-            print("enum {", file=body)
-            for f in self.fields:
-                print(f'  {n}_{f.name}_TAG = ({f.arch_index} << 6) | {f.metaTag()},', file=body)
-            print("};", file=body)
+            self.emitArchiveTags(n)
+        self.emitDecode(archival, n, atag)
+        if self.name in fuzzytypes and not archival:
+            self.emitDecodePreflightFixedSize(n)
+        else:
+            self.emitDecodePreflightComplex(archival, n, atag)
+        self.emitDecodeUnsafe(archival, n, atag)
+        self.emitEncode(archival, n, atag)
 
+    def emitArchiveTags(self, n):
+        print("enum {", file=body)
+        for f in self.fields:
+            print(f'  {n}_{f.name}_TAG = ({f.arch_index} << 6) | {f.metaTag()},', file=body)
+        print("};", file=body)
+
+    def emitDecode(self, archival, n, atag):
         print(f'int {n}_decode{atag}( {n}_t * self, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
         print(f'  void const * data = ctx->data;', file=body)
         print(f'  int err = {n}_decode{atag}_preflight( ctx );', file=body)
@@ -1818,6 +2002,13 @@ class StructType:
         print(f'  return FD_BINCODE_SUCCESS;', file=body)
         print(f'}}', file=body)
 
+    def emitDecodePreflightFixedSize(self, n):
+        size = fixedsizetypes[self.name]
+        print(f'int {n}_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        print(f'  return fd_bincode_bytes_decode_preflight( {size}, ctx );', file=body)
+        print('}', file=body)
+
+    def emitDecodePreflightComplex(self, archival, n, atag):
         print(f'int {n}_decode{atag}_preflight( fd_bincode_decode_ctx_t * ctx ) {{', file=body)
         print('  int err;', file=body)
         if archival:
@@ -1855,6 +2046,7 @@ class StructType:
         print('  return FD_BINCODE_SUCCESS;', file=body)
         print("}", file=body)
 
+    def emitDecodeUnsafe(self, archival, n, atag):
         print(f'void {n}_decode{atag}_unsafe( {n}_t * self, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
         if archival:
             print('  ushort tag = FD_ARCHIVE_META_SENTINAL;', file=body)
@@ -1884,6 +2076,7 @@ class StructType:
             print('  }', file=body)
         print("}", file=body)
 
+    def emitEncode(self, archival, n, atag):
         print(f'int {n}_encode{atag}( {n}_t const * self, fd_bincode_encode_ctx_t * ctx ) {{', file=body)
         print('  int err;', file=body)
         if archival:
@@ -1967,6 +2160,7 @@ class StructType:
 
 class EnumType:
     def __init__(self, json):
+        self.name = json["name"]
         self.fullname = f'{namespace}_{json["name"]}'
         self.zerocopy = (bool(json["zerocopy"]) if "zerocopy" in json else False)
         self.variants = []
@@ -1988,6 +2182,15 @@ class EnumType:
         self.compact = (json["compact"] if "compact" in json else False)
         self.archival = (bool(json["archival"]) if "archival" in json else False)
 
+        # Current supported repr types for enum are uint and ulong
+        self.repr = (json["repr"] if "repr" in json else "uint")
+        self.repr_codec_stem = "uint32"
+        self.repr_max_val = "UINT_MAX"
+
+        if self.repr == "ulong":
+            self.repr_codec_stem = "uint64"
+            self.repr_max_val = "ULONG_MAX"
+
     def propogateArchival(self, nametypes):
         self.archival = True
         for v in self.variants:
@@ -2003,26 +2206,11 @@ class EnumType:
         if all_simple:
             return True
 
-        for v in self.variants:
-            if isinstance(v, str):
-                return False
-            if not v.isFixedSize():
-                return False
-
-        size = self.variants[0].fixedSize()
-        for v in self.variants:
-            if size != v.fixedSize():
-                return False
-
-        return True
-
     def fixedSize(self):
-        all_simple = True
-        for v in self.variants:
-            if not isinstance(v, str):
-                all_simple = False
-        if all_simple:
-            return 4
+        return 4
+
+    def isFuzzy(self):
+        return False
 
     def emitHeader(self):
         for v in self.variants:
@@ -2047,7 +2235,7 @@ class EnumType:
             print(f'/* {self.comment} */', file=header)
 
         print(f"struct {self.attribute}{n} {{", file=header)
-        print('  uint discriminant;', file=header)
+        print(f'  {self.repr} discriminant;', file=header)
         print(f'  {n}_inner_t inner;', file=header)
         print("};", file=header)
         print(f"typedef struct {n} {n}_t;", file=header)
@@ -2073,7 +2261,7 @@ class EnumType:
                 print(f'/* {self.comment} */', file=header)
 
             print(f"struct {self.attribute}{n}_off {{", file=header)
-            print('  uint discriminant;', file=header)
+            print(f'  {self.repr} discriminant;', file=header)
             print(f'  {n}_off_inner_t inner;', file=header)
             print("};", file=header)
             print(f"typedef struct {n}_off {n}_off_t;", file=header)
@@ -2084,7 +2272,7 @@ class EnumType:
 
     def emitPrototypes(self):
         n = self.fullname
-        print(f"void {n}_new_disc( {n}_t * self, uint discriminant );", file=header)
+        print(f"void {n}_new_disc( {n}_t * self, {self.repr} discriminant );", file=header)
         print(f"void {n}_new( {n}_t * self );", file=header)
         print(f"int {n}_decode( {n}_t * self, fd_bincode_decode_ctx_t * ctx );", file=header)
         print(f"int {n}_decode_preflight( fd_bincode_decode_ctx_t * ctx );", file=header)
@@ -2122,9 +2310,9 @@ class EnumType:
             print(f'  return self->discriminant == {i};', file=body)
             print("}", file=body)
 
-        print(f'void {n}_inner_new( {n}_inner_t * self, uint discriminant );', file=body)
+        print(f'void {n}_inner_new( {n}_inner_t * self, {self.repr} discriminant );', file=body)
 
-        print(f'int {n}_inner_decode_preflight( uint discriminant, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        print(f'int {n}_inner_decode_preflight( {self.repr} discriminant, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
         print('  int err;', file=body)
         print('  switch (discriminant) {', file=body)
         for i, v in enumerate(self.variants):
@@ -2137,7 +2325,7 @@ class EnumType:
         print('  }', file=body)
         print("}", file=body)
 
-        print(f'void {n}_inner_decode_unsafe( {n}_inner_t * self, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        print(f'void {n}_inner_decode_unsafe( {n}_inner_t * self, {self.repr} discriminant, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
         print('  switch (discriminant) {', file=body)
         for i, v in enumerate(self.variants):
             print(f'  case {i}: {{', file=body)
@@ -2167,8 +2355,8 @@ class EnumType:
             print('  ushort discriminant = 0;', file=body)
             print('  int err = fd_bincode_compact_u16_decode( &discriminant, ctx );', file=body)
         else:
-            print('  uint discriminant = 0;', file=body)
-            print('  int err = fd_bincode_uint32_decode( &discriminant, ctx );', file=body)
+            print(f'  {self.repr} discriminant = 0;', file=body)
+            print(f'  int err = fd_bincode_{self.repr_codec_stem}_decode( &discriminant, ctx );', file=body)
         print('  if( FD_UNLIKELY( err ) ) return err;', file=body)
         print(f'  return {n}_inner_decode_preflight( discriminant, ctx );', file=body)
         print("}", file=body)
@@ -2179,11 +2367,11 @@ class EnumType:
             print('  fd_bincode_compact_u16_decode_unsafe( &tmp, ctx );', file=body)
             print('  self->discriminant = tmp;', file=body)
         else:
-            print('  fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );', file=body)
+            print(f'  fd_bincode_{self.repr_codec_stem}_decode_unsafe( &self->discriminant, ctx );', file=body)
         print(f'  {n}_inner_decode_unsafe( &self->inner, self->discriminant, ctx );', file=body)
         print("}", file=body)
 
-        print(f'void {n}_inner_new( {n}_inner_t * self, uint discriminant ) {{', file=body)
+        print(f'void {n}_inner_new( {n}_inner_t * self, {self.repr} discriminant ) {{', file=body)
         print('  switch( discriminant ) {', file=body)
         for i, v in enumerate(self.variants):
             print(f'  case {i}: {{', file=body)
@@ -2195,17 +2383,17 @@ class EnumType:
         print('  }', file=body)
         print("}", file=body)
 
-        print(f'void {n}_new_disc( {n}_t * self, uint discriminant ) {{', file=body)
+        print(f'void {n}_new_disc( {n}_t * self, {self.repr} discriminant ) {{', file=body)
         print('  self->discriminant = discriminant;', file=body)
         print(f'  {n}_inner_new( &self->inner, self->discriminant );', file=body)
         print("}", file=body)
 
         print(f'void {n}_new( {n}_t * self ) {{', file=body)
         print(f'  fd_memset( self, 0, sizeof({n}_t) );', file=body)
-        print(f'  {n}_new_disc( self, UINT_MAX );', file=body) # Invalid by default
+        print(f'  {n}_new_disc( self, {self.repr_max_val} );', file=body) # Invalid by default
         print("}", file=body)
 
-        print(f'void {n}_inner_destroy( {n}_inner_t * self, uint discriminant, fd_bincode_destroy_ctx_t * ctx ) {{', file=body)
+        print(f'void {n}_inner_destroy( {n}_inner_t * self, {self.repr} discriminant, fd_bincode_destroy_ctx_t * ctx ) {{', file=body)
         print('  switch( discriminant ) {', file=body)
         for i, v in enumerate(self.variants):
             if not isinstance(v, str):
@@ -2227,21 +2415,24 @@ class EnumType:
         print("", file=body)
 
         print(f'void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {{', file=body)
-        print(f'  fun(w, self, name, FD_FLAMENCO_TYPE_MAP, "{n}", level++);', file=body)
+        print(f'  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "{n}", level++);', file=body)
         print('  switch( self->discriminant ) {', file=body)
         for i, v in enumerate(self.variants):
+            print(f'  case {i}: {{', file=body)
             if not isinstance(v, str):
-                print(f'  case {i}: {{', file=body)
+                print(f'    fun( w, self, "{v.name}", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );', file=body)
                 v.emitWalk("inner.")
-                print('    break;', file=body)
-                print('  }', file=body)
+            else:
+                print(f'    fun( w, self, "{v}", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );', file=body)
+            print('    break;', file=body)
+            print('  }', file=body)
         print('  }', file=body)
-        print(f'  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "{n}", level-- );', file=body)
+        print(f'  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "{n}", level-- );', file=body)
         print("}", file=body)
 
         print(f'ulong {n}_size( {n}_t const * self ) {{', file=body)
         print('  ulong size = 0;', file=body)
-        print('  size += sizeof(uint);', file=body)
+        print(f'  size += sizeof({self.repr});', file=body)
         print('  switch (self->discriminant) {', file=body)
         for i, v in enumerate(self.variants):
             if not isinstance(v, str):
@@ -2254,7 +2445,7 @@ class EnumType:
         print("}", file=body)
         print("", file=body)
 
-        print(f'int {n}_inner_encode( {n}_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx ) {{', file=body)
+        print(f'int {n}_inner_encode( {n}_inner_t const * self, {self.repr} discriminant, fd_bincode_encode_ctx_t * ctx ) {{', file=body)
         first = True
         for i, v in enumerate(self.variants):
             if not isinstance(v, str):
@@ -2272,7 +2463,7 @@ class EnumType:
         print("}", file=body)
 
         print(f'int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx ) {{', file=body)
-        print('  int err = fd_bincode_uint32_encode( self->discriminant, ctx );', file=body)
+        print(f'  int err = fd_bincode_{self.repr_codec_stem}_encode( self->discriminant, ctx );', file=body)
         print('  if( FD_UNLIKELY( err ) ) return err;', file=body)
         print(f'  return {n}_inner_encode( &self->inner, self->discriminant, ctx );', file=body)
         print("}", file=body)
@@ -2303,10 +2494,13 @@ def main():
         if hasattr(val, 'archival') and val.archival:
             val.propogateArchival(nametypes)
 
+    global fixedsizetypes
+    global fuzzytypes
     for typeinfo in alltypes:
         if typeinfo.isFixedSize():
-            name = typeinfo.fullname
-            fixedsizetypes[name] = typeinfo.fixedSize()
+            fixedsizetypes[typeinfo.name] = typeinfo.fixedSize()
+        if typeinfo.isFuzzy():
+            fuzzytypes.add(typeinfo.name)
     for t in alltypes:
         t.emitHeader()
 

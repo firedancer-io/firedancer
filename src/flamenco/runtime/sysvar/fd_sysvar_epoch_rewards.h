@@ -10,7 +10,7 @@ FD_PROTOTYPES_BEGIN
 fd_sysvar_epoch_rewards_t *
 fd_sysvar_epoch_rewards_read(
     fd_sysvar_epoch_rewards_t * result,
-    fd_exec_slot_ctx_t * slot_ctx
+    fd_exec_slot_ctx_t const * slot_ctx
 );
 
 /* Update EpochRewards sysvar with distributed rewards
@@ -40,7 +40,7 @@ fd_sysvar_epoch_rewards_init(
     ulong distributed_rewards,
     ulong distribution_starting_block_height,
     ulong num_partitions,
-    uint128 total_points,
+    fd_point_value_t point_value,
     const fd_hash_t * last_blockhash
 );
 

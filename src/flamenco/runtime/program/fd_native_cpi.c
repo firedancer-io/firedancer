@@ -20,6 +20,10 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
   fd_instruction_account_t instruction_accounts[256];
   ulong instruction_accounts_cnt;
 
+  /* fd_vm_prepare_instruction will handle missing/invalid account case */
+  instr_info->program_id_pubkey = fd_solana_system_program_id;
+  instr_info->program_id = UCHAR_MAX;
+
   for( ulong i = 0UL; i < ctx->txn_ctx->accounts_cnt; i++ ) {
     if( !memcmp( fd_solana_system_program_id.key, ctx->txn_ctx->accounts[i].key, sizeof(fd_pubkey_t) ) ) {
       instr_info->program_id = (uchar)i;
@@ -33,7 +37,6 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
   uchar acc_idx_seen[256];
   memset( acc_idx_seen, 0, 256 );
 
-  instr_info->program_id_pubkey = fd_solana_system_program_id;
   instr_info->acct_cnt = (ushort)acct_metas_len;
   for ( ulong j = 0; j < acct_metas_len; j++ ) {
     fd_vm_rust_account_meta_t const * acct_meta = &acct_metas[j];
@@ -76,7 +79,6 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
   ctx2.dataend = (uchar*)ctx2.data + sizeof(buf);
   int err = fd_system_program_instruction_encode( instr, &ctx2 );
   if( err ) {
-    FD_LOG_WARNING(( "Encode failed" ));
     return FD_EXECUTOR_INSTR_ERR_FATAL;
   }
 
@@ -85,7 +87,6 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
   int exec_err = fd_vm_prepare_instruction( ctx->instr, instr_info, ctx, instruction_accounts,
                                             &instruction_accounts_cnt, signers, signers_cnt );
   if( exec_err != FD_EXECUTOR_INSTR_SUCCESS ) {
-    FD_LOG_WARNING(("Preparing instruction failed"));
     return exec_err;
   }
 

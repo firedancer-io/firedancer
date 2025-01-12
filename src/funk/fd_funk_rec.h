@@ -7,22 +7,20 @@
 #include "fd_funk_txn.h" /* Includes fd_funk_base.h */
 
 /* FD_FUNK_REC_{ALIGN,FOOTPRINT} describe the alignment and footprint of
-   a fd_funk_rec_t.  ALIGN will be an power of 2, footprint will be a
+   a fd_funk_rec_t.  ALIGN will be a power of 2, footprint will be a
    multiple of align.  These are provided to facilitate compile time
    declarations. */
 
 #define FD_FUNK_REC_ALIGN     (32UL)
 
 /* FD_FUNK_REC_FLAG_* are flags that can be bit-ored together to specify
-   how records are to be interpreted.
+   how records are to be interpreted.  The 5 most significant bytes of a
+   rec's flag are reserved to be used in conjunction with the ERASE flag.
 
    - ERASE indicates a record in an in-preparation transaction should be
-   erased if and when the in-preparation transaction is published.  If
-   set, there will be no value resources used by this record.  Will not
-   be set on a published record.  Will not be set if an in-preparation
-   transaction ancestor has this record with erase set.  If set, the
-   first ancestor transaction encountered (going from youngest to
-   oldest) will not have erased set. */
+   erased if and when the in-preparation transaction is published. If
+   set on a published record, it serves as a tombstone.
+   If set, there will be no value resources used by this record. */
 
 #define FD_FUNK_REC_FLAG_ERASE (1UL<<0)
 
@@ -66,8 +64,6 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
   ulong prev_part_idx;  /* Record map index of previous record in partition chain */
   ulong next_part_idx;  /* Record map index of next record in partition chain */
   uint  part;           /* Partition number, FD_FUNK_PART_NULL if none */
-
-  int   val_no_free; /* If set, do not call alloc_free on the value */
 
   /* Padding to FD_FUNK_REC_ALIGN here (TODO: consider using self index
      in the structures to accelerate indexing computations if padding
@@ -150,32 +146,38 @@ FD_FN_PURE static inline int fd_funk_rec_is_full( fd_funk_rec_t const * map ) { 
    returned record.  The record value metadata will be updated whenever
    the record value modified.
 
-   These are a reasonably fast O(1).
+   This is reasonably fast O(1).
 
-   fd_funk_rec_query_global is the same but will query txn's ancestors
-   for key from youngest to oldest if key is not part of txn.  As such,
-   the txn of the returned record may not match txn but will be the txn
-   of most recent ancestor with the key otherwise.
-
-   fd_funk_rec_query_global_const is the same but it is safe to have
-   multiple threads concurrently run queries.
-
-   Important safety tip!  These functions can potentially return records
-   that have the ERASE flag set.  (This allows, for example, a caller to
-   discard an erase for an unfrozen in-preparation transaction.)  In
-   such cases, the record will have no value resources in use.
-
-   These are a reasonably fast O(in_prep_ancestor_cnt). */
+   Important safety tip!  This function can encounter records
+   that have the ERASE flag set (i.e. are tombstones of erased
+   records). fd_funk_rec_query will still return the record in this
+   case, and the application should check for the flag. */
 
 FD_FN_PURE fd_funk_rec_t const *
 fd_funk_rec_query( fd_funk_t *               funk,
                    fd_funk_txn_t const *     txn,
                    fd_funk_rec_key_t const * key );
 
+
+/* fd_funk_rec_query_global is the same as fd_funk_rec_query but will
+   query txn's ancestors for key from youngest to oldest if key is not
+   part of txn.  As such, the txn of the returned record may not match
+   txn but will be the txn of most recent ancestor with the key
+   otherwise. *txn_out is set to the transaction where the record was
+   found.
+
+   This is reasonably fast O(in_prep_ancestor_cnt).
+
+   Important safety tip!  This function can encounter records
+   that have the ERASE flag set (i.e. are tombstones of erased
+   records). fd_funk_rec_query_global will return a NULL in this case
+   but still set *txn_out to the relevant transaction. This behavior
+   differs from fd_funk_rec_query. */
 FD_FN_PURE fd_funk_rec_t const *
 fd_funk_rec_query_global( fd_funk_t *               funk,
                           fd_funk_txn_t const *     txn,
-                          fd_funk_rec_key_t const * key );
+                          fd_funk_rec_key_t const * key,
+                          fd_funk_txn_t const **    txn_out );
 
 /* fd_funk_rec_query_safe is a query that is safe in the presence of
    concurrent writes. The result data is copied into a buffer
@@ -204,7 +206,7 @@ fd_funk_rec_query_xid_safe( fd_funk_t *               funk,
        not from funk, etc)
 
      FD_FUNK_ERR_KEY - the record did not appear to be a live record.
-       Specifically rec's (xid,key) did not resolve to to itself.
+       Specifically rec's (xid,key) did not resolve to itself.
 
      FD_FUNK_ERR_XID - memory corruption was detected in testing rec
 
@@ -388,7 +390,7 @@ fd_funk_rec_is_modified( fd_funk_t *           funk,
    This is O(orig_rec) size.  If the caller doesn't have the
    original record lying around, it can be found via:
 
-     fd_funk_rec_t const * orig_rec = fd_funk_rec_query_global( funk, txn_parent, key );
+     fd_funk_rec_t const * orig_rec = fd_funk_rec_query_global( funk, txn_parent, key, NULL );
 
    This is O(ancestor depth to orig rec) and accounts for that the
    previous version of the record might not be in txn's parent. */
@@ -410,46 +412,14 @@ fd_funk_rec_insert( fd_funk_t *               funk,
        Specifically, a record query of funk for rec's (xid,key) pair did
        not return rec.
 
-     FD_FUNK_ERR_XID - the record to remove is published but erase was
-       not specified.
-
-     FD_FUNK_ERR_FROZEN - rec is part of a transaction that is frozen.
-
-   All changes to the record in that transaction will be undone.
-
-   Further, if erase is zero, if and when the transaction is published
-   (assuming no subsequent insert of key into that transaction), no
-   changes will be made to the published record.  This type of remove
-   cannot be done on a published record.
-
-   However, if erase is non-zero, the record will cease to exist in that
-   transaction and any of transaction's subsequently created descendants
-   (again, assuming no subsequent insert of key).  This type of remove
-   can be done on a published record (assuming the last published
-   transaction is unfrozen).
+   The record will cease to exist in that transaction and any of
+   transaction's subsequently created descendants (again, assuming no
+   subsequent insert of key).  This type of remove can be done on a
+   published record (assuming the last published transaction is
+   unfrozen). A tombstone is left in funk to track removals as they
+   are published or cancelled.
 
    Any information in an erased record is lost.
-
-   Detailed record erasure handling:
-
-     rec's  | erase | rec's     | rec's | return     | info
-     txn    | req   | txn       | erase |            |
-     frozen |       | published |       |            |
-     -------+-------+-----------+-------+------------+-----
-     no     | no    | no        | clear | SUCCESS    | discards updates to a record, rec dead on return
-     no     | no    | no        | set   | SUCCESS    | discards erase of most recent ancestor, rec dead on return
-     no     | no    | yes       | clear | ERR_XID    | can't revert published record to an older version, rec live on return
-     no     | no    | yes       | set   | *LOG_CRIT* | detected corruption, repurpose to allow for unerasable recs?
-     no     | yes   | no        | clear | SUCCESS    | erase the most recent ancestor version of rec, if no such ancestor version,
-            |       |           |       |            | rec dead on return, otherwise, rec live on return and rec's erase will be
-            |       |           |       |            | set, O(ancestor_hops_to_last_publish) worst case
-     no     | yes   | no        | set   | SUCCESS    | no-op, previously marked erase, rec live on return
-     no     | yes   | yes       | clear | SUCCESS    | erases published record, rec dead on return
-     no     | yes   | yes       | set   | *LOG_CRIT* | detected corruption, repurpose to allow for unerasable recs?
-     yes    | -     | -         | -     | ERR_FROZEN | can't remove rec because rec's txn is frozen, rec live on return
-
-   On ERR_INVAL and ERR_KEY, rec didn't seem to point to a live record
-   on entry with and still doesn't on return.
 
    Assumes funk is a current local join (NULL returns ERR_INVAL) and rec
    points to a record in the caller's address space (NULL returns
@@ -457,8 +427,7 @@ fd_funk_rec_insert( fd_funk_t *               funk,
    the call if live, the user doesn't need to, for example, match
    inserts with removes.
 
-   This is a reasonably fast O(1) except in the case noted above and
-   fortified against memory corruption.
+   This is a reasonably fast O(1) and fortified against memory corruption.
 
    IMPORTANT SAFETY TIP!  DO NOT CAST AWAY CONST FROM A FD_FUNK_REC_T TO
    USE THIS FUNCTION (E.G. PASS A RESULT DIRECTLY FROM QUERY).  USE A
@@ -467,7 +436,37 @@ fd_funk_rec_insert( fd_funk_t *               funk,
 int
 fd_funk_rec_remove( fd_funk_t *     funk,
                     fd_funk_rec_t * rec,
-                    int             erase );
+                    ulong           erase_data );
+
+
+/* When a record is erased there is metadata stored in the five most
+   significant bytes of a record.  These are helpers to make setting
+   and getting these values simple. The caller is responsible for doing
+   a check on the flag of the record before using the value of the erase
+   data. The 5 least significant bytes of the erase data parameter will
+   be used and set into the erase flag. */
+
+void
+fd_funk_rec_set_erase_data( fd_funk_rec_t * rec, ulong erase_data );
+
+ulong
+fd_funk_rec_get_erase_data( fd_funk_rec_t const * rec );
+
+/* Remove a list of tombstones from funk, thereby freeing up space in
+   the main index. All the records must be removed and published
+   beforehand. Reasons for failure include:
+
+     FD_FUNK_ERR_INVAL - bad inputs (NULL funk, NULL rec, rec is
+       obviously not from funk, etc)
+
+     FD_FUNK_ERR_KEY - the record did not appear to be a removed record.
+       Specifically, a record query of funk for rec's (xid,key) pair did
+       not return rec. Also, the record was never published.
+*/
+int
+fd_funk_rec_forget( fd_funk_t *      funk,
+                    fd_funk_rec_t ** recs,
+                    ulong recs_cnt );
 
 /* fd_funk_rec_write_prepare combines several operations into one
    convenient package. There are 3 basic cases:

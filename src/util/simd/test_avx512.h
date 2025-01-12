@@ -14,24 +14,24 @@ FD_STATIC_ASSERT( WW_LG_WIDTH    == 4, unit_test );
 FD_STATIC_ASSERT( WW_LG_FOOTPRINT== 6, unit_test );
 FD_STATIC_ASSERT( WW_LG_ALIGN    == 6, unit_test );
 
-#define WWI_TEST( x, x0,x1,x2,x3,x4,x5,x6,x7,x8,x9,xa,xb,xc,xd,xe,xf ) do {                                                 \
-    int _t[16] WW_ATTR;                                                                                                     \
-    int _u[16] WW_ATTR;                                                                                                     \
-    wwi_st( _t, (x) );                                                                                                      \
-    _u[ 0] = (x0); _u[ 1] = (x1); _u[ 2] = (x2); _u[ 3] = (x3); _u[ 4] = (x4); _u[ 5] = (x5); _u[ 6] = (x6); _u[ 7] = (x7); \
-    _u[ 8] = (x8); _u[ 9] = (x9); _u[10] = (xa); _u[11] = (xb); _u[12] = (xc); _u[13] = (xd); _u[14] = (xe); _u[15] = (xf); \
-    for( int _lane=0; _lane<16; _lane++ )                                                                                   \
-      if( FD_UNLIKELY( _t[_lane]!=_u[_lane] ) )                                                                             \
-        FD_LOG_ERR(( "FAIL: %s @ lane %i\n\t"                                                                               \
-                     "  got 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x "                                       \
-                           "0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x\n\t"                                    \
-                     "  exp 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x "                                       \
-                           "0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x",                                       \
-                     #x, _lane,                                                                                             \
-                     _t[ 0], _t[ 1], _t[ 2], _t[ 3], _t[ 4], _t[ 5], _t[ 6], _t[ 7],                                        \
-                     _t[ 8], _t[ 9], _t[10], _t[11], _t[12], _t[13], _t[14], _t[15],                                        \
-                     _u[ 0], _u[ 1], _u[ 2], _u[ 3], _u[ 4], _u[ 5], _u[ 6], _u[ 7],                                        \
-                     _u[ 8], _u[ 9], _u[10], _u[11], _u[12], _u[13], _u[14], _u[15] ));                                     \
+#define WWI_TEST( x, x0,x1,x2,x3,x4,x5,x6,x7,x8,x9,xa,xb,xc,xd,xe,xf ) do {                                                             \
+    int _t[16] WW_ATTR;                                                                                                                 \
+    int _u[16] WW_ATTR;                                                                                                                 \
+    wwi_st( _t, (x) );                                                                                                                  \
+    _u[ 0] = (x0); _u[ 1] = (x1); _u[ 2] = (x2); _u[ 3] = (x3); _u[ 4] = (x4); _u[ 5] = (x5); _u[ 6] = (x6); _u[ 7] = (x7);             \
+    _u[ 8] = (x8); _u[ 9] = (x9); _u[10] = (xa); _u[11] = (xb); _u[12] = (xc); _u[13] = (xd); _u[14] = (xe); _u[15] = (xf);             \
+    for( int _lane=0; _lane<16; _lane++ )                                                                                               \
+      if( FD_UNLIKELY( _t[_lane]!=_u[_lane] ) )                                                                                         \
+        FD_LOG_ERR(( "FAIL: %s @ lane %i\n\t"                                                                                           \
+                     "  got 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x "                                                   \
+                           "0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x\n\t"                                                \
+                     "  exp 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x "                                                   \
+                           "0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x",                                                   \
+                     #x, _lane,                                                                                                         \
+                     (uint)_t[ 0], (uint)_t[ 1], (uint)_t[ 2], (uint)_t[ 3], (uint)_t[ 4], (uint)_t[ 5], (uint)_t[ 6], (uint)_t[ 7],    \
+                     (uint)_t[ 8], (uint)_t[ 9], (uint)_t[10], (uint)_t[11], (uint)_t[12], (uint)_t[13], (uint)_t[14], (uint)_t[15],    \
+                     (uint)_u[ 0], (uint)_u[ 1], (uint)_u[ 2], (uint)_u[ 3], (uint)_u[ 4], (uint)_u[ 5], (uint)_u[ 6], (uint)_u[ 7],    \
+                     (uint)_u[ 8], (uint)_u[ 9], (uint)_u[10], (uint)_u[11], (uint)_u[12], (uint)_u[13], (uint)_u[14], (uint)_u[15] )); \
   } while(0)
 
 #define WWU_TEST( x, x0,x1,x2,x3,x4,x5,x6,x7,x8,x9,xa,xb,xc,xd,xe,xf ) do {                                                 \

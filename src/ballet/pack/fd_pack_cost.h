@@ -35,14 +35,14 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
 #define MAP_PERFECT_NAME      fd_pack_builtin
 #define MAP_PERFECT_LG_TBL_SZ 4
 #define MAP_PERFECT_T         fd_pack_builtin_prog_cost_t
-#define MAP_PERFECT_HASH_C    3770250927U
+#define MAP_PERFECT_HASH_C    478U
 #define MAP_PERFECT_KEY       program_id
 #define MAP_PERFECT_KEY_T     fd_acct_addr_t const *
 #define MAP_PERFECT_ZERO_KEY  (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0)
 #define MAP_PERFECT_COMPLEX_KEY 1
 #define MAP_PERFECT_KEYS_EQUAL(k1,k2) (!memcmp( (k1), (k2), 32UL ))
 
-#define PERFECT_HASH( u ) (((3770250927U*(u))>>28)&0xFU)
+#define PERFECT_HASH( u ) (((478U*(u))>>28)&0xFU)
 
 #define MAP_PERFECT_HASH_PP( a00,a01,a02,a03,a04,a05,a06,a07,a08,a09,a10,a11,a12,a13,a14,a15, \
                              a16,a17,a18,a19,a20,a21,a22,a23,a24,a25,a26,a27,a28,a29,a30,a31) \
@@ -53,17 +53,17 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
 #define VOTE_PROG_COST 2100UL
 
 #define MAP_PERFECT_0  ( STAKE_PROG_ID           ), .cost_per_instr=         750UL
-#define MAP_PERFECT_1  ( CONFIG_PROG_ID          ), .cost_per_instr=         450UL
-#define MAP_PERFECT_2  ( VOTE_PROG_ID            ), .cost_per_instr=VOTE_PROG_COST
-#define MAP_PERFECT_3  ( SYS_PROG_ID             ), .cost_per_instr=         150UL
-#define MAP_PERFECT_4  ( COMPUTE_BUDGET_PROG_ID  ), .cost_per_instr=         150UL
-#define MAP_PERFECT_5  ( ADDR_LUT_PROG_ID        ), .cost_per_instr=         750UL
-#define MAP_PERFECT_6  ( BPF_UPGRADEABLE_PROG_ID ), .cost_per_instr=        2370UL
-#define MAP_PERFECT_7  ( BPF_LOADER_1_PROG_ID    ), .cost_per_instr=        1140UL
-#define MAP_PERFECT_8  ( BPF_LOADER_2_PROG_ID    ), .cost_per_instr=         570UL
-#define MAP_PERFECT_9  ( LOADER_V4_PROG_ID       ), .cost_per_instr=        2000UL
-#define MAP_PERFECT_10 ( KECCAK_SECP_PROG_ID     ), .cost_per_instr=         720UL
-#define MAP_PERFECT_11 ( ED25519_SV_PROG_ID      ), .cost_per_instr=         720UL
+#define MAP_PERFECT_1  ( VOTE_PROG_ID            ), .cost_per_instr=VOTE_PROG_COST
+#define MAP_PERFECT_2  ( SYS_PROG_ID             ), .cost_per_instr=         150UL
+#define MAP_PERFECT_3  ( COMPUTE_BUDGET_PROG_ID  ), .cost_per_instr=         150UL
+#define MAP_PERFECT_4  ( ADDR_LUT_PROG_ID        ), .cost_per_instr=         750UL
+#define MAP_PERFECT_5  ( BPF_UPGRADEABLE_PROG_ID ), .cost_per_instr=        2370UL
+#define MAP_PERFECT_6  ( BPF_LOADER_1_PROG_ID    ), .cost_per_instr=        1140UL
+#define MAP_PERFECT_7  ( BPF_LOADER_2_PROG_ID    ), .cost_per_instr=         570UL
+#define MAP_PERFECT_8  ( LOADER_V4_PROG_ID       ), .cost_per_instr=        2000UL
+#define MAP_PERFECT_9  ( KECCAK_SECP_PROG_ID     ), .cost_per_instr=         720UL
+#define MAP_PERFECT_10 ( ED25519_SV_PROG_ID      ), .cost_per_instr=         720UL
+#define MAP_PERFECT_11 ( SECP256R1_PROG_ID       ), .cost_per_instr=         720UL
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
@@ -130,12 +130,12 @@ static const ulong FD_PACK_TYPICAL_VOTE_COST = ( FD_PACK_COST_PER_SIGNATURE     
    On failure, returns 0 and does not modify the value pointed to by
    flags, opt_execution_cost, opt_fee, or opt_precompile_sig_cnt. */
 static inline ulong
-fd_pack_compute_cost( fd_txn_p_t * txnp,
-                      uint       * flags,
-                      ulong      * opt_execution_cost,
-                      ulong      * opt_fee,
-                      ulong      * opt_precompile_sig_cnt ) {
-  fd_txn_t * txn = TXN(txnp);
+fd_pack_compute_cost( fd_txn_t const * txn,
+                      uchar    const * payload,
+                      uint           * flags,
+                      ulong          * opt_execution_cost,
+                      ulong          * opt_fee,
+                      ulong          * opt_precompile_sig_cnt ) {
 
 #define ROW(x) fd_pack_builtin_tbl + MAP_PERFECT_HASH_PP( x )
 
@@ -143,6 +143,7 @@ fd_pack_compute_cost( fd_txn_p_t * txnp,
   fd_pack_builtin_prog_cost_t const * vote_row               = ROW( VOTE_PROG_ID           );
   fd_pack_builtin_prog_cost_t const * ed25519_precompile_row = ROW( ED25519_SV_PROG_ID     );
   fd_pack_builtin_prog_cost_t const * keccak_precompile_row  = ROW( KECCAK_SECP_PROG_ID    );
+  fd_pack_builtin_prog_cost_t const * secp256r1_precomp_row  = ROW( SECP256R1_PROG_ID      );
 #undef ROW
 
   /* We need to be mindful of overflow here, but it's not terrible.
@@ -157,7 +158,7 @@ fd_pack_compute_cost( fd_txn_p_t * txnp,
   ulong non_builtin_cnt    = 0UL; /* <= FD_TXN_INSTR_MAX */
   ulong vote_instr_cnt     = 0UL; /* <= FD_TXN_INSTR_MAX */
   ulong precompile_sig_cnt = 0UL; /* <= FD_TXN_INSTR_MAX * UCHAR_MAX */
-  fd_acct_addr_t const * addr_base = fd_txn_get_acct_addrs( txn, txnp->payload );
+  fd_acct_addr_t const * addr_base = fd_txn_get_acct_addrs( txn, payload );
 
   fd_compute_budget_program_state_t cbp[1];
   fd_compute_budget_program_init( cbp );
@@ -177,10 +178,12 @@ fd_pack_compute_cost( fd_txn_p_t * txnp,
     non_builtin_cnt += !in_tbl->cost_per_instr; /* The only one with no cost is the null one */
 
     if( FD_UNLIKELY( in_tbl==compute_budget_row ) ) {
-      if( FD_UNLIKELY( 0==fd_compute_budget_program_parse( txnp->payload+txn->instr[i].data_off, txn->instr[i].data_sz, cbp ) ) )
+      if( FD_UNLIKELY( 0==fd_compute_budget_program_parse( payload+txn->instr[i].data_off, txn->instr[i].data_sz, cbp ) ) )
         return 0UL;
-    } else if( FD_UNLIKELY( (in_tbl==ed25519_precompile_row) | (in_tbl==keccak_precompile_row) ) ) {
-      precompile_sig_cnt += (ulong)txnp->payload[ txn->instr[i].data_off ]; /* First byte is # of signatures */
+    } else if( FD_UNLIKELY( (in_tbl==ed25519_precompile_row) | (in_tbl==keccak_precompile_row) | (in_tbl==secp256r1_precomp_row) ) ) {
+      /* First byte is # of signatures.  Branchless tail reading here is
+         probably okay, but this seems safer. */
+      precompile_sig_cnt += (txn->instr[i].data_sz>0) ? (ulong)payload[ txn->instr[i].data_off ] : 0UL;
     }
 
     vote_instr_cnt += (ulong)(in_tbl==vote_row);

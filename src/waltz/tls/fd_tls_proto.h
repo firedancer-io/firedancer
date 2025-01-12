@@ -424,6 +424,11 @@ fd_tls_encode_server_hello( fd_tls_server_hello_t const * in,
                             ulong                         wire_sz );
 
 long
+fd_tls_encode_hello_retry_request( fd_tls_server_hello_t const * in,
+                                   uchar *                       wire,
+                                   ulong                         wire_sz );
+
+long
 fd_tls_decode_enc_ext( fd_tls_enc_ext_t * out,
                        uchar const *      wire,
                        ulong              wire_sz );

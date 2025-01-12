@@ -1,4 +1,5 @@
 #include "fd_quic_stream.h"
+#include "fd_quic_enum.h"
 
 /* buffer helper functions */
 /* fd_quic_buffer_store
@@ -191,15 +192,4 @@ fd_quic_stream_set_context( fd_quic_stream_t * stream, void * context ) {
 void *
 fd_quic_stream_get_context( fd_quic_stream_t * stream ) {
   return stream->context;
-}
-
-
-/* set stream connection
-
-   args
-     stream      the stream to change
-     conn        the connection to set on the stream or NULL to remove the connection */
-void
-fd_quic_stream_set_conn( fd_quic_stream_t * stream, fd_quic_conn_t * conn ) {
-  stream->conn = conn;
 }

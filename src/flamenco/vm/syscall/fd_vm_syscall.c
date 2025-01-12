@@ -21,37 +21,45 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
                              uchar is_deploy ) {
   if( FD_UNLIKELY( !syscalls ) ) return FD_VM_ERR_INVAL;
 
-  int enable_secp256k1_recover_syscall     = 0;
   int enable_blake3_syscall                = 0;
   int enable_curve25519_syscall            = 0;
   int enable_poseidon_syscall              = 0;
   int enable_alt_bn128_syscall             = 0;
   int enable_alt_bn128_compression_syscall = 0;
   int enable_last_restart_slot_syscall     = 0;
+  int enable_get_sysvar_syscall            = 0;
+  int enable_get_epoch_stake_syscall       = 0;
+  int enable_epoch_rewards_syscall         = 0;
 
   int disable_fees_sysvar                  = 0;
 
   if( slot_ctx ) {
 
-    enable_secp256k1_recover_syscall     = FD_FEATURE_ACTIVE( slot_ctx, secp256k1_recover_syscall_enabled );
     enable_blake3_syscall                = FD_FEATURE_ACTIVE( slot_ctx, blake3_syscall_enabled );
     enable_curve25519_syscall            = FD_FEATURE_ACTIVE( slot_ctx, curve25519_syscall_enabled );
     enable_poseidon_syscall              = FD_FEATURE_ACTIVE( slot_ctx, enable_poseidon_syscall );
     enable_alt_bn128_syscall             = FD_FEATURE_ACTIVE( slot_ctx, enable_alt_bn128_syscall );
     enable_alt_bn128_compression_syscall = FD_FEATURE_ACTIVE( slot_ctx, enable_alt_bn128_compression_syscall );
     enable_last_restart_slot_syscall     = FD_FEATURE_ACTIVE( slot_ctx, last_restart_slot_sysvar );
+    enable_get_sysvar_syscall            = FD_FEATURE_ACTIVE( slot_ctx, get_sysvar_syscall_enabled );
+    enable_get_epoch_stake_syscall       = FD_FEATURE_ACTIVE( slot_ctx, enable_get_epoch_stake_syscall );
+    // https://github.com/anza-xyz/agave/blob/v2.1.7/programs/bpf_loader/src/syscalls/mod.rs#L275-L277
+    enable_epoch_rewards_syscall         = FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ||
+                                           FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature );
 
-    disable_fees_sysvar                  = !FD_FEATURE_ACTIVE( slot_ctx, disable_fees_sysvar );
+    disable_fees_sysvar                  = FD_FEATURE_ACTIVE( slot_ctx, disable_fees_sysvar );
 
   } else { /* enable ALL */
 
-    enable_secp256k1_recover_syscall     = 1;
     enable_blake3_syscall                = 1;
     enable_curve25519_syscall            = 1;
     enable_poseidon_syscall              = 1;
     enable_alt_bn128_syscall             = 1;
     enable_alt_bn128_compression_syscall = 1;
     enable_last_restart_slot_syscall     = 1;
+    enable_get_sysvar_syscall            = 1;
+    enable_get_epoch_stake_syscall       = 1;
+    enable_epoch_rewards_syscall         = 1;
 
   }
 
@@ -70,7 +78,6 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
 
   REGISTER( "abort",                                 fd_vm_syscall_abort );
   REGISTER( "sol_panic_",                            fd_vm_syscall_sol_panic );
-  REGISTER( "custom_panic",                          fd_vm_syscall_sol_panic ); /* FIXME: unsure if this is entirely correct */
 
   /* As of the activation of disable_deploy_of_alloc_free_syscall, which is activated on all networks,
      programs can no longer be deployed which use the sol_alloc_free_ syscall.
@@ -90,9 +97,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
   REGISTER( "sol_try_find_program_address",          fd_vm_syscall_sol_try_find_program_address );
   REGISTER( "sol_sha256",                            fd_vm_syscall_sol_sha256 );
   REGISTER( "sol_keccak256",                         fd_vm_syscall_sol_keccak256 );
-
-  if( enable_secp256k1_recover_syscall )
-    REGISTER( "sol_secp256k1_recover",               fd_vm_syscall_sol_secp256k1_recover );
+  REGISTER( "sol_secp256k1_recover",                 fd_vm_syscall_sol_secp256k1_recover );
 
   if( enable_blake3_syscall )
     REGISTER( "sol_blake3",                          fd_vm_syscall_sol_blake3 );
@@ -106,9 +111,17 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
   REGISTER( "sol_get_rent_sysvar",                   fd_vm_syscall_sol_get_rent_sysvar );
 
   if( FD_LIKELY( enable_last_restart_slot_syscall ) ) {
-    REGISTER( "sol_get_last_restart_slot",             fd_vm_syscall_sol_get_last_restart_slot_sysvar );
+    REGISTER( "sol_get_last_restart_slot",           fd_vm_syscall_sol_get_last_restart_slot_sysvar );
   }
-  
+
+  if( enable_get_sysvar_syscall ) {
+    REGISTER( "sol_get_sysvar",                      fd_vm_syscall_sol_get_sysvar );
+  }
+
+  if( enable_get_epoch_stake_syscall ) {
+    REGISTER( "sol_get_epoch_stake",                 fd_vm_syscall_sol_get_epoch_stake );
+  }
+
   REGISTER( "sol_memcpy_",                           fd_vm_syscall_sol_memcpy );
   REGISTER( "sol_memmove_",                          fd_vm_syscall_sol_memmove );
   REGISTER( "sol_memcmp_",                           fd_vm_syscall_sol_memcmp );
@@ -135,7 +148,9 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
     REGISTER( "sol_alt_bn128_group_op",                fd_vm_syscall_sol_alt_bn128_group_op );
 
 //REGISTER( "sol_big_mod_exp",                       fd_vm_syscall_sol_big_mod_exp );
-//REGISTER( "sol_get_epoch_rewards_sysvar",          fd_vm_syscall_sol_get_epoch_rewards_sysvar );
+
+  if( enable_epoch_rewards_syscall )
+    REGISTER( "sol_get_epoch_rewards_sysvar",        fd_vm_syscall_sol_get_epoch_rewards_sysvar );
 
   if( enable_poseidon_syscall )
     REGISTER( "sol_poseidon",                        fd_vm_syscall_sol_poseidon );

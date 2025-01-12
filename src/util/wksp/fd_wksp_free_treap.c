@@ -16,7 +16,7 @@ fd_wksp_private_free_treap_query( ulong                     sz,
     if( FD_UNLIKELY( i>=part_max                     ) ) return FD_WKSP_PRIVATE_PINFO_IDX_NULL; /* Bad index */
     if( FD_UNLIKELY( pinfo[ i ].cycle_tag==cycle_tag ) ) return FD_WKSP_PRIVATE_PINFO_IDX_NULL; /* Cycle detected */
     pinfo[ i ].cycle_tag = cycle_tag;                                                           /* Mark i as visited */
-   
+
     ulong part_sz = fd_wksp_private_pinfo_sz( pinfo + i );
     if( sz>part_sz ) i = fd_wksp_private_pinfo_idx( pinfo[ i ].right_cidx ); /* Partition list and left too small, go right */
     else {
@@ -142,7 +142,7 @@ fd_wksp_private_free_treap_insert( ulong                     n,
       if( fd_wksp_private_pinfo_idx_is_null( k ) ) break;
       TEST( fd_wksp_private_pinfo_idx( pinfo[ k ].parent_cidx )==j ); /* Make sure good prev */
       j = k;
-    } 
+    }
 
     pinfo[ n ].in_same     = 1U;
     pinfo[ n ].left_cidx   = fd_wksp_private_pinfo_cidx( FD_WKSP_PRIVATE_PINFO_IDX_NULL );
@@ -183,7 +183,7 @@ fd_wksp_private_free_treap_insert( ulong                     n,
     ulong il = fd_wksp_private_pinfo_idx( pinfo[ i ].left_cidx   ); /* Validated above */
   //ulong ir = fd_wksp_private_pinfo_idx( pinfo[ i ].right_cidx  ); /* Validated above */
     ulong p  = fd_wksp_private_pinfo_idx( pinfo[ i ].parent_cidx ); /* Validated above */
-    _p_child_cidx = fd_wksp_private_pinfo_idx_is_null( p )                 ? &wksp->part_free_cidx 
+    _p_child_cidx = fd_wksp_private_pinfo_idx_is_null( p )                 ? &wksp->part_free_cidx
                   : (fd_wksp_private_pinfo_idx( pinfo[ p ].left_cidx )==i) ? &pinfo[ p ].left_cidx   /* Validated above */
                   :                                                          &pinfo[ p ].right_cidx;
 

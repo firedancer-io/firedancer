@@ -212,6 +212,12 @@ dynamic_port_range = "8900-9000"
     # `--account-index-exclude-key` argument.
     account_index_exclude_keys = []
 
+    # If account indexes are enabled, only include these keys in the
+    # index.  This overrides `account_index_exclude_keys` if specified
+    # and that value will be ignored.  These options are passed to the
+    # Agave client with the `--account-index-include-key` argument.
+    account_index_include_keys = []
+
     # Whether to use compression when storing snapshots.  This option is
     # passed to the Agave client with the
     # `--snapshot-archive-format` argument.
@@ -273,6 +279,12 @@ dynamic_port_range = "8900-9000"
     # `--private-rpc` argument.
     private = false
 
+    # The address to bind the RPC port.  If no address is specified,
+    # the default RPC bind address is 127.0.0.1 if [rpc.private] = true,
+    # otherwise it's 0.0.0.0.  This option is passed to the Agave client
+    # with the `--rpc-bind-address` argument.
+    bind_address = ""
+
     # Enable historical transaction info over JSON RPC, including the
     # `getConfirmedBlock` API.  This will cause an increase in disk
     # usage and IOPS.  This option is passed to the Agave client
@@ -288,7 +300,7 @@ dynamic_port_range = "8900-9000"
     # If true, use the RPC service of known validators only.  This
     # option is passed to the Agave client with the
     # `--only-known-rpc` argument.
-    only_known = false
+    only_known = true
 
     # If true, enable the unstable RPC PubSub `blockSubscribe`
     # subscription.  This option is passed to the Agave client
@@ -329,6 +341,25 @@ dynamic_port_range = "8900-9000"
     # 100 by default).
     incremental_snapshot_interval_slots = 100
 
+    # Set the maximum number of full snapshot archives to keep when
+    # purging older snapshots.  This option is passed to the Agave
+    # client with the `--maximum-full-snapshots-to-retain` argument.
+    maximum_full_snapshots_to_retain = 2
+
+    # Set the maximum number of incremental snapshot archives to keep
+    # when purging older snapshots.  This option is passed to the Agave
+    # client with the `--maximum-incremental-snapshots-to-retain`
+    # argument.
+    maximum_incremental_snapshots_to_retain = 4
+
+    # Set the minimum snapshot download speed in bytes per second.  If
+    # the initial download speed falls below this threshold, the
+    # validator will retry the download against a different RPC node.
+    #
+    # The default value is 10MB/s.  This option is passed to the Agave
+    # client with the `--minimum-snapshot-download-speed` argument.
+    minimum_snapshot_download_speed = 10485760
+
     # Absolute directory path for storing snapshots.  If no path is
     # provided, it defaults to the [ledger.path] option from above.
     #
@@ -340,6 +371,19 @@ dynamic_port_range = "8900-9000"
     # The snapshot path constructed here is passed to the Agave
     # client with the `--snapshots` argument.
     path = ""
+
+    # Absolute directory path for storing incremental snapshots.  If no
+    # path is provided, defaults to the [snapshots.path] option above,
+    # or if that is not provided, the [ledger.path] option above.
+    #
+    # Two substitutions will be performed on this string.  If "{user}"
+    # is present it will be replaced with the user running Firedancer,
+    # as above, and "{name}" will be replaced with the name of the
+    # Firedancer instance.
+    #
+    # The snapshot path constructed here is passed to the Agave
+    # client with the `--incremental-snapshot-archive-path` argument.
+    incremental_path = ""
 
 [consensus]
     # Absolute path to a `keypair.json` file containing the identity of
@@ -575,7 +619,13 @@ dynamic_port_range = "8900-9000"
     #    3 | 2
     #    4 | 4
     #    5 | floating
-    affinity = "1-16"
+    #
+    # If the value is specified as auto, Firedancer will attempt to
+    # determine the best layout for the system.  This is the default
+    # value although for best performance it is recommended to specify
+    # the layout manually.  If the layout is specified as auto, the
+    # agave_affinity below must also be set to auto.
+    affinity = "auto"
 
     # In addition to the Firedancer tiles which use a core each, the
     # current version of Firedancer hosts a Agave validator as
@@ -589,11 +639,29 @@ dynamic_port_range = "8900-9000"
     # affinity with the Agave affinity, as Firedancer tiles expect
     # to have exclusive use of their core.  Unexpected latency spikes
     # due to context switching may decrease performance overall.
-    agave_affinity = ""
+    #
+    # If the value is specified as "auto", the [layout.affinity] field
+    # must also be set to "auto", and the Agave affinity will be
+    # determined automatically as well.
+    agave_affinity = "auto"
 
-    # The following option is retained for backwards compatibility.  It
-    # will be ignored if agave_affinity is specified.
-    solana_labs_affinity = "17-31"
+    # The number of threads to spawn per-fork for the unified scheduler.
+    # The replay stage, which is a part of the Agave subprocess, uses
+    # these threads for transaction execution.  The threads stay within
+    # the cores dedicated to the Agave subprocess.
+    #
+    # If set to 0, the default depends on the number of cores available
+    # to the agave subprocess.
+    #
+    #          agave_cores >= 8  =>  agave_cores - 4
+    #     4 <= agave_cores <  8  =>  4
+    #          agave_cores <  4  =>  agave_cores
+    #
+    # Increasing the value for this parameter might help during the
+    # start-up phase when the validator is trying to catchup to the
+    # cluster.  It may also help the node stay caught up if it keeps
+    # falling behind.
+    agave_unified_scheduler_handler_threads = 0
 
     # How many net tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network
@@ -616,7 +684,7 @@ dynamic_port_range = "8900-9000"
     # configurable and designed to scale out for future network
     # conditions but there is no need to run more then 1 QUIC tile given
     # current `mainnet-beta` conditions, unless the validator is the
-    # subject of large DoS attack.
+    # subject of an attack.
     #
     # QUIC tiles are responsible for parsing incoming QUIC protocol
     # messages, managing connections and responding to clients.
@@ -625,6 +693,16 @@ dynamic_port_range = "8900-9000"
     #
     # QUIC tiles are designed to scale linearly when adding more tiles,
     quic_tile_count = 1
+
+    # How many resolver tiles to run.  Should be set to 1.  This is
+    # configurable and designed to scale out for future network
+    # conditions but there is no need to run more than 1 resolver tile
+    # given current `mainnet-beta` conditions, unless the validator is
+    # under a DoS or spam attack.
+    #
+    # Resolve tiles are responsible for resolving address lookup tables
+    # before transactions are scheduled.
+    resolv_tile_count = 1
 
     # How many verify tiles to run.  Verify tiles perform signature
     # verification on incoming transactions, an expensive operation that
@@ -635,16 +713,16 @@ dynamic_port_range = "8900-9000"
     # validator is not dropping incoming QUIC transactions from clients.
     #
     # On modern hardware, each verify tile can handle around 20-40K
-    # transactions per second.  Four tiles seems to be enough to handle
+    # transactions per second.  Six tiles seems to be enough to handle
     # current `mainnet-beta` traffic, unless the validator is under a
-    # DoS or spam attack.
-    verify_tile_count = 4
+    # denial of service or spam attack.
+    verify_tile_count = 6
 
-    # How many bank tiles to run.  Should be set to 2.  Bank tiles
+    # How many bank tiles to run.  Should be set to 4.  Bank tiles
     # execute transactions, so the validator can include the results of
     # the transaction into a block when we are leader.  Because of
     # current consensus limits restricting blocks to around 32,000
-    # transactions per block, there is no need to use more than 2 bank
+    # transactions per block, there is no need to use more than 4 bank
     # tiles on mainnet-beta.  For development and benchmarking, it can
     # be useful to increase this number further.
     #
@@ -652,12 +730,13 @@ dynamic_port_range = "8900-9000"
     # the agave runtime for execution, which takes various locks and
     # uses concurrent data structures which slow down with multiple
     # parallel users.
-    bank_tile_count = 2
+    bank_tile_count = 4
 
-    # How many shred tiles to run.  Should be set to 2.  This is
+    # How many shred tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network
-    # conditions but there is no need to run more than 2 shred tiles
-    # given current `mainnet-beta` conditions.
+    # conditions but there is no need to run more than 1 shred tile
+    # given current `mainnet-beta` conditions.  There is however
+    # a need to run 2 shred tiles under current `testnet` conditions.
     #
     # Shred tiles distribute block data to the network when we are
     # leader, and receive and retransmit it to other nodes when we are
@@ -666,9 +745,9 @@ dynamic_port_range = "8900-9000"
     # Shred tile performance heavily dependent on the number of peer
     # nodes in the cluster, as computing where data should go is an
     # expensive function with this list of peers as the input.  In
-    # development and benchmarking, 1 tile is sufficient to hit very
-    # high TPS rates because the cluster size will be very small.
-    shred_tile_count = 2
+    # development and benchmarking, 1 tile is also sufficient to hit
+    # very high TPS rates because the cluster size will be very small.
+    shred_tile_count = 1
 
 # All memory that will be used in Firedancer is pre-allocated in two
 # kinds of pages: huge and gigantic.  Huge pages are 2MB and gigantic
@@ -776,6 +855,13 @@ dynamic_port_range = "8900-9000"
         # this really be configurable?
         send_buffer_size = 16384
 
+        # The XDP program will filter packets that aren't destined for
+        # the IPv4 address of the interface bound above, but sometimes a
+        # validator may advertise multiple IP addresses.  In this case
+        # the additional addresses can be specified here, and packets
+        # addressed to them will be accepted.
+        multihome_ip_addrs = []
+
     # QUIC tiles are responsible for serving network traffic, including
     # parsing and responding to packets and managing connection timeouts
     # and state machines.  These tiles implement the QUIC protocol,
@@ -799,36 +885,7 @@ dynamic_port_range = "8900-9000"
         # be accepted.
         #
         # This must be >= 2 and also a power of 2.
-        max_concurrent_connections = 2048
-
-        # QUIC allows for multiple streams to be multiplexed over a
-        # single connection.  This option sets the maximum number of
-        # simultaneous streams per connection supported by our protocol
-        # implementation.  This is an initial value per connection and
-        # may be lowered further during the connection by the peer.
-        #
-        # If the peer has this many simultaneous streams open and wishes
-        # to initiate another stream, they must first retire an existing
-        # stream.
-        #
-        # The Solana protocol uses one stream per transaction.  If the
-        # expected round trip latency to peers is high, transaction
-        # throughput could be constrained by this option rather than the
-        # underlying link bandwidth.  Supporting more streams per
-        # connection currently has a memory footprint cost on the order
-        # of kilobytes per stream, per connection.
-        max_concurrent_streams_per_connection = 2048
-
-        # QUIC uses a fixed-size pool of streams to use for all the
-        # connections in the QUIC instance.  When a new connection is
-        # established, QUIC attempts to allocate stream objects to it
-        # for incoming peer-initiated streams.  Locally initiated
-        # streams are allocated explicitly.  16 streams per connection
-        # are reserved, so every connection can be used.  This means that
-        # this value must be at least as high as the value of
-        # `max_concurrent_connections` above multiplied by 16, or else
-        # the validator will refuse to start.
-        stream_pool_cnt = 32768
+        max_concurrent_connections = 131072
 
         # Controls how much transactions coming in via TPU can be
         # reassembled at the same time.  Reassembly is required for user
@@ -840,33 +897,14 @@ dynamic_port_range = "8900-9000"
         # Higher values reduce TPU packet loss over unreliable networks.
         # If this parameter is set too low, packet loss can cause some
         # large transactions to get dropped.  Must be 2 or larger.
-        txn_reassembly_count = 16384
+        txn_reassembly_count = 4194304
 
         # QUIC has a handshake process which establishes a secure
-        # connection between two endpoints.  The structures for this can
-        # be expensive, so in future we might allow more connections
-        # than we have handshake slots, and reuse handshakes across
-        # different connections.
+        # connection between two endpoints.  The handshake process is
+        # very expensive. So we allow only a limited number of
+        # handshakes to occur concurrently.
         #
-        # Currently, we don't support this, and this should always be
-        # set to the same value as the `max_concurrent_connections`
-        # above.
-        #
-        # TODO: This should be removed.
-        max_concurrent_handshakes = 2048
-
-        # QUIC has a concept of a "QUIC packet", there can be multiple
-        # of these inside a UDP packet.  Each QUIC packet we send to the
-        # peer needs to be acknowledged before we can discard it, as we
-        # may need to retransmit.  This setting configures how many such
-        # packets we can have in-flight to the peer and unacknowledged.
-        #
-        # If the expected round trip latency to peers is high,
-        # transaction throughput could be constrained by this option
-        # rather than the underlying link bandwidth.  If you have a lot
-        # of memory available and are constrained by this, it can make
-        # sense to increase.
-        max_inflight_quic_packets = 1000
+        max_concurrent_handshakes = 4096
 
         # QUIC has a concept of an idle connection, one where neither
         # the client nor the server has sent any packet to the other for
@@ -877,6 +915,9 @@ dynamic_port_range = "8900-9000"
         # longer than this threshold.
         idle_timeout_millis = 10000
 
+        # Max delay for outgoing ACKs.
+        ack_delay_millis = 50
+
         # QUIC retry is a feature to combat new connection request
         # spamming.  See rfc9000 8.1.2 for more details.  This flag
         # determines whether the feature is enabled in the validator.
@@ -886,6 +927,12 @@ dynamic_port_range = "8900-9000"
     # transactions, making sure that the data is well-formed, and that
     # it is signed by the appropriate private key.
     [tiles.verify]
+        # The verify tiles have a cache of signatures they have seen
+        # recently, used to discard duplicate transactions before they
+        # get verified to save signature verification resources.  See
+        # [tiles.dedup.signature_cache_size] below for more information.
+        signature_cache_size = 4194302
+
         # The maximum number of messages in-flight between a QUIC tile
         # and associated verify tile, after which earlier messages might
         # start being overwritten, and get dropped so that the system
@@ -907,39 +954,75 @@ dynamic_port_range = "8900-9000"
         # is available, it can make sense to increase this cache size to
         # protect against denial of service from high volumes of
         # transaction spam.
-        signature_cache_size = 4194302
+        #
+        # The default value here, 2^26 - 2 is a good balance, as it fits
+        # in 1GiB of memory using a single gigantic page.
+        signature_cache_size = 33554430
 
     # The pack tile takes incoming transactions that have been verified
     # by the verify tile and then deduplicated, and attempts to order
     # them in an optimal way to generate the most fees per compute
     # resource used to execute them.
     [tiles.pack]
-        # The pack tile may process transactions faster than the Agave
-        # bank stage that sits downstream of it.  If this happens,
-        # the pack tile will accumulate a buffer of transactions that
-        # need to be forwarded, up to this limit after which the least
-        # profitable transactions will be dropped.
+        # The pack tile receives transactions while it is waiting to
+        # become leader and stores them for future execution.  This
+        # option determines the maximum number of transactions that
+        # will be stored before those with the lowest estimated
+        # profitability get dropped.  The maximum allowed, and default
+        # value is 65534 and it is not recommended to change this.
+        max_pending_transactions = 65534
+
+        # When a transaction consumes fewer CUs than it requests, the
+        # bank and pack tiles work together to adjust the block limits
+        # so that a different transaction can consmume the unspent CUs.
+        # This is normally desireable, as it typically leads to
+        # producing blocks with more transactions.
         #
-        # If a lot of memory is available, it may be more sensible to
-        # continue to queue inbound transactions rather than drop them,
-        # for two reasons,
-        #
-        #  (1) If transactions were received in a burst, we may be able
-        #      to handle them later while idle and earn more rewards.
-        #
-        #  (2) If many highly profitable transactions are received in a
-        #      burst, we may drop some when later they would be better
-        #      to execute than what is available.
-        #
-        # This option specifies how many transactions will be buffered
-        # in the pack tile.
-        max_pending_transactions = 4096
+        # In situations where transactions typically do not
+        # significantly over-request CUs, or when the CU limit is high
+        # enough so that over-requesting CUs does not impact how many
+        # transactions fit in a block, this can be disabled to improve
+        # performance.  It's not recommended (but allowed) to disable
+        # this option in a production cluster.
+        use_consumed_cus = true
 
     # The bank tile is what executes transactions and updates the
     # accounting state as a result of any operations performed by the
     # transactions.  Currently the bank tile is implemented by the
     # Agave execution engine and is not configurable.
     [tiles.bank]
+
+    # The proof of history tile receives transactions from bank tiles
+    # and mixes their hashes into a continuous stream of hashes that
+    # proves to other validators time is passing.
+    [tiles.poh]
+        # A validator will always be leader for at least four
+        # consecutive slots, which looks like ....
+        #
+        #   +-------------+----+----+----+----+-------------+
+        #   |     ...     | s0 | s1 | s2 | s3 |     ...     |
+        #   +-------------+----+----+----+----+-------------+
+        #                t0    t1
+        #
+        # Leader slots are 400 milliseconds, so in a well behaved
+        # validator the start time of slot s1 (t1) will be 400
+        # milliseconds after s0 (t0).
+        #
+        # Agave validators start late, at some time t0 + 400 + x, where
+        # x is the time it takes the validator to "freeze" slot s0.
+        # This is typically around 100 milliseconds, but can be up to
+        # 300 or so in degenerate cases.  This is not good for the
+        # network because it increases confirmation times and skip
+        # rates, but it is beneficial to the individual validator (a
+        # tragedy of the commons) because the validator is leader
+        # longer, can receive higher paying transactions for longer,
+        # and ultimately generate more fees for the operator.
+        #
+        # Firedancer defaults to matching the Agave behavior here and
+        # starting late, but you can disable the option to use a more
+        # healthy behavior, where taking a long time to "freeze" slots
+        # cuts into your own next slot time, and does not increase it.
+        lagged_consecutive_leader_start = true
 
     # The shred tile distributes processed transactions that have been
     # executed to the rest of the cluster in the form of shred packets.
@@ -969,9 +1052,48 @@ dynamic_port_range = "8900-9000"
     # of the tiles and serves them via. a Prometheus compatible HTTP
     # endpoint.
     [tiles.metric]
+        # The address to listen on.  By default metrics are only
+        # accessible from the local machine.  If you wish to expose them
+        # to the network, you can change the listen address.
+        #
+        # The Firedancer team makes a best effort to secure the metrics
+        # endpoint but exposing it to the internet from a production
+        # validator is not recommended as it increases the attack
+        # surface of the validator.
+        prometheus_listen_address = "127.0.0.1"
+
         # The port to listen on for HTTP request for Prometheus metrics.
         # Firedancer serves metrics at a URI like 127.0.0.1:7999/metrics
         prometheus_listen_port = 7999
+
+    # The gui tile receives data from the validator and serves an HTTP
+    # endpoint to clients to view it.
+    [tiles.gui]
+        # If the GUI is enabled.
+        #
+        # Names and icons of peer validators will not be displayed in
+        # the GUI unless the program-id index is enabled, which can be
+        # done by setting
+        #
+        # [ledger]
+        #   account_indexes = ["program-id"]
+        #
+        # In your configuration above.
+        enabled = true
+
+        # The address to listen on.  By default, if enabled, the GUI
+        # will only be accessible from the local machine.  If you wish
+        # to expose it to the network, you can change the listen
+        # address.
+        #
+        # The Firedancer team makes a best effort to secure the GUI
+        # endpoint but exposing it to the internet from a production
+        # validator is not recommended as it increases the attack
+        # surface of the validator.
+        gui_listen_address = "127.0.0.1"
+
+        # The port to listen on.
+        gui_listen_port = 80
 
 # These options can be useful for development, but should not be used
 # when connecting to a live cluster, as they may cause the validator to
@@ -1025,13 +1147,6 @@ dynamic_port_range = "8900-9000"
     # [consensus.vote_account_path].  This option will not be effective
     # if [gossip.entrypoints] is non-empty.
     bootstrap = false
-
-    # The current topology type that will be set up and run. Currently the
-    # supported topology types are:
-    #   - "frankendancer"   The Frankendancer topology for running the
-    #                       mixed client with Firedancer networking
-    #                       and Agave runtime.
-    topology = "frankendancer"
 
     # It can be convenient during development to use a network namespace
     # for running Firedancer.  This allows us to send packets at a local
@@ -1170,7 +1285,11 @@ dynamic_port_range = "8900-9000"
         # The tiles included in this affinity are,
         #
         #      bencho, benchg1, .... benchgN, benchs1, ... benchsN
-        affinity = "f7"
+        #
+        # If the [layout.affinity] above is set to "auto" then this
+        # value must also be set to "auto" and it will be determined
+        # automatically.
+        affinity = "auto"
 
         # Solana has a hard-coded maximum CUs per block limit of
         # 48,000,000 which works out to around 80,000 transfers a
@@ -1202,11 +1321,37 @@ dynamic_port_range = "8900-9000"
         # Frankendancer currently depends on the Agave blockstore
         # component for storing block data to disk.  This component can
         # frequently be a bottleneck when testing the throughput of the
-        # leader pipeline, so this option is provided to disable it.
+        # leader pipeline, so this option is provided to disable it
+        # starting from a certain slot.
         #
-        # This option should not be uesd in a production network, it
+        # This option should not be used in a production network; it
         # causes the validator to not be able to serve repair requests,
         # snapshots, or participate in other consensus critical
         # operations.  It is only useful for benchmarking the leader
         # TPU performance in a single node cluster case.
-        disable_blockstore = false
+        #
+        # A value of 0 means this option will not be used.  A value of 1
+        # disables the blockstore entirely.  A common use case for any
+        # other positive value is to create a snapshot before disabling
+        # the blockstore.  This is useful in cases when benchmarking an
+        # entire cluster.  The leader needs to create a first snapshot
+        # that the followers need to fetch in order to join the cluster.
+        # In such a case, it is useful to set this value to the same
+        # number as [snapshots.full_snapshot_interval_slots].
+        disable_blockstore_from_slot = 0
+
+        # Frankendancer currently depends on the Agave status cache to
+        # prevent double-spend attacks.  The data structure that backs
+        # the Agave status cache frequently causes lots of page faults
+        # and contention during benchmarking.  It severely limits
+        # banking stage scalability, so this option is provided to
+        # disable it.
+        #
+        # This option should not be used in a production network.  If
+        # set to true, Frankendancer will not be able to identify a
+        # transaction it has receieved as a duplicate if it occurred in
+        # another leader's block, causing it to produce invalid blocks.
+        # It is only useful for benchmarking when it is known that
+        # duplicate transactions will not be submitted and the validator
+        # with this option enabled will always be leader.
+        disable_status_cache = false

@@ -120,14 +120,14 @@
 #include "../bits/fd_bits.h"
 
 #ifndef POOL_NAME
-#define "Define POOL_NAME"
+#error "Define POOL_NAME"
 #endif
 
 /* A POOL_T should be something something reasonable to shallow copy
    with the fields described above. */
 
 #ifndef POOL_T
-#define "Define POOL_T"
+#error "Define POOL_T"
 #endif
 
 /* POOL_NEXT is the name of the field the pool will clobber for

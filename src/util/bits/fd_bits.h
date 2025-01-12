@@ -3,7 +3,7 @@
 
 /* Bit manipulation APIs */
 
-#include "../fd_util_base.h"
+#include "../sanitize/fd_msan.h"
 
 FD_PROTOTYPES_BEGIN
 

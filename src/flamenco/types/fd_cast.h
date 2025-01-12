@@ -21,9 +21,9 @@ FD_FN_CONST static inline ulong
 fd_rust_cast_double_to_ulong( double f ) {
   ulong u = fd_dblbits( f );
   /* Check if the exponent is all 1s (infinity or NaN )*/
-  if( fd_dblbits_bexp( u ) == 0x7FFUL ) {
+  if( fd_dblbits_bexp( u )==0x7FFUL ) {
     /* Check if the mantissa is 0 (infinity) */
-    if( fd_dblbits_mant( u ) == 0 ) {
+    if( fd_dblbits_mant( u )==0 ) {
       return ULONG_MAX;
     } else {
       /* NaN case */
@@ -32,12 +32,12 @@ fd_rust_cast_double_to_ulong( double f ) {
   }
 
   /* If the value is negative saturate to 0 */
-  if( fd_dblbits_sign( u ) == 1 ) {
+  if( fd_dblbits_sign( u )==1 ) {
     return 0;
   }
 
   /* Saturate to max unsigned long value */
-  if( f > (double)ULONG_MAX ) {
+  if( f>=(double)ULONG_MAX ) {
     return ULONG_MAX;
   }
 

@@ -49,11 +49,18 @@
 #define MAX_PERMITTED_DATA_LENGTH                 (10UL<<20) /* 10MiB */
 #define MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN (10UL<<21) /* 20MiB */
 
+/* Convenience macro for `fd_account_check_num_insn_accounts()` */
+#define CHECK_NUM_INSN_ACCS( _ctx, _expected ) do {                        \
+  if( FD_UNLIKELY( (_ctx)->instr->acct_cnt<(_expected) ) ) {               \
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;                      \
+  }                                                                        \
+} while(0)
+
 FD_PROTOTYPES_BEGIN
 
 /* Instruction account APIs *******************************************/
 
-/* Assert that enougha ccounts were supplied to this instruction. Returns 
+/* Assert that enough ccounts were supplied to this instruction. Returns 
    FD_EXECUTOR_INSTR_SUCCESS if the number of accounts is as expected and 
    FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS otherwise.
    https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L492-L503 */
@@ -229,9 +236,9 @@ static inline int
 fd_account_is_rent_exempt_at_data_length( fd_exec_instr_ctx_t const * ctx,
                                           fd_account_meta_t   const * meta ) {
   assert( meta != NULL );
-  fd_rent_t rent     = ctx->epoch_ctx->epoch_bank.rent;
-  ulong min_balanace = fd_rent_exempt_minimum_balance2( &rent, meta->dlen );
-  return meta->info.lamports >= min_balanace; 
+  fd_rent_t rent    = ctx->epoch_ctx->epoch_bank.rent;
+  ulong min_balance = fd_rent_exempt_minimum_balance( &rent, meta->dlen );
+  return meta->info.lamports >= min_balance; 
 }
 
 /* fd_account_is_executable returns 1 if the given account has the
@@ -242,6 +249,19 @@ fd_account_is_rent_exempt_at_data_length( fd_exec_instr_ctx_t const * ctx,
 FD_FN_PURE static inline int
 fd_account_is_executable( fd_account_meta_t const * meta ) {
   return !!meta->info.executable;
+}
+
+/* fd_account_is_executable_internal was introduced to move towards deprecating the `is_executable` flag.
+   It returns true if the `remove_accounts_executable_flag_checks` feature is inactive AND fd_account_is_executable
+   return true. This is newly used in account modification logic to eventually allow "executable" accounts to be
+   modified. 
+   https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/sdk/transaction-context/src/lib.rs#L1052-L1060 */
+
+FD_FN_PURE static inline int
+fd_account_is_executable_internal( fd_exec_slot_ctx_t const * slot_ctx,
+                                   fd_account_meta_t  const * meta ) {
+  return !FD_FEATURE_ACTIVE( slot_ctx, remove_accounts_executable_flag_checks ) &&
+         fd_account_is_executable( meta );
 }
 
 /* fd_account_set_executable mirrors Anza function
@@ -301,16 +321,17 @@ fd_account_is_owned_by_current_program( fd_instr_info_t const *   info,
 
 /* fd_account_can_data_be changed mirrors Anza function 
    solana_sdk::transaction_context::BorrowedAccount::can_data_be_changed.
-   https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L1078-L1094 */
+   https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/sdk/transaction-context/src/lib.rs#L1136-L1152 */
 static inline int
-fd_account_can_data_be_changed( fd_instr_info_t const * instr,
-                                ulong                   instr_acc_idx,
-                                int *                   err ) {
+fd_account_can_data_be_changed( fd_exec_instr_ctx_t const * ctx,
+                                ulong                       instr_acc_idx,
+                                int *                       err ) {
 
+  fd_instr_info_t const * instr = ctx->instr;
   assert( instr_acc_idx < instr->acct_cnt );
   fd_account_meta_t const * meta = instr->borrowed_accounts[ instr_acc_idx ]->const_meta;
 
-  if( FD_UNLIKELY( fd_account_is_executable( meta ) ) ) {
+  if( FD_UNLIKELY( fd_account_is_executable_internal( ctx->slot_ctx, meta ) ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_EXECUTABLE_DATA_MODIFIED;
     return 0;
   }
@@ -325,7 +346,7 @@ fd_account_can_data_be_changed( fd_instr_info_t const * instr,
     return 0;
   }
 
-  err = FD_EXECUTOR_INSTR_SUCCESS;
+  *err = FD_EXECUTOR_INSTR_SUCCESS;
   return 1;
 }
 
@@ -351,10 +372,11 @@ fd_account_can_data_be_resized( fd_exec_instr_ctx_t const * instr_ctx,
     return 0;
   }
 
-  /* The resize can not exceed the per-transaction maximum */
+  /* The resize can not exceed the per-transaction maximum
+     https://github.com/firedancer-io/agave/blob/1e460f466da60a63c7308e267c053eec41dc1b1c/sdk/src/transaction_context.rs#L1107-L1111 */
   ulong length_delta = fd_ulong_sat_sub( new_length, acct->dlen );
-  instr_ctx->txn_ctx->accounts_resize_delta = fd_ulong_sat_add( instr_ctx->txn_ctx->accounts_resize_delta, length_delta );
-  if( FD_UNLIKELY( instr_ctx->txn_ctx->accounts_resize_delta>MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN ) ) {
+  ulong new_accounts_resize_delta = fd_ulong_sat_add( instr_ctx->txn_ctx->accounts_resize_delta, length_delta );
+  if( FD_UNLIKELY( new_accounts_resize_delta>MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED;
     return 0;
   }
@@ -396,31 +418,6 @@ fd_account_find_idx_of_insn_account( fd_exec_instr_ctx_t const * ctx,
     }
   }
   return -1;
-}
-
-/* Transaction account APIs *******************************************/
-
-/* https://github.com/anza-xyz/agave/blob/92ad51805862fbb47dc40968dff9f93b57395b51/sdk/program/src/message/legacy.rs#L636 */
-static inline int
-fd_txn_account_is_writable_idx( fd_exec_txn_ctx_t * txn_ctx, int idx ) {
-  int acct_addr_cnt = txn_ctx->txn_descriptor->acct_addr_cnt;
-  if( txn_ctx->txn_descriptor->transaction_version == FD_TXN_V0 ) {
-    acct_addr_cnt += txn_ctx->txn_descriptor->addr_table_adtl_cnt;
-  }
-
-  if( idx==acct_addr_cnt ) {
-    return 0;
-  }
-
-  if( fd_pubkey_is_builtin_program( &txn_ctx->accounts[idx] ) || fd_pubkey_is_sysvar_id( &txn_ctx->accounts[idx] ) ) {
-    return 0;
-  }
-
-  if( fd_txn_account_is_demotion( txn_ctx, idx ) ) {
-    return 0;
-  }
-
-  return fd_txn_is_writable( txn_ctx->txn_descriptor, idx );
 }
 
 FD_PROTOTYPES_END

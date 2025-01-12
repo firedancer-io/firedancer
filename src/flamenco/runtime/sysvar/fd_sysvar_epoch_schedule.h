@@ -65,7 +65,7 @@ fd_sysvar_epoch_schedule_init( fd_exec_slot_ctx_t * slot_ctx );
 
 fd_epoch_schedule_t *
 fd_sysvar_epoch_schedule_read( fd_epoch_schedule_t * result,
-                               fd_exec_slot_ctx_t *  slot_ctx );
+                               fd_exec_slot_ctx_t const * slot_ctx );
 
 /* fd_epoch_schedule_derive derives an epoch schedule config from the
    given parameters.  New epoch schedule configurations should only be

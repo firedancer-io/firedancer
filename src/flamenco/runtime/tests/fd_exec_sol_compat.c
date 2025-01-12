@@ -3,14 +3,18 @@
 #include "../../nanopb/pb_decode.h"
 #include "generated/elf.pb.h"
 #include "generated/invoke.pb.h"
+#include "generated/shred.pb.h"
 #include "generated/vm.pb.h"
 #include <assert.h>
 #include <stdlib.h>
 #include "../../vm/fd_vm.h"
 #include "fd_vm_test.h"
+#include "fd_pack_test.h"
 #include "../../features/fd_features.h"
 #include "../fd_executor_err.h"
 #include "../../fd_flamenco.h"
+#include "../../../ballet/shred/fd_shred.h"
+#include "../fd_acc_mgr.h"
 
 /* This file defines stable APIs for compatibility testing.
 
@@ -29,46 +33,65 @@ typedef struct {
 
 static sol_compat_features_t features;
 static       uchar *     smem;
-static const ulong       smax = 1UL<<30;
+static const ulong       smax = 256UL<<20;
+
+static       uchar *     spad_mem;
+
 static       fd_wksp_t * wksp = NULL;
 
-#define WKSP_TAG 2
+#define WKSP_EXECUTE_ALLOC_TAG (2UL)
+#define WKSP_INIT_ALLOC_TAG    (3UL)
 
 void
-sol_compat_init( void ) {
+sol_compat_init( int log_level ) {
   assert( !smem );
-
   int argc = 1;
   char * argv[2] = { (char *)"fd_exec_sol_compat", NULL };
   char ** argv_ = argv;
-  setenv( "FD_LOG_PATH", "", 1 );
+  if ( !getenv( "FD_LOG_PATH" ) ) {
+    setenv( "FD_LOG_PATH", "", 1 );
+  }
+  fd_log_enable_unclean_exit();
   fd_boot( &argc, &argv_ );
-  fd_log_level_logfile_set(5);
+  fd_log_level_logfile_set( log_level );
   fd_flamenco_boot( NULL, NULL );
   fd_log_level_core_set(4);  /* abort on FD_LOG_ERR */
 
-  sol_compat_wksp_init();
+  sol_compat_wksp_init( FD_SHMEM_NORMAL_PAGE_SZ );
 }
 
 void
-sol_compat_wksp_init( void ) {
+sol_compat_wksp_init( ulong wksp_page_sz ) {
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>=fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
-  wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, 65536, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
+  switch( wksp_page_sz )
+  {
+  case FD_SHMEM_GIGANTIC_PAGE_SZ:
+    wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 5UL, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
+    break;
+  case FD_SHMEM_NORMAL_PAGE_SZ:
+    wksp = fd_wksp_new_anonymous( FD_SHMEM_NORMAL_PAGE_SZ, 512UL * 512UL * 5UL, fd_shmem_cpu_idx( fd_shmem_numa_idx( cpu_idx ) ), "wksp", 0UL );
+    break;
+  default:
+    FD_LOG_ERR(( "Unsupported page size %lu", wksp_page_sz ));
+  }
   assert( wksp );
 
-  smem = malloc( smax );  /* 1 GiB */
+  spad_mem = fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ, WKSP_INIT_ALLOC_TAG ); /* 4738713960 B */
+  assert( spad_mem );
+
+  smem = fd_wksp_alloc_laddr( wksp, FD_SCRATCH_SMEM_ALIGN, smax, WKSP_INIT_ALLOC_TAG );  /* 256 MB */
   assert( smem );
 
   features.struct_size         = sizeof(sol_compat_features_t);
-  features.cleaned_up_features = malloc( FD_FEATURE_ID_CNT * sizeof(ulong) );
-  features.supported_features  = malloc( FD_FEATURE_ID_CNT * sizeof(ulong) );
+  features.cleaned_up_features = fd_wksp_alloc_laddr( wksp, 8UL, FD_FEATURE_ID_CNT * sizeof(ulong), WKSP_INIT_ALLOC_TAG );
+  features.supported_features  = fd_wksp_alloc_laddr( wksp, 8UL, FD_FEATURE_ID_CNT * sizeof(ulong), WKSP_INIT_ALLOC_TAG );
 
   for( const fd_feature_id_t * current_feature = fd_feature_iter_init(); !fd_feature_iter_done( current_feature ); current_feature = fd_feature_iter_next( current_feature ) ) {
     // Skip reverted features
     if( current_feature->reverted ) continue;
-  
-    if( current_feature->cleaned_up ) {
+
+    if( current_feature->cleaned_up[0]!=UINT_MAX ) {
       memcpy( &features.cleaned_up_features[features.cleaned_up_feature_cnt++], &current_feature->id, sizeof(ulong) );
     } else {
       memcpy( &features.supported_features[features.supported_feature_cnt++], &current_feature->id, sizeof(ulong) );
@@ -78,18 +101,20 @@ sol_compat_wksp_init( void ) {
 
 void
 sol_compat_fini( void ) {
+  fd_wksp_free_laddr( spad_mem );
+  fd_wksp_free_laddr( smem );
+  fd_wksp_free_laddr( features.cleaned_up_features );
+  fd_wksp_free_laddr( features.supported_features );
   fd_wksp_delete_anonymous( wksp );
-  free( smem );
-  free( features.cleaned_up_features );
-  free( features.supported_features );
-  wksp = NULL;
-  smem = NULL;
+  wksp     = NULL;
+  smem     = NULL;
+  spad_mem = NULL;
 }
 
 void
 sol_compat_check_wksp_usage( void ) {
   fd_wksp_usage_t usage[1];
-  ulong tags[1] = { WKSP_TAG };
+  ulong tags[1] = { WKSP_EXECUTE_ALLOC_TAG };
   fd_wksp_usage( wksp, tags, 1, usage );
   if( usage->used_sz ) {
     FD_LOG_ERR(( "%lu bytes leaked in %lu allocations", usage->used_sz, usage->used_cnt ));
@@ -109,9 +134,8 @@ sol_compat_setup_scratch_and_runner( void * fmem ) {
   fd_scratch_push();
 
   // Setup test runner
-  void * runner_mem = fd_wksp_alloc_laddr( wksp, fd_exec_instr_test_runner_align(), fd_exec_instr_test_runner_footprint(), WKSP_TAG );
-  fd_exec_instr_test_runner_t * runner = fd_exec_instr_test_runner_new( runner_mem, WKSP_TAG );
-
+  void * runner_mem = fd_wksp_alloc_laddr( wksp, fd_exec_instr_test_runner_align(), fd_exec_instr_test_runner_footprint(), WKSP_EXECUTE_ALLOC_TAG );
+  fd_exec_instr_test_runner_t * runner = fd_exec_instr_test_runner_new( runner_mem, spad_mem, WKSP_EXECUTE_ALLOC_TAG );
   return runner;
 }
 
@@ -165,7 +189,7 @@ sol_compat_execute_wrapper( fd_exec_instr_test_runner_t * runner,
                             void * input,
                             void ** output,
                             exec_test_run_fn_t * exec_test_run_fn ) {
-  
+
   assert( fd_scratch_prepare_is_safe( 1UL ) );
   ulong out_bufsz = 100000000;  /* 100 MB */
   void * out0 = fd_scratch_prepare( 1UL );
@@ -176,6 +200,8 @@ sol_compat_execute_wrapper( fd_exec_instr_test_runner_t * runner,
   if( FD_UNLIKELY( !out_used ) ) {
     *output = NULL;
   }
+
+  fd_scratch_trim( (void *)( (ulong)out0 + out_used ) );
 }
 
 /*
@@ -186,25 +212,30 @@ int
 sol_compat_cmp_binary_strict( void const * effects,
                               void const * expected,
                               pb_msgdesc_t const * encode_type ) {
-#define MAX_SZ 1024*1024
+#define MAX_SZ 32*1024*1024
+FD_SCRATCH_SCOPE_BEGIN {
   if( effects==NULL ) {
     FD_LOG_WARNING(( "No output effects" ));
     return 0;
   }
 
+  /* Note: Most likely this scratch allocation won't fail. If it does, you may need to bump
+     the allocated scratch memory amount in fd_exec_sol_compat.c. */
   ulong out_sz = MAX_SZ;
-  uchar out[MAX_SZ];
+  uchar * out = fd_scratch_alloc( 1UL, out_sz );
   if( !sol_compat_encode( out, &out_sz, effects, encode_type ) ) {
     FD_LOG_WARNING(( "Error encoding effects" ));
     return 0;
   }
+  fd_scratch_trim( out+out_sz );
 
   ulong exp_sz = MAX_SZ;
-  uchar exp[MAX_SZ];
+  uchar * exp = fd_scratch_alloc( 1UL, exp_sz );
   if( !sol_compat_encode( exp, &exp_sz, expected, encode_type ) ) {
     FD_LOG_WARNING(( "Error encoding expected" ));
     return 0;
   }
+  fd_scratch_trim( exp+exp_sz );
 
   if( out_sz!=exp_sz ) {
     FD_LOG_WARNING(( "Binary cmp failed: different size. out_sz=%lu exp_sz=%lu", out_sz, exp_sz  ));
@@ -216,6 +247,8 @@ sol_compat_cmp_binary_strict( void const * effects,
   }
 
   return 1;
+} FD_SCRATCH_SCOPE_END;
+#undef MAX_SIZE
 }
 
 static int
@@ -259,12 +292,11 @@ _diff_txn_acct( fd_exec_test_acct_state_t * expected,
     return 0;
   }
 
-  /* AcctState -> rent_epoch 
-     TODO: Add this check back in once rent epoch is more stable */
-  // if( expected->rent_epoch != actual->rent_epoch ) {
-  //   FD_LOG_WARNING(( "Rent epoch mismatch: expected=%lu actual=%lu", expected->rent_epoch, actual->rent_epoch ));
-  //   return 0;
-  // }
+  /* AcctState -> rent_epoch */
+  if( expected->rent_epoch != actual->rent_epoch ) {
+    FD_LOG_WARNING(( "Rent epoch mismatch: expected=%lu actual=%lu", expected->rent_epoch, actual->rent_epoch ));
+    return 0;
+  }
 
   /* AcctState -> owner */
   if( !fd_memeq( expected->owner, actual->owner, sizeof(fd_pubkey_t) ) ) {
@@ -321,7 +353,7 @@ sol_compat_cmp_txn( fd_exec_test_txn_result_t *  expected,
   if( !_diff_resulting_states( &expected->resulting_state, &actual->resulting_state ) ) {
     return 0;
   }
-  
+
   /* TxnResult -> rent */
   if( expected->rent != actual->rent ) {
     FD_LOG_WARNING(( "Rent mismatch: expected=%lu actual=%lu", expected->rent, actual->rent ));
@@ -336,26 +368,26 @@ sol_compat_cmp_txn( fd_exec_test_txn_result_t *  expected,
 
   /* TxnResult -> status */
   if( expected->status != actual->status ) {
-    FD_LOG_WARNING(( "Status mismatch: expected=%d actual=%d", expected->status, actual->status ));
+    FD_LOG_WARNING(( "Status mismatch: expected=%u actual=%u", expected->status, actual->status ));
     return 0;
   }
 
   /* TxnResult -> instruction_error */
   if( expected->instruction_error != actual->instruction_error ) {
-    FD_LOG_WARNING(( "Instruction error mismatch: expected=%d actual=%d", expected->instruction_error, actual->instruction_error ));
+    FD_LOG_WARNING(( "Instruction error mismatch: expected=%u actual=%u", expected->instruction_error, actual->instruction_error ));
     return 0;
   }
 
   if( expected->instruction_error ) {
     /* TxnResult -> instruction_error_index */
     if( expected->instruction_error_index != actual->instruction_error_index ) {
-      FD_LOG_WARNING(( "Instruction error index mismatch: expected=%d actual=%d", expected->instruction_error_index, actual->instruction_error_index ));
+      FD_LOG_WARNING(( "Instruction error index mismatch: expected=%u actual=%u", expected->instruction_error_index, actual->instruction_error_index ));
       return 0;
     }
 
     /* TxnResult -> custom_error */
     if( expected->instruction_error == (ulong) -FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR && expected->custom_error != actual->custom_error ) {
-      FD_LOG_WARNING(( "Custom error mismatch: expected=%d actual=%d", expected->custom_error, actual->custom_error ));
+      FD_LOG_WARNING(( "Custom error mismatch: expected=%u actual=%u", expected->custom_error, actual->custom_error ));
       return 0;
     }
   }
@@ -477,7 +509,7 @@ sol_compat_txn_fixture( fd_exec_instr_test_runner_t * runner,
 
     // Compare effects
     fd_exec_test_txn_result_t * effects = (fd_exec_test_txn_result_t *) output;
-    int ok = sol_compat_cmp_txn( effects, &fixture->output );
+    int ok = sol_compat_cmp_txn( &fixture->output, effects );
 
     // Cleanup
     pb_release( &fd_exec_test_txn_fixture_t_msg, fixture );
@@ -532,26 +564,26 @@ sol_compat_syscall_fixture( fd_exec_instr_test_runner_t * runner,
   return ok;
 }
 
-int 
-sol_compat_validate_vm_fixture( fd_exec_instr_test_runner_t * runner,
-                                uchar const *                 in,
-                                ulong                         in_sz ) {
+int
+sol_compat_vm_interp_fixture( fd_exec_instr_test_runner_t * runner,
+                              uchar const *                 in,
+                              ulong                         in_sz ) {
   // Decode fixture
-  fd_exec_test_validate_vm_fixture_t fixture[1] = {0};
-  if( !sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_validate_vm_fixture_t_msg ) ) {
-    FD_LOG_WARNING(( "Invalid validate_vm fixture." ));
+  fd_exec_test_syscall_fixture_t fixture[1] = {0};
+  if ( !sol_compat_decode( &fixture, in, in_sz, &fd_exec_test_syscall_fixture_t_msg ) ) {
+    FD_LOG_WARNING(( "Invalid syscall fixture." ));
     return 0;
   }
 
   // Execute
   void * output = NULL;
-  sol_compat_execute_wrapper( runner, &fixture->input, &output, fd_exec_vm_validate_test_run );
+  sol_compat_execute_wrapper( runner, &fixture->input, &output, (exec_test_run_fn_t *)fd_exec_vm_interp_test_run );
 
   // Compare effects
-  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_validate_vm_effects_t_msg );
+  int ok = sol_compat_cmp_binary_strict( output, &fixture->output, &fd_exec_test_syscall_effects_t_msg );
 
   // Cleanup
-  pb_release( &fd_exec_test_validate_vm_fixture_t_msg, fixture );
+  pb_release( &fd_exec_test_syscall_fixture_t_msg, fixture );
   return ok;
 }
 
@@ -721,44 +753,7 @@ sol_compat_vm_syscall_execute_v1( uchar *       out,
   return ok;
 }
 
-int
-sol_compat_vm_validate_v1(  uchar *       out,
-                            ulong *       out_sz,
-                            uchar const * in,
-                            ulong         in_sz ) {
-  // Setup
-  ulong fmem[ 64 ];
-  fd_exec_instr_test_runner_t * runner = sol_compat_setup_scratch_and_runner( fmem );
-
-  // Decode context
-  fd_exec_test_full_vm_context_t input[1] = {0};
-  void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_full_vm_context_t_msg );
-  if ( res==NULL ) {
-    sol_compat_cleanup_scratch_and_runner( runner );
-    return 0;
-  }
-
-  // Execute
-  void * output = NULL;
-  sol_compat_execute_wrapper( runner, input, &output, fd_exec_vm_validate_test_run );
-
-  // Encode effects
-  int ok = 0;
-  if( output ) {
-    ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_validate_vm_effects_t_msg );
-  }
-
-  // cleanup
-  pb_release( &fd_exec_test_full_vm_context_t_msg, input );
-  sol_compat_cleanup_scratch_and_runner( runner );
-
-  // Check wksp usage is 0
-  sol_compat_check_wksp_usage();
-
-  return ok;
-}
-
-/* We still need a separate entrypoint since other harnesses (namely sfuzz-agave) 
+/* We still need a separate entrypoint since other harnesses (namely sfuzz-agave)
    do something other than wrap their vm_syscall equivalent */
 int
 sol_compat_vm_cpi_syscall_v1( uchar *       out,
@@ -768,6 +763,7 @@ sol_compat_vm_cpi_syscall_v1( uchar *       out,
   /* Just a wrapper to vm_syscall_execute_v1 */
   return sol_compat_vm_syscall_execute_v1( out, out_sz, in, in_sz );
 }
+
 int
 sol_compat_vm_interp_v1( uchar *       out,
                          ulong *       out_sz,
@@ -802,5 +798,55 @@ sol_compat_vm_interp_v1( uchar *       out,
   // Check wksp usage is 0
   sol_compat_check_wksp_usage();
 
+  return ok;
+}
+
+int sol_compat_shred_parse_v1( uchar *       out,
+                               ulong *       out_sz,
+                               uchar const * in,
+                               ulong         in_sz ) {
+    fd_exec_test_shred_binary_t input[1] = {0};
+    void                      * res      = sol_compat_decode( &input, in, in_sz, &fd_exec_test_shred_binary_t_msg );
+    if( FD_UNLIKELY( res==NULL ) ) {
+        return 0;
+    }
+    if( FD_UNLIKELY( input[0].data==NULL ) ) {
+        pb_release( &fd_exec_test_shred_binary_t_msg, input );
+        return 0;
+    }
+    fd_exec_test_accepts_shred_t output[1] = {0};
+    output[0].valid                        = !!fd_shred_parse( input[0].data->bytes, input[0].data->size );
+    pb_release( &fd_exec_test_shred_binary_t_msg, input );
+    return !!sol_compat_encode( out, out_sz, output, &fd_exec_test_accepts_shred_t_msg );
+}
+
+int
+sol_compat_pack_compute_budget_v1( uchar *       out,
+                                   ulong *       out_sz,
+                                   uchar const * in,
+                                   ulong         in_sz ) {
+  ulong fmem[ 64 ];
+  fd_exec_instr_test_runner_t * runner = sol_compat_setup_scratch_and_runner( fmem );
+
+  fd_exec_test_pack_compute_budget_context_t input[1] = {0};
+  void * res = sol_compat_decode( &input, in, in_sz, &fd_exec_test_pack_compute_budget_context_t_msg );
+  if( res==NULL ) {
+    sol_compat_cleanup_scratch_and_runner( runner );
+    return 0;
+  }
+
+  void * output = NULL;
+  sol_compat_execute_wrapper( runner, input, &output, fd_exec_pack_cpb_test_run );
+
+  int ok = 0;
+  if( output ) {
+    ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_pack_compute_budget_effects_t_msg );
+  }
+
+  pb_release( &fd_exec_test_pack_compute_budget_context_t_msg, input );
+  sol_compat_cleanup_scratch_and_runner( runner );
+
+  // Check wksp usage is 0
+  sol_compat_check_wksp_usage();
   return ok;
 }

@@ -158,7 +158,7 @@ fd_bn254_miller_loop( fd_bn254_fp12_t *   f,
                       ulong               sz ) {
   /* https://github.com/Consensys/gnark-crypto/blob/v0.12.1/ecc/bn254/pairing.go#L121 */
   //TODO use more efficient muls
-  const char s[] = {
+  const schar s[] = {
     0,  0,  0,  1,  0,  1,  0, -1,
     0,  0, -1,  0,  0,  0,  1,  0,
     0, -1,  0, -1,  0,  0,  0,  1,

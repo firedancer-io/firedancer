@@ -1,44 +1,60 @@
+#ifndef FD_QUIC_WALTZ_QUIC_TEMPL_FD_QUIC_PARSE_UTIL_H
+#define FD_QUIC_WALTZ_QUIC_TEMPL_FD_QUIC_PARSE_UTIL_H
+
 #include <stddef.h>
 
 #include "../fd_quic_common.h"
+#include "../../../util/bits/fd_bits.h"
 
-/* fd_quic_test_negative "returns" (x<0), but in a way that doesn't produce
-   warnings/errors when x is unsigned
+static inline uint
+fd_quic_varint_min_sz_unsafe( ulong val ) {
+  int sz_class = fd_uint_find_msb( (uint)fd_ulong_find_msb( val|0x3fUL ) + 2 ) - 2;
+  return 1U<<sz_class;
+}
 
-   this optimizes well in experiments */
-#if 1
-#define fd_quic_test_negative(x) ( (_Bool)( (double)(x) < 0 ) )
-#else
-/* alternative that seems heavy-handed and is gcc specific */
-#pragma GCC diagnostic ignored "-Wtype-limits"
-#define fd_quic_test_negative(x) ( (x) < 0 )
-#endif
+static inline uint
+fd_quic_varint_min_sz( ulong val ) {
+  return fd_quic_varint_min_sz_unsafe( fd_ulong_min( val, 0x3fffffffffffffffUL ) );
+}
 
-/* determine the encoded VARINT length of a given value */
-/* VARINT isn't valid for negatives .. shouldn't occur */
-#define FD_QUIC_ENCODE_VARINT_LEN(val)               \
-  (                                                  \
-    fd_quic_test_negative(val) ? FD_QUIC_ENCODE_FAIL \
-    :                                                \
-    ( (ulong)(val) < ( 1UL << ( 0x08 - 2 ) ) ) ? 1   \
-    :                                                \
-    ( (ulong)(val) < ( 1UL << ( 0x10 - 2 ) ) ) ? 2   \
-    :                                                \
-    ( (ulong)(val) < ( 1UL << ( 0x20 - 2 ) ) ) ? 4   \
-    :                                                \
-    ( (ulong)(val) < ( 1UL << ( 0x40 - 2 ) ) ) ? 8   \
-    :                                                \
-    FD_QUIC_ENCODE_FAIL                              \
-  )
+static inline uint
+fd_quic_varint_encode( uchar out[8],
+                       ulong val ) {
+  /* max out at 0x3fffffffffffffffUL */
+  val = fd_ulong_min( val, 0x3fffffffffffffffUL );
 
+  /* input byte pattern:
+     - sz 1: aa 00 00 00 00 00 00 00
+     - sz 2: aa bb 00 00 00 00 00 00
+     - sz 4: aa bb cc dd 00 00 00 00
+     - sz 8: aa bb cc dd ee ff ff gg */
 
-/* determine whether a value is valid for a VARINT encoding
-   0 <= varint < 2^62 */
-/* VARINT isn't valid for negatives .. shouldn't occur */
-#define FD_QUIC_VALIDATE_VARINT(val)                               \
-  (                                                                \
-    (!fd_quic_test_negative(val)) & ( (ulong)(val) < (1UL<<62UL) ) \
-  )
+  uint sz = fd_quic_varint_min_sz_unsafe( val );
+
+  /* shifted byte pattern
+     - sz 1: 00 00 00 00 00 00 00 aa
+     - sz 2: 00 00 00 00 00 00 aa bb
+     - sz 4: 00 00 00 00 aa bb cc dd
+     - sz 8: aa bb cc dd ee ff ff gg */
+
+  ulong shifted = val << ( 8 * ( 8 - sz ) );
+
+  /* swapped byte pattern
+     - sz 1: aa 00 00 00 00 00 00 00
+     - sz 2: bb aa 00 00 00 00 00 00
+     - sz 4: dd cc bb aa 00 00 00 00
+     - sz 8: gg ff ee dd cc bb aa 00 */
+
+  ulong encoded = fd_ulong_bswap( shifted );
+
+  /* set length indication */
+
+  encoded &= 0xffffffffffffff3fUL;
+  encoded |= ((ulong)fd_uint_find_msb( sz ))<<6;
+
+  FD_STORE( ulong, out, encoded );
+  return sz;
+}
 
 
 /* encode a VARINT "val" into "buf" of size "buf_sz"
@@ -47,144 +63,97 @@
    buf_sz must be a mutable integer and will be reduced by the number of
      bytes written
    bounds are checked before writing into buf */
-#define FD_QUIC_ENCODE_VARINT(buf,buf_sz,val)                             \
-  do {                                                                    \
-    ulong val64 = fd_quic_test_negative(val) ? 0 : (val);                 \
-    if( val64 < ( 1UL << ( 0x08 - 2 ) ) ) {                               \
-      if( buf_sz < 1 ) return FD_QUIC_ENCODE_FAIL;                        \
-      buf[0] = (uchar)val64;                                              \
-      buf++; buf_sz--;                                                    \
-    } else                                                                \
-    if( val64 < ( 1UL << ( 0x10 - 2 ) ) ) {                               \
-      if( buf_sz < 2 ) return FD_QUIC_ENCODE_FAIL;                        \
-      buf[0] = (uchar)( ( ( val64 >> 0x08 ) & 0xfful ) | 0x40u );         \
-      buf[1] = ( val64 >> 0x00 ) & 0xffu;                                 \
-      buf+=2; buf_sz-=2;                                                  \
-    } else                                                                \
-    if( val64 < ( (ulong)1 << ( 0x20 - 2 ) ) ) {                          \
-      if( buf_sz < 4 ) return FD_QUIC_ENCODE_FAIL;                        \
-      buf[0] = (uchar)( ( ( val64 >> 0x18 ) & 0xffu ) | 0x80u );          \
-      buf[1] = ( val64 >> 0x10 ) & 0xffu;                                 \
-      buf[2] = ( val64 >> 0x08 ) & 0xffu;                                 \
-      buf[3] = ( val64 >> 0x00 ) & 0xffu;                                 \
-      buf+=4; buf_sz-=4;                                                  \
-    } else                                                                \
-    if( val64 < ( (ulong)1 << ( 0x40 - 2 ) ) ) {                          \
-      if( buf_sz < 8 ) return FD_QUIC_ENCODE_FAIL;                        \
-      buf[0] = (uchar)( ( ( val64 >> 0x38 ) & 0xffu ) | 0xc0u );          \
-      buf[1] = ( val64 >> 0x30 ) & 0xffu;                                 \
-      buf[2] = ( val64 >> 0x28 ) & 0xffu;                                 \
-      buf[3] = ( val64 >> 0x20 ) & 0xffu;                                 \
-      buf[4] = ( val64 >> 0x18 ) & 0xffu;                                 \
-      buf[5] = ( val64 >> 0x10 ) & 0xffu;                                 \
-      buf[6] = ( val64 >> 0x08 ) & 0xffu;                                 \
-      buf[7] = ( val64 >> 0x00 ) & 0xffu;                                 \
-      buf+=8; buf_sz-=8;                                                  \
-    } else                                                                \
-      return FD_QUIC_ENCODE_FAIL;                                         \
+#define FD_QUIC_ENCODE_VARINT(buf,buf_sz,val)                 \
+  do {                                                        \
+    if( FD_UNLIKELY( buf_sz<8 ) ) return FD_QUIC_ENCODE_FAIL; \
+    uint sz = fd_quic_varint_encode( buf, (val) );            \
+    buf += sz; buf_sz -= sz;                                  \
   } while(0);
 
-
-#if !defined(CBMC)
-#if 0
-inline
-ulong
-fd_quic_parse_bits( uchar const * buf, ulong cur_bit, ulong bits ) {
-  if( bits == 0 ) return 0;
-  if( bits > 64 ) return 0;
-
-  if( cur_bit == 0 && bits >= 8 ) {
-    return ( (ulong)buf[0] << (bits-8) ) + fd_quic_parse_bits( buf + 1, cur_bit, bits - 8 );
-  }
-
-  if( cur_bit == 0 ) {
-    // must be less than 8 bits
-    return ( buf[0] >> ( 8 - bits ) ) & ( ( 1 << bits ) - 1 );
-  }
-
-  // align remainder
-  if( bits <= 8 - cur_bit ) {
-    return ( (ulong)buf[0] >> ( 8 - cur_bit - bits ) ) & ( ( 1 << bits ) - 1 );
-  }
-
-  return ( ( (ulong)buf[0] & ( ( 1 << ( 8 - cur_bit ) ) - 1 ) ) << ( bits - ( 8 - cur_bit ) ) )
-         + fd_quic_parse_bits( buf + 1, 0, ( bits - ( 8 - cur_bit ) ) );
-}
-#elif 1
-
-inline
-ulong
-fd_quic_parse_bits( uchar const * buf, ulong cur_bit, ulong bits ) {
-  /* written to assist compiler in optimizing
-     when written naively, the compiler emits branches and calls
-       whereas this way almost all the code is elided
-     the parameters are largely known at compile time
-     single return statement and no local vars helps tail recursion optimization
-     and inlining */
-  return (
-           ( bits == 0u ) ? 0u  // essentially "if( bits == 0 ) return 0; ..."
-           :
-           ( bits > 64u ) ? 0u
-           :
-           ( cur_bit == 0u && bits >= 8u ) ?
-             ( ( (ulong)buf[0u] << (bits-8u) ) + fd_quic_parse_bits( buf + 1u, cur_bit, bits - 8u ) )
-           :
-           ( cur_bit == 0u ) ?
-             ( ( (ulong)buf[0u] >> ( 8u - bits ) ) & ( ( 1u << bits ) - 1u ) )
-
-           :
-           ( bits <= 8u - cur_bit ) ?
-             ( ( (ulong)buf[0u] >> ( 8u - cur_bit - bits ) ) & ( ( 1u << bits ) - 1u ) )
-
-           :
-           ( ( ( (ulong)buf[0u] & ( ( 1u << ( 8u - cur_bit ) ) - 1u ) ) << ( bits - ( 8u - cur_bit ) ) )
-                  + fd_quic_parse_bits( buf + 1u, 0u, ( bits - ( 8u - cur_bit ) ) ) )
-        );
+/* fd_quic_h0_hdr_form extract the 'Header Form' bit, the first bit of a QUIC v1 packet.
+   Returns 1 if the packet is a long header packet, 0 if the packet is a short header packet.
+   Does not require decryption of the packet header. */
+static inline uchar
+fd_quic_h0_hdr_form( uchar hdr ) {
+  return hdr>>7;
 }
 
-
-
-/* encode contiguous unaligned bits across bytes
-   caller responsible for ensuring enough space for operation
-   returns 0 for success */
-inline
-int
-fd_quic_encode_bits( uchar * buf, ulong cur_bit, ulong val, ulong bits ) {
-  /* TODO optimize this */
-
-  if( bits == 0u || bits > 64u ) return 1;
-
-  for( ulong j = 0; j < bits; ++j ) {
-    ulong k = cur_bit + j;
-    ulong bit_offs  = k & 7u;
-    ulong byte_offs = k >> 3u;
-
-    /* at each new byte, clear it */
-    uchar cur_byte = bit_offs == 0 ? 0 : buf[byte_offs];
-
-    /* val bit 0 corresponds to bit offset bits-1 */
-    /* j == 0 is the leftmost bit, which is val bit (bits-1) */
-    /* j == 1 is the leftmost bit, which is val bit (bits-2) */
-    /* so we want to shift val right by ( bits-1-j ) */
-
-    buf[byte_offs] = (uchar)((uchar)cur_byte | (uchar) ( ( (val >> (bits-1u-j)) & 1u ) << ( 7u - bit_offs ) ));
-  }
-
-  return 0;
+/* fd_quic_h0_long_packet_type extracts the 'Long Packet Type' from
+   the first byte of a QUIC v1 long header packet.  Returns FD_QUIC_PKTTYPE_V1_{...}
+   in range [0,4).  Does not require decryption of the packet header. */
+static inline uchar
+fd_quic_h0_long_packet_type( uchar hdr ) {
+  return (hdr>>4)&3;
 }
+
+static inline uchar
+fd_quic_h0_pkt_num_len( uint h0 ) {
+  return (uchar)( h0 & 0x03 );
+}
+
+static inline uchar
+fd_quic_initial_h0( uint pkt_num_len /* [0,3] */ ) {
+  return (uchar)( 0xc0 | pkt_num_len );
+}
+
+static inline uchar
+fd_quic_handshake_h0( uint pkt_num_len /* [0,3] */ ) {
+  return (uchar)( 0xe0 | pkt_num_len );
+}
+
+static inline uchar
+fd_quic_one_rtt_h0( uint spin_bit,   /* [0,1] */
+                    uint key_phase,  /* [0,1] */
+                    uint pkt_num_len /* [0,3] */ ) {
+  return (uchar)( 0x40 | (spin_bit<<5) | (key_phase<<2) | pkt_num_len );
+}
+
+static inline uint
+fd_quic_one_rtt_spin_bit( uint h0 ) {
+  return (uint)( (h0>>5) & 1 );
+}
+
+static inline uint
+fd_quic_one_rtt_key_phase( uint h0 ) {
+  return (uint)( (h0>>2) & 1 );
+}
+
+static inline uchar
+fd_quic_stream_type( uint has_off,
+                     uint has_len,
+                     uint fin ) {
+  return (uchar)( 0x08 + (has_off<<2) + (has_len<<1) + fin );
+}
+
+__attribute__((used)) static ulong
+fd_quic_varint_decode( uchar const * buf,
+                       uint          msb2 ) {
+  switch( msb2 ) {
+  case 3:
+    return __builtin_bswap64( FD_LOAD( ulong,  buf ) ) & 0x3fffffffffffffff;
+  case 2:
+    return __builtin_bswap32( FD_LOAD( uint,   buf ) ) &         0x3fffffff;
+  case 1:
+    return __builtin_bswap16( FD_LOAD( ushort, buf ) ) &             0x3fff;
+  case 0:
+    return buf[0] & 0x3f;
+  default:
+    __builtin_unreachable();
+  }
+}
+
+static inline ulong
+fd_quic_pktnum_decode( uchar const * buf,
+                       ulong         sz ) {
+  uchar scratch[4] = {0};
+  uint n = 0;
+  switch( sz ) {
+  case 4: scratch[3] = buf[ n++ ]; __attribute__((fallthrough));
+  case 3: scratch[2] = buf[ n++ ]; __attribute__((fallthrough));
+  case 2: scratch[1] = buf[ n++ ]; __attribute__((fallthrough));
+  case 1: scratch[0] = buf[ n   ];
+  }
+  return FD_LOAD( uint, scratch );
+}
+
 #endif
-
-#else /* defined(CBMC) */
-
-extern ulong
-fd_quic_parse_bits( uchar const * buf,
-                    ulong         cur_bit,
-                    ulong         bits );
-
-extern int
-fd_quic_encode_bits( uchar * buf,
-                     ulong   cur_bit,
-                     ulong   val,
-                     ulong   bits );
-
-#endif /* defined(CBMC) */

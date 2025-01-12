@@ -42,5 +42,6 @@
 #define FD_RUNTIME_TXN_ERR_RESANITIZATION_NEEDED                     -35
 #define FD_RUNTIME_TXN_ERR_PROGRAM_EXECUTION_TEMPORARILY_RESTRICTED  -36
 #define FD_RUNTIME_TXN_ERR_UNBALANCED_TRANSACTION                    -37
+#define FD_RUNTIME_TXN_ERR_PROGRAM_CACHE_HIT_MAX_LIMIT               -38
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_err_h */

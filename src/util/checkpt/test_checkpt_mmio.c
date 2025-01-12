@@ -11,13 +11,15 @@ FD_STATIC_ASSERT( FD_CHECKPT_FRAME_STYLE_LZ4==2, unit_test );
 
 FD_STATIC_ASSERT( FD_CHECKPT_FRAME_STYLE_DEFAULT==1, unit_test );
 
+FD_STATIC_ASSERT( FD_CHECKPT_META_MAX == 65536UL, unit_test );
 FD_STATIC_ASSERT( FD_CHECKPT_WBUF_MIN == 69632UL, unit_test );
 FD_STATIC_ASSERT( FD_CHECKPT_ALIGN    ==     8UL, unit_test );
 FD_STATIC_ASSERT( FD_CHECKPT_FOOTPRINT==196664UL, unit_test );
 
+FD_STATIC_ASSERT( FD_RESTORE_META_MAX == 65536UL, unit_test );
 FD_STATIC_ASSERT( FD_RESTORE_RBUF_MIN == 69632UL, unit_test );
 FD_STATIC_ASSERT( FD_RESTORE_ALIGN    ==     8UL, unit_test );
-FD_STATIC_ASSERT( FD_RESTORE_FOOTPRINT==196664UL, unit_test );
+FD_STATIC_ASSERT( FD_RESTORE_FOOTPRINT==196680UL, unit_test );
 
 #define BUF_MAX (1048576UL)
 static uchar in  [ BUF_MAX ];
@@ -72,69 +74,142 @@ main( int argc,
   FD_TEST( !fd_checkpt_init_mmio( _checkpt,    NULL, mmio_sz ) ); /* NULL mmio with non-zero sz */
   fd_checkpt_t * checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
 
+  FD_TEST( fd_checkpt_is_mmio( checkpt )==1       );
+  FD_TEST( fd_checkpt_mmio   ( checkpt )==mmio    );
+  FD_TEST( fd_checkpt_mmio_sz( checkpt )==mmio_sz );
+
   FD_LOG_NOTICE(( "Testing fd_checkpt_fini" ));
 
   FD_TEST( !fd_checkpt_fini( NULL ) );                      /* NULL checkpt */
   FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt ); /* fini (normal) */
 
   checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
-  FD_TEST( !fd_checkpt_frame_open( checkpt, 0 ) );          /* open default (raw) frame */
+  FD_TEST( !fd_checkpt_open( checkpt, 0 ) );                /* open default (raw) frame */
   FD_TEST( !fd_checkpt_fini( checkpt ) );                   /* fini (in frame) */
   FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt ); /* fini (failed) */
 
-  FD_LOG_NOTICE(( "Testing fd_checkpt_frame_open" ));
+  FD_LOG_NOTICE(( "Testing fd_checkpt_open" ));
 
-  FD_TEST(  fd_checkpt_frame_open( NULL, 0 )==FD_CHECKPT_ERR_INVAL ); /* NULL checkpt */
-
-  checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
-  FD_TEST( !fd_checkpt_frame_open( checkpt, style_raw ) );                       /* open raw frame */
-  FD_TEST(  fd_checkpt_frame_open( checkpt, style_raw )==FD_CHECKPT_ERR_INVAL ); /* in frame */
-  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );                      /* fini (failed) */
+  FD_TEST(  fd_checkpt_open( NULL, 0 )==FD_CHECKPT_ERR_INVAL ); /* NULL checkpt */
 
   checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
-  FD_TEST( !fd_checkpt_frame_open( checkpt, style_lz4 ) );  /* open lz4 frame (if target supports, raw if not) */
+  FD_TEST( !fd_checkpt_open( checkpt, style_raw ) );                       /* open raw frame */
+  FD_TEST(  fd_checkpt_open( checkpt, style_raw )==FD_CHECKPT_ERR_INVAL ); /* in frame */
+  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );                /* fini (failed) */
+
+  checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
+  FD_TEST( !fd_checkpt_open( checkpt, style_lz4 ) );        /* open lz4 frame (if target supports, raw if not) */
   FD_TEST( !fd_checkpt_fini( checkpt ) );                   /* fini (in frame) */
   FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt ); /* fini (failed) */
 
   checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
-  FD_TEST(  fd_checkpt_frame_open( checkpt, -1 )==FD_CHECKPT_ERR_UNSUP ); /* unsupported frame */
+  FD_TEST(  fd_checkpt_open( checkpt, -1 )==FD_CHECKPT_ERR_UNSUP ); /* unsupported frame */
+  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );         /* fini (failed) */
+
+  FD_LOG_NOTICE(( "Testing fd_checkpt_close" ));
+
+  FD_TEST( fd_checkpt_close( NULL )==FD_CHECKPT_ERR_INVAL ); /* NULL checkpt */
+
+  checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
+  FD_TEST(  fd_checkpt_close( checkpt )==FD_CHECKPT_ERR_INVAL ); /* close (not in frame) */
+  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );      /* fini (failed) */
+
+  checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
+  FD_TEST( !fd_checkpt_open( checkpt, style_raw ) );        /* open raw frame */
+  FD_TEST( !fd_checkpt_close( checkpt ) );                  /* close (in frame) */
+  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt ); /* fini (normal) */
+
+  FD_LOG_NOTICE(( "Testing fd_checkpt_meta" ));
+
+  FD_TEST(  fd_checkpt_meta( NULL, in, data_sz )==FD_CHECKPT_ERR_INVAL ); /* NULL checkpt */
+
+  /* not in frame */
+  checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
+  FD_TEST(  fd_checkpt_meta( checkpt, in, 1UL )==FD_CHECKPT_ERR_INVAL ); /* normal */
+  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );              /* fini (failed) */
+
+  checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
+  FD_TEST(  fd_checkpt_meta( checkpt, in, 0UL )==FD_CHECKPT_ERR_INVAL ); /* zero sz */
+  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );              /* fini (failed) */
+
+  checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
+  FD_TEST(  fd_checkpt_meta( checkpt, NULL, 0UL )==FD_CHECKPT_ERR_INVAL ); /* NULL with zero sz */
+  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );                /* fini (failed) */
+
+  checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
+  FD_TEST(  fd_checkpt_meta( checkpt, NULL, 1UL )==FD_CHECKPT_ERR_INVAL ); /* NULL */
+  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );                /* fini (failed) */
+
+  checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
+  FD_TEST(  fd_checkpt_meta( checkpt, in, FD_CHECKPT_META_MAX+1UL )==FD_CHECKPT_ERR_INVAL ); /* too large */
+  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );                                  /* fini (failed) */
+
+  /* raw frame */
+  checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
+  FD_TEST( !fd_checkpt_open( checkpt, style_raw ) );                       /* open raw frame */
+  FD_TEST( !fd_checkpt_meta( checkpt, in,   1UL ) );                       /* normal */
+  FD_TEST( !fd_checkpt_meta( checkpt, in,   0UL ) );                       /* zero sz */
+  FD_TEST( !fd_checkpt_meta( checkpt, NULL, 0UL ) );                       /* NULL with zero sz */
+  FD_TEST(  fd_checkpt_meta( checkpt, NULL, 1UL )==FD_CHECKPT_ERR_INVAL ); /* NULL */
+  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );                /* fini (failed) */
+
+  checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
+  FD_TEST( !fd_checkpt_open( checkpt, style_raw ) );                                         /* open raw frame */
+  FD_TEST(  fd_checkpt_meta( checkpt, in, FD_CHECKPT_META_MAX+1UL )==FD_CHECKPT_ERR_INVAL ); /* too large */
+  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );                                  /* fini (failed) */
+
+  /* lz4 frame */
+  checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
+  FD_TEST( !fd_checkpt_open( checkpt, style_lz4 ) );                       /* open lz4 frame */
+  FD_TEST( !fd_checkpt_meta( checkpt, in,   1UL ) );                       /* normal */
+  FD_TEST( !fd_checkpt_meta( checkpt, in,   0UL ) );                       /* zero sz */
+  FD_TEST( !fd_checkpt_meta( checkpt, NULL, 0UL ) );                       /* NULL with zero sz */
+  FD_TEST(  fd_checkpt_meta( checkpt, NULL, 1UL )==FD_CHECKPT_ERR_INVAL ); /* NULL */
+  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );                /* fini (failed) */
+
+  checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
+  FD_TEST( !fd_checkpt_open( checkpt, style_lz4 ) );                                         /* open raw frame */
+  FD_TEST(  fd_checkpt_meta( checkpt, in, FD_CHECKPT_META_MAX+1UL )==FD_CHECKPT_ERR_INVAL ); /* too large */
+  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );                                  /* fini (failed) */
+
+  FD_LOG_NOTICE(( "Testing fd_checkpt_data" ));
+
+  FD_TEST(  fd_checkpt_data( NULL, in, data_sz )==FD_CHECKPT_ERR_INVAL ); /* NULL checkpt */
+
+  /* not in frame */
+  checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
+  FD_TEST(  fd_checkpt_data( checkpt, in, 1UL )==FD_CHECKPT_ERR_INVAL ); /* normal */
+  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );              /* fini (failed) */
+
+  checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
+  FD_TEST(  fd_checkpt_data( checkpt, in, 0UL )==FD_CHECKPT_ERR_INVAL ); /* zero sz */
+  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );              /* fini (failed) */
+
+  checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
+  FD_TEST(  fd_checkpt_data( checkpt, NULL, 0UL )==FD_CHECKPT_ERR_INVAL ); /* NULL with zero sz */
+  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );                /* fini (failed) */
+
+  checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
+  FD_TEST(  fd_checkpt_data( checkpt, NULL, 1UL )==FD_CHECKPT_ERR_INVAL ); /* NULL */
+  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );                /* fini (failed) */
+
+  /* raw frame */
+  checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
+  FD_TEST( !fd_checkpt_open( checkpt, style_raw ) );                       /* open raw frame */
+  FD_TEST( !fd_checkpt_data( checkpt, in,   1UL ) );                       /* normal */
+  FD_TEST( !fd_checkpt_data( checkpt, in,   0UL ) );                       /* zero sz */
+  FD_TEST( !fd_checkpt_data( checkpt, NULL, 0UL ) );                       /* NULL with zero sz */
+  FD_TEST(  fd_checkpt_data( checkpt, NULL, 1UL )==FD_CHECKPT_ERR_INVAL ); /* NULL */
   FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );               /* fini (failed) */
 
-  FD_LOG_NOTICE(( "Testing fd_checkpt_frame_close" ));
-
-  FD_TEST( fd_checkpt_frame_close( NULL )==FD_CHECKPT_ERR_INVAL ); /* NULL checkpt */
-
+  /* lz4 frame */
   checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
-  FD_TEST(  fd_checkpt_frame_close( checkpt )==FD_CHECKPT_ERR_INVAL ); /* close (not in frame) */
-  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );            /* fini (failed) */
-
-  checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
-  FD_TEST( !fd_checkpt_frame_open( checkpt, style_raw ) );  /* open raw frame */
-  FD_TEST( !fd_checkpt_frame_close( checkpt ) );            /* close (in frame) */
-  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt ); /* fini (normal) */
-
-  FD_LOG_NOTICE(( "Testing fd_checkpt_buf" ));
-
-  FD_TEST(  fd_checkpt_buf( NULL, in, data_sz )==FD_CHECKPT_ERR_INVAL ); /* NULL checkpt */
-
-  checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
-  FD_TEST(  fd_checkpt_buf( checkpt, in, 1UL )==FD_CHECKPT_ERR_INVAL ); /* not in frame */
-  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );             /* fini (normal) */
-
-  checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
-  FD_TEST(  fd_checkpt_buf( checkpt, in, 0UL )==FD_CHECKPT_ERR_INVAL ); /* zero sz (not in frame) */
-  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );             /* fini (normal) */
-
-  checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
-  FD_TEST(  fd_checkpt_buf( checkpt, NULL, 0UL )==FD_CHECKPT_ERR_INVAL ); /* NULL with zero sz (not in frame) */
-  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );               /* fini (normal) */
-
-  checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
-  FD_TEST( !fd_checkpt_frame_open( checkpt, style_raw ) );  /* open raw frame */
-  FD_TEST( !fd_checkpt_buf( checkpt, in,   0UL ) );         /* zero sz */
-  FD_TEST( !fd_checkpt_buf( checkpt, NULL, 0UL ) );         /* NULL with zero sz */
-  FD_TEST( !fd_checkpt_frame_close( checkpt ) );            /* close (in frame) */
-  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt ); /* fini (normal) */
+  FD_TEST( !fd_checkpt_open( checkpt, style_lz4 ) );                       /* open lz4 frame */
+  FD_TEST( !fd_checkpt_data( checkpt, in,   1UL ) );                       /* normal */
+  FD_TEST( !fd_checkpt_data( checkpt, in,   0UL ) );                       /* zero sz */
+  FD_TEST( !fd_checkpt_data( checkpt, NULL, 0UL ) );                       /* NULL with zero sz */
+  FD_TEST(  fd_checkpt_data( checkpt, NULL, 1UL )==FD_CHECKPT_ERR_INVAL ); /* NULL */
+  FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );               /* fini (failed) */
 
   FD_LOG_NOTICE(( "Testing fd_restore_init_mmio" ));
 
@@ -143,69 +218,168 @@ main( int argc,
   FD_TEST( !fd_restore_init_mmio( _restore,    NULL, mmio_sz ) ); /* NULL mmio with non-zero sz */
   fd_restore_t * restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
 
+  FD_TEST( fd_restore_is_mmio( restore )==1       );
+  FD_TEST( fd_restore_mmio   ( restore )==mmio    );
+  FD_TEST( fd_restore_mmio_sz( restore )==mmio_sz );
+
   FD_LOG_NOTICE(( "Testing fd_restore_fini" ));
 
   FD_TEST( !fd_restore_fini( NULL ) );                      /* NULL restore */
   FD_TEST(  fd_restore_fini( restore )==(void *)_restore ); /* fini (normal) */
 
   restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
-  FD_TEST( !fd_restore_frame_open( restore, 0 ) );          /* open default (raw) frame */
+  FD_TEST( !fd_restore_open( restore, 0 ) );                /* open default (raw) frame */
   FD_TEST( !fd_restore_fini( restore ) );                   /* fini (in frame) */
   FD_TEST(  fd_restore_fini( restore )==(void *)_restore ); /* fini (failed) */
 
-  FD_LOG_NOTICE(( "Testing fd_restore_frame_open" ));
+  FD_LOG_NOTICE(( "Testing fd_restore_open" ));
 
-  FD_TEST(  fd_restore_frame_open( NULL, 0 )==FD_CHECKPT_ERR_INVAL ); /* NULL restore */
-
-  restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
-  FD_TEST( !fd_restore_frame_open( restore, style_raw )                       ); /* open raw frame */
-  FD_TEST(  fd_restore_frame_open( restore, style_raw )==FD_CHECKPT_ERR_INVAL ); /* in frame */
-  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );                      /* fini (failed) */
+  FD_TEST(  fd_restore_open( NULL, 0 )==FD_CHECKPT_ERR_INVAL ); /* NULL restore */
 
   restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
-  FD_TEST( !fd_restore_frame_open( restore, style_lz4 ) );  /* open lz4 frame (if target supports, raw if not) */
+  FD_TEST( !fd_restore_open( restore, style_raw )                       ); /* open raw frame */
+  FD_TEST(  fd_restore_open( restore, style_raw )==FD_CHECKPT_ERR_INVAL ); /* in frame */
+  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );                /* fini (failed) */
+
+  restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
+  FD_TEST( !fd_restore_open( restore, style_lz4 ) );        /* open lz4 frame (if target supports, raw if not) */
   FD_TEST( !fd_restore_fini( restore ) );                   /* fini (in frame) */
   FD_TEST(  fd_restore_fini( restore )==(void *)_restore ); /* fini (failed) */
 
   restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
-  FD_TEST(  fd_restore_frame_open( restore, -1 )==FD_CHECKPT_ERR_UNSUP ); /* unsupported frame */
-  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );               /* fini (failed) */
+  FD_TEST(  fd_restore_open( restore, -1 )==FD_CHECKPT_ERR_UNSUP ); /* unsupported frame */
+  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );         /* fini (failed) */
 
-  FD_LOG_NOTICE(( "Testing fd_restore_frame_close" ));
+  FD_LOG_NOTICE(( "Testing fd_restore_close" ));
 
-  FD_TEST( fd_restore_frame_close( NULL )==FD_CHECKPT_ERR_INVAL ); /* NULL restore */
-
-  restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
-  FD_TEST(  fd_restore_frame_close( restore )==FD_CHECKPT_ERR_INVAL ); /* close (not in frame) */
-  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );            /* fini (failed) */
+  FD_TEST( fd_restore_close( NULL )==FD_CHECKPT_ERR_INVAL ); /* NULL restore */
 
   restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
-  FD_TEST( !fd_restore_frame_open( restore, style_raw ) );  /* open raw frame */
-  FD_TEST( !fd_restore_frame_close( restore           ) );  /* close (in frame) */
+  FD_TEST(  fd_restore_close( restore )==FD_CHECKPT_ERR_INVAL ); /* close (not in frame) */
+  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );      /* fini (failed) */
+
+  restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
+  FD_TEST( !fd_restore_open( restore, style_raw ) );        /* open raw frame */
+  FD_TEST( !fd_restore_close( restore           ) );        /* close (in frame) */
   FD_TEST(  fd_restore_fini( restore )==(void *)_restore ); /* fini (normal) */
 
-  FD_LOG_NOTICE(( "Testing fd_restore_buf" ));
+  FD_LOG_NOTICE(( "Testing fd_restore_meta" ));
 
-  FD_TEST(  fd_restore_buf( NULL, in, data_sz )==FD_CHECKPT_ERR_INVAL ); /* NULL restore */
+  FD_TEST(  fd_restore_meta( NULL, in, data_sz )==FD_CHECKPT_ERR_INVAL ); /* NULL restore */
+
+  /* not in frame */
+  restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
+  FD_TEST(  fd_restore_meta( restore, in, 1UL )==FD_CHECKPT_ERR_INVAL ); /* normal */
+  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );              /* fini (failed) */
 
   restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
-  FD_TEST(  fd_restore_buf( restore, in, 1UL )==FD_CHECKPT_ERR_INVAL ); /* not in frame */
-  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );             /* fini (normal) */
+  FD_TEST(  fd_restore_meta( restore, in, 0UL )==FD_CHECKPT_ERR_INVAL ); /* zero sz */
+  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );              /* fini (failed) */
 
   restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
-  FD_TEST(  fd_restore_buf( restore, in, 0UL )==FD_CHECKPT_ERR_INVAL ); /* zero sz (not in frame) */
-  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );             /* fini (normal) */
+  FD_TEST(  fd_restore_meta( restore, NULL, 0UL )==FD_CHECKPT_ERR_INVAL ); /* NULL with zero sz */
+  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );                /* fini (failed) */
 
   restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
-  FD_TEST(  fd_restore_buf( restore, NULL, 0UL )==FD_CHECKPT_ERR_INVAL ); /* NULL with zero sz (not in frame) */
-  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );               /* fini (normal) */
+  FD_TEST(  fd_restore_meta( restore, NULL, 1UL )==FD_CHECKPT_ERR_INVAL ); /* NULL */
+  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );                /* fini (failed) */
 
   restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
-  FD_TEST( !fd_restore_frame_open( restore, style_raw ) );  /* open raw frame */
-  FD_TEST( !fd_restore_buf( restore, in,   0UL ) );         /* zero sz */
-  FD_TEST( !fd_restore_buf( restore, NULL, 0UL ) );         /* NULL with zero sz */
-  FD_TEST( !fd_restore_frame_close( restore ) );            /* close (in frame) */
-  FD_TEST(  fd_restore_fini( restore )==(void *)_restore ); /* fini (normal) */
+  FD_TEST(  fd_restore_meta( restore, in, FD_CHECKPT_META_MAX+1UL )==FD_CHECKPT_ERR_INVAL ); /* too large */
+  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );                                  /* fini (failed) */
+
+  /* raw frame */
+  restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
+  FD_TEST( !fd_restore_open( restore, style_raw ) );                       /* open raw frame */
+  /* normal checked end-to-end (nothing in mmio yet) */
+  FD_TEST( !fd_restore_meta( restore, in,   0UL ) );                       /* zero sz */
+  FD_TEST( !fd_restore_meta( restore, NULL, 0UL ) );                       /* NULL with zero sz */
+  FD_TEST(  fd_restore_meta( restore, NULL, 1UL )==FD_CHECKPT_ERR_INVAL ); /* NULL */
+  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );                /* fini (failed) */
+
+  restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
+  FD_TEST( !fd_restore_open( restore, style_raw ) );                                         /* open raw frame */
+  FD_TEST(  fd_restore_meta( restore, in, FD_CHECKPT_META_MAX+1UL )==FD_CHECKPT_ERR_INVAL ); /* too large */
+  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );                                  /* fini (failed) */
+
+  /* lz4 frame */
+  restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
+  FD_TEST( !fd_restore_open( restore, style_lz4 ) );                       /* open lz4 frame */
+  /* normal checked end-to-end (nothing in mmio yet) */
+  FD_TEST( !fd_restore_meta( restore, in,   0UL ) );                       /* zero sz */
+  FD_TEST( !fd_restore_meta( restore, NULL, 0UL ) );                       /* NULL with zero sz */
+  FD_TEST(  fd_restore_meta( restore, NULL, 1UL )==FD_CHECKPT_ERR_INVAL ); /* NULL */
+  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );                /* fini (failed) */
+
+  restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
+  FD_TEST( !fd_restore_open( restore, style_lz4 ) );                                         /* open raw frame */
+  FD_TEST(  fd_restore_meta( restore, in, FD_CHECKPT_META_MAX+1UL )==FD_CHECKPT_ERR_INVAL ); /* too large */
+  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );                                  /* fini (failed) */
+
+  FD_LOG_NOTICE(( "Testing fd_restore_data" ));
+
+  FD_TEST(  fd_restore_data( NULL, in, data_sz )==FD_CHECKPT_ERR_INVAL ); /* NULL restore */
+
+  /* not in frame */
+  restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
+  FD_TEST(  fd_restore_data( restore, in, 1UL )==FD_CHECKPT_ERR_INVAL ); /* normal */
+  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );              /* fini (failed) */
+
+  restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
+  FD_TEST(  fd_restore_data( restore, in, 0UL )==FD_CHECKPT_ERR_INVAL ); /* zero sz */
+  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );              /* fini (failed) */
+
+  restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
+  FD_TEST(  fd_restore_data( restore, NULL, 0UL )==FD_CHECKPT_ERR_INVAL ); /* NULL with zero sz */
+  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );                /* fini (failed) */
+
+  restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
+  FD_TEST(  fd_restore_data( restore, NULL, 1UL )==FD_CHECKPT_ERR_INVAL ); /* NULL */
+  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );                /* fini (failed) */
+
+  /* raw frame */
+  restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
+  FD_TEST( !fd_restore_open( restore, style_raw ) );                       /* open raw frame */
+  /* normal checked end-to-end (nothing in mmio yet) */
+  FD_TEST( !fd_restore_data( restore, in,   0UL ) );                       /* zero sz */
+  FD_TEST( !fd_restore_data( restore, NULL, 0UL ) );                       /* NULL with zero sz */
+  FD_TEST(  fd_restore_data( restore, NULL, 1UL )==FD_CHECKPT_ERR_INVAL ); /* NULL */
+  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );                /* fini (failed) */
+
+  /* lz4 frame */
+  restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
+  FD_TEST( !fd_restore_open( restore, style_lz4 ) );                       /* open lz4 frame */
+  /* normal checked end-to-end (nothing in mmio yet) */
+  FD_TEST( !fd_restore_data( restore, in,   0UL ) );                       /* zero sz */
+  FD_TEST( !fd_restore_data( restore, NULL, 0UL ) );                       /* NULL with zero sz */
+  FD_TEST(  fd_restore_data( restore, NULL, 1UL )==FD_CHECKPT_ERR_INVAL ); /* NULL */
+  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );                /* fini (failed) */
+
+  /* Test sz */
+
+  restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
+  FD_TEST( fd_restore_sz( restore )==mmio_sz );
+  FD_TEST( fd_restore_fini( restore )==(void *)_restore );                 /* fini (normal) */
+
+  /* Test seek */
+
+  FD_TEST(  fd_restore_seek( NULL, 0UL )==FD_CHECKPT_ERR_INVAL ); /* NULL restore */
+
+  restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
+  FD_TEST( !fd_restore_seek( restore, mmio_sz    ) );                       /* EOF */
+  FD_TEST( !fd_restore_seek( restore, 0UL        ) );                       /* SOF */
+  FD_TEST(  fd_restore_seek( restore, mmio_sz+1U )==FD_CHECKPT_ERR_INVAL ); /* beyond EOF */
+  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );                 /* fini (failed) */
+
+  restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
+  FD_TEST( !fd_restore_open( restore, style_raw ) );                 /* open lz4 frame */
+  FD_TEST(  fd_restore_seek( restore, 0UL )==FD_CHECKPT_ERR_INVAL ); /* in frame */
+  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );          /* fini (failed) */
+
+  restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
+  FD_TEST( !fd_restore_open( restore, style_lz4 ) );                 /* open lz4 frame */
+  FD_TEST(  fd_restore_seek( restore, 0UL )==FD_CHECKPT_ERR_INVAL ); /* in frame */
+  FD_TEST(  fd_restore_fini( restore )==(void *)_restore );          /* fini (failed) */
 
   FD_LOG_NOTICE(( "Testing end-to-end" ));
 
@@ -229,9 +403,9 @@ main( int argc,
     memset( out,  0, data_sz );
 
     checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
-    FD_TEST( !fd_checkpt_frame_open_advanced( checkpt, style, &off_open ) );
-    FD_TEST( !fd_checkpt_buf( checkpt, in, data_sz ) );
-    FD_TEST( !fd_checkpt_frame_close_advanced( checkpt, &off_close ) );
+    FD_TEST( !fd_checkpt_open_advanced( checkpt, style, &off_open ) );
+    FD_TEST( !fd_checkpt_data( checkpt, in, data_sz ) );
+    FD_TEST( !fd_checkpt_close_advanced( checkpt, &off_close ) );
     FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );
 
     if( style==style_raw ) {
@@ -240,9 +414,14 @@ main( int argc,
     }
 
     restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
-    FD_TEST( !fd_restore_frame_open( restore, style ) );
-    FD_TEST( !fd_restore_buf( restore, out, data_sz ) );
-    FD_TEST( !fd_restore_frame_close( restore ) );
+
+    FD_TEST( !fd_restore_seek( restore, mmio_sz                               ) ); /* to eof */
+    FD_TEST( !fd_restore_seek( restore, fd_rng_ulong_roll( rng, mmio_sz+1UL ) ) ); /* to arb position */
+    FD_TEST( !fd_restore_seek( restore, 0UL                                   ) ); /* to sof */
+
+    FD_TEST( !fd_restore_open( restore, style ) );
+    FD_TEST( !fd_restore_data( restore, out, data_sz ) );
+    FD_TEST( !fd_restore_close( restore ) );
     FD_TEST(  fd_restore_fini( restore )==(void *)_restore );
 
     FD_TEST( !memcmp( in, out, data_sz ) );
@@ -255,18 +434,18 @@ main( int argc,
     memset( mmio, 0, mmio_sz );
 
     checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
-    FD_TEST( !fd_checkpt_frame_open_advanced( checkpt, style, &off_open ) );
+    FD_TEST( !fd_checkpt_open_advanced( checkpt, style, &off_open ) );
     ibuf = in;
     rem  = data_sz;
     while( rem ) {
       ulong r      = fd_rng_ulong( rng );
       ulong mask   = (1UL << fd_rng_int_roll( rng, 18 )) - 1UL;
       ulong buf_sz = fd_ulong_min( rem, r & mask ); /* In [0,128KiB) biased toward small */
-      FD_TEST( !fd_checkpt_buf( checkpt, ibuf, buf_sz ) );
+      FD_TEST( !fd_checkpt_data( checkpt, ibuf, buf_sz ) );
       ibuf += buf_sz;
       rem  -= buf_sz;
     }
-    FD_TEST( !fd_checkpt_frame_close_advanced( checkpt, &off_close ) );
+    FD_TEST( !fd_checkpt_close_advanced( checkpt, &off_close ) );
     FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );
 
     if( style==style_raw ) {
@@ -279,19 +458,19 @@ main( int argc,
     memset( out, 0, data_sz );
 
     restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
-    FD_TEST( !fd_restore_frame_open( restore, style ) );
+    FD_TEST( !fd_restore_open( restore, style ) );
     obuf = out;
     rem  = data_sz;
     while( rem ) {
       ulong r      = fd_rng_ulong( rng );
       ulong mask   = (1UL << fd_rng_int_roll( rng, 18 )) - 1UL;
       ulong buf_sz = fd_ulong_min( rem, r & mask ); /* In [0,128KiB) biased toward small */
-      FD_TEST( !fd_restore_buf( restore, obuf, buf_sz ) );
+      FD_TEST( !fd_restore_data( restore, obuf, buf_sz ) );
       if( FD_LIKELY( buf_sz ) ) FD_TEST( !memcmp( in+(data_sz-rem), obuf, buf_sz ) ); /* Test immedate avail */
       obuf += buf_sz;
       rem  -= buf_sz;
     }
-    FD_TEST( !fd_restore_frame_close( restore ) );
+    FD_TEST( !fd_restore_close( restore ) );
     FD_TEST(  fd_restore_fini( restore )==(void *)_restore );
 
     FD_TEST( !memcmp( in, out, data_sz ) );
@@ -306,7 +485,7 @@ main( int argc,
 
     checkpt  = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
     frame_sz = 0UL;
-    FD_TEST( !fd_checkpt_frame_open_advanced( checkpt, style, &off_open ) );
+    FD_TEST( !fd_checkpt_open_advanced( checkpt, style, &off_open ) );
     ibuf     = in;
     rem      = data_sz;
     while( rem ) {
@@ -316,17 +495,17 @@ main( int argc,
       for( ulong i=0UL; i<11UL; i++ ) { /* Random break up inputs into frames (including empty ones) */
         if( FD_LIKELY( r & 7UL ) ) break;
         r >>= 3;
-        FD_TEST( !fd_checkpt_frame_close_advanced( checkpt, &off_close ) );
+        FD_TEST( !fd_checkpt_close_advanced( checkpt, &off_close ) );
         if( style==style_raw ) FD_TEST( (off_close-off_open)==frame_sz );
         frame_sz = 0UL;
-        FD_TEST( !fd_checkpt_frame_open_advanced( checkpt, style, &off_open ) );
+        FD_TEST( !fd_checkpt_open_advanced( checkpt, style, &off_open ) );
       }
-      FD_TEST( !fd_checkpt_buf( checkpt, ibuf, buf_sz ) );
+      FD_TEST( !fd_checkpt_data( checkpt, ibuf, buf_sz ) );
       ibuf     += buf_sz;
       rem      -= buf_sz;
       frame_sz += buf_sz;
     }
-    FD_TEST( !fd_checkpt_frame_close_advanced( checkpt, &off_close ) );
+    FD_TEST( !fd_checkpt_close_advanced( checkpt, &off_close ) );
     FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );
 
     if( style==style_raw ) {
@@ -339,7 +518,7 @@ main( int argc,
     memset( out, 0, data_sz );
 
     restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
-    FD_TEST( !fd_restore_frame_open( restore, style ) );
+    FD_TEST( !fd_restore_open( restore, style ) );
     obuf = out;
     rem  = data_sz;
     while( rem ) {
@@ -349,15 +528,15 @@ main( int argc,
       for( ulong i=0UL; i<11UL; i++ ) { /* Random break up inputs into frames (including empty ones) */
         if( FD_LIKELY( r & 7UL ) ) break;
         r >>= 3;
-        FD_TEST( !fd_restore_frame_close( restore ) );
-        FD_TEST( !fd_restore_frame_open( restore, style ) );
+        FD_TEST( !fd_restore_close( restore ) );
+        FD_TEST( !fd_restore_open( restore, style ) );
       }
-      FD_TEST( !fd_restore_buf( restore, obuf, buf_sz ) );
+      FD_TEST( !fd_restore_data( restore, obuf, buf_sz ) );
       if( FD_LIKELY( buf_sz ) ) FD_TEST( !memcmp( in+(data_sz-rem), obuf, buf_sz ) ); /* Test immedate avail */
       obuf += buf_sz;
       rem  -= buf_sz;
     }
-    FD_TEST( !fd_restore_frame_close( restore ) );
+    FD_TEST( !fd_restore_close( restore ) );
     FD_TEST(  fd_restore_fini( restore )==(void *)_restore );
 
     FD_TEST( !memcmp( in, out, data_sz ) );
@@ -373,7 +552,7 @@ main( int argc,
     checkpt  = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
     style    = fd_int_if( !(fd_rng_ulong( rng ) & 1UL), style_raw, style_lz4 );
     frame_sz = 0UL;
-    FD_TEST( !fd_checkpt_frame_open_advanced( checkpt, style, &off_open ) );
+    FD_TEST( !fd_checkpt_open_advanced( checkpt, style, &off_open ) );
     ibuf     = in;
     rem      = data_sz;
     while( rem ) {
@@ -383,19 +562,19 @@ main( int argc,
       for( ulong i=0UL; i<11UL; i++ ) { /* Random break up inputs into frames (including empty ones) */
         if( FD_LIKELY( r & 7UL ) ) break;
         r >>= 3;
-        FD_TEST( !fd_checkpt_frame_close_advanced( checkpt, &off_close ) );
+        FD_TEST( !fd_checkpt_close_advanced( checkpt, &off_close ) );
         if( style==style_raw ) FD_TEST( (off_close-off_open)==frame_sz );
         /* FIXME: consider comparing frame bytes when raw? */
         style    = fd_int_if( !(r & 1UL), style_raw, style_lz4 ); r >>= 1;
         frame_sz = 0UL;
-        FD_TEST( !fd_checkpt_frame_open_advanced( checkpt, style, &off_open ) );
+        FD_TEST( !fd_checkpt_open_advanced( checkpt, style, &off_open ) );
       }
-      FD_TEST( !fd_checkpt_buf( checkpt, ibuf, buf_sz ) );
+      FD_TEST( !fd_checkpt_data( checkpt, ibuf, buf_sz ) );
       ibuf     += buf_sz;
       rem      -= buf_sz;
       frame_sz += buf_sz;
     }
-    FD_TEST( !fd_checkpt_frame_close_advanced( checkpt, &off_close ) );
+    FD_TEST( !fd_checkpt_close_advanced( checkpt, &off_close ) );
     FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );
 
     fd_rng_seq_set( rng, rng_seq ); fd_rng_idx_set( rng, rng_idx ); /* Restore to recreate same checkpt open/buf/close */
@@ -404,7 +583,7 @@ main( int argc,
 
     restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
     style   = fd_int_if( !(fd_rng_ulong( rng ) & 1UL), style_raw, style_lz4 );
-    FD_TEST( !fd_restore_frame_open( restore, style ) );
+    FD_TEST( !fd_restore_open( restore, style ) );
     obuf = out;
     rem  = data_sz;
     while( rem ) {
@@ -414,19 +593,93 @@ main( int argc,
       for( ulong i=0UL; i<11UL; i++ ) { /* Random break up inputs into frames (including empty ones) */
         if( FD_LIKELY( r & 7UL ) ) break;
         r >>= 3;
-        FD_TEST( !fd_restore_frame_close( restore ) );
+        FD_TEST( !fd_restore_close( restore ) );
         style = fd_int_if( !(r & 1UL), style_raw, style_lz4 ); r >>= 1;
-        FD_TEST( !fd_restore_frame_open( restore, style ) );
+        FD_TEST( !fd_restore_open( restore, style ) );
       }
-      FD_TEST( !fd_restore_buf( restore, obuf, buf_sz ) );
+      FD_TEST( !fd_restore_data( restore, obuf, buf_sz ) );
       if( FD_LIKELY( buf_sz ) ) FD_TEST( !memcmp( in+(data_sz-rem), obuf, buf_sz ) ); /* Test immedate avail */
       obuf += buf_sz;
       rem  -= buf_sz;
     }
-    FD_TEST( !fd_restore_frame_close( restore ) );
+    FD_TEST( !fd_restore_close( restore ) );
     FD_TEST(  fd_restore_fini( restore )==(void *)_restore );
 
     FD_TEST( !memcmp( in, out, data_sz ) );
+
+    /* Test non-trivial gather/scatter (to stress out lz4 compressor and
+       gather/scatter optimizations) */
+
+    /* Pick two non-overlapping regions */
+
+    ulong i0 = fd_rng_ulong_roll( rng, data_sz+1UL );
+    ulong i1 = fd_rng_ulong_roll( rng, data_sz+1UL );
+    ulong i2 = fd_rng_ulong_roll( rng, data_sz+1UL );
+    ulong i3 = fd_rng_ulong_roll( rng, data_sz+1UL );
+    fd_swap_if( i0>i2, i0, i2 ); fd_swap_if( i1>i3, i1, i3 );
+    fd_swap_if( i0>i1, i0, i1 ); fd_swap_if( i2>i3, i2, i3 );
+    fd_swap_if( i1>i2, i1, i2 );
+    ulong sza = i1-i0;
+    ulong szb = i3-i2;
+
+    /* Concat regions of in */
+
+    uchar tmp[ BUF_MAX ];
+    if( FD_LIKELY( sza ) ) memcpy( tmp,     in+i0, sza );
+    if( FD_LIKELY( szb ) ) memcpy( tmp+sza, in+i2, szb );
+
+    memset( mmio, 0, mmio_sz );
+    memset( out,  0, data_sz );
+
+    /* Checkpt contiguous regions */
+
+    style   = fd_int_if( !(fd_rng_ulong( rng ) & 1UL), style_raw, style_lz4 );
+    checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
+    FD_TEST( !fd_checkpt_open( checkpt, style ) );
+    FD_TEST( !fd_checkpt_data( checkpt, tmp,     sza ) );
+    FD_TEST( !fd_checkpt_data( checkpt, tmp+sza, szb ) );
+    FD_TEST( !fd_checkpt_close( checkpt ) );
+    FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );
+
+    if( style==style_raw ) FD_TEST( !memcmp( tmp, mmio, sza+szb ) );
+
+    /* Restore into discontiguous regions */
+
+    restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
+    FD_TEST( !fd_restore_open( restore, style ) );
+    FD_TEST( !fd_restore_data( restore, out+i0, sza ) );
+    FD_TEST( !fd_restore_data( restore, out+i2, szb ) );
+    FD_TEST( !fd_restore_close( restore ) );
+    FD_TEST(  fd_restore_fini( restore )==(void *)_restore );
+
+    FD_TEST( !memcmp( in+i0, out+i0, sza ) );
+    FD_TEST( !memcmp( in+i2, out+i2, szb ) );
+
+    memset( mmio, 0, mmio_sz );
+    memset( out,  0, data_sz );
+
+    /* Checkpt discontiguous regions */
+
+    style   = fd_int_if( !(fd_rng_ulong( rng ) & 1UL), style_raw, style_lz4 );
+    checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
+    FD_TEST( !fd_checkpt_open( checkpt, style ) );
+    FD_TEST( !fd_checkpt_data( checkpt, in+i0, sza ) );
+    FD_TEST( !fd_checkpt_data( checkpt, in+i2, szb ) );
+    FD_TEST( !fd_checkpt_close( checkpt ) );
+    FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );
+
+    if( style==style_raw ) FD_TEST( !memcmp( tmp, mmio, sza+szb ) );
+
+    /* Restore into contiguous region */
+
+    restore = fd_restore_init_mmio( _restore, mmio, mmio_sz ); FD_TEST( restore==_restore );
+    FD_TEST( !fd_restore_open( restore, style ) );
+    FD_TEST( !fd_restore_data( restore, out,     sza ) );
+    FD_TEST( !fd_restore_data( restore, out+sza, szb ) );
+    FD_TEST( !fd_restore_close( restore ) );
+    FD_TEST(  fd_restore_fini( restore )==(void *)_restore );
+
+    FD_TEST( !memcmp( tmp, out, sza+szb ) );
   }
 
   FD_LOG_NOTICE(( "Testing checkpt too small (raw)" ));
@@ -434,10 +687,10 @@ main( int argc,
   memset( mmio, 0, mmio_sz );
 
   checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
-  FD_TEST( !fd_checkpt_frame_open_advanced( checkpt, style_raw, &off_open ) );
+  FD_TEST( !fd_checkpt_open_advanced( checkpt, style_raw, &off_open ) );
   ulong rem;
-  for( rem=mmio_sz; rem>=data_sz; rem-=data_sz ) FD_TEST( !fd_checkpt_buf( checkpt, in, data_sz ) );
-  FD_TEST(  fd_checkpt_buf( checkpt, in, rem+1UL )==FD_CHECKPT_ERR_IO );
+  for( rem=mmio_sz; rem>=data_sz; rem-=data_sz ) FD_TEST( !fd_checkpt_data( checkpt, in, data_sz ) );
+  FD_TEST(  fd_checkpt_data( checkpt, in, rem+1UL )==FD_CHECKPT_ERR_IO );
   FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );
 
   FD_LOG_NOTICE(( "Testing checkpt too small (lz4)" ));
@@ -445,8 +698,8 @@ main( int argc,
   memset( mmio, 0, mmio_sz );
 
   checkpt = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
-  FD_TEST( !fd_checkpt_frame_open_advanced( checkpt, style_lz4, &off_open ) );
-  while( !fd_checkpt_buf( checkpt, in, data_sz ) ) /**/;
+  FD_TEST( !fd_checkpt_open_advanced( checkpt, style_lz4, &off_open ) );
+  while( !fd_checkpt_data( checkpt, in, data_sz ) ) /**/;
   FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );
 
   FD_LOG_NOTICE(( "Testing checkpt too small (mixed)" ));
@@ -455,7 +708,7 @@ main( int argc,
 
   checkpt  = fd_checkpt_init_mmio( _checkpt, mmio, mmio_sz ); FD_TEST( checkpt==_checkpt );
   style    = fd_int_if( !(fd_rng_ulong( rng ) & 1UL), style_raw, style_lz4 );
-  FD_TEST( !fd_checkpt_frame_open_advanced( checkpt, style, &off_open ) );
+  FD_TEST( !fd_checkpt_open_advanced( checkpt, style, &off_open ) );
   for(;;) {
     ulong r      = fd_rng_ulong( rng );
     ulong mask   = (1UL << fd_rng_int_roll( rng, 18 )) - 1UL;
@@ -463,11 +716,11 @@ main( int argc,
     for( ulong i=0UL; i<11UL; i++ ) { /* Random break up inputs into frames (including empty ones) */
       if( FD_LIKELY( r & 7UL ) ) break;
       r >>= 3;
-      if( fd_checkpt_frame_close_advanced( checkpt, &off_close ) ) goto err;
+      if( fd_checkpt_close_advanced( checkpt, &off_close ) ) goto err;
       style = fd_int_if( !(r & 1UL), style_raw, style_lz4 ); r >>= 1;
-      if( fd_checkpt_frame_open_advanced( checkpt, style, &off_open ) ) goto err;
+      if( fd_checkpt_open_advanced( checkpt, style, &off_open ) ) goto err;
     }
-    if( fd_checkpt_buf( checkpt, in, buf_sz ) ) goto err;
+    if( fd_checkpt_data( checkpt, in, buf_sz ) ) goto err;
   }
 err:
   FD_TEST(  fd_checkpt_fini( checkpt )==(void *)_checkpt );

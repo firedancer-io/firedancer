@@ -94,7 +94,7 @@ dump_cmd_fn( args_t *         args,
     if( found ) {
 
       fd_topo_link_t * link = &(config->topo.links[ i ]);
-      if( (link->mcache==NULL) | (link->dcache==NULL) ) {
+      if( link->mcache==NULL ) {
         FD_LOG_NOTICE(( "Skipping %s %lu", link->name, link->kind_id ));
         continue;
       }

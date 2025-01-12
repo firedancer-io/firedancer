@@ -4,8 +4,6 @@
 #include "fd_quic_common.h"
 #include "../../util/fd_util.h"
 
-#define FD_QUIC_STREAM_ID_UNUSED (~0ul)
-
 /* Forward declarations */
 
 typedef struct fd_quic_conn       fd_quic_conn_t;
@@ -44,13 +42,11 @@ struct fd_quic_stream {
 
   uint stream_flags;   /* flags representing elements that require action */
 # define FD_QUIC_STREAM_FLAGS_TX_FIN          (1u<<0u)
-# define FD_QUIC_STREAM_FLAGS_RX_FIN          (1u<<1u)
 # define FD_QUIC_STREAM_FLAGS_UNSENT          (1u<<3u)
 # define FD_QUIC_STREAM_FLAGS_DEAD            (1u<<4u)
 
 # define FD_QUIC_STREAM_FLAGS_ACTION                   \
            ( FD_QUIC_STREAM_FLAGS_TX_FIN           |   \
-             FD_QUIC_STREAM_FLAGS_RX_FIN           |   \
              FD_QUIC_STREAM_FLAGS_UNSENT           )
 
 # define FD_QUIC_STREAM_ACTION(stream) \
@@ -62,8 +58,8 @@ struct fd_quic_stream {
   /* stream state
      mask made up of the following:
        FD_QUIC_STREAM_STATE_UNUSED      Stream is not yet used
-       FD_QUIC_STREAM_STATE_TX_FIN      TX is finished (no more TX)
-       FD_QUIC_STREAM_STATE_RX_FIN      RX is finished (no more RX)
+       FD_QUIC_STREAM_STATE_TX_FIN      TX is finished
+       FD_QUIC_STREAM_STATE_RX_FIN      Size known
        FD_QUIC_STREAM_STATE_DEAD        stream is dead and waiting to be
 	                                reclaimed, or is in stream_pool */
   uint state;
@@ -155,8 +151,6 @@ struct fd_quic_stream {
     (stream)->next = (stream)->prev = stream;                   \
   } while(0)
 
-
-
 /* stream map for use in fd_map_dynamic map */
 struct fd_quic_stream_map {
   ulong              stream_id; /* key */
@@ -231,15 +225,6 @@ fd_quic_stream_set_context( fd_quic_stream_t * stream, void * context );
      context     the user defined context associated with the stream */
 void *
 fd_quic_stream_get_context( fd_quic_stream_t * stream );
-
-
-/* set stream connection
-
-   args
-     stream      the stream to change
-     conn        the connection to set on the stream or NULL to remove the connection */
-void
-fd_quic_stream_set_conn( fd_quic_stream_t * stream, fd_quic_conn_t * conn );
 
 
 FD_PROTOTYPES_END

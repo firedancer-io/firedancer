@@ -39,16 +39,24 @@
           println!("&[u8]: {}", std::mem::align_of::<&[u8]>());
           println!("AccountMeta: {}", std::mem::align_of::<AccountMeta>());
           println!("PodScalar: {}", std::mem::align_of::<PodScalar>());
+          println!("Pubkey: {}", std::mem::align_of::<Pubkey>());
       }
     ``` */
 
-#define FD_VM_ALIGN_RUST_U8           (1UL)
-#define FD_VM_ALIGN_RUST_U32          (4UL)
-#define FD_VM_ALIGN_RUST_U64          (8UL)
-#define FD_VM_ALIGN_RUST_U128        (16UL)
-#define FD_VM_ALIGN_RUST_SLICE_U8_REF (8UL)
-#define FD_VM_ALIGN_RUST_ACCOUNT_META (8UL)
-#define FD_VM_ALIGN_RUST_POD_U8_ARRAY (1UL)
+#define FD_VM_ALIGN_RUST_U8                       (1UL)
+#define FD_VM_ALIGN_RUST_U32                      (4UL)
+#define FD_VM_ALIGN_RUST_I32                      (4UL)
+#define FD_VM_ALIGN_RUST_U64                      (8UL)
+#define FD_VM_ALIGN_RUST_U128                     (16UL)
+#define FD_VM_ALIGN_RUST_SLICE_U8_REF             (8UL)
+#define FD_VM_ALIGN_RUST_POD_U8_ARRAY             (1UL)
+#define FD_VM_ALIGN_RUST_PUBKEY                   (1UL)
+#define FD_VM_ALIGN_RUST_SYSVAR_CLOCK             (8UL)
+#define FD_VM_ALIGN_RUST_SYSVAR_EPOCH_SCHEDULE    (8UL)
+#define FD_VM_ALIGN_RUST_SYSVAR_FEES              (8UL)
+#define FD_VM_ALIGN_RUST_SYSVAR_RENT              (8UL)
+#define FD_VM_ALIGN_RUST_SYSVAR_LAST_RESTART_SLOT (8UL)
+#define FD_VM_ALIGN_RUST_STABLE_INSTRUCTION       (8UL)
 
 /* fd_vm_vec_t is the in-memory representation of a vector descriptor.
    Equal in layout to the Rust slice header &[_] and various vector
@@ -66,42 +74,151 @@ struct __attribute__((packed)) fd_vm_vec {
 
 typedef struct fd_vm_vec fd_vm_vec_t;
 
+/* SBPF version and features
+   https://github.com/solana-labs/rbpf/blob/4b2c3dfb02827a0119cd1587eea9e27499712646/src/program.rs#L22
+
+   Note: SIMDs enable or disable features, e.g. BPF instructions.
+   If we have macros with names ENABLE vs DISABLE, we have the advantage that
+   the condition is always pretty clear: sbpf_version <= activation_version,
+   but the disadvantage of inconsistent names.
+   Viceversa, calling everything ENABLE has the risk to invert a <= with a >=
+   and create a huge mess.
+   We define both, so hopefully it's foolproof. */
+
+#define FD_VM_SBPF_REJECT_RODATA_STACK_OVERLAP(v)  ( v != FD_SBPF_V0 )
+#define FD_VM_SBPF_ENABLE_ELF_VADDR(v)             ( v != FD_SBPF_V0 )
+/* SIMD-0166 */
+#define FD_VM_SBPF_DYNAMIC_STACK_FRAMES(v)         ( v >= FD_SBPF_V1 )
+/* SIMD-0173 */
+#define FD_VM_SBPF_CALLX_USES_SRC_REG(v)           ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_DISABLE_LDDW(v)                 ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_ENABLE_LDDW(v)                  ( v <  FD_SBPF_V2 )
+#define FD_VM_SBPF_DISABLE_LE(v)                   ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_ENABLE_LE(v)                    ( v <  FD_SBPF_V2 )
+#define FD_VM_SBPF_MOVE_MEMORY_IX_CLASSES(v)       ( v >= FD_SBPF_V2 )
+/* SIMD-0174 */
+#define FD_VM_SBPF_ENABLE_PQR(v)                   ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_DISABLE_NEG(v)                  ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_ENABLE_NEG(v)                   ( v <  FD_SBPF_V2 )
+#define FD_VM_SBPF_SWAP_SUB_REG_IMM_OPERANDS(v)    ( v >= FD_SBPF_V2 )
+#define FD_VM_SBPF_EXPLICIT_SIGN_EXT(v)            ( v >= FD_SBPF_V2 )
+/* SIMD-0178 + SIMD-0179 */
+#define FD_VM_SBPF_STATIC_SYSCALLS(v)              ( v >= FD_SBPF_V3 )
+/* SIMD-0189 */
+#define FD_VM_SBPF_ENABLE_STRICTER_ELF_HEADERS(v)  ( v >= FD_SBPF_V3 )
+#define FD_VM_SBPF_ENABLE_LOWER_BYTECODE_VADDR(v)  ( v >= FD_SBPF_V3 )
+
+#define FD_VM_SBPF_DYNAMIC_STACK_FRAMES_ALIGN      (64U)
+
+#define FD_VM_OFFSET_MASK (0xffffffffUL)
+
+static const uint FD_VM_SBPF_STATIC_SYSCALLS_LIST[] = {
+  0,
+  //  1 = abort
+  0xb6fc1a11,
+  //  2 = sol_panic_
+  0x686093bb,
+  //  3 = sol_memcpy_
+  0x717cc4a3,
+  //  4 = sol_memmove_
+  0x434371f8,
+  //  5 = sol_memset_
+  0x3770fb22,
+  //  6 = sol_memcmp_
+  0x5fdcde31,
+  //  7 = sol_log_
+  0x207559bd,
+  //  8 = sol_log_64_
+  0x5c2a3178,
+  //  9 = sol_log_pubkey
+  0x7ef088ca,
+  // 10 = sol_log_compute_units_
+  0x52ba5096,
+  // 11 = sol_alloc_free_
+  0x83f00e8f,
+  // 12 = sol_invoke_signed_c
+  0xa22b9c85,
+  // 13 = sol_invoke_signed_rust
+  0xd7449092,
+  // 14 = sol_set_return_data
+  0xa226d3eb,
+  // 15 = sol_get_return_data
+  0x5d2245e4,
+  // 16 = sol_log_data
+  0x7317b434,
+  // 17 = sol_sha256
+  0x11f49d86,
+  // 18 = sol_keccak256
+  0xd7793abb,
+  // 19 = sol_secp256k1_recover
+  0x17e40350,
+  // 20 = sol_blake3
+  0x174c5122,
+  // 21 = sol_poseidon
+  0xc4947c21,
+  // 22 = sol_get_processed_sibling_instruction
+  0xadb8efc8,
+  // 23 = sol_get_stack_height
+  0x85532d94,
+  // 24 = sol_curve_validate_point
+  0xaa2607ca,
+  // 25 = sol_curve_group_op
+  0xdd1c41a6,
+  // 26 = sol_curve_multiscalar_mul
+  0x60a40880,
+  // 27 = sol_curve_pairing_map
+  0xf111a47e,
+  // 28 = sol_alt_bn128_group_op
+  0xae0c318b,
+  // 29 = sol_alt_bn128_compression
+  0x334fd5ed,
+  // 30 = sol_big_mod_exp
+  0x780e4c15,
+  // 31 = sol_remaining_compute_units
+  0xedef5aee,
+  // 32 = sol_create_program_address
+  0x9377323c,
+  // 33 = sol_try_find_program_address
+  0x48504a38,
+  // 34 = sol_get_sysvar
+  0x13c1b505,
+  // 35 = sol_get_epoch_stake
+  0x5be92f4a,
+  // 36 = sol_get_clock_sysvar
+  0xd56b5fe9,
+  // 37 = sol_get_epoch_schedule_sysvar
+  0x23a29a61,
+  // 38 = sol_get_last_restart_slot
+  0x188a0031,
+  // 39 = sol_get_epoch_rewards_sysvar
+  0xfdba2b3b,
+  // 40 = sol_get_fees_sysvar
+  0x3b97b73c,
+  // 41 = sol_get_rent_sysvar
+  0xbf7188f6,
+};
+#define FD_VM_SBPF_STATIC_SYSCALLS_LIST_SZ (sizeof(FD_VM_SBPF_STATIC_SYSCALLS_LIST) / sizeof(uint))
+
 FD_PROTOTYPES_BEGIN
 
-/* fd_vm_cu API *******************************************************/
+/* Log error within the instr_ctx to match Agave/Rust error. */
 
-/* FIXME: CONSIDER MOVING TO FD_VM_SYSCALL.H */
-/* FD_VM_CU_UPDATE charges the vm cost compute units.
-
-   If the vm does not have more than cost cu available, this will cause
-   the caller to zero out the vm->cu and return with FD_VM_ERR_SIGCOST.
-   This macro is robust.
-   This is meant to be used by syscall implementations and strictly
-   conforms with the vm-syscall ABI interface.
-
-   Note: in Agave a syscall can return success leaving 0 available CUs.
-   The instruction will fail at the next instruction (e.g., exit).
-   To reproduce the same behavior, we do not return FD_VM_ERR_SIGCOST
-   when cu == 0.
-
-   FD_VM_CU_MEM_UPDATE charges the vm the equivalent of sz bytes of
-   compute units.  Behavior is otherwise identical to FD_VM_CU_UPDATE.
-   FIXME: THIS API PROBABLY BELONGS IN SYSCALL CPI LAND. */
-
-#define FD_VM_CU_UPDATE( vm, cost ) (__extension__({ \
-    fd_vm_t * _vm   = (vm);                          \
-    ulong     _cost = (cost);                        \
-    ulong     _cu   = _vm->cu;                       \
-    if( FD_UNLIKELY( _cost>_cu ) ) {                 \
-      _vm->cu = 0UL;                                 \
-      return FD_VM_ERR_SIGCOST;                      \
-    }                                                \
-    _vm->cu = _cu - _cost;                           \
+#define FD_VM_ERR_FOR_LOG_EBPF( vm, err ) (__extension__({                \
+    vm->instr_ctx->txn_ctx->exec_err = err;                               \
+    vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_EBPF;    \
   }))
 
-/* https://github.com/anza-xyz/agave/blob/5263c9d61f3af060ac995956120bef11c1bbf182/programs/bpf_loader/src/syscalls/mem_ops.rs#L7 */
-#define FD_VM_CU_MEM_OP_UPDATE( vm, sz ) \
-  FD_VM_CU_UPDATE( vm, fd_ulong_max( FD_VM_MEM_OP_BASE_COST, sz / FD_VM_CPI_BYTES_PER_UNIT ) )
+#define FD_VM_ERR_FOR_LOG_SYSCALL( vm, err ) (__extension__({             \
+    vm->instr_ctx->txn_ctx->exec_err = err;                               \
+    vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_SYSCALL; \
+  }))
+
+#define FD_VM_ERR_FOR_LOG_INSTR( vm, err ) (__extension__({               \
+    vm->instr_ctx->txn_ctx->exec_err = err;                               \
+    vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR;   \
+  }))
+
+#define FD_VADDR_TO_REGION( _vaddr ) fd_ulong_min( (_vaddr) >> 32, 5UL )
 
 /* fd_vm_instr APIs ***************************************************/
 
@@ -126,7 +243,7 @@ fd_vm_instr( ulong opcode, /* Assumed valid */
 FD_FN_CONST static inline ulong fd_vm_instr_opcode( ulong instr ) { return   instr      & 255UL;       } /* In [0,256) */
 FD_FN_CONST static inline ulong fd_vm_instr_dst   ( ulong instr ) { return ((instr>> 8) &  15UL);      } /* In [0,16)  */
 FD_FN_CONST static inline ulong fd_vm_instr_src   ( ulong instr ) { return ((instr>>12) &  15UL);      } /* In [0,16)  */
-FD_FN_CONST static inline short fd_vm_instr_offset( ulong instr ) { return (short)(ushort)(instr>>16); }
+FD_FN_CONST static inline ulong fd_vm_instr_offset( ulong instr ) { return (ulong)(long)(short)(ushort)(instr>>16); }
 FD_FN_CONST static inline uint  fd_vm_instr_imm   ( ulong instr ) { return (uint)(instr>>32);          }
 
 FD_FN_CONST static inline ulong fd_vm_instr_opclass       ( ulong instr ) { return  instr      & 7UL; } /* In [0,8)  */
@@ -237,6 +354,9 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
                              uchar           write,
                              ulong           sentinel,
                              uchar *         is_multi_region ) {
+  if( FD_UNLIKELY( vm->input_mem_regions_cnt==0 ) ) {
+    return sentinel; /* Access is too large */
+  }
 
   /* Binary search to find the correct memory region.  If direct mapping is not
      enabled, then there is only 1 memory region which spans the input region. */
@@ -249,6 +369,8 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
   if( FD_UNLIKELY( write && vm->input_mem_regions[ region_idx ].is_writable==0U ) ) {
     return sentinel; /* Illegal write */
   }
+
+  ulong start_region_idx = region_idx;
 
   *is_multi_region = 0;
   while( FD_UNLIKELY( bytes_left>bytes_in_cur_region ) ) {
@@ -267,7 +389,7 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
     bytes_in_cur_region = vm->input_mem_regions[ region_idx ].region_sz;
   }
 
-  ulong adjusted_haddr = vm->input_mem_regions[ region_idx ].haddr + offset - vm->input_mem_regions[ region_idx ].vaddr_offset;
+  ulong adjusted_haddr = vm->input_mem_regions[ start_region_idx ].haddr + offset - vm->input_mem_regions[ start_region_idx ].vaddr_offset;
   return adjusted_haddr; 
 }
 
@@ -281,18 +403,29 @@ fd_vm_mem_haddr( fd_vm_t const *    vm,
                  uchar              write,           /* 1 if the access is a write, 0 if it is a read */
                  ulong              sentinel,
                  uchar *            is_multi_region ) {
-  ulong vaddr_hi  = vaddr >> 32;
-  ulong region    = fd_ulong_min( vaddr_hi, 5UL );
-  ulong offset    = vaddr & 0xffffffffUL;
+  ulong region = FD_VADDR_TO_REGION( vaddr );
+  ulong offset = vaddr & FD_VM_OFFSET_MASK;
+
+  /* Stack memory regions have 4kB unmapped "gaps" in-between each frame (only if direct mapping is disabled).
+    https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L141
+    */
+  if ( FD_UNLIKELY( region == 2UL && !vm->direct_mapping ) ) {
+    /* If an access starts in a gap region, that is an access violation */
+    if ( !!( vaddr & 0x1000 ) ) {
+      return sentinel;
+    }
+
+    /* To account for the fact that we have gaps in the virtual address space but not in the 
+       physical address space, we need to subtract from the offset the size of all the virtual
+       gap frames underneath it.
+       
+       https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L147-L149 */
+    ulong gap_mask = 0xFFFFFFFFFFFFF000;
+    offset = ( ( offset & gap_mask ) >> 1 ) | ( offset & ~gap_mask ); 
+  }
+
   ulong region_sz = (ulong)vm_region_sz[ region ];
   ulong sz_max    = region_sz - fd_ulong_min( offset, region_sz );
-
-  /* Stack memory regions have 4kB unmapped "gaps" in-between each frame.
-     https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L141
-    */
-  if( FD_UNLIKELY( ( region == 2 ) && !!( vaddr & 0x1000 ) ) ) {
-    return sentinel;
-  }
 
   if( region==4UL ) {
     return fd_vm_find_input_mem_region( vm, offset, sz, write, sentinel, is_multi_region );
@@ -311,8 +444,8 @@ fd_vm_mem_haddr_fast( fd_vm_t const * vm,
                       ulong           vaddr,
                       ulong   const * vm_region_haddr ) { /* indexed [0,6) */
   uchar is_multi = 0;
-  ulong region   = vaddr >> 32;
-  ulong offset   = vaddr & 0xffffffffUL;
+  ulong region   = FD_VADDR_TO_REGION( vaddr );
+  ulong offset   = vaddr & FD_VM_OFFSET_MASK;
   if( FD_UNLIKELY( region==4UL ) ) {
     return fd_vm_find_input_mem_region( vm, offset, 1UL, 0, 0UL, &is_multi );
   }
@@ -326,7 +459,7 @@ fd_vm_mem_haddr_fast( fd_vm_t const * vm,
 
 static inline void fd_vm_mem_ld_multi( fd_vm_t const * vm, uint sz, ulong vaddr, ulong haddr, uchar * dst ) {
 
-  ulong offset              = vaddr & 0xffffffffUL;
+  ulong offset              = vaddr & FD_VM_OFFSET_MASK;
   ulong region_idx          = fd_vm_get_input_mem_region_idx( vm, offset );
   uint  bytes_in_cur_region = fd_uint_sat_sub( vm->input_mem_regions[ region_idx ].region_sz,
                                               (uint)fd_ulong_sat_sub( offset, vm->input_mem_regions[ region_idx ].vaddr_offset ) );
@@ -383,7 +516,7 @@ FD_FN_PURE static inline ulong fd_vm_mem_ld_8( fd_vm_t const * vm, ulong vaddr, 
    the case where the store spans multiple input memory regions. */
 
 static inline void fd_vm_mem_st_multi( fd_vm_t const * vm, uint sz, ulong vaddr, ulong haddr, uchar * src ) {
-  ulong   offset              = vaddr & 0xffffffffUL;
+  ulong   offset              = vaddr & FD_VM_OFFSET_MASK;
   ulong   region_idx          = fd_vm_get_input_mem_region_idx( vm, offset );
   ulong   bytes_in_cur_region = fd_uint_sat_sub( vm->input_mem_regions[ region_idx ].region_sz,
                                                  (uint)fd_ulong_sat_sub( offset, vm->input_mem_regions[ region_idx ].vaddr_offset ) );
@@ -442,194 +575,6 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
   }
 }
 
-/* FIXME: CONSIDER MOVING TO FD_VM_SYSCALL.H */
-/* FD_VM_MEM_HADDR_LD returns a read only pointer to the first byte
-   in the host address space corresponding to vm's virtual address range
-   [vaddr,vaddr+sz).  If the vm has check_align enabled, the vaddr
-   should be aligned to align and the returned pointer will be similarly
-   aligned.  Align is assumed to be a power of two <= 8 (FIXME: CHECK
-   THIS LIMIT).
-
-   If the virtual address range cannot be mapped to the host address
-   space completely and/or (when applicable) vaddr is not appropriately
-   aligned, this will cause the caller to return FD_VM_ERR_SIGSEGV.
-   This macro is robust.  This is meant to be used by syscall
-   implementations and strictly conforms with the vm-syscall ABI
-   interface.
-
-   FD_VM_MEM_HADDR_ST returns a read-write pointer but is otherwise
-   identical to FD_VM_MEM_HADDR_LD.
-
-   FD_VM_MEM_HADDR_LD_FAST and FD_VM_HADDR_ST_FAST are for use when the
-   corresponding vaddr region it known to correctly resolve (e.g.  a
-   syscall has already done preflight checks on them).
-
-   These macros intentionally don't support multi region loads/stores.
-   The load/store macros are used by vm syscalls and mirror the use
-   of translate_slice{_mut}. However, this check does not allow for 
-   multi region accesses. So if there is an attempt at a multi region
-   translation, an error will be returned. 
-   
-   FD_VM_MEM_HADDR_ST_UNCHECKED has all of the checks of a load or a 
-   store, but intentionally omits the is_writable checks for the 
-   input region that are done during memory translation. */
-
-#define FD_VM_MEM_HADDR_LD( vm, vaddr, align, sz ) (__extension__({                                         \
-    fd_vm_t const * _vm       = (vm);                                                                       \
-    uchar           _is_multi = 0;                                                                          \
-    ulong           _vaddr    = (vaddr);                                                                    \
-    int             _sigbus   = _vm->check_align & (!fd_ulong_is_aligned( _vaddr, (align) ));               \
-    ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_ld_sz, 0, 0UL, &_is_multi ); \
-    if( FD_UNLIKELY( (!_haddr) | _sigbus | _is_multi ) ) return FD_VM_ERR_SIGSEGV;                          \
-    (void const *)_haddr;                                                                                   \
-  }))
-
-#define FD_VM_MEM_HADDR_LD_UNCHECKED( vm, vaddr, align, sz ) (__extension__({                               \
-    fd_vm_t const * _vm       = (vm);                                                                       \
-    uchar           _is_multi = 0;                                                                          \
-    ulong           _vaddr    = (vaddr);                                                                    \
-    ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_ld_sz, 0, 0UL, &_is_multi ); \
-    (void const *)_haddr;                                                                                   \
-  }))
-
-#define FD_VM_MEM_HADDR_ST( vm, vaddr, align, sz ) (__extension__({                                         \
-    fd_vm_t const * _vm       = (vm);                                                                       \
-    uchar           _is_multi = 0;                                                                          \
-    ulong           _vaddr    = (vaddr);                                                                    \
-    int             _sigbus   = _vm->check_align & (!fd_ulong_is_aligned( _vaddr, (align) ));               \
-    ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_st_sz, 1, 0UL, &_is_multi ); \
-    if( FD_UNLIKELY( (!_haddr) | _sigbus | _is_multi) ) { return FD_VM_ERR_SIGSEGV; }                       \
-    (void *)_haddr;                                                                                         \
-  }))
-
-#define FD_VM_MEM_HADDR_ST_WRITE_UNCHECKED( vm, vaddr, align, sz ) (__extension__({                         \
-    fd_vm_t const * _vm       = (vm);                                                                       \
-    uchar           _is_multi = 0;                                                                          \
-    ulong           _vaddr    = (vaddr);                                                                    \
-    int             _sigbus   = _vm->check_align & (!fd_ulong_is_aligned( _vaddr, (align) ));               \
-    ulong           _haddr    = fd_vm_mem_haddr( vm, _vaddr, (sz), _vm->region_haddr, _vm->region_ld_sz, 0, 0UL, &_is_multi ); \
-    if( FD_UNLIKELY( (!_haddr) | _sigbus | _is_multi ) ) return FD_VM_ERR_SIGSEGV;                          \
-    (void *)_haddr;                                                                                         \
-  }))
-
-
-#define FD_VM_MEM_HADDR_LD_FAST( vm, vaddr ) ((void const *)fd_vm_mem_haddr_fast( (vm), (vaddr), (vm)->region_haddr ))
-#define FD_VM_MEM_HADDR_ST_FAST( vm, vaddr ) ((void       *)fd_vm_mem_haddr_fast( (vm), (vaddr), (vm)->region_haddr ))
-
-/* FD_VM_MEM_SLICE_HADDR_[LD, ST] macros return an arbitrary value if sz == 0. This is because
-   Agave's translate_slice function returns an empty array if the sz == 0.
-   
-   Users of this macro should be aware that they should never access the returned value if sz==0.
-   
-   https://github.com/solana-labs/solana/blob/767d24e5c10123c079e656cdcf9aeb8a5dae17db/programs/bpf_loader/src/syscalls/mod.rs#L560  */
-#define FD_VM_MEM_SLICE_HADDR_LD( vm, vaddr, align, sz ) (__extension__({                                       \
-    void const * haddr = 0UL;                                                                                   \
-    if ( FD_LIKELY( (ulong)sz > 0UL ) ) {                                                                       \
-      haddr = FD_VM_MEM_HADDR_LD( vm, vaddr, align, sz );                                                       \
-    }                                                                                                           \
-    haddr;                                                                                                      \
-}))
-
-#define FD_VM_MEM_SLICE_HADDR_ST( vm, vaddr, align, sz ) (__extension__({                                       \
-    void * haddr = 0UL;                                                                                         \
-    if ( FD_LIKELY( (ulong)sz > 0UL ) ) {                                                                       \
-      haddr = FD_VM_MEM_HADDR_ST( vm, vaddr, align, sz );                                                       \
-    }                                                                                                           \
-    haddr;                                                                                                      \
-}))
-
-/* fd_vm_log API ******************************************************/
-
-/* fd_vm_log returns the location where VM log messages are appended
-   (will be non-NULL and aligned 8).  fd_vm_log_{max,sz,rem} return how
-   the VM log message buffer is currently utilized.  max will be
-   FD_VM_LOG_MAX (positive multiple of 8) and sz will be in [0,max].
-   Bytes [0,sz) are currently buffered log bytes and [sz,max) are bytes
-   available for additional buffering.  rem = max-sz is the number of
-   bytes available for logging.  These assume vm is valid. */
-
-FD_FN_CONST static inline uchar const * fd_vm_log    ( fd_vm_t const * vm ) { return vm->log;                    }
-FD_FN_CONST static inline ulong         fd_vm_log_max( fd_vm_t const * vm ) { (void)vm; return FD_VM_LOG_MAX;    }
-FD_FN_PURE  static inline ulong         fd_vm_log_sz ( fd_vm_t const * vm ) { return vm->log_sz;                 }
-FD_FN_PURE  static inline ulong         fd_vm_log_rem( fd_vm_t const * vm ) { return FD_VM_LOG_MAX - vm->log_sz; }
-
-/* fd_vm_log_prepare starts zero-copy preparation of a new vm log
-   message.  The lifetime of the returned location is the lesser of the
-   lifetime of the vm or until the prepare is published or cancelled.
-   The caller is free to clobber any bytes in this region while it is
-   preparing the message.  This region has arbitrary alignment.
-
-   fd_vm_log_prepare_max returns the number bytes available in the log
-   preparation region.  Will be at least FD_VM_LOG_TAIL and at most
-   FD_VM_LOG_MAX+FD_VM_LOG_TAIL.  Assumes there is a message in
-   preparation.
-
-   fd_vm_log_cancel stops preparing a message in preparation without
-   publishing it.  Assumes there is a message in preparation.  Returns
-   vm.  There is no message in preparation on return.
-
-   fd_vm_log_publish appends the leading fd_vm_log_rem bytes of the
-   prepare region to the VM log.  Assumes there is message in
-   preparation and sz is in [0,prepare_max].  Returns vm.  There is no
-   message in preparation on return.
-
-   These all assume vm valid. */
-
-FD_FN_PURE static inline ulong
-fd_vm_log_prepare_max( fd_vm_t const * vm ) {
-  return FD_VM_LOG_MAX + FD_VM_LOG_TAIL - vm->log_sz;
-}
-
-FD_FN_PURE  static inline void *    fd_vm_log_prepare( fd_vm_t * vm ) { return vm->log + vm->log_sz; }
-FD_FN_CONST static inline fd_vm_t * fd_vm_log_cancel ( fd_vm_t * vm ) { return vm;                   }
-
-static inline fd_vm_t *
-fd_vm_log_publish( fd_vm_t * vm,
-                   ulong     sz ) {
-  vm->log_sz = fd_ulong_min( FD_VM_LOG_MAX, vm->log_sz + sz );
-  return vm;
-}
-
-/* fd_vm_log_reset resets the VM's log to empty and cancels any messages
-   in preparation.  Assumes vm is valid. */
-
-static inline fd_vm_t * fd_vm_log_reset( fd_vm_t * vm ) { vm->log_sz = 0UL; return vm; }
-
-/* fd_vm_log_append cancels any VM log message in preparation on vm and
-   appends a message of sz bytes to the VM's log, truncating as
-   necessary.  Assumes vm, msg and sz are valid.  sz 0 is fine (and NULL
-   msg is fine if sz is 0).  Returns vm. */
-
-static inline fd_vm_t *
-fd_vm_log_append( fd_vm_t *    vm,
-                  void const * msg,
-                  ulong        sz ) {
-  ulong log_sz = vm->log_sz;
-  ulong cpy_sz = fd_ulong_min( sz, FD_VM_LOG_MAX - log_sz );
-  if( FD_LIKELY( cpy_sz ) ) memcpy( vm->log + log_sz, msg, cpy_sz ); /* Sigh ... branchless if sz==0 wasn't UB */
-  vm->log_sz = log_sz + cpy_sz;
-  return vm;
-}
-
-/* fd_vm_log_append_printf is analogous to fd_vm_log_append and allows
-   to format arguments like printf.
-   It cancels any VM log message in preparation on vm and appends the message
-   resulting from formatting args to the VM's log.  The formatted message
-   includes a last byte set to 0.
-   Assumes vm is valid.
-   In case of formatting errors, no log is appended and the error is ignored
-   (internally, _vm->log[_vm->log_sz] is overwritten with 0).
-   Returns vm. */
-
-#define fd_vm_log_append_printf( vm, fmt, ... ) (__extension__({             \
-    fd_vm_t * _vm  = (vm);                                                   \
-    ulong     _sz  = _vm->log_sz; /* In [0,FD_VM_LOG_MAX] */                 \
-    ulong     _len;                                                          \
-    fd_cstr_printf_check( (char *)_vm->log + _sz, FD_VM_LOG_MAX + 1UL - _sz, \
-                          &_len, (fmt), __VA_ARGS__ );                       \
-    _vm->log_sz = _sz + _len;                                                \
-    (_vm);                                                                   \
-}))
 
 FD_PROTOTYPES_END
 

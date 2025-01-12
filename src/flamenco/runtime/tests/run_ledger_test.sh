@@ -21,7 +21,7 @@ INDEX_MAX="--index-max 5000000"
 TRASH_HASH=""
 LOG="/tmp/ledger_log$$"
 TILE_CPUS="--tile-cpus 5-21"
-CLUSTER_VERSION="--cluster-version 2003"
+CLUSTER_VERSION=""
 DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS=""
 
@@ -125,9 +125,9 @@ if [[ ! -e $DUMP/$LEDGER && SKIP_INGEST -eq 0 ]]; then
     fi
   fi
   if [[ -n "$ZST" ]]; then
-    gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.zst | zstd -d --stdout | tar xf - -C $DUMP
+    gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.zst | zstd -d --stdout | tee $DUMP/$LEDGER.tar.zst | tar xf - -C $DUMP
   else
-    gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.gz | tar zxf - -C $DUMP
+    gcloud storage cat gs://firedancer-ci-resources/$LEDGER.tar.gz | tee $DUMP/$LEDGER.tar.gz | tar zxf - -C $DUMP
   fi
 fi
 

@@ -63,8 +63,9 @@ fd_quic_retry_create(
     uchar const               retry_secret[ FD_QUIC_RETRY_SECRET_SZ ],
     uchar const               retry_iv[ FD_QUIC_RETRY_IV_SZ ],
     fd_quic_conn_id_t const * orig_dst_conn_id,
-    fd_quic_conn_id_t const * new_conn_id,
-    ulong                     wallclock /* ns since unix epoch */
+    fd_quic_conn_id_t const * src_conn_id,
+    ulong                     new_conn_id,
+    ulong                     expire_at
 ) {
 
   uchar * out_ptr  = retry;
@@ -73,18 +74,15 @@ fd_quic_retry_create(
   /* Craft a new Retry packet */
 
   fd_quic_retry_hdr_t retry_hdr[1] = {{
-    .hdr_form         = 1,
-    .fixed_bit        = 1,
-    .long_packet_type = 3,
-    .unused           = 0xf,
-    .version          = 1,
-    .dst_conn_id_len = pkt->long_hdr->src_conn_id_len,
+    .h0              = 0xf0,
+    .version         = 1,
+    .dst_conn_id_len = src_conn_id->sz,
     // .dst_conn_id (initialized below)
-    .src_conn_id_len = new_conn_id->sz,
+    .src_conn_id_len = FD_QUIC_CONN_ID_SZ,
     // .src_conn_id (initialized below)
   }};
-  memcpy( retry_hdr->dst_conn_id, pkt->long_hdr->src_conn_id, FD_QUIC_MAX_CONN_ID_SZ );
-  memcpy( retry_hdr->src_conn_id, &new_conn_id->conn_id,      FD_QUIC_MAX_CONN_ID_SZ );
+  memcpy( retry_hdr->dst_conn_id, src_conn_id->conn_id, FD_QUIC_MAX_CONN_ID_SZ );
+  FD_STORE( ulong, retry_hdr->src_conn_id, new_conn_id );
   ulong rc = fd_quic_encode_retry_hdr( retry, FD_QUIC_RETRY_LOCAL_SZ, retry_hdr );
   assert( rc!=FD_QUIC_PARSE_FAIL );
   if( FD_UNLIKELY( rc==FD_QUIC_PARSE_FAIL ) ) FD_LOG_CRIT(( "fd_quic_encode_retry_hdr failed" ));
@@ -98,17 +96,15 @@ fd_quic_retry_create(
 
   uint   src_ip4_addr = FD_LOAD( uint, pkt->ip4->saddr_c );  /* net order */
   ushort src_udp_port = (ushort)fd_ushort_bswap( (ushort)pkt->udp->net_sport );
-  ulong  expire_at    = wallclock + FD_QUIC_RETRY_TOKEN_LIFETIME * (ulong)1e9;
 
   fd_quic_retry_data_new( &retry_token->data, rng );
   fd_quic_retry_data_set_ip4( &retry_token->data, src_ip4_addr );
   retry_token->data.udp_port   = (ushort)src_udp_port;
   retry_token->data.expire_comp = expire_at >> FD_QUIC_RETRY_EXPIRE_SHIFT;
 
+  retry_token->data.rscid    = new_conn_id;
   retry_token->data.odcid_sz = orig_dst_conn_id->sz;
-  retry_token->data.rscid_sz = new_conn_id->sz;
   memcpy( retry_token->data.odcid, orig_dst_conn_id->conn_id, FD_QUIC_MAX_CONN_ID_SZ ); /* oversz copy ok */
-  memcpy( retry_token->data.rscid, new_conn_id->conn_id,      FD_QUIC_MAX_CONN_ID_SZ ); /* practically always FD_QUIC_CONN_ID_SZ */
 
   /* Create the inner integrity tag (non-standard) */
 
@@ -119,9 +115,17 @@ fd_quic_retry_create(
   out_ptr  += sizeof(fd_quic_retry_token_t);
   out_free -= sizeof(fd_quic_retry_token_t);
 
-  ulong retry_unsigned_sz = (ulong)out_ptr - (ulong)retry;
+# if FD_QUIC_DISABLE_CRYPTO
+
+  memset( out_ptr, 0, FD_QUIC_CRYPTO_TAG_SZ );
+  out_ptr  += FD_QUIC_CRYPTO_TAG_SZ;
+  out_free -= FD_QUIC_CRYPTO_TAG_SZ;
+
+# else
 
   /* Create the outer integrity tag (standard) */
+
+  ulong retry_unsigned_sz = (ulong)out_ptr - (ulong)retry;
 
   uchar retry_pseudo_buf[ FD_QUIC_RETRY_MAX_PSEUDO_SZ ];
   ulong retry_pseudo_sz = fd_quic_retry_pseudo( retry_pseudo_buf, retry, retry_unsigned_sz + FD_QUIC_CRYPTO_TAG_SZ, orig_dst_conn_id );
@@ -129,6 +133,8 @@ fd_quic_retry_create(
   fd_quic_retry_integrity_tag_sign( aes_gcm, retry_pseudo_buf, retry_pseudo_sz, out_ptr );
   out_ptr  += FD_QUIC_CRYPTO_TAG_SZ;
   out_free -= FD_QUIC_CRYPTO_TAG_SZ;
+
+# endif /* FD_QUIC_DISABLE_CRYPTO */
 
   assert( (ulong)out_ptr - (ulong)retry <= FD_QUIC_RETRY_LOCAL_SZ );
   ulong retry_sz = (ulong)out_ptr - (ulong)retry;
@@ -140,10 +146,11 @@ fd_quic_retry_server_verify(
     fd_quic_pkt_t const *     pkt,
     fd_quic_initial_t const * initial,
     fd_quic_conn_id_t *       orig_dst_conn_id, /* out */
-    fd_quic_conn_id_t *       retry_src_conn_id, /* out */
+    ulong *                   retry_src_conn_id, /* out */
     uchar const               retry_secret[ FD_QUIC_RETRY_SECRET_SZ ],
     uchar const               retry_iv[ FD_QUIC_RETRY_IV_SZ ],
-    ulong                     now
+    ulong                     now,
+    ulong                     ttl
 ) {
 
   /* We told the client to retry with a DCID chosen by us, and we
@@ -160,8 +167,7 @@ fd_quic_retry_server_verify(
   }
 
   fd_quic_retry_token_t const * retry_token = fd_type_pun_const( initial->token );
-  if( FD_UNLIKELY( ( retry_token->data.odcid_sz >  FD_QUIC_MAX_CONN_ID_SZ ) |
-                   ( retry_token->data.rscid_sz != FD_QUIC_CONN_ID_SZ )  ) ) {
+  if( FD_UNLIKELY( retry_token->data.odcid_sz >  FD_QUIC_MAX_CONN_ID_SZ ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "Retry token with invalid ODCID or RSCID, rejecting" )); )
     return FD_QUIC_FAILED;
   }
@@ -176,7 +182,7 @@ fd_quic_retry_server_verify(
   uint  pkt_port      = fd_ushort_bswap( (ushort)pkt->udp->net_sport );
   uint  retry_port    = retry_token->data.udp_port;
   ulong expire_at     = retry_token->data.expire_comp << FD_QUIC_RETRY_EXPIRE_SHIFT;
-  ulong expire_before = now + FD_QUIC_RETRY_TOKEN_LIFETIME * (ulong)1e9;
+  ulong expire_before = now + ttl;
 
   int is_match =
     vfy_res == FD_QUIC_SUCCESS &&
@@ -194,9 +200,8 @@ fd_quic_retry_server_verify(
   )
 
   orig_dst_conn_id->sz  = (uchar)retry_token->data.odcid_sz;
-  retry_src_conn_id->sz = (uchar)retry_token->data.rscid_sz;
   memcpy( orig_dst_conn_id->conn_id,  retry_token->data.odcid, FD_QUIC_MAX_CONN_ID_SZ ); /* oversz copy ok */
-  memcpy( retry_src_conn_id->conn_id, retry_token->data.rscid, FD_QUIC_MAX_CONN_ID_SZ ); /* oversz copy ok */
+  *retry_src_conn_id = retry_token->data.rscid;
 
   return is_match ? FD_QUIC_SUCCESS : FD_QUIC_FAILED;
 }
@@ -261,6 +266,12 @@ fd_quic_retry_client_verify( uchar const * const       retry_ptr,
   ulong retry_pseudo_sz = fd_quic_retry_pseudo( retry_pseudo_buf, retry_ptr, retry_sz, orig_dst_conn_id );
   if( FD_UNLIKELY( retry_pseudo_sz==FD_QUIC_PARSE_FAIL ) ) FD_LOG_ERR(( "fd_quic_retry_pseudo_hdr failed" ));
 
+# if FD_QUIC_DISABLE_CRYPTO
+
+  (void)retry_tag;  /* skip verification */
+
+# else
+
   /* Validate the retry integrity tag
 
      Retry packets (see Section 17.2.5 of [QUIC-TRANSPORT]) carry a Retry Integrity Tag that
@@ -275,6 +286,8 @@ fd_quic_retry_client_verify( uchar const * const       retry_ptr,
     FD_DEBUG( FD_LOG_DEBUG(( "Invalid retry integrity tag" )); )
     return FD_QUIC_FAILED;
   }
+
+# endif
 
   /* Set out params */
 

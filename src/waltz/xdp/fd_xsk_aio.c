@@ -75,6 +75,11 @@ fd_xsk_aio_new( void * mem,
   xsk_aio->pkt_off      = pkt_off;
   xsk_aio->tx_stack_off = tx_stack_off;
 
+  xsk_aio->metrics.tx_cnt = 0UL;
+  xsk_aio->metrics.tx_sz  = 0UL;
+  xsk_aio->metrics.rx_cnt = 0UL;
+  xsk_aio->metrics.rx_sz  = 0UL;
+
   /* Mark object as valid */
 
   FD_COMPILER_MFENCE();
@@ -239,7 +244,7 @@ fd_xsk_aio_set_rx( fd_xsk_aio_t *   xsk_aio,
 }
 
 
-void
+int
 fd_xsk_aio_service( fd_xsk_aio_t * xsk_aio ) {
   fd_xsk_t *            xsk         = xsk_aio->xsk;
   fd_aio_t *            ingress     = &xsk_aio->rx;
@@ -264,6 +269,9 @@ fd_xsk_aio_service( fd_xsk_aio_t * xsk_aio ) {
     /* TODO frames may not all be processed at this point
        we should count them, and possibly buffer them */
 
+    xsk_aio->metrics.rx_cnt += rx_avail;
+    for( ulong j=0; j<rx_avail; j++ ) xsk_aio->metrics.rx_sz += meta[j].sz;
+
     /* return frames to rx ring */
     ulong enq_rc = fd_xsk_rx_enqueue2( xsk, meta, rx_avail );
     if( FD_UNLIKELY( enq_rc < rx_avail ) ) {
@@ -282,10 +290,12 @@ fd_xsk_aio_service( fd_xsk_aio_t * xsk_aio ) {
                                            xsk_aio->tx_stack       + xsk_aio->tx_top,
                                            xsk_aio->tx_stack_depth - xsk_aio->tx_top );
   xsk_aio->tx_top += tx_completed;
+
+  return rx_avail || tx_completed;
 }
 
 
-void
+static void
 fd_xsk_aio_tx_complete( fd_xsk_aio_t * xsk_aio ) {
   ulong tx_completed = fd_xsk_tx_complete( xsk_aio->xsk,
                                            xsk_aio->tx_stack       + xsk_aio->tx_top,
@@ -371,6 +381,9 @@ fd_xsk_aio_send( void *                    ctx,
   ulong sent_cnt=0UL;
   if( FD_LIKELY( pending_cnt>0UL || flush ) )
     sent_cnt = fd_xsk_tx_enqueue( xsk, meta, pending_cnt, flush );
+
+  xsk_aio->metrics.tx_cnt += sent_cnt;
+  for( ulong j=0; j<sent_cnt; j++ ) xsk_aio->metrics.tx_sz += meta[j].sz;
 
   /* Sent less than user requested? */
   if( FD_UNLIKELY( sent_cnt<pkt_cnt ) ) {

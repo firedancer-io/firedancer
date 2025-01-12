@@ -225,7 +225,7 @@ int
 fd_poh_tile_get_leader_after_n_slots( fd_poh_tile_ctx_t * ctx,
                                       ulong               n,
                                       uchar               out_pubkey[ static 32 ] );
-void
+int
 fd_poh_tile_after_credit( fd_poh_tile_ctx_t * ctx,
                           int *               opt_poll_in );
 

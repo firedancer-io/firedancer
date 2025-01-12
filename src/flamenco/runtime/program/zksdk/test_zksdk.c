@@ -1,6 +1,6 @@
 /* Tests are run through `make run-test-vectors` and are available at:
    https://github.com/firedancer-io/test-vectors/tree/main/instr/fixtures/zk_sdk
- 
+
    This unit test just runs an instance of pubkey_validity. */
 #include "fd_zksdk_private.h"
 #include "../../../../ballet/hex/fd_hex.h"
@@ -45,6 +45,7 @@ create_test_ctx( fd_exec_instr_ctx_t * ctx,
   instr->data = &tx[instr_off];
   instr->data_sz = (ushort)(tx_len - instr_off); //TODO: this only works if the instruction is the last one
   instr->acct_cnt = 0; // TODO: hack to avoid filling proof context account (it requires to create the account first)
+  fd_log_collector_init( &ctx->txn_ctx->log_collector, 1 );
 }
 
 void

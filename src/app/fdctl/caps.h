@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_app_fdctl_caps_h
 #define HEADER_fd_src_app_fdctl_caps_h
 
-#include "fdctl.h"
+#include "../../util/fd_util_base.h"
 
 /* API for checking capabilities, and accumulating information about
    what capabilities or permissions are missing that are required to run
@@ -67,7 +67,7 @@ void
 fd_caps_check_capability( fd_caps_ctx_t * ctx,
                           char const *    name,
                           uint            capability,
-                          char const *    reason ); 
+                          char const *    reason );
 
 /* fd_caps_check_resource() checks if the current process is running
    with the provided resource, a RLIMIT_* constant, at or above the

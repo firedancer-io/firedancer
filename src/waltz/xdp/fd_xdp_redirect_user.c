@@ -60,7 +60,7 @@ fd_xdp_session_fini( fd_xdp_session_t * session ) {
 }
 
 #define EBPF_KERN_LOG_BUFSZ (32768UL)
-char ebpf_kern_log[ EBPF_KERN_LOG_BUFSZ ];
+static char ebpf_kern_log[ EBPF_KERN_LOG_BUFSZ ];
 
 /* Define some kernel uapi constants in case the user is compiling
    with older kernel headers.  This is especially a problem on Ubuntu
@@ -308,7 +308,7 @@ fd_xsk_activate( fd_xsk_t * xsk,
   int  value = fd_xsk_fd     ( xsk );
   if( FD_UNLIKELY( 0!=fd_bpf_map_update_elem( xsk_map_fd, &key, &value, BPF_ANY ) ) ) {
     FD_LOG_WARNING(( "bpf_map_update_elem(fd=%d,key=%u,value=%#x,flags=%#x) failed (%i-%s)",
-                     xsk_map_fd, key, value, BPF_ANY, errno, fd_io_strerror( errno ) ));
+                     xsk_map_fd, key, (uint)value, (uint)BPF_ANY, errno, fd_io_strerror( errno ) ));
     return NULL;
   }
 

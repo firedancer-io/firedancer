@@ -156,7 +156,7 @@ check( config_t * const config ) {
   PARTIALLY_CONFIGURED( "kill existing instances" );
 }
 
-configure_stage_t _kill = {
+configure_stage_t fd_cfg_stage_kill = {
   .name            = NAME,
   .always_recreate = 1,
   .enabled         = NULL,

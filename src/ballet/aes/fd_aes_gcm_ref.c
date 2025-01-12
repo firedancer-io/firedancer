@@ -209,7 +209,7 @@ fd_gcm128_decrypt( fd_aes_gcm_ref_t * ctx,
   return 0;
 }
 
-void
+static void
 fd_gcm128_finish( fd_aes_gcm_ref_t * ctx ) {
 
   ulong alen = ctx->len.u[0] << 3;  // 176

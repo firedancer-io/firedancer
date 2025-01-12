@@ -15,7 +15,7 @@ typedef struct fd_vm fd_vm_t;
 /* A fd_vm_shadow_t holds stack frame information not accessible from
    within a program. */
 
-struct fd_vm_shadow { ulong r6; ulong r7; ulong r8; ulong r9; ulong pc; };
+struct fd_vm_shadow { ulong r6; ulong r7; ulong r8; ulong r9; ulong r10; ulong pc; };
 typedef struct fd_vm_shadow fd_vm_shadow_t;
 
 /* fd_vm_input_region_t holds information about fragmented memory regions 
@@ -34,13 +34,31 @@ typedef struct fd_vm_input_region fd_vm_input_region_t;
    region location. */
 
 struct __attribute((aligned(8UL))) fd_vm_acc_region_meta {
-   uint  region_idx;
-   uchar has_data_region;
-   uchar has_resizing_region;        
+   uint                                region_idx;
+   uchar                               has_data_region;
+   uchar                               has_resizing_region;   
+   /* offset of the accounts metadata region, relative to the start of the input region.
+      importantly, this excludes any duplicate account markers at the beginning of the "full" metadata region. */   
+   ulong                               metadata_region_offset;
 };
 typedef struct fd_vm_acc_region_meta fd_vm_acc_region_meta_t;
 
-struct fd_vm {
+/* In Agave, all the regions are 16-byte aligned in host address space. There is then an alignment check
+   which is done inside each syscall memory translation, checking if the data is aligned in host address
+   space. This is a layering violation, as it leaks the host address layout into the consensus model.
+   
+   In the future we will change this alignment check in the vm to purely operate on the virtual address space,
+   taking advantage of the fact that Agave regions are known to be aligned. For now, we align our regions to 
+   either 8 or 16 bytes, as there are no 16-byte alignment translations in the syscalls currently:
+   stack:  16 byte aligned
+   heap:   16 byte aligned
+   input:  8 byte aligned
+   rodata: 8 byte aligned
+   
+    https://github.com/solana-labs/rbpf/blob/cd19a25c17ec474e6fa01a3cc3efa325f44cd111/src/ebpf.rs#L39-L40  */
+#define FD_VM_HOST_REGION_ALIGN                   (16UL)
+
+struct __attribute__((aligned(FD_VM_HOST_REGION_ALIGN))) fd_vm {
 
   /* VM configuration */
 
@@ -49,8 +67,6 @@ struct fd_vm {
      non-trivial use of instr_ctx). */
 
   fd_exec_instr_ctx_t * instr_ctx;   /* FIXME: DOCUMENT */
-  int                   check_align; /* If non-zero, the vm does alignment checks where necessary (syscalls) */
-  int                   check_size;  /* If non-zero, the vm does size checks where necessary (syscalls) */
 
   /* FIXME: frame_max should be run time configurable by compute budget.
      If there is no reasonable upper bound on this, shadow and stack
@@ -92,11 +108,6 @@ struct fd_vm {
      syscall returns, the vm will update its internal execution state
      appropriately. */
 
-  /* Note that we try to match syscall log messages with the existing
-     Solana validator byte-for-byte (as there are things out there
-     scraping log messages from the existing validator) though this is
-     not strictly required for consensus. */
-
   /* IMPORTANT SAFETY TIP!  THE BEHAVIOR OF THE SYSCALL ALLOCATOR FOR
      HEAP_SZ MUST EXACTLY MATCH THE SOLANA VALIDATOR ALLOCATOR:
 
@@ -111,7 +122,6 @@ struct fd_vm {
   ulong frame_cnt; /* The current number of stack frames pushed, in [0,frame_max] */
 
   ulong heap_sz; /* Heap size in bytes, in [0,heap_max] */
-  ulong log_sz;  /* Log message bytes buffered, [0,FD_VM_LOG_MAX] */
 
   /* VM memory */
 
@@ -180,19 +190,25 @@ struct fd_vm {
                                                                 As such, malformed instructions, which can have src/dst reg index in
                                                                 [0,FD_VM_REG_MAX), cannot access info outside reg.  Aligned 8. */
   fd_vm_shadow_t            shadow[ FD_VM_STACK_FRAME_MAX ]; /* shadow stack, indexed [0,frame_cnt), if frame_cnt>0, 0/frame_cnt-1 is
-                                                                bottom/top.  Aligned 8. */
+                                                                bottom/top.  Aligned 16. */
   uchar                     stack [ FD_VM_STACK_MAX       ]; /* stack, indexed [0,FD_VM_STACK_MAX).  Divided into FD_VM_STACK_FRAME_MAX
                                                                 frames.  Each frame has a FD_VM_STACK_GUARD_SZ region followed by a
                                                                 FD_VM_STACK_FRAME_SZ region.  reg[10] gives the offset of the start of the
-                                                                current stack frame.  Aligned 8. */
+                                                                current stack frame.  Aligned 16. */
   uchar                     heap  [ FD_VM_HEAP_MAX        ]; /* syscall heap, [0,heap_sz) used, [heap_sz,heap_max) free.  Aligned 8. */
-  uchar                     log   [ FD_VM_LOG_MAX + FD_VM_LOG_TAIL ]; /* syscall log, [0,log_sz) used, [log_sz,FD_VM_LOG_MAX) free.
-                                                                Aligned 8.  Includes a tail region large enough so various string
-                                                                operations can clobber to simplify a lot of string parsing code. */
 
-   fd_sha256_t * sha; /* Pre-joined SHA instance. This should be re-initialised before every use. */
+  fd_sha256_t * sha; /* Pre-joined SHA instance. This should be re-initialised before every use. */
 
-   ulong magic;    /* ==FD_VM_MAGIC */
+  ulong magic;    /* ==FD_VM_MAGIC */
+
+  int   direct_mapping;   /* If direct mapping is enabled or not */
+  ulong stack_frame_size; /* Size of a stack frame (varies depending on direct mapping being enabled or not) */
+
+  /* Agave reports different error codes (for developers to understand the failure cause) if direct mapping is 
+     enabled AND we halt on a segfault caused by a store on an invalid vaddr. */
+  ulong segv_store_vaddr;
+
+  ulong sbpf_version;     /* SBPF version, SIMD-0161 */
 };
 
 /* FIXME: MOVE ABOVE INTO PRIVATE WHEN CONSTRUCTORS READY */
@@ -206,8 +222,8 @@ FD_PROTOTYPES_BEGIN
    for a memory region to hold a fd_vm_t.  ALIGN is a positive
    integer power of 2.  FOOTPRINT is a multiple of align. 
    These are provided to facilitate compile time declarations. */
-#define FD_VM_ALIGN     (8UL     )
-#define FD_VM_FOOTPRINT (799552UL)
+#define FD_VM_ALIGN     FD_VM_HOST_REGION_ALIGN
+#define FD_VM_FOOTPRINT (527808UL)
 
 /* fd_vm_{align,footprint} give the needed alignment and footprint
    of a memory region suitable to hold an fd_vm_t.
@@ -247,7 +263,10 @@ fd_vm_join( void * shmem );
 /* fd_vm_init initializes the given fd_vm_t struct, checking that it is
    not null and has the correct magic value.
 
-   It modifies the vm object and also returns the object for convenience. */
+   It modifies the vm object and also returns the object for convenience.
+   
+   FIXME: we should split out the memory mapping setup from this function 
+          to handle those errors separately. */
 fd_vm_t *
 fd_vm_init(
    fd_vm_t * vm,
@@ -262,13 +281,15 @@ fd_vm_init(
    ulong text_sz,
    ulong entry_pc,
    ulong * calldests,
+   ulong sbpf_version,
    fd_sbpf_syscalls_t * syscalls,
    fd_vm_trace_t * trace,
    fd_sha256_t * sha,
    fd_vm_input_region_t * mem_regions,
    uint mem_regions_cnt,
    fd_vm_acc_region_meta_t * acc_region_metas,
-   uchar is_deprecated );
+   uchar is_deprecated,
+   int direct_mapping );
 
 /* fd_vm_leave leaves the caller's current local join to a vm.
    Returns a pointer to the memory region holding the vm on success
@@ -294,6 +315,20 @@ fd_vm_delete( void * shmem );
 FD_FN_PURE int
 fd_vm_validate( fd_vm_t const * vm );
 
+/* fd_vm_is_check_align_enabled returns 1 if the vm should check alignment
+   when doing memory translation. */
+FD_FN_PURE static inline int
+fd_vm_is_check_align_enabled( fd_vm_t const * vm ) {
+   return !vm->is_deprecated;
+}
+
+/* fd_vm_is_check_size_enabled returns 1 if the vm should check size
+   when doing memory translation. */
+FD_FN_PURE static inline int
+fd_vm_is_check_size_enabled( fd_vm_t const * vm ) {
+   return !vm->is_deprecated;
+}
+
 /* FIXME: make this trace-aware, and move into fd_vm_init
    This is a temporary hack to make the fuzz harness work. */
 int
@@ -303,8 +338,7 @@ fd_vm_setup_state_for_execution( fd_vm_t * vm ) ;
    fault, appending an execution trace if vm is attached to a trace.
 
    Since this is running from program start, this will init r1 and r10,
-   pop all stack frames, free all heap allocations and flush out all
-   buffered log messages.
+   pop all stack frames and free all heap allocations.
 
    IMPORTANT SAFETY TIP!  This currently does not zero out any other
    registers, the user stack region or the user heap.  (FIXME: SHOULD

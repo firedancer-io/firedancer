@@ -93,9 +93,11 @@ txn_publish( funk_t * funk,
              txn_t *  txn,
              ulong    cnt );
 
+/*
 void
 txn_merge( funk_t * funk,
            txn_t *  txn );
+*/
 
 static inline txn_t *
 txn_cancel_children( funk_t * funk,
@@ -140,8 +142,7 @@ rec_insert( funk_t * funk,
 
 void
 rec_remove( funk_t * funk,
-            rec_t *  rec,
-            int      erase );
+            rec_t *  rec );
 
 /* Mini funk API */
 

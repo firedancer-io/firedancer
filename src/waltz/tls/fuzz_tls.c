@@ -77,15 +77,17 @@ LLVMFuzzerInitialize( int  *   argc,
   putenv( "FD_LOG_BACKTRACE=0" );
   fd_boot( argc, argv );
   atexit( fd_halt );
+  fd_log_level_core_set(3); /* crash on warning log */
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 1000U, 0UL ) );
 
   for( ulong b=0; b<32UL; b++ ) tls_tmpl->kex_private_key[b] = fd_rng_uchar( rng );
   fd_x25519_public( tls_tmpl->kex_public_key, tls_tmpl->kex_private_key );
 
-  fd_tls_test_sign_ctx_t sign_ctx = fd_tls_test_sign_ctx( rng );
+  fd_tls_test_sign_ctx_t sign_ctx[1];
+  fd_tls_test_sign_ctx( sign_ctx, rng );
   tls_tmpl->sign = fd_tls_test_sign( &sign_ctx );
-  fd_memcpy( tls_tmpl->cert_public_key, sign_ctx.public_key, 32UL );
+  fd_memcpy( tls_tmpl->cert_public_key, sign_ctx->public_key, 32UL );
   fd_x509_mock_cert( tls_tmpl->cert_x509, tls_tmpl->cert_public_key );
   tls_tmpl->cert_x509_sz = FD_X509_MOCK_CERT_SZ;
 

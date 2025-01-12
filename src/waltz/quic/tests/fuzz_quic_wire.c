@@ -16,25 +16,21 @@
 #include "../crypto/fd_quic_crypto_suites.h"
 #include "../templ/fd_quic_parse_util.h"
 #include "../../tls/test_tls_helper.h"
-#include "../../../util/net/fd_eth.h"
 #include "../../../util/net/fd_ip4.h"
 #include "../../../util/net/fd_udp.h"
-
-#pragma GCC diagnostic ignored "-Wunused-function"
 #include "../fd_quic_proto.h"
+#include "../fd_quic_proto.c"
 #include "../fd_quic_private.h"
 
 #include <assert.h>
+#include <stdlib.h> /* putenv, atexit */
 
-static fd_quic_crypto_suite_t const * suite;
-static fd_quic_crypto_keys_t const    keys[1] = {{
-  .pkt_key    = {0},
-  .pkt_key_sz = 32UL,
-  .iv         = {0},
-  .iv_sz      = 12UL,
-  .hp_key     = {0},
-  .hp_key_sz  = 32UL
-}};
+static FD_TL ulong g_clock;
+
+static ulong
+test_clock( void * context FD_FN_UNUSED ) {
+  return g_clock;
+}
 
 int
 LLVMFuzzerInitialize( int *    pargc,
@@ -44,10 +40,9 @@ LLVMFuzzerInitialize( int *    pargc,
   atexit( fd_halt );
   fd_log_level_logfile_set(0);
   fd_log_level_stderr_set(0);
-
-  static fd_quic_crypto_ctx_t crypto_ctx[1];
-  fd_quic_crypto_ctx_init( crypto_ctx );
-  suite = &crypto_ctx->suites[ TLS_AES_128_GCM_SHA256_ID ];
+# ifndef FD_DEBUG_MODE
+  fd_log_level_core_set(3); /* crash on warning log */
+# endif
   return 0;
 }
 
@@ -72,12 +67,11 @@ send_udp_packet( fd_quic_t *   quic,
 
   uchar buf[16384];
 
-  ulong headers_sz = sizeof(fd_eth_hdr_t) + sizeof(fd_ip4_hdr_t) + sizeof(fd_udp_hdr_t);
+  ulong headers_sz = sizeof(fd_ip4_hdr_t) + sizeof(fd_udp_hdr_t);
 
   uchar * cur = buf;
   uchar * end = buf + sizeof(buf);
 
-  fd_eth_hdr_t eth = { .net_type = FD_ETH_HDR_TYPE_IP };
   fd_ip4_hdr_t ip4 = {
     .verihl      = FD_IP4_VERIHL(4,5),
     .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
@@ -91,7 +85,6 @@ send_udp_packet( fd_quic_t *   quic,
   };
 
   /* Guaranteed to not overflow */
-  fd_quic_encode_eth( cur, (ulong)( end-cur ), &eth ); cur += sizeof(fd_eth_hdr_t);
   fd_quic_encode_ip4( cur, (ulong)( end-cur ), &ip4 ); cur += sizeof(fd_ip4_hdr_t);
   fd_quic_encode_udp( cur, (ulong)( end-cur ), &udp ); cur += sizeof(fd_udp_hdr_t);
 
@@ -115,14 +108,10 @@ LLVMFuzzerTestOneInput( uchar const * data,
   /* Create ultra low limits for QUIC instance for maximum performance */
   fd_quic_limits_t const quic_limits = {
     .conn_cnt         = 2,
-    .handshake_cnt    = 16,
-    .conn_id_cnt      = 16,
-    .conn_id_sparsity = 1.0,
-    .stream_cnt       = { 1, 1, 1, 1 },
-    .stream_sparsity  = 1.0,
+    .handshake_cnt    = 2,
+    .conn_id_cnt      = 4,
     .inflight_pkt_cnt = 8UL,
-    .tx_buf_sz        = 4096UL,
-    .stream_pool_cnt  = 1024
+    .stream_pool_cnt  = 8UL
   };
 
   /* Enable features depending on the last few bits.  The last bits are
@@ -139,9 +128,11 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   fd_quic_config_anonymous( quic, role );
 
-  fd_tls_test_sign_ctx_t test_signer = fd_tls_test_sign_ctx( rng );
-  fd_quic_config_test_signer( quic, &test_signer );
+  fd_tls_test_sign_ctx_t test_signer[1];
+  fd_tls_test_sign_ctx( test_signer, rng );
+  fd_quic_config_test_signer( quic, test_signer );
 
+  quic->cb.now = test_clock;
   quic->config.retry = enable_retry;
 
   fd_aio_t aio_[1];
@@ -150,50 +141,89 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   fd_quic_set_aio_net_tx( quic, aio );
   assert( fd_quic_init( quic ) );
+  assert( quic->config.idle_timeout > 0 );
+
+  fd_quic_state_t * state = fd_quic_get_state( quic );
 
   /* Create dummy connection */
-  fd_quic_conn_id_t our_conn_id  = { .sz=8 };
+  ulong             our_conn_id  = 0UL;
   fd_quic_conn_id_t peer_conn_id = { .sz=8 };
   uint              dst_ip_addr  = 0U;
   ushort            dst_udp_port = (ushort)0;
 
   fd_quic_conn_t * conn =
     fd_quic_conn_create( quic,
-                        &our_conn_id, &peer_conn_id,
-                        dst_ip_addr,  (ushort)dst_udp_port,
-                        1,  /* we are the server */
-                        1   /* QUIC version 1 */ );
+                         our_conn_id, &peer_conn_id,
+                         dst_ip_addr,  (ushort)dst_udp_port,
+                         1  /* we are the server */ );
   assert( conn );
+  assert( conn->svc_type == FD_QUIC_SVC_WAIT );
 
   conn->tx_max_data                            =       512UL;
   conn->tx_initial_max_stream_data_uni         =        64UL;
-  conn->rx_max_data                            =       512UL;
-  conn->rx_initial_max_stream_data_uni         =        64UL;
+  conn->srx->rx_max_data                       =       512UL;
+  conn->srx->rx_sup_stream_id                  =        32UL;
   conn->tx_max_datagram_sz                     = FD_QUIC_MTU;
-  fd_quic_conn_set_max_streams( conn, 0, 1 );
-  fd_quic_conn_set_max_streams( conn, 1, 1 );
-  conn->peer_sup_stream_id[ 0 ] = 32UL;
-  conn->peer_sup_stream_id[ 1 ] = 32UL;
-  conn->peer_sup_stream_id[ 2 ] = 32UL;
-  conn->peer_sup_stream_id[ 3 ] = 32UL;
+  conn->tx_sup_stream_id                       =        32UL;
 
   if( established ) {
     conn->state = FD_QUIC_CONN_STATE_ACTIVE;
-    conn->suites[ fd_quic_enc_level_initial_id    ] = suite;
-    conn->suites[ fd_quic_enc_level_early_data_id ] = suite;
-    conn->suites[ fd_quic_enc_level_handshake_id  ] = suite;
-    conn->suites[ fd_quic_enc_level_appdata_id    ] = suite;
+    conn->keys_avail = 0xff;
   }
+
+  g_clock = 1000UL;
 
   /* Calls fuzz entrypoint */
   send_udp_packet( quic, data, size );
-  fd_quic_service( quic );
+
+  /* svc_quota is the max number of service calls that we expect to
+     schedule in response to a single packet. */
+  long svc_quota = fd_long_max( (long)size, 1000L );
+
+  while( state->svc_queue[ FD_QUIC_SVC_INSTANT ].tail!=UINT_MAX ) {
+    fd_quic_service( quic );
+    assert( --svc_quota > 0 );
+  }
+  assert( conn->svc_type != FD_QUIC_SVC_INSTANT );
+
+  /* Generate ACKs */
+  while( state->svc_queue[ FD_QUIC_SVC_ACK_TX ].head != UINT_MAX ) {
+    fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, state->svc_queue[ FD_QUIC_SVC_ACK_TX ].head );
+    g_clock = conn->svc_time;
+    fd_quic_service( quic );
+    assert( --svc_quota > 0 );
+  }
+  assert( conn->svc_type != FD_QUIC_SVC_INSTANT &&
+          conn->svc_type != FD_QUIC_SVC_ACK_TX );
+
+  /* Simulate conn timeout */
+  while( state->svc_queue[ FD_QUIC_SVC_WAIT ].head != UINT_MAX ) {
+    ulong idle_timeout_ts = conn->last_activity + quic->config.idle_timeout + 1UL;
+    fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, state->svc_queue[ FD_QUIC_SVC_WAIT ].head );
+
+    /* Idle timeouts should not be scheduled significantly late */
+    assert( conn->svc_time < idle_timeout_ts + (ulong)2e9 );
+
+    g_clock = conn->svc_time;
+    fd_quic_service( quic );
+    assert( --svc_quota > 0 );
+  }
+  assert( conn->svc_type == UINT_MAX );
+  assert( conn->state == FD_QUIC_CONN_STATE_DEAD || conn->state == FD_QUIC_CONN_STATE_INVALID );
 
   fd_quic_delete( fd_quic_leave( fd_quic_fini( quic ) ) );
   fd_aio_delete( fd_aio_leave( aio ) );
   fd_rng_delete( fd_rng_leave( rng ) );
   return 0;
 }
+
+#if !FD_QUIC_DISABLE_CRYPTO
+
+static fd_quic_crypto_keys_t const keys[1] = {{
+  .pkt_key    = {0},
+  .iv         = {0},
+  .hp_key     = {0},
+}};
 
 /* guess_packet_size attempts to discover the end of a QUIC packet.
    Returns the total length (including GCM tag) on success, sets *pn_off
@@ -211,20 +241,21 @@ guess_packet_size( uchar const * data,
   ulong pkt_num_pnoff = 0UL;
   ulong total_len     = size;
 
-  fd_quic_common_hdr_t common_hdr[1];
-  ulong rc = fd_quic_decode_common_hdr( common_hdr, data, size );
-  if( rc == FD_QUIC_PARSE_FAIL ) return 0UL;
-  cur_ptr += rc; cur_sz -= rc;
+  if( FD_UNLIKELY( size < 1 ) ) return FD_QUIC_PARSE_FAIL;
+  uchar hdr_form = fd_quic_h0_hdr_form( *cur_ptr );
 
-  if( common_hdr->hdr_form == 1 ) {  /* long header */
+  ulong rc;
+  if( hdr_form == 1 ) {  /* long header */
 
+    uchar long_packet_type = fd_quic_h0_long_packet_type( *cur_ptr );
+    cur_ptr += 1; cur_sz -= 1UL;
     fd_quic_long_hdr_t long_hdr[1];
     rc = fd_quic_decode_long_hdr( long_hdr, cur_ptr, cur_sz );
     if( rc == FD_QUIC_PARSE_FAIL ) return 0UL;
     cur_ptr += rc; cur_sz -= rc;
 
-    switch( common_hdr->long_packet_type ) {
-    case FD_QUIC_PKTTYPE_V1_INITIAL: {
+    switch( long_packet_type ) {
+    case FD_QUIC_PKT_TYPE_INITIAL: {
       fd_quic_initial_t initial[1];
       rc = fd_quic_decode_initial( initial, cur_ptr, cur_sz );
       if( rc == FD_QUIC_PARSE_FAIL ) return 0UL;
@@ -234,7 +265,7 @@ guess_packet_size( uchar const * data,
       total_len     = pkt_num_pnoff + initial->len;
       break;
     }
-    case FD_QUIC_PKTTYPE_V1_HANDSHAKE: {
+    case FD_QUIC_PKT_TYPE_HANDSHAKE: {
       fd_quic_handshake_t handshake[1];
       rc = fd_quic_decode_handshake( handshake, cur_ptr, cur_sz );
       if( rc == FD_QUIC_PARSE_FAIL ) return 0UL;
@@ -244,12 +275,12 @@ guess_packet_size( uchar const * data,
       total_len     = pkt_num_pnoff + handshake->len;
       break;
     }
-    case FD_QUIC_PKTTYPE_V1_RETRY:
+    case FD_QUIC_PKT_TYPE_RETRY:
       /* Do we need to decrypt Retry packets?  I'm not sure */
       /* TODO correctly derive size of packet in case there is another
               packet following the retry packet */
       return 0UL;
-    case FD_QUIC_PKTTYPE_V1_ZERO_RTT:
+    case FD_QUIC_PKT_TYPE_ZERO_RTT:
       /* No support for 0-RTT yet */
       return 0UL;
     default:
@@ -259,6 +290,7 @@ guess_packet_size( uchar const * data,
   } else {  /* short header */
 
     fd_quic_one_rtt_t one_rtt[1];
+    one_rtt->dst_conn_id_len = 8;
     rc = fd_quic_decode_one_rtt( one_rtt, cur_ptr, cur_sz );
     if( rc == FD_QUIC_PARSE_FAIL ) return 0UL;
     cur_ptr += rc; cur_sz -= rc;
@@ -291,10 +323,8 @@ decrypt_packet( uchar * const data,
   int decrypt_res = fd_quic_crypto_decrypt_hdr( data, size, pkt_num_pnoff, keys );
   if( decrypt_res != FD_QUIC_SUCCESS ) return 0UL;
 
-  uint  pkt_number_sz = ( (uint)data[0] & 0x03U ) + 1U;
-  ulong pkt_number =
-    fd_quic_parse_bits( data + pkt_num_pnoff,
-                        0, 8U * pkt_number_sz );
+  uint  pkt_number_sz = fd_quic_h0_pkt_num_len( data[0] ) + 1u;
+  ulong pkt_number    = fd_quic_pktnum_decode( data+pkt_num_pnoff, pkt_number_sz );
 
   decrypt_res =
     fd_quic_crypto_decrypt( data,           size,
@@ -423,3 +453,5 @@ LLVMFuzzerCustomMutator( uchar * data,
 }
 
 /* Find a strategy for custom crossover of decrypted packets */
+
+#endif /* !FD_QUIC_DISABLE_CRYPTO */

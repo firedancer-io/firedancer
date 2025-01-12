@@ -17,7 +17,7 @@
  */
 
 FD_25519_INLINE void FD_FN_SENSITIVE
-fd_ed25519_scalar_radix16( char        secret_e[ 64 ], /* ouput: 64-entry in [-8;8] */
+fd_ed25519_scalar_radix16( char        secret_e[ 64 ], /* output: 64-entry in [-8;8] */
                            uchar const secret_a[ 32 ], /* input: 32-byte, assumes valid scalar */
                            char *      tmp_secret_carry ) {
   (*tmp_secret_carry) = 0;

@@ -37,31 +37,31 @@ fd_spad_alloc_max_debug( fd_spad_t const * spad,
                          ulong             align ) {
   if( FD_UNLIKELY( !fd_spad_frame_used( spad )               ) ) FD_LOG_CRIT(( "not in a frame" ));
   if( FD_UNLIKELY( (!!align) & (!fd_ulong_is_pow2( align ) ) ) ) FD_LOG_CRIT(( "bad align"      ));
-  return fd_spad_alloc_max( spad, align );
+  return fd_spad_alloc_max_impl( spad, align );
 }
 
 void *
 fd_spad_frame_lo_debug( fd_spad_t * spad ) {
   if( FD_UNLIKELY( !fd_spad_frame_used( spad ) ) ) FD_LOG_CRIT(( "not in a frame" ));
-  return fd_spad_frame_lo( spad );
+  return fd_spad_frame_lo_impl( spad );
 }
 
 void *
 fd_spad_frame_hi_debug( fd_spad_t * spad ) {
   if( FD_UNLIKELY( !fd_spad_frame_used( spad ) ) ) FD_LOG_CRIT(( "not in a frame" ));
-  return fd_spad_frame_hi( spad );
+  return fd_spad_frame_hi_impl( spad );
 }
 
 void
 fd_spad_push_debug( fd_spad_t * spad ) {
   if( FD_UNLIKELY( !fd_spad_frame_free( spad ) ) ) FD_LOG_CRIT(( "too many frames" ));
-  fd_spad_push( spad );
+  fd_spad_push_impl( spad );
 }
 
 void
 fd_spad_pop_debug( fd_spad_t * spad ) {
   if( FD_UNLIKELY( !fd_spad_frame_used( spad ) ) ) FD_LOG_CRIT(( "not in a frame" ));
-  fd_spad_pop( spad );
+  fd_spad_pop_impl( spad );
 }
 
 void *
@@ -71,7 +71,7 @@ fd_spad_alloc_debug( fd_spad_t * spad,
   if( FD_UNLIKELY( !fd_spad_frame_used( spad )               ) ) FD_LOG_CRIT(( "not in a frame"  ));
   if( FD_UNLIKELY( (!!align) & (!fd_ulong_is_pow2( align ) ) ) ) FD_LOG_CRIT(( "bad align"       ));
   if( FD_UNLIKELY( fd_spad_alloc_max( spad, align )<sz       ) ) FD_LOG_CRIT(( "bad sz"          ));
-  return fd_spad_alloc( spad, align, sz );
+  return fd_spad_alloc_impl( spad, align, sz );
 }
 
 void
@@ -80,7 +80,7 @@ fd_spad_trim_debug( fd_spad_t * spad,
   if( FD_UNLIKELY( !fd_spad_frame_used( spad )                 ) ) FD_LOG_CRIT(( "not in a frame"    ));
   if( FD_UNLIKELY( ((ulong)fd_spad_frame_lo( spad ))>(ulong)hi ) ) FD_LOG_CRIT(( "hi below frame_lo" ));
   if( FD_UNLIKELY( ((ulong)fd_spad_frame_hi( spad ))<(ulong)hi ) ) FD_LOG_CRIT(( "hi above frame_hi" ));
-  fd_spad_trim( spad, hi );
+  fd_spad_trim_impl( spad, hi );
 }
 
 void *
@@ -90,7 +90,7 @@ fd_spad_prepare_debug( fd_spad_t * spad,
   if( FD_UNLIKELY( !fd_spad_frame_used( spad )               ) ) FD_LOG_CRIT(( "not in a frame" ));
   if( FD_UNLIKELY( (!!align) & (!fd_ulong_is_pow2( align ) ) ) ) FD_LOG_CRIT(( "bad align"      ));
   if( FD_UNLIKELY( fd_spad_alloc_max( spad, align )<max      ) ) FD_LOG_CRIT(( "bad max"        ));
-  return fd_spad_prepare( spad, align, max );
+  return fd_spad_prepare_impl( spad, align, max );
 }
 
 void
@@ -98,7 +98,7 @@ fd_spad_cancel_debug( fd_spad_t * spad ) {
   if( FD_UNLIKELY( !fd_spad_frame_used( spad ) ) ) FD_LOG_CRIT(( "not in a frame" ));
   /* FIXME: check if in prepare?  needs extra state and a lot of extra
      tracking that state */
-  fd_spad_cancel( spad );
+  fd_spad_cancel_impl( spad );
 }
 
 void
@@ -108,5 +108,26 @@ fd_spad_publish_debug( fd_spad_t * spad,
   if( FD_UNLIKELY( fd_spad_alloc_max( spad, 1UL )<sz ) ) FD_LOG_CRIT(( "bad sz"         ));
   /* FIXME: check if in prepare?  needs extra state and a lot of extra
      tracking that state */
-  fd_spad_publish( spad, sz );
+  fd_spad_publish_impl( spad, sz );
 }
+
+/* fd_valloc virtual function table for spad */
+static void *
+fd_spad_valloc_malloc( void * _self,
+                               ulong  align,
+                               ulong  sz ) {
+  fd_spad_t * spad = _self;
+  return fd_spad_alloc( spad, align, sz );
+}
+
+static void
+fd_spad_valloc_free( void * _self,
+                             void * _addr ) {
+  (void)_self; (void)_addr;
+}
+
+const fd_valloc_vtable_t
+fd_spad_vtable = {
+  .malloc = fd_spad_valloc_malloc,
+  .free   = fd_spad_valloc_free
+};

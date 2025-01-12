@@ -1,6 +1,12 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_executor_err_h
 #define HEADER_fd_src_flamenco_runtime_fd_executor_err_h
 
+/* Instruction error types */
+
+#define FD_EXECUTOR_ERR_KIND_EBPF    (0)
+#define FD_EXECUTOR_ERR_KIND_SYSCALL (1)
+#define FD_EXECUTOR_ERR_KIND_INSTR   (2)
+
 /* Instruction error codes */
 
 /* TODO make sure these are serialized consistently with solana_program::InstructionError */
@@ -81,11 +87,11 @@
    These are all fatal errors, so the specific errors doesn't matter for
    consensus.
    To simplify our fuzzers, we return the same error code for all errors. */
-#define FD_EXECUTOR_PRECOMPILE_ERR_PUBLIC_KEY                    ( -1 )
-#define FD_EXECUTOR_PRECOMPILE_ERR_RECOVERY_ID                   ( -1 )
-#define FD_EXECUTOR_PRECOMPILE_ERR_SIGNATURE                     ( -1 )
-#define FD_EXECUTOR_PRECOMPILE_ERR_DATA_OFFSET                   ( -1 )
-#define FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE               ( -1 )
+#define FD_EXECUTOR_PRECOMPILE_ERR_PUBLIC_KEY                    ( 0 )
+#define FD_EXECUTOR_PRECOMPILE_ERR_RECOVERY_ID                   ( 1 )
+#define FD_EXECUTOR_PRECOMPILE_ERR_SIGNATURE                     ( 2 )
+#define FD_EXECUTOR_PRECOMPILE_ERR_DATA_OFFSET                   ( 3 )
+#define FD_EXECUTOR_PRECOMPILE_ERR_INSTR_DATA_SIZE               ( 4 )
 
 #define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE (0)
 #define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED         (1)

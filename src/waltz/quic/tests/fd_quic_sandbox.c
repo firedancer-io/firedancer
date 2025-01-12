@@ -1,5 +1,6 @@
 #include "fd_quic_sandbox.h"
 #include "../fd_quic_private.h"
+#include "../templ/fd_quic_parse_util.h"
 
 /* fd_quic_sandbox_capture_pkt captures a single outgoing packet sent by
    fd_quic. */
@@ -62,8 +63,8 @@ fd_quic_sandbox_next_packet( fd_quic_sandbox_t * sandbox ) {
   ulong mline = fd_mcache_line_idx( seq, depth );
 
   fd_frag_meta_t * frag = mcache + mline;
-  if( FD_UNLIKELY( frag->seq < seq ) ) return NULL;
-  if( FD_UNLIKELY( frag->seq > seq ) ) {
+  if( FD_UNLIKELY( fd_seq_lt( frag->seq, seq ) ) ) return NULL;
+  if( FD_UNLIKELY( fd_seq_gt( frag->seq, seq ) ) ) {
     /* Occurs if the fd_quic published 'depth' packets in succession
        without any reads via this function. */
     FD_LOG_WARNING(( "overrun detected, some captured packets were lost" ));
@@ -146,7 +147,7 @@ fd_quic_sandbox_footprint( fd_quic_limits_t const * quic_limits,
   return FD_LAYOUT_FINI( l, root_align );
 }
 
-void *
+fd_quic_sandbox_t *
 fd_quic_sandbox_new( void *                   mem,
                      fd_quic_limits_t const * quic_limits,
                      ulong                    pkt_cnt,
@@ -190,27 +191,14 @@ fd_quic_sandbox_new( void *                   mem,
     .pkt_seq_r  = seq0,
     .pkt_mtu    = mtu
   };
+  void * shmlog = (void *)( (ulong)sandbox->quic + sandbox->quic->layout.log_off );
+  if( FD_UNLIKELY( !fd_quic_log_rx_join( sandbox->log_rx, shmlog ) ) ) {
+    FD_LOG_CRIT(( "Failed to join the log of a newly created quic" ));
+  }
 
   FD_COMPILER_MFENCE();
   sandbox->magic = FD_QUIC_SANDBOX_MAGIC;
   FD_COMPILER_MFENCE();
-
-  return sandbox;
-}
-
-fd_quic_sandbox_t *
-fd_quic_sandbox_join( void * mem ) {
-
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_WARNING(( "NULL mem" ));
-    return NULL;
-  }
-
-  fd_quic_sandbox_t * sandbox = (fd_quic_sandbox_t *)mem;
-  if( FD_UNLIKELY( sandbox->magic != FD_QUIC_SANDBOX_MAGIC ) ) {
-    FD_LOG_WARNING(( "invalid magic" ));
-    return NULL;
-  }
 
   return sandbox;
 }
@@ -228,7 +216,9 @@ fd_quic_sandbox_init( fd_quic_sandbox_t * sandbox,
   quic_cfg->net.listen_udp_port   = FD_QUIC_SANDBOX_SELF_PORT;
   quic_cfg->net.ephem_udp_port.lo = FD_QUIC_SANDBOX_SELF_PORT;
   quic_cfg->net.ephem_udp_port.hi = FD_QUIC_SANDBOX_SELF_PORT + 1;
+  quic_cfg->initial_rx_max_stream_data = 512UL; /* arbitrary */
   memcpy( quic_cfg->identity_public_key, fd_quic_sandbox_self_ed25519_keypair + 32, 32 );
+  memset( &quic->metrics, 0, sizeof(fd_quic_metrics_t) );
 
   fd_aio_t aio_tx = {
     .send_func = fd_quic_sandbox_aio_send,
@@ -250,16 +240,15 @@ fd_quic_sandbox_init( fd_quic_sandbox_t * sandbox,
   sandbox->pkt_mcache[0].seq = ULONG_MAX;  /* mark first entry as unpublished */
   sandbox->pkt_chunk = fd_dcache_compact_chunk0( sandbox, sandbox->pkt_dcache );
 
+  /* skip ahead the log seq no */
+  fd_quic_log_tx_t * log_tx = fd_quic_get_state( quic )->log_tx;
+  log_tx->seq += 4093; /* prime */
+
   return sandbox;
 }
 
 void *
-fd_quic_sandbox_leave( fd_quic_sandbox_t * sandbox ) {
-  return (void *)sandbox;
-}
-
-void *
-fd_quic_sandbox_delete( void * mem ) {
+fd_quic_sandbox_delete( fd_quic_sandbox_t * mem ) {
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -291,7 +280,6 @@ fd_quic_sandbox_new_conn_established( fd_quic_sandbox_t * sandbox,
 
   /* fd_quic_t conn IDs are always 8 bytes */
   ulong             our_conn_id_u64 = fd_rng_ulong( rng );
-  fd_quic_conn_id_t our_conn_id     = fd_quic_conn_id_new( &our_conn_id_u64, 8UL );
 
   /* the peer may choose a conn ID size 1 to 16 bytes
      For now, pick 8 bytes too */
@@ -300,12 +288,11 @@ fd_quic_sandbox_new_conn_established( fd_quic_sandbox_t * sandbox,
 
   fd_quic_conn_t * conn = fd_quic_conn_create(
       /* quic         */ quic,
-      /* our_conn_id  */ &our_conn_id,
+      /* our_conn_id  */ our_conn_id_u64,
       /* peer_conn_id */ &peer_conn_id,
       /* dst_ip_addr  */ FD_QUIC_SANDBOX_PEER_IP4,
       /* dst_udp_addr */ FD_QUIC_SANDBOX_PEER_PORT,
-      /* server       */ quic->config.role == FD_QUIC_ROLE_SERVER,
-      /* version      */ 1 );
+      /* server       */ quic->config.role == FD_QUIC_ROLE_SERVER );
   if( FD_UNLIKELY( !conn ) ) {
     FD_LOG_WARNING(( "fd_quic_conn_create failed" ));
     return NULL;
@@ -313,24 +300,22 @@ fd_quic_sandbox_new_conn_established( fd_quic_sandbox_t * sandbox,
 
   conn->state       = FD_QUIC_CONN_STATE_ACTIVE;
   conn->established = 1;
-  conn->in_service  = 1;
 
   /* Mock a completed handshake */
   conn->handshake_complete = 1;
-  conn->hs_data_empty      = 1;
   conn->peer_enc_level     = fd_quic_enc_level_appdata_id;
+  conn->keys_avail         = 1U<<fd_quic_enc_level_appdata_id;
 
   conn->idle_timeout  = FD_QUIC_SANDBOX_IDLE_TIMEOUT;
   conn->last_activity = sandbox->wallclock;
 
   /* Reset flow control limits */
-  conn->tx_max_data      = 0UL;
-  conn->tx_tot_data      = 0UL;
-  conn->rx_max_data      = 0UL;
-  conn->rx_tot_data      = 0UL;
-  conn->rx_max_data_ackd = 0UL;
-  conn->tx_initial_max_stream_data_uni         = 0UL;
-  conn->rx_initial_max_stream_data_uni         = 0UL;
+  conn->tx_max_data           = 0UL;
+  conn->tx_tot_data           = 0UL;
+  conn->srx->rx_max_data      = 0UL;
+  conn->srx->rx_tot_data      = 0UL;
+  conn->srx->rx_max_data_ackd = 0UL;
+  conn->tx_initial_max_stream_data_uni = 0UL;
 
   /* TODO set a realistic packet number */
 
@@ -353,13 +338,10 @@ fd_quic_sandbox_send_frame( fd_quic_sandbox_t * sandbox,
    * frame types */
   uint pkt_type = FD_QUIC_PKT_TYPE_ONE_RTT;
 
-  /* Scratch space to deserialize frame data into */
-  fd_quic_frame_u frame[1];
-  ulong rc = fd_quic_handle_v1_frame( quic, conn, pkt_meta, pkt_type, frame_ptr, frame_sz, frame );
+  ulong rc = fd_quic_handle_v1_frame( quic, conn, pkt_meta, pkt_type, frame_ptr, frame_sz );
   if( FD_UNLIKELY( rc==FD_QUIC_PARSE_FAIL ) ) return;
   if( FD_UNLIKELY( rc==0UL || rc>frame_sz ) ) {
-    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
-    return;
+    FD_LOG_CRIT(( "Invalid fd_quic_handle_v1_frame return value (rc=%#lx frame_sz=%#lx)", rc, frame_sz ));
   }
 
 }
@@ -395,4 +377,50 @@ fd_quic_sandbox_send_lone_frame( fd_quic_sandbox_t * sandbox,
   };
 
   fd_quic_sandbox_send_frame( sandbox, conn, &pkt_meta, frame, frame_sz );
+
+  fd_quic_lazy_ack_pkt( sandbox->quic, conn, &pkt_meta );
+
+  /* Synchronize log seq[0] from tx to rx */
+  fd_quic_log_tx_seq_update( fd_quic_get_state( sandbox->quic )->log_tx );
+}
+
+void
+fd_quic_sandbox_send_ping_pkt( fd_quic_sandbox_t * sandbox,
+                               fd_quic_conn_t *    conn,
+                               ulong               pktnum ) {
+
+  uchar pkt_buf[ 256 ];
+  pkt_buf[0] = fd_quic_one_rtt_h0( /* spin */         0,
+                                   /* key_phase */    !!conn->key_phase,
+                                   /* pktnum_len-1 */ 3 );
+  memcpy( pkt_buf+1, &conn->our_conn_id, FD_QUIC_CONN_ID_SZ );
+  uint pktnum_comp = fd_uint_bswap( (uint)( pktnum & UINT_MAX ) );
+  memcpy( pkt_buf+9, &pktnum_comp, 4 );
+  pkt_buf[13] = 0x01;  /* PING frame */
+  memset( pkt_buf+14, 0, 18UL );
+
+  fd_quic_crypto_keys_t * keys = &conn->keys[fd_quic_enc_level_appdata_id][0];
+  ulong out_sz = 48UL;
+  int crypt_res = fd_quic_crypto_encrypt( pkt_buf, &out_sz, pkt_buf, 13UL, pkt_buf+13, 19UL, keys, keys, pktnum );
+  FD_TEST( crypt_res==FD_QUIC_SUCCESS );
+
+  fd_quic_pkt_t pkt_meta = {
+    .ip4 = {{
+      .verihl       = FD_IP4_VERIHL(4,5),
+      .net_tot_len  = 28,
+      .net_frag_off = 0x4000u, /* don't fragment */
+      .ttl          = 64,
+      .protocol     = FD_IP4_HDR_PROTOCOL_UDP,
+    }},
+    .udp = {{
+      .net_sport = FD_QUIC_SANDBOX_PEER_PORT,
+      .net_dport = FD_QUIC_SANDBOX_SELF_PORT,
+      .net_len   = 8,
+    }},
+    .pkt_number = pktnum,
+    .rcv_time   = sandbox->wallclock,
+    .enc_level  = fd_quic_enc_level_appdata_id,
+  };
+
+  fd_quic_process_quic_packet_v1( sandbox->quic, &pkt_meta, pkt_buf, out_sz );
 }

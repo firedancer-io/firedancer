@@ -415,7 +415,7 @@ __extension__ typedef unsigned __int128 uint128;
 
 #if defined(__aarch64__)
 #define FD_ASM_LG_ALIGN(lg_n) ".align " #lg_n "\n"
-#elif defined(__x86_64__)
+#elif defined(__x86_64__) || defined(__powerpc64__) || defined(__riscv) || defined(__s390x__)
 #define FD_ASM_LG_ALIGN(lg_n) ".p2align " #lg_n "\n"
 #endif
 
@@ -742,7 +742,11 @@ fd_type_pun_const( void const * p ) {
    the other logical cores sharing the same underlying physical core for
    a few clocks without yielding it to the operating system scheduler.
    Typically useful for shared memory spin polling loops, especially if
-   hyperthreading is in use. */
+   hyperthreading is in use.  IMPORTANT SAFETY TIP!  This might act as a
+   FD_COMPILER_MFENCE on some combinations of toolchains and targets
+   (e.g. gcc documents that __builtin_ia32_pause also does a compiler
+   memory) but this should not be relied upon for portable code
+   (consider making this a compiler memory fence on all platforms?) */
 
 #if FD_HAS_X86
 #define FD_SPIN_PAUSE() __builtin_ia32_pause()
@@ -997,6 +1001,17 @@ fd_memcpy( void       * FD_RESTRICT d,
   void * p = d;
   __asm__ __volatile__( "rep movsb" : "+D" (p), "+S" (s), "+c" (sz) :: "memory" );
   return d;
+}
+
+#elif FD_HAS_MSAN
+
+void * __msan_memcpy( void * dest, void const * src, ulong n );
+
+static inline void *
+fd_memcpy( void       * FD_RESTRICT d,
+           void const * FD_RESTRICT s,
+           ulong                    sz ) {
+  return __msan_memcpy( d, s, sz );
 }
 
 #else

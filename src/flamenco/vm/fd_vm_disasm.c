@@ -104,7 +104,7 @@ fd_vm_disasm_instr_alu( fd_sbpf_instr_t instr,
 
   switch( instr.opcode.normal.op_src ) {
   case FD_SBPF_OPCODE_SOURCE_MODE_IMM:
-    OUT_PRINTF( "%s%s r%d, %d",  op_name, suffix, instr.dst_reg, instr.imm     );
+    OUT_PRINTF( "%s%s r%d, %d",  op_name, suffix, instr.dst_reg, (int)instr.imm     );
     return FD_VM_SUCCESS;
   case FD_SBPF_OPCODE_SOURCE_MODE_REG:
     OUT_PRINTF( "%s%s r%d, r%d", op_name, suffix, instr.dst_reg, instr.src_reg );
@@ -159,7 +159,7 @@ fd_vm_disasm_instr_jmp( fd_sbpf_instr_t            instr,
       return FD_VM_SUCCESS;
     }
     case FD_SBPF_OPCODE_SOURCE_MODE_REG:
-      OUT_PRINTF( "%sx%s r%d", op_name, suffix, instr.imm );
+      OUT_PRINTF( "%sx%s r%u", op_name, suffix, instr.imm );
       return FD_VM_SUCCESS;
     default: break;
     }
@@ -178,7 +178,7 @@ fd_vm_disasm_instr_jmp( fd_sbpf_instr_t            instr,
 
   switch( instr.opcode.normal.op_src ) {
   case FD_SBPF_OPCODE_SOURCE_MODE_IMM:
-    OUT_PRINTF( "%s%s r%d, %d, lbb_%ld",  op_name, suffix, instr.dst_reg, instr.imm,     (long)pc+(long)instr.offset+1L );
+    OUT_PRINTF( "%s%s r%d, %d, lbb_%ld",  op_name, suffix, instr.dst_reg, (int)instr.imm, (long)pc+(long)instr.offset+1L );
     return FD_VM_SUCCESS;
   case FD_SBPF_OPCODE_SOURCE_MODE_REG:
     OUT_PRINTF( "%s%s r%d, r%d, lbb_%ld", op_name, suffix, instr.dst_reg, instr.src_reg, (long)pc+(long)instr.offset+1L );
@@ -205,8 +205,8 @@ fd_vm_disasm_instr_ldx( fd_sbpf_instr_t instr,
   default: return FD_VM_ERR_INVAL;
   }
 
-  if( instr.offset<0 ) OUT_PRINTF( "%s r%d, [r%d-0x%x]", op_name, instr.dst_reg, instr.src_reg, -instr.offset );
-  else                 OUT_PRINTF( "%s r%d, [r%d+0x%x]", op_name, instr.dst_reg, instr.src_reg,  instr.offset );
+  if( instr.offset<0 ) OUT_PRINTF( "%s r%d, [r%d-0x%x]", op_name, instr.dst_reg, instr.src_reg, (ushort)-instr.offset );
+  else                 OUT_PRINTF( "%s r%d, [r%d+0x%x]", op_name, instr.dst_reg, instr.src_reg, (ushort) instr.offset );
   return FD_VM_SUCCESS;
 }
 
@@ -225,8 +225,8 @@ fd_vm_disasm_instr_stx( fd_sbpf_instr_t instr,
   default: return FD_VM_ERR_INVAL;
   }
 
-  if( instr.offset<0 ) OUT_PRINTF( "%s [r%d-0x%x], r%d", op_name, instr.dst_reg, -instr.offset, instr.src_reg );
-  else                 OUT_PRINTF( "%s [r%d+0x%x], r%d", op_name, instr.dst_reg,  instr.offset, instr.src_reg );
+  if( instr.offset<0 ) OUT_PRINTF( "%s [r%d-0x%x], r%d", op_name, instr.dst_reg, (ushort)-instr.offset, instr.src_reg );
+  else                 OUT_PRINTF( "%s [r%d+0x%x], r%d", op_name, instr.dst_reg, (ushort) instr.offset, instr.src_reg );
   return FD_VM_SUCCESS;
 }
 

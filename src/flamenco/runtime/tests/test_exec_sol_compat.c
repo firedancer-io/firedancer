@@ -1,5 +1,6 @@
 #define FD_SCRATCH_USE_HANDHOLDING 1
 #include "../../fd_flamenco_base.h"
+#include "../../fd_flamenco.h"
 #include "fd_exec_sol_compat.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -40,8 +41,10 @@ run_test( fd_exec_instr_test_runner_t * runner,
     ok = sol_compat_elf_loader_fixture( runner, buf, file_sz );
   } else if( strstr( path, "/syscall/" ) != NULL ) {
     ok = sol_compat_syscall_fixture( runner, buf, file_sz );
-  } else if( strstr( path, "/vm_validate/" ) != NULL ) {
-    ok = sol_compat_validate_vm_fixture( runner, buf, file_sz );
+  } else if( strstr( path, "/cpi/" ) != NULL ) {
+    ok = sol_compat_syscall_fixture( runner, buf, file_sz );
+  } else if( strstr( path, "/vm_interp/" ) != NULL ){
+    ok = sol_compat_vm_interp_fixture( runner, buf, file_sz );
   } else {
     FD_LOG_WARNING(( "Unknown test type: %s", path ));
   }
@@ -56,7 +59,12 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  sol_compat_wksp_init();
+  fd_flamenco_boot( NULL, NULL );
+  ulong wksp_page_sz = fd_env_strip_cmdline_ulong( &argc, &argv, "--wksp-page-sz", "SOL_COMPAT_WKSP_PAGE_SZ", ULONG_MAX );
+  if( wksp_page_sz == ULONG_MAX ) {
+    wksp_page_sz = FD_SHMEM_NORMAL_PAGE_SZ;
+  }
+  sol_compat_wksp_init( wksp_page_sz );
   ulong fmem[ 64 ];
 
   ulong fail_cnt = 0UL;

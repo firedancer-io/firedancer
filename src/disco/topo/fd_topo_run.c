@@ -1,8 +1,9 @@
 #define _GNU_SOURCE
 #include "fd_topo.h"
 
+#include "../metrics/fd_metrics.h"
+#include "../../waltz/xdp/fd_xdp1.h"
 #include "../../util/tile/fd_tile_private.h"
-#include "../../util/shmem/fd_shmem_private.h"
 
 #include <unistd.h>
 #include <signal.h>
@@ -14,6 +15,7 @@
 #include <sys/prctl.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include <net/if.h>
 
 static void
 initialize_logging( char const * tile_name,
@@ -50,12 +52,17 @@ void
 fd_topo_run_tile( fd_topo_t *          topo,
                   fd_topo_tile_t *     tile,
                   int                  sandbox,
+                  int                  keep_controlling_terminal,
                   uint                 uid,
                   uint                 gid,
                   int                  allow_fd,
                   volatile int *       wait,
                   volatile int *       debugger,
                   fd_topo_run_tile_t * tile_run ) {
+  char thread_name[ 20 ];
+  FD_TEST( fd_cstr_printf_check( thread_name, sizeof( thread_name ), NULL, "%s:%lu", tile->name, tile->kind_id ) );
+  if( FD_UNLIKELY( prctl( PR_SET_NAME, thread_name, 0, 0, 0 ) ) ) FD_LOG_ERR(( "prctl(PR_SET_NAME) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
   ulong pid = fd_sandbox_getpid(); /* Need to read /proc again.. we got a new PID from clone */
   ulong tid = fd_sandbox_gettid(); /* Need to read /proc again.. we got a new TID from clone */
 
@@ -65,20 +72,19 @@ fd_topo_run_tile( fd_topo_t *          topo,
   /* preload shared memory before sandboxing, so it is already mapped */
   fd_topo_join_tile_workspaces( topo, tile );
 
-  void * tile_mem = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-
   if( FD_UNLIKELY( tile_run->privileged_init ) )
-    tile_run->privileged_init( topo, tile, tile_mem );
+    tile_run->privileged_init( topo, tile );
 
   ulong allow_fds_offset = 0UL;
-  int allow_fds[ 32 ] = { 0 };
+  int allow_fds[ 256 ] = { 0 };
   if( FD_LIKELY( -1!=allow_fd ) ) {
     allow_fds_offset = 1UL;
     allow_fds[ 0 ] = allow_fd;
   }
   ulong allow_fds_cnt = 0UL;
   if( FD_LIKELY( tile_run->populate_allowed_fds ) ) {
-    allow_fds_cnt = tile_run->populate_allowed_fds( tile_mem,
+    allow_fds_cnt = tile_run->populate_allowed_fds( topo,
+                                                    tile,
                                                     (sizeof(allow_fds)/sizeof(allow_fds[ 0 ]))-allow_fds_offset,
                                                     allow_fds+allow_fds_offset );
   }
@@ -87,15 +93,17 @@ fd_topo_run_tile( fd_topo_t *          topo,
   struct sock_filter seccomp_filter[ 128UL ];
   ulong seccomp_filter_cnt = 0UL;
   if( FD_LIKELY( tile_run->populate_allowed_seccomp ) ) {
-    seccomp_filter_cnt = tile_run->populate_allowed_seccomp( tile_mem,
+    seccomp_filter_cnt = tile_run->populate_allowed_seccomp( topo,
+                                                             tile,
                                                              sizeof(seccomp_filter)/sizeof(seccomp_filter[ 0 ]),
                                                              seccomp_filter );
   }
 
-  if( FD_LIKELY( sandbox) ) {
+  if( FD_LIKELY( sandbox ) ) {
     fd_sandbox_enter( uid,
                       gid,
-                      0,
+                      tile_run->keep_host_networking,
+                      keep_controlling_terminal,
                       tile_run->rlimit_file_cnt,
                       allow_fds_cnt+allow_fds_offset,
                       allow_fds,
@@ -108,7 +116,6 @@ fd_topo_run_tile( fd_topo_t *          topo,
   /* Now we are sandboxed, join all the tango IPC objects in the workspaces */
   fd_topo_fill_tile( topo, tile );
 
-  FD_TEST( tile->cnc );
   FD_TEST( tile->metrics );
   fd_metrics_register( tile->metrics );
 
@@ -116,77 +123,10 @@ fd_topo_run_tile( fd_topo_t *          topo,
   FD_MGAUGE_SET( TILE, TID, tid );
 
   if( FD_UNLIKELY( tile_run->unprivileged_init ) )
-    tile_run->unprivileged_init( topo, tile, tile_mem );
+    tile_run->unprivileged_init( topo, tile );
 
-  const fd_frag_meta_t * in_mcache[ FD_TOPO_MAX_LINKS ];
-  ulong * in_fseq[ FD_TOPO_MAX_TILE_IN_LINKS ];
-
-  ulong polled_in_cnt = 0UL;
-  for( ulong i=0; i<tile->in_cnt; i++ ) {
-    if( FD_UNLIKELY( !tile->in_link_poll[ i ] ) ) continue;
-
-    in_mcache[ polled_in_cnt ] = topo->links[ tile->in_link_id[ i ] ].mcache;
-    FD_TEST( in_mcache[ polled_in_cnt ] );
-    in_fseq[ polled_in_cnt ]   = tile->in_link_fseq[ i ];
-    FD_TEST( in_fseq[ polled_in_cnt ] );
-    polled_in_cnt += 1;
-  }
-
-  ulong out_cnt_reliable = 0;
-  ulong * out_fseq[ FD_TOPO_MAX_LINKS ];
-  for( ulong i=0; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t * consumer_tile = &topo->tiles[ i ];
-    for( ulong j=0; j<consumer_tile->in_cnt; j++ ) {
-      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==tile->out_link_id_primary && consumer_tile->in_link_reliable[ j ] ) ) {
-        out_fseq[ out_cnt_reliable ] = consumer_tile->in_link_fseq[ j ];
-        FD_TEST( out_fseq[ out_cnt_reliable ] );
-        out_cnt_reliable++;
-        /* Need to test this, since each link may connect to many outs,
-           you could construct a topology which has more than this
-           consumers of links. */
-        FD_TEST( out_cnt_reliable<FD_TOPO_MAX_LINKS );
-      }
-    }
-  }
-
-  fd_mux_callbacks_t callbacks = {
-    .during_housekeeping = tile_run->mux_during_housekeeping,
-    .before_credit       = tile_run->mux_before_credit,
-    .after_credit        = tile_run->mux_after_credit,
-    .before_frag         = tile_run->mux_before_frag,
-    .during_frag         = tile_run->mux_during_frag,
-    .after_frag          = tile_run->mux_after_frag,
-    .metrics_write       = tile_run->mux_metrics_write,
-  };
-
-  void * ctx = NULL;
-  if( FD_LIKELY( tile_run->mux_ctx ) ) ctx = tile_run->mux_ctx( tile_mem );
-
-  long lazy = 0L;
-  if( FD_UNLIKELY( tile_run->lazy ) ) lazy = tile_run->lazy( tile_mem );
-
-  fd_rng_t rng[1];
-  int ret = 0;
-  if( FD_LIKELY( tile_run->main == NULL ) ) {
-    ret = fd_mux_tile( tile->cnc,
-                       tile_run->mux_flags,
-                       polled_in_cnt,
-                       in_mcache,
-                       in_fseq,
-                       tile->out_link_id_primary == ULONG_MAX ? NULL : topo->links[ tile->out_link_id_primary ].mcache,
-                       out_cnt_reliable,
-                       out_fseq,
-                       tile_run->burst,
-                       0,
-                       lazy,
-                       fd_rng_join( fd_rng_new( rng, 0, 0UL ) ),
-                       fd_alloca( FD_MUX_TILE_SCRATCH_ALIGN, FD_MUX_TILE_SCRATCH_FOOTPRINT( polled_in_cnt, out_cnt_reliable ) ),
-                       ctx,
-                       &callbacks );
-  } else {
-    ret = tile_run->main();
-  }
-  FD_LOG_ERR(( "tile run loop returned: %d", ret ));
+  tile_run->run( topo, tile );
+  FD_LOG_ERR(( "tile run loop returned" ));
 }
 
 typedef struct {
@@ -205,11 +145,7 @@ run_tile_thread_main( void * _args ) {
   FD_COMPILER_MFENCE();
   ((fd_topo_run_thread_args_t *)_args)->copied = 1;
 
-  char thread_name[ 20 ];
-  FD_TEST( fd_cstr_printf_check( thread_name, sizeof( thread_name ), NULL, "%s:%lu", args.tile->name, args.tile->kind_id ) );
-  if( FD_UNLIKELY( prctl( PR_SET_NAME, thread_name, 0, 0, 0 ) ) ) FD_LOG_ERR(( "prctl(PR_SET_NAME) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
-  fd_topo_run_tile( args.topo, args.tile, 0, args.uid, args.gid, -1, NULL, NULL, &args.tile_run );
+  fd_topo_run_tile( args.topo, args.tile, 0, 1, args.uid, args.gid, -1, NULL, NULL, &args.tile_run );
   if( FD_UNLIKELY( args.done_futex ) ) {
     for(;;) {
       if( FD_LIKELY( INT_MAX==FD_ATOMIC_CAS( args.done_futex, INT_MAX, (int)args.tile->id ) ) ) break;
@@ -252,6 +188,40 @@ fd_topo_tile_stack_join( char const * app_name,
     FD_LOG_ERR(( "mmap failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   return stack;
+}
+
+fd_xdp_fds_t
+fd_topo_install_xdp( fd_topo_t * topo ) {
+  ulong net0_tile_idx = fd_topo_find_tile( topo, "net", 0UL );
+  FD_TEST( net0_tile_idx!=ULONG_MAX );
+  fd_topo_tile_t const * net0_tile = &topo->tiles[ net0_tile_idx ];
+
+  ushort udp_port_candidates[] = {
+    (ushort)net0_tile->net.legacy_transaction_listen_port,
+    (ushort)net0_tile->net.quic_transaction_listen_port,
+    (ushort)net0_tile->net.shred_listen_port,
+    (ushort)net0_tile->net.gossip_listen_port,
+    (ushort)net0_tile->net.repair_intake_listen_port,
+    (ushort)net0_tile->net.repair_serve_listen_port,
+  };
+
+  uint if_idx = if_nametoindex( net0_tile->net.interface );
+  if( FD_UNLIKELY( !if_idx ) ) FD_LOG_ERR(( "if_nametoindex(%s) failed", net0_tile->net.interface ));
+
+  fd_xdp_fds_t xdp_fds = fd_xdp_install( if_idx,
+                                         net0_tile->net.src_ip_addr,
+                                         sizeof(udp_port_candidates)/sizeof(udp_port_candidates[0]),
+                                         udp_port_candidates,
+                                         net0_tile->net.xdp_mode );
+  if( FD_UNLIKELY( -1==dup2( xdp_fds.xsk_map_fd, 123462 ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==close( xdp_fds.xsk_map_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==dup2( xdp_fds.prog_link_fd, 123463 ) ) ) FD_LOG_ERR(( "dup2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==close( xdp_fds.prog_link_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  xdp_fds.xsk_map_fd = 123462;
+  xdp_fds.prog_link_fd = 123463;
+
+  return xdp_fds;
 }
 
 static inline void

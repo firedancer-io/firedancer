@@ -2,9 +2,8 @@
 #include <stdlib.h>
 
 #include "../../../util/fd_util.h"
-#include "../../util/sanitize/fd_fuzz.h"
+#include "../../../util/sanitize/fd_fuzz.h"
 #include "../fd_quic_common.h"
-#include "../fd_quic_config.h"
 #include "fd_quic_transport_params.h"
 
 int
@@ -14,6 +13,7 @@ LLVMFuzzerInitialize( int  *   argc,
   putenv( "FD_LOG_BACKTRACE=0" );
   fd_boot( argc, argv );
   atexit( fd_halt );
+  fd_log_level_core_set(3); /* crash on warning log */
 
   return 0;
 }

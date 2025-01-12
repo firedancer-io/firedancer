@@ -76,7 +76,7 @@ wc_bcast_wide( int c0, int c1, int c2, int c3 ) {
   return _mm256_setr_epi32( c0, c0, c1, c1, c2, c2, c3, c3 );
 }
 
-/* No general vc_permute due to cross-128-bit lane limitations in AVX.
+/* No general wc_permute due to cross-128-bit lane limitations in AVX.
    Useful cases are provided below.  Given [ c0 c1 c2 c3 c4 c5 c6 c7 ],
    return ... */
 
@@ -247,8 +247,8 @@ static inline void wc_stu( void * p, wc_t c ) { _mm256_storeu_si256( (__m256i *)
 
 /* Misc operations */
 
-/* vc_pack returns an int where bit i equals 0(1) if lane i of c is
-   false(true) for i in [0,4).  Vice versa for vc_unpack. */
+/* wc_pack returns an int where bit i equals 0(1) if lane i of c is
+   false(true) for i in [0,8).  Vice versa for wc_unpack. */
 
 #define wc_pack(c)   _mm256_movemask_ps( _mm256_castsi256_ps( (c) ) )
 #define wc_unpack(b) _mm256_cmpgt_epi32( _mm256_and_si256( _mm256_set1_epi32( (b) ),                                              \

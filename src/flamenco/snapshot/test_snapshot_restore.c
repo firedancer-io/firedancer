@@ -75,7 +75,7 @@ main( int     argc,
   FD_TEST( funk );
 
   fd_funk_start_write( funk );
-  
+
   fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( fd_wksp_alloc_laddr( wksp, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT, static_tag ), funk );
   FD_TEST( acc_mgr );
 
@@ -100,7 +100,7 @@ main( int     argc,
 
 # define NEW_RESTORE_POST_MANIFEST() __extension__({ \
     fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, _dummy_ctx, cb_manifest, cb_status_cache ); \
-    restore->manifest_done = 1; \
+    restore->manifest_done = MANIFEST_DONE_SEEN; \
     restore->slot          = restore_slot; \
     restore; \
   })
@@ -198,11 +198,11 @@ main( int     argc,
     _cb_v_manifest = NULL;
     _cb_retcode = 0;
     FD_TEST( 0==fd_snapshot_restore_file( restore, &meta, data_sz ) );
-    FD_TEST( 0==fd_snapshot_restore_chunk( restore, data, data_sz ) );
-    FD_TEST( _cb_v_ctx      == _dummy_ctx  );
-    FD_TEST( _cb_v_manifest != NULL        );
-    FD_TEST( restore->manifest_done == 1   );
-    FD_TEST( restore->slot          == 3UL );
+    FD_TEST( MANIFEST_DONE==fd_snapshot_restore_chunk( restore, data, data_sz ) );
+    FD_TEST( _cb_v_ctx              == _dummy_ctx         );
+    FD_TEST( _cb_v_manifest         != NULL               );
+    FD_TEST( restore->manifest_done == MANIFEST_DONE_SEEN );
+    FD_TEST( restore->slot          == 3UL                );
 
     fd_snapshot_restore_delete( restore );
     fd_scratch_pop();
@@ -281,7 +281,7 @@ main( int     argc,
     _cb_v_manifest = NULL;
     _cb_retcode = 0;
     FD_TEST( 0==fd_snapshot_restore_file( restore, &meta, manifest_sz + 1 ) );
-    FD_TEST( 0==fd_snapshot_restore_chunk( restore, data, manifest_sz + 1 ) );
+    FD_TEST( MANIFEST_DONE==fd_snapshot_restore_chunk( restore, data, manifest_sz + 1 ) );
     FD_TEST( _cb_v_ctx      == _dummy_ctx );  /* callback must have been successful */
     FD_TEST( _cb_v_manifest != NULL       );
     FD_TEST( 0==fd_snapshot_restore_chunk( restore, data, manifest_sz + 1 ) );
@@ -380,8 +380,8 @@ main( int     argc,
   do {
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
-    restore->manifest_done = 1;
-    restore->funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 0 );
+    restore->manifest_done = MANIFEST_DONE_SEEN;
+    restore->funk_txn      = fd_funk_txn_prepare( funk, NULL, xid, 0 );
     FD_TEST( restore->funk_txn );
 
     _set_accv_sz( restore, /* slot */ 1UL, /* id */ 1UL, /* sz */ sizeof(fd_solana_account_hdr_t) );
@@ -395,7 +395,7 @@ main( int     argc,
 
       /* Query loaded account */
       fd_pubkey_t pubkey[1]; memcpy( pubkey, hdr.meta.pubkey, 32 );
-      fd_account_meta_t const * acc = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey, NULL, NULL );
+      fd_account_meta_t const * acc = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey, NULL, NULL, NULL );
       FD_TEST( acc );
       FD_TEST( !fd_acc_exists( acc ) );
     } while(0);
@@ -409,7 +409,7 @@ main( int     argc,
   do {
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
-    restore->manifest_done = 1;
+    restore->manifest_done = MANIFEST_DONE_SEEN;
     restore->funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 0 );
 
     /* Insert a dead account (slot 9) */
@@ -438,7 +438,7 @@ main( int     argc,
 
       /* Query loaded account */
       fd_pubkey_t pubkey[1]; memcpy( pubkey, hdr.meta.pubkey, 32 );
-      fd_account_meta_t const * acc = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey, NULL, NULL );
+      fd_account_meta_t const * acc = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey, NULL, NULL, NULL );
       FD_TEST( acc );
       FD_TEST( !fd_acc_exists( acc ) );
       FD_TEST( acc->slot == 9UL );
@@ -455,7 +455,7 @@ main( int     argc,
   do {
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
-    restore->manifest_done = 1;
+    restore->manifest_done = MANIFEST_DONE_SEEN;
     restore->funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 0 );
 
     /* Insert an account (key 9, slot 9) */
@@ -498,7 +498,7 @@ main( int     argc,
 
       /* Verify key 9 */
       fd_pubkey_t pubkey1[1]; memcpy( pubkey1, hdr1.meta.pubkey, 32 );
-      fd_account_meta_t const * acc1 = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey1, NULL, NULL );
+      fd_account_meta_t const * acc1 = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey1, NULL, NULL, NULL );
       FD_TEST( acc1 );
       FD_TEST( fd_acc_exists( acc1 ) );
       FD_TEST( acc1->slot == 9UL );
@@ -510,7 +510,7 @@ main( int     argc,
 
       /* Verify key 10 */
       fd_pubkey_t pubkey2[1]; memcpy( pubkey2, hdr2.meta.pubkey, 32 );
-      fd_account_meta_t const * acc2 = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey2, NULL, NULL );
+      fd_account_meta_t const * acc2 = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey2, NULL, NULL, NULL );
       FD_TEST( acc2 );
       FD_TEST( fd_acc_exists( acc2 ) );
       FD_TEST( acc2->slot == 8UL );
@@ -545,7 +545,7 @@ main( int     argc,
   do {
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
-    restore->manifest_done = 1;
+    restore->manifest_done = MANIFEST_DONE_SEEN;
 
     ulong accv_sz = 2 * sizeof(fd_solana_account_hdr_t) + 2UL;
     _set_accv_sz( restore, /* slot */ 1UL, /* id */ 1UL, accv_sz );
@@ -611,7 +611,7 @@ main( int     argc,
 
       /* Query loaded account */
       fd_pubkey_t pubkey[1]; memcpy( pubkey, hdr.meta.pubkey, 32 );
-      fd_account_meta_t const * acc = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey, NULL, NULL );
+      fd_account_meta_t const * acc = fd_acc_mgr_view_raw( acc_mgr, restore->funk_txn, pubkey, NULL, NULL, NULL );
       FD_TEST( acc );
       FD_TEST( acc->dlen            ==       2UL );
       FD_TEST( acc->info.lamports   ==    1234UL );

@@ -7,77 +7,56 @@
 #include "../../../util/wksp/fd_wksp.h"
 
 #include "../sysvar/fd_sysvar_cache.h"
-#include "../sysvar/fd_sysvar_cache_old.h"
 #include "../../types/fd_types.h"
 #include "../fd_txncache.h"
-
-struct fd_account_compute_elem {
-  fd_pubkey_t key;
-  ulong next;
-  ulong cu_consumed;
-};
-typedef struct fd_account_compute_elem fd_account_compute_elem_t;
-
-static int
-fd_pubkey_eq( fd_pubkey_t const * key1, fd_pubkey_t const * key2 ) {
-  return memcmp( key1->key, key2->key, sizeof(fd_pubkey_t) ) == 0;
-}
-
-static ulong
-fd_pubkey_hash( fd_pubkey_t const * key, ulong seed ) {
-  return fd_hash( seed, key->key, sizeof(fd_pubkey_t) );
-}
-
-static void
-fd_pubkey_copy( fd_pubkey_t * keyd, fd_pubkey_t const * keys ) {
-  memcpy( keyd->key, keys->key, sizeof(fd_pubkey_t) );
-}
-
-/* Contact info table */
-#define MAP_NAME     fd_account_compute_table
-#define MAP_KEY_T    fd_pubkey_t
-#define MAP_KEY_EQ   fd_pubkey_eq
-#define MAP_KEY_HASH fd_pubkey_hash
-#define MAP_KEY_COPY fd_pubkey_copy
-#define MAP_T        fd_account_compute_elem_t
-#include "../../../util/tmpl/fd_map_giant.c"
 
 /* fd_exec_slot_ctx_t is the context that stays constant during all
    transactions in a block. */
 
 struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
-  ulong                    magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
+  ulong                        magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
 
-  fd_funk_txn_t *          funk_txn;
+  fd_funk_txn_t *             funk_txn;
 
   /* External joins, pointers to be set by caller */
 
-  fd_acc_mgr_t *           acc_mgr;
-  fd_blockstore_t *        blockstore;
-  fd_exec_epoch_ctx_t *    epoch_ctx;
-  fd_valloc_t              valloc;
+  fd_acc_mgr_t *              acc_mgr;
+  fd_blockstore_t *           blockstore;
+  fd_block_t *                block;
+  fd_exec_epoch_ctx_t *       epoch_ctx;
+  fd_valloc_t                 valloc;
 
-  fd_slot_bank_t           slot_bank;
-  fd_sysvar_cache_old_t    sysvar_cache_old; // TODO make const
-  // TODO this leader pointer could become invalid if forks cross epoch boundaries
-  fd_pubkey_t const *      leader; /* Current leader */
-  ulong                    total_compute_units_requested;
+  fd_slot_bank_t              slot_bank;
+
+  ulong                       total_compute_units_requested;
 
   /* TODO figure out what to do with this */
-  fd_epoch_reward_status_t epoch_reward_status;
+  fd_epoch_reward_status_t    epoch_reward_status;
 
   /* TODO remove this stuff */
-  ulong                    signature_cnt;
-  fd_hash_t                account_delta_hash;
-  fd_hash_t                prev_banks_hash;
-  ulong                    prev_lamports_per_signature;
-  ulong                    parent_signature_cnt;
+  ulong                       signature_cnt;
+  fd_hash_t                   account_delta_hash;
+  ulong                       prev_lamports_per_signature;
+  ulong                       parent_transaction_count;
+  ulong                       txn_count;
+  ulong                       nonvote_txn_count;
+  ulong                       failed_txn_count;
+  ulong                       nonvote_failed_txn_count;
+  ulong                       total_compute_units_used;
 
-  fd_sysvar_cache_t *      sysvar_cache;
-  fd_account_compute_elem_t * account_compute_table;
+  fd_sysvar_cache_t *         sysvar_cache;
 
-  fd_txncache_t * status_cache;
-  fd_slot_history_t slot_history[1];
+  fd_txncache_t *             status_cache;
+  fd_slot_history_t           slot_history[1];
+
+  int                         enable_exec_recording; /* Enable/disable execution metadata
+                                                     recording, e.g. txn logs.  Analogue
+                                                     of Agave's ExecutionRecordingConfig. */
+
+  ulong                       root_slot;
+  ulong                       snapshot_freq;
+  ulong                       incremental_freq;
+  ulong                       last_snapshot_slot;
 };
 
 #define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))

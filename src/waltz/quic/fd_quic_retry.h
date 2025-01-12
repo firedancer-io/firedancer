@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_waltz_quic_fd_quic_retry_h
 #define HEADER_fd_src_waltz_quic_fd_quic_retry_h
 
-#include "fd_quic.h"
 #include "fd_quic_conn_id.h"
 #include "fd_quic_enum.h"
 #include "fd_quic_proto_structs.h"
@@ -26,7 +25,7 @@ FD_PROTOTYPES_BEGIN
 /* fd_quic_retry_integrity_tag_{sign,verify} implement the RFC 9001
    "Retry Integrity Tag" AEAD scheme.
 
-   This is a standard and mandatory step in the QUIC retry proces, both
+   This is a standard and mandatory step in the QUIC retry process, both
    on the server (sign) and client (verify) side.  Confusingly, all
    inputs to these functions are either public constants (e.g. the
    hardcoded encryption key) or sent in plain text over the wire.  Thus,
@@ -43,7 +42,7 @@ FD_PROTOTYPES_BEGIN
 
    fd_quic_retry_integrity_tag_decrypt checks whether a Retry Integrity
    Tag matches the byte range at retry_pseudo_pkt.  It returns
-   FD_QUIC_SUCCESS if the integrity tag is vaild, and FD_QUIC_FAILURE
+   FD_QUIC_SUCCESS if the integrity tag is valid, and FD_QUIC_FAILURE
    otherwise. */
 
 static inline void
@@ -93,15 +92,14 @@ FD_PROTOTYPES_END
 struct __attribute__((packed)) fd_quic_retry_data {
   /* 0x00 */ ushort magic;
 # define FD_QUIC_RETRY_TOKEN_MAGIC 0xdaa5
-  /* 0x02 */ uchar  odcid_sz;      /* in [1,20] */
-  /* 0x03 */ uchar  rscid_sz;      /* in [1,20] */
-  /* 0x04 */ uchar  token_id[12];  /* pseudorandom, guessable */
-  /* 0x10 */ uchar  ip6_addr[16];  /* IPv6 or IPv4-mapped IPv6 address, net order */
+  /* 0x02 */ uchar  token_id[12];  /* pseudorandom, guessable */
+  /* 0x0e */ uchar  ip6_addr[16];  /* Source IPv6 or IPv4-mapped IPv6 address, net order */
+  /* 0x1e */ ushort udp_port;      /* Source UDP port, host order */
   /* 0x20 */ ulong  expire_comp;   /* unix_nanos>>22 */
-  /* 0x28 */ ushort udp_port;      /* host order */
-  /* 0x2a */ uchar  odcid[20];     /* Original Destination Connection ID */
-  /* 0x3e */ uchar  rscid[20];     /* Retry Source Connection ID */
-  /* 0x52 */
+  /* 0x28 */ ulong  rscid;         /* Retry Source Connection ID */
+  /* 0x30 */ uchar  odcid[20];     /* Original Destination Connection ID */
+  /* 0x44 */ uchar  odcid_sz;      /* in [1,20] */
+  /* 0x45 */
 };
 
 typedef struct fd_quic_retry_data fd_quic_retry_data_t;
@@ -197,10 +195,14 @@ FD_PROTOTYPES_BEGIN
    by fd_quic.  (Other QUIC implementations may produce differently
    sized retry packets) */
 
-#define FD_QUIC_RETRY_LOCAL_SZ (164UL)
+#define FD_QUIC_RETRY_LOCAL_SZ (148UL)
 
 /* fd_quic_retry_{create,verify} do end-to-end issuance and verification
-   of fd_quic retry tokens.  Used by the server-side. */
+   of fd_quic retry tokens.  Used by the server-side.
+
+   orig_dst_conn_id is the DCID chosen by the client in the Initial that
+   triggered a Retry.  retry_src_conn_id is the SCID chosen by the server
+   in the Retry packet. */
 
 ulong
 fd_quic_retry_create(
@@ -210,8 +212,9 @@ fd_quic_retry_create(
     uchar const               retry_secret[ FD_QUIC_RETRY_SECRET_SZ ],
     uchar const               retry_iv[ FD_QUIC_RETRY_IV_SZ ],
     fd_quic_conn_id_t const * orig_dst_conn_id,
-    fd_quic_conn_id_t const * new_conn_id,
-    ulong                     wallclock /* ns since unix epoch */
+    fd_quic_conn_id_t const * src_conn_id,
+    ulong                     retry_src_conn_id,
+    ulong                     expire_at
 );
 
 int
@@ -219,10 +222,11 @@ fd_quic_retry_server_verify(
     fd_quic_pkt_t const *     pkt,
     fd_quic_initial_t const * initial,
     fd_quic_conn_id_t *       orig_dst_conn_id, /* out */
-    fd_quic_conn_id_t *       retry_src_conn_id, /* out */
+    ulong *                   retry_src_conn_id, /* out */
     uchar const               retry_secret[ FD_QUIC_RETRY_SECRET_SZ ],
     uchar const               retry_iv[ FD_QUIC_RETRY_IV_SZ ],
-    ulong                     now /* ns since unix epoch */
+    ulong                     now,
+    ulong                     ttl
 );
 
 int

@@ -104,9 +104,12 @@ fd_rpc_client_request_transaction_count( fd_rpc_client_t * rpc );
    and receiving data.  To operate in blocking mode, where the function
    will not return unless some forward progress has been made, set wait
    to true.  The function may still return without a response available
-   when wait is true. */
+   when wait is true.
+   
+   Returns 1 if the RPC client did any work to progress a connection,
+   otherwise returns 0. */
 
-void
+int
 fd_rpc_client_service( fd_rpc_client_t * rpc,
                        int               wait );
 

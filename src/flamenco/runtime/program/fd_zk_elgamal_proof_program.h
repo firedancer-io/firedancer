@@ -8,17 +8,6 @@
 #include "../context/fd_exec_instr_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
 
-/* TODO: the following belong to a more generic header */
-
-#define FD_RUNTIME_CU_UPDATE( ctx, cost ) do {            \
-  fd_exec_instr_ctx_t * _ctx = (ctx);                     \
-  int err = fd_exec_consume_cus( _ctx->txn_ctx, (cost) ); \
-  if( FD_UNLIKELY( err ) ) return err;                    \
-  } while(0);
-
-#define FD_RUNTIME_LOG_APPEND( ctx, log ) do { \
-  } while(0);
-
 /* FD_ZKSDK_INSTR_{...} identify ZK ElGamal Proof Program instructions.
    https://github.com/anza-xyz/agave/blob/v2.0.1/zk-sdk/src/zk_elgamal_proof_program/instruction.rs#L48 */
 

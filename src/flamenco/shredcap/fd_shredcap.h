@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_app_fdshredcap_fdshredcap_h
 #define HEADER_fd_src_app_fdshredcap_fdshredcap_h
 
-#include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
@@ -96,7 +95,7 @@
 #define FD_SHREDCAP_CAPTURE_PATH_NAME_LENGTH (256UL)
 
 /****************************** Manifest **************************************/
-#define FD_SHREDCAP_MANIFEST_MAGIC   (0x4370437043704370)
+#define FD_SHREDCAP_MANIFEST_MAGIC   (0x4370437043704370UL)
 #define FD_SHREDCAP_MANIFEST_VERSION (1UL)
 
 #define FD_SHREDCAP_MANIFEST_CAP_FOOTPRINT_V1 (32UL)

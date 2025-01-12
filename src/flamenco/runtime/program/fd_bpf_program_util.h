@@ -16,16 +16,26 @@ struct fd_sbpf_validated_program {
 
   ulong rodata_sz;
 
-  fd_sbpf_calldests_t calldests[];
+  /* We keep the pointer to the calldests raw memory around, so that we can easily copy the entire
+     data structures (including the private header) later. */
+  void * calldests_shmem;
+  fd_sbpf_calldests_t * calldests;
 
+  uchar * rodata;
+
+  /* Backing memory for calldests and rodata */
+  // uchar calldests_shmem[];
   // uchar rodata[];
+
+  /* SBPF version, SIMD-0161 */
+  ulong sbpf_version;
 };
 typedef struct fd_sbpf_validated_program fd_sbpf_validated_program_t;
 
 FD_PROTOTYPES_BEGIN
 
 fd_sbpf_validated_program_t *
-fd_sbpf_validated_program_new( void * mem );
+fd_sbpf_validated_program_new( void * mem, fd_sbpf_elf_info_t const * elf_info );
 
 
 ulong
@@ -34,17 +44,14 @@ fd_sbpf_validated_program_align( void );
 ulong
 fd_sbpf_validated_program_footprint( fd_sbpf_elf_info_t const * elf_info );
 
-uchar *
-fd_sbpf_validated_program_rodata( fd_sbpf_validated_program_t * prog );
-
 /* FIXME: Implement this (or remove?) */
 ulong
-fd_sbpf_validated_program_from_sbpf_program( fd_sbpf_program_t const * prog,
+fd_sbpf_validated_program_from_sbpf_program( fd_sbpf_program_t const *     prog,
                                              fd_sbpf_validated_program_t * valid_prog );
 
 int
 fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
-                                                fd_funk_txn_t * funk_txn );
+                                                fd_funk_txn_t *      funk_txn );
 
 int
 fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
@@ -57,9 +64,14 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_
                                                       fd_tpool_t *         tpool );
 
 int
-fd_bpf_load_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_pubkey_t const * program_pubkey,
+fd_bpf_load_cache_entry( fd_exec_slot_ctx_t const *     slot_ctx,
+                         fd_pubkey_t const *            program_pubkey,
                          fd_sbpf_validated_program_t ** valid_prog );
+
+void
+fd_bpf_get_sbpf_versions( uint *                     sbpf_min_version,
+                          uint *                     sbpf_max_version,
+                          fd_exec_slot_ctx_t const * slot_ctx );
 
 FD_PROTOTYPES_END
 

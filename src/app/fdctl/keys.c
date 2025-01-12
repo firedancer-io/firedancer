@@ -2,7 +2,8 @@
 
 #include "../../disco/keyguard/fd_keyload.h"
 
-#include <stdio.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <sys/stat.h>
 #include <sys/random.h>
 
@@ -21,8 +22,8 @@ keys_cmd_args( int *    pargc,
   if( FD_LIKELY( !strcmp( *pargv[ 0 ], "new" ) ) ) {
     (*pargc)--;
     (*pargv)++;
-    if( FD_LIKELY( !strcmp( *pargv[ 0 ], "identity" ) ) )     args->keys.cmd = CMD_NEW_IDENTITY;
-    else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "vote"  ) ) )   args->keys.cmd = CMD_NEW_VOTE_ACCOUNT;
+    if( FD_LIKELY( !strcmp( *pargv[ 0 ], "identity" ) ) )   args->keys.cmd = CMD_NEW_IDENTITY;
+    else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "vote"  ) ) ) args->keys.cmd = CMD_NEW_VOTE_ACCOUNT;
   }
   else if( FD_LIKELY( !strcmp( *pargv[ 0 ], "pubkey"  ) ) ) {
     (*pargc)--;
@@ -46,72 +47,77 @@ err:
                  *pargv[0] ));
 }
 
-void
+void FD_FN_SENSITIVE
 generate_keypair( char const *     keyfile,
                   config_t * const config,
                   int              use_grnd_random ) {
-  uchar keys[ 64 ];
+  uint flags = use_grnd_random ? GRND_RANDOM : 0U;
 
-  uint flags = use_grnd_random ? GRND_RANDOM : 0;
-
+  uchar keypair[ 64 ];
   long bytes_produced = 0L;
-  while( FD_LIKELY( bytes_produced<32 ) ) {
-    long n = getrandom( keys+bytes_produced, (ulong)(32-bytes_produced), flags );
+  while( FD_LIKELY( bytes_produced<32L ) ) {
+    long n = getrandom( keypair+bytes_produced, (ulong)(32-bytes_produced), flags );
     if( FD_UNLIKELY( -1==n ) ) FD_LOG_ERR(( "could not create keypair, getrandom() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     bytes_produced += n;
   }
 
-  fd_sha512_t _sha[1];
+  fd_sha512_t _sha[ 1 ];
   fd_sha512_t * sha = fd_sha512_join( fd_sha512_new( _sha ) );
   if( FD_UNLIKELY( !sha ) ) FD_LOG_ERR(( "could not create keypair, fd_sha512 join failed" ));
-  fd_ed25519_public_from_private( keys+32, keys, sha );
+  fd_ed25519_public_from_private( keypair+32UL, keypair, sha );
 
-  /* switch to non-root uid/gid for file creation. permissions checks still done as root. */
+  /* Switch to non-root uid/gid for file creation.  Permissions checks
+     are still done as root. */
   gid_t gid = getgid();
   uid_t uid = getuid();
-  if( FD_LIKELY( gid == 0 && setegid( config->gid ) ) )
-    FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_LIKELY( uid == 0 && seteuid( config->uid ) ) )
-    FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( !gid && setegid( config->gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( !uid && seteuid( config->uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  mode_t previous = umask( S_IRWXO | S_IRWXG | S_IXUSR );
-
-  FILE * fp = fopen( keyfile, "wx" );
-  if( FD_UNLIKELY( !fp ) ) {
-    if( FD_LIKELY( errno == EEXIST ) )
-      FD_LOG_ERR(( "could not create keypair as the keyfile `%s` already exists", keyfile ));
-    else
-      FD_LOG_ERR(( "could not create keypair, fopen(%s) failed (%i-%s)", keyfile, errno, fd_io_strerror( errno ) ));
+  /* find last `/` in keyfile and zero it */
+  char keyfile_copy[ PATH_MAX ] = {0};
+  strncpy( keyfile_copy, keyfile, sizeof( keyfile_copy )-1UL );
+  char * last_slash = strrchr( keyfile_copy, '/' );
+  if( FD_LIKELY( last_slash ) ) {
+    *last_slash = '\0';
+    mkdir_all( keyfile_copy, config->uid, config->gid );
   }
 
-  if( fwrite( "[", 1, 1, fp ) != 1 )
-      FD_LOG_ERR(( "could not create keypair, fwrite() failed" ));
-
-  if( fprintf( fp, "%d", keys[ 0 ] ) < 1 )
-      FD_LOG_ERR(( "could not create keypair, fprintf() failed" ));
-  for( int i=1; i<64; i++ ) {
-    if( fprintf( fp, ",%d", keys[ i ] ) < 1 )
-        FD_LOG_ERR(( "could not create keypair, fprintf() failed" ));
+  int fd = open( keyfile, O_WRONLY|O_CREAT|O_EXCL, S_IRUSR|S_IWUSR );
+  if( FD_UNLIKELY( -1==fd ) ) {
+    if( FD_LIKELY( errno==EEXIST ) ) FD_LOG_ERR(( "could not create keypair as the keyfile `%s` already exists", keyfile ));
+    else                             FD_LOG_ERR(( "could not create keypair, open(%s) failed (%i-%s)", keyfile, errno, fd_io_strerror( errno ) ));
   }
 
-  if( fwrite( "]", 1, 1, fp ) != 1 )
-      FD_LOG_ERR(( "could not create keypair, fwrite() failed" ));
+  if( FD_UNLIKELY( write( fd, "[", 1 )!=1L ) ) FD_LOG_ERR(( "could not create keypair, write() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  if( FD_UNLIKELY( fclose( fp ) ) ) FD_LOG_ERR(( "could not create keypair, fclose failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  for( ulong i=0UL; i<64UL; i++ ) {
+    if( FD_LIKELY( i ) ) {
+      if( FD_UNLIKELY( write( fd, ",", 1 )!=1L ) ) FD_LOG_ERR(( "could not create keypair, write() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+
+    char digits[ 4 ];
+    ulong digits_len;
+    FD_TEST( fd_cstr_printf_check( digits, sizeof( digits ), &digits_len, "%d", keypair[ i ] ) );
+    if( FD_UNLIKELY( write( fd, digits, digits_len )!=(long)digits_len ) ) FD_LOG_ERR(( "could not create keypair, write() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  if( FD_UNLIKELY( write( fd, "]", 1 )!=1L ) ) FD_LOG_ERR(( "could not create keypair, write() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "could not create keypair, close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
   FD_LOG_NOTICE(( "successfully created keypair in `%s`", keyfile ));
-
-  umask( previous );
 
   if( FD_UNLIKELY( seteuid( uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  fd_memset_explicit( keypair, 0, 64UL );
 }
 
 void
 keys_pubkey( const char * file_path ) {
   uchar const * pubkey = fd_keyload_load( file_path, 1 );
-  char pubkey_str[FD_BASE58_ENCODED_32_SZ];
+  char pubkey_str[ FD_BASE58_ENCODED_32_SZ ];
   fd_base58_encode_32( pubkey, NULL, pubkey_str );
-  printf( "%s\n", pubkey_str );
+  FD_LOG_STDOUT(( "%s\n", pubkey_str ));
 }
 
 void

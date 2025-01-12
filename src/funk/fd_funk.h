@@ -69,12 +69,12 @@
    As such, it is not possible to modify the records in transactions
    strictly before the last published transaction.  However, it is
    possible to modify the records of the last published transaction if
-   there no transactions in preparation.  This is useful, for example,
-   loading up a transaction from a checkpointed state on startup.  A
-   common idiom at start of a block though is to fork the potential
-   transaction of that block from its parent (freezing its parent) and
-   then fork a child of the the potential transaction that will hold
-   updates to the block that are incrementally "merged" into the
+   there is no transactions in preparation.  This is useful, for
+   example, loading up a transaction from a checkpointed state on
+   startup.  A common idiom at start of a block though is to fork the
+   potential transaction of that block from its parent (freezing its
+   parent) and then fork a child of the potential transaction that will
+   hold updates to the block that are incrementally "merged" into the
    potential transaction as block processing progresses.
 
    Critically, in-preparation transactions form a tree of dependent and
@@ -123,7 +123,7 @@
    that it is also persistent and remotely inspectable.  For example, a
    process attached to a funk instance can be terminated and a new
    process can resume exactly where the original process left off
-   instantly (e.g. no file I/O).  Or a real-time monitor could
+   instantly (e.g. no file I/O).  Or a real-time monitor could be
    visualizing the ongoing activity in a database non-invasively (e.g.
    forks in flight, records updated by forks, etc).  Or an auxiliary
    process could be lazily and non-invasively writing all published
@@ -144,7 +144,6 @@
 //#include "fd_funk_rec.h"  /* Includes fd_funk_txn.h */
 #include "fd_funk_val.h"    /* Includes fd_funk_rec.h */
 #include "fd_funk_part.h"
-#include "fd_funk_archive.h"
 
 /* FD_FUNK_{ALIGN,FOOTPRINT} describe the alignment and footprint needed
    for a funk.  ALIGN should be a positive integer power of 2.
@@ -257,11 +256,6 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
      that and allocating exclusively from that? */
 
   ulong alloc_gaddr; /* Non-zero wksp gaddr with tag wksp tag */
-
-  int speed_load; /* Is "speed load mode" active */
-  /* Address and size of remaining bump allocation space */
-  ulong speed_bump_gaddr;
-  ulong speed_bump_remain;
 
   /* Padding to FD_FUNK_ALIGN here */
 };
@@ -489,14 +483,6 @@ fd_funk_last_publish_descendant( fd_funk_t *     funk,
 }
 
 /* Misc */
-
-/* Enable/disable "speed load mode". When in this mode, record values
-   are bump allocated and never freed. This speeds up the case where
-   we are initializing the database with a vast number of
-   mostly read-only records. */
-
-void
-fd_funk_speed_load_mode( fd_funk_t * funk, int flag );
 
 /* fd_funk_verify verifies the integrity of funk.  Returns
    FD_FUNK_SUCCESS if funk appears to be intact and FD_FUNK_ERR_INVAL

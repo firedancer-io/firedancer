@@ -40,7 +40,7 @@ fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx,
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/inline_spl_token.rs#L74 */
 /* TODO: move this somewhere more appropiate */
-void
+static void
 write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
   // really?! really!?
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
@@ -76,14 +76,23 @@ void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
 
   fd_write_builtin_bogus_account( slot_ctx, fd_solana_system_program_id.key,         "system_program",         14UL );
   fd_write_builtin_bogus_account( slot_ctx, fd_solana_vote_program_id.key,           "vote_program",           12UL );
-  fd_write_builtin_bogus_account( slot_ctx, fd_solana_stake_program_id.key,          "stake_program",          13UL );
-  fd_write_builtin_bogus_account( slot_ctx, fd_solana_config_program_id.key,         "config_program",         14UL );
+
+  if( !FD_FEATURE_ACTIVE( slot_ctx, migrate_stake_program_to_core_bpf ) ) {
+    fd_write_builtin_bogus_account( slot_ctx, fd_solana_stake_program_id.key,        "stake_program",          13UL );
+  }
+
+  if( !FD_FEATURE_ACTIVE( slot_ctx, migrate_config_program_to_core_bpf ) ) {
+    fd_write_builtin_bogus_account( slot_ctx, fd_solana_config_program_id.key,       "config_program",         14UL );
+  }
 
   if( FD_FEATURE_ACTIVE( slot_ctx, enable_program_runtime_v2_and_loader_v4 ) ) {
     fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_v4_program_id.key,   "loader_v4",             9UL );
   }
 
-  fd_write_builtin_bogus_account( slot_ctx, fd_solana_address_lookup_table_program_id.key,   "address_lookup_table_program",          28UL );
+  if( !FD_FEATURE_ACTIVE( slot_ctx, migrate_address_lookup_table_program_to_core_bpf ) ) {
+    fd_write_builtin_bogus_account( slot_ctx, fd_solana_address_lookup_table_program_id.key, "address_lookup_table_program",          28UL );
+  }
+
   fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_deprecated_program_id.key,  "solana_bpf_loader_deprecated_program",  36UL );
 
   fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_program_id.key,             "solana_bpf_loader_program",             25UL );
@@ -101,13 +110,17 @@ void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
   }
 
   /* Precompiles have empty account data */
-  if (slot_ctx->epoch_ctx->epoch_bank.cluster_version < 2000) {
+  if (slot_ctx->epoch_ctx->epoch_bank.cluster_version[0] < 2) {
     char data[1] = {1};
     fd_write_builtin_bogus_account( slot_ctx, fd_solana_keccak_secp_256k_program_id.key, data, 1 );
     fd_write_builtin_bogus_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id.key, data, 1 );
+    if (FD_FEATURE_ACTIVE( slot_ctx, enable_secp256r1_precompile ))
+      fd_write_builtin_bogus_account( slot_ctx, fd_solana_secp256r1_program_id.key, data, 1 );
   } else {
     fd_write_builtin_bogus_account( slot_ctx, fd_solana_keccak_secp_256k_program_id.key, "", 0 );
     fd_write_builtin_bogus_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id.key, "", 0 );
+    if (FD_FEATURE_ACTIVE( slot_ctx, enable_secp256r1_precompile ))
+      fd_write_builtin_bogus_account( slot_ctx, fd_solana_secp256r1_program_id.key, "", 0 );
   }
 
   /* Inline SPL token mint program ("inlined to avoid an external dependency on the spl-token crate") */

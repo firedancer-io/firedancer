@@ -47,6 +47,7 @@ struct __attribute__((aligned(128UL))) fd_store {
   ulong curr_turbine_slot;
   ulong curr_pack_slot;
   ulong root;
+  ulong expected_shred_version;
 
   fd_repair_backoff_t repair_backoff_map[ 1UL<<15UL ];
   /* external joins */
@@ -82,6 +83,9 @@ fd_store_leave( fd_store_t const * store );
 void *
 fd_store_delete( void * store );
 
+void
+fd_store_expected_shred_version( fd_store_t * store, ulong expected_shred_version );
+
 int
 fd_store_slot_prepare( fd_store_t *   store,
                        ulong          slot,
@@ -104,7 +108,7 @@ fd_store_add_pending( fd_store_t * store,
                       int should_backoff,
                       int reset_backoff );
 void
-fd_store_set_root( fd_store_t * store, 
+fd_store_set_root( fd_store_t * store,
                    ulong        root );
 
 ulong

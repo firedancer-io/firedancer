@@ -2,30 +2,31 @@
 #include "fd_quic_test_helpers.h"
 #include "fd_quic_stream_spam.h"
 
-ulong recvd = 0;
+static ulong recvd = 0;
 
-void
-my_stream_receive_cb( fd_quic_stream_t * stream,
-                      void *             ctx,
-                      uchar const *      data,
-                      ulong              data_sz,
-                      ulong              offset,
-                      int                fin ) {
-  (void)ctx;
-  (void)fin;
+int
+my_stream_rx_cb( fd_quic_conn_t * conn,
+                 ulong            stream_id,
+                 ulong            offset,
+                 uchar const *    data,
+                 ulong            data_sz,
+                 int              fin ) {
+  (void)conn; (void)fin;
 
   /* Derive expected payload */
 
   uchar payload_buf[ 4096UL ];
   fd_aio_pkt_info_t pkt = { .buf=payload_buf, .buf_sz=4096UL };
-  fd_quic_stream_spam_gen( NULL, &pkt, stream );
+  fd_quic_stream_spam_gen( NULL, &pkt, stream_id );
 
   FD_LOG_DEBUG(( "server rx stream data stream=%lu size=%lu offset=%lu",
-        stream->stream_id, data_sz, offset ));
+        stream_id, data_sz, offset ));
 
-  if( FD_UNLIKELY( fin && offset+data_sz != pkt.buf_sz ) )
+  if( FD_UNLIKELY( ( offset+data_sz != pkt.buf_sz && fin ) ||
+                   ( offset+data_sz >  pkt.buf_sz        ) ) ) {
     FD_LOG_ERR(( "data wrong size. expected: %u, actual: %lu",
                  (uint)pkt.buf_sz, offset+data_sz ));
+  }
 
   if( FD_UNLIKELY( 0!=memcmp( data, (uchar *)pkt.buf + offset, data_sz ) ) ) {
     FD_LOG_HEXDUMP_WARNING(( "FAIL: expected data", payload_buf + offset, data_sz ));
@@ -34,6 +35,7 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
   }
 
   recvd++;
+  return FD_QUIC_SUCCESS;
 }
 
 
@@ -103,10 +105,7 @@ main( int     argc,
   fd_quic_limits_t const quic_server_limits = {
     .conn_cnt           = 2,
     .conn_id_cnt        = 4,
-    .conn_id_sparsity   = 4.0,
     .handshake_cnt      = 10,
-    .stream_cnt         = { 20, 20, 20, 20 },
-    .initial_stream_cnt = { 20, 20, 20, 20 },
     .inflight_pkt_cnt   = 100,
     .tx_buf_sz          = 1<<15,
     .stream_pool_cnt    = 512
@@ -119,10 +118,8 @@ main( int     argc,
   fd_quic_limits_t const quic_client_limits = {
     .conn_cnt           = 2,
     .conn_id_cnt        = 4,
-    .conn_id_sparsity   = 4.0,
     .handshake_cnt      = 10,
-    .stream_cnt         = { 20, 20, 20, 20 },
-    .initial_stream_cnt = { 20, 20, 20, 20 },
+    .stream_id_cnt      = 20,
     .inflight_pkt_cnt   = 100,
     .tx_buf_sz          = 1<<15,
     .stream_pool_cnt    = 512
@@ -132,7 +129,7 @@ main( int     argc,
 
   server_quic->cb.now              = test_clock;
   server_quic->cb.conn_new         = my_connection_new;
-  server_quic->cb.stream_receive   = my_stream_receive_cb;
+  server_quic->cb.stream_rx        = my_stream_rx_cb;
 
   client_quic->cb.now              = test_clock;
   client_quic->cb.conn_hs_complete = my_handshake_complete;
@@ -146,16 +143,8 @@ main( int     argc,
   fd_quic_virtual_pair_init( &vp, server_quic, client_quic );
 
   FD_LOG_NOTICE(( "Creating spammer" ));
-  fd_quic_stream_spam_t * spammer =
-  fd_quic_stream_spam_join( fd_quic_stream_spam_new(
-    fd_wksp_alloc_laddr(
-        wksp,
-        fd_quic_stream_spam_align(),
-        fd_quic_stream_spam_footprint( quic_client_limits.stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT ] ),
-        1UL ),
-      quic_client_limits.stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT ],
-      fd_quic_stream_spam_gen,
-      NULL ) );
+  fd_quic_stream_spam_t spammer_[1];
+  fd_quic_stream_spam_t * spammer = fd_quic_stream_spam_join( fd_quic_stream_spam_new( spammer_, fd_quic_stream_spam_gen, NULL ) );
   FD_TEST( spammer );
 
   FD_LOG_NOTICE(( "Initializing QUICs" ));
@@ -166,24 +155,12 @@ main( int     argc,
   fd_quic_conn_t * client_conn = fd_quic_connect(
       client_quic,
       server_quic->config.net.ip_addr,
-      server_quic->config.net.listen_udp_port,
-      server_quic->config.sni );
+      server_quic->config.net.listen_udp_port );
   FD_TEST( client_conn );
 
   /* do general processing */
   for( ulong j = 0; j < 20; j++ ) {
-    ulong ct = fd_quic_get_next_wakeup( client_quic );
-    ulong st = fd_quic_get_next_wakeup( server_quic );
-    ulong next_wakeup = fd_ulong_min( ct, st );
-
-    if( next_wakeup == ~(ulong)0 ) {
-      FD_LOG_INFO(( "client and server have no schedule" ));
-      break;
-    }
-
-    if( next_wakeup > now ) now = next_wakeup;
-
-    FD_LOG_INFO(( "running services at %lu", next_wakeup ));
+    FD_LOG_INFO(( "running services" ));
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
 
@@ -203,22 +180,7 @@ main( int     argc,
     cum_sent_cnt += sent_cnt;
     if( sent_cnt>0 ) FD_LOG_INFO(( "sent %ld streams (total %ld)", sent_cnt, cum_sent_cnt ));
 
-    ulong ct = fd_quic_get_next_wakeup( client_quic );
-    ulong st = fd_quic_get_next_wakeup( server_quic );
-    ulong next_wakeup = fd_ulong_min( ct, st );
-
-    if( next_wakeup == ~(ulong)0 ) {
-      FD_LOG_INFO(( "client and server have no schedule" ));
-      break;
-    }
-
-    if( next_wakeup > now ) {
-      now = next_wakeup;
-    } else {
-      now += (ulong)10e6;
-    }
-
-    FD_LOG_DEBUG(( "running services at %lu", next_wakeup ));
+    FD_LOG_DEBUG(( "running services" ));
 
     fd_quic_service( server_quic );
     fd_quic_service( client_quic );
@@ -233,27 +195,14 @@ main( int     argc,
   FD_LOG_NOTICE(( "Waiting for ACKs" ));
 
   for( unsigned j = 0; j < 10; ++j ) {
-    ulong ct = fd_quic_get_next_wakeup( client_quic );
-    ulong st = fd_quic_get_next_wakeup( server_quic );
-    ulong next_wakeup = fd_ulong_min( ct, st );
-
-    if( next_wakeup == ~(ulong)0 ) {
-      /* indicates no schedule, which is correct after connection
-         instances have been reclaimed */
-      FD_LOG_INFO(( "Finished cleaning up connections" ));
-      break;
-    }
-
-    if( next_wakeup > now ) now = next_wakeup;
-
-    FD_LOG_INFO(( "running services at %lu", next_wakeup ));
+    FD_LOG_INFO(( "running services" ));
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
   }
 
   FD_LOG_NOTICE(( "Cleaning up" ));
   fd_quic_virtual_pair_fini( &vp );
-  fd_wksp_free_laddr( fd_quic_stream_spam_delete( fd_quic_stream_spam_delete( spammer ) ) );
+  fd_quic_stream_spam_delete( fd_quic_stream_spam_delete( spammer ) );
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( fd_quic_fini( server_quic ) ) ) );
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( fd_quic_fini( client_quic ) ) ) );
   fd_wksp_delete_anonymous( wksp );

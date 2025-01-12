@@ -9,7 +9,7 @@
 FD_PROTOTYPES_BEGIN
 
 void
-sol_compat_wksp_init( void );
+sol_compat_wksp_init( ulong wksp_page_sz );
 
 void
 sol_compat_fini( void );
@@ -44,9 +44,9 @@ sol_compat_syscall_fixture( fd_exec_instr_test_runner_t * runner,
                             ulong                         in_sz );
 
 int
-sol_compat_validate_vm_fixture( fd_exec_instr_test_runner_t * runner,
-                                uchar const *                 in,
-                                ulong                         in_sz );
+sol_compat_vm_interp_fixture( fd_exec_instr_test_runner_t * runner,
+                              uchar const *                 in,
+                              ulong                         in_sz );
 
 FD_PROTOTYPES_END
 

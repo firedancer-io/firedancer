@@ -80,15 +80,26 @@ struct fake_funk {
     fd_funk_t * _real;
     std::map<ulong,fake_txn*> _txns;
     ulong _lastxid = 0;
+#ifdef TEST_FUNK_FILE
+    fd_funk_close_file_args_t close_args;
+#endif
 
     fake_funk(int * argc, char *** argv) {
       fd_boot( argc, argv );
+      ulong txn_max = 128;
+      ulong rec_max = 1<<16;
+
+#ifdef TEST_FUNK_FILE
+      _real = fd_funk_open_file( "funk_test_file", 1, 1234U, txn_max, rec_max, FD_SHMEM_GIGANTIC_PAGE_SZ, FD_FUNK_OVERWRITE, &close_args );
+      _wksp = fd_funk_wksp( _real );
+
+#else
       ulong  numa_idx = fd_shmem_numa_idx( 0 );
       _wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1U, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
       void * mem = fd_wksp_alloc_laddr( _wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
-      ulong txn_max = 128;
-      ulong rec_max = 1<<16;
       _real = fd_funk_join( fd_funk_new( mem, 1, 1234U, txn_max, rec_max ) );
+#endif
+
       fd_funk_set_num_partitions( _real, MAX_PARTS );
 
       _txns[ROOT_KEY] = new fake_txn(ROOT_KEY);
@@ -96,7 +107,19 @@ struct fake_funk {
     ~fake_funk() {
       for (auto i : _txns)
         delete i.second;
+#ifdef TEST_FUNK_FILE
+      fd_funk_close_file( &close_args );
+      unlink( "funk_test_file" );
+#endif
     }
+
+#ifdef TEST_FUNK_FILE
+    void reopen_file() {
+      fd_funk_close_file( &close_args );
+      _real = fd_funk_open_file( "funk_test_file", 1, 0, 0, 0, 0, FD_FUNK_READ_WRITE, &close_args );
+      _wksp = fd_funk_wksp( _real );
+    }
+#endif
 
     fake_txn * pick_unfrozen_txn() {
       fake_txn* list[MAX_TXNS];
@@ -147,7 +170,7 @@ struct fake_funk {
       auto key = rec->real_id();
       auto* rec2 = fd_funk_rec_query(_real, txn2, &key);
       assert(rec2 != NULL);
-      assert(fd_funk_rec_remove(_real, (fd_funk_rec_t *)rec2, 1) == FD_FUNK_SUCCESS);
+      assert(fd_funk_rec_remove(_real, (fd_funk_rec_t *)rec2, 0UL) == FD_FUNK_SUCCESS);
 
       rec->_erased = true;
       rec->_data.clear();
@@ -254,6 +277,7 @@ struct fake_funk {
       fake_publish_to_parent(txn);
     }
 
+    /*
     void fake_merge(fake_txn* txn) {
       fd_funk_start_write(_real);
       for (auto i : txn->_children) {
@@ -267,6 +291,7 @@ struct fake_funk {
       txn->_children.clear();
       fd_funk_end_write(_real);
     }
+    */
 
     void random_publish() {
       fd_funk_start_write(_real);
@@ -293,7 +318,10 @@ struct fake_funk {
       for (auto i : _txns)
         if (i.second->_key != ROOT_KEY)
           list[listlen++] = i.second;
-      if (!listlen) return;
+      if (!listlen) {
+        fd_funk_end_write(_real);
+        return;
+      }
       auto * txn = list[((uint)lrand48())%listlen];
 
       fd_funk_txn_t * txn2 = get_real_txn(txn);
@@ -322,6 +350,7 @@ struct fake_funk {
       fake_cancel_family(txn);
     }
 
+/*
     void random_merge() {
       fd_funk_start_write(_real);
       // Look for transactions with children but no grandchildren
@@ -336,7 +365,10 @@ struct fake_funk {
         list[listlen++] = i.second;
         no_good: continue;
       }
-      if (!listlen) return;
+      if (!listlen) {
+        fd_funk_end_write(_real);
+        return;
+      }
       auto * txn = list[((uint)lrand48())%listlen];
 
       fd_funk_txn_t * txn2 = get_real_txn(txn);
@@ -346,6 +378,7 @@ struct fake_funk {
       // Simulate merge
       fake_merge(txn);
     }
+*/
 
     void random_safe_read() {
       fd_funk_rec_key_t i;
@@ -354,22 +387,6 @@ struct fake_funk {
       ulong datalen;
       auto* data = fd_funk_rec_query_safe(_real, &i, fd_libc_alloc_virtual(), &datalen);
       if( data ) free(data);
-    }
-
-    void archive() {
-      assert(!fd_funk_archive(_real, "/tmp/tmparchive"));
-
-      fd_wksp_detach( _wksp );
-
-      ulong  numa_idx = fd_shmem_numa_idx( 0 );
-      _wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1U, fd_shmem_cpu_idx( numa_idx ), "wksp", 0UL );
-      void * mem = fd_wksp_alloc_laddr( _wksp, fd_funk_align(), fd_funk_footprint(), FD_FUNK_MAGIC );
-      ulong txn_max = 128;
-      ulong rec_max = 1<<16;
-      _real = fd_funk_join( fd_funk_new( mem, 1, 1234U, txn_max, rec_max ) );
-
-      assert(!fd_funk_unarchive(_real, "/tmp/tmparchive"));
-      unlink("/tmp/tmparchive");
     }
 
     void verify() {
@@ -405,6 +422,15 @@ struct fake_funk {
           assert(memcmp(fd_funk_val(rec, _wksp), rec2->data(), rec2->size()) == 0);
           assert(rec->part == rec2->_part);
         }
+
+        fd_funk_txn_t * txn_map = fd_funk_txn_map( _real, fd_funk_wksp( _real ) );
+        fd_funk_txn_t * txn = fd_funk_txn_query( xid, txn_map );
+        auto* rec3 = fd_funk_rec_query_global(_real, txn, rec->pair.key, NULL);
+        if( ( rec->flags & FD_FUNK_REC_FLAG_ERASE ) )
+          assert(rec3 == NULL);
+        else
+          assert(rec == rec3);
+
         assert(!rec2->_touched);
         rec2->_touched = true;
       }

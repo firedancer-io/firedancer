@@ -18,25 +18,15 @@ jobs:
       fail-fast: true
       matrix:
         test-case:
-          - linux_gcc_noarch64-gcc-12
           - linux_gcc_noarch64        # least capable target
           - linux_gcc_x86_64
           - linux_gcc_icelake         #  most capable target
           - linux_clang_x86_64
           - linux_clang_icelake
           - native
-          - fddev-no-agave
+          - native-no-agave
         # Attach additional params to machine types
         include:
-          - test-case: linux_gcc_noarch64-gcc-12 
-            machine: linux_gcc_noarch64
-            label: X64
-            extras: rpath
-            targets: "all"
-            compiler: gcc
-            compiler-version: 12.4.0
-            run-unit-tests: false
-            run-integration-tests: false
           - test-case: linux_gcc_noarch64
             machine: linux_gcc_noarch64
             label: X64
@@ -49,34 +39,34 @@ jobs:
           - test-case: linux_gcc_x86_64
             machine: linux_gcc_x86_64
             label: X64
-            extras: rpath
+            extras: "rpath fuzz-stubs"
             targets: "all integration-test fdctl"
             compiler: gcc
             compiler-version: 12.4.0
             run-unit-tests: true
-            run-integration-tests: true
+            run-integration-tests: false
           - test-case: linux_gcc_icelake
             machine: linux_gcc_icelake
             label: icelake
-            extras: rpath
+            extras: "rpath fuzz-stubs"
             targets: "all integration-test fdctl"
             compiler: gcc
             compiler-version: 12.4.0
             run-unit-tests: true
-            run-integration-tests: true
+            run-integration-tests: false
           - test-case: linux_clang_x86_64
             machine: linux_clang_x86_64
             label: X64
-            extras: rpath
+            extras: "rpath fuzz-stubs"
             targets: "all integration-test fdctl"
             compiler: clang
             compiler-version: 15.0.6
             run-unit-tests: true
-            run-integration-tests: true
+            run-integration-tests: false
           - test-case: linux_clang_icelake
             machine: linux_clang_icelake
             label: icelake
-            extras: "asan ubsan rpath"
+            extras: "asan ubsan rpath fuzz-stubs"
             targets: "all integration-test fdctl"
             compiler: clang
             compiler-version: 15.0.6
@@ -84,22 +74,22 @@ jobs:
             run-integration-tests: false
           - test-case: native
             machine: native
-            label: self-hosted
-            extras: rpath
+            label: 512G
+            extras: "rpath fuzz-stubs"
             targets: "all integration-test fdctl"
             compiler: clang
             compiler-version: 15.0.6
             run-unit-tests: true
             run-integration-tests: true
-          - test-case: fddev-no-agave
-            machine: linux_gcc_x86_64
-            label: self-hosted
+          - test-case: native-no-agave
+            machine: native
+            label: 512G
             extras: "no-agave rpath"
-            targets: "fddev"
-            compiler: gcc
-            compiler-version: 12.4.0
+            targets: "all integration-test fdctl"
+            compiler: clang
+            compiler-version: 15.0.6
             run-unit-tests: false
-            run-integration-tests: false
+            run-integration-tests: true
     runs-on: ${{ matrix.label }}
     env:
       MACHINE: ${{ matrix.machine }}
@@ -127,13 +117,13 @@ jobs:
           machine: ${{ matrix.machine }}
           compiler: ${{ matrix.compiler }}
           compiler-version: ${{ matrix.compiler-version }}
-        if: ${{ contains(matrix.targets, 'fdctl') }}
+        if: ${{ contains(matrix.targets, 'fdctl') && !contains(matrix.extras, 'no-agave') }}
 
       - name: build targets
         run: |
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
           FIREDANCER_CI_COMMIT=none ./contrib/make-j ${{ matrix.targets }}
-      
+
       - name: run unit tests
         if: ${{ matrix.run-unit-tests }}
         run: |

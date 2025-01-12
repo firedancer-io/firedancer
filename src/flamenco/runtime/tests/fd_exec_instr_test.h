@@ -4,6 +4,9 @@
 /* fd_exec_instr_test.h provides APIs for running instruction processor
    tests. */
 
+#include "../../fd_flamenco.h"
+#include "../../fd_flamenco_base.h"
+#include "../fd_runtime.h"
 #include "generated/elf.pb.h"
 #include "generated/invoke.pb.h"
 #include "generated/txn.pb.h"
@@ -28,14 +31,15 @@ fd_exec_instr_test_runner_align( void );
 ulong
 fd_exec_instr_test_runner_footprint( void );
 
-/* fd_exec_instr_test_runner_new formats a memory region for use as an
-   instruction test runner.  mem must be part of an fd_wksp.  Does
-   additional wksp allocs.  wksp_tag is the tag used for wksp allocs
-   managed by the runner.  Returns newly created runner on success.  On
-   failure, returns NULL and logs reason for error. */
+/* fd_exec_instr_test_runner_new formats two memory regions, one for use as an
+   instruction test runner and another for an spad.  `mem` must be 
+   part of an fd_wksp.  Does additional wksp allocs.  wksp_tag is the tag 
+   used for wksp allocs managed by the runner.  Returns newly created runner 
+   on success.  On failure, returns NULL and logs reason for error. */
 
 fd_exec_instr_test_runner_t *
 fd_exec_instr_test_runner_new( void * mem,
+                               void * spad_mem,
                                ulong  wksp_tag );
 
 /* fd_exec_instr_test_runner_delete frees wksp allocations managed by
@@ -44,6 +48,9 @@ fd_exec_instr_test_runner_new( void * mem,
 
 void *
 fd_exec_instr_test_runner_delete( fd_exec_instr_test_runner_t * runner );
+
+fd_spad_t *
+fd_exec_instr_test_runner_get_spad( fd_exec_instr_test_runner_t * runner );
 
 /* fd_exec_test_instr_context_create takes in a test runner and InstrCtx protobuf
    and creates an fd_exec_instr_ctx_t that can be used in runtime.
@@ -57,30 +64,16 @@ int
 fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
                                    fd_exec_instr_ctx_t *                ctx,
                                    fd_exec_test_instr_context_t const * test_ctx,
-                                   fd_alloc_t *                         alloc,
                                    bool                                 is_syscall );
 
 /* Frees an instr_ctx created by fd_exec_test_instr_context_create */
 void
 fd_exec_test_instr_context_destroy( fd_exec_instr_test_runner_t * runner,
-                                    fd_exec_instr_ctx_t *         ctx,
-                                    fd_wksp_t *                   wksp,
-                                    fd_alloc_t *                  alloc );
+                                    fd_exec_instr_ctx_t *         ctx );
 
 
 
 /* User API */
-
-/* fd_exec_instr_fixture_run executes the given instruction processing
-   fixture and validates that the actual result matches the expected.
-   log_name is the name of the test to mention in logs.  Returns 1 on
-   success.  On failure, returns 0 and logs reason for error to warning
-   log.  Uses fd_scratch. */
-
-int
-fd_exec_instr_fixture_run( fd_exec_instr_test_runner_t *        runner,
-                           fd_exec_test_instr_fixture_t const * test,
-                           char const *                         log_name );
 
 /* fd_exec_instr_test_run executes a given instruction context (input)
    and returns the effects of executing that instruction to the caller.

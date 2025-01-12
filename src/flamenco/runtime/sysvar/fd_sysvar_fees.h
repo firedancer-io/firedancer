@@ -14,8 +14,8 @@ fd_sysvar_fees_init( fd_exec_slot_ctx_t * slot_ctx );
 
 /* Reads the current value of the fees sysvar */
 fd_sysvar_fees_t *
-fd_sysvar_fees_read( fd_sysvar_fees_t *   result,
-                     fd_exec_slot_ctx_t * slot_ctx );
+fd_sysvar_fees_read( fd_sysvar_fees_t *         result,
+                     fd_exec_slot_ctx_t const * slot_ctx );
 
 void
 fd_sysvar_fees_new_derived( fd_exec_slot_ctx_t *   slot_ctx,

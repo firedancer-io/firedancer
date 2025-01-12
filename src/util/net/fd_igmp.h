@@ -1,8 +1,6 @@
 #ifndef HEADER_fd_src_util_net_fd_igmp_h
 #define HEADER_fd_src_util_net_fd_igmp_h
 
-#include <string.h>
-
 #include "fd_ip4.h"
 
 /* FIXME: IGMP CRASH COURSE HERE */

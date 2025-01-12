@@ -44,39 +44,61 @@ fd_funk_rec_query( fd_funk_t *               funk,
 fd_funk_rec_t const *
 fd_funk_rec_query_global( fd_funk_t *               funk,
                           fd_funk_txn_t const *     txn,
-                          fd_funk_rec_key_t const * key ) {
-
+                          fd_funk_rec_key_t const * key,
+                          fd_funk_txn_t const **    txn_out ) {
   if( FD_UNLIKELY( (!funk) | (!key) ) ) return NULL;
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
 
+  fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
   fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
 
-  if( txn ) { /* Query txn and its in-prep ancestors */
+  /* For record ele in all records in chain that match key.  (This
+     code was adapted from the map_giant template ... ideally would
+     use a map chain iterator ala map_para template). */
 
-    fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
+  /* Note: the iteration order will be such that the record
+     for a key in a descendent of a transaction will be presented
+     before a record for that key in that transaction. This allows us
+     to succeed on the first hit (the newest transaction). It is
+     NECESSARY that fd_funk_rec_map_insert preserve this property. */
 
-    ulong txn_max = funk->txn_max;
+  fd_funk_rec_map_private_t * priv = fd_funk_rec_map_private( rec_map );
+  ulong   hash = fd_funk_rec_key_hash( key, priv->seed );
+  ulong * head = fd_funk_rec_map_private_list( priv ) + ( hash & (priv->list_cnt-1UL) );
+  ulong * cur = head;
 
-    ulong txn_idx = (ulong)(txn - txn_map);
+  for(;;) {
+    ulong ele_idx = fd_funk_rec_map_private_unbox_idx( *cur );
+    if( fd_funk_rec_map_private_is_null( ele_idx ) ) break;
+    fd_funk_rec_t * ele = rec_map + ele_idx;
+    if( FD_LIKELY( hash == ele->map_hash ) && FD_LIKELY( fd_funk_rec_key_eq( key, ele->pair.key ) ) ) {
 
-    if( FD_UNLIKELY( (txn_idx>=txn_max) /* Out of map (incl NULL) */ | (txn!=(txn_map+txn_idx)) /* Bad alignment */ ) )
-      return NULL;
+      /* For cur_txn in path from [txn] to [root] where root is NULL */
 
-    /* TODO: const correct and/or fortify? */
-    do {
-      fd_funk_xid_key_pair_t pair[1]; fd_funk_xid_key_pair_init( pair, fd_funk_txn_xid( txn ), key );
-      fd_funk_rec_t const * rec = fd_funk_rec_map_query_const( rec_map, pair, NULL );
-      if( FD_LIKELY( rec ) ) return rec;
-      txn = fd_funk_txn_parent( (fd_funk_txn_t *)txn, txn_map );
-    } while( FD_UNLIKELY( txn ) );
+      for( fd_funk_txn_t const * cur_txn = txn; ; cur_txn = fd_funk_txn_parent( cur_txn, txn_map ) ) {
+        /* If record ele is part of transaction cur_txn, we have a
+           match. According to the property above, this will be the
+           youngest descendent in the transaction stack. */
 
+        int match = FD_UNLIKELY( cur_txn ) ? /* opt for root find (FIXME: eliminate branch with cmov into txn_xid_eq?) */
+          fd_funk_txn_xid_eq( &cur_txn->xid, ele->pair.xid ) :
+          fd_funk_txn_xid_eq_root( ele->pair.xid );
+
+        if( FD_LIKELY( match ) ) {
+          if( txn_out ) *txn_out = cur_txn;
+          return ( FD_UNLIKELY( ele->flags & FD_FUNK_REC_FLAG_ERASE ) ? NULL : ele );
+        }
+
+        if( cur_txn == NULL ) break;
+      }
+
+    }
+    cur = &ele->map_next;
   }
 
-  /* Query the last published transaction */
-
-  fd_funk_xid_key_pair_t pair[1]; fd_funk_xid_key_pair_init( pair, fd_funk_root( funk ), key );
-  return fd_funk_rec_map_query_const( rec_map, pair, NULL );
+  if( txn_out ) *txn_out = NULL;
+  return NULL;
 }
 
 void *
@@ -99,6 +121,9 @@ fd_funk_rec_query_xid_safe( fd_funk_t *               funk,
   fd_funk_xid_key_pair_t pair[1];
   fd_funk_xid_key_pair_init( pair, xid, key );
 
+  void * result = NULL;
+  ulong  alloc_len = 0;
+  *result_len = 0;
   for(;;) {
     ulong lock_start;
     for(;;) {
@@ -114,10 +139,21 @@ fd_funk_rec_query_xid_safe( fd_funk_t *               funk,
       FD_COMPILER_MFENCE();
       if( lock_start == funk->write_lock ) return NULL;
     } else {
-      void * res = fd_funk_val_safe( rec, wksp, valloc, result_len );
+      uint val_sz = rec->val_sz;
+      if( val_sz ) {
+        if( result == NULL ) {
+          result = fd_valloc_malloc( valloc, FD_FUNK_VAL_ALIGN, val_sz );
+          alloc_len = val_sz;
+        } else if ( val_sz > alloc_len ) {
+          fd_valloc_free( valloc, result );
+          result = fd_valloc_malloc( valloc, FD_FUNK_VAL_ALIGN, val_sz );
+          alloc_len = val_sz;
+        }
+        fd_memcpy( result, fd_wksp_laddr_fast( wksp, rec->val_gaddr ), val_sz );
+      }
+      *result_len = val_sz;
       FD_COMPILER_MFENCE();
-      if( lock_start == funk->write_lock ) return res;
-      fd_valloc_free( valloc, res );
+      if( lock_start == funk->write_lock ) return result;
     }
 
     /* else try again */
@@ -300,7 +336,14 @@ fd_funk_rec_insert( fd_funk_t *               funk,
     fd_funk_rec_t * rec = fd_funk_rec_map_query( rec_map, pair, NULL );
 
     if( FD_UNLIKELY( rec ) ) { /* Already a record present */
-      if( FD_UNLIKELY( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) FD_LOG_CRIT(( "memory corruption detected (bad flags)" ));
+
+      /* However, if the record is marked for erasure, reset the flag and
+         return the record. */
+      if( rec->flags & FD_FUNK_REC_FLAG_ERASE ) {
+        rec->flags &= ~FD_FUNK_REC_FLAG_ERASE;
+        return rec;
+      }
+
       fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_KEY );
       return NULL;
     }
@@ -336,20 +379,10 @@ fd_funk_rec_insert( fd_funk_t *               funk,
 
     if( FD_UNLIKELY( rec ) ) { /* Already a record present */
 
-      /* If this record has erase set, it is supposed to erase its
-         closest ancestor record on publish.  At the time it was marked
-         erase, any updates it had to the ancestor record value were
-         flushed.  Thus clearing the erase flag will reset the record to
-         the way it was when it was first inserted into this
-         transaction.
-
-         Otherwise, the user is trying insert a record update on top of
+      /* The user is trying insert a record update on top of
          a pre-existing of record update.  We fail with ERR_KEY to
          prevent accidentally discarding any previous updates
-         unintentionally.
-
-         In both cases, it is straightforward to tweak these to have
-         alternative behaviors as might be convenient for users. */
+         unintentionally. */
 
       if( FD_UNLIKELY( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) {
         rec->flags &= ~FD_FUNK_REC_FLAG_ERASE;
@@ -373,7 +406,7 @@ fd_funk_rec_insert( fd_funk_t *               funk,
   if( FD_UNLIKELY( !first_born ) ) {
     if( FD_UNLIKELY( rec_prev_idx>=rec_max ) )
       FD_LOG_CRIT(( "memory corruption detected (bad_idx)" ));
-    if( FD_UNLIKELY( fd_funk_txn_idx( rec_map[ rec_prev_idx ].txn_cidx!=txn_idx ) ) )
+    if( FD_UNLIKELY( fd_funk_txn_idx( rec_map[ rec_prev_idx ].txn_cidx )!=txn_idx  ) )
       FD_LOG_CRIT(( "memory corruption detected (mismatch)" ));
   }
 
@@ -398,7 +431,7 @@ fd_funk_rec_insert( fd_funk_t *               funk,
 int
 fd_funk_rec_remove( fd_funk_t *     funk,
                     fd_funk_rec_t * rec,
-                    int             erase ) {
+                    ulong           erase_data ) {
 
   if( FD_UNLIKELY( !funk ) ) return FD_FUNK_ERR_INVAL;
   fd_funk_check_write( funk );
@@ -416,30 +449,13 @@ fd_funk_rec_remove( fd_funk_t *     funk,
 
   if( FD_UNLIKELY( rec!=fd_funk_rec_map_query_const( rec_map, fd_funk_rec_pair( rec ), NULL ) ) ) return FD_FUNK_ERR_KEY;
 
-  /* At this point, rec appears to be a live record.  Determine which
-     list contains the record and if we are allowed to remove it. */
-
-  ulong * _rec_head_idx;
-  ulong * _rec_tail_idx;
-
   ulong txn_idx = fd_funk_txn_idx( rec->txn_cidx );
 
   if( FD_UNLIKELY( fd_funk_txn_idx_is_null( txn_idx ) ) ) { /* Removing from last published, opt for lots recs, rand remove */
 
     if( FD_UNLIKELY( fd_funk_last_publish_is_frozen( funk ) ) ) return FD_FUNK_ERR_FROZEN;
 
-    if( FD_UNLIKELY( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) FD_LOG_CRIT(( "memory corruption detected (bad flags)" ));
-
-    if( FD_UNLIKELY( !erase ) ) return FD_FUNK_ERR_XID;
-
-    /* At this point, we are in last published transaction, it is
-       unfrozen, the record erase flag is clear and the user explicitly
-       asked to erase.  Remove the record. */
-
-    _rec_head_idx = &funk->rec_head_idx;
-    _rec_tail_idx = &funk->rec_tail_idx;
-
-  } else { /* Removing from in-prep transaction */
+  } else {
 
     fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp );
     ulong           txn_max = funk->txn_max;
@@ -447,132 +463,78 @@ fd_funk_rec_remove( fd_funk_t *     funk,
     if( FD_UNLIKELY( txn_idx>=txn_max ) ) FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
 
     if( FD_UNLIKELY( fd_funk_txn_is_frozen( &txn_map[ txn_idx ] ) ) ) return FD_FUNK_ERR_FROZEN;
-
-    if( FD_UNLIKELY( erase ) ) {
-
-      /* If this was already marked for erase, we are done (we already
-         flushed the value when it was first marked for erase) */
-
-      if( FD_UNLIKELY( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) return FD_FUNK_SUCCESS;
-
-      /* Query our ancestors to see if we need to keep this record
-         around or if we can just remove it immediately.  Though this is
-         potentially an O(ancestor_cnt) cost, it prevents the
-         possibility unnecessarily consuming a practically unbounded
-         number of records by flickering insert / remove-with-erase in
-         an in-preparation transaction with lots unique keys. */
-
-      ulong tag = funk->cycle_tag++;
-
-      ulong cur_idx = txn_idx;
-      for(;;) {
-
-        /* At this point, transaction cur_idx is an in-prep transaction.
-           Tag it for cycle detection and see if transaction cur_idx's
-           parent has a record for this and react accordingly. */
-
-        txn_map[ cur_idx ].tag = tag;
-
-        ulong parent_idx = fd_funk_txn_idx( txn_map[ cur_idx ].parent_cidx );
-        if( FD_LIKELY( fd_funk_txn_idx_is_null( parent_idx ) ) ) { /* Parent txn is last published, opt for shallow */
-
-          fd_funk_rec_t const * erase_rec = fd_funk_rec_query( funk, NULL, fd_funk_rec_key( rec ) );
-          if( FD_UNLIKELY( !erase_rec ) ) break; /* No ancestor has this record, can free immediately, opt no flicker */
-
-          /* Record is available in last published ... this remove
-             should erase the published record when if and when this txn
-             is published.  We should never see a published record as
-             flagged for erasure. */
-
-          if( FD_UNLIKELY( erase_rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) FD_LOG_CRIT(( "memory corruption detected (bad flags)" ));
-
-          fd_funk_part_set_intern( fd_funk_get_partvec( funk, wksp ), rec_map, rec, FD_FUNK_PART_NULL );
-          fd_funk_val_flush( rec, fd_funk_alloc( funk, wksp ), wksp ); /* TODO: consider testing wksp_gaddr has wksp_tag? */
-
-          rec->flags |= FD_FUNK_REC_FLAG_ERASE;
-
-          return FD_FUNK_SUCCESS;
-
-        }
-
-        if( FD_UNLIKELY( parent_idx>=txn_max            ) ) FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
-        if( FD_UNLIKELY( txn_map[ parent_idx ].tag==tag ) ) FD_LOG_CRIT(( "memory corruption detected (cycle)" ));
-
-        fd_funk_rec_t const * erase_rec = fd_funk_rec_query( funk, &txn_map[ parent_idx ], fd_funk_rec_key( rec ) );
-        if( FD_LIKELY( erase_rec ) ) { /* Opt for shallow */
-
-          /* Record is available in an in-prep ancestor ... this remove
-             erases that record on publish of this txn (which also
-             implies an earlier publish of that ancestor).
-
-             If that ancestor record itself was already marked as
-             erasing a record, we can just free this record.
-
-             (Note, there are some exotic circumstances that can
-             generate such naturally but they are pretty gross.  For
-             example distant ancestor has this record, unpublished
-             ancestor has marked it for erase, user reused the record's
-             key in this txn, and has some proposed updates to the
-             record's val that the user then decides to discard.  It is
-             arguable that cases should be disallowed.  More generally,
-             it is a good practice to only erase on records that don't
-             have any proposed updates in them to avoid cases like
-             this.) */
-
-          if( erase_rec->flags & FD_FUNK_REC_FLAG_ERASE ) break;
-
-          /* Otherwise, we mark this record as erasing that record and
-             discard any changes we might have made already in this
-             record. */
-
-          fd_funk_val_flush( rec, fd_funk_alloc( funk, wksp ), wksp ); /* TODO: consider testing wksp_gaddr has wksp_tag? */
-          fd_funk_part_set_intern( fd_funk_get_partvec( funk, wksp ), rec_map, rec, FD_FUNK_PART_NULL );
-
-          rec->flags |= FD_FUNK_REC_FLAG_ERASE;
-
-          return FD_FUNK_SUCCESS;
-        }
-
-        cur_idx = parent_idx;
-      }
-
-    }
-
-    /* At this point, we are in an in-prep transaction, it is unfrozen,
-       and we are to discard changes to this record done by this
-       transaction.  Note that if rec_erase is set, this will discard
-       the erase and any value changes that might have been made
-       previously. */
-
-    _rec_head_idx = &txn_map[ txn_idx ].rec_head_idx;
-    _rec_tail_idx = &txn_map[ txn_idx ].rec_tail_idx;
   }
 
-  /* Flush the value, remove the record from its list, and unmap the
-     record */
+  /* If this was already marked for erase, we are done (we already
+     flushed the value when it was first marked for erase) */
 
-  fd_funk_val_flush( rec, fd_funk_alloc( funk, wksp ), wksp ); /* TODO: consider testing wksp_gaddr has wksp_tag? */
+  if( FD_UNLIKELY( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) return FD_FUNK_SUCCESS;
+
+  /* Flush the value and leave a tombstone behind. In theory, this can
+     lead to an unbounded number of records, but for application
+     reasons, we need to remember what was deleted. */
+
+  fd_funk_val_flush( rec, fd_funk_alloc( funk, wksp ), wksp );
   fd_funk_part_set_intern( fd_funk_get_partvec( funk, wksp ), rec_map, rec, FD_FUNK_PART_NULL );
+  rec->flags |= FD_FUNK_REC_FLAG_ERASE;
 
-  ulong prev_idx = rec->prev_idx;
-  ulong next_idx = rec->next_idx;
+  /* At this point, the 5 most significant bytes should store data about the
+     transaction that the record was updated in. */
 
-  int prev_null = fd_funk_rec_idx_is_null( prev_idx );
-  int next_null = fd_funk_rec_idx_is_null( next_idx );
-
-  if( !( ((prev_null) | (prev_idx<rec_max)) & ((next_null) | (next_idx<rec_max)) ) )
-    FD_LOG_CRIT(( "memory corruption detected (bad idx)" ));
-
-  /* TODO: Consider branchless impl */
-  if( prev_null ) *_rec_head_idx               = next_idx;
-  else            rec_map[ prev_idx ].next_idx = next_idx;
-
-  if( next_null ) *_rec_tail_idx               = prev_idx;
-  else            rec_map[ next_idx ].prev_idx = prev_idx;
-
-  fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( rec ) );
+  fd_funk_rec_set_erase_data( rec, erase_data );
 
   return FD_FUNK_SUCCESS;
+}
+
+int
+fd_funk_rec_forget( fd_funk_t *      funk,
+                    fd_funk_rec_t ** recs,
+                    ulong recs_cnt ) {
+  if( FD_UNLIKELY( !funk ) ) return FD_FUNK_ERR_INVAL;
+  fd_funk_check_write( funk );
+
+  fd_wksp_t * wksp = fd_funk_wksp( funk );
+
+  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
+
+  ulong rec_max = funk->rec_max;
+
+  for( ulong i = 0; i < recs_cnt; ++i ) {
+    fd_funk_rec_t * rec = recs[i];
+    ulong rec_idx = (ulong)(rec - rec_map);
+
+    if( FD_UNLIKELY( (rec_idx>=rec_max) /* Out of map (incl NULL) */ | (rec!=(rec_map+rec_idx)) /* Bad alignment */ ) )
+      return FD_FUNK_ERR_INVAL;
+
+    ulong txn_idx = fd_funk_txn_idx( rec->txn_cidx );
+    fd_funk_xid_key_pair_t const * key = fd_funk_rec_pair( rec );
+    if( FD_UNLIKELY( !fd_funk_txn_idx_is_null( txn_idx ) || /* Must be published */
+                     !( rec->flags & FD_FUNK_REC_FLAG_ERASE ) || /* Must be removed */
+                     rec!=fd_funk_rec_map_query_const( rec_map, key, NULL ) ) ) {
+      return FD_FUNK_ERR_KEY;
+    }
+
+    ulong prev_idx = rec->prev_idx;
+    ulong next_idx = rec->next_idx;
+    if( fd_funk_rec_idx_is_null( prev_idx ) ) funk->rec_head_idx =           next_idx;
+    else                                      rec_map[ prev_idx ].next_idx = next_idx;
+    if( fd_funk_rec_idx_is_null( next_idx ) ) funk->rec_tail_idx =           prev_idx;
+    else                                      rec_map[ next_idx ].prev_idx = prev_idx;
+
+    fd_funk_rec_map_remove( rec_map, key );
+  }
+
+  return FD_FUNK_SUCCESS;
+}
+
+void
+fd_funk_rec_set_erase_data( fd_funk_rec_t * rec, ulong erase_data ) {
+  rec->flags |= ((erase_data & 0xFFFFFFFFFFUL) << (sizeof(unsigned long) * 8 - 40));
+}
+
+ulong
+fd_funk_rec_get_erase_data( fd_funk_rec_t const * rec ) {
+  return (rec->flags >> (sizeof(unsigned long) * 8 - 40)) & 0xFFFFFFFFFFUL;
 }
 
 fd_funk_rec_t *
@@ -589,11 +551,14 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
   fd_funk_rec_t * rec = NULL;
   fd_funk_rec_t const * rec_con = NULL;
   if ( FD_LIKELY (NULL == irec ) )
-    rec_con = fd_funk_rec_query_global( funk, txn, key );
+    rec_con = fd_funk_rec_query_global( funk, txn, key, NULL );
   else
     rec_con = irec;
 
-  if ( rec_con && !FD_UNLIKELY( rec_con->flags & FD_FUNK_REC_FLAG_ERASE ) ) {
+  /* We are able to handle tombstones in this case because we treat an erased
+     record as not existing. */
+
+  if ( FD_UNLIKELY( rec_con && !(rec_con->flags & FD_FUNK_REC_FLAG_ERASE) ) ) {
     /* We have an incarnation of the record */
     if ( txn == fd_funk_rec_txn( rec_con,  fd_funk_txn_map( funk, wksp ) ) ) {
       /* The record is already in the right transaction */
@@ -630,10 +595,7 @@ fd_funk_rec_write_prepare( fd_funk_t *               funk,
   /* Grow the record to the right size */
   rec->flags &= ~FD_FUNK_REC_FLAG_ERASE;
   if ( fd_funk_val_sz( rec ) < min_val_size ) {
-    if( funk->speed_load )
-      rec = fd_funk_val_speed_load( funk, rec, min_val_size, wksp, opt_err );
-    else
-      rec = fd_funk_val_truncate( rec, min_val_size, fd_funk_alloc( funk, wksp ), wksp, opt_err );
+    rec = fd_funk_val_truncate( rec, min_val_size, fd_funk_alloc( funk, wksp ), wksp, opt_err );
   }
 
   return rec;
@@ -671,7 +633,6 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
     if( fd_funk_txn_idx_is_null( txn_idx ) ) { /* This is a record from the last published transaction */
 
       TEST( fd_funk_txn_xid_eq_root( txn_xid ) );
-      TEST( !(rec->flags & FD_FUNK_REC_FLAG_ERASE) );
 
     } else { /* This is a record from an in-prep transaction */
 
@@ -698,6 +659,11 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
       TEST( (rec_idx<rec_max) && (fd_funk_txn_idx( rec_map[ rec_idx ].txn_cidx )==txn_idx) && rec_map[ rec_idx ].tag==0U );
       rec_map[ rec_idx ].tag = 1U;
       cnt++;
+      fd_funk_rec_t const * rec2 = fd_funk_rec_query_global( funk, NULL, rec_map[ rec_idx ].pair.key, NULL );
+      if( FD_UNLIKELY( rec_map[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE ) )
+        TEST( rec2 == NULL );
+      else
+        TEST( rec2 = rec_map + rec_idx );
       ulong next_idx = rec_map[ rec_idx ].next_idx;
       if( !fd_funk_rec_idx_is_null( next_idx ) ) TEST( rec_map[ next_idx ].prev_idx==rec_idx );
       rec_idx = next_idx;
@@ -713,6 +679,11 @@ fd_funk_rec_verify( fd_funk_t * funk ) {
         TEST( (rec_idx<rec_max) && (fd_funk_txn_idx( rec_map[ rec_idx ].txn_cidx )==txn_idx) && rec_map[ rec_idx ].tag==0U );
         rec_map[ rec_idx ].tag = 1U;
         cnt++;
+        fd_funk_rec_t const * rec2 = fd_funk_rec_query_global( funk, txn, rec_map[ rec_idx ].pair.key, NULL );
+        if( FD_UNLIKELY( rec_map[ rec_idx ].flags & FD_FUNK_REC_FLAG_ERASE ) )
+          TEST( rec2 == NULL );
+        else
+          TEST( rec2 = rec_map + rec_idx );
         ulong next_idx = rec_map[ rec_idx ].next_idx;
         if( !fd_funk_rec_idx_is_null( next_idx ) ) TEST( rec_map[ next_idx ].prev_idx==rec_idx );
         rec_idx = next_idx;

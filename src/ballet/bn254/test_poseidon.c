@@ -244,7 +244,7 @@ int main( int     argc,
         fd_poseidon_fini( pos, res );
       }
       dt = fd_log_wallclock() - dt;
-      log_bench( fd_cstr_printf( cstr, 128UL, NULL,"fd_poseidon_hash(%ld)", j), iter, dt );
+      log_bench( fd_cstr_printf( cstr, 128UL, NULL,"fd_poseidon_hash(%lu)", j), iter, dt );
       if( j==4 ) j=3; /* mini-hack to get 1, 2, 4, 6, 12 */
     }
   }

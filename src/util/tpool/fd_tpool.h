@@ -646,7 +646,8 @@ FD_FN_CONST ulong fd_tpool_footprint( ulong worker_max );
    operation and can also flexibly participates in the tpool in bulk
    operations.  This uses init/fini semantics instead of
    new/join/leave/delete semantics because thread pools aren't
-   meaningfully sharable between processes / thread groups. */
+   meaningfully sharable between processes / thread groups.  This
+   function acts as a compiler memory fence. */
 
 fd_tpool_t *
 fd_tpool_init( void * mem,
@@ -658,7 +659,8 @@ fd_tpool_init( void * mem,
    "worker 0" thread) and no other operations on the tpool should be in
    progress when this is called or done after this is called.  Returns
    the memory region used by the tpool on success (this is not a simple
-   cast of mem) and NULL on failure (logs details). */
+   cast of mem) and NULL on failure (logs details).  This function acts
+   as a compiler memory fence. */
 
 void *
 fd_tpool_fini( fd_tpool_t * tpool );
@@ -692,7 +694,8 @@ fd_tpool_fini( fd_tpool_t * tpool );
    scratch region specified, etc).
 
    No other operations on tpool should be in process when this is called
-   or started while this is running. */
+   or started while this is running.  This function acts as a compiler
+   memory fence. */
 
 fd_tpool_t *
 fd_tpool_worker_push( fd_tpool_t * tpool,
@@ -710,7 +713,8 @@ fd_tpool_worker_push( fd_tpool_t * tpool,
    tpool, bad tile_idx, tile was not idle, bad scratch region, etc).
 
    No other operations on the tpool should be in process when this is
-   called or started while this is running. */
+   called or started while this is running.  This function acts as a
+   compiler memory fence. */
 
 fd_tpool_t *
 fd_tpool_worker_pop( fd_tpool_t * tpool );
@@ -748,12 +752,17 @@ fd_tpool_worker_scratch_sz( fd_tpool_t const * tpool,
    no input argument checking.  Specifically, assumes tpool is valid and
    worker_idx is in [0,worker_cnt).  Return value will be a
    FD_TPOOL_WORKER_STATE value (and, in correct usage, either IDLE or
-   EXEC).  worker 0 is special.  The state here will always be EXEC. */
+   EXEC).  worker 0 is special.  The state here will always be EXEC.
+   This function acts as a compiler memory fence. */
 
 static inline int
 fd_tpool_worker_state( fd_tpool_t const * tpool,
                        ulong              worker_idx ) {
-  return FD_VOLATILE_CONST( fd_tpool_private_worker( tpool )[ worker_idx ]->state );
+  int * _state = &fd_tpool_private_worker( tpool )[ worker_idx ]->state;
+  FD_COMPILER_MFENCE();
+  int state = *_state;
+  FD_COMPILER_MFENCE();
+  return state;
 }
 
 /* fd_tpool_exec calls
@@ -775,7 +784,8 @@ fd_tpool_worker_state( fd_tpool_t const * tpool,
    assumes tpool is valid, worker_idx in (0,worker_cnt) (yes, open on
    both ends), caller is not tpool thread worker_idx, task is valid.
    worker_idx 0 is special and is considered to always be in the EXEC
-   state so we cannot call exec on it. */
+   state so we cannot call exec on it.  This function acts as a compiler
+   memory fence. */
 
 static inline void
 fd_tpool_exec( fd_tpool_t *    tpool,       ulong worker_idx,
@@ -788,17 +798,16 @@ fd_tpool_exec( fd_tpool_t *    tpool,       ulong worker_idx,
                ulong           task_m0,     ulong task_m1,
                ulong           task_n0,     ulong task_n1 ) {
   fd_tpool_private_worker_t * worker = fd_tpool_private_worker( tpool )[ worker_idx ];
+  worker->task        = task;
+  worker->task_tpool  = task_tpool;
+  worker->task_t0     = task_t0;     worker->task_t1     = task_t1;
+  worker->task_args   = task_args;
+  worker->task_reduce = task_reduce; worker->task_stride = task_stride;
+  worker->task_l0     = task_l0;     worker->task_l1     = task_l1;
+  worker->task_m0     = task_m0;     worker->task_m1     = task_m1;
+  worker->task_n0     = task_n0;     worker->task_n1     = task_n1;
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( worker->task        ) = task;
-  FD_VOLATILE( worker->task_tpool  ) = task_tpool;
-  FD_VOLATILE( worker->task_t0     ) = task_t0;     FD_VOLATILE( worker->task_t1     ) = task_t1;
-  FD_VOLATILE( worker->task_args   ) = task_args;
-  FD_VOLATILE( worker->task_reduce ) = task_reduce; FD_VOLATILE( worker->task_stride ) = task_stride;
-  FD_VOLATILE( worker->task_l0     ) = task_l0;     FD_VOLATILE( worker->task_l1     ) = task_l1;
-  FD_VOLATILE( worker->task_m0     ) = task_m0;     FD_VOLATILE( worker->task_m1     ) = task_m1;
-  FD_VOLATILE( worker->task_n0     ) = task_n0;     FD_VOLATILE( worker->task_n1     ) = task_n1;
-  FD_COMPILER_MFENCE();
-  FD_VOLATILE( worker->state ) = FD_TPOOL_WORKER_STATE_EXEC;
+  worker->state = FD_TPOOL_WORKER_STATE_EXEC;
   FD_COMPILER_MFENCE();
 }
 
@@ -807,15 +816,19 @@ fd_tpool_exec( fd_tpool_t *    tpool,       ulong worker_idx,
    input argument checking.  Specifically, assumes tpool is valid,
    worker_idx in (0,worker_cnt) (yes, open on both ends) and caller is
    not tpool thread worker_idx.  worker_idx 0 is considered to always be
-   in an exec state so we cannot call wait on it. */
+   in an exec state so we cannot call wait on it.  On return, the caller
+   atomically observed worker_idx was not in the EXEC state at some
+   point between when this was called and when this returned.  This
+   function acts as a compiler memory fence. */
 
 static inline void
 fd_tpool_wait( fd_tpool_t const * tpool,
                ulong              worker_idx ) {
-  int volatile * vstate = (int volatile *)&(fd_tpool_private_worker( tpool )[ worker_idx ]->state);
-  int            state;
+  int * _state = &fd_tpool_private_worker( tpool )[ worker_idx ]->state;
   for(;;) {
-    state = *vstate;
+    FD_COMPILER_MFENCE();
+    int state = *_state;
+    FD_COMPILER_MFENCE();
     if( FD_LIKELY( state!=FD_TPOOL_WORKER_STATE_EXEC ) ) break;
     FD_SPIN_PAUSE();
   }
@@ -884,7 +897,8 @@ fd_tpool_wait( fd_tpool_t const * tpool,
 
    As this is used in high performance contexts, this does no input
    argument checking.  Specifically, it assumes tpool is valid, task is
-   valid, 0<=t0<t1<=worker_cnt, l0<=l1. */
+   valid, 0<=t0<t1<=worker_cnt, l0<=l1.  These functions act as a
+   compiler memory fence. */
 
 #define FD_TPOOL_EXEC_ALL_DECL(style)                                                                          \
 void                                                                                                           \
@@ -904,6 +918,7 @@ fd_tpool_exec_all_##style( fd_tpool_t *    tpool,                               
                            void *          task_args,                                                          \
                            void *          task_reduce, ulong task_stride,                                     \
                            ulong           task_l0,     ulong task_l1 ) {                                      \
+  FD_COMPILER_MFENCE();                                                                                        \
   fd_tpool_private_exec_all_##style##_node( tpool, t0,t1, task_args, task_reduce,task_stride, task_l0,task_l1, \
                                             (ulong)task,(ulong)task_tpool, t0,t1 );                            \
 }
@@ -932,8 +947,8 @@ fd_tpool_exec_all_taskq( fd_tpool_t *    tpool,
                          void *          task_reduce, ulong task_stride,
                          ulong           task_l0,     ulong task_l1 ) {
   ulong l_next[16] __attribute((aligned(128)));
-  FD_VOLATILE( l_next[0] ) = task_l0;
-  FD_VOLATILE( l_next[1] ) = (ulong)task_tpool;
+  l_next[0] = task_l0;
+  l_next[1] = (ulong)task_tpool;
   FD_COMPILER_MFENCE();
   fd_tpool_private_exec_all_taskq_node( tpool, t0,t1, task_args, task_reduce,task_stride, task_l0,task_l1,
                                         (ulong)task,(ulong)l_next, t0,t1 );
@@ -1018,7 +1033,9 @@ fd_tpool_exec_all_taskq( fd_tpool_t *    tpool,
 
          for( long i=block_i0; i<block_i1; i++ ) z[i] = my_scalar_op( x[i], y[i] );
 
-       } FD_FOR_ALL_END */
+       } FD_FOR_ALL_END
+
+  FD_FOR_ALL operations are a compiler memory fence. */
 
 #define FD_FOR_ALL_PROTO(op)                                                              \
 void                                                                                      \
@@ -1039,6 +1056,7 @@ op( void * _tpool,                                                              
     ulong  _a2,       ulong  _a3,                                                                  \
     ulong  _a4,       ulong  _a5,                                                                  \
     ulong  _a6 ) {                                                                                 \
+  FD_COMPILER_MFENCE(); /* guarantees memory fence even if tpool_cnt==1 */                         \
   long         block_thresh = (BLOCK_THRESH);                                                      \
   fd_tpool_t * tpool        = (fd_tpool_t *)_tpool;                                                \
   long         block_i0     = (long)_block_i0;                                                     \
@@ -1177,7 +1195,9 @@ op( void * _tpool,                                                              
 
          for( long j=0L; j<4L; j++ ) h0[j] += h1[j];
 
-       } FD_REDUCE_END */
+       } FD_REDUCE_END
+
+  FD_MAP_REDUCE operations are a compiler memory fence. */
 
 #define FD_MAP_REDUCE_PROTO(op)                                                           \
 void                                                                                      \
@@ -1198,6 +1218,7 @@ op( void * _tpool,                                                              
     ulong  _a2,       ulong  _a3,                                                                   \
     ulong  _a4,       ulong  _a5,                                                                   \
     ulong  _r0 ) {                                                                                  \
+  FD_COMPILER_MFENCE(); /* guarantees memory fence even if tpool_cnt==1 */                          \
   long            block_thresh     = (BLOCK_THRESH);                                                \
   ulong           reduce_align     = (REDUCE_ALIGN);                                                \
   ulong           reduce_footprint = (REDUCE_FOOTPRINT);                                            \

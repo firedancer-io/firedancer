@@ -26,6 +26,7 @@ LLVMFuzzerInitialize( int  *   argc,
   putenv( "FD_LOG_BACKTRACE=0" );
   fd_boot( argc, argv );
   atexit( fd_halt );
+  fd_log_level_core_set(3); /* crash on warning log */
   return 0;
 }
 
@@ -34,7 +35,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
 
   fd_sbpf_elf_info_t info;
-  if( FD_UNLIKELY( !fd_sbpf_elf_peek( &info, data, size, 0 ) ) )
+  if( FD_UNLIKELY( !fd_sbpf_elf_peek( &info, data, size, 0, FD_SBPF_V0, FD_SBPF_V3 ) ) )
     return -1;
 
   /* Allocate objects */

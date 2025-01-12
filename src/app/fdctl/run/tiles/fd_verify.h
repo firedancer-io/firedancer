@@ -3,9 +3,6 @@
 
 #include "../../../../disco/tiles.h"
 
-#define VERIFY_TCACHE_DEPTH   16UL
-#define VERIFY_TCACHE_MAP_CNT 64UL
-
 #define FD_TXN_VERIFY_SUCCESS  0
 #define FD_TXN_VERIFY_FAILED  -1
 #define FD_TXN_VERIFY_DEDUP   -2
@@ -40,6 +37,12 @@ typedef struct {
   ulong       out_chunk;
 
   ulong       hashmap_seed;
+
+  struct {
+    ulong parse_fail_cnt;
+    ulong verify_fail_cnt;
+    ulong dedup_fail_cnt;
+  } metrics;
 } fd_verify_ctx_t;
 
 static inline int

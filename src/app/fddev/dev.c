@@ -5,7 +5,6 @@
 
 #include "../fdctl/configure/configure.h"
 #include "../fdctl/run/run.h"
-#include "../../util/wksp/fd_wksp_private.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -13,8 +12,6 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <sys/wait.h>
-
-#include "../../util/tile/fd_tile_private.h"
 
 void
 dev_cmd_args( int *    pargc,
@@ -85,13 +82,18 @@ install_parent_signals( void ) {
 
 void
 update_config_for_dev( config_t * const config ) {
-  /* when starting from a new genesis block, this needs to be off else the
+  /* By default only_known is true for validators to ensure secure
+     snapshot download, but in development it doesn't matter and
+     often the developer does not provide known peers. */
+  config->rpc.only_known = 0;
+
+  /* When starting from a new genesis block, this needs to be off else the
      validator will get stuck forever. */
   config->consensus.wait_for_vote_to_start_leader = 0;
 
   /* We have to wait until we get a snapshot before we can join a second
      validator to this one, so make this smaller than the default.  */
-  config->snapshots.full_snapshot_interval_slots = 200U;
+  config->snapshots.full_snapshot_interval_slots = fd_uint_min( config->snapshots.full_snapshot_interval_slots, 200U );
 
   /* Automatically compute the shred version from genesis if it
      exists and we don't know it.  If it doesn't exist, we'll keep it
@@ -107,6 +109,13 @@ update_config_for_dev( config_t * const config ) {
       shred->shred.expected_shred_version = shred_version;
     }
   }
+  ulong store_id = fd_topo_find_tile( &config->topo, "storei", 0 );
+  if( FD_UNLIKELY( store_id!=ULONG_MAX ) ) {
+    fd_topo_tile_t * storei = &config->topo.tiles[ store_id ];
+    if( FD_LIKELY( storei->store_int.expected_shred_version==(ushort)0 ) ) {
+      storei->store_int.expected_shred_version = shred_version;
+    }
+  }
 
   if( FD_LIKELY( !strcmp( config->consensus.vote_account_path, "" ) ) )
     FD_TEST( fd_cstr_printf_check( config->consensus.vote_account_path,
@@ -114,6 +123,15 @@ update_config_for_dev( config_t * const config ) {
                                    NULL,
                                    "%s/vote-account.json",
                                    config->scratch_directory ) );
+
+  ulong gui_idx = fd_topo_find_tile( &config->topo, "gui", 0UL );
+  if( FD_LIKELY( gui_idx!=ULONG_MAX ) ) {
+    fd_topo_tile_t * gui = &config->topo.tiles[ gui_idx ];
+    gui->gui.is_voting = 1;
+    if( FD_LIKELY( !strcmp( gui->gui.cluster, "unknown" ) ) ) {
+      strcpy( gui->gui.cluster, "development" );
+    }
+  }
 }
 
 static void *
@@ -126,12 +144,12 @@ agave_main1( void * args ) {
    debugging convenience. */
 
 static void
-run_firedancer_threaded( config_t * config ) {
+run_firedancer_threaded( config_t * config , int init_workspaces) {
   install_parent_signals();
 
   fd_topo_print_log( 0, &config->topo );
 
-  run_firedancer_init( config, 1 );
+  run_firedancer_init( config, init_workspaces );
 
   if( FD_UNLIKELY( config->development.debug_tile ) ) {
     fd_log_private_shared_lock[ 1 ] = 1;
@@ -141,6 +159,9 @@ run_firedancer_threaded( config_t * config ) {
      if we are running things threaded.  The reason is that if one of the earlier
      tiles maps it in as read-only, later tiles will reuse the same cached shmem
      join (the key is only on shmem name, when it should be (name, mode)). */
+
+  fd_xdp_fds_t fds = fd_topo_install_xdp( &config->topo );
+  (void)fds;
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run, NULL );
@@ -194,13 +215,13 @@ dev_cmd_fn( args_t *         args,
 
   if( FD_LIKELY( !args->dev.monitor ) ) {
     if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config, args->dev.parent_pipefd, !args->dev.no_init_workspaces );
-    else                                             run_firedancer_threaded( config );
+    else                                             run_firedancer_threaded( config , !args->dev.no_init_workspaces);
   } else {
     install_parent_signals();
 
     int pipefd[2];
     if( FD_UNLIKELY( pipe2( pipefd, O_NONBLOCK ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-
+    initialize_workspaces(config);
     firedancer_pid = fork();
     if( !firedancer_pid ) {
       if( FD_UNLIKELY( close( pipefd[0] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -209,8 +230,8 @@ dev_cmd_fn( args_t *         args,
       if( FD_UNLIKELY( close( pipefd[1] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       if( FD_UNLIKELY( setenv( "RUST_LOG_STYLE", "always", 1 ) ) ) /* otherwise RUST_LOG will not be colorized to the pipe */
         FD_LOG_ERR(( "setenv() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config, -1, 1 );
-      else                                             run_firedancer_threaded( config );
+      if( FD_LIKELY( !config->development.no_clone ) ) run_firedancer( config, -1, 0 );
+      else                                             run_firedancer_threaded( config , 0);
     } else {
       if( FD_UNLIKELY( close( pipefd[1] ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     }

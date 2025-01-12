@@ -242,7 +242,7 @@ FD_FN_CONST static inline long fd_seq_diff( ulong a, ulong b ) { return (long)(a
    chunk whose index is 0 (chunk0).  fd_chunk_to_laddr_const is for
    const-correctness.
 
-   fd_laddr_to_chunk: vica versa. */
+   fd_laddr_to_chunk: vice versa. */
 
 FD_FN_CONST static inline void *    /* Will be aligned FD_CHUNK_ALIGN and in [ chunk0, chunk0 + FD_CHUNK_SZ*(UINT_MAX+1) ) */
 fd_chunk_to_laddr( void * chunk0,   /* Assumed aligned FD_CHUNK_ALIGN */

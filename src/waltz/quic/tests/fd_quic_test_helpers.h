@@ -5,6 +5,8 @@
 #include "../../aio/fd_aio_pcapng.h"
 #include "../../udpsock/fd_udpsock.h"
 #include "../../tls/test_tls_helper.h"
+#include "../../../util/net/fd_eth.h"
+#include <stdio.h>
 
 #if defined(__linux__)
 #include "../../xdp/fd_xdp.h"
@@ -23,12 +25,18 @@ struct fd_quic_virtual_pair {
   fd_quic_t * quic_a;
   fd_quic_t * quic_b;
 
-  fd_aio_pcapng_t quic_a2b;
-  fd_aio_pcapng_t quic_b2a;
+  /* aio_{a2b,b2a} point to the first hop of each aio chain */
+  fd_aio_t const * aio_a2b;
+  fd_aio_t const * aio_b2a;
+
+  fd_aio_pcapng_t pcapng_a2b;
+  fd_aio_pcapng_t pcapng_b2a;
 };
 typedef struct fd_quic_virtual_pair fd_quic_virtual_pair_t;
 
 FD_PROTOTYPES_BEGIN
+
+extern FILE * fd_quic_test_pcap;
 
 /* fd_quic_test_boot boots the QUIC test environment.
    Should be called after fd_boot().
@@ -88,13 +96,32 @@ fd_quic_virtual_pair_init( fd_quic_virtual_pair_t * pair,
 void
 fd_quic_virtual_pair_fini( fd_quic_virtual_pair_t * pair );
 
-/* fd_quic_test_keylog writes the given TLS keylog cstr to the current
-   pcap (if any).  cstr should be one line, newline excluded.  Halts
-   the program on error. */
-
 void
-fd_quic_test_keylog( fd_quic_virtual_pair_t const * pair,
-                     char const *                   line );
+fd_quic_test_cb_tls_keylog( void *       quic_ctx,
+                            char const * line );
+
+FD_PROTOTYPES_END
+
+/* fd_aio_eth_wrap is an fd_aio middleware that translates between a L2 (Ethernet) and L3 fd_aio.
+   Provides a simplistic Ethernet layer with hardcoded MAC addresses. */
+
+struct fd_aio_eth_wrap {
+  fd_aio_t     wrap_self;
+  fd_aio_t     unwrap_self;
+  fd_aio_t     wrap_next;
+  fd_aio_t     unwrap_next;
+  fd_eth_hdr_t template;
+};
+
+typedef struct fd_aio_eth_wrap fd_aio_eth_wrap_t;
+
+FD_PROTOTYPES_BEGIN
+
+fd_aio_t *
+fd_aio_eth_wrap( fd_aio_eth_wrap_t * wrap );
+
+fd_aio_t *
+fd_aio_eth_unwrap( fd_aio_eth_wrap_t * wrap );
 
 FD_PROTOTYPES_END
 
@@ -106,7 +133,6 @@ struct fd_quic_udpsock {
 # define FD_QUIC_UDPSOCK_TYPE_XSK     1
 # define FD_QUIC_UDPSOCK_TYPE_UDPSOCK 2
 
-  uchar  self_mac[6];
   uint   listen_ip;
   ushort listen_port;
 
@@ -118,6 +144,7 @@ struct fd_quic_udpsock {
       fd_xdp_link_session_t link_session;
       fd_xsk_t *            xsk;
       fd_xsk_aio_t *        xsk_aio;
+      fd_aio_eth_wrap_t     eth_wrap;
     } xdp;
 #   endif
     struct {
@@ -150,6 +177,35 @@ fd_quic_udpsock_destroy( fd_quic_udpsock_t * udpsock );
 
 void
 fd_quic_udpsock_service( fd_quic_udpsock_t const * udpsock );
+
+
+/* fd_quic_netem injects packet loss and reordering into an aio link. */
+
+struct fd_quic_netem {
+  fd_aio_t         local;
+  fd_aio_t const * dst;
+  float            thresh_drop;
+  float            thresh_reorder;
+
+  ulong reorder_sz;
+  uchar reorder_buf[2048];
+};
+
+typedef struct fd_quic_netem fd_quic_netem_t;
+
+fd_quic_netem_t *
+fd_quic_netem_init( fd_quic_netem_t * netem,
+                    float             thres_drop,
+                    float             thres_reorder );
+
+/* fd_quic_netem_send implements fd_aio_send for fd_quic_netem_t. */
+
+int
+fd_quic_netem_send( void *                    ctx, /* fd_quic_net_em_t */
+                    fd_aio_pkt_info_t const * batch,
+                    ulong                     batch_cnt,
+                    ulong *                   opt_batch_idx,
+                    int                       flush );
 
 FD_PROTOTYPES_END
 

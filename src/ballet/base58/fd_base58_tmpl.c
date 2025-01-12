@@ -76,7 +76,7 @@ SUFFIX(fd_base58_encode)( uchar const * bytes,
 # if N==32
 
   /* The worst case is if binary[7] is (2^32)-1. In that case
-     intermediate[8] will be be just over 2^63, which is fine. */
+     intermediate[8] will be just over 2^63, which is fine. */
 
   for( ulong i=0UL; i < BINARY_SZ; i++ )
     for( ulong j=0UL; j < INTERMEDIATE_SZ-1UL; j++ )

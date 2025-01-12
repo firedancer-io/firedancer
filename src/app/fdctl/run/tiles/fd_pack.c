@@ -4,7 +4,9 @@
 
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../disco/shred/fd_shredder.h"
+#include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../ballet/pack/fd_pack.h"
+#include "../../../../ballet/pack/fd_pack_pacing.h"
 
 #include <linux/unistd.h>
 
@@ -14,16 +16,23 @@
    multiple microblocks can execute in parallel, if they don't
    write to the same accounts. */
 
-#define DEDUP_IN_IDX     (0UL)
-#define POH_IN_IDX       (1UL)
-#define BANK_BASE_IN_IDX (2UL)
+#define IN_KIND_RESOLV (0UL)
+#define IN_KIND_POH    (1UL)
+#define IN_KIND_BANK   (2UL)
+#define IN_KIND_BUNDLE (3UL)
 
 #define MAX_SLOTS_PER_EPOCH          432000UL
 
-/* For now, produce microblocks as fast as possible. */
+/* Pace microblocks, but only slightly.  This helps keep performance
+   more stable.  This limit is 2,000 microblocks/second/bank.  At 31
+   transactions/microblock, that's 62k txn/sec/bank. */
 #define MICROBLOCK_DURATION_NS  (0L)
 
-#define TRANSACTION_LIFETIME_NS (60UL*1000UL*1000UL*1000UL) /* 60s */
+/* There are 151 accepted blockhashes, but those don't include skips.
+   This check is neither precise nor accurate, but just good enough.
+   The bank tile does the final check.  We give a little margin for a
+   few percent skip rate. */
+#define TRANSACTION_LIFETIME_SLOTS 160UL
 
 /* About 6 kB on the stack */
 #define FD_PACK_PACK_MAX_OUT FD_PACK_MAX_BANK_TILES
@@ -39,12 +48,20 @@ FD_STATIC_ASSERT( (ulong)LONG_MAX+TIME_OFFSET==ULONG_MAX, time_offset );
 
 
 /* Optionally allow a larger limit for benchmarking */
-#define LARGER_MAX_COST_PER_BLOCK (13UL*48000000UL)
+#define LARGER_MAX_COST_PER_BLOCK (18UL*48000000UL)
 
 /* 1.5 M cost units, enough for 1 max size transaction */
 const ulong CUS_PER_MICROBLOCK = 1500000UL;
 
-const float VOTE_FRACTION = 0.75;
+#define SMALL_MICROBLOCKS 1
+
+#if SMALL_MICROBLOCKS
+const float VOTE_FRACTION = 1.0f; /* schedule all available votes first */
+#define EFFECTIVE_TXN_PER_MICROBLOCK 1UL
+#else
+const float VOTE_FRACTION = 0.75f; /* TODO: Is this the right value? */
+#define EFFECTIVE_TXN_PER_MICROBLOCK MAX_TXN_PER_MICROBLOCK
+#endif
 
 /* There's overhead associated with each microblock the bank tile tries
    to execute it, so the optimal strategy is not to produce a microblock
@@ -61,6 +78,8 @@ const float VOTE_FRACTION = 0.75;
 FD_IMPORT( wait_duration, "src/ballet/pack/pack_delay.bin", ulong, 6, "" );
 
 
+
+#if FD_PACK_USE_EXTRA_STORAGE
 /* When we are done being leader for a slot and we are leader in the
    very next slot, it can still take some time to transition.  This is
    because the bank has to be finalized, a hash calculated, and various
@@ -78,9 +97,11 @@ FD_IMPORT( wait_duration, "src/ballet/pack/pack_delay.bin", ulong, 6, "" );
    buffer size to be quite large. */
 
 #define DEQUE_NAME extra_txn_deq
-#define DEQUE_T    fd_txn_p_t
+#define DEQUE_T    fd_txn_e_t
 #define DEQUE_MAX  (128UL*1024UL)
 #include "../../../../util/tmpl/fd_deque.c"
+
+#endif
 
 
 typedef struct {
@@ -91,7 +112,7 @@ typedef struct {
 
 typedef struct {
   fd_pack_t *  pack;
-  fd_txn_p_t * cur_spot;
+  fd_txn_e_t * cur_spot;
 
   /* The value passed to fd_pack_new, etc. */
   ulong    max_pending_transactions;
@@ -117,6 +138,10 @@ typedef struct {
   ulong slot_max_data;
   int   larger_shred_limits_per_block;
 
+  /* Cost limit (in cost units) for each block.  Typically
+     FD_PACK_MAX_COST_PER_BLOCK or LARDER_MAX_COST_PER_BLOCK. */
+  ulong slot_max_cost;
+
   /* If drain_banks is non-zero, then the pack tile must wait until all
      banks are idle before scheduling any more microblocks.  This is
      primarily helpful in irregular leader transitions, e.g. while being
@@ -140,27 +165,44 @@ typedef struct {
   long _slot_end_ns;
   long slot_end_ns;
 
+  /* pacer and ticks_per_ns are used for pacing CUs through the slot,
+     i.e. deciding when to schedule a microblock given the number of CUs
+     that have been consumed so far.  pacer is an opaque pacing object,
+     which is initialized when the pack tile is packing a slot.
+     ticks_per_ns is the cached value from tempo. */
+  fd_pack_pacing_t pacer[1];
+  double           ticks_per_ns;
+
   /* last_successful_insert stores the tickcount of the last
      successful transaction insert. */
   long last_successful_insert;
 
-  /* transaction_lifetime_ns, microblock_duration_ns, and wait_duration
+  /* highest_observed_slot stores the highest slot number we've seen
+     from any transaction coming from the resolv tile.  When this
+     increases, we expire old transactions. */
+  ulong highest_observed_slot;
+
+  /* microblock_duration_ns, and wait_duration
      respectively scaled to be in ticks instead of nanoseconds */
-  ulong transaction_lifetime_ticks;
   ulong microblock_duration_ticks;
   ulong wait_duration_ticks[ MAX_TXN_PER_MICROBLOCK+1UL ];
 
+#if FD_PACK_USE_EXTRA_STORAGE
   /* In addition to the available transactions that pack knows about, we
      also store a larger ring buffer for handling cases when pack is
      full.  This is an fd_deque. */
-  fd_txn_p_t * extra_txn_deq;
+  fd_txn_e_t * extra_txn_deq;
   int          insert_to_extra; /* whether the last insert was into pack or the extra deq */
+#endif
 
   fd_pack_in_ctx_t in[ 32 ];
+  int              in_kind[ 32 ];
 
   ulong    bank_cnt;
   ulong    bank_idle_bitset; /* bit i is 1 if we've observed *bank_current[i]==bank_expect[i] */
   int      poll_cursor; /* in [0, bank_cnt), the next bank to poll */
+  int      use_consumed_cus;
+  long     skip_cnt;
   ulong *  bank_current[ FD_PACK_PACK_MAX_OUT ];
   ulong    bank_expect[ FD_PACK_PACK_MAX_OUT  ];
   /* bank_ready_at[x] means don't check bank x until tickcount is at
@@ -174,7 +216,9 @@ typedef struct {
 
   ulong      insert_result[ FD_PACK_INSERT_RETVAL_CNT ];
   fd_histf_t schedule_duration[ 1 ];
+  fd_histf_t no_sched_duration[ 1 ];
   fd_histf_t insert_duration  [ 1 ];
+  fd_histf_t complete_duration[ 1 ];
 
   struct {
     uint metric_state;
@@ -221,7 +265,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
     .max_vote_cost_per_block   = FD_PACK_MAX_VOTE_COST_PER_BLOCK,
     .max_write_cost_per_acct   = FD_PACK_MAX_WRITE_COST_PER_ACCT,
     .max_data_bytes_per_block  = tile->pack.larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK,
-    .max_txn_per_microblock    = MAX_TXN_PER_MICROBLOCK,
+    .max_txn_per_microblock    = EFFECTIVE_TXN_PER_MICROBLOCK,
     .max_microblocks_per_block = (ulong)UINT_MAX, /* Limit not known yet */
   }};
 
@@ -231,60 +275,100 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, fd_pack_align(),          fd_pack_footprint( tile->pack.max_pending_transactions,
                                                                         tile->pack.bank_tile_count,
                                                                         limits                               ) );
+#if FD_PACK_USE_EXTRA_STORAGE
   l = FD_LAYOUT_APPEND( l, extra_txn_deq_align(),    extra_txn_deq_footprint()                                 );
+#endif
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-
-FD_FN_CONST static inline void *
-mux_ctx( void * scratch ) {
-  return (void*)fd_ulong_align_up( (ulong)scratch, alignof( fd_pack_ctx_t ) );
-}
-
 static inline void
-metrics_write( void * _ctx ) {
-  fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
-
+metrics_write( fd_pack_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( PACK, TRANSACTION_INSERTED,          ctx->insert_result  );
   FD_MCNT_ENUM_COPY( PACK, METRIC_TIMING,        ((ulong*)ctx->metric_timing) );
   FD_MHIST_COPY( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS, ctx->schedule_duration );
+  FD_MHIST_COPY( PACK, NO_SCHED_MICROBLOCK_DURATION_SECONDS, ctx->no_sched_duration );
   FD_MHIST_COPY( PACK, INSERT_TRANSACTION_DURATION_SECONDS,  ctx->insert_duration   );
+  FD_MHIST_COPY( PACK, COMPLETE_MICROBLOCK_DURATION_SECONDS, ctx->complete_duration );
+
+  fd_pack_metrics_write( ctx->pack );
 }
 
 static inline void
-during_housekeeping( void * _ctx ) {
-  fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
+during_housekeeping( fd_pack_ctx_t * ctx ) {
   ctx->approx_wallclock_ns = fd_log_wallclock();
 }
 
 static inline void
-before_credit( void * _ctx,
-               fd_mux_context_t * mux ) {
-  (void)mux;
-
-  fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
+before_credit( fd_pack_ctx_t *     ctx,
+               fd_stem_context_t * stem,
+               int *               charge_busy ) {
+  (void)stem;
 
   if( FD_UNLIKELY( ctx->cur_spot ) ) {
+    *charge_busy = 1;
+
     /* If we were overrun while processing a frag from an in, then cur_spot
        is left dangling and not cleaned up, so clean it up here (by returning
        the slot to the pool of free slots). */
+#if FD_PACK_USE_EXTRA_STORAGE
     if( FD_LIKELY( !ctx->insert_to_extra ) ) fd_pack_insert_txn_cancel( ctx->pack, ctx->cur_spot );
     else                                     extra_txn_deq_remove_tail( ctx->extra_txn_deq       );
+#else
+    fd_pack_insert_txn_cancel( ctx->pack, ctx->cur_spot );
+#endif
     ctx->cur_spot = NULL;
   }
 }
 
+#if FD_PACK_USE_EXTRA_STORAGE
+/* insert_from_extra: helper method to pop the transaction at the head
+   off the extra txn deque and insert it into pack.  Requires that
+   ctx->extra_txn_deq is non-empty, but it's okay to call it if pack is
+   full.  Returns the result of fd_pack_insert_txn_fini. */
+static inline int
+insert_from_extra( fd_pack_ctx_t * ctx ) {
+  fd_txn_e_t       * spot       = fd_pack_insert_txn_init( ctx->pack );
+  fd_txn_e_t const * insert     = extra_txn_deq_peek_head( ctx->extra_txn_deq );
+  fd_txn_t   const * insert_txn = TXN(insert->txnp);
+  fd_memcpy( spot->txnp->payload, insert->txnp->payload, insert->txnp->payload_sz                                                     );
+  fd_memcpy( TXN(spot->txnp),     insert_txn,            fd_txn_footprint( insert_txn->instr_cnt, insert_txn->addr_table_lookup_cnt ) );
+  fd_memcpy( spot->alt_accts,     insert->alt_accts,     insert_txn->addr_table_adtl_cnt*sizeof(fd_acct_addr_t)                       );
+  spot->txnp->payload_sz = insert->txnp->payload_sz;
+  extra_txn_deq_remove_head( ctx->extra_txn_deq );
+
+  ulong blockhash_slot = insert->txnp->blockhash_slot;
+
+  long insert_duration = -fd_tickcount();
+  int result = fd_pack_insert_txn_fini( ctx->pack, spot, blockhash_slot );
+  insert_duration      += fd_tickcount();
+  ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
+  fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
+  FD_MCNT_INC( PACK, TRANSACTION_INSERTED_FROM_EXTRA, 1UL );
+  return result;
+}
+#endif
+
 static inline void
-after_credit( void *             _ctx,
-              fd_mux_context_t * mux,
-              int *              opt_poll_in ) {
+after_credit( fd_pack_ctx_t *     ctx,
+              fd_stem_context_t * stem,
+              int *               opt_poll_in,
+              int *               charge_busy ) {
   (void)opt_poll_in;
 
-  fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
+  if( FD_UNLIKELY( (ctx->skip_cnt--)>0L ) ) return; /* It would take ages for this to hit LONG_MIN */
 
   long now = fd_tickcount();
 
+  int pacing_bank_cnt = (int)fd_pack_pacing_enabled_bank_cnt( ctx->pacer, now );
+  if( FD_UNLIKELY( !pacing_bank_cnt ) ) return;
+
   ulong bank_cnt = ctx->bank_cnt;
+
+  /* If we're using CU rebates, then we have one in for each bank in
+     addition to the two normal ones.  That means that after_credit will
+     be called about (bank_cnt/2) times more frequently per transaction
+     we receive. */
+  fd_long_store_if( ctx->use_consumed_cus, &(ctx->skip_cnt), (long)(bank_cnt/2UL) );
 
   /* If any banks are busy, check one of the busy ones see if it is
      still busy. */
@@ -312,8 +396,14 @@ after_credit( void *             _ctx,
     poll_cursor++;
     poll_cursor = (poll_cursor + fd_ulong_find_lsb( fd_ulong_rotate_right( busy_bitset, (poll_cursor&63) ) )) & 63;
 
-    if( FD_UNLIKELY( (fd_fseq_query( ctx->bank_current[poll_cursor] )==ctx->bank_expect[poll_cursor]) &
-                     (ctx->bank_ready_at[poll_cursor]<now) ) ) {
+    if( FD_UNLIKELY(
+        /* if microblock duration is 0, bypass the bank_ready_at check
+           to avoid a potential cache miss.  Can't use an ifdef here
+           because FD_UNLIKELY is a macro, but the compiler should
+           eliminate the check easily. */
+        ( (MICROBLOCK_DURATION_NS==0L) || (ctx->bank_ready_at[poll_cursor]<now) ) &&
+        (fd_fseq_query( ctx->bank_current[poll_cursor] )==ctx->bank_expect[poll_cursor]) ) ) {
+      *charge_busy = 1;
       ctx->bank_idle_bitset |= 1UL<<poll_cursor;
     }
 
@@ -324,6 +414,8 @@ after_credit( void *             _ctx,
   /* If we time out on our slot, then stop being leader.  This can only
      happen in the first after_credit after a housekeeping. */
   if( FD_UNLIKELY( ctx->approx_wallclock_ns>=ctx->slot_end_ns && ctx->leader_slot!=ULONG_MAX ) ) {
+    *charge_busy = 1;
+
     if( FD_UNLIKELY( ctx->slot_microblock_cnt<ctx->slot_max_microblocks )) {
       /* As an optimization, The PoH tile will automatically end a slot
          if it receives the maximum allowed microblocks, since it knows
@@ -333,7 +425,7 @@ after_credit( void *             _ctx,
       fd_done_packing_t * done_packing = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
       done_packing->microblocks_in_slot = ctx->slot_microblock_cnt;
 
-      fd_mux_publish( mux, fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_DONE_PACKING, ULONG_MAX ), ctx->out_chunk, 0UL, 0UL, 0UL, 0UL );
+      fd_stem_publish( stem, 0UL, fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_DONE_PACKING, ULONG_MAX ), ctx->out_chunk, sizeof(fd_done_packing_t), 0UL, 0UL, fd_frag_meta_ts_comp( fd_tickcount() ) );
       ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_done_packing_t), ctx->out_chunk0, ctx->out_wmark );
     }
 
@@ -347,8 +439,22 @@ after_credit( void *             _ctx,
     return;
   }
 
-  /* Am I leader? If not, nothing to do. */
-  if( FD_UNLIKELY( ctx->leader_slot==ULONG_MAX ) ) return;
+  /* Am I leader? If not, see about inserting at most one transaction
+     from extra storage.  It's important not to insert too many
+     transactions here, or we won't end up servicing dedup_pack enough.
+     If extra storage is empty or pack is full, do nothing. */
+  if( FD_UNLIKELY( ctx->leader_slot==ULONG_MAX ) ) {
+#if FD_PACK_USE_EXTRA_STORAGE
+    if( FD_UNLIKELY( !extra_txn_deq_empty( ctx->extra_txn_deq ) &&
+         fd_pack_avail_txn_cnt( ctx->pack )<ctx->max_pending_transactions ) ) {
+      *charge_busy = 1;
+
+      int result = insert_from_extra( ctx );
+      if( FD_LIKELY( result>=0 ) ) ctx->last_successful_insert = now;
+    }
+#endif
+    return;
+  }
 
   /* Am I in drain mode?  If so, check if I can exit it */
   if( FD_UNLIKELY( ctx->drain_banks ) ) {
@@ -369,44 +475,50 @@ after_credit( void *             _ctx,
   int any_ready     = 0;
   int any_scheduled = 0;
 
+  *charge_busy = 1;
 
   /* Try to schedule the next microblock.  Do we have any idle bank
-     tiles? */
-  if( FD_LIKELY( ctx->bank_idle_bitset ) ) { /* Optimize for schedule */
+     tiles in the first `pacing_bank_cnt`? */
+  if( FD_LIKELY( ctx->bank_idle_bitset & fd_ulong_mask_lsb( pacing_bank_cnt ) ) ) { /* Optimize for schedule */
     any_ready = 1;
 
     int i               = fd_ulong_find_lsb( ctx->bank_idle_bitset );
 
-    /* TODO: You can maybe make the case that this should happen as soon
+    /* You can maybe make the case that this should happen as soon
        as we detect the bank has become idle, but doing it now probably
        helps with account locality. */
-    fd_pack_microblock_complete( ctx->pack, (ulong)i );
-
-    ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_min( (ulong)now+TIME_OFFSET, ctx->transaction_lifetime_ticks )-ctx->transaction_lifetime_ticks );
-    FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
+    long complete_duration = -fd_tickcount();
+    int completed = fd_pack_microblock_complete( ctx->pack, (ulong)i );
+    complete_duration      += fd_tickcount();
+    if( FD_LIKELY( completed ) ) fd_histf_sample( ctx->complete_duration, (ulong)complete_duration );
 
     void * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
     long schedule_duration = -fd_tickcount();
     ulong schedule_cnt = fd_pack_schedule_next_microblock( ctx->pack, CUS_PER_MICROBLOCK, VOTE_FRACTION, (ulong)i, microblock_dst );
     schedule_duration      += fd_tickcount();
-    fd_histf_sample( ctx->schedule_duration, (ulong)schedule_duration );
+    fd_histf_sample( (schedule_cnt>0UL) ? ctx->schedule_duration : ctx->no_sched_duration, (ulong)schedule_duration );
 
     if( FD_LIKELY( schedule_cnt ) ) {
       any_scheduled = 1;
-      ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+      long  now2   = fd_tickcount();
+      ulong tsorig = (ulong)fd_frag_meta_ts_comp( now  ); /* A bound on when we observed bank was idle */
+      ulong tspub  = (ulong)fd_frag_meta_ts_comp( now2 );
       ulong chunk  = ctx->out_chunk;
       ulong msg_sz = schedule_cnt*sizeof(fd_txn_p_t);
       fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t*)((uchar*)microblock_dst+msg_sz);
       trailer->bank = ctx->leader_bank;
+      trailer->microblock_idx = ctx->slot_microblock_cnt;
 
       ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, (ulong)i );
-      fd_mux_publish( mux, sig, chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), 0UL, 0UL, tspub );
-      ctx->bank_expect[ i ] = *mux->seq-1UL;
-      ctx->bank_ready_at[i] = now + (long)ctx->microblock_duration_ticks;
+      fd_stem_publish( stem, 0UL, sig, chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), 0UL, tsorig, tspub );
+      ctx->bank_expect[ i ] = stem->seqs[0]-1UL;
+      ctx->bank_ready_at[i] = now2 + (long)ctx->microblock_duration_ticks;
       ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), ctx->out_chunk0, ctx->out_wmark );
       ctx->slot_microblock_cnt++;
 
       ctx->bank_idle_bitset = fd_ulong_pop_lsb( ctx->bank_idle_bitset );
+      ctx->skip_cnt         = (long)schedule_cnt * fd_long_if( ctx->use_consumed_cus, (long)bank_cnt/2L, 1L );
+      fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now2 );
     }
   }
 
@@ -415,36 +527,27 @@ after_credit( void *             _ctx,
   now = fd_tickcount();
   update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, fd_pack_avail_txn_cnt( ctx->pack )>0 );
 
+#if FD_PACK_USE_EXTRA_STORAGE
   if( FD_UNLIKELY( !extra_txn_deq_empty( ctx->extra_txn_deq ) ) ) {
     /* Don't start pulling from the extra storage until the available
        transaction count drops below half. */
     ulong avail_space   = (ulong)fd_long_max( 0L, (long)(ctx->max_pending_transactions>>1)-(long)fd_pack_avail_txn_cnt( ctx->pack ) );
-    ulong qty_to_insert = fd_ulong_min( extra_txn_deq_cnt( ctx->extra_txn_deq ), avail_space );
-    for( ulong i=0UL; i<qty_to_insert; i++ ) {
-      fd_txn_p_t       * spot       = fd_pack_insert_txn_init( ctx->pack );
-      fd_txn_p_t const * insert     = extra_txn_deq_peek_head( ctx->extra_txn_deq );
-      fd_txn_t   const * insert_txn = TXN(insert);
-      fd_memcpy( spot->payload, insert->payload, insert->payload_sz                                                           );
-      fd_memcpy( TXN(spot),     insert_txn,      fd_txn_footprint( insert_txn->instr_cnt, insert_txn->addr_table_lookup_cnt ) );
-      spot->payload_sz = insert->payload_sz;
-      extra_txn_deq_remove_head( ctx->extra_txn_deq );
-
-
-      long insert_duration = -fd_tickcount();
-      int result = fd_pack_insert_txn_fini( ctx->pack, spot, (ulong)now+TIME_OFFSET );
-      insert_duration      += fd_tickcount();
-      ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
-      fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
-      if( FD_LIKELY( result>=0 ) ) ctx->last_successful_insert = now;
-    }
-    FD_MCNT_INC( PACK, TRANSACTION_INSERTED_FROM_EXTRA, qty_to_insert );
+    ulong qty_to_insert = fd_ulong_min( 10UL, fd_ulong_min( extra_txn_deq_cnt( ctx->extra_txn_deq ), avail_space ) );
+    int any_successes = 0;
+    for( ulong i=0UL; i<qty_to_insert; i++ ) any_successes |= (0<=insert_from_extra( ctx ));
+    if( FD_LIKELY( any_successes ) ) ctx->last_successful_insert = now;
   }
+#endif
 
   /* Did we send the maximum allowed microblocks? Then end the slot. */
   if( FD_UNLIKELY( ctx->slot_microblock_cnt==ctx->slot_max_microblocks )) {
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_LEADER,       0 );
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_BANKS,        0 );
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_MICROBLOCKS,  0 );
+    /* The pack object also does this accounting and increases this
+       metric, but we end the slot early so won't see it unless we also
+       increment it here. */
+    FD_MCNT_INC( PACK, MICROBLOCK_PER_BLOCK_LIMIT, 1UL );
     ctx->drain_banks         = 1;
     ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
@@ -452,33 +555,32 @@ after_credit( void *             _ctx,
   }
 }
 
+
 /* At this point, we have started receiving frag seq with details in
     mline at time now.  Speculatively process it here. */
 
 static inline void
-during_frag( void * _ctx,
-             ulong  in_idx,
-             ulong  seq,
-             ulong  sig,
-             ulong  chunk,
-             ulong  sz,
-             int *  opt_filter ) {
+during_frag( fd_pack_ctx_t * ctx,
+             ulong           in_idx,
+             ulong           seq,
+             ulong           sig,
+             ulong           chunk,
+             ulong           sz ) {
   (void)seq;
-
-  fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
 
   uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
 
-  if( FD_UNLIKELY( in_idx==POH_IN_IDX ) ) {
-    if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) {
+  switch( ctx->in_kind[ in_idx ] ) {
+  case IN_KIND_POH: {
       /* Not interested in stamped microblocks, only leader updates. */
-      *opt_filter = 1;
-      return;
-    }
+    if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
 
     /* There was a leader transition.  Handle it. */
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=sizeof(fd_became_leader_t) ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+
+  long now_ticks = fd_tickcount();
+  long now_ns    = fd_log_wallclock();
 
     if( FD_UNLIKELY( ctx->leader_slot!=ULONG_MAX ) ) {
       FD_LOG_WARNING(( "switching to slot %lu while packing for slot %lu. Draining bank tiles.", fd_disco_poh_sig_slot( sig ), ctx->leader_slot ));
@@ -489,13 +591,25 @@ during_frag( void * _ctx,
     }
     ctx->leader_slot = fd_disco_poh_sig_slot( sig );
 
+    ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->leader_slot, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
+    FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
+
     fd_became_leader_t * became_leader = (fd_became_leader_t *)dcache_entry;
     ctx->leader_bank          = became_leader->bank;
     ctx->slot_max_microblocks = became_leader->max_microblocks_in_slot;
     /* Reserve some space in the block for ticks */
     ctx->slot_max_data        = (ctx->larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK)
                                       - 48UL*(became_leader->ticks_per_slot+became_leader->total_skipped_ticks);
+    /* ticks_per_ns is probably relatively stable over 400ms, but not
+       over several hours, so we need to compute the slot duration in
+       milliseconds first and then convert to ticks.  This doesn't need
+       to be super accurate, but we don't want it to vary wildly. */
+    long end_ticks = now_ticks + (long)((double)fd_long_max( became_leader->slot_end_ns - now_ns, 1L )*ctx->ticks_per_ns);
+    /* We may still get overrun, but then we'll never use this and just
+       reinitialize it the next time when we actually become leader. */
+    fd_pack_pacing_init( ctx->pacer, now_ticks, end_ticks, (float)ctx->ticks_per_ns, ctx->slot_max_cost );
 
+    FD_LOG_INFO(( "pack_became_leader(slot=%lu,ends_at=%ld)", ctx->leader_slot, became_leader->slot_end_ns ));
 
     /* The dcache might get overrun, so set slot_end_ns to 0, so if it does
        the slot will get skipped.  Then update it in the `after_frag` case
@@ -506,13 +620,15 @@ during_frag( void * _ctx,
     update_metric_state( ctx, fd_tickcount(), FD_PACK_METRIC_STATE_LEADER, 1 );
     return;
   }
-
-  if( FD_UNLIKELY( in_idx>=BANK_BASE_IN_IDX ) ) {
-    if( FD_UNLIKELY( fd_disco_poh_sig_slot( sig )!=ctx->leader_slot ) ) {
+  case IN_KIND_BUNDLE: {
+    FD_LOG_WARNING(( "Pack tile received a bundle... dropping..." ));
+    return;
+  }
+  case IN_KIND_BANK: {
+    FD_TEST( ctx->use_consumed_cus );
       /* For a previous slot */
-      *opt_filter = 1;
-      return;
-    }
+    if( FD_UNLIKELY( fd_disco_bank_sig_slot( sig )!=ctx->leader_slot ) ) return;
+
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz<sizeof(fd_microblock_trailer_t)
           || sz>sizeof(fd_microblock_trailer_t)+sizeof(fd_txn_p_t)*MAX_TXN_PER_MICROBLOCK ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
@@ -521,86 +637,115 @@ during_frag( void * _ctx,
     fd_memcpy( ctx->pending_rebate, dcache_entry, sz-sizeof(fd_microblock_trailer_t) );
     return;
   }
+  case IN_KIND_RESOLV: {
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_TPU_RESOLVED_MTU ) )
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_TPU_DCACHE_MTU ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-
-  long now = fd_tickcount();
-  ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_min( (ulong)now+TIME_OFFSET, ctx->transaction_lifetime_ticks )-ctx->transaction_lifetime_ticks );
-  FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
-
-  if( FD_LIKELY( ctx->leader_slot!=ULONG_MAX || fd_pack_avail_txn_cnt( ctx->pack )<ctx->max_pending_transactions ) ) {
-    ctx->cur_spot = fd_pack_insert_txn_init( ctx->pack );
-    ctx->insert_to_extra = 0;
-  } else {
-    if( FD_UNLIKELY( extra_txn_deq_full( ctx->extra_txn_deq ) ) ) {
-      extra_txn_deq_remove_head( ctx->extra_txn_deq );
-      FD_MCNT_INC( PACK, TRANSACTION_DROPPED_FROM_EXTRA, 1UL );
+    if( FD_UNLIKELY( (ctx->leader_slot==ULONG_MAX) & (sig>ctx->highest_observed_slot) ) ) {
+      /* Using the resolv tile's knowledge of the current slot is a bit
+         of a hack, since we don't get any info if there are no
+         transactions and we're not leader.  We're actually in exactly
+         the case where that's okay though.  The point of calling
+         expire_before long before we become leader is so that we don't
+         drop new but low-fee-paying transactions when pack is clogged
+         with expired but high-fee-paying transactions.  That can only
+         happen if we are getting transactions. */
+      ctx->highest_observed_slot = sig;
+      ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->highest_observed_slot, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
+      FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
     }
-    ctx->cur_spot = extra_txn_deq_peek_tail( extra_txn_deq_insert_tail( ctx->extra_txn_deq ) );
-    ctx->insert_to_extra = 1;
-    FD_MCNT_INC( PACK, TRANSACTION_INSERTED_TO_EXTRA, 1UL );
-  }
 
-  ulong payload_sz;
-  /* We get transactions from the dedup tile.
-     The transactions should have been parsed and verified. */
-  FD_MCNT_INC( PACK, NORMAL_TRANSACTION_RECEIVED, 1UL );
-  /* Assume that the dcache entry is:
-        Payload ....... (payload_sz bytes)
-        0 or 1 byte of padding (since alignof(fd_txn) is 2)
-        fd_txn ....... (size computed by fd_txn_footprint)
-        payload_sz  (2B)
-    mline->sz includes all three fields and the padding */
-  payload_sz = *(ushort*)(dcache_entry + sz - sizeof(ushort));
-  uchar    const * payload = dcache_entry;
-  fd_txn_t const * txn     = (fd_txn_t const *)( dcache_entry + fd_ulong_align_up( payload_sz, 2UL ) );
-  fd_memcpy( ctx->cur_spot->payload, payload, payload_sz                                                     );
-  fd_memcpy( TXN(ctx->cur_spot),     txn,     fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
-  ctx->cur_spot->payload_sz = payload_sz;
-
-#if DETAILED_LOGGING
-  FD_LOG_NOTICE(( "Pack got a packet. Payload size: %lu, txn footprint: %lu", payload_sz,
-        fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt )
-      ));
+#if FD_PACK_USE_EXTRA_STORAGE
+    if( FD_LIKELY( ctx->leader_slot!=ULONG_MAX || fd_pack_avail_txn_cnt( ctx->pack )<ctx->max_pending_transactions ) ) {
+      ctx->cur_spot = fd_pack_insert_txn_init( ctx->pack );
+      ctx->insert_to_extra = 0;
+    } else {
+      if( FD_UNLIKELY( extra_txn_deq_full( ctx->extra_txn_deq ) ) ) {
+        extra_txn_deq_remove_head( ctx->extra_txn_deq );
+        FD_MCNT_INC( PACK, TRANSACTION_DROPPED_FROM_EXTRA, 1UL );
+      }
+      ctx->cur_spot = extra_txn_deq_peek_tail( extra_txn_deq_insert_tail( ctx->extra_txn_deq ) );
+      /* We want to store the current time in cur_spot so that we can
+         track its expiration better.  We just stash it in the CU
+         fields, since those aren't important right now. */
+      ctx->cur_spot->txnp->blockhash_slot = sig;
+      ctx->insert_to_extra                = 1;
+      FD_MCNT_INC( PACK, TRANSACTION_INSERTED_TO_EXTRA, 1UL );
+    }
+#else
+    ctx->cur_spot = fd_pack_insert_txn_init( ctx->pack );
 #endif
+
+    /* We get transactions from the resolv tile.
+      The transactions should have been parsed and verified. */
+    FD_MCNT_INC( PACK, NORMAL_TRANSACTION_RECEIVED, 1UL );
+
+    fd_txn_m_t * txnm = (fd_txn_m_t *)dcache_entry;
+    fd_txn_t * txn  = fd_txn_m_txn_t( txnm );
+    
+    fd_memcpy( ctx->cur_spot->txnp->payload, fd_txn_m_payload( txnm), txnm->payload_sz              );
+    fd_memcpy( TXN(ctx->cur_spot->txnp),     txn,                     txnm->txn_t_sz                );
+    fd_memcpy( ctx->cur_spot->alt_accts,     fd_txn_m_alut( txnm ),   32UL*txn->addr_table_adtl_cnt );
+    ctx->cur_spot->txnp->payload_sz = txnm->payload_sz;
+
+  #if DETAILED_LOGGING
+    FD_LOG_NOTICE(( "Pack got a packet. Payload size: %lu, txn footprint: %lu", txnm->payload_sz, txnm->txn_t_sz ));
+  #endif
+    break;
+  }
+  }
 }
 
 /* After the transaction has been fully received, and we know we were
    not overrun while reading it, insert it into pack. */
 
 static inline void
-after_frag( void *             _ctx,
-            ulong              in_idx,
-            ulong              seq,
-            ulong *            opt_sig,
-            ulong *            opt_chunk,
-            ulong *            opt_sz,
-            ulong *            opt_tsorig,
-            int *              opt_filter,
-            fd_mux_context_t * mux ) {
+after_frag( fd_pack_ctx_t *     ctx,
+            ulong               in_idx,
+            ulong               seq,
+            ulong               sig,
+            ulong               sz,
+            ulong               tsorig,
+            fd_stem_context_t * stem ) {
   (void)seq;
-  (void)opt_sig;
-  (void)opt_chunk;
-  (void)opt_sz;
-  (void)opt_tsorig;
-  (void)opt_filter;
-  (void)mux;
+  (void)sz;
+  (void)tsorig;
+  (void)stem;
 
-  fd_pack_ctx_t * ctx = (fd_pack_ctx_t *)_ctx;
   long now = fd_tickcount();
 
-  if( FD_UNLIKELY( in_idx==POH_IN_IDX ) ) {
+  switch( ctx->in_kind[ in_idx ] ) {
+  case IN_KIND_POH: {
+    if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
+
     ctx->slot_end_ns = ctx->_slot_end_ns;
     fd_pack_set_block_limits( ctx->pack, ctx->slot_max_microblocks, ctx->slot_max_data );
-  } else if( FD_UNLIKELY( in_idx>=BANK_BASE_IN_IDX ) ) {
+    fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );
+    break;
+  }
+  case IN_KIND_BUNDLE: {
+    FD_LOG_WARNING(( "Pack tile received a bundle... dropping..." ));
+    break;
+  }
+  case IN_KIND_BANK: {
+    /* For a previous slot */
+    if( FD_UNLIKELY( fd_disco_bank_sig_slot( sig )!=ctx->leader_slot ) ) return;
+
     fd_pack_rebate_cus( ctx->pack, ctx->pending_rebate, ctx->pending_rebate_cnt );
     ctx->pending_rebate_cnt = 0UL;
-  } else {
+    fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );
+    break;
+  }
+  case IN_KIND_RESOLV: {
     /* Normal transaction case */
+#if FD_PACK_USE_EXTRA_STORAGE
     if( FD_LIKELY( !ctx->insert_to_extra ) ) {
+#else
+    if( 1 ) {
+#endif
+      ulong blockhash_slot = sig;
       long insert_duration = -fd_tickcount();
-      int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, (ulong)now+TIME_OFFSET );
+      int result = fd_pack_insert_txn_fini( ctx->pack, ctx->cur_spot, blockhash_slot );
       insert_duration      += fd_tickcount();
       ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
       fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
@@ -608,44 +753,28 @@ after_frag( void *             _ctx,
     }
 
     ctx->cur_spot = NULL;
+    break;
   }
+  }
+
   update_metric_state( ctx, now, FD_PACK_METRIC_STATE_TRANSACTIONS, fd_pack_avail_txn_cnt( ctx->pack )>0 );
 }
 
 static void
 unprivileged_init( fd_topo_t *      topo,
-                   fd_topo_tile_t * tile,
-                   void *           scratch ) {
-  if( FD_UNLIKELY( tile->in_cnt!=BANK_BASE_IN_IDX+tile->pack.bank_tile_count ||
-                   strcmp( topo->links[ tile->in_link_id[ DEDUP_IN_IDX ] ].name, "dedup_pack" ) ||
-                   strcmp( topo->links[ tile->in_link_id[ POH_IN_IDX   ] ].name, "poh_pack"   ) ) ) {
-    FD_LOG_ERR(( "pack tile has none or unexpected input links %lu %s %s",
-                 tile->in_cnt,
-                 tile->in_cnt>=1 ? topo->links[ tile->in_link_id[ 0 ] ].name : "NULL",
-                 tile->in_cnt>=2 ? topo->links[ tile->in_link_id[ 1 ] ].name : "NULL" ));
-  }
-  for( ulong i=0UL; i<tile->pack.bank_tile_count; i++ ) {
-    if( FD_UNLIKELY( strcmp( topo->links[ tile->in_link_id[ i+BANK_BASE_IN_IDX ] ].name, "bank_poh" ) ) ) {
-      FD_LOG_ERR(( "pack tile listening to unexpected link %lu %s", i+BANK_BASE_IN_IDX,
-            topo->links[ tile->in_link_id[ i+BANK_BASE_IN_IDX ] ].name ));
-    }
-  }
-  if( FD_UNLIKELY( tile->in_cnt>32UL ) ) FD_LOG_ERR(( "Too many bank tiles" ));
-
-  ulong out_cnt = fd_topo_link_consumer_cnt( topo, &topo->links[ tile->out_link_id_primary ] );
-
-  if( FD_UNLIKELY( !out_cnt ) ) FD_LOG_ERR(( "pack tile connects to no banking tiles" ));
-  if( FD_UNLIKELY( out_cnt>FD_PACK_PACK_MAX_OUT ) ) FD_LOG_ERR(( "pack tile connects to too many banking tiles" ));
-  if( FD_UNLIKELY( out_cnt!=tile->pack.bank_tile_count+1UL ) ) FD_LOG_ERR(( "pack tile connects to %lu banking tiles, but tile->pack.bank_tile_count is %lu", out_cnt, tile->pack.bank_tile_count ));
+                   fd_topo_tile_t * tile ) {
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   fd_pack_limits_t limits[1] = {{
     .max_cost_per_block        = tile->pack.larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : FD_PACK_MAX_COST_PER_BLOCK,
     .max_vote_cost_per_block   = FD_PACK_MAX_VOTE_COST_PER_BLOCK,
     .max_write_cost_per_acct   = FD_PACK_MAX_WRITE_COST_PER_ACCT,
     .max_data_bytes_per_block  = tile->pack.larger_shred_limits_per_block ? LARGER_MAX_DATA_PER_BLOCK : FD_PACK_MAX_DATA_PER_BLOCK,
-    .max_txn_per_microblock    = MAX_TXN_PER_MICROBLOCK,
+    .max_txn_per_microblock    = EFFECTIVE_TXN_PER_MICROBLOCK,
     .max_microblocks_per_block = (ulong)UINT_MAX, /* Limit not known yet */
   }};
+
+  if( FD_UNLIKELY( tile->pack.max_pending_transactions >= USHORT_MAX ) ) FD_LOG_ERR(( "pack tile supports up to %lu pending transactions", USHORT_MAX-1UL ));
 
   ulong pack_footprint = fd_pack_footprint( tile->pack.max_pending_transactions, tile->pack.bank_tile_count, limits );
 
@@ -659,8 +788,29 @@ unprivileged_init( fd_topo_t *      topo,
                                          limits, rng ) );
   if( FD_UNLIKELY( !ctx->pack ) ) FD_LOG_ERR(( "fd_pack_new failed" ));
 
+  if( FD_UNLIKELY( tile->in_cnt>32UL ) ) FD_LOG_ERR(( "Too many input links (%lu>32) to pack tile", tile->in_cnt ));
+
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+    fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
+
+    if( FD_LIKELY(      !strcmp( link->name, "resolv_pack" ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
+    else if( FD_LIKELY( !strcmp( link->name, "dedup_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
+    else if( FD_LIKELY( !strcmp( link->name, "poh_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
+    else if( FD_LIKELY( !strcmp( link->name, "bank_poh"    ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK;
+    else if( FD_LIKELY( !strcmp( link->name, "bundle_pack" ) ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
+    else FD_LOG_ERR(( "pack tile has unexpected input link %lu %s", i, link->name ));
+  }
+
+  ulong out_cnt = fd_topo_link_consumer_cnt( topo, &topo->links[ tile->out_link_id[ 0 ] ] );
+
+  if( FD_UNLIKELY( !out_cnt                                ) ) FD_LOG_ERR(( "pack tile connects to no banking tiles" ));
+  if( FD_UNLIKELY( out_cnt>FD_PACK_PACK_MAX_OUT            ) ) FD_LOG_ERR(( "pack tile connects to too many banking tiles" ));
+  if( FD_UNLIKELY( out_cnt!=tile->pack.bank_tile_count+1UL ) ) FD_LOG_ERR(( "pack tile connects to %lu banking tiles, but tile->pack.bank_tile_count is %lu", out_cnt-1UL, tile->pack.bank_tile_count ));
+
+#if FD_PACK_USE_EXTRA_STORAGE
   ctx->extra_txn_deq = extra_txn_deq_join( extra_txn_deq_new( FD_SCRATCH_ALLOC_APPEND( l, extra_txn_deq_align(),
                                                                                           extra_txn_deq_footprint() ) ) );
+#endif
 
   ctx->cur_spot                      = NULL;
   ctx->max_pending_transactions      = tile->pack.max_pending_transactions;
@@ -670,11 +820,18 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->slot_max_microblocks          = 0UL;
   ctx->slot_max_data                 = 0UL;
   ctx->larger_shred_limits_per_block = tile->pack.larger_shred_limits_per_block;
+  ctx->slot_max_cost                 = limits->max_cost_per_block;
+  ctx->drain_banks                   = 0;
+  ctx->approx_wallclock_ns           = fd_log_wallclock();
   ctx->rng                           = rng;
+  ctx->ticks_per_ns                  = fd_tempo_tick_per_ns( NULL );
   ctx->last_successful_insert        = 0L;
-  ctx->transaction_lifetime_ticks    = (ulong)(fd_tempo_tick_per_ns( NULL )*(double)TRANSACTION_LIFETIME_NS + 0.5);
+  ctx->highest_observed_slot         = 0UL;
   ctx->microblock_duration_ticks     = (ulong)(fd_tempo_tick_per_ns( NULL )*(double)MICROBLOCK_DURATION_NS  + 0.5);
+#if FD_PACK_USE_EXTRA_STORAGE
   ctx->insert_to_extra               = 0;
+#endif
+  ctx->use_consumed_cus              = tile->pack.use_consumed_cus;
 
   ctx->wait_duration_ticks[ 0 ] = ULONG_MAX;
   for( ulong i=1UL; i<MAX_TXN_PER_MICROBLOCK+1UL; i++ ) {
@@ -684,6 +841,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->bank_cnt         = tile->pack.bank_tile_count;
   ctx->poll_cursor      = 0;
+  ctx->skip_cnt         = 0L;
   ctx->bank_idle_bitset = fd_ulong_mask_lsb( (int)tile->pack.bank_tile_count );
   for( ulong i=0UL; i<tile->pack.bank_tile_count; i++ ) {
     ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", i );
@@ -699,27 +857,31 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
-    ctx->in[i].mem    = link_wksp->wksp;
-    ctx->in[i].chunk0 = fd_dcache_compact_chunk0( ctx->in[i].mem, link->dcache );
-    ctx->in[i].wmark  = fd_dcache_compact_wmark ( ctx->in[i].mem, link->dcache, link->mtu );
+    ctx->in[ i ].mem    = link_wksp->wksp;
+    ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
+    ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
   }
 
-  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id_primary ].dcache_obj_id ].wksp_id ].wksp;
-  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache );
-  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id_primary ].dcache, topo->links[ tile->out_link_id_primary ].mtu );
+  ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
+  ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
+  ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
 
   /* Initialize metrics storage */
   memset( ctx->insert_result, '\0', FD_PACK_INSERT_RETVAL_CNT * sizeof(ulong) );
   fd_histf_join( fd_histf_new( ctx->schedule_duration, FD_MHIST_SECONDS_MIN( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS ),
                                                        FD_MHIST_SECONDS_MAX( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( ctx->no_sched_duration, FD_MHIST_SECONDS_MIN( PACK, NO_SCHED_MICROBLOCK_DURATION_SECONDS ),
+                                                       FD_MHIST_SECONDS_MAX( PACK, NO_SCHED_MICROBLOCK_DURATION_SECONDS ) ) );
   fd_histf_join( fd_histf_new( ctx->insert_duration,   FD_MHIST_SECONDS_MIN( PACK, INSERT_TRANSACTION_DURATION_SECONDS  ),
                                                        FD_MHIST_SECONDS_MAX( PACK, INSERT_TRANSACTION_DURATION_SECONDS  ) ) );
+  fd_histf_join( fd_histf_new( ctx->complete_duration, FD_MHIST_SECONDS_MIN( PACK, COMPLETE_MICROBLOCK_DURATION_SECONDS ),
+                                                       FD_MHIST_SECONDS_MAX( PACK, COMPLETE_MICROBLOCK_DURATION_SECONDS  ) ) );
   ctx->metric_state = 0;
   ctx->metric_state_begin = fd_tickcount();
   memset( ctx->metric_timing, '\0', 16*sizeof(long) );
 
-  FD_LOG_INFO(( "packing microblocks of at most %lu transactions to %lu bank tiles", MAX_TXN_PER_MICROBLOCK, tile->pack.bank_tile_count ));
+  FD_LOG_INFO(( "packing microblocks of at most %lu transactions to %lu bank tiles", EFFECTIVE_TXN_PER_MICROBLOCK, tile->pack.bank_tile_count ));
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
@@ -727,59 +889,65 @@ unprivileged_init( fd_topo_t *      topo,
 
 }
 
-static long
-lazy( fd_topo_tile_t * tile ) {
-  (void)tile;
-  /* We want lazy (measured in ns) to be small enough that the producer
-     and the consumer never have to wait for credits.  For most tango
-     links, we use a default worst case speed coming from 100 Gbps
-     Ethernet.  That's not very suitable for microblocks that go from
-     pack to bank.  Instead we manually estimate the very aggressive
-     1000ns per microblock, and then reduce it further (in line with the
-     default lazy value computation) to ensure the random value chosen
-     based on this won't lead to credit return stalls. */
-  return 128L * 3000L;
-}
-
-
 static ulong
-populate_allowed_seccomp( void *               scratch,
-                          ulong                out_cnt,
-                          struct sock_filter * out ) {
-  (void)scratch;
+populate_allowed_seccomp( fd_topo_t const *      topo,
+                          fd_topo_tile_t const * tile,
+                          ulong                  out_cnt,
+                          struct sock_filter *   out ) {
+  (void)topo;
+  (void)tile;
+
   populate_sock_filter_policy_pack( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_pack_instr_cnt;
 }
 
 static ulong
-populate_allowed_fds( void * scratch,
-                      ulong  out_fds_cnt,
-                      int *  out_fds ) {
-  (void)scratch;
-  if( FD_UNLIKELY( out_fds_cnt < 2 ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+populate_allowed_fds( fd_topo_t const *      topo,
+                      fd_topo_tile_t const * tile,
+                      ulong                  out_fds_cnt,
+                      int *                  out_fds ) {
+  (void)topo;
+  (void)tile;
 
-  ulong out_cnt = 0;
+  if( FD_UNLIKELY( out_fds_cnt<2UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+
+  ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   return out_cnt;
 }
 
+#define STEM_BURST (1UL)
+
+/* We want lazy (measured in ns) to be small enough that the producer
+    and the consumer never have to wait for credits.  For most tango
+    links, we use a default worst case speed coming from 100 Gbps
+    Ethernet.  That's not very suitable for microblocks that go from
+    pack to bank.  Instead we manually estimate the very aggressive
+    1000ns per microblock, and then reduce it further (in line with the
+    default lazy value computation) to ensure the random value chosen
+    based on this won't lead to credit return stalls. */
+#define STEM_LAZY  (128L*3000L)
+
+#define STEM_CALLBACK_CONTEXT_TYPE  fd_pack_ctx_t
+#define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_pack_ctx_t)
+
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_DURING_FRAG         during_frag
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
+
+#include "../../../../disco/stem/fd_stem.c"
+
 fd_topo_run_tile_t fd_tile_pack = {
   .name                     = "pack",
-  .mux_flags                = FD_MUX_FLAG_MANUAL_PUBLISH | FD_MUX_FLAG_COPY,
-  .burst                    = 1UL,
-  .mux_ctx                  = mux_ctx,
-  .mux_during_housekeeping  = during_housekeeping,
-  .mux_before_credit        = before_credit,
-  .mux_after_credit         = after_credit,
-  .mux_during_frag          = during_frag,
-  .mux_after_frag           = after_frag,
-  .mux_metrics_write        = metrics_write,
-  .lazy                     = lazy,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .unprivileged_init        = unprivileged_init,
+  .run                      = stem_run,
 };

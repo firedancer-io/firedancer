@@ -4,14 +4,14 @@
 #include "fdctl.h"
 
 #include "run/topos/topos.h"
-#include "run/run.h"
 
 #include "../../ballet/toml/fd_toml.h"
-#include "../../disco/topo/fd_topob.h"
 #include "../../disco/topo/fd_pod_format.h"
+#include "../../flamenco/runtime/fd_blockstore.h"
+#include "../../flamenco/runtime/fd_txncache.h"
+#include "../../funk/fd_funk.h"
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
-#include "../../util/tile/fd_tile_private.h"
 
 #include <fcntl.h>
 #include <pwd.h>
@@ -110,7 +110,8 @@ listen_address( const char * interface ) {
   int fd = socket( AF_INET, SOCK_DGRAM, 0 );
   struct ifreq ifr = {0};
   ifr.ifr_addr.sa_family = AF_INET;
-  strncpy( ifr.ifr_name, interface, IF_NAMESIZE );
+  strncpy( ifr.ifr_name, interface, IFNAMSIZ );
+  ifr.ifr_name[ IFNAMSIZ-1 ] = '\0';
   if( FD_UNLIKELY( ioctl( fd, SIOCGIFADDR, &ifr ) ) )
     FD_LOG_ERR(( "could not get IP address of interface `%s` (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close(fd) ) )
@@ -124,7 +125,7 @@ mac_address( const char * interface,
   int fd = socket( AF_INET, SOCK_DGRAM, IPPROTO_IP );
   struct ifreq ifr;
   ifr.ifr_addr.sa_family = AF_INET;
-  strncpy( ifr.ifr_name, interface, IF_NAMESIZE );
+  strncpy( ifr.ifr_name, interface, IFNAMSIZ );
   if( FD_UNLIKELY( ioctl( fd, SIOCGIFHWADDR, &ifr ) ) )
     FD_LOG_ERR(( "could not get MAC address of interface `%s`: (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close(fd) ) )
@@ -195,11 +196,6 @@ fd_topo_tile_to_config( fd_topo_tile_t const * tile ) {
 ulong
 fdctl_obj_align( fd_topo_t const *     topo,
                  fd_topo_obj_t const * obj ) {
-  ulong align = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, "align" );
-  if( align!=ULONG_MAX ) {
-    return align;
-  }
-
   if( FD_UNLIKELY( !strcmp( obj->name, "tile" ) ) ) {
     fd_topo_tile_t const * tile = NULL;
     for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
@@ -217,12 +213,16 @@ fdctl_obj_align( fd_topo_t const *     topo,
     return fd_dcache_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "cnc" ) ) ) {
     return fd_cnc_align();
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "reasm" ) ) ) {
-    return fd_tpu_reasm_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "fseq" ) ) ) {
     return fd_fseq_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
     return FD_METRICS_ALIGN;
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
+    return fd_blockstore_align();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
+    return fd_funk_align();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
+    return fd_txncache_align();
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
     return 0UL;
@@ -236,11 +236,6 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
       ulong __x = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, name );      \
       if( FD_UNLIKELY( __x==ULONG_MAX ) ) FD_LOG_ERR(( "obj.%lu.%s was not set", obj->id, name )); \
       __x; }))
-
-  ulong sz = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.%s", obj->id, "sz" );
-  if( sz!=ULONG_MAX ) {
-    return sz;
-  }
 
   if( FD_UNLIKELY( !strcmp( obj->name, "tile" ) ) ) {
     fd_topo_tile_t const * tile = NULL;
@@ -259,12 +254,16 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
     return fd_dcache_footprint( fd_dcache_req_data_sz( VAL("mtu"), VAL("depth"), VAL("burst"), 1), 0UL );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "cnc" ) ) ) {
     return fd_cnc_footprint( 0UL );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "reasm" ) ) ) {
-    return fd_tpu_reasm_footprint( VAL("depth"), VAL("burst") );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "fseq" ) ) ) {
     return fd_fseq_footprint();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
-    return FD_METRICS_FOOTPRINT( VAL("in_cnt"), VAL("out_cnt") );
+    return FD_METRICS_FOOTPRINT( VAL("in_cnt"), VAL("cons_cnt") );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
+    return fd_blockstore_footprint( VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) + VAL("alloc_max");
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
+    return fd_funk_footprint();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
+    return fd_txncache_footprint( VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS );
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
     return 0UL;
@@ -297,18 +296,6 @@ fdctl_obj_loose( fd_topo_t const *     topo,
 fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t * tile ) {
   return *fd_topo_tile_to_config( tile );
-}
-
-/* topo_initialize initializes the provided topology structure from the
-   user configuration.  This should be called exactly once immediately
-   after Firedancer is booted. */
-static void
-topo_initialize( config_t * config ) {
-  fd_topo_config_fn * topo_config_fn = fd_topo_kind_str_to_topo_config_fn( config->development.topology );
-  if( FD_UNLIKELY( strcmp( config->development.topology, "frankendancer" ) ) ) {
-    FD_LOG_NOTICE(( "initializing %s topology", config->development.topology ));
-  }
-  topo_config_fn( config );
 }
 
 
@@ -375,20 +362,12 @@ validate_ports( config_t * result ) {
 #define FD_CONFIG_CLUSTER_MAINNET_BETA (5UL)
 
 FD_FN_PURE static ulong
-determine_cluster( ulong  entrypoints_cnt,
-                   char   entrypoints[16][256],
-                   char * expected_genesis_hash ) {
+determine_cluster( char * expected_genesis_hash ) {
   char const * DEVNET_GENESIS_HASH = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
   char const * TESTNET_GENESIS_HASH = "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY";
   char const * MAINNET_BETA_GENESIS_HASH = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
   char const * PYTHTEST_GENESIS_HASH = "EkCkB7RWVrgkcpariRpd3pjf7GwiCMZaMHKUpB5Na1Ve";
   char const * PYTHNET_GENESIS_HASH = "GLKkBUr6r72nBtGrtBPJLRqtsh8wXZanX4xfnqKnWwKq";
-
-  char const * DEVNET_ENTRYPOINT_URI = "devnet.solana.com";
-  char const * TESTNET_ENTRYPOINT_URI = "testnet.solana.com";
-  char const * MAINNET_BETA_ENTRYPOINT_URI = "mainnet-beta.solana.com";
-  char const * PYTHTEST_ENTRYPOINT_URI = "pythtest.pyth.network";
-  char const * PYTHNET_ENTRYPOINT_URI = "pythnet.pyth.network";
 
   ulong cluster = FD_CONFIG_CLUSTER_UNKNOWN;
   if( FD_LIKELY( expected_genesis_hash ) ) {
@@ -397,14 +376,6 @@ determine_cluster( ulong  entrypoints_cnt,
     else if( FD_UNLIKELY( !strcmp( expected_genesis_hash, MAINNET_BETA_GENESIS_HASH ) ) ) cluster = FD_CONFIG_CLUSTER_MAINNET_BETA;
     else if( FD_UNLIKELY( !strcmp( expected_genesis_hash, PYTHTEST_GENESIS_HASH ) ) )     cluster = FD_CONFIG_CLUSTER_PYTHTEST;
     else if( FD_UNLIKELY( !strcmp( expected_genesis_hash, PYTHNET_GENESIS_HASH ) ) )      cluster = FD_CONFIG_CLUSTER_PYTHNET;
-  }
-
-  for( ulong i=0; i<entrypoints_cnt; i++ ) {
-    if( FD_UNLIKELY( strstr( entrypoints[ i ], DEVNET_ENTRYPOINT_URI ) ) )            cluster = fd_ulong_max( cluster, FD_CONFIG_CLUSTER_DEVNET );
-    else if( FD_UNLIKELY( strstr( entrypoints[ i ], TESTNET_ENTRYPOINT_URI ) ) )      cluster = fd_ulong_max( cluster, FD_CONFIG_CLUSTER_TESTNET );
-    else if( FD_UNLIKELY( strstr( entrypoints[ i ], MAINNET_BETA_ENTRYPOINT_URI ) ) ) cluster = fd_ulong_max( cluster, FD_CONFIG_CLUSTER_MAINNET_BETA );
-    else if( FD_UNLIKELY( strstr( entrypoints[ i ], PYTHTEST_ENTRYPOINT_URI ) ) )     cluster = fd_ulong_max( cluster, FD_CONFIG_CLUSTER_PYTHTEST );
-    else if( FD_UNLIKELY( strstr( entrypoints[ i ], PYTHNET_ENTRYPOINT_URI ) ) )      cluster = fd_ulong_max( cluster, FD_CONFIG_CLUSTER_PYTHNET );
   }
 
   return cluster;
@@ -465,7 +436,25 @@ fdctl_cfg_from_env( int *      pargc,
                     config_t * config ) {
 
   memset( config, 0, sizeof(config_t) );
+#if FD_HAS_NO_AGAVE
+  static uchar pod_mem1[ 1UL<<20 ];
+  static uchar pod_mem2[ 1UL<<20 ];
+  uchar * pod1 = fd_pod_join( fd_pod_new( pod_mem1, sizeof(pod_mem1) ) );
+  uchar * pod2 = fd_pod_join( fd_pod_new( pod_mem2, sizeof(pod_mem2) ) );
+
+  uchar scratch[ 4096 ];
+  long toml_err = fd_toml_parse( fdctl_default_config, fdctl_default_config_sz, pod1, scratch, sizeof(scratch) );
+  if( FD_UNLIKELY( toml_err!=FD_TOML_SUCCESS ) ) FD_LOG_ERR(( "Invalid config (%s)", "default.toml" ));
+  toml_err = fd_toml_parse( fdctl_default_firedancer_config, fdctl_default_firedancer_config_sz, pod2, scratch, sizeof(scratch) );
+  if( FD_UNLIKELY( toml_err!=FD_TOML_SUCCESS ) ) FD_LOG_ERR(( "Invalid config (%s)", "default-firedancer.toml" ));
+
+  if( FD_UNLIKELY( !fdctl_pod_to_cfg( config, pod1 ) ) ) FD_LOG_ERR(( "Invalid config (%s)", "default.toml" ));
+  if( FD_UNLIKELY( !fdctl_pod_to_cfg( config, pod2 ) ) ) FD_LOG_ERR(( "Invalid config (%s)", "default-firedancer.toml" ));
+  fd_pod_delete( fd_pod_leave( pod1 ) );
+  fd_pod_delete( fd_pod_leave( pod2 ) );
+#else
   fdctl_cfg_load_buf( config, (char const *)fdctl_default_config, fdctl_default_config_sz, "default" );
+#endif
 
   const char * user_config = fd_env_strip_cmdline_cstr(
       pargc,
@@ -512,15 +501,14 @@ fdctl_cfg_from_env( int *      pargc,
                    "your configuration file under [net.interface]" ));
 
     if( FD_UNLIKELY( !if_indextoname( (uint)ifindex, config->tiles.net.interface ) ) )
-      FD_LOG_ERR(( "could not get name of interface with index %u", ifindex ));
+      FD_LOG_ERR(( "could not get name of interface with index %d", ifindex ));
   }
 
-  ulong cluster = determine_cluster( config->gossip.entrypoints_cnt,
-                                     config->gossip.entrypoints,
-                                     config->consensus.expected_genesis_hash );
+  ulong cluster = determine_cluster( config->consensus.expected_genesis_hash );
   config->is_live_cluster = cluster != FD_CONFIG_CLUSTER_UNKNOWN;
 
   if( FD_UNLIKELY( config->development.netns.enabled ) ) {
+    /* not currently supporting multihoming on netns */
     if( FD_UNLIKELY( strcmp( config->development.netns.interface0, config->tiles.net.interface ) ) )
       FD_LOG_ERR(( "netns interface and firedancer interface are different. If you are using the "
                    "[development.netns] functionality to run Firedancer in a network namespace "
@@ -559,6 +547,35 @@ fdctl_cfg_from_env( int *      pargc,
 
     config->tiles.net.ip_addr = iface_ip;
     mac_address( config->tiles.net.interface, config->tiles.net.mac_addr );
+
+    /* support for multihomed hosts */
+    ulong multi_cnt = config->tiles.net.multihome_ip_addrs_cnt;
+    for( ulong j = 0; j < multi_cnt; ++j ) {
+      int success = fd_cstr_to_ip4_addr( config->tiles.net.multihome_ip_addrs[j],
+          &config->tiles.net.multihome_ip4_addrs[j] );
+      if( !success ) {
+        FD_LOG_ERR(( "configuration option [tiles.net.multihome_ip_addrs] "
+                     "specifies malformed IP address `%s`",
+                     config->tiles.net.multihome_ip_addrs[j] ));
+      }
+    }
+
+    /* look for duplicate addresses */
+    /* there's only a few, so do the O(n^2) comparison */
+    for( ulong j = 0; j < multi_cnt; ++j ) {
+      if( config->tiles.net.ip_addr == config->tiles.net.multihome_ip4_addrs[j] ) {
+        FD_LOG_ERR(( "configuration option [tiles.net.multihome_ip_addrs] "
+                     "specifies an address that matches [tiles.net.src_ip_addr]" ));
+      }
+      for( ulong k = j+1; k < multi_cnt; ++k ) {
+        if( config->tiles.net.multihome_ip4_addrs[j] == config->tiles.net.multihome_ip4_addrs[k] ) {
+          FD_LOG_ERR(( "configuration option [tiles.net.multihome_ip_addrs] "
+                       "specifies duplicate ip addresses `%s`",
+                       config->tiles.net.multihome_ip_addrs[j] ));
+        }
+      }
+    }
+
   }
 
   username_to_id( config );
@@ -567,9 +584,9 @@ fdctl_cfg_from_env( int *      pargc,
     FD_LOG_ERR(( "firedancer cannot run as root. please specify a non-root user in the configuration file" ));
 
   if( FD_UNLIKELY( getuid() != 0 && config->uid != getuid() ) )
-    FD_LOG_ERR(( "running as uid %i, but config specifies uid %i", getuid(), config->uid ));
+    FD_LOG_ERR(( "running as uid %u, but config specifies uid %u", getuid(), config->uid ));
   if( FD_UNLIKELY( getgid() != 0 && config->gid != getgid() ) )
-    FD_LOG_ERR(( "running as gid %i, but config specifies gid %i", getgid(), config->gid ));
+    FD_LOG_ERR(( "running as gid %u, but config specifies gid %u", getgid(), config->gid ));
 
   ulong len = strlen( config->hugetlbfs.mount_path );
   if( FD_UNLIKELY( !len ) ) FD_LOG_ERR(( "[hugetlbfs.mount_path] must be non-empty in your configuration file" ));
@@ -636,6 +653,15 @@ fdctl_cfg_from_env( int *      pargc,
     replace( config->consensus.identity_path, "{name}", config->name );
   }
 
+#if FD_HAS_NO_AGAVE
+  if( FD_UNLIKELY( !strcmp( config->consensus.vote_account_path, "" ) ) ) {
+    FD_TEST( fd_cstr_printf_check( config->consensus.vote_account_path,
+                                   sizeof(config->consensus.vote_account_path),
+                                   NULL,
+                                   "%s/vote-account.json",
+                                   config->scratch_directory ) );
+  }
+#endif
   replace( config->consensus.vote_account_path, "{user}", config->user );
   replace( config->consensus.vote_account_path, "{name}", config->name );
 
@@ -644,6 +670,9 @@ fdctl_cfg_from_env( int *      pargc,
     replace( config->consensus.authorized_voter_paths[ i ], "{name}", config->name );
   }
 
+  strcpy( config->cluster, cluster_to_cstr( cluster ) );
+
+#ifdef FD_HAS_NO_AGAVE
   if( FD_UNLIKELY( config->is_live_cluster && cluster!=FD_CONFIG_CLUSTER_TESTNET ) )
     FD_LOG_ERR(( "Attempted to start against live cluster `%s`. Firedancer is not "
                  "ready for production deployment, has not been tested, and is "
@@ -652,6 +681,7 @@ fdctl_cfg_from_env( int *      pargc,
                  "can start against the testnet cluster by specifying the testnet "
                  "entrypoints from https://docs.solana.com/clusters under "
                  "[gossip.entrypoints] in your configuration file.", cluster_to_cstr( cluster ) ));
+#endif
 
   if( FD_LIKELY( config->is_live_cluster) ) {
     if( FD_UNLIKELY( !config->development.sandbox ) )
@@ -664,12 +694,10 @@ fdctl_cfg_from_env( int *      pargc,
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_max_cost_per_block] which is a development only feature" ));
     if( FD_UNLIKELY( config->development.bench.larger_shred_limits_per_block ) )
       FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.larger_shred_limits_per_block] which is a development only feature" ));
-    if( FD_UNLIKELY( config->development.bench.disable_blockstore ) )
-      FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.disable_blockstore] which is a development only feature" ));
-  }
-
-  if( FD_UNLIKELY( !strcmp( config->layout.agave_affinity, "" ) ) ) {
-    strncpy( config->layout.agave_affinity, config->layout.solana_labs_affinity, sizeof(config->layout.agave_affinity) );
+    if( FD_UNLIKELY( config->development.bench.disable_blockstore_from_slot ) )
+      FD_LOG_ERR(( "trying to join a live cluster, but configuration has a non-zero value for [development.bench.disable_blockstore_from_slot] which is a development only feature" ));
+    if( FD_UNLIKELY( config->development.bench.disable_status_cache ) )
+      FD_LOG_ERR(( "trying to join a live cluster, but configuration enables [development.bench.disable_status_cache] which is a development only feature" ));
   }
 
   if( FD_UNLIKELY( config->tiles.quic.quic_transaction_listen_port != config->tiles.quic.regular_transaction_listen_port + 6 ) )
@@ -691,7 +719,7 @@ fdctl_cfg_from_env( int *      pargc,
 
   fdctl_cfg_validate( config );
   validate_ports( config );
-  topo_initialize( config );
+  fd_topo_initialize( config );
 }
 
 int

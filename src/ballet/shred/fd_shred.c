@@ -23,20 +23,18 @@ fd_shred_parse( uchar const * const buf,
                    (variant!=0x5a /*FD_SHRED_TYPE_LEGACY_CODE*/ ) ) )
     return NULL;
 
-  /* There are five sections of a shred that can contribute to the size:
-     header, payload, zero-padding, Merkle root of previous erasure batch and Merkle proof.
-     Some of these may have 0 size in certain cases.  sz is the sum of all 5, while for
-     data shreds, shred->data.size == header+payload. */
+  /* There are six sections of a shred that can contribute to the size:
+     header, payload, zero-padding, Merkle root of previous erasure
+     batch, Merkle proof, and retransmitter signature.
+     Some of these may have 0 size in certain cases.  sz is the sum of
+     all 5, while for data shreds, shred->data.size == header+payload.
+     We'll call the last three section the trailer. */
   ulong header_sz       = fd_shred_header_sz( variant ); /* between 88 and 89 bytes */
-  ulong merkle_proof_sz = fd_shred_merkle_sz( shred->variant ); /* between 0 and 300 bytes */
+  ulong trailer_sz      = fd_shred_merkle_sz( shred->variant )   /* between 0 and 300 bytes */
+                           + fd_ulong_if( fd_shred_is_resigned( type ), FD_SHRED_SIGNATURE_SZ, 0UL ) /* 0 or 64 */
+                           + fd_ulong_if( fd_shred_is_chained( type ),  FD_SHRED_MERKLE_ROOT_SZ, 0UL ); /* 0 or 32 */
   ulong zero_padding_sz;
   ulong payload_sz;
-
-  /* only present for chained merkle shreds */
-  ulong previous_merkle_root_sz = fd_ulong_if(
-   (type == FD_SHRED_TYPE_MERKLE_DATA_CHAINED) | (type == FD_SHRED_TYPE_MERKLE_CODE_CHAINED) |
-     (type == FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED) | (type == FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED)
-     , FD_SHRED_MERKLE_ROOT_SZ, 0UL );
 
   if( FD_LIKELY( type & FD_SHRED_TYPEMASK_DATA ) ) {
     if( FD_UNLIKELY( shred->data.size<header_sz ) ) return NULL;
@@ -52,21 +50,71 @@ fd_shred_parse( uchar const * const buf,
        The Merkle proof is not in bytes [sz-merkle_proof_sz, sz) but in
        [FD_SHRED_MIN_SZ-merkle_proof_sz, FD_SHRED_MIN_SZ).  From above,
        we know sz >= FD_SHRED_MIN_SZ in this case. */
-    uchar is_legacy_data_shred = type & 0x20;
+    uchar is_legacy_data_shred = type==FD_SHRED_TYPE_LEGACY_DATA;
     ulong effective_sz = fd_ulong_if( is_legacy_data_shred, sz, FD_SHRED_MIN_SZ );
-    if( FD_UNLIKELY( effective_sz < header_sz+merkle_proof_sz+payload_sz+previous_merkle_root_sz ) ) return NULL;
-    zero_padding_sz = effective_sz - header_sz - merkle_proof_sz - payload_sz - previous_merkle_root_sz;
+    if( FD_UNLIKELY( effective_sz < header_sz+payload_sz+trailer_sz ) ) return NULL;
+    zero_padding_sz = effective_sz - header_sz - payload_sz - trailer_sz;
   }
   else if( FD_LIKELY( type & FD_SHRED_TYPEMASK_CODE ) ) {
     zero_padding_sz = 0UL;
     /* Payload size is not specified directly, but the whole shred must
        be FD_SHRED_MAX_SZ. */
-    if( FD_UNLIKELY( header_sz+previous_merkle_root_sz+merkle_proof_sz+zero_padding_sz > FD_SHRED_MAX_SZ ) ) return NULL;
-    payload_sz      = FD_SHRED_MAX_SZ - header_sz - merkle_proof_sz - zero_padding_sz - previous_merkle_root_sz;
+    if( FD_UNLIKELY( header_sz+zero_padding_sz+trailer_sz > FD_SHRED_MAX_SZ ) ) return NULL;
+    payload_sz      = FD_SHRED_MAX_SZ - header_sz - zero_padding_sz - trailer_sz;
   }
   else return NULL;
 
-  if( FD_UNLIKELY( sz < header_sz + payload_sz + zero_padding_sz + merkle_proof_sz + previous_merkle_root_sz ) ) return NULL;
+  if( FD_UNLIKELY( sz < header_sz + payload_sz + zero_padding_sz + trailer_sz ) ) return NULL;
+
+  /* At this point we know all the fields exist, but we need to sanity
+     check a few fields that would make a shred illegal. */
+  if( FD_LIKELY( type & FD_SHRED_TYPEMASK_DATA ) ) {
+    ulong parent_off = (ulong)shred->data.parent_off;
+    ulong slot       = shred->slot;
+    if( FD_UNLIKELY( (shred->data.flags&0xC0)==0x80                              ) ) return NULL;
+    if( FD_UNLIKELY( parent_off>slot                                             ) ) return NULL;
+    /* The property we want to enforce is
+           slot==0 <=> parent_off==0 <=> slot==parent_off,
+       where <=> means if and only if.  It's a strange expression
+       though, because any two of the statements automatically imply the
+       other one, so it's logically equivalent to:
+            (slot==0 or parent_off==0)   <=> slot==parent_off
+       We want the complement though, so that we can return NULL, and
+       the complement of iff is xor. */
+    if( FD_UNLIKELY( ((parent_off==0) | (slot==0UL)) ^ (slot==parent_off)        ) ) return NULL;
+    if( FD_UNLIKELY( shred->idx<shred->fec_set_idx                               ) ) return NULL;
+  } else {
+    if( FD_UNLIKELY( shred->code.idx>=shred->code.code_cnt                       ) ) return NULL;
+    if( FD_UNLIKELY( shred->code.idx> shred->idx                                 ) ) return NULL;
+    if( FD_UNLIKELY( (shred->code.data_cnt==0)|(shred->code.code_cnt==0)         ) ) return NULL;
+    if( FD_UNLIKELY( shred->code.code_cnt>256                                    ) ) return NULL;
+    if( FD_UNLIKELY( (ulong)shred->code.data_cnt+(ulong)shred->code.code_cnt>256 ) ) return NULL; /* I don't see this check in Agave, but it seems necessary */
+  }
 
   return shred;
+}
+
+FD_FN_PURE int
+fd_shred_merkle_root( fd_shred_t const * shred, void * bmtree_mem, fd_bmtree_node_t * root_out ) {
+  fd_bmtree_commit_t * tree = fd_bmtree_commit_init( bmtree_mem,
+                                                     FD_SHRED_MERKLE_NODE_SZ,
+                                                     FD_BMTREE_LONG_PREFIX_SZ,
+                                                     FD_SHRED_MERKLE_LAYER_CNT );
+
+  uchar shred_type  = fd_shred_type( shred->variant );
+  int is_data_shred = fd_shred_is_data( shred_type );
+  ulong in_type_idx = fd_ulong_if( is_data_shred, shred->idx - shred->fec_set_idx, shred->code.idx );
+  ulong shred_idx   = fd_ulong_if( is_data_shred, in_type_idx, in_type_idx + shred->code.data_cnt  );
+
+  ulong tree_depth           = fd_shred_merkle_cnt( shred->variant ); /* In [0, 15] */
+  ulong reedsol_protected_sz = 1115UL + FD_SHRED_DATA_HEADER_SZ - FD_SHRED_SIGNATURE_SZ - FD_SHRED_MERKLE_NODE_SZ*tree_depth
+                                      - FD_SHRED_MERKLE_ROOT_SZ*fd_shred_is_chained ( shred_type )
+                                      - FD_SHRED_SIGNATURE_SZ  *fd_shred_is_resigned( shred_type); /* In [743, 1139] conservatively*/
+  ulong data_merkle_protected_sz   = reedsol_protected_sz + FD_SHRED_MERKLE_ROOT_SZ*fd_shred_is_chained ( shred_type );
+  ulong parity_merkle_protected_sz = reedsol_protected_sz + FD_SHRED_MERKLE_ROOT_SZ*fd_shred_is_chained ( shred_type )+FD_SHRED_CODE_HEADER_SZ-FD_ED25519_SIG_SZ;
+  ulong merkle_protected_sz  = fd_ulong_if( is_data_shred, data_merkle_protected_sz, parity_merkle_protected_sz );
+  fd_bmtree_node_t leaf;
+  fd_bmtree_hash_leaf( &leaf, (uchar const *)shred + sizeof(fd_ed25519_sig_t), merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
+
+  return fd_bmtree_commitp_insert_with_proof( tree, shred_idx, &leaf, (uchar const *)fd_shred_merkle_nodes( shred ), fd_shred_merkle_cnt( shred->variant ), root_out );
 }

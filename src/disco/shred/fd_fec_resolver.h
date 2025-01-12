@@ -7,8 +7,8 @@
    tile, which is why it's in disco/shred.
 
    The primary complication in the interface comes from lifetimes.
-   Buffers returned by the networking layer are typically ephemeral, we
-   need to hold onto the data until we've finished the FEC set, so we
+   Buffers returned by the networking layer are typically ephemeral and
+   we need to hold onto the data until we've finished the FEC set, so we
    need at least one memcpy.  Once we complete the FEC set, the result
    needs to go out on an mcache/dcache pair and on the network, which
    also have different lifetime requirements.  The FEC resolver goes out
@@ -123,8 +123,12 @@ ulong fd_fec_resolver_align    ( void );
    output parameters of _add_shred.  The FEC resolver will reject any
    shreds with a shred version that does not match the value provided
    for expected_shred_version.  Shred versions are always non-zero, so
-   expected_shred_version must be non-zero.  Returns shmem on success
-   and NULL on failure (logs details). */
+   expected_shred_version must be non-zero.  The FEC resolver will also
+   reject any shred that seems to be part of a block containing more
+   than max_shred_idx data or parity shreds.  Since shred_idx is a uint,
+   it doesn't really make sense to have max_shred_idx > UINT_MAX, and
+   max_shred_idx==0 rejects all shreds.  Returns shmem on success and
+   NULL on failure (logs details). */
 void *
 fd_fec_resolver_new( void                    * shmem,
                      fd_fec_resolver_sign_fn * signer,
@@ -134,7 +138,8 @@ fd_fec_resolver_new( void                    * shmem,
                      ulong                     complete_depth,
                      ulong                     done_depth,
                      fd_fec_set_t            * sets,
-                     ushort                    expected_shred_version );
+                     ushort                    expected_shred_version,
+                     ulong                     max_shred_idx );
 
 fd_fec_resolver_t * fd_fec_resolver_join( void * shmem );
 

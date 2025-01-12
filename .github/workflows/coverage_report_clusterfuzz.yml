@@ -8,7 +8,7 @@ on:
   workflow_call:
 jobs:
   coverage-report-clusterfuzz:
-    timeout-minutes: 30
+    timeout-minutes: 60
     name: Coverage Report (ClusterFuzz)
     runs-on: ubuntu-latest
     env:
@@ -38,7 +38,7 @@ jobs:
           make build/linux/clang/haswell/cov/cov.lcov
 
       - name: Upload coverage report to CodeCov
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v5
         timeout-minutes: 5
         with:
           files: build/linux/clang/haswell/cov/cov.lcov

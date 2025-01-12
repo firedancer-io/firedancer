@@ -24,12 +24,10 @@ fd_quic_handle_v1_frame( fd_quic_t *       quic,
                          fd_quic_pkt_t *   pkt,
                          uint              pkt_type,
                          uchar const *     buf,
-                         ulong             buf_sz,
-                         fd_quic_frame_u * frame_union ) {
+                         ulong             buf_sz ) {
   __CPROVER_rw_ok( quic,        sizeof(fd_quic_t)      );
   __CPROVER_rw_ok( conn,        sizeof(fd_quic_conn_t) );
   __CPROVER_rw_ok( pkt,         sizeof(fd_quic_pkt_t)  );
-  __CPROVER_rw_ok( frame_union, sizeof(fd_quic_frame_u) );
   __CPROVER_r_ok( buf, buf_sz );
   ulong res;
   __CPROVER_assume( res<=buf_sz || res==FD_QUIC_PARSE_FAIL );

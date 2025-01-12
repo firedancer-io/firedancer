@@ -81,6 +81,10 @@ main( int     argc,
     FD_TEST( res==0 || res==1 );  /* prevent optimizing out value */
   }
 
+  /* Explicit test that \0 in the middle is a valid utf8 string */
+  uchar t0[17] = { 0x67, 0x72, 0xc3, 0xbc, 0x65, 0x7a, 0x69, 0x00, 0x0a, 0xf0, 0x9f, 0x94, 0xa5, 0xf0, 0x9f, 0x92, 0x83 };
+  FD_TEST( fd_utf8_verify( (char const *)t0, 17 ) );
+
   uchar oob2[1] = { (uchar)0xdf };
   FD_TEST( !fd_utf8_verify( (char const *)oob2, 1 ) );
 

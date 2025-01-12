@@ -5,19 +5,18 @@
 fd_snapshot_name_t *
 fd_snapshot_name_from_buf( fd_snapshot_name_t * id,
                            char const *         str,
-                           ulong                str_len,
-                           ulong                base_slot ) {
+                           ulong                str_len ) {
   char buf[ 4096 ];
   str_len = fd_ulong_min( sizeof(buf)-1, str_len );
   fd_memcpy( buf, str, str_len );
+  buf[ str_len ] = '\0';
 
-  return fd_snapshot_name_from_cstr( id, buf, base_slot );
+  return fd_snapshot_name_from_cstr( id, buf );
 }
 
 fd_snapshot_name_t *
 fd_snapshot_name_from_cstr( fd_snapshot_name_t * id,
-                            char const *         cstr,
-                            ulong                base_slot ) {
+                            char const *         cstr ) {
 
   fd_memset( id, 0, sizeof(fd_snapshot_name_t) );
 
@@ -52,12 +51,6 @@ fd_snapshot_name_from_cstr( fd_snapshot_name_t * id,
       return NULL;
     }
     cstr = endptr+1;
-
-    if( base_slot != id->slot ) {
-      FD_LOG_WARNING(( "failed to load snapshot: \"%s\"", orig_cstr ));
-      FD_LOG_WARNING(( "expected base slot %lu but got %lu, incremental snapshot does not match full snapshot", base_slot, id->slot ));
-      return NULL;
-    }
   }
 
   char const * file_ext = strchr( cstr, '.' );
@@ -75,4 +68,17 @@ fd_snapshot_name_from_cstr( fd_snapshot_name_t * id,
     return NULL;
   }
   return id;
+}
+
+int
+fd_snapshot_name_slot_validate( fd_snapshot_name_t * id, ulong base_slot ) {
+
+  if( id->type==FD_SNAPSHOT_TYPE_INCREMENTAL ) {
+    if( base_slot != id->slot ) {
+      FD_LOG_WARNING(( "expected base slot %lu but got %lu, incremental snapshot does not match full snapshot", base_slot, id->slot ));
+      return -1;
+    }
+  }
+
+  return 0;
 }

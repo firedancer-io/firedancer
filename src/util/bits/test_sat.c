@@ -90,6 +90,36 @@ fd_ulong_sat_mul_ref( ulong x,
   }
 }
 
+static inline long
+fd_long_sat_add_ref( long x,
+                     long y ) {
+  int128 ref = x;
+  ref += y;
+
+  if( ref > LONG_MAX ) {
+    return LONG_MAX;
+  } else if( ref < LONG_MIN ) {
+    return LONG_MIN;
+  } else {
+    return (long) ref;
+  }
+}
+
+static inline long
+fd_long_sat_sub_ref( long x,
+                     long y ) {
+  int128 ref = x;
+  ref -= y;
+
+  if( ref > LONG_MAX ) {
+    return LONG_MAX;
+  } else if( ref < LONG_MIN ) {
+    return LONG_MIN;
+  } else {
+    return (long) ref;
+  }
+}
+
 static inline uint
 fd_uint_sat_add_ref( uint x,
                        uint y ) {
@@ -183,6 +213,24 @@ main( int     argc,
 
 #   undef TEST
 
+#   define TEST(op,x,y)                                   \
+    do {                                              \
+      long ref   = fd_long_sat_##op##_ref ( x, y ); \
+      long res   = fd_long_sat_##op ( x, y );    \
+      if( ref != res ) { \
+        FD_LOG_ERR(( "FAIL: fd_long_sat_" #op " x %ld y %ld ref %ld res %ld", (long)x, (long)y, ref, res )); \
+      } \
+    } while(0)
+
+    TEST(add,0,LONG_MAX);
+    TEST(add,LONG_MAX,10);
+    TEST(add,LONG_MAX - 10,LONG_MAX - 10);
+    TEST(sub,0,LONG_MAX);
+    TEST(add,LONG_MAX,10);
+    TEST(sub,LONG_MAX - 10,LONG_MAX - 10);
+
+#   undef TEST
+
 #   define TEST(op,x,y)                                \
     do {                                               \
       uint ref   = fd_uint_sat_##op##_ref ( x, y ); \
@@ -192,15 +240,15 @@ main( int     argc,
       } \
     } while(0)
 
-    TEST(add,0,UINT_MAX);
-    TEST(add,UINT_MAX,10);
-    TEST(add,UINT_MAX - 10,UINT_MAX - 10);
-    TEST(sub,0,UINT_MAX);
-    TEST(add,UINT_MAX,10);
-    TEST(sub,UINT_MAX - 10,UINT_MAX - 10);
-    TEST(mul,0,UINT_MAX);
-    TEST(mul,UINT_MAX,10);
-    TEST(mul,UINT_MAX - 10,UINT_MAX - 10);
+    TEST(add,0u,UINT_MAX);
+    TEST(add,UINT_MAX,10u);
+    TEST(add,UINT_MAX - 10u,UINT_MAX - 10u);
+    TEST(sub,0u,UINT_MAX);
+    TEST(add,UINT_MAX,10u);
+    TEST(sub,UINT_MAX - 10u,UINT_MAX - 10u);
+    TEST(mul,0u,UINT_MAX);
+    TEST(mul,UINT_MAX,10u);
+    TEST(mul,UINT_MAX - 10u,UINT_MAX - 10u);
 
 #   undef TEST
 
@@ -256,6 +304,23 @@ main( int     argc,
     TEST(add);
     TEST(sub);
     TEST(mul);
+
+#   undef TEST
+
+#   define TEST(op)                                  \
+    do {                                             \
+      uint  t =  fd_rng_uint ( rng );                             \
+      long x  = (long)make_test_rand_ulong( fd_rng_ulong( rng ), &t ); \
+      long y  = (long)make_test_rand_ulong( fd_rng_ulong( rng ), &t ); \
+      long ref   = fd_long_sat_##op##_ref ( x, y ); \
+      long res   = fd_long_sat_##op       ( x, y ); \
+      if( ref != res ) { \
+        FD_LOG_ERR(( "FAIL: %i fd_long_sat_" #op " x %ld y %ld ref %ld res %ld", i, (long)x, (long)y, ref, res )); \
+      } \
+    } while(0)
+
+    TEST(add);
+    TEST(sub);
 
 #   undef TEST
 

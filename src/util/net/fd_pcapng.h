@@ -65,19 +65,11 @@ typedef struct fd_pcapng_idb_opts fd_pcapng_idb_opts_t;
 
 #define FD_PCAPNG_TSRESOL_NS ((uchar)0x09)
 
-/* fd_pcap_iter iter frame types */
+/* fd_pcapng_iter iter frame types */
 
 #define FD_PCAPNG_FRAME_SIMPLE   (1U) /* Simple packet type (data only) */
 #define FD_PCAPNG_FRAME_ENHANCED (3U) /* Packet with metadata */
 #define FD_PCAPNG_FRAME_TLSKEYS  (4U) /* TLS keys */
-
-/* fd_pcap_iter error codes */
-
-#define FD_PCAPNG_ITER_OK         0 /* no error */
-#define FD_PCAPNG_ITER_EOF        1 /* end of section or file */
-#define FD_PCAPNG_ITER_ERR_STREAM 2 /* stream error (use ferror for details) */
-#define FD_PCAPNG_ITER_ERR_IO     3 /* stream error (use errno for details) */
-#define FD_PCAPNG_ITER_ERR_PARSE  4 /* parse error */
 
 FD_PROTOTYPES_BEGIN
 
@@ -123,7 +115,7 @@ fd_pcapng_iter_delete( fd_pcapng_iter_t * iter );
    are backed by a thread-local memory region that is valid until delete
    or next iter_next. */
 
-fd_pcapng_frame_t const *
+fd_pcapng_frame_t *
 fd_pcapng_iter_next( fd_pcapng_iter_t * iter );
 
 /* fd_pcapng_is_pkt returns 1 if given frame (non-NULL) is a regular
@@ -135,7 +127,8 @@ fd_pcapng_is_pkt( fd_pcapng_frame_t const * frame ) {
   return (ty==FD_PCAPNG_FRAME_SIMPLE) | (ty==FD_PCAPNG_FRAME_ENHANCED);
 }
 
-/* fd_pcapng_iter_err returns the last encountered error code */
+/* fd_pcapng_iter_err returns the last encountered error.  Uses fd_io
+   error codes. */
 
 FD_FN_PURE int
 fd_pcapng_iter_err( fd_pcapng_iter_t const * iter );
@@ -187,11 +180,14 @@ fd_pcapng_idb_defaults( fd_pcapng_idb_opts_t * opt,
 /* fd_pcapng_fwrite_idb writes an IDB (Interface Description Block) to
    the stream pointed to by file.  Usually a successor of an SHB.  Refer
    to fd_pcapng_fwrite_shb for use of opt, file args. link_type is one
-   of FD_PCAPNG_LINKTYPE_*. */
+   of FD_PCAPNG_LINKTYPE_*.  opt->tsresol is ignored.  fd_pcapng always
+   writes TSRESOL==9 (nanoseconds). */
 
 /* FD_PCAPNG_LINKTYPE_*: Link types (currently only Ethernet supported) */
 
-#define FD_PCAPNG_LINKTYPE_ETHERNET (1U)
+#define FD_PCAPNG_LINKTYPE_ETHERNET   (1U) /* IEEE 802.3 Ethernet */
+#define FD_PCAPNG_LINKTYPE_RAW      (101U) /* IPv4 or IPv6 */
+#define FD_PCAPNG_LINKTYPE_COOKED   (113U) /* Linux "cooked" capture */
 
 ulong
 fd_pcapng_fwrite_idb( uint                         link_type,
@@ -201,16 +197,20 @@ fd_pcapng_fwrite_idb( uint                         link_type,
 /* fd_pcapng_fwrite_pkt writes an EPB (Enhanced Packet Block) containing
    an ethernet frame at time ts (in nanos). Same semantics as fwrite
    (returns the number of packets written, which should be 1 on success
-   and 0 on failure). Current section's IDB tsresol==
-   FD_PCAPNG_TSRESOL_NS (initialized accordingly by
-   fd_pcapng_idb_defaults).  queue is the RX queue index on which this
-   packet was received on (-1 if unknown). */
+   and 0 on failure).  queue is the RX queue index on which this packet
+   was received on (-1 if unknown). */
 
 ulong
 fd_pcapng_fwrite_pkt( long         ts,
                       void const * payload,
                       ulong        payload_sz,
                       void *       file );
+
+ulong
+fd_pcapng_fwrite_cooked( long         ts,
+                         void const * payload,
+                         ulong        payload_sz,
+                         void *       file );
 
 /* fd_pcapng_fwrite_tls_key_log writes TLS key log info to a PCAPNG via
    a DSB (Decryption Secrets Block).  Similar semantics to fwrite

@@ -6,7 +6,7 @@
 
 /* FEATURE_ID_CNT is the number of features in ids */
 
-#define FD_FEATURE_ID_CNT (201UL)
+#define FD_FEATURE_ID_CNT (219UL)
 
 union fd_features {
 
@@ -160,7 +160,8 @@ union fd_features {
     /* 0x8ff9cf8537529ed8 */ ulong prevent_rent_paying_rent_recipients;
     /* 0xd6120d1b80de5fea */ ulong delay_visibility_of_program_deployment;
     /* 0xca9ab2701c9aa81b */ ulong apply_cost_tracker_during_replay;
-    /* 0x3f190188b368d6ca */ ulong bpf_account_data_direct_mapping;
+    /* 0xeee4f782117a3096 */ ulong consume_requested_cu_on_vm_err;
+    /* 0xd7138ee9ee165ae3 */ ulong bpf_account_data_direct_mapping;
     /* 0x55d3a0c392cf63e0 */ ulong add_set_tx_loaded_accounts_data_size_instruction;
     /* 0x0e7aa95037c5daac */ ulong switch_to_new_elf_parser;
     /* 0xe2d13039d5f9c6a6 */ ulong round_up_heap_size;
@@ -214,6 +215,23 @@ union fd_features {
     /* 0x91a7af96555ea309 */ ulong ed25519_precompile_verify_strict;
     /* 0x8e1411a93085cb0e */ ulong zk_elgamal_proof_program_enabled;
     /* 0x0b9047b5bb9ef961 */ ulong move_stake_and_move_lamports_ixs;
+    /* 0xa5a66405d0ab6309 */ ulong deprecate_legacy_vote_ixs;
+    /* 0x81fcbfa0d0f6b105 */ ulong partitioned_epoch_rewards_superfeature;
+    /* 0x2c38e34ff071060d */ ulong enable_secp256r1_precompile;
+    /* 0x829062f252ef5ba8 */ ulong get_sysvar_syscall_enabled;
+    /* 0x1db51f609c8fcd07 */ ulong disable_sbpf_v0_execution;
+    /* 0xe5937c9dd5edd306 */ ulong reenable_sbpf_v0_execution;
+    /* 0xefc2cb9c2b40f3ff */ ulong enable_sbpf_v1_deployment_and_execution;
+    /* 0x408e6a8a269a6ad1 */ ulong enable_sbpf_v2_deployment_and_execution;
+    /* 0xbec08bda942c5ea5 */ ulong enable_sbpf_v3_deployment_and_execution;
+    /* 0xf46b1f18665c4236 */ ulong migrate_feature_gate_program_to_core_bpf;
+    /* 0xa9a90df1904da912 */ ulong migrate_config_program_to_core_bpf;
+    /* 0x2434a84be5b684a5 */ ulong migrate_address_lookup_table_program_to_core_bpf;
+    /* 0xd30c04a5f2586e4f */ ulong migrate_stake_program_to_core_bpf;
+    /* 0xaebbcc5ad0a28864 */ ulong enable_get_epoch_stake_syscall;
+    /* 0x7f29632535392bc7 */ ulong disable_account_loader_special_case;
+    /* 0x8c012a2071caecd9 */ ulong remove_accounts_executable_flag_checks;
+    /* 0x54c5c5132eaae808 */ ulong fix_alt_bn128_multiplication_input_length;
   };
 
 };

@@ -4,10 +4,7 @@
 
 #include <ctype.h>
 #include <stdio.h>
-#include <stdlib.h> /* malloc */
-
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
+#include <stdlib.h>
 
 #define FD_FLAMENCO_YAML_INDENT_BUFSZ (2UL*FD_FLAMENCO_YAML_MAX_INDENT+1UL)
 
@@ -142,8 +139,13 @@ fd_flamenco_yaml_walk( void *       _self,
   (void)type_name;
 
   if( level>=FD_FLAMENCO_YAML_MAX_INDENT-1 ) {
-    FD_LOG_WARNING(( "indent level %d exceeds max %lu",
+    FD_LOG_WARNING(( "indent level %u exceeds max %lu",
                      level, FD_FLAMENCO_YAML_MAX_INDENT ));
+    return;
+  }
+
+  if( type == FD_FLAMENCO_TYPE_ENUM_DISC ) {
+    /* Don't do anything with this */
     return;
   }
 
@@ -187,6 +189,7 @@ fd_flamenco_yaml_walk( void *       _self,
 
       switch( type ) {
       case FD_FLAMENCO_TYPE_MAP_END:
+      case FD_FLAMENCO_TYPE_ENUM_END:
         fprintf( file, "{}\n" );
         break;
       case FD_FLAMENCO_TYPE_ARR_END:
@@ -265,6 +268,7 @@ fd_flamenco_yaml_walk( void *       _self,
   /* Print node value */
   switch( type ) {
   case FD_FLAMENCO_TYPE_MAP:
+  case FD_FLAMENCO_TYPE_ENUM:
     self->stack[ level+1 ] = STATE_OBJECT_BEGIN;
     break;
   case FD_FLAMENCO_TYPE_ARR:
@@ -323,7 +327,7 @@ fd_flamenco_yaml_walk( void *       _self,
     break;
   }
   case FD_FLAMENCO_TYPE_HASH1024:
-    fprintf( file, "'%32J%32J%32J%32J'\n", arg, ((uchar *) arg)+32, ((uchar *) arg)+64, ((uchar *) arg)+96 );
+    fprintf( file, "'%s%s%s%s'\n", FD_BASE58_ENC_32_ALLOCA( arg ), FD_BASE58_ENC_32_ALLOCA( ((uchar *) arg)+32 ), FD_BASE58_ENC_32_ALLOCA( ((uchar *) arg)+64 ), FD_BASE58_ENC_32_ALLOCA( ((uchar *) arg)+96 ) );
     break;
   case FD_FLAMENCO_TYPE_SIG512: {
     char buf[ FD_BASE58_ENCODED_64_SZ ];
@@ -334,8 +338,10 @@ fd_flamenco_yaml_walk( void *       _self,
   case FD_FLAMENCO_TYPE_CSTR:
     fprintf( file, "'%s'\n", (char const *)arg );
     break;
+  case FD_FLAMENCO_TYPE_ENUM_DISC:
+    break;
   default:
-    FD_LOG_CRIT(( "unknown type %#x", type ));
+    FD_LOG_CRIT(( "unknown type %#x", (uint)type ));
     break;
   }
 

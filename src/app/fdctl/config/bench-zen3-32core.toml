@@ -9,8 +9,8 @@
   path = "/data/shm/{name}/ledger"
 
 [layout]
-  affinity = "14-57,f1"
-  agave_affinity = "58-63"
+  affinity = "14-58,f1"
+  agave_affinity = "59-63"
   verify_tile_count = 30
   bank_tile_count = 6
   shred_tile_count = 1
@@ -24,7 +24,7 @@
   affinity = "f1,0-13"
   larger_max_cost_per_block = true
   larger_shred_limits_per_block = true
-  disable_blockstore = true
+  disable_blockstore_from_slot = 1
 
 [rpc]
   transaction_history = false

@@ -24,6 +24,7 @@ struct fd_instr_info {
   fd_pubkey_t             acct_pubkeys[FD_INSTR_ACCT_MAX];
   uchar                   is_duplicate[FD_INSTR_ACCT_MAX];
 
+  /* Indexed by index in instruction, not by index in transaction. */
   fd_borrowed_account_t * borrowed_accounts[FD_INSTR_ACCT_MAX];
 
   /* fd_uwide representation of uint_128 */
@@ -34,9 +35,6 @@ struct fd_instr_info {
 typedef struct fd_instr_info fd_instr_info_t;
 
 FD_PROTOTYPES_BEGIN
-
-int
-fd_txn_account_is_demotion( fd_exec_txn_ctx_t * txn_ctx, int idx );
 
 void
 fd_convert_txn_instr_to_instr( fd_exec_txn_ctx_t *     txn_ctx,

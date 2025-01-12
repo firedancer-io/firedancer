@@ -16,7 +16,7 @@ hero:
 
 features:
   - title: Fast
-    details: Designed from the ground up to be fast. The concurrency model is borrowed from the low latency trading space, and the code contains many novel high performance reimplementations of core Solana primitives.
+    details: Designed from the ground up to be fast. The concurrency model draws from experience in the low latency trading space, and the code contains many novel high performance reimplementations of core Solana primitives.
   - title: Secure
     details: The architecture of the validator allows it to run with a highly restrictive sandbox and almost no system calls.
   - title: Independent

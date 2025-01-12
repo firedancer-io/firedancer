@@ -21,6 +21,12 @@
 
 #define FD_ACC_SZ_MAX (10UL<<20) /* 10MiB */
 
+/* FD_ACC_TOT_SZ_MAX is the size limit of a Solana account in the firedancer
+   client. This means that it includes the max size of the account (10MiB)
+   and the associated metadata. */
+
+#define FD_ACC_TOT_SZ_MAX (FD_ACC_SZ_MAX + FD_ACCOUNT_META_FOOTPRINT)
+
 /* fd_acc_mgr_t translates between the runtime account DB abstraction
    and the actual funk database.  Also manages rent collection.
    fd_acc_mgr_t cannot be relocated to another address space.
@@ -106,7 +112,6 @@ fd_funk_key_to_acc( fd_funk_rec_key_t const * id ) {
   return (fd_pubkey_t const *)fd_type_pun_const( id->c );
 }
 
-
 /* Account Access API *************************************************/
 
 static inline void
@@ -166,14 +171,19 @@ fd_acc_exists( fd_account_meta_t const * m ) {
      record which has an active modify_data handle, etc.)
 
    It is always wrong to cast return value to a non-const pointer.
-   Instead, use fd_acc_mgr_modify_raw to acquire a mutable handle. */
+   Instead, use fd_acc_mgr_modify_raw to acquire a mutable handle.
+
+   if txn_out is supplied (non-null), the txn the key was found in
+   is returned. If *txn_out == NULL, the key was found in the root
+   context */
 
 fd_account_meta_t const *
 fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
                      fd_funk_txn_t const *  txn,
                      fd_pubkey_t const *    pubkey,
                      fd_funk_rec_t const ** opt_out_rec,
-                     int *                  opt_err );
+                     int *                  opt_err,
+                     fd_funk_txn_t const ** txn_out   );
 
 int
 fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,

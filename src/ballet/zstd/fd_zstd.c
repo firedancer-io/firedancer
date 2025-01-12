@@ -18,6 +18,7 @@ fd_zstd_peek( fd_zstd_peek_t * peek,
   ulong const err = ZSTD_getFrameHeader( hdr, buf, bufsz );
   if( FD_UNLIKELY( ZSTD_isError( err ) ) ) return NULL;
   if( FD_UNLIKELY( err>0               ) ) return NULL;
+  fd_msan_unpoison( hdr, sizeof(ZSTD_frameHeader) );
   if( FD_UNLIKELY( hdr->windowSize > (1U<<ZSTD_WINDOWLOG_MAX) ) ) return NULL;
   peek->window_sz          = hdr->windowSize;
   peek->frame_content_sz   = hdr->frameContentSize;
@@ -68,6 +69,9 @@ void *
 fd_zstd_dstream_delete( fd_zstd_dstream_t * dstream ) {
 
   if( FD_UNLIKELY( !dstream ) ) return NULL;
+
+  if( FD_UNLIKELY( dstream->magic != FD_ZSTD_DSTREAM_MAGIC ) )
+      FD_LOG_CRIT(( "fd_zstd_dstream_t at %p has invalid magic (memory corruption?)", (void *)dstream ));
 
   /* No need to inform libzstd */
 

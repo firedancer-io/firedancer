@@ -59,6 +59,7 @@ struct fd_repair_config {
     void * fun_arg;
     fd_repair_sign_fun sign_fun;
     void * sign_arg;
+    int good_peer_cache_file_fd;
 };
 typedef struct fd_repair_config fd_repair_config_t;
 

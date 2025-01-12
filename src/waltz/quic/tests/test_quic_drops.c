@@ -1,7 +1,6 @@
 #include "../fd_quic.h"
 #include "fd_quic_test_helpers.h"
 #include "../../../util/rng/fd_rng.h"
-#include "../../../util/net/fd_pcapng.h"
 
 #include "../../../util/fibre/fd_fibre.h"
 
@@ -18,17 +17,6 @@ int server_done = 0;
 /* received count */
 ulong rcvd     = 0;
 ulong tot_rcvd = 0;
-
-/* some randomness stuff */
-
-typedef float rng_t;
-
-rng_t rnd( void ) {
-  static uint seed = 0;
-
-  ulong l = fd_rng_private_expand( seed++ );
-  return (rng_t)l * (rng_t)0x1p-64;
-}
 
 /* fibres for client and server */
 
@@ -48,131 +36,6 @@ struct net_fibre_args {
 typedef struct net_fibre_args net_fibre_args_t;
 
 
-/* man-in-the-middle for testing drops */
-
-struct mitm_ctx {
-  fd_aio_t         local;
-  fd_aio_t const * dst;
-  fd_aio_t const * pcap;
-  rng_t            thresh_drop;
-  rng_t            thresh_reorder;
-  int              server;
-
-  ulong reorder_sz;
-  uchar reorder_buf[2048];
-};
-typedef struct mitm_ctx mitm_ctx_t;
-
-static int
-mitm_tx( void *                    ctx,
-         fd_aio_pkt_info_t const * batch,
-         ulong                     batch_cnt,
-         ulong *                   opt_batch_idx,
-         int                       flush ) {
-  (void)flush;
-  (void)opt_batch_idx;
-
-  mitm_ctx_t * mitm_ctx = (mitm_ctx_t*)ctx;
-
-  /* each time data transfers, the schedule might change
-     so wake the other fibre */
-  if( client_fibre &&  mitm_ctx->server ) fd_fibre_wake( client_fibre );
-  if( server_fibre && !mitm_ctx->server ) fd_fibre_wake( server_fibre );
-
-  /* write to pcap */
-#define PCAP( batch, batch_cnt ) \
-  if( mitm_ctx->pcap ) { \
-    fd_aio_send( mitm_ctx->pcap, (batch), (batch_cnt), NULL, 1 ); \
-  }
-
-  /* go packet by packet */
-  for( ulong j = 0UL; j < batch_cnt; ++j ) {
-    /* generate a random number and compare with threshold, and either pass thru or drop */
-
-    rng_t rnd_num = rnd();
-
-    if( rnd_num < mitm_ctx->thresh_drop ) {
-      /* dropping behaves as-if the send was successful */
-      continue;
-    }
-
-    if( rnd_num < mitm_ctx->thresh_reorder ) {
-      /* reorder */
-
-      /* logic:
-           if we already have a reordered buffer, delay it another packet
-           else store the current packet into the reorder buffer */
-      if( mitm_ctx->reorder_sz > 0UL ) {
-        fd_aio_pkt_info_t lcl_batch[1] = { batch[j] };
-        fd_aio_send( mitm_ctx->dst, lcl_batch, 1UL, NULL, 1 );
-        PCAP(lcl_batch,1UL);
-
-        /* clear buffer */
-        mitm_ctx->reorder_sz = 0UL;
-      } else {
-        fd_memcpy( mitm_ctx->reorder_buf, batch[j].buf, batch[j].buf_sz );
-        mitm_ctx->reorder_sz = batch[j].buf_sz;
-      }
-      continue;
-    }
-    
-    /* send new packet */
-    fd_aio_pkt_info_t batch_0[1] = { batch[j] };
-    fd_aio_send( mitm_ctx->dst, batch_0, 1UL, NULL, 1 );
-    PCAP(batch_0,1UL);
-      
-    /* we aren't dropping or reordering, but we might have a prior reorder */
-    if( mitm_ctx->reorder_sz > 0UL ) {
-      fd_aio_pkt_info_t batch_1[1] = {{ .buf = mitm_ctx->reorder_buf, .buf_sz = (ushort)mitm_ctx->reorder_sz }};
-      fd_aio_send( mitm_ctx->dst, batch_1, 1UL, NULL, 1 );
-      PCAP(batch_1,1UL);
-
-      /* clear the sent buffer */
-      mitm_ctx->reorder_sz = 0UL;
-    }
-  }
-
-  return FD_AIO_SUCCESS;
-}
-
-static void
-mitm_link( fd_quic_t * quic_a, fd_quic_t * quic_b, mitm_ctx_t * mitm, fd_aio_t const * pcap ) {
-  fd_aio_t const * rx_b = fd_quic_get_aio_net_rx( quic_b );
-
-  /* create a new aio for mitm */
-
-  FD_TEST( fd_aio_join( fd_aio_new( &mitm->local, mitm, mitm_tx ) ) );
-
-  mitm->dst  = rx_b;
-  mitm->pcap = pcap;
-
-  fd_quic_set_aio_net_tx( quic_a, &mitm->local );
-}
-
-static void
-mitm_set_thresh( mitm_ctx_t * mitm_ctx, rng_t thresh_drop, rng_t thresh_reorder ) {
-  mitm_ctx->thresh_drop    = thresh_drop;
-  mitm_ctx->thresh_reorder = thresh_reorder;
-}
-
-static void
-mitm_set_server( mitm_ctx_t * mitm_ctx, int server ) {
-  mitm_ctx->server = server;
-}
-
-
-fd_aio_pcapng_t pcap_client_to_server;
-fd_aio_pcapng_t pcap_server_to_client;
-
-static void
-my_tls_keylog( void *       quic_ctx,
-               char const * line ) {
-  (void)quic_ctx;
-  FD_LOG_WARNING(( "SECRET: %s", line ));
-  fd_pcapng_fwrite_tls_key_log( (uchar const *)line, (uint)strlen( line ), pcap_server_to_client.pcapng );
-}
-
-
 int state           = 0;
 int server_complete = 0;
 int client_complete = 0;
@@ -189,19 +52,18 @@ my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
   (void)type;
 }
 
-void
-my_stream_receive_cb( fd_quic_stream_t * stream,
-                      void *             ctx,
-                      uchar const *      data,
-                      ulong              data_sz,
-                      ulong              offset,
-                      int                fin ) {
-  (void)ctx;
-  (void)stream;
-  (void)fin;
+int
+my_stream_rx_cb( fd_quic_conn_t * conn,
+                 ulong            stream_id,
+                 ulong            offset,
+                 uchar const *    data,
+                 ulong            data_sz,
+                 int              fin ) {
+  (void)conn; (void)stream_id; (void)fin;
 
-  FD_LOG_NOTICE(( "received data from peer.  stream_id: %lu  size: %lu offset: %lu\n",
-                (ulong)stream->stream_id, data_sz, offset ));
+  //FD_LOG_NOTICE(( "received data from peer.  stream_id: %lu  size: %lu offset: %lu\n",
+  //              (ulong)stream->stream_id, data_sz, offset ));
+  (void)offset;
   FD_LOG_HEXDUMP_DEBUG(( "received data", data, data_sz ));
 
   FD_LOG_DEBUG(( "recv ok" ));
@@ -210,6 +72,7 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
   tot_rcvd++;
 
   if( tot_rcvd == NUM_STREAMS ) client_done = 1;
+  return FD_QUIC_SUCCESS;
 }
 
 
@@ -218,6 +81,8 @@ struct my_context {
 };
 typedef struct my_context my_context_t;
 
+static ulong conn_final_cnt;
+
 void
 my_cb_conn_final( fd_quic_conn_t * conn,
                   void *           context ) {
@@ -225,16 +90,19 @@ my_cb_conn_final( fd_quic_conn_t * conn,
 
   fd_quic_conn_t ** ppconn = (fd_quic_conn_t**)fd_quic_conn_get_context( conn );
   if( ppconn ) {
-    FD_LOG_NOTICE(( "my_cb_conn_final %p SUCCESS", (void*)*ppconn ));
+    //FD_LOG_NOTICE(( "my_cb_conn_final %p SUCCESS", (void*)*ppconn ));
     *ppconn = NULL;
-  }}
+  }
+
+  conn_final_cnt++;
+}
 
 void
 my_connection_new( fd_quic_conn_t * conn,
                    void *           vp_context ) {
   (void)vp_context;
 
-  FD_LOG_NOTICE(( "server handshake complete" ));
+  //FD_LOG_NOTICE(( "server handshake complete" ));
 
   server_complete = 1;
 
@@ -246,7 +114,7 @@ my_handshake_complete( fd_quic_conn_t * conn,
                        void *           vp_context ) {
   (void)vp_context;
 
-  FD_LOG_NOTICE(( "client handshake complete" ));
+  //FD_LOG_NOTICE(( "client handshake complete" ));
 
   client_complete = 1;
 
@@ -284,7 +152,6 @@ client_fibre_fn( void * vp_arg ) {
   fd_quic_stream_t * stream = NULL;
 
   uchar buf[] = "Hello World!";
-  fd_aio_pkt_info_t batch[1] = {{ .buf = buf, .buf_sz = sizeof( buf ) }};
 
   ulong period_ns = (ulong)1e6;
   ulong next_send = now + period_ns;
@@ -303,8 +170,7 @@ client_fibre_fn( void * vp_arg ) {
 
       conn = fd_quic_connect( quic,
               server_quic->config.net.ip_addr,
-              server_quic->config.net.listen_udp_port,
-              server_quic->config.sni );
+              server_quic->config.net.listen_udp_port );
 
       if( !conn ) {
         FD_LOG_WARNING(( "Client unable to obtain a connection. now: %lu", (ulong)now ));
@@ -333,7 +199,7 @@ client_fibre_fn( void * vp_arg ) {
         continue;
       }
 
-      stream = fd_quic_conn_new_stream( conn, FD_QUIC_TYPE_UNIDIR );
+      stream = fd_quic_conn_new_stream( conn );
 
       if( !stream ) {
         if( conn->state == FD_QUIC_CONN_STATE_ACTIVE ) {
@@ -354,7 +220,7 @@ client_fibre_fn( void * vp_arg ) {
 
             if( !conn ) break;
 
-            stream = fd_quic_conn_new_stream( conn, FD_QUIC_TYPE_UNIDIR );
+            stream = fd_quic_conn_new_stream( conn );
           } while( !stream );
           FD_LOG_WARNING(( "Client obtained a stream" ));
         }
@@ -367,9 +233,9 @@ client_fibre_fn( void * vp_arg ) {
     next_send = now + period_ns;
 
     /* have a stream, so send */
-    int rc = fd_quic_stream_send( stream, batch, 1 /* batch_sz */, 1 /* fin */ );
+    int rc = fd_quic_stream_send( stream, buf, sizeof(buf), 1 /* fin */ );
 
-    if( rc == 1 ) {
+    if( rc == FD_QUIC_SUCCESS ) {
       /* successful - stream will begin closing */
 
       if( ++sent % 15 == 0 ) {
@@ -401,7 +267,7 @@ client_fibre_fn( void * vp_arg ) {
       }
 
       /* ensure new stream used for next send */
-      stream = fd_quic_conn_new_stream( conn, FD_QUIC_TYPE_UNIDIR );
+      stream = fd_quic_conn_new_stream( conn );
 
       /* TODO close logic */
 
@@ -475,10 +341,8 @@ main( int argc, char ** argv ) {
   fd_quic_limits_t const quic_limits = {
     .conn_cnt           = 10,
     .conn_id_cnt        = 10,
-    .conn_id_sparsity   = 4.0,
     .handshake_cnt      = 10,
-    .stream_cnt         = { 0, 0, 10, 0 },
-    .initial_stream_cnt = { 0, 0, 10, 0 },
+    .stream_id_cnt      = 10,
     .stream_pool_cnt    = 512,
     .inflight_pkt_cnt   = 1024,
     .tx_buf_sz          = 1<<14
@@ -496,12 +360,8 @@ main( int argc, char ** argv ) {
   fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_CLIENT, rng );
   FD_TEST( client_quic );
 
-  fd_quic_config_t * client_config = &client_quic->config;
-  client_config->idle_timeout = 5e9;
-  client_config->service_interval = 1e6;
-
   client_quic->cb.conn_hs_complete = my_handshake_complete;
-  client_quic->cb.stream_receive   = my_stream_receive_cb;
+  client_quic->cb.stream_rx        = my_stream_rx_cb;
   client_quic->cb.stream_notify    = my_stream_notify_cb;
   client_quic->cb.conn_final       = my_cb_conn_final;
 
@@ -510,44 +370,30 @@ main( int argc, char ** argv ) {
 
   client_quic->config.initial_rx_max_stream_data = 1<<15;
 
-  fd_quic_config_t * server_config = &server_quic->config;
-  server_config->idle_timeout = 5e9;
-  server_config->service_interval = 1e6;
-
   server_quic->cb.conn_new       = my_connection_new;
-  server_quic->cb.stream_receive = my_stream_receive_cb;
+  server_quic->cb.stream_rx      = my_stream_rx_cb;
   server_quic->cb.stream_notify  = my_stream_notify_cb;
   server_quic->cb.conn_final     = my_cb_conn_final;
-  server_quic->cb.tls_keylog     = my_tls_keylog;
 
   server_quic->cb.now     = test_clock;
   server_quic->cb.now_ctx = NULL;
 
   server_quic->config.initial_rx_max_stream_data = 1<<15;
 
-  /* pcap */
-  FILE * pcap_file = fopen( "test_quic_drops.pcapng", "wb" );
-  FD_TEST( pcap_file );
-  printf( "pcap_file: %p\n", (void*)pcap_file ); fflush( stdout );
-
-  FD_TEST( 1UL == fd_aio_pcapng_start( pcap_file ) );
-  fflush( pcap_file );
-
-  FD_TEST( fd_aio_pcapng_join( &pcap_client_to_server, NULL, pcap_file ) );
-  FD_TEST( fd_aio_pcapng_join( &pcap_server_to_client, NULL, pcap_file ) );
+  FD_LOG_NOTICE(( "Creating virtual pair" ));
+  fd_quic_virtual_pair_t vp;
+  fd_quic_virtual_pair_init( &vp, /*a*/ client_quic, /*b*/ server_quic );
 
   FD_LOG_NOTICE(( "Attaching AIOs" ));
-  mitm_ctx_t mitm_client_to_server;
-  mitm_ctx_t mitm_server_to_client;
+  fd_quic_netem_t mitm_client_to_server;
+  fd_quic_netem_t mitm_server_to_client;
+  fd_quic_netem_init( &mitm_client_to_server, 0.01f, 0.01f );
+  fd_quic_netem_init( &mitm_server_to_client, 0.01f, 0.01f );
 
-  mitm_link( client_quic, server_quic, &mitm_client_to_server, fd_aio_pcapng_get_aio( &pcap_client_to_server ) );
-  mitm_link( server_quic, client_quic, &mitm_server_to_client, fd_aio_pcapng_get_aio( &pcap_server_to_client ) );
-
-  mitm_set_thresh( &mitm_client_to_server, 0.00f, 0.40f );
-  mitm_set_thresh( &mitm_server_to_client, 0.00f, 0.40f );
-
-  mitm_set_server( &mitm_client_to_server, 0 );
-  mitm_set_server( &mitm_server_to_client, 1 );
+  fd_quic_set_aio_net_tx( client_quic, &mitm_client_to_server.local );
+  mitm_client_to_server.dst = vp.aio_a2b;
+  fd_quic_set_aio_net_tx( server_quic, &mitm_server_to_client.local );
+  mitm_server_to_client.dst = vp.aio_b2a;
 
   FD_LOG_NOTICE(( "Initializing QUICs" ));
   FD_TEST( fd_quic_init( client_quic ) );
@@ -585,12 +431,11 @@ main( int argc, char ** argv ) {
     now = (ulong)timeout;
   }
 
-  FD_TEST( fd_aio_pcapng_leave( &pcap_client_to_server ) );
-  FD_TEST( fd_aio_pcapng_leave( &pcap_server_to_client ) );
+  FD_LOG_NOTICE(( "Received %lu stream frags", tot_rcvd ));
+  FD_LOG_NOTICE(( "Tested %lu connections", conn_final_cnt ));
 
   FD_LOG_NOTICE(( "Cleaning up" ));
-  //fd_quic_virtual_pair_fini( &vp );
-  // TODO clean up mitm_ctx and aio
+  fd_quic_virtual_pair_fini( &vp );
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( server_quic ) ) );
   fd_wksp_free_laddr( fd_quic_delete( fd_quic_leave( client_quic ) ) );
   fd_wksp_delete_anonymous( wksp );

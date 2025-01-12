@@ -4,6 +4,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <stdlib.h>
 #include <strings.h>
 #include <unistd.h>
 #include <netinet/in.h>
@@ -99,6 +100,7 @@ fd_snapshot_http_new( void *               mem,
 
 void *
 fd_snapshot_http_delete( fd_snapshot_http_t * this ) {
+  if( FD_UNLIKELY( !this ) ) return NULL;
   if( this->socket_fd>=0 ) {
     close( this->socket_fd );
     this->socket_fd = -1;
@@ -253,7 +255,7 @@ fd_snapshot_http_follow_redirect( fd_snapshot_http_t *      this,
 
   FD_LOG_NOTICE(( "Following redirect to %.*s", (int)loc_len, loc ));
 
-  if( FD_UNLIKELY( !fd_snapshot_name_from_buf( this->name_out, loc, loc_len, this->base_slot ) ) ) {
+  if( FD_UNLIKELY( !fd_snapshot_name_from_buf( this->name_out, loc, loc_len ) ) ) {
     return EPROTO;
   }
 
@@ -272,7 +274,6 @@ fd_snapshot_http_follow_redirect( fd_snapshot_http_t *      this,
 
 static int
 fd_snapshot_http_resp( fd_snapshot_http_t * this ) {
-
   long now      = fd_log_wallclock();
   long deadline = this->req_deadline;
 
@@ -368,8 +369,9 @@ fd_snapshot_http_resp( fd_snapshot_http_t * this ) {
   /* Find content-length */
 
   this->content_len = ULONG_MAX;
+  const ulong target_len = sizeof("content-length")-1;
   for( ulong i = 0; i < header_cnt; ++i ) {
-    if( strncasecmp( headers[i].name, "content-length:", sizeof("content-length:")-1 ) == 0 ) {
+    if( headers[i].name_len==target_len && strncasecmp( headers[i].name, "content-length", target_len ) == 0 ) {
       this->content_len = strtoul( headers[i].value, NULL, 10 );
       break;
     }
@@ -385,7 +387,7 @@ fd_snapshot_http_resp( fd_snapshot_http_t * this ) {
   if( FD_UNLIKELY( this->name_out->type == FD_SNAPSHOT_TYPE_UNSPECIFIED ) ) {
     /* We must not have followed a redirect. Try to parse here. */
     ulong off = (ulong)this->path_off + 4;
-    if( FD_UNLIKELY( !fd_snapshot_name_from_buf( this->name_out, this->path + off, sizeof(this->path) - off, this->base_slot ) ) ) {
+    if( FD_UNLIKELY( !fd_snapshot_name_from_buf( this->name_out, this->path + off, sizeof(this->path) - off ) ) ) {
       FD_LOG_WARNING(( "Cannot download, snapshot hash is unknown" ));
       this->state = FD_SNAPSHOT_HTTP_STATE_FAIL;
       return EINVAL;

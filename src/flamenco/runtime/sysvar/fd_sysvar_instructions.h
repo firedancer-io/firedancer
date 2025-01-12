@@ -7,13 +7,10 @@
 
 FD_PROTOTYPES_BEGIN
 
-int
+void
 fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
                                           fd_instr_info_t const *  instrs,
                                           ushort                   instrs_cnt );
-
-int
-fd_sysvar_instructions_cleanup_account( fd_exec_txn_ctx_t *  txn_ctx );
 
 int
 fd_sysvar_instructions_update_current_instr_idx( fd_exec_txn_ctx_t * txn_ctx,

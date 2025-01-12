@@ -42,12 +42,12 @@ file:
 ```toml [default.toml]
 [layout]
     affinity = "1-16"
-    solana_labs_affinity = "17-31"
+    agave_affinity = "17-31"
     net_tile_count = 1
     quic_tile_count = 1
     verify_tile_count = 4
     bank_tile_count = 2
-    shred_tile_count = 2
+    shred_tile_count = 1
 ```
 
 :::
@@ -60,7 +60,7 @@ string, which is documented fully in the
 [`default.toml`](https://github.com/firedancer-io/firedancer/blob/main/src/app/fdctl/config/default.toml)
 file itself. The Frankendancer validator currently starts an Agave
 process to perform functionality like replay, gossip, and repair that is
-not yet implemented in Firedancer. The `solana_labs_affinity` string
+not yet implemented in Firedancer. The `agave_affinity` string
 determines the CPU cores that are given to the threads of this Agave
 process.
 
@@ -74,7 +74,7 @@ recommendations for `mainnet-beta`,
 | `quic`   | 1               | Handles >1M TPS per tile. Designed to scale out for future network conditions, but there is no need to run more than 1 QUIC tile at the moment on `mainnet-beta` |
 | `verify` | 4               | Handles 20-40k TPS per tile. Recommend running many verify tiles, as signature verification is the primary bottleneck of the application |
 | `bank`   | 2               | Handles 20-40k TPS per tile, with diminishing returns from adding more tiles. Designed to scale out for future network conditions, but 2 tiles is enough to handle current `mainnet-beta` conditions. Can be increased further when benchmarking to test future network performance |
-| `shred`  | 2               | Throughput is mainly dependent on cluster size, 2 tiles is enough to handle current `mainnet-beta` conditions. In benchmarking, if the cluster size is small, 1 tile can handle >1M TPS |
+| `shred`  | 1               | Throughput is mainly dependent on cluster size, 1 tile is enough to handle current `mainnet-beta` conditions. In benchmarking, if the cluster size is small, 1 tile can handle >1M TPS |
 
 ## Testing
 Firedancer includes a simple benchmarking tool for measuring the
@@ -162,7 +162,7 @@ TPS rate,
   # assign the tiles to cores. We only need 1 shred tile, since there is
   # only 1 node in the cluster it can handle a high TPS rate by itself
   affinity = "14-57,f1"
-  solana_labs_affinity = "58-63"
+  agave_affinity = "58-63"
   verify_tile_count = 30
   bank_tile_count = 6
   shred_tile_count = 1
@@ -220,7 +220,7 @@ it down to the relevant information,
 
 Here we see what is happening. The blockstore is completely busy
 spending 99.973% of its time storing data, while the PoH and shred tiles
-are in back-pressure waiting for the the blockstore to catch up. The
+are in back-pressure waiting for the blockstore to catch up. The
 blockstore is an Agave component built on RocksDB that is not rewritten
 as part of Frankendancer.
 
@@ -228,7 +228,7 @@ as part of Frankendancer.
 
 ```toml [bench-zen3-32core.toml]
 [development.bench]
-  disable_blockstore = true // [!code ++]
+  disable_blockstore_from_slot = 1 // [!code ++]
 ```
 
 :::

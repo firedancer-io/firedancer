@@ -162,12 +162,12 @@ fd_tls_rand( fd_tls_rand_t const * rand,
 
 /* fd_tls_sign_fn_t is called by by fd_tls to request signing of a
    TLS 1.3 certificate verify payload.
-   
+
    ctx is an arbitrary pointer that is provided as a callback argument.
    sig points to a 64 byte buffer where the implementor should store the
    ed25519 signature of the payload.  Payload will point to a 130 byte
    buffer containing the TLS 1.3 CertificateVerify payload.
-   
+
    This function must not fail.  Lifetime of the payload buffer ends at
    return. */
 
@@ -306,8 +306,12 @@ typedef struct fd_tls fd_tls_t;
 #define FD_TLS_REASON_CH_EXPECTED    (101)  /* wanted ClientHello, got another msg type */
 #define FD_TLS_REASON_CH_PARSE       (103)  /* failed to parse ClientHello */
 #define FD_TLS_REASON_CH_ENCODE      (104)  /* failed to encode ClientHello */
-#define FD_TLS_REASON_CH_CRYPTO_NEG  (105)  /* ClientHello crypto negotiation failed */
 #define FD_TLS_REASON_CH_NO_QUIC     (106)  /* Missing QUIC transport params in ClientHello */
+#define FD_TLS_REASON_CH_RETRY_KS    (107)  /* ClientHello still missing key share after a retry */
+#define FD_TLS_REASON_CH_NEG_VER     (108)  /* Unsupported TLS version */
+#define FD_TLS_REASON_CH_NEG_KX      (109)  /* Unsupported key exchange alg */
+#define FD_TLS_REASON_CH_NEG_SIG     (110)  /* Unsupported signature alg */
+#define FD_TLS_REASON_CH_NEG_CIPHER  (111)  /* Unsupported cipher suite */
 
 #define FD_TLS_REASON_SH_EXPECTED    (201)  /* wanted ServerHello, got another msg type */
 #define FD_TLS_REASON_SH_PARSE       (203)  /* failed to parse ServerHello */
@@ -423,12 +427,10 @@ fd_tls_handshake( fd_tls_t const *  tls,
      context_sz==0 || context!=NULL
      1<=out_sz    <=32
      0<=label_sz  <=64
-     0<=context_sz<=64
-
-   TODO this function should probably be in src/ballet */
+     0<=context_sz<=64 */
 
 void *
-fd_tls_hkdf_expand_label( uchar         out[ 32 ],
+fd_tls_hkdf_expand_label( uchar *       out,
                           ulong         out_sz,
                           uchar const   secret[ static 32 ],
                           char const *  label,

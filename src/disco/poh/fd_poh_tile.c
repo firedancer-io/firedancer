@@ -1,7 +1,6 @@
 #include "fd_poh_tile.h"
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
+#include "../metrics/fd_metrics.h"
 
 ulong
 fd_poh_tile_align( void ) {
@@ -25,7 +24,7 @@ fd_poh_tile_initialize( fd_poh_tile_ctx_t * ctx,
                         ulong               tick_height,         /* The counter (height) of the tick to start hashing on top of. */
                         uchar const *       last_entry_hash      /* Points to start of a 32 byte region of memory, the hash itself at the tick height. */ ) {
   FD_LOG_WARNING(( "tick_duration_ns: %lu",tick_duration_ns ));
-  ctx->slot                = tick_height/ticks_per_slot;
+  ctx->slot                = (tick_height/ticks_per_slot)+1UL;
   ctx->hashcnt             = 0UL;
   ctx->last_slot           = ctx->slot;
   ctx->last_hashcnt        = 0UL;
@@ -391,7 +390,7 @@ fd_poh_tile_publish_tick( fd_poh_tile_ctx_t * ctx,
   }
 }
 
-void
+int
 fd_poh_tile_after_credit( fd_poh_tile_ctx_t * ctx,
                           int *               opt_poll_in ) {
   int is_leader = ctx->next_leader_slot!=ULONG_MAX && ctx->slot>=ctx->next_leader_slot;
@@ -400,7 +399,7 @@ fd_poh_tile_after_credit( fd_poh_tile_ctx_t * ctx,
        bank object is from the replay stage, do not do any hashing.
 
        This is not ideal, but greatly simplifies the control flow. */
-    return;
+    return 0;
   }
 
   /* If we have skipped ticks pending because we skipped some slots to
@@ -417,7 +416,7 @@ fd_poh_tile_after_credit( fd_poh_tile_ctx_t * ctx,
        all the skipped ticks have been published out; otherwise we would
        intersperse skipped tick messages with microblocks. */
     *opt_poll_in = 0;
-    return;
+    return 1;
   }
 
 
@@ -599,7 +598,7 @@ fd_poh_tile_after_credit( fd_poh_tile_ctx_t * ctx,
   FD_TEST( target_hashcnt >= min_hashcnt        );
   FD_TEST( target_hashcnt <= restricted_hashcnt );
 
-  if( FD_UNLIKELY( ctx->hashcnt==target_hashcnt ) ) return; /* Nothing to do, don't publish a tick twice */
+  if( FD_UNLIKELY( ctx->hashcnt==target_hashcnt ) ) return 0; /* Nothing to do, don't publish a tick twice */
 
   while( ctx->hashcnt<target_hashcnt ) {
     fd_sha256_hash( ctx->hash, 32UL, ctx->hash );
@@ -638,6 +637,8 @@ fd_poh_tile_after_credit( fd_poh_tile_ctx_t * ctx,
     double tick_per_ns = fd_tempo_tick_per_ns( NULL );
     fd_histf_sample( ctx->slot_done_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
   }
+
+  return 1;
 }
 
 void
@@ -802,9 +803,9 @@ fd_poh_tile_process_packed_microblock( fd_poh_tile_ctx_t * ctx,
 
 void
 fd_poh_tile_during_housekeeping( fd_poh_tile_ctx_t * ctx ) {
-  FD_MHIST_COPY( POH_TILE, BEGIN_LEADER_DELAY_SECONDS,     ctx->begin_leader_delay );
-  FD_MHIST_COPY( POH_TILE, FIRST_MICROBLOCK_DELAY_SECONDS, ctx->first_microblock_delay );
-  FD_MHIST_COPY( POH_TILE, SLOT_DONE_DELAY_SECONDS,        ctx->slot_done_delay );
+  FD_MHIST_COPY( POH, BEGIN_LEADER_DELAY_SECONDS,     ctx->begin_leader_delay );
+  FD_MHIST_COPY( POH, FIRST_MICROBLOCK_DELAY_SECONDS, ctx->first_microblock_delay );
+  FD_MHIST_COPY( POH, SLOT_DONE_DELAY_SECONDS,        ctx->slot_done_delay );
 }
 
 fd_poh_tile_ctx_t *
@@ -841,12 +842,12 @@ fd_poh_tile_new( void * scratch,
 
   ctx->microblocks_lower_bound = 0UL;
 
-  fd_histf_join( fd_histf_new( ctx->begin_leader_delay, FD_MHIST_SECONDS_MIN( POH_TILE, BEGIN_LEADER_DELAY_SECONDS ),
-                                                        FD_MHIST_SECONDS_MAX( POH_TILE, BEGIN_LEADER_DELAY_SECONDS ) ) );
-  fd_histf_join( fd_histf_new( ctx->first_microblock_delay, FD_MHIST_SECONDS_MIN( POH_TILE, FIRST_MICROBLOCK_DELAY_SECONDS  ),
-                                                            FD_MHIST_SECONDS_MAX( POH_TILE, FIRST_MICROBLOCK_DELAY_SECONDS  ) ) );
-  fd_histf_join( fd_histf_new( ctx->slot_done_delay, FD_MHIST_SECONDS_MIN( POH_TILE, SLOT_DONE_DELAY_SECONDS  ),
-                                                     FD_MHIST_SECONDS_MAX( POH_TILE, SLOT_DONE_DELAY_SECONDS  ) ) );
+  fd_histf_join( fd_histf_new( ctx->begin_leader_delay, FD_MHIST_SECONDS_MIN( POH, BEGIN_LEADER_DELAY_SECONDS ),
+                                                        FD_MHIST_SECONDS_MAX( POH, BEGIN_LEADER_DELAY_SECONDS ) ) );
+  fd_histf_join( fd_histf_new( ctx->first_microblock_delay, FD_MHIST_SECONDS_MIN( POH, FIRST_MICROBLOCK_DELAY_SECONDS  ),
+                                                            FD_MHIST_SECONDS_MAX( POH, FIRST_MICROBLOCK_DELAY_SECONDS  ) ) );
+  fd_histf_join( fd_histf_new( ctx->slot_done_delay, FD_MHIST_SECONDS_MIN( POH, SLOT_DONE_DELAY_SECONDS  ),
+                                                     FD_MHIST_SECONDS_MAX( POH, SLOT_DONE_DELAY_SECONDS  ) ) );
 
   ctx->arg = arg;
   ctx->get_microblock_buffer_func = get_microblock_buffer_func;

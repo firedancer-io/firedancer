@@ -1,0 +1,171 @@
+name: Firedancer
+on:
+  workflow_call:
+    inputs:
+      machine:
+        type: string
+        default: linux_gcc_zen2
+  workflow_dispatch:
+jobs:
+  firedancer-localnet:
+    timeout-minutes: 30
+    runs-on: [self-hosted, 512G]
+    env:
+      CC: gcc
+      MACHINE: ${{ inputs.machine }}
+      EXTRAS: no-agave
+      AGAVE_VERSION: v2.0.3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: ./.github/actions/deps
+      - uses: ./.github/actions/hugepages
+        with:
+          count_gigantic: 200
+          count_huge: 1000 # TODO: this is required until we can handle anonymouse workspaces and loose huge pages in fddev
+
+      - name: build
+        run: |
+          make -j fddev
+
+      - name: find OBJDIR
+        run: |
+          echo OBJDIR=$(make help | grep OBJDIR | awk '{print $4}') >> $GITHUB_ENV
+
+      - name: agave repo setup
+        run: |
+          cd ..
+          if [ ! -d "agave" ]; then
+            git clone https://github.com/anza-xyz/agave.git
+          fi
+          cd agave
+          git fetch
+          git checkout ${{ env.AGAVE_VERSION }}
+          source ~/.cargo/env
+          ./cargo build --release
+          echo "AGAVE_PATH=$(pwd)/target/release" >> $GITHUB_ENV
+
+      - name: stop any dead runs - local cluster
+        run: |
+          sudo killall -9 -q solana-validator || true
+          sudo killall -9 -q agave-validator || true
+          sudo killall -9 -q fddev || true
+
+      - name: remove ledger and cluster artifacts if they exist
+        run: |
+          sudo rm -rf ../*.so
+          sudo rm -rf ../test-ledger
+
+      - name: start agave cluster
+        run: |
+          sudo prlimit --nofile=1048576 --memlock=unlimited --pid $$
+          nohup contrib/test/setup_fd_cluster.sh > setup_fd_cluster.log 2>&1 &
+          echo $! > ${{ github.workspace }}/setup_fd_cluster.pid
+          sleep 30
+
+      - name: start firedancer node
+        run: |
+          sudo prlimit --nofile=1048576 --memlock=unlimited --pid $$
+          contrib/test/setup_fd_cluster_stakes.sh
+          nohup bash -c "CC=gcc ./contrib/test/test_firedancer_leader.sh" > test_firedancer_leader.log 2>&1 &
+          echo $! > ${{ github.workspace }}/test_firedancer_leader.pid
+
+      - name: check if all validators have been leader
+        timeout-minutes: 5
+        run: |
+          RPC_URL="http://localhost:8123/"
+
+          for attempt in {1..30}; do
+          if curl -s --fail "$RPC_URL" -X POST -H "Content-Type: application/json" -d '{
+            "jsonrpc": "2.0", "id": 1,
+            "method": "getSlot"
+          }' --max-time 2 > /dev/null; then
+              break
+            fi
+
+            sleep 10
+
+            if [ "$attempt" -eq 30 ]; then
+              exit 1
+            fi
+          done
+
+          declare -A leader_map
+          declare -A has_been_leader
+
+          while true; do
+            response=$(curl -s "$RPC_URL" -X POST -H "Content-Type: application/json" -d '{
+              "jsonrpc": "2.0", "id": 1,
+              "method": "getLeaderSchedule"
+            }')
+
+            if [ -z "$response" ] || ! echo "$response" | jq -e '.result' > /dev/null; then
+              exit 1
+            fi
+
+            while IFS="=" read -r key value; do
+              leader_map["$key"]=$value
+              has_been_leader["$key"]=0
+            done < <(echo "$response" | jq -r '.result | to_entries[] | "\(.key)=\(.value[0])"')
+
+            response=$(curl -s "$RPC_URL" -X POST -H "Content-Type: application/json" -d '{
+              "jsonrpc": "2.0", "id": 1,
+              "method": "getEpochInfo"
+            }')
+
+            if [ -z "$response" ] || ! echo "$response" | jq -e '.result' > /dev/null; then
+              exit 1
+            fi
+
+            slot_index=$(echo "$response" | jq -r '.result.slotIndex // empty')
+
+            if [ -z "$slot_index" ]; then
+              exit 1
+            fi
+
+            all_keys_done=1
+            leaders_count=0
+            for key in "${!leader_map[@]}"; do
+              first_slot=${leader_map[$key]}
+              if (( slot_index > first_slot )); then
+                if [ "${has_been_leader[$key]}" -eq 0 ]; then
+                  leaders_count=$((leaders_count + 1))
+                fi
+                has_been_leader["$key"]=1
+              fi
+
+              if [ "${has_been_leader[$key]}" -eq 0 ]; then
+                all_keys_done=0
+              fi
+            done
+
+            if [ "$all_keys_done" -eq 1 ] && (( leaders_count == 2 )); then
+              echo "All validators have been leaders. Exiting..."
+              break
+            fi
+
+            sleep 10
+          done
+
+      - name: clean up validators, ledger, and cluster artifacts
+        if: always()
+        run: |
+          if [ -f ${{ github.workspace }}/setup_fd_cluster.pid ]; then
+            kill $(cat ${{ github.workspace }}/setup_fd_cluster.pid) || true
+            sudo rm -rf ${{ github.workspace }}/setup_fd_cluster.pid
+          fi
+
+          if [ -f ${{ github.workspace }}/test_firedancer_leader.pid ]; then
+            kill $(cat ${{ github.workspace }}/test_firedancer_leader.pid) || true
+            sudo rm -rf ${{ github.workspace }}/test_firedancer_leader.pid
+          fi
+
+          sudo killall -9 -q solana-validator || true
+          sudo killall -9 -q agave-validator || true
+          sudo killall -9 -q fddev || true
+          sudo rm -rf ../*.so
+          sudo rm -rf ../test-ledger
+          sudo rm -rf setup_fd_cluster.log
+          sudo rm -rf test_firedancer_leader.log

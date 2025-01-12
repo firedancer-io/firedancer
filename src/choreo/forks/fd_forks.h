@@ -6,6 +6,7 @@
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../fd_choreo_base.h"
 #include "../ghost/fd_ghost.h"
+#include "../voter/fd_voter.h"
 
 /* FD_FORKS_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */
@@ -56,14 +57,14 @@ fd_forks_align( void ) {
 FD_FN_CONST static inline ulong
 fd_forks_footprint( ulong max ) {
   return FD_LAYOUT_FINI(
-      FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,
-                                                            alignof( fd_forks_t ),
-                                                            sizeof( fd_forks_t ) ),
-                                          fd_fork_pool_align(),
-                                          fd_fork_pool_footprint( max ) ),
-                        fd_fork_frontier_align(),
-                        fd_fork_frontier_footprint( max ) ),
-      alignof( fd_forks_t ) );
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_INIT,
+      alignof(fd_forks_t),      sizeof(fd_forks_t) ),
+      fd_fork_pool_align(),     fd_fork_pool_footprint( max ) ),
+      fd_fork_frontier_align(), fd_fork_frontier_footprint( max ) ),
+    alignof(fd_forks_t) );
 }
 
 /* fd_forks_new formats an unused memory region for use as a forks.  mem
@@ -156,6 +157,19 @@ fd_forks_prepare( fd_forks_t const *    forks,
                   fd_funk_t *           funk,
                   fd_valloc_t           valloc );
 
+/* fd_forks_update updates `blockstore` and `ghost` with the latest
+   state resulting from replaying `slot`.  Assumes `slot` is a fork head
+   in the frontier.  In general, this should be called immediately after
+   `slot` has been replayed. */
+
+void
+fd_forks_update( fd_forks_t *          forks,
+                 fd_blockstore_t *     blockstore,
+                 fd_epoch_t *          epoch,
+                 fd_funk_t *           funk,
+                 fd_ghost_t *          ghost,
+                 ulong                 slot );
+
 /* fd_forks_publish publishes a new root into forks.  Assumes root is a
    valid slot that exists in the cluster and has already been replayed.
    This prunes all the existing forks in the frontier except descendants
@@ -168,15 +182,7 @@ fd_forks_publish( fd_forks_t * fork, ulong root, fd_ghost_t const * ghost );
 /* fd_forks_print prints a forks as a list of the frontiers and number
    of forks (pool eles acquired). */
 
-static inline void
-fd_forks_print( fd_forks_t const * forks ) {
-  FD_LOG_NOTICE( ( "\n\n[Frontier]" ) );
-  for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( forks->frontier, forks->pool );
-       !fd_fork_frontier_iter_done( iter, forks->frontier, forks->pool );
-       iter = fd_fork_frontier_iter_next( iter, forks->frontier, forks->pool ) ) {
-    printf( "%lu\n", fd_fork_frontier_iter_ele_const( iter, forks->frontier, forks->pool )->slot );
-  }
-  printf( "\n" );
-}
+void
+fd_forks_print( fd_forks_t const * forks );
 
 #endif /* HEADER_fd_src_choreo_forks_fd_forks_h */

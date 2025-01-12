@@ -3,10 +3,18 @@
 
 #include <sys/wait.h>
 #include "generated/main_seccomp.h"
+#if defined(__aarch64__)
+#include "generated/pidns.arm64_seccomp.h"
+#else
 #include "generated/pidns_seccomp.h"
+#endif
 
-#include "../../../disco/tiles.h"
 #include "../../../disco/topo/fd_pod_format.h"
+#include "../../../waltz/xdp/fd_xdp1.h"
+#include "../../../flamenco/runtime/fd_blockstore.h"
+#include "../../../flamenco/runtime/fd_txncache.h"
+#include "../../../funk/fd_funk_filemap.h"
+#include "../../../funk/fd_funk.h"
 #include "../configure/configure.h"
 
 #include <dirent.h>
@@ -48,6 +56,8 @@ run_cmd_perm( args_t *         args,
     fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN,               "call `setns(2)` to enter a network namespace" );
   if( FD_UNLIKELY( config->tiles.metric.prometheus_listen_port<1024 ) )
     fd_caps_check_capability( caps, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving metrics" );
+  if( FD_UNLIKELY( config->tiles.gui.gui_listen_port<1024 ) )
+    fd_caps_check_capability( caps, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving the GUI" );
 }
 
 struct pidns_clone_args {
@@ -264,9 +274,19 @@ main_pid_namespace( void * _args ) {
   int save_priority = getpriority( PRIO_PROCESS, 0 );
   if( FD_UNLIKELY( -1==save_priority && errno ) ) FD_LOG_ERR(( "getpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  for( ulong i=0; i<config->topo.tile_cnt; i++ ) {
+  fd_xdp_fds_t xdp_fds = fd_topo_install_xdp( &config->topo );
+
+  for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &config->topo.tiles[ i ];
     if( FD_UNLIKELY( tile->is_agave ) ) continue;
+
+    if( FD_UNLIKELY( strcmp( tile->name, "net" ) ) ) {
+      if( FD_UNLIKELY( -1==fcntl( xdp_fds.xsk_map_fd,   F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==fcntl( xdp_fds.prog_link_fd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    } else {
+      if( FD_UNLIKELY( -1==fcntl( xdp_fds.xsk_map_fd,   F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      if( FD_UNLIKELY( -1==fcntl( xdp_fds.prog_link_fd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
 
     int pipefd[ 2 ];
     if( FD_UNLIKELY( pipe2( pipefd, O_CLOEXEC ) ) ) FD_LOG_ERR(( "pipe2() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -283,6 +303,8 @@ main_pid_namespace( void * _args ) {
 
   if( FD_UNLIKELY( close( config_memfd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( xdp_fds.xsk_map_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( xdp_fds.prog_link_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   int allow_fds[ 4+FD_TOPO_MAX_TILES ];
   ulong allow_fds_cnt = 0;
@@ -299,6 +321,7 @@ main_pid_namespace( void * _args ) {
   if( FD_LIKELY( config->development.sandbox ) ) {
     fd_sandbox_enter( config->uid,
                       config->gid,
+                      0,
                       0,
                       1UL+child_cnt, /* RLIMIT_NOFILE needs to be set to the nfds argument of poll() */
                       allow_fds_cnt,
@@ -320,6 +343,12 @@ main_pid_namespace( void * _args ) {
     } else if( FD_UNLIKELY( child_pids[ i ]!=exited_pid ) ) {
       FD_LOG_ERR(( "pidns wait4() returned unexpected pid %d %d", child_pids[ i ], exited_pid ));
     } else if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
+      /* If the tile died with a signal like SIGSEGV or SIGSYS it might
+         still be holding the lock, which would cause us to hang when
+         writing out the error, so don't require the lock here. */
+      int lock = 0;
+      fd_log_private_shared_lock = &lock;
+
       FD_LOG_ERR_NOEXIT(( "tile %lu (%s) exited while booting with signal %d (%s)\n", i, child_names[ i ], WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
       exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
     }
@@ -340,7 +369,7 @@ main_pid_namespace( void * _args ) {
   while( 1 ) {
     if( FD_UNLIKELY( -1==poll( fds, 1+child_cnt, -1 ) ) ) FD_LOG_ERR(( "poll() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-    for( ulong i=0; i<1+child_cnt; i++ ) {
+    for( ulong i=0UL; i<1UL+child_cnt; i++ ) {
       if( FD_UNLIKELY( fds[ i ].revents ) ) {
         /* Must have been POLLHUP, POLLERR and POLLNVAL are not possible. */
         if( FD_UNLIKELY( i==child_cnt ) ) {
@@ -349,13 +378,15 @@ main_pid_namespace( void * _args ) {
         }
 
         char * tile_name = child_names[ i ];
-        ulong  tile_id = config->topo.tiles[ i ].kind_id;
+        ulong  tile_idx = 0UL;
+        if( FD_LIKELY( i>0UL ) ) tile_idx = config->development.no_agave ? i : i-1UL;
+        ulong  tile_id = config->topo.tiles[ tile_idx ].kind_id;
 
         /* Child process died, reap it to figure out exit code. */
         int wstatus;
         int exited_pid = wait4( -1, &wstatus, (int)__WALL | (int)WNOHANG, NULL );
         if( FD_UNLIKELY( -1==exited_pid ) ) {
-          FD_LOG_ERR(( "pidns wait4() failed (%i-%s) %lu %hu", errno, fd_io_strerror( errno ), i, fds[i].revents ));
+          FD_LOG_ERR(( "pidns wait4() failed (%i-%s) %lu %hu", errno, fd_io_strerror( errno ), i, fds[ i ].revents ));
         } else if( FD_UNLIKELY( !exited_pid ) ) {
           /* Spurious wakeup, no child actually dead yet. */
           continue;
@@ -487,36 +518,28 @@ fdctl_obj_new( fd_topo_t const *     topo,
       if( FD_UNLIKELY( __x==ULONG_MAX ) ) FD_LOG_ERR(( "obj.%lu.%s was not set", obj->id, name )); \
       __x; }))
 
-  ulong align = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.align", obj->id );
-  ulong sz    = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.sz", obj->id );
-  ulong loose = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.loose", obj->id );
-
-  if( align!=ULONG_MAX && sz!=ULONG_MAX && loose!=ULONG_MAX ) {
-    /* If the object specified the properities necessary to be concrete then
-       we should not call any sort of `new` function on it. The user is
-       responsible for initializing the data structure properly after topology
-       init time. */
-    return;
-  }
-
   void * laddr = fd_topo_obj_laddr( topo, obj->id );
 
   if( FD_UNLIKELY( !strcmp( obj->name, "tile" ) ) ) {
     /* No need to do anything, tiles don't have a new. */
   } else if( FD_UNLIKELY( !strcmp( obj->name, "mcache" ) ) ) {
-    fd_mcache_new( laddr, VAL("depth"), 0UL, 0UL );
+    FD_TEST( fd_mcache_new( laddr, VAL("depth"), 0UL, 0UL ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "dcache" ) ) ) {
-    fd_dcache_new( laddr, fd_dcache_req_data_sz( VAL("mtu"), VAL("depth"), VAL("burst"), 1 ), 0UL );
+    FD_TEST( fd_dcache_new( laddr, fd_dcache_req_data_sz( VAL("mtu"), VAL("depth"), VAL("burst"), 1 ), 0UL ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "cnc" ) ) ) {
-    fd_cnc_new( laddr, 0UL, 0, fd_tickcount() );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "reasm" ) ) ) {
-    fd_tpu_reasm_new( laddr, VAL("depth"), VAL("burst"), 0UL );
+    FD_TEST( fd_cnc_new( laddr, 0UL, 0, fd_tickcount() ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "fseq" ) ) ) {
-    fd_fseq_new( laddr, ULONG_MAX );
+    FD_TEST( fd_fseq_new( laddr, ULONG_MAX ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
-    fd_metrics_new( laddr, VAL("in_cnt"), VAL("out_cnt") );
+    FD_TEST( fd_metrics_new( laddr, VAL("in_cnt"), VAL("cons_cnt") ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "ulong" ) ) ) {
     *(ulong*)laddr = 0;
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
+    FD_TEST( fd_blockstore_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
+    FD_TEST( fd_funk_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("txn_max"), VAL("rec_max") ) );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
+    FD_TEST( fd_txncache_new( laddr, VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
   }
@@ -590,7 +613,7 @@ initialize_workspaces( config_t * const config ) {
   if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
-static void
+void
 initialize_stacks( config_t * const config ) {
   /* Switch to non-root uid/gid for workspace creation.  Permissions
      checks are still done as the current user. */
@@ -637,30 +660,36 @@ initialize_stacks( config_t * const config ) {
   if( FD_UNLIKELY( setegid( gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
-extern configure_stage_t hugetlbfs;
-extern configure_stage_t ethtool_channels;
-extern configure_stage_t ethtool_gro;
-extern configure_stage_t sysctl;
+extern configure_stage_t fd_cfg_stage_hugetlbfs;
+extern configure_stage_t fd_cfg_stage_ethtool_channels;
+extern configure_stage_t fd_cfg_stage_ethtool_gro;
+extern configure_stage_t fd_cfg_stage_ethtool_loopback;
+extern configure_stage_t fd_cfg_stage_sysctl;
 
 static void
 check_configure( config_t * const config ) {
-  configure_result_t check = hugetlbfs.check( config );
+  configure_result_t check = fd_cfg_stage_hugetlbfs.check( config );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
     FD_LOG_ERR(( "Huge pages are not configured correctly: %s. You can run `fdctl configure init hugetlbfs` "
                  "to create the mounts correctly. This must be done after every system restart before running "
                  "Firedancer.", check.message ));
 
-  check = ethtool_channels.check( config );
+  check = fd_cfg_stage_ethtool_channels.check( config );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
     FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-channels` to set the number of channels on the "
                  "network device correctly.", check.message ));
 
-  check = ethtool_gro.check( config );
+  check = fd_cfg_stage_ethtool_gro.check( config );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
     FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-gro` to disable generic-receive-offload "
                  "as required.", check.message ));
 
-  check = sysctl.check( config );
+  check = fd_cfg_stage_ethtool_loopback.check( config );
+  if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
+    FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-loopback` to disable tx-udp-segmentation "
+                 "on the loopback device.", check.message ));
+
+  check = fd_cfg_stage_sysctl.check( config );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
     FD_LOG_ERR(( "Kernel parameters are not configured correctly: %s. You can run `fdctl configure init sysctl` "
                  "to set kernel parameters correctly.", check.message ));
@@ -669,6 +698,17 @@ check_configure( config_t * const config ) {
 void
 run_firedancer_init( config_t * const config,
                      int              init_workspaces ) {
+  struct stat st;
+  int err = stat( config->consensus.identity_path, &st );
+  if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.identity_path] key does not exist `%s`. You can generate an identity key at this path by running `fdctl keys new identity --config <toml>`", config->consensus.identity_path ));
+  else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.identity_path] `%s` (%i-%s)", config->consensus.identity_path, errno, fd_io_strerror( errno ) ));
+
+  for( ulong i=0UL; i<config->consensus.authorized_voter_paths_cnt; i++ ) {
+    err = stat( config->consensus.authorized_voter_paths[ i ], &st );
+    if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.authorized_voter_paths] key does not exist `%s`", config->consensus.authorized_voter_paths[ i ] ));
+    else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.authorized_voter_paths] `%s` (%i-%s)", config->consensus.authorized_voter_paths[ i ], errno, fd_io_strerror( errno ) ));
+  }
+
   check_configure( config );
   if( FD_LIKELY( init_workspaces ) ) initialize_workspaces( config );
   initialize_stacks( config );
@@ -765,6 +805,7 @@ run_firedancer( config_t * const config,
   if( FD_LIKELY( config->development.sandbox ) ) {
     fd_sandbox_enter( config->uid,
                       config->gid,
+                      0,
                       1, /* Keep controlling terminal for main so it can receive Ctrl+C */
                       0UL,
                       allow_fds_cnt,

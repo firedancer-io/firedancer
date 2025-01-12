@@ -35,7 +35,8 @@ fd_vm_syscall_sol_curve_validate_point( /**/            void *  _vm,
   default:
     /* https://github.com/anza-xyz/agave/blob/5b3390b99a6e7665439c623062c1a1dda2803524/programs/bpf_loader/src/syscalls/mod.rs#L919-L928 */
     if( FD_FEATURE_ACTIVE( (vm->instr_ctx->slot_ctx), abort_on_invalid_curve ) ) {
-      return FD_VM_ERR_INVAL; /* SyscallError::InvalidAttribute */
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE );
+      return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
     }
   }
 
@@ -59,44 +60,61 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
      common code across switch cases. Similar to fd_vm_syscall_sol_alt_bn128_group_op. */
 
 /* MATCH_ID_OP allows us to unify 2 switch/case into 1.
-   For better readability, we also temp define EDWARDS, RISTRETTO. */
+   For better readability, we also temp define EDWARDS, RISTRETTO.
+
+   The first time we check that both curve_id and group_op are valid
+   with 2 nested switch/case. Using MATCH_ID_OP leads to undesidered
+   edge cases. The second time, when we know that curve_id and group_op
+   are correct, then we can use MATCH_ID_OP and a single switch/case. */
 #define MATCH_ID_OP(crv_id,grp_op) ((crv_id << 4) | grp_op)
 #define EDWARDS   FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS
 #define RISTRETTO FD_VM_SYSCALL_SOL_CURVE_CURVE25519_RISTRETTO
 
   ulong cost = 0UL;
-  switch( MATCH_ID_OP( curve_id, group_op ) ) {
+  switch( curve_id ) {
 
-  case MATCH_ID_OP( EDWARDS, FD_VM_SYSCALL_SOL_CURVE_ADD ):
-    cost = FD_VM_CURVE25519_EDWARDS_ADD_COST;
+  case EDWARDS:
+    switch( group_op ) {
+
+    case FD_VM_SYSCALL_SOL_CURVE_ADD:
+      cost = FD_VM_CURVE25519_EDWARDS_ADD_COST;
+      break;
+
+    case FD_VM_SYSCALL_SOL_CURVE_SUB:
+      cost = FD_VM_CURVE25519_EDWARDS_SUBTRACT_COST;
+      break;
+
+    case FD_VM_SYSCALL_SOL_CURVE_MUL:
+      cost = FD_VM_CURVE25519_EDWARDS_MULTIPLY_COST;
+      break;
+
+    default:
+      goto invalid_error;
+    }
     break;
 
-  case MATCH_ID_OP( EDWARDS, FD_VM_SYSCALL_SOL_CURVE_SUB ):
-    cost = FD_VM_CURVE25519_EDWARDS_SUBTRACT_COST;
-    break;
+  case RISTRETTO:
+    switch( group_op ) {
 
-  case MATCH_ID_OP( EDWARDS, FD_VM_SYSCALL_SOL_CURVE_MUL ):
-    cost = FD_VM_CURVE25519_EDWARDS_MULTIPLY_COST;
-    break;
+    case FD_VM_SYSCALL_SOL_CURVE_ADD:
+      cost = FD_VM_CURVE25519_RISTRETTO_ADD_COST;
+      break;
 
-  case MATCH_ID_OP( RISTRETTO, FD_VM_SYSCALL_SOL_CURVE_ADD ):
-    cost = FD_VM_CURVE25519_RISTRETTO_ADD_COST;
-    break;
+    case FD_VM_SYSCALL_SOL_CURVE_SUB:
+      cost = FD_VM_CURVE25519_RISTRETTO_SUBTRACT_COST;
+      break;
 
-  case MATCH_ID_OP( RISTRETTO, FD_VM_SYSCALL_SOL_CURVE_SUB ):
-    cost = FD_VM_CURVE25519_RISTRETTO_SUBTRACT_COST;
-    break;
+    case FD_VM_SYSCALL_SOL_CURVE_MUL:
+      cost = FD_VM_CURVE25519_RISTRETTO_MULTIPLY_COST;
+      break;
 
-  case MATCH_ID_OP( RISTRETTO, FD_VM_SYSCALL_SOL_CURVE_MUL ):
-    cost = FD_VM_CURVE25519_RISTRETTO_MULTIPLY_COST;
+    default:
+      goto invalid_error;
+    }
     break;
 
   default:
-    /* https://github.com/anza-xyz/agave/blob/5b3390b99a6e7665439c623062c1a1dda2803524/programs/bpf_loader/src/syscalls/mod.rs#L1135-L1156 */
-    if( FD_FEATURE_ACTIVE( (vm->instr_ctx->slot_ctx), abort_on_invalid_curve ) ) {
-      return FD_VM_ERR_INVAL; /* SyscallError::InvalidAttribute */
-    }
-    goto soft_error; /* unknown curve op */
+    goto invalid_error;
   }
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L944-L947 */
@@ -108,7 +126,6 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
      However, from a memory mapping perspective it's always 32 bytes, so we unify the code. */
   uchar const * inputL = FD_VM_MEM_HADDR_LD( vm, left_input_addr,   FD_VM_ALIGN_RUST_POD_U8_ARRAY, 32UL );
   uchar const * inputR = FD_VM_MEM_HADDR_LD( vm, right_input_addr,  FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
-  uchar * result       = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
 
   switch( MATCH_ID_OP( curve_id, group_op ) ) {
 
@@ -121,6 +138,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
       goto soft_error;
     }
 
+    uchar * result = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
     fd_ed25519_point_add( r, p0, p1 );
     fd_ed25519_point_tobytes( result, r );
     ret = 0UL;
@@ -136,6 +154,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
       goto soft_error;
     }
 
+    uchar * result = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
     fd_ed25519_point_sub( r, p0, p1 );
     fd_ed25519_point_tobytes( result, r );
     ret = 0UL;
@@ -151,6 +170,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
       goto soft_error;
     }
 
+    uchar * result = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
     fd_ed25519_scalar_mul( r, inputL, p );
     fd_ed25519_point_tobytes( result, r );
     ret = 0UL;
@@ -166,6 +186,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
       goto soft_error;
     }
 
+    uchar * result = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
     fd_ristretto255_point_add( r, p0, p1 );
     fd_ristretto255_point_tobytes( result, r );
     ret = 0UL;
@@ -181,6 +202,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
       goto soft_error;
     }
 
+    uchar * result = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
     fd_ristretto255_point_sub( r, p0, p1 );
     fd_ristretto255_point_tobytes( result, r );
     ret = 0UL;
@@ -196,6 +218,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
       goto soft_error;
     }
 
+    uchar * result = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
     fd_ristretto255_scalar_mul( r, inputL, p );
     fd_ristretto255_point_tobytes( result, r );
     ret = 0UL;
@@ -204,7 +227,7 @@ fd_vm_syscall_sol_curve_group_op( void *  _vm,
 
   default:
     /* COV: this can never happen because of the previous switch */
-    return FD_VM_ERR_INVAL; /* SyscallError::InvalidAttribute */
+    return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
   }
 
 soft_error:
@@ -213,6 +236,15 @@ soft_error:
 #undef MATCH_ID_OP
 #undef EDWARDS
 #undef RISTRETTO
+
+invalid_error:
+  /* https://github.com/anza-xyz/agave/blob/5b3390b99a6e7665439c623062c1a1dda2803524/programs/bpf_loader/src/syscalls/mod.rs#L1135-L1156 */
+  if( FD_FEATURE_ACTIVE( (vm->instr_ctx->slot_ctx), abort_on_invalid_curve ) ) {
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE );
+    return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
+  }
+  *_ret = 1UL;
+  return FD_VM_SUCCESS;
 }
 
 /* multi_scalar_mul_edwards computes a MSM on curve25519.
@@ -320,7 +352,8 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L1143-L1151 */
   if( FD_UNLIKELY( points_len > 512 ) ) {
-    return FD_VM_ERR_INVAL; /* SyscallError::InvalidLength */
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
+    return FD_VM_SYSCALL_ERR_INVALID_LENGTH; /* SyscallError::InvalidLength */
   }
 
   /* Note: we don't strictly follow the Rust implementation, but instead combine
@@ -342,7 +375,8 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
   default:
     /* https://github.com/anza-xyz/agave/blob/5b3390b99a6e7665439c623062c1a1dda2803524/programs/bpf_loader/src/syscalls/mod.rs#L1262-L1271 */
     if( FD_FEATURE_ACTIVE( (vm->instr_ctx->slot_ctx), abort_on_invalid_curve ) ) {
-      return FD_VM_ERR_INVAL; /* SyscallError::InvalidAttribute */
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE );
+      return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
     }
     goto soft_error;
   }
@@ -357,10 +391,21 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
   );
   FD_VM_CU_UPDATE( vm, cost );
 
+  /* Edge case points_len==0.
+     Agave computes the MSM, that returns the point at infinity, and stores the result.
+     This means that we have to mem map result, and then set the point at infinity,
+     that is 0x0100..00 for Edwards and 0x00..00 for Ristretto. */
+  if ( FD_UNLIKELY( points_len==0 ) ) {
+    uchar * result = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
+    memset( result, 0, 32 );
+    result[0] = curve_id==FD_VM_SYSCALL_SOL_CURVE_CURVE25519_EDWARDS ? 1 : 0;
+    *_ret = 0;
+    return FD_VM_SUCCESS;
+  }
+
   /* https://github.com/anza-xyz/agave/blob/v1.18.8/programs/bpf_loader/src/syscalls/mod.rs#L1166-L1178 */
-  uchar const * scalars = FD_VM_MEM_HADDR_LD( vm, scalars_addr,      FD_VM_ALIGN_RUST_POD_U8_ARRAY, points_len*FD_VM_SYSCALL_SOL_CURVE_CURVE25519_SCALAR_SZ );
-  uchar const * points  = FD_VM_MEM_HADDR_LD( vm, points_addr,       FD_VM_ALIGN_RUST_POD_U8_ARRAY, points_len*FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
-  uchar * result        = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
+  uchar const * scalars = FD_VM_MEM_HADDR_LD( vm, scalars_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, points_len*FD_VM_SYSCALL_SOL_CURVE_CURVE25519_SCALAR_SZ );
+  uchar const * points  = FD_VM_MEM_HADDR_LD( vm, points_addr,  FD_VM_ALIGN_RUST_POD_U8_ARRAY, points_len*FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
 
   switch( curve_id ) {
 
@@ -370,6 +415,7 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
     fd_ed25519_point_t * r = multi_scalar_mul_edwards( _r, scalars, points, points_len );
 
     if( FD_LIKELY( r ) ) {
+      uchar * result = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
       fd_ed25519_point_tobytes( result, r );
       ret = 0UL;
     }
@@ -381,6 +427,7 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
     fd_ristretto255_point_t * r = multi_scalar_mul_ristretto( _r, scalars, points, points_len );
 
     if( FD_LIKELY( r ) ) {
+      uchar * result = FD_VM_MEM_HADDR_ST( vm, result_point_addr, FD_VM_ALIGN_RUST_POD_U8_ARRAY, FD_VM_SYSCALL_SOL_CURVE_CURVE25519_POINT_SZ );
       fd_ristretto255_point_tobytes( result, r );
       ret = 0UL;
     }
@@ -389,7 +436,7 @@ fd_vm_syscall_sol_curve_multiscalar_mul( void *  _vm,
 
   default:
     /* COV: this can never happen because of the previous switch */
-    return FD_VM_ERR_INVAL; /* SyscallError::InvalidAttribute */
+    return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
   }
 
 soft_error:

@@ -711,7 +711,7 @@ MAP_(verify_key)( MAP_T *           join,
                   MAP_KEY_T const * key,
                   ulong             cnt ) {
 # define MAP_TEST(c) do {                                                        \
-    if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: %s", #c )); __asm("int $3"); return -1; } \
+    if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: %s", #c )); return -1; } \
   } while(0)
 
   MAP_(private_t) * map = MAP_(private)( join );
@@ -747,7 +747,10 @@ MAP_(insert)( MAP_T *           join,
   map->key_cnt++; /* Consider eliminating this to help make completely concurrent lockfree? */
 
   /* ... and map the newly allocated element to key (this is also
-     guaranteed to not have collisions as per contract). */
+     guaranteed to not have collisions as per contract). Note that
+     elements appear in the chain in order of newest to oldest. This
+     property is NECESSARY for an important optimization in
+     fd_funk_rec_query_global. */
 
   ulong hash = MAP_KEY_HASH( (key), (map->seed) );
   ulong * head = MAP_(private_list)( map ) + ( hash & (map->list_cnt-1UL) );

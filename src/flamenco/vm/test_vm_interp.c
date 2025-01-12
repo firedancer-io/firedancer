@@ -45,13 +45,15 @@ test_program_success( char *                test_case_name,
       /* text_sz          */ 8UL*text_cnt,
       /* entry_pc         */ 0UL,
       /* calldests        */ NULL,
+      /* sbpf_version     */ TEST_VM_DEFAULT_SBPF_VERSION,
       /* syscalls         */ syscalls,
       /* trace            */ NULL,
       /* sha              */ sha,
       /* mem_regions      */ NULL,
       /* mem_regions_cnt  */ 0UL,
       /* mem_regions_accs */ NULL,
-      /* is_deprecated    */ 0
+      /* is_deprecated    */ 0,
+      /* direct mapping   */ FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, bpf_account_data_direct_mapping )
   );
   FD_TEST( vm_ok );
 
@@ -61,7 +63,6 @@ test_program_success( char *                test_case_name,
   vm->cu        = vm->entry_cu;
   vm->frame_cnt = 0UL;
   vm->heap_sz   = 0UL;
-  vm->log_sz    = 0UL;
   fd_vm_mem_cfg( vm );
 
   int err = fd_vm_validate( vm );
@@ -220,7 +221,7 @@ test_0cu_exit( void ) {
     fd_vm_instr( FD_SBPF_OP_EXIT,      0, 0, 0, 0 )
   };
   ulong text_cnt = 3UL;
-  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual(), false /* not tested here*/ );
+  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual() );
 
   /* Ensure the VM exits with success if the CU count after the final
      exit instruction reaches zero. */
@@ -238,13 +239,15 @@ test_0cu_exit( void ) {
       /* text_sz          */ 8UL*text_cnt,
       /* entry_pc         */ 0UL,
       /* calldests        */ NULL,
+      /* sbpf_version     */ TEST_VM_DEFAULT_SBPF_VERSION,
       /* syscalls         */ NULL,
       /* trace            */ NULL,
       /* sha              */ sha,
       /* mem_regions      */ NULL,
       /* mem_regions_cnt  */ 0UL,
       /* mem_regions_accs */ NULL,
-      /* is_deprecated    */ 0
+      /* is_deprecated    */ 0,
+      /* direct mapping   */ FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, bpf_account_data_direct_mapping )
   );
   FD_TEST( vm_ok );
 
@@ -267,13 +270,15 @@ test_0cu_exit( void ) {
       /* text_sz          */ 8UL*text_cnt,
       /* entry_pc         */ 0UL,
       /* calldests        */ NULL,
+      /* sbpf_version     */ TEST_VM_DEFAULT_SBPF_VERSION,
       /* syscalls         */ NULL,
       /* trace            */ NULL,
       /* sha              */ sha,
       /* mem_regions      */ NULL,
       /* mem_regions_cnt  */ 0UL,
       /* mem_regions_accs */ NULL,
-      /* is_deprecated    */ 0
+      /* is_deprecated    */ 0,
+      /* direct mapping   */ FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, bpf_account_data_direct_mapping )
   );
   FD_TEST( vm_ok );
 
@@ -281,8 +286,62 @@ test_0cu_exit( void ) {
   FD_TEST( fd_vm_exec    ( vm )==FD_VM_ERR_SIGCOST );
 
   fd_vm_delete( fd_vm_leave( vm ) );
-  test_vm_exec_instr_ctx_delete( instr_ctx );
+  test_vm_exec_instr_ctx_delete( instr_ctx, fd_libc_alloc_virtual() );
   fd_sha256_delete( fd_sha256_leave( sha ) );
+}
+
+static void
+test_static_syscalls_list( void ) {
+  const char *static_syscalls_from_simd[] = {
+    "abort",
+    "sol_panic_",
+    "sol_memcpy_",
+    "sol_memmove_",
+    "sol_memset_",
+    "sol_memcmp_",
+    "sol_log_",
+    "sol_log_64_",
+    "sol_log_pubkey",
+    "sol_log_compute_units_",
+    "sol_alloc_free_",
+    "sol_invoke_signed_c",
+    "sol_invoke_signed_rust",
+    "sol_set_return_data",
+    "sol_get_return_data",
+    "sol_log_data",
+    "sol_sha256",
+    "sol_keccak256",
+    "sol_secp256k1_recover",
+    "sol_blake3",
+    "sol_poseidon",
+    "sol_get_processed_sibling_instruction",
+    "sol_get_stack_height",
+    "sol_curve_validate_point",
+    "sol_curve_group_op",
+    "sol_curve_multiscalar_mul",
+    "sol_curve_pairing_map",
+    "sol_alt_bn128_group_op",
+    "sol_alt_bn128_compression",
+    "sol_big_mod_exp",
+    "sol_remaining_compute_units",
+    "sol_create_program_address",
+    "sol_try_find_program_address",
+    "sol_get_sysvar",
+    "sol_get_epoch_stake",
+    "sol_get_clock_sysvar",
+    "sol_get_epoch_schedule_sysvar",
+    "sol_get_last_restart_slot",
+    "sol_get_epoch_rewards_sysvar",
+    "sol_get_fees_sysvar",
+    "sol_get_rent_sysvar",
+  };
+
+  FD_TEST( FD_VM_SBPF_STATIC_SYSCALLS_LIST[0]==0 );
+  for( ulong i=1; i<FD_VM_SBPF_STATIC_SYSCALLS_LIST_SZ; i++ ) {
+    const char *name = static_syscalls_from_simd[i-1];
+    uint key = fd_murmur3_32( name, strlen(name), 0 );
+    FD_TEST( FD_VM_SBPF_STATIC_SYSCALLS_LIST[i]==key );
+  }
 }
 
 static fd_sbpf_syscalls_t _syscalls[ FD_SBPF_SYSCALLS_SLOT_CNT ];
@@ -296,7 +355,7 @@ main( int     argc,
 
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_join( fd_sbpf_syscalls_new( _syscalls ) ); FD_TEST( syscalls );
 
-  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual(), false );
+  fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual() );
 
   FD_TEST( fd_vm_syscall_register( syscalls, "accumulator", accumulator_syscall )==FD_VM_SUCCESS );
 
@@ -951,7 +1010,9 @@ main( int     argc,
   free( text );
 
   fd_sbpf_syscalls_delete( fd_sbpf_syscalls_leave( syscalls ) );
-  test_vm_exec_instr_ctx_delete( instr_ctx );
+  test_vm_exec_instr_ctx_delete( instr_ctx, fd_libc_alloc_virtual() );
+
+  test_static_syscalls_list();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_rng_delete( fd_rng_leave( rng ) );

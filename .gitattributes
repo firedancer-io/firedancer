@@ -1,6 +1,6 @@
 src/flamenco/types/fd_types.h linguist-generated=true
 src/flamenco/types/fd_types.c linguist-generated=true
-src/flamenco/vm/jit/fd_vm_jitproto.c linguist-generated=true
+src/flamenco/vm/jit/fd_vm_compiler.c linguist-generated=true
 *.pb.h linguist-generated=true
 *.pb.c linguist-generated=true
 corpus/** binary

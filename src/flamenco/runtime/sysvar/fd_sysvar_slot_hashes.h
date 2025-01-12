@@ -15,8 +15,8 @@
 
 FD_PROTOTYPES_BEGIN
 
-/* Initialize the slot hashes sysvar account. */
-// void fd_sysvar_slot_hashes_init( fd_exec_slot_ctx_t* global );
+/* Initialize the slot hashes sysvar account (used for tests currently) */
+void fd_sysvar_slot_hashes_init( fd_exec_slot_ctx_t * slot_ctx, fd_slot_hashes_t * slot_hashes );
 
 /* Update the slot hashes sysvar account. This should be called at the end of every slot, before execution commences. */
 void
@@ -33,4 +33,3 @@ fd_sysvar_slot_hashes_read( fd_slot_hashes_t *   result,
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_sysvar_fd_slot_hashes_h */
-

@@ -1,6 +1,7 @@
 /* syscall API requires _GNU_SOURCE */
 #define _GNU_SOURCE
 #include "fd_shmem_private.h"
+#include "../sanitize/fd_msan.h"
 #include <errno.h>
 #include <dirent.h>
 #include <sys/sysinfo.h>
@@ -176,7 +177,12 @@ fd_numa_get_mempolicy( int *   mode,
                        ulong   maxnode,
                        void *  addr,
                        uint    flags ) {
-  return syscall( SYS_get_mempolicy, mode, nodemask, maxnode, addr, flags );
+  long rc = syscall( SYS_get_mempolicy, mode, nodemask, maxnode, addr, flags );
+  if( rc==0 ) {
+    if( mode     ) fd_msan_unpoison( mode, sizeof(int) );
+    if( nodemask ) fd_msan_unpoison( nodemask, 8UL*((maxnode+63UL)/64UL) );
+  }
+  return rc;
 }
 
 long
@@ -203,5 +209,7 @@ fd_numa_move_pages( int         pid,
                     int const * nodes,
                     int *       status,
                     int         flags ) {
-  return syscall( SYS_move_pages, pid, count, pages, nodes, status, flags );
+  long rc = syscall( SYS_move_pages, pid, count, pages, nodes, status, flags );
+  if( rc==0 ) fd_msan_unpoison( status, count*sizeof(int) );
+  return rc;
 }

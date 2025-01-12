@@ -54,7 +54,7 @@ main( int     argc,
       .lamports_per_uint8_year = iter->lamports_per_byte_year,
       .exemption_threshold     = iter->exemption_threshold,
     };
-    ulong min_balance = fd_rent_exempt_minimum_balance2( &rent, iter->data_len );
+    ulong min_balance = fd_rent_exempt_minimum_balance( &rent, iter->data_len );
     FD_TEST( min_balance == iter->min_balance );
   }
 

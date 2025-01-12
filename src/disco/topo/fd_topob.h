@@ -29,7 +29,7 @@ FD_PROTOTYPES_BEGIN
    with no tiles, objects, links. */
 
 fd_topo_t *
-fd_topob_new( void * mem, 
+fd_topob_new( void * mem,
               char const * app_name );
 
 /* Add a workspace with the given name to the topology.  Workspace names
@@ -42,7 +42,7 @@ fd_topob_wksp( fd_topo_t *  topo,
 
 /* Add an object with the given name to the toplogy.  An object is
    something that takes up space in memory, in a workspace.
-   
+
    The workspace must exist and have been added to the topology.
    Adding an object will cause it to occupt space in memory, but not
    be mapped into any tiles.  If you wish the object to be readable or
@@ -52,24 +52,6 @@ fd_topo_obj_t *
 fd_topob_obj( fd_topo_t *  topo,
               char const * obj_name,
               char const * wksp_name );
-
-/* Add an object with the given name, size and alignment to the toplogy.  An
-   object is something that takes up space in memory, in a workspace.  The
-   `align`, `sz` and `loose` parameters denote the alignment, maximum memory
-   and loose space to be assigned to the object.
-
-   The workspace must exist and have been added to the topology.
-   Adding an object will cause it to occupt space in memory, but not
-   be mapped into any tiles.  If you wish the object to be readable or
-   writable by a tile, you need to add a fd_topob_tile_uses relationship. */
-
-fd_topo_obj_t *
-fd_topob_obj_concrete( fd_topo_t *  topo,
-                       char const * obj_name,
-                       char const * wksp_name,
-                       ulong align,
-                       ulong sz,
-                       ulong loose );
 
 /* Add a relationship saying that a certain tile uses a given object.
    This has the effect that when memory mapping required workspaces
@@ -94,32 +76,23 @@ void
 fd_topob_link( fd_topo_t *  topo,
                char const * link_name,
                char const * wksp_name,
-               int          is_reasm,
                ulong        depth,
                ulong        mtu,
                ulong        burst );
 
 /* Add a tile to the topology.  This creates various objects needed for
-   a standard tile, including a cnc object, tile scratch memory, metrics
-   memory and so on.  These objects will be created and linked to the
-   respective workspaces provided, and the tile will be specified to map
-   those workspaces when it is attached.
-   
-   The out_link is optional, but if provided is the primary output link
-   of the tile.  If the tile is created with the standard mux runner, it
-   will automatically send frags and flow control the primary output
-   link. */
+   a standard tile, including tile scratch memory, metrics memory and so
+   on.  These objects will be created and linked to the respective
+   workspaces provided, and the tile will be specified to map those
+   workspaces when it is attached. */
 
 fd_topo_tile_t *
 fd_topob_tile( fd_topo_t *    topo,
                char const *   tile_name,
                char const *   tile_wksp,
-               char const *   cnc_wksp,
                char const *   metrics_wksp,
                ulong          cpu_idx,
-               int            is_agave,
-               char const *   out_link,
-               ulong          out_link_kind_id );
+               int            is_agave );
 
 /* Add an input link to the tile.  If the tile is created with the
    standard mux runner, it will automatically poll the in link and
@@ -154,10 +127,16 @@ fd_topob_tile_out( fd_topo_t *  topo,
                    char const * link_name,
                    ulong        link_kind_id );
 
+/* Automatically layout the tiles onto CPUs in the topology for a
+   best effort. */
+
+void
+fd_topob_auto_layout( fd_topo_t * topo );
+
 /* Finish creating the topology.  Lays out all the objects in the
    given workspaces, and sizes everything correctly.  Also validates
    the topology before returning.
-   
+
    This must be called to finish creating the topology. */
 
 void

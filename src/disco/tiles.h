@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_app_fdctl_run_tiles_h
 #define HEADER_fd_src_app_fdctl_run_tiles_h
 
-#include "mux/fd_mux.h"
+#include "stem/fd_stem.h"
 #include "shred/fd_shredder.h"
 #include "../ballet/shred/fd_shred.h"
 #include "../ballet/pack/fd_pack.h"
@@ -64,19 +64,24 @@ struct fd_became_leader {
 };
 typedef struct fd_became_leader fd_became_leader_t;
 
+struct fd_rooted_bank {
+  void * bank;
+  ulong  slot;
+};
+
+typedef struct fd_rooted_bank fd_rooted_bank_t;
+
+struct fd_completed_bank {
+   ulong slot;
+   uchar hash[32];
+};
+
+typedef struct fd_completed_bank fd_completed_bank_t;
+
 struct fd_microblock_trailer {
   /* The hash of the transactions in the microblock, ready to be
      mixed into PoH. */
   uchar hash[ 32UL ];
-
-  /* Bank index to return the bank busy seq on to indicate that
-     we are done processing these accounts. */
-  ulong bank_idx;
-
-  /* Sequence number to return on the bank_busy fseq to indicate
-     that the accounts have been fully processed and can be
-     released to pack for reuse. */
-  ulong bank_busy_seq;
 };
 typedef struct fd_microblock_trailer fd_microblock_trailer_t;
 
@@ -91,6 +96,11 @@ struct fd_microblock_bank_trailer {
      which guarantees it is valid while pack or bank tiles might be
      using it. */
   void const * bank;
+
+  /* The sequentially increasing index of the microblock, across all
+     banks.  This is used by PoH to ensure microblocks get committed
+     in the same order they are executed. */
+  ulong microblock_idx;
 };
 typedef struct fd_microblock_bank_trailer fd_microblock_bank_trailer_t;
 
@@ -101,5 +111,93 @@ typedef struct __attribute__((packed)) {
   ulong  tick_height;
   uchar  last_entry_hash[32];
 } fd_poh_init_msg_t;
+
+/* A fd_txn_m_t is a parsed meta transaction, containing not just the
+   payload */
+
+struct fd_txn_m {
+   /* The computed slot that this transaction is referencing, aka. the
+      slot number of the reference_blockhash.  If it could not be
+      determined, this will be the current slot. */
+   ulong    reference_slot;
+
+   ushort   payload_sz;
+
+   /* Can be computed from the txn_t but it's expensive to parse again,
+      so we just store this redundantly. */
+   ushort   txn_t_sz;
+
+   /* There are three additional fields at the end here, which are
+      variable length and not included in the size of this struct.
+   uchar          payload[ ]
+   fd_txn_t       txn_t[ ]
+   fd_acct_addr_t alut[ ] */
+};
+
+typedef struct fd_txn_m fd_txn_m_t;
+
+static FD_FN_CONST inline ulong
+fd_txn_m_align( void ) {
+   return alignof( fd_txn_m_t );
+}
+
+static inline ulong
+fd_txn_m_footprint( ulong payload_sz,
+                    ulong instr_cnt,
+                    ulong addr_table_lookup_cnt,
+                    ulong addr_table_adtl_cnt ) {
+   ulong l = FD_LAYOUT_INIT;
+   l = FD_LAYOUT_APPEND( l, alignof(fd_txn_m_t),     sizeof(fd_txn_m_t) );
+   l = FD_LAYOUT_APPEND( l, 1UL,                     payload_sz );
+   l = FD_LAYOUT_APPEND( l, fd_txn_align(),          fd_txn_footprint( instr_cnt, addr_table_lookup_cnt ) );
+   l = FD_LAYOUT_APPEND( l, alignof(fd_acct_addr_t), addr_table_adtl_cnt*sizeof(fd_acct_addr_t) );
+   return FD_LAYOUT_FINI( l, fd_txn_m_align() );
+}
+
+static inline uchar *
+fd_txn_m_payload( fd_txn_m_t * txnm ) {
+   return (uchar *)(txnm+1UL);
+}
+
+static inline fd_txn_t *
+fd_txn_m_txn_t( fd_txn_m_t * txnm ) {
+   return (fd_txn_t *)fd_ulong_align_up( (ulong)(txnm+1UL) + txnm->payload_sz, alignof( fd_txn_t ) );
+}
+
+static inline fd_txn_t const *
+fd_txn_m_txn_t_const( fd_txn_m_t const * txnm ) {
+   return (fd_txn_t const *)fd_ulong_align_up( (ulong)(txnm+1UL) + txnm->payload_sz, alignof( fd_txn_t ) );
+}
+
+static inline fd_acct_addr_t *
+fd_txn_m_alut( fd_txn_m_t * txnm ) {
+   return (fd_acct_addr_t *)fd_ulong_align_up( fd_ulong_align_up( (ulong)(txnm+1UL) + txnm->payload_sz, alignof( fd_txn_t ) )+txnm->txn_t_sz, alignof( fd_acct_addr_t ) );
+}
+
+static inline ulong
+fd_txn_m_realized_footprint( fd_txn_m_t const * txnm,
+                             int                include_alut ) {
+   return fd_txn_m_footprint( txnm->payload_sz,
+                              fd_txn_m_txn_t_const( txnm )->instr_cnt,
+                              fd_txn_m_txn_t_const( txnm )->addr_table_lookup_cnt,
+                              include_alut ? fd_txn_m_txn_t_const( txnm )->addr_table_adtl_cnt : 0UL );
+}
+
+#define FD_TPU_PARSED_MTU FD_ULONG_ALIGN_UP(                    \
+                              FD_ULONG_ALIGN_UP(                \
+                                 sizeof(fd_txn_m_t)+FD_TPU_MTU, \
+                                 alignof(fd_txn_t) )            \
+                              +FD_TXN_MAX_SZ,                   \
+                              alignof(fd_txn_m_t) )
+
+#define FD_TPU_RESOLVED_MTU FD_ULONG_ALIGN_UP(                     \
+                              FD_ULONG_ALIGN_UP(                   \
+                                 FD_ULONG_ALIGN_UP(                \
+                                    sizeof(fd_txn_m_t)+FD_TPU_MTU, \
+                                    alignof(fd_txn_t) )            \
+                                 +FD_TXN_MAX_SZ,                   \
+                                 alignof(fd_acct_addr_t) )         \
+                              +256UL*sizeof(fd_acct_addr_t),       \
+                              alignof(fd_txn_m_t) )
 
 #endif /* HEADER_fd_src_app_fdctl_run_tiles_h */

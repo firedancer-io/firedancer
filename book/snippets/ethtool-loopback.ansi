@@ -1,0 +1,7 @@
+$ sudo fdctl configure init ethtool-loopback
+[32mNOTICE [0m ethtool-loopback ... unconfigured ... device `lo` has tx-udp-segmentation enabled. Should be disabled
+[32mNOTICE [0m ethtool-loopback ... configuring
+[32mNOTICE [0m ethtool-loopback ... RUN: `ethtool --offload lo tx-udp-segmentation off`
+
+$ ethtool --show-offload lo | grep tx-udp-segmentation
+tx-udp-segmentation: off

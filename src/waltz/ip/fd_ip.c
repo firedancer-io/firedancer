@@ -432,7 +432,9 @@ fd_ip_route_ip_addr( uchar *   out_dst_mac,
   fd_memcpy( out_dst_mac, arp_entry->mac_addr, 6 );
 
   /* check the status */
-  if( arp_entry->state == NUD_REACHABLE ) return FD_IP_SUCCESS;
+  /* both NUD_REACHABLE and NUD_PERMANENT are acceptable */
+  uint accept_states = (uint)NUD_REACHABLE | (uint)NUD_PERMANENT;
+  if( FD_LIKELY( (uint)arp_entry->state & accept_states ) ) return FD_IP_SUCCESS;
 
   /* all other statutes, try probing */
   return FD_IP_PROBE_RQD;

@@ -1,6 +1,8 @@
 
 #include "fd_bank_abi.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
+#include "../../flamenco/runtime/fd_system_ids.h"
+#include "../../flamenco/types/fd_types.h"
 
 #define ABI_ALIGN( x ) __attribute__((packed)) __attribute__((aligned(x)))
 
@@ -238,16 +240,11 @@ FD_STATIC_ASSERT( offsetof(struct fd_bank_abi_txn_private, message) == 24UL, "me
 FD_STATIC_ASSERT( offsetof(struct fd_bank_abi_txn_private, message_hash) == 208UL, "messed up size" );
 FD_STATIC_ASSERT( offsetof(struct fd_bank_abi_txn_private, is_simple_vote_tx) == 240UL, "messed up size" );
 
-extern int
-fd_ext_bank_sanitized_txn_load_addresess( void const * bank,
-                                          void *       address_table_lookups,
-                                          ulong        address_table_lookups_cnt,
-                                          void *       out_sidecar );
-
 static int
-is_key_called_as_program( fd_txn_t * txn, ushort key_index ) {
+is_key_called_as_program( fd_txn_t const * txn,
+                          ushort           key_index ) {
   for( ushort i=0; i<txn->instr_cnt; i++ ) {
-    fd_txn_instr_t * instr = &txn->instr[ i ];
+    fd_txn_instr_t const * instr = &txn->instr[ i ];
     if( FD_UNLIKELY( instr->program_id==key_index ) ) return 1;
   }
   return 0;
@@ -256,7 +253,9 @@ is_key_called_as_program( fd_txn_t * txn, ushort key_index ) {
 static const uchar BPF_UPGRADEABLE_PROG_ID1[32] = { BPF_UPGRADEABLE_PROG_ID };
 
 static int
-is_upgradeable_loader_present( fd_txn_t * txn, uchar * payload, sanitized_txn_abi_pubkey_t * loaded_addresses ) {
+is_upgradeable_loader_present( fd_txn_t const *                   txn,
+                               uchar const *                      payload,
+                               sanitized_txn_abi_pubkey_t const * loaded_addresses ) {
   for( ushort i=0; i<txn->acct_addr_cnt; i++ ) {
     if( FD_UNLIKELY( !memcmp( payload + txn->acct_addr_off + i*32UL, BPF_UPGRADEABLE_PROG_ID1, 32UL ) ) ) return 1;
   }
@@ -266,10 +265,89 @@ is_upgradeable_loader_present( fd_txn_t * txn, uchar * payload, sanitized_txn_ab
   return 0;
 }
 
+extern int
+fd_ext_bank_load_account( void const *  bank,
+                          int           fixed_root,
+                          uchar const * addr,
+                          uchar *       owner,
+                          uchar *       data,
+                          ulong *       data_sz );
+
+int
+fd_bank_abi_resolve_address_lookup_tables( void const *     bank,
+                                           int              fixed_root,
+                                           ulong            slot,
+                                           fd_txn_t const * txn,
+                                           uchar const *    payload,
+                                           fd_acct_addr_t * out_lut_accts ) {
+  ulong writable_idx = 0UL;
+  ulong readable_idx = 0UL;
+  for( ulong i=0UL; i<txn->addr_table_lookup_cnt; i++ ) {
+    fd_txn_acct_addr_lut_t const * lut = &fd_txn_get_address_tables_const( txn )[ i ];
+    uchar const * addr = payload + lut->addr_off;
+
+    uchar owner[ 32UL ];
+    uchar data[ 1UL+56UL+256UL*32UL ];
+    ulong data_sz = sizeof(data);
+    int result = fd_ext_bank_load_account( bank, fixed_root, addr, owner, data, &data_sz );
+    if( FD_UNLIKELY( result ) ) return FD_BANK_ABI_TXN_INIT_ERR_ACCOUNT_NOT_FOUND;
+
+    result = memcmp( owner, fd_solana_address_lookup_table_program_id.key, 32UL );
+    if( FD_UNLIKELY( result ) ) return FD_BANK_ABI_TXN_INIT_ERR_INVALID_ACCOUNT_OWNER;
+
+    if( FD_UNLIKELY( (data_sz<56UL) | (data_sz>(56UL+256UL*32UL)) ) ) return FD_BANK_ABI_TXN_INIT_ERR_INVALID_ACCOUNT_DATA;
+
+    fd_address_lookup_table_state_t table[1];
+    fd_bincode_decode_ctx_t bincode = {
+      .data    = data,
+      .dataend = data+data_sz,
+      .valloc  = {0},
+    };
+
+    result = fd_address_lookup_table_state_decode( table, &bincode );
+    if( FD_UNLIKELY( result!=FD_BINCODE_SUCCESS ) ) return FD_BANK_ABI_TXN_INIT_ERR_INVALID_ACCOUNT_DATA;
+
+    result = fd_address_lookup_table_state_is_lookup_table( table );
+    if( FD_UNLIKELY( !result ) ) return FD_BANK_ABI_TXN_INIT_ERR_ACCOUNT_UNINITIALIZED;
+
+    if( FD_UNLIKELY( (data_sz-56UL)%32UL ) ) return FD_BANK_ABI_TXN_INIT_ERR_INVALID_ACCOUNT_DATA;
+
+    ulong addresses_len = (data_sz-56UL)/32UL;
+    fd_acct_addr_t const * addresses = fd_type_pun_const( data+56UL );
+
+    /* This logic is not currently very precise... an ALUT is allowed if
+       the deactivation slot is no longer present in the slot hashes
+       sysvar, which means that the slot was more than 512 *unskipped*
+       slots prior.  In the current case, we are just throwing out a
+       fraction of transactions that could actually still be valid
+       (those deactivated between 512 and 512*(1+skip_rate) slots ago. */
+
+    ulong deactivation_slot = table->inner.lookup_table.meta.deactivation_slot;
+    if( FD_UNLIKELY( deactivation_slot!=ULONG_MAX && (deactivation_slot+512UL)<slot ) ) return FD_BANK_ABI_TXN_INIT_ERR_ACCOUNT_NOT_FOUND;
+
+    ulong active_addresses_len = fd_ulong_if( slot>table->inner.lookup_table.meta.last_extended_slot,
+                                              addresses_len,
+                                              table->inner.lookup_table.meta.last_extended_slot_start_index );
+    for( ulong j=0UL; j<lut->writable_cnt; j++ ) {
+      uchar idx = payload[ lut->writable_off+j ];
+      if( FD_UNLIKELY( idx>=active_addresses_len ) ) return FD_BANK_ABI_TXN_INIT_ERR_INVALID_LOOKUP_INDEX;
+      memcpy( &out_lut_accts[ writable_idx++ ], addresses+idx, sizeof(fd_acct_addr_t) );
+    }
+    for( ulong j=0UL; j<lut->readonly_cnt; j++ ) {
+      uchar idx = payload[ lut->readonly_off+j ];
+      if( FD_UNLIKELY( idx>=active_addresses_len ) ) return FD_BANK_ABI_TXN_INIT_ERR_INVALID_LOOKUP_INDEX;
+      memcpy( &out_lut_accts[ txn->addr_table_adtl_writable_cnt+readable_idx++ ], addresses+idx, sizeof(fd_acct_addr_t) );
+    }
+  }
+
+  return FD_BANK_ABI_TXN_INIT_SUCCESS;
+}
+
 int
 fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
                       uchar *             out_sidecar,
                       void const *        bank,
+                      ulong               slot,
                       fd_blake3_t *       blake3,
                       uchar *             payload,
                       ulong               payload_sz,
@@ -341,7 +419,7 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
     sanitized_txn_abi_v0_loaded_addresses_t * loaded_addresses = &v0->loaded_addresses.owned;
     sanitized_txn_abi_v0_message_t * message = &v0->message.owned;
 
-    int result = fd_ext_bank_sanitized_txn_load_addresess( bank, (void*)v0->message.owned.address_table_lookups, txn->addr_table_lookup_cnt, out_sidecar );
+    int result = fd_bank_abi_resolve_address_lookup_tables( bank, 1, slot, txn, payload, (fd_acct_addr_t*)out_sidecar );
     if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) return result;
 
     ulong lut_writable_acct_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_WRITABLE_ALT );

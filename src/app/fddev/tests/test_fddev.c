@@ -84,6 +84,8 @@ fddev_dev( config_t * config,
   fd_caps_ctx_t caps[ 1 ] = {0};
   dev_cmd_perm( &args, caps, config );
   FD_TEST( !caps->err_cnt );
+  FD_LOG_WARNING(( "waitpid %lu", fd_sandbox_getpid() ));
+  // sleep(15);
   dev_cmd_fn( &args, config );
   return 0;
 }
@@ -118,7 +120,7 @@ wait_children( struct child_info * children,
     };
   }
 
-  int exited_child_cnt = poll( pfd, children_cnt, (int)(timeout_seconds*1000UL*1000UL) );
+  int exited_child_cnt = poll( pfd, children_cnt, (int)(timeout_seconds*1000UL) );
   if( FD_UNLIKELY( -1==exited_child_cnt ) ) FD_LOG_ERR(( "poll failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( !exited_child_cnt ) ) FD_LOG_ERR(( "`%s` timed out", children[ 0 ].name ));
 
@@ -167,6 +169,7 @@ fddev_test_run( int     argc,
       config->log.log_fd = fd_log_private_logfile_fd();
       config->log.lock_fd = init_log_memfd();
       config->tick_per_ns_mu = fd_tempo_tick_per_ns( &config->tick_per_ns_sigma );
+      config->consensus.poh_speed_test = 0;
 
       return run( config );
     } else {
@@ -194,13 +197,13 @@ test_fddev( config_t * config ) {
   struct child_info configure = fork_child( "fddev configure", config, fddev_configure );
   wait_children( &configure, 1UL, 15UL );
   struct child_info wksp = fork_child( "fddev wksp", config, fddev_wksp );
-  wait_children( &wksp, 1UL, 15UL );
+  wait_children( &wksp, 1UL, 60UL );
 
   struct child_info dev = fork_child( "fddev dev", config, fddev_dev );
   struct child_info ready = fork_child( "fddev ready", config, fddev_ready );
 
   struct child_info children[ 2 ] = { ready, dev };
-  ulong exited = wait_children( children, 2UL, 15UL );
+  ulong exited = wait_children( children, 2UL, 30UL );
   if( FD_UNLIKELY( exited!=0UL ) ) FD_LOG_ERR(( "`%s` exited unexpectedly", children[ exited ].name ));
   return 0;
 }

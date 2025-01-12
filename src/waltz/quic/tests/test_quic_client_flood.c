@@ -4,6 +4,7 @@
 /* test_quic_client_flood sends a flood of QUIC INITIAL frames. */
 
 #include <stdlib.h>
+#include <stdio.h>
 
 #include "../../../ballet/sha512/fd_sha512.h"
 #include "../../../ballet/ed25519/fd_ed25519.h"
@@ -26,19 +27,17 @@ my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
   }
 }
 
-void
-my_stream_receive_cb( fd_quic_stream_t * stream,
-                      void *             ctx,
-                      uchar const *      data,
-                      ulong              data_sz,
-                      ulong              offset,
-                      int                fin ) {
-  (void)ctx;
-  (void)stream;
-  (void)fin;
-
+int
+my_stream_rx_cb( fd_quic_conn_t * conn,
+                 ulong            stream_id,
+                 ulong            offset,
+                 uchar const *    data,
+                 ulong            data_sz,
+                 int              fin ) {
+  (void)conn; (void)stream_id; (void)fin;
   FD_LOG_DEBUG(( "received data from peer (size=%lu offset=%lu)", data_sz, offset ));
   FD_LOG_HEXDUMP_DEBUG(( "stream data", data, data_sz ));
+  return FD_QUIC_SUCCESS;
 }
 
 fd_quic_conn_t * client_conn = NULL;
@@ -64,12 +63,6 @@ void my_connection_closed( fd_quic_conn_t * conn, void * vp_context ) {
   client_complete = 1;
 }
 
-ulong
-test_clock( void * ctx ) {
-  (void)ctx;
-  return (ulong)fd_log_wallclock();
-}
-
 void
 run_quic_client(
   fd_quic_t *               quic,
@@ -90,10 +83,8 @@ run_quic_client(
 
     quic->cb.conn_hs_complete = my_handshake_complete;
     quic->cb.conn_final       = my_connection_closed;
-    quic->cb.stream_receive   = my_stream_receive_cb;
+    quic->cb.stream_rx        = my_stream_rx_cb;
     quic->cb.stream_notify    = my_stream_notify_cb;
-    quic->cb.now              = test_clock;
-    quic->cb.now_ctx          = NULL;
 
     /* use XSK XDP AIO for QUIC ingress/egress */
     fd_quic_set_aio_net_tx( quic, udpsock->aio );
@@ -103,7 +94,7 @@ run_quic_client(
     FD_LOG_NOTICE(( "Starting QUIC client" ));
 
     /* make a connection from client to the server */
-    client_conn = fd_quic_connect( quic, dst_ip, dst_port, NULL );
+    client_conn = fd_quic_connect( quic, dst_ip, dst_port );
 
     /* do general processing */
     while ( !client_complete ) {
@@ -192,10 +183,11 @@ run_quic_client(
     for( ulong j = 0; j < batch_sz; ++j ) {
 
       if( cur_stream ) {
-        int rc = fd_quic_stream_send( cur_stream, batches[msg_sz - MSG_SZ_MIN], 1 /* batch_sz */, 1 /* fin */ ); /* fin: close stream after sending. last byte of transmission */
+        fd_aio_pkt_info_t * chunk = batches[msg_sz - MSG_SZ_MIN];
+        int rc = fd_quic_stream_send( cur_stream, chunk->buf, chunk->buf_sz, 1 /* fin */ ); /* fin: close stream after sending. last byte of transmission */
         FD_LOG_DEBUG(( "fd_quic_stream_send returned %d", rc ));
 
-        if( rc == 1 ) {
+        if( rc == FD_QUIC_SUCCESS ) {
           sent++;
           /* successful - stream will begin closing */
           /* stream and meta will be recycled when quic notifies the stream
@@ -212,13 +204,13 @@ run_quic_client(
         }
       } else {
         if( client_conn ) {
-          cur_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_UNIDIR );
+          cur_stream = fd_quic_conn_new_stream( client_conn );
         }
         break;
       }
 
       if( client_conn && !cur_stream ) {
-        cur_stream = fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_UNIDIR );
+        cur_stream = fd_quic_conn_new_stream( client_conn );
       }
     }
 
@@ -278,7 +270,6 @@ main( int argc, char ** argv ) {
 
   fd_quic_limits_t quic_limits = {0};
   fd_quic_limits_from_env( &argc, &argv, &quic_limits );
-  quic_limits.conn_id_sparsity = 4.0;
 
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
   FD_TEST( quic_footprint );
@@ -297,7 +288,6 @@ main( int argc, char ** argv ) {
   fd_quic_config_t * client_cfg = &quic->config;
   client_cfg->role = FD_QUIC_ROLE_CLIENT;
   FD_TEST( fd_quic_config_from_env( &argc, &argv, client_cfg ) );
-  memcpy( client_cfg->link.dst_mac_addr, gateway, 6UL );
   client_cfg->net.ip_addr         = udpsock->listen_ip;
   client_cfg->net.ephem_udp_port.lo = (ushort)udpsock->listen_port;
   client_cfg->net.ephem_udp_port.hi = (ushort)(udpsock->listen_port + 1);

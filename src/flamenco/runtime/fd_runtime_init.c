@@ -3,9 +3,7 @@
 #include "../types/fd_types.h"
 #include "context/fd_exec_epoch_ctx.h"
 #include "context/fd_exec_slot_ctx.h"
-
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
+#include "../../ballet/lthash/fd_lthash.h"
 
 /* This file must not depend on fd_executor.h */
 
@@ -54,7 +52,7 @@ fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx ) {
   }
   FD_TEST(ctx.data == ctx.dataend);
 
-  FD_LOG_DEBUG(("epoch frozen, slot=%d bank_hash=%32J poh_hash=%32J", slot_ctx->slot_bank.slot, slot_ctx->slot_bank.banks_hash.hash, slot_ctx->slot_bank.poh.hash));
+  FD_LOG_DEBUG(( "epoch frozen, slot=%lu bank_hash=%s poh_hash=%s", slot_ctx->slot_bank.slot, FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.banks_hash.hash ), FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.poh.hash ) ));
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
@@ -116,7 +114,10 @@ int fd_runtime_save_slot_bank(fd_exec_slot_ctx_t *slot_ctx)
   }
   FD_TEST(ctx.data == ctx.dataend);
 
-  // FD_LOG_DEBUG(("slot frozen, slot=%d bank_hash=%32J poh_hash=%32J", slot_ctx->slot_bank.slot, slot_ctx->slot_bank.banks_hash.hash, slot_ctx->slot_bank.poh.hash));
+  FD_LOG_DEBUG(( "slot frozen, slot=%lu bank_hash=%s poh_hash=%s",
+                 slot_ctx->slot_bank.slot,
+                 FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.banks_hash.hash ),
+                 FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.poh.hash ) ));
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
@@ -158,7 +159,7 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first, int c
   fd_exec_epoch_ctx_t * epoch_ctx    = slot_ctx->epoch_ctx;
   {
     fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
-    fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
+    fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id, NULL);
     if ( rec == NULL )
       FD_LOG_ERR(("failed to read banks record: missing record"));
     void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
@@ -196,7 +197,7 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first, int c
       fd_slot_bank_destroy(&slot_ctx->slot_bank, &ctx);
     }
     fd_funk_rec_key_t id = fd_runtime_slot_bank_key();
-    fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id);
+    fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id, NULL);
     if ( rec == NULL )
       FD_LOG_ERR(("failed to read banks record: missing record"));
     void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
@@ -218,15 +219,20 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first, int c
       FD_LOG_ERR(("failed to read banks record: invalid magic number"));
     }
 
-    FD_LOG_NOTICE(( "recovered slot_bank for slot=%ld banks_hash=%32J poh_hash %32J lthash %32J",
+    FD_LOG_NOTICE(( "recovered slot_bank for slot=%ld banks_hash=%s poh_hash %s lthash %s",
                     (long)slot_ctx->slot_bank.slot,
-                    slot_ctx->slot_bank.banks_hash.hash,
-                    slot_ctx->slot_bank.poh.hash,
-                    slot_ctx->slot_bank.lthash ));
+                    FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.banks_hash.hash ),
+                    FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.poh.hash ),
+                    FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *) slot_ctx->slot_bank.lthash.lthash ) ));
 
     slot_ctx->slot_bank.collected_execution_fees = 0;
     slot_ctx->slot_bank.collected_priority_fees = 0;
     slot_ctx->slot_bank.collected_rent = 0;
+    slot_ctx->txn_count = 0;
+    slot_ctx->nonvote_txn_count = 0;
+    slot_ctx->failed_txn_count = 0;
+    slot_ctx->nonvote_failed_txn_count = 0;
+    slot_ctx->total_compute_units_used = 0;
   }
 
 }
@@ -257,6 +263,10 @@ fd_feature_restore( fd_exec_slot_ctx_t * slot_ctx,
   if (FD_UNLIKELY(err != FD_ACC_MGR_SUCCESS))
     return;
 
+  // Skip reverted features
+  if ( id->reverted )
+    return;
+
   fd_feature_t feature[1];
 
   FD_SCRATCH_SCOPE_BEGIN
@@ -270,15 +280,15 @@ fd_feature_restore( fd_exec_slot_ctx_t * slot_ctx,
     int decode_err = fd_feature_decode(feature, &ctx);
     if (FD_UNLIKELY(decode_err != FD_BINCODE_SUCCESS))
     {
-      FD_LOG_ERR(("Failed to decode feature account %32J (%d)", acct, decode_err));
+      FD_LOG_ERR(("Failed to decode feature account %s (%d)", FD_BASE58_ENC_32_ALLOCA( acct ), decode_err));
       return;
     }
 
     if( feature->has_activated_at ) {
-      FD_LOG_INFO(( "Feature %32J activated at %lu", acct, feature->activated_at ));
+      FD_LOG_INFO(( "Feature %s activated at %lu", FD_BASE58_ENC_32_ALLOCA( acct ), feature->activated_at ));
       fd_features_set(&slot_ctx->epoch_ctx->features, id, feature->activated_at);
     } else {
-      FD_LOG_DEBUG(( "Feature %32J not activated at %lu", acct, feature->activated_at ));
+      FD_LOG_DEBUG(( "Feature %s not activated at %lu", FD_BASE58_ENC_32_ALLOCA( acct ), feature->activated_at ));
     }
     /* No need to call destroy, since we are using fd_scratch allocator. */
   } FD_SCRATCH_SCOPE_END;

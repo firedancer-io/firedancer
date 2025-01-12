@@ -21,13 +21,8 @@
 #define FD_TPU_REASM_MTU       (FD_TPU_REASM_CHUNK_MTU<<FD_CHUNK_LG_SZ)
 
 #define FD_TPU_REASM_ALIGN FD_CHUNK_ALIGN
-#define FD_TPU_REASM_FOOTPRINT( depth, burst )                                                              \
-  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND ( FD_LAYOUT_APPEND ( FD_LAYOUT_INIT, \
-    FD_TPU_REASM_ALIGN,           sizeof(fd_tpu_reasm_t)                        ), /* hdr       */           \
-    alignof(uint),                 (depth)         *sizeof(uint)                ), /* pub_slots */           \
-    alignof(fd_tpu_reasm_slot_t), ((depth)+(burst))*sizeof(fd_tpu_reasm_slot_t) ), /* slots     */           \
-    FD_CHUNK_ALIGN,               ((depth)+(burst))*FD_TPU_REASM_MTU            ), /* chunks    */           \
-    FD_TPU_REASM_ALIGN )
+
+#define FD_TPU_REASM_REQ_DATA_SZ(depth, reasm_max) (((depth)+(reasm_max))*FD_TPU_REASM_MTU)
 
 /* FD_TPU_REASM_{SUCCESS,ERR_{...}} are error codes.  These values are
    persisted to logs.  Entries should not be renumbered and numeric
@@ -114,21 +109,45 @@
    mirroring the set of packets exposed downstream (notwithstanding a
    startup transient of up to depth packets).  This also guarantees that
    the number of slots in the FREE and BUSY states is kept at _exactly_
-   burst at all times.
+   reasm_max at all times.
 
    In order to support the above, the 'pub_slots' lookup table tracks
    which published mcache lines (indexed by `seq % depth`) correspond to
    which slot indexes. */
 
-struct fd_tpu_reasm_slot;
+
+/* fd_tpu_reasm_slot_t holds a message reassembly buffer.
+   Carefully tuned to 32 byte size. */
+
+struct fd_tpu_reasm_key {
+  ulong conn_uid; /* ULONG_MAX means invalid */
+  ulong stream_id : 48;
+  ulong sz        : 14;
+  ulong state     : 2;
+};
+
+#define FD_TPU_REASM_SID_MASK (0xffffffffffffUL)
+#define FD_TPU_REASM_SZ_MASK  (0x3fffUL)
+
+typedef struct fd_tpu_reasm_key fd_tpu_reasm_key_t;
+
+struct __attribute__((aligned(16))) fd_tpu_reasm_slot {
+  fd_tpu_reasm_key_t k; /* FIXME ugly: the compound key has to be a single struct member */
+  uint lru_prev;
+  uint lru_next;
+  uint chain_next;
+  uint tsorig_comp;
+};
+
 typedef struct fd_tpu_reasm_slot fd_tpu_reasm_slot_t;
 
 struct __attribute__((aligned(FD_TPU_REASM_ALIGN))) fd_tpu_reasm {
   ulong magic;  /* ==FD_TPU_REASM_MAGIC */
 
-  ulong slots_off;     /* slots mem     */
-  ulong pub_slots_off; /* pub_slots mem */
-  ulong chunks_off;    /* payload mem   */
+  ulong   slots_off;     /* slots mem     */
+  ulong   pub_slots_off; /* pub_slots mem */
+  ulong   map_off;       /* map mem */
+  uchar * dcache;        /* points to first dcache data byte in local address space */
 
   uint   depth;       /* mcache depth */
   uint   burst;       /* max concurrent reassemblies */
@@ -142,30 +161,30 @@ struct __attribute__((aligned(FD_TPU_REASM_ALIGN))) fd_tpu_reasm {
 
 typedef struct fd_tpu_reasm fd_tpu_reasm_t;
 
-/* fd_tpu_reasm_slot_t holds a message reassembly buffer. */
-
-struct __attribute__((aligned(16UL))) fd_tpu_reasm_slot {
-
-  ulong  conn_id;
-  ulong  stream_id;
-
-  /* Private fields ... */
-
-  uint   prev_idx;  /* unused for now */
-  uint   next_idx;
-
-  uint   tsorig;
-  ushort sz;
-  uchar  state;
-};
-
 FD_PROTOTYPES_BEGIN
+
+/* Private accessors */
+
+static inline FD_FN_PURE fd_tpu_reasm_slot_t *
+fd_tpu_reasm_slots_laddr( fd_tpu_reasm_t * reasm ) {
+  return (fd_tpu_reasm_slot_t *)( (ulong)reasm + reasm->slots_off );
+}
+
+static inline FD_FN_PURE fd_tpu_reasm_slot_t const *
+fd_tpu_reasm_slots_laddr_const( fd_tpu_reasm_t const * reasm ) {
+  return (fd_tpu_reasm_slot_t const *)( (ulong)reasm + reasm->slots_off );
+}
+
+static inline FD_FN_PURE uint *
+fd_tpu_reasm_pub_slots_laddr( fd_tpu_reasm_t * reasm ) {
+  return (uint *)( (ulong)reasm + reasm->pub_slots_off );
+}
 
 /* Construction API */
 
 /* fd_tpu_reasm_{align,footprint} return the required alignment and
    footprint of a memory region suitable for use as a tpu_reasm that
-   can reassemble up to 'burst' txns concurrently.  'depth' is the
+   can reassemble up to 'reasm_max' txns concurrently.  'depth' is the
    entry count of the target mcache.  mtu is the max sz of a serialized
    txn (usually FD_TXN_MTU). */
 
@@ -173,20 +192,30 @@ FD_FN_CONST ulong
 fd_tpu_reasm_align( void );
 
 FD_FN_CONST ulong
-fd_tpu_reasm_footprint( ulong depth,  /* Assumed in {2^0,2^1,2^2,...,2^31} */
-                        ulong burst   /* Assumed in [1,2^31) */ );
+fd_tpu_reasm_footprint( ulong depth,       /* Assumed in {2^0,2^1,2^2,...,2^31} */
+                        ulong reasm_max ); /* Assumed in [1,2^31) */
+
+FD_FN_CONST static inline ulong
+fd_tpu_reasm_req_data_sz( ulong depth,
+                          ulong reasm_max ) { /* Assumed in [1,2^31) */
+  return (depth+reasm_max) * FD_TPU_REASM_MTU;
+}
 
 /* fd_tpu_reasm_new formats an unused memory region for use as a
    tpu_reasm.  shmem is a non-NULL pointer to this region in the local
    address space with the required footprint and alignment.  {depth,
-   burst,mtu} as described above.  orig is the Tango origin ID of this
-   tpu_reasm. */
+   reasm_max,mtu} as described above.  orig is the Tango origin ID of
+   this tpu_reasm.  dcache is a local join to an fd_dcache that
+   tpu_reasm will write frags to.  dcache should have at least
+   fd_tpu_reasm_req_data_sz() bytes of data_sz.  The dcache app region
+   is ignored and not written to. */
 
 void *
 fd_tpu_reasm_new( void * shmem,
-                  ulong  depth,  /* Assumed in {2^0,2^1,2^2,...,2^32} */
-                  ulong  burst,  /* Assumed in [1,2^32) */
-                  ulong  orig    /* Assumed in [0,FD_FRAG_META_ORIG_MAX) */ );
+                  ulong  depth,     /* Assumed in {2^0,2^1,2^2,...,2^32} */
+                  ulong  reasm_max, /* Assumed in [1,2^32) */
+                  ulong  orig,      /* Assumed in [0,FD_FRAG_META_ORIG_MAX) */
+                  void * dcache );
 
 fd_tpu_reasm_t *
 fd_tpu_reasm_join( void * shreasm );
@@ -199,16 +228,37 @@ fd_tpu_reasm_delete( void * shreasm );
 
 /* Accessor API */
 
-/* fd_tpu_reasm_prepare starts a new stream reassembly.  If more than
-   'burst' reassemblies are active, cancels the oldest active.  Returns
-   a pointer to the acquired slot.  User is expected to set conn_id and
-   stream_id of slot. */
+fd_tpu_reasm_slot_t *
+fd_tpu_reasm_query( fd_tpu_reasm_t * reasm,
+                    ulong            conn_uid,
+                    ulong            stream_id );
+
+FD_FN_PURE static inline fd_tpu_reasm_slot_t *
+fd_tpu_reasm_peek_tail( fd_tpu_reasm_t * reasm ) {
+  uint                  tail_idx = reasm->tail;
+  fd_tpu_reasm_slot_t * tail     = fd_tpu_reasm_slots_laddr( reasm ) + tail_idx;
+  return tail;
+}
 
 fd_tpu_reasm_slot_t *
 fd_tpu_reasm_prepare( fd_tpu_reasm_t * reasm,
-                      ulong            tsorig );
+                      ulong            conn_uid,
+                      ulong            stream_id,
+                      long             tspub );
 
-/* fd_tpu_reasm_append appends a new stream frag to the reasm slot.
+static inline fd_tpu_reasm_slot_t *
+fd_tpu_reasm_acquire( fd_tpu_reasm_t * reasm,
+                      ulong            conn_uid,
+                      ulong            stream_id,
+                      long             tspub ) {
+  fd_tpu_reasm_slot_t * slot = fd_tpu_reasm_query( reasm, conn_uid, stream_id );
+  if( !slot ) {
+    slot = fd_tpu_reasm_prepare( reasm, conn_uid, stream_id, tspub );
+  }
+  return slot;
+}
+
+/* fd_tpu_reasm_frag appends a new stream frag to the reasm slot.
    [data,data+data_sz) is the memory region containing the stream data.
    data_off is the offset of this stream data.  Slot reassembly buffer
    is appended with copy of [data,data+data_sz) on success.  On failure,
@@ -217,6 +267,7 @@ fd_tpu_reasm_prepare( fd_tpu_reasm_t * reasm,
    Return values one of:
 
      FD_TPU_REASM_SUCCESS:   success, fragment added to reassembly
+     FD_TPU_REASM_EAGAIN:    incomplete
      FD_TPU_REASM_ERR_SZ:    fail, data_off + data_sz  > mtu
      FD_TPU_REASM_ERR_SKIP:  fail, data_off - slot->sz > 0
 
@@ -224,11 +275,11 @@ fd_tpu_reasm_prepare( fd_tpu_reasm_t * reasm,
    specific allowances for delivery of stream data out of order." */
 
 int
-fd_tpu_reasm_append( fd_tpu_reasm_t *      reasm,
-                     fd_tpu_reasm_slot_t * slot,
-                     uchar const *         data,
-                     ulong                 data_sz,
-                     ulong                 data_off );
+fd_tpu_reasm_frag( fd_tpu_reasm_t *      reasm,
+                   fd_tpu_reasm_slot_t * slot,
+                   uchar const *         data,
+                   ulong                 sz,
+                   ulong                 off );
 
 /* fd_tpu_reasm_publish completes a stream reassembly and publishes the
    message to an mcache for downstream consumption.  base is the address
@@ -243,13 +294,60 @@ fd_tpu_reasm_publish( fd_tpu_reasm_t *      reasm,
                       fd_frag_meta_t *      mcache,
                       void *                base,  /* Assumed aligned FD_CHUNK_ALIGN */
                       ulong                 seq,
-                      ulong                 tspub );
+                      long                  tspub );
+
+/* fd_tpu_reasm_publish_fast is a streamlined version of acquire/frag/
+   publish. */
+
+int
+fd_tpu_reasm_publish_fast( fd_tpu_reasm_t * reasm,
+                           uchar const *    data,
+                           ulong            sz,
+                           fd_frag_meta_t * mcache,
+                           void *           base,  /* Assumed aligned FD_CHUNK_ALIGN */
+                           ulong            seq,
+                           long             tspub );
 
 /* fd_tpu_reasm_cancel cancels the given stream reassembly. */
 
 void
 fd_tpu_reasm_cancel( fd_tpu_reasm_t *      reasm,
                      fd_tpu_reasm_slot_t * slot );
+
+/* fd_tpu_reasm_key_hash is an unrolled version of fd_hash (xxhash-r39) */
+
+#define C1 (11400714785074694791UL)
+#define C2 (14029467366897019727UL)
+#define C3 ( 1609587929392839161UL)
+#define C4 ( 9650029242287828579UL)
+#define C5 ( 2870177450012600261UL)
+
+static inline ulong
+fd_tpu_reasm_key_hash( fd_tpu_reasm_key_t const * k,
+                       ulong                      seed ) {
+
+  ulong h  = seed + C5 + 16UL;
+  ulong w0 = k->conn_uid;
+  ulong w1 = k->stream_id;
+
+  w0 *= C2; w0 = fd_ulong_rotate_left( w0, 31 ); w0 *= C1; h ^= w0; h = fd_ulong_rotate_left( h, 27 )*C1 + C4;
+  w1 *= C2; w1 = fd_ulong_rotate_left( w1, 31 ); w1 *= C1; h ^= w1; h = fd_ulong_rotate_left( h, 27 )*C1 + C4;
+
+  /* Final avalanche */
+  h ^= h >> 33;
+  h *= C2;
+  h ^= h >> 29;
+  h *= C3;
+  h ^= h >> 32;
+
+  return h;
+}
+
+#undef C1
+#undef C2
+#undef C3
+#undef C4
+#undef C5
 
 FD_PROTOTYPES_END
 

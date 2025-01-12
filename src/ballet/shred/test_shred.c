@@ -99,6 +99,8 @@ main( int     argc,
 
     /* Test type-specific bounds checks */
     if( FD_LIKELY( is_valid )) {
+      buf[0x53] = buf[0x55] = (uchar)is_code; /* Set data_cnt, code_cnt to 1 */
+
       /* Test merkle node count */
       uint merkle_cnt = fd_shred_merkle_cnt( (uchar)i );
       FD_TEST( (is_merkle || merkle_cnt==0) && merkle_cnt<=16 );

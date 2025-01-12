@@ -88,7 +88,7 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
   ulong payload_mask = fd_keyguard_payload_match( data, sz, sign_type );
   int   match_cnt    = fd_ulong_popcnt( payload_mask );
   if( FD_UNLIKELY( payload_mask==0UL ) ) {
-    FD_LOG_WARNING(( "unrecognized payload type (role=%#x)", role ));
+    FD_LOG_WARNING(( "unrecognized payload type (role=%#x)", (uint)role ));
   }
 
   int is_ambiguous = match_cnt != 1;
@@ -102,7 +102,7 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
             FD_KEYGUARD_PAYLOAD_PRUNE  ) ) );
 
   if( FD_UNLIKELY( is_ambiguous && !is_gossip_repair ) ) {
-    FD_LOG_WARNING(( "ambiguous payload type (role=%#x mask=%#lx)", role, payload_mask ));
+    FD_LOG_WARNING(( "ambiguous payload type (role=%#x mask=%#lx)", (uint)role, payload_mask ));
   }
 
   /* Authorize each role */
@@ -150,16 +150,24 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
     /* no further restrictions on shred */
     return 1;
 
-  case FD_KEYGUARD_ROLE_QUIC:
-    if( FD_UNLIKELY( payload_mask != FD_KEYGUARD_PAYLOAD_TLS_CV ) ) {
-      FD_LOG_WARNING(( "unauthorized payload type for quic (mask=%#lx)", payload_mask ));
+  case FD_KEYGUARD_ROLE_BUNDLE:
+    if( FD_UNLIKELY( payload_mask != FD_KEYGUARD_PAYLOAD_BUNDLE ) ) {
+      FD_LOG_WARNING(( "unauthorized payload type for bundle (mask=%#lx)", payload_mask ));
       return 0;
     }
-    /* no further restrictions on TLS CertificateVerify */
+    /* no further restrictions on bundle */
+    return 1;
+
+  case FD_KEYGUARD_ROLE_EVENT:
+    if( FD_UNLIKELY( payload_mask != FD_KEYGUARD_PAYLOAD_EVENT ) ) {
+      FD_LOG_WARNING(( "unauthorized payload type for event (mask=%#lx)", payload_mask ));
+      return 0;
+    }
+    /* no further restrictions on event */
     return 1;
 
   default:
-    FD_LOG_WARNING(( "unsupported role=%#x", role ));
+    FD_LOG_WARNING(( "unsupported role=%#x", (uint)role ));
     return 0;
   }
 }

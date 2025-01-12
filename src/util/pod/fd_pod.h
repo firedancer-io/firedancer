@@ -437,7 +437,7 @@ fd_pod_reset( uchar * pod ) {
    Returns the achieved max on success and 0 on failure (pod is NULL,
    new_max<pod used).  Achieved max is usually new_max but there are
    rare edge cases.  E.g. pod_max==64, pod_used==64, new_max==65 ... the
-   pod header needs to be expanded by 3 bytes to to accommodate new_max
+   pod header needs to be expanded by 3 bytes to accommodate new_max
    (and potentially wider pod_used and pod_cnt) but that leaves 2 few
    bytes space to encode the existing pod key-val pairs.
 

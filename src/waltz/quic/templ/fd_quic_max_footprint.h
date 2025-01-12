@@ -36,34 +36,17 @@
     char NAME[8];
 
 
-/* determines the footprint of unaligned bits */
-#define FD_TEMPL_MBR_ELEM_BITS(NAME,TYPE,BITS)                           \
-    char NAME[(BITS+7u)>>3u];
-
-#define FD_TEMPL_MBR_ELEM_BITS_TYPE(NAME,TYPE,BITS,CODE) \
-          FD_TEMPL_MBR_ELEM_BITS(NAME,TYPE,BITS)
+#define FD_TEMPL_MBR_ELEM_VAR(NAME,MIN,MAX,LEN_NAME) \
+    char NAME[MAX];
 
 
-/* VAR currently assumed to be aligned bytes */
-#define FD_TEMPL_MBR_ELEM_VAR(NAME,BITS_MIN,BITS_MAX,LEN_NAME)           \
-    char NAME[(BITS_MAX+7u)>>3u];
+#define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,MIN,MAX,LEN_NAME) \
+    char NAME[MAX];
 
 
-/* VAR_RAW currently assumed to be aligned bytes */
-#define FD_TEMPL_MBR_ELEM_VAR_RAW(NAME,BITS_MIN,BITS_MAX,LEN_NAME)       \
-    char NAME[(BITS_MAX+7u)>>3u];
+#define FD_TEMPL_MBR_ELEM_RAW(NAME,BYTES) \
+    char NAME[BYTES];
 
-/* determine the footprint of encoded ARRAY */
-#define FD_TEMPL_MBR_ELEM_ARRAY(NAME,TYPE,BYTES_MIN,BYTES_MAX)           \
-    char NAME[(FD_TEMPL_ENCODE_FP(TYPE)) * (BYTES_MAX)];
-
-/* FIXED is an array of elements, each of the same size,
-   with length constant */
-#define FD_TEMPL_MBR_ELEM_FIXED(NAME,TYPE,ELEMS)                         \
-    char NAME[ELEMS * sizeof( fd_quic_##TYPE )];
-
-/* TODO remove abort() once tested */
-#define FD_TEMPL_MBR_OPT(TYPE,NAME,MASK,...)
 
 /* at end, return the number of bytes consumed */
 #define FD_TEMPL_DEF_STRUCT_END(NAME)                                    \

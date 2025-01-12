@@ -1,7 +1,8 @@
 #ifndef HEADER_fd_src_ballet_shred_fd_shred_h
 #define HEADER_fd_src_ballet_shred_fd_shred_h
 
-#include <stdio.h>
+#include "../bmtree/fd_bmtree.h"
+
 /* Shreds form the on-wire representation of Solana block data
    optimized for transmission over unreliable links/WAN.
 
@@ -120,6 +121,8 @@
 #define FD_SHRED_MERKLE_ROOT_SZ (32UL)
 /* FD_SHRED_MERKLE_NODE_SZ: the size of a merkle inclusion proof node in bytes. */
 #define FD_SHRED_MERKLE_NODE_SZ (20UL)
+/* FD_SHRED_MERKLE_LAYER_CNT: the count of inclusion proof layers in the binary merkle tree. */
+#define FD_SHRED_MERKLE_LAYER_CNT (10UL)
 /* FD_SHRED_SIGNATURE_SZ: the size of a signature in a shred. */
 #define FD_SHRED_SIGNATURE_SZ (64UL)
 /* A merkle inclusion proof node. */
@@ -137,6 +140,9 @@ typedef uchar fd_shred_merkle_t[FD_SHRED_MERKLE_NODE_SZ];
 
 /* Maximum number of data shreds in a slot, also maximum number of parity shreds in a slot */
 #define FD_SHRED_MAX_PER_SLOT (1 << 15UL) /* 32,768 shreds */
+
+/* Offset of the shred variant. Used for parsing. */
+#define FD_SHRED_VARIANT_OFF 0x40
 
 /* Firedancer-specific internal error codes.
 
@@ -190,14 +196,16 @@ struct __attribute__((packed)) fd_shred {
   /* Hash of the genesis version and historical hard forks of the current chain */
   /* 0x4d */ ushort version;
 
-  /* Index into the vector of FEC sets for this slot */
+  /* Index into the vector of FEC sets for this slot. For data shreds, fec_set_idx<=idx. */
   /* 0x4f */ uint   fec_set_idx;
 
   union {
     /* Common data shred header */
-    struct __attribute__((packed)) {
+    struct __attribute__((packed)) fd_shred_data {
       /* Slot number difference between this block and the parent block.
-         Always greater than zero. */
+         parent_off <= slot.
+         Always greater than zero, except for slot 0, in which case the
+         previous invariant forces this to be 0. */
       /* 0x53 */ ushort parent_off;
 
       /* Bit field (MSB first)
@@ -213,27 +221,32 @@ struct __attribute__((packed)) fd_shred {
     } data;
 
     /* Common coding shred header */
-    struct __attribute__((packed)) {
-      /* Total number of data shreds in slot */
+    struct __attribute__((packed)) fd_shred_code {
+      /* Total number of data shreds in slot. Must be positive. */
       /* 0x53 */ ushort data_cnt;
 
-      /* Total number of coding shreds in slot */
+      /* Total number of coding shreds in slot. Must be positive. */
       /* 0x55 */ ushort code_cnt;
 
-      /* Index within the vector of coding shreds in slot */
+      /* Index within the vector of coding shreds in slot. In [0,
+         code_cnt).  Also, shred.code.idx <= shred.idx. */
       /* 0x57 */ ushort idx;
     } code;
   };
 };
+typedef struct fd_shred_data fd_shred_data_t;
+typedef struct fd_shred_code fd_shred_code_t;
 typedef struct fd_shred fd_shred_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_shred_parse: Parses and validates an untrusted shred header.
-   The provided buffer must be at least FD_SHRED_MIN_SZ bytes long.
+/* fd_shred_parse: Parses and validates an untrusted shred stored in
+   bytes buf[i] for i in [0, sz).  sz must be at least FD_SHRED_MIN_SZ
+   bytes.  Allows trailing data.
 
-   The returned pointer either equals the input pointer
-   or is NULL if the given shred is malformed. */
+   The returned pointer either equals the input pointer or is NULL if
+   the given shred is malformed or violates any invariants described
+   above. */
 FD_FN_PURE fd_shred_t const *
 fd_shred_parse( uchar const * buf,
                 ulong         sz );
@@ -371,6 +384,14 @@ fd_shred_merkle_nodes( fd_shred_t const * shred ) {
   return (fd_shred_merkle_t const *)ptr;
 }
 
+/* fd_shred_merkle_root: Assuming that `shred` is a Merkle variant,
+   reconstructs the merkle root from a shred and populates it in
+   root_out.  Returns 1 on success, 0 on failure.  The output value must
+   be ignored if a failure is returned.  U.B. if the shred is not a
+   merkle variant. */
+FD_FN_PURE int
+fd_shred_merkle_root( fd_shred_t const * shred, void * bmtree_mem, fd_bmtree_node_t * root_out );
+
 /* fd_shred_data_payload: Returns a pointer to a data shred payload.
 
   The provided shred must have passed validation in fd_shred_parse(),
@@ -396,7 +417,7 @@ fd_shred_code_payload( fd_shred_t const * shred ) {
    of the chained Merkle root.  U.B. if the shred is not a chained
    variant. */
 FD_FN_CONST static inline ulong
-fd_shred_chain_offset( uchar variant ) {
+fd_shred_chain_off( uchar variant ) {
   ulong type = fd_shred_type( variant );
   return fd_ulong_if( type & FD_SHRED_TYPEMASK_CODE, FD_SHRED_MAX_SZ, FD_SHRED_MIN_SZ )
     - FD_SHRED_MERKLE_ROOT_SZ

@@ -7,6 +7,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <assert.h>
 
 #include "fd_types_meta.h"
 #include "../fd_flamenco.h"
@@ -80,17 +81,15 @@ LLVMFuzzerInitialize( int  *   argc,
   return 0;
 }
 
-static int
+static void
 fd_decode_fuzz_data( char  const * type_name,
                      uchar const * data,
                      ulong         size ) {
 
   FD_SCRATCH_SCOPE_BEGIN {
-
     fd_types_funcs_t type_meta;
     if( fd_flamenco_type_lookup( type_name, &type_meta ) != 0 ) {
       FD_LOG_ERR (( "Failed to lookup type %s", type_name ));
-      return -1;
     }
 
     fd_bincode_decode_ctx_t decode_ctx = {
@@ -99,16 +98,13 @@ fd_decode_fuzz_data( char  const * type_name,
       .valloc  = fd_scratch_virtual()
     };
     void * decoded = fd_scratch_alloc( type_meta.align_fun(), type_meta.footprint_fun() );
-    if( decoded == NULL ) {
+    if( FD_UNLIKELY( decoded == NULL ) ) {
       FD_LOG_ERR (( "Failed to alloc memory for decoded type %s", type_name ));
-      return -1;
     }
     int err = type_meta.decode_fun( decoded, &decode_ctx );
     __asm__ volatile( "" : "+m,r"(err) : : "memory" ); /* prevent optimization */
 
   } FD_SCRATCH_SCOPE_END;
-
-  return 0;
 }
 
 #include "fd_type_names.c"
@@ -116,12 +112,22 @@ fd_decode_fuzz_data( char  const * type_name,
 int
 LLVMFuzzerTestOneInput( uchar const * data,
                         ulong         size ) {
-  uint i;
-  for( i = 0; i < FD_TYPE_NAME_COUNT; i++) {
-    if( fd_decode_fuzz_data( fd_type_names[i], data, size ) == -1 ) {
-      return -1;
-    }
+  if ( FD_UNLIKELY( size == 0 ) ) {
+    return 0;
   }
+
+  assert( FD_TYPE_NAME_COUNT < 256 );
+  ulong i = data[0] % FD_TYPE_NAME_COUNT;
+  data = data + 1;
+  size = size - 1;
+
+  /* fd_pubkey is a #define alias for fd_hash.  It is therefore already
+     fuzzed. Furthermore, dlsym will not be able to find a #define. */
+  if ( FD_UNLIKELY( strcmp( fd_type_names[i], "fd_pubkey" ) == 0 ) ) {
+    return -1;
+  }
+
+  fd_decode_fuzz_data( fd_type_names[i], data, size );
 
   return 0;
 }

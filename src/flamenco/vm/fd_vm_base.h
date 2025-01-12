@@ -38,25 +38,22 @@
 #define FD_VM_ERR_SIGSEGV     (-13) /* illegal memory address (e.g. read/write to an address not backed by any memory) */
 #define FD_VM_ERR_SIGBUS      (-14) /* misaligned memory address (e.g. read/write to an address with inappropriate alignment) */
 #define FD_VM_ERR_SIGRDONLY   (-15) /* illegal write (e.g. write to a read only address) */
-#define FD_VM_ERR_SIGCOST     (-16) /* compute unit limit exceeded (syscalls that exceed their budget should use this too) */
-#define FD_VM_ERR_INVALID_PDA (-17) /* the computed pda was not a valid ed25519 point */
+#define FD_VM_ERR_SIGCOST     (-16) /* compute unit limit exceeded */
+// #define FD_VM_ERR_INVALID_PDA (-17) /* (deprecated, moved to syscall error) the computed pda was not a valid ed25519 point */
 #define FD_VM_ERR_SIGFPE      (-18) /* divide by zero */
+#define FD_VM_ERR_SIGFPE_OF   (-19) /* divide overflow */
+#define FD_VM_ERR_SIGSYSCALL  (-20) /* Generic syscall error */
+#define FD_VM_ERR_SIGABORT    (-21) /* Generic abort error (used in JIT) */
 
-/* FIXME: Are these exact matches to Solana?  If so, provide link, if
-   not, document and refine name / consolidate further. */
+/* (DEPRECATED) VM syscall error codes.  These are only produced by fd_vm_syscall
+   implementations. */
 
-/* VM syscall error codes.  These are only produced by fd_vm_syscall
-   implementations.  FIXME: Consider having syscalls return standard
-   error codes and then provide detail like this through an info arg.
-   FIXME: Are these exact matches to Solana?  If so, provide link?  If
-   not document and refine names / consolidate further. */
-
-#define FD_VM_ERR_ABORT                        (-19) /* FIXME: description */
-#define FD_VM_ERR_PANIC                        (-20) /* FIXME: description */
-#define FD_VM_ERR_MEM_OVERLAP                  (-21) /* FIXME: description */
-#define FD_VM_ERR_INSTR_ERR                    (-22) /* FIXME: description */
-#define FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED (-23) /* FIXME: description */
-#define FD_VM_ERR_RETURN_DATA_TOO_LARGE        (-24) /* FIXME: description */
+// #define FD_VM_ERR_ABORT                        (-119) /* FIXME: description */
+// #define FD_VM_ERR_PANIC                        (-120) /* FIXME: description */
+// #define FD_VM_ERR_MEM_OVERLAP                  (-121) /* FIXME: description */
+// #define FD_VM_ERR_INSTR_ERR                    (-22) /* FIXME: description  */
+// #define FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED (-23) /* FIXME: description  */
+// #define FD_VM_ERR_RETURN_DATA_TOO_LARGE        (-24) /* FIXME: description  */
 
 /* sBPF validation error codes.  These are only produced by
    fd_vm_validate.  FIXME: Consider having fd_vm_validate return
@@ -78,16 +75,69 @@
 #define FD_VM_ERR_BAD_TEXT          (-36) /* detected a bad text section (overflow, outside rodata boundary, etc.,)*/
 #define FD_VM_SH_OVERFLOW           (-37) /* detected a shift overflow, equivalent to VeriferError::ShiftWithOverflow */
 #define FD_VM_TEXT_SZ_UNALIGNED     (-38) /* detected a text section that is not a multiple of 8 */
+#define FD_VM_INVALID_FUNCTION      (-39) /* detected an invalid function */
+#define FD_VM_INVALID_SYSCALL       (-40) /* detected an invalid syscall */
 
-/* Error codes related to CPI syscall.
-   FIXME: Should this be in fd_executor_err.h instead?
-          Or a separate file for syscall errors? */
+/* Syscall Errors
+   https://github.com/anza-xyz/agave/blob/v2.0.7/programs/bpf_loader/src/syscalls/mod.rs#L81 */
 
-#define FD_VM_CPI_ERR_TOO_MANY_SIGNERS       (-39) /* detected too many signers */
-#define FD_VM_CPI_ERR_TOO_MANY_ACC_INFOS     (-40) /* detected too many account infos */
-#define FD_VM_CPI_ERR_INSTR_TOO_LARGE        (-41) /* detected too many account infos meta */
-#define FD_VM_CPI_ERR_INSTR_DATA_TOO_LARGE   (-42) /* detected instruction data too large */
-#define FD_VM_CPI_ERR_TOO_MANY_ACC_METAS     (-43) /* detected too many account metas */
+#define FD_VM_SYSCALL_ERR_INVALID_STRING                          (-1)
+#define FD_VM_SYSCALL_ERR_ABORT                                   (-2)
+#define FD_VM_SYSCALL_ERR_PANIC                                   (-3)
+#define FD_VM_SYSCALL_ERR_INVOKE_CONTEXT_BORROW_FAILED            (-4)
+#define FD_VM_SYSCALL_ERR_MALFORMED_SIGNER_SEED                   (-5)
+#define FD_VM_SYSCALL_ERR_BAD_SEEDS                               (-6)
+#define FD_VM_SYSCALL_ERR_PROGRAM_NOT_SUPPORTED                   (-7)
+#define FD_VM_SYSCALL_ERR_UNALIGNED_POINTER                       (-8)
+#define FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS                        (-9)
+#define FD_VM_SYSCALL_ERR_INSTRUCTION_TOO_LARGE                   (-10)
+#define FD_VM_SYSCALL_ERR_TOO_MANY_ACCOUNTS                       (-11)
+#define FD_VM_SYSCALL_ERR_COPY_OVERLAPPING                        (-12)
+#define FD_VM_SYSCALL_ERR_RETURN_DATA_TOO_LARGE                   (-13)
+#define FD_VM_SYSCALL_ERR_TOO_MANY_SLICES                         (-14)
+#define FD_VM_SYSCALL_ERR_INVALID_LENGTH                          (-15)
+#define FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_DATA_LEN_EXCEEDED       (-16)
+#define FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED       (-17)
+#define FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED  (-18)
+#define FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE                       (-19)
+#define FD_VM_SYSCALL_ERR_INVALID_POINTER                         (-20)
+#define FD_VM_SYSCALL_ERR_ARITHMETIC_OVERFLOW                     (-21)
+
+/* These syscall errors are unique to Firedancer and do not have an Agave equivalent. */
+#define FD_VM_SYSCALL_ERR_INSTR_ERR                               (-22)
+#define FD_VM_SYSCALL_ERR_INVALID_PDA                             (-23) /* the computed pda was not a valid ed25519 point */
+#define FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED                 (-24) /* compute unit limit exceeded in syscall */
+#define FD_VM_SYSCALL_ERR_SEGFAULT                                (-25) /* illegal memory address (e.g. read/write to an address not backed by any memory) in syscall */
+#define FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME                         (-26) /* syscall called with vm not running in solana runtime */
+
+/* Poseidon returns custom errors for some reason */
+#define FD_VM_SYSCALL_ERR_POSEIDON_INVALID_PARAMS                 (1)
+#define FD_VM_SYSCALL_ERR_POSEIDON_INVALID_ENDIANNESS             (2)
+
+/* EbpfError
+   https://github.com/solana-labs/rbpf/blob/v0.8.5/src/error.rs#L17 */
+
+#define FD_VM_ERR_EBPF_ELF_ERROR                                  (-1)
+#define FD_VM_ERR_EBPF_FUNCTION_ALREADY_REGISTERED                (-2)
+#define FD_VM_ERR_EBPF_CALL_DEPTH_EXCEEDED                        (-3)
+#define FD_VM_ERR_EBPF_EXIT_ROOT_CALL_FRAME                       (-4)
+#define FD_VM_ERR_EBPF_DIVIDE_BY_ZERO                             (-5)
+#define FD_VM_ERR_EBPF_DIVIDE_OVERFLOW                            (-6)
+#define FD_VM_ERR_EBPF_EXECUTION_OVERRUN                          (-7)
+#define FD_VM_ERR_EBPF_CALL_OUTSIDE_TEXT_SEGMENT                  (-8)
+#define FD_VM_ERR_EBPF_EXCEEDED_MAX_INSTRUCTIONS                  (-9)
+#define FD_VM_ERR_EBPF_JIT_NOT_COMPILED                           (-10)
+#define FD_VM_ERR_EBPF_INVALID_VIRTUAL_ADDRESS                    (-11)
+#define FD_VM_ERR_EBPF_INVALID_MEMORY_REGION                      (-12)
+#define FD_VM_ERR_EBPF_ACCESS_VIOLATION                           (-13)
+#define FD_VM_ERR_EBPF_STACK_ACCESS_VIOLATION                     (-14)
+#define FD_VM_ERR_EBPF_INVALID_INSTRUCTION                        (-15)
+#define FD_VM_ERR_EBPF_UNSUPPORTED_INSTRUCTION                    (-16)
+#define FD_VM_ERR_EBPF_EXHAUSTED_TEXT_SEGMENT                     (-17)
+#define FD_VM_ERR_EBPF_LIBC_INVOCATION_FAILED                     (-18)
+#define FD_VM_ERR_EBPF_VERIFIER_ERROR                             (-19)
+#define FD_VM_ERR_EBPF_SYSCALL_ERROR                              (-20)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -114,9 +164,9 @@ FD_PROTOTYPES_END
 /* VM stack constants */
 
 #define FD_VM_STACK_FRAME_MAX (64UL)
-#define FD_VM_STACK_FRAME_SZ  (0x1000UL) /* FIXME: SHOULD THIS MACH FD_VM_STACK_FRAME_SIZE BELOW? */
+#define FD_VM_STACK_FRAME_SZ  FD_VM_STACK_FRAME_SIZE
 #define FD_VM_STACK_GUARD_SZ  (0x1000UL)
-#define FD_VM_STACK_MAX       (FD_VM_STACK_FRAME_MAX*(FD_VM_STACK_FRAME_SZ+FD_VM_STACK_GUARD_SZ))
+#define FD_VM_STACK_MAX       (FD_VM_STACK_FRAME_MAX*(FD_VM_STACK_FRAME_SZ))
 
 /* VM heap constants */
 

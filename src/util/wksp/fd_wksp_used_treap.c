@@ -140,7 +140,7 @@ fd_wksp_private_used_treap_insert( ulong                     n,
     ulong il = fd_wksp_private_pinfo_idx( pinfo[ i ].left_cidx   ); /* Validated above */
   //ulong ir = fd_wksp_private_pinfo_idx( pinfo[ i ].right_cidx  ); /* Validated above */
     ulong p  = fd_wksp_private_pinfo_idx( pinfo[ i ].parent_cidx ); /* Validated above */
-    _p_child_cidx = fd_wksp_private_pinfo_idx_is_null( p )                 ? &wksp->part_used_cidx 
+    _p_child_cidx = fd_wksp_private_pinfo_idx_is_null( p )                 ? &wksp->part_used_cidx
                   : (fd_wksp_private_pinfo_idx( pinfo[ p ].left_cidx )==i) ? &pinfo[ p ].left_cidx   /* Validated above */
                   :                                                          &pinfo[ p ].right_cidx;
 

@@ -2,7 +2,6 @@
 #define FD_SCRATCH_USE_HANDHOLDING 1
 #include "../../fdctl/configure/configure.h"
 
-#include <math.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <dirent.h>
@@ -30,14 +29,12 @@ default_enable_features( fd_features_t * features ) {
   features->incremental_snapshot_only_incremental_hash_calculation = 0UL;
   features->timely_vote_credits = 0UL;
   features->apply_cost_tracker_during_replay = 0UL;
-  features->reject_callx_r10 = 0UL;
+  features->reject_callx_r10 = 1UL;
   features->update_hashes_per_tick = 0UL;
   features->enable_partitioned_epoch_reward = 0UL;
   features->pico_inflation = 0UL;
-  features->libsecp256k1_fail_on_bad_count2 = 0UL;
   features->remaining_compute_units_syscall_enabled = 0UL;
   features->simplify_writable_program_account_check = 0UL;
-  features->set_exempt_rent_epoch_max = 0UL;
   features->enable_bpf_loader_set_authority_checked_ix = 0UL;
   features->consume_blockstore_duplicate_proofs = 0UL;
   features->disable_deploy_of_alloc_free_syscall = 0UL;
@@ -49,7 +46,6 @@ default_enable_features( fd_features_t * features ) {
   features->update_hashes_per_tick3 = 0UL;
   features->update_hashes_per_tick4 = 0UL;
   features->enable_bpf_loader_extend_program_ix = 0UL;
-  features->libsecp256k1_fail_on_bad_count = 0UL;
   features->enable_program_runtime_v2_and_loader_v4 = 0UL;
   features->increase_tx_account_lock_limit = 0UL;
   features->stake_raise_minimum_delegation_to_1_sol = 0UL;
@@ -189,7 +185,8 @@ create_genesis( config_t * const config,
 
   fd_features_t features[1];
   fd_features_disable_all( features );
-  fd_features_enable_cleaned_up( features, FD_DEFAULT_AGAVE_CLUSTER_VERSION );
+  uint version[] = {FD_DEFAULT_AGAVE_CLUSTER_VERSION_MAJOR, FD_DEFAULT_AGAVE_CLUSTER_VERSION_MINOR, FD_DEFAULT_AGAVE_CLUSTER_VERSION_PATCH};
+  fd_features_enable_cleaned_up(features, version);
   default_enable_features( features );
 
   options->features = features;
@@ -284,7 +281,7 @@ check( config_t * const config ) {
   PARTIALLY_CONFIGURED( "`%s` already exists", genesis_path );
 }
 
-configure_stage_t genesis = {
+configure_stage_t fd_cfg_stage_genesis = {
   .name            = NAME,
   .init            = init,
   .fini            = fini,

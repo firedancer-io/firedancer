@@ -6,8 +6,6 @@
 
 #include "fdctl.h"
 #include "../../flamenco/gossip/fd_gossip.h"
-#include "../../util/fd_util.h"
-#include "../../ballet/base58/fd_base58.h"
 #include "../../flamenco/types/fd_types_yaml.h"
 #include "../../util/net/fd_eth.h"
 #include <stdio.h>

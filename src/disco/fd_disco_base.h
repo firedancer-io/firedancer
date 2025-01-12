@@ -30,19 +30,19 @@
    XSK entry size, so this value follows naturally. */
 #define FD_NET_MTU (2048UL)
 
-/* FD_TPU_MTU is the max serialized byte size of a txn sent over TPU. */
+/* FD_TPU_MTU is the max serialized byte size of a txn sent over TPU.
+
+   This is minimum MTU of IPv6 packet - IPv6 header - UDP header
+                                 1280 -          40 -          8 */
 #define FD_TPU_MTU (1232UL)
+
+/* FD_GOSSIP_MTU is the max sz of a gossip packet which is the same as
+   above. */
+#define FD_GOSSIP_MTU (FD_TPU_MTU)
 
 /* FD_SHRED_STORE_MTU is the size of an fd_shred34_t (statically
    asserted in fd_shred_tile.c). */
 #define FD_SHRED_STORE_MTU (41792UL)
-
-/* FD_TPU_DCACHE_MTU is the max size of a dcache entry */
-#define FD_TPU_DCACHE_MTU (FD_TPU_MTU + FD_TXN_MAX_SZ + 2UL)
-/* The literal value of FD_TPU_DCACHE_MTU is used in some of the Rust
-   shims, so if the value changes, this acts as a reminder to change it
-   in the Rust code. */
-FD_STATIC_ASSERT( FD_TPU_DCACHE_MTU==2086UL, tpu_dcache_mtu_check );
 
 #define FD_NETMUX_SIG_MIN_HDR_SZ    ( 42UL) /* The default header size, which means no vlan tags and no IP options. */
 #define FD_NETMUX_SIG_IGNORE_HDR_SZ (102UL) /* Outside the allowable range, but still fits in 4 bits when compressed */
@@ -98,6 +98,15 @@ FD_FN_CONST static inline ulong fd_disco_poh_sig_slot( ulong sig ) { return (sig
 FD_FN_CONST static inline ulong fd_disco_poh_sig_bank_tile( ulong sig ) { return (sig >> 2) & 0x3FUL; }
 
 FD_FN_CONST static inline ulong
+fd_disco_bank_sig( ulong slot,
+                   ulong microblock_idx ) {
+  return (slot << 32) | microblock_idx;
+}
+
+FD_FN_CONST static inline ulong fd_disco_bank_sig_slot( ulong sig ) { return (sig >> 32); }
+FD_FN_CONST static inline ulong fd_disco_bank_sig_microblock_idx( ulong sig ) { return sig & 0xFFFFFFFFUL; }
+
+FD_FN_CONST static inline ulong
 fd_disco_replay_sig( ulong slot,
                      ulong flags ) {
    /* The low byte of the signature field is the flags for replay message.
@@ -127,4 +136,3 @@ fd_disco_compact_wmark( void * wksp, ulong mtu ) {
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_disco_fd_disco_base_h */
-

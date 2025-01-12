@@ -1,0 +1,7 @@
+This rpc implementation works with firedancer, NOT
+frankendancer. Frankendancer uses the rpc service built into agave,
+NOT this one. I repeat, this rpc service is for the full firedancer
+validator only!
+
+Also note that this service is still under active development. APIs
+may change without prior notice.

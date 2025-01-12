@@ -9,6 +9,7 @@
 /* FD_FUNK_REC_VAL_MAX is the maximum size of a record value. */
 
 #define FD_FUNK_REC_VAL_MAX UINT_MAX
+#define FD_FUNK_VAL_ALIGN 8UL
 
 FD_PROTOTYPES_BEGIN
 
@@ -38,7 +39,7 @@ fd_funk_val_max( fd_funk_rec_t const * rec ) { /* Assumes pointer in caller's ad
    covers the case where rec has been marked ERASE).  max 0 implies val
    NULL and vice versa.  Assumes no concurrent operations on rec. */
 
-FD_FN_PURE static inline void *         /* Lifetime is the lesser of rec or the value size is modified */
+FD_FN_PURE static inline void *             /* Lifetime is the lesser of rec or the value size is modified */
 fd_funk_val( fd_funk_rec_t const * rec,     /* Assumes pointer in caller's address space to a live funk record */
              fd_wksp_t const *     wksp ) { /* ==fd_funk_wksp( funk ) where funk is a current local join */
   ulong val_gaddr = rec->val_gaddr;
@@ -73,7 +74,7 @@ fd_funk_val_safe( fd_funk_rec_t const * rec,     /* Assumes pointer in caller's 
 
    The returned pointer is in the caller's address space and, if
    non-NULL, the value at the pointer is stable for its lifetime or
-   until it it is modified.
+   until it is modified.
 
    IMPORTANT SAFETY TIP!  There are _no_ alignment guarantees on the
    returned value (even if off itself is aligned).
@@ -150,7 +151,7 @@ fd_funk_val_write( fd_funk_rec_t *   rec,     /* Assumed in caller's address spa
 /* fd_funk_val_copy copies sz bytes starting at data into the record
    value, replacing the existing record value.  rec's value will be able
    to accommodate at least sz_est in the future without resizing on
-   return.  If sz_est is 0 on entry, it will be be set to sz as a
+   return.  If sz_est is 0 on entry, it will be set to sz as a
    reasonable default before any argument checking.
 
    data points to the bytes to write.  [data,data+sz) should not overlap
@@ -244,26 +245,6 @@ fd_funk_val_truncate( fd_funk_rec_t * rec,        /* Assumed in caller's address
                       fd_wksp_t *     wksp,       /* ==fd_funk_wksp( funk ) where funk is current local join */
                       int *           opt_err );  /* If non-NULL, *opt_err returns operation error code */
 
-/* fd_funk_val_speed_load sets the record value to space allocated
-   from the funk speed bump. This space is never freed. This function
-   is used when loading large snapshots.
-
-   Returns rec on success and NULL on failure.  If opt_err is non-NULL,
-   on return, *opt_err will hold FD_FUNK_SUCCESS if successful or a
-   FD_FUNK_ERR_* code on failure.  Reasons for failure include
-   FD_FUNK_ERR_INVAL (NULL rec, too large new_val_sz, rec is marked
-   ERASE) and FD_FUNK_ERR_MEM (allocation failure, need a larger wksp).
-   On failure, the current value is unchanged.
-
-   Assumes no concurrent operations on rec. */
-
-fd_funk_rec_t *                                   /* Returns rec on success, NULL on failure */
-fd_funk_val_speed_load( fd_funk_t *     funk,
-                        fd_funk_rec_t * rec,        /* Assumed in caller's address space to a live funk record (NULL returns NULL) */
-                        ulong           new_val_sz, /* Should be in [0,FD_FUNK_REC_VAL_MAX] (returns NULL otherwise) */
-                        fd_wksp_t *     wksp,       /* ==fd_funk_wksp( funk ) where funk is current local join */
-                        int *           opt_err );  /* If non-NULL, *opt_err returns operation error code */
-
 /* Misc */
 
 /* fd_funk_val_init sets a record with uninitialized value metadata to
@@ -274,7 +255,6 @@ fd_funk_val_init( fd_funk_rec_t * rec ) { /* Assumed record in caller's address 
   rec->val_sz      = 0U;
   rec->val_max     = 0U;
   rec->val_gaddr   = 0UL;
-  rec->val_no_free = 0;
   return rec;
 }
 
@@ -286,9 +266,8 @@ fd_funk_val_flush( fd_funk_rec_t * rec,     /* Assumed live funk record in calle
                    fd_alloc_t *    alloc,   /* ==fd_funk_alloc( funk, wksp ) */
                    fd_wksp_t *     wksp ) { /* ==fd_funk_wksp( funk ) where funk is a current local join */
   ulong val_gaddr   = rec->val_gaddr;
-  int   val_no_free = rec->val_no_free;
   fd_funk_val_init( rec );
-  if( val_gaddr && !val_no_free ) fd_alloc_free( alloc, fd_wksp_laddr_fast( wksp, val_gaddr ) );
+  if( val_gaddr ) fd_alloc_free( alloc, fd_wksp_laddr_fast( wksp, val_gaddr ) );
   return rec;
 }
 

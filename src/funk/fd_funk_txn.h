@@ -8,7 +8,7 @@
 #include "fd_funk_base.h"
 
 /* FD_FUNK_TXN_{ALIGN,FOOTPRINT} describe the alignment and footprint of
-   a fd_funk_txn_t.  ALIGN will be an power of 2, footprint will be a
+   a fd_funk_txn_t.  ALIGN will be a power of 2, footprint will be a
    multiple of align.  These are provided to facilitate compile time
    declarations. */
 
@@ -23,7 +23,7 @@
 
 #define FD_FUNK_TXN_IDX_NULL ((ulong)UINT_MAX)
 
-/* A fd_funk_txn_t is an opaque handle of a in-preparation funk
+/* A fd_funk_txn_t is an opaque handle of an in-preparation funk
    transaction.  The details are exposed here to facilitate inlining
    various operations. */
 
@@ -80,7 +80,7 @@ static inline ulong fd_funk_txn_idx ( uint  idx ) { return (ulong)idx; }
 
 static inline int fd_funk_txn_idx_is_null( ulong idx ) { return idx==FD_FUNK_TXN_IDX_NULL; }
 
-/* Generate a globally unique psuedo-random xid */
+/* Generate a globally unique pseudo-random xid */
 fd_funk_txn_xid_t fd_funk_generate_xid(void);
 
 /* Accessors */
@@ -162,7 +162,7 @@ FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_txn_xid( fd_funk_txn
 
 #define FD_FUNK_ACCESSOR(field)                     \
 FD_FN_PURE static inline fd_funk_txn_t *            \
-fd_funk_txn_##field( fd_funk_txn_t * txn,           \
+fd_funk_txn_##field( fd_funk_txn_t const * txn,     \
                      fd_funk_txn_t * map ) {        \
   ulong idx = fd_funk_txn_idx( txn->field##_cidx ); \
   if( idx==FD_FUNK_TXN_IDX_NULL ) return NULL;      \
@@ -446,12 +446,18 @@ fd_funk_txn_publish_into_parent( fd_funk_t *     funk,
    Assumes funk is a current local join.  Reasons for failure include
    NULL funk or txn does not point to an in-preparation funk
    transaction.  If verbose is non-zero, these will FD_LOG_WARNING level
-   details about the reason for failure. */
+   details about the reason for failure.
 
+   Unfortunately, the semantics of how to deal with the same record
+   key appearing in multiple children is not defined. So, for now,
+   this API is commented out. */
+
+/*
 int
 fd_funk_txn_merge_all_children( fd_funk_t *     funk,
                                 fd_funk_txn_t * parent_txn,
                                 int             verbose );
+*/
 
 /* Misc */
 

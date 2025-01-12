@@ -3,7 +3,7 @@
 Firedancer is a new validator client for Solana.
 
 * **Fast** Designed from the ground up to be *fast*. The concurrency
-model is borrowed from the low latency trading space, and the code
+model draws from experience in the low latency trading space, and the code
 contains many novel high performance reimplementations of core Solana
 primitives.
 * **Secure** The architecture of the validator allows it to run with a
@@ -39,7 +39,7 @@ Frankendancer is currently in testing on the Solana testnet.
 Firedancer currently only supports Linux and requires a relatively new
 kernel, at least v4.18 to build. 
 
-```bash
+```console
 $ git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git
 $ cd firedancer
 $ ./deps.sh

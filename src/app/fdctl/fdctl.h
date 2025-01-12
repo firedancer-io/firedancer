@@ -13,7 +13,7 @@
 extern fd_topo_run_tile_t * TILES[];
 
 
-#define CONFIGURE_STAGE_COUNT 10
+#define CONFIGURE_STAGE_COUNT 11
 struct configure_stage;
 
 typedef union {
@@ -85,7 +85,15 @@ typedef union {
     ulong   benchg;
     ulong   benchs;
     int     no_quic;
-  } spammer;
+    int     transaction_mode;
+    float   contending_fraction;
+    float   cu_price_spread;
+  } load;
+
+  struct {
+    int event;
+    int dump; /* whether the user requested --dump */
+  } quic_trace;
 } args_t;
 
 typedef struct fd_caps_ctx fd_caps_ctx_t;
@@ -93,6 +101,7 @@ typedef struct fd_caps_ctx fd_caps_ctx_t;
 typedef struct {
   const char * name;
   const char * description;
+  uchar        is_diagnostic;  /* 1 implies action should be allowed for prod debugging */
 
   void       (*args)( int * pargc, char *** pargv, args_t * args );
   void       (*perm)( args_t * args, fd_caps_ctx_t * caps, config_t * const config );
@@ -126,7 +135,7 @@ int
 main1( int     argc,
        char ** _argv );
 
-void
+void FD_FN_SENSITIVE
 generate_keypair( char const *     keyfile,
                   config_t * const config,
                   int              use_grnd_random );

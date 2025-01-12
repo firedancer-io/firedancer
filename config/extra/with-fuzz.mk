@@ -1,3 +1,6 @@
+include config/extra/with-fuzz-stubs.mk
+include config/extra/with-handholding.mk
+
 FD_HAS_FUZZ:=1
 
 CPPFLAGS+=-fno-omit-frame-pointer

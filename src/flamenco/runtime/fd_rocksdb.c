@@ -1,17 +1,11 @@
 #include "fd_rocksdb.h"
 #include "fd_blockstore.h"
 #include "../shredcap/fd_shredcap.h"
-#if defined(__linux__)
-#include <malloc.h>
-#endif
 #include <stdbool.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <unistd.h>
 #include "../../util/bits/fd_bits.h"
-
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 char *
 fd_rocksdb_init( fd_rocksdb_t * db,
@@ -392,7 +386,7 @@ fd_rocksdb_copy_over_slot_indexed_range( fd_rocksdb_t * src,
                                          ulong          cf_idx,
                                          ulong          start_slot,
                                          ulong          end_slot ) {
-  FD_LOG_NOTICE(("fd_rocksdb_copy_over_slot_indexed_range: %d", cf_idx));
+  FD_LOG_NOTICE(( "fd_rocksdb_copy_over_slot_indexed_range: %lu", cf_idx ));
 
   if ( cf_idx == FD_ROCKSDB_CFIDX_TRANSACTION_MEMOS  ||
        cf_idx == FD_ROCKSDB_CFIDX_PROGRAM_COSTS      ||
@@ -439,15 +433,15 @@ fd_rocksdb_copy_over_txn_status_range( fd_rocksdb_t *    src,
   fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
 
   for ( ulong slot = start_slot; slot <= end_slot; ++slot ) {
-    FD_LOG_NOTICE(("fd_rocksdb_copy_over_txn_status_range: %d", slot));
+    FD_LOG_NOTICE(( "fd_rocksdb_copy_over_txn_status_range: %lu", slot ));
     fd_block_map_t * block_entry = fd_block_map_query( block_map, &slot, NULL );
     if( FD_LIKELY( block_entry && block_entry->block_gaddr ) ) {
       fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_entry->block_gaddr );
       uchar * data = fd_wksp_laddr_fast( wksp, blk->data_gaddr );
-      fd_block_txn_ref_t * txns = fd_wksp_laddr_fast( wksp, blk->txns_gaddr );
+      fd_block_txn_t * txns = fd_wksp_laddr_fast( wksp, blk->txns_gaddr );
       ulong last_txn_off = ULONG_MAX;
       for ( ulong j = 0; j < blk->txns_cnt; ++j ) {
-        fd_blockstore_txn_key_t sig;
+        fd_txn_key_t sig;
         fd_memcpy( &sig, data + txns[j].id_off, sizeof(sig) );
         if( txns[j].txn_off != last_txn_off ) {
           last_txn_off = txns[j].txn_off;
@@ -499,8 +493,8 @@ fd_rocksdb_insert_entry( fd_rocksdb_t * db,
   char * err = NULL;
   rocksdb_put_cf( db->db, db->wo, db->cf_handles[cf_idx],
                   key, klen, value, vlen, &err );
-  if ( FD_UNLIKELY( err != NULL ) ) {
-    FD_LOG_WARNING(("rocksdb_put_cf failed with error=%d", err));
+  if( FD_UNLIKELY( err != NULL ) ) {
+    FD_LOG_WARNING(( "rocksdb_put_cf failed with error %s", err ));
     return -1;
   }
   return 0;
@@ -541,14 +535,14 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
     }
 
     if (!valid || cur_slot != slot) {
-      FD_LOG_WARNING(("missing shreds for slot %ld", slot));
+      FD_LOG_WARNING(("missing shreds for slot %lu", slot));
       rocksdb_iter_destroy(iter);
       fd_blockstore_end_write(blockstore);
       return -1;
     }
 
     if (index != i) {
-      FD_LOG_WARNING(("missing shred %ld at index %ld for slot %ld", i, index, slot));
+      FD_LOG_WARNING(("missing shred %lu at index %lu for slot %lu", i, index, slot));
       rocksdb_iter_destroy(iter);
       fd_blockstore_end_write(blockstore);
       return -1;
@@ -558,7 +552,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
     // Data was first copied from disk into memory to make it available to this API
     const unsigned char *data = (const unsigned char *) rocksdb_iter_value(iter, &dlen);
     if (data == NULL) {
-      FD_LOG_WARNING(("failed to read shred %ld/%ld", slot, i));
+      FD_LOG_WARNING(("failed to read shred %lu/%lu", slot, i));
       rocksdb_iter_destroy(iter);
       fd_blockstore_end_write(blockstore);
       return -1;
@@ -568,14 +562,14 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
     // actual data without a memory copy
     fd_shred_t const * shred = fd_shred_parse( data, (ulong) dlen );
     if (shred == NULL) {
-      FD_LOG_WARNING(("failed to parse shred %ld/%ld", slot, i));
+      FD_LOG_WARNING(("failed to parse shred %lu/%lu", slot, i));
       rocksdb_iter_destroy(iter);
       fd_blockstore_end_write(blockstore);
       return -1;
     }
     int rc = fd_buf_shred_insert( blockstore, shred );
     if (rc != FD_BLOCKSTORE_OK_SLOT_COMPLETE && rc != FD_BLOCKSTORE_OK) {
-      FD_LOG_WARNING(("failed to store shred %ld/%ld", slot, i));
+      FD_LOG_WARNING(("failed to store shred %lu/%lu", slot, i));
       rocksdb_iter_destroy(iter);
       fd_blockstore_end_write(blockstore);
       return -1;
@@ -586,7 +580,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
 
   rocksdb_iter_destroy(iter);
 
-  fd_wksp_t * wksp = fd_wksp_containing( blockstore );
+  fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
   fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, slot );
   if( FD_LIKELY( block_map_entry && block_map_entry->block_gaddr ) ) {
     size_t vallen = 0;
@@ -660,58 +654,97 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
     }
   }
 
-  if( txnstatus ) {
-    fd_alloc_t * alloc = fd_wksp_laddr_fast( wksp, blockstore->alloc_gaddr );
-    fd_blockstore_txn_map_t *   txn_map   = fd_wksp_laddr_fast( wksp, blockstore->txn_map_gaddr );
-    if( FD_LIKELY( block_map_entry && block_map_entry->block_gaddr ) ) {
-      fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_map_entry->block_gaddr );
-      uchar * data = fd_wksp_laddr_fast( wksp, blk->data_gaddr );
-      fd_block_txn_ref_t * txns = fd_wksp_laddr_fast( wksp, blk->txns_gaddr );
-      ulong meta_gaddr = 0;
-      ulong meta_sz = 0;
-      int meta_owned = 0;
-      ulong last_txn_off = ULONG_MAX;
-      for ( ulong j = 0; j < blk->txns_cnt; ++j ) {
-        fd_blockstore_txn_key_t sig;
+  if( txnstatus && FD_LIKELY( block_map_entry && block_map_entry->block_gaddr ) ) {
+    fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_map_entry->block_gaddr );
+    uchar * data = fd_wksp_laddr_fast( wksp, blk->data_gaddr );
+    fd_block_txn_t * txns = fd_wksp_laddr_fast( wksp, blk->txns_gaddr );
+
+    /* Compute the total size of the logs */
+    ulong tot_meta_sz = 2*sizeof(ulong);
+    for ( ulong j = 0; j < blk->txns_cnt; ++j ) {
+      if( j == 0 || txns[j].txn_off != txns[j-1].txn_off ) {
+        fd_txn_key_t sig;
         fd_memcpy( &sig, data + txns[j].id_off, sizeof( sig ) );
-        fd_blockstore_txn_map_t * txn_map_entry = fd_blockstore_txn_map_query( txn_map, &sig, NULL );
-        if( FD_UNLIKELY( !txn_map_entry ) ) {
-          FD_LOG_WARNING(("missing transaction %64J", &sig));
-          continue;
+        ulong sz;
+        void * raw = fd_rocksdb_get_txn_status_raw( db, slot, &sig, &sz );
+        if( raw != NULL ) {
+          free(raw);
+          tot_meta_sz += sz;
         }
-
-        if( txns[j].txn_off != last_txn_off ) {
-          last_txn_off = txns[j].txn_off;
-          ulong sz;
-          void * raw = fd_rocksdb_get_txn_status_raw( db, slot, &sig, &sz );
-          if( raw == NULL ) {
-            meta_gaddr = 0;
-            meta_sz = 0;
-            meta_owned = 0;
-          } else {
-            void * laddr = fd_alloc_malloc( alloc, 1, sz );
-            fd_memcpy(laddr, raw, sz);
-            free(raw);
-            meta_gaddr = fd_wksp_gaddr_fast( wksp, laddr );
-            meta_sz = sz;
-            meta_owned = 1;
-          }
-        }
-
-        txn_map_entry->meta_gaddr = meta_gaddr;
-        txn_map_entry->meta_sz = meta_sz;
-        txn_map_entry->meta_owned = meta_owned;
-        meta_owned = 0;
       }
     }
+    fd_alloc_t * alloc = fd_blockstore_alloc( blockstore );
+    uchar * cur_laddr = fd_alloc_malloc( alloc, 1, tot_meta_sz );
+    if( cur_laddr == NULL ) {
+      fd_blockstore_end_write(blockstore);
+      return 0;
+    }
+    ((ulong*)cur_laddr)[0] = blk->txns_meta_gaddr; /* Link to previous allocation */
+    ((ulong*)cur_laddr)[1] = blk->txns_meta_sz;
+    blk->txns_meta_gaddr = fd_wksp_gaddr_fast( wksp, cur_laddr );
+    blk->txns_meta_sz    = tot_meta_sz;
+    cur_laddr += 2*sizeof(ulong);
+
+    /* Copy over the logs */
+    fd_txn_map_t * txn_map = fd_blockstore_txn_map( blockstore );
+    ulong meta_gaddr = 0;
+    ulong meta_sz = 0;
+    fd_txn_key_t sig = { 0 };
+    for ( ulong j = 0; j < blk->txns_cnt; ++j ) {
+      if( j == 0 || txns[j].txn_off != txns[j-1].txn_off ) {
+        fd_memcpy( &sig, data + txns[j].id_off, sizeof( sig ) );
+        ulong sz;
+        void * raw = fd_rocksdb_get_txn_status_raw( db, slot, &sig, &sz );
+        if( raw == NULL ) {
+          meta_gaddr = 0;
+          meta_sz = 0;
+        } else {
+          fd_memcpy(cur_laddr, raw, sz);
+          free(raw);
+          meta_gaddr = fd_wksp_gaddr_fast( wksp, cur_laddr );
+          meta_sz = sz;
+          cur_laddr += sz;
+        }
+      }
+      fd_txn_map_t * txn_map_entry = fd_txn_map_query( txn_map, &sig, NULL );
+      if( FD_UNLIKELY( !txn_map_entry ) ) {
+        char sig_str[ FD_BASE58_ENCODED_64_SZ ];
+        fd_base58_encode_64( fd_type_pun_const( sig.v ), NULL, sig_str );
+        FD_LOG_WARNING(( "missing transaction %s", sig_str ));
+        continue;
+      }
+      txn_map_entry->meta_gaddr = meta_gaddr;
+      txn_map_entry->meta_sz = meta_sz;
+    }
+
+    FD_TEST( blk->txns_meta_gaddr + blk->txns_meta_sz == fd_wksp_gaddr_fast( wksp, cur_laddr ) );
   }
 
-  fd_blockstore_end_write(blockstore);
+  blockstore->lps = slot;
+  blockstore->hcs = slot;
+  blockstore->smr = slot;
+
+  if( FD_LIKELY( block_map_entry ) ) {
+    block_map_entry->flags =
+      fd_uchar_set_bit(
+      fd_uchar_set_bit(
+      fd_uchar_set_bit(
+      fd_uchar_set_bit(
+      fd_uchar_set_bit(
+        block_map_entry->flags,
+        FD_BLOCK_FLAG_COMPLETED ),
+        FD_BLOCK_FLAG_PROCESSED ),
+        FD_BLOCK_FLAG_EQVOCSAFE ),
+        FD_BLOCK_FLAG_CONFIRMED ),
+        FD_BLOCK_FLAG_FINALIZED );
+  }
+
+  fd_blockstore_end_write( blockstore );
   return 0;
 }
 
 int
-fd_rocksdb_import_block_shredcap( fd_rocksdb_t *             db,
+fd_rocksdb_import_block_shredcap( fd_rocksdb_t *               db,
                                     fd_slot_meta_t *           metadata,
                                     fd_io_buffered_ostream_t * ostream,
                                     fd_io_buffered_ostream_t * bank_hash_ostream ) {
@@ -768,13 +801,13 @@ fd_rocksdb_import_block_shredcap( fd_rocksdb_t *             db,
     }
 
     if ( !valid || cur_slot != slot ) {
-      FD_LOG_WARNING(( "missing shreds for slot %ld", slot ));
+      FD_LOG_WARNING(( "missing shreds for slot %lu", slot ));
       rocksdb_iter_destroy( iter );
       return -1;
     }
 
     if ( index != i ) {
-      FD_LOG_WARNING(( "missing shred %ld at index %ld for slot %ld", i, index, slot ));
+      FD_LOG_WARNING(( "missing shred %lu at index %lu for slot %lu", i, index, slot ));
       rocksdb_iter_destroy( iter );
       return -1;
     }
@@ -783,14 +816,14 @@ fd_rocksdb_import_block_shredcap( fd_rocksdb_t *             db,
     // Data was first copied from disk into memory to make it available to this API
     const unsigned char *data = (const unsigned char *) rocksdb_iter_value( iter, &dlen );
     if ( data == NULL ) {
-      FD_LOG_WARNING(( "failed to read shred %ld/%ld", slot, i ));
+      FD_LOG_WARNING(( "failed to read shred %lu/%lu", slot, i ));
       rocksdb_iter_destroy( iter );
       return -1;
     }
 
     fd_shred_t const * shred = fd_shred_parse( data, (ulong) dlen );
     if ( shred == NULL ) {
-      FD_LOG_WARNING(( "failed to parse shred %ld/%ld", slot, i ));
+      FD_LOG_WARNING(( "failed to parse shred %lu/%lu", slot, i ));
       rocksdb_iter_destroy( iter );
       return -1;
     }

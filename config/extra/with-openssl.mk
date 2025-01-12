@@ -1,5 +1,5 @@
-ifneq (,$(wildcard opt/lib/libssl.a))
-OPENSSL_LIBS=opt/lib/libssl.a opt/lib/libcrypto.a
+ifneq (,$(wildcard $(OPT)/lib/libssl.a))
+OPENSSL_LIBS=$(OPT)/lib/libssl.a $(OPT)/lib/libcrypto.a
 
 FD_HAS_OPENSSL:=1
 CPPFLAGS+=-DFD_HAS_OPENSSL=1

@@ -102,8 +102,7 @@ fd_funk_new( void * shmem,
 
   void * alloc_shalloc = fd_alloc_new( alloc_shmem, wksp_tag );
   if( FD_UNLIKELY( !alloc_shalloc ) ) {
-    FD_LOG_WARNING(( "fd_allow_new failed" ));
-    fd_wksp_free_laddr( alloc_shalloc );
+    FD_LOG_WARNING(( "fd_alloc_new failed" ));
     fd_wksp_free_laddr( fd_funk_rec_map_delete( fd_funk_rec_map_leave( rec_map ) ) );
     fd_wksp_free_laddr( fd_funk_txn_map_delete( fd_funk_txn_map_leave( txn_map ) ) );
     return NULL;
@@ -151,6 +150,8 @@ fd_funk_new( void * shmem,
   }
   partvec->num_part = 0U;
   funk->partvec_gaddr = fd_wksp_gaddr_fast( wksp, partvec );
+
+  funk->write_lock = 0UL;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( funk->magic ) = FD_FUNK_MAGIC;
@@ -228,6 +229,7 @@ fd_funk_delete( void * shfunk ) {
   }
 
   /* Free all value resources here */
+  fd_alloc_free( fd_funk_alloc( funk, wksp ), fd_funk_get_partvec( funk, wksp ) );
 
   fd_wksp_free_laddr( fd_alloc_delete       ( fd_alloc_leave       ( fd_funk_alloc  ( funk, wksp ) ) ) );
   fd_wksp_free_laddr( fd_funk_rec_map_delete( fd_funk_rec_map_leave( fd_funk_rec_map( funk, wksp ) ) ) );
@@ -303,8 +305,8 @@ fd_funk_verify( fd_funk_t * funk ) {
 
   fd_funk_txn_xid_t * last_publish = funk->last_publish;
   TEST( last_publish ); /* Practically guaranteed */
-  /* (*last_publish) only be root at creation and anything but root
-     post creation.  But we don't which situation applies here so this
+  /* (*last_publish) only be root at creation and anything but root post
+     creation.  But we don't know which situation applies here so this
      could be anything. */
 
   TEST( !fd_funk_txn_verify( funk ) );
@@ -390,10 +392,10 @@ fd_funk_log_mem_usage( fd_funk_t * funk ) {
                   fd_funk_rec_map_key_cnt( rec_map ),
                   fd_funk_rec_map_key_max( rec_map ),
                   (100U*fd_funk_rec_map_key_cnt( rec_map )) / fd_funk_rec_map_key_max( rec_map ) ));
-  ulong val_cnt = 0;
-  ulong val_min = ULONG_MAX;
-  ulong val_max = 0;
-  ulong val_used = 0;
+  ulong val_cnt   = 0;
+  ulong val_min   = ULONG_MAX;
+  ulong val_max   = 0;
+  ulong val_used  = 0;
   ulong val_alloc = 0;
   for( fd_funk_rec_map_iter_t iter = fd_funk_rec_map_iter_init( rec_map );
        !fd_funk_rec_map_iter_done( rec_map, iter );
@@ -405,16 +407,21 @@ fd_funk_log_mem_usage( fd_funk_t * funk ) {
     val_used += rec->val_sz;
     val_alloc += rec->val_max;
   }
+  ulong avg_size = val_cnt ? (val_used / val_cnt) : 0;
   FD_LOG_NOTICE(( "  rec count: %lu, min size: %lu, avg_size: %lu, max_size: %lu, total_size: %s, total_allocated: %s",
-                  val_cnt, val_min, val_used/val_cnt, val_max,
+                  val_cnt, val_min, avg_size, val_max,
                   fd_smart_size( val_used, tmp1, sizeof(tmp1) ),
                   fd_smart_size( val_alloc, tmp2, sizeof(tmp2) ) ));
   FD_LOG_NOTICE(( "part vec footprint: %s",
                   fd_smart_size( fd_funk_partvec_footprint(0U), tmp1, sizeof(tmp1) ) ));
 }
 
+#include "../flamenco/fd_rwlock.h"
+static fd_rwlock_t lock[ 1 ] = {0};
+
 void
 fd_funk_start_write( fd_funk_t * funk ) {
+  fd_rwlock_write( lock );
 #ifdef FD_FUNK_WKSP_PROTECT
   fd_wksp_mprotect( fd_funk_wksp( funk ), 0 );
 #endif
@@ -453,15 +460,11 @@ fd_funk_end_write( fd_funk_t * funk ) {
 #ifdef FD_FUNK_WKSP_PROTECT
   fd_wksp_mprotect( fd_funk_wksp( funk ), 1 );
 #endif
+  fd_rwlock_unwrite( lock );
 }
 
 void
 fd_funk_check_write( fd_funk_t * funk ) {
   ulong val = funk->write_lock;
   if( FD_UNLIKELY(!(val&1UL)) ) FD_LOG_CRIT(( "missing call to fd_funk_start_write" ));
-}
-
-void
-fd_funk_speed_load_mode( fd_funk_t * funk, int flag ) {
-  funk->speed_load = flag;
 }

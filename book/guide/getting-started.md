@@ -56,7 +56,7 @@ convenience script. First, clone the source code with:
 ```sh [bash]
 $ git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git
 $ cd firedancer
-$ git checkout v0.1 # Latest Frankendancer Testnet release
+$ git checkout v0.302.20104 # Or the latest Frankendancer release
 ```
 
 Then you can run the `deps.sh` script to install system packages and
@@ -78,7 +78,7 @@ includes all Firedancer development and changes that could break
 Frankendancer.
  * `v0.xxx.yyyyy` Official Frankendancer releases.
 
-The Frankendancer versoning has three components,
+The Frankendancer versioning has three components,
 
 * Major version is always `0`. The first full Firedancer release will be
 `1.x`
@@ -172,6 +172,9 @@ user = "firedancer"
     port = 8899
     full_api = true
     private = true
+
+[reporting]
+    solana_metrics_config = "host=https://metrics.solana.com:8086,db=tds,u=testnet_write,p=c4fa841aa918bf8274e3e2a44d77568d9861b3ea"
 ```
 
 :::
@@ -184,6 +187,14 @@ This will put the ledger in `/home/firedancer/.firedancer/fd1/ledger`.
 To customize this path, refer to the [configuration
 guide](/guide/configuring.md#ledger).
 
+::: tip LEDGER
+
+The Firedancer blockstore in the ledger directory is compatible with the
+one for the Agave validator, and it is possible to switch between
+validator clients while keeping the `ledger` directory in place.
+
+:::
+
 Additionally, this configuration enables the full RPC API at port 8899.
 Although the port will not be published to other validators in gossip,
 use a firewall to restrict access to this port for maximum security.
@@ -192,13 +203,12 @@ Currently, `testnet` is the only live cluster that Firedancer can be run
 against and trying to start against `devnet` or `mainnet-beta`
 entrypoints will result in an error.
 
-::: tip LEDGER
-
-The Firedancer blockstore in the ledger directory is compatible with the
-one for the Agave validator, and it is possible to switch between
-validator clients while keeping the `ledger` directory in place.
-
-:::
+The Firedancer client can report diagnostic metrics similar to an Agave
+client. It is recommended to set the `[reporting.solana_metrics_config]`
+in the config file to the appropriate value for the cluster. The options
+for the different clusters are listed in the `default.toml` file in the
+[`reporting`](https://github.com/firedancer-io/firedancer/blob/main/src/app/fdctl/config/default.toml#L144)
+section.
 
 ### Permissions
 
@@ -314,7 +324,7 @@ vary across drivers. Popular well tested drivers include:
 Firedancer installs an XDP program on the network interface
 `[tiles.net.interface]` and `lo` while it is running. This program 
 redirects traffic on ports that Firedancer is listening on via `AF_XDP`.
-Traffic targetting any other applications (e.g. an SSH or HTTP server
+Traffic targeting any other applications (e.g. an SSH or HTTP server
 running on the system) passes through as usual. The XDP program is
 unloaded when the Firedancer process exits.
 

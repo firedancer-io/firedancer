@@ -1,3 +1,4 @@
+#include "fd_snapshot_restore.h"
 #include "fd_snapshot_restore_private.h"
 #include "../../util/archive/fd_tar.h"
 #include "../runtime/fd_acc_mgr.h"
@@ -172,7 +173,7 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
   int is_dupe = 0;
 
   /* Check if account exists */
-  rec->const_meta = fd_acc_mgr_view_raw( acc_mgr, funk_txn, key, &rec->const_rec, NULL );
+  rec->const_meta = fd_acc_mgr_view_raw( acc_mgr, funk_txn, key, &rec->const_rec, NULL, NULL );
   if( rec->const_meta )
     if( rec->const_meta->slot > restore->accv_slot )
       is_dupe = 1;
@@ -270,6 +271,15 @@ fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
     return EINVAL;
   }
 
+  if( manifest->bank_incremental_snapshot_persistence ) {
+    FD_LOG_NOTICE(( "Incremental snapshot has incremental snapshot persistence with full acc_hash=%s and incremental acc_hash=%s",
+                    FD_BASE58_ENC_32_ALLOCA(&manifest->bank_incremental_snapshot_persistence->full_hash),
+                    FD_BASE58_ENC_32_ALLOCA(&manifest->bank_incremental_snapshot_persistence->incremental_hash) ));
+
+  } else {
+    FD_LOG_NOTICE(( "Full snapshot acc_hash=%s", FD_BASE58_ENC_32_ALLOCA(&manifest->accounts_db.bank_hash_info.accounts_hash) ));
+  }
+
   /* Move over accounts DB fields */
 
   fd_solana_accounts_db_fields_t accounts_db = manifest->accounts_db;
@@ -299,7 +309,7 @@ fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
   fd_snapshot_restore_discard_buf( restore );
 
   restore->slot          = slot;
-  restore->manifest_done = 1;
+  restore->manifest_done = MANIFEST_DONE_NOT_SEEN;
   return err;
 }
 
@@ -680,6 +690,11 @@ fd_snapshot_restore_chunk( void *       restore_,
     }
     bufsz -= (ulong)(buf_new-buf);
     buf    = buf_new;
+  }
+
+  if( restore->manifest_done==MANIFEST_DONE_NOT_SEEN ) {
+    restore->manifest_done = MANIFEST_DONE_SEEN;
+    return MANIFEST_DONE;
   }
 
   return 0;

@@ -111,9 +111,7 @@ populate_streams( ulong sz, fd_quic_conn_t * conn ) {
     my_stream_meta_t * meta = get_stream_meta();
 
     /* obtain stream */
-    fd_quic_stream_t * stream =
-      fd_quic_conn_new_stream( conn, FD_QUIC_TYPE_UNIDIR );
-
+    fd_quic_stream_t * stream = fd_quic_conn_new_stream( conn );
     if( !stream ) {
       FD_LOG_ERR(( "Failed to obtain a stream" ));
     }
@@ -160,50 +158,45 @@ void
 my_stream_notify_cb( fd_quic_stream_t * stream, void * ctx, int type ) {
   (void)stream;
   my_stream_meta_t * meta = (my_stream_meta_t*)ctx;
-  switch( type ) {
-    case FD_QUIC_NOTIFY_END:
-      FD_LOG_DEBUG(( "reclaiming stream" ));
 
-      if( stream->conn->server ) {
-        FD_LOG_DEBUG(( "SERVER" ));
-      } else {
-        FD_LOG_DEBUG(( "CLIENT" ));
+  if( FD_UNLIKELY( type!=FD_QUIC_STREAM_NOTIFY_END ) ) {
+    FD_LOG_DEBUG(( "NOTIFY: %#x", (uint)type ));
+    return;
+  }
 
-        if( client_conn && state == 0 ) {
-          /* obtain new stream */
-          fd_quic_stream_t * new_stream =
-            fd_quic_conn_new_stream( client_conn, FD_QUIC_TYPE_UNIDIR );
-          FD_TEST( new_stream );
+  FD_LOG_DEBUG(( "reclaiming stream" ));
 
-          /* set context on stream to meta */
-          fd_quic_stream_set_context( new_stream, meta );
+  if( stream->conn->server ) {
+    FD_LOG_DEBUG(( "SERVER" ));
+  } else {
+    FD_LOG_DEBUG(( "CLIENT" ));
 
-          /* populate meta */
-          meta->stream = new_stream;
+    if( client_conn && state == 0 ) {
+      /* obtain new stream */
+      fd_quic_stream_t * new_stream = fd_quic_conn_new_stream( client_conn );
+      FD_TEST( new_stream );
 
-          /* return meta */
-          free_stream( meta );
-        }
-      }
-      break;
+      /* set context on stream to meta */
+      fd_quic_stream_set_context( new_stream, meta );
 
-    default:
-      FD_LOG_DEBUG(( "NOTIFY: %#x", type ));
-      break;
+      /* populate meta */
+      meta->stream = new_stream;
+
+      /* return meta */
+      free_stream( meta );
+    }
   }
 }
 
 static ulong _recv = 0;
-void
-my_stream_receive_cb( fd_quic_stream_t * stream,
-                      void *             ctx,
-                      uchar const *      data,
-                      ulong              data_sz,
-                      ulong              offset,
-                      int                fin ) {
-  (void)ctx;
-  (void)stream;
-  (void)fin;
+int
+my_stream_rx_cb( fd_quic_conn_t * conn,
+                 ulong            stream_id,
+                 ulong            offset,
+                 uchar const *    data,
+                 ulong            data_sz,
+                 int              fin ) {
+  (void)conn; (void)stream_id; (void)fin;
 
   ulong expected_data_sz = 512ul;
 
@@ -215,18 +208,19 @@ my_stream_receive_cb( fd_quic_stream_t * stream,
     FD_LOG_WARNING(( "data wrong size. Is: %lu, expected: %lu",
                      data_sz, expected_data_sz ));
     fail = 1;
-    return;
+    return FD_QUIC_SUCCESS;
   }
 
   if( FD_UNLIKELY( 0!=memcmp( data, "Hello world", 11u ) ) ) {
     FD_LOG_WARNING(( "value received incorrect" ));
     fail = 1;
-    return;
+    return FD_QUIC_SUCCESS;
   }
 
   FD_LOG_DEBUG(( "recv ok" ));
 
   _recv++;
+  return FD_QUIC_SUCCESS;
 }
 
 
@@ -312,10 +306,8 @@ main( int argc, char ** argv ) {
   fd_quic_limits_t const quic_limits = {
     .conn_cnt           = 10,
     .conn_id_cnt        = 10,
-    .conn_id_sparsity   = 4.0,
     .handshake_cnt      = 10,
-    .stream_cnt         = { 0, 0, 10, 0 },
-    .initial_stream_cnt = { 0, 0, 10, 0 },
+    .stream_id_cnt      = 10,
     .stream_pool_cnt    = 400,
     .inflight_pkt_cnt   = 1024,
     .tx_buf_sz          = 1<<14
@@ -333,27 +325,17 @@ main( int argc, char ** argv ) {
   fd_quic_t * client_quic = fd_quic_new_anonymous( wksp, &quic_limits, FD_QUIC_ROLE_CLIENT, rng );
   FD_TEST( client_quic );
 
-  fd_quic_config_t * client_config = &client_quic->config;
-  client_config->idle_timeout = 5e6;
-  client_config->service_interval = 1e6;
-
   client_quic->cb.conn_hs_complete = my_handshake_complete;
-  client_quic->cb.stream_receive   = my_stream_receive_cb;
+  client_quic->cb.stream_rx        = my_stream_rx_cb;
   client_quic->cb.stream_notify    = my_stream_notify_cb;
   client_quic->cb.conn_final       = my_cb_conn_final;
-
   client_quic->cb.now     = test_clock;
   client_quic->cb.now_ctx = NULL;
 
-  fd_quic_config_t * server_config = &server_quic->config;
-  server_config->idle_timeout = 5e6;
-  server_config->service_interval = 1e6;
-
   server_quic->cb.conn_new       = my_connection_new;
-  server_quic->cb.stream_receive = my_stream_receive_cb;
+  server_quic->cb.stream_rx      = my_stream_rx_cb;
   server_quic->cb.stream_notify  = my_stream_notify_cb;
   server_quic->cb.conn_final     = my_cb_conn_final;
-
   server_quic->cb.now     = test_clock;
   server_quic->cb.now_ctx = NULL;
 
@@ -371,10 +353,9 @@ main( int argc, char ** argv ) {
   uint k = 1;
 
   /* populate free streams */
-  populate_stream_meta( quic_limits.stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT ] );
+  populate_stream_meta( 10 );
 
   char buf[512] = "Hello world!\x00-   ";
-  fd_aio_pkt_info_t batch[1] = {{ buf, sizeof( buf ) }};
 
   int done  = 0;
 
@@ -383,11 +364,6 @@ main( int argc, char ** argv ) {
   while( k < 4000 && !done ) {
     my_stream_meta_t * meta = NULL;
     now += 50000;
-
-    ulong client_wakeup = fd_quic_get_next_wakeup( client_quic );
-    ulong server_wakeup = fd_quic_get_next_wakeup( server_quic );
-    ulong earliest_wakeup = fd_ulong_min( client_wakeup, server_wakeup );
-    if( earliest_wakeup > now && earliest_wakeup != (ulong)(-1) ) now = earliest_wakeup;
 
     fd_quic_service( client_quic );
     fd_quic_service( server_quic );
@@ -412,9 +388,9 @@ main( int argc, char ** argv ) {
 
           FD_LOG_DEBUG(( "sending: %d", (int)k ));
 
-          int rc = fd_quic_stream_send( stream, batch, 1 /* batch_sz */, 1 /* fin */ );
+          int rc = fd_quic_stream_send( stream, buf, sizeof(buf), 1 /* fin */ );
 
-          if( rc == 1 ) {
+          if( rc == FD_QUIC_SUCCESS ) {
             /* successful - stream will begin closing */
             /* stream and meta will be recycled when quic notifies the stream
                is closed via my_stream_notify_cb */
@@ -429,7 +405,7 @@ main( int argc, char ** argv ) {
             /* did not send, did not start finalize, so stream is still available */
             free_stream( meta );
 
-            FD_LOG_WARNING(( "send failed" ));
+            FD_LOG_WARNING(( "send failed (%d)", rc ));
           }
         } else {
           FD_LOG_WARNING(( "unable to send - no streams available" ));
@@ -448,10 +424,9 @@ main( int argc, char ** argv ) {
           client_conn = fd_quic_connect(
               client_quic,
               server_quic->config.net.ip_addr,
-              server_quic->config.net.listen_udp_port,
-              server_quic->config.sni );
+              server_quic->config.net.listen_udp_port );
 
-          if( !client_quic ) {
+          if( !client_conn ) {
             FD_LOG_ERR(( "fd_quic_connect failed" ));
           }
 
@@ -468,7 +443,7 @@ main( int argc, char ** argv ) {
 
           state = 0;
 
-          populate_streams( quic_limits.stream_cnt[ FD_QUIC_STREAM_TYPE_UNI_CLIENT ], client_conn );
+          populate_streams( 10, client_conn );
         }
 
         break;
@@ -489,15 +464,6 @@ main( int argc, char ** argv ) {
 
   /* give server connection a chance to close */
   for( int j = 0; j < 1000; ++j ) {
-    ulong next_wakeup = fd_quic_get_next_wakeup( server_quic );
-
-    if( next_wakeup == ~(ulong)0 ) {
-      FD_LOG_INFO(( "server has no schedule "));
-      break;
-    }
-
-    now = next_wakeup;
-
     fd_quic_service( server_quic );
   }
 

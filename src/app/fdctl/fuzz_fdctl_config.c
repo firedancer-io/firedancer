@@ -1,7 +1,6 @@
 #include "config_parse.h"
 #include "../../ballet/toml/fd_toml.h"
 #include "../../util/fd_util.h"
-#include "../../util/sanitize/fd_fuzz.h"
 
 #include <assert.h>
 #include <stdlib.h>

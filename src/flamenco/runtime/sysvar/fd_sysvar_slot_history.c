@@ -5,31 +5,34 @@
 #include "../fd_system_ids.h"
 #include "../context/fd_exec_epoch_ctx.h"
 
-const ulong slot_history_min_account_size = 131097;
+/* FIXME These constants should be header defines */
+
+static const ulong slot_history_min_account_size = 131097;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L37 */
-const ulong slot_history_max_entries = 1024 * 1024;
+static const ulong slot_history_max_entries = 1024 * 1024;
 
 /* TODO: move into seperate bitvec library */
-const ulong bits_per_block = 8 * sizeof(ulong);
-void fd_sysvar_slot_history_set( fd_slot_history_t* history, ulong i ) {
-  // Corrupt history, zero everything out
-  if ( i > history->next_slot && i - history->next_slot >= slot_history_max_entries ) {
-    for ( ulong j = 0; j < history->bits.bits->blocks_len; j++) {
-      history->bits.bits->blocks[ j ] = 0;
-    }
-  } else {
-    // Skipped slots, delete them from history
-    for (ulong j = history->next_slot; j < i; j++) {
-      ulong block_idx = (j / bits_per_block) % (history->bits.bits->blocks_len);
-      history->bits.bits->blocks[ block_idx ] &= ~( 1UL << ( j % bits_per_block ) );
-    }
+static const ulong bits_per_block = 8 * sizeof(ulong);
+
+void
+fd_sysvar_slot_history_set( fd_slot_history_t * history,
+                            ulong               i ) {
+  if( FD_UNLIKELY( i > history->next_slot && i - history->next_slot >= slot_history_max_entries ) ) {
+    FD_LOG_WARNING(( "Ignoring out of bounds (i=%lu next_slot=%lu)", i, history->next_slot ));
+    return;
+  }
+
+  // Skipped slots, delete them from history
+  for( ulong j = history->next_slot; j < i; j++ ) {
+    ulong block_idx = (j / bits_per_block) % (history->bits.bits->blocks_len);
+    history->bits.bits->blocks[ block_idx ] &= ~( 1UL << ( j % bits_per_block ) );
   }
   ulong block_idx = (i / bits_per_block) % (history->bits.bits->blocks_len);
   history->bits.bits->blocks[ block_idx ] |= ( 1UL << ( i % bits_per_block ) );
 }
 
-const ulong blocks_len = slot_history_max_entries / bits_per_block;
+static const ulong blocks_len = slot_history_max_entries / bits_per_block;
 
 int fd_sysvar_slot_history_write_history( fd_exec_slot_ctx_t * slot_ctx,
                                           fd_slot_history_t * history ) {
@@ -48,10 +51,11 @@ int fd_sysvar_slot_history_write_history( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L16 */
-void fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx ) {
+void
+fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx ) {
   /* Create a new slot history instance */
-  fd_slot_history_t history;
-  fd_slot_history_inner_t *inner = fd_valloc_malloc( slot_ctx->valloc, 8UL, sizeof(fd_slot_history_inner_t) );
+  fd_slot_history_t history = {0};
+  fd_slot_history_inner_t * inner = fd_valloc_malloc( slot_ctx->valloc, 8UL, sizeof(fd_slot_history_inner_t) );
   inner->blocks = fd_valloc_malloc( slot_ctx->valloc, 8UL, sizeof(ulong) * blocks_len );
   memset( inner->blocks, 0, sizeof(ulong) * blocks_len );
   inner->blocks_len = blocks_len;
@@ -107,7 +111,7 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx ) {
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
 
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  rec->meta->info.lamports = fd_rent_exempt_minimum_balance2( &epoch_bank->rent, sz );
+  rec->meta->info.lamports = fd_rent_exempt_minimum_balance( &epoch_bank->rent, sz );
 
   rec->meta->dlen = sz;
   fd_memcpy( rec->meta->info.owner, fd_sysvar_owner_id.key, sizeof(fd_pubkey_t) );
@@ -120,7 +124,7 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx ) {
 
 int
 fd_sysvar_slot_history_read( fd_exec_slot_ctx_t * slot_ctx,
-                            fd_valloc_t valloc, 
+                            fd_valloc_t valloc,
                             fd_slot_history_t * out_history) {
   /* Set current_slot, and update next_slot */
 
@@ -137,7 +141,7 @@ fd_sysvar_slot_history_read( fd_exec_slot_ctx_t * slot_ctx,
   ctx.valloc  = valloc;
   if( fd_slot_history_decode( out_history, &ctx ) )
     FD_LOG_ERR(("fd_slot_history_decode failed"));
-  
+
   return 0;
 }
 

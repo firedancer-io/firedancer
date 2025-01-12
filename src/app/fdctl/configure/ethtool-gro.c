@@ -1,7 +1,12 @@
+/* This stage disables the "Generic Receive Offload" ethtool feature on the
+   main and loopback interfaces.  If left enabled, GRO will mangle UDP
+   packets in a way that causes AF_XDP packets to get corrupted.
+
+   TLDR GRO and AF_XDP are incompatible. */
+
 #include "configure.h"
 
 #include <stdio.h>
-#include <ctype.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
@@ -22,7 +27,7 @@ static void
 init_perm( fd_caps_ctx_t *  caps,
            config_t * const config ) {
   (void)config;
-  fd_caps_check_root( caps, NAME, "disable network device generic-receive-offload (gro) with `ethtool --set-offload generic-receive-offload off`" );
+  fd_caps_check_root( caps, NAME, "disable network device generic-receive-offload (gro) with `ethtool --offload generic-receive-offload off`" );
 }
 
 static int
@@ -115,6 +120,7 @@ init( config_t * const config ) {
   } else {
     init_device( config->tiles.net.interface );
   }
+  init_device( "lo" );
 }
 
 static configure_result_t
@@ -176,7 +182,7 @@ check( config_t * const config ) {
   CONFIGURE_OK();
 }
 
-configure_stage_t ethtool_gro = {
+configure_stage_t fd_cfg_stage_ethtool_gro = {
   .name            = NAME,
   .always_recreate = 0,
   .enabled         = enabled,

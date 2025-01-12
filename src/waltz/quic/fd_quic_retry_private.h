@@ -1,5 +1,7 @@
 #include "fd_quic_retry.h"
+
 #include "fd_quic_proto.h"
+#include "fd_quic_proto.c"
 
 /* FD_QUIC_RETRY_MAX_PSEUDO_SZ is the max encoded size of a Retry pseudo
    header. */
@@ -18,7 +20,9 @@
 
 /* FD_QUIC_RETRY_EXPIRE_SHIFT: Expiry timestamps (unix nanos) are right-
    shifted 22 bits to avoid leaking high-precision timing information.
-   This results in a precision of ~4.19 ms. */
+   This results in a precision of ~4.19 ms.
+
+   FIXME this breaks when using slower fd_quic clocks */
 
 #define FD_QUIC_RETRY_EXPIRE_SHIFT (22)
 

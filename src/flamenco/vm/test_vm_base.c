@@ -1,7 +1,12 @@
 #include "fd_vm_private.h"
+#include <stddef.h>
+#include <assert.h>
 
 FD_STATIC_ASSERT( FD_VM_FOOTPRINT                       == sizeof( fd_vm_t ), vm_struct );
 FD_STATIC_ASSERT( FD_VM_ALIGN                           == alignof( fd_vm_t ), vm_struct );
+FD_STATIC_ASSERT( FD_VM_HOST_REGION_ALIGN               == alignof( fd_vm_t ), vm_struct );
+FD_STATIC_ASSERT( offsetof( fd_vm_t, stack ) % FD_VM_HOST_REGION_ALIGN == 0, vm_struct );
+FD_STATIC_ASSERT( offsetof( fd_vm_t, heap )  % FD_VM_HOST_REGION_ALIGN == 0, vm_struct );
 
 /* Verify error codes */
 
@@ -23,15 +28,10 @@ FD_STATIC_ASSERT( FD_VM_ERR_SIGSEGV                     ==-13, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_SIGBUS                      ==-14, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_SIGRDONLY                   ==-15, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_SIGCOST                     ==-16, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_INVALID_PDA                 ==-17, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_SIGFPE                      ==-18, vm_err );
-
-FD_STATIC_ASSERT( FD_VM_ERR_ABORT                       ==-19, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_PANIC                       ==-20, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_MEM_OVERLAP                 ==-21, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_INSTR_ERR                   ==-22, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED==-23, vm_err );
-FD_STATIC_ASSERT( FD_VM_ERR_RETURN_DATA_TOO_LARGE       ==-24, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_SIGFPE_OF                   ==-19, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_SIGSYSCALL                  ==-20, vm_err );
+FD_STATIC_ASSERT( FD_VM_ERR_SIGABORT                    ==-21, vm_err );
 
 FD_STATIC_ASSERT( FD_VM_ERR_INVALID_OPCODE              ==-25, vm_err );
 FD_STATIC_ASSERT( FD_VM_ERR_INVALID_SRC_REG             ==-26, vm_err );
@@ -53,7 +53,7 @@ FD_STATIC_ASSERT( FD_VM_SHADOW_REG_CNT== 4UL, vm_reg );
 FD_STATIC_ASSERT( FD_VM_STACK_FRAME_MAX==64UL,          vm_stack );
 FD_STATIC_ASSERT( FD_VM_STACK_FRAME_SZ ==0x1000UL,      vm_stack );
 FD_STATIC_ASSERT( FD_VM_STACK_GUARD_SZ ==0x1000UL,      vm_stack );
-FD_STATIC_ASSERT( FD_VM_STACK_MAX      ==64UL*0x2000UL, vm_stack );
+FD_STATIC_ASSERT( FD_VM_STACK_MAX      ==64UL*0x1000UL, vm_stack );
 
 FD_STATIC_ASSERT( FD_VM_HEAP_DEFAULT== 32UL*1024UL, vm_heap );
 FD_STATIC_ASSERT( FD_VM_HEAP_MAX    ==256UL*1024UL, vm_heap );
@@ -147,13 +147,6 @@ main( int     argc,
   TEST( FD_VM_ERR_SIGBUS                       );
   TEST( FD_VM_ERR_SIGRDONLY                    );
   TEST( FD_VM_ERR_SIGCOST                      );
-
-  TEST( FD_VM_ERR_ABORT                        );
-  TEST( FD_VM_ERR_PANIC                        );
-  TEST( FD_VM_ERR_MEM_OVERLAP                  );
-  TEST( FD_VM_ERR_INSTR_ERR                    );
-  TEST( FD_VM_ERR_INVOKE_CONTEXT_BORROW_FAILED );
-  TEST( FD_VM_ERR_RETURN_DATA_TOO_LARGE        );
 
   TEST( FD_VM_ERR_INVALID_OPCODE               );
   TEST( FD_VM_ERR_INVALID_SRC_REG              );

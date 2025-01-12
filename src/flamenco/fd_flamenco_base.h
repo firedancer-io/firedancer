@@ -6,6 +6,7 @@
 #include "../ballet/sha256/fd_sha256.h"
 #include "types/fd_types_custom.h"
 #include "types/fd_cast.h"
+#include <alloca.h>
 
 #define FD_DEFAULT_SLOTS_PER_EPOCH   ( 432000UL )
 #define FD_DEFAULT_SHREDS_PER_EPOCH  ( ( 1 << 15UL ) * FD_DEFAULT_SLOTS_PER_EPOCH )
@@ -19,7 +20,59 @@
    in the epoch context. This value will foll forward to the
    latest version.
 */
-#define FD_DEFAULT_AGAVE_CLUSTER_VERSION (2000)
+#define FD_DEFAULT_AGAVE_CLUSTER_VERSION_MAJOR 2
+#define FD_DEFAULT_AGAVE_CLUSTER_VERSION_MINOR 0
+#define FD_DEFAULT_AGAVE_CLUSTER_VERSION_PATCH 0
+
+#if FD_HAS_ALLOCA
+
+/* FD_BASE58_ENC_{32,64}_ALLOCA is a shorthand for fd_base58_encode_{32,64},
+   including defining a temp buffer.  With additional support for passing
+   NULL.  Useful for printf-like functions.
+   Example:
+
+    fd_pubkey_t pk = ... ;
+    printf("%s", FD_BASE58_ENC_32_ALLOCA( pk ) );
+
+   The temp buffer is allocated on the stack and therefore invalidated
+   when the function this is used in returns.  NULL will result in
+   "<NULL>".
+   Do NOT use this marco in a long loop or a recursive function.
+   */
+
+static inline char *
+fd_base58_enc_32_fmt( char *        out,
+                      uchar const * in ) {
+  if( FD_UNLIKELY( !in ) ) {
+    strcpy( out, "<NULL>");
+  } else {
+    fd_base58_encode_32( in, NULL, out );
+  }
+  return out;
+}
+
+#define FD_BASE58_ENC_32_ALLOCA( x ) __extension__({                   \
+  char * _out = fd_alloca_check( 1UL, FD_BASE58_ENCODED_32_SZ );       \
+  fd_base58_enc_32_fmt( _out, (uchar const *)(x) );                    \
+})
+
+static inline char *
+fd_base58_enc_64_fmt( char *        out,
+                      uchar const * in ) {
+  if( FD_UNLIKELY( !in ) ) {
+    strcpy( out, "<NULL>");
+  } else {
+    fd_base58_encode_64( in, NULL, out );
+  }
+  return out;
+}
+
+#define FD_BASE58_ENC_64_ALLOCA( x ) __extension__({                   \
+  char * _out = fd_alloca_check( 1UL, FD_BASE58_ENCODED_64_SZ );       \
+  fd_base58_enc_64_fmt( _out, (uchar const *)(x) );                    \
+})
+
+#endif /* FD_HAS_ALLOCA */
 
 /* Forward declarations */
 

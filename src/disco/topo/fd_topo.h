@@ -1,9 +1,10 @@
 #ifndef HEADER_fd_src_disco_topo_fd_topo_h
 #define HEADER_fd_src_disco_topo_fd_topo_h
 
-#include "../mux/fd_mux.h"
-#include "../quic/fd_tpu.h"
+#include "../stem/fd_stem.h"
 #include "../../tango/fd_tango.h"
+#include "../../waltz/xdp/fd_xdp1.h"
+#include "../../ballet/base58/fd_base58.h"
 
 /* Maximum number of workspaces that may be present in a topology. */
 #define FD_TOPO_MAX_WKSPS         (256UL)
@@ -16,13 +17,15 @@
 /* Maximum number of links that may go into any one tile in the
    topology. */
 #define FD_TOPO_MAX_TILE_IN_LINKS  ( 128UL)
-/* Maximum number of links that a tile may write to in addition
-   to the primary output link. */
+/* Maximum number of links that a tile may write to. */
 #define FD_TOPO_MAX_TILE_OUT_LINKS ( 32UL)
 /* Maximum number of objects that a tile can use. */
 #define FD_TOPO_MAX_TILE_OBJS      ( 256UL)
 
-/* A workspace is a Firedance specific memory management structure that
+/* Maximum number of additional ip addresses */
+#define FD_NET_MAX_SRC_ADDR 4
+
+/* A workspace is a Firedancer specific memory management structure that
    sits on top of 1 or more memory mapped gigantic or huge pages mounted
    to the hugetlbfs. */
 typedef struct {
@@ -57,20 +60,17 @@ typedef struct {
   char  name[ 13UL ]; /* The name of this link, like "pack_bank". There can be multiple of each link name in a topology. */
   ulong kind_id;      /* The ID of this link within its name.  If there are N links of a particular name, they have IDs [0, N).  The pair (name, kind_id) uniquely identifies a link, as does "id" on its own. */
 
-  int   is_reasm; /* If the link is a reassembly buffer. */
   ulong depth;    /* The depth of the mcache representing the link. */
   ulong mtu;      /* The MTU of data fragments in the mcache.  A value of 0 means there is no dcache. */
   ulong burst;    /* The max amount of MTU sized data fragments that might be bursted to the dcache. */
 
   ulong mcache_obj_id;
   ulong dcache_obj_id;
-  ulong reasm_obj_id;
 
   /* Computed fields.  These are not supplied as configuration but calculated as needed. */
   struct {
     fd_frag_meta_t * mcache; /* The mcache of this link. */
     void *           dcache; /* The dcache of this link, if it has one. */
-    fd_tpu_reasm_t * reasm;  /* The reassembly buffer of this link, if it has one. */
   };
 } fd_topo_link_t;
 
@@ -80,12 +80,11 @@ typedef struct {
 
    A tile belongs to exactly one workspace.  A tile is a consumer of 0
    or more links, it's inputs.  A tile is a producer of 0 or more output
-   links.  Either zero or one of the output links is considered the
-   primary output, which will be managed automatically by the tile
-   infrastructure.
+   links.
 
    All input links will be automatically polled by the tile
-   infrastructure, but only the primary output will be written to. */
+   infrastructure, and output links will automatically source and manage
+   credits from consumers. */
 typedef struct {
   ulong id;                     /* The ID of this tile.  Indexed from [0, tile_cnt).  When placed in a topology, the ID must be the index of the tile in the tiles list. */
   char  name[ 7UL ];            /* The name of this tile.  There can be multiple of each tile name in a topology. */
@@ -98,16 +97,13 @@ typedef struct {
   ulong in_link_id[ FD_TOPO_MAX_TILE_IN_LINKS ];       /* The link_id of each link that this tile reads from, indexed in [0, in_cnt). */
   int   in_link_reliable[ FD_TOPO_MAX_TILE_IN_LINKS ]; /* If each link that this tile reads from is a reliable or unreliable consumer, indexed in [0, in_cnt). */
   int   in_link_poll[ FD_TOPO_MAX_TILE_IN_LINKS ];     /* If each link that this tile reads from should be polled by the tile infrastructure, indexed in [0, in_cnt).
-                                   If the link is not polled, the tile will not receive frags for it and the tile writer is responsible for
-                                   reading from the link.  The link must be marked as unreliable as it is not flow controlled. */
+                                                          If the link is not polled, the tile will not receive frags for it and the tile writer is responsible for
+                                                          reading from the link.  The link must be marked as unreliable as it is not flow controlled. */
 
-  ulong out_link_id_primary;    /* The link_id of the primary link that this tile writes to.  A value of ULONG_MAX means there is no primary output link. */
-
-  ulong out_cnt;                /* The number of non-primary links that this tile writes to. */
-  ulong out_link_id[ FD_TOPO_MAX_TILE_OUT_LINKS ]; /* The link_id of each non-primary link that this tile writes to, indexed in [0, link_cnt). */
+  ulong out_cnt;                                   /* The number of links that this tile writes to. */
+  ulong out_link_id[ FD_TOPO_MAX_TILE_OUT_LINKS ]; /* The link_id of each link that this tile writes to, indexed in [0, link_cnt). */
 
   ulong tile_obj_id;
-  ulong cnc_obj_id;
   ulong metrics_obj_id;
   ulong in_link_fseq_obj_id[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
@@ -117,7 +113,6 @@ typedef struct {
 
   /* Computed fields.  These are not supplied as configuration but calculated as needed. */
   struct {
-    fd_cnc_t * cnc;
     ulong *    metrics; /* The shared memory for metrics that this tile should write.  Consumer by monitoring and metrics writing tiles. */
 
     /* The fseq of each link that this tile reads from.  Multiple fseqs
@@ -146,23 +141,28 @@ typedef struct {
       ushort gossip_listen_port;
       ushort repair_intake_listen_port;
       ushort repair_serve_listen_port;
+
+      /* multihoming support */
+      ulong multihome_ip_addrs_cnt;
+      uint  multihome_ip_addrs[FD_NET_MAX_SRC_ADDR];
     } net;
 
     struct {
-      ulong  depth;
+      uint   out_depth;
       uint   reasm_cnt;
       ulong  max_concurrent_connections;
       ulong  max_concurrent_handshakes;
-      ulong  max_inflight_quic_packets;
-      ulong  max_concurrent_streams_per_connection;
-      ulong  stream_pool_cnt;
       uint   ip_addr;
       uchar  src_mac_addr[ 6 ];
       ushort quic_transaction_listen_port;
       ulong  idle_timeout_millis;
-      char   identity_key_path[ PATH_MAX ];
+      uint   ack_delay_millis;
       int    retry;
     } quic;
+
+    struct {
+      ulong tcache_depth;
+    } verify;
 
     struct {
       ulong tcache_depth;
@@ -173,12 +173,15 @@ typedef struct {
       ulong bank_tile_count;
       int   larger_max_cost_per_block;
       int   larger_shred_limits_per_block;
+      int   use_consumed_cus;
       char  identity_key_path[ PATH_MAX ];
     } pack;
 
     struct {
+      int   lagged_consecutive_leader_start;
+      int   plugins_enabled;
       ulong bank_cnt;
-      char   identity_key_path[ PATH_MAX ];
+      char  identity_key_path[ PATH_MAX ];
     } poh;
 
     struct {
@@ -188,11 +191,12 @@ typedef struct {
       ulong  fec_resolver_depth;
       char   identity_key_path[ PATH_MAX ];
       ushort shred_listen_port;
+      int    larger_shred_limits_per_block;
       ulong  expected_shred_version;
     } shred;
 
     struct {
-      int disable_blockstore;
+      ulong disable_blockstore_from_slot;
     } store;
 
     struct {
@@ -200,35 +204,53 @@ typedef struct {
     } sign;
 
     struct {
+      uint   listen_addr;
+      ushort listen_port;
+
+      int    is_voting;
+
+      char   cluster[ 32 ];
+      char   identity_key_path[ PATH_MAX ];
+    } gui;
+
+    struct {
+      uint   prometheus_listen_addr;
       ushort prometheus_listen_port;
     } metric;
 
     struct {
-
-      /* specified by [tiles.replay] */
-
-      char  blockstore_checkpt[ PATH_MAX ];
-      int   blockstore_publish;
+      int   tx_metadata_storage;
       char  capture[ PATH_MAX ];
       char  funk_checkpt[ PATH_MAX ];
       ulong funk_rec_max;
       ulong funk_sz_gb;
       ulong funk_txn_max;
+      char  funk_file[ PATH_MAX ];
       char  genesis[ PATH_MAX ];
       char  incremental[ PATH_MAX ];
       char  slots_replayed[ PATH_MAX ];
       char  snapshot[ PATH_MAX ];
       char  status_cache[ PATH_MAX ];
       ulong tpool_thread_count;
-      uint  cluster_version;
+      char  cluster_version[ 32 ];
+      int   in_wen_restart;
+      char  tower_checkpt[ PATH_MAX ];
+      char  wen_restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
+      int   plugins_enabled;
 
-      /* not specified by [tiles.replay] */
+      /* not specified in TOML */
 
       char  identity_key_path[ PATH_MAX ];
       uint  ip_addr;
       uchar src_mac_addr[ 6 ];
       int   vote;
       char  vote_account_path[ PATH_MAX ];
+      ulong bank_tile_count;
+      ulong full_interval;
+      ulong incremental_interval;
+
+      char  blockstore_file[ PATH_MAX ];
+      char  blockstore_checkpt[ PATH_MAX ];
     } replay;
 
     struct {
@@ -245,6 +267,9 @@ typedef struct {
 
     struct {
       ulong accounts_cnt;
+      int   mode;
+      float contending_fraction;
+      float cu_price_spread;
     } benchg;
 
     /* Firedancer-only tile configs */
@@ -263,29 +288,39 @@ typedef struct {
       ushort  tvu_fwd_port;
       ushort  tpu_port;
       ushort  tpu_vote_port;
+      ushort  repair_serve_port;
       ulong   expected_shred_version;
+      int     plugins_enabled;
     } gossip;
 
     struct {
       ushort  repair_intake_listen_port;
       ushort  repair_serve_listen_port;
+      char    good_peer_cache_file[ PATH_MAX ];
 
       /* non-config */
 
       uint    ip_addr;
       uchar   src_mac_addr[ 6 ];
+      int     good_peer_cache_file_fd;
       char    identity_key_path[ PATH_MAX ];
     } repair;
 
     struct {
-      char  blockstore_restore[ PATH_MAX ];
       char  slots_pending[PATH_MAX];
+
+      ulong expected_shred_version;
 
       /* non-config */
 
       char  identity_key_path[ PATH_MAX ];
       char  shred_cap_archive[ PATH_MAX ];
       char  shred_cap_replay[ PATH_MAX ];
+
+      int   in_wen_restart;
+
+      char  blockstore_file[ PATH_MAX ];
+      char  blockstore_restore[ PATH_MAX ];
     } store_int;
 
     struct {
@@ -297,6 +332,29 @@ typedef struct {
       uchar   src_mac_addr[ 6 ];
       char  identity_key_path[ PATH_MAX ];
     } sender;
+
+    struct {
+      char  identity_key_path[ PATH_MAX ];
+    } eqvoc;
+
+    struct {
+      ushort  rpc_port;
+      ushort  tpu_port;
+      uint    tpu_ip_addr;
+      char    identity_key_path[ PATH_MAX ];
+    } rpcserv;
+
+    struct {
+      ulong full_interval;
+      ulong incremental_interval;
+      char  out_dir[ PATH_MAX ];
+      int   tmp_fd;
+      int   tmp_inc_fd;
+      int   full_snapshot_fd;
+      int   incremental_snapshot_fd;
+      ulong hash_tpool_thread_count;
+    } batch;
+
   };
 } fd_topo_tile_t;
 
@@ -325,34 +383,26 @@ typedef struct fd_topo_t {
   fd_topo_link_t links[ FD_TOPO_MAX_LINKS ];
   fd_topo_tile_t tiles[ FD_TOPO_MAX_TILES ];
   fd_topo_obj_t  objs[ FD_TOPO_MAX_OBJS ];
+
+  ulong          agave_affinity_cnt;
+  ulong          agave_affinity_cpu_idx[ FD_TILE_MAX ];
 } fd_topo_t;
 
 typedef struct {
-  char const *                  name;
+  char const * name;
 
-  ulong                         mux_flags;
-  ulong                         burst;
-  ulong                         rlimit_file_cnt;
-  int                           for_tpool;
-  void * (*mux_ctx           )( void * scratch );
+  int          keep_host_networking;
+  ulong        rlimit_file_cnt;
+  int          for_tpool;
 
-  fd_mux_during_housekeeping_fn * mux_during_housekeeping;
-  fd_mux_before_credit_fn       * mux_before_credit;
-  fd_mux_after_credit_fn        * mux_after_credit;
-  fd_mux_before_frag_fn         * mux_before_frag;
-  fd_mux_during_frag_fn         * mux_during_frag;
-  fd_mux_after_frag_fn          * mux_after_frag;
-  fd_mux_metrics_write_fn       * mux_metrics_write;
-
-  long  (*lazy                    )( fd_topo_tile_t * tile );
-  ulong (*populate_allowed_seccomp)( void * scratch, ulong out_cnt, struct sock_filter * out );
-  ulong (*populate_allowed_fds    )( void * scratch, ulong out_fds_sz, int * out_fds );
+  ulong (*populate_allowed_seccomp)( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_cnt, struct sock_filter * out );
+  ulong (*populate_allowed_fds    )( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_fds_sz, int * out_fds );
   ulong (*scratch_align           )( void );
   ulong (*scratch_footprint       )( fd_topo_tile_t const * tile );
   ulong (*loose_footprint         )( fd_topo_tile_t const * tile );
-  void  (*privileged_init         )( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch );
-  void  (*unprivileged_init       )( fd_topo_t * topo, fd_topo_tile_t * tile, void * scratch );
-  int   (*main                    )( void );
+  void  (*privileged_init         )( fd_topo_t * topo, fd_topo_tile_t * tile );
+  void  (*unprivileged_init       )( fd_topo_t * topo, fd_topo_tile_t * tile );
+  void  (*run                     )( fd_topo_t * topo, fd_topo_tile_t * tile );
 } fd_topo_run_tile_t;
 
 FD_PROTOTYPES_BEGIN
@@ -458,7 +508,6 @@ fd_topo_find_link_producer( fd_topo_t const *      topo,
   for( ulong i=0; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t const * tile = &topo->tiles[ i ];
 
-    if( FD_UNLIKELY( tile->out_link_id_primary == link->id ) ) return i;
     for( ulong j=0; j<tile->out_cnt; j++ ) {
       if( FD_UNLIKELY( tile->out_link_id[ j ] == link->id ) ) return i;
     }
@@ -605,6 +654,12 @@ fd_topo_tile_stack_join( char const * app_name,
                          char const * tile_name,
                          ulong        tile_kind_id );
 
+/* Install the XDP program needed by the net tiles into the local device
+   and return the xsk_map_fd. */
+
+fd_xdp_fds_t
+fd_topo_install_xdp( fd_topo_t * topo );
+
 /* fd_topo_run_single_process runs all the tiles in a single process
    (the calling process).  This spawns a thread for each tile, switches
    that thread to the given UID and GID and then runs the tile in it.
@@ -651,6 +706,11 @@ fd_topo_run_single_process( fd_topo_t * topo,
    The thread will switch to the provided UID and GID without switching
    the other threads in the process.
 
+   If keep_controlling_terminal is set to 0, and the sandbox is enabled
+   the controlling terminal will be detached as an additional sandbox
+   measure, but you will not be able to send Ctrl+C or other signals
+   from the terminal.  See fd_sandbox.h for more information.
+
    The allow_fd argument is only used if sandbox is true, and is a file
    descriptor which will be allowed to exist in the process.  Normally
    the sandbox code rejects and aborts if there is an unexpected file
@@ -672,6 +732,7 @@ void
 fd_topo_run_tile( fd_topo_t *          topo,
                   fd_topo_tile_t *     tile,
                   int                  sandbox,
+                  int                  keep_controlling_terminal,
                   uint                 uid,
                   uint                 gid,
                   int                  allow_fd,
@@ -703,10 +764,10 @@ FD_FN_PURE ulong
 fd_topo_mlock_max_tile( fd_topo_t * topo );
 
 /* Same as fd_topo_mlock_max_tile, but for loading the entire topology
-   topology into one process, rather than a separate process per tile.
-   This is used, for example, by the configuration code when it creates
-   all the workspaces, or the monitor that maps the entire system into
-   one address space. */
+   into one process, rather than a separate process per tile.  This is
+   used, for example, by the configuration code when it creates all the
+   workspaces, or the monitor that maps the entire system into one
+   address space. */
 FD_FN_PURE ulong
 fd_topo_mlock( fd_topo_t * topo );
 

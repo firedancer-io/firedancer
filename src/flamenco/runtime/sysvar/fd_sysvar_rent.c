@@ -9,8 +9,14 @@
 #define ACCOUNT_STORAGE_OVERHEAD (128)
 
 fd_rent_t *
-fd_sysvar_rent_read( fd_rent_t *          result,
-                     fd_exec_slot_ctx_t * slot_ctx ) {
+fd_sysvar_rent_read( fd_rent_t *                result,
+                     fd_exec_slot_ctx_t const * slot_ctx ) {
+
+  fd_rent_t const * ret = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+  if( FD_UNLIKELY( NULL != ret ) ) {
+    fd_memcpy(result, ret, sizeof(fd_rent_t));
+    return result;
+  }
 
   FD_BORROWED_ACCOUNT_DECL(rent_rec);
 
@@ -59,19 +65,9 @@ fd_sysvar_rent_init( fd_exec_slot_ctx_t * slot_ctx ) {
   write_rent( slot_ctx, &epoch_bank->rent );
 }
 
-/* TODO: handle update */
-
 ulong
-fd_rent_exempt_minimum_balance2( fd_rent_t const * rent,
-                                 ulong             data_len ) {
+fd_rent_exempt_minimum_balance( fd_rent_t const * rent,
+                                ulong             data_len ) {
   /* https://github.com/anza-xyz/agave/blob/d2124a995f89e33c54f41da76bfd5b0bd5820898/sdk/program/src/rent.rs#L74 */
   return fd_rust_cast_double_to_ulong( (double)((data_len + ACCOUNT_STORAGE_OVERHEAD) * rent->lamports_per_uint8_year) * rent->exemption_threshold );
-}
-
-ulong
-fd_rent_exempt_minimum_balance( fd_exec_slot_ctx_t * slot_ctx,
-                                ulong                data_len ) {
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  fd_rent_t const * rent = &epoch_bank->rent;
-  return fd_rent_exempt_minimum_balance2( rent, data_len );
 }

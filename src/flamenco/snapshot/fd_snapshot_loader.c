@@ -1,6 +1,5 @@
 #include "fd_snapshot_loader.h"
-#include "fd_snapshot.h"
-#include "fd_snapshot_restore.h"
+#include "fd_snapshot_base.h"
 #include "fd_snapshot_http.h"
 
 #include <errno.h>
@@ -13,12 +12,15 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
+#define FD_SNAPSHOT_LOADER_MAGIC (0xa78a73a69d33e6b1UL)
+
 struct fd_snapshot_loader {
   ulong magic;
 
   /* Source: HTTP */
 
-  fd_snapshot_http_t vhttp[1];
+  void *               http_mem;
+  fd_snapshot_http_t * http;
 
   /* Source: File I/O */
 
@@ -46,11 +48,9 @@ struct fd_snapshot_loader {
   /* Hash and slot numbers from filename */
 
   fd_snapshot_name_t name;
-};
+}; 
 
 typedef struct fd_snapshot_loader fd_snapshot_loader_t;
-
-#define FD_SNAPSHOT_LOADER_MAGIC (0xa78a73a69d33e6b1UL)
 
 ulong
 fd_snapshot_loader_align( void ) {
@@ -62,6 +62,7 @@ fd_snapshot_loader_footprint( ulong zstd_window_sz ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapshot_loader_t), sizeof(fd_snapshot_loader_t) );
   l = FD_LAYOUT_APPEND( l, fd_zstd_dstream_align(),       fd_zstd_dstream_footprint( zstd_window_sz ) );
+  l = FD_LAYOUT_APPEND( l, alignof(fd_snapshot_http_t),   sizeof(fd_snapshot_http_t) );
   /* FIXME add test ensuring zstd dstream align > alignof loader */
   return FD_LAYOUT_FINI( l, fd_snapshot_loader_align() );
 }
@@ -83,9 +84,12 @@ fd_snapshot_loader_new( void * mem,
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_snapshot_loader_t * loader   = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapshot_loader_t), sizeof(fd_snapshot_loader_t) );
   void *                 zstd_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_zstd_dstream_align(),       fd_zstd_dstream_footprint( zstd_window_sz ) );
+  void *                 http_mem = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapshot_http_t),   sizeof(fd_snapshot_http_t) );
   FD_SCRATCH_ALLOC_FINI( l, fd_snapshot_loader_align() );
 
-  loader->zstd = fd_zstd_dstream_new( zstd_mem, zstd_window_sz );
+  fd_memset( loader, 0, sizeof(fd_snapshot_loader_t) );
+  loader->http_mem = http_mem;
+  loader->zstd     = fd_zstd_dstream_new( zstd_mem, zstd_window_sz );
 
   FD_COMPILER_MFENCE();
   loader->magic = FD_SNAPSHOT_LOADER_MAGIC;
@@ -108,9 +112,8 @@ fd_snapshot_loader_delete( fd_snapshot_loader_t * loader ) {
   fd_tar_io_reader_delete  ( loader->vtar  );
   fd_io_istream_zstd_delete( loader->vzstd );
   fd_io_istream_file_delete( loader->vfile );
-  fd_snapshot_http_delete  ( loader->vhttp );
+  fd_snapshot_http_delete  ( loader->http  );
   fd_tar_reader_delete     ( loader->tar   );
-  fd_zstd_dstream_delete   ( loader->zstd  );
 
   if( loader->snapshot_fd>=0 ) {
     if( FD_UNLIKELY( 0!=close( loader->snapshot_fd ) ) )
@@ -129,7 +132,8 @@ fd_snapshot_loader_t *
 fd_snapshot_loader_init( fd_snapshot_loader_t *    d,
                          fd_snapshot_restore_t *   restore,
                          fd_snapshot_src_t const * src,
-                         ulong                     base_slot ) {
+                         ulong                     base_slot,
+                         int                       validate_slot ) {
 
   d->restore = restore;
 
@@ -141,7 +145,12 @@ fd_snapshot_loader_init( fd_snapshot_loader_t *    d,
       return NULL;
     }
 
-    if( FD_UNLIKELY( !fd_snapshot_name_from_cstr( &d->name, src->file.path, base_slot ) ) ) {
+    fd_snapshot_name_t * name = fd_snapshot_name_from_cstr( &d->name, src->file.path );
+    if( FD_UNLIKELY( !name ) ) {
+      return NULL;
+    }
+
+    if( FD_UNLIKELY( validate_slot && fd_snapshot_name_slot_validate( name, base_slot ) ) ) {
       return NULL;
     }
 
@@ -153,14 +162,15 @@ fd_snapshot_loader_init( fd_snapshot_loader_t *    d,
     d->vsrc = fd_io_istream_file_virtual( d->vfile );
     break;
   case FD_SNAPSHOT_SRC_HTTP:
-    if( FD_UNLIKELY( !fd_snapshot_http_new( d->vhttp, src->http.dest, src->http.ip4, src->http.port, &d->name ) ) ) {
+    d->http = fd_snapshot_http_new( d->http_mem, src->http.dest, src->http.ip4, src->http.port, &d->name );
+    if( FD_UNLIKELY( !d->http ) ) {
       FD_LOG_WARNING(( "Failed to create fd_snapshot_http_t" ));
       return NULL;
     }
-    fd_snapshot_http_set_path( d->vhttp, src->http.path, src->http.path_len, base_slot );
-    d->vhttp->hops = (ushort)3;  /* TODO don't hardcode */
+    fd_snapshot_http_set_path( d->http, src->http.path, src->http.path_len, base_slot );
+    d->http->hops = (ushort)3;  /* TODO don't hardcode */
 
-    d->vsrc = fd_io_istream_snapshot_http_virtual( d->vhttp );
+    d->vsrc = fd_io_istream_snapshot_http_virtual( d->http );
     break;
   default:
     __builtin_unreachable();
@@ -194,9 +204,15 @@ fd_snapshot_loader_advance( fd_snapshot_loader_t * dumper ) {
   fd_tar_io_reader_t * vtar = dumper->vtar;
 
   int untar_err = fd_tar_io_reader_advance( vtar );
-  if( untar_err==0 )     { /* ok */ }
-  else if( untar_err<0 ) { /* EOF */ return -1; }
-  else {
+  if( untar_err==0 ) { 
+    /* Ok */ 
+  } else if( untar_err==MANIFEST_DONE ) {
+    /* Finished reading the manifest for the first time. */
+    return MANIFEST_DONE;
+  } else if( untar_err<0 ) { 
+    /* EOF */
+    return -1; 
+  } else {
     FD_LOG_WARNING(( "Failed to load snapshot (%d-%s)", untar_err, fd_io_strerror( untar_err ) ));
     return untar_err;
   }
@@ -295,10 +311,6 @@ fd_snapshot_src_parse( fd_snapshot_src_t * src,
     FD_LOG_WARNING(( "Failed to resolve socket address for %s", hostname ));
     freeaddrinfo( result );
     return NULL;
-  } else if( 0==strncmp( cstr, "archive:", sizeof("archive:")-1 ) ) {
-    src->type = FD_SNAPSHOT_SRC_ARCHIVE;
-    src->file.path = cstr + (sizeof("archive:")-1);
-    return src;
   } else {
     src->type = FD_SNAPSHOT_SRC_FILE;
     src->file.path = cstr;

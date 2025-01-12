@@ -123,7 +123,7 @@ Unlike GPU-style aceleration, WD.Sigverify does not require multiple transaction
 
 ### Pipeline Design
 
-Every transaction goes through multiple steps (detailed further in this document), with each step posing uniqe challenges when it comes to hardware implementation and acceleration.  The main goal is to form a single chain of pipelined blocks, that provides maximum throughput, while the latency and area are kept at a reasonable and practical level.
+Every transaction goes through multiple steps (detailed further in this document), with each step posing unique challenges when it comes to hardware implementation and acceleration.  The main goal is to form a single chain of pipelined blocks, that provides maximum throughput, while the latency and area are kept at a reasonable and practical level.
 
 Figure below shows the overall pipeline design of WD.SigVerify.  It is composed of a chain link of pipelines, with each pipeline having its own unique throughput and latency characteristics highlighted in the figure.
 ![WD-SigVerify Architecture](WD-SV.jpg)

@@ -118,7 +118,7 @@ fd_blake3_delete( void * shsha ) {
 
 fd_blake3_t *
 fd_blake3_init( fd_blake3_t * sha ) {
-  blake3_hasher_init( &sha->hasher );
+  fd_blake3_hasher_init( &sha->hasher );
   return sha;
 }
 
@@ -126,21 +126,21 @@ fd_blake3_t *
 fd_blake3_append( fd_blake3_t * sha,
                   void const *  data,
                   ulong         sz ) {
-  blake3_hasher_update( &sha->hasher, data, sz);
+  fd_blake3_hasher_update( &sha->hasher, data, sz);
   return sha;
 }
 
 void *
 fd_blake3_fini( fd_blake3_t * sha,
                 void *        hash ) {
-  blake3_hasher_finalize( &sha->hasher, (uchar *) hash, 32 );
+  fd_blake3_hasher_finalize( &sha->hasher, (uchar *) hash, 32 );
   return hash;
 }
 
 void *
 fd_blake3_fini_512( fd_blake3_t * sha,
                     void *        hash ) {
-  blake3_hasher_finalize( &sha->hasher, (uchar *) hash, 64 );
+  fd_blake3_hasher_finalize( &sha->hasher, (uchar *) hash, 64 );
   return hash;
 }
 
@@ -148,6 +148,6 @@ void *
 fd_blake3_fini_varlen( fd_blake3_t * sha,
                        void *        hash,
                        ulong         hash_len ) {
-  blake3_hasher_finalize( &sha->hasher, (uchar *) hash, hash_len );
+  fd_blake3_hasher_finalize( &sha->hasher, (uchar *) hash, hash_len );
   return hash;
 }

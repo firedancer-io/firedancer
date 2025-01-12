@@ -17,7 +17,11 @@
    to turn on additional run-time checks. */
 
 #ifndef FD_SCRATCH_USE_HANDHOLDING
+#if FD_HAS_DEEPASAN
+#define FD_SCRATCH_USE_HANDHOLDING 1
+#else
 #define FD_SCRATCH_USE_HANDHOLDING 0
+#endif
 #endif
 
 /* FD_SCRATCH_ALLOC_ALIGN_DEFAULT is the default alignment to use for
@@ -179,12 +183,18 @@ fd_scratch_attach( void * smem,
   fd_scratch_private_frame_max = depth;
 
 # if FD_HAS_DEEPASAN
-  /* Poison the entire smem region. Underpoison the boundaries to respect 
+  /* Poison the entire smem region. Underpoison the boundaries to respect
      alignment requirements. */
   ulong aligned_start = fd_ulong_align_up( fd_scratch_private_start, FD_ASAN_ALIGN );
   ulong aligned_end   = fd_ulong_align_dn( fd_scratch_private_stop, FD_ASAN_ALIGN );
   fd_asan_poison( (void*)aligned_start, aligned_end - aligned_start );
 # endif
+#if FD_HAS_MSAN
+  /* Mark the entire smem region as uninitialized. */
+  ulong aligned_start = fd_ulong_align_up( fd_scratch_private_start, FD_MSAN_ALIGN );
+  ulong aligned_end   = fd_ulong_align_dn( fd_scratch_private_stop, FD_MSAN_ALIGN );
+  fd_msan_poison( (void*)aligned_start, aligned_end - aligned_start );
+#endif
 }
 
 /* fd_scratch_detach detaches the calling thread from its current
@@ -272,11 +282,16 @@ fd_scratch_reset( void ) {
   fd_scratch_private_free      = fd_scratch_private_start;
   fd_scratch_private_frame_cnt = 0UL;
 
+/* Poison entire scratch space again. */
 # if FD_HAS_DEEPASAN
-  /* Poison entire scratch space again. */
   ulong aligned_start = fd_ulong_align_up( fd_scratch_private_start, FD_ASAN_ALIGN );
   ulong aligned_stop  = fd_ulong_align_dn( fd_scratch_private_stop, FD_ASAN_ALIGN );
   fd_asan_poison( (void*)aligned_start, aligned_stop - aligned_start );
+# endif
+# if FD_HAS_MSAN
+  ulong aligned_start = fd_ulong_align_up( fd_scratch_private_start, FD_MSAN_ALIGN );
+  ulong aligned_stop  = fd_ulong_align_dn( fd_scratch_private_stop, FD_MSAN_ALIGN );
+  fd_msan_poison( (void*)aligned_start, aligned_stop - aligned_start );
 # endif
 }
 
@@ -298,13 +313,18 @@ fd_scratch_push( void ) {
 # endif
   fd_scratch_private_frame[ fd_scratch_private_frame_cnt++ ] = fd_scratch_private_free;
 
-# if FD_HAS_DEEPASAN
   /* Poison to end of scratch region to account for case of in-prep allocation
      getting implictly cancelled. */
+# if FD_HAS_DEEPASAN
   ulong aligned_start = fd_ulong_align_up( fd_scratch_private_free, FD_ASAN_ALIGN );
   ulong aligned_stop  = fd_ulong_align_dn( fd_scratch_private_stop, FD_ASAN_ALIGN );
   fd_asan_poison( (void*)aligned_start, aligned_stop - aligned_start );
-# endif 
+# endif
+#if FD_HAS_MSAN
+  ulong aligned_start = fd_ulong_align_up( fd_scratch_private_free, FD_MSAN_ALIGN );
+  ulong aligned_stop  = fd_ulong_align_dn( fd_scratch_private_stop, FD_MSAN_ALIGN );
+  fd_msan_poison( (void*)aligned_start, aligned_stop - aligned_start );
+#endif
 }
 
 /* fd_scratch_pop frees all allocations in the current scratch frame,
@@ -334,6 +354,11 @@ fd_scratch_pop( void ) {
   ulong aligned_stop  = fd_ulong_align_dn( fd_scratch_private_stop, FD_ASAN_ALIGN );
   fd_asan_poison( (void*)aligned_start, aligned_stop - aligned_start );
 # endif
+#if FD_HAS_MSAN
+  ulong aligned_start = fd_ulong_align_up( fd_scratch_private_free, FD_MSAN_ALIGN );
+  ulong aligned_stop  = fd_ulong_align_dn( fd_scratch_private_stop, FD_MSAN_ALIGN );
+  fd_msan_poison( (void*)aligned_start, aligned_stop - aligned_start );
+#endif
 }
 
 /* fd_scratch_prepare starts an allocation of unknown size and known
@@ -411,7 +436,7 @@ fd_scratch_prepare( ulong align ) {
      always going to be at least 8 byte aligned. */
   ulong aligned_sz = fd_ulong_align_up( fd_scratch_private_stop - smem, FD_ASAN_ALIGN );
   fd_asan_unpoison( (void*)smem, aligned_sz );
-# endif 
+# endif
 
   fd_scratch_private_free = smem;
   return (void *)smem;
@@ -429,12 +454,17 @@ fd_scratch_publish( void * _end ) {
   fd_scratch_in_prepare   = 0;
 # endif
 
-# if FD_HAS_DEEPASAN
   /* Poison everything that is trimmed off. Conservatively poison potentially
      less than the region that is trimmed to respect alignment requirements. */
+# if FD_HAS_DEEPASAN
   ulong aligned_end  = fd_ulong_align_up( end, FD_ASAN_ALIGN );
-  ulong aligned_stop = fd_ulong_align_dn( fd_scratch_private_stop, FD_ASAN_ALIGN ); 
+  ulong aligned_stop = fd_ulong_align_dn( fd_scratch_private_stop, FD_ASAN_ALIGN );
   fd_asan_poison( (void*)aligned_end, aligned_stop - aligned_end );
+# endif
+# if FD_HAS_MSAN
+  ulong aligned_end  = fd_ulong_align_up( end, FD_MSAN_ALIGN );
+  ulong aligned_stop = fd_ulong_align_dn( fd_scratch_private_stop, FD_MSAN_ALIGN );
+  fd_msan_poison( (void*)aligned_end, aligned_stop - aligned_end );
 # endif
 
   fd_scratch_private_free = end;
@@ -544,6 +574,11 @@ fd_scratch_trim( void * _end ) {
   ulong aligned_end  = fd_ulong_align_up( end, FD_ASAN_ALIGN );
   ulong aligned_stop = fd_ulong_align_dn( fd_scratch_private_stop, FD_ASAN_ALIGN );
   fd_asan_poison( (void*)aligned_end, aligned_stop - aligned_end );
+# endif
+# if FD_HAS_MSAN
+  ulong aligned_end  = fd_ulong_align_up( end, FD_MSAN_ALIGN );
+  ulong aligned_stop = fd_ulong_align_dn( fd_scratch_private_stop, FD_MSAN_ALIGN );
+  fd_msan_poison( (void*)aligned_end, aligned_stop - aligned_end );
 # endif
 
   fd_scratch_private_free = end;

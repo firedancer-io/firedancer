@@ -8,21 +8,21 @@
 #include "../../util/rng/fd_rng.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <errno.h>
 #include <math.h>
 #include <arpa/inet.h>
+#include <unistd.h>
 #include <sys/socket.h>
 
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
-
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
 
 /* Max number of validators that can be actively queried */
 #define FD_ACTIVE_KEY_MAX (1<<12)
 /* Max number of pending shred requests */
 #define FD_NEEDED_KEY_MAX (1<<20)
 /* Max number of sticky repair peers */
-#define FD_REPAIR_STICKY_MAX   128
+#define FD_REPAIR_STICKY_MAX   1024
 /* Max number of validator identities in stake weights */
 #define FD_STAKE_WEIGHTS_MAX (1<<14)
 /* Max number of validator clients that we ping */
@@ -74,7 +74,7 @@ typedef uint fd_repair_nonce_t;
 /* Active table element. This table is all validators that we are
    asking for repairs. */
 struct fd_active_elem {
-    fd_pubkey_t key;  /* Public indentifier and map key */
+    fd_pubkey_t key;  /* Public identifier and map key */
     ulong next; /* used internally by fd_map_giant */
 
     fd_repair_peer_addr_t addr;
@@ -228,6 +228,8 @@ struct fd_repair {
     long last_decay;
     /* Last statistics printout */
     long last_print;
+    /* Last write to good peer cache file */
+    long last_good_peer_cache_file_write;
     /* Random number generator */
     fd_rng_t rng[1];
     /* RNG seed */
@@ -235,6 +237,8 @@ struct fd_repair {
     /* Stake weights */
     ulong stake_weights_cnt;
     fd_stake_weight_t * stake_weights;
+    /* Path to the file where we write the cache of known good repair peers, to make cold booting faster */
+    int good_peer_cache_file_fd;
 };
 
 ulong
@@ -271,6 +275,7 @@ fd_repair_new ( void * shmem, ulong seed ) {
   glob->last_sends = 0;
   glob->last_decay = 0;
   glob->last_print = 0;
+  glob->last_good_peer_cache_file_write = 0;
   glob->oldest_nonce = glob->current_nonce = glob->next_nonce = 0;
   fd_rng_new(glob->rng, (uint)seed, 0UL);
 
@@ -348,6 +353,7 @@ fd_repair_set_config( fd_repair_t * glob, const fd_repair_config_t * config ) {
   glob->sign_fun = config->sign_fun;
   glob->sign_arg = config->sign_arg;
   glob->deliver_fail_fun = config->deliver_fail_fun;
+  glob->good_peer_cache_file_fd = config->good_peer_cache_file_fd;
   return 0;
 }
 
@@ -386,7 +392,7 @@ fd_repair_add_active_peer( fd_repair_t * glob, fd_repair_peer_addr_t const * add
     val->first_request_time = 0;
     val->permanent = 0;
     val->stake = 0UL;
-    FD_LOG_DEBUG( ( "adding repair peer %32J", val->key.uc ) );
+    FD_LOG_DEBUG(( "adding repair peer %s", FD_BASE58_ENC_32_ALLOCA( val->key.uc ) ));
   }
   fd_repair_unlock( glob );
   return 0;
@@ -455,7 +461,7 @@ fd_repair_sign_and_send( fd_repair_t *           glob,
 static void
 fd_repair_send_requests( fd_repair_t * glob ) {
   /* Garbage collect old requests */
-  long expire = glob->now - (long)5000e6; /* 1 seconds */
+  long expire = glob->now - (long)5e9; /* 5 seconds */
   fd_repair_nonce_t n;
   for ( n = glob->oldest_nonce; n != glob->next_nonce; ++n ) {
     fd_needed_elem_t * ele = fd_needed_table_query( glob->needed, &n, NULL );
@@ -562,24 +568,140 @@ fd_repair_decay_stats( fd_repair_t * glob ) {
   }
 }
 
+/**
+ * read_line() reads characters one by one from 'fd' until:
+ *   - it sees a newline ('\n')
+ *   - it reaches 'max_len - 1' characters
+ *   - or EOF (read returns 0)
+ * It stores the line in 'buf' and null-terminates it.
+ *
+ * Returns the number of characters read (not counting the null terminator),
+ * or -1 on error.
+ */
+long read_line(int fd, char *buf) {
+    long i = 0;
+
+    while (i < 255) {
+        char c;
+        long n = read(fd, &c, 1);
+
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        } else if (n == 0) {
+            break;
+        }
+
+        buf[i++] = c;
+
+        if (c == '\n') {
+            break;
+        }
+    }
+
+    buf[i] = '\0';
+    return i;
+}
+
+static int
+fd_read_in_good_peer_cache_file( fd_repair_t * repair ) {  
+  if( repair->good_peer_cache_file_fd==-1 ) {
+    FD_LOG_NOTICE(( "No repair good_peer_cache_file specified, not loading cached peers" ));
+    return 0;
+  }
+
+  long seek = lseek( repair->good_peer_cache_file_fd, 0UL, SEEK_SET );
+  if( FD_UNLIKELY( seek!=0L ) ) {
+    FD_LOG_WARNING(( "Failed to seek to the beginning of the good peer cache file" ));
+    return 1;
+  }
+
+  int   loaded_peers   = 0;
+  char  line[256];
+  char  *saveptr      = NULL;
+
+  long len;
+  while ((len = read_line(repair->good_peer_cache_file_fd, line)) > 0) {
+
+    /* Strip newline if present */
+    size_t len = strlen( line );
+    if( len>0 && line[len-1]=='\n' ) {
+      line[len-1] = '\0';
+      len--;
+    }
+
+    /* Skip empty or comment lines */
+    if( !len || line[0]=='#' ) continue;
+
+    /* Parse: base58EncodedPubkey/ipAddr/port */
+    char * base58_str = strtok_r( line, "/", &saveptr );
+    char * ip_str     = strtok_r( NULL, "/", &saveptr );
+    char * port_str   = strtok_r( NULL, "/", &saveptr );
+
+    if( FD_UNLIKELY( !base58_str || !ip_str || !port_str ) ) {
+      FD_LOG_WARNING(( "Malformed line, skipping" ));
+      continue;
+    }
+
+    /* Decode the base58 public key */
+    fd_pubkey_t pubkey;
+    if( !fd_base58_decode_32( base58_str, pubkey.uc ) ) {
+      FD_LOG_WARNING(( "Failed to decode base58 public key '%s', skipping", base58_str ));
+      continue;
+    }
+
+    /* Convert IP address */
+    struct in_addr addr_parsed;
+    if( inet_aton( ip_str, &addr_parsed )==0 ) {
+      FD_LOG_WARNING(( "Invalid IPv4 address '%s', skipping", ip_str ));
+      continue;
+    }
+    uint ip_addr = (uint)addr_parsed.s_addr;
+
+    /* Convert the port */
+    char * endptr = NULL;
+    long   port   = strtol( port_str, &endptr, 10 );
+    if( (port<=0L) || (port>65535L) || (endptr && *endptr!='\0') ) {
+      FD_LOG_WARNING(( "Invalid port '%s', skipping", port_str ));
+      continue;
+    }
+
+    /* Create the peer address struct (byte-swap the port to network order). */
+    fd_repair_peer_addr_t peer_addr;
+    /* already in network byte order from inet_aton */
+    peer_addr.addr = ip_addr;                           
+    /* Flip to big-endian for network order */
+    peer_addr.port = fd_ushort_bswap( (ushort)port );
+
+    /* Add to active peers in the repair tile. */
+    fd_repair_add_active_peer( repair, &peer_addr, &pubkey );
+
+    loaded_peers++;
+  }
+
+  FD_LOG_INFO(( "Loaded %d peers from good peer cache file", loaded_peers ));
+  return 0;
+}
+
 /* Start timed events and other protocol behavior */
 int
 fd_repair_start( fd_repair_t * glob ) {
   glob->last_sends = glob->now;
   glob->last_decay = glob->now;
   glob->last_print = glob->now;
-  return 0;
+  return fd_read_in_good_peer_cache_file( glob );
 }
 
 static void fd_repair_print_all_stats( fd_repair_t * glob );
 static void fd_actives_shuffle( fd_repair_t * repair );
+static int fd_write_good_peer_cache_file( fd_repair_t * repair );
 
 /* Dispatch timed events and other protocol behavior. This should be
  * called inside the main spin loop. */
 int
 fd_repair_continue( fd_repair_t * glob ) {
   fd_repair_lock( glob );
-  if ( glob->now - glob->last_sends > (long)1e6 ) { /* 10 millisecs */
+  if ( glob->now - glob->last_sends > (long)1e6 ) { /* 1 millisecond */
     fd_repair_send_requests( glob );
     glob->last_sends = glob->now;
   }
@@ -593,6 +715,9 @@ fd_repair_continue( fd_repair_t * glob ) {
     fd_actives_shuffle( glob );
     fd_repair_decay_stats( glob );
     glob->last_decay = glob->now;
+  } else if ( glob->now - glob->last_good_peer_cache_file_write > (long)60e9 ) { /* 1 minute */
+    fd_write_good_peer_cache_file( glob );
+    glob->last_good_peer_cache_file_write = glob->now;
   }
   fd_repair_unlock( glob );
   return 0;
@@ -796,7 +921,7 @@ fd_actives_shuffle( fd_repair_t * repair ) {
 
     /* select an upper bound */
     /* acceptable latency is 2 * first quartile latency  */
-    long acceptable_latency = 2L * first_quartile_latency;
+    long acceptable_latency = first_quartile_latency != LONG_MAX ? 2L * first_quartile_latency : LONG_MAX;
     for( fd_active_table_iter_t iter = fd_active_table_iter_init( repair->actives );
          !fd_active_table_iter_done( repair->actives, iter );
          iter = fd_active_table_iter_next( repair->actives, iter ) ) {
@@ -828,7 +953,7 @@ fd_actives_shuffle( fd_repair_t * repair ) {
     if( leftovers_cnt ) {
       /* Always try afew new ones */
       ulong seed = repair->actives_random_seed;
-      for( ulong i = 0; i < 64 && tot_cnt < FD_REPAIR_STICKY_MAX; ++i ) {
+      for( ulong i = 0; i < 64 && tot_cnt < FD_REPAIR_STICKY_MAX && tot_cnt < fd_active_table_key_cnt( repair->actives ); ++i ) {
         seed                                  = ( seed + 774583887101UL ) * 131UL;
         fd_active_elem_t * peer               = leftovers[seed % leftovers_cnt];
         repair->actives_sticky[tot_cnt++]     = peer->key;
@@ -839,7 +964,7 @@ fd_actives_shuffle( fd_repair_t * repair ) {
     repair->actives_sticky_cnt = tot_cnt;
 
     FD_LOG_NOTICE(
-        ( "selected %lu (previously: %lu) peers for repair (best was %lu, good was %lu, leftovers was %lu) (nonce_diff: %lu)",
+        ( "selected %lu (previously: %lu) peers for repair (best was %lu, good was %lu, leftovers was %lu) (nonce_diff: %u)",
           tot_cnt,
           prev_sticky_cnt,
           best_cnt,
@@ -853,9 +978,10 @@ fd_actives_shuffle( fd_repair_t * repair ) {
 static fd_active_elem_t *
 actives_sample( fd_repair_t * repair ) {
   ulong seed = repair->actives_random_seed;
-  while( repair->actives_sticky_cnt ) {
+  ulong actives_sticky_cnt = repair->actives_sticky_cnt;
+  while( actives_sticky_cnt ) {
     seed += 774583887101UL;
-    fd_pubkey_t *      id   = &repair->actives_sticky[seed % repair->actives_sticky_cnt];
+    fd_pubkey_t *      id   = &repair->actives_sticky[seed % actives_sticky_cnt];
     fd_active_elem_t * peer = fd_active_table_query( repair->actives, id, NULL );
     if( NULL != peer ) {
       if( peer->first_request_time == 0U ) peer->first_request_time = repair->now;
@@ -868,7 +994,7 @@ actives_sample( fd_repair_t * repair ) {
       }
       peer->sticky = 0;
     }
-    *id = repair->actives_sticky[--( repair->actives_sticky_cnt )];
+    *id = repair->actives_sticky[--( actives_sticky_cnt )];
   }
   return NULL;
 }
@@ -923,6 +1049,63 @@ fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint 
   return 0;
 }
 
+static int
+fd_write_good_peer_cache_file( fd_repair_t * repair ) {
+  // return 0;
+  
+  if ( repair->good_peer_cache_file_fd == -1 ) {
+    return 0;
+  }
+
+  if ( repair->actives_sticky_cnt == 0 ) {
+    return 0;
+  }
+
+  /* Truncate the file before we write it */
+  int err = ftruncate( repair->good_peer_cache_file_fd, 0UL );
+  if( FD_UNLIKELY( err==-1 ) ) {
+    FD_LOG_WARNING(( "Failed to truncate the good peer cache file (%i-%s)", errno, fd_io_strerror( errno ) ));
+    return 1;
+  }
+  long seek = lseek( repair->good_peer_cache_file_fd, 0UL, SEEK_SET );
+  if( FD_UNLIKELY( seek!=0L ) ) {
+    FD_LOG_WARNING(( "Failed to seek to the beginning of the good peer cache file" ));
+    return 1;
+  }
+
+  /* Write the active sticky peers to file in the format:
+     "base58EncodedPubkey/ipAddr/port"
+
+     Where ipAddr is in dotted-decimal (e.g. "1.2.3.4")
+     and port is decimal, in host order (e.g. "8001").
+  */
+  for( ulong i = 0UL; i < repair->actives_sticky_cnt; i++ ) {
+    fd_pubkey_t *      id   = &repair->actives_sticky[ i ];
+    fd_active_elem_t * peer = fd_active_table_query( repair->actives, id, NULL );
+    if ( peer == NULL ) {
+      continue;
+    }
+
+    /* Convert the public key to base58 */
+    char base58_str[ FD_BASE58_ENCODED_32_SZ ];
+    fd_base58_encode_32( peer->key.uc, NULL, base58_str );
+
+    /* Convert the IP address to dotted-decimal string.  The address
+       in peer->addr.addr is already in network byte order. */
+    struct in_addr addr_parsed;
+    addr_parsed.s_addr = peer->addr.addr; /* net-order -> struct in_addr */
+    char * ip_str = inet_ntoa( addr_parsed );
+
+    /* Convert port from network byte order to host byte order. */
+    ushort port = fd_ushort_bswap( peer->addr.port );
+
+    /* Write out line: base58EncodedPubkey/ipAddr/port */
+    dprintf( repair->good_peer_cache_file_fd, "%s/%s/%u\n", base58_str, ip_str, (uint)port );
+  }
+
+  return 0;
+}
+
 int
 fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) {
   // FD_LOG_INFO( ( "[repair] need window %lu, shred_index %lu", slot, shred_index ) );
@@ -946,12 +1129,12 @@ print_stats( fd_active_elem_t * val ) {
   fd_pubkey_t const * id = &val->key;
   if( FD_UNLIKELY( NULL == val ) ) return;
   if( val->avg_reqs == 0 )
-    FD_LOG_DEBUG(( "repair peer %32J: no requests sent, stake=%lu", id, val->stake / (ulong)1e9 ));
+    FD_LOG_DEBUG(( "repair peer %s: no requests sent, stake=%lu", FD_BASE58_ENC_32_ALLOCA( id ), val->stake / (ulong)1e9 ));
   else if( val->avg_reps == 0 )
-    FD_LOG_DEBUG(( "repair peer %32J: avg_requests=%lu, no responses received, stake=%lu", id, val->avg_reqs, val->stake / (ulong)1e9 ));
+    FD_LOG_DEBUG(( "repair peer %s: avg_requests=%lu, no responses received, stake=%lu", FD_BASE58_ENC_32_ALLOCA( id ), val->avg_reqs, val->stake / (ulong)1e9 ));
   else
-    FD_LOG_DEBUG(( "repair peer %32J: avg_requests=%lu, response_rate=%f, latency=%f, stake=%lu",
-                    id,
+    FD_LOG_DEBUG(( "repair peer %s: avg_requests=%lu, response_rate=%f, latency=%f, stake=%lu",
+                    FD_BASE58_ENC_32_ALLOCA( id ),
                     val->avg_reqs,
                     ((double)val->avg_reps)/((double)val->avg_reqs),
                     1.0e-9*((double)val->avg_lat)/((double)val->avg_reps),
@@ -1010,8 +1193,6 @@ fd_repair_send_ping(fd_repair_t * glob, fd_gossip_peer_addr_t const * addr, fd_p
   fd_repair_response_new_disc( &gmsg, fd_repair_response_enum_ping );
   fd_gossip_ping_t * ping = &gmsg.inner.ping;
   fd_hash_copy( &ping->from, glob->public_key );
-  for ( ulong i = 0; i < FD_HASH_FOOTPRINT / sizeof(ulong); i++ )
-    val->token.ul[i] = fd_rng_ulong(glob->rng);
 
   uchar pre_image[FD_PING_PRE_IMAGE_SZ];
   memcpy( pre_image, "SOLANA_PING_PONG", 16UL );
@@ -1058,6 +1239,7 @@ fd_repair_recv_pong(fd_repair_t * glob, fd_gossip_ping_t const * pong, fd_gossip
                          /* sig */ pong->signature.uc,
                          /* public_key */ pong->from.uc,
                          sha2 )) {
+    FD_LOG_WARNING(("Failed sig verify for pong"));
     return;
   }
 
@@ -1107,7 +1289,7 @@ fd_repair_recv_serv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, 
     }
 
     if( !fd_hash_eq( &header->recipient, glob->public_key ) ) {
-      FD_LOG_WARNING(( "received repair request with wrong recipient, %32J instead of %32J", header->recipient.uc, glob->public_key ));
+      FD_LOG_WARNING(( "received repair request with wrong recipient, %s instead of %s", FD_BASE58_ENC_32_ALLOCA( header->recipient.uc ), FD_BASE58_ENC_32_ALLOCA( glob->public_key ) ));
       return 0;
     }
 
@@ -1137,6 +1319,8 @@ fd_repair_recv_serv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, 
           return 0;
         }
         val = fd_pinged_table_insert(glob->pinged, from);
+        for ( ulong i = 0; i < FD_HASH_FOOTPRINT / sizeof(ulong); i++ )
+          val->token.ul[i] = fd_rng_ulong(glob->rng);
       }
       fd_hash_copy( &val->id, &header->sender );
       val->good = 0;
@@ -1168,7 +1352,8 @@ fd_repair_recv_serv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, 
         ulong slot = wi->slot;
         for(unsigned i = 0; i < 10; ++i) {
           slot = (*glob->serv_get_parent_fun)( slot, glob->fun_arg );
-          if( slot == FD_SLOT_NULL ) break;
+          /* We cannot serve slots <= 1 since they are empy and created at genesis. */
+          if( slot == FD_SLOT_NULL || slot <= 1UL ) break;
           long sz = (*glob->serv_get_shred_fun)( slot, UINT_MAX, buf, FD_SHRED_MAX_SZ, glob->fun_arg );
           if( sz < 0 ) continue;
           *(uint *)(buf + sz) = wi->header.nonce;

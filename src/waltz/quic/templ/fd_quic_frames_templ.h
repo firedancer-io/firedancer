@@ -94,9 +94,8 @@ FD_TEMPL_DEF_STRUCT_END(stop_sending_frame)
 
 FD_TEMPL_DEF_STRUCT_BEGIN(crypto_frame)
   FD_TEMPL_MBR_FRAME_TYPE( type, 0x06,0x06 )
-  FD_TEMPL_MBR_ELEM_VARINT ( offset,      ulong           )
-  FD_TEMPL_MBR_ELEM_VARINT ( length,      ulong           )
-  FD_TEMPL_MBR_ELEM_VAR_RAW( crypto_data, 0,12000, length )
+  FD_TEMPL_MBR_ELEM_VARINT ( offset, ulong )
+  FD_TEMPL_MBR_ELEM_VARINT ( length, ulong )
 FD_TEMPL_DEF_STRUCT_END(crypto_frame)
 
 
@@ -143,20 +142,29 @@ FD_TEMPL_DEF_STRUCT_END(new_token_frame)
    The FIN bit (0x01) indicates that the frame marks the end of the stream. The
      final size of the stream is the sum of the offset and the length of this frame. */
 
-FD_TEMPL_DEF_STRUCT_BEGIN(stream_frame)
-  FD_TEMPL_MBR_FRAME_TYPE( type, 0x08,0x0f )
-
+FD_TEMPL_DEF_STRUCT_BEGIN(stream_8_frame)
+  FD_TEMPL_MBR_ELEM( type, uchar )
   FD_TEMPL_MBR_ELEM_VARINT( stream_id, ulong )
+FD_TEMPL_DEF_STRUCT_END(stream_8_frame)
 
-  // optional data processed in code
-  FD_TEMPL_MBR_OPT( type, offset, 0x04,
-    FD_TEMPL_MBR_ELEM_VARINT( offset,    ulong ) )
+FD_TEMPL_DEF_STRUCT_BEGIN(stream_a_frame)
+  FD_TEMPL_MBR_ELEM( type, uchar )
+  FD_TEMPL_MBR_ELEM_VARINT( stream_id, ulong )
+  FD_TEMPL_MBR_ELEM_VARINT( length,    ulong )
+FD_TEMPL_DEF_STRUCT_END(stream_a_frame)
 
-  FD_TEMPL_MBR_OPT( type, length,0x02,
-    FD_TEMPL_MBR_ELEM_VARINT( length,    ulong ) )
+FD_TEMPL_DEF_STRUCT_BEGIN(stream_c_frame)
+  FD_TEMPL_MBR_ELEM( type, uchar )
+  FD_TEMPL_MBR_ELEM_VARINT( stream_id, ulong )
+  FD_TEMPL_MBR_ELEM_VARINT( offset,    ulong )
+FD_TEMPL_DEF_STRUCT_END(stream_c_frame)
 
-  FD_TEMPL_MBR_OPT( type, fin, 0x01, )
-FD_TEMPL_DEF_STRUCT_END(stream_frame)
+FD_TEMPL_DEF_STRUCT_BEGIN(stream_e_frame)
+  FD_TEMPL_MBR_ELEM( type, uchar )
+  FD_TEMPL_MBR_ELEM_VARINT( stream_id, ulong )
+  FD_TEMPL_MBR_ELEM_VARINT( offset,    ulong )
+  FD_TEMPL_MBR_ELEM_VARINT( length,    ulong )
+FD_TEMPL_DEF_STRUCT_END(stream_e_frame)
 
 
 /* Max Data Frame
@@ -182,12 +190,11 @@ FD_TEMPL_DEF_STRUCT_END(max_data_frame)
    }
    Figure 34: MAX_STREAM_DATA Frame Format */
 
-  /* TODO rename to max_stream_data_frame for consistency */
-FD_TEMPL_DEF_STRUCT_BEGIN(max_stream_data)
+FD_TEMPL_DEF_STRUCT_BEGIN(max_stream_data_frame)
   FD_TEMPL_MBR_FRAME_TYPE( type,0x11,0x11 )
   FD_TEMPL_MBR_ELEM_VARINT( stream_id,       ulong )
   FD_TEMPL_MBR_ELEM_VARINT( max_stream_data, ulong )
-FD_TEMPL_DEF_STRUCT_END(max_stream_data)
+FD_TEMPL_DEF_STRUCT_END(max_stream_data_frame)
 
 
 /* Max Streams Frame
@@ -199,8 +206,7 @@ FD_TEMPL_DEF_STRUCT_END(max_stream_data)
    Figure 35: MAX_STREAMS Frame Format */
 
 FD_TEMPL_DEF_STRUCT_BEGIN(max_streams_frame)
-  FD_TEMPL_MBR_FRAME_TYPE( type, 0x12,0x13 )
-  FD_TEMPL_MBR_FRAME_TYPE_FLAG( stream_type, 0x01 )
+  FD_TEMPL_MBR_ELEM( type, uchar )
   FD_TEMPL_MBR_ELEM_VARINT( max_streams, ulong )
 FD_TEMPL_DEF_STRUCT_END(max_streams_frame)
 
@@ -267,7 +273,7 @@ FD_TEMPL_DEF_STRUCT_BEGIN(new_conn_id_frame)
   FD_TEMPL_MBR_ELEM_VARINT ( retire_prior_to,       ulong              )
   FD_TEMPL_MBR_ELEM        ( conn_id_len,           uchar              )
   FD_TEMPL_MBR_ELEM_VAR_RAW( conn_id,               0,160, conn_id_len )
-  FD_TEMPL_MBR_ELEM_FIXED  ( stateless_reset_token, uchar, 16          )
+  FD_TEMPL_MBR_ELEM_RAW    ( stateless_reset_token, 16                 )
 FD_TEMPL_DEF_STRUCT_END(new_conn_id_frame)
 
 
@@ -295,7 +301,7 @@ FD_TEMPL_DEF_STRUCT_END(retire_conn_id_frame)
 
 FD_TEMPL_DEF_STRUCT_BEGIN(path_challenge_frame)
   FD_TEMPL_MBR_FRAME_TYPE( type, 0x1a,0x1a )
-  FD_TEMPL_MBR_ELEM_VARINT( data, ulong )
+  FD_TEMPL_MBR_ELEM( data, ulong )
 FD_TEMPL_DEF_STRUCT_END(path_challenge_frame)
 
 
@@ -309,7 +315,7 @@ FD_TEMPL_DEF_STRUCT_END(path_challenge_frame)
 
 FD_TEMPL_DEF_STRUCT_BEGIN(path_response_frame)
   FD_TEMPL_MBR_FRAME_TYPE( type, 0x1b,0x1b )
-  FD_TEMPL_MBR_ELEM_VARINT( data, ulong )
+  FD_TEMPL_MBR_ELEM( data, ulong )
 FD_TEMPL_DEF_STRUCT_END(path_response_frame)
 
 

@@ -1,5 +1,5 @@
 #define _GNU_SOURCE
-#include "fd_sandbox.h"
+#include "fd_sandbox_private.h"
 
 #include "../cstr/fd_cstr.h"
 #include "../log/fd_log.h"
@@ -26,7 +26,7 @@
 #error "Target operating system is unsupported by seccomp."
 #endif
 
-#if !defined(__x86_64__)
+#if !defined(__x86_64__) && !defined(__aarch64__)
 #error "Target architecture is unsupported by seccomp."
 #else
 
@@ -158,7 +158,7 @@ fd_sandbox_private_check_exact_file_descriptors( ulong       allowed_file_descri
        since dent->d_name field is variable length, the records are not
        always aligned and the cast below is going to be unaligned anyway
        however...
-       
+
        If we don't align it the compiler might prove somthing weird and
        trash this code, and also ASAN would flag it as an error.  So we
        just align it anyway. */
@@ -209,7 +209,7 @@ fd_sandbox_private_check_exact_file_descriptors( ulong       allowed_file_descri
 
         FD_LOG_ERR(( "unexpected file descriptor %d open %s", fd, target ));
       }
-      
+
       offset += dent->d_reclen;
     }
   }
@@ -278,12 +278,12 @@ void
 fd_sandbox_private_write_userns_uid_gid_maps( uint uid_in_parent,
                                               uint gid_in_parent ) {
   int setgroups_fd = open( "/proc/self/setgroups", O_WRONLY );
-  if( FD_UNLIKELY( setgroups_fd<0 ) )                 FD_LOG_ERR(( "open(/proc/self/setgroups) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( setgroups_fd<0 ) )                       FD_LOG_ERR(( "open(/proc/self/setgroups) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   long written = write( setgroups_fd, "deny", strlen( "deny" ) );
-  if( FD_UNLIKELY( -1L==written ) )                   FD_LOG_ERR(( "write(/proc/self/setgroups) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  else if( FD_UNLIKELY( written!=strlen( "deny" ) ) ) FD_LOG_ERR(( "write(/proc/self/setgroups) failed to write all data" ));
-  if( FD_UNLIKELY( close( setgroups_fd ) ) )          FD_LOG_ERR(( "close(/proc/self/setgroups) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1L==written ) )                         FD_LOG_ERR(( "write(/proc/self/setgroups) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  else if( FD_UNLIKELY( written!=(long)strlen( "deny" ) ) ) FD_LOG_ERR(( "write(/proc/self/setgroups) failed to write all data" ));
+  if( FD_UNLIKELY( close( setgroups_fd ) ) )                FD_LOG_ERR(( "close(/proc/self/setgroups) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   static char const * MAP_PATHS[] = {
     "/proc/self/uid_map",
@@ -387,12 +387,12 @@ void
 fd_sandbox_private_set_rlimits( ulong rlimit_file_cnt ) {
   struct rlimit_setting rlimits[] = {
     { .resource=RLIMIT_NOFILE,     .limit=rlimit_file_cnt },
-    /* The man page for setrlimit(2) states about RLIMIT_NICE: 
-    
+    /* The man page for setrlimit(2) states about RLIMIT_NICE:
+
           The useful range for this limit is thus from 1 (corresponding
           to a nice value of 19) to 40 (corresponding to a nice value of
           -20).
-       
+
        But this is misleading.  The range of values is from 0 to 40,
        even though the "useful" range is 1 to 40, because a value of 0
        and a value of 1 for the rlimit both map to a nice value of 19.
@@ -424,7 +424,7 @@ fd_sandbox_private_set_rlimits( ulong rlimit_file_cnt ) {
 
   for( ulong i=0UL; i<sizeof(rlimits)/sizeof(rlimits[ 0 ]); i++ ) {
     struct rlimit limit = { .rlim_cur=rlimits[ i ].limit, .rlim_max=rlimits[ i ].limit };
-    if( -1==setrlimit( rlimits[ i ].resource, &limit ) ) FD_LOG_ERR(( "setrlimit(%d) failed (%i-%s)", rlimits[ i ].resource, errno, fd_io_strerror( errno ) ));
+    if( -1==setrlimit( rlimits[ i ].resource, &limit ) ) FD_LOG_ERR(( "setrlimit(%u) failed (%i-%s)", rlimits[ i ].resource, errno, fd_io_strerror( errno ) ));
   }
 }
 
@@ -561,6 +561,7 @@ fd_sandbox_private_read_cap_last_cap( void ) {
 void
 fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
                                      uint        desired_gid,
+                                     int         keep_host_networking,
                                      int         keep_controlling_terminal,
                                      ulong       rlimit_file_cnt,
                                      ulong       allowed_file_descriptor_cnt,
@@ -568,9 +569,9 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
   /* Read the highest capability index on the currently running kernel
      from /proc */
   ulong cap_last_cap = fd_sandbox_private_read_cap_last_cap();
-  
+
   /* The ordering here is quite delicate and should be preserved ...
-  
+
       | Action                 | Must happen before          | Reason
       |------------------------|-----------------------------|-------------------------------------
       | Check file descriptors | Pivot root                  | Requires access to /proc filesystem
@@ -633,8 +634,10 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
 
   /* Unshare everything in the parent user namespace, so that the nested
      user namespace does not have privileges over them. */
-  if( -1==unshare( CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUTS ) )
-    FD_LOG_ERR(( "unshare(CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUTS) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  int flags = CLONE_NEWNS | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUTS;
+  if( !keep_host_networking ) flags |= CLONE_NEWNET;
+
+  if( -1==unshare( flags ) ) FD_LOG_ERR(( "unshare(CLONE_NEWNS | CLONE_NEWNET | CLONE_NEWCGROUP | CLONE_NEWIPC | CLONE_NEWUTS) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   fd_sandbox_private_deny_namespaces();
 
@@ -643,7 +646,7 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
 
   /* PR_SET_KEEPCAPS will already be 0 if we didn't need to raise
      CAP_SYS_ADMIN, but we always clear it anyway. */
-  if( -1==prctl( PR_SET_KEEPCAPS, 0 ) ) FD_LOG_ERR(( "prctl(PR_SET_KEEPCAPS, 0) failed (%i-%s)", errno, fd_io_strerror( errno ) )); 
+  if( -1==prctl( PR_SET_KEEPCAPS, 0 ) ) FD_LOG_ERR(( "prctl(PR_SET_KEEPCAPS, 0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( -1==prctl( PR_SET_DUMPABLE, 0 ) ) FD_LOG_ERR(( "prctl(PR_SET_DUMPABLE, 0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   /* Now remount the filesystem root so no files are accessible any more. */
@@ -665,16 +668,18 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
 void
 fd_sandbox_enter( uint                 desired_uid,
                   uint                 desired_gid,
+                  int                  keep_host_networking,
                   int                  keep_controlling_terminal,
                   ulong                rlimit_file_cnt,
                   ulong                allowed_file_descriptor_cnt,
                   int const *          allowed_file_descriptor,
                   ulong                seccomp_filter_cnt,
                   struct sock_filter * seccomp_filter ) {
-  if( seccomp_filter_cnt>USHORT_MAX ) FD_LOG_ERR(( "seccomp_filter_cnt must not be more than %u", USHORT_MAX ));
+  if( seccomp_filter_cnt>USHORT_MAX ) FD_LOG_ERR(( "seccomp_filter_cnt must not be more than %d", USHORT_MAX ));
 
   fd_sandbox_private_enter_no_seccomp( desired_uid,
                                        desired_gid,
+                                       keep_host_networking,
                                        keep_controlling_terminal,
                                        rlimit_file_cnt,
                                        allowed_file_descriptor_cnt,

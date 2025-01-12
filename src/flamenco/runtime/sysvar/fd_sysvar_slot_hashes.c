@@ -5,13 +5,15 @@
 #include "../fd_system_ids.h"
 #include "../context/fd_exec_slot_ctx.h"
 
+/* FIXME These constants should be header defines */
+
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L11 */
-const ulong slot_hashes_max_entries = 512;
+FD_FN_UNUSED static const ulong slot_hashes_max_entries = 512;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/slot_hashes.rs#L12 */
-const ulong slot_hashes_min_account_size = 20488;
+static const ulong slot_hashes_min_account_size = 20488;
 
-void write_slot_hashes( fd_exec_slot_ctx_t * slot_ctx, fd_slot_hashes_t* slot_hashes ) {
+static void write_slot_hashes( fd_exec_slot_ctx_t * slot_ctx, fd_slot_hashes_t* slot_hashes ) {
   ulong sz = fd_slot_hashes_size( slot_hashes );
   if (sz < slot_hashes_min_account_size)
     sz = slot_hashes_min_account_size;
@@ -26,11 +28,9 @@ void write_slot_hashes( fd_exec_slot_ctx_t * slot_ctx, fd_slot_hashes_t* slot_ha
   fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_slot_hashes_id, enc, sz, slot_ctx->slot_bank.slot );
 }
 
-//void fd_sysvar_slot_hashes_init( fd_slot_ctx_ctx_t* slot_ctx ) {
-//  fd_slot_hashes_t slot_hashes;
-//  memset( &slot_hashes, 0, sizeof(fd_slot_hashes_t) );
-//  write_slot_hashes( slot_ctx, &slot_hashes );
-//}
+void fd_sysvar_slot_hashes_init( fd_exec_slot_ctx_t * slot_ctx, fd_slot_hashes_t * slot_hashes ) {
+ write_slot_hashes( slot_ctx, slot_hashes );
+}
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L34 */
 void
@@ -62,7 +62,7 @@ fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx ) {
         .hash = slot_ctx->slot_bank.banks_hash, // parent hash?
         .slot = slot_ctx->slot_bank.prev_slot,   // parent_slot
       };
-      // FD_LOG_DEBUG(( "fd_sysvar_slot_hash_update:  slot %ld,  hash %32J", slot_hash.slot, slot_hash.hash.key ));
+      FD_LOG_DEBUG(( "fd_sysvar_slot_hash_update:  slot %lu,  hash %s", slot_hash.slot, FD_BASE58_ENC_32_ALLOCA( slot_hash.hash.key ) ));
       fd_bincode_destroy_ctx_t ctx2 = { .valloc = slot_ctx->valloc };
 
       if (deq_fd_slot_hash_t_full( hashes ) )

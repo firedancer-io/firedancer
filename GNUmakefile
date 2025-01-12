@@ -49,11 +49,12 @@ MACHINE=native
 endif
 
 $(info Using MACHINE=$(MACHINE))
-$(info Using EXTRAS=$(EXTRAS))
+$(info Using EXTRAS=$(EXTRAS_PRE) $(EXTRAS))
 
 # Default target
 all:
 
+include $(wildcard $(addprefix config/extra/with-,$(addsuffix -pre.mk,$(EXTRAS))))
 include config/machine/$(MACHINE).mk
 include $(addprefix config/extra/with-,$(addsuffix .mk,$(EXTRAS)))
 include config/everything.mk

@@ -16,6 +16,18 @@ on:
         type: string
         description: Machines to build for
         default: all
+      gcc_exceptions:
+        type: string
+        description: Exception groups for gcc
+        default: none
+      clang_exceptions:
+        type: string
+        description: Exception groups for clang
+        default: none
+      dry_run:
+        type: boolean
+        description: Print build matrix and exit
+        default: false
       verbose:
         type: boolean
         description: Show error outputs
@@ -38,6 +50,18 @@ on:
         type: string
         description: Machines to build for (comma-separated | all)
         default: all
+      gcc_exceptions:
+        type: string
+        description: Exception groups for gcc (comma-separated and semi-colon delimited | none)
+        default: none
+      clang_exceptions:
+        type: string
+        description: Exception groups for clang (comma-separated and semi-colon delimited | none)
+        default: none
+      dry_run:
+        type: boolean
+        description: Print build matrix and exit
+        default: false
       verbose:
         type: boolean
         description: Show error outputs
@@ -58,11 +82,15 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@1.73.0
+      - uses: dtolnay/rust-toolchain@1.81.0
 
       - name: Build command line args
         run: |
           ARGS=""
+          # dry-run
+          if [ "${{ inputs.dry_run }}" == "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
           # verbose
           if [ "${{ inputs.verbose }}" == "true" ]; then
             ARGS="$ARGS --verbose"
@@ -72,12 +100,20 @@ jobs:
             ARGS="$ARGS --exit-on-err"
           fi
           # machine
-          if [ "${{ inputs.machine }}" != "all" ]; then
+          if [ ! -z "${{ inputs.machine }}" ] && [ "${{ inputs.machine }}" != "all" ]; then
             ARGS="$ARGS --machines ${{ inputs.machine }}"
           fi
           # gcc
-          if [ "${{ inputs.gcc }}" != "all" ]; then
+          if [ ! -z "${{ inputs.gcc }}" ] && [ "${{ inputs.gcc }}" != "all" ]; then
             ARGS="$ARGS --gcc-versions ${{ inputs.gcc }}"
+          fi
+          # exceptions
+          if [ ! -z "${{ inputs.gcc_exceptions }}" ] && [ "${{ inputs.gcc_exceptions }}" != "none" ]; then
+            no_spaces=$(tr -d '[:space:]' <<< "${{ inputs.gcc_exceptions }}")
+            IFS=';' read -r -a exceptions <<< "$no_spaces"
+            for exception in ${exceptions[@]}; do
+              ARGS="$ARGS --gcc-except $exception"
+            done
           fi
           echo "BUILD_ARGS=$ARGS" >> $GITHUB_ENV
 
@@ -93,11 +129,15 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@1.73.0
+      - uses: dtolnay/rust-toolchain@1.81.0
 
       - name: Build command line args
         run: |
           ARGS=""
+          # dry-run
+          if [ "${{ inputs.dry_run }}" == "true" ]; then
+            ARGS="$ARGS --dry-run"
+          fi
           # verbose
           if [ "${{ inputs.verbose }}" == "true" ]; then
             ARGS="$ARGS --verbose"
@@ -107,14 +147,22 @@ jobs:
             ARGS="$ARGS --exit-on-err"
           fi
           # machine
-          if [ "${{ inputs.machine }}" != "all" ]; then
+          if [ ! -z "${{ inputs.machine }}" ] && [ "${{ inputs.machine }}" != "all" ]; then
             ARGS="$ARGS --machines ${{ inputs.machine }}"
           fi
           # clang
-          if [ "${{ inputs.clang }}" != "all" ]; then
+          if [ ! -z "${{ inputs.clang }}" ] && [ "${{ inputs.clang }}" != "all" ]; then
             ARGS="$ARGS --clang-versions ${{ inputs.clang }}"
           fi
-          echo "ARGS=$ARGS" >> $GITHUB_ENV
+          # exceptions
+          if [ ! -z "${{ inputs.clang_exceptions }}" ] && [ "${{ inputs.clang_exceptions }}" != "none" ]; then
+            no_spaces=$(tr -d '[:space:]' <<< "${{ inputs.clang_exceptions }}")
+            IFS=';' read -r -a exceptions <<< "$no_spaces"
+            for exception in ${exceptions[@]}; do
+              ARGS="$ARGS --clang-except $exception"
+            done
+          fi
+          echo "BUILD_ARGS=$ARGS" >> $GITHUB_ENV
 
       - name: Run clang builds
         run: |

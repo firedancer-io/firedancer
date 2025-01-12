@@ -2,6 +2,7 @@
 #define HEADER_fd_src_waltz_quic_tests_fd_quic_sandbox_h
 
 #include "../fd_quic.h"
+#include "../log/fd_quic_log_user.h"
 #include "../../../tango/mcache/fd_mcache.h"
 #include "../../../tango/dcache/fd_dcache.h"
 #include "../../../util/net/fd_ip4.h"
@@ -25,6 +26,7 @@ struct fd_quic_sandbox {
   fd_frag_meta_t * pkt_mcache;  /* captured packet descriptor */
   void *           pkt_dcache;  /* captured packet data */
   ulong            pkt_mtu;     /* captured packet max payload sz */
+  fd_quic_log_rx_t log_rx[1];
 
   /* State */
 
@@ -95,21 +97,11 @@ fd_quic_sandbox_footprint( fd_quic_limits_t const * quic_limits,
    Returns mem on success.  On failure, returns NULL and logs reason for
    failure. */
 
-void *
+fd_quic_sandbox_t *
 fd_quic_sandbox_new( void *                   mem,
                      fd_quic_limits_t const * quic_limits,
                      ulong                    pkt_cnt,
                      ulong                    mtu );
-
-/* fd_quic_sandbox_join joins the caller to the fd_quic_sandbox_t
-   at 'mem' and returns the handle (not necessarily the same pointer).
-
-   NOTE: Before using any API functions, call fd_quic_sandbox_init
-         first.  The fd_quic_sandbox_t is uninitialized on the first
-         join! */
-
-fd_quic_sandbox_t *
-fd_quic_sandbox_join( void * mem );
 
 /* fd_quic_sandbox_init resets the fd_quic_sandbox_t to a common state.
 
@@ -128,18 +120,11 @@ fd_quic_sandbox_t *
 fd_quic_sandbox_init( fd_quic_sandbox_t * sandbox,
                       int                 role );
 
-/* fd_quic_sandbox_leave undoes a local join to the fd_quic_sandbox_t
-   and returns a pointer to the first byte of the memory region (same
-   as the 'mem' argument in join). */
-
-void *
-fd_quic_sandbox_leave( fd_quic_sandbox_t * sandbox );
-
 /* fd_quic_sandbox_delete destroys an fd_quic_sandbox_t object and
    releases the memory region back to the caller. */
 
 void *
-fd_quic_sandbox_delete( void * mem );
+fd_quic_sandbox_delete( fd_quic_sandbox_t * mem );
 
 FD_PROTOTYPES_END
 
@@ -239,6 +224,14 @@ fd_quic_sandbox_send_lone_frame( fd_quic_sandbox_t * sandbox,
                                  fd_quic_conn_t *    conn,
                                  uchar const *       frame,
                                  ulong               frame_sz );
+
+/* fd_quic_sandbox_send_ping_pkt sends a 1-RTT packet containing only a
+   PING frame. */
+
+void
+fd_quic_sandbox_send_ping_pkt( fd_quic_sandbox_t * sandbox,
+                               fd_quic_conn_t *    conn,
+                               ulong               pktnum );
 
 FD_PROTOTYPES_END
 

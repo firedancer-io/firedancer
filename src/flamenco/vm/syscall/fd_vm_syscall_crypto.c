@@ -44,7 +44,8 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
     break;
 
   default:
-    return FD_VM_ERR_INVAL; /* SyscallError::InvalidAttribute */
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE );
+    return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
   }
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1551 */
@@ -69,7 +70,8 @@ fd_vm_syscall_sol_alt_bn128_group_op( void *  _vm,
 
   case FD_VM_SYSCALL_SOL_ALT_BN128_MUL:
     /* Compute scalar mul */
-    if( FD_LIKELY( fd_bn254_g1_scalar_mul_syscall( call_result, input, input_sz )==0 ) ) {
+    if( FD_LIKELY( fd_bn254_g1_scalar_mul_syscall( call_result, input, input_sz,
+                                                   FD_FEATURE_ACTIVE( (vm->instr_ctx->slot_ctx), fix_alt_bn128_multiplication_input_length ) )==0 ) ) {
       ret = 0UL; /* success */
     }
     break;
@@ -124,7 +126,8 @@ fd_vm_syscall_sol_alt_bn128_compression( void *  _vm,
     break;
 
   default:
-    return FD_VM_ERR_INVAL; /* SyscallError::InvalidAttribute */
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE );
+    return FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE; /* SyscallError::InvalidAttribute */
   }
   cost = fd_ulong_sat_add( cost, FD_VM_SYSCALL_BASE_COST );
 
@@ -205,7 +208,8 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1688 */
 
   if( FD_UNLIKELY( params!=0UL ) ) {
-    return FD_VM_ERR_INVAL; /* PoseidonSyscallError::InvalidParameters */
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_POSEIDON_INVALID_PARAMS );
+    return FD_VM_SYSCALL_ERR_POSEIDON_INVALID_PARAMS; /* PoseidonSyscallError::InvalidParameters */
   }
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1689 */
@@ -214,14 +218,18 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
        endianness!=0UL /* Big endian */
     && endianness!=1UL /* Little endian */
   ) ) {
-    return FD_VM_ERR_INVAL; /* PoseidonSyscallError::InvalidEndianness */
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_POSEIDON_INVALID_ENDIANNESS );
+    return FD_VM_SYSCALL_ERR_POSEIDON_INVALID_ENDIANNESS; /* PoseidonSyscallError::InvalidEndianness */
   }
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1691-L1698 */
 
   if( FD_UNLIKELY( vals_len > FD_VM_SYSCALL_SOL_POSEIDON_MAX_VALS ) ) {
-    fd_vm_log_append_printf( vm, "Poseidon hashing %lu sequences is not supported", vals_len );
-    return FD_VM_ERR_INVAL; /* SyscallError::InvalidLength */
+    /* Max msg_sz = 47 - 3 + 20 = 64 < 127 => we can use printf */
+    fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,
+      "Poseidon hashing %lu sequences is not supported", vals_len );
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
+    return FD_VM_SYSCALL_ERR_INVALID_LENGTH; /* SyscallError::InvalidLength */
   }
 
   /* https://github.com/anza-xyz/agave/blob/v1.18.12/programs/bpf_loader/src/syscalls/mod.rs#L1700-L1707
@@ -239,7 +247,7 @@ fd_vm_syscall_sol_poseidon( void *  _vm,
   /* The following can never happen, left as comment for completeness.
      if( FD_UNLIKELY( cost == ULONG_MAX ) ) {
        fd_vm_log_append_printf( vm, "Overflow while calculating the compute cost" );
-       return FD_VM_ERR_INVAL; // SyscallError::ArithmeticOverflow
+       return FD_VM_SYSCALL_ERR_ARITHMETIC_OVERFLOW; // SyscallError::ArithmeticOverflow
      }
   */
 

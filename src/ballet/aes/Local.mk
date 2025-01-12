@@ -1,4 +1,4 @@
-$(call add-hdrs,fd_aes_base.h fd_aes_gcm.h)
+$(call add-hdrs,fd_aes_base.h fd_aes_gcm.h fd_aes_gcm_ref.h)
 $(call add-objs,fd_aes_base_ref,fd_ballet)
 $(call add-objs,fd_aes_gcm_ref fd_aes_gcm_ref_ghash,fd_ballet)
 ifdef FD_HAS_X86

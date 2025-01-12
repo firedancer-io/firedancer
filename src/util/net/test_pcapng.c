@@ -1,3 +1,4 @@
+#include "fd_pcapng.h"
 #include "fd_pcapng_private.h"
 #include "../fd_util.h"
 
@@ -74,7 +75,6 @@ test_pcapng_fwrite_idb( void ) {
     .name     = "eth0",
     .ip4_addr = {10, 0, 0, 1},
     .mac_addr = {0x06, 0x00, 0xde, 0xad, 0xbe, 0xef},
-    .tsresol  = FD_PCAPNG_TSRESOL_NS,
     .hardware = "A fake NIC"
   };
   FD_TEST( 1UL==fd_pcapng_fwrite_idb( FD_PCAPNG_LINKTYPE_ETHERNET, &opts, pcap ) );
@@ -142,27 +142,26 @@ test_pcapng_dogfood( void ) {
     .userappl = "Firedancer"
   };
   FD_TEST( 1UL==fd_pcapng_fwrite_shb( &shb_opts, pcap ) );
-  FD_LOG_DEBUG(( "Wrote SHB (end=%#lx)", ftell( pcap ) ));
+  FD_LOG_DEBUG(( "Wrote SHB (end=%#lx)", (ulong)ftell( pcap ) ));
 
   fd_pcapng_idb_opts_t idb_opts = {
     .name     = "eth0",
     .ip4_addr = {10, 0, 0, 1},
     .mac_addr = {0x06, 0x00, 0xde, 0xad, 0xbe, 0xef},
-    .tsresol  = FD_PCAPNG_TSRESOL_NS,
     .hardware = "A fake NIC"
   };
   FD_TEST( 1UL==fd_pcapng_fwrite_idb( FD_PCAPNG_LINKTYPE_ETHERNET, &idb_opts, pcap ) );
-  FD_LOG_DEBUG(( "Wrote IDB (end=%#lx)", ftell( pcap ) ));
+  FD_LOG_DEBUG(( "Wrote IDB (end=%#lx)", (ulong)ftell( pcap ) ));
 
   long ts = 0x12345678;
   uchar pkt[6UL] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
-  FD_TEST( 1UL==fd_pcapng_fwrite_pkt( ts, pkt,   6UL, pcap ) ); FD_LOG_DEBUG(( "Wrote EPB (end=%#lx)", ftell( pcap ) ));
-  FD_TEST( 1UL==fd_pcapng_fwrite_pkt( ts, pkt+1, 5UL, pcap ) ); FD_LOG_DEBUG(( "Wrote EPB (end=%#lx)", ftell( pcap ) ));
+  FD_TEST( 1UL==fd_pcapng_fwrite_pkt( ts, pkt,   6UL, pcap ) ); FD_LOG_DEBUG(( "Wrote EPB (end=%#lx)", (ulong)ftell( pcap ) ));
+  FD_TEST( 1UL==fd_pcapng_fwrite_pkt( ts, pkt+1, 5UL, pcap ) ); FD_LOG_DEBUG(( "Wrote EPB (end=%#lx)", (ulong)ftell( pcap ) ));
 
   fd_pcapng_fwrite_tls_key_log( (uchar const *)"secret", 6UL, pcap );
-  FD_LOG_DEBUG(( "Wrote DSB (end=%#lx)", ftell( pcap ) ));
+  FD_LOG_DEBUG(( "Wrote DSB (end=%#lx)", (ulong)ftell( pcap ) ));
 
-  FD_TEST( 1UL==fd_pcapng_fwrite_pkt( ts, pkt+2, 4UL, pcap ) ); FD_LOG_DEBUG(( "Wrote EPB (end=%#lx)", ftell( pcap ) ));
+  FD_TEST( 1UL==fd_pcapng_fwrite_pkt( ts, pkt+2, 4UL, pcap ) ); FD_LOG_DEBUG(( "Wrote EPB (end=%#lx)", (ulong)ftell( pcap ) ));
 
   /* Read */
 
@@ -171,7 +170,11 @@ test_pcapng_dogfood( void ) {
   FD_LOG_HEXDUMP_DEBUG(( "stream", buf, (ulong)pos ));
 
   rewind( pcap );
-  fd_pcapng_iter_t * iter = fd_pcapng_iter_new( fd_alloca( FD_PCAPNG_ITER_ALIGN, fd_pcapng_iter_footprint() ), pcap );
+  fd_pcapng_iter_t iter_mem[1];
+  FD_TEST( alignof(fd_pcapng_iter_t)==fd_pcapng_iter_align() );
+  FD_TEST( alignof(fd_pcapng_iter_t)==FD_PCAPNG_ITER_ALIGN );
+  FD_TEST( sizeof(iter_mem)==fd_pcapng_iter_footprint() );
+  fd_pcapng_iter_t * iter = fd_pcapng_iter_new( iter_mem, pcap );
   FD_TEST( iter );
 
   fd_pcapng_frame_t const * frame;
@@ -184,6 +187,7 @@ test_pcapng_dogfood( void ) {
   FD_TEST( frame->data_sz==6UL );
   FD_TEST( frame->orig_sz==6UL );
   FD_TEST( frame->if_idx ==0UL );
+  FD_TEST( iter->iface[ frame->if_idx ].link_type==FD_PCAPNG_LINKTYPE_ETHERNET );
 
   frame = fd_pcapng_iter_next( iter );
   FD_TEST( frame );
@@ -212,7 +216,7 @@ test_pcapng_dogfood( void ) {
 
   frame = fd_pcapng_iter_next( iter );
   FD_TEST( !frame );
-  FD_TEST( fd_pcapng_iter_err( iter )==FD_PCAPNG_ITER_EOF );
+  FD_TEST( fd_pcapng_iter_err( iter )==-1 );
 
   /* Write section 1 */
 

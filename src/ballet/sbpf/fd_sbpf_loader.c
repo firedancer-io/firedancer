@@ -19,7 +19,7 @@ static FD_TL char fd_sbpf_errbuf[ FD_SBPF_ERRBUF_SZ ] = {0};
 /* fd_sbpf_loader_seterr remembers the error ID and line number of the
    current file at which the last error occurred. */
 
-__attribute__((cold,noinline)) int
+__attribute__((cold,noinline)) static int
 fd_sbpf_loader_seterr( int err,
                        int srcln ) {
   ldr_errno     = err;
@@ -89,7 +89,9 @@ _fd_int_store_if_negative( int * p,
 
 static int
 fd_sbpf_check_ehdr( fd_elf64_ehdr const * ehdr,
-                    ulong                 elf_sz ) {
+                    ulong                 elf_sz,
+                    uint                  min_version,
+                    uint                  max_version ) {
 
   /* Validate ELF magic */
   REQUIRE( ( fd_uint_load_4( ehdr->e_ident )==0x464c457fU          )
@@ -113,7 +115,12 @@ fd_sbpf_check_ehdr( fd_elf64_ehdr const * ehdr,
          & ( ehdr->e_phentsize==sizeof(fd_elf64_phdr)              )
          & ( ehdr->e_shentsize==sizeof(fd_elf64_shdr)              )
          & ( ehdr->e_shstrndx < ehdr->e_shnum                      )
-         & ( ehdr->e_flags    !=FD_ELF_EF_SBPF_V2                  ) );
+         & ( ehdr->e_flags >= min_version                          )
+         & ( max_version
+             ? ( ehdr->e_flags <= max_version )
+             : ( ehdr->e_flags != FD_ELF_EF_SBPF_V2 )
+           )
+  );
 
   /* Bounds check program header table */
 
@@ -229,6 +236,11 @@ fd_sbpf_load_phdrs( fd_sbpf_elf_info_t *  info,
   return 0;
 }
 
+/* FD_SBPF_SECTION_NAME_SZ_MAX is the maximum length of a symbol name cstr
+   including zero terminator.
+   https://github.com/solana-labs/rbpf/blob/c168a8715da668a71584ea46696d85f25c8918f6/src/elf_parser/mod.rs#L12 */
+#define FD_SBPF_SECTION_NAME_SZ_MAX (16UL)
+
 /* fd_sbpf_load_shdrs walks the section header table.  Remembers info
    along the way, and performs various validations.
 
@@ -335,10 +347,10 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
 
     /* Create name cstr */
 
-    char const * name_ptr = check_cstr( elf->bin + shstr_off, shstr_sz, sh_name, 63UL, NULL );
+    char const * name_ptr = check_cstr( elf->bin + shstr_off, shstr_sz, sh_name, FD_SBPF_SECTION_NAME_SZ_MAX-1UL, NULL );
     REQUIRE( name_ptr );
-    char __attribute__((aligned(16UL))) name[ 65UL ] = {0};
-    strncpy( name, name_ptr, 64UL );
+    char __attribute__((aligned(16UL))) name[ FD_SBPF_SECTION_NAME_SZ_MAX ] = {0};
+    strncpy( name, name_ptr, FD_SBPF_SECTION_NAME_SZ_MAX-1UL );
 
     /* Check name */
     /* TODO switch table for this? */
@@ -359,6 +371,10 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
     else if( 0==memcmp( name, ".symtab",   8UL /* equals     */ ) ) {
       REQUIRE( (info->shndx_symtab)<0 );
       info->shndx_symtab = (int)i;
+    }
+    else if( 0==memcmp( name, ".strtab",   8UL /* equals     */ ) ) {
+      REQUIRE( (info->shndx_strtab)<0 );
+      info->shndx_strtab = (int)i;
     }
     else if( 0==memcmp( name, ".dynstr",   8UL /* equals     */ ) ) {
       REQUIRE( (info->shndx_dynstr)<0 );
@@ -463,18 +479,22 @@ fd_sbpf_load_shdrs( fd_sbpf_elf_info_t *  info,
   return 0;
 }
 
-static int
-_fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
-                   void const *         bin,
-                   ulong                elf_sz,
-                   int                  elf_deploy_checks ) {
+fd_sbpf_elf_info_t *
+fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
+                  void const *         bin,
+                  ulong                elf_sz,
+                  int                  elf_deploy_checks,
+                  uint                 sbpf_min_version,
+                  uint                 sbpf_max_version ) {
 
   /* ELFs must have a file header */
-  REQUIRE( elf_sz>sizeof(fd_elf64_ehdr) );
+  if( FD_UNLIKELY( elf_sz<=sizeof(fd_elf64_ehdr) ) )
+    return NULL;
 
   /* Reject overlong ELFs (using uint addressing internally).
      This is well beyond Solana's max account size of 10 MB. */
-  REQUIRE( elf_sz<=UINT_MAX );
+  if( FD_UNLIKELY( elf_sz>UINT_MAX ) )
+    return NULL;
 
   /* Initialize info struct */
   *info = (fd_sbpf_elf_info_t) {
@@ -486,9 +506,11 @@ _fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
     .rodata_sz        = 0U,
     .shndx_text       = -1,
     .shndx_symtab     = -1,
+    .shndx_strtab     = -1,
     .shndx_dyn        = -1,
     .shndx_dynstr     = -1,
     .phndx_dyn        = -1,
+    .sbpf_version     = 0U,
     /* !!! Keep this in sync with -Werror=missing-field-initializers */
   };
 
@@ -496,26 +518,21 @@ _fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
   int err;
 
   /* Validate file header */
-  if( FD_UNLIKELY( (err=fd_sbpf_check_ehdr( &elf->ehdr, elf_sz ))!=0 ) )
-    return err;
+  if( FD_UNLIKELY( (err=fd_sbpf_check_ehdr( &elf->ehdr, elf_sz, sbpf_min_version, sbpf_max_version ))!=0 ) )
+    return NULL;
 
   /* Program headers */
   if( FD_UNLIKELY( (err=fd_sbpf_load_phdrs( info, elf,  elf_sz ))!=0 ) )
-    return err;
+    return NULL;
 
   /* Section headers */
   if( FD_UNLIKELY( (err=fd_sbpf_load_shdrs( info, elf,  elf_sz, elf_deploy_checks ))!=0 ) )
-    return err;
+    return NULL;
 
-  return 0;
-}
+  /* Set SBPF version from ELF e_flags */
+  info->sbpf_version = sbpf_max_version ? elf->ehdr.e_flags : 0UL;
 
-fd_sbpf_elf_info_t *
-fd_sbpf_elf_peek( fd_sbpf_elf_info_t * info,
-                  void const *         bin,
-                  ulong                elf_sz,
-                  int                  elf_deploy_checks ) {
-  return (_fd_sbpf_elf_peek( info, bin, elf_sz, elf_deploy_checks ) == 0) ? info : NULL;
+  return info;
 }
 
 /* ELF loader, part 2 **************************************************
@@ -594,11 +611,11 @@ fd_sbpf_program_new( void *                     prog_mem,
   /* Initialize calldests map */
 
   ulong pc_max = elf_info->rodata_sz / 8UL;
-  prog->calldests =
-    fd_sbpf_calldests_join( fd_sbpf_calldests_new(
+  prog->calldests_shmem = fd_sbpf_calldests_new(
         FD_SCRATCH_ALLOC_APPEND( laddr, fd_sbpf_calldests_align(),
                                         fd_sbpf_calldests_footprint( pc_max ) ),
-        pc_max ) );
+        pc_max );
+  prog->calldests = fd_sbpf_calldests_join( prog->calldests_shmem );
 
   return prog;
 }
@@ -638,9 +655,10 @@ struct fd_sbpf_loader {
 typedef struct fd_sbpf_loader fd_sbpf_loader_t;
 
 /* FD_SBPF_SYM_NAME_SZ_MAX is the maximum length of a symbol name cstr
-   including zero terminator. */
-
+   including zero terminator.
+   https://github.com/solana-labs/rbpf/blob/c168a8715da668a71584ea46696d85f25c8918f6/src/elf_parser/mod.rs#L13 */
 #define FD_SBPF_SYM_NAME_SZ_MAX (64UL)
+
 
 static int
 fd_sbpf_find_dynamic( fd_sbpf_loader_t *         loader,
@@ -735,21 +753,16 @@ fd_sbpf_load_dynamic( fd_sbpf_loader_t *         loader,
     for( ulong i=0; i<elf->ehdr.e_shnum; i++ ) {
       if( shdrs[ i ].sh_addr == loader->dt_symtab ) {
         /* TODO: verify this ... */
+        /* Check section type */
         uint sh_type = shdrs[ i ].sh_type;
-        if( !( (sh_type==FD_ELF_SHT_SYMTAB) | (sh_type==FD_ELF_SHT_DYNSYM) ) ) {
-          continue;
-        }
+        // https://github.com/solana-labs/rbpf/blob/v0.8.5/src/elf_parser/mod.rs#L500
+        REQUIRE( (sh_type==FD_ELF_SHT_SYMTAB) | (sh_type==FD_ELF_SHT_DYNSYM) );
 
         shdr_dynsym = &shdrs[ i ];
         break;
       }
     }
     REQUIRE( shdr_dynsym );
-
-    /* Check section type */
-
-    uint sh_type = shdr_dynsym->sh_type;
-    REQUIRE( (sh_type==FD_ELF_SHT_SYMTAB) | (sh_type==FD_ELF_SHT_DYNSYM) );
 
     /* Check if out of bounds or misaligned */
 
@@ -979,9 +992,6 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t   const * loader,
 
     /* TODO bounds check the target? */
 
-    /* Check for collision with syscall ID */
-    REQUIRE( !fd_sbpf_syscalls_query( loader->syscalls, (uint)target_pc, NULL ) );
-
     /* Register new entry */
     uint hash;
     if( name_len >= 10UL && 0==strncmp( name, "entrypoint", name_len ) ) {
@@ -992,10 +1002,14 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t   const * loader,
          Hash is still applied. */
       hash = 0x71e3cf81;
     } else {
-      hash = fd_murmur3_32( &target_pc, 8UL, 0U );
+      hash = fd_pchash( (uint)target_pc );
       if( FD_LIKELY( target_pc < (info->rodata_sz / 8UL ) ) )
         fd_sbpf_calldests_insert( loader->calldests, target_pc );
     }
+
+    /* Check for collision with syscall ID
+       https://github.com/solana-labs/rbpf/blob/57139e9e1fca4f01155f7d99bc55cdcc25b0bc04/src/program.rs#L142-L146 */
+    REQUIRE( !fd_sbpf_syscalls_query( loader->syscalls, hash, NULL ) );
     V = (uint)hash;
   } else {
     /* FIXME Should cache Murmur hashes.
@@ -1084,7 +1098,12 @@ fd_sbpf_hash_calls( fd_sbpf_loader_t *    loader,
     fd_sbpf_calldests_insert( calldests, target_pc );
 
     /* Replace immediate with hash */
-    FD_STORE( uint, ptr+4UL, fd_pchash( (uint)target_pc ) );
+    uint pc_hash = fd_pchash( (uint)target_pc );
+    /* Check for collision with syscall ID
+       https://github.com/solana-labs/rbpf/blob/57139e9e1fca4f01155f7d99bc55cdcc25b0bc04/src/program.rs#L142-L146 */
+    REQUIRE( !fd_sbpf_syscalls_query( loader->syscalls, pc_hash, NULL ) );
+
+    FD_STORE( uint, ptr+4UL, pc_hash );
   }
 
   return 0;

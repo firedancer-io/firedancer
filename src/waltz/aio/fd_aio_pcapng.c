@@ -1,5 +1,5 @@
 #include "fd_aio_pcapng.h"
-#include "../../util/net/fd_pcapng_private.h"
+#include "../../util/net/fd_pcapng.h"
 
 #include <errno.h>
 
@@ -46,6 +46,21 @@ fd_aio_pcapng_start( void * pcapng ) {
 
   if( FD_UNLIKELY( 1UL!=fd_pcapng_fwrite_idb(
         FD_PCAPNG_LINKTYPE_ETHERNET, NULL, pcapng ) ) )
+    return 0UL;
+
+  return 1UL;
+}
+
+ulong
+fd_aio_pcapng_start_l3( void * pcapng ) {
+  fd_pcapng_shb_opts_t shb_opts = {0};
+  fd_pcapng_shb_defaults( &shb_opts );
+
+  if( FD_UNLIKELY( 1UL!=fd_pcapng_fwrite_shb( &shb_opts, pcapng ) ) )
+    return 0UL;
+
+  if( FD_UNLIKELY( 1UL!=fd_pcapng_fwrite_idb(
+        FD_PCAPNG_LINKTYPE_RAW, NULL, pcapng ) ) )
     return 0UL;
 
   return 1UL;

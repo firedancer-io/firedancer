@@ -72,7 +72,7 @@ int main( int     argc,
       if( !fd_memeq( res, exp, 64 ) ) {
         FD_LOG_HEXDUMP_WARNING(( "res", res, 64 ));
         FD_LOG_HEXDUMP_WARNING(( "exp", exp, 64 ));
-        FD_LOG_ERR(( "FAIL: test %ld, %s", i, "res != exp" ));
+        FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
       }
     }
 
@@ -165,13 +165,14 @@ int main( int     argc,
 
       fd_hex_decode( in, tests[2*i], in_sz );
 
-      FD_TEST( fd_bn254_g1_scalar_mul_syscall( res, in, in_sz )==0 );
+      FD_TEST( fd_bn254_g1_scalar_mul_syscall( res, in, in_sz, 0 )==0 );
+      FD_TEST( fd_bn254_g1_scalar_mul_syscall( res, in, in_sz, 1 )==0 );
 
       fd_hex_decode( exp, tests[2*i+1], 64 );
       if( !fd_memeq( res, exp, 64 ) ) {
         FD_LOG_HEXDUMP_WARNING(( "res", res, 64 ));
         FD_LOG_HEXDUMP_WARNING(( "exp", exp, 64 ));
-        FD_LOG_ERR(( "FAIL: test %ld, %s", i, "res != exp" ));
+        FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
       }
     }
 
@@ -179,7 +180,7 @@ int main( int     argc,
       ulong iter = 1000UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_g1_scalar_mul_syscall( res, in, in_sz );
+        fd_bn254_g1_scalar_mul_syscall( res, in, in_sz, 1 );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_g1_scalar_mul_syscall", iter, dt );
@@ -334,7 +335,7 @@ int main( int     argc,
       if( !fd_memeq( &in[0], g1d, 64 ) ) {
         FD_LOG_HEXDUMP_WARNING(( "res", g1d, 64 ));
         FD_LOG_HEXDUMP_WARNING(( "exp", &in[0], 64 ));
-        FD_LOG_ERR(( "FAIL: test g1 %ld, %s", i, "res != exp" ));
+        FD_LOG_ERR(( "FAIL: test g1 %lu, %s", i, "res != exp" ));
       }
 
       /* test G2 compress > decompress */
@@ -343,7 +344,7 @@ int main( int     argc,
       if( !fd_memeq( &in[64], g2d, 64 ) ) {
         FD_LOG_HEXDUMP_WARNING(( "res", g2d, 128 ));
         FD_LOG_HEXDUMP_WARNING(( "exp", &in[64], 128 ));
-        FD_LOG_ERR(( "FAIL: test g2 %ld, %s", i, "res != exp" ));
+        FD_LOG_ERR(( "FAIL: test g2 %lu, %s", i, "res != exp" ));
       }
       FD_TEST( fd_bn254_pairing_is_one_syscall( res, in, in_sz )==0 );
 
@@ -351,7 +352,7 @@ int main( int     argc,
       if( !fd_memeq( res, exp, 32 ) ) {
         FD_LOG_HEXDUMP_WARNING(( "res", res, 32 ));
         FD_LOG_HEXDUMP_WARNING(( "exp", exp, 32 ));
-        FD_LOG_ERR(( "FAIL: test %ld, %s", i, "res != exp" ));
+        FD_LOG_ERR(( "FAIL: test %lu, %s", i, "res != exp" ));
       }
     }
 
