@@ -194,6 +194,7 @@ fdctl_boot( int *        pargc,
   if( FD_LIKELY( !gid && setegid( config->gid ) ) ) FD_LOG_ERR(( "setegid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_LIKELY( !uid && seteuid( config->uid ) ) ) FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
+  int boot_silent = config_fd>=0;
   fd_log_private_boot_custom( log_lock,
                               0UL,
                               config->name,
@@ -210,9 +211,9 @@ fdctl_boot( int *        pargc,
                               config->user,
                               1,
                               config->log.colorize1,
-                              config->log.level_logfile1,
-                              config->log.level_stderr1,
-                              config->log.level_flush1,
+                              boot_silent ? 2 : config->log.level_logfile1,
+                              boot_silent ? 2 : config->log.level_stderr1,
+                              boot_silent ? 3 : config->log.level_flush1,
                               5,
                               config->log.log_fd,
                               log_path );
@@ -233,6 +234,10 @@ fdctl_boot( int *        pargc,
   if( FD_LIKELY( -1==config_fd ) ) {
     initialize_numa_assignments( &config->topo );
   }
+
+  fd_log_level_logfile_set( config->log.level_logfile1 );
+  fd_log_level_stderr_set( config->log.level_stderr1 );
+  fd_log_level_flush_set( config->log.level_flush1 );
 }
 
 static config_t config;
