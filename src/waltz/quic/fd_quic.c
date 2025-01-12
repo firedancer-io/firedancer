@@ -1232,13 +1232,12 @@ fd_quic_stream_send( fd_quic_stream_t *  stream,
   ulong allowed_stream = stream->tx_max_stream_data - stream->tx_tot_data;
   ulong allowed_conn   = conn->tx_max_data - conn->tx_tot_data;
   ulong allowed        = allowed_conn < allowed_stream ? allowed_conn : allowed_stream;
-  ulong allocated      = 0UL;
 
   if( data_sz > fd_quic_buffer_avail( tx_buf ) ) {
     return FD_QUIC_SEND_ERR_FLOW;
   }
 
-  if( data_sz + allocated > allowed ) {
+  if( data_sz > allowed ) {
     return FD_QUIC_SEND_ERR_FLOW;
   }
 
@@ -1250,8 +1249,8 @@ fd_quic_stream_send( fd_quic_stream_t *  stream,
   tx_buf->head += data_sz;
 
   /* adjust flow control limits on stream and connection */
-  stream->tx_tot_data += allocated;
-  conn->tx_tot_data   += allocated;
+  stream->tx_tot_data += data_sz;
+  conn->tx_tot_data   += data_sz;
 
   /* insert into send list */
   if( !FD_QUIC_STREAM_ACTION( stream ) ) {
