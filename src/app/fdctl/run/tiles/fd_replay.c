@@ -67,6 +67,10 @@
 #define REPLAY_PLUG_OUT_IDX (6UL)
 #define VOTES_PLUG_OUT_IDX (7UL)
 
+/* Maximum size of an entry batch is the entire block */
+
+#define MBATCH_MAX (FD_SLOT_SHRED_MAX * FD_SHRED_PAYLOAD_MAX)
+
 /* Scratch space estimates.
    TODO: Update constants and add explanation
 */
@@ -216,6 +220,10 @@ struct fd_replay_tile_ctx {
   fd_voter_t *          epoch_voters; /* map chain of slot->voter */
   fd_bank_hash_cmp_t *  bank_hash_cmp;
 
+  /* Microblock (entry) batch buffer for replay. */
+
+  uchar * mbatch;
+
   /* Tpool */
 
   uchar        tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
@@ -342,6 +350,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
+  l = FD_LAYOUT_APPEND( l, 128UL, MBATCH_MAX );
   l = FD_LAYOUT_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->replay.tpool_thread_count * TPOOL_WORKER_MEM_SZ );
   ulong  thread_spad_size    = fd_spad_footprint( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT );
   l = FD_LAYOUT_APPEND( l, fd_spad_align(), tile->replay.tpool_thread_count * fd_ulong_align_up( thread_spad_size, fd_spad_align() ) );
@@ -1361,79 +1370,70 @@ init_poh( fd_replay_tile_ctx_t * ctx ) {
   ctx->poh_init_done = 1;
 }
 
-/**
- Provides transactions in the range of a batch of shreds and returns the count
- */
-static ulong FD_FN_UNUSED
-parse_batch_txns( fd_replay_tile_ctx_t * ctx, fd_txn_p_t * txns_out, ulong txns_out_sz ) {
-  ulong curr_slot = ctx->curr_slot;
+/* Replay a microblock batch ("mbatch"). */
+static void
+replay_mbatch( fd_replay_tile_ctx_t * ctx, uint shred_idx_start, uint shred_idx_end ) {
+  fd_blockstore_t * blockstore = ctx->blockstore;
+  ulong             slot       = ctx->curr_slot;
 
-  fd_blockstore_start_read( ctx->blockstore );
+  fd_buf_shred_t *     shred_pool = fd_blockstore_shred_pool( blockstore );
+  fd_buf_shred_map_t * shred_map  = fd_blockstore_shred_map( blockstore );
 
-  fd_buf_shred_t * shred_pool     = fd_blockstore_shred_pool( ctx->blockstore );
-  fd_buf_shred_map_t * shred_map  = fd_blockstore_shred_map( ctx->blockstore );
-  fd_shred_key_t key              = { .slot = curr_slot, .idx = ctx->blockstore_batch_idx_start };
+  /* Copy shred payloads into `buf` so that they are contiguous. This is
+     required because txns can span multiple shreds. */
 
-  /* batch max sz can fit all the buf shreds, but really we just want the payloads of the shreds. it's a loose
-     upper bound estimate on total amt of payload */
+  ulong mbatch_sz = 0;
+  for (uint idx = shred_idx_start; idx <= shred_idx_end; idx++) {
+    fd_shred_key_t key = { slot, idx };
+    fd_blockstore_start_read( blockstore );
 
-  ulong batch_max_sz = ( ctx->blockstore_batch_idx_end 
-                          - ctx->blockstore_batch_idx_start + 1 ) * FD_SHRED_MIN_SZ;      // assuming inclusive end_idx right now
-  uchar * batch_data = fd_alloc_malloc( ctx->alloc, 128UL, batch_max_sz );
-    
-  /* copy payloads of shreds so that they are nice and contiguous.
-       - required because txns can span multiple shreds  */
+    fd_buf_shred_t * shred = fd_buf_shred_map_ele_query( shred_map, &key, NULL, shred_pool );
+    uchar const *    payload    = NULL;
+    ulong            payload_sz = 0;
+    if( FD_UNLIKELY( shred ) ) { /* FIXME change to unlikely */
+      payload    = fd_shred_data_payload( &shred->hdr );
+      payload_sz = fd_shred_payload_sz( &shred->hdr );
+    } else { /* FIXME remove after blockstore refactor */
+      fd_block_t * block = fd_blockstore_block_query( blockstore, slot );
+      if( FD_UNLIKELY( !block ) ) FD_LOG_ERR(( "missing slot %lu from blockstore", slot ));
 
-  ulong batch_sz               = 0;
-  const fd_buf_shred_t * shred = fd_buf_shred_map_ele_query( shred_map, &key, NULL, shred_pool );     
-  while ( key.idx <= ctx->blockstore_batch_idx_end ) {
-    ulong shred_pay_sz = fd_shred_payload_sz( &shred->hdr );
-    memcpy( batch_data + batch_sz, fd_shred_data_payload( &shred->hdr ), shred_pay_sz );
-    batch_sz += shred_pay_sz;
+      fd_wksp_t *        wksp   = fd_blockstore_wksp( blockstore );
+      fd_block_shred_t * shreds = fd_wksp_laddr_fast( wksp, block->shreds_gaddr );
+      uchar *            data   = fd_wksp_laddr_fast( wksp, block->data_gaddr );
 
-    key.idx++;
-    shred = fd_buf_shred_map_ele_query( shred_map, &key, NULL, shred_pool );
-    if ( !shred ) FD_LOG_ERR(("Missing shred %u for slot %lu during batch txn parsing", key.idx, curr_slot));
-  }
-
-  /* loop thru microblocks */
-
-  ulong microblock_cnt = *(ulong *)batch_data;
-  ulong batch_off      = sizeof(ulong); 
-  ulong txn_cnt        = 0;
-
-  for ( ulong mblki = 0; mblki < microblock_cnt; mblki++ ){
-    if ( FD_UNLIKELY( txn_cnt >= txns_out_sz ) ){
-      FD_LOG_ERR(("txn count exceeds txns_out_sz"));
+      payload    = data + shreds[idx].off;
+      payload_sz = ( idx + 1 != block->shreds_cnt ) ? ( shreds[idx + 1].off - shreds[idx].off )
+                                                    : ( block->data_sz - shreds[idx].off );
     }
 
-    fd_microblock_hdr_t * mb_hdr = (fd_microblock_hdr_t *)( batch_data + batch_off );
-    batch_off += sizeof(fd_microblock_hdr_t);
-    fd_txn_p_t * out_txn = txns_out + txn_cnt;
+    FD_TEST( payload_sz <= FD_SHRED_PAYLOAD_MAX );
+    FD_TEST( mbatch_sz + payload_sz <= MBATCH_MAX );
+    fd_memcpy( ctx->mbatch + mbatch_sz, payload, payload_sz );
+    fd_blockstore_end_read( blockstore );
+    mbatch_sz += payload_sz;
+  }
 
-    for( ulong txn_idx = 0; txn_idx < mb_hdr->txn_cnt; txn_idx++ ) {
-      ulong txn_pay_sz = 0;
-      ulong txn_sz     = fd_txn_parse_core( batch_data + batch_off, 
-                                            fd_ulong_min( batch_sz - batch_off, FD_TXN_MTU), 
-                                            TXN(out_txn), 
-                                            NULL, 
-                                            &txn_pay_sz );
+  /* Loop through microblocks, parse out txns, and round-robin publish
+     txns to the executor tiles. */
 
-      if ( FD_UNLIKELY( txn_sz == 0 || txn_sz > FD_TXN_MAX_SZ ) ) FD_LOG_ERR(("failed to parse transaction"));
+  uchar txn[FD_TXN_MAX_SZ];
+  ulong cnt = FD_LOAD( ulong, ctx->mbatch );
+  ulong off = sizeof(ulong);
+  for( ulong i = 0; i < cnt; ++i ) {
+    fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( ctx->mbatch+off );
+    off += sizeof(fd_microblock_hdr_t);
+    for( ulong j = 0; j < hdr->txn_cnt; j++ ) {
+      ulong pay_sz = 0;
+      ulong txn_sz = fd_txn_parse_core( ctx->mbatch + off, fd_ulong_min( mbatch_sz - off, FD_TXN_MTU ), txn, NULL, &pay_sz );
+      if( FD_UNLIKELY( !pay_sz ) ) FD_LOG_ERR(( "failed to parse transaction %lu in microblock %lu in slot %lu", j, i, slot ) );
+      if( FD_UNLIKELY( !txn_sz || txn_sz > FD_TXN_MTU )) FD_LOG_ERR(( "failed to parse transaction %lu in microblock %lu in slot %lu. txn size: %lu", j, i, slot, txn_sz ));
 
-      txn_cnt++;
-      batch_off += txn_pay_sz;
+      /* PUBLISH TO MCACHE / DCACHE EXECUTOR TILE HERE */
+      // FD_LOG_HEXDUMP_NOTICE(( "txn", txn, txn_sz ));
+
+      off += pay_sz;
     }
   }
-
-  fd_alloc_free( ctx->alloc, batch_data );
-
-  if ( FD_UNLIKELY( batch_off != batch_sz ) ) {
-    FD_LOG_ERR(("Did not iterate though the full batch - batch data is incorrect: batch_off %lu != batch_sz %lu", batch_off, batch_sz));
-  }
-
-  fd_blockstore_end_read( ctx->blockstore );
-  return txn_cnt;
 }
 
 static void
@@ -1487,6 +1487,10 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       uint i = block_map_entry->replayed_idx + 1; uint j = block_map_entry->data_complete_idx;
       for ( uint idx = i; idx <= j; idx++ ) {
         if( FD_UNLIKELY( fd_block_set_test( block_map_entry->data_complete_idxs, idx ) ) ) {
+
+          /* FIXME backpressure? consumer will need to make sure they aren't overrun */
+
+          replay_mbatch( ctx, block_map_entry->replayed_idx + 1, idx );
           block_map_entry->replayed_idx = idx;
         }
       }
@@ -1519,16 +1523,6 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     FD_LOG_WARNING(( "[%s] unable to find slot %lu's parent block_map_entry", __func__, curr_slot ));
     return;
   }
-
-  /* currently a no-op; sets up parsing txns by batch */
-
-  ctx->blockstore_batch_idx_start = 0;
-  ctx->blockstore_batch_idx_end   = 0; /* assuming inclusive */
-
-  ulong max_txn_per_batch = FD_SHRED_MAX_SZ * (ctx->blockstore_batch_idx_end - ctx->blockstore_batch_idx_start + 1) / FD_TXN_MIN_SERIALIZED_SZ;
-  fd_txn_p_t * txns_batch = (fd_txn_p_t *)fd_alloc_malloc( ctx->alloc, 128UL, max_txn_per_batch * sizeof(fd_txn_p_t) );
-  //FD_PARAM_UNUSED ulong txn_cnt_batch    = parse_batch_txns( ctx, txns_batch, max_txn_per_batch );
-  fd_alloc_free( ctx->alloc, txns_batch ); /* free after txns are executed */
 
   /**********************************************************************/
   /* Get the epoch_ctx for replaying curr_slot                          */
@@ -2371,6 +2365,7 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     ctx->bmtree[i]           = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
+  void * mbatch_mem          = FD_SCRATCH_ALLOC_APPEND( l, 128UL, MBATCH_MAX );
   void * tpool_worker_mem    = FD_SCRATCH_ALLOC_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->replay.tpool_thread_count * TPOOL_WORKER_MEM_SZ );
   ulong  thread_spad_size    = fd_spad_footprint( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT );
   void * spad_mem            = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), tile->replay.tpool_thread_count * fd_ulong_align_up( thread_spad_size, fd_spad_align() ) );
@@ -2590,6 +2585,12 @@ unprivileged_init( fd_topo_t *      topo,
   memcpy( ctx->validator_identity, fd_keyload_load( tile->replay.identity_key_path, 1 ), sizeof(fd_pubkey_t) );
   *ctx->vote_authority = *ctx->validator_identity; /* FIXME */
   memcpy( ctx->vote_acc, fd_keyload_load( tile->replay.vote_account_path, 1 ), sizeof(fd_pubkey_t) );
+
+  /**********************************************************************/
+  /* entry batch                                                        */
+  /**********************************************************************/
+
+  ctx->mbatch = mbatch_mem;
 
   /**********************************************************************/
   /* tpool                                                              */

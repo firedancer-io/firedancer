@@ -40,6 +40,7 @@
 #define FD_BLOCKSTORE_CHILD_SLOT_MAX    (32UL)        /* the maximum # of children a slot can have */
 #define FD_BLOCKSTORE_ARCHIVE_MIN_SIZE  (1UL << 26UL) /* 64MB := ceil(MAX_DATA_SHREDS_PER_SLOT*1228) */
 #define FD_SLOT_SHRED_MAX               (1UL << 15UL) /* maximum # of shreds in a slot */
+#define FD_SHRED_PAYLOAD_MAX            (1015)        /* maximum size of a data shred payload */
 
 // TODO centralize these
 // https://github.com/firedancer-io/solana/blob/v1.17.5/sdk/program/src/clock.rs#L34
