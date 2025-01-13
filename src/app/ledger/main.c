@@ -595,6 +595,15 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     FD_LOG_NOTICE(( "Memory usage delta (%4f%%) within allowed limit (%4f%%)", 100UL * pcnt_mem_delta, 100UL * ledger_args->allowed_mem_delta ));
   }
 
+#if FD_SPAD_TRACK_USAGE
+  for( ulong i=0UL; i<ledger_args->spad_cnt; i++ ) {
+    fd_spad_t * spad = ledger_args->spads[ i ];
+    double pcnt_mem_wmark = (double)fd_spad_mem_wmark( spad ) / (double)fd_spad_mem_max( spad );
+    pcnt_mem_wmark *= 100;
+    FD_LOG_NOTICE(( "spad %2lu mem_wmark %10lu (%6.2f%%) mem_max %10lu", i, fd_spad_mem_wmark( spad ), pcnt_mem_wmark, fd_spad_mem_max( spad ) ));
+  }
+#endif
+
   if( ledger_args->tpool ) {
     fd_tpool_fini( ledger_args->tpool );
   }

@@ -105,6 +105,10 @@ struct __attribute__((aligned(FD_SPAD_ALIGN))) fd_spad_private {
   ulong mem_max;    /* byte size of the spad memory region */
   ulong mem_used;   /* number of spad memory bytes used, in [0,mem_max] */
 
+#if FD_SPAD_TRACK_USAGE
+  ulong mem_wmark;
+#endif
+
   /* Padding to FD_SPAD_ALIGN here */
 
   /* "uchar mem[ mem_max ];" spad memory here.  Grows toward +inf such
@@ -214,6 +218,10 @@ fd_spad_new( void * shmem,
 
   fd_spad_reset( spad );
 
+#if FD_SPAD_TRACK_USAGE
+  spad->mem_wmark = 0UL;
+#endif
+
   FD_COMPILER_MFENCE();
   FD_VOLATILE( spad->magic ) = FD_SPAD_MAGIC;
   FD_COMPILER_MFENCE();
@@ -291,6 +299,10 @@ FD_FN_PURE  static inline ulong fd_spad_frame_free( fd_spad_t const * spad ) { r
 FD_FN_PURE static inline ulong fd_spad_mem_max ( fd_spad_t const * spad ) { return spad->mem_max;                  }
 FD_FN_PURE static inline ulong fd_spad_mem_used( fd_spad_t const * spad ) { return spad->mem_used;                 }
 FD_FN_PURE static inline ulong fd_spad_mem_free( fd_spad_t const * spad ) { return spad->mem_max - spad->mem_used; }
+
+#if FD_SPAD_TRACK_USAGE
+FD_FN_PURE static inline ulong fd_spad_mem_wmark( fd_spad_t const * spad ) { return spad->mem_wmark; }
+#endif
 
 /* fd_spad_in_frame returns 1 if the spad is in a frame and 0 otherwise.
    Assumes spad is a current local join. */
@@ -577,6 +589,11 @@ fd_spad_alloc_impl( fd_spad_t * spad,
   ulong   off = fd_ulong_align_up( spad->mem_used, align );
   uchar * buf = fd_spad_private_mem( spad ) + off;
   spad->mem_used = off + sz;
+#if FD_SPAD_TRACK_USAGE
+  if( FD_UNLIKELY( spad->mem_wmark < spad->mem_used ) ) {
+    spad->mem_wmark = spad->mem_used;
+  }
+#endif
 # if FD_HAS_DEEPASAN
   ulong aligned_start = fd_ulong_align_dn( (ulong)buf, FD_ASAN_ALIGN );
   ulong aligned_end   = fd_ulong_align_up( (ulong)buf + sz, FD_ASAN_ALIGN );
