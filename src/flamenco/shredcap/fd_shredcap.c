@@ -366,9 +366,9 @@ fd_shredcap_verify_slot( fd_shredcap_slot_hdr_t * slot_hdr,
 
   /* Ensure that a block exists for the given slot */
   fd_blockstore_start_read( blockstore );
-  fd_block_t * block = fd_blockstore_block_query( blockstore, slot );
+  bool block_complete = fd_blockstore_shreds_complete( blockstore, slot );
   fd_blockstore_end_read( blockstore );
-  if ( FD_UNLIKELY( block == NULL) ) {
+  if ( FD_UNLIKELY( !block_complete ) ) {
     FD_LOG_ERR(( "block doesn't exist for slot=%lu", slot ));
   }
 

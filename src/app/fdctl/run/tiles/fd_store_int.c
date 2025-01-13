@@ -387,12 +387,13 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
     uchar * out_buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
 
     fd_blockstore_start_read( ctx->blockstore );
+    fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, slot );
     fd_block_t * block = fd_blockstore_block_query( ctx->blockstore, slot );
-    if( block == NULL ) {
+
+    if( block == NULL ) { /* needed later down below for txn iteration */
       FD_LOG_ERR(( "could not find block - slot: %lu", slot ));
     }
 
-    fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, slot );
     if( block_map_entry == NULL ) {
       FD_LOG_ERR(( "could not find slot meta" ));
     }
@@ -515,10 +516,8 @@ after_credit( fd_store_tile_ctx_t * ctx,
 
   for( ulong i = fd_pending_slots_iter_init( ctx->store->pending_slots );
          (i = fd_pending_slots_iter_next( ctx->store->pending_slots, ctx->store->now, i )) != ULONG_MAX; ) {
-    uchar const * block = NULL;
-    ulong         block_sz = 0;
     ulong repair_slot = FD_SLOT_NULL;
-    int store_slot_prepare_mode = fd_store_slot_prepare( ctx->store, i, &repair_slot, &block, &block_sz );
+    int store_slot_prepare_mode = fd_store_slot_prepare( ctx->store, i, &repair_slot );
 
     ulong slot = repair_slot == 0 ? i : repair_slot;
     FD_LOG_DEBUG(( "store slot - mode: %d, slot: %lu, repair_slot: %lu", store_slot_prepare_mode, i, repair_slot ));

@@ -1093,18 +1093,15 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx ) {
 }
 
 /*
-   TODO Perhaps update this function to support verifying ticks before
-   the block is full.  Could be useful when we move to a streaming
-   execution model.
+   Verifies ticks in a batch of microblocks. This function is meant for streaming
  */
-ulong
-fd_runtime_block_verify_ticks( fd_block_micro_t const * micro,
-                               ulong                    micro_cnt,
-                               uchar const *            block_data,
-                               ulong                    tick_height,
-                               ulong                    max_tick_height,
-                               ulong                    hashes_per_tick ) {
-  ulong tick_count              = 0UL;
+ulong FD_FN_UNUSED
+fd_runtime_batch_verify_ticks( fd_exec_slot_ctx_t * slot_ctx,
+                               uchar const *     batch_data,
+                               bool              slot_complete,
+                               ulong             tick_height,
+                               ulong             max_tick_height,
+                               ulong             hashes_per_tick ) {
   ulong tick_hash_count         = 0UL;
   uchar has_trailing_entry      = 0U;
   uchar invalid_tick_hash_count = 0U;
@@ -1119,14 +1116,16 @@ fd_runtime_block_verify_ticks( fd_block_micro_t const * micro,
     we cache the results of some checks but do not immediately return
     an error.
    */
+  ulong micro_cnt = FD_LOAD( ulong, batch_data );
+  ulong off = sizeof(ulong);
   for( ulong i = 0UL; i < micro_cnt; i++ ) {
-    fd_microblock_hdr_t const * hdr = fd_type_pun_const( ( block_data + micro[ i ].off ) );
+    fd_microblock_hdr_t const * hdr = fd_type_pun_const( ( batch_data + off ) );
     tick_hash_count = fd_ulong_sat_add( tick_hash_count, hdr->hash_cnt );
     if( hdr->txn_cnt == 0UL ) {
-      tick_count++;
+      slot_ctx->ticks_consumed++;
       if( FD_LIKELY( hashes_per_tick > 1UL ) ) {
         if( FD_UNLIKELY( tick_hash_count != hashes_per_tick ) ) {
-          FD_LOG_WARNING(( "tick_hash_count %lu hashes_per_tick %lu tick_count %lu i %lu micro_cnt %lu", tick_hash_count, hashes_per_tick, tick_count, i, micro_cnt ));
+          FD_LOG_WARNING(( "tick_hash_count %lu hashes_per_tick %lu tick_count %lu i %lu micro_cnt %lu", tick_hash_count, hashes_per_tick, slot_ctx->ticks_consumed, i, micro_cnt ));
           invalid_tick_hash_count = 1U;
         }
       }
@@ -1134,11 +1133,129 @@ fd_runtime_block_verify_ticks( fd_block_micro_t const * micro,
       continue;
     }
     /* This wasn't a tick entry, but it's the last entry. */
-    if( FD_UNLIKELY( i == micro_cnt - 1UL ) ) {
+    if( FD_UNLIKELY( slot_complete && i == micro_cnt - 1UL ) ) {
       FD_LOG_WARNING(( "entry %lu has %lu transactions expects 0", i, hdr->txn_cnt ));
       has_trailing_entry = 1U;
     }
   }
+
+  ulong next_tick_height = tick_height + slot_ctx->ticks_consumed;
+  if ( FD_UNLIKELY ( slot_complete ) ) {
+    slot_ctx->ticks_consumed = 0;
+  }
+
+  if( FD_UNLIKELY( next_tick_height > max_tick_height ) ) {
+    FD_LOG_WARNING(( "Too many ticks tick_height %lu max_tick_height %lu hashes_per_tick %lu tick_count %lu", tick_height, max_tick_height, hashes_per_tick, slot_ctx->ticks_consumed ));
+    FD_LOG_WARNING(( "Too many ticks" ));
+    return FD_BLOCK_ERR_TOO_MANY_TICKS;
+  }
+  if( FD_UNLIKELY( slot_complete && next_tick_height < max_tick_height ) ) {
+    FD_LOG_WARNING(( "Too few ticks" ));
+    return FD_BLOCK_ERR_TOO_FEW_TICKS;
+  }
+  if( FD_UNLIKELY( slot_complete && has_trailing_entry ) ) {
+    FD_LOG_WARNING(( "Did not end with a tick" ));
+    return FD_BLOCK_ERR_TRAILING_ENTRY;
+  }
+
+  /* Not returning FD_BLOCK_ERR_INVALID_LAST_TICK because we assume the
+     slot is full. */
+
+  /* Don't care about low power hashing or no hashing. */
+  if( FD_LIKELY( hashes_per_tick > 1UL ) ) {
+    if( FD_UNLIKELY( invalid_tick_hash_count ) ) {
+      FD_LOG_WARNING(( "Tick with invalid number of hashes found" ));
+      return FD_BLOCK_ERR_INVALID_TICK_HASH_COUNT;
+    }
+  }
+
+  return FD_BLOCK_OK;
+}
+
+/*
+   TODO Perhaps update this function to support verifying ticks before
+   the block is full.  Could be useful when we move to a streaming
+   execution model.
+ */
+ulong
+fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
+                               ulong   slot,
+                               uchar * scratch_mem,
+                               ulong   scratch_sz,
+                               ulong   tick_height,
+                               ulong   max_tick_height,
+                               ulong   hashes_per_tick ) {
+  ulong tick_count              = 0UL;
+  ulong tick_hash_count         = 0UL;
+  ulong has_trailing_entry      = 0UL;
+  uchar invalid_tick_hash_count = 0U;
+  /*
+    Iterate over microblocks/entries to
+    (1) count the number of ticks
+    (2) check whether the last entry is a tick
+    (3) check whether ticks align with hashes per tick
+
+    This precomputes everything we need in a single loop over the array.
+    In order to mimic the order of checks in Agave,
+    we cache the results of some checks but do not immediately return
+    an error.
+   */
+  fd_blockstore_start_read( blockstore );
+  fd_block_map_t * query = fd_blockstore_block_map_query( blockstore, slot );
+  FD_TEST( query->slot_complete_idx != FD_SHRED_IDX_NULL );
+
+  uint   batch_cnt = 0;
+  ulong  batch_idx = 0;
+  while ( batch_idx <= query->slot_complete_idx ) {
+    batch_cnt++;
+    ulong batch_sz = 0;
+    FD_TEST( fd_blockstore_batch_assemble( blockstore, 
+                                           slot, 
+                                           (uint) batch_idx, 
+                                           scratch_sz, 
+                                           scratch_mem, 
+                                           &batch_sz ) == FD_BLOCKSTORE_OK );
+    ulong micro_cnt = FD_LOAD( ulong, scratch_mem );
+    ulong       off = sizeof(ulong);
+    for( ulong i = 0UL; i < micro_cnt; i++ ){
+      fd_microblock_hdr_t const * hdr = fd_type_pun_const( ( scratch_mem + off ) );
+      off += sizeof(fd_microblock_hdr_t);
+      tick_hash_count = fd_ulong_sat_add( tick_hash_count, hdr->hash_cnt );
+      if( hdr->txn_cnt == 0UL ){
+        tick_count++;
+        if( FD_LIKELY( hashes_per_tick > 1UL ) ) {
+          if( FD_UNLIKELY( tick_hash_count != hashes_per_tick ) ) {
+            FD_LOG_WARNING(( "tick_hash_count %lu hashes_per_tick %lu tick_count %lu i %lu micro_cnt %lu", tick_hash_count, hashes_per_tick, tick_count, i, micro_cnt ));
+            invalid_tick_hash_count = 1U;
+          }
+        }
+        tick_hash_count = 0UL;
+        continue;
+      }
+      /* This wasn't a tick entry, but it's the last entry. */
+      if( FD_UNLIKELY( i == micro_cnt - 1UL ) ) {
+        has_trailing_entry = batch_cnt;
+      }
+
+      /* seek past txns */
+      uchar txn[FD_TXN_MAX_SZ];
+      for( ulong j = 0; j < hdr->txn_cnt; j++ ) {
+        ulong pay_sz = 0;
+        ulong txn_sz = fd_txn_parse_core( scratch_mem + off, fd_ulong_min( batch_sz - off, FD_TXN_MTU ), txn, NULL, &pay_sz );
+        if( FD_UNLIKELY( !pay_sz ) ) FD_LOG_ERR(( "failed to parse transaction %lu in microblock %lu in slot %lu", j, i, slot ) );
+        if( FD_UNLIKELY( !txn_sz || txn_sz > FD_TXN_MTU )) FD_LOG_ERR(( "failed to parse transaction %lu in microblock %lu in slot %lu. txn size: %lu", j, i, slot, txn_sz ));
+        off += pay_sz;
+      }
+    }
+    /* advance batch iterator */
+    if( FD_UNLIKELY( batch_cnt == 1 ) ){ /* first batch */
+      batch_idx = fd_block_set_const_iter_init( query->data_complete_idxs ) + 1;
+    } else {
+      batch_idx = fd_block_set_const_iter_next( query->data_complete_idxs, batch_idx - 1 ) + 1;
+    }
+  }
+
+  fd_blockstore_end_read( blockstore );
 
   ulong next_tick_height = tick_height + tick_count;
   if( FD_UNLIKELY( next_tick_height > max_tick_height ) ) {
@@ -1147,10 +1264,10 @@ fd_runtime_block_verify_ticks( fd_block_micro_t const * micro,
     return FD_BLOCK_ERR_TOO_MANY_TICKS;
   }
   if( FD_UNLIKELY( next_tick_height < max_tick_height ) ) {
-    FD_LOG_WARNING(( "Too few ticks" ));
+    FD_LOG_WARNING(( "Too few ticks %lu < %lu", next_tick_height, max_tick_height ));
     return FD_BLOCK_ERR_TOO_FEW_TICKS;
   }
-  if( FD_UNLIKELY( has_trailing_entry ) ) {
+  if( FD_UNLIKELY( has_trailing_entry == batch_cnt ) ) {
     FD_LOG_WARNING(( "Did not end with a tick" ));
     return FD_BLOCK_ERR_TRAILING_ENTRY;
   }
@@ -1176,7 +1293,7 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx ) {
     fd_blockstore_block_height_update( slot_ctx->blockstore,
                                        slot_ctx->slot_bank.slot,
                                        slot_ctx->slot_bank.block_height );
-    slot_ctx->block = fd_blockstore_block_query( slot_ctx->blockstore, slot_ctx->slot_bank.slot );
+    slot_ctx->block = fd_blockstore_block_query( slot_ctx->blockstore, slot_ctx->slot_bank.slot ); /* used for txn metadata & filling blk rewards later on */
     fd_blockstore_end_write( slot_ctx->blockstore );
   }
 
@@ -4041,6 +4158,7 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
                              ulong *              txn_cnt,
                              fd_spad_t * *        spads,
                              ulong                spad_cnt ) {
+  /** offline replay */
   (void)scheduler;
 
   FD_SCRATCH_SCOPE_BEGIN {
@@ -4086,13 +4204,12 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
       break;
     }
 
-    fd_blockstore_start_read( slot_ctx->blockstore );
-    fd_block_t * block = fd_blockstore_block_query( slot_ctx->blockstore, slot );
-    fd_blockstore_end_read( slot_ctx->blockstore );
+    uchar * block_data = fd_scratch_alloc( 128UL, FD_SLOT_SHRED_MAX * FD_SHRED_PAYLOAD_MAX );
     ulong tick_res = fd_runtime_block_verify_ticks(
-      fd_blockstore_block_micro_laddr( slot_ctx->blockstore, block ),
-      block->micros_cnt,
-      fd_blockstore_block_data_laddr( slot_ctx->blockstore, block ),
+      slot_ctx->blockstore,
+      slot,
+      block_data,
+      FD_SLOT_SHRED_MAX * FD_SHRED_PAYLOAD_MAX,
       slot_ctx->slot_bank.tick_height,
       slot_ctx->slot_bank.max_tick_height,
       slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick
