@@ -16,6 +16,18 @@ EOF
     curl -X POST -H 'Content-type: application/json' --data "$json_payload" $SLACK_WEBHOOK_URL
 }
 
+send_slack_debug_message() {
+    MESSAGE=$1
+    json_payload=$(cat <<EOF
+{
+    "text": "$MESSAGE",
+    "link_names": 1
+}
+EOF
+)
+    curl -X POST -H 'Content-type: application/json' --data "$json_payload" $SLACK_DEBUG_WEBHOOK_URL
+}
+
 send_slack_message "Starting $NETWORK-offline-replay run on \`$(hostname)\` in \`$(pwd)\` with agave tag \`$AGAVE_TAG\` and firedancer cluster version \`$FD_CLUSTER_VERSION\`"
 CURRENT_MISMATCH_COUNT=0    
 CURRENT_FAILURE_COUNT=0
@@ -179,9 +191,11 @@ while true; do
                 echo "Ledger replay successful"
                 REPLAY_COMPLETED_LINE=$(grep "replay completed" "$LOG" | tail -n 1)
                 REPLAY_INFO="${REPLAY_COMPLETED_LINE#*replay completed - }"
+                TXN_SPAD_INFO=$(grep "mem_wmark" "$LOG" | sed -E 's/.*(spad.*)/\1/')
 
                 send_slack_message "Ledger Replay Successful"
                 send_slack_message "Replay Statistics: \`$REPLAY_INFO\`"
+                send_slack_debug_message "Memory Statistics:\n\`\`\`$TXN_SPAD_INFO\`\`\`"
             else
                 DONE=0
                 MISMATCH_SLOT=0
