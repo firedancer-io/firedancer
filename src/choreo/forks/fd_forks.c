@@ -345,10 +345,6 @@ fd_forks_update( fd_forks_t *      forks,
 
     fd_voter_t *             voter = &epoch_voters[i];
     fd_voter_state_t const * state = fd_voter_state( funk, txn, &voter->rec );
-    if ( FD_UNLIKELY( state->discriminant == FD_VOTER_STATE_V0_23_5 ) ) {
-      FD_LOG_NOTICE(( "voter %s with ancient v0.23.5 state", FD_BASE58_ENC_32_ALLOCA(&voter->key) ));
-      __asm__("int $3");
-    }
 
     /* Only process votes for slots >= root. Ghost requires vote slot
         to already exist in the ghost tree. */
