@@ -89,9 +89,7 @@ fd_store_expected_shred_version( fd_store_t * store, ulong expected_shred_versio
 int
 fd_store_slot_prepare( fd_store_t *   store,
                        ulong          slot,
-                       ulong *        repair_slot_out,
-                       uchar const ** block_out,
-                       ulong *        block_sz_out );
+                       ulong *        repair_slot_out );
 
 int
 fd_store_set_pack_slot( fd_store_t *   store,

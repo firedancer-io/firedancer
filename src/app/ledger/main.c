@@ -370,9 +370,9 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
     /* If we have reached a new block, load one in from rocksdb to the blockstore */
     fd_blockstore_start_read( blockstore );
-    fd_block_t * block = fd_blockstore_block_query( blockstore, slot );
+    bool block_exists = fd_blockstore_shreds_complete( blockstore, slot);
     fd_blockstore_end_read( blockstore );
-    if( block == NULL && slot_meta.slot == slot ) {
+    if( !block_exists && slot_meta.slot == slot ) {
       int err = fd_rocksdb_import_block_blockstore( &rocks_db, &slot_meta, blockstore,
                                                     ledger_args->copy_txn_status, slot == (ledger_args->trash_hash) ? trash_hash_buf : NULL );
       if( FD_UNLIKELY( err ) ) {
@@ -402,7 +402,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     }
 
     fd_blockstore_start_read( blockstore );
-    fd_block_t * blk = fd_blockstore_block_query( blockstore, slot );
+    fd_block_t * blk = fd_blockstore_block_query( blockstore, slot ); /* can't be removed atm, populating slot_ctx->block below */
     fd_blockstore_end_read( blockstore );
     if( blk == NULL ) {
       FD_LOG_WARNING(( "failed to read slot %lu", slot ));

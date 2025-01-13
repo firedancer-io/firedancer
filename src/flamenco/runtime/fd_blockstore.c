@@ -1375,6 +1375,7 @@ fd_buf_shred_query_copy_data( fd_blockstore_t * blockstore, ulong slot, uint shr
 fd_block_t *
 fd_blockstore_block_query( fd_blockstore_t * blockstore, ulong slot ) {
   fd_block_map_t * query = fd_block_map_query( fd_blockstore_block_map( blockstore ), &slot, NULL );
+  /* later change this to all shreds recieved */
   if( FD_UNLIKELY( !query || query->block_gaddr == 0 ) ) return NULL;
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), query->block_gaddr );
 }
@@ -1414,6 +1415,94 @@ fd_blockstore_child_slots_query( fd_blockstore_t * blockstore, ulong slot, ulong
   *slot_cnt_out = query->child_slot_cnt;
   return FD_BLOCKSTORE_OK;
 }
+
+int
+fd_blockstore_batch_assemble( fd_blockstore_t * blockstore, 
+                               ulong slot, 
+                               uint  batch_idx,
+                               ulong batch_data_max, 
+                               uchar * batch_data_out, 
+                               ulong * batch_data_sz ) {
+  fd_buf_shred_t *     shred_pool = fd_blockstore_shred_pool( blockstore );
+  fd_buf_shred_map_t * shred_map  = fd_blockstore_shred_map( blockstore );
+
+  fd_block_map_t * query = fd_blockstore_block_map_query( blockstore, slot );
+  if( FD_UNLIKELY( !query ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
+  if( batch_idx > 0 ) { /* verify that the batch_idx provided is actually the start of a batch */
+    fd_block_set_t * data_complete_idxs = query->data_complete_idxs;
+    if ( !fd_block_set_test( data_complete_idxs, batch_idx - 1 ) || batch_idx > query->slot_complete_idx ) {
+      return FD_BLOCKSTORE_ERR_SHRED_INVALID;
+    }
+  }
+
+  ulong mbatch_sz = 0;
+  for (uint idx = batch_idx; ; idx++) {
+    fd_shred_key_t key = { slot, idx };
+    fd_blockstore_start_read( blockstore );
+
+    fd_buf_shred_t * shred = fd_buf_shred_map_ele_query( shred_map, &key, NULL, shred_pool );
+    uchar const *    payload    = NULL;
+    ulong            payload_sz = 0;
+    bool           is_batch_end = false; 
+    if( FD_UNLIKELY( shred ) ) { /* FIXME change to likely */
+      payload    = fd_shred_data_payload( &shred->hdr );
+      payload_sz = fd_shred_payload_sz( &shred->hdr );
+      is_batch_end = (shred->hdr.data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE) || (shred->hdr.data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
+    } else { /* FIXME remove after blockstore refactor */
+      fd_block_t * block = fd_blockstore_block_query( blockstore, slot );
+      if( FD_UNLIKELY( !block ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
+
+      fd_wksp_t *        wksp   = fd_blockstore_wksp( blockstore );
+      fd_block_shred_t * shreds = fd_wksp_laddr_fast( wksp, block->shreds_gaddr );
+      uchar *            data   = fd_wksp_laddr_fast( wksp, block->data_gaddr );
+
+      payload    = data + shreds[idx].off;
+      payload_sz = ( idx + 1 != block->shreds_cnt ) ? ( shreds[idx + 1].off - shreds[idx].off )
+                                                    : ( block->data_sz - shreds[idx].off );
+      is_batch_end = (shreds[idx].hdr.data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE) 
+                      || (shreds[idx].hdr.data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
+    }
+
+    if( FD_UNLIKELY( payload_sz > FD_SHRED_PAYLOAD_MAX ) ) return FD_BLOCKSTORE_ERR_SHRED_INVALID;
+    if( FD_UNLIKELY( mbatch_sz + payload_sz > batch_data_max ) ) return FD_BLOCKSTORE_ERR_NO_MEM;
+    fd_memcpy( batch_data_out + mbatch_sz, payload, payload_sz );
+    fd_blockstore_end_read( blockstore );
+
+    mbatch_sz += payload_sz;
+    if( FD_UNLIKELY( is_batch_end ) ){ 
+      /* likely has trailing 0s */
+      break;
+    }
+  }
+  *batch_data_sz = mbatch_sz;
+  return FD_BLOCKSTORE_OK;
+}
+
+bool
+fd_blockstore_shreds_complete( fd_blockstore_t * blockstore, ulong slot ){
+  bool block_exists = fd_blockstore_block_query( blockstore,  slot );
+
+  fd_block_map_t * query = fd_blockstore_block_map_query( blockstore, slot );
+  if( FD_UNLIKELY( !query || query->consumed_idx == FD_SHRED_IDX_NULL ) ) {
+    FD_TEST( !block_exists ); /* FIXME remove after blockstore refactor */
+    return false;
+  }
+
+  /* When replacing block_query( slot ) != NULL with this function:
+     There are other things verified in a successful deshred & scan block that are not verified here. 
+     scan_block does a round of well-formedness checks like parsing txns, and no premature end of batch 
+     like needing cnt, microblock, microblock format.
+
+     This maybe should be fine in places where we check both 
+     shreds_complete and flag PROCESSED/REPLAYING is set, because validation has been for sure done
+     if the block has been replayed 
+      
+     Should be careful in places that call this now that happen before the block is replayed, if we want
+     to assume the shreds are well-formed we can't. */
+
+  return query->slot_complete_idx == query->consumed_idx;
+}
+
 
 int
 fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
@@ -1512,7 +1601,26 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
       prev_sz = sz;
     }
     if( FD_UNLIKELY( data_out == NULL ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
-    fd_memcpy( data_out, fd_wksp_laddr_fast( wksp, blk_data_gaddr ), sz );
+    /* sets data_out to block data */
+    ulong    batch_idx = 0;
+    ulong     batch_sz = 0;
+    ulong total_blk_sz = 0;
+    while( batch_idx <= query->slot_complete_idx ){
+      int err = fd_blockstore_batch_assemble( blockstore, 
+                                               slot, 
+                                               (uint)batch_idx, 
+                                               sz - total_blk_sz, 
+                                               data_out + total_blk_sz, 
+                                               &batch_sz );
+      if( FD_UNLIKELY( err ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
+      total_blk_sz += batch_sz;
+
+      if( FD_UNLIKELY( batch_idx == 0 ) ){
+        batch_idx = fd_block_set_const_iter_init( query->data_complete_idxs ) + 1;
+      } else {
+        batch_idx = fd_block_set_const_iter_next( query->data_complete_idxs, batch_idx - 1 ) + 1;
+      }
+    }
 
     if( FD_UNLIKELY( fd_rwseq_check_concur_read( &blockstore->lock, seqnum ) ) ) {
       fd_valloc_free( alloc, data_out );
@@ -1520,6 +1628,7 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
     }
 
     *block_data_out = data_out;
+    *block_data_sz_out = total_blk_sz;
 
     if( parent_block_hash_out ) {
       if(( query = fd_block_map_query_safe( block_map, &block_map_entry_out->parent_slot, NULL )) == NULL ) {

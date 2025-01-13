@@ -87,9 +87,7 @@ fd_store_expected_shred_version( fd_store_t * store, ulong expected_shred_versio
 int
 fd_store_slot_prepare( fd_store_t *   store,
                        ulong          slot,
-                       ulong *        repair_slot_out,
-                       uchar const ** block_out,
-                       ulong *        block_sz_out ) {
+                       ulong *        repair_slot_out ) {
   fd_blockstore_start_read( store->blockstore );
 
   ulong re_adds[2];
@@ -99,17 +97,17 @@ fd_store_slot_prepare( fd_store_t *   store,
   *repair_slot_out = 0;
   int rc = FD_STORE_SLOT_PREPARE_CONTINUE;
 
-  fd_block_t * block = fd_blockstore_block_query( store->blockstore, slot );
+  bool block_complete = fd_blockstore_shreds_complete( store->blockstore, slot );
   fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( store->blockstore, slot );
 
 
   /* We already executed this block */
-  if( FD_UNLIKELY( block && fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING ) ) ) {
+  if( FD_UNLIKELY( block_complete && fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING ) ) ) {
     rc = FD_STORE_SLOT_PREPARE_ALREADY_EXECUTED;
     goto end;
   }
 
-  if( FD_UNLIKELY( block && fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED ) ) ) {
+  if( FD_UNLIKELY( block_complete && fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED ) ) ) {
     rc = FD_STORE_SLOT_PREPARE_ALREADY_EXECUTED;
     goto end;
   }
@@ -140,13 +138,13 @@ fd_store_slot_prepare( fd_store_t *   store,
   }
 
   fd_blockstore_start_read( store->blockstore );
-  fd_block_t * parent_block = fd_blockstore_block_query( store->blockstore, parent_slot );
+  bool parent_complete = fd_blockstore_shreds_complete( store->blockstore, parent_slot );
   fd_blockstore_end_read( store->blockstore );
 
   /* We have a parent slot meta, and therefore have at least one shred of the parent block, so we
      have the ancestry and need to repair that block directly (as opposed to calling repair orphan).
   */
-  if( FD_UNLIKELY( !parent_block ) ) {
+  if( FD_UNLIKELY( !parent_complete ) ) {
     rc = FD_STORE_SLOT_PREPARE_NEED_REPAIR;
     *repair_slot_out = parent_slot;
     re_add_delays[re_adds_cnt] = FD_REPAIR_BACKOFF_TIME;
@@ -172,7 +170,7 @@ fd_store_slot_prepare( fd_store_t *   store,
   }
 
   /* The parent is executed, but the block is still incomplete. Ask for more shreds. */
-  if( FD_UNLIKELY( !block ) ) {
+  if( FD_UNLIKELY( !block_complete ) ) {
     rc = FD_STORE_SLOT_PREPARE_NEED_REPAIR;
     *repair_slot_out = slot;
     re_add_delays[re_adds_cnt] = FD_REPAIR_BACKOFF_TIME;
@@ -181,9 +179,6 @@ fd_store_slot_prepare( fd_store_t *   store,
   }
 
   /* Prepare the replay_slot struct. */
-  *block_out    = fd_blockstore_block_data_laddr( store->blockstore, block );
-  *block_sz_out = block->data_sz;
-
   /* Mark the block as prepared, and thus unsafe to remove. */
   block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
 
@@ -226,7 +221,7 @@ fd_store_shred_insert( fd_store_t * store,
   }
 
   fd_blockstore_start_write( blockstore );
-  if( fd_blockstore_block_query( blockstore, shred->slot ) != NULL ) {
+  if( fd_blockstore_shreds_complete( blockstore, shred->slot ) ) {
     fd_blockstore_end_write( blockstore );
     return FD_BLOCKSTORE_OK;
   }
@@ -389,9 +384,9 @@ fd_store_slot_repair( fd_store_t * store,
     int good = 0;
     for( uint i = 0; i < 6; ++i ) {
       anc_slot  = fd_blockstore_parent_slot_query( store->blockstore, anc_slot );
-      fd_block_t * anc_block = fd_blockstore_block_query( store->blockstore, anc_slot );
+      bool anc_complete = fd_blockstore_shreds_complete( store->blockstore, anc_slot );
       fd_block_map_t * anc_block_map_entry = fd_blockstore_block_map_query( store->blockstore, anc_slot );
-      if( anc_block && fd_uchar_extract_bit( anc_block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED ) ) {
+      if( anc_complete && fd_uchar_extract_bit( anc_block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED ) ) {
         good = 1;
         out_repair_reqs_sz /= (i>>1)+1U; /* Slow roll blocks that are further out */
         break;

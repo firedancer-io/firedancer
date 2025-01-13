@@ -1311,12 +1311,14 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   }
 
   fd_blockstore_start_read( ctx->blockstore );
-  fd_block_t * block = fd_blockstore_block_query( ctx->blockstore, curr_slot );
   fd_blockstore_end_read( ctx->blockstore );
+
+  /* Eventually need to switch to using batch_verify_ticks */
   ulong tick_res = fd_runtime_block_verify_ticks(
-    fd_blockstore_block_micro_laddr( ctx->blockstore, block ),
-    block->micros_cnt,
-    fd_blockstore_block_data_laddr( ctx->blockstore, block ),
+    ctx->blockstore,
+    curr_slot,
+    ctx->mbatch,
+    MBATCH_MAX,
     fork->slot_ctx.slot_bank.tick_height,
     fork->slot_ctx.slot_bank.max_tick_height,
     fork->slot_ctx.epoch_ctx->epoch_bank.hashes_per_tick
@@ -1372,47 +1374,20 @@ init_poh( fd_replay_tile_ctx_t * ctx ) {
 
 /* Replay a microblock batch ("mbatch"). */
 static void
-replay_mbatch( fd_replay_tile_ctx_t * ctx, uint shred_idx_start, uint shred_idx_end ) {
+replay_mbatch( fd_replay_tile_ctx_t * ctx, uint shred_idx_start ) {
   fd_blockstore_t * blockstore = ctx->blockstore;
   ulong             slot       = ctx->curr_slot;
 
-  fd_buf_shred_t *     shred_pool = fd_blockstore_shred_pool( blockstore );
-  fd_buf_shred_map_t * shred_map  = fd_blockstore_shred_map( blockstore );
-
   /* Copy shred payloads into `buf` so that they are contiguous. This is
      required because txns can span multiple shreds. */
-
   ulong mbatch_sz = 0;
-  for (uint idx = shred_idx_start; idx <= shred_idx_end; idx++) {
-    fd_shred_key_t key = { slot, idx };
-    fd_blockstore_start_read( blockstore );
-
-    fd_buf_shred_t * shred = fd_buf_shred_map_ele_query( shred_map, &key, NULL, shred_pool );
-    uchar const *    payload    = NULL;
-    ulong            payload_sz = 0;
-    if( FD_UNLIKELY( shred ) ) { /* FIXME change to unlikely */
-      payload    = fd_shred_data_payload( &shred->hdr );
-      payload_sz = fd_shred_payload_sz( &shred->hdr );
-    } else { /* FIXME remove after blockstore refactor */
-      fd_block_t * block = fd_blockstore_block_query( blockstore, slot );
-      if( FD_UNLIKELY( !block ) ) FD_LOG_ERR(( "missing slot %lu from blockstore", slot ));
-
-      fd_wksp_t *        wksp   = fd_blockstore_wksp( blockstore );
-      fd_block_shred_t * shreds = fd_wksp_laddr_fast( wksp, block->shreds_gaddr );
-      uchar *            data   = fd_wksp_laddr_fast( wksp, block->data_gaddr );
-
-      payload    = data + shreds[idx].off;
-      payload_sz = ( idx + 1 != block->shreds_cnt ) ? ( shreds[idx + 1].off - shreds[idx].off )
-                                                    : ( block->data_sz - shreds[idx].off );
-    }
-
-    FD_TEST( payload_sz <= FD_SHRED_PAYLOAD_MAX );
-    FD_TEST( mbatch_sz + payload_sz <= MBATCH_MAX );
-    fd_memcpy( ctx->mbatch + mbatch_sz, payload, payload_sz );
-    fd_blockstore_end_read( blockstore );
-    mbatch_sz += payload_sz;
-  }
-
+  int err = fd_blockstore_batch_assemble( blockstore, 
+                                           slot, 
+                                           shred_idx_start, 
+                                           MBATCH_MAX,
+                                           ctx->mbatch,
+                                           &mbatch_sz );
+  FD_TEST( err == FD_BLOCKSTORE_OK );
   /* Loop through microblocks, parse out txns, and round-robin publish
      txns to the executor tiles. */
 
@@ -1490,7 +1465,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
 
           /* FIXME backpressure? consumer will need to make sure they aren't overrun */
 
-          replay_mbatch( ctx, block_map_entry->replayed_idx + 1, idx );
+          replay_mbatch( ctx, block_map_entry->replayed_idx + 1 );
           block_map_entry->replayed_idx = idx;
         }
       }
@@ -1587,9 +1562,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
         fd_blockstore_start_write( ctx->blockstore );
 
         fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, curr_slot );
-        fd_block_t * block_ = fd_blockstore_block_query( ctx->blockstore, curr_slot );
-
-        if( FD_LIKELY( block_ ) ) {
+        if( FD_LIKELY( block_map_entry ) ) {
           block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_DEADBLOCK );
           FD_COMPILER_MFENCE();
           block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
@@ -1643,7 +1616,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
 
     fd_blockstore_start_read( ctx->blockstore );
     fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, curr_slot );
-    fd_block_t * block_ = fd_blockstore_block_query( ctx->blockstore, curr_slot );
+    fd_block_t * block_ = fd_blockstore_block_query( ctx->blockstore, curr_slot );  /* can't be removed atm, used for txn metadata & blk rewards */
     fd_blockstore_end_read( ctx->blockstore );
     fork->slot_ctx.block = block_;
 

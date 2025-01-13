@@ -308,12 +308,13 @@ fd_runtime_collect_rent_from_account( fd_exec_slot_ctx_t const * slot_ctx,
    hashes_per_tick.
  */
 ulong
-fd_runtime_block_verify_ticks( fd_block_micro_t const * micro,
-                               ulong                    micro_cnt,
-                               uchar const *            block_data,
-                               ulong                    tick_height,
-                               ulong                    max_tick_height,
-                               ulong                    hashes_per_tick );
+fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
+                               ulong             slot,
+                               uchar *           scratch_mem,
+                               ulong             scratch_sz,
+                               ulong             tick_height,
+                               ulong             max_tick_height,
+                               ulong             hashes_per_tick );
 
 int
 fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx );

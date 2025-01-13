@@ -764,6 +764,31 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
 int
 fd_blockstore_buffered_shreds_remove( fd_blockstore_t * blockstore, ulong slot );
 
+/* fd_blockstore_batch_assemble assembles shreds for a given batch starting at shred_idx 
+   Shred payloads are copied contiguously into block_data_out, and the total size
+   of the concatenated shred data is returned in block_data_sz. The caller provides the
+   max buffer size. Function will check if the provided shred_idx is the start of a batch
+   Returns an error code on success or failure. 
+
+   IMPORTANT!  Caller MUST hold the read lock when calling this
+   function.
+ */
+int
+fd_blockstore_batch_assemble( fd_blockstore_t * blockstore, 
+                               ulong slot, 
+                               uint batch_idx,
+                               ulong block_data_max, 
+                               uchar * block_data_out, 
+                               ulong * block_data_sz );
+
+/* fd_blockstore_shreds_complete should be a replacement for anywhere that is 
+   querying for an fd_block_t * for existence but not actually using the block data. 
+   Semantically equivalent to query_block( slot ) != NULL.
+
+   IMPORTANT! Caller MUST hold the read lock when calling this function */
+bool
+fd_blockstore_shreds_complete( fd_blockstore_t * blockstore, ulong slot );
+
 /* fd_blockstore_block_height_update sets the block height.
 
    IMPORTANT!  Caller MUST hold the write lock when calling this
