@@ -378,7 +378,7 @@ fd_repair_add_active_peer( fd_repair_t * glob, fd_repair_peer_addr_t const * add
   fd_active_elem_t * val = fd_active_table_query(glob->actives, id, NULL);
   if (val == NULL) {
     if (fd_active_table_is_full(glob->actives)) {
-      FD_LOG_DEBUG(("too many actives"));
+      FD_LOG_WARNING(("too many active repair peers, discarding new peer"));
       fd_repair_unlock( glob );
       return -1;
     }
@@ -839,8 +839,12 @@ is_good_peer( fd_active_elem_t * val ) {
 
 static void
 fd_actives_shuffle( fd_repair_t * repair ) {
+  /* Since we now have stake weights very quickly after reading the manifest, we wait
+     until we have the stake weights before we start repairing. This ensures that we always
+     sample from the available peers using stake weights. */
   if( repair->stake_weights_cnt == 0 ) {
-    FD_LOG_NOTICE(( "repair does not have stake weights yet" ));
+    FD_LOG_NOTICE(( "repair does not have stake weights yet, not selecting any sticky peers" ));
+    return;
   }
 
   FD_SCRATCH_SCOPE_BEGIN {
@@ -851,6 +855,7 @@ fd_actives_shuffle( fd_repair_t * repair ) {
         sizeof( fd_active_elem_t * ) * repair->stake_weights_cnt );
     ulong leftovers_cnt = 0;
 
+    ulong total_stake = 0UL;
     if( repair->stake_weights_cnt==0 ) {
       leftovers = fd_scratch_alloc(
         alignof( fd_active_elem_t * ),
@@ -876,6 +881,7 @@ fd_actives_shuffle( fd_repair_t * repair ) {
         fd_active_elem_t * peer = fd_active_table_query( repair->actives, key, NULL );
         if( peer!=NULL ) {
           peer->stake = stake;
+          total_stake = fd_ulong_sat_add( total_stake, stake );
         }
         if( NULL == peer || peer->sticky ) continue;
         leftovers[leftovers_cnt++] = peer;
@@ -917,6 +923,8 @@ fd_actives_shuffle( fd_repair_t * repair ) {
       FD_LOG_NOTICE(( "repair peers first quartile latency - latency: %6.6f ms", (double)first_quartile_latency * 1e-6 ));
     }
 
+    /* Build the new sticky peers set based on the latency and stake weight */
+
     /* select an upper bound */
     /* acceptable latency is 2 * first quartile latency  */
     long acceptable_latency = first_quartile_latency != LONG_MAX ? 2L * first_quartile_latency : LONG_MAX;
@@ -947,15 +955,31 @@ fd_actives_shuffle( fd_repair_t * repair ) {
       good[i]->sticky                       = (uchar)1;
     }
     if( leftovers_cnt ) {
-      /* Always try afew new ones */
-      ulong seed = repair->actives_random_seed;
+      /* Sample 64 new sticky peers using stake-weighted sampling */      
       for( ulong i = 0; i < 64 && tot_cnt < FD_REPAIR_STICKY_MAX && tot_cnt < fd_active_table_key_cnt( repair->actives ); ++i ) {
-        seed                                  = ( seed + 774583887101UL ) * 131UL;
-        fd_active_elem_t * peer               = leftovers[seed % leftovers_cnt];
-        repair->actives_sticky[tot_cnt++]     = peer->key;
-        peer->sticky                          = (uchar)1;
+        /* Generate a random amount of culmative stake at which to sample the peer */
+        ulong target_culm_stake = fd_rng_ulong( repair->rng ) % total_stake;
+
+        /* Iterate over the active peers until we find the randomly selected peer */
+        ulong culm_stake = 0UL;
+        fd_active_elem_t * peer = NULL;
+        for( fd_active_table_iter_t iter = fd_active_table_iter_init( repair->actives );
+          !fd_active_table_iter_done( repair->actives, iter );
+          iter = fd_active_table_iter_next( repair->actives, iter ) ) {
+            peer = fd_active_table_iter_ele( repair->actives, iter );
+            culm_stake = fd_ulong_sat_add( culm_stake, peer->stake );
+            if( FD_UNLIKELY(( culm_stake >= target_culm_stake )) ) {
+              break;
+            }
+        }
+
+        /* Select this peer as sticky */
+        if( FD_LIKELY(( peer && !peer->sticky )) ) {
+          repair->actives_sticky[tot_cnt++] = peer->key;
+          peer->sticky                      = (uchar)1;
+        }
       }
-      repair->actives_random_seed = seed;
+      
     }
     repair->actives_sticky_cnt = tot_cnt;
 
@@ -997,6 +1021,13 @@ actives_sample( fd_repair_t * repair ) {
 static int
 fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint shred_index ) {
   fd_repair_lock( glob );
+
+  /* If there are no active sticky peers from which to send requests to, refresh the sticky peers
+     selection. It may be that stake weights were not available before, and now they are. */
+  if ( glob->actives_sticky_cnt == 0 ) {
+    fd_actives_shuffle( glob );
+  }
+
   fd_pubkey_t * ids[FD_REPAIR_NUM_NEEDED_PEERS] = {0};
   uint found_peer = 0;
   uint peer_cnt = fd_uint_min( (uint)glob->actives_sticky_cnt, FD_REPAIR_NUM_NEEDED_PEERS );
