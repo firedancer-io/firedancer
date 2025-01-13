@@ -82,7 +82,6 @@ struct fd_active_elem {
     ulong avg_reps; /* Moving average of the number of requests */
     long  avg_lat;  /* Moving average of response latency */
     uchar sticky;
-    uchar permanent;
     long  first_request_time;
     ulong stake;
 };
@@ -390,7 +389,6 @@ fd_repair_add_active_peer( fd_repair_t * glob, fd_repair_peer_addr_t const * add
     val->avg_lat = 0;
     val->sticky = 0;
     val->first_request_time = 0;
-    val->permanent = 0;
     val->stake = 0UL;
     FD_LOG_DEBUG(( "adding repair peer %s", FD_BASE58_ENC_32_ALLOCA( val->key.uc ) ));
   }
@@ -842,7 +840,7 @@ is_good_peer( fd_active_elem_t * val ) {
 static void
 fd_actives_shuffle( fd_repair_t * repair ) {
   if( repair->stake_weights_cnt == 0 ) {
-    FD_LOG_NOTICE(( "repair does not have stake weights yet, shuffling active set" ));
+    FD_LOG_NOTICE(( "repair does not have stake weights yet" ));
   }
 
   FD_SCRATCH_SCOPE_BEGIN {
@@ -928,9 +926,7 @@ fd_actives_shuffle( fd_repair_t * repair ) {
       fd_active_elem_t * peer = fd_active_table_iter_ele( repair->actives, iter );
       uchar sticky = peer->sticky;
       peer->sticky = 0; /* Already clear the sticky bit */
-      if( peer->permanent ) {
-        best[best_cnt++] = peer;
-      } else if( sticky ) {
+      if( sticky ) {
         /* See if we still like this peer */
         if( peer->avg_reps>0UL && ( peer->avg_lat/(long)peer->avg_reps ) >= acceptable_latency ) {
           continue;
@@ -986,8 +982,7 @@ actives_sample( fd_repair_t * repair ) {
     if( NULL != peer ) {
       if( peer->first_request_time == 0U ) peer->first_request_time = repair->now;
       /* Aggressively throw away bad peers */
-      if( peer->permanent ||
-          repair->now - peer->first_request_time < (long)5e9 || /* Sample the peer for at least 5 seconds */
+      if( repair->now - peer->first_request_time < (long)5e9 || /* Sample the peer for at least 5 seconds */
           is_good_peer( peer ) != -1 ) {
         repair->actives_random_seed = seed;
         return peer;
@@ -1156,14 +1151,6 @@ fd_repair_print_all_stats( fd_repair_t * glob ) {
 void fd_repair_add_sticky( fd_repair_t * glob, fd_pubkey_t const * id ) {
   fd_repair_lock( glob );
   glob->actives_sticky[glob->actives_sticky_cnt++] = *id;
-  fd_repair_unlock( glob );
-}
-
-void fd_repair_set_permanent( fd_repair_t * glob, fd_pubkey_t const * id ) {
-  fd_repair_lock( glob );
-  fd_active_elem_t * val = fd_active_table_query(glob->actives, id, NULL);
-  if( FD_LIKELY( val ) )
-    val->permanent = 1;
   fd_repair_unlock( glob );
 }
 

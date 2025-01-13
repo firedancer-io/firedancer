@@ -715,7 +715,6 @@ main( void ) {
 //       FD_LOG_ERR( ( "error adding repair active peer" ) );
 //     }
 //     fd_repair_add_sticky( replay->repair, &_repair_peer_id );
-//     fd_repair_set_permanent( replay->repair, &_repair_peer_id );
 //   }
 
 //   /**********************************************************************/

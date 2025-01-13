@@ -145,7 +145,6 @@ main_loop( int * argc, char *** argv, fd_repair_t * glob, fd_repair_config_t * c
   if ( fd_repair_add_active_peer(glob, resolve_hostport(addr_cstr, &peeraddr), &id) )
     return -1;
   fd_repair_add_sticky(glob, &id);
-  fd_repair_set_permanent(glob, &id);
 
   char const * slot_cstr = fd_env_strip_cmdline_cstr ( argc, argv, "--slot", NULL, NULL );
   if ( slot_cstr == NULL )
