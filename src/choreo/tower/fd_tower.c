@@ -441,9 +441,9 @@ fd_tower_from_vote_acc( fd_tower_t *              tower,
   ulong sz = sizeof(fd_voter_vote_old_t);
   for( ulong i = 0; i < fd_voter_state_cnt( state ); i++ ) {
     if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v0_23_5 ) ) {
-      memcpy( (uchar *)&vote, (uchar *)state->votes + i, sz );
+      memcpy( (uchar *)&vote, (uchar *)(state->v0_23_5.votes + i), sz );
     } else if ( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v1_14_11 ) ) {
-      memcpy( (uchar *)&vote, (uchar *)state->votes + i, sz );
+      memcpy( (uchar *)&vote, (uchar *)(state->v1_14_11.votes + i), sz );
     } else if ( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_current ) ) {
       memcpy( (uchar *)&vote, (uchar *)(state->votes + i) + sizeof(uchar) /* latency */, sz );
     } else {
