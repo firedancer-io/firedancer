@@ -442,7 +442,7 @@ repair_get_shred( ulong  slot,
       fd_blockstore_end_read( blockstore );
       return -1L;
     }
-    shred_idx = (uint)meta->complete_idx;
+    shred_idx = (uint)meta->slot_complete_idx;
   }
   long sz = fd_buf_shred_query_copy_data( blockstore, slot, shred_idx, buf, buf_max );
 

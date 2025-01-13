@@ -230,7 +230,7 @@ fd_store_shred_insert( fd_store_t * store,
     fd_blockstore_end_write( blockstore );
     return FD_BLOCKSTORE_OK;
   }
-  int rc = fd_buf_shred_insert( blockstore, shred );
+  int rc = fd_blockstore_shred_insert( blockstore, shred );
   fd_blockstore_end_write( blockstore );
 
   /* FIXME */
@@ -366,7 +366,7 @@ fd_store_slot_repair( fd_store_t * store,
   } else {
     /* We've received at least one shred, so fill in what's missing */
 
-    uint complete_idx = block_map_entry->complete_idx;
+    uint complete_idx = block_map_entry->slot_complete_idx;
 
     /* We don't know the last index yet */
     if( FD_UNLIKELY( complete_idx == UINT_MAX ) ) {
