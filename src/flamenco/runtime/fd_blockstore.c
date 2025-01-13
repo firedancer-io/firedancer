@@ -333,11 +333,13 @@ build_idx( fd_blockstore_t * blockstore, int fd ) {
       blockstore->archiver.head = wrap_offset(&blockstore->archiver, blockstore->archiver.head + lrw_block.data_sz + sizeof(fd_block_map_t) + sizeof(fd_block_t));;
       blockstore->archiver.num_blocks--;
     }
-    if ( FD_UNLIKELY( fd_block_idx_query( block_idx, block_map_out.slot, NULL ) ) ) {
-      FD_LOG_ERR(( "[%s] existing archival file contained duplicates of slot %lu", __func__, block_map_out.slot ));
+    fd_block_idx_t * idx_entry = fd_block_idx_query( block_idx, block_map_out.slot, NULL );
+    if ( FD_UNLIKELY( idx_entry ) ) {
+      FD_LOG_WARNING(( "[%s] archival file contained duplicates of slot %lu", __func__, block_map_out.slot ));
+      fd_block_idx_remove( block_idx, idx_entry );
     }
 
-    fd_block_idx_t * idx_entry = fd_block_idx_insert( block_idx, block_map_out.slot );
+    idx_entry = fd_block_idx_insert( block_idx, block_map_out.slot );
     idx_entry->off             = off;
     idx_entry->block_hash      = block_map_out.block_hash;
     idx_entry->bank_hash       = block_map_out.bank_hash;
