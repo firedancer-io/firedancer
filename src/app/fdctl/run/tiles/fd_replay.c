@@ -1149,7 +1149,7 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
     msg->slot_exec.slot = curr_slot;
     msg->slot_exec.parent = ctx->parent_slot;
     msg->slot_exec.root = ctx->blockstore->smr;
-    msg->slot_exec.height = ( block_map_entry ? block_map_entry->height : 0UL );
+    msg->slot_exec.height = ( block_map_entry ? block_map_entry->block_height : 0UL );
     msg->slot_exec.transaction_count = fork->slot_ctx.slot_bank.transaction_count;
     memcpy( &msg->slot_exec.bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
     memcpy( &msg->slot_exec.block_hash, &ctx->blockhash, sizeof( fd_hash_t ) );
@@ -1447,6 +1447,8 @@ after_frag( fd_replay_tile_ctx_t * ctx,
   (void)sig;
   (void)sz;
 
+  if( FD_UNLIKELY( ctx->skip_frag ) ) return;
+
   if( FD_UNLIKELY( in_idx==GOSSIP_IN_IDX ) ) {
     if( FD_UNLIKELY( !ctx->in_wen_restart ) ) return;
 
@@ -1469,7 +1471,25 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     return;
   }
 
-  if( FD_UNLIKELY( ctx->skip_frag ) ) return;
+  if( FD_UNLIKELY( in_idx == STORE_IN_IDX ) ) {
+
+    /* entry batch replay*/
+
+    fd_blockstore_start_read( ctx->blockstore );
+
+    fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, ctx->curr_slot );
+    FD_TEST( block_map_entry ); /* msg from store, so block must be in the blockstore */
+
+    if( FD_LIKELY( block_map_entry->data_complete_idx != FD_SHRED_IDX_NULL ) ) {
+      uint i = block_map_entry->replayed_idx + 1; uint j = block_map_entry->data_complete_idx;
+      for ( uint idx = i; idx <= j; idx++ ) {
+        if( FD_UNLIKELY( fd_block_set_test( block_map_entry->data_complete_idxs, idx ) ) ) {
+          block_map_entry->replayed_idx = idx;
+        }
+      }
+    }
+    fd_blockstore_end_read( ctx->blockstore );
+  }
 
   ulong curr_slot   = ctx->curr_slot;
   ulong parent_slot = ctx->parent_slot;

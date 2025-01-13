@@ -814,7 +814,7 @@ method_getEpochInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
     int ret = fd_blockstore_block_map_query_volatile(ctx->global->blockstore, ctx->global->blockstore_fd, slot, meta);
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"absoluteSlot\":%lu,\"blockHeight\":%lu,\"epoch\":%lu,\"slotIndex\":%lu,\"slotsInEpoch\":%lu,\"transactionCount\":%lu},\"id\":%s}" CRLF,
                          slot,
-                         (!ret ? meta->height : 0UL),
+                         (!ret ? meta->block_height : 0UL),
                          epoch,
                          slot_index,
                          fd_epoch_slot_cnt( &epoch_bank->epoch_schedule, epoch ),

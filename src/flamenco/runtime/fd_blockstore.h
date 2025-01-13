@@ -39,6 +39,7 @@
    the fd_block_map_t entries */
 #define FD_BLOCKSTORE_CHILD_SLOT_MAX    (32UL)        /* the maximum # of children a slot can have */
 #define FD_BLOCKSTORE_ARCHIVE_MIN_SIZE  (1UL << 26UL) /* 64MB := ceil(MAX_DATA_SHREDS_PER_SLOT*1228) */
+#define FD_SLOT_SHRED_MAX               (1UL << 15UL) /* maximum # of shreds in a slot */
 
 // TODO centralize these
 // https://github.com/firedancer-io/solana/blob/v1.17.5/sdk/program/src/clock.rs#L34
@@ -101,8 +102,8 @@ struct fd_buf_shred {
   fd_shred_key_t key;
   ulong          next;
   union {
-    fd_shred_t hdr;                  /* data shred header */
-    uchar      raw[FD_SHRED_MAX_SZ]; /* the data shred as raw bytes, both header and payload. */
+    fd_shred_t hdr;                  /* shred header */
+    uchar      buf[FD_SHRED_MAX_SZ]; /* the entire shred buffer, both header and payload. */
   };
 };
 typedef struct fd_buf_shred fd_buf_shred_t;
@@ -241,6 +242,10 @@ struct fd_block {
 };
 typedef struct fd_block fd_block_t;
 
+#define SET_NAME fd_block_set
+#define SET_MAX  FD_SLOT_SHRED_MAX
+#include "../../util/tmpl/fd_set.c"
+
 struct fd_block_map {
   ulong slot; /* map key */
   ulong next; /* reserved for use by fd_map_giant.c */
@@ -253,7 +258,7 @@ struct fd_block_map {
 
   /* Metadata */
 
-  ulong     height;
+  ulong     block_height;
   fd_hash_t block_hash;
   fd_hash_t bank_hash;
   fd_hash_t merkle_hash;    /* the last FEC set's merkle hash */
@@ -264,9 +269,19 @@ struct fd_block_map {
 
   /* Windowing */
 
-  uint consumed_idx; /* the highest shred idx of the contiguous window from idx 0 (inclusive). */
-  uint received_idx; /* the highest shred idx we've received (exclusive). */
-  uint complete_idx; /* the shred idx with the FD_SHRED_DATA_FLAG_SLOT_COMPLETE flag set. */
+  uint consumed_idx; /* the highest shred idx we've contiguously received from idx 0 (inclusive). */
+  uint received_idx; /* the highest shred idx we've received + 1 (exclusive). */
+  uint replayed_idx; /* the highest shred idx we've replayed (inclusive). */
+
+  uint data_complete_idx; /* the highest shred idx wrt contiguous entry batches (inclusive). */
+  uint slot_complete_idx; /* the highest shred idx for the entire slot (inclusive). */
+
+  /* This is a bit vec (fd_set) that tracks every shred idx marked with
+     FD_SHRED_DATA_FLAG_DATA_COMPLETE. The bit position in the fd_set
+     corresponds to the shred's index. Note shreds can be received
+     out-of-order so higher bits might be set before lower bits. */
+
+  fd_block_set_t data_complete_idxs[FD_SLOT_SHRED_MAX / sizeof(ulong)];
 
   /* Block */
 
@@ -731,15 +746,14 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot );
 
 /* Operations */
 
-/* fd_buf_shred_insert inserts shred into the blockstore, fast O(1).
-   Fail if this shred is already in the blockstore or the blockstore is
-   full.  Returns an error code indicating success or failure.
-   TODO eventually this will need to support "upsert" duplicate shred handling.
+  /* fd_blockstore_shred_insert inserts shred into the blockstore, fast
+   O(1).  Returns the current `consumed_idx` for the shred's slot if
+   insert is successful, otherwise returns FD_SHRED_IDX_NULL on error.
+   Reasons for error include this shred is already in the blockstore or
+   the blockstore is full. */
 
-   IMPORTANT!  Caller MUST hold the write lock when calling this
-   function. */
 int
-fd_buf_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred );
+fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred );
 
 /* fd_blockstore_buffered_shreds_remove removes all the unassembled shreds
    for a slot

@@ -357,7 +357,7 @@ fd_shredcap_verify_slot( fd_shredcap_slot_hdr_t * slot_hdr,
 
     fd_shred_t * shred = (fd_shred_t*)rbuf;
     fd_blockstore_start_write( blockstore );
-    fd_buf_shred_insert( blockstore, shred );
+    fd_blockstore_shred_insert( blockstore, shred );
     fd_blockstore_end_write( blockstore );
     if ( FD_UNLIKELY( slot != shred->slot ) ) {
       FD_LOG_ERR(( "slot header's slot=%lu doesn't match shred's slot=%lu", slot, shred->slot ));
@@ -1050,7 +1050,7 @@ fd_shredcap_populate_blockstore( const char *      capture_dir,
 
         fd_shred_t * shred = (fd_shred_t*)capture_buf;
         fd_blockstore_start_write( blockstore );
-        fd_buf_shred_insert( blockstore, shred );
+        fd_blockstore_shred_insert( blockstore, shred );
         fd_blockstore_end_write( blockstore );
       }
 
