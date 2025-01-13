@@ -1071,10 +1071,9 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
       batch_laddr[ batch_i++ ].end_off = off;
     }
 
-    fd_buf_shred_t * ele = NULL;
-    while( FD_UNLIKELY( ele = fd_buf_shred_map_ele_remove( shred_map, &key, NULL, shred_pool ) ) ) {
-      fd_buf_shred_pool_ele_release( shred_pool, ele );
-    }
+    fd_buf_shred_t * ele = fd_buf_shred_map_ele_remove( shred_map, &key, NULL, shred_pool );
+    FD_TEST( ele );
+    fd_buf_shred_pool_ele_release( shred_pool, ele );
   }
   if( FD_UNLIKELY( batch_cnt != batch_i ) ) {
     FD_LOG_ERR(( "batch_cnt(%lu)!=batch_i(%lu) potential memory corruption", batch_cnt, batch_i ));
