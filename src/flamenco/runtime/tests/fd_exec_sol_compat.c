@@ -77,10 +77,10 @@ sol_compat_wksp_init( ulong wksp_page_sz ) {
   }
   assert( wksp );
 
-  spad_mem = fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ, WKSP_INIT_ALLOC_TAG ); /* 4738713960 B */
+  spad_mem = fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ ), WKSP_INIT_ALLOC_TAG ); /* 4738713960 B */
   assert( spad_mem );
 
-  smem = fd_wksp_alloc_laddr( wksp, FD_SCRATCH_SMEM_ALIGN, smax, WKSP_INIT_ALLOC_TAG );  /* 256 MB */
+  smem = fd_wksp_alloc_laddr( wksp, FD_SCRATCH_SMEM_ALIGN, fd_scratch_smem_footprint( smax ), WKSP_INIT_ALLOC_TAG );  /* 256 MB */
   assert( smem );
 
   features.struct_size         = sizeof(sol_compat_features_t);

@@ -926,7 +926,7 @@ fd_load_nonce_account( fd_exec_txn_ctx_t const *   txn_ctx,
   if( FD_UNLIKELY( ( txn_descriptor->acct_addr_cnt < 1 ) |
                    ( txn_instr->acct_cnt < 1           ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-  }  
+  }
   if( FD_UNLIKELY( instr_acct_idxs[0] >= txn_descriptor->acct_addr_cnt ) ) {
     *perr = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     return 0;
@@ -959,10 +959,10 @@ fd_load_nonce_account( fd_exec_txn_ctx_t const *   txn_ctx,
 }
 
 /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/runtime/src/bank.rs#L3529-L3554 */
-/* The age of a transaction is valid under two conditions. The first is that 
+/* The age of a transaction is valid under two conditions. The first is that
    the transactions blockhash is a recent blockhash (within 151) in the block
-   hash queue. The other condition is that the transaction contains a valid 
-   nonce account. This is the case under several conditions. If neither 
+   hash queue. The other condition is that the transaction contains a valid
+   nonce account. This is the case under several conditions. If neither
    condition is met then the transaction is invalid.
    Note: We check 151 and not 150 due to a known bug in agave. */
 int
@@ -1012,7 +1012,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
   uchar const * instr_accts = fd_txn_get_instr_accts( txn_instr, txn_ctx->_txn_raw->raw );
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/program/src/message/sanitized.rs#L356-L358 */
-  if( FD_UNLIKELY( txn_instr->data_sz<4UL || FD_LOAD( uint, instr_data ) != 
+  if( FD_UNLIKELY( txn_instr->data_sz<4UL || FD_LOAD( uint, instr_data ) !=
                    (uint)fd_system_program_instruction_enum_advance_nonce_account ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
@@ -1027,7 +1027,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/nonce_account.rs#L28-L42 */
-  /* verify_nonce_account */  
+  /* verify_nonce_account */
   uchar const * owner_pubkey = durable_nonce_rec->const_meta->info.owner;
   if( FD_UNLIKELY( memcmp( owner_pubkey, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
@@ -1061,7 +1061,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
 
-  /* Finally check that the nonce is authorized by seeing if any accounts in 
+  /* Finally check that the nonce is authorized by seeing if any accounts in
      the nonce instruction are signers. This is a successful exit case. */
   for( ushort i=0; i<txn_instr->acct_cnt; ++i ) {
     if( fd_txn_is_signer( txn_ctx->txn_descriptor, (int)instr_accts[i] ) ) {
@@ -1097,11 +1097,14 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
         if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state ) > FD_ACC_NONCE_SZ_MAX ) ) {
           FD_LOG_ERR(( "fd_nonce_state_versions_size( &new_state ) %lu > FD_ACC_NONCE_SZ_MAX %lu", fd_nonce_state_versions_size( &new_state ), FD_ACC_NONCE_SZ_MAX ));
         }
-        void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_NONCE_TOT_SZ_MAX );
+        /* make_modifiable uses the old length for the data copy */
+        ulong old_tot_len = sizeof(fd_account_meta_t)+rollback_nonce_rec->const_meta->dlen;
+        void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, fd_ulong_max( FD_ACC_NONCE_TOT_SZ_MAX, old_tot_len ) );
         fd_borrowed_account_make_modifiable( rollback_nonce_rec, borrowed_account_data );
         if( FD_UNLIKELY( fd_nonce_state_versions_size( &new_state ) > rollback_nonce_rec->meta->dlen ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
         }
+        rollback_nonce_rec->meta->dlen = fd_nonce_state_versions_size( &new_state );
         do {
           fd_bincode_encode_ctx_t encode_ctx =
             { .data    = rollback_nonce_rec->data,
