@@ -8,3 +8,4 @@ dump/test-vectors/instr/fixtures/bpf-loader-v3-programs/a03f65227ebf67c78a38545a
 dump/test-vectors/instr/fixtures/bpf-loader-v3-programs/crash-61560dca014f17632760e7915b271cfba4fdb121.fix
 dump/test-vectors/instr/fixtures/bpf-loader-v3-programs/1848e2dd264685985f742e69e7f676bab4a9c1c2_1500689.fix
 dump/test-vectors/instr/fixtures/bpf-loader-v3-programs/40485bbf533af92715288ace8a94001d8ccd1a6f_1689236.fix
+dump/test-vectors/instr/fixtures/bpf-loader-v3-programs/33258035450143403fc216e966c799f4e505f879_1638849.fix

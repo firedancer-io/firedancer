@@ -377,9 +377,6 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
   while( FD_UNLIKELY( bytes_left>bytes_in_cur_region ) ) {
     *is_multi_region = 1;
     FD_LOG_DEBUG(( "Size of access spans multiple memory regions" ));
-    if( FD_UNLIKELY( write && vm->input_mem_regions[ region_idx ].is_writable==0U ) ) {
-      return sentinel; /* Illegal write */
-    }
     bytes_left = fd_ulong_sat_sub( bytes_left, bytes_in_cur_region );
 
     region_idx += 1U;
@@ -388,6 +385,10 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
       return sentinel; /* Access is too large */
     }
     bytes_in_cur_region = vm->input_mem_regions[ region_idx ].region_sz;
+
+    if( FD_UNLIKELY( write && vm->input_mem_regions[ region_idx ].is_writable==0U ) ) {
+      return sentinel; /* Illegal write */
+    }
   }
 
   ulong adjusted_haddr = vm->input_mem_regions[ start_region_idx ].haddr + offset - vm->input_mem_regions[ start_region_idx ].vaddr_offset;
