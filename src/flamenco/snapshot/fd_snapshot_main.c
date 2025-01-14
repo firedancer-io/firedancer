@@ -222,15 +222,13 @@ fd_snapshot_dumper_record( fd_snapshot_dumper_t * d,
 static int
 fd_snapshot_dumper_release( fd_snapshot_dumper_t * d ) {
 
-  fd_exec_slot_ctx_t * slot_ctx = d->slot_ctx;
-  fd_funk_txn_t *      funk_txn = slot_ctx->funk_txn;
+  fd_funk_txn_t *      funk_txn = d->restore->funk_txn;
   fd_funk_txn_xid_t    txn_xid  = funk_txn->xid;
   fd_funk_t *          funk     = d->funk;
   fd_wksp_t *          wksp     = fd_funk_wksp( funk );
   fd_funk_rec_t *      rec_map  = fd_funk_rec_map( funk, wksp );
 
   /* Dump all the records */
-
   for( fd_funk_rec_t const * rec = fd_funk_txn_rec_head( funk_txn, rec_map );
                              rec;
                              rec = fd_funk_rec_next( rec, rec_map ) ) {
@@ -249,7 +247,7 @@ fd_snapshot_dumper_release( fd_snapshot_dumper_t * d ) {
   if( FD_UNLIKELY( !funk_txn ) )
     FD_LOG_ERR(( "Failed to prepare funk txn" ));  /* unreachable */
 
-  slot_ctx->funk_txn = funk_txn;
+  d->restore->funk_txn = funk_txn;
   return 0;
 }
 
@@ -260,7 +258,7 @@ static int
 fd_snapshot_dumper_advance( fd_snapshot_dumper_t * dumper ) {
 
   int advance_err = fd_snapshot_loader_advance( dumper->loader );
-  if( FD_UNLIKELY( advance_err ) ) return advance_err;
+  if( FD_UNLIKELY( advance_err<0 ) ) return advance_err;
 
   int collect_err = fd_snapshot_dumper_release( dumper );
   if( FD_UNLIKELY( collect_err ) ) return collect_err;
