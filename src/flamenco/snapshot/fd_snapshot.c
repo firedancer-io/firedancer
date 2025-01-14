@@ -225,7 +225,7 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
 
       if( FD_FEATURE_ACTIVE( ctx->slot_ctx, incremental_snapshot_only_incremental_hash_calculation ) ) {
         FD_LOG_NOTICE(( "hashing incremental snapshot with only deltas" ));
-        fd_accounts_hash_inc_only( ctx->slot_ctx, &accounts_hash, ctx->child_txn, ctx->check_hash );
+        fd_snapshot_inc_hash( ctx->slot_ctx, &accounts_hash, ctx->child_txn, ctx->check_hash );
       } else {
         FD_LOG_NOTICE(( "hashing incremental snapshot with all accounts" ));
         fd_snapshot_hash( ctx->slot_ctx, ctx->tpool, &accounts_hash, ctx->check_hash );
