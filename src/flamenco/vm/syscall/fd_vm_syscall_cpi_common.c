@@ -187,11 +187,6 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
       return err;
     }
 
-    uchar const * caller_acc_owner = FD_VM_MEM_HADDR_ST( vm, account_info->owner_addr, alignof(uchar), sizeof(fd_pubkey_t) );
-    if( memcmp( callee_acc->meta->info.owner, caller_acc_owner, sizeof(fd_pubkey_t) ) ) {
-      fd_memcpy( callee_acc->meta->info.owner, caller_acc_owner, sizeof(fd_pubkey_t) );
-    }
-
   } else { /* Direct mapping enabled */
     ulong region_idx  = vm->acc_region_metas[ instr_acc_idx ].region_idx;
     uint original_len = vm->acc_region_metas[ instr_acc_idx ].has_data_region ? 
@@ -244,6 +239,8 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
   if( FD_UNLIKELY( memcmp( callee_acc->meta->info.owner, caller_acc_owner, sizeof(fd_pubkey_t) ) ) ) {
     err = fd_account_set_owner( vm->instr_ctx, instr_acc_idx, (fd_pubkey_t*)caller_acc_owner );
     if( FD_UNLIKELY( err ) ) {
+      vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR;
+      vm->instr_ctx->txn_ctx->exec_err      = err;
       return err;
     }
   }
