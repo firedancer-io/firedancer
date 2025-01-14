@@ -887,7 +887,7 @@ fd_accounts_hash( fd_funk_t          * funk,
   return 0;
 }
 
-int
+static int
 fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash, fd_funk_txn_t * child_txn, ulong do_hash_verify ) {
   FD_LOG_NOTICE(("accounts_hash_inc_only start for txn %p, do_hash_verify=%s", (void *)child_txn, do_hash_verify ? "true" : "false" ));
 
@@ -961,7 +961,10 @@ fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_ha
   return 0;
 }
 
-int
+/* Same as fd_accounts_hash_inc_only but takes a list of pubkeys to hash.
+   Query the accounts from the root of funk. This is done as a read-only
+   way to generate an accounts hash from a subset of accounts from funk. */
+static int
 fd_accounts_hash_inc_no_txn( fd_funk_t *                 funk, 
                              fd_valloc_t                 valloc, 
                              fd_hash_t *                 accounts_hash, 
@@ -1049,7 +1052,7 @@ int
 fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_t * tpool, fd_hash_t * accounts_hash, uint check_hash ) {
   (void) check_hash;
 
-  if( fd_should_snapshot_include_epoch_accounts_hash (slot_ctx) ) {
+  if( fd_should_snapshot_include_epoch_accounts_hash( slot_ctx ) ) {
     FD_LOG_NOTICE(( "snapshot is including epoch account hash" ));
     fd_sha256_t h;
     fd_hash_t hash;
@@ -1063,6 +1066,24 @@ fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_t * tpool, fd_hash_t *
     return 0;
   }
   return fd_accounts_hash( slot_ctx->acc_mgr->funk, &slot_ctx->slot_bank, slot_ctx->valloc, tpool, accounts_hash );
+}
+
+int
+fd_snapshot_inc_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t * accounts_hash, fd_funk_txn_t * child_txn, uint do_hash_verify ) {
+  
+  if( fd_should_snapshot_include_epoch_accounts_hash( slot_ctx ) ) {
+    fd_sha256_t h;
+    fd_hash_t hash;
+    fd_accounts_hash_inc_only( slot_ctx, &hash, child_txn, do_hash_verify );
+
+    fd_sha256_init( &h );
+    fd_sha256_append( &h, (uchar const *) hash.hash, sizeof( fd_hash_t ) );
+    fd_sha256_append( &h, (uchar const *) slot_ctx->slot_bank.epoch_account_hash.hash, sizeof( fd_hash_t ) );
+    fd_sha256_fini( &h, accounts_hash );
+
+    return 0;
+  }
+  return fd_accounts_hash_inc_only( slot_ctx, accounts_hash, child_txn, do_hash_verify );
 }
 
 /* TODO: Combine with the above to get correct snapshot hash verification. */
