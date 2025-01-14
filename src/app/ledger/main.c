@@ -286,7 +286,7 @@ args_cleanup( fd_ledger_args_t * ledger_args ) {
 
 int
 runtime_replay( fd_ledger_args_t * ledger_args ) {
-  fd_scratch_push();
+  FD_SCRATCH_SCOPE_BEGIN {
 
   int ret = 0;
 
@@ -351,9 +351,11 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
   fd_wksp_usage_t init_usage = {0};
   fd_wksp_usage( fd_blockstore_wksp( ledger_args->blockstore ), NULL, 0UL, &init_usage );
 
+  ulong init_scratch_frame_count = fd_scratch_frame_used();
+
   ulong block_slot = start_slot;
   for( ulong slot = start_slot; slot <= ledger_args->end_slot; ++slot ) {
-    fd_scratch_push();
+    FD_SCRATCH_SCOPE_BEGIN {
 
     ledger_args->slot_ctx->slot_bank.prev_slot = prev_slot;
     ledger_args->slot_ctx->slot_bank.slot      = slot;
@@ -578,7 +580,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
         }
       }
     }
-    fd_scratch_pop();
+    } FD_SCRATCH_SCOPE_END;
   }
 
   /* Throw an error if the blockstore wksp has a usage which exceeds the allowed
@@ -593,6 +595,11 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     FD_LOG_ERR(( "Memory usage delta (%4f%%) exceeded allowed limit (%4f%%)", 100UL * pcnt_mem_delta, 100UL * ledger_args->allowed_mem_delta ));
   } else {
     FD_LOG_NOTICE(( "Memory usage delta (%4f%%) within allowed limit (%4f%%)", 100UL * pcnt_mem_delta, 100UL * ledger_args->allowed_mem_delta ));
+  }
+
+  ulong final_scratch_frame_count = fd_scratch_frame_used();
+  if( FD_UNLIKELY( init_scratch_frame_count != final_scratch_frame_count ) ) {
+    FD_LOG_ERR(( "init_scratch_frame_count %lu != final_scratch_frame_count %lu", init_scratch_frame_count, final_scratch_frame_count ));
   }
 
 #if FD_SPAD_TRACK_USAGE
@@ -629,9 +636,8 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
   args_cleanup( ledger_args );
 
-  fd_scratch_pop();
-
   return ret;
+  } FD_SCRATCH_SCOPE_END;
 }
 
 /***************************** Helpers ****************************************/
