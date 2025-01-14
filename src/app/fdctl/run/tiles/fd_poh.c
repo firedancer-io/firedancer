@@ -1572,10 +1572,12 @@ during_frag( fd_poh_ctx_t * ctx,
              ulong          in_idx,
              ulong          seq,
              ulong          sig,
+             ulong          tspub,
              ulong          chunk,
              ulong          sz  ) {
   (void)seq;
   (void)sig;
+  (void)tspub;
 
   ctx->skip_frag = 0;
 

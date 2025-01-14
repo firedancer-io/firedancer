@@ -477,9 +477,11 @@ during_frag( fd_replay_tile_ctx_t * ctx,
              ulong                  in_idx,
              ulong                  seq,
              ulong                  sig,
+             ulong                  tspub,
              ulong                  chunk,
              ulong                  sz ) {
   (void)seq;
+  (void)tspub;
 
   ctx->skip_frag = 0;
 

@@ -307,10 +307,12 @@ during_frag( fd_repair_tile_ctx_t * ctx,
              ulong                  in_idx,
              ulong                  seq,
              ulong                  sig,
+             ulong                  tspub,
              ulong                  chunk,
              ulong                  sz ) {
   (void)seq;
   (void)sig;
+  (void)tspub;
 
   uchar const * dcache_entry;
   ulong dcache_entry_sz;

@@ -38,9 +38,10 @@ during_frag( void * _ctx FD_FN_UNUSED,
              ulong  in_idx,
              ulong  seq,
              ulong  sig,
+             ulong  tspub,
              ulong  chunk,
              ulong  sz ) {
-  (void)in_idx; (void)seq; (void)sig;
+  (void)in_idx; (void)seq; (void)sig; (void)tspub;
   fd_quic_ctx_t * ctx = &fd_quic_trace_ctx;
   fd_memcpy( ctx->buffer, (uchar const *)fd_chunk_to_laddr_const( ctx->in_mem, chunk ), sz );
 }

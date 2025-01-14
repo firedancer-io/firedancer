@@ -64,10 +64,12 @@ during_frag_sensitive( void * _ctx,
                        ulong  in_idx,
                        ulong  seq,
                        ulong  sig,
+                       ulong  tspub,
                        ulong  chunk,
                        ulong  sz ) {
   (void)seq;
   (void)sig;
+  (void)tspub;
   (void)chunk;
   (void)sz;
 
@@ -89,9 +91,10 @@ during_frag( void * _ctx,
              ulong  in_idx,
              ulong  seq,
              ulong  sig,
+             ulong  tspub,
              ulong  chunk,
              ulong  sz ) {
-  during_frag_sensitive( _ctx, in_idx, seq, sig, chunk, sz );
+  during_frag_sensitive( _ctx, in_idx, seq, sig, tspub, chunk, sz );
 }
 
 static void FD_FN_SENSITIVE

@@ -475,10 +475,12 @@ during_frag( fd_gossip_tile_ctx_t * ctx,
              ulong                  in_idx,
              ulong                  seq,
              ulong                  sig,
+             ulong                  tspub,
              ulong                  chunk,
              ulong                  sz ) {
   (void)seq;
   (void)sig;
+  (void)tspub;
 
   if( in_idx==REPLAY_IN_IDX ) {
     if( FD_UNLIKELY( chunk<ctx->replay_in_chunk0 || chunk>ctx->replay_in_wmark || sz>FD_RESTART_LINK_BYTES_MAX+sizeof(uint) ) ) {

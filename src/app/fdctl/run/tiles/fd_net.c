@@ -108,6 +108,9 @@ typedef struct {
   struct {
     ulong tx_dropped_cnt;
   } metrics;
+
+  /* Whether to blackhole all outgoing and incoming packets */
+  int blackhole;
 } fd_net_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -152,6 +155,10 @@ net_rx_aio_send( void *                    _ctx,
   (void)flush;
 
   fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
+
+  if( FD_UNLIKELY(( ctx->blackhole )) ) {
+    return FD_AIO_SUCCESS;
+  }
 
   for( ulong i=0UL; i<batch_cnt; i++ ) {
     uchar const * packet = batch[i].buf;
@@ -348,6 +355,10 @@ before_frag( fd_net_ctx_t * ctx,
              ulong          sig ) {
   (void)in_idx;
 
+  if( FD_UNLIKELY(( ctx->blackhole )) ) {
+    return 1;
+  }
+
   ulong proto = fd_disco_netmux_sig_proto( sig );
   if( FD_UNLIKELY( proto!=DST_PROTO_OUTGOING ) ) return 1;
 
@@ -366,11 +377,13 @@ during_frag( fd_net_ctx_t * ctx,
              ulong          in_idx,
              ulong          seq,
              ulong          sig,
+             ulong          tspub,
              ulong          chunk,
              ulong          sz ) {
   (void)in_idx;
   (void)seq;
   (void)sig;
+  (void)tspub;
 
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_NET_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
@@ -608,6 +621,9 @@ privileged_init( fd_topo_t *      topo,
   }
 
   ctx->ip = fd_ip_join( fd_ip_new( FD_SCRATCH_ALLOC_APPEND( l, fd_ip_align(), fd_ip_footprint( 0UL, 0UL ) ), 0UL, 0UL ) );
+
+  /* Blackhole all incoming and outgoing traffic if we are in playback mode */
+  ctx->blackhole = tile->net.blackhole;
 }
 
 static void
@@ -707,18 +723,20 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   /* Check if any of the tiles we set a listen port for do not have an outlink. */
-  if( FD_UNLIKELY( ctx->shred_listen_port!=0 && ctx->shred_out->mcache==NULL ) ) {
-    FD_LOG_ERR(( "shred listen port set but no out link was found" ));
-  } else if( FD_UNLIKELY( ctx->quic_transaction_listen_port!=0 && ctx->quic_out->mcache==NULL ) ) {
-    FD_LOG_ERR(( "quic transaction listen port set but no out link was found" ));
-  } else if( FD_UNLIKELY( ctx->legacy_transaction_listen_port!=0 && ctx->quic_out->mcache==NULL ) ) {
-    FD_LOG_ERR(( "legacy transaction listen port set but no out link was found" ));
-  } else if( FD_UNLIKELY( ctx->gossip_listen_port!=0 && ctx->gossip_out->mcache==NULL ) ) {
-    FD_LOG_ERR(( "gossip listen port set but no out link was found" ));
-  } else if( FD_UNLIKELY( ctx->repair_intake_listen_port!=0 && ctx->repair_out->mcache==NULL ) ) {
-    FD_LOG_ERR(( "repair intake port set but no out link was found" ));
-  } else if( FD_UNLIKELY( ctx->repair_serve_listen_port!=0 && ctx->repair_out->mcache==NULL ) ) {
-    FD_LOG_ERR(( "repair serve listen port set but no out link was found" ));
+  if( FD_LIKELY( !ctx->blackhole ) ) {
+    if( FD_UNLIKELY( ctx->shred_listen_port!=0 && ctx->shred_out->mcache==NULL ) ) {
+      FD_LOG_ERR(( "shred listen port set but no out link was found" ));
+    } else if( FD_UNLIKELY( ctx->quic_transaction_listen_port!=0 && ctx->quic_out->mcache==NULL ) ) {
+      FD_LOG_ERR(( "quic transaction listen port set but no out link was found" ));
+    } else if( FD_UNLIKELY( ctx->legacy_transaction_listen_port!=0 && ctx->quic_out->mcache==NULL ) ) {
+      FD_LOG_ERR(( "legacy transaction listen port set but no out link was found" ));
+    } else if( FD_UNLIKELY( ctx->gossip_listen_port!=0 && ctx->gossip_out->mcache==NULL ) ) {
+      FD_LOG_ERR(( "gossip listen port set but no out link was found" ));
+    } else if( FD_UNLIKELY( ctx->repair_intake_listen_port!=0 && ctx->repair_out->mcache==NULL ) ) {
+      FD_LOG_ERR(( "repair intake port set but no out link was found" ));
+    } else if( FD_UNLIKELY( ctx->repair_serve_listen_port!=0 && ctx->repair_out->mcache==NULL ) ) {
+      FD_LOG_ERR(( "repair serve listen port set but no out link was found" ));
+    }
   }
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );

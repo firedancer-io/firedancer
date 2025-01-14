@@ -188,9 +188,11 @@ during_frag( fd_store_tile_ctx_t * ctx,
              ulong                 in_idx,
              ulong                 seq,
              ulong                 sig,
+             ulong                 tspub,
              ulong                 chunk,
              ulong                 sz ) {
   (void)seq;
+  (void)tspub;
 
   if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
     if( FD_UNLIKELY( chunk<ctx->stake_in_chunk0 || chunk>ctx->stake_in_wmark ) )

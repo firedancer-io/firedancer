@@ -42,9 +42,11 @@ during_frag( fd_store_ctx_t * ctx,
              ulong            in_idx,
              ulong            seq,
              ulong            sig,
+             ulong            tspub,
              ulong            chunk,
              ulong            sz ) {
   (void)sig;
+  (void)tspub;
   (void)seq;
   (void)in_idx;
 

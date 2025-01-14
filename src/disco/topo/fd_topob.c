@@ -360,6 +360,9 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "rpcsrv", /* FIREDANCER only */
     "batch",  /* FIREDANCER only */
     "btpool", /* FIREDANCER only */
+    "arch_f", /* FIREDANCER only */
+    "arch_w", /* FIREDANCER only */
+    "arch_p", /* FIREDANCER only */
 #endif
   };
 

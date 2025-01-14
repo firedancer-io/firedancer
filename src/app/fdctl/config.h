@@ -141,6 +141,7 @@ typedef struct {
     uint verify_tile_count;
     uint bank_tile_count;
     uint shred_tile_count;
+    uint archiver_tile_count;
   } layout;
 
   struct {
@@ -315,6 +316,11 @@ typedef struct {
       char  out_dir[ PATH_MAX ];
       ulong hash_tpool_thread_count;
     } batch;
+
+    struct {
+      int  playback;
+      char archive_path[ PATH_MAX ];
+    } archiver;
 
   } tiles;
 } config_t;

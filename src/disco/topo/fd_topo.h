@@ -145,6 +145,8 @@ typedef struct {
       /* multihoming support */
       ulong multihome_ip_addrs_cnt;
       uint  multihome_ip_addrs[FD_NET_MAX_SRC_ADDR];
+
+      int blackhole;
     } net;
 
     struct {
@@ -354,6 +356,14 @@ typedef struct {
       int   incremental_snapshot_fd;
       ulong hash_tpool_thread_count;
     } batch;
+
+    struct {
+      int  playback;
+      char archive_path[ PATH_MAX ];
+
+      /* Set internally by the archiver tile */
+      int archive_fd;
+    } archiver;
 
   };
 } fd_topo_tile_t;
