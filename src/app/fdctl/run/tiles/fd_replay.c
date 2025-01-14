@@ -82,6 +82,10 @@
 
 #define BANK_HASH_CMP_LG_MAX 16
 
+#define SLOTS_BEHIND_MAX 4UL /* max # of slots we can be behind in
+                               replay to be considered caught up. set to
+                               one leader rotation. */
+
 struct fd_replay_out_ctx {
   fd_frag_meta_t * mcache;
   ulong *          sync;
@@ -267,23 +271,20 @@ struct fd_replay_tile_ctx {
   fd_replay_out_ctx_t bank_out[ FD_PACK_MAX_BANK_TILES ];
 
   ulong root; /* the root slot is the most recent slot to have reached
-                 max lockout in the tower  */
+                 max lockout in the tower */
 
-  ulong * wmk; /* publish watermark. The watermark is defined as the
-                  minimum of the tower root (root above) and blockstore
-                  smr (blockstore->smr). The watermark is used to
-                  publish our fork-aware structures eg. blockstore,
-                  forks, ghost. In general, publishing has the effect of
-                  pruning minority forks in those structures,
-                  indicating that is ok to release the memory being
-                  occupied by said forks.
+  ulong * poh; /* proof of history slot - see fd_firedancer.c for docs */
 
-                  The reason it has to be the minimum of the two, is the
-                  tower root can lag the SMR and vice versa, but both
-                  the fork-aware structures need to maintain information
-                  through both of those slots. */
-                  
-  ulong * poh;  /* proof-of-history slot */
+  /* watermark fseqs. see fd_firedancer.c for documentation. */
+
+  ulong * delivered;
+  ulong * processed;
+  ulong * confirmed;
+  ulong * finalized;
+  ulong * published;
+  ulong * checkpted;
+  ulong * compacted;
+
   uint poh_init_done;
   int  snapshot_init_done;
 
@@ -316,8 +317,6 @@ struct fd_replay_tile_ctx {
 
   fd_funk_txn_t * false_root;
   fd_funk_txn_t * second_false_root;
-
-  int     is_caught_up;
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -462,6 +461,17 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
   }
 }
 
+static ulong
+slots_behind( fd_replay_tile_ctx_t * ctx ) {
+  FD_COMPILER_MFENCE();
+  ulong processed = fd_fseq_query( ctx->processed );
+  ulong delivered = fd_fseq_query( ctx->delivered );
+  FD_COMPILER_MFENCE();
+  FD_TEST( delivered >= processed );
+  return delivered - processed;
+}
+
+
 static void
 during_frag( fd_replay_tile_ctx_t * ctx,
              ulong                  in_idx,
@@ -484,7 +494,7 @@ during_frag( fd_replay_tile_ctx_t * ctx,
        Microblock as a list of fd_txn_p_t (sz * sizeof(fd_txn_p_t)) */
 
     ctx->curr_slot = fd_disco_replay_sig_slot( sig );
-    if( FD_UNLIKELY( ctx->curr_slot < fd_fseq_query( ctx->wmk ) ) ) {
+    if( FD_UNLIKELY( ctx->curr_slot < fd_fseq_query( ctx->published ) ) ) {
       FD_LOG_WARNING(( "store sent slot %lu before our root.", ctx->curr_slot ));
     }
     ctx->flags = fd_disco_replay_sig_flags( sig );
@@ -510,8 +520,8 @@ during_frag( fd_replay_tile_ctx_t * ctx,
        Microblock bank trailer
     */
     ctx->curr_slot = fd_disco_poh_sig_slot( sig );
-    if( FD_UNLIKELY( ctx->curr_slot < fd_fseq_query( ctx->wmk ) ) ) {
-      FD_LOG_WARNING(( "pack sent slot %lu before our watermark %lu.", ctx->curr_slot, fd_fseq_query( ctx->wmk ) ));
+    if( FD_UNLIKELY( ctx->curr_slot < fd_fseq_query( ctx->published ) ) ) {
+      FD_LOG_WARNING(( "pack sent slot %lu before our watermark %lu.", ctx->curr_slot, fd_fseq_query( ctx->published ) ));
     }
     if( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) {
       ulong bank_idx = fd_disco_poh_sig_bank_tile( sig );
@@ -679,7 +689,7 @@ snapshot_state_update( fd_replay_tile_ctx_t * ctx, ulong wmk ) {
 
   uchar is_constipated = fd_fseq_query( ctx->is_constipated ) != 0UL;
 
-  if( !ctx->is_caught_up ) {
+  if( slots_behind( ctx ) > SLOTS_BEHIND_MAX ) {
     return;
   }
 
@@ -1506,13 +1516,13 @@ after_frag( fd_replay_tile_ctx_t * ctx,
   ulong parent_slot = ctx->parent_slot;
   ulong flags       = ctx->flags;
   ulong bank_idx    = ctx->bank_idx;
-  if( FD_UNLIKELY( curr_slot < fd_fseq_query( ctx->wmk ) ) ) {
-    FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). earlier than our watermark %lu.", curr_slot, parent_slot, fd_fseq_query( ctx->wmk ) ));
+  if( FD_UNLIKELY( curr_slot < fd_fseq_query( ctx->published ) ) ) {
+    FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). earlier than our watermark %lu.", curr_slot, parent_slot, fd_fseq_query( ctx->published ) ));
     return;
   }
 
-  if( FD_UNLIKELY( parent_slot < fd_fseq_query( ctx->wmk ) ) ) {
-    FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). parent slot is earlier than our watermark %lu.", curr_slot, parent_slot, fd_fseq_query( ctx->wmk ) ) );
+  if( FD_UNLIKELY( parent_slot < fd_fseq_query( ctx->published ) ) ) {
+    FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). parent slot is earlier than our watermark %lu.", curr_slot, parent_slot, fd_fseq_query( ctx->published ) ) );
     return;
   }
 
@@ -1616,6 +1626,8 @@ after_frag( fd_replay_tile_ctx_t * ctx,
   /**********************************************************************/
 
   if( FD_UNLIKELY( ( flags & REPLAY_FLAG_FINISHED_BLOCK ) ) ) {
+    fd_fseq_update( ctx->processed, curr_slot );
+
     fork->slot_ctx.txn_count = fork->slot_ctx.slot_bank.transaction_count-fork->slot_ctx.parent_transaction_count;
     FD_LOG_INFO(( "finished block - slot: %lu, parent_slot: %lu, txn_cnt: %lu, blockhash: %s",
                   curr_slot,
@@ -1679,11 +1691,11 @@ after_frag( fd_replay_tile_ctx_t * ctx,
 
     FD_PARAM_UNUSED long tic_ = fd_log_wallclock();
     fd_ghost_node_t const * ghost_node = fd_ghost_insert( ctx->ghost, parent_slot, curr_slot );
-#if FD_GHOST_USE_HANDHOLDING
+    #if FD_GHOST_USE_HANDHOLDING
     if( FD_UNLIKELY( !ghost_node ) ) {
       FD_LOG_ERR(( "failed to insert ghost node %lu", fork->slot ));
     }
-#endif
+    #endif
     fd_forks_update( ctx->forks, ctx->blockstore, ctx->epoch, ctx->funk, ctx->ghost, fork->slot );
 
     /**********************************************************************/
@@ -1763,14 +1775,12 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     /* Consensus: send out a new vote by calling send_tower_sync          */
     /**********************************************************************/
 
-    if( FD_UNLIKELY( ctx->vote && fd_fseq_query( ctx->poh ) == ULONG_MAX ) ) {
+    if( FD_UNLIKELY( ctx->vote && slots_behind( ctx ) > SLOTS_BEHIND_MAX ) ) {
+  
       /* Only proceed with voting if we're caught up. */
 
       FD_LOG_WARNING(( "still catching up. not voting." ));
     } else {
-      if( FD_UNLIKELY( !ctx->is_caught_up ) ) {
-        ctx->is_caught_up = 1;
-      }
 
       /* Proceed according to how local and cluster are synchronized. */
 
@@ -1942,7 +1952,7 @@ kickoff_repair_orphans( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   fd_blockstore_end_write( ctx->slot_ctx->blockstore );
 
   publish_stake_weights( ctx, stem, ctx->slot_ctx );
-  fd_fseq_update( ctx->wmk, ctx->slot_ctx->slot_bank.slot );
+  fd_fseq_update( ctx->published, ctx->slot_ctx->slot_bank.slot );
 
 }
 
@@ -2283,28 +2293,28 @@ during_housekeeping( void * _ctx ) {
      root and blockstore smr. */
 
   fd_blockstore_start_read( ctx->blockstore );
-  ulong wmk = fd_ulong_min( ctx->root, ctx->blockstore->smr );
+  ulong watermark = fd_ulong_min( ctx->root, ctx->blockstore->smr );
   fd_blockstore_end_read( ctx->blockstore );
 
-  if ( FD_LIKELY( wmk <= fd_fseq_query( ctx->wmk ) ) ) return;
-  FD_LOG_NOTICE(( "wmk %lu => %lu", fd_fseq_query( ctx->wmk ), wmk ));
+  if ( FD_LIKELY( watermark <= fd_fseq_query( ctx->published ) ) ) return;
+  FD_LOG_NOTICE(( "published %lu => %lu", fd_fseq_query( ctx->published ), watermark ));
 
   fd_blockstore_start_read( ctx->blockstore );
-  fd_hash_t const * root_block_hash = fd_blockstore_block_hash_query( ctx->blockstore, wmk );
+  fd_hash_t const * root_block_hash = fd_blockstore_block_hash_query( ctx->blockstore, watermark );
   fd_funk_txn_xid_t xid;
   memcpy( xid.uc, root_block_hash, sizeof( fd_funk_txn_xid_t ) );
   fd_blockstore_end_read( ctx->blockstore );
-  xid.ul[0] = wmk;
+  xid.ul[0] = watermark;
 
-  if( FD_LIKELY( ctx->blockstore ) ) blockstore_publish( ctx, wmk );
-  if( FD_LIKELY( ctx->forks ) ) fd_forks_publish( ctx->forks, wmk, ctx->ghost );
-  if( FD_LIKELY( ctx->funk ) ) funk_and_txncache_publish( ctx, wmk, &xid );
+  if( FD_LIKELY( ctx->blockstore ) ) blockstore_publish( ctx, watermark );
+  if( FD_LIKELY( ctx->forks ) ) fd_forks_publish( ctx->forks, watermark, ctx->ghost );
+  if( FD_LIKELY( ctx->funk ) ) funk_and_txncache_publish( ctx, watermark, &xid );
   if( FD_LIKELY( ctx->ghost ) ) {
-    fd_epoch_forks_publish( ctx->epoch_forks, ctx->ghost, wmk );
-    fd_ghost_publish( ctx->ghost, wmk );
+    fd_epoch_forks_publish( ctx->epoch_forks, ctx->ghost, watermark );
+    fd_ghost_publish( ctx->ghost, watermark );
   }
 
-  fd_fseq_update( ctx->wmk, wmk );
+  fd_fseq_update( ctx->published, watermark );
 
 
   // fd_mcache_seq_update( ctx->store_out_sync, ctx->store_out_seq );
@@ -2448,17 +2458,21 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "no funk wksp" ));
   }
 
-  ctx->is_caught_up = 0;
+  #define INIT_FSEQ(name)                                                   \
+    do {                                                                    \
+      ulong name##_obj_id = fd_pod_query_ulong( topo->props, #name, 0UL );  \
+      FD_TEST( name##_obj_id );                                             \
+      ctx->name = fd_fseq_join( fd_topo_obj_laddr( topo, name##_obj_id ) ); \
+      FD_TEST( ctx->name );                                                 \
+    } while(0)
 
-  /**********************************************************************/
-  /* root_slot fseq                                                     */
-  /**********************************************************************/
-
-  ulong root_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "root_slot" );
-  FD_TEST( root_slot_obj_id!=ULONG_MAX );
-  ctx->wmk = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
-  if( FD_UNLIKELY( !ctx->wmk ) ) FD_LOG_ERR(( "replay tile has no root_slot fseq" ));
-  FD_TEST( ULONG_MAX==fd_fseq_query( ctx->wmk ) );
+  INIT_FSEQ( delivered );
+  INIT_FSEQ( processed );
+  INIT_FSEQ( confirmed );
+  INIT_FSEQ( finalized );
+  INIT_FSEQ( published );
+  INIT_FSEQ( checkpted );
+  INIT_FSEQ( compacted );
 
   /**********************************************************************/
   /* constipated fseq                                                   */

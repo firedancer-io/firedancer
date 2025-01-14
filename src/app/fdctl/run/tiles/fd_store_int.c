@@ -130,7 +130,10 @@ struct fd_store_tile_ctx {
 
   fd_stake_ci_t * stake_ci;
 
-  ulong * root_slot_fseq;
+  /* watermark fseqs. see fd_firedancer.c for documentation. */
+
+  ulong * delivered;
+  ulong * published;
 
   int sim;
 
@@ -299,16 +302,17 @@ after_frag( fd_store_tile_ctx_t * ctx,
     }
     // TODO: improve return value of api to not use < OK
 
-    if( fd_store_shred_insert( ctx->store, &ctx->s34_buffer->pkts[i].shred ) < FD_BLOCKSTORE_OK ) {
+    if( fd_store_shred_insert( ctx->store, shred ) < FD_BLOCKSTORE_OK ) {
       FD_LOG_ERR(( "failed inserting to blockstore" ));
     } else if ( ctx->shred_cap_ctx.is_archive ) {
       uchar shred_cap_flag = FD_SHRED_CAP_FLAG_MARK_TURBINE(0);
-      if ( fd_shred_cap_archive(&ctx->shred_cap_ctx, &ctx->s34_buffer->pkts[i].shred, shred_cap_flag) < FD_SHRED_CAP_OK ) {
+      if ( fd_shred_cap_archive(&ctx->shred_cap_ctx, shred, shred_cap_flag) < FD_SHRED_CAP_OK ) {
         FD_LOG_ERR(( "failed at archiving turbine shred to file" ));
       }
     }
 
-    fd_store_shred_update_with_shred_from_turbine( ctx->store, &ctx->s34_buffer->pkts[i].shred );
+    fd_store_shred_update_with_shred_from_turbine( ctx->store, shred );
+    fd_fseq_update( ctx->delivered, fd_ulong_max( shred->slot, fd_fseq_query( ctx->delivered ) ) );
   }
 }
 
@@ -338,7 +342,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
   ulong repair_req_cnt = 0;
   switch( store_slot_prepare_mode ) {
     case FD_STORE_SLOT_PREPARE_CONTINUE: {
-      ulong root = fd_fseq_query( ctx->root_slot_fseq );
+      ulong root = fd_fseq_query( ctx->published );
       if( root!=ULONG_MAX ) {
         // FD_LOG_WARNING(("CONTINUE: %lu", root));
         fd_store_set_root( ctx->store, root );
@@ -601,15 +605,16 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "blockstore_wksp must be defined in topo." ));
   }
 
-  /**********************************************************************/
-  /* root_slot fseq                                                     */
-  /**********************************************************************/
+  #define INIT_FSEQ(name)                                                 \
+  do {                                                                    \
+    ulong name##_obj_id = fd_pod_query_ulong( topo->props, #name, 0UL );  \
+    FD_TEST( name##_obj_id );                                             \
+    ctx->name = fd_fseq_join( fd_topo_obj_laddr( topo, name##_obj_id ) ); \
+    FD_TEST( ctx->name );                                                 \
+  } while(0)
 
-  ulong root_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "root_slot" );
-  FD_TEST( root_slot_obj_id!=ULONG_MAX );
-  ctx->root_slot_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
-  if( FD_UNLIKELY( !ctx->root_slot_fseq ) ) FD_LOG_ERR(( "replay tile has no root_slot fseq" ));
-  FD_TEST( ULONG_MAX==fd_fseq_query( ctx->root_slot_fseq ) );
+  INIT_FSEQ( delivered );
+  INIT_FSEQ( published );
 
   /* Prevent blockstore from being created until we know the shred version */
   ulong expected_shred_version = tile->store_int.expected_shred_version;
