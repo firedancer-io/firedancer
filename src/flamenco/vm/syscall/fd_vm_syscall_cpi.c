@@ -93,7 +93,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
       /* In this case the callee instruction is referencing an unknown account not listed in the
          transactions accounts. */
       FD_BASE58_ENCODE_32_BYTES( callee_pubkey->uc, id_b58 );
-      fd_log_collector_msg_many( instr_ctx, 2, "Unknown account ", 16UL, id_b58, id_b58_len );
+      fd_log_collector_msg_many( instr_ctx, 2, "Instruction references an unknown account ", 42UL, id_b58, id_b58_len );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
@@ -137,10 +137,9 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
           break;
         }
       }
-
       if( index_in_caller==USHORT_MAX ) {
         FD_BASE58_ENCODE_32_BYTES( callee_pubkey->uc, id_b58 );
-        fd_log_collector_msg_many( instr_ctx, 2, "Unknown account ", 16UL, id_b58, id_b58_len );
+        fd_log_collector_msg_many( instr_ctx, 2, "Instruction references an unknown account ", 42UL, id_b58, id_b58_len );
         FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
         return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
       }

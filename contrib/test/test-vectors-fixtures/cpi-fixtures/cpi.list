@@ -55,3 +55,4 @@ dump/test-vectors/cpi/fixtures/ff6c6c34d1e3065cb0573fa26a478d6497b70664_3165041.
 dump/test-vectors/cpi/fixtures/fb2e44bd7ced7d783a7645207a9789510347ad74_3574993.fix
 dump/test-vectors/cpi/fixtures/cpi_segfault_on_bad_pubkey_input_region.fix
 dump/test-vectors/cpi/fixtures/a4437a521257515117b6cc250085eca3baffdff7_2437398.fix
+dump/test-vectors/cpi/fixtures/74436bf2974847823c3e27c1c98cdd4ee91c65c5_1887489.fix
