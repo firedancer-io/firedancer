@@ -65,7 +65,7 @@ jobs:
             run-integration-tests: false
           - test-case: linux_clang_icelake
             machine: linux_clang_icelake
-            label: test
+            label: icelake
             extras: "asan ubsan rpath fuzz-stubs"
             targets: "all integration-test fdctl"
             compiler: clang
