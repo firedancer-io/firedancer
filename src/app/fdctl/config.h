@@ -118,6 +118,7 @@ typedef struct {
   } rpc;
 
   struct {
+    int  enabled;
     int  incremental_snapshots;
     uint full_snapshot_interval_slots;
     uint incremental_snapshot_interval_slots;

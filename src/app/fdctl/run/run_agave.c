@@ -135,9 +135,17 @@ agave_boot( config_t * config ) {
   if( config->rpc.bigtable_ledger_storage ) ADD1( "--enable-rpc-bigtable-ledger-storage" );
 
   /* snapshots */
+  if( config->snapshots.enabled ) {
+    if( config->snapshots.incremental_snapshots ) {
+      ADDU( "--full-snapshot-interval-slots", config->snapshots.full_snapshot_interval_slots );
+      ADDU( "--snapshot-interval-slots", config->snapshots.incremental_snapshot_interval_slots );
+    } else {
+      ADDU( "--snapshot-interval-slots", config->snapshots.full_snapshot_interval_slots );
+    }
+  } else {
+    ADDU( "--snapshot-interval-slots", (uint)0 );
+  }
   if( !config->snapshots.incremental_snapshots ) ADD1( "--no-incremental-snapshots" );
-  ADDU( "--full-snapshot-interval-slots", config->snapshots.full_snapshot_interval_slots );
-  ADDU( "--incremental-snapshot-interval-slots", config->snapshots.incremental_snapshot_interval_slots );
   ADD( "--snapshots", config->snapshots.path );
   if( strcmp( "", config->snapshots.incremental_path ) ) ADD( "--incremental-snapshot-archive-path", config->snapshots.incremental_path );
   ADDU( "--maximum-snapshots-to-retain", config->snapshots.maximum_full_snapshots_to_retain );

@@ -319,6 +319,12 @@ dynamic_port_range = "8900-9000"
 # chain's state.  Other clients, especially as they bootstrap or catch
 # up to the head of the chain, may request a snapshot.
 [snapshots]
+    # If false, all snapshots (both full and incremental) will not be
+    # produced.  If snapshotting is disabled, this option is passed to
+    # the Agave client by setting the `--snapshot-interval-slots` flag
+    # to 0.
+    enabled = true
+
     # Enable incremental snapshots by setting this flag.  This option is
     # passed to the Agave client (inverted) with the
     # `--no-incremental-snapshots` flag.
@@ -327,7 +333,8 @@ dynamic_port_range = "8900-9000"
     # Set how frequently full snapshots are taken, measured in slots,
     # where one slot is about 400ms on production chains.  It's
     # recommended to leave this to the default or to set it to the same
-    # value that the known validators are using.
+    # value that the known validators are using.  Must be a multiple of
+    # the incremental snapshot interval.
     full_snapshot_interval_slots = 25000
 
     # Set how frequently incremental snapshots are taken, measured in
