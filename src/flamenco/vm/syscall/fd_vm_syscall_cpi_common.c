@@ -340,7 +340,9 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
           /* Max msg_sz: 40 + 18 + 18 = 76 < 127 => we can use printf */
           fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,
             "Invalid account info pointer `key': %#lx != %#lx", account_infos[j].pubkey_addr, expected_pubkey_vaddr );
-          return FD_VM_SYSCALL_ERR_INVALID_POINTER;
+          vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_SYSCALL;
+          vm->instr_ctx->txn_ctx->exec_err      = FD_VM_SYSCALL_ERR_INVALID_POINTER;
+          return -1;
         }
 
         /* https://github.com/anza-xyz/agave/blob/v2.1.7/programs/bpf_loader/src/syscalls/cpi.rs#L122 */
@@ -349,7 +351,9 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
           /* Max msg_sz: 42 + 18 + 18 = 78 < 127 => we can use printf */
           fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,
             "Invalid account info pointer `owner': %#lx != %#lx", account_infos[j].owner_addr, expected_owner_vaddr );
-          return FD_VM_SYSCALL_ERR_INVALID_POINTER;
+          vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_SYSCALL;
+          vm->instr_ctx->txn_ctx->exec_err      = FD_VM_SYSCALL_ERR_INVALID_POINTER;
+          return -1;
         }
 
         /* Check that the account's lamports Rc<RefCell<T>> is not stored in the account. Because a refcell is
@@ -359,7 +363,9 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
         #ifdef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_RC_REFCELL_VADDR
         VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_RC_REFCELL_VADDR( vm, (account_infos + j), lamports_rc_vaddr )
         if ( FD_UNLIKELY( lamports_rc_vaddr >= FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
-          return FD_VM_SYSCALL_ERR_INVALID_POINTER;
+          vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_SYSCALL;
+          vm->instr_ctx->txn_ctx->exec_err      = FD_VM_SYSCALL_ERR_INVALID_POINTER;
+          return -1;
         }
         #endif
 
@@ -370,7 +376,9 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
           /* Max msg_sz: 45 + 18 + 18 = 81 < 127 => we can use printf */
           fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,
             "Invalid account info pointer `lamports': %#lx != %#lx", lamports_vaddr, expected_lamports_vaddr );
-          return FD_VM_SYSCALL_ERR_INVALID_POINTER;
+          vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_SYSCALL;
+          vm->instr_ctx->txn_ctx->exec_err      = FD_VM_SYSCALL_ERR_INVALID_POINTER;
+          return -1;
         }
 
         /* Check that the account's data Rc<RefCell<T>> is not stored in the account. Because a refcell is
@@ -380,7 +388,9 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
         #ifdef VM_SYSCALL_CPI_ACC_INFO_DATA_RC_REFCELL_VADDR
         VM_SYSCALL_CPI_ACC_INFO_DATA_RC_REFCELL_VADDR( vm, (account_infos + j), data_rc_vaddr )
         if( FD_UNLIKELY( data_rc_vaddr >= FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
-          return FD_VM_SYSCALL_ERR_INVALID_POINTER;
+          vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_SYSCALL;
+          vm->instr_ctx->txn_ctx->exec_err      = FD_VM_SYSCALL_ERR_INVALID_POINTER;
+          return -1;
         }
         #endif
 
@@ -392,7 +402,9 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
           /* Max msg_sz: 41 + 18 + 18 = 77 < 127 => we can use printf */
           fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,
             "Invalid account info pointer `data': %#lx != %#lx", data_vaddr, expected_data_region_vaddr );
-          return FD_VM_SYSCALL_ERR_INVALID_POINTER;
+          vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_SYSCALL;
+          vm->instr_ctx->txn_ctx->exec_err      = FD_VM_SYSCALL_ERR_INVALID_POINTER;
+          return -1;
         }
       }
 
