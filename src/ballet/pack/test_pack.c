@@ -7,7 +7,7 @@
 #include <math.h>
 
 FD_IMPORT_BINARY( sample_vote, "src/ballet/pack/sample_vote.bin" );
-#define SAMPLE_VOTE_COST (3435UL)
+#define SAMPLE_VOTE_COST (4335UL)
 
 #define MAX_TEST_TXNS (1024UL)
 #define MAX_DATA_PER_BLOCK (5UL*1024UL*1024UL)
@@ -560,8 +560,8 @@ performance_test2( void ) {
 void performance_test( int extra_bench ) {
   ulong i = 0UL;
   FD_LOG_NOTICE(( "TEST PERFORMANCE" ));
-  make_transaction( i,   700U, 12.0, "ABC", "DEF" );    /* Total cost 2925 */
-  make_transaction( i+1, 500U, 12.0, "GHJ", "KLMNOP" ); /* Total cost 2725 */
+  make_transaction( i,   700U, 12.0, "ABC", "DEF" );    /* Total cost 8625 */
+  make_transaction( i+1, 500U, 12.0, "GHJ", "KLMNOP" ); /* Total cost 8425 */
 
   fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL, 0UL, "test_pack", 0UL );
 
@@ -639,9 +639,9 @@ void performance_test( int extra_bench ) {
 
       if( FD_LIKELY( iter>=WARMUP ) ) skip0     -= fd_log_wallclock( );
       for( ulong j=0UL; j<heap_sz/2UL; j++ ) {
-        /* With a cap of 2000 CUs, nothing fits, but we scan the whole heap
+        /* With a cap of 7700 CUs, nothing fits, but we scan the whole heap
            each time to figure that out. */
-        fd_pack_schedule_next_microblock( pack, 2000UL, 0.0f, 0UL, outcome.results );
+        fd_pack_schedule_next_microblock( pack, 7700UL, 0.0f, 0UL, outcome.results );
         fd_pack_microblock_complete( pack, 0UL );
       }
       if( FD_LIKELY( iter>=WARMUP ) ) skip0     += fd_log_wallclock( );
@@ -651,9 +651,9 @@ void performance_test( int extra_bench ) {
 
       if( FD_LIKELY( iter>=WARMUP ) ) schedule  -= fd_log_wallclock( );
       for( ulong j=0UL; j<heap_sz; j++ ) {
-        /* With a cap of 3000 CUs, we schedule 1 transaction and then
+        /* With a cap of 8700 CUs, we schedule 1 transaction and then
            immediately break. */
-        FD_TEST( 1UL==fd_pack_schedule_next_microblock( pack, 3000UL, 0.0f, 0UL, outcome.results ) );
+        FD_TEST( 1UL==fd_pack_schedule_next_microblock( pack, 8700UL, 0.0f, 0UL, outcome.results ) );
         fd_pack_microblock_complete( pack, 0UL );
       }
       if( FD_LIKELY( iter>=WARMUP ) ) schedule += fd_log_wallclock( );
@@ -676,11 +676,11 @@ void performance_test( int extra_bench ) {
       FD_TEST( fd_pack_avail_txn_cnt( pack )==heap_sz );
       if( FD_LIKELY( iter>=WARMUP ) ) skip1  -= fd_log_wallclock( );
       for( ulong j=0UL; j<heap_sz/2UL; j++ ) {
-        /* With a cap of 6000 CUs, we schedule a copy of transaction 1,
+        /* With a cap of 17400 CUs, we schedule a copy of transaction 1,
            scan through all the duplicates of transaction 1 (which
            conflict because of accounts), finally find an instance of
            transaction 2, schedule it, and then immediately break. */
-        FD_TEST( 2UL==fd_pack_schedule_next_microblock( pack, 6000UL, 0.0f, 0UL, outcome.results ) );
+        FD_TEST( 2UL==fd_pack_schedule_next_microblock( pack, 17400UL, 0.0f, 0UL, outcome.results ) );
         fd_pack_microblock_complete( pack, 0UL );
       }
       if( FD_LIKELY( iter>=WARMUP ) ) skip1 += fd_log_wallclock( );
@@ -880,10 +880,12 @@ test_limits( void ) {
       make_vote_transaction( i );
       insert( i, pack );
     }
+
+    /* Test that as we gradually increase the CU limit, the correct number of votes get scheduled */
     for( ulong cu_limit=0UL; cu_limit<45UL*SAMPLE_VOTE_COST; cu_limit += SAMPLE_VOTE_COST ) {
       /* FIXME: CU limit for votes is done based on the typical cost,
          which is slightly different from the sample vote cost. */
-      schedule_validate_microblock( pack, cu_limit*3437/SAMPLE_VOTE_COST, 1.0f, cu_limit/SAMPLE_VOTE_COST, 0UL, 0UL, &outcome );
+      schedule_validate_microblock( pack, cu_limit*4337/SAMPLE_VOTE_COST, 1.0f, cu_limit/SAMPLE_VOTE_COST, 0UL, 0UL, &outcome );
     }
     /* sum_{x=0}^44 x = 990, so there should be 34 transactions left */
     FD_TEST( fd_pack_avail_txn_cnt( pack )==34UL );
@@ -915,13 +917,13 @@ test_limits( void ) {
   if( 1 ) {
     fd_pack_t * pack = init_all( 1024UL, 1UL, 1024UL, &outcome );
     /* The limit is based on cost units, and make_transaction takes just
-       compute CUs.  The additional cost units are 1625. */
-    for( ulong j=0UL; j<25UL; j++ ) {
+       compute CUs.  The additional cost units are 7325. */
+    for( ulong j=0UL; j<24UL; j++ ) {
       make_transaction( 0UL, 478310UL, 11.0, "A", "B" );
       insert( 0UL, pack );
       schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 1UL, 0UL, 0UL, &outcome );
     }
-    /* Consumed 11,998,375 cost units, so this next one can't fit. */
+    /* Consumed 11,655,240 cost units, so this next one can't fit. */
 
     make_transaction( 0UL, 478310UL, 11.0, "A", "B" );
     insert( 0UL, pack );
@@ -930,7 +932,7 @@ test_limits( void ) {
 
     outcome.results->bank_cu.rebated_cus = outcome.results->pack_cu.requested_execution_cus;
     fd_pack_rebate_cus( pack, outcome.results, 1UL );
-    /* Now consumed CUs is 11,519,765, so it just fits. */
+    /* Now consumed CUs is 11,170,954, so it just fits. */
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 1UL, 0UL, 0UL, &outcome );
 
     make_transaction( 0UL, 478310U, 11.0, "A", "B" );
