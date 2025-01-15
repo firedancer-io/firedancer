@@ -14,3 +14,8 @@ $(call run-unit-test,test_netlink)
 $(call run-unit-test,test_routing)
 endif
 endif
+
+$(call add-hdrs,fd_fib4.h)
+$(call add-objs,fd_fib4,fd_waltz)
+$(call make-unit-test,test_fib4,test_fib4,fd_waltz fd_util)
+$(call run-unit-test,test_fib4)
