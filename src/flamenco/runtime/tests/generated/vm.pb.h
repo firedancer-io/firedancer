@@ -109,9 +109,6 @@ typedef struct fd_exec_test_vm_context {
     uint64_t rodata_text_section_offset;
     /* Length of the text section in the program rodata region, in bytes. */
     uint64_t rodata_text_section_length;
-    /* The input data regions */
-    pb_size_t input_data_regions_count;
-    struct fd_exec_test_input_data_region *input_data_regions;
     /* Registers */
     uint64_t r0;
     uint64_t r1;
@@ -206,7 +203,7 @@ extern "C" {
 
 /* Initializer values for message structs */
 #define FD_EXEC_TEST_INPUT_DATA_REGION_INIT_DEFAULT {0, NULL, 0}
-#define FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT     {0, NULL, 0, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_RETURN_DATA_INIT_DEFAULT, 0}
+#define FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT     {0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_RETURN_DATA_INIT_DEFAULT, 0}
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT {{0, {0}}, NULL, NULL}
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_DEFAULT {false, FD_EXEC_TEST_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_DEFAULT, false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_DEFAULT {0, 0, 0, NULL, NULL, NULL, 0, NULL, NULL, 0, 0, NULL, _FD_EXEC_TEST_ERR_KIND_MIN, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
@@ -216,7 +213,7 @@ extern "C" {
 #define FD_EXEC_TEST_VALIDATE_VM_FIXTURE_INIT_DEFAULT {false, FD_EXEC_TEST_FIXTURE_METADATA_INIT_DEFAULT, false, FD_EXEC_TEST_FULL_VM_CONTEXT_INIT_DEFAULT, false, FD_EXEC_TEST_VALIDATE_VM_EFFECTS_INIT_DEFAULT}
 #define FD_EXEC_TEST_RETURN_DATA_INIT_DEFAULT    {NULL, NULL}
 #define FD_EXEC_TEST_INPUT_DATA_REGION_INIT_ZERO {0, NULL, 0}
-#define FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO        {0, NULL, 0, 0, 0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_RETURN_DATA_INIT_ZERO, 0}
+#define FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO        {0, NULL, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL, 0, false, FD_EXEC_TEST_RETURN_DATA_INIT_ZERO, 0}
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO {{0, {0}}, NULL, NULL}
 #define FD_EXEC_TEST_SYSCALL_CONTEXT_INIT_ZERO   {false, FD_EXEC_TEST_VM_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_INSTR_CONTEXT_INIT_ZERO, false, FD_EXEC_TEST_SYSCALL_INVOCATION_INIT_ZERO, false, FD_EXEC_TEST_INSTR_EFFECTS_INIT_ZERO}
 #define FD_EXEC_TEST_SYSCALL_EFFECTS_INIT_ZERO   {0, 0, 0, NULL, NULL, NULL, 0, NULL, NULL, 0, 0, NULL, _FD_EXEC_TEST_ERR_KIND_MIN, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
@@ -263,7 +260,6 @@ extern "C" {
 #define FD_EXEC_TEST_VM_CONTEXT_RODATA_TAG       2
 #define FD_EXEC_TEST_VM_CONTEXT_RODATA_TEXT_SECTION_OFFSET_TAG 3
 #define FD_EXEC_TEST_VM_CONTEXT_RODATA_TEXT_SECTION_LENGTH_TAG 4
-#define FD_EXEC_TEST_VM_CONTEXT_INPUT_DATA_REGIONS_TAG 5
 #define FD_EXEC_TEST_VM_CONTEXT_R0_TAG           6
 #define FD_EXEC_TEST_VM_CONTEXT_R1_TAG           7
 #define FD_EXEC_TEST_VM_CONTEXT_R2_TAG           8
@@ -309,7 +305,6 @@ X(a, STATIC,   SINGULAR, UINT64,   heap_max,          1) \
 X(a, POINTER,  SINGULAR, BYTES,    rodata,            2) \
 X(a, STATIC,   SINGULAR, UINT64,   rodata_text_section_offset,   3) \
 X(a, STATIC,   SINGULAR, UINT64,   rodata_text_section_length,   4) \
-X(a, POINTER,  REPEATED, MESSAGE,  input_data_regions,   5) \
 X(a, STATIC,   SINGULAR, UINT64,   r0,                6) \
 X(a, STATIC,   SINGULAR, UINT64,   r1,                7) \
 X(a, STATIC,   SINGULAR, UINT64,   r2,                8) \
@@ -331,7 +326,6 @@ X(a, STATIC,   OPTIONAL, MESSAGE,  return_data,      23) \
 X(a, STATIC,   SINGULAR, UINT32,   sbpf_version,     24)
 #define FD_EXEC_TEST_VM_CONTEXT_CALLBACK NULL
 #define FD_EXEC_TEST_VM_CONTEXT_DEFAULT NULL
-#define fd_exec_test_vm_context_t_input_data_regions_MSGTYPE fd_exec_test_input_data_region_t
 #define fd_exec_test_vm_context_t_return_data_MSGTYPE fd_exec_test_return_data_t
 
 #define FD_EXEC_TEST_SYSCALL_INVOCATION_FIELDLIST(X, a) \
