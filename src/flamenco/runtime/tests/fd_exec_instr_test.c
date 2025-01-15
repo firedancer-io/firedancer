@@ -7,6 +7,7 @@
 #include "../fd_account.h"
 #include "../fd_executor.h"
 #include "../fd_runtime.h"
+#include "../program/fd_bpf_loader_serialization.h"
 #include "../program/fd_bpf_loader_program.h"
 #include "../program/fd_bpf_program_util.h"
 #include "../program/fd_builtin_programs.h"
@@ -1439,17 +1440,6 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     fd_memcpy( rodata, input->vm_ctx.rodata->bytes, rodata_sz );
   }
 
-  /* Load input data regions */
-  fd_vm_input_region_t * input_regions = NULL;
-  uint input_regions_count = 0U;
-  if( !!(input->vm_ctx.input_data_regions_count) ) {
-    input_regions       = fd_spad_alloc_debug( spad, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
-    input_regions_count = fd_setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count, spad );
-    if ( !input_regions_count ) {
-      goto error;
-    }
-  }
-
   if( input->vm_ctx.heap_max > FD_VM_HEAP_MAX ) {
     goto error;
   }
@@ -1461,9 +1451,35 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
 
   /* If the program ID account owner is the v1 BPF loader, then alignment is disabled (controlled by
      the `is_deprecated` flag) */
+
+  ulong                   input_sz                = 0UL;
+  ulong                   pre_lens[256]           = {0};
+  fd_vm_input_region_t    input_mem_regions[1000] = {0}; /* We can have a max of (3 * num accounts + 1) regions */
+  fd_vm_acc_region_meta_t acc_region_metas[256]   = {0}; /* instr acc idx to idx */
+  uint                    input_mem_regions_cnt   = 0U;
+  int                     direct_mapping          = FD_FEATURE_ACTIVE( ctx->slot_ctx, bpf_account_data_direct_mapping );
+
   uchar program_id_idx = ctx->instr->program_id;
-  uchar is_deprecated = ( program_id_idx < ctx->txn_ctx->accounts_cnt ) &&
-                        ( !memcmp( ctx->txn_ctx->borrowed_accounts[program_id_idx].const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
+  uchar is_deprecated  = (program_id_idx < ctx->txn_ctx->accounts_cnt) &&
+                         (!memcmp( ctx->txn_ctx->borrowed_accounts[program_id_idx].const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ));
+
+  if( is_deprecated ) {
+    fd_bpf_loader_input_serialize_unaligned( *ctx,
+                                             &input_sz,
+                                             pre_lens,
+                                             input_mem_regions,            
+                                             &input_mem_regions_cnt,
+                                             acc_region_metas,
+                                             !direct_mapping );
+  } else {
+    fd_bpf_loader_input_serialize_aligned( *ctx,
+                                           &input_sz,
+                                           pre_lens,
+                                           input_mem_regions,            
+                                           &input_mem_regions_cnt,
+                                           acc_region_metas,
+                                           !direct_mapping );
+  }
 
   fd_vm_init(
     vm,
@@ -1482,9 +1498,9 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     syscalls,
     NULL, // TODO
     sha,
-    input_regions,
-    input_regions_count,
-    NULL,
+    input_mem_regions,
+    input_mem_regions_cnt,
+    acc_region_metas,
     is_deprecated,
     FD_FEATURE_ACTIVE( ctx->slot_ctx, bpf_account_data_direct_mapping ) );
 
@@ -1514,10 +1530,6 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     fd_memcpy( vm->stack, input->syscall_invocation.stack_prefix->bytes,
                fd_ulong_min(input->syscall_invocation.stack_prefix->size, FD_VM_STACK_MAX) );
   }
-
-  // Propogate the acc_regions_meta to the vm
-  vm->acc_region_metas = fd_valloc_malloc( valloc, alignof(fd_vm_acc_region_meta_t), sizeof(fd_vm_acc_region_meta_t) * input->vm_ctx.input_data_regions_count );
-  fd_setup_vm_acc_region_metas( vm->acc_region_metas, vm, vm->instr_ctx );
 
   // Look up the syscall to execute
   char * syscall_name = (char *)input->syscall_invocation.function_name.bytes;

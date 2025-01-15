@@ -1,6 +1,9 @@
 #include "fd_vm_test.h"
 #include "fd_exec_instr_test.h"
+#include "../fd_system_ids.h"
 #include "generated/vm.pb.h"
+#include "../program/fd_bpf_loader_serialization.h"
+
 
 int
 fd_vm_syscall_noop( void * _vm,
@@ -94,11 +97,42 @@ do{
   uchar * rodata = fd_spad_alloc_debug( spad, 8UL, rodata_sz );
   memcpy( rodata, input->vm_ctx.rodata->bytes, rodata_sz );
 
-  /* Load input data regions */
-  fd_vm_input_region_t * input_regions     = fd_spad_alloc_debug( spad, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
-  uint                   input_regions_cnt = fd_setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count, spad );
+  /* Enable direct_mapping for SBPF version >= v1 */
+  if( input->vm_ctx.sbpf_version >= FD_SBPF_V1 ) {
+    ((fd_exec_epoch_ctx_t *)(instr_ctx->epoch_ctx))->features.bpf_account_data_direct_mapping = 0UL;
+  }
 
-  if (input->vm_ctx.heap_max > FD_VM_HEAP_DEFAULT) {
+  /* Setup input region */
+  ulong                   input_sz                = 0UL;
+  ulong                   pre_lens[256]           = {0};
+  fd_vm_input_region_t    input_mem_regions[1000] = {0}; /* We can have a max of (3 * num accounts + 1) regions */
+  fd_vm_acc_region_meta_t acc_region_metas[256]   = {0}; /* instr acc idx to idx */
+  uint                    input_mem_regions_cnt   = 0U;
+  int                     direct_mapping          = FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, bpf_account_data_direct_mapping );
+
+  uchar program_id_idx = instr_ctx->instr->program_id;
+  uchar is_deprecated  = (program_id_idx < instr_ctx->txn_ctx->accounts_cnt) &&
+                         (!memcmp( instr_ctx->txn_ctx->borrowed_accounts[program_id_idx].const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ));
+
+  if( is_deprecated ) {
+    fd_bpf_loader_input_serialize_unaligned( *instr_ctx,
+                                             &input_sz,
+                                             pre_lens,
+                                             input_mem_regions,            
+                                             &input_mem_regions_cnt,
+                                             acc_region_metas,
+                                             !direct_mapping );
+  } else {
+    fd_bpf_loader_input_serialize_aligned( *instr_ctx,
+                                           &input_sz,
+                                           pre_lens,
+                                           input_mem_regions,            
+                                           &input_mem_regions_cnt,
+                                           acc_region_metas,
+                                           !direct_mapping );
+  }
+
+  if( input->vm_ctx.heap_max>FD_VM_HEAP_DEFAULT ) {
     break;
   }
 
@@ -147,11 +181,6 @@ do{
   fd_vm_t * vm = fd_vm_join( fd_vm_new( fd_valloc_malloc( valloc, fd_vm_align(), fd_vm_footprint() ) ) );
   FD_TEST( vm );
 
-  /* Enable direct_mapping for SBPF version >= v1 */
-  if( input->vm_ctx.sbpf_version >= FD_SBPF_V1 ) {
-    ((fd_exec_epoch_ctx_t *)(instr_ctx->epoch_ctx))->features.bpf_account_data_direct_mapping = 0UL;
-  }
-
   fd_vm_init(
     vm,
     instr_ctx,
@@ -169,11 +198,11 @@ do{
     syscalls,
     trace, /* trace */
     NULL, /* sha */
-    input_regions,
-    input_regions_cnt,
-    NULL, /* vm_acc_region_meta*/
-    0, /* is deprecated */
-    FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, bpf_account_data_direct_mapping ) /* direct mapping */
+    input_mem_regions,
+    input_mem_regions_cnt,
+    acc_region_metas, /* vm_acc_region_meta*/
+    is_deprecated, /* is deprecated */
+    direct_mapping /* direct mapping */
   );
 
   /* Setup registers.
@@ -196,12 +225,8 @@ do{
   // vm->reg[10]  = input->vm_ctx.r10; // do not override
   // vm->reg[11]  = input->vm_ctx.r11; // do not override
 
-  // Propagate the acc_regions_meta to the vm
-  vm->acc_region_metas = fd_valloc_malloc( valloc, alignof(fd_vm_acc_region_meta_t), sizeof(fd_vm_acc_region_meta_t) * input->vm_ctx.input_data_regions_count );
-  fd_setup_vm_acc_region_metas( vm->acc_region_metas, vm, vm->instr_ctx );
-
   // Validate the vm
-  if ( fd_vm_validate( vm ) != FD_VM_SUCCESS ) {
+  if( fd_vm_validate( vm ) != FD_VM_SUCCESS ) {
     // custom error, avoid -1 because we use it for "unknown error" in solfuzz-agave
     effects->error = -2;
     break;
