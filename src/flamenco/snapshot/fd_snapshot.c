@@ -30,7 +30,7 @@ struct fd_snapshot_load_ctx {
 
   fd_snapshot_loader_t *  loader;
   fd_snapshot_restore_t * restore;
-}; 
+};
 typedef struct fd_snapshot_load_ctx fd_snapshot_load_ctx_t;
 
 static void
@@ -41,7 +41,7 @@ fd_hashes_load( fd_exec_slot_ctx_t * slot_ctx ) {
   if( err != FD_ACC_MGR_SUCCESS ) {
     FD_LOG_ERR(( "missing recent block hashes account" ));
   }
-  
+
   /* FIXME: Do not hardcode the number of vote accounts */
 
   slot_ctx->slot_bank.stake_account_keys.stake_accounts_root = NULL;
@@ -80,7 +80,7 @@ fd_snapshot_load_ctx_footprint( void ) {
   return sizeof(fd_snapshot_load_ctx_t);
 }
 
-fd_snapshot_load_ctx_t * 
+fd_snapshot_load_ctx_t *
 fd_snapshot_load_new( uchar *                mem,
                       const char *           snapshot_file,
                       fd_exec_slot_ctx_t *   slot_ctx,
@@ -178,7 +178,7 @@ fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx ) {
 
 void
 fd_snapshot_load_accounts( fd_snapshot_load_ctx_t * ctx ) {
-  
+
   /* Now, that the manifest is done being read in. Read in the rest of the accounts. */
   for(;;) {
     int err = fd_snapshot_loader_advance( ctx->loader );
@@ -192,9 +192,6 @@ fd_snapshot_load_accounts( fd_snapshot_load_ctx_t * ctx ) {
   if( FD_UNLIKELY( !name ) ) FD_LOG_ERR(( "name is NULL" ));
 
   FD_LOG_NOTICE(( "Done loading accounts" ));
-
-  fd_valloc_free( ctx->slot_ctx->valloc, fd_snapshot_loader_delete ( ctx->loader ) );
-  fd_valloc_free( ctx->slot_ctx->valloc, fd_snapshot_restore_delete( ctx->restore ) );
 
   FD_LOG_NOTICE(( "Finished reading snapshot %s", ctx->snapshot_file ));
 }
@@ -252,6 +249,9 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
   fd_hashes_load( ctx->slot_ctx );
 
   fd_rewards_recalculate_partitioned_rewards( ctx->slot_ctx );
+
+  fd_valloc_free( ctx->slot_ctx->valloc, fd_snapshot_loader_delete ( ctx->loader ) );
+  fd_valloc_free( ctx->slot_ctx->valloc, fd_snapshot_restore_delete( ctx->restore ) );
 
   fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
 }
