@@ -1028,6 +1028,11 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->gossip_plugin_out_chunk0      = fd_dcache_compact_chunk0( ctx->gossip_plugin_out_mem, gossip_plugin_out->dcache );
     ctx->gossip_plugin_out_wmark       = fd_dcache_compact_wmark ( ctx->gossip_plugin_out_mem, gossip_plugin_out->dcache, gossip_plugin_out->mtu );
     ctx->gossip_plugin_out_chunk       = ctx->gossip_plugin_out_chunk0;
+  } else {
+    ctx->gossip_plugin_out_mem         = NULL;
+    ctx->gossip_plugin_out_chunk0      = 0;
+    ctx->gossip_plugin_out_wmark       = 0;
+    ctx->gossip_plugin_out_chunk       = 0;
   }
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
