@@ -57,14 +57,13 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
 #define MAP_PERFECT_2  ( VOTE_PROG_ID            ), .cost_per_instr=VOTE_PROG_COST
 #define MAP_PERFECT_3  ( SYS_PROG_ID             ), .cost_per_instr=        3000UL
 #define MAP_PERFECT_4  ( COMPUTE_BUDGET_PROG_ID  ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_5  ( ADDR_LUT_PROG_ID        ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_6  ( BPF_UPGRADEABLE_PROG_ID ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_7  ( BPF_LOADER_1_PROG_ID    ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_8  ( BPF_LOADER_2_PROG_ID    ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_9  ( LOADER_V4_PROG_ID       ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_10 ( KECCAK_SECP_PROG_ID     ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_11 ( ED25519_SV_PROG_ID      ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_12 ( SECP256R1_PROG_ID       ), .cost_per_instr=        3000UL
+#define MAP_PERFECT_5  ( BPF_UPGRADEABLE_PROG_ID ), .cost_per_instr=        3000UL
+#define MAP_PERFECT_6  ( BPF_LOADER_1_PROG_ID    ), .cost_per_instr=        3000UL
+#define MAP_PERFECT_7  ( BPF_LOADER_2_PROG_ID    ), .cost_per_instr=        3000UL
+#define MAP_PERFECT_8  ( LOADER_V4_PROG_ID       ), .cost_per_instr=        3000UL
+#define MAP_PERFECT_9 ( KECCAK_SECP_PROG_ID     ), .cost_per_instr=         3000UL
+#define MAP_PERFECT_10 ( ED25519_SV_PROG_ID      ), .cost_per_instr=        3000UL
+#define MAP_PERFECT_11 ( SECP256R1_PROG_ID       ), .cost_per_instr=        3000UL
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
