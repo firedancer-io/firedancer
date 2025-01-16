@@ -19,7 +19,7 @@ fd_store_new( void * mem, ulong lo_wmark_slot ) {
   store->curr_turbine_slot = FD_SLOT_NULL;
   store->root = FD_SLOT_NULL;
   fd_repair_backoff_map_new( store->repair_backoff_map );
-  store->pending_slots = fd_pending_slots_new( (uchar *)mem + fd_store_footprint(), lo_wmark_slot );
+  store->pending_slots = fd_pending_slots_new( (uchar *)mem + sizeof( fd_store_t ), lo_wmark_slot );
   if( FD_UNLIKELY( !store->pending_slots ) ) {
     return NULL;
   }

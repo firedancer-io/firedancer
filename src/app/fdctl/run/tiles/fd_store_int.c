@@ -40,6 +40,7 @@
 #define STAKE_IN_IDX    0
 #define REPAIR_IN_IDX   1
 #define REPLAY_IN_IDX   2
+#define NON_SHRED_LINKS 3 /* stake, repair, and replay are the 3 links not from shred tile */
 
 #define REPLAY_OUT_IDX  0
 #define REPAIR_OUT_IDX  1
@@ -218,7 +219,7 @@ during_frag( fd_store_tile_ctx_t * ctx,
   }
 
   /* everything else is shred tiles */
-  fd_store_in_ctx_t * shred_in = &ctx->shred_in[ in_idx-2UL ];
+  fd_store_in_ctx_t * shred_in = &ctx->shred_in[ in_idx-NON_SHRED_LINKS ];
   if( FD_UNLIKELY( chunk<shred_in->chunk0 || chunk>shred_in->wmark || sz > sizeof(fd_shred34_t) ) ) {
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, shred_in->chunk0 , shred_in->wmark ));
   }
@@ -685,9 +686,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->in_wen_restart             = tile->store_int.in_wen_restart;
 
   /* Set up shred tile inputs */
-  ctx->shred_in_cnt = tile->in_cnt-2UL;
+  ctx->shred_in_cnt = tile->in_cnt-NON_SHRED_LINKS;
   for( ulong i = 0; i<ctx->shred_in_cnt; i++ ) {
-    fd_topo_link_t * shred_in_link = &topo->links[ tile->in_link_id[ i+2UL ] ];
+    fd_topo_link_t * shred_in_link = &topo->links[ tile->in_link_id[ i+NON_SHRED_LINKS ] ];
     ctx->shred_in[ i ].mem    = topo->workspaces[ topo->objs[ shred_in_link->dcache_obj_id ].wksp_id ].wksp;
     ctx->shred_in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->shred_in[ i ].mem, shred_in_link->dcache );
     ctx->shred_in[ i ].wmark  = fd_dcache_compact_wmark( ctx->shred_in[ i ].mem, shred_in_link->dcache, shred_in_link->mtu );
