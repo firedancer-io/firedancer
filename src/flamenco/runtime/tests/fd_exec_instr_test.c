@@ -1460,8 +1460,8 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   int                     direct_mapping          = FD_FEATURE_ACTIVE( ctx->slot_ctx, bpf_account_data_direct_mapping );
 
   uchar program_id_idx = ctx->instr->program_id;
-  uchar is_deprecated  = (program_id_idx < ctx->txn_ctx->accounts_cnt) &&
-                         (!memcmp( ctx->txn_ctx->borrowed_accounts[program_id_idx].const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ));
+  uchar is_deprecated  = ( program_id_idx < ctx->txn_ctx->accounts_cnt ) &&
+                         ( !memcmp( ctx->txn_ctx->borrowed_accounts[program_id_idx].const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
   if( is_deprecated ) {
     fd_bpf_loader_input_serialize_unaligned( *ctx,
