@@ -6,7 +6,7 @@
 
 /* FEATURE_ID_CNT is the number of features in ids */
 
-#define FD_FEATURE_ID_CNT (219UL)
+#define FD_FEATURE_ID_CNT (224UL)
 
 union fd_features {
 
@@ -160,7 +160,7 @@ union fd_features {
     /* 0x8ff9cf8537529ed8 */ ulong prevent_rent_paying_rent_recipients;
     /* 0xd6120d1b80de5fea */ ulong delay_visibility_of_program_deployment;
     /* 0xca9ab2701c9aa81b */ ulong apply_cost_tracker_during_replay;
-    /* 0xeee4f782117a3096 */ ulong consume_requested_cu_on_vm_err;
+    /* 0xeee4f782117a3096 */ ulong deplete_cu_meter_on_vm_failure;
     /* 0xd7138ee9ee165ae3 */ ulong bpf_account_data_direct_mapping;
     /* 0x55d3a0c392cf63e0 */ ulong add_set_tx_loaded_accounts_data_size_instruction;
     /* 0x0e7aa95037c5daac */ ulong switch_to_new_elf_parser;
@@ -232,6 +232,11 @@ union fd_features {
     /* 0x7f29632535392bc7 */ ulong disable_account_loader_special_case;
     /* 0x8c012a2071caecd9 */ ulong remove_accounts_executable_flag_checks;
     /* 0x54c5c5132eaae808 */ ulong fix_alt_bn128_multiplication_input_length;
+    /* 0x9e65a24bcb41d3f6 */ ulong lift_cpi_caller_restriction;
+    /* 0xaabdffec3f061805 */ ulong accounts_lt_hash;
+    /* 0x56b57bbf5f6afc04 */ ulong snapshots_lt_hash;
+    /* 0xc66648576f67b1a5 */ ulong reserve_minimal_cus_for_builtin_instructions;
+    /* 0x08dc7e6d724d4e47 */ ulong raise_block_limits_to_50m;
   };
 
 };

@@ -563,9 +563,9 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
   vm->cu -= heap_cost_result;
 
   int exec_err = fd_vm_exec( vm );
-  
+
   /* (SIMD-182) Consume ALL requested CUs on non-Syscall errors */
-  if( FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, consume_requested_cu_on_vm_err )
+  if( FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, deplete_cu_meter_on_vm_failure )
       && exec_err != FD_VM_ERR_SIGSYSCALL ) {
     instr_ctx->txn_ctx->compute_meter = 0UL;
   } else {
@@ -609,14 +609,14 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
       ulong vaddr_offset = vm->segv_store_vaddr & FD_VM_OFFSET_MASK;
       ulong acc_region_addl_off = is_deprecated ? 0UL : MAX_PERMITTED_DATA_INCREASE;
 
-      /* If the vaddr doesn't live in the input region, then we don't need to 
+      /* If the vaddr doesn't live in the input region, then we don't need to
          bother trying to iterate through all of the borrowed accounts. */
       if( FD_VADDR_TO_REGION( vm->segv_store_vaddr )!=FD_VM_INPUT_REGION ) {
         return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
       }
 
-      /* If the vaddr of the access violation falls within the bounds of a 
-         serialized account vaddr range, then try to retrieve a more specific 
+      /* If the vaddr of the access violation falls within the bounds of a
+         serialized account vaddr range, then try to retrieve a more specific
          vm error based on the account's accesss permissions. */
       for( ulong i=0UL; i<instr_ctx->instr->acct_cnt; i++ ) {
         fd_borrowed_account_t * instr_acc = instr_ctx->instr->borrowed_accounts[i];
@@ -1081,9 +1081,9 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* Verify Program account */
 
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 1UL, program ) {
-      
+
       /* https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/programs/bpf_loader/src/lib.rs#L758-L765 */
-      if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, remove_accounts_executable_flag_checks ) && 
+      if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, remove_accounts_executable_flag_checks ) &&
                        !fd_account_is_executable( program->const_meta ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account not executable" );
         return FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE;
@@ -1817,7 +1817,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
     /* https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/programs/bpf_loader/src/lib.rs#L445-L452 */
     /* Program invocation. Any invalid programs will be caught here or at the program load. */
-    if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( ctx->slot_ctx, remove_accounts_executable_flag_checks ) && 
+    if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( ctx->slot_ctx, remove_accounts_executable_flag_checks ) &&
                      !fd_account_is_executable( program_account->const_meta ) ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not executable" );
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
