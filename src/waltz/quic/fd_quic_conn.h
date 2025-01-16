@@ -68,6 +68,33 @@ struct fd_quic_conn_stream_rx {
 
 typedef struct fd_quic_conn_stream_rx fd_quic_conn_stream_rx_t;
 
+struct fd_quic_conn_rtt {
+  /* is_rtt_valid indicates at least one proper sample exists of rtt */
+  int                  is_rtt_valid;
+
+  /* for converting ack_delays from peer unit into ticks
+     ack_delay_ticks = ack_delay * peer_ack_delay_scale
+     peer_ack_delay_scale is ticks per peer unit
+     peer_ack_delay_scale = (1<<peer_ack_delay_exponent) * tick_per_us */
+  float                peer_ack_delay_scale;
+
+  /* scheduling granularity in ticks
+     stored here as usually accessed along with peer_max_ack_delay_ticks */
+  float                sched_granularity_ticks;
+
+  /* peer max ack delay in microseconds */
+  float                peer_max_ack_delay_ticks;
+
+  /* RTT related members */
+  float                rtt_period_ticks; /* bound on time between RTT measurements */
+  float                smoothed_rtt;     /* in ticks */
+  float                var_rtt;          /* in ticks */
+  float                latest_rtt;       /* in ticks */
+  float                min_rtt;          /* in ticks */
+};
+
+typedef struct fd_quic_conn_rtt fd_quic_conn_rtt_t;
+
 struct fd_quic_conn {
   uint               conn_idx;            /* connection index */
                                           /* connections are sized at runtime */
@@ -210,15 +237,16 @@ struct fd_quic_conn {
        and update this value */
   ulong                upd_pkt_number;
 
-  /* current round-trip-time (FIXME this never updates) */
-  ulong                rtt;
-
   /* highest peer encryption level */
   uchar                peer_enc_level;
 
   /* idle timeout arguments */
   ulong                idle_timeout;
   ulong                last_activity;
+  ulong                last_ack;
+
+  /* round trip time related members */
+  fd_quic_conn_rtt_t rtt[1];
 
   /* rx_limit_pktnum is the newest inflight packet number in which
      the current rx_{sup_stream_id,max_data} values were sent to the
