@@ -210,6 +210,18 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
   fd_features_restore( ctx->slot_ctx );
   fd_calculate_epoch_accounts_hash_values( ctx->slot_ctx );
 
+  // https://github.com/anza-xyz/agave/blob/766cd682423b8049ddeac3c0ec6cebe0a1356e9e/runtime/src/bank.rs#L1831
+  if( FD_FEATURE_ACTIVE( ctx->slot_ctx, accounts_lt_hash) ) {
+    ulong *p = (ulong *) ctx->slot_ctx->slot_bank.lthash.lthash;
+    ulong *e = (ulong *) &ctx->slot_ctx->slot_bank.lthash.lthash[sizeof(ctx->slot_ctx->slot_bank.lthash.lthash)];
+    while (p < e) {
+      if ( 0 != *(p++) )
+        break;
+    }
+    if (p >= e)
+      FD_LOG_ERR(( "snapshot must have an accounts lt hash if the feature is enabled" ));
+  }
+
   if( ctx->verify_hash ) {
     if( ctx->snapshot_type==FD_SNAPSHOT_TYPE_FULL ) {
       fd_hash_t accounts_hash;
