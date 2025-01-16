@@ -157,10 +157,16 @@ fd_hash_account_deltas( fd_pubkey_hash_pair_list_t * lists, ulong lists_len, fd_
 
 void
 fd_calculate_epoch_accounts_hash_values(fd_exec_slot_ctx_t * slot_ctx) {
-
   ulong slot_idx = 0;
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot, &slot_idx );
+
+  if( FD_FEATURE_ACTIVE( slot_ctx, accounts_lt_hash) ) {
+    epoch_bank->eah_start_slot = ULONG_MAX;
+    epoch_bank->eah_stop_slot = ULONG_MAX;
+    epoch_bank->eah_interval = ULONG_MAX;
+    return;
+  }
 
   ulong slots_per_epoch = fd_epoch_slot_cnt( &epoch_bank->epoch_schedule, epoch );
   ulong first_slot_in_epoch           = fd_epoch_slot0   ( &epoch_bank->epoch_schedule, epoch );
@@ -193,6 +199,8 @@ fd_calculate_epoch_accounts_hash_values(fd_exec_slot_ctx_t * slot_ctx) {
 // https://github.com/solana-labs/solana/blob/b0dcaf29e358c37a0fcb8f1285ce5fff43c8ec55/runtime/src/bank/epoch_accounts_hash_utils.rs#L13
 static int
 fd_should_include_epoch_accounts_hash(fd_exec_slot_ctx_t * slot_ctx) {
+  if( FD_FEATURE_ACTIVE( slot_ctx, accounts_lt_hash) )
+    return 0;
 
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   ulong calculation_stop = epoch_bank->eah_stop_slot;
@@ -201,6 +209,8 @@ fd_should_include_epoch_accounts_hash(fd_exec_slot_ctx_t * slot_ctx) {
 
 static int
 fd_should_snapshot_include_epoch_accounts_hash(fd_exec_slot_ctx_t * slot_ctx) {
+  if( FD_FEATURE_ACTIVE( slot_ctx, snapshots_lt_hash) )
+    return 0;
 
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
 
@@ -238,13 +248,19 @@ fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_sha256_fini( &sha, hash->hash );
 
-  if (fd_should_include_epoch_accounts_hash(slot_ctx)) {
+  // https://github.com/anza-xyz/agave/blob/766cd682423b8049ddeac3c0ec6cebe0a1356e9e/runtime/src/bank.rs#L5250
+  if( FD_FEATURE_ACTIVE( slot_ctx, accounts_lt_hash) ) {
     fd_sha256_init( &sha );
     fd_sha256_append( &sha, (uchar const *) &hash->hash, sizeof( fd_hash_t ) );
-
-    fd_sha256_append( &sha, (uchar const *) &slot_ctx->slot_bank.epoch_account_hash.hash, sizeof( fd_hash_t ) );
-
+    fd_sha256_append( &sha, (uchar const *) &slot_ctx->slot_bank.lthash.lthash, sizeof( slot_ctx->slot_bank.lthash.lthash ) );
     fd_sha256_fini( &sha, hash->hash );
+  } else {
+    if (fd_should_include_epoch_accounts_hash(slot_ctx)) {
+      fd_sha256_init( &sha );
+      fd_sha256_append( &sha, (uchar const *) &hash->hash, sizeof( fd_hash_t ) );
+      fd_sha256_append( &sha, (uchar const *) &slot_ctx->slot_bank.epoch_account_hash.hash, sizeof( fd_hash_t ) );
+      fd_sha256_fini( &sha, hash->hash );
+    }
   }
 
   if( capture_ctx != NULL && capture_ctx->capture != NULL ) {
@@ -718,11 +734,11 @@ typedef struct accounts_hash accounts_hash_t;
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 static fd_pubkey_hash_pair_t *
-fd_accounts_sorted_subrange( fd_funk_t         * funk, 
+fd_accounts_sorted_subrange( fd_funk_t         * funk,
                              uint                range_idx,
-                             uint                range_cnt, 
-                             ulong             * num_pairs_out, 
-                             fd_lthash_value_t * lthash_values, 
+                             uint                range_cnt,
+                             ulong             * num_pairs_out,
+                             fd_lthash_value_t * lthash_values,
                              ulong               n0,
                              fd_valloc_t         valloc
  ) {
@@ -965,9 +981,9 @@ fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_ha
    Query the accounts from the root of funk. This is done as a read-only
    way to generate an accounts hash from a subset of accounts from funk. */
 static int
-fd_accounts_hash_inc_no_txn( fd_funk_t *                 funk, 
-                             fd_valloc_t                 valloc, 
-                             fd_hash_t *                 accounts_hash, 
+fd_accounts_hash_inc_no_txn( fd_funk_t *                 funk,
+                             fd_valloc_t                 valloc,
+                             fd_hash_t *                 accounts_hash,
                              fd_funk_rec_key_t const * * pubkeys,
                              ulong                       pubkeys_len,
                              ulong                       do_hash_verify ) {
@@ -980,10 +996,10 @@ fd_accounts_hash_inc_no_txn( fd_funk_t *                 funk,
 
   ulong                   num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
   ulong                   num_pairs         = 0UL;
-  fd_pubkey_hash_pair_t * pairs             = fd_valloc_malloc( valloc, 
-                                                                FD_PUBKEY_HASH_PAIR_ALIGN, 
+  fd_pubkey_hash_pair_t * pairs             = fd_valloc_malloc( valloc,
+                                                                FD_PUBKEY_HASH_PAIR_ALIGN,
                                                                 num_iter_accounts * sizeof(fd_pubkey_hash_pair_t) );
-  
+
   if( FD_UNLIKELY( !pairs ) ) {
     FD_LOG_ERR(( "failed to allocate memory for pairs" ));
   }
@@ -1070,7 +1086,7 @@ fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_t * tpool, fd_hash_t *
 
 int
 fd_snapshot_inc_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t * accounts_hash, fd_funk_txn_t * child_txn, uint do_hash_verify ) {
-  
+
   if( fd_should_snapshot_include_epoch_accounts_hash( slot_ctx ) ) {
     fd_sha256_t h;
     fd_hash_t hash;

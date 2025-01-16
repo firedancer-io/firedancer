@@ -78,7 +78,7 @@ tpool_batch_boot( fd_topo_t * topo, ulong total_thread_count ) {
   }
 
   if( thread_count != total_thread_count )
-    FD_LOG_ERR(( "thread count mismatch thread_count=%lu total_thread_count=%lu main_thread_seen=%lu", 
+    FD_LOG_ERR(( "thread count mismatch thread_count=%lu total_thread_count=%lu main_thread_seen=%lu",
                  thread_count,
                  total_thread_count,
                  main_thread_seen ));
@@ -214,8 +214,8 @@ unprivileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
   /* funk                                                               */
   /**********************************************************************/
 
-  /* We only want to join funk after it has been setup and joined in the 
-     replay tile. 
+  /* We only want to join funk after it has been setup and joined in the
+     replay tile.
      TODO: Eventually funk will be joined via a shared topology object. */
   ctx->is_funk_active = 0;
   memcpy( ctx->funk_file, tile->replay.funk_file, sizeof(tile->replay.funk_file) );
@@ -294,7 +294,7 @@ produce_snapshot( fd_snapshot_tile_ctx_t * ctx, ulong batch_fseq ) {
   if( !is_incremental ) {
     ctx->last_full_snap_slot = snapshot_slot;
   }
-  
+
   FD_LOG_WARNING(( "Creating snapshot incremental=%lu slot=%lu", is_incremental, snapshot_slot ));
 
   fd_snapshot_ctx_t snapshot_ctx = {
@@ -402,7 +402,7 @@ produce_eah( fd_snapshot_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong batch
 
   FD_LOG_WARNING(( "Begining to produce epoch account hash in background for slot=%lu", eah_slot ));
 
-  /* TODO: Perhaps it makes sense to factor this out into a function in the 
+  /* TODO: Perhaps it makes sense to factor this out into a function in the
      runtime as this could technically be considered a layering violation. */
 
   /* First, we must retrieve the corresponding slot_bank. We have the guarantee
@@ -455,7 +455,7 @@ produce_eah( fd_snapshot_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong batch
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, 0UL, EAH_REPLAY_OUT_SIG, ctx->replay_out_chunk, sizeof(fd_hash_t), 0UL, tsorig, tspub );
 
-  /* Reset the fseq allowing for the un-constipation of funk and allow for 
+  /* Reset the fseq allowing for the un-constipation of funk and allow for
      snapshots to be created again. */
 
   fd_fseq_update( ctx->is_constipated, 0UL );
@@ -477,15 +477,15 @@ after_credit( fd_snapshot_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( !ctx->is_funk_active ) ) {
-    /* Setting these parameters are not required because we are joining the 
+    /* Setting these parameters are not required because we are joining the
        funk that was setup in the replay tile. */
-    ctx->funk = fd_funk_open_file( ctx->funk_file, 
-                                   1UL, 
-                                   0UL, 
-                                   0UL, 
-                                   0UL, 
+    ctx->funk = fd_funk_open_file( ctx->funk_file,
+                                   1UL,
                                    0UL,
-                                   FD_FUNK_READ_WRITE, 
+                                   0UL,
+                                   0UL,
+                                   0UL,
+                                   FD_FUNK_READ_WRITE,
                                    NULL );
     if( FD_UNLIKELY( !ctx->funk ) ) {
       FD_LOG_ERR(( "failed to join a funky" ));
@@ -498,6 +498,7 @@ after_credit( fd_snapshot_tile_ctx_t * ctx,
   if( fd_batch_fseq_is_snapshot( batch_fseq ) ) {
     produce_snapshot( ctx, batch_fseq );
   } else {
+    // We need features to disable this...
     produce_eah( ctx, stem, batch_fseq );
   }
 }
@@ -509,7 +510,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           struct sock_filter *   out ) {
   (void)topo;
 
-  populate_sock_filter_policy_batch( out_cnt, 
+  populate_sock_filter_policy_batch( out_cnt,
                                      out,
                                      (uint)fd_log_private_logfile_fd(),
                                      (uint)tile->batch.tmp_fd,

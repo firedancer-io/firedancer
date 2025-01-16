@@ -2,6 +2,7 @@
 #include "fd_exec_epoch_ctx.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../program/fd_vote_program.h"
+#include "../../../ballet/lthash/fd_lthash.h"
 
 #include <assert.h>
 #include <time.h>
@@ -431,6 +432,11 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
     fd_vote_accounts_destroy( &next_stakes, &destroy );
   } while(0);
+
+  if ( NULL != manifest->lthash )
+    slot_ctx->slot_bank.lthash = *manifest->lthash;
+  else
+    fd_lthash_zero( (fd_lthash_value_t *) slot_ctx->slot_bank.lthash.lthash );
 
   // TODO Backup to database
   //int result = fd_runtime_save_epoch_bank(slot_ctx);
