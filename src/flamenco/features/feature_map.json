@@ -146,7 +146,7 @@
   {"name":"prevent_rent_paying_rent_recipients","pubkey": "Fab5oP3DmsLYCiQZXdjyqT3ukFFPrsmqhXU4WU1AWVVF","cleaned_up":[1,18,0]},
   {"name":"delay_visibility_of_program_deployment","pubkey": "GmuBvtFb2aHfSfMXpuFeWZGHyDeCLPS79s48fmCWCfM5","cleaned_up":[1,18,0]},
   {"name":"apply_cost_tracker_during_replay","pubkey": "2ry7ygxiYURULZCrypHhveanvP5tzZ4toRwVp89oCNSj"},
-  {"name":"consume_requested_cu_on_vm_err","pubkey": "B7H2caeia4ZFcpE3QcgMqbiWiBtWrdBRBSJ1DY6Ktxbq"},
+  {"name":"deplete_cu_meter_on_vm_failure","pubkey": "B7H2caeia4ZFcpE3QcgMqbiWiBtWrdBRBSJ1DY6Ktxbq"},
   {"name":"bpf_account_data_direct_mapping","pubkey": "GJVDwRkUPNdk9QaK4VsU4g1N41QNxhy1hevjf8kz45Mq","old": "EenyoWx9UMXYKpR8mW5Jmfmy2fRjzUtM7NduYMY8bx33"},
   {"name":"add_set_tx_loaded_accounts_data_size_instruction","pubkey": "G6vbf1UBok8MWb8m25ex86aoQHeKTzDKzuZADHkShqm6","cleaned_up":[1,18,0]},
   {"name":"switch_to_new_elf_parser","pubkey": "Cdkc8PPTeTNUPoZEfCY5AyetUrEdkZtNPMgz58nqyaHD"},
@@ -217,5 +217,10 @@
   {"name":"enable_get_epoch_stake_syscall","pubkey":"FKe75t4LXxGaQnVHdUKM6DSFifVVraGZ8LyNo7oPwy1Z","old":"7mScTYkJXsbdrcwTQRs7oeCSXoJm4WjzBsRyf8bCU3Np"},
   {"name":"disable_account_loader_special_case","pubkey":"EQUMpNFr7Nacb1sva56xn1aLfBxppEoSBH8RRVdkcD1x"},
   {"name":"remove_accounts_executable_flag_checks","pubkey":"FfgtauHUWKeXTzjXkua9Px4tNGBFHKZ9WaigM5VbbzFx"},
-  {"name":"fix_alt_bn128_multiplication_input_length","pubkey":"bn2puAyxUx6JUabAxYdKdJ5QHbNNmKw8dCGuGCyRrFN"}
+  {"name":"fix_alt_bn128_multiplication_input_length","pubkey":"bn2puAyxUx6JUabAxYdKdJ5QHbNNmKw8dCGuGCyRrFN"},
+  {"name":"lift_cpi_caller_restriction","pubkey":"HcW8ZjBezYYgvcbxNJwqv1t484Y2556qJsfNDWvJGZRH"},
+  {"name":"accounts_lt_hash","pubkey":"LtHaSHHsUge7EWTPVrmpuexKz6uVHZXZL6cgJa7W7Zn"},
+  {"name":"snapshots_lt_hash","pubkey":"LTsNAP8h1voEVVToMNBNqoiNQex4aqfUrbFhRH3mSQ2"},
+  {"name":"reserve_minimal_cus_for_builtin_instructions","pubkey":"C9oAhLxDBm3ssWtJx1yBGzPY55r2rArHmN1pbQn6HogH"},
+  {"name":"raise_block_limits_to_50m","pubkey":"5oMCU3JPaFLr8Zr4ct7yFA7jdk6Mw1RmB8K4u9ZbS42z"}
 ]
