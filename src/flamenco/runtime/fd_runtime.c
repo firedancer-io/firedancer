@@ -841,6 +841,8 @@ fd_runtime_write_transaction_status( fd_capture_ctx_t * capture_ctx,
       }
 
       fd_solcap_write_transaction2( capture_ctx->capture, &txn );
+    } else {
+      fd_blockstore_end_read( blockstore );
     }
   } else {
     fd_blockstore_end_read( blockstore );
