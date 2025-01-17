@@ -3,4 +3,5 @@ $ fdctl configure check all
 [93mWARNING[0m sysctl ... not configured ... kernel parameter `/proc/sys/vm/max_map_count` is too low (got 65536 but expected at least 1000000)
 [93mWARNING[0m ethtool-channels ... not configured ... device `ens3f0` does not have right number of channels (got 1 but expected 2)
 [93mWARNING[0m ethtool-gro ... not configured ... device `ens3f0` has generic-receive-offload enabled. Should be disabled
+[93mWARNING[0m ethtool-loopback ... not configured ... device `lo` has tx-udp-segmentation enabled. Should be disabled
 [31mERR    [0m failed to configure some stages

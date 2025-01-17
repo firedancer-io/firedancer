@@ -252,6 +252,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( ushort, rpc.port                                         );
   CFG_POP      ( bool,   rpc.full_api                                     );
   CFG_POP      ( bool,   rpc.private                                      );
+  CFG_POP      ( cstr,   rpc.bind_address                                 );
   CFG_POP      ( bool,   rpc.transaction_history                          );
   CFG_POP      ( bool,   rpc.extended_tx_metadata_storage                 );
   CFG_POP      ( bool,   rpc.only_known                                   );
@@ -259,6 +260,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( bool,   rpc.pubsub_enable_vote_subscription              );
   CFG_POP      ( bool,   rpc.bigtable_ledger_storage                      );
 
+  CFG_POP      ( bool,   snapshots.enabled                                );
   CFG_POP      ( bool,   snapshots.incremental_snapshots                  );
   CFG_POP      ( uint,   snapshots.full_snapshot_interval_slots           );
   CFG_POP      ( uint,   snapshots.incremental_snapshot_interval_slots    );
@@ -270,6 +272,7 @@ fdctl_pod_to_cfg( config_t * config,
 
   CFG_POP      ( cstr,   layout.affinity                                  );
   CFG_POP      ( cstr,   layout.agave_affinity                            );
+  CFG_POP      ( uint,   layout.agave_unified_scheduler_handler_threads   );
   CFG_POP      ( uint,   layout.net_tile_count                            );
   CFG_POP      ( uint,   layout.quic_tile_count                           );
   CFG_POP      ( uint,   layout.resolv_tile_count                         );
@@ -367,6 +370,7 @@ fdctl_pod_to_cfg( config_t * config,
 
   CFG_POP      ( ushort, tiles.repair.repair_intake_listen_port           );
   CFG_POP      ( ushort, tiles.repair.repair_serve_listen_port            );
+  CFG_POP      ( cstr,   tiles.repair.good_peer_cache_file                );
 
   CFG_POP      ( cstr,   tiles.replay.capture                             );
   CFG_POP      ( cstr,   tiles.replay.funk_checkpt                        );
@@ -389,10 +393,10 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( cstr,   tiles.store_int.shred_cap_archive                );
   CFG_POP      ( cstr,   tiles.store_int.shred_cap_replay                 );
 
-  CFG_POP      ( ulong,  tiles.snaps.full_interval                        );
-  CFG_POP      ( ulong,  tiles.snaps.incremental_interval                 );
-  CFG_POP      ( cstr,   tiles.snaps.out_dir                              );
-  CFG_POP      ( ulong,  tiles.snaps.hash_tpool_thread_count              );
+  CFG_POP      ( ulong,  tiles.batch.full_interval                        );
+  CFG_POP      ( ulong,  tiles.batch.incremental_interval                 );
+  CFG_POP      ( cstr,   tiles.batch.out_dir                              );
+  CFG_POP      ( ulong,  tiles.batch.hash_tpool_thread_count              );
 
 # undef CFG_POP
 # undef CFG_ARRAY

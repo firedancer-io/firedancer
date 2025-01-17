@@ -12,7 +12,7 @@ jobs:
       OBJ_DIR: build/linux/clang/haswell
       COV_BUILD_DIR: cov
       COV_OBJ_DIR: build/cov
-      EXTRAS: fuzz asan
+      EXTRAS: fuzz # asan
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,7 +26,7 @@ jobs:
       - run: sudo apt update && sudo apt install -y zip
 
       - uses: asymmetric-research/clusterfuzz-fuzzbot-builder@main
-        name: Build shared object (+asan) for fd_exec_sol_compat*.so
+        name: Build shared object for fd_exec_sol_compat*.so
         with:
           command: make -j -Otarget lib
 

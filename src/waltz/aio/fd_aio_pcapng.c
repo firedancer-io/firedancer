@@ -51,6 +51,21 @@ fd_aio_pcapng_start( void * pcapng ) {
   return 1UL;
 }
 
+ulong
+fd_aio_pcapng_start_l3( void * pcapng ) {
+  fd_pcapng_shb_opts_t shb_opts = {0};
+  fd_pcapng_shb_defaults( &shb_opts );
+
+  if( FD_UNLIKELY( 1UL!=fd_pcapng_fwrite_shb( &shb_opts, pcapng ) ) )
+    return 0UL;
+
+  if( FD_UNLIKELY( 1UL!=fd_pcapng_fwrite_idb(
+        FD_PCAPNG_LINKTYPE_RAW, NULL, pcapng ) ) )
+    return 0UL;
+
+  return 1UL;
+}
+
 fd_aio_pcapng_t *
 fd_aio_pcapng_join( void *           _mitm,
                     fd_aio_t const * dst,

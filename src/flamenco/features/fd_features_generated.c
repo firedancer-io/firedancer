@@ -891,10 +891,10 @@ fd_feature_id_t const ids[] = {
     .name       = "apply_cost_tracker_during_replay",
     .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
-  { .index      = offsetof(fd_features_t, consume_requested_cu_on_vm_err)>>3,
+  { .index      = offsetof(fd_features_t, deplete_cu_meter_on_vm_failure)>>3,
     .id         = {"\x96\x30\x7a\x11\x82\xf7\xe4\xee\x64\x9d\xe0\x5b\x0f\xcc\xe5\x25\x7b\x93\x34\x69\x52\xaa\x5a\x1d\x8f\xd1\x2f\x90\xa6\x98\x75\x98"},
                   /* B7H2caeia4ZFcpE3QcgMqbiWiBtWrdBRBSJ1DY6Ktxbq */
-    .name       = "consume_requested_cu_on_vm_err",
+    .name       = "deplete_cu_meter_on_vm_failure",
     .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index      = offsetof(fd_features_t, bpf_account_data_direct_mapping)>>3,
@@ -1302,8 +1302,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index      = offsetof(fd_features_t, enable_get_epoch_stake_syscall)>>3,
-    .id         = {"\x64\x88\xa2\xd0\x5a\xcc\xbb\xae\xa0\x4e\xa8\xaf\xeb\x15\xfb\x71\xa7\x5b\x27\x71\x96\x6c\x2f\x05\x0d\xfe\xf3\x44\xbb\x07\x3b\x21"},
-                  /* 7mScTYkJXsbdrcwTQRs7oeCSXoJm4WjzBsRyf8bCU3Np */
+    .id         = {"\xd4\xca\x06\xb3\x6d\xa7\x8e\xef\xd9\x92\x66\x67\x6d\xe3\x92\xab\x4e\x56\x31\x5b\xd3\x9e\x97\x15\xd2\xf6\x0d\x3d\x02\x29\xf8\x10"},
+                  /* FKe75t4LXxGaQnVHdUKM6DSFifVVraGZ8LyNo7oPwy1Z */
     .name       = "enable_get_epoch_stake_syscall",
     .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
@@ -1317,6 +1317,42 @@ fd_feature_id_t const ids[] = {
     .id         = {"\xd9\xec\xca\x71\x20\x2a\x01\x8c\xfa\x7e\x4c\x2d\xed\xee\x20\x49\xc7\xc1\x11\xde\x38\xca\x69\xe8\x83\xe1\xaa\x19\x8a\x3b\xab\x57"},
                   /* FfgtauHUWKeXTzjXkua9Px4tNGBFHKZ9WaigM5VbbzFx */
     .name       = "remove_accounts_executable_flag_checks",
+    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index      = offsetof(fd_features_t, fix_alt_bn128_multiplication_input_length)>>3,
+    .id         = {"\x08\xe8\xaa\x2e\x13\xc5\xc5\x54\xe2\xc3\xb4\x0e\x26\xb4\x64\x3b\xc7\xcb\x89\x6c\xc0\x06\x05\xaa\x65\x7f\x3a\x3d\x30\xee\xf9\x05"},
+                  /* bn2puAyxUx6JUabAxYdKdJ5QHbNNmKw8dCGuGCyRrFN */
+    .name       = "fix_alt_bn128_multiplication_input_length",
+    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index      = offsetof(fd_features_t, lift_cpi_caller_restriction)>>3,
+    .id         = {"\xf6\xd3\x41\xcb\x4b\xa2\x65\x9e\xac\xe7\x83\xef\x30\xe5\xfc\xc1\x9a\x94\x8b\x9b\x00\xba\x8a\xad\xf5\x2a\x6b\x9f\x65\x24\x5e\xc8"},
+                  /* HcW8ZjBezYYgvcbxNJwqv1t484Y2556qJsfNDWvJGZRH */
+    .name       = "lift_cpi_caller_restriction",
+    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index      = offsetof(fd_features_t, accounts_lt_hash)>>3,
+    .id         = {"\x05\x18\x06\x3f\xec\xff\xbd\xaa\x96\xde\x27\x91\x1a\x5d\xe6\x86\x31\x8d\xa4\x24\x9b\x97\xf3\xee\x06\x4d\xb8\x68\x03\x7b\x99\x8d"},
+                  /* LtHaSHHsUge7EWTPVrmpuexKz6uVHZXZL6cgJa7W7Zn */
+    .name       = "accounts_lt_hash",
+    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index      = offsetof(fd_features_t, snapshots_lt_hash)>>3,
+    .id         = {"\x04\xfc\x6a\x5f\xbf\x7b\xb5\x56\x65\xe6\x61\xcc\x39\xc8\x8c\xa7\x3e\x31\xe9\xea\xad\x08\x7c\x60\x1c\x5c\x77\xcb\x58\x08\xf8\xbb"},
+                  /* LTsNAP8h1voEVVToMNBNqoiNQex4aqfUrbFhRH3mSQ2 */
+    .name       = "snapshots_lt_hash",
+    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index      = offsetof(fd_features_t, reserve_minimal_cus_for_builtin_instructions)>>3,
+    .id         = {"\xa5\xb1\x67\x6f\x57\x48\x66\xc6\xf6\x9e\x9c\xfb\x60\x44\xe4\xbc\xdd\xae\x3b\x38\x3d\x7b\x71\x74\x6d\xc2\xd8\x80\x67\x53\x2e\x0e"},
+                  /* C9oAhLxDBm3ssWtJx1yBGzPY55r2rArHmN1pbQn6HogH */
+    .name       = "reserve_minimal_cus_for_builtin_instructions",
+    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
+  { .index      = offsetof(fd_features_t, raise_block_limits_to_50m)>>3,
+    .id         = {"\x47\x4e\x4d\x72\x6d\x7e\xdc\x08\x29\xbb\xfe\x79\x87\x59\x54\xe4\x26\x89\xce\xaa\x39\xd5\x03\xed\x1e\x89\x79\x4d\x46\xa0\x5c\xe7"},
+                  /* 5oMCU3JPaFLr8Zr4ct7yFA7jdk6Mw1RmB8K4u9ZbS42z */
+    .name       = "raise_block_limits_to_50m",
     .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index = ULONG_MAX }
@@ -1543,9 +1579,15 @@ fd_feature_id_query( ulong prefix ) {
   case 0xa9a90df1904da912: return &ids[ 212 ];
   case 0x2434a84be5b684a5: return &ids[ 213 ];
   case 0xd30c04a5f2586e4f: return &ids[ 214 ];
-  case 0xaebbcc5ad0a28864: return &ids[ 215 ];
+  case 0xef8ea76db306cad4: return &ids[ 215 ];
   case 0x7f29632535392bc7: return &ids[ 216 ];
   case 0x8c012a2071caecd9: return &ids[ 217 ];
+  case 0x54c5c5132eaae808: return &ids[ 218 ];
+  case 0x9e65a24bcb41d3f6: return &ids[ 219 ];
+  case 0xaabdffec3f061805: return &ids[ 220 ];
+  case 0x56b57bbf5f6afc04: return &ids[ 221 ];
+  case 0xc66648576f67b1a5: return &ids[ 222 ];
+  case 0x08dc7e6d724d4e47: return &ids[ 223 ];
   default: break;
   }
 
@@ -1701,7 +1743,7 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, enable_request_heap_frame_ix         
 FD_STATIC_ASSERT( offsetof( fd_features_t, prevent_rent_paying_rent_recipients                     )>>3==144UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, delay_visibility_of_program_deployment                  )>>3==145UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, apply_cost_tracker_during_replay                        )>>3==146UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, consume_requested_cu_on_vm_err                          )>>3==147UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, deplete_cu_meter_on_vm_failure                          )>>3==147UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, bpf_account_data_direct_mapping                         )>>3==148UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, add_set_tx_loaded_accounts_data_size_instruction        )>>3==149UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, switch_to_new_elf_parser                                )>>3==150UL, layout );
@@ -1772,5 +1814,11 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, migrate_stake_program_to_core_bpf    
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_get_epoch_stake_syscall                          )>>3==215UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, disable_account_loader_special_case                     )>>3==216UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, remove_accounts_executable_flag_checks                  )>>3==217UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, fix_alt_bn128_multiplication_input_length               )>>3==218UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, lift_cpi_caller_restriction                             )>>3==219UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, accounts_lt_hash                                        )>>3==220UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, snapshots_lt_hash                                       )>>3==221UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, reserve_minimal_cus_for_builtin_instructions            )>>3==222UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, raise_block_limits_to_50m                               )>>3==223UL, layout );
 
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

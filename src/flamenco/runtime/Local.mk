@@ -26,6 +26,9 @@ $(call add-objs,fd_pubkey_utils,fd_flamenco)
 $(call add-hdrs,fd_txncache.h)
 $(call add-objs,fd_txncache,fd_flamenco)
 
+$(call add-hdrs, tests/fd_dump_pb.h)
+$(call add-objs, tests/fd_dump_pb,fd_flamenco)
+
 $(call add-hdrs,fd_rent_lists.h)
 
 $(call make-unit-test,test_txncache,test_txncache,fd_flamenco fd_util)

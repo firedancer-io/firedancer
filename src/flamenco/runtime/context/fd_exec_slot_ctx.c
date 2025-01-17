@@ -2,6 +2,7 @@
 #include "fd_exec_epoch_ctx.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../program/fd_vote_program.h"
+#include "../../../ballet/lthash/fd_lthash.h"
 
 #include <assert.h>
 #include <time.h>
@@ -26,7 +27,6 @@ fd_exec_slot_ctx_new( void *      mem,
   fd_slot_bank_new(&self->slot_bank);
 
   self->sysvar_cache = fd_sysvar_cache_new( fd_valloc_malloc( valloc, fd_sysvar_cache_align(), fd_sysvar_cache_footprint() ), valloc );
-  self->account_compute_table = fd_account_compute_table_join( fd_account_compute_table_new( fd_valloc_malloc( valloc, fd_account_compute_table_align(), fd_account_compute_table_footprint( 10000 ) ), 10000, 0 ) );
 
   /* This is inactive by default */
   self->epoch_reward_status.discriminant = fd_epoch_reward_status_enum_Inactive;
@@ -93,8 +93,6 @@ fd_exec_slot_ctx_delete( void * mem ) {
 
   fd_valloc_free( hdr->valloc, fd_sysvar_cache_delete( hdr->sysvar_cache ) );
   hdr->sysvar_cache = NULL;
-  fd_valloc_free( hdr->valloc, fd_account_compute_table_delete( fd_account_compute_table_leave( hdr->account_compute_table ) ) );
-  hdr->account_compute_table = NULL;
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( hdr->magic ) = 0UL;
@@ -287,10 +285,10 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   /* The hard forks should be deep copied over.
      TODO:This should be in the epoch bank and not the slot bank. */
   slot_bank->hard_forks.hard_forks_len = oldbank->hard_forks.hard_forks_len;
-  slot_bank->hard_forks.hard_forks     = fd_valloc_malloc( slot_ctx->valloc, 
-                                                            FD_SLOT_PAIR_ALIGN, 
+  slot_bank->hard_forks.hard_forks     = fd_valloc_malloc( slot_ctx->valloc,
+                                                            FD_SLOT_PAIR_ALIGN,
                                                             oldbank->hard_forks.hard_forks_len * FD_SLOT_PAIR_FOOTPRINT );
-  memcpy( slot_bank->hard_forks.hard_forks, oldbank->hard_forks.hard_forks, 
+  memcpy( slot_bank->hard_forks.hard_forks, oldbank->hard_forks.hard_forks,
           oldbank->hard_forks.hard_forks_len * FD_SLOT_PAIR_FOOTPRINT );
 
   /* Update last restart slot
@@ -333,10 +331,14 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
       if( manifest->bank.epoch_stakes[i].key == epoch ) {
         curr_stakes.vote_accounts_pool = manifest->bank.epoch_stakes[i].value.stakes.vote_accounts.vote_accounts_pool;
         curr_stakes.vote_accounts_root = manifest->bank.epoch_stakes[i].value.stakes.vote_accounts.vote_accounts_root;
+        manifest->bank.epoch_stakes[i].value.stakes.vote_accounts.vote_accounts_pool = NULL;
+        manifest->bank.epoch_stakes[i].value.stakes.vote_accounts.vote_accounts_root = NULL;
       }
       if( manifest->bank.epoch_stakes[i].key == epoch+1UL ) {
         next_stakes.vote_accounts_pool = manifest->bank.epoch_stakes[i].value.stakes.vote_accounts.vote_accounts_pool;
         next_stakes.vote_accounts_root = manifest->bank.epoch_stakes[i].value.stakes.vote_accounts.vote_accounts_root;
+        manifest->bank.epoch_stakes[i].value.stakes.vote_accounts.vote_accounts_pool = NULL;
+        manifest->bank.epoch_stakes[i].value.stakes.vote_accounts.vote_accounts_root = NULL;
       }
 
       /* When loading from a snapshot, Agave's stake caches mean that we have to special-case the epoch stakes
@@ -356,10 +358,14 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
       if( manifest->versioned_epoch_stakes[i].epoch == epoch ) {
         curr_stakes.vote_accounts_pool = manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_pool;
         curr_stakes.vote_accounts_root = manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_root;
+        manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_pool = NULL;
+        manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_root = NULL;
       }
       if( manifest->versioned_epoch_stakes[i].epoch == epoch+1UL ) {
         next_stakes.vote_accounts_pool = manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_pool;
         next_stakes.vote_accounts_root = manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_root;
+        manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_pool = NULL;
+        manifest->versioned_epoch_stakes[i].val.inner.Current.stakes.vote_accounts.vote_accounts_root = NULL;
       }
 
       if( manifest->versioned_epoch_stakes[i].epoch==epoch+2UL ) {
@@ -426,6 +432,11 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
     fd_vote_accounts_destroy( &next_stakes, &destroy );
   } while(0);
+
+  if ( NULL != manifest->lthash )
+    slot_ctx->slot_bank.lthash = *manifest->lthash;
+  else
+    fd_lthash_zero( (fd_lthash_value_t *) slot_ctx->slot_bank.lthash.lthash );
 
   // TODO Backup to database
   //int result = fd_runtime_save_epoch_bank(slot_ctx);
@@ -504,14 +515,16 @@ fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
         fd_status_pair_t * pair = &slot_delta->slot_delta_vec[j];
         fd_hash_t * blockhash = &pair->hash;
 
+        uchar * results = fd_scratch_alloc( alignof(uchar), pair->value.statuses_len );
         for( ulong k = 0; k < pair->value.statuses_len; k++ ) {
           fd_cache_status_t * status = &pair->value.statuses[k];
-          uchar result = (uchar)status->result.discriminant;
+          uchar * result = results + k;
+          *result = (uchar)status->result.discriminant;
           insert_vals[idx++] = (fd_txncache_insert_t){
             .blockhash = blockhash->uc,
             .slot = slot,
             .txnhash = status->key_slice,
-            .result = &result
+            .result = result
           };
         }
       }

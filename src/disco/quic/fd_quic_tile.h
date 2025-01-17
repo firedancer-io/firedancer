@@ -53,7 +53,6 @@ typedef struct {
     ulong reasm_started;
     ulong udp_pkt_too_small;
     ulong udp_pkt_too_large;
-    ulong quic_pkt_too_small;
     ulong quic_txn_too_small;
     ulong quic_txn_too_large;
   } metrics;

@@ -279,6 +279,12 @@ dynamic_port_range = "8900-9000"
     # `--private-rpc` argument.
     private = false
 
+    # The address to bind the RPC port.  If no address is specified,
+    # the default RPC bind address is 127.0.0.1 if [rpc.private] = true,
+    # otherwise it's 0.0.0.0.  This option is passed to the Agave client
+    # with the `--rpc-bind-address` argument.
+    bind_address = ""
+
     # Enable historical transaction info over JSON RPC, including the
     # `getConfirmedBlock` API.  This will cause an increase in disk
     # usage and IOPS.  This option is passed to the Agave client
@@ -319,6 +325,12 @@ dynamic_port_range = "8900-9000"
 # chain's state.  Other clients, especially as they bootstrap or catch
 # up to the head of the chain, may request a snapshot.
 [snapshots]
+    # If false, all snapshots (both full and incremental) will not be
+    # produced.  If snapshotting is disabled, this option is passed to
+    # the Agave client by setting the `--snapshot-interval-slots` flag
+    # to 0.
+    enabled = true
+
     # Enable incremental snapshots by setting this flag.  This option is
     # passed to the Agave client (inverted) with the
     # `--no-incremental-snapshots` flag.
@@ -327,7 +339,8 @@ dynamic_port_range = "8900-9000"
     # Set how frequently full snapshots are taken, measured in slots,
     # where one slot is about 400ms on production chains.  It's
     # recommended to leave this to the default or to set it to the same
-    # value that the known validators are using.
+    # value that the known validators are using.  Must be a multiple of
+    # the incremental snapshot interval.
     full_snapshot_interval_slots = 25000
 
     # Set how frequently incremental snapshots are taken, measured in
@@ -638,6 +651,24 @@ dynamic_port_range = "8900-9000"
     # must also be set to "auto", and the Agave affinity will be
     # determined automatically as well.
     agave_affinity = "auto"
+
+    # The number of threads to spawn per-fork for the unified scheduler.
+    # The replay stage, which is a part of the Agave subprocess, uses
+    # these threads for transaction execution.  The threads stay within
+    # the cores dedicated to the Agave subprocess.
+    #
+    # If set to 0, the default depends on the number of cores available
+    # to the agave subprocess.
+    #
+    #          agave_cores >= 8  =>  agave_cores - 4
+    #     4 <= agave_cores <  8  =>  4
+    #          agave_cores <  4  =>  agave_cores
+    #
+    # Increasing the value for this parameter might help during the
+    # start-up phase when the validator is trying to catchup to the
+    # cluster.  It may also help the node stay caught up if it keeps
+    # falling behind.
+    agave_unified_scheduler_handler_threads = 0
 
     # How many net tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network

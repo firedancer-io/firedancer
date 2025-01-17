@@ -58,11 +58,10 @@
 | quic_&#8203;txns_&#8203;received_&#8203;quic_&#8203;fast | `counter` | Count of txns received via TPU. (TPU/QUIC unfragmented) |
 | quic_&#8203;txns_&#8203;received_&#8203;quic_&#8203;frag | `counter` | Count of txns received via TPU. (TPU/QUIC fragmented) |
 | quic_&#8203;txns_&#8203;abandoned | `counter` | Count of txns abandoned because a conn was lost. |
-| quic_&#8203;quic_&#8203;packet_&#8203;too_&#8203;small | `counter` | Count of packets received on the QUIC port that were too small to be a valid IP packet. |
-| quic_&#8203;quic_&#8203;txn_&#8203;too_&#8203;small | `counter` | Count of txns received via QUIC dropped because they were too small. |
-| quic_&#8203;quic_&#8203;txn_&#8203;too_&#8203;large | `counter` | Count of txns received via QUIC dropped because they were too large. |
-| quic_&#8203;non_&#8203;quic_&#8203;packet_&#8203;too_&#8203;small | `counter` | Count of packets received on the non-QUIC port that were too small to be a valid IP packet. |
-| quic_&#8203;non_&#8203;quic_&#8203;packet_&#8203;too_&#8203;large | `counter` | Count of packets received on the non-QUIC port that were too large to be a valid transaction. |
+| quic_&#8203;txn_&#8203;undersz | `counter` | Count of txns received via QUIC dropped because they were too small. |
+| quic_&#8203;txn_&#8203;oversz | `counter` | Count of txns received via QUIC dropped because they were too large. |
+| quic_&#8203;legacy_&#8203;txn_&#8203;undersz | `counter` | Count of packets received on the non-QUIC port that were too small to be a valid IP packet. |
+| quic_&#8203;legacy_&#8203;txn_&#8203;oversz | `counter` | Count of packets received on the non-QUIC port that were too large to be a valid transaction. |
 | quic_&#8203;received_&#8203;packets | `counter` | Number of IP packets received. |
 | quic_&#8203;received_&#8203;bytes | `counter` | Total bytes received (including IP, UDP, QUIC headers). |
 | quic_&#8203;sent_&#8203;packets | `counter` | Number of IP packets sent. |
@@ -119,6 +118,11 @@
 | quic_&#8203;pkt_&#8203;no_&#8203;key_&#8203;early | `counter` | Number of packets that failed decryption due to missing key. (early data) |
 | quic_&#8203;pkt_&#8203;no_&#8203;key_&#8203;handshake | `counter` | Number of packets that failed decryption due to missing key. (handshake) |
 | quic_&#8203;pkt_&#8203;no_&#8203;key_&#8203;app | `counter` | Number of packets that failed decryption due to missing key. (app data) |
+| quic_&#8203;pkt_&#8203;net_&#8203;header_&#8203;invalid | `counter` | Number of packets dropped due to weird IP or UDP header. |
+| quic_&#8203;pkt_&#8203;quic_&#8203;header_&#8203;invalid | `counter` | Number of packets dropped due to weird QUIC header. |
+| quic_&#8203;pkt_&#8203;undersz | `counter` | Number of QUIC packets dropped due to being too small. |
+| quic_&#8203;pkt_&#8203;oversz | `counter` | Number of QUIC packets dropped due to being too large. |
+| quic_&#8203;pkt_&#8203;verneg | `counter` | Number of QUIC version negotiation packets received. |
 
 ## Verify Tile
 | Metric | Type | Description |

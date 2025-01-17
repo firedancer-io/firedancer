@@ -346,7 +346,6 @@ write_program_data( fd_exec_instr_ctx_t *   instr_ctx,
   }
 
   if( FD_UNLIKELY( program_data_offset>dlen ) ) {
-    FD_LOG_WARNING(( "Write offset out of bounds" )); // custom check/log
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
   }
 
@@ -445,7 +444,6 @@ common_close_account( fd_pubkey_t * authority_address,
   state->discriminant = fd_bpf_upgradeable_loader_state_enum_uninitialized;
   err = fd_bpf_loader_v3_program_set_state( instr_ctx, 0UL, state );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-    FD_LOG_WARNING(( "Bpf loader state write for close account failed" ));
     return err;
   }
 
@@ -565,9 +563,9 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
   vm->cu -= heap_cost_result;
 
   int exec_err = fd_vm_exec( vm );
-  
+
   /* (SIMD-182) Consume ALL requested CUs on non-Syscall errors */
-  if( FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, consume_requested_cu_on_vm_err )
+  if( FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, deplete_cu_meter_on_vm_failure )
       && exec_err != FD_VM_ERR_SIGSYSCALL ) {
     instr_ctx->txn_ctx->compute_meter = 0UL;
   } else {
@@ -611,11 +609,20 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
       ulong vaddr_offset = vm->segv_store_vaddr & FD_VM_OFFSET_MASK;
       ulong acc_region_addl_off = is_deprecated ? 0UL : MAX_PERMITTED_DATA_INCREASE;
 
+      /* If the vaddr doesn't live in the input region, then we don't need to
+         bother trying to iterate through all of the borrowed accounts. */
+      if( FD_VADDR_TO_REGION( vm->segv_store_vaddr )!=FD_VM_INPUT_REGION ) {
+        return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
+      }
+
+      /* If the vaddr of the access violation falls within the bounds of a
+         serialized account vaddr range, then try to retrieve a more specific
+         vm error based on the account's accesss permissions. */
       for( ulong i=0UL; i<instr_ctx->instr->acct_cnt; i++ ) {
         fd_borrowed_account_t * instr_acc = instr_ctx->instr->borrowed_accounts[i];
         ulong idx = acc_region_metas[i].region_idx;
-
         if( input_mem_regions[idx].vaddr_offset<=vaddr_offset && vaddr_offset<input_mem_regions[idx].vaddr_offset+pre_lens[i]+acc_region_addl_off ) {
+
           /* Found an input mem region!
              https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/programs/bpf_loader/src/lib.rs#L1515-L1528 */
           int err;
@@ -674,7 +681,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
   int err = fd_bpf_upgradeable_loader_program_instruction_decode( &instruction, &decode_ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-    FD_LOG_WARNING(( "Bincode decode for instruction failed" ));
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
@@ -693,7 +699,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_bpf_upgradeable_loader_state_t buffer_state = {0};
       err = fd_bpf_loader_v3_program_get_state( instr_ctx, buffer, &buffer_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-        FD_LOG_WARNING(( "Bpf loader state read for buffer account failed" )); // custom log
         return err;
       }
 
@@ -709,7 +714,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       err = fd_bpf_loader_v3_program_set_state( instr_ctx, 0UL, &buffer_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-        FD_LOG_WARNING(( "Bpf loader state write for buffer account failed" )); // custom log
         return err;
       }
 
@@ -728,7 +732,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_bpf_upgradeable_loader_state_t loader_state = {0};
       err = fd_bpf_loader_v3_program_get_state( instr_ctx, buffer, &loader_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-        FD_LOG_WARNING(( "Bpf loader state read for buffer account failed" ));
         return err;
       }
 
@@ -805,7 +808,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       err = fd_bpf_loader_v3_program_get_state( instr_ctx, program, &loader_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-        FD_LOG_WARNING(( "Bpf state read for program account failed" ));
         return err;
       }
       if( FD_UNLIKELY( !fd_bpf_upgradeable_loader_state_is_uninitialized( &loader_state ) ) ) {
@@ -831,7 +833,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_borrowed_account_t * buffer = NULL;
       err = fd_instr_borrowed_account_view_idx( instr_ctx, 3UL, &buffer );
       if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-        FD_LOG_WARNING(( "Borrowed account lookup for buffer account failed" ));
         return err;
       }
 
@@ -844,7 +845,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_bpf_upgradeable_loader_state_t buffer_state = {0};
       err = fd_bpf_loader_v3_program_get_state( instr_ctx, buffer, &buffer_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-        FD_LOG_WARNING(( "Bincode decode failed for buffer account loader state" ));
         return err;
       }
 
@@ -989,7 +989,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       };
       err = fd_bpf_loader_v3_program_set_state( instr_ctx, 1UL, &programdata_loader_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-        FD_LOG_WARNING(( "Bpf state write for programdata account failed" ));
         return err;
       }
 
@@ -1040,12 +1039,10 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_memcpy( &loader_state.inner.program.programdata_address, programdata_key, sizeof(fd_pubkey_t) );
       err = fd_bpf_loader_v3_program_set_state( instr_ctx, 2UL, &loader_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-        FD_LOG_WARNING(( "Bincode encode for program account failed" ));
         return err;
       }
       err = fd_account_set_executable( instr_ctx, 2UL, 1 );
       if( FD_UNLIKELY( err ) ) {
-        FD_LOG_WARNING(( "Couldn't set account to executable" ));
         return err;
       }
 
@@ -1084,9 +1081,9 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* Verify Program account */
 
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 1UL, program ) {
-      
+
       /* https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/programs/bpf_loader/src/lib.rs#L758-L765 */
-      if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, remove_accounts_executable_flag_checks ) && 
+      if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, remove_accounts_executable_flag_checks ) &&
                        !fd_account_is_executable( program->const_meta ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account not executable" );
         return FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE;
@@ -1102,7 +1099,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_bpf_upgradeable_loader_state_t program_state = {0};
       err = fd_bpf_loader_v3_program_get_state( instr_ctx, program, &program_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-        FD_LOG_WARNING(( "Bincode decode for program account failed" ));
         return err;
       }
       if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_is_program( &program_state ) ) ) {
@@ -1129,7 +1125,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_bpf_upgradeable_loader_state_t buffer_state = {0};
       err = fd_bpf_loader_v3_program_get_state( instr_ctx, buffer, &buffer_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-        FD_LOG_WARNING(( "Bincode decode for buffer account failed" ));
         return err;
       }
       if( fd_bpf_upgradeable_loader_state_is_buffer( &buffer_state ) ) {
@@ -1181,7 +1176,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
       err = fd_bpf_loader_v3_program_get_state( instr_ctx, programdata, &programdata_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-        FD_LOG_WARNING(( "Bincode decode for programdata account failed" ));
         return err;
       }
 
@@ -1240,7 +1234,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       programdata_state.inner.program_data.upgrade_authority_address = (fd_pubkey_t *)authority_key;
       err = fd_bpf_loader_v3_program_set_state( instr_ctx, 0UL, &programdata_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-        FD_LOG_WARNING(( "Bpf state write for programdata account failed" ));
         return err;
       }
 
@@ -1324,7 +1317,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_bpf_upgradeable_loader_state_t account_state = {0};
       err = fd_bpf_loader_v3_program_get_state( instr_ctx, account, &account_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-        FD_LOG_WARNING(( "Bincode decode for account failed" ));
         return err;
       }
 
@@ -1348,7 +1340,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         account_state.inner.buffer.authority_address = new_authority;
         err = fd_bpf_loader_v3_program_set_state( instr_ctx, 0UL, &account_state );
         if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-          FD_LOG_WARNING(( "Bpf state write for account failed" ));
           return err;
         }
       } else if( fd_bpf_upgradeable_loader_state_is_program_data( &account_state ) ) {
@@ -1367,7 +1358,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         account_state.inner.program_data.upgrade_authority_address = new_authority;
         err = fd_bpf_loader_v3_program_set_state( instr_ctx, 0UL, &account_state );
         if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-          FD_LOG_WARNING(( "Bincode encode for program data account failed" ));
           return err;
         }
       } else {
@@ -1400,7 +1390,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_bpf_upgradeable_loader_state_t account_state = {0};
       err = fd_bpf_loader_v3_program_get_state( instr_ctx, account, &account_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-        FD_LOG_WARNING(( "Bincode decode for account failed" ));
         return err;
       }
 
@@ -1424,7 +1413,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         account_state.inner.buffer.authority_address = (fd_pubkey_t*)new_authority_key;
         err = fd_bpf_loader_v3_program_set_state( instr_ctx, 0UL, &account_state );
         if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-          FD_LOG_WARNING(( "Bincode encode for buffer account failed" ));
           return err;
         }
       } else if( fd_bpf_upgradeable_loader_state_is_program_data( &account_state ) ) {
@@ -1447,7 +1435,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         account_state.inner.program_data.upgrade_authority_address = (fd_pubkey_t*)new_authority_key;
         err = fd_bpf_loader_v3_program_set_state( instr_ctx, 0UL, &account_state );
         if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-          FD_LOG_WARNING(( "Bpf state wr encode for program data account failed" ));
           return err;
         }
       } else {
@@ -1480,7 +1467,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_bpf_upgradeable_loader_state_t close_account_state = {0};
       err = fd_bpf_loader_v3_program_get_state( instr_ctx, close_account, &close_account_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-        FD_LOG_WARNING(( "Bpf state read for close account failed" ));
         return err;
       }
       /* Close account set data length */
@@ -1557,7 +1543,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_bpf_upgradeable_loader_state_t program_state = {0};
         err = fd_bpf_loader_v3_program_get_state( instr_ctx, program_account, &program_state );
         if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-          FD_LOG_WARNING(( "Bpf state read for program account failed" ));
           return err;
         }
         if( fd_bpf_upgradeable_loader_state_is_program( &program_state ) ) {
@@ -1615,7 +1600,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_borrowed_account_t * programdata_account = NULL;
       err = fd_instr_borrowed_account_modify_idx( instr_ctx, 0UL, 0UL, &programdata_account );
       if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-        FD_LOG_WARNING(( "Borrowed account lookup for programdata account failed" ));
         return err;
       }
       fd_pubkey_t * programdata_key = programdata_account->pubkey;
@@ -1644,7 +1628,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_bpf_upgradeable_loader_state_t program_state = {0};
       err = fd_bpf_loader_v3_program_get_state( instr_ctx, program_account, &program_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-        FD_LOG_WARNING(( "Bpf state read for program account failed" ));
         return err;
       }
       if( fd_bpf_upgradeable_loader_state_is_program( &program_state ) ) {
@@ -1678,7 +1661,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_pubkey_t * upgrade_authority_address = NULL;
       err = fd_bpf_loader_v3_program_get_state( instr_ctx, programdata_account, &programdata_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-        FD_LOG_WARNING(( "Bpf state read for programdata account failed" ));
         return err;
       }
       if( fd_bpf_upgradeable_loader_state_is_program_data( &programdata_state ) ) {
@@ -1776,7 +1758,6 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       err = fd_bpf_loader_v3_program_set_state( instr_ctx, 0UL, &programdata_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-        FD_LOG_WARNING(( "Bincode encode for programdata account failed" ));
         return err;
       }
 
@@ -1808,7 +1789,6 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     fd_pubkey_t const *     program_id      = &ctx->instr->program_id_pubkey;
     int err = fd_txn_borrowed_account_view_idx( ctx->txn_ctx, ctx->instr->program_id, &program_account );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "Borrowed account lookup failed for program account" )); // custom log
       return err;
     }
 
@@ -1837,7 +1817,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
     /* https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/programs/bpf_loader/src/lib.rs#L445-L452 */
     /* Program invocation. Any invalid programs will be caught here or at the program load. */
-    if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( ctx->slot_ctx, remove_accounts_executable_flag_checks ) && 
+    if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( ctx->slot_ctx, remove_accounts_executable_flag_checks ) &&
                      !fd_account_is_executable( program_account->const_meta ) ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not executable" );
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
@@ -1879,7 +1859,6 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       fd_bpf_upgradeable_loader_state_t program_account_state = {0};
       err = fd_bpf_loader_v3_program_get_state( ctx, program_account, &program_account_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-        FD_LOG_WARNING(( "Bpf state read for program account failed" )); // custom log
         if( FD_FEATURE_ACTIVE( ctx->slot_ctx, remove_accounts_executable_flag_checks ) ) {
           return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
         }
@@ -1901,7 +1880,6 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       fd_pubkey_t * programdata_pubkey = (fd_pubkey_t *)&program_account_state.inner.program.programdata_address;
       err = fd_txn_borrowed_account_executable_view( ctx->txn_ctx, programdata_pubkey, &program_data_account );
       if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-        FD_LOG_WARNING(( "Borrowed account lookup for program data account failed" )); // custom log
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
 
@@ -1916,7 +1894,6 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       fd_bpf_upgradeable_loader_state_t program_data_account_state = {0};
       err = fd_bpf_loader_v3_program_get_state( ctx, program_data_account, &program_data_account_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-        FD_LOG_WARNING(( "Bpf state read for program data account failed" )); // custom log
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
 

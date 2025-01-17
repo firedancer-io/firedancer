@@ -165,7 +165,8 @@ int main( int     argc,
 
       fd_hex_decode( in, tests[2*i], in_sz );
 
-      FD_TEST( fd_bn254_g1_scalar_mul_syscall( res, in, in_sz )==0 );
+      FD_TEST( fd_bn254_g1_scalar_mul_syscall( res, in, in_sz, 0 )==0 );
+      FD_TEST( fd_bn254_g1_scalar_mul_syscall( res, in, in_sz, 1 )==0 );
 
       fd_hex_decode( exp, tests[2*i+1], 64 );
       if( !fd_memeq( res, exp, 64 ) ) {
@@ -179,7 +180,7 @@ int main( int     argc,
       ulong iter = 1000UL;
       long dt = fd_log_wallclock();
       for( ulong rem=iter; rem; rem-- ) {
-        fd_bn254_g1_scalar_mul_syscall( res, in, in_sz );
+        fd_bn254_g1_scalar_mul_syscall( res, in, in_sz, 1 );
       }
       dt = fd_log_wallclock() - dt;
       log_bench( "fd_bn254_g1_scalar_mul_syscall", iter, dt );

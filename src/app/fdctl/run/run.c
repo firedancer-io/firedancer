@@ -663,6 +663,7 @@ initialize_stacks( config_t * const config ) {
 extern configure_stage_t fd_cfg_stage_hugetlbfs;
 extern configure_stage_t fd_cfg_stage_ethtool_channels;
 extern configure_stage_t fd_cfg_stage_ethtool_gro;
+extern configure_stage_t fd_cfg_stage_ethtool_loopback;
 extern configure_stage_t fd_cfg_stage_sysctl;
 
 static void
@@ -683,6 +684,11 @@ check_configure( config_t * const config ) {
     FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-gro` to disable generic-receive-offload "
                  "as required.", check.message ));
 
+  check = fd_cfg_stage_ethtool_loopback.check( config );
+  if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
+    FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-loopback` to disable tx-udp-segmentation "
+                 "on the loopback device.", check.message ));
+
   check = fd_cfg_stage_sysctl.check( config );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
     FD_LOG_ERR(( "Kernel parameters are not configured correctly: %s. You can run `fdctl configure init sysctl` "
@@ -696,10 +702,6 @@ run_firedancer_init( config_t * const config,
   int err = stat( config->consensus.identity_path, &st );
   if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.identity_path] key does not exist `%s`. You can generate an identity key at this path by running `fdctl keys new identity --config <toml>`", config->consensus.identity_path ));
   else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.identity_path] `%s` (%i-%s)", config->consensus.identity_path, errno, fd_io_strerror( errno ) ));
-
-  err = stat( config->consensus.vote_account_path, &st );
-  if( FD_UNLIKELY( -1==err && errno==ENOENT ) ) FD_LOG_ERR(( "[consensus.vote_account_path] key does not exist `%s`. You can generate an vote key at this path by running `fdctl keys new vote --config <toml>`", config->consensus.vote_account_path ));
-  else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.vote_account_path] `%s` (%i-%s)", config->consensus.vote_account_path, errno, fd_io_strerror( errno ) ));
 
   for( ulong i=0UL; i<config->consensus.authorized_voter_paths_cnt; i++ ) {
     err = stat( config->consensus.authorized_voter_paths[ i ], &st );

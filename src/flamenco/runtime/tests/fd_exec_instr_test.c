@@ -102,7 +102,7 @@ fd_exec_instr_test_runner_new( void * mem,
 
   /* Create spad */
   runner->spad = fd_spad_join( fd_spad_new( spad_mem, FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ ) );
-  fd_spad_push( runner->spad );
+  fd_spad_push_debug( runner->spad );
   return runner;
 }
 
@@ -114,7 +114,7 @@ fd_exec_instr_test_runner_delete( fd_exec_instr_test_runner_t * runner ) {
   if( FD_UNLIKELY( fd_spad_verify( runner->spad ) ) ) {
     FD_LOG_ERR(( "fd_spad_verify() failed" ));
   }
-  fd_spad_pop( runner->spad );
+  fd_spad_pop_debug( runner->spad );
   if( FD_UNLIKELY( fd_spad_frame_used( runner->spad )!=0 ) ) {
     FD_LOG_ERR(( "stray spad frame frame_used=%lu", fd_spad_frame_used( runner->spad ) ));
   }
@@ -283,13 +283,15 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     return 0;
   }
 
-  /* TODO: Restore slot_bank */
+  /* Restore slot_bank */
 
   fd_slot_bank_new( &slot_ctx->slot_bank );
-  fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc, FD_SYSVAR_RECENT_HASHES_CAP );
-  slot_ctx->slot_bank.recent_block_hashes.hashes = recent_block_hashes;
-  fd_block_block_hash_entry_t * recent_block_hash = deq_fd_block_block_hash_entry_t_push_tail_nocopy( recent_block_hashes );
-  fd_memset( recent_block_hash, 0, sizeof(fd_block_block_hash_entry_t) );
+    
+  /* Blockhash queue init */
+  fd_block_hash_queue_t * blockhash_queue = &slot_ctx->slot_bank.block_hash_queue;
+  blockhash_queue->max_age   = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
+  blockhash_queue->last_hash = fd_valloc_malloc( slot_ctx->valloc, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
+  fd_memset( blockhash_queue->last_hash, 0, FD_HASH_FOOTPRINT );
 
   /* Set up txn context */
   fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx, txn_ctx );
@@ -300,7 +302,6 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   txn_ctx->compute_meter           = test_ctx->cu_avail;
   txn_ctx->vote_accounts_pool      = NULL;
   txn_ctx->spad                    = runner->spad;
-  txn_ctx->has_program_id          = 1;
 
   /* Set up instruction context */
 
@@ -337,7 +338,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     }
 
     if( borrowed_accts[j].const_meta ) {
-      uchar * data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
+      uchar * data = fd_spad_alloc_debug( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
       ulong   dlen = borrowed_accts[j].const_meta->dlen;
       fd_memcpy( data, borrowed_accts[j].const_meta, sizeof(fd_account_meta_t)+dlen );
       borrowed_accts[j].const_meta = (fd_account_meta_t*)data;
@@ -464,9 +465,9 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
     if( last ) {
-      *recent_block_hash = *last;
+      *blockhash_queue->last_hash                = last->blockhash;
       slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
-      slot_ctx->prev_lamports_per_signature = last->fee_calculator.lamports_per_signature;
+      slot_ctx->prev_lamports_per_signature      = last->fee_calculator.lamports_per_signature;
     }
   }
 
@@ -612,11 +613,11 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   /* Load account states into funk (note this is different from the account keys):
     Account state = accounts to populate Funk
     Account keys = account keys that the transaction needs */
-  for( ulong i = 0; i < test_ctx->tx.message.account_shared_data_count; i++ ) {
+  for( ulong i = 0; i < test_ctx->account_shared_data_count; i++ ) {
     /* Load the accounts into the account manager
        Borrowed accounts get reset anyways - we just need to load the account somewhere */
     FD_BORROWED_ACCOUNT_DECL(acc);
-    _load_txn_account( acc, acc_mgr, funk_txn, &test_ctx->tx.message.account_shared_data[i] );
+    _load_txn_account( acc, acc_mgr, funk_txn, &test_ctx->account_shared_data[i] );
   }
 
   /* Restore sysvar cache */
@@ -730,14 +731,10 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
       ( rent->burn_percent            >      100 ) )
     return NULL;
 
-  /* Blockhash queue is given in txn message. We need to populate the following three:
-     - slot_ctx->slot_bank.block_hash_queue (TODO: Does more than just the last_hash need to be populated?)
-     - sysvar_cache_recent_block_hashes
+  /* Blockhash queue is given in txn message. We need to populate the following two fields:
+     - slot_ctx->slot_bank.block_hash_queue
      - slot_ctx->slot_bank.recent_block_hashes */
   ulong num_blockhashes = test_ctx->blockhash_queue_count;
-
-  /* Recent blockhashes init */
-  fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc, FD_SYSVAR_RECENT_HASHES_CAP );
 
   /* Blockhash queue init */
   slot_ctx->slot_bank.block_hash_queue.max_age   = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
@@ -754,11 +751,6 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
       slot_ctx->prev_lamports_per_signature      = last->fee_calculator.lamports_per_signature;
     }
   }
-
-  // Clear and reset recent block hashes sysvar
-  slot_ctx->sysvar_cache->has_recent_block_hashes         = 1;
-  slot_ctx->sysvar_cache->val_recent_block_hashes->hashes = recent_block_hashes;
-  slot_ctx->slot_bank.recent_block_hashes.hashes          = recent_block_hashes;
 
   // Blockhash_queue[end] = last (latest) hash
   // Blockhash_queue[0] = genesis hash
@@ -781,6 +773,8 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
     slot_ctx->slot_bank.poh = blockhash_entry.blockhash;
     fd_sysvar_recent_hashes_update( slot_ctx );
   }
+  fd_sysvar_cache_restore_recent_block_hashes( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
+
   fd_funk_end_write( runner->funk );
 
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
@@ -1394,13 +1388,14 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
 
   if (is_cpi) {
     ctx->txn_ctx->instr_info_cnt = 1;
-  }
 
-  ctx->txn_ctx->instr_trace[0].instr_info = (fd_instr_info_t *)ctx->instr;
-  ctx->txn_ctx->instr_trace[0].stack_height = 1;
+    /* Need to setup txn_descriptor for txn account write checks (see fd_txn_account_is_writable_idx)
+       FIXME: this could probably go in fd_exec_test_instr_context_create? */
+    fd_txn_t * txn_descriptor = (fd_txn_t *)fd_spad_alloc_debug( spad, fd_txn_align(), fd_txn_footprint( ctx->txn_ctx->instr_info_cnt, 0UL ) );
+    txn_descriptor->transaction_version = FD_TXN_V0;
+    txn_descriptor->acct_addr_cnt = (ushort)ctx->txn_ctx->accounts_cnt;
 
-  if (is_cpi) {
-    ctx->txn_ctx->instr_info_cnt = 1;
+    ctx->txn_ctx->txn_descriptor = txn_descriptor;
   }
 
   ctx->txn_ctx->instr_trace[0].instr_info = (fd_instr_info_t *)ctx->instr;
@@ -1448,7 +1443,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   fd_vm_input_region_t * input_regions = NULL;
   uint input_regions_count = 0U;
   if( !!(input->vm_ctx.input_data_regions_count) ) {
-    input_regions       = fd_spad_alloc( spad, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
+    input_regions       = fd_spad_alloc_debug( spad, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
     input_regions_count = fd_setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count, spad );
     if ( !input_regions_count ) {
       goto error;

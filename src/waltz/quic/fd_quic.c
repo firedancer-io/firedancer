@@ -212,7 +212,7 @@ fd_quic_new( void * mem,
   /* Default clock source */
   quic->cb.now             = fd_quic_clock_wallclock;
   quic->cb.now_ctx         = NULL;
-  quic->config.tick_per_us = 1000.0f;
+  quic->config.tick_per_us = 1000.0;
 
   /* Copy layout descriptors */
   quic->limits = *limits;
@@ -255,8 +255,8 @@ fd_quic_config_from_env( int  *             pargc,
 
   if( FD_UNLIKELY( !cfg ) ) return NULL;
 
-  char const * keylog_file     = fd_env_strip_cmdline_cstr ( pargc, pargv, NULL,             "SSLKEYLOGFILE", NULL  );
-  ulong        idle_timeout_ms = fd_env_strip_cmdline_ulong( pargc, pargv, "--idle-timeout", NULL,            100UL );
+  char const * keylog_file     = fd_env_strip_cmdline_cstr ( pargc, pargv, NULL,             "SSLKEYLOGFILE", NULL   );
+  ulong        idle_timeout_ms = fd_env_strip_cmdline_ulong( pargc, pargv, "--idle-timeout", NULL,            3000UL );
   ulong        initial_rx_max_stream_data = fd_env_strip_cmdline_ulong(
       pargc,
       pargv,
@@ -264,6 +264,7 @@ fd_quic_config_from_env( int  *             pargc,
       "QUIC_INITIAL_RX_MAX_STREAM_DATA",
       FD_QUIC_DEFAULT_INITIAL_RX_MAX_STREAM_DATA
   );
+  cfg->retry = fd_env_strip_cmdline_contains( pargc, pargv, "--quic-retry" );
 
   if( keylog_file ) {
     strncpy( cfg->keylog_file, keylog_file, FD_QUIC_PATH_LEN );
@@ -302,15 +303,15 @@ FD_QUIC_API void
 fd_quic_set_clock( fd_quic_t *   quic,
                    fd_quic_now_t now_fn,
                    void *        now_ctx,
-                   float         tick_per_us ) {
+                   double        tick_per_us ) {
   fd_quic_config_t *    config = &quic->config;
   fd_quic_callbacks_t * cb     = &quic->cb;
 
-  float ratio = config->tick_per_us / tick_per_us;
+  double ratio = tick_per_us / config->tick_per_us;
 
-  config->idle_timeout = (ulong)( ratio * (float)config->idle_timeout );
-  config->ack_delay    = (ulong)( ratio * (float)config->ack_delay    );
-  config->retry_ttl    = (ulong)( ratio * (float)config->retry_ttl    );
+  config->idle_timeout = (ulong)( ratio * (double)config->idle_timeout );
+  config->ack_delay    = (ulong)( ratio * (double)config->ack_delay    );
+  config->retry_ttl    = (ulong)( ratio * (double)config->retry_ttl    );
   /* Add more timing config here */
 
   config->tick_per_us = tick_per_us;
@@ -321,7 +322,7 @@ fd_quic_set_clock( fd_quic_t *   quic,
 FD_QUIC_API void
 fd_quic_set_clock_tickcount( fd_quic_t * quic ) {
   /* FIXME log warning and return error if tickcount ticks too slow or fluctuates too much */
-  float tick_per_us = (float)fd_tempo_tick_per_ns( NULL ) * 1000.0f;
+  double tick_per_us = fd_tempo_tick_per_ns( NULL ) * 1000.0;
   fd_quic_set_clock( quic, fd_quic_clock_tickcount, NULL, tick_per_us );
 }
 
@@ -568,19 +569,26 @@ fd_quic_init( fd_quic_t * quic ) {
   ulong initial_max_streams_uni = quic->config.role==FD_QUIC_ROLE_SERVER ? 1UL<<60 : 0;
   ulong initial_max_stream_data = config->initial_rx_max_stream_data;
 
-  ulong max_ack_delay_ns = config->ack_delay * 2UL;
-  ulong max_ack_delay_ms = max_ack_delay_ns / (ulong)(1e6);
+  double tick_per_ns = (double)quic->config.tick_per_us / 1e3;
+
+  double max_ack_delay_ticks = (double)(config->ack_delay * 2UL);
+  double max_ack_delay_ns    = max_ack_delay_ticks / tick_per_ns;
+  double max_ack_delay_ms    = max_ack_delay_ns / 1e6;
+  ulong  max_ack_delay_ms_u  = (ulong)round( max_ack_delay_ms );
+
+  double idle_timeout_ns   = (double)config->idle_timeout / tick_per_ns;
+  double idle_timeout_ms   = idle_timeout_ns / 1e6;
+  ulong  idle_timeout_ms_u = (ulong)round( idle_timeout_ms );
 
   memset( tp, 0, sizeof(fd_quic_transport_params_t) );
-  ulong idle_timeout_ms = (config->idle_timeout + 1000000UL - 1UL) / 1000000UL;
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, max_idle_timeout,                    idle_timeout_ms          );
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, max_idle_timeout,                    idle_timeout_ms_u        );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, max_udp_payload_size,                FD_QUIC_MAX_PAYLOAD_SZ   ); /* TODO */
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_data,                    (1UL<<62)-1UL            );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_stream_data_uni,         initial_max_stream_data  );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_streams_bidi,            0                        );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, initial_max_streams_uni,             initial_max_streams_uni  );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, ack_delay_exponent,                  0                        );
-  FD_QUIC_TRANSPORT_PARAM_SET( tp, max_ack_delay,                       max_ack_delay_ms         );
+  FD_QUIC_TRANSPORT_PARAM_SET( tp, max_ack_delay,                       max_ack_delay_ms_u       );
   /*                         */tp->disable_active_migration_present =   1;
 
   /* Initialize next ephemeral udp port */
@@ -1224,13 +1232,12 @@ fd_quic_stream_send( fd_quic_stream_t *  stream,
   ulong allowed_stream = stream->tx_max_stream_data - stream->tx_tot_data;
   ulong allowed_conn   = conn->tx_max_data - conn->tx_tot_data;
   ulong allowed        = allowed_conn < allowed_stream ? allowed_conn : allowed_stream;
-  ulong allocated      = 0UL;
 
   if( data_sz > fd_quic_buffer_avail( tx_buf ) ) {
     return FD_QUIC_SEND_ERR_FLOW;
   }
 
-  if( data_sz + allocated > allowed ) {
+  if( data_sz > allowed ) {
     return FD_QUIC_SEND_ERR_FLOW;
   }
 
@@ -1242,8 +1249,8 @@ fd_quic_stream_send( fd_quic_stream_t *  stream,
   tx_buf->head += data_sz;
 
   /* adjust flow control limits on stream and connection */
-  stream->tx_tot_data += allocated;
-  conn->tx_tot_data   += allocated;
+  stream->tx_tot_data += data_sz;
+  conn->tx_tot_data   += data_sz;
 
   /* insert into send list */
   if( !FD_QUIC_STREAM_ACTION( stream ) ) {
@@ -1386,8 +1393,7 @@ fd_quic_send_retry( fd_quic_t *               quic,
         &pkt->ip4->net_id,
         dst_ip_addr,
         quic->config.net.listen_udp_port,
-        dst_udp_port,
-        1 ) == FD_QUIC_FAILED ) ) {
+        dst_udp_port ) == FD_QUIC_FAILED ) ) {
     return FD_QUIC_PARSE_FAIL;
   }
   return 0UL;
@@ -1702,7 +1708,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
                                 pkt_number,
                                 &conn->keys[0][0] ) != FD_QUIC_SUCCESS ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt failed" )) );
-    FD_DTRACE_PROBE_3( "quic_err_decrypt_initial_pkt", pkt->ip4, conn->our_conn_id, pkt->pkt_number );
+    FD_DTRACE_PROBE_3( quic_err_decrypt_initial_pkt, pkt->ip4, conn->our_conn_id, pkt->pkt_number );
     quic->metrics.pkt_decrypt_fail_cnt[ fd_quic_enc_level_initial_id ]++;
     return FD_QUIC_PARSE_FAIL;
   }
@@ -1858,7 +1864,7 @@ fd_quic_handle_v1_handshake(
                                 &conn->keys[2][0] ) != FD_QUIC_SUCCESS ) ) {
     /* remove connection from map, and insert into free list */
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt failed" )) );
-    FD_DTRACE_PROBE_3( "quic_err_decrypt_handshake_pkt", pkt->ip4, conn->our_conn_id, pkt->pkt_number );
+    FD_DTRACE_PROBE_3( quic_err_decrypt_handshake_pkt, pkt->ip4, conn->our_conn_id, pkt->pkt_number );
     quic->metrics.pkt_decrypt_fail_cnt[ fd_quic_enc_level_handshake_id ]++;
     return FD_QUIC_PARSE_FAIL;
   }
@@ -2115,7 +2121,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
                                 pkt_number,
                                 keys ) != FD_QUIC_SUCCESS ) ) {
     /* remove connection from map, and insert into free list */
-    FD_DTRACE_PROBE_3( "quic_err_decrypt_1rtt_pkt", pkt->ip4, conn->our_conn_id, pkt->pkt_number );
+    FD_DTRACE_PROBE_3( quic_err_decrypt_1rtt_pkt, pkt->ip4, conn->our_conn_id, pkt->pkt_number );
     quic->metrics.pkt_decrypt_fail_cnt[ fd_quic_enc_level_appdata_id ]++;
     return FD_QUIC_PARSE_FAIL;
   }
@@ -2150,6 +2156,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
     }
 
     if( FD_UNLIKELY( rc == 0UL || rc > frame_sz ) ) {
+      FD_LOG_WARNING(( "fd_quic_handle_v1_frame returned invalid size" ));
       fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
       return FD_QUIC_PARSE_FAIL;
     }
@@ -2179,8 +2186,14 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
                                 ulong           cur_sz ) {
 
   /* bounds check packet size */
-  if( FD_UNLIKELY( cur_sz < FD_QUIC_SHORTEST_PKT ) ) return FD_QUIC_PARSE_FAIL;
-  if( FD_UNLIKELY( cur_sz > 1500                 ) ) return FD_QUIC_PARSE_FAIL;
+  if( FD_UNLIKELY( cur_sz < FD_QUIC_SHORTEST_PKT ) ) {
+    quic->metrics.pkt_undersz_cnt++;
+    return FD_QUIC_PARSE_FAIL;
+  }
+  if( FD_UNLIKELY( cur_sz > 1500 ) ) {
+    quic->metrics.pkt_oversz_cnt++;
+    return FD_QUIC_PARSE_FAIL;
+  }
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
   fd_quic_conn_t *  conn  = NULL;
@@ -2202,6 +2215,7 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     rc = fd_quic_decode_long_hdr( long_hdr, cur_ptr+1, cur_sz-1 );
     if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
       FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_decode_long_hdr failed" )); )
+      quic->metrics.pkt_quic_hdr_err_cnt++;
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -2295,7 +2309,8 @@ fd_quic_process_packet( fd_quic_t * quic,
   ulong   cur_sz  = data_sz;
 
   if( FD_UNLIKELY( data_sz > 0xffffu ) ) {
-    /* sanity check */
+    FD_DTRACE_PROBE( quic_err_rx_oversz );
+    quic->metrics.pkt_oversz_cnt++;
     return;
   }
 
@@ -2308,12 +2323,16 @@ fd_quic_process_packet( fd_quic_t * quic,
   rc = fd_quic_decode_ip4( pkt.ip4, cur_ptr, cur_sz );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
     /* TODO count failure */
+    FD_DTRACE_PROBE( quic_err_rx_net_hdr );
+    quic->metrics.pkt_net_hdr_err_cnt++;
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_decode_ip4 failed" )) );
     return;
   }
 
   /* check version, tot_len, protocol, checksum? */
   if( FD_UNLIKELY( pkt.ip4->protocol != FD_IP4_HDR_PROTOCOL_UDP ) ) {
+    FD_DTRACE_PROBE( quic_err_rx_net_hdr );
+    quic->metrics.pkt_net_hdr_err_cnt++;
     FD_DEBUG( FD_LOG_DEBUG(( "Packet is not UDP" )) );
     return;
   }
@@ -2321,6 +2340,8 @@ fd_quic_process_packet( fd_quic_t * quic,
   /* verify ip4 packet isn't truncated
    * AF_XDP can silently do this */
   if( FD_UNLIKELY( pkt.ip4->net_tot_len > cur_sz ) ) {
+    FD_DTRACE_PROBE( quic_err_rx_net_hdr );
+    quic->metrics.pkt_net_hdr_err_cnt++;
     FD_DEBUG( FD_LOG_DEBUG(( "IPv4 header indicates truncation" )) );
     return;
   }
@@ -2332,6 +2353,8 @@ fd_quic_process_packet( fd_quic_t * quic,
   rc = fd_quic_decode_udp( pkt.udp, cur_ptr, cur_sz );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
     /* TODO count failure  */
+    FD_DTRACE_PROBE( quic_err_rx_net_hdr );
+    quic->metrics.pkt_net_hdr_err_cnt++;
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_decode_udp failed" )) );
     return;
   }
@@ -2339,6 +2362,8 @@ fd_quic_process_packet( fd_quic_t * quic,
   /* sanity check udp length */
   if( FD_UNLIKELY( pkt.udp->net_len < sizeof(fd_udp_hdr_t) ||
                    pkt.udp->net_len > cur_sz ) ) {
+    FD_DTRACE_PROBE( quic_err_rx_net_hdr );
+    quic->metrics.pkt_net_hdr_err_cnt++;
     FD_DEBUG( FD_LOG_DEBUG(( "UDP header indicates truncation" )) );
     return;
   }
@@ -2363,6 +2388,8 @@ fd_quic_process_packet( fd_quic_t * quic,
 
   /* shortest valid quic payload? */
   if( FD_UNLIKELY( cur_sz < FD_QUIC_SHORTEST_PKT ) ) {
+    FD_DTRACE_PROBE( quic_err_rx_net_hdr );
+    quic->metrics.pkt_net_hdr_err_cnt++;
     FD_DEBUG( FD_LOG_DEBUG(( "Undersize QUIC packet" )) );
     return;
   }
@@ -2381,6 +2408,7 @@ fd_quic_process_packet( fd_quic_t * quic,
     /* version negotiation packet has version 0 */
     if( version == 0 ) {
       /* TODO implement version negotiation */
+      quic->metrics.pkt_verneg_cnt++;
       FD_DEBUG( FD_LOG_DEBUG(( "Got version negotiation packet" )) );
       return;
     }
@@ -2389,6 +2417,7 @@ fd_quic_process_packet( fd_quic_t * quic,
        TODO implement */
     if( ( version & 0x0a0a0a0au ) == 0x0a0a0a0au ) {
       /* at present, ignore */
+      quic->metrics.pkt_verneg_cnt++;
       FD_DEBUG( FD_LOG_DEBUG(( "Got version negotiation packet (forced)" )) );
       return;
     }
@@ -2396,6 +2425,7 @@ fd_quic_process_packet( fd_quic_t * quic,
     if( version != 1 ) {
       /* cannot interpret length, so discard entire packet */
       /* TODO send version negotiation */
+      quic->metrics.pkt_verneg_cnt++;
       FD_DEBUG( FD_LOG_DEBUG(( "Got unknown version QUIC packet" )) );
       return;
     }
@@ -2424,6 +2454,7 @@ fd_quic_process_packet( fd_quic_t * quic,
              all quic packets in a udp datagram must be for the same connection id
                (section 12.2) and therefore the same connection
              all packets on a connection must be of the same version (5.2) */
+        quic->metrics.pkt_quic_hdr_err_cnt++;
         FD_DEBUG( FD_LOG_DEBUG(( "Mixed QUIC versions in packet" )) );
         return;
       }
@@ -2947,8 +2978,7 @@ fd_quic_tx_buffered_raw(
     ushort *         ipv4_id,
     uint             dst_ipv4_addr,
     ushort           src_udp_port,
-    ushort           dst_udp_port,
-    int              flush
+    ushort           dst_udp_port
 ) {
 
   /* TODO leave space at front of tx_buf for header
@@ -2958,12 +2988,6 @@ fd_quic_tx_buffered_raw(
 
   /* nothing to do */
   if( FD_UNLIKELY( payload_sz<=0L ) ) {
-    if( flush ) {
-      /* send empty batch to flush tx */
-      fd_aio_pkt_info_t aio_buf = { .buf = NULL, .buf_sz = 0 };
-      int aio_rc = fd_aio_send( &quic->aio_tx, &aio_buf, 0, NULL, 1 );
-      (void)aio_rc; /* don't care about result */
-    }
     return 0u;
   }
 
@@ -3035,7 +3059,7 @@ fd_quic_tx_buffered_raw(
   cur_sz  -= (ulong)payload_sz;
 
   fd_aio_pkt_info_t aio_buf = { .buf = crypt_scratch, .buf_sz = (ushort)( cur_ptr - crypt_scratch ) };
-  int aio_rc = fd_aio_send( &quic->aio_tx, &aio_buf, 1, NULL, flush );
+  int aio_rc = fd_aio_send( &quic->aio_tx, &aio_buf, 1, NULL, 1 );
   if( aio_rc == FD_AIO_ERR_AGAIN ) {
     /* transient condition - try later */
     return FD_QUIC_FAILED;
@@ -3058,8 +3082,7 @@ fd_quic_tx_buffered_raw(
 
 uint
 fd_quic_tx_buffered( fd_quic_t *      quic,
-                     fd_quic_conn_t * conn,
-                     int              flush ) {
+                     fd_quic_conn_t * conn ) {
   fd_quic_net_endpoint_t const * endpoint = conn->peer;
   return fd_quic_tx_buffered_raw(
       quic,
@@ -3070,8 +3093,7 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
       &conn->ipv4_id,
       endpoint->ip_addr,
       conn->host.udp_port,
-      endpoint->udp_port,
-      flush );
+      endpoint->udp_port );
 }
 
 static ulong
@@ -3432,7 +3454,7 @@ fd_quic_gen_frames( fd_quic_conn_t *     conn,
     closing = 1u;
   }
 
-  payload_ptr = fd_quic_gen_ack_frames( conn->ack_gen, payload_ptr, payload_end, enc_level, now, conn->quic->config.tick_per_us );
+  payload_ptr = fd_quic_gen_ack_frames( conn->ack_gen, payload_ptr, payload_end, enc_level, now, (float)conn->quic->config.tick_per_us );
   if( conn->ack_gen->head == conn->ack_gen->tail ) conn->unacked_sz = 0UL;
 
   if( FD_UNLIKELY( closing ) ) {
@@ -3480,7 +3502,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
   fd_quic_pkt_meta_t * pkt_meta = NULL;
 
   if( conn->tx_ptr != conn->tx_buf ) {
-    fd_quic_tx_buffered( quic, conn, 0 );
+    fd_quic_tx_buffered( quic, conn );
     fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_INSTANT );
     return;
   }
@@ -3659,7 +3681,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     ulong min_rqd = FD_QUIC_CRYPTO_TAG_SZ + FD_QUIC_CRYPTO_SAMPLE_SZ;
     if( FD_UNLIKELY( hdr_sz==FD_QUIC_ENCODE_FAIL || hdr_sz+min_rqd > cur_sz ) ) {
       /* try to free space */
-      fd_quic_tx_buffered( quic, conn, 0 );
+      fd_quic_tx_buffered( quic, conn );
 
       /* we have lots of space, so try again */
       if( conn->tx_buf == conn->tx_ptr ) {
@@ -3703,7 +3725,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
       }
 
       /* try to free space */
-      fd_quic_tx_buffered( quic, conn, 0 );
+      fd_quic_tx_buffered( quic, conn );
 
       /* we have lots of space, so try again */
       if( conn->tx_buf == conn->tx_ptr ) {
@@ -3804,7 +3826,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     if( enc_level == fd_quic_enc_level_appdata_id ) {
       /* short header must be last in datagram
          so send in packet immediately */
-      fd_quic_tx_buffered( quic, conn, 0 );
+      fd_quic_tx_buffered( quic, conn );
 
       if( conn->tx_ptr == conn->tx_buf ) {
         enc_level = fd_quic_tx_enc_level( conn, 0 /* acks */ );
@@ -3836,7 +3858,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
   }
 
   /* try to send? */
-  fd_quic_tx_buffered( quic, conn, 1 );
+  fd_quic_tx_buffered( quic, conn );
 }
 
 void

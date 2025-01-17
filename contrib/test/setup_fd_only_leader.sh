@@ -44,7 +44,7 @@ name = \"fd1\"
         entrypoints = [\"$PRIMARY_IP\"]
         peer_ports = [8001]
         gossip_listen_port = 8700
-    
+
     [tiles.repair]
         repair_intake_listen_port = 8701
         repair_serve_listen_port = 8702
@@ -79,7 +79,7 @@ name = \"fd1\"
 sudo $FD_DIR/build/native/$CC/bin/fddev configure init kill --config $(readlink -f fddev.toml)
 sudo $FD_DIR/build/native/$CC/bin/fddev configure init hugetlbfs --config $(readlink -f fddev.toml)
 sudo $FD_DIR/build/native/$CC/bin/fddev configure init ethtool-channels --config $(readlink -f fddev.toml)
-sudo $FD_DIR/build/native/$CC/bin/fddev configure init ethtool-gro --config $(readlink -f fddev.toml)
+sudo $FD_DIR/build/native/$CC/bin/fddev configure init ethtool-gro ethtool-loopback --config $(readlink -f fddev.toml)
 sudo $FD_DIR/build/native/$CC/bin/fddev configure init keys --config $(readlink -f fddev.toml)
 
 sudo gdb -iex="set debuginfod enabled on" -ex=r --args $FD_DIR/build/native/$CC/bin/fddev dev --no-configure --log-path $(readlink -f fddev.log) --config $(readlink -f fddev.toml) --no-solana --no-sandbox --no-clone

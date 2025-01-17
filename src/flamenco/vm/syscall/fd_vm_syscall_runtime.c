@@ -2,6 +2,7 @@
 #include "../../runtime/program/fd_vote_program.h"
 #include "../../runtime/sysvar/fd_sysvar.h"
 #include "../../runtime/sysvar/fd_sysvar_clock.h"
+#include "../../runtime/sysvar/fd_sysvar_epoch_rewards.h"
 #include "../../runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../runtime/sysvar/fd_sysvar_fees.h"
 #include "../../runtime/sysvar/fd_sysvar_rent.h"
@@ -583,5 +584,33 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
   /* Return false if we didn't find a sibling instruction
      https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/programs/bpf_loader/src/syscalls/mod.rs#L1534 */
   *ret = 0UL;
+  return FD_VM_SUCCESS;
+}
+
+// https://github.com/anza-xyz/agave/blob/master/programs/bpf_loader/src/syscalls/sysvar.rs#L75
+int
+fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
+                                            /**/            ulong   out_vaddr,
+                                            FD_PARAM_UNUSED ulong   r2,
+                                            FD_PARAM_UNUSED ulong   r3,
+                                            FD_PARAM_UNUSED ulong   r4,
+                                            FD_PARAM_UNUSED ulong   r5,
+                                            /**/            ulong * _ret ) {
+  fd_vm_t * vm = (fd_vm_t *)_vm;
+
+  fd_exec_instr_ctx_t const * instr_ctx = vm->instr_ctx;
+  if( FD_UNLIKELY( !instr_ctx ) ) return FD_VM_SYSCALL_ERR_OUTSIDE_RUNTIME;
+
+  FD_VM_CU_UPDATE( vm, fd_ulong_sat_add( FD_VM_SYSVAR_BASE_COST, FD_SYSVAR_EPOCH_REWARDS_FOOTPRINT ) );
+
+  void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_SYSVAR_EPOCH_REWARDS_ALIGN, FD_SYSVAR_EPOCH_REWARDS_FOOTPRINT );
+
+  fd_sysvar_epoch_rewards_t var[1];
+  fd_sysvar_epoch_rewards_new ( var );
+  fd_sysvar_epoch_rewards_read( var, instr_ctx->slot_ctx );
+
+  memcpy( out, var, FD_SYSVAR_EPOCH_REWARDS_FOOTPRINT );
+
+  *_ret = 0UL;
   return FD_VM_SUCCESS;
 }

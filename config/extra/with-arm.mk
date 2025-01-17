@@ -35,3 +35,5 @@ include config/extra/with-openssl.mk
 include config/extra/with-rocksdb.mk
 
 endif
+
+FD_ARCH_SUPPORTS_SANDBOX:=1

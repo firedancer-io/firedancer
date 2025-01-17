@@ -69,7 +69,7 @@ struct fd_snapshot_restore {
   ulong slot;  /* Slot number the snapshot was taken at */
 
   uchar state;
-  uchar manifest_done : 1;
+  uchar manifest_done;
   uchar status_cache_done : 1;
   uchar failed        : 1;
 

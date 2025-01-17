@@ -176,6 +176,7 @@ fd_restart_convert_raw_bitmap_to_runlength( fd_gossip_restart_last_voted_fork_sl
 void
 fd_restart_tower_checkpt( fd_hash_t const * vote_bank_hash,
                           fd_tower_t * tower,
+                          ulong root,
                           int tower_checkpt_fileno );
 
 void

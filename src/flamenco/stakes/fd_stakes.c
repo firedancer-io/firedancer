@@ -254,9 +254,6 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
     .deactivating = 0
   };
 
-  fd_stake_weight_t_mapnode_t * pool = fd_stake_weight_t_map_alloc(slot_ctx->valloc, 10000);
-  fd_stake_weight_t_mapnode_t * root = NULL;
-
   for ( fd_delegation_pair_t_mapnode_t * n = fd_delegation_pair_t_map_minimum(stakes->stake_delegations_pool, stakes->stake_delegations_root); n; n = fd_delegation_pair_t_map_successor(stakes->stake_delegations_pool, n) ) {
     FD_BORROWED_ACCOUNT_DECL(acc);
     int rc = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, &n->elem.account, acc);
@@ -285,19 +282,6 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
     accumulator.effective += new_entry.effective;
     accumulator.activating += new_entry.activating;
     accumulator.deactivating += new_entry.deactivating;
-
-    ulong delegation_stake = new_entry.effective;
-    fd_stake_weight_t_mapnode_t temp;
-    fd_memcpy(&temp.elem.key, &delegation->voter_pubkey, sizeof(fd_pubkey_t));
-    fd_stake_weight_t_mapnode_t * entry  = fd_stake_weight_t_map_find(pool, root, &temp);
-    if (entry != NULL) {
-      entry->elem.stake += delegation_stake;
-    } else {
-      entry = fd_stake_weight_t_map_acquire( pool );
-      fd_memcpy( &entry->elem.key, &delegation->voter_pubkey, sizeof(fd_pubkey_t));
-      entry->elem.stake = delegation_stake;
-      fd_stake_weight_t_map_insert( pool, &root, entry );
-    }
   }
 
   for ( fd_stake_accounts_pair_t_mapnode_t * n = fd_stake_accounts_pair_t_map_minimum( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root);
@@ -330,19 +314,6 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
     accumulator.effective += new_entry.effective;
     accumulator.activating += new_entry.activating;
     accumulator.deactivating += new_entry.deactivating;
-
-    ulong delegation_stake = new_entry.effective;
-    fd_stake_weight_t_mapnode_t temp;
-    fd_memcpy(&temp.elem.key, &delegation->voter_pubkey, sizeof(fd_pubkey_t));
-    fd_stake_weight_t_mapnode_t * entry  = fd_stake_weight_t_map_find(pool, root, &temp);
-    if (entry != NULL) {
-      entry->elem.stake += delegation_stake;
-    } else {
-      entry = fd_stake_weight_t_map_acquire( pool );
-      fd_memcpy( &entry->elem.key, &delegation->voter_pubkey, sizeof(fd_pubkey_t));
-      entry->elem.stake = delegation_stake;
-      fd_stake_weight_t_map_insert( pool, &root, entry );
-    }
   }
 
   temp_info->infos_len = delegation_idx;
@@ -355,9 +326,6 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
   };
 
   fd_sysvar_stake_history_update( slot_ctx, &new_elem);
-
-  fd_valloc_free( slot_ctx->valloc,
-    fd_stake_weight_t_map_delete( fd_stake_weight_t_map_leave ( pool ) ) );
 
   /* Refresh the sysvar cache stake history entry after updating the sysvar.
       We need to do this here because it is used in subsequent places in the epoch boundary. */

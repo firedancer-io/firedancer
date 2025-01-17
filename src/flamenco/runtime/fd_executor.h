@@ -33,16 +33,6 @@ get_transaction_account_lock_limit( fd_exec_slot_ctx_t const * slot_ctx ) {
   return fd_ulong_if( FD_FEATURE_ACTIVE( slot_ctx, increase_tx_account_lock_limit ), MAX_TX_ACCOUNT_LOCKS, 64UL );
 }
 
-/* Create an InstrContext protobuf struct from a given
-   transaction context and instr info.
-
-   NOTE: Calling this function requires the caller to have a scratch
-   frame ready and pushed (see dump_instr_to_protobuf) */
-void
-fd_create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t       * instr_context,
-                                                    fd_exec_txn_ctx_t            const * txn_ctx,
-                                                    fd_instr_info_t              const * instr );
-
 /* fd_exec_instr_fn_t processes an instruction.  Returns an error code
    in FD_EXECUTOR_INSTR_{ERR_{...},SUCCESS}. */
 
@@ -150,9 +140,6 @@ fd_exec_consume_cus( fd_exec_txn_ctx_t * txn_ctx,
   txn_ctx->compute_meter = new_cus;
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
-
-void
-fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t *txn_ctx, fd_spad_t * spad );
 
 /* We expose these only for the fuzzing harness.
    Normally you shouldn't be invoking these manually. */

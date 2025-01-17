@@ -80,7 +80,7 @@ FD_PROTOTYPES_BEGIN
 
 #ifdef FD_HAS_DEEPASAN
 #define FD_ASAN_ALIGN (8UL)
-#endif 
+#endif
 
 #if FD_HAS_ASAN
 
@@ -91,8 +91,17 @@ void   __asan_unpoison_memory_region( void const volatile * addr, ulong sz );
 int    __asan_address_is_poisoned   ( void const volatile * addr           );
 void * __asan_region_is_poisoned    ( void *                addr, ulong sz );
 
+#ifdef FD_HAS_DEEPASAN_WATCH
+void fd_asan_check_watch( int poison, void * addr, ulong sz );
+void fd_asan_watch( void const * addr );
+static inline void * fd_asan_poison  ( void * addr, ulong sz ) { __asan_poison_memory_region  ( addr, sz ); fd_asan_check_watch( 1, addr, sz ); return addr; }
+static inline void * fd_asan_unpoison( void * addr, ulong sz ) { __asan_unpoison_memory_region( addr, sz ); fd_asan_check_watch( 0, addr, sz ); return addr; }
+
+#else
 static inline void * fd_asan_poison  ( void * addr, ulong sz ) { __asan_poison_memory_region  ( addr, sz ); return addr; }
 static inline void * fd_asan_unpoison( void * addr, ulong sz ) { __asan_unpoison_memory_region( addr, sz ); return addr; }
+#endif
+
 static inline int    fd_asan_test    ( void * addr           ) { return __asan_address_is_poisoned( addr );     }
 static inline void * fd_asan_query   ( void * addr, ulong sz ) { return __asan_region_is_poisoned ( addr, sz ); }
 

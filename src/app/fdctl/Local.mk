@@ -50,8 +50,8 @@ $(call add-objs,run/tiles/fd_poh_int,fd_fdctl)
 $(call add-objs,run/tiles/fd_sender,fd_fdctl)
 $(call add-objs,run/tiles/fd_eqvoc,fd_fdctl)
 $(call add-objs,run/tiles/fd_rpcserv,fd_fdctl)
-$(call add-objs,run/tiles/fd_snapshot,fd_fdctl)
-$(call add-objs,run/tiles/fd_snapshot_thread,fd_fdctl)
+$(call add-objs,run/tiles/fd_batch,fd_fdctl)
+$(call add-objs,run/tiles/fd_batch_thread,fd_fdctl)
 endif
 
 # fdctl topologies
@@ -67,6 +67,7 @@ $(call add-objs,configure/hugetlbfs,fd_fdctl)
 $(call add-objs,configure/sysctl,fd_fdctl)
 $(call add-objs,configure/ethtool-channels,fd_fdctl)
 $(call add-objs,configure/ethtool-gro,fd_fdctl)
+$(call add-objs,configure/ethtool-loopback,fd_fdctl)
 
 ifdef FD_HAS_NO_AGAVE
 ifdef FD_HAS_SECP256K1

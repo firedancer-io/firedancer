@@ -10,7 +10,7 @@ on:
         default: linux_gcc_zen2
       extras:
         type: string
-        default: ""
+        default: "handholding"
   workflow_dispatch:
 jobs:
   ledger-replay:

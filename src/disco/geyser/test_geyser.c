@@ -24,7 +24,7 @@ my_block_fun(ulong slot, fd_block_map_t const * meta, fd_hash_t const * parent, 
   char parent_hash[50];
   fd_base58_encode_32(parent->uc, 0, parent_hash);
   printf( "\"block\":{\"slot\":%lu,\"bank_hash\":\"%s\",\"parent_hash\":\"%s\",\"height\":%lu,\"data_sz\":%lu}\n",
-          slot, bank_hash, parent_hash, meta->height, data_sz );
+          slot, bank_hash, parent_hash, meta->block_height, data_sz );
 }
 
 static void

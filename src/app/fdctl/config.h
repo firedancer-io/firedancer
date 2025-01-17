@@ -109,6 +109,7 @@ typedef struct {
     ushort port;
     int    full_api;
     int    private;
+    char   bind_address[ 16 ];
     int    transaction_history;
     int    extended_tx_metadata_storage;
     int    only_known;
@@ -118,6 +119,7 @@ typedef struct {
   } rpc;
 
   struct {
+    int  enabled;
     int  incremental_snapshots;
     uint full_snapshot_interval_slots;
     uint incremental_snapshot_interval_slots;
@@ -132,6 +134,7 @@ typedef struct {
     char affinity[ AFFINITY_SZ ];
     char agave_affinity[ AFFINITY_SZ ];
 
+    uint agave_unified_scheduler_handler_threads;
     uint net_tile_count;
     uint quic_tile_count;
     uint resolv_tile_count;
@@ -278,6 +281,7 @@ typedef struct {
     struct {
       ushort repair_intake_listen_port;
       ushort repair_serve_listen_port;
+      char   good_peer_cache_file[ PATH_MAX ];
     } repair;
 
     struct {
@@ -310,7 +314,7 @@ typedef struct {
       ulong incremental_interval;
       char  out_dir[ PATH_MAX ];
       ulong hash_tpool_thread_count;
-    } snaps;
+    } batch;
 
   } tiles;
 } config_t;

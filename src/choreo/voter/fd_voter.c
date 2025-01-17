@@ -12,7 +12,7 @@ fd_voter_state( fd_funk_t * funk, fd_funk_txn_t const * txn, fd_funk_rec_key_t c
   fd_account_meta_t const * meta = fd_funk_val_const( rec, fd_funk_wksp(funk) );
   FD_TEST( meta->magic == FD_ACCOUNT_META_MAGIC );
   fd_voter_state_t const * state = fd_type_pun_const( (uchar const *)meta + meta->hlen );
-  #if FD_TOWER_USE_HANDHOLDING
+  #if FD_VOTER_USE_HANDHOLDING
   FD_TEST( state->discriminant <= fd_vote_state_versioned_enum_current );
   #endif
   return state;

@@ -676,7 +676,7 @@ fd_block_to_json( fd_webserver_t * ws,
   char phash[50];
   fd_base58_encode_32(parent_hash->uc, 0, phash);
   fd_web_reply_sprintf(ws, "\"blockHeight\":%lu,\"blockTime\":%ld,\"parentSlot\":%lu,\"blockhash\":\"%s\",\"previousBlockhash\":\"%s\"",
-                       meta->height, meta->ts/(long)1e9, meta->parent_slot, hash, phash);
+                       meta->block_height, meta->ts/(long)1e9, meta->parent_slot, hash, phash);
 
   if( rewards ) {
     fd_base58_encode_32(rewards->leader.uc, 0, hash);

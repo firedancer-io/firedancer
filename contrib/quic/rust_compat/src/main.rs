@@ -127,9 +127,7 @@ fn main() {
         "quinn-awslc-fd" => unsafe {
             crate::quinn::quinn_to_fdquic(rustls::crypto::aws_lc_rs::default_provider())
         },
-        "quinn-pq-fd" => unsafe {
-            crate::quinn::quinn_to_fdquic(rustls_post_quantum::provider())
-        },
+        "quinn-pq-fd" => unsafe { crate::quinn::quinn_to_fdquic(rustls_post_quantum::provider()) },
         "quinn-ring-fd" => unsafe {
             crate::quinn::quinn_to_fdquic(rustls::crypto::ring::default_provider())
         },

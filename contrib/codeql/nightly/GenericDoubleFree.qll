@@ -11,6 +11,7 @@ class CandidateCall extends Call {
       this.getLocation().getFile().getBaseName().matches("%_ci.%") or
       this.getLocation().getFile().getBaseName() = "main.c" /* annoying mismatch with funk_init */
     )
+    and not exists(FunctionCall t | t.getTarget().getName() = "fd_log_private_2" | dominates(this, t))
   }
 }
 

@@ -37,7 +37,7 @@
 #define NET_OUT_IDX     0
 #define SHRED_OUT_IDX   1
 #define REPAIR_OUT_IDX  2
-#define DEDUP_OUT_IDX   3
+#define VERIFY_OUT_IDX  3
 #define SIGN_OUT_IDX    4
 #define VOTER_OUT_IDX   5
 #define REPLAY_OUT_IDX  6
@@ -56,12 +56,21 @@
 
 static volatile ulong * fd_shred_version;
 
+static int
+fd_pubkey_eq( fd_pubkey_t const * key1, fd_pubkey_t const * key2 ) {
+  return memcmp( key1->key, key2->key, sizeof(fd_pubkey_t) ) == 0;
+}
+
+static ulong
+fd_pubkey_hash( fd_pubkey_t const * key, ulong seed ) {
+  return fd_hash( seed, key->key, sizeof(fd_pubkey_t) );
+}
+
 /* Contact info table */
 #define MAP_NAME     fd_contact_info_table
 #define MAP_KEY_T    fd_pubkey_t
 #define MAP_KEY_EQ   fd_pubkey_eq
 #define MAP_KEY_HASH fd_pubkey_hash
-#define MAP_KEY_COPY fd_pubkey_copy
 #define MAP_T        fd_contact_info_elem_t
 #include "../../../../util/tmpl/fd_map_giant.c"
 
@@ -105,15 +114,15 @@ struct fd_gossip_tile_ctx {
   ulong       voter_contact_out_wmark;
   ulong       voter_contact_out_chunk;
 
-  fd_frag_meta_t * dedup_out_mcache;
-  ulong *          dedup_out_sync;
-  ulong            dedup_out_depth;
-  ulong            dedup_out_seq;
+  fd_frag_meta_t * verify_out_mcache;
+  ulong *          verify_out_sync;
+  ulong            verify_out_depth;
+  ulong            verify_out_seq;
 
-  fd_wksp_t * dedup_out_mem;
-  ulong       dedup_out_chunk0;
-  ulong       dedup_out_wmark;
-  ulong       dedup_out_chunk;
+  fd_wksp_t * verify_out_mem;
+  ulong       verify_out_chunk0;
+  ulong       verify_out_wmark;
+  ulong       verify_out_chunk;
 
   fd_frag_meta_t * eqvoc_out_mcache;
   ulong *          eqvoc_out_sync;
@@ -318,15 +327,15 @@ gossip_deliver_fun( fd_crds_data_t * data, void * arg ) {
       return;
     }
 
-    uchar * vote_txn_msg = fd_chunk_to_laddr( ctx->dedup_out_mem, ctx->dedup_out_chunk );
+    uchar * vote_txn_msg = fd_chunk_to_laddr( ctx->verify_out_mem, ctx->verify_out_chunk );
     ulong vote_txn_sz    = gossip_vote->txn.raw_sz;
     memcpy( vote_txn_msg, gossip_vote->txn.raw, vote_txn_sz );
 
     ulong sig = 1UL;
-    fd_mcache_publish( ctx->dedup_out_mcache, ctx->dedup_out_depth, ctx->dedup_out_seq, sig, ctx->dedup_out_chunk,
+    fd_mcache_publish( ctx->verify_out_mcache, ctx->verify_out_depth, ctx->verify_out_seq, sig, ctx->verify_out_chunk,
       vote_txn_sz, 0UL, 0, 0 );
-    ctx->dedup_out_seq   = fd_seq_inc( ctx->dedup_out_seq, 1UL );
-    ctx->dedup_out_chunk = fd_dcache_compact_next( ctx->dedup_out_chunk, vote_txn_sz, ctx->dedup_out_chunk0, ctx->dedup_out_wmark );
+    ctx->verify_out_seq   = fd_seq_inc( ctx->verify_out_seq, 1UL );
+    ctx->verify_out_chunk = fd_dcache_compact_next( ctx->verify_out_chunk, vote_txn_sz, ctx->verify_out_chunk0, ctx->verify_out_wmark );
 
   } else if( fd_crds_data_is_contact_info_v1( data ) ) {
     fd_gossip_contact_info_v1_t const * contact_info = &data->inner.contact_info_v1;
@@ -811,7 +820,7 @@ unprivileged_init( fd_topo_t *      topo,
                    strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX  ] ].name,    "gossip_net" )    ||
                    strcmp( topo->links[ tile->out_link_id[ SHRED_OUT_IDX  ] ].name,  "crds_shred" )    ||
                    strcmp( topo->links[ tile->out_link_id[ REPAIR_OUT_IDX ] ].name,  "gossip_repai" )  ||
-                   strcmp( topo->links[ tile->out_link_id[ DEDUP_OUT_IDX  ] ].name,  "gossip_dedup" )  ||
+                   strcmp( topo->links[ tile->out_link_id[ VERIFY_OUT_IDX  ] ].name, "gossip_verif" )  ||
                    strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX   ] ].name,  "gossip_sign" )   ||
                    strcmp( topo->links[ tile->out_link_id[ VOTER_OUT_IDX  ] ].name,  "gossip_voter" )  ||
                    strcmp( topo->links[ tile->out_link_id[ REPLAY_OUT_IDX ] ].name,  "gossip_repla" )  ||
@@ -961,15 +970,15 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->repair_contact_out_chunk       = ctx->repair_contact_out_chunk0;
 
   /* Set up dedup tile output */
-  fd_topo_link_t * dedup_out = &topo->links[ tile->out_link_id[ DEDUP_OUT_IDX ] ];
-  ctx->dedup_out_mcache      = dedup_out->mcache;
-  ctx->dedup_out_sync        = fd_mcache_seq_laddr( ctx->dedup_out_mcache );
-  ctx->dedup_out_depth       = fd_mcache_depth( ctx->dedup_out_mcache );
-  ctx->dedup_out_seq         = fd_mcache_seq_query( ctx->dedup_out_sync );
-  ctx->dedup_out_mem         = topo->workspaces[ topo->objs[ dedup_out->dcache_obj_id ].wksp_id ].wksp;
-  ctx->dedup_out_chunk0      = fd_dcache_compact_chunk0( ctx->dedup_out_mem, dedup_out->dcache );
-  ctx->dedup_out_wmark       = fd_dcache_compact_wmark ( ctx->dedup_out_mem, dedup_out->dcache, dedup_out->mtu );
-  ctx->dedup_out_chunk       = ctx->dedup_out_chunk0;
+  fd_topo_link_t * verify_out = &topo->links[ tile->out_link_id[ VERIFY_OUT_IDX ] ];
+  ctx->verify_out_mcache      = verify_out->mcache;
+  ctx->verify_out_sync        = fd_mcache_seq_laddr( ctx->verify_out_mcache );
+  ctx->verify_out_depth       = fd_mcache_depth( ctx->verify_out_mcache );
+  ctx->verify_out_seq         = fd_mcache_seq_query( ctx->verify_out_sync );
+  ctx->verify_out_mem         = topo->workspaces[ topo->objs[ verify_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->verify_out_chunk0      = fd_dcache_compact_chunk0( ctx->verify_out_mem, verify_out->dcache );
+  ctx->verify_out_wmark       = fd_dcache_compact_wmark ( ctx->verify_out_mem, verify_out->dcache, verify_out->mtu );
+  ctx->verify_out_chunk       = ctx->verify_out_chunk0;
 
   fd_topo_link_t * eqvoc_out = &topo->links[ tile->out_link_id[ EQVOC_OUT_IDX ] ];
   ctx->eqvoc_out_mcache      = eqvoc_out->mcache;
@@ -1019,6 +1028,11 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->gossip_plugin_out_chunk0      = fd_dcache_compact_chunk0( ctx->gossip_plugin_out_mem, gossip_plugin_out->dcache );
     ctx->gossip_plugin_out_wmark       = fd_dcache_compact_wmark ( ctx->gossip_plugin_out_mem, gossip_plugin_out->dcache, gossip_plugin_out->mtu );
     ctx->gossip_plugin_out_chunk       = ctx->gossip_plugin_out_chunk0;
+  } else {
+    ctx->gossip_plugin_out_mem         = NULL;
+    ctx->gossip_plugin_out_chunk0      = 0;
+    ctx->gossip_plugin_out_wmark       = 0;
+    ctx->gossip_plugin_out_chunk       = 0;
   }
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );

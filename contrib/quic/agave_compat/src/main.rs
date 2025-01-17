@@ -29,13 +29,13 @@ mod bindings {
 }
 
 use crate::bindings::{
-    fd_aio_pcapng_get_aio, fd_aio_pcapng_join, fd_aio_pcapng_start, fd_aio_pcapng_t, fd_boot,
+    fd_aio_pcapng_get_aio, fd_aio_pcapng_join, fd_aio_pcapng_start_l3, fd_aio_pcapng_t, fd_boot,
     fd_halt, fd_pcapng_fwrite_tls_key_log, fd_quic_connect, fd_quic_get_aio_net_rx, fd_quic_init,
     fd_quic_limits_t, fd_quic_new_anonymous, fd_quic_new_anonymous_small, fd_quic_service,
     fd_quic_set_aio_net_tx, fd_quic_t, fd_rng_t, fd_udpsock_align, fd_udpsock_footprint,
-    fd_udpsock_get_tx, fd_udpsock_join, fd_udpsock_new, fd_udpsock_service, fd_udpsock_set_rx,
-    fd_udpsock_t, fd_wksp_new_anon, fd_wksp_t, FD_QUIC_CONN_STATE_ACTIVE, FD_QUIC_CONN_STATE_DEAD,
-    FD_QUIC_ROLE_CLIENT, FD_QUIC_ROLE_SERVER
+    fd_udpsock_get_tx, fd_udpsock_join, fd_udpsock_new, fd_udpsock_service, fd_udpsock_set_layer,
+    fd_udpsock_set_rx, fd_udpsock_t, fd_wksp_new_anon, fd_wksp_t, FD_QUIC_CONN_STATE_ACTIVE,
+    FD_QUIC_CONN_STATE_DEAD, FD_QUIC_ROLE_CLIENT, FD_QUIC_ROLE_SERVER, FD_UDPSOCK_LAYER_IP,
 };
 use libc::{fflush, fopen};
 
@@ -109,6 +109,7 @@ unsafe fn agave_to_fdquic() {
     )) as *mut c_void;
     let udpsock = fd_udpsock_join(fd_udpsock_new(udpsock_mem, 2048, 256, 256), udp_sock_fd);
     assert!(!udpsock.is_null(), "Failed to create fd_udpsock_t");
+    fd_udpsock_set_layer(udpsock, FD_UDPSOCK_LAYER_IP);
 
     let quic = fd_quic_new_anonymous_small(wksp, FD_QUIC_ROLE_SERVER as i32, &mut rng);
     assert!(!quic.is_null(), "Failed to create fd_quic_t");
@@ -205,6 +206,7 @@ unsafe fn agave_to_fdquic_bench() {
         )) as *mut c_void;
         let udpsock = fd_udpsock_join(fd_udpsock_new(udpsock_mem, 2048, 1024, 1024), udp_sock_fd);
         assert!(!udpsock.is_null(), "Failed to create fd_udpsock_t");
+        fd_udpsock_set_layer(udpsock, FD_UDPSOCK_LAYER_IP);
 
         let pcap = std::env::var("PCAP").unwrap_or_default();
         if !pcap.is_empty() {
@@ -214,7 +216,7 @@ unsafe fn agave_to_fdquic_bench() {
                 "wb\x00".as_ptr() as *const c_char,
             );
             assert!(!pcap_file.is_null());
-            fd_aio_pcapng_start(pcap_file as *mut c_void);
+            fd_aio_pcapng_start_l3(pcap_file as *mut c_void);
             fflush(pcap_file);
 
             static mut PCAP_FILE_GLOB: *mut FILE = std::ptr::null_mut();
@@ -272,10 +274,9 @@ unsafe fn agave_to_fdquic_bench() {
                 std::thread::sleep(Duration::from_secs(1));
                 println!(
                     "data={:.3} Gbps  net_rx=({:.3} Gbps {:.3} Mpps)",
-                    net_rx_gbps,
-                    net_rx_mpps,
-                    stream_rx_gbps
+                    net_rx_gbps, net_rx_mpps, stream_rx_gbps
                 );
+                println!("{}", metrics.pkt_no_conn_cnt);
             }
         });
 
@@ -352,6 +353,7 @@ unsafe fn fdquic_to_agave() {
     )) as *mut c_void;
     let udpsock = fd_udpsock_join(fd_udpsock_new(udpsock_mem, 2048, 256, 256), udp_sock_fd);
     assert!(!udpsock.is_null(), "Failed to create fd_udpsock_t");
+    fd_udpsock_set_layer(udpsock, FD_UDPSOCK_LAYER_IP);
 
     let quic = fd_quic_new_anonymous_small(wksp, FD_QUIC_ROLE_CLIENT as i32, &mut rng);
     assert!(!quic.is_null(), "Failed to create fd_quic_t");

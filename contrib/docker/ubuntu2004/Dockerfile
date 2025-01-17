@@ -32,7 +32,7 @@ ARG MACHINE=linux_gcc_x86_64
 ARG GITTAG
 RUN git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git ${WORKDIR} && \
 	[ -n ${GITTAG} ] && git checkout ${GITTAG} && \
-	FD_AUTO_INSTALL_PACKAGES=1 DEBIAN_FRONTEND=noninteractive ./deps.sh check install && \
+	FD_AUTO_INSTALL_PACKAGES=1 DEBIAN_FRONTEND=noninteractive ./deps.sh fetch check install && \
 	MACHINE=${MACHINE} make -j all rust --output-sync=target && \
 	cp -a $(find build -type d -name bin) build/out
 

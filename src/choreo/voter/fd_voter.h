@@ -4,6 +4,20 @@
 #include "../fd_choreo_base.h"
 #include "../../funk/fd_funk_rec.h"
 
+/* FD_VOTER_USE_HANDHOLDING:  Define this to non-zero at compile time
+   to turn on additional runtime checks and logging. */
+
+#ifndef FD_VOTER_USE_HANDHOLDING
+#define FD_VOTER_USE_HANDHOLDING 1
+#endif
+
+#define FD_VOTER_STATE_V0_23_5  (0)
+#define FD_VOTER_STATE_V1_14_11 (1)
+#define FD_VOTER_STATE_CURRENT  (2)
+FD_STATIC_ASSERT(FD_VOTER_STATE_V0_23_5 ==fd_vote_state_versioned_enum_v0_23_5,  FD_VOTER_STATE_V0_23_5 );
+FD_STATIC_ASSERT(FD_VOTER_STATE_V1_14_11==fd_vote_state_versioned_enum_v1_14_11, FD_VOTER_STATE_V1_14_11);
+FD_STATIC_ASSERT(FD_VOTER_STATE_CURRENT ==fd_vote_state_versioned_enum_current,  FD_VOTER_STATE_CURRENT );
+
 /* A fd_voter_t describes a voter.  The voter is generic to the context
    in which it is used, eg. it might be a voter in a slot-level context
    in which its stake value may be different from the same voter in an
@@ -32,9 +46,10 @@ struct fd_voter {
 };
 typedef struct fd_voter fd_voter_t;
 
-/* fd_voter_state is a struct representation of the bincode-serialized
-   layout of a voter's state (known in Agave parlance as "VoteState").
-   This struct is then used to support zero-copy access of members.
+/* fd_voter_{vote_old, vote, meta, meta_old, state} are struct
+   representations of the bincode-serialized layout of a voter's state
+   stored in a vote account. These structs are used to support zero-copy
+   reads of the vote account.
 
    The voter's state is versioned, and the serialized formats differ
    depending on this.  Currently, the only version that differs from the
@@ -55,60 +70,72 @@ typedef struct fd_voter fd_voter_t;
    concludes with the tower's root slot.
 
    --------
-   metadata <- variable. depends on vote state version
+   metadata <- sizeof(fd_voter_meta_t) or sizeof(fd_voter_meta_old_t)
    --------
-   cnt      <- 8 bytes. bincode-serialized u64
-   --------
-   votes    <- variable. depends on vote state version and cnt
+   votes    <- {sizeof(vote) or sizeof(vote_old)} * cnt
    --------
    root     <- 5 or 1 byte(s). bincode-serialized Option<u64>
    --------
 */
 
+struct __attribute__((packed)) fd_voter_vote_old {
+  ulong slot;
+  uint  conf;
+};
+typedef struct fd_voter_vote_old fd_voter_vote_old_t;
+
+struct __attribute__((packed)) fd_voter_vote {
+  uchar latency;
+  ulong slot;
+  uint  conf;
+};
+typedef struct fd_voter_vote fd_voter_vote_t;
+
+struct __attribute__((packed)) fd_voter_meta_old {
+  fd_pubkey_t node_pubkey;
+  fd_pubkey_t authorized_voter;
+  ulong       authorized_voter_epoch;
+  uchar       prior_voters[ (32*56+sizeof(ulong)) /* serialized bincode sz */ ];
+  fd_pubkey_t authorized_withdrawer;
+  uchar       commission;
+  ulong       cnt;
+};
+typedef struct fd_voter_meta_old fd_voter_meta_old_t;
+
+struct __attribute__((packed)) fd_voter_meta {
+  fd_pubkey_t node_pubkey;
+  fd_pubkey_t authorized_withdrawer;
+  uchar       commission;
+  ulong       cnt;
+};
+typedef struct fd_voter_meta fd_voter_meta_t;
+
 struct __attribute__((packed)) fd_voter_state {
   uint discriminant; 
   union {
     struct __attribute__((packed)) {
-      fd_pubkey_t node_pubkey;
-      fd_pubkey_t authorized_voter;
-      ulong authorized_voter_epoch;
-      uchar prior_voters[ (32*56+sizeof(ulong)) /* serialized bincode sz */ ];
-      fd_pubkey_t authorized_withdrawer;
-      uchar commission;
-      struct __attribute__((packed)) fd_voter_state_tower_v0_23_5 {
-      ulong cnt;
-        struct __attribute__((packed)) fd_voter_state_tower_vote_v0_23_5 {
-          ulong slot;
-          uint  conf;
-        } votes[32]; /* only first `cnt` elements are valid */
-      } tower;
+      fd_voter_meta_old_t meta;
+      fd_voter_vote_old_t votes[31];
     } v0_23_5;
-    
+
     struct __attribute__((packed)) {
-      fd_pubkey_t node_pubkey;
-      fd_pubkey_t authorized_withdrawer;
-      uchar commission;
-      struct __attribute__((packed)) fd_voter_state_tower {
-        ulong cnt;
-        struct __attribute__((packed)) fd_voter_state_tower_vote {
-          uchar latency;
-          ulong slot;
-          uint  conf;
-        } votes[32]; /* only first `cnt` elements are valid */
-      } tower;
+      fd_voter_meta_t     meta;
+      fd_voter_vote_old_t votes[31];
+    } v1_14_11;
+
+    struct __attribute__((packed)) {
+      fd_voter_meta_t meta;
+      fd_voter_vote_t votes[31];
     };
 
-    /* The tower's root (a bincode-serialized Option<u64>) follows
-      votes. Because the preceding votes are variable-length in
-      serialized form, we cannot encode the root directly inside the
-      struct. */
+    /* The voter's root (a bincode-serialized Option<u64>) follows
+       votes. Because the preceding votes are variable-length in
+       serialized form, we cannot encode the root directly inside the
+       struct. */
   };
 };
-typedef struct fd_voter_state_tower_vote_v0_23_5 fd_voter_state_tower_vote_v0_23_5_t;
-typedef struct fd_voter_state_tower_vote fd_voter_state_tower_vote_t;
-typedef struct fd_voter_state_tower_v0_23_5 fd_voter_state_tower_v0_23_5_t;
-typedef struct fd_voter_state_tower fd_voter_state_tower_t;
 typedef struct fd_voter_state fd_voter_state_t;
+
 
 /* fd_voter_state queries funk for the record in the provided `txn` and
    `key`.  Returns a pointer to the start of the voter's state.  Assumes
@@ -124,10 +151,9 @@ fd_voter_state( fd_funk_t * funk, fd_funk_txn_t const * txn, fd_funk_rec_key_t c
 
 FD_FN_PURE static inline ulong
 fd_voter_state_cnt( fd_voter_state_t const * state ) {
-  if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v0_23_5 ) ) {
-    return state->v0_23_5.tower.cnt;
-  }
-  return state->tower.cnt;
+  if( FD_UNLIKELY( state->discriminant == FD_VOTER_STATE_V0_23_5 ) )  return state->v0_23_5.meta.cnt;
+  if( FD_UNLIKELY( state->discriminant == FD_VOTER_STATE_V1_14_11 ) ) return state->v1_14_11.meta.cnt;
+  return state->meta.cnt;
 }
 
 /* fd_voter_state_vote returns the voter's most recent vote (ie. the
@@ -136,11 +162,12 @@ fd_voter_state_cnt( fd_voter_state_t const * state ) {
 
 FD_FN_PURE static inline ulong
 fd_voter_state_vote( fd_voter_state_t const * state ) {
-  if( FD_UNLIKELY( !fd_voter_state_cnt( state ) ) ) return FD_SLOT_NULL;
-  if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v0_23_5 ) ) {
-    return state->v0_23_5.tower.votes[state->tower.cnt - 1].slot;
-  }
-  return state->tower.votes[state->tower.cnt - 1].slot;
+  ulong cnt = fd_voter_state_cnt( state );
+  if( FD_UNLIKELY( !cnt ) ) return FD_SLOT_NULL;
+
+  if( FD_UNLIKELY( state->discriminant == FD_VOTER_STATE_V0_23_5 ) )  return state->v0_23_5.votes[cnt - 1].slot;
+  if( FD_UNLIKELY( state->discriminant == FD_VOTER_STATE_V1_14_11 ) ) return state->v1_14_11.votes[cnt - 1].slot;
+  return state->votes[cnt - 1].slot;
 }
 
 /* fd_voter_state_root returns the voter's tower root.  Assumes `state`
@@ -148,14 +175,19 @@ fd_voter_state_vote( fd_voter_state_t const * state ) {
 
 FD_FN_PURE static inline ulong
 fd_voter_state_root( fd_voter_state_t const * state ) {
-  uchar * root = fd_ptr_if(
-    state->discriminant == fd_vote_state_versioned_enum_v0_23_5,
-    (uchar *)&state->v0_23_5.tower.votes + sizeof(fd_voter_state_tower_vote_v0_23_5_t) * state->v0_23_5.tower.cnt,
-    (uchar *)&state->tower.votes         + sizeof(fd_voter_state_tower_vote_t)         * state->tower.cnt
-  );
-  uchar is_some = *(uchar *)root;         /* whether the Option is a Some type */
-  if( FD_UNLIKELY( !is_some ) ) return 0; /* the implicit root is the genesis slot */
-  return *(ulong *)(root+sizeof(uchar));
+  ulong cnt = fd_voter_state_cnt( state );
+  if( FD_UNLIKELY( !cnt ) ) return FD_SLOT_NULL;
+
+  uchar * root = NULL;
+  if( FD_UNLIKELY( state->discriminant == FD_VOTER_STATE_V0_23_5 ) )       root = (uchar *)&state->v0_23_5.votes[cnt];
+  else if( FD_UNLIKELY( state->discriminant == FD_VOTER_STATE_V1_14_11 ) ) root = (uchar *)&state->v1_14_11.votes[cnt];
+  else                                                                     root = (uchar *)&state->votes[cnt];
+
+  #if FD_VOTER_USE_HANDHOLDING
+  FD_TEST( root );
+  #endif
+
+  return *(uchar *)root ? *(ulong *)(root+sizeof(uchar)) /* Some(root) */ : FD_SLOT_NULL /* None */;
 }
 
 #endif /* HEADER_fd_src_choreo_voter_fd_voter_h */

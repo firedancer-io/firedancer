@@ -246,7 +246,8 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
       + bank_metrics[ MIDX( COUNTER, BANK, TRANSACTION_LOAD_ADDRESS_TABLES_INVALID_INDEX ) ];
 
     cur->out.bank_invalid +=
-        bank_metrics[ MIDX( COUNTER, BANK, PROCESSING_FAILED ) ];
+        bank_metrics[ MIDX( COUNTER, BANK, PROCESSING_FAILED ) ]
+      + bank_metrics[ MIDX( COUNTER, BANK, PRECOMPILE_VERIFY_FAILURE ) ];
   }
 
 
@@ -254,6 +255,7 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
   volatile ulong const * pack_metrics = fd_metrics_tile( pack->metrics );
 
   cur->out.pack_invalid =
+      pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_BUNDLE_BLACKLIST ) ] +
       pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_WRITE_SYSVAR ) ] +
     + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_ESTIMATION_FAIL ) ] +
     + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_DUPLICATE_ACCOUNT ) ] +
@@ -332,14 +334,17 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     fd_topo_tile_t const * quic = &topo->tiles[ fd_topo_find_tile( topo, "quic", i ) ];
     volatile ulong * quic_metrics = fd_metrics_tile( quic->metrics );
 
-    cur->out.tpu_udp_invalid  += quic_metrics[ MIDX( COUNTER, QUIC, NON_QUIC_PACKET_TOO_SMALL ) ];
-    cur->out.tpu_udp_invalid  += quic_metrics[ MIDX( COUNTER, QUIC, NON_QUIC_PACKET_TOO_LARGE ) ];
-    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, QUIC_PACKET_TOO_SMALL     ) ];
-    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, QUIC_TXN_TOO_LARGE        ) ];
-    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_CRYPTO_FAILED         ) ];
-    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_NO_CONN               ) ];
-    cur->out.quic_abandoned   += quic_metrics[ MIDX( COUNTER, QUIC, TXNS_ABANDONED            ) ];
-    cur->out.quic_frag_drop   += quic_metrics[ MIDX( COUNTER, QUIC, TXNS_OVERRUN              ) ];
+    cur->out.tpu_udp_invalid  += quic_metrics[ MIDX( COUNTER, QUIC, LEGACY_TXN_UNDERSZ      ) ];
+    cur->out.tpu_udp_invalid  += quic_metrics[ MIDX( COUNTER, QUIC, LEGACY_TXN_OVERSZ       ) ];
+    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_UNDERSZ             ) ];
+    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_OVERSZ              ) ];
+    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, TXN_OVERSZ              ) ];
+    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_CRYPTO_FAILED       ) ];
+    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_NO_CONN             ) ];
+    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_NET_HEADER_INVALID  ) ];
+    cur->out.tpu_quic_invalid += quic_metrics[ MIDX( COUNTER, QUIC, PKT_QUIC_HEADER_INVALID ) ];
+    cur->out.quic_abandoned   += quic_metrics[ MIDX( COUNTER, QUIC, TXNS_ABANDONED          ) ];
+    cur->out.quic_frag_drop   += quic_metrics[ MIDX( COUNTER, QUIC, TXNS_OVERRUN            ) ];
 
     for( ulong j=0UL; j<gui->summary.net_tile_cnt; j++ ) {
       /* TODO: Not precise... net frags that were skipped might not have been destined for QUIC tile */
@@ -510,7 +515,7 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
   ulong before_peer_cnt = gui->gossip.peer_cnt;
   for( ulong i=0UL; i<peer_cnt; i++ ) {
     int found = 0;
-    ulong found_idx;
+    ulong found_idx = 0;
     for( ulong j=0UL; j<gui->gossip.peer_cnt; j++ ) {
       if( FD_UNLIKELY( !memcmp( gui->gossip.peers[ j ].pubkey, data+i*(58UL+12UL*6UL), 32UL ) ) ) {
         found_idx = j;

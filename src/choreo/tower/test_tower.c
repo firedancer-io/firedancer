@@ -1,10 +1,10 @@
 #include "fd_tower.h"
 
-uchar mem[16384] __attribute__((aligned(alignof(fd_tower_t))));
+uchar scratch[ FD_TOWER_FOOTPRINT ] __attribute__((aligned(FD_TOWER_ALIGN)));
 
 void
 test_tower_vote( void ) {
-  fd_tower_t * tower = fd_tower_join( fd_tower_new( mem ) );
+  fd_tower_t * tower = fd_tower_join( fd_tower_new( scratch ) );
   FD_TEST( tower );
 
   /* Add some votes to the tower
@@ -19,11 +19,11 @@ test_tower_vote( void ) {
 
   for( ulong i = 0; i < 31; i++ ) {
     fd_tower_vote( tower, i );
-    FD_TEST( fd_tower_votes_cnt( tower->votes ) == i + 1 );
+    FD_TEST( fd_tower_votes_cnt( tower ) == i + 1 );
   }
   for( ulong i = 0; i < 31; i++ ) {
     fd_tower_vote_t   expected_vote = { .slot = i, .conf = 31 - i };
-    fd_tower_vote_t * actual_vote   = fd_tower_votes_peek_index( tower->votes, i );
+    fd_tower_vote_t * actual_vote   = fd_tower_votes_peek_index( tower, i );
     FD_TEST( expected_vote.slot == actual_vote->slot );
     FD_TEST( expected_vote.conf == actual_vote->conf );
   }
@@ -44,7 +44,7 @@ test_tower_vote( void ) {
   fd_tower_vote( tower, new_vote_expiry );
   for( ulong i = 0; i < 30; i++ ) {
     fd_tower_vote_t   expected_vote = { .slot = i, .conf = 31 - i };
-    fd_tower_vote_t * actual_vote   = fd_tower_votes_peek_index( tower->votes, i );
+    fd_tower_vote_t * actual_vote   = fd_tower_votes_peek_index( tower, i );
     FD_TEST( expected_vote.slot == actual_vote->slot );
     FD_TEST( expected_vote.conf == actual_vote->conf );
   }
@@ -52,28 +52,21 @@ test_tower_vote( void ) {
   /* Check new vote */
 
   fd_tower_vote_t   expected_vote = { .slot = new_vote_expiry, .conf = 1 };
-  fd_tower_vote_t * actual_vote   = fd_tower_votes_peek_index( tower->votes, 30 );
+  fd_tower_vote_t * actual_vote   = fd_tower_votes_peek_index( tower, 30 );
   FD_TEST( expected_vote.slot == actual_vote->slot );
   FD_TEST( expected_vote.conf == actual_vote->conf );
 
   /* CASE 2: NEW VOTE WHICH PRODUCES NEW ROOT */
 
   ulong new_vote_root = 34;
-  fd_tower_vote( tower, new_vote_root );
-  FD_TEST( fd_tower_is_max_lockout( tower ) );
-
-  /* Check root */
-
-  ulong expected_root = 0;
-  ulong actual_root   = fd_tower_publish( tower );
-  FD_TEST( actual_root == expected_root );
+  FD_TEST( fd_tower_vote( tower, new_vote_root ) == 0 );
 
   /* Check all existing votes were repositioned one index lower and one
      confirmation higher. */
 
   for( ulong i = 0; i < 29 /* one of the original slots was rooted */; i++ ) {
     fd_tower_vote_t   expected_vote = { .slot = i + 1, .conf = 31 - i };
-    fd_tower_vote_t * actual_vote   = fd_tower_votes_peek_index( tower->votes, i );
+    fd_tower_vote_t * actual_vote   = fd_tower_votes_peek_index( tower, i );
     FD_TEST( expected_vote.slot == actual_vote->slot );
     FD_TEST( expected_vote.conf == actual_vote->conf );
   }
@@ -81,7 +74,7 @@ test_tower_vote( void ) {
   /* Check new vote in the tower. */
 
   fd_tower_vote_t   expected_vote_root = { .slot = new_vote_root, .conf = 1 };
-  fd_tower_vote_t * actual_vote_root   = fd_tower_votes_peek_index( tower->votes, 30 );
+  fd_tower_vote_t * actual_vote_root   = fd_tower_votes_peek_index( tower, 30 );
   FD_TEST( expected_vote_root.slot == actual_vote_root->slot );
   FD_TEST( expected_vote_root.conf == actual_vote_root->conf );
 

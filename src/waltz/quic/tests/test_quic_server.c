@@ -31,7 +31,7 @@ main( int argc, char ** argv ) {
 
   fd_aio_t const * aio_rx = fd_quic_get_aio_net_rx( quic );
   if( fd_quic_test_pcap ) {
-    FD_TEST( 1UL==fd_aio_pcapng_start( fd_quic_test_pcap ) );
+    FD_TEST( 1UL==fd_aio_pcapng_start_l3( fd_quic_test_pcap ) );
     static fd_aio_pcapng_t pcap_rx[1];
     FD_TEST( fd_aio_pcapng_join( pcap_rx, aio_rx, fd_quic_test_pcap ) );
     aio_rx = fd_aio_pcapng_get_aio( pcap_rx );
@@ -78,6 +78,7 @@ main( int argc, char ** argv ) {
   }
   fd_quic_set_aio_net_tx( quic, aio_tx );
 
+  quic->cb.stream_rx = NULL;
   FD_TEST( fd_quic_init( quic ) );
 
   /* TODO support pcap if requested */

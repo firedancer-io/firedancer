@@ -58,12 +58,7 @@ var globFdToGo chan []byte
 
 // wrapDatagram wraps a UDP payload in fake Ethernet, IPv4, and UDP headers.
 func wrapDatagram(payload []byte, src *net.UDPAddr, dst *net.UDPAddr, seq *int) []byte {
-	buf := make([]byte, 0, 14+20+8+len(payload))
-
-	// Ethernet header
-	buf = buf[:len(buf)+14]
-	l2 := buf[len(buf)-14:]
-	binary.BigEndian.PutUint16(l2[12:14], 0x0800) // IPv4
+	buf := make([]byte, 0, 20+8+len(payload))
 
 	// IPv4 header
 	buf = buf[:len(buf)+20]
@@ -101,7 +96,7 @@ func wrapDatagram(payload []byte, src *net.UDPAddr, dst *net.UDPAddr, seq *int) 
 // unwrapDatagram undoes fd_quic's Ethernet, IPv4, and UDP headers.
 func unwrapDatagram(buf []byte) []byte {
 	// FIXME doesn't handle variable-size IPv4 headers
-	return buf[14+20+8:]
+	return buf[20+8:]
 }
 
 //export fdSendCallback
@@ -397,7 +392,7 @@ func main() {
 		if C.fd_quic_test_pcap == nil {
 			log.Fatal("fopen failed")
 		}
-		C.fd_aio_pcapng_start(unsafe.Pointer(C.fd_quic_test_pcap))
+		C.fd_aio_pcapng_start_l3(unsafe.Pointer(C.fd_quic_test_pcap))
 	}
 
 	clientTest(fdQuic)

@@ -229,6 +229,7 @@ fd_funk_delete( void * shfunk ) {
   }
 
   /* Free all value resources here */
+  fd_alloc_free( fd_funk_alloc( funk, wksp ), fd_funk_get_partvec( funk, wksp ) );
 
   fd_wksp_free_laddr( fd_alloc_delete       ( fd_alloc_leave       ( fd_funk_alloc  ( funk, wksp ) ) ) );
   fd_wksp_free_laddr( fd_funk_rec_map_delete( fd_funk_rec_map_leave( fd_funk_rec_map( funk, wksp ) ) ) );

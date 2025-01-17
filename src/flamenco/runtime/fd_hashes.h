@@ -63,32 +63,19 @@ fd_accounts_hash( fd_funk_t          * funk,
                   fd_tpool_t         * tpool,
                   fd_hash_t          * accounts_hash );
 
-/* Special version for verifying incremental snapshot. */
-
-int
-fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx,
-                           fd_hash_t * accounts_hash,
-                           fd_funk_txn_t * child_txn,
-                           ulong do_hash_verify );
-
-/* Same as fd_accounts_hash_inc_only but takes a list of pubkeys to hash.
-   Query the accounts from the root of funk. This is done as a read-only
-   way to generate an accounts hash from a subset of accounts from funk. */
-
-int
-fd_accounts_hash_inc_no_txn( fd_funk_t *                 funk,
-                             fd_valloc_t                 valloc,
-                             fd_hash_t *                 accounts_hash,
-                             fd_funk_rec_key_t const * * pubkeys,
-                             ulong                       pubkeys_len,
-                             ulong                       do_hash_verify );
-
-/* Generate a non-incremental hash of the entire account database, including epoch bank hash. */
+/* Generate a non-incremental hash of the entire account database, conditionally including in the epoch account hash. */
 int
 fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx,
                   fd_tpool_t * tpool,
                   fd_hash_t * accounts_hash,
                   uint check_hash );
+
+/* Generate an incremental hash of the entire account database, conditionally including in the epoch account hash. */
+int
+fd_snapshot_inc_hash( fd_exec_slot_ctx_t * slot_ctx,
+                      fd_hash_t *          accounts_hash,
+                      fd_funk_txn_t *      child_txn,
+                      uint                 check_hash );
 
 /* Generate a non-incremental hash of the entire account database, including
    the epoch account hash. It differs from fd_snapshot_hash in that this version

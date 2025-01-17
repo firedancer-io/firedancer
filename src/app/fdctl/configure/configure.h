@@ -67,6 +67,7 @@ extern configure_stage_t fd_cfg_stage_hugetlbfs;
 extern configure_stage_t fd_cfg_stage_sysctl;
 extern configure_stage_t fd_cfg_stage_ethtool_channels;
 extern configure_stage_t fd_cfg_stage_ethtool_gro;
+extern configure_stage_t fd_cfg_stage_ethtool_loopback;
 extern configure_stage_t fd_cfg_stage_workspace;
 
 extern configure_stage_t * STAGES[];
