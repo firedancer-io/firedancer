@@ -248,6 +248,11 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP_ARRAY( uint,   consensus.hard_fork_at_slots                     );
   CFG_POP_ARRAY( cstr,   consensus.known_validators                       );
   CFG_POP      ( bool,   consensus.os_network_limits_test                 );
+  CFG_POP      ( cstr,   consensus.tower_storage                          );
+  CFG_POP      ( cstr,   consensus.etcd.key                               );
+  CFG_POP      ( cstr,   consensus.etcd.cert                              );
+  CFG_POP      ( cstr,   consensus.etcd.cacert                            );
+  CFG_POP      ( cstr,   consensus.etcd.endpoint                          );
 
   CFG_POP      ( ushort, rpc.port                                         );
   CFG_POP      ( bool,   rpc.full_api                                     );

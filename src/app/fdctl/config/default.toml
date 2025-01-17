@@ -519,6 +519,44 @@ dynamic_port_range = "8900-9000"
     # the `--trusted-validator` argument.
     known_validators = []
 
+    # The place to store the vote tower file.  The two options are "file"
+    # and "etcd".  If set to "etcd", then the [conseneus.etcd] section
+    # needs to be populated with the etcd credentials.  This option is
+    # passed to the Agave client with the `--tower-storage` argument.
+    #
+    # Note that the Frankendancer client does not support `set-identity`
+    # functionality.
+    tower_storage = "file"
+
+    # If [consensus.tower_storage] is set to "etcd", use this section to
+    # populate the etcd credentials that the validator needs to use to
+    # establish a connection to etcd.  For more information regarding
+    # generating these keys and setting up an etcd cluster, please refer to
+    # https://docs.anza.xyz/operations/guides/validator-failover#etcd-cluster-setup.
+    #
+    # Note that the Frankendancer client does not support `set-identity`
+    # functionality.
+    [consensus.etcd]
+        # The path to the client private keypair for the client certicate.
+        # This option is passed to the Agave client with the
+        # `--etcd-key-file` argument.
+        key = ""
+
+        # The path to client certificate to authenticate with etcd. This
+        # option is passed to the Agave client with the `--etcd-cert-file`
+        # argument.
+        cert = ""
+
+        # The path to the certifcate of the trusted certificate authority
+        # of the etcd cluster. This option is passed to the Agave client
+        # with the `--etcd-cacert-file` argument.
+        cacert = ""
+
+        # The endpoint of the etcd cluster, specified as IP:PORT.  For
+        # example: "127.0.0.1:2379". This option is passed to the Agave
+        # client with the `--etcd-endpoint` argument.
+        endpoint = ""
+
 # CPU cores in Firedancer are carefully managed.  Where a typical
 # program lets the operating system scheduler determine which threads to
 # run on which cores and for how long, Firedancer overrides most of this

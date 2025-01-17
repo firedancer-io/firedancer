@@ -672,6 +672,15 @@ fdctl_cfg_from_env( int *      pargc,
 
   strcpy( config->cluster, cluster_to_cstr( cluster ) );
 
+  if( FD_UNLIKELY( !strcmp( config->consensus.tower_storage, "etcd" ) ) ) {
+    if( FD_UNLIKELY( !strcmp( config->consensus.etcd.key, "" ) ) ) FD_LOG_ERR(( "using etcd for tower storage but [consensus.etcd.key] is not specified" ));
+    if( FD_UNLIKELY( !strcmp( config->consensus.etcd.cert, "" ) ) ) FD_LOG_ERR(( "using etcd for tower storage but [consensus.etcd.cert] is not specified" ));
+    if( FD_UNLIKELY( !strcmp( config->consensus.etcd.cacert, "" ) ) ) FD_LOG_ERR(( "using etcd for tower storage but [consensus.etcd.cacert] is not specified" ));
+    if( FD_UNLIKELY( !strcmp( config->consensus.etcd.endpoint, "" ) ) ) FD_LOG_ERR(( "using etcd for tower storage but [consensus.etcd.endpoint] is not specified" ));
+  } else if( FD_UNLIKELY( strcmp( config->consensus.tower_storage, "file" ) ) ) {
+    FD_LOG_ERR(( "invalid value for [consensus.tower_storage]: allowed values are \"file\" and \"etcd\"" ));
+  }
+
 #ifdef FD_HAS_NO_AGAVE
   if( FD_UNLIKELY( config->is_live_cluster && cluster!=FD_CONFIG_CLUSTER_TESTNET ) )
     FD_LOG_ERR(( "Attempted to start against live cluster `%s`. Firedancer is not "

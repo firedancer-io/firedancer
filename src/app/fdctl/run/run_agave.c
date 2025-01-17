@@ -94,6 +94,14 @@ agave_boot( config_t * config ) {
   if( FD_UNLIKELY( !config->consensus.os_network_limits_test ) )
     ADD1( "--no-os-network-limits-test" );
 
+  ADD( "--tower-storage", config->consensus.tower_storage );
+  if( !strcmp( config->consensus.tower_storage, "etcd" ) ) {
+    ADD( "--etcd-key-file",    config->consensus.etcd.key );
+    ADD( "--etcd-cert-file",   config->consensus.etcd.cert );
+    ADD( "--etcd-cacert-file", config->consensus.etcd.cacert );
+    ADD( "--etcd-endpoint",    config->consensus.etcd.endpoint );
+  }
+
   /* ledger */
   ADD( "--ledger", config->ledger.path );
   if( strcmp( "", config->ledger.accounts_path ) ) ADD( "--accounts", config->ledger.accounts_path );

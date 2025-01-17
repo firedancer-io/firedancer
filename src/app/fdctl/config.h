@@ -103,6 +103,15 @@ typedef struct {
     ulong  known_validators_cnt;
     char   known_validators[ 16 ][ 256 ];
     int    os_network_limits_test;
+    char   tower_storage[ 16 ];
+
+    struct {
+      char key[ PATH_MAX ];
+      char cert[ PATH_MAX ];
+      char cacert[ PATH_MAX ];
+      char endpoint[ 32 ];
+    } etcd;
+
   } consensus;
 
   struct {
