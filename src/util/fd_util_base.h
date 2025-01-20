@@ -912,7 +912,59 @@ fd_type_pun_const( void const * p ) {
    invoking thread and it does not provide any fencing.  If a thread
    once begin is nested inside a once begin, that thread once begin will
    only be executed on the thread that executes the thread once begin.
-   It is similarly okay to nest ONCE block inside a THREAD_ONCE block. */
+   It is similarly okay to nest ONCE block inside a THREAD_ONCE block.
+
+   FD_TURNSTILE_{BEGIN,BLOCKED,END} implement a turnstile for all
+   threads in a process.  Only one thread can be in the turnstile at a
+   time.  Usage:
+
+     FD_TURNSTILE_BEGIN(blocking) {
+
+       ... At this point, we are the only thread executing this block of
+       ... code.
+       ...
+       ... Do operations that must be done by threads one-at-a-time
+       ... here.
+       ...
+       ... Because compiler memory fences are done just before entering
+       ... and after exiting this block, there is typically no need to
+       ... use any atomics / volatile / fencing here.  That is, we can
+       ... just write "normal" code on platforms where writes to memory
+       ... become visible to other threads in the order in which they
+       ... were issued in the machine code (e.g. x86) as others will not
+       ... proceed with this block until they exit it.  YMMV for non-x86
+       ... platforms (probably need additional hardware store fences in
+       ... these macros).
+       ...
+       ... It is safe to use "break" and/or "continue" within this
+       ... block.  The block will exit with the appropriate compiler
+       ... fencing and unlocking.  Execution will resume immediately
+       ... after FD_TURNSTILE_END.
+
+       ... IMPORTANT SAFETY TIP!  DO NOT RETURN FROM THIS BLOCK.
+
+     } FD_TURNSTILE_BLOCKED {
+
+       ... At this point, there was another thread in the turnstile when
+       ... we tried to enter the turnstile.
+       ...
+       ... Handle blocked here.
+       ...
+       ... On exiting this block, if blocking was zero, we will resume
+       ... execution immediately after FD_TURNSTILE_END.  If blocking
+       ... was non-zero, we will resume execution immediately before
+       ... FD_TURNSTILE_BEGIN (e.g. we will retry again after a short
+       ... spin pause).
+       ...
+       ... It is safe to use "break" and/or "continue" within this
+       ... block.  Both will exit this block and resume execution
+       ... at the location indicated as per what blocking specified
+       ... then the turnstile was entered.
+       ...
+       ... It is technically safe to return from this block but
+       ... also extremely gross.
+
+     } FD_TURNSTILE_END; */
 
 #if FD_HAS_THREADS /* Potentially more than one thread in the process */
 
@@ -951,6 +1003,34 @@ fd_type_pun_const( void const * p ) {
     }                                  \
   } while(0)
 
+#define FD_TURNSTILE_BEGIN(blocking) do {                               \
+    static volatile int _fd_turnstile_state    = 0;                     \
+    int                 _fd_turnstile_blocking = (blocking);            \
+    for(;;) {                                                           \
+      int _fd_turnstile_tmp = _fd_turnstile_state;                      \
+      if( FD_LIKELY( !_fd_turnstile_tmp ) &&                            \
+          FD_LIKELY( !FD_ATOMIC_CAS( &_fd_turnstile_state, 0, 1 ) ) ) { \
+        FD_COMPILER_MFENCE();                                           \
+        do
+
+#define FD_TURNSTILE_BLOCKED     \
+        while(0);                \
+        FD_COMPILER_MFENCE();    \
+        _fd_turnstile_state = 0; \
+        FD_COMPILER_MFENCE();    \
+        break;                   \
+      }                          \
+      FD_COMPILER_MFENCE();      \
+      do
+
+#define FD_TURNSTILE_END                                             \
+      while(0);                                                      \
+      FD_COMPILER_MFENCE();                                          \
+      if( !_fd_turnstile_blocking ) break; /* likely compile time */ \
+      FD_SPIN_PAUSE();                                               \
+    }                                                                \
+  } while(0)
+
 #else /* Only one thread in the process */
 
 #ifndef FD_TL
@@ -970,6 +1050,23 @@ fd_type_pun_const( void const * p ) {
 
 #define FD_THREAD_ONCE_BEGIN FD_ONCE_BEGIN
 #define FD_THREAD_ONCE_END   FD_ONCE_END
+
+#define FD_TURNSTILE_BEGIN(blocking) do { \
+    (void)(blocking);                     \
+    FD_COMPILER_MFENCE();                 \
+    if( 1 ) {                             \
+      do
+
+#define FD_TURNSTILE_BLOCKED \
+      while(0);              \
+    } else {                 \
+      do
+
+#define FD_TURNSTILE_END  \
+      while(0);           \
+    }                     \
+    FD_COMPILER_MFENCE(); \
+  } while(0)
 
 #endif
 

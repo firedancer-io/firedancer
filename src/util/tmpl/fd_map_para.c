@@ -1023,7 +1023,7 @@
 
        }
 
-       mymap_iter_unlock( lock_seq + lock_idx, 1UL ); // unlock incrementally
+       mymap_iter_unlock( join, lock_seq + lock_idx, 1UL ); // unlock incrementally
      }
 
      ... free lock_seq here
