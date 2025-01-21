@@ -46,11 +46,11 @@ fd_hashes_load( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc ) {
 
   /* FIXME: Do not hardcode the number of vote accounts */
 
-  slot_ctx->slot_bank.stake_account_keys.stake_accounts_root = NULL;
-  slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool = fd_stake_accounts_pair_t_map_alloc( valloc, 100000UL );
+  slot_ctx->slot_bank.stake_account_keys.account_keys_root = NULL;
+  slot_ctx->slot_bank.stake_account_keys.account_keys_pool = fd_account_keys_pair_t_map_alloc( valloc, 100000UL );
 
-  slot_ctx->slot_bank.vote_account_keys.vote_accounts_root = NULL;
-  slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc( valloc, 100000UL );
+  slot_ctx->slot_bank.vote_account_keys.account_keys_root = NULL;
+  slot_ctx->slot_bank.vote_account_keys.account_keys_pool = fd_account_keys_pair_t_map_alloc( valloc, 100000UL );
 
   slot_ctx->slot_bank.collected_execution_fees = 0UL;
   slot_ctx->slot_bank.collected_priority_fees  = 0UL;
