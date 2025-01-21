@@ -49,10 +49,18 @@ void
 fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account, ulong * new_rate_activation_epoch );
 
 void
-refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
-                       fd_stake_history_t const * history,
-                       ulong *                    new_rate_activation_epoch,
-                       fd_epoch_info_t           *temp_info );
+fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
+                          fd_stake_history_t const * history,
+                          ulong *                    new_rate_activation_epoch,
+                          fd_epoch_info_t           *temp_info );
+
+void 
+fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
+                           fd_stakes_t const *        stakes,
+                           fd_stake_history_t const * history,
+                           ulong *                    new_rate_activation_epoch,
+                           fd_stake_history_entry_t * accumulator,
+                           fd_epoch_info_t *          temp_info );
 
 FD_PROTOTYPES_END
 

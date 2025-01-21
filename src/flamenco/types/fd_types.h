@@ -543,56 +543,56 @@ typedef struct fd_vote_accounts_off fd_vote_accounts_off_t;
 #define FD_VOTE_ACCOUNTS_OFF_FOOTPRINT sizeof(fd_vote_accounts_off_t)
 #define FD_VOTE_ACCOUNTS_OFF_ALIGN (8UL)
 
-/* Encoded Size: Fixed (36 bytes) */
-struct __attribute__((aligned(8UL))) fd_stake_accounts_pair {
+/* Encoded Size: Fixed (33 bytes) */
+struct __attribute__((aligned(8UL))) fd_account_keys_pair {
   fd_pubkey_t key;
-  uint exists;
+  uchar exists;
 };
-typedef struct fd_stake_accounts_pair fd_stake_accounts_pair_t;
-#define FD_STAKE_ACCOUNTS_PAIR_FOOTPRINT sizeof(fd_stake_accounts_pair_t)
-#define FD_STAKE_ACCOUNTS_PAIR_ALIGN (8UL)
+typedef struct fd_account_keys_pair fd_account_keys_pair_t;
+#define FD_ACCOUNT_KEYS_PAIR_FOOTPRINT sizeof(fd_account_keys_pair_t)
+#define FD_ACCOUNT_KEYS_PAIR_ALIGN (8UL)
 
-struct __attribute__((aligned(8UL))) fd_stake_accounts_pair_off {
+struct __attribute__((aligned(8UL))) fd_account_keys_pair_off {
   uint key_off;
   uint exists_off;
 };
-typedef struct fd_stake_accounts_pair_off fd_stake_accounts_pair_off_t;
-#define FD_STAKE_ACCOUNTS_PAIR_OFF_FOOTPRINT sizeof(fd_stake_accounts_pair_off_t)
-#define FD_STAKE_ACCOUNTS_PAIR_OFF_ALIGN (8UL)
+typedef struct fd_account_keys_pair_off fd_account_keys_pair_off_t;
+#define FD_ACCOUNT_KEYS_PAIR_OFF_FOOTPRINT sizeof(fd_account_keys_pair_off_t)
+#define FD_ACCOUNT_KEYS_PAIR_OFF_ALIGN (8UL)
 
-typedef struct fd_stake_accounts_pair_t_mapnode fd_stake_accounts_pair_t_mapnode_t;
-#define REDBLK_T fd_stake_accounts_pair_t_mapnode_t
-#define REDBLK_NAME fd_stake_accounts_pair_t_map
+typedef struct fd_account_keys_pair_t_mapnode fd_account_keys_pair_t_mapnode_t;
+#define REDBLK_T fd_account_keys_pair_t_mapnode_t
+#define REDBLK_NAME fd_account_keys_pair_t_map
 #define REDBLK_IMPL_STYLE 1
 #include "../../util/tmpl/fd_redblack.c"
-struct fd_stake_accounts_pair_t_mapnode {
-    fd_stake_accounts_pair_t elem;
+struct fd_account_keys_pair_t_mapnode {
+    fd_account_keys_pair_t elem;
     ulong redblack_parent;
     ulong redblack_left;
     ulong redblack_right;
     int redblack_color;
 };
-static inline fd_stake_accounts_pair_t_mapnode_t *
-fd_stake_accounts_pair_t_map_alloc( fd_valloc_t valloc, ulong len ) {
+static inline fd_account_keys_pair_t_mapnode_t *
+fd_account_keys_pair_t_map_alloc( fd_valloc_t valloc, ulong len ) {
   if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, fd_stake_accounts_pair_t_map_align(), fd_stake_accounts_pair_t_map_footprint(len));
-  return fd_stake_accounts_pair_t_map_join(fd_stake_accounts_pair_t_map_new(mem, len));
+  void * mem = fd_valloc_malloc( valloc, fd_account_keys_pair_t_map_align(), fd_account_keys_pair_t_map_footprint(len));
+  return fd_account_keys_pair_t_map_join(fd_account_keys_pair_t_map_new(mem, len));
 }
 /* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_stake_accounts {
-  fd_stake_accounts_pair_t_mapnode_t * stake_accounts_pool;
-  fd_stake_accounts_pair_t_mapnode_t * stake_accounts_root;
+struct __attribute__((aligned(8UL))) fd_account_keys {
+  fd_account_keys_pair_t_mapnode_t * account_keys_pool;
+  fd_account_keys_pair_t_mapnode_t * account_keys_root;
 };
-typedef struct fd_stake_accounts fd_stake_accounts_t;
-#define FD_STAKE_ACCOUNTS_FOOTPRINT sizeof(fd_stake_accounts_t)
-#define FD_STAKE_ACCOUNTS_ALIGN (8UL)
+typedef struct fd_account_keys fd_account_keys_t;
+#define FD_ACCOUNT_KEYS_FOOTPRINT sizeof(fd_account_keys_t)
+#define FD_ACCOUNT_KEYS_ALIGN (8UL)
 
-struct __attribute__((aligned(8UL))) fd_stake_accounts_off {
-  uint stake_accounts_off;
+struct __attribute__((aligned(8UL))) fd_account_keys_off {
+  uint account_keys_off;
 };
-typedef struct fd_stake_accounts_off fd_stake_accounts_off_t;
-#define FD_STAKE_ACCOUNTS_OFF_FOOTPRINT sizeof(fd_stake_accounts_off_t)
-#define FD_STAKE_ACCOUNTS_OFF_ALIGN (8UL)
+typedef struct fd_account_keys_off fd_account_keys_off_t;
+#define FD_ACCOUNT_KEYS_OFF_FOOTPRINT sizeof(fd_account_keys_off_t)
+#define FD_ACCOUNT_KEYS_OFF_ALIGN (8UL)
 
 /* fd_stake_weight_t assigns an Ed25519 public key (node identity) a stake weight number measured in lamports */
 /* Encoded Size: Fixed (40 bytes) */
@@ -704,39 +704,6 @@ struct __attribute__((aligned(8UL))) fd_stake_off {
 typedef struct fd_stake_off fd_stake_off_t;
 #define FD_STAKE_OFF_FOOTPRINT sizeof(fd_stake_off_t)
 #define FD_STAKE_OFF_ALIGN (8UL)
-
-/* Encoded Size: Fixed (104 bytes) */
-struct __attribute__((aligned(8UL))) fd_epoch_info_pair {
-  fd_pubkey_t account;
-  fd_stake_t stake;
-};
-typedef struct fd_epoch_info_pair fd_epoch_info_pair_t;
-#define FD_EPOCH_INFO_PAIR_FOOTPRINT sizeof(fd_epoch_info_pair_t)
-#define FD_EPOCH_INFO_PAIR_ALIGN (8UL)
-
-struct __attribute__((aligned(8UL))) fd_epoch_info_pair_off {
-  uint account_off;
-  uint stake_off;
-};
-typedef struct fd_epoch_info_pair_off fd_epoch_info_pair_off_t;
-#define FD_EPOCH_INFO_PAIR_OFF_FOOTPRINT sizeof(fd_epoch_info_pair_off_t)
-#define FD_EPOCH_INFO_PAIR_OFF_ALIGN (8UL)
-
-/* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_epoch_info {
-  ulong infos_len;
-  fd_epoch_info_pair_t * infos;
-};
-typedef struct fd_epoch_info fd_epoch_info_t;
-#define FD_EPOCH_INFO_FOOTPRINT sizeof(fd_epoch_info_t)
-#define FD_EPOCH_INFO_ALIGN (8UL)
-
-struct __attribute__((aligned(8UL))) fd_epoch_info_off {
-  uint infos_off;
-};
-typedef struct fd_epoch_info_off fd_epoch_info_off_t;
-#define FD_EPOCH_INFO_OFF_FOOTPRINT sizeof(fd_epoch_info_off_t)
-#define FD_EPOCH_INFO_OFF_ALIGN (8UL)
 
 /* Encoded Size: Fixed (104 bytes) */
 struct __attribute__((aligned(8UL))) fd_stake_pair {
@@ -2642,8 +2609,8 @@ struct __attribute__((aligned(128UL))) fd_slot_bank {
   ulong collected_rent;
   fd_vote_accounts_t epoch_stakes;
   fd_sol_sysvar_last_restart_slot_t last_restart_slot;
-  fd_stake_accounts_t stake_account_keys;
-  fd_vote_accounts_t vote_account_keys;
+  fd_account_keys_t stake_account_keys;
+  fd_account_keys_t vote_account_keys;
   ulong lamports_per_signature;
   ulong transaction_count;
   fd_slot_lthash_t lthash;
@@ -5133,6 +5100,77 @@ typedef struct fd_duplicate_slot_proof_off fd_duplicate_slot_proof_off_t;
 #define FD_DUPLICATE_SLOT_PROOF_OFF_FOOTPRINT sizeof(fd_duplicate_slot_proof_off_t)
 #define FD_DUPLICATE_SLOT_PROOF_OFF_ALIGN (8UL)
 
+/* Encoded Size: Fixed (104 bytes) */
+struct __attribute__((aligned(8UL))) fd_epoch_info_pair {
+  fd_pubkey_t account;
+  fd_stake_t stake;
+};
+typedef struct fd_epoch_info_pair fd_epoch_info_pair_t;
+#define FD_EPOCH_INFO_PAIR_FOOTPRINT sizeof(fd_epoch_info_pair_t)
+#define FD_EPOCH_INFO_PAIR_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_epoch_info_pair_off {
+  uint account_off;
+  uint stake_off;
+};
+typedef struct fd_epoch_info_pair_off fd_epoch_info_pair_off_t;
+#define FD_EPOCH_INFO_PAIR_OFF_FOOTPRINT sizeof(fd_epoch_info_pair_off_t)
+#define FD_EPOCH_INFO_PAIR_OFF_ALIGN (8UL)
+
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_vote_info_pair {
+  fd_pubkey_t account;
+  fd_vote_state_versioned_t state;
+};
+typedef struct fd_vote_info_pair fd_vote_info_pair_t;
+#define FD_VOTE_INFO_PAIR_FOOTPRINT sizeof(fd_vote_info_pair_t)
+#define FD_VOTE_INFO_PAIR_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_vote_info_pair_off {
+  uint account_off;
+  uint state_off;
+};
+typedef struct fd_vote_info_pair_off fd_vote_info_pair_off_t;
+#define FD_VOTE_INFO_PAIR_OFF_FOOTPRINT sizeof(fd_vote_info_pair_off_t)
+#define FD_VOTE_INFO_PAIR_OFF_ALIGN (8UL)
+
+typedef struct fd_vote_info_pair_t_mapnode fd_vote_info_pair_t_mapnode_t;
+#define REDBLK_T fd_vote_info_pair_t_mapnode_t
+#define REDBLK_NAME fd_vote_info_pair_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+struct fd_vote_info_pair_t_mapnode {
+    fd_vote_info_pair_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_vote_info_pair_t_mapnode_t *
+fd_vote_info_pair_t_map_alloc( fd_valloc_t valloc, ulong len ) {
+  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
+  void * mem = fd_valloc_malloc( valloc, fd_vote_info_pair_t_map_align(), fd_vote_info_pair_t_map_footprint(len));
+  return fd_vote_info_pair_t_map_join(fd_vote_info_pair_t_map_new(mem, len));
+}
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_epoch_info {
+  ulong stake_infos_len;
+  fd_epoch_info_pair_t * stake_infos;
+  fd_vote_info_pair_t_mapnode_t * vote_states_pool;
+  fd_vote_info_pair_t_mapnode_t * vote_states_root;
+};
+typedef struct fd_epoch_info fd_epoch_info_t;
+#define FD_EPOCH_INFO_FOOTPRINT sizeof(fd_epoch_info_t)
+#define FD_EPOCH_INFO_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_epoch_info_off {
+  uint stake_infos_off;
+  uint vote_states_off;
+};
+typedef struct fd_epoch_info_off fd_epoch_info_off_t;
+#define FD_EPOCH_INFO_OFF_FOOTPRINT sizeof(fd_epoch_info_off_t)
+#define FD_EPOCH_INFO_OFF_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -5476,37 +5514,37 @@ int fd_vote_accounts_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
 void fd_vote_accounts_decode_archival_unsafe( fd_vote_accounts_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_vote_accounts_encode_archival( fd_vote_accounts_t const * self, fd_bincode_encode_ctx_t * ctx );
 
-void fd_stake_accounts_pair_new( fd_stake_accounts_pair_t * self );
-int fd_stake_accounts_pair_decode( fd_stake_accounts_pair_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_accounts_pair_decode_preflight( fd_bincode_decode_ctx_t * ctx );
-void fd_stake_accounts_pair_decode_unsafe( fd_stake_accounts_pair_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_accounts_pair_decode_offsets( fd_stake_accounts_pair_off_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_accounts_pair_encode( fd_stake_accounts_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_stake_accounts_pair_destroy( fd_stake_accounts_pair_t * self, fd_bincode_destroy_ctx_t * ctx );
-void fd_stake_accounts_pair_walk( void * w, fd_stake_accounts_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_stake_accounts_pair_size( fd_stake_accounts_pair_t const * self );
-ulong fd_stake_accounts_pair_footprint( void );
-ulong fd_stake_accounts_pair_align( void );
-int fd_stake_accounts_pair_decode_archival( fd_stake_accounts_pair_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_accounts_pair_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
-void fd_stake_accounts_pair_decode_archival_unsafe( fd_stake_accounts_pair_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_accounts_pair_encode_archival( fd_stake_accounts_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_account_keys_pair_new( fd_account_keys_pair_t * self );
+int fd_account_keys_pair_decode( fd_account_keys_pair_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_account_keys_pair_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_account_keys_pair_decode_unsafe( fd_account_keys_pair_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_account_keys_pair_decode_offsets( fd_account_keys_pair_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_account_keys_pair_encode( fd_account_keys_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_account_keys_pair_destroy( fd_account_keys_pair_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_account_keys_pair_walk( void * w, fd_account_keys_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_account_keys_pair_size( fd_account_keys_pair_t const * self );
+ulong fd_account_keys_pair_footprint( void );
+ulong fd_account_keys_pair_align( void );
+int fd_account_keys_pair_decode_archival( fd_account_keys_pair_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_account_keys_pair_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_account_keys_pair_decode_archival_unsafe( fd_account_keys_pair_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_account_keys_pair_encode_archival( fd_account_keys_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
 
-void fd_stake_accounts_new( fd_stake_accounts_t * self );
-int fd_stake_accounts_decode( fd_stake_accounts_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_accounts_decode_preflight( fd_bincode_decode_ctx_t * ctx );
-void fd_stake_accounts_decode_unsafe( fd_stake_accounts_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_accounts_decode_offsets( fd_stake_accounts_off_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_accounts_encode( fd_stake_accounts_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_stake_accounts_destroy( fd_stake_accounts_t * self, fd_bincode_destroy_ctx_t * ctx );
-void fd_stake_accounts_walk( void * w, fd_stake_accounts_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_stake_accounts_size( fd_stake_accounts_t const * self );
-ulong fd_stake_accounts_footprint( void );
-ulong fd_stake_accounts_align( void );
-int fd_stake_accounts_decode_archival( fd_stake_accounts_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_accounts_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
-void fd_stake_accounts_decode_archival_unsafe( fd_stake_accounts_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_stake_accounts_encode_archival( fd_stake_accounts_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_account_keys_new( fd_account_keys_t * self );
+int fd_account_keys_decode( fd_account_keys_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_account_keys_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_account_keys_decode_unsafe( fd_account_keys_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_account_keys_decode_offsets( fd_account_keys_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_account_keys_encode( fd_account_keys_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_account_keys_destroy( fd_account_keys_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_account_keys_walk( void * w, fd_account_keys_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_account_keys_size( fd_account_keys_t const * self );
+ulong fd_account_keys_footprint( void );
+ulong fd_account_keys_align( void );
+int fd_account_keys_decode_archival( fd_account_keys_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_account_keys_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_account_keys_decode_archival_unsafe( fd_account_keys_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_account_keys_encode_archival( fd_account_keys_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_stake_weight_new( fd_stake_weight_t * self );
 int fd_stake_weight_decode( fd_stake_weight_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -5575,30 +5613,6 @@ void fd_stake_walk( void * w, fd_stake_t const * self, fd_types_walk_fn_t fun, c
 ulong fd_stake_size( fd_stake_t const * self );
 ulong fd_stake_footprint( void );
 ulong fd_stake_align( void );
-
-void fd_epoch_info_pair_new( fd_epoch_info_pair_t * self );
-int fd_epoch_info_pair_decode( fd_epoch_info_pair_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_epoch_info_pair_decode_preflight( fd_bincode_decode_ctx_t * ctx );
-void fd_epoch_info_pair_decode_unsafe( fd_epoch_info_pair_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_epoch_info_pair_decode_offsets( fd_epoch_info_pair_off_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_epoch_info_pair_encode( fd_epoch_info_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_epoch_info_pair_destroy( fd_epoch_info_pair_t * self, fd_bincode_destroy_ctx_t * ctx );
-void fd_epoch_info_pair_walk( void * w, fd_epoch_info_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_epoch_info_pair_size( fd_epoch_info_pair_t const * self );
-ulong fd_epoch_info_pair_footprint( void );
-ulong fd_epoch_info_pair_align( void );
-
-void fd_epoch_info_new( fd_epoch_info_t * self );
-int fd_epoch_info_decode( fd_epoch_info_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_epoch_info_decode_preflight( fd_bincode_decode_ctx_t * ctx );
-void fd_epoch_info_decode_unsafe( fd_epoch_info_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_epoch_info_decode_offsets( fd_epoch_info_off_t * self, fd_bincode_decode_ctx_t * ctx );
-int fd_epoch_info_encode( fd_epoch_info_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_epoch_info_destroy( fd_epoch_info_t * self, fd_bincode_destroy_ctx_t * ctx );
-void fd_epoch_info_walk( void * w, fd_epoch_info_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_epoch_info_size( fd_epoch_info_t const * self );
-ulong fd_epoch_info_footprint( void );
-ulong fd_epoch_info_align( void );
 
 void fd_stake_pair_new( fd_stake_pair_t * self );
 int fd_stake_pair_decode( fd_stake_pair_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -8622,6 +8636,42 @@ void fd_duplicate_slot_proof_walk( void * w, fd_duplicate_slot_proof_t const * s
 ulong fd_duplicate_slot_proof_size( fd_duplicate_slot_proof_t const * self );
 ulong fd_duplicate_slot_proof_footprint( void );
 ulong fd_duplicate_slot_proof_align( void );
+
+void fd_epoch_info_pair_new( fd_epoch_info_pair_t * self );
+int fd_epoch_info_pair_decode( fd_epoch_info_pair_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_epoch_info_pair_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_epoch_info_pair_decode_unsafe( fd_epoch_info_pair_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_epoch_info_pair_decode_offsets( fd_epoch_info_pair_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_epoch_info_pair_encode( fd_epoch_info_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_epoch_info_pair_destroy( fd_epoch_info_pair_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_epoch_info_pair_walk( void * w, fd_epoch_info_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_epoch_info_pair_size( fd_epoch_info_pair_t const * self );
+ulong fd_epoch_info_pair_footprint( void );
+ulong fd_epoch_info_pair_align( void );
+
+void fd_vote_info_pair_new( fd_vote_info_pair_t * self );
+int fd_vote_info_pair_decode( fd_vote_info_pair_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_vote_info_pair_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_vote_info_pair_decode_unsafe( fd_vote_info_pair_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_vote_info_pair_decode_offsets( fd_vote_info_pair_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_vote_info_pair_encode( fd_vote_info_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_vote_info_pair_destroy( fd_vote_info_pair_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_vote_info_pair_walk( void * w, fd_vote_info_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_vote_info_pair_size( fd_vote_info_pair_t const * self );
+ulong fd_vote_info_pair_footprint( void );
+ulong fd_vote_info_pair_align( void );
+
+void fd_epoch_info_new( fd_epoch_info_t * self );
+int fd_epoch_info_decode( fd_epoch_info_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_epoch_info_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_epoch_info_decode_unsafe( fd_epoch_info_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_epoch_info_decode_offsets( fd_epoch_info_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_epoch_info_encode( fd_epoch_info_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_epoch_info_destroy( fd_epoch_info_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_epoch_info_walk( void * w, fd_epoch_info_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_epoch_info_size( fd_epoch_info_t const * self );
+ulong fd_epoch_info_footprint( void );
+ulong fd_epoch_info_align( void );
 
 FD_PROTOTYPES_END
 

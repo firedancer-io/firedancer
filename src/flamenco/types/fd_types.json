@@ -269,18 +269,18 @@
       ]
     },
     {
-      "name": "stake_accounts_pair",
+      "name": "account_keys_pair",
       "type": "struct",
       "fields": [
         { "name": "key", "type": "pubkey" },
-        { "name": "exists", "type": "uint" }
+        { "name": "exists", "type": "uchar" }
       ]
     },
     {
-      "name": "stake_accounts",
+      "name": "account_keys",
       "type": "struct",
       "fields": [
-        { "name": "stake_accounts", "type": "map", "element": "stake_accounts_pair", "key": "key", "minalloc":100000 }
+        { "name": "account_keys", "type": "map", "element": "account_keys_pair", "key": "key", "minalloc":100000 }
       ]
     },
     {
@@ -327,21 +327,6 @@
         { "name": "credits_observed", "type": "ulong" }
       ],
       "comment": "https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/state.rs#L539"
-    },
-    {
-      "name": "epoch_info_pair",
-      "type": "struct",
-      "fields": [
-        { "name": "account", "type": "pubkey" },
-        { "name": "stake", "type": "stake" }
-      ]
-    },
-    {
-      "name": "epoch_info",
-      "type": "struct",
-      "fields": [
-        { "name": "infos", "type": "vector", "element":"epoch_info_pair" }
-      ]
     },
     {
       "name": "stake_pair",
@@ -1203,8 +1188,8 @@
         { "name": "collected_rent",              "type": "ulong" },
         { "name": "epoch_stakes",                "type": "vote_accounts" },
         { "name": "last_restart_slot",           "type": "sol_sysvar_last_restart_slot" },
-        { "name": "stake_account_keys",          "type": "stake_accounts"},
-        { "name": "vote_account_keys",           "type": "vote_accounts" },
+        { "name": "stake_account_keys",          "type": "account_keys"},
+        { "name": "vote_account_keys",           "type": "account_keys" },
         { "name": "lamports_per_signature",      "type": "ulong" },
         { "name": "transaction_count",           "type": "ulong" },
         { "name": "lthash",                      "type": "slot_lthash" },
@@ -2779,6 +2764,30 @@
         { "name": "shred2", "type": "vector", "element": "uchar" }
       ],
       "comment": "https://github.com/anza-xyz/agave/blob/v2.0.3/ledger/src/blockstore_meta.rs#L150-L156"
+    },
+    {
+      "name": "epoch_info_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "account", "type": "pubkey" },
+        { "name": "stake", "type": "stake" }
+      ]
+    },
+    {
+      "name": "vote_info_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "account", "type": "pubkey" },
+        { "name": "state", "type": "vote_state_versioned" }
+      ]
+    },
+    {
+      "name": "epoch_info",
+      "type": "struct",
+      "fields": [
+        { "name": "stake_infos", "type": "vector", "element": "epoch_info_pair" },
+        { "name": "vote_states", "type": "map", "element": "vote_info_pair", "key": "account"}
+      ]
     }
   ]
 }
