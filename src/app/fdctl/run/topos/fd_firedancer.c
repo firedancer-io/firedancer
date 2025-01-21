@@ -1,5 +1,6 @@
 /* Firedancer topology used for testing the full validator.
    Associated test script: test_firedancer.sh */
+
 #include "../../fdctl.h"
 
 #include "../tiles/fd_replay_notif.h"
@@ -122,7 +123,6 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "replay_poh"   );
   fd_topob_wksp( topo, "replay_notif" );
   fd_topob_wksp( topo, "bank_busy"    );
-  fd_topob_wksp( topo, "root_slot"    );
   fd_topob_wksp( topo, "pack_replay"  );
   fd_topob_wksp( topo, "replay_voter" );
   fd_topob_wksp( topo, "gossip_voter" );
@@ -153,8 +153,6 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "batch"      );
   fd_topob_wksp( topo, "btpool"     );
   fd_topob_wksp( topo, "constipate" );
-
-
   if( enable_rpc ) fd_topob_wksp( topo, "rpcsrv" );
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
@@ -301,19 +299,111 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile_uses( topo, pack_tile, busy_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
     FD_TEST( fd_pod_insertf_ulong( topo->props, busy_obj->id, "bank_busy.%lu", i ) );
   }
+
   /* There's another special fseq that's used to communicate the shred
      version from the Agave boot path to the shred tile. */
+
   fd_topo_obj_t * poh_shred_obj = fd_topob_obj( topo, "fseq", "poh_shred" );
   fd_topo_tile_t * poh_tile = &topo->tiles[ fd_topo_find_tile( topo, "gossip", 0UL ) ];
   fd_topob_tile_uses( topo, poh_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topob_tile_uses( topo, store_tile, poh_shred_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
 
-  /* This fseq maintains the node's current root slot for the purposes of
-     syncing across tiles and shared data structures. */
-  fd_topo_obj_t * root_slot_obj = fd_topob_obj( topo, "fseq", "root_slot" );
-  fd_topob_tile_uses( topo, replay_tile, root_slot_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
-  fd_topob_tile_uses( topo, store_tile,  root_slot_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, root_slot_obj->id, "root_slot" ) );
+  /* The following fseqs are important watermarks for Firedancer. Each
+     watermark is a slot number, ordered from highest to lowest:
+
+     delivered <= processed <= confirmed <= finalized <= published <= checkpted <= compacted
+         ^            ^                                      ^            ^            ^
+      turbine       replay                               blockstore    restore      snapshot
+                                                           forks
+                                                           funk
+                                                           ghost
+  */
+
+  /* delivered - this is the highest slot number that has been delivered
+     to us via turbine shreds. Firedancer may or may not have already
+     processed (replayed) this slot. Note that the shred must be
+     verified (contains a valid signature by the leader for the given
+     slot, based on the ledader schedule) when updating this fseq.
+
+     Firedancer uses this on startup to mark the first slot turbine
+     delivers, which it then uses as an anchor for repairing the block
+     ancestry to begin replay. The delivered watermark is then
+     continuously updated as more shreds are received and also used to
+     determine whether Firedancer is "caught-up" in replay ie. within a certain
+     slot distance from the processed watermark below. */
+
+  fd_topob_wksp( topo, "delivered" );
+  fd_topo_obj_t * delivered_obj = fd_topob_obj( topo, "fseq", "delivered" );
+  fd_topob_tile_uses( topo, replay_tile, delivered_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+  fd_topob_tile_uses( topo, store_tile,  delivered_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, delivered_obj->id, "delivered" ) );
+
+  /* processed - this is the highest slot number that Firedancer has
+     successfully replayed. */
+
+  fd_topob_wksp( topo, "processed" );
+  fd_topo_obj_t * processed_obj = fd_topob_obj( topo, "fseq", "processed" );
+  fd_topob_tile_uses( topo, replay_tile, processed_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, processed_obj->id, "processed" ) );
+
+  /* confirmed - this is the highest slot number that Firedancer has
+     observed >2/3 of stake has voted on. */
+
+  fd_topob_wksp( topo, "confirmed" );
+  fd_topo_obj_t * confirmed_obj = fd_topob_obj( topo, "fseq", "confirmed" );
+  fd_topob_tile_uses( topo, replay_tile, confirmed_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, confirmed_obj->id, "confirmed" ) );
+
+  /* finalized - this is the highest slot number that Firedancer has
+     observed >2/3 of stake has rooted. Rooting any of a given slot's
+     descendant implies rooting the slot. The finalized slot is also
+     known as the supermajority root. */
+
+  fd_topob_wksp( topo, "finalized" );
+  fd_topo_obj_t * finalized_obj = fd_topob_obj( topo, "fseq", "finalized" );
+  fd_topob_tile_uses( topo, replay_tile, finalized_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, finalized_obj->id, "finalized" ) );
+
+  /* published - this is the minimum of Firedancer's local tower root
+     and the finalized slot. The publish watermark is used to publish
+     our fork-aware structures eg. blockstore, forks, ghost. In general,
+     publishing has the effect of pruning all slots < the published
+     watermark or do not descend from the published watermark. Pruning
+     indiciates that is ok to release the memory being occupied by said
+     forks (the exception is Funk, which also virtually prunes but does
+     not actually release the memory until the `compacted` watermark).
+
+     The reason it has to be the minimum of the two, is the tower root
+     can lag the finalized watermark and vice versa, but the fork-aware
+     structures need to retain all slots that are descendants of either. */
+
+  fd_topob_wksp( topo, "published" );
+  fd_topo_obj_t * published_obj = fd_topob_obj( topo, "fseq", "published" );
+  fd_topob_tile_uses( topo, replay_tile, published_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, store_tile,  published_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, published_obj->id, "published" ) );
+
+  /* The `checkpted` watermark indicates the highest slot for which a
+     Funk wksp checkpt is available so Firedancer can fast-restart in
+     case of a crash. */
+
+  fd_topob_wksp( topo, "checkpted" );
+  fd_topo_obj_t * checkpted_obj = fd_topob_obj( topo, "fseq", "checkpted" );
+  fd_topob_tile_uses( topo, replay_tile, checkpted_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, store_tile,  checkpted_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, checkpted_obj->id, "checkpted" ) );
+
+  /* The `compacted` watermark denotes the slot through which Funk has
+     compacted data. Funk has not actually released the memory of any
+     txns >= the compacted watermark, ie. a Funk record may be marked as
+     deleted but has not been actually deleted. Firedancer uses this
+     when snapshotting. */
+
+  fd_topob_wksp( topo, "compacted" );
+  fd_topo_obj_t * compacted_obj = fd_topob_obj( topo, "fseq", "compacted" );
+  fd_topob_tile_uses( topo, replay_tile, compacted_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, store_tile,  compacted_obj, FD_SHMEM_JOIN_MODE_READ_ONLY  );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, compacted_obj->id, "compacted" ) );
 
   for( ulong i=0UL; i<shred_tile_cnt; i++ ) {
     fd_topo_tile_t * shred_tile = &topo->tiles[ fd_topo_find_tile( topo, "shred", i ) ];
