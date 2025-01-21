@@ -811,7 +811,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
          "caller account". Only writable accounts are caller accounts. */
       if( fd_instr_acc_is_writable_idx( vm->instr_ctx->instr, i ) ) {
 
-        uint is_writable = (uint)fd_account_can_data_be_changed( vm->instr_ctx, i, &err );
+        uchar is_writable = !!fd_account_can_data_be_changed( vm->instr_ctx, i, &err );
         /* Lookup memory regions for the account data and the realloc region. */
         ulong data_region_idx    = vm->acc_region_metas[i].has_data_region ? vm->acc_region_metas[i].region_idx : 0;
         ulong realloc_region_idx = vm->acc_region_metas[i].has_resizing_region ? vm->acc_region_metas[i].region_idx : 0;
