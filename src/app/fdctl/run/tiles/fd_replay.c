@@ -96,6 +96,13 @@ struct fd_replay_out_ctx {
 };
 typedef struct fd_replay_out_ctx fd_replay_out_ctx_t;
 
+struct fd_replay_tile_metrics {
+  ulong slot;
+  ulong last_voted_slot;
+};
+typedef struct fd_replay_tile_metrics fd_replay_tile_metrics_t; 
+#define FD_REPLAY_TILE_METRICS_FOOTPRINT ( sizeof( fd_replay_tile_metrics_t ) )
+
 struct fd_replay_tile_ctx {
   fd_wksp_t * wksp;
   fd_wksp_t * blockstore_wksp;
@@ -318,6 +325,9 @@ struct fd_replay_tile_ctx {
   fd_funk_txn_t * second_false_root;
 
   int     is_caught_up;
+
+  /* Metrics */
+  fd_replay_tile_metrics_t metrics;
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -1540,6 +1550,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
   // Execute all txns which were successfully prepared
   long execute_time_ns = -fd_log_wallclock();
   FD_SCRATCH_SCOPE_BEGIN {
+    ctx->metrics.slot = curr_slot;
     if( flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
       // FD_LOG_WARNING(("MBLK4: %lu %lu %lu", ctx->curr_slot, seq, bank_idx+1));
       fd_tpool_wait( ctx->tpool, bank_idx+1 );
@@ -1756,6 +1767,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
         /* Vote locally */
 
         ulong root = fd_tower_vote( ctx->tower, vote_slot );
+        ctx->metrics.last_voted_slot = vote_slot;
 
         /* Update to a new root, if there is one. */
 
@@ -2813,6 +2825,12 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
+static inline void
+metrics_write( fd_replay_tile_ctx_t * ctx ) {
+  FD_MGAUGE_SET( REPLAY, LAST_VOTED_SLOT, ctx->metrics.last_voted_slot );
+  FD_MGAUGE_SET( REPLAY, SLOT, ctx->metrics.slot );
+}
+
 /* TODO: This is definitely not correct */
 #define STEM_BURST (1UL)
 
@@ -2823,6 +2841,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
 
 #include "../../../../disco/stem/fd_stem.c"
 

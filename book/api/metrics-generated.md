@@ -305,3 +305,15 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | store_&#8203;transactions_&#8203;inserted | `counter` | Count of transactions produced while we were leader in the shreds that have been inserted so far |
+
+## Replay Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| replay_&#8203;slot | `gauge` |  |
+| replay_&#8203;last_&#8203;voted_&#8203;slot | `gauge` |  |
+
+## Storei Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| storei_&#8203;first_&#8203;turbine_&#8203;slot | `gauge` |  |
+| storei_&#8203;current_&#8203;turbine_&#8203;slot | `gauge` |  |
