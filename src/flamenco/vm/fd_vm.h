@@ -25,7 +25,8 @@ struct __attribute__((aligned(8UL))) fd_vm_input_region {
    ulong         vaddr_offset; /* Represents offset from the start of the input region. */
    ulong         haddr;        /* Host address corresponding to the start of the mem region. */
    uint          region_sz;    /* Size of the memory region. */
-   uint          is_writable;  /* If the region can be written to or is read-only */
+   uchar         is_writable;  /* If the region can be written to or is read-only */
+   uchar         is_acct_data; /* Set if this is an account data region (either orig data or resize buffer). */
 };
 typedef struct fd_vm_input_region fd_vm_input_region_t;
 
