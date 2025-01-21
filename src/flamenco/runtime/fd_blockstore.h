@@ -296,6 +296,12 @@ struct fd_block_map {
 
   fd_block_set_t data_complete_idxs[FD_SHRED_MAX_PER_SLOT / sizeof(ulong)];
 
+  /* Helpers for batching tick verification */
+
+  ulong ticks_consumed;
+  ulong tick_hash_count_accum;
+  fd_hash_t in_poh_hash; /* TODO: might not be best place to hold this */
+
   /* Block */
 
   ulong block_gaddr; /* global address to the start of the allocated fd_block_t */

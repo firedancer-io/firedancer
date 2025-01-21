@@ -17,7 +17,6 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../ballet/bmtree/fd_bmtree.h"
-#include "../../ballet/bmtree/fd_wbmtree.h"
 
 #include "../stakes/fd_stakes.h"
 #include "../rewards/fd_rewards.h"
@@ -1093,61 +1092,49 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx,
   return 0;
 }
 
-/*
-   Verifies ticks in a batch of microblocks. This function is meant for streaming
- */
-ulong FD_FN_UNUSED
-fd_runtime_batch_verify_ticks( fd_exec_slot_ctx_t * slot_ctx,
-                               uchar const *     batch_data,
-                               bool              slot_complete,
-                               ulong             tick_height,
-                               ulong             max_tick_height,
-                               ulong             hashes_per_tick ) {
-  ulong tick_hash_count         = 0UL;
-  uchar has_trailing_entry      = 0U;
-  uchar invalid_tick_hash_count = 0U;
+int
+fd_runtime_microblock_verify_ticks( fd_exec_slot_ctx_t *        slot_ctx,
+                                    ulong                       slot,
+                                    fd_microblock_hdr_t const * hdr,
+                                    bool               slot_complete,
+                                    ulong              tick_height,
+                                    ulong              max_tick_height,
+                                    ulong              hashes_per_tick ) {
+  ulong invalid_tick_hash_count = 0UL;
+  ulong has_trailing_entry      = 0UL;
+  
   /*
-    Iterate over microblocks/entries to
-    (1) count the number of ticks
-    (2) check whether the last entry is a tick
-    (3) check whether ticks align with hashes per tick
-
-    This precomputes everything we need in a single loop over the array.
     In order to mimic the order of checks in Agave,
     we cache the results of some checks but do not immediately return
     an error.
-   */
-  ulong micro_cnt = FD_LOAD( ulong, batch_data );
-  ulong off = sizeof(ulong);
-  for( ulong i = 0UL; i < micro_cnt; i++ ) {
-    fd_microblock_hdr_t const * hdr = fd_type_pun_const( ( batch_data + off ) );
-    tick_hash_count = fd_ulong_sat_add( tick_hash_count, hdr->hash_cnt );
-    if( hdr->txn_cnt == 0UL ) {
-      slot_ctx->ticks_consumed++;
-      if( FD_LIKELY( hashes_per_tick > 1UL ) ) {
-        if( FD_UNLIKELY( tick_hash_count != hashes_per_tick ) ) {
-          FD_LOG_WARNING(( "tick_hash_count %lu hashes_per_tick %lu tick_count %lu i %lu micro_cnt %lu", tick_hash_count, hashes_per_tick, slot_ctx->ticks_consumed, i, micro_cnt ));
-          invalid_tick_hash_count = 1U;
-        }
+  */
+  fd_blockstore_start_write( slot_ctx->blockstore );
+  fd_block_map_t * query = fd_blockstore_block_map_query( slot_ctx->blockstore, slot );
+  FD_TEST( query != NULL );
+
+  query->tick_hash_count_accum = fd_ulong_sat_add( query->tick_hash_count_accum, hdr->hash_cnt );
+  if( hdr->txn_cnt == 0UL ) {
+    query->ticks_consumed++;
+    if( FD_LIKELY( hashes_per_tick > 1UL ) ) {
+      if( FD_UNLIKELY( query->tick_hash_count_accum != hashes_per_tick ) ) {
+        FD_LOG_WARNING(( "tick_hash_count %lu hashes_per_tick %lu tick_count %lu", query->tick_hash_count_accum, hashes_per_tick, query->ticks_consumed ));
+        invalid_tick_hash_count = 1U;
       }
-      tick_hash_count = 0UL;
-      continue;
     }
+    query->tick_hash_count_accum = 0UL;
+  } else {
     /* This wasn't a tick entry, but it's the last entry. */
-    if( FD_UNLIKELY( slot_complete && i == micro_cnt - 1UL ) ) {
-      FD_LOG_WARNING(( "entry %lu has %lu transactions expects 0", i, hdr->txn_cnt ));
+    if( FD_UNLIKELY( slot_complete ) ) {
+      FD_LOG_WARNING(( "last has %lu transactions expects 0", hdr->txn_cnt ));
       has_trailing_entry = 1U;
     }
   }
 
-  ulong next_tick_height = tick_height + slot_ctx->ticks_consumed;
-  if ( FD_UNLIKELY ( slot_complete ) ) {
-    slot_ctx->ticks_consumed = 0;
-  }
+  ulong next_tick_height = tick_height + query->ticks_consumed;
+  fd_blockstore_end_write( slot_ctx->blockstore );
 
   if( FD_UNLIKELY( next_tick_height > max_tick_height ) ) {
-    FD_LOG_WARNING(( "Too many ticks tick_height %lu max_tick_height %lu hashes_per_tick %lu tick_count %lu", tick_height, max_tick_height, hashes_per_tick, slot_ctx->ticks_consumed ));
-    FD_LOG_WARNING(( "Too many ticks" ));
+    FD_LOG_WARNING(( "Too many ticks tick_height %lu max_tick_height %lu hashes_per_tick %lu tick_count %lu", tick_height, max_tick_height, hashes_per_tick, query->ticks_consumed ));
     return FD_BLOCK_ERR_TOO_MANY_TICKS;
   }
   if( FD_UNLIKELY( slot_complete && next_tick_height < max_tick_height ) ) {
@@ -1169,14 +1156,12 @@ fd_runtime_batch_verify_ticks( fd_exec_slot_ctx_t * slot_ctx,
       return FD_BLOCK_ERR_INVALID_TICK_HASH_COUNT;
     }
   }
-
   return FD_BLOCK_OK;
 }
 
 /*
-   TODO Perhaps update this function to support verifying ticks before
-   the block is full.  Could be useful when we move to a streaming
-   execution model.
+   A streaming version of this by batch is implemented in batch_verify_ticks.
+   This block_verify_ticks should only used for offline replay.
  */
 ulong
 fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
@@ -1265,7 +1250,7 @@ fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
     return FD_BLOCK_ERR_TOO_MANY_TICKS;
   }
   if( FD_UNLIKELY( next_tick_height < max_tick_height ) ) {
-    FD_LOG_WARNING(( "Too few ticks %lu < %lu", next_tick_height, max_tick_height ));
+    FD_LOG_WARNING(( "Too few ticks" ));
     return FD_BLOCK_ERR_TOO_FEW_TICKS;
   }
   if( FD_UNLIKELY( has_trailing_entry == batch_cnt ) ) {
@@ -1517,12 +1502,16 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_execution_fees, task_info->txn_ctx->execution_fee  );
   FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_priority_fees,  task_info->txn_ctx->priority_fee   );
   FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_rent,           task_info->txn_ctx->collected_rent );
+  /* Store transaction info including logs */
+
+  fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, 1UL );
+
+  if( FD_UNLIKELY( !( task_info->txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) ) {
+    return -1;
+  }
 
   fd_exec_txn_ctx_t * txn_ctx      = task_info->txn_ctx;
   int                 exec_txn_err = task_info->exec_res;
-
-  /* Store transaction info including logs */
-  fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, 1UL );
 
   /* For ledgers that contain txn status, decode and write out for solcap */
   if( capture_ctx != NULL && capture_ctx->capture && capture_ctx->capture_txns ) {
@@ -1531,19 +1520,20 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
     fd_runtime_write_transaction_status( capture_ctx, slot_ctx, txn_ctx, exec_txn_err );
     fd_funk_end_write( slot_ctx->acc_mgr->funk );
   }
+  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->signature_cnt, txn_ctx->txn_descriptor->signature_cnt );
 
   if( slot_ctx->status_cache ) {
-    fd_txncache_insert_t * status_insert = fd_scratch_alloc( alignof(fd_txncache_insert_t), sizeof(fd_txncache_insert_t) );
-    uchar *                results       = fd_scratch_alloc( alignof(uchar), sizeof(uchar) );
+    fd_txncache_insert_t status_insert;
+    uchar result;
 
-    results[0] = exec_txn_err == 0 ? 1 : 0;
-    fd_txncache_insert_t * curr_insert = &status_insert[0];
+    result = exec_txn_err == 0 ? 1 : 0;
+    fd_txncache_insert_t * curr_insert = &status_insert;
     curr_insert->blockhash = ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off);
     curr_insert->slot = slot_ctx->slot_bank.slot;
     fd_hash_t * hash = &txn_ctx->blake_txn_msg_hash;
     curr_insert->txnhash = hash->uc;
-    curr_insert->result = &results[0];
-    if( !fd_txncache_insert_batch( slot_ctx->status_cache, status_insert, 1UL ) ) {
+    curr_insert->result = &result;
+    if( !fd_txncache_insert_batch( slot_ctx->status_cache, &status_insert, 1UL ) ) {
       FD_LOG_DEBUG(("Status cache is full, this should not be possible"));
     }
   }
@@ -1582,7 +1572,7 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
     for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
       /* We are only interested in saving writable accounts and the fee
          payer account. */
-      if( !fd_txn_account_is_writable_idx( txn_ctx, (int)i ) || i!=FD_FEE_PAYER_TXN_IDX ) {
+      if( !fd_txn_account_is_writable_idx( txn_ctx, (int)i ) && i!=FD_FEE_PAYER_TXN_IDX ) {
         continue;
       }
 
@@ -1634,7 +1624,20 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
     }
   }
 
-  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->signature_cnt, txn_ctx->txn_descriptor->signature_cnt );
+  int is_vote = fd_txn_is_simple_vote_transaction( txn_ctx->txn_descriptor,
+                                                 txn_ctx->_txn_raw->raw,
+                                                 fd_solana_vote_program_id.key );
+  if( !is_vote ){
+    FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->nonvote_txn_count, 1 );
+    if( FD_UNLIKELY( exec_txn_err ) ){
+      FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->nonvote_failed_txn_count, 1 );
+    }
+  } else {
+    if( FD_UNLIKELY( exec_txn_err ) ){
+      FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->failed_txn_count, 1 );
+    }
+  }
+  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->total_compute_units_used, txn_ctx->compute_unit_limit - txn_ctx->compute_meter );
 
   return 0;
 }
@@ -1726,7 +1729,6 @@ fd_runtime_process_txns( fd_exec_slot_ctx_t * slot_ctx,
                          ulong                txn_cnt ) {
 
   FD_SCRATCH_SCOPE_BEGIN {
-
     fd_execute_txn_task_info_t * task_infos = fd_scratch_alloc( 8, txn_cnt * sizeof(fd_execute_txn_task_info_t));
 
     for( ulong i=0UL; i<txn_cnt; i++ ) {
@@ -1734,7 +1736,10 @@ fd_runtime_process_txns( fd_exec_slot_ctx_t * slot_ctx,
     }
 
     for( ulong i=0UL; i<txn_cnt; i++ ) {
-      fd_runtime_prepare_execute_finalize_txn( slot_ctx, spad, capture_ctx, &txns[i], &task_infos[i] );
+      int res = fd_runtime_prepare_execute_finalize_txn( slot_ctx, spad, capture_ctx, &txns[i], &task_infos[i] );
+      if ( FD_UNLIKELY( res != 0 ) ){
+        return res;
+      }
     }
 
     FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.transaction_count, txn_cnt );
@@ -2982,23 +2987,12 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 /* Helpers */
 
 static int
-fd_runtime_parse_microblock_hdr( void const *          buf,
-                                 ulong                 buf_sz,
-                                 fd_microblock_hdr_t * opt_microblock_hdr,
-                                 ulong *               opt_microblock_hdr_size ) {
+fd_runtime_parse_microblock_hdr( void const *          buf FD_PARAM_UNUSED,
+                                 ulong                 buf_sz ) {
 
   if( FD_UNLIKELY( buf_sz<sizeof(fd_microblock_hdr_t) ) ) {
     return -1;
   }
-
-  if( !!opt_microblock_hdr ) {
-    *opt_microblock_hdr = *(fd_microblock_hdr_t *)buf;
-  }
-
-  if( !!opt_microblock_hdr_size ) {
-    *opt_microblock_hdr_size = sizeof(fd_microblock_hdr_t);
-  }
-
   return 0;
 }
 
@@ -3016,25 +3010,24 @@ find_next_txn_in_raw_block( uchar const *                  orig_data,
 
   /* Case 1: there are microblocks remaining in the current batch */
   for( ulong i=0UL; i<num_microblocks; i++ ) {
-    ulong microblock_hdr_size            = 0UL;
+    ulong microblock_hdr_size            = sizeof(fd_microblock_hdr_t);
     fd_microblock_info_t microblock_info = {0};
     if( FD_UNLIKELY( fd_runtime_parse_microblock_hdr( orig_data + curr_offset,
-                                                      batches->end_off - curr_offset,
-                                                      &microblock_info.microblock_hdr,
-                                                      &microblock_hdr_size ) ) ) {
+                                                      batches->end_off - curr_offset ) ) ) {
       /* TODO: improve error handling */
       FD_LOG_ERR(( "premature end of batch" ));
     }
+    microblock_info.microblock.hdr = (fd_microblock_hdr_t const * )(orig_data + curr_offset);
     curr_offset += microblock_hdr_size;
 
     /* If we have found a microblock with transactions in the current batch, return that */
-    if( FD_LIKELY( microblock_info.microblock_hdr.txn_cnt ) ) {
+    if( FD_LIKELY( microblock_info.microblock.hdr->txn_cnt ) ) {
       return (fd_raw_block_txn_iter_t){
         .curr_batch            = batches,
         .orig_data             = orig_data,
         .remaining_batches     = batch_cnt,
         .remaining_microblocks = fd_ulong_sat_sub( fd_ulong_sat_sub(num_microblocks, i), 1UL),
-        .remaining_txns        = microblock_info.microblock_hdr.txn_cnt,
+        .remaining_txns        = microblock_info.microblock.hdr->txn_cnt,
         .curr_offset           = curr_offset,
         .curr_txn_sz           = ULONG_MAX
       };
@@ -3060,25 +3053,24 @@ find_next_txn_in_raw_block( uchar const *                  orig_data,
 
     /* Iterate over each microblock until we find one with a non-zero txn cnt */
     for( ulong j=0UL; j<num_microblocks; j++ ) {
-      ulong microblock_hdr_size            = 0UL;
+      ulong microblock_hdr_size            = sizeof(fd_microblock_hdr_t);
       fd_microblock_info_t microblock_info = {0};
       if( FD_UNLIKELY( fd_runtime_parse_microblock_hdr( orig_data + curr_offset,
-                                                        batch_end_off - curr_offset,
-                                                        &microblock_info.microblock_hdr,
-                                                        &microblock_hdr_size ) ) ) {
+                                                        batch_end_off - curr_offset ) ) ) {
         /* TODO: improve error handling */
         FD_LOG_ERR(( "premature end of batch" ));
       }
+      microblock_info.microblock.hdr = (fd_microblock_hdr_t const * )(orig_data + curr_offset);
       curr_offset += microblock_hdr_size;
 
       /* If we have found a microblock with a non-zero number of transactions in, return that */
-      if( FD_LIKELY( microblock_info.microblock_hdr.txn_cnt ) ) {
+      if( FD_LIKELY( microblock_info.microblock.hdr->txn_cnt ) ) {
         return (fd_raw_block_txn_iter_t){
           .curr_batch            = &batches[i],
           .orig_data             = orig_data,
           .remaining_batches     = fd_ulong_sat_sub( batch_cnt, i ),
           .remaining_microblocks = fd_ulong_sat_sub( fd_ulong_sat_sub( num_microblocks, j ), 1UL ),
-          .remaining_txns        = microblock_info.microblock_hdr.txn_cnt,
+          .remaining_txns        = microblock_info.microblock.hdr->txn_cnt,
           .curr_offset           = curr_offset,
           .curr_txn_sz           = ULONG_MAX
         };
@@ -3196,7 +3188,7 @@ fd_runtime_parse_microblock_txns( void const *                buf,
                                           TXN( &out_txns[i] ),
                                           NULL,
                                           &payload_sz );
-    if( FD_UNLIKELY( !txn_sz || txn_sz>FD_TXN_MTU ) ) {
+    if( FD_UNLIKELY( !txn_sz || txn_sz>FD_TXN_MTU || !payload_sz  ) ) {
       return -1;
     }
 
@@ -3222,22 +3214,22 @@ fd_runtime_microblock_prepare( void const *           buf,
                                fd_microblock_info_t * out_microblock_info ) {
 
   fd_microblock_info_t microblock_info = {
-    .raw_microblock = buf,
     .signature_cnt  = 0UL,
   };
   ulong buf_off = 0UL;
-  ulong hdr_sz  = 0UL;
-  if( FD_UNLIKELY( fd_runtime_parse_microblock_hdr( buf, buf_sz, &microblock_info.microblock_hdr, &hdr_sz ) ) ) {
+  ulong hdr_sz  = sizeof(fd_microblock_hdr_t);
+  if( FD_UNLIKELY( fd_runtime_parse_microblock_hdr( buf, buf_sz ) ) ) {
     return -1;
   }
+  microblock_info.microblock.hdr = (fd_microblock_hdr_t const *)buf;
   buf_off += hdr_sz;
 
-  ulong txn_cnt        = microblock_info.microblock_hdr.txn_cnt;
+  ulong txn_cnt        = microblock_info.microblock.hdr->txn_cnt;
   microblock_info.txns = fd_valloc_malloc( valloc, alignof(fd_txn_p_t), txn_cnt * sizeof(fd_txn_p_t) );
   ulong txns_sz        = 0UL;
   if( FD_UNLIKELY( fd_runtime_parse_microblock_txns( (uchar *)buf + buf_off,
                                                      buf_sz - buf_off,
-                                                     &microblock_info.microblock_hdr,
+                                                     microblock_info.microblock.hdr,
                                                      microblock_info.txns,
                                                      &microblock_info.signature_cnt,
                                                      &microblock_info.account_cnt,
@@ -3288,7 +3280,7 @@ fd_runtime_microblock_batch_prepare( void const *                 buf,
     }
 
     signature_cnt += microblock_info->signature_cnt;
-    txn_cnt       += microblock_info->microblock_hdr.txn_cnt;
+    txn_cnt       += microblock_info->microblock.hdr->txn_cnt;
     account_cnt   += microblock_info->account_cnt;
     buf_off       += microblock_info->raw_microblock_sz;
   }
@@ -3331,6 +3323,7 @@ fd_runtime_block_prepare( fd_blockstore_t * blockstore,
   for( microblock_batch_cnt=0UL; microblock_batch_cnt < batch_cnt; microblock_batch_cnt++ ) {
     ulong const batch_end_off = batch_laddr[ microblock_batch_cnt ].end_off;
     fd_microblock_batch_info_t * microblock_batch_info = block_info.microblock_batch_infos + microblock_batch_cnt;
+ 
     if( FD_UNLIKELY( fd_runtime_microblock_batch_prepare( buf + buf_off, batch_end_off - buf_off, valloc, microblock_batch_info ) ) ) {
       return -1;
     }
@@ -3373,9 +3366,8 @@ fd_runtime_block_prepare( fd_blockstore_t * blockstore,
 static ulong
 fd_runtime_microblock_collect_txns( fd_microblock_info_t const * microblock_info,
                                     fd_txn_p_t *                 out_txns ) {
-  ulong txn_cnt = microblock_info->microblock_hdr.txn_cnt;
+  ulong txn_cnt = microblock_info->microblock.hdr->txn_cnt;
   fd_memcpy( out_txns, microblock_info->txns, txn_cnt * sizeof(fd_txn_p_t) );
-
   return txn_cnt;
 }
 
@@ -3849,7 +3841,7 @@ fd_runtime_microblock_batch_verify_info_collect( fd_microblock_batch_info_t cons
   for( ulong i=0UL; i<microblock_batch_info->microblock_cnt; i++ ) {
     fd_microblock_info_t const * microblock_info = &microblock_batch_info->microblock_infos[i];
     fd_runtime_microblock_verify_info_collect( microblock_info, in_poh_hash, &poh_verification_info[i] );
-    in_poh_hash = (fd_hash_t const *)&microblock_info->microblock_hdr.hash;
+    in_poh_hash = (fd_hash_t const *)&microblock_info->microblock.hdr->hash;
   }
 }
 
@@ -3862,7 +3854,7 @@ fd_runtime_block_verify_info_collect( fd_block_info_t const *      block_info,
     fd_microblock_batch_info_t const * microblock_batch_info = &block_info->microblock_batch_infos[i];
 
     fd_runtime_microblock_batch_verify_info_collect( microblock_batch_info, in_poh_hash, poh_verification_info );
-    in_poh_hash            = (fd_hash_t const *)poh_verification_info[microblock_batch_info->microblock_cnt - 1].microblock_info->microblock_hdr.hash;
+    in_poh_hash            = (fd_hash_t const *)poh_verification_info[microblock_batch_info->microblock_cnt - 1].microblock_info->microblock.hdr->hash;
     poh_verification_info += microblock_batch_info->microblock_cnt;
   }
 }
@@ -3883,12 +3875,13 @@ fd_runtime_poh_verify_wide_task( void * tpool,
   fd_poh_verification_info_t * poh_info = (fd_poh_verification_info_t *)tpool + m0;
 
   fd_hash_t out_poh_hash = *poh_info->in_poh_hash;
+  fd_hash_t init_poh_hash_cpy = *poh_info->in_poh_hash;
 
   fd_microblock_info_t const *microblock_info = poh_info->microblock_info;
-  ulong hash_cnt = microblock_info->microblock_hdr.hash_cnt;
-  ulong txn_cnt = microblock_info->microblock_hdr.txn_cnt;
+  ulong hash_cnt = microblock_info->microblock.hdr->hash_cnt;
+  ulong txn_cnt = microblock_info->microblock.hdr->txn_cnt;
 
-  if( !txn_cnt ) {
+  if( !txn_cnt ) { /* microblock is a tick */
     fd_poh_append( &out_poh_hash, hash_cnt );
   } else {
     if( hash_cnt ) {
@@ -3905,7 +3898,7 @@ fd_runtime_poh_verify_wide_task( void * tpool,
 
     /* Loop across transactions */
     for( ulong txn_idx=0UL; txn_idx<txn_cnt; txn_idx++ ) {
-      fd_txn_p_t *          txn_p      = &microblock_info->txns[txn_idx];
+      fd_txn_p_t          * txn_p      = &microblock_info->txns[txn_idx];
       fd_txn_t      const * txn        = (fd_txn_t const *) txn_p->_;
       fd_rawtxn_b_t const   raw_txn[1] = {{ .raw = txn_p->payload, .txn_sz = (ushort)txn_p->payload_sz } };
 
@@ -3923,8 +3916,11 @@ fd_runtime_poh_verify_wide_task( void * tpool,
     fd_poh_mixin( &out_poh_hash, root );
   }
 
-  if( FD_UNLIKELY( memcmp(microblock_info->microblock_hdr.hash, out_poh_hash.hash, sizeof(fd_hash_t)) ) ) {
-    FD_LOG_WARNING(( "poh mismatch (bank: %s, entry: %s)", FD_BASE58_ENC_32_ALLOCA( out_poh_hash.hash ), FD_BASE58_ENC_32_ALLOCA( microblock_info->microblock_hdr.hash ) ));
+  if( FD_UNLIKELY( memcmp(microblock_info->microblock.hdr->hash, out_poh_hash.hash, sizeof(fd_hash_t)) ) ) {
+    FD_LOG_WARNING(( "poh mismatch (bank: %s, entry: %s. INIT: %s)", 
+        FD_BASE58_ENC_32_ALLOCA( out_poh_hash.hash ), 
+        FD_BASE58_ENC_32_ALLOCA( microblock_info->microblock.hdr->hash ), 
+        FD_BASE58_ENC_32_ALLOCA(&init_poh_hash_cpy) ));
     poh_info->success = -1;
   }
 }
@@ -3953,8 +3949,31 @@ fd_runtime_poh_verify_tpool( fd_poh_verification_info_t * poh_verification_info,
   return 0;
 }
 
+/* for live replay */
+
+static int FD_FN_UNUSED
+fd_runtime_batch_verify_tpool( fd_exec_slot_ctx_t *         slot_ctx,
+                               ulong                        slot FD_PARAM_UNUSED,
+                               fd_microblock_batch_info_t * batch_info FD_PARAM_UNUSED,
+                               bool                         last_batch FD_PARAM_UNUSED,
+                               fd_poh_verification_info_t * poh_verification_info,
+                               ulong                        poh_verification_info_cnt,
+                               fd_tpool_t *                 tpool ) {
+  
+  /* fd_runtime_batch_verify_ticks */
+
+  int res = fd_runtime_poh_verify_tpool( poh_verification_info, poh_verification_info_cnt, tpool );
+  if ( FD_UNLIKELY( res != 0 ) ) {
+    FD_LOG_WARNING(("PoH verification failed."));
+    return res;
+  }
+  fd_memcpy( slot_ctx->slot_bank.poh.uc, poh_verification_info[poh_verification_info_cnt - 1].microblock_info->microblock.hdr->hash, sizeof(fd_hash_t) );
+  return 0;
+}
+
 static int
-fd_runtime_block_verify_tpool( fd_block_info_t const * block_info,
+fd_runtime_block_verify_tpool( fd_exec_slot_ctx_t *    slot_ctx,
+                               fd_block_info_t const * block_info,
                                fd_hash_t       const * in_poh_hash,
                                fd_hash_t *             out_poh_hash,
                                fd_valloc_t             valloc,
@@ -3967,8 +3986,26 @@ fd_runtime_block_verify_tpool( fd_block_info_t const * block_info,
                                                                              alignof(fd_poh_verification_info_t),
                                                                              poh_verification_info_cnt * sizeof(fd_poh_verification_info_t));
   fd_runtime_block_verify_info_collect( block_info, &tmp_in_poh_hash, poh_verification_info );
+
+  uchar * block_data = fd_valloc_malloc( valloc, 128UL, FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT );
+  ulong tick_res = fd_runtime_block_verify_ticks(
+    slot_ctx->blockstore,
+    slot_ctx->slot_bank.slot,
+    block_data,
+    FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT,
+    slot_ctx->slot_bank.tick_height,
+    slot_ctx->slot_bank.max_tick_height,
+    slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick
+  );
+  if( FD_UNLIKELY( tick_res != FD_BLOCK_OK ) ) {
+    FD_LOG_WARNING(( "failed to verify ticks res %lu slot %lu", tick_res, slot_ctx->slot_bank.slot ));
+    return FD_RUNTIME_EXECUTE_GENERIC_ERR;
+  }
+
+  /* poh_verification_info is now in order information of all the microblocks */
+
   int result = fd_runtime_poh_verify_tpool( poh_verification_info, poh_verification_info_cnt, tpool );
-  fd_memcpy( out_poh_hash->hash, poh_verification_info[poh_verification_info_cnt - 1].microblock_info->microblock_hdr.hash, sizeof(fd_hash_t) );
+  fd_memcpy( out_poh_hash->hash, poh_verification_info[poh_verification_info_cnt - 1].microblock_info->microblock.hdr->hash, sizeof(fd_hash_t) );
   fd_valloc_free( valloc, poh_verification_info );
 
   block_verify_time          += fd_log_wallclock();
@@ -4191,23 +4228,7 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
       break;
     }
 
-    uchar * block_data = fd_scratch_alloc( 128UL, FD_MBATCH_MAX );
-    ulong tick_res = fd_runtime_block_verify_ticks(
-      slot_ctx->blockstore,
-      slot,
-      block_data,
-      FD_MBATCH_MAX,
-      slot_ctx->slot_bank.tick_height,
-      slot_ctx->slot_bank.max_tick_height,
-      slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick
-    );
-    if( FD_UNLIKELY( tick_res != FD_BLOCK_OK ) ) {
-      FD_LOG_WARNING(( "failed to verify ticks res %lu slot %lu", tick_res, slot ));
-      ret = FD_RUNTIME_EXECUTE_GENERIC_ERR;
-      break;
-    }
-
-    if( FD_UNLIKELY( (ret = fd_runtime_block_verify_tpool( &block_info, &slot_ctx->slot_bank.poh, &slot_ctx->slot_bank.poh, fd_scratch_virtual(), tpool )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    if( FD_UNLIKELY( (ret = fd_runtime_block_verify_tpool( slot_ctx, &block_info, &slot_ctx->slot_bank.poh, &slot_ctx->slot_bank.poh, fd_scratch_virtual(), tpool )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       break;
     }
     if( FD_UNLIKELY( (ret = fd_runtime_block_execute_tpool( slot_ctx, capture_ctx, &block_info, tpool, spads, spad_cnt, valloc )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {

@@ -48,7 +48,7 @@ fd_wbmtree32_append    ( fd_wbmtree32_t * bmt, fd_wbmtree32_leaf_t const * leaf,
     n++;
     leaf++;
   }
-  fd_sha256_batch_fini(&bmt->sha256_batch);
+  fd_sha256_batch_fini( &bmt->sha256_batch );
   bmt->leaf_cnt += leaf_cnt;
 
   FD_TEST (leaf_cnt <= bmt->leaf_cnt_max);
