@@ -137,7 +137,7 @@ ushort fd_gossip_get_shred_version( fd_gossip_t const * glob );
 
 void fd_gossip_set_stake_weights( fd_gossip_t * gossip, fd_stake_weight_t const * stake_weights, ulong stake_weights_cnt );
 
-void fd_gossip_set_entrypoints( fd_gossip_t * gossip, uint allowed_entrypoints[static 16], ulong allowed_entrypoints_cnt, ushort * ports );
+void fd_gossip_set_entrypoints( fd_gossip_t * gossip, uint const allowed_entrypoints[static 16], ulong allowed_entrypoints_cnt, ushort const * ports );
 
 uint fd_gossip_is_allowed_entrypoint( fd_gossip_t * gossip, fd_gossip_peer_addr_t * addr );
 

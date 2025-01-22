@@ -7,6 +7,7 @@
 #include "fdctl.h"
 #include "../../flamenco/gossip/fd_gossip.h"
 #include "../../flamenco/types/fd_types_yaml.h"
+#include "../../disco/keyguard/fd_keyguard.h"
 #include "../../util/net/fd_eth.h"
 #include <stdio.h>
 #include <unistd.h>
@@ -19,11 +20,11 @@
 #include <netdb.h>
 #include <stdlib.h>
 
-static void print_data(fd_crds_data_t* data, void* arg) {
-  fd_flamenco_yaml_t * yamldump = (fd_flamenco_yaml_t *)arg;
-  FILE * dumpfile = (FILE *)fd_flamenco_yaml_file(yamldump);
-  fd_crds_data_walk(yamldump, data, fd_flamenco_yaml_walk, NULL, 1U);
-  fflush(dumpfile);
+static void print_data(FD_FN_UNUSED fd_crds_data_t* data, FD_FN_UNUSED void* arg) {
+  // fd_flamenco_yaml_t * yamldump = (fd_flamenco_yaml_t *)arg;
+  // FILE * dumpfile = (FILE *)fd_flamenco_yaml_file(yamldump);
+  // fd_crds_data_walk(yamldump, data, fd_flamenco_yaml_walk, NULL, 1U);
+  // fflush(dumpfile);
 }
 
 // SIGINT signal handler
@@ -65,6 +66,34 @@ send_packet( uchar const * data, size_t sz, fd_gossip_peer_addr_t const * addr, 
   }
 }
 
+static uchar       private_key[32] = {0};
+static fd_pubkey_t public_key = {0};
+static fd_sha512_t sha512 = {0};
+
+static void
+gossip_signer( void *        signer_ctx,
+               uchar         signature[ static 64 ],
+               uchar const * buffer,
+               ulong         len,
+               int           sign_type ){
+  (void)signer_ctx;
+
+  switch (sign_type) {
+    case FD_KEYGUARD_SIGN_TYPE_ED25519:
+      fd_ed25519_sign(signature, buffer, len, public_key.uc, private_key, &sha512);
+      break;
+    case FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519:
+      {
+        uchar hash[32];
+        fd_sha256_hash(buffer, len, hash);
+        fd_ed25519_sign(signature, hash, 32UL, public_key.uc, private_key, &sha512);
+      }
+      break;
+    default:
+      FD_LOG_ERR(("unexpected sign type"));
+  }
+}
+
 static int
 main_loop( fd_gossip_t * glob, fd_gossip_config_t * config, volatile int * stopflag ) {
   int fd;
@@ -88,6 +117,13 @@ main_loop( fd_gossip_t * glob, fd_gossip_config_t * config, volatile int * stopf
     FD_LOG_ERR(("bind failed: %s", strerror(errno)));
     return -1;
   }
+  if( getsockname( fd, (struct sockaddr *)saddr, (uint*)&saddrlen ) < 0 ) {
+    FD_LOG_ERR( ( "getsockname failed: %s", strerror( errno ) ) );
+    return -1;
+  }
+
+  gossip_from_sockaddr( &config->my_addr, saddr );
+  fd_gossip_update_addr( glob, &config->my_addr );
 
   fd_gossip_settime(glob, fd_log_wallclock());
   fd_gossip_start(glob);
@@ -134,88 +170,56 @@ main_loop( fd_gossip_t * glob, fd_gossip_config_t * config, volatile int * stopf
   return 0;
 }
 
-/* Convert a host:port string to a gossip network address. If host is
- * missing, it assumes the local hostname. */
-static fd_gossip_peer_addr_t *
-resolve_hostport(const char* str /* host:port */, fd_gossip_peer_addr_t * res) {
-  fd_memset(res, 0, sizeof(fd_gossip_peer_addr_t));
-
-  /* Find the : and copy out the host */
-  char buf[128];
-  uint i;
-  for (i = 0; ; ++i) {
-    if (str[i] == '\0' || i > sizeof(buf)-1U) {
-      FD_LOG_ERR(("missing colon"));
-      return NULL;
-    }
-    if (str[i] == ':') {
-      buf[i] = '\0';
-      break;
-    }
-    buf[i] = str[i];
-  }
-  if (i == 0)
-    /* :port means $HOST:port */
-    gethostname(buf, sizeof(buf));
-
-  struct hostent * host = gethostbyname( buf );
-  if (host == NULL) {
-    FD_LOG_WARNING(("unable to resolve host %s", buf));
-    return NULL;
-  }
-  /* Convert result to gossip address */
-  res->l = 0;
-  res->addr = ((struct in_addr *)host->h_addr)->s_addr;
-  int port = atoi(str + i + 1);
-  if (port < 1024 || port > (int)USHORT_MAX) {
-    FD_LOG_ERR(("invalid port number"));
-    return NULL;
-  }
-  res->port = htons((ushort)port);
-
-  return res;
-}
+#define MY_SMAX (1UL << 16) // 65536
+#define MY_DEPTH 64UL
+uchar smem[ MY_SMAX ] __attribute__((aligned(FD_SCRATCH_SMEM_ALIGN)));
+ulong fmem[ MY_DEPTH ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
 
 void
 spy_cmd_fn( args_t *         args,
             config_t * const config ) {
   (void)args;
-
+  fd_scratch_attach( smem, fmem, MY_SMAX, MY_DEPTH );
   fd_valloc_t valloc = fd_libc_alloc_virtual();
+
+  /* Retrieve gossip tile object, which has metadata we need */
+  ulong gtile_idx = fd_topo_find_tile( &config->topo, "gossip", 0UL );
+  if( gtile_idx == ULONG_MAX ) {
+    FD_LOG_ERR(("gossip tile not found, was topology initialized?"));
+  }
+  fd_topo_tile_t const * gtile = &config->topo.tiles[ gtile_idx ];
 
   fd_gossip_config_t gconfig;
   fd_memset(&gconfig, 0, sizeof(gconfig));
 
-  uchar private_key[32];
   FD_TEST( 32UL==getrandom( private_key, 32UL, 0 ) );
-  fd_sha512_t sha[1];
-  fd_pubkey_t public_key;
-  FD_TEST( fd_ed25519_public_from_private( public_key.uc, private_key, sha ) );
+  FD_TEST( fd_ed25519_public_from_private( public_key.uc, private_key, &sha512 ) );
 
   gconfig.private_key = private_key;
   gconfig.public_key = &public_key;
+  fd_sha512_join( fd_sha512_new( &sha512 ) );
 
-  char gossiphost[256];
-  if ( config->gossip.host[0] == '\0' )
-    gethostname(gossiphost, sizeof(gossiphost));
-  else
-    strncpy(gossiphost, config->gossip.host, sizeof(gossiphost));
-  ulong seed = fd_hash(0, gossiphost, strnlen(gossiphost, sizeof(gossiphost)));
-
+  
   /* Compute my address */
-  struct hostent * hostres = gethostbyname( gossiphost );
-  if (hostres == NULL) {
-    FD_LOG_ERR(("unable to resolve host %s", gossiphost));
-    return;
-  }
   gconfig.my_addr.l = 0;
-  gconfig.my_addr.addr = ((struct in_addr *)hostres->h_addr)->s_addr;
-  gconfig.my_addr.port = htons((ushort)config->gossip.port);
+  gconfig.my_addr.addr = gtile->gossip.ip_addr;
+  gconfig.my_addr.port = fd_ushort_bswap( gtile->gossip.gossip_listen_port );
+
+  gconfig.my_version = (fd_gossip_version_v2_t){
+    .from = public_key,
+    .major = 42U,
+    .minor = 42U,
+    .patch = 42U,
+    .commit = 0U,
+    .has_commit = 0U,
+    .feature_set = 0U,
+  };
 
   gconfig.shred_version = config->consensus.expected_shred_version;
-  if (0 == gconfig.shred_version)
+  if( 0 == gconfig.shred_version ){
     /* TODO: This is a placeholder until we can do something smarter */
-    gconfig.shred_version = 61807;
+    gconfig.shred_version = 64475U;
+  }
 
   fd_flamenco_yaml_t * yamldump =
     fd_flamenco_yaml_init( fd_flamenco_yaml_new(
@@ -225,6 +229,10 @@ spy_cmd_fn( args_t *         args,
   gconfig.deliver_arg = yamldump;
   gconfig.send_fun    = send_packet;
   gconfig.send_arg    = NULL;
+  gconfig.sign_fun    = gossip_signer;
+  gconfig.sign_arg    = NULL;
+
+  ulong seed = fd_hash(0, &gtile->gossip.ip_addr, sizeof(gtile->gossip.ip_addr));
 
   void * shm = fd_valloc_malloc(valloc, fd_gossip_align(), fd_gossip_footprint());
   fd_gossip_t * glob = fd_gossip_join(fd_gossip_new(shm, seed));
@@ -232,11 +240,8 @@ spy_cmd_fn( args_t *         args,
   if ( fd_gossip_set_config(glob, &gconfig) )
     return;
 
-  for ( ulong i = 0; i < config->gossip.entrypoints_cnt; ++i ) {
-    fd_gossip_peer_addr_t peeraddr;
-    if ( fd_gossip_add_active_peer(glob, resolve_hostport(config->gossip.entrypoints[i], &peeraddr)) )
-      return;
-  }
+
+  fd_gossip_set_entrypoints( glob, gtile->gossip.entrypoints, gtile->gossip.entrypoints_cnt, gtile->gossip.peer_ports);
 
   signal(SIGINT, stop);
   signal(SIGPIPE, SIG_IGN);
@@ -247,4 +252,5 @@ spy_cmd_fn( args_t *         args,
   fd_valloc_free(valloc, fd_flamenco_yaml_delete(yamldump));
 
   fd_valloc_free(valloc, fd_gossip_delete(fd_gossip_leave(glob)));
+  fd_scratch_detach( NULL );
 }
