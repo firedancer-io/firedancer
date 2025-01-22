@@ -517,7 +517,7 @@ after_credit( fd_store_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( ctx->sim &&
                    ctx->store->pending_slots->start == ctx->store->pending_slots->end ) ) {
-    FD_LOG_ERR( ( "Sim is complete." ) );
+    FD_LOG_WARNING(( "Sim is complete." ));
   }
 
   for( ulong i = 0; i<fd_txn_iter_map_slot_cnt(); i++ ) {
