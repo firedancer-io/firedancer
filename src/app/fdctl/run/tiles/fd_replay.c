@@ -1948,11 +1948,16 @@ read_snapshot( void * _ctx,
   }
 
   /* Pass the slot_ctx to snapshot_load or recover_banks */
-
+  /* Base slot is the slot we will compare against the base slot of the incremental snapshot, to ensure that the 
+     base slot of the incremental snapshot is the slot of the full snapshot.
+     
+     We pull this out of the full snapshot to use when verifying the incremental snapshot. */
+  ulong base_slot       = 0UL;
   const char * snapshot = snapshotfile;
   if( strcmp( snapshot, "funk" ) == 0 || strncmp( snapshot, "wksp:", 5 ) == 0) {
     /* Funk already has a snapshot loaded */
     fd_runtime_recover_banks( ctx->slot_ctx, 1, 1 );
+    base_slot = ctx->slot_ctx->slot_bank.slot;
   } else {
     
     /* If we have an incremental snapshot try to prefetch the snapshot slot
@@ -1963,30 +1968,45 @@ read_snapshot( void * _ctx,
        stake weights. After this, repair will kick off concurrently with loading 
        the rest of the snapshots. */
 
-  if( strlen( incremental )>0UL ) {
-    uchar *                  tmp_mem      = fd_scratch_alloc( fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
-    fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem, incremental, ctx->slot_ctx, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_FULL );
-    fd_snapshot_load_prefetch_manifest( tmp_snap_ctx );
-    kickoff_repair_orphans( ctx, stem );
-  }
+    /* TODO: enable snapshot verification for all 3 snapshot loads */
+
+    if( strlen( incremental )>0UL ) {
+      uchar *                  tmp_mem      = fd_scratch_alloc( fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
+      /* TODO: enable snapshot verification */
+      fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem, incremental, ctx->slot_ctx, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_FULL );
+      /* Load the prefetch manifest, and initialize the status cache and slot context,
+         so that we can use these to kick off repair. */
+      fd_snapshot_load_prefetch_manifest( tmp_snap_ctx );
+      kickoff_repair_orphans( ctx, stem );
+    }
 
     /* In order to kick off repair effectively we need the snapshot slot and
        the stake weights. These are both available in the manifest. We will
-       try to load in the manifest from the latest snapshot that is availble,
+       try to load in the manifest from the latest snapshot that is available,
        then setup the blockstore and publish the stake weights. After this,
        repair will kick off concurrently with loading the rest of the snapshots. */
 
     uchar *                  mem      = fd_scratch_alloc( fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
+    /* TODO: enable snapshot verification */
     fd_snapshot_load_ctx_t * snap_ctx = fd_snapshot_load_new( mem, snapshot, ctx->slot_ctx, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_FULL );
   
     fd_snapshot_load_init( snap_ctx );
-    fd_snapshot_load_manifest_and_status_cache( snap_ctx );
 
+    /* If we don't have an incremental snapshot, load the manifest and the status cache and initialize 
+         the objects because we don't have these from the incremental snapshot. */
     if( strlen( incremental )<=0UL ) {
+      fd_snapshot_load_manifest_and_status_cache( snap_ctx, NULL,
+        FD_SNAPSHOT_RESTORE_MANIFEST | FD_SNAPSHOT_RESTORE_STATUS_CACHE );
+
       /* If we don't have an incremental snapshot, we can still kick off
          sending the stake weights and snapshot slot to repair. */
       kickoff_repair_orphans( ctx, stem );
+    } else {
+      /* If we have an incremental snapshot, load the manifest and the status cache,
+          and don't initialize the objects because we did this above from the incremental snapshot. */
+      fd_snapshot_load_manifest_and_status_cache( snap_ctx, NULL, FD_SNAPSHOT_RESTORE_NONE );
     }
+    base_slot = fd_snapshot_get_slot( snap_ctx );
 
     fd_snapshot_load_accounts( snap_ctx );
     fd_snapshot_load_fini( snap_ctx );
@@ -2004,7 +2024,11 @@ read_snapshot( void * _ctx,
   }
 
   if( strlen( incremental ) > 0 ) {
-    fd_snapshot_load_all( incremental, ctx->slot_ctx, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_INCREMENTAL );
+
+    /* The slot of the full snapshot should be used as the base slot to verify the incremental snapshot,
+       not the slot context's slot - which is the slot of the incremental, not the full snapshot. */
+    /* TODO: enable snapshot verification */
+    fd_snapshot_load_all( incremental, ctx->slot_ctx, &base_slot, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_INCREMENTAL );
   }
 
   if( ctx->replay_plugin_out_mem ) {

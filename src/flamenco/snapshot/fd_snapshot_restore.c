@@ -81,10 +81,6 @@ fd_snapshot_restore_new( void *                               mem,
     FD_LOG_WARNING(( "NULL valloc" ));
     return NULL;
   }
-  if( FD_UNLIKELY( !cb_manifest ) ) {
-    FD_LOG_WARNING(( "NULL callback" ));
-    return NULL;
-  }
 
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_snapshot_restore_t * self = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapshot_restore_t), sizeof(fd_snapshot_restore_t) );
@@ -292,7 +288,10 @@ fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
   /* Move over objects and recover state
      This destroys all remaining fields with the slot context valloc. */
 
-  int err = restore->cb_manifest( restore->cb_manifest_ctx, manifest );
+  int err = 0;
+  if( restore->cb_manifest ) {
+    err = restore->cb_manifest( restore->cb_manifest_ctx, manifest );
+  }
 
   /* Read AccountVec map */
 
@@ -698,6 +697,11 @@ fd_snapshot_restore_chunk( void *       restore_,
   }
 
   return 0;
+}
+
+ulong
+fd_snapshot_restore_get_slot( fd_snapshot_restore_t * restore ) {
+  return restore->slot;
 }
 
 /* fd_snapshot_restore_t implements the consumer interface of a TAR
