@@ -9,12 +9,6 @@
 
 FD_PROTOTYPES_BEGIN
 
-/* Whether to initialize these objects inside fd_snapshot_load_manifest_and_status_cache,
-   or just advance the tar cursor. */
-#define FD_SNAPSHOT_RESTORE_NONE         (0)
-#define FD_SNAPSHOT_RESTORE_MANIFEST     (1)
-#define FD_SNAPSHOT_RESTORE_STATUS_CACHE (2)
-
 struct fd_snapshot_load_ctx;
 typedef struct fd_snapshot_load_ctx fd_snapshot_load_ctx_t;
 
@@ -76,11 +70,8 @@ fd_snapshot_load_new( uchar *                mem,
 void
 fd_snapshot_load_init( fd_snapshot_load_ctx_t * ctx );
 
-/* restore_manifest_flags controls if the manifest and status cache objects are initialized or not.*/
 void
-fd_snapshot_load_manifest_and_status_cache( 
-  fd_snapshot_load_ctx_t * ctx,
-  int restore_manifest_flags );
+fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx );
 
 void
 fd_snapshot_load_accounts( fd_snapshot_load_ctx_t * ctx );
