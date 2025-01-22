@@ -62,7 +62,7 @@ fd_snapshot_dumper_new( void * mem ) {
 }
 
 static void *
-fd_snapshot_dumper_delete( fd_snapshot_dumper_t * dumper ) {
+fd_snapshot_dumper_delete( fd_snapshot_dumper_t * dumper, fd_valloc_t valloc ) {
 
   if( dumper->loader ) {
     fd_snapshot_loader_delete( dumper->loader );
@@ -75,7 +75,7 @@ fd_snapshot_dumper_delete( fd_snapshot_dumper_t * dumper ) {
   }
 
   if( dumper->slot_ctx ) {
-    fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( dumper->slot_ctx ) );
+    fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( dumper->slot_ctx ), valloc );
     dumper->slot_ctx = NULL;
   }
 
@@ -121,7 +121,10 @@ fd_snapshot_dumper_delete( fd_snapshot_dumper_t * dumper ) {
 
 static int
 fd_snapshot_dumper_on_manifest( void *                 _d,
-                                fd_solana_manifest_t * manifest ) {
+                                fd_solana_manifest_t * manifest,
+                                fd_valloc_t            valloc ) {
+
+  (void)valloc;
 
   fd_snapshot_dumper_t * d = _d;
   if( !d->want_manifest ) return 0;
@@ -347,7 +350,7 @@ do_dump( fd_snapshot_dumper_t *    d,
   d->slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( fd_scratch_alloc( FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT ), fd_alloc_virtual( d->alloc ) ) );
   if( FD_UNLIKELY( !d->slot_ctx ) ) { FD_LOG_WARNING(( "Failed to create fd_exec_slot_ctx_t" )); return EXIT_FAILURE; }
 
-  d->slot_ctx->valloc = fd_alloc_virtual( d->alloc );
+  fd_valloc_t valloc     = fd_alloc_virtual( d->alloc );
   d->slot_ctx->acc_mgr   = d->acc_mgr;
   d->slot_ctx->epoch_ctx = d->epoch_ctx;
 
@@ -360,7 +363,7 @@ do_dump( fd_snapshot_dumper_t *    d,
   void * restore_mem = fd_scratch_alloc( fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
   if( FD_UNLIKELY( !restore_mem ) ) FD_LOG_ERR(( "Failed to allocate restore buffer" ));  /* unreachable */
 
-  d->restore = fd_snapshot_restore_new( restore_mem, d->acc_mgr, funk_txn, d->slot_ctx->valloc, d, fd_snapshot_dumper_on_manifest, NULL );
+  d->restore = fd_snapshot_restore_new( restore_mem, d->acc_mgr, funk_txn, valloc, d, fd_snapshot_dumper_on_manifest, NULL );
   if( FD_UNLIKELY( !d->restore ) ) { FD_LOG_WARNING(( "Failed to create fd_snapshot_restore_t" )); return EXIT_FAILURE; }
 
   /* Set up the snapshot loader */
@@ -460,7 +463,7 @@ cmd_dump( int     argc,
   int rc = do_dump( dumper, args, wksp );
   FD_LOG_INFO(( "Done. Cleaning up." ));
 
-  fd_snapshot_dumper_delete( dumper );
+  fd_snapshot_dumper_delete( dumper, fd_scratch_virtual() );
 
   fd_scratch_pop();
   fd_scratch_detach( NULL );

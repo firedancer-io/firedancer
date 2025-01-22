@@ -49,8 +49,7 @@ typedef struct fd_snapshot_load_ctx fd_snapshot_load_ctx_t;
    slot_ctx is a valid initialized slot context (a funk, acc_mgr, heap
    valloc, zero-initialized slot bank).
 
-   slot_ctx->valloc should have enough space to buffer the snapshot's
-   manifest.
+   valloc should have enough space to buffer the snapshot's manifest.
 
    If verify_hash!=0 calculates the snapshot hash.
 
@@ -71,7 +70,8 @@ fd_snapshot_load_new( uchar *                mem,
                       fd_tpool_t *           tpool,
                       uint                   verify_hash,
                       uint                   check_hash,
-                      int                    snapshot_type );
+                      int                    snapshot_type,
+                      fd_valloc_t            valloc );
 
 void
 fd_snapshot_load_init( fd_snapshot_load_ctx_t * ctx );
@@ -95,7 +95,8 @@ fd_snapshot_load_all( const char *         source_cstr,
                       fd_tpool_t *         tpool,
                       uint                 verify_hash,
                       uint                 check_hash,
-                      int                  snapshot_type );
+                      int                  snapshot_type,
+                      fd_valloc_t          valloc );
 
 void
 fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx );

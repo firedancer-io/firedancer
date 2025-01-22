@@ -14,7 +14,7 @@
    transactions in a block. */
 
 struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
-  ulong                        magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
+  ulong                       magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
 
   fd_funk_txn_t *             funk_txn;
 
@@ -24,7 +24,6 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   fd_blockstore_t *           blockstore;
   fd_block_t *                block;
   fd_exec_epoch_ctx_t *       epoch_ctx;
-  fd_valloc_t                 valloc;
 
   fd_slot_bank_t              slot_bank;
 
@@ -87,7 +86,8 @@ void *
 fd_exec_slot_ctx_leave( fd_exec_slot_ctx_t * ctx );
 
 void *
-fd_exec_slot_ctx_delete( void * mem );
+fd_exec_slot_ctx_delete( void *      mem,
+                         fd_valloc_t valloc );
 
 /* fd_exec_slot_ctx_recover re-initializes the current epoch/slot
    context and recovers it from the manifest of a Solana Labs snapshot.
@@ -99,7 +99,8 @@ fd_exec_slot_ctx_delete( void * mem );
 
 fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *   ctx,
-                          fd_solana_manifest_t * manifest );
+                          fd_solana_manifest_t * manifest,
+                          fd_valloc_t            valloc );
 
 /* fd_exec_slot_ctx_recover re-initializes the current slot
    context's status cache from the provided solana slot deltas.
@@ -115,7 +116,8 @@ fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *   ctx,
 
 /* Free all allocated memory within a slot ctx */
 void
-fd_exec_slot_ctx_free(fd_exec_slot_ctx_t * ctx);
+fd_exec_slot_ctx_free( fd_exec_slot_ctx_t * ctx,
+                       fd_valloc_t          valloc );
 
 FD_PROTOTYPES_END
 

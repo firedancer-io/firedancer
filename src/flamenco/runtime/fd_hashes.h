@@ -21,11 +21,14 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
                            fd_capture_ctx_t *   capture_ctx,
                            fd_hash_t *          hash,
                            ulong                signature_cnt,
-                           fd_tpool_t *         tpool );
+                           fd_tpool_t *         tpool,
+                           fd_valloc_t          valloc );
 
 int
 fd_print_account_hashes( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_tpool_t *         tpool );
+                         fd_tpool_t *         tpool,
+                         fd_valloc_t          valloc );
+
 /* fd_hash_account is the method to compute the account
    hash.  It includes the following content:
     - lamports
@@ -66,16 +69,18 @@ fd_accounts_hash( fd_funk_t          * funk,
 /* Generate a non-incremental hash of the entire account database, conditionally including in the epoch account hash. */
 int
 fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx,
-                  fd_tpool_t * tpool,
-                  fd_hash_t * accounts_hash,
-                  uint check_hash );
+                  fd_tpool_t *         tpool,
+                  fd_hash_t *          accounts_hash,
+                  uint                 check_hash,
+                  fd_valloc_t          valloc );
 
 /* Generate an incremental hash of the entire account database, conditionally including in the epoch account hash. */
 int
 fd_snapshot_inc_hash( fd_exec_slot_ctx_t * slot_ctx,
                       fd_hash_t *          accounts_hash,
                       fd_funk_txn_t *      child_txn,
-                      uint                 check_hash );
+                      uint                 check_hash,
+                      fd_valloc_t          valloc );
 
 /* Generate a non-incremental hash of the entire account database, including
    the epoch account hash. It differs from fd_snapshot_hash in that this version

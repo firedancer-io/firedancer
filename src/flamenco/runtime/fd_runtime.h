@@ -317,13 +317,15 @@ fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
                                ulong             hashes_per_tick );
 
 int
-fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx );
+fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
+                                  fd_valloc_t          valloc );
 
 int
 fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t *    slot_ctx,
                                          fd_capture_ctx_t *      capture_ctx,
                                          fd_block_info_t const * block_info,
-                                         fd_tpool_t *            tpool );
+                                         fd_tpool_t *            tpool,
+                                         fd_valloc_t             valloc );
 
 /* Transaction Level Execution Management *************************************/
 
@@ -387,7 +389,8 @@ fd_runtime_is_epoch_boundary( fd_epoch_bank_t * epoch_bank,
    the bank hash.
  */
 int
-fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx );
+fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
+                                                fd_valloc_t          valloc );
 
 /* Debugging Tools ************************************************************/
 
@@ -432,7 +435,8 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
                              ulong                scheduler,
                              ulong *              txn_cnt,
                              fd_spad_t * *        spads,
-                             ulong                spads_cnt );
+                             ulong                spads_cnt,
+                             fd_valloc_t          valloc );
 
 /* Genesis ********************************************************************/
 
@@ -440,8 +444,9 @@ void
 fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
                          char const *         genesis_filepath,
                          uchar                is_snapshot,
-                         fd_capture_ctx_t   * capture_ctx,
-                         fd_tpool_t *         tpool );
+                         fd_capture_ctx_t *   capture_ctx,
+                         fd_tpool_t *         tpool,
+                         fd_valloc_t          valloc );
 
 FD_PROTOTYPES_END
 

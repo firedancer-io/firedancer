@@ -226,8 +226,8 @@ refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
 void
 fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
                           ulong *               new_rate_activation_epoch,
-                          fd_epoch_info_t      *temp_info
- ) {
+                          fd_epoch_info_t *     temp_info,
+                          fd_valloc_t           valloc ) {
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_stakes_t * stakes = &epoch_bank->stakes;
 
@@ -262,12 +262,12 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
     }
 
     fd_stake_state_v2_t stake_state;
-    rc = fd_stake_get_state( acc, &slot_ctx->valloc, &stake_state );
-    if ( FD_UNLIKELY( rc != 0) ) {
+    rc = fd_stake_get_state( acc, valloc, &stake_state );
+    if( FD_UNLIKELY( rc != 0 ) ) {
       continue;
     }
 
-    if ( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
+    if( FD_UNLIKELY( !fd_stake_state_v2_is_stake( &stake_state ) ) ) {
       continue;
     }
 
@@ -294,7 +294,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
     }
 
     fd_stake_state_v2_t stake_state;
-    rc = fd_stake_get_state( acc, &slot_ctx->valloc, &stake_state );
+    rc = fd_stake_get_state( acc, valloc, &stake_state );
     if ( FD_UNLIKELY( rc != 0) ) {
       continue;
     }
@@ -325,7 +325,8 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
     .deactivating = accumulator.deactivating
   };
 
-  fd_sysvar_stake_history_update( slot_ctx, &new_elem);
+  /* FIXME: Replace scratch allocation with block level spad */
+  fd_sysvar_stake_history_update( slot_ctx, &new_elem, fd_scratch_virtual() );
 
   /* Refresh the sysvar cache stake history entry after updating the sysvar.
       We need to do this here because it is used in subsequent places in the epoch boundary. */

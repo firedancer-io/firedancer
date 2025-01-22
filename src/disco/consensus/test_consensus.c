@@ -544,7 +544,6 @@ main( void ) {
 
 //   snapshot_slot_ctx->acc_mgr    = acc_mgr;
 //   snapshot_slot_ctx->blockstore = blockstore;
-//   snapshot_slot_ctx->valloc     = valloc;
 
 //   fd_runtime_recover_banks( snapshot_slot_ctx, 0 );
 
