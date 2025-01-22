@@ -8,6 +8,7 @@
 #include "../../flamenco/gossip/fd_gossip.h"
 #include "../../flamenco/types/fd_types_yaml.h"
 #include "../../disco/keyguard/fd_keyguard.h"
+#include "../../disco/keyguard/fd_keyload.h"
 #include "../../util/net/fd_eth.h"
 #include <stdio.h>
 #include <unistd.h>
@@ -20,7 +21,8 @@
 #include <netdb.h>
 #include <stdlib.h>
 
-static void print_data(FD_FN_UNUSED fd_crds_data_t* data, FD_FN_UNUSED void* arg) {
+static void 
+print_data(FD_FN_UNUSED fd_crds_data_t* data, FD_FN_UNUSED void* arg) {
   // fd_flamenco_yaml_t * yamldump = (fd_flamenco_yaml_t *)arg;
   // FILE * dumpfile = (FILE *)fd_flamenco_yaml_file(yamldump);
   // fd_crds_data_walk(yamldump, data, fd_flamenco_yaml_walk, NULL, 1U);
@@ -66,9 +68,9 @@ send_packet( uchar const * data, size_t sz, fd_gossip_peer_addr_t const * addr, 
   }
 }
 
-static uchar       private_key[32] = {0};
-static fd_pubkey_t public_key = {0};
-static fd_sha512_t sha512 = {0};
+static uchar        * private_key = NULL;
+static fd_pubkey_t  * public_key  = NULL;
+static fd_sha512_t    sha512 = {0};
 
 static void
 gossip_signer( void *        signer_ctx,
@@ -80,13 +82,13 @@ gossip_signer( void *        signer_ctx,
 
   switch (sign_type) {
     case FD_KEYGUARD_SIGN_TYPE_ED25519:
-      fd_ed25519_sign(signature, buffer, len, public_key.uc, private_key, &sha512);
+      fd_ed25519_sign(signature, buffer, len, public_key->uc, private_key, &sha512);
       break;
     case FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519:
       {
         uchar hash[32];
         fd_sha256_hash(buffer, len, hash);
-        fd_ed25519_sign(signature, hash, 32UL, public_key.uc, private_key, &sha512);
+        fd_ed25519_sign(signature, hash, 32UL, public_key->uc, private_key, &sha512);
       }
       break;
     default:
@@ -170,7 +172,14 @@ main_loop( fd_gossip_t * glob, fd_gossip_config_t * config, volatile int * stopf
   return 0;
 }
 
-#define MY_SMAX (1UL << 16) // 65536
+void
+spy_cmd_args( int *pargc,
+              char ***pargv,
+              args_t *args ) {
+  args->spy.generate_keypair = fd_env_strip_cmdline_contains( pargc, pargv, "--generate-random-keypair" );
+}
+
+#define MY_SMAX (1UL << 17) // 128KB
 #define MY_DEPTH 64UL
 uchar smem[ MY_SMAX ] __attribute__((aligned(FD_SCRATCH_SMEM_ALIGN)));
 ulong fmem[ MY_DEPTH ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
@@ -180,6 +189,7 @@ spy_cmd_fn( args_t *         args,
             config_t * const config ) {
   (void)args;
   fd_scratch_attach( smem, fmem, MY_SMAX, MY_DEPTH );
+  fd_scratch_push();
   fd_valloc_t valloc = fd_libc_alloc_virtual();
 
   /* Retrieve gossip tile object, which has metadata we need */
@@ -192,11 +202,27 @@ spy_cmd_fn( args_t *         args,
   fd_gossip_config_t gconfig;
   fd_memset(&gconfig, 0, sizeof(gconfig));
 
-  FD_TEST( 32UL==getrandom( private_key, 32UL, 0 ) );
-  FD_TEST( fd_ed25519_public_from_private( public_key.uc, private_key, &sha512 ) );
+  uchar const * keypair = NULL;
+  if( !!(args->spy.generate_keypair) ) {
+    /* Allocate space for keypair on scratch */
+    uchar * p = (uchar*) fd_scratch_prepare( 32UL );
+    private_key = p;
+    p += 32UL;
+    public_key = (fd_pubkey_t *)p;
+    p += sizeof(fd_pubkey_t);
+    fd_scratch_publish( p );
+
+    FD_TEST( 32UL==getrandom( private_key, 32UL, 0 ) );
+    FD_TEST( fd_ed25519_public_from_private( public_key->uc, private_key, &sha512 ) );
+  } else {
+    /* fd_keyload_load should abort the process on bad idenitity_key_path */
+    keypair = fd_keyload_load( gtile->gossip.identity_key_path, 0 /* public_key_only */ );
+    private_key = (uchar *)keypair;
+    public_key = (fd_pubkey_t *)(keypair + 32UL);
+  }
 
   gconfig.private_key = private_key;
-  gconfig.public_key = &public_key;
+  gconfig.public_key  = public_key;
   fd_sha512_join( fd_sha512_new( &sha512 ) );
 
   
@@ -206,7 +232,7 @@ spy_cmd_fn( args_t *         args,
   gconfig.my_addr.port = fd_ushort_bswap( gtile->gossip.gossip_listen_port );
 
   gconfig.my_version = (fd_gossip_version_v2_t){
-    .from = public_key,
+    .from = *public_key,
     .major = 42U,
     .minor = 42U,
     .patch = 42U,
@@ -246,11 +272,15 @@ spy_cmd_fn( args_t *         args,
   signal(SIGINT, stop);
   signal(SIGPIPE, SIG_IGN);
 
-  if ( main_loop(glob, &gconfig, &stopflag) )
-    return;
+  main_loop( glob, &gconfig, &stopflag );
+
+  if( !(args->spy.generate_keypair) ) {
+    fd_keyload_unload( keypair, 0 );
+  }
 
   fd_valloc_free(valloc, fd_flamenco_yaml_delete(yamldump));
 
   fd_valloc_free(valloc, fd_gossip_delete(fd_gossip_leave(glob)));
+  fd_scratch_pop();
   fd_scratch_detach( NULL );
 }

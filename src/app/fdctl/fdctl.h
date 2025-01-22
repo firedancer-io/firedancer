@@ -94,6 +94,10 @@ typedef union {
     int event;
     int dump; /* whether the user requested --dump */
   } quic_trace;
+
+  struct {
+    int generate_keypair;
+  } spy;
 } args_t;
 
 typedef struct fd_caps_ctx fd_caps_ctx_t;
@@ -201,6 +205,11 @@ ready_cmd_fn( args_t *         args,
 void
 mem_cmd_fn( args_t *         args,
             config_t * const config );
+
+void
+spy_cmd_args( int *   pargc,
+              char *** pargv,
+              args_t * args );
 
 void
 spy_cmd_fn( args_t *         args,
