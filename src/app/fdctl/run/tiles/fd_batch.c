@@ -301,7 +301,6 @@ produce_snapshot( fd_snapshot_tile_ctx_t * ctx, ulong batch_fseq ) {
     .slot                     = snapshot_slot,
     .out_dir                  = ctx->out_dir,
     .is_incremental           = (uchar)is_incremental,
-    .valloc                   = fd_scratch_virtual(),
     .funk                     = ctx->funk,
     .status_cache             = ctx->status_cache,
     .tmp_fd                   = is_incremental ? ctx->tmp_inc_fd              : ctx->tmp_fd,
@@ -359,8 +358,10 @@ produce_snapshot( fd_snapshot_tile_ctx_t * ctx, ulong batch_fseq ) {
   }
 
   /* Now that the files are in an expected state, create the snapshot. */
-
-  fd_snapshot_create_new_snapshot( &snapshot_ctx, &ctx->last_hash, &ctx->last_capitalization );
+  FD_SCRATCH_SCOPE_BEGIN {
+    snapshot_ctx.valloc = fd_scratch_virtual();
+    fd_snapshot_create_new_snapshot( &snapshot_ctx, &ctx->last_hash, &ctx->last_capitalization );
+  } FD_SCRATCH_SCOPE_END;
 
   if( is_incremental ) {
     FD_LOG_NOTICE(( "Done creating a snapshot in %s", snapshot_ctx.out_dir ));
@@ -422,44 +423,44 @@ produce_eah( fd_snapshot_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong batch
   }
 
   uint slot_magic = *(uint*)slot_val;
+  FD_SCRATCH_SCOPE_BEGIN {
+    fd_bincode_decode_ctx_t slot_decode_ctx = {
+      .data    = (uchar*)slot_val + sizeof(uint),
+      .dataend = (uchar*)slot_val + fd_funk_val_sz( slot_rec ),
+      .valloc  = fd_scratch_virtual()
+    };
 
-  fd_bincode_decode_ctx_t slot_decode_ctx = {
-    .data    = (uchar*)slot_val + sizeof(uint),
-    .dataend = (uchar*)slot_val + fd_funk_val_sz( slot_rec ),
-    .valloc  = fd_scratch_virtual()
-  };
+    if( FD_UNLIKELY( slot_magic!=FD_RUNTIME_ENC_BINCODE ) ) {
+      FD_LOG_ERR(( "Slot bank record has wrong magic" ));
+    }
 
-  if( FD_UNLIKELY( slot_magic!=FD_RUNTIME_ENC_BINCODE ) ) {
-    FD_LOG_ERR(( "Slot bank record has wrong magic" ));
-  }
+    fd_slot_bank_t slot_bank = {0};
+    int err = fd_slot_bank_decode( &slot_bank, &slot_decode_ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+      FD_LOG_ERR(( "Failed to decode slot bank" ));
+    }
 
-  fd_slot_bank_t slot_bank = {0};
-  int err = fd_slot_bank_decode( &slot_bank, &slot_decode_ctx );
-  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-    FD_LOG_ERR(( "Failed to decode slot bank" ));
-  }
+    /* At this point, calculate the epoch account hash. */
 
-  /* At this point, calculate the epoch account hash. */
+    fd_hash_t epoch_account_hash = {0};
+    fd_accounts_hash( funk, &slot_bank, fd_scratch_virtual(), ctx->tpool, &epoch_account_hash );
 
-  fd_hash_t epoch_account_hash = {0};
-  fd_accounts_hash( funk, &slot_bank, fd_scratch_virtual(), ctx->tpool, &epoch_account_hash );
+    FD_LOG_NOTICE(( "Done computing epoch account hash (%s)", FD_BASE58_ENC_32_ALLOCA( &epoch_account_hash ) ));
 
-  FD_LOG_NOTICE(( "Done computing epoch account hash (%s)", FD_BASE58_ENC_32_ALLOCA( &epoch_account_hash ) ));
+    /* Once the hash is calculated, we are ready to push the computed hash
+       onto the out link to replay. We don't need to add any other information
+       as this is the only type of message that is transmitted. */
 
-  /* Once the hash is calculated, we are ready to push the computed hash
-     onto the out link to replay. We don't need to add any other information
-     as this is the only type of message that is transmitted. */
+    uchar * out_buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
+    fd_memcpy( out_buf, epoch_account_hash.uc, sizeof(fd_hash_t) );
+    ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_stem_publish( stem, 0UL, EAH_REPLAY_OUT_SIG, ctx->replay_out_chunk, sizeof(fd_hash_t), 0UL, tsorig, tspub );
 
-  uchar * out_buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
-  fd_memcpy( out_buf, epoch_account_hash.uc, sizeof(fd_hash_t) );
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, 0UL, EAH_REPLAY_OUT_SIG, ctx->replay_out_chunk, sizeof(fd_hash_t), 0UL, tsorig, tspub );
+    /* Reset the fseq allowing for the un-constipation of funk and allow for
+       snapshots to be created again. */
 
-  /* Reset the fseq allowing for the un-constipation of funk and allow for
-     snapshots to be created again. */
-
-  fd_fseq_update( ctx->is_constipated, 0UL );
-
+    fd_fseq_update( ctx->is_constipated, 0UL );
+  } FD_SCRATCH_SCOPE_END;
 }
 
 static void
