@@ -22,7 +22,9 @@ static void *                  _cb_v_ctx      = NULL;
 
 int
 cb_manifest( void *                 ctx,
-             fd_solana_manifest_t * manifest ) {
+             fd_solana_manifest_t * manifest,
+             fd_valloc_t            valloc ) {
+  (void)valloc;
   _cb_v_manifest = manifest;
   _cb_v_ctx      = ctx;
   return _cb_retcode;

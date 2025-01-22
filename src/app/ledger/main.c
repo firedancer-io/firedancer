@@ -124,6 +124,8 @@ struct fd_ledger_args {
   uchar *               snapshot_scr_mem;
   uchar *               tpool_scr_mem;
 
+  fd_valloc_t           valloc;
+
   char const *          lthash;
 };
 typedef struct fd_ledger_args fd_ledger_args_t;
@@ -214,7 +216,7 @@ init_tpool( fd_ledger_args_t * ledger_args ) {
       FD_LOG_ERR(( "failed to create thread pool" ));
     }
     ulong scratch_sz = fd_scratch_smem_footprint( 256UL<<20UL );
-    tpool_scr_mem = fd_valloc_malloc( ledger_args->slot_ctx->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz*(tcnt) );
+    tpool_scr_mem = fd_valloc_malloc( ledger_args->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz*(tcnt) );
     ledger_args->tpool_scr_mem = tpool_scr_mem;
     if( tpool_scr_mem == NULL ) {
       FD_LOG_ERR( ( "failed to allocate thread pool scratch space" ) );
@@ -244,7 +246,7 @@ init_tpool( fd_ledger_args_t * ledger_args ) {
 
   fd_tpool_t * snapshot_bg_tpool = fd_tpool_init( ledger_args->tpool_mem_snapshot_bg, snapshot_tcnt );
   ulong        scratch_sz        = fd_scratch_smem_footprint( 256UL<<20UL );
-  tpool_scr_mem                  = fd_valloc_malloc( ledger_args->slot_ctx->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz );
+  tpool_scr_mem                  = fd_valloc_malloc( ledger_args->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz );
   ledger_args->bg_snapshot_scr_mem = tpool_scr_mem;
   if( FD_UNLIKELY( !fd_tpool_worker_push( snapshot_bg_tpool, start_idx++, tpool_scr_mem, scratch_sz ) ) ) {
       FD_LOG_ERR(( "failed to launch worker" ));
@@ -263,7 +265,7 @@ init_tpool( fd_ledger_args_t * ledger_args ) {
 
   fd_tpool_t * snapshot_tpool = fd_tpool_init( ledger_args->tpool_mem_snapshot, snapshot_tcnt - 1UL );
   scratch_sz                  = fd_scratch_smem_footprint( 256UL<<20UL );
-  tpool_scr_mem               = fd_valloc_malloc( ledger_args->slot_ctx->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz );
+  tpool_scr_mem               = fd_valloc_malloc( ledger_args->valloc, FD_SCRATCH_SMEM_ALIGN, scratch_sz );
   ledger_args->snapshot_scr_mem = tpool_scr_mem;
   for( ulong i=1UL; i<snapshot_tcnt - 1UL; ++i ) {
     if( FD_UNLIKELY( !fd_tpool_worker_push( snapshot_tpool, start_idx++, tpool_scr_mem  + scratch_sz*(i-1UL), scratch_sz ) ) ) {
@@ -425,7 +427,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
         .slot           = ledger_args->slot_ctx->root_slot,
         .out_dir        = ledger_args->snapshot_dir,
         .is_incremental = 0,
-        .valloc         = ledger_args->slot_ctx->valloc,
+        .valloc         = ledger_args->valloc,
         .funk           = ledger_args->slot_ctx->acc_mgr->funk,
         .status_cache   = ledger_args->slot_ctx->status_cache,
         .tpool          = ledger_args->snapshot_tpool
@@ -443,7 +445,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
         .slot                     = ledger_args->slot_ctx->root_slot,
         .out_dir                  = ledger_args->snapshot_dir,
         .is_incremental           = 1,
-        .valloc                   = ledger_args->slot_ctx->valloc,
+        .valloc                   = ledger_args->valloc,
         .funk                     = ledger_args->slot_ctx->acc_mgr->funk,
         .status_cache             = ledger_args->slot_ctx->status_cache,
         .last_snap_slot           = ledger_args->last_snapshot_slot,
@@ -464,7 +466,8 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
                                           1,
                                           &blk_txn_cnt,
                                           ledger_args->spads,
-                                          ledger_args->spad_cnt ) == FD_RUNTIME_EXECUTE_SUCCESS );
+                                          ledger_args->spad_cnt,
+                                          ledger_args->valloc ) == FD_RUNTIME_EXECUTE_SUCCESS );
     txn_cnt += blk_txn_cnt;
     slot_cnt++;
 
@@ -489,7 +492,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
           .slot           = ledger_args->slot_ctx->root_slot,
           .out_dir        = ledger_args->snapshot_dir,
           .is_incremental = 0,
-          .valloc         = ledger_args->slot_ctx->valloc,
+          .valloc         = ledger_args->valloc,
           .funk           = ledger_args->slot_ctx->acc_mgr->funk,
           .status_cache   = ledger_args->slot_ctx->status_cache,
           .tpool          = ledger_args->snapshot_tpool
@@ -528,7 +531,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
           .slot           = ledger_args->slot_ctx->root_slot,
           .out_dir        = ledger_args->snapshot_dir,
           .is_incremental = 0,
-          .valloc         = ledger_args->slot_ctx->valloc,
+          .valloc         = ledger_args->valloc,
           .funk           = ledger_args->slot_ctx->acc_mgr->funk,
           .status_cache   = ledger_args->slot_ctx->status_cache,
           .tpool          = ledger_args->snapshot_tpool
@@ -667,9 +670,6 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   fd_flamenco_boot( NULL, NULL );
   fd_funk_t * funk = args->funk;
 
-  /* Setup valloc */
-  fd_valloc_t valloc = args->slot_ctx->valloc;
-
   /* Setup capture context */
   int has_solcap           = args->capture_fpath && args->capture_fpath[0] != '\0';
   int has_checkpt          = args->checkpt_path && args->checkpt_path[0] != '\0';
@@ -680,7 +680,7 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   if( has_solcap || has_checkpt || has_checkpt_funk || has_prune || has_dump_to_protobuf ) {
     FILE * capture_file = NULL;
 
-    void * capture_ctx_mem = fd_valloc_malloc( valloc, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
+    void * capture_ctx_mem = fd_valloc_malloc( args->valloc, FD_CAPTURE_CTX_ALIGN, FD_CAPTURE_CTX_FOOTPRINT );
     FD_TEST( capture_ctx_mem );
     fd_memset( capture_ctx_mem, 0, sizeof( fd_capture_ctx_t ) );
     args->capture_ctx = fd_capture_ctx_new( capture_ctx_mem );
@@ -714,7 +714,7 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
     }
   }
 
-  fd_runtime_recover_banks( args->slot_ctx, 1, args->genesis==NULL );
+  fd_runtime_recover_banks( args->slot_ctx, 1, args->genesis==NULL, args->valloc );
 
   args->slot_ctx->snapshot_freq      = args->snapshot_freq;
   args->slot_ctx->incremental_freq   = args->incremental_freq;
@@ -756,15 +756,18 @@ fd_ledger_main_teardown( fd_ledger_args_t * args ) {
     fd_solcap_writer_flush( args->capture_ctx->capture );
     fd_solcap_writer_delete( args->capture_ctx->capture );
   }
-  if ( NULL != args->bg_snapshot_scr_mem)
-    fd_valloc_free( args->slot_ctx->valloc, args->bg_snapshot_scr_mem );
-  if ( NULL != args->snapshot_scr_mem)
-    fd_valloc_free( args->slot_ctx->valloc, args->snapshot_scr_mem );
-  if ( NULL != args->tpool_scr_mem)
-    fd_valloc_free( args->slot_ctx->valloc, args->tpool_scr_mem );
+  if( NULL != args->bg_snapshot_scr_mem ) {
+    fd_valloc_free( args->valloc, args->bg_snapshot_scr_mem );
+  }
+  if( NULL != args->snapshot_scr_mem ) {
+    fd_valloc_free( args->valloc, args->snapshot_scr_mem );
+  }
+  if( NULL != args->tpool_scr_mem ) {
+    fd_valloc_free( args->valloc, args->tpool_scr_mem );
+  }
 
   fd_exec_epoch_ctx_delete( fd_exec_epoch_ctx_leave( args->epoch_ctx ) );
-  fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( args->slot_ctx ) );
+  fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( args->slot_ctx ), args->valloc );
 }
 
 void
@@ -1106,13 +1109,13 @@ ingest( fd_ledger_args_t * args ) {
   fd_alloc_t * alloc = fd_alloc_join( fd_wksp_laddr_fast( fd_funk_wksp( funk ), funk->alloc_gaddr ), 0UL );
   if( FD_UNLIKELY( !alloc ) ) FD_LOG_ERR(( "fd_alloc_join(gaddr=%#lx) failed", funk->alloc_gaddr ));
 
-  fd_valloc_t valloc = allocator_setup( args->wksp, args->allocator );
-  uchar * epoch_ctx_mem = fd_valloc_malloc( valloc, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
+  args->valloc = allocator_setup( args->wksp, args->allocator );
+  uchar * epoch_ctx_mem = fd_valloc_malloc( args->valloc, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   fd_memset( epoch_ctx_mem, 0, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   fd_exec_epoch_ctx_t * epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, args->vote_acct_max ) );
 
   uchar slot_ctx_mem[FD_EXEC_SLOT_CTX_FOOTPRINT] __attribute__((aligned(FD_EXEC_SLOT_CTX_ALIGN)));
-  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, valloc ) );
+  fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, args->valloc ) );
   slot_ctx->epoch_ctx = epoch_ctx;
   args->slot_ctx = slot_ctx;
 
@@ -1141,20 +1144,20 @@ ingest( fd_ledger_args_t * args ) {
 
   /* Load in snapshot(s) */
   if( args->snapshot ) {
-    fd_snapshot_load_all( args->snapshot, slot_ctx, NULL, args->tpool, args->verify_acc_hash, args->check_acc_hash , FD_SNAPSHOT_TYPE_FULL );
+    fd_snapshot_load_all( args->snapshot, slot_ctx, NULL, args->tpool, args->verify_acc_hash, args->check_acc_hash , FD_SNAPSHOT_TYPE_FULL, args->valloc );
     FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   }
   if( args->incremental ) {
-    fd_snapshot_load_all( args->incremental, slot_ctx, NULL, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
+    fd_snapshot_load_all( args->incremental, slot_ctx, NULL, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL, args->valloc );
     FD_LOG_NOTICE(( "imported %lu records from incremental snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   }
 
   if( args->genesis ) {
-    fd_runtime_read_genesis( slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->tpool );
+    fd_runtime_read_genesis( slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->tpool, args->valloc );
   }
 
   if( !args->snapshot && (args->restore_funk != NULL || args->restore != NULL) ) {
-    fd_runtime_recover_banks( slot_ctx, 0, 1 );
+    fd_runtime_recover_banks( slot_ctx, 0, 1, args->valloc );
   }
 
   /* At this point the account state has been ingested into funk. Intake rocksdb */
@@ -1244,7 +1247,7 @@ replay( fd_ledger_args_t * args ) {
 
   /* Setup slot_ctx */
 #if 1
-  fd_valloc_t valloc = allocator_setup( args->wksp, args->allocator );
+  args->valloc = allocator_setup( args->wksp, args->allocator );
 #else
   // Enable this when leak hunting
   fd_valloc_t valloc2 = allocator_setup( args->wksp, args->allocator );
@@ -1265,9 +1268,8 @@ replay( fd_ledger_args_t * args ) {
   fd_features_enable_cleaned_up( &args->epoch_ctx->features, args->epoch_ctx->epoch_bank.cluster_version );
   fd_features_enable_one_offs( &args->epoch_ctx->features, args->one_off_features, args->one_off_features_cnt, 0UL );
 
-  args->slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, valloc ) );
+  args->slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, args->valloc ) );
   args->slot_ctx->epoch_ctx = args->epoch_ctx;
-  args->slot_ctx->valloc = valloc;
   args->slot_ctx->acc_mgr = fd_acc_mgr_new( args->acc_mgr, funk );
   args->slot_ctx->blockstore = args->blockstore;
   void * status_cache_mem = fd_wksp_alloc_laddr( args->wksp,
@@ -1293,15 +1295,29 @@ replay( fd_ledger_args_t * args ) {
   if( !rec_cnt ) {
     /* Load in snapshot(s) */
     if( args->snapshot ) {
-      fd_snapshot_load_all( args->snapshot, args->slot_ctx, NULL, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_FULL );
+      fd_snapshot_load_all( args->snapshot,
+                            args->slot_ctx,
+                            NULL,
+                            args->tpool,
+                            args->verify_acc_hash,
+                            args->check_acc_hash,
+                            FD_SNAPSHOT_TYPE_FULL,
+                            args->valloc );
       FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
     }
     if( args->incremental ) {
-      fd_snapshot_load_all( args->incremental, args->slot_ctx, NULL, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
+      fd_snapshot_load_all( args->incremental,
+                            args->slot_ctx,
+                            NULL,
+                            args->tpool,
+                            args->verify_acc_hash,
+                            args->check_acc_hash,
+                            FD_SNAPSHOT_TYPE_INCREMENTAL,
+                            args->valloc );
       FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
     }
     if( args->genesis ) {
-      fd_runtime_read_genesis( args->slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->tpool );
+      fd_runtime_read_genesis( args->slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->tpool, args->valloc );
     }
   } else {
     FD_LOG_NOTICE(( "found funk with %lu records", rec_cnt ));
@@ -1335,16 +1351,15 @@ prune( fd_ledger_args_t * args ) {
 
   fd_funk_t * funk = args->funk;
 
-  fd_valloc_t valloc = allocator_setup( args->wksp, args->allocator );
+  args->valloc = allocator_setup( args->wksp, args->allocator );
 
   void * epoch_ctx_mem = fd_wksp_alloc_laddr( args->wksp, fd_exec_epoch_ctx_align(),
                                               fd_exec_epoch_ctx_footprint( args->vote_acct_max ), FD_EXEC_EPOCH_CTX_MAGIC );
   fd_memset( epoch_ctx_mem, 0, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   void * slot_ctx_mem = fd_wksp_alloc_laddr( args->wksp, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT, FD_EXEC_SLOT_CTX_MAGIC );
   args->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, args->vote_acct_max ) );
-  args->slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, valloc ) );
+  args->slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, args->valloc ) );
   args->slot_ctx->epoch_ctx = args->epoch_ctx;
-  args->slot_ctx->valloc = valloc;
   args->slot_ctx->acc_mgr = fd_acc_mgr_new( args->acc_mgr, funk );
   args->slot_ctx->blockstore = args->blockstore;
 
@@ -1352,11 +1367,11 @@ prune( fd_ledger_args_t * args ) {
   if( !rec_cnt ) {
     /* Load in snapshot(s) */
     if( args->snapshot ) {
-      fd_snapshot_load_all( args->snapshot, args->slot_ctx, NULL, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_FULL );
+      fd_snapshot_load_all( args->snapshot, args->slot_ctx, NULL, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_FULL, args->valloc );
       FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
     }
     if( args->incremental ) {
-      fd_snapshot_load_all( args->incremental, args->slot_ctx, NULL, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL );
+      fd_snapshot_load_all( args->incremental, args->slot_ctx, NULL, args->tpool, args->verify_acc_hash, args->check_acc_hash, FD_SNAPSHOT_TYPE_INCREMENTAL, args->valloc );
       FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
     }
   }
@@ -1413,7 +1428,6 @@ prune( fd_ledger_args_t * args ) {
   fd_exec_epoch_ctx_t * epoch_ctx_pruned = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem_pruned, args->vote_acct_max ) );
   fd_exec_slot_ctx_t *  slot_ctx_pruned  = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem_pruned, pruned_valloc ) );
   slot_ctx_pruned->epoch_ctx = epoch_ctx_pruned;
-  slot_ctx_pruned->valloc = pruned_valloc;
   fd_acc_mgr_t acc_mgr_pruned[1];
   slot_ctx_pruned->acc_mgr = fd_acc_mgr_new( acc_mgr_pruned, pruned_funk );
   slot_ctx_pruned->blockstore = pruned_blockstore;
@@ -1446,26 +1460,25 @@ prune( fd_ledger_args_t * args ) {
   init_scratch( args->wksp );
 
   /* Setup contexts */
-  valloc = allocator_setup( args->wksp, args->allocator );
+  args->valloc = allocator_setup( args->wksp, args->allocator );
 
   epoch_ctx_mem = fd_wksp_alloc_laddr( args->wksp, fd_exec_epoch_ctx_align(),
                                        fd_exec_epoch_ctx_footprint( args->vote_acct_max ), FD_EXEC_EPOCH_CTX_MAGIC );
   fd_memset( epoch_ctx_mem, 0, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   slot_ctx_mem = fd_wksp_alloc_laddr( args->wksp, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT, FD_EXEC_SLOT_CTX_MAGIC );
   args->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, args->vote_acct_max ) );
-  args->slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, valloc ) );
+  args->slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, args->valloc ) );
   args->slot_ctx->epoch_ctx = args->epoch_ctx;
-  args->slot_ctx->valloc = valloc;
   fd_acc_mgr_t mgr[1];
   args->slot_ctx->acc_mgr = fd_acc_mgr_new( mgr, args->funk );
 
   /* Load in snapshot(s) */
   if( args->snapshot ) {
-    fd_snapshot_load_all( args->snapshot, args->slot_ctx, NULL, args->tpool, 0, 0, FD_SNAPSHOT_TYPE_FULL );
+    fd_snapshot_load_all( args->snapshot, args->slot_ctx, NULL, args->tpool, 0, 0, FD_SNAPSHOT_TYPE_FULL, args->valloc );
     FD_LOG_NOTICE(( "reload: imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   }
   if( args->incremental ) {
-    fd_snapshot_load_all( args->incremental, args->slot_ctx, NULL, args->tpool, 0, 0, FD_SNAPSHOT_TYPE_INCREMENTAL );
+    fd_snapshot_load_all( args->incremental, args->slot_ctx, NULL, args->tpool, 0, 0, FD_SNAPSHOT_TYPE_INCREMENTAL, args->valloc );
     FD_LOG_NOTICE(( "reload: imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   }
 
@@ -1521,7 +1534,7 @@ prune( fd_ledger_args_t * args ) {
   FD_LOG_NOTICE(( "Copied over %lu features", features_cnt ));
 
   /* Do the same with the epoch/slot bank keys and sysvars */
-  fd_runtime_recover_banks( args->slot_ctx, 0, 1 );
+  fd_runtime_recover_banks( args->slot_ctx, 0, 1, args->valloc );
 
   fd_funk_rec_key_t id_epoch_bank       = fd_runtime_epoch_bank_key();
   fd_funk_rec_key_t id_slot_bank        = fd_runtime_slot_bank_key();

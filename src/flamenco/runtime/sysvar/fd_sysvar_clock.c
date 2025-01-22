@@ -303,7 +303,7 @@ fd_calculate_stake_weighted_timestamp(
 }
 
 int
-fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx ) {
+fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc ) {
 
   fd_pubkey_t const * key = &fd_sysvar_clock_id;
 
@@ -315,7 +315,7 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_bincode_decode_ctx_t ctx;
   ctx.data    = rec->const_data;
   ctx.dataend = rec->const_data + rec->const_meta->dlen;
-  ctx.valloc  = slot_ctx->valloc;
+  ctx.valloc  = valloc;
   fd_sol_sysvar_clock_t clock;
   if( fd_sol_sysvar_clock_decode( &clock, &ctx ) )
     FD_LOG_ERR(("fd_sol_sysvar_clock_decode failed"));

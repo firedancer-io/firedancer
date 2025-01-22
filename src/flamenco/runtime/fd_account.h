@@ -60,6 +60,12 @@ FD_PROTOTYPES_BEGIN
 
 /* Instruction account APIs *******************************************/
 
+/* FIXME: I don't like this way of accessing the account data... */
+static inline void *
+fd_account_get_data( fd_account_meta_t * m ) {
+  return ((char *) m) + m->hlen;
+}
+
 /* Assert that enough ccounts were supplied to this instruction. Returns 
    FD_EXECUTOR_INSTR_SUCCESS if the number of accounts is as expected and 
    FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS otherwise.
@@ -421,7 +427,5 @@ fd_account_find_idx_of_insn_account( fd_exec_instr_ctx_t const * ctx,
 }
 
 FD_PROTOTYPES_END
-
-#include "fd_account_old.h"
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_account_h */

@@ -290,7 +290,7 @@ fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
 
   int err = 0;
   if( restore->cb_manifest ) {
-    err = restore->cb_manifest( restore->cb_manifest_ctx, manifest );
+    err = restore->cb_manifest( restore->cb_manifest_ctx, manifest, restore->valloc );
   }
 
   /* Read AccountVec map */

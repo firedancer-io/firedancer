@@ -51,7 +51,8 @@ typedef struct fd_snapshot_restore fd_snapshot_restore_t;
 
 typedef int
 (* fd_snapshot_restore_cb_manifest_fn_t)( void *                 ctx,
-                                          fd_solana_manifest_t * manifest );
+                                          fd_solana_manifest_t * manifest,
+                                          fd_valloc_t            valloc );
 
 /* fd_snapshot_restore_cb_status_cache_fn_t is a callback that provides the
    user of snapshot restore with the deserialized slot deltas.  The caller

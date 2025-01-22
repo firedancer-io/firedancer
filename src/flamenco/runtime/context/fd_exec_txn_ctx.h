@@ -60,7 +60,7 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   ulong magic; /* ==FD_EXEC_TXN_CTX_MAGIC */
 
   fd_exec_epoch_ctx_t const * epoch_ctx;
-  fd_exec_slot_ctx_t const *  slot_ctx;
+  fd_exec_slot_ctx_t  const * slot_ctx;
 
   fd_funk_txn_t *       funk_txn;
   fd_acc_mgr_t *        acc_mgr;
@@ -169,8 +169,8 @@ fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
                        fd_rawtxn_b_t const * txn_raw );
 
 void
-fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t * slot_ctx,
-                                    fd_exec_txn_ctx_t * txn_ctx );
+fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
+                                    fd_exec_txn_ctx_t *        txn_ctx );
 
 void
 fd_exec_txn_ctx_teardown( fd_exec_txn_ctx_t * txn_ctx );

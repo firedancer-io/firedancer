@@ -114,15 +114,15 @@ fd_spad_publish_debug( fd_spad_t * spad,
 /* fd_valloc virtual function table for spad */
 static void *
 fd_spad_valloc_malloc( void * _self,
-                               ulong  align,
-                               ulong  sz ) {
+                       ulong  align,
+                       ulong  sz ) {
   fd_spad_t * spad = _self;
   return fd_spad_alloc( spad, align, sz );
 }
 
 static void
 fd_spad_valloc_free( void * _self,
-                             void * _addr ) {
+                     void * _addr ) {
   (void)_self; (void)_addr;
 }
 

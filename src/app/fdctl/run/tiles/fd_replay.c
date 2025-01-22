@@ -1316,7 +1316,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   fork->slot_ctx.funk_txn = fd_funk_txn_prepare(ctx->funk, fork->slot_ctx.funk_txn, &xid, 1);
   fd_funk_end_write( ctx->funk );
 
-  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_block_pre_execute_process_new_epoch( &fork->slot_ctx ) ) ) {
+  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_block_pre_execute_process_new_epoch( &fork->slot_ctx, ctx->valloc ) ) ) {
     FD_LOG_ERR(( "couldn't process new epoch" ));
   }
 
@@ -1337,13 +1337,13 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
     FD_LOG_WARNING(( "failed to verify ticks res %lu slot %lu prev_slot %lu", tick_res, curr_slot, fork->slot_ctx.slot_bank.prev_slot ));
   }
 
-  int res = fd_runtime_block_execute_prepare( &fork->slot_ctx );
+  int res = fd_runtime_block_execute_prepare( &fork->slot_ctx, ctx->valloc );
   if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
     FD_LOG_ERR(( "block prep execute failed" ));
   }
 
   /* Read slot history into slot ctx */
-  res = fd_sysvar_slot_history_read( &fork->slot_ctx, fork->slot_ctx.valloc, fork->slot_ctx.slot_history );
+  res = fd_sysvar_slot_history_read( &fork->slot_ctx, ctx->valloc, fork->slot_ctx.slot_history );
 
   if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
     FD_LOG_ERR(( "slot history read failed" ));
@@ -1392,11 +1392,11 @@ replay_mbatch( fd_replay_tile_ctx_t * ctx, uint shred_idx_start ) {
      required because txns can span multiple shreds. */
   ulong mbatch_sz = 0;
   int err = fd_blockstore_batch_assemble( blockstore, 
-                                           slot, 
-                                           shred_idx_start, 
-                                           MBATCH_MAX,
-                                           ctx->mbatch,
-                                           &mbatch_sz );
+                                          slot, 
+                                          shred_idx_start, 
+                                          MBATCH_MAX,
+                                          ctx->mbatch,
+                                          &mbatch_sz );
   FD_TEST( err == FD_BLOCKSTORE_OK );
   /* Loop through microblocks, parse out txns, and round-robin publish
      txns to the executor tiles. */
@@ -1413,7 +1413,7 @@ replay_mbatch( fd_replay_tile_ctx_t * ctx, uint shred_idx_start ) {
       if( FD_UNLIKELY( !pay_sz ) ) FD_LOG_ERR(( "failed to parse transaction %lu in microblock %lu in slot %lu", j, i, slot ) );
       if( FD_UNLIKELY( !txn_sz || txn_sz > FD_TXN_MTU )) FD_LOG_ERR(( "failed to parse transaction %lu in microblock %lu in slot %lu. txn size: %lu", j, i, slot, txn_sz ));
 
-      /* PUBLISH TO MCACHE / DCACHE EXECUTOR TILE HERE */
+      /* TODO: PUBLISH TO MCACHE / DCACHE EXECUTOR TILE HERE */
       // FD_LOG_HEXDUMP_NOTICE(( "txn", txn, txn_sz ));
 
       off += pay_sz;
@@ -1461,7 +1461,9 @@ after_frag( fd_replay_tile_ctx_t * ctx,
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
   if( FD_UNLIKELY( in_idx == STORE_IN_IDX ) ) {
 
-    /* entry batch replay*/
+    /* Execute microblock batches as they are received from the blockstore.
+       First pass is to block on the microblock boundary. Eventually, a DAG
+       should be continuously be updated. */
 
     fd_blockstore_start_read( ctx->blockstore );
 
@@ -1473,9 +1475,8 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       for ( uint idx = i; idx <= j; idx++ ) {
         if( FD_UNLIKELY( fd_block_set_test( block_map_entry->data_complete_idxs, idx ) ) ) {
 
-          /* FIXME backpressure? consumer will need to make sure they aren't overrun */
-
-          replay_mbatch( ctx, block_map_entry->replayed_idx + 1 );
+          /* FIXME: backpressure? consumer will need to make sure they aren't overrun */
+          replay_mbatch( ctx, block_map_entry->replayed_idx + 1U );
           block_map_entry->replayed_idx = idx;
         }
       }
@@ -1525,10 +1526,9 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     /* This is an edge case related to pack. The parent fork might
        already be in the frontier and currently executing (ie.
        fork->frozen = 0). */
-    FD_LOG_ERR(
-        ( "parent slot is frozen in frontier. cannot execute. slot: %lu, parent_slot: %lu",
-          curr_slot,
-          ctx->parent_slot ) );
+    FD_LOG_ERR(( "parent slot is frozen in frontier. cannot execute. slot: %lu, parent_slot: %lu",
+                 curr_slot,
+                 ctx->parent_slot ));
   }
 
   fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &curr_slot, NULL, ctx->forks->pool );
@@ -1543,19 +1543,22 @@ after_frag( fd_replay_tile_ctx_t * ctx,
   if( ctx->capture_ctx )
     fd_solcap_writer_set_slot( ctx->capture_ctx->capture, fork->slot_ctx.slot_bank.slot );
 
-  ulong        txn_cnt           = ctx->txn_cnt;
+  /**********************************************************************/
+  /* Execute the transactions which were gathered                       */
+  /**********************************************************************/
+
+  ulong                 txn_cnt  = ctx->txn_cnt;
   fd_replay_out_ctx_t * bank_out = &ctx->bank_out[ bank_idx ];
-  fd_txn_p_t * txns              = (fd_txn_p_t *)fd_chunk_to_laddr( bank_out->mem, bank_out->chunk );
+  fd_txn_p_t *          txns     = (fd_txn_p_t *)fd_chunk_to_laddr( bank_out->mem, bank_out->chunk );
 
   // Execute all txns which were successfully prepared
   long execute_time_ns = -fd_log_wallclock();
   FD_SCRATCH_SCOPE_BEGIN {
     ctx->metrics.slot = curr_slot;
     if( flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
-      // FD_LOG_WARNING(("MBLK4: %lu %lu %lu", ctx->curr_slot, seq, bank_idx+1));
-      fd_tpool_wait( ctx->tpool, bank_idx+1 );
-
-      fd_tpool_exec( ctx->tpool, bank_idx+1, fd_exec_packed_txns_task, txns, txn_cnt, curr_slot, &fork->slot_ctx, ctx->capture_ctx, 0UL, flags, seq, (ulong)ctx->bank_busy[ bank_idx ], (ulong)&ctx->bank_out[ bank_idx ], (ulong)ctx->bmtree[ bank_idx ], (ulong)ctx->spads[ bank_idx ] );
+      /* Leader pipeline, execute microblock receieved from pack tile. */
+      fd_tpool_wait( ctx->tpool, bank_idx+1UL );
+      fd_tpool_exec( ctx->tpool, bank_idx+1UL, fd_exec_packed_txns_task, txns, txn_cnt, curr_slot, &fork->slot_ctx, ctx->capture_ctx, 0UL, flags, seq, (ulong)ctx->bank_busy[ bank_idx ], (ulong)&ctx->bank_out[ bank_idx ], (ulong)ctx->bmtree[ bank_idx ], (ulong)ctx->spads[ bank_idx ] );
     } else {
       for( ulong i = 0UL; i<ctx->bank_cnt; i++ ) {
         fd_tpool_wait( ctx->tpool, i+1 );
@@ -1618,7 +1621,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
 
     /* Destroy the slot history */
     fd_bincode_destroy_ctx_t destroy_ctx = {
-      .valloc = fork->slot_ctx.valloc,
+      .valloc = ctx->valloc
     };
     fd_slot_history_destroy( fork->slot_ctx.slot_history, &destroy_ctx );
     for( ulong i = 0UL; i<ctx->bank_cnt; i++ ) {
@@ -1631,7 +1634,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     fd_blockstore_end_read( ctx->blockstore );
     fork->slot_ctx.block = block_;
 
-    int res = fd_runtime_block_execute_finalize_tpool( &fork->slot_ctx, ctx->capture_ctx, block_info, ctx->tpool );
+    int res = fd_runtime_block_execute_finalize_tpool( &fork->slot_ctx, ctx->capture_ctx, block_info, ctx->tpool, ctx->valloc );
     if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
       FD_LOG_ERR(( "block finished failed" ));
     }
@@ -1932,10 +1935,10 @@ kickoff_repair_orphans( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 }
 
 static void
-read_snapshot( void * _ctx,
+read_snapshot( void *              _ctx,
                fd_stem_context_t * stem,
-               char const * snapshotfile,
-               char const * incremental ) {
+               char const *        snapshotfile,
+               char const *        incremental ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
 
   if( ctx->replay_plugin_out_mem ) {
@@ -1956,7 +1959,7 @@ read_snapshot( void * _ctx,
   const char * snapshot = snapshotfile;
   if( strcmp( snapshot, "funk" ) == 0 || strncmp( snapshot, "wksp:", 5 ) == 0) {
     /* Funk already has a snapshot loaded */
-    fd_runtime_recover_banks( ctx->slot_ctx, 1, 1 );
+    fd_runtime_recover_banks( ctx->slot_ctx, 1, 1, ctx->valloc );
     base_slot = ctx->slot_ctx->slot_bank.slot;
   } else {
     
@@ -1973,7 +1976,7 @@ read_snapshot( void * _ctx,
     if( strlen( incremental )>0UL ) {
       uchar *                  tmp_mem      = fd_scratch_alloc( fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
       /* TODO: enable snapshot verification */
-      fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem, incremental, ctx->slot_ctx, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_FULL );
+      fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem, incremental, ctx->slot_ctx, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_FULL, ctx->valloc );
       /* Load the prefetch manifest, and initialize the status cache and slot context,
          so that we can use these to kick off repair. */
       fd_snapshot_load_prefetch_manifest( tmp_snap_ctx );
@@ -1988,7 +1991,7 @@ read_snapshot( void * _ctx,
 
     uchar *                  mem      = fd_scratch_alloc( fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
     /* TODO: enable snapshot verification */
-    fd_snapshot_load_ctx_t * snap_ctx = fd_snapshot_load_new( mem, snapshot, ctx->slot_ctx, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_FULL );
+    fd_snapshot_load_ctx_t * snap_ctx = fd_snapshot_load_new( mem, snapshot, ctx->slot_ctx, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_FULL, ctx->valloc );
   
     fd_snapshot_load_init( snap_ctx );
 
@@ -2028,7 +2031,7 @@ read_snapshot( void * _ctx,
     /* The slot of the full snapshot should be used as the base slot to verify the incremental snapshot,
        not the slot context's slot - which is the slot of the incremental, not the full snapshot. */
     /* TODO: enable snapshot verification */
-    fd_snapshot_load_all( incremental, ctx->slot_ctx, &base_slot, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_INCREMENTAL );
+    fd_snapshot_load_all( incremental, ctx->slot_ctx, &base_slot, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_INCREMENTAL, ctx->valloc );
   }
 
   if( ctx->replay_plugin_out_mem ) {
@@ -2067,9 +2070,9 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
       fd_sha256_hash( ctx->slot_ctx->slot_bank.poh.uc, 32UL, ctx->slot_ctx->slot_bank.poh.uc );
     }
 
-    FD_TEST( fd_runtime_block_execute_prepare( ctx->slot_ctx ) == 0 );
+    FD_TEST( fd_runtime_block_execute_prepare( ctx->slot_ctx, ctx->valloc ) == 0 );
     fd_block_info_t info = {.signature_cnt = 0 };
-    FD_TEST( fd_runtime_block_execute_finalize_tpool( ctx->slot_ctx, NULL, &info, ctx->tpool ) == 0 );
+    FD_TEST( fd_runtime_block_execute_finalize_tpool( ctx->slot_ctx, NULL, &info, ctx->tpool, ctx->valloc ) == 0 );
 
     ctx->slot_ctx->slot_bank.prev_slot = 0UL;
     ctx->slot_ctx->slot_bank.slot      = 1UL;
@@ -2137,7 +2140,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
   FD_LOG_NOTICE(( "init snapshot" ));
   /* Init slot_ctx */
 
-  fd_exec_slot_ctx_t slot_ctx = { 0 };
+  fd_exec_slot_ctx_t slot_ctx = {0};
   ctx->slot_ctx               = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &slot_ctx, ctx->valloc ) );
   ctx->slot_ctx->acc_mgr      = ctx->acc_mgr;
   ctx->slot_ctx->blockstore   = ctx->blockstore;
@@ -2150,7 +2153,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
       read_snapshot( ctx, stem, ctx->snapshot, ctx->incremental );
     }
 
-    fd_runtime_read_genesis( ctx->slot_ctx, ctx->genesis, is_snapshot, ctx->capture_ctx, ctx->tpool );
+    fd_runtime_read_genesis( ctx->slot_ctx, ctx->genesis, is_snapshot, ctx->capture_ctx, ctx->tpool, ctx->valloc );
     ctx->epoch_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
     init_after_snapshot( ctx );
 
@@ -2306,7 +2309,7 @@ during_housekeeping( void * _ctx ) {
   xid.ul[0] = wmk;
 
   if( FD_LIKELY( ctx->blockstore ) ) blockstore_publish( ctx, wmk );
-  if( FD_LIKELY( ctx->forks ) ) fd_forks_publish( ctx->forks, wmk, ctx->ghost );
+  if( FD_LIKELY( ctx->forks ) ) fd_forks_publish( ctx->forks, wmk, ctx->ghost, ctx->valloc );
   if( FD_LIKELY( ctx->funk ) ) funk_and_txncache_publish( ctx, wmk, &xid );
   if( FD_LIKELY( ctx->ghost ) ) {
     fd_epoch_forks_publish( ctx->epoch_forks, ctx->ghost, wmk );

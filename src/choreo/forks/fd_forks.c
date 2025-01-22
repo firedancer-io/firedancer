@@ -235,7 +235,6 @@ slot_ctx_restore( ulong                 slot,
   slot_ctx_out->acc_mgr    = acc_mgr;
   slot_ctx_out->blockstore = blockstore;
   slot_ctx_out->epoch_ctx  = epoch_ctx;
-  slot_ctx_out->valloc     = valloc;
 
   fd_bincode_destroy_ctx_t destroy_ctx = {
       .valloc = valloc,
@@ -432,7 +431,7 @@ fd_forks_update( fd_forks_t *      forks,
 }
 
 void
-fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost ) {
+fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost, fd_valloc_t valloc ) {
   fd_fork_t * tail = NULL;
   fd_fork_t * curr = NULL;
 
@@ -463,7 +462,7 @@ fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost ) {
                                                    &tail->slot,
                                                    NULL,
                                                    forks->pool );
-    if( FD_UNLIKELY( !fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( &fork->slot_ctx ) ) ) ) {
+    if( FD_UNLIKELY( !fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( &fork->slot_ctx ), valloc ) ) ) {
       FD_LOG_ERR( ( "could not delete fork slot ctx" ) );
     }
     ulong remove = fd_fork_frontier_idx_remove( forks->frontier,

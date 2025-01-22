@@ -291,7 +291,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   /* Blockhash queue init */
   fd_block_hash_queue_t * blockhash_queue = &slot_ctx->slot_bank.block_hash_queue;
   blockhash_queue->max_age   = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
-  blockhash_queue->last_hash = fd_valloc_malloc( slot_ctx->valloc, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
+  blockhash_queue->last_hash = fd_valloc_malloc( fd_spad_virtual( runner->spad ), FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
   fd_memset( blockhash_queue->last_hash, 0, FD_HASH_FOOTPRINT );
 
   /* Set up txn context */
@@ -685,7 +685,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
     // Provide a 0-set default entry
     fd_stake_history_entry_t entry = {0};
     fd_sysvar_stake_history_init( slot_ctx );
-    fd_sysvar_stake_history_update( slot_ctx, &entry );
+    fd_sysvar_stake_history_update( slot_ctx, &entry, fd_spad_virtual( runner->spad ) );
   }
 
   /* Provide default last restart slot sysvar if not provided */
@@ -696,7 +696,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   /* Provide a default clock if not present */
   if( !slot_ctx->sysvar_cache->has_clock ) {
     fd_sysvar_clock_init( slot_ctx );
-    fd_sysvar_clock_update( slot_ctx );
+    fd_sysvar_clock_update( slot_ctx, fd_spad_virtual( runner->spad ) );
   }
 
   /* Epoch schedule and rent get set from the epoch bank */
@@ -740,8 +740,8 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   /* Blockhash queue init */
   slot_ctx->slot_bank.block_hash_queue.max_age   = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
   slot_ctx->slot_bank.block_hash_queue.ages_root = NULL;
-  slot_ctx->slot_bank.block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_alloc( slot_ctx->valloc, 400 );
-  slot_ctx->slot_bank.block_hash_queue.last_hash = fd_valloc_malloc( slot_ctx->valloc, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
+  slot_ctx->slot_bank.block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_alloc( fd_spad_virtual( runner->spad ), 400 );
+  slot_ctx->slot_bank.block_hash_queue.last_hash = fd_valloc_malloc( fd_spad_virtual( runner->spad ), FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
 
   // Save lamports per signature for most recent blockhash, if sysvar cache contains recent block hashes
   fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
@@ -930,7 +930,7 @@ fd_exec_test_instr_context_destroy( fd_exec_instr_test_runner_t * runner,
   fd_acc_mgr_t *        acc_mgr   = slot_ctx->acc_mgr;
   fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
 
-  fd_exec_slot_ctx_free( slot_ctx );
+  fd_exec_slot_ctx_free( slot_ctx, fd_spad_virtual( runner->spad ) );
   fd_acc_mgr_delete( acc_mgr );
   fd_scratch_pop();
 
@@ -948,7 +948,7 @@ _txn_context_destroy( fd_exec_instr_test_runner_t * runner,
   fd_acc_mgr_t *        acc_mgr   = slot_ctx->acc_mgr;
   fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
 
-  fd_exec_slot_ctx_free( slot_ctx );
+  fd_exec_slot_ctx_free( slot_ctx, fd_spad_virtual( runner->spad ) );
   fd_acc_mgr_delete( acc_mgr );
 
   fd_funk_start_write( runner->funk );
@@ -1099,8 +1099,8 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
 
   FD_SCRATCH_SCOPE_BEGIN {
     /* Initialize memory */
-    uchar *               slot_ctx_mem  = fd_scratch_alloc( FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
-    fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_spad_virtual( runner->spad ) ) );
+    uchar *               slot_ctx_mem = fd_scratch_alloc( FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
+    fd_exec_slot_ctx_t *  slot_ctx     = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, fd_spad_virtual( runner->spad ) ) );
 
     /* Create and exec transaction */
     fd_execute_txn_task_info_t * task_info = _txn_context_create_and_exec( runner, slot_ctx, input );
