@@ -2023,7 +2023,7 @@ read_snapshot( void * _ctx,
     replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
   }
 
-  if( strlen( incremental ) > 0 ) {
+  if( strlen( incremental ) > 0 && strcmp( snapshot, "funk" ) != 0 ) {
 
     /* The slot of the full snapshot should be used as the base slot to verify the incremental snapshot,
        not the slot context's slot - which is the slot of the incremental, not the full snapshot. */
