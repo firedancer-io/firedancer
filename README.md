@@ -42,7 +42,7 @@ kernel, at least v4.18 to build.
 ```console
 $ git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git
 $ cd firedancer
-$ ./deps.sh
+$ ./deps.sh +dev
 $ make -j run
 ```
 
