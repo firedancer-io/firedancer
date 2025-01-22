@@ -84,7 +84,7 @@ LLVMFuzzerInitialize( int  *   argc,
   for( ulong b=0; b<32UL; b++ ) tls_tmpl->kex_private_key[b] = fd_rng_uchar( rng );
   fd_x25519_public( tls_tmpl->kex_public_key, tls_tmpl->kex_private_key );
 
-  fd_tls_test_sign_ctx_t sign_ctx[1];
+  static fd_tls_test_sign_ctx_t sign_ctx[1];
   fd_tls_test_sign_ctx( sign_ctx, rng );
   tls_tmpl->sign = fd_tls_test_sign( &sign_ctx );
   fd_memcpy( tls_tmpl->cert_public_key, sign_ctx->public_key, 32UL );
