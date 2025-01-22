@@ -4,7 +4,7 @@
 #include "../topo/fd_topo.h"
 #include "fd_tpu.h"
 #include "../../waltz/quic/fd_quic_private.h"
-#include "../../app/fdctl/run/tiles/generated/quic_seccomp.h"
+#include "generated/quic_seccomp.h"
 #include "../../util/net/fd_eth.h"
 
 #include <errno.h>
