@@ -129,9 +129,7 @@ fd_snapshot_load_init( fd_snapshot_load_ctx_t * ctx ) {
 }
 
 void
-fd_snapshot_load_manifest_and_status_cache( 
-  fd_snapshot_load_ctx_t * ctx,
-  int restore_manifest_flags ) {
+fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx ) {
 
   fd_scratch_push();
   size_t slen = strlen( ctx->snapshot_file );
@@ -152,15 +150,7 @@ fd_snapshot_load_manifest_and_status_cache(
   void * restore_mem = fd_valloc_malloc( valloc, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
   void * loader_mem  = fd_valloc_malloc( valloc, fd_snapshot_loader_align(),  fd_snapshot_loader_footprint( ZSTD_WINDOW_SZ ) );
 
-  ctx->restore = fd_snapshot_restore_new( 
-    restore_mem,
-    acc_mgr,
-    funk_txn,
-    valloc,
-    ctx->slot_ctx, 
-    (restore_manifest_flags & FD_SNAPSHOT_RESTORE_MANIFEST) ? restore_manifest : NULL,
-    (restore_manifest_flags & FD_SNAPSHOT_RESTORE_STATUS_CACHE) ? restore_status_cache : NULL );
-  
+  ctx->restore = fd_snapshot_restore_new( restore_mem, acc_mgr, funk_txn, valloc, ctx->slot_ctx, restore_manifest, restore_status_cache );
   ctx->loader  = fd_snapshot_loader_new ( loader_mem, ZSTD_WINDOW_SZ );
 
   if( FD_UNLIKELY( !ctx->restore || !ctx->loader ) ) {
@@ -292,8 +282,7 @@ fd_snapshot_load_all( const char *         source_cstr,
   fd_snapshot_load_ctx_t * ctx = fd_snapshot_load_new( mem, source_cstr, slot_ctx, tpool, verify_hash, check_hash, snapshot_type );
 
   fd_snapshot_load_init( ctx );
-  fd_snapshot_load_manifest_and_status_cache( ctx, 
-    FD_SNAPSHOT_RESTORE_STATUS_CACHE | FD_SNAPSHOT_RESTORE_MANIFEST );
+  fd_snapshot_load_manifest_and_status_cache( ctx );
   fd_snapshot_load_accounts( ctx );
   fd_snapshot_load_fini( ctx );
 
