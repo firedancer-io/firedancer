@@ -6,6 +6,11 @@
        ulong next; // Technically POOL_IDX_T POOL_NEXT, can go anywhere in struct,
                    // can be repurposed while acquired
                    // will be clobbered while in pool though
+                   // if POOL_QUERY_LRU is set to 1, the POOL_NEXT will also be
+                   // used even if the element is not in the pool
+       ulong prev; // Only required if POOL_QUERY_LRU is set to 1, can go anywhere
+                   // in struct.  Can be repurposed while not acquired, will be
+                   // clobbered while acquired though
        ... user data ...
        ... structures with power-of-2 sizes have particularly good HPC
        ... Feng Shui
@@ -115,7 +120,15 @@
      You can do this as often as you like in a compilation unit to get
      different types of pools.  Since it is all static inline, it is
      fine to do this in a header too.  Additional options to fine tune
-     this are detailed below. */
+     this are detailed below.
+
+     If POOL_QUERY_LRU is set to 1, the follow operations are also
+     supported:
+
+     ulong     mypool_idx_query_lru( myele_t * join               ); // Retrieve the oldest element that was acquired from the pool,
+                                                                     // assume at least one item was acquired.  Returns the index of
+                                                                     // the element, in [0,max) and, if applicable, not sentinel
+                                                                     // index. */
 
 #include "../bits/fd_bits.h"
 
@@ -135,6 +148,13 @@
 
 #ifndef POOL_NEXT
 #define POOL_NEXT next
+#endif
+
+/* POOL_PREV is the name of the field the pool will clobber for
+   elements currently allocated. */
+
+#ifndef POOL_PREV
+#define POOL_PREV prev
 #endif
 
 /* POOL_IDX_T is the type of the POOL_NEXT field.  Should be an unsigned
@@ -161,6 +181,13 @@
 #define POOL_MAGIC (0xF17EDA2CE7900100UL) /* Firedancer pool ver 0 */
 #endif
 
+/* POOL_QUERY_LRU controls whether the pool supports an operation to
+   query the oldest acquired element. */
+
+#ifndef POOL_QUERY_LRU
+#define POOL_QUERY_LRU 0
+#endif
+
 /* Implementation *****************************************************/
 
 #define POOL_(n) FD_EXPAND_THEN_CONCAT3(POOL_NAME,_,n)
@@ -174,6 +201,10 @@ struct POOL_(private) {
   ulong max;      /* Max elements in pool, in [POOL_SENTINEL,POOL_IDX_NULL] */
   ulong free;     /* Num elements in pool available, in [0,max] */
   ulong free_top; /* Free stack top, POOL_IDX_NULL no elements currently in pool */
+#if POOL_QUERY_LRU
+  ulong lru_top;    /* The top (oldest) acquired item in the LRU list, POOL_IDX_NULL no elements currently acquired */
+  ulong lru_bottom; /* The bottom (newest) acquired item in the LRU list, POOL_IDX_NULL no elements currently acquired */
+#endif
 
   /* Padding to POOL_ALIGN here */
 
@@ -250,6 +281,11 @@ POOL_(new)( void * shmem,
 
   meta->max  = max;
   meta->free = max;
+
+#if POOL_QUERY_LRU
+  meta->lru_top    = POOL_IDX_NULL;
+  meta->lru_bottom = POOL_IDX_NULL;
+#endif
 
   if( FD_UNLIKELY( !max ) ) meta->free_top = POOL_IDX_NULL; /* Not reachable if POOL_SENTINEL set (footprint test above fails) */
   else {
@@ -374,6 +410,15 @@ POOL_(idx_acquire)( POOL_T * join ) {
   ulong idx = meta->free_top;
   meta->free_top = (ulong)join[ idx ].POOL_NEXT;
   meta->free--;
+#if POOL_QUERY_LRU
+  join[ idx ].POOL_NEXT = POOL_IDX_NULL;
+  join[ idx ].POOL_PREV = (POOL_IDX_T)meta->lru_bottom;
+
+  if( FD_LIKELY( meta->lru_bottom != POOL_IDX_NULL ) ) join[ meta->lru_bottom ].POOL_NEXT = (POOL_IDX_T)idx;
+
+  meta->lru_top = fd_ulong_if( meta->lru_top==POOL_IDX_NULL, idx, meta->lru_top );
+  meta->lru_bottom = idx;
+#endif
   return idx;
 }
 
@@ -381,6 +426,13 @@ static inline void
 POOL_(idx_release)( POOL_T * join,
                     ulong    idx ) {
   POOL_(private_t) * meta = POOL_(private_meta)( join );
+#if POOL_QUERY_LRU
+  meta->lru_top    = fd_ulong_if( idx==meta->lru_top,    join[ idx ].POOL_NEXT, meta->lru_top );
+  meta->lru_bottom = fd_ulong_if( idx==meta->lru_bottom, join[ idx ].POOL_PREV, meta->lru_bottom );
+
+  if( FD_LIKELY( join[ idx ].POOL_PREV != POOL_IDX_NULL ) ) join[ join[ idx ].POOL_PREV ].POOL_NEXT = join[ idx ].POOL_NEXT;
+  if( FD_LIKELY( join[ idx ].POOL_NEXT != POOL_IDX_NULL ) ) join[ join[ idx ].POOL_NEXT ].POOL_PREV = join[ idx ].POOL_PREV;
+#endif
   join[ idx ].POOL_NEXT = (POOL_IDX_T)meta->free_top;
   meta->free_top = idx;
   meta->free++;
@@ -388,6 +440,14 @@ POOL_(idx_release)( POOL_T * join,
 
 static inline POOL_T * POOL_(ele_acquire)( POOL_T * join               ) { return join + POOL_(idx_acquire)( join ); }
 static inline void     POOL_(ele_release)( POOL_T * join, POOL_T * ele ) { POOL_(idx_release)( join, (ulong)(ele - join) );   }
+
+#if POOL_QUERY_LRU
+static inline ulong
+POOL_(idx_query_lru)( POOL_T * join ) {
+  POOL_(private_t) * meta = POOL_(private_meta)( join );
+  return meta->lru_top;
+}
+#endif
 
 /* TODO: consider zeroing out pool mem on new? */
 
@@ -408,5 +468,7 @@ FD_PROTOTYPES_END
 #undef POOL_SENTINEL
 #undef POOL_IDX_T
 #undef POOL_NEXT
+#undef POOL_PREV
 #undef POOL_T
 #undef POOL_NAME
+#undef POOL_QUERY_LRU
