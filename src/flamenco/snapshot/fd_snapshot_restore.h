@@ -140,6 +140,9 @@ fd_snapshot_restore_chunk( void *       restore,
 
 /* fd_snapshot_restore_tar_vt implements fd_tar_read_vtable_t. */
 
+ulong
+fd_snapshot_restore_get_slot( fd_snapshot_restore_t * restore );
+
 extern fd_tar_read_vtable_t const fd_snapshot_restore_tar_vt;
 
 FD_PROTOTYPES_END

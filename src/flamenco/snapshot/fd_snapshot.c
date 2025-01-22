@@ -129,7 +129,9 @@ fd_snapshot_load_init( fd_snapshot_load_ctx_t * ctx ) {
 }
 
 void
-fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx ) {
+fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx,
+                                            ulong *                  base_slot_override,
+                                            int                      restore_manifest_flags ) {
 
   fd_scratch_push();
   size_t slen = strlen( ctx->snapshot_file );
@@ -150,7 +152,14 @@ fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx ) {
   void * restore_mem = fd_valloc_malloc( valloc, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
   void * loader_mem  = fd_valloc_malloc( valloc, fd_snapshot_loader_align(),  fd_snapshot_loader_footprint( ZSTD_WINDOW_SZ ) );
 
-  ctx->restore = fd_snapshot_restore_new( restore_mem, acc_mgr, funk_txn, valloc, ctx->slot_ctx, restore_manifest, restore_status_cache );
+  ctx->restore = fd_snapshot_restore_new( restore_mem,
+                                          acc_mgr,
+                                          funk_txn,
+                                          valloc,
+                                          ctx->slot_ctx, 
+                                          (restore_manifest_flags & FD_SNAPSHOT_RESTORE_MANIFEST) ? restore_manifest : NULL,
+                                          (restore_manifest_flags & FD_SNAPSHOT_RESTORE_STATUS_CACHE) ? restore_status_cache : NULL );
+  
   ctx->loader  = fd_snapshot_loader_new ( loader_mem, ZSTD_WINDOW_SZ );
 
   if( FD_UNLIKELY( !ctx->restore || !ctx->loader ) ) {
@@ -159,7 +168,11 @@ fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx ) {
     FD_LOG_ERR(( "Failed to load snapshot" ));
   }
 
-  if( FD_UNLIKELY( !fd_snapshot_loader_init( ctx->loader, ctx->restore, src, ctx->slot_ctx->slot_bank.slot, 1 ) ) ) {
+  if( FD_UNLIKELY( !fd_snapshot_loader_init( ctx->loader,
+                                            ctx->restore,
+                                                    src,
+                                                    base_slot_override ? *base_slot_override : ctx->slot_ctx->slot_bank.slot,
+                                                    1 ) ) ) {
     FD_LOG_ERR(( "Failed to init snapshot loader" ));
   }
 
@@ -271,6 +284,7 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
 void
 fd_snapshot_load_all( const char *         source_cstr,
                       fd_exec_slot_ctx_t * slot_ctx,
+                      ulong *              base_slot_override,
                       fd_tpool_t *         tpool,
                       uint                 verify_hash,
                       uint                 check_hash,
@@ -282,7 +296,8 @@ fd_snapshot_load_all( const char *         source_cstr,
   fd_snapshot_load_ctx_t * ctx = fd_snapshot_load_new( mem, source_cstr, slot_ctx, tpool, verify_hash, check_hash, snapshot_type );
 
   fd_snapshot_load_init( ctx );
-  fd_snapshot_load_manifest_and_status_cache( ctx );
+  fd_snapshot_load_manifest_and_status_cache( ctx, base_slot_override,
+    FD_SNAPSHOT_RESTORE_STATUS_CACHE | FD_SNAPSHOT_RESTORE_MANIFEST );
   fd_snapshot_load_accounts( ctx );
   fd_snapshot_load_fini( ctx );
 
@@ -335,4 +350,9 @@ fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx ) {
   }
 
   fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
+}
+
+ulong 
+fd_snapshot_get_slot( fd_snapshot_load_ctx_t * ctx ) {
+  return fd_snapshot_restore_get_slot( ctx->restore );
 }

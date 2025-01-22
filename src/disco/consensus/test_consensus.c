@@ -556,7 +556,7 @@ main( void ) {
 //     FD_TEST( epoch_bank );
 //     FD_TEST( fd_slot_to_epoch( &epoch_bank->epoch_schedule, i, NULL ) ==
 //              fd_slot_to_epoch( &epoch_bank->epoch_schedule, j, NULL ) );
-//     fd_snapshot_load_all( incremental_snapshot, snapshot_slot_ctx, 1, 1, FD_SNAPSHOT_TYPE_INCREMENTAL );
+//     fd_snapshot_load_all( incremental_snapshot, NULL, snapshot_slot_ctx, 1, 1, FD_SNAPSHOT_TYPE_INCREMENTAL );
 //   }
 
 //   ulong snapshot_slot = snapshot_slot_ctx->slot_bank.slot;

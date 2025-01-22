@@ -109,7 +109,6 @@ main( int     argc,
 
   FD_TEST( !fd_snapshot_restore_new( NULL,        acc_mgr, NULL, _valloc, NULL, cb_manifest, cb_status_cache ) );  /* NULL mem */
   FD_TEST( !fd_snapshot_restore_new( restore_mem, NULL,    NULL, _valloc, NULL, cb_manifest, cb_status_cache ) );  /* NULL acc_mgr */
-  FD_TEST( !fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, NULL, NULL, NULL        ) );  /* NULL callback */
 
   /* Reject accounts before manifest */
 
