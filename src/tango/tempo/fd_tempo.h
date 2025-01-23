@@ -85,7 +85,7 @@ fd_tempo_tick_per_ns( double * opt_sigma );
    If anything wonky is detected in the measurement, logs a warning and
    returns a best effort.  As this does multiple reads under the hood
    and uses only one of them, the observed value should be interpreted
-   as at some point in time between when the the call was made and when
+   as at some point in time between when the call was made and when
    the call returned but not always at the same point (can be roughly
    modeled as uniformly distributed between when the call was made and
    when it returned).
