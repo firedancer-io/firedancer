@@ -768,7 +768,7 @@ identity is no longer in these three data sources, it will be removed.
                 "name": "ExampleStake Firedancer 🔥💃",
                 "details": "A longer description of the validator, perhaps describing the team behind it or how the node is operated",
                 "website": "https://github.com/firedancer-io/firedancer",
-                "icon_url": "https://firedancer-io.github.io/firedancer/fire.svg"
+                "icon_url": "https://docs.firedancer.io/fire.svg"
             }
         }
     ],
