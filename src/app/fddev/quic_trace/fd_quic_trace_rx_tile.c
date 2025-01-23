@@ -86,7 +86,7 @@ fd_quic_trace_initial( fd_quic_trace_ctx_t * trace_ctx,
     if( conn_entry ) {
       fd_quic_conn_t * conn = translate_ptr( conn_entry->conn );
       if( FD_LIKELY( bounds_check_conn( quic, conn ) ) ) {
-        keys = translate_ptr( &conn->keys[0][0] );
+        keys = &conn->keys[0][0];
       }
     }
   }
@@ -184,7 +184,7 @@ fd_quic_trace_handshake( fd_quic_trace_ctx_t * trace_ctx,
     if( conn_entry ) {
       fd_quic_conn_t * conn = translate_ptr( conn_entry->conn );
       if( FD_LIKELY( bounds_check_conn( quic, conn ) ) ) {
-        keys = translate_ptr( &conn->keys[0][0] );
+        keys = &conn->keys[0][0];
       }
     }
   }
