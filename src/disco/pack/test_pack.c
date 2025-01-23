@@ -840,7 +840,7 @@ void performance_end_block( void ) {
 
 void heap_overflow_test( void ) {
   FD_LOG_NOTICE(( "TEST HEAP OVERFLOW" ));
-  fd_pack_t * pack = init_all( 1024UL, 1UL, 2UL, &outcome );
+  fd_pack_t * pack = init_all( 2048UL, 1UL, 2UL, &outcome );
   /* Insert a bunch of low-paying transactions */
   for( ulong j=0UL; j<1024UL; j++ ) {
     make_transaction( j, 800U, 500U, 3.0, "ABC", "DEF", NULL, NULL );  /* 11733 cus */
@@ -869,14 +869,14 @@ void heap_overflow_test( void ) {
     fd_pack_insert_txn_fini( pack, slot, 0UL );
   }
 
-  FD_TEST( fd_pack_avail_txn_cnt( pack )==1024UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==2048UL );
 
   for( ulong j=0UL; j<1024UL; j++ ) {
-    /* 30000 cannot fit more that 1 transaction. */
+    /* 30000 cannot fit more than 1 transaction. */
     schedule_validate_microblock( pack, 12000, 0.0f, j<900UL?1UL:0UL, j<900UL?r_hi:0UL, 0UL, &outcome );
   }
 
-  FD_TEST( fd_pack_avail_txn_cnt( pack )==0UL );
+  FD_TEST( fd_pack_avail_txn_cnt( pack )==1024UL );
 }
 
 static void

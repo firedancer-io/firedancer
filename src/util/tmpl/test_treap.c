@@ -1,4 +1,9 @@
 #include "../fd_util.h"
+#if FD_HAS_HOSTED
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 #define CIDX_T uchar
 #define VAL_T  schar
@@ -14,6 +19,11 @@ struct ele {
 };
 
 typedef struct ele ele_t;
+
+#ifndef FD_TMPL_USE_HANDHOLDING
+#define FD_UNDEF_HANDHOLDING
+#define FD_TMPL_USE_HANDHOLDING 1
+#endif
 
 #define POOL_NAME  pool
 #define POOL_T     ele_t
@@ -257,7 +267,7 @@ test_merge( fd_rng_t * rng, int optimize_iteration ) {
       FD_TEST( treap_ele_cnt( c_b )==0UL     );                               \
       FD_TEST( !treap_verify( merged, pool ) );                               \
       for( ulong j=0UL; j<ele_max; j++ ) treap_idx_remove( merged, j, pool ); \
-      /* c_a and c_b are both empty, so propogate back to a, b */             \
+      /* c_a and c_b are both empty, so propagate back to a, b */             \
       lreap_join( lreap_new( lreap_delete( lreap_leave( a ) ), ele_max ) );   \
       lreap_join( lreap_new( lreap_delete( lreap_leave( b ) ), ele_max ) );   \
     }                                                                         \
@@ -570,6 +580,43 @@ main( int     argc,
 
   FD_TEST( !treap_verify( treap, pool ) );
 
+     /* test handholding */
+   #if FD_HAS_HOSTED && FD_TMPL_USE_HANDHOLDING
+   #define FD_EXPECT_LOG_ERR( CALL ) do {                             \
+       FD_LOG_NOTICE(( "Testing that "#CALL" triggers exit( 1 )" ));  \
+       pid_t pid = fork();                                            \
+       FD_TEST( pid >= 0 );                                           \
+       if( pid == 0 ) {                                               \
+         fd_log_level_logfile_set( 5 );                               \
+         __typeof__(CALL) res = (CALL);                               \
+         __asm__("" : "+r"(res));                                     \
+         _exit( 0 );                                                  \
+       }                                                              \
+       int status = 0;                                                \
+       wait( &status );                                               \
+                                                                      \
+       FD_TEST( WIFEXITED(status) && (WEXITSTATUS(status) == 1) );    \
+     } while( 0 )
+
+     FD_EXPECT_LOG_ERR( treap_idx_remove( treap, 64, pool ) );
+     FD_EXPECT_LOG_ERR( treap_idx_insert( treap, 64, pool ) );
+
+     treap_delete( treap_leave( treap ) );
+     treap = treap_join( treap_new( _treap, 64UL ) );
+     FD_LOG_NOTICE(( "verify: %d", treap_verify( treap, pool ) ));
+     pool_delete( pool_leave( pool ) );
+     pool = pool_join( pool_new( scratch, 64UL ) );
+     for( ulong i=0UL; i<64UL; i++ ) {
+       ulong idx = pool_idx_acquire( pool );
+       pool[ idx ].val       = (schar)i;
+       pool[ idx ].prio_cidx = (uchar)(i^36UL);
+       treap_idx_insert( treap, idx, pool );
+     }
+     FD_EXPECT_LOG_ERR( treap_idx_insert( treap, 2, pool ) );
+   #else
+     FD_LOG_WARNING(( "skip: testing handholding, requires hosted" ));
+   #endif
+
   /* Test leave */
 
   FD_TEST( !treap_leave( NULL ) );
@@ -597,3 +644,7 @@ main( int     argc,
   return 0;
 }
 
+#ifdef FD_UNDEF_HANDHOLDING
+#undef FD_TMPL_USE_HANDHOLDING
+#undef FD_UNDEF_HANDHOLDING
+#endif

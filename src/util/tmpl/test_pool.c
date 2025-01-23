@@ -1,4 +1,9 @@
 #include "../fd_util.h"
+#if FD_HAS_HOSTED
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 #define HAS_SENTINEL 1
 
@@ -8,6 +13,11 @@ struct myele {
 };
 
 typedef struct myele myele_t;
+
+#ifndef FD_TMPL_USE_HANDHOLDING
+#define FD_UNDEF_HANDHOLDING
+#define FD_TMPL_USE_HANDHOLDING 1
+#endif
 
 #define POOL_NAME     mypool
 #define POOL_T        myele_t
@@ -187,6 +197,60 @@ main( int     argc,
 #   endif
   }
 
+  /* test handholding */
+#if FD_HAS_HOSTED && FD_TMPL_USE_HANDHOLDING
+  #define FD_EXPECT_LOG_ERR( CALL ) do {                           \
+    FD_LOG_DEBUG(( "Testing that "#CALL" triggers exit( 1 )" ));   \
+    pid_t pid = fork();                                            \
+    FD_TEST( pid >= 0 );                                           \
+    if( pid == 0 ) {                                               \
+      fd_log_level_logfile_set( 5 );                               \
+      __typeof__(CALL) res = (CALL);                               \
+      __asm__("" : "+r"(res));                                     \
+      _exit( 0 );                                                  \
+    }                                                              \
+    int status = 0;                                                \
+    wait( &status );                                               \
+                                                                   \
+    FD_TEST( WIFEXITED(status) && (WEXITSTATUS(status) == 1) );    \
+  } while( 0 )
+
+  #define FD_EXPECT_LOG_ERR_VOID( CALL ) do {                      \
+    FD_LOG_NOTICE(( "Testing that "#CALL" triggers exit( 1 )" ));  \
+    pid_t pid = fork();                                            \
+    FD_TEST( pid >= 0 );                                           \
+    if( pid == 0 ) {                                               \
+      fd_log_level_logfile_set( 5 );                               \
+      (void)(CALL);                                                \
+      __asm__("" : "+r"(pool));                                    \
+      _exit( 0 );                                                  \
+    }                                                              \
+    int status = 0;                                                \
+    wait( &status );                                               \
+                                                                   \
+    FD_TEST( WIFEXITED(status) && (WEXITSTATUS(status) == 1) );    \
+  } while( 0 )
+
+  FD_LOG_NOTICE(( "Testing handholding" ));
+  myele_t ele = { 0 };
+  FD_EXPECT_LOG_ERR( mypool_idx      ( pool, &ele               ) );
+  FD_EXPECT_LOG_ERR( mypool_ele      ( pool, mypool_max( pool ) ) );
+  FD_EXPECT_LOG_ERR( mypool_ele_const( pool, mypool_max( pool ) ) );
+
+  FD_TEST( mypool_delete( mypool_leave( pool ) ) );
+  pool = mypool_join( mypool_new( scratch, max ) );
+
+  FD_EXPECT_LOG_ERR_VOID( mypool_idx_release( pool, mypool_idx_null( pool ) ) );
+  FD_EXPECT_LOG_ERR_VOID( mypool_idx_release( pool, max+1                   ) );
+  while( mypool_free( pool ) ) {
+    mypool_idx_acquire( pool );
+  }
+  FD_EXPECT_LOG_ERR( mypool_idx_acquire( pool ) );
+#else
+  FD_LOG_WARNING(( "skip: testing handholding, requires hosted" ));
+#endif
+
+  FD_LOG_NOTICE(( "Testing deconstruction" ));
   FD_TEST( !mypool_leave( NULL ) ); /* NULL join */
   FD_TEST( mypool_leave( pool )==shpool );
 
@@ -205,3 +269,7 @@ main( int     argc,
   return 0;
 }
 
+#ifdef FD_UNDEF_HANDHOLDING
+#undef FD_TMPL_USE_HANDHOLDING
+#undef FD_UNDEF_HANDHOLDING
+#endif

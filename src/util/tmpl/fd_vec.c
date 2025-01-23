@@ -7,7 +7,7 @@
      #include "util/tmpl/fd_vec.c"
 
    will declare the following static inline APIs as a header only style
-   library in the compilation unit: 
+   library in the compilation unit:
 
      // align/footprint - Return the alignment/footprint required for a
      // memory region to be used as vector that can hold up to max
@@ -80,7 +80,7 @@
      // IN [0,CNT).
 
      myvec_t * myvec_remove( myvec_t * join, ulong idx );
-     
+
      // myvec_remove_compact remove element at idx by compaction.  While
      // this is preserves operating, this is an O(cnt-idx-1) operation
      // and it is very easily to accidentally create O(N^2)
