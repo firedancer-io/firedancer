@@ -20,6 +20,7 @@
 #define IN_KIND_POH    (1UL)
 #define IN_KIND_BANK   (2UL)
 #define IN_KIND_BUNDLE (3UL)
+#define IN_KIND_REPLAY (4UL)
 
 #define MAX_SLOTS_PER_EPOCH          432000UL
 
@@ -571,6 +572,15 @@ during_frag( fd_pack_ctx_t * ctx,
   uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
 
   switch( ctx->in_kind[ in_idx ] ) {
+  case IN_KIND_REPLAY: {
+    fd_rooted_bank_t * rooted = (fd_rooted_bank_t *)dcache_entry;
+    ulong rooted_txn_cnt = FD_VOLATILE( rooted->txn_cnt );
+    FD_TEST( rooted_txn_cnt<=16384UL );
+    for( ulong i=0UL; i<rooted_txn_cnt; i++ ) {
+      fd_pack_delete_transaction( ctx->pack, (fd_ed25519_sig_t const *)rooted->signatures[ i ] );
+    }
+    return;
+  }
   case IN_KIND_POH: {
       /* Not interested in stamped microblocks, only leader updates. */
     if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
@@ -793,11 +803,12 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
 
-    if( FD_LIKELY(      !strcmp( link->name, "resolv_pack" ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
-    else if( FD_LIKELY( !strcmp( link->name, "dedup_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
-    else if( FD_LIKELY( !strcmp( link->name, "poh_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
-    else if( FD_LIKELY( !strcmp( link->name, "bank_poh"    ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK;
-    else if( FD_LIKELY( !strcmp( link->name, "bundle_pack" ) ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
+    if( FD_LIKELY(      !strcmp( link->name, "resolv_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
+    else if( FD_LIKELY( !strcmp( link->name, "dedup_pack"   ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
+    else if( FD_LIKELY( !strcmp( link->name, "poh_pack"     ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
+    else if( FD_LIKELY( !strcmp( link->name, "bank_poh"     ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK;
+    else if( FD_LIKELY( !strcmp( link->name, "bundle_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
+    else if( FD_LIKELY( !strcmp( link->name, "replay_resol" ) ) ) ctx->in_kind[ i ] = IN_KIND_REPLAY;
     else FD_LOG_ERR(( "pack tile has unexpected input link %lu %s", i, link->name ));
   }
 

@@ -19,6 +19,7 @@
 #define IN_KIND_GOSSIP (0UL)
 #define IN_KIND_VOTER  (1UL)
 #define IN_KIND_VERIFY (2UL)
+#define IN_KIND_REPLAY (3UL)
 
 /* fd_dedup_in_ctx_t is a context object for each in (producer) mcache
    connected to the dedup tile. */
@@ -48,6 +49,9 @@ typedef struct {
   ulong       out_chunk;
 
   ulong       hashmap_seed;
+
+  ulong       rooted_txn_cnt;
+  uchar       rooted_signature[ 16384UL ][ 64UL ];
 
   struct {
     ulong dedup_fail_cnt;
@@ -113,8 +117,15 @@ during_frag( fd_dedup_ctx_t * ctx,
     fd_txn_m_t * txnm = (fd_txn_m_t *)dst;
     txnm->payload_sz = (ushort)sz;
     fd_memcpy( fd_txn_m_payload( txnm ), src, sz );
-  } else {
+  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) ) {
+    fd_rooted_bank_t * rooted = (fd_rooted_bank_t *)src;
+    ctx->rooted_txn_cnt = rooted->txn_cnt;
+    FD_TEST( ctx->rooted_txn_cnt<=16384UL );
+    fd_memcpy( ctx->rooted_signature, rooted->signatures, ctx->rooted_txn_cnt*64UL );
+  } else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_VERIFY ) ) {
     fd_memcpy( dst, src, sz );
+  } else {
+    FD_LOG_ERR(( "unexpected in_kind %lu", ctx->in_kind[ in_idx ] ));
   }
 }
 
@@ -139,6 +150,15 @@ after_frag( fd_dedup_ctx_t *    ctx,
 
   fd_txn_m_t * txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   fd_txn_t * txn = fd_txn_m_txn_t( txnm );
+
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_REPLAY ) ) {
+    for( ulong i=0UL; i<ctx->rooted_txn_cnt; i++ ) {
+      ulong ha_dedup_tag = fd_hash( ctx->hashmap_seed, ctx->rooted_signature[ i ], 64UL );
+      int is_dup;
+      FD_TCACHE_INSERT( is_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );
+    }
+    return;
+  }
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP || ctx->in_kind[ in_idx]==IN_KIND_VOTER ) ) {
     /* Transactions coming in from these links are not parsed.
@@ -208,6 +228,9 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->in_kind[ i ] = IN_KIND_VOTER;
     } else if( FD_UNLIKELY( !strcmp( link->name, "verify_dedup" ) ) ) {
       ctx->in_kind[ i ] = IN_KIND_VERIFY;
+    } else if( FD_UNLIKELY( !strcmp( link->name, "replay_resol" ) ) ) {
+      ctx->in_kind[ i ] = IN_KIND_REPLAY;
+    }
     } else {
       FD_LOG_ERR(( "unexpected link name %s", link->name ));
     }

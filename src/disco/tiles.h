@@ -67,6 +67,8 @@ typedef struct fd_became_leader fd_became_leader_t;
 struct fd_rooted_bank {
   void * bank;
   ulong  slot;
+  ulong  txn_cnt;
+  uchar  signatures[ 16384UL ][ 64UL ];
 };
 
 typedef struct fd_rooted_bank fd_rooted_bank_t;
