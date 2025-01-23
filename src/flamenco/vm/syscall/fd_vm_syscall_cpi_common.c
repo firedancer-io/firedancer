@@ -96,7 +96,9 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
       }
     }
     if( FD_UNLIKELY( !account_found ) ) {
-      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+      vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR;
+      vm->instr_ctx->txn_ctx->exec_err      = FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+      return -1;
     }
   }
 
