@@ -72,6 +72,8 @@ typedef struct {
     char  account_index_include_keys[ 32 ][ 32 ];
     ulong account_index_exclude_keys_cnt;
     char  account_index_exclude_keys[ 32 ][ 32 ];
+    char  accounts_index_path[ PATH_MAX ];
+    char  accounts_hash_cache_path[ PATH_MAX ];
     int   require_tower;
     char  snapshot_archive_format[ 10 ];
   } ledger;

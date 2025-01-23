@@ -96,8 +96,13 @@ agave_boot( config_t * config ) {
 
   /* ledger */
   ADD( "--ledger", config->ledger.path );
-  if( strcmp( "", config->ledger.accounts_path ) ) ADD( "--accounts", config->ledger.accounts_path );
   ADDU( "--limit-ledger-size", config->ledger.limit_size );
+  if( strcmp( "", config->ledger.accounts_path ) )
+    ADD( "--accounts", config->ledger.accounts_path );
+  if( strcmp( "", config->ledger.accounts_index_path ) )
+    ADD( "--accounts-index-path", config->ledger.accounts_index_path );
+  if( strcmp( "", config->ledger.accounts_hash_cache_path ) )
+    ADD( "--accounts-hash-cache-path", config->ledger.accounts_hash_cache_path );
   for( ulong i=0UL; i<config->ledger.account_indexes_cnt; i++ )
     ADD( "--account-index", config->ledger.account_indexes[ i ] );
   if( FD_LIKELY( !config->ledger.account_index_include_keys_cnt ) ) {
