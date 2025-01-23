@@ -8,7 +8,7 @@
    beyond the lifetime of the creating process, used concurrently in
    many common operations, used inter-process, relocated in memory,
    naively serialized/deserialized, moved between hosts, supports index
-   compresson for cache and memory bandwidth efficiency, etc.
+   compression for cache and memory bandwidth efficiency, etc.
 
    Memory efficiency and flexible footprint are prioritized.
 
@@ -18,7 +18,7 @@
        ulong prev; // Technically "DLIST_IDX_T DLIST_PREV" (default is ulong prev), do not modify while element is in the dlist
        ulong next; // Technically "DLIST_IDX_T DLIST_NEXT" (default is ulong next), do not modify while element is in the dlist
        ... prev and next can be located arbitrarily in the element and
-       ... can be reused for other purposes when the element is not a in
+       ... can be reused for other purposes when the element is not in a
        ... dlist.  An element should not be moved / released while an
        ... element is in a dlist
      };
@@ -142,7 +142,7 @@
      //     ... here (though they might not be covered by this
      //     ... iteration).  It is also generally safe to remove any
      //     ... element but the current element here (the removed
-     //     ... element might have already be iterated over).  It is
+     //     ... element might have already been iterated over).  It is
      //     ... straightforward to make a variant of this iterator
      //     ... that would support removing the current element here
      //     ... if desired.
@@ -251,12 +251,14 @@
 #define DLIST_IMPL_STYLE 0
 #endif
 
+#if FD_TMPL_USE_HANDHOLDING
+#include "../log/fd_log.h"
+#endif
+
 /* Implementation *****************************************************/
 
 /* Constructors and verification log details on failure (rest only needs
    fd_bits.h, consider making logging a compile time option). */
-
-#include "../log/fd_log.h"
 
 #define DLIST_(n) FD_EXPAND_THEN_CONCAT3(DLIST_NAME,_,n)
 
@@ -318,17 +320,25 @@ DLIST_(is_empty)( DLIST_(t) const *   join,
   return DLIST_(private_idx_is_null)( DLIST_(private_idx)( DLIST_(private_const)( join )->head ) );
 }
 
-FD_FN_PURE static inline ulong
+FD_FN_PURE
+static inline ulong
 DLIST_(idx_peek_head)( DLIST_(t) const *   join,
                        DLIST_ELE_T const * pool ) {
   (void)pool;
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( DLIST_(is_empty)( join, pool ) ) ) FD_LOG_CRIT(( "cannot peek on empty dlist" ));
+#endif
   return DLIST_(private_idx)( DLIST_(private_const)( join )->head );
 }
 
-FD_FN_PURE static inline ulong
+FD_FN_PURE
+static inline ulong
 DLIST_(idx_peek_tail)( DLIST_(t) const *   join,
                        DLIST_ELE_T const * pool ) {
   (void)pool;
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( DLIST_(is_empty)( join, pool ) ) ) FD_LOG_CRIT(( "cannot peek on empty dlist" ));
+#endif
   return DLIST_(private_idx)( DLIST_(private_const)( join )->tail );
 }
 
@@ -371,6 +381,9 @@ DLIST_(idx_push_tail)( DLIST_(t) *   join,
 static inline ulong
 DLIST_(idx_pop_head)( DLIST_(t) *   join,
                       DLIST_ELE_T * pool ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( DLIST_(is_empty)( join, pool ) ) ) FD_LOG_CRIT(( "cannot pop from empty dlist" ));
+#endif
   DLIST_(private_t) * dlist = DLIST_(private)( join );
 
   ulong ele_idx  = DLIST_(private_idx)( dlist->head ); /* Not NULL as per contract */
@@ -386,6 +399,9 @@ DLIST_(idx_pop_head)( DLIST_(t) *   join,
 static inline ulong
 DLIST_(idx_pop_tail)( DLIST_(t) *   join,
                       DLIST_ELE_T * pool ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( DLIST_(is_empty)( join, pool ) ) ) FD_LOG_CRIT(( "cannot pop from empty dlist" ));
+#endif
   DLIST_(private_t) * dlist = DLIST_(private)( join );
 
   ulong ele_idx  = DLIST_(private_idx)( dlist->tail ); /* Not NULL as per contract */

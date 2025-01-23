@@ -1,4 +1,9 @@
 #include "../fd_util.h"
+#if FD_HAS_HOSTED
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 #define TEST_DEQUE_MAX (8UL)
 
@@ -240,6 +245,62 @@ main( int     argc,
     FD_TEST( test_deque_full ( deque )==(buf_cnt==TEST_DEQUE_MAX) );
   }
 
+  /* test handholding */
+#if FD_HAS_HOSTED && FD_TMPL_USE_HANDHOLDING
+  #define FD_EXPECT_LOG_CRIT( CALL ) do {                          \
+    FD_LOG_DEBUG(( "Testing that "#CALL" triggers FD_LOG_CRIT" )); \
+    pid_t pid = fork();                                            \
+    FD_TEST( pid >= 0 );                                           \
+    if( pid == 0 ) {                                               \
+      fd_log_level_logfile_set( 6 );                               \
+      __typeof__(CALL) res = (CALL);                               \
+      __asm__("" : "+r"(res));                                     \
+      _exit( 0 );                                                  \
+    }                                                              \
+    int status = 0;                                                \
+    wait( &status );                                               \
+                                                                   \
+    FD_TEST( WIFSIGNALED(status) && WTERMSIG(status)==6 );         \
+  } while( 0 )                                                     \
+
+  FD_LOG_NOTICE(( "Testing invalid arguments to DEQUE_({new,join})" ));
+  FD_EXPECT_LOG_CRIT( test_deque_new( NULL ) );
+  FD_EXPECT_LOG_CRIT( test_deque_new( (void*)((char*)scratch+1) ) );
+  FD_EXPECT_LOG_CRIT( test_deque_delete( NULL ) );
+  FD_EXPECT_LOG_CRIT( test_deque_delete( scratch+1 ) );
+
+  FD_LOG_NOTICE(( "Testing boundary conditions of operations on a full/empty deque" ));
+  for( ulong i=test_deque_cnt( deque ); i<TEST_DEQUE_MAX; i++ ) {
+    FD_TEST( test_deque_push_tail( deque, (int)i )==deque );
+  }
+  FD_TEST( test_deque_full( deque ) );
+  FD_EXPECT_LOG_CRIT( test_deque_push_tail       ( deque, 42 ) );
+  FD_EXPECT_LOG_CRIT( test_deque_push_head       ( deque, 42 ) );
+  FD_EXPECT_LOG_CRIT( test_deque_push_head_nocopy( deque     ) );
+  FD_EXPECT_LOG_CRIT( test_deque_push_head_nocopy( deque     ) );
+  FD_TEST( test_deque_push_tail_wrap( deque, 23 )==deque );
+  FD_TEST( test_deque_push_head_wrap( deque, 23 )==deque );
+  FD_EXPECT_LOG_CRIT( test_deque_push_tail       ( deque, 42 ) );
+  FD_EXPECT_LOG_CRIT( test_deque_push_head       ( deque, 42 ) );
+
+  FD_TEST( test_deque_remove_all( deque )==deque );
+  FD_EXPECT_LOG_CRIT( test_deque_pop_head       ( deque ) );
+  FD_EXPECT_LOG_CRIT( test_deque_pop_tail       ( deque ) );
+  FD_EXPECT_LOG_CRIT( test_deque_pop_head_nocopy( deque ) );
+  FD_EXPECT_LOG_CRIT( test_deque_pop_tail_nocopy( deque ) );
+
+  FD_TEST( test_deque_push_tail( deque, 23 )==deque );
+  FD_EXPECT_LOG_CRIT( test_deque_pop_idx_tail( deque, 1 ) );
+
+  test_deque_iter_t iter = test_deque_iter_init( deque );
+  for( ; !test_deque_iter_done( deque, iter ); iter = test_deque_iter_next( deque, iter ) );
+  iter = test_deque_iter_next( deque, iter );
+  FD_EXPECT_LOG_CRIT( test_deque_iter_ele      ( deque, iter ) );
+  FD_EXPECT_LOG_CRIT( test_deque_iter_ele_const( deque, iter ) );
+#else
+  FD_LOG_WARNING(( "skip: testing handholding, requires hosted" ));
+#endif
+
   FD_TEST( test_deque_leave ( deque   )==shdeque         );
   FD_TEST( test_deque_delete( shdeque )==(void *)scratch );
 
@@ -249,4 +310,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-
