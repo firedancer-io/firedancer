@@ -286,7 +286,7 @@ while [ $# -gt 0 ]; do
     echo ""
     echo "  init [PERM] [USER] [GROUP]"
     echo "  - Create the OS structures needed for a shared memory IPC domain.  Named"
-    echo "    shared memory region permission defaults will be in the the 'chmod"
+    echo "    shared memory region permission defaults will be in the 'chmod"
     echo "    [PERM]' / 'chown [USER]:[GROUP]' sense.  Empty strings for [USER] and"
     echo "    [GROUP] are fine with the same interpretation as chown.  A typical use"
     echo "    case is 'init 700 [USER] \"\"'.  Multiple domains can coexist"

@@ -614,7 +614,7 @@ fd_vm_trace_reset( fd_vm_trace_t * trace ) {
   return FD_VM_SUCCESS;
 }
 
-/* fd_vm_trace_event_exe records the the current pc, ic, cu and
+/* fd_vm_trace_event_exe records the current pc, ic, cu and
    register file of the VM and the instruction about to execute.  Text
    points to the first word of the instruction about to execute and
    text_cnt points to the number of words available at that point.

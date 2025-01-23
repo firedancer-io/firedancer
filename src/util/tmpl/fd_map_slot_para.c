@@ -1918,7 +1918,7 @@ MAP_(remove)( MAP_(t) *             join,
        a hole.
 
        This test works just as well for the more common
-       contig_cnt<ele_max case (it will terminate at the the preexisting
+       contig_cnt<ele_max case (it will terminate at the preexisting
        trailing empty slot instead of the most recently created hole).
        So, for code simplicity, we just do that.
 
