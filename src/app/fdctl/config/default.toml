@@ -218,6 +218,26 @@ dynamic_port_range = "8900-9000"
     # Agave client with the `--account-index-include-key` argument.
     account_index_include_keys = []
 
+    # If account indexes are enabled, this is the absolute directory
+    # path to place the accounts index in.  If this is empty, it
+    # will default to the `accounts_index` subdirectory of the ledger
+    # `path` above.  This option is passed to the Agave client with
+    # the `--accounts-index-path` argument.
+    accounts_index_path = ""
+
+    # Every epoch, the client calculates a hash of all the accounts
+    # on-chain called the Epoch Accounts Hash.  As a part of this
+    # process, the client iterates over the entire accounts database
+    # to calculate serialized hashes for every account which are then
+    # stored in several files in a directory on disk.
+    #
+    # This option specifies the absolute directory path to place the
+    # accounts hash cache data in.  If this is empty, it will default
+    # to the `accounts_hash_cache` subdirectory of the ledger `path`
+    # above.  This option is passed to the Agave client with the
+    # `--accounts-hash-cache-path` argument.
+    accounts_hash_cache_path = ""
+
     # Whether to use compression when storing snapshots.  This option is
     # passed to the Agave client with the
     # `--snapshot-archive-format` argument.
@@ -444,7 +464,7 @@ dynamic_port_range = "8900-9000"
     # or you need to fetch it.  The snapshot will be fetched from a
     # validator in the list of entrypoints.  If no validators are listed
     # there, starting the validator will fail.  This option is passed
-    # (inverted) to the Agave client with the `no-snapshot-fetch`
+    # (inverted) to the Agave client with the `--no-snapshot-fetch`
     # argument.
     snapshot_fetch = true
 
