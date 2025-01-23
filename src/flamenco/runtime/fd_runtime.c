@@ -4045,6 +4045,12 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
   fd_funk_txn_t *   txnmap     = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
 
+  if( capture_ctx != NULL ) {
+    fd_funk_start_write( funk );
+    fd_runtime_checkpt( capture_ctx, slot_ctx, slot_ctx->slot_bank.slot );
+    fd_funk_end_write( funk );
+  }
+
   uint depth = 0;
   for( fd_funk_txn_t * txn = slot_ctx->funk_txn; txn; txn = fd_funk_txn_parent(txn, txnmap) ) {
     if( ++depth == (FD_RUNTIME_NUM_ROOT_BLOCKS - 1 ) ) {
@@ -4088,10 +4094,6 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
           fd_accounts_hash( slot_ctx->acc_mgr->funk, &slot_ctx->slot_bank, valloc, tpool, &slot_ctx->slot_bank.epoch_account_hash );
         }
         epoch_bank->eah_start_slot = ULONG_MAX;
-      }
-
-      if( capture_ctx != NULL ) {
-        fd_runtime_checkpt( capture_ctx, slot_ctx, txn->xid.ul[0] );
       }
 
       fd_funk_end_write( funk );
