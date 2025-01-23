@@ -27,7 +27,7 @@
     // mymap_{align,footprint} returns alignment and footprint needed
     // for a memory region to be used as a mymap.  align will be an
     // integer power-of-two and footprint will be a multiple of align.
-    // footprint will returns 0 if key_max requires a footprint that
+    // footprint will return 0 if key_max requires a footprint that
     // would overflow 64-bit.  key_max is the maximum number of keys
     // (elements) the map can hold.
     //
@@ -80,7 +80,7 @@
     // MAP_KEY_{EQ,HASH,COPY} macros as inline functions with strict
     // semantics.  They assume that the provided pointers are in the
     // caller's address space to keys that will not be changed
-    // concurrently.  They retains no interest in key on return.
+    // concurrently.  They retain no interest in key on return.
     //
     // mymap_key_eq returns 1 if the *k0 and *k1 are equal and 0
     // otherwise.
@@ -153,8 +153,8 @@
     mymap_t const * mymap_query_const( mymap_t const * join, ulong const * key, mymap_t const * sentinel );
 
     // mymap_query_safe is the same as mymap_query_const but with
-    // additional safety checks. If a concurrent write is occuring,
-    // this API will still return a resonable map entry without
+    // additional safety checks.  If a concurrent write is occurring,
+    // this API will still return a reasonable map entry without
     // crashing, even if it is wrong.
 
     mymap_t const * mymap_query_safe( mymap_t const * join, ulong const * key, mymap_t const * sentinel );
@@ -203,9 +203,9 @@
 
   You can do this as often as you like in a compilation unit to get
   different types of gigantic maps.  Variants exist for making header
-  protoypes only and/or implementations if doing a library with multiple
-  compilation units.  Further, options exist to use different hashing
-  functions, comparison functions, etc as detailed below. */
+  prototypes only and/or implementations if doing a library with
+  multiple compilation units.  Further, options exist to use different
+  hashing functions, comparison functions, etc as detailed below. */
 
 /* MAP_NAME gives the API prefix to use for map */
 
@@ -249,7 +249,7 @@
 #define MAP_KEY_HASH(key,seed) fd_ulong_hash( (*(key)) ^ (seed) )
 #endif
 
-/* MAP_KEY_COPY copys the contents from *ks to *kd.  Non-POD key types
+/* MAP_KEY_COPY copies the contents from *ks to *kd.  Non-POD key types
    might need to customize this accordingly.  Defaults to the copy
    operator.  */
 
@@ -316,7 +316,7 @@ struct MAP_(private) {
 
   ulong key_max;    /* yields non-zero footprint, <2^63 */
   ulong seed;       /* hash seed, arbitrary */
-  ulong list_cnt;   /* == MAP_(private_list_cnt)( key_max  ) */
+  ulong list_cnt;   /* == MAP_(private_list_cnt)( key_max ) */
   ulong key_cnt;    /* in [0,key_max] */
   ulong free_stack; /* idx is in [0,key_max) or MAP_IDX_NULL, tag is free */
 
@@ -733,117 +733,6 @@ MAP_(verify_key)( MAP_T *           join,
   return (long)cnt;;
 }
 
-MAP_IMPL_STATIC MAP_T *
-MAP_(insert)( MAP_T *           join,
-              MAP_KEY_T const * key ) {
-  MAP_(private_t) * map = MAP_(private)( join );
-
-  /* Pop the free stack to allocate an element (this is guaranteed to
-     succeed as per contract) */
-
-  ulong ele_idx = MAP_(private_unbox_idx)( map->free_stack );
-  MAP_T * ele = join + ele_idx;
-  map->free_stack = ele->MAP_NEXT; /* already tagged free */
-  map->key_cnt++; /* Consider eliminating this to help make completely concurrent lockfree? */
-
-  /* ... and map the newly allocated element to key (this is also
-     guaranteed to not have collisions as per contract). Note that
-     elements appear in the chain in order of newest to oldest. This
-     property is NECESSARY for an important optimization in
-     fd_funk_rec_query_global. */
-
-  ulong hash = MAP_KEY_HASH( (key), (map->seed) );
-  ulong * head = MAP_(private_list)( map ) + ( hash & (map->list_cnt-1UL) );
-  MAP_(key_copy)( &ele->MAP_KEY, key );
-  ele->MAP_NEXT = MAP_(private_box_next)( MAP_(private_unbox_idx)( *head ), 0 );
-#if MAP_MEMOIZE
-  ele->MAP_HASH = hash;
-#endif
-  *head = MAP_(private_box_next)( ele_idx, 0 );
-
-  return ele;
-}
-
-MAP_IMPL_STATIC MAP_T *
-MAP_(pop_free_ele)( MAP_T * join ) {
-  MAP_(private_t) * map = MAP_(private)( join );
-
-  /* Pop the free stack to allocate an element (this is guaranteed to
-     succeed as per contract) */
-
-  ulong ele_idx = MAP_(private_unbox_idx)( map->free_stack );
-  MAP_T * ele = join + ele_idx;
-  map->free_stack = ele->MAP_NEXT; /* already tagged free */
-
-  return ele;
-}
-
-MAP_IMPL_STATIC MAP_T *
-MAP_(push_free_ele)( MAP_T * join,
-                     MAP_T * ele ) {
-  MAP_(private_t) * map = MAP_(private)( join );
-
-  ulong ele_idx = (ulong)(ele - join);
-
-  ele->MAP_NEXT = map->free_stack; /* already tagged free */
-  map->free_stack = MAP_(private_box_next)( ele_idx, 1 );
-
-  return ele;
-}
-
-MAP_IMPL_STATIC MAP_T *
-MAP_(insert_free_ele)( MAP_T *           join,
-                       MAP_T *           ele,
-                       MAP_KEY_T const * key ) {
-  MAP_(private_t) * map = MAP_(private)( join );
-  /* Map the allocated element to key (this is also
-     guaranteed to not have collisions as per contract). */
-
-  ulong ele_idx = (ulong)(ele - join);
-
-  ulong * head = MAP_(private_list)( map ) + MAP_(private_list_idx)( key, map->seed, map->list_cnt );
-  MAP_(key_copy)( &ele->MAP_KEY, key );
-  ele->MAP_NEXT = MAP_(private_box_next)( MAP_(private_unbox_idx)( *head ), 0 );
-  *head = MAP_(private_box_next)( ele_idx, 0 );
-
-  return ele;
-}
-
-MAP_IMPL_STATIC MAP_T *
-MAP_(remove)( MAP_T *           join,
-              MAP_KEY_T const * key ) {
-  MAP_(private_t) * map = MAP_(private)( join );
-
-
-  /* Find the key */
-
-  ulong hash = MAP_KEY_HASH( (key), (map->seed) );
-  ulong * head = MAP_(private_list)( map ) + ( hash & (map->list_cnt-1UL) );
-  ulong * cur  = head;
-  for(;;) {
-    ulong ele_idx = MAP_(private_unbox_idx)( *cur );
-    if( FD_UNLIKELY( MAP_(private_is_null)( ele_idx ) ) ) break;
-    MAP_T * ele = join + ele_idx;
-    if(
-#if MAP_MEMOIZE
-       hash == ele->MAP_HASH &&
-#endif
-       FD_LIKELY( MAP_(key_eq)( key, &ele->MAP_KEY ) ) ) { /* Optimize for found (it is remove after all) */
-      /* Found, remove the mapping and push it to free stack. */
-      *cur = ele->MAP_NEXT; /* already tagged empty */
-      ele->MAP_NEXT = map->free_stack; /* already tagged free */
-      map->free_stack = MAP_(private_box_next)( ele_idx, 1 );
-      map->key_cnt--;
-      return ele;
-    }
-    cur = &ele->MAP_NEXT; /* Retain the pointer to next so we can rewrite it later. */
-  }
-
-  /* Not found */
-
-  return NULL;
-}
-
 FD_FN_PURE MAP_IMPL_STATIC MAP_T *
 MAP_(query)( MAP_T *           join,
              MAP_KEY_T const * key,
@@ -864,7 +753,7 @@ MAP_(query)( MAP_T *           join,
 #if MAP_MEMOIZE
        hash == ele->MAP_HASH &&
 #endif
-       FD_LIKELY( MAP_(key_eq)( key, &ele->MAP_KEY ) ) ) { /* Optimize for found (it is remove after all) */
+      FD_LIKELY( MAP_(key_eq)( key, &ele->MAP_KEY ) ) ) { /* Optimize for found (it is remove after all) */
       /* Found, move it to the front of the chain. (FIXME: BRANCH PROB? DO BRANCHLESS?) */
       if( FD_UNLIKELY( cur!=head ) ) { /* Assume already at head from previous query */
         *cur = ele->MAP_NEXT;  /* Already tagged free */
@@ -883,8 +772,8 @@ MAP_(query)( MAP_T *           join,
 
 FD_FN_PURE MAP_IMPL_STATIC MAP_T *
 MAP_(query2)( MAP_T *           join,
-             MAP_KEY_T const * key,
-             MAP_T *           sentinel ) {
+              MAP_KEY_T const * key,
+              MAP_T *           sentinel ) {
   MAP_(private_t) * map = MAP_(private)( join );
 
 
@@ -899,9 +788,9 @@ MAP_(query2)( MAP_T *           join,
     MAP_T * ele = join + ele_idx;
     if(
 #if MAP_MEMOIZE
-       hash == ele->MAP_HASH &&
+        hash == ele->MAP_HASH &&
 #endif
-       FD_LIKELY( MAP_(key_eq)( key, &ele->MAP_KEY ) ) ) { /* Optimize for found (it is remove after all) */
+      FD_LIKELY( MAP_(key_eq)( key, &ele->MAP_KEY ) ) ) { /* Optimize for found (it is remove after all) */
       return ele; /* optimize for found */
     }
     cur = &ele->MAP_NEXT;
@@ -929,9 +818,9 @@ MAP_(query_const)( MAP_T const *     join,
     MAP_T const * ele = join + ele_idx;
     if(
 #if MAP_MEMOIZE
-       hash == ele->MAP_HASH &&
+        hash == ele->MAP_HASH &&
 #endif
-       FD_LIKELY( MAP_(key_eq)( key, &ele->MAP_KEY ) ) ) { /* Optimize for found (it is remove after all) */
+      FD_LIKELY( MAP_(key_eq)( key, &ele->MAP_KEY ) ) ) { /* Optimize for found (it is remove after all) */
       return ele; /* optimize for found */
     }
     cur = &ele->MAP_NEXT;
@@ -944,8 +833,8 @@ MAP_(query_const)( MAP_T const *     join,
 
 FD_FN_PURE MAP_IMPL_STATIC MAP_T const *
 MAP_(query_safe)( MAP_T const *     join,
-                   MAP_KEY_T const * key,
-                   MAP_T const *     sentinel ) {
+                  MAP_KEY_T const * key,
+                  MAP_T const *     sentinel ) {
   MAP_(private_t) const * map = MAP_(private_const)( join );
 
   ulong         key_max  = map->key_max;
@@ -961,9 +850,9 @@ MAP_(query_safe)( MAP_T const *     join,
     MAP_T const * ele = join + ele_idx;
     if(
 #if MAP_MEMOIZE
-       hash == ele->MAP_HASH &&
+        hash == ele->MAP_HASH &&
 #endif
-       FD_LIKELY( MAP_(key_eq)( key, &ele->MAP_KEY ) ) ) { /* Optimize for found (it is remove after all) */
+      FD_LIKELY( MAP_(key_eq)( key, &ele->MAP_KEY ) ) ) { /* Optimize for found (it is remove after all) */
       return ele; /* optimize for found */
     }
     cur = &ele->MAP_NEXT;
@@ -1046,6 +935,118 @@ MAP_(verify)( MAP_T const * join ) {
 # undef MAP_TEST
 
   return 0;
+}
+
+MAP_IMPL_STATIC MAP_T *
+MAP_(insert)( MAP_T *           join,
+              MAP_KEY_T const * key ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( MAP_(key_cnt)( join )+1>MAP_(key_max)( join ) ) ) FD_LOG_CRIT(( "map is full" ));
+#endif
+  MAP_(private_t) * map = MAP_(private)( join );
+
+  /* Pop the free stack to allocate an element (this is guaranteed to
+     succeed as per contract) */
+
+  ulong ele_idx = MAP_(private_unbox_idx)( map->free_stack );
+  MAP_T * ele = join + ele_idx;
+  map->free_stack = ele->MAP_NEXT; /* already tagged free */
+  map->key_cnt++; /* Consider eliminating this to help make completely concurrent lockfree? */
+
+  /* ... and map the newly allocated element to key (this is also
+     guaranteed to not have collisions as per contract). Note that
+     elements appear in the chain in order of newest to oldest. This
+     property is NECESSARY for an important optimization in
+     fd_funk_rec_query_global. */
+
+  ulong hash = MAP_KEY_HASH( (key), (map->seed) );
+  ulong * head = MAP_(private_list)( map ) + ( hash & (map->list_cnt-1UL) );
+  MAP_(key_copy)( &ele->MAP_KEY, key );
+  ele->MAP_NEXT = MAP_(private_box_next)( MAP_(private_unbox_idx)( *head ), 0 );
+#if MAP_MEMOIZE
+  ele->MAP_HASH = hash;
+#endif
+  *head = MAP_(private_box_next)( ele_idx, 0 );
+  return ele;
+}
+
+MAP_IMPL_STATIC MAP_T *
+MAP_(pop_free_ele)( MAP_T * join ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( !MAP_(key_cnt)( join ) ) ) FD_LOG_CRIT(( "map is empty" ));
+#endif
+  MAP_(private_t) * map = MAP_(private)( join );
+
+  /* Pop the free stack to allocate an element (this is guaranteed to
+     succeed as per contract) */
+
+  ulong ele_idx = MAP_(private_unbox_idx)( map->free_stack );
+  MAP_T * ele = join + ele_idx;
+  map->free_stack = ele->MAP_NEXT; /* already tagged free */
+  return ele;
+}
+
+MAP_IMPL_STATIC MAP_T *
+MAP_(push_free_ele)( MAP_T * join,
+                     MAP_T * ele ) {
+  MAP_(private_t) * map = MAP_(private)( join );
+
+  ulong ele_idx = (ulong)(ele - join);
+
+  ele->MAP_NEXT = map->free_stack; /* already tagged free */
+  map->free_stack = MAP_(private_box_next)( ele_idx, 1 );
+  return ele;
+}
+
+MAP_IMPL_STATIC MAP_T *
+MAP_(insert_free_ele)( MAP_T *           join,
+                       MAP_T *           ele,
+                       MAP_KEY_T const * key ) {
+  MAP_(private_t) * map = MAP_(private)( join );
+  /* Map the allocated element to key (this is also
+     guaranteed to not have collisions as per contract). */
+
+  ulong ele_idx = (ulong)(ele - join);
+
+  ulong * head = MAP_(private_list)( map ) + MAP_(private_list_idx)( key, map->seed, map->list_cnt );
+  MAP_(key_copy)( &ele->MAP_KEY, key );
+  ele->MAP_NEXT = MAP_(private_box_next)( MAP_(private_unbox_idx)( *head ), 0 );
+  *head = MAP_(private_box_next)( ele_idx, 0 );
+  return ele;
+}
+
+MAP_IMPL_STATIC MAP_T *
+MAP_(remove)( MAP_T *           join,
+              MAP_KEY_T const * key ) {
+  MAP_(private_t) * map = MAP_(private)( join );
+
+
+  /* Find the key */
+
+  ulong hash = MAP_KEY_HASH( (key), (map->seed) );
+  ulong * head = MAP_(private_list)( map ) + ( hash & (map->list_cnt-1UL) );
+  ulong * cur  = head;
+  for(;;) {
+    ulong ele_idx = MAP_(private_unbox_idx)( *cur );
+    if( FD_UNLIKELY( MAP_(private_is_null)( ele_idx ) ) ) break;
+    MAP_T * ele = join + ele_idx;
+    if(
+#if MAP_MEMOIZE
+       hash == ele->MAP_HASH &&
+#endif
+      FD_LIKELY( MAP_(key_eq)( key, &ele->MAP_KEY ) ) ) { /* Optimize for found (it is remove after all) */
+      /* Found, remove the mapping and push it to free stack. */
+      *cur = ele->MAP_NEXT; /* already tagged empty */
+      ele->MAP_NEXT = map->free_stack; /* already tagged free */
+      map->free_stack = MAP_(private_box_next)( ele_idx, 1 );
+      map->key_cnt--;
+      return ele;
+    }
+    cur = &ele->MAP_NEXT; /* Retain the pointer to next so we can rewrite it later. */
+  }
+
+  /* Not found */
+  return NULL;
 }
 
 #undef MAP_IMPL_STATIC

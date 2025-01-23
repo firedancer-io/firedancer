@@ -33,7 +33,7 @@
      // or max are obviously bad).
      //
      // join - Join a mypool.  Assumes shpool points at a memory region
-     // formatted as an mypool.  Returns a pointer in the caller's
+     // formatted as a mypool.  Returns a pointer in the caller's
      // address space to a memory region indexed [0,max) on success and
      // NULL on failure (e.g. shmem is obviously bad).  THIS IS NOT JUST
      // A SIMPLE CAST OF SHPOOL.
@@ -81,7 +81,7 @@
      ulong           mypool_idx      ( myele_t const * join, myele_t const * ele ); // Returns idx associated with ele
                                                                                     // Assumes mypool_ele_test is 1
      myele_t *       mypool_ele      ( myele_t *       join, ulong           idx ); // Returns ele associated with idx
-                                                                                    // Assumes mypool_ele_test is 1
+                                                                                    // Assumes mypool_idx_test is 1
                                                                                     // Lifetime is the local join
      myele_t const * mypool_ele_const( myele_t const * join, ulong           idx ); // Const correct version of above
 
@@ -123,7 +123,7 @@
 #error "Define POOL_NAME"
 #endif
 
-/* A POOL_T should be something something reasonable to shallow copy
+/* A POOL_T should be something reasonable to shallow copy
    with the fields described above. */
 
 #ifndef POOL_T
@@ -159,6 +159,10 @@
 
 #ifndef POOL_MAGIC
 #define POOL_MAGIC (0xF17EDA2CE7900100UL) /* Firedancer pool ver 0 */
+#endif
+
+#if FD_TMPL_USE_HANDHOLDING
+#include "../log/fd_log.h"
 #endif
 
 /* Implementation *****************************************************/
@@ -337,21 +341,33 @@ POOL_(ele_test)( POOL_T const * join,
   return (!ele) | ((idx<max) & ((ulong)ele==((ulong)join+(idx*sizeof(POOL_T))))); /* last test checks alignment */
 }
 
-FD_FN_CONST static inline ulong
+FD_FN_CONST
+static inline ulong
 POOL_(idx)( POOL_T const * join,
             POOL_T const * ele ) {
-  return ele ? (ulong)(ele-join) : POOL_IDX_NULL;
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( !POOL_(ele_test)( join, ele ) ) ) FD_LOG_CRIT(( "no such element" ));
+#endif
+return ele ? (ulong)(ele-join) : POOL_IDX_NULL;
 }
 
-FD_FN_CONST static inline POOL_T *
+FD_FN_CONST
+static inline POOL_T *
 POOL_(ele)( POOL_T *   join,
             ulong      idx ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( !POOL_(idx_test)( join, idx ) ) ) FD_LOG_CRIT(( "no such index" ));
+#endif
   return (idx==POOL_IDX_NULL) ? NULL : (join + idx);
 }
 
-FD_FN_CONST static inline POOL_T const *
+FD_FN_CONST
+static inline POOL_T const *
 POOL_(ele_const)( POOL_T const *   join,
                   ulong            idx ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( !POOL_(idx_test)( join, idx ) ) ) FD_LOG_CRIT(( "no such index" ));
+#endif
   return (idx==POOL_IDX_NULL) ? NULL : (join + idx);
 }
 
@@ -371,6 +387,9 @@ POOL_(used)( POOL_T const * join ) {
 static inline ulong
 POOL_(idx_acquire)( POOL_T * join ) {
   POOL_(private_t) * meta = POOL_(private_meta)( join );
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( !meta->free ) ) FD_LOG_CRIT(( "pool is full" ));
+#endif
   ulong idx = meta->free_top;
   meta->free_top = (ulong)join[ idx ].POOL_NEXT;
   meta->free--;
@@ -381,6 +400,15 @@ static inline void
 POOL_(idx_release)( POOL_T * join,
                     ulong    idx ) {
   POOL_(private_t) * meta = POOL_(private_meta)( join );
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( (meta->max<=idx) | (idx==POOL_IDX_NULL) ) ) FD_LOG_CRIT(( "invalid index" ));
+#if POOL_SENTINEL
+  if( FD_UNLIKELY( POOL_(idx_sentinel)( join )==idx ) ) FD_LOG_CRIT(( "cannot releaes sentinel" ));
+  if( FD_UNLIKELY( meta->free>=meta->max-1 ) ) FD_LOG_CRIT(( "pool is empty" ));
+#else
+  if( FD_UNLIKELY( meta->free>=meta->max ) ) FD_LOG_CRIT(( "pool is empty" ));
+#endif
+#endif
   join[ idx ].POOL_NEXT = (POOL_IDX_T)meta->free_top;
   meta->free_top = idx;
   meta->free++;

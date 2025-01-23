@@ -26,7 +26,7 @@
 
      // Returns 1 if set appears to be point to a valid set, 0 otherwise
      // (e.g. set is NULL, set is not a valid join, there's corruption
-     // in the set zero padding, etc). 
+     // in the set zero padding, etc).
 
      int my_set_valid( my_set_t const * set )
 
@@ -168,6 +168,10 @@
 #error "Define SET_NAME"
 #endif
 
+#if FD_TMPL_USE_HANDHOLDING
+#include "../log/fd_log.h"
+#endif
+
 /* Implementation *****************************************************/
 
 #define SET_(x) FD_EXPAND_THEN_CONCAT3(SET_NAME,_,x)
@@ -229,6 +233,10 @@ SET_(footprint)( ulong max ) {
 FD_FN_UNUSED static void * /* Work around -Winline */
 SET_(new)( void * shmem,
            ulong  max ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, SET_(align)() ) ) ) FD_LOG_CRIT(( "unaligned shmem" ));
+  if( FD_UNLIKELY( (max<1UL) | (max>ULONG_MAX-63UL) ) ) FD_LOG_CRIT(( "max out of bounds" ));
+#endif
   SET_(private_t) * hdr = (SET_(private_t) *)shmem;
 
   ulong word_cnt = SET_(private_word_cnt)( max );
@@ -247,7 +255,7 @@ static inline SET_(t) *
 SET_(join)( void * shset ) {
   SET_(private_t) * hdr = (SET_(private_t) *)shset;
   return hdr->set;
-} 
+}
 
 static inline void * SET_(leave) ( SET_(t) * set   ) { return (void *)SET_(private_hdr_from_set)( set ); }
 static inline void * SET_(delete)( void *    shset ) { return shset; }
@@ -337,6 +345,9 @@ FD_FN_CONST static inline ulong SET_(const_iter_done)( ulong j ) { return !~j; }
 static inline SET_(t) *
 SET_(insert)( SET_(t) * set,
               ulong     idx ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( !SET_(valid_idx)( set, idx ) ) ) FD_LOG_CRIT(( "idx out of bounds" ));
+#endif
   set[ idx >> 6 ] |= 1UL << (idx & 63UL);
   return set;
 }
@@ -344,6 +355,9 @@ SET_(insert)( SET_(t) * set,
 static inline SET_(t) *
 SET_(remove)( SET_(t) * set,
               ulong     idx ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( !SET_(valid_idx)( set, idx ) ) ) FD_LOG_CRIT(( "idx out of bounds" ));
+#endif
   set[ idx >> 6 ] &= ~(1UL << (idx & 63UL));
   return set;
 }
@@ -352,6 +366,9 @@ static inline SET_(t) *
 SET_(insert_if)( SET_(t) * set,
                  int       c,
                  ulong     idx ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( !SET_(valid_idx)( set, idx ) ) ) FD_LOG_CRIT(( "idx out of bounds" ));
+#endif
   set[ idx >> 6 ] |= ((ulong)!!c) << (idx & 63UL);
   return set;
 }
@@ -360,13 +377,20 @@ static inline SET_(t) *
 SET_(remove_if)( SET_(t) * set,
                  int       c,
                  ulong     idx ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( !SET_(valid_idx)( set, idx ) ) ) FD_LOG_CRIT(( "idx out of bounds" ));
+#endif
   set[ idx >> 6 ] &= ~(((ulong)!!c) << (idx & 63UL));
   return set;
 }
 
-FD_FN_PURE static inline int
+FD_FN_PURE
+static inline int
 SET_(test)( SET_(t) const * set,
             ulong           idx ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( !SET_(valid_idx)( set, idx ) ) ) FD_LOG_CRIT(( "idx out of bounds" ));
+#endif
   return (int)((set[ idx >> 6 ] >> (idx & 63UL)) & 1UL);
 }
 
@@ -493,4 +517,3 @@ FD_PROTOTYPES_END
 #undef SET_
 
 #undef SET_NAME
-

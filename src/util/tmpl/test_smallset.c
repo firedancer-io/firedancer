@@ -1,4 +1,9 @@
 #include "../fd_util.h"
+#if FD_HAS_HOSTED
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 #define MAX   63
 #define IDX_T int
@@ -253,6 +258,33 @@ main( int     argc,
     n0 = set_remove( n0, idx ); n1 = set_subtract( n1, e );
     f0 = set_insert( f0, idx ); f1 = set_union   ( f1, e );
   }
+
+#if FD_HAS_HOSTED && FD_TMPL_USE_HANDHOLDING
+#define FD_EXPECT_LOG_CRIT( CALL ) do {                            \
+    FD_LOG_DEBUG(( "Testing that "#CALL" triggers FD_LOG_CRIT" )); \
+    pid_t pid = fork();                                            \
+    FD_TEST( pid >= 0 );                                           \
+    if( pid == 0 ) {                                               \
+      fd_log_level_logfile_set( 6 );                               \
+      __typeof__(CALL) res = (CALL);                               \
+      __asm__("" : "+r"(res));                                     \
+      _exit( 0 );                                                  \
+    }                                                              \
+    int status = 0;                                                \
+    wait( &status );                                               \
+                                                                   \
+    FD_TEST( WIFSIGNALED(status) && WTERMSIG(status)==6 );         \
+    } while( 0 )
+
+  FD_EXPECT_LOG_CRIT( set_ele      (        MAX ) );
+  FD_EXPECT_LOG_CRIT( set_ele_if   ( 1,     MAX ) );
+  FD_EXPECT_LOG_CRIT( set_test     (    f1, MAX ) );
+  FD_EXPECT_LOG_CRIT( set_insert_if( 1, f1, MAX ) );
+  FD_EXPECT_LOG_CRIT( set_remove_if( 1, f1, MAX ) );
+
+#else
+  FD_LOG_WARNING(( "skip: testing handholding, requires hosted" ));
+#endif
 
   FD_TEST( set_is_null( n0 ) ); FD_TEST( set_is_null( n1 ) );
   FD_TEST( set_is_full( f0 ) ); FD_TEST( set_is_full( f1 ) );

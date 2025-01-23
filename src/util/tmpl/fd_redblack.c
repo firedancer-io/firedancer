@@ -517,15 +517,15 @@ REDBLK_IMPL_STATIC REDBLK_T * REDBLK_(acquire)( REDBLK_T * pool ) {
 #ifndef REDBLK_UNSAFE
 REDBLK_IMPL_STATIC void REDBLK_(validate_element)( REDBLK_T * pool, REDBLK_T * node ) {
   if ( !REDBLK_POOL_(ele_test)( pool, node ) )
-    FD_LOG_ERR(( "invalid redblack node" ));
+    FD_LOG_CRIT(( "invalid redblack node" ));
   if ( node && node->REDBLK_COLOR == REDBLK_FREE )
-    FD_LOG_ERR(( "invalid redblack node" ));
+    FD_LOG_CRIT(( "invalid redblack node" ));
 }
 REDBLK_IMPL_STATIC void REDBLK_(validate_element_const)( REDBLK_T const * pool, REDBLK_T const * node ) {
   if ( !REDBLK_POOL_(ele_test)( pool, node ) )
-    FD_LOG_ERR(( "invalid redblack node" ));
+    FD_LOG_CRIT(( "invalid redblack node" ));
   if ( node && node->REDBLK_COLOR == REDBLK_FREE )
-    FD_LOG_ERR(( "invalid redblack node" ));
+    FD_LOG_CRIT(( "invalid redblack node" ));
 }
 #endif
 

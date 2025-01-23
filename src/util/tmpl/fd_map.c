@@ -71,8 +71,8 @@
     ulong mymap_slot_idx( mymap_t const * mymap, mymap_t const * slot );
 
     // Returns the "null" key, which is the canonical key that will
-    // never be inserted (typically zero). 
-    
+    // never be inserted (typically zero).
+
     ulong mymap_key_null( void ); // == MAP_KEY_NULL
 
     // Return the 1/0 if key is a key that will never/might be inserted.
@@ -85,11 +85,11 @@
 
     // Return the hash of key used by the map.  Should ideally be a
     // random mapping from MAP_KEY_T -> MAP_HASH_T.
-    
+
     uint mymap_key_hash( ulong key );
-    
-    // Insert key into the map, fast O(1).  Returns a pointer to the the
-    // map entry with key on success and NULL on failure (i.e. key is
+
+    // Insert key into the map, fast O(1).  Returns a pointer to the map
+    // the entry with key on success and NULL on failure (i.e. key is
     // already in the map).  The returned pointer lifetime is until
     // _any_ map remove or map leave.  The caller should not change the
     // values in key or hash but is free to modify other fields in the
@@ -138,7 +138,7 @@
     mymap_t * slot = mymap_insert( map, cxx_key );
     if( FD_UNLIKELY( !slot ) ) ... handle failure (cxx_key was not moved)
     else {
-      ... mymap_insert did a MAP_KEY_MOVE of cxx_key into slot->key 
+      ... mymap_insert did a MAP_KEY_MOVE of cxx_key into slot->key
       ... clean cxx_key's shell here as necessary here
       ... initialize other slot fields as necessary
     }
@@ -164,8 +164,8 @@
 #error "Define MAP_NAME"
 #endif
 
-/* A MAP_T should be something something reasonable to shallow copy with
-   the fields described above. */
+/* A MAP_T should be something reasonable to shallow copy with the
+   fields described above. */
 
 #ifndef MAP_T
 #error "Define MAP_T struct"
@@ -281,6 +281,11 @@
 #define MAP_QUERY_OPT 0
 #endif
 
+#if FD_TMPL_USE_HANDHOLDING
+#include "../log/fd_log.h"
+#endif
+
+
 /* Implementation *****************************************************/
 
 #define MAP_(n)       FD_EXPAND_THEN_CONCAT3(MAP_NAME,_,n)
@@ -304,6 +309,9 @@ FD_FN_CONST static inline ulong MAP_(footprint)( void ) { return sizeof(MAP_T)*M
 
 static inline void *
 MAP_(new)( void *  shmem ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, MAP_(align)() ) ) ) FD_LOG_CRIT(( "unaligned shmem" ));
+#endif
   MAP_T * map = (MAP_T *)shmem;
   for( ulong slot_idx=0UL; slot_idx<MAP_SLOT_CNT; slot_idx++ ) map[ slot_idx ].MAP_KEY = (MAP_KEY_NULL);
   return map;
@@ -316,7 +324,14 @@ static inline void *  MAP_(delete)( void *  shmap ) { return shmap; }
 FD_FN_CONST static inline ulong MAP_(key_max) ( void ) { return MAP_SLOT_MASK; }
 FD_FN_CONST static inline ulong MAP_(slot_cnt)( void ) { return MAP_SLOT_CNT;  }
 
-FD_FN_CONST static inline ulong MAP_(slot_idx)( MAP_T const * map, MAP_T const * entry ) { return (ulong)(entry - map); }
+FD_FN_CONST
+static inline ulong
+MAP_(slot_idx)( MAP_T const * map, MAP_T const * entry ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( ((ulong)(entry-map)>=MAP_SLOT_CNT) | (map>entry) ) ) FD_LOG_CRIT(( "index out of bounds" ));
+#endif
+  return (ulong)(entry-map);
+}
 
 FD_FN_CONST static inline MAP_KEY_T MAP_(key_null)( void ) { return (MAP_KEY_NULL); }
 
@@ -331,6 +346,9 @@ FD_FN_PURE static inline MAP_HASH_T MAP_(key_hash)( MAP_KEY_T key ) { return (MA
 FD_FN_UNUSED static MAP_T * /* Work around -Winline */
 MAP_(insert)( MAP_T *   map,
               MAP_KEY_T key ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( MAP_(key_inval)( key ) ) ) FD_LOG_CRIT(( "invalid key" ));
+#endif
   MAP_HASH_T hash = MAP_(key_hash)( key );
   ulong slot = MAP_(private_start)( hash );
   MAP_T * m;
@@ -396,7 +414,7 @@ MAP_(remove)( MAP_T * map,
 
     MAP_MOVE( map[hole], map[slot] );
   }
-  /* never get here */
+  __builtin_unreachable();
 }
 
 static inline void
@@ -404,10 +422,14 @@ MAP_(clear)( MAP_T * map ) {
   for( ulong slot_idx=0UL; slot_idx<MAP_SLOT_CNT; slot_idx++ ) map[ slot_idx ].MAP_KEY = (MAP_KEY_NULL);
 }
 
-FD_FN_PURE FD_FN_UNUSED static MAP_T * /* Work around -Winline */
+FD_FN_PURE
+FD_FN_UNUSED static MAP_T * /* Work around -Winline */
 MAP_(query)( MAP_T *   map,
              MAP_KEY_T key,
              MAP_T *   null ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( MAP_KEY_INVAL( key ) ) ) FD_LOG_CRIT(( "invalid key" ));
+#endif
   MAP_HASH_T hash = MAP_(key_hash)( key );
   ulong slot = MAP_(private_start)( hash );
   MAP_T * m;
@@ -443,7 +465,8 @@ MAP_(query)( MAP_T *   map,
   return m;
 }
 
-FD_FN_PURE static inline MAP_T const *
+FD_FN_PURE
+static inline MAP_T const *
 MAP_(query_const)( MAP_T const * map,
                    MAP_KEY_T     key,
                    MAP_T const * null ) {

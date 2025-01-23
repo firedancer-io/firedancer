@@ -1,4 +1,9 @@
 #include "../fd_util.h"
+#if FD_HAS_HOSTED
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 struct pair {
   ulong mykey;
@@ -206,6 +211,33 @@ main( int     argc,
       FD_TEST( !map_verify( map ) );
     }
   }
+
+  /* test handholding */
+#if FD_HAS_HOSTED && FD_TMPL_USE_HANDHOLDING
+  #define FD_EXPECT_LOG_CRIT( CALL ) do {                          \
+    FD_LOG_DEBUG(( "Testing that "#CALL" triggers FD_LOG_CRIT" )); \
+    pid_t pid = fork();                                            \
+    FD_TEST( pid >= 0 );                                           \
+    if( pid == 0 ) {                                               \
+      fd_log_level_logfile_set( 6 );                               \
+      __typeof__(CALL) res = (CALL);                               \
+      __asm__("" : "+r"(res));                                     \
+      _exit( 0 );                                                  \
+    }                                                              \
+    int status = 0;                                                \
+    wait( &status );                                               \
+                                                                   \
+    FD_TEST( WIFSIGNALED(status) && WTERMSIG(status)==6 );         \
+  } while( 0 )
+
+  FD_EXPECT_LOG_CRIT( map_pop_free_ele( map ) );
+  for( ulong i=0; i<max; i++ ) {
+    FD_TEST( map_insert( map, &i ) );
+  }
+  FD_EXPECT_LOG_CRIT( map_insert( map, &max ) );
+#else
+  FD_LOG_WARNING(( "skip: testing handholding, requires hosted" ));
+#endif
 
   /* FIXME: TEST ITERATOR */
 
