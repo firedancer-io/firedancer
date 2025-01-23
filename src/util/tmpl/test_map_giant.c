@@ -1,4 +1,9 @@
 #include "../fd_util.h"
+#if FD_HAS_HOSTED
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 struct pair {
   ulong mykey;
@@ -8,6 +13,11 @@ struct pair {
 };
 
 typedef struct pair pair_t;
+
+#ifndef FD_TMPL_USE_HANDHOLDING
+#define FD_UNDEF_HANDHOLDING
+#define FD_TMPL_USE_HANDHOLDING 1
+#endif
 
 #define SORT_NAME        sort_pair
 #define SORT_KEY_T       pair_t
@@ -207,6 +217,33 @@ main( int     argc,
     }
   }
 
+  /* test handholding */
+#if FD_HAS_HOSTED && FD_TMPL_USE_HANDHOLDING
+  #define FD_EXPECT_LOG_ERR( CALL ) do {                           \
+    FD_LOG_DEBUG(( "Testing that "#CALL" triggers exit( 1 )" ));   \
+    pid_t pid = fork();                                            \
+    FD_TEST( pid >= 0 );                                           \
+    if( pid == 0 ) {                                               \
+      fd_log_level_logfile_set( 5 );                               \
+      __typeof__(CALL) res = (CALL);                               \
+      __asm__("" : "+r"(res));                                     \
+      _exit( 0 );                                                  \
+    }                                                              \
+    int status = 0;                                                \
+    wait( &status );                                               \
+                                                                   \
+    FD_TEST( WIFEXITED(status) && (WEXITSTATUS(status) == 1) );    \
+  } while( 0 )
+
+  FD_EXPECT_LOG_ERR( map_pop_free_ele( map ) );
+  for( ulong i=0; i<max; i++ ) {
+    FD_TEST( map_insert( map, &i ) );
+  }
+  FD_EXPECT_LOG_ERR( map_insert( map, &max ) );
+#else
+  FD_LOG_WARNING(( "skip: testing handholding, requires hosted" ));
+#endif
+
   /* FIXME: TEST ITERATOR */
 
   FD_TEST( !map_leave( NULL ) ); /* NULL map */
@@ -225,3 +262,8 @@ main( int     argc,
   fd_halt();
   return 0;
 }
+
+#ifdef FD_UNDEF_HANDHOLDING
+#undef FD_TMPL_USE_HANDHOLDING
+#undef FD_UNDEF_HANDHOLDING
+#endif

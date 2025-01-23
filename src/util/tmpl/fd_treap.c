@@ -50,7 +50,7 @@
        ... operation.  But this also means that prio field is not
        ... available for use when a myele is not in the treap.
 
-       ... In other situations, the user might chose to generate random
+       ... In other situations, the user might choose to generate random
        ... priorities dynamically (as it done in textbook
        ... implementations) and/or adjust element priorities on the fly
        ... to splay-tree-like adaptively optimize treap queries.
@@ -424,6 +424,13 @@
 #define TREAP_IMPL_STYLE 0
 #endif
 
+/* FD_TMPL_USE_HANDHOLDING is disabled by default in production */
+
+#ifndef FD_TMPL_USE_HANDHOLDING
+#define FD_UNDEF_HANDHOLDING
+#define FD_TMPL_USE_HANDHOLDING 0
+#endif
+
 /* Implementation *****************************************************/
 
 #if TREAP_IMPL_STYLE==0
@@ -688,10 +695,125 @@ TREAP_(idx_query)( TREAP_(t) const * treap,
   return i;
 }
 
+TREAP_STATIC int
+TREAP_(verify)( TREAP_(t) const * treap,
+                TREAP_T const *   pool ) {
+
+# define TREAP_TEST( c ) do { if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return -1; } } while(0)
+
+  TREAP_TEST( treap ); /* Validate local join */
+
+  ulong ele_max = treap->ele_max; TREAP_TEST( ele_max<=TREAP_IDX_NULL ); /* Validate ele_max */
+  ulong ele_cnt = treap->ele_cnt; TREAP_TEST( ele_cnt<=ele_max        ); /* Validate ele_cnt */
+  if( ele_max ) TREAP_TEST( pool );                                      /* Validate ele storage */
+
+  /* Find leftmost */
+
+  ulong i = TREAP_IDX_NULL;
+  ulong l = (ulong)treap->root;
+
+  ulong loop_cnt = 0UL;
+  while( FD_LIKELY( !TREAP_IDX_IS_NULL( l ) ) ) {
+    TREAP_TEST( loop_cnt<ele_cnt ); /* Make sure no cycles */
+    TREAP_TEST( l       <ele_max ); /* Make sure valid index */
+    i = l;
+    l = (ulong)pool[ l ].TREAP_LEFT;
+    loop_cnt++;
+  }
+#if TREAP_OPTIMIZE_ITERATION
+  TREAP_TEST( treap->first==i );
+#endif
+
+  /* In-order traverse the treap starting from the leftmost */
+
+  ulong cnt = 0UL; /* Number of elements we've visited so far */
+  while( FD_LIKELY( !TREAP_IDX_IS_NULL( i ) ) ) {
+    TREAP_TEST( cnt<ele_cnt ); /* Make sure no cycles */
+
+    /* At this point, we are visiting element i.  We've already visited
+       all elements less than i and l is the last element we visited (or
+       NULL if i is the first element we are visiting. */
+
+    if( FD_LIKELY( !TREAP_IDX_IS_NULL( l ) ) ) TREAP_TEST( TREAP_(lt)( pool + l, pool + i ) ); /* Make sure ordering valid */
+#if TREAP_OPTIMIZE_ITERATION
+    /* Check the l <-> i link */
+    if( FD_LIKELY( !TREAP_IDX_IS_NULL( l ) ) ) TREAP_TEST( pool[ l ].TREAP_NEXT==i );
+    if( FD_LIKELY( !TREAP_IDX_IS_NULL( i ) ) ) TREAP_TEST( pool[ i ].TREAP_PREV==l );
+#endif
+
+
+    ulong p = (ulong)pool[ i ].TREAP_PARENT;
+    if( FD_LIKELY( !TREAP_IDX_IS_NULL( p ) ) ) {
+      TREAP_TEST( p < ele_max );                                                /* Make sure valid index */
+      TREAP_TEST( (ulong)pool[ p ].TREAP_PRIO >= (ulong)pool[ i ].TREAP_PRIO ); /* Make sure heap property valid */
+    }
+
+    /* Done visiting i, advance to i's successor */
+
+    cnt++;
+
+    l = i;
+
+    ulong r = (ulong)pool[ i ].TREAP_RIGHT;
+    if( TREAP_IDX_IS_NULL( r ) ) {
+
+      /* i has no right subtree.  Look for first ancestor of i that we
+         haven't visited (this will be the first ancestor for which i is
+         in the ancestor's left subtree).  If there is no such ancestor,
+         we are at the rightmost and we are done. */
+
+      loop_cnt = 0UL;
+      while( !TREAP_IDX_IS_NULL( p ) ) {
+        TREAP_TEST( loop_cnt<ele_cnt ); /* Make sure no cycles */
+        TREAP_TEST( p       <ele_max ); /* Make sure valid index */
+        if( i==(ulong)pool[ p ].TREAP_LEFT ) break;
+        i = p;
+        p = (ulong)pool[ p ].TREAP_PARENT;
+        loop_cnt++;
+      }
+
+      i = p;
+
+    } else {
+
+      /* i has a right subtree.  Find the leftmost in this subtree. */
+
+      i = r;
+
+      loop_cnt = 0UL;
+      for(;;) {
+        TREAP_TEST( loop_cnt<ele_cnt ); /* Make sure no cycles */
+        TREAP_TEST( i       <ele_max ); /* Make sure valid index */
+        ulong ll = (ulong)pool[ i ].TREAP_LEFT;
+        if( TREAP_IDX_IS_NULL( ll ) ) break;
+        i = ll;
+        loop_cnt++;
+      }
+
+    }
+
+  }
+
+#if TREAP_OPTIMIZE_ITERATION
+  TREAP_TEST( treap->last==l );
+#endif
+
+  TREAP_TEST( cnt==ele_cnt ); /* Make sure we visited correct number of elements */
+
+# undef TREAP_TEST
+
+  return 0;
+}
+
 TREAP_STATIC TREAP_(t) *
 TREAP_(idx_insert)( TREAP_(t) * treap,
                     ulong       n,
                     TREAP_T *   pool ) {
+
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( n>=treap->ele_max ) ) FD_LOG_ERR(( "index out of bounds" ));
+  if( FD_UNLIKELY( (treap->ele_cnt!=0xf173da2ce7111111) & (treap->ele_cnt+1>treap->ele_max) ) ) FD_LOG_ERR(( "treap full" ));
+#endif
 
   /* Find leaf where to insert n */
 
@@ -772,6 +894,9 @@ TREAP_(idx_insert)( TREAP_(t) * treap,
   }
 
   treap->ele_cnt++;
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( (treap->ele_cnt!=0xf173da2ce7111111+1) && TREAP_(verify)( treap, pool )==-1 ) ) FD_LOG_ERR(( "idx_insert: treap corrupt" ));
+#endif
   return treap;
 }
 
@@ -779,6 +904,10 @@ TREAP_(t) *
 TREAP_(idx_remove)( TREAP_(t) * treap,
                     ulong       d,
                     TREAP_T *   pool ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( (treap->ele_cnt!=0xf173da2ce7111111) & (d>=treap->ele_max) ) ) FD_LOG_ERR(( "index out of bounds" ));
+  if( FD_UNLIKELY( (treap->ele_cnt!=0xf173da2ce7111111) & (treap->ele_cnt<1)  ) ) FD_LOG_ERR(( "index out of bounds" ));
+#endif
 
   /* Make a hole at d */
 
@@ -847,6 +976,9 @@ TREAP_(idx_remove)( TREAP_(t) * treap,
   }
 
   treap->ele_cnt--;
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( (treap->ele_cnt!=0xf173da2ce7111111-1) && TREAP_(verify)( treap, pool )==-1 ) ) FD_LOG_ERR(( "idx_remove: treap corrupt" ));
+#endif
   return treap;
 }
 
@@ -1159,6 +1291,14 @@ TREAP_(merge)( TREAP_(t) * treap_a,
       pool[ idx_a ].TREAP_PARENT = TREAP_IDX_NULL;
       pool[ idx_b ].TREAP_PARENT = TREAP_IDX_NULL;
       do {
+#if FD_TMPL_USE_HANDHOLDING
+        /* The temp treaps are not valid treaps, and are only used
+           internally.  The ele_cnt is never used.  To not trigger
+           handholding, we set it to a magic value, that signals
+           certain handholding checks to ignore it. */
+        temp_treap_a.ele_cnt = 0xf173da2ce7111111;
+        temp_treap_b.ele_cnt = 0xf173da2ce7111111;
+#endif
         TREAP_IDX_T idx_tmp = temp_treap_b.root;
         TREAP_(idx_remove)( &temp_treap_b, idx_tmp, pool );
         TREAP_(idx_insert)( &temp_treap_a, idx_tmp, pool );
@@ -1276,6 +1416,11 @@ TREAP_(merge)( TREAP_(t) * treap_a,
   treap_b->last     = TREAP_IDX_NULL;
 # endif
 
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( TREAP_(verify)( treap_a, pool )==-1 ) ) FD_LOG_ERR(( "merge: treap_a corrupt" ));
+  if( FD_UNLIKELY( TREAP_(verify)( treap_b, pool )==-1 ) ) FD_LOG_ERR(( "merge: treap_b corrupt" ));
+#endif
+
   return treap_a;
 
 # undef STACK_POP
@@ -1371,116 +1516,6 @@ TREAP_(rev_iter_next)( TREAP_(rev_iter_t) i,
 #endif
 }
 
-TREAP_STATIC int
-TREAP_(verify)( TREAP_(t) const * treap,
-                TREAP_T const *   pool ) {
-
-# define TREAP_TEST( c ) do { if( FD_UNLIKELY( !(c) ) ) { FD_LOG_WARNING(( "FAIL: " #c )); return -1; } } while(0)
-
-  TREAP_TEST( treap ); /* Validate local join */
-
-  ulong ele_max = treap->ele_max; TREAP_TEST( ele_max<=TREAP_IDX_NULL ); /* Validate ele_max */
-  ulong ele_cnt = treap->ele_cnt; TREAP_TEST( ele_cnt<=ele_max        ); /* Validate ele_cnt */
-  if( ele_max ) TREAP_TEST( pool );                                      /* Validate ele storage */
-
-  /* Find leftmost */
-
-  ulong i = TREAP_IDX_NULL;
-  ulong l = (ulong)treap->root;
-
-  ulong loop_cnt = 0UL;
-  while( FD_LIKELY( !TREAP_IDX_IS_NULL( l ) ) ) {
-    TREAP_TEST( loop_cnt<ele_cnt ); /* Make sure no cycles */
-    TREAP_TEST( l       <ele_max ); /* Make sure valid index */
-    i = l;
-    l = (ulong)pool[ l ].TREAP_LEFT;
-    loop_cnt++;
-  }
-#if TREAP_OPTIMIZE_ITERATION
-  TREAP_TEST( treap->first==i );
-#endif
-
-  /* In-order traverse the treap starting from the leftmost */
-
-  ulong cnt = 0UL; /* Number of elements we've visited so far */
-  while( FD_LIKELY( !TREAP_IDX_IS_NULL( i ) ) ) {
-    TREAP_TEST( cnt<ele_cnt ); /* Make sure no cycles */
-
-    /* At this point, we are visiting element i.  We've already visited
-       all elements less than i and l is the last element we visited (or
-       NULL if i is the first element we are visiting. */
-
-    if( FD_LIKELY( !TREAP_IDX_IS_NULL( l ) ) ) TREAP_TEST( TREAP_(lt)( pool + l, pool + i ) ); /* Make sure ordering valid */
-#if TREAP_OPTIMIZE_ITERATION
-    /* Check the l <-> i link */
-    if( FD_LIKELY( !TREAP_IDX_IS_NULL( l ) ) ) TREAP_TEST( pool[ l ].TREAP_NEXT==i );
-    if( FD_LIKELY( !TREAP_IDX_IS_NULL( i ) ) ) TREAP_TEST( pool[ i ].TREAP_PREV==l );
-#endif
-
-
-    ulong p = (ulong)pool[ i ].TREAP_PARENT;
-    if( FD_LIKELY( !TREAP_IDX_IS_NULL( p ) ) ) {
-      TREAP_TEST( p < ele_max );                                                /* Make sure valid index */
-      TREAP_TEST( (ulong)pool[ p ].TREAP_PRIO >= (ulong)pool[ i ].TREAP_PRIO ); /* Make sure heap property valid */
-    }
-
-    /* Done visiting i, advance to i's successor */
-
-    cnt++;
-
-    l = i;
-
-    ulong r = (ulong)pool[ i ].TREAP_RIGHT;
-    if( TREAP_IDX_IS_NULL( r ) ) {
-
-      /* i has no right subtree.  Look for first ancestor of i that we
-         haven't visited (this will be the first ancestor for which i is
-         in the ancestor's left subtree).  If there is no such ancestor,
-         we are at the rightmost and we are done. */
-
-      loop_cnt = 0UL;
-      while( !TREAP_IDX_IS_NULL( p ) ) {
-        TREAP_TEST( loop_cnt<ele_cnt ); /* Make sure no cycles */
-        TREAP_TEST( p       <ele_max ); /* Make sure valid index */
-        if( i==(ulong)pool[ p ].TREAP_LEFT ) break;
-        i = p;
-        p = (ulong)pool[ p ].TREAP_PARENT;
-        loop_cnt++;
-      }
-
-      i = p;
-
-    } else {
-
-      /* i has a right subtree.  Find the leftmost in this subtree. */
-
-      i = r;
-
-      loop_cnt = 0UL;
-      for(;;) {
-        TREAP_TEST( loop_cnt<ele_cnt ); /* Make sure no cycles */
-        TREAP_TEST( i       <ele_max ); /* Make sure valid index */
-        ulong ll = (ulong)pool[ i ].TREAP_LEFT;
-        if( TREAP_IDX_IS_NULL( ll ) ) break;
-        i = ll;
-        loop_cnt++;
-      }
-
-    }
-
-  }
-
-#if TREAP_OPTIMIZE_ITERATION
-  TREAP_TEST( treap->last==l );
-#endif
-
-  TREAP_TEST( cnt==ele_cnt ); /* Make sure we visited correct number of elements */
-
-# undef TREAP_TEST
-
-  return 0;
-}
-
 #endif
 
 #undef TREAP_IDX_IS_NULL
@@ -1501,4 +1536,7 @@ TREAP_(verify)( TREAP_(t) const * treap,
 #undef TREAP_QUERY_T
 #undef TREAP_T
 #undef TREAP_NAME
-
+#ifdef FD_UNDEF_HANDHOLDING
+#undef FD_TMPL_USE_HANDHOLDING
+#undef FD_UNDEF_HANDHOLDING
+#endif
