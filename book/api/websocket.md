@@ -484,7 +484,8 @@ tranasactions per second.
         "next_leader_slot": 285228774,
         "waterfall": {
             "in": {
-                "retained": 2014,
+                "pack_retained": 2011,
+                "resolv_retained": 13,
                 "quic": 66767,
                 "udp": 1054,
                 "gossip": 517
@@ -501,7 +502,12 @@ tranasactions per second.
                 "verify_failed": 4092,
                 "verify_duplicate": 128,
                 "dedup_duplicate": 87,
-                "pack_invalid": 12,
+                "resolv_lut_failed": 4,
+                "resolv_expired": 0,
+                "resolv_ancient": 2,
+                "resolv_no_ledger": 0,
+                "resolv_retained": 0,
+                "pack_invalid": 6,
                 "pack_expired": 2,
                 "pack_retained": 1985,
                 "pack_overrun": 54,
@@ -973,7 +979,8 @@ are skipped on the currently active fork.
         },
         "waterfall": {
             "in": {
-                "retained": 0,
+                "pack_retained": 0,
+                "resolv_retained": 0,
                 "quic": 28159,
                 "udp": 14323,
                 "gossip": 4659
@@ -990,7 +997,11 @@ are skipped on the currently active fork.
                 "verify_failed": 0,
                 "verify_duplicate": 114,
                 "dedup_duplicate": 19384,
-                "resolv_failed": 3,
+                "resolv_lut_failed": 3,
+                "resolv_expired": 0,
+                "resolv_ancient": 0,
+                "resolv_retained": 0,
+                "resolv_no_ledger": 0,
                 "pack_invalid": 0,
                 "pack_expired": 0,
                 "pack_retained": 2225,
@@ -1077,12 +1088,13 @@ are skipped on the currently active fork.
 | out   | `TxnWaterfallOut` | Transactions sent out of the waterfall |
 
 **`TxnWaterfallIn`**
-| Field    | Type     | Description |
-|----------|----------|-------------|
-| retained | `number` | Transactions were received during or prior to an earlier leader slot, but weren't executed and were retained inside the validator to potentially be included in a later slot |
-| quic     | `number` | A QUIC transaction was received. The stream does not have to successfully complete |
-| udp      | `number` | A non-QUIC UDP transaction was received |
-| gossip   | `number` | A gossipped vote transaction was received from a gossip peer |
+| Field           | Type     | Description |
+|-----------------|----------|-------------|
+| pack_retained   | `number` | Transactions were received during or prior to an earlier leader slot, but weren't executed because they weren't a high enough priority, and were retained inside the validator to potentially be included in a later slot |
+| resolv_retained | `number` | Transactions were received during or prior to an earlier leader slot, but weren't executed because we did not know the blockhash they referenced. They were instead kept in a holding area in case we learn the blockhash later |
+| quic            | `number` | A QUIC transaction was received. The stream does not have to successfully complete |
+| udp             | `number` | A non-QUIC UDP transaction was received |
+| gossip          | `number` | A gossipped vote transaction was received from a gossip peer |
 
 **`TxnWaterfallOut`**
 | Field             | Type     | Description |
@@ -1098,7 +1110,11 @@ are skipped on the currently active fork.
 | verify_failed     | `number` | Transactions were dropped because signature verification failed |
 | verify_duplicate  | `number` | Transactions were dropped because the verify tiles determined that they had already been processed |
 | dedup_duplicate   | `number` | Transactions were dropped because the dedup tile determined that they had already been processed |
-| resolv_failed     | `number` | Transactions were dropped because they contained invalid address lookup tables (LUTs) |
+| resolv_retained   | `number` | Transactions were retained inside the validator memory because they referenced a blockhash we do not yet know. We might include the transactions in a future block, if we learn about the blockhash they reference |
+| resolv_lut_failed | `number` | Transactions were dropped because they contained invalid address lookup tables (LUTs) |
+| resolv_expired    | `number` | Transactions were dropped because they contained a transaction that was already expired |
+| resolv_no_ledger  | `number` | Transactions were dropped because they contained a LUT but we didn't yet have a ledger to look them up in |
+| resolv_ancient   | `number` | Transactions were dropped because they referenced a blockhash we didn't recognize, and while waiting to see if the blockhash would arrive, the buffer became full |
 | pack_invalid      | `number` | Transactions were dropped because pack determined they would never execute. Reasons can include the transaction requested too many compute units, or was too large to fit in a block |
 | pack_expired      | `number` | Transactions were dropped because pack determined that their TTL expired |
 | pack_retained     | `number` | Transactions were retained inside the validator memory because they were not high enough priority to make it into a prior block we produced, but have not yet expired. We might include the transactions in a future block |
