@@ -463,12 +463,12 @@ fd_txn_key_hash( fd_txn_key_t const * k, ulong seed ) {
 static void
 fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t * block ) {
 
-#define MAX_MICROS ( 1 << 17 )
-  fd_block_micro_t micros[MAX_MICROS];
-  ulong            micros_cnt = 0;
-#define MAX_TXNS ( 1 << 17 )
-  fd_block_txn_t txns[MAX_TXNS];
-  ulong              txns_cnt = 0;
+  fd_block_micro_t * micros = fd_alloc_malloc( fd_blockstore_alloc( blockstore ),
+                                               alignof( fd_block_micro_t ),
+                                               sizeof( *micros ) * FD_MICROBLOCK_MAX_PER_SLOT );
+  fd_block_txn_t *   txns   = fd_alloc_malloc( fd_blockstore_alloc( blockstore ),
+                                               alignof( fd_block_txn_t ),
+                                               sizeof( *txns ) * FD_TXN_MAX_PER_SLOT );
 
   /*
    * Agave decodes precisely one array of microblocks from each batch.
@@ -485,7 +485,9 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
   fd_block_entry_batch_t const * batch_laddr = fd_blockstore_block_batch_laddr( blockstore, block );
   ulong const                    batch_cnt   = block->batch_cnt;
 
-  ulong blockoff = 0UL;
+  ulong micros_cnt = 0UL;
+  ulong txns_cnt   = 0UL;
+  ulong blockoff   = 0UL;
   for( ulong batch_i = 0UL; batch_i < batch_cnt; batch_i++ ) {
     ulong const batch_end_off = batch_laddr[ batch_i ].end_off;
     if( blockoff + sizeof( ulong ) > batch_end_off ) FD_LOG_ERR(( "premature end of batch" ));
@@ -496,7 +498,7 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
     for( ulong mblk = 0; mblk < mcount; ++mblk ) {
       if( blockoff + sizeof( fd_microblock_hdr_t ) > batch_end_off )
         FD_LOG_ERR(( "premature end of batch" ));
-      if( micros_cnt < MAX_MICROS ) {
+      if( micros_cnt < FD_MICROBLOCK_MAX_PER_SLOT ) {
         fd_block_micro_t * m = micros + ( micros_cnt++ );
         m->off               = blockoff;
       }
@@ -546,7 +548,7 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
           elem->meta_gaddr = 0;
           elem->meta_sz    = 0;
 
-          if( txns_cnt < MAX_TXNS ) {
+          if( txns_cnt < FD_TXN_MAX_PER_SLOT ) {
             fd_block_txn_t * ref = &txns[txns_cnt++];
             ref->txn_off                  = blockoff;
             ref->id_off                   = (ulong)( sigs + j ) - (ulong)data;
@@ -586,6 +588,9 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
   fd_memcpy( txns_laddr, txns, sizeof( fd_block_txn_t ) * txns_cnt );
   block->txns_gaddr = fd_wksp_gaddr_fast( fd_blockstore_wksp( blockstore ), txns_laddr );
   block->txns_cnt   = txns_cnt;
+
+  fd_alloc_free( fd_blockstore_alloc( blockstore ), micros );
+  fd_alloc_free( fd_blockstore_alloc( blockstore ), txns );
 }
 
 /* Remove a slot from blockstore */
@@ -1463,7 +1468,7 @@ fd_blockstore_batch_assemble( fd_blockstore_t * blockstore,
                       || (shreds[idx].hdr.data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
     }
 
-    if( FD_UNLIKELY( payload_sz > FD_SHRED_PAYLOAD_MAX ) ) return FD_BLOCKSTORE_ERR_SHRED_INVALID;
+    if( FD_UNLIKELY( payload_sz > FD_SHRED_DATA_PAYLOAD_MAX ) ) return FD_BLOCKSTORE_ERR_SHRED_INVALID;
     if( FD_UNLIKELY( mbatch_sz + payload_sz > batch_data_max ) ) return FD_BLOCKSTORE_ERR_NO_MEM;
     fd_memcpy( batch_data_out + mbatch_sz, payload, payload_sz );
     fd_blockstore_end_read( blockstore );

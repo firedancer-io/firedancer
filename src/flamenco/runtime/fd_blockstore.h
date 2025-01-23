@@ -39,8 +39,20 @@
    the fd_block_map_t entries */
 #define FD_BLOCKSTORE_CHILD_SLOT_MAX    (32UL)        /* the maximum # of children a slot can have */
 #define FD_BLOCKSTORE_ARCHIVE_MIN_SIZE  (1UL << 26UL) /* 64MB := ceil(MAX_DATA_SHREDS_PER_SLOT*1228) */
-#define FD_SLOT_SHRED_MAX               (1UL << 15UL) /* maximum # of shreds in a slot */
-#define FD_SHRED_PAYLOAD_MAX            (1015)        /* maximum size of a data shred payload */
+
+/* Maximum size of an entry batch is the entire block */
+#define FD_MBATCH_MAX (FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT)
+/* 64 ticks per slot, and then one min size transaction per microblock
+   for all the remaining microblocks.
+   This bound should be used along with the transaction parser and tick
+   verifier to enforce the assumptions.
+   This is NOT a standalone conservative bound against malicious
+   validators.
+   A tighter bound could probably be derived if necessary. */
+#define FD_MICROBLOCK_MAX_PER_SLOT ((FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT - 64UL*sizeof(fd_microblock_hdr_t)) / (sizeof(fd_microblock_hdr_t)+FD_TXN_MIN_SERIALIZED_SZ) + 64UL) /* 200,796 */
+/* 64 ticks per slot, and a single gigantic microblock containing min
+   size transactions. */
+#define FD_TXN_MAX_PER_SLOT ((FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT - 65UL*sizeof(fd_microblock_hdr_t)) / (FD_TXN_MIN_SERIALIZED_SZ)) /* 272,635 */
 
 // TODO centralize these
 // https://github.com/firedancer-io/solana/blob/v1.17.5/sdk/program/src/clock.rs#L34
@@ -244,7 +256,7 @@ struct fd_block {
 typedef struct fd_block fd_block_t;
 
 #define SET_NAME fd_block_set
-#define SET_MAX  FD_SLOT_SHRED_MAX
+#define SET_MAX  FD_SHRED_MAX_PER_SLOT
 #include "../../util/tmpl/fd_set.c"
 
 struct fd_block_map {
@@ -282,7 +294,7 @@ struct fd_block_map {
      corresponds to the shred's index. Note shreds can be received
      out-of-order so higher bits might be set before lower bits. */
 
-  fd_block_set_t data_complete_idxs[FD_SLOT_SHRED_MAX / sizeof(ulong)];
+  fd_block_set_t data_complete_idxs[FD_SHRED_MAX_PER_SLOT / sizeof(ulong)];
 
   /* Block */
 
