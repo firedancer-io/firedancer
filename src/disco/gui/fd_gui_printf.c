@@ -480,10 +480,11 @@ fd_gui_printf_waterfall( fd_gui_t *               gui,
                          fd_gui_txn_waterfall_t const * cur ) {
   jsonp_open_object( gui, "waterfall" );
     jsonp_open_object( gui, "in" );
-      jsonp_ulong( gui, "retained", prev->out.pack_retained );
-      jsonp_ulong( gui, "quic",     cur->in.quic   - prev->in.quic );
-      jsonp_ulong( gui, "udp",      cur->in.udp    - prev->in.udp );
-      jsonp_ulong( gui, "gossip",   cur->in.gossip - prev->in.gossip );
+      jsonp_ulong( gui, "pack_retained",   prev->out.pack_retained );
+      jsonp_ulong( gui, "resolv_retained", prev->out.resolv_retained );
+      jsonp_ulong( gui, "quic",            cur->in.quic   - prev->in.quic );
+      jsonp_ulong( gui, "udp",             cur->in.udp    - prev->in.udp );
+      jsonp_ulong( gui, "gossip",          cur->in.gossip - prev->in.gossip );
     jsonp_close_object( gui );
 
     jsonp_open_object( gui, "out" );
@@ -498,7 +499,11 @@ fd_gui_printf_waterfall( fd_gui_t *               gui,
       jsonp_ulong( gui, "verify_failed",     cur->out.verify_failed     - prev->out.verify_failed );
       jsonp_ulong( gui, "verify_duplicate",  cur->out.verify_duplicate  - prev->out.verify_duplicate );
       jsonp_ulong( gui, "dedup_duplicate",   cur->out.dedup_duplicate   - prev->out.dedup_duplicate );
-      jsonp_ulong( gui, "resolv_failed",     cur->out.resolv_failed     - prev->out.resolv_failed );
+      jsonp_ulong( gui, "resolv_lut_failed", cur->out.resolv_lut_failed - prev->out.resolv_lut_failed );
+      jsonp_ulong( gui, "resolv_expired",    cur->out.resolv_expired    - prev->out.resolv_expired );
+      jsonp_ulong( gui, "resolv_ancient",    cur->out.resolv_ancient    - prev->out.resolv_ancient );
+      jsonp_ulong( gui, "resolv_no_ledger",  cur->out.resolv_no_ledger  - prev->out.resolv_no_ledger );
+      jsonp_ulong( gui, "resolv_retained",   cur->out.resolv_retained );
       jsonp_ulong( gui, "pack_invalid",      cur->out.pack_invalid      - prev->out.pack_invalid );
       jsonp_ulong( gui, "pack_expired",      cur->out.pack_expired      - prev->out.pack_expired );
       jsonp_ulong( gui, "pack_retained",     cur->out.pack_retained );

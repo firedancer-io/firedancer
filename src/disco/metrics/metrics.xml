@@ -196,11 +196,18 @@ metric introduced.
     <int value="0" name="Success" label="Resolved successfully" />
 </enum>
 
+<enum name="ResolveStashOperation">
+    <int value="0" name="Inserted" label="A transaction with an unknown blockhash was added to the stash" />
+    <int value="1" name="Overrun" label="A transaction with an unknown blockhash was dropped because the stash was full" />
+    <int value="2" name="Published" label="A transaction with an unknown blockhash was published as the blockhash became known" />
+    <int value="3" name="Removed" label="A transaction with an unknown blockhash was removed from the stash without publishing, due to a bad LUT resolved failure, or no bank. These errors are double counted with the respective metrics for those categories." />
+</enum>
+
 <tile name="resolv">
     <counter name="NoBankDrop" summary="Count of transactions dropped because the bank was not available" />
+    <counter name="StashOperation" enum="ResolveStashOperation" summary="Count of operations that happened on the transaction stash" />
     <counter name="LutResolved" enum="LutResolveResult" summary="Count of address lookup tables resolved" />
     <counter name="BlockhashExpired" summary="Count of transactions that failed to resolve because the blockhash was expired" />
-    <counter name="BlockhashUnknown" summary="Count of transactions with an unknown blockhash. These may be very recent, very old, nonces, or bogus." />
 </tile>
 
 <enum name="PackTxnInsertReturn">
