@@ -4,6 +4,7 @@
 #include "../../../../disco/bank/fd_bank_abi.h"
 #include "../../../../flamenco/types/fd_types.h"
 #include "../../../../flamenco/runtime/fd_system_ids.h"
+#include "../../../../flamenco/runtime/fd_system_ids_pp.h"
 
 #define FD_RESOLV_IN_KIND_FRAGMENT (0)
 #define FD_RESOLV_IN_KIND_BANK     (1)
@@ -23,10 +24,25 @@ typedef struct blockhash_map blockhash_map_t;
 
 static const blockhash_t null_blockhash = { 0 };
 
+/* The blockhash ring holds recent blockhashes, so we can identify when
+   a transaction arrives, what slot it will expire (and can no longer be
+   packed) in.  This is useful so we don't send transactions to pack
+   that are no longer packable.
+   
+   Unfortunately, poorly written transaction senders frequently send
+   transactions from millions of slots ago, so we need a large ring to
+   be able to determine and evict these.  The highest practically useful
+   value here is around 22, which works out to 19 days of blockhash
+   history.  Beyond this, the validator is likely to be restarted, and
+   lose the history anyway. */
+
+#define BLOCKHASH_LG_RING_CNT 22UL
+#define BLOCKHASH_RING_LEN   (1UL<<BLOCKHASH_LG_RING_CNT)
+
 #define MAP_NAME              map
 #define MAP_T                 blockhash_map_t
 #define MAP_KEY_T             blockhash_t
-#define MAP_LG_SLOT_CNT       13UL
+#define MAP_LG_SLOT_CNT       (BLOCKHASH_LG_RING_CNT+1UL)
 #define MAP_KEY_NULL          null_blockhash
 #if FD_HAS_AVX
 # define MAP_KEY_INVAL(k)     _mm256_testz_si256( wb_ldu( (k).b ), wb_ldu( (k).b ) )
@@ -40,6 +56,49 @@ static const blockhash_t null_blockhash = { 0 };
 #define MAP_QUERY_OPT         1
 
 #include "../../../../util/tmpl/fd_map.c"
+
+typedef struct {
+  union {
+    ulong pool_next; /* Used when it's released */
+    ulong lru_next;  /* Used when it's acquired */
+  };                 /* .. so it's okay to store them in the same memory */
+  ulong lru_prev;
+
+  ulong map_next;
+  ulong map_prev;
+
+  uchar * blockhash;
+  uchar _[ FD_TPU_PARSED_MTU ] __attribute__((aligned(alignof(fd_txn_m_t))));
+} fd_stashed_txn_m_t;
+
+#define POOL_NAME      pool
+#define POOL_T         fd_stashed_txn_m_t
+#define POOL_NEXT      pool_next
+#define POOL_IDX_T     ulong
+
+#include "../../../../util/tmpl/fd_pool.c"
+
+/* We'll push at the head, which means the tail is the oldest. */
+#define DLIST_NAME  lru_list
+#define DLIST_ELE_T fd_stashed_txn_m_t
+#define DLIST_PREV  lru_prev
+#define DLIST_NEXT  lru_next
+
+#include "../../../../util/tmpl/fd_dlist.c"
+
+#define MAP_NAME          map_chain
+#define MAP_ELE_T         fd_stashed_txn_m_t
+#define MAP_KEY_T         uchar *
+#define MAP_KEY           blockhash
+#define MAP_IDX_T         ulong
+#define MAP_NEXT          map_next
+#define MAP_PREV          map_prev
+#define MAP_KEY_HASH(k,s) ((s) ^ fd_ulong_load_8( (k) ))
+#define MAP_KEY_EQ(k0,k1) (!memcmp((*k0),(*k1), 32UL))
+#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
+#define MAP_MULTI         1
+
+#include "../../../../util/tmpl/fd_map_chain.c"
 
 typedef struct {
   int         kind;
@@ -59,9 +118,16 @@ typedef struct {
 
   blockhash_map_t * blockhash_map;
 
+  ulong flushing_slot;
+  ulong flush_pool_idx;
+
+  fd_stashed_txn_m_t * pool;
+  map_chain_t *        map_chain;
+  lru_list_t           lru_list[1];
+
   ulong completed_slot;
   ulong blockhash_ring_idx;
-  blockhash_t blockhash_ring[ 4096 ];
+  blockhash_t blockhash_ring[ BLOCKHASH_RING_LEN ];
 
   uchar _bank_msg[ sizeof(fd_completed_bank_t) ];
 
@@ -69,6 +135,7 @@ typedef struct {
     ulong lut[ FD_METRICS_COUNTER_RESOLV_LUT_RESOLVED_CNT ];
     ulong blockhash_expired;
     ulong blockhash_unknown;
+    ulong stash[ FD_METRICS_COUNTER_RESOLV_STASH_OPERATION_CNT ];
   } metrics;
 
   fd_resolv_in_ctx_t in[ 64UL ];
@@ -88,8 +155,10 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( fd_resolv_ctx_t ), sizeof( fd_resolv_ctx_t ) );
-  l = FD_LAYOUT_APPEND( l, map_align(),                map_footprint() );
+  l = FD_LAYOUT_APPEND( l, alignof( fd_resolv_ctx_t ), sizeof( fd_resolv_ctx_t )        );
+  l = FD_LAYOUT_APPEND( l, pool_align(),               pool_footprint     ( 1UL<<16UL ) );
+  l = FD_LAYOUT_APPEND( l, map_chain_align(),          map_chain_footprint( 8192UL    ) );
+  l = FD_LAYOUT_APPEND( l, map_align(),                map_footprint()                  );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -106,8 +175,8 @@ fd_ext_resolv_tile_cnt( void ) {
 static inline void
 metrics_write( fd_resolv_ctx_t * ctx ) {
   FD_MCNT_SET( RESOLV, BLOCKHASH_EXPIRED, ctx->metrics.blockhash_expired );
-  FD_MCNT_SET( RESOLV, BLOCKHASH_UNKNOWN, ctx->metrics.blockhash_unknown );
   FD_MCNT_ENUM_COPY( RESOLV, LUT_RESOLVED, ctx->metrics.lut );
+  FD_MCNT_ENUM_COPY( RESOLV, STASH_OPERATION, ctx->metrics.stash );
 }
 
 static int
@@ -151,6 +220,79 @@ during_frag( fd_resolv_ctx_t * ctx,
   }
 }
 
+static inline int
+publish_txn( fd_resolv_ctx_t *          ctx,
+             fd_stem_context_t *        stem,
+             fd_stashed_txn_m_t const * stashed ) {
+  fd_txn_m_t *     txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  fd_txn_t const * txnt = fd_txn_m_txn_t( txnm );
+
+  fd_memcpy( txnm, stashed->_, fd_txn_m_realized_footprint( txnm, 0 ) );
+  txnm->reference_slot = ctx->flushing_slot;
+
+  if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
+    if( FD_UNLIKELY( !ctx->root_bank ) ) {
+      FD_MCNT_INC( RESOLV, NO_BANK_DROP, 1 );
+      return 0;
+    } else {
+      int result = fd_bank_abi_resolve_address_lookup_tables( ctx->root_bank, 0, ctx->root_slot, txnt, fd_txn_m_payload( txnm ), fd_txn_m_alut( txnm ) );
+      /* result is in [-5, 0]. We want to map -5 to 0, -4 to 1, etc. */
+      ctx->metrics.lut[ (ulong)((long)FD_METRICS_COUNTER_RESOLV_LUT_RESOLVED_CNT+result-1L) ]++;
+
+      if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) return 0;
+    }
+  }
+
+  ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1 );
+  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, 0UL, txnm->reference_slot, ctx->out_chunk, realized_sz, 0UL, 0UL, tspub );
+  ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, realized_sz, ctx->out_chunk0, ctx->out_wmark );
+
+  return 1;
+}
+
+static inline void
+after_credit( fd_resolv_ctx_t *   ctx,
+              fd_stem_context_t * stem,
+              int *               opt_poll_in,
+              int *               charge_busy ) {
+  if( FD_LIKELY( ctx->flush_pool_idx==ULONG_MAX ) ) return;
+
+  *charge_busy = 1;
+  *opt_poll_in = 0;
+
+  ulong next = map_chain_idx_next_const( ctx->flush_pool_idx, ULONG_MAX, ctx->pool );
+  map_chain_idx_remove_fast( ctx->map_chain, ctx->flush_pool_idx, ctx->pool );
+  if( FD_LIKELY( publish_txn( ctx, stem, pool_ele( ctx->pool, ctx->flush_pool_idx ) ) ) ) {
+    ctx->metrics.stash[ FD_METRICS_ENUM_RESOLVE_STASH_OPERATION_V_PUBLISHED_IDX ]++;
+  } else {
+    ctx->metrics.stash[ FD_METRICS_ENUM_RESOLVE_STASH_OPERATION_V_REMOVED_IDX ]++;
+  }
+  lru_list_idx_remove( ctx->lru_list, ctx->flush_pool_idx, ctx->pool );
+  pool_idx_release( ctx->pool, ctx->flush_pool_idx );
+  ctx->flush_pool_idx = next;
+}
+
+/* Returns 0 if not a durable nonce transaction and 1 if it may be a
+   durable nonce transaction */
+
+FD_FN_PURE static inline int
+fd_resolv_is_durable_nonce( fd_txn_t const * txn,
+                            uchar    const * payload ) {
+  if( FD_UNLIKELY( txn->instr_cnt==0 ) ) return 0;
+
+  fd_txn_instr_t const * ix0 = &txn->instr[ 0 ];
+  fd_acct_addr_t const * prog0 = fd_txn_get_acct_addrs( txn, payload ) + ix0->program_id;
+  /* First instruction must be SystemProgram nonceAdvance instruction */
+  fd_acct_addr_t const system_program[1] = { { { SYS_PROG_ID } } };
+  if( FD_LIKELY( memcmp( prog0, system_program, sizeof(fd_acct_addr_t) ) ) )        return 0;
+
+  /* one byte instruction with the only byte being 4 */
+  if( FD_UNLIKELY( (ix0->data_sz!=1) | (ix0->acct_cnt!=3) ) ) return 0;
+
+  return payload[ ix0->data_off ]==4;
+}  
+
 static inline void
 after_frag( fd_resolv_ctx_t *   ctx,
             ulong               in_idx,
@@ -176,14 +318,18 @@ after_frag( fd_resolv_ctx_t *   ctx,
       case 1: {
         fd_completed_bank_t * frag = (fd_completed_bank_t *)ctx->_bank_msg;
 
-        blockhash_map_t * entry = map_query( ctx->blockhash_map, ctx->blockhash_ring[ ctx->blockhash_ring_idx%4096UL ], NULL );
+        blockhash_map_t * entry = map_query( ctx->blockhash_map, ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ], NULL );
         if( FD_LIKELY( entry ) ) map_remove( ctx->blockhash_map, entry );
 
-        memcpy( ctx->blockhash_ring[ ctx->blockhash_ring_idx%4096UL ].b, frag->hash, 32UL );
+        memcpy( ctx->blockhash_ring[ ctx->blockhash_ring_idx%BLOCKHASH_RING_LEN ].b, frag->hash, 32UL );
         ctx->blockhash_ring_idx++;
 
         blockhash_map_t * blockhash = map_insert( ctx->blockhash_map, *(blockhash_t *)frag->hash );
         blockhash->slot = frag->slot;
+
+        uchar * hash = frag->hash;
+        ctx->flush_pool_idx  = map_chain_idx_query( ctx->map_chain, &hash, ULONG_MAX, ctx->pool );
+        ctx->flushing_slot   = frag->slot;
 
         ctx->completed_slot = frag->slot;
         break;
@@ -197,17 +343,28 @@ after_frag( fd_resolv_ctx_t *   ctx,
   fd_txn_m_t *     txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   fd_txn_t const * txnt = fd_txn_m_txn_t( txnm );
 
-  /* If we can't find the recent blockhash ... it means one of three things,
+  /* If we find the recent blockhash, life is simple.  We drop
+     transactions that couldn't possibly execute any more, and forward
+     to pack ones that could.
 
-     (1) It's really old (more than 28 minutes) or just non-existent.
-     (2) It's really new (we haven't seen the bank yet).
-     (3) It's a durable nonce transaction (just let it pass).
+     If we can't find the recent blockhash ... it means one of four
+     things,
 
-    We want to assume case (2) for now, because we don't want to drop
-    early incoming votes and things if we don't yet know the bank.  If
-    there's a lot of spam coming in with old blockhashes, we can
-    introduce a holding area here to keep them until we know if they
-    are valid or not. */
+     (1) The blockhash is really old (more than 19 days) or just
+         non-existent.
+     (2) The blockhash is not that old, but was created before this
+         validator was started.
+     (3) It's really new (we haven't seen the bank yet).
+     (4) It's a durable nonce transaction, or part of a bundle (just let
+         it pass).
+
+    For durable nonce transactions, there isn't much we can do except
+    pass them along and see if they execute.
+
+    For the other three cases ... we don't want to flood pack with what
+    might be junk transactions, so we accumulate them into a local
+    buffer.  If we later see the blockhash come to exist, we forward any
+    buffered transactions to back. */
 
   txnm->reference_slot = ctx->completed_slot;
   blockhash_map_t const * blockhash = map_query_const( ctx->blockhash_map, *(blockhash_t*)( fd_txn_m_payload( txnm )+txnt->recent_blockhash_off ), NULL );
@@ -217,8 +374,38 @@ after_frag( fd_resolv_ctx_t *   ctx,
       ctx->metrics.blockhash_expired++;
       return;
     }
-  } else {
-    ctx->metrics.blockhash_unknown++;
+  }
+
+  int is_bundle_member = 0; /* TODO */
+  int is_durable_nonce = fd_resolv_is_durable_nonce( txnt, fd_txn_m_payload( txnm ) );
+
+  if( FD_UNLIKELY( !is_bundle_member && !is_durable_nonce && !blockhash ) ) {
+    ulong pool_idx;
+    if( FD_UNLIKELY( !pool_free( ctx->pool ) ) ) {
+      pool_idx = lru_list_idx_pop_tail( ctx->lru_list, ctx->pool );
+      map_chain_idx_remove_fast( ctx->map_chain, pool_idx, ctx->pool );
+      ctx->metrics.stash[ FD_METRICS_ENUM_RESOLVE_STASH_OPERATION_V_OVERRUN_IDX ]++;
+    } else {
+      pool_idx = pool_idx_acquire( ctx->pool );
+    }
+
+    fd_stashed_txn_m_t * stash_txn = pool_ele( ctx->pool, pool_idx );
+    /* There's a compiler bug in GCC version 12 (at least 12.1, 12.3 and
+       12.4) that cause it to think stash_txn is a null pointer.  It
+       then complains that the memcpy is bad and refuses to compile the
+       memcpy below.  It is possible for pool_ele to return NULL, but
+       that can't happen because if pool_free is 0, then all the pool
+       elements must be in the LRU list, so idx_pop_tail won't return
+       IDX_NULL; and if pool_free returns non-zero, then
+       pool_idx_acquire won't return POOL_IDX_NULL. */
+    FD_COMPILER_FORGET( stash_txn );
+    fd_memcpy( stash_txn->_, txnm, fd_txn_m_realized_footprint( txnm, 0 ) );
+    stash_txn->blockhash = fd_txn_m_payload( (fd_txn_m_t *)(stash_txn->_) ) + txnt->recent_blockhash_off;
+    ctx->metrics.stash[ FD_METRICS_ENUM_RESOLVE_STASH_OPERATION_V_INSERTED_IDX ]++;
+
+    lru_list_idx_push_head( ctx->lru_list, pool_idx, ctx->pool );
+
+    return;
   }
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
@@ -253,6 +440,16 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->completed_slot = 0UL;
   ctx->blockhash_ring_idx = 0UL;
+
+  ctx->flush_pool_idx = ULONG_MAX;
+
+  ctx->pool = pool_join( pool_new( FD_SCRATCH_ALLOC_APPEND( l, pool_align(), pool_footprint( 1UL<<16UL ) ), 1UL<<16UL ) );
+  FD_TEST( ctx->pool );
+
+  ctx->map_chain = map_chain_join( map_chain_new( FD_SCRATCH_ALLOC_APPEND( l, map_chain_align(), map_chain_footprint( 8192ULL ) ), 8192UL , 0UL ) );
+  FD_TEST( ctx->map_chain );
+
+  FD_TEST( ctx->lru_list==lru_list_join( lru_list_new( ctx->lru_list ) ) );
 
   if( FD_LIKELY( !tile->kind_id ) ) _fd_ext_resolv_tile_cnt = ctx->round_robin_cnt;
 
@@ -294,6 +491,7 @@ unprivileged_init( fd_topo_t *      topo,
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_resolv_ctx_t)
 
 #define STEM_CALLBACK_METRICS_WRITE metrics_write
+#define STEM_CALLBACK_AFTER_CREDIT  after_credit
 #define STEM_CALLBACK_BEFORE_FRAG   before_frag
 #define STEM_CALLBACK_DURING_FRAG   during_frag
 #define STEM_CALLBACK_AFTER_FRAG    after_frag
