@@ -61,6 +61,15 @@ struct fd_pack_private_ord_txn {
   ushort prev;
   ushort next;
 
+  /* skip: if we skip this transaction more than FD_PACK_SKIP_CNT times
+     for reasons that won't go away until the end of the block, then we
+     want to skip it very quickly.  If skip is in [1, FD_PACK_SKIP_CNT],
+     then that means we have to skip it `skip` more times before taking
+     any action.  If skip>FD_PACK_SKIP_CNT, then it is a compressed slot
+     number during which it should be skipped, and we'll skip it until
+     the compressed slot reaches a new value.  skip is never 0. */
+  ushort skip;
+
   FD_PACK_BITSET_DECLARE( rw_bitset ); /* all accts this txn references */
   FD_PACK_BITSET_DECLARE(  w_bitset ); /* accts this txn write-locks    */
 
@@ -397,7 +406,18 @@ typedef struct fd_pack_penalty_treap fd_pack_penalty_treap_t;
 /* PENALTY_TREAP_THRESHOLD: How many references to an account do we
    allow before subsequent transactions that write to the account go to
    the penalty treap. */
-#define PENALTY_TREAP_THRESHOLD 128UL
+#define PENALTY_TREAP_THRESHOLD 64UL
+
+
+/* FD_PACK_SKIP_CNT: How many times we'll skip a transaction (for
+   reasons other than account conflicts) before we won't consider it
+   until the next slot.  For performance reasons, this doesn't reset at
+   the end of a slot, so e.g. we might skip twice in slot 1, then three
+   times in slot 2, which would be enough to prevent considering it
+   until slot 3.  The main reason this is not 1 is that some skips that
+   seem permanent until the end of the slot can actually go away based
+   on rebates. */
+#define FD_PACK_SKIP_CNT 5UL
 
 /* Finally, we can now declare the main pack data structure */
 struct fd_pack_private {
@@ -534,6 +554,10 @@ struct fd_pack_private {
   /* use_bundles: if true (non-zero), allows the use of bundles, groups
      of transactions that are executed atomically with high priority */
   int        use_bundles;
+
+  /* compressed_slot_number: a number in (FD_PACK_SKIP_CNT, USHORT_MAX]
+     that advances each time we start packing for a new slot. */
+  ushort     compressed_slot_number;
 
   /* bitset_avail: a stack of which bits are not currently reserved and
      can be used to represent an account address.
@@ -700,6 +724,7 @@ fd_pack_new( void                   * mem,
                                                FD_MHIST_MAX( PACK, CUS_NET       ) );
 
   pack->use_bundles = 0;
+  pack->compressed_slot_number = (ushort)(FD_PACK_SKIP_CNT+1);
 
   pack->bitset_avail[ 0 ] = FD_PACK_BITSET_SLOWPATH;
   for( ulong i=0UL; i<FD_PACK_BITSET_MAX; i++ ) pack->bitset_avail[ i+1UL ] = (ushort)i;
@@ -989,6 +1014,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
   /* At this point, we know we have space to insert the transaction and
      we've committed to insert it. */
+  ord->skip = FD_PACK_SKIP_CNT;
 
   FD_PACK_BITSET_CLEAR( ord->rw_bitset );
   FD_PACK_BITSET_CLEAR( ord->w_bitset  );
@@ -1176,6 +1202,8 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
 
   ulong max_write_cost_per_acct = pack->lim->max_write_cost_per_acct;
 
+  ushort compressed_slot_number = pack->compressed_slot_number;
+
   ulong txns_scheduled  = 0UL;
   ulong cus_scheduled   = 0UL;
   ulong bytes_scheduled = 0UL;
@@ -1187,6 +1215,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
   ulong cu_limit_c    = 0UL;
   ulong byte_limit_c  = 0UL;
   ulong write_limit_c = 0UL;
+  ulong skip_c        = 0UL;
 
   ulong min_cus   = ULONG_MAX;
   ulong min_bytes = ULONG_MAX;
@@ -1205,7 +1234,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
     _mm_prefetch( &(pool[ prev ].prev),      _MM_HINT_T0 );
 #   endif
 
-    fd_pack_ord_txn_t const * cur = treap_rev_iter_ele_const( _cur, pool );
+    fd_pack_ord_txn_t * cur = treap_rev_iter_ele( _cur, pool );
 
     min_cus   = fd_ulong_min( min_cus,   cur->compute_est     );
     min_bytes = fd_ulong_min( min_bytes, cur->txn->payload_sz );
@@ -1225,10 +1254,24 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
       continue;
     }
 
+    if( FD_UNLIKELY( cur->skip==compressed_slot_number ) ) {
+      skip_c++;
+      continue;
+    }
+
+    /* If skip>FD_PACK_MAX_SKIP but not compressed_slot_number, it means
+       it's the compressed slot number of a previous slot.  We don't
+       care unless we're going to update the value though, so we don't
+       need to eagerly reset it to FD_PACK_MAX_SKIP.
+       compressed_slot_number is a ushort, so it's possible for it to
+       roll over, but the transaction lifetime is much shorter than
+       that, so it won't be a problem. */
+
     if( FD_UNLIKELY( cur->txn->payload_sz>byte_limit ) ) {
       byte_limit_c++;
       continue;
     }
+
 
     fd_txn_t const * txn = TXN(cur->txn);
     fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, cur->txn->payload );
@@ -1252,6 +1295,23 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
     }
 
     if( FD_UNLIKELY( conflicts==ULONG_MAX ) ) {
+      /* The logic for how to adjust skip is a bit complicated, and we
+         want to do it branchlessly.
+           Before                   After
+             1               compressed_slot_number
+           x in [2, 5]               x-1
+           x where x>5                4
+
+         Set A=min(x, 5), B=min(A-2, compressed_slot_number-1), and
+         note that compressed_slot_number is in [6, USHORT_MAX].
+         Then:
+             x                A     A-2          B      B+1
+             1                1  USHORT_MAX    csn-1    csn
+           x in [2, 5]        x     x-2         x-2     x-1
+           x where x>5        5      3           3       4
+         So B+1 is the desired value. */
+      cur->skip = (ushort)(1+fd_ushort_min( (ushort)(compressed_slot_number-1),
+                                            (ushort)(fd_ushort_min( cur->skip, FD_PACK_SKIP_CNT )-2) ) );
       write_limit_c++;
       continue;
     }
@@ -1401,6 +1461,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
   FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_BYTE_LIMIT, byte_limit_c   );
   FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_WRITE_COST, write_limit_c  );
   FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_SLOW_PATH,  slow_path      );
+  FD_MCNT_INC( PACK, TRANSACTION_SCHEDULE_DEFER_SKIP, skip_c         );
 
 #if DETAILED_LOGGING
   FD_LOG_NOTICE(( "cu_limit: %lu, fast_path: %lu, slow_path: %lu", cu_limit_c, fast_path, slow_path ));
@@ -1727,6 +1788,10 @@ fd_pack_end_block( fd_pack_t * pack ) {
   }
   pack->written_list_cnt = 0UL;
 
+  /* compressed_slot_number is > FD_PACK_SKIP_CNT, which means +1 is the
+     max unless it overflows. */
+  pack->compressed_slot_number = fd_ushort_max( (ushort)(pack->compressed_slot_number+1), (ushort)(FD_PACK_SKIP_CNT+1) );
+
   FD_PACK_BITSET_CLEAR( pack->bitset_rw_in_use );
   FD_PACK_BITSET_CLEAR( pack->bitset_w_in_use  );
 
@@ -1786,6 +1851,8 @@ fd_pack_clear_all( fd_pack_t * pack ) {
       release_tree( penalty_treap->penalty_treap, pack->pool );
     }
   }
+
+  pack->compressed_slot_number = (ushort)(FD_PACK_SKIP_CNT+1);
 
   expq_remove_all( pack->expiration_q );
 

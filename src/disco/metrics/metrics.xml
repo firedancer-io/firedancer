@@ -229,6 +229,7 @@ metric introduced.
     <int value="3" name="ByteLimit" label="Pack skipped the transaction because it would have exceeded the block data size limit" />
     <int value="4" name="WriteCost" label="Pack skipped the transaction because it would have caused a writable account to exceed the per-account block write cost limit" />
     <int value="5" name="SlowPath" label="Pack skipped the transaction because of account conflicts using the full slow check" />
+    <int value="6" name="DeferSkip" label="Pack skipped the transaction it previously exceeded the per-account block write cost limit too many times" />
 </enum>
 
 <enum name="PackTimingState">
