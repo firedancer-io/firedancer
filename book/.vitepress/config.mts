@@ -6,11 +6,11 @@ export default defineConfig({
   title: "Firedancer",
   description: "Firedancer",
 
-  base: '/firedancer/',
+  base: '/',
   lastUpdated: true,
 
   head: [
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/firedancer/fire.svg' }],
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/fire.svg' }],
     ['meta', { name: 'theme-color', content: '#1ce7c2' }],
     ['meta', { name: 'og:type', content: 'website' }],
     ['meta', { name: 'og:locale', content: 'en' }],
