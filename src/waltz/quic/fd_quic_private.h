@@ -91,9 +91,6 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
                                           /* use fd_quic_conn_at_idx instead */
   ulong                   conn_sz;        /* size of one connection element */
 
-  fd_quic_pkt_meta_t *    pkt_meta;       /* records the metadata for the contents
-                                             of each sent packet */
-
   /* flow control - configured initial limits */
   ulong initial_max_data;           /* directly from transport params */
   ulong initial_max_stream_data[4]; /* from 4 transport params indexed by stream type */

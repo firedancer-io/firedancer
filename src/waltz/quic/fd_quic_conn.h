@@ -194,11 +194,9 @@ struct fd_quic_conn {
   ushort ipv4_id;           /* ipv4 id field */
 
   /* buffer to send next */
-  /* rename tx_buf, since it's easy to confuse with stream->tx_buf */
   /* must be at least FD_QUIC_MAX_UDP_PAYLOAD_SZ */
-  uchar   tx_buf[2048];
-  uchar * tx_ptr; /* ptr to free space in tx_scratch */
-  ulong   tx_sz;  /* sz remaining at ptr */
+  uchar   tx_buf_conn[2048];
+  uchar * tx_ptr; /* ptr to free space in tx_buf_conn */
 
   uint state;
   uint reason;     /* quic reason for closing. see FD_QUIC_CONN_REASON_* */
@@ -247,16 +245,6 @@ struct fd_quic_conn {
 
   /* round trip time related members */
   fd_quic_conn_rtt_t rtt[1];
-
-  /* rx_limit_pktnum is the newest inflight packet number in which
-     the current rx_{sup_stream_id,max_data} values were sent to the
-     peer.  (via MAX_STREAMS and MAX_DATA quota frames)
-     FD_QUIC_PKT_NUM_UNUSED indicates that the peer ACked the latest
-     quota update, and thus is in sync with the server.
-     FD_QUIC_PKT_NUM_PENDING indicates that no packet with the current
-     rx_{sup_stream_id,max_data} value was sent yet.  Will trigger a
-     send attempt at the next fd_quic_conn_tx call. */
-  ulong rx_limit_pktnum;
 
   ulong token_len;
   uchar token[ FD_QUIC_RETRY_MAX_TOKEN_SZ ];

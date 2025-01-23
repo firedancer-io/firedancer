@@ -33,6 +33,7 @@ typedef struct fd_quic_crypto_secrets fd_quic_crypto_secrets_t;
 
 #define FD_QUIC_CRYPTO_TAG_SZ    16
 #define FD_QUIC_CRYPTO_SAMPLE_SZ 16
+#define FD_QUIC_CRYPTO_SAMPLE_OFFSET_FROM_PKT_NUM_START 4
 
 struct fd_quic_crypto_keys {
   /* packet protection: */
@@ -233,5 +234,17 @@ fd_quic_crypto_decrypt_hdr(
     ulong                          buf_sz,
     ulong                          pkt_number_off,
     fd_quic_crypto_keys_t const *  keys );
+
+/* nonce is quic-iv XORed with 62-bits of byte-order packet-number */
+static inline void
+fd_quic_get_nonce(
+    uchar *       nonce,
+    uchar const * iv,
+    ulong         pkt_number ) {
+  #define MASK_LOWER_62 0x3fffffffffffffffu
+  memcpy( nonce, iv, 4 );
+  FD_STORE( ulong, nonce + 4, FD_LOAD( ulong, iv + 4 ) ^ fd_ulong_bswap( pkt_number & MASK_LOWER_62 ) );
+  #undef MASK_LOWER_62
+}
 
 #endif /* HEADER_fd_src_waltz_quic_crypto_fd_quic_crypto_suites_h */

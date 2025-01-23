@@ -72,6 +72,73 @@ static uchar const packet_header[] =
   { 0xc3, 0x00, 0x00, 0x00, 0x01, 0x08, 0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08, 0x00, 0x00,
     0x44, 0x9e, 0x00, 0x00, 0x00, 0x02 };
 
+static uchar const packet_header_short_pn[] =
+  { 0xc1, 0x00, 0x00, 0x00, 0x01, 0x08, 0x83, 0x94, 0xc8, 0xf0, 0x3e, 0x51, 0x57, 0x08, 0x00, 0x00,
+    0x44, 0x9e, 0x00, 0x02 };
+
+
+static void
+test_quic_crypto_helper( ulong pkt_number, uchar const * hdr, ulong hdr_sz ) {
+  uchar cipher_text_[4096] = {0};
+  ulong cipher_text_sz = sizeof(cipher_text_);
+
+  fd_quic_crypto_keys_t client_keys;
+  memcpy( client_keys.pkt_key, expected_client_key, sizeof( expected_client_key ) );
+  memcpy( client_keys.iv,      expected_client_quic_iv, sizeof( expected_client_quic_iv ) );
+  memcpy( client_keys.hp_key,  expected_client_quic_hp_key, sizeof( expected_client_quic_hp_key ) );
+
+  FD_TEST( fd_quic_crypto_encrypt(
+      cipher_text_, &cipher_text_sz,
+      hdr, hdr_sz,
+      test_client_initial, test_client_initial_sz,
+      &client_keys,
+      &client_keys,
+      pkt_number ) ==FD_QUIC_SUCCESS );
+
+  /* now decrypt and confirm it matches*/
+  uchar revert[4096] = {0};
+  ulong const pn_offset = 18; /* from example in rfc */
+
+  fd_memcpy( revert, cipher_text_, cipher_text_sz );
+  FD_TEST( fd_quic_crypto_decrypt_hdr(
+        revert, cipher_text_sz,
+        pn_offset,
+        &client_keys ) == FD_QUIC_SUCCESS );
+
+  FD_TEST( 0==memcmp( revert, hdr, hdr_sz ) );
+
+
+  uchar revert_partial[4096];  /* only header decrypted */
+  fd_memcpy( revert_partial, revert, cipher_text_sz );
+
+  FD_TEST( fd_quic_crypto_decrypt(
+        revert, cipher_text_sz,
+        pn_offset, pkt_number,
+        &client_keys ) == FD_QUIC_SUCCESS );
+  FD_TEST( 0==memcmp( revert + hdr_sz, test_client_initial, test_client_initial_sz ) );
+
+}
+
+/* tests that short pn consistently encrypts and decrypts*/
+static void
+test_quic_short_pn( void ) {
+  test_quic_crypto_helper( 2UL, packet_header_short_pn, sizeof( packet_header_short_pn ) );
+  /* short but large number, truncated to 0x2 in hdr so can reuse header*/
+  test_quic_crypto_helper(0xff00000002UL, packet_header_short_pn, sizeof( packet_header_short_pn ) );
+}
+
+/* tests that nonce is correctly generated, e.g. from rfc9001 a.5. */
+static void
+test_quic_nonce( void ) {
+  uchar const iv[12] =
+    { 0xe0, 0x45, 0x9b, 0x34, 0x74, 0xbd, 0xd0, 0xe4, 0x4a, 0x41, 0xc1, 0x44 };
+  uchar const expected_nonce[12] =
+    { 0xe0, 0x45, 0x9b, 0x34, 0x74, 0xbd, 0xd0, 0xe4, 0x6d, 0x41, 0x7e, 0xb0 };
+
+  uchar nonce[12];
+  fd_quic_get_nonce( nonce, iv, 654360564UL );
+  FD_TEST( 0==memcmp( nonce, expected_nonce, sizeof( expected_nonce ) ) );
+}
 
 int
 main( int     argc,
@@ -320,6 +387,8 @@ main( int     argc,
     FD_LOG_NOTICE(( "~%6.3f Gbps Ethernet equiv throughput / core (sz %4lu)", (double)gbps, out_sz ));
   } while(0);
 
+  test_quic_short_pn();
+  test_quic_nonce();
   fd_rng_delete( fd_rng_leave( rng ) );
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

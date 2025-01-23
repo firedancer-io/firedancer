@@ -82,14 +82,12 @@ struct fd_quic_stream {
                                   this includes bytes implied by offsets that have not
                                   been received yet */
   ulong  tx_tot_data;        /* the total number of bytes transmitted on this stream */
-  ulong  tx_last_byte;       /* the index of the last byte of the stream
-                                valid only if FD_QUIC_STREAM_FLAGS_TX_FIN set */
 
                              /* the largest acked value of rx_max_stream_data */
   ulong  rx_tot_data;        /* the total number of bytes received on this stream */
 
-  /* last tx packet num with max_stream_data frame referring to this stream
-     set to next_pkt_number to indicate a new max_stream_data frame should be sent
+  /* last tx packet num with stream frame referring to this stream
+     set to FD_QUIC_PKT_NUM_PENDING to indicate a new max_stream_data frame should be sent
      if we time out this packet (or possibly a later packet) we resend the frame
        and update this value */
   ulong upd_pkt_number;

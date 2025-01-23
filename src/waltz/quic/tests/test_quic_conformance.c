@@ -372,6 +372,40 @@ test_quic_rx_max_streams_frame( fd_quic_sandbox_t * sandbox,
   FD_TEST( conn->tx_sup_stream_id == 0xc2 ); /* ignored */
 }
 
+__attribute__((noinline)) void
+test_quic_small_pkt_ping( fd_quic_sandbox_t * sandbox,
+                             fd_rng_t *          rng ) {
+
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_CLIENT );
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  conn->state = FD_QUIC_CONN_STATE_ACTIVE;
+
+  conn->flags |= FD_QUIC_CONN_FLAGS_PING;
+  fd_quic_conn_service( sandbox->quic, conn, 0 );
+
+  /* grab sent packet */
+  fd_frag_meta_t const * frag = fd_quic_sandbox_next_packet( sandbox );
+  FD_TEST( frag );
+  uchar* data = fd_chunk_to_laddr( sandbox, frag->chunk );
+  FD_LOG_HEXDUMP_DEBUG(( "sent packet", data, frag->sz ));
+  FD_LOG_HEXDUMP_DEBUG(( "pkt_key", &conn->keys[3][1].pkt_key, FD_AES_128_KEY_SZ ));
+  FD_LOG_HEXDUMP_DEBUG(( "iv", &conn->keys[3][1].iv, FD_AES_GCM_IV_SZ ));
+  FD_LOG_HEXDUMP_DEBUG(( "hp_key", &conn->keys[3][1].hp_key, FD_AES_128_KEY_SZ ));
+
+  /* internal connection_map setup to process packet */
+  do {
+    fd_quic_conn_map_t * insert_entry = fd_quic_conn_map_insert( fd_quic_get_state(sandbox->quic)->conn_map,
+      FD_LOAD( ulong, conn->peer_cids[0].conn_id ) ); /* insert peer_cid.conn_id */
+    FD_TEST( insert_entry );
+    insert_entry->conn = conn;
+  } while(0);
+
+  ulong before = sandbox->quic->metrics.ack_tx[ FD_QUIC_ACK_TX_NEW ];
+  fd_quic_process_packet( sandbox->quic, data, frag->sz );
+  ulong after = sandbox->quic->metrics.ack_tx[ FD_QUIC_ACK_TX_NEW ]; /* correctly parsed small ping packet */
+  FD_TEST( after == before + 1 );
+}
+
 static __attribute__((noinline)) void
 test_quic_parse_path_challenge( void ) {
   fd_quic_path_challenge_frame_t path_challenge[1];
@@ -447,6 +481,7 @@ main( int     argc,
   test_quic_conn_initial_limits          ( sandbox, rng );
   test_quic_rx_max_data_frame            ( sandbox, rng );
   test_quic_rx_max_streams_frame         ( sandbox, rng );
+  test_quic_small_pkt_ping               ( sandbox, rng );
   test_quic_parse_path_challenge();
 
   /* Wind down */
