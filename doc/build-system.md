@@ -53,7 +53,7 @@ On Linux, compile units are position-independent to support ASLR.
 Compile units define at least one externally linked symbol for use
 in other Firedancer compile units.
 
-Embedded files is arbitrary binary content included via the `.incbin`
+Embedded files are arbitrary binary content included via the `.incbin`
 assembler directive.  (See `FD_IMPORT_BINARY`)  Used for vendoring
 eBPF programs and large text files (e.g. command-line help text).
 
