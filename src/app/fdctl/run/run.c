@@ -102,6 +102,12 @@ install_parent_signals( void ) {
     FD_LOG_ERR(( "sigaction(SIGTERM) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( sigaction( SIGINT, &sa, NULL ) ) )
     FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  sa.sa_handler = SIG_IGN;
+  if( FD_UNLIKELY( sigaction( SIGUSR1, &sa, NULL ) ) )
+    FD_LOG_ERR(( "sigaction(SIGUSR1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( sigaction( SIGUSR2, &sa, NULL ) ) )
+    FD_LOG_ERR(( "sigaction(SIGUSR2) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 void *
