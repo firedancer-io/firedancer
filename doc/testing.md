@@ -46,7 +46,7 @@ $(call make-unit-test,test_mymodule,test_module,fd_ballet fd_util)
 parameters.  They may only run on the main thread and complete successfully
 given 2 GiB memory (backed by any page type).  They are tested on every
 commit as-is, and are run at least weekly with extended instrumentation.
-Typically, they only use the main thread and complete in under 5 minutes.
+Typically, they only use the main thread and complete it in under 5 minutes.
 Example `Local.mk` configuration:
 ```make
 # call run-unit-test,name
