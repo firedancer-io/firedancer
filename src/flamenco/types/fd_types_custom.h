@@ -223,6 +223,7 @@ struct __attribute__((aligned(8UL))) fd_stake_reward {
   fd_pubkey_t stake_pubkey;
   ulong credits_observed;
   ulong lamports;
+  uchar valid;
 };
 typedef struct fd_stake_reward fd_stake_reward_t;
 #define FD_STAKE_REWARD_FOOTPRINT sizeof(fd_stake_reward_t)

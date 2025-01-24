@@ -31,6 +31,9 @@ struct fd_snapshot_load_ctx {
   fd_snapshot_loader_t *  loader;
   fd_snapshot_restore_t * restore;
 
+  fd_spad_t * *           spads;
+  ulong                   spads_cnt;
+
   fd_valloc_t             valloc;
 };
 typedef struct fd_snapshot_load_ctx fd_snapshot_load_ctx_t;
@@ -88,6 +91,8 @@ fd_snapshot_load_new( uchar *                mem,
                       const char *           snapshot_file,
                       fd_exec_slot_ctx_t *   slot_ctx,
                       fd_tpool_t *           tpool,
+                      fd_spad_t * *          spads,
+                      ulong                  spads_cnt,
                       uint                   verify_hash,
                       uint                   check_hash,
                       int                    snapshot_type,
@@ -100,6 +105,8 @@ fd_snapshot_load_new( uchar *                mem,
   ctx->verify_hash   = verify_hash;
   ctx->check_hash    = check_hash;
   ctx->snapshot_type = snapshot_type;
+  ctx->spads         = spads;
+  ctx->spads_cnt     = spads_cnt;
   ctx->valloc        = valloc;
   return ctx;
 }
@@ -277,7 +284,7 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
 
   fd_hashes_load( ctx->slot_ctx, ctx->valloc );
 
-  fd_rewards_recalculate_partitioned_rewards( ctx->slot_ctx, ctx->valloc );
+  fd_rewards_recalculate_partitioned_rewards( ctx->slot_ctx, ctx->tpool, ctx->spads, ctx->spads_cnt, ctx->valloc );
 
   fd_valloc_free( ctx->valloc, fd_snapshot_loader_delete ( ctx->loader ) );
   fd_valloc_free( ctx->valloc, fd_snapshot_restore_delete( ctx->restore ) );
@@ -288,6 +295,8 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
 void
 fd_snapshot_load_all( const char *         source_cstr,
                       fd_exec_slot_ctx_t * slot_ctx,
+                      fd_spad_t * *        spads,
+                      ulong                spads_cnt,
                       ulong *              base_slot_override,
                       fd_tpool_t *         tpool,
                       uint                 verify_hash,
@@ -298,7 +307,7 @@ fd_snapshot_load_all( const char *         source_cstr,
   FD_SCRATCH_SCOPE_BEGIN {
 
   uchar *                  mem = fd_scratch_alloc( fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
-  fd_snapshot_load_ctx_t * ctx = fd_snapshot_load_new( mem, source_cstr, slot_ctx, tpool, verify_hash, check_hash, snapshot_type, valloc );
+  fd_snapshot_load_ctx_t * ctx = fd_snapshot_load_new( mem, source_cstr, slot_ctx, tpool, spads, spads_cnt, verify_hash, check_hash, snapshot_type, valloc );
 
   fd_snapshot_load_init( ctx );
   fd_snapshot_load_manifest_and_status_cache( ctx, base_slot_override,

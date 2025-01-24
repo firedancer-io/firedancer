@@ -1312,7 +1312,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   fork->slot_ctx.funk_txn = fd_funk_txn_prepare(ctx->funk, fork->slot_ctx.funk_txn, &xid, 1);
   fd_funk_end_write( ctx->funk );
 
-  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_block_pre_execute_process_new_epoch( &fork->slot_ctx, ctx->valloc ) ) ) {
+  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS!=fd_runtime_block_pre_execute_process_new_epoch( &fork->slot_ctx, ctx->tpool, ctx->spads, ctx->spad_cnt, ctx->valloc ) ) ) {
     FD_LOG_ERR(( "couldn't process new epoch" ));
   }
 
@@ -1972,7 +1972,7 @@ read_snapshot( void *              _ctx,
     if( strlen( incremental )>0UL ) {
       uchar *                  tmp_mem      = fd_scratch_alloc( fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
       /* TODO: enable snapshot verification */
-      fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem, incremental, ctx->slot_ctx, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_FULL, ctx->valloc );
+      fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem, incremental, ctx->slot_ctx, ctx->tpool, ctx->spads, ctx->spad_cnt, false, false, FD_SNAPSHOT_TYPE_FULL, ctx->valloc );
       /* Load the prefetch manifest, and initialize the status cache and slot context,
          so that we can use these to kick off repair. */
       fd_snapshot_load_prefetch_manifest( tmp_snap_ctx );
@@ -1987,7 +1987,7 @@ read_snapshot( void *              _ctx,
 
     uchar *                  mem      = fd_scratch_alloc( fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
     /* TODO: enable snapshot verification */
-    fd_snapshot_load_ctx_t * snap_ctx = fd_snapshot_load_new( mem, snapshot, ctx->slot_ctx, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_FULL, ctx->valloc );
+    fd_snapshot_load_ctx_t * snap_ctx = fd_snapshot_load_new( mem, snapshot, ctx->slot_ctx, ctx->tpool, ctx->spads, ctx->spad_cnt, false, false, FD_SNAPSHOT_TYPE_FULL, ctx->valloc );
   
     fd_snapshot_load_init( snap_ctx );
 
@@ -2027,7 +2027,7 @@ read_snapshot( void *              _ctx,
     /* The slot of the full snapshot should be used as the base slot to verify the incremental snapshot,
        not the slot context's slot - which is the slot of the incremental, not the full snapshot. */
     /* TODO: enable snapshot verification */
-    fd_snapshot_load_all( incremental, ctx->slot_ctx, &base_slot, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_INCREMENTAL, ctx->valloc );
+    fd_snapshot_load_all( incremental, ctx->slot_ctx, ctx->spads, ctx->spad_cnt, &base_slot, ctx->tpool, false, false, FD_SNAPSHOT_TYPE_INCREMENTAL, ctx->valloc );
   }
 
   if( ctx->replay_plugin_out_mem ) {

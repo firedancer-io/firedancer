@@ -3199,8 +3199,8 @@ fd_stakes_remove_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_ac
   }
   fd_account_keys_pair_t_mapnode_t * entry = fd_account_keys_pair_t_map_find( slot_ctx->slot_bank.stake_account_keys.account_keys_pool, slot_ctx->slot_bank.stake_account_keys.account_keys_root, &key );
   if( FD_UNLIKELY( entry ) ) {
-    fd_account_keys_pair_t_map_remove( slot_ctx->slot_bank.stake_account_keys.account_keys_pool, &slot_ctx->slot_bank.stake_account_keys.account_keys_root, entry );
-    // TODO: do we need a release here?
+    fd_account_keys_pair_t_mapnode_t * released = fd_account_keys_pair_t_map_remove( slot_ctx->slot_bank.stake_account_keys.account_keys_pool, &slot_ctx->slot_bank.stake_account_keys.account_keys_root, entry );
+    fd_account_keys_pair_t_map_release( slot_ctx->slot_bank.stake_account_keys.account_keys_pool, released );
   }
 }
 

@@ -5158,6 +5158,7 @@ struct __attribute__((aligned(8UL))) fd_epoch_info {
   fd_epoch_info_pair_t * stake_infos;
   fd_vote_info_pair_t_mapnode_t * vote_states_pool;
   fd_vote_info_pair_t_mapnode_t * vote_states_root;
+  ulong stake_infos_new_keys_start_idx;
 };
 typedef struct fd_epoch_info fd_epoch_info_t;
 #define FD_EPOCH_INFO_FOOTPRINT sizeof(fd_epoch_info_t)
@@ -5166,6 +5167,7 @@ typedef struct fd_epoch_info fd_epoch_info_t;
 struct __attribute__((aligned(8UL))) fd_epoch_info_off {
   uint stake_infos_off;
   uint vote_states_off;
+  uint stake_infos_new_keys_start_idx_off;
 };
 typedef struct fd_epoch_info_off fd_epoch_info_off_t;
 #define FD_EPOCH_INFO_OFF_FOOTPRINT sizeof(fd_epoch_info_off_t)

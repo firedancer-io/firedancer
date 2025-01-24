@@ -2862,7 +2862,8 @@ remove_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote
   fd_memcpy( vote_acc.elem.key.uc, vote_account->pubkey->uc, sizeof(fd_pubkey_t) );
   fd_vote_accounts_pair_t_mapnode_t * vote_account_entry = fd_vote_accounts_pair_t_map_find( epoch_vote_accounts->vote_accounts_pool, epoch_vote_accounts->vote_accounts_root, &vote_acc );
   if( FD_LIKELY( vote_account_entry ) ) {
-    fd_vote_accounts_pair_t_map_remove( epoch_vote_accounts->vote_accounts_pool, &epoch_vote_accounts->vote_accounts_root, vote_account_entry);
+    fd_vote_accounts_pair_t_mapnode_t * released = fd_vote_accounts_pair_t_map_remove( epoch_vote_accounts->vote_accounts_pool, &epoch_vote_accounts->vote_accounts_root, vote_account_entry);
+    fd_vote_accounts_pair_t_map_release( epoch_vote_accounts->vote_accounts_pool, released );
   }
 
   if( FD_UNLIKELY( slot_ctx->slot_bank.vote_account_keys.account_keys_pool==NULL ) ) {
@@ -2874,7 +2875,8 @@ remove_vote_account( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * vote
   fd_memcpy( account_key.elem.key.uc, vote_account->pubkey->uc, sizeof(fd_pubkey_t) );
   fd_account_keys_pair_t_mapnode_t * account_key_entry = fd_account_keys_pair_t_map_find( slot_ctx->slot_bank.vote_account_keys.account_keys_pool, slot_ctx->slot_bank.vote_account_keys.account_keys_root, &account_key );
   if( account_key_entry ) {
-    fd_account_keys_pair_t_map_remove( slot_ctx->slot_bank.vote_account_keys.account_keys_pool, &slot_ctx->slot_bank.vote_account_keys.account_keys_root, account_key_entry );
+    fd_account_keys_pair_t_mapnode_t * released = fd_account_keys_pair_t_map_remove( slot_ctx->slot_bank.vote_account_keys.account_keys_pool, &slot_ctx->slot_bank.vote_account_keys.account_keys_root, account_key_entry );
+    fd_account_keys_pair_t_map_release( slot_ctx->slot_bank.vote_account_keys.account_keys_pool, released );
   }
 }
 
