@@ -947,6 +947,11 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
 int
 fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t * ctx ) {
+  /* Prevent execution of migrated native programs */
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE( ctx->slot_ctx, migrate_address_lookup_table_program_to_core_bpf ) ) ) {
+    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+  }
+
   FD_EXEC_CU_UPDATE( ctx, DEFAULT_COMPUTE_UNITS );
 
   uchar const * instr_data    = ctx->instr->data;
