@@ -1755,11 +1755,12 @@ fd_pack_end_block( fd_pack_t * pack ) {
   fd_histf_sample( pack->rebated_cus_per_block,   pack->cumulative_rebated_cus                               );
   fd_histf_sample( pack->scheduled_cus_per_block, pack->cumulative_rebated_cus + pack->cumulative_block_cost );
 
-  pack->microblock_cnt         = 0UL;
-  pack->data_bytes_consumed    = 0UL;
-  pack->cumulative_block_cost  = 0UL;
-  pack->cumulative_vote_cost   = 0UL;
-  pack->cumulative_rebated_cus = 0UL;
+  pack->microblock_cnt              = 0UL;
+  pack->data_bytes_consumed         = 0UL;
+  pack->cumulative_block_cost       = 0UL;
+  pack->cumulative_vote_cost        = 0UL;
+  pack->cumulative_rebated_cus      = 0UL;
+  pack->outstanding_microblock_mask = 0UL;
 
   acct_uses_clear( pack->acct_in_use  );
 
@@ -1781,6 +1782,9 @@ fd_pack_end_block( fd_pack_t * pack ) {
        starting in the element after, but we'll never hit the MAP_MOVE
        case. */
     for( ulong i=0UL; i<pack->written_list_cnt; i++ ) {
+      /* Clearing the cost field here is unnecessary (since it gets
+         cleared on insert), but makes debugging a bit easier. */
+      pack->written_list[ pack->written_list_cnt - 1UL - i ]->total_cost = 0UL;
       acct_uses_remove( pack->writer_costs, pack->written_list[ pack->written_list_cnt - 1UL - i ] );
     }
   } else {
