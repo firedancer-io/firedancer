@@ -4191,12 +4191,12 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
       break;
     }
 
-    uchar * block_data = fd_scratch_alloc( 128UL, FD_MBATCH_MAX );
+    uchar * block_data = fd_scratch_alloc( 128UL, FD_BLOCK_BATCH_SZ_MAX );
     ulong tick_res = fd_runtime_block_verify_ticks(
       slot_ctx->blockstore,
       slot,
       block_data,
-      FD_MBATCH_MAX,
+      FD_BLOCK_BATCH_SZ_MAX,
       slot_ctx->slot_bank.tick_height,
       slot_ctx->slot_bank.max_tick_height,
       slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick

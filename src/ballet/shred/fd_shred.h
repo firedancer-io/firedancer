@@ -97,7 +97,7 @@
    payloads of no more than 1015 bytes.
    In general, shreds that are chained or resigned should have smaller
    payloads and a tigher bound. */
-#define FD_SHRED_DATA_PAYLOAD_MAX (FD_SHRED_MIN_SZ-FD_SHRED_DATA_HEADER_SZ)
+#define FD_SHRED_DATA_PAYLOAD_SZ_MAX (FD_SHRED_MIN_SZ-FD_SHRED_DATA_HEADER_SZ)
 
 /* FD_SHRED_TYPE_* identifies the type of a shred.
    It is located at the four high bits of byte 0x40 (64) of the shred header
@@ -147,10 +147,7 @@ typedef uchar fd_shred_merkle_t[FD_SHRED_MERKLE_NODE_SZ];
 #define FD_SHRED_DATA_FLAG_DATA_COMPLETE ((uchar)0x40)
 
 /* Maximum number of data shreds in a slot, also maximum number of parity shreds in a slot */
-#define FD_SHRED_MAX_PER_SLOT (1 << 15UL) /* 32,768 shreds */
-
-/* 36,536,320 bytes per slot */
-#define FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT (FD_SHRED_DATA_PAYLOAD_MAX * FD_SHRED_MAX_PER_SLOT)
+#define FD_BLOCK_SHRED_CNT_MAX (1 << 15UL) /* 32,768 shreds */
 
 /* Offset of the shred variant. Used for parsing. */
 #define FD_SHRED_VARIANT_OFF 0x40

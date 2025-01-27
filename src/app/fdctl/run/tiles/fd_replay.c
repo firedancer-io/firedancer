@@ -49,7 +49,7 @@
 
 /* An estimate of the max number of transactions in a block.  If there are more
    transactions, they must be split into multiple sets. */
-#define MAX_TXNS_PER_REPLAY ( ( FD_SHRED_MAX_PER_SLOT * FD_SHRED_MAX_SZ) / FD_TXN_MIN_SERIALIZED_SZ )
+#define MAX_TXNS_PER_REPLAY ( ( FD_BLOCK_SHRED_CNT_MAX * FD_SHRED_MAX_SZ) / FD_TXN_MIN_SERIALIZED_SZ )
 
 #define PLUGIN_PUBLISH_TIME_NS ((long)60e9)
 
@@ -356,7 +356,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
-  l = FD_LAYOUT_APPEND( l, 128UL, FD_MBATCH_MAX );
+  l = FD_LAYOUT_APPEND( l, 128UL, FD_BLOCK_BATCH_SZ_MAX );
   l = FD_LAYOUT_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->replay.tpool_thread_count * TPOOL_WORKER_MEM_SZ );
   ulong  thread_spad_size    = fd_spad_footprint( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT );
   l = FD_LAYOUT_APPEND( l, fd_spad_align(), tile->replay.tpool_thread_count * fd_ulong_align_up( thread_spad_size, fd_spad_align() ) );
@@ -1324,7 +1324,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
     ctx->blockstore,
     curr_slot,
     ctx->mbatch,
-    FD_MBATCH_MAX,
+    FD_BLOCK_BATCH_SZ_MAX,
     fork->slot_ctx.slot_bank.tick_height,
     fork->slot_ctx.slot_bank.max_tick_height,
     fork->slot_ctx.epoch_ctx->epoch_bank.hashes_per_tick
@@ -1390,7 +1390,7 @@ replay_mbatch( fd_replay_tile_ctx_t * ctx, uint shred_idx_start ) {
   int err = fd_blockstore_batch_assemble( blockstore,
                                           slot,
                                           shred_idx_start,
-                                          FD_MBATCH_MAX,
+                                          FD_BLOCK_BATCH_SZ_MAX,
                                           ctx->mbatch,
                                           &mbatch_sz );
   FD_TEST( err == FD_BLOCKSTORE_OK );
@@ -2373,7 +2373,7 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     ctx->bmtree[i]           = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
-  void * mbatch_mem          = FD_SCRATCH_ALLOC_APPEND( l, 128UL, FD_MBATCH_MAX );
+  void * mbatch_mem          = FD_SCRATCH_ALLOC_APPEND( l, 128UL, FD_BLOCK_BATCH_SZ_MAX );
   void * tpool_worker_mem    = FD_SCRATCH_ALLOC_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->replay.tpool_thread_count * TPOOL_WORKER_MEM_SZ );
   ulong  thread_spad_size    = fd_spad_footprint( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT );
   void * spad_mem            = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), tile->replay.tpool_thread_count * fd_ulong_align_up( thread_spad_size, fd_spad_align() ) );
