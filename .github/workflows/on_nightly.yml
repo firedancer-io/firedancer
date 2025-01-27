@@ -30,6 +30,6 @@ jobs:
         gcc-9.5.0,linux_gcc_zen4;ALL;
         gcc-10.5.0,linux_gcc_zen4,ALL;
         gcc-11.4.0,linux_gcc_zen4,ALL
-      verbose: true
+      verbose: false
       build_arm: true
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.schedule == '0 3 * * *' }}
