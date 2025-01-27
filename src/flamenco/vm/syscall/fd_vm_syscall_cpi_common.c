@@ -96,9 +96,7 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
       }
     }
     if( FD_UNLIKELY( !account_found ) ) {
-      vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR;
-      vm->instr_ctx->txn_ctx->exec_err      = FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
-      return -1;
+      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
   }
 
@@ -241,8 +239,6 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
   if( FD_UNLIKELY( memcmp( callee_acc->meta->info.owner, caller_acc_owner, sizeof(fd_pubkey_t) ) ) ) {
     err = fd_account_set_owner( vm->instr_ctx, instr_acc_idx, (fd_pubkey_t*)caller_acc_owner );
     if( FD_UNLIKELY( err ) ) {
-      vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR;
-      vm->instr_ctx->txn_ctx->exec_err      = err;
       return err;
     }
   }
@@ -342,8 +338,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
           /* Max msg_sz: 40 + 18 + 18 = 76 < 127 => we can use printf */
           fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,
             "Invalid account info pointer `key': %#lx != %#lx", account_infos[j].pubkey_addr, expected_pubkey_vaddr );
-          vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_SYSCALL;
-          vm->instr_ctx->txn_ctx->exec_err      = FD_VM_SYSCALL_ERR_INVALID_POINTER;
+          FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
           return -1;
         }
 
@@ -353,8 +348,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
           /* Max msg_sz: 42 + 18 + 18 = 78 < 127 => we can use printf */
           fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,
             "Invalid account info pointer `owner': %#lx != %#lx", account_infos[j].owner_addr, expected_owner_vaddr );
-          vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_SYSCALL;
-          vm->instr_ctx->txn_ctx->exec_err      = FD_VM_SYSCALL_ERR_INVALID_POINTER;
+          FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
           return -1;
         }
 
@@ -365,8 +359,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
         #ifdef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_RC_REFCELL_VADDR
         VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_RC_REFCELL_VADDR( vm, (account_infos + j), lamports_rc_vaddr )
         if ( FD_UNLIKELY( lamports_rc_vaddr >= FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
-          vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_SYSCALL;
-          vm->instr_ctx->txn_ctx->exec_err      = FD_VM_SYSCALL_ERR_INVALID_POINTER;
+          FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
           return -1;
         }
         #endif
@@ -378,8 +371,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
           /* Max msg_sz: 45 + 18 + 18 = 81 < 127 => we can use printf */
           fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,
             "Invalid account info pointer `lamports': %#lx != %#lx", lamports_vaddr, expected_lamports_vaddr );
-          vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_SYSCALL;
-          vm->instr_ctx->txn_ctx->exec_err      = FD_VM_SYSCALL_ERR_INVALID_POINTER;
+          FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
           return -1;
         }
 
@@ -390,8 +382,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
         #ifdef VM_SYSCALL_CPI_ACC_INFO_DATA_RC_REFCELL_VADDR
         VM_SYSCALL_CPI_ACC_INFO_DATA_RC_REFCELL_VADDR( vm, (account_infos + j), data_rc_vaddr )
         if( FD_UNLIKELY( data_rc_vaddr >= FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
-          vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_SYSCALL;
-          vm->instr_ctx->txn_ctx->exec_err      = FD_VM_SYSCALL_ERR_INVALID_POINTER;
+          FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
           return -1;
         }
         #endif
@@ -404,15 +395,17 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
           /* Max msg_sz: 41 + 18 + 18 = 77 < 127 => we can use printf */
           fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,
             "Invalid account info pointer `data': %#lx != %#lx", data_vaddr, expected_data_region_vaddr );
-          vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_SYSCALL;
-          vm->instr_ctx->txn_ctx->exec_err      = FD_VM_SYSCALL_ERR_INVALID_POINTER;
+          FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
           return -1;
         }
       }
 
       /* Update the callee account to reflect any changes the caller has made */
-      if( FD_UNLIKELY( VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC(vm, &account_infos[j], (uchar)index_in_caller ) ) ) {
-        return 1001;
+      int err = VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( vm, &account_infos[j], (uchar)index_in_caller );
+      if( FD_UNLIKELY( err ) ) {
+        /* We should propagate the instruction error from fd_vm_syscall_cpi_update_callee_acc. */
+        FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+        return -1;
       }
     }
 
@@ -704,6 +697,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
                                                                 signer_seed_lens ,
                                                                 NULL );
     if( FD_UNLIKELY( err ) ) {
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, err );
       return err;
     }
 
@@ -736,11 +730,16 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   vm->instr_ctx->txn_ctx->instr_info_cnt++;
   if( FD_UNLIKELY( vm->instr_ctx->txn_ctx->instr_info_cnt>FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
-     return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;;
+     FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED );
+     return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
   }
 
   err = VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( vm, cpi_instruction, cpi_account_metas, program_id, data, instruction_to_execute );
-  if( FD_UNLIKELY( err ) ) return err;
+  if( FD_UNLIKELY( err ) ) {
+    /* We should propagate the instruction error from fd_vm_syscall_cpi_instruction_to_instr. */
+    FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+    return err;
+  }
 
   /* Prepare the instruction for execution in the runtime. This is required by the runtime
      before we can pass an instruction to the executor. */
@@ -748,7 +747,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   ulong instruction_accounts_cnt;
   err = fd_vm_prepare_instruction( vm->instr_ctx->instr, instruction_to_execute, vm->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
   if( FD_UNLIKELY( err ) ) {
-    /* We should propogate the instruction error from fd_vm_prepare_instruction. */
+    /* We should propagate the instruction error from fd_vm_prepare_instruction. */
     FD_VM_ERR_FOR_LOG_INSTR( vm, err );
     return err;
   }
@@ -796,6 +795,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   ulong caller_accounts_to_update[256];
   ulong caller_accounts_to_update_len = 0;
   err = VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC( vm, instruction_accounts, instruction_accounts_cnt, acc_infos, acct_info_cnt, callee_account_keys, caller_accounts_to_update, &caller_accounts_to_update_len );
+  /* errors are propagated in the function itself. */
   if( FD_UNLIKELY( err ) ) return err;
   
   /* Set the transaction compute meter to be the same as the VM's compute meter,
@@ -812,7 +812,11 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   *_ret = instr_exec_res;
 
-  if( FD_UNLIKELY( err_exec ) ) return err_exec;
+  if( FD_UNLIKELY( err_exec ) ) {
+    /* We should propagate the instruction error from fd_execute_instr. */
+    FD_VM_ERR_FOR_LOG_INSTR( vm, err_exec );
+    return err_exec;
+  }
 
   /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/syscalls/cpi.rs#L1128-L1145 */
   /* Update all account permissions before updating the account data updates.
@@ -851,7 +855,11 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
     if( fd_instr_acc_is_writable_idx( vm->instr_ctx->instr, callee_account_keys[i] ) ) {
       fd_pubkey_t const * callee = &vm->instr_ctx->instr->acct_pubkeys[callee_account_keys[i]];
       err = VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC(vm, &acc_infos[caller_accounts_to_update[i]], (uchar)callee_account_keys[i], callee);
-      if( FD_UNLIKELY( err ) ) return err;
+      if( FD_UNLIKELY( err ) ) {
+        /* We should propagate the instruction error from fd_vm_cpi_update_caller_acc. */
+        FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+        return err;
+      }
     }
   }
 
