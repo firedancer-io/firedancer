@@ -457,6 +457,14 @@ fd_quic_calc_expiry( fd_quic_conn_t * conn, ulong now ) {
                         + rtt->peer_max_ack_delay_ticks );
 }
 
+uchar *
+fd_quic_gen_stream_frames( fd_quic_conn_t *     conn,
+                           uchar *              payload_ptr,
+                           uchar *              payload_end,
+                           fd_quic_pkt_meta_t * pkt_meta,
+                           ulong                pkt_number,
+                           ulong                now );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_waltz_quic_fd_quic_private_h */
