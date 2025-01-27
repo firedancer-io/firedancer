@@ -167,15 +167,20 @@ application level ping/pong and not a WebSocket control frame.
 The current version of the running validator.
 
 #### `summary.cluster`
-| frequency | type     | example        |
-|-----------|----------|----------------|
-| *Once*    | `string` | `"mainnet-beta"` |
+| frequency       | type     | example        |
+|-----------------|----------|----------------|
+| *Once* + *Live* | `string` | `"mainnet-beta"` |
 
 One of `mainnet-beta`, `devnet`, `testnet`, `pythtest`, `pythnet`,
 `development`, or `unknown`. Indicates the cluster that the validator is
 likely to be running on. The cluster is guessed by looking at the
-genesis hash of the chain and entrypoints that the validator connects
-to.
+genesis hash of the chain and comparing it to known cluster genesis
+hashes. The cluster cannot change once the validator is running, but
+because it may not be known when the validator first starts, you
+might get two cluster messages. One `unknown` immediately when the
+validator is booted, and then an a message with `mainnet` (or other
+known cluster) when the validator learns its cluster from a downloaded
+snapshot.
 
 #### `summary.identity_key`
 | frequency | type     | example        |
