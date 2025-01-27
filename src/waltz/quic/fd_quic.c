@@ -3372,7 +3372,7 @@ fd_quic_gen_ping_frame( fd_quic_conn_t *     conn,
   return frame_sz;
 }
 
-static uchar *
+uchar *
 fd_quic_gen_stream_frames( fd_quic_conn_t *     conn,
                            uchar *              payload_ptr,
                            uchar *              payload_end,
@@ -3388,6 +3388,7 @@ fd_quic_gen_stream_frames( fd_quic_conn_t *     conn,
   while( !cur_stream->sentinel && pkt_meta->var_sz < FD_QUIC_PKT_META_VAR_MAX ) {
     /* required, since cur_stream may get removed from list */
     fd_quic_stream_t * nxt_stream = cur_stream->next;
+    _Bool sent_all_data = 1u;
 
     if( cur_stream->upd_pkt_number >= pkt_number ) {
 
@@ -3395,14 +3396,14 @@ fd_quic_gen_stream_frames( fd_quic_conn_t *     conn,
       if( FD_LIKELY( FD_QUIC_STREAM_ACTION( cur_stream ) ) ) {
 
         /* data_avail is the number of stream bytes available for sending.
-           fin_avail is 1 if no more bytes will get added to the stream. */
+           fin_flag_set is 1 if no more bytes will get added to the stream. */
         ulong const data_avail = cur_stream->tx_buf.head - cur_stream->tx_sent;
-        int   const fin_avail  = !!(cur_stream->state & FD_QUIC_STREAM_STATE_TX_FIN);
+        int   const fin_flag_set  = !!(cur_stream->state & FD_QUIC_STREAM_STATE_TX_FIN);
         ulong const stream_id  = cur_stream->stream_id;
         ulong const stream_off = cur_stream->tx_sent;
 
         /* No information to send? */
-        if( data_avail==0u && !fin_avail ) break;
+        if( data_avail==0u && !fin_flag_set ) break;
 
         /* No space to write frame?
           (Buffer should fit max stream header size and at least 1 byte of data) */
@@ -3426,10 +3427,11 @@ fd_quic_gen_stream_frames( fd_quic_conn_t *     conn,
         payload_ptr += 2;
 
         /* Stream metadata */
-        ulong data_max   = (ulong)payload_end - (ulong)payload_ptr; /* assume no underflow */
-        ulong data_sz    = fd_ulong_min( data_avail, data_max );
-        /* */ data_sz    = fd_ulong_min( data_sz, 0x3fffUL ); /* max 2 byte varint */
-        _Bool fin        = fin_avail && data_sz==data_avail;
+        ulong  data_max      = (ulong)payload_end - (ulong)payload_ptr;  /* assume no underflow */
+        ulong  data_sz       = fd_ulong_min( data_avail, data_max );
+        /* */  data_sz       = fd_ulong_min( data_sz, 0x3fffUL );       /* max 2 byte varint */
+        /* */  sent_all_data = data_sz == data_avail;
+        _Bool  fin           = fin_flag_set && sent_all_data;
 
         /* Finish encoding stream header */
         ushort data_sz_varint = fd_ushort_bswap( (ushort)( 0x4000u | (uint)data_sz ) );
@@ -3455,14 +3457,13 @@ fd_quic_gen_stream_frames( fd_quic_conn_t *     conn,
         pkt_meta->var[pkt_meta->var_sz].range.offset_lo = stream_off;
         pkt_meta->var[pkt_meta->var_sz].range.offset_hi = stream_off + data_sz;
         pkt_meta->var_sz = (uchar)( pkt_meta->var_sz + 1 );
-
-        /* Everything sent? */
-        if( fin ) {
-          FD_QUIC_STREAM_LIST_REMOVE( cur_stream );
-          FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->used_streams, cur_stream );
-        }
       }
+    }
 
+    if( sent_all_data ) {
+      cur_stream->stream_flags &= ~FD_QUIC_STREAM_FLAGS_ACTION;
+      FD_QUIC_STREAM_LIST_REMOVE( cur_stream );
+      FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->used_streams, cur_stream );
     }
 
     cur_stream = nxt_stream;
