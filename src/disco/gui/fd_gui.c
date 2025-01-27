@@ -6,6 +6,7 @@
 
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/json/cJSON.h"
+#include "../../flamenco/genesis/fd_genesis_cluster.h"
 
 FD_FN_CONST ulong
 fd_gui_align( void ) {
@@ -1442,6 +1443,20 @@ fd_gui_handle_start_progress( fd_gui_t *    gui,
   fd_http_server_ws_broadcast( gui->http );
 }
 
+static void
+fd_gui_handle_genesis_hash( fd_gui_t *    gui,
+                            uchar const * msg ) {
+  FD_BASE58_ENCODE_32_BYTES(msg, hash_cstr);
+  ulong cluster = fd_genesis_cluster_identify(hash_cstr);
+  char const * cluster_name = fd_genesis_cluster_name(cluster);
+
+  if( FD_LIKELY( strcmp( gui->summary.cluster, cluster_name ) ) ) {
+    gui->summary.cluster = fd_genesis_cluster_name(cluster);
+    fd_gui_printf_cluster( gui );
+    fd_http_server_ws_broadcast( gui->http );
+  }
+}
+
 void
 fd_gui_plugin_message( fd_gui_t *    gui,
                        ulong         plugin_msg,
@@ -1496,6 +1511,10 @@ fd_gui_plugin_message( fd_gui_t *    gui,
     }
     case FD_PLUGIN_MSG_START_PROGRESS: {
       fd_gui_handle_start_progress( gui, msg );
+      break;
+    }
+    case FD_PLUGIN_MSG_GENESIS_HASH_KNOWN: {
+      fd_gui_handle_genesis_hash( gui, msg );
       break;
     }
     default:
