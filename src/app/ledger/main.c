@@ -356,7 +356,8 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
   ulong init_scratch_frame_count = fd_scratch_frame_used();
 
   ulong block_slot = start_slot;
-  for( ulong slot = start_slot; slot <= ledger_args->end_slot; ++slot ) {
+  uchar aborted = 0U;
+  for( ulong slot = start_slot; slot<=ledger_args->end_slot && !aborted; ++slot ) {
     FD_SCRATCH_SCOPE_BEGIN {
 
     ledger_args->slot_ctx->slot_bank.prev_slot = prev_slot;
@@ -502,6 +503,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       if( ledger_args->abort_on_mismatch ) {
         fd_blockstore_end_read( blockstore );
         ret = 1;
+        aborted = 1U;
         break;
       }
     }
