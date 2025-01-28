@@ -20,6 +20,7 @@
 #include "../../flamenco/runtime/fd_account.h"
 #include "../../flamenco/runtime/fd_rocksdb.h"
 #include "../../flamenco/runtime/fd_txncache.h"
+#include "../../flamenco/rewards/fd_rewards.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../flamenco/types/fd_solana_block.pb.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
@@ -748,6 +749,16 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
     }
     args->spads[ i ] = spad;
   }
+
+  /* First, load in the sysvars into the sysvar cache. This is required to 
+      make the StakeHistory sysvar available to the rewards calculation. */
+
+  fd_runtime_sysvar_cache_load( args->slot_ctx );
+
+  /* After both snapshots have been loaded in, we can determine if we should
+      start distributing rewards. */
+
+  fd_rewards_recalculate_partitioned_rewards( args->slot_ctx, args->valloc );
 
 }
 

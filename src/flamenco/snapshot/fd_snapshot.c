@@ -277,8 +277,6 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
 
   fd_hashes_load( ctx->slot_ctx, ctx->valloc );
 
-  fd_rewards_recalculate_partitioned_rewards( ctx->slot_ctx, ctx->valloc );
-
   fd_valloc_free( ctx->valloc, fd_snapshot_loader_delete ( ctx->loader ) );
   fd_valloc_free( ctx->valloc, fd_snapshot_restore_delete( ctx->restore ) );
 

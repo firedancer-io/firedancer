@@ -22,6 +22,7 @@
 #include "../../../../flamenco/snapshot/fd_snapshot.h"
 #include "../../../../flamenco/stakes/fd_stakes.h"
 #include "../../../../flamenco/runtime/fd_runtime.h"
+#include "../../../../flamenco/rewards/fd_rewards.h"
 #include "../../../../util/fd_util.h"
 #include "../../../../util/tile/fd_tile_private.h"
 #include "../../../../util/net/fd_net_headers.h"
@@ -2053,6 +2054,16 @@ read_snapshot( void *              _ctx,
 static void
 init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   /* Do not modify order! */
+
+  /* First, load in the sysvars into the sysvar cache. This is required to 
+     make the StakeHistory sysvar available to the rewards calculation. */
+
+  fd_runtime_sysvar_cache_load( ctx->slot_ctx );
+
+  /* After both snapshots have been loaded in, we can determine if we should
+     start distributing rewards. */
+
+  fd_rewards_recalculate_partitioned_rewards( ctx->slot_ctx, ctx->valloc );
 
   ulong snapshot_slot = ctx->slot_ctx->slot_bank.slot;
   if( FD_UNLIKELY( !snapshot_slot ) ) {
