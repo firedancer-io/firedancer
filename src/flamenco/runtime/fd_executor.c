@@ -1111,7 +1111,12 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     };
 
     fd_exec_instr_fn_t native_prog_fn = fd_executor_lookup_native_program( &txn_ctx->borrowed_accounts[ instr->program_id ] );
-    fd_exec_txn_ctx_reset_return_data( txn_ctx );
+
+    /* We should only reset the return data if not executing a noop instruction. */
+    if( FD_LIKELY( native_prog_fn!=fd_noop_instr_execute ) ) {
+      fd_exec_txn_ctx_reset_return_data( txn_ctx );
+    }
+
     int exec_result = FD_EXECUTOR_INSTR_SUCCESS;
     if( native_prog_fn != NULL ) {
       /* Log program invokation (internally caches program_id base58) */
