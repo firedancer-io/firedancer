@@ -114,6 +114,15 @@ fd_executor_lookup_native_program( fd_borrowed_account_t const * prog_acc ) {
        bizarrely owned by the system program. */
     is_native_program = 1;
   }
+
+  /* Prevent execution of precompiled programs if they are not native programs.
+     This should be removed once the move_precompile_verification_to_svm feature is activated. */
+  if( FD_UNLIKELY( !memcmp( owner, fd_solana_secp256r1_program_id.key, sizeof(fd_pubkey_t) ) ||
+                   !memcmp( owner, fd_solana_ed25519_sig_verify_program_id.key, sizeof(fd_pubkey_t) ) ||
+                   !memcmp( owner, fd_solana_keccak_secp_256k_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+    return NULL;
+  }
+
   fd_pubkey_t const * lookup_pubkey = is_native_program ? pubkey : owner;
   const fd_native_prog_info_t null_function = (const fd_native_prog_info_t) {0};
   return fd_native_program_fn_lookup_tbl_query( lookup_pubkey, &null_function )->fn;
