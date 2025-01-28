@@ -2295,6 +2295,36 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
   return (ulong)( cur_ptr - orig_ptr );
 }
 
+
+/* version negotiation packet has version 0 */
+static inline int
+is_version_invalid( fd_quic_t * quic, uint version ) {
+  if( version == 0 ) {
+    /* TODO implement version negotiation */
+    quic->metrics.pkt_verneg_cnt++;
+    FD_DEBUG( FD_LOG_DEBUG(( "Got version negotiation packet" )) );
+    return 1;
+  }
+
+  /* 0x?a?a?a?au is intended to force version negotiation
+      TODO implement */
+  if( ( version & 0x0a0a0a0au ) == 0x0a0a0a0au ) {
+    /* at present, ignore */
+    quic->metrics.pkt_verneg_cnt++;
+    FD_DEBUG( FD_LOG_DEBUG(( "Got version negotiation packet (forced)" )) );
+    return 1;
+  }
+
+  if( version != 1 ) {
+    /* cannot interpret length, so discard entire packet */
+    /* TODO send version negotiation */
+    quic->metrics.pkt_verneg_cnt++;
+    FD_DEBUG( FD_LOG_DEBUG(( "Got unknown version QUIC packet" )) );
+    return 1;
+  }
+  return 0;
+}
+
 void
 fd_quic_process_packet( fd_quic_t * quic,
                         uchar *     data,
@@ -2382,11 +2412,6 @@ fd_quic_process_packet( fd_quic_t * quic,
   /* usually look up port here, but let's jump straight into decoding as-if
      quic */
 
-  /* check version */
-  /* TODO determine whether every quic packet in a udp packet must have the
-     same version */
-  /* done within loop at present */
-
   /* update counters */
 
   /* shortest valid quic payload? */
@@ -2397,39 +2422,15 @@ fd_quic_process_packet( fd_quic_t * quic,
     return;
   }
 
-  /* check version */
-
   /* short packets don't have version */
   int long_pkt = !!( (uint)cur_ptr[0] & 0x80u );
 
-  /* version at offset 1..4 */
-  uint version = 0;
 
   if( long_pkt ) {
-    version = fd_uint_bswap( FD_LOAD( uint, cur_ptr + 1 ) );
-
-    /* version negotiation packet has version 0 */
-    if( version == 0 ) {
-      /* TODO implement version negotiation */
-      quic->metrics.pkt_verneg_cnt++;
-      FD_DEBUG( FD_LOG_DEBUG(( "Got version negotiation packet" )) );
-      return;
-    }
-
-    /* 0x?a?a?a?au is intended to force version negotiation
-       TODO implement */
-    if( ( version & 0x0a0a0a0au ) == 0x0a0a0a0au ) {
-      /* at present, ignore */
-      quic->metrics.pkt_verneg_cnt++;
-      FD_DEBUG( FD_LOG_DEBUG(( "Got version negotiation packet (forced)" )) );
-      return;
-    }
-
-    if( version != 1 ) {
-      /* cannot interpret length, so discard entire packet */
-      /* TODO send version negotiation */
-      quic->metrics.pkt_verneg_cnt++;
-      FD_DEBUG( FD_LOG_DEBUG(( "Got unknown version QUIC packet" )) );
+    /* version at offset 1..4 */
+    uint version = fd_uint_bswap( FD_LOAD( uint, cur_ptr + 1 ) );
+    /* we only support version 1 */
+    if( FD_UNLIKELY( is_version_invalid( quic, version ) ) ) {
       return;
     }
 
@@ -2462,16 +2463,7 @@ fd_quic_process_packet( fd_quic_t * quic,
         return;
       }
 
-      /* probably it's better to switch outside the loop */
-      switch( version ) {
-        case 1u:
-          rc = fd_quic_process_quic_packet_v1( quic, &pkt, cur_ptr, cur_sz );
-          break;
-
-        /* this is redundant */
-        default:
-          return;
-      }
+      rc = fd_quic_process_quic_packet_v1( quic, &pkt, cur_ptr, cur_sz );
 
       /* 0UL means no progress, so fail */
       if( FD_UNLIKELY( ( rc == FD_QUIC_PARSE_FAIL ) |
