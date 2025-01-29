@@ -18,6 +18,7 @@ $(OBJDIR)/obj/app/fdctl/version.d: src/app/fdctl/version.h
 
 # fdctl core
 $(call add-objs,main1 config config_parse caps utility keys ready mem spy help version,fd_fdctl)
+$(call add-objs,netconf,fd_fdctl)
 $(call add-objs,run/run run/run1 run/run_agave,fd_fdctl)
 $(call add-objs,monitor/monitor monitor/helper,fd_fdctl)
 $(call make-fuzz-test,fuzz_fdctl_config,fuzz_fdctl_config,fd_fdctl fd_ballet fd_util)

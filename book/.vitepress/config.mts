@@ -52,6 +52,13 @@ export default defineConfig({
             { text: 'Troubleshooting', link: 'troubleshooting' },
             { text: 'Frequently Asked Questions', link: 'faq' },
           ]
+        },
+        {
+          text: 'Internals',
+          collapsed: false,
+          items: [
+            { text: 'Netlink', link: 'netlink' },
+          ]
         }
       ] },
 

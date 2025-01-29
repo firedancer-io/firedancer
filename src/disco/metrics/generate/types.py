@@ -23,6 +23,7 @@ class Tile(Enum):
     REPLAY = 17
     STOREI = 18
     GOSSIP = 19
+    NETLNK = 20
 
 class MetricType(Enum):
     COUNTER = 0

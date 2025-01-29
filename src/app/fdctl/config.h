@@ -17,7 +17,7 @@
 /* config_t represents all available configuration options that could be
    set in a user defined configuration toml file. For information about
    the options, see the `default.toml` file provided. */
-typedef struct {
+struct fdctl_config {
   char name[ NAME_SZ ];
   char user[ 256 ];
   char hostname[ FD_LOG_NAME_MAX ];
@@ -226,6 +226,11 @@ typedef struct {
     } net;
 
     struct {
+      ulong max_routes;
+      ulong max_neighbors;
+    } netlink;
+
+    struct {
       ushort regular_transaction_listen_port;
       ushort quic_transaction_listen_port;
 
@@ -329,7 +334,9 @@ typedef struct {
     } batch;
 
   } tiles;
-} config_t;
+};
+
+typedef struct fdctl_config config_t;
 
 FD_PROTOTYPES_BEGIN
 

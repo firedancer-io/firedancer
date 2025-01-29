@@ -11,6 +11,10 @@
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../funk/fd_funk.h"
+#include "../../waltz/ip/fd_fib4.h"
+#include "../../waltz/mib/fd_dbl_buf.h"
+#undef FD_MAP_FLAG_BLOCKING
+#include "../../waltz/neigh/fd_neigh4_map.h"
 #include "../../util/net/fd_eth.h"
 #include "../../util/net/fd_ip4.h"
 
@@ -258,12 +262,22 @@ fdctl_obj_align( fd_topo_t const *     topo,
     return fd_fseq_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
     return FD_METRICS_ALIGN;
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "opaque" ) ) ) {
+    ulong align = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.align", obj->id );
+    if( FD_UNLIKELY( align==ULONG_MAX ) ) FD_LOG_ERR(( "obj.%lu.align was not set", obj->id ));
+    return align;
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "dbl_buf" ) ) ) {
+    return fd_dbl_buf_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
     return fd_blockstore_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
     return fd_funk_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
     return fd_txncache_align();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "neigh4_hmap" ) ) ) {
+    return fd_neigh4_hmap_align();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "fib4" ) ) ) {
+    return fd_fib4_align();
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
     return 0UL;
@@ -299,12 +313,20 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
     return fd_fseq_footprint();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
     return FD_METRICS_FOOTPRINT( VAL("in_cnt"), VAL("cons_cnt") );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "opaque" ) ) ) {
+    return VAL("footprint");
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "dbl_buf" ) ) ) {
+    return fd_dbl_buf_footprint( VAL("mtu") );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
     return fd_blockstore_footprint( VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) + VAL("alloc_max");
   } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
     return fd_funk_footprint();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
     return fd_txncache_footprint( VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "neigh4_hmap" ) ) ) {
+    return fd_neigh4_hmap_footprint( VAL("ele_max"), VAL("lock_cnt"), VAL("probe_max") );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "fib4" ) ) ) {
+    return fd_fib4_footprint( VAL("route_max") );
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
     return 0UL;
