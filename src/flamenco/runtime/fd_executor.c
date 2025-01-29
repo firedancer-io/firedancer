@@ -51,13 +51,6 @@
 FD_STATIC_ASSERT( FD_PACK_MAX_COST_PER_BLOCK==MAX_COMPUTE_UNITS_PER_BLOCK,                     executor_pack_max_mismatch );
 FD_STATIC_ASSERT( FD_PACK_MAX_WRITE_COST_PER_ACCT==MAX_COMPUTE_UNITS_PER_WRITE_LOCKED_ACCOUNT, executor_pack_max_mismatch );
 
-/* TODO: precompiles currently enter this noop function. Once the move_precompile_verification_to_svm
-   feature gets activated, this will need to be replaced with precompile verification functions. */
-static int
-fd_noop_instr_execute( fd_exec_instr_ctx_t * ctx FD_PARAM_UNUSED ) {
-  return FD_EXECUTOR_INSTR_SUCCESS;
-}
-
 struct fd_native_prog_info {
   fd_pubkey_t key;
   fd_exec_instr_fn_t fn;
@@ -92,9 +85,30 @@ typedef struct fd_native_prog_info fd_native_prog_info_t;
 #define MAP_PERFECT_8       ( BPF_LOADER_2_PROG_ID    ), .fn = fd_bpf_loader_program_execute
 #define MAP_PERFECT_9       ( BPF_UPGRADEABLE_PROG_ID ), .fn = fd_bpf_loader_program_execute
 #define MAP_PERFECT_10      ( LOADER_V4_PROG_ID       ), .fn = fd_loader_v4_program_execute
-#define MAP_PERFECT_11      ( ED25519_SV_PROG_ID      ), .fn = fd_noop_instr_execute
-#define MAP_PERFECT_12      ( KECCAK_SECP_PROG_ID     ), .fn = fd_noop_instr_execute
-#define MAP_PERFECT_13      ( SECP256R1_PROG_ID       ), .fn = fd_noop_instr_execute
+
+#include "../../util/tmpl/fd_map_perfect.c"
+#undef PERFECT_HASH
+
+#define MAP_PERFECT_NAME fd_native_precompile_program_fn_lookup_tbl
+#define MAP_PERFECT_LG_TBL_SZ 4
+#define MAP_PERFECT_T fd_native_prog_info_t
+#define MAP_PERFECT_HASH_C 478U
+#define MAP_PERFECT_KEY key.uc
+#define MAP_PERFECT_KEY_T fd_pubkey_t const *
+#define MAP_PERFECT_ZERO_KEY  (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0)
+#define MAP_PERFECT_COMPLEX_KEY 1
+#define MAP_PERFECT_KEYS_EQUAL(k1,k2) (!memcmp( (k1), (k2), 32UL ))
+
+#define PERFECT_HASH( u ) (((MAP_PERFECT_HASH_C*(u))>>28)&0xFU)
+
+#define MAP_PERFECT_HASH_PP( a00,a01,a02,a03,a04,a05,a06,a07,a08,a09,a10,a11,a12,a13,a14,a15, \
+                             a16,a17,a18,a19,a20,a21,a22,a23,a24,a25,a26,a27,a28,a29,a30,a31) \
+                                          PERFECT_HASH( (a08 | (a09<<8) | (a10<<16) | (a11<<24)) )
+#define MAP_PERFECT_HASH_R( ptr ) PERFECT_HASH( fd_uint_load_4( (uchar const *)ptr + 8UL ) )
+
+#define MAP_PERFECT_0      ( ED25519_SV_PROG_ID      ), .fn = fd_precompile_ed25519_execute
+#define MAP_PERFECT_1      ( KECCAK_SECP_PROG_ID     ), .fn = fd_precompile_secp256k1_execute
+#define MAP_PERFECT_2      ( SECP256R1_PROG_ID       ), .fn = fd_precompile_secp256r1_execute
 
 #include "../../util/tmpl/fd_map_perfect.c"
 #undef PERFECT_HASH
@@ -114,9 +128,16 @@ fd_executor_lookup_native_program( fd_borrowed_account_t const * prog_acc ) {
        bizarrely owned by the system program. */
     is_native_program = 1;
   }
-  fd_pubkey_t const * lookup_pubkey = is_native_program ? pubkey : owner;
-  const fd_native_prog_info_t null_function = (const fd_native_prog_info_t) {0};
+  fd_pubkey_t const * lookup_pubkey         = is_native_program ? pubkey : owner;
+  const fd_native_prog_info_t null_function = {0};
   return fd_native_program_fn_lookup_tbl_query( lookup_pubkey, &null_function )->fn;
+}
+
+fd_exec_instr_fn_t
+fd_executor_lookup_native_precompile_program( fd_borrowed_account_t const * prog_acc ) {
+  fd_pubkey_t const * pubkey                = prog_acc->pubkey;
+  const fd_native_prog_info_t null_function = {0};
+  return fd_native_precompile_program_fn_lookup_tbl_query( pubkey, &null_function )->fn;
 }
 
 /* Returns 1 if the sysvar instruction is used, 0 otherwise */
@@ -1110,10 +1131,20 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       .stack_height = txn_ctx->instr_stack_sz,
     };
 
-    fd_exec_instr_fn_t native_prog_fn = fd_executor_lookup_native_program( &txn_ctx->borrowed_accounts[ instr->program_id ] );
-    fd_exec_txn_ctx_reset_return_data( txn_ctx );
+    /* Lookup whether the program is a native precompiled program first
+       https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/message_processor.rs#L88 */
+    fd_exec_instr_fn_t native_prog_fn = fd_executor_lookup_native_precompile_program( &txn_ctx->borrowed_accounts[ instr->program_id ] );
+
+    if( FD_LIKELY( native_prog_fn == NULL ) ) {
+      /* Lookup a native builtin program if the program is not a precompiled program */
+      native_prog_fn = fd_executor_lookup_native_program( &txn_ctx->borrowed_accounts[ instr->program_id ] );
+      /* Only reset the return data when executing a native builtin program (not a precompile)
+         https://github.com/anza-xyz/agave/blob/v2.1.6/program-runtime/src/invoke_context.rs#L536-L537 */
+      fd_exec_txn_ctx_reset_return_data( txn_ctx );
+    }
+
     int exec_result = FD_EXECUTOR_INSTR_SUCCESS;
-    if( native_prog_fn != NULL ) {
+    if( FD_LIKELY( native_prog_fn != NULL ) ) {
       /* Log program invokation (internally caches program_id base58) */
       fd_log_collector_program_invoke( ctx );
       exec_result = native_prog_fn( ctx );
