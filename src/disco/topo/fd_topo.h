@@ -246,12 +246,17 @@ typedef struct {
       int   vote;
       char  vote_account_path[ PATH_MAX ];
       ulong bank_tile_count;
+      ulong exec_tile_count;
       ulong full_interval;
       ulong incremental_interval;
 
       char  blockstore_file[ PATH_MAX ];
       char  blockstore_checkpt[ PATH_MAX ];
     } replay;
+
+    struct {
+      ulong dummy;
+    } exec;
 
     struct {
       ushort send_to_port;
