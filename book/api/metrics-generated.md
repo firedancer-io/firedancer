@@ -474,3 +474,18 @@
 | gossip_&#8203;gossip_&#8203;peer_&#8203;counts_&#8203;total | `gauge` | Number of gossip peers tracked (Total Peers Detected) |
 | gossip_&#8203;gossip_&#8203;peer_&#8203;counts_&#8203;active | `gauge` | Number of gossip peers tracked (Active) |
 | gossip_&#8203;gossip_&#8203;peer_&#8203;counts_&#8203;inactive | `gauge` | Number of gossip peers tracked (Inactive) |
+
+## Netlnk Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| netlnk_&#8203;drop_&#8203;events | `counter` | Number of netlink drop events caught |
+| netlnk_&#8203;link_&#8203;full_&#8203;syncs | `counter` | Number of full link table syncs done |
+| netlnk_&#8203;route_&#8203;full_&#8203;syncs | `counter` | Number of full route table syncs done |
+| netlnk_&#8203;updates_&#8203;link | `counter` | Number of netlink live updates processed (Link) |
+| netlnk_&#8203;updates_&#8203;neigh | `counter` | Number of netlink live updates processed (Neighbor Table Entry) |
+| netlnk_&#8203;updates_&#8203;ipv4_&#8203;route | `counter` | Number of netlink live updates processed (IPv4 Route Table Entry) |
+| netlnk_&#8203;interface_&#8203;count | `gauge` | Number of network interfaces |
+| netlnk_&#8203;route_&#8203;count_&#8203;local | `gauge` | Number of IPv4 routes (Local) |
+| netlnk_&#8203;route_&#8203;count_&#8203;main | `gauge` | Number of IPv4 routes (Main) |
+| netlnk_&#8203;neighbor_&#8203;solicits_&#8203;sent | `counter` | Number of neighbor solicit requests sent to kernel |
+| netlnk_&#8203;neighbor_&#8203;solicits_&#8203;fails | `counter` | Number of neighbor solicit requests that failed to send |

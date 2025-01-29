@@ -13,7 +13,7 @@ help_cmd_fn( args_t *         args,
      --config parameter. */
   FD_LOG_STDOUT(( "        --config <PATH>    Path to config TOML file\n\n" ));
   FD_LOG_STDOUT(( "SUBCOMMANDS:\n" ));
-  for( ulong i=0; ACTIONS[ i ].name ; i++ ) {
+  for( ulong i=0; ACTIONS[ i ].name; i++ ) {
     FD_LOG_STDOUT(( "    %9s    %s\n", ACTIONS[ i ].name, ACTIONS[ i ].description ));
   }
 }

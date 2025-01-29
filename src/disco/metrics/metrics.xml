@@ -599,4 +599,28 @@ metric introduced.
     <gauge   name="GossipPeerCounts" enum="GossipPeerState" clickhouse_exclude="true" summary="Number of gossip peers tracked" />
 </tile>
 
+<enum name="NetlinkMsg">
+    <int value="0" name="Link" label="Link" />
+    <int value="1" name="Neigh" label="Neighbor Table Entry" />
+    <int value="2" name="Ipv4Route" label="IPv4 Route Table Entry" />
+    <!-- <int value="3" name="Ipv4Rule" label="IPv4 Routing Rule" /> -->
+</enum>
+
+<enum name="RouteTable">
+    <int value="0" name="Local" label="Local" />
+    <int value="1" name="Main" label="Main" />
+    <!-- <int value="2" name="Other" label="Other" /> -->
+</enum>
+
+<tile name="netlnk">
+    <counter name="DropEvents" summary="Number of netlink drop events caught" />
+    <counter name="LinkFullSyncs" summary="Number of full link table syncs done" />
+    <counter name="RouteFullSyncs" summary="Number of full route table syncs done" />
+    <counter name="Updates" enum="NetlinkMsg" summary="Number of netlink live updates processed" />
+    <gauge name="InterfaceCount" summary="Number of network interfaces" />
+    <gauge name="RouteCount" enum="RouteTable" summary="Number of IPv4 routes" />
+    <counter name="NeighborSolicitsSent" summary="Number of neighbor solicit requests sent to kernel" />
+    <counter name="NeighborSolicitsFails" summary="Number of neighbor solicit requests that failed to send" />
+</tile>
+
 </metrics>
