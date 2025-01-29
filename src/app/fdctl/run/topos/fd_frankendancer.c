@@ -364,11 +364,6 @@ fd_topo_initialize( config_t * config ) {
       tile->net.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;
       tile->net.legacy_transaction_listen_port = config->tiles.quic.regular_transaction_listen_port;
 
-      /* multihome support */
-      ulong multi_cnt = tile->net.multihome_ip_addrs_cnt = config->tiles.net.multihome_ip_addrs_cnt;
-      for( ulong j = 0; j < multi_cnt; ++j ) {
-        tile->net.multihome_ip_addrs[j] = config->tiles.net.multihome_ip4_addrs[j];
-      }
     } else if( FD_UNLIKELY( !strcmp( tile->name, "netlnk" ) ) ) {
 
       /* already configured */
