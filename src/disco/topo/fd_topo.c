@@ -1,5 +1,6 @@
 #include "fd_topo.h"
 
+#include "fd_pod_format.h"
 #include "../metrics/fd_metrics.h"
 #include "../../util/wksp/fd_wksp_private.h"
 #include "../../util/shmem/fd_shmem_private.h"
@@ -197,7 +198,7 @@ fd_topo_tile_extra_huge_pages( fd_topo_tile_t const * tile ) {
        extra threads which also require stack space.  These huge
        pages need to be reserved as well. */
     extra_pages += tile->replay.tpool_thread_count*((FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL);
-  } 
+  }
   else if( FD_UNLIKELY ( !strcmp( tile->name, "batch" ) ) ) {
     /* Batch tile spawns a bunch of extra threads which also require
        stack space.  These huge pages need to be reserved as well. */
@@ -317,8 +318,12 @@ static void
 fd_topo_mem_sz_string( ulong sz, char out[static 24] ) {
   if( FD_LIKELY( sz >= FD_SHMEM_GIGANTIC_PAGE_SZ ) ) {
     FD_TEST( fd_cstr_printf_check( out, 24, NULL, "%lu GiB", sz / (1 << 30) ) );
-  } else {
+  } else if( FD_LIKELY( sz >= 1048576 ) ) {
     FD_TEST( fd_cstr_printf_check( out, 24, NULL, "%lu MiB", sz / (1 << 20) ) );
+  } else if( FD_LIKELY( sz >= 1024 ) ) {
+    FD_TEST( fd_cstr_printf_check( out, 24, NULL, "%lu KiB", sz / (1 << 10) ) );
+  } else {
+    FD_TEST( fd_cstr_printf_check( out, 24, NULL, "%lu B", sz ) );
   }
 }
 
@@ -394,6 +399,34 @@ fd_topo_print_log( int         stdout,
     char size[ 24 ];
     fd_topo_mem_sz_string( wksp->page_sz * wksp->page_cnt, size );
     PRINT( "  %2lu (%7s): %12s  page_cnt=%lu  page_sz=%-8s  numa_idx=%-2lu  footprint=%-10lu  loose=%lu\n", i, size, wksp->name, wksp->page_cnt, fd_shmem_page_sz_to_cstr( wksp->page_sz ), wksp->numa_idx, wksp->known_footprint, wksp->total_footprint - wksp->known_footprint );
+  }
+
+  PRINT( "\nOBJECTS\n" );
+  for( ulong i=0UL; i<topo->obj_cnt; i++ ) {
+    fd_topo_obj_t * obj = &topo->objs[ i ];
+
+    char size[ 24 ];
+    fd_topo_mem_sz_string( obj->footprint, size );
+    PRINT( "  %3lu: %12s %12s  wksp_id=%-2lu  footprint=%7s  offset=%lu",
+           i, topo->workspaces[ obj->wksp_id ].name, obj->name,
+           obj->wksp_id, size, obj->offset );
+    for( fd_pod_iter_t iter=fd_pod_iter_init( fd_pod_queryf_subpod( topo->props, "obj.%lu", obj->id ) );
+         !fd_pod_iter_done( iter );
+         iter=fd_pod_iter_next( iter ) ) {
+      fd_pod_info_t info = fd_pod_iter_info( iter );
+      PRINT( "  %.*s", (int)info.key_sz, info.key );
+      switch( info.val_type ) {
+      case FD_POD_VAL_TYPE_CSTR:
+        PRINT( "=%.*s", (int)info.val_sz, (char const *)info.val );
+        break;
+      case FD_POD_VAL_TYPE_ULONG: {
+        ulong val; fd_ulong_svw_dec( info.val, &val );
+        PRINT( "=%lu", val );
+        break;
+      }
+      }
+    }
+    PRINT( "\n" );
   }
 
   PRINT( "\nLINKS\n" );

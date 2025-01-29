@@ -14,7 +14,7 @@
 
    IMPORTANT!  THIS IS AN INVALIDATING OPERATION */
 
-#define FD_POD_IMPL(type,TYPE)                                                  \
+#define FD_POD_IMPL(type)                                                       \
 __attribute__ ((format (printf, 3, 4)))                                         \
 static inline ulong                                                             \
 fd_pod_insertf_##type( uchar      * FD_RESTRICT pod,                            \
@@ -31,18 +31,18 @@ fd_pod_insertf_##type( uchar      * FD_RESTRICT pod,                            
   return fd_pod_insert_##type( pod, buf, val );                                 \
 }
 
-FD_POD_IMPL( ushort, USHORT )
-FD_POD_IMPL( uint,   UINT   )
-FD_POD_IMPL( ulong,  ULONG  )
-FD_POD_IMPL( short,  SHORT )
-FD_POD_IMPL( int,    INT   )
-FD_POD_IMPL( long,   LONG  )
-FD_POD_IMPL( char,   CHAR   )
-FD_POD_IMPL( schar,  SCHAR  )
-FD_POD_IMPL( uchar,  UCHAR  )
-FD_POD_IMPL( float,  FLOAT  )
+FD_POD_IMPL( ushort )
+FD_POD_IMPL( uint   )
+FD_POD_IMPL( ulong  )
+FD_POD_IMPL( short  )
+FD_POD_IMPL( int    )
+FD_POD_IMPL( long   )
+FD_POD_IMPL( char   )
+FD_POD_IMPL( schar  )
+FD_POD_IMPL( uchar  )
+FD_POD_IMPL( float  )
 #if FD_HAS_DOUBLE
-FD_POD_IMPL( double, DOUBLE )
+FD_POD_IMPL( double )
 #endif
 
 #undef FD_POD_IMPL
@@ -70,7 +70,7 @@ fd_pod_insertf_cstr( uchar      * FD_RESTRICT pod,
 
    IMPORTANT!  THIS IS AN INVALIDATING OPERATION */
 
-#define FD_POD_IMPL(type,TYPE)                                                  \
+#define FD_POD_IMPL(type)                                                       \
 __attribute__ ((format (printf, 3, 4)))                                         \
 static inline int                                                               \
 fd_pod_replacef_##type( uchar      * FD_RESTRICT pod,                           \
@@ -92,18 +92,18 @@ fd_pod_replacef_##type( uchar      * FD_RESTRICT pod,                           
   return FD_POD_SUCCESS;                                                        \
 }
 
-FD_POD_IMPL( ushort, USHORT )
-FD_POD_IMPL( uint,   UINT   )
-FD_POD_IMPL( ulong,  ULONG  )
-FD_POD_IMPL( short,  SHORT )
-FD_POD_IMPL( int,    INT   )
-FD_POD_IMPL( long,   LONG  )
-FD_POD_IMPL( char,   CHAR   )
-FD_POD_IMPL( schar,  SCHAR  )
-FD_POD_IMPL( uchar,  UCHAR  )
-FD_POD_IMPL( float,  FLOAT  )
+FD_POD_IMPL( ushort )
+FD_POD_IMPL( uint   )
+FD_POD_IMPL( ulong  )
+FD_POD_IMPL( short  )
+FD_POD_IMPL( int    )
+FD_POD_IMPL( long   )
+FD_POD_IMPL( char   )
+FD_POD_IMPL( schar  )
+FD_POD_IMPL( uchar  )
+FD_POD_IMPL( float  )
 #if FD_HAS_DOUBLE
-FD_POD_IMPL( double, DOUBLE )
+FD_POD_IMPL( double )
 #endif
 
 #undef FD_POD_IMPL
@@ -112,12 +112,12 @@ FD_POD_IMPL( double, DOUBLE )
    is constructed from the given format string.  Returns the query
    result on success or def on failure. */
 
-#define FD_POD_IMPL(type,TYPE)                                                  \
+#define FD_POD_IMPL(type)                                                       \
 __attribute__ ((format (printf, 3, 4)))                                         \
 static inline type                                                              \
-fd_pod_queryf_##type( uchar const * FD_RESTRICT  pod,                           \
-                      type                       def,                           \
-                      char const   * FD_RESTRICT fmt, ... ) {                   \
+fd_pod_queryf_##type( uchar const * FD_RESTRICT pod,                            \
+                      type                      def,                            \
+                      char const *  FD_RESTRICT fmt, ... ) {                    \
   va_list ap;                                                                   \
   va_start( ap, fmt );                                                          \
   char buf[ 128UL ];                                                            \
@@ -129,19 +129,34 @@ fd_pod_queryf_##type( uchar const * FD_RESTRICT  pod,                           
   return fd_pod_query_##type( pod, buf, def );                                  \
 }
 
-FD_POD_IMPL( ushort, USHORT )
-FD_POD_IMPL( uint,   UINT   )
-FD_POD_IMPL( ulong,  ULONG  )
-FD_POD_IMPL( short,  SHORT )
-FD_POD_IMPL( int,    INT   )
-FD_POD_IMPL( long,   LONG  )
-FD_POD_IMPL( char,   CHAR   )
-FD_POD_IMPL( schar,  SCHAR  )
-FD_POD_IMPL( uchar,  UCHAR  )
-FD_POD_IMPL( float,  FLOAT  )
+FD_POD_IMPL( ushort )
+FD_POD_IMPL( uint   )
+FD_POD_IMPL( ulong  )
+FD_POD_IMPL( short  )
+FD_POD_IMPL( int    )
+FD_POD_IMPL( long   )
+FD_POD_IMPL( char   )
+FD_POD_IMPL( schar  )
+FD_POD_IMPL( uchar  )
+FD_POD_IMPL( float  )
 #if FD_HAS_DOUBLE
-FD_POD_IMPL( double, DOUBLE )
+FD_POD_IMPL( double )
 #endif
+
+__attribute__ ((format (printf, 2, 3)))
+static inline uchar const *
+fd_pod_queryf_subpod( uchar const * FD_RESTRICT pod,
+                      char const *  FD_RESTRICT fmt, ... ) {
+  va_list ap;
+  va_start( ap, fmt );
+  char buf[ 128UL ];
+  int   ret = vsnprintf( buf, 128UL, fmt, ap );
+  ulong len = fd_ulong_if( ret<0, 0UL, fd_ulong_min( (ulong)ret, 128UL-1UL ) );
+  buf[ len ] = '\0';
+  va_end( ap );
+  if( FD_UNLIKELY( ret<0 || (ulong)ret>=128UL ) ) return 0UL;
+  return fd_pod_query_subpod( pod, buf );
+}
 
 #undef FD_POD_IMPL
 
