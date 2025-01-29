@@ -799,6 +799,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
      We will always create a transaction with at least 1 signature, and cap the signature count to 127 to avoid
      collisions with the header_b0 tag. */
+  int message_parse_err = 0;
   uchar num_required_signatures = fd_uchar_max( 1, fd_uchar_min( 127, (uchar) test_ctx->tx.message.header.num_required_signatures ) );
   if( !test_ctx->tx.message.is_legacy ) {
     uchar header_b0 = (uchar) 0x80UL;
@@ -842,6 +843,11 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
     // Compact array of 8-bit data
     pb_bytes_array_t * data = test_ctx->tx.message.instructions[i].data;
     if( data ) {
+      uint data_len_raw = data->size;
+      if( data_len_raw > 65535UL ) {
+        message_parse_err = -1;
+      }
+
       ushort data_len = (ushort) data->size;
       _add_compact_u16( &txn_raw_cur_ptr, data_len );
       _add_to_data( &txn_raw_cur_ptr, data->bytes, data_len );
@@ -907,6 +913,12 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   /* Setup the spad for account allocation */
   task_info->txn_ctx->spad = runner->spad;
+
+  /* Set the sanitize error if the messsage was incorrectly formatted. */
+  if( message_parse_err ) {
+    txn->flags          = 0U;
+    task_info->exec_res = FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE;
+  }
 
   fd_runtime_pre_execute_check( task_info );
 
