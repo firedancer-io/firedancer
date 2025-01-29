@@ -324,6 +324,7 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
      which should be floating. */
 
   char const * FLOATING[] = {
+    "netlnk",
     "metric",
     "cswtch",
     "bencho",
