@@ -281,6 +281,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( uint,   layout.verify_tile_count                         );
   CFG_POP      ( uint,   layout.bank_tile_count                           );
   CFG_POP      ( uint,   layout.shred_tile_count                          );
+  CFG_POP      ( uint,   layout.exec_tile_count                           );
 
   CFG_POP      ( cstr,   hugetlbfs.mount_path                             );
 
@@ -452,6 +453,7 @@ fdctl_cfg_validate( config_t * cfg ) {
   CFG_HAS_NON_ZERO ( layout.verify_tile_count );
   CFG_HAS_NON_ZERO ( layout.bank_tile_count );
   CFG_HAS_NON_ZERO ( layout.shred_tile_count );
+  CFG_HAS_NON_ZERO ( layout.exec_tile_count );
 
   CFG_HAS_NON_EMPTY( hugetlbfs.mount_path );
 

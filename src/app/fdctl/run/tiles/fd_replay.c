@@ -66,14 +66,14 @@
 #define GOSSIP_OUT_IDX (3UL)
 #define STORE_OUT_IDX  (4UL)
 #define POH_OUT_IDX    (5UL)
-#define REPLAY_PLUG_OUT_IDX (6UL)
-#define VOTES_PLUG_OUT_IDX (7UL)
 
 #define VOTE_ACC_MAX   (2000000UL)
 
 #define BANK_HASH_CMP_LG_MAX 16
 
 struct fd_replay_out_ctx {
+  ulong            idx; /* TODO refactor the bank_out to use this */
+
   fd_frag_meta_t * mcache;
   ulong *          sync;
   ulong            depth;
@@ -176,12 +176,13 @@ struct fd_replay_tile_ctx {
   ulong       stake_weights_out_chunk;
 
   // Inputs to plugin/gui
-
+  ulong       replay_plug_out_idx;
   fd_wksp_t * replay_plugin_out_mem;
   ulong       replay_plugin_out_chunk0;
   ulong       replay_plugin_out_wmark;
   ulong       replay_plugin_out_chunk;
 
+  ulong       votes_plug_out_idx;
   fd_wksp_t * votes_plugin_out_mem;
   ulong       votes_plugin_out_chunk0;
   ulong       votes_plugin_out_wmark;
@@ -262,7 +263,11 @@ struct fd_replay_tile_ctx {
 
   ulong * bank_busy[ FD_PACK_MAX_BANK_TILES ];
   ulong   bank_cnt;
-  fd_replay_out_ctx_t bank_out[ FD_PACK_MAX_BANK_TILES ];
+  fd_replay_out_ctx_t bank_out[ FD_PACK_MAX_BANK_TILES ]; /* Sending to PoH finished txns + a couple more tasks ??? */
+
+  ulong   exec_cnt;
+  ulong   exec_out_idx;
+  fd_replay_out_ctx_t exec_out[ FD_PACK_MAX_BANK_TILES ]; /* Sending to exec unexecuted txns */
 
   ulong root; /* the root slot is the most recent slot to have reached
                  max lockout in the tower  */
@@ -1139,7 +1144,7 @@ replay_plugin_publish( fd_replay_tile_ctx_t * ctx,
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->replay_plugin_out_mem, ctx->replay_plugin_out_chunk );
   fd_memcpy( dst, data, data_sz );
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, REPLAY_PLUG_OUT_IDX, sig, ctx->replay_plugin_out_chunk, data_sz, 0UL, 0UL, tspub );
+  fd_stem_publish( stem, ctx->replay_plug_out_idx, sig, ctx->replay_plugin_out_chunk, data_sz, 0UL, 0UL, tspub );
   ctx->replay_plugin_out_chunk = fd_dcache_compact_next( ctx->replay_plugin_out_chunk, data_sz, ctx->replay_plugin_out_chunk0, ctx->replay_plugin_out_wmark );
 }
 
@@ -1486,7 +1491,7 @@ poh_verify_task( void * tpool, /* poh_verifier * */
 /* Verifies a microblock batch validity. */
 
 static int
-process_mbatch( fd_replay_tile_ctx_t * ctx, bool last_batch ){
+process_mbatch( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem, bool last_batch ){
   #define wait_and_check_success( worker_idx )         \
     fd_tpool_wait( ctx->tpool, worker_idx );           \
     if( poh_info[ worker_idx ].success ) {             \
@@ -1578,6 +1583,10 @@ process_mbatch( fd_replay_tile_ctx_t * ctx, bool last_batch ){
       /* Execute Transaction  */
 
       /* dispatch into MCACHE / DCACHE */
+      fd_replay_out_ctx_t * out = &ctx->exec_out[ 0 ];
+      fd_stem_publish( stem, out->idx, 0, out->chunk, sizeof(fd_txn_p_t), 0UL, 0UL, 0UL );
+      out->chunk = fd_dcache_compact_next( out->chunk,  sizeof(fd_txn_p_t), out->chunk0, out->wmark );
+
 
       /*int res = fd_runtime_process_txns( ctx->slot_ctx, ctx->spads[1], ctx->capture_ctx, &txn_p, 1 );
       fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &ctx->curr_slot, NULL, ctx->forks->pool );
@@ -1765,7 +1774,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
             FD_LOG_ERR(( "Failed to assemble microblock batch" ));
           }
 
-          int res = process_mbatch( ctx, idx == block_map_entry->slot_complete_idx );
+          int res = process_mbatch( ctx, stem, idx == block_map_entry->slot_complete_idx );
           if( FD_UNLIKELY( res ) ){
             // TODO: handle invalid batch how & do thread handling
             FD_LOG_ERR(( "Failed to process microblock batch" ));
@@ -2505,7 +2514,7 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
   *(ulong *)dst = i;
 
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_stem_publish( stem, VOTES_PLUG_OUT_IDX, FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE, ctx->votes_plugin_out_chunk, 0, 0UL, 0UL, tspub );
+  fd_stem_publish( stem, ctx->votes_plug_out_idx, FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE, ctx->votes_plugin_out_chunk, 0, 0UL, 0UL, tspub );
   ctx->votes_plugin_out_chunk = fd_dcache_compact_next( ctx->votes_plugin_out_chunk, 8UL + 40200UL*(58UL+12UL*34UL), ctx->votes_plugin_out_chunk0, ctx->votes_plugin_out_wmark );
 }
 
@@ -2984,6 +2993,26 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->poh_init_done = 0U;
   ctx->snapshot_init_done = 0;
 
+  /**********************************************************************/
+  /* exec                                                               */
+  /**********************************************************************/
+  ctx->exec_cnt = tile->replay.exec_tile_count;
+  for( ulong i = 0UL; i < ctx->exec_cnt; i++ ) {
+    ulong idx = fd_topo_find_tile_out_link( topo, tile, "replay_exec", i );
+    fd_topo_link_t * exec_out_link = &topo->links[ tile->out_link_id[ idx ] ];
+
+    if( strcmp( exec_out_link->name, "replay_exec" ) ) {
+      FD_LOG_ERR(("output link confusion for output %lu", idx ));
+    }
+
+    fd_replay_out_ctx_t * exec_out = &ctx->exec_out[ i ];
+    exec_out->idx              = idx;
+    exec_out->mem              = topo->workspaces[ topo->objs[ exec_out_link->dcache_obj_id ].wksp_id ].wksp;
+    exec_out->chunk0           = fd_dcache_compact_chunk0( exec_out->mem, exec_out_link->dcache );
+    exec_out->wmark            = fd_dcache_compact_wmark( exec_out->mem, exec_out_link->dcache, exec_out_link->mtu );
+    exec_out->chunk            = exec_out->chunk0;
+  }
+
   /* set up vote related items */
   ctx->vote                           = tile->replay.vote;
   ctx->validator_identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.identity_key_path, 1 ) );
@@ -3093,18 +3122,20 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->stake_weights_out_chunk  = ctx->stake_weights_out_chunk0;
 
   if( FD_LIKELY( tile->replay.plugins_enabled ) ) {
-    fd_topo_link_t const * replay_plugin_out = &topo->links[ tile->out_link_id[ REPLAY_PLUG_OUT_IDX] ];
+    ctx->replay_plug_out_idx = fd_topo_find_tile_out_link( topo, tile, "replay_plugi", 0 );
+    fd_topo_link_t const * replay_plugin_out = &topo->links[ tile->out_link_id[ ctx->replay_plug_out_idx] ];
     if( strcmp( replay_plugin_out->name, "replay_plugi" ) ) {
-      FD_LOG_ERR(("output link confusion for output %lu", REPLAY_PLUG_OUT_IDX));
+      FD_LOG_ERR(("output link confusion for output %lu", ctx->replay_plug_out_idx));
     }
     ctx->replay_plugin_out_mem    = topo->workspaces[ topo->objs[ replay_plugin_out->dcache_obj_id ].wksp_id ].wksp;
     ctx->replay_plugin_out_chunk0 = fd_dcache_compact_chunk0( ctx->replay_plugin_out_mem, replay_plugin_out->dcache );
     ctx->replay_plugin_out_wmark  = fd_dcache_compact_wmark ( ctx->replay_plugin_out_mem, replay_plugin_out->dcache, replay_plugin_out->mtu );
     ctx->replay_plugin_out_chunk  = ctx->replay_plugin_out_chunk0;
 
-    fd_topo_link_t const * votes_plugin_out = &topo->links[ tile->out_link_id[ VOTES_PLUG_OUT_IDX] ];
+    ctx->votes_plug_out_idx = fd_topo_find_tile_out_link( topo, tile, "votes_plugin", 0 );
+    fd_topo_link_t const * votes_plugin_out = &topo->links[ tile->out_link_id[ ctx->votes_plug_out_idx] ];
     if( strcmp( votes_plugin_out->name, "votes_plugin" ) ) {
-      FD_LOG_ERR(("output link confusion for output %lu", VOTES_PLUG_OUT_IDX));
+      FD_LOG_ERR(("output link confusion for output %lu", ctx->votes_plug_out_idx));
     }
     ctx->votes_plugin_out_mem    = topo->workspaces[ topo->objs[ votes_plugin_out->dcache_obj_id ].wksp_id ].wksp;
     ctx->votes_plugin_out_chunk0 = fd_dcache_compact_chunk0( ctx->votes_plugin_out_mem, votes_plugin_out->dcache );

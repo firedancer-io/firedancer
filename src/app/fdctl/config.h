@@ -143,6 +143,7 @@ typedef struct {
     uint verify_tile_count;
     uint bank_tile_count;
     uint shred_tile_count;
+    uint exec_tile_count; /* TODO: redundant ish with bank tile cnt */
   } layout;
 
   struct {
