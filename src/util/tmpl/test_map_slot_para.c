@@ -417,13 +417,13 @@ tile_main( int     argc,
 
           FD_TEST( (ulong)(ele-ele0)<ele_max );
 
-          uint  key  = ele->mykey;
-          uint  mod  = ele->mod;
-          ulong memo = mymap_key_hash( &key, seed );
+          uint  key   = ele->mykey;
+          uint  mod   = ele->mod;
 
-          FD_TEST( ele->mymemo==memo        );
-          FD_TEST( ele->val   ==(key ^ mod) );
-          FD_TEST( ele->used                );
+          FD_TEST( mymap_key_hash( &key, seed )==memo );
+          FD_TEST( ele->mymemo==memo                  );
+          FD_TEST( ele->val   ==(key ^ mod)           );
+          FD_TEST( ele->used                          );
 
           if( !rdonly ) {
             mod++;

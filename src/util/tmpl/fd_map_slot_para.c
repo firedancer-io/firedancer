@@ -1386,6 +1386,12 @@ MAP_STATIC MAP_(t) * MAP_(join)  ( void * ljoin, void * shmap, void * shele );
 MAP_STATIC void *    MAP_(leave) ( MAP_(t) * join );
 MAP_STATIC void *    MAP_(delete)( void * shmap );
 
+MAP_STATIC void
+MAP_(hint)( MAP_(t) const *   join,
+            MAP_KEY_T const * key,
+            MAP_(query_t) *   query,
+            int               flags );
+
 MAP_STATIC int
 MAP_(prepare)( MAP_(t) *         join,
                MAP_KEY_T const * key,
@@ -2227,12 +2233,12 @@ MAP_(iter_init)( MAP_(t) *      join,
 
       if( FD_UNLIKELY( MAP_(private_ele_is_free)( ctx, ele ) ) ) break; /* opt for first pass low collision */
 
+      iter_start = fd_ulong_if( iter_cnt==0UL, ele_idx, iter_start );
 #     if MAP_MEMOIZE
       iter_cnt += (ulong)(ele->MAP_MEMO==memo);
 #     else
       iter_cnt += (ulong)(MAP_(key_hash)( &ele->MAP_KEY, seed )==memo);
 #     endif
-      iter_start = fd_ulong_if( iter_cnt==1UL, ele_idx, iter_start );
 
       /* Continue probing, locking as necessary.  If we can't acquire a
          lock, fail. */
