@@ -55,11 +55,11 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
     FD_LOG_ERR(( "workspace \"%s\" does not contain a blockstore", wksp_name ));
   }
   void * shmem = fd_wksp_laddr_fast( wksp, info.gaddr_lo );
-  args->blockstore = fd_blockstore_join( shmem );
+  args->blockstore = fd_blockstore_join( &args->blockstore_ljoin, shmem );
   if( args->blockstore == NULL ) {
     FD_LOG_ERR(( "failed to join a blockstore" ));
   }
-  FD_LOG_NOTICE(( "blockstore has slot root=%lu", args->blockstore->smr ));
+  FD_LOG_NOTICE(( "blockstore has slot root=%lu", args->blockstore->shmem->smr ));
   fd_wksp_mprotect( wksp, 1 );
 
   fd_pubkey_t identity_key[1]; /* Just the public key */
@@ -135,11 +135,11 @@ init_args_offline( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
     FD_LOG_ERR(( "workspace does not contain a blockstore" ));
   }
   void * shmem = fd_wksp_laddr_fast( wksp, info.gaddr_lo );
-  args->blockstore = fd_blockstore_join( shmem );
+  args->blockstore = fd_blockstore_join( &args->blockstore_ljoin, shmem );
   if( args->blockstore == NULL ) {
     FD_LOG_ERR(( "failed to join a blockstore" ));
   }
-  FD_LOG_NOTICE(( "blockstore has slot root=%lu", args->blockstore->smr ));
+  FD_LOG_NOTICE(( "blockstore has slot root=%lu", args->blockstore->shmem->smr ));
   fd_wksp_mprotect( wksp, 1 );
 
   args->port = (ushort)fd_env_strip_cmdline_ulong( argc, argv, "--port", NULL, 8899 );

@@ -26,6 +26,7 @@
 
 struct fd_geyser {
   fd_funk_t *          funk;
+  fd_blockstore_t      blockstore_ljoin;
   fd_blockstore_t *    blockstore;
   int                  blockstore_fd;
   fd_stake_ci_t *      stake_ci;
@@ -81,12 +82,12 @@ fd_geyser_new( void * mem, fd_geyser_args_t * args ) {
     FD_LOG_ERR(( "workspace \"%s\" does not contain a blockstore", args->blockstore_wksp ));
   }
   void * shmem = fd_wksp_laddr_fast( wksp, info.gaddr_lo );
-  self->blockstore = fd_blockstore_join( shmem );
-  if( self->blockstore == NULL ) {
+  self->blockstore = fd_blockstore_join( &self->blockstore_ljoin, shmem );
+  if( self->blockstore->shmem->magic != FD_BLOCKSTORE_MAGIC ) {
     FD_LOG_ERR(( "failed to join a blockstore" ));
   }
   self->blockstore_fd = args->blockstore_fd;
-  FD_LOG_NOTICE(( "blockstore has slot root=%lu", self->blockstore->smr ));
+  FD_LOG_NOTICE(( "blockstore has slot root=%lu", self->blockstore->shmem->smr ));
   fd_wksp_mprotect( wksp, 1 );
 
   fd_pubkey_t identity_key[1]; /* Just the public key */

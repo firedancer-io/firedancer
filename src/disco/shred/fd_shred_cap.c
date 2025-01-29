@@ -56,7 +56,7 @@ fd_shred_cap_replay( const char *      shred_cap_fpath,
     if ( bytes_read != shred_len ) break;
 
     fd_shred_t const * shred = fd_shred_parse( buffer, shred_len );
-    if ( fd_store_shred_insert( store, shred ) < FD_BLOCKSTORE_OK ) return FD_SHRED_CAP_ERR;
+    if ( fd_store_shred_insert( store, shred ) < FD_BLOCKSTORE_SUCCESS ) return FD_SHRED_CAP_ERR;
     cnt++;
     /*
     if ( FD_SHRED_CAP_FLAG_IS_TURBINE(header.flags) ) {
