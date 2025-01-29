@@ -1447,11 +1447,13 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
                               general transaction execution
 
   */
-  err = fd_executor_verify_precompiles( txn_ctx );
-  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    task_info->txn->flags = 0U;
-    task_info->exec_res   = err;
-    return;
+  if( !FD_FEATURE_ACTIVE( task_info->txn_ctx->slot_ctx, move_precompile_verification_to_svm ) ) {
+    err = fd_executor_verify_precompiles( txn_ctx );
+    if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+      task_info->txn->flags = 0U;
+      task_info->exec_res   = err;
+      return;
+    }
   }
 
   /* Post-sanitization checks. Called from `prepare_sanitized_batch()` which, for now, only is used

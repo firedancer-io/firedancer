@@ -1082,3 +1082,4 @@ dump/test-vectors/txn/fixtures/precompile/ed25519/w96_023faa36ae0836ed.fix
 dump/test-vectors/txn/fixtures/precompile/ed25519/w97_a02e1a76479dabd7.fix
 dump/test-vectors/txn/fixtures/precompile/ed25519/w98_285fe2c654bd2c96.fix
 dump/test-vectors/txn/fixtures/precompile/ed25519/w99_74c018241625de25.fix
+dump/test-vectors/txn/fixtures/precompile/ed25519/a5dc9bd00330f535309d9e0643f1b14eb209d6ea_1120365.fix
