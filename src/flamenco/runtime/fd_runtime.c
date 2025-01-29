@@ -1209,12 +1209,7 @@ fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
   while ( batch_idx <= query->slot_complete_idx ) {
     batch_cnt++;
     ulong batch_sz = 0;
-    FD_TEST( fd_blockstore_batch_assemble( blockstore,
-                                           slot,
-                                           (uint) batch_idx,
-                                           block_data_sz,
-                                           block_data,
-                                           &batch_sz ) == FD_BLOCKSTORE_OK );
+    FD_TEST( fd_blockstore_slice_query( blockstore, slot, (uint) batch_idx, block_data_sz, block_data, &batch_sz ) == FD_BLOCKSTORE_SUCCESS );
     ulong micro_cnt = FD_LOAD( ulong, block_data );
     ulong off       = sizeof(ulong);
     for( ulong i = 0UL; i < micro_cnt; i++ ){
