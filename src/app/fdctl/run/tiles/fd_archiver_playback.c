@@ -17,6 +17,14 @@
 #define FD_ARCHIVER_PLAYBACK_ALLOC_TAG   (3UL)
 #define FD_ARCHIVER_PLAYBACK_READ_BUF_SZ (10240UL)
 
+struct fd_archiver_playback_stats {
+  ulong net_shred_out_cnt;
+  ulong quic_verify_out_cnt;
+  ulong net_gossip_out_cnt;
+  ulong net_repair_out_cnt;
+};
+typedef struct fd_archiver_playback_stats fd_archiver_playback_stats_t;
+
 typedef struct {
   fd_wksp_t * mem;
   ulong       chunk0;
@@ -27,6 +35,8 @@ typedef struct {
 struct fd_archiver_playback_tile_ctx {
   void * read_buf;
   fd_io_buffered_istream_t archive_istream;
+
+  fd_archiver_playback_stats_t stats;
 
   fd_alloc_t * alloc;
   fd_valloc_t  valloc;
@@ -215,8 +225,9 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
   /* Consume the header, to determine which output link to send the fragment on. */
   fd_archiver_frag_header_t header;
   if( FD_UNLIKELY( fd_io_buffered_istream_fetch( &ctx->archive_istream ) ) ) {
+    FD_LOG_WARNING(( "playback_stats net_shred_out_cnt=%lu, quic_verify_out_cnt=%lu, net_gossip_out_cnt=%lu, net_repair_out_cnt=%lu", ctx->stats.net_shred_out_cnt, ctx->stats.quic_verify_out_cnt, ctx->stats.net_gossip_out_cnt, ctx->stats.net_repair_out_cnt ));
+    FD_LOG_ERR(( "failed to fetch" ));
     return;
-    // FD_LOG_ERR(( "failed to fetch" ));
   }
   ulong peek_sz = fd_io_buffered_istream_peek_sz( &ctx->archive_istream );
   if( FD_UNLIKELY(( peek_sz < FD_ARCHIVER_FRAG_HEADER_FOOTPRINT )) ) {
@@ -243,16 +254,19 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
   switch ( header.tile_id ) {
     case FD_ARCHIVER_TILE_ID_SHRED:
     out_link_idx = NET_SHRED_OUT_IDX;
+    ctx->stats.net_shred_out_cnt += 1;
     break;
     case FD_ARCHIVER_TILE_ID_VERIFY:
     out_link_idx = QUIC_VERIFY_OUT_IDX;
+    ctx->stats.quic_verify_out_cnt += 1;
     break;
     case FD_ARCHIVER_TILE_ID_GOSSIP:
-    FD_LOG_WARNING(( "publishing gossip fragment" ));
     out_link_idx = NET_GOSSIP_OUT_IDX;
+    ctx->stats.net_gossip_out_cnt += 1;
     break;
     case FD_ARCHIVER_TILE_ID_REPAIR:
     out_link_idx = NET_REPAIR_OUT_IDX;
+    ctx->stats.net_repair_out_cnt += 1;
     break;
     default:
     FD_LOG_ERR(( "unsupported tile id" ));

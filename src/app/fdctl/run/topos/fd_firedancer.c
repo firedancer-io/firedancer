@@ -286,6 +286,8 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile( topo, "arch_f", "arch_f", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
     fd_topob_tile( topo, "arch_f", "arch_f", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
     fd_topob_tile( topo, "arch_f", "arch_f", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
+
+    /* One archiver writer tile */
     fd_topob_tile( topo, "arch_w", "arch_w", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
   }
 

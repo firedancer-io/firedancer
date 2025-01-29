@@ -18,11 +18,24 @@ typedef struct {
   ulong       wmark;
 } fd_archiver_feeder_in_ctx_t;
 
+struct fd_archiver_feeder_stats {
+  ulong net_shred_in_cnt;
+  ulong quic_verify_in_cnt;
+  ulong net_gossip_in_cnt;
+  ulong net_repair_in_cnt;
+};
+typedef struct fd_archiver_feeder_stats fd_archiver_feeder_stats_t;
+
 struct fd_archiver_feeder_tile_ctx {  
   fd_wksp_t * out_mem;
   ulong       out_chunk0;
   ulong       out_wmark;
   ulong       out_chunk;
+
+  /* The archive header ID of the tile this feeder reads from */
+  uint out_archive_header_tile_id;
+
+  fd_archiver_feeder_stats_t stats;
 
   fd_archiver_feeder_in_ctx_t in[ 32 ];
 };
@@ -78,6 +91,17 @@ privileged_init( fd_topo_t *      topo,
     (void)tile;
 }
 
+static uint
+compute_archive_header_tile_id( fd_topo_tile_t const * tile ) {
+  switch (tile->kind_id) {
+  case 0UL: return FD_ARCHIVER_TILE_ID_SHRED;
+  case 1UL: return FD_ARCHIVER_TILE_ID_VERIFY;
+  case 2UL: return FD_ARCHIVER_TILE_ID_GOSSIP;
+  case 3UL: return FD_ARCHIVER_TILE_ID_REPAIR;
+  default: FD_LOG_ERR(( "unsupported tile kind_id" ));
+  }
+}
+
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {    
@@ -95,6 +119,7 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
   }
+  ctx->out_archive_header_tile_id = compute_archive_header_tile_id( tile );
 
   ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
@@ -131,26 +156,9 @@ during_frag( fd_archiver_feeder_tile_ctx_t * ctx,
     fd_archiver_frag_header_t * header = fd_type_pun( dst );
     header->magic                      = FD_ARCHIVER_HEADER_MAGIC;
     header->version                    = FD_ARCHIVER_HEADER_VERSION;
+    header->tile_id                    = ctx->out_archive_header_tile_id;
     header->tspub_comp                 = tspub;
     header->sz                         = sz;
-
-    /* Look up the tile that the net tile sent the frag to, based on the topology */
-    switch (in_idx) {
-      case NET_SHRED_IN_IDX:
-      header->tile_id = FD_ARCHIVER_TILE_ID_SHRED;
-      break;
-      case QUIC_VERIFY_IN_IDX:
-      header->tile_id = FD_ARCHIVER_TILE_ID_VERIFY;
-      break;
-      case NET_GOSSIP_IN_IDX:
-      header->tile_id = FD_ARCHIVER_TILE_ID_GOSSIP;
-      break;
-      case NET_REPAIR_IN_IDX:
-      header->tile_id = FD_ARCHIVER_TILE_ID_REPAIR;
-      break;
-      default:
-      FD_LOG_ERR(( "frag from unsupported in_idx" ));
-    }
 
     /* Write the frag to the dst */
     fd_memcpy( dst + FD_ARCHIVER_FRAG_HEADER_FOOTPRINT, src, sz );

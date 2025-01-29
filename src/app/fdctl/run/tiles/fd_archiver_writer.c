@@ -25,6 +25,8 @@ struct fd_archiver_writer_tile_ctx {
 
   fd_archiver_writer_in_ctx_t in[ 32 ];
 
+
+
   fd_alloc_t * alloc;
   fd_valloc_t  valloc;
 };
