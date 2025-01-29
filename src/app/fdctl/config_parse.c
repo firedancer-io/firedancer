@@ -293,6 +293,9 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( uint,   tiles.net.send_buffer_size                       );
   CFG_POP_ARRAY( cstr,   tiles.net.multihome_ip_addrs                     );
 
+  CFG_POP      ( ulong,  tiles.netlink.max_routes                         );
+  CFG_POP      ( ulong,  tiles.netlink.max_neighbors                      );
+
   CFG_POP      ( ushort, tiles.quic.regular_transaction_listen_port       );
   CFG_POP      ( ushort, tiles.quic.quic_transaction_listen_port          );
   CFG_POP      ( uint,   tiles.quic.txn_reassembly_count                  );
@@ -464,6 +467,9 @@ fdctl_cfg_validate( config_t * cfg ) {
   CFG_HAS_POW2     ( tiles.net.xdp_tx_queue_size );
   CFG_HAS_NON_ZERO ( tiles.net.xdp_aio_depth );
   CFG_HAS_NON_ZERO ( tiles.net.send_buffer_size );
+
+  CFG_HAS_NON_ZERO( tiles.netlink.max_routes    );
+  CFG_HAS_NON_ZERO( tiles.netlink.max_neighbors );
 
   CFG_HAS_NON_ZERO( tiles.quic.regular_transaction_listen_port );
   CFG_HAS_NON_ZERO( tiles.quic.quic_transaction_listen_port );

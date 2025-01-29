@@ -22,6 +22,7 @@ class Tile(Enum):
     REPLAY = 16
     STOREI = 17
     GOSSIP = 18
+    NETLNK = 19
 
 class MetricType(Enum):
     COUNTER = 0
@@ -54,7 +55,7 @@ class Metric:
 
     def footprint(self) -> int:
         return 8
-    
+
     def count(self) -> int:
         return 1
 
@@ -85,7 +86,7 @@ class CounterEnumMetric(Metric):
 
     def footprint(self) -> int:
         return 8 * len(self.enum.values)
-    
+
     def count(self) -> int:
         return len(self.enum.values)
 
@@ -97,7 +98,7 @@ class GaugeEnumMetric(Metric):
 
     def footprint(self) -> int:
         return 8 * len(self.enum.values)
-    
+
     def count(self) -> int:
         return len(self.enum.values)
 
@@ -140,7 +141,7 @@ class Metrics:
 def parse_metric(tile: Optional[Tile], metric: ET.Element, enums: Dict[str, MetricEnum]) -> Metric:
     name = metric.attrib['name']
     description = ""
-    
+
     summary_ele = metric.find('summary')
     if summary_ele is not None and summary_ele.text is not None:
         description = summary_ele.text
@@ -201,7 +202,7 @@ def parse_metrics(xml_data: str) -> Metrics:
         Tile[tile.attrib['name'].upper()]: [
             parse_metric(Tile[tile.attrib['name'].upper()], metric, enums)
             for metric in tile
-        ]    
+        ]
         for tile in root.findall('tile')
     }
 
@@ -212,5 +213,5 @@ def parse_metrics(xml_data: str) -> Metrics:
     link_out = root.find('linkout')
     assert link_out is not None
     link_out = [parse_metric(None, metric, enums) for metric in link_out]
-        
+
     return Metrics(common=common, tiles=tiles, link_in=link_in, link_out=link_out, enums=enums)

@@ -4,6 +4,7 @@
 #include "../../../../disco/tiles.h"
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_pod_format.h"
+#include "../../../../disco/netlink/fd_netlink_tile.h" /* fd_netlink_topo_create */
 #include "../../../../util/tile/fd_tile_private.h"
 #include "../../../../util/shmem/fd_shmem_private.h"
 
@@ -19,6 +20,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
 
   /*             topo, name */
+  fd_topob_wksp( topo, "netbase"      );
   fd_topob_wksp( topo, "net_quic"     );
   fd_topob_wksp( topo, "net_shred"    );
   fd_topob_wksp( topo, "quic_verify"  );
@@ -38,6 +40,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "sign_shred"   );
 
   fd_topob_wksp( topo, "net"          );
+  fd_topob_wksp( topo, "netlnk"       );
   fd_topob_wksp( topo, "quic"         );
   fd_topob_wksp( topo, "verify"       );
   fd_topob_wksp( topo, "dedup"        );
@@ -106,6 +109,8 @@ fd_topo_initialize( config_t * config ) {
 
   /*                                  topo, tile_name, tile_wksp, metrics_wksp, cpu_idx,                       is_agave */
   FOR(net_tile_cnt)    fd_topob_tile( topo, "net",     "net",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
+  fd_topo_tile_t * netlink_tile =
+  /**/                 fd_topob_tile( topo, "netlnk" , "netlnk",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
   FOR(quic_tile_cnt)   fd_topob_tile( topo, "quic",    "quic",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
   FOR(verify_tile_cnt) fd_topob_tile( topo, "verify",  "verify",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
   /**/                 fd_topob_tile( topo, "dedup",   "dedup",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
@@ -155,6 +160,13 @@ fd_topo_initialize( config_t * config ) {
         topo->agave_affinity_cpu_idx[ topo->agave_affinity_cnt++ ] = agave_cpu[ i ];
       }
     }
+  }
+
+  /* The netlink tile shares various objects to net tiles */
+  fd_netlink_topo_create( netlink_tile, topo, config );
+  for( ulong i=0UL; i<net_tile_cnt; i++ ) {
+    ulong net_tile_id = fd_topo_find_tile( topo, "net", i ); FD_TEST( net_tile_id!=ULONG_MAX );
+    fd_netlink_topo_join( topo, netlink_tile, &topo->tiles[ net_tile_id ] );
   }
 
   /*                                      topo, tile_name, tile_kind_id, fseq_wksp,   link_name,      link_kind_id, reliable,            polled */
@@ -357,6 +369,10 @@ fd_topo_initialize( config_t * config ) {
       for( ulong j = 0; j < multi_cnt; ++j ) {
         tile->net.multihome_ip_addrs[j] = config->tiles.net.multihome_ip4_addrs[j];
       }
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "netlnk" ) ) ) {
+
+      /* already configured */
+
     } else if( FD_UNLIKELY( !strcmp( tile->name, "quic" ) ) ) {
       fd_memcpy( tile->quic.src_mac_addr, config->tiles.net.mac_addr, 6 );
 

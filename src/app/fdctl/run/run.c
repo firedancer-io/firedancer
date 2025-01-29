@@ -15,6 +15,9 @@
 #include "../../../flamenco/runtime/fd_txncache.h"
 #include "../../../funk/fd_funk_filemap.h"
 #include "../../../funk/fd_funk.h"
+#include "../../../waltz/ip/fd_fib4.h"
+#include "../../../waltz/mib/fd_dbl_buf.h"
+#include "../../../waltz/neigh/fd_neigh4_map.h"
 #include "../configure/configure.h"
 
 #include <dirent.h>
@@ -538,14 +541,22 @@ fdctl_obj_new( fd_topo_t const *     topo,
     FD_TEST( fd_fseq_new( laddr, ULONG_MAX ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
     FD_TEST( fd_metrics_new( laddr, VAL("in_cnt"), VAL("cons_cnt") ) );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "opaque" ) ) ) {
+    fd_memset( laddr, 0, VAL("footprint") );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "ulong" ) ) ) {
     *(ulong*)laddr = 0;
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "dbl_buf" ) ) ) {
+    FD_TEST( fd_dbl_buf_new( laddr, VAL("mtu"), 1UL ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
     FD_TEST( fd_blockstore_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
     FD_TEST( fd_funk_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("txn_max"), VAL("rec_max") ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
     FD_TEST( fd_txncache_new( laddr, VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "neigh4_hmap" ) ) )  {
+    FD_TEST( fd_neigh4_hmap_new( laddr, VAL("ele_max"), VAL("lock_cnt"), VAL("probe_max"), VAL("seed") ) );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "fib4" ) ) ) {
+    FD_TEST( fd_fib4_new( laddr, VAL("route_max") ) );
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
   }

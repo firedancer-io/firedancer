@@ -1,0 +1,37 @@
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+#
+# nl_mon_fd: An rtnetlink socket used to monitor updates
+# nl_req_fd: An rtnetlink socket used for request-reply
+unsigned int logfile_fd, unsigned int nl_mon_fd, unsigned int nl_req_fd
+
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all messages
+# are always written to the log file.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR and descriptor 4 is the logfile.
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.  The boot process ensures that
+# descriptor 3 is always the logfile.
+fsync: (eq (arg 0) logfile_fd)
+
+# sendto(2) is used to send netlink requests to the kernel
+# (In theory could use send(2) but that syscall doesn't exist on arm64)
+sendto: (and (eq (arg 0) nl_req_fd)
+             (eq (arg 3) 0)
+             (eq (arg 4) 0)
+             (eq (arg 5) 0))
+
+# recvfrom(2) is used to receive netlink responses from the kernel
+# (Using recvfrom(2) instead of recv(2) for same ABI reasons as above)
+recvfrom: (and (or (eq (arg 0) nl_mon_fd)
+                   (eq (arg 0) nl_req_fd))
+               (eq (arg 3) 0)
+               (eq (arg 4) 0)
+               (eq (arg 5) 0))

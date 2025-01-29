@@ -149,6 +149,15 @@ typedef struct {
     } net;
 
     struct {
+      ulong netdev_dbl_buf_obj_id; /* dbl_buf containing netdev_tbl */
+      ulong fib4_main_obj_id;      /* fib4 containing main route table */
+      ulong fib4_local_obj_id;     /* fib4 containing local route table */
+      uint  neigh_if_idx;          /* neigh4 interface index */
+      ulong neigh4_obj_id;         /* neigh4 hash map header */
+      ulong neigh4_ele_obj_id;     /* neigh4 hash map slots */
+    } netlink;
+
+    struct {
       uint   out_depth;
       uint   reasm_cnt;
       ulong  max_concurrent_connections;
