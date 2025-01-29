@@ -16,7 +16,7 @@ my_execute_fun(fd_replay_notif_msg_t const * msg, void * arg) {
 }
 
 static void
-my_block_fun(ulong slot, fd_block_map_t const * meta, fd_hash_t const * parent, uchar const * data, ulong data_sz, void * arg) {
+my_block_fun(ulong slot, fd_block_meta_t const * meta, fd_hash_t const * parent, uchar const * data, ulong data_sz, void * arg) {
   (void)data;
   (void)arg;
   char bank_hash[50];
