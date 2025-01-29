@@ -1210,7 +1210,7 @@ fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
   while ( batch_idx <= query->slot_complete_idx ) {
     batch_cnt++;
     ulong batch_sz = 0;
-    FD_TEST( fd_blockstore_batch_assemble( blockstore, 
+    FD_TEST( fd_blockstore_batch_query( blockstore, 
                                            slot, 
                                            (uint) batch_idx, 
                                            scratch_sz, 

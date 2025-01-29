@@ -722,9 +722,9 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
     FD_TEST( blk->txns_meta_gaddr + blk->txns_meta_sz == fd_wksp_gaddr_fast( wksp, cur_laddr ) );
   }
 
-  blockstore->lps = slot;
-  blockstore->hcs = slot;
-  blockstore->smr = slot;
+  blockstore->shmem->lps = slot;
+  blockstore->shmem->hcs = slot;
+  blockstore->shmem->smr = slot;
 
   if( FD_LIKELY( block_map_entry ) ) {
     block_map_entry->flags = 

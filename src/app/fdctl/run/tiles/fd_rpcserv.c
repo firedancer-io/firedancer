@@ -190,7 +190,7 @@ privileged_init( fd_topo_t *      topo,
   /* Blockstore setup */
   ulong blockstore_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "blockstore" );
   FD_TEST( blockstore_obj_id!=ULONG_MAX );
-  args->blockstore = fd_blockstore_join( fd_topo_obj_laddr( topo, blockstore_obj_id ) );
+  args->blockstore = fd_blockstore_join( &args->blockstore_ljoin, fd_topo_obj_laddr( topo, blockstore_obj_id ) );
   FD_TEST( args->blockstore!=NULL );
   ctx->blockstore_fd = open( tile->replay.blockstore_file, O_RDONLY );
   if ( FD_UNLIKELY(ctx->blockstore_fd == -1) ){

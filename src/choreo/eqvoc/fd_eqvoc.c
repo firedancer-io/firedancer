@@ -170,34 +170,34 @@ fd_eqvoc_fec_search( fd_eqvoc_t const * eqvoc, fd_shred_t const * shred ) {
 
 int
 fd_eqvoc_fec_verify( FD_PARAM_UNUSED fd_eqvoc_t const * eqvoc,
-                     fd_blockstore_t *                  blockstore,
-                     ulong                              slot,
-                     uint                               fec_set_idx,
-                     fd_hash_t *                        chained_hash ) {
+                     FD_PARAM_UNUSED fd_blockstore_t *                  blockstore,
+                     FD_PARAM_UNUSED ulong                              slot,
+                     FD_PARAM_UNUSED uint                               fec_set_idx,
+                     FD_PARAM_UNUSED fd_hash_t *                        chained_hash ) {
 
-  fd_shred_t * shred = NULL;
-  uint         idx   = fec_set_idx;
-  do {
-    fd_blockstore_start_read( blockstore );
-    shred = fd_buf_shred_query( blockstore, slot, idx );
-    fd_blockstore_end_read( blockstore );
+  // fd_shred_t * shred = NULL;
+  // uint         idx   = fec_set_idx;
+  // do {
+  //   fd_blockstore_start_read( blockstore );
+  //   shred = fd_buf_shred_query( blockstore, slot, idx );
+  //   fd_blockstore_end_read( blockstore );
 
-#if FD_EQVOC_USE_HANDHOLDING
-    if( FD_UNLIKELY( !shred ) ) {
-      FD_LOG_WARNING(( "[%s] couldn't find shred %lu %u", __func__, slot, fec_set_idx ));
-      return 0;
-    }
-#endif
+  //   #if FD_EQVOC_USE_HANDHOLDING
+  //   if( FD_UNLIKELY( !shred ) ) {
+  //     FD_LOG_WARNING(( "[%s] couldn't find shred %lu %u", __func__, slot, fec_set_idx ));
+  //     return 0;
+  //   }
+  //   #endif
 
-#if FD_EQVOC_USE_HANDHOLDING
-    FD_TEST( fd_shred_is_chained( fd_shred_type( shred->variant ) ) );
-#endif
+  //   #if FD_EQVOC_USE_HANDHOLDING
+  //   FD_TEST( fd_shred_is_chained( fd_shred_type( shred->variant ) ) );
+  //   #endif
 
-    if( FD_UNLIKELY( 0 != memcmp( chained_hash, shred + fd_shred_chain_off( shred->variant ), FD_SHRED_MERKLE_ROOT_SZ ) ) ) {
-      return 0;
-    }
+  //   if( FD_UNLIKELY( 0 != memcmp( chained_hash, shred + fd_shred_chain_off( shred->variant ), FD_SHRED_MERKLE_ROOT_SZ ) ) ) {
+  //     return 0;
+  //   }
 
-  } while( shred->fec_set_idx == fec_set_idx );
+  // } while( shred->fec_set_idx == fec_set_idx );
 
   return 1;
 }

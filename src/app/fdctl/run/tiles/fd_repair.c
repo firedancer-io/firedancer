@@ -103,6 +103,7 @@ struct fd_repair_tile_ctx {
   fd_stem_context_t * stem;
 
   fd_wksp_t  *      blockstore_wksp;
+  fd_blockstore_t   blockstore_ljoin;
   fd_blockstore_t * blockstore;
 
   fd_keyguard_client_t keyguard_client[1];
@@ -524,7 +525,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_repair_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_tile_ctx_t), sizeof(fd_repair_tile_ctx_t) );
-  ctx->repair = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(), fd_repair_footprint() );
+  ctx->blockstore = &ctx->blockstore_ljoin;
+  ctx->repair     = FD_SCRATCH_ALLOC_APPEND( l, fd_repair_align(), fd_repair_footprint() );
 
   void * smem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( FD_REPAIR_SCRATCH_MAX ) );
   void * fmem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( FD_REPAIR_SCRATCH_DEPTH ) );
@@ -572,7 +574,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "no blocktore workspace" ));
   }
 
-  ctx->blockstore = fd_blockstore_join( fd_topo_obj_laddr( topo, blockstore_obj_id ) );
+  ctx->blockstore = fd_blockstore_join( &ctx->blockstore_ljoin, fd_topo_obj_laddr( topo, blockstore_obj_id ) );
   FD_TEST( ctx->blockstore!=NULL );
 
   fd_topo_link_t * netmux_link = &topo->links[ tile->in_link_id[ 0 ] ];

@@ -1134,13 +1134,13 @@ fd_write_good_peer_cache_file( fd_repair_t * repair ) {
 
 int
 fd_repair_need_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) {
-  // FD_LOG_INFO( ( "[repair] need window %lu, shred_index %lu", slot, shred_index ) );
+  // FD_LOG_NOTICE(( "[repair] need window %lu, shred_index %u", slot, shred_index ));
   return fd_repair_create_needed_request( glob, fd_needed_window_index, slot, shred_index );
 }
 
 int
 fd_repair_need_highest_window_index( fd_repair_t * glob, ulong slot, uint shred_index ) {
-  // FD_LOG_INFO( ( "[repair] need highest %lu", slot ) );
+  // FD_LOG_NOTICE(( "[repair] need highest %lu", slot ));
   return fd_repair_create_needed_request( glob, fd_needed_highest_window_index, slot, shred_index );
 }
 

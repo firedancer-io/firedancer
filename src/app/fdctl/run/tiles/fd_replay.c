@@ -235,8 +235,9 @@ struct fd_replay_tile_ctx {
 
   /* Depends on store_int and is polled in after_credit */
 
-  fd_blockstore_t * blockstore;
+  fd_blockstore_t   blockstore_ljoin;
   int               blockstore_fd; /* file descriptor for archival file */
+  fd_blockstore_t * blockstore;
 
   /* Updated during execution */
 
@@ -1164,7 +1165,7 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
     msg->type = FD_REPLAY_SLOT_TYPE;
     msg->slot_exec.slot = curr_slot;
     msg->slot_exec.parent = ctx->parent_slot;
-    msg->slot_exec.root = ctx->blockstore->smr;
+    msg->slot_exec.root = ctx->blockstore->shmem->smr;
     msg->slot_exec.height = ( block_map_entry ? block_map_entry->block_height : 0UL );
     msg->slot_exec.transaction_count = fork->slot_ctx.slot_bank.transaction_count;
     memcpy( &msg->slot_exec.bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
@@ -1388,12 +1389,12 @@ replay_mbatch( fd_replay_tile_ctx_t * ctx, uint shred_idx_start ) {
   /* Copy shred payloads into `buf` so that they are contiguous. This is
      required because txns can span multiple shreds. */
   ulong mbatch_sz = 0;
-  int err = fd_blockstore_batch_assemble( blockstore,
-                                          slot,
-                                          shred_idx_start,
-                                          FD_MBATCH_MAX,
-                                          ctx->mbatch,
-                                          &mbatch_sz );
+  int err = fd_blockstore_batch_query( blockstore, 
+                                           slot, 
+                                           shred_idx_start, 
+                                           FD_MBATCH_MAX,
+                                           ctx->mbatch,
+                                           &mbatch_sz );
   FD_TEST( err == FD_BLOCKSTORE_OK );
   /* Loop through microblocks, parse out txns, and round-robin publish
      txns to the executor tiles. */
@@ -1646,7 +1647,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     if( FD_LIKELY( block_ ) ) {
       block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED );
       block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
-      ctx->blockstore->lps   = block_map_entry->slot;
+      ctx->blockstore->shmem->lps   = block_map_entry->slot;
       memcpy( &block_map_entry->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
     }
     fd_blockstore_end_write( ctx->blockstore );
@@ -1702,7 +1703,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
           break;
         }
         s = block_map_entry->parent_slot;
-        if( s < ctx->blockstore->smr ) {
+        if( s < ctx->blockstore->shmem->smr ) {
           break;
         }
         *(ulong*)(msg + 24U + i*8U) = s;
@@ -2138,7 +2139,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
 
   FD_LOG_NOTICE( ( "snapshot slot %lu", snapshot_slot ) );
   FD_LOG_NOTICE( ( "total stake %lu", bank_hash_cmp->total_stake ) );
-
+  FD_TEST( ctx->blockstore->shmem->magic == FD_BLOCKSTORE_MAGIC );
 }
 
 void
@@ -2162,6 +2163,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
 
     fd_runtime_read_genesis( ctx->slot_ctx, ctx->genesis, is_snapshot, ctx->capture_ctx, ctx->tpool, ctx->valloc );
     ctx->epoch_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
+
     init_after_snapshot( ctx );
 
   } FD_SCRATCH_SCOPE_END;
@@ -2302,7 +2304,7 @@ during_housekeeping( void * _ctx ) {
      root and blockstore smr. */
 
   fd_blockstore_start_read( ctx->blockstore );
-  ulong wmk = fd_ulong_min( ctx->root, ctx->blockstore->smr );
+  ulong wmk = fd_ulong_min( ctx->root, ctx->blockstore->shmem->smr );
   fd_blockstore_end_read( ctx->blockstore );
 
   if ( FD_LIKELY( wmk <= fd_fseq_query( ctx->wmk ) ) ) return;
@@ -2404,7 +2406,6 @@ unprivileged_init( fd_topo_t *      topo,
   /**********************************************************************/
 
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
-  ctx->blockstore = NULL;
 
   ulong blockstore_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "blockstore" );
   FD_TEST( blockstore_obj_id!=ULONG_MAX );
@@ -2413,8 +2414,9 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "no blockstore wksp" ));
   }
 
-  ctx->blockstore = fd_blockstore_join( fd_topo_obj_laddr( topo, blockstore_obj_id ) );
-  FD_TEST( ctx->blockstore!=NULL );
+  ctx->blockstore = fd_blockstore_join( &ctx->blockstore_ljoin, fd_topo_obj_laddr( topo, blockstore_obj_id ) );
+  fd_buf_shred_pool_reset( ctx->blockstore->shred_pool, 0 );
+  FD_TEST( ctx->blockstore->shmem->magic == FD_BLOCKSTORE_MAGIC );
 
   ulong status_cache_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "txncache" );
   FD_TEST( status_cache_obj_id != ULONG_MAX );

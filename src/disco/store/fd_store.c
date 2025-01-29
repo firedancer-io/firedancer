@@ -89,7 +89,7 @@ fd_store_slot_prepare( fd_store_t *   store,
                        ulong          slot,
                        ulong *        repair_slot_out ) {
   fd_blockstore_start_read( store->blockstore );
-
+  
   ulong re_adds[2];
   uint re_adds_cnt           = 0U;
   long re_add_delays[2];
@@ -195,7 +195,6 @@ end:
 int
 fd_store_shred_insert( fd_store_t * store,
                        fd_shred_t const * shred ) {
-
   if( FD_UNLIKELY( shred->version != store->expected_shred_version ) ) {
     FD_LOG_WARNING(( "received shred version %lu instead of %lu", (ulong)shred->version, store->expected_shred_version ));
     return FD_BLOCKSTORE_OK;
@@ -203,11 +202,10 @@ fd_store_shred_insert( fd_store_t * store,
 
   fd_blockstore_t * blockstore = store->blockstore;
 
-  if (shred->slot < blockstore->smr) {
+  if (shred->slot < blockstore->shmem->smr) {
     return FD_BLOCKSTORE_OK;
   }
   uchar shred_type = fd_shred_type( shred->variant );
-  // FD_LOG_INFO(("is chained: %u", fd_shred_is_chained(shred_type) ));
   if( shred_type != FD_SHRED_TYPE_LEGACY_DATA
       && shred_type != FD_SHRED_TYPE_MERKLE_DATA
       && shred_type != FD_SHRED_TYPE_MERKLE_DATA_CHAINED
@@ -220,13 +218,13 @@ fd_store_shred_insert( fd_store_t * store,
     return FD_BLOCKSTORE_OK;
   }
 
-  fd_blockstore_start_write( blockstore );
+  fd_blockstore_start_read( blockstore );
   if( fd_blockstore_shreds_complete( blockstore, shred->slot ) ) {
-    fd_blockstore_end_write( blockstore );
+    fd_blockstore_end_read( blockstore );
     return FD_BLOCKSTORE_OK;
   }
+  fd_blockstore_end_read( blockstore );
   int rc = fd_blockstore_shred_insert( blockstore, shred );
-  fd_blockstore_end_write( blockstore );
 
   /* FIXME */
   if( FD_UNLIKELY( rc < FD_BLOCKSTORE_OK ) ) {
@@ -400,7 +398,7 @@ fd_store_slot_repair( fd_store_t * store,
 
     /* Fill in what's missing */
     for( uint i = block_map_entry->consumed_idx + 1; i <= complete_idx; i++ ) {
-      if( FD_UNLIKELY( fd_buf_shred_query( store->blockstore, slot, i ) != NULL) ) continue;
+      if( FD_UNLIKELY( fd_blockstore_shred_test( store->blockstore, slot, i ) ) ) continue;
 
       fd_repair_request_t * repair_req = &out_repair_reqs[repair_req_cnt++];
       repair_req->shred_index = i;
