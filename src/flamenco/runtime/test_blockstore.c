@@ -98,7 +98,7 @@ main( int argc, char ** argv ) {
 
   blockstore->shmem->smr = 0;
 
-  FILE * shred_cap = fopen( "/data/chali/testnet2.shredcap", "rb" );
+  FILE * shred_cap = fopen( "/data/emwang/testnet.shredcap", "rb" );
   FD_TEST( shred_cap );
 
   ulong cnt = 0;
@@ -126,7 +126,7 @@ main( int argc, char ** argv ) {
 
         if ( fd_blockstore_shreds_complete( blockstore, shred->slot ) ) {
           // fd_blockstore_start_read( blockstore );
-          fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, shred->slot );
+          fd_block_meta_t * block_map_entry = fd_blockstore_block_map_query( blockstore, shred->slot );
           // fd_blockstore_end_read( blockstore );
           FD_LOG_NOTICE(( "slot %lu block_map_entry->consumed_idx: %u, block_map_entry->buffered_idx: %u", shred->slot, block_map_entry->consumed_idx, block_map_entry->buffered_idx ));
 

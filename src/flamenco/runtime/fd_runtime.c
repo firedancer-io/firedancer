@@ -1148,9 +1148,12 @@ fd_runtime_microblock_verify_ticks( fd_exec_slot_ctx_t *        slot_ctx,
     we cache the results of some checks but do not immediately return
     an error.
   */
-  fd_blockstore_start_write( slot_ctx->blockstore );
-  fd_block_map_t * query = fd_blockstore_block_map_query( slot_ctx->blockstore, slot );
-  FD_TEST( query != NULL );
+  fd_block_map_query_t quer[1];
+  int err = fd_block_map_prepare( slot_ctx->blockstore->block_map, &slot, NULL, quer, FD_MAP_FLAG_BLOCKING );
+  fd_block_meta_t * query = fd_block_map_query_ele( quer );
+  if( FD_UNLIKELY( err || query->slot != slot ) ) {
+    FD_LOG_ERR(( "fd_runtime_microblock_verify_ticks: fd_block_map_prepare on %lu failed", slot ));
+  }
 
   query->tick_hash_count_accum = fd_ulong_sat_add( query->tick_hash_count_accum, hdr->hash_cnt );
   if( hdr->txn_cnt == 0UL ) {
@@ -1171,7 +1174,7 @@ fd_runtime_microblock_verify_ticks( fd_exec_slot_ctx_t *        slot_ctx,
   }
 
   ulong next_tick_height = tick_height + query->ticks_consumed;
-  fd_blockstore_end_write( slot_ctx->blockstore );
+  fd_block_map_publish( quer );
 
   if( FD_UNLIKELY( next_tick_height > max_tick_height ) ) {
     FD_LOG_WARNING(( "Too many ticks tick_height %lu max_tick_height %lu hashes_per_tick %lu tick_count %lu", tick_height, max_tick_height, hashes_per_tick, query->ticks_consumed ));
@@ -1224,13 +1227,23 @@ fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
     we cache the results of some checks but do not immediately return
     an error.
    */
-  fd_blockstore_start_read( blockstore );
-  fd_block_map_t * query = fd_blockstore_block_map_query( blockstore, slot );
-  FD_TEST( query->slot_complete_idx != FD_SHRED_IDX_NULL );
+  ulong slot_complete_idx = FD_SHRED_IDX_NULL;
+  fd_block_set_t data_complete_idxs[FD_SHRED_MAX_PER_SLOT / sizeof(ulong)];
+  int err = FD_MAP_ERR_AGAIN;
+  while( err == FD_MAP_ERR_AGAIN ) {
+    fd_block_map_query_t quer[1] = {0};
+    err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, quer, 0 );
+    fd_block_meta_t * query = fd_block_map_query_ele( quer );
+    if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) )continue;
+    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) FD_LOG_ERR(( "fd_runtime_block_verify_ticks: fd_block_map_query_try failed" ));
+    slot_complete_idx = query->slot_complete_idx;
+    fd_memcpy( data_complete_idxs, query->data_complete_idxs, sizeof(data_complete_idxs) );
+    err = fd_block_map_query_test( quer );
+  }
 
   uint   batch_cnt = 0;
   ulong  batch_idx = 0;
-  while ( batch_idx <= query->slot_complete_idx ) {
+  while ( batch_idx <= slot_complete_idx ) {
     batch_cnt++;
     ulong batch_sz = 0;
     FD_TEST( fd_blockstore_slice_query( blockstore, slot, (uint) batch_idx, block_data_sz, block_data, &batch_sz ) == FD_BLOCKSTORE_SUCCESS );
@@ -1268,13 +1281,11 @@ fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
     }
     /* advance batch iterator */
     if( FD_UNLIKELY( batch_cnt == 1 ) ){ /* first batch */
-      batch_idx = fd_block_set_const_iter_init( query->data_complete_idxs ) + 1;
+      batch_idx = fd_block_set_const_iter_init( data_complete_idxs ) + 1;
     } else {
-      batch_idx = fd_block_set_const_iter_next( query->data_complete_idxs, batch_idx - 1 ) + 1;
+      batch_idx = fd_block_set_const_iter_next( data_complete_idxs, batch_idx - 1 ) + 1;
     }
   }
-
-  fd_blockstore_end_read( blockstore );
 
   ulong next_tick_height = tick_height + tick_count;
   if( FD_UNLIKELY( next_tick_height > max_tick_height ) ) {
@@ -1374,12 +1385,10 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
                                   fd_spad_t *          runtime_spad ) {
 
   if( slot_ctx->slot_bank.slot != 0UL ) {
-    fd_blockstore_start_write( slot_ctx->blockstore );
     fd_blockstore_block_height_update( slot_ctx->blockstore,
                                        slot_ctx->slot_bank.slot,
                                        slot_ctx->slot_bank.block_height );
     slot_ctx->block = fd_blockstore_block_query( slot_ctx->blockstore, slot_ctx->slot_bank.slot ); /* used for txn metadata & filling blk rewards later on */
-    fd_blockstore_end_write( slot_ctx->blockstore );
   }
 
   slot_ctx->slot_bank.collected_execution_fees = 0UL;
@@ -3900,21 +3909,18 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
     /* Use the blockhash as the funk xid */
     fd_funk_txn_xid_t xid;
 
-    fd_blockstore_start_read( slot_ctx->blockstore );
-    fd_hash_t const * hash = fd_blockstore_block_hash_query( slot_ctx->blockstore, slot );
-    if( FD_UNLIKELY( !hash ) ) {
+    int err = fd_blockstore_block_hash_copy( slot_ctx->blockstore, slot, xid.uc, sizeof(fd_funk_txn_xid_t) );
+    if( FD_UNLIKELY( err ) ) {
       ret = FD_RUNTIME_EXECUTE_GENERIC_ERR;
       FD_LOG_WARNING(( "missing blockhash for %lu", slot ));
       break;
     } else {
-      fd_memcpy( xid.uc, hash->uc, sizeof(fd_funk_txn_xid_t) );
       xid.ul[0] = slot_ctx->slot_bank.slot;
       /* push a new transaction on the stack */
       fd_funk_start_write( funk );
       slot_ctx->funk_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &xid, 1 );
       fd_funk_end_write( funk );
     }
-    fd_blockstore_end_read( slot_ctx->blockstore );
 
     if( FD_UNLIKELY( (ret = fd_runtime_block_pre_execute_process_new_epoch( slot_ctx,
                                                                             tpool,

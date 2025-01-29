@@ -280,7 +280,7 @@ typedef struct fd_block fd_block_t;
 #define SET_MAX  FD_SHRED_MAX_PER_SLOT
 #include "../../util/tmpl/fd_set.c"
 
-struct fd_block_map {
+struct fd_block_meta {
   ulong slot; /* map key */
   ulong next; /* reserved for use by fd_map_giant.c */
 
@@ -343,12 +343,39 @@ struct fd_block_map {
 
   ulong block_gaddr; /* global address to the start of the allocated fd_block_t */
 };
-typedef struct fd_block_map fd_block_map_t;
+typedef struct fd_block_meta fd_block_meta_t;
 
-#define MAP_NAME fd_block_map
-#define MAP_T    fd_block_map_t
-#define MAP_KEY  slot
-#include "../../util/tmpl/fd_map_giant.c"
+/* Needed due to redefinition of err codes in slot_para */
+#undef FD_MAP_SUCCESS
+#undef FD_MAP_ERR_INVAL
+#undef FD_MAP_ERR_AGAIN
+#undef FD_MAP_ERR_KEY
+#undef FD_MAP_FLAG_BLOCKING
+
+#define MAP_NAME        fd_block_map
+#define MAP_ELE_T       fd_block_meta_t
+#define MAP_KEY         slot
+#define MAP_ELE_IS_FREE(ctx, ele) ((ele)->slot == 0)
+#define MAP_ELE_FREE(ctx, ele)    ((ele)->slot = 0)
+#define MAP_KEY_HASH(key, seed)   (void)(seed), (*(key))
+#include "../../util/tmpl/fd_map_slot_para.c"
+
+#define BLOCK_META_LOCK_CNT  1024UL
+#define BLOCK_META_PROBE_CNT 2UL
+/*
+   Rationale for block_map parameters:
+    - each lock manages block_max / lock_cnt elements, so with block_max
+      at 4096, each lock would manage 4 contiguous elements.
+    - Since keys are unique and increment by 1, we can index key to map
+      bucket by taking key % ele_max directly. This way in theory we
+      have perfect hashing and never need to probe.
+       - This breaks when we store more than 4096 contiguous slots,
+         i.e.: slot 0 collides with slot 4096, but this is at heart an
+         OOM issue.
+    - Causes possible contention - consider if we execute n, but are
+      storing shreds for n+1 -- these are managed by the same lock.
+      Perhaps opportunity for optimization.
+*/
 
 /* fd_block_idx is an in-memory index of finalized blocks that have been
    archived to disk.  It records the slot together with the byte offset
@@ -410,6 +437,21 @@ struct fd_blockstore_archiver {
 typedef struct fd_blockstore_archiver fd_blockstore_archiver_t;
 #define FD_BLOCKSTORE_ARCHIVE_START sizeof(fd_blockstore_archiver_t)
 
+/*   CONCURRENCY NOTES FOR BLOCKSTORE ENJOINERS:
+
+   With the parallelization of the shred map and block map, parts of the
+   blockstore are concurrent, and parts are not. Block map and shred map
+   have their own locks, which are managed through the
+   query_try/query_test APIs. When accessing buf_shred_t and
+   block_meta_t items then, the caller does not need to use
+   blockstore_start/end_read/write. However, the
+   blockstore_start/end_read/write still protects the blockstore_shmem_t
+   object. If you are reading and writing any blockstore_shmem fields
+   and at the same time accessing the block_meta_t or buf_shred_t, you
+   should call both the blockstore_start/end_read/write APIs AND the map
+   query_try/test APIs. These are locks of separate concerns and will
+   not deadlock with each other. TODO update docs when we switch to
+   fenced read/write for primitive fields in shmem_t. */
 struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_shmem {
 
   /* Metadata */
@@ -443,7 +485,7 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_shmem {
   ulong txn_max;   /* maximum # of transactions that can be indexed from blocks */
   ulong alloc_max; /* maximum bytes that can be allocated */
 
-  ulong block_map_gaddr;  /* map of slot->(slot_meta, block) */
+  //ulong block_map_gaddr;  /* map of slot->(slot_meta, block) */
   ulong block_idx_gaddr;  /* map of slot->byte offset in archival file */
   ulong slot_deque_gaddr; /* deque of slot numbers */
   ulong txn_map_gaddr;
@@ -458,12 +500,13 @@ struct fd_blockstore {
 
   /* shared memory region */
 
-  fd_blockstore_shmem_t * shmem;
+  fd_blockstore_shmem_t * shmem; /* read/writes to shmem must call fd_blockstore_start_read()*/
 
   /* local join handles */
 
   fd_buf_shred_pool_t shred_pool[1];
   fd_buf_shred_map_t  shred_map[1];
+  fd_block_map_t      block_map[1];
 };
 typedef struct fd_blockstore fd_blockstore_t;
 
@@ -482,6 +525,10 @@ fd_blockstore_align( void ) {
 
 FD_FN_CONST static inline ulong
 fd_blockstore_footprint( ulong shred_max, ulong block_max, ulong idx_max, ulong txn_max ) {
+  /* TODO -- when removing, make change in fd_blockstore_new as well */
+  block_max      = fd_ulong_pow2_up( block_max );
+  ulong lock_cnt = fd_ulong_min( block_max, BLOCK_META_LOCK_CNT );
+
   int lg_idx_max = fd_ulong_find_msb( fd_ulong_pow2_up( idx_max ) );
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
@@ -499,8 +546,8 @@ fd_blockstore_footprint( ulong shred_max, ulong block_max, ulong idx_max, ulong 
       alignof(fd_buf_shred_t),        sizeof(fd_buf_shred_t) * shred_max ),
       fd_buf_shred_pool_align(),      fd_buf_shred_pool_footprint() ),
       fd_buf_shred_map_align(),       fd_buf_shred_map_footprint( shred_max ) ),
-      alignof(fd_block_map_t),        sizeof(fd_block_map_t) * block_max ),
-      fd_block_map_align(),           fd_block_map_footprint( block_max ) ),
+      alignof(fd_block_meta_t),        sizeof(fd_block_meta_t) * block_max ),
+      fd_block_map_align(),           fd_block_map_footprint( block_max, lock_cnt, BLOCK_META_PROBE_CNT ) ),
       fd_block_idx_align(),           fd_block_idx_footprint( lg_idx_max ) ),
       fd_slot_deque_align(),          fd_slot_deque_footprint( block_max ) ),
       fd_txn_map_align(),             fd_txn_map_footprint( txn_max ) ),
@@ -594,15 +641,6 @@ fd_blockstore_seed( fd_blockstore_t const * blockstore ) {
   return blockstore->shmem->seed;
 }
 
-/* fd_block_map returns a pointer in the caller's address space to the
-   fd_block_map_t in the blockstore wksp.  Assumes blockstore is local
-   join.  Lifetime of the returned pointer is that of the local join. */
-
-FD_FN_PURE static inline fd_block_map_t *
-fd_blockstore_block_map( fd_blockstore_t * blockstore ) {
-  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), blockstore->shmem->block_map_gaddr );
-}
-
 /* fd_block_idx returns a pointer in the caller's address space to the
    fd_block_idx_t in the blockstore wksp.  Assumes blockstore is local
    join.  Lifetime of the returned pointer is that of the local join. */
@@ -681,56 +719,109 @@ fd_buf_shred_query_copy_data( fd_blockstore_t * blockstore,
    returned pointer lifetime is until the block is removed.  Check
    return value for error info.
 
-   IMPORTANT!  Caller MUST hold the read lock when calling this
-   function. */
+   In theory the caller does not need to wrap this function in a
+   start/end read. What is being read lives in the block_meta object,
+   and this function does a valid concurrent read for the block_gaddr.
+   The fd_block_t object itself has no such guarantees, and needs a
+   read/write lock to modify. */
 fd_block_t *
 fd_blockstore_block_query( fd_blockstore_t * blockstore, ulong slot );
 
-/* fd_blockstore_block_hash_query queries blockstore for the block hash
+/* fd_blockstore_block_hash_copy queries blockstore for the block hash
    at slot. This is the final poh hash for a slot.
 
-   IMPORTANT!  Caller MUST hold the read lock when calling this
-   function. */
-fd_hash_t const *
-fd_blockstore_block_hash_query( fd_blockstore_t * blockstore, ulong slot );
+   This is non-blocking, and does the memcpy of hash so the caller doesn't
+   need to manage the block map entry */
+int
+fd_blockstore_block_hash_copy( fd_blockstore_t * blockstore, ulong slot, uchar * buf_out, ulong sz );
 
-/* fd_blockstore_bank_hash_query query blockstore for the bank hash for
+/* fd_blockstore_bank_hash_copy query blockstore for the bank hash for
    a given slot.
 
-   IMPORTANT!  Caller MUST hold the read lock when calling this
-   function. */
-fd_hash_t const *
-fd_blockstore_bank_hash_query( fd_blockstore_t * blockstore, ulong slot );
+   This is non-blocking, and does the memcpy of hash so the caller doesn't
+   need to manage the block map entry */
+int
+fd_blockstore_bank_hash_copy( fd_blockstore_t * blockstore, ulong slot, fd_hash_t * out );
 
 /* fd_blockstore_block_map_query queries the blockstore for the block
    map entry at slot.  Returns a pointer to the slot meta or NULL if not
-   in blockstore.  The returned pointer lifetime is until the slot meta
-   is removed.
+   in blockstore.
 
-   IMPORTANT!  Caller MUST hold the read lock when calling this
-   function. */
-fd_block_map_t *
+   IMPORTANT! This should only be used for single-threaded / offline
+   use-cases as it does not test the query. Read notes below for
+   block_map usage in live. */
+
+fd_block_meta_t *
 fd_blockstore_block_map_query( fd_blockstore_t * blockstore, ulong slot );
+
+/* IMPORTANT! NOTES FOR block_map USAGE:
+
+   The block_meta entries must be queried using the query_try/query_test
+   pattern. This will frequently look like:
+
+   int err = FD_MAP_ERR_AGAIN;
+   loop while( err == FD_MAP_ERR_AGAIN )
+      block_map_query_t query;
+      err = fd_block_map_query_try( nonblocking );
+      block_meta_t * ele = fd_block_map_query_ele(query);
+      if ERROR is FD_MAP_ERR_KEY, then the slot is not found.
+      if ERROR is FD_MAP_ERR_AGAIN, then immediately continue.
+         // important to handle ALL possible return err codes *before*
+         // accessing the ele, as the ele will be the sentinel (usually NULL)
+      speculatively execute <stuff>
+         - no side effects
+         - no early return
+      err = fd_block_map_query_test(query)
+   end loop
+
+   Some accessors are provided to callers that already do this pattern,
+   and handle the looping querying. For example, block_hash_copy, and
+   parent_slot_query. However, for most caller use cases, it would be
+   much more effecient to use the query_try/query_test pattern directly.
+
+   Example: if you are accessing a block_meta_t m, and m->parent_slot to
+   the blockstore->shmem->smr, then you will need to start_write on the
+   blockstore, query_try for the block_meta_t object, set
+   shmem->smr = meta->parent_slot, and then query_test, AND call
+   blockstore_end_write. In the case that there's block_meta contention,
+   i.e. another thread is removing the block_meta_t object of interest
+   as we are trying to access it, the query_test will ERR_AGAIN, we will
+   loop back and try again, hit the FD_MAP_ERR_KEY condition
+   (and exit the loop gracefully), and we will have an incorrectly set
+   shmem->smr.
+
+   So depending on the complexity of what's being executed, it's easiest
+   to directly copy what you need from the block_meta_t into a variable
+   outside the context of the loop, and use it further below, ex:
+
+   ulong map_item = NULL_ITEM;
+   loop {
+     query_try
+     map_item = ele->map_item; // like parent_slot
+     query_test
+   }
+   check if map_item is NULL_ITEM
+   fd_blockstore_start_write
+   use map_item
+   fd_blockstore_end_write
+
+   Writes and updates (blocking). The pattern is:
+   int err = fd_block_map_prepare( &slot, query, blocking );
+   block_meta_t * ele = fd_block_map_query_ele(query);
+
+   IF slot was an existing key, then ele->slot == slot, and you are MODIFYING
+      <modify ele>
+   If slot was not an existing key, then ele->slot == 0, and you are INSERTING
+      ele->slot = slot;
+      <initialize ele>
+
+   fd_block_map_publish(query); // will always succeed */
 
 /* fd_blockstore_parent_slot_query queries the parent slot of slot.
 
-   IMPORTANT!  Caller MUST hold the read lock when calling this
-   function. */
+   This is non-blocking. */
 ulong
 fd_blockstore_parent_slot_query( fd_blockstore_t * blockstore, ulong slot );
-
-/* fd_blockstore_child_slots_query queries slot's child slots.  Return
-   values are saved in slots_out and slot_cnt.  Returns FD_BLOCKSTORE_SUCCESS
-   on success, FD_BLOCKSTORE_ERR_SLOT_MISSING if slot is not in the
-   blockstore.  The returned slot array is always <= the max size
-   FD_BLOCKSTORE_CHILD_SLOT_MAX and contiguous.  Empty slots in the
-   array are set to FD_SLOT_NULL.
-
-   IMPORTANT!  Caller MUST hold the read lock when calling this
-   function. */
-
-int
-fd_blockstore_child_slots_query( fd_blockstore_t * blockstore, ulong slot, ulong ** slots_out, ulong * slot_cnt );
 
 /* fd_blockstore_block_frontier_query query the frontier i.e. all the
    blocks that need to be replayed that haven't been.  These are the
@@ -760,7 +851,7 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
                                          ulong                slot,
                                          fd_valloc_t          alloc,
                                          fd_hash_t *          parent_block_hash_out,
-                                         fd_block_map_t *     block_map_entry_out,
+                                         fd_block_meta_t *    block_map_entry_out,
                                          fd_block_rewards_t * block_rewards_out,
                                          uchar **             block_data_out,
                                          ulong *              block_data_sz_out );
@@ -774,7 +865,7 @@ int
 fd_blockstore_block_map_query_volatile( fd_blockstore_t * blockstore,
                                         int               fd,
                                         ulong             slot,
-                                        fd_block_map_t *  block_map_entry_out );
+                                        fd_block_meta_t *  block_map_entry_out ) ;
 
 /* fd_blockstore_txn_query queries the transaction data for the given
    signature.
@@ -795,12 +886,28 @@ fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore,
                                   long *            blk_ts,
                                   uchar *           blk_flags,
                                   uchar             txn_data_out[FD_TXN_MTU] );
+/* fd_blockstore_block_meta_test tests if a block meta entry exists for
+   the given slot.  Returns 1 if the entry exists and 0 otherwise.
+
+   IMPORTANT!  Caller MUST NOT be in a block_map_t prepare when calling
+   this function. */
+int
+fd_blockstore_block_meta_test( fd_blockstore_t * blockstore, ulong slot );
+
+/* fd_blockstore_block_meta_remove removes a block meta entry for
+   the given slot.  Returns SUCCESS if the entry exists and an
+   error code otherwise.
+
+   IMPORTANT!  Caller MUST NOT be in a block_map_t prepare when calling
+   this function. */
+int
+fd_blockstore_block_meta_remove( fd_blockstore_t * blockstore, ulong slot );
 
 /* fd_blockstore_slot_remove removes slot from blockstore, including all
    relevant internal structures.
 
-   IMPORTANT!  Caller MUST hold the write lock when calling this
-   function. */
+   IMPORTANT! Caller MUST NOT be in a block_map_t prepare when calling
+   this function. */
 void
 fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot );
 
@@ -820,10 +927,7 @@ void
 fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred );
 
 /* fd_blockstore_buffered_shreds_remove removes all the unassembled shreds
-   for a slot
-
-   IMPORTANT!  Caller MUST hold the write lock when calling this
-   function. */
+   for a slot */
 void
 fd_blockstore_shred_remove( fd_blockstore_t * blockstore, ulong slot, uint idx );
 
@@ -851,14 +955,15 @@ fd_blockstore_slice_query( fd_blockstore_t * blockstore,
    querying for an fd_block_t * for existence but not actually using the block data.
    Semantically equivalent to query_block( slot ) != NULL.
 
-   IMPORTANT! Caller MUST hold the read lock when calling this function */
+   Implementation is lockfree and safe with concurrent operations on
+   blockstore. */
 int
 fd_blockstore_shreds_complete( fd_blockstore_t * blockstore, ulong slot );
 
 /* fd_blockstore_block_height_update sets the block height.
 
-   IMPORTANT!  Caller MUST hold the write lock when calling this
-   function. */
+   IMPORTANT!  Caller MUST NOT be in a block_map_t prepare when calling
+   this function. */
 void
 fd_blockstore_block_height_update( fd_blockstore_t * blockstore, ulong slot, ulong block_height );
 
@@ -919,9 +1024,9 @@ FD_PROTOTYPES_END
    disk. */
 
 struct fd_blockstore_ser {
-  fd_block_map_t * block_map;
-  fd_block_t     * block;
-  uchar          * data;
+  fd_block_meta_t * block_map;
+  fd_block_t      * block;
+  uchar           * data;
 };
 typedef struct fd_blockstore_ser fd_blockstore_ser_t;
 
@@ -940,7 +1045,7 @@ int
 fd_blockstore_block_meta_restore( fd_blockstore_archiver_t * archvr,
                                   int fd,
                                   fd_block_idx_t * block_idx_entry,
-                                  fd_block_map_t * block_map_entry_out,
+                                  fd_block_meta_t * block_map_entry_out,
                                   fd_block_t * block_out );
 
 /* Reads block data from fd into a given buf. Modifies data_off similarly to
@@ -957,7 +1062,8 @@ fd_blockstore_block_data_restore( fd_blockstore_archiver_t * archvr,
 bool
 fd_blockstore_archiver_verify( fd_blockstore_t * blockstore, fd_blockstore_archiver_t * archiver );
 
+/* Reads from fd a block meta object, and returns the slot number */
 ulong
-fd_blockstore_archiver_lrw_slot( fd_blockstore_t * blockstore, int fd, fd_block_map_t * lrw_block_map, fd_block_t * lrw_block );
+fd_blockstore_archiver_lrw_slot( fd_blockstore_t * blockstore, int fd, fd_block_meta_t * lrw_block_meta, fd_block_t * lrw_block );
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_blockstore_h */

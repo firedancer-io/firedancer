@@ -75,8 +75,8 @@ name = \"fd1\"
     identity_path = \"fd-identity-keypair.json\"
     vote_account_path = \"fd-vote-keypair.json\"
 [blockstore]
-    shred_max = 1024
-    block_max = 300
+    shred_max = 16777216
+    block_max = 4096
     idx_max = 1024
     txn_max = 1024
     alloc_max = 10737418240
