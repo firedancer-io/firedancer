@@ -7,10 +7,7 @@
 #include <linux/if_xdp.h>
 #include "generated/archiver_feeder_seccomp.h"
 
-#define NET_SHRED_IN_IDX   (0UL)
-#define QUIC_VERIFY_IN_IDX (1UL)
-#define NET_GOSSIP_IN_IDX  (2UL)
-#define NET_REPAIR_IN_IDX  (3UL)
+#define FD_ARCHIVER_FEEDER_MAX_INPUT_LINKS (32UL)
 
 typedef struct {
   fd_wksp_t * mem;
@@ -32,12 +29,15 @@ struct fd_archiver_feeder_tile_ctx {
   ulong       out_wmark;
   ulong       out_chunk;
 
-  /* The archive header ID of the tile this feeder reads from */
-  uint out_archive_header_tile_id;
+  ulong round_robin_idx;
+  ulong round_robin_cnt;
+
+  /* Map of input link idxs to header tile IDs */
+  uint link_to_header_tile_ids[ FD_ARCHIVER_FEEDER_MAX_INPUT_LINKS ];
 
   fd_archiver_feeder_stats_t stats;
 
-  fd_archiver_feeder_in_ctx_t in[ 32 ];
+  fd_archiver_feeder_in_ctx_t in[ FD_ARCHIVER_FEEDER_MAX_INPUT_LINKS ];
 };
 typedef struct fd_archiver_feeder_tile_ctx fd_archiver_feeder_tile_ctx_t;
 
@@ -95,10 +95,9 @@ static uint
 compute_archive_header_tile_id( fd_topo_tile_t const * tile ) {
   switch (tile->kind_id) {
   case 0UL: return FD_ARCHIVER_TILE_ID_SHRED;
-  case 1UL: return FD_ARCHIVER_TILE_ID_VERIFY;
-  case 2UL: return FD_ARCHIVER_TILE_ID_GOSSIP;
-  case 3UL: return FD_ARCHIVER_TILE_ID_REPAIR;
-  default: FD_LOG_ERR(( "unsupported tile kind_id" ));
+  case 1UL: return FD_ARCHIVER_TILE_ID_GOSSIP;
+  case 2UL: return FD_ARCHIVER_TILE_ID_REPAIR;
+  default:  return FD_ARCHIVER_TILE_ID_VERIFY;
   }
 }
 
@@ -111,6 +110,9 @@ unprivileged_init( fd_topo_t *      topo,
   fd_archiver_feeder_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_archiver_feeder_tile_ctx_t), sizeof(fd_archiver_feeder_tile_ctx_t) );
   memset( ctx, 0, sizeof(fd_archiver_feeder_tile_ctx_t) );
 
+  ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );
+  ctx->round_robin_idx = tile->kind_id;
+
   for( ulong i=0; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
@@ -118,8 +120,21 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].mem    = link_wksp->wksp;
     ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
+
+    /* Set the link tile ID correctly in the map */
+    if( !strcmp( link->name, "net_shred" ) ) {
+      ctx->link_to_header_tile_ids[ i ] = FD_ARCHIVER_TILE_ID_SHRED;
+    } else if( !strcmp( link->name, "net_gossip" ) ) {
+      ctx->link_to_header_tile_ids[ i ] = FD_ARCHIVER_TILE_ID_GOSSIP;
+    } else if( !strcmp( link->name, "net_repair" ) ) {
+      ctx->link_to_header_tile_ids[ i ] = FD_ARCHIVER_TILE_ID_REPAIR;
+    } else if( !strcmp( link->name, "quic_verify" ) ) {
+      ctx->link_to_header_tile_ids[ i ] = FD_ARCHIVER_TILE_ID_VERIFY;
+    } else {
+      FD_LOG_ERR(( "unsupported input link" ));
+    }
+
   }
-  ctx->out_archive_header_tile_id = compute_archive_header_tile_id( tile );
 
   ctx->out_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 0 ] ].dcache_obj_id ].wksp_id ].wksp;
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
@@ -130,6 +145,17 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) ) {
     FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
   }
+}
+
+static int
+before_frag( fd_archiver_feeder_tile_ctx_t * ctx,
+             ulong                           in_idx,
+             ulong                           seq,
+             ulong                           sig ) {
+  (void)in_idx;
+  (void)sig;
+
+  return (seq % ctx->round_robin_cnt) != ctx->round_robin_idx;
 }
 
 static inline void
@@ -156,7 +182,7 @@ during_frag( fd_archiver_feeder_tile_ctx_t * ctx,
     fd_archiver_frag_header_t * header = fd_type_pun( dst );
     header->magic                      = FD_ARCHIVER_HEADER_MAGIC;
     header->version                    = FD_ARCHIVER_HEADER_VERSION;
-    header->tile_id                    = ctx->out_archive_header_tile_id;
+    header->tile_id                    = ctx->link_to_header_tile_ids[ in_idx ];
     header->tspub_comp                 = tspub;
     header->sz                         = sz;
 
@@ -188,6 +214,7 @@ after_frag( fd_archiver_feeder_tile_ctx_t * ctx,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_archiver_feeder_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_archiver_feeder_tile_ctx_t)
 
+#define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 

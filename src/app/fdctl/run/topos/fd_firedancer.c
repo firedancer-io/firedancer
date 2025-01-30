@@ -64,19 +64,19 @@ setup_topo_txncache( fd_topo_t *  topo,
 
 void
 fd_topo_initialize( config_t * config ) {
-  ulong net_tile_cnt      = config->layout.net_tile_count;
-  ulong shred_tile_cnt    = config->layout.shred_tile_count;
-  ulong quic_tile_cnt     = config->layout.quic_tile_count;
-  ulong verify_tile_cnt   = config->layout.verify_tile_count;
-  ulong bank_tile_cnt     = config->layout.bank_tile_count;
-  ulong archiver_tile_cnt = config->layout.archiver_tile_count;
+  ulong net_tile_cnt             = config->layout.net_tile_count;
+  ulong shred_tile_cnt           = config->layout.shred_tile_count;
+  ulong quic_tile_cnt            = config->layout.quic_tile_count;
+  ulong verify_tile_cnt          = config->layout.verify_tile_count;
+  ulong bank_tile_cnt            = config->layout.bank_tile_count;
+  ulong archiver_feeder_tile_cnt = config->layout.archiver_tile_count;
 
   ulong replay_tpool_thread_count = config->tiles.replay.tpool_thread_count;
   ulong batch_tpool_thread_count  = config->tiles.batch.hash_tpool_thread_count;
 
   int enable_rpc               = ( config->rpc.port != 0 );
   int enable_archiver_playback = ( config->tiles.archiver.playback );
-  int enable_archiver          = ( archiver_tile_cnt > 0 && !enable_archiver_playback );
+  int enable_archiver          = ( archiver_feeder_tile_cnt > 0 && !enable_archiver_playback );
 
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
 
@@ -281,11 +281,8 @@ fd_topo_initialize( config_t * config ) {
 
   /* The archiver feeder and writer tiles */
   if( enable_archiver ) {
-    /* One archiver feeder tile for each output link we are monitoring */
-    fd_topob_tile( topo, "arch_f", "arch_f", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
-    fd_topob_tile( topo, "arch_f", "arch_f", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
-    fd_topob_tile( topo, "arch_f", "arch_f", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
-    fd_topob_tile( topo, "arch_f", "arch_f", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
+    /* Several feeder tiles, which will round-robin the input links */
+    FOR(archiver_feeder_tile_cnt) fd_topob_tile( topo, "arch_f", "arch_f", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
 
     /* One archiver writer tile */
     fd_topob_tile( topo, "arch_w", "arch_w", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
@@ -526,27 +523,21 @@ fd_topo_initialize( config_t * config ) {
   }
 
   if ( enable_archiver ) {
-    /* The archiver feeder tiles are reliable consumers of the networking tile, because having dropped packets in the archive
-     will make replaying and reproducing issues impossible.  */
-    FOR(net_tile_cnt) fd_topob_tile_in(  topo, "arch_f", 0UL, "metric_in", "net_shred",i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    FOR(net_tile_cnt) fd_topob_tile_in(  topo, "arch_f", 1UL, "metric_in", "quic_verify",i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    FOR(net_tile_cnt) fd_topob_tile_in(  topo, "arch_f", 2UL, "metric_in", "net_gossip",i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    FOR(net_tile_cnt) fd_topob_tile_in(  topo, "arch_f", 3UL, "metric_in", "net_repair", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    /* Each feeder tile is a reliable consumer of all input links */
+    FOR(archiver_feeder_tile_cnt) {
+      for( ulong j=0UL; j<net_tile_cnt; j++ ) fd_topob_tile_in(  topo, "arch_f", i, "metric_in", "net_shred", j, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+      for( ulong j=0UL; j<net_tile_cnt; j++ ) fd_topob_tile_in(  topo, "arch_f", i, "metric_in", "net_gossip",j, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+      for( ulong j=0UL; j<net_tile_cnt; j++ ) fd_topob_tile_in(  topo, "arch_f", i, "metric_in", "net_repair", j, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+      for( ulong j=0UL; j<quic_tile_cnt; j++ ) fd_topob_tile_in(  topo, "arch_f", i, "metric_in", "quic_verify", j, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    }
 
-    /* The archiver writer tile is a reliable consumer of the archiver reader tile, for the same reason. */
+    /* The archiver writer tile is a reliable consumer of the archiver feeder tiles */
     fd_topob_wksp( topo, "arch_f_w" );
-    fd_topob_link( topo, "arch_f_w", "arch_f_w", config->tiles.net.send_buffer_size, FD_NET_MTU, 1UL );
-    fd_topob_link( topo, "arch_f_w", "arch_f_w", config->tiles.net.send_buffer_size, FD_NET_MTU, 1UL );
-    fd_topob_link( topo, "arch_f_w", "arch_f_w", config->tiles.net.send_buffer_size, FD_NET_MTU, 1UL );
-    fd_topob_link( topo, "arch_f_w", "arch_f_w", config->tiles.net.send_buffer_size, FD_NET_MTU, 1UL );
-    fd_topob_tile_out( topo, "arch_f", 0UL, "arch_f_w", 0UL );
-    fd_topob_tile_out( topo, "arch_f", 1UL, "arch_f_w", 1UL );
-    fd_topob_tile_out( topo, "arch_f", 2UL, "arch_f_w", 2UL );
-    fd_topob_tile_out( topo, "arch_f", 3UL, "arch_f_w", 3UL );
-    fd_topob_tile_in(  topo, "arch_w", 0UL, "metric_in", "arch_f_w", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    fd_topob_tile_in(  topo, "arch_w", 0UL, "metric_in", "arch_f_w", 1UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    fd_topob_tile_in(  topo, "arch_w", 0UL, "metric_in", "arch_f_w", 2UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
-    fd_topob_tile_in(  topo, "arch_w", 0UL, "metric_in", "arch_f_w", 3UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    FOR(archiver_feeder_tile_cnt) {
+      fd_topob_link( topo, "arch_f_w", "arch_f_w", config->tiles.net.send_buffer_size, FD_NET_MTU, 1UL );
+      fd_topob_tile_out( topo, "arch_f", i, "arch_f_w", i );
+      fd_topob_tile_in(  topo, "arch_w", 0UL, "metric_in", "arch_f_w", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    }
   }
 
   /* For now the only plugin consumer is the GUI */
