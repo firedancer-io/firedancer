@@ -28,7 +28,7 @@
     if( FD_UNLIKELY( _cost>_cu ) ) {                 \
       _vm->cu = 0UL;                                 \
       FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED ); \
-      return FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED; \
+      return FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED; \
     }                                                \
     _vm->cu = _cu - _cost;                           \
   }))
