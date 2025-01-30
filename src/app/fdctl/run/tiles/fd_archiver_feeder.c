@@ -91,16 +91,6 @@ privileged_init( fd_topo_t *      topo,
     (void)tile;
 }
 
-static uint
-compute_archive_header_tile_id( fd_topo_tile_t const * tile ) {
-  switch (tile->kind_id) {
-  case 0UL: return FD_ARCHIVER_TILE_ID_SHRED;
-  case 1UL: return FD_ARCHIVER_TILE_ID_GOSSIP;
-  case 2UL: return FD_ARCHIVER_TILE_ID_REPAIR;
-  default:  return FD_ARCHIVER_TILE_ID_VERIFY;
-  }
-}
-
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {    
