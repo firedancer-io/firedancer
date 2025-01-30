@@ -175,6 +175,7 @@ during_frag( fd_archiver_feeder_tile_ctx_t * ctx,
     header->tile_id                    = ctx->link_to_header_tile_ids[ in_idx ];
     header->tspub_comp                 = tspub;
     header->sz                         = sz;
+    header->sig                        = sig;
 
     /* Write the frag to the dst */
     fd_memcpy( dst + FD_ARCHIVER_FRAG_HEADER_FOOTPRINT, src, sz );

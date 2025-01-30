@@ -3,6 +3,7 @@
 #include "fd_archiver.h"
 #include <errno.h>
 #include <fcntl.h>
+#include <string.h>
 #include <unistd.h>
 #include <linux/unistd.h>
 #include <sys/socket.h>
@@ -44,9 +45,8 @@ struct fd_archiver_playback_tile_ctx {
   ulong start_tile_ts_comp;
   ulong start_archive_frag_ts_comp;
 
-  ulong pending_publish_ts_comp;
   ulong pending_publish_link_idx;
-  ulong pending_publish_size;
+  fd_archiver_frag_header_t pending_publish_header;
 
   fd_archiver_playback_out_ctx_t out[ 32 ];
 };
@@ -179,7 +179,7 @@ should_delay_publish( fd_archiver_playback_tile_ctx_t * ctx ) {
 
   ulong tile_ts_comp             = fd_frag_meta_ts_comp( fd_tickcount() );
   ulong relative_tile_ts         = tile_ts_comp - ctx->start_tile_ts_comp;
-  ulong relative_archive_frag_ts = ctx->pending_publish_ts_comp - ctx->start_archive_frag_ts_comp;
+  ulong relative_archive_frag_ts = ctx->pending_publish_header.tspub_comp - ctx->start_archive_frag_ts_comp;
 
   /* TODO: maybe have some tolerance here? */
   return relative_tile_ts < relative_archive_frag_ts;
@@ -189,16 +189,14 @@ static inline void
 publish( fd_archiver_playback_tile_ctx_t * ctx,
          fd_stem_context_t *               stem ) {
   /* Publish the pending fragment */
-  fd_stem_publish( stem, ctx->pending_publish_link_idx, 0UL, ctx->out[ ctx->pending_publish_link_idx ].chunk, ctx->pending_publish_size, 0UL, 0UL, 0UL);
+  fd_stem_publish( stem, ctx->pending_publish_link_idx, ctx->pending_publish_header.sig, ctx->out[ ctx->pending_publish_link_idx ].chunk, ctx->pending_publish_header.sz, 0UL, 0UL, 0UL);
   ctx->out[ ctx->pending_publish_link_idx ].chunk = fd_dcache_compact_next( ctx->out[ ctx->pending_publish_link_idx ].chunk,
-                                                                               ctx->pending_publish_size,
+                                                                               ctx->pending_publish_header.sz,
                                                                            ctx->out[ ctx->pending_publish_link_idx ].chunk0,
                                                                             ctx->out[ ctx->pending_publish_link_idx ].wmark );
 
   /* Reset the state */
-  ctx->pending_publish_size     = 0UL;
-  ctx->pending_publish_link_idx = 0UL;
-  ctx->pending_publish_ts_comp  = 0UL;
+  memset( &ctx->pending_publish_header, 0, FD_ARCHIVER_FRAG_HEADER_FOOTPRINT );
 }
  
 static inline void
@@ -212,7 +210,7 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
   (void)charge_busy;
 
   /* Check to see if we have a pending frag ready to publish */
-  if( FD_LIKELY(( ctx->pending_publish_ts_comp )) ) {
+  if( FD_LIKELY(( ctx->pending_publish_header.tspub_comp )) ) {
     /* If we should delay, do not consume any more fragments from the archive but instead return */
     if( FD_UNLIKELY( should_delay_publish( ctx ) )) {
       return;
@@ -223,7 +221,6 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
   }
 
   /* Consume the header, to determine which output link to send the fragment on. */
-  fd_archiver_frag_header_t header;
   int fetch_err = fd_io_buffered_istream_fetch( &ctx->archive_istream );
   if( FD_UNLIKELY( fetch_err<0 ) ) {
     /* Hit EOF, nothing more to do */
@@ -244,22 +241,22 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
   if( FD_UNLIKELY(( !peek_header )) ) {
     FD_LOG_ERR(( "failed to peek header" ));
   }
-  fd_memcpy( &header, peek_header, FD_ARCHIVER_FRAG_HEADER_FOOTPRINT );
+  fd_memcpy( &ctx->pending_publish_header, peek_header, FD_ARCHIVER_FRAG_HEADER_FOOTPRINT );
   fd_io_buffered_istream_seek( &ctx->archive_istream, FD_ARCHIVER_FRAG_HEADER_FOOTPRINT );
 
   /* Sanity-check the header */
-  if( FD_UNLIKELY(( header.magic != FD_ARCHIVER_HEADER_MAGIC )) ) {
+  if( FD_UNLIKELY(( ctx->pending_publish_header.magic != FD_ARCHIVER_HEADER_MAGIC )) ) {
     FD_LOG_WARNING(( "stats: net_shred_out_cnt=%lu, quic_verify_out_cnt=%lu, net_gossip_out_cnt=%lu, net_repair_out_cnt=%lu", ctx->stats.net_shred_out_cnt, ctx->stats.quic_verify_out_cnt, ctx->stats.net_gossip_out_cnt, ctx->stats.net_repair_out_cnt ));
-    FD_LOG_ERR(( "bad magic: %lu", header.magic ));
+    FD_LOG_ERR(( "bad magic: %lu", ctx->pending_publish_header.magic ));
   }
   if( FD_UNLIKELY(( ctx->start_tile_ts_comp == 0UL )) ) {
     ctx->start_tile_ts_comp         = fd_frag_meta_ts_comp( fd_tickcount() );
-    ctx->start_archive_frag_ts_comp = header.tspub_comp;
+    ctx->start_archive_frag_ts_comp = ctx->pending_publish_header.tspub_comp;
   }
 
   /* Determine the output link on which to send the frag */
   ulong out_link_idx = 0UL;
-  switch ( header.tile_id ) {
+  switch ( ctx->pending_publish_header.tile_id ) {
     case FD_ARCHIVER_TILE_ID_SHRED:
     out_link_idx = NET_SHRED_OUT_IDX;
     ctx->stats.net_shred_out_cnt += 1;
@@ -282,7 +279,7 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
 
   /* Copy the frag into the output link */
   peek_sz = fd_io_buffered_istream_peek_sz( &ctx->archive_istream );
-  if( FD_UNLIKELY(( peek_sz < header.sz )) ) {
+  if( FD_UNLIKELY(( peek_sz < ctx->pending_publish_header.sz )) ) {
     FD_LOG_ERR(( "frag too small in archive, possibly corrupt archive" ));
   }
   char const * peek_frag = fd_io_buffered_istream_peek( &ctx->archive_istream );
@@ -290,13 +287,9 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
     FD_LOG_ERR(( "failed to peek frag" ));
   }
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out[ out_link_idx ].mem, ctx->out[ out_link_idx ].chunk );
-  fd_memcpy( dst, peek_frag, header.sz );
-  fd_io_buffered_istream_seek( &ctx->archive_istream, header.sz );
-
-  /* Queue up the fragment to be published */
+  fd_memcpy( dst, peek_frag, ctx->pending_publish_header.sz );
+  fd_io_buffered_istream_seek( &ctx->archive_istream, ctx->pending_publish_header.sz );
   ctx->pending_publish_link_idx = out_link_idx;
-  ctx->pending_publish_size     = header.sz;
-  ctx->pending_publish_ts_comp  = header.tspub_comp;
 }
 
 #define STEM_BURST (1UL)
