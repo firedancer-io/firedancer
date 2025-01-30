@@ -781,7 +781,6 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
   uchar * txn_raw_begin = fd_scratch_alloc( alignof(uchar), 10000 ); // max txn size is 1232 but we allocate extra for safety
   uchar * txn_raw_cur_ptr = txn_raw_begin;
-  int txn_parse_error     = 0;
 
   /* Compact array of signatures (https://solana.com/docs/core/transactions#transaction)
      Note that although documentation interchangably refers to the signature cnt as a compact-u16
@@ -845,7 +844,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
     if( data ) {
       uint data_len_raw = data->size;
       if( data_len_raw > USHORT_MAX ) {
-        txn_parse_error = -1;
+        return NULL;
       }
 
       ushort data_len = (ushort) data->size;
@@ -913,12 +912,6 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   /* Setup the spad for account allocation */
   task_info->txn_ctx->spad = runner->spad;
-
-  /* Set the sanitize error if the txn was incorrectly formatted. */
-  if( txn_parse_error ) {
-    txn->flags          = 0U;
-    task_info->exec_res = FD_RUNTIME_TXN_ERR_SANITIZE_FAILURE;
-  }
 
   fd_runtime_pre_execute_check( task_info );
 
