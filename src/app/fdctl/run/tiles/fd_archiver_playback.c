@@ -42,8 +42,8 @@ struct fd_archiver_playback_tile_ctx {
   fd_alloc_t * alloc;
   fd_valloc_t  valloc;
 
-  ulong start_tile_ts_comp;
-  ulong start_archive_frag_ts_comp;
+  long start_tile_ts;
+  long start_archive_frag_ts;
 
   ulong pending_publish_link_idx;
   fd_archiver_frag_header_t pending_publish_header;
@@ -173,13 +173,12 @@ unprivileged_init( fd_topo_t *      topo,
 
 static inline int
 should_delay_publish( fd_archiver_playback_tile_ctx_t * ctx ) {
-  if( FD_UNLIKELY(( ctx->start_tile_ts_comp == 0UL )) ) {
+  if( FD_UNLIKELY(( ctx->start_tile_ts == 0UL )) ) {
     return 0;
   }
 
-  ulong tile_ts_comp             = fd_frag_meta_ts_comp( fd_tickcount() );
-  ulong relative_tile_ts         = tile_ts_comp - ctx->start_tile_ts_comp;
-  ulong relative_archive_frag_ts = ctx->pending_publish_header.tspub_comp - ctx->start_archive_frag_ts_comp;
+  long relative_tile_ts         = fd_tickcount() - ctx->start_tile_ts; /* FIXME: read timestamp out of archive file first? don't rely on this */
+  long relative_archive_frag_ts = ctx->pending_publish_header.timestamp - ctx->start_archive_frag_ts;
 
   /* TODO: maybe have some tolerance here? */
   return relative_tile_ts < relative_archive_frag_ts;
@@ -210,7 +209,7 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
   (void)charge_busy;
 
   /* Check to see if we have a pending frag ready to publish */
-  if( FD_LIKELY(( ctx->pending_publish_header.tspub_comp )) ) {
+  if( FD_LIKELY(( ctx->pending_publish_header.timestamp )) ) {
     /* If we should delay, do not consume any more fragments from the archive but instead return */
     if( FD_UNLIKELY( should_delay_publish( ctx ) )) {
       return;
@@ -249,9 +248,9 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
     FD_LOG_WARNING(( "stats: net_shred_out_cnt=%lu, quic_verify_out_cnt=%lu, net_gossip_out_cnt=%lu, net_repair_out_cnt=%lu", ctx->stats.net_shred_out_cnt, ctx->stats.quic_verify_out_cnt, ctx->stats.net_gossip_out_cnt, ctx->stats.net_repair_out_cnt ));
     FD_LOG_ERR(( "bad magic: %lu", ctx->pending_publish_header.magic ));
   }
-  if( FD_UNLIKELY(( ctx->start_tile_ts_comp == 0UL )) ) {
-    ctx->start_tile_ts_comp         = fd_frag_meta_ts_comp( fd_tickcount() );
-    ctx->start_archive_frag_ts_comp = ctx->pending_publish_header.tspub_comp;
+  if( FD_UNLIKELY(( ctx->start_tile_ts == 0UL )) ) {
+    ctx->start_tile_ts         = fd_tickcount();
+    ctx->start_archive_frag_ts = ctx->pending_publish_header.timestamp;
   }
 
   /* Determine the output link on which to send the frag */

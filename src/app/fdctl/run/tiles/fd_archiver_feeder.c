@@ -158,6 +158,7 @@ during_frag( fd_archiver_feeder_tile_ctx_t * ctx,
              ulong                    sz ) {
   (void)seq;
   (void)sig;
+  (void)tspub;
 
   /* TODO: filter by signature in before_credit */
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) ) {
@@ -173,7 +174,7 @@ during_frag( fd_archiver_feeder_tile_ctx_t * ctx,
     header->magic                      = FD_ARCHIVER_HEADER_MAGIC;
     header->version                    = FD_ARCHIVER_HEADER_VERSION;
     header->tile_id                    = ctx->link_to_header_tile_ids[ in_idx ];
-    header->tspub_comp                 = tspub;
+    header->timestamp                  = fd_log_wallclock(); /* FIXME */
     header->sz                         = sz;
     header->sig                        = sig;
 
