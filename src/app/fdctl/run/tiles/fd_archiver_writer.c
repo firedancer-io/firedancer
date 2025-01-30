@@ -25,8 +25,6 @@ struct fd_archiver_writer_tile_ctx {
 
   fd_archiver_writer_in_ctx_t in[ 32 ];
 
-
-
   fd_alloc_t * alloc;
   fd_valloc_t  valloc;
 };
@@ -116,6 +114,17 @@ unprivileged_init( fd_topo_t *      topo,
   void * alloc_shmem                  = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
+  /* Setup the archive tile to be in the expected state */
+  int err = ftruncate( tile->archiver.archive_fd, 0UL );
+  if( FD_UNLIKELY( err==-1 ) ) {
+    FD_LOG_ERR(( "failed to truncate the archive file (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  long seek = lseek( tile->archiver.archive_fd, 0UL, SEEK_SET );
+  if( FD_UNLIKELY( seek!=0L ) ) {
+    FD_LOG_ERR(( "failed to seek to the beginning of the archive file" ));
+  }
+
   /* Input links */
   for( ulong i=0; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
@@ -150,6 +159,13 @@ unprivileged_init( fd_topo_t *      topo,
 
 }
 
+static void
+during_housekeeping( fd_archiver_writer_tile_ctx_t * ctx ) {
+  if ( FD_UNLIKELY( fd_io_buffered_ostream_flush( &ctx->archive_ostream ) != 0 ) ) {
+    FD_LOG_ERR(( "failed to flush" ));
+  }
+}
+
 static inline void
 during_frag( fd_archiver_writer_tile_ctx_t * ctx,
              ulong                           in_idx,
@@ -167,7 +183,8 @@ during_frag( fd_archiver_writer_tile_ctx_t * ctx,
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
   }
 
-  /* Write the incoming fragment to the buffer */
+  /* Write the incoming fragment to the ostream */
+  /* This is safe to do because this tile is a reliable consumer and so can never be overran. */
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
   int err = fd_io_buffered_ostream_write( &ctx->archive_ostream, src, sz );
   if( FD_UNLIKELY( err != 0 ) ) {
@@ -182,7 +199,7 @@ during_frag( fd_archiver_writer_tile_ctx_t * ctx,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_archiver_writer_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_archiver_writer_tile_ctx_t)
 
-#define STEM_CALLBACK_DURING_FRAG         during_frag
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 
 #include "../../../../disco/stem/fd_stem.c"

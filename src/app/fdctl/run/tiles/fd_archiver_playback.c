@@ -224,7 +224,14 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
 
   /* Consume the header, to determine which output link to send the fragment on. */
   fd_archiver_frag_header_t header;
-  if( FD_UNLIKELY( fd_io_buffered_istream_fetch( &ctx->archive_istream ) ) ) {
+  int fetch_err = fd_io_buffered_istream_fetch( &ctx->archive_istream );
+  if( FD_UNLIKELY( fetch_err<0 ) ) {
+    /* Hit EOF, nothing more to do */
+    /* TODO: gracefully shut down validator in this case? */
+    FD_LOG_WARNING(( "playback_stats net_shred_out_cnt=%lu, quic_verify_out_cnt=%lu, net_gossip_out_cnt=%lu, net_repair_out_cnt=%lu", ctx->stats.net_shred_out_cnt, ctx->stats.quic_verify_out_cnt, ctx->stats.net_gossip_out_cnt, ctx->stats.net_repair_out_cnt ));
+    FD_LOG_ERR(( "EOF" ));
+    return;
+  } else if( FD_UNLIKELY( fetch_err>0 ) ) {
     FD_LOG_WARNING(( "playback_stats net_shred_out_cnt=%lu, quic_verify_out_cnt=%lu, net_gossip_out_cnt=%lu, net_repair_out_cnt=%lu", ctx->stats.net_shred_out_cnt, ctx->stats.quic_verify_out_cnt, ctx->stats.net_gossip_out_cnt, ctx->stats.net_repair_out_cnt ));
     FD_LOG_ERR(( "failed to fetch" ));
     return;
@@ -242,6 +249,7 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
 
   /* Sanity-check the header */
   if( FD_UNLIKELY(( header.magic != FD_ARCHIVER_HEADER_MAGIC )) ) {
+    FD_LOG_WARNING(( "stats: net_shred_out_cnt=%lu, quic_verify_out_cnt=%lu, net_gossip_out_cnt=%lu, net_repair_out_cnt=%lu", ctx->stats.net_shred_out_cnt, ctx->stats.quic_verify_out_cnt, ctx->stats.net_gossip_out_cnt, ctx->stats.net_repair_out_cnt ));
     FD_LOG_ERR(( "bad magic: %lu", header.magic ));
   }
   if( FD_UNLIKELY(( ctx->start_tile_ts_comp == 0UL )) ) {
