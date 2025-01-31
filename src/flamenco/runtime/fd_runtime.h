@@ -41,6 +41,9 @@
 
 #define FD_FEATURE_ACTIVE(_slot_ctx, _feature_name)  (_slot_ctx->slot_bank.slot >= _slot_ctx->epoch_ctx->features. _feature_name)
 #define FD_FEATURE_JUST_ACTIVATED(_slot_ctx, _feature_name)  (_slot_ctx->slot_bank.slot == _slot_ctx->epoch_ctx->features. _feature_name)
+#define FD_FEATURE_ACTIVE_OFFSET(_slot_ctx, _offset)  (_slot_ctx->slot_bank.slot >= _slot_ctx->epoch_ctx->features.f[_offset>>3] )
+#define FD_FEATURE_JUST_ACTIVATED_OFFSET(_slot_ctx, _offset)  (_slot_ctx->slot_bank.slot == _slot_ctx->epoch_ctx->features.f[_offset>>3] )
+
 
 #define FD_BLOCKHASH_QUEUE_MAX_ENTRIES    (300UL)
 #define FD_RECENT_BLOCKHASHES_MAX_ENTRIES (150UL)

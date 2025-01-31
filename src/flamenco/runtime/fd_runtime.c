@@ -2765,6 +2765,7 @@ fail:
   slot_ctx->funk_txn = parent_txn;
 }
 
+/* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6704 */
 static void
 fd_apply_builtin_program_feature_transitions( fd_exec_slot_ctx_t * slot_ctx ) {
   FD_SCRATCH_SCOPE_BEGIN {
@@ -2772,23 +2773,30 @@ fd_apply_builtin_program_feature_transitions( fd_exec_slot_ctx_t * slot_ctx ) {
 
        Migrate any necessary stateless builtins to core BPF. So far, the only "stateless" builtin
        is the Feature program. Beginning checks in the `migrate_builtin_to_core_bpf` function will
-       fail if the program has already been migrated to BPF.
-       https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6776-L6793 */
-    if( FD_FEATURE_ACTIVE( slot_ctx, migrate_feature_gate_program_to_core_bpf ) ) {
-      fd_migrate_builtin_to_core_bpf( slot_ctx, NULL, &fd_solana_feature_program_id, &fd_solana_feature_program_buffer_address, 1 );
+       fail if the program has already been migrated to BPF. */
+    fd_builtin_program_t const * builtins = fd_builtins();
+    for( ulong i=0UL; i<fd_num_builtins(); i++ ) {
+      /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6732-L6751 */
+      if( builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( slot_ctx, builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
+        FD_LOG_NOTICE(( "Migrating builtin program %s to core BPF", FD_BASE58_ENC_32_ALLOCA( builtins[i].pubkey->key ) ));
+        fd_migrate_builtin_to_core_bpf( slot_ctx, builtins[i].core_bpf_migration_config->upgrade_authority_address, builtins[i].core_bpf_migration_config->builtin_program_id, builtins[i].core_bpf_migration_config->source_buffer_address, 0 );
+      }
+      /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6753-L6774 */
+      if( builtins[i].enable_feature_offset!=NO_ENABLE_FEATURE_ID && FD_FEATURE_JUST_ACTIVATED_OFFSET( slot_ctx, builtins[i].enable_feature_offset ) ) {
+        FD_LOG_NOTICE(( "Enabling builtin program %s", FD_BASE58_ENC_32_ALLOCA( builtins[i].pubkey->key ) ));
+        fd_write_builtin_account( slot_ctx, *builtins[i].pubkey, builtins[i].data,strlen(builtins[i].data) );
+      }
     }
 
-    if( FD_FEATURE_ACTIVE( slot_ctx, migrate_config_program_to_core_bpf ) ) {
-      fd_migrate_builtin_to_core_bpf( slot_ctx, NULL, &fd_solana_config_program_id, &fd_solana_config_program_buffer_address, 0 );
+    /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank.rs#L6776-L6793 */
+    fd_stateless_builtin_program_t const * stateless_builtins = fd_stateless_builtins();
+    for( ulong i=0UL; i<fd_num_stateless_builtins(); i++ ) {
+      if( stateless_builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( slot_ctx, stateless_builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
+        FD_LOG_NOTICE(( "Migrating stateless builtin program %s to core BPF", FD_BASE58_ENC_32_ALLOCA( stateless_builtins[i].pubkey->key ) ));
+        fd_migrate_builtin_to_core_bpf( slot_ctx, stateless_builtins[i].core_bpf_migration_config->upgrade_authority_address, stateless_builtins[i].core_bpf_migration_config->builtin_program_id, stateless_builtins[i].core_bpf_migration_config->source_buffer_address, 1 );
+      }
     }
 
-    if( FD_FEATURE_ACTIVE( slot_ctx, migrate_address_lookup_table_program_to_core_bpf ) ) {
-      fd_migrate_builtin_to_core_bpf( slot_ctx, NULL, &fd_solana_address_lookup_table_program_id, &fd_solana_address_lookup_table_program_buffer_address, 0 );
-    }
-
-    if( FD_FEATURE_ACTIVE( slot_ctx, migrate_stake_program_to_core_bpf ) ) {
-      fd_migrate_builtin_to_core_bpf( slot_ctx, NULL, &fd_solana_stake_program_id, &fd_solana_stake_program_buffer_address, 0 );
-    }
   } FD_SCRATCH_SCOPE_END;
 }
 
@@ -3787,7 +3795,7 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
 
     for( ulong i=0UL; i < genesis_block.native_instruction_processors_len; i++ ) {
       fd_string_pubkey_pair_t * a = &genesis_block.native_instruction_processors[i];
-      fd_write_builtin_bogus_account( slot_ctx, a->pubkey.uc, (const char *) a->string, a->string_len );
+      fd_write_builtin_account( slot_ctx, a->pubkey, (const char *) a->string, a->string_len );
     }
 
     fd_features_restore( slot_ctx );

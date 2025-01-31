@@ -31,8 +31,6 @@
 #include "../../flamenco/snapshot/fd_snapshot.h"
 #include "../../flamenco/snapshot/fd_snapshot_create.h"
 
-extern void fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx, uchar const pubkey[ static 32 ], char const * data, ulong sz );
-
 struct fd_ledger_args {
   fd_wksp_t *           wksp;                    /* wksp for blockstore */
   fd_wksp_t *           funk_wksp;               /* wksp for funk */
