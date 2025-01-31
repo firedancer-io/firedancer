@@ -37,22 +37,47 @@
 
 /* TODO this can be removed if we explicitly manage a memory pool for
    the fd_block_map_t entries */
+
 #define FD_BLOCKSTORE_CHILD_SLOT_MAX    (32UL)        /* the maximum # of children a slot can have */
 #define FD_BLOCKSTORE_ARCHIVE_MIN_SIZE  (1UL << 26UL) /* 64MB := ceil(MAX_DATA_SHREDS_PER_SLOT*1228) */
 
-/* Maximum size of an entry batch is the entire block */
-#define FD_MBATCH_MAX (FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT)
-/* 64 ticks per slot, and then one min size transaction per microblock
-   for all the remaining microblocks.
+/* FD_SLOT_TICK_CNT defines the number of ticks in a slot.  This is
+   fixed to 64. */
+
+#define FD_SLOT_TICK_CNT (64UL)
+
+/* FD_BLOCK_SZ_MAX defines the maximum size (in bytes) of a block.  In
+   the worst case this is the maximum number of shreds in a block * the
+   maximum payload size of a data shred. */
+
+#define FD_BLOCK_SZ_MAX (FD_BLOCK_SHRED_CNT_MAX * FD_SHRED_DATA_PAYLOAD_SZ_MAX)
+
+/* FD_BLOCK_BATCH_SZ_MAX defines the maximum size of a microblock batch.  In
+   the worst case the entire block is transmitted in a single microblock
+   batch, so this bound equals FD_BLOCK_SZ_MAX. */
+
+#define FD_BLOCK_BATCH_SZ_MAX (FD_BLOCK_SZ_MAX)
+
+/* FD_BLOCK_MICRO_CNT_MAX defines the maximum number of microblocks that
+   can be in a valid block.  In the worst case, this is 64 ticks (ie.
+   empty microblocks) + the maximum size of a block divided by the
+   minimum size of a microblock (ie. microblock hdr + 1 min sz txn).
+
    This bound should be used along with the transaction parser and tick
-   verifier to enforce the assumptions.
-   This is NOT a standalone conservative bound against malicious
-   validators.
-   A tighter bound could probably be derived if necessary. */
-#define FD_MICROBLOCK_MAX_PER_SLOT ((FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT - 64UL*sizeof(fd_microblock_hdr_t)) / (sizeof(fd_microblock_hdr_t)+FD_TXN_MIN_SERIALIZED_SZ) + 64UL) /* 200,796 */
-/* 64 ticks per slot, and a single gigantic microblock containing min
-   size transactions. */
-#define FD_TXN_MAX_PER_SLOT ((FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT - 65UL*sizeof(fd_microblock_hdr_t)) / (FD_TXN_MIN_SERIALIZED_SZ)) /* 272,635 */
+   verifier to enforce the assumptions. This is NOT a standalone
+   conservative bound against malicious validators. A tighter bound
+   could probably be derived if necessary. */
+
+#define FD_BLOCK_MICRO_CNT_MAX ((FD_BLOCK_SZ_MAX - FD_SLOT_TICK_CNT*sizeof(fd_microblock_hdr_t)) / (sizeof(fd_microblock_hdr_t)+FD_TXN_MIN_SERIALIZED_SZ) + FD_SLOT_TICK_CNT) /* 200,796 */
+
+/* FD_BLOCK_TXN_CNT_MAX defines the maximum number of transactions that
+   can be in a valid block.  In the worst case, this is 64 ticks (ie.
+   empty microblocks) + a single microblock header (because in the worst
+   case all the transactions will be packed into a single microblock
+   which minimizes the space occupied by headers) divided by the minimum
+   size of a transaction. */
+
+#define FD_BLOCK_TXN_CNT_MAX ((FD_BLOCK_SZ_MAX - FD_SLOT_TICK_CNT*sizeof(fd_microblock_hdr_t) - sizeof(fd_microblock_hdr_t)) / (FD_TXN_MIN_SERIALIZED_SZ)) /* 272,635 */
 
 // TODO centralize these
 // https://github.com/firedancer-io/solana/blob/v1.17.5/sdk/program/src/clock.rs#L34
@@ -256,7 +281,7 @@ struct fd_block {
 typedef struct fd_block fd_block_t;
 
 #define SET_NAME fd_block_set
-#define SET_MAX  FD_SHRED_MAX_PER_SLOT
+#define SET_MAX  FD_BLOCK_SHRED_CNT_MAX
 #include "../../util/tmpl/fd_set.c"
 
 struct fd_block_map {
@@ -294,7 +319,7 @@ struct fd_block_map {
      corresponds to the shred's index. Note shreds can be received
      out-of-order so higher bits might be set before lower bits. */
 
-  fd_block_set_t data_complete_idxs[FD_SHRED_MAX_PER_SLOT / sizeof(ulong)];
+  fd_block_set_t data_complete_idxs[FD_BLOCK_SHRED_CNT_MAX / sizeof(ulong)];
 
   /* Block */
 
