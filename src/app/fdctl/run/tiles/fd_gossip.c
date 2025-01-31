@@ -475,10 +475,12 @@ during_frag( fd_gossip_tile_ctx_t * ctx,
              ulong                  in_idx,
              ulong                  seq,
              ulong                  sig,
+             ulong                  tspub,
              ulong                  chunk,
              ulong                  sz ) {
   (void)seq;
   (void)sig;
+  (void)tspub;
 
   if( in_idx==REPLAY_IN_IDX ) {
     if( FD_UNLIKELY( chunk<ctx->replay_in_chunk0 || chunk>ctx->replay_in_wmark || sz>FD_RESTART_LINK_BYTES_MAX+sizeof(uint) ) ) {
@@ -837,7 +839,7 @@ privileged_init( fd_topo_t *      topo,
   uchar const * identity_key = fd_keyload_load( tile->gossip.identity_key_path, /* pubkey only: */ 1 );
   fd_memcpy( ctx->identity_public_key.uc, identity_key, sizeof(fd_pubkey_t) );
 
-  FD_TEST( sizeof(ulong) == getrandom( &ctx->gossip_seed, sizeof(ulong), 0 ) );
+  ctx->gossip_seed = 20;
 }
 
 static void

@@ -603,9 +603,10 @@ STEM_(run1)( ulong                        in_cnt,
     ulong sz       = (ulong)this_in_mline->sz;     (void)sz;
     ulong ctl      = (ulong)this_in_mline->ctl;    (void)ctl;
     ulong tsorig   = (ulong)this_in_mline->tsorig; (void)tsorig;
+    ulong tspub    = (ulong)this_in_mline->tspub;  (void)tspub;
 
 #ifdef STEM_CALLBACK_DURING_FRAG
-    STEM_CALLBACK_DURING_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz );
+    STEM_CALLBACK_DURING_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, tspub, chunk, sz );
 #endif
 
     FD_COMPILER_MFENCE();
