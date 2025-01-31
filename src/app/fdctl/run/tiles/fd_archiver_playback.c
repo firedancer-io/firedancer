@@ -39,11 +39,13 @@ struct fd_archiver_playback_tile_ctx {
 
   fd_archiver_playback_stats_t stats;
 
+  double tick_per_ns;
+
   fd_alloc_t * alloc;
   fd_valloc_t  valloc;
 
-  long start_tile_ts;
-  long start_archive_frag_ts;
+  long start_tile_ts_ns;
+  long start_archive_frag_ts_ns;
 
   ulong pending_publish_link_idx;
   fd_archiver_frag_header_t pending_publish_header;
@@ -136,6 +138,8 @@ unprivileged_init( fd_topo_t *      topo,
   void * alloc_shmem                  = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
+  ctx->tick_per_ns = fd_tempo_tick_per_ns( NULL );
+
   /* Setup output links */
   for( ulong i=0; i<tile->out_cnt; i++ ) {
     fd_topo_link_t * link      = &topo->links[ tile->out_link_id[ i ] ];
@@ -171,14 +175,19 @@ unprivileged_init( fd_topo_t *      topo,
 
 }
 
+static inline long 
+now( fd_archiver_playback_tile_ctx_t * ctx ) {
+  return (long)(((double)fd_tickcount()) / ctx->tick_per_ns);
+}
+
 static inline int
 should_delay_publish( fd_archiver_playback_tile_ctx_t * ctx ) {
-  if( FD_UNLIKELY(( ctx->start_tile_ts == 0UL )) ) {
+  if( FD_UNLIKELY(( ctx->start_tile_ts_ns == 0L )) ) {
     return 0;
   }
 
-  long relative_tile_ts         = fd_tickcount() - ctx->start_tile_ts; /* FIXME: read timestamp out of archive file first? don't rely on this */
-  long relative_archive_frag_ts = ctx->pending_publish_header.timestamp - ctx->start_archive_frag_ts;
+  long relative_tile_ts         = now( ctx ) - ctx->start_tile_ts_ns; /* FIXME: read timestamp out of archive file first? don't rely on this */
+  long relative_archive_frag_ts = ctx->pending_publish_header.timestamp - ctx->start_archive_frag_ts_ns;
 
   /* TODO: maybe have some tolerance here? */
   return relative_tile_ts < relative_archive_frag_ts;
@@ -248,9 +257,9 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
     FD_LOG_WARNING(( "stats: net_shred_out_cnt=%lu, quic_verify_out_cnt=%lu, net_gossip_out_cnt=%lu, net_repair_out_cnt=%lu", ctx->stats.net_shred_out_cnt, ctx->stats.quic_verify_out_cnt, ctx->stats.net_gossip_out_cnt, ctx->stats.net_repair_out_cnt ));
     FD_LOG_ERR(( "bad magic: %lu", ctx->pending_publish_header.magic ));
   }
-  if( FD_UNLIKELY(( ctx->start_tile_ts == 0UL )) ) {
-    ctx->start_tile_ts         = fd_tickcount();
-    ctx->start_archive_frag_ts = ctx->pending_publish_header.timestamp;
+  if( FD_UNLIKELY(( ctx->start_tile_ts_ns == 0UL )) ) {
+    ctx->start_tile_ts_ns         = now( ctx );
+    ctx->start_archive_frag_ts_ns = ctx->pending_publish_header.timestamp;
   }
 
   /* Determine the output link on which to send the frag */

@@ -839,7 +839,7 @@ privileged_init( fd_topo_t *      topo,
   uchar const * identity_key = fd_keyload_load( tile->gossip.identity_key_path, /* pubkey only: */ 1 );
   fd_memcpy( ctx->identity_public_key.uc, identity_key, sizeof(fd_pubkey_t) );
 
-  FD_TEST( sizeof(ulong) == getrandom( &ctx->gossip_seed, sizeof(ulong), 0 ) );
+  ctx->gossip_seed = 20;
 }
 
 static void

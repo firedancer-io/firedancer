@@ -494,7 +494,7 @@ privileged_init( fd_topo_t *      topo,
   }
   ctx->repair_config.good_peer_cache_file_fd = tile->repair.good_peer_cache_file_fd;
 
-  FD_TEST( sizeof(ulong) == getrandom( &ctx->repair_seed, sizeof(ulong), 0 ) );
+  ctx->repair_seed = 10;
 }
 
 static void

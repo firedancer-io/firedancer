@@ -23,6 +23,8 @@ struct fd_archiver_writer_tile_ctx {
 
   fd_io_buffered_ostream_t archive_ostream;
 
+  double tick_per_ns;
+
   fd_archiver_writer_in_ctx_t in[ 32 ];
 
   fd_alloc_t * alloc;
@@ -135,6 +137,8 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
   }
 
+  ctx->tick_per_ns = fd_tempo_tick_per_ns( NULL );
+
   /* Allocator */
   ctx->alloc = fd_alloc_join( fd_alloc_new( alloc_shmem, FD_ARCHIVER_WRITER_ALLOC_TAG ), fd_tile_idx() );
   if( FD_UNLIKELY( !ctx->alloc ) ) {
@@ -157,6 +161,11 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "failed to initialize ostream" ));
   }
 
+}
+
+static inline long 
+now( fd_archiver_writer_tile_ctx_t * ctx ) {
+  return (long)(((double)fd_tickcount()) / ctx->tick_per_ns);
 }
 
 static void
@@ -186,12 +195,15 @@ during_frag( fd_archiver_writer_tile_ctx_t * ctx,
   /* Write the incoming fragment to the ostream */
   /* This is safe to do because this tile is a reliable consumer and so can never be overran. */
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
+
+  /* Update the timestamp of the fragment, so that we have a total ordering */
+  fd_archiver_frag_header_t * header = fd_type_pun( src );
+  header->timestamp = now( ctx );
+
   int err = fd_io_buffered_ostream_write( &ctx->archive_ostream, src, sz );
   if( FD_UNLIKELY( err != 0 ) ) {
     FD_LOG_WARNING(( "failed to write %lu bytes to output buffer. error: %d", sz, err ));
   }
-
-  /* TODO: possibly flush in during_housekeeping? */
 }
 
 #define STEM_BURST (1UL)
