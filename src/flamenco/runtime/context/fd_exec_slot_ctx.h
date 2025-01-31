@@ -72,6 +72,7 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
    Example usage:   if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) ) */
 
 #define FD_FEATURE_ACTIVE(_slot_ctx, _feature_name)  (_slot_ctx->slot_bank.slot >= _slot_ctx->epoch_ctx->features. _feature_name)
+#define FD_FEATURE_ACTIVE_OFFSET(_slot_ctx, _offset)  (_slot_ctx->slot_bank.slot >= _slot_ctx->epoch_ctx->features.f[_offset>>3] )
 
 FD_PROTOTYPES_BEGIN
 

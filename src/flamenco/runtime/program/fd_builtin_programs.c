@@ -1,8 +1,8 @@
 #include "fd_builtin_programs.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
-#include "../context/fd_exec_epoch_ctx.h"
-#include "../context/fd_exec_slot_ctx.h"
+#include "../fd_system_ids_pp.h"
+#include <time.h>
 
 /* BuiltIn programs need "bogus" executable accounts to exist.
    These are loaded and ignored during execution.
@@ -12,17 +12,16 @@
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/src/native_loader.rs#L19 */
 void
-fd_write_builtin_bogus_account( fd_exec_slot_ctx_t * slot_ctx,
-                                uchar const          pubkey[ static 32 ],
-                                char const *         data,
-                                ulong                sz ) {
+fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
+                          fd_pubkey_t const    pubkey,
+                          char const *         data,
+                          ulong                sz ) {
 
   fd_acc_mgr_t *      acc_mgr = slot_ctx->acc_mgr;
   fd_funk_txn_t *     txn     = slot_ctx->funk_txn;
-  fd_pubkey_t const * key     = (fd_pubkey_t const *)pubkey;
   FD_BORROWED_ACCOUNT_DECL(rec);
 
-  int err = fd_acc_mgr_modify( acc_mgr, txn, key, 1, sz, rec);
+  int err = fd_acc_mgr_modify( acc_mgr, txn, &pubkey, 1, sz, rec);
   FD_TEST( !err );
 
   rec->meta->dlen            = sz;
@@ -73,56 +72,60 @@ write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
 
 void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
   // https://github.com/anza-xyz/agave/blob/v2.0.1/runtime/src/bank/builtins/mod.rs#L33
-
-  fd_write_builtin_bogus_account( slot_ctx, fd_solana_system_program_id.key,         "system_program",         14UL );
-  fd_write_builtin_bogus_account( slot_ctx, fd_solana_vote_program_id.key,           "vote_program",           12UL );
-
-  if( !FD_FEATURE_ACTIVE( slot_ctx, migrate_stake_program_to_core_bpf ) ) {
-    fd_write_builtin_bogus_account( slot_ctx, fd_solana_stake_program_id.key,        "stake_program",          13UL );
+  fd_builtin_program_t const * builtins = fd_builtins();
+  for( ulong i=0UL; i<fd_num_builtins(); i++ ) {
+    if( builtins[i].core_bpf_migration_config && FD_FEATURE_ACTIVE_OFFSET( slot_ctx, builtins[i].core_bpf_migration_config->enable_feature_offset ) ) {
+      continue;
+    } else if( builtins[i].enable_feature_offset!=NO_ENABLE_FEATURE_ID && !FD_FEATURE_ACTIVE_OFFSET( slot_ctx, builtins[i].enable_feature_offset ) ) {
+      continue;
+    } else {
+      fd_write_builtin_account( slot_ctx, *builtins[i].pubkey, builtins[i].data, strlen(builtins[i].data) );
+    }
   }
-
-  if( !FD_FEATURE_ACTIVE( slot_ctx, migrate_config_program_to_core_bpf ) ) {
-    fd_write_builtin_bogus_account( slot_ctx, fd_solana_config_program_id.key,       "config_program",         14UL );
-  }
-
-  if( FD_FEATURE_ACTIVE( slot_ctx, enable_program_runtime_v2_and_loader_v4 ) ) {
-    fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_v4_program_id.key,   "loader_v4",             9UL );
-  }
-
-  if( !FD_FEATURE_ACTIVE( slot_ctx, migrate_address_lookup_table_program_to_core_bpf ) ) {
-    fd_write_builtin_bogus_account( slot_ctx, fd_solana_address_lookup_table_program_id.key, "address_lookup_table_program",          28UL );
-  }
-
-  fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_deprecated_program_id.key,  "solana_bpf_loader_deprecated_program",  36UL );
-
-  fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_program_id.key,             "solana_bpf_loader_program",             25UL );
-  fd_write_builtin_bogus_account( slot_ctx, fd_solana_bpf_loader_upgradeable_program_id.key, "solana_bpf_loader_upgradeable_program", 37UL );
-
-  fd_write_builtin_bogus_account( slot_ctx, fd_solana_compute_budget_program_id.key, "compute_budget_program", 22UL );
 
   //TODO: remove when no longer necessary
   if( FD_FEATURE_ACTIVE( slot_ctx, zk_token_sdk_enabled ) ) {
-    fd_write_builtin_bogus_account( slot_ctx, fd_solana_zk_token_proof_program_id.key, "zk_token_proof_program", 22UL );
+    fd_write_builtin_account( slot_ctx, fd_solana_zk_token_proof_program_id, "zk_token_proof_program", 22UL );
   }
 
   if( FD_FEATURE_ACTIVE( slot_ctx, zk_elgamal_proof_program_enabled ) ) {
-    fd_write_builtin_bogus_account( slot_ctx, fd_solana_zk_elgamal_proof_program_id.key, "zk_elgamal_proof_program", 24UL );
+    fd_write_builtin_account( slot_ctx, fd_solana_zk_elgamal_proof_program_id, "zk_elgamal_proof_program", 24UL );
   }
 
   /* Precompiles have empty account data */
-  if (slot_ctx->epoch_ctx->epoch_bank.cluster_version[0] < 2) {
+  if( slot_ctx->epoch_ctx->epoch_bank.cluster_version[0]<2 ) {
     char data[1] = {1};
-    fd_write_builtin_bogus_account( slot_ctx, fd_solana_keccak_secp_256k_program_id.key, data, 1 );
-    fd_write_builtin_bogus_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id.key, data, 1 );
-    if (FD_FEATURE_ACTIVE( slot_ctx, enable_secp256r1_precompile ))
-      fd_write_builtin_bogus_account( slot_ctx, fd_solana_secp256r1_program_id.key, data, 1 );
+    fd_write_builtin_account( slot_ctx, fd_solana_keccak_secp_256k_program_id, data, 1 );
+    fd_write_builtin_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id, data, 1 );
+    if( FD_FEATURE_ACTIVE( slot_ctx, enable_secp256r1_precompile ) )
+      fd_write_builtin_account( slot_ctx, fd_solana_secp256r1_program_id, data, 1 );
   } else {
-    fd_write_builtin_bogus_account( slot_ctx, fd_solana_keccak_secp_256k_program_id.key, "", 0 );
-    fd_write_builtin_bogus_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id.key, "", 0 );
-    if (FD_FEATURE_ACTIVE( slot_ctx, enable_secp256r1_precompile ))
-      fd_write_builtin_bogus_account( slot_ctx, fd_solana_secp256r1_program_id.key, "", 0 );
+    fd_write_builtin_account( slot_ctx, fd_solana_keccak_secp_256k_program_id, "", 0 );
+    fd_write_builtin_account( slot_ctx, fd_solana_ed25519_sig_verify_program_id, "", 0 );
+    if( FD_FEATURE_ACTIVE( slot_ctx, enable_secp256r1_precompile ) )
+      fd_write_builtin_account( slot_ctx, fd_solana_secp256r1_program_id, "", 0 );
   }
 
   /* Inline SPL token mint program ("inlined to avoid an external dependency on the spl-token crate") */
   write_inline_spl_native_mint_program_account( slot_ctx );
+}
+
+fd_builtin_program_t const *
+fd_builtins( void ) {
+  return builtin_programs;
+}
+
+ulong
+fd_num_builtins( void ) {
+  return BUILTIN_PROGRAMS_COUNT;
+}
+
+fd_stateless_builtin_program_t const *
+fd_stateless_builtins( void ) {
+  return stateless_programs_builtins;
+}
+
+ulong
+fd_num_stateless_builtins( void ) {
+  return STATELESS_BUILTINS_COUNT;
 }
