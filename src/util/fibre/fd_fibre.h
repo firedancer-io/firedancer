@@ -67,6 +67,11 @@ fd_fibre_t *
 fd_fibre_init( void * );
 
 
+/* return the currently executing fibre */
+fd_fibre_t *
+fd_fibre_get_current( void );
+
+
 /* footprint and alignment required for fd_fibre_start */
 ulong fd_fibre_start_footprint( ulong stack_size );
 ulong fd_fibre_start_align( void );
@@ -143,6 +148,10 @@ fd_fibre_wait_until( long resume_time_ns );
 /* wakes another fibre */
 void
 fd_fibre_wake( fd_fibre_t * fibre );
+
+/* sets the done flag on the fibre so it doesn't execute again */
+void
+fd_fibre_term( fd_fibre_t * fibre );
 
 
 /* add a fibre to the schedule */

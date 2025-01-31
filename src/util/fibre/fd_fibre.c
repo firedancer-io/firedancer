@@ -7,6 +7,12 @@
 
 fd_fibre_t * fd_fibre_current = NULL;
 
+/* return the currently executing fibre */
+fd_fibre_t *
+fd_fibre_get_current( void ) {
+  return fd_fibre_current;
+}
+
 /* top level function
    simply calls the user function then sets the done flag */
 void
@@ -441,4 +447,10 @@ fd_fibre_pipe_read( fd_fibre_pipe_t * pipe, ulong *value, long timeout ) {
 
   /* return success */
   return 0;
+}
+
+/* sets the done flag on the fibre so it doesn't execute again */
+void
+fd_fibre_term( fd_fibre_t * fibre ) {
+  fibre->done = 1;
 }
