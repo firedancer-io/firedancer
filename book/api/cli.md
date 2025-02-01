@@ -25,7 +25,7 @@ abbreviated log output to `stderr` and nothing will be written to
 | `CAP_SETGID` | call `setresgid(2)` to switch gid to the sandbox user. Not required if the GID is already the same as the sandbox GID |
 | `CAP_SYS_RESOURCE` | call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`. Not required if the process already has a high enough limit |
 | `CAP_SYS_RESOURCE` | call `setpriority(2)` to increase thread priorities. Not required if the process already has a nice value of -19 |
-| `CAP_SYS_RESOURCE` | call `rlimit(2)  to increase `RLIMIT_NOFILE` to allow more open files for Agave. Not reqired if the resource limit is already high enough |
+| `CAP_SYS_RESOURCE` | call `rlimit(2)  to increase `RLIMIT_NOFILE` to allow more open files for Agave. Not required if the resource limit is already high enough |
 | `CAP_NET_BIND_SERVICE` | call `bind(2)` to bind to a privileged port for serving metrics. Only required if the bind port is below 1024 |
 
 :::

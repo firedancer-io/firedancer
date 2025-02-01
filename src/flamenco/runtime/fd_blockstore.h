@@ -39,8 +39,20 @@
    the fd_block_map_t entries */
 #define FD_BLOCKSTORE_CHILD_SLOT_MAX    (32UL)        /* the maximum # of children a slot can have */
 #define FD_BLOCKSTORE_ARCHIVE_MIN_SIZE  (1UL << 26UL) /* 64MB := ceil(MAX_DATA_SHREDS_PER_SLOT*1228) */
-#define FD_SLOT_SHRED_MAX               (1UL << 15UL) /* maximum # of shreds in a slot */
-#define FD_SHRED_PAYLOAD_MAX            (1015)        /* maximum size of a data shred payload */
+
+/* Maximum size of an entry batch is the entire block */
+#define FD_MBATCH_MAX (FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT)
+/* 64 ticks per slot, and then one min size transaction per microblock
+   for all the remaining microblocks.
+   This bound should be used along with the transaction parser and tick
+   verifier to enforce the assumptions.
+   This is NOT a standalone conservative bound against malicious
+   validators.
+   A tighter bound could probably be derived if necessary. */
+#define FD_MICROBLOCK_MAX_PER_SLOT ((FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT - 64UL*sizeof(fd_microblock_hdr_t)) / (sizeof(fd_microblock_hdr_t)+FD_TXN_MIN_SERIALIZED_SZ) + 64UL) /* 200,796 */
+/* 64 ticks per slot, and a single gigantic microblock containing min
+   size transactions. */
+#define FD_TXN_MAX_PER_SLOT ((FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT - 65UL*sizeof(fd_microblock_hdr_t)) / (FD_TXN_MIN_SERIALIZED_SZ)) /* 272,635 */
 
 // TODO centralize these
 // https://github.com/firedancer-io/solana/blob/v1.17.5/sdk/program/src/clock.rs#L34
@@ -244,7 +256,7 @@ struct fd_block {
 typedef struct fd_block fd_block_t;
 
 #define SET_NAME fd_block_set
-#define SET_MAX  FD_SLOT_SHRED_MAX
+#define SET_MAX  FD_SHRED_MAX_PER_SLOT
 #include "../../util/tmpl/fd_set.c"
 
 struct fd_block_map {
@@ -282,7 +294,13 @@ struct fd_block_map {
      corresponds to the shred's index. Note shreds can be received
      out-of-order so higher bits might be set before lower bits. */
 
-  fd_block_set_t data_complete_idxs[FD_SLOT_SHRED_MAX / sizeof(ulong)];
+  fd_block_set_t data_complete_idxs[FD_SHRED_MAX_PER_SLOT / sizeof(ulong)];
+
+  /* Helpers for batching tick verification */
+
+  ulong ticks_consumed;
+  ulong tick_hash_count_accum;
+  fd_hash_t in_poh_hash; /* TODO: might not be best place to hold this */
 
   /* Block */
 
@@ -763,6 +781,31 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
    function. */
 int
 fd_blockstore_buffered_shreds_remove( fd_blockstore_t * blockstore, ulong slot );
+
+/* fd_blockstore_batch_assemble assembles shreds for a given batch starting at shred_idx 
+   Shred payloads are copied contiguously into block_data_out, and the total size
+   of the concatenated shred data is returned in block_data_sz. The caller provides the
+   max buffer size. Function will check if the provided shred_idx is the start of a batch
+   Returns an error code on success or failure. 
+
+   IMPORTANT!  Caller MUST hold the read lock when calling this
+   function.
+ */
+int
+fd_blockstore_batch_assemble( fd_blockstore_t * blockstore, 
+                               ulong slot, 
+                               uint batch_idx,
+                               ulong block_data_max, 
+                               uchar * block_data_out, 
+                               ulong * block_data_sz );
+
+/* fd_blockstore_shreds_complete should be a replacement for anywhere that is 
+   querying for an fd_block_t * for existence but not actually using the block data. 
+   Semantically equivalent to query_block( slot ) != NULL.
+
+   IMPORTANT! Caller MUST hold the read lock when calling this function */
+bool
+fd_blockstore_shreds_complete( fd_blockstore_t * blockstore, ulong slot );
 
 /* fd_blockstore_block_height_update sets the block height.
 

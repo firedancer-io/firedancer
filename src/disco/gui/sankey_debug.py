@@ -46,7 +46,13 @@ def print_sankey(summed: Dict[Tuple[str, Optional[str]], int]):
                     summed[('resolv_lut_resolved', 'account_uninitialized')] + \
                     summed[('resolv_lut_resolved', 'invalid_account_data')] + \
                     summed[('resolv_lut_resolved', 'invalid_account_owner')] + \
-                    summed[('resolv_lut_resolved', 'invalid_lookup_index')]
+                    summed[('resolv_lut_resolved', 'invalid_lookup_index')] + \
+                    summed[('resolv_stash_operation', 'overrun')]
+
+    resolv_retained = summed[('resolv_stash_operation', 'inserted')] - \
+                      summed[('resolv_stash_operation', 'overrun')] - \
+                      summed[('resolv_stash_operation', 'published')] - \
+                      summed[('resolv_stash_operation', 'removed')]
     
     pack_retained = summed[('pack_available_transactions', None)]
 
@@ -115,10 +121,11 @@ COMPUTED DEDUP OUT:   {in_block_engine + in_udp + in_quic + in_gossip - verify_o
 RECONCILE DEDUP IN:   {recon_dedup_in:10,}
 RECONCILE DEDUP OUT:  {recon_dedup_out:10,}
 
+resolv_retained:      {resolv_retained:10,}
 resolv_failed:        {resolv_failed:10,}
 
 COMPUTED RESOLV IN:   {in_block_engine + in_udp + in_quic + in_gossip - verify_overrun - verify_failed - verify_parse - verify_dedup - dedup_dedup:10,}
-COMPUTED RESOLV OUT:  {in_block_engine + in_udp + in_quic + in_gossip - verify_overrun - verify_failed - verify_parse - verify_dedup - dedup_dedup - resolv_failed:10,}
+COMPUTED RESOLV OUT:  {in_block_engine + in_udp + in_quic + in_gossip - verify_overrun - verify_failed - verify_parse - verify_dedup - dedup_dedup - resolv_retained - resolv_failed:10,}
 RECONCILE RESOLV IN:  {recon_resolv_in:10,}
 RECONCILE RESOLV OUT: {recon_resolv_out:10,}
 
@@ -127,8 +134,8 @@ pack_leader_slot:     {pack_leader_slot:10,}
 pack_expired:         {pack_expired:10,}
 pack_invalid:         {pack_invalid:10,}
 
-COMPUTED PACK IN:     {in_block_engine + in_udp + in_quic + in_gossip - verify_overrun - verify_failed - verify_parse - verify_dedup - dedup_dedup - resolv_failed:10,}
-COMPUTED PACK OUT:    {in_block_engine + in_udp + in_quic + in_gossip - verify_overrun - verify_failed - verify_parse - verify_dedup - dedup_dedup - resolv_failed - pack_retained - pack_leader_slot - pack_expired - pack_invalid:10,}
+COMPUTED PACK IN:     {in_block_engine + in_udp + in_quic + in_gossip - verify_overrun - verify_failed - verify_parse - verify_dedup - dedup_dedup - resolv_retained - resolv_failed:10,}
+COMPUTED PACK OUT:    {in_block_engine + in_udp + in_quic + in_gossip - verify_overrun - verify_failed - verify_parse - verify_dedup - dedup_dedup - resolv_retained - resolv_failed - pack_retained - pack_leader_slot - pack_expired - pack_invalid:10,}
 RECONCILE PACK IN:    {recon_pack_in:10,}
 
 bank_invalid:         {bank_invalid:10,}
@@ -137,8 +144,8 @@ block_fail:           {block_fail:10,}
 block_success:        {block_success:10,}
 ----------------------------------------
 COMPUTED TOTAL IN:    {in_block_engine + in_gossip + in_udp + in_quic:10,}
-COMPUTED TOTAL OUT:   {verify_overrun + verify_failed + verify_parse + verify_dedup + dedup_dedup + resolv_failed + pack_retained + pack_leader_slot + pack_expired + pack_invalid + bank_invalid + block_fail + block_success:10,}
-UNACCOUNTED:          {in_block_engine + in_gossip + in_udp + in_quic - verify_overrun - verify_failed - verify_parse - verify_dedup - dedup_dedup - resolv_failed - pack_retained - pack_leader_slot - pack_expired - pack_invalid - bank_invalid - block_fail - block_success:10,}
+COMPUTED TOTAL OUT:   {verify_overrun + verify_failed + verify_parse + verify_dedup + dedup_dedup + resolv_retained + resolv_failed + pack_retained + pack_leader_slot + pack_expired + pack_invalid + bank_invalid + block_fail + block_success:10,}
+UNACCOUNTED:          {in_block_engine + in_gossip + in_udp + in_quic - verify_overrun - verify_failed - verify_parse - verify_dedup - dedup_dedup - resolv_retained - resolv_failed - pack_retained - pack_leader_slot - pack_expired - pack_invalid - bank_invalid - block_fail - block_success:10,}
 """)
 
 def main():

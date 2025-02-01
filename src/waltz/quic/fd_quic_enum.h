@@ -116,5 +116,16 @@
 #define FD_QUIC_PKT_NUM_UNUSED  (~0ul)
 #define FD_QUIC_PKT_NUM_PENDING (~1ul)
 
-#endif
+/* scheduling granularity */
+/* does not need to be remotely accurate */
+/* used for calculating an upper bound on the expected response of an ack */
+#define FD_QUIC_SCHED_GRANULARITY_US 10.0f
 
+/* RTT probe period */
+/* used to bound the time between RTT measurements */
+#define FD_QUIC_RTT_PERIOD_US 60e6f
+
+/* initial RTT, used before it's measured */
+#define FD_QUIC_INITIAL_RTT_US 200e3f
+
+#endif

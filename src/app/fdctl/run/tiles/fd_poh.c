@@ -1880,9 +1880,16 @@ fd_ext_plugin_publish_replay_stage( ulong   sig,
 }
 
 void
-fd_ext_plugin_publish_start_progress( ulong   sig,
+fd_ext_plugin_publish_genesis_hash( ulong   sig,
                                     uchar * data,
                                     ulong   data_len ) {
+  poh_link_publish( &replay_plugin, sig, data, data_len );
+}
+
+void
+fd_ext_plugin_publish_start_progress( ulong   sig,
+                                      uchar * data,
+                                      ulong   data_len ) {
   poh_link_publish( &start_progress_plugin, sig, data, data_len );
 }
 

@@ -379,8 +379,9 @@ fd_account_hash_task( void *tpool,
 }
 
 void
-fd_collect_modified_accounts( fd_exec_slot_ctx_t * slot_ctx,
-                              fd_accounts_hash_task_data_t *task_data ) {
+fd_collect_modified_accounts( fd_exec_slot_ctx_t *           slot_ctx,
+                              fd_accounts_hash_task_data_t * task_data,
+                              fd_valloc_t                    valloc ) {
   fd_acc_mgr_t *  acc_mgr = slot_ctx->acc_mgr;
   fd_funk_t *     funk    = acc_mgr->funk;
   fd_funk_txn_t * txn     = slot_ctx->funk_txn;
@@ -401,7 +402,7 @@ fd_collect_modified_accounts( fd_exec_slot_ctx_t * slot_ctx,
     rec_cnt++;
   }
 
-  task_data->info = fd_valloc_malloc( slot_ctx->valloc, 8UL, rec_cnt * sizeof(fd_accounts_hash_task_info_t) );
+  task_data->info = fd_valloc_malloc( valloc, alignof(fd_accounts_hash_task_info_t), rec_cnt * sizeof(fd_accounts_hash_task_info_t) );
 
   /* Iterate over accounts that have been changed in the current
      database transaction. */
@@ -431,7 +432,8 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
                            fd_capture_ctx_t *   capture_ctx,
                            fd_hash_t *          hash,
                            ulong                signature_cnt,
-                           fd_tpool_t *         tpool ) {
+                           fd_tpool_t *         tpool,
+                           fd_valloc_t          valloc ) {
   fd_acc_mgr_t *  acc_mgr = slot_ctx->acc_mgr;
   fd_funk_t *     funk    = acc_mgr->funk;
   fd_funk_txn_t * txn     = slot_ctx->funk_txn;
@@ -440,22 +442,22 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
   fd_accounts_hash_task_data_t task_data;
 
   ulong wcnt = fd_tpool_worker_cnt( tpool );
-  task_data.lthash_values = fd_valloc_malloc( slot_ctx->valloc, FD_LTHASH_VALUE_ALIGN, wcnt * FD_LTHASH_VALUE_FOOTPRINT );
+  task_data.lthash_values = fd_valloc_malloc( valloc, FD_LTHASH_VALUE_ALIGN, wcnt * FD_LTHASH_VALUE_FOOTPRINT );
   for( ulong i = 0; i < wcnt; i++ ) {
     fd_lthash_zero(&task_data.lthash_values[i]);
   }
 
   /* Find accounts which might have changed */
-  fd_collect_modified_accounts( slot_ctx, &task_data);
+  fd_collect_modified_accounts( slot_ctx, &task_data, valloc );
 
-  fd_pubkey_hash_pair_t * dirty_keys = fd_valloc_malloc( slot_ctx->valloc, FD_PUBKEY_HASH_PAIR_ALIGN, task_data.info_sz * FD_PUBKEY_HASH_PAIR_FOOTPRINT );
+  fd_pubkey_hash_pair_t * dirty_keys = fd_valloc_malloc( valloc, FD_PUBKEY_HASH_PAIR_ALIGN, task_data.info_sz * FD_PUBKEY_HASH_PAIR_FOOTPRINT );
   ulong dirty_key_cnt = 0;
 
   /* Find accounts which have changed */
   fd_tpool_exec_all_rrobin( tpool, 0, wcnt, fd_account_hash_task, &task_data, NULL, NULL, 1, 0, task_data.info_sz );
 
   // Apply the lthash changes to the bank lthash
-  fd_lthash_value_t * acc = (fd_lthash_value_t *)fd_type_pun(slot_ctx->slot_bank.lthash.lthash);
+  fd_lthash_value_t * acc = (fd_lthash_value_t *)fd_type_pun( slot_ctx->slot_bank.lthash.lthash );
   for( ulong i = 0; i < wcnt; i++ ) {
     fd_lthash_add( acc, &task_data.lthash_values[i] );
   }
@@ -549,16 +551,17 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
   // Sanity-check LT Hash
   //    fd_accounts_check_lthash( slot_ctx );
 
-  fd_valloc_free( slot_ctx->valloc, task_data.info );
-  fd_valloc_free( slot_ctx->valloc, task_data.lthash_values );
-  fd_valloc_free( slot_ctx->valloc, dirty_keys );
+  fd_valloc_free( valloc, task_data.info );
+  fd_valloc_free( valloc, task_data.lthash_values );
+  fd_valloc_free( valloc, dirty_keys );
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 int
 fd_print_account_hashes( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_tpool_t *         tpool ) {
+                         fd_tpool_t *         tpool,
+                         fd_valloc_t          valloc ) {
 
   // fd_acc_mgr_t *  acc_mgr = slot_ctx->acc_mgr;
   // fd_funk_txn_t * txn     = slot_ctx->funk_txn;
@@ -566,13 +569,13 @@ fd_print_account_hashes( fd_exec_slot_ctx_t * slot_ctx,
   /* Collect list of changed accounts to be added to bank hash */
   fd_accounts_hash_task_data_t task_data;
 
-  fd_collect_modified_accounts( slot_ctx, &task_data );
+  fd_collect_modified_accounts( slot_ctx, &task_data, valloc );
 
-  fd_pubkey_hash_pair_t * dirty_keys = fd_valloc_malloc( slot_ctx->valloc, FD_PUBKEY_HASH_PAIR_ALIGN, task_data.info_sz * FD_PUBKEY_HASH_PAIR_FOOTPRINT );
+  fd_pubkey_hash_pair_t * dirty_keys = fd_valloc_malloc( valloc, FD_PUBKEY_HASH_PAIR_ALIGN, task_data.info_sz * FD_PUBKEY_HASH_PAIR_FOOTPRINT );
   ulong dirty_key_cnt = 0;
 
   ulong wcnt = fd_tpool_worker_cnt( tpool );
-  task_data.lthash_values = fd_valloc_malloc( slot_ctx->valloc, FD_LTHASH_VALUE_ALIGN, wcnt * FD_LTHASH_VALUE_FOOTPRINT );
+  task_data.lthash_values = fd_valloc_malloc( valloc, FD_LTHASH_VALUE_ALIGN, wcnt * FD_LTHASH_VALUE_FOOTPRINT );
   for( ulong i = 0; i < wcnt; i++ ) {
     fd_lthash_zero(&task_data.lthash_values[i]);
   }
@@ -640,7 +643,7 @@ fd_print_account_hashes( fd_exec_slot_ctx_t * slot_ctx,
 
       fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
       uchar *             acc_data = fd_account_get_data(metadata);
-      char *              acc_data_str = fd_valloc_malloc(slot_ctx->valloc, 8, 5*metadata->dlen + 1);
+      char *              acc_data_str = fd_valloc_malloc( valloc, 8, 5*metadata->dlen + 1 );
 
       char * acc_data_str_cursor = acc_data_str;
       if (metadata->dlen > 0) {
@@ -663,14 +666,14 @@ fd_print_account_hashes( fd_exec_slot_ctx_t * slot_ctx,
                       metadata->dlen,
                       FD_BASE58_ENC_32_ALLOCA( dirty_keys[i].hash->hash ) ));
 
-      fd_valloc_free(slot_ctx->valloc, acc_data_str);
+      fd_valloc_free(valloc, acc_data_str);
     }
   }
 #endif
 
-  fd_valloc_free( slot_ctx->valloc, task_data.info );
-  fd_valloc_free( slot_ctx->valloc, task_data.lthash_values );
-  fd_valloc_free( slot_ctx->valloc, dirty_keys );
+  fd_valloc_free( valloc, task_data.info );
+  fd_valloc_free( valloc, task_data.lthash_values );
+  fd_valloc_free( valloc, dirty_keys );
 
   return 0;
 }
@@ -904,7 +907,11 @@ fd_accounts_hash( fd_funk_t          * funk,
 }
 
 static int
-fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_hash, fd_funk_txn_t * child_txn, ulong do_hash_verify ) {
+fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx, 
+                           fd_hash_t *          accounts_hash, 
+                           fd_funk_txn_t *      child_txn, 
+                           ulong                do_hash_verify,
+                           fd_valloc_t          valloc ) {
   FD_LOG_NOTICE(("accounts_hash_inc_only start for txn %p, do_hash_verify=%s", (void *)child_txn, do_hash_verify ? "true" : "false" ));
 
   fd_funk_t *     funk = slot_ctx->acc_mgr->funk;
@@ -914,7 +921,7 @@ fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_ha
   // How many total records are we dealing with?
   ulong                   num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
   ulong                   num_pairs = 0;
-  fd_pubkey_hash_pair_t * pairs = fd_valloc_malloc( slot_ctx->valloc, FD_PUBKEY_HASH_PAIR_ALIGN, num_iter_accounts * sizeof(fd_pubkey_hash_pair_t) );
+  fd_pubkey_hash_pair_t * pairs = fd_valloc_malloc( valloc, FD_PUBKEY_HASH_PAIR_ALIGN, num_iter_accounts * sizeof(fd_pubkey_hash_pair_t) );
   FD_TEST(NULL != pairs);
 
   fd_blake3_t *b3 = NULL;
@@ -969,7 +976,7 @@ fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t *accounts_ha
   fd_pubkey_hash_pair_list_t list1 = { .pairs = pairs, .pairs_len = num_pairs };
   fd_hash_account_deltas( &list1, 1, accounts_hash );
 
-  fd_valloc_free( slot_ctx->valloc, pairs );
+  fd_valloc_free( valloc, pairs );
   fd_scratch_pop();
 
   FD_LOG_INFO(( "accounts_hash %s", FD_BASE58_ENC_32_ALLOCA( accounts_hash->hash) ));
@@ -1059,20 +1066,24 @@ fd_accounts_hash_inc_no_txn( fd_funk_t *                 funk,
 
   } FD_SCRATCH_SCOPE_END;
 
-  FD_LOG_INFO(( "accounts_hash %s", FD_BASE58_ENC_32_ALLOCA( accounts_hash->hash) ));
+  FD_LOG_INFO(( "accounts_hash %s", FD_BASE58_ENC_32_ALLOCA( accounts_hash->hash ) ));
 
   return 0;
 }
 
 int
-fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_t * tpool, fd_hash_t * accounts_hash, uint check_hash ) {
+fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx, 
+                  fd_tpool_t *         tpool,
+                  fd_hash_t *          accounts_hash,
+                  uint                 check_hash,
+                  fd_valloc_t          valloc ) {
   (void) check_hash;
 
   if( fd_should_snapshot_include_epoch_accounts_hash( slot_ctx ) ) {
     FD_LOG_NOTICE(( "snapshot is including epoch account hash" ));
     fd_sha256_t h;
     fd_hash_t hash;
-    fd_accounts_hash( slot_ctx->acc_mgr->funk, &slot_ctx->slot_bank, slot_ctx->valloc, tpool, &hash );
+    fd_accounts_hash( slot_ctx->acc_mgr->funk, &slot_ctx->slot_bank, valloc, tpool, &hash );
 
     fd_sha256_init( &h );
     fd_sha256_append( &h, (uchar const *) hash.hash, sizeof( fd_hash_t ) );
@@ -1081,16 +1092,20 @@ fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx, fd_tpool_t * tpool, fd_hash_t *
 
     return 0;
   }
-  return fd_accounts_hash( slot_ctx->acc_mgr->funk, &slot_ctx->slot_bank, slot_ctx->valloc, tpool, accounts_hash );
+  return fd_accounts_hash( slot_ctx->acc_mgr->funk, &slot_ctx->slot_bank, valloc, tpool, accounts_hash );
 }
 
 int
-fd_snapshot_inc_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t * accounts_hash, fd_funk_txn_t * child_txn, uint do_hash_verify ) {
+fd_snapshot_inc_hash( fd_exec_slot_ctx_t * slot_ctx, 
+                      fd_hash_t *          accounts_hash,
+                      fd_funk_txn_t *      child_txn,
+                      uint                 do_hash_verify,
+                      fd_valloc_t          valloc ) {
 
   if( fd_should_snapshot_include_epoch_accounts_hash( slot_ctx ) ) {
     fd_sha256_t h;
     fd_hash_t hash;
-    fd_accounts_hash_inc_only( slot_ctx, &hash, child_txn, do_hash_verify );
+    fd_accounts_hash_inc_only( slot_ctx, &hash, child_txn, do_hash_verify, valloc );
 
     fd_sha256_init( &h );
     fd_sha256_append( &h, (uchar const *) hash.hash, sizeof( fd_hash_t ) );
@@ -1099,7 +1114,7 @@ fd_snapshot_inc_hash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t * accounts_hash, 
 
     return 0;
   }
-  return fd_accounts_hash_inc_only( slot_ctx, accounts_hash, child_txn, do_hash_verify );
+  return fd_accounts_hash_inc_only( slot_ctx, accounts_hash, child_txn, do_hash_verify, valloc );
 }
 
 /* TODO: Combine with the above to get correct snapshot hash verification. */

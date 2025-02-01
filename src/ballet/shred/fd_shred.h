@@ -90,6 +90,14 @@
 #define FD_SHRED_DATA_HEADER_SZ (0x58UL)
 /* FD_SHRED_CODE_HEADER_SZ: size of all headers for coding type shreds. */
 #define FD_SHRED_CODE_HEADER_SZ (0x59UL)
+/* This is a conservative bound.
+   It's possible for a modified validator to create a data shred with
+   this much payload.
+   A validator that follows the default shredding policy should have
+   payloads of no more than 1015 bytes.
+   In general, shreds that are chained or resigned should have smaller
+   payloads and a tigher bound. */
+#define FD_SHRED_DATA_PAYLOAD_MAX (FD_SHRED_MIN_SZ-FD_SHRED_DATA_HEADER_SZ)
 
 /* FD_SHRED_TYPE_* identifies the type of a shred.
    It is located at the four high bits of byte 0x40 (64) of the shred header
@@ -140,6 +148,9 @@ typedef uchar fd_shred_merkle_t[FD_SHRED_MERKLE_NODE_SZ];
 
 /* Maximum number of data shreds in a slot, also maximum number of parity shreds in a slot */
 #define FD_SHRED_MAX_PER_SLOT (1 << 15UL) /* 32,768 shreds */
+
+/* 36,536,320 bytes per slot */
+#define FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT (FD_SHRED_DATA_PAYLOAD_MAX * FD_SHRED_MAX_PER_SLOT)
 
 /* Offset of the shred variant. Used for parsing. */
 #define FD_SHRED_VARIANT_OFF 0x40

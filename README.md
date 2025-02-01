@@ -15,11 +15,11 @@ chain attacks in build tooling or dependencies.
 ## Documentation
 If you are an operator or looking to run the validator, see the Getting
 Started guide in the [Firedancer
-docs](https://firedancer-io.github.io/firedancer/)
+docs](https://docs.firedancer.io/)
 
 ## Releases
 If you are an operator looking to run the validator, see the [Releases
-Guide](https://firedancer-io.github.io/firedancer/guide/getting-started.html#releases)
+Guide](https://docs.firedancer.io/guide/getting-started.html#releases)
 in the documentation.
 
 The Firedancer project is producing two validators,
@@ -37,12 +37,12 @@ Frankendancer is currently in testing on the Solana testnet.
 
 ## Developing
 Firedancer currently only supports Linux and requires a relatively new
-kernel, at least v4.18 to build. 
+kernel, at least v4.18 to build.
 
 ```console
 $ git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git
 $ cd firedancer
-$ ./deps.sh
+$ ./deps.sh +dev
 $ make -j run
 ```
 

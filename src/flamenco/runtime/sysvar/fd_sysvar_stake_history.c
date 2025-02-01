@@ -21,19 +21,19 @@ write_stake_history( fd_exec_slot_ctx_t * slot_ctx,
   fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_stake_history_id, enc, sizeof(enc), slot_ctx->slot_bank.slot );
 }
 
-fd_stake_history_t *
+static fd_stake_history_t *
 fd_sysvar_stake_history_read( fd_stake_history_t * result,
                               fd_exec_slot_ctx_t * slot_ctx,
-                              fd_valloc_t *        valloc ) {
-  FD_BORROWED_ACCOUNT_DECL(stake_rec);
-  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_stake_history_id, stake_rec);
+                              fd_valloc_t          valloc ) {
+  FD_BORROWED_ACCOUNT_DECL( stake_rec );
+  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_stake_history_id, stake_rec );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
     return NULL;
 
   fd_bincode_decode_ctx_t ctx = {
     .data = stake_rec->const_data,
     .dataend = (char *) stake_rec->const_data + stake_rec->const_meta->dlen,
-    .valloc  = *valloc
+    .valloc  = valloc
   };
 
   if( FD_UNLIKELY( fd_stake_history_decode( result, &ctx )!=FD_BINCODE_SUCCESS ) )
@@ -50,18 +50,21 @@ fd_sysvar_stake_history_init( fd_exec_slot_ctx_t * slot_ctx ) {
 
 void
 fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *       slot_ctx,
-                                fd_stake_history_entry_t * entry ) {
+                                fd_stake_history_entry_t * entry,
+                                fd_valloc_t                valloc ) {
   // Need to make this maybe zero copies of map...
   fd_stake_history_t stake_history;
-  fd_sysvar_stake_history_read( &stake_history, slot_ctx, &slot_ctx->valloc );
+  fd_sysvar_stake_history_read( &stake_history, slot_ctx, valloc );
 
-  if( stake_history.fd_stake_history_offset == 0 )
+  if( stake_history.fd_stake_history_offset == 0 ) {
     stake_history.fd_stake_history_offset = stake_history.fd_stake_history_size - 1;
-  else
-    stake_history.fd_stake_history_offset--;
+  } else {
+    stake_history.fd_stake_history_offset--;  
+  }
 
-  if( stake_history.fd_stake_history_len < stake_history.fd_stake_history_size)
+  if( stake_history.fd_stake_history_len < stake_history.fd_stake_history_size ) {
     stake_history.fd_stake_history_len++;
+  }
 
   // This should be done with a bit mask
   ulong idx = stake_history.fd_stake_history_offset;
@@ -72,6 +75,6 @@ fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *       slot_ctx,
   stake_history.fd_stake_history[ idx ].deactivating = entry->deactivating;
 
   write_stake_history( slot_ctx, &stake_history);
-  fd_bincode_destroy_ctx_t destroy = { .valloc = slot_ctx->valloc };
+  fd_bincode_destroy_ctx_t destroy = { .valloc = valloc };
   fd_stake_history_destroy( &stake_history, &destroy );
 }

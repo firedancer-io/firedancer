@@ -31,16 +31,24 @@ fd_stake_weights_by_node( fd_vote_accounts_t const * accs,
 void
 fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
                           ulong *               new_rate_activation_epoch,
-                          fd_epoch_info_t      *temp_info
-  );
+                          fd_epoch_info_t *     temp_info,
+                          fd_valloc_t           valloc );
 
-fd_stake_history_entry_t stake_and_activating( fd_delegation_t const * delegation, ulong target_epoch, fd_stake_history_t * stake_history, ulong * new_rate_activation_epoch );
+fd_stake_history_entry_t 
+stake_and_activating( fd_delegation_t const * delegation,
+                      ulong                   target_epoch,
+                      fd_stake_history_t *    stake_history,
+                      ulong *                 new_rate_activation_epoch );
 
-fd_stake_history_entry_t stake_activating_and_deactivating( fd_delegation_t const * delegation, ulong target_epoch, fd_stake_history_t * stake_history, ulong * new_rate_activation_epoch );
+fd_stake_history_entry_t
+stake_activating_and_deactivating( fd_delegation_t const * delegation,
+                                   ulong                   target_epoch,
+                                   fd_stake_history_t *    stake_history,
+                                   ulong *                 new_rate_activation_epoch );
 
 int
-write_stake_state( fd_borrowed_account_t *  stake_acc_rec,
-                   fd_stake_state_v2_t *    stake_state );
+write_stake_state( fd_borrowed_account_t * stake_acc_rec,
+                   fd_stake_state_v2_t *   stake_state );
 
 void
 fd_stakes_remove_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account, ulong * new_rate_activation_epoch );
@@ -49,10 +57,19 @@ void
 fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account, ulong * new_rate_activation_epoch );
 
 void
-refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
-                       fd_stake_history_t const * history,
-                       ulong *                    new_rate_activation_epoch,
-                       fd_epoch_info_t           *temp_info );
+fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
+                          fd_stake_history_t const * history,
+                          ulong *                    new_rate_activation_epoch,
+                          fd_epoch_info_t           *temp_info );
+
+void 
+fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
+                           fd_stakes_t const *        stakes,
+                           fd_stake_history_t const * history,
+                           ulong *                    new_rate_activation_epoch,
+                           fd_stake_history_entry_t * accumulator,
+                           fd_epoch_info_t *          temp_info,
+                           fd_valloc_t                valloc );
 
 FD_PROTOTYPES_END
 

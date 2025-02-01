@@ -78,6 +78,13 @@ struct fd_store_in_ctx {
 };
 typedef struct fd_store_in_ctx fd_store_in_ctx_t;
 
+struct fd_store_tile_metrics {
+  ulong first_turbine_slot;
+  ulong current_turbine_slot;
+};
+typedef struct fd_store_tile_metrics fd_store_tile_metrics_t; 
+#define FD_STORE_TILE_METRICS_FOOTPRINT ( sizeof( fd_store_tile_metrics_t ) )
+
 struct fd_store_tile_ctx {
   fd_wksp_t * wksp;
   fd_wksp_t * blockstore_wksp;
@@ -145,6 +152,9 @@ struct fd_store_tile_ctx {
   int   in_wen_restart;
   ulong restart_funk_root;
   ulong restart_heaviest_fork_slot;
+
+  /* Metrics */
+  fd_store_tile_metrics_t metrics;
 };
 typedef struct fd_store_tile_ctx fd_store_tile_ctx_t;
 
@@ -387,12 +397,13 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
     uchar * out_buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
 
     fd_blockstore_start_read( ctx->blockstore );
+    fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, slot );
     fd_block_t * block = fd_blockstore_block_query( ctx->blockstore, slot );
-    if( block == NULL ) {
+
+    if( block == NULL ) { /* needed later down below for txn iteration */
       FD_LOG_ERR(( "could not find block - slot: %lu", slot ));
     }
 
-    fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, slot );
     if( block_map_entry == NULL ) {
       FD_LOG_ERR(( "could not find slot meta" ));
     }
@@ -433,6 +444,8 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
                         slot,
                         caught_up ));
 
+        ctx->metrics.first_turbine_slot = ctx->store->first_turbine_slot;
+        ctx->metrics.current_turbine_slot = ctx->store->curr_turbine_slot;
         /* Calls fd_txn_parse_core on every txn in the block and copies the result into the mcache/dcache
            sent to the replay tile, sending a maximum of 4096 transactions to the replay tile at a time */
         fd_raw_block_txn_iter_t iter;
@@ -504,7 +517,7 @@ after_credit( fd_store_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( ctx->sim &&
                    ctx->store->pending_slots->start == ctx->store->pending_slots->end ) ) {
-    FD_LOG_ERR( ( "Sim is complete." ) );
+    FD_LOG_WARNING(( "Sim is complete." ));
   }
 
   for( ulong i = 0; i<fd_txn_iter_map_slot_cnt(); i++ ) {
@@ -515,10 +528,8 @@ after_credit( fd_store_tile_ctx_t * ctx,
 
   for( ulong i = fd_pending_slots_iter_init( ctx->store->pending_slots );
          (i = fd_pending_slots_iter_next( ctx->store->pending_slots, ctx->store->now, i )) != ULONG_MAX; ) {
-    uchar const * block = NULL;
-    ulong         block_sz = 0;
     ulong repair_slot = FD_SLOT_NULL;
-    int store_slot_prepare_mode = fd_store_slot_prepare( ctx->store, i, &repair_slot, &block, &block_sz );
+    int store_slot_prepare_mode = fd_store_slot_prepare( ctx->store, i, &repair_slot );
 
     ulong slot = repair_slot == 0 ? i : repair_slot;
     FD_LOG_DEBUG(( "store slot - mode: %d, slot: %lu, repair_slot: %lu", store_slot_prepare_mode, i, repair_slot ));
@@ -807,6 +818,12 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
+static inline void
+metrics_write( fd_store_tile_ctx_t * ctx ) {
+  FD_MGAUGE_SET( STOREI, CURRENT_TURBINE_SLOT, ctx->metrics.current_turbine_slot );
+  FD_MGAUGE_SET( STOREI, FIRST_TURBINE_SLOT, ctx->metrics.first_turbine_slot );
+}
+
 #define STEM_BURST (1UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_store_tile_ctx_t
@@ -816,6 +833,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
 
 #include "../../../../disco/stem/fd_stem.c"
 

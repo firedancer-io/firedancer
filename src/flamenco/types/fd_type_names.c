@@ -1,5 +1,5 @@
 // This is an auto-generated file. To add entries, edit fd_types.json
-#define FD_TYPE_NAME_COUNT 237
+#define FD_TYPE_NAME_COUNT 238
 static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_hash",
  "fd_pubkey",
@@ -26,15 +26,13 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_vote_accounts_pair_serializable",
  "fd_vote_accounts_serializable",
  "fd_vote_accounts",
- "fd_stake_accounts_pair",
- "fd_stake_accounts",
+ "fd_account_keys_pair",
+ "fd_account_keys",
  "fd_stake_weight",
  "fd_stake_weights",
  "fd_delegation",
  "fd_delegation_pair",
  "fd_stake",
- "fd_epoch_info_pair",
- "fd_epoch_info",
  "fd_stake_pair",
  "fd_stakes",
  "fd_stakes_serializable",
@@ -238,4 +236,7 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_calculated_stake_points",
  "fd_calculated_stake_rewards",
  "fd_duplicate_slot_proof",
+ "fd_epoch_info_pair",
+ "fd_vote_info_pair",
+ "fd_epoch_info",
 };

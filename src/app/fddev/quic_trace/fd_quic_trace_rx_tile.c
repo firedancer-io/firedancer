@@ -76,6 +76,9 @@ fd_quic_trace_initial( fd_quic_trace_ctx_t * trace_ctx,
     FD_LOG_DEBUG(( "Bogus initial packet length" ));
     return;
   }
+  if( FD_UNLIKELY( initial->dst_conn_id_len > 20 ) ) {
+    FD_LOG_DEBUG(( "Bogus destination connection id length: %u", (uint)initial->dst_conn_id_len ));
+  }
 
   fd_quic_crypto_keys_t _keys[1];
   fd_quic_crypto_keys_t const * keys = NULL;
@@ -86,7 +89,7 @@ fd_quic_trace_initial( fd_quic_trace_ctx_t * trace_ctx,
     if( conn_entry ) {
       fd_quic_conn_t * conn = translate_ptr( conn_entry->conn );
       if( FD_LIKELY( bounds_check_conn( quic, conn ) ) ) {
-        keys = translate_ptr( &conn->keys[0][0] );
+        keys = &conn->keys[fd_quic_enc_level_initial_id][0];
       }
     }
   }
@@ -116,7 +119,7 @@ fd_quic_trace_initial( fd_quic_trace_ctx_t * trace_ctx,
   if( hdr_err!=FD_QUIC_SUCCESS ) return;
 
   ulong pktnum_sz   = fd_quic_h0_pkt_num_len( data[0] )+1u;
-  ulong pktnum_comp = fd_quic_pktnum_decode( data+9UL, pktnum_sz );
+  ulong pktnum_comp = fd_quic_pktnum_decode( data+pktnum_off, pktnum_sz );
   ulong pktnum      = pktnum_comp;  /* don't bother decompressing since initial pktnum is usually low */
 
   int crypt_err = fd_quic_crypto_decrypt( data, data_sz, pktnum_off, pktnum, keys );
@@ -126,7 +129,7 @@ fd_quic_trace_initial( fd_quic_trace_ctx_t * trace_ctx,
   ulong wrap_sz = hdr_sz + FD_QUIC_CRYPTO_TAG_SZ;
   if( FD_UNLIKELY( data_sz<wrap_sz ) ) return;
 
-  uchar conn_id_truncated[16] = {0};
+  uchar conn_id_truncated[24] = {0};
   fd_memcpy( conn_id_truncated, initial->dst_conn_id, initial->dst_conn_id_len );
   fd_quic_trace_frame_ctx_t frame_ctx = {
     .conn_id  = fd_ulong_load_8( conn_id_truncated ),
@@ -184,7 +187,7 @@ fd_quic_trace_handshake( fd_quic_trace_ctx_t * trace_ctx,
     if( conn_entry ) {
       fd_quic_conn_t * conn = translate_ptr( conn_entry->conn );
       if( FD_LIKELY( bounds_check_conn( quic, conn ) ) ) {
-        keys = translate_ptr( &conn->keys[0][0] );
+        keys = &conn->keys[fd_quic_enc_level_handshake_id][0];
       }
     }
   }
@@ -197,7 +200,7 @@ fd_quic_trace_handshake( fd_quic_trace_ctx_t * trace_ctx,
   if( hdr_err!=FD_QUIC_SUCCESS ) return;
 
   ulong pktnum_sz   = fd_quic_h0_pkt_num_len( data[0] )+1u;
-  ulong pktnum_comp = fd_quic_pktnum_decode( data+9UL, pktnum_sz );
+  ulong pktnum_comp = fd_quic_pktnum_decode( data+pktnum_off, pktnum_sz );
   ulong pktnum      = pktnum_comp; /* TODO decompress */
 
   int crypt_err = fd_quic_crypto_decrypt( data, data_sz, pktnum_off, pktnum, keys );
@@ -207,8 +210,8 @@ fd_quic_trace_handshake( fd_quic_trace_ctx_t * trace_ctx,
   ulong wrap_sz = hdr_sz + FD_QUIC_CRYPTO_TAG_SZ;
   if( FD_UNLIKELY( data_sz<wrap_sz ) ) return;
 
-  uchar conn_id_truncated[16] = {0};
-  fd_memcpy( conn_id_truncated, handshake->dst_conn_id, handshake->dst_conn_id_len );
+  uchar conn_id_truncated[8] = {0};
+  fd_memcpy( conn_id_truncated, handshake->dst_conn_id, 8 );
   fd_quic_trace_frame_ctx_t frame_ctx = {
     .conn_id  = fd_ulong_load_8( conn_id_truncated ),
     .pkt_num  = pktnum,

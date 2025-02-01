@@ -1132,8 +1132,8 @@ struct MAP_(iter_private) {
   ulong           memo;                    /* matching memo for iteration */
   ulong           ele_idx;                 /* If ele_rem>0, currernt matching element, ignored otherwise */
   ulong           ele_rem;                 /* Number of elements remaining to probe, in [0,probe_max] */
-  MAP_VERSION_T   version_lock0;           /* Index of first lock used by this iter, in [0,lock_cnt] */
-  MAP_VERSION_T   version_cnt;             /* Number of locks used by this iter, in [0,lock_cnt] (typically 1) */
+  ulong           version_lock0;           /* Index of first lock used by this iter, in [0,lock_cnt] */
+  ulong           version_cnt;             /* Number of locks used by this iter, in [0,lock_cnt] (typically 1) */
   MAP_VERSION_T   version[ MAP_LOCK_MAX ]; /* Direct mapped cache of version numbers for unlock */
 };
 
@@ -1302,9 +1302,9 @@ FD_FN_PURE static inline ulong MAP_(seed)     ( MAP_(t) const * join ) { return 
 FD_FN_PURE static inline void const * MAP_(shmap_const)( MAP_(t) const * join ) { return ((MAP_(shmem_t) const *)join->lock)-1; }
 FD_FN_PURE static inline void const * MAP_(shele_const)( MAP_(t) const * join ) { return join->ele;     }
 
-FD_FN_CONST void       * MAP_(ctx)      ( MAP_(t)       * join ) { return join->ctx; }
-FD_FN_CONST void const * MAP_(ctx_const)( MAP_(t) const * join ) { return join->ctx; }
-FD_FN_CONST ulong        MAP_(ctx_max)  ( MAP_(t) const * join ) { (void)join; return MAP_CTX_MAX; }
+FD_FN_CONST static inline void       * MAP_(ctx)      ( MAP_(t)       * join ) { return join->ctx; }
+FD_FN_CONST static inline void const * MAP_(ctx_const)( MAP_(t) const * join ) { return join->ctx; }
+FD_FN_CONST static inline ulong        MAP_(ctx_max)  ( MAP_(t) const * join ) { (void)join; return MAP_CTX_MAX; }
 
 FD_FN_PURE static inline void * MAP_(shmap)( MAP_(t) * join ) { return ((MAP_(shmem_t) *)join->lock)-1; }
 FD_FN_PURE static inline void * MAP_(shele)( MAP_(t) * join ) { return join->ele; }
@@ -1385,6 +1385,12 @@ MAP_STATIC void *    MAP_(new)   ( void * shmem, ulong ele_max, ulong lock_cnt, 
 MAP_STATIC MAP_(t) * MAP_(join)  ( void * ljoin, void * shmap, void * shele );
 MAP_STATIC void *    MAP_(leave) ( MAP_(t) * join );
 MAP_STATIC void *    MAP_(delete)( void * shmap );
+
+MAP_STATIC void
+MAP_(hint)( MAP_(t) const *   join,
+            MAP_KEY_T const * key,
+            MAP_(query_t) *   query,
+            int               flags );
 
 MAP_STATIC int
 MAP_(prepare)( MAP_(t) *         join,
@@ -1918,7 +1924,7 @@ MAP_(remove)( MAP_(t) *             join,
        a hole.
 
        This test works just as well for the more common
-       contig_cnt<ele_max case (it will terminate at the the preexisting
+       contig_cnt<ele_max case (it will terminate at the preexisting
        trailing empty slot instead of the most recently created hole).
        So, for code simplicity, we just do that.
 
@@ -2227,12 +2233,12 @@ MAP_(iter_init)( MAP_(t) *      join,
 
       if( FD_UNLIKELY( MAP_(private_ele_is_free)( ctx, ele ) ) ) break; /* opt for first pass low collision */
 
+      iter_start = fd_ulong_if( iter_cnt==0UL, ele_idx, iter_start );
 #     if MAP_MEMOIZE
       iter_cnt += (ulong)(ele->MAP_MEMO==memo);
 #     else
       iter_cnt += (ulong)(MAP_(key_hash)( &ele->MAP_KEY, seed )==memo);
 #     endif
-      iter_start = fd_ulong_if( iter_cnt==1UL, ele_idx, iter_start );
 
       /* Continue probing, locking as necessary.  If we can't acquire a
          lock, fail. */

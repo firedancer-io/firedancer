@@ -194,10 +194,16 @@ slot_ctx_restore( ulong                 slot,
                   fd_valloc_t           valloc,
                   fd_exec_slot_ctx_t *  slot_ctx_out ) {
   fd_funk_txn_t *  txn_map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
-  fd_block_map_t * block = fd_block_map_query( fd_blockstore_block_map( blockstore ), &slot, NULL );
+
+  fd_blockstore_start_read( blockstore );
+  fd_block_map_t const * block = fd_blockstore_block_map_query( blockstore, slot );
+  bool block_exists = fd_blockstore_shreds_complete( blockstore, slot );
+  fd_blockstore_end_read( blockstore );
+
   FD_LOG_DEBUG( ( "Current slot %lu", slot ) );
-  if( !block || !block->block_gaddr )
+  if( !block_exists )
     FD_LOG_ERR( ( "missing block at slot we're trying to restore" ) );
+
   fd_funk_txn_xid_t xid;
   memcpy( xid.uc, block->block_hash.uc, sizeof( fd_funk_txn_xid_t ) );
   xid.ul[0]             = slot;
@@ -229,7 +235,6 @@ slot_ctx_restore( ulong                 slot,
   slot_ctx_out->acc_mgr    = acc_mgr;
   slot_ctx_out->blockstore = blockstore;
   slot_ctx_out->epoch_ctx  = epoch_ctx;
-  slot_ctx_out->valloc     = valloc;
 
   fd_bincode_destroy_ctx_t destroy_ctx = {
       .valloc = valloc,
@@ -281,11 +286,10 @@ fd_forks_prepare( fd_forks_t const *    forks,
   /* Check the parent block is present in the blockstore and executed. */
 
   fd_blockstore_start_read( blockstore );
-  fd_block_t * block = fd_blockstore_block_query( blockstore, parent_slot );
-  fd_blockstore_end_read( blockstore );
-  if( FD_UNLIKELY( !block ) ) {
+  if( FD_UNLIKELY( !fd_blockstore_shreds_complete( blockstore, parent_slot ) ) ) {
     FD_LOG_WARNING( ( "fd_forks_prepare missing parent_slot %lu", parent_slot ) );
   }
+  fd_blockstore_end_read( blockstore );
 
   /* Query for parent_slot in the frontier. */
 
@@ -427,7 +431,7 @@ fd_forks_update( fd_forks_t *      forks,
 }
 
 void
-fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost ) {
+fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost, fd_valloc_t valloc ) {
   fd_fork_t * tail = NULL;
   fd_fork_t * curr = NULL;
 
@@ -458,7 +462,7 @@ fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost ) {
                                                    &tail->slot,
                                                    NULL,
                                                    forks->pool );
-    if( FD_UNLIKELY( !fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( &fork->slot_ctx ) ) ) ) {
+    if( FD_UNLIKELY( !fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( &fork->slot_ctx ), valloc ) ) ) {
       FD_LOG_ERR( ( "could not delete fork slot ctx" ) );
     }
     ulong remove = fd_fork_frontier_idx_remove( forks->frontier,

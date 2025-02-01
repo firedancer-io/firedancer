@@ -71,10 +71,10 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr_info );
 
 int
-fd_execute_txn_prepare_start( fd_exec_slot_ctx_t *  slot_ctx,
-                               fd_exec_txn_ctx_t * txn_ctx,
-                               fd_txn_t const * txn_descriptor,
-                               fd_rawtxn_b_t const * txn_raw );
+fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
+                              fd_exec_txn_ctx_t *        txn_ctx,
+                              fd_txn_t const *           txn_descriptor,
+                              fd_rawtxn_b_t const *      txn_raw );
 
 /*
   Execute the given transaction.

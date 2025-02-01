@@ -553,7 +553,7 @@ fd_sandbox_private_read_cap_last_cap( void ) {
   ulong cap_last_cap = strtoul( buf, &end, 10 );
   if( *end!='\n' ) FD_LOG_ERR(( "read(/proc/sys/kernel/cap_last_cap) returned malformed data" ));
   if( close( fd ) ) FD_LOG_ERR(( "close(/proc/sys/kernel/cap_last_cap) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( !cap_last_cap || cap_last_cap>128 ) FD_LOG_ERR(( "read(/proc/sys/kernel/cap_last_cap) returned invalid data" ));
+  if( !cap_last_cap || cap_last_cap>=64 ) FD_LOG_ERR(( "read(/proc/sys/kernel/cap_last_cap) returned invalid data" ));
 
   return cap_last_cap;
 }

@@ -21,3 +21,10 @@ make -j
 
 # Run the tests
 make run-runtime-test-nightly > ~/nightly_run.txt
+
+make clean
+EXTRAS="asan deepasan" make -j
+
+make run-runtime-test-nightly-asan > ~/nightly_run_asan.txt
+
+make clean

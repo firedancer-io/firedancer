@@ -23,7 +23,7 @@ fd_sysvar_clock_init( fd_exec_slot_ctx_t * slot_ctx );
    of every slot, before execution commences. */
 
 int
-fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx );
+fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc );
 
 /* Reads the current value of the clock sysvar */
 

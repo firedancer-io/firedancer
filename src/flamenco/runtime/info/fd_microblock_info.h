@@ -7,14 +7,18 @@
 #include "../../../ballet/pack/fd_microblock.h"
 
 struct fd_microblock_info {
-  fd_microblock_hdr_t microblock_hdr;
+  union {
+    fd_microblock_hdr_t const * hdr;
+    uchar * raw;
+  } microblock;
+  /*
+    Always a pointer to a microblock_hdr
+    then transactions
+  */
   ulong signature_cnt;
   ulong account_cnt;
-
-  fd_txn_p_t * txns;
-
-  void const * raw_microblock;
   ulong raw_microblock_sz;
+  fd_txn_p_t * txns;
 };
 typedef struct fd_microblock_info fd_microblock_info_t;
 

@@ -9,6 +9,12 @@
 
 FD_PROTOTYPES_BEGIN
 
+/* Whether to initialize these objects inside fd_snapshot_load_manifest_and_status_cache,
+   or just advance the tar cursor. */
+#define FD_SNAPSHOT_RESTORE_NONE         (0)
+#define FD_SNAPSHOT_RESTORE_MANIFEST     (1)
+#define FD_SNAPSHOT_RESTORE_STATUS_CACHE (2)
+
 struct fd_snapshot_load_ctx;
 typedef struct fd_snapshot_load_ctx fd_snapshot_load_ctx_t;
 
@@ -43,8 +49,7 @@ typedef struct fd_snapshot_load_ctx fd_snapshot_load_ctx_t;
    slot_ctx is a valid initialized slot context (a funk, acc_mgr, heap
    valloc, zero-initialized slot bank).
 
-   slot_ctx->valloc should have enough space to buffer the snapshot's
-   manifest.
+   valloc should have enough space to buffer the snapshot's manifest.
 
    If verify_hash!=0 calculates the snapshot hash.
 
@@ -65,13 +70,17 @@ fd_snapshot_load_new( uchar *                mem,
                       fd_tpool_t *           tpool,
                       uint                   verify_hash,
                       uint                   check_hash,
-                      int                    snapshot_type );
+                      int                    snapshot_type,
+                      fd_valloc_t            valloc );
 
 void
 fd_snapshot_load_init( fd_snapshot_load_ctx_t * ctx );
 
+/* restore_manifest_flags controls if the manifest and status cache objects are initialized or not. */
 void
-fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx );
+fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx,
+                                            ulong *                  base_slot_override,
+                                            int                      restore_manifest_flags );
 
 void
 fd_snapshot_load_accounts( fd_snapshot_load_ctx_t * ctx );
@@ -82,13 +91,18 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx );
 void
 fd_snapshot_load_all( const char *         source_cstr,
                       fd_exec_slot_ctx_t * slot_ctx,
+                      ulong *              base_slot_override,
                       fd_tpool_t *         tpool,
                       uint                 verify_hash,
                       uint                 check_hash,
-                      int                  snapshot_type );
+                      int                  snapshot_type,
+                      fd_valloc_t          valloc );
 
 void
 fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx );
+
+ulong
+fd_snapshot_get_slot( fd_snapshot_load_ctx_t * ctx );
 
 FD_PROTOTYPES_END
 

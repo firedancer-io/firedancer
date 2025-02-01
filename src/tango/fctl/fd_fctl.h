@@ -487,7 +487,7 @@ fd_fctl_cr_query( fd_fctl_t const * fctl,
          }
          ...
 
-         // If we don't have enough credits to handle the the size of a
+         // If we don't have enough credits to handle the size of a
          // worst case burst, wait while still doing housekeeping in the
          // background to keep flow control credits flowing and keep
          // monitoring / command-and-control operating.

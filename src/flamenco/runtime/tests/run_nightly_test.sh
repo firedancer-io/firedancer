@@ -40,9 +40,8 @@ while [[ $# -gt 0 ]]; do
        shift
        shift
        ;;
-
-    --zst)
-        ZST=1
+    -c|--cluster-version)
+        CLUSTER_VERSION="--cluster-version $2"
         shift
         ;;
     -*|--*)
@@ -80,6 +79,7 @@ set -x
     $PAGES \
     $FUNK_PAGES \
     $SNAPSHOT \
+    $CLUSTER_VERSION \
     --checkpt-mismatch 1 \
     --checkpt-path $CHECKPT_PATH \
     --slot-history 5000 \

@@ -153,7 +153,10 @@ int fd_runtime_save_slot_bank_archival(fd_exec_slot_ctx_t *slot_ctx)
 }
 
 void
-fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first, int clear_first ) {
+fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, 
+                          int                  delete_first, 
+                          int                  clear_first,
+                          fd_valloc_t          valloc ) {
   fd_funk_t *           funk         = slot_ctx->acc_mgr->funk;
   fd_funk_txn_t *       txn          = slot_ctx->funk_txn;
   fd_exec_epoch_ctx_t * epoch_ctx    = slot_ctx->epoch_ctx;
@@ -191,9 +194,8 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first, int c
   }
 
   {
-    if ( delete_first ) {
-      fd_bincode_destroy_ctx_t ctx;
-      ctx.valloc  = slot_ctx->valloc;
+    if( delete_first ) {
+      fd_bincode_destroy_ctx_t ctx = { .valloc = valloc };
       fd_slot_bank_destroy(&slot_ctx->slot_bank, &ctx);
     }
     fd_funk_rec_key_t id = fd_runtime_slot_bank_key();
@@ -207,10 +209,11 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first, int c
     }
     uint magic = *(uint*)val;
 
-    fd_bincode_decode_ctx_t ctx;
-    ctx.data = (uchar*)val + sizeof(uint);
-    ctx.dataend = (uchar*)val + fd_funk_val_sz( rec );
-    ctx.valloc  = slot_ctx->valloc;
+    fd_bincode_decode_ctx_t ctx = { 
+      .data    = (uchar*)val + sizeof(uint),
+      .dataend = (uchar*)val + fd_funk_val_sz( rec ),
+      .valloc  = valloc
+    };
     if( magic == FD_RUNTIME_ENC_BINCODE ) {
       FD_TEST( fd_slot_bank_decode(&slot_ctx->slot_bank, &ctx )==FD_BINCODE_SUCCESS );
     } else if( magic == FD_RUNTIME_ENC_ARCHIVE ) {
@@ -238,12 +241,12 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, int delete_first, int c
 }
 
 void
-fd_runtime_delete_banks( fd_exec_slot_ctx_t * slot_ctx ) {
+fd_runtime_delete_banks( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc ) {
 
   /* As the collection pointers are not owned by fd_alloc, zero them
      out to prevent invalid frees by the destroy function. */
 
-  fd_bincode_destroy_ctx_t ctx = { .valloc = slot_ctx->valloc };
+  fd_bincode_destroy_ctx_t ctx = { .valloc = valloc };
   fd_exec_epoch_ctx_epoch_bank_delete( slot_ctx->epoch_ctx );
   fd_slot_bank_destroy( &slot_ctx->slot_bank, &ctx );
 }

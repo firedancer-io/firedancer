@@ -232,7 +232,7 @@ fd_reedsol_recover_add_rcvd_shred( fd_reedsol_t * rs,
    interest in the shred that persists for the lifetime of the operation
    (i.e. until finalized or aborted).  Erased shreds have no alignment
    restrictions but should not overlap with any other shreds in the same
-   recover operation.  The contents of the the block of memory are
+   recover operation.  The contents of the block of memory are
    ignored and will be overwritten by the time the operation is
    finished.
 

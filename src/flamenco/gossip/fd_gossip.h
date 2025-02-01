@@ -3,9 +3,12 @@
 
 #include "../types/fd_types.h"
 #include "../../util/valloc/fd_valloc.h"
+#include "../../disco/metrics/generated/fd_metrics_gossip.h"
 
 /* Max number of validators that can be known */
 #define FD_PEER_KEY_MAX (1<<14)
+/* Number of recognized CRDS enum members */
+#define FD_KNOWN_CRDS_ENUM_MAX (14UL)
 
 /* Contact info v2 socket tag constants */
 #define FD_GOSSIP_SOCKET_TAG_GOSSIP             (0)
@@ -137,5 +140,68 @@ void fd_gossip_set_stake_weights( fd_gossip_t * gossip, fd_stake_weight_t const 
 void fd_gossip_set_entrypoints( fd_gossip_t * gossip, uint allowed_entrypoints[static 16], ulong allowed_entrypoints_cnt, ushort * ports );
 
 uint fd_gossip_is_allowed_entrypoint( fd_gossip_t * gossip, fd_gossip_peer_addr_t * addr );
+
+/* Gossip Metrics */
+struct fd_gossip_metrics {
+  /* Receive Packets */
+  ulong recv_pkt_cnt;
+  ulong recv_pkt_corrupted_msg;
+
+  /* Receive Gossip Messages */
+  ulong recv_message[FD_METRICS_COUNTER_GOSSIP_RECEIVED_GOSSIP_MESSAGES_CNT];
+  ulong recv_unknown_message;
+
+  /* Receive CRDS */
+  /* TODO: seperate into Push/Pull */
+  ulong recv_crds[FD_METRICS_COUNTER_GOSSIP_RECEIVED_CRDS_CNT];
+  ulong recv_crds_duplicate_message[FD_METRICS_COUNTER_GOSSIP_RECEIVED_CRDS_DUPLICATE_MESSAGE_CNT];
+  ulong recv_crds_drop_reason[FD_METRICS_COUNTER_GOSSIP_RECEIVED_CRDS_DROP_CNT];
+
+
+  /* Push CRDS value */
+  ulong push_crds[FD_KNOWN_CRDS_ENUM_MAX];
+  ulong push_crds_duplicate[FD_METRICS_COUNTER_GOSSIP_PUSH_CRDS_DUPLICATE_MESSAGE_CNT];
+  ulong push_crds_drop_reason[FD_METRICS_COUNTER_GOSSIP_PUSH_CRDS_DROP_CNT];
+  ulong push_crds_queue_cnt;
+
+  /* Active Push Destinations */
+  ulong active_push_destinations;
+  ulong refresh_push_states_failcnt;
+
+  /* Pull Requests/Responses */
+  ulong handle_pull_req_fails[FD_METRICS_COUNTER_GOSSIP_PULL_REQ_FAIL_CNT];
+  ulong handle_pull_req_bloom_filter_result[FD_METRICS_COUNTER_GOSSIP_PULL_REQ_BLOOM_FILTER_CNT]; /* TODO: per host? */
+  ulong handle_pull_req_npackets; /* TODO: per host? */
+
+  /* Receive Prune Messages */
+  ulong handle_prune_fails[FD_METRICS_COUNTER_GOSSIP_PRUNE_FAIL_COUNT_CNT];
+
+  /* Send Prune Messages */
+  ulong make_prune_stale_entry; /* TODO: per host? */
+  ulong make_prune_high_duplicates; /* TODO: per host? */
+  ulong make_prune_requested_origins; /* TODO: per host? */
+  ulong make_prune_sign_data_encode_failed;
+
+  /* Send Gossip Messages */
+  ulong send_message[FD_METRICS_COUNTER_GOSSIP_SENT_GOSSIP_MESSAGES_CNT];
+
+  /* Send Packets */
+  ulong send_packet_cnt;
+
+  /* Ping/Pong */
+  ulong send_ping_events[FD_METRICS_COUNTER_GOSSIP_SEND_PING_EVENT_CNT];
+  ulong recv_ping_invalid_signature;
+
+  ulong recv_pong_events[FD_METRICS_COUNTER_GOSSIP_RECV_PONG_EVENT_CNT];
+
+  /* Peers (all known validators) */
+  ulong gossip_peer_cnt[FD_METRICS_GAUGE_GOSSIP_GOSSIP_PEER_COUNTS_CNT];
+  /* TODO: Lock metrics */
+};
+typedef struct fd_gossip_metrics fd_gossip_metrics_t; 
+#define FD_GOSSIP_METRICS_FOOTPRINT ( sizeof( fd_gossip_metrics_t ) )
+
+fd_gossip_metrics_t *
+fd_gossip_get_metrics( fd_gossip_t * gossip );
 
 #endif /* HEADER_fd_src_flamenco_gossip_fd_gossip_h */

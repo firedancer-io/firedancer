@@ -30,11 +30,13 @@ struct fd_snapshot_load_ctx {
 
   fd_snapshot_loader_t *  loader;
   fd_snapshot_restore_t * restore;
+
+  fd_valloc_t             valloc;
 };
 typedef struct fd_snapshot_load_ctx fd_snapshot_load_ctx_t;
 
 static void
-fd_hashes_load( fd_exec_slot_ctx_t * slot_ctx ) {
+fd_hashes_load( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc ) {
   FD_BORROWED_ACCOUNT_DECL( block_hashes_rec );
   int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_recent_block_hashes_id, block_hashes_rec );
 
@@ -44,11 +46,11 @@ fd_hashes_load( fd_exec_slot_ctx_t * slot_ctx ) {
 
   /* FIXME: Do not hardcode the number of vote accounts */
 
-  slot_ctx->slot_bank.stake_account_keys.stake_accounts_root = NULL;
-  slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool = fd_stake_accounts_pair_t_map_alloc( slot_ctx->valloc, 100000UL );
+  slot_ctx->slot_bank.stake_account_keys.account_keys_root = NULL;
+  slot_ctx->slot_bank.stake_account_keys.account_keys_pool = fd_account_keys_pair_t_map_alloc( valloc, 100000UL );
 
-  slot_ctx->slot_bank.vote_account_keys.vote_accounts_root = NULL;
-  slot_ctx->slot_bank.vote_account_keys.vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc( slot_ctx->valloc, 100000UL );
+  slot_ctx->slot_bank.vote_account_keys.account_keys_root = NULL;
+  slot_ctx->slot_bank.vote_account_keys.account_keys_pool = fd_account_keys_pair_t_map_alloc( valloc, 100000UL );
 
   slot_ctx->slot_bank.collected_execution_fees = 0UL;
   slot_ctx->slot_bank.collected_priority_fees  = 0UL;
@@ -60,12 +62,13 @@ fd_hashes_load( fd_exec_slot_ctx_t * slot_ctx ) {
 
 static int
 restore_manifest( void *                 ctx,
-                  fd_solana_manifest_t * manifest ) {
-  return (!!fd_exec_slot_ctx_recover( ctx, manifest ) ? 0 : EINVAL);
+                  fd_solana_manifest_t * manifest,
+                  fd_valloc_t            valloc ) {
+  return (!!fd_exec_slot_ctx_recover( ctx, manifest, valloc ) ? 0 : EINVAL);
 }
 
 static int
-restore_status_cache( void *                 ctx,
+restore_status_cache( void *                  ctx,
                       fd_bank_slot_deltas_t * slot_deltas ) {
   return (!!fd_exec_slot_ctx_recover_status_cache( ctx, slot_deltas ) ? 0 : EINVAL);
 }
@@ -87,7 +90,8 @@ fd_snapshot_load_new( uchar *                mem,
                       fd_tpool_t *           tpool,
                       uint                   verify_hash,
                       uint                   check_hash,
-                      int                    snapshot_type ) {
+                      int                    snapshot_type,
+                      fd_valloc_t            valloc ) {
 
   fd_snapshot_load_ctx_t * ctx = (fd_snapshot_load_ctx_t *)mem;
   ctx->snapshot_file = snapshot_file;
@@ -96,6 +100,7 @@ fd_snapshot_load_new( uchar *                mem,
   ctx->verify_hash   = verify_hash;
   ctx->check_hash    = check_hash;
   ctx->snapshot_type = snapshot_type;
+  ctx->valloc        = valloc;
   return ctx;
 }
 
@@ -129,7 +134,9 @@ fd_snapshot_load_init( fd_snapshot_load_ctx_t * ctx ) {
 }
 
 void
-fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx ) {
+fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx,
+                                            ulong *                  base_slot_override,
+                                            int                      restore_manifest_flags ) {
 
   fd_scratch_push();
   size_t slen = strlen( ctx->snapshot_file );
@@ -143,23 +150,33 @@ fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx ) {
 
   fd_exec_epoch_ctx_bank_mem_clear( ctx->slot_ctx->epoch_ctx );
 
-  fd_valloc_t     valloc   = ctx->slot_ctx->valloc;
   fd_acc_mgr_t *  acc_mgr  = ctx->slot_ctx->acc_mgr;
   fd_funk_txn_t * funk_txn = ctx->slot_ctx->funk_txn;
 
-  void * restore_mem = fd_valloc_malloc( valloc, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
-  void * loader_mem  = fd_valloc_malloc( valloc, fd_snapshot_loader_align(),  fd_snapshot_loader_footprint( ZSTD_WINDOW_SZ ) );
+  void * restore_mem = fd_valloc_malloc( ctx->valloc, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
+  void * loader_mem  = fd_valloc_malloc( ctx->valloc, fd_snapshot_loader_align(),  fd_snapshot_loader_footprint( ZSTD_WINDOW_SZ ) );
 
-  ctx->restore = fd_snapshot_restore_new( restore_mem, acc_mgr, funk_txn, valloc, ctx->slot_ctx, restore_manifest, restore_status_cache );
+  ctx->restore = fd_snapshot_restore_new( restore_mem,
+                                          acc_mgr,
+                                          funk_txn,
+                                          ctx->valloc,
+                                          ctx->slot_ctx, 
+                                          (restore_manifest_flags & FD_SNAPSHOT_RESTORE_MANIFEST) ? restore_manifest : NULL,
+                                          (restore_manifest_flags & FD_SNAPSHOT_RESTORE_STATUS_CACHE) ? restore_status_cache : NULL );
+  
   ctx->loader  = fd_snapshot_loader_new ( loader_mem, ZSTD_WINDOW_SZ );
 
   if( FD_UNLIKELY( !ctx->restore || !ctx->loader ) ) {
-    fd_valloc_free( valloc, fd_snapshot_loader_delete ( ctx->loader  ) );
-    fd_valloc_free( valloc, fd_snapshot_restore_delete( ctx->restore ) );
+    fd_valloc_free( ctx->valloc, fd_snapshot_loader_delete ( ctx->loader  ) );
+    fd_valloc_free( ctx->valloc, fd_snapshot_restore_delete( ctx->restore ) );
     FD_LOG_ERR(( "Failed to load snapshot" ));
   }
 
-  if( FD_UNLIKELY( !fd_snapshot_loader_init( ctx->loader, ctx->restore, src, ctx->slot_ctx->slot_bank.slot, 1 ) ) ) {
+  if( FD_UNLIKELY( !fd_snapshot_loader_init( ctx->loader,
+                                            ctx->restore,
+                                                    src,
+                                                    base_slot_override ? *base_slot_override : ctx->slot_ctx->slot_bank.slot,
+                                                    1 ) ) ) {
     FD_LOG_ERR(( "Failed to init snapshot loader" ));
   }
 
@@ -225,7 +242,7 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
   if( ctx->verify_hash ) {
     if( ctx->snapshot_type==FD_SNAPSHOT_TYPE_FULL ) {
       fd_hash_t accounts_hash;
-      fd_snapshot_hash(ctx->slot_ctx, ctx->tpool, &accounts_hash, ctx->check_hash );
+      fd_snapshot_hash( ctx->slot_ctx, ctx->tpool, &accounts_hash, ctx->check_hash, ctx->valloc );
 
       if( memcmp( fhash->uc, accounts_hash.uc, sizeof(fd_hash_t) ) ) {
         FD_LOG_ERR(( "snapshot accounts_hash (calculated) %s != (expected) %s", FD_BASE58_ENC_32_ALLOCA( accounts_hash.hash ), FD_BASE58_ENC_32_ALLOCA( fhash->uc ) ));
@@ -237,10 +254,10 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
 
       if( FD_FEATURE_ACTIVE( ctx->slot_ctx, incremental_snapshot_only_incremental_hash_calculation ) ) {
         FD_LOG_NOTICE(( "hashing incremental snapshot with only deltas" ));
-        fd_snapshot_inc_hash( ctx->slot_ctx, &accounts_hash, ctx->child_txn, ctx->check_hash );
+        fd_snapshot_inc_hash( ctx->slot_ctx, &accounts_hash, ctx->child_txn, ctx->check_hash, ctx->valloc );
       } else {
         FD_LOG_NOTICE(( "hashing incremental snapshot with all accounts" ));
-        fd_snapshot_hash( ctx->slot_ctx, ctx->tpool, &accounts_hash, ctx->check_hash );
+        fd_snapshot_hash( ctx->slot_ctx, ctx->tpool, &accounts_hash, ctx->check_hash, ctx->valloc );
       }
 
       if( memcmp( fhash->uc, accounts_hash.uc, sizeof(fd_hash_t) ) ) {
@@ -258,12 +275,10 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
     ctx->slot_ctx->funk_txn = ctx->par_txn;
   }
 
-  fd_hashes_load( ctx->slot_ctx );
+  fd_hashes_load( ctx->slot_ctx, ctx->valloc );
 
-  fd_rewards_recalculate_partitioned_rewards( ctx->slot_ctx );
-
-  fd_valloc_free( ctx->slot_ctx->valloc, fd_snapshot_loader_delete ( ctx->loader ) );
-  fd_valloc_free( ctx->slot_ctx->valloc, fd_snapshot_restore_delete( ctx->restore ) );
+  fd_valloc_free( ctx->valloc, fd_snapshot_loader_delete ( ctx->loader ) );
+  fd_valloc_free( ctx->valloc, fd_snapshot_restore_delete( ctx->restore ) );
 
   fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
 }
@@ -271,18 +286,21 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
 void
 fd_snapshot_load_all( const char *         source_cstr,
                       fd_exec_slot_ctx_t * slot_ctx,
+                      ulong *              base_slot_override,
                       fd_tpool_t *         tpool,
                       uint                 verify_hash,
                       uint                 check_hash,
-                      int                  snapshot_type ) {
+                      int                  snapshot_type,
+                      fd_valloc_t          valloc ) {
 
   FD_SCRATCH_SCOPE_BEGIN {
 
   uchar *                  mem = fd_scratch_alloc( fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
-  fd_snapshot_load_ctx_t * ctx = fd_snapshot_load_new( mem, source_cstr, slot_ctx, tpool, verify_hash, check_hash, snapshot_type );
+  fd_snapshot_load_ctx_t * ctx = fd_snapshot_load_new( mem, source_cstr, slot_ctx, tpool, verify_hash, check_hash, snapshot_type, valloc );
 
   fd_snapshot_load_init( ctx );
-  fd_snapshot_load_manifest_and_status_cache( ctx );
+  fd_snapshot_load_manifest_and_status_cache( ctx, base_slot_override,
+    FD_SNAPSHOT_RESTORE_STATUS_CACHE | FD_SNAPSHOT_RESTORE_MANIFEST );
   fd_snapshot_load_accounts( ctx );
   fd_snapshot_load_fini( ctx );
 
@@ -303,19 +321,18 @@ fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx ) {
     FD_LOG_ERR(( "Failed to load snapshot" ));
   }
 
-  fd_valloc_t     valloc   = ctx->slot_ctx->valloc;
   fd_acc_mgr_t *  acc_mgr  = ctx->slot_ctx->acc_mgr;
   fd_funk_txn_t * funk_txn = ctx->slot_ctx->funk_txn;
 
-  void * restore_mem = fd_valloc_malloc( valloc, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
-  void * loader_mem  = fd_valloc_malloc( valloc, fd_snapshot_loader_align(),  fd_snapshot_loader_footprint( ZSTD_WINDOW_SZ ) );
+  void * restore_mem = fd_valloc_malloc( ctx->valloc, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
+  void * loader_mem  = fd_valloc_malloc( ctx->valloc, fd_snapshot_loader_align(),  fd_snapshot_loader_footprint( ZSTD_WINDOW_SZ ) );
 
-  ctx->restore = fd_snapshot_restore_new( restore_mem, acc_mgr, funk_txn, valloc, ctx->slot_ctx, restore_manifest, restore_status_cache );
-  ctx->loader  = fd_snapshot_loader_new ( loader_mem, ZSTD_WINDOW_SZ );
+  ctx->restore = fd_snapshot_restore_new( restore_mem, acc_mgr, funk_txn, ctx->valloc, ctx->slot_ctx, restore_manifest, restore_status_cache );
+  ctx->loader  = fd_snapshot_loader_new( loader_mem, ZSTD_WINDOW_SZ );
 
   if( FD_UNLIKELY( !ctx->restore || !ctx->loader ) ) {
-    fd_valloc_free( valloc, fd_snapshot_loader_delete ( ctx->loader  ) );
-    fd_valloc_free( valloc, fd_snapshot_restore_delete( ctx->restore ) );
+    fd_valloc_free( ctx->valloc, fd_snapshot_loader_delete ( ctx->loader ) );
+    fd_valloc_free( ctx->valloc, fd_snapshot_restore_delete( ctx->restore ) );
     FD_LOG_ERR(( "Failed to load snapshot" ));
   }
 
@@ -335,4 +352,9 @@ fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx ) {
   }
 
   fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
+}
+
+ulong 
+fd_snapshot_get_slot( fd_snapshot_load_ctx_t * ctx ) {
+  return fd_snapshot_restore_get_slot( ctx->restore );
 }

@@ -74,6 +74,20 @@ fd_pubkey_hash( fd_pubkey_t const * key, ulong seed ) {
 #define MAP_T        fd_contact_info_elem_t
 #include "../../../../util/tmpl/fd_map_giant.c"
 
+struct fd_gossip_tile_metrics {
+  ulong last_crds_push_contact_info_publish_ts;
+  ulong mismatched_contact_info_shred_version;
+
+  /* Below metrics are segmented by TVU, Repair, Voter */
+  ulong ipv6_contact_info[FD_METRICS_COUNTER_GOSSIP_IPV6_CONTACT_INFO_CNT];
+  ulong zero_ipv4_contact_info[FD_METRICS_COUNTER_GOSSIP_ZERO_IPV4_CONTACT_INFO_CNT];
+  ulong peer_counts[FD_METRICS_GAUGE_GOSSIP_PEER_COUNTS_CNT];
+
+  ulong shred_version_zero;
+};
+typedef struct fd_gossip_tile_metrics fd_gossip_tile_metrics_t; 
+#define FD_GOSSIP_TILE_METRICS_FOOTPRINT ( sizeof( fd_gossip_tile_metrics_t ) )
+
 struct fd_gossip_tile_ctx {
   fd_gossip_t * gossip;
   fd_gossip_config_t gossip_config;
@@ -205,6 +219,9 @@ struct fd_gossip_tile_ctx {
   ulong restart_heaviest_fork_msg_sz;
   ulong restart_heaviest_fork_msg[ sizeof(fd_gossip_restart_heaviest_fork_t) ];
   uchar restart_last_vote_msg[ FD_RESTART_LINK_BYTES_MAX+sizeof(uint) ];
+
+  /* Metrics */
+  fd_gossip_tile_metrics_t metrics;
 };
 typedef struct fd_gossip_tile_ctx fd_gossip_tile_ctx_t;
 
@@ -631,6 +648,9 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
 
   long now = fd_gossip_gettime( ctx->gossip );
   if( ( now - ctx->last_shred_dest_push_time )>CONTACT_INFO_PUBLISH_TIME_NS ) {
+
+    ctx->metrics.last_crds_push_contact_info_publish_ts = (ulong)(ctx->last_shred_dest_push_time);
+
     ctx->last_shred_dest_push_time = now;
 
     ulong tvu_peer_cnt = 0;
@@ -647,16 +667,19 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
       fd_contact_info_elem_t const * ele = fd_contact_info_table_iter_ele_const( ctx->contact_info_table, iter );
 
       if( ele->contact_info.shred_version!=fd_gossip_get_shred_version( ctx->gossip ) ) {
+        ctx->metrics.mismatched_contact_info_shred_version += 1UL;
         continue;
       }
 
       {
         if( !fd_gossip_socket_addr_is_ip4( &ele->contact_info.tvu ) ){
+          ctx->metrics.ipv6_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_TVU_IDX ] += 1UL;
           continue;
         }
 
         // TODO: add a consistency check function for IP addresses
         if( ele->contact_info.tvu.inner.ip4.addr==0 ) {
+          ctx->metrics.zero_ipv4_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_TVU_IDX ] += 1UL;
           continue;
         }
 
@@ -669,11 +692,13 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
 
       {
         if( !fd_gossip_socket_addr_is_ip4( &ele->contact_info.repair ) ) {
+          ctx->metrics.ipv6_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_REPAIR_IDX ] += 1UL;
           continue;
         }
 
         // TODO: add a consistency check function for IP addresses
         if( ele->contact_info.serve_repair.inner.ip4.addr == 0 ) {
+          ctx->metrics.zero_ipv4_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_REPAIR_IDX ] += 1UL;
           continue;
         }
 
@@ -686,11 +711,13 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
 
       {
         if( !fd_gossip_socket_addr_is_ip4( &ele->contact_info.tpu_vote ) ) {
+          ctx->metrics.ipv6_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_VOTER_IDX ] += 1UL;
           continue;
         }
 
         // TODO: add a consistency check function for IP addresses
         if( ele->contact_info.tpu_vote.inner.ip4.addr == 0 ) {
+          ctx->metrics.zero_ipv4_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_VOTER_IDX ] += 1UL;
           continue;
         }
 
@@ -701,6 +728,15 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
         voter_peers_cnt++;
       }
     }
+
+#define UPDATE_PEER_CNTS( _peer_cnt_, _peer_type_ ) \
+  ctx->metrics.peer_counts[ FD_METRICS_ENUM_PEER_TYPES_V_ ##_peer_type_ ##_IDX ] = _peer_cnt_;
+
+    UPDATE_PEER_CNTS( tvu_peer_cnt, TVU );
+    UPDATE_PEER_CNTS( repair_peers_cnt, REPAIR );
+    UPDATE_PEER_CNTS( voter_peers_cnt, VOTER );
+
+#undef UPDATE_PEER_CNTS
 
     ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
 
@@ -784,6 +820,8 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
   ushort shred_version = fd_gossip_get_shred_version( ctx->gossip );
   if( shred_version!=0U ) {
     *fd_shred_version = shred_version;
+  } else {
+    ctx->metrics.shred_version_zero += 1UL;
   }
   fd_gossip_continue( ctx->gossip );
 }
@@ -1044,6 +1082,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_shred_version = fd_fseq_join( fd_topo_obj_laddr( topo, poh_shred_obj_id ) );
   FD_TEST( fd_shred_version );
+
+  /* Initialize metrics to zero */
+  memset( &ctx->metrics, 0, FD_GOSSIP_TILE_METRICS_FOOTPRINT );
 }
 
 static ulong
@@ -1075,6 +1116,64 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
+static inline void
+fd_gossip_update_gossip_metrics( fd_gossip_metrics_t * metrics ) {
+  FD_MCNT_SET( GOSSIP, RECEIVED_PACKETS, metrics->recv_pkt_cnt );
+  FD_MCNT_SET( GOSSIP, CORRUPTED_MESSAGES, metrics->recv_pkt_corrupted_msg );
+
+  FD_MCNT_ENUM_COPY( GOSSIP, RECEIVED_GOSSIP_MESSAGES, metrics->recv_message );
+  FD_MCNT_SET( GOSSIP, RECEIVED_UNKNOWN_MESSAGE, metrics->recv_unknown_message );
+
+  FD_MCNT_ENUM_COPY( GOSSIP, RECEIVED_CRDS, metrics->recv_crds );
+  FD_MCNT_ENUM_COPY( GOSSIP, RECEIVED_CRDS_DUPLICATE_MESSAGE, metrics->recv_crds_duplicate_message );
+  FD_MCNT_ENUM_COPY( GOSSIP, RECEIVED_CRDS_DROP, metrics->recv_crds_drop_reason );
+
+  FD_MCNT_ENUM_COPY( GOSSIP, PUSH_CRDS, metrics->push_crds );
+  FD_MCNT_ENUM_COPY( GOSSIP, PUSH_CRDS_DUPLICATE_MESSAGE, metrics->push_crds_duplicate );
+  FD_MCNT_ENUM_COPY( GOSSIP, PUSH_CRDS_DROP, metrics->push_crds_drop_reason );
+  FD_MGAUGE_SET( GOSSIP, PUSH_CRDS_QUEUE_COUNT, metrics->push_crds_queue_cnt );
+
+  FD_MGAUGE_SET( GOSSIP, ACTIVE_PUSH_DESTINATIONS, metrics->active_push_destinations );
+  FD_MCNT_SET( GOSSIP, REFRESH_PUSH_STATES_FAIL_COUNT, metrics->refresh_push_states_failcnt );
+
+  FD_MCNT_ENUM_COPY( GOSSIP, PULL_REQ_FAIL, metrics->handle_pull_req_fails );
+
+  FD_MCNT_ENUM_COPY( GOSSIP, PULL_REQ_BLOOM_FILTER, metrics->handle_pull_req_bloom_filter_result);
+  FD_MGAUGE_SET( GOSSIP, PULL_REQ_RESP_PACKETS, metrics->handle_pull_req_npackets );
+
+  FD_MCNT_ENUM_COPY( GOSSIP, PRUNE_FAIL_COUNT, metrics->handle_prune_fails );
+
+  FD_MCNT_SET( GOSSIP, MAKE_PRUNE_STALE_ENTRY, metrics->make_prune_stale_entry );
+  FD_MCNT_SET( GOSSIP, MAKE_PRUNE_HIGH_DUPLICATES, metrics->make_prune_high_duplicates );
+  FD_MGAUGE_SET( GOSSIP, MAKE_PRUNE_REQUESTED_ORIGINS, metrics->make_prune_requested_origins );
+  FD_MCNT_SET( GOSSIP, MAKE_PRUNE_SIGN_DATA_ENCODE_FAILED, metrics->make_prune_sign_data_encode_failed );
+
+  FD_MCNT_ENUM_COPY( GOSSIP, SENT_GOSSIP_MESSAGES, metrics->send_message );
+
+  FD_MCNT_SET( GOSSIP, SENT_PACKETS, metrics->send_packet_cnt );
+
+  FD_MCNT_ENUM_COPY( GOSSIP, SEND_PING_EVENT, metrics->send_ping_events );
+  FD_MCNT_SET( GOSSIP, RECV_PING_INVALID_SIGNATURE, metrics->recv_ping_invalid_signature );
+
+  FD_MCNT_ENUM_COPY( GOSSIP, RECV_PONG_EVENT, metrics->recv_pong_events );
+
+  FD_MGAUGE_ENUM_COPY( GOSSIP, GOSSIP_PEER_COUNTS, metrics->gossip_peer_cnt );
+}
+
+static inline void
+metrics_write( fd_gossip_tile_ctx_t * ctx ) {
+  /* Tile-specific metrics */
+  FD_MGAUGE_SET( GOSSIP, LAST_CRDS_PUSH_CONTACT_INFO_PUBLISH_TIMESTAMP_NANOS, ctx->metrics.last_crds_push_contact_info_publish_ts );
+  FD_MCNT_SET( GOSSIP, MISMATCHED_CONTACT_INFO_SHRED_VERSION, ctx->metrics.mismatched_contact_info_shred_version );
+  FD_MCNT_ENUM_COPY( GOSSIP, IPV6_CONTACT_INFO, ctx->metrics.ipv6_contact_info );
+  FD_MCNT_ENUM_COPY( GOSSIP, ZERO_IPV4_CONTACT_INFO, ctx->metrics.zero_ipv4_contact_info );
+  FD_MGAUGE_ENUM_COPY( GOSSIP, PEER_COUNTS, ctx->metrics.peer_counts );
+  FD_MCNT_SET( GOSSIP, SHRED_VERSION_ZERO, ctx->metrics.shred_version_zero );
+
+  /* Gossip-protocol-specific metrics */
+  fd_gossip_update_gossip_metrics( fd_gossip_get_metrics( ctx->gossip ) );
+}
+
 #define STEM_BURST (1UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_gossip_tile_ctx_t
@@ -1085,6 +1184,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
 
 #include "../../../../disco/stem/fd_stem.c"
 

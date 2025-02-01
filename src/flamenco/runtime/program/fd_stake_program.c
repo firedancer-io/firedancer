@@ -2475,6 +2475,11 @@ get_stake_account( fd_exec_instr_ctx_t const * ctx,
 
 int
 fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
+  /* Prevent execution of migrated native programs */
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE( ctx->slot_ctx, migrate_stake_program_to_core_bpf ) ) ) {
+    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+  }
+
   FD_EXEC_CU_UPDATE( ctx, DEFAULT_COMPUTE_UNITS );
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L77
@@ -3169,9 +3174,9 @@ fd_stake_program_config_init( fd_exec_slot_ctx_t * slot_ctx ) {
 
 int
 fd_stake_get_state( fd_borrowed_account_t const * self,
-                    fd_valloc_t const *           valloc,
+                    fd_valloc_t                   valloc,
                     fd_stake_state_v2_t *         out ) {
-  return get_state( self, *valloc, out );
+  return get_state( self, valloc, out );
 }
 
 fd_stake_history_entry_t
@@ -3186,15 +3191,15 @@ fd_stake_activating_and_deactivating( fd_delegation_t const *    self,
 /* Removes stake delegation from epoch stakes and updates vote account */
 static void
 fd_stakes_remove_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_account_t * stake_account ) {
-  fd_stake_accounts_pair_t_mapnode_t key;
+  fd_account_keys_pair_t_mapnode_t key;
   fd_memcpy( key.elem.key.uc, stake_account->pubkey->uc, sizeof(fd_pubkey_t) );
-  if( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool==NULL ) {
+  if( FD_UNLIKELY( slot_ctx->slot_bank.stake_account_keys.account_keys_pool==NULL ) ) {
     FD_LOG_DEBUG(("Stake accounts pool does not exist"));
     return;
   }
-  fd_stake_accounts_pair_t_mapnode_t * entry = fd_stake_accounts_pair_t_map_find( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root, &key );
-  if (FD_UNLIKELY( entry )) {
-    fd_stake_accounts_pair_t_map_remove( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, &slot_ctx->slot_bank.stake_account_keys.stake_accounts_root, entry);
+  fd_account_keys_pair_t_mapnode_t * entry = fd_account_keys_pair_t_map_find( slot_ctx->slot_bank.stake_account_keys.account_keys_pool, slot_ctx->slot_bank.stake_account_keys.account_keys_root, &key );
+  if( FD_UNLIKELY( entry ) ) {
+    fd_account_keys_pair_t_map_remove( slot_ctx->slot_bank.stake_account_keys.account_keys_pool, &slot_ctx->slot_bank.stake_account_keys.account_keys_root, entry );
     // TODO: do we need a release here?
   }
 }
@@ -3209,32 +3214,32 @@ fd_stakes_upsert_stake_delegation( fd_exec_slot_ctx_t * slot_ctx, fd_borrowed_ac
   fd_delegation_pair_t_mapnode_t key;
   fd_memcpy(&key.elem.account, stake_account->pubkey->uc, sizeof(fd_pubkey_t));
 
-  if( stakes->stake_delegations_pool==NULL) {
+  if( FD_UNLIKELY( stakes->stake_delegations_pool==NULL ) ) {
     FD_LOG_DEBUG(("Stake delegations pool does not exist"));
     return;
   }
 
   fd_delegation_pair_t_mapnode_t * entry = fd_delegation_pair_t_map_find( stakes->stake_delegations_pool, stakes->stake_delegations_root, &key);
   if( FD_UNLIKELY( !entry ) ) {
-    fd_stake_accounts_pair_t_mapnode_t key;
+    fd_account_keys_pair_t_mapnode_t key;
     fd_memcpy( key.elem.key.uc, stake_account->pubkey->uc, sizeof(fd_pubkey_t) );
-    if( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool==NULL) {
+    if( slot_ctx->slot_bank.stake_account_keys.account_keys_pool==NULL) {
       FD_LOG_DEBUG(("Stake accounts pool does not exist"));
       return;
     }
-    fd_stake_accounts_pair_t_mapnode_t * stake_entry = fd_stake_accounts_pair_t_map_find( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root, &key );
+    fd_account_keys_pair_t_mapnode_t * stake_entry = fd_account_keys_pair_t_map_find( slot_ctx->slot_bank.stake_account_keys.account_keys_pool, slot_ctx->slot_bank.stake_account_keys.account_keys_root, &key );
     if( stake_entry ) {
       stake_entry->elem.exists = 1;
     } else {
-      fd_stake_accounts_pair_t_mapnode_t * new_node = fd_stake_accounts_pair_t_map_acquire( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool );
-      ulong size = fd_stake_accounts_pair_t_map_size( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, slot_ctx->slot_bank.stake_account_keys.stake_accounts_root );
-      FD_LOG_DEBUG(("Curr stake account size %lu %p", size, (void *)slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool));
+      fd_account_keys_pair_t_mapnode_t * new_node = fd_account_keys_pair_t_map_acquire( slot_ctx->slot_bank.stake_account_keys.account_keys_pool );
+      ulong size = fd_account_keys_pair_t_map_size( slot_ctx->slot_bank.stake_account_keys.account_keys_pool, slot_ctx->slot_bank.stake_account_keys.account_keys_root );
+      FD_LOG_DEBUG(("Curr stake account size %lu %p", size, (void *)slot_ctx->slot_bank.stake_account_keys.account_keys_pool));
       if( new_node==NULL ) {
         FD_LOG_ERR(("Stake accounts keys map full %lu", size));
       }
       new_node->elem.exists = 1;
       fd_memcpy( new_node->elem.key.uc, stake_account->pubkey->uc, sizeof(fd_pubkey_t) );
-      fd_stake_accounts_pair_t_map_insert( slot_ctx->slot_bank.stake_account_keys.stake_accounts_pool, &slot_ctx->slot_bank.stake_account_keys.stake_accounts_root, new_node );
+      fd_account_keys_pair_t_map_insert( slot_ctx->slot_bank.stake_account_keys.account_keys_pool, &slot_ctx->slot_bank.stake_account_keys.account_keys_root, new_node );
     }
   }
 }

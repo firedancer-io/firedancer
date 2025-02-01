@@ -57,7 +57,7 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
         - sizeof(fd_account_meta_t) + serialized_sz will always be less than FD_ACC_TOT_SZ_MAX
         - at most 127 accounts could be using spad memory right now, so this allocation is safe */
   if( rec->meta==NULL ) {
-    fd_account_meta_t * meta = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, sizeof(fd_account_meta_t) + serialized_sz );
+    fd_account_meta_t * meta = fd_spad_alloc( txn_ctx->spad, alignof(fd_account_meta_t), sizeof(fd_account_meta_t) + serialized_sz );
     void * data = (uchar *)meta + sizeof(fd_account_meta_t);
 
     rec->const_meta = rec->meta = meta;
@@ -127,8 +127,8 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
 }
 
 int
-fd_sysvar_instructions_update_current_instr_idx( fd_exec_txn_ctx_t *  txn_ctx,
-                                                 ushort             current_instr_idx ) {
+fd_sysvar_instructions_update_current_instr_idx( fd_exec_txn_ctx_t * txn_ctx,
+                                                 ushort              current_instr_idx ) {
   fd_borrowed_account_t * rec = NULL;
   int err = fd_txn_borrowed_account_modify( txn_ctx, &fd_sysvar_instructions_id, 0, &rec );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )

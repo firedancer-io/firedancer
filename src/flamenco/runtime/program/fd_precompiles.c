@@ -118,6 +118,19 @@ fd_precompile_get_instr_data( fd_exec_txn_ctx_t *     txn_ctx,
   Ed25519
 */
 
+/* Consider rewriting precompile verifiy functions to accept fd_instr_info_t
+   instead of fd_txn_instr_t to simplify and remove the need for a wrapper execute function. */
+
+int
+fd_precompile_ed25519_execute( fd_exec_instr_ctx_t * ctx ) {
+  if( FD_FEATURE_ACTIVE( ctx->slot_ctx, move_precompile_verification_to_svm ) ) {
+    fd_txn_instr_t const * instr = &ctx->txn_ctx->txn_descriptor->instr[ ctx->txn_ctx->instr_stack_sz - 1 ];
+    return fd_precompile_ed25519_verify( ctx->txn_ctx, instr );
+  } else {
+    return FD_EXECUTOR_INSTR_SUCCESS;
+  }
+}
+
 int
 fd_precompile_ed25519_verify( fd_exec_txn_ctx_t *    txn_ctx,
                               fd_txn_instr_t const * instr ) {
@@ -225,6 +238,16 @@ fd_precompile_ed25519_verify( fd_exec_txn_ctx_t *    txn_ctx,
 /*
   Secp256K1
 */
+
+int
+fd_precompile_secp256k1_execute( fd_exec_instr_ctx_t * ctx ) {
+  if( FD_FEATURE_ACTIVE( ctx->slot_ctx, move_precompile_verification_to_svm ) ) {
+    fd_txn_instr_t const * instr = &ctx->txn_ctx->txn_descriptor->instr[ ctx->txn_ctx->instr_stack_sz - 1 ];
+    return fd_precompile_secp256k1_verify( ctx->txn_ctx, instr );
+  } else {
+    return FD_EXECUTOR_INSTR_SUCCESS;
+  }
+}
 
 int
 fd_precompile_secp256k1_verify( fd_exec_txn_ctx_t *    txn_ctx,
@@ -339,6 +362,16 @@ fd_precompile_secp256k1_verify( fd_exec_txn_ctx_t *    txn_ctx,
 /*
   Secp256r1
 */
+
+int
+fd_precompile_secp256r1_execute( fd_exec_instr_ctx_t * ctx ) {
+  if( FD_FEATURE_ACTIVE( ctx->slot_ctx, move_precompile_verification_to_svm ) ) {
+    fd_txn_instr_t const * instr = &ctx->txn_ctx->txn_descriptor->instr[ ctx->txn_ctx->instr_stack_sz - 1 ];
+    return fd_precompile_secp256r1_verify( ctx->txn_ctx, instr );
+  } else {
+    return FD_EXECUTOR_INSTR_SUCCESS;
+  }
+}
 
 #ifdef FD_HAS_S2NBIGNUM
 int

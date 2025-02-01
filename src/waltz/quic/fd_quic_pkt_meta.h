@@ -84,14 +84,16 @@ struct fd_quic_pkt_meta {
 # define          FD_QUIC_PKT_META_FLAGS_STREAM             (1u<<1u)
 # define          FD_QUIC_PKT_META_FLAGS_HS_DONE            (1u<<2u)
 # define          FD_QUIC_PKT_META_FLAGS_MAX_DATA           (1u<<3u)
-# define          FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR (1u<<5u)
-# define          FD_QUIC_PKT_META_FLAGS_CLOSE              (1u<<8u)
+# define          FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR (1u<<4u)
+# define          FD_QUIC_PKT_META_FLAGS_CLOSE              (1u<<5u)
+# define          FD_QUIC_PKT_META_FLAGS_PING               (1u<<6u)
   fd_quic_range_t        range;       /* CRYPTO data range; FIXME use pkt_meta var instead */
   ulong                  stream_id;   /* if this contains stream data,
                                          the stream id, else zero */
 
-  ulong                  expiry; /* time pkt_meta expires... this is the time the
-                                  ack is expected by */
+  ulong                  tx_time;     /* transmit time */
+  ulong                  expiry;      /* time pkt_meta expires... this is the time the
+                                         ack is expected by */
 
   fd_quic_pkt_meta_var_t var[FD_QUIC_PKT_META_VAR_MAX];
 

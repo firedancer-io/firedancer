@@ -26,6 +26,7 @@ typedef struct {
 #define FD_PLUGIN_MSG_SLOT_RESET                    (10UL)
 #define FD_PLUGIN_MSG_BALANCE                       (11UL)
 #define FD_PLUGIN_MSG_START_PROGRESS                (12UL)
+#define FD_PLUGIN_MSG_GENESIS_HASH_KNOWN            (13UL)
 
 struct __attribute__((packed, aligned(8))) fd_replay_complete_msg {
   ulong slot;

@@ -7,6 +7,7 @@
 
 #include "../../ballet/toml/fd_toml.h"
 #include "../../disco/topo/fd_pod_format.h"
+#include "../../flamenco/genesis/fd_genesis_cluster.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../funk/fd_funk.h"
@@ -349,38 +350,6 @@ validate_ports( config_t * result ) {
                  result->dynamic_port_range ));
 }
 
-/* These CLUSTER_* values must be ordered from least important to most
-   important network.  Eg, it's important that if a config has the
-   MAINNET_BETA genesis hash, but has a bunch of entrypoints that we
-   recognize as TESTNET, we classify it as MAINNET_BETA so we can be
-   maximally restrictive.  This is done by a high-to-low comparison. */
-#define FD_CONFIG_CLUSTER_UNKNOWN      (0UL)
-#define FD_CONFIG_CLUSTER_PYTHTEST     (1UL)
-#define FD_CONFIG_CLUSTER_TESTNET      (2UL)
-#define FD_CONFIG_CLUSTER_DEVNET       (3UL)
-#define FD_CONFIG_CLUSTER_PYTHNET      (4UL)
-#define FD_CONFIG_CLUSTER_MAINNET_BETA (5UL)
-
-FD_FN_PURE static ulong
-determine_cluster( char * expected_genesis_hash ) {
-  char const * DEVNET_GENESIS_HASH = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
-  char const * TESTNET_GENESIS_HASH = "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY";
-  char const * MAINNET_BETA_GENESIS_HASH = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
-  char const * PYTHTEST_GENESIS_HASH = "EkCkB7RWVrgkcpariRpd3pjf7GwiCMZaMHKUpB5Na1Ve";
-  char const * PYTHNET_GENESIS_HASH = "GLKkBUr6r72nBtGrtBPJLRqtsh8wXZanX4xfnqKnWwKq";
-
-  ulong cluster = FD_CONFIG_CLUSTER_UNKNOWN;
-  if( FD_LIKELY( expected_genesis_hash ) ) {
-    if( FD_UNLIKELY( !strcmp( expected_genesis_hash, DEVNET_GENESIS_HASH ) ) )            cluster = FD_CONFIG_CLUSTER_DEVNET;
-    else if( FD_UNLIKELY( !strcmp( expected_genesis_hash, TESTNET_GENESIS_HASH ) ) )      cluster = FD_CONFIG_CLUSTER_TESTNET;
-    else if( FD_UNLIKELY( !strcmp( expected_genesis_hash, MAINNET_BETA_GENESIS_HASH ) ) ) cluster = FD_CONFIG_CLUSTER_MAINNET_BETA;
-    else if( FD_UNLIKELY( !strcmp( expected_genesis_hash, PYTHTEST_GENESIS_HASH ) ) )     cluster = FD_CONFIG_CLUSTER_PYTHTEST;
-    else if( FD_UNLIKELY( !strcmp( expected_genesis_hash, PYTHNET_GENESIS_HASH ) ) )      cluster = FD_CONFIG_CLUSTER_PYTHNET;
-  }
-
-  return cluster;
-}
-
 FD_FN_CONST static int
 parse_log_level( char const * level ) {
   if( FD_UNLIKELY( !strcmp( level, "DEBUG" ) ) )    return 0;
@@ -392,19 +361,6 @@ parse_log_level( char const * level ) {
   if( FD_UNLIKELY( !strcmp( level, "ALERT" ) ) )    return 6;
   if( FD_UNLIKELY( !strcmp( level, "EMERG" ) ) )    return 7;
   return -1;
-}
-
-FD_FN_CONST static char *
-cluster_to_cstr( ulong cluster ) {
-  switch( cluster ) {
-    case FD_CONFIG_CLUSTER_UNKNOWN:      return "unknown";
-    case FD_CONFIG_CLUSTER_PYTHTEST:     return "pythtest";
-    case FD_CONFIG_CLUSTER_TESTNET:      return "testnet";
-    case FD_CONFIG_CLUSTER_DEVNET:       return "devnet";
-    case FD_CONFIG_CLUSTER_PYTHNET:      return "pythnet";
-    case FD_CONFIG_CLUSTER_MAINNET_BETA: return "mainnet-beta";
-    default:                             return "unknown";
-  }
 }
 
 static char *
@@ -504,8 +460,8 @@ fdctl_cfg_from_env( int *      pargc,
       FD_LOG_ERR(( "could not get name of interface with index %d", ifindex ));
   }
 
-  ulong cluster = determine_cluster( config->consensus.expected_genesis_hash );
-  config->is_live_cluster = cluster != FD_CONFIG_CLUSTER_UNKNOWN;
+  ulong cluster = fd_genesis_cluster_identify( config->consensus.expected_genesis_hash );
+  config->is_live_cluster = cluster != FD_CLUSTER_UNKNOWN;
 
   if( FD_UNLIKELY( config->development.netns.enabled ) ) {
     /* not currently supporting multihoming on netns */
@@ -670,17 +626,17 @@ fdctl_cfg_from_env( int *      pargc,
     replace( config->consensus.authorized_voter_paths[ i ], "{name}", config->name );
   }
 
-  strcpy( config->cluster, cluster_to_cstr( cluster ) );
+  strcpy( config->cluster, fd_genesis_cluster_name( cluster ) );
 
 #ifdef FD_HAS_NO_AGAVE
-  if( FD_UNLIKELY( config->is_live_cluster && cluster!=FD_CONFIG_CLUSTER_TESTNET ) )
+  if( FD_UNLIKELY( config->is_live_cluster && cluster!=FD_CLUSTER_TESTNET ) )
     FD_LOG_ERR(( "Attempted to start against live cluster `%s`. Firedancer is not "
                  "ready for production deployment, has not been tested, and is "
                  "missing consensus critical functionality. Joining a live Solana "
                  "cluster may destabilize the network. Please do not attempt. You "
                  "can start against the testnet cluster by specifying the testnet "
                  "entrypoints from https://docs.solana.com/clusters under "
-                 "[gossip.entrypoints] in your configuration file.", cluster_to_cstr( cluster ) ));
+                 "[gossip.entrypoints] in your configuration file.", fd_genesis_cluster_name( cluster ) ));
 #endif
 
   if( FD_LIKELY( config->is_live_cluster) ) {

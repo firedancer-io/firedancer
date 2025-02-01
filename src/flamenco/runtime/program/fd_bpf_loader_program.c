@@ -589,11 +589,6 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
 
   /* Handles instr + EBPF errors */
   if( FD_UNLIKELY( exec_err!=FD_VM_SUCCESS ) ) {
-    /* Instr error case */
-    if( instr_ctx->txn_ctx->exec_err_kind==FD_EXECUTOR_ERR_KIND_INSTR ) {
-      return instr_ctx->txn_ctx->exec_err;
-    }
-
     /* EBPF error case
        Edge case with error codes: if direct mapping is enabled, the EBPF error is an access violation,
        and the access type was a store, a different error code is returned to give developers more insight
@@ -639,6 +634,18 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
         }
       }
     }
+
+    /* Instr error case */
+    /* https://github.com/anza-xyz/agave/blob/v2.1.10/program-runtime/src/invoke_context.rs#L564-L577 */
+    /* If the result returned from fd_vm_exec is an error, there are three possibilities:
+        1. When fd_vm_exec error is a SyscallError and error kind is an InstructionError, return the actual InstructionError
+        2. When fd_vm_exec error is a SyscallError, but error kind is not an InstructionError, return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE
+        3. When fd_vm_exec error is not a SyscallError, return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE
+    */
+    if( FD_UNLIKELY( exec_err==FD_VM_ERR_SIGSYSCALL && instr_ctx->txn_ctx->exec_err_kind==FD_EXECUTOR_ERR_KIND_INSTR ) ) {
+      return instr_ctx->txn_ctx->exec_err;
+    }
+
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE;
   }
 

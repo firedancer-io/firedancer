@@ -3,7 +3,6 @@
 #include "../../../util/bits/fd_uwide.h"
 #include "../../runtime/fd_account.h"
 #include "../../runtime/fd_executor.h"
-#include "../../runtime/fd_account_old.h" /* FIXME: remove this and update to use new APIs */
 #include <stdio.h>
 
 /* FIXME: ALGO EFFICIENCY */

@@ -23,8 +23,7 @@ fd_exec_slot_ctx_new( void *      mem,
   fd_memset( mem, 0, sizeof(fd_exec_slot_ctx_t) );
 
   fd_exec_slot_ctx_t * self = (fd_exec_slot_ctx_t *) mem;
-  self->valloc = valloc;
-  fd_slot_bank_new(&self->slot_bank);
+  fd_slot_bank_new( &self->slot_bank );
 
   self->sysvar_cache = fd_sysvar_cache_new( fd_valloc_malloc( valloc, fd_sysvar_cache_align(), fd_sysvar_cache_footprint() ), valloc );
 
@@ -71,7 +70,7 @@ fd_exec_slot_ctx_leave( fd_exec_slot_ctx_t * ctx) {
 }
 
 void *
-fd_exec_slot_ctx_delete( void * mem ) {
+fd_exec_slot_ctx_delete( void * mem, fd_valloc_t valloc ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -88,10 +87,10 @@ fd_exec_slot_ctx_delete( void * mem ) {
     return NULL;
   }
 
-  fd_bincode_destroy_ctx_t ctx = { .valloc = hdr->valloc };
+  fd_bincode_destroy_ctx_t ctx = { .valloc = valloc };
   fd_slot_bank_destroy(&hdr->slot_bank, &ctx);
 
-  fd_valloc_free( hdr->valloc, fd_sysvar_cache_delete( hdr->sysvar_cache ) );
+  fd_valloc_free( valloc, fd_sysvar_cache_delete( hdr->sysvar_cache ) );
   hdr->sysvar_cache = NULL;
 
   FD_COMPILER_MFENCE();
@@ -105,7 +104,7 @@ fd_exec_slot_ctx_delete( void * mem ) {
    accounts in current epoch stakes. */
 
 static int
-recover_clock( fd_exec_slot_ctx_t * slot_ctx ) {
+recover_clock( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc ) {
 
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_vote_accounts_t const * vote_accounts = &epoch_bank->stakes.vote_accounts;
@@ -126,7 +125,7 @@ recover_clock( fd_exec_slot_ctx_t * slot_ctx ) {
 
     /* Record timestamp */
     if( vote_state_timestamp.slot != 0 || n->elem.stake != 0 ) {
-      fd_vote_record_timestamp_vote_with_slot( slot_ctx, &n->elem.key, vote_state_timestamp.timestamp, vote_state_timestamp.slot, slot_ctx->valloc );
+      fd_vote_record_timestamp_vote_with_slot( slot_ctx, &n->elem.key, vote_state_timestamp.timestamp, vote_state_timestamp.slot, valloc );
     }
   }
 
@@ -139,14 +138,14 @@ recover_clock( fd_exec_slot_ctx_t * slot_ctx ) {
 
 static fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
-                           fd_solana_manifest_t * manifest ) {
+                           fd_solana_manifest_t * manifest,
+                           fd_valloc_t            valloc ) {
 
   fd_exec_epoch_ctx_t * epoch_ctx   = slot_ctx->epoch_ctx;
   fd_epoch_bank_t *     epoch_bank  = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
-  fd_valloc_t           slot_valloc = slot_ctx->valloc;
 
   /* Clean out prior bank */
-  fd_bincode_destroy_ctx_t destroy = { .valloc = slot_valloc };
+  fd_bincode_destroy_ctx_t destroy = { .valloc = valloc };
   fd_slot_bank_t * slot_bank = &slot_ctx->slot_bank;
   fd_slot_bank_destroy( slot_bank, &destroy );
   fd_slot_bank_new( slot_bank );
@@ -262,15 +261,17 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   slot_bank->block_height = oldbank->block_height;
   slot_bank->transaction_count = oldbank->transaction_count;
   if ( oldbank->blockhash_queue.last_hash ) {
-    slot_bank->block_hash_queue.last_hash = fd_valloc_malloc( slot_ctx->valloc, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
+    slot_bank->block_hash_queue.last_hash = fd_valloc_malloc( valloc, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
     fd_memcpy( slot_bank->block_hash_queue.last_hash, oldbank->blockhash_queue.last_hash, sizeof(fd_hash_t) );
   } else {
     slot_bank->block_hash_queue.last_hash = NULL;
   }
+
+  /* FIXME: Avoid using magic number for allocations */
   slot_bank->block_hash_queue.last_hash_index = oldbank->blockhash_queue.last_hash_index;
   slot_bank->block_hash_queue.max_age = oldbank->blockhash_queue.max_age;
   slot_bank->block_hash_queue.ages_root = NULL;
-  slot_bank->block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_alloc( slot_ctx->valloc, 400 );
+  slot_bank->block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_alloc( valloc, 400 );
   for ( ulong i = 0; i < oldbank->blockhash_queue.ages_len; i++ ) {
     fd_hash_hash_age_pair_t * elem = &oldbank->blockhash_queue.ages[i];
     fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( slot_bank->block_hash_queue.ages_pool );
@@ -278,16 +279,16 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
     fd_hash_hash_age_pair_t_map_insert( slot_bank->block_hash_queue.ages_pool, &slot_bank->block_hash_queue.ages_root, node );
   }
 
-  recover_clock( slot_ctx );
+  recover_clock( slot_ctx, valloc );
 
   /* Pass in the hard forks */
 
   /* The hard forks should be deep copied over.
      TODO:This should be in the epoch bank and not the slot bank. */
   slot_bank->hard_forks.hard_forks_len = oldbank->hard_forks.hard_forks_len;
-  slot_bank->hard_forks.hard_forks     = fd_valloc_malloc( slot_ctx->valloc,
-                                                            FD_SLOT_PAIR_ALIGN,
-                                                            oldbank->hard_forks.hard_forks_len * FD_SLOT_PAIR_FOOTPRINT );
+  slot_bank->hard_forks.hard_forks     = fd_valloc_malloc( valloc,
+                                                           FD_SLOT_PAIR_ALIGN,
+                                                           oldbank->hard_forks.hard_forks_len * FD_SLOT_PAIR_FOOTPRINT );
   memcpy( slot_bank->hard_forks.hard_forks, oldbank->hard_forks.hard_forks,
           oldbank->hard_forks.hard_forks_len * FD_SLOT_PAIR_FOOTPRINT );
 
@@ -384,7 +385,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
     /* Move current EpochStakes */
 
     slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool =
-      fd_vote_accounts_pair_t_map_alloc( slot_ctx->valloc, 100000 );  /* FIXME remove magic constant */
+      fd_vote_accounts_pair_t_map_alloc( valloc, 100000 );  /* FIXME: remove magic constant */
     slot_ctx->slot_bank.epoch_stakes.vote_accounts_root = NULL;
 
     for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(
@@ -452,12 +453,13 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
 fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *   slot_ctx,
-                          fd_solana_manifest_t * manifest ) {
+                          fd_solana_manifest_t * manifest,
+                          fd_valloc_t            valloc ) {
 
-  fd_exec_slot_ctx_t * res = fd_exec_slot_ctx_recover_( slot_ctx, manifest );
+  fd_exec_slot_ctx_t * res = fd_exec_slot_ctx_recover_( slot_ctx, manifest, valloc );
 
   /* Regardless of result, always destroy manifest */
-  fd_bincode_destroy_ctx_t destroy = { .valloc = slot_ctx->valloc };
+  fd_bincode_destroy_ctx_t destroy = { .valloc = valloc };
   fd_solana_manifest_destroy( manifest, &destroy );
   fd_memset( manifest, 0, sizeof(fd_solana_manifest_t) );
 
@@ -545,11 +547,10 @@ fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
 }
 
 void
-fd_exec_slot_ctx_free( fd_exec_slot_ctx_t * slot_ctx ) {
-  fd_bincode_destroy_ctx_t ctx;
-  ctx.valloc = slot_ctx->valloc;
+fd_exec_slot_ctx_free( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc ) {
+  fd_bincode_destroy_ctx_t ctx = { .valloc = valloc };
   fd_slot_bank_destroy( &slot_ctx->slot_bank, &ctx );
 
   /* leader points to a caller-allocated leader schedule */
-  fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( slot_ctx ) );
+  fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( slot_ctx ), valloc );
 }

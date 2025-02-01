@@ -22,7 +22,9 @@ static void *                  _cb_v_ctx      = NULL;
 
 int
 cb_manifest( void *                 ctx,
-             fd_solana_manifest_t * manifest ) {
+             fd_solana_manifest_t * manifest,
+             fd_valloc_t            valloc ) {
+  (void)valloc;
   _cb_v_manifest = manifest;
   _cb_v_ctx      = ctx;
   return _cb_retcode;
@@ -109,7 +111,6 @@ main( int     argc,
 
   FD_TEST( !fd_snapshot_restore_new( NULL,        acc_mgr, NULL, _valloc, NULL, cb_manifest, cb_status_cache ) );  /* NULL mem */
   FD_TEST( !fd_snapshot_restore_new( restore_mem, NULL,    NULL, _valloc, NULL, cb_manifest, cb_status_cache ) );  /* NULL acc_mgr */
-  FD_TEST( !fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, NULL, NULL, NULL        ) );  /* NULL callback */
 
   /* Reject accounts before manifest */
 

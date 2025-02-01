@@ -54,7 +54,11 @@ fd_snapshot_name_from_cstr( fd_snapshot_name_t * id,
   }
 
   char const * file_ext = strchr( cstr, '.' );
-  ulong        file_ext_off = (ulong)( file_ext - cstr );
+  if( FD_UNLIKELY( !file_ext ) ) {
+    FD_LOG_WARNING(( "invalid snapshot file name: \"%s\"", orig_cstr ));
+    return NULL;
+  }
+  ulong file_ext_off = (ulong)( file_ext - cstr );
 
   char hash_cstr[ FD_BASE58_ENCODED_32_SZ ] = {0};
   strncpy( hash_cstr, cstr, sizeof(hash_cstr)-1 );
