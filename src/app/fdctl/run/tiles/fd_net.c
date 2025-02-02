@@ -38,22 +38,23 @@
 #include "generated/net_seccomp.h"
 
 #include "../../../../disco/metrics/fd_metrics.h"
+#include "../../../../disco/netlink/fd_netlink_tile.h" /* neigh4_solicit */
 
-#include "../../../../waltz/xdp/fd_xdp.h"
+#include "../../../../waltz/xdp/fd_xdp_redirect_user.h" /* fd_xsk_activate */
 #include "../../../../waltz/xdp/fd_xdp1.h"
 #include "../../../../waltz/xdp/fd_xsk_aio_private.h"
 #include "../../../../waltz/xdp/fd_xsk_private.h"
+#include "../../../../waltz/ip/fd_fib4.h"
+#include "../../../../waltz/neigh/fd_neigh4_map.h"
 #include "../../../../util/log/fd_dtrace.h"
 #include "../../../../util/net/fd_ip4.h"
-#include "../../../../waltz/ip/fd_ip.h"
 
 #include <unistd.h>
 #include <linux/unistd.h>
 
 #define MAX_NET_INS (32UL)
 
-#define FD_NETLINK_REFRESH_INTERVAL_NS (60e9) /* 60s */
-#define FD_XDP_STATS_INTERVAL_NS       (11e6) /* 11ms */
+#define FD_XDP_STATS_INTERVAL_NS (11e6) /* 11ms */
 
 typedef struct {
   fd_wksp_t * mem;
@@ -87,6 +88,8 @@ typedef struct {
 
   uchar frame[ FD_NET_MTU ];
 
+  uint   lo_if_idx;
+  uint   main_if_idx;
   uint   src_ip_addr;
   uchar  src_mac_addr[6];
 
@@ -106,19 +109,23 @@ typedef struct {
   fd_net_out_ctx_t repair_out[1];
 
   /* Timers (measured in fd_tickcount()) */
-  long        netlink_refresh_interval_ticks;
-  long        next_netlink_refresh;
-
   long        xdp_stats_interval_ticks;
   long        next_xdp_stats_refresh;
 
   long        tx_flush_interval_ticks;
   long        next_tx_flush;
 
-  fd_ip_t *   ip;
+  fd_fib4_t const * fib_local;
+  fd_fib4_t const * fib_main;
+  fd_neigh4_hmap_t  neigh4[1];
+  fd_netlink_neigh4_solicit_link_t neigh4_solicit[1];
 
   struct {
-    ulong tx_dropped_cnt;
+    ulong tx_drops_iface;     /* dropped due to route targeting wrong interface */
+    ulong tx_drops_xsk_lo;    /* dropped due to TX backpressure (loopback) */
+    ulong tx_drops_xsk_main;  /* dropped due to TX backpressure (main interface) */
+    ulong tx_drops_route;     /* dropped due to routing table */
+    ulong tx_drops_neigh;     /* dropped due to neighbor not resolved */
   } metrics;
 } fd_net_ctx_t;
 
@@ -140,7 +147,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
     l = FD_LAYOUT_APPEND( l, fd_xsk_align(),      fd_xsk_footprint( FD_NET_MTU, tile->net.xdp_rx_queue_size, tile->net.xdp_rx_queue_size, tile->net.xdp_tx_queue_size, tile->net.xdp_tx_queue_size ) );
     l = FD_LAYOUT_APPEND( l, fd_xsk_aio_align(),  fd_xsk_aio_footprint( tile->net.xdp_tx_queue_size, tile->net.xdp_aio_depth ) );
   }
-  l = FD_LAYOUT_APPEND( l, fd_ip_align(),         fd_ip_footprint( 0UL, 0UL ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -276,7 +282,11 @@ metrics_write( fd_net_ctx_t * ctx ) {
   FD_MCNT_SET( NET, SENT_BYTES,       tx_sz  );
   FD_MCNT_SET( NET, XSK_SEND_ERRORS,  tx_flush_err_cnt );
 
-  FD_MCNT_SET( NET, TX_DROPPED, ctx->metrics.tx_dropped_cnt );
+  FD_MCNT_SET( NET, TX_DROPPED_NO_XDP,        ctx->metrics.tx_drops_iface    );
+  FD_MCNT_SET( NET, TX_DROPPED_FULL_LO,       ctx->metrics.tx_drops_xsk_lo   );
+  FD_MCNT_SET( NET, TX_DROPPED_FULL_MAIN,     ctx->metrics.tx_drops_xsk_main );
+  FD_MCNT_SET( NET, TX_DROPPED_ROUTE_FAIL,    ctx->metrics.tx_drops_route    );
+  FD_MCNT_SET( NET, TX_DROPPED_NEIGHBOR_FAIL, ctx->metrics.tx_drops_neigh    );
 }
 
 static void
@@ -309,57 +319,39 @@ struct xdp_statistics_v1 {
 
 static inline void
 poll_xdp_statistics( fd_net_ctx_t * ctx ) {
-  struct xdp_statistics_v1 stats;
-  uint optlen = (uint)sizeof(stats);
-  if( FD_UNLIKELY( -1==getsockopt( ctx->xsk[ 0 ]->xsk_fd, SOL_XDP, XDP_STATISTICS, &stats, &optlen ) ) )
-    FD_LOG_ERR(( "getsockopt(SOL_XDP, XDP_STATISTICS) failed: %s", strerror( errno ) ));
+  struct xdp_statistics_v1 stats[2] = {{0}};
 
-  if( FD_LIKELY( optlen==sizeof(struct xdp_statistics_v1) ) ) {
-    FD_MCNT_SET( NET, XDP_RX_DROPPED_OTHER, stats.rx_dropped );
-    FD_MCNT_SET( NET, XDP_RX_DROPPED_RING_FULL, stats.rx_ring_full );
-
-    FD_TEST( !stats.rx_invalid_descs );
-    FD_TEST( !stats.tx_invalid_descs );
-    /* TODO: We shouldn't ever try to tx or rx with empty descs but we
-             seem to sometimes. */
-    // FD_TEST( !stats.rx_fill_ring_empty_descs );
-    // FD_TEST( !stats.tx_ring_empty_descs );
-  } else if( FD_LIKELY( optlen==sizeof(struct xdp_statistics_v0) ) ) {
-    FD_MCNT_SET( NET, XDP_RX_DROPPED_OTHER, stats.rx_dropped );
-
-    FD_TEST( !stats.rx_invalid_descs );
-    FD_TEST( !stats.tx_invalid_descs );
-  } else {
-    FD_LOG_ERR(( "getsockopt(SOL_XDP, XDP_STATISTICS) returned unexpected size %u", optlen ));
+  ulong xsk_cnt = ctx->xsk_cnt;
+  for( ulong j=0UL; j<xsk_cnt; j++ ) {
+    uint optlen = (uint)sizeof(struct xdp_statistics_v1);
+    if( FD_UNLIKELY( -1==getsockopt( ctx->xsk[ j ]->xsk_fd, SOL_XDP, XDP_STATISTICS, stats+j, &optlen ) ) )
+      FD_LOG_ERR(( "getsockopt(SOL_XDP, XDP_STATISTICS) failed: %s", strerror( errno ) ));
+    if( FD_UNLIKELY( optlen!=sizeof(struct xdp_statistics_v0) &&
+                     optlen!=sizeof(struct xdp_statistics_v1) ) ) {
+      FD_LOG_ERR(( "getsockopt(SOL_XDP, XDP_STATISTICS) returned unexpected size %u", optlen ));
+    }
   }
+
+  for( ulong j=1UL; j<xsk_cnt; j++ ) {
+    stats[0].rx_dropped               += stats[j].rx_dropped;
+    stats[0].rx_invalid_descs         += stats[j].rx_invalid_descs;
+    stats[0].tx_invalid_descs         += stats[j].tx_invalid_descs;
+    stats[0].rx_ring_full             += stats[j].rx_ring_full;
+    stats[0].rx_fill_ring_empty_descs += stats[j].rx_fill_ring_empty_descs;
+    stats[0].tx_ring_empty_descs      += stats[j].tx_ring_empty_descs;
+  }
+
+  FD_MCNT_SET( NET, XDP_RX_DROPPED_OTHER,         stats[0].rx_dropped               );
+  FD_MCNT_SET( NET, XDP_RX_INVALID_DESCS,         stats[0].rx_invalid_descs         );
+  FD_MCNT_SET( NET, XDP_TX_INVALID_DESCS,         stats[0].tx_invalid_descs         );
+  FD_MCNT_SET( NET, XDP_RX_RING_FULL,             stats[0].rx_ring_full             );
+  FD_MCNT_SET( NET, XDP_RX_FILL_RING_EMPTY_DESCS, stats[0].rx_fill_ring_empty_descs );
+  FD_MCNT_SET( NET, XDP_TX_RING_EMPTY_DESCS,      stats[0].tx_ring_empty_descs      );
 }
 
 static void
 during_housekeeping( fd_net_ctx_t * ctx ) {
-  long now = fd_tickcount();
-
-  if( now > ctx->next_xdp_stats_refresh ) {
-    ctx->next_xdp_stats_refresh = now + ctx->xdp_stats_interval_ticks;
-
-    /* Only net tile 0 polls the statistics, as they are retrieved for the
-       XDP socket which is shared across all net tiles.
-       (FIXME the above comment is wrong) */
-
-    if( FD_LIKELY( !ctx->round_robin_id ) ) poll_xdp_statistics( ctx );
-  }
-
-  if( now > ctx->next_netlink_refresh ) {
-    ctx->next_netlink_refresh = now + ctx->netlink_refresh_interval_ticks;
-    fd_ip_arp_fetch( ctx->ip );
-    fd_ip_route_fetch( ctx->ip );
-  }
-}
-
-FD_FN_PURE static int
-route_loopback( uint  tile_ip_addr,
-                ulong sig ) {
-  return fd_disco_netmux_sig_dst_ip( sig )==FD_IP4_ADDR(127,0,0,1) ||
-    fd_disco_netmux_sig_dst_ip( sig )==tile_ip_addr;
+  poll_xdp_statistics( ctx );
 }
 
 static inline int
@@ -367,19 +359,12 @@ before_frag( fd_net_ctx_t * ctx,
              ulong          in_idx,
              ulong          seq,
              ulong          sig ) {
-  (void)in_idx;
+  (void)ctx; (void)seq; (void)in_idx;
 
   ulong proto = fd_disco_netmux_sig_proto( sig );
   if( FD_UNLIKELY( proto!=DST_PROTO_OUTGOING ) ) return 1;
 
-  /* Round robin by sequence number for now, QUIC should be modified to
-     echo the net tile index back so we can transmit on the same queue.
-
-     127.0.0.1 packets for localhost must go out on net tile 0 which
-     owns the loopback interface XSK, which only has 1 queue. */
-
-  if( FD_UNLIKELY( route_loopback( ctx->src_ip_addr, sig ) ) ) return ctx->round_robin_id != 0UL;
-  else                                                         return (seq % ctx->round_robin_cnt) != ctx->round_robin_id;
+  return 0;
 }
 
 static inline void
@@ -401,31 +386,6 @@ during_frag( fd_net_ctx_t * ctx,
 }
 
 static void
-send_arp_probe( fd_net_ctx_t * ctx,
-                uint           dst_ip_addr,
-                uint           ifindex ) {
-  uchar          arp_buf[FD_IP_ARP_SZ];
-  ulong          arp_len = 0UL;
-
-  uint           src_ip_addr  = ctx->src_ip_addr;
-  uchar *        src_mac_addr = ctx->src_mac_addr;
-
-  /* prepare arp table */
-  int arp_table_rtn = fd_ip_update_arp_table( ctx->ip, dst_ip_addr, ifindex );
-
-  if( FD_UNLIKELY( arp_table_rtn == FD_IP_SUCCESS ) ) {
-    /* generate a probe */
-    fd_ip_arp_gen_arp_probe( arp_buf, FD_IP_ARP_SZ, &arp_len, dst_ip_addr, fd_uint_bswap( src_ip_addr ), src_mac_addr );
-
-    /* send the probe */
-    fd_aio_pkt_info_t aio_buf = { .buf = arp_buf, .buf_sz = (ushort)arp_len };
-    ulong sent_cnt;
-    int aio_err = ctx->tx->send_func( ctx->xsk_aio[ 0 ], &aio_buf, 1, &sent_cnt, 1 );
-    ctx->metrics.tx_dropped_cnt += aio_err!=FD_AIO_SUCCESS;
-  }
-}
-
-static void
 after_frag( fd_net_ctx_t *      ctx,
             ulong               in_idx,
             ulong               seq,
@@ -433,10 +393,7 @@ after_frag( fd_net_ctx_t *      ctx,
             ulong               sz,
             ulong               tsorig,
             fd_stem_context_t * stem ) {
-  (void)in_idx;
-  (void)seq;
-  (void)tsorig;
-  (void)stem;
+  (void)in_idx; (void)seq; (void)tsorig; (void)stem;
 
   long now           = fd_tickcount();
   long next_tx_flush = ctx->next_tx_flush;
@@ -446,77 +403,61 @@ after_frag( fd_net_ctx_t *      ctx,
   fd_long_store_if( flush,                   &ctx->next_tx_flush, LONG_MAX ); /* last packet of batch */
 
   fd_aio_pkt_info_t aio_buf = { .buf = ctx->frame, .buf_sz = (ushort)sz };
-  if( FD_UNLIKELY( route_loopback( ctx->src_ip_addr, sig ) ) ) {
+  uint dst_ip = fd_uint_bswap( fd_disco_netmux_sig_dst_ip( sig ) );
+  ulong sent_cnt; /* dummy */
+
+  /* Routing */
+
+  fd_fib4_hop_t hop[2] = {0};
+  fd_fib4_lookup( ctx->fib_local, hop+0, dst_ip, 0UL );
+  fd_fib4_lookup( ctx->fib_main,  hop+1, dst_ip, 0UL );
+  fd_fib4_hop_t const * next_hop = fd_fib4_hop_or( hop+0, hop+1 );
+
+  /* FIXME This assumes that loopback is always interface index 1 */
+  uint if_idx = next_hop->if_idx;
+  if( next_hop->rtype==FD_FIB4_RTYPE_LOCAL ) if_idx = 1;
+
+  if( if_idx==1 ) {
     /* Set Ethernet src and dst address to 00:00:00:00:00:00 */
     memset( ctx->frame, 0, 12UL );
 
-    ulong sent_cnt;
     int aio_err = ctx->lo_tx->send_func( ctx->xsk_aio[ 1 ], &aio_buf, 1, &sent_cnt, flush );
-    ctx->metrics.tx_dropped_cnt += aio_err!=FD_AIO_SUCCESS;
-  } else {
-    /* extract dst ip */
-    uint dst_ip = fd_uint_bswap( fd_disco_netmux_sig_dst_ip( sig ) );
-
-    uint  next_hop    = 0U;
-    uchar dst_mac[6]  = {0};
-    uint  if_idx      = 0;
-
-    /* route the packet */
-    /*
-     * determine the destination:
-     *   same host
-     *   same subnet
-     *   other
-     * determine the next hop
-     *   localhost
-     *   gateway
-     *   subnet local host
-     * determine the mac address of the next hop address
-     *   and the local ipv4 and eth addresses */
-    int rtn = fd_ip_route_ip_addr( dst_mac, &next_hop, &if_idx, ctx->ip, dst_ip );
-    if( FD_UNLIKELY( rtn == FD_IP_PROBE_RQD ) ) {
-      /* another fd_net instance might have already resolved this address
-         so simply try another fetch */
-      fd_ip_arp_fetch( ctx->ip );
-      rtn = fd_ip_route_ip_addr( dst_mac, &next_hop, &if_idx, ctx->ip, dst_ip );
-    }
-
-    switch( rtn ) {
-      case FD_IP_PROBE_RQD:
-        /* TODO possibly buffer some data while waiting for ARPs to complete */
-        /* TODO rate limit ARPs */
-        /* TODO add caching of ip_dst -> routing info */
-        send_arp_probe( ctx, next_hop, if_idx );
-
-        /* refresh tables */
-        ctx->next_netlink_refresh = fd_tickcount() + (long)( 200e3 * fd_tempo_tick_per_ns( NULL ) );
-        break;
-      case FD_IP_NO_ROUTE:
-        /* cannot make progress here */
-        break;
-      case FD_IP_SUCCESS:
-        /* set destination mac address */
-        memcpy( ctx->frame, dst_mac, 6UL );
-
-        /* set source mac address */
-        memcpy( ctx->frame + 6UL, ctx->src_mac_addr, 6UL );
-
-        ulong sent_cnt;
-        int aio_err = ctx->tx->send_func( ctx->xsk_aio[ 0 ], &aio_buf, 1, &sent_cnt, flush );
-        ctx->metrics.tx_dropped_cnt += aio_err!=FD_AIO_SUCCESS;
-        break;
-      case FD_IP_RETRY:
-        /* refresh tables */
-        ctx->next_netlink_refresh = fd_tickcount() + (long)( 200e3 * fd_tempo_tick_per_ns( NULL ) );
-        /* TODO consider buffering */
-        break;
-      case FD_IP_MULTICAST:
-      case FD_IP_BROADCAST:
-      default:
-        /* should not occur in current use cases */
-        break;
-    }
+    ctx->metrics.tx_drops_iface += aio_err!=FD_AIO_SUCCESS;
+    return;
   }
+
+  if( FD_UNLIKELY( if_idx!=ctx->xsk[ 0 ]->if_idx ) ) {
+    ctx->metrics.tx_drops_iface++;
+    return;
+  }
+
+  if( FD_UNLIKELY( next_hop->rtype!=FD_FIB4_RTYPE_UNICAST ) ) {
+    ctx->metrics.tx_drops_route++;
+    return;
+  }
+
+  /* Neighbor resolve */
+
+  fd_neigh4_hmap_query_t neigh_query[1];
+  int neigh_res = fd_neigh4_hmap_query_try( ctx->neigh4, &next_hop->ip4_gw, NULL, neigh_query, 0 );
+  if( FD_UNLIKELY( neigh_res!=FD_MAP_SUCCESS ) ) {
+    /* Neighbor not found */
+    fd_netlink_neigh4_solicit( ctx->neigh4_solicit, next_hop->ip4_gw, fd_frag_meta_ts_comp( fd_tickcount() ) );
+    ctx->metrics.tx_drops_neigh++;
+    return;
+  }
+  fd_neigh4_entry_t const * neigh = fd_neigh4_hmap_query_ele_const( neigh_query );
+
+  memcpy( ctx->frame+0, neigh->mac_addr,   6 );
+  memcpy( ctx->frame+6, ctx->src_mac_addr, 6 );
+
+  if( FD_UNLIKELY( fd_neigh4_hmap_query_test( neigh_query ) ) ) {
+    ctx->metrics.tx_drops_neigh++;
+    return;
+  }
+
+  int aio_err = ctx->tx->send_func( ctx->xsk_aio[ 0 ], &aio_buf, 1, &sent_cnt, 1 );
+  ctx->metrics.tx_drops_xsk_main += aio_err!=FD_AIO_SUCCESS;
 }
 
 /* init_link_session is part of privileged_init.  It only runs on net
@@ -604,6 +545,7 @@ privileged_init( fd_topo_t *      topo,
 
     uint lo_idx = if_nametoindex( "lo" );
     if( FD_UNLIKELY( !lo_idx ) ) FD_LOG_ERR(( "if_nametoindex(lo) failed" ));
+    ctx->lo_if_idx = lo_idx;
 
     fd_xdp_fds_t lo_fds = fd_xdp_install( lo_idx,
                                           tile->net.src_ip_addr,
@@ -631,12 +573,9 @@ privileged_init( fd_topo_t *      topo,
     if( FD_UNLIKELY( !ctx->xsk_aio[ 1 ] ) ) FD_LOG_ERR(( "fd_xsk_aio_new failed" ));
   }
 
-  ctx->ip = fd_ip_join( fd_ip_new( FD_SCRATCH_ALLOC_APPEND( l, fd_ip_align(), fd_ip_footprint( 0UL, 0UL ) ), 0UL, 0UL ) );
-
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
-  ctx->netlink_refresh_interval_ticks = (long)( FD_NETLINK_REFRESH_INTERVAL_NS        * tick_per_ns );
-  ctx->xdp_stats_interval_ticks       = (long)( FD_XDP_STATS_INTERVAL_NS              * tick_per_ns );
-  ctx->tx_flush_interval_ticks        = (long)( (double)tile->net.tx_flush_timeout_ns * tick_per_ns );
+  ctx->xdp_stats_interval_ticks = (long)( FD_XDP_STATS_INTERVAL_NS * tick_per_ns );
+  ctx->tx_flush_interval_ticks  = (long)( (double)tile->net.tx_flush_timeout_ns * tick_per_ns );
 }
 
 static void
@@ -663,8 +602,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->src_ip_addr = tile->net.src_ip_addr;
   memcpy( ctx->src_mac_addr, tile->net.src_mac_addr, 6UL );
-
-  ctx->metrics.tx_dropped_cnt = 0UL;
 
   ctx->shred_listen_port              = tile->net.shred_listen_port;
   ctx->quic_transaction_listen_port   = tile->net.quic_transaction_listen_port;
@@ -730,6 +667,11 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->repair_out->mem    = topo->workspaces[ topo->objs[ repair_out->dcache_obj_id ].wksp_id ].wksp;
       ctx->repair_out->wmark  = fd_dcache_compact_wmark ( ctx->repair_out->mem, repair_out->dcache, repair_out->mtu );
       ctx->repair_out->chunk  = ctx->repair_out->chunk0;
+    } else if( strcmp( out_link->name, "net_netlink" ) == 0 ) {
+      fd_topo_link_t * netlink_out = out_link;
+      ctx->neigh4_solicit->mcache = netlink_out->mcache;
+      ctx->neigh4_solicit->depth  = fd_mcache_depth( ctx->neigh4_solicit->mcache );
+      ctx->neigh4_solicit->seq    = fd_mcache_seq_query( fd_mcache_seq_laddr( ctx->neigh4_solicit->mcache ) );
     } else {
       FD_LOG_ERR(( "unrecognized out link `%s`", out_link->name ));
     }
@@ -748,6 +690,19 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "repair intake port set but no out link was found" ));
   } else if( FD_UNLIKELY( ctx->repair_serve_listen_port!=0 && ctx->repair_out->mcache==NULL ) ) {
     FD_LOG_ERR(( "repair serve listen port set but no out link was found" ));
+  } else if( FD_UNLIKELY( ctx->neigh4_solicit->mcache==NULL ) ) {
+    FD_LOG_ERR(( "netlink request link not found" ));
+  }
+
+  /* Join netbase objects */
+  ctx->fib_local = fd_fib4_join( fd_topo_obj_laddr( topo, tile->net.fib4_local_obj_id ) );
+  ctx->fib_main  = fd_fib4_join( fd_topo_obj_laddr( topo, tile->net.fib4_main_obj_id  ) );
+  if( FD_UNLIKELY( !ctx->fib_local || !ctx->fib_main ) ) FD_LOG_ERR(( "fd_fib4_join failed" ));
+  if( FD_UNLIKELY( !fd_neigh4_hmap_join(
+      ctx->neigh4,
+      fd_topo_obj_laddr( topo, tile->net.neigh4_obj_id ),
+      fd_topo_obj_laddr( topo, tile->net.neigh4_ele_obj_id ) ) ) ) {
+    FD_LOG_ERR(( "fd_neigh4_hmap_join failed" ));
   }
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
@@ -768,8 +723,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
      two "allow" FD arguments to the net policy, so we just make them both the same. */
   int allow_fd2 = ctx->xsk_cnt>1UL ? ctx->xsk[ 1 ]->xsk_fd : ctx->xsk[ 0 ]->xsk_fd;
   FD_TEST( ctx->xsk[ 0 ]->xsk_fd >= 0 && allow_fd2 >= 0 );
-  int netlink_fd = fd_ip_netlink_get( ctx->ip )->fd;
-  populate_sock_filter_policy_net( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->xsk[ 0 ]->xsk_fd, (uint)allow_fd2, (uint)netlink_fd );
+  populate_sock_filter_policy_net( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->xsk[ 0 ]->xsk_fd, (uint)allow_fd2 );
   return sock_filter_policy_net_instr_cnt;
 }
 
@@ -782,14 +736,13 @@ populate_allowed_fds( fd_topo_t const *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_net_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_net_ctx_t ), sizeof( fd_net_ctx_t ) );
 
-  if( FD_UNLIKELY( out_fds_cnt<7UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<6UL ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
 
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
-  out_fds[ out_cnt++ ] = fd_ip_netlink_get( ctx->ip )->fd;
 
                                       out_fds[ out_cnt++ ] = ctx->xsk[ 0 ]->xsk_fd;
                                       out_fds[ out_cnt++ ] = ctx->prog_link_fds[ 0 ];
@@ -799,6 +752,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 }
 
 #define STEM_BURST (1UL)
+#define STEM_LAZY ((ulong)7e6) /* 7ms */
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_net_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_net_ctx_t)

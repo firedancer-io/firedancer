@@ -89,11 +89,13 @@ fd_topob_link( fd_topo_t *  topo,
   link->mcache_obj_id = obj->id;
   FD_TEST( fd_pod_insertf_ulong( topo->props, depth, "obj.%lu.depth", obj->id ) );
 
-  obj = fd_topob_obj( topo, "dcache", wksp_name );
-  link->dcache_obj_id = obj->id;
-  FD_TEST( fd_pod_insertf_ulong( topo->props, depth, "obj.%lu.depth", obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, burst, "obj.%lu.burst", obj->id ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, mtu, "obj.%lu.mtu", obj->id ) );
+  if( mtu ) {
+    obj = fd_topob_obj( topo, "dcache", wksp_name );
+    link->dcache_obj_id = obj->id;
+    FD_TEST( fd_pod_insertf_ulong( topo->props, depth, "obj.%lu.depth", obj->id ) );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, burst, "obj.%lu.burst", obj->id ) );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, mtu,   "obj.%lu.mtu",   obj->id ) );
+  }
   topo->link_cnt++;
 }
 

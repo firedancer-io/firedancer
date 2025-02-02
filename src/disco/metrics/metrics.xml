@@ -51,14 +51,26 @@ metric introduced.
     <counter name="RegimeDurationNanos" enum="TileRegime" converter="nanoseconds" summary="Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes." />
 </common>
 
+<enum name="TxDrop">
+    <int value="0" name="NoXdp" label="No XDP socket" />
+    <int value="1" name="FullLo" label="TX ring full (loopback)" />
+    <int value="2" name="FullMain" label="TX ring full (main)" />
+    <int value="3" name="RouteFail" label="Routing failure" />
+    <int value="4" name="NeighborFail" label="Missing neighbor/ARP info" />
+</enum>
+
 <tile name="net">
     <counter name="ReceivedPackets" summary="Number of IP packets received." />
     <counter name="ReceivedBytes" summary="Total bytes received (including IP, UDP headers)." />
     <counter name="SentPackets" summary="Number of IP packets sent." />
     <counter name="SentBytes" summary="Total bytes sent (including IP, UDP headers)." />
-    <counter name="XdpRxDroppedRingFull" summary="Number of packets dropped because the RX completion queue was empty. This is only reported for net tile 0, since the measurement is across all RX queues." />
-    <counter name="XdpRxDroppedOther" summary="Number of packets dropped for other reasons. This is only reported for net tile 0, since the measurement is across all RX queues." />
-    <counter name="TxDropped" summary="Number of packets dropped because the TX submission queue was empty. This is reported for all net tiles." />
+    <counter name="XdpRxDroppedOther" summary="xdp_statistics_v0.rx_dropped: Dropped for other reasons" />
+    <counter name="XdpRxInvalidDescs" summary="xdp_statistics_v0.rx_invalid_descs: Dropped due to invalid descriptor" />
+    <counter name="XdpTxInvalidDescs" summary="xdp_statistics_v0.tx_invalid_descs: Dropped due to invalid descriptor" />
+    <counter name="XdpRxRingFull" summary="xdp_statistics_v1.rx_ring_full: Dropped due to rx ring being full" />
+    <counter name="XdpRxFillRingEmptyDescs" summary="xdp_statistics_v1.rx_fill_ring_empty_descs: Failed to retrieve item from fill ring" />
+    <counter name="XdpTxRingEmptyDescs" summary="xdp_statistics_v1.tx_ring_empty_descs: Failed to retrieve item from tx ring" />
+    <counter name="TxDropped" enum="TxDrop" summary="Number of packets dropped" />
     <counter name="XskSendErrors" summary="Number of times calling send(2) on the XSK indicated an error other than EAGAIN." />
 </tile>
 

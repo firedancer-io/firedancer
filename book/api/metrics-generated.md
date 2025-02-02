@@ -41,9 +41,17 @@
 | net_&#8203;received_&#8203;bytes | `counter` | Total bytes received (including IP, UDP headers). |
 | net_&#8203;sent_&#8203;packets | `counter` | Number of IP packets sent. |
 | net_&#8203;sent_&#8203;bytes | `counter` | Total bytes sent (including IP, UDP headers). |
-| net_&#8203;xdp_&#8203;rx_&#8203;dropped_&#8203;ring_&#8203;full | `counter` | Number of packets dropped because the RX completion queue was empty. This is only reported for net tile 0, since the measurement is across all RX queues. |
-| net_&#8203;xdp_&#8203;rx_&#8203;dropped_&#8203;other | `counter` | Number of packets dropped for other reasons. This is only reported for net tile 0, since the measurement is across all RX queues. |
-| net_&#8203;tx_&#8203;dropped | `counter` | Number of packets dropped because the TX submission queue was empty. This is reported for all net tiles. |
+| net_&#8203;xdp_&#8203;rx_&#8203;dropped_&#8203;other | `counter` | xdp_statistics_v0.rx_dropped: Dropped for other reasons |
+| net_&#8203;xdp_&#8203;rx_&#8203;invalid_&#8203;descs | `counter` | xdp_statistics_v0.rx_invalid_descs: Dropped due to invalid descriptor |
+| net_&#8203;xdp_&#8203;tx_&#8203;invalid_&#8203;descs | `counter` | xdp_statistics_v0.tx_invalid_descs: Dropped due to invalid descriptor |
+| net_&#8203;xdp_&#8203;rx_&#8203;ring_&#8203;full | `counter` | xdp_statistics_v1.rx_ring_full: Dropped due to rx ring being full |
+| net_&#8203;xdp_&#8203;rx_&#8203;fill_&#8203;ring_&#8203;empty_&#8203;descs | `counter` | xdp_statistics_v1.rx_fill_ring_empty_descs: Failed to retrieve item from fill ring |
+| net_&#8203;xdp_&#8203;tx_&#8203;ring_&#8203;empty_&#8203;descs | `counter` | xdp_statistics_v1.tx_ring_empty_descs: Failed to retrieve item from tx ring |
+| net_&#8203;tx_&#8203;dropped_&#8203;no_&#8203;xdp | `counter` | Number of packets dropped (No XDP socket) |
+| net_&#8203;tx_&#8203;dropped_&#8203;full_&#8203;lo | `counter` | Number of packets dropped (TX ring full (loopback)) |
+| net_&#8203;tx_&#8203;dropped_&#8203;full_&#8203;main | `counter` | Number of packets dropped (TX ring full (main)) |
+| net_&#8203;tx_&#8203;dropped_&#8203;route_&#8203;fail | `counter` | Number of packets dropped (Routing failure) |
+| net_&#8203;tx_&#8203;dropped_&#8203;neighbor_&#8203;fail | `counter` | Number of packets dropped (Missing neighbor/ARP info) |
 | net_&#8203;xsk_&#8203;send_&#8203;errors | `counter` | Number of times calling send(2) on the XSK indicated an error other than EAGAIN. |
 
 ## Quic Tile
