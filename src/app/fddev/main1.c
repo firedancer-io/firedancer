@@ -103,16 +103,18 @@ fd_topo_run_tile_t * TILES[] = {
   NULL,
 };
 
-static action_t DEV_ACTIONS[] = {
-  { .name = "dev",     .args = dev_cmd_args,     .fn = dev_cmd_fn,     .perm = dev_cmd_perm     },
-  { .name = "wksp",    .args = NULL,             .fn = wksp_cmd_fn,    .perm = wksp_cmd_perm    },
-  { .name = "dev1",    .args = dev1_cmd_args,    .fn = dev1_cmd_fn,    .perm = dev_cmd_perm     },
-  { .name = "txn",     .args = txn_cmd_args,     .fn = txn_cmd_fn,     .perm = txn_cmd_perm     },
-  { .name = "bench",   .args = bench_cmd_args,   .fn = bench_cmd_fn,   .perm = bench_cmd_perm   },
-  { .name = "load",    .args = load_cmd_args,    .fn = load_cmd_fn,    .perm = load_cmd_perm    },
-  { .name = "dump",    .args = dump_cmd_args,    .fn = dump_cmd_fn,    .perm = NULL,           .is_diagnostic=1 },
-  { .name = "flame",   .args = flame_cmd_args,   .fn = flame_cmd_fn,   .perm = flame_cmd_perm, .is_diagnostic=1 },
-  { .name = "quic-trace", .args = quic_trace_cmd_args, .fn = quic_trace_cmd_fn, .perm = NULL, .is_diagnostic=1 },
+action_t DEV_ACTIONS[] = {
+  { .name = "bench",      .args = bench_cmd_args,      .fn = bench_cmd_fn,      .perm = bench_cmd_perm, .description = "Test validator TPS benchmark" },
+  { .name = "dev",        .args = dev_cmd_args,        .fn = dev_cmd_fn,        .perm = dev_cmd_perm,   .description = "Start up a test validator" },
+  { .name = "dev1",       .args = dev1_cmd_args,       .fn = dev1_cmd_fn,       .perm = dev_cmd_perm,   .description = "Start up a single tile" },
+  { .name = "dump",       .args = dump_cmd_args,       .fn = dump_cmd_fn,       .perm = NULL,           .description = "Dump tango links to pcap", .is_diagnostic=1 },
+  { .name = "flame",      .args = flame_cmd_args,      .fn = flame_cmd_fn,      .perm = flame_cmd_perm, .description = "Capture a perf flamegraph", .is_diagnostic=1 },
+  { .name = "help",       .args = NULL,                .fn = dev_help_cmd_fn,   .perm = NULL,           .description = "Print this help message", .is_diagnostic=1 },
+  { .name = "load",       .args = load_cmd_args,       .fn = load_cmd_fn,       .perm = load_cmd_perm,  .description = "Load test an external validator" },
+  { .name = "quic-trace", .args = quic_trace_cmd_args, .fn = quic_trace_cmd_fn, .perm = NULL,           .description = "Trace quic tile", .is_diagnostic=1 },
+  { .name = "txn",        .args = txn_cmd_args,        .fn = txn_cmd_fn,        .perm = txn_cmd_perm,   .description = "Send a transaction to an fddev instance" },
+  { .name = "wksp",       .args = NULL,                .fn = wksp_cmd_fn,       .perm = wksp_cmd_perm,  .description = "Initialize workspaces" },
+  {0}
 };
 
 extern char fd_log_private_path[ 1024 ];
@@ -187,13 +189,13 @@ fddev_main( int     argc,
   }
 
   action_t * action = NULL;
-  for( ulong i=0; i<sizeof(ACTIONS)/sizeof(ACTIONS[ 0 ]); i++ ) {
+  for( ulong i=0; ACTIONS[ i ].name; i++ ) {
     if( FD_UNLIKELY( !strcmp( action_name, ACTIONS[ i ].name ) ) ) {
       action = &ACTIONS[ i ];
       break;
     }
   }
-  for( ulong i=0; i<sizeof(DEV_ACTIONS)/sizeof(DEV_ACTIONS[ 0 ]); i++ ) {
+  for( ulong i=0; DEV_ACTIONS[ i ].name; i++ ) {
     if( FD_UNLIKELY( !strcmp( action_name, DEV_ACTIONS[ i ].name ) ) ) {
       action = &DEV_ACTIONS[ i ];
       break;

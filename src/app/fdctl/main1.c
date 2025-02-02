@@ -6,7 +6,7 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 
-action_t ACTIONS[ ACTIONS_CNT ] = {
+action_t ACTIONS[] = {
   { .name = "run",        .args = NULL,               .fn = run_cmd_fn,        .perm = run_cmd_perm,        .description = "Start up a Firedancer validator" },
   { .name = "run1",       .args = run1_cmd_args,      .fn = run1_cmd_fn,       .perm = NULL,                .description = "Start up a single Firedancer tile" },
   { .name = "run-agave",  .args = NULL,               .fn = run_agave_cmd_fn,  .perm = NULL,                .description = "Start up the Agave side of a Firedancer validator" },
@@ -18,6 +18,7 @@ action_t ACTIONS[ ACTIONS_CNT ] = {
   { .name = "spy",        .args = NULL,               .fn = spy_cmd_fn,        .perm = NULL,                .description = "Spy on and print out gossip traffic" },
   { .name = "help",       .args = NULL,               .fn = help_cmd_fn,       .perm = NULL,                .description = "Print this help message" },
   { .name = "version",    .args = NULL,               .fn = version_cmd_fn,    .perm = NULL,                .description = "Show the current software version" },
+  {0}
 };
 
 struct action_alias {
@@ -278,7 +279,7 @@ main1( int     argc,
   }
 
   action_t * action = NULL;
-  for( ulong i=0; i<ACTIONS_CNT; i++ ) {
+  for( ulong i=0; ACTIONS[ i ].name; i++ ) {
     if( FD_UNLIKELY( !strcmp( command, ACTIONS[ i ].name ) ) ) {
       action = &ACTIONS[ i ];
       break;

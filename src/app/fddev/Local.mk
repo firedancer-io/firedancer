@@ -10,7 +10,15 @@ include src/app/fdctl/with-version.mk
 .PHONY: fddev run monitor
 
 # fddev core
-$(call add-objs,main1 dev dev1 txn bench load dump flame wksp,fd_fddev)
+$(call add-objs,main1 help wksp,fd_fddev)
+
+# fddev actions
+$(call add-objs,bench,fd_fddev)
+$(call add-objs,dev dev1,fd_fddev)
+$(call add-objs,dump,fd_fddev)
+$(call add-objs,flame,fd_fddev)
+$(call add-objs,load,fd_fddev)
+$(call add-objs,txn,fd_fddev)
 
 # fddev tiles
 $(call add-objs,tiles/fd_bencho,fd_fddev)

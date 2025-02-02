@@ -123,8 +123,7 @@ fdctl_obj_loose( fd_topo_t const *     topo,
 fd_topo_run_tile_t
 fdctl_tile_run( fd_topo_tile_t * tile );
 
-#define ACTIONS_CNT (11UL)
-extern action_t ACTIONS[ ACTIONS_CNT ];
+extern action_t ACTIONS[];
 
 void fdctl_boot( int *        pargc,
                  char ***     pargv,
