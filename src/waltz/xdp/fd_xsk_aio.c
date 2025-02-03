@@ -318,9 +318,7 @@ fd_xsk_aio_send( void *                    ctx,
 
   if( FD_UNLIKELY( pkt_cnt==0UL ) ) {
     if( flush ) {
-      fd_xsk_frame_meta_t meta[1] = {{0}};
-      ulong sent_cnt = fd_xsk_tx_enqueue( xsk, meta, 0, 1 );
-      (void)sent_cnt;
+      fd_xsk_tx_enqueue( xsk, NULL, 0, 1 );
     }
     return FD_AIO_SUCCESS;
   }
