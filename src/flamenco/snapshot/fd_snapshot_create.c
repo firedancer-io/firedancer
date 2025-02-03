@@ -47,7 +47,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
      
      TODO: We must add compaction here. */
 
-  fd_pubkey_t * * snapshot_slot_keys    = fd_valloc_malloc( snapshot_ctx->valloc, alignof(fd_pubkey_t*), sizeof(fd_pubkey_t*) * FD_WRITABLE_ACCS_IN_SLOT );
+  fd_pubkey_t * * snapshot_slot_keys    = fd_spad_alloc( snapshot_ctx->spad, alignof(fd_pubkey_t*), sizeof(fd_pubkey_t*) * FD_WRITABLE_ACCS_IN_SLOT );
   ulong           snapshot_slot_key_cnt = 0UL;
 
   /* We will dynamically resize the number of incremental keys because the upper
@@ -58,7 +58,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
   ulong                       incremental_key_bound = FD_INCREMENTAL_KEY_INIT_BOUND;
   ulong                       incremental_key_cnt   = 0UL;
   fd_funk_rec_key_t const * * incremental_keys      = snapshot_ctx->is_incremental ? 
-                                                      fd_valloc_malloc( snapshot_ctx->valloc, alignof(fd_funk_rec_key_t*), sizeof(fd_funk_rec_key_t*) * incremental_key_bound ) :
+                                                      fd_spad_alloc( snapshot_ctx->spad, alignof(fd_funk_rec_key_t*), sizeof(fd_funk_rec_key_t*) * incremental_key_bound ) :
                                                       NULL;
 
   #undef FD_INCREMENTAL_KEY_INIT_BOUND
@@ -106,11 +106,11 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
       if( FD_UNLIKELY( incremental_key_cnt==incremental_key_bound ) ) {
         /* Dynamically resize if needed. */
         incremental_key_bound *= 2UL;
-        fd_funk_rec_key_t const * * new_incremental_keys = fd_valloc_malloc( snapshot_ctx->valloc, 
-                                                                             alignof(fd_funk_rec_key_t*),
-                                                                             sizeof(fd_funk_rec_key_t*) * incremental_key_bound );
+        fd_funk_rec_key_t const * * new_incremental_keys = fd_spad_alloc( snapshot_ctx->spad, 
+                                                                          alignof(fd_funk_rec_key_t*),
+                                                                          sizeof(fd_funk_rec_key_t*) * incremental_key_bound );
         fd_memcpy( new_incremental_keys, incremental_keys, sizeof(fd_funk_rec_key_t*) * incremental_key_cnt );
-        fd_valloc_free( snapshot_ctx->valloc, incremental_keys );
+        fd_valloc_free( fd_spad_virtual( snapshot_ctx->spad ), incremental_keys );
         incremental_keys = new_incremental_keys;
       }
     }
@@ -140,9 +140,9 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
   fd_solana_accounts_db_fields_t * accounts_db = &manifest->accounts_db;
 
   accounts_db->storages_len                    = num_slots;
-  accounts_db->storages                        = fd_valloc_malloc( snapshot_ctx->valloc,
-                                                                   FD_SNAPSHOT_SLOT_ACC_VECS_ALIGN,
-                                                                   sizeof(fd_snapshot_slot_acc_vecs_t) * accounts_db->storages_len );
+  accounts_db->storages                        = fd_spad_alloc( snapshot_ctx->spad,
+                                                                FD_SNAPSHOT_SLOT_ACC_VECS_ALIGN,
+                                                                sizeof(fd_snapshot_slot_acc_vecs_t) * accounts_db->storages_len );
   accounts_db->version                        = 1UL;
   accounts_db->slot                           = snapshot_ctx->slot;
   accounts_db->historical_roots_len           = 0UL;
@@ -157,9 +157,9 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
        only be one account vec per storage. */
 
     accounts_db->storages[ i ].account_vecs_len          = 1UL;
-    accounts_db->storages[ i ].account_vecs              = fd_valloc_malloc( snapshot_ctx->valloc,
-                                                                             FD_SNAPSHOT_ACC_VEC_ALIGN,
-                                                                             sizeof(fd_snapshot_acc_vec_t) * accounts_db->storages[ i ].account_vecs_len );
+    accounts_db->storages[ i ].account_vecs              = fd_spad_alloc( snapshot_ctx->spad,
+                                                                          FD_SNAPSHOT_ACC_VEC_ALIGN,
+                                                                          sizeof(fd_snapshot_acc_vec_t) * accounts_db->storages[ i ].account_vecs_len );
     accounts_db->storages[ i ].account_vecs[ 0 ].file_sz = 0UL;
     accounts_db->storages[ i ].account_vecs[ 0 ].id      = i + 1UL;
     accounts_db->storages[ i ].slot                      = snapshot_ctx->slot - i;
@@ -186,13 +186,14 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
 
   int err;
   if( !snapshot_ctx->is_incremental ) {
+    
     err = fd_snapshot_service_hash( &snapshot_ctx->acc_hash, 
                                     &snapshot_ctx->snap_hash,
                                     &snapshot_ctx->slot_bank, 
                                     &snapshot_ctx->epoch_bank,
                                     snapshot_ctx->acc_mgr->funk,
                                     snapshot_ctx->tpool,
-                                    snapshot_ctx->valloc );
+                                    snapshot_ctx->spad );
     accounts_db->bank_hash_info.accounts_hash = snapshot_ctx->acc_hash;
   } else {
     err = fd_snapshot_service_inc_hash( &snapshot_ctx->acc_hash, 
@@ -202,8 +203,8 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
                                         snapshot_ctx->acc_mgr->funk,
                                         incremental_keys,
                                         incremental_key_cnt,
-                                        snapshot_ctx->valloc );
-    fd_valloc_free( snapshot_ctx->valloc, incremental_keys );
+                                        snapshot_ctx->spad );
+    fd_valloc_free( fd_spad_virtual( snapshot_ctx->spad ), incremental_keys );
 
     fd_memset( &accounts_db->bank_hash_info.accounts_hash, 0, sizeof(fd_hash_t) );
   }
@@ -223,9 +224,9 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
      the manifest, we must reserve space in the archive for the solana manifest. */
 
   if( snapshot_ctx->is_incremental ) {
-    manifest->bank_incremental_snapshot_persistence = fd_valloc_malloc( snapshot_ctx->valloc,
-                                                                        FD_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_ALIGN, 
-                                                                        sizeof(fd_bank_incremental_snapshot_persistence_t) );
+    manifest->bank_incremental_snapshot_persistence = fd_spad_alloc( snapshot_ctx->spad,
+                                                                     FD_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_ALIGN, 
+                                                                     sizeof(fd_bank_incremental_snapshot_persistence_t) );
   }
 
   ulong manifest_sz = fd_solana_manifest_serializable_size( manifest ); 
@@ -276,7 +277,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
   }
 
   fd_funk_rec_t * * tombstones = snapshot_ctx->is_incremental ? NULL : 
-                                 fd_valloc_malloc( snapshot_ctx->valloc, alignof(fd_funk_rec_t*), sizeof(fd_funk_rec_t*) * tombstones_cnt );
+                                 fd_spad_alloc( snapshot_ctx->spad, alignof(fd_funk_rec_t*), sizeof(fd_funk_rec_t*) * tombstones_cnt );
   tombstones_cnt = 0UL;
 
   for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, NULL ); NULL != rec; rec = fd_funk_txn_next_rec( funk, rec ) ) {
@@ -487,8 +488,8 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
     fd_funk_end_write( funk );
   }
 
-  fd_valloc_free( snapshot_ctx->valloc, snapshot_slot_keys );
-  fd_valloc_free( snapshot_ctx->valloc, tombstones );
+  fd_valloc_free( fd_spad_virtual( snapshot_ctx->spad ), snapshot_slot_keys );
+  fd_valloc_free( fd_spad_virtual( snapshot_ctx->spad ), tombstones );
 
 }
 
@@ -519,7 +520,8 @@ fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t        * snapshot_ctx,
      the vote accounts. */
 
   ulong vote_accounts_len                      = fd_vote_accounts_pair_t_map_size( old_stakes->vote_accounts.vote_accounts_pool, old_stakes->vote_accounts.vote_accounts_root );
-  new_stakes->vote_accounts.vote_accounts_pool = fd_vote_accounts_pair_serializable_t_map_alloc( snapshot_ctx->valloc, fd_ulong_max(vote_accounts_len, 15000 ) );
+  new_stakes->vote_accounts.vote_accounts_pool = fd_vote_accounts_pair_serializable_t_map_alloc( fd_spad_virtual( snapshot_ctx->spad ), 
+                                                                                                 fd_ulong_max(vote_accounts_len, 15000 ) );
   new_stakes->vote_accounts.vote_accounts_root = NULL;
 
   for( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(
@@ -540,7 +542,7 @@ fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t        * snapshot_ctx,
 
     new_node->elem.value.lamports   = vote_acc->const_meta->info.lamports;
     new_node->elem.value.data_len   = vote_acc->const_meta->dlen;
-    new_node->elem.value.data       = fd_valloc_malloc( snapshot_ctx->valloc, 8UL, vote_acc->const_meta->dlen );
+    new_node->elem.value.data       = fd_spad_alloc( snapshot_ctx->spad, 8UL, vote_acc->const_meta->dlen );
     fd_memcpy( new_node->elem.value.data, vote_acc->const_data, vote_acc->const_meta->dlen );
     fd_memcpy( &new_node->elem.value.owner, &vote_acc->const_meta->info.owner, sizeof(fd_pubkey_t) );
     new_node->elem.value.executable = vote_acc->const_meta->info.executable;
@@ -572,7 +574,7 @@ fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t        * snapshot_ctx,
       fd_bincode_decode_ctx_t ctx = {
         .data    = stake_acc->const_data,
         .dataend = stake_acc->const_data + stake_acc->const_meta->dlen,
-        .valloc  = snapshot_ctx->valloc
+        .valloc  = fd_spad_virtual( snapshot_ctx->spad )
       };
       fd_stake_state_v2_t stake_state = {0};
       err = fd_stake_state_v2_decode( &stake_state, &ctx );
@@ -605,11 +607,11 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *                snapshot_ct
      in the agave client that is emulated by the firedancer client. */
 
   bank->blockhash_queue.last_hash_index = slot_bank->block_hash_queue.last_hash_index;
-  bank->blockhash_queue.last_hash       = fd_valloc_malloc( snapshot_ctx->valloc, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
+  bank->blockhash_queue.last_hash       = fd_spad_alloc( snapshot_ctx->spad, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
   fd_memcpy( bank->blockhash_queue.last_hash, slot_bank->block_hash_queue.last_hash, sizeof(fd_hash_t) );
 
   bank->blockhash_queue.ages_len = fd_hash_hash_age_pair_t_map_size( slot_bank->block_hash_queue.ages_pool, slot_bank->block_hash_queue.ages_root);
-  bank->blockhash_queue.ages     = fd_valloc_malloc( snapshot_ctx->valloc, FD_HASH_HASH_AGE_PAIR_ALIGN, bank->blockhash_queue.ages_len * sizeof(fd_hash_hash_age_pair_t) );
+  bank->blockhash_queue.ages     = fd_spad_alloc( snapshot_ctx->spad, FD_HASH_HASH_AGE_PAIR_ALIGN, bank->blockhash_queue.ages_len * sizeof(fd_hash_hash_age_pair_t) );
   bank->blockhash_queue.max_age  = FD_BLOCKHASH_QUEUE_SIZE;
 
   fd_block_hash_queue_t             * queue               = &slot_bank->block_hash_queue;
@@ -639,7 +641,7 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *                snapshot_ct
 
   /* The hashes_per_tick needs to be copied over from the epoch bank because
      the pointer could go out of bounds during an epoch boundary. */
-  bank->hashes_per_tick                       = fd_valloc_malloc( snapshot_ctx->valloc, alignof(ulong), sizeof(ulong) );
+  bank->hashes_per_tick                       = fd_spad_alloc( snapshot_ctx->spad, alignof(ulong), sizeof(ulong) );
   fd_memcpy( bank->hashes_per_tick, &epoch_bank->hashes_per_tick, sizeof(ulong) );
 
   bank->ticks_per_slot                        = FD_TICKS_PER_SLOT;
@@ -686,7 +688,7 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *                snapshot_ct
      replaced with the versioned epoch stakes field in the manifest. The
      firedancer client will populate the deprecated field. */
 
-  fd_epoch_epoch_stakes_pair_t * relevant_epoch_stakes = fd_valloc_malloc( snapshot_ctx->valloc, FD_EPOCH_EPOCH_STAKES_PAIR_ALIGN, 2UL * sizeof(fd_epoch_epoch_stakes_pair_t) );
+  fd_epoch_epoch_stakes_pair_t * relevant_epoch_stakes = fd_spad_alloc( snapshot_ctx->spad, FD_EPOCH_EPOCH_STAKES_PAIR_ALIGN, 2UL * sizeof(fd_epoch_epoch_stakes_pair_t) );
   fd_memset( &relevant_epoch_stakes[0], 0UL, sizeof(fd_epoch_epoch_stakes_pair_t) );
   fd_memset( &relevant_epoch_stakes[1], 0UL, sizeof(fd_epoch_epoch_stakes_pair_t) );
   relevant_epoch_stakes[0].key                        = bank->epoch;
@@ -714,7 +716,7 @@ fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
 
   /* Initialize the account manager. */
 
-  uchar * mem = fd_valloc_malloc( snapshot_ctx->valloc, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT );
+  uchar * mem = fd_spad_alloc( snapshot_ctx->spad, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT );
   snapshot_ctx->acc_mgr = fd_acc_mgr_new( mem, funk );
   if( FD_UNLIKELY( !snapshot_ctx->acc_mgr ) ) {
     FD_LOG_ERR(( "Failed to initialize account manager" ));
@@ -738,7 +740,7 @@ fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
   fd_bincode_decode_ctx_t epoch_decode_ctx = {
     .data    = (uchar*)epoch_val + sizeof(uint),
     .dataend = (uchar*)epoch_val + fd_funk_val_sz( epoch_rec ),
-    .valloc  = snapshot_ctx->valloc
+    .valloc  = fd_spad_virtual( snapshot_ctx->spad )
   };
 
   if( FD_UNLIKELY( epoch_magic!=FD_RUNTIME_ENC_BINCODE ) ) {
@@ -768,7 +770,7 @@ fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
   fd_bincode_decode_ctx_t slot_decode_ctx = {
     .data    = (uchar*)slot_val + sizeof(uint),
     .dataend = (uchar*)slot_val + fd_funk_val_sz( slot_rec ),
-    .valloc  = snapshot_ctx->valloc
+    .valloc  = fd_spad_virtual( snapshot_ctx->spad )
   };
 
   if( FD_UNLIKELY( slot_magic!=FD_RUNTIME_ENC_BINCODE ) ) {
@@ -818,7 +820,7 @@ fd_snapshot_create_setup_writer( fd_snapshot_ctx_t * snapshot_ctx ) {
   
   /* Setup a tar writer. */
 
-  uchar * writer_mem   = fd_valloc_malloc( snapshot_ctx->valloc, fd_tar_writer_align(), fd_tar_writer_footprint() );
+  uchar * writer_mem   = fd_spad_alloc( snapshot_ctx->spad, fd_tar_writer_align(), fd_tar_writer_footprint() );
   snapshot_ctx->writer = fd_tar_writer_new( writer_mem, snapshot_ctx->tmp_fd );
   if( FD_UNLIKELY( !snapshot_ctx->writer ) ) {
     FD_LOG_ERR(( "Unable to create a tar writer" ));
@@ -848,22 +850,21 @@ fd_snapshot_create_write_version( fd_snapshot_ctx_t * snapshot_ctx ) {
 }
 
 static inline void
-fd_snapshot_create_write_status_cache( fd_snapshot_ctx_t *  snapshot_ctx ) {
-
-  FD_SCRATCH_SCOPE_BEGIN {
+fd_snapshot_create_write_status_cache( fd_snapshot_ctx_t * snapshot_ctx ) {
 
   /* First convert the existing status cache into a snapshot-friendly format. */
 
   fd_bank_slot_deltas_t slot_deltas_new = {0};
   int err = fd_txncache_get_entries( snapshot_ctx->status_cache,
-                           &slot_deltas_new );
+                                     &slot_deltas_new,
+                                     snapshot_ctx->spad );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "Failed to get entries from the status cache" ));
   }
   ulong   bank_slot_deltas_sz = fd_bank_slot_deltas_size( &slot_deltas_new );
-  uchar * out_status_cache    = fd_valloc_malloc( snapshot_ctx->valloc,
-                                                  FD_BANK_SLOT_DELTAS_ALIGN, 
-                                                  bank_slot_deltas_sz );
+  uchar * out_status_cache    = fd_spad_alloc( snapshot_ctx->spad,
+                                               FD_BANK_SLOT_DELTAS_ALIGN, 
+                                               bank_slot_deltas_sz );
   fd_bincode_encode_ctx_t encode_status_cache = {
     .data    = out_status_cache,
     .dataend = out_status_cache + bank_slot_deltas_sz,
@@ -890,10 +891,6 @@ fd_snapshot_create_write_status_cache( fd_snapshot_ctx_t *  snapshot_ctx ) {
   /* Registers all roots and unconstipates the status cache. */
 
   fd_txncache_flush_constipated_slots( snapshot_ctx->status_cache );
-
-  fd_valloc_free( snapshot_ctx->valloc, out_status_cache );
-
-  } FD_SCRATCH_SCOPE_END;
 
 }
 
@@ -947,7 +944,7 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t * snapshot_ctx
      manifest and write it in. */
 
   ulong   manifest_sz  = fd_solana_manifest_serializable_size( &manifest ); 
-  uchar * out_manifest = fd_valloc_malloc( snapshot_ctx->valloc, FD_SOLANA_MANIFEST_SERIALIZABLE_ALIGN, manifest_sz );
+  uchar * out_manifest = fd_spad_alloc( snapshot_ctx->spad, FD_SOLANA_MANIFEST_SERIALIZABLE_ALIGN, manifest_sz );
 
   fd_bincode_encode_ctx_t encode = { 
     .data    = out_manifest,
@@ -967,25 +964,7 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t * snapshot_ctx
   void * mem = fd_tar_writer_delete( snapshot_ctx->writer );
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_ERR(( "Unable to delete the tar writer" ));
-  }
-
-  fd_bincode_destroy_ctx_t destroy = {
-    .valloc  = snapshot_ctx->valloc
-  };
-
-  /* This is kind of a hack but we need to do this so we don't accidentally 
-     corrupt memory when we try to double destory. Everything below is
-     things that aren't stack allocated from the manifest including the banks. */
-
-  fd_stakes_serializable_destroy( &manifest.bank.stakes, &destroy );
-  fd_block_hash_vec_destroy( &manifest.bank.blockhash_queue, &destroy );
-  fd_valloc_free( snapshot_ctx->valloc, manifest.bank.epoch_stakes );
-  fd_epoch_bank_destroy( &snapshot_ctx->epoch_bank, &destroy );
-  fd_slot_bank_destroy( &snapshot_ctx->slot_bank, &destroy );
-  if( snapshot_ctx->is_incremental ) {
-    fd_valloc_free( snapshot_ctx->valloc, manifest.bank_incremental_snapshot_persistence );
-  }
-  fd_valloc_free( snapshot_ctx->valloc, out_manifest );  
+  } 
 
 }
 
@@ -1009,9 +988,9 @@ fd_snapshot_create_compress( fd_snapshot_ctx_t * snapshot_ctx ) {
   ulong zstd_buf_sz = ZSTD_CStreamOutSize();
   ulong out_buf_sz  = ZSTD_CStreamOutSize();
 
-  char * in_buf   = fd_valloc_malloc( snapshot_ctx->valloc, FD_ZSTD_CSTREAM_ALIGN, in_buf_sz );
-  char * zstd_buf = fd_valloc_malloc( snapshot_ctx->valloc, FD_ZSTD_CSTREAM_ALIGN, out_buf_sz );
-  char * out_buf  = fd_valloc_malloc( snapshot_ctx->valloc, FD_ZSTD_CSTREAM_ALIGN, out_buf_sz );
+  char * in_buf   = fd_spad_alloc( snapshot_ctx->spad, FD_ZSTD_CSTREAM_ALIGN, in_buf_sz );
+  char * zstd_buf = fd_spad_alloc( snapshot_ctx->spad, FD_ZSTD_CSTREAM_ALIGN, out_buf_sz );
+  char * out_buf  = fd_spad_alloc( snapshot_ctx->spad, FD_ZSTD_CSTREAM_ALIGN, out_buf_sz );
 
   /* Reopen the tarball and open/overwrite the filename for the compressed,
      finalized full snapshot. Setup the zstd compression stream. */
@@ -1089,10 +1068,6 @@ fd_snapshot_create_compress( fd_snapshot_ctx_t * snapshot_ctx ) {
     fd_io_buffered_ostream_write( ostream, zstd_buf, output.pos );
   }
 
-  fd_valloc_free( snapshot_ctx->valloc, in_buf );
-  fd_valloc_free( snapshot_ctx->valloc, zstd_buf );
-  fd_valloc_free( snapshot_ctx->valloc, out_buf );
-
   ZSTD_freeCStream( cstream ); /* Works even if cstream is null */
   err = fd_io_buffered_ostream_flush( ostream );
   if( FD_UNLIKELY( err ) ) {
@@ -1133,8 +1108,6 @@ fd_snapshot_create_new_snapshot( fd_snapshot_ctx_t * snapshot_ctx,
                                  fd_hash_t *         out_hash, 
                                  ulong *             out_capitalization ) {
 
-  FD_SCRATCH_SCOPE_BEGIN {
-
   FD_LOG_NOTICE(( "Starting to produce a snapshot for slot=%lu in directory=%s", snapshot_ctx->slot, snapshot_ctx->out_dir ));
 
   /* Validate that the snapshot_ctx is setup correctly. */
@@ -1161,7 +1134,6 @@ fd_snapshot_create_new_snapshot( fd_snapshot_ctx_t * snapshot_ctx,
 
   fd_snapshot_create_compress( snapshot_ctx );
 
-  FD_LOG_NOTICE(("Finished producing a snapshot" ));
+  FD_LOG_NOTICE(( "Finished producing a snapshot" ));
 
-  } FD_SCRATCH_SCOPE_END;
 }

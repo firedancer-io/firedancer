@@ -88,31 +88,38 @@ fd_runtime_save_epoch_bank_archival( fd_exec_slot_ctx_t * slot_ctx ) {
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-int fd_runtime_save_slot_bank(fd_exec_slot_ctx_t *slot_ctx)
-{
-  ulong sz = sizeof(uint) + fd_slot_bank_size(&slot_ctx->slot_bank);
+int fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx ) {
+  ulong sz = sizeof(uint) + fd_slot_bank_size( &slot_ctx->slot_bank );
 
-  fd_funk_rec_key_t id = fd_runtime_slot_bank_key();
-  int opt_err = 0;
-  fd_funk_rec_t *rec = fd_funk_rec_write_prepare(slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, &id, sz, 1, NULL, &opt_err);
-  if (NULL == rec)
-  {
-    FD_LOG_WARNING(("fd_runtime_save_banks failed: %s", fd_funk_strerror(opt_err)));
+  fd_funk_rec_key_t id      = fd_runtime_slot_bank_key();
+  int               opt_err = 0;
+  fd_funk_rec_t *   rec     = fd_funk_rec_write_prepare( slot_ctx->acc_mgr->funk,
+                                                         slot_ctx->funk_txn,
+                                                         &id,
+                                                         sz,
+                                                         1,
+                                                         NULL,
+                                                         &opt_err );
+  if( !rec ) {
+    FD_LOG_WARNING(( "fd_runtime_save_banks failed: %s", fd_funk_strerror( opt_err ) ));
     return opt_err;
   }
 
-  uchar *buf = fd_funk_val(rec, fd_funk_wksp(slot_ctx->acc_mgr->funk));
+  uchar * buf = fd_funk_val( rec, fd_funk_wksp( slot_ctx->acc_mgr->funk ) );
   *(uint*)buf = FD_RUNTIME_ENC_BINCODE;
   fd_bincode_encode_ctx_t ctx = {
-      .data = buf + sizeof(uint),
+      .data    = buf + sizeof(uint),
       .dataend = buf + sz,
   };
-  if (FD_UNLIKELY(fd_slot_bank_encode(&slot_ctx->slot_bank, &ctx) != FD_BINCODE_SUCCESS))
-  {
-    FD_LOG_WARNING(("fd_runtime_save_banks: fd_firedancer_banks_encode failed"));
+
+  if( FD_UNLIKELY( fd_slot_bank_encode( &slot_ctx->slot_bank, &ctx ) != FD_BINCODE_SUCCESS ) ) {
+    FD_LOG_WARNING(( "fd_runtime_save_banks: fd_firedancer_banks_encode failed" ));
     return -1;
   }
-  FD_TEST(ctx.data == ctx.dataend);
+
+  if( FD_UNLIKELY( ctx.data!=ctx.dataend ) ) {
+    FD_LOG_ERR(( "Data does not equal to end of buffer" ));
+  }
 
   FD_LOG_DEBUG(( "slot frozen, slot=%lu bank_hash=%s poh_hash=%s",
                  slot_ctx->slot_bank.slot,
@@ -156,7 +163,8 @@ void
 fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, 
                           int                  delete_first, 
                           int                  clear_first,
-                          fd_valloc_t          valloc ) {
+                          fd_spad_t *          runtime_spad ) {
+
   fd_funk_t *           funk         = slot_ctx->acc_mgr->funk;
   fd_funk_txn_t *       txn          = slot_ctx->funk_txn;
   fd_exec_epoch_ctx_t * epoch_ctx    = slot_ctx->epoch_ctx;
@@ -175,13 +183,13 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
     if( clear_first ) {
       fd_exec_epoch_ctx_bank_mem_clear( epoch_ctx );
     }
-    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_bank_mem_setup( epoch_ctx );
+    fd_epoch_bank_t *       epoch_bank = fd_exec_epoch_ctx_bank_mem_setup( epoch_ctx );
     fd_bincode_decode_ctx_t ctx;
-    ctx.data = (uchar*)val + sizeof(uint);
+    ctx.data    = (uchar*)val + sizeof(uint);
     ctx.dataend = (uchar*)val + fd_funk_val_sz( rec );
     /* We use this special allocator to indicate that the data
        structure has already been constructed in its final memory layout */
-    ctx.valloc  = fd_null_alloc_virtual();
+    ctx.valloc  = fd_spad_virtual( runtime_spad );
     if( magic == FD_RUNTIME_ENC_BINCODE ) {
       FD_TEST( fd_epoch_bank_decode( epoch_bank, &ctx )==FD_BINCODE_SUCCESS );
     } else if( magic == FD_RUNTIME_ENC_ARCHIVE ) {
@@ -195,24 +203,24 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
 
   {
     if( delete_first ) {
-      fd_bincode_destroy_ctx_t ctx = { .valloc = valloc };
-      fd_slot_bank_destroy(&slot_ctx->slot_bank, &ctx);
+      fd_bincode_destroy_ctx_t ctx = { .valloc = fd_spad_virtual( runtime_spad ) };
+      fd_slot_bank_destroy( &slot_ctx->slot_bank, &ctx );
     }
-    fd_funk_rec_key_t id = fd_runtime_slot_bank_key();
-    fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id, NULL);
+    fd_funk_rec_key_t     id  = fd_runtime_slot_bank_key();
+    fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, txn, &id, NULL );
     if ( rec == NULL )
       FD_LOG_ERR(("failed to read banks record: missing record"));
-    void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
+    void * val = fd_funk_val( rec, fd_funk_wksp( funk ) );
 
     if( fd_funk_val_sz( rec ) < sizeof(uint) ) {
-      FD_LOG_ERR(("failed to read banks record: empty record"));
+      FD_LOG_ERR(( "failed to read banks record: empty record" ));
     }
     uint magic = *(uint*)val;
 
     fd_bincode_decode_ctx_t ctx = { 
       .data    = (uchar*)val + sizeof(uint),
       .dataend = (uchar*)val + fd_funk_val_sz( rec ),
-      .valloc  = valloc
+      .valloc  = fd_spad_virtual( runtime_spad )
     };
     if( magic == FD_RUNTIME_ENC_BINCODE ) {
       FD_TEST( fd_slot_bank_decode(&slot_ctx->slot_bank, &ctx )==FD_BINCODE_SUCCESS );
@@ -241,12 +249,14 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 void
-fd_runtime_delete_banks( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc ) {
+fd_runtime_delete_banks( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
 
   /* As the collection pointers are not owned by fd_alloc, zero them
-     out to prevent invalid frees by the destroy function. */
+     out to prevent invalid frees by the destroy function.
+     
+     TODO: This free actually doesn't do anything because of spad. */
 
-  fd_bincode_destroy_ctx_t ctx = { .valloc = valloc };
+  fd_bincode_destroy_ctx_t ctx = { .valloc = fd_spad_virtual( runtime_spad ) };
   fd_exec_epoch_ctx_epoch_bank_delete( slot_ctx->epoch_ctx );
   fd_slot_bank_destroy( &slot_ctx->slot_bank, &ctx );
 }
@@ -257,51 +267,52 @@ fd_runtime_delete_banks( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc ) {
    address. */
 
 static void
-fd_feature_restore( fd_exec_slot_ctx_t * slot_ctx,
+fd_feature_restore( fd_exec_slot_ctx_t *    slot_ctx,
                     fd_feature_id_t const * id,
-                    uchar const       acct[ static 32 ] ) {
+                    uchar const             acct[ static 32 ],
+                    fd_spad_t *             runtime_spad ) {
 
-  FD_BORROWED_ACCOUNT_DECL(acct_rec);
-  int err = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t *)acct, acct_rec);
-  if (FD_UNLIKELY(err != FD_ACC_MGR_SUCCESS))
+  FD_BORROWED_ACCOUNT_DECL( acct_rec );
+  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t *)acct, acct_rec );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return;
+  }
 
   // Skip reverted features
-  if ( id->reverted )
+  if( id->reverted ) {
     return;
+  }
 
   fd_feature_t feature[1];
 
-  FD_SCRATCH_SCOPE_BEGIN
-  {
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
     fd_bincode_decode_ctx_t ctx = {
         .data = acct_rec->const_data,
         .dataend = acct_rec->const_data + acct_rec->const_meta->dlen,
-        .valloc = fd_scratch_virtual(),
+        .valloc = fd_spad_virtual( runtime_spad ),
     };
     int decode_err = fd_feature_decode(feature, &ctx);
-    if (FD_UNLIKELY(decode_err != FD_BINCODE_SUCCESS))
-    {
+    if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) {
       FD_LOG_ERR(("Failed to decode feature account %s (%d)", FD_BASE58_ENC_32_ALLOCA( acct ), decode_err));
       return;
     }
 
     if( feature->has_activated_at ) {
       FD_LOG_INFO(( "Feature %s activated at %lu", FD_BASE58_ENC_32_ALLOCA( acct ), feature->activated_at ));
-      fd_features_set(&slot_ctx->epoch_ctx->features, id, feature->activated_at);
+      fd_features_set( &slot_ctx->epoch_ctx->features, id, feature->activated_at );
     } else {
       FD_LOG_DEBUG(( "Feature %s not activated at %lu", FD_BASE58_ENC_32_ALLOCA( acct ), feature->activated_at ));
     }
-    /* No need to call destroy, since we are using fd_scratch allocator. */
-  } FD_SCRATCH_SCOPE_END;
+    /* No need to call destroy, since we are using fd_spad allocator. */
+  } FD_SPAD_FRAME_END;
 }
 
 void
-fd_features_restore( fd_exec_slot_ctx_t * slot_ctx ) {
+fd_features_restore( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   for( fd_feature_id_t const * id = fd_feature_iter_init();
                                    !fd_feature_iter_done( id );
                                id = fd_feature_iter_next( id ) ) {
-    fd_feature_restore( slot_ctx, id, id->id.key );
+    fd_feature_restore( slot_ctx, id, id->id.key, runtime_spad );
   }
 }

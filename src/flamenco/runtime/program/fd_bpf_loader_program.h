@@ -59,7 +59,7 @@ int
 fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
                    uchar const *         programdata,
                    ulong                 programdata_size,
-                   fd_valloc_t           valloc );
+                   fd_spad_t *           spad );
 
 int
 fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uchar is_deprecated );
@@ -87,8 +87,9 @@ read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t * txn_ctx,
    https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L155-L233 */
 int
 fd_directly_invoke_loader_v3_deploy( fd_exec_slot_ctx_t * slot_ctx,
-                                     uchar const *          elf,
-                                     ulong                elf_sz );
+                                     uchar const *        elf,
+                                     ulong                elf_sz,
+                                     fd_spad_t *          runtime_spad );
 
 FD_PROTOTYPES_END
 

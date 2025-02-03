@@ -20,9 +20,6 @@ struct __attribute__((aligned(FD_CAPTURE_CTX_ALIGN))) fd_capture_ctx {
   char const *             checkpt_path;    /* Wksp checkpoint format */
   char const *             checkpt_archive; /* Funk archive format */
 
-  /* Prune */
-  fd_funk_t *              pruned_funk; /* Capturing accessed accounts during execution*/
-
   /*======== PROTOBUF ========*/
   char const *             dump_proto_output_dir;
   char const *             dump_proto_sig_filter;

@@ -24,7 +24,7 @@ run_test( fd_exec_instr_test_runner_t * runner,
     return 0;
   }
   ulong file_sz = (ulong)st.st_size;
-  uchar * buf = fd_scratch_alloc( 1, file_sz );
+  uchar * buf = fd_spad_alloc( runner->spad, 1, file_sz );
   FD_TEST( 0==fd_io_read( file, buf, file_sz, file_sz, &file_sz ) );
   FD_TEST( 0==close( file ) );
 
@@ -65,24 +65,38 @@ main( int     argc,
     wksp_page_sz = FD_SHMEM_NORMAL_PAGE_SZ;
   }
   sol_compat_wksp_init( wksp_page_sz );
-  ulong fmem[ 64 ];
 
   ulong fail_cnt = 0UL;
   for( int j=1; j<argc; j++ ) {
+
     // Init runner
-    fd_exec_instr_test_runner_t * runner = sol_compat_setup_scratch_and_runner( fmem );
+    fd_exec_instr_test_runner_t * runner = sol_compat_setup_runner();
+
+    ulong frames_used_pre_test = runner->spad->frame_free;
+    ulong mem_used_pre_test    = runner->spad->mem_used;
+
+    FD_SPAD_FRAME_BEGIN( runner->spad ) {
 
     fail_cnt += !run_test( runner, argv[j] );
+
+    } FD_SPAD_FRAME_END;
+
+    ulong frames_used_post_test = runner->spad->frame_free;
+    ulong mem_used_post_test    = runner->spad->mem_used;
+
+    FD_TEST( frames_used_pre_test == frames_used_post_test );
+    FD_TEST( mem_used_pre_test    == mem_used_post_test    );
  
     // Free runner
-    sol_compat_cleanup_scratch_and_runner( runner );
+    sol_compat_cleanup_runner( runner );
+
 
     // Check usage
     sol_compat_check_wksp_usage();
+
   }
 
-  /* TODO verify that there are no leaked libc allocs and vallocs */
-  FD_TEST( fd_scratch_frame_used()==0UL );
+  /* TODO: verify that there are no leaked libc allocs and vallocs */
   sol_compat_fini();
   fd_halt();
   return fail_cnt>0UL;

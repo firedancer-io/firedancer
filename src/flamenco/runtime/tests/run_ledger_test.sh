@@ -21,6 +21,7 @@ INDEX_MAX="--index-max 5000000"
 TRASH_HASH=""
 LOG="/tmp/ledger_log$$"
 TILE_CPUS="--tile-cpus 5-21"
+THREAD_MEM_BOUND="--thread-mem-bound 0"
 CLUSTER_VERSION=""
 DUMP_DIR=${DUMP_DIR:="./dump"}
 ONE_OFFS=""
@@ -158,6 +159,7 @@ set -x
     $FUNK_PAGES \
     $SNAPSHOT \
     $ONE_OFFS \
+    $THREAD_MEM_BOUND \
     --allocator wksp \
     $TILE_CPUS >& $LOG
 

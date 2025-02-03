@@ -23,7 +23,7 @@ fd_sysvar_stake_history_init( fd_exec_slot_ctx_t * slot_ctx );
 void
 fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *       slot_ctx,
                                 fd_stake_history_entry_t * entry,
-                                fd_valloc_t                valloc );
+                                fd_spad_t *                runtime_spad );
 
 FD_PROTOTYPES_END
 

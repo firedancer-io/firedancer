@@ -98,17 +98,18 @@ fd_restart_join( void * restart );
    and out_buf_len with a gossip message -- the first gossip message sent
    in the wen-restart protocol (fd_gossip_restart_last_voted_fork_slots_t). */
 void
-fd_restart_init( fd_restart_t * restart,
-                 ulong funk_root,
-                 fd_hash_t * root_bank_hash,
+fd_restart_init( fd_restart_t *             restart,
+                 ulong                      funk_root,
+                 fd_hash_t *                root_bank_hash,
                  fd_vote_accounts_t const * epoch_stakes[],
-                 fd_epoch_schedule_t * epoch_schedule,
-                 int tower_checkpt_fileno,
-                 fd_slot_history_t const * slot_history,
-                 fd_pubkey_t * my_pubkey,
-                 fd_pubkey_t * coordinator_pubkey,
-                 uchar * out_buf,
-                 ulong * out_buf_len );
+                 fd_epoch_schedule_t *      epoch_schedule,
+                 int                        tower_checkpt_fileno,
+                 fd_slot_history_t const *  slot_history,
+                 fd_pubkey_t *              my_pubkey,
+                 fd_pubkey_t *              coordinator_pubkey,
+                 uchar *                    out_buf,
+                 ulong *                    out_buf_len,
+                 fd_spad_t *                runtime_spad );
 
 /* fd_restart_recv_gossip_msg is invoked for each gossip message received.
 

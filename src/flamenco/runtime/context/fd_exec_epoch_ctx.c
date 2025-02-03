@@ -49,7 +49,7 @@ fd_exec_epoch_ctx_new( void * mem,
   }
 
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)mem, FD_EXEC_EPOCH_CTX_ALIGN ) ) ) {
-    FD_LOG_WARNING(( "misaligned mem" ));
+    FD_LOG_WARNING(( "misaligned mem %lu", (ulong)mem ));
     return NULL;
   }
 
@@ -225,26 +225,29 @@ fd_exec_epoch_ctx_bank_mem_setup( fd_exec_epoch_ctx_t * self ) {
 }
 
 void
-fd_exec_epoch_ctx_from_prev( fd_exec_epoch_ctx_t * self, fd_exec_epoch_ctx_t * prev ) {
+fd_exec_epoch_ctx_from_prev( fd_exec_epoch_ctx_t * self, 
+                             fd_exec_epoch_ctx_t * prev,
+                             fd_spad_t *           runtime_spad ) {
   fd_memcpy( &self->features, &prev->features, sizeof(fd_features_t) );
-  self->bank_hash_cmp = prev->bank_hash_cmp;
+  self->bank_hash_cmp     = prev->bank_hash_cmp;
   self->total_epoch_stake = 0UL;
 
   fd_epoch_bank_t * old_epoch_bank = fd_exec_epoch_ctx_epoch_bank( prev );
   fd_epoch_bank_t * new_epoch_bank = fd_exec_epoch_ctx_bank_mem_setup( self );
 
-  FD_SCRATCH_SCOPE_BEGIN {
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
-    ulong sz = fd_epoch_bank_size( old_epoch_bank );
-    uchar * buf = fd_scratch_alloc( fd_epoch_bank_align(), sz );
+  ulong   sz  = fd_epoch_bank_size( old_epoch_bank );
+  uchar * buf = fd_spad_alloc( runtime_spad, fd_epoch_bank_align(), sz );
 
-    fd_bincode_encode_ctx_t encode = {.data = buf, .dataend = buf + sz };
-    fd_epoch_bank_encode( old_epoch_bank, &encode );
+  fd_bincode_encode_ctx_t encode = {.data = buf, .dataend = buf + sz };
+  fd_epoch_bank_encode( old_epoch_bank, &encode );
 
-    fd_bincode_decode_ctx_t decode = {.data = buf, .dataend = buf + sz, .valloc = fd_null_alloc_virtual() };
-    fd_epoch_bank_decode( new_epoch_bank, &decode);
+  fd_bincode_decode_ctx_t decode = {.data = buf, .dataend = buf + sz, .valloc = fd_spad_virtual( runtime_spad ) };
+  fd_epoch_bank_decode( new_epoch_bank, &decode );
 
-    sz = fd_ulong_align_up( fd_epoch_leaders_footprint( MAX_PUB_CNT, MAX_SLOTS_CNT ), fd_epoch_leaders_align() );
-    fd_memcpy( fd_exec_epoch_ctx_leaders( self ), fd_exec_epoch_ctx_leaders( prev ), sz );
-  } FD_SCRATCH_SCOPE_END;
+  sz = fd_ulong_align_up( fd_epoch_leaders_footprint( MAX_PUB_CNT, MAX_SLOTS_CNT ), fd_epoch_leaders_align() );
+  fd_memcpy( fd_exec_epoch_ctx_leaders( self ), fd_exec_epoch_ctx_leaders( prev ), sz );
+
+  } FD_SPAD_FRAME_END;
 }

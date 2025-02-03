@@ -170,7 +170,7 @@ fd_shredcap_ingest_rocksdb_to_capture( const char * rocksdb_dir,
       ulong cur_slot = metadata.slot;
       /* Import shreds for entire slot */
 
-      int err = fd_rocksdb_import_block_shredcap( &rocks_db, &metadata, ostream, bank_hash_ostream );
+      int err = fd_rocksdb_import_block_shredcap( &rocks_db, &metadata, ostream, bank_hash_ostream, valloc );
       if( FD_UNLIKELY( err ) ) {
         FD_LOG_ERR(( "fd_rocksdb_get_block failed at slot=%lu", cur_slot ));
       }

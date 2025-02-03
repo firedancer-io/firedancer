@@ -42,7 +42,7 @@ int fd_system_program_exec_upgrade_nonce_account   ( fd_exec_instr_ctx_t * ctx  
 
 /* fd_load_nonce_account loads the state of a nonce account associated
    with a transaction (txn_ctx).  Attempts to create a new
-   fd_nonce_state_versions_t object at *state, using valloc as the heap
+   fd_nonce_state_versions_t object at *state, using spad as the bump
    allocator.  Returns 1 on success and transfers ownership of the new
    state object to the caller.  On failure, returns zero and does not
    create a new state object.  *perr is set to an executor error code. */
@@ -50,7 +50,7 @@ int fd_system_program_exec_upgrade_nonce_account   ( fd_exec_instr_ctx_t * ctx  
 int
 fd_load_nonce_account( fd_exec_txn_ctx_t const *   txn_ctx,
                        fd_nonce_state_versions_t * state,
-                       fd_valloc_t                 valloc,
+                       fd_spad_t *                 spad,
                        int *                       perr );
                        
 /* fd_check_transaction_age returns 0 if the transactions age is

@@ -1089,12 +1089,13 @@ fd_txncache_is_rooted_slot( fd_txncache_t * tc,
 
 int
 fd_txncache_get_entries( fd_txncache_t *         tc,
-                         fd_bank_slot_deltas_t * slot_deltas ) {
+                         fd_bank_slot_deltas_t * slot_deltas,
+                         fd_spad_t *             spad ) {
 
   fd_rwlock_read( tc->lock );
   
   slot_deltas->slot_deltas_len = tc->root_slots_cnt;
-  slot_deltas->slot_deltas     = fd_scratch_alloc( FD_SLOT_DELTA_ALIGN, tc->root_slots_cnt * sizeof(fd_slot_delta_t) );
+  slot_deltas->slot_deltas     = fd_spad_alloc( spad, FD_SLOT_DELTA_ALIGN, tc->root_slots_cnt * sizeof(fd_slot_delta_t) );
 
   fd_txncache_private_txnpage_t * txnpages   = fd_txncache_get_txnpages( tc );
   ulong                         * root_slots = fd_txncache_get_root_slots( tc );
@@ -1104,7 +1105,7 @@ fd_txncache_get_entries( fd_txncache_t *         tc,
 
     slot_deltas->slot_deltas[ i ].slot               = slot;
     slot_deltas->slot_deltas[ i ].is_root            = 1;
-    slot_deltas->slot_deltas[ i ].slot_delta_vec     = fd_scratch_alloc( FD_STATUS_PAIR_ALIGN, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS * sizeof(fd_status_pair_t) );
+    slot_deltas->slot_deltas[ i ].slot_delta_vec     = fd_spad_alloc( spad, FD_STATUS_PAIR_ALIGN, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS * sizeof(fd_status_pair_t) );
     slot_deltas->slot_deltas[ i ].slot_delta_vec_len = 0UL;
     ulong slot_delta_vec_len = 0UL;
 
@@ -1134,7 +1135,7 @@ fd_txncache_get_entries( fd_txncache_t *         tc,
       }
 
       status_pair->value.statuses_len = num_statuses;
-      status_pair->value.statuses     = fd_scratch_alloc( FD_CACHE_STATUS_ALIGN, num_statuses * sizeof(fd_cache_status_t) );
+      status_pair->value.statuses     = fd_spad_alloc( spad, FD_CACHE_STATUS_ALIGN, num_statuses * sizeof(fd_cache_status_t) );
       fd_memset( status_pair->value.statuses, 0, num_statuses * sizeof(fd_cache_status_t) );
 
       /* Copy over every entry for the given slot into the slot deltas. */

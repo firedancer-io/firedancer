@@ -17,22 +17,22 @@ fd_update_rewards( fd_exec_slot_ctx_t * slot_ctx,
                    fd_hash_t const *    parent_blockhash,
                    ulong                parent_epoch,
                    fd_epoch_info_t *    temp_info,
-                   fd_valloc_t          valloc );
+                   fd_spad_t *          runtime_spad );
 
 void
 fd_begin_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                               fd_hash_t const *    parent_blockhash,
                               ulong                parent_epoch,
                               fd_epoch_info_t *    temp_info,
-                              fd_valloc_t          valloc );
+                              fd_spad_t *          runtime_spad );
 
 void
 fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
-                                            fd_valloc_t          valloc );
+                                            fd_spad_t *          runtime_spad );
 
 void
 fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx,
-                                         fd_valloc_t          valloc );
+                                         fd_spad_t *          runtime_spad );
 
 FD_PROTOTYPES_END
 

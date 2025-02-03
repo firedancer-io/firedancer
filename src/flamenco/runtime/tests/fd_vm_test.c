@@ -72,8 +72,8 @@ fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
     return 0UL;
   }
 
-  fd_valloc_t valloc = fd_scratch_virtual();
-  fd_spad_t * spad = fd_exec_instr_test_runner_get_spad( runner );
+  fd_spad_t * spad   = fd_exec_instr_test_runner_get_spad( runner );
+  fd_valloc_t valloc = fd_spad_virtual( spad ); 
 
   /* Create effects */
   ulong output_end = (ulong) output_buf + output_bufsz;

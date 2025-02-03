@@ -20,19 +20,20 @@ FD_PROTOTYPES_BEGIN
 
    Returns the number of items in weights (which is <= no of vote accs).
    On failure returns ULONG_MAX.  Reasons for failure include not enough
-   scratch space available. */
+   bump allocator space available. */
 #define STAKE_ACCOUNT_SIZE ( 200 )
 
 ulong
 fd_stake_weights_by_node( fd_vote_accounts_t const * accs,
-                          fd_stake_weight_t *        weights );
+                          fd_stake_weight_t *        weights,
+                          fd_spad_t *                runtime_spad );
 
 
 void
 fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
                           ulong *               new_rate_activation_epoch,
                           fd_epoch_info_t *     temp_info,
-                          fd_valloc_t           valloc );
+                          fd_spad_t *           runtime_spad );
 
 fd_stake_history_entry_t 
 stake_and_activating( fd_delegation_t const * delegation,
@@ -60,7 +61,8 @@ void
 fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
                           fd_stake_history_t const * history,
                           ulong *                    new_rate_activation_epoch,
-                          fd_epoch_info_t           *temp_info );
+                          fd_epoch_info_t *          temp_info,
+                          fd_spad_t *                runtime_spad );
 
 void 
 fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
@@ -69,7 +71,7 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
                            ulong *                    new_rate_activation_epoch,
                            fd_stake_history_entry_t * accumulator,
                            fd_epoch_info_t *          temp_info,
-                           fd_valloc_t                valloc );
+                           fd_spad_t *                runtime_spad );
 
 FD_PROTOTYPES_END
 

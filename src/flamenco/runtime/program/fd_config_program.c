@@ -80,7 +80,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L44-L49 */
 
-  fd_pubkey_t * current_signer_keys    = fd_scratch_alloc( alignof(fd_pubkey_t), sizeof(fd_pubkey_t) * current_data.keys_len );
+  fd_pubkey_t * current_signer_keys    = fd_spad_alloc( ctx->txn_ctx->spad, alignof(fd_pubkey_t), sizeof(fd_pubkey_t) * current_data.keys_len );
   ulong         current_signer_key_cnt = 0UL;
 
   for( ulong i=0UL; i < current_data.keys_len; i++ ) {
@@ -258,11 +258,9 @@ fd_config_program_execute( fd_exec_instr_ctx_t * ctx ) {
   FD_EXEC_CU_UPDATE( ctx, DEFAULT_COMPUTE_UNITS );
 
   FD_SPAD_FRAME_BEGIN( ctx->txn_ctx->spad ) {
-  FD_SCRATCH_SCOPE_BEGIN {
 
   int ret = _process_config_instr( ctx );
   return ret;
 
-  } FD_SCRATCH_SCOPE_END;
   } FD_SPAD_FRAME_END;
 }

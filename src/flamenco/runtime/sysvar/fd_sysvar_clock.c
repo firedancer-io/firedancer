@@ -49,7 +49,7 @@ write_clock( fd_exec_slot_ctx_t *    slot_ctx,
 
 fd_sol_sysvar_clock_t *
 fd_sysvar_clock_read( fd_sol_sysvar_clock_t *    result,
-                      fd_exec_slot_ctx_t const * slot_ctx  ) {
+                      fd_exec_slot_ctx_t const * slot_ctx ) {
   fd_sol_sysvar_clock_t const * ret = fd_sysvar_cache_clock( slot_ctx->sysvar_cache );
   if( NULL != ret ) {
     fd_memcpy(result, ret, sizeof(fd_sol_sysvar_clock_t));
@@ -176,12 +176,11 @@ FD_FN_CONST static inline int valcmp (VAL_T a, VAL_T b) {
 
 /* https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/bank.rs#L3600 */
 static void
-fd_calculate_stake_weighted_timestamp(
-  fd_exec_slot_ctx_t * slot_ctx,
-  long * result_timestamp,
-  uint fix_estimate_into_u64
- ) {
-  FD_SCRATCH_SCOPE_BEGIN {
+fd_calculate_stake_weighted_timestamp( fd_exec_slot_ctx_t * slot_ctx,
+                                       long *               result_timestamp,
+                                       uint                 fix_estimate_into_u64,
+                                       fd_spad_t *          runtime_spad ) {
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   ulong slot_duration = (ulong)( epoch_bank->ns_per_slot );
   fd_sol_sysvar_clock_t clock;
@@ -190,10 +189,10 @@ fd_calculate_stake_weighted_timestamp(
   /* stake per timestamp */
 
   /* Set up a temporary treap, pool, and rng (required for treap prio) */
-  /* FIXME Hardcoded constant */
+  /* FIXME: Hardcoded constant */
   stake_ts_treap_t   _treap[1];
   stake_ts_treap_t * treap    = stake_ts_treap_join( stake_ts_treap_new( _treap, 10240UL ) );
-  uchar *            pool_mem = fd_scratch_alloc( stake_ts_pool_align(), stake_ts_pool_footprint( 10240UL ) );
+  uchar *            pool_mem = fd_spad_alloc( runtime_spad, stake_ts_pool_align(), stake_ts_pool_footprint( 10240UL ) );
   stake_ts_ele_t *   pool     = stake_ts_pool_join( stake_ts_pool_new( pool_mem, 10240UL ) );
   fd_rng_t           _rng[1];
   fd_rng_t *         rng      = fd_rng_join( fd_rng_new( _rng, (uint)slot_ctx->slot_bank.transaction_count, 0UL ) );
@@ -202,13 +201,11 @@ fd_calculate_stake_weighted_timestamp(
 
   fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_root = slot_ctx->slot_bank.timestamp_votes.votes_root;
   fd_clock_timestamp_vote_t_mapnode_t * timestamp_votes_pool = slot_ctx->slot_bank.timestamp_votes.votes_pool;
-  fd_vote_accounts_pair_t_mapnode_t * vote_acc_root = slot_ctx->slot_bank.epoch_stakes.vote_accounts_root;
-  fd_vote_accounts_pair_t_mapnode_t * vote_acc_pool = slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool;
-  for (
-    fd_vote_accounts_pair_t_mapnode_t* n = fd_vote_accounts_pair_t_map_minimum(vote_acc_pool, vote_acc_root);
-    n;
-    n = fd_vote_accounts_pair_t_map_successor(vote_acc_pool, n)
-  ) {
+  fd_vote_accounts_pair_t_mapnode_t *   vote_acc_root        = slot_ctx->slot_bank.epoch_stakes.vote_accounts_root;
+  fd_vote_accounts_pair_t_mapnode_t *   vote_acc_pool        = slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool;
+  for( fd_vote_accounts_pair_t_mapnode_t* n = fd_vote_accounts_pair_t_map_minimum(vote_acc_pool, vote_acc_root);
+       n;
+       n = fd_vote_accounts_pair_t_map_successor( vote_acc_pool, n ) ) {
 
     /* get timestamp */
     fd_pubkey_t const * vote_pubkey = &n->elem.key;
@@ -231,12 +228,12 @@ fd_calculate_stake_weighted_timestamp(
 
       ulong slot_delta = fd_ulong_sat_sub(slot_ctx->slot_bank.slot, vote_slot);
       fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-      if (slot_delta > epoch_bank->epoch_schedule.slots_per_epoch) {
+      if( slot_delta > epoch_bank->epoch_schedule.slots_per_epoch ) {
         continue;
       }
 
-      ulong offset = fd_ulong_sat_mul(slot_duration, slot_delta);
-      long estimate = (long)vote_timestamp + (long)(offset / NS_IN_S);
+      ulong offset   = fd_ulong_sat_mul(slot_duration, slot_delta);
+      long  estimate = (long)vote_timestamp + (long)(offset / NS_IN_S);
       /* get stake */
       total_stake += n->elem.stake;
       ulong treap_idx = stake_ts_treap_idx_query( treap, estimate, pool );
@@ -256,18 +253,18 @@ fd_calculate_stake_weighted_timestamp(
   }
 
   *result_timestamp = 0;
-  if (total_stake == 0) {
+  if( total_stake == 0 ) {
     return;
   }
 
   // FIXME: this should be a uint128
   ulong stake_accumulator = 0;
-  for (stake_ts_treap_fwd_iter_t iter = stake_ts_treap_fwd_iter_init ( treap, pool);
+  for( stake_ts_treap_fwd_iter_t iter = stake_ts_treap_fwd_iter_init( treap, pool );
        !stake_ts_treap_fwd_iter_done( iter );
        iter = stake_ts_treap_fwd_iter_next( iter, pool ) ) {
-    ulong idx = stake_ts_treap_fwd_iter_idx( iter );
+    ulong idx         = stake_ts_treap_fwd_iter_idx( iter );
     stake_accumulator = fd_ulong_sat_add(stake_accumulator, pool[ idx ].stake);
-    if (stake_accumulator > (total_stake / 2)) {
+    if( stake_accumulator > (total_stake / 2) ) {
       *result_timestamp = pool[ idx ].timestamp;
       break;
     }
@@ -276,17 +273,17 @@ fd_calculate_stake_weighted_timestamp(
   FD_LOG_DEBUG(( "stake weighted timestamp: %ld total stake %lu", *result_timestamp, total_stake ));
 
   // Bound estimate by `max_allowable_drift` since the start of the epoch
-  fd_epoch_schedule_t schedule = slot_ctx->epoch_ctx->epoch_bank.epoch_schedule;
-  ulong epoch_start_slot = fd_epoch_slot0( &schedule, clock.epoch );
-  FD_LOG_DEBUG(("Epoch start slot %lu", epoch_start_slot));
-  ulong poh_estimate_offset = fd_ulong_sat_mul(slot_duration, fd_ulong_sat_sub(slot_ctx->slot_bank.slot, epoch_start_slot));
-  ulong estimate_offset = fd_ulong_sat_mul(NS_IN_S, (fix_estimate_into_u64) ? fd_ulong_sat_sub((ulong)*result_timestamp, (ulong)clock.epoch_start_timestamp) : (ulong)(*result_timestamp - clock.epoch_start_timestamp));
-  ulong max_delta_fast = fd_ulong_sat_mul(poh_estimate_offset, MAX_ALLOWABLE_DRIFT_FAST) / 100;
-  ulong max_delta_slow = fd_ulong_sat_mul(poh_estimate_offset, MAX_ALLOWABLE_DRIFT_SLOW) / 100;
-  FD_LOG_DEBUG(("poh offset %lu estimate %lu fast %lu slow %lu", poh_estimate_offset, estimate_offset, max_delta_fast, max_delta_slow));
-  if (estimate_offset > poh_estimate_offset && fd_ulong_sat_sub(estimate_offset, poh_estimate_offset) > max_delta_slow) {
+  fd_epoch_schedule_t schedule         = slot_ctx->epoch_ctx->epoch_bank.epoch_schedule;
+  ulong               epoch_start_slot = fd_epoch_slot0( &schedule, clock.epoch );
+  FD_LOG_DEBUG(( "Epoch start slot %lu", epoch_start_slot ));
+  ulong poh_estimate_offset = fd_ulong_sat_mul( slot_duration, fd_ulong_sat_sub( slot_ctx->slot_bank.slot, epoch_start_slot ) );
+  ulong estimate_offset     = fd_ulong_sat_mul( NS_IN_S, (fix_estimate_into_u64) ? fd_ulong_sat_sub( (ulong)*result_timestamp, (ulong)clock.epoch_start_timestamp ) : (ulong)(*result_timestamp - clock.epoch_start_timestamp));
+  ulong max_delta_fast      = fd_ulong_sat_mul( poh_estimate_offset, MAX_ALLOWABLE_DRIFT_FAST ) / 100;
+  ulong max_delta_slow      = fd_ulong_sat_mul( poh_estimate_offset, MAX_ALLOWABLE_DRIFT_SLOW ) / 100;
+  FD_LOG_DEBUG(( "poh offset %lu estimate %lu fast %lu slow %lu", poh_estimate_offset, estimate_offset, max_delta_fast, max_delta_slow ));
+  if( estimate_offset > poh_estimate_offset && fd_ulong_sat_sub(estimate_offset, poh_estimate_offset) > max_delta_slow ) {
     *result_timestamp = clock.epoch_start_timestamp + (long)poh_estimate_offset / NS_IN_S + (long)max_delta_slow / NS_IN_S;
-  } else if (estimate_offset < poh_estimate_offset && fd_ulong_sat_sub(poh_estimate_offset, estimate_offset) > max_delta_fast) {
+  } else if( estimate_offset < poh_estimate_offset && fd_ulong_sat_sub(poh_estimate_offset, estimate_offset) > max_delta_fast ) {
     *result_timestamp = clock.epoch_start_timestamp + (long)poh_estimate_offset / NS_IN_S - (long)max_delta_fast / NS_IN_S;
   }
 
@@ -298,12 +295,11 @@ fd_calculate_stake_weighted_timestamp(
   }
   return;
 
-  }
-  FD_SCRATCH_SCOPE_END;
+  } FD_SPAD_FRAME_END;
 }
 
 int
-fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc ) {
+fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
 
   fd_pubkey_t const * key = &fd_sysvar_clock_id;
 
@@ -315,22 +311,25 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc ) {
   fd_bincode_decode_ctx_t ctx;
   ctx.data    = rec->const_data;
   ctx.dataend = rec->const_data + rec->const_meta->dlen;
-  ctx.valloc  = valloc;
+  ctx.valloc  = fd_spad_virtual( runtime_spad );
   fd_sol_sysvar_clock_t clock;
   if( fd_sol_sysvar_clock_decode( &clock, &ctx ) )
     FD_LOG_ERR(("fd_sol_sysvar_clock_decode failed"));
 
   long ancestor_timestamp = clock.unix_timestamp;
 
-  if (slot_ctx->slot_bank.slot != 0) {
-    fd_calculate_stake_weighted_timestamp(slot_ctx, &clock.unix_timestamp, FD_FEATURE_ACTIVE( slot_ctx, warp_timestamp_again ) );
+  if( slot_ctx->slot_bank.slot != 0 ) {
+    fd_calculate_stake_weighted_timestamp( slot_ctx,
+                                           &clock.unix_timestamp,
+                                           FD_FEATURE_ACTIVE( slot_ctx, warp_timestamp_again ),
+                                           runtime_spad );
   }
 
-  if (0 == clock.unix_timestamp) {
+  if( 0 == clock.unix_timestamp ) {
     /* generate timestamp for genesis */
     long timestamp_estimate         = estimate_timestamp( slot_ctx );
     long bounded_timestamp_estimate = bound_timestamp_estimate( slot_ctx, timestamp_estimate, clock.epoch_start_timestamp );
-    if ( timestamp_estimate != bounded_timestamp_estimate ) {
+    if( timestamp_estimate != bounded_timestamp_estimate ) {
       FD_LOG_INFO(( "corrected timestamp_estimate %ld to %ld", timestamp_estimate, bounded_timestamp_estimate ));
     }
     /*  if let Some(timestamp_estimate) =
@@ -357,8 +356,11 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc ) {
   clock.epoch = epoch_new;
   if( epoch_old != epoch_new ) {
     long timestamp_estimate = 0L;
-    fd_calculate_stake_weighted_timestamp( slot_ctx, &timestamp_estimate, FD_FEATURE_ACTIVE( slot_ctx, warp_timestamp_again ) );
-    clock.unix_timestamp = fd_long_max( timestamp_estimate, ancestor_timestamp );
+    fd_calculate_stake_weighted_timestamp( slot_ctx, 
+                                           &timestamp_estimate,
+                                           FD_FEATURE_ACTIVE( slot_ctx, warp_timestamp_again ),
+                                           runtime_spad );
+    clock.unix_timestamp        = fd_long_max( timestamp_estimate, ancestor_timestamp );
     clock.epoch_start_timestamp = clock.unix_timestamp;
     clock.leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot );
   }
@@ -370,25 +372,28 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc ) {
   FD_LOG_DEBUG(( "clock.leader_schedule_epoch: %lu", clock.leader_schedule_epoch ));
   FD_LOG_DEBUG(( "clock.unix_timestamp: %ld", clock.unix_timestamp ));
 
-  ulong               sz       = fd_sol_sysvar_clock_size(&clock);
-  FD_BORROWED_ACCOUNT_DECL(acc);
-  err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, key, 1, sz, acc);
-  if (err)
+  ulong sz = fd_sol_sysvar_clock_size( &clock );
+  FD_BORROWED_ACCOUNT_DECL( acc );
+  err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, key, 1, sz, acc );
+  if( err ) {
     FD_LOG_CRIT(( "fd_acc_mgr_modify(clock) failed: %d", err ));
+  }
 
   fd_bincode_encode_ctx_t e_ctx = {
     .data    = acc->data,
     .dataend = acc->data+sz,
   };
-  if( fd_sol_sysvar_clock_encode( &clock, &e_ctx ) )
+  if( fd_sol_sysvar_clock_encode( &clock, &e_ctx ) ) {
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
+  }
 
   ulong lamps = fd_rent_exempt_minimum_balance( &epoch_bank->rent, sz );
-  if( acc->meta->info.lamports < lamps )
+  if( acc->meta->info.lamports < lamps ) {
     acc->meta->info.lamports = lamps;
+  }
 
   acc->meta->dlen = sz;
-  fd_memcpy( acc->meta->info.owner, fd_sysvar_owner_id.key, 32 );
+  fd_memcpy( acc->meta->info.owner, fd_sysvar_owner_id.key, sizeof(fd_pubkey_t) );
 
   return 0;
 }

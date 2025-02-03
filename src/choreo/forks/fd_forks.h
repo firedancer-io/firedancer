@@ -155,7 +155,7 @@ fd_forks_prepare( fd_forks_t const *    forks,
                   fd_blockstore_t *     blockstore,
                   fd_exec_epoch_ctx_t * epoch_ctx,
                   fd_funk_t *           funk,
-                  fd_valloc_t           valloc );
+                  fd_spad_t *           runtime_spad );
 
 /* fd_forks_update updates `blockstore` and `ghost` with the latest
    state resulting from replaying `slot`.  Assumes `slot` is a fork head
@@ -179,8 +179,7 @@ fd_forks_update( fd_forks_t *          forks,
 void
 fd_forks_publish( fd_forks_t *       fork,
                   ulong              root,
-                  fd_ghost_t const * ghost,
-                  fd_valloc_t        valloc );
+                  fd_ghost_t const * ghost );
 
 /* fd_forks_print prints a forks as a list of the frontiers and number
    of forks (pool eles acquired). */

@@ -9,7 +9,7 @@
 
 void *
 fd_exec_slot_ctx_new( void *      mem,
-                      fd_valloc_t valloc ) {
+                      fd_spad_t * runtime_spad ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -22,10 +22,10 @@ fd_exec_slot_ctx_new( void *      mem,
 
   fd_memset( mem, 0, sizeof(fd_exec_slot_ctx_t) );
 
-  fd_exec_slot_ctx_t * self = (fd_exec_slot_ctx_t *) mem;
+  fd_exec_slot_ctx_t * self = (fd_exec_slot_ctx_t *)mem;
   fd_slot_bank_new( &self->slot_bank );
 
-  self->sysvar_cache = fd_sysvar_cache_new( fd_valloc_malloc( valloc, fd_sysvar_cache_align(), fd_sysvar_cache_footprint() ), valloc );
+  self->sysvar_cache = fd_sysvar_cache_new( fd_spad_alloc( runtime_spad, fd_sysvar_cache_align(), fd_sysvar_cache_footprint() ), runtime_spad );
 
   /* This is inactive by default */
   self->epoch_reward_status.discriminant = fd_epoch_reward_status_enum_Inactive;
@@ -70,7 +70,7 @@ fd_exec_slot_ctx_leave( fd_exec_slot_ctx_t * ctx) {
 }
 
 void *
-fd_exec_slot_ctx_delete( void * mem, fd_valloc_t valloc ) {
+fd_exec_slot_ctx_delete( void * mem ) {
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
     return NULL;
@@ -87,10 +87,6 @@ fd_exec_slot_ctx_delete( void * mem, fd_valloc_t valloc ) {
     return NULL;
   }
 
-  fd_bincode_destroy_ctx_t ctx = { .valloc = valloc };
-  fd_slot_bank_destroy(&hdr->slot_bank, &ctx);
-
-  fd_valloc_free( valloc, fd_sysvar_cache_delete( hdr->sysvar_cache ) );
   hdr->sysvar_cache = NULL;
 
   FD_COMPILER_MFENCE();
@@ -104,7 +100,7 @@ fd_exec_slot_ctx_delete( void * mem, fd_valloc_t valloc ) {
    accounts in current epoch stakes. */
 
 static int
-recover_clock( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc ) {
+recover_clock( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
 
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_vote_accounts_t const * vote_accounts = &epoch_bank->stakes.vote_accounts;
@@ -125,7 +121,7 @@ recover_clock( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc ) {
 
     /* Record timestamp */
     if( vote_state_timestamp.slot != 0 || n->elem.stake != 0 ) {
-      fd_vote_record_timestamp_vote_with_slot( slot_ctx, &n->elem.key, vote_state_timestamp.timestamp, vote_state_timestamp.slot, valloc );
+      fd_vote_record_timestamp_vote_with_slot( slot_ctx, &n->elem.key, vote_state_timestamp.timestamp, vote_state_timestamp.slot, runtime_spad );
     }
   }
 
@@ -139,7 +135,9 @@ recover_clock( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc ) {
 static fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
                            fd_solana_manifest_t * manifest,
-                           fd_valloc_t            valloc ) {
+                           fd_spad_t *            runtime_spad ) {
+
+  fd_valloc_t valloc = fd_spad_virtual( runtime_spad );
 
   fd_exec_epoch_ctx_t * epoch_ctx   = slot_ctx->epoch_ctx;
   fd_epoch_bank_t *     epoch_bank  = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
@@ -279,7 +277,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
     fd_hash_hash_age_pair_t_map_insert( slot_bank->block_hash_queue.ages_pool, &slot_bank->block_hash_queue.ages_root, node );
   }
 
-  recover_clock( slot_ctx, valloc );
+  recover_clock( slot_ctx, runtime_spad );
 
   /* Pass in the hard forks */
 
@@ -439,27 +437,19 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   else
     fd_lthash_zero( (fd_lthash_value_t *) slot_ctx->slot_bank.lthash.lthash );
 
-  // TODO Backup to database
-  //int result = fd_runtime_save_epoch_bank(slot_ctx);
-  //if( result != FD_EXECUTOR_INSTR_SUCCESS ) {
-  //  FD_LOG_WARNING(("save epoch bank failed"));
-  //  return result;
-  //}
-  //
-  //return fd_runtime_save_slot_bank(slot_ctx);
-
   return slot_ctx;
 }
 
 fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *   slot_ctx,
                           fd_solana_manifest_t * manifest,
-                          fd_valloc_t            valloc ) {
+                          fd_spad_t *            spad ) {
 
-  fd_exec_slot_ctx_t * res = fd_exec_slot_ctx_recover_( slot_ctx, manifest, valloc );
+  fd_exec_slot_ctx_t * res = fd_exec_slot_ctx_recover_( slot_ctx, manifest, spad );
 
-  /* Regardless of result, always destroy manifest */
-  fd_bincode_destroy_ctx_t destroy = { .valloc = valloc };
+  /* Regardless of result, always destroy manifest.
+     TODO: This doesn't do anything. */
+  fd_bincode_destroy_ctx_t destroy = { .valloc = fd_spad_virtual( spad ) };
   fd_solana_manifest_destroy( manifest, &destroy );
   fd_memset( manifest, 0, sizeof(fd_solana_manifest_t) );
 
@@ -468,7 +458,8 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *   slot_ctx,
 
 fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
-                                       fd_bank_slot_deltas_t * slot_deltas ) {
+                                       fd_bank_slot_deltas_t * slot_deltas,
+                                       fd_spad_t *             runtime_spad ) {
 
   fd_txncache_t * status_cache = ctx->status_cache;
   if( !status_cache ) {
@@ -476,81 +467,73 @@ fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
     return NULL;
   }
 
-  FD_SCRATCH_SCOPE_BEGIN {
-    ulong num_entries = 0;
-    for( ulong i = 0; i < slot_deltas->slot_deltas_len; i++ ) {
-      fd_slot_delta_t * slot_delta = &slot_deltas->slot_deltas[i];
-      for( ulong j = 0; j < slot_delta->slot_delta_vec_len; j++ ) {
-        num_entries += slot_delta->slot_delta_vec[j].value.statuses_len;
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+
+  ulong num_entries = 0;
+  for( ulong i = 0; i < slot_deltas->slot_deltas_len; i++ ) {
+    fd_slot_delta_t * slot_delta = &slot_deltas->slot_deltas[i];
+    for( ulong j = 0; j < slot_delta->slot_delta_vec_len; j++ ) {
+      num_entries += slot_delta->slot_delta_vec[j].value.statuses_len;
+    }
+  }
+  fd_txncache_insert_t * insert_vals = fd_spad_alloc( runtime_spad, alignof(fd_txncache_insert_t), num_entries * sizeof(fd_txncache_insert_t) );
+
+  /* Dumb sort for 300 slot entries to insert in order. */
+  fd_slot_delta_t ** deltas = fd_spad_alloc( runtime_spad, alignof(fd_slot_delta_t*), slot_deltas->slot_deltas_len * sizeof(fd_slot_delta_t*) );
+
+  long curr = -1;
+  for( ulong i = 0UL; i < slot_deltas->slot_deltas_len; i++ ) {
+    ulong curr_min     = ULONG_MAX;
+    ulong curr_min_idx = ULONG_MAX;
+    for( ulong j = 0; j < slot_deltas->slot_deltas_len; j++ ) {
+      fd_slot_delta_t * slot_delta = &slot_deltas->slot_deltas[j];
+      if( (long)slot_delta->slot <= curr ) continue;
+
+      if( curr_min > slot_delta->slot ) {
+        curr_min = slot_delta->slot;
+        curr_min_idx = j;
       }
     }
-    fd_txncache_insert_t * insert_vals = fd_scratch_alloc( alignof(fd_txncache_insert_t), num_entries * sizeof(fd_txncache_insert_t) );
+    deltas[i] = &slot_deltas->slot_deltas[curr_min_idx];
+    curr = (long)slot_deltas->slot_deltas[curr_min_idx].slot;
+  }
 
-    /* Dumb sort for 300 slot entries to insert in order. */
-    fd_slot_delta_t ** deltas = fd_scratch_alloc(alignof(fd_slot_delta_t *), slot_deltas->slot_deltas_len * sizeof(fd_slot_delta_t *));
-
-    ulong curr = 0;
-    for( ulong i = 0; i < slot_deltas->slot_deltas_len; i++ ) {
-      ulong curr_min = ULONG_MAX;
-      ulong curr_min_idx = ULONG_MAX;
-      for( ulong j = 0; j < slot_deltas->slot_deltas_len; j++ ) {
-        fd_slot_delta_t * slot_delta = &slot_deltas->slot_deltas[j];
-        if( slot_delta->slot <= curr ) continue;
-
-        if( curr_min > slot_delta->slot ) {
-          curr_min = slot_delta->slot;
-          curr_min_idx = j;
-        }
-      }
-      deltas[i] = &slot_deltas->slot_deltas[curr_min_idx];
-      curr = slot_deltas->slot_deltas[curr_min_idx].slot;
+  ulong idx = 0;
+  for( ulong i = 0; i < slot_deltas->slot_deltas_len; i++ ) {
+    fd_slot_delta_t * slot_delta = deltas[i];
+    ulong slot = slot_delta->slot;
+    if( slot_delta->is_root ) {
+      fd_txncache_register_root_slot( ctx->status_cache, slot );
     }
-
-    ulong idx = 0;
-    for( ulong i = 0; i < slot_deltas->slot_deltas_len; i++ ) {
-      fd_slot_delta_t * slot_delta = deltas[i];
-      ulong slot = slot_delta->slot;
-      if( slot_delta->is_root ) {
-        fd_txncache_register_root_slot( ctx->status_cache, slot );
-      }
-      for( ulong j = 0; j < slot_delta->slot_delta_vec_len; j++ ) {
-        fd_status_pair_t * pair = &slot_delta->slot_delta_vec[j];
-        fd_hash_t * blockhash = &pair->hash;
-
-        uchar * results = fd_scratch_alloc( alignof(uchar), pair->value.statuses_len );
-        for( ulong k = 0; k < pair->value.statuses_len; k++ ) {
-          fd_cache_status_t * status = &pair->value.statuses[k];
-          uchar * result = results + k;
-          *result = (uchar)status->result.discriminant;
-          insert_vals[idx++] = (fd_txncache_insert_t){
-            .blockhash = blockhash->uc,
-            .slot = slot,
-            .txnhash = status->key_slice,
-            .result = result
-          };
-        }
+    for( ulong j = 0; j < slot_delta->slot_delta_vec_len; j++ ) {
+      fd_status_pair_t * pair = &slot_delta->slot_delta_vec[j];
+      fd_hash_t * blockhash = &pair->hash;
+      uchar * results = fd_spad_alloc( runtime_spad, FD_SPAD_ALIGN, pair->value.statuses_len );
+      for( ulong k = 0; k < pair->value.statuses_len; k++ ) {
+        fd_cache_status_t * status = &pair->value.statuses[k];
+        uchar * result = results + k;
+        *result = (uchar)status->result.discriminant;
+        insert_vals[idx++] = (fd_txncache_insert_t){
+          .blockhash = blockhash->uc,
+          .slot = slot,
+          .txnhash = status->key_slice,
+          .result = result
+        };
       }
     }
-    fd_txncache_insert_batch( ctx->status_cache, insert_vals, num_entries );
+  }
+  fd_txncache_insert_batch( ctx->status_cache, insert_vals, num_entries );
 
-    for( ulong i = 0; i < slot_deltas->slot_deltas_len; i++ ) {
-      fd_slot_delta_t * slot_delta = deltas[i];
-      ulong slot = slot_delta->slot;
-      for( ulong j = 0; j < slot_delta->slot_delta_vec_len; j++ ) {
-        fd_status_pair_t * pair = &slot_delta->slot_delta_vec[j];
-        fd_hash_t * blockhash = &pair->hash;
-        fd_txncache_set_txnhash_offset( ctx->status_cache, slot, blockhash->uc, pair->value.txn_idx );
-      }
+  for( ulong i = 0; i < slot_deltas->slot_deltas_len; i++ ) {
+    fd_slot_delta_t * slot_delta = deltas[i];
+    ulong slot = slot_delta->slot;
+    for( ulong j = 0; j < slot_delta->slot_delta_vec_len; j++ ) {
+      fd_status_pair_t * pair      = &slot_delta->slot_delta_vec[j];
+      fd_hash_t *        blockhash = &pair->hash;
+      fd_txncache_set_txnhash_offset( ctx->status_cache, slot, blockhash->uc, pair->value.txn_idx );
     }
-  } FD_SCRATCH_SCOPE_END;
+  }
+
+  } FD_SPAD_FRAME_END;
   return ctx;
-}
-
-void
-fd_exec_slot_ctx_free( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc ) {
-  fd_bincode_destroy_ctx_t ctx = { .valloc = valloc };
-  fd_slot_bank_destroy( &slot_ctx->slot_bank, &ctx );
-
-  /* leader points to a caller-allocated leader schedule */
-  fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( slot_ctx ), valloc );
 }
