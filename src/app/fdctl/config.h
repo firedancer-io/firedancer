@@ -319,6 +319,11 @@ typedef struct {
     } batch;
 
   } tiles;
+
+  struct {
+    int always_enabled;
+    char config_path[ PATH_MAX ];
+  } geyser;
 } config_t;
 
 FD_PROTOTYPES_BEGIN

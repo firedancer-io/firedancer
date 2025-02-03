@@ -1122,6 +1122,15 @@ dynamic_port_range = "8900-9000"
         # The port to listen on.
         gui_listen_port = 80
 
+[geyser]
+    # Enable Geyser interface even if no Geyser configs are specified. [default: false] 
+    # Passed to the Agave client with the `--geyser-plugin-always-enabled` argument.
+    always_enabled = false
+
+    # Specify the configuration file for the Geyser plugin.
+    # Passed to the Agave client with the `--geyser-plugin-config` argument.
+    config_path = ""
+
 # These options can be useful for development, but should not be used
 # when connecting to a live cluster, as they may cause the validator to
 # be unstable or have degraded performance or security.  The program

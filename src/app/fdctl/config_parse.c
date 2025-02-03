@@ -400,6 +400,9 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( cstr,   tiles.batch.out_dir                              );
   CFG_POP      ( ulong,  tiles.batch.hash_tpool_thread_count              );
 
+  CFG_POP      ( bool,   geyser.always_enabled                            );
+  CFG_POP      ( cstr,   geyser.config_path                               );
+
 # undef CFG_POP
 # undef CFG_ARRAY
 

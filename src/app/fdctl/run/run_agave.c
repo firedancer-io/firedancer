@@ -171,6 +171,12 @@ agave_boot( config_t * config ) {
     ADDU( "--unified-scheduler-handler-threads", (uint)num_threads );
   }
 
+  /* geyser plugin iface */
+  if ( config->geyser.always_enabled )
+    ADD1( "--geyser-plugin-always-enabled" );
+  if ( strcmp( "", config->geyser.config_path ) )
+    ADD( "--geyser-plugin-config", config->geyser.config_path );
+
   argv[ idx ] = NULL;
 
   if( FD_LIKELY( strcmp( config->reporting.solana_metrics_config, "" ) ) ) {
