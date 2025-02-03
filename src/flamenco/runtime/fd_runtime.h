@@ -57,10 +57,11 @@
 #define FD_WRITABLE_ACCS_IN_SLOT (160000UL)
 
 struct fd_execute_txn_task_info {
-  fd_spad_t * * spads;
+  fd_spad_t * *       spads;
   fd_exec_txn_ctx_t * txn_ctx;
-  fd_txn_p_t * txn;
-  int exec_res;
+  fd_txn_p_t *        txn;
+  int                 exec_res;
+  uchar               fees_only;
 };
 typedef struct fd_execute_txn_task_info fd_execute_txn_task_info_t;
 

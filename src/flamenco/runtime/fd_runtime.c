@@ -1391,6 +1391,7 @@ fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
     task_info[txn_idx].txn_ctx      = fd_valloc_malloc( fd_scratch_virtual(), FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
     fd_exec_txn_ctx_t * txn_ctx     = task_info[txn_idx].txn_ctx;
     task_info[txn_idx].exec_res     = 0;
+    task_info[txn_idx].fees_only    = 0;
     task_info[txn_idx].txn          = txn;
     fd_txn_t const * txn_descriptor = (fd_txn_t const *) txn->_;
 
@@ -1482,11 +1483,16 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
     return;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
+  /* A transaction that fails in the loading stage is marked as `FeesOnly`. If the `enable_transaction_loading_failure_fees` feature
+     is enabled, the transaction will not be processed but the fees will still be collected, so we should track this for the finalization
+     phase.
+
+     https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
   err = fd_executor_load_transaction_accounts( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     task_info->txn->flags = 0U;
     task_info->exec_res   = err;
+    task_info->fees_only  = FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, enable_transaction_loading_failure_fees );
     return;
   }
 
@@ -1520,6 +1526,7 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
 
   fd_exec_txn_ctx_t * txn_ctx      = task_info->txn_ctx;
   int                 exec_txn_err = task_info->exec_res;
+  int                 fees_only    = task_info->fees_only;
 
   /* Store transaction info including logs */
   fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, 1UL );
@@ -1548,7 +1555,7 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
     }
   }
 
-  if( FD_UNLIKELY( exec_txn_err ) ) {
+  if( FD_UNLIKELY( exec_txn_err || fees_only ) ) {
 
     /* Save the fee_payer. Everything but the fee balance should be reset.
        TODO: an optimization here could be to use a dirty flag in the
@@ -1947,12 +1954,15 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
     ulong                     compute_units_used       = 0UL;
 
     for( ulong txn_idx=0UL; txn_idx<txn_cnt; txn_idx++ ) {
-      /* Transaction was skipped due to preparation failure. */
-      if( FD_UNLIKELY( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) ) {
-        continue;
-      }
       fd_exec_txn_ctx_t * txn_ctx      = task_info[txn_idx].txn_ctx;
       int                 exec_txn_err = task_info[txn_idx].exec_res;
+      int                 fees_only    = task_info[txn_idx].fees_only;
+
+      /* Transaction was skipped due to preparation failure. */
+      if( FD_UNLIKELY( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) &&
+                       !( fees_only ) ) ) {
+        continue;
+      }
 
       /* For ledgers that contain txn status, decode and write out for solcap */
       if( FD_UNLIKELY( capture_ctx != NULL && capture_ctx->capture && capture_ctx->capture_txns ) ) {
@@ -1988,7 +1998,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
         num_cache_txns++;
       }
 
-      if( FD_UNLIKELY( exec_txn_err ) ) {
+      if( FD_UNLIKELY( exec_txn_err || fees_only ) ) {
         /* Save the fee_payer. Everything but the fee balance should be reset.
            TODO: an optimization here could be to use a dirty flag in the
            borrowed account. If the borrowed account data has been changed in
