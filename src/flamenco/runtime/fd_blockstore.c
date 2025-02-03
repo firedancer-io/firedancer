@@ -405,9 +405,6 @@ fd_blockstore_init( fd_blockstore_t * blockstore, int fd, ulong fd_size_max, fd_
   block_map_entry->data_complete_idx    = 0;
   block_map_entry->slot_complete_idx    = 0;
 
-  block_map_entry->ticks_consumed        = 0;
-  block_map_entry->tick_hash_count_accum = 0;
-
   fd_block_set_null( block_map_entry->data_complete_idxs );
 
   /* This creates an empty allocation for a block, to "facade" that we
@@ -1231,7 +1228,7 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
     memset( block_map_entry->child_slots, UCHAR_MAX, FD_BLOCKSTORE_CHILD_SLOT_MAX * sizeof(ulong) );
     block_map_entry->child_slot_cnt = 0;
 
-    block_map_entry->block_height   = 0;
+    block_map_entry->block_height         = 0;
     block_map_entry->block_hash     = ( fd_hash_t ){ 0 };
     block_map_entry->bank_hash      = ( fd_hash_t ){ 0 };
     block_map_entry->flags          = fd_uchar_set_bit( 0, FD_BLOCK_FLAG_RECEIVING );
@@ -1244,9 +1241,6 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
 
     block_map_entry->data_complete_idx = UINT_MAX;
     block_map_entry->slot_complete_idx = UINT_MAX;
-
-    block_map_entry->ticks_consumed        = 0;
-    block_map_entry->tick_hash_count_accum = 0;
 
     fd_block_set_null( block_map_entry->data_complete_idxs );
 
@@ -1449,6 +1443,7 @@ fd_blockstore_batch_assemble( fd_blockstore_t * blockstore,
   ulong mbatch_sz = 0;
   for (uint idx = batch_idx; ; idx++) {
     fd_shred_key_t key = { slot, idx };
+    fd_blockstore_start_read( blockstore );
 
     fd_buf_shred_t * shred = fd_buf_shred_map_ele_query( shred_map, &key, NULL, shred_pool );
     uchar const *    payload    = NULL;
@@ -1476,6 +1471,7 @@ fd_blockstore_batch_assemble( fd_blockstore_t * blockstore,
     if( FD_UNLIKELY( payload_sz > FD_SHRED_DATA_PAYLOAD_MAX ) ) return FD_BLOCKSTORE_ERR_SHRED_INVALID;
     if( FD_UNLIKELY( mbatch_sz + payload_sz > batch_data_max ) ) return FD_BLOCKSTORE_ERR_NO_MEM;
     fd_memcpy( batch_data_out + mbatch_sz, payload, payload_sz );
+    fd_blockstore_end_read( blockstore );
 
     mbatch_sz += payload_sz;
     if( FD_UNLIKELY( is_batch_end ) ){ 

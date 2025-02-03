@@ -77,9 +77,6 @@ typedef struct fd_sbpf_syscalls fd_sbpf_syscalls_t;
 #define MAP_LG_SLOT_CNT       FD_SBPF_SYSCALLS_LG_SLOT_CNT
 #include "../../util/tmpl/fd_map.c"
 
-#define FD_SBPF_SYSCALLS_FOOTPRINT (sizeof(fd_sbpf_syscalls_t) * (1UL<<FD_SBPF_SYSCALLS_LG_SLOT_CNT))
-#define FD_SBPF_SYSCALLS_ALIGN     alignof(fd_sbpf_syscalls_t)
-
 /* fd_sbpf_elf_info_t contains basic information extracted from an ELF
    binary. Indicates how much scratch memory and buffer size is required
    to fully load the program. */

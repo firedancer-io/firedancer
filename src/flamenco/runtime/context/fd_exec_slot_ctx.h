@@ -43,6 +43,9 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                       nonvote_failed_txn_count;
   ulong                       total_compute_units_used;
   
+  /* Setup for tick verification by batch */
+  ulong                       ticks_consumed;                       
+
   fd_sysvar_cache_t *         sysvar_cache;
 
   fd_txncache_t *             status_cache;
