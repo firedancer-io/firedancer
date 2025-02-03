@@ -1385,3 +1385,31 @@ dynamic_port_range = "8900-9000"
         # duplicate transactions will not be submitted and the validator
         # with this option enabled will always be leader.
         disable_status_cache = false
+
+    # The following options relate to the 'fddev pktgen' tool only.
+    # pktgen tests net tile transmit throughput by generating a flood of
+    # non-routable Ethernet frames.  Only use 'fddev pktgen' if you know
+    # what you are doing!  It can cause damage to your system and network
+    # infrastructure.
+    [development.pktgen]
+        # Which cores to run the 'net' and 'pktgen' tiles on.
+        # By default, two fixed cores will be used.  To get reliable
+        # measurements, avoid the use of floating tiles.
+        # This setting overrides [layout.affinity] above.
+        affinity = "auto"
+
+        # fake_dst_ip should be set to the IP address of a neighbor on the
+        # Ethernet network.  (For example the router the system is directly
+        # connected to.)
+        #
+        # The net tile queries the route and neighbor tables as part of the
+        # benchmark.  In short, these resolve the dst MAC address of the
+        # outgoing Ethernet packets.  Since pktgen does not produce IPv4
+        # packets, no traffic actually gets sent to this IP.
+        #
+        # The IP address should fulfill these requirements:
+        # - 'ip route get <IP>' resolves to the XDP interface
+        #   (see [tiles.net.interface])
+        # - 'ip neigh get <NEXTHOP> dev <INTERFACE>' returns REACHABLE
+        # If these requirements are not met, no packets will be sent out.
+        fake_dst_ip = ""  # e.g. "192.0.2.64"

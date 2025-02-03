@@ -672,8 +672,8 @@ extern configure_stage_t fd_cfg_stage_ethtool_gro;
 extern configure_stage_t fd_cfg_stage_ethtool_loopback;
 extern configure_stage_t fd_cfg_stage_sysctl;
 
-static void
-check_configure( config_t * const config ) {
+void
+fdctl_check_configure( config_t * const config ) {
   configure_result_t check = fd_cfg_stage_hugetlbfs.check( config );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
     FD_LOG_ERR(( "Huge pages are not configured correctly: %s. You can run `fdctl configure init hugetlbfs` "
@@ -715,7 +715,7 @@ run_firedancer_init( config_t * const config,
     else if( FD_UNLIKELY( -1==err ) )             FD_LOG_ERR(( "could not stat [consensus.authorized_voter_paths] `%s` (%i-%s)", config->consensus.authorized_voter_paths[ i ], errno, fd_io_strerror( errno ) ));
   }
 
-  check_configure( config );
+  fdctl_check_configure( config );
   if( FD_LIKELY( init_workspaces ) ) initialize_workspaces( config );
   initialize_stacks( config );
 }

@@ -362,6 +362,7 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "batch",  /* FIREDANCER only */
     "btpool", /* FIREDANCER only */
 #endif
+    "pktgen",
   };
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {

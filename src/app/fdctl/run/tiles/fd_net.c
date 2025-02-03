@@ -428,7 +428,6 @@ after_frag( fd_net_ctx_t *      ctx,
             fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
-  (void)sig;
   (void)tsorig;
   (void)stem;
 
