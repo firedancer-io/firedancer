@@ -161,7 +161,8 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
   if( callee_acc->meta->info.lamports!=*caller_acc_lamports ) { 
     err = fd_account_set_lamports( vm->instr_ctx, instr_acc_idx, *caller_acc_lamports );
     if( FD_UNLIKELY( err ) ) {
-      return err;
+      FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+      return -1;
     }
   }
 
@@ -180,11 +181,13 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
 
       err = fd_account_set_data_from_slice( vm->instr_ctx, instr_acc_idx, caller_acc_data, caller_acc_data_len );
       if( FD_UNLIKELY( err ) ) {
-        return err;
+        FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+        return -1;
       }
     } else if( FD_UNLIKELY( caller_acc_data_len!=callee_acc->const_meta->dlen || 
                             memcmp( callee_acc->const_data, caller_acc_data, caller_acc_data_len ) ) ) {
-      return err;
+      FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+      return -1;
     }
 
   } else { /* Direct mapping enabled */
@@ -201,12 +204,14 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
       ulong realloc_bytes_used = fd_ulong_sat_sub( post_len, original_len );
 
       if( FD_UNLIKELY( vm->is_deprecated && realloc_bytes_used ) ) {
-        return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+        FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC );
+        return -1;
       }
 
       err = fd_account_set_data_length( vm->instr_ctx, instr_acc_idx, post_len );
       if( FD_UNLIKELY( err ) ) {
-        return err;
+        FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+        return -1;
       }
 
 
@@ -225,13 +230,15 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
         ulong   dlen = 0UL;
         err = fd_account_get_data_mut( vm->instr_ctx, instr_acc_idx, &data, &dlen );
         if( FD_UNLIKELY( err ) ) {
-          return err;
+          FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+          return -1;
         }
         fd_memcpy( data+original_len, realloc_data, realloc_bytes_used );
       }
       
     } else if( FD_UNLIKELY( prev_len!=post_len ) ) {
-      return err;
+      FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+      return -1;
     }
   }
 
@@ -239,7 +246,8 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
   if( FD_UNLIKELY( memcmp( callee_acc->meta->info.owner, caller_acc_owner, sizeof(fd_pubkey_t) ) ) ) {
     err = fd_account_set_owner( vm->instr_ctx, instr_acc_idx, (fd_pubkey_t*)caller_acc_owner );
     if( FD_UNLIKELY( err ) ) {
-      return err;
+      FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+      return -1;
     }
   }
 
@@ -403,9 +411,8 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
       /* Update the callee account to reflect any changes the caller has made */
       int err = VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( vm, &account_infos[j], (uchar)index_in_caller );
       if( FD_UNLIKELY( err ) ) {
-        /* We should propagate the instruction error from fd_vm_syscall_cpi_update_callee_acc. */
-        FD_VM_ERR_FOR_LOG_INSTR( vm, err );
-        return -1;
+        /* errors are propagated in the function itself. */
+        return err;
       }
     }
 
