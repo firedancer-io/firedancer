@@ -46,10 +46,9 @@ typedef struct fd_snapshot_load_ctx fd_snapshot_load_ctx_t;
    source_cstr is either a local file system path.
    TODO: Add support for an HTTP url.
 
-   slot_ctx is a valid initialized slot context (a funk, acc_mgr, heap
-   valloc, zero-initialized slot bank).
+   slot_ctx is a valid initialized slot context.
 
-   valloc should have enough space to buffer the snapshot's manifest.
+   spad should have enough space to buffer the snapshot's manifest.
 
    If verify_hash!=0 calculates the snapshot hash.
 
@@ -71,7 +70,7 @@ fd_snapshot_load_new( uchar *                mem,
                       uint                   verify_hash,
                       uint                   check_hash,
                       int                    snapshot_type,
-                      fd_valloc_t            valloc );
+                      fd_spad_t *            spad );
 
 void
 fd_snapshot_load_init( fd_snapshot_load_ctx_t * ctx );
@@ -96,7 +95,7 @@ fd_snapshot_load_all( const char *         source_cstr,
                       uint                 verify_hash,
                       uint                 check_hash,
                       int                  snapshot_type,
-                      fd_valloc_t          valloc );
+                      fd_spad_t *          spad );
 
 void
 fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx );

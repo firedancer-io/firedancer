@@ -45,11 +45,6 @@ typedef int (* fd_exec_instr_fn_t)( fd_exec_instr_ctx_t * ctx );
 fd_exec_instr_fn_t
 fd_executor_lookup_native_program( fd_borrowed_account_t const * account );
 
-/* TODO:FIXME: add documentation here */
-
-int
-fd_validate_fee_payer( fd_borrowed_account_t * account, fd_rent_t const * rent, ulong fee );
-
 int
 fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx );
 
@@ -57,7 +52,7 @@ int
 fd_executor_verify_precompiles( fd_exec_txn_ctx_t * txn_ctx );
 
 /* fd_execute_instr creates a new fd_exec_instr_ctx_t and performs
-   instruction processing.  Does fd_scratch allocations.  Returns an
+   instruction processing.  Does fd_spad_t allocations.  Returns an
    error code in FD_EXECUTOR_INSTR_{ERR_{...},SUCCESS}.
 
    IMPORTANT: instr_info must have the same lifetime as txn_ctx. This can
@@ -89,14 +84,8 @@ fd_executor_txn_uses_sysvar_instructions( fd_exec_txn_ctx_t const * txn_ctx );
 int
 fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx );
 
-int
-fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
-
 void
 fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
-
-int
-fd_executor_is_system_nonce_account( fd_borrowed_account_t * account );
 
 /*
   Validate the txn after execution for violations of various lamport balance and size rules

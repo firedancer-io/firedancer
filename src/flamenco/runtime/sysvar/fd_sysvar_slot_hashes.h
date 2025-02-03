@@ -20,7 +20,7 @@ void fd_sysvar_slot_hashes_init( fd_exec_slot_ctx_t * slot_ctx, fd_slot_hashes_t
 
 /* Update the slot hashes sysvar account. This should be called at the end of every slot, before execution commences. */
 void
-fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc );
+fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad );
 
 /* fd_sysvar_slot_hashes_read reads the slot hashes sysvar from the
    accounts manager.  On success, returns 0 and writes deserialized
@@ -29,7 +29,7 @@ fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc 
 fd_slot_hashes_t *
 fd_sysvar_slot_hashes_read( fd_slot_hashes_t *   result,
                             fd_exec_slot_ctx_t * slot_ctx,
-                            fd_valloc_t          valloc );
+                            fd_spad_t *          runtime_spad );
 
 FD_PROTOTYPES_END
 

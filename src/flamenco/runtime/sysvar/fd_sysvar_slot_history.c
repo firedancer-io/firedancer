@@ -52,28 +52,28 @@ int fd_sysvar_slot_history_write_history( fd_exec_slot_ctx_t * slot_ctx,
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L16 */
 void
-fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc ) {
+fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   /* Create a new slot history instance */
-  fd_slot_history_t history = {0};
-  fd_slot_history_inner_t * inner = fd_valloc_malloc( valloc, 8UL, sizeof(fd_slot_history_inner_t) );
-  inner->blocks = fd_valloc_malloc( valloc, 8UL, sizeof(ulong) * blocks_len );
+  fd_slot_history_t         history = {0};
+  fd_slot_history_inner_t * inner   = fd_spad_alloc( runtime_spad, alignof(fd_slot_history_inner_t), sizeof(fd_slot_history_inner_t) );
+  inner->blocks = fd_spad_alloc( runtime_spad, alignof(ulong), sizeof(ulong) * blocks_len );
   memset( inner->blocks, 0, sizeof(ulong) * blocks_len );
   inner->blocks_len = blocks_len;
   history.bits.bits = inner;
-  history.bits.len = slot_history_max_entries;
+  history.bits.len  = slot_history_max_entries;
 
   /* TODO: handle slot != 0 init case */
   fd_sysvar_slot_history_set( &history, slot_ctx->slot_bank.slot );
   history.next_slot = slot_ctx->slot_bank.slot + 1;
 
   fd_sysvar_slot_history_write_history( slot_ctx, &history );
-  fd_bincode_destroy_ctx_t ctx = { .valloc = valloc };
+  fd_bincode_destroy_ctx_t ctx = { .valloc = fd_spad_virtual( runtime_spad ) };
   fd_slot_history_destroy( &history, &ctx );
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2345 */
 int
-fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc ) {
+fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   /* Set current_slot, and update next_slot */
 
   fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
@@ -86,7 +86,7 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc
   fd_bincode_decode_ctx_t ctx;
   ctx.data    = rec->const_data;
   ctx.dataend = rec->const_data + rec->const_meta->dlen;
-  ctx.valloc  = valloc;
+  ctx.valloc  = fd_spad_virtual( runtime_spad );
   fd_slot_history_t history[1];
   if( fd_slot_history_decode( history, &ctx ) )
     FD_LOG_ERR(("fd_slot_history_decode failed"));
@@ -116,7 +116,7 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc
   rec->meta->dlen = sz;
   fd_memcpy( rec->meta->info.owner, fd_sysvar_owner_id.key, sizeof(fd_pubkey_t) );
 
-  fd_bincode_destroy_ctx_t ctx_d = { .valloc = valloc };
+  fd_bincode_destroy_ctx_t ctx_d = { .valloc = fd_spad_virtual( runtime_spad ) };
   fd_slot_history_destroy( history, &ctx_d );
 
   return 0;
@@ -124,8 +124,8 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc
 
 int
 fd_sysvar_slot_history_read( fd_exec_slot_ctx_t * slot_ctx,
-                            fd_valloc_t valloc,
-                            fd_slot_history_t * out_history) {
+                             fd_spad_t *          runtime_spad,
+                             fd_slot_history_t *  out_history ) {
   /* Set current_slot, and update next_slot */
 
   fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
@@ -138,7 +138,7 @@ fd_sysvar_slot_history_read( fd_exec_slot_ctx_t * slot_ctx,
   fd_bincode_decode_ctx_t ctx;
   ctx.data    = rec->const_data;
   ctx.dataend = rec->const_data + rec->const_meta->dlen;
-  ctx.valloc  = valloc;
+  ctx.valloc  = fd_spad_virtual( runtime_spad );
   if( fd_slot_history_decode( out_history, &ctx ) )
     FD_LOG_ERR(("fd_slot_history_decode failed"));
 

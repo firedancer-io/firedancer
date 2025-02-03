@@ -221,6 +221,8 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
    TODO: If account lock limits are increased to 128, this macro will need to be updated. */
 #define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ    FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT(64UL, 0)
 #define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT(64UL, 0)
+/* TODO: Update this value once the bound is calculated correctly. */
+#define FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT               (45000000000UL)
 
 /* The below macros aren't used anywhere, but since the spads are used for PoH tick verification, 
    we ensure that the default spad size is large enough for the wbmtree and leaves */
@@ -293,7 +295,9 @@ fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
                                     ulong * out_max_tick_height /* out */ );
 
 void
-fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx, ulong slot );
+fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx,
+                           ulong                slot,
+                           fd_spad_t *          runtime_spad );
 
 int
 fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx );
@@ -331,8 +335,8 @@ fd_runtime_collect_rent_from_account( fd_exec_slot_ctx_t const * slot_ctx,
 ulong
 fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
                                ulong             slot,
-                               uchar *           scratch_mem,
-                               ulong             scratch_sz,
+                               uchar *           block_data_mem,
+                               ulong             block_data_sz,
                                ulong             tick_height,
                                ulong             max_tick_height,
                                ulong             hashes_per_tick );
@@ -353,14 +357,14 @@ fd_runtime_microblock_verify_ticks( fd_exec_slot_ctx_t *        slot_ctx,
 
 int
 fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
-                                  fd_valloc_t          valloc );
+                                  fd_spad_t *          runtime_spad );
 
 int
 fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t *    slot_ctx,
                                          fd_capture_ctx_t *      capture_ctx,
                                          fd_block_info_t const * block_info,
                                          fd_tpool_t *            tpool,
-                                         fd_valloc_t             valloc );
+                                         fd_spad_t *             runtime_spad );
 
 /* Transaction Level Execution Management *************************************/
 
@@ -372,7 +376,8 @@ int
 fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
                                fd_execute_txn_task_info_t * task_info,
                                fd_txn_p_t *                 txns,
-                               ulong                        txn_cnt );
+                               ulong                        txn_cnt,
+                               fd_spad_t *                  runtime_spad );
 
 void
 fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info );
@@ -382,22 +387,23 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info );
    transactions on a single core. */
 int
 fd_runtime_process_txns( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_spad_t *          spad,
+                         fd_spad_t *          exec_spad,
                          fd_capture_ctx_t *   capture_ctx,
                          fd_txn_p_t *         txns,
                          ulong                txn_cnt );
 
 /* fd_runtime_execute_txns_in_waves_tpool is responsible for end-to-end
    preparing, executing and finalizng a list of transactions. It will schedule
-   out a set of transactions to maximize parallelism*/
+   out a set of transactions to maximize parallelism. */
 int
 fd_runtime_process_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                         fd_capture_ctx_t *   capture_ctx,
                                         fd_txn_p_t *         txns,
                                         ulong                txn_cnt,
                                         fd_tpool_t *         tpool,
-                                        fd_spad_t * *        spads, 
-                                        ulong                spads_cnt );
+                                        fd_spad_t * *        exec_spads,
+                                        ulong                exec_spads_cnt,
+                                        fd_spad_t *          runtime_spad );
 
 /* fd_runtime_process_txns and fd_runtime_execute_txns_in_waves_tpool are 
    both entrypoints for executing transactions. Currently, the former is used
@@ -424,23 +430,14 @@ fd_runtime_is_epoch_boundary( fd_epoch_bank_t * epoch_bank,
  */
 int
 fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
-                                                fd_valloc_t          valloc );
+                                                fd_spad_t *          runtime_spad );
 
 /* Debugging Tools ************************************************************/
 
 void
-fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,
+fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
                     fd_exec_slot_ctx_t * slot_ctx,
-                    ulong slot );
-
-/* TODO: This logic is very old and likely needs to be reworked to work with the
-   snapshot service. It is not being removed as the logic can probably reused
-   for snapshot minimization. */
-
-void
-fd_runtime_collect_rent_accounts_prune( ulong slot,
-                                        fd_exec_slot_ctx_t * slot_ctx,
-                                        fd_capture_ctx_t * capture_ctx );
+                    ulong                slot );
 
 /* Block Parsing **************************************************************/
 
@@ -470,7 +467,7 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
                              ulong *              txn_cnt,
                              fd_spad_t * *        spads,
                              ulong                spads_cnt,
-                             fd_valloc_t          valloc );
+                             fd_spad_t *          runtime_spad );
 
 /* Genesis ********************************************************************/
 
@@ -480,7 +477,7 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
                          uchar                is_snapshot,
                          fd_capture_ctx_t *   capture_ctx,
                          fd_tpool_t *         tpool,
-                         fd_valloc_t          valloc );
+                         fd_spad_t *          spad );
 
 FD_PROTOTYPES_END
 

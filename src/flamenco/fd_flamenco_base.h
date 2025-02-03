@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_flamenco_fd_flamenco_base_h
 #define HEADER_fd_src_flamenco_fd_flamenco_base_h
 
-#include "../util/scratch/fd_scratch.h"
 #include "../ballet/base58/fd_base58.h"
 #include "../ballet/sha256/fd_sha256.h"
 #include "types/fd_types_custom.h"

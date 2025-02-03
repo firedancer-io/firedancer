@@ -233,18 +233,21 @@ calculate_heap_cost( ulong heap_size, ulong heap_cost, int * err ) {
    for how we handle the concept of 'LoadedProgramType::DelayVisibility' in Firedancer.
 
    As a concrete example, our version of deploy_program does not have the
-   'account_size' argument because we do not update the funk record here. */
+   'account_size' argument because we do not update the funk record here.
+   
+   The spad used for allocations can be either scoped to the executor or the 
+   runtime depending on where it is called from. If a program is deployed from
+   the v3 contract, then the executor spad should be used. */
 int
 fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
                    uchar const *         programdata,
                    ulong                 programdata_size,
-                   fd_valloc_t           valloc /* Majority of use cases this is a txn ctx spad under the hood; for native to bpf migration this is scratch backed since it's an epoch level event. */
-              ) {
+                   fd_spad_t *           spad ) {
   int deploy_mode    = 1;
   int direct_mapping = FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, bpf_account_data_direct_mapping );
-  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( valloc,
-                                                                          fd_sbpf_syscalls_align(),
-                                                                          fd_sbpf_syscalls_footprint() ) );
+  fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_spad_alloc( spad,
+                                                                       fd_sbpf_syscalls_align(),
+                                                                       fd_sbpf_syscalls_footprint() ) );
   if( FD_UNLIKELY( !syscalls ) ) {
     //TODO: full log including err
     fd_log_collector_msg_literal( instr_ctx, "Failed to register syscalls" );
@@ -264,7 +267,7 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   }
 
   /* Allocate rodata segment */
-  void * rodata = fd_valloc_malloc( valloc, FD_SBPF_PROG_RODATA_ALIGN, elf_info->rodata_footprint );
+  void * rodata = fd_spad_alloc( spad, FD_SBPF_PROG_RODATA_ALIGN, elf_info->rodata_footprint );
   if( FD_UNLIKELY( !rodata ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -272,7 +275,7 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   /* Allocate program buffer */
   ulong  prog_align        = fd_sbpf_program_align();
   ulong  prog_footprint    = fd_sbpf_program_footprint( elf_info );
-  fd_sbpf_program_t * prog = fd_sbpf_program_new( fd_valloc_malloc( valloc, prog_align, prog_footprint ), elf_info, rodata );
+  fd_sbpf_program_t * prog = fd_sbpf_program_new( fd_spad_alloc( spad, prog_align, prog_footprint ), elf_info, rodata );
   if( FD_UNLIKELY( !prog ) ) {
     FD_LOG_ERR(( "fd_sbpf_program_new() failed: %s", fd_sbpf_strerror() ));
   }
@@ -532,8 +535,6 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
     return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
   }
 
-  fd_valloc_t valloc = fd_spad_virtual( instr_ctx->txn_ctx->spad );
-
 #ifdef FD_DEBUG_SBPF_TRACES
   uchar * signature = (uchar*)vm->instr_ctx->txn_ctx->_txn_raw->raw + vm->instr_ctx->txn_ctx->txn_descriptor->signature_off;
   uchar sig[64];
@@ -542,8 +543,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
   if( FD_UNLIKELY( !memcmp( signature, sig, 64UL ) ) ) {
     ulong event_max = FD_RUNTIME_VM_TRACE_EVENT_MAX;
     ulong event_data_max = FD_RUNTIME_VM_TRACE_EVENT_DATA_MAX;
-    vm->trace = fd_vm_trace_join( fd_vm_trace_new( fd_valloc_malloc(
-    valloc, fd_vm_trace_align(), fd_vm_trace_footprint( event_max, event_data_max ) ), event_max, event_data_max ) );
+    vm->trace = fd_vm_trace_join( fd_vm_trace_new( fd_spad_alloc(
+    instr_ctx->txn_ctx->spad, fd_vm_trace_align(), fd_vm_trace_footprint( event_max, event_data_max ) ), event_max, event_data_max ) );
     if( FD_UNLIKELY( !vm->trace ) ) FD_LOG_ERR(( "unable to create trace; make sure you've compiled with sufficient spad size " ));
   }
 #endif
@@ -577,7 +578,6 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_WARNING(( "fd_vm_trace_printf failed (%i-%s)", err, fd_vm_strerror( err ) ));
     }
-    fd_valloc_free( valloc, fd_vm_trace_delete( fd_vm_trace_leave( vm->trace ) ) );
   }
 
   /* Log consumed compute units and return data.
@@ -678,13 +678,12 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
 static int
 process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
   uchar const * data = instr_ctx->instr->data;
-  fd_valloc_t valloc = fd_spad_virtual( instr_ctx->txn_ctx->spad );
 
   fd_bpf_upgradeable_loader_program_instruction_t instruction = {0};
   fd_bincode_decode_ctx_t decode_ctx = {0};
   decode_ctx.data    = data;
   decode_ctx.dataend = &data[ instr_ctx->instr->data_sz > 1232UL ? 1232UL : instr_ctx->instr->data_sz ];
-  decode_ctx.valloc  = valloc;
+  decode_ctx.valloc  = fd_spad_virtual( instr_ctx->txn_ctx->spad );
 
   int err = fd_bpf_upgradeable_loader_program_instruction_decode( &instruction, &decode_ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
@@ -947,7 +946,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       instr.inner.create_account = create_acct;
 
       fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t*)
-                                                fd_valloc_malloc( valloc,
+                                                fd_spad_alloc( instr_ctx->txn_ctx->spad,
                                                                   FD_VM_RUST_ACCOUNT_META_ALIGN,
                                                                   3UL * sizeof(fd_vm_rust_account_meta_t) );
       fd_native_cpi_create_account_meta( payer_key,       1U, 1U, &acct_metas[ 0UL ] );
@@ -975,7 +974,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       const uchar * buffer_data = buffer->const_data + buffer_data_offset;
 
-      err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len, fd_spad_virtual( instr_ctx->txn_ctx->spad ) );
+      err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len, instr_ctx->txn_ctx->spad );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -1224,7 +1223,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       const uchar * buffer_data = buffer->const_data + buffer_data_offset;
-      err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len, fd_spad_virtual( instr_ctx->txn_ctx->spad ) );
+      err = fd_deploy_program( instr_ctx, buffer_data, buffer_data_len, instr_ctx->txn_ctx->spad );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -1713,7 +1712,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         };
 
         fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t *)
-                                                  fd_valloc_malloc( valloc,
+                                                  fd_spad_alloc( instr_ctx->txn_ctx->spad,
                                                                     FD_VM_RUST_ACCOUNT_META_ALIGN,
                                                                     2UL * sizeof(fd_vm_rust_account_meta_t) );
         fd_native_cpi_create_account_meta( payer_key,       1UL, 1UL, &acct_metas[ 0UL ] );
@@ -1743,7 +1742,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       uchar * programdata_data = programdata_account->data + PROGRAMDATA_METADATA_SIZE;
       ulong   programdata_size = new_len                   - PROGRAMDATA_METADATA_SIZE;
 
-      err = fd_deploy_program( instr_ctx, programdata_data, programdata_size, fd_spad_virtual( instr_ctx->txn_ctx->spad ) );
+      err = fd_deploy_program( instr_ctx, programdata_data, programdata_size, instr_ctx->txn_ctx->spad );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -1965,9 +1964,10 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 int
 fd_directly_invoke_loader_v3_deploy( fd_exec_slot_ctx_t * slot_ctx,
                                      uchar const *        elf,
-                                     ulong                elf_sz ) {
+                                     ulong                elf_sz,
+                                     fd_spad_t *          runtime_spad ) {
   /* Set up a dummy instr and txn context */
-  fd_exec_txn_ctx_t * txn_ctx = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( fd_scratch_alloc( FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT ) ) );
+  fd_exec_txn_ctx_t * txn_ctx = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( fd_spad_alloc( runtime_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT ) ) );
   fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx, txn_ctx );
   fd_exec_txn_ctx_setup_basic( txn_ctx );
   txn_ctx->instr_stack_sz = 1;
@@ -1985,5 +1985,5 @@ fd_directly_invoke_loader_v3_deploy( fd_exec_slot_ctx_t * slot_ctx,
     .child_cnt = 0U,
   };
 
-  return fd_deploy_program( instr_ctx, elf, elf_sz, fd_scratch_virtual() );
+  return fd_deploy_program( instr_ctx, elf, elf_sz, runtime_spad );
 }

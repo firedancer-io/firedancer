@@ -1,4 +1,3 @@
-#define FD_SCRATCH_USE_HANDHOLDING 1
 #include <limits.h>
 
 #include "../../../util/bits/fd_sat.h"
@@ -129,14 +128,14 @@ typedef struct effective_activating effective_activating_t;
 
 static int
 get_state( fd_borrowed_account_t const * self,
-           fd_valloc_t                   valloc,
+           fd_spad_t *                   spad,
            fd_stake_state_v2_t *         out ) {
   int rc;
 
   fd_bincode_decode_ctx_t bincode_ctx;
   bincode_ctx.data    = self->const_data;
   bincode_ctx.dataend = self->const_data + self->const_meta->dlen;
-  bincode_ctx.valloc  = valloc; /* No real allocation from this valloc. */
+  bincode_ctx.valloc  = fd_spad_virtual( spad ); /* No real allocation from this valloc. */
 
   rc = fd_stake_state_v2_decode( out, &bincode_ctx );
   if( FD_UNLIKELY( rc!=FD_BINCODE_SUCCESS ) ) return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -1223,7 +1222,7 @@ initialize( fd_exec_instr_ctx_t const *   ctx,
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L224
   fd_stake_state_v2_t stake_state = {0};
   do {
-    int rc = get_state( stake_account, fd_spad_virtual( ctx->txn_ctx->spad ), &stake_state );
+    int rc = get_state( stake_account, ctx->txn_ctx->spad, &stake_state );
     if( FD_UNLIKELY( rc ) ) return rc;
   } while(0);
 
@@ -1266,7 +1265,7 @@ authorize( fd_exec_instr_ctx_t const *   ctx,
   int                 rc;
   fd_stake_state_v2_t stake_state = {0};
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L251
-  rc = get_state( stake_account, fd_spad_virtual( ctx->txn_ctx->spad ), &stake_state );
+  rc = get_state( stake_account, ctx->txn_ctx->spad, &stake_state );
   if( FD_UNLIKELY( rc ) ) return rc;
   switch( stake_state.discriminant ) {
   /* FIXME check if the compiler can optimize away branching (given the layout of `meta` in both
@@ -1365,8 +1364,6 @@ delegate( fd_exec_instr_ctx_t const *   ctx,
           fd_pubkey_t const *           signers[static FD_TXN_SIG_MAX] ) {
   int rc;
 
-  fd_valloc_t valloc = fd_spad_virtual( ctx->txn_ctx->spad );
-
   fd_pubkey_t const * vote_pubkey;
   fd_vote_state_versioned_t vote_state = {0};
   int vote_get_state_rc;
@@ -1379,7 +1376,7 @@ delegate( fd_exec_instr_ctx_t const *   ctx,
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L3326
   vote_pubkey = vote_account->pubkey;
   // https://github.com/anza-xyz/agave/blob/a60fbc2288d626a4f1846052c8fcb98d3f9ea58d/programs/stake/src/stake_state.rs#L327
-  vote_get_state_rc = fd_vote_get_state( vote_account, valloc, &vote_state );
+  vote_get_state_rc = fd_vote_get_state( vote_account, ctx->txn_ctx->spad, &vote_state );
 
   } FD_BORROWED_ACCOUNT_DROP( vote_account );
 
@@ -1387,7 +1384,7 @@ delegate( fd_exec_instr_ctx_t const *   ctx,
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L330
   FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, stake_account_index, stake_account ) {
   
-  rc = get_state( stake_account, fd_spad_virtual( ctx->txn_ctx->spad ), &stake_state );
+  rc = get_state( stake_account, ctx->txn_ctx->spad, &stake_state );
   if( FD_UNLIKELY( rc ) ) return rc;
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L332
@@ -1409,7 +1406,7 @@ delegate( fd_exec_instr_ctx_t const *   ctx,
     ulong stake_amount = validated_delegated_info.stake_amount;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L340
     if( FD_UNLIKELY( vote_get_state_rc ) ) return vote_get_state_rc;
-    fd_vote_convert_to_current( &vote_state, valloc ); // FIXME
+    fd_vote_convert_to_current( &vote_state, ctx->txn_ctx->spad ); // FIXME
     fd_stake_t stake =
         new_stake( stake_amount, vote_pubkey, &vote_state.inner.current, clock->epoch );
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L343
@@ -1439,7 +1436,7 @@ delegate( fd_exec_instr_ctx_t const *   ctx,
     ulong stake_amount = validated_delegated_info.stake_amount;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L354
     if( FD_UNLIKELY( vote_get_state_rc ) ) return vote_get_state_rc;
-    fd_vote_convert_to_current( &vote_state, valloc );
+    fd_vote_convert_to_current( &vote_state, ctx->txn_ctx->spad );
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L349
     rc = redelegate_stake( ctx,
                            &stake,
@@ -1477,7 +1474,7 @@ deactivate( fd_exec_instr_ctx_t const *   ctx,
   int rc;
 
   fd_stake_state_v2_t state = {0};
-  rc                        = get_state( stake_account, fd_spad_virtual( ctx->txn_ctx->spad ), &state );
+  rc                        = get_state( stake_account, ctx->txn_ctx->spad, &state );
   if( FD_UNLIKELY( rc ) ) return rc;
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L370
@@ -1511,7 +1508,7 @@ set_lockup( fd_exec_instr_ctx_t const *   ctx,
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L385
   fd_stake_state_v2_t state = {0};
-  rc = get_state( stake_account, fd_spad_virtual( ctx->txn_ctx->spad ), &state );
+  rc = get_state( stake_account, ctx->txn_ctx->spad, &state );
   if( FD_UNLIKELY( rc ) ) return rc;
 
   switch( state.discriminant ) {
@@ -1558,7 +1555,7 @@ split( fd_exec_instr_ctx_t const * ctx,
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L415
   fd_stake_state_v2_t split_get_state = {0};
-  rc = get_state( split, fd_spad_virtual( ctx->txn_ctx->spad ), &split_get_state );
+  rc = get_state( split, ctx->txn_ctx->spad , &split_get_state );
   if( FD_UNLIKELY( rc ) ) return rc;
   if( FD_UNLIKELY( split_get_state.discriminant!=fd_stake_state_v2_enum_uninitialized ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -1576,7 +1573,7 @@ split( fd_exec_instr_ctx_t const * ctx,
   if( FD_UNLIKELY( lamports>stake_account->const_meta->info.lamports ) )
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
     
-  rc = get_state( stake_account, fd_spad_virtual( ctx->txn_ctx->spad ), &stake_state );
+  rc = get_state( stake_account, ctx->txn_ctx->spad, &stake_state );
   if( FD_UNLIKELY( rc ) ) return rc;
 
   } FD_BORROWED_ACCOUNT_DROP( stake_account );
@@ -1796,7 +1793,7 @@ merge( fd_exec_instr_ctx_t *         ctx, // not const to log
   FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, stake_account_index, stake_account  ) {
 
   fd_stake_state_v2_t stake_account_state = {0};
-  rc = get_state( stake_account, fd_spad_virtual( ctx->txn_ctx->spad ), &stake_account_state );
+  rc = get_state( stake_account, ctx->txn_ctx->spad, &stake_account_state );
   if( FD_UNLIKELY( rc ) ) return rc;
 
   merge_kind_t stake_merge_kind = {0};
@@ -1818,7 +1815,7 @@ merge( fd_exec_instr_ctx_t *         ctx, // not const to log
     return rc;
 
   fd_stake_state_v2_t source_account_state = {0};
-  rc = get_state( source_account, fd_spad_virtual( ctx->txn_ctx->spad ), &source_account_state );
+  rc = get_state( source_account, ctx->txn_ctx->spad, &source_account_state );
   if( FD_UNLIKELY( rc ) ) return rc;
 
   merge_kind_t source_merge_kind = {0};
@@ -1919,7 +1916,7 @@ move_stake_or_lamports_shared_checks( fd_exec_instr_ctx_t *   invoke_context, //
 
     // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_state.rs#L182
     fd_stake_state_v2_t source_account_state = {0};
-    rc = get_state( source_account, fd_spad_virtual( invoke_context->txn_ctx->spad ), &source_account_state );
+    rc = get_state( source_account, invoke_context->txn_ctx->spad, &source_account_state );
     if( FD_UNLIKELY( rc ) ) return rc;
 
     rc = get_if_mergeable( invoke_context,
@@ -1937,7 +1934,7 @@ move_stake_or_lamports_shared_checks( fd_exec_instr_ctx_t *   invoke_context, //
 
     // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_state.rs#L197
     fd_stake_state_v2_t destination_account_state = {0};
-    rc = get_state( destination_account, fd_spad_virtual( invoke_context->txn_ctx->spad ), &destination_account_state );
+    rc = get_state( destination_account, invoke_context->txn_ctx->spad, &destination_account_state );
     if( FD_UNLIKELY( rc ) ) return rc;
 
     rc = get_if_mergeable( invoke_context,
@@ -2204,7 +2201,7 @@ withdraw( fd_exec_instr_ctx_t const *   ctx,
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L821
   fd_stake_state_v2_t stake_state = {0};
-  rc = get_state( stake_account, fd_spad_virtual( ctx->txn_ctx->spad ), &stake_state );
+  rc = get_state( stake_account, ctx->txn_ctx->spad, &stake_state );
   if( FD_UNLIKELY( rc ) ) return rc;
 
   fd_stake_lockup_t lockup;
@@ -2345,8 +2342,6 @@ deactivate_delinquent( fd_exec_instr_ctx_t *   ctx,
                        uint *                  custom_err ) {
   int rc;
 
-  fd_valloc_t valloc = fd_spad_virtual( ctx->txn_ctx->spad );
-
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L911
   fd_pubkey_t const * delinquent_vote_account_pubkey =
       &ctx->instr->acct_pubkeys[delinquent_vote_account_index];
@@ -2360,9 +2355,9 @@ deactivate_delinquent( fd_exec_instr_ctx_t *   ctx,
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L920-L922
   fd_vote_state_versioned_t delinquent_vote_state_versioned = {0};
-  rc = fd_vote_get_state( delinquent_vote_account, valloc, &delinquent_vote_state_versioned );
+  rc = fd_vote_get_state( delinquent_vote_account, ctx->txn_ctx->spad, &delinquent_vote_state_versioned );
   if( FD_UNLIKELY( rc ) ) return rc;
-  fd_vote_convert_to_current( &delinquent_vote_state_versioned, valloc );
+  fd_vote_convert_to_current( &delinquent_vote_state_versioned, ctx->txn_ctx->spad );
   fd_vote_state_t delinquent_vote_state = delinquent_vote_state_versioned.inner.current;
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L924
@@ -2374,9 +2369,9 @@ deactivate_delinquent( fd_exec_instr_ctx_t *   ctx,
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L929-L932
   fd_vote_state_versioned_t reference_vote_state_versioned = {0};
-  rc = fd_vote_get_state( reference_vote_account, valloc, &reference_vote_state_versioned );
+  rc = fd_vote_get_state( reference_vote_account, ctx->txn_ctx->spad, &reference_vote_state_versioned );
   if( FD_UNLIKELY( rc ) ) return rc;
-  fd_vote_convert_to_current( &reference_vote_state_versioned, valloc );
+  fd_vote_convert_to_current( &reference_vote_state_versioned, ctx->txn_ctx->spad );
   fd_vote_state_t reference_vote_state = reference_vote_state_versioned.inner.current;
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L933
@@ -2386,7 +2381,7 @@ deactivate_delinquent( fd_exec_instr_ctx_t *   ctx,
   }
 
   fd_stake_state_v2_t stake_state = {0};
-  rc = get_state( stake_account, fd_spad_virtual( ctx->txn_ctx->spad ), &stake_state );
+  rc = get_state( stake_account, ctx->txn_ctx->spad, &stake_state );
   if( FD_UNLIKELY( rc ) ) return rc;
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L937
   if( FD_LIKELY( stake_state.discriminant==fd_stake_state_v2_enum_stake ) ) {
@@ -2492,9 +2487,8 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L79
   fd_spad_t * spad = ctx->txn_ctx->spad;
-  fd_valloc_t valloc = fd_spad_virtual( spad );
   fd_bincode_decode_ctx_t decode =
-    { .valloc  = valloc,
+    { .valloc  = fd_spad_virtual( spad ),
       .data    = ctx->instr->data,
       .dataend = ctx->instr->data + ctx->instr->data_sz };
 
@@ -3174,9 +3168,9 @@ fd_stake_program_config_init( fd_exec_slot_ctx_t * slot_ctx ) {
 
 int
 fd_stake_get_state( fd_borrowed_account_t const * self,
-                    fd_valloc_t                   valloc,
+                    fd_spad_t *                   spad,
                     fd_stake_state_v2_t *         out ) {
-  return get_state( self, valloc, out );
+  return get_state( self, spad, out );
 }
 
 fd_stake_history_entry_t

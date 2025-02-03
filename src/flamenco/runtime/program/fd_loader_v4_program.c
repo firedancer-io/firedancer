@@ -420,7 +420,7 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
        end of the slot. Since programs cannot be invoked until the next slot anyways, doing this is okay.
 
        https://github.com/anza-xyz/agave/blob/09ef71223b24e30e59eaeaf5eb95e85f222c7de1/programs/loader-v4/src/lib.rs#L262-L269 */
-    err = fd_deploy_program( instr_ctx, programdata, buffer->const_meta->dlen - LOADER_V4_PROGRAM_DATA_OFFSET, fd_spad_virtual( instr_ctx->txn_ctx->spad ) );
+    err = fd_deploy_program( instr_ctx, programdata, buffer->const_meta->dlen - LOADER_V4_PROGRAM_DATA_OFFSET, instr_ctx->txn_ctx->spad );
     if( FD_UNLIKELY( err ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }

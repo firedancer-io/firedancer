@@ -51,17 +51,20 @@ fd_sbpf_validated_program_from_sbpf_program( fd_sbpf_program_t const *     prog,
 
 int
 fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
-                                                fd_funk_txn_t *      funk_txn );
+                                                fd_funk_txn_t *      funk_txn,
+                                                fd_spad_t *          runtime_spad );
 
 int
 fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
                                                  fd_funk_txn_t *      funk_txn,
-                                                 fd_pubkey_t const *  pubkey );
+                                                 fd_pubkey_t const *  pubkey,
+                                                 fd_spad_t *          runtime_spad );
 
 int
 fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                                       fd_funk_txn_t *      funk_txn,
-                                                      fd_tpool_t *         tpool );
+                                                      fd_tpool_t *         tpool,
+                                                      fd_spad_t *          runtime_spad );
 
 int
 fd_bpf_load_cache_entry( fd_exec_slot_ctx_t const *     slot_ctx,

@@ -18,7 +18,7 @@ fd_epoch_leaders_footprint( ulong pub_cnt,
 }
 
 void *
-fd_epoch_leaders_new( void                    * shmem,
+fd_epoch_leaders_new( void  *                   shmem,
                       ulong                     epoch,
                       ulong                     slot0,
                       ulong                     slot_cnt,

@@ -41,7 +41,7 @@ fd_runtime_save_epoch_bank_archival( fd_exec_slot_ctx_t * slot_ctx );
    snapshot. */
 
 void
-fd_features_restore( fd_exec_slot_ctx_t * slot_ctx );
+fd_features_restore( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad );
 
 /* Recover slot_bank and epoch_bank from funk. */
 
@@ -49,11 +49,11 @@ void
 fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, 
                           int                  delete_first, 
                           int                  clear_first,
-                          fd_valloc_t          valloc );
+                          fd_spad_t *          runtime_spad );
 
 void
 fd_runtime_delete_banks( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_valloc_t          valloc );
+                         fd_spad_t *          runtime_spad );
 
 FD_PROTOTYPES_END
 
