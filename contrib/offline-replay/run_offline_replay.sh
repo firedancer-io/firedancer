@@ -180,6 +180,7 @@ while true; do
                 --slot-history 5000 \
                 --copy-txn-status 0 \
                 --allocator wksp \
+                --thread-mem-bound 0 \
                 --on-demand-block-ingest 1 \
                 --tile-cpus 5-21 >> $LOG 2>&1
             status=$?
