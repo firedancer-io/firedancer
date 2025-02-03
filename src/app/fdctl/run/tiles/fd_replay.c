@@ -1275,8 +1275,17 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
     is_new_epoch_in_new_block = (int)fd_runtime_is_epoch_boundary( epoch_bank, fork->slot_ctx.slot_bank.slot, fork->slot_ctx.slot_bank.prev_slot );
   }
 
+  fd_blockstore_start_write( ctx->blockstore );
+  fd_block_map_t * curr_block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, ctx->curr_slot );
+  curr_block_map_entry->in_poh_hash = fork->slot_ctx.slot_bank.poh;
+  fd_blockstore_end_write( ctx->blockstore );
+
   fork->slot_ctx.slot_bank.prev_slot   = fork->slot_ctx.slot_bank.slot;
   fork->slot_ctx.slot_bank.slot        = curr_slot;
+  fork->slot_ctx.slot_bank.tick_height = fork->slot_ctx.slot_bank.max_tick_height;
+  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height( epoch_bank->ticks_per_slot, curr_slot, &fork->slot_ctx.slot_bank.max_tick_height ) ) ) {
+    FD_LOG_ERR(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", curr_slot, epoch_bank->ticks_per_slot ));
+  }
   fork->slot_ctx.enable_exec_recording = ctx->tx_metadata_storage;
 
   if( fd_runtime_is_epoch_boundary( epoch_bank, fork->slot_ctx.slot_bank.slot, fork->slot_ctx.slot_bank.prev_slot ) ) {
@@ -1313,9 +1322,6 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_block_pre_execute_process_new_epoch( &fork->slot_ctx, ctx->valloc ) ) ) {
     FD_LOG_ERR(( "couldn't process new epoch" ));
   }
-
-  fd_blockstore_start_read( ctx->blockstore );
-  fd_blockstore_end_read( ctx->blockstore );
 
   int res = fd_runtime_block_execute_prepare( &fork->slot_ctx, ctx->valloc );
   if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
@@ -1465,10 +1471,15 @@ process_mbatch( fd_replay_tile_ctx_t * ctx, bool last_batch ){
 
   fd_blockstore_start_read( ctx->blockstore );
   fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, ctx->curr_slot );
+  fd_hash_t *          in_poh_hash = &block_map_entry->in_poh_hash;
   fd_blockstore_end_read( ctx->blockstore );
 
-  ulong         micro_cnt = FD_LOAD( ulong, ctx->mbatch );
-  fd_hash_t * in_poh_hash = &block_map_entry->in_poh_hash;
+  ulong micro_cnt = FD_LOAD( ulong, ctx->mbatch );
+
+  if( FD_UNLIKELY( !micro_cnt ) ) { /* in the case of zero padding */
+    FD_LOG_DEBUG(( "No microblocks in batch" ));
+    return 0;
+  }
 
   ulong worker_cnt = fd_tpool_worker_cnt( ctx->tpool );
   fd_poh_verifier_t  poh_info[ worker_cnt ];      /* variable length alloc on the stack, but worker_cnt is guaranteed to be small */
@@ -1479,7 +1490,7 @@ process_mbatch( fd_replay_tile_ctx_t * ctx, bool last_batch ){
   ulong          worker_idx = 0;
   ulong     prev_worker_idx = ULONG_MAX; // the worker of the previous microblock
   ulong    curr_microblk_sz = 0;
-  for ( ulong i = 0; i < micro_cnt; i++ ){
+  for ( ulong i = 0UL; i < micro_cnt; i++ ){
     hdr  = (fd_microblock_hdr_t *)fd_type_pun( ctx->mbatch + off );
     off += sizeof(fd_microblock_hdr_t);
     curr_microblk_sz = sizeof(fd_microblock_hdr_t);;
@@ -1572,7 +1583,6 @@ process_mbatch( fd_replay_tile_ctx_t * ctx, bool last_batch ){
   }
 
   /* verify the last microblock that wasn't done in the loop */
-  wait_and_check_success( worker_idx );
   fd_tpool_exec( ctx->tpool, worker_idx,
                  poh_verify_task,
                  poh_info,
@@ -1580,24 +1590,17 @@ process_mbatch( fd_replay_tile_ctx_t * ctx, bool last_batch ){
                  worker_idx, 
                  0UL, 0UL, 0UL );
 
-  for( ulong i = 1; i < fd_tpool_worker_cnt( ctx->tpool ); i++){
+  for( ulong i = 1UL; i < fd_tpool_worker_cnt( ctx->tpool ); i++ ){
     wait_and_check_success( i );
   }
   fd_blockstore_start_write( ctx->blockstore );
-  block_map_entry->in_poh_hash = *(fd_hash_t *)hdr->hash;
+  block_map_entry->in_poh_hash = *(fd_hash_t *)fd_type_pun( hdr->hash );
   fd_blockstore_end_write( ctx->blockstore );
   return 0;
 }
 
 static void
-prepare_first_batch_execution( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem, fd_block_map_t * curr_block_map_entry ){
-  /* normally in prepare_new_block_execution */
-  ctx->slot_ctx->slot_bank.tick_height = ctx->slot_ctx->slot_bank.max_tick_height;
-  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height( ctx->slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot, ctx->curr_slot, &ctx->slot_ctx->slot_bank.max_tick_height ) ) ) {
-    FD_LOG_ERR(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", ctx->curr_slot, ctx->slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot ));
-  }
-  curr_block_map_entry->in_poh_hash = ctx->slot_ctx->slot_bank.poh;
-
+prepare_first_batch_execution( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ){
   ulong curr_slot   = ctx->curr_slot;
   ulong parent_slot = ctx->parent_slot;
   ulong flags       = ctx->flags;
@@ -1644,6 +1647,7 @@ prepare_first_batch_execution( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * s
   if( fork == NULL ) {
     fork = prepare_new_block_execution( ctx, stem, curr_slot, flags );
   }
+  ctx->slot_ctx = &fork->slot_ctx;
 
   /**********************************************************************/
   /* Get the solcap context for replaying curr_slot                     */
@@ -1709,7 +1713,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       /* If this is the first batch being verified of this block, need to populate the slot_bank's tick height for tick verification */
       if( FD_UNLIKELY( block_map_entry->replayed_idx + 1 == 0 ) ){
         FD_LOG_NOTICE(("Preparing first batch execution of slot %lu", ctx->curr_slot));
-        prepare_first_batch_execution( ctx, stem, block_map_entry );
+        prepare_first_batch_execution( ctx, stem );
       }
 
       /* End setup */
