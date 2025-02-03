@@ -25,8 +25,18 @@
 #define FD_GOSSIP_PULL_TIMEOUT ((ulong)(15e3))   /* 15 seconds */
 /* Max number of validators that can be actively pinged */
 #define FD_ACTIVE_KEY_MAX (1<<8)
-/* Max number of values that can be remembered */
-#define FD_VALUE_KEY_MAX (1<<16)
+
+/* Max number of CRDS values that can be remembered.
+
+   As of 2.1.11 on 02/05/2025, Agave value table (approx) sizes on an unstaked node:
+   | cluster  | num entries | num total (incl. purged)|
+   | testnet  | ~800k       | 1.4m                    |
+   | mainnet  | ~750k       | 1m                      |
+
+   Purged values are counted because:
+    - Our table (currently) does not "purge" values in the same sense Agave does
+    - Purged values are included in bloom filter construction, so we need them anyway */
+#define FD_VALUE_KEY_MAX (1<<21)
 /* Max number of pending timed events */
 #define FD_PENDING_MAX (1<<9)
 /* Number of bloom filter bits in an outgoing pull request packet */
