@@ -42,7 +42,7 @@
 #define FD_BLOCKSTORE_ARCHIVE_MIN_SIZE  (1UL << 26UL) /* 64MB := ceil(MAX_DATA_SHREDS_PER_SLOT*1228) */
 
 /* Maximum size of an entry batch is the entire block */
-#define FD_MBATCH_MAX (FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT)
+#define FD_SLICE_MAX (FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT)
 /* 64 ticks per slot, and then one min size transaction per microblock
    for all the remaining microblocks.
    This bound should be used along with the transaction parser and tick
@@ -62,8 +62,14 @@
 // https://github.com/firedancer-io/solana/blob/v1.17.5/core/src/repair/repair_service.rs#L55
 #define FD_REPAIR_TIMEOUT (200 / FD_MS_PER_TICK)
 
-#define FD_BLOCKSTORE_OK                  0
-#define FD_BLOCKSTORE_OK_SLOT_COMPLETE    1
+#define FD_BLOCKSTORE_SUCCESS                  0
+#define FD_BLOCKSTORE_SUCCESS_SLOT_COMPLETE    1
+#define FD_BLOCKSTORE_ERR_INVAL   (-1)
+#define FD_BLOCKSTORE_ERR_AGAIN   (-2)
+#define FD_BLOCKSTORE_ERR_CORRUPT (-3)
+#define FD_BLOCKSTORE_ERR_EMPTY   (-4)
+#define FD_BLOCKSTORE_ERR_FULL    (-5)
+#define FD_BLOCKSTORE_ERR_KEY     (-6)
 #define FD_BLOCKSTORE_ERR_SHRED_FULL      -1 /* no space left for shreds */
 #define FD_BLOCKSTORE_ERR_SLOT_FULL       -2 /* no space left for slots */
 #define FD_BLOCKSTORE_ERR_TXN_FULL        -3 /* no space left for txns */
@@ -74,6 +80,20 @@
 #define FD_BLOCKSTORE_ERR_DESHRED_INVALID -8 /* deshredded block was invalid */
 #define FD_BLOCKSTORE_ERR_NO_MEM          -9 /* no mem */
 #define FD_BLOCKSTORE_ERR_UNKNOWN         -99
+
+static inline char const * fd_blockstore_strerror( int err ) {
+  switch( err ) {
+  case FD_BLOCKSTORE_SUCCESS:     return "success";
+  case FD_BLOCKSTORE_ERR_INVAL:   return "bad input";
+  case FD_BLOCKSTORE_ERR_AGAIN:   return "try again";
+  case FD_BLOCKSTORE_ERR_CORRUPT: return "corruption detected";
+  case FD_BLOCKSTORE_ERR_EMPTY:   return "empty";
+  case FD_BLOCKSTORE_ERR_FULL:    return "full";
+  case FD_BLOCKSTORE_ERR_KEY:     return "key not found";
+  default: break;
+  }
+  return "unknown";
+}
 
 struct fd_shred_key {
   ulong slot;
@@ -116,6 +136,8 @@ struct __attribute__((aligned(128UL))) fd_buf_shred {
   ulong          prev;
   ulong          next;
   ulong          memo;
+  int            eqvoc; /* we've seen an equivocating version of this
+                             shred (same key but different payload). */
   union {
     fd_shred_t hdr;                  /* shred header */
     uchar      buf[FD_SHRED_MIN_SZ]; /* the entire shred buffer, both header and payload. */
@@ -279,11 +301,27 @@ struct fd_block_map {
   uchar     reference_tick; /* the tick when the leader prepared the block. */
   long      ts;             /* the wallclock time when we finished receiving the block. */
 
-  /* Windowing */
+  /* Windowing
 
-  uint consumed_idx; /* the highest shred idx we've contiguously received from idx 0 (inclusive). */
-  uint received_idx; /* the highest shred idx we've received + 1 (exclusive). */
-  uint replayed_idx; /* the highest shred idx we've replayed (inclusive). */
+     Shreds are buffered into a map as they are received:
+
+     | 0 | 1 | 2 | x | x | 5 | x |
+           ^   ^           ^
+           c   b           r
+
+     c = "consumed" = contiguous shred idxs that have been consumed.
+                      the "consumer" is replay and the idx is
+                      incremented after replaying each block slice.
+     b = "buffered" = contiguous shred idxs that have been buffered.
+                      when buffered == block_slice_end the next slice of
+                      a block is ready for replay.
+     r = "received" = highest shred idx received so far. used to detect
+                      when repair is needed.
+  */
+
+  uint consumed_idx; /* the highest shred idx we've contiguously consumed (consecutive from 0). */
+  uint buffered_idx; /* the highest shred idx we've contiguously buffered (consecutive from 0). */
+  uint received_idx; /* the highest shred idx we've received (can be out-of-order). */
 
   uint data_complete_idx; /* the highest shred idx wrt contiguous entry batches (inclusive). */
   uint slot_complete_idx; /* the highest shred idx for the entire slot (inclusive). */
@@ -612,17 +650,11 @@ fd_blockstore_block_micro_laddr( fd_blockstore_t * blockstore, fd_block_t * bloc
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->micros_gaddr );
 }
 
-/* fd_buf_shred_query queries the blockstore for shred at slot,
-   shred_idx.  Returns a pointer to the shred or NULL if not in
-   blockstore.  The returned pointer lifetime is until the shred is
-   removed.  Check return value for error info.  This API only works for
-   shreds from incomplete blocks.
-
-   Callers should hold the read lock during the entirety of its read to
-   ensure the pointer remains valid. */
+/* fd_blockstore_shred_test returns 1 if a shred keyed by (slot, idx) is
+   already in the blockstore and 0 otherwise.  */
 
 int
-fd_buf_shred_query( fd_blockstore_t * blockstore, ulong slot, uint shred_idx );
+fd_blockstore_shred_test( fd_blockstore_t * blockstore, ulong slot, uint idx );
 
 /* fd_buf_shred_query_copy_data queries the blockstore for shred at
    slot, shred_idx. Copies the shred data to the given buffer and
@@ -682,7 +714,7 @@ ulong
 fd_blockstore_parent_slot_query( fd_blockstore_t * blockstore, ulong slot );
 
 /* fd_blockstore_child_slots_query queries slot's child slots.  Return
-   values are saved in slots_out and slot_cnt.  Returns FD_BLOCKSTORE_OK
+   values are saved in slots_out and slot_cnt.  Returns FD_BLOCKSTORE_SUCCESS
    on success, FD_BLOCKSTORE_ERR_SLOT_MISSING if slot is not in the
    blockstore.  The returned slot array is always <= the max size
    FD_BLOCKSTORE_CHILD_SLOT_MAX and contiguous.  Empty slots in the
@@ -714,7 +746,7 @@ fd_blockstore_block_frontier_query( fd_blockstore_t * blockstore,
    block data (an allocator is needed because the block data sz is not
    known apriori).  Returns FD_BLOCKSTORE_SLOT_MISSING if slot is
    missing: caller MUST ignore out pointers in this case. Otherwise this
-   call cannot fail and returns FD_BLOCKSTORE_OK. */
+   call cannot fail and returns FD_BLOCKSTORE_SUCCESS. */
 
 int
 fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
@@ -730,7 +762,7 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
 /* fd_blockstore_block_map_query_volatile is the same as above except it
    only copies out the metadata (fd_block_map_t).  Returns
    FD_BLOCKSTORE_SLOT_MISSING if slot is missing, otherwise
-   FD_BLOCKSTORE_OK. */
+   FD_BLOCKSTORE_SUCCESS. */
 
 int
 fd_blockstore_block_map_query_volatile( fd_blockstore_t * blockstore,
@@ -769,16 +801,13 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot );
 /* Operations */
 
   /* fd_blockstore_shred_insert inserts shred into the blockstore, fast
-   O(1).  Returns the current `consumed_idx` for the shred's slot if
-   insert is successful, otherwise returns FD_SHRED_IDX_NULL on error.
-   Reasons for error include this shred is already in the blockstore or
-   the blockstore is full. */
+     O(1).  Returns the current `consumed_idx` for the shred's slot if
+     insert is successful, otherwise returns FD_SHRED_IDX_NULL on error.
+     Reasons for error include this shred is already in the blockstore or
+     the blockstore is full. */
 
-int
+void
 fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred );
-
-int
-fd_blockstore_shred_test( fd_blockstore_t * blockstore, ulong slot, uint idx );
 
 /* fd_blockstore_buffered_shreds_remove removes all the unassembled shreds
    for a slot
@@ -788,29 +817,32 @@ fd_blockstore_shred_test( fd_blockstore_t * blockstore, ulong slot, uint idx );
 void
 fd_blockstore_shred_remove( fd_blockstore_t * blockstore, ulong slot, uint idx );
 
-/* fd_blockstore_batch_assemble assembles shreds for a given batch starting at shred_idx 
-   Shred payloads are copied contiguously into block_data_out, and the total size
-   of the concatenated shred data is returned in block_data_sz. The caller provides the
-   max buffer size. Function will check if the provided shred_idx is the start of a batch
-   Returns an error code on success or failure. 
+/* fd_blockstore_slice_query queries for the block slice beginning from
+   shred `idx`.  Copies at most `max` bytes of the shred payloads
+   consecutively from `idx` until the first {DATA, SLOT}_COMPLETES.
 
-   IMPORTANT!  Caller MUST hold the read lock when calling this
-   function.
- */
+   Returns FD_BLOCKSTORE_SUCCESS (0) on success and a FD_MAP_ERR
+   (negative) on failure.  On success, `buf` will be populated with the
+   copied slice and `buf_sz` will contain the number of bytes copied.
+   Caller must ignore the values of `buf` and `buf_sz` on failure.
+
+   Implementation is lockfree and safe with concurrent operations on
+   blockstore. */
+
 int
-fd_blockstore_batch_query( fd_blockstore_t * blockstore,
+fd_blockstore_slice_query( fd_blockstore_t * blockstore,
                            ulong             slot,
-                           uint              batch_idx,
-                           ulong             block_data_max,
-                           uchar *           block_data_out,
-                           ulong *           block_data_sz );
+                           uint              idx,
+                           ulong             max,
+                           uchar *           buf,
+                           ulong *           buf_sz );
 
 /* fd_blockstore_shreds_complete should be a replacement for anywhere that is 
    querying for an fd_block_t * for existence but not actually using the block data. 
    Semantically equivalent to query_block( slot ) != NULL.
 
    IMPORTANT! Caller MUST hold the read lock when calling this function */
-bool
+int
 fd_blockstore_shreds_complete( fd_blockstore_t * blockstore, ulong slot );
 
 /* fd_blockstore_block_height_update sets the block height.

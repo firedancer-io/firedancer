@@ -272,7 +272,7 @@ after_frag( fd_store_tile_ctx_t * ctx,
       return;
     }
 
-    if( fd_store_shred_insert( ctx->store, shred ) < FD_BLOCKSTORE_OK ) {
+    if( fd_store_shred_insert( ctx->store, shred ) < FD_BLOCKSTORE_SUCCESS ) {
       FD_LOG_ERR(( "failed inserting to blockstore" ));
     } else if ( ctx->shred_cap_ctx.is_archive ) {
       uchar shred_cap_flag = FD_SHRED_CAP_FLAG_MARK_REPAIR( 0 );
@@ -311,7 +311,7 @@ after_frag( fd_store_tile_ctx_t * ctx,
     }
     // TODO: improve return value of api to not use < OK
 
-    if( fd_store_shred_insert( ctx->store, shred ) < FD_BLOCKSTORE_OK ) {
+    if( fd_store_shred_insert( ctx->store, shred ) < FD_BLOCKSTORE_SUCCESS ) {
       FD_LOG_ERR(( "failed inserting to blockstore" ));
     } else if ( ctx->shred_cap_ctx.is_archive ) {
       uchar shred_cap_flag = FD_SHRED_CAP_FLAG_MARK_TURBINE(0);

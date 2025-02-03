@@ -568,13 +568,13 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
       fd_blockstore_end_write(blockstore);
       return -1;
     }
-    int rc = fd_blockstore_shred_insert( blockstore, shred );
-    if (rc != FD_BLOCKSTORE_OK_SLOT_COMPLETE && rc != FD_BLOCKSTORE_OK) {
-      FD_LOG_WARNING(("failed to store shred %lu/%lu", slot, i));
-      rocksdb_iter_destroy(iter);
-      fd_blockstore_end_write(blockstore);
-      return -1;
-    }
+    fd_blockstore_shred_insert( blockstore, shred );
+    fd_blockstore_end_write(blockstore);
+    // if (rc != FD_BLOCKSTORE_SUCCESS_SLOT_COMPLETE && rc != FD_BLOCKSTORE_SUCCESS) {
+    //   FD_LOG_WARNING(("failed to store shred %lu/%lu", slot, i));
+    //   rocksdb_iter_destroy(iter);
+    //   return -1;
+    // }
 
     rocksdb_iter_next(iter);
   }
