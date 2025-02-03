@@ -355,6 +355,10 @@ typedef struct {
       ulong hash_tpool_thread_count;
     } batch;
 
+    struct {
+      uint fake_dst_ip;
+    } pktgen;
+
   };
 } fd_topo_tile_t;
 

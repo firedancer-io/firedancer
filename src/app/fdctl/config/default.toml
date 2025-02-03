@@ -1382,3 +1382,7 @@ dynamic_port_range = "8900-9000"
         # duplicate transactions will not be submitted and the validator
         # with this option enabled will always be leader.
         disable_status_cache = false
+
+    # 'fddev pktgen' is an internal development tool.
+    [development.pktgen]
+        affinity = "auto"
