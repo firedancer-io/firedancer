@@ -1210,7 +1210,7 @@ fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
   while ( batch_idx <= query->slot_complete_idx ) {
     batch_cnt++;
     ulong batch_sz = 0;
-    FD_TEST( fd_blockstore_batch_query( blockstore,
+    FD_TEST( fd_blockstore_slice_query( blockstore,
                                            slot,
                                            (uint) batch_idx,
                                            scratch_sz,
@@ -4192,12 +4192,12 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
       break;
     }
 
-    uchar * block_data = fd_scratch_alloc( 128UL, FD_MBATCH_MAX );
+    uchar * block_data = fd_scratch_alloc( 128UL, FD_SLICE_MAX );
     ulong tick_res = fd_runtime_block_verify_ticks(
       slot_ctx->blockstore,
       slot,
       block_data,
-      FD_MBATCH_MAX,
+      FD_SLICE_MAX,
       slot_ctx->slot_bank.tick_height,
       slot_ctx->slot_bank.max_tick_height,
       slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick
