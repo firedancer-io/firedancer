@@ -358,7 +358,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
-  l = FD_LAYOUT_APPEND( l, 128UL, FD_MBATCH_MAX );
+  l = FD_LAYOUT_APPEND( l, 128UL, FD_SLICE_MAX );
   l = FD_LAYOUT_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->replay.tpool_thread_count * TPOOL_WORKER_MEM_SZ );
   ulong  thread_spad_size    = fd_spad_footprint( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT );
   l = FD_LAYOUT_APPEND( l, fd_spad_align(), tile->replay.tpool_thread_count * fd_ulong_align_up( thread_spad_size, fd_spad_align() ) );
@@ -1326,7 +1326,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
     ctx->blockstore,
     curr_slot,
     ctx->mbatch,
-    FD_MBATCH_MAX,
+    FD_SLICE_MAX,
     fork->slot_ctx.slot_bank.tick_height,
     fork->slot_ctx.slot_bank.max_tick_height,
     fork->slot_ctx.epoch_ctx->epoch_bank.hashes_per_tick
@@ -1380,34 +1380,29 @@ init_poh( fd_replay_tile_ctx_t * ctx ) {
   ctx->poh_init_done = 1;
 }
 
-/* Replay a microblock batch ("mbatch"). */
+/* Replay a slice of a block. */
+
 static void
-replay_mbatch( fd_replay_tile_ctx_t * ctx, uint shred_idx_start ) {
-  fd_blockstore_t * blockstore = ctx->blockstore;
-  ulong             slot       = ctx->curr_slot;
+replay_slice( fd_blockstore_t * blockstore, uchar * slice, ulong slot, uint idx ) {
+  FD_LOG_NOTICE(( "replay_batch: slot: %lu, idx: %u", slot, idx ));
 
-  /* Copy shred payloads into `buf` so that they are contiguous. This is
-     required because txns can span multiple shreds. */
-  ulong mbatch_sz = 0;
-  int err = fd_blockstore_batch_query( blockstore, 
-                                           slot, 
-                                           shred_idx_start, 
-                                           FD_MBATCH_MAX,
-                                           ctx->mbatch,
-                                           &mbatch_sz );
-  FD_TEST( err == FD_BLOCKSTORE_OK );
-  /* Loop through microblocks, parse out txns, and round-robin publish
-     txns to the executor tiles. */
+  ulong slice_sz;
+  int err = fd_blockstore_slice_query( blockstore, slot, idx, FD_SLICE_MAX, slice, &slice_sz );
+  FD_TEST( slice_sz < FD_SLICE_MAX );
+  FD_TEST( err == FD_BLOCKSTORE_SUCCESS );
 
-  uchar txn[FD_TXN_MAX_SZ];
-  ulong cnt = FD_LOAD( ulong, ctx->mbatch );
-  ulong off = sizeof(ulong);
-  for( ulong i = 0; i < cnt; ++i ) {
-    fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( ctx->mbatch+off );
+  /* Loop through microblocks in the slice, parse out txns, and
+     round-robin publish txns to the executor tiles. */
+
+  uchar txn[FD_TXN_MAX_SZ] = { 0 };
+  ulong micro_cnt          = FD_LOAD( ulong, slice );
+  ulong off                      = sizeof( ulong );
+  for( ulong i = 0; i < micro_cnt; ++i ) {
+    fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( slice+off );
     off += sizeof(fd_microblock_hdr_t);
     for( ulong j = 0; j < hdr->txn_cnt; j++ ) {
       ulong pay_sz = 0;
-      ulong txn_sz = fd_txn_parse_core( ctx->mbatch + off, fd_ulong_min( mbatch_sz - off, FD_TXN_MTU ), txn, NULL, &pay_sz );
+      ulong txn_sz = fd_txn_parse_core( slice + off, fd_ulong_min( slice_sz - off, FD_TXN_MTU ), txn, NULL, &pay_sz );
       if( FD_UNLIKELY( !pay_sz ) ) FD_LOG_ERR(( "failed to parse transaction %lu in microblock %lu in slot %lu", j, i, slot ) );
       if( FD_UNLIKELY( !txn_sz || txn_sz > FD_TXN_MTU )) FD_LOG_ERR(( "failed to parse transaction %lu in microblock %lu in slot %lu. txn size: %lu", j, i, slot, txn_sz ));
 
@@ -1464,20 +1459,19 @@ after_frag( fd_replay_tile_ctx_t * ctx,
        should be continuously be updated. */
 
     fd_blockstore_start_read( ctx->blockstore );
-
     fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, ctx->curr_slot );
     FD_TEST( block_map_entry ); /* msg from store, so block must be in the blockstore */
 
-    if( FD_LIKELY( block_map_entry->data_complete_idx != FD_SHRED_IDX_NULL ) ) {
-      uint i = block_map_entry->replayed_idx + 1; uint j = block_map_entry->data_complete_idx;
-      for ( uint idx = i; idx <= j; idx++ ) {
-        if( FD_UNLIKELY( fd_block_set_test( block_map_entry->data_complete_idxs, idx ) ) ) {
+    uint idx = block_map_entry->consumed_idx + 1;
+    while ( idx < block_map_entry->buffered_idx ) {
+      if( FD_UNLIKELY( fd_block_set_test( block_map_entry->data_complete_idxs, idx ) ) ) {
 
-          /* FIXME: backpressure? consumer will need to make sure they aren't overrun */
-          replay_mbatch( ctx, block_map_entry->replayed_idx + 1U );
-          block_map_entry->replayed_idx = idx;
-        }
+        /* FIXME: backpressure? consumer will need to make sure they aren't overrun */
+
+        replay_slice( ctx->blockstore, ctx->mbatch, ctx->curr_slot, block_map_entry->consumed_idx + 1 );
+        block_map_entry->consumed_idx = idx;
       }
+      idx++;
     }
     fd_blockstore_end_read( ctx->blockstore );
   }
@@ -2137,8 +2131,8 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   curr_entry->epoch_ctx = ctx->epoch_ctx;
   ctx->epoch_forks->curr_epoch_idx = 0UL;
 
-  FD_LOG_NOTICE( ( "snapshot slot %lu", snapshot_slot ) );
-  FD_LOG_NOTICE( ( "total stake %lu", bank_hash_cmp->total_stake ) );
+  FD_LOG_NOTICE(( "snapshot slot %lu", snapshot_slot ));
+  FD_LOG_NOTICE(( "total stake %lu", bank_hash_cmp->total_stake ));
   FD_TEST( ctx->blockstore->shmem->magic == FD_BLOCKSTORE_MAGIC );
 }
 
@@ -2386,7 +2380,7 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     ctx->bmtree[i]           = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
-  void * mbatch_mem          = FD_SCRATCH_ALLOC_APPEND( l, 128UL, FD_MBATCH_MAX );
+  void * mbatch_mem          = FD_SCRATCH_ALLOC_APPEND( l, 128UL, FD_SLICE_MAX );
   void * tpool_worker_mem    = FD_SCRATCH_ALLOC_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->replay.tpool_thread_count * TPOOL_WORKER_MEM_SZ );
   ulong  thread_spad_size    = fd_spad_footprint( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT );
   void * spad_mem            = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), tile->replay.tpool_thread_count * fd_ulong_align_up( thread_spad_size, fd_spad_align() ) );
