@@ -1335,7 +1335,11 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   fork->slot_ctx.funk_txn = fd_funk_txn_prepare(ctx->funk, fork->slot_ctx.funk_txn, &xid, 1);
   fd_funk_end_write( ctx->funk );
 
-  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_block_pre_execute_process_new_epoch( &fork->slot_ctx, ctx->runtime_spad ) ) ) {
+  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_block_pre_execute_process_new_epoch( &fork->slot_ctx, 
+                                                                                                 ctx->tpool,
+                                                                                                 ctx->exec_spads,
+                                                                                                 ctx->exec_spad_cnt,
+                                                                                                 ctx->runtime_spad ) ) ) {
     FD_LOG_ERR(( "couldn't process new epoch" ));
   }
 
@@ -2244,6 +2248,8 @@ read_snapshot( void *              _ctx,
                                                                     false,
                                                                     false,
                                                                     FD_SNAPSHOT_TYPE_FULL,
+                                                                    ctx->exec_spads,
+                                                                    ctx->exec_spad_cnt,
                                                                     ctx->runtime_spad );
       /* Load the prefetch manifest, and initialize the status cache and slot context,
          so that we can use these to kick off repair. */
@@ -2266,6 +2272,8 @@ read_snapshot( void *              _ctx,
                                                               false,
                                                               false,
                                                               FD_SNAPSHOT_TYPE_FULL,
+                                                              ctx->exec_spads,
+                                                              ctx->exec_spad_cnt,
                                                               ctx->runtime_spad );
   
     fd_snapshot_load_init( snap_ctx );
@@ -2313,6 +2321,8 @@ read_snapshot( void *              _ctx,
                           false,
                           false,
                           FD_SNAPSHOT_TYPE_INCREMENTAL,
+                          ctx->exec_spads,
+                          ctx->exec_spad_cnt,
                           ctx->runtime_spad );
   }
 
@@ -2356,7 +2366,11 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */
 
-  fd_rewards_recalculate_partitioned_rewards( ctx->slot_ctx, ctx->runtime_spad );
+  fd_rewards_recalculate_partitioned_rewards( ctx->slot_ctx,
+                                              ctx->tpool,
+                                              ctx->exec_spads,
+                                              ctx->exec_spad_cnt,
+                                              ctx->runtime_spad );
 
   ulong snapshot_slot = ctx->slot_ctx->slot_bank.slot;
   if( FD_UNLIKELY( !snapshot_slot ) ) {

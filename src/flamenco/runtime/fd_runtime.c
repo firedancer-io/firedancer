@@ -1871,10 +1871,10 @@ fd_txn_sigverify_task( void *tpool,
 
 }
 
-static void FD_FN_UNUSED
+static void
 fd_txn_prep_and_exec_task( void  *tpool,
                            ulong t0 FD_PARAM_UNUSED,      ulong t1 FD_PARAM_UNUSED,
-                           void  *args FD_PARAM_UNUSED,
+                           void  *args,
                            void  *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
                            ulong l0 FD_PARAM_UNUSED,      ulong l1 FD_PARAM_UNUSED,
                            ulong m0,                      ulong m1 FD_PARAM_UNUSED,
@@ -2418,9 +2418,9 @@ fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
   fd_slot_bank_t *  slot_bank  = &slot_ctx->slot_bank;
   fd_stakes_t *     stakes     = &epoch_bank->stakes;
 
-  /* In one pass, iterate over all the stake infos and insert the updated values into the epoch stakes cache 
+  /* In one pass, iterate over all the new stake infos and insert the updated values into the epoch stakes cache 
       This assumes that there is enough memory pre-allocated for the stakes cache. */
-  for( ulong idx=0UL; idx<temp_info->stake_infos_len; idx++ ) {
+  for( ulong idx=temp_info->stake_infos_new_keys_start_idx; idx<temp_info->stake_infos_len; idx++ ) {
     // Fetch and store the delegation associated with this stake account
     fd_delegation_pair_t_mapnode_t key;
     fd_memcpy( &key.elem.account, &temp_info->stake_infos[idx].account, sizeof(fd_pubkey_t) );
@@ -2967,6 +2967,9 @@ fd_runtime_is_epoch_boundary( fd_epoch_bank_t * epoch_bank, ulong curr_slot, ulo
 static void 
 fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                               ulong                parent_epoch,
+                              fd_tpool_t *         tpool,
+                              fd_spad_t * *        exec_spads,
+                              ulong                exec_spad_cnt,
                               fd_spad_t *          runtime_spad ) {
   FD_LOG_NOTICE(( "fd_process_new_epoch start" ));
 
@@ -3019,7 +3022,13 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   /* Updates stake history sysvar accumulated values. */
-  fd_stakes_activate_epoch( slot_ctx, new_rate_activation_epoch, &temp_info, runtime_spad );
+  fd_stakes_activate_epoch( slot_ctx,
+                            new_rate_activation_epoch,
+                            &temp_info,
+                            tpool,
+                            exec_spads,
+                            exec_spad_cnt,
+                            runtime_spad );
 
   /* Update the stakes epoch value to the new epoch */
   epoch_bank->stakes.epoch = epoch;
@@ -3043,16 +3052,37 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_spad_push( runtime_spad );
 
-  fd_refresh_vote_accounts( slot_ctx, history, new_rate_activation_epoch, &temp_info, runtime_spad );
+  fd_refresh_vote_accounts( slot_ctx,
+                            history,
+                            new_rate_activation_epoch,
+                            &temp_info,
+                            tpool,
+                            exec_spads,
+                            exec_spad_cnt,
+                            runtime_spad );
 
   /* Distribute rewards */
   fd_hash_t const * parent_blockhash = slot_ctx->slot_bank.block_hash_queue.last_hash;
   if( FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ||
       FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature ) ) {
     FD_LOG_NOTICE(( "fd_begin_partitioned_rewards" ));
-    fd_begin_partitioned_rewards( slot_ctx, parent_blockhash, parent_epoch, &temp_info, runtime_spad );
+    fd_begin_partitioned_rewards( slot_ctx,
+                                  parent_blockhash,
+                                  parent_epoch,
+                                  &temp_info,
+                                  tpool,
+                                  exec_spads,
+                                  exec_spad_cnt,
+                                  runtime_spad );
   } else {
-    fd_update_rewards( slot_ctx, parent_blockhash, parent_epoch, &temp_info, runtime_spad );
+    fd_update_rewards( slot_ctx,
+                       parent_blockhash,
+                       parent_epoch,
+                       &temp_info,
+                       tpool,
+                       exec_spads,
+                       exec_spad_cnt,
+                       runtime_spad );
   }
 
   /* Replace stakes at T-2 (slot_ctx->slot_bank.epoch_stakes) by stakes at T-1 (epoch_bank->next_epoch_stakes) */
@@ -3069,7 +3099,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   FD_LOG_NOTICE(( "fd_process_new_epoch end" ));
 
   long end = fd_log_wallclock();
-  FD_LOG_NOTICE(("fd_process_new_epoch took %ld ms", end - start));
+  FD_LOG_NOTICE(("fd_process_new_epoch took %ld ns", end - start));
 }
 
 /******************************************************************************/
@@ -4245,6 +4275,9 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
 
 int
 fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
+                                                fd_tpool_t *         tpool,
+                                                fd_spad_t * *        exec_spads,
+                                                ulong                exec_spad_cnt,
                                                 fd_spad_t *          runtime_spad ) {
 
   /* Update block height. */
@@ -4264,7 +4297,12 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
       FD_LOG_DEBUG(( "Epoch boundary" ));
       /* Epoch boundary! */
       fd_funk_start_write( slot_ctx->acc_mgr->funk );
-      fd_runtime_process_new_epoch( slot_ctx, new_epoch - 1UL, runtime_spad );
+      fd_runtime_process_new_epoch( slot_ctx,
+                                    new_epoch - 1UL,
+                                    tpool,
+                                    exec_spads,
+                                    exec_spad_cnt,
+                                    runtime_spad );
       fd_funk_end_write( slot_ctx->acc_mgr->funk );
     }
   }
@@ -4273,7 +4311,11 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
       FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ||
       FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature ) ) ) {
     fd_funk_start_write( slot_ctx->acc_mgr->funk );
-    fd_distribute_partitioned_epoch_rewards( slot_ctx, runtime_spad );
+    fd_distribute_partitioned_epoch_rewards( slot_ctx,
+                                             tpool,
+                                             exec_spads,
+                                             exec_spad_cnt,
+                                             runtime_spad );
     fd_funk_end_write( slot_ctx->acc_mgr->funk );
   }
 
@@ -4325,7 +4367,11 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
     }
     fd_blockstore_end_read( slot_ctx->blockstore );
 
-    if( FD_UNLIKELY( (ret = fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, runtime_spad )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    if( FD_UNLIKELY( (ret = fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, 
+                                                                            tpool,
+                                                                            exec_spads,
+                                                                            exec_spad_cnt,
+                                                                            runtime_spad )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       break;
     }
 

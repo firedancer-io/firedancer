@@ -70,7 +70,9 @@ fd_snapshot_load_new( uchar *                mem,
                       uint                   verify_hash,
                       uint                   check_hash,
                       int                    snapshot_type,
-                      fd_spad_t *            spad );
+                      fd_spad_t * *          exec_spads,
+                      ulong                  spad_cnt,
+                      fd_spad_t *            runtime_spad );
 
 void
 fd_snapshot_load_init( fd_snapshot_load_ctx_t * ctx );
@@ -95,7 +97,9 @@ fd_snapshot_load_all( const char *         source_cstr,
                       uint                 verify_hash,
                       uint                 check_hash,
                       int                  snapshot_type,
-                      fd_spad_t *          spad );
+                      fd_spad_t * *        exec_spads,
+                      ulong                exec_spad_cnt,
+                      fd_spad_t *          runtime_spad );
 
 void
 fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx );

@@ -430,6 +430,9 @@ fd_runtime_is_epoch_boundary( fd_epoch_bank_t * epoch_bank,
  */
 int
 fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
+                                                fd_tpool_t *         tpool,
+                                                fd_spad_t * *        exec_spads,
+                                                ulong                exec_spad_cnt,
                                                 fd_spad_t *          runtime_spad );
 
 /* Debugging Tools ************************************************************/

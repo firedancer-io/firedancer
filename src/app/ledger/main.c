@@ -104,8 +104,8 @@ struct fd_ledger_args {
   fd_tpool_t *          tpool;                   /* thread pool for execution */
   uchar                 tpool_mem[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
 
-  fd_spad_t *           spads[ 128UL ];          /* bump allocators that are eventually assigned to each txn_ctx */
-  ulong                 spad_cnt;                /* number of bump allocators, bounded by number of threads */
+  fd_spad_t *           exec_spads[ 128UL ];          /* bump allocators that are eventually assigned to each txn_ctx */
+  ulong                 exec_spad_cnt;                /* number of bump allocators, bounded by number of threads */
   fd_spad_t *           runtime_spad;            /* bump allocator used for runtime scoped allocations */
   fd_tpool_t *          snapshot_tpool;          /* thread pool for snapshot creation */
   uchar                 tpool_mem_snapshot[FD_TPOOL_FOOTPRINT( FD_TILE_MAX )] __attribute__( ( aligned( FD_TPOOL_ALIGN ) ) );
@@ -132,16 +132,16 @@ typedef struct fd_ledger_args fd_ledger_args_t;
 static void
 init_spads( fd_ledger_args_t * args, int has_tpool ) {
 
-  FD_LOG_NOTICE(( "setting up spads" ));
+  FD_LOG_NOTICE(( "setting up exec_spads" ));
 
   /* Allocate memory for the account mem space. In live execution, each of
      the spad allocations should be tied to its respective execution thread.
      In the future, the spad should be allocated from its tiles' workspace.
-     It is important that the spads are only allocated on startup for
+     It is important that the exec_spads are only allocated on startup for
      performance reasons to avoid dynamic allocation in the critical path. */
 
   if( has_tpool ) {
-    args->spad_cnt = fd_tpool_worker_cnt( args->tpool );
+    args->exec_spad_cnt = fd_tpool_worker_cnt( args->tpool );
     for( ulong i=0UL; i<fd_tpool_worker_cnt( args->tpool ); i++ ) {
       ulong       total_mem_sz = args->thread_mem_bound;
       uchar *     mem          = fd_wksp_alloc_laddr( args->wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( total_mem_sz ), 999UL );
@@ -149,7 +149,7 @@ init_spads( fd_ledger_args_t * args, int has_tpool ) {
       if( FD_UNLIKELY( !spad ) ) {
         FD_LOG_ERR(( "failed to allocate spad" ));
       }
-      args->spads[ i ] = spad;
+      args->exec_spads[ i ] = spad;
     }
   }
 
@@ -476,8 +476,8 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
                                           ledger_args->tpool,
                                           1,
                                           &blk_txn_cnt,
-                                          ledger_args->spads,
-                                          ledger_args->spad_cnt,
+                                          ledger_args->exec_spads,
+                                          ledger_args->exec_spad_cnt,
                                           ledger_args->runtime_spad ) == FD_RUNTIME_EXECUTE_SUCCESS );
     txn_cnt += blk_txn_cnt;
     slot_cnt++;
@@ -611,8 +611,8 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
   }
 
 #if FD_SPAD_TRACK_USAGE
-  for( ulong i=0UL; i<ledger_args->spad_cnt; i++ ) {
-    fd_spad_t * spad = ledger_args->spads[ i ];
+  for( ulong i=0UL; i<ledger_args->exec_spad_cnt; i++ ) {
+    fd_spad_t * spad = ledger_args->exec_spads[ i ];
     double pcnt_mem_wmark = (double)fd_spad_mem_wmark( spad ) / (double)fd_spad_mem_max( spad );
     pcnt_mem_wmark *= 100;
     FD_LOG_NOTICE(( "spad %2lu mem_wmark %10lu (%6.2f%%) mem_max %10lu", i, fd_spad_mem_wmark( spad ), pcnt_mem_wmark, fd_spad_mem_max( spad ) ));
@@ -736,7 +736,11 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   /* After both snapshots have been loaded in, we can determine if we should
       start distributing rewards. */
 
-  fd_rewards_recalculate_partitioned_rewards( args->slot_ctx, args->runtime_spad );
+  fd_rewards_recalculate_partitioned_rewards( args->slot_ctx,
+                                              args->tpool,
+                                              args->exec_spads,
+                                              args->exec_spad_cnt,
+                                              args->runtime_spad );
 
 }
 
@@ -1121,7 +1125,9 @@ ingest( fd_ledger_args_t * args ) {
                           args->tpool, 
                           args->verify_acc_hash, 
                           args->check_acc_hash , 
-                          FD_SNAPSHOT_TYPE_FULL, 
+                          FD_SNAPSHOT_TYPE_FULL,
+                          args->exec_spads,
+                          args->exec_spad_cnt,
                           args->runtime_spad );
     FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   }
@@ -1133,6 +1139,8 @@ ingest( fd_ledger_args_t * args ) {
                           args->verify_acc_hash, 
                           args->check_acc_hash, 
                           FD_SNAPSHOT_TYPE_INCREMENTAL, 
+                          args->exec_spads,
+                          args->exec_spad_cnt,
                           args->runtime_spad );
     FD_LOG_NOTICE(( "imported %lu records from incremental snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
   }
@@ -1287,6 +1295,8 @@ replay( fd_ledger_args_t * args ) {
                             args->verify_acc_hash,
                             args->check_acc_hash,
                             FD_SNAPSHOT_TYPE_FULL,
+                            args->exec_spads,
+                            args->exec_spad_cnt,
                             args->runtime_spad );
       FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
     }
@@ -1298,6 +1308,8 @@ replay( fd_ledger_args_t * args ) {
                             args->verify_acc_hash,
                             args->check_acc_hash,
                             FD_SNAPSHOT_TYPE_INCREMENTAL,
+                            args->exec_spads,
+                            args->exec_spad_cnt,
                             args->runtime_spad );
       FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
     }

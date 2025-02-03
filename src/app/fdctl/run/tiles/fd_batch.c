@@ -475,8 +475,6 @@ after_credit( fd_snapshot_tile_ctx_t * ctx,
     return;
   }
 
-  FD_LOG_WARNING(("HELLO HELLO"));
-
   if( FD_UNLIKELY( !ctx->is_funk_active ) ) {
     /* Setting these parameters are not required because we are joining the
        funk that was setup in the replay tile. */
