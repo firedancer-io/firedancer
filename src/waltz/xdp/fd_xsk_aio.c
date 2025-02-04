@@ -349,8 +349,10 @@ fd_xsk_aio_send( void *                    ctx,
   ulong pkt_idx;
   for( pkt_idx=0; pkt_idx<batch_cnt; ++pkt_idx ) {
     /* Pop a TX frame from our stack */
-    if( FD_UNLIKELY( !xsk_aio->tx_top ) )
+    if( FD_UNLIKELY( !xsk_aio->tx_top ) ) {
+      flush = 1;
       break;
+    }
     --xsk_aio->tx_top;
     ulong offset = xsk_aio->tx_stack[xsk_aio->tx_top];
 
