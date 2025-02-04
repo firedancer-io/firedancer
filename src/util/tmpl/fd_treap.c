@@ -219,6 +219,12 @@
      myele_t *       mytreap_ele_query      ( mytreap_t *       treap, char const * q, myele_t *       pool );
      myele_t const * mytreap_ele_query_const( mytreap_t const * treap, char const * q, myele_t const * pool );
 
+     // my_treap_idx_ge returns the index of the smallest element
+     // in the treap that is not less than q. If no such element exists,
+     // it returns idx_null
+
+     ulong mytreap_idx_ge( mytreap_t const * treap, TREAP_QUERY_T * q, myele_t const * pool );
+
      // mytreap_idx_{insert,remove} inserts / removes element n/d into
      // the treap and returns treap.  Assumes treap is a current local
      // join, pool points in the caller's address space to the ele_max
@@ -485,6 +491,7 @@ TREAP_STATIC /**/        void *      TREAP_(leave)    ( TREAP_(t) * treap       
 TREAP_STATIC /**/        void *      TREAP_(delete)   ( void *      shtreap               );
 
 TREAP_STATIC FD_FN_PURE ulong TREAP_(idx_query)( TREAP_(t) const * treap, TREAP_QUERY_T q, TREAP_T const * pool );
+TREAP_STATIC FD_FN_PURE ulong TREAP_(idx_ge)( TREAP_(t) const * treap, TREAP_QUERY_T q, TREAP_T const * pool );
 
 TREAP_STATIC TREAP_(t) * TREAP_(idx_insert)( TREAP_(t) * treap, ulong n, TREAP_T * pool );
 TREAP_STATIC TREAP_(t) * TREAP_(idx_remove)( TREAP_(t) * treap, ulong d, TREAP_T * pool );
@@ -678,6 +685,28 @@ TREAP_(delete)( void * shtreap ) {
   }
 
   return shtreap;
+}
+
+TREAP_STATIC ulong
+TREAP_(idx_ge)( TREAP_(t) const * treap,
+                TREAP_QUERY_T     q,
+                TREAP_T const *   pool ) {
+  ulong i         = (ulong)treap->root;
+  ulong candidate = TREAP_IDX_NULL;
+
+  while( FD_LIKELY( !TREAP_IDX_IS_NULL(i) ) ) {
+    ulong l = (ulong)pool[i].TREAP_LEFT;
+    ulong r = (ulong)pool[i].TREAP_RIGHT;
+    int   c = TREAP_(cmp)( q, pool + i );
+    if( FD_UNLIKELY( !c ) ) {
+      candidate = i;
+      break;
+    }
+
+    candidate = fd_ulong_if( c<0, i, candidate );
+    i         = fd_ulong_if( c<0, l, r         );
+  }
+  return candidate;
 }
 
 TREAP_STATIC ulong
