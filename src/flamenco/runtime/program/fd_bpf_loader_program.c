@@ -234,8 +234,8 @@ calculate_heap_cost( ulong heap_size, ulong heap_cost, int * err ) {
 
    As a concrete example, our version of deploy_program does not have the
    'account_size' argument because we do not update the funk record here.
-   
-   The spad used for allocations can be either scoped to the executor or the 
+
+   The spad used for allocations can be either scoped to the executor or the
    runtime depending on where it is called from. If a program is deployed from
    the v3 contract, then the executor spad should be used. */
 int
@@ -364,14 +364,14 @@ write_program_data( fd_exec_instr_ctx_t *   instr_ctx,
 /* get_state() */
 /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/sdk/src/transaction_context.rs#L968-L972 */
 int
-fd_bpf_loader_v3_program_get_state( fd_exec_instr_ctx_t const *         instr_ctx,
+fd_bpf_loader_v3_program_get_state( fd_exec_txn_ctx_t const *           txn_ctx,
                                     fd_borrowed_account_t const *       borrowed_acc,
                                     fd_bpf_upgradeable_loader_state_t * state ) {
     /* Check to see if the buffer account is already initialized */
     fd_bincode_decode_ctx_t ctx = {
       .data    = borrowed_acc->const_data,
       .dataend = borrowed_acc->const_data + borrowed_acc->const_meta->dlen,
-      .valloc  = fd_spad_virtual( instr_ctx->txn_ctx->spad ),
+      .valloc  = fd_spad_virtual( txn_ctx->spad ),
     };
 
     int err = fd_bpf_upgradeable_loader_state_decode( state, &ctx );
@@ -703,7 +703,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 0UL, buffer ) {
 
       fd_bpf_upgradeable_loader_state_t buffer_state = {0};
-      err = fd_bpf_loader_v3_program_get_state( instr_ctx, buffer, &buffer_state );
+      err = fd_bpf_loader_v3_program_get_state( instr_ctx->txn_ctx, buffer, &buffer_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         return err;
       }
@@ -736,7 +736,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 0UL, buffer ) {
 
       fd_bpf_upgradeable_loader_state_t loader_state = {0};
-      err = fd_bpf_loader_v3_program_get_state( instr_ctx, buffer, &loader_state );
+      err = fd_bpf_loader_v3_program_get_state( instr_ctx->txn_ctx, buffer, &loader_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         return err;
       }
@@ -812,7 +812,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_rent_t       *                 rent           = &epoch_bank->rent;
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 2UL, program ) {
 
-      err = fd_bpf_loader_v3_program_get_state( instr_ctx, program, &loader_state );
+      err = fd_bpf_loader_v3_program_get_state( instr_ctx->txn_ctx, program, &loader_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         return err;
       }
@@ -849,7 +849,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 3UL, buffer ) {
 
       fd_bpf_upgradeable_loader_state_t buffer_state = {0};
-      err = fd_bpf_loader_v3_program_get_state( instr_ctx, buffer, &buffer_state );
+      err = fd_bpf_loader_v3_program_get_state( instr_ctx->txn_ctx, buffer, &buffer_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         return err;
       }
@@ -1103,7 +1103,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
       }
       fd_bpf_upgradeable_loader_state_t program_state = {0};
-      err = fd_bpf_loader_v3_program_get_state( instr_ctx, program, &program_state );
+      err = fd_bpf_loader_v3_program_get_state( instr_ctx->txn_ctx, program, &program_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         return err;
       }
@@ -1129,7 +1129,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 2UL, buffer ) {
 
       fd_bpf_upgradeable_loader_state_t buffer_state = {0};
-      err = fd_bpf_loader_v3_program_get_state( instr_ctx, buffer, &buffer_state );
+      err = fd_bpf_loader_v3_program_get_state( instr_ctx->txn_ctx, buffer, &buffer_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         return err;
       }
@@ -1180,7 +1180,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_log_collector_msg_literal( instr_ctx, "Buffer account balance too low to fund upgrade" );
         return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
       }
-      err = fd_bpf_loader_v3_program_get_state( instr_ctx, programdata, &programdata_state );
+      err = fd_bpf_loader_v3_program_get_state( instr_ctx->txn_ctx, programdata, &programdata_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         return err;
       }
@@ -1321,7 +1321,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       fd_bpf_upgradeable_loader_state_t account_state = {0};
-      err = fd_bpf_loader_v3_program_get_state( instr_ctx, account, &account_state );
+      err = fd_bpf_loader_v3_program_get_state( instr_ctx->txn_ctx, account, &account_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         return err;
       }
@@ -1394,7 +1394,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       fd_pubkey_t const * new_authority_key     = &txn_accs[ instr_acc_idxs[ 2UL ] ];
 
       fd_bpf_upgradeable_loader_state_t account_state = {0};
-      err = fd_bpf_loader_v3_program_get_state( instr_ctx, account, &account_state );
+      err = fd_bpf_loader_v3_program_get_state( instr_ctx->txn_ctx, account, &account_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         return err;
       }
@@ -1471,7 +1471,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       fd_pubkey_t * close_key = close_account->pubkey;
       fd_bpf_upgradeable_loader_state_t close_account_state = {0};
-      err = fd_bpf_loader_v3_program_get_state( instr_ctx, close_account, &close_account_state );
+      err = fd_bpf_loader_v3_program_get_state( instr_ctx->txn_ctx, close_account, &close_account_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         return err;
       }
@@ -1547,7 +1547,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         }
 
         fd_bpf_upgradeable_loader_state_t program_state = {0};
-        err = fd_bpf_loader_v3_program_get_state( instr_ctx, program_account, &program_state );
+        err = fd_bpf_loader_v3_program_get_state( instr_ctx->txn_ctx, program_account, &program_state );
         if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
           return err;
         }
@@ -1632,7 +1632,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1172-L1190 */
       fd_bpf_upgradeable_loader_state_t program_state = {0};
-      err = fd_bpf_loader_v3_program_get_state( instr_ctx, program_account, &program_state );
+      err = fd_bpf_loader_v3_program_get_state( instr_ctx->txn_ctx, program_account, &program_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         return err;
       }
@@ -1665,7 +1665,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       fd_bpf_upgradeable_loader_state_t programdata_state = {0};
       fd_pubkey_t * upgrade_authority_address = NULL;
-      err = fd_bpf_loader_v3_program_get_state( instr_ctx, programdata_account, &programdata_state );
+      err = fd_bpf_loader_v3_program_get_state( instr_ctx->txn_ctx, programdata_account, &programdata_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         return err;
       }
@@ -1863,7 +1863,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
     if( !memcmp( metadata->info.owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_pubkey_t) ) ) {
       fd_bpf_upgradeable_loader_state_t program_account_state = {0};
-      err = fd_bpf_loader_v3_program_get_state( ctx, program_account, &program_account_state );
+      err = fd_bpf_loader_v3_program_get_state( ctx->txn_ctx, program_account, &program_account_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         if( FD_FEATURE_ACTIVE( ctx->slot_ctx, remove_accounts_executable_flag_checks ) ) {
           return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
@@ -1898,7 +1898,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       }
 
       fd_bpf_upgradeable_loader_state_t program_data_account_state = {0};
-      err = fd_bpf_loader_v3_program_get_state( ctx, program_data_account, &program_data_account_state );
+      err = fd_bpf_loader_v3_program_get_state( ctx->txn_ctx, program_data_account, &program_data_account_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
