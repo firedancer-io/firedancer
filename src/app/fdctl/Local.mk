@@ -67,6 +67,7 @@ $(call add-objs,run/tiles/fd_exec,fd_fdctl)
 endif
 
 # fdctl topologies
+$(call add-objs,run/topos/fd_topos_common,fd_fdctl)
 ifdef FD_HAS_NO_AGAVE
 $(call add-objs,run/topos/fd_firedancer,fd_fdctl)
 else

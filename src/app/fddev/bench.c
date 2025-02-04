@@ -3,6 +3,8 @@
 
 #include "../fdctl/configure/configure.h"
 #include "../fdctl/run/run.h"
+#include "../fdctl/run/topos/topos.h"
+#include "../../disco/topo/fd_topob.h"
 
 #include "../../disco/topo/fd_topob.h"
 #include "../../util/shmem/fd_shmem_private.h"
@@ -144,6 +146,9 @@ bench_cmd_fn( args_t *         args,
     FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.affinity], [layout.agave_affinity], and [development.bench.affinity] must all be set to 'auto' or all be set to a specific CPU affinity string." ));
   }
 
+  fd_topo_t * topo = { fd_topob_new( &config->topo, config->name, fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size ) ) };
+  fd_topos_affinity_t affinity[1]; fd_topos_affinity( affinity, config->development.pktgen.affinity );
+  fd_topos_create_validator( topo, config, affinity );
   add_bench_topo( &config->topo,
                   config->development.bench.affinity,
                   config->development.bench.benchg_tile_count,
@@ -156,6 +161,7 @@ bench_cmd_fn( args_t *         args,
                   config->rpc.port,
                   config->tiles.net.ip_addr,
                   args->load.no_quic );
+  fd_topos_seal( topo, affinity );
 
   if( FD_LIKELY( !args->dev.no_configure ) ) {
     args_t configure_args = {

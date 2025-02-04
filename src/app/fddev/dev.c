@@ -5,6 +5,8 @@
 
 #include "../fdctl/configure/configure.h"
 #include "../fdctl/run/run.h"
+#include "../fdctl/run/topos/topos.h"
+#include "../../disco/topo/fd_topob.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -179,6 +181,11 @@ run_firedancer_threaded( config_t * config , int init_workspaces) {
 void
 dev_cmd_fn( args_t *         args,
             config_t * const config ) {
+  fd_topo_t * topo = { fd_topob_new( &config->topo, config->name, fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size ) ) };
+  fd_topos_affinity_t affinity[1]; fd_topos_affinity( affinity, config->development.pktgen.affinity );
+  fd_topos_create_validator( topo, config, affinity );
+  fd_topos_seal( topo, affinity );
+
   if( FD_LIKELY( !args->dev.no_configure ) ) {
     args_t configure_args = {
       .configure.command = CONFIGURE_CMD_INIT,

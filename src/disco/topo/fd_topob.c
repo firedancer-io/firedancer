@@ -4,8 +4,9 @@
 #include "../../util/shmem/fd_shmem_private.h"
 
 fd_topo_t *
-fd_topob_new( void * mem,
-              char const * app_name ) {
+fd_topob_new( void *       mem,
+              char const * app_name,
+              ulong        max_page_size ) {
   fd_topo_t * topo = (fd_topo_t *)mem;
 
   if( FD_UNLIKELY( !topo ) ) {
@@ -25,7 +26,15 @@ fd_topob_new( void * mem,
   if( FD_UNLIKELY( strlen( app_name )>=sizeof(topo->app_name) ) ) FD_LOG_ERR(( "app_name too long: %s", app_name ));
   strncpy( topo->app_name, app_name, sizeof(topo->app_name) );
 
-  topo->max_page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  switch( max_page_size ) {
+  case FD_SHMEM_HUGE_PAGE_SZ:
+  case FD_SHMEM_GIGANTIC_PAGE_SZ:
+    break;
+  default:
+    FD_LOG_ERR(( "Unsupported page size: %#lx", max_page_size ));
+  }
+
+  topo->max_page_size = max_page_size;
 
   return topo;
 }

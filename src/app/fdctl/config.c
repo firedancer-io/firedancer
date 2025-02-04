@@ -714,7 +714,6 @@ fdctl_cfg_from_env( int *      pargc,
 
   fdctl_cfg_validate( config );
   validate_ports( config );
-  fd_topo_initialize( config );
 }
 
 int
