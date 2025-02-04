@@ -1964,182 +1964,179 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
                                 fd_tpool_t *                 tpool,
                                 fd_spad_t *                  runtime_spad ) {
 
-    FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+  /* Store transaction metadata, including logs */
+  fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, txn_cnt );
 
-    /* Store transaction metadata, including logs */
-    fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, txn_cnt );
+  fd_txncache_insert_t * status_insert  = NULL;
+  uchar *                results        = NULL;
+  ulong                  num_cache_txns = 0UL;
 
-    fd_txncache_insert_t * status_insert  = NULL;
-    uchar *                results        = NULL;
-    ulong                  num_cache_txns = 0UL;
+  if( FD_LIKELY( slot_ctx->status_cache ) ) {
+    status_insert = fd_spad_alloc( runtime_spad, alignof(fd_txncache_insert_t), txn_cnt * sizeof(fd_txncache_insert_t) );
+    results       = fd_spad_alloc( runtime_spad, FD_SPAD_ALIGN, txn_cnt * sizeof(uchar) );
+  }
 
-    if( FD_LIKELY( slot_ctx->status_cache ) ) {
-      status_insert = fd_spad_alloc( runtime_spad, alignof(fd_txncache_insert_t), txn_cnt * sizeof(fd_txncache_insert_t) );
-      results       = fd_spad_alloc( runtime_spad, FD_SPAD_ALIGN, txn_cnt * sizeof(uchar) );
+  fd_borrowed_account_t * * accounts_to_save         = fd_spad_alloc( runtime_spad,
+                                                                      FD_SPAD_ALIGN,
+                                                                      MAX_TX_ACCOUNT_LOCKS * txn_cnt * sizeof(fd_borrowed_account_t*) );
+  ulong                     acc_idx                  = 0UL;
+  ulong                     nonvote_txn_count        = 0UL;
+  ulong                     failed_txn_count         = 0UL;
+  ulong                     nonvote_failed_txn_count = 0UL;
+  ulong                     compute_units_used       = 0UL;
+
+  for( ulong txn_idx=0UL; txn_idx<txn_cnt; txn_idx++ ) {
+    /* Transaction was skipped due to preparation failure. */
+    if( FD_UNLIKELY( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) ) {
+      continue;
+    }
+    fd_exec_txn_ctx_t * txn_ctx      = task_info[txn_idx].txn_ctx;
+    int                 exec_txn_err = task_info[txn_idx].exec_res;
+
+    /* For ledgers that contain txn status, decode and write out for solcap */
+    if( FD_UNLIKELY( capture_ctx != NULL && capture_ctx->capture && capture_ctx->capture_txns ) ) {
+      fd_runtime_write_transaction_status( capture_ctx, slot_ctx, txn_ctx, exec_txn_err );
     }
 
-    fd_borrowed_account_t * * accounts_to_save         = fd_spad_alloc( runtime_spad,
-                                                                        FD_SPAD_ALIGN,
-                                                                        MAX_TX_ACCOUNT_LOCKS * txn_cnt * sizeof(fd_borrowed_account_t*) );
-    ulong                     acc_idx                  = 0UL;
-    ulong                     nonvote_txn_count        = 0UL;
-    ulong                     failed_txn_count         = 0UL;
-    ulong                     nonvote_failed_txn_count = 0UL;
-    ulong                     compute_units_used       = 0UL;
+    slot_ctx->signature_cnt += txn_ctx->txn_descriptor->signature_cnt;
 
-    for( ulong txn_idx=0UL; txn_idx<txn_cnt; txn_idx++ ) {
-      /* Transaction was skipped due to preparation failure. */
-      if( FD_UNLIKELY( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) ) {
-        continue;
-      }
-      fd_exec_txn_ctx_t * txn_ctx      = task_info[txn_idx].txn_ctx;
-      int                 exec_txn_err = task_info[txn_idx].exec_res;
-
-      /* For ledgers that contain txn status, decode and write out for solcap */
-      if( FD_UNLIKELY( capture_ctx != NULL && capture_ctx->capture && capture_ctx->capture_txns ) ) {
-        fd_runtime_write_transaction_status( capture_ctx, slot_ctx, txn_ctx, exec_txn_err );
-      }
-
-      slot_ctx->signature_cnt += txn_ctx->txn_descriptor->signature_cnt;
-
-      int is_vote = fd_txn_is_simple_vote_transaction( txn_ctx->txn_descriptor,
-                                                       txn_ctx->_txn_raw->raw,
-                                                       fd_solana_vote_program_id.key );
-      if( is_vote ) {
-        if( FD_UNLIKELY( exec_txn_err ) ) {
-          failed_txn_count++;
-        }
-      } else {
-        nonvote_txn_count++;
-        if( FD_UNLIKELY( exec_txn_err ) ) {
-          nonvote_failed_txn_count++;
-          failed_txn_count++;
-        }
-      }
-      compute_units_used += txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
-
-      if( FD_LIKELY( slot_ctx->status_cache ) ) {
-        results[num_cache_txns]            = exec_txn_err == 0 ? 1 : 0;
-        fd_txncache_insert_t * curr_insert = &status_insert[num_cache_txns];
-        curr_insert->blockhash             = ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off);
-        curr_insert->slot                  = slot_ctx->slot_bank.slot;
-        fd_hash_t *            hash        = &txn_ctx->blake_txn_msg_hash;
-        curr_insert->txnhash               = hash->uc;
-        curr_insert->result                = &results[num_cache_txns];
-        num_cache_txns++;
-      }
-
+    int is_vote = fd_txn_is_simple_vote_transaction( txn_ctx->txn_descriptor,
+                                                     txn_ctx->_txn_raw->raw,
+                                                     fd_solana_vote_program_id.key );
+    if( is_vote ) {
       if( FD_UNLIKELY( exec_txn_err ) ) {
-        /* Save the fee_payer. Everything but the fee balance should be reset.
-           TODO: an optimization here could be to use a dirty flag in the
-           borrowed account. If the borrowed account data has been changed in
-           any way, then the full account can be rolled back as it is done now.
-           However, most of the time the account data is not changed, and only
-           the lamport balance has to change. */
-        fd_borrowed_account_t * borrowed_account = fd_borrowed_account_init( &txn_ctx->borrowed_accounts[ FD_FEE_PAYER_TXN_IDX ] );
-
-        fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->accounts[ FD_FEE_PAYER_TXN_IDX ], borrowed_account );
-        memcpy( borrowed_account->pubkey->key, &txn_ctx->accounts[ FD_FEE_PAYER_TXN_IDX ], sizeof(fd_pubkey_t) );
-
-        void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
-        fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
-        borrowed_account->meta->info.lamports -= (txn_ctx->execution_fee + txn_ctx->priority_fee);
-
-        accounts_to_save[acc_idx++] = &txn_ctx->borrowed_accounts[ FD_FEE_PAYER_TXN_IDX ];
-        if( txn_ctx->nonce_account_idx_in_txn != ULONG_MAX ) {
-          if( FD_LIKELY( txn_ctx->nonce_account_advanced ) ) {
-            accounts_to_save[acc_idx++] = &txn_ctx->borrowed_accounts[ txn_ctx->nonce_account_idx_in_txn ];
-          } else {
-            accounts_to_save[acc_idx++] = &txn_ctx->rollback_nonce_account[ 0 ];
-          }
-        }
-      } else {
-        int dirty_vote_acc  = txn_ctx->dirty_vote_acc;
-        int dirty_stake_acc = txn_ctx->dirty_stake_acc;
-
-        for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
-          /* We are only interested in saving writable accounts and the fee
-             payer account. */
-          if( !fd_txn_account_is_writable_idx( txn_ctx, (int)i ) && i!=FD_FEE_PAYER_TXN_IDX ) {
-            continue;
-          }
-
-          fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
-
-          if( dirty_vote_acc && !memcmp( acc_rec->const_meta->info.owner, &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
-            fd_vote_store_account( slot_ctx, acc_rec );
-            FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
-              fd_vote_state_versioned_t vsv[1];
-              fd_bincode_decode_ctx_t decode_vsv =
-                { .data    = acc_rec->const_data,
-                  .dataend = acc_rec->const_data + acc_rec->const_meta->dlen,
-                  .valloc  = fd_spad_virtual( txn_ctx->spad ) };
-
-              int err = fd_vote_state_versioned_decode( vsv, &decode_vsv );
-              if( err ) break; /* out of spad scope */
-
-              fd_vote_block_timestamp_t const * ts = NULL;
-              switch( vsv->discriminant ) {
-              case fd_vote_state_versioned_enum_v0_23_5:
-                ts = &vsv->inner.v0_23_5.last_timestamp;
-                break;
-              case fd_vote_state_versioned_enum_v1_14_11:
-                ts = &vsv->inner.v1_14_11.last_timestamp;
-                break;
-              case fd_vote_state_versioned_enum_current:
-                ts = &vsv->inner.current.last_timestamp;
-                break;
-              default:
-                __builtin_unreachable();
-              }
-
-              fd_vote_record_timestamp_vote_with_slot( slot_ctx,
-                                                       acc_rec->pubkey,
-                                                       ts->timestamp,
-                                                       ts->slot,
-                                                       runtime_spad );
-            } FD_SPAD_FRAME_END;
-          }
-
-          if( dirty_stake_acc && !memcmp( acc_rec->const_meta->info.owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
-            // TODO: does this correctly handle stake account close?
-            fd_store_stake_delegation( slot_ctx, acc_rec );
-          }
-
-          accounts_to_save[acc_idx++] = acc_rec;
-        }
+        failed_txn_count++;
+      }
+    } else {
+      nonvote_txn_count++;
+      if( FD_UNLIKELY( exec_txn_err ) ) {
+        nonvote_failed_txn_count++;
+        failed_txn_count++;
       }
     }
-
-    /* Accumulate transaction counters */
-
-    FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->nonvote_txn_count, nonvote_txn_count );
-    FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->failed_txn_count, failed_txn_count );
-    FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->nonvote_failed_txn_count, nonvote_failed_txn_count );
-    FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->total_compute_units_used, compute_units_used );
-
-    /* All the accounts have been accumulated and can be saved */
-
-    int err = fd_acc_mgr_save_many_tpool( slot_ctx->acc_mgr,
-                                          slot_ctx->funk_txn,
-                                          accounts_to_save,
-                                          acc_idx,
-                                          tpool,
-                                          runtime_spad );
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_ERR(( "failed to save edits to accounts" ));
-      return -1;
-    }
+    compute_units_used += txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
 
     if( FD_LIKELY( slot_ctx->status_cache ) ) {
-      if( FD_UNLIKELY( !fd_txncache_insert_batch( slot_ctx->status_cache, status_insert, num_cache_txns ) ) ) {
-        FD_LOG_WARNING(("Status cache is full, this should not be possible"));
+      results[num_cache_txns]            = exec_txn_err == 0 ? 1 : 0;
+      fd_txncache_insert_t * curr_insert = &status_insert[num_cache_txns];
+      curr_insert->blockhash             = ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off);
+      curr_insert->slot                  = slot_ctx->slot_bank.slot;
+      fd_hash_t * hash                   = &txn_ctx->blake_txn_msg_hash;
+      curr_insert->txnhash               = hash->uc;
+      curr_insert->result                = &results[num_cache_txns];
+      num_cache_txns++;
+    }
+
+    if( FD_UNLIKELY( exec_txn_err ) ) {
+      /* Save the fee_payer. Everything but the fee balance should be reset.
+          TODO: an optimization here could be to use a dirty flag in the
+          borrowed account. If the borrowed account data has been changed in
+          any way, then the full account can be rolled back as it is done now.
+          However, most of the time the account data is not changed, and only
+          the lamport balance has to change. */
+      fd_borrowed_account_t * borrowed_account = fd_borrowed_account_init( &txn_ctx->borrowed_accounts[ FD_FEE_PAYER_TXN_IDX ] );
+
+      fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->accounts[ FD_FEE_PAYER_TXN_IDX ], borrowed_account );
+      memcpy( borrowed_account->pubkey->key, &txn_ctx->accounts[ FD_FEE_PAYER_TXN_IDX ], sizeof(fd_pubkey_t) );
+
+      void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
+      fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
+      borrowed_account->meta->info.lamports -= (txn_ctx->execution_fee + txn_ctx->priority_fee);
+
+      accounts_to_save[acc_idx++] = &txn_ctx->borrowed_accounts[ FD_FEE_PAYER_TXN_IDX ];
+      if( txn_ctx->nonce_account_idx_in_txn != ULONG_MAX ) {
+        if( FD_LIKELY( txn_ctx->nonce_account_advanced ) ) {
+          accounts_to_save[acc_idx++] = &txn_ctx->borrowed_accounts[ txn_ctx->nonce_account_idx_in_txn ];
+        } else {
+          accounts_to_save[acc_idx++] = &txn_ctx->rollback_nonce_account[ 0 ];
+        }
+      }
+    } else {
+      int dirty_vote_acc  = txn_ctx->dirty_vote_acc;
+      int dirty_stake_acc = txn_ctx->dirty_stake_acc;
+
+      for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
+        /* We are only interested in saving writable accounts and the fee
+            payer account. */
+        if( !fd_txn_account_is_writable_idx( txn_ctx, (int)i ) && i!=FD_FEE_PAYER_TXN_IDX ) {
+          continue;
+        }
+
+        fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
+
+        if( dirty_vote_acc && !memcmp( acc_rec->const_meta->info.owner, &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
+          fd_vote_store_account( slot_ctx, acc_rec );
+          FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
+            fd_vote_state_versioned_t vsv[1];
+            fd_bincode_decode_ctx_t decode_vsv =
+              { .data    = acc_rec->const_data,
+                .dataend = acc_rec->const_data + acc_rec->const_meta->dlen,
+                .valloc  = fd_spad_virtual( txn_ctx->spad ) };
+
+            int err = fd_vote_state_versioned_decode( vsv, &decode_vsv );
+            if( err ) break; /* out of spad scope */
+
+            fd_vote_block_timestamp_t const * ts = NULL;
+            switch( vsv->discriminant ) {
+            case fd_vote_state_versioned_enum_v0_23_5:
+              ts = &vsv->inner.v0_23_5.last_timestamp;
+              break;
+            case fd_vote_state_versioned_enum_v1_14_11:
+              ts = &vsv->inner.v1_14_11.last_timestamp;
+              break;
+            case fd_vote_state_versioned_enum_current:
+              ts = &vsv->inner.current.last_timestamp;
+              break;
+            default:
+              __builtin_unreachable();
+            }
+
+            fd_vote_record_timestamp_vote_with_slot( slot_ctx,
+                                                     acc_rec->pubkey,
+                                                     ts->timestamp,
+                                                     ts->slot,
+                                                     runtime_spad );
+          } FD_SPAD_FRAME_END;
+        }
+
+        if( dirty_stake_acc && !memcmp( acc_rec->const_meta->info.owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
+          // TODO: does this correctly handle stake account close?
+          fd_store_stake_delegation( slot_ctx, acc_rec );
+        }
+
+        accounts_to_save[acc_idx++] = acc_rec;
       }
     }
+  }
+
+  /* Accumulate transaction counters */
+
+  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->nonvote_txn_count, nonvote_txn_count );
+  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->failed_txn_count, failed_txn_count );
+  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->nonvote_failed_txn_count, nonvote_failed_txn_count );
+  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->total_compute_units_used, compute_units_used );
+
+  /* All the accounts have been accumulated and can be saved */
+
+  int err = fd_acc_mgr_save_many_tpool( slot_ctx->acc_mgr,
+                                        slot_ctx->funk_txn,
+                                        accounts_to_save,
+                                        acc_idx,
+                                        tpool,
+                                        runtime_spad );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    FD_LOG_ERR(( "failed to save edits to accounts" ));
+    return -1;
+  }
+
+  if( FD_LIKELY( slot_ctx->status_cache ) ) {
+    if( FD_UNLIKELY( !fd_txncache_insert_batch( slot_ctx->status_cache, status_insert, num_cache_txns ) ) ) {
+      FD_LOG_WARNING(("Status cache is full, this should not be possible"));
+    }
+  }
 
   return 0;
 
-  } FD_SPAD_FRAME_END;
 }
 
 struct fd_pubkey_map_node {
