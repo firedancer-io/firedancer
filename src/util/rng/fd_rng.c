@@ -51,7 +51,7 @@ fd_rng_float_exp( fd_rng_t * rng ) {
    yielding a variant with minimal tail artifacts.  In single precision:
 
       e = fd_rng_coin_tosses( rng );
-      m = fd_rng_uint( rng );        
+      m = fd_rng_uint( rng );
       y = e - lg1p( m / 2^32 );
       return y*(1/log2(e));
 

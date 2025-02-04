@@ -59,7 +59,7 @@ main( int     argc,
   void *     ctx   = (void *)0x1234UL;
   void *     shaio = fd_aio_new( _aio, ctx, test_aio_send_func ); FD_TEST( shaio );
   fd_aio_t * aio   = fd_aio_join( shaio );                        FD_TEST( aio );
-  
+
   FD_TEST( fd_aio_ctx      ( aio )==ctx                );
   FD_TEST( fd_aio_send_func( aio )==test_aio_send_func );
 

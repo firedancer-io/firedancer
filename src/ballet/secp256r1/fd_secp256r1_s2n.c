@@ -41,7 +41,7 @@ fd_secp256r1_scalar_from_digest( fd_secp256r1_scalar_t * r,
 }
 
 static inline fd_secp256r1_scalar_t *
-fd_secp256r1_scalar_mul( fd_secp256r1_scalar_t *       r, 
+fd_secp256r1_scalar_mul( fd_secp256r1_scalar_t *       r,
                          fd_secp256r1_scalar_t const * a,
                          fd_secp256r1_scalar_t const * b ) {
   ulong t[ 8 ];
@@ -51,7 +51,7 @@ fd_secp256r1_scalar_mul( fd_secp256r1_scalar_t *       r,
 }
 
 static inline fd_secp256r1_scalar_t *
-fd_secp256r1_scalar_inv( fd_secp256r1_scalar_t       * r, 
+fd_secp256r1_scalar_inv( fd_secp256r1_scalar_t       * r,
                          fd_secp256r1_scalar_t const * a ) {
   ulong t[ 12 ];
   bignum_modinv( 4, r->limbs, (ulong *)a->limbs, (ulong *)fd_secp256r1_const_n[0].limbs, t );
@@ -131,7 +131,7 @@ fd_secp256r1_point_frombytes( fd_secp256r1_point_t * r,
   }
 
   bignum_tomont_p256( r->x->limbs, r->x->limbs );
-  
+
   /* y^2 = x^3 + ax + b */
   bignum_montsqr_p256( y2->limbs, r->x->limbs );
   bignum_add_p256    ( y2->limbs, y2->limbs, (ulong *)fd_secp256r1_const_a_mont[0].limbs );

@@ -4,7 +4,7 @@
 #include "../../vm/syscall/fd_vm_syscall.h"
 #include "../../../util/bits/fd_uwide.h"
 
-int 
+int
 fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
                                                   fd_system_program_instruction_t const * instr,
                                                   fd_vm_rust_account_meta_t const * acct_metas,
@@ -53,7 +53,7 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
           /* This is the first time seeing this account */
           acc_idx_seen[k] = 1;
           if( instr_info->borrowed_accounts[j]->const_meta != NULL ) {
-            fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, 
+            fd_uwide_inc( &starting_lamports_h, &starting_lamports_l,
                           starting_lamports_h, starting_lamports_l,
                           instr_info->borrowed_accounts[j]->const_meta->info.lamports );
           }
@@ -93,8 +93,8 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
   return fd_execute_instr( ctx->txn_ctx, instr_info );
 }
 
-void 
-fd_native_cpi_create_account_meta( fd_pubkey_t const * key, uchar is_signer, 
+void
+fd_native_cpi_create_account_meta( fd_pubkey_t const * key, uchar is_signer,
                                    uchar is_writable, fd_vm_rust_account_meta_t * meta ) {
   meta->is_signer = is_signer;
   meta->is_writable = is_writable;

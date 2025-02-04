@@ -672,7 +672,7 @@ sol_compat_vm_syscall_execute_v1( uchar *       out,
     sol_compat_cleanup_runner( runner );
     return 0;
   }
-  
+
   int ok = 0;
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
   // Execute

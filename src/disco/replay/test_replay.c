@@ -170,7 +170,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  
+
   uint rng_seq = 0U;
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, rng_seq++, 0UL ) );
 
@@ -314,7 +314,7 @@ main( int     argc,
   FD_TEST( !fd_tile_exec_delete( rx_exec, &ret ) ); FD_TEST( !ret );
 
   FD_LOG_NOTICE(( "Cleaning up" ));
-  
+
   fd_wksp_free_laddr( fd_fseq_delete  ( fd_fseq_leave  ( cfg->rx_fseq   ) ) );
   fd_wksp_free_laddr( fd_cnc_delete   ( fd_cnc_leave   ( cfg->rx_cnc    ) ) );
   fd_wksp_free_laddr( fd_dcache_delete( fd_dcache_leave( cfg->tx_dcache ) ) );

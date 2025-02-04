@@ -382,7 +382,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     bool block_exists = fd_blockstore_shreds_complete( blockstore, slot);
     fd_blockstore_end_read( blockstore );
     if( !block_exists && slot_meta.slot == slot ) {
-      int err = fd_rocksdb_import_block_blockstore( &rocks_db, 
+      int err = fd_rocksdb_import_block_blockstore( &rocks_db,
                                                     &slot_meta, blockstore,
                                                     ledger_args->copy_txn_status,
                                                     slot == (ledger_args->trash_hash) ? trash_hash_buf : NULL,
@@ -648,7 +648,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 }
 
 /***************************** Helpers ****************************************/
-static fd_valloc_t 
+static fd_valloc_t
 allocator_setup( fd_wksp_t * wksp ) {
 
   if( FD_UNLIKELY( !wksp ) ) {
@@ -728,7 +728,7 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( args->slot_ctx, args->slot_ctx->funk_txn, args->tpool, args->runtime_spad );
   fd_funk_end_write( funk );
 
-  /* First, load in the sysvars into the sysvar cache. This is required to 
+  /* First, load in the sysvars into the sysvar cache. This is required to
       make the StakeHistory sysvar available to the rewards calculation. */
 
   fd_runtime_sysvar_cache_load( args->slot_ctx );
@@ -1121,10 +1121,10 @@ ingest( fd_ledger_args_t * args ) {
   if( args->snapshot ) {
     fd_snapshot_load_all( args->snapshot,
                           slot_ctx,
-                          NULL, 
-                          args->tpool, 
-                          args->verify_acc_hash, 
-                          args->check_acc_hash , 
+                          NULL,
+                          args->tpool,
+                          args->verify_acc_hash,
+                          args->check_acc_hash ,
                           FD_SNAPSHOT_TYPE_FULL,
                           args->exec_spads,
                           args->exec_spad_cnt,
@@ -1134,11 +1134,11 @@ ingest( fd_ledger_args_t * args ) {
   if( args->incremental ) {
     fd_snapshot_load_all( args->incremental,
                           slot_ctx,
-                          NULL, 
-                          args->tpool, 
-                          args->verify_acc_hash, 
-                          args->check_acc_hash, 
-                          FD_SNAPSHOT_TYPE_INCREMENTAL, 
+                          NULL,
+                          args->tpool,
+                          args->verify_acc_hash,
+                          args->check_acc_hash,
+                          FD_SNAPSHOT_TYPE_INCREMENTAL,
                           args->exec_spads,
                           args->exec_spad_cnt,
                           args->runtime_spad );
@@ -1247,7 +1247,7 @@ replay( fd_ledger_args_t * args ) {
   /* Setup slot_ctx */
   fd_funk_t * funk = args->funk;
 
-  void * epoch_ctx_mem = fd_spad_alloc( spad, FD_EXEC_EPOCH_CTX_ALIGN, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) ); 
+  void * epoch_ctx_mem = fd_spad_alloc( spad, FD_EXEC_EPOCH_CTX_ALIGN, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   fd_memset( epoch_ctx_mem, 0, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   args->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, args->vote_acct_max ) );
   fd_exec_epoch_ctx_bank_mem_clear( args->epoch_ctx );

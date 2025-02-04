@@ -61,7 +61,7 @@ test_simple2( void ) {
   msg = fd_circq_push_back( circq, 1UL, 9UL );
   msg[ 0 ] = 'X';
   msg[ 7 ] = 'A';
-  
+
   msg = fd_circq_push_back( circq, 1UL, 8UL );
   msg[ 0 ] = '2';
   msg[ 7 ] = '3';

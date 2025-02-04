@@ -62,14 +62,14 @@ fd_instr_any_signed( fd_instr_info_t const * info,
 
 /* https://github.com/anza-xyz/agave/blob/9706a6464665f7ebd6ead47f0d12f853ccacbab9/sdk/src/transaction_context.rs#L40 */
 int
-fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr, 
-                                    ulong *                 total_lamports_h, 
+fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr,
+                                    ulong *                 total_lamports_h,
                                     ulong *                 total_lamports_l ) {
   *total_lamports_h = 0UL;
   *total_lamports_l = 0UL;
   for( ulong i=0UL; i<instr->acct_cnt; ++i ) {
-    if( instr->borrowed_accounts[i] == NULL || 
-        instr->is_duplicate[i]              || 
+    if( instr->borrowed_accounts[i] == NULL ||
+        instr->is_duplicate[i]              ||
         instr->borrowed_accounts[i]->const_meta == NULL ) {
       continue;
     }
@@ -80,7 +80,7 @@ fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr,
 
     fd_uwide_inc( &tmp_total_lamports_h, &tmp_total_lamports_l, *total_lamports_h, *total_lamports_l,
                   instr->borrowed_accounts[i]->const_meta->info.lamports );
-    
+
     if( tmp_total_lamports_h < *total_lamports_h ) {
       return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;
     }

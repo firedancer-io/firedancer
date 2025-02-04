@@ -77,12 +77,12 @@ main( int     argc,
 
   pthread_t thr = 0;
   FD_TEST( pthread_create(&thr, NULL, read_thread, NULL) == 0 );
-  
+
   for( ulong iter=0UL; iter<iter_max; iter++ ) {
-    
+
     if( iter%200 == 0 ) {
       FD_TEST( !map_verify( map ) );
-      
+
       ulong cnt = 0UL;
       for( map_iter_t iter = map_iter_init( map ); !map_iter_done( map, iter ); iter = map_iter_next( map, iter ) ) {
         pair_t *       p0 = map_iter_ele(       map, iter );

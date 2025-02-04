@@ -239,11 +239,11 @@
    compilation units.  Further, options exist to use index compression,
    different hashing functions, comparison functions, etc as detailed
    below.
-   
+
    If MAP_MULTI is defined to be 1, the map will support multiple
    entries for the same key. In this case, the existing API works as
    is, but new methods are provided:
-   
+
      ulong                                           // Index of found element on success, sentinel on failure
      mymap_idx_next_const( ulong           prev,     // Previous result of mymap_idx_query_const
                            ulong           sentinel, // Value to return on failure
@@ -855,7 +855,7 @@ MAP_(idx_next_const)( ulong             prev,     // Previous result of mymap_id
                       ulong             sentinel, // Value to return on failure
                       MAP_ELE_T const * pool ) {  // Current local join to element storage
   /* Go to next element in chain */
-  
+
   MAP_ELE_T const * prev_ele = &pool[ prev ];
   MAP_IDX_T const * cur = &prev_ele->MAP_NEXT;
   for(;;) {
@@ -937,7 +937,7 @@ MAP_(verify)( MAP_(t) const *   join,
       MAP_TEST( idx2 == ele_idx );
 #endif
     }
-  
+
 # undef MAP_TEST
 
   return 0;

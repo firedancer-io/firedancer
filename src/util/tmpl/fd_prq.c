@@ -14,7 +14,7 @@
      #include "util/tmpl/fd_prq.c"
 
   will declare the following static inline APIs as a header only style
-  library in the compilation unit: 
+  library in the compilation unit:
 
     // align/footprint - Return the alignment/footprint required for a
     // memory region to be used as eventq that can hold up to max
@@ -336,7 +336,7 @@ PRQ_(private_fill_hole_dn)( PRQ_T * heap,   /* Heap, half cache line aligned for
        strictly after the child, fill the hole with the child (making a
        new hole).  Otherwise, fill the hole with the event to reinsert
        and we are done.
-       
+
        Sigh - see above DIY sigh. */
 
     ulong use_reinsert = ((ulong)(child>=cnt)) | PRQ_TMP_AFTER( tmp_child, tmp_reinsert );

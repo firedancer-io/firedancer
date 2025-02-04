@@ -160,8 +160,8 @@ int fd_runtime_save_slot_bank_archival(fd_exec_slot_ctx_t *slot_ctx)
 }
 
 void
-fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, 
-                          int                  delete_first, 
+fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
+                          int                  delete_first,
                           int                  clear_first,
                           fd_spad_t *          runtime_spad ) {
 
@@ -217,7 +217,7 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
     }
     uint magic = *(uint*)val;
 
-    fd_bincode_decode_ctx_t ctx = { 
+    fd_bincode_decode_ctx_t ctx = {
       .data    = (uchar*)val + sizeof(uint),
       .dataend = (uchar*)val + fd_funk_val_sz( rec ),
       .valloc  = fd_spad_virtual( runtime_spad )
@@ -253,7 +253,7 @@ fd_runtime_delete_banks( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad
 
   /* As the collection pointers are not owned by fd_alloc, zero them
      out to prevent invalid frees by the destroy function.
-     
+
      TODO: This free actually doesn't do anything because of spad. */
 
   fd_bincode_destroy_ctx_t ctx = { .valloc = fd_spad_virtual( runtime_spad ) };

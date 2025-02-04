@@ -30,21 +30,21 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
   /* The append vecs need to be described in an index in the manifest so a
      reader knows what account files to look for. These files are technically
      slot indexed, but the Firedancer implementation of the Solana snapshot
-     produces far fewer indices. These storages are for the accounts 
-     that were modified and deleted in the most recent slot because that 
-     information is used by the Agave client to calculate and verify the 
+     produces far fewer indices. These storages are for the accounts
+     that were modified and deleted in the most recent slot because that
+     information is used by the Agave client to calculate and verify the
      bank hash for the given slot. This is done as an optimization to avoid
      having to slot index the Firedancer accounts db which would incur a large
      performance hit.
-     
+
      To avoid iterating through the root twice to determine what accounts were
      touched in the snapshot slot and what accounts were touched in the
      other slots, we will create an array of pubkey pointers for all accounts
-     that were touched in the snapshot slot. This buffer can be safely sized to 
+     that were touched in the snapshot slot. This buffer can be safely sized to
      the maximum amount of writable accounts that are possible in a non-epoch
      boundary slot. The rationale for this bound is explained in fd_runtime.h.
-     We will not attempt to create a snapshot on an epoch boundary. 
-     
+     We will not attempt to create a snapshot on an epoch boundary.
+
      TODO: We must add compaction here. */
 
   fd_pubkey_t * * snapshot_slot_keys    = fd_spad_alloc( snapshot_ctx->spad, alignof(fd_pubkey_t*), sizeof(fd_pubkey_t*) * FD_WRITABLE_ACCS_IN_SLOT );
@@ -57,7 +57,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
   #define FD_INCREMENTAL_KEY_INIT_BOUND (100000UL)
   ulong                       incremental_key_bound = FD_INCREMENTAL_KEY_INIT_BOUND;
   ulong                       incremental_key_cnt   = 0UL;
-  fd_funk_rec_key_t const * * incremental_keys      = snapshot_ctx->is_incremental ? 
+  fd_funk_rec_key_t const * * incremental_keys      = snapshot_ctx->is_incremental ?
                                                       fd_spad_alloc( snapshot_ctx->spad, alignof(fd_funk_rec_key_t*), sizeof(fd_funk_rec_key_t*) * incremental_key_bound ) :
                                                       NULL;
 
@@ -78,9 +78,9 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
 
     tombstones_cnt++;
 
-    int                 is_tombstone = rec->flags & FD_FUNK_REC_FLAG_ERASE;                     
+    int                 is_tombstone = rec->flags & FD_FUNK_REC_FLAG_ERASE;
     uchar const *       raw          = fd_funk_val( rec, fd_funk_wksp( funk ) );
-    fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funk_rec_get_erase_data( rec ) ) : 
+    fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funk_rec_get_erase_data( rec ) ) :
                                                       (fd_account_meta_t*)raw;
 
     if( !metadata ) {
@@ -93,8 +93,8 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
 
     if( snapshot_ctx->is_incremental ) {
       /* We only care about accounts that were modified since the last
-         snapshot slot for incremental snapshots. 
-         
+         snapshot slot for incremental snapshots.
+
          We also need to keep track of the capitalization for all of the
          accounts that are in the incremental as this is verified. */
       if( metadata->slot<=snapshot_ctx->last_snap_slot ) {
@@ -106,7 +106,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
       if( FD_UNLIKELY( incremental_key_cnt==incremental_key_bound ) ) {
         /* Dynamically resize if needed. */
         incremental_key_bound *= 2UL;
-        fd_funk_rec_key_t const * * new_incremental_keys = fd_spad_alloc( snapshot_ctx->spad, 
+        fd_funk_rec_key_t const * * new_incremental_keys = fd_spad_alloc( snapshot_ctx->spad,
                                                                           alignof(fd_funk_rec_key_t*),
                                                                           sizeof(fd_funk_rec_key_t*) * incremental_key_bound );
         fd_memcpy( new_incremental_keys, incremental_keys, sizeof(fd_funk_rec_key_t*) * incremental_key_cnt );
@@ -126,15 +126,15 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
 
   }
 
-  /* At this point we have sized out all of the relevant accounts that will 
+  /* At this point we have sized out all of the relevant accounts that will
      be included in the snapshot. Now we must populate each of the append vecs
      and update the index as we go.
-  
+
      When we account for the number of slots we need to consider one append vec
      for the snapshot slot and try to maximally fill up the others: an append
      vec has a protocol-defined maximum size in Agave.  */
 
-  ulong num_slots = 1UL + prev_sz / FD_SNAPSHOT_APPEND_VEC_SZ_MAX + 
+  ulong num_slots = 1UL + prev_sz / FD_SNAPSHOT_APPEND_VEC_SZ_MAX +
                     (prev_sz % FD_SNAPSHOT_APPEND_VEC_SZ_MAX ? 1UL : 0UL);
 
   fd_solana_accounts_db_fields_t * accounts_db = &manifest->accounts_db;
@@ -153,7 +153,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
   for( ulong i=0UL; i<num_slots; i++ ) {
     /* Populate the storages for each slot. As a note, the slot number only
        matters for the snapshot slot. The other slot numbers don't affect
-       consensus at all. Agave also maintains an invariant that there can 
+       consensus at all. Agave also maintains an invariant that there can
        only be one account vec per storage. */
 
     accounts_db->storages[ i ].account_vecs_len          = 1UL;
@@ -166,39 +166,39 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
   }
 
   /* At this point we have iterated through all of the accounts and created
-     the index. We are now ready to generate a snapshot hash. For both 
+     the index. We are now ready to generate a snapshot hash. For both
      snapshots we need to generate two hashes:
      1. The accounts hash. This is a simple hash of all of the accounts
         included in the snapshot.
      2. The snapshot hash. This is a hash of the accounts hash and the epoch
         account hash. If the EAH is not included, then the accounts hash ==
         snapshot hash.
-        
+
     There is some nuance as to which hash goes where. For full snapshots,
     the accounts hash in the bank hash info is the accounts hash. The hash in
     the filename is the snapshot hash.
-    
+
     For incremental snapshots, the account hash in the bank hash info field is
     left zeroed out. The full snapshot's hash is in the incremental persistence
-    field. The incremental snapshot's accounts hash is included in the 
-    incremental persistence field. The hash in the filename is the snapshot 
+    field. The incremental snapshot's accounts hash is included in the
+    incremental persistence field. The hash in the filename is the snapshot
     hash. */
 
   int err;
   if( !snapshot_ctx->is_incremental ) {
-    
-    err = fd_snapshot_service_hash( &snapshot_ctx->acc_hash, 
+
+    err = fd_snapshot_service_hash( &snapshot_ctx->acc_hash,
                                     &snapshot_ctx->snap_hash,
-                                    &snapshot_ctx->slot_bank, 
+                                    &snapshot_ctx->slot_bank,
                                     &snapshot_ctx->epoch_bank,
                                     snapshot_ctx->acc_mgr->funk,
                                     snapshot_ctx->tpool,
                                     snapshot_ctx->spad );
     accounts_db->bank_hash_info.accounts_hash = snapshot_ctx->acc_hash;
   } else {
-    err = fd_snapshot_service_inc_hash( &snapshot_ctx->acc_hash, 
+    err = fd_snapshot_service_inc_hash( &snapshot_ctx->acc_hash,
                                         &snapshot_ctx->snap_hash,
-                                        &snapshot_ctx->slot_bank, 
+                                        &snapshot_ctx->slot_bank,
                                         &snapshot_ctx->epoch_bank,
                                         snapshot_ctx->acc_mgr->funk,
                                         incremental_keys,
@@ -225,11 +225,11 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
 
   if( snapshot_ctx->is_incremental ) {
     manifest->bank_incremental_snapshot_persistence = fd_spad_alloc( snapshot_ctx->spad,
-                                                                     FD_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_ALIGN, 
+                                                                     FD_BANK_INCREMENTAL_SNAPSHOT_PERSISTENCE_ALIGN,
                                                                      sizeof(fd_bank_incremental_snapshot_persistence_t) );
   }
 
-  ulong manifest_sz = fd_solana_manifest_serializable_size( manifest ); 
+  ulong manifest_sz = fd_solana_manifest_serializable_size( manifest );
 
   char buffer[ FD_SNAPSHOT_DIR_MAX ];
   err = snprintf( buffer, FD_SNAPSHOT_DIR_MAX, "snapshots/%lu/%lu", snapshot_ctx->slot, snapshot_ctx->slot );
@@ -241,10 +241,10 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "Unable to create snapshot manifest file" ));
   }
-  
+
   /* TODO: We want to eliminate having to write back into the tar file. This
      will enable the snapshot service to only use one file per snapshot.
-     In order to do this, we must precompute the index in the manifest 
+     In order to do this, we must precompute the index in the manifest
      completely. This will allow us to stream out a compressed snapshot. */
 
   err = fd_tar_writer_make_space( writer, manifest_sz );
@@ -259,8 +259,8 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
 
   /* We have made space for the manifest and are ready to append the append
      vec files directly into the tar archive. We will iterate through all of
-     the records in the funk root and create/populate an append vec for 
-     previous slots. Just record the pubkeys for the latest slot to populate 
+     the records in the funk root and create/populate an append vec for
+     previous slots. Just record the pubkeys for the latest slot to populate
      the append vec after. If the append vec is full, write into the next one. */
 
   ulong curr_slot = 1UL;
@@ -276,7 +276,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
     FD_LOG_ERR(( "Unable to create previous accounts file" ));
   }
 
-  fd_funk_rec_t * * tombstones = snapshot_ctx->is_incremental ? NULL : 
+  fd_funk_rec_t * * tombstones = snapshot_ctx->is_incremental ? NULL :
                                  fd_spad_alloc( snapshot_ctx->spad, alignof(fd_funk_rec_t*), sizeof(fd_funk_rec_t*) * tombstones_cnt );
   tombstones_cnt = 0UL;
 
@@ -289,9 +289,9 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
     }
 
     fd_pubkey_t const * pubkey       = fd_type_pun_const( rec->pair.key[0].uc );
-    int                 is_tombstone = rec->flags & FD_FUNK_REC_FLAG_ERASE;                     
+    int                 is_tombstone = rec->flags & FD_FUNK_REC_FLAG_ERASE;
     uchar const *       raw          = fd_funk_val( rec, fd_funk_wksp( funk ) );
-    fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funk_rec_get_erase_data( rec ) ) : 
+    fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funk_rec_get_erase_data( rec ) ) :
                                                       (fd_account_meta_t*)raw;
 
     if( !snapshot_ctx->is_incremental && is_tombstone ) {
@@ -306,7 +306,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
 
     if( metadata->magic!=FD_ACCOUNT_META_MAGIC ) {
       continue;
-    } 
+    }
 
     /* Don't iterate through accounts that were touched before the last full
        snapshot. */
@@ -316,7 +316,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
 
     uchar const * acc_data = raw + metadata->hlen;
 
-    /* All accounts that were touched in the snapshot slot should be in 
+    /* All accounts that were touched in the snapshot slot should be in
        a different append vec so that Agave can calculate the snapshot slot's
        bank hash. We don't want to include them in an arbitrary append vec. */
 
@@ -335,7 +335,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
 
     if( new_sz>FD_SNAPSHOT_APPEND_VEC_SZ_MAX ) {
 
-      /* When the current append vec is full, finish writing it, start writing 
+      /* When the current append vec is full, finish writing it, start writing
          into the next append vec. */
 
       err = fd_tar_writer_fini_file( writer );
@@ -414,7 +414,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
   }
 
   for( ulong i=0UL; i<snapshot_slot_key_cnt; i++ ) {
-    
+
     fd_pubkey_t const * pubkey = snapshot_slot_keys[i];
     fd_funk_rec_key_t key = fd_acc_funk_key( pubkey );
 
@@ -425,7 +425,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
 
     int                 is_tombstone = rec->flags & FD_FUNK_REC_FLAG_ERASE;
     uchar       const * raw          = fd_funk_val( rec, fd_funk_wksp( funk ) );
-    fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funk_rec_get_erase_data( rec ) ) : 
+    fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funk_rec_get_erase_data( rec ) ) :
                                                       (fd_account_meta_t*)raw;
 
     if( FD_UNLIKELY( !metadata ) ) {
@@ -475,7 +475,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
     FD_LOG_ERR(( "Unable to finish writing out file" ));
   }
 
-  /* TODO: At this point we must implement compaction to the snapshot service. 
+  /* TODO: At this point we must implement compaction to the snapshot service.
      Without this, we are actually not cleaning up any tombstones from funk. */
 
   if( snapshot_ctx->is_incremental ) {
@@ -500,27 +500,27 @@ fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t        * snapshot_ctx,
 
 /* The deserialized stakes cache that is used by the runtime can't be
      reserialized into the format that Agave uses. For every vote account
-     in the stakes struct, the Firedancer client holds a decoded copy of the 
-     vote state. However, this vote state can't be reserialized back into the 
-     full vote account data. 
-     
+     in the stakes struct, the Firedancer client holds a decoded copy of the
+     vote state. However, this vote state can't be reserialized back into the
+     full vote account data.
+
      This poses a problem in the Agave client client because upon boot, Agave
      verifies that for all of the vote accounts in the stakes struct, the data
      in the cache is the same as the data in the accounts db.
-     
+
      The other problem is that the Firedancer stakes cache does not evict old
      entries and doesn't update delegations within the cache. The cache will
      just insert new pubkeys as stake accounts are created/delegated to. To
      make the cache conformant for the snapshot, old accounts should be removed
      from the snapshot and all of the delegations should be updated. */
 
-  /* First populate the vote accounts using the vote accounts/stakes cache. 
+  /* First populate the vote accounts using the vote accounts/stakes cache.
      We can populate over all of the fields except we can't reserialize the
      vote account data. Instead we will copy over the raw contents of all of
      the vote accounts. */
 
   ulong vote_accounts_len                      = fd_vote_accounts_pair_t_map_size( old_stakes->vote_accounts.vote_accounts_pool, old_stakes->vote_accounts.vote_accounts_root );
-  new_stakes->vote_accounts.vote_accounts_pool = fd_vote_accounts_pair_serializable_t_map_alloc( fd_spad_virtual( snapshot_ctx->spad ), 
+  new_stakes->vote_accounts.vote_accounts_pool = fd_vote_accounts_pair_serializable_t_map_alloc( fd_spad_virtual( snapshot_ctx->spad ),
                                                                                                  fd_ulong_max(vote_accounts_len, 15000 ) );
   new_stakes->vote_accounts.vote_accounts_root = NULL;
 
@@ -529,7 +529,7 @@ fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t        * snapshot_ctx,
        old_stakes->vote_accounts.vote_accounts_root );
        n;
        n = fd_vote_accounts_pair_t_map_successor( old_stakes->vote_accounts.vote_accounts_pool, n ) ) {
-    
+
     fd_vote_accounts_pair_serializable_t_mapnode_t * new_node = fd_vote_accounts_pair_serializable_t_map_acquire( new_stakes->vote_accounts.vote_accounts_pool );
     new_node->elem.key   = n->elem.key;
     new_node->elem.stake = n->elem.stake;
@@ -551,7 +551,7 @@ fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t        * snapshot_ctx,
 
   }
 
-  /* Stale stake delegations should also be removed or updated in the cache. 
+  /* Stale stake delegations should also be removed or updated in the cache.
      TODO: This will likely be changed in the near future as the stake
      program is migrated to a bpf program. It will likely be replaced by an
      index of stake/vote accounts. */
@@ -562,7 +562,7 @@ fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t        * snapshot_ctx,
       old_stakes->stake_delegations_pool, old_stakes->stake_delegations_root ); n; n=nn ) {
 
     nn = fd_delegation_pair_t_map_successor( old_stakes->stake_delegations_pool, n );
-    
+
     int err = fd_acc_mgr_view( snapshot_ctx->acc_mgr, NULL, &n->elem.account, stake_acc );
     if( FD_UNLIKELY( err ) ) {
       /* If the stake account doesn't exist, the cache is stale and the entry
@@ -674,7 +674,7 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *                snapshot_ct
 
   bank->epoch_schedule                        = epoch_bank->epoch_schedule;
   bank->inflation                             = epoch_bank->inflation;
-  
+
   /* Unused accounts can be left as NULL for both clients. */
 
   fd_memset( &bank->unused_accounts, 0, sizeof(fd_unused_accounts_t) );
@@ -683,7 +683,7 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *                snapshot_ct
      providing the stakes for 6 epochs. These stakes need to be copied over
      because of the fact that the leader schedule computation uses the two
      previous epoch stakes.
-     
+
      TODO: This field has been deprecated by agave and has instead been
      replaced with the versioned epoch stakes field in the manifest. The
      firedancer client will populate the deprecated field. */
@@ -789,7 +789,7 @@ fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
   }
 
   if( FD_UNLIKELY( snapshot_ctx->slot>snapshot_ctx->slot_bank.slot ) ) {
-    FD_LOG_ERR(( "Snapshot slot=%lu is greater than the current slot=%lu", 
+    FD_LOG_ERR(( "Snapshot slot=%lu is greater than the current slot=%lu",
                      snapshot_ctx->slot, snapshot_ctx->slot_bank.slot ));
   }
 
@@ -817,7 +817,7 @@ fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
 
 static inline void
 fd_snapshot_create_setup_writer( fd_snapshot_ctx_t * snapshot_ctx ) {
-  
+
   /* Setup a tar writer. */
 
   uchar * writer_mem   = fd_spad_alloc( snapshot_ctx->spad, fd_tar_writer_align(), fd_tar_writer_footprint() );
@@ -863,7 +863,7 @@ fd_snapshot_create_write_status_cache( fd_snapshot_ctx_t * snapshot_ctx ) {
   }
   ulong   bank_slot_deltas_sz = fd_bank_slot_deltas_size( &slot_deltas_new );
   uchar * out_status_cache    = fd_spad_alloc( snapshot_ctx->spad,
-                                               FD_BANK_SLOT_DELTAS_ALIGN, 
+                                               FD_BANK_SLOT_DELTAS_ALIGN,
                                                bank_slot_deltas_sz );
   fd_bincode_encode_ctx_t encode_status_cache = {
     .data    = out_status_cache,
@@ -901,7 +901,7 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t * snapshot_ctx
 
 
   fd_solana_manifest_serializable_t manifest = {0};
-  
+
   /* Copy in all the fields of the bank. */
 
   fd_snapshot_create_populate_bank( snapshot_ctx, &manifest.bank );
@@ -923,7 +923,7 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t * snapshot_ctx
   ulong incr_capitalization = 0UL;
   fd_snapshot_create_populate_acc_vecs( snapshot_ctx, &manifest, snapshot_ctx->writer, &incr_capitalization );
 
-  /* Once the append vec index is populated and the hashes are calculated, 
+  /* Once the append vec index is populated and the hashes are calculated,
      propogate the hashes to the correct fields. As a note, the last_snap_hash
      is the full snapshot's account hash. */
 
@@ -940,13 +940,13 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t * snapshot_ctx
 
   /* At this point, all of the account files are written out and the append
      vec index is populated in the manifest. We have already reserved space
-     in the archive for the manifest. All we need to do now is encode the 
+     in the archive for the manifest. All we need to do now is encode the
      manifest and write it in. */
 
-  ulong   manifest_sz  = fd_solana_manifest_serializable_size( &manifest ); 
+  ulong   manifest_sz  = fd_solana_manifest_serializable_size( &manifest );
   uchar * out_manifest = fd_spad_alloc( snapshot_ctx->spad, FD_SOLANA_MANIFEST_SERIALIZABLE_ALIGN, manifest_sz );
 
-  fd_bincode_encode_ctx_t encode = { 
+  fd_bincode_encode_ctx_t encode = {
     .data    = out_manifest,
     .dataend = out_manifest + manifest_sz
   };
@@ -955,7 +955,7 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t * snapshot_ctx
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "Failed to encode the manifest" ));
   }
-  
+
   err = fd_tar_writer_fill_space( snapshot_ctx->writer, out_manifest, manifest_sz );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "Failed to write out the manifest" ));
@@ -964,7 +964,7 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t * snapshot_ctx
   void * mem = fd_tar_writer_delete( snapshot_ctx->writer );
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_ERR(( "Unable to delete the tar writer" ));
-  } 
+  }
 
 }
 
@@ -974,14 +974,14 @@ fd_snapshot_create_compress( fd_snapshot_ctx_t * snapshot_ctx ) {
   /* Compress the file using zstd. First open the non-compressed file and
      create a file for the compressed file. The reason why we can't do this
      as we stream out the snapshot archive is that we write back into the
-     manifest buffer. 
-     
+     manifest buffer.
+
      TODO: A way to eliminate this and to just stream out
-     1 compressed file would be to totally precompute the index such that 
+     1 compressed file would be to totally precompute the index such that
      we don't have to write back into funk.
-     
-     TODO: Currently, the snapshot service interfaces directly with the zstd 
-     library but a generalized cstream defined in fd_zstd should be used 
+
+     TODO: Currently, the snapshot service interfaces directly with the zstd
+     library but a generalized cstream defined in fd_zstd should be used
      instead. */
 
   ulong in_buf_sz   = ZSTD_CStreamInSize();
@@ -1001,7 +1001,7 @@ fd_snapshot_create_compress( fd_snapshot_ctx_t * snapshot_ctx ) {
   if( FD_UNLIKELY( !cstream ) ) {
     FD_LOG_ERR(( "Failed to create the zstd compression stream" ));
   }
-  ZSTD_initCStream( cstream, ZSTD_CLEVEL_DEFAULT ); 
+  ZSTD_initCStream( cstream, ZSTD_CLEVEL_DEFAULT );
 
   fd_io_buffered_ostream_t ostream[1];
 
@@ -1030,7 +1030,7 @@ fd_snapshot_create_compress( fd_snapshot_ctx_t * snapshot_ctx ) {
     /* Read chunks from the file. There isn't really a need to use a streamed
        reader here because we will read in the max size buffer for every single
        file read except for the very last one.
-       
+
        in_sz will only not equal in_buf_sz on the last read. */
     err = fd_io_read( snapshot_ctx->tmp_fd, in_buf, 0UL, in_buf_sz, &in_sz );
     if( FD_UNLIKELY( err ) ) {
@@ -1038,7 +1038,7 @@ fd_snapshot_create_compress( fd_snapshot_ctx_t * snapshot_ctx ) {
     }
 
     /* Compress the in memory buffer and add it to the output stream. */
-  
+
     ZSTD_inBuffer input = { in_buf, in_sz, 0UL };
     while( input.pos<input.size ) {
       ZSTD_outBuffer output = { zstd_buf, zstd_buf_sz, 0UL };
@@ -1055,7 +1055,7 @@ fd_snapshot_create_compress( fd_snapshot_ctx_t * snapshot_ctx ) {
     }
   }
 
-  /* Now flush any bytes left in the zstd buffer, cleanup open file 
+  /* Now flush any bytes left in the zstd buffer, cleanup open file
      descriptors, and deinit any data structures.  */
 
   ZSTD_outBuffer output    = { zstd_buf, zstd_buf_sz, 0UL };
@@ -1063,7 +1063,7 @@ fd_snapshot_create_compress( fd_snapshot_ctx_t * snapshot_ctx ) {
 
   if( FD_UNLIKELY( ZSTD_isError( remaining ) ) ) {
     FD_LOG_ERR(( "Unable to end the zstd stream" ));
-  }   
+  }
   if( output.pos>0UL ) {
     fd_io_buffered_ostream_write( ostream, zstd_buf, output.pos );
   }
@@ -1085,10 +1085,10 @@ fd_snapshot_create_compress( fd_snapshot_ctx_t * snapshot_ctx ) {
 
   char directory_buf_zstd[ FD_SNAPSHOT_DIR_MAX ];
   if( !snapshot_ctx->is_incremental ) {
-    err = snprintf( directory_buf_zstd, FD_SNAPSHOT_DIR_MAX, "%s/snapshot-%lu-%s.tar.zst", 
+    err = snprintf( directory_buf_zstd, FD_SNAPSHOT_DIR_MAX, "%s/snapshot-%lu-%s.tar.zst",
                     snapshot_ctx->out_dir, snapshot_ctx->slot, FD_BASE58_ENC_32_ALLOCA(&snapshot_ctx->snap_hash) );
   } else {
-    err = snprintf( directory_buf_zstd, FD_SNAPSHOT_DIR_MAX, "%s/incremental-snapshot-%lu-%lu-%s.tar.zst", 
+    err = snprintf( directory_buf_zstd, FD_SNAPSHOT_DIR_MAX, "%s/incremental-snapshot-%lu-%lu-%s.tar.zst",
                     snapshot_ctx->out_dir, snapshot_ctx->last_snap_slot, snapshot_ctx->slot, FD_BASE58_ENC_32_ALLOCA(&snapshot_ctx->snap_hash) );
   }
 
@@ -1104,8 +1104,8 @@ fd_snapshot_create_compress( fd_snapshot_ctx_t * snapshot_ctx ) {
 }
 
 void
-fd_snapshot_create_new_snapshot( fd_snapshot_ctx_t * snapshot_ctx, 
-                                 fd_hash_t *         out_hash, 
+fd_snapshot_create_new_snapshot( fd_snapshot_ctx_t * snapshot_ctx,
+                                 fd_hash_t *         out_hash,
                                  ulong *             out_capitalization ) {
 
   FD_LOG_NOTICE(( "Starting to produce a snapshot for slot=%lu in directory=%s", snapshot_ctx->slot, snapshot_ctx->out_dir ));

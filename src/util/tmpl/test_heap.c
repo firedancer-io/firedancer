@@ -41,7 +41,7 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Testing with --max %lu --seed %lu", ele_max, seed ));
 
-  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) ); 
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   ulong align     = pool_align();
   ulong footprint = pool_footprint( ele_max );

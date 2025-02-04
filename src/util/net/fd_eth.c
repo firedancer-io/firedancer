@@ -91,6 +91,6 @@ fd_cstr_to_mac_addr( char const * s,
     mac[i] = (uchar)((s1<<4) | s0);
     s += 3;
   }
-  
+
   return mac;
 }

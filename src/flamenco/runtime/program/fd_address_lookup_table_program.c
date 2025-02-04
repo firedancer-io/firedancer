@@ -222,7 +222,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L86-L87 */
 
   /* try_borrow_account => get_index_of_instruction_account_in_transaction */
-  fd_pubkey_t const * payer_key = NULL; 
+  fd_pubkey_t const * payer_key = NULL;
   FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, ACC_IDX_PAYER, payer_acct ) {
 
   payer_key = payer_acct->pubkey;
@@ -260,7 +260,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   ulong       seed_szs[2] = { sizeof(fd_pubkey_t), sizeof(ulong) };
   seeds[0] = (uchar *)authority_key;
   seeds[1] = (uchar *)&derivation_slot;
-  int err = fd_pubkey_derive_pda( &fd_solana_address_lookup_table_program_id, 2UL, seeds, 
+  int err = fd_pubkey_derive_pda( &fd_solana_address_lookup_table_program_id, 2UL, seeds,
                                   seed_szs, (uchar*)&create->bump_seed, derived_tbl_key, &ctx->txn_ctx->custom_err );
   if( FD_UNLIKELY( err ) ) {
     return err;
@@ -380,7 +380,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   uchar * data = NULL;
   ulong   dlen = 0UL;
   int err = fd_account_get_data_mut( ctx, ACC_IDX_LUT, &data, &dlen );
-  if( FD_UNLIKELY( err ) ) { 
+  if( FD_UNLIKELY( err ) ) {
     return err;
   }
 
@@ -443,7 +443,7 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L195 */
   fd_addrlut_t lut[1];
   int err = fd_addrlut_deserialize( lut, lut_data, lut_data_sz );
-  if( FD_UNLIKELY( err ) ) { 
+  if( FD_UNLIKELY( err ) ) {
     return err;
   }
 
@@ -483,7 +483,7 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   state->meta.has_authority = 0;
 
   err = fd_addrlut_serialize_meta( &lut->state, data, dlen );
-  if( FD_UNLIKELY( err ) ) { 
+  if( FD_UNLIKELY( err ) ) {
     return err;
   }
 
@@ -553,8 +553,8 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L251 */
   fd_addrlut_t lut[1];
   int err = fd_addrlut_deserialize( lut, (uchar *)lut_data, lut_data_sz );
-  if( FD_UNLIKELY( err ) ) { 
-    return err; 
+  if( FD_UNLIKELY( err ) ) {
+    return err;
   }
 
   fd_address_lookup_table_t * state = &lut->state.inner.lookup_table;
@@ -623,7 +623,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L307-L310 */
   err = fd_addrlut_serialize_meta( &lut->state, lut_acct->data, lut_acct->meta->dlen );
-  if( FD_UNLIKELY( err ) ) { 
+  if( FD_UNLIKELY( err ) ) {
     return err;
   }
 
@@ -744,7 +744,7 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L365 */
   fd_addrlut_t lut[1];
   int err = fd_addrlut_deserialize( lut, (uchar *)lut_data, lut_data_sz );
-  if( FD_UNLIKELY( err ) ) { 
+  if( FD_UNLIKELY( err ) ) {
     return err;
   }
 
@@ -785,7 +785,7 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L383-L386 */
   err = fd_addrlut_serialize_meta( &lut->state, data, dlen );
-  if( FD_UNLIKELY( err ) ) { 
+  if( FD_UNLIKELY( err ) ) {
     return err;
   }
 
@@ -859,7 +859,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L426 */
   fd_addrlut_t lut[1];
   int err = fd_addrlut_deserialize( lut, (uchar *)lut_data, lut_data_sz );
-  if( FD_UNLIKELY( err ) ) { 
+  if( FD_UNLIKELY( err ) ) {
     return err;
   }
 
@@ -884,7 +884,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L438 */
   fd_slot_hashes_t const * slot_hashes = fd_sysvar_cache_slot_hashes( ctx->slot_ctx->sysvar_cache );
-  if( FD_UNLIKELY( !slot_hashes ) ) { 
+  if( FD_UNLIKELY( !slot_hashes ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
 
@@ -906,7 +906,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
     default:
       __builtin_unreachable();
   }
-  
+
   } FD_BORROWED_ACCOUNT_DROP( lut_acct );
 
   /* Add lamports to recipient ****************************************/
@@ -1032,6 +1032,6 @@ fd_get_active_addresses_len( fd_address_lookup_table_t * self,
   *active_addresses_len = ( current_slot > self->meta.last_extended_slot )
       ? addresses_len
       : self->meta.last_extended_slot_start_index;
-  
+
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }

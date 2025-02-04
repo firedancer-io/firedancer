@@ -731,7 +731,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
   blockstore->smr = slot;
 
   if( FD_LIKELY( block_map_entry ) ) {
-    block_map_entry->flags = 
+    block_map_entry->flags =
       fd_uchar_set_bit(
       fd_uchar_set_bit(
       fd_uchar_set_bit(

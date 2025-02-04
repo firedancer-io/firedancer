@@ -96,7 +96,7 @@ fd_zksdk_verify_proof_percentage_with_cap(
   fd_curve25519_scalar_mul( ww, w, w );
   uchar m[ 32 ];
   fd_curve25519_scalar_from_u64( m, max_value );
-  
+
   uchar const * c_max = proof->percentage_max_proof.c_max;
   uchar * c_eq = c;
   fd_curve25519_scalar_sub( c_eq, c, c_max );
@@ -120,7 +120,7 @@ fd_zksdk_verify_proof_percentage_with_cap(
   fd_curve25519_scalar_mul( &scalars[ 4*32 ], &scalars[ 3*32 ], c_eq ); //  w c_eq
   fd_curve25519_scalar_set( &scalars[ 5*32 ], ww );                     //  ww
   fd_curve25519_scalar_mul( &scalars[ 6*32 ], &scalars[ 5*32 ], c_eq ); //  ww c_eq
-  
+
   /* Compute the final MSM */
   fd_ristretto255_multi_scalar_mul( res, scalars, points, 7 );
 

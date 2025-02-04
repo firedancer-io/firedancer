@@ -682,7 +682,7 @@ during_frag( fd_pack_ctx_t * ctx,
 
     fd_txn_m_t * txnm = (fd_txn_m_t *)dcache_entry;
     fd_txn_t * txn  = fd_txn_m_txn_t( txnm );
-    
+
     fd_memcpy( ctx->cur_spot->txnp->payload, fd_txn_m_payload( txnm), txnm->payload_sz              );
     fd_memcpy( TXN(ctx->cur_spot->txnp),     txn,                     txnm->txn_t_sz                );
     fd_memcpy( ctx->cur_spot->alt_accts,     fd_txn_m_alut( txnm ),   32UL*txn->addr_table_adtl_cnt );

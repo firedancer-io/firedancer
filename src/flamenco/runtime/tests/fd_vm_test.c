@@ -73,7 +73,7 @@ fd_exec_vm_interp_test_run( fd_exec_instr_test_runner_t *         runner,
   }
 
   fd_spad_t * spad   = fd_exec_instr_test_runner_get_spad( runner );
-  fd_valloc_t valloc = fd_spad_virtual( spad ); 
+  fd_valloc_t valloc = fd_spad_virtual( spad );
 
   /* Create effects */
   ulong output_end = (ulong) output_buf + output_bufsz;
@@ -118,7 +118,7 @@ do{
     fd_bpf_loader_input_serialize_unaligned( *instr_ctx,
                                              &input_sz,
                                              pre_lens,
-                                             input_mem_regions,            
+                                             input_mem_regions,
                                              &input_mem_regions_cnt,
                                              acc_region_metas,
                                              !direct_mapping );
@@ -126,7 +126,7 @@ do{
     fd_bpf_loader_input_serialize_aligned( *instr_ctx,
                                            &input_sz,
                                            pre_lens,
-                                           input_mem_regions,            
+                                           input_mem_regions,
                                            &input_mem_regions_cnt,
                                            acc_region_metas,
                                            !direct_mapping );

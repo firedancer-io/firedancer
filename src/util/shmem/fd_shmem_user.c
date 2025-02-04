@@ -76,12 +76,12 @@ fd_shmem_private_map_query_by_addr( fd_shmem_join_info_t * map,
 }
 
 /*
- * fd_shmem_private_grab_region will attempt to map a region at the passed 
- * address with the passed size. If the return value of `mmap` equals the 
+ * fd_shmem_private_grab_region will attempt to map a region at the passed
+ * address with the passed size. If the return value of `mmap` equals the
  * passed address this means the area of memory was unmapped previously and
- * we have succesfully "grabbed" the region. We can then call `mmap` with 
- * MAP_FIXED over the region and be certain no corruption occurs. If the 
- * return value of `mmap` does not return the passed address this means that 
+ * we have succesfully "grabbed" the region. We can then call `mmap` with
+ * MAP_FIXED over the region and be certain no corruption occurs. If the
+ * return value of `mmap` does not return the passed address this means that
  * the passed region is already atleast partially mapped and we cannot grab it.
  */
 static int
@@ -108,7 +108,7 @@ fd_shmem_private_grab_region( ulong addr,
 }
 
 static ulong
-fd_shmem_private_get_random_mappable_addr( ulong size, 
+fd_shmem_private_get_random_mappable_addr( ulong size,
                                            ulong page_size ) {
   ulong ret_addr = 0;
 
@@ -118,7 +118,7 @@ fd_shmem_private_get_random_mappable_addr( ulong size,
     if( FD_UNLIKELY( n!=sizeof(ret_addr) ) ) FD_LOG_ERR(( "could not generate random address, getrandom() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
     /* The type of region determines the alignment we need for the region */
-    if( page_size == FD_SHMEM_GIGANTIC_PAGE_SZ ) 
+    if( page_size == FD_SHMEM_GIGANTIC_PAGE_SZ )
       ret_addr &= FD_SHMEM_PRIVATE_MMAP_GIGANTIC_MASK;
     else if( page_size == FD_SHMEM_HUGE_PAGE_SZ )
       ret_addr &= FD_SHMEM_PRIVATE_MMAP_HUGE_MASK;
@@ -129,7 +129,7 @@ fd_shmem_private_get_random_mappable_addr( ulong size,
       return ret_addr;
     }
   }
-  
+
   FD_LOG_ERR(( "unable to find random address for memory map after 1000 attempts" ));
   return (ulong)MAP_FAILED;
 }
@@ -211,7 +211,7 @@ fd_shmem_join( char const *               name,
 
   /* Note that MAP_HUGETLB and MAP_HUGE_* are implied by the mount point */
   void * shmem = mmap( (void*)rand_addr, sz, rw ? (PROT_READ|PROT_WRITE) : PROT_READ, MAP_SHARED | MAP_FIXED, fd, (off_t)0 );
-  
+
   int mmap_errno = errno;
   if( FD_UNLIKELY( close( fd ) ) )
     FD_LOG_WARNING(( "close(\"%s\") failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));

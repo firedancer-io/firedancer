@@ -24,7 +24,7 @@ fd_rng_secure( void * d,
     sz -= (ulong)res;
   }
   return d;
-} 
+}
 
 #elif defined(__APPLE__)
 
@@ -52,6 +52,6 @@ fd_rng_secure( void * d,
                ulong  sz ) {
   FD_LOG_WARNING(( "fd_rng_secure failed (not supported by this build)" ));
   return NULL;
-} 
+}
 
 #endif

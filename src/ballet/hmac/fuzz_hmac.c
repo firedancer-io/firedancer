@@ -42,7 +42,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   if( FD_UNLIKELY( size<(64UL+key_size) ) ) return -1;
   char const * key = key_size ? ( char const * ) test->key : NULL;
 
-  ulong msg_size = size-(64UL+key_size); 
+  ulong msg_size = size-(64UL+key_size);
   char const * msg = msg_size ? ( char const * ) test->key + key_size : NULL;
 
   uchar hash1[ 64 ] __attribute__((aligned(64)));

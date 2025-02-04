@@ -36,7 +36,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
   int decode_result = fd_config_keys_decode( &key_list, &decode );
   /* Fail if the number of bytes consumed by deserialize exceeds 1232
      (hardcoded constant by Agave limited_deserialize) */
-  if( FD_UNLIKELY( decode_result != FD_BINCODE_SUCCESS || 
+  if( FD_UNLIKELY( decode_result != FD_BINCODE_SUCCESS ||
                    (ulong)ctx->instr->data + 1232UL < (ulong)decode.data ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
@@ -115,7 +115,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
       /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L62-L71 */
 
-      /* Intentionally don't use the scoping macro here because Anza maps the 
+      /* Intentionally don't use the scoping macro here because Anza maps the
          error to missing required signature if the try borrow fails */
       fd_borrowed_account_t * signer_account = NULL;
       int borrow_err = fd_instr_borrowed_account_view_idx( ctx, (uchar)counter, &signer_account );
@@ -189,7 +189,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
     for( ulong j = 0; j < key_list.keys_len; j++ ) {
       if( i == j ) continue;
 
-      if( FD_UNLIKELY( memcmp( &key_list.keys[i].key, &key_list.keys[j].key, sizeof(fd_pubkey_t) ) == 0 && 
+      if( FD_UNLIKELY( memcmp( &key_list.keys[i].key, &key_list.keys[j].key, sizeof(fd_pubkey_t) ) == 0 &&
                         key_list.keys[i].signer == key_list.keys[j].signer ) ) {
         fd_log_collector_msg_literal( ctx, "new config contains duplicate keys" );
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;

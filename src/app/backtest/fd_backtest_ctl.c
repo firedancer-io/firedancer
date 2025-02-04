@@ -17,7 +17,7 @@
    ./build/native/gcc/bin/fd_backtest_ctl \
       --blockstore-checkpt /data/chali/$SLOTS-blockstore.checkpt \
       --funk-checkpt /data/chali/$SLOTS-funk.checkpt
-   
+
    */
 
 int

@@ -37,7 +37,7 @@ typedef struct fd_sha512_test_vector fd_sha512_test_vector_t;
 #define _(v) ((uchar)0x##v)
 
 static fd_sha512_test_vector_t const fd_sha512_test_vector[] = {
-  { "", 
+  { "",
        0UL, { _(cf),_(83),_(e1),_(35),_(7e),_(ef),_(b8),_(bd), _(f1),_(54),_(28),_(50),_(d6),_(6d),_(80),_(07),
               _(d6),_(20),_(e4),_(05),_(0b),_(57),_(15),_(dc), _(83),_(f4),_(a9),_(21),_(d3),_(6c),_(e9),_(ce),
               _(47),_(d0),_(d1),_(3c),_(5d),_(85),_(f2),_(b0), _(ff),_(83),_(18),_(d2),_(87),_(7e),_(ec),_(2f),

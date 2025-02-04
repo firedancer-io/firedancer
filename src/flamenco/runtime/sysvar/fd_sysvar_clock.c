@@ -356,7 +356,7 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad 
   clock.epoch = epoch_new;
   if( epoch_old != epoch_new ) {
     long timestamp_estimate = 0L;
-    fd_calculate_stake_weighted_timestamp( slot_ctx, 
+    fd_calculate_stake_weighted_timestamp( slot_ctx,
                                            &timestamp_estimate,
                                            FD_FEATURE_ACTIVE( slot_ctx, warp_timestamp_again ),
                                            runtime_spad );

@@ -100,7 +100,7 @@ fd_keccak256_delete( void * shsha ) {
 fd_keccak256_t *
 fd_keccak256_init( fd_keccak256_t * sha ) {
   fd_memset( sha->state, 0, sizeof( sha->state ) );
-  
+
   sha->padding_start = 0;
 
   return sha;
@@ -157,7 +157,7 @@ fd_keccak256_fini( fd_keccak256_t * sha,
 
   /* Copy the result into hash */
 
-  fd_memcpy(hash, state, FD_KECCAK256_OUT_SZ); 
+  fd_memcpy(hash, state, FD_KECCAK256_OUT_SZ);
   return hash;
 }
 

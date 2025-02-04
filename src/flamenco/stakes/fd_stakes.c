@@ -292,14 +292,14 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
   ulong vote_states_pool_sz   = fd_vote_accounts_pair_t_map_size( stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root )
                               + fd_account_keys_pair_t_map_size( slot_bank->vote_account_keys.account_keys_pool, slot_bank->vote_account_keys.account_keys_root );
   temp_info->vote_states_root = NULL;
-  temp_info->vote_states_pool = fd_vote_info_pair_t_map_alloc( fd_spad_virtual( runtime_spad ), vote_states_pool_sz ); 
+  temp_info->vote_states_pool = fd_vote_info_pair_t_map_alloc( fd_spad_virtual( runtime_spad ), vote_states_pool_sz );
 
   /* Create a map of <pubkey, stake> to store the total stake of each vote account. */
   void * mem = fd_spad_alloc( runtime_spad, fd_stake_weight_t_map_align(), fd_stake_weight_t_map_footprint( vote_states_pool_sz ) );
   fd_stake_weight_t_mapnode_t * pool = fd_stake_weight_t_map_join( fd_stake_weight_t_map_new( mem, vote_states_pool_sz ) );
   fd_stake_weight_t_mapnode_t * root = NULL;
 
-  /* We can optimize this function by only iterating over the vote accounts (since there's much fewer of them) instead of all 
+  /* We can optimize this function by only iterating over the vote accounts (since there's much fewer of them) instead of all
      of the stake accounts, and pre-inserting them into the delegations pool. This way, the delegation calculations can be tpooled. */
   for( fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_minimum( stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root );
         elem;
@@ -324,7 +324,7 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
     }
   }
 
-  ulong worker_cnt = fd_ulong_min( temp_info->stake_infos_len, 
+  ulong worker_cnt = fd_ulong_min( temp_info->stake_infos_len,
                                    fd_ulong_min( fd_tpool_worker_cnt( tpool ), exec_spad_cnt ) );
   fd_compute_stake_delegations_t task_args  = {
     .epoch                     = stakes->epoch,
@@ -366,10 +366,10 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
     fd_vote_state_versioned_t vote_state[1] = {0};
     fd_vote_accounts_pair_t_mapnode_t key;
     fd_memcpy( &key.elem.key, vote_account_pubkey, sizeof(fd_pubkey_t) );
-    
+
     /* No need to process duplicate vote account keys. This is a mostly redundant check
        since upserting vote accounts also checks against the vote stakes, but this is
-       there anyways in case that ever changes */ 
+       there anyways in case that ever changes */
     if( FD_UNLIKELY( fd_vote_accounts_pair_t_map_find( stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root, &key ) ) ) {
       continue;
     }
@@ -468,7 +468,7 @@ accumulate_stake_cache_delegations_tpool( void  *tpool,
 /* Accumulates information about epoch stakes into `temp_info`, which is a temporary cache
    used to save intermediate state about stake and vote accounts to avoid them from having to
    be recomputed on every access, especially at the epoch boundary. Also collects stats in `accumulator` */
-void 
+void
 fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
                            fd_stakes_t const *        stakes,
                            fd_stake_history_t const * history,
@@ -487,9 +487,9 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
 
   /* Batch up the stake info accumulations via tpool. Currently this is only marginally more efficient because we
      do not have access to iterators at a specific index in constant or logarithmic time. */
-  ulong worker_cnt                                         = fd_ulong_min( stake_delegations_pool_sz, 
+  ulong worker_cnt                                         = fd_ulong_min( stake_delegations_pool_sz,
                                                                            fd_ulong_min( fd_tpool_worker_cnt( tpool ), exec_spads_cnt ) );
-  fd_delegation_pair_t_mapnode_t ** batch_delegation_roots = fd_spad_alloc( runtime_spad, alignof(fd_delegation_pair_t_mapnode_t *), 
+  fd_delegation_pair_t_mapnode_t ** batch_delegation_roots = fd_spad_alloc( runtime_spad, alignof(fd_delegation_pair_t_mapnode_t *),
                                                                                       ( worker_cnt + 1 )*sizeof(fd_delegation_pair_t_mapnode_t *) );
 
   ulong * idx_starts = fd_spad_alloc( runtime_spad, alignof(ulong), worker_cnt * sizeof(ulong) );

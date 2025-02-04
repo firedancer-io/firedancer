@@ -225,7 +225,7 @@ fd_exec_epoch_ctx_bank_mem_setup( fd_exec_epoch_ctx_t * self ) {
 }
 
 void
-fd_exec_epoch_ctx_from_prev( fd_exec_epoch_ctx_t * self, 
+fd_exec_epoch_ctx_from_prev( fd_exec_epoch_ctx_t * self,
                              fd_exec_epoch_ctx_t * prev,
                              fd_spad_t *           runtime_spad ) {
   fd_memcpy( &self->features, &prev->features, sizeof(fd_features_t) );

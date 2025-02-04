@@ -394,7 +394,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->topo = topo;
   ctx->gui  = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, ctx->version_string, tile->gui.cluster, ctx->identity_key, tile->gui.is_voting, ctx->topo ) );
   FD_TEST( ctx->gui );
-  
+
   cjson_alloc_ctx = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
   FD_TEST( cjson_alloc_ctx );
   cJSON_Hooks hooks = {

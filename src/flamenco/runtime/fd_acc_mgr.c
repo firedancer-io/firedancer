@@ -452,10 +452,10 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *            acc_mgr,
 
     ulong reclen = sizeof(fd_account_meta_t)+account->const_meta->dlen;
     int err;
-    if( FD_UNLIKELY( NULL == fd_funk_val_truncate( account->rec, 
-                                                   reclen, 
-                                                   fd_funk_alloc( acc_mgr->funk, wksp ), 
-                                                   wksp, 
+    if( FD_UNLIKELY( NULL == fd_funk_val_truncate( account->rec,
+                                                   reclen,
+                                                   fd_funk_alloc( acc_mgr->funk, wksp ),
+                                                   wksp,
                                                    &err ) ) ) {
       FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
     }

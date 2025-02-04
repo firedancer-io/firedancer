@@ -273,7 +273,7 @@ test_register_root_slot_simple( void ) {
 void
 test_register_root_slot( void ) {
   FD_LOG_NOTICE(( "TEST REGISTER ROOT SLOT" ));
-  
+
   fd_txncache_t * tc = init_all( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
                                  TXNCACHE_LIVE_SLOTS,
                                  FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT );

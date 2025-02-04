@@ -71,8 +71,8 @@
     ulong mymap_slot_idx( mymap_t const * mymap, mymap_t const * slot );
 
     // Returns the "null" key, which is the canonical key that will
-    // never be inserted (typically zero). 
-    
+    // never be inserted (typically zero).
+
     ulong mymap_key_null( void ); // == MAP_KEY_NULL
 
     // Return the 1/0 if key is a key that will never/might be inserted.
@@ -85,9 +85,9 @@
 
     // Return the hash of key used by the map.  Should ideally be a
     // random mapping from MAP_KEY_T -> MAP_HASH_T.
-    
+
     uint mymap_key_hash( ulong key );
-    
+
     // Insert key into the map, fast O(1).  Returns a pointer to the the
     // map entry with key on success and NULL on failure (i.e. key is
     // already in the map).  The returned pointer lifetime is until
@@ -138,7 +138,7 @@
     mymap_t * slot = mymap_insert( map, cxx_key );
     if( FD_UNLIKELY( !slot ) ) ... handle failure (cxx_key was not moved)
     else {
-      ... mymap_insert did a MAP_KEY_MOVE of cxx_key into slot->key 
+      ... mymap_insert did a MAP_KEY_MOVE of cxx_key into slot->key
       ... clean cxx_key's shell here as necessary here
       ... initialize other slot fields as necessary
     }

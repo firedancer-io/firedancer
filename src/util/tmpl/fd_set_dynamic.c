@@ -26,7 +26,7 @@
 
      // Returns 1 if set appears to be point to a valid set, 0 otherwise
      // (e.g. set is NULL, set is not a valid join, there's corruption
-     // in the set zero padding, etc). 
+     // in the set zero padding, etc).
 
      int my_set_valid( my_set_t const * set )
 
@@ -247,7 +247,7 @@ static inline SET_(t) *
 SET_(join)( void * shset ) {
   SET_(private_t) * hdr = (SET_(private_t) *)shset;
   return hdr->set;
-} 
+}
 
 static inline void * SET_(leave) ( SET_(t) * set   ) { return (void *)SET_(private_hdr_from_set)( set ); }
 static inline void * SET_(delete)( void *    shset ) { return shset; }

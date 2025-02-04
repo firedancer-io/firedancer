@@ -156,7 +156,7 @@ main( int     argc,
 
   oldest = fd_tcache_reset( ring, depth, map, map_cnt );      FD_TEST( !oldest );
   uint dup_thresh = (uint)(0.5f + dup_frac*(float)(1UL<<32));
-  
+
   for( ulong rem=3UL*depth; rem; rem-- ) {
 
     ulong tag;

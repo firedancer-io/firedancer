@@ -13,7 +13,7 @@ fd_dcache_req_data_sz( ulong mtu,
   ulong slot_footprint = FD_DCACHE_SLOT_FOOTPRINT( mtu );
   if( FD_UNLIKELY( !slot_footprint ) ) return 0UL; /* overflow */
 
-  ulong slot_cnt = depth + burst;  
+  ulong slot_cnt = depth + burst;
   if( FD_UNLIKELY( slot_cnt<depth ) ) return 0UL; /* overflow */
   slot_cnt += (ulong)!!compact;
   if( FD_UNLIKELY( !slot_cnt ) ) return 0UL; /* overflow (technically unnecessary) */

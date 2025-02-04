@@ -452,7 +452,7 @@ cmd_dump( int     argc,
   if( FD_UNLIKELY( !spad ) ) {
     FD_LOG_ERR(( "Failed to allocate spad" ));
   }
-  fd_spad_push( spad );  
+  fd_spad_push( spad );
 
   /* With dump context */
 

@@ -162,7 +162,7 @@
      // or -1 (i.e. ERR_INVAL) otherwise (logs details).
 
      int
-     mydlist_verify( mydlist_t const * join,    // Current local join to a mydlist.  
+     mydlist_verify( mydlist_t const * join,    // Current local join to a mydlist.
                      ulong             ele_cnt, // Element storage size, in [0,mydlist_ele_max()]
                      myele_t const *   pool );  // Current local join to element storage, indexed [0,ele_cnt)
 

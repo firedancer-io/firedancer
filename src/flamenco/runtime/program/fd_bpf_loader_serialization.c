@@ -220,7 +220,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t       ctx,
          excluding any duplicate account markers at the beginning.
 
          We use this later for retrieving the serialized values later in the CPI security checks. */
-      ulong metadata_region_offset_with_dups = *input_mem_regions_cnt==0UL ? 0UL : 
+      ulong metadata_region_offset_with_dups = *input_mem_regions_cnt==0UL ? 0UL :
         input_mem_regions[ *input_mem_regions_cnt-1U ].vaddr_offset +
         input_mem_regions[ *input_mem_regions_cnt-1U ].region_sz;
 
@@ -501,7 +501,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t       ctx,
          excluding any duplicate account markers at the beginning.
 
          We use this later for retrieving the serialized values later in the CPI security checks. */
-      ulong metadata_region_offset_with_dups = *input_mem_regions_cnt==0UL ? 0UL : 
+      ulong metadata_region_offset_with_dups = *input_mem_regions_cnt==0UL ? 0UL :
         input_mem_regions[ *input_mem_regions_cnt-1U ].vaddr_offset +
         input_mem_regions[ *input_mem_regions_cnt-1U ].region_sz;
 

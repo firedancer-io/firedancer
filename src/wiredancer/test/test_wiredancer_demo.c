@@ -149,8 +149,8 @@ struct test_cfg {
   int               test_version;
 
   /* Wiredancer */
-  ulong             wd_slots;   
-  int               wd_split;  
+  ulong             wd_slots;
+  int               wd_split;
 };
 typedef struct test_cfg test_cfg_t;
 
@@ -158,23 +158,23 @@ typedef struct test_cfg test_cfg_t;
 
 
 
-//    SSSSSSSSSSSSSSS HHHHHHHHH     HHHHHHHHH               AAA            555555555555555555   1111111    222222222222222    
-//  SS:::::::::::::::SH:::::::H     H:::::::H              A:::A           5::::::::::::::::5  1::::::1   2:::::::::::::::22  
-// S:::::SSSSSS::::::SH:::::::H     H:::::::H             A:::::A          5::::::::::::::::5 1:::::::1   2::::::222222:::::2 
-// S:::::S     SSSSSSSHH::::::H     H::::::HH            A:::::::A         5:::::555555555555 111:::::1   2222222     2:::::2 
-// S:::::S              H:::::H     H:::::H             A:::::::::A        5:::::5               1::::1               2:::::2 
-// S:::::S              H:::::H     H:::::H            A:::::A:::::A       5:::::5               1::::1               2:::::2 
-//  S::::SSSS           H::::::HHHHH::::::H           A:::::A A:::::A      5:::::5555555555      1::::1            2222::::2  
-//   SS::::::SSSSS      H:::::::::::::::::H          A:::::A   A:::::A     5:::::::::::::::5     1::::l       22222::::::22   
-//     SSS::::::::SS    H:::::::::::::::::H         A:::::A     A:::::A    555555555555:::::5    1::::l     22::::::::222     
-//        SSSSSS::::S   H::::::HHHHH::::::H        A:::::AAAAAAAAA:::::A               5:::::5   1::::l    2:::::22222        
-//             S:::::S  H:::::H     H:::::H       A:::::::::::::::::::::A              5:::::5   1::::l   2:::::2             
-//             S:::::S  H:::::H     H:::::H      A:::::AAAAAAAAAAAAA:::::A 5555555     5:::::5   1::::l   2:::::2             
+//    SSSSSSSSSSSSSSS HHHHHHHHH     HHHHHHHHH               AAA            555555555555555555   1111111    222222222222222
+//  SS:::::::::::::::SH:::::::H     H:::::::H              A:::A           5::::::::::::::::5  1::::::1   2:::::::::::::::22
+// S:::::SSSSSS::::::SH:::::::H     H:::::::H             A:::::A          5::::::::::::::::5 1:::::::1   2::::::222222:::::2
+// S:::::S     SSSSSSSHH::::::H     H::::::HH            A:::::::A         5:::::555555555555 111:::::1   2222222     2:::::2
+// S:::::S              H:::::H     H:::::H             A:::::::::A        5:::::5               1::::1               2:::::2
+// S:::::S              H:::::H     H:::::H            A:::::A:::::A       5:::::5               1::::1               2:::::2
+//  S::::SSSS           H::::::HHHHH::::::H           A:::::A A:::::A      5:::::5555555555      1::::1            2222::::2
+//   SS::::::SSSSS      H:::::::::::::::::H          A:::::A   A:::::A     5:::::::::::::::5     1::::l       22222::::::22
+//     SSS::::::::SS    H:::::::::::::::::H         A:::::A     A:::::A    555555555555:::::5    1::::l     22::::::::222
+//        SSSSSS::::S   H::::::HHHHH::::::H        A:::::AAAAAAAAA:::::A               5:::::5   1::::l    2:::::22222
+//             S:::::S  H:::::H     H:::::H       A:::::::::::::::::::::A              5:::::5   1::::l   2:::::2
+//             S:::::S  H:::::H     H:::::H      A:::::AAAAAAAAAAAAA:::::A 5555555     5:::::5   1::::l   2:::::2
 // SSSSSSS     S:::::SHH::::::H     H::::::HH   A:::::A             A:::::A5::::::55555::::::5111::::::1112:::::2       222222
 // S::::::SSSSSS:::::SH:::::::H     H:::::::H  A:::::A               A:::::A55:::::::::::::55 1::::::::::12::::::2222222:::::2
 // S:::::::::::::::SS H:::::::H     H:::::::H A:::::A                 A:::::A 55:::::::::55   1::::::::::12::::::::::::::::::2
 //  SSSSSSSSSSSSSSS   HHHHHHHHH     HHHHHHHHHAAAAAAA                   AAAAAAA  555555555     11111111111122222222222222222222
-                                                                                                                           
+
 
 int
 sha512_modq_lsB(  void const *  msg,
@@ -205,17 +205,17 @@ sha512_modq_lsB(  void const *  msg,
 // R::::::RRRRRR:::::R E::::::::::::::::::::EP::::::PPPPPP:::::P L:::::::::L                          A:::::A         Y:::::Y       Y:::::Y
 // RR:::::R     R:::::REE::::::EEEEEEEEE::::EPP:::::P     P:::::PLL:::::::LL                         A:::::::A        Y::::::Y     Y::::::Y
 //   R::::R     R:::::R  E:::::E       EEEEEE  P::::P     P:::::P  L:::::L                          A:::::::::A       YYY:::::Y   Y:::::YYY
-//   R::::R     R:::::R  E:::::E               P::::P     P:::::P  L:::::L                         A:::::A:::::A         Y:::::Y Y:::::Y   
-//   R::::RRRRRR:::::R   E::::::EEEEEEEEEE     P::::PPPPPP:::::P   L:::::L                        A:::::A A:::::A         Y:::::Y:::::Y    
-//   R:::::::::::::RR    E:::::::::::::::E     P:::::::::::::PP    L:::::L                       A:::::A   A:::::A         Y:::::::::Y     
-//   R::::RRRRRR:::::R   E:::::::::::::::E     P::::PPPPPPPPP      L:::::L                      A:::::A     A:::::A         Y:::::::Y      
-//   R::::R     R:::::R  E::::::EEEEEEEEEE     P::::P              L:::::L                     A:::::AAAAAAAAA:::::A         Y:::::Y       
-//   R::::R     R:::::R  E:::::E               P::::P              L:::::L                    A:::::::::::::::::::::A        Y:::::Y       
-//   R::::R     R:::::R  E:::::E       EEEEEE  P::::P              L:::::L         LLLLLL    A:::::AAAAAAAAAAAAA:::::A       Y:::::Y       
-// RR:::::R     R:::::REE::::::EEEEEEEE:::::EPP::::::PP          LL:::::::LLLLLLLLL:::::L   A:::::A             A:::::A      Y:::::Y       
-// R::::::R     R:::::RE::::::::::::::::::::EP::::::::P          L::::::::::::::::::::::L  A:::::A               A:::::A  YYYY:::::YYYY    
-// R::::::R     R:::::RE::::::::::::::::::::EP::::::::P          L::::::::::::::::::::::L A:::::A                 A:::::A Y:::::::::::Y    
-// RRRRRRRR     RRRRRRREEEEEEEEEEEEEEEEEEEEEEPPPPPPPPPP          LLLLLLLLLLLLLLLLLLLLLLLLAAAAAAA                   AAAAAAAYYYYYYYYYYYYY 
+//   R::::R     R:::::R  E:::::E               P::::P     P:::::P  L:::::L                         A:::::A:::::A         Y:::::Y Y:::::Y
+//   R::::RRRRRR:::::R   E::::::EEEEEEEEEE     P::::PPPPPP:::::P   L:::::L                        A:::::A A:::::A         Y:::::Y:::::Y
+//   R:::::::::::::RR    E:::::::::::::::E     P:::::::::::::PP    L:::::L                       A:::::A   A:::::A         Y:::::::::Y
+//   R::::RRRRRR:::::R   E:::::::::::::::E     P::::PPPPPPPPP      L:::::L                      A:::::A     A:::::A         Y:::::::Y
+//   R::::R     R:::::R  E::::::EEEEEEEEEE     P::::P              L:::::L                     A:::::AAAAAAAAA:::::A         Y:::::Y
+//   R::::R     R:::::R  E:::::E               P::::P              L:::::L                    A:::::::::::::::::::::A        Y:::::Y
+//   R::::R     R:::::R  E:::::E       EEEEEE  P::::P              L:::::L         LLLLLL    A:::::AAAAAAAAAAAAA:::::A       Y:::::Y
+// RR:::::R     R:::::REE::::::EEEEEEEE:::::EPP::::::PP          LL:::::::LLLLLLLLL:::::L   A:::::A             A:::::A      Y:::::Y
+// R::::::R     R:::::RE::::::::::::::::::::EP::::::::P          L::::::::::::::::::::::L  A:::::A               A:::::A  YYYY:::::YYYY
+// R::::::R     R:::::RE::::::::::::::::::::EP::::::::P          L::::::::::::::::::::::L A:::::A                 A:::::A Y:::::::::::Y
+// RRRRRRRR     RRRRRRREEEEEEEEEEEEEEEEEEEEEEPPPPPPPPPP          LLLLLLLLLLLLLLLLLLLLLLLLAAAAAAA                   AAAAAAAYYYYYYYYYYYYY
 
 
 /* REPLAY tile ************************************************************/
@@ -242,15 +242,15 @@ replay_tile_main( int     argc,
 
 
 
-// PPPPPPPPPPPPPPPPP        AAA               RRRRRRRRRRRRRRRRR      SSSSSSSSSSSSSSS EEEEEEEEEEEEEEEEEEEEEERRRRRRRRRRRRRRRRR   
-// P::::::::::::::::P      A:::A              R::::::::::::::::R   SS:::::::::::::::SE::::::::::::::::::::ER::::::::::::::::R  
-// P::::::PPPPPP:::::P    A:::::A             R::::::RRRRRR:::::R S:::::SSSSSS::::::SE::::::::::::::::::::ER::::::RRRRRR:::::R 
+// PPPPPPPPPPPPPPPPP        AAA               RRRRRRRRRRRRRRRRR      SSSSSSSSSSSSSSS EEEEEEEEEEEEEEEEEEEEEERRRRRRRRRRRRRRRRR
+// P::::::::::::::::P      A:::A              R::::::::::::::::R   SS:::::::::::::::SE::::::::::::::::::::ER::::::::::::::::R
+// P::::::PPPPPP:::::P    A:::::A             R::::::RRRRRR:::::R S:::::SSSSSS::::::SE::::::::::::::::::::ER::::::RRRRRR:::::R
 // PP:::::P     P:::::P  A:::::::A            RR:::::R     R:::::RS:::::S     SSSSSSSEE::::::EEEEEEEEE::::ERR:::::R     R:::::R
 //   P::::P     P:::::P A:::::::::A             R::::R     R:::::RS:::::S              E:::::E       EEEEEE  R::::R     R:::::R
 //   P::::P     P:::::PA:::::A:::::A            R::::R     R:::::RS:::::S              E:::::E               R::::R     R:::::R
-//   P::::PPPPPP:::::PA:::::A A:::::A           R::::RRRRRR:::::R  S::::SSSS           E::::::EEEEEEEEEE     R::::RRRRRR:::::R 
-//   P:::::::::::::PPA:::::A   A:::::A          R:::::::::::::RR    SS::::::SSSSS      E:::::::::::::::E     R:::::::::::::RR  
-//   P::::PPPPPPPPP A:::::A     A:::::A         R::::RRRRRR:::::R     SSS::::::::SS    E:::::::::::::::E     R::::RRRRRR:::::R 
+//   P::::PPPPPP:::::PA:::::A A:::::A           R::::RRRRRR:::::R  S::::SSSS           E::::::EEEEEEEEEE     R::::RRRRRR:::::R
+//   P:::::::::::::PPA:::::A   A:::::A          R:::::::::::::RR    SS::::::SSSSS      E:::::::::::::::E     R:::::::::::::RR
+//   P::::PPPPPPPPP A:::::A     A:::::A         R::::RRRRRR:::::R     SSS::::::::SS    E:::::::::::::::E     R::::RRRRRR:::::R
 //   P::::P        A:::::AAAAAAAAA:::::A        R::::R     R:::::R       SSSSSS::::S   E::::::EEEEEEEEEE     R::::R     R:::::R
 //   P::::P       A:::::::::::::::::::::A       R::::R     R:::::R            S:::::S  E:::::E               R::::R     R:::::R
 //   P::::P      A:::::AAAAAAAAAAAAA:::::A      R::::R     R:::::R            S:::::S  E:::::E       EEEEEE  R::::R     R:::::R
@@ -268,7 +268,7 @@ parser_tile_main( int     argc,
   test_cfg_t * cfg    = (test_cfg_t *)argv;
   fd_wksp_t *  wksp   = cfg->wksp;
   (void)parser_idx;
-  
+
   FD_LOG_NOTICE(( "active: parser_tile_main" ));
 
   /* Hook up to parser cnc */
@@ -321,7 +321,7 @@ parser_tile_main( int     argc,
 
   /* Txn parsing counters */
   fd_txn_parse_counters_t counters_opt[1];
-  
+
   /* Wiredancer init */
   wd_wksp_t wd;
   int wd_split = cfg->wd_split;
@@ -400,7 +400,7 @@ parser_tile_main( int     argc,
     /* Process txn sigverify */
     unsigned char parsed[FD_TXN_MAX_SZ];
     ulong txn_sz = fd_txn_parse( dgram, dgram_sz, parsed, counters_opt );
-    
+
     /* Count processed packets */
     cnc_diag_pkt_cnt += 1ULL;
 
@@ -408,7 +408,7 @@ parser_tile_main( int     argc,
 
       /* count processed transactions */
       cnc_diag_txn_cnt += 1ULL;
-      
+
       fd_txn_t * txn = (fd_txn_t*)parsed;
       /* FIXME any checks necessary here? */
       uchar const *        msg = dgram    + txn->message_off;
@@ -418,7 +418,7 @@ parser_tile_main( int     argc,
       ulong      signature_cnt = txn->signature_cnt;
 
       for( ulong i=0; i<signature_cnt; i++) {
-        
+
         ulong msg_sz = msg_sz0;
         /* randomly corrupt the txn's msg (if enabled) */
         if( FD_LIKELY( !!rand_txn_corrupt ) ) { msg_sz -= (fd_rng_uint( rng ) & 0x1); }
@@ -448,7 +448,7 @@ parser_tile_main( int     argc,
           fd_mcache_publish( out_mcache, out_depth, out_seq, out_sig, out_chunk, out_sz, out_ctl, out_tsorig, out_tspub );
           cnc_diag[ DEMO_PARSER_CNC_OUT_SEQ_IDX ] = out_seq;
           cnc_diag[ DEMO_PARSER_CNC_OUT_SIG_IDX ] = out_sig;
-          
+
           /* Windup for the next iteration */
           out_seq     = fd_seq_inc( out_seq, 1UL );
         }
@@ -499,23 +499,23 @@ parser_tile_main( int     argc,
 
 
 
-// XXXXXXX       XXXXXXX     888888888             66666666   
-// X:::::X       X:::::X   88:::::::::88          6::::::6    
-// X:::::X       X:::::X 88:::::::::::::88       6::::::6     
-// X::::::X     X::::::X8::::::88888::::::8     6::::::6      
-// XXX:::::X   X:::::XXX8:::::8     8:::::8    6::::::6       
-//    X:::::X X:::::X   8:::::8     8:::::8   6::::::6        
-//     X:::::X:::::X     8:::::88888:::::8   6::::::6         
-//      X:::::::::X       8:::::::::::::8   6::::::::66666    
-//      X:::::::::X      8:::::88888:::::8 6::::::::::::::66  
-//     X:::::X:::::X    8:::::8     8:::::86::::::66666:::::6 
+// XXXXXXX       XXXXXXX     888888888             66666666
+// X:::::X       X:::::X   88:::::::::88          6::::::6
+// X:::::X       X:::::X 88:::::::::::::88       6::::::6
+// X::::::X     X::::::X8::::::88888::::::8     6::::::6
+// XXX:::::X   X:::::XXX8:::::8     8:::::8    6::::::6
+//    X:::::X X:::::X   8:::::8     8:::::8   6::::::6
+//     X:::::X:::::X     8:::::88888:::::8   6::::::6
+//      X:::::::::X       8:::::::::::::8   6::::::::66666
+//      X:::::::::X      8:::::88888:::::8 6::::::::::::::66
+//     X:::::X:::::X    8:::::8     8:::::86::::::66666:::::6
 //    X:::::X X:::::X   8:::::8     8:::::86:::::6     6:::::6
 // XXX:::::X   X:::::XXX8:::::8     8:::::86:::::6     6:::::6
 // X::::::X     X::::::X8::::::88888::::::86::::::66666::::::6
-// X:::::X       X:::::X 88:::::::::::::88  66:::::::::::::66 
-// X:::::X       X:::::X   88:::::::::88      66:::::::::66   
-// XXXXXXX       XXXXXXX     888888888          666666666                                                           
-                                                                           
+// X:::::X       X:::::X 88:::::::::::::88  66:::::::::::::66
+// X:::::X       X:::::X   88:::::::::88      66:::::::::66
+// XXXXXXX       XXXXXXX     888888888          666666666
+
 
 /* V_X86 tile ************************************************************/
 
@@ -526,7 +526,7 @@ v_x86_tile_main( int     argc,
   test_cfg_t * cfg    = (test_cfg_t *)argv;
   fd_wksp_t *  wksp   = cfg->wksp;
   (void)v_x86_idx;
-  
+
   FD_LOG_NOTICE(( "active: v_x86_tile_main" ));
 
   /* Test version */
@@ -684,12 +684,12 @@ v_x86_tile_main( int     argc,
 // V::::::V           V::::::V CC:::::::::::::::CH:::::::H     H:::::::HE::::::::::::::::::::E  CC:::::::::::::::CK:::::::K    K:::::K
 // V::::::V           V::::::VC:::::CCCCCCCC::::CHH::::::H     H::::::HHEE::::::EEEEEEEEE::::E C:::::CCCCCCCC::::CK:::::::K   K::::::K
 //  V:::::V           V:::::VC:::::C       CCCCCC  H:::::H     H:::::H    E:::::E       EEEEEEC:::::C       CCCCCCKK::::::K  K:::::KKK
-//   V:::::V         V:::::VC:::::C                H:::::H     H:::::H    E:::::E            C:::::C                K:::::K K:::::K   
-//    V:::::V       V:::::V C:::::C                H::::::HHHHH::::::H    E::::::EEEEEEEEEE  C:::::C                K::::::K:::::K    
-//     V:::::V     V:::::V  C:::::C                H:::::::::::::::::H    E:::::::::::::::E  C:::::C                K:::::::::::K     
-//      V:::::V   V:::::V   C:::::C                H:::::::::::::::::H    E:::::::::::::::E  C:::::C                K:::::::::::K     
-//       V:::::V V:::::V    C:::::C                H::::::HHHHH::::::H    E::::::EEEEEEEEEE  C:::::C                K::::::K:::::K    
-//        V:::::V:::::V     C:::::C                H:::::H     H:::::H    E:::::E            C:::::C                K:::::K K:::::K   
+//   V:::::V         V:::::VC:::::C                H:::::H     H:::::H    E:::::E            C:::::C                K:::::K K:::::K
+//    V:::::V       V:::::V C:::::C                H::::::HHHHH::::::H    E::::::EEEEEEEEEE  C:::::C                K::::::K:::::K
+//     V:::::V     V:::::V  C:::::C                H:::::::::::::::::H    E:::::::::::::::E  C:::::C                K:::::::::::K
+//      V:::::V   V:::::V   C:::::C                H:::::::::::::::::H    E:::::::::::::::E  C:::::C                K:::::::::::K
+//       V:::::V V:::::V    C:::::C                H::::::HHHHH::::::H    E::::::EEEEEEEEEE  C:::::C                K::::::K:::::K
+//        V:::::V:::::V     C:::::C                H:::::H     H:::::H    E:::::E            C:::::C                K:::::K K:::::K
 //         V:::::::::V       C:::::C       CCCCCC  H:::::H     H:::::H    E:::::E       EEEEEEC:::::C       CCCCCCKK::::::K  K:::::KKK
 //          V:::::::V         C:::::CCCCCCCC::::CHH::::::H     H::::::HHEE::::::EEEEEEEE:::::E C:::::CCCCCCCC::::CK:::::::K   K::::::K
 //           V:::::V           CC:::::::::::::::CH:::::::H     H:::::::HE::::::::::::::::::::E  CC:::::::::::::::CK:::::::K    K:::::K
@@ -759,7 +759,7 @@ vcheck_tile_main( int     argc,
   for(;;) {
 
     /* Wait for frag seq while doing housekeeping in the background */
-    
+
     fd_frag_meta_t const * v_x86_mline     = NULL;
     ulong                  v_x86_seq_found = 0UL;
     long                   v_x86_diff      = 0L;
@@ -796,7 +796,7 @@ vcheck_tile_main( int     argc,
           if( FD_UNLIKELY( v_x86_diff ) ) FD_LOG_ERR(( "Overrun while polling v_x86" ));
         }
       } while( (!do_halt) & (!v_x86_async_rem) );
-      
+
       /* Extract the required values */
       sig_delta   = sig - exp_sig;
       exp_sig     = sig; /* override expected sig */
@@ -828,7 +828,7 @@ vcheck_tile_main( int     argc,
         v__wd_async_rem = 2UL;
         FD_MCACHE_WAIT_REG( sig, chunk, sz, ctl, tsorig, tspub, v__wd_mline, v__wd_seq_found, v__wd_diff, v__wd_async_rem, v__wd_mcache, v__wd_depth, v__wd_seq );
         (void)chunk; (void)sz; (void)tsorig; (void)tspub;
-        
+
         if( !v__wd_async_rem ) {
           /* Send diagnostic info */
           fd_cnc_heartbeat( cnc, fd_tickcount() );
@@ -844,7 +844,7 @@ vcheck_tile_main( int     argc,
           if( FD_UNLIKELY( v__wd_diff ) ) FD_LOG_ERR(( "Overrun while polling v__wd" ));
         }
       } while( (!do_halt) & (!v__wd_async_rem) );
-      
+
       /* Extract the required values */
       v__wd_sig   = sig;
       v__wd_chunk = (ctl>>2)&0x1;
@@ -964,7 +964,7 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
-  
+
   uint rng_seq = 0U;
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, rng_seq++, 0UL ) );
 
@@ -1035,8 +1035,8 @@ main( int     argc,
 
   /* Configure replay fseq */
   ulong * replay_fseq[ DEMO_REPLAY_FSEQ_CNT_MAX ];
-  for( int i=0; i<DEMO_REPLAY_FSEQ_CNT_MAX; i++) { 
-    replay_fseq[ i ] = fd_fseq_join( fd_fseq_new( fd_wksp_alloc_laddr( cfg->wksp, fd_fseq_align(), fd_fseq_footprint(), 1UL ), seq0 ) ); 
+  for( int i=0; i<DEMO_REPLAY_FSEQ_CNT_MAX; i++) {
+    replay_fseq[ i ] = fd_fseq_join( fd_fseq_new( fd_wksp_alloc_laddr( cfg->wksp, fd_fseq_align(), fd_fseq_footprint(), 1UL ), seq0 ) );
     if( FD_UNLIKELY( !replay_fseq[ i ] ) ) FD_LOG_ERR(( "fd_fseq_join failed" ));
   }
   ulong replay_fseq_cnt = DEMO_REPLAY_FSEQ_CNT_MAX;
@@ -1165,7 +1165,7 @@ main( int     argc,
   ulong const * vcheck_cnc_diag = ( !!vcheck_enabled )? (ulong const *)fd_cnc_app_laddr( cfg->vcheck_cnc ) : NULL;
 
   /* Wiredancer Monitor */
-#ifdef FD_HAS_WIREDANCER 
+#ifdef FD_HAS_WIREDANCER
   wd_mon_state_t wd_mon_state;
   wd_mon_state.recv_cnt[0]= 0UL;
   wd_mon_state.recv_cnt[1]= 0UL;
@@ -1256,7 +1256,7 @@ main( int     argc,
   /* halt: vcheck (part 1) */
   if( !!vcheck_enabled ) { fd_cnc_signal( cfg->vcheck_cnc, FD_CNC_SIGNAL_HALT ); }
 
-  /* halt: x86 */  
+  /* halt: x86 */
   if( !!v_x86_enabled ) { fd_cnc_signal( cfg->v_x86_cnc, FD_CNC_SIGNAL_HALT ); }
   if( !!v_x86_enabled ) { FD_TEST( fd_cnc_wait( cfg->v_x86_cnc, FD_CNC_SIGNAL_HALT, (long)5e9, NULL )==FD_CNC_SIGNAL_BOOT ); }
   if( !!v_x86_enabled ) { FD_LOG_NOTICE(( "successfully stopped x86"));  }
@@ -1280,7 +1280,7 @@ main( int     argc,
   if( !!vcheck_enabled ) { FD_TEST( !fd_tile_exec_delete( vcheck_exec, &ret ) ); FD_TEST( !ret ); }
 
   FD_LOG_NOTICE(( "Cleaning up" ));
-  
+
   for( int i=0; i<DEMO_REPLAY_FSEQ_CNT_MAX; i++) {
   if( !!replay_enabled ) { fd_wksp_free_laddr( fd_fseq_delete  ( fd_fseq_leave  ( cfg->replay_fseq[i] ) ) ); } }
   if( !!replay_enabled ) { fd_wksp_free_laddr( fd_dcache_delete( fd_dcache_leave( cfg->replay_dcache  ) ) ); }
@@ -1292,7 +1292,7 @@ main( int     argc,
   if( !!v_x86_enabled ) { fd_wksp_free_laddr( fd_mcache_delete( fd_mcache_leave( cfg->v_x86_mcache  ) ) ); }
   if( !!v__wd_enabled ) { fd_wksp_free_laddr( fd_mcache_delete( fd_mcache_leave( cfg->v__wd_mcache  ) ) ); }
   if( !!vcheck_enabled ) { fd_wksp_free_laddr( fd_cnc_delete   ( fd_cnc_leave   ( cfg->vcheck_cnc     ) ) ); }
-  
+
   fd_wksp_delete_anonymous( cfg->wksp );
 
   fd_rng_delete( fd_rng_leave( rng ) );

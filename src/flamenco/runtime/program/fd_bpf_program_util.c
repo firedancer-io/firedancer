@@ -53,7 +53,7 @@ fd_acc_mgr_cache_key( fd_pubkey_t const * pubkey ) {
   return id;
 }
 
-/* Similar to the below function, but gets the executable program content for the v4 loader. 
+/* Similar to the below function, but gets the executable program content for the v4 loader.
    Unlike the v3 loader, the programdata is stored in a single program account. The program must
    NOT be retracted to be added to the cache. */
 static int
@@ -361,7 +361,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_
         rec_cnt++;
       }
 
-      fd_tpool_exec_all_block( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_bpf_scan_task, 
+      fd_tpool_exec_all_block( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_bpf_scan_task,
                                recs, slot_ctx, is_bpf_program, 1, 0, rec_cnt );
 
       for( ulong i = 0; i<rec_cnt; i++ ) {

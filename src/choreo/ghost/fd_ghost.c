@@ -106,7 +106,7 @@ fd_ghost_delete( void * ghost ) {
     FD_LOG_WARNING(( "misaligned ghost" ));
     return NULL;
   }
-  
+
   // TODO: zero out mem?
 
   return ghost;
@@ -248,7 +248,7 @@ fd_ghost_insert( fd_ghost_t * ghost, ulong parent_slot, ulong slot ) {
   if( FD_UNLIKELY( !parent_ele ) ) { /* parent_slot not in ghost */
     FD_LOG_WARNING(( "[%s] missing `parent_slot` %lu.", __func__, parent_slot ));
     return NULL;
-  } 
+  }
 
   if( FD_UNLIKELY( !fd_ghost_node_pool_free( node_pool ) ) ) { /* ghost full */
     FD_LOG_WARNING(( "[%s] ghost full.", __func__ ));
@@ -256,7 +256,7 @@ fd_ghost_insert( fd_ghost_t * ghost, ulong parent_slot, ulong slot ) {
   }
 
   if( FD_UNLIKELY( slot <= root->slot ) ) { /* slot must > root */
-    FD_LOG_WARNING(( "[%s] slot %lu <= root %lu", __func__, slot, root->slot )); 
+    FD_LOG_WARNING(( "[%s] slot %lu <= root %lu", __func__, slot, root->slot ));
     return NULL;
   }
   #endif
@@ -283,7 +283,7 @@ fd_ghost_insert( fd_ghost_t * ghost, ulong parent_slot, ulong slot ) {
   /* Link parent->node and sibling->node. */
 
   if( FD_LIKELY( parent_ele->child_idx == null_idx ) ) {
-  
+
     /* No children yet so set as left-most child. */
 
     parent_ele->child_idx = node_idx;
@@ -370,7 +370,7 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, fd_voter_t * voter, ulong slot ) {
      would contain a strictly higher vote slot than A (due to lockout),
      so we would observe while processing A, that the vote slot < the
      last vote slot we have saved for that validator. */
-  
+
   if( FD_UNLIKELY( vote != FD_SLOT_NULL && slot <= vote ) ) return;
 
   /* LMD-rule: subtract the voter's stake from previous vote. */

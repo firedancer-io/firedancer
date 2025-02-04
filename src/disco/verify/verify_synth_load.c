@@ -7,7 +7,7 @@ fd_app_verify_task( int     argc,
   fd_log_thread_set( argv[0] );
   char const * verify_name = argv[0];
   FD_LOG_INFO(( "verify.%s init", verify_name ));
-  
+
   /* Parse "command line" arguments */
 
   char const * pod_gaddr = argv[1];

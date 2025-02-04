@@ -37,11 +37,11 @@ fd_pubkey_create_with_seed( fd_exec_instr_ctx_t const * ctx,
 
 /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/sdk/program/src/pubkey.rs#L578-L625 */
 int
-fd_pubkey_derive_pda( fd_pubkey_t const * program_id, 
-                      ulong               seeds_cnt, 
-                      uchar **            seeds, 
+fd_pubkey_derive_pda( fd_pubkey_t const * program_id,
+                      ulong               seeds_cnt,
+                      uchar **            seeds,
                       ulong *             seed_szs,
-                      uchar *             bump_seed, 
+                      uchar *             bump_seed,
                       fd_pubkey_t *       out,
                       uint *              custom_err ) {
   /* https://github.com/anza-xyz/agave/blob/6ac4fe32e28d8ceb4085072b61fa0c6cb09baac1/sdk/program/src/pubkey.rs#L579-L581 */
@@ -51,7 +51,7 @@ fd_pubkey_derive_pda( fd_pubkey_t const * program_id,
   }
   /* TODO: This does not contain size checks for the seed as checked in
      https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/sdk/program/src/pubkey.rs#L586-L588 */
-                      
+
   fd_sha256_t sha = {0};
   fd_sha256_init( &sha );
   for ( ulong i=0UL; i<seeds_cnt; i++ ) {
@@ -61,7 +61,7 @@ fd_pubkey_derive_pda( fd_pubkey_t const * program_id,
     }
     fd_sha256_append( &sha, seed, seed_szs[i] );
   }
-    
+
   if( bump_seed ) {
     fd_sha256_append( &sha, bump_seed, 1UL );
   }
@@ -71,8 +71,8 @@ fd_pubkey_derive_pda( fd_pubkey_t const * program_id,
   fd_sha256_fini( &sha, out );
 
   /* A PDA is valid if it is not a valid ed25519 curve point.
-     In most cases the user will have derived the PDA off-chain, 
-     or the PDA is a known signer. 
+     In most cases the user will have derived the PDA off-chain,
+     or the PDA is a known signer.
      https://github.com/anza-xyz/agave/blob/6ac4fe32e28d8ceb4085072b61fa0c6cb09baac1/sdk/program/src/pubkey.rs#L599-L601 */
   if( FD_UNLIKELY( fd_ed25519_point_validate( out->key ) ) ) {
     *custom_err = FD_PUBKEY_ERR_INVALID_SEEDS;
@@ -84,9 +84,9 @@ fd_pubkey_derive_pda( fd_pubkey_t const * program_id,
 
 /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/sdk/program/src/pubkey.rs#L477-L534 */
 int
-fd_pubkey_find_program_address( fd_pubkey_t const * program_id, 
-                                ulong               seeds_cnt, 
-                                uchar **            seeds, 
+fd_pubkey_find_program_address( fd_pubkey_t const * program_id,
+                                ulong               seeds_cnt,
+                                uchar **            seeds,
                                 ulong *             seed_szs,
                                 fd_pubkey_t *       out,
                                 uchar *             out_bump_seed,
@@ -102,7 +102,7 @@ fd_pubkey_find_program_address( fd_pubkey_t const * program_id,
       fd_memcpy( out, derived, sizeof(fd_pubkey_t) );
       fd_memcpy( out_bump_seed, bump_seed, 1UL );
       break;
-    } else if( err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR && *custom_err!=FD_PUBKEY_ERR_INVALID_SEEDS ) { 
+    } else if( err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR && *custom_err!=FD_PUBKEY_ERR_INVALID_SEEDS ) {
       return err;
     }
   }

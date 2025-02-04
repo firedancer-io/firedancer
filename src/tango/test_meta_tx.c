@@ -166,9 +166,9 @@ main( int     argc,
       now = fd_tickcount();
       continue;
     }
-    
+
     /* We are not backpressured, so send metadata with a test pattern */
-    
+
     ulong sig    =                seq;
     ulong chunk  = (ulong)(uint  )seq;
     ulong sz     = (ulong)(ushort)seq;

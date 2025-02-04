@@ -82,7 +82,7 @@ struct fd_store_tile_metrics {
   ulong first_turbine_slot;
   ulong current_turbine_slot;
 };
-typedef struct fd_store_tile_metrics fd_store_tile_metrics_t; 
+typedef struct fd_store_tile_metrics fd_store_tile_metrics_t;
 #define FD_STORE_TILE_METRICS_FOOTPRINT ( sizeof( fd_store_tile_metrics_t ) )
 
 struct fd_store_tile_ctx {

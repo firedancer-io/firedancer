@@ -85,7 +85,7 @@ app_main( int     argc,
   }
 
   /* Halt the app thread (we are in HALT state) */
-  
+
   /* Dummy halt operations */
 
   FD_YIELD();
@@ -164,7 +164,7 @@ main( int     argc,
 
   for( ulong iter=0UL; iter<32UL; iter++ ) {
     FD_LOG_NOTICE(( "Test %2lu (app thread heartbeat %li)", iter, fd_cnc_heartbeat_query( cnc ) ));
-    
+
     /* Request ack */
     fd_cnc_signal( cnc, USER_ACK );
     FD_TEST( fd_cnc_wait( cnc, USER_ACK, (long)30e9, &now )==FD_CNC_SIGNAL_RUN );

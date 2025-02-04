@@ -59,7 +59,7 @@ fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *       slot_ctx,
   if( stake_history.fd_stake_history_offset == 0 ) {
     stake_history.fd_stake_history_offset = stake_history.fd_stake_history_size - 1;
   } else {
-    stake_history.fd_stake_history_offset--;  
+    stake_history.fd_stake_history_offset--;
   }
 
   if( stake_history.fd_stake_history_len < stake_history.fd_stake_history_size ) {

@@ -1428,11 +1428,11 @@ fd_blockstore_child_slots_query( fd_blockstore_t * blockstore, ulong slot, ulong
 }
 
 int
-fd_blockstore_batch_assemble( fd_blockstore_t * blockstore, 
-                               ulong slot, 
+fd_blockstore_batch_assemble( fd_blockstore_t * blockstore,
+                               ulong slot,
                                uint  batch_idx,
-                               ulong batch_data_max, 
-                               uchar * batch_data_out, 
+                               ulong batch_data_max,
+                               uchar * batch_data_out,
                                ulong * batch_data_sz ) {
   fd_buf_shred_t *     shred_pool = fd_blockstore_shred_pool( blockstore );
   fd_buf_shred_map_t * shred_map  = fd_blockstore_shred_map( blockstore );
@@ -1453,7 +1453,7 @@ fd_blockstore_batch_assemble( fd_blockstore_t * blockstore,
     fd_buf_shred_t * shred = fd_buf_shred_map_ele_query( shred_map, &key, NULL, shred_pool );
     uchar const *    payload    = NULL;
     ulong            payload_sz = 0;
-    bool           is_batch_end = false; 
+    bool           is_batch_end = false;
     if( FD_UNLIKELY( shred ) ) { /* FIXME change to likely */
       payload    = fd_shred_data_payload( &shred->hdr );
       payload_sz = fd_shred_payload_sz( &shred->hdr );
@@ -1469,7 +1469,7 @@ fd_blockstore_batch_assemble( fd_blockstore_t * blockstore,
       payload    = data + shreds[idx].off;
       payload_sz = ( idx + 1 != block->shreds_cnt ) ? ( shreds[idx + 1].off - shreds[idx].off )
                                                     : ( block->data_sz - shreds[idx].off );
-      is_batch_end = (shreds[idx].hdr.data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE) 
+      is_batch_end = (shreds[idx].hdr.data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE)
                       || (shreds[idx].hdr.data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
     }
 
@@ -1478,7 +1478,7 @@ fd_blockstore_batch_assemble( fd_blockstore_t * blockstore,
     fd_memcpy( batch_data_out + mbatch_sz, payload, payload_sz );
 
     mbatch_sz += payload_sz;
-    if( FD_UNLIKELY( is_batch_end ) ){ 
+    if( FD_UNLIKELY( is_batch_end ) ){
       /* likely has trailing 0s */
       break;
     }
@@ -1498,14 +1498,14 @@ fd_blockstore_shreds_complete( fd_blockstore_t * blockstore, ulong slot ){
   }
 
   /* When replacing block_query( slot ) != NULL with this function:
-     There are other things verified in a successful deshred & scan block that are not verified here. 
-     scan_block does a round of well-formedness checks like parsing txns, and no premature end of batch 
+     There are other things verified in a successful deshred & scan block that are not verified here.
+     scan_block does a round of well-formedness checks like parsing txns, and no premature end of batch
      like needing cnt, microblock, microblock format.
 
-     This maybe should be fine in places where we check both 
+     This maybe should be fine in places where we check both
      shreds_complete and flag PROCESSED/REPLAYING is set, because validation has been for sure done
-     if the block has been replayed 
-      
+     if the block has been replayed
+
      Should be careful in places that call this now that happen before the block is replayed, if we want
      to assume the shreds are well-formed we can't. */
 
@@ -1615,11 +1615,11 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
     ulong     batch_sz = 0;
     ulong total_blk_sz = 0;
     while( batch_idx <= query->slot_complete_idx ){
-      int err = fd_blockstore_batch_assemble( blockstore, 
-                                               slot, 
-                                               (uint)batch_idx, 
-                                               sz - total_blk_sz, 
-                                               data_out + total_blk_sz, 
+      int err = fd_blockstore_batch_assemble( blockstore,
+                                               slot,
+                                               (uint)batch_idx,
+                                               sz - total_blk_sz,
+                                               data_out + total_blk_sz,
                                                &batch_sz );
       if( FD_UNLIKELY( err ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
       total_blk_sz += batch_sz;

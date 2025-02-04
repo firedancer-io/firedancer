@@ -77,7 +77,7 @@ int
 fd_tar_writer_new_file( fd_tar_writer_t * writer,
                         char const *      file_name ) {
 
-  /* TODO: This function currently fills in the bare minimum to get processed 
+  /* TODO: This function currently fills in the bare minimum to get processed
      by Agave, Firedancer, and most tar command line tools. To make this tool
      more robust and generalizable, it may make sense to populate some of the
      other fields in the tar header. */
@@ -97,7 +97,7 @@ fd_tar_writer_new_file( fd_tar_writer_t * writer,
     FD_LOG_WARNING(( "Unaligned header position %lu", writer->header_pos ));
     return -1;
   }
-  
+
   /* Populate what fields you can in the header */
 
   fd_tar_meta_t meta = {0};
@@ -110,7 +110,7 @@ fd_tar_writer_new_file( fd_tar_writer_t * writer,
      TODO: make this mode configurable in the future. */
 
   fd_memcpy( &meta.mode, FD_TAR_PERM, sizeof(FD_TAR_PERM) );
-  
+
   /* Copy in the magic and version */
 
   fd_memcpy( &meta.magic, FD_TAR_MAGIC_VERSION, sizeof(FD_TAR_MAGIC_VERSION) );
@@ -144,7 +144,7 @@ int
 fd_tar_writer_write_file_data( fd_tar_writer_t * writer,
                                void const *      data,
                                ulong             data_sz ) {
-  
+
   if( FD_UNLIKELY( writer->header_pos==ULONG_MAX ) ) {
     FD_LOG_WARNING(( "There is no corresponding tar header for the tar write" ));
     return -1;
@@ -212,7 +212,7 @@ fd_tar_writer_fini_file( fd_tar_writer_t * writer ) {
     return -1;
   }
 
-  /* The file pointer is now at the start of the file data and should be 
+  /* The file pointer is now at the start of the file data and should be
      moved back to the start of the file header. */
 
   seek = lseek( writer->fd, (long)writer->header_pos, SEEK_SET );
@@ -249,7 +249,7 @@ fd_tar_writer_fini_file( fd_tar_writer_t * writer ) {
     return -1;
   }
 
-  /* Reset the file pointer to the end of the file so that we can continue 
+  /* Reset the file pointer to the end of the file so that we can continue
      writing out the next file. */
 
   seek = lseek( writer->fd, 0L, SEEK_END );
@@ -258,10 +258,10 @@ fd_tar_writer_fini_file( fd_tar_writer_t * writer ) {
   }
 
   /* Reset the data_sz/header pointers as there is no outstanding write. */
-  
+
   writer->header_pos = ULONG_MAX;
   writer->data_sz    = ULONG_MAX;
- 
+
   return 0;
 }
 
@@ -288,7 +288,7 @@ fd_tar_writer_make_space( fd_tar_writer_t * writer, ulong data_sz ) {
     FD_LOG_WARNING(( "Failed to make space in the tarball (%i-%s)", errno, fd_io_strerror( errno ) ));
     return -1;
   }
-  
+
   /* Seek to the new end of the file. */
 
   long new_sz = lseek( writer->fd, 0, SEEK_END );
@@ -323,7 +323,7 @@ fd_tar_writer_fill_space( fd_tar_writer_t * writer, void const * data, ulong dat
     return -1;
   }
 
-  /* Write back to the specified location. Once again, this is unsafe and 
+  /* Write back to the specified location. Once again, this is unsafe and
      you can override the rest of the tar archive making it invalid. */
 
   ulong out_sz = 0UL;

@@ -1,8 +1,8 @@
-/* Do not compile this directly.  These test vectors were taken from 
+/* Do not compile this directly.  These test vectors were taken from
    the standard test vectors available at:
-   
+
    https://github.com/BLAKE3-team/BLAKE3/blob/master/test_vectors/test_vectors.json
-   
+
    */
 
 struct fd_blake3_test_vector {

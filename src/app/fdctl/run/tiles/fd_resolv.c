@@ -28,7 +28,7 @@ static const blockhash_t null_blockhash = { 0 };
    a transaction arrives, what slot it will expire (and can no longer be
    packed) in.  This is useful so we don't send transactions to pack
    that are no longer packable.
-   
+
    Unfortunately, poorly written transaction senders frequently send
    transactions from millions of slots ago, so we need a large ring to
    be able to determine and evict these.  The highest practically useful
@@ -291,7 +291,7 @@ fd_resolv_is_durable_nonce( fd_txn_t const * txn,
   if( FD_UNLIKELY( (ix0->data_sz!=1) | (ix0->acct_cnt!=3) ) ) return 0;
 
   return payload[ ix0->data_off ]==4;
-}  
+}
 
 static inline void
 after_frag( fd_resolv_ctx_t *   ctx,

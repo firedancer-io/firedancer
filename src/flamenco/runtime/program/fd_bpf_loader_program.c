@@ -234,8 +234,8 @@ calculate_heap_cost( ulong heap_size, ulong heap_cost, int * err ) {
 
    As a concrete example, our version of deploy_program does not have the
    'account_size' argument because we do not update the funk record here.
-   
-   The spad used for allocations can be either scoped to the executor or the 
+
+   The spad used for allocations can be either scoped to the executor or the
    runtime depending on where it is called from. If a program is deployed from
    the v3 contract, then the executor spad should be used. */
 int

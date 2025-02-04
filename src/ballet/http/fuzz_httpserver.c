@@ -399,7 +399,7 @@ int build_http_header(struct Unstructured *u, char *buf, int max_len, int *use_w
             }
 
             accept_encoding[strlen(accept_encoding)-2] = 0; // remove ", "
-            
+
             used = snprintf(buf, (size_t)max_len, "Accept-Encoding: %s\r\n", accept_encoding);
         }
         break;
@@ -503,7 +503,7 @@ void build_ws_req(struct Unstructured *u, uchar *buf, int *len) {
         *(ulong *)cur_pos = (ulong) payload_len;
         cur_pos += sizeof(ulong);
     }
-    
+
     *(ulong *)cur_pos = 0;
     cur_pos += sizeof(ulong);
 
@@ -599,7 +599,7 @@ void do_action(struct Unstructured *u) {
 
                 if (clients_fd[pos] != -1 && clients_ws_fd[pos] == 0) {
                     build_http_req(u, buf, &len, &use_websocket);
-                    if (rand_uchar(u) % 5 == 0) { 
+                    if (rand_uchar(u) % 5 == 0) {
                         LLVMFuzzerMutate(buf, (ulong)len, (ulong)len);
                     }
                     send(clients_fd[pos], buf, (size_t)len, MSG_NOSIGNAL);
@@ -618,7 +618,7 @@ void do_action(struct Unstructured *u) {
                         len += len2;
                     }
 
-                    if (rand_uchar(u) % 5 == 0) { 
+                    if (rand_uchar(u) % 5 == 0) {
                         LLVMFuzzerMutate(buf, (ulong)len, (ulong)len);
                     }
 
@@ -687,7 +687,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
         ulong iters = stem_iters;
         do { sched_yield(); } while (stem_iters < iters + 1);
     }
-    
+
     stop = 1;
     pthread_join(thread, NULL);
 

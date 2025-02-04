@@ -15,14 +15,14 @@
      myset_t myset_full_if( int c          ); // return c ? ~{} : {}
      myset_t myset_ele    ( ulong i        ); // return { i }
      myset_t myset_ele_if ( int c, ulong i ); // return c ? { i } : {}
-     
+
      // Index operations
      ulong myset_max  ( void      ); // return the maximum number of elements that can be held by the set,
                                      // will be in (0,8*sizeof(myset_t)]
      ulong myset_cnt  ( myset_t x ); // return the current number of elements in the set, will be in [0,myset_max()]
      ulong myset_first( myset_t x ); // return the index of the first element in the set, will be in [0,myset_max()),
                                      // U.B. if set is null
-     
+
      // Boolean operations
      int myset_valid_idx( ulong i              ); // returns 1 if i is a valid set index (i.e. idx < myset_max())
      int myset_valid    ( myset_t x            ); // returns 1 if x a valid set (i.e. no bits idx >= myset_max() are set)
@@ -31,17 +31,17 @@
      int myset_test     ( myset_t x, ulong i   ); // returns 1 if element i is in set x
      int myset_eq       ( myset_t x, myset_t y ); // returns 1 if x and y are the same sets
      int myset_subset   ( myset_t x, myset_t y ); // returns 1 if x is a subset of y
-     
+
      // Unary operations
      myset_t myset_copy      ( myset_t x ); // returns x
      myset_t myset_complement( myset_t x ); // returns ~x
-     
+
      // Binary operations
      myset_t myset_union    ( myset_t x, myset_t y ); // returns x u y
-     myset_t myset_intersect( myset_t x, myset_t y ); // returns x n y 
+     myset_t myset_intersect( myset_t x, myset_t y ); // returns x n y
      myset_t myset_subtract ( myset_t x, myset_t y ); // returns x - y
      myset_t myset_xor      ( myset_t x, myset_t y ); // returns (x u y) - (x n y)
-     
+
      // Trinary operations
      myset_t myset_if( int c, myset_t t, myset_t f ); // returns c ? t : f
 
@@ -60,7 +60,7 @@
      myset_iter_t myset_iter_done( myset_iter_t iter );
      myset_iter_t myset_iter_next( myset_iter_t iter );
      ulong        myset_iter_idx ( myset_iter_t iter );
-     
+
      // Misc
      myset_t myset_insert( myset_t x, ulong i ); // short for myset_union   ( x, myset_ele( i ) )
      myset_t myset_remove( myset_t x, ulong i ); // short for myset_subtract( x, myset_ele( i ) )
@@ -127,7 +127,7 @@ enum {
   SET_(MAX)             = (SET_MAX),
   SET_(PRIVATE_BIT_CNT) = 8*(int)sizeof(SET_TYPE),
   SET_(PRIVATE_ZP_CNT)  = SET_(PRIVATE_BIT_CNT) - SET_(MAX)
-}; 
+};
 
 FD_STATIC_ASSERT( 0<SET_(MAX) && SET_(MAX)<=SET_(PRIVATE_BIT_CNT),              range );
 FD_STATIC_ASSERT( (ulong)SET_(PRIVATE_BIT_CNT)<=(1UL<<(8*sizeof(SET_IDX_T)-1)), range );

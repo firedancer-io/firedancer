@@ -362,11 +362,11 @@ fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const *        program_i
 }
 
 /* Helper functions to get the absolute vaddrs of the serialized accounts pubkey, lamports and owner.
-  
+
    For the accounts not owned by the deprecated loader, all of these offsets into the accounts metadata region
    are static from fd_vm_acc_region_meta->metadata_region_offset.
 
-   For accounts owned by the deprecated loader, the unaligned serializer is used, which means only the pubkey 
+   For accounts owned by the deprecated loader, the unaligned serializer is used, which means only the pubkey
    and lamports offsets are static from the metadata_region_offset. The owner is serialized into the region
    immediately following the account data region (if present) at a fixed offset.
  */
@@ -398,7 +398,7 @@ ulong serialized_owner_vaddr( fd_vm_t * vm, fd_vm_acc_region_meta_t * acc_region
 
 static inline
 ulong serialized_lamports_vaddr( fd_vm_t * vm, fd_vm_acc_region_meta_t * acc_region_meta ) {
-  return FD_VM_MEM_MAP_INPUT_REGION_START + acc_region_meta->metadata_region_offset + 
+  return FD_VM_MEM_MAP_INPUT_REGION_START + acc_region_meta->metadata_region_offset +
     (vm->is_deprecated ? VM_SERIALIZED_UNALIGNED_LAMPORTS_OFFSET : VM_SERIALIZED_LAMPORTS_OFFSET);
 }
 

@@ -279,7 +279,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   /* Restore slot_bank */
 
   fd_slot_bank_new( &slot_ctx->slot_bank );
-    
+
   /* Blockhash queue init */
   fd_block_hash_queue_t * blockhash_queue = &slot_ctx->slot_bank.block_hash_queue;
   blockhash_queue->max_age   = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
@@ -1461,7 +1461,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     fd_bpf_loader_input_serialize_unaligned( *ctx,
                                              &input_sz,
                                              pre_lens,
-                                             input_mem_regions,            
+                                             input_mem_regions,
                                              &input_mem_regions_cnt,
                                              acc_region_metas,
                                              !direct_mapping );
@@ -1469,7 +1469,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     fd_bpf_loader_input_serialize_aligned( *ctx,
                                            &input_sz,
                                            pre_lens,
-                                           input_mem_regions,            
+                                           input_mem_regions,
                                            &input_mem_regions_cnt,
                                            acc_region_metas,
                                            !direct_mapping );

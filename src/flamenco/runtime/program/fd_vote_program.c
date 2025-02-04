@@ -1922,7 +1922,7 @@ ulong
 fd_query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_t const * vote_accounts ) {
   fd_vote_accounts_pair_t_mapnode_t key         = { 0 };
   key.elem.key                                  = *pubkey;
-  
+
   if( !vote_accounts->vote_accounts_pool && !vote_accounts->vote_accounts_root ) {
     return 0;
   }

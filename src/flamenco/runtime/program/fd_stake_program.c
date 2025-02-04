@@ -1383,7 +1383,7 @@ delegate( fd_exec_instr_ctx_t const *   ctx,
   fd_stake_state_v2_t stake_state = {0};
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L330
   FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, stake_account_index, stake_account ) {
-  
+
   rc = get_state( stake_account, ctx->txn_ctx->spad, &stake_state );
   if( FD_UNLIKELY( rc ) ) return rc;
 
@@ -1572,7 +1572,7 @@ split( fd_exec_instr_ctx_t const * ctx,
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L422
   if( FD_UNLIKELY( lamports>stake_account->const_meta->info.lamports ) )
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
-    
+
   rc = get_state( stake_account, ctx->txn_ctx->spad, &stake_state );
   if( FD_UNLIKELY( rc ) ) return rc;
 

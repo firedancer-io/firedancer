@@ -106,7 +106,7 @@ fd_tower_lockout_check( fd_tower_t const * tower,
      `slot`. If the previous vote slot is too old (ie. older than
      ghost->root), then we don't have ancestry information anymore and
      we just assume it is on the same fork.
-     
+
      FIXME discuss if it is safe to assume that? */
 
   fd_tower_vote_t const * vote = fd_tower_votes_peek_index_const( tower, cnt - 1 );
@@ -326,11 +326,11 @@ fd_tower_vote_slot( fd_tower_t *          tower,
   fd_ghost_node_t const * head = fd_ghost_head( ghost, root );
 
   /* Vote for the ghost head if any of the following is true:
-     
+
      1. haven't voted
      2. last vote < ghost root
      3. ghost root is not an ancestory of last vote
-       
+
      FIXME need to ensure lockout safety for case 2 and 3 */
 
   if( FD_UNLIKELY( !vote || vote->slot < root->slot ||
@@ -361,7 +361,7 @@ fd_tower_vote_slot( fd_tower_t *          tower,
                    fd_tower_switch_check( tower, epoch, ghost, head->slot ) ) ) {
     FD_LOG_DEBUG(( "[%s] success (lockout switch). best: %lu. vote: (slot: %lu conf: %lu)", __func__, head->slot, vote->slot, vote->conf ));
     return head->slot;
-  } 
+  }
   FD_LOG_DEBUG(( "[%s] failure (lockout switch). best: %lu. vote: (slot: %lu conf: %lu)", __func__, head->slot, vote->slot, vote->conf ));
   return FD_SLOT_NULL;
 }
@@ -414,7 +414,7 @@ fd_tower_vote( fd_tower_t * tower, ulong slot ) {
   fd_tower_votes_push_tail( tower, (fd_tower_vote_t){ .slot = slot, .conf = 1 } );
 
   /* Return the new root (FD_SLOT_NULL if there is none). */
-  
+
   return root;
 }
 

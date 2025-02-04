@@ -37,7 +37,7 @@ typedef struct fd_sha256_test_vector fd_sha256_test_vector_t;
 #define _(v) ((uchar)0x##v)
 
 static fd_sha256_test_vector_t const fd_sha256_test_vector[] = {
-  { "", 
+  { "",
        0UL, { _(e3),_(b0),_(c4),_(42),_(98),_(fc),_(1c),_(14),_(9a),_(fb),_(f4),_(c8),_(99),_(6f),_(b9),_(24),
               _(27),_(ae),_(41),_(e4),_(64),_(9b),_(93),_(4c),_(a4),_(95),_(99),_(1b),_(78),_(52),_(b8),_(55) } },
   { "b",

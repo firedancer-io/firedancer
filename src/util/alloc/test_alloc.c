@@ -99,7 +99,7 @@ test_main( int     argc,
       #if FD_HAS_DEEPASAN
       /* Enforce 8 byte alignment requirements */
       align = fd_ulong_if( align < FD_ASAN_ALIGN, FD_ASAN_ALIGN, align );
-      sz[j] = fd_ulong_if( sz[j] < FD_ASAN_ALIGN, FD_ASAN_ALIGN, sz[j] ); 
+      sz[j] = fd_ulong_if( sz[j] < FD_ASAN_ALIGN, FD_ASAN_ALIGN, sz[j] );
       #endif
 
       /* Allocate it */

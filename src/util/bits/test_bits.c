@@ -263,10 +263,10 @@ main( int     argc,
         FD_TEST( fd_ushort_pow2_dn ( z )==(ushort) x     );
       }
     }
-    for( int n=0; n<=w; n++ ) { 
-      ushort x = (ushort)((n==w)? 0U : (1U<<n )); int sl = n+(w-8)-((n>>3)<<4); 
+    for( int n=0; n<=w; n++ ) {
+      ushort x = (ushort)((n==w)? 0U : (1U<<n )); int sl = n+(w-8)-((n>>3)<<4);
       ushort y = (ushort)((n==w)? 0U : (1U<<sl)); FD_TEST( fd_ushort_bswap( x )==y );
-    } 
+    }
     for( int i=0; i<w; i++ ) {
       ushort align = (ushort) (1UL<<i);
       ushort lo    = (ushort)((1UL<<i)-1UL);
@@ -408,10 +408,10 @@ main( int     argc,
         FD_TEST( fd_uint_pow2_dn ( z )== x     );
       }
     }
-    for( int n=0; n<=w; n++ ) {  
+    for( int n=0; n<=w; n++ ) {
       uint x = (uint)((n==w)? 0U : (1U<<n )); int sl = n+(w-8)-((n>>3)<<4);
       uint y = (uint)((n==w)? 0U : (1U<<sl)); FD_TEST( fd_uint_bswap( x )==y );
-    } 
+    }
     for( int i=0; i<w; i++ ) {
       uint align = (uint) (1UL<<i);
       uint lo    = (uint)((1UL<<i)-1UL);
@@ -553,10 +553,10 @@ main( int     argc,
         FD_TEST( fd_ulong_pow2_dn ( z )== x     );
       }
     }
-    for( int n=0; n<=w; n++ ) { int sl = n+(w-8)-((n>>3)<<4); 
+    for( int n=0; n<=w; n++ ) { int sl = n+(w-8)-((n>>3)<<4);
       ulong x = (ulong)((n==w)? 0UL : (1UL<<n ));
       ulong y = (ulong)((n==w)? 0UL : (1UL<<sl)); FD_TEST( fd_ulong_bswap( x )==y );
-    }  
+    }
     for( int i=0; i<w; i++ ) {
       ulong align = (ulong) (1UL<<i);
       ulong lo    = (ulong)((1UL<<i)-1UL);
@@ -727,10 +727,10 @@ main( int     argc,
         FD_TEST( fd_uint128_pow2_dn ( z )== x     );
       }
     }
-    for( int n=0; n<=w; n++ ) { int sl = n+(w-8)-((n>>3)<<4); 
+    for( int n=0; n<=w; n++ ) { int sl = n+(w-8)-((n>>3)<<4);
       uint128 x = (uint128)((n==w)? (uint128)0 : ((uint128)(1U)<<n ));
       uint128 y = (uint128)((n==w)? (uint128)0 : ((uint128)(1U)<<sl)); FD_TEST( fd_uint128_bswap( x )==y );
-    }      
+    }
     for( int i=0; i<w; i++ ) {
       uint128 align =  ((uint128)1)<<i;
       uint128 lo    = (((uint128)1)<<i)-((uint128)1);

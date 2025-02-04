@@ -107,7 +107,7 @@
   interp_jump_table[ 0x84 ] = FD_VM_SBPF_ENABLE_NEG (sbpf_version) ? &&interp_0x84 : &&sigill;
   /* note: 0x87 should not be overwritten because it was NEG64 and it becomes STW */
 
-  /* SIMD-0174: Explicit Sign Extension + Register Immediate Subtraction. 
+  /* SIMD-0174: Explicit Sign Extension + Register Immediate Subtraction.
      Note: 0x14 is affected by both. */
   interp_jump_table[ 0x04 ] = FD_VM_SBPF_EXPLICIT_SIGN_EXT        (sbpf_version) ? &&interp_0x04 : &&interp_0x04depr;
   interp_jump_table[ 0x0c ] = FD_VM_SBPF_EXPLICIT_SIGN_EXT        (sbpf_version) ? &&interp_0x0c : &&interp_0x0cdepr;
@@ -148,25 +148,25 @@
 /* These mimic the exact Rust semantics for wrapping_shl and wrapping_shr. */
 
 /* u64::wrapping_shl: a.unchecked_shl(b & (64 - 1))
-   
+
    https://doc.rust-lang.org/std/primitive.u64.html#method.wrapping_shl
  */
 #define FD_RUST_ULONG_WRAPPING_SHL( a, b ) (a << ( b & ( 63 ) ))
 
 /* u64::wrapping_shr: a.unchecked_shr(b & (64 - 1))
-   
+
    https://doc.rust-lang.org/std/primitive.u64.html#method.wrapping_shr
  */
 #define FD_RUST_ULONG_WRAPPING_SHR( a, b ) (a >> ( b & ( 63 ) ))
 
 /* u32::wrapping_shl: a.unchecked_shl(b & (32 - 1))
-   
+
    https://doc.rust-lang.org/std/primitive.u32.html#method.wrapping_shl
  */
 #define FD_RUST_UINT_WRAPPING_SHL( a, b ) (a << ( b & ( 31 ) ))
 
 /* u32::wrapping_shr: a.unchecked_shr(b & (32 - 1))
-   
+
    https://doc.rust-lang.org/std/primitive.u32.html#method.wrapping_shr
  */
 #define FD_RUST_UINT_WRAPPING_SHR( a, b ) (a >> ( b & ( 31 ) ))
@@ -747,7 +747,7 @@ interp_exec:
        call target is valid.  It would be fine to switch the order
        though such would change the precise faulting semantics of
        sigcall and sigstack.
-       
+
        (*)but after checking calldests, see point below. */
 
       /* Agave's order of checks
@@ -756,7 +756,7 @@ interp_exec:
           2. Push stack frame
           3. Check PC
           4. Update PC
-          
+
           Following this precisely is impossible as our PC check also
           serves as a bounds check for the calldests_test call. So we
           have to perform step 3 before step 1. The following
@@ -1135,7 +1135,7 @@ interp_exec:
   /* FIXME: sigbus/sigrdonly are mapped to sigsegv for simplicity
      currently but could be enabled if desired. */
 
-  /* Note: sigtextbr is for sigtext errors that occur on branching 
+  /* Note: sigtextbr is for sigtext errors that occur on branching
      instructions (i.e., prefixed with FD_VM_INTERP_BRANCH_BEGIN).
      We skip a repeat ic accumulation in FD_VM_INTERP_FAULT */
 
@@ -1207,39 +1207,39 @@ interp_halt:
 /*   Agave/JIT CU model analysis (and why we are conformant!):
 
      The Agave JIT employs a similar strategy of accumulating instructions
-     in a linear run and processing them at the start of a new linear 
-     run/branch (side note: the JIT treats the LDQ instruction as a "branch" 
-     that jumps pc + 2). 
-     
-     In what is assumed to be an act of register conservation, the JIT 
+     in a linear run and processing them at the start of a new linear
+     run/branch (side note: the JIT treats the LDQ instruction as a "branch"
+     that jumps pc + 2).
+
+     In what is assumed to be an act of register conservation, the JIT
      uses a catch-all "instruction meter" (IM) register (REGISTER_INSTRUCTION_METER)
      that represents two different interpretations of the question
      "how many instructions can I execute?".
 
      The IM, depending on where we are in the execution, either represents:
-        1. IM => The number of instructions remaining before exhausting CU 
+        1. IM => The number of instructions remaining before exhausting CU
         budget. This is analagous to vm->cu in our interpreter.
         2. IM' => The last pc you can execute in the current linear run before
         exhausting CU budget.  Mathematically, IM' = IM + pc0
         where pc0, just like our definition, is the start of the linear run.
-        
-        Note: IM' can go past the actual basic block/segment. In-fact, 
+
+        Note: IM' can go past the actual basic block/segment. In-fact,
         it typically does, and implies we can execute the full block without
         exhausting CU budget (reminder that LDQ is treated as a branch).
-      
+
       By default, the IM' form is used during execution. The IM form is used:
-        - (transiently) during the processing of a branch instruction 
+        - (transiently) during the processing of a branch instruction
         - in post-VM cleanup (updates EbpfVm::previous_instruction_meter).
 
       When a branch instruction is encountered, the JIT checks
       for CU exhaustion with pc > IM', and throws an exception if so. This is valid,
       because as described above, IM' is the largest PC you can reach.
-      
+
       If we haven't exhausted our CU limit, it updates IM':
-        1. IM = IM' - (pc + 1)  # Note that IM' at this point is IM + pc0', 
+        1. IM = IM' - (pc + 1)  # Note that IM' at this point is IM + pc0',
                                 # where pc0' is the start of the current linear run.
         2. IM' = IM + pc0       # pc0 is the start of the new linear run (typically the target pc)
-      
+
       Code (that does the above in one ALU instruction):
        https://github.com/solana-labs/rbpf/blob/v0.8.5/src/jit.rs#L891
 
@@ -1259,17 +1259,17 @@ interp_halt:
       linear run. This is the same as our ic_correction(*) in FD_VM_INTERP_BRANCH_BEGIN.
 
       If we replace IM with cu, this effectively becomes the
-           cu -= ic_correction 
+           cu -= ic_correction
       line in FD_VM_INTERP_BRANCH_BEGIN.
 
-      (*) Note: ic_correction (also) takes two forms. It is either the instruction 
-      accumulator or the number of instructions executed in the current linear run. 
-      It (transiently) takes the latter form during FD_VM_INTERP_BRANCH_BEGIN and 
+      (*) Note: ic_correction (also) takes two forms. It is either the instruction
+      accumulator or the number of instructions executed in the current linear run.
+      It (transiently) takes the latter form during FD_VM_INTERP_BRANCH_BEGIN and
       FD_VM_INTERP_FAULT, and the former form otherwise.
 */
 
 /* (WIP) Precise faulting and the Agave JIT:
-   
+
    Since the cost model is a part of consensus, we need to conform with the Agave/JIT
    cost model 1:1. To achieve that, our faulting model also needs to match precisely. This
    section covers the various faults that the respective VMs implement and how they match.
@@ -1306,7 +1306,7 @@ interp_halt:
     IM < ic_correction
 
     This is analagous to the ic_correction>cu check in VM_INTERP_BRANCH_BEGIN.
-   
+
    # (TODO) Text Overrun (sigtext/sigsplit):
 
 */

@@ -51,7 +51,7 @@ main( int argc, char **argv ) {
     FD_LOG_ERR(( "Unable to load routning table" ));
   }
 
-  if( rtn == 0 ) { 
+  if( rtn == 0 ) {
     FD_LOG_ERR(( "No routing table entries returned" ));
   }
 

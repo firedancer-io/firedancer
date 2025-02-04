@@ -30,7 +30,7 @@
 
      // Returns 1 if set appears to be point to a valid set, 0 otherwise
      // (e.g. set is NULL, there's corruption in the set zero padding,
-     // etc). 
+     // etc).
 
      int my_set_valid( my_set_t const * set )
 

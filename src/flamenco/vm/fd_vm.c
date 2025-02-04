@@ -118,7 +118,7 @@ fd_vm_strerror( int err ) {
   case FD_VM_ERR_SIGCOST:     return "SIGCOST compute unit limit exceeded";
   case FD_VM_ERR_SIGFPE:      return "SIGFPE division by zero";
   case FD_VM_ERR_SIGFPE_OF:   return "SIGFPE division overflow";
-  case FD_VM_ERR_SIGSYSCALL:  return "SIGSYSCALL syscall error"; 
+  case FD_VM_ERR_SIGSYSCALL:  return "SIGSYSCALL syscall error";
   case FD_VM_ERR_SIGABORT:    return "SIGABORT abort error";
 
   /* VM validate error codes */

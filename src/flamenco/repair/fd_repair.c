@@ -502,7 +502,7 @@ fd_repair_send_requests( fd_repair_t * glob ) {
       fd_needed_table_remove( glob->needed, &n );
       continue;
     }
-    
+
     active->avg_reqs++;
 
     fd_repair_protocol_t protocol;
@@ -602,7 +602,7 @@ long read_line(int fd, char *buf) {
 }
 
 static int
-fd_read_in_good_peer_cache_file( fd_repair_t * repair ) {  
+fd_read_in_good_peer_cache_file( fd_repair_t * repair ) {
   if( repair->good_peer_cache_file_fd==-1 ) {
     FD_LOG_NOTICE(( "No repair good_peer_cache_file specified, not loading cached peers" ));
     return 0;
@@ -667,7 +667,7 @@ fd_read_in_good_peer_cache_file( fd_repair_t * repair ) {
     /* Create the peer address struct (byte-swap the port to network order). */
     fd_repair_peer_addr_t peer_addr;
     /* already in network byte order from inet_aton */
-    peer_addr.addr = ip_addr;                           
+    peer_addr.addr = ip_addr;
     /* Flip to big-endian for network order */
     peer_addr.port = fd_ushort_bswap( (ushort)port );
 
@@ -955,7 +955,7 @@ fd_actives_shuffle( fd_repair_t * repair ) {
       good[i]->sticky                       = (uchar)1;
     }
     if( leftovers_cnt ) {
-      /* Sample 64 new sticky peers using stake-weighted sampling */      
+      /* Sample 64 new sticky peers using stake-weighted sampling */
       for( ulong i = 0; i < 64 && tot_cnt < FD_REPAIR_STICKY_MAX && tot_cnt < fd_active_table_key_cnt( repair->actives ); ++i ) {
         /* Generate a random amount of culmative stake at which to sample the peer */
         ulong target_culm_stake = fd_rng_ulong( repair->rng ) % total_stake;
@@ -979,7 +979,7 @@ fd_actives_shuffle( fd_repair_t * repair ) {
           peer->sticky                      = (uchar)1;
         }
       }
-      
+
     }
     repair->actives_sticky_cnt = tot_cnt;
 
@@ -1038,7 +1038,7 @@ fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint 
 
     ids[i] = &peer->key;
   }
-  
+
   if (!found_peer) {
     FD_LOG_DEBUG( ( "failed to find a good peer." ) );
     fd_repair_unlock( glob );
@@ -1078,7 +1078,7 @@ fd_repair_create_needed_request( fd_repair_t * glob, int type, ulong slot, uint 
 static int
 fd_write_good_peer_cache_file( fd_repair_t * repair ) {
   // return 0;
-  
+
   if ( repair->good_peer_cache_file_fd == -1 ) {
     return 0;
   }

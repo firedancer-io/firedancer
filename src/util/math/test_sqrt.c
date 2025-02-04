@@ -9,7 +9,7 @@ main( int     argc,
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
-  int ctr = 0;                                                                                                                      
+  int ctr = 0;
   for( int i=0; i<50000000; i++ ) {
     if( !ctr ) { FD_LOG_NOTICE(( "Completed %i iterations", i )); ctr = 1000000; }
     ctr--;

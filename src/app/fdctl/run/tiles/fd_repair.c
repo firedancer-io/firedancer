@@ -662,7 +662,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   (void)topo;
   (void)tile;
 
-  populate_sock_filter_policy_repair( 
+  populate_sock_filter_policy_repair(
     out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)tile->repair.good_peer_cache_file_fd );
   return sock_filter_policy_repair_instr_cnt;
 }

@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <sys/stat.h>
- 
+
 FD_IMPORT_CSTR( fd_shmem_ctl_help, "src/util/shmem/fd_shmem_ctl_help" );
 
 int
@@ -17,7 +17,7 @@ main( int     argc,
   if( FD_UNLIKELY( argc<1 ) ) FD_LOG_ERR(( "No arguments" ));
   char const * bin = argv[0];
   SHIFT(1);
-  
+
   umask( (mode_t)0 ); /* So mode setting gets respected */
 
   int cnt = 0;

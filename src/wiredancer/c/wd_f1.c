@@ -16,14 +16,14 @@ uint32_t            _wd_next_slot           (wd_wksp_t* wd, uint32_t slot);
 // P::::::::::::::::P       CCC::::::::::::CI::::::::I
 // P::::::PPPPPP:::::P    CC:::::::::::::::CI::::::::I
 // PP:::::P     P:::::P  C:::::CCCCCCCC::::CII::::::II
-//   P::::P     P:::::P C:::::C       CCCCCC  I::::I  
-//   P::::P     P:::::PC:::::C                I::::I  
-//   P::::PPPPPP:::::P C:::::C                I::::I  
-//   P:::::::::::::PP  C:::::C                I::::I  
-//   P::::PPPPPPPPP    C:::::C                I::::I  
-//   P::::P            C:::::C                I::::I  
-//   P::::P            C:::::C                I::::I  
-//   P::::P             C:::::C       CCCCCC  I::::I  
+//   P::::P     P:::::P C:::::C       CCCCCC  I::::I
+//   P::::P     P:::::PC:::::C                I::::I
+//   P::::PPPPPP:::::P C:::::C                I::::I
+//   P:::::::::::::PP  C:::::C                I::::I
+//   P::::PPPPPPPPP    C:::::C                I::::I
+//   P::::P            C:::::C                I::::I
+//   P::::P            C:::::C                I::::I
+//   P::::P             C:::::C       CCCCCC  I::::I
 // PP::::::PP            C:::::CCCCCCCC::::CII::::::II
 // P::::::::P             CC:::::::::::::::CI::::::::I
 // P::::::::P               CCC::::::::::::CI::::::::I
@@ -150,12 +150,12 @@ void _wd_stream_flush(wd_wksp_t* wd, uint32_t slot)
 // M::::::::M           M::::::::MI::::::::IS:::::SSSSSS::::::S   CC:::::::::::::::C
 // M:::::::::M         M:::::::::MII::::::IIS:::::S     SSSSSSS  C:::::CCCCCCCC::::C
 // M::::::::::M       M::::::::::M  I::::I  S:::::S             C:::::C       CCCCCC
-// M:::::::::::M     M:::::::::::M  I::::I  S:::::S            C:::::C              
-// M:::::::M::::M   M::::M:::::::M  I::::I   S::::SSSS         C:::::C              
-// M::::::M M::::M M::::M M::::::M  I::::I    SS::::::SSSSS    C:::::C              
-// M::::::M  M::::M::::M  M::::::M  I::::I      SSS::::::::SS  C:::::C              
-// M::::::M   M:::::::M   M::::::M  I::::I         SSSSSS::::S C:::::C              
-// M::::::M    M:::::M    M::::::M  I::::I              S:::::SC:::::C              
+// M:::::::::::M     M:::::::::::M  I::::I  S:::::S            C:::::C
+// M:::::::M::::M   M::::M:::::::M  I::::I   S::::SSSS         C:::::C
+// M::::::M M::::M M::::M M::::::M  I::::I    SS::::::SSSSS    C:::::C
+// M::::::M  M::::M::::M  M::::::M  I::::I      SSS::::::::SS  C:::::C
+// M::::::M   M:::::::M   M::::::M  I::::I         SSSSSS::::S C:::::C
+// M::::::M    M:::::M    M::::::M  I::::I              S:::::SC:::::C
 // M::::::M     MMMMM     M::::::M  I::::I              S:::::S C:::::C       CCCCCC
 // M::::::M               M::::::MII::::::IISSSSSSS     S:::::S  C:::::CCCCCCCC::::C
 // M::::::M               M::::::MI::::::::IS::::::SSSSSS:::::S   CC:::::::::::::::C
@@ -235,21 +235,21 @@ int _wd_set_vdip_64(wd_wksp_t* wd, uint32_t slot, uint32_t vi, uint64_t v)
 }
 
 
-// DDDDDDDDDDDDD        MMMMMMMM               MMMMMMMM               AAA               
-// D::::::::::::DDD     M:::::::M             M:::::::M              A:::A              
-// D:::::::::::::::DD   M::::::::M           M::::::::M             A:::::A             
-// DDD:::::DDDDD:::::D  M:::::::::M         M:::::::::M            A:::::::A            
-//   D:::::D    D:::::D M::::::::::M       M::::::::::M           A:::::::::A           
-//   D:::::D     D:::::DM:::::::::::M     M:::::::::::M          A:::::A:::::A          
-//   D:::::D     D:::::DM:::::::M::::M   M::::M:::::::M         A:::::A A:::::A         
-//   D:::::D     D:::::DM::::::M M::::M M::::M M::::::M        A:::::A   A:::::A        
-//   D:::::D     D:::::DM::::::M  M::::M::::M  M::::::M       A:::::A     A:::::A       
-//   D:::::D     D:::::DM::::::M   M:::::::M   M::::::M      A:::::AAAAAAAAA:::::A      
-//   D:::::D     D:::::DM::::::M    M:::::M    M::::::M     A:::::::::::::::::::::A     
-//   D:::::D    D:::::D M::::::M     MMMMM     M::::::M    A:::::AAAAAAAAAAAAA:::::A    
-// DDD:::::DDDDD:::::D  M::::::M               M::::::M   A:::::A             A:::::A   
-// D:::::::::::::::DD   M::::::M               M::::::M  A:::::A               A:::::A  
-// D::::::::::::DDD     M::::::M               M::::::M A:::::A                 A:::::A 
+// DDDDDDDDDDDDD        MMMMMMMM               MMMMMMMM               AAA
+// D::::::::::::DDD     M:::::::M             M:::::::M              A:::A
+// D:::::::::::::::DD   M::::::::M           M::::::::M             A:::::A
+// DDD:::::DDDDD:::::D  M:::::::::M         M:::::::::M            A:::::::A
+//   D:::::D    D:::::D M::::::::::M       M::::::::::M           A:::::::::A
+//   D:::::D     D:::::DM:::::::::::M     M:::::::::::M          A:::::A:::::A
+//   D:::::D     D:::::DM:::::::M::::M   M::::M:::::::M         A:::::A A:::::A
+//   D:::::D     D:::::DM::::::M M::::M M::::M M::::::M        A:::::A   A:::::A
+//   D:::::D     D:::::DM::::::M  M::::M::::M  M::::::M       A:::::A     A:::::A
+//   D:::::D     D:::::DM::::::M   M:::::::M   M::::::M      A:::::AAAAAAAAA:::::A
+//   D:::::D     D:::::DM::::::M    M:::::M    M::::::M     A:::::::::::::::::::::A
+//   D:::::D    D:::::D M::::::M     MMMMM     M::::::M    A:::::AAAAAAAAAAAAA:::::A
+// DDD:::::DDDDD:::::D  M::::::M               M::::::M   A:::::A             A:::::A
+// D:::::::::::::::DD   M::::::M               M::::::M  A:::::A               A:::::A
+// D::::::::::::DDD     M::::::M               M::::::M A:::::A                 A:::::A
 // DDDDDDDDDDDDD        MMMMMMMM               MMMMMMMMAAAAAAA                   AAAAAAA
 
 uint64_t _wd_get_phys(void* p)
@@ -292,18 +292,18 @@ uint64_t _wd_get_phys(void* p)
 //  SS:::::::::::::::SV::::::V           V::::::V
 // S:::::SSSSSS::::::SV::::::V           V::::::V
 // S:::::S     SSSSSSSV::::::V           V::::::V
-// S:::::S             V:::::V           V:::::V 
-// S:::::S              V:::::V         V:::::V  
-//  S::::SSSS            V:::::V       V:::::V   
-//   SS::::::SSSSS        V:::::V     V:::::V    
-//     SSS::::::::SS       V:::::V   V:::::V     
-//        SSSSSS::::S       V:::::V V:::::V      
-//             S:::::S       V:::::V:::::V       
-//             S:::::S        V:::::::::V        
-// SSSSSSS     S:::::S         V:::::::V         
-// S::::::SSSSSS:::::S          V:::::V          
-// S:::::::::::::::SS            V:::V           
-//  SSSSSSSSSSSSSSS               VVV            
+// S:::::S             V:::::V           V:::::V
+// S:::::S              V:::::V         V:::::V
+//  S::::SSSS            V:::::V       V:::::V
+//   SS::::::SSSSS        V:::::V     V:::::V
+//     SSS::::::::SS       V:::::V   V:::::V
+//        SSSSSS::::S       V:::::V V:::::V
+//             S:::::S       V:::::V:::::V
+//             S:::::S        V:::::::::V
+// SSSSSSS     S:::::S         V:::::::V
+// S::::::SSSSSS:::::S          V:::::V
+// S:::::::::::::::SS            V:::V
+//  SSSSSSSSSSSSSSS               VVV
 
 void
 wd_ed25519_verify_init_req( wd_wksp_t *        wd,

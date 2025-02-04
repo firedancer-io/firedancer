@@ -44,7 +44,7 @@ double tiff(struct timespec t0, struct timespec t1)
 {
     long seconds = t1.tv_sec - t0.tv_sec;
     long nanoseconds = t1.tv_nsec - t0.tv_nsec;
-    return (double)seconds + (double)nanoseconds*1e-9;    
+    return (double)seconds + (double)nanoseconds*1e-9;
 }
 
 void print_counters(wd_wksp_t* wd)

@@ -18,8 +18,8 @@ int
 main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
- 
-  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) ); 
+
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   FD_TEST( my_voff_ver_width()==20 ); FD_TEST( my_voff_ver_max()==(1UL<<20)-1UL );
   FD_TEST( my_voff_off_width()==44 ); FD_TEST( my_voff_off_max()==(1UL<<44)-1UL );
