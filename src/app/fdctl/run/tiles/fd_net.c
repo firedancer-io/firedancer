@@ -257,17 +257,20 @@ metrics_write( fd_net_ctx_t * ctx ) {
   ulong rx_sz  = ctx->xsk_aio[ 0 ]->metrics.rx_sz;
   ulong tx_cnt = ctx->xsk_aio[ 0 ]->metrics.tx_cnt;
   ulong tx_sz  = ctx->xsk_aio[ 0 ]->metrics.tx_sz;
+  ulong tx_flush_err_cnt = ctx->xsk_aio[ 0 ]->metrics.tx_flush_err_cnt;
   if( FD_LIKELY( ctx->xsk_aio[ 1 ] ) ) {
     rx_cnt += ctx->xsk_aio[ 1 ]->metrics.rx_cnt;
     rx_sz  += ctx->xsk_aio[ 1 ]->metrics.rx_sz;
     tx_cnt += ctx->xsk_aio[ 1 ]->metrics.tx_cnt;
     tx_sz  += ctx->xsk_aio[ 1 ]->metrics.tx_sz;
+    tx_flush_err_cnt += ctx->xsk_aio[ 1 ]->metrics.tx_flush_err_cnt;
   }
 
   FD_MCNT_SET( NET, RECEIVED_PACKETS, rx_cnt );
   FD_MCNT_SET( NET, RECEIVED_BYTES,   rx_sz  );
   FD_MCNT_SET( NET, SENT_PACKETS,     tx_cnt );
   FD_MCNT_SET( NET, SENT_BYTES,       tx_sz  );
+  FD_MCNT_SET( NET, XSK_SEND_ERRORS,  tx_flush_err_cnt );
 
   FD_MCNT_SET( NET, TX_DROPPED, ctx->metrics.tx_dropped_cnt );
 }

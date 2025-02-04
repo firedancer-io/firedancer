@@ -45,5 +45,11 @@
 #define FD_METRICS_COUNTER_NET_TX_DROPPED_DESC "Number of packets dropped because the TX submission queue was empty. This is reported for all net tiles."
 #define FD_METRICS_COUNTER_NET_TX_DROPPED_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_NET_TOTAL (7UL)
+#define FD_METRICS_COUNTER_NET_XSK_SEND_ERRORS_OFF  (23UL)
+#define FD_METRICS_COUNTER_NET_XSK_SEND_ERRORS_NAME "net_xsk_send_errors"
+#define FD_METRICS_COUNTER_NET_XSK_SEND_ERRORS_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_NET_XSK_SEND_ERRORS_DESC "Number of times calling send(2) on the XSK indicated an error other than EAGAIN."
+#define FD_METRICS_COUNTER_NET_XSK_SEND_ERRORS_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_NET_TOTAL (8UL)
 extern const fd_metrics_meta_t FD_METRICS_NET[FD_METRICS_NET_TOTAL];

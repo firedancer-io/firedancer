@@ -309,7 +309,8 @@ ulong
 fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
                    fd_xsk_frame_meta_t * meta,
                    ulong                 meta_cnt,
-                   int                   flush );
+                   int                   flush,
+                   int *                 opt_perr );
 
 
 /* fd_xsk_tx_complete: Check for TX completions and reclaim frames.

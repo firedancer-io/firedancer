@@ -272,14 +272,14 @@ test_xsk( void ) {
 
   /* Test fd_xsk_tx_enqueue */
 
-  FD_TEST( fd_xsk_tx_enqueue( xsk, NULL, 0UL, 1 )==0UL );
+  FD_TEST( fd_xsk_tx_enqueue( xsk, NULL, 0UL, 1, NULL )==0UL );
 
   {
     fd_xsk_frame_meta_t metas[ 3UL ] =
       { {.off=0UL, .sz=0U, .flags=0U},
         {.off=1UL, .sz=1U, .flags=1U},
         {.off=2UL, .sz=2U, .flags=2U} };
-    FD_TEST( fd_xsk_tx_enqueue( xsk, metas, 3UL, 1 )==3UL );
+    FD_TEST( fd_xsk_tx_enqueue( xsk, metas, 3UL, 1, NULL )==3UL );
     FD_TEST( test_xsk_ring_tx.prod==3UL );
   }
 
@@ -291,9 +291,9 @@ test_xsk( void ) {
         {.off=6UL, .sz=6U, .flags=6U},
         {.off=7UL, .sz=7U, .flags=7U},
         {.off=8UL, .sz=8U, .flags=8U} };
-    FD_TEST( fd_xsk_tx_enqueue( xsk, metas, 6UL, 1 )==5UL );
+    FD_TEST( fd_xsk_tx_enqueue( xsk, metas, 6UL, 1, NULL )==5UL );
     FD_TEST( test_xsk_ring_tx.prod==8UL );
-    FD_TEST( fd_xsk_tx_enqueue( xsk, metas, 6UL, 1 )==0UL );
+    FD_TEST( fd_xsk_tx_enqueue( xsk, metas, 6UL, 1, NULL )==0UL );
   }
 
   /* Test fd_xsk_rx_complete */

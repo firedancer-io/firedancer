@@ -59,6 +59,7 @@ metric introduced.
     <counter name="XdpRxDroppedRingFull" summary="Number of packets dropped because the RX completion queue was empty. This is only reported for net tile 0, since the measurement is across all RX queues." />
     <counter name="XdpRxDroppedOther" summary="Number of packets dropped for other reasons. This is only reported for net tile 0, since the measurement is across all RX queues." />
     <counter name="TxDropped" summary="Number of packets dropped because the TX submission queue was empty. This is reported for all net tiles." />
+    <counter name="XskSendErrors" summary="Number of times calling send(2) on the XSK indicated an error other than EAGAIN." />
 </tile>
 
 <enum name="TpuRecvType">
