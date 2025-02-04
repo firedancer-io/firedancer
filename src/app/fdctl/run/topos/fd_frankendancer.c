@@ -330,7 +330,7 @@ fd_topo_initialize( config_t * config ) {
       strncpy( tile->net.interface,    config->tiles.net.interface, sizeof(tile->net.interface) );
       memcpy(  tile->net.src_mac_addr, config->tiles.net.mac_addr,  6UL );
 
-      tile->net.xdp_aio_depth     = config->tiles.net.xdp_aio_depth;
+      tile->net.tx_flush_timeout_ns = (long)config->tiles.net.flush_timeout_micros * 1000L;
       tile->net.xdp_rx_queue_size = config->tiles.net.xdp_rx_queue_size;
       tile->net.xdp_tx_queue_size = config->tiles.net.xdp_tx_queue_size;
       tile->net.src_ip_addr       = config->tiles.net.ip_addr;

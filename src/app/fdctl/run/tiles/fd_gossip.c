@@ -85,7 +85,7 @@ struct fd_gossip_tile_metrics {
 
   ulong shred_version_zero;
 };
-typedef struct fd_gossip_tile_metrics fd_gossip_tile_metrics_t; 
+typedef struct fd_gossip_tile_metrics fd_gossip_tile_metrics_t;
 #define FD_GOSSIP_TILE_METRICS_FOOTPRINT ( sizeof( fd_gossip_tile_metrics_t ) )
 
 struct fd_gossip_tile_ctx {
@@ -276,7 +276,7 @@ send_packet( fd_gossip_tile_ctx_t * ctx,
                                       packet + sizeof(fd_net_hdrs_t) );
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  ulong sig   = fd_disco_netmux_sig( 0U, 0U, dst_ip_addr, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
+  ulong sig   = fd_disco_netmux_sig( dst_ip_addr, dst_port, dst_ip_addr, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
   fd_stem_publish( ctx->stem, 0UL, sig, ctx->net_out_chunk, packet_sz, 0UL, tsorig, tspub );
   ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, packet_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
 }

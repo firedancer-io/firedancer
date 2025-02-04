@@ -37,14 +37,25 @@
 ## Net Tile
 | Metric | Type | Description |
 |--------|------|-------------|
-| net_&#8203;received_&#8203;packets | `counter` | Number of IP packets received. |
-| net_&#8203;received_&#8203;bytes | `counter` | Total bytes received (including IP, UDP headers). |
-| net_&#8203;sent_&#8203;packets | `counter` | Number of IP packets sent. |
-| net_&#8203;sent_&#8203;bytes | `counter` | Total bytes sent (including IP, UDP headers). |
-| net_&#8203;xdp_&#8203;rx_&#8203;dropped_&#8203;ring_&#8203;full | `counter` | Number of packets dropped because the RX completion queue was empty. This is only reported for net tile 0, since the measurement is across all RX queues. |
-| net_&#8203;xdp_&#8203;rx_&#8203;dropped_&#8203;other | `counter` | Number of packets dropped for other reasons. This is only reported for net tile 0, since the measurement is across all RX queues. |
-| net_&#8203;tx_&#8203;dropped | `counter` | Number of packets dropped because the TX submission queue was empty. This is reported for all net tiles. |
-| net_&#8203;xsk_&#8203;send_&#8203;errors | `counter` | Number of times calling send(2) on the XSK indicated an error other than EAGAIN. |
+| net_&#8203;rx_&#8203;pkt_&#8203;cnt | `counter` | Packet receive count. |
+| net_&#8203;rx_&#8203;bytes_&#8203;total | `counter` | Total number of bytes received (including Ethernet header). |
+| net_&#8203;rx_&#8203;undersz_&#8203;cnt | `counter` | Number of incoming packets dropped due to being too small. |
+| net_&#8203;rx_&#8203;fill_&#8203;blocked_&#8203;cnt | `counter` | Number of incoming packets dropped due to fill ring being full. |
+| net_&#8203;tx_&#8203;submit_&#8203;cnt | `counter` | Number of packet transmit jobs submitted. |
+| net_&#8203;tx_&#8203;complete_&#8203;cnt | `counter` | Number of packet transmit jobs marked as completed by the kernel. |
+| net_&#8203;tx_&#8203;bytes_&#8203;total | `counter` | Total number of bytes transmitted (including Ethernet header). |
+| net_&#8203;tx_&#8203;overrun_&#8203;cnt | `counter` | Number of packet transmit jobs aborted due to overrun by upstream tile. |
+| net_&#8203;tx_&#8203;route_&#8203;fail_&#8203;cnt | `counter` | Number of packet transmit jobs dropped due to route failure. |
+| net_&#8203;xsk_&#8203;tx_&#8203;wakeup_&#8203;cnt | `counter` | Number of XSK sendto syscalls dispatched. |
+| net_&#8203;xsk_&#8203;rx_&#8203;wakeup_&#8203;cnt | `counter` | Number of XSK recvmsg syscalls dispatched. |
+| net_&#8203;arp_&#8203;request_&#8203;cnt | `counter` | Number of ARP requests submitted. |
+| net_&#8203;arp_&#8203;request_&#8203;fail_&#8203;cnt | `counter` | Number of ARP requests failed to submit. |
+| net_&#8203;xdp_&#8203;rx_&#8203;dropped_&#8203;other | `counter` | xdp_statistics_v0.rx_dropped: Dropped for other reasons |
+| net_&#8203;xdp_&#8203;rx_&#8203;invalid_&#8203;descs | `counter` | xdp_statistics_v0.rx_invalid_descs: Dropped due to invalid descriptor |
+| net_&#8203;xdp_&#8203;tx_&#8203;invalid_&#8203;descs | `counter` | xdp_statistics_v0.tx_invalid_descs: Dropped due to invalid descriptor |
+| net_&#8203;xdp_&#8203;rx_&#8203;ring_&#8203;full | `counter` | xdp_statistics_v1.rx_ring_full: Dropped due to rx ring being full |
+| net_&#8203;xdp_&#8203;rx_&#8203;fill_&#8203;ring_&#8203;empty_&#8203;descs | `counter` | xdp_statistics_v1.rx_fill_ring_empty_descs: Failed to retrieve item from fill ring |
+| net_&#8203;xdp_&#8203;tx_&#8203;ring_&#8203;empty_&#8203;descs | `counter` | xdp_statistics_v1.tx_ring_empty_descs: Failed to retrieve item from tx ring |
 
 ## Quic Tile
 | Metric | Type | Description |
