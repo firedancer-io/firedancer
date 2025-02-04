@@ -472,6 +472,16 @@ fd_quic_gen_stream_frames( fd_quic_conn_t *     conn,
                            ulong                pkt_number,
                            ulong                now );
 
+void
+fd_quic_process_ack_range( fd_quic_conn_t      *      conn,
+                           fd_quic_frame_ctx_t *      context,
+                           uint                       enc_level,
+                           ulong                      largest_ack,
+                           ulong                      ack_range,
+                           int                        is_largest,
+                           ulong                      now,
+                           ulong                      ack_delay );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_waltz_quic_fd_quic_private_h */

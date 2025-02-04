@@ -115,7 +115,7 @@ fd_quic_conn_new( void *                   mem,
   fd_memset( conn, 0, sizeof(fd_quic_conn_t) );
 
   conn->quic  = quic;
-  conn->state = FD_QUIC_CONN_STATE_INVALID;
+  fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_INVALID );
 
   /* Initialize streams */
 
@@ -131,13 +131,9 @@ fd_quic_conn_new( void *                   mem,
   }
 
   /* Initialize packet meta pool */
-
-  ulong                pkt_meta_cnt = limits->inflight_pkt_cnt;
-  fd_quic_pkt_meta_t * pkt_meta     = (fd_quic_pkt_meta_t *)( (ulong)mem + layout.pkt_meta_off );
-  fd_memset( pkt_meta, 0, pkt_meta_cnt*sizeof(fd_quic_pkt_meta_t) );
-
-  /* store pointer to storage and size */
-  conn->pkt_meta_mem = pkt_meta;
+  fd_quic_pkt_meta_tracker_init( &conn->pkt_meta_tracker,
+                                  (fd_quic_pkt_meta_t *)((ulong)mem + layout.pkt_meta_off),
+                                  limits->inflight_pkt_cnt );
 
   return conn;
 }

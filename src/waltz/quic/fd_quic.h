@@ -324,6 +324,7 @@ union fd_quic_metrics {
     ulong pkt_no_conn_cnt;         /* number of packets with unknown conn ID (excl. Initial) */
     ulong pkt_tx_alloc_fail_cnt;   /* number of pkt_meta alloc fails */
     ulong pkt_verneg_cnt;          /* number of QUIC version negotiation packets or packets with wrong version */
+    ulong pkt_retransmissions_cnt;  /* number of pkt_meta retries */
 
     /* Frame metrics */
     ulong frame_rx_cnt[ 22 ];      /* number of frames received (indexed by implementation-defined IDs) */
@@ -368,12 +369,6 @@ struct fd_quic {
 };
 
 FD_PROTOTYPES_BEGIN
-
-/* debugging */
-
-ulong
-fd_quic_conn_get_pkt_meta_free_count( fd_quic_conn_t * conn );
-
 
 /* Object lifecycle ***************************************************/
 
