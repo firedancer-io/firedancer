@@ -17,7 +17,7 @@
 #define PROGRAMDATA_METADATA_SIZE        (45UL  ) /* UpgradeableLoaderState::size_of_programdata_metadata() */
 #define SIZE_OF_UNINITIALIZED            (4UL   ) /* UpgradeableLoaderState::size_of_uninitialized() */
 
-/* InstructionError conversions 
+/* InstructionError conversions
    https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/sdk/program/src/program_error.rs#L127-L160 */
 #define BUILTIN_BIT_SHIFT                           (32UL)
 
@@ -51,7 +51,7 @@
 FD_PROTOTYPES_BEGIN
 
 int
-fd_bpf_loader_v3_program_get_state( fd_exec_instr_ctx_t const *         instr_ctx,
+fd_bpf_loader_v3_program_get_state( fd_exec_txn_ctx_t const *           txn_ctx,
                                     fd_borrowed_account_t const *       borrowed_acc,
                                     fd_bpf_upgradeable_loader_state_t * state );
 
@@ -78,8 +78,8 @@ read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t * txn_ctx,
 /* Public APIs */
 
 /* This function is called from `fd_runtime.c` and only performs the ELF and VM validation checks necessary
-   to deploy a program, specifically for the core native program BPF migration. Since this call is done at 
-   the epoch boundary every time a new BPF core migration feature is activated, we need to mock up a transaction 
+   to deploy a program, specifically for the core native program BPF migration. Since this call is done at
+   the epoch boundary every time a new BPF core migration feature is activated, we need to mock up a transaction
    and instruction context for execution. We do not do any funk operations here - instead, the BPF cache entry
    will be created at the end of the block. Because of this, our logic is slightly different than Agave's.
    See the documentation for our `fd_deploy_program` for more information.
