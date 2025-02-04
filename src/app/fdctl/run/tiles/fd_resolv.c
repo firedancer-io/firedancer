@@ -28,7 +28,7 @@ static const blockhash_t null_blockhash = { 0 };
    a transaction arrives, what slot it will expire (and can no longer be
    packed) in.  This is useful so we don't send transactions to pack
    that are no longer packable.
-   
+
    Unfortunately, poorly written transaction senders frequently send
    transactions from millions of slots ago, so we need a large ring to
    be able to determine and evict these.  The highest practically useful
@@ -287,11 +287,12 @@ fd_resolv_is_durable_nonce( fd_txn_t const * txn,
   fd_acct_addr_t const system_program[1] = { { { SYS_PROG_ID } } };
   if( FD_LIKELY( memcmp( prog0, system_program, sizeof(fd_acct_addr_t) ) ) )        return 0;
 
-  /* one byte instruction with the only byte being 4 */
-  if( FD_UNLIKELY( (ix0->data_sz!=1) | (ix0->acct_cnt!=3) ) ) return 0;
+  /* instruction with three accounts and a four byte instruction data, a
+     little-endian uint value 4 */
+  if( FD_UNLIKELY( (ix0->data_sz!=4) | (ix0->acct_cnt!=3) ) ) return 0;
 
-  return payload[ ix0->data_off ]==4;
-}  
+  return fd_uint_load_4( payload + ix0->data_off )==4U;
+}
 
 static inline void
 after_frag( fd_resolv_ctx_t *   ctx,
@@ -403,6 +404,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
     stash_txn->blockhash = fd_txn_m_payload( (fd_txn_m_t *)(stash_txn->_) ) + txnt->recent_blockhash_off;
     ctx->metrics.stash[ FD_METRICS_ENUM_RESOLVE_STASH_OPERATION_V_INSERTED_IDX ]++;
 
+    map_chain_ele_insert( ctx->map_chain, stash_txn, ctx->pool );
     lru_list_idx_push_head( ctx->lru_list, pool_idx, ctx->pool );
 
     return;
