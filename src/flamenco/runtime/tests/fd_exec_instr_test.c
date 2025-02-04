@@ -904,7 +904,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   if( !task_info->exec_res ) {
     task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-    task_info->exec_res    = fd_execute_txn( task_info->txn_ctx );
+    task_info->exec_res    = fd_execute_txn( task_info );
   }
 
   slot_ctx->slot_bank.collected_execution_fees += task_info->txn_ctx->execution_fee;

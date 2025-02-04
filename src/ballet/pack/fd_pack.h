@@ -53,6 +53,7 @@
 #define FD_TXN_P_FLAGS_IS_SIMPLE_VOTE   (1U)
 #define FD_TXN_P_FLAGS_SANITIZE_SUCCESS (2U)
 #define FD_TXN_P_FLAGS_EXECUTE_SUCCESS  (4U)
+#define FD_TXN_P_FLAGS_FEES_ONLY        (8U)
 
 
 /* The Solana network and Firedancer implementation details impose
