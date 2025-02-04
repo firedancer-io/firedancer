@@ -50,10 +50,12 @@
 FD_PROTOTYPES_BEGIN
 
  /* hdr_sz is the total size of network headers, including eth, ip, udp.
-    Ignored for outgoing packets. */
+    Ignored for outgoing packets.
+    For incoming packets, hash_{ip_addr,port} are the source IP and port,
+    for outgoing packets, they are the destination IP and port. */
 FD_FN_CONST static inline ulong
-fd_disco_netmux_sig( uint   src_ip_addr,
-                     ushort src_port,
+fd_disco_netmux_sig( uint   hash_ip_addr,
+                     ushort hash_port,
                      uint   dst_ip_addr,
                      ulong  proto,
                      ulong  hdr_sz ) {
@@ -64,21 +66,19 @@ fd_disco_netmux_sig( uint   src_ip_addr,
      0<=i<=13.  Since bits are at a premium here, we compress the header
      size by just storing i. */
   ulong hdr_sz_i = ((hdr_sz - 42UL)>>2)&0xFUL;
-  ulong hash = fd_uint_hash( src_ip_addr ) + src_port;
-
-  /* Currently only using 52 bits of the provided 64. */
-  return (hash<<56UL) | ((proto&0xFFUL)<<48UL) | ((hdr_sz_i&0xFUL)<<44UL) | (((ulong)dst_ip_addr)<<12UL);
+  ulong hash     = 0xfffffUL & fd_ulong_hash( (ulong)hash_ip_addr | ((ulong)hash_port<<32) );
+  return (hash<<44) | ((hdr_sz_i&0xFUL)<<40UL) | ((proto&0xFFUL)<<32UL) | ((ulong)dst_ip_addr);
 }
 
-FD_FN_CONST static inline ulong fd_disco_netmux_sig_hash  ( ulong sig ) { return (sig>>56UL) & 0xFFUL; }
-FD_FN_CONST static inline ulong fd_disco_netmux_sig_proto ( ulong sig ) { return (sig>>48UL) & 0xFFUL; }
-FD_FN_CONST static inline uint  fd_disco_netmux_sig_dst_ip( ulong sig ) { return (uint)((sig>>12UL) & 0xFFFFFFFFUL); }
+FD_FN_CONST static inline ulong fd_disco_netmux_sig_hash  ( ulong sig ) { return (sig>>44UL); }
+FD_FN_CONST static inline ulong fd_disco_netmux_sig_proto ( ulong sig ) { return (sig>>32UL) & 0xFFUL; }
+FD_FN_CONST static inline uint  fd_disco_netmux_sig_dst_ip( ulong sig ) { return (uint)(sig & 0xFFFFFFFFUL); }
 
 /* fd_disco_netmux_sig_hdr_sz extracts the total size of the Ethernet,
    IP, and UDP headers from the netmux signature field.  The UDP payload
    of the packet stored in the corresponding frag begins at the returned
    offset. */
-FD_FN_CONST static inline ulong  fd_disco_netmux_sig_hdr_sz( ulong sig ) { return 4UL*((sig>>44UL) & 0xFUL) + 42UL; }
+FD_FN_CONST static inline ulong  fd_disco_netmux_sig_hdr_sz( ulong sig ) { return 4UL*((sig>>40UL) & 0xFUL) + 42UL; }
 
 FD_FN_CONST static inline ulong
 fd_disco_poh_sig( ulong slot,

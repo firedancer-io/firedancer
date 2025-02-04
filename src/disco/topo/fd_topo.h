@@ -129,7 +129,7 @@ typedef struct {
       char   interface[ 16 ];
       ulong  xdp_rx_queue_size;
       ulong  xdp_tx_queue_size;
-      ulong  xdp_aio_depth;
+      long   tx_flush_timeout_ns;
       char   xdp_mode[8];
       int    zero_copy;
       uint   src_ip_addr;
