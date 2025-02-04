@@ -92,7 +92,7 @@ fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
 }
 
 void
-fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx, 
+fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx,
                            ulong                slot,
                            fd_spad_t *          runtime_spad ) {
 
@@ -455,7 +455,7 @@ fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
   fd_vote_accounts_pair_t_mapnode_t *vote_accounts_root = epoch_bank->stakes.vote_accounts.vote_accounts_root;
 
   ulong num_validator_stakes = fd_vote_accounts_pair_t_map_size( vote_accounts_pool, vote_accounts_root );
-  fd_validator_stake_pair_t * validator_stakes = fd_spad_alloc( runtime_spad, 
+  fd_validator_stake_pair_t * validator_stakes = fd_spad_alloc( runtime_spad,
                                                                 alignof(fd_validator_stake_pair_t),
                                                                 sizeof(fd_validator_stake_pair_t) * num_validator_stakes );
   ulong i = 0;
@@ -1118,7 +1118,7 @@ fd_runtime_microblock_verify_ticks( fd_exec_slot_ctx_t *        slot_ctx,
                                     ulong              hashes_per_tick ) {
   ulong invalid_tick_hash_count = 0UL;
   ulong has_trailing_entry      = 0UL;
-  
+
   /*
     In order to mimic the order of checks in Agave,
     we cache the results of some checks but do not immediately return
@@ -1209,11 +1209,11 @@ fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
   while ( batch_idx <= query->slot_complete_idx ) {
     batch_cnt++;
     ulong batch_sz = 0;
-    FD_TEST( fd_blockstore_batch_assemble( blockstore, 
-                                           slot, 
-                                           (uint) batch_idx, 
-                                           block_data_sz, 
-                                           block_data, 
+    FD_TEST( fd_blockstore_batch_assemble( blockstore,
+                                           slot,
+                                           (uint) batch_idx,
+                                           block_data_sz,
+                                           block_data,
                                            &batch_sz ) == FD_BLOCKSTORE_OK );
     ulong micro_cnt = FD_LOAD( ulong, block_data );
     ulong off       = sizeof(ulong);
@@ -1743,7 +1743,7 @@ fd_runtime_prepare_execute_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   } FD_SPAD_FRAME_END;
 }
 
-/* fd_runtime_process_txns is the entrypoint for processing a batch of txns. 
+/* fd_runtime_process_txns is the entrypoint for processing a batch of txns.
 
    TODO: This should ONLY be used in offline replay. */
 
@@ -1756,7 +1756,7 @@ fd_runtime_process_txns( fd_exec_slot_ctx_t * slot_ctx,
 
   /* TODO: This probably should not get allocated out of the exec_spad and should
      be allocated from the runtime_spad. */
-  fd_execute_txn_task_info_t * task_infos = fd_spad_alloc( exec_spad, 
+  fd_execute_txn_task_info_t * task_infos = fd_spad_alloc( exec_spad,
                                                            FD_SPAD_ALIGN,
                                                            txn_cnt * sizeof(fd_execute_txn_task_info_t));
 
@@ -1939,7 +1939,7 @@ fd_runtime_prep_and_exec_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
                                      fd_tpool_t *                 tpool ) {
   int res = 0;
 
-  fd_tpool_exec_all_rrobin( tpool, 0, fd_tpool_worker_cnt( tpool ), 
+  fd_tpool_exec_all_rrobin( tpool, 0, fd_tpool_worker_cnt( tpool ),
                             fd_txn_prep_and_exec_task, task_info, slot_ctx,
                             task_info->txn_ctx->capture_ctx, 1, 0, txn_cnt );
 
@@ -2097,7 +2097,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
                                                        acc_rec->pubkey,
                                                        ts->timestamp,
                                                        ts->slot,
-                                                       txn_ctx->spad );
+                                                       runtime_spad );
             } FD_SPAD_FRAME_END;
           }
 
@@ -2138,7 +2138,7 @@ fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
     }
 
   return 0;
-  
+
   } FD_SPAD_FRAME_END;
 }
 
@@ -2256,7 +2256,7 @@ fd_runtime_generate_wave( fd_execute_txn_task_info_t * task_infos,
    fd_exec_instr_test.c:_txn_context_create_and_exec.
 
    This function is the tpool version of fd_runtime_process_txn.
-   
+
    TODO: This should ONLY be used in offline replay. */
 int
 fd_runtime_process_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
@@ -2364,7 +2364,7 @@ fd_runtime_process_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
       /* We should ONLY be modifying the slot_ctx at this point. */
 
-      int finalize_res = fd_runtime_finalize_txns_tpool( slot_ctx, 
+      int finalize_res = fd_runtime_finalize_txns_tpool( slot_ctx,
                                                          capture_ctx,
                                                          wave_task_infos,
                                                          wave_task_infos_cnt,
@@ -2412,13 +2412,13 @@ the cache only at epoch boundaries.
 
 https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/stakes.rs#L65 */
 static void
-fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx, 
+fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
                              fd_epoch_info_t *    temp_info ) {
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_slot_bank_t *  slot_bank  = &slot_ctx->slot_bank;
   fd_stakes_t *     stakes     = &epoch_bank->stakes;
 
-  /* In one pass, iterate over all the new stake infos and insert the updated values into the epoch stakes cache 
+  /* In one pass, iterate over all the new stake infos and insert the updated values into the epoch stakes cache
       This assumes that there is enough memory pre-allocated for the stakes cache. */
   for( ulong idx=temp_info->stake_infos_new_keys_start_idx; idx<temp_info->stake_infos_len; idx++ ) {
     // Fetch and store the delegation associated with this stake account
@@ -2473,7 +2473,7 @@ fd_update_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
 }
 
 /* Copy epoch_bank->stakes.vote_accounts into epoch_bank->next_epoch_stakes. */
-static void 
+static void
 fd_update_next_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_epoch_bank_t * epoch_bank = &slot_ctx->epoch_ctx->epoch_bank;
 
@@ -2567,7 +2567,7 @@ fd_new_target_program_data_account( fd_exec_slot_ctx_t *    slot_ctx,
   fd_bincode_decode_ctx_t decode_ctx = {
     .data    = buffer_acc_rec->const_data,
     .dataend = buffer_acc_rec->const_data + buffer_acc_rec->const_meta->dlen,
-    .valloc  = fd_spad_virtual( runtime_spad ) 
+    .valloc  = fd_spad_virtual( runtime_spad )
   };
   int err = fd_bpf_upgradeable_loader_state_decode( &state, &decode_ctx );
   if( FD_UNLIKELY( err ) ) {
@@ -2964,7 +2964,7 @@ fd_runtime_is_epoch_boundary( fd_epoch_bank_t * epoch_bank, ulong curr_slot, ulo
   slot_ctx->slot_bank.epoch_stakes holds the stakes at T-2
  */
 /* process for the start of a new epoch */
-static void 
+static void
 fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                               ulong                parent_epoch,
                               fd_tpool_t *         tpool,
@@ -3045,7 +3045,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   /* In order to correctly handle the lifetimes of allocations for partitioned
      epoch rewards, we will push a spad frame when rewards partitioning starts.
      We will only pop this frame when all of the rewards for the epoch have
-     been distributed. As a note, this is technically not the most optimal use 
+     been distributed. As a note, this is technically not the most optimal use
      of memory as some data structures used can be freed when this function
      exits, but this is okay since the additional allocations are on the order
      of a few megabytes and are freed after a few thousand slots. */
@@ -3614,10 +3614,10 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
       FD_SPAD_FRAME_BEGIN( runtime_spad ) {
         /* Deserialize content */
         fd_vote_state_versioned_t vs[1];
-        fd_bincode_decode_ctx_t decode = { 
+        fd_bincode_decode_ctx_t decode = {
           .data    = acc->account.data,
           .dataend = acc->account.data + acc->account.data_len,
-          .valloc  = fd_spad_virtual( runtime_spad ) 
+          .valloc  = fd_spad_virtual( runtime_spad )
         };
         int decode_err = fd_vote_state_versioned_decode( vs, &decode );
         if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) {
@@ -3783,9 +3783,9 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
 }
 
 static int
-fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx, 
-                                  fd_capture_ctx_t *   capture_ctx, 
-                                  fd_tpool_t *         tpool, 
+fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
+                                  fd_capture_ctx_t *   capture_ctx,
+                                  fd_tpool_t *         tpool,
                                   fd_spad_t *          runtime_spad ) {
   ulong hashcnt_per_slot = slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick * slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot;
   while( hashcnt_per_slot-- ) {
@@ -3872,7 +3872,7 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
 
   if( !is_snapshot ) {
     fd_runtime_init_bank_from_genesis( slot_ctx,
-                                       &genesis_block, 
+                                       &genesis_block,
                                        &genesis_hash,
                                        runtime_spad );
 
@@ -4044,9 +4044,9 @@ fd_runtime_poh_verify_wide_task( void * tpool,
   }
 
   if( FD_UNLIKELY( memcmp(microblock_info->microblock.hdr->hash, out_poh_hash.hash, sizeof(fd_hash_t)) ) ) {
-    FD_LOG_WARNING(( "poh mismatch (bank: %s, entry: %s. INIT: %s)", 
-        FD_BASE58_ENC_32_ALLOCA( out_poh_hash.hash ), 
-        FD_BASE58_ENC_32_ALLOCA( microblock_info->microblock.hdr->hash ), 
+    FD_LOG_WARNING(( "poh mismatch (bank: %s, entry: %s. INIT: %s)",
+        FD_BASE58_ENC_32_ALLOCA( out_poh_hash.hash ),
+        FD_BASE58_ENC_32_ALLOCA( microblock_info->microblock.hdr->hash ),
         FD_BASE58_ENC_32_ALLOCA(&init_poh_hash_cpy) ));
     poh_info->success = -1;
   }
@@ -4086,7 +4086,7 @@ fd_runtime_batch_verify_tpool( fd_exec_slot_ctx_t *         slot_ctx,
                                fd_poh_verification_info_t * poh_verification_info,
                                ulong                        poh_verification_info_cnt,
                                fd_tpool_t *                 tpool ) {
-  
+
   /* fd_runtime_batch_verify_ticks */
 
   int res = fd_runtime_poh_verify_tpool( poh_verification_info, poh_verification_info_cnt, tpool );
@@ -4367,7 +4367,7 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
     }
     fd_blockstore_end_read( slot_ctx->blockstore );
 
-    if( FD_UNLIKELY( (ret = fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, 
+    if( FD_UNLIKELY( (ret = fd_runtime_block_pre_execute_process_new_epoch( slot_ctx,
                                                                             tpool,
                                                                             exec_spads,
                                                                             exec_spad_cnt,
