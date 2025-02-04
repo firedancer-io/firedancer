@@ -63,6 +63,7 @@ struct __attribute__((aligned(FD_XSK_ALIGN))) fd_xsk_private {
   /* Informational */
   uint if_idx;       /* index of net device */
   uint if_queue_id;  /* net device combined queue index */
+  long log_suppress_until_ns; /* suppress log messages until this time */
 
   fd_xsk_params_t params;
 

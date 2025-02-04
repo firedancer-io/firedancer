@@ -652,7 +652,11 @@ ulong
 fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
                    fd_xsk_frame_meta_t * meta,
                    ulong                 count,
-                   int                   flush ) {
+                   int                   flush,
+                   int *                 opt_perr ) {
+  int _dummy_err[1];
+  if( !opt_perr ) opt_perr = _dummy_err;
+
   /* to submit frames for tx, we enqueue onto the tx ring */
 
   /* tx ring */
@@ -726,12 +730,18 @@ fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
     if( fd_xsk_tx_need_wakeup( xsk ) ) {
       if( FD_UNLIKELY( -1==sendto( xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 ) ) ) {
         if( FD_UNLIKELY( errno!=EAGAIN ) ) {
-          FD_LOG_WARNING(( "xsk sendto failed xsk_fd=%d (%i-%s)", xsk->xsk_fd, errno, fd_io_strerror( errno ) ));
+          long ts = fd_log_wallclock();
+          if( ts > xsk->log_suppress_until_ns ) {
+            FD_LOG_WARNING(( "xsk sendto failed xsk_fd=%d (%i-%s)", xsk->xsk_fd, errno, fd_io_strerror( errno ) ));
+            xsk->log_suppress_until_ns = ts + (long)1e9;
+          }
+          *opt_perr = errno;
         }
       }
     }
   }
 
+  *opt_perr = 0;
   return sz;
 }
 

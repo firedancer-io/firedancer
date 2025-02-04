@@ -191,14 +191,14 @@ fd_xsk_join( void * shxsk );
 /* fd_xsk_init creates an XSK, registers UMEM, maps rings, and binds the
    socket to the given interface queue.  This is a potentially
    destructive operation.  As of 2024-Jun, AF_XDP zero copy support is
-   still buggy in some device drivers.  
-   
+   still buggy in some device drivers.
+
    Assume that all traffic sent to this interface is compromised.  On
    some devices, the NIC is instructed to DMA all incoming packets into
    UMEM, even ones not belonging to Firedancer.  Those are then later
    on software-copied out to skbs again.  This further implies that
    enabling AF_XDP can slow down the regular kernel receive path.
-   
+
    Requires CAP_SYS_ADMIN. May issue the following syscalls:
 
    - socket( AF_XDP, SOCK_RAW, 0 ) = fd
@@ -220,8 +220,8 @@ fd_xsk_init( fd_xsk_t * xsk,
    fd_xsk_init.
 
    May issue the following syscalls:
-   
-   - munmap 
+
+   - munmap
    - close */
 
 fd_xsk_t *
@@ -309,7 +309,8 @@ ulong
 fd_xsk_tx_enqueue( fd_xsk_t *            xsk,
                    fd_xsk_frame_meta_t * meta,
                    ulong                 meta_cnt,
-                   int                   flush );
+                   int                   flush,
+                   int *                 opt_perr );
 
 
 /* fd_xsk_tx_complete: Check for TX completions and reclaim frames.
