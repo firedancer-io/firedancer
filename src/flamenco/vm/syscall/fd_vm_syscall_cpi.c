@@ -164,11 +164,15 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
 
     /* Check that the account is not read-only in the caller but writable in the callee */
     if( FD_UNLIKELY( instruction_account->is_writable && !fd_instr_acc_is_writable( instr_ctx->instr, pubkey ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( pubkey->uc, id_b58 );
+      fd_log_collector_msg_many( instr_ctx, 2, id_b58, id_b58_len, "'s writable privilege escalated", 31UL );
       return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
     }
 
     /* If the account is signed in the callee, it must be signed by the caller or the program */
     if ( FD_UNLIKELY( instruction_account->is_signer && !( fd_instr_acc_is_signer( instr_ctx->instr, pubkey ) || fd_vm_syscall_cpi_is_signer( pubkey, signers, signers_cnt) ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( pubkey->uc, id_b58 );
+      fd_log_collector_msg_many( instr_ctx, 2, id_b58, id_b58_len, "'s signer privilege escalated", 29UL );
       return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
     }
   }
@@ -416,6 +420,13 @@ ulong vm_syscall_cpi_acc_info_rc_refcell_as_ptr( ulong rc_refcell_vaddr ) {
   return (ulong) &(((fd_vm_rc_refcell_t *)rc_refcell_vaddr)->payload);
 }
 
+/* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L327
+ */
+FD_FN_CONST static inline
+ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_haddr, ulong acct_info_haddr ) {
+  return fd_ulong_sat_sub( fd_ulong_sat_add( acct_info_vaddr, data_len_haddr ), acct_info_haddr );
+}
+
 /**********************************************************************
   CROSS PROGRAM INVOCATION (C ABI)
  **********************************************************************/
@@ -548,6 +559,12 @@ ulong vm_syscall_cpi_acc_info_rc_refcell_as_ptr( ulong rc_refcell_vaddr ) {
     /* Extract the vaddr embedded in the slice */                                                                                                  \
     ulong decl = FD_EXPAND_THEN_CONCAT2(decl, _hptr_)->addr;
 
+#define VM_SYSCALL_CPI_ACC_INFO_DATA_LEN_VADDR( vm, acc_info, decl ) \
+    ulong decl = fd_ulong_sat_add( vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->data_box_addr ), sizeof(ulong) );
+
+#define VM_SYSCALL_CPI_ACC_INFO_DATA_LEN( vm, acc_info, decl ) \
+    ulong * decl = FD_VM_MEM_HADDR_ST( vm, fd_ulong_sat_add( vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->data_box_addr ), sizeof(ulong) ), 1UL, sizeof(ulong) );
+
 #define VM_SYSCALL_CPI_ACC_INFO_DATA( vm, acc_info, decl )                                                                                         \
     /* Translate the vaddr to the slice */                                                                                                         \
     fd_vm_vec_t const * FD_EXPAND_THEN_CONCAT2(decl, _hptr_) =                                                                                     \
@@ -557,7 +574,7 @@ ulong vm_syscall_cpi_acc_info_rc_refcell_as_ptr( ulong rc_refcell_vaddr ) {
     /* Declare the size of the slice's underlying byte array */                                                                                    \
     ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = FD_EXPAND_THEN_CONCAT2(decl, _hptr_)->len;                                                          \
     /* Translate the vaddr to the underlying byte array */                                                                                         \
-    uchar * decl = FD_VM_MEM_HADDR_ST(                                                                                                             \
+    uchar * decl = FD_VM_MEM_SLICE_HADDR_ST(                                                                                                       \
       vm, FD_EXPAND_THEN_CONCAT2(decl, _hptr_)->addr, alignof(uchar), FD_EXPAND_THEN_CONCAT2(decl, _hptr_)->len );
 
 #define VM_SYSCALL_CPI_ACC_INFO_METADATA( vm, acc_info, decl )                                                                                     \
@@ -614,6 +631,8 @@ ulong vm_syscall_cpi_acc_info_rc_refcell_as_ptr( ulong rc_refcell_vaddr ) {
 #undef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS
 #undef VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR
 #undef VM_SYSCALL_CPI_ACC_INFO_DATA
+#undef VM_SYSCALL_CPI_ACC_INFO_DATA_LEN_VADDR
+#undef VM_SYSCALL_CPI_ACC_INFO_DATA_LEN
 #undef VM_SYSCALL_CPI_ACC_INFO_METADATA
 #undef VM_SYSCALL_CPI_ACC_INFO_METADATA_MUT
 #undef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_RC_REFCELL_VADDR

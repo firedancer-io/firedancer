@@ -193,7 +193,7 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
     /* FIXME: double-check these permissions, especially the callee_acc_idx */
 
     /* Translate and get the account data */
-    uchar const * caller_acc_data = FD_VM_MEM_HADDR_LD( vm, caller_acc_data_vm_addr, sizeof(uchar), caller_acc_data_len );
+    uchar const * caller_acc_data = FD_VM_MEM_SLICE_HADDR_LD( vm, caller_acc_data_vm_addr, sizeof(uchar), caller_acc_data_len );
 
     if( fd_account_can_data_be_resized( vm->instr_ctx, callee_acc->meta, caller_acc_data_len, &err ) &&
         fd_account_can_data_be_changed( vm->instr_ctx, instr_acc_idx, &err ) ) {
@@ -245,7 +245,7 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
            smartly look up the right region and don't need to worry about
            multiple region access.We just need to load in the bytes from
            (original len, post_len]. */
-        uchar const * realloc_data = FD_VM_MEM_HADDR_LD( vm, caller_acc_data_vm_addr+original_len, alignof(uchar), realloc_bytes_used );
+        uchar const * realloc_data = FD_VM_MEM_SLICE_HADDR_LD( vm, caller_acc_data_vm_addr+original_len, alignof(uchar), realloc_bytes_used );
 
         uchar * data = NULL;
         ulong   dlen = 0UL;
@@ -306,6 +306,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
                               fd_vm_t *                         vm,
                               fd_instruction_account_t const *  instruction_accounts,
                               ulong const                       instruction_accounts_cnt,
+                              ulong                             acct_infos_va,
                               fd_pubkey_t const * *             account_info_keys, /* same length as account_infos_length */
                               VM_SYSCALL_CPI_ACC_INFO_T const * account_infos,
                               ulong const                       account_infos_length,
@@ -458,14 +459,38 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
       VM_SYSCALL_CPI_SET_ACC_INFO_DATA_GET_LEN( vm, (account_infos + j), data_vaddr );
       FD_VM_CU_UPDATE( vm, data_vaddr_len / FD_VM_CPI_BYTES_PER_UNIT );
 
+      /* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L187
+         https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L331
+       */
+      if( FD_UNLIKELY( !vm->direct_mapping ) ) {
+        #ifdef VM_SYSCALL_CPI_ACC_INFO_DATA_LEN
+        /* Rust ABI */
+        VM_SYSCALL_CPI_ACC_INFO_DATA_LEN( vm, (account_infos + j), data_len );
+        (void)acct_infos_va;
+        (void)data_len;
+        #else
+        /* C ABI */
+        FD_VM_MEM_HADDR_ST(
+          vm,
+          vm_syscall_cpi_data_len_vaddr_c(
+            fd_ulong_sat_add( acct_infos_va, fd_ulong_sat_mul( j, VM_SYSCALL_CPI_ACC_INFO_SIZE ) ),
+            (ulong)&((account_infos + j)->data_sz),
+            (ulong)(account_infos + j)
+          ),
+          1UL,
+          sizeof(ulong)
+        );
+        #endif
+      }
+
       /* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L228
        */
       if( FD_UNLIKELY( !vm->direct_mapping ) ) {
         // FIXME Ideally we'd have a version of the macro that only does the nested translation.
-        VM_SYSCALL_CPI_ACC_INFO_DATA( vm, (account_infos + j), data_vaddr );
-        (void)data_vaddr;
-        (void)data_vaddr_len;
-        (void)data_vaddr_vm_addr;
+        VM_SYSCALL_CPI_ACC_INFO_DATA( vm, (account_infos + j), data_haddr );
+        (void)data_haddr;
+        (void)data_haddr_len;
+        (void)data_haddr_vm_addr;
       }
 
       ////// END from_account_info
@@ -550,6 +575,10 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                   vm,
       https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1361
         I don't think we do but need to double-check. */
 
+      /* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L1453
+       */
+      caller_acc_data = FD_VM_MEM_SLICE_HADDR_ST( vm, caller_acc_data_vm_addr, alignof(uchar), updated_data_len );
+
       VM_SYSCALL_CPI_ACC_INFO_METADATA_MUT( vm, caller_acc_info, caller_acc_data_mut );
       (void)caller_acc_data_mut_vm_addr;
       (void)caller_acc_data_mut_len;
@@ -564,7 +593,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                   vm,
         https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1534 */
     }
 
-    fd_memcpy( (void*)caller_acc_data, callee_acc_rec->const_data, updated_data_len );
+    fd_memcpy( caller_acc_data, callee_acc_rec->const_data, updated_data_len );
   } else { /* Direct mapping enabled */
 
     /* Look up the borrowed account from the instruction context, which will
@@ -655,7 +684,6 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                   vm,
       VM_SYSCALL_CPI_ACC_INFO_METADATA_MUT( vm, caller_acc_info, caller_acc_data_mut );
       (void)caller_acc_data_mut_vm_addr;
       (void)caller_acc_data_mut_len;
-      // caller_acc_data_mut_box->len = post_len;
       VM_SYSCALL_CPI_SET_ACC_INFO_DATA_SET_LEN( vm, caller_acc_info, caller_acc_data_mut, post_len );
       ulong * caller_len = FD_VM_MEM_HADDR_ST( vm, fd_ulong_sat_sub( caller_acc_data_vm_addr, sizeof(ulong) ), alignof(ulong), sizeof(ulong) );
       *caller_len = post_len;
@@ -889,6 +917,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
     vm,
     instruction_accounts,
     instruction_accounts_cnt,
+    acct_infos_va,
     acct_info_keys,
     acc_infos,
     acct_info_cnt,
