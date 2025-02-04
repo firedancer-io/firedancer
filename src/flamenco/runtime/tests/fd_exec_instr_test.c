@@ -1007,7 +1007,7 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
   effects->cu_avail = ctx->txn_ctx->compute_meter;
 
   if( exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
-    effects->custom_err     = ctx->txn_ctx->custom_err;
+    effects->custom_err = ctx->txn_ctx->custom_err;
   }
 
   /* Allocate space for captured accounts */
@@ -1070,6 +1070,20 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
     }
     effects->return_data->size = (pb_size_t)return_data->len;
     fd_memcpy( effects->return_data->bytes, return_data->data, return_data->len );
+  }
+
+  /* Capture logs */
+  fd_log_collector_t * log_collector = &ctx->txn_ctx->log_collector;
+  if( log_collector->buf_sz ) {
+    effects->log = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
+                              PB_BYTES_ARRAY_T_ALLOCSIZE( log_collector->buf_sz ) );
+    if( FD_UNLIKELY( _l > output_end ) ) {
+      fd_exec_test_instr_context_destroy( runner, ctx, wksp, alloc );
+      return 0UL;
+    }
+    effects->log->size = (uint)fd_log_collector_debug_sprintf( log_collector, (char *)effects->log->bytes, 0 );
+  } else {
+    effects->log = NULL;
   }
 
   ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
