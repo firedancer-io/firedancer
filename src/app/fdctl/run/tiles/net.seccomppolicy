@@ -75,13 +75,14 @@ sendto: (or (and (or (eq (arg 0) xsk_fd)
 # arg 0 is the file descriptor of the XSK that the kernel should poll
 # for entries.  There are two possible XSKs, since we can receive
 # packets on a network device or the loopback device.
-recvmsg: (and (or (eq (arg 0) xsk_fd) 
+recvmsg: (and (or (eq (arg 0) xsk_fd)
                   (eq (arg 0) lo_xsk_fd))
               (eq (arg 2) MSG_DONTWAIT))
 
 # XDP: We use getsockopt( SOL_XDP, XDP_STATISTICS ) to periodically
 #      retrieve packet drop counters for the XDP socket.
-getsockopt: (and (eq (arg 0) xsk_fd)
+getsockopt: (and (or (eq (arg 0) xsk_fd)
+                     (eq (arg 0) lo_xsk_fd))
                  (eq (arg 1) SOL_XDP)
                  (eq (arg 2) XDP_STATISTICS))
 

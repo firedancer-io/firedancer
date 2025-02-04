@@ -868,19 +868,14 @@ dynamic_port_range = "8900-9000"
         # larger value is probably better if supported by the hardware,
         # as we will drop less packets when bursting in high bandwidth
         # scenarios.
-        #
-        # TODO: This probably shouldn't be configurable, we should just
-        # use the maximum available to the hardware?
-        xdp_rx_queue_size = 4096
-        xdp_tx_queue_size = 4096
+        xdp_rx_queue_size = 32768
+        xdp_tx_queue_size = 32768
 
-        # When writing multiple queue entries to XDP, we may wish to
-        # batch them together if it's expensive to do them one at a
-        # time.  This might be the case for example if the writes go
-        # directly to the network device.  A large batch size may not be
-        # ideal either, as it adds latency and jitter to packet
-        # handling.
-        xdp_aio_depth = 256
+        # When the oldest packet in a batch has been queued for more than
+        # the specified duration, flushes the batch out to to the network
+        # device.  Smaller values improve latency, larger values may
+        # improve throughput.
+        flush_timeout_micros = 20
 
         # The maximum number of packets in-flight between a net tile and
         # downstream consumers, after which additional packets begin to
