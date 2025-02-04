@@ -313,12 +313,14 @@ fd_xsk_aio_send( void *                    ctx,
                  ulong *                   opt_batch_idx,
                  int                       flush ) {
 
-  fd_xsk_aio_t * xsk_aio = (fd_xsk_aio_t*)ctx;
+  fd_xsk_aio_t * xsk_aio = ctx;
   fd_xsk_t *     xsk     = xsk_aio->xsk;
 
   if( FD_UNLIKELY( pkt_cnt==0UL ) ) {
     if( flush ) {
-      fd_xsk_tx_enqueue( xsk, NULL, 0, 1 );
+      int err = 0;
+      fd_xsk_tx_enqueue( xsk, NULL, 0, 1, &err );
+      xsk_aio->metrics.tx_flush_err_cnt += !!err;
     }
     return FD_AIO_SUCCESS;
   }
@@ -377,8 +379,11 @@ fd_xsk_aio_send( void *                    ctx,
 
   /* Enqueue send */
   ulong sent_cnt=0UL;
-  if( FD_LIKELY( pending_cnt>0UL || flush ) )
-    sent_cnt = fd_xsk_tx_enqueue( xsk, meta, pending_cnt, flush );
+  if( FD_LIKELY( pending_cnt>0UL || flush ) ) {
+    int err = 0;
+    sent_cnt = fd_xsk_tx_enqueue( xsk, meta, pending_cnt, flush, &err );
+    xsk_aio->metrics.tx_flush_err_cnt += !!err;
+  }
 
   xsk_aio->metrics.tx_cnt += sent_cnt;
   for( ulong j=0; j<sent_cnt; j++ ) xsk_aio->metrics.tx_sz += meta[j].sz;

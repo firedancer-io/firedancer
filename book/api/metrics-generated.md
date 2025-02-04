@@ -44,6 +44,7 @@
 | net_&#8203;xdp_&#8203;rx_&#8203;dropped_&#8203;ring_&#8203;full | `counter` | Number of packets dropped because the RX completion queue was empty. This is only reported for net tile 0, since the measurement is across all RX queues. |
 | net_&#8203;xdp_&#8203;rx_&#8203;dropped_&#8203;other | `counter` | Number of packets dropped for other reasons. This is only reported for net tile 0, since the measurement is across all RX queues. |
 | net_&#8203;tx_&#8203;dropped | `counter` | Number of packets dropped because the TX submission queue was empty. This is reported for all net tiles. |
+| net_&#8203;xsk_&#8203;send_&#8203;errors | `counter` | Number of times calling send(2) on the XSK indicated an error other than EAGAIN. |
 
 ## Quic Tile
 | Metric | Type | Description |
