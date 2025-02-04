@@ -84,3 +84,4 @@ src/flamenco/runtime/tests/run_ledger_test.sh -l testnet-307395181 -s snapshot-3
 src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-308392063 -s snapshot-308392062-FDuB6CFKod14xGRGmdiRpQx2uaKyp3GDkyai2Ba7eH8d.tar.zst -p 60 -y 16 -m 5000000 -e 308392090 -c 2.0.18
 src/flamenco/runtime/tests/run_ledger_test.sh -l devnet-350814254 -s snapshot-350814253-G5P3eNtkWUGkZ8b871wvf6d78wYxBJp637PCWJuQByZa.tar.zst -p 60 -y 16 -m 5000000 -e 350814284 -c 2.0.15
 src/flamenco/runtime/tests/run_ledger_test.sh -l testnet-311586340 -s snapshot-311586340-13GSzvNzfBcz1KX6xBs55A8EKNWnCCRZ5Z84T1MSnuUm.tar.zst -p 60 -y 16 -m 5000000 -e 311586380 -c 2.1.1
+src/flamenco/runtime/tests/run_ledger_test.sh -l v213-transaction-loading-failure-fees -s snapshot-840-FJJdBrTQDbqE6uCAd8TBAxN4Gx3BQEPjbd8owb4vEn8W.tar.zst -p 60 -y 16 -m 5000000 -e 850 -c 2.1.13 -o PaymEPK2oqwT9TXAVfadjztH2H6KfLEB9Hhd5Q5frvP

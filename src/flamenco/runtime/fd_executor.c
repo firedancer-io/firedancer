@@ -345,7 +345,6 @@ fd_executor_verify_precompiles( fd_exec_txn_ctx_t * txn_ctx ) {
    iff the owners match one of the four loaders since `filter_executable_program_accounts()`
    filters out all other accounts here:
    https://github.com/anza-xyz/agave/blob/v2.1/svm/src/transaction_processor.rs#L530-L560
-
    If this check holds true, the account is promoted to an executable account within
    `fd_execute_load_transaction_accounts()`, which sadly involves modifying its read-only metadata
    to set the `executable` flag to true.
@@ -383,7 +382,6 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
   ushort                instr_cnt                           = txn_ctx->txn_descriptor->instr_cnt;
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/svm/src/account_loader.rs#L323-L337
-
      In the agave client, this big chunk of code is responsible for loading in all of the
      accounts in the transaction, mimicking each call to `load_transaction_account()`
      (https://github.com/anza-xyz/agave/blob/v2.1.0/svm/src/account_loader.rs#L406-L497)
@@ -1375,7 +1373,15 @@ fd_executor_txn_verify( fd_exec_txn_ctx_t * txn_ctx ) {
 }
 
 int
-fd_execute_txn( fd_exec_txn_ctx_t * txn_ctx ) {
+fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
+  /* Don't execute transactions that are fee only.
+     https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/transaction_processor.rs#L341-L357 */
+  if( FD_UNLIKELY( task_info->txn->flags & FD_TXN_P_FLAGS_FEES_ONLY ) ) {
+    /* return the existing error */
+    return task_info->exec_res;
+  }
+
+  fd_exec_txn_ctx_t * txn_ctx  = task_info->txn_ctx;
   uint use_sysvar_instructions = fd_executor_txn_uses_sysvar_instructions( txn_ctx );
   int  ret                     = 0;
 

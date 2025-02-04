@@ -1559,9 +1559,16 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
   /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
   err = fd_executor_load_transaction_accounts( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    task_info->txn->flags = 0U;
-    task_info->exec_res   = err;
-    return;
+    if( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, enable_transaction_loading_failure_fees ) ) {
+      /* Regardless of whether transaction accounts were loaded successfully, the transaction is
+         included in the block and transaction fees are collected.
+         https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/transaction_processor.rs#L341-L357 */
+      task_info->txn->flags |= FD_TXN_P_FLAGS_FEES_ONLY;
+      task_info->exec_res    = err;
+    } else {
+      task_info->txn->flags = 0U;
+      task_info->exec_res   = err;
+    }
   }
 
   /*
@@ -1587,21 +1594,21 @@ static int
 fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
                          fd_capture_ctx_t *           capture_ctx,
                          fd_execute_txn_task_info_t * task_info ) {
-
   /* TODO: Allocations should probably not be made out of the exec_spad in this
      function. If they are, the size of the data needs to be accounted for in
      the calculation of the bound of the spad as defined in fd_runtime.h. */
 
-  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_execution_fees, task_info->txn_ctx->execution_fee  );
-  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_priority_fees,  task_info->txn_ctx->priority_fee   );
-  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_rent,           task_info->txn_ctx->collected_rent );
-  /* Store transaction info including logs */
-
-  fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, 1UL );
-
   if( FD_UNLIKELY( !( task_info->txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) ) {
     return -1;
   }
+
+  /* Store transaction info including logs */
+  fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, 1UL );
+
+  /* Collect fees */
+  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_execution_fees, task_info->txn_ctx->execution_fee  );
+  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_priority_fees,  task_info->txn_ctx->priority_fee   );
+  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_rent,           task_info->txn_ctx->collected_rent );
 
   fd_exec_txn_ctx_t * txn_ctx      = task_info->txn_ctx;
   int                 exec_txn_err = task_info->exec_res;
@@ -1777,7 +1784,7 @@ fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
 
   /* Execute */
   task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-  task_info->exec_res    = fd_execute_txn( task_info->txn_ctx );
+  task_info->exec_res    = fd_execute_txn( task_info );
 
   if( task_info->exec_res==0 ) {
     fd_txn_reclaim_accounts( task_info->txn_ctx );
