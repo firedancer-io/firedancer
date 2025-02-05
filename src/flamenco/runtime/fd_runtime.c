@@ -2295,7 +2295,6 @@ fd_runtime_generate_wave( fd_execute_txn_task_info_t * task_infos,
     }
 
     if( !is_executable_now ) {
-      FD_LOG_WARNING(("HAS A DELAY"));
       incomplete_txn_idxs[incomplete_txn_idxs_cnt++] = txn_idx;
     } else {
       wave_task_infos[wave_task_infos_cnt++] = *task_info;
@@ -2466,6 +2465,112 @@ fd_runtime_process_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
   slot_ctx->slot_bank.transaction_count += total_txn_cnt;
 
   #undef BATCH_SIZE
+
+  return res;
+}
+
+int
+fd_runtime_process_txns_in_microblock( fd_exec_slot_ctx_t * slot_ctx,
+                                        fd_capture_ctx_t *   capture_ctx,
+                                        fd_txn_p_t *         all_txns,
+                                        ulong                total_txn_cnt,
+                                        fd_tpool_t *         tpool,
+                                        fd_spad_t * *        exec_spads,
+                                        ulong                exec_spad_cnt,
+                                        fd_spad_t *          runtime_spad ) {
+  int dump_txn = capture_ctx && slot_ctx->slot_bank.slot >= capture_ctx->dump_proto_start_slot && capture_ctx->dump_txn_to_pb;
+
+  /* As a note, the batch size of 128 is a relatively arbitrary number. The
+      notion of batching here will change as the transaction execution model
+      changes with respect to transaction execution. */
+
+  for( ulong i=0UL; i<total_txn_cnt; i++ ) {
+    all_txns[i].flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
+  }
+
+  ulong num_batches = total_txn_cnt/exec_spad_cnt;
+  ulong rem         = total_txn_cnt%exec_spad_cnt;
+  num_batches      += rem ? 1UL : 0UL;
+
+  int res = 0;
+  for( ulong i=0UL; i<num_batches; i++ ) {
+
+    fd_txn_p_t * txns    = all_txns + (exec_spad_cnt * i);
+    ulong        txn_cnt = ((i+1UL==num_batches) && rem) ? rem : exec_spad_cnt;
+
+    fd_execute_txn_task_info_t * task_infos = fd_spad_alloc( runtime_spad, alignof(fd_execute_txn_task_info_t), txn_cnt * sizeof(fd_execute_txn_task_info_t) );
+
+    res = fd_runtime_prepare_txns_start( slot_ctx, task_infos, txns, txn_cnt, runtime_spad );
+    if( res != 0 ) {
+      FD_LOG_DEBUG(("Fail prep 1"));
+    }
+
+    /* Setup sanitized txns as incomplete and set the capture context */
+    for( ulong i=0UL; i<txn_cnt; i++ ) {
+      if( FD_UNLIKELY( !( task_infos[i].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
+        continue;
+      }
+      task_infos[i].txn_ctx->capture_ctx = capture_ctx;
+    }
+
+    for( ulong i=0UL; i<exec_spad_cnt; i++ ) {
+      /* Borrowed accounts are allocated during prep and need to
+          persist till the end of finalize. This initial frame will
+          be holding that. */
+      fd_spad_push( exec_spads[ i ] );
+    }
+
+    /* Assign out spads to the transaction contexts. */
+    for( ulong i=0UL; i<txn_cnt; i++ ) {
+      task_infos[i].spads = exec_spads;
+    }
+
+    // Dump txns in waves
+    if( dump_txn ) {
+      for( ulong i = 0; i < txn_cnt; ++i ) {
+        /* Manual push/pop on the spad within the callee. */
+        fd_dump_txn_to_protobuf( task_infos[i].txn_ctx, exec_spads[0] );
+      }
+    }
+
+    res |= fd_runtime_verify_txn_signatures_tpool( task_infos, txn_cnt, tpool );
+    if( FD_UNLIKELY( res ) ) {
+      FD_LOG_WARNING(( "Fail signature verification" ));
+    }
+
+    res |= fd_runtime_prep_and_exec_txns_tpool( slot_ctx, task_infos, txn_cnt, tpool );
+    if( res != 0 ) {
+      FD_LOG_DEBUG(( "Fail prep and exec" ));
+    }
+
+    /* We should ONLY be modifying the slot_ctx at this point. */
+
+    int finalize_res = fd_runtime_finalize_txns_tpool( slot_ctx,
+                                                        capture_ctx,
+                                                        task_infos,
+                                                        txn_cnt,
+                                                        tpool,
+                                                        runtime_spad );
+    if( finalize_res != 0 ) {
+      FD_LOG_ERR(( "Fail finalize" ));
+    }
+
+    for( ulong i=0UL; i<exec_spad_cnt; i++ ) {
+      /* The first frame, which holds borrowed accounts, can be
+          pretty big, and there are additional dynamic allocations
+          during finalize. */
+      if( FD_UNLIKELY( fd_spad_verify( exec_spads[ i ] ) ) ) {
+        FD_LOG_ERR(( "spad corrupted or overflown" ));
+      }
+      /* We indiscriminately pushed a frame to every spad.
+          So it should be safe to indiscriminately pop here. */
+      fd_spad_pop( exec_spads[ i ] );
+      if( FD_UNLIKELY( fd_spad_frame_used( exec_spads[ i ] )!=0 ) ) {
+        FD_LOG_ERR(( "stray spad frame frame_used=%lu", fd_spad_frame_used( exec_spads[ i ] ) ));
+      }
+    }
+  }
+  slot_ctx->slot_bank.transaction_count += total_txn_cnt;
 
   return res;
 }
@@ -4315,20 +4420,26 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
   fd_runtime_block_collect_txns( block_info, txn_ptrs );
 
   /* We want to emulate microblock-by-microblock execution */
-  ulong executed_txns = 0UL;
+  ulong to_exec_idx = 0UL;
   for( ulong i=0UL; i<block_info->microblock_batch_cnt; i++ ) {
-    ulong        mblock_txn_cnt  = block_info->microblock_batch_infos[i].txn_cnt;
-    fd_txn_p_t * mblock_txn_ptrs = txn_ptrs + executed_txns;
+    for( ulong j=0UL; j<block_info->microblock_batch_infos[i].microblock_cnt; j++ ) {
+      ulong txn_cnt = block_info->microblock_batch_infos[i].microblock_infos[j].microblock.hdr->txn_cnt;
+      fd_txn_p_t * mblock_txn_ptrs = &txn_ptrs[ to_exec_idx ];
+      ulong        mblock_txn_cnt  = txn_cnt;
+      to_exec_idx += txn_cnt;
 
-    res = fd_runtime_process_txns_in_waves_tpool( slot_ctx,
-                                                  capture_ctx,
-                                                  mblock_txn_ptrs,
-                                                  mblock_txn_cnt,
-                                                  tpool,
-                                                  exec_spads,
-                                                  exec_spad_cnt,
-                                                  runtime_spad );
-    executed_txns += mblock_txn_cnt;
+      if( !mblock_txn_cnt ) continue;
+
+
+      res = fd_runtime_process_txns_in_microblock( slot_ctx,
+                                                    capture_ctx,
+                                                    mblock_txn_ptrs,
+                                                    mblock_txn_cnt,
+                                                    tpool,
+                                                    exec_spads,
+                                                    exec_spad_cnt,
+                                                    runtime_spad );
+    }
   }
 
   if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
