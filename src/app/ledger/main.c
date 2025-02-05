@@ -389,7 +389,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       /* Remove the previous block from the blockstore */
       if ( FD_LIKELY( block_slot < slot ) ) {
         /* Mark the block as successfully processed */
-        fd_block_map_t * block_map_entry = fd_block_map_query( fd_blockstore_block_map( blockstore ), &block_slot, NULL );
+        fd_block_meta_t * block_map_entry = fd_blockstore_block_map_query( blockstore, block_slot );
         block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
         block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED );
 
@@ -398,7 +398,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       }
 
       /* Mark the new block as replaying */
-      fd_block_map_t * block_map_entry = fd_block_map_query( fd_blockstore_block_map( blockstore ), &slot, NULL );
+      fd_block_meta_t * block_map_entry = fd_blockstore_block_map_query( blockstore, slot );
       block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
 
       fd_blockstore_end_write( blockstore );
@@ -475,11 +475,12 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     slot_cnt++;
 
     fd_blockstore_start_read( blockstore );
-    fd_hash_t const * expected = fd_blockstore_block_hash_query( blockstore, slot );
-    if( FD_UNLIKELY( !expected ) ) FD_LOG_ERR( ( "slot %lu is missing its hash", slot ) );
-    else if( FD_UNLIKELY( 0 != memcmp( ledger_args->slot_ctx->slot_bank.poh.hash, expected->hash, 32UL ) ) ) {
+    fd_hash_t expected;
+    int err = fd_blockstore_block_hash_query( blockstore, slot, expected.hash, 32UL );
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR( ( "slot %lu is missing its hash", slot ) );
+    else if( FD_UNLIKELY( 0 != memcmp( ledger_args->slot_ctx->slot_bank.poh.hash, expected.hash, 32UL ) ) ) {
       char expected_hash[ FD_BASE58_ENCODED_32_SZ ];
-      fd_acct_addr_cstr( expected_hash, expected->hash );
+      fd_acct_addr_cstr( expected_hash, expected.hash );
       char poh_hash[ FD_BASE58_ENCODED_32_SZ ];
       fd_acct_addr_cstr( poh_hash, ledger_args->slot_ctx->slot_bank.poh.hash );
       FD_LOG_WARNING(( "PoH hash mismatch! slot=%lu expected=%s, got=%s",
@@ -510,15 +511,15 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       }
     }
 
-    expected = fd_blockstore_bank_hash_query( blockstore, slot );
-    if( FD_UNLIKELY( !expected ) ) {
+    err = fd_blockstore_bank_hash_query( blockstore, slot, &expected );
+    if( FD_UNLIKELY( err) ) {
       FD_LOG_ERR(( "slot %lu is missing its bank hash", slot ));
     } else if( FD_UNLIKELY( 0 != memcmp( ledger_args->slot_ctx->slot_bank.banks_hash.hash,
-                                         expected->hash,
+                                         expected.hash,
                                          32UL ) ) ) {
 
       char expected_hash[ FD_BASE58_ENCODED_32_SZ ];
-      fd_acct_addr_cstr( expected_hash, expected->hash );
+      fd_acct_addr_cstr( expected_hash, expected.hash );
       char bank_hash[ FD_BASE58_ENCODED_32_SZ ];
       fd_acct_addr_cstr( bank_hash, ledger_args->slot_ctx->slot_bank.banks_hash.hash );
 
@@ -751,7 +752,7 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
     args->spads[ i ] = spad;
   }
 
-  /* First, load in the sysvars into the sysvar cache. This is required to 
+  /* First, load in the sysvars into the sysvar cache. This is required to
       make the StakeHistory sysvar available to the rewards calculation. */
 
   fd_runtime_sysvar_cache_load( args->slot_ctx );

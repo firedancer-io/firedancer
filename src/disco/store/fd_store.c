@@ -89,7 +89,7 @@ fd_store_slot_prepare( fd_store_t *   store,
                        ulong          slot,
                        ulong *        repair_slot_out ) {
   fd_blockstore_start_read( store->blockstore );
-  
+
   ulong re_adds[2];
   uint re_adds_cnt           = 0U;
   long re_add_delays[2];
@@ -98,7 +98,7 @@ fd_store_slot_prepare( fd_store_t *   store,
   int rc = FD_STORE_SLOT_PREPARE_CONTINUE;
 
   bool block_complete = fd_blockstore_shreds_complete( store->blockstore, slot );
-  fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( store->blockstore, slot );
+  fd_block_meta_t * block_map_entry = fd_blockstore_block_map_query( store->blockstore, slot );
 
 
   /* We already executed this block */
@@ -122,7 +122,7 @@ fd_store_slot_prepare( fd_store_t *   store,
   }
 
   ulong            parent_slot  = block_map_entry->parent_slot;
-  fd_block_map_t * parent_block_map_entry = fd_blockstore_block_map_query( store->blockstore, parent_slot );
+  fd_block_meta_t * parent_block_map_entry = fd_blockstore_block_map_query( store->blockstore, parent_slot );
 
   /* If the parent slot meta is missing, this block is an orphan and the ancestry needs to be
    * repaired before we can replay it. */
@@ -347,7 +347,7 @@ fd_store_slot_repair( fd_store_t * store,
 
   ulong repair_req_cnt = 0;
   fd_blockstore_start_read( store->blockstore );
-  fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( store->blockstore, slot );
+  fd_block_meta_t * block_map_entry = fd_blockstore_block_map_query( store->blockstore, slot );
 
   if( FD_LIKELY( !block_map_entry ) ) {
     /* We haven't received any shreds for this slot yet */
@@ -383,7 +383,7 @@ fd_store_slot_repair( fd_store_t * store,
     for( uint i = 0; i < 6; ++i ) {
       anc_slot  = fd_blockstore_parent_slot_query( store->blockstore, anc_slot );
       bool anc_complete = fd_blockstore_shreds_complete( store->blockstore, anc_slot );
-      fd_block_map_t * anc_block_map_entry = fd_blockstore_block_map_query( store->blockstore, anc_slot );
+      fd_block_meta_t * anc_block_map_entry = fd_blockstore_block_map_query( store->blockstore, anc_slot );
       if( anc_complete && fd_uchar_extract_bit( anc_block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED ) ) {
         good = 1;
         out_repair_reqs_sz /= (i>>1)+1U; /* Slow roll blocks that are further out */

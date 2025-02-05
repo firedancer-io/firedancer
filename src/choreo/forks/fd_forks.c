@@ -196,7 +196,7 @@ slot_ctx_restore( ulong                 slot,
   fd_funk_txn_t *  txn_map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
 
   fd_blockstore_start_read( blockstore );
-  fd_block_map_t const * block = fd_blockstore_block_map_query( blockstore, slot );
+  fd_block_meta_t const * block = fd_blockstore_block_map_query( blockstore, slot );
   bool block_exists = fd_blockstore_shreds_complete( blockstore, slot );
   fd_blockstore_end_read( blockstore );
 
@@ -362,7 +362,7 @@ fd_forks_update( fd_forks_t *      forks,
       fd_ghost_node_t const * node = fd_ghost_query( ghost, vote );
 
       fd_blockstore_start_write( blockstore );
-      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, vote );
+      fd_block_meta_t * block_map_entry = fd_blockstore_block_map_query( blockstore, vote );
 
       int eqvocsafe = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_EQVOCSAFE );
       if( FD_UNLIKELY( !eqvocsafe ) ) {
@@ -408,7 +408,7 @@ fd_forks_update( fd_forks_t *      forks,
       /* Check if it has crossed finalized threshold. */
 
       fd_blockstore_start_write( blockstore );
-      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, root );
+      fd_block_meta_t * block_map_entry = fd_blockstore_block_map_query( blockstore, root );
       int finalized = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_FINALIZED );
       if( FD_UNLIKELY( !finalized ) ) {
         double pct = (double)node->rooted_stake / (double)epoch->total_stake;
@@ -416,7 +416,7 @@ fd_forks_update( fd_forks_t *      forks,
           ulong smr       = block_map_entry->slot;
           blockstore->shmem->smr = fd_ulong_max( blockstore->shmem->smr, smr );
           FD_LOG_DEBUG(( "finalized %lu", block_map_entry->slot ));
-          fd_block_map_t * ancestor = block_map_entry;
+          fd_block_meta_t * ancestor = block_map_entry;
           while( ancestor ) {
             ancestor->flags = fd_uchar_set_bit( ancestor->flags, FD_BLOCK_FLAG_FINALIZED );
             ancestor        = fd_blockstore_block_map_query( blockstore, ancestor->parent_slot );

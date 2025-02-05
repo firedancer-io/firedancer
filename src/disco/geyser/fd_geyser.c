@@ -182,7 +182,7 @@ void
 fd_geyser_replay_block( fd_geyser_t * ctx, ulong slotn ) {
   if( ctx->block_fun != NULL || ctx->entry_fun != NULL || ctx->txn_fun != NULL ) {
     FD_SCRATCH_SCOPE_BEGIN {
-      fd_block_map_t meta[1];
+      fd_block_meta_t meta[1];
       fd_block_rewards_t rewards[1];
       fd_hash_t parent_hash;
       uchar * blk_data;

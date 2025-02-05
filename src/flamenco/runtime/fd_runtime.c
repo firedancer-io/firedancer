@@ -1202,7 +1202,7 @@ fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
     an error.
    */
   fd_blockstore_start_read( blockstore );
-  fd_block_map_t * query = fd_blockstore_block_map_query( blockstore, slot );
+  fd_block_meta_t * query = fd_blockstore_block_map_query( blockstore, slot );
   FD_TEST( query->slot_complete_idx != FD_SHRED_IDX_NULL );
 
   uint   batch_cnt = 0;
@@ -1210,11 +1210,11 @@ fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
   while ( batch_idx <= query->slot_complete_idx ) {
     batch_cnt++;
     ulong batch_sz = 0;
-    FD_TEST( fd_blockstore_batch_query( blockstore, 
-                                           slot, 
-                                           (uint) batch_idx, 
-                                           scratch_sz, 
-                                           scratch_mem, 
+    FD_TEST( fd_blockstore_batch_query( blockstore,
+                                           slot,
+                                           (uint) batch_idx,
+                                           scratch_sz,
+                                           scratch_mem,
                                            &batch_sz ) == FD_BLOCKSTORE_OK );
     ulong micro_cnt = FD_LOAD( ulong, scratch_mem );
     ulong       off = sizeof(ulong);
@@ -1716,7 +1716,7 @@ fd_runtime_prepare_execute_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   } FD_SPAD_FRAME_END;
 }
 
-/* fd_runtime_process_txns is the entrypoint for processing a batch of txns. 
+/* fd_runtime_process_txns is the entrypoint for processing a batch of txns.
 
    TODO: This should ONLY be used in offline replay. */
 
@@ -2205,7 +2205,7 @@ fd_runtime_generate_wave( fd_execute_txn_task_info_t * task_infos,
    fd_exec_instr_test.c:_txn_context_create_and_exec.
 
    This function is the tpool version of fd_runtime_process_txn.
-   
+
    TODO: This should ONLY be used in offline replay. */
 int
 fd_runtime_process_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
@@ -2351,14 +2351,14 @@ the cache only at epoch boundaries.
 
 https://github.com/solana-labs/solana/blob/c091fd3da8014c0ef83b626318018f238f506435/runtime/src/stakes.rs#L65 */
 static void
-fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx, 
+fd_update_stake_delegations( fd_exec_slot_ctx_t * slot_ctx,
                              fd_epoch_info_t *    temp_info ) {
   FD_SCRATCH_SCOPE_BEGIN {
     fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
     fd_slot_bank_t *  slot_bank  = &slot_ctx->slot_bank;
     fd_stakes_t *     stakes     = &epoch_bank->stakes;
 
-    /* In one pass, iterate over all the stake infos and insert the updated values into the epoch stakes cache 
+    /* In one pass, iterate over all the stake infos and insert the updated values into the epoch stakes cache
        This assumes that there is enough memory pre-allocated for the stakes cache. */
     for( ulong idx=0UL; idx<temp_info->stake_infos_len; idx++ ) {
       // Fetch and store the delegation associated with this stake account
@@ -2877,7 +2877,7 @@ fd_runtime_is_epoch_boundary( fd_epoch_bank_t * epoch_bank, ulong curr_slot, ulo
   slot_ctx->slot_bank.epoch_stakes holds the stakes at T-2
  */
 /* process for the start of a new epoch */
-static void 
+static void
 fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                               ulong                parent_epoch,
                               fd_valloc_t          valloc ) {
@@ -3667,9 +3667,9 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
 }
 
 static int
-fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx, 
-                                  fd_capture_ctx_t *   capture_ctx, 
-                                  fd_tpool_t *         tpool, 
+fd_runtime_process_genesis_block( fd_exec_slot_ctx_t * slot_ctx,
+                                  fd_capture_ctx_t *   capture_ctx,
+                                  fd_tpool_t *         tpool,
                                   fd_valloc_t          valloc ) {
   ulong hashcnt_per_slot = slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick * slot_ctx->epoch_ctx->epoch_bank.ticks_per_slot;
   while( hashcnt_per_slot-- ) {
@@ -3755,7 +3755,7 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
 
   if( !is_snapshot ) {
     fd_runtime_init_bank_from_genesis( slot_ctx,
-                                       &genesis_block, 
+                                       &genesis_block,
                                        &genesis_hash,
                                        valloc );
 
@@ -4174,13 +4174,12 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
     fd_funk_txn_xid_t xid;
 
     fd_blockstore_start_read( slot_ctx->blockstore );
-    fd_hash_t const * hash = fd_blockstore_block_hash_query( slot_ctx->blockstore, slot );
-    if( FD_UNLIKELY( !hash ) ) {
+    int err = fd_blockstore_block_hash_query( slot_ctx->blockstore, slot, xid.uc, sizeof(fd_funk_txn_xid_t) );
+    if( FD_UNLIKELY( err ) ) {
       ret = FD_RUNTIME_EXECUTE_GENERIC_ERR;
       FD_LOG_WARNING(( "missing blockhash for %lu", slot ));
       break;
     } else {
-      fd_memcpy( xid.uc, hash->uc, sizeof(fd_funk_txn_xid_t) );
       xid.ul[0] = slot_ctx->slot_bank.slot;
       /* push a new transaction on the stack */
       fd_funk_start_write( funk );

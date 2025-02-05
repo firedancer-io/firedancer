@@ -435,19 +435,21 @@ repair_get_shred( ulong  slot,
   if( FD_UNLIKELY( blockstore == NULL ) ) {
     return -1;
   }
-  fd_blockstore_start_read( blockstore );
 
   if( shred_idx == UINT_MAX ) {
-    fd_block_map_t * meta = fd_blockstore_block_map_query( blockstore, slot );
-    if( meta == NULL ) {
-      fd_blockstore_end_read( blockstore );
-      return -1L;
+    int err = FD_MAP_ERR_AGAIN;
+    while( err == FD_MAP_ERR_AGAIN ) {
+      fd_block_map_query_t query[1] = { 0 };
+      err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, query, 0 );
+      fd_block_meta_t * meta = fd_block_map_query_ele( query );
+      if( err == FD_MAP_ERR_KEY) {
+        return -1L;
+      }
+      shred_idx = (uint)meta->slot_complete_idx;
+      err = fd_block_map_query_test( query );
     }
-    shred_idx = (uint)meta->slot_complete_idx;
   }
   long sz = fd_buf_shred_query_copy_data( blockstore, slot, shred_idx, buf, buf_max );
-
-  fd_blockstore_end_read( blockstore );
   return sz;
 }
 
@@ -459,16 +461,18 @@ repair_get_parent( ulong  slot,
   if( FD_UNLIKELY( blockstore == NULL ) ) {
     return FD_SLOT_NULL;
   }
-  fd_blockstore_start_read( blockstore );
-
-  fd_block_map_t * meta = fd_blockstore_block_map_query( blockstore, slot );
-  if( meta == NULL ) {
-    fd_blockstore_end_read( blockstore );
-    return FD_SLOT_NULL;
+  ulong res = FD_SLOT_NULL;
+  int err = FD_MAP_ERR_AGAIN;
+  while( err == FD_MAP_ERR_AGAIN ) {
+    fd_block_map_query_t query[1] = { 0 };
+    err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, query, 0 );
+    fd_block_meta_t * meta = fd_block_map_query_ele( query );
+    if( err == FD_MAP_ERR_KEY ) {
+      return FD_SLOT_NULL;
+    }
+    res = meta->parent_slot;
+    err = fd_block_map_query_test( query );
   }
-  ulong res = meta->parent_slot;
-
-  fd_blockstore_end_read( blockstore );
   return res;
 }
 
@@ -664,7 +668,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   (void)topo;
   (void)tile;
 
-  populate_sock_filter_policy_repair( 
+  populate_sock_filter_policy_repair(
     out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)tile->repair.good_peer_cache_file_fd );
   return sock_filter_policy_repair_instr_cnt;
 }
