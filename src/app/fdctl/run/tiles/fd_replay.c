@@ -1627,7 +1627,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     }
 
     fd_blockstore_start_read( ctx->blockstore );
-    fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, curr_slot );
+    fd_block_map_t * upd = fd_blockstore_block_map_query( ctx->blockstore, curr_slot );
     fd_block_t * block_ = fd_blockstore_block_query( ctx->blockstore, curr_slot );  /* can't be removed atm, used for txn metadata & blk rewards */
     fd_blockstore_end_read( ctx->blockstore );
     fork->slot_ctx.block = block_;

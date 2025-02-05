@@ -258,7 +258,7 @@ typedef struct fd_block fd_block_t;
 #define SET_MAX  FD_SHRED_MAX_PER_SLOT
 #include "../../util/tmpl/fd_set.c"
 
-struct fd_block_map {
+struct fd_block_meta {
   ulong slot; /* map key */
   ulong next; /* reserved for use by fd_map_giant.c */
 
@@ -299,12 +299,14 @@ struct fd_block_map {
 
   ulong block_gaddr; /* global address to the start of the allocated fd_block_t */
 };
-typedef struct fd_block_map fd_block_map_t;
+typedef struct fd_block_meta fd_block_meta_t;
 
-#define MAP_NAME fd_block_map
-#define MAP_T    fd_block_map_t
-#define MAP_KEY  slot
-#include "../../util/tmpl/fd_map_giant.c"
+#define MAP_NAME        fd_block_map
+#define MAP_ELE_T       fd_block_meta_t
+#define MAP_KEY         slot
+#define MAP_ELE_IS_FREE(ctx, ele) ((ele)->slot != ULONG_MAX)
+#define MAP_ELE_FREE(ctx, ele)    ((ele)->slot = ULONG_MAX)
+#include "../../util/tmpl/fd_map_slot_para.c"
 
 /* fd_block_idx is an in-memory index of finalized blocks that have been
    archived to disk.  It records the slot together with the byte offset
@@ -399,7 +401,7 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_shmem {
   ulong txn_max;   /* maximum # of transactions that can be indexed from blocks */
   ulong alloc_max; /* maximum bytes that can be allocated */
 
-  ulong block_map_gaddr;  /* map of slot->(slot_meta, block) */
+  //ulong block_map_gaddr;  /* map of slot->(slot_meta, block) */
   ulong block_idx_gaddr;  /* map of slot->byte offset in archival file */
   ulong slot_deque_gaddr; /* deque of slot numbers */
   ulong txn_map_gaddr;
@@ -420,6 +422,7 @@ struct fd_blockstore {
 
   fd_buf_shred_pool_t shred_pool[1];
   fd_buf_shred_map_t  shred_map[1];
+  fd_block_map_t      block_map[1];
 };
 typedef struct fd_blockstore fd_blockstore_t;
 
@@ -456,7 +459,7 @@ fd_blockstore_footprint( ulong shred_max, ulong block_max, ulong idx_max, ulong 
       fd_buf_shred_pool_align(),      fd_buf_shred_pool_footprint() ),
       fd_buf_shred_map_align(),       fd_buf_shred_map_footprint( shred_max ) ),
       alignof(fd_block_map_t),        sizeof(fd_block_map_t) * block_max ),
-      fd_block_map_align(),           fd_block_map_footprint( block_max ) ),
+      fd_block_map_align(),           fd_block_map_footprint( block_max, fd_block_map_lock_cnt_est( block_max ), fd_block_map_probe_max_est( block_max ) ) ),
       fd_block_idx_align(),           fd_block_idx_footprint( lg_idx_max ) ),
       fd_slot_deque_align(),          fd_slot_deque_footprint( block_max ) ),
       fd_txn_map_align(),             fd_txn_map_footprint( txn_max ) ),
@@ -548,15 +551,6 @@ fd_blockstore_wksp_tag( fd_blockstore_t const * blockstore ) {
 FD_FN_PURE static inline ulong
 fd_blockstore_seed( fd_blockstore_t const * blockstore ) {
   return blockstore->shmem->seed;
-}
-
-/* fd_block_map returns a pointer in the caller's address space to the
-   fd_block_map_t in the blockstore wksp.  Assumes blockstore is local
-   join.  Lifetime of the returned pointer is that of the local join. */
-
-FD_FN_PURE static inline fd_block_map_t *
-fd_blockstore_block_map( fd_blockstore_t * blockstore ) {
-  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), blockstore->shmem->block_map_gaddr );
 }
 
 /* fd_block_idx returns a pointer in the caller's address space to the
@@ -651,18 +645,18 @@ fd_blockstore_block_query( fd_blockstore_t * blockstore, ulong slot );
 /* fd_blockstore_block_hash_query queries blockstore for the block hash
    at slot. This is the final poh hash for a slot.
 
-   IMPORTANT!  Caller MUST hold the read lock when calling this
-   function. */
-fd_hash_t const *
-fd_blockstore_block_hash_query( fd_blockstore_t * blockstore, ulong slot );
+   This is non-blocking, and does the memcpy of hash so the caller doesn't
+   need to manage the block map entry */
+int
+fd_blockstore_block_hash_query( fd_blockstore_t * blockstore, ulong slot, fd_hash_t * out );
 
 /* fd_blockstore_bank_hash_query query blockstore for the bank hash for
    a given slot.
 
-   IMPORTANT!  Caller MUST hold the read lock when calling this
-   function. */
-fd_hash_t const *
-fd_blockstore_bank_hash_query( fd_blockstore_t * blockstore, ulong slot );
+   This is non-blocking, and does the memcpy of hash so the caller doesn't
+   need to manage the block map entry */
+int
+fd_blockstore_bank_hash_query( fd_blockstore_t * blockstore, ulong slot, fd_hash_t * out );
 
 /* fd_blockstore_block_map_query queries the blockstore for the block
    map entry at slot.  Returns a pointer to the slot meta or NULL if not
@@ -672,27 +666,13 @@ fd_blockstore_bank_hash_query( fd_blockstore_t * blockstore, ulong slot );
    IMPORTANT!  Caller MUST hold the read lock when calling this
    function. */
 fd_block_map_t *
-fd_blockstore_block_map_query( fd_blockstore_t * blockstore, ulong slot );
+fd_blockstore_block_map_query_bye( fd_blockstore_t * blockstore, ulong slot );
 
 /* fd_blockstore_parent_slot_query queries the parent slot of slot.
 
-   IMPORTANT!  Caller MUST hold the read lock when calling this
-   function. */
+   This is non-blocking. */
 ulong
 fd_blockstore_parent_slot_query( fd_blockstore_t * blockstore, ulong slot );
-
-/* fd_blockstore_child_slots_query queries slot's child slots.  Return
-   values are saved in slots_out and slot_cnt.  Returns FD_BLOCKSTORE_OK
-   on success, FD_BLOCKSTORE_ERR_SLOT_MISSING if slot is not in the
-   blockstore.  The returned slot array is always <= the max size
-   FD_BLOCKSTORE_CHILD_SLOT_MAX and contiguous.  Empty slots in the
-   array are set to FD_SLOT_NULL.
-
-   IMPORTANT!  Caller MUST hold the read lock when calling this
-   function. */
-
-int
-fd_blockstore_child_slots_query( fd_blockstore_t * blockstore, ulong slot, ulong ** slots_out, ulong * slot_cnt );
 
 /* fd_blockstore_block_frontier_query query the frontier i.e. all the
    blocks that need to be replayed that haven't been.  These are the
@@ -758,6 +738,9 @@ fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore,
                                   uchar *           blk_flags,
                                   uchar             txn_data_out[FD_TXN_MTU] );
 
+int
+fd_blockstore_block_map_test( fd_blockstore_t * blockstore, ulong slot );
+
 /* fd_blockstore_slot_remove removes slot from blockstore, including all
    relevant internal structures.
 
@@ -810,7 +793,7 @@ fd_blockstore_batch_query( fd_blockstore_t * blockstore,
    Semantically equivalent to query_block( slot ) != NULL.
 
    IMPORTANT! Caller MUST hold the read lock when calling this function */
-bool
+int
 fd_blockstore_shreds_complete( fd_blockstore_t * blockstore, ulong slot );
 
 /* fd_blockstore_block_height_update sets the block height.
@@ -877,9 +860,9 @@ FD_PROTOTYPES_END
    disk. */
 
 struct fd_blockstore_ser {
-  fd_block_map_t * block_map;
-  fd_block_t     * block;
-  uchar          * data;
+  fd_block_meta_t * block_map;
+  fd_block_t      * block;
+  uchar           * data;
 };
 typedef struct fd_blockstore_ser fd_blockstore_ser_t;
 
@@ -898,7 +881,7 @@ int
 fd_blockstore_block_meta_restore( fd_blockstore_archiver_t * archvr,
                                   int fd,
                                   fd_block_idx_t * block_idx_entry,
-                                  fd_block_map_t * block_map_entry_out,
+                                  fd_block_meta_t * block_map_entry_out,
                                   fd_block_t * block_out );
 
 /* Reads block data from fd into a given buf. Modifies data_off similarly to
@@ -915,7 +898,8 @@ fd_blockstore_block_data_restore( fd_blockstore_archiver_t * archvr,
 bool
 fd_blockstore_archiver_verify( fd_blockstore_t * blockstore, fd_blockstore_archiver_t * archiver );
 
+/* Reads from fd a block meta object, and returns the slot number */
 ulong
-fd_blockstore_archiver_lrw_slot( fd_blockstore_t * blockstore, int fd, fd_block_map_t * lrw_block_map, fd_block_t * lrw_block );
+fd_blockstore_archiver_lrw_slot( fd_blockstore_t * blockstore, int fd, fd_block_meta_t * lrw_block_meta, fd_block_t * lrw_block );
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_blockstore_h */

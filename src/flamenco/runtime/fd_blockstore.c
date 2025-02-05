@@ -38,7 +38,9 @@ fd_blockstore_new( void * shmem,
 
   fd_memset( blockstore_shmem, 0, fd_blockstore_footprint( shred_max, block_max, idx_max, txn_max ) );
 
-  int lg_idx_max = fd_ulong_find_msb( fd_ulong_pow2_up( idx_max ) );
+  int   lg_idx_max   = fd_ulong_find_msb( fd_ulong_pow2_up( idx_max ) );
+  ulong lock_cnt_est = fd_block_map_lock_cnt_est( block_max );
+  ulong probe_est    = fd_block_map_probe_max_est( block_max );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   blockstore_shmem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_blockstore_shmem_t), sizeof(fd_blockstore_shmem_t) );
@@ -46,7 +48,7 @@ fd_blockstore_new( void * shmem,
   void * shred_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_buf_shred_pool_align(),      fd_buf_shred_pool_footprint() );
   void * shred_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_buf_shred_map_align(),       fd_buf_shred_map_footprint( shred_max ) );
   void * blocks     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_block_map_t),        sizeof(fd_block_map_t) * block_max );
-  void * block_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_block_map_align(),           fd_block_map_footprint( block_max ) );
+  void * block_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_block_map_align(),           fd_block_map_footprint( block_max, lock_cnt_est, probe_est ) );
   void * block_idx  = FD_SCRATCH_ALLOC_APPEND( l, fd_block_idx_align(),           fd_block_idx_footprint( lg_idx_max ) );
   void * slot_deque = FD_SCRATCH_ALLOC_APPEND( l, fd_slot_deque_align(),          fd_slot_deque_footprint( block_max ) );
   void * txn_map    = FD_SCRATCH_ALLOC_APPEND( l, fd_txn_map_align(),             fd_txn_map_footprint( txn_max ) );
@@ -55,11 +57,11 @@ fd_blockstore_new( void * shmem,
   FD_TEST( top - (ulong)shmem == fd_blockstore_footprint( shred_max, block_max, idx_max, txn_max ) );
 
   (void)shreds;
+  (void)blocks;
   fd_buf_shred_pool_new( shred_pool );
   fd_buf_shred_map_new ( shred_map, shred_max, seed );
+  fd_block_map_new     ( block_map, block_max, lock_cnt_est, probe_est, seed );
 
-  (void)blocks;
-  blockstore_shmem->block_map_gaddr  = fd_wksp_gaddr( wksp, fd_block_map_join( fd_block_map_new( block_map, block_max, seed ) ) );
   blockstore_shmem->block_idx_gaddr  = fd_wksp_gaddr( wksp, fd_block_idx_join( fd_block_idx_new( block_idx, lg_idx_max ) ) );
   blockstore_shmem->slot_deque_gaddr = fd_wksp_gaddr( wksp, fd_slot_deque_join (fd_slot_deque_new( slot_deque, block_max ) ) );
   blockstore_shmem->txn_map_gaddr    = fd_wksp_gaddr( wksp, fd_txn_map_join (fd_txn_map_new( txn_map, txn_max, seed ) ) );
@@ -136,6 +138,10 @@ fd_blockstore_join( void * ljoin, void * shblockstore ) {
   void * shreds     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_buf_shred_t),        sizeof(fd_buf_shred_t) * blockstore->shred_max );
   void * shred_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_buf_shred_pool_align(),      fd_buf_shred_pool_footprint() );
   void * shred_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_buf_shred_map_align(),       fd_buf_shred_map_footprint( blockstore->shred_max ) );
+  void * blocks     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_block_map_t),        sizeof(fd_block_map_t) * blockstore->block_max );
+  void * block_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_block_map_align(),           fd_block_map_footprint( blockstore->block_max, 
+                                                                                                          fd_block_map_lock_cnt_est( blockstore->block_max ),  
+                                                                                                          fd_block_map_probe_max_est( blockstore->block_max )) );
   FD_LOG_NOTICE(( "shreds %p", shreds ));
   FD_LOG_NOTICE(( "shred_pool %p", shred_pool ));
   FD_LOG_NOTICE(( "shred_map %p", shred_map ));
@@ -144,8 +150,11 @@ fd_blockstore_join( void * ljoin, void * shblockstore ) {
   join->shmem = blockstore;
   fd_buf_shred_pool_join( join->shred_pool, shred_pool, shreds, blockstore->shred_max );
   fd_buf_shred_map_join ( join->shred_map,  shred_map,  shreds, blockstore->shred_max );
+  fd_block_map_join     ( join->block_map,  block_map,  blocks );
+
   // FD_TEST( fd_buf_shred_pool_verify( join->shred_pool ) == FD_POOL_SUCCESS );
   // FD_TEST( fd_buf_shred_map_verify ( join->shred_map  ) == FD_MAP_SUCCESS );
+  FD_TEST( fd_block_map_verify     ( join->block_map  ) == FD_MAP_SUCCESS );
 
   return join;
 }
@@ -166,7 +175,7 @@ fd_blockstore_leave( fd_blockstore_t * blockstore ) {
 
   FD_TEST( fd_buf_shred_pool_leave( blockstore->shred_pool ) );
   FD_TEST( fd_buf_shred_map_leave( blockstore->shred_map ) );
-  FD_TEST( fd_block_map_leave( fd_blockstore_block_map( blockstore ) ) );
+  FD_TEST( fd_block_map_leave( blockstore->block_map ) );
   FD_TEST( fd_block_idx_leave( fd_blockstore_block_idx( blockstore ) ) );
   FD_TEST( fd_slot_deque_leave( fd_blockstore_slot_deque( blockstore ) ) );
   FD_TEST( fd_txn_map_leave( fd_blockstore_txn_map( blockstore ) ) );
@@ -204,7 +213,7 @@ fd_blockstore_delete( void * shblockstore ) {
 
   FD_TEST( fd_buf_shred_pool_delete( &blockstore->shred_pool ) );
   FD_TEST( fd_buf_shred_map_delete( &blockstore->shred_map ) );
-  FD_TEST( fd_block_map_delete( fd_blockstore_block_map( blockstore ) ) );
+  FD_TEST( fd_block_map_delete( &blockstore->block_map ) );
   FD_TEST( fd_block_idx_delete( fd_blockstore_block_idx( blockstore ) ) );
   FD_TEST( fd_slot_deque_delete( fd_blockstore_slot_deque( blockstore ) ) );
   FD_TEST( fd_txn_map_delete( fd_blockstore_txn_map( blockstore ) ) );
@@ -227,7 +236,7 @@ static inline void check_read_write_err( int err ) {
 }
 
 ulong
-fd_blockstore_archiver_lrw_slot( fd_blockstore_t * blockstore, int fd, fd_block_map_t * lrw_block_map, fd_block_t * lrw_block ) {
+fd_blockstore_archiver_lrw_slot( fd_blockstore_t * blockstore, int fd, fd_block_meta_t * lrw_block_meta, fd_block_t * lrw_block_out ) {
   fd_block_idx_t * block_idx = fd_blockstore_block_idx( blockstore );
   if ( FD_UNLIKELY ( fd_block_idx_key_cnt( block_idx ) == 0 ) ) {
     return FD_SLOT_NULL;
@@ -235,9 +244,9 @@ fd_blockstore_archiver_lrw_slot( fd_blockstore_t * blockstore, int fd, fd_block_
 
   fd_block_idx_t lrw_block_idx = { 0 };
   lrw_block_idx.off = blockstore->shmem->archiver.head;
-  int err = fd_blockstore_block_meta_restore(&blockstore->shmem->archiver, fd, &lrw_block_idx, lrw_block_map,  lrw_block);
+  int err = fd_blockstore_block_meta_restore( &blockstore->shmem->archiver, fd, &lrw_block_idx, lrw_block_meta,  lrw_block_out );
   check_read_write_err( err );
-  return lrw_block_map->slot;
+  return lrw_block_meta->slot;
 }
 
 bool
@@ -312,8 +321,8 @@ build_idx( fd_blockstore_t * blockstore, int fd ) {
   FD_LOG_NOTICE(( "[%s] building index of blockstore archival file", __func__ ));
 
   fd_block_idx_t * block_idx = fd_blockstore_block_idx( blockstore );
-  fd_block_map_t block_map_out = { 0 };
-  fd_block_t     block_out     = { 0 };
+  fd_block_meta_t block_map_out = { 0 };
+  fd_block_t      block_out     = { 0 };
 
   off_t sz = lseek( fd, 0, SEEK_END );
   if ( FD_UNLIKELY( sz == -1 ) ) {
@@ -351,7 +360,7 @@ build_idx( fd_blockstore_t * blockstore, int fd ) {
 
     if( FD_UNLIKELY( fd_block_idx_key_cnt( block_idx ) == fd_block_idx_key_max( block_idx ) )  ) {
       /* evict a block */
-      fd_block_map_t  lrw_block_map;
+      fd_block_meta_t lrw_block_map;
       fd_block_t      lrw_block;
       ulong lrw_slot = fd_blockstore_archiver_lrw_slot( blockstore, fd, &lrw_block_map, &lrw_block );
 
@@ -403,73 +412,81 @@ fd_blockstore_init( fd_blockstore_t * blockstore, int fd, ulong fd_size_max, fd_
   blockstore->shmem->smr = smr;
   blockstore->shmem->wmk = smr;
 
-  fd_block_map_t * block_map_entry = fd_block_map_insert( fd_blockstore_block_map( blockstore ),
-                                                          &smr );
+  fd_block_map_query_t query[1];
 
-  block_map_entry->parent_slot     = slot_bank->prev_slot;
-  memset( block_map_entry->child_slots, UCHAR_MAX, FD_BLOCKSTORE_CHILD_SLOT_MAX * sizeof( ulong ) );
-  block_map_entry->child_slot_cnt  = 0;
-
-  block_map_entry->block_height          = slot_bank->block_height;
-  memcpy(&block_map_entry->block_hash, slot_bank->block_hash_queue.last_hash, sizeof(fd_hash_t));
-  block_map_entry->bank_hash       = slot_bank->banks_hash;
-  block_map_entry->block_hash      = slot_bank->poh;
-  block_map_entry->flags           = fd_uchar_set_bit(
+  int err = fd_block_map_prepare( blockstore->block_map, &smr, NULL, query, FD_MAP_FLAG_BLOCKING );
+  fd_block_meta_t * ele = fd_block_map_query_ele( query );
+  if ( FD_UNLIKELY( err ) ) {
+    FD_LOG_ERR(( "failed to prepare block map for slot %lu", smr ));
+    return NULL;
+  } else {
+    ele->slot = smr;
+    ele->parent_slot = slot_bank->prev_slot;
+    memset( ele->child_slots, UCHAR_MAX, FD_BLOCKSTORE_CHILD_SLOT_MAX * sizeof( ulong ) );
+    ele->child_slot_cnt = 0;
+    ele->block_height = slot_bank->block_height;
+    memcpy( &ele->block_hash, slot_bank->block_hash_queue.last_hash, sizeof(fd_hash_t) );
+    ele->bank_hash = slot_bank->banks_hash;
+    ele->block_hash = slot_bank->poh;
+    ele->flags                      = fd_uchar_set_bit(
                                      fd_uchar_set_bit(
                                      fd_uchar_set_bit(
                                      fd_uchar_set_bit(
-                                     fd_uchar_set_bit( block_map_entry->flags,
+                                     fd_uchar_set_bit( ele->flags,
                                        FD_BLOCK_FLAG_COMPLETED ),
                                        FD_BLOCK_FLAG_PROCESSED ),
                                        FD_BLOCK_FLAG_EQVOCSAFE ),
                                        FD_BLOCK_FLAG_CONFIRMED ),
                                        FD_BLOCK_FLAG_FINALIZED );
-  block_map_entry->reference_tick  = 0;
-  block_map_entry->ts              = 0;
+    ele->reference_tick = 0;
+    ele->ts             = 0;
 
-  block_map_entry->consumed_idx    = 0;
-  block_map_entry->received_idx    = 0;
-  block_map_entry->replayed_idx    = 0;
+    ele->consumed_idx   = 0;
+    ele->received_idx   = 0;
+    ele->replayed_idx   = 0;
 
-  block_map_entry->data_complete_idx    = 0;
-  block_map_entry->slot_complete_idx    = 0;
+    ele->data_complete_idx = 0;
+    ele->slot_complete_idx = 0;
 
-  fd_block_set_null( block_map_entry->data_complete_idxs );
+    fd_block_set_null( ele->data_complete_idxs );
 
-  /* This creates an empty allocation for a block, to "facade" that we
+    /* This creates an empty allocation for a block, to "facade" that we
      have this particular block (even though we don't).  This is useful
      to avoid special-casing various blockstore APIs.
 
      This should only ever be done for the snapshot slot, after booting
      up from the snapshot. */
 
-  fd_block_t * block = fd_alloc_malloc( fd_blockstore_alloc( blockstore ),
+    fd_block_t * block = fd_alloc_malloc( fd_blockstore_alloc( blockstore ),
                                         alignof(fd_block_t),
                                         sizeof(fd_block_t) );
 
-  /* Point to the fake block. */
+    /* Point to the fake block. */
+  
+    ele->block_gaddr = fd_wksp_gaddr_fast( fd_blockstore_wksp( blockstore ), block );
+  
+    /* Set all fields to 0. Caller's responsibility to check gaddr and sz != 0. */
+  
+    memset( block, 0, sizeof(fd_block_t) );
 
-  block_map_entry->block_gaddr = fd_wksp_gaddr_fast( fd_blockstore_wksp( blockstore ), block );
-
-  /* Set all fields to 0. Caller's responsibility to check gaddr and sz != 0. */
-
-  memset( block, 0, sizeof(fd_block_t) );
+    fd_block_map_publish( query );
+  }
 
   return blockstore;
 }
 
 void
-fd_blockstore_fini( fd_blockstore_t * blockstore ) {
+fd_blockstore_fini( fd_blockstore_t * blockstore FD_PARAM_UNUSED ) {
 
   /* Free all allocations by removing all slots (whether they are
      complete or not). */
 
-  for( fd_block_map_iter_t iter = fd_block_map_iter_init( fd_blockstore_block_map( blockstore ) );
+  /*for( fd_block_map_iter_t iter = fd_block_map_iter_init( blockstore->block_map );
        !fd_block_map_iter_done( fd_blockstore_block_map( blockstore ), iter );
        iter = fd_block_map_iter_next( fd_blockstore_block_map( blockstore ), iter ) ) {
     fd_block_map_t * ele = fd_block_map_iter_ele( fd_blockstore_block_map( blockstore ), iter );
     fd_blockstore_slot_remove( blockstore, ele->slot );
-  }
+  }*/
 }
 
 /* txn map helpers */
@@ -627,20 +644,22 @@ void
 fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
   FD_LOG_NOTICE(( "[%s] slot: %lu", __func__, slot ));
 
-  fd_block_map_t * block_map_entry = fd_block_map_remove( fd_blockstore_block_map( blockstore ), &slot );
-  if( FD_UNLIKELY( !block_map_entry ) ) return;
+  fd_block_map_query_t query[1]; 
+  int err = fd_block_map_remove( blockstore->block_map, &slot, query, FD_MAP_FLAG_BLOCKING );
+  if( FD_UNLIKELY( err ) ) return;
 
   /* It is not safe to remove a replaying block. */
 
+  fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
   if( FD_UNLIKELY( fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING ) ) ) {
     FD_LOG_WARNING(( "[%s] slot %lu has replay in progress. not removing.", __func__, slot ));
     return;
   }
 
   /* Unlink slot from its parent only if it is not published. */
-
-  fd_block_map_t * parent_block_map_entry =
-      fd_blockstore_block_map_query( blockstore, block_map_entry->parent_slot );
+  // TODO: no blocking no blocking!!!!
+  err = fd_block_map_prepare( blockstore->block_map, &block_map_entry->parent_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+  fd_block_meta_t * parent_block_map_entry = fd_block_map_query_ele( query );
   if( FD_LIKELY( parent_block_map_entry ) ) {
     for( ulong i = 0; i < parent_block_map_entry->child_slot_cnt; i++ ) {
       if( FD_LIKELY( parent_block_map_entry->child_slots[i] == slot ) ) {
@@ -648,6 +667,7 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot ) {
             parent_block_map_entry->child_slots[--parent_block_map_entry->child_slot_cnt];
       }
     }
+    fd_block_map_publish( query );
   }
 
   /* block_gaddr 0 indicates it hasn't received all shreds yet.
@@ -768,8 +788,8 @@ fd_blockstore_lrw_archive_clear( fd_blockstore_t * blockstore, int fd, ulong wsz
     return;
   }
 
-  fd_block_map_t lrw_block_map;
-  fd_block_t     lrw_block;
+  fd_block_meta_t lrw_block_map;
+  fd_block_t      lrw_block;
 
   ulong lrw_slot = fd_blockstore_archiver_lrw_slot( blockstore, fd, &lrw_block_map, &lrw_block );
   fd_block_idx_t * lrw_block_index = fd_block_idx_query( block_idx, lrw_slot, NULL );
@@ -795,12 +815,13 @@ fd_blockstore_lrw_archive_clear( fd_blockstore_t * blockstore, int fd, ulong wsz
 
 /* Performs any block index & updates mrw after archiving a block. We start guaranteed having */
 
-static void fd_blockstore_post_checkpt_update( fd_blockstore_t * blockstore,
-                                               fd_blockstore_ser_t * ser,
-                                               int fd,
-                                               ulong slot,
-                                               ulong wsz,
-                                               ulong write_off ) {
+static void 
+fd_blockstore_post_checkpt_update( fd_blockstore_t * blockstore,
+                                   fd_blockstore_ser_t * ser,
+                                   int fd,
+                                   ulong slot,
+                                   ulong wsz,
+                                   ulong write_off ) {
   fd_blockstore_archiver_t * archvr = &blockstore->shmem->archiver;
   fd_block_idx_t * block_idx        = fd_blockstore_block_idx( blockstore );
 
@@ -808,8 +829,8 @@ static void fd_blockstore_post_checkpt_update( fd_blockstore_t * blockstore,
 
   if ( fd_block_idx_key_cnt( block_idx ) == fd_block_idx_key_max( block_idx ) ){
     /* make space if needed */
-    fd_block_map_t lrw_block_map_out;
-    fd_block_t     lrw_block_out;
+    fd_block_meta_t lrw_block_map_out;
+    fd_block_t      lrw_block_out;
     ulong lrw_slot = fd_blockstore_archiver_lrw_slot( blockstore, fd, &lrw_block_map_out, &lrw_block_out );
     fd_block_idx_t * lrw_block_index  = fd_block_idx_query(block_idx, lrw_slot, NULL);
     fd_block_idx_remove( block_idx, lrw_block_index );
@@ -866,7 +887,7 @@ int
 fd_blockstore_block_meta_restore( fd_blockstore_archiver_t * archvr,
                                   int fd,
                                   fd_block_idx_t * block_idx_entry,
-                                  fd_block_map_t * block_map_entry_out,
+                                  fd_block_meta_t * block_map_entry_out,
                                   fd_block_t * block_out ) {
   ulong rsz;
   ulong read_off = block_idx_entry->off;
@@ -936,8 +957,13 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, int fd, ulong wmk ) {
 
   while( !fd_slot_deque_empty( q ) ) {
     ulong slot = fd_slot_deque_pop_head( q );
-
-    fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, slot );
+    fd_block_map_query_t query[1];
+    int err = fd_block_map_prepare( blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_WARNING(( "[%s] failed to prepare block map for blockstore publishing %lu", __func__, slot ));
+      continue;
+    }
+    fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
 
     /* Add slot's children to the queue. */
 
@@ -969,7 +995,7 @@ fd_blockstore_publish( fd_blockstore_t * blockstore, int fd, ulong wmk ) {
         fd_blockstore_block_checkpt( blockstore, &ser, fd, slot );
       }
     }
-
+    fd_block_map_cancel( query ); // TODO: maybe we should not make prepare so large and instead call prepare again in helpers
     fd_blockstore_slot_remove( blockstore, slot );
   }
 
@@ -1013,14 +1039,18 @@ static int
 deshred( fd_blockstore_t * blockstore, ulong slot ) {
   FD_LOG_NOTICE(( "[%s] slot %lu", __func__, slot ));
 
-  fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, slot );
+  fd_block_map_query_t query[1];
+  int err = fd_block_map_prepare( blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+  fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "[%s] failed to prepare block map for slot %lu", __func__, slot ));
+
   FD_TEST( block_map_entry->block_gaddr == 0 ); /* FIXME duplicate blocks are not supported */
 
-  block_map_entry->ts         = fd_log_wallclock();
-
+  block_map_entry->ts = fd_log_wallclock();
+  ulong shred_cnt = block_map_entry->slot_complete_idx + 1;
+  fd_block_map_publish( query );
 
   ulong block_sz  = 0UL;
-  ulong shred_cnt = block_map_entry->slot_complete_idx + 1;
   ulong batch_cnt = 0UL;
   fd_shred_t shred_hdr;
   for( uint idx = 0; idx < shred_cnt; idx++ ) {
@@ -1109,6 +1139,8 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
 
   /* Do this last when it's safe */
   FD_COMPILER_MFENCE();
+  err = fd_block_map_prepare( blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+  block_map_entry = fd_block_map_query_ele( query );
   block_map_entry->block_gaddr     = fd_wksp_gaddr_fast( wksp, block );
   fd_block_micro_t *    micros     = fd_wksp_laddr_fast( wksp, block->micros_gaddr );
   uchar *               data       = fd_wksp_laddr_fast( wksp, block->data_gaddr );
@@ -1118,6 +1150,7 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
 
   block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_RECEIVING );
   block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_COMPLETED );
+  fd_block_map_publish( query );
 
   return FD_BLOCKSTORE_OK;
 }
@@ -1201,18 +1234,22 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
   /* Update shred's associated slot meta */
 
   ulong slot = shred->slot;
-  fd_block_map_t * block_map = fd_blockstore_block_map( blockstore );
-  fd_block_map_t * block_map_entry = fd_block_map_query( block_map, &slot, NULL );
-  if( FD_UNLIKELY( !block_map_entry ) ) {
+  //fd_block_map_t * block_map = fd_blockstore_block_map( blockstore );
+  fd_block_map_query_t query[1];
 
-    if( FD_UNLIKELY( fd_block_map_key_cnt( block_map ) == fd_block_map_key_max( block_map ) ) ) {
-      FD_LOG_ERR(( "[%s] OOM: failed to insert new block map entry. blockstore needs to save metadata for all slots >= SMR, so increase memory or check for issues with publishing new SMRs.", __func__ ));
-    }
+  if( FD_UNLIKELY( !fd_blockstore_block_map_test( blockstore, slot ) ) ) { // TODO: check fishiness
+    /* Prepare will succeed regardless of if the key is in the map or not. It either returns 
+       the element at that idx, or it will return a spot to insert new stuff. So we need to check
+       if that space is actually unused, to signify that we are adding a new entry. */
 
     /* Try to insert slot into block_map */
 
-    block_map_entry = fd_block_map_insert( block_map, &slot );
-    if( FD_UNLIKELY( !block_map_entry ) ) return FD_BLOCKSTORE_ERR_SLOT_FULL;
+    err = fd_block_map_prepare( blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+    fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
+
+    if( FD_UNLIKELY( err == FD_MAP_ERR_FULL )){
+      FD_LOG_ERR(( "[%s] OOM: failed to insert new block map entry. blockstore needs to save metadata for all slots >= SMR, so increase memory or check for issues with publishing new SMRs.", __func__ ));
+    }
 
     /* Initialize the block_map_entry. Note some fields are initialized
        to dummy values because we do not have all the necessary metadata
@@ -1241,7 +1278,11 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
     fd_block_set_null( block_map_entry->data_complete_idxs );
 
     block_map_entry->block_gaddr    = 0;
+    fd_block_map_publish( query );
   }
+
+  err = fd_block_map_prepare( blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+  fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );   /* should be impossible for this to fail */
 
   FD_LOG_DEBUG(( "shred: (%lu, %u). consumed: %u, received: %u, complete: %u",
                  shred->slot,
@@ -1278,17 +1319,24 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
     block_map_entry->slot_complete_idx = shred->idx;
   }
 
+  ulong consumed_idx      = block_map_entry->consumed_idx;
+  ulong slot_complete_idx = block_map_entry->slot_complete_idx;
+  ulong parent_slot       = block_map_entry->parent_slot;
+  fd_block_map_publish( query );
+
   /* Update ancestry metadata: parent_slot, is_connected, next_slot. */
 
-  fd_block_map_t * parent_block_map_entry = fd_blockstore_block_map_query( blockstore, block_map_entry->parent_slot );
+  err = fd_block_map_prepare( blockstore->block_map, &parent_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+  fd_block_meta_t * parent_block_map_entry = fd_block_map_query_ele( query );
 
   /* Add this slot to its parent's child slots if not already there. */
 
-  if( FD_LIKELY( parent_block_map_entry ) ) {
+  if( FD_LIKELY( parent_block_map_entry ) ) { // TODO: check fishiness
     int found = 0;
     for( ulong i = 0; i < parent_block_map_entry->child_slot_cnt; i++ ) {
       if( FD_LIKELY( parent_block_map_entry->child_slots[i] == slot ) ) {
         found = 1;
+        break;
       }
     }
     if( FD_UNLIKELY( !found ) ) {
@@ -1300,6 +1348,7 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
       parent_block_map_entry->child_slots[parent_block_map_entry->child_slot_cnt++] = slot;
     }
   }
+  fd_block_map_publish( query );
 
   // if ( fd_buf_shred_pool_verify( blockstore->shred_pool ) != FD_POOL_SUCCESS || fd_buf_shred_map_verify ( blockstore->shred_map  ) != FD_MAP_SUCCESS ) {
   //   FD_LOG_NOTICE(( "slot %lu idx %u", shred->slot, shred->idx ));
@@ -1307,8 +1356,8 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
   // }
 
 
-  if( FD_LIKELY( block_map_entry->consumed_idx == UINT_MAX ||
-                 block_map_entry->consumed_idx != block_map_entry->slot_complete_idx ) ) {
+  if( FD_LIKELY( consumed_idx == UINT_MAX ||
+                 consumed_idx != slot_complete_idx ) ) {
     return FD_BLOCKSTORE_OK;
   }
 
@@ -1348,6 +1397,18 @@ fd_blockstore_shred_test( fd_blockstore_t * blockstore, ulong slot, uint idx ) {
   }
 }
 
+int
+fd_blockstore_block_map_test( fd_blockstore_t * blockstore, ulong slot ) {
+  fd_block_map_query_t query[1] = { 0 };
+
+  for(;;) {
+    int err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, query, 0 );
+    if( err == FD_MAP_ERR_KEY ) return 0;
+
+    if( FD_LIKELY( !fd_block_map_query_test( query ) ) ) return err != FD_MAP_ERR_KEY;
+  }
+}
+
 long
 fd_buf_shred_query_copy_data( fd_blockstore_t * blockstore, ulong slot, uint idx, void * buf, ulong buf_sz ) {
   if( buf_sz < FD_SHRED_MAX_SZ ) return -1;
@@ -1376,40 +1437,63 @@ fd_blockstore_block_query( fd_blockstore_t * blockstore, ulong slot ) {
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), query->block_gaddr );
 }
 
-fd_hash_t const *
-fd_blockstore_block_hash_query( fd_blockstore_t * blockstore, ulong slot ) {
-  fd_block_map_t * query =
-      fd_block_map_query( fd_blockstore_block_map( blockstore ), &slot, NULL );
-  if( FD_UNLIKELY( !query || query->block_gaddr == 0 ) ) return NULL;
-  return &query->block_hash;
+int
+fd_blockstore_block_hash_query( fd_blockstore_t * blockstore, ulong slot, fd_hash_t * hash_out ) {
+  int err = FD_MAP_ERR_AGAIN;
+  while( err == FD_MAP_ERR_AGAIN ){
+    fd_block_map_query_t query[1] = { 0 };
+    err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, query, 0 );
+    fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
+
+    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
+
+    fd_memcpy( hash_out, &block_map_entry->block_hash, sizeof( fd_hash_t ) );
+    err = fd_block_map_query_test( query );
+
+    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
+  }
+  return FD_BLOCKSTORE_OK;
 }
 
-fd_hash_t const *
-fd_blockstore_bank_hash_query( fd_blockstore_t * blockstore, ulong slot ) {
-  fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, slot );
-  if( FD_UNLIKELY( !block_map_entry ) ) return NULL;
-  return &block_map_entry->bank_hash;
+int
+fd_blockstore_bank_hash_query( fd_blockstore_t * blockstore, ulong slot, fd_hash_t * hash_out ) {
+  int err = FD_MAP_ERR_AGAIN;
+  while( err == FD_MAP_ERR_AGAIN ){
+    fd_block_map_query_t query[1] = { 0 };
+    err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, query, 0 );
+    fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
+
+    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
+
+    fd_memcpy( hash_out, &block_map_entry->bank_hash, sizeof( fd_hash_t ) );
+    err = fd_block_map_query_test( query );
+
+    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
+  }
+  return FD_BLOCKSTORE_OK;
 }
 
 fd_block_map_t *
-fd_blockstore_block_map_query( fd_blockstore_t * blockstore, ulong slot ) {
+fd_blockstore_block_map_query_bye( fd_blockstore_t * blockstore, ulong slot ) { /* TODO KMSSSSSS*/
   return fd_block_map_query( fd_blockstore_block_map( blockstore ), &slot, NULL );
 }
 
 ulong
 fd_blockstore_parent_slot_query( fd_blockstore_t * blockstore, ulong slot ) {
-  fd_block_map_t * query = fd_blockstore_block_map_query( blockstore, slot );
-  if( FD_UNLIKELY( !query ) ) return FD_SLOT_NULL;
-  return query->parent_slot;
-}
+  int err = FD_MAP_ERR_AGAIN;
+  ulong parent_slot = FD_SLOT_NULL;
+  while( err == FD_MAP_ERR_AGAIN ){
+    fd_block_map_query_t query[1] = { 0 };
+    err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, query, 0 );
+    fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
 
-int
-fd_blockstore_child_slots_query( fd_blockstore_t * blockstore, ulong slot, ulong ** slots_out, ulong * slot_cnt_out ) {
-  fd_block_map_t * query = fd_blockstore_block_map_query( blockstore, slot );
-  if( FD_UNLIKELY( !query ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
-  *slots_out    = query->child_slots;
-  *slot_cnt_out = query->child_slot_cnt;
-  return FD_BLOCKSTORE_OK;
+    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return FD_SLOT_NULL;
+    parent_slot = block_map_entry->parent_slot;
+    err = fd_block_map_query_test( query );
+
+    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return FD_SLOT_NULL;
+  }
+  return parent_slot;
 }
 
 int
@@ -1419,14 +1503,19 @@ fd_blockstore_batch_query( fd_blockstore_t * blockstore,
                            ulong             batch_data_max,
                            uchar *           batch_data_out,
                            ulong *           batch_data_sz ) {
-  fd_block_map_t * query = fd_blockstore_block_map_query( blockstore, slot );
-  if( FD_UNLIKELY( !query ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
+
+  fd_block_map_query_t quer[1] = { 0 };
+  int err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, quer, FD_MAP_FLAG_BLOCKING );
+  fd_block_meta_t * query = fd_block_map_query_ele( quer );
+  if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
+
   if( batch_idx > 0 ) { /* verify that the batch_idx provided is actually the start of a batch */
     fd_block_set_t * data_complete_idxs = query->data_complete_idxs;
     if ( !fd_block_set_test( data_complete_idxs, batch_idx - 1 ) || batch_idx > query->slot_complete_idx ) {
       return FD_BLOCKSTORE_ERR_SHRED_INVALID;
     }
   }
+  // end, query_test. TODO: make not blocking 
 
   ulong mbatch_sz = 0;
   for (uint idx = batch_idx; ; idx++) {
@@ -1463,15 +1552,23 @@ fd_blockstore_batch_query( fd_blockstore_t * blockstore,
   return FD_BLOCKSTORE_OK;
 }
 
-bool
+int
 fd_blockstore_shreds_complete( fd_blockstore_t * blockstore, ulong slot ){
-  bool block_exists = fd_blockstore_block_query( blockstore,  slot );
+  //fd_block_t * block_exists = fd_blockstore_block_query( blockstore,  slot );
 
-  fd_block_map_t * query = fd_blockstore_block_map_query( blockstore, slot );
-  if( FD_UNLIKELY( !query || query->consumed_idx == FD_SHRED_IDX_NULL ) ) {
-    FD_TEST( !block_exists ); /* FIXME remove after blockstore refactor */
-    return false;
+  fd_block_map_query_t query[1];
+  int complete = 0;
+  int err     = FD_MAP_ERR_AGAIN;
+  while( err == FD_MAP_ERR_AGAIN ){
+    err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, query, 0 );
+    fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
+    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return 0;
+    complete = ( block_map_entry->consumed_idx != FD_SHRED_IDX_NULL ) && 
+               ( block_map_entry->slot_complete_idx == block_map_entry->consumed_idx );
+    err = fd_block_map_query_test( query );
+    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return 0;
   }
+  return complete;
 
   /* When replacing block_query( slot ) != NULL with this function:
      There are other things verified in a successful deshred & scan block that are not verified here. 
@@ -1485,7 +1582,6 @@ fd_blockstore_shreds_complete( fd_blockstore_t * blockstore, ulong slot ){
      Should be careful in places that call this now that happen before the block is replayed, if we want
      to assume the shreds are well-formed we can't. */
 
-  return query->slot_complete_idx == query->consumed_idx;
 }
 
 
@@ -1550,7 +1646,7 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
     return FD_BLOCKSTORE_OK;
   }
 
-  fd_block_map_t const * block_map = fd_blockstore_block_map( blockstore );
+  /*fd_block_map_t const * block_map = fd_blockstore_block_map( blockstore );
   uchar * prev_data_out = NULL;
   ulong prev_sz = 0;
   for(;;) {
@@ -1585,9 +1681,9 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
       prev_data_out = data_out = fd_valloc_malloc( alloc, 128UL, sz );
       prev_sz = sz;
     }
-    if( FD_UNLIKELY( data_out == NULL ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
+    if( FD_UNLIKELY( data_out == NULL ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;*/
     /* sets data_out to block data */
-    ulong    batch_idx = 0;
+    /*ulong    batch_idx = 0;
     ulong     batch_sz = 0;
     ulong total_blk_sz = 0;
     while( batch_idx <= query->slot_complete_idx ){
@@ -1629,7 +1725,7 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
     }
 
     return FD_BLOCKSTORE_OK;
-  }
+  }*/
 }
 
 
@@ -1672,20 +1768,19 @@ fd_blockstore_block_map_query_volatile( fd_blockstore_t * blockstore,
     return FD_BLOCKSTORE_OK;
   }
 
-  fd_block_map_t const * block_map = fd_blockstore_block_map( blockstore );
-  for(;;) {
-    uint seqnum;
-    if( FD_UNLIKELY( fd_rwseq_start_concur_read( &blockstore->shmem->lock, &seqnum ) ) ) continue;
-    fd_block_map_t const * query = fd_block_map_query_safe( block_map, &slot, NULL );
-    if( FD_UNLIKELY( !query ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
-    memcpy( block_map_entry_out, query, sizeof( fd_block_map_t ) );
-    ulong blk_gaddr = query->block_gaddr;
-    if( FD_UNLIKELY( !blk_gaddr ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
+  int err = FD_MAP_ERR_AGAIN;
+  while( err == FD_MAP_ERR_AGAIN ) {
+    fd_block_map_query_t quer[1] = { 0 };
+    err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, quer, 0 );
+    fd_block_meta_t const * query = fd_block_map_query_ele_const( quer );
+    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
 
-    if( FD_UNLIKELY( fd_rwseq_check_concur_read( &blockstore->shmem->lock, seqnum ) ) ) continue;
+    fd_memcpy( block_map_entry_out, query, sizeof( fd_block_meta_t ) );
 
-    return FD_BLOCKSTORE_OK;
+    err = fd_block_map_query_test( quer );
+    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
   }
+  return FD_BLOCKSTORE_OK;
 }
 
 fd_txn_map_t *
@@ -1710,8 +1805,6 @@ fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore,
      location is valid. As long as we don't crash, we can validate the
      data after it is read. */
   fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
-
-  fd_block_map_t const * block_map = fd_blockstore_block_map( blockstore );
   fd_txn_map_t * txn_map = fd_blockstore_txn_map( blockstore );
 
   for(;;) {
@@ -1789,22 +1882,42 @@ fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore,
 
 void
 fd_blockstore_block_height_update( fd_blockstore_t * blockstore, ulong slot, ulong height ) {
-  fd_block_map_t * query = fd_blockstore_block_map_query( blockstore, slot );
-  if( FD_LIKELY( query )) query->block_height = height;
+  fd_block_map_query_t query[1] = { 0 };
+  int err = fd_block_map_prepare( blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+  fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
+  if( FD_UNLIKELY( err || block_map_entry->slot != slot ) ) return;
+  block_map_entry->block_height = height;
+  fd_block_map_publish( query );
 }
 
 void
 fd_blockstore_log_block_status( fd_blockstore_t * blockstore, ulong around_slot ) {
+  fd_block_map_query_t query[1] = { 0 };
+  uint received_idx = 0;
+  uint consumed_idx = 0;
+  uint slot_complete_idx = 0;
+
   for( ulong i = around_slot - 5; i < around_slot + 20; ++i ) {
-    fd_block_map_t * slot_entry =
-        fd_block_map_query( fd_blockstore_block_map( blockstore ), &i, NULL );
-    if( !slot_entry ) continue;
+    int err = FD_MAP_ERR_AGAIN;
+    while( err == FD_MAP_ERR_AGAIN ){
+      int err = fd_block_map_query_try( blockstore->block_map, &i, NULL, query, 0 );
+      fd_block_meta_t * slot_entry = fd_block_map_query_ele( query );
+      if( err == FD_MAP_ERR_KEY ) break;
+      received_idx = slot_entry->received_idx;
+      consumed_idx = slot_entry->consumed_idx;
+      slot_complete_idx = slot_entry->slot_complete_idx;
+      err = fd_block_map_query_test( query );
+      if( err == FD_MAP_ERR_KEY ) break;
+    }
+
+    if( err == FD_MAP_ERR_KEY ) continue;
+    
     FD_LOG_NOTICE(( "%sslot=%lu received=%u consumed=%u finished=%u",
                     ( i == around_slot ? "*" : " " ),
                     i,
-                    slot_entry->received_idx,
-                    slot_entry->consumed_idx,
-                    slot_entry->slot_complete_idx ));
+                    received_idx,
+                    consumed_idx,
+                    slot_complete_idx ));
   }
 }
 
@@ -1838,14 +1951,16 @@ fd_blockstore_log_mem_usage( fd_blockstore_t * blockstore ) {
                   fd_smart_size( fd_buf_shred_map_footprint( shred_map_cnt ), tmp1, sizeof(tmp1) ),
                   shred_map_cnt,
                   (double)shred_map_cnt) );
-  fd_block_map_t * slot_map = fd_blockstore_block_map( blockstore );
+
+  /*fd_block_map_t * slot_map = fd_blockstore_block_map( blockstore );
   ulong slot_map_cnt = fd_block_map_key_cnt( slot_map );
   ulong slot_map_max = fd_block_map_key_max( slot_map );
   FD_LOG_NOTICE(( "slot map footprint: %s (%lu entries used out of %lu, %lu%%)",
                   fd_smart_size( fd_block_map_footprint( slot_map_max ), tmp1, sizeof(tmp1) ),
                   slot_map_cnt,
                   slot_map_max,
-                  (100U*slot_map_cnt)/slot_map_max ));
+                  (100U*slot_map_cnt)/slot_map_max )); */
+
   fd_txn_map_t * txn_map = fd_blockstore_txn_map( blockstore );
   ulong txn_map_cnt = fd_txn_map_key_cnt( txn_map );
   ulong txn_map_max = fd_txn_map_key_max( txn_map );
@@ -1879,6 +1994,19 @@ fd_blockstore_log_mem_usage( fd_blockstore_t * blockstore ) {
 
     ulong * child_slots    = NULL;
     ulong   child_slot_cnt = 0;
+
+/**
+
+
+static int
+fd_blockstore_child_slots_query( fd_blockstore_t * blockstore, ulong slot, ulong ** slots_out, ulong * slot_cnt_out ) {
+  fd_block_map_t * query = fd_blockstore_block_map_query( blockstore, slot );
+  if( FD_UNLIKELY( !query ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
+  *slots_out    = query->child_slots;
+  *slot_cnt_out = query->child_slot_cnt;
+  return FD_BLOCKSTORE_OK;
+}
+ */
     int     rc = fd_blockstore_child_slots_query( blockstore, curr, &child_slots, &child_slot_cnt );
     if( FD_UNLIKELY( rc != FD_BLOCKSTORE_OK ) ) {
       continue;
