@@ -27,8 +27,8 @@
 
 typedef struct {
   ulong   struct_size;
-  ulong * cleaned_up_features;
-  ulong   cleaned_up_feature_cnt;
+  ulong * hardcoded_features;
+  ulong   hardcoded_features_cnt;
   ulong * supported_features;
   ulong   supported_feature_cnt;
 } sol_compat_features_t;
@@ -78,15 +78,16 @@ sol_compat_wksp_init( ulong wksp_page_sz ) {
   FD_TEST( spad_mem );
 
   features.struct_size         = sizeof(sol_compat_features_t);
-  features.cleaned_up_features = fd_wksp_alloc_laddr( wksp, 8UL, FD_FEATURE_ID_CNT * sizeof(ulong), WKSP_INIT_ALLOC_TAG );
+  features.hardcoded_features = fd_wksp_alloc_laddr( wksp, 8UL, FD_FEATURE_ID_CNT * sizeof(ulong), WKSP_INIT_ALLOC_TAG );
   features.supported_features  = fd_wksp_alloc_laddr( wksp, 8UL, FD_FEATURE_ID_CNT * sizeof(ulong), WKSP_INIT_ALLOC_TAG );
 
   for( const fd_feature_id_t * current_feature = fd_feature_iter_init(); !fd_feature_iter_done( current_feature ); current_feature = fd_feature_iter_next( current_feature ) ) {
     // Skip reverted features
     if( current_feature->reverted ) continue;
 
-    if( current_feature->cleaned_up[0]!=UINT_MAX ) {
-      memcpy( &features.cleaned_up_features[features.cleaned_up_feature_cnt++], &current_feature->id, sizeof(ulong) );
+    // Only hardcode features that are activated on all clusters
+    if( current_feature->activated_on_all_clusters ) {
+      memcpy( &features.hardcoded_features[features.hardcoded_features_cnt++], &current_feature->id, sizeof(ulong) );
     } else {
       memcpy( &features.supported_features[features.supported_feature_cnt++], &current_feature->id, sizeof(ulong) );
     }
@@ -96,7 +97,7 @@ sol_compat_wksp_init( ulong wksp_page_sz ) {
 void
 sol_compat_fini( void ) {
   fd_wksp_free_laddr( spad_mem );
-  fd_wksp_free_laddr( features.cleaned_up_features );
+  fd_wksp_free_laddr( features.hardcoded_features );
   fd_wksp_free_laddr( features.supported_features );
   fd_wksp_delete_anonymous( wksp );
   wksp     = NULL;
@@ -672,7 +673,7 @@ sol_compat_vm_syscall_execute_v1( uchar *       out,
     sol_compat_cleanup_runner( runner );
     return 0;
   }
-  
+
   int ok = 0;
   FD_SPAD_FRAME_BEGIN( runner->spad ) {
   // Execute
