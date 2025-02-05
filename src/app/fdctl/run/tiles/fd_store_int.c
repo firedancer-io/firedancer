@@ -421,8 +421,8 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
     out_buf += sizeof(fd_hash_t);
 
     FD_SCRATCH_SCOPE_BEGIN {
-      ulong caught_up = slot > ctx->store->first_turbine_slot;
-      ulong behind = ctx->store->curr_turbine_slot - slot;
+      ctx->metrics.first_turbine_slot = ctx->store->first_turbine_slot;
+      ctx->metrics.current_turbine_slot = ctx->store->curr_turbine_slot;
 
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
       ulong caught_up_flag = (ctx->store->curr_turbine_slot - slot)<4 ? 0UL : REPLAY_FLAG_CATCHING_UP;
@@ -434,49 +434,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
         replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK );
         FD_LOG_INFO(( "packed block prepared - slot: %lu, mblks: %lu, blockhash: %s, txn_cnt: %lu, shred_cnt: %lu, data_sz: %lu", slot, block->micros_cnt, FD_BASE58_ENC_32_ALLOCA( block_hash->uc ), block->txns_cnt, block->shreds_cnt, block->data_sz ));
       } else {
-
-        fd_txn_p_t * txns = fd_type_pun( out_buf );
-        FD_LOG_DEBUG(( "first turbine: %lu, current received turbine: %lu, behind: %lu current "
-                        "executed: %lu, caught up: %lu",
-                        ctx->store->first_turbine_slot,
-                        ctx->store->curr_turbine_slot,
-                        behind,
-                        slot,
-                        caught_up ));
-
-        ctx->metrics.first_turbine_slot = ctx->store->first_turbine_slot;
-        ctx->metrics.current_turbine_slot = ctx->store->curr_turbine_slot;
-        /* Calls fd_txn_parse_core on every txn in the block and copies the result into the mcache/dcache
-           sent to the replay tile, sending a maximum of 4096 transactions to the replay tile at a time */
-        fd_raw_block_txn_iter_t iter;
-        fd_txn_iter_t * query = fd_txn_iter_map_query( ctx->txn_iter_map, slot, NULL);
-        if( FD_LIKELY( query ) ) {
-          iter = query->iter;
-        } else {
-          iter = fd_raw_block_txn_iter_init(
-            fd_blockstore_block_data_laddr( ctx->blockstore, block ),
-            fd_blockstore_block_batch_laddr( ctx->blockstore, block ),
-            block->batch_cnt
-          );
-        }
-
-        for( ; !fd_raw_block_txn_iter_done( iter ); iter = fd_raw_block_txn_iter_next( iter ) ) {
-          /* TODO: remove magic number for txns per send */
-          if( txn_cnt == 4096 ) break;
-          fd_raw_block_txn_iter_ele( iter, txns + txn_cnt );
-          txn_cnt++;
-        }
-
-        if( FD_LIKELY( query ) )
-            fd_txn_iter_map_remove( ctx->txn_iter_map, query );
-
-        if( FD_LIKELY( !fd_raw_block_txn_iter_done( iter ) ) ) {
-          fd_txn_iter_t * insert = fd_txn_iter_map_insert( ctx->txn_iter_map, slot );
-          insert->iter = iter;
-        } else {
-          replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
-        }
-        FD_LOG_INFO(( "block prepared - slot: %lu, mblks: %lu, blockhash: %s, txn_cnt: %lu, shred_cnt: %lu", slot, block->micros_cnt, FD_BASE58_ENC_32_ALLOCA( block_hash->uc ), txn_cnt, block->shreds_cnt ));
+        replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
       }
 
       out_buf += sizeof(ulong);
