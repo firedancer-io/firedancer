@@ -115,7 +115,7 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
 
   /* The instr_infos for the entire transaction are allocated at the start of
      the transaction. However, this must preserve a different counter because
-     the top level instructions must get set up at once. The instruction 
+     the top level instructions must get set up at once. The instruction
      error check on a maximum instruction size can be done on the
      instr_info_cnt instead of the instr_trace_length because it is a proxy
      for the trace_length: the instr_info_cnt gets incremented faster than
@@ -140,7 +140,19 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
 
 FD_PROTOTYPES_BEGIN
 
+/* Error logging handholding assertions */
+
+#ifdef FD_RUNTIME_ERR_HANDHOLDING
+/* Asserts that the error and error kind are not populated (zero) */
+#define FD_TXN_TEST_ERR_OVERWRITE( txn_ctx )                           \
+    FD_TEST( !txn_ctx->exec_err );                                     \
+    FD_TEST( !txn_ctx->exec_err_kind )
+#else
+#define FD_TXN_TEST_ERR_OVERWRITE( txn_ctx ) ( ( void )0 )
+#endif
+
 #define FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, idx ) (__extension__({ \
+    FD_TXN_TEST_ERR_OVERWRITE( txn_ctx );                              \
     txn_ctx->exec_err = err;                                           \
     txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR;               \
     txn_ctx->instr_err_idx = idx;                                      \
@@ -160,7 +172,7 @@ fd_exec_txn_ctx_delete( void * mem );
 
 /* Sets up a basic transaction ctx without a txn descriptor or txn raw. Useful
    for mocking transaction context objects for instructions. */
-void 
+void
 fd_exec_txn_ctx_setup_basic( fd_exec_txn_ctx_t * txn_ctx );
 
 void
@@ -202,12 +214,12 @@ fd_txn_borrowed_account_executable_view( fd_exec_txn_ctx_t * ctx,
                               fd_borrowed_account_t * * account );
 
 /* The fee payer is a valid modifiable account if it is passed in as writable
-   in the message via a valid signature. We ignore if the account has been 
-   demoted or not (see fd_txn_account_is_writable_idx) for more details. 
+   in the message via a valid signature. We ignore if the account has been
+   demoted or not (see fd_txn_account_is_writable_idx) for more details.
    Agave and Firedancer will reject the fee payer if the transaction message
    doesn't have a writable signature. */
 int
-fd_txn_borrowed_account_modify_fee_payer( fd_exec_txn_ctx_t *       ctx, 
+fd_txn_borrowed_account_modify_fee_payer( fd_exec_txn_ctx_t *       ctx,
                                           fd_borrowed_account_t * * account );
 
 int
@@ -225,14 +237,14 @@ fd_exec_txn_ctx_reset_return_data( fd_exec_txn_ctx_t * txn_ctx );
 
 /* In agave, the writable accounts cache is populated by this below function.
    This cache is then referenced to determine if a transaction account is
-   writable or not. 
-   
+   writable or not.
+
    The overall logic is as follows: an account can be passed
    in as writable based on the signature and readonly signature as they are
    passed in by the transaction message. However, the account's writable
    status will be demoted if either of the two conditions are met:
    1. If the account is in the set of reserved pubkeys
-   2. If the account is the program id AND the upgradeable loader account is in 
+   2. If the account is the program id AND the upgradeable loader account is in
       the set of transaction accounts. */
 /* https://github.com/anza-xyz/agave/blob/v2.1.1/sdk/program/src/message/versions/v0/loaded.rs#L137-L150 */
 int

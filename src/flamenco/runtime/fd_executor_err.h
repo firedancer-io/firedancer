@@ -3,9 +3,10 @@
 
 /* Instruction error types */
 
-#define FD_EXECUTOR_ERR_KIND_EBPF    (0)
-#define FD_EXECUTOR_ERR_KIND_SYSCALL (1)
-#define FD_EXECUTOR_ERR_KIND_INSTR   (2)
+#define FD_EXECUTOR_ERR_KIND_NONE    (0)
+#define FD_EXECUTOR_ERR_KIND_EBPF    (1)
+#define FD_EXECUTOR_ERR_KIND_SYSCALL (2)
+#define FD_EXECUTOR_ERR_KIND_INSTR   (3)
 
 /* Instruction error codes */
 

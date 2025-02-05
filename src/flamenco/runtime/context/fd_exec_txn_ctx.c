@@ -142,8 +142,8 @@ fd_txn_borrowed_account_executable_view( fd_exec_txn_ctx_t * ctx,
                                          fd_borrowed_account_t * * account ) {
   /* First try to fetch the executable account from the existing borrowed accounts.
      If the pubkey is in the account keys, then we want to re-use that
-     borrowed account since it reflects changes from prior instructions. Referencing the 
-     read-only executable accounts list is incorrect behavior when the program 
+     borrowed account since it reflects changes from prior instructions. Referencing the
+     read-only executable accounts list is incorrect behavior when the program
      data account is written to in a prior instruction (e.g. program upgrade + invoke within the same txn) */
   int err = fd_txn_borrowed_account_view( ctx, pubkey, account );
   if( FD_UNLIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
@@ -167,7 +167,7 @@ fd_txn_borrowed_account_executable_view( fd_exec_txn_ctx_t * ctx,
 }
 
 int
-fd_txn_borrowed_account_modify_fee_payer( fd_exec_txn_ctx_t *       ctx, 
+fd_txn_borrowed_account_modify_fee_payer( fd_exec_txn_ctx_t *       ctx,
                                           fd_borrowed_account_t * * account ) {
 
   *account = &ctx->borrowed_accounts[ FD_FEE_PAYER_TXN_IDX ];
@@ -251,7 +251,7 @@ fd_exec_txn_ctx_setup_basic( fd_exec_txn_ctx_t * txn_ctx ) {
   txn_ctx->instr_trace_length = 0;
 
   txn_ctx->exec_err      = 0;
-  txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_EBPF;
+  txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_NONE;
 }
 
 void
@@ -319,7 +319,7 @@ fd_txn_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, int idx ) {
   }
 
   if( fd_pubkey_is_active_reserved_key(&txn_ctx->accounts[idx] ) ||
-      ( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, add_new_reserved_account_keys ) && 
+      ( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, add_new_reserved_account_keys ) &&
                            fd_pubkey_is_pending_reserved_key( &txn_ctx->accounts[idx] ) )) {
     return 0;
   }

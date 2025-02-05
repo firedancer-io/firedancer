@@ -859,11 +859,8 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   fd_instruction_account_t instruction_accounts[256];
   ulong instruction_accounts_cnt;
   err = fd_vm_prepare_instruction( vm->instr_ctx->instr, instruction_to_execute, vm->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
-  if( FD_UNLIKELY( err ) ) {
-    /* We should propagate the instruction error from fd_vm_prepare_instruction. */
-    FD_VM_ERR_FOR_LOG_INSTR( vm, err );
-    return err;
-  }
+  /* Errors are propagated in the function itself. */
+  if( FD_UNLIKELY( err ) ) return err;
 
   /* Authorized program check *************************************************/
 
@@ -958,11 +955,8 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   *_ret = instr_exec_res;
 
-  if( FD_UNLIKELY( err_exec ) ) {
-    /* We should propagate the instruction error from fd_execute_instr. */
-    FD_VM_ERR_FOR_LOG_INSTR( vm, err_exec );
-    return err_exec;
-  }
+  /* Errors are propagated in fd_execute_instr. */
+  if( FD_UNLIKELY( err_exec ) ) return err_exec;
 
   /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/syscalls/cpi.rs#L1128-L1145 */
   /* Update all account permissions before updating the account data updates.

@@ -33,6 +33,7 @@ test_vm_syscall_sol_memset( char const * test_case_name,
     FD_TEST( !memcmp( (void *)dst_haddr, expected_block, sz ) );
   }
 
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
@@ -55,6 +56,7 @@ test_vm_syscall_sol_memcpy( char const * test_case_name,
 
   if( !ret && !err ) FD_TEST( !memcmp( (void *)dst_haddr, (void *)src_haddr, sz ) );
 
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
@@ -77,6 +79,7 @@ test_vm_syscall_sol_memcmp( char const * test_case_name,
 
   if( !ret && !err ) FD_TEST( memcmp( (void *)haddr_1, (void *)haddr_2, sz )==*(int *)(host_cmp_result_addr) );
 
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
@@ -104,6 +107,7 @@ test_vm_syscall_sol_memmove( char const * test_case_name,
 
   free( temp );
 
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
@@ -129,6 +133,7 @@ test_vm_syscall_sol_log( char const *            test_case_name,
     fd_log_collector_debug_get( log, log_vec_len, &msg, &msg_sz );
     FD_TEST( msg_sz==expected_log_sz && !memcmp( msg, expected_log, msg_sz ) );
   }
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
@@ -157,6 +162,7 @@ test_vm_syscall_sol_log_64( char const *            test_case_name,
     fd_log_collector_debug_get( log, log_vec_len, &msg, &msg_sz );
     FD_TEST( msg_sz==expected_log_sz && !memcmp( msg, expected_log, msg_sz ) );
   }
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 
@@ -182,6 +188,8 @@ test_vm_syscall_sol_log_data( char const *            test_case_name,
     fd_log_collector_debug_get( log, log_vec_len, &msg, &msg_sz );
     FD_TEST( msg_sz==expected_log_sz && !memcmp( msg, expected_log, msg_sz ) );
   }
+
+  test_vm_clear_txn_ctx_err( vm->instr_ctx->txn_ctx );
   FD_LOG_NOTICE(( "Passed test program (%s)", test_case_name ));
 }
 

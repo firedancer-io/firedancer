@@ -1573,7 +1573,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
       effects->error = (exec_err <= 0) ? -exec_err : -1;
 
       /* Map error kind, equivalent to:
-          effects->error_kind = (fd_exec_test_err_kind_t)(vm->instr_ctx->txn_ctx->exec_err_kind + 1); */
+          effects->error_kind = (fd_exec_test_err_kind_t)(vm->instr_ctx->txn_ctx->exec_err_kind); */
       switch (vm->instr_ctx->txn_ctx->exec_err_kind) {
         case FD_EXECUTOR_ERR_KIND_EBPF:
           effects->error_kind = FD_EXEC_TEST_ERR_KIND_EBPF;

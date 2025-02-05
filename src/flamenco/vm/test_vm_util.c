@@ -61,3 +61,10 @@ test_vm_exec_instr_ctx_delete(
 
   return;
 }
+
+void
+test_vm_clear_txn_ctx_err( fd_exec_txn_ctx_t * txn_ctx ) {
+  txn_ctx->exec_err      = 0;
+  txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_NONE;
+  return;
+}

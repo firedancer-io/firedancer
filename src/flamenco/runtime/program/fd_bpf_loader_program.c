@@ -654,8 +654,9 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
   ulong syscall_err = vm->reg[0];
   if( FD_UNLIKELY( syscall_err ) ) {
     /* https://github.com/anza-xyz/agave/blob/v2.0.9/programs/bpf_loader/src/lib.rs#L1431-L1434 */
-    instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR;
-    return program_error_to_instr_error( syscall_err, &instr_ctx->txn_ctx->custom_err );
+    int err = program_error_to_instr_error( syscall_err, &instr_ctx->txn_ctx->custom_err );
+    FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+    return err;
   }
 
   int err;

@@ -36,6 +36,7 @@ LOAD_ELF( duplicate_entrypoint_entry )
 
 void test_duplicate_entrypoint_entry( void ) {
   // TODO: boilerplate
+  fd_scratch_push();
   fd_valloc_t valloc = fd_scratch_virtual();
   fd_sbpf_elf_info_t info;
 
