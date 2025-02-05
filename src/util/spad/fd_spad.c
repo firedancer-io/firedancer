@@ -68,7 +68,8 @@ void *
 fd_spad_alloc_debug( fd_spad_t * spad,
                      ulong       align,
                      ulong       sz ) {
-  if( FD_UNLIKELY( !fd_spad_frame_used( spad )               ) ) FD_LOG_CRIT(( "not in a frame"  ));
+  if( FD_UNLIKELY( !fd_spad_frame_used( spad )               ) )
+    FD_LOG_CRIT(( "not in a frame"  ));
   if( FD_UNLIKELY( (!!align) & (!fd_ulong_is_pow2( align ) ) ) ) FD_LOG_CRIT(( "bad align"       ));
   if( FD_UNLIKELY( fd_spad_alloc_max( spad, align )<sz       ) ) FD_LOG_CRIT(( "bad sz"          ));
   return fd_spad_alloc_impl( spad, align, sz );

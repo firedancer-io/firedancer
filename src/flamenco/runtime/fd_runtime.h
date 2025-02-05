@@ -66,6 +66,7 @@ struct fd_execute_txn_task_info {
   fd_exec_txn_ctx_t * txn_ctx;
   fd_txn_p_t *        txn;
   int                 exec_res;
+  fd_spad_t *         spad;
 };
 typedef struct fd_execute_txn_task_info fd_execute_txn_task_info_t;
 
@@ -411,18 +412,28 @@ fd_runtime_process_txns( fd_exec_slot_ctx_t * slot_ctx,
                          fd_spad_t *          exec_spad,
                          fd_spad_t *          runtime_spad );
 
-// /* fd_runtime_execute_txns_in_waves_tpool is responsible for end-to-end
-//    preparing, executing and finalizng a list of transactions. It assumes that
-//    all transactions are conflict-free. */
-// int
-// fd_runtime_process_txns_in_microblock( fd_exec_slot_ctx_t * slot_ctx,
-//                                        fd_capture_ctx_t *   capture_ctx,
-//                                        fd_txn_p_t *         all_txns,
-//                                        ulong                total_txn_cnt,
-//                                        fd_tpool_t *         tpool,
-//                                        fd_spad_t * *        exec_spads,
-//                                        ulong                exec_spad_cnt,
-//                                        fd_spad_t *          runtime_spad );
+int
+fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
+                                              fd_capture_ctx_t *   capture_ctx,
+                                              fd_txn_p_t *         txns,
+                                              ulong                txn_cnt,
+                                              fd_tpool_t *         tpool,
+                                              fd_spad_t * *        exec_spads,
+                                              ulong                exec_spad_cnt,
+                                              fd_spad_t *          runtime_spad );
+
+/* fd_runtime_execute_txns_in_waves_tpool is responsible for end-to-end
+   preparing, executing and finalizng a list of transactions. It assumes that
+   all transactions are conflict-free. */
+int
+fd_runtime_process_txns_in_microblock( fd_exec_slot_ctx_t * slot_ctx,
+                                       fd_capture_ctx_t *   capture_ctx,
+                                       fd_txn_p_t *         all_txns,
+                                       ulong                total_txn_cnt,
+                                       fd_tpool_t *         tpool,
+                                       fd_spad_t * *        exec_spads,
+                                       ulong                exec_spad_cnt,
+                                       fd_spad_t *          runtime_spad );
 
 /* fd_runtime_execute_txns_in_waves_tpool is responsible for end-to-end
    preparing, executing and finalizng a list of transactions. It will schedule
