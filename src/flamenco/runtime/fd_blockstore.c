@@ -300,7 +300,7 @@ static int read_with_wraparound( fd_blockstore_archiver_t * archvr,
     *read_off = FD_BLOCKSTORE_ARCHIVE_START;
   }
 
-  return FD_BLOCKSTORE_OK;
+  return FD_BLOCKSTORE_SUCCESS;
 }
 
 static ulong
@@ -909,7 +909,7 @@ fd_blockstore_block_meta_restore( fd_blockstore_archiver_t * archvr,
                               &rsz,
                               &read_off );
   check_read_err_safe( err, "failed to read block" );
-  return FD_BLOCKSTORE_OK;
+  return FD_BLOCKSTORE_SUCCESS;
 }
 
 int
@@ -931,7 +931,7 @@ fd_blockstore_block_data_restore( fd_blockstore_archiver_t * archvr,
   ulong rsz;
   int err = read_with_wraparound( archvr, fd, buf_out, data_sz, &rsz, &data_off );
   check_read_err_safe( err, "failed to read block data" );
-  return FD_BLOCKSTORE_OK;
+  return FD_BLOCKSTORE_SUCCESS;
 }
 
 void
@@ -1163,7 +1163,7 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
   FD_LOG_NOTICE(("deshred publish2 for slot %lu", slot));
 
 
-  return FD_BLOCKSTORE_OK;
+  return FD_BLOCKSTORE_SUCCESS;
 }
 
 
@@ -1204,7 +1204,7 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
      SMR and its ancestors. */
 
   if( FD_UNLIKELY( shred->slot <= blockstore->shmem->smr ) ) {
-    return FD_BLOCKSTORE_OK;
+    return FD_BLOCKSTORE_SUCCESS;
   }
 
   /* Check if we already have this shred */
@@ -1219,12 +1219,12 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
 
     // if( FD_UNLIKELY( is_eqvoc_fec( &shred_->hdr, shred ) ) ) {
     //   FD_LOG_WARNING(( "equivocating shred detected %lu %u. halting.", shred->slot, shred->idx ));
-    //   return FD_BLOCKSTORE_OK;
+    //   return FD_BLOCKSTORE_SUCCESS;
     // }
 
     /* Short-circuit if we already have the shred. */
 
-    return FD_BLOCKSTORE_OK;
+    return FD_BLOCKSTORE_SUCCESS;
   }
   // FD_LOG_NOTICE(( "[%s] slot %lu idx %u", __func__, shred->slot, shred->idx ));
 
@@ -1369,7 +1369,7 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
 
   if( FD_LIKELY( consumed_idx == UINT_MAX ||
                  consumed_idx != slot_complete_idx ) ) {
-    return FD_BLOCKSTORE_OK;
+    return FD_BLOCKSTORE_SUCCESS;
   }
 
   /* Received all shreds, so try to assemble a block. */
@@ -1378,14 +1378,14 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
   int rc = deshred( blockstore, shred->slot );
 
   switch( rc ) {
-  case FD_BLOCKSTORE_OK:
-    return FD_BLOCKSTORE_OK_SLOT_COMPLETE;
+  case FD_BLOCKSTORE_SUCCESS:
+    return FD_BLOCKSTORE_SUCCESS_SLOT_COMPLETE;
   case FD_BLOCKSTORE_ERR_SLOT_FULL:
     FD_LOG_DEBUG(( "already deshredded slot %lu. ignoring.", shred->slot ));
-    return FD_BLOCKSTORE_OK;
+    return FD_BLOCKSTORE_SUCCESS;
   case FD_BLOCKSTORE_ERR_DESHRED_INVALID:
     FD_LOG_DEBUG(( "failed to deshred slot %lu. ignoring.", shred->slot ));
-    return FD_BLOCKSTORE_OK;
+    return FD_BLOCKSTORE_SUCCESS;
   default:
     /* FIXME */
     FD_LOG_ERR(( "deshred err %d", rc ));
@@ -1436,7 +1436,7 @@ fd_blockstore_block_meta_remove( fd_blockstore_t * blockstore, ulong slot ){
      err = fd_block_map_remove( blockstore->block_map, &slot, NULL, 0 );
      if( err == FD_MAP_ERR_KEY ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
    }
-  return FD_BLOCKSTORE_OK;
+  return FD_BLOCKSTORE_SUCCESS;
 }
 
 long
@@ -1485,7 +1485,7 @@ fd_blockstore_block_hash_query( fd_blockstore_t * blockstore, ulong slot, uchar 
     fd_memcpy( buf_out, &block_map_entry->block_hash, buf_sz );
     err = fd_block_map_query_test( query );
   }
-  return FD_BLOCKSTORE_OK;
+  return FD_BLOCKSTORE_SUCCESS;
 }
 
 int
@@ -1502,7 +1502,7 @@ fd_blockstore_bank_hash_query( fd_blockstore_t * blockstore, ulong slot, fd_hash
     fd_memcpy( hash_out, &block_map_entry->bank_hash, sizeof( fd_hash_t ) );
     err = fd_block_map_query_test( query );
   }
-  return FD_BLOCKSTORE_OK;
+  return FD_BLOCKSTORE_SUCCESS;
 }
 
 ulong
@@ -1574,7 +1574,7 @@ fd_blockstore_batch_query( fd_blockstore_t * blockstore,
     }
   }
   *batch_data_sz = mbatch_sz;
-  return FD_BLOCKSTORE_OK;
+  return FD_BLOCKSTORE_SUCCESS;
 }
 
 int
@@ -1668,7 +1668,7 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
     *block_rewards_out     = block_out.rewards;
     *block_data_out        = block_data;
     *block_data_sz_out     = block_out.data_sz;
-    return FD_BLOCKSTORE_OK;
+    return FD_BLOCKSTORE_SUCCESS;
   }
 
   uchar * prev_data_out = NULL;
@@ -1755,7 +1755,7 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
       }
     }
 
-    return FD_BLOCKSTORE_OK;
+    return FD_BLOCKSTORE_SUCCESS;
   }
 }
 
@@ -1796,7 +1796,7 @@ fd_blockstore_block_map_query_volatile( fd_blockstore_t * blockstore,
       FD_LOG_WARNING(( "failed to read block map entry" ));
       return FD_BLOCKSTORE_ERR_SLOT_MISSING;
     }
-    return FD_BLOCKSTORE_OK;
+    return FD_BLOCKSTORE_SUCCESS;
   }
 
   int err = FD_MAP_ERR_AGAIN;
@@ -1811,7 +1811,7 @@ fd_blockstore_block_map_query_volatile( fd_blockstore_t * blockstore,
     err = fd_block_map_query_test( quer );
     if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
   }
-  return FD_BLOCKSTORE_OK;
+  return FD_BLOCKSTORE_SUCCESS;
 }
 
 fd_txn_map_t *
@@ -1878,7 +1878,7 @@ fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore,
     check_read_write_err( err );
     err = fd_io_read( fd, txn_data_out, txn_out->sz, txn_out->sz, &rsz );
     check_read_write_err( err);
-    return FD_BLOCKSTORE_OK;
+    return FD_BLOCKSTORE_SUCCESS;
   }
 
   for(;;) {
@@ -1904,13 +1904,13 @@ fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore,
 
     if( FD_UNLIKELY( fd_block_map_query_test( quer ) ) ) continue; // TODO: double check on double test
 
-    if( txn_data_out == NULL ) return FD_BLOCKSTORE_OK;
+    if( txn_data_out == NULL ) return FD_BLOCKSTORE_SUCCESS;
     uchar const * data = fd_wksp_laddr_fast( wksp, ptr );
     fd_memcpy( txn_data_out, data + txn_out->offset, txn_out->sz );
 
     if( FD_UNLIKELY( fd_block_map_query_test( quer ) ) ) continue;
 
-    return FD_BLOCKSTORE_OK;
+    return FD_BLOCKSTORE_SUCCESS;
   }
 }
 

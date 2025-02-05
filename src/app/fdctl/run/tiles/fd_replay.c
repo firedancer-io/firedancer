@@ -1403,7 +1403,7 @@ replay_mbatch( fd_replay_tile_ctx_t * ctx, uint shred_idx_start ) {
                                            FD_MBATCH_MAX,
                                            ctx->mbatch,
                                            &mbatch_sz );
-  FD_TEST( err == FD_BLOCKSTORE_OK );
+  FD_TEST( err == FD_BLOCKSTORE_SUCCESS );
   /* Loop through microblocks, parse out txns, and round-robin publish
      txns to the executor tiles. */
 

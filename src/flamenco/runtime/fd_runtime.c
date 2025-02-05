@@ -1215,7 +1215,7 @@ fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
                                            (uint) batch_idx,
                                            scratch_sz,
                                            scratch_mem,
-                                           &batch_sz ) == FD_BLOCKSTORE_OK );
+                                           &batch_sz ) == FD_BLOCKSTORE_SUCCESS );
     ulong micro_cnt = FD_LOAD( ulong, scratch_mem );
     ulong       off = sizeof(ulong);
     for( ulong i = 0UL; i < micro_cnt; i++ ){

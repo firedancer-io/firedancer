@@ -197,39 +197,39 @@ fd_store_shred_insert( fd_store_t * store,
                        fd_shred_t const * shred ) {
   if( FD_UNLIKELY( shred->version != store->expected_shred_version ) ) {
     FD_LOG_WARNING(( "received shred version %lu instead of %lu", (ulong)shred->version, store->expected_shred_version ));
-    return FD_BLOCKSTORE_OK;
+    return FD_BLOCKSTORE_SUCCESS;
   }
 
   fd_blockstore_t * blockstore = store->blockstore;
 
   if (shred->slot < blockstore->shmem->smr) {
-    return FD_BLOCKSTORE_OK;
+    return FD_BLOCKSTORE_SUCCESS;
   }
   uchar shred_type = fd_shred_type( shred->variant );
   if( shred_type != FD_SHRED_TYPE_LEGACY_DATA
       && shred_type != FD_SHRED_TYPE_MERKLE_DATA
       && shred_type != FD_SHRED_TYPE_MERKLE_DATA_CHAINED
       && shred_type != FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED ) {
-    return FD_BLOCKSTORE_OK;
+    return FD_BLOCKSTORE_SUCCESS;
   }
 
   if( store->root!=FD_SLOT_NULL && shred->slot<store->root ) {
     FD_LOG_WARNING(( "shred slot is behind root, dropping shred - root: %lu, shred_slot: %lu", store->root, shred->slot ));
-    return FD_BLOCKSTORE_OK;
+    return FD_BLOCKSTORE_SUCCESS;
   }
 
   fd_blockstore_start_read( blockstore );
   if( fd_blockstore_shreds_complete( blockstore, shred->slot ) ) {
     fd_blockstore_end_read( blockstore );
-    return FD_BLOCKSTORE_OK;
+    return FD_BLOCKSTORE_SUCCESS;
   }
   fd_blockstore_end_read( blockstore );
   int rc = fd_blockstore_shred_insert( blockstore, shred );
 
   /* FIXME */
-  if( FD_UNLIKELY( rc < FD_BLOCKSTORE_OK ) ) {
+  if( FD_UNLIKELY( rc < FD_BLOCKSTORE_SUCCESS ) ) {
     FD_LOG_ERR( ( "failed to insert shred. reason: %d", rc ) );
-  } else if ( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) {
+  } else if ( rc == FD_BLOCKSTORE_SUCCESS_SLOT_COMPLETE ) {
     fd_store_add_pending( store, shred->slot, (long)5e6, 0, 1 );
   } else {
     fd_store_add_pending( store, shred->slot, FD_REPAIR_BACKOFF_TIME, 0, 0 );
