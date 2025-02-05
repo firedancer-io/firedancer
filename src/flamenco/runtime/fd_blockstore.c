@@ -39,8 +39,6 @@ fd_blockstore_new( void * shmem,
   fd_memset( blockstore_shmem, 0, fd_blockstore_footprint( shred_max, block_max, idx_max, txn_max ) );
 
   int   lg_idx_max   = fd_ulong_find_msb( fd_ulong_pow2_up( idx_max ) );
-  ulong lock_cnt_est = fd_block_map_lock_cnt_est( block_max );
-  ulong probe_est    = fd_block_map_probe_max_est( block_max );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
   blockstore_shmem  = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_blockstore_shmem_t), sizeof(fd_blockstore_shmem_t) );
@@ -48,19 +46,21 @@ fd_blockstore_new( void * shmem,
   void * shred_pool = FD_SCRATCH_ALLOC_APPEND( l, fd_buf_shred_pool_align(),      fd_buf_shred_pool_footprint() );
   void * shred_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_buf_shred_map_align(),       fd_buf_shred_map_footprint( shred_max ) );
   void * blocks     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_block_meta_t),        sizeof(fd_block_meta_t) * block_max );
-  void * block_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_block_map_align(),           fd_block_map_footprint( block_max, lock_cnt_est, probe_est ) );
+  void * block_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_block_map_align(),           fd_block_map_footprint( block_max, BLOCK_META_LOCK_CNT, BLOCK_META_PROBE_CNT ) );
   void * block_idx  = FD_SCRATCH_ALLOC_APPEND( l, fd_block_idx_align(),           fd_block_idx_footprint( lg_idx_max ) );
   void * slot_deque = FD_SCRATCH_ALLOC_APPEND( l, fd_slot_deque_align(),          fd_slot_deque_footprint( block_max ) );
   void * txn_map    = FD_SCRATCH_ALLOC_APPEND( l, fd_txn_map_align(),             fd_txn_map_footprint( txn_max ) );
   void * alloc      = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),               fd_alloc_footprint() );
   ulong top = FD_SCRATCH_ALLOC_FINI( l, fd_blockstore_align() );
-  FD_TEST( top - (ulong)shmem == fd_blockstore_footprint( shred_max, block_max, idx_max, txn_max ) );
+  FD_TEST( fd_ulong_align_up( top - (ulong)shmem, fd_alloc_align() ) == fd_ulong_align_up( fd_blockstore_footprint( shred_max, block_max, idx_max, txn_max ), fd_alloc_align() ) );
 
   (void)shreds;
   (void)blocks;
+  FD_LOG_NOTICE(("ALLOCATED BLOCK MAP WITH footprint: %lu, while blocks themselves are size: %lu", fd_block_map_footprint( block_max, BLOCK_META_LOCK_CNT, BLOCK_META_PROBE_CNT ), sizeof(fd_block_meta_t) * block_max));
   fd_buf_shred_pool_new( shred_pool );
   fd_buf_shred_map_new ( shred_map, shred_max, seed );
-  fd_block_map_new     ( block_map, block_max, lock_cnt_est, probe_est, seed );
+  FD_LOG_NOTICE(("block_max: %lu, lock_cnt_est: %lu, probe_est: %lu", block_max, BLOCK_META_LOCK_CNT, BLOCK_META_PROBE_CNT));
+  FD_TEST( fd_block_map_new     ( block_map, block_max, BLOCK_META_LOCK_CNT, BLOCK_META_PROBE_CNT, seed ) );
 
   blockstore_shmem->block_idx_gaddr  = fd_wksp_gaddr( wksp, fd_block_idx_join( fd_block_idx_new( block_idx, lg_idx_max ) ) );
   blockstore_shmem->slot_deque_gaddr = fd_wksp_gaddr( wksp, fd_slot_deque_join (fd_slot_deque_new( slot_deque, block_max ) ) );
@@ -140,8 +140,8 @@ fd_blockstore_join( void * ljoin, void * shblockstore ) {
   void * shred_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_buf_shred_map_align(),       fd_buf_shred_map_footprint( blockstore->shred_max ) );
   void * blocks     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_block_meta_t),        sizeof(fd_block_meta_t) * blockstore->block_max );
   void * block_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_block_map_align(),           fd_block_map_footprint( blockstore->block_max,
-                                                                                                          fd_block_map_lock_cnt_est( blockstore->block_max ),
-                                                                                                          fd_block_map_probe_max_est( blockstore->block_max )) );
+                                                                                                          BLOCK_META_LOCK_CNT,
+                                                                                                          BLOCK_META_PROBE_CNT ) );
   FD_LOG_NOTICE(( "shreds %p", shreds ));
   FD_LOG_NOTICE(( "shred_pool %p", shred_pool ));
   FD_LOG_NOTICE(( "shred_map %p", shred_map ));
@@ -152,9 +152,13 @@ fd_blockstore_join( void * ljoin, void * shblockstore ) {
   fd_buf_shred_map_join ( join->shred_map,  shred_map,  shreds, blockstore->shred_max );
   fd_block_map_join     ( join->block_map,  block_map,  blocks );
 
-  // FD_TEST( fd_buf_shred_pool_verify( join->shred_pool ) == FD_POOL_SUCCESS );
-  // FD_TEST( fd_buf_shred_map_verify ( join->shred_map  ) == FD_MAP_SUCCESS );
-  FD_TEST( fd_block_map_verify     ( join->block_map  ) == FD_MAP_SUCCESS );
+  FD_TEST( fd_buf_shred_pool_verify( join->shred_pool ) == FD_POOL_SUCCESS );
+  FD_TEST( fd_buf_shred_map_verify ( join->shred_map  ) == FD_MAP_SUCCESS );
+  if( FD_UNLIKELY( fd_block_map_verify( join->block_map ) != FD_MAP_SUCCESS ) ) {
+    __asm__("int $3");
+    FD_LOG_ERR(( "block_map_verify failed" ));
+  }
+  //FD_TEST( fd_block_map_verify     ( join->block_map  ) == FD_MAP_SUCCESS );
 
   return join;
 }
@@ -1038,17 +1042,20 @@ fd_blockstore_shred_remove( fd_blockstore_t * blockstore, ulong slot, uint idx )
 static int
 deshred( fd_blockstore_t * blockstore, ulong slot ) {
   FD_LOG_NOTICE(( "[%s] slot %lu", __func__, slot ));
-
+  int err = FD_MAP_ERR_AGAIN;
   fd_block_map_query_t query[1];
-  int err = fd_block_map_prepare( blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+  while( err == FD_MAP_ERR_AGAIN ) {
+    err = fd_block_map_prepare( blockstore->block_map, &slot, NULL, query, 0 );
+  }
+  FD_LOG_NOTICE(("deshred prepare for slot %lu", slot));
   fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
-  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "[%s] failed to prepare block map for slot %lu", __func__, slot ));
-
   FD_TEST( block_map_entry->block_gaddr == 0 ); /* FIXME duplicate blocks are not supported */
 
   block_map_entry->ts = fd_log_wallclock();
   ulong shred_cnt = block_map_entry->slot_complete_idx + 1;
   fd_block_map_publish( query );
+
+  FD_LOG_NOTICE(("deshred successfully published for slot %lu", slot));
 
   ulong block_sz  = 0UL;
   ulong batch_cnt = 0UL;
@@ -1139,7 +1146,9 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
 
   /* Do this last when it's safe */
   FD_COMPILER_MFENCE();
-  err = fd_block_map_prepare( blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+  err = fd_block_map_prepare( blockstore->block_map, &slot, NULL, query, 0 );
+  FD_LOG_NOTICE(("deshred prepare2 for slot %lu", slot));
+
   block_map_entry = fd_block_map_query_ele( query );
   block_map_entry->block_gaddr     = fd_wksp_gaddr_fast( wksp, block );
   fd_block_micro_t *    micros     = fd_wksp_laddr_fast( wksp, block->micros_gaddr );
@@ -1151,6 +1160,8 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
   block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_RECEIVING );
   block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_COMPLETED );
   fd_block_map_publish( query );
+  FD_LOG_NOTICE(("deshred publish2 for slot %lu", slot));
+
 
   return FD_BLOCKSTORE_OK;
 }

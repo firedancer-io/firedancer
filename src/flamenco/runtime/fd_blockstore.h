@@ -308,6 +308,9 @@ typedef struct fd_block_meta fd_block_meta_t;
 #define MAP_ELE_FREE(ctx, ele)    ((ele)->slot = ULONG_MAX)
 #include "../../util/tmpl/fd_map_slot_para.c"
 
+#define BLOCK_META_LOCK_CNT  MAP_LOCK_MAX
+#define BLOCK_META_PROBE_CNT 4096UL
+
 /* fd_block_idx is an in-memory index of finalized blocks that have been
    archived to disk.  It records the slot together with the byte offset
    relative to the start of the file. */
@@ -458,8 +461,8 @@ fd_blockstore_footprint( ulong shred_max, ulong block_max, ulong idx_max, ulong 
       alignof(fd_buf_shred_t),        sizeof(fd_buf_shred_t) * shred_max ),
       fd_buf_shred_pool_align(),      fd_buf_shred_pool_footprint() ),
       fd_buf_shred_map_align(),       fd_buf_shred_map_footprint( shred_max ) ),
-      alignof(fd_block_map_t),        sizeof(fd_block_map_t) * block_max ),
-      fd_block_map_align(),           fd_block_map_footprint( block_max, fd_block_map_lock_cnt_est( block_max ), fd_block_map_probe_max_est( block_max ) ) ),
+      alignof(fd_block_meta_t),        sizeof(fd_block_meta_t) * block_max ),
+      fd_block_map_align(),           fd_block_map_footprint( block_max, BLOCK_META_LOCK_CNT, BLOCK_META_PROBE_CNT ) ),
       fd_block_idx_align(),           fd_block_idx_footprint( lg_idx_max ) ),
       fd_slot_deque_align(),          fd_slot_deque_footprint( block_max ) ),
       fd_txn_map_align(),             fd_txn_map_footprint( txn_max ) ),
