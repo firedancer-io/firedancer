@@ -131,6 +131,10 @@ int fd_gossip_continue( fd_gossip_t * glob );
 /* Pass a raw gossip packet into the protocol. addr is the address of the sender */
 int fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_gossip_peer_addr_t const * addr );
 
+typedef union fd_pending_event_arg fd_pending_event_arg_t;
+void
+fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg );
+
 const char * fd_gossip_addr_str( char * dst, ulong dstlen, fd_gossip_peer_addr_t const * src );
 
 ushort fd_gossip_get_shred_version( fd_gossip_t const * glob );
