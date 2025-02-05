@@ -291,11 +291,13 @@ struct fd_replay_tile_ctx {
   uint poh_init_done;
   int  snapshot_init_done;
 
-  int            in_wen_restart;
-  fd_restart_t * restart;
-  int            tower_checkpt_fileno;
-  fd_pubkey_t    restart_coordinator;
-  void *         restart_gossip_msg[ FD_RESTART_LINK_BYTES_MAX+sizeof(uint) ];
+  int              in_wen_restart;
+  fd_restart_t *   restart;
+  int              tower_checkpt_fileno;
+  fd_slot_pair_t * restart_hard_forks;
+  ulong            restart_hard_forks_len;
+  fd_pubkey_t      restart_coordinator, restart_genesis_hash;
+  void *           restart_gossip_msg[ FD_RESTART_LINK_BYTES_MAX+sizeof(uint) ];
 
   int         vote;
   fd_pubkey_t validator_identity_pubkey[ 1 ];
@@ -1220,7 +1222,7 @@ send_tower_sync( fd_replay_tile_ctx_t * ctx ) {
                                                   ctx->sender_out_wmark );
 
   /* Dump the latest sent tower into the tower checkpoint file */
-  if( FD_LIKELY( ctx->tower_checkpt_fileno > 0 ) ) fd_restart_tower_checkpt( vote_bank_hash, ctx->tower, ctx->root, ctx->tower_checkpt_fileno );
+  if( FD_LIKELY( ctx->tower_checkpt_fileno > 0 ) ) fd_restart_tower_checkpt( vote_bank_hash, ctx->tower, ctx->ghost, ctx->root, ctx->tower_checkpt_fileno );
 }
 
 static fd_fork_t *
@@ -1930,6 +1932,30 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     /**********************************************************************/
 
     if( FD_UNLIKELY( ctx->in_wen_restart && curr_slot==ctx->restart->heaviest_fork_slot ) ) {
+      /* Insert a hard fork for wen-restart, leading to a new shred version */
+      ulong old_len               = ctx->slot_ctx->slot_bank.hard_forks.hard_forks_len;
+      ctx->restart_hard_forks_len = old_len + 1;
+      ctx->restart_hard_forks     = fd_spad_alloc( ctx->runtime_spad, 8, ctx->restart_hard_forks_len*sizeof(fd_slot_pair_t) );
+
+      fd_memcpy( ctx->restart_hard_forks, ctx->slot_ctx->slot_bank.hard_forks.hard_forks, old_len*sizeof(fd_slot_pair_t) );
+      ctx->restart_hard_forks[ old_len ].slot            = curr_slot;
+      ctx->restart_hard_forks[ old_len ].val             = 1;
+      ctx->slot_ctx->slot_bank.hard_forks.hard_forks_len = ctx->restart_hard_forks_len;
+      ctx->slot_ctx->slot_bank.hard_forks.hard_forks     = ctx->restart_hard_forks;
+
+      fd_funk_start_write( ctx->funk );
+      int result = fd_runtime_save_slot_bank( ctx->slot_ctx );
+      if( FD_UNLIKELY( result!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+        FD_LOG_ERR(( "Wen-restart fails at saving slot bank" ));
+      }
+
+      /* Publish the heaviest fork slot in funk */
+      fd_fseq_update( ctx->wmk, curr_slot );
+      if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk, ctx->slot_ctx->funk_txn, 1 ) ) ) {
+        FD_LOG_ERR(( "Wen-restart fails at funk txn publish" ));
+      }
+      fd_funk_end_write( ctx->funk );
+
       fd_hash_t const * bank_hash = &child->slot_ctx.slot_bank.banks_hash;
       fd_memcpy( &ctx->restart->heaviest_fork_bank_hash, bank_hash, sizeof(fd_hash_t) );
       ctx->restart->heaviest_fork_ready = 1;
@@ -2441,8 +2467,8 @@ after_credit( fd_replay_tile_ctx_t * ctx,
                                    ctx->slot_ctx->slot_history );
 
       fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
-      fd_vote_accounts_t const * epoch_stakes[ RESTART_EPOCHS_MAX ] = { &epoch_bank->stakes.vote_accounts,
-                                                                        &epoch_bank->next_epoch_stakes };
+      fd_vote_accounts_t const * epoch_stakes[ FD_RESTART_EPOCHS_MAX ] = { &epoch_bank->stakes.vote_accounts,
+                                                                           &epoch_bank->next_epoch_stakes };
       fd_restart_init( ctx->restart,
                        ctx->slot_ctx->slot_bank.slot,
                        &ctx->slot_ctx->slot_bank.banks_hash,
@@ -2455,6 +2481,8 @@ after_credit( fd_replay_tile_ctx_t * ctx,
                        buf+sizeof(uint),
                        &buf_len,
                        ctx->runtime_spad );
+      publish_stake_weights( ctx, stem, ctx->slot_ctx );
+      fd_fseq_update( ctx->wmk, ctx->slot_ctx->slot_bank.slot );
 
       /* Send the restart_last_voted_fork_slots message to gossip tile */
       buf_len += sizeof(uint);
@@ -2477,7 +2505,13 @@ after_credit( fd_replay_tile_ctx_t * ctx,
   if( FD_UNLIKELY( ctx->in_wen_restart ) ) {
     ulong send  = 0;
     uchar * buf = fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk );
-    fd_restart_verify_heaviest_fork( ctx->restart, buf+sizeof(uint), &send );
+    fd_restart_verify_heaviest_fork( ctx->restart,
+                                     ctx->is_constipated,
+                                     ctx->restart_hard_forks,
+                                     ctx->restart_hard_forks_len,
+                                     &ctx->restart_genesis_hash,
+                                     buf+sizeof(uint),
+                                     &send );
 
     if( FD_UNLIKELY( send ) ) {
       /* Send the restart_heaviest_fork message to gossip tile */
@@ -2926,10 +2960,11 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_UNLIKELY( ctx->in_wen_restart ) ) {
     fd_base58_decode_32( tile->replay.wen_restart_coordinator, ctx->restart_coordinator.key );
+    fd_base58_decode_32( tile->replay.expected_genesis_hash, ctx->restart_genesis_hash.key );
     void *     restart_mem = fd_wksp_alloc_laddr( ctx->wksp,
                                                   fd_restart_align(),
                                                   fd_restart_footprint(),
-                                                  RESTART_MAGIC_TAG );
+                                                  FD_RESTART_MAGIC_TAG );
     ctx->restart           = fd_restart_join( fd_restart_new( restart_mem ) );
   } else {
     ctx->restart           = NULL;
