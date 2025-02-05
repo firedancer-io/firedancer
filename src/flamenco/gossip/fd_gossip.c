@@ -999,7 +999,7 @@ fd_gossip_random_active( fd_gossip_t * glob ) {
 }
 
 /* Generate a pull request for a random active peer */
-static void
+void
 fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   (void)arg;
 
@@ -1016,7 +1016,7 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 
   /* Compute the number of packets needed for all the bloom filter parts
      with a desired false positive rate <0.1% (upper bounded by FD_BLOOM_MAX_PACKETS ) */
-  ulong nitems = fd_value_table_key_cnt(glob->values);
+  ulong nitems = fd_ulong_max( fd_value_table_key_cnt(glob->values), 65536UL );
   ulong nkeys = 1;
   ulong npackets = 1;
   uint nmaskbits = 0;
@@ -2069,6 +2069,9 @@ fd_gossip_add_active_peer( fd_gossip_t * glob, fd_gossip_peer_addr_t * addr ) {
     val = fd_active_table_insert(glob->actives, addr);
     fd_active_new_value(val);
     val->pingcount = 0; /* Incremented in fd_gossip_make_ping */
+    /* DO NOT COMMIT THESE */
+    val->pongtime = 1UL;
+    val->weight = 4UL;
   }
   fd_gossip_unlock( glob );
   return 0;
@@ -2542,7 +2545,7 @@ fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_g
     FD_LOG_DEBUG(("recv msg type %u from %s", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from)));
     fd_gossip_recv(glob, from, &gmsg);
 
-    // if ( dump_gossip_msg_cnt < 50 && 
+    // if ( dump_gossip_msg_cnt < 50 &&
     //     ( gmsg.discriminant == fd_gossip_msg_enum_push_msg || gmsg.discriminant == fd_gossip_msg_enum_pull_resp ) ){
     //   uint is_pull_resp = ( gmsg.discriminant == fd_gossip_msg_enum_pull_resp );
     //   fd_crds_value_t * crd = is_pull_resp ? gmsg.inner.pull_resp.crds : gmsg.inner.push_msg.crds;
