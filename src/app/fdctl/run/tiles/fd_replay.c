@@ -342,7 +342,7 @@ scratch_align( void ) {
 
 FD_FN_PURE static inline ulong
 loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
-  return 24UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
+  return 2UL * FD_SHMEM_GIGANTIC_PAGE_SZ;
 }
 
 FD_FN_PURE static inline ulong
@@ -1079,7 +1079,7 @@ suppress_notify( const fd_pubkey_t * prog ) {
   }
 }
 
-static void
+static void FD_FN_UNUSED
 publish_account_notifications( fd_replay_tile_ctx_t * ctx,
                                fd_fork_t *            fork,
                                ulong                  curr_slot,
@@ -1531,7 +1531,7 @@ process_and_exec_mbatch( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem, b
       return -1;
     } else {
       /* Push notifications for account updates */
-      publish_account_notifications( ctx, fork, ctx->curr_slot, txn_p, hdr->txn_cnt );
+      //publish_account_notifications( ctx, fork, ctx->curr_slot, txn_p, hdr->txn_cnt );
     }
 
     poh_info.success        = 0;

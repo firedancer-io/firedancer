@@ -2361,7 +2361,6 @@ fd_runtime_process_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_txn_p_t * txns    = all_txns + (batch_size * i);
     ulong        txn_cnt = ((i+1UL==num_batches) && rem) ? rem : batch_size;
-    FD_LOG_WARNING(("TXN CNT %lu", txn_cnt));
 
     fd_execute_txn_task_info_t * task_infos          = fd_spad_alloc( runtime_spad, alignof(fd_execute_txn_task_info_t), txn_cnt * sizeof(fd_execute_txn_task_info_t) );
     fd_execute_txn_task_info_t * wave_task_infos     = fd_spad_alloc( runtime_spad, alignof(fd_execute_txn_task_info_t), txn_cnt * sizeof(fd_execute_txn_task_info_t) );
