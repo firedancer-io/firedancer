@@ -71,20 +71,22 @@ fd_feature_id_t const ids[] = {{""",
     )
     for x in fm:
         print(
-            f'''  {{ .index      = offsetof(fd_features_t, {x["name"]})>>3,
-    .id         = {{{pubkey_to_c_array(x["pubkey"])}}},
-                  /* {x["pubkey"]} */
-    .name       = "{x["name"]}"''',
+            f'''  {{ .index                     = offsetof(fd_features_t, {x["name"]})>>3,
+    .id                        = {{{pubkey_to_c_array(x["pubkey"])}}},
+                                 /* {x["pubkey"]} */
+    .name                      = "{x["name"]}"''',
             file=body,
             end="",
         )
         if x.get("cleaned_up"):
             cleaned_up_values = ', '.join(map(str, x.get('cleaned_up')))
-            print(f",\n    .cleaned_up = {{{cleaned_up_values}}}", file=body, end="")
+            print(f",\n    .cleaned_up                = {{{cleaned_up_values}}}", file=body, end="")
         else:
-            print(f",\n    .cleaned_up = {{UINT_MAX, UINT_MAX, UINT_MAX}}", file=body, end="")
+            print(f",\n    .cleaned_up                = {{UINT_MAX, UINT_MAX, UINT_MAX}}", file=body, end="")
         if x.get("reverted"):
-            print(f",\n    .reverted   = {x.get('reverted')}", file=body, end="")
+            print(f",\n    .reverted                  = {x.get('reverted')}", file=body, end="")
+        if x.get("activated_on_all_clusters"):
+            print(f",\n    .activated_on_all_clusters = 1", file=body, end="")
         print(" },\n", file=body)
     print(
         f"""  {{ .index = ULONG_MAX }}
