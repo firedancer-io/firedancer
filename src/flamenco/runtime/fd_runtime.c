@@ -51,7 +51,7 @@
 #include "fd_system_ids.h"
 #include "../vm/fd_vm.h"
 #include "fd_blockstore.h"
-#include "../../ballet/pack/fd_pack.h"
+#include "../../disco/pack/fd_pack.h"
 #include "../fd_rwlock.h"
 
 #include <stdio.h>

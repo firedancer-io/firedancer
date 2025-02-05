@@ -1,7 +1,7 @@
 #include "../../fdctl.h"
 #include "../../../../disco/poh/fd_poh_tile.h"
 
-#include "../../../../ballet/pack/fd_pack.h"
+#include "../../../../disco/pack/fd_pack.h"
 #include "../../../../ballet/sha256/fd_sha256.h"
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../disco/shred/fd_shredder.h"
