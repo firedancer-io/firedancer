@@ -30,7 +30,7 @@ fd_vm_syscall_strerror( int err ) {
   case FD_VM_SYSCALL_ERR_INVALID_LENGTH:                         return "InvalidLength";
   case FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_DATA_LEN_EXCEEDED:      return "Invoked an instruction with data that is too large"; // truncated
   case FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED:      return "Invoked an instruction with too many accounts"; // truncated
-  case FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED: return "Invoked an instruction with too many account info's"; // truncated
+  case FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED: return "Invoked an instruction with too many account info"; // truncated
   case FD_VM_SYSCALL_ERR_INVALID_ATTRIBUTE:                      return "InvalidAttribute";
   case FD_VM_SYSCALL_ERR_INVALID_POINTER:                        return "Invalid pointer";
   case FD_VM_SYSCALL_ERR_ARITHMETIC_OVERFLOW:                    return "Arithmetic overflow";
@@ -118,7 +118,7 @@ fd_vm_strerror( int err ) {
   case FD_VM_ERR_SIGCOST:     return "SIGCOST compute unit limit exceeded";
   case FD_VM_ERR_SIGFPE:      return "SIGFPE division by zero";
   case FD_VM_ERR_SIGFPE_OF:   return "SIGFPE division overflow";
-  case FD_VM_ERR_SIGSYSCALL:  return "SIGSYSCALL syscall error"; 
+  case FD_VM_ERR_SIGSYSCALL:  return "SIGSYSCALL syscall error";
   case FD_VM_ERR_SIGABORT:    return "SIGABORT abort error";
 
   /* VM validate error codes */
