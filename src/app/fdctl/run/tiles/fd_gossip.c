@@ -85,7 +85,7 @@ struct fd_gossip_tile_metrics {
 
   ulong shred_version_zero;
 };
-typedef struct fd_gossip_tile_metrics fd_gossip_tile_metrics_t; 
+typedef struct fd_gossip_tile_metrics fd_gossip_tile_metrics_t;
 #define FD_GOSSIP_TILE_METRICS_FOOTPRINT ( sizeof( fd_gossip_tile_metrics_t ) )
 
 struct fd_gossip_tile_ctx {

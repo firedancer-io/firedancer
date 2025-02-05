@@ -88,8 +88,7 @@ int
 fd_store_slot_prepare( fd_store_t *   store,
                        ulong          slot,
                        ulong *        repair_slot_out ) {
-  fd_blockstore_start_read( store->blockstore );
-  
+
   ulong re_adds[2];
   uint re_adds_cnt           = 0U;
   long re_add_delays[2];
@@ -98,8 +97,8 @@ fd_store_slot_prepare( fd_store_t *   store,
   int rc = FD_STORE_SLOT_PREPARE_CONTINUE;
 
   bool block_complete = fd_blockstore_shreds_complete( store->blockstore, slot );
-  fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( store->blockstore, slot );
-
+  fd_blockstore_start_read( store->blockstore );
+  fd_block_meta_t * block_map_entry = fd_blockstore_block_map_query( store->blockstore, slot );
 
   /* We already executed this block */
   if( FD_UNLIKELY( block_complete && fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING ) ) ) {
@@ -122,7 +121,7 @@ fd_store_slot_prepare( fd_store_t *   store,
   }
 
   ulong            parent_slot  = block_map_entry->parent_slot;
-  fd_block_map_t * parent_block_map_entry = fd_blockstore_block_map_query( store->blockstore, parent_slot );
+  fd_block_meta_t * parent_block_map_entry = fd_blockstore_block_map_query( store->blockstore, parent_slot );
 
   /* If the parent slot meta is missing, this block is an orphan and the ancestry needs to be
    * repaired before we can replay it. */
@@ -137,7 +136,6 @@ fd_store_slot_prepare( fd_store_t *   store,
     goto end;
   }
 
-  fd_blockstore_start_read( store->blockstore );
   bool parent_complete = fd_blockstore_shreds_complete( store->blockstore, parent_slot );
   fd_blockstore_end_read( store->blockstore );
 
@@ -195,42 +193,45 @@ end:
 int
 fd_store_shred_insert( fd_store_t * store,
                        fd_shred_t const * shred ) {
+  long timer_st = fd_log_wallclock();
   if( FD_UNLIKELY( shred->version != store->expected_shred_version ) ) {
     FD_LOG_WARNING(( "received shred version %lu instead of %lu", (ulong)shred->version, store->expected_shred_version ));
-    return FD_BLOCKSTORE_OK;
+    return FD_BLOCKSTORE_SUCCESS;
   }
 
   fd_blockstore_t * blockstore = store->blockstore;
 
   if (shred->slot < blockstore->shmem->smr) {
-    return FD_BLOCKSTORE_OK;
+    return FD_BLOCKSTORE_SUCCESS;
   }
   uchar shred_type = fd_shred_type( shred->variant );
   if( shred_type != FD_SHRED_TYPE_LEGACY_DATA
       && shred_type != FD_SHRED_TYPE_MERKLE_DATA
       && shred_type != FD_SHRED_TYPE_MERKLE_DATA_CHAINED
       && shred_type != FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED ) {
-    return FD_BLOCKSTORE_OK;
+    return FD_BLOCKSTORE_SUCCESS;
   }
 
   if( store->root!=FD_SLOT_NULL && shred->slot<store->root ) {
     FD_LOG_WARNING(( "shred slot is behind root, dropping shred - root: %lu, shred_slot: %lu", store->root, shred->slot ));
-    return FD_BLOCKSTORE_OK;
+    return FD_BLOCKSTORE_SUCCESS;
   }
 
   fd_blockstore_start_read( blockstore );
   if( fd_blockstore_shreds_complete( blockstore, shred->slot ) ) {
     fd_blockstore_end_read( blockstore );
-    return FD_BLOCKSTORE_OK;
+    return FD_BLOCKSTORE_SUCCESS;
   }
   fd_blockstore_end_read( blockstore );
   int rc = fd_blockstore_shred_insert( blockstore, shred );
 
   /* FIXME */
-  if( FD_UNLIKELY( rc < FD_BLOCKSTORE_OK ) ) {
+  if( FD_UNLIKELY( rc < FD_BLOCKSTORE_SUCCESS ) ) {
     FD_LOG_ERR( ( "failed to insert shred. reason: %d", rc ) );
-  } else if ( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) {
+  } else if ( rc == FD_BLOCKSTORE_SUCCESS_SLOT_COMPLETE ) {
     fd_store_add_pending( store, shred->slot, (long)5e6, 0, 1 );
+    long timer_en = fd_log_wallclock();
+    FD_LOG_INFO(( "TIMER: %ld ms", (timer_en-timer_st)/1000 ));
   } else {
     fd_store_add_pending( store, shred->slot, FD_REPAIR_BACKOFF_TIME, 0, 0 );
     fd_repair_backoff_t * backoff = fd_repair_backoff_map_query( store->repair_backoff_map, shred->slot, NULL );
@@ -244,6 +245,8 @@ fd_store_shred_insert( fd_store_t * store,
       backoff->last_backoff_duration = FD_REPAIR_BACKOFF_TIME;
       backoff->last_repair_time = store->now;
     }
+    long timer_en = fd_log_wallclock();
+    FD_LOG_INFO(( "TIMER: %ld ms", (timer_en-timer_st)/1000 ));
   }
   return rc;
 }
@@ -347,7 +350,7 @@ fd_store_slot_repair( fd_store_t * store,
 
   ulong repair_req_cnt = 0;
   fd_blockstore_start_read( store->blockstore );
-  fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( store->blockstore, slot );
+  fd_block_meta_t * block_map_entry = fd_blockstore_block_map_query( store->blockstore, slot );
 
   if( FD_LIKELY( !block_map_entry ) ) {
     /* We haven't received any shreds for this slot yet */
@@ -383,7 +386,7 @@ fd_store_slot_repair( fd_store_t * store,
     for( uint i = 0; i < 6; ++i ) {
       anc_slot  = fd_blockstore_parent_slot_query( store->blockstore, anc_slot );
       bool anc_complete = fd_blockstore_shreds_complete( store->blockstore, anc_slot );
-      fd_block_map_t * anc_block_map_entry = fd_blockstore_block_map_query( store->blockstore, anc_slot );
+      fd_block_meta_t * anc_block_map_entry = fd_blockstore_block_map_query( store->blockstore, anc_slot );
       if( anc_complete && fd_uchar_extract_bit( anc_block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED ) ) {
         good = 1;
         out_repair_reqs_sz /= (i>>1)+1U; /* Slow roll blocks that are further out */

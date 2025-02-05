@@ -37,7 +37,7 @@ main( int argc, char ** argv ) {
 
   blockstore->shmem->smr = 315134140;
 
-  FILE * shred_cap = fopen( "/data/chali/testnet.shredcap", "rb" );
+  FILE * shred_cap = fopen( "/data/emwang/testnet.shredcap", "rb" );
   FD_TEST( shred_cap );
 
   ulong cnt = 0;
