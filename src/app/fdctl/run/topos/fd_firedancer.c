@@ -635,6 +635,7 @@ fd_topo_initialize( config_t * config ) {
       tile->replay.exec_tile_count = config->layout.exec_tile_count;
       tile->replay.in_wen_restart  = config->tiles.replay.in_wen_restart;
       strncpy( tile->replay.tower_checkpt, config->tiles.replay.tower_checkpt, sizeof(tile->replay.tower_checkpt) );
+      fd_memcpy( tile->replay.expected_genesis_hash, config->consensus.expected_genesis_hash, FD_BASE58_ENCODED_32_SZ );
       fd_memcpy( tile->replay.wen_restart_coordinator, config->tiles.replay.wen_restart_coordinator, FD_BASE58_ENCODED_32_SZ );
 
       /* not specified by [tiles.replay] */

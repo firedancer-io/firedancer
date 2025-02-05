@@ -3,6 +3,7 @@
 #include "fd_restart.h"
 #include "../../util/fd_util.h"
 #include "../../flamenco/stakes/fd_stakes.h"
+#include "../../flamenco/snapshot/fd_snapshot_create.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 
 #pragma GCC diagnostic ignored "-Wformat"
@@ -44,12 +45,12 @@ fd_restart_join( void * restart ) {
 
 static int
 fd_restart_recv_enough_stake( fd_restart_t * restart ) {
-  ulong received[RESTART_EPOCHS_MAX] = { restart->total_stake_received[0]*100/restart->total_stake[0],
-                                         restart->total_stake_received[1]*100/restart->total_stake[1] };
-  ulong voted[RESTART_EPOCHS_MAX]    = { restart->total_stake_received_and_voted[0]*100/restart->total_stake[0],
-                                         restart->total_stake_received_and_voted[1]*100/restart->total_stake[1] };
+  ulong received[FD_RESTART_EPOCHS_MAX] = { restart->total_stake_received[0]*100/restart->total_stake[0],
+                                            restart->total_stake_received[1]*100/restart->total_stake[1] };
+  ulong voted[FD_RESTART_EPOCHS_MAX]    = { restart->total_stake_received_and_voted[0]*100/restart->total_stake[0],
+                                            restart->total_stake_received_and_voted[1]*100/restart->total_stake[1] };
 
-  for( ulong e=0; e<RESTART_EPOCHS_MAX; e++ ) {
+  for( ulong e=0; e<FD_RESTART_EPOCHS_MAX; e++ ) {
     FD_LOG_NOTICE(( "Epoch%lu: %lu/%lu = %lu%c stake received\n",
                     restart->root_epoch+e, restart->total_stake_received[e], restart->total_stake[e], received[e], '%' ));
     FD_LOG_NOTICE(( "Epoch%lu: %lu/%lu = %lu%c stake voted\n",
@@ -57,17 +58,17 @@ fd_restart_recv_enough_stake( fd_restart_t * restart ) {
   }
 
   ulong min_active_stake = received[0];
-  if( FD_UNLIKELY( voted[1]>=WAIT_FOR_NEXT_EPOCH_THRESHOLD_PERCENT ) ) {
+  if( FD_UNLIKELY( voted[1]>=FD_RESTART_WAIT_FOR_NEXT_EPOCH_THRESHOLD_PERCENT ) ) {
     min_active_stake = fd_ulong_min( min_active_stake, received[1] );
   }
-  return min_active_stake>=WAIT_FOR_SUPERMAJORITY_THRESHOLD_PERCENT;
+  return min_active_stake>=FD_RESTART_WAIT_FOR_SUPERMAJORITY_THRESHOLD_PERCENT;
 }
 
 static void
 fd_restart_recv_last_voted_fork_slots( fd_restart_t * restart,
                                        fd_gossip_restart_last_voted_fork_slots_t * msg,
                                        ulong * out_heaviest_fork_found ) {
-  if( FD_UNLIKELY( restart->stage!=WR_STAGE_FIND_HEAVIEST_FORK_SLOT_NUM ) ) return;
+  if( FD_UNLIKELY( restart->stage!=FD_RESTART_STAGE_FIND_HEAVIEST_FORK_SLOT_NUM ) ) return;
 
   /* Check that funk is not too stale for aggregating this message */
   ulong voted_epoch = fd_slot_to_epoch( restart->epoch_schedule, msg->last_voted_slot, NULL );
@@ -76,7 +77,7 @@ fd_restart_recv_last_voted_fork_slots( fd_restart_t * restart,
                      FD_BASE58_ENC_32_ALLOCA( &msg->from ), voted_epoch, restart->root_epoch ));
     return;
   }
-  if( FD_UNLIKELY( msg->last_voted_slot>=restart->funk_root+LAST_VOTED_FORK_MAX_SLOTS ) ) {
+  if( FD_UNLIKELY( msg->last_voted_slot>=restart->funk_root+FD_RESTART_LAST_VOTED_FORK_MAX_SLOTS ) ) {
     FD_LOG_WARNING(( "Ignore last_voted_fork_slots message for slot=%lu (because funk_root=%lu is stale) from validator %s",
                      msg->last_voted_slot, restart->funk_root, FD_BASE58_ENC_32_ALLOCA( &msg->from ) ));
     return;
@@ -84,9 +85,9 @@ fd_restart_recv_last_voted_fork_slots( fd_restart_t * restart,
 
   /* Find the message sender from restart->stake_weights */
   fd_pubkey_t * pubkey = &msg->from;
-  ulong stake_received[ RESTART_EPOCHS_MAX ] = {0UL, 0UL};
+  ulong stake_received[ FD_RESTART_EPOCHS_MAX ] = {0UL, 0UL};
 
-  for( ulong e=0; e<RESTART_EPOCHS_MAX; e++ ) {
+  for( ulong e=0; e<FD_RESTART_EPOCHS_MAX; e++ ) {
     for( ulong i=0; i<restart->num_vote_accts[e]; i++ ) {
       if( FD_UNLIKELY( memcmp( pubkey->key, restart->stake_weights[e][i].key.key, sizeof(fd_pubkey_t) )==0 ) ) {
         if( FD_UNLIKELY( restart->last_voted_fork_slots_received[e][i] ) ) {
@@ -131,14 +132,14 @@ fd_restart_recv_last_voted_fork_slots( fd_restart_t * restart,
   }
 
   if( FD_UNLIKELY( fd_restart_recv_enough_stake( restart ) ) ) {
-    ulong stake_threshold[ RESTART_EPOCHS_MAX ] = { restart->total_stake_received[0]
-                                                    - restart->total_stake[0]*HEAVIEST_FORK_THRESHOLD_DELTA_PERCENT/100UL,
-                                                    restart->total_stake_received[1]
-                                                    - restart->total_stake[1]*HEAVIEST_FORK_THRESHOLD_DELTA_PERCENT/100UL };
+    ulong stake_threshold[ FD_RESTART_EPOCHS_MAX ] = { restart->total_stake_received[0]
+                                                       - restart->total_stake[0]*FD_RESTART_HEAVIEST_FORK_THRESHOLD_DELTA_PERCENT/100UL,
+                                                       restart->total_stake_received[1]
+                                                       - restart->total_stake[1]*FD_RESTART_HEAVIEST_FORK_THRESHOLD_DELTA_PERCENT/100UL };
     /* The subtraction is safe because restart->total_stake_received[0/1] should be at least >(80-9)%==71% at this point */
 
     restart->heaviest_fork_slot = restart->funk_root;
-    for( ulong offset=0; offset<LAST_VOTED_FORK_MAX_SLOTS; offset++ ) {
+    for( ulong offset=0; offset<FD_RESTART_LAST_VOTED_FORK_MAX_SLOTS; offset++ ) {
       ulong slot       = restart->funk_root+offset;
       ulong slot_epoch = fd_slot_to_epoch( restart->epoch_schedule, slot, NULL );
       if( slot_epoch>restart->root_epoch+1 ) break;
@@ -149,7 +150,7 @@ fd_restart_recv_last_voted_fork_slots( fd_restart_t * restart,
     FD_LOG_NOTICE(( "[%s] Found heaviest fork slot=%lu", __func__, restart->heaviest_fork_slot ));
 
     *out_heaviest_fork_found = 1;
-    restart->stage           = WR_STAGE_FIND_HEAVIEST_FORK_BANK_HASH;
+    restart->stage           = FD_RESTART_STAGE_FIND_HEAVIEST_FORK_BANK_HASH;
   }
 }
 
@@ -219,11 +220,15 @@ fd_restart_find_heaviest_fork_bank_hash( fd_restart_t * restart,
 }
 
 void
-fd_restart_verify_heaviest_fork( fd_restart_t * restart,
-                                 uchar * out_buf,
-                                 ulong * out_send ) {
+fd_restart_verify_heaviest_fork( fd_restart_t *   restart,
+                                 ulong *          is_constipated,
+                                 fd_slot_pair_t * hard_forks,
+                                 ulong            hard_forks_len,
+                                 fd_hash_t *      genesis_hash,
+                                 uchar *          out_buf,
+                                 ulong *          out_send ) {
   *out_send = 0;
-  if( FD_UNLIKELY( restart->stage!=WR_STAGE_FIND_HEAVIEST_FORK_BANK_HASH ) ) return;
+  if( FD_UNLIKELY( restart->stage!=FD_RESTART_STAGE_FIND_HEAVIEST_FORK_BANK_HASH ) ) return;
 
   if( FD_UNLIKELY(( restart->heaviest_fork_ready==1 )) ) {
     if( FD_UNLIKELY( memcmp( restart->my_pubkey.key,
@@ -254,13 +259,35 @@ fd_restart_verify_heaviest_fork( fd_restart_t * restart,
       msg->last_slot                          = restart->heaviest_fork_slot;
       fd_memcpy( msg->last_slot_hash.hash, restart->heaviest_fork_bank_hash.hash, sizeof(fd_hash_t) );
 
-      restart->stage = WR_STAGE_GENERATE_SNAPSHOT;
-      FD_LOG_WARNING(( "Wen-restart succeeds with slot=%lu, bank hash=%s",
-                       restart->heaviest_fork_slot, FD_BASE58_ENC_32_ALLOCA( &restart->heaviest_fork_bank_hash ) ));
-      /* TODO: insert a hard fork and generate an incremental snapshot */
-      /* The incremental snapshot should contain everything from restart->funk_root to restart->heaviest_fork_slot. */
+      restart->stage = FD_RESTART_STAGE_GENERATE_SNAPSHOT;
 
-      restart->stage = WR_STAGE_DONE;
+      /* Generate a full snapshot since we started wen-restart with a funk file instead of a snapshot file */
+      ulong updated_fseq = fd_batch_fseq_pack( 1, 0, restart->heaviest_fork_slot );
+      fd_fseq_update( is_constipated, updated_fseq );
+
+      /* Calculate the new shred version after inserting a hard fork */
+      fd_sha256_t _sha[ 1 ];  fd_sha256_t * sha = fd_sha256_join( fd_sha256_new( _sha ) );
+      fd_sha256_init( sha );
+      fd_sha256_append( sha, genesis_hash->hash, sizeof(fd_pubkey_t) );
+      for( ulong i=0; i<hard_forks_len; i++ )
+        fd_sha256_append( sha, hard_forks+i, sizeof(fd_slot_pair_t) );
+
+      union {
+        uchar  c[ 32 ];
+        ushort s[ 16 ];
+      } hash;
+      fd_sha256_fini( sha, hash.c );
+      fd_sha256_delete( fd_sha256_leave( sha ) );
+
+      ushort xor = 0;
+      for( ulong i=0UL; i<16UL; i++ ) xor ^= hash.s[ i ];
+      xor = fd_ushort_bswap( xor );
+      ushort new_shred_version = fd_ushort_if( xor<USHORT_MAX, (ushort)(xor + 1), USHORT_MAX );
+
+      FD_LOG_WARNING(( "Wen-restart succeeds with slot=%lu, bank hash=%s, shred version=%u",
+                       restart->heaviest_fork_slot, FD_BASE58_ENC_32_ALLOCA( &restart->heaviest_fork_bank_hash ), new_shred_version ));
+
+      restart->stage = FD_RESTART_STAGE_DONE;
     }
   }
 }
@@ -339,7 +366,7 @@ fd_restart_init( fd_restart_t *              restart,
   restart->funk_root                       = funk_root;
   restart->epoch_schedule                  = epoch_schedule;
   restart->root_epoch                      = fd_slot_to_epoch( epoch_schedule, restart->funk_root, NULL ),
-  restart->stage                           = WR_STAGE_FIND_HEAVIEST_FORK_SLOT_NUM;
+  restart->stage                           = FD_RESTART_STAGE_FIND_HEAVIEST_FORK_SLOT_NUM;
   restart->heaviest_fork_ready             = 0;
   restart->coordinator_heaviest_fork_ready = 0;
   fd_memcpy( restart->root_bank_hash.hash, root_bank_hash, sizeof(fd_pubkey_t) );
@@ -356,8 +383,8 @@ fd_restart_init( fd_restart_t *              restart,
                     FD_BASE58_ENC_32_ALLOCA( &restart->my_pubkey ) ));
 
   /* Save the vote accounts stake information for the MAX_EPOCH epochs */
-  FD_TEST( RESTART_EPOCHS_MAX==2 );
-  for( ulong e=0; e<RESTART_EPOCHS_MAX; e++ ) {
+  FD_TEST( FD_RESTART_EPOCHS_MAX==2 );
+  for( ulong e=0; e<FD_RESTART_EPOCHS_MAX; e++ ) {
     if( epoch_stakes[e]->vote_accounts_root==NULL ) FD_LOG_ERR(( "vote account information is missing for epoch#%lu", restart->root_epoch+e ));
     restart->num_vote_accts[e]                 = fd_stake_weights_by_node( epoch_stakes[e], restart->stake_weights[e], runtime_spad );
     restart->total_stake[e]                    = 0;
@@ -378,8 +405,18 @@ fd_restart_init( fd_restart_t *              restart,
 
   /* Get the last_voted_slot and its bank hash from the tower checkpoint file */
   fd_hash_t tower_bank_hash;
-  ulong tower_height, tower_slots[ FD_TOWER_VOTE_MAX+1 ];
-  fd_restart_tower_restore( &tower_bank_hash, tower_slots, &tower_height, tower_checkpt_fileno );
+  ulong rsz, tower_height, tower_root, tower_slots[ FD_TOWER_VOTE_MAX+1 ];
+
+  FD_TEST( 0==fd_io_read( tower_checkpt_fileno, &tower_bank_hash, sizeof(fd_hash_t), sizeof(fd_hash_t), &rsz ) );
+  FD_TEST( rsz==sizeof(fd_hash_t) );
+  FD_TEST( 0==fd_io_read( tower_checkpt_fileno, &tower_height, sizeof(ulong), sizeof(ulong), &rsz ) );
+  FD_TEST( rsz==sizeof(ulong) );
+  FD_TEST( tower_height<=FD_TOWER_VOTE_MAX );
+  FD_TEST( 0==fd_io_read( tower_checkpt_fileno, &tower_root, sizeof(ulong), sizeof(ulong), &rsz ) );
+  FD_TEST( rsz==sizeof(ulong) );
+  ulong tower_slots_sz = sizeof(ulong)*tower_height;
+  FD_TEST( 0==fd_io_read( tower_checkpt_fileno, tower_slots, tower_slots_sz, tower_slots_sz, &rsz ) );
+  FD_TEST( rsz==tower_slots_sz );
 
   fd_gossip_restart_last_voted_fork_slots_t * msg = (fd_gossip_restart_last_voted_fork_slots_t *) fd_type_pun( out_buf );
   msg->last_voted_slot = tower_slots[tower_height-1];
@@ -387,9 +424,10 @@ fd_restart_init( fd_restart_t *              restart,
 
   /* Given last_voted_slot, get the bitmap for the last_voted_fork_slots gossip message */
   ulong end_slot   = msg->last_voted_slot;
-  uchar * bitmap   = out_buf+sizeof(fd_gossip_restart_last_voted_fork_slots_t);
-  ulong start_slot = ( end_slot>LAST_VOTED_FORK_MAX_SLOTS? end_slot-LAST_VOTED_FORK_MAX_SLOTS : 0 );
+  ulong start_slot = ( end_slot>FD_RESTART_LAST_VOTED_FORK_MAX_SLOTS? end_slot-FD_RESTART_LAST_VOTED_FORK_MAX_SLOTS : 0 );
   ulong num_slots  = end_slot-start_slot+1;
+  uchar * bitmap   = out_buf+sizeof(fd_gossip_restart_last_voted_fork_slots_t);
+  fd_memset( bitmap, 0,  num_slots/BITS_PER_UCHAR+1 );
   msg->offsets.discriminant                            = fd_restart_slots_offsets_enum_raw_offsets;
   msg->offsets.inner.raw_offsets.offsets.has_bits      = 1;
   msg->offsets.inner.raw_offsets.offsets.len           = num_slots;
@@ -400,17 +438,23 @@ fd_restart_init( fd_restart_t *              restart,
                   __func__, msg->last_voted_slot, FD_BASE58_ENC_32_ALLOCA( &tower_bank_hash ), num_slots ));
 
   /* Encode slots from the tower checkpoint into the bitmap */
-  for( ulong i=0; i<tower_height; i++ ) {
-    ulong offset_from_end = end_slot-tower_slots[i];
+  ulong checkpt_ghost_root=ULONG_MAX;
+  while(1) {
+    ulong slot;
+    FD_TEST( 0==fd_io_read( tower_checkpt_fileno, &slot, sizeof(ulong), sizeof(ulong), &rsz ) );
+    if( FD_UNLIKELY( slot==ULONG_MAX ) ) break;
+    checkpt_ghost_root = slot;
+
+    ulong offset_from_end = end_slot-slot;
     ulong out_idx         = offset_from_end/BITS_PER_UCHAR;
     int   out_bit_off     = offset_from_end%BITS_PER_UCHAR;
     bitmap[out_idx]       = fd_uchar_set_bit( bitmap[out_idx], out_bit_off );
   }
 
   /* Encode slots from the slot_history system program into the bitmap */
-  if( FD_UNLIKELY( tower_slots[0]!=slot_history->next_slot ) ) {
+  if( FD_UNLIKELY( checkpt_ghost_root>slot_history->next_slot ) ) {
     FD_LOG_WARNING(( "You may be loading a wrong snapshot in funk.\n \
-                      We expect tower root(%lu) to be the same as slot_history->next_slot(%lu)", tower_slots[0], slot_history->next_slot ));
+                      We expect checkpointed ghost root(%lu) <= slot_history->next_slot(%lu)", checkpt_ghost_root, slot_history->next_slot ));
   }
 
   for( ulong i=start_slot; i<slot_history->next_slot; i++ ) {
@@ -424,13 +468,10 @@ fd_restart_init( fd_restart_t *              restart,
     if( FD_LIKELY( fd_ulong_extract_bit( slot_history->bits.bits->blocks[in_idx], in_bit_off ) ) ) {
       /* bit#i in slot_history is 1 */
       bitmap[out_idx] = fd_uchar_set_bit( bitmap[out_idx], out_bit_off );
-    } else {
-      /* bit#i in slot_history is 0 */
-      bitmap[out_idx] = fd_uchar_clear_bit( bitmap[out_idx], out_bit_off );
     }
   }
 
-  ulong found;
+  ulong found = 0;
   fd_memcpy( msg->from.key, my_pubkey->key, sizeof(fd_pubkey_t) );
   fd_restart_recv_last_voted_fork_slots( restart, msg, &found );
   if( FD_UNLIKELY( found ) ) FD_LOG_WARNING(( "[%s] It seems that this single validator alone has >80% stake", __func__ ));
@@ -439,49 +480,73 @@ fd_restart_init( fd_restart_t *              restart,
 void
 fd_restart_tower_checkpt( fd_hash_t const * vote_bank_hash,
                           fd_tower_t * tower,
+                          fd_ghost_t * ghost,
                           ulong root,
                           int tower_checkpt_fileno ) {
-    lseek( tower_checkpt_fileno, 0, SEEK_SET );
-    ulong wsz, total_wsz = 0;
-    ulong slots_cnt = fd_tower_votes_cnt( tower )+1;
+  lseek( tower_checkpt_fileno, 0, SEEK_SET );
+  ulong wsz;
+  ulong total_wsz           = 0;
+  ulong checkpt_history_len = 0;
+  ulong tower_height        = fd_tower_votes_cnt( tower );
+  FD_TEST( tower_height>0 );
 
-    fd_io_write( tower_checkpt_fileno, vote_bank_hash, sizeof(fd_hash_t), sizeof(fd_hash_t), &wsz );
-    if( FD_UNLIKELY( wsz!=sizeof(fd_hash_t) ) ) goto checkpt_finish;
-    total_wsz += wsz;
-    fd_io_write( tower_checkpt_fileno, &slots_cnt, sizeof(ulong), sizeof(ulong), &wsz );
+  /* Checkpoint the tower */
+  fd_io_write( tower_checkpt_fileno, vote_bank_hash, sizeof(fd_hash_t), sizeof(fd_hash_t), &wsz );
+  if( FD_UNLIKELY( wsz!=sizeof(fd_hash_t) ) ) goto checkpt_finish;
+  total_wsz += wsz;
+  fd_io_write( tower_checkpt_fileno, &tower_height, sizeof(ulong), sizeof(ulong), &wsz );
+  if( FD_UNLIKELY( wsz!=sizeof(ulong) ) ) goto checkpt_finish;
+  total_wsz += wsz;
+  fd_io_write( tower_checkpt_fileno, &root, sizeof(ulong), sizeof(ulong), &wsz );
+  if( FD_UNLIKELY( wsz!=sizeof(ulong) ) ) goto checkpt_finish;
+  total_wsz += wsz;
+
+  ulong last_voted_slot = ULONG_MAX;
+  for( fd_tower_votes_iter_t tower_iter = fd_tower_votes_iter_init( tower );
+       !fd_tower_votes_iter_done( tower, tower_iter );
+       tower_iter = fd_tower_votes_iter_next( tower, tower_iter ) ) {
+    ulong slot = fd_tower_votes_iter_ele( tower, tower_iter )->slot;
+    fd_io_write( tower_checkpt_fileno, &slot, sizeof(ulong), sizeof(ulong), &wsz );
     if( FD_UNLIKELY( wsz!=sizeof(ulong) ) ) goto checkpt_finish;
     total_wsz += wsz;
-    fd_io_write( tower_checkpt_fileno, &root, sizeof(ulong), sizeof(ulong), &wsz );
+
+    last_voted_slot = slot;
+  }
+
+  /* Checkpoint the vote slot history */
+  fd_ghost_node_map_t * node_map   = fd_ghost_node_map( ghost );
+  fd_ghost_node_t *     node_pool  = fd_ghost_node_pool( ghost );
+  fd_ghost_node_t *     node       = fd_ghost_node_map_ele_query( node_map, &last_voted_slot, NULL, node_pool );
+  ulong                 ghost_root = fd_ghost_node_pool_ele_const( node_pool, ghost->root_idx )->slot;
+
+  FD_TEST( node!=NULL );
+  while( node->slot != ghost_root ) {
+    fd_io_write( tower_checkpt_fileno, &node->slot, sizeof(ulong), sizeof(ulong), &wsz );
     if( FD_UNLIKELY( wsz!=sizeof(ulong) ) ) goto checkpt_finish;
     total_wsz += wsz;
+    checkpt_history_len++;
 
-    for( fd_tower_votes_iter_t tower_iter = fd_tower_votes_iter_init( tower );
-         !fd_tower_votes_iter_done( tower, tower_iter );
-         tower_iter = fd_tower_votes_iter_next( tower, tower_iter ) ) {
-      ulong slot = fd_tower_votes_iter_ele( tower, tower_iter )->slot;
-      fd_io_write( tower_checkpt_fileno, &slot, sizeof(ulong), sizeof(ulong), &wsz );
-      if( FD_UNLIKELY( wsz!=sizeof(ulong) ) ) goto checkpt_finish;
-      total_wsz += wsz;
-    }
+    node = fd_ghost_node_pool_ele( node_pool, node->parent_idx );
+  }
 
-    fsync( tower_checkpt_fileno );
-    checkpt_finish:
-    if( FD_UNLIKELY( total_wsz!=sizeof(fd_hash_t)+sizeof(ulong)*( slots_cnt+1 ) ) ) FD_LOG_WARNING(( "Failed at checkpointing tower" ));
-}
+  /* Checkpoint the ghost root */
+  fd_io_write( tower_checkpt_fileno, &node->slot, sizeof(ulong), sizeof(ulong), &wsz );
+  if( FD_UNLIKELY( wsz!=sizeof(ulong) ) ) goto checkpt_finish;
+  total_wsz += wsz;
+  checkpt_history_len++;
 
-void
-fd_restart_tower_restore( fd_hash_t * vote_bank_hash,
-                          ulong * tower_slots,
-                          ulong * tower_height,
-                          int tower_checkpt_fileno ) {
-  ulong rsz;
-  FD_TEST( 0==fd_io_read( tower_checkpt_fileno, vote_bank_hash, sizeof(fd_hash_t), sizeof(fd_hash_t), &rsz ) );
-  FD_TEST( rsz==sizeof(fd_hash_t) );
-  FD_TEST( 0==fd_io_read( tower_checkpt_fileno, tower_height, sizeof(ulong), sizeof(ulong), &rsz ) );
-  FD_TEST( rsz==sizeof(ulong) );
-  FD_TEST( *tower_height<=FD_TOWER_VOTE_MAX+1 );
-  for( ulong i=0; i<*tower_height; i++ ) {
-    FD_TEST( 0==fd_io_read( tower_checkpt_fileno, tower_slots+i, sizeof(ulong), sizeof(ulong), &rsz ) );
-    FD_TEST( rsz==sizeof(ulong) );
+  /* Mark the end of slot history */
+  ulong end = ULONG_MAX;
+  fd_io_write( tower_checkpt_fileno, &end, sizeof(ulong), sizeof(ulong), &wsz );
+  if( FD_UNLIKELY( wsz!=sizeof(ulong) ) ) goto checkpt_finish;
+  total_wsz += wsz;
+  checkpt_history_len++;
+
+  /* Truncate and flush the checkpoint file */
+  fd_io_truncate( tower_checkpt_fileno, total_wsz );
+  fsync( tower_checkpt_fileno );
+checkpt_finish:
+  if( FD_UNLIKELY( total_wsz!=sizeof(fd_hash_t)+sizeof(ulong)*( 2+tower_height+checkpt_history_len ) ) ) {
+    FD_LOG_WARNING(( "Failed at checkpointing tower" ));
   }
 }
