@@ -91,7 +91,7 @@ struct fd_replay_tile_metrics {
   ulong slot;
   ulong last_voted_slot;
 };
-typedef struct fd_replay_tile_metrics fd_replay_tile_metrics_t; 
+typedef struct fd_replay_tile_metrics fd_replay_tile_metrics_t;
 #define FD_REPLAY_TILE_METRICS_FOOTPRINT ( sizeof( fd_replay_tile_metrics_t ) )
 
 struct fd_replay_tile_ctx {
@@ -285,7 +285,7 @@ struct fd_replay_tile_ctx {
                   tower root can lag the SMR and vice versa, but both
                   the fork-aware structures need to maintain information
                   through both of those slots. */
-                  
+
   ulong * poh;  /* proof-of-history slot */
   uint poh_init_done;
   int  snapshot_init_done;
@@ -305,7 +305,7 @@ struct fd_replay_tile_ctx {
 
   fd_epoch_forks_t epoch_forks[1];
 
-  /* The spad allocators used by the executor tiles are NOT the same as the 
+  /* The spad allocators used by the executor tiles are NOT the same as the
      spad used for general, longer-lasting spad allocations. The lifetime of
      the exec spad is just through an execution. The runtime spad is scoped
      to the runtime. The top-most frame will persist for the entire duration
@@ -435,11 +435,11 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
                        fd_exec_slot_ctx_t *   slot_ctx ) {
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   if( slot_ctx->slot_bank.epoch_stakes.vote_accounts_root!=NULL ) {
-    ulong *             stake_weights_msg = fd_chunk_to_laddr( ctx->stake_weights_out_mem, 
+    ulong *             stake_weights_msg = fd_chunk_to_laddr( ctx->stake_weights_out_mem,
                                                                ctx->stake_weights_out_chunk );
     fd_stake_weight_t * stake_weights     = (fd_stake_weight_t *)&stake_weights_msg[5];
     ulong               stake_weight_idx  = fd_stake_weights_by_node( &ctx->slot_ctx->slot_bank.epoch_stakes,
-                                                                      stake_weights, 
+                                                                      stake_weights,
                                                                       ctx->runtime_spad );
 
     stake_weights_msg[0] = fd_slot_to_leader_schedule_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot ) - 1; /* epoch */
@@ -740,8 +740,8 @@ snapshot_state_update( fd_replay_tile_ctx_t * ctx, ulong wmk ) {
 }
 
 static void
-funk_publish( fd_replay_tile_ctx_t * ctx, 
-              fd_funk_txn_t *        to_root_txn, 
+funk_publish( fd_replay_tile_ctx_t * ctx,
+              fd_funk_txn_t *        to_root_txn,
               fd_funk_txn_t *        txn_map,
               ulong                  wmk,
               uchar                  is_constipated ) {
@@ -752,7 +752,7 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
 
   /* Now try to publish into funk, this is handled differently based on if
      funk is constipated or if funk is double-constipated. Even if funk was
-     double-constipated and now no-longer is we still want to preserve the 
+     double-constipated and now no-longer is we still want to preserve the
      root for the epoch account hash. */
   if( ctx->double_constipation_slot ) {
     FD_LOG_NOTICE(( "Double constipation publish for wmk=%lu", wmk ));
@@ -774,7 +774,7 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
     if( FD_UNLIKELY( wmk>=epoch_bank->eah_start_slot ) ) {
       /* We need to double-constipate at this point. */
 
-      /* First, find the txn where the corresponding slot is the minimum 
+      /* First, find the txn where the corresponding slot is the minimum
          pending transaction where >= eah_start_slot. */
 
       fd_funk_txn_t * txn        = to_root_txn;
@@ -786,12 +786,12 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
         int is_prev_lt_eah_start   = parent_txn->xid.ul[0] < epoch_bank->eah_start_slot;
         if( is_curr_gteq_eah_start && is_prev_lt_eah_start ) {
           break;
-        } 
+        }
         txn        = parent_txn;
         parent_txn = fd_funk_txn_parent( txn, txn_map );
       }
 
-      /* We should never get to this point because of the constipated root. 
+      /* We should never get to this point because of the constipated root.
          The constipated root is guaranteed to have a slot that's < eah_start_slot. */
       if( FD_UNLIKELY( !parent_txn ) ) {
         FD_LOG_ERR(( "Not possible for the parent_txn to be the root" ));
@@ -799,7 +799,7 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
 
       /* This transaction will now become the double-constipated root. */
 
-      FD_LOG_NOTICE(( "Entering a double constipated state eah_start=%lu eah_slot=%lu", 
+      FD_LOG_NOTICE(( "Entering a double constipated state eah_start=%lu eah_slot=%lu",
                       epoch_bank->eah_start_slot, txn->xid.ul[0] ));
 
       ctx->double_constipation_slot = txn->xid.ul[0];
@@ -842,7 +842,7 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
         /* We need to be careful here because the eah start slot may be skipped
            so the actual slot that we calculate the eah for may be greater than
            the eah start slot. The transaction must correspond to a slot greater
-           than or equal to the eah start slot, but its parent transaction must 
+           than or equal to the eah start slot, but its parent transaction must
            either have been published already or must be less than the eah start
            slot. */
 
@@ -850,26 +850,26 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
         int is_prev_lt_eah_start   = parent_txn->xid.ul[0] < epoch_bank->eah_start_slot;
         if( is_curr_gteq_eah_start && is_prev_lt_eah_start ) {
           break;
-        } 
+        }
         txn        = parent_txn;
         parent_txn = fd_funk_txn_parent( txn, txn_map );
       }
 
-      /* At this point, we know txn is the funk txn that we will want to 
-         calculate the eah for since it's the minimum slot that is >= 
+      /* At this point, we know txn is the funk txn that we will want to
+         calculate the eah for since it's the minimum slot that is >=
          eah_start_slot. */
-        
+
       FD_LOG_NOTICE(( "The eah has an expected start slot of %lu and is being created for slot %lu", epoch_bank->eah_start_slot, txn->xid.ul[0] ));
 
       if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk, txn, 1 ) ) ) {
         FD_LOG_ERR(( "failed to funk publish" ));
       }
 
-      /* At this point, we have the root for which we want to calculate the 
-         epoch account hash for. The other children that are > eah_start_slot 
-         but <= wmk will be published into the constipated root during the next 
-         invocation of funk_and_txncache_publish. 
-         
+      /* At this point, we have the root for which we want to calculate the
+         epoch account hash for. The other children that are > eah_start_slot
+         but <= wmk will be published into the constipated root during the next
+         invocation of funk_and_txncache_publish.
+
          Notify the batch tile that an eah should be computed. */
 
       ulong updated_fseq = fd_batch_fseq_pack( 0UL, 0UL, txn->xid.ul[0] );
@@ -878,7 +878,7 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
 
     } else {
       /* This is the standard case. Publish all transactions up to and
-         including the watermark. This will publish any in-prep ancestors 
+         including the watermark. This will publish any in-prep ancestors
          of root_txn as well. */
 
       if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk, to_root_txn, 1 ) ) ) {
@@ -892,7 +892,7 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
 }
 
 static fd_funk_txn_t*
-get_rooted_txn( fd_replay_tile_ctx_t * ctx, 
+get_rooted_txn( fd_replay_tile_ctx_t * ctx,
                 fd_funk_txn_t *        to_root_txn,
                 fd_funk_txn_t *        txn_map,
                 uchar                  is_constipated ) {
@@ -900,8 +900,8 @@ get_rooted_txn( fd_replay_tile_ctx_t * ctx,
   /* We need to get the rooted transaction that we are publishing into. This
      needs to account for the three different cases: no constipation, single
      constipation, double constipation.
-      
-     Also, if it's the first time that we are setting the false root(s), then 
+
+     Also, if it's the first time that we are setting the false root(s), then
      we must also register them into the status cache because we don't register
      the root in txncache_publish to avoid registering the same slot multiple times. */
 
@@ -958,22 +958,22 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funk_txn_xi
 
   /* This function is responsible for publishing/registering all in-prep slots
      up to and including the watermark slot into funk and the transaction cache.
-     
-     However, we need to modify this behavior to support snapshot creation and 
-     epoch account hash generation (which is handled by the batch tile). 
+
+     However, we need to modify this behavior to support snapshot creation and
+     epoch account hash generation (which is handled by the batch tile).
      Specifically, we need to change the mechanism by introducing the concept of
-     a constipated root. We want to keep the root of funk/txncache constant 
+     a constipated root. We want to keep the root of funk/txncache constant
      while the batch tile reads from the root of funk. At the same time, we
-     want to keep publishing into funk. We accomplish this by treating the 
+     want to keep publishing into funk. We accomplish this by treating the
      oldest in-prep ancestor of funk as the "constipated/false" root. While
      the batch tile "works", we will only publish into the false root. Once the
-     batch tile is done producing a snapshot/eah, we will then flush the 
+     batch tile is done producing a snapshot/eah, we will then flush the
      constipated root into the real root of funk as we no longer need a frozen
-     funk transaction to read from. The batch tile will communicate with the 
+     funk transaction to read from. The batch tile will communicate with the
      replay tile via the is_constipated fseq and a link.
-     
-     There is a pretty important edge case to consider here: what do we do if 
-     we are currently in the middle of creating a snapshot, but we need to 
+
+     There is a pretty important edge case to consider here: what do we do if
+     we are currently in the middle of creating a snapshot, but we need to
      record our state for the epoch account hash? The epoch account hash must
      be created for a specific slot and we can't block execution to calculate
      this hash. The solution will be to introduce a second constipation via a
@@ -986,25 +986,25 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funk_txn_xi
      the second constipated root until we are done producing a snapshot.
 
      A similar mechanism for txncache constipation is needed only for snapshot
-     creation. This is simpler than for funk because txncache operations are 
-     atomic and we can just register slots into a constipated set while the 
-     txncache is getting copied out. This is a much faster operation and the 
-     txncache will likely get unconstipated before funk. 
-     
+     creation. This is simpler than for funk because txncache operations are
+     atomic and we can just register slots into a constipated set while the
+     txncache is getting copied out. This is a much faster operation and the
+     txncache will likely get unconstipated before funk.
+
      Single Funk Constipation Example:
-     
+
      If we want to create a snapshot/eah for slot n, then we will publish
-     all transactions up to and including those that correspond to slot n. 
+     all transactions up to and including those that correspond to slot n.
      We will then publish all transactions into the immediate child of n (lets
      assume it's n+1) in this case. So every transaction will be published into
-     n+1 and NOT n. When the computation is done, we resume publishing as normal. 
-     
-     Double Funk Constipation Example: 
-     
-     Let's say we are creating a snapshot for slot n and we want 
+     n+1 and NOT n. When the computation is done, we resume publishing as normal.
+
+     Double Funk Constipation Example:
+
+     Let's say we are creating a snapshot for slot n and we want
      the epoch account hash for slot m. A snapshot will take x slots to produce
-     and we can assume that n + x > m. So at some slot y where n < y < m, the 
-     state of funk will be: a root at slot n with a constipated root at 
+     and we can assume that n + x > m. So at some slot y where n < y < m, the
+     state of funk will be: a root at slot n with a constipated root at
      n+1 which gets published into. However, once it is time to publish slot m,
      we will now have a root at slot n, a constipated root at slot m, and we will
      then start publishing into the second constipated root at slot m + 1. */
@@ -1032,7 +1032,7 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funk_txn_xi
     epoch_bank->eah_start_slot = FD_SLOT_NULL;
   }
 
-  /* If the (second) false root is no longer needed, then we should stop 
+  /* If the (second) false root is no longer needed, then we should stop
      tracking it. */
   if( FD_UNLIKELY( ctx->false_root && !is_constipated ) ) {
     FD_LOG_NOTICE(( "Unsetting false root tracking" ));
@@ -1267,7 +1267,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   long prepare_time_ns = -fd_log_wallclock();
 
   int is_new_epoch_in_new_block = 0;
-  fd_fork_t * fork = fd_forks_prepare( ctx->forks, 
+  fd_fork_t * fork = fd_forks_prepare( ctx->forks,
                                        ctx->parent_slot,
                                        ctx->acc_mgr,
                                        ctx->blockstore,
@@ -1340,7 +1340,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   fork->slot_ctx.funk_txn = fd_funk_txn_prepare(ctx->funk, fork->slot_ctx.funk_txn, &xid, 1);
   fd_funk_end_write( ctx->funk );
 
-  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_block_pre_execute_process_new_epoch( &fork->slot_ctx, 
+  if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_block_pre_execute_process_new_epoch( &fork->slot_ctx,
                                                                                                  ctx->tpool,
                                                                                                  ctx->exec_spads,
                                                                                                  ctx->exec_spad_cnt,
@@ -1408,7 +1408,7 @@ struct fd_poh_verifier {
     uchar * raw;
   } microblock;
   fd_hash_t const * in_poh_hash;
-  ulong microblk_sz;
+  ulong microblk_max_sz;
   fd_spad_t * spad;
   int success;
 };
@@ -1416,15 +1416,15 @@ typedef struct fd_poh_verifier fd_poh_verifier_t;
 
 /* Verifies PoH for one microblock */
 
-static void 
+static void
 poh_verify_task( void * tpool, /* poh_verifier * */
-                 ulong t0 FD_PARAM_UNUSED, 
-                 ulong t1 FD_PARAM_UNUSED, 
+                 ulong t0 FD_PARAM_UNUSED,
+                 ulong t1 FD_PARAM_UNUSED,
                  void * args FD_PARAM_UNUSED,
                  void * reduce FD_PARAM_UNUSED,
                  ulong stride FD_PARAM_UNUSED,
                  ulong l0 FD_PARAM_UNUSED,
-                 ulong l1 FD_PARAM_UNUSED, 
+                 ulong l1 FD_PARAM_UNUSED,
                  ulong m0,
                  ulong m1 FD_PARAM_UNUSED,
                  ulong n0 FD_PARAM_UNUSED,
@@ -1435,7 +1435,7 @@ poh_verify_task( void * tpool, /* poh_verifier * */
   fd_hash_t    init_hash = working_hash;
 
   fd_microblock_hdr_t const * hdr = poh_info->microblock.hdr;
-  ulong               microblk_sz = poh_info->microblk_sz;
+  ulong               microblk_sz = poh_info->microblk_max_sz;
 
   if( !hdr->txn_cnt ){
     fd_poh_append( &working_hash, hdr->hash_cnt );
@@ -1459,12 +1459,12 @@ poh_verify_task( void * tpool, /* poh_verifier * */
         fd_txn_p_t txn_p;
         ulong pay_sz = 0;
         ulong txn_sz = fd_txn_parse_core( poh_info->microblock.raw + off,
-                                          fd_ulong_min( FD_TXN_MTU, microblk_sz - off ), // no fd_ulong_min; 
+                                          fd_ulong_min( FD_TXN_MTU, microblk_sz - off ),
                                           TXN(&txn_p),
                                           NULL,
                                           &pay_sz );
         if( FD_UNLIKELY( !pay_sz || !txn_sz || txn_sz > FD_TXN_MTU )  ) {
-          FD_LOG_ERR(( "failed to parse transaction %lu in ledger", txn_idx ));
+          FD_LOG_ERR(( "failed to parse transaction %lu in replay", txn_idx ));
         }
 
         /* Loop across signatures */
@@ -1495,7 +1495,7 @@ poh_verify_task( void * tpool, /* poh_verifier * */
 /* Verifies a microblock batch validity. */
 
 static int
-process_mbatch( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem, bool last_batch ){
+process_mbatch( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong mbatch_sz, bool last_batch ){
   #define wait_and_check_success( worker_idx )         \
     fd_tpool_wait( ctx->tpool, worker_idx );           \
     if( poh_info[ worker_idx ].success ) {             \
@@ -1522,21 +1522,16 @@ process_mbatch( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem, bool last_
   fd_microblock_hdr_t * hdr = NULL;
   ulong                 off = sizeof(ulong);
   ulong          worker_idx = 0;
-  ulong     prev_worker_idx = ULONG_MAX; // the worker of the previous microblock
-  ulong    curr_microblk_sz = 0;
   for ( ulong i = 0UL; i < micro_cnt; i++ ){
     hdr  = (fd_microblock_hdr_t *)fd_type_pun( ctx->mbatch + off );
-    off += sizeof(fd_microblock_hdr_t);
-    curr_microblk_sz = sizeof(fd_microblock_hdr_t);;
-
-    int res = fd_runtime_microblock_verify_ticks( ctx->slot_ctx, 
-                                                  ctx->curr_slot, 
-                                                  hdr, 
+    int res = fd_runtime_microblock_verify_ticks( ctx->slot_ctx,
+                                                  ctx->curr_slot,
+                                                  hdr,
                                                   last_batch && i == micro_cnt - 1,
                                                   ctx->slot_ctx->slot_bank.tick_height,
                                                   ctx->slot_ctx->slot_bank.max_tick_height,
                                                   ctx->slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick );
-    
+
     if( res != FD_BLOCK_OK ) {
       FD_LOG_WARNING(( "failed to verify tick metadata" ));
       return -1;
@@ -1545,23 +1540,20 @@ process_mbatch( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem, bool last_
     /* verify exec tpool */
     worker_idx = (i % (worker_cnt - 1)) + 1;
     wait_and_check_success( worker_idx );
-    poh_info[ worker_idx ].success        = 0;
-    poh_info[ worker_idx ].in_poh_hash    = in_poh_hash;
-    poh_info[ worker_idx ].microblock.hdr = hdr;
-    poh_info[ worker_idx ].spad           = ctx->exec_spads[ worker_idx ];
+    poh_info[ worker_idx ].success         = 0;
+    poh_info[ worker_idx ].in_poh_hash     = in_poh_hash;
+    poh_info[ worker_idx ].microblock.hdr  = hdr;
+    poh_info[ worker_idx ].spad            = ctx->exec_spads[ worker_idx ];
+    poh_info[ worker_idx ].microblk_max_sz = mbatch_sz - off;
 
-    /* At every iteration of the loop, we verify the microblock of the previous iteration. 
-       This is because we need the full microblock size for safe txn parsing, but we can
-       only know the size after txn parsing. */
+    off += sizeof(fd_microblock_hdr_t);
 
-    if ( prev_worker_idx != ULONG_MAX ) {
-      fd_tpool_exec( ctx->tpool, prev_worker_idx,
-                     poh_verify_task,
-                     poh_info,
-                     0UL, 1UL, NULL, NULL, 0UL, 0UL, 0UL, 
-                     prev_worker_idx, 
-                     0UL, 0UL, 0UL );
-    }
+    fd_tpool_exec( ctx->tpool, worker_idx,
+                   poh_verify_task,
+                   poh_info,
+                   0UL, 1UL, NULL, NULL, 0UL, 0UL, 0UL,
+                   worker_idx,
+                   0UL, 0UL, 0UL );
 
     in_poh_hash = (fd_hash_t *)&hdr->hash;
 
@@ -1569,28 +1561,25 @@ process_mbatch( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem, bool last_
     for( ulong t = 0; t < hdr->txn_cnt; t++ ){
       fd_txn_p_t txn_p;
       ulong pay_sz = 0;
-      ulong txn_sz = fd_txn_parse_core( ctx->mbatch + off, 
-                                        FD_TXN_MTU, 
-                                        TXN(&txn_p), 
-                                        NULL, 
+      ulong txn_sz = fd_txn_parse_core( ctx->mbatch + off,
+                                        fd_ulong_min( FD_TXN_MTU, mbatch_sz - off ),
+                                        TXN(&txn_p),
+                                        NULL,
                                         &pay_sz );
 
       if( FD_UNLIKELY( !pay_sz || !txn_sz || txn_sz > FD_TXN_MTU ) ) {
-        FD_LOG_WARNING(( "failed to parse transaction %lu in ledger", t ));
+        FD_LOG_WARNING(( "failed to parse transaction %lu in replay", t ));
         return -1;
       }
       fd_memcpy( txn_p.payload, ctx->mbatch + off, pay_sz );
       txn_p.payload_sz = pay_sz;
       off += pay_sz;
-      curr_microblk_sz += pay_sz;
-
       /* Execute Transaction  */
 
       /* dispatch into MCACHE / DCACHE */
       fd_replay_out_ctx_t * out = &ctx->exec_out[ 0 ];
       fd_stem_publish( stem, out->idx, 0, out->chunk, sizeof(fd_txn_p_t), 0UL, 0UL, 0UL );
       out->chunk = fd_dcache_compact_next( out->chunk,  sizeof(fd_txn_p_t), out->chunk0, out->wmark );
-
 
       /*int res = fd_runtime_process_txns( ctx->slot_ctx, ctx->spads[1], ctx->capture_ctx, &txn_p, 1 );
       fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &ctx->curr_slot, NULL, ctx->forks->pool );
@@ -1616,18 +1605,9 @@ process_mbatch( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem, bool last_
         publish_account_notifications( ctx, fork, ctx->curr_slot, &txn_p, 1 );
       }*/
     }
-    poh_info[ worker_idx ].microblk_sz = curr_microblk_sz;
-    prev_worker_idx = worker_idx;
   }
 
-  /* verify the last microblock that wasn't done in the loop */
-  fd_tpool_exec( ctx->tpool, worker_idx,
-                 poh_verify_task,
-                 poh_info,
-                 0UL, 1UL, NULL, NULL, 0UL, 0UL, 0UL, 
-                 worker_idx, 
-                 0UL, 0UL, 0UL );
-
+  /* verify the last microblocks that weren't done in the loop */
   for( ulong i = 1UL; i < fd_tpool_worker_cnt( ctx->tpool ); i++ ){
     wait_and_check_success( i );
   }
@@ -1766,9 +1746,9 @@ after_frag( fd_replay_tile_ctx_t * ctx,
 
           fd_blockstore_start_read( ctx->blockstore );
 
-          int err = fd_blockstore_batch_assemble( ctx->blockstore, 
-                                                  ctx->curr_slot, 
-                                                  block_map_entry->replayed_idx + 1, 
+          int err = fd_blockstore_batch_assemble( ctx->blockstore,
+                                                  ctx->curr_slot,
+                                                  block_map_entry->replayed_idx + 1,
                                                   FD_MBATCH_MAX,
                                                   ctx->mbatch,
                                                   &mbatch_sz );
@@ -1778,7 +1758,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
             FD_LOG_ERR(( "Failed to assemble microblock batch" ));
           }
 
-          int res = process_mbatch( ctx, stem, idx == block_map_entry->slot_complete_idx );
+          int res = process_mbatch( ctx, stem, mbatch_sz, idx == block_map_entry->slot_complete_idx );
           if( FD_UNLIKELY( res ) ){
             // TODO: handle invalid batch how & do thread handling
             FD_LOG_ERR(( "Failed to process microblock batch" ));
@@ -2008,7 +1988,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
 
     fd_fork_t * child = fd_fork_frontier_ele_query( ctx->forks->frontier, &fork->slot, NULL, ctx->forks->pool );
     ulong vote_slot = fd_tower_vote_slot( ctx->tower,
-                                          ctx->epoch, 
+                                          ctx->epoch,
                                           ctx->funk,
                                           child->slot_ctx.funk_txn,
                                           ctx->ghost,
@@ -2225,9 +2205,9 @@ read_snapshot( void *              _ctx,
   }
 
   /* Pass the slot_ctx to snapshot_load or recover_banks */
-  /* Base slot is the slot we will compare against the base slot of the incremental snapshot, to ensure that the 
+  /* Base slot is the slot we will compare against the base slot of the incremental snapshot, to ensure that the
      base slot of the incremental snapshot is the slot of the full snapshot.
-     
+
      We pull this out of the full snapshot to use when verifying the incremental snapshot. */
   ulong        base_slot = 0UL;
   const char * snapshot  = snapshotfile;
@@ -2236,13 +2216,13 @@ read_snapshot( void *              _ctx,
     fd_runtime_recover_banks( ctx->slot_ctx, 1, 1, ctx->runtime_spad );
     base_slot = ctx->slot_ctx->slot_bank.slot;
   } else {
-    
+
     /* If we have an incremental snapshot try to prefetch the snapshot slot
-       and manifest as soon as possible. In order to kick off repair effectively 
+       and manifest as soon as possible. In order to kick off repair effectively
        we need the snapshot slot and the stake weights. These are both available
        in the manifest. We will try to load in the manifest from the latest
-       snapshot that is availble, then setup the blockstore and publish the 
-       stake weights. After this, repair will kick off concurrently with loading 
+       snapshot that is availble, then setup the blockstore and publish the
+       stake weights. After this, repair will kick off concurrently with loading
        the rest of the snapshots. */
 
     /* TODO: enable snapshot verification for all 3 snapshot loads */
@@ -2250,7 +2230,7 @@ read_snapshot( void *              _ctx,
     if( strlen( incremental )>0UL ) {
       uchar *                  tmp_mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
       /* TODO: enable snapshot verification */
-      fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem, 
+      fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem,
                                                                     incremental,
                                                                     ctx->slot_ctx,
                                                                     ctx->tpool,
@@ -2274,7 +2254,7 @@ read_snapshot( void *              _ctx,
 
     uchar *                  mem      = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_load_ctx_align(), fd_snapshot_load_ctx_footprint() );
     /* TODO: enable snapshot verification */
-    fd_snapshot_load_ctx_t * snap_ctx = fd_snapshot_load_new( mem, 
+    fd_snapshot_load_ctx_t * snap_ctx = fd_snapshot_load_new( mem,
                                                               snapshot,
                                                               ctx->slot_ctx,
                                                               ctx->tpool,
@@ -2284,10 +2264,10 @@ read_snapshot( void *              _ctx,
                                                               ctx->exec_spads,
                                                               ctx->exec_spad_cnt,
                                                               ctx->runtime_spad );
-  
+
     fd_snapshot_load_init( snap_ctx );
 
-    /* If we don't have an incremental snapshot, load the manifest and the status cache and initialize 
+    /* If we don't have an incremental snapshot, load the manifest and the status cache and initialize
          the objects because we don't have these from the incremental snapshot. */
     if( strlen( incremental )<=0UL ) {
       fd_snapshot_load_manifest_and_status_cache( snap_ctx, NULL,
@@ -2325,8 +2305,8 @@ read_snapshot( void *              _ctx,
     /* TODO: enable snapshot verification */
     fd_snapshot_load_all( incremental,
                           ctx->slot_ctx,
-                          &base_slot, 
-                          ctx->tpool, 
+                          &base_slot,
+                          ctx->tpool,
                           false,
                           false,
                           FD_SNAPSHOT_TYPE_INCREMENTAL,
@@ -2343,12 +2323,12 @@ read_snapshot( void *              _ctx,
     replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
   }
 
-  fd_runtime_update_leaders( ctx->slot_ctx, 
+  fd_runtime_update_leaders( ctx->slot_ctx,
                              ctx->slot_ctx->slot_bank.slot,
                              ctx->runtime_spad );
   FD_LOG_NOTICE(( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
   fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
-  fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( ctx->slot_ctx, 
+  fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( ctx->slot_ctx,
                                                         ctx->slot_ctx->funk_txn,
                                                         ctx->tpool,
                                                         ctx->runtime_spad );
@@ -2367,7 +2347,7 @@ static void
 init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   /* Do not modify order! */
 
-  /* First, load in the sysvars into the sysvar cache. This is required to 
+  /* First, load in the sysvars into the sysvar cache. This is required to
      make the StakeHistory sysvar available to the rewards calculation. */
 
   fd_runtime_sysvar_cache_load( ctx->slot_ctx );
@@ -2397,7 +2377,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
 
     FD_TEST( fd_runtime_block_execute_prepare( ctx->slot_ctx, ctx->runtime_spad ) == 0 );
     fd_block_info_t info = {.signature_cnt = 0 };
-    FD_TEST( fd_runtime_block_execute_finalize_tpool( ctx->slot_ctx, 
+    FD_TEST( fd_runtime_block_execute_finalize_tpool( ctx->slot_ctx,
                                                       NULL,
                                                       &info,
                                                       ctx->tpool,
@@ -2409,7 +2389,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
 
     FD_LOG_NOTICE(( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
     fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
-    fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( ctx->slot_ctx, 
+    fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( ctx->slot_ctx,
                                                           ctx->slot_ctx->funk_txn,
                                                           ctx->tpool,
                                                           ctx->runtime_spad );
@@ -2485,7 +2465,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
 
   fd_runtime_read_genesis( ctx->slot_ctx,
                            ctx->genesis,
-                           is_snapshot, 
+                           is_snapshot,
                            ctx->capture_ctx,
                            ctx->tpool,
                            ctx->runtime_spad );
@@ -2557,7 +2537,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     if( FD_UNLIKELY( ctx->in_wen_restart ) ) {
       ulong buf_len = 0;
       uchar * buf = fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk );
-      fd_sysvar_slot_history_read( ctx->slot_ctx, 
+      fd_sysvar_slot_history_read( ctx->slot_ctx,
                                    ctx->runtime_spad,
                                    ctx->slot_ctx->slot_history );
 
@@ -2684,7 +2664,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->in_cnt < 4 ||
                    strcmp( topo->links[ tile->in_link_id[ STORE_IN_IDX  ] ].name, "store_replay" ) ||
                    strcmp( topo->links[ tile->in_link_id[ PACK_IN_IDX ] ].name, "pack_replay")   ||
-                   strcmp( topo->links[ tile->in_link_id[ GOSSIP_IN_IDX ] ].name, "gossip_repla")  || 
+                   strcmp( topo->links[ tile->in_link_id[ GOSSIP_IN_IDX ] ].name, "gossip_repla")  ||
                    strcmp( topo->links[ tile->in_link_id[ BATCH_IN_IDX  ] ].name, "batch_replay" ) ) ) {
     FD_LOG_ERR(( "replay tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
@@ -2905,7 +2885,7 @@ unprivileged_init( fd_topo_t *      topo,
   /* epoch forks                                                        */
   /**********************************************************************/
 
-  void * epoch_ctx_mem = fd_spad_alloc( ctx->runtime_spad, 
+  void * epoch_ctx_mem = fd_spad_alloc( ctx->runtime_spad,
                                         fd_exec_epoch_ctx_align(),
                                         MAX_EPOCH_FORKS * fd_exec_epoch_ctx_footprint( VOTE_ACC_MAX ) );
 
