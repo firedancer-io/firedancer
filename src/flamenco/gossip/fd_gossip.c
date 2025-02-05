@@ -14,6 +14,8 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/random.h>
+#include <unistd.h>
+#include <sys/mman.h>
 
 #pragma GCC diagnostic ignored "-Wstrict-aliasing"
 
@@ -71,6 +73,54 @@
 #define MAX_STAKE_WEIGHTS (40200UL)
 
 #define MAX_PEER_PING_COUNT (10000U)
+
+const char*
+crds_disc_to_str( uint disc) {
+  switch (disc) {
+    case fd_crds_data_enum_contact_info_v1:
+      return "ContactInfoV1";
+    case fd_crds_data_enum_contact_info_v2:
+      return "ContactInfoV2";
+    case fd_crds_data_enum_vote:
+      return "Vote";
+    case fd_crds_data_enum_lowest_slot:
+      return "LowestSlot";
+    case fd_crds_data_enum_snapshot_hashes:
+      return "SnapshotHashes";
+    case fd_crds_data_enum_accounts_hashes:
+      return "AccountsHashes";
+    case fd_crds_data_enum_epoch_slots:
+      return "EpochSlots";
+    case fd_crds_data_enum_version_v1:
+      return "VersionV1";
+    case fd_crds_data_enum_version_v2:
+      return "VersionV2";
+    case fd_crds_data_enum_node_instance:
+      return "NodeInstance";
+    case fd_crds_data_enum_duplicate_shred:
+      return "DuplicateShred";
+    case fd_crds_data_enum_incremental_snapshot_hashes:
+      return "IncrementalSnapshotHashes";
+    case fd_crds_data_enum_restart_last_voted_fork_slots:
+      return "RestartLastVotedForkSlots";
+    case fd_crds_data_enum_restart_heaviest_fork:
+      return "RestartHeaviestFork";
+    default:
+      break;
+  }
+  return "<unknown>";
+}
+
+FD_FN_UNUSED static void
+dump_gossip_msg( uchar const * buf, ulong len, ulong cnt ) {
+  char filename[100];
+  sprintf(filename, "/home/rsivakumaran/scratch/gossip_crds_msg_dump/%lu.bin", cnt);
+  FILE * file = fopen(filename, "wb");
+  if ( file ) {
+    fwrite( buf, 1, len, file );
+    fclose( file );
+  }
+}
 
 /* Test if two addresses are equal */
 static int fd_gossip_peer_addr_eq( const fd_gossip_peer_addr_t * key1, const fd_gossip_peer_addr_t * key2 ) {
@@ -2313,6 +2363,7 @@ fd_gossip_continue( fd_gossip_t * glob ) {
 /* Pass a raw gossip packet into the protocol. msg_name is the unix socket address of the sender */
 int
 fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_gossip_peer_addr_t const * from ) {
+  // static uint dump_gossip_msg_cnt = 0;
   fd_gossip_lock( glob );
   FD_SCRATCH_SCOPE_BEGIN {
     glob->recv_pkt_cnt++;
@@ -2340,6 +2391,12 @@ fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_g
 
     FD_LOG_DEBUG(("recv msg type %u from %s", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from)));
     fd_gossip_recv(glob, from, &gmsg);
+
+    // if ( dump_gossip_msg_cnt < 50 && 
+    //     ( gmsg.discriminant == fd_gossip_msg_enum_push_msg || gmsg.discriminant == fd_gossip_msg_enum_pull_resp ) ){
+    //   dump_gossip_msg( msg, msglen, dump_gossip_msg_cnt++ );
+    // }
+
 
     fd_gossip_unlock( glob );
   } FD_SCRATCH_SCOPE_END;
