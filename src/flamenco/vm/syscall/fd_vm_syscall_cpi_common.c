@@ -72,13 +72,6 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
   uchar acc_idx_seen[256] = {0};
   for( ulong i=0UL; i<VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instr ); i++ ) {
     VM_SYSCALL_CPI_ACC_META_T const * cpi_acct_meta = &cpi_acct_metas[i];
-    if( FD_UNLIKELY( cpi_acct_meta->is_signer > 1U || cpi_acct_meta->is_writable > 1U ) ) {
-      /* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L471
-         https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L698
-       */
-      FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-    }
     uchar const * pubkey = VM_SYSCALL_CPI_ACC_META_PUBKEY( vm, cpi_acct_meta );
 
     int account_found = 0;
@@ -796,6 +789,22 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
     FD_VM_CU_UPDATE( vm, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) / FD_VM_CPI_BYTES_PER_UNIT );
   }
 
+  /* Final checks for translate_instruction
+   */
+  for( ulong i=0UL; i<VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction ); i++ ) {
+    VM_SYSCALL_CPI_ACC_META_T const * cpi_acct_meta = &cpi_account_metas[i];
+    if( FD_UNLIKELY( cpi_acct_meta->is_signer > 1U || cpi_acct_meta->is_writable > 1U ) ) {
+      /* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L471
+         https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L698
+       */
+      FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
+    /* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L700
+     */
+    (void)VM_SYSCALL_CPI_ACC_META_PUBKEY( vm, cpi_acct_meta );
+  }
+
   /* Derive PDA signers ************************************************/
   fd_pubkey_t signers[ FD_CPI_MAX_SIGNER_CNT ] = {0};
   fd_pubkey_t * caller_program_id = &vm->instr_ctx->txn_ctx->accounts[ vm->instr_ctx->instr->program_id ];
@@ -838,13 +847,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Create the instruction to execute (in the input format the FD runtime expects) from
      the translated CPI ABI inputs. */
-  fd_instr_info_t * instruction_to_execute = &vm->instr_ctx->txn_ctx->instr_infos[ vm->instr_ctx->txn_ctx->instr_info_cnt ];
-
-  vm->instr_ctx->txn_ctx->instr_info_cnt++;
-  if( FD_UNLIKELY( vm->instr_ctx->txn_ctx->instr_info_cnt>FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
-     FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED );
-     return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
-  }
+  fd_instr_info_t instruction_to_execute[ 1 ];
 
   err = VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( vm, cpi_instruction, cpi_account_metas, program_id, data, instruction_to_execute );
   if( FD_UNLIKELY( err ) ) {
@@ -927,6 +930,19 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   );
   /* errors are propagated in the function itself. */
   if( FD_UNLIKELY( err ) ) return err;
+
+  /* In Agave, this is
+     cpi_common =>
+     invoke_context.process_instruction =>
+     invoke_context.push() =>
+     https://github.com/anza-xyz/agave/blob/v2.1.6/sdk/src/transaction_context.rs#L346
+   */
+  vm->instr_ctx->txn_ctx->instr_info_cnt++;
+  if( FD_UNLIKELY( vm->instr_ctx->txn_ctx->instr_info_cnt>FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
+     FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED );
+     return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
+  }
+  fd_memcpy( &vm->instr_ctx->txn_ctx->instr_infos[ vm->instr_ctx->txn_ctx->instr_info_cnt-1UL ], instruction_to_execute, sizeof(*instruction_to_execute) );
 
   /* Set the transaction compute meter to be the same as the VM's compute meter,
      so that the callee cannot use compute units that the caller has already used. */
