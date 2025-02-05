@@ -1,6 +1,6 @@
 #include "../../../../disco/tiles.h"
 
-#include "../../../../ballet/pack/fd_pack.h"
+#include "../../../../disco/pack/fd_pack.h"
 #include "../../../../ballet/blake3/fd_blake3.h"
 #include "../../../../ballet/bmtree/fd_bmtree.h"
 #include "../../../../disco/metrics/fd_metrics.h"

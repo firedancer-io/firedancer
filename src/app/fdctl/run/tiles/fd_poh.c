@@ -308,7 +308,7 @@
         N-2 to N-1. For mainnet-beta, the slots per epoch is fixed and
         will always be 420,000. */
 
-#include "../../../../ballet/pack/fd_pack.h"
+#include "../../../../disco/pack/fd_pack.h"
 #include "../../../../ballet/sha256/fd_sha256.h"
 #include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../disco/topo/fd_pod_format.h"
@@ -908,7 +908,7 @@ publish_became_leader( fd_poh_ctx_t * ctx,
     /* If we are mirroring Agave behavior, the wall clock gets reset
        here so we don't count time spent waiting for a bank to freeze
        or replay stage to actually start the slot towards our 400ms.
-       
+
        See extended comments in the config file on this option. */
     ctx->reset_slot_start_ns = fd_log_wallclock() - (long)((double)(slot-ctx->reset_slot)*ctx->slot_duration_ns);
   }

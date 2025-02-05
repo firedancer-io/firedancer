@@ -1,12 +1,12 @@
-#include "../fd_ballet.h"
+#include "../../ballet/fd_ballet.h"
 #include "fd_pack.h"
 #include "fd_compute_budget_program.h"
-#include "../txn/fd_txn.h"
-#include "../base58/fd_base58.h"
+#include "../../ballet/txn/fd_txn.h"
+#include "../../ballet/base58/fd_base58.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include <math.h>
 
-FD_IMPORT_BINARY( sample_vote, "src/ballet/pack/sample_vote.bin" );
+FD_IMPORT_BINARY( sample_vote, "src/disco/pack/sample_vote.bin" );
 #define SAMPLE_VOTE_COST (4335UL)
 
 #define MAX_TEST_TXNS (1024UL)

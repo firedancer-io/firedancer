@@ -5,7 +5,7 @@
 #include "context/fd_exec_txn_ctx.h"
 #include "context/fd_exec_instr_ctx.h"
 #include "../../ballet/block/fd_microblock.h"
-#include "../../ballet/pack/fd_microblock.h"
+#include "../../disco/pack/fd_microblock.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../ballet/poh/fd_poh.h"
 #include "../types/fd_types_yaml.h"

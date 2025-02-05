@@ -1,6 +1,3 @@
-# FIXME: This file belongs with the tile code.  Rather than clutter
-# fdctl/run/tiles with these two files, I'm putting this in ballet/pack.
-# Really, all of this belongs in disco.
 from sage.all import *
 import struct
 var('x,v,t,a,b,r')

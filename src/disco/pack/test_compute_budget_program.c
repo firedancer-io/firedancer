@@ -1,12 +1,12 @@
 #include "fd_compute_budget_program.h"
 
-FD_IMPORT_BINARY( txn1, "src/ballet/pack/fixtures/txn1.bin" ); /* 0.2 lamports per CU, doesn't set number of CUs */
-FD_IMPORT_BINARY( txn2, "src/ballet/pack/fixtures/txn2.bin" ); /* 500k CU, 15001 ulamports per CU; total fee: 12501 lamports */
-FD_IMPORT_BINARY( txn3, "src/ballet/pack/fixtures/txn3.bin" ); /* Just 1M CU, no extra fee */
-FD_IMPORT_BINARY( txn4, "src/ballet/pack/fixtures/txn4.bin" ); /* 75k CU, 20001 ulamports per CU, the CU request has trailing data */
-FD_IMPORT_BINARY( txn5, "src/ballet/pack/fixtures/txn5.bin" ); /* Requests 6M CUs, so only allotted 1.4M CUs, total fee of 33,000 lamports */
-FD_IMPORT_BINARY( txn6, "src/ballet/pack/fixtures/txn6.bin" ); /* Includes a requested_loaded_accounts_data_size_limit instruction */
-FD_IMPORT_BINARY( txn7, "src/ballet/pack/fixtures/txn7.bin" ); /* Requests additional heap */
+FD_IMPORT_BINARY( txn1, "src/disco/pack/fixtures/txn1.bin" ); /* 0.2 lamports per CU, doesn't set number of CUs */
+FD_IMPORT_BINARY( txn2, "src/disco/pack/fixtures/txn2.bin" ); /* 500k CU, 15001 ulamports per CU; total fee: 12501 lamports */
+FD_IMPORT_BINARY( txn3, "src/disco/pack/fixtures/txn3.bin" ); /* Just 1M CU, no extra fee */
+FD_IMPORT_BINARY( txn4, "src/disco/pack/fixtures/txn4.bin" ); /* 75k CU, 20001 ulamports per CU, the CU request has trailing data */
+FD_IMPORT_BINARY( txn5, "src/disco/pack/fixtures/txn5.bin" ); /* Requests 6M CUs, so only allotted 1.4M CUs, total fee of 33,000 lamports */
+FD_IMPORT_BINARY( txn6, "src/disco/pack/fixtures/txn6.bin" ); /* Includes a requested_loaded_accounts_data_size_limit instruction */
+FD_IMPORT_BINARY( txn7, "src/disco/pack/fixtures/txn7.bin" ); /* Requests additional heap */
 
 
 uchar parsed[FD_TXN_MAX_SZ];

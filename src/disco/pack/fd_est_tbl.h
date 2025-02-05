@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_ballet_pack_fd_est_tbl_h
 #define HEADER_fd_src_ballet_pack_fd_est_tbl_h
 
-#include "../fd_ballet_base.h"
+#include "../../ballet/fd_ballet_base.h"
 
 #if FD_HAS_DOUBLE
 

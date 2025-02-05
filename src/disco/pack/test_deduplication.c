@@ -5,7 +5,7 @@
 #include "../txn/fd_txn.h"
 #include "../../util/simd/fd_avx.h"
 
-FD_IMPORT_BINARY( sample_vote,  "src/ballet/pack/sample_vote.bin"          );
+FD_IMPORT_BINARY( sample_vote,  "src/disco/pack/sample_vote.bin"          );
 FD_IMPORT_BINARY( transaction1, "src/ballet/txn/fixtures/transaction1.bin" );
 FD_IMPORT_BINARY( transaction2, "src/ballet/txn/fixtures/transaction2.bin" );
 FD_IMPORT_BINARY( transaction3, "src/ballet/txn/fixtures/transaction3.bin" );

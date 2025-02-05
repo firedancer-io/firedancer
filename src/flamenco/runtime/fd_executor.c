@@ -28,10 +28,9 @@
 #include "tests/fd_dump_pb.h"
 
 #include "../../ballet/base58/fd_base58.h"
-#include "../../ballet/pack/fd_pack.h"
-#include "../../ballet/pack/fd_pack_cost.h"
+#include "../../disco/pack/fd_pack.h"
+#include "../../disco/pack/fd_pack_cost.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
-#include "../../ballet/pack/fd_pack.h"
 
 #include "../../util/bits/fd_uwide.h"
 

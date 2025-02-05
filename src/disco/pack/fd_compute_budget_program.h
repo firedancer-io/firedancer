@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_ballet_pack_fd_compute_budget_program_h
 #define HEADER_fd_src_ballet_pack_fd_compute_budget_program_h
-#include "../fd_ballet_base.h"
-#include "../txn/fd_txn.h"
+#include "../../ballet/fd_ballet_base.h"
+#include "../../ballet/txn/fd_txn.h"
 
 /* This header contains utility functions for parsing compute budget
    program instructions from a transaction. I.e. given a transaction,

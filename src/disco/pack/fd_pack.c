@@ -7,7 +7,7 @@
 #include "fd_pack_tip_prog_blacklist.h"
 #include <math.h> /* for sqrt */
 #include <stddef.h> /* for offsetof */
-#include "../../disco/metrics/fd_metrics.h"
+#include "../metrics/fd_metrics.h"
 
 #define FD_PACK_USE_NON_TEMPORAL_MEMCPY 1
 

@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_ballet_pack_fd_microblock_h
 #define HEADER_fd_src_ballet_pack_fd_microblock_h
 
-#include "../txn/fd_txn.h"
+#include "../../ballet/txn/fd_txn.h"
 
 /* in bytes.  Defined this way to use the size field of mcache.  This
    only includes the transaction payload and the fd_txn_t portions of

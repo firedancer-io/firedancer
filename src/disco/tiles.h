@@ -4,7 +4,7 @@
 #include "stem/fd_stem.h"
 #include "shred/fd_shredder.h"
 #include "../ballet/shred/fd_shred.h"
-#include "../ballet/pack/fd_pack.h"
+#include "pack/fd_pack.h"
 #include "topo/fd_topo.h"
 
 #include <linux/filter.h>

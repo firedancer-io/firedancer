@@ -28,7 +28,7 @@
 #include "../sysvar/fd_sysvar_cache.h"
 #include "../sysvar/fd_sysvar_epoch_schedule.h"
 #include "../sysvar/fd_sysvar_clock.h"
-#include "../../../ballet/pack/fd_pack.h"
+#include "../../../disco/pack/fd_pack.h"
 #include "fd_vm_test.h"
 #include "../../vm/test_vm_util.h"
 

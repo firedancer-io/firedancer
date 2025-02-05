@@ -1,8 +1,8 @@
 #ifndef HEADER_fd_src_ballet_pack_fd_pack_tip_prog_blacklist_h
 #define HEADER_fd_src_ballet_pack_fd_pack_tip_prog_blacklist_h
 
-#include "../txn/fd_txn.h" /* for fd_acct_addr_t */
-#include "../fd_ballet_base.h"
+#include "../../ballet/txn/fd_txn.h" /* for fd_acct_addr_t */
+#include "../../ballet/fd_ballet_base.h"
 
 #define MAP_PERFECT_NAME        fd_pack_tip_prog_blacklist
 #define MAP_PERFECT_LG_TBL_SZ   5
