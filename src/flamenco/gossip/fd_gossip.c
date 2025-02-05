@@ -25,8 +25,18 @@
 #define FD_GOSSIP_PULL_TIMEOUT ((ulong)(15e3))   /* 15 seconds */
 /* Max number of validators that can be actively pinged */
 #define FD_ACTIVE_KEY_MAX (1<<8)
-/* Max number of values that can be remembered */
-#define FD_VALUE_KEY_MAX (1<<16)
+
+/* Max number of CRDS values that can be remembered.
+
+   As of 2.1.11 on 02/05/2025, Agave value table (approx) sizes on an unstaked node:
+   | cluster  | num entries | num total (incl. purged)|
+   | testnet  | ~800k       | 1.4m                    |
+   | mainnet  | ~750k       | 1m                      |
+
+   Purged values are counted because:
+    - Our table (currently) does not "purge" values in the same sense Agave does
+    - Purged values are included in bloom filter construction, so we need them anyway */
+#define FD_VALUE_KEY_MAX (1<<21)
 /* Max number of pending timed events */
 #define FD_PENDING_MAX (1<<9)
 /* Number of bloom filter bits in an outgoing pull request packet */
@@ -312,7 +322,7 @@ struct fd_gossip {
     /* Table of receive statistics */
     fd_stats_elem_t * stats;
     /* Table of message type stats */
-    fd_msg_stats_elem_t msg_stats[ FD_KNOWN_CRDS_ENUM_MAX ];
+    fd_msg_stats_elem_t msg_stats[FD_KNOWN_CRDS_ENUM_MAX];
     /* Heap/queue of pending timed events */
     fd_pending_event_t * event_pool;
     fd_pending_heap_t * event_heap;
@@ -877,12 +887,13 @@ fd_gossip_sign_crds_value( fd_gossip_t * glob, fd_crds_value_t * crd ) {
   (*glob->sign_fun)( glob->sign_arg, crd->signature.uc, buf, (ulong)((uchar*)ctx.data - buf), FD_KEYGUARD_SIGN_TYPE_ED25519 );
 }
 
-/* Convert a hash to a bloom filter bit position */
+/* Convert a hash to a bloom filter bit position 
+   https://github.com/anza-xyz/agave/blob/v2.1.7/bloom/src/bloom.rs#L136 */
 static ulong
 fd_gossip_bloom_pos( fd_hash_t * hash, ulong key, ulong nbits) {
   for ( ulong i = 0; i < 32U; ++i) {
     key ^= (ulong)(hash->uc[i]);
-    key *= 1099511628211UL;
+    key *= 1099511628211UL; // FNV prime
   }
   return key % nbits;
 }
@@ -947,7 +958,8 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   if (ele == NULL)
     return;
 
-  /* Compute the number of packets needed for all the bloom filter parts */
+  /* Compute the number of packets needed for all the bloom filter parts
+     with a desired false positive rate <0.1% (upper bounded by FD_BLOOM_MAX_PACKETS ) */
   ulong nitems = fd_value_table_key_cnt(glob->values);
   ulong nkeys = 1;
   ulong npackets = 1;
@@ -994,10 +1006,14 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
       continue;
     }
     /* Choose which filter packet based on the high bits in the hash */
+    /* https://github.com/anza-xyz/agave/blob/v2.1.7/gossip/src/crds_gossip_pull.rs#L167 */
     ulong index = (nmaskbits == 0 ? 0UL : ( hash->ul[0] >> (64U - nmaskbits) ));
     ulong * chunk = bits + (index*CHUNKSIZE);
+
+    /* https://github.com/anza-xyz/agave/blob/v2.1.7/bloom/src/bloom.rs#L191 */
     for (ulong i = 0; i < nkeys; ++i) {
       ulong pos = fd_gossip_bloom_pos(hash, keys[i], FD_BLOOM_NUM_BITS);
+      /* https://github.com/anza-xyz/agave/blob/v2.1.7/bloom/src/bloom.rs#L182-L185 */
       ulong * j = chunk + (pos>>6U); /* divide by 64 */
       ulong bit = 1UL<<(pos & 63U);
       if (!((*j) & bit)) {
@@ -1252,8 +1268,8 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     /* Already have this value */
     msg_stat->dups_cnt++;
     glob->recv_dup_cnt++;
+    glob->metrics.recv_crds_duplicate_message[ crd->data.discriminant ]++;
     if (from != NULL) {
-      glob->metrics.recv_crds_duplicate_message[ crd->data.discriminant ] += 1UL;
       /* Record the dup in the receive statistics table */
       fd_stats_elem_t * val = fd_stats_table_query(glob->stats, from, NULL);
       if (val == NULL) {
@@ -1775,6 +1791,7 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
       /* Packet is getting too large. Flush it */
       ulong sz = (ulong)(newend - buf);
       fd_gossip_send_raw(glob, from, buf, sz);
+      glob->metrics.send_message[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ]++;
       char tmp[100];
       FD_LOG_DEBUG(("sent msg type %u to %s size=%lu", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from), sz));
       ++npackets;
@@ -1790,6 +1807,7 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   if (newend > (uchar *)ctx.data) {
     ulong sz = (ulong)(newend - buf);
     fd_gossip_send_raw(glob, from, buf, sz);
+    glob->metrics.send_message[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ]++;
     char tmp[100];
     FD_LOG_DEBUG(("sent msg type %u to %s size=%lu", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from), sz));
     ++npackets;
@@ -1797,8 +1815,8 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
 
   if (misses) {
     FD_LOG_DEBUG(("responded to pull request with %lu values in %u packets (%lu filtered out)", misses, npackets, hits));
-    glob->metrics.handle_pull_req_npackets = npackets;
   }
+  glob->metrics.handle_pull_req_npackets = npackets;
 #undef INC_HANDLE_PULL_REQ_FAIL_METRIC
 }
 
@@ -1992,6 +2010,7 @@ fd_gossip_push( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
       if (s->packet_end + msg->datalen - s->packet > PACKET_DATA_SIZE) {
         /* Packet is getting too large. Flush it */
         ulong sz = (ulong)(s->packet_end - s->packet);
+        glob->metrics.send_message[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ]++;
         fd_gossip_send_raw(glob, &s->addr, s->packet, sz);
         char tmp[100];
         FD_LOG_DEBUG(("push to %s size=%lu", fd_gossip_addr_str(tmp, sizeof(tmp), &s->addr), sz));
@@ -2011,6 +2030,7 @@ fd_gossip_push( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
       ulong * crds_len = (ulong *)(s->packet_end_init - sizeof(ulong));
       ulong sz = (ulong)(s->packet_end - s->packet);
       fd_gossip_send_raw(glob, &s->addr, s->packet, sz);
+      glob->metrics.send_message[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ]++;
       char tmp[100];
       FD_LOG_DEBUG(("push to %s size=%lu", fd_gossip_addr_str(tmp, sizeof(tmp), &s->addr), sz));
       s->packet_end = s->packet_end_init;
@@ -2296,7 +2316,7 @@ fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_g
   fd_gossip_lock( glob );
   FD_SCRATCH_SCOPE_BEGIN {
     glob->recv_pkt_cnt++;
-    glob->metrics.recv_pkt_cnt = glob->recv_pkt_cnt;
+    glob->metrics.recv_pkt_cnt++;
     /* Deserialize the message */
     fd_gossip_msg_t gmsg;
     fd_bincode_decode_ctx_t ctx;
