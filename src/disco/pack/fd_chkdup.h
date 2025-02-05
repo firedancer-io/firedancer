@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_ballet_pack_fd_chkdup_h
 #define HEADER_fd_src_ballet_pack_fd_chkdup_h
-#include "../fd_ballet_base.h"
-#include "../txn/fd_txn.h"
+#include "../../ballet/fd_ballet_base.h"
+#include "../../ballet/txn/fd_txn.h"
 
 /* fd_chkdup declares a set of functions for ultra-HPC checking if a
    list of account addresses contains any duplicates.  It's important

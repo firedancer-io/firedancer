@@ -1,6 +1,6 @@
 #ifndef HEADER_fd_src_ballet_pack_fd_pack_cost_h
 #define HEADER_fd_src_ballet_pack_fd_pack_cost_h
-#include "../fd_ballet_base.h"
+#include "../../ballet/fd_ballet_base.h"
 #include "fd_compute_budget_program.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 

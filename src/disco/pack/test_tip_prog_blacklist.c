@@ -1,5 +1,5 @@
-#include "../fd_ballet_base.h"
-#include "../base58/fd_base58.h"
+#include "../../ballet/fd_ballet_base.h"
+#include "../../ballet/base58/fd_base58.h"
 #include "fd_pack_tip_prog_blacklist.h"
 
 static inline void

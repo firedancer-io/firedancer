@@ -3,7 +3,7 @@
 
 #include "../keyguard/fd_keyguard_client.h"
 #include "../../ballet/sha256/fd_sha256.h"
-#include "../../ballet/pack/fd_microblock.h"
+#include "../../disco/pack/fd_microblock.h"
 #include "../../ballet/chacha20/fd_chacha20rng.h"
 #include "../../ballet/wsample/fd_wsample.h"
 #include "../../ballet/ed25519/fd_ed25519.h"

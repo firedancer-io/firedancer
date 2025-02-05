@@ -75,7 +75,7 @@ const float VOTE_FRACTION = 0.75f; /* TODO: Is this the right value? */
    scheduling if it has i transactions available.  Unsurprisingly,
    wait_duration[31] is 0.  wait_duration[0] is ULONG_MAX, so we'll
    always wait if we have 0 transactions. */
-FD_IMPORT( wait_duration, "src/ballet/pack/pack_delay.bin", ulong, 6, "" );
+FD_IMPORT( wait_duration, "src/disco/pack/pack_delay.bin", ulong, 6, "" );
 
 
 

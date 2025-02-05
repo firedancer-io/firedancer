@@ -5,8 +5,8 @@
    selecting a subset (potentially all) and ordering them to attempt to
    maximize the overall profitability of the validator. */
 
-#include "../fd_ballet_base.h"
-#include "../txn/fd_txn.h"
+#include "../../ballet/fd_ballet_base.h"
+#include "../../ballet/txn/fd_txn.h"
 #include "fd_est_tbl.h"
 #include "fd_microblock.h"
 

@@ -423,7 +423,7 @@
 #include "../epoch/fd_epoch.h"
 #include "../ghost/fd_ghost.h"
 #include "../voter/fd_voter.h"
-#include "../../ballet/pack/fd_microblock.h"
+#include "../../disco/pack/fd_microblock.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/txn/fd_txn_generate.h"

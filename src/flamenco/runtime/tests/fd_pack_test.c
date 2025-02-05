@@ -1,5 +1,5 @@
 #include "fd_pack_test.h"
-#include "../../../ballet/pack/fd_compute_budget_program.h"
+#include "../../../disco/pack/fd_compute_budget_program.h"
 
 ulong
 fd_exec_pack_cpb_test_run( fd_exec_instr_test_runner_t * _unused FD_PARAM_UNUSED,
@@ -12,7 +12,7 @@ fd_exec_pack_cpb_test_run( fd_exec_instr_test_runner_t * _unused FD_PARAM_UNUSED
 
   ulong output_end = (ulong) output_buf + output_bufsz;
   FD_SCRATCH_ALLOC_INIT( l, output_buf );
-  
+
   fd_exec_test_pack_compute_budget_effects_t * effects =
     FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_test_pack_compute_budget_effects_t),
                                 sizeof (fd_exec_test_pack_compute_budget_effects_t) );
