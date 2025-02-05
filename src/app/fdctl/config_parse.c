@@ -290,6 +290,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( uint,   tiles.net.xdp_rx_queue_size                      );
   CFG_POP      ( uint,   tiles.net.xdp_tx_queue_size                      );
   CFG_POP      ( uint,   tiles.net.xdp_aio_depth                          );
+  CFG_POP      ( uint,   tiles.net.flush_timeout_micros                   );
   CFG_POP      ( uint,   tiles.net.send_buffer_size                       );
   CFG_POP_ARRAY( cstr,   tiles.net.multihome_ip_addrs                     );
 
@@ -353,6 +354,9 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( bool,   development.bench.larger_shred_limits_per_block  );
   CFG_POP      ( ulong,  development.bench.disable_blockstore_from_slot   );
   CFG_POP      ( bool,   development.bench.disable_status_cache           );
+
+  CFG_POP      ( cstr,   development.pktgen.affinity                      );
+  CFG_POP      ( cstr,   development.pktgen.fake_dst_ip                   );
 
   /* Firedancer-only configuration */
 

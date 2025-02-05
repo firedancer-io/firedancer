@@ -279,7 +279,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   /* Restore slot_bank */
 
   fd_slot_bank_new( &slot_ctx->slot_bank );
-    
+
   /* Blockhash queue init */
   fd_block_hash_queue_t * blockhash_queue = &slot_ctx->slot_bank.block_hash_queue;
   blockhash_queue->max_age   = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
@@ -1461,7 +1461,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     fd_bpf_loader_input_serialize_unaligned( *ctx,
                                              &input_sz,
                                              pre_lens,
-                                             input_mem_regions,            
+                                             input_mem_regions,
                                              &input_mem_regions_cnt,
                                              acc_region_metas,
                                              !direct_mapping );
@@ -1469,7 +1469,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     fd_bpf_loader_input_serialize_aligned( *ctx,
                                            &input_sz,
                                            pre_lens,
-                                           input_mem_regions,            
+                                           input_mem_regions,
                                            &input_mem_regions_cnt,
                                            acc_region_metas,
                                            !direct_mapping );
@@ -1538,6 +1538,20 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
       FD_LOG_WARNING(( "instr stack push err" ));
       goto error;
   }
+  /* There's an instr ctx struct embedded in the txn ctx instr stack. */
+  fd_exec_instr_ctx_t * instr_ctx = &ctx->txn_ctx->instr_stack[ ctx->txn_ctx->instr_stack_sz - 1 ];
+  *instr_ctx = (fd_exec_instr_ctx_t) {
+    .instr     = ctx->instr,
+    .txn_ctx   = ctx->txn_ctx,
+    .epoch_ctx = ctx->epoch_ctx,
+    .slot_ctx  = ctx->slot_ctx,
+    .acc_mgr   = ctx->acc_mgr,
+    .funk_txn  = ctx->funk_txn,
+    .parent    = NULL,
+    .index     = 0U,
+    .depth     = 0U,
+    .child_cnt = 0U,
+  };
   int syscall_err = syscall->func( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &vm->reg[0] );
   int stack_pop_err = fd_instr_stack_pop( ctx->txn_ctx, ctx->instr );
   if( FD_UNLIKELY( stack_pop_err ) ) {
@@ -1545,27 +1559,6 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
       goto error;
   }
   if( syscall_err ) {
-    /*  In the CPI syscall, certain checks are performed out of order between Firedancer and Agave's
-        implementation. Certain checks in FD (whose error codes mapped below)
-        do not have a (sequentially) equivalent one in Agave. Thus, it doesn't make sense
-        to declare a mismatch if Firedancer fails such a check when Agave doesn't, as long
-        as both end up error'ing out at some point. We also have other metrics (namely CU count)
-        to rely on. */
-
-    /*  Certain pre-flight checks are not performed in Agave. These manifest as
-        access violations in Agave. The agave_access_violation_mask bitset sets
-        the error codes that are expected to be access violations in Agave. */
-    if( is_cpi &&
-      ( syscall_err == FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS ||
-        syscall_err == FD_VM_SYSCALL_ERR_INSTRUCTION_TOO_LARGE ||
-        syscall_err == FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED ||
-        syscall_err == FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED ) ) {
-
-      /* FD performs pre-flight checks that manifest as access violations in Agave */
-      vm->instr_ctx->txn_ctx->exec_err      = FD_VM_ERR_EBPF_ACCESS_VIOLATION;
-      vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_EBPF;
-    }
-
     fd_log_collector_program_failure( vm->instr_ctx );
   }
 

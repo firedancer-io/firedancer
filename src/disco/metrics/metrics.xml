@@ -59,6 +59,7 @@ metric introduced.
     <counter name="XdpRxDroppedRingFull" summary="Number of packets dropped because the RX completion queue was empty. This is only reported for net tile 0, since the measurement is across all RX queues." />
     <counter name="XdpRxDroppedOther" summary="Number of packets dropped for other reasons. This is only reported for net tile 0, since the measurement is across all RX queues." />
     <counter name="TxDropped" summary="Number of packets dropped because the TX submission queue was empty. This is reported for all net tiles." />
+    <counter name="XskSendErrors" summary="Number of times calling send(2) on the XSK indicated an error other than EAGAIN." />
 </tile>
 
 <enum name="TpuRecvType">
@@ -472,19 +473,19 @@ metric introduced.
     <int value="13" name="RestartHeaviestFork"          label="Restart Heaviest Fork" />
 </enum>
 
-<enum name="CrdsDropReason">  
-    <int value="0"  name="Success"              label="Successfully processed CRDS (not dropped)"/>  
-    <int value="1"  name="Duplicate"            label="Duplicate CRDS value"/>  
-    <int value="2"  name="UnknownDiscriminant"  label="Unknown discriminant"/>  
-    <int value="3"  name="OwnMessage"           label="Own message"/>  
-    <int value="4"  name="InvalidSignature"     label="Invalid signature"/>  
-    <int value="5"  name="TableFull"            label="Table full"/>  
-    <int value="6"  name="PushQueueFull"        label="Push queue full"/>  
-    <int value="7"  name="InvalidGossipPort"    label="Invalid gossip port"/>  
-    <int value="8"  name="PeerTableFull"        label="Peer table full"/>  
-    <int value="9"  name="InactivesQueueFull"   label="Inactives queue full"/>  
-    <int value="10" name="DiscardedPeer"        label="Discarded peer"/>  
-    <int value="11" name="EncodingFailed"       label="Encoding failed"/>  
+<enum name="CrdsDropReason">
+    <int value="0"  name="Success"              label="Successfully processed CRDS (not dropped)"/>
+    <int value="1"  name="Duplicate"            label="Duplicate CRDS value"/>
+    <int value="2"  name="UnknownDiscriminant"  label="Unknown discriminant"/>
+    <int value="3"  name="OwnMessage"           label="Own message"/>
+    <int value="4"  name="InvalidSignature"     label="Invalid signature"/>
+    <int value="5"  name="TableFull"            label="Table full"/>
+    <int value="6"  name="PushQueueFull"        label="Push queue full"/>
+    <int value="7"  name="InvalidGossipPort"    label="Invalid gossip port"/>
+    <int value="8"  name="PeerTableFull"        label="Peer table full"/>
+    <int value="9"  name="InactivesQueueFull"   label="Inactives queue full"/>
+    <int value="10" name="DiscardedPeer"        label="Discarded peer"/>
+    <int value="11" name="EncodingFailed"       label="Encoding failed"/>
 </enum>
 
 <enum name="PullReqFailReason">
@@ -545,7 +546,7 @@ metric introduced.
     <counter name="ZeroIpv4ContactInfo"                             enum="PeerTypes"            clickhouse_exclude="true" summary="Zero IPv4 Contact Info (by peer type)" />
     <gauge   name="PeerCounts"                                      enum="PeerTypes"            clickhouse_exclude="true" summary="Number of peers of each type" />
     <counter name="ShredVersionZero"                                                            clickhouse_exclude="true" summary="Shred version zero" />
-    
+
     <counter name="ReceivedPackets"                                 clickhouse_exclude="true" summary="Number of all gossip packets received" />
     <counter name="CorruptedMessages"                               clickhouse_exclude="true" summary="Number of corrupted gossip messages received" />
     <counter name="ReceivedGossipMessages" enum="GossipMessage"     clickhouse_exclude="true" summary="Number of gossip messages received" />
@@ -558,7 +559,7 @@ metric introduced.
     <counter name="PushCrds"                    enum="CrdsValue"        clickhouse_exclude="true" summary="Number of CRDS values pushed" />
     <counter name="PushCrdsDuplicateMessage"    enum="CrdsValue"        clickhouse_exclude="true" summary="Number of duplicate CRDS values inserted (internally)" />
     <counter name="PushCrdsDrop"                enum="CrdsDropReason"   clickhouse_exclude="true" summary="Number of CRDS values dropped on push" />
-    <gauge   name="PushCrdsQueueCount"                                    clickhouse_exclude="true" summary="Number of CRDS values in the queue to be pushed" /> 
+    <gauge   name="PushCrdsQueueCount"                                    clickhouse_exclude="true" summary="Number of CRDS values in the queue to be pushed" />
 
     <gauge   name="ActivePushDestinations"          clickhouse_exclude="true" summary="Number of active Push destinations" />
 
@@ -574,7 +575,7 @@ metric introduced.
     <counter name="MakePruneHighDuplicates"       clickhouse_exclude="true" summary="Number of origins with high duplicate counts found while making prune messages" />
     <gauge   name="MakePruneRequestedOrigins"     clickhouse_exclude="true" summary="Number of requested origins in the last prune message we made" />
     <counter name="MakePruneSignDataEncodeFailed" clickhouse_exclude="true" summary="Number of times we failed to encode the sign data" />
-    
+
     <counter name="SentGossipMessages" enum="GossipMessage" clickhouse_exclude="true" summary="Number of gossip messages sent" />
 
     <counter name="SentPackets" clickhouse_exclude="true" summary="Number of Packets sent" />
@@ -584,7 +585,7 @@ metric introduced.
     <counter name="RecvPingInvalidSignature"  clickhouse_exclude="true" summary="Number of times we received a Ping message with an invalid signature" />
 
     <counter name="RecvPongEvent" enum="RecvPongEvent" clickhouse_exclude="true" summary="Number of Pong messages processed with non-standard outcomes" />
-    
+
     <gauge   name="GossipPeerCounts" enum="GossipPeerState" clickhouse_exclude="true" summary="Number of gossip peers tracked" />
 </tile>
 

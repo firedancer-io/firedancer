@@ -203,6 +203,11 @@ typedef struct {
       ulong disable_blockstore_from_slot;
       int   disable_status_cache;
     } bench;
+
+    struct {
+      char affinity[ AFFINITY_SZ ];
+      char fake_dst_ip[ 16 ];
+    } pktgen;
   } development;
 
   struct {
@@ -215,6 +220,7 @@ typedef struct {
       uint xdp_rx_queue_size;
       uint xdp_tx_queue_size;
       uint xdp_aio_depth;
+      uint flush_timeout_micros;
 
       uint send_buffer_size;
 
