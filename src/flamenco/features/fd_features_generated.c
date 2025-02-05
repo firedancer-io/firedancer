@@ -677,7 +677,7 @@ fd_feature_id_t const ids[] = {
     .id         = {"\xe2\x04\x73\xa5\xa7\x6f\x1e\xe2\x8a\xb6\x64\xde\x46\xec\x20\x34\xdf\xdf\x68\xf9\xe7\x11\x5c\x2c\xe1\x6a\xa6\x27\x91\xec\x3d\xda"},
                   /* GDH5TVdbTPUpRnXaRyQqiKUa7uZAbZ28Q2N9bhbKoMLm */
     .name       = "loosen_cpi_size_restriction",
-    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up = {1, 14, 0} },
 
   { .index      = offsetof(fd_features_t, use_default_units_in_fee_calculation)>>3,
     .id         = {"\x74\xe5\xaa\xa4\x92\x70\x1e\x6d\xdb\xdf\x4d\x06\xd3\x76\x96\x33\x65\x34\xbb\x39\x35\x04\x40\xed\x47\xc9\x90\x52\xd6\xcc\xed\x36"},
@@ -973,7 +973,7 @@ fd_feature_id_t const ids[] = {
     .id         = {"\xf9\xb8\x13\x4b\x8e\x66\x1b\x40\x28\x1c\xed\xbe\x7c\x78\x8c\x99\x1b\x93\x96\x34\xd6\xc9\x0b\xde\xae\xb8\xdb\x5a\x06\x7d\x87\x8e"},
                   /* HooKD5NC9QNxk25QuzCssB8ecrEzGt6eXEPBUxWp1LaR */
     .name       = "last_restart_slot_sysvar",
-    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up = {1, 18, 13} },
 
   { .index      = offsetof(fd_features_t, reduce_stake_warmup_cooldown)>>3,
     .id         = {"\xec\xee\x93\x40\x57\x22\xb0\x74\x49\xc1\xf9\xe5\xef\x54\x03\xef\x18\x4d\x87\xf9\x31\x68\x96\x18\xad\x21\xb8\xf7\x00\x3d\x8a\xce"},
@@ -997,7 +997,7 @@ fd_feature_id_t const ids[] = {
     .id         = {"\x0d\x4d\x3c\x51\x23\x21\xd3\xe9\x47\x3d\xc8\x19\x36\x5e\x45\xf8\x09\x81\x7b\xaf\xff\x69\x17\x9f\x2e\x58\x3d\xf1\x6e\xc8\x10\x6b"},
                   /* tvcF6b1TRz353zKuhBjinZkKzjmihXmBAHJdjNYw1sQ */
     .name       = "timely_vote_credits",
-    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up = {1, 18, 8} },
 
   { .index      = offsetof(fd_features_t, remaining_compute_units_syscall_enabled)>>3,
     .id         = {"\x42\x53\x93\xd7\x86\x52\x20\x64\xce\x96\x67\x76\xc0\xb2\x3d\xd2\xe4\xd2\x81\x04\x5e\x7a\xd6\x90\xee\x30\x77\x01\x6a\x54\x6e\x64"},
@@ -1106,13 +1106,13 @@ fd_feature_id_t const ids[] = {
     .id         = {"\x09\x63\x71\x6c\x93\x25\xce\xfb\xac\xdf\x2e\x42\x3f\xdf\x5d\xf2\x5e\xae\xda\x5d\x77\xf7\x49\xa7\xb6\xf8\x67\x27\xf9\x0d\x29\xe4"},
                   /* decoMktMcnmiq6t3u7g5BfgcQu91nKZr6RvMYf9z1Jb */
     .name       = "allow_commission_decrease_at_any_time",
-    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up = {1, 18, 0} },
 
   { .index      = offsetof(fd_features_t, merkle_conflict_duplicate_proofs)>>3,
     .id         = {"\x0b\x7d\xce\x55\xcc\x31\x6e\x11\x19\x99\x92\x0c\xf7\x52\x85\x76\xfe\xd0\x5c\xed\x1b\xd8\x8e\x84\x1b\xb6\x3c\xd9\x35\xed\x91\x2f"},
                   /* mrkPjRg79B2oK2ZLgd7S3AfEJaX9B6gAF3H9aEykRUS */
     .name       = "merkle_conflict_duplicate_proofs",
-    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up = {1, 18, 0} },
 
   { .index      = offsetof(fd_features_t, disable_bpf_loader_instructions)>>3,
     .id         = {"\x60\xbe\x49\xea\xb9\xe9\x43\x8c\x58\x9b\x35\x47\xbc\x1b\x1b\x0d\x04\xbc\x74\xd2\x57\xe1\xf2\xa5\x02\x66\x17\xf3\x49\xb5\xe0\xe9"},
@@ -1137,25 +1137,25 @@ fd_feature_id_t const ids[] = {
     .id         = {"\x0d\xeb\x8b\x43\x43\x80\x51\xa1\x77\x30\xda\xfa\x17\x13\xc7\x34\x05\xe6\xe3\x35\x39\x8a\x57\x63\x96\x99\xb4\x10\xf0\xd6\x5e\x87"},
                   /* wLckV1a64ngtcKPRGU4S4grVTestXjmNjxBjaKZrAcn */
     .name       = "cost_model_requested_write_lock_cost",
-    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up = {1, 18, 0} },
 
   { .index      = offsetof(fd_features_t, enable_gossip_duplicate_proof_ingestion)>>3,
     .id         = {"\xd5\x79\x63\x4a\x6a\xab\x27\xdb\x57\xae\xfb\x1c\x06\x7c\x34\x8d\xaa\xae\x66\x2f\x5f\x62\x2f\x18\xf4\xb5\x83\x95\xe3\x43\xff\xd5"},
                   /* FNKCMBzYUdjhHyPdsKG2LSmdzH8TCHXn3ytj8RNBS4nG */
     .name       = "enable_gossip_duplicate_proof_ingestion",
-    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up = {1, 18, 1} },
 
   { .index      = offsetof(fd_features_t, enable_chained_merkle_shreds)>>3,
     .id         = {"\x66\x9c\xb7\x34\xc4\x79\x40\x81\x18\x88\x23\x16\x03\xdb\xe2\xb4\xb9\x82\x50\x3a\x99\x0e\xcd\xb5\x1f\x4e\xa0\xeb\xac\xd3\xef\x1f"},
                   /* 7uZBkJXJ1HkuP6R3MJfZs7mLwymBcDbKdqbF51ZWLier */
     .name       = "enable_chained_merkle_shreds",
-    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up = {1, 18, 2} },
 
   { .index      = offsetof(fd_features_t, remove_rounding_in_fee_calculation)>>3,
     .id         = {"\xa1\xc5\x8f\xd3\x78\xb5\xe0\xfd\x51\x5e\x90\xf9\x71\xc6\x61\x77\xef\x58\x74\xfb\xd9\x46\x9a\x1e\x4d\x8a\x45\x3b\x36\xb9\x61\x4e"},
                   /* BtVN7YjDzNE6Dk7kTT7YTDgMNUZTNgiSJgsdzAeTg2jF */
     .name       = "remove_rounding_in_fee_calculation",
-    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up = {2, 0, 0} },
 
   { .index      = offsetof(fd_features_t, enable_tower_sync_ix)>>3,
     .id         = {"\x0d\x2d\xfe\xed\x5a\x25\x11\xf7\x8d\x62\x07\x44\x0d\xad\x2c\xc2\x50\x72\xda\x55\x9c\xf7\x30\x7a\xe8\x45\x22\x92\x56\xdd\x66\x77"},
@@ -1203,7 +1203,7 @@ fd_feature_id_t const ids[] = {
     .id         = {"\xdd\x72\x21\x65\xad\x48\xe1\xaf\xda\x46\x3f\x70\xf5\xe7\x27\xdf\x99\x16\x8f\xf9\xbb\xcb\x52\x76\xdb\x98\x53\x4e\x33\xf1\xf5\x86"},
                   /* FuS3FPfJDKSNot99ECLXtp3rueq36hMNStJkPJwWodLh */
     .name       = "abort_on_invalid_curve",
-    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up = {2, 0, 0} },
 
   { .index      = offsetof(fd_features_t, ed25519_precompile_verify_strict)>>3,
     .id         = {"\x09\xa3\x5e\x55\x96\xaf\xa7\x91\xd2\xf1\xf4\xa9\x08\x55\x4e\xfa\x4e\xe4\xa6\x46\xdb\xb3\xa1\x4a\xb0\x33\xaf\x14\xa5\x49\x1c\xfe"},
@@ -1215,13 +1215,13 @@ fd_feature_id_t const ids[] = {
     .id         = {"\x0e\xcb\x85\x30\xa9\x11\x14\x8e\x4e\x4b\x2d\xb5\x99\xa0\xea\x2c\x3c\x01\x91\xb9\xc8\x30\xc3\xeb\x84\x49\x40\x64\xd0\x12\x6e\x73"},
                   /* zkhiy5oLowR7HY4zogXjCjeMXyruLqBwSWH21qcFtnv */
     .name       = "zk_elgamal_proof_program_enabled",
-    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up = {2, 0, 0} },
 
   { .index      = offsetof(fd_features_t, move_stake_and_move_lamports_ixs)>>3,
     .id         = {"\x61\xf9\x9e\xbb\xb5\x47\x90\x0b\xb6\x5d\x66\x44\xb8\x45\xca\x36\xc5\xaf\x9f\x6f\xe1\x6d\x73\x7e\x83\x64\xb5\x59\x1c\x46\x2b\x63"},
                   /* 7bTK6Jis8Xpfrs8ZoUfiMDPazTcdPcTWheZFJTA5Z6X4 */
     .name       = "move_stake_and_move_lamports_ixs",
-    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up = {2, 0, 0} },
 
   { .index      = offsetof(fd_features_t, deprecate_legacy_vote_ixs)>>3,
     .id         = {"\x09\x63\xab\xd0\x05\x64\xa6\xa5\x74\xcd\xdf\xb3\xc1\xa6\xcf\xb3\xc9\x9e\x1d\x7d\xf1\xdc\x91\xd5\x67\xdf\x68\xeb\x77\x49\x22\xb7"},
@@ -1233,7 +1233,7 @@ fd_feature_id_t const ids[] = {
     .id         = {"\x05\xb1\xf6\xd0\xa0\xbf\xfc\x81\xbc\x95\xde\xeb\x35\x7a\x88\x3e\xa6\x5e\x44\xce\xb5\x15\x5a\xd2\xb0\xb5\x57\xbf\x87\xf9\x4b\x53"},
                   /* PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8 */
     .name       = "partitioned_epoch_rewards_superfeature",
-    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up = {2, 0, 9} },
 
   { .index      = offsetof(fd_features_t, enable_secp256r1_precompile)>>3,
     .id         = {"\x0d\x06\x71\xf0\x4f\xe3\x38\x2c\x46\xac\x54\x4a\xad\x9b\x98\x50\xa8\xa0\x26\x18\x41\x58\x58\xbf\xe8\xf0\xca\x6c\x04\x32\x18\x93"},
@@ -1311,7 +1311,7 @@ fd_feature_id_t const ids[] = {
     .id         = {"\xc7\x2b\x39\x35\x25\x63\x29\x7f\x69\x4f\x2d\x7f\x8c\x2c\xbb\x62\x13\x3e\x4d\xf8\xc9\xc0\x2d\x75\xed\xed\x28\x6a\x6f\x44\xe6\x8f"},
                   /* EQUMpNFr7Nacb1sva56xn1aLfBxppEoSBH8RRVdkcD1x */
     .name       = "disable_account_loader_special_case",
-    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up = {2, 1, 1} },
 
   { .index      = offsetof(fd_features_t, remove_accounts_executable_flag_checks)>>3,
     .id         = {"\xd9\xec\xca\x71\x20\x2a\x01\x8c\xfa\x7e\x4c\x2d\xed\xee\x20\x49\xc7\xc1\x11\xde\x38\xca\x69\xe8\x83\xe1\xaa\x19\x8a\x3b\xab\x57"},
