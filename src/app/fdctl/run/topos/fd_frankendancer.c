@@ -111,22 +111,22 @@ fd_topo_initialize( config_t * config ) {
     tile_to_cpu[ i ] = fd_ulong_if( parsed_tile_to_cpu[ i ]==USHORT_MAX, ULONG_MAX, (ulong)parsed_tile_to_cpu[ i ] );
   }
 
-  /*                                  topo, tile_name, tile_wksp, metrics_wksp, cpu_idx,                       is_agave */
-  FOR(net_tile_cnt)    fd_topob_tile( topo, "net",     "net",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
+  /*                                  topo, tile_name, tile_wksp, metrics_wksp, cpu_idx,                       is_agave, uses_keyswitch */
+  FOR(net_tile_cnt)    fd_topob_tile( topo, "net",     "net",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   fd_topo_tile_t * netlink_tile =
-  /**/                 fd_topob_tile( topo, "netlnk" , "netlnk",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
-  FOR(quic_tile_cnt)   fd_topob_tile( topo, "quic",    "quic",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
-  FOR(verify_tile_cnt) fd_topob_tile( topo, "verify",  "verify",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
-  /**/                 fd_topob_tile( topo, "dedup",   "dedup",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
-  FOR(resolv_tile_cnt) fd_topob_tile( topo, "resolv",  "resolv",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 1 );
-  /**/                 fd_topob_tile( topo, "pack",    "pack",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
-  FOR(bank_tile_cnt)   fd_topob_tile( topo, "bank",    "bank",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 1 );
-  /**/                 fd_topob_tile( topo, "poh",     "poh",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 1 );
-  FOR(shred_tile_cnt)  fd_topob_tile( topo, "shred",   "shred",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
-  /**/                 fd_topob_tile( topo, "store",   "store",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 1 );
-  /**/                 fd_topob_tile( topo, "sign",    "sign",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
-  /**/                 fd_topob_tile( topo, "metric",  "metric",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
-  /**/                 fd_topob_tile( topo, "cswtch",  "cswtch",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
+  /**/                 fd_topob_tile( topo, "netlnk" , "netlnk",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+  FOR(quic_tile_cnt)   fd_topob_tile( topo, "quic",    "quic",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+  FOR(verify_tile_cnt) fd_topob_tile( topo, "verify",  "verify",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+  /**/                 fd_topob_tile( topo, "dedup",   "dedup",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+  FOR(resolv_tile_cnt) fd_topob_tile( topo, "resolv",  "resolv",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 1,        0 );
+  /**/                 fd_topob_tile( topo, "pack",    "pack",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+  FOR(bank_tile_cnt)   fd_topob_tile( topo, "bank",    "bank",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 1,        0 );
+  /**/                 fd_topob_tile( topo, "poh",     "poh",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 1,        1 );
+  FOR(shred_tile_cnt)  fd_topob_tile( topo, "shred",   "shred",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1 );
+  /**/                 fd_topob_tile( topo, "store",   "store",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 1,        0 );
+  /**/                 fd_topob_tile( topo, "sign",    "sign",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1 );
+  /**/                 fd_topob_tile( topo, "metric",  "metric",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+  /**/                 fd_topob_tile( topo, "cswtch",  "cswtch",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
 
   /* The netlink tile shares various objects to net tiles */
   fd_netlink_topo_create( netlink_tile, topo, config );
@@ -225,7 +225,7 @@ fd_topo_initialize( config_t * config ) {
     /**/                 fd_topob_link( topo, "startp_plugi", "plugin_in",    128UL,                                    56UL,                   1UL );
     /**/                 fd_topob_link( topo, "votel_plugin", "plugin_in",    128UL,                                    8UL,                    1UL );
 
-    /**/                 fd_topob_tile( topo, "plugin",  "plugin",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
+    /**/                 fd_topob_tile( topo, "plugin",  "plugin",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 0 );
 
     /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "replay_plugi", 0UL                                                );
     /**/                 fd_topob_tile_out( topo, "poh",    0UL,                        "gossip_plugi", 0UL                                                );
@@ -244,7 +244,7 @@ fd_topo_initialize( config_t * config ) {
 
   if( FD_LIKELY( config->tiles.gui.enabled ) ) {
     fd_topob_wksp( topo, "gui"          );
-    /**/                 fd_topob_tile( topo, "gui",     "gui",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
+    /**/                 fd_topob_tile( topo, "gui",     "gui",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0, 1 );
     /**/                 fd_topob_tile_in(  topo, "gui",    0UL,           "metric_in", "plugin_out",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED );
   }
 
@@ -258,7 +258,7 @@ fd_topo_initialize( config_t * config ) {
     /**/                 fd_topob_link( topo, "bundle_sign",  "bundle_sign",  128UL,                                    9UL,                       1UL );
     /**/                 fd_topob_link( topo, "sign_bundle",  "sign_bundle",  128UL,                                    64UL,                      1UL );
 
-    /**/                 fd_topob_tile( topo, "bundle",  "bundle",  "metric_in", tile_to_cpu[ topo->tile_cnt ], 0 );
+    /**/                 fd_topob_tile( topo, "bundle",  "bundle",  "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 1 );
 
     /**/                 fd_topob_tile_out( topo, "bundle", 0UL, "bundle_verif", 0UL );
     FOR(verify_tile_cnt) fd_topob_tile_in(  topo, "verify", i,             "metric_in", "bundle_verif",   0UL,        FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
@@ -397,8 +397,6 @@ fd_topo_initialize( config_t * config ) {
     } else if( FD_UNLIKELY( !strcmp( tile->name, "resolv" ) ) ) {
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "pack" ) ) ) {
-      strncpy( tile->pack.identity_key_path, config->consensus.identity_path, sizeof(tile->pack.identity_key_path) );
-
       tile->pack.max_pending_transactions      = config->tiles.pack.max_pending_transactions;
       tile->pack.bank_tile_count               = config->layout.bank_tile_count;
       tile->pack.larger_max_cost_per_block     = config->development.bench.larger_max_cost_per_block;

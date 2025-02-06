@@ -7,6 +7,7 @@
 #include "../../../../disco/shred/fd_stake_ci.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../disco/keyguard/fd_keyguard.h"
+#include "../../../../disco/keyguard/fd_keyswitch.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
 #include "../../../../disco/fd_disco.h"
 
@@ -122,6 +123,7 @@ typedef struct {
      or 0 if we haven't seen one yet */
   ulong                slot;
 
+  fd_keyswitch_t *     keyswitch;
   fd_keyguard_client_t keyguard_client[1];
 
   uint                 src_ip_addr;
@@ -137,6 +139,8 @@ typedef struct {
   fd_shred_dest_weighted_t * new_dest_ptr;
   ulong                      new_dest_cnt;
   ulong                      shredded_txn_cnt;
+
+  ulong poh_in_expect_seq;
 
   ushort net_id;
 
@@ -227,6 +231,22 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 }
 
 static inline void
+during_housekeeping( fd_shred_ctx_t * ctx ) {
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    ulong seq_must_complete = ctx->keyswitch->param;
+
+    if( FD_UNLIKELY( fd_seq_le( seq_must_complete, ctx->poh_in_expect_seq ) ) ) {
+      /* See fd_keyswitch.h, we need to flush any in-flight shreds from
+         the leader pipeline before switching key. */
+      return;
+    }
+
+    fd_stake_ci_set_identity( ctx->stake_ci, ctx->identity_key );
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+}
+
+static inline void
 metrics_write( fd_shred_ctx_t * ctx ) {
   FD_MHIST_COPY( SHRED, CLUSTER_CONTACT_INFO_CNT,   ctx->metrics->contact_info_cnt      );
   FD_MHIST_COPY( SHRED, BATCH_SZ,                   ctx->metrics->batch_sz              );
@@ -274,8 +294,10 @@ before_frag( fd_shred_ctx_t * ctx,
   (void)ctx;
   (void)seq;
 
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) ctx->poh_in_expect_seq = seq+1UL;
+
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) )     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED;
-  else if( FD_LIKELY( ctx->in_kind[ in_idx]==IN_KIND_POH ) ) return fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK;
+  else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) return fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_MICROBLOCK;
 
   return 0;
 }
@@ -766,6 +788,9 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( expected_shred_version > USHORT_MAX ) ) FD_LOG_ERR(( "invalid shred version %lu", expected_shred_version ));
   FD_LOG_INFO(( "Using shred version %hu", (ushort)expected_shred_version ));
 
+  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
+  FD_TEST( ctx->keyswitch );
+
   /* populate ctx */
   ulong sign_in_idx = fd_topo_find_tile_in_link( topo, tile, "sign_shred", tile->kind_id );
   FD_TEST( sign_in_idx!=ULONG_MAX );
@@ -831,6 +856,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->store_out_chunk0 = fd_dcache_compact_chunk0( ctx->store_out_mem, store_out->dcache );
   ctx->store_out_wmark  = fd_dcache_compact_wmark ( ctx->store_out_mem, store_out->dcache, store_out->mtu );
   ctx->store_out_chunk  = ctx->store_out_chunk0;
+
+  ctx->poh_in_expect_seq = 0UL;
 
   ctx->shredder_fec_set_idx = 0UL;
   ctx->shredder_max_fec_set_idx = (shred_store_mcache_depth+1UL)/2UL + 1UL;
@@ -903,10 +930,11 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_shred_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_shred_ctx_t)
 
-#define STEM_CALLBACK_METRICS_WRITE metrics_write
-#define STEM_CALLBACK_BEFORE_FRAG   before_frag
-#define STEM_CALLBACK_DURING_FRAG   during_frag
-#define STEM_CALLBACK_AFTER_FRAG    after_frag
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_BEFORE_FRAG         before_frag
+#define STEM_CALLBACK_DURING_FRAG         during_frag
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
 
 #include "../../../../disco/stem/fd_stem.c"
 

@@ -5,6 +5,7 @@
 
 #include "../../../../disco/keyguard/fd_keyguard.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
+#include "../../../../disco/keyguard/fd_keyswitch.h"
 #include "../../../../ballet/base58/fd_base58.h"
 
 #include <errno.h>
@@ -38,8 +39,10 @@ typedef struct {
 
   fd_sha512_t       sha512 [ 1 ];
 
-  uchar const *     public_key;
-  uchar const *     private_key;
+  fd_keyswitch_t * keyswitch;
+
+  uchar *           public_key;
+  uchar *           private_key;
 } fd_sign_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -53,6 +56,38 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_sign_ctx_t ), sizeof( fd_sign_ctx_t ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
+}
+
+static void FD_FN_SENSITIVE
+derive_fields( fd_sign_ctx_t * ctx ) {
+  uchar check_public_key[ 32 ];
+  fd_ed25519_public_from_private( check_public_key, ctx->private_key, ctx->sha512 );
+  if( FD_UNLIKELY( memcmp( check_public_key, ctx->public_key, 32UL ) ) )
+    FD_LOG_EMERG(( "The public key in the identity key file does not match the public key derived from the private key. "
+                   "Firedancer will not use the key pair to sign as it might leak the private key." ));
+
+  fd_base58_encode_32( ctx->public_key, &ctx->public_key_base58_sz, (char *)ctx->concat );
+  ctx->concat[ ctx->public_key_base58_sz ] = '-';
+
+  memcpy( ctx->event_concat, "FD_METRICS_REPORT-", 18UL );
+}
+
+static void FD_FN_SENSITIVE
+during_housekeeping_sensitive( fd_sign_ctx_t * ctx ) {
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    memcpy( ctx->private_key, ctx->keyswitch->bytes, 32UL );
+    explicit_bzero( ctx->keyswitch->bytes, 32UL );
+    FD_COMPILER_MFENCE();
+    memcpy( ctx->public_key, ctx->keyswitch->bytes+32UL, 32UL );
+
+    derive_fields( ctx );
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+}
+
+static inline void
+during_housekeeping( fd_sign_ctx_t * ctx ) {
+  during_housekeeping_sensitive( ctx );
 }
 
 /* during_frag is called between pairs for sequence number checks, as
@@ -169,7 +204,7 @@ privileged_init_sensitive( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_sign_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sign_ctx_t ), sizeof( fd_sign_ctx_t ) );
 
-  uchar const * identity_key = fd_keyload_load( tile->sign.identity_key_path, /* pubkey only: */ 0 );
+  uchar * identity_key = fd_keyload_load( tile->sign.identity_key_path, /* pubkey only: */ 0 );
   ctx->private_key = identity_key;
   ctx->public_key  = identity_key + 32UL;
 
@@ -206,23 +241,15 @@ unprivileged_init_sensitive( fd_topo_t *      topo,
   fd_sign_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_sign_ctx_t ), sizeof( fd_sign_ctx_t ) );
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha512 ) ) );
 
-  uchar check_public_key[ 32 ];
-  fd_ed25519_public_from_private( check_public_key, ctx->private_key, ctx->sha512 );
-  if( FD_UNLIKELY( memcmp( check_public_key, ctx->public_key, 32 ) ) )
-    FD_LOG_EMERG(( "The public key in the identity key file does not match the public key derived from the private key. "
-                   "Firedancer will not use the key pair to sign as it might leak the private key." ));
-
   FD_TEST( tile->in_cnt<=MAX_IN );
   FD_TEST( tile->in_cnt==tile->out_cnt );
 
-  fd_base58_encode_32( ctx->public_key, &ctx->public_key_base58_sz, (char *)ctx->concat );
-  ctx->concat[ ctx->public_key_base58_sz ] = '-';
+  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
+  derive_fields( ctx );
 
-  memcpy( ctx->event_concat, "FD_METRICS_REPORT-", 18UL );
+  for( ulong i=0UL; i<MAX_IN; i++ ) ctx->in_role[ i ] = -1;
 
-  for( ulong i=0; i<MAX_IN; i++ ) ctx->in_role[ i ] = -1;
-
-  for( ulong i=0; i<tile->in_cnt; i++ ) {
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * in_link = &topo->links[ tile->in_link_id[ i ] ];
     fd_topo_link_t * out_link = &topo->links[ tile->out_link_id[ i ] ];
 
@@ -317,8 +344,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_sign_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_sign_ctx_t)
 
-#define STEM_CALLBACK_DURING_FRAG during_frag
-#define STEM_CALLBACK_AFTER_FRAG  after_frag
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_DURING_FRAG         during_frag
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
 
 #include "../../../../disco/stem/fd_stem.c"
 

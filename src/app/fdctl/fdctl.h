@@ -40,6 +40,12 @@ typedef union {
   } configure;
 
   struct {
+    int     require_tower;
+    int     force;
+    uchar * keypair;
+  } set_identity;
+
+  struct {
     int  parent_pipefd;
     int  monitor;
     int  no_configure;
@@ -193,6 +199,15 @@ keys_cmd_args( int *    pargc,
 void
 keys_cmd_fn( args_t *         args,
              config_t * const config );
+
+void
+set_identity_cmd_args( int *    pargc,
+                       char *** pargv,
+                       args_t * args );
+
+void
+set_identity_cmd_fn( args_t *         args,
+                     config_t * const config );
 
 void
 ready_cmd_fn( args_t *         args,
