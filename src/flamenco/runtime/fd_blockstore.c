@@ -1222,8 +1222,6 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
   if( FD_UNLIKELY( err == FD_MAP_ERR_INVAL ) ) FD_LOG_ERR(( "[%s] map error. ele not in pool.", __func__ ));
 
   /* Update shred's associated slot meta */
-
-  ulong slot = shred->slot;
   //fd_block_meta_t * block_map = fd_blockstore_block_map( blockstore );
   fd_block_map_query_t query[1];
 
@@ -1308,8 +1306,6 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
     block_map_entry->slot_complete_idx = shred->idx;
   }
 
-  ulong consumed_idx      = block_map_entry->consumed_idx;
-  ulong slot_complete_idx = block_map_entry->slot_complete_idx;
   ulong parent_slot       = block_map_entry->parent_slot;
   fd_block_map_publish( query );
 
@@ -1343,12 +1339,6 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
   //   FD_LOG_NOTICE(( "slot %lu idx %u", shred->slot, shred->idx ));
   //   __asm__("int $3");
   // }
-
-
-  if( FD_LIKELY( consumed_idx == UINT_MAX ||
-                 consumed_idx != slot_complete_idx ) ) {
-    return FD_BLOCKSTORE_SUCCESS;
-  }
 
   /* Received all shreds, so try to assemble a block. */
 
@@ -1486,42 +1476,23 @@ fd_blockstore_parent_slot_query( fd_blockstore_t * blockstore, ulong slot ) {
 int
 fd_blockstore_slice_query( fd_blockstore_t * blockstore,
                            ulong             slot,
-                           uint              batch_idx,
-                           ulong             batch_data_max,
-                           uchar *           batch_data_out,
-                           ulong *           batch_data_sz ) {
+                           uint              idx,
+                           ulong             max,
+                           uchar *           buf,
+                           ulong *           buf_sz ) {
 
   fd_block_map_query_t quer[1] = { 0 };
   int err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, quer, FD_MAP_FLAG_BLOCKING );
   fd_block_meta_t * query = fd_block_map_query_ele( quer );
   if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
 
-  if( batch_idx > 0 ) { /* verify that the batch_idx provided is actually the start of a batch */
+  if( idx > 0 ) { /* verify that the batch_idx provided is actually the start of a batch */
     fd_block_set_t * data_complete_idxs = query->data_complete_idxs;
     if ( !fd_block_set_test( data_complete_idxs, idx - 1 ) || idx > query->slot_complete_idx ) {
       return FD_BLOCKSTORE_ERR_SHRED_INVALID;
     }
   }
   // end, query_test. TODO: make not blocking
-
-  ulong mbatch_sz = 0;
-  for (uint idx = batch_idx; ; idx++) {
-    fd_blockstore_start_read( blockstore );
-
-    /* FIXME assumes only calling when we have a full block */
-
-    fd_block_t * block = fd_blockstore_block_query( blockstore, slot );
-    if( FD_UNLIKELY( !block ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
-
-    fd_wksp_t *        wksp   = fd_blockstore_wksp( blockstore );
-    fd_block_shred_t * shreds = fd_wksp_laddr_fast( wksp, block->shreds_gaddr );
-    uchar *            data   = fd_wksp_laddr_fast( wksp, block->data_gaddr );
-
-    uchar * payload  = data + shreds[idx].off;
-    ulong payload_sz = ( idx + 1 != block->shreds_cnt ) ? ( shreds[idx + 1].off - shreds[idx].off )
-                                                        : ( block->data_sz - shreds[idx].off );
-    int is_batch_end = (shreds[idx].hdr.data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE)
-                    || (shreds[idx].hdr.data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE);
   ulong off = 0;
   for(;;) {
     ulong payload_sz = 0;
@@ -1548,24 +1519,13 @@ fd_blockstore_slice_query( fd_blockstore_t * blockstore,
         return FD_BLOCKSTORE_ERR_INVAL;
       }
 
-    if( FD_UNLIKELY( payload_sz > FD_SHRED_DATA_PAYLOAD_MAX ) ) return FD_BLOCKSTORE_ERR_SHRED_INVALID;
-    if( FD_UNLIKELY( mbatch_sz + payload_sz > batch_data_max ) ) return FD_BLOCKSTORE_ERR_NO_MEM;
-    fd_memcpy( batch_data_out + mbatch_sz, payload, payload_sz );
-
-    fd_blockstore_end_read( blockstore );
-
-    mbatch_sz += payload_sz;
-    if( FD_UNLIKELY( is_batch_end ) ){
-      /* likely has trailing 0s */
-      break;
-    }
       if( FD_UNLIKELY( payload_sz > FD_SHRED_DATA_PAYLOAD_MAX ) ) return FD_BLOCKSTORE_ERR_SHRED_INVALID;
-      if( FD_UNLIKELY( off + payload_sz > max ) ) return FD_BLOCKSTORE_ERR_NO_MEM;
-      fd_memcpy( buf + off, payload, payload_sz );
-      complete = ( shred->hdr.data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE ) ||
-                 ( shred->hdr.data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
-      err = fd_buf_shred_map_query_test( query );
-      if( FD_LIKELY( err == FD_MAP_SUCCESS ) ) break;
+        if( FD_UNLIKELY( off + payload_sz > max ) ) return FD_BLOCKSTORE_ERR_NO_MEM;
+        fd_memcpy( buf + off, payload, payload_sz );
+        complete = ( shred->hdr.data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE ) ||
+                   ( shred->hdr.data.flags & FD_SHRED_DATA_FLAG_SLOT_COMPLETE );
+        err = fd_buf_shred_map_query_test( query );
+        if( FD_LIKELY( err == FD_MAP_SUCCESS ) ) break;
     }; /* successful speculative copy */
 
     off += payload_sz;
@@ -1713,7 +1673,7 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
     ulong     batch_sz = 0;
     ulong total_blk_sz = 0;
     while( batch_idx <= query->slot_complete_idx ){
-      int err = fd_blockstore_batch_query( blockstore,
+      int err = fd_blockstore_slice_query( blockstore,
                                                slot,
                                                (uint)batch_idx,
                                                sz - total_blk_sz,
