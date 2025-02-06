@@ -64,8 +64,7 @@ void
 fd_vote_record_timestamp_vote_with_slot( fd_exec_slot_ctx_t * slot_ctx,
                                          fd_pubkey_t const *  vote_acc,
                                          long                 timestamp,
-                                         ulong                slot,
-                                         fd_spad_t *          spad );
+                                         ulong                slot );
 
 struct fd_commission_split {
   ulong voter_portion;

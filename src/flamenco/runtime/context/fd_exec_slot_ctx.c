@@ -100,7 +100,7 @@ fd_exec_slot_ctx_delete( void * mem ) {
    accounts in current epoch stakes. */
 
 static int
-recover_clock( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
+recover_clock( fd_exec_slot_ctx_t * slot_ctx ) {
 
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_vote_accounts_t const * vote_accounts = &epoch_bank->stakes.vote_accounts;
@@ -121,7 +121,7 @@ recover_clock( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
 
     /* Record timestamp */
     if( vote_state_timestamp.slot != 0 || n->elem.stake != 0 ) {
-      fd_vote_record_timestamp_vote_with_slot( slot_ctx, &n->elem.key, vote_state_timestamp.timestamp, vote_state_timestamp.slot, runtime_spad );
+      fd_vote_record_timestamp_vote_with_slot( slot_ctx, &n->elem.key, vote_state_timestamp.timestamp, vote_state_timestamp.slot );
     }
   }
 
@@ -277,7 +277,11 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
     fd_hash_hash_age_pair_t_map_insert( slot_bank->block_hash_queue.ages_pool, &slot_bank->block_hash_queue.ages_root, node );
   }
 
-  recover_clock( slot_ctx, runtime_spad );
+  /* FIXME: Remove the magic number here. */
+  if( !slot_ctx->slot_bank.timestamp_votes.votes_pool ) {
+    slot_ctx->slot_bank.timestamp_votes.votes_pool = fd_clock_timestamp_vote_t_map_alloc( fd_spad_virtual( runtime_spad ),15000UL );
+  }
+  recover_clock( slot_ctx );
 
   /* Pass in the hard forks */
 

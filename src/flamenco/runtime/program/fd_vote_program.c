@@ -1922,7 +1922,7 @@ ulong
 fd_query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_t const * vote_accounts ) {
   fd_vote_accounts_pair_t_mapnode_t key         = { 0 };
   key.elem.key                                  = *pubkey;
-  
+
   if( !vote_accounts->vote_accounts_pool && !vote_accounts->vote_accounts_root ) {
     return 0;
   }
@@ -2122,14 +2122,11 @@ void
 fd_vote_record_timestamp_vote_with_slot( fd_exec_slot_ctx_t * slot_ctx,
                                          fd_pubkey_t const *  vote_acc,
                                          long                 timestamp,
-                                         ulong                slot,
-                                         fd_spad_t *          spad ) {
+                                         ulong                slot ) {
   fd_clock_timestamp_vote_t_mapnode_t * root = slot_ctx->slot_bank.timestamp_votes.votes_root;
   fd_clock_timestamp_vote_t_mapnode_t * pool = slot_ctx->slot_bank.timestamp_votes.votes_pool;
-  if( NULL == pool ) {
-    /* FIXME: Remove magic number. */
-    pool = slot_ctx->slot_bank.timestamp_votes.votes_pool =
-        fd_clock_timestamp_vote_t_map_alloc( fd_spad_virtual( spad ), 15000 );
+  if( FD_UNLIKELY( !pool ) ) {
+    FD_LOG_ERR(( "Timestamp vote account pool not allocated" ));
   }
 
   fd_clock_timestamp_vote_t timestamp_vote = {
