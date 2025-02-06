@@ -150,6 +150,7 @@ typedef struct {
     char gigantic_page_mount_path[ PATH_MAX ];
     char huge_page_mount_path[ PATH_MAX ];
     char mount_path[ PATH_MAX ];
+    char max_page_size[ 16 ];
   } hugetlbfs;
 
   struct {

@@ -822,6 +822,12 @@ dynamic_port_range = "8900-9000"
     # writable by the Firedancer user.
     mount_path = "/mnt/.fd"
 
+    # The largest supported page size on the system.  Possible values
+    # are either "huge" (2MiB) or "gigantic" (1GiB).  Larger sizes yield
+    # better performance.  Smaller values may be required on virtualized
+    # environments like cloud providers.
+    max_page_size = "gigantic"
+
 # Tiles are described in detail in the layout section above.  While the
 # layout configuration determines how many of each tile to place on
 # which CPU core to create a functioning system, below is the individual
