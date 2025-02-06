@@ -14,6 +14,9 @@
 #include <strings.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#if defined(__APPLE__)
+#include <fcntl.h>
+#endif
 
 #define POOL_NAME       ws_conn_pool
 #define POOL_T          struct fd_http_server_ws_connection
@@ -265,12 +268,37 @@ fd_http_server_fd( fd_http_server_t * http ) {
   return http->socket_fd;
 }
 
+#if defined(__linux__)
+
+int
+make_socket( void ) {
+  int sockfd = socket( AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0 );
+  if( FD_UNLIKELY( -1==sockfd ) ) FD_LOG_ERR(( "socket(AF_INET,SOCK_STREAM|SOCK_NONBLOCK) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+}
+
+#elif defined(__APPLE__)
+
+int
+make_socket( void ) {
+  int sockfd = socket( AF_INET, SOCK_STREAM, 0 );
+  if( FD_UNLIKELY( -1==sockfd ) ) FD_LOG_ERR(( "socket(AF_INET,SOCK_STREAM) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  int flags = fcntl( sockfd, F_GETFL, 0 );
+  if( FD_UNLIKELY( flags==-1 ) ) FD_LOG_ERR(( "fnctl(F_GETFL) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( -1==fcntl( sockfd, F_SETFL, flags|O_NONBLOCK ) ) ) FD_LOG_ERR(( "fcntl(F_SETFL,+O_NONBLOCK) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  return sockfd;
+}
+
+#else
+#error "Unsupported platform"
+#endif /* OS specific socket */
+
 fd_http_server_t *
 fd_http_server_listen( fd_http_server_t * http,
                        uint               address,
                        ushort             port ) {
-  int sockfd = socket( AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0 );
-  if( FD_UNLIKELY( -1==sockfd ) ) FD_LOG_ERR(( "socket failed (%i-%s)", errno, strerror( errno ) ));
+  int sockfd = make_socket();
 
   int optval = 1;
   if( FD_UNLIKELY( -1==setsockopt( sockfd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof( optval ) ) ) )
@@ -349,7 +377,9 @@ is_expected_network_error( int err ) {
     err==EPROTO ||
     err==ENOPROTOOPT ||
     err==EHOSTDOWN ||
+#if defined(__linux__)
     err==ENONET ||
+#endif
     err==EHOSTUNREACH ||
     err==EOPNOTSUPP ||
     err==ENETUNREACH ||
@@ -363,7 +393,11 @@ is_expected_network_error( int err ) {
 static void
 accept_conns( fd_http_server_t * http ) {
   for(;;) {
+# if defined(__linux__)
     int fd = accept4( http->socket_fd, NULL, NULL, SOCK_NONBLOCK|SOCK_CLOEXEC );
+# else
+    int fd = accept( http->socket_fd, NULL, NULL );
+# endif
 
     if( FD_UNLIKELY( -1==fd ) ) {
       if( FD_LIKELY( EAGAIN==errno ) ) break;
