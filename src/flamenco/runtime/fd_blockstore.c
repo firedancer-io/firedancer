@@ -1010,7 +1010,7 @@ fd_blockstore_shred_remove( fd_blockstore_t * blockstore, ulong slot, uint idx )
 
 /* Deshred into a block once we've received all shreds for a slot. */
 
-static int
+FD_FN_UNUSED static int
 deshred( fd_blockstore_t * blockstore, ulong slot ) {
   FD_LOG_NOTICE(( "[%s] slot %lu", __func__, slot ));
 
@@ -1283,7 +1283,7 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
 
   if( FD_UNLIKELY( block_map_entry->slot_complete_idx != FD_SHRED_IDX_NULL &&
                    block_map_entry->buffered_idx == block_map_entry->slot_complete_idx ) ) {
-    deshred( blockstore, shred->slot );
+    // deshred( blockstore, shred->slot );
   }
 }
 
