@@ -13,6 +13,11 @@ prost-types = "0.13.3"
 log = "0.4.22"
 tokio = "1.40.0"
 tokio-stream = "0.1"
+tokio-rustls = { version = "0.26", features = [
+    "logging",
+    "tls12",
+    "ring",
+], default-features = false }
 futures = "0.3.30"
 chrono = "0.4.38"
 thiserror = "1.0.64"

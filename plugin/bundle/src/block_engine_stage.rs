@@ -16,6 +16,7 @@ use {
     log::*,
     std::ffi::{c_void, CStr},
     std::{
+        fmt::Write,
         future::{Future, ready},
         pin::Pin,
         sync::{Arc, Mutex},
@@ -38,6 +39,7 @@ use {
         sync::watch,
     },
     tokio_stream::wrappers::IntervalStream,
+    tokio_rustls::rustls::KeyLog,
 };
 
 struct TileFuture {
@@ -548,6 +550,29 @@ async fn connect_auth(
 
     debug!("connecting to block engine: {} ... {}", url, domain_name);
 
+    #[derive(Debug)]
+    struct FDKeyLog {}
+    impl KeyLog for FDKeyLog {
+        fn log(&self, label: &str, client_random: &[u8], secret: &[u8]) {
+            let mut buf: String = String::new();
+            write!(buf, "{} ", label);
+            // Write each byte of `client_random` as a two-digit hexadecimal number.
+            for b in client_random {
+                write!(buf, "{:02x}", b);
+            }
+
+            // Write a space.
+            write!(buf, " ");
+
+            // Write each byte of `secret` as a two-digit hexadecimal number.
+            for b in secret {
+                write!(buf, "{:02x}", b);
+            }
+            warn!("{}", buf);
+        }
+    }
+
+    warn!("hi 2");
     if url.starts_with("https") {
         backend_endpoint = backend_endpoint
             .tls_config(
@@ -560,6 +585,18 @@ async fn connect_auth(
                     "failed to set tls_config for block engine service".to_string(),
                 )
             })?;
+
+        unsafe {
+            let config_ptr: *mut c_void = *((&mut backend_endpoint as *mut _ as *mut c_void).byte_offset(248) as *mut *mut c_void);
+            let strong_ref : u64 = *(config_ptr as *mut u64);
+            let weak_ref : u64 = *(config_ptr.byte_offset(8) as *mut u64);
+            warn!("strong ref {}, weak ref cnt {}", strong_ref, weak_ref);
+            let keylog_ptr : *mut c_void = config_ptr.byte_offset(272);
+
+            let mut key_log : Arc<dyn KeyLog> = Arc::new(FDKeyLog {});
+            std::ptr::copy_nonoverlapping(&mut key_log as *mut _ as *mut c_void, keylog_ptr, 16);
+            std::mem::forget(key_log);
+        }
     }
 
     debug!("connecting to auth: {}", url);
