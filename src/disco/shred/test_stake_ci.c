@@ -389,6 +389,39 @@ test_limits( void ) {
   fd_stake_ci_delete( fd_stake_ci_leave( info ) );
 }
 
+static void
+test_set_identity( void ) {
+  fd_stake_ci_t * info = fd_stake_ci_join( fd_stake_ci_new( _info, identity_key ) );
+
+  fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 0UL, "ABCDEF" ) );  fd_stake_ci_stake_msg_fini( info );
+  fd_stake_ci_dest_add_fini( info, generate_dest_add( fd_stake_ci_dest_add_init( info ), "ABCHJZ" ) );
+  /* ABCDEF staked, HIJZ unstaked */
+
+  fd_pubkey_t new[1];
+  fd_memset( new, 'N', sizeof(fd_pubkey_t) );
+  /* Test unstaked -> unstaked migration */
+  fd_stake_ci_set_identity( info, new );
+  check_destinations( info, 0UL, "ABCDEF",  "HIJNZ" );
+
+  /* Make N staked */
+  fd_stake_ci_stake_msg_init( info, generate_stake_msg( stake_msg, 1UL, "ABCDN" ) );  fd_stake_ci_stake_msg_fini( info );
+  check_destinations( info, 1UL, "ABCDN",  "HIJZ" );
+
+  /* staked->unstaked */
+  fd_memset( new, 'H', sizeof(fd_pubkey_t) );
+  fd_stake_ci_set_identity( info, new );
+  check_destinations( info, 1UL, "ABCDN",  "HIJZ" );
+
+  /* unstaked->staked */
+  fd_memset( new, 'A', sizeof(fd_pubkey_t) );
+  fd_stake_ci_set_identity( info, new );
+  check_destinations( info, 1UL, "ABCDN",  "HIJZ" );
+
+  /* staked->staked */
+  fd_memset( new, 'B', sizeof(fd_pubkey_t) );
+  fd_stake_ci_set_identity( info, new );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -414,6 +447,7 @@ main( int     argc,
   test_destaking();
   test_changing_contact_info();
   test_limits();
+  test_set_identity();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

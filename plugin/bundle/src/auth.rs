@@ -10,7 +10,9 @@ use {
     log::*,
     std::{ffi::CString, time::Duration},
     tokio::time::timeout,
+    tokio::sync::watch,
     tonic::{service::Interceptor, transport::Channel, Code, Request, Status},
+    std::ops::Deref,
 };
 
 /// Interceptor responsible for adding the access token to request headers.
@@ -47,16 +49,18 @@ extern "C" {
 pub async fn generate_auth_tokens(
     auth_service_client: &mut AuthServiceClient<Channel>,
     // used to sign challenges
-    identity_pubkey: &[u8; 32],
+    identity_pubkey: &mut watch::Receiver<[u8; 32]>,
 ) -> crate::Result<(
     Token, /* access_token */
     Token, /* refresh_token */
 )> {
+    let pubkey = identity_pubkey.borrow_and_update().deref().to_vec();
+
     debug!("generate_auth_challenge");
     let challenge_response = auth_service_client
         .generate_auth_challenge(GenerateAuthChallengeRequest {
             role: Role::Validator as i32,
-            pubkey: identity_pubkey.to_vec(),
+            pubkey: pubkey.clone(),
         })
         .await
         .map_err(|e: Status| {
@@ -80,7 +84,7 @@ pub async fn generate_auth_tokens(
 
     let formatted_challenge = format!(
         "{}-{}",
-        bs58::encode(identity_pubkey).into_string(),
+        bs58::encode(pubkey.clone()).into_string(),
         challenge,
     );
 
@@ -93,7 +97,7 @@ pub async fn generate_auth_tokens(
     let auth_tokens = auth_service_client
         .generate_auth_tokens(GenerateAuthTokensRequest {
             challenge: formatted_challenge,
-            client_pubkey: identity_pubkey.to_vec(),
+            client_pubkey: pubkey,
             signed_challenge: Vec::from(signed_challenge),
         })
         .await
@@ -108,7 +112,7 @@ pub async fn generate_auth_tokens(
 
 /// Tries to refresh the access token or run full-reauth if needed.
 pub async fn maybe_refresh_auth_tokens(
-    pubkey: &[u8; 32],
+    pubkey: &mut watch::Receiver<[u8; 32]>,
     auth_service_client: &mut AuthServiceClient<Channel>,
     access_token: &Token,
     refresh_token: &Token,
@@ -133,7 +137,7 @@ pub async fn maybe_refresh_auth_tokens(
 
     let should_refresh_access =
         access_token_expiry.checked_sub(now).unwrap_or_default() <= refresh_within_s;
-    let should_generate_new_tokens =
+    let should_generate_new_tokens = pubkey.has_changed().unwrap() ||
         refresh_token_expiry.checked_sub(now).unwrap_or_default() <= refresh_within_s;
 
     if should_generate_new_tokens {

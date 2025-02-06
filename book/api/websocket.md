@@ -183,13 +183,25 @@ known cluster) when the validator learns its cluster from a downloaded
 snapshot.
 
 #### `summary.identity_key`
-| frequency | type     | example        |
-|-----------|----------|----------------|
-| *Once*    | `string` | `"Fe4StcZSQ228dKK2hni7aCP7ZprNhj8QKWzFe5usGFYF"` |
+| frequency       | type     | example        |
+|-----------------|----------|----------------|
+| *Once* + *Live* | `string` | `"Fe4StcZSQ228dKK2hni7aCP7ZprNhj8QKWzFe5usGFYF"` |
 
 The public identity key assigned to the running validator, encoded in
-base58. Firedancer does not support changing the identity key of the
-validator while it is running and this value does not change.
+base58. Firedancer support changing the identity key of the validator
+while it is running through a `set-identity` command, and if this
+happens a new `identity_key` will be published.
+
+Summary information in this API is tied to the validator instance and
+not the identity key, for example, the skip rate is the skip rate of all
+blocks produced by this validator, regardless of what identity key they
+were published with. The `mine` field of blocks similarly indicates if
+this validator published the block, not whether it had the same identity
+key as the validator has now.
+
+Because of this, when changing identity key, no other information will
+be republished. It will simply continue counting for blocks published
+with the new key.
 
 #### `summary.vote_state`
 | frequency       | type     | example  |
@@ -421,8 +433,13 @@ The skip rate of an epoch is the ratio of `skipped_slots/total_slots`
 for our leader slots in that epoch.  The skip rate is only known for
 slots that have happened since the validator was started, and we do
 not incorporate slots from before boot, as we cannot know if they were
-skipped or not.  If no slot has happened since boot, i.e.
-total_slots==0, skip_rate is 0.
+skipped or not.  If this validator has not had any leader slots since it
+was booted, the skip rate reported will be zero.
+
+The skip rate is specific to this running validator, and not any
+given identity key. If the validator identity is changed with
+`set-identity`, the skip rate will remain the same at first, and then
+start incorporating skips for the new identity key.
 
 **`SkipRate`**
 | Field     | Type     | Description |
@@ -917,7 +934,13 @@ in which case it would be both `incomplete` and `skipped`.
 Slots are either `mine` (created by this validator), or not, in which
 case we are replaying a block from another validator. Slots that are
 `mine` contain additional information about our performance creating the
-block for that slot.
+block for that slot. The `mine` field means that this specific validator
+published the block. It might happen that a block is published by a
+leader with our identity key, but not this specific validator (for
+example, if the block was published by another computer, and then this
+validator took over the identity key with a `set-identity` operation)
+in which case the `mine` field will be set to false, even though the
+block has our key.
 
 Some information is only known for blocks that have been replayed
 successfully (reached the `completed` state), for example the number of
@@ -934,7 +957,7 @@ initially replay one but the cluster votes on the other one.
 | Field      | Type      | Description |
 |------------|-----------|-------------|
 | slot       | `number`  | Identity of the slot, counting up from zero for the first slot in the chain |
-| mine       | `boolean` | True if this validator was the leader for this slot. This will never change for a slot once it has been published, and will be aligned with the epoch information |
+| mine       | `boolean` | True if this validator was the leader for this slot. This will never change for a slot once it has been published, and will be aligned with the epoch information, except in cases where the validator identity is changed while the validator is running |
 | skipped    | `boolean` | True if the slot was skipped. The skipped state is the state in the currently active fork of the validator. The skipped state can change if the validator switches active fork |
 | duration_nanos | `number\|null` | A duration in nanoseconds of how long it took us to receive and replay the slot. This is the time as measured since we completed replay of the parent slot locally on this validator, til the time we replayed this slot locally on this validator |
 | completed_time_nanos | `number\|null` |  UNIX timestamp in nanoseconds of when this validator finished replaying the slot locally. If the slot was skipped, this may be `null` which indicates the block for this slot did not finish replaying on this validator. In some cases, a skipped slot will still have a completed time, if we received the data for the block, replayed it, and then decided to use a different fork |
@@ -948,9 +971,9 @@ initially replay one but the cluster votes on the other one.
 | tips            | `number\|null`     | Total amount of tips that this slot collects in lamports, across all block builders, after any commission to the block builder is subtracted |
 
 #### `slot.skipped_history`
-| frequency | type | example |
-|-----------|------|---------|
- *Once*     | `number[]` | `[286576808, 286576809, 286576810, 286576811, 286625025, 286625026, 286625027]` |
+| frequency      | type       | example |
+|----------------|------------|---------|
+ *Once* + *Live* | `number[]` | `[286576808, 286576809, 286576810, 286576811, 286625025, 286625026, 286625027]` |
 
 A list of all of the recent leader slots of the validator which were
 skipped. Only two epochs of leader slots are tracked, and skips prior
@@ -958,6 +981,10 @@ to this are not retrieved.
 
 The skipped slots include unrooted and unconfirmed slots of ours which
 are skipped on the currently active fork.
+
+If the validator identity is changed with a `set-identity` operation,
+the skipped history is republished with a list of skipped slots for the
+new validator identity.
 
 #### `slot.update`
 | frequency   | type          | example |
