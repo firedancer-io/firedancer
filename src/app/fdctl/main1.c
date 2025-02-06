@@ -7,19 +7,19 @@
 #include <sys/mman.h>
 
 action_t ACTIONS[] = {
-  { .name = "run",        .args = NULL,               .fn = run_cmd_fn,        .perm = run_cmd_perm,        .description = "Start up a Firedancer validator" },
-  { .name = "run1",       .args = run1_cmd_args,      .fn = run1_cmd_fn,       .perm = NULL,                .description = "Start up a single Firedancer tile" },
-  { .name = "run-agave",  .args = NULL,               .fn = run_agave_cmd_fn,  .perm = NULL,                .description = "Start up the Agave side of a Firedancer validator" },
-  { .name = "configure",  .args = configure_cmd_args, .fn = configure_cmd_fn,  .perm = configure_cmd_perm,  .description = "Configure the local host so it can run Firedancer correctly" },
-  { .name = "monitor",    .args = monitor_cmd_args,   .fn = monitor_cmd_fn,    .perm = monitor_cmd_perm,    .description = "Monitor a locally running Firedancer instance with a terminal GUI" },
-  { .name = "keys",       .args = keys_cmd_args,      .fn = keys_cmd_fn,       .perm = NULL,                .description = "Generate new keypairs for use with the validator or print a public key" },
-  { .name = "ready",      .args = NULL,               .fn = ready_cmd_fn,      .perm = NULL,                .description = "Wait for all tiles to be running" },
-  { .name = "mem",        .args = NULL,               .fn = mem_cmd_fn,        .perm = NULL,                .description = "Print workspace memory and tile topology information" },
-  { .name = "spy",        .args = NULL,               .fn = spy_cmd_fn,        .perm = NULL,                .description = "Spy on and print out gossip traffic" },
-  { .name = "netconf",    .args = NULL,               .fn = netconf_cmd_fn,    .perm = NULL,                .description = "Print network configuration" },
-  { .name = "help",       .args = NULL,               .fn = help_cmd_fn,       .perm = NULL,                .description = "Print this help message" },
-  { .name = "version",    .args = NULL,               .fn = version_cmd_fn,    .perm = NULL,                .description = "Show the current software version" },
-  {0}
+  { .name = "run",          .args = NULL,                  .fn = run_cmd_fn,          .perm = run_cmd_perm,       .description = "Start up a Firedancer validator" },
+  { .name = "run1",         .args = run1_cmd_args,         .fn = run1_cmd_fn,         .perm = NULL,               .description = "Start up a single Firedancer tile" },
+  { .name = "run-agave",    .args = NULL,                  .fn = run_agave_cmd_fn,    .perm = NULL,               .description = "Start up the Agave side of a Firedancer validator" },
+  { .name = "configure",    .args = configure_cmd_args,    .fn = configure_cmd_fn,    .perm = configure_cmd_perm, .description = "Configure the local host so it can run Firedancer correctly" },
+  { .name = "monitor",      .args = monitor_cmd_args,      .fn = monitor_cmd_fn,      .perm = monitor_cmd_perm,   .description = "Monitor a locally running Firedancer instance with a terminal GUI" },
+  { .name = "keys",         .args = keys_cmd_args,         .fn = keys_cmd_fn,         .perm = NULL,               .description = "Generate new keypairs for use with the validator or print a public key" },
+  { .name = "ready",        .args = NULL,                  .fn = ready_cmd_fn,        .perm = NULL,               .description = "Wait for all tiles to be running" },
+  { .name = "mem",          .args = NULL,                  .fn = mem_cmd_fn,          .perm = NULL,               .description = "Print workspace memory and tile topology information" },
+  { .name = "spy",          .args = NULL,                  .fn = spy_cmd_fn,          .perm = NULL,               .description = "Spy on and print out gossip traffic" },
+  { .name = "netconf",      .args = NULL,                  .fn = netconf_cmd_fn,      .perm = NULL,               .description = "Print network configuration" },
+  { .name = "set-identity", .args = set_identity_cmd_args, .fn = set_identity_cmd_fn, .perm = NULL,               .description = "Change the identity of a running validator" },
+  { .name = "help",         .args = NULL,                  .fn = help_cmd_fn,         .perm = NULL,               .description = "Print this help message" },
+  { .name = "version",      .args = NULL,                  .fn = version_cmd_fn,      .perm = NULL,               .description = "Show the current software version" },
 };
 
 struct action_alias {

@@ -201,7 +201,7 @@ struct fd_gui {
 
   struct {
     fd_pubkey_t identity_key[ 1 ];
-    char identity_key_base58[ FD_BASE58_ENCODED_32_SZ+1 ];
+    char identity_key_base58[ FD_BASE58_ENCODED_32_SZ ];
 
     char const * version;
     char const * cluster;
@@ -338,6 +338,10 @@ fd_gui_new( void *             shmem,
 
 fd_gui_t *
 fd_gui_join( void * shmem );
+
+void
+fd_gui_set_identity( fd_gui_t *    gui,
+                     uchar const * identity_pubkey );
 
 void
 fd_gui_ws_open( fd_gui_t *  gui,

@@ -8,6 +8,7 @@
 #include "../../ballet/toml/fd_toml.h"
 #include "../../disco/topo/fd_pod_format.h"
 #include "../../flamenco/genesis/fd_genesis_cluster.h"
+#include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../funk/fd_funk.h"
@@ -278,6 +279,8 @@ fdctl_obj_align( fd_topo_t const *     topo,
     return fd_neigh4_hmap_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "fib4" ) ) ) {
     return fd_fib4_align();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "keyswitch" ) ) ) {
+    return fd_keyswitch_align();
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
     return 0UL;
@@ -327,6 +330,8 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
     return fd_neigh4_hmap_footprint( VAL("ele_max"), VAL("lock_cnt"), VAL("probe_max") );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "fib4" ) ) ) {
     return fd_fib4_footprint( VAL("route_max") );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "keyswitch" ) ) ) {
+    return fd_keyswitch_footprint();
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
     return 0UL;

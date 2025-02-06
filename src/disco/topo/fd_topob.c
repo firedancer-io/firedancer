@@ -121,7 +121,8 @@ fd_topob_tile( fd_topo_t *    topo,
                char const *   tile_wksp,
                char const *   metrics_wksp,
                ulong          cpu_idx,
-               int            is_agave ) {
+               int            is_agave,
+               int            uses_keyswitch ) {
 
   if( FD_UNLIKELY( !topo || !tile_name || !tile_wksp || !metrics_wksp ) ) FD_LOG_ERR(( "NULL args" ));
   if( FD_UNLIKELY( strlen( tile_name )>=sizeof(topo->tiles[ topo->tile_cnt ].name ) ) ) FD_LOG_ERR(( "tile name too long: %s", tile_name ));
@@ -149,6 +150,14 @@ fd_topob_tile( fd_topo_t *    topo,
   fd_topo_obj_t * obj = fd_topob_obj( topo, "metrics", metrics_wksp );
   tile->metrics_obj_id = obj->id;
   fd_topob_tile_uses( topo, tile, obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+  if( FD_LIKELY( uses_keyswitch ) ) {
+    obj = fd_topob_obj( topo, "keyswitch", tile_wksp );
+    tile->keyswitch_obj_id = obj->id;
+    fd_topob_tile_uses( topo, tile, obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  } else {
+    tile->keyswitch_obj_id = ULONG_MAX;
+  }
 
   topo->tile_cnt++;
   return tile;
