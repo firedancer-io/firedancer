@@ -10,6 +10,7 @@
 #endif
 
 #include "../../../disco/topo/fd_pod_format.h"
+#include "../../../disco/keyguard/fd_keyswitch.h"
 #include "../../../waltz/xdp/fd_xdp1.h"
 #include "../../../flamenco/runtime/fd_blockstore.h"
 #include "../../../flamenco/runtime/fd_txncache.h"
@@ -548,6 +549,8 @@ fdctl_obj_new( fd_topo_t const *     topo,
     FD_TEST( fd_funk_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("txn_max"), VAL("rec_max") ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
     FD_TEST( fd_txncache_new( laddr, VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "keyswitch" ) ) ) {
+    FD_TEST( fd_keyswitch_new( laddr, FD_KEYSWITCH_STATE_UNLOCKED ) );
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
   }

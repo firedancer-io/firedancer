@@ -105,6 +105,7 @@ typedef struct {
 
   ulong tile_obj_id;
   ulong metrics_obj_id;
+  ulong keyswitch_obj_id;
   ulong in_link_fseq_obj_id[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
   ulong uses_obj_cnt;
@@ -177,7 +178,6 @@ typedef struct {
       int   larger_max_cost_per_block;
       int   larger_shred_limits_per_block;
       int   use_consumed_cus;
-      char  identity_key_path[ PATH_MAX ];
     } pack;
 
     struct {

@@ -1,6 +1,5 @@
+#define _GNU_SOURCE
 #include "../../../../disco/tiles.h"
-
-#include "../../../../disco/plugin/fd_plugin.h"
 
 /* Let's say there was a computer, the "leader" computer, that acted as
    a bank.  Users could send it messages saying they wanted to deposit
@@ -316,8 +315,12 @@
 #include "../../../../disco/shred/fd_stake_ci.h"
 #include "../../../../disco/bank/fd_bank_abi.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
+#include "../../../../disco/keyguard/fd_keyswitch.h"
 #include "../../../../disco/metrics/generated/fd_metrics_poh.h"
+#include "../../../../disco/plugin/fd_plugin.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
+
+#include <string.h>
 
 /* The maximum number of microblocks that pack is allowed to pack into a
    single slot.  This is not consensus critical, and pack could, if we
@@ -443,6 +446,7 @@ typedef struct {
      of microblocks that might still be received in this slot. */
   ulong microblocks_lower_bound;
 
+  uchar __attribute__((aligned(32UL))) reset_hash[ 32 ];
   uchar __attribute__((aligned(32UL))) hash[ 32 ];
 
   /* When we are not leader, we need to save the hashes that were
@@ -490,6 +494,14 @@ typedef struct {
 
   fd_stake_ci_t * stake_ci;
 
+  /* The last sequence number of an outgoing fragment to the shred tile,
+     or ULONG max if no such fragment.  See fd_keyswitch.h for details
+     of how this is used. */
+  ulong shred_seq;
+
+  int halted_switching_key;
+
+  fd_keyswitch_t * keyswitch;
   fd_pubkey_t identity_key;
 
   /* The Agave client needs to be notified when the leader changes,
@@ -735,6 +747,7 @@ fd_ext_poh_initialize( ulong         tick_duration_ns,    /* See clock comments 
   ctx->reset_slot          = ctx->slot;
   ctx->reset_slot_start_ns = fd_log_wallclock(); /* safe to call from Rust */
 
+  memcpy( ctx->reset_hash, last_entry_hash, 32UL );
   memcpy( ctx->hash, last_entry_hash, 32UL );
 
   ctx->signal_leader_change = signal_leader_change;
@@ -832,6 +845,13 @@ fd_ext_poh_reached_leader_slot( ulong * out_leader_slot,
     return 0;
   }
 
+  if( FD_UNLIKELY( ctx->halted_switching_key ) ) {
+    /* Reached our leader slot, but the leader pipeline is halted
+       because we are switching identity key. */
+    fd_ext_poh_write_unlock();
+    return 0;
+  }
+
   if( FD_LIKELY( ctx->reset_slot==ctx->next_leader_slot ) ) {
     /* We were reset onto our leader slot, because the prior leader
        completed theirs, so we should start immediately, no need for a
@@ -853,7 +873,7 @@ fd_ext_poh_reached_leader_slot( ulong * out_leader_slot,
   if( FD_UNLIKELY( now_ns<expected_start_time_ns+(long)(3.0*ctx->slot_duration_ns) ) ) {
     /* If the max_active_descendant is >= next_leader_slot, we waited
        too long and a leader after us started publishing to try and skip
-       us.  Just start our leader slot immediately, we mgiht win ... */
+       us.  Just start our leader slot immediately, we might win ... */
 
     if( FD_LIKELY( ctx->max_active_descendant>=ctx->reset_slot && ctx->max_active_descendant<ctx->next_leader_slot ) ) {
       /* If one of the leaders between the reset slot and our leader
@@ -908,7 +928,7 @@ publish_became_leader( fd_poh_ctx_t * ctx,
     /* If we are mirroring Agave behavior, the wall clock gets reset
        here so we don't count time spent waiting for a bank to freeze
        or replay stage to actually start the slot towards our 400ms.
-       
+
        See extended comments in the config file on this option. */
     ctx->reset_slot_start_ns = fd_log_wallclock() - (long)((double)(slot-ctx->reset_slot)*ctx->slot_duration_ns);
   }
@@ -1036,6 +1056,59 @@ next_leader_slot( fd_poh_ctx_t * ctx ) {
   return ULONG_MAX;
 }
 
+extern int
+fd_ext_admin_rpc_set_identity( uchar const * identity_keypair,
+                               int           require_tower );
+
+static inline int FD_FN_SENSITIVE
+maybe_change_identity( fd_poh_ctx_t * ctx,
+                       int            definitely_not_leader ) {
+  if( FD_UNLIKELY( ctx->halted_switching_key && fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_UNHALT_PENDING ) ) {
+    ctx->halted_switching_key = 0;
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+    return 1;
+  }
+
+  /* Cannot change identity while in the middle of a leader slot, else
+     poh state machine would become corrupt. */
+
+  int is_leader = !definitely_not_leader && ctx->next_leader_slot!=ULONG_MAX && ctx->slot>=ctx->next_leader_slot;
+  if( FD_UNLIKELY( is_leader ) ) return 0;
+
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    int failed = fd_ext_admin_rpc_set_identity( ctx->keyswitch->bytes, fd_keyswitch_param_query( ctx->keyswitch )==1 );
+    explicit_bzero( ctx->keyswitch->bytes, 32UL );
+    FD_COMPILER_MFENCE();
+    if( FD_UNLIKELY( failed==-1 ) ) {
+      fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_FAILED );
+      return 0;
+    }
+
+    memcpy( ctx->identity_key.uc, ctx->keyswitch->bytes+32UL, 32UL );
+    fd_stake_ci_set_identity( ctx->stake_ci, &ctx->identity_key );
+
+    /* When we switch key, we might have ticked part way through a slot
+       that we are now leader in.  This violates the contract of the
+       tile, that when we become leader, we have not ticked in that slot
+       at all.  To see why this would be bad, consider the case where we
+       have ticked almost to the end, and there isn't enough space left
+       to reserve the minimum amount of microblocks needed by pack.
+
+       To resolve this, we just reset PoH back to the reset slot, and
+       let it try to catch back up quickly. This is OK since the network
+       rarely skips. */
+    ctx->slot    = ctx->reset_slot;
+    ctx->hashcnt = 0UL;
+    memcpy( ctx->hash, ctx->reset_hash, 32UL );
+
+    ctx->halted_switching_key = 1;
+    ctx->keyswitch->result    = ctx->shred_seq;
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+
+  return 0;
+}
+
 static CALLED_FROM_RUST void
 no_longer_leader( fd_poh_ctx_t * ctx ) {
   if( FD_UNLIKELY( ctx->current_leader_bank ) ) fd_ext_bank_release( ctx->current_leader_bank );
@@ -1044,7 +1117,11 @@ no_longer_leader( fd_poh_ctx_t * ctx ) {
       should be dropped. */
   ctx->highwater_leader_slot = fd_ulong_max( fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ), ctx->slot );
   ctx->current_leader_bank = NULL;
+  int identity_changed = maybe_change_identity( ctx, 1 );
   ctx->next_leader_slot = next_leader_slot( ctx );
+  if( FD_UNLIKELY( identity_changed ) ) {
+    FD_LOG_INFO(( "fd_poh_identity_changed(next_leader_slot=%lu)", ctx->next_leader_slot ));
+  }
 
   FD_COMPILER_MFENCE();
   fd_ext_poh_signal_leader_change( ctx->signal_leader_change );
@@ -1088,6 +1165,7 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
   }
   ctx->expect_sequential_leader_slot = ULONG_MAX;
 
+  memcpy( ctx->reset_hash, reset_blockhash, 32UL );
   memcpy( ctx->hash, reset_blockhash, 32UL );
   ctx->slot         = completed_bank_slot+1UL;
   ctx->hashcnt      = 0UL;
@@ -1225,6 +1303,7 @@ publish_tick( fd_poh_ctx_t *      ctx,
   ulong sz = sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t);
   ulong sig = fd_disco_poh_sig( slot, POH_PKT_TYPE_MICROBLOCK, 0UL );
   fd_stem_publish( stem, ctx->shred_out->idx, sig, ctx->shred_out->chunk, sz, 0UL, 0UL, tspub );
+  ctx->shred_seq = stem->seqs[ ctx->shred_out->idx ];
   ctx->shred_out->chunk = fd_dcache_compact_next( ctx->shred_out->chunk, sz, ctx->shred_out->chunk0, ctx->shred_out->wmark );
 
   if( FD_UNLIKELY( hashcnt==ctx->hashcnt_per_slot ) ) {
@@ -1539,6 +1618,19 @@ after_credit( fd_poh_ctx_t *      ctx,
 }
 
 static inline void
+during_housekeeping( fd_poh_ctx_t * ctx ) {
+  if( FD_UNLIKELY( maybe_change_identity( ctx, 0 ) ) ) {
+    ctx->next_leader_slot = next_leader_slot( ctx );
+    FD_LOG_INFO(( "fd_poh_identity_changed(next_leader_slot=%lu)", ctx->next_leader_slot ));
+
+    /* Signal replay to check if we are leader again, in-case it's stuck
+       because everything already replayed. */
+    FD_COMPILER_MFENCE();
+    fd_ext_poh_signal_leader_change( ctx->signal_leader_change );
+  }
+}
+
+static inline void
 metrics_write( fd_poh_ctx_t * ctx ) {
   FD_MHIST_COPY( POH, BEGIN_LEADER_DELAY_SECONDS,     ctx->begin_leader_delay );
   FD_MHIST_COPY( POH, FIRST_MICROBLOCK_DELAY_SECONDS, ctx->first_microblock_delay );
@@ -1694,6 +1786,7 @@ publish_microblock( fd_poh_ctx_t *      ctx,
   ulong sz = sizeof(fd_entry_batch_meta_t)+sizeof(fd_entry_batch_header_t)+payload_sz;
   ulong new_sig = fd_disco_poh_sig( slot, POH_PKT_TYPE_MICROBLOCK, 0UL );
   fd_stem_publish( stem, ctx->shred_out->idx, new_sig, ctx->shred_out->chunk, sz, 0UL, 0UL, tspub );
+  ctx->shred_seq = stem->seqs[ ctx->shred_out->idx ];
   ctx->shred_out->chunk = fd_dcache_compact_next( ctx->shred_out->chunk, sz, ctx->shred_out->chunk0, ctx->shred_out->wmark );
 }
 
@@ -1962,6 +2055,11 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->current_leader_bank = NULL;
   ctx->signal_leader_change = NULL;
 
+  ctx->shred_seq = ULONG_MAX;
+  ctx->halted_switching_key = 0;
+  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
+  FD_TEST( ctx->keyswitch );
+
   ctx->slot                  = 0UL;
   ctx->hashcnt               = 0UL;
   ctx->last_hashcnt          = 0UL;
@@ -2070,11 +2168,12 @@ unprivileged_init( fd_topo_t *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_poh_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_poh_ctx_t)
 
-#define STEM_CALLBACK_METRICS_WRITE metrics_write
-#define STEM_CALLBACK_AFTER_CREDIT  after_credit
-#define STEM_CALLBACK_BEFORE_FRAG   before_frag
-#define STEM_CALLBACK_DURING_FRAG   during_frag
-#define STEM_CALLBACK_AFTER_FRAG    after_frag
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_BEFORE_FRAG         before_frag
+#define STEM_CALLBACK_DURING_FRAG         during_frag
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
 
 #include "../../../../disco/stem/fd_stem.c"
 

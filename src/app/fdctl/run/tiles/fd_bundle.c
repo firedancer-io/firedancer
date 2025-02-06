@@ -14,6 +14,7 @@
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../disco/keyguard/fd_keyguard.h"
 #include "../../../../disco/keyguard/fd_keyguard_client.h"
+#include "../../../../disco/keyguard/fd_keyswitch.h"
 #include "../../../../disco/plugin/fd_plugin.h"
 #include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../util/net/fd_ip4.h"
@@ -38,6 +39,8 @@ typedef struct {
 typedef struct {
   fd_keyguard_client_t keyguard_client[1];
 
+  int identity_switched;
+  fd_keyswitch_t * keyswitch;
   uchar identity_public_key[ 32UL ];
 
   ulong bundle_id;
@@ -73,6 +76,15 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 }
 
 static inline void
+during_housekeeping( fd_bundle_ctx_t * ctx ) {
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    ctx->identity_switched = 1;
+    fd_memcpy( ctx->identity_public_key, ctx->keyswitch->bytes, 32UL );
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
+}
+
+static inline void
 metrics_write( fd_bundle_ctx_t * ctx ) {
   FD_MCNT_SET( BUNDLE, TRANSACTION_RECEIVED, ctx->metrics.txn_received );
   FD_MCNT_SET( BUNDLE, BUNDLE_RECEIVED, ctx->metrics.bundle_received );
@@ -81,6 +93,8 @@ metrics_write( fd_bundle_ctx_t * ctx ) {
 
 extern void
 plugin_bundle_poll( void *  plugin,
+                    int     reload_identity,
+                    uchar * identity_pubkey,
                     int *   out_type,
                     uchar * out_block_builder_pubkey,
                     ulong * out_block_builder_commission,
@@ -139,7 +153,8 @@ after_credit( fd_bundle_ctx_t *   ctx,
   ulong block_builder_commission;
   uchar block_builder_pubkey[ 32UL ];
 
-  plugin_bundle_poll( ctx->plugin, &type, block_builder_pubkey, &block_builder_commission, &msg->txn_cnt, data );
+  plugin_bundle_poll( ctx->plugin, ctx->identity_switched, ctx->identity_public_key, &type, block_builder_pubkey, &block_builder_commission, &msg->txn_cnt, data );
+  ctx->identity_switched = 0;
   if( FD_LIKELY( !type ) ) return;
 
   *charge_busy = 1;
@@ -354,6 +369,10 @@ unprivileged_init( fd_topo_t *      topo,
 
   tl_bundle_ctx = ctx;
 
+  ctx->identity_switched = 0;
+  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
+  FD_TEST( ctx->keyswitch );
+
   ctx->plugin = plugin_bundle_init( ctx->url, ctx->domain_name, ctx->identity_public_key );
   FD_TEST( ctx->plugin );
 
@@ -404,8 +423,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_bundle_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_bundle_ctx_t)
 
-#define STEM_CALLBACK_METRICS_WRITE metrics_write
-#define STEM_CALLBACK_AFTER_CREDIT  after_credit
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_AFTER_CREDIT        after_credit
 
 #include "../../../../disco/stem/fd_stem.c"
 
