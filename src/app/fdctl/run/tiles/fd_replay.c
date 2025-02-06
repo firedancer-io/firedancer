@@ -392,43 +392,6 @@ hash_transactions( void *       mem,
   fd_memcpy( mixin, root, 32UL );
 }
 
-static void
-fd_exec_packed_txns_task( void *tpool,
-                          ulong t0, ulong t1,
-                          void *args FD_PARAM_UNUSED,
-                          void *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
-                          ulong l0 FD_PARAM_UNUSED, ulong l1 FD_PARAM_UNUSED,
-                          ulong m0 FD_PARAM_UNUSED, ulong m1 FD_PARAM_UNUSED,
-                          ulong n0 FD_PARAM_UNUSED, ulong n1 FD_PARAM_UNUSED ) {
-  fd_txn_p_t * txns = (fd_txn_p_t *)tpool;
-  fd_exec_slot_ctx_t * slot_ctx = (fd_exec_slot_ctx_t *)args;
-  fd_capture_ctx_t * capture_ctx = (fd_capture_ctx_t *)reduce;
-  ulong txn_cnt = t0;
-  ulong curr_slot = t1;
-  ulong flags = l0;
-  ulong seq = l1;
-  ulong * bank_busy = (ulong *)m0;
-  fd_replay_out_ctx_t * bank_out = (fd_replay_out_ctx_t *)m1;
-  void * bmtree = (void *)n0;
-  fd_spad_t * spad = (fd_spad_t *)n1;
-
-  fd_runtime_process_txns( slot_ctx, spad, capture_ctx, txns, txn_cnt );
-
-  fd_microblock_trailer_t * microblock_trailer = (fd_microblock_trailer_t *)(txns + txn_cnt);
-
-  hash_transactions( bmtree, txns, txn_cnt, microblock_trailer->hash );
-
-  ulong sig = fd_disco_replay_sig( curr_slot, flags );
-  fd_mcache_publish( bank_out->mcache, bank_out->depth, bank_out->seq, sig, bank_out->chunk, txn_cnt, 0UL, 0UL, 0UL );
-  bank_out->chunk = fd_dcache_compact_next( bank_out->chunk, (txn_cnt * sizeof(fd_txn_p_t)) + sizeof(fd_microblock_trailer_t), bank_out->chunk0, bank_out->wmark );
-  bank_out->seq = fd_seq_inc( bank_out->seq, 1UL );
-
-  /* Indicate to pack tile we are done processing the transactions so it
-     can pack new microblocks using these accounts.  DO NOT USE THE
-     SANITIZED TRANSACTIONS AFTER THIS POINT, THEY ARE NO LONGER VALID. */
-  fd_fseq_update( bank_busy, seq );
-}
-
 void
 publish_stake_weights( fd_replay_tile_ctx_t * ctx,
                        fd_stem_context_t *    stem,
@@ -1402,100 +1365,15 @@ init_poh( fd_replay_tile_ctx_t * ctx ) {
   ctx->poh_init_done = 1;
 }
 
-struct fd_poh_verifier {
-  union {
-    fd_microblock_hdr_t const * hdr;
-    uchar * raw;
-  } microblock;
-  fd_hash_t const * in_poh_hash;
-  ulong microblk_max_sz;
-  fd_spad_t * spad;
-  int success;
-};
-typedef struct fd_poh_verifier fd_poh_verifier_t;
-
-/* Verifies PoH for one microblock */
-
-static void
-poh_verify_task( void * tpool, /* poh_verifier * */
-                 ulong t0 FD_PARAM_UNUSED,
-                 ulong t1 FD_PARAM_UNUSED,
-                 void * args FD_PARAM_UNUSED,
-                 void * reduce FD_PARAM_UNUSED,
-                 ulong stride FD_PARAM_UNUSED,
-                 ulong l0 FD_PARAM_UNUSED,
-                 ulong l1 FD_PARAM_UNUSED,
-                 ulong m0,
-                 ulong m1 FD_PARAM_UNUSED,
-                 ulong n0 FD_PARAM_UNUSED,
-                 ulong n1 FD_PARAM_UNUSED ) {
-  fd_poh_verifier_t * poh_info = (fd_poh_verifier_t *)tpool + m0;
-
-  fd_hash_t working_hash = *(poh_info->in_poh_hash);
-  fd_hash_t    init_hash = working_hash;
-
-  fd_microblock_hdr_t const * hdr = poh_info->microblock.hdr;
-  ulong               microblk_sz = poh_info->microblk_max_sz;
-
-  if( !hdr->txn_cnt ){
-    fd_poh_append( &working_hash, hdr->hash_cnt );
-  } else { /* not a tick, regular microblock */
-    if( hdr->hash_cnt ){
-      fd_poh_append( &working_hash, hdr->hash_cnt - 1 );
-    }
-
-    ulong leaf_cnt_max = FD_TXN_ACTUAL_SIG_MAX * hdr->txn_cnt;
-
-    FD_SPAD_FRAME_BEGIN( poh_info->spad ) {
-      uchar *              commit = fd_spad_alloc( poh_info->spad, FD_WBMTREE32_ALIGN, fd_wbmtree32_footprint(leaf_cnt_max) );
-      fd_wbmtree32_leaf_t * leafs = fd_spad_alloc( poh_info->spad, alignof(fd_wbmtree32_leaf_t), sizeof(fd_wbmtree32_leaf_t) * leaf_cnt_max );
-      fd_wbmtree32_t *       tree = fd_wbmtree32_init(commit, leaf_cnt_max);
-      fd_wbmtree32_leaf_t *  l    = &leafs[0];
-
-      /* Loop across transactions */
-      ulong leaf_cnt = 0;
-      ulong      off = sizeof(fd_microblock_hdr_t);
-      for( ulong txn_idx=0UL; txn_idx<hdr->txn_cnt; txn_idx++ ) {
-        fd_txn_p_t txn_p;
-        ulong pay_sz = 0;
-        ulong txn_sz = fd_txn_parse_core( poh_info->microblock.raw + off,
-                                          fd_ulong_min( FD_TXN_MTU, microblk_sz - off ),
-                                          TXN(&txn_p),
-                                          NULL,
-                                          &pay_sz );
-        if( FD_UNLIKELY( !pay_sz || !txn_sz || txn_sz > FD_TXN_MTU )  ) {
-          FD_LOG_ERR(( "failed to parse transaction %lu in replay", txn_idx ));
-        }
-
-        /* Loop across signatures */
-        fd_txn_t const *          txn = (fd_txn_t const *) txn_p._;
-        fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)fd_type_pun((poh_info->microblock.raw + off) + (ulong)txn->signature_off);
-        for( ulong j=0UL; j<txn->signature_cnt; j++ ) {
-          l->data     = (uchar *)&sigs[j];
-          l->data_len = sizeof(fd_ed25519_sig_t);
-          l++;
-          leaf_cnt++;
-        }
-        off += pay_sz;
-      }
-
-      uchar * mbuf = fd_spad_alloc( poh_info->spad, 1UL, leaf_cnt * (sizeof(fd_ed25519_sig_t) + 1) );
-      fd_wbmtree32_append( tree, leafs, leaf_cnt, mbuf );
-      uchar * root = fd_wbmtree32_fini( tree );
-      fd_poh_mixin( &working_hash, root );
-    } FD_SPAD_FRAME_END;
-  }
-
-  if( FD_UNLIKELY( memcmp(hdr->hash, working_hash.hash, sizeof(fd_hash_t)) ) ) {
-    FD_LOG_WARNING(( "poh mismatch (bank: %s, entry: %s, INIT: %s )", FD_BASE58_ENC_32_ALLOCA( working_hash.hash ), FD_BASE58_ENC_32_ALLOCA( hdr->hash ), FD_BASE58_ENC_32_ALLOCA( init_hash.hash ) ));
-    poh_info->success = -1;
-  }
-}
-
 /* Verifies a microblock batch validity. */
 
 static int
-process_mbatch( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong mbatch_sz, bool last_batch ){
+process_and_exec_mbatch( fd_replay_tile_ctx_t * ctx,
+                         fd_stem_context_t *    stem,
+                         ulong                  mbatch_sz,
+                         bool                   last_batch ) {
+  (void)stem;
+
   #define wait_and_check_success( worker_idx )         \
     fd_tpool_wait( ctx->tpool, worker_idx );           \
     if( poh_info[ worker_idx ].success ) {             \
@@ -1505,7 +1383,7 @@ process_mbatch( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong mbat
 
   fd_blockstore_start_read( ctx->blockstore );
   fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, ctx->curr_slot );
-  fd_hash_t *          in_poh_hash = &block_map_entry->in_poh_hash;
+  fd_hash_t *      in_poh_hash     = &block_map_entry->in_poh_hash;
   fd_blockstore_end_read( ctx->blockstore );
 
   ulong micro_cnt = FD_LOAD( ulong, ctx->mbatch );
@@ -1515,15 +1393,11 @@ process_mbatch( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong mbat
     return 0;
   }
 
-  ulong worker_cnt = fd_tpool_worker_cnt( ctx->tpool );
-  fd_poh_verifier_t  poh_info[ worker_cnt ];      /* variable length alloc on the stack, but worker_cnt is guaranteed to be small */
-  fd_memset( poh_info, 0, worker_cnt * sizeof(fd_poh_verifier_t) );
-
-  fd_microblock_hdr_t * hdr = NULL;
-  ulong                 off = sizeof(ulong);
-  ulong          worker_idx = 0;
-  for ( ulong i = 0UL; i < micro_cnt; i++ ){
-    hdr  = (fd_microblock_hdr_t *)fd_type_pun( ctx->mbatch + off );
+  fd_poh_verifier_t     poh_info         = {0};
+  fd_microblock_hdr_t * hdr              = NULL;
+  ulong                 off              = sizeof(ulong);
+  for( ulong i=0UL; i<micro_cnt; i++ ){
+    hdr     = (fd_microblock_hdr_t *)fd_type_pun( ctx->mbatch + off );
     int res = fd_runtime_microblock_verify_ticks( ctx->slot_ctx,
                                                   ctx->curr_slot,
                                                   hdr,
@@ -1533,37 +1407,33 @@ process_mbatch( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong mbat
                                                   ctx->slot_ctx->epoch_ctx->epoch_bank.hashes_per_tick );
 
     if( res != FD_BLOCK_OK ) {
-      FD_LOG_WARNING(( "failed to verify tick metadata" ));
+      FD_LOG_WARNING(( "Failed to verify tick metadata" ));
       return -1;
     }
 
-    /* verify exec tpool */
-    worker_idx = (i % (worker_cnt - 1)) + 1;
-    wait_and_check_success( worker_idx );
-    poh_info[ worker_idx ].success         = 0;
-    poh_info[ worker_idx ].in_poh_hash     = in_poh_hash;
-    poh_info[ worker_idx ].microblock.hdr  = hdr;
-    poh_info[ worker_idx ].spad            = ctx->exec_spads[ worker_idx ];
-    poh_info[ worker_idx ].microblk_max_sz = mbatch_sz - off;
+    poh_info.success         = 0;
+    poh_info.in_poh_hash     = in_poh_hash;
+    poh_info.microblock.hdr  = hdr;
+    poh_info.spad            = ctx->runtime_spad;
+    poh_info.microblk_max_sz = mbatch_sz - off;
 
     off += sizeof(fd_microblock_hdr_t);
 
-    fd_tpool_exec( ctx->tpool, worker_idx,
-                   poh_verify_task,
-                   poh_info,
-                   0UL, 1UL, NULL, NULL, 0UL, 0UL, 0UL,
-                   worker_idx,
-                   0UL, 0UL, 0UL );
+    fd_runtime_poh_verify( &poh_info );
+    if( poh_info.success==-1 ) {
+      FD_LOG_WARNING(( "Failed to verify poh hash" ));
+      return -1;
+    }
 
     in_poh_hash = (fd_hash_t *)&hdr->hash;
 
     /* seek past txns */
-    for( ulong t = 0; t < hdr->txn_cnt; t++ ){
-      fd_txn_p_t txn_p;
-      ulong pay_sz = 0;
+    fd_txn_p_t * txn_p  = fd_spad_alloc( ctx->runtime_spad, alignof(fd_txn_p_t*), sizeof(fd_txn_p_t) * hdr->txn_cnt );
+    for( ulong t=0UL; t<hdr->txn_cnt; t++ ){
+      ulong pay_sz = 0UL;
       ulong txn_sz = fd_txn_parse_core( ctx->mbatch + off,
                                         fd_ulong_min( FD_TXN_MTU, mbatch_sz - off ),
-                                        TXN(&txn_p),
+                                        TXN( &txn_p[t] ),
                                         NULL,
                                         &pay_sz );
 
@@ -1571,46 +1441,56 @@ process_mbatch( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong mbat
         FD_LOG_WARNING(( "failed to parse transaction %lu in replay", t ));
         return -1;
       }
-      fd_memcpy( txn_p.payload, ctx->mbatch + off, pay_sz );
-      txn_p.payload_sz = pay_sz;
-      off += pay_sz;
+      fd_memcpy( txn_p[t].payload, ctx->mbatch + off, pay_sz );
+      txn_p[t].payload_sz = pay_sz;
+      off                += pay_sz;
+
       /* Execute Transaction  */
 
       /* dispatch into MCACHE / DCACHE */
-      fd_replay_out_ctx_t * out = &ctx->exec_out[ 0 ];
-      fd_stem_publish( stem, out->idx, 0, out->chunk, sizeof(fd_txn_p_t), 0UL, 0UL, 0UL );
-      out->chunk = fd_dcache_compact_next( out->chunk,  sizeof(fd_txn_p_t), out->chunk0, out->wmark );
+      // fd_replay_out_ctx_t * out = &ctx->exec_out[ 0 ];
+      // fd_stem_publish( stem, out->idx, 0, out->chunk, sizeof(fd_txn_p_t), 0UL, 0UL, 0UL );
+      // out->chunk = fd_dcache_compact_next( out->chunk,  sizeof(fd_txn_p_t), out->chunk0, out->wmark );
+    }
 
-      /*int res = fd_runtime_process_txns( ctx->slot_ctx, ctx->spads[1], ctx->capture_ctx, &txn_p, 1 );
-      fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &ctx->curr_slot, NULL, ctx->forks->pool );
+    /* Now that we have parsed the mblock, we are ready to execute the whole mblock */
+    fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier,
+                                                   &ctx->curr_slot,
+                                                   NULL,
+                                                   ctx->forks->pool );
+    if( FD_UNLIKELY( !fork ) ) {
+      FD_LOG_ERR(( "Unable to select a fork" ));
+    }
+    res = fd_runtime_process_txns_in_microblock_stream( &fork->slot_ctx,
+                                                        ctx->capture_ctx,
+                                                        txn_p,
+                                                        hdr->txn_cnt,
+                                                        ctx->tpool,
+                                                        ctx->exec_spads,
+                                                        ctx->exec_spad_cnt,
+                                                        ctx->runtime_spad );
 
-      if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
-        FD_LOG_WARNING(( "microblk process: block invalid - slot: %lu", ctx->curr_slot ));
+    if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
+      FD_LOG_WARNING(( "microblk process: block invalid - slot: %lu", ctx->curr_slot ));
 
-        fd_blockstore_start_write( ctx->blockstore );
+      fd_blockstore_start_write( ctx->blockstore );
 
-        fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, ctx->curr_slot );
-        if( FD_LIKELY( block_map_entry ) ) {
-          block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_DEADBLOCK );
-          FD_COMPILER_MFENCE();
-          block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
-          memcpy( &block_map_entry->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
-        }
+      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, ctx->curr_slot );
+      if( FD_LIKELY( block_map_entry ) ) {
+        block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_DEADBLOCK );
+        FD_COMPILER_MFENCE();
+        block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
+        memcpy( &block_map_entry->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof(fd_hash_t) );
+      }
 
-        fd_blockstore_end_write( ctx->blockstore );
-        return -1;
-      } else {
-        FD_LOG_NOTICE(( " wow i executed a txn! "));
-        // Push notifications for account updates
-        publish_account_notifications( ctx, fork, ctx->curr_slot, &txn_p, 1 );
-      }*/
+      fd_blockstore_end_write( ctx->blockstore );
+      return -1;
+    } else {
+      /* Push notifications for account updates */
+      publish_account_notifications( ctx, fork, ctx->curr_slot, txn_p, hdr->txn_cnt );
     }
   }
 
-  /* verify the last microblocks that weren't done in the loop */
-  for( ulong i = 1UL; i < fd_tpool_worker_cnt( ctx->tpool ); i++ ){
-    wait_and_check_success( i );
-  }
   fd_blockstore_start_write( ctx->blockstore );
   block_map_entry->in_poh_hash = *(fd_hash_t *)fd_type_pun( hdr->hash );
   fd_blockstore_end_write( ctx->blockstore );
@@ -1686,6 +1566,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
             fd_stem_context_t *    stem ) {
   (void)sig;
   (void)sz;
+  (void)seq;
 
   /**********************************************************************/
   /* Handle gossip messages for wen-restart                             */
@@ -1721,12 +1602,15 @@ after_frag( fd_replay_tile_ctx_t * ctx,
        should be continuously be updated. */
 
     fd_blockstore_start_read( ctx->blockstore );
-    fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, ctx->curr_slot );
-    FD_TEST( block_map_entry ); /* msg from store, so block must be in the blockstore */
+    fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, ctx->curr_slot );\
+    if( FD_UNLIKELY( !block_map_entry ) ) {
+      FD_LOG_ERR(( "Unable to query block map entry from blockstore" ));
+    }
     fd_blockstore_end_read( ctx->blockstore );
 
     if( FD_LIKELY( block_map_entry->data_complete_idx != FD_SHRED_IDX_NULL ) ) {
-      uint i = block_map_entry->replayed_idx + 1; uint j = block_map_entry->data_complete_idx;
+      uint i = block_map_entry->replayed_idx + 1;
+      uint j = block_map_entry->data_complete_idx;
 
       /* If this is the first batch being verified of this block, need to populate the slot_bank's tick height for tick verification */
       if( FD_UNLIKELY( block_map_entry->replayed_idx + 1 == 0 ) ){
@@ -1736,9 +1620,10 @@ after_frag( fd_replay_tile_ctx_t * ctx,
 
       /* End setup */
 
-      for ( uint idx = i; idx <= j; idx++ ) {
+      for( uint idx = i; idx <= j; idx++ ) {
         if( FD_UNLIKELY( fd_block_set_test( block_map_entry->data_complete_idxs, idx ) ) ) {
-          /* FIXME backpressure? consumer will need to make sure they aren't overrun */
+          /* FIXME: potential backpressure. Consumer will need to make sure they
+             aren't being overrun. */
 
           /* Copy shred payloads into `buf` so that they are contiguous. This is
              required because txns can span multiple shreds. */
@@ -1758,7 +1643,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
             FD_LOG_ERR(( "Failed to assemble microblock batch" ));
           }
 
-          int res = process_mbatch( ctx, stem, mbatch_sz, idx == block_map_entry->slot_complete_idx );
+          int res = process_and_exec_mbatch( ctx, stem, mbatch_sz, idx == block_map_entry->slot_complete_idx );
           if( FD_UNLIKELY( res ) ){
             // TODO: handle invalid batch how & do thread handling
             FD_LOG_ERR(( "Failed to process microblock batch" ));
@@ -1791,65 +1676,48 @@ after_frag( fd_replay_tile_ctx_t * ctx,
   fd_replay_out_ctx_t * bank_out = &ctx->bank_out[ bank_idx ];
   fd_txn_p_t *          txns     = (fd_txn_p_t *)fd_chunk_to_laddr( bank_out->mem, bank_out->chunk );
 
-  // Execute all txns which were successfully prepared
-  long execute_time_ns = -fd_log_wallclock();
+  //Execute all txns which were successfully prepared
   ctx->metrics.slot = curr_slot;
   if( flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
-    /* Leader pipeline, execute microblock receieved from pack tile. */
-    fd_tpool_wait( ctx->tpool, bank_idx+1UL );
-    fd_tpool_exec( ctx->tpool, bank_idx+1UL, fd_exec_packed_txns_task, txns, txn_cnt, curr_slot, &fork->slot_ctx, ctx->capture_ctx, 0UL, flags, seq, (ulong)ctx->bank_busy[ bank_idx ], (ulong)&ctx->bank_out[ bank_idx ], (ulong)ctx->bmtree[ bank_idx ], (ulong)ctx->exec_spads[ bank_idx ] );
-  } else {
-    for( ulong i = 0UL; i<ctx->bank_cnt; i++ ) {
-      fd_tpool_wait( ctx->tpool, i+1 );
+    /* TODO: The leader pipeline execution needs to be optimized. This is
+       very hacky and suboptimal. First, wait for the tpool workers to be idle.
+       Then, execute the transactions, and notify the pack tile. We should be
+       taking advantage of bank_busy flags. */
+
+    for( ulong i=1UL; i<ctx->exec_spad_cnt; i++ ) {
+      fd_tpool_wait( ctx->tpool, i );
     }
 
-    fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
-    fd_stakes_t *     stakes     = &epoch_bank->stakes;
-    for( fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_minimum( stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root );
-          elem;
-          elem = fd_vote_accounts_pair_t_map_successor( stakes->vote_accounts.vote_accounts_pool, elem ) ) {
-    }
+    fd_runtime_process_txns_in_microblock_stream( ctx->slot_ctx,
+                                                  ctx->capture_ctx,
+                                                  txns,
+                                                  txn_cnt,
+                                                  ctx->tpool,
+                                                  ctx->exec_spads,
+                                                  ctx->exec_spad_cnt,
+                                                  ctx->runtime_spad );
 
-    int res = fd_runtime_process_txns_in_waves_tpool( &fork->slot_ctx,
-                                                      ctx->capture_ctx,
-                                                      txns,
-                                                      txn_cnt,
-                                                      ctx->tpool,
-                                                      ctx->exec_spads,
-                                                      ctx->exec_spad_cnt,
-                                                      ctx->runtime_spad );
-    if( res != 0UL ) {
-      FD_LOG_WARNING(( "block invalid - slot: %lu", curr_slot ));
+    fd_microblock_trailer_t * microblock_trailer = (fd_microblock_trailer_t *)(txns + txn_cnt);
 
-      fd_blockstore_start_write( ctx->blockstore );
+    hash_transactions( ctx->bmtree[ bank_idx ], txns, txn_cnt, microblock_trailer->hash );
 
-      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, curr_slot );
-      if( FD_LIKELY( block_map_entry ) ) {
-        block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_DEADBLOCK );
-        FD_COMPILER_MFENCE();
-        block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
-        memcpy( &block_map_entry->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
-      }
+    ulong sig = fd_disco_replay_sig( curr_slot, flags );
+    fd_mcache_publish( bank_out->mcache, bank_out->depth, bank_out->seq, sig, bank_out->chunk, txn_cnt, 0UL, 0UL, 0UL );
+    bank_out->chunk = fd_dcache_compact_next( bank_out->chunk, (txn_cnt * sizeof(fd_txn_p_t)) + sizeof(fd_microblock_trailer_t), bank_out->chunk0, bank_out->wmark );
+    bank_out->seq = fd_seq_inc( bank_out->seq, 1UL );
 
-      fd_blockstore_end_write( ctx->blockstore );
+    /* Indicate to pack tile we are done processing the transactions so it
+      can pack new microblocks using these accounts.  DO NOT USE THE
+      SANITIZED TRANSACTIONS AFTER THIS POINT, THEY ARE NO LONGER VALID. */
+    fd_fseq_update( ctx->bank_busy[ bank_idx ], seq );
 
-      return;
-    }
+    publish_account_notifications( ctx, fork, curr_slot, txns, txn_cnt );
   }
-  execute_time_ns += fd_log_wallclock();
-  FD_LOG_DEBUG(("TIMING: execute_time - slot: %lu, elapsed: %6.6f ms", curr_slot, (double)execute_time_ns * 1e-6));
-
-  /**********************************************************************/
-  /* Push notifications for account updates                             */
-  /**********************************************************************/
-
-  publish_account_notifications( ctx, fork, curr_slot, txns, txn_cnt );
-
   /**********************************************************************/
   /* Cleanup and handle consensus after replaying the whole block       */
   /**********************************************************************/
 
-  if( FD_UNLIKELY( ( flags & REPLAY_FLAG_FINISHED_BLOCK ) ) ) {
+  if( FD_UNLIKELY( (flags & REPLAY_FLAG_FINISHED_BLOCK) ) ) {
     fork->slot_ctx.txn_count = fork->slot_ctx.slot_bank.transaction_count-fork->slot_ctx.parent_transaction_count;
     FD_LOG_INFO(( "finished block - slot: %lu, parent_slot: %lu, txn_cnt: %lu, blockhash: %s",
                   curr_slot,

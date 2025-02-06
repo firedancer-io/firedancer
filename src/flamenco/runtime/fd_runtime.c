@@ -1286,6 +1286,70 @@ fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
   return FD_BLOCK_OK;
 }
 
+void
+fd_runtime_poh_verify( fd_poh_verifier_t * poh_info ) {
+
+  fd_hash_t working_hash = *(poh_info->in_poh_hash);
+  fd_hash_t init_hash    = working_hash;
+
+  fd_microblock_hdr_t const * hdr = poh_info->microblock.hdr;
+  ulong               microblk_sz = poh_info->microblk_max_sz;
+
+  if( !hdr->txn_cnt ){
+    fd_poh_append( &working_hash, hdr->hash_cnt );
+  } else { /* not a tick, regular microblock */
+    if( hdr->hash_cnt ){
+      fd_poh_append( &working_hash, hdr->hash_cnt - 1 );
+    }
+
+    ulong leaf_cnt_max = FD_TXN_ACTUAL_SIG_MAX * hdr->txn_cnt;
+
+    FD_SPAD_FRAME_BEGIN( poh_info->spad ) {
+      uchar *               commit = fd_spad_alloc( poh_info->spad, FD_WBMTREE32_ALIGN, fd_wbmtree32_footprint(leaf_cnt_max) );
+      fd_wbmtree32_leaf_t * leafs  = fd_spad_alloc( poh_info->spad, alignof(fd_wbmtree32_leaf_t), sizeof(fd_wbmtree32_leaf_t) * leaf_cnt_max );
+      fd_wbmtree32_t *      tree   = fd_wbmtree32_init( commit, leaf_cnt_max );
+      fd_wbmtree32_leaf_t * l      = &leafs[0];
+
+      /* Loop across transactions */
+      ulong leaf_cnt = 0UL;
+      ulong off      = sizeof(fd_microblock_hdr_t);
+      for( ulong txn_idx=0UL; txn_idx<hdr->txn_cnt; txn_idx++ ) {
+        fd_txn_p_t txn_p;
+        ulong pay_sz = 0UL;
+        ulong txn_sz = fd_txn_parse_core( poh_info->microblock.raw + off,
+                                          fd_ulong_min( FD_TXN_MTU, microblk_sz - off ),
+                                          TXN(&txn_p),
+                                          NULL,
+                                          &pay_sz );
+        if( FD_UNLIKELY( !pay_sz || !txn_sz || txn_sz > FD_TXN_MTU )  ) {
+          FD_LOG_ERR(( "failed to parse transaction %lu in replay", txn_idx ));
+        }
+
+        /* Loop across signatures */
+        fd_txn_t const *         txn  = (fd_txn_t const *) txn_p._;
+        fd_ed25519_sig_t const * sigs = (fd_ed25519_sig_t const *)fd_type_pun((poh_info->microblock.raw + off) + (ulong)txn->signature_off);
+        for( ulong j=0UL; j<txn->signature_cnt; j++ ) {
+          l->data     = (uchar *)&sigs[j];
+          l->data_len = sizeof(fd_ed25519_sig_t);
+          l++;
+          leaf_cnt++;
+        }
+        off += pay_sz;
+      }
+
+      uchar * mbuf = fd_spad_alloc( poh_info->spad, 1UL, leaf_cnt * (sizeof(fd_ed25519_sig_t) + 1) );
+      fd_wbmtree32_append( tree, leafs, leaf_cnt, mbuf );
+      uchar * root = fd_wbmtree32_fini( tree );
+      fd_poh_mixin( &working_hash, root );
+    } FD_SPAD_FRAME_END;
+  }
+
+  if( FD_UNLIKELY( memcmp(hdr->hash, working_hash.hash, sizeof(fd_hash_t)) ) ) {
+    FD_LOG_WARNING(( "poh mismatch (bank: %s, entry: %s, INIT: %s )", FD_BASE58_ENC_32_ALLOCA( working_hash.hash ), FD_BASE58_ENC_32_ALLOCA( hdr->hash ), FD_BASE58_ENC_32_ALLOCA( init_hash.hash ) ));
+    poh_info->success = -1;
+  }
+}
+
 int
 fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
                                   fd_spad_t *          runtime_spad ) {
@@ -1392,7 +1456,7 @@ fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
                                fd_spad_t *                  runtime_spad ) {
   int res = 0;
   /* Loop across transactions */
-  for (ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++) {
+  for( ulong txn_idx = 0UL; txn_idx < txn_cnt; txn_idx++ ) {
     fd_txn_p_t * txn = &txns[txn_idx];
 
     /* Allocate/setup transaction context and task infos */
@@ -1551,21 +1615,20 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   }
   FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->signature_cnt, txn_ctx->txn_descriptor->signature_cnt );
 
-  if( slot_ctx->status_cache ) {
-    fd_txncache_insert_t status_insert;
-    uchar                result;
+  // if( slot_ctx->status_cache ) {
+  //   fd_txncache_insert_t status_insert = {0};
+  //   uchar                result        = exec_txn_err == 0 ? 1 : 0;
 
-    result = exec_txn_err == 0 ? 1 : 0;
-    fd_txncache_insert_t * curr_insert = &status_insert;
-    curr_insert->blockhash = ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off);
-    curr_insert->slot      = slot_ctx->slot_bank.slot;
-    fd_hash_t * hash       = &txn_ctx->blake_txn_msg_hash;
-    curr_insert->txnhash   = hash->uc;
-    curr_insert->result    = &result;
-    if( FD_UNLIKELY( !fd_txncache_insert_batch( slot_ctx->status_cache, &status_insert, 1UL ) ) ) {
-      FD_LOG_ERR(( "Status cache is full, this should not be possible" ));
-    }
-  }
+  //   fd_txncache_insert_t * curr_insert = &status_insert;
+  //   curr_insert->blockhash = ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off);
+  //   curr_insert->slot      = slot_ctx->slot_bank.slot;
+  //   fd_hash_t * hash       = &txn_ctx->blake_txn_msg_hash;
+  //   curr_insert->txnhash   = hash->uc;
+  //   curr_insert->result    = &result;
+  //   if( FD_UNLIKELY( !fd_txncache_insert_batch( slot_ctx->status_cache, &status_insert, 1UL ) ) ) {
+  //     FD_LOG_ERR(( "Status cache is full, this should not be possible" ));
+  //   }
+  // }
 
   if( FD_UNLIKELY( exec_txn_err ) ) {
 
@@ -1636,7 +1699,10 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
             __builtin_unreachable();
           }
 
-          fd_vote_record_timestamp_vote_with_slot( slot_ctx, acc_rec->pubkey, ts->timestamp, ts->slot, txn_ctx->spad );
+          fd_vote_record_timestamp_vote_with_slot( slot_ctx,
+                                                   acc_rec->pubkey,
+                                                   ts->timestamp,
+                                                   ts->slot );
         } FD_SPAD_FRAME_END;
         fd_funk_end_write( slot_ctx->acc_mgr->funk );
       }
@@ -1676,9 +1742,9 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
 
 static int
 fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
-                                    fd_spad_t *                  exec_spad,
                                     fd_txn_p_t *                 txn,
-                                    fd_execute_txn_task_info_t * task_info ) {
+                                    fd_execute_txn_task_info_t * task_info,
+                                    fd_spad_t *                  exec_spad ) {
 
   int res = 0;
 
@@ -1687,8 +1753,7 @@ fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
   task_info->exec_res             = -1;
   task_info->txn                  = txn;
   fd_txn_t const * txn_descriptor = (fd_txn_t const *) txn->_;
-
-  task_info->txn_ctx->spad = exec_spad;
+  task_info->txn_ctx->spad        = exec_spad;
 
   fd_rawtxn_b_t raw_txn = { .raw = txn->payload, .txn_sz = (ushort)txn->payload_sz };
 
@@ -1722,93 +1787,40 @@ fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
 
 }
 
-/* fd_runtime_prepare_execute_finalize_txn is responsible for processing the
-   entire transaction end-to-end.
-   TODO: This function should ONLY be called in offline replay. */
+static void FD_FN_UNUSED
+fd_runtime_prepare_execute_finalize_txn_task( void * tpool,
+                                              ulong  t0,
+                                              ulong  t1,
+                                              void * args,
+                                              void * reduce,
+                                              ulong  stride FD_PARAM_UNUSED,
+                                              ulong  l0     FD_PARAM_UNUSED,
+                                              ulong  l1     FD_PARAM_UNUSED,
+                                              ulong  m0     FD_PARAM_UNUSED,
+                                              ulong  m1     FD_PARAM_UNUSED,
+                                              ulong  n0     FD_PARAM_UNUSED,
+                                              ulong  n1     FD_PARAM_UNUSED ) {
 
-static int
-fd_runtime_prepare_execute_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
-                                         fd_spad_t *                  spad,
-                                         fd_capture_ctx_t *           capture_ctx,
-                                         fd_txn_p_t *                 txn,
-                                         fd_execute_txn_task_info_t * task_info ) {
-  FD_SPAD_FRAME_BEGIN( spad ) {
+  fd_exec_slot_ctx_t *         slot_ctx     = (fd_exec_slot_ctx_t *)tpool;
+  fd_capture_ctx_t *           capture_ctx  = (fd_capture_ctx_t *)t0;
+  fd_txn_p_t *                 txn          = (fd_txn_p_t *)t1;
+  fd_execute_txn_task_info_t * task_info    = (fd_execute_txn_task_info_t *)args;
+  fd_spad_t *                  exec_spad    = (fd_spad_t *)reduce;
 
-  int res = fd_runtime_prepare_and_execute_txn( slot_ctx, spad, txn, task_info );
+  FD_SPAD_FRAME_BEGIN( exec_spad ) {
+
+  fd_runtime_prepare_and_execute_txn( slot_ctx,
+                                      txn,
+                                      task_info,
+                                      exec_spad );
 
   fd_runtime_finalize_txn( slot_ctx, capture_ctx, task_info );
 
-  return res;
-
   } FD_SPAD_FRAME_END;
+
 }
 
-/* fd_runtime_process_txns is the entrypoint for processing a batch of txns.
-
-   TODO: This should ONLY be used in offline replay. */
-
-int
-fd_runtime_process_txns( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_spad_t *          exec_spad,
-                         fd_capture_ctx_t *   capture_ctx,
-                         fd_txn_p_t *         txns,
-                         ulong                txn_cnt ) {
-
-  /* TODO: This probably should not get allocated out of the exec_spad and should
-     be allocated from the runtime_spad. */
-  fd_execute_txn_task_info_t * task_infos = fd_spad_alloc( exec_spad,
-                                                           FD_SPAD_ALIGN,
-                                                           txn_cnt * sizeof(fd_execute_txn_task_info_t));
-
-  for( ulong i=0UL; i<txn_cnt; i++ ) {
-    txns[i].flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-  }
-
-  for( ulong i=0UL; i<txn_cnt; i++ ) {
-    int err = fd_runtime_prepare_execute_finalize_txn( slot_ctx, exec_spad, capture_ctx, &txns[i], &task_infos[i] );
-    if( FD_UNLIKELY( err ) ) {
-      return err;
-    }
-  }
-
-  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.transaction_count, txn_cnt );
-
-  return 0;
-}
-
-/* fd_runtime_execute_txn_task is a tpool wrapper around transaction execution. */
-
-static void FD_FN_UNUSED
-fd_runtime_execute_txn_task( void * tpool,
-                             ulong  t0 FD_PARAM_UNUSED,
-                             ulong  t1 FD_PARAM_UNUSED,
-                             void * args FD_PARAM_UNUSED,
-                             void * reduce FD_PARAM_UNUSED,
-                             ulong  stride FD_PARAM_UNUSED,
-                             ulong  l0 FD_PARAM_UNUSED,
-                             ulong  l1 FD_PARAM_UNUSED,
-                             ulong  m0,
-                             ulong  m1 FD_PARAM_UNUSED,
-                             ulong  n0 FD_PARAM_UNUSED,
-                             ulong  n1 FD_PARAM_UNUSED ) {
-
-  fd_execute_txn_task_info_t * task_info = (fd_execute_txn_task_info_t *)tpool + m0;
-
-  if( !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) {
-    task_info->exec_res = -1;
-    return;
-  }
-
-  task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-  task_info->exec_res    = fd_execute_txn( task_info->txn_ctx );
-
-  if( task_info->exec_res != 0 ) {
-    return;
-  }
-  fd_txn_reclaim_accounts( task_info->txn_ctx );
-}
-
-/* fd_txn_sigverify_task and fd_txn_pre_execute_checks_task are responisble
+/* fd_executor_txn_verify and fd_runtime_pre_execute_check are responisble
    for the bulk of the pre-transaction execution checks in the runtime.
    They aim to preserve the ordering present in the Agave client to match
    parity in terms of error codes. Sigverify is kept seperate from the rest
@@ -1825,7 +1837,7 @@ fd_runtime_execute_txn_task( void * tpool,
 
    process_entries() contains a duplicate account check which is part of
    agave account lock acquiring. This is checked inline in
-   fd_txn_pre_execute_checks_task().
+   fd_runtime_pre_execute_check().
 
    load_and_execute_transactions() contains the function check_transactions().
    This contains check_age() and check_status_cache() which is paralleled by
@@ -1841,557 +1853,79 @@ fd_runtime_execute_txn_task( void * tpool,
    validates the program accounts in load_transaction_accounts(). This
    is paralled by fd_executor_load_transaction_accounts(). */
 
-static void FD_FN_UNUSED
-fd_txn_sigverify_task( void *tpool,
-                       ulong t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
-                       void *args FD_PARAM_UNUSED,
-                       void *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
-                       ulong l0 FD_PARAM_UNUSED, ulong l1 FD_PARAM_UNUSED,
-                       ulong m0, ulong m1 FD_PARAM_UNUSED,
-                       ulong n0 FD_PARAM_UNUSED, ulong n1 FD_PARAM_UNUSED ) {
-  fd_execute_txn_task_info_t * task_info = (fd_execute_txn_task_info_t *)tpool + m0;
-
-  ulong tile_idx = fd_tile_idx();
-  task_info->txn_ctx->spad = task_info->spads[ tile_idx ];
-  if( FD_UNLIKELY( !task_info->txn_ctx->spad ) ) {
-    FD_LOG_ERR(("spad is NULL"));
-  }
-
-  /* the txn failed sanitize sometime earlier */
-  if( FD_UNLIKELY( !(task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) ) ) {
-    return;
-  }
-
-  fd_exec_txn_ctx_t * txn_ctx = task_info->txn_ctx;
-  if( FD_UNLIKELY( fd_executor_txn_verify( txn_ctx )!=0 ) ) {
-    FD_LOG_WARNING(("sigverify failed: %s", FD_BASE58_ENC_64_ALLOCA( (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ) ));
-    task_info->txn->flags = 0U;
-    task_info->exec_res   = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
-  }
-
-}
-
-static void
-fd_txn_prep_and_exec_task( void  *tpool,
-                           ulong t0 FD_PARAM_UNUSED,      ulong t1 FD_PARAM_UNUSED,
-                           void  *args,
-                           void  *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
-                           ulong l0 FD_PARAM_UNUSED,      ulong l1 FD_PARAM_UNUSED,
-                           ulong m0,                      ulong m1 FD_PARAM_UNUSED,
-                           ulong n0 FD_PARAM_UNUSED,      ulong n1 FD_PARAM_UNUSED ) {
-
-  fd_execute_txn_task_info_t * task_info = (fd_execute_txn_task_info_t *)tpool + m0;
-  fd_exec_slot_ctx_t * slot_ctx = (fd_exec_slot_ctx_t *)args;
-  // fd_capture_ctx_t * capture_ctx = (fd_capture_ctx_t *)reduce;
-
-  /* It is important to note that there is currently a 1-1 mapping between the
-     tiles and tpool threads at the time of this comment. Eventually, this will
-     change and the transaction context's spad will not be queried by tile
-     index as every tile will correspond to one CPU core. */
-  if( FD_UNLIKELY( !task_info->txn_ctx->spad ) ) {
-    FD_LOG_ERR(("spad is NULL"));
-  }
-
-  fd_runtime_pre_execute_check( task_info );
-
-  /* Transaction sanitization is complete at this point. Now finish account
-    setup, execute the transaction, and reclaim dead accounts. */
-  if( FD_LIKELY( !task_info->exec_res ) ) {
-    task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-    task_info->exec_res    = fd_execute_txn( task_info->txn_ctx );
-    fd_txn_reclaim_accounts( task_info->txn_ctx );
-  }
-
-  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_execution_fees, task_info->txn_ctx->execution_fee );
-  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_priority_fees, task_info->txn_ctx->priority_fee );
-  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->slot_bank.collected_rent, task_info->txn_ctx->collected_rent );
-
-  // fd_runtime_finalize_txn( slot_ctx, capture_ctx, task_info );
-
-}
-
-/* This task could be combined with the rest of the transaction checks that
-   exist in fd_runtime_prepare_txns_phase2_tpool, but creates a lot more
-   complexity to make the transaction fuzzer work. */
-static int
-fd_runtime_verify_txn_signatures_tpool( fd_execute_txn_task_info_t * task_info,
-                                        ulong                        txn_cnt,
-                                        fd_tpool_t *                 tpool ) {
-  int res = 0;
-
-  fd_tpool_exec_all_rrobin( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_txn_sigverify_task, task_info, NULL, NULL, 1, 0, txn_cnt );
-  for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
-    if( FD_UNLIKELY( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
-      task_info->exec_res = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
-      res |= FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
-      break;
-    }
-  }
-  return res;
-}
-
-/* This setup phase sets up the borrowed accounts in each transaction and
-   performs a series of checks on each of the transactions. */
 int
-fd_runtime_prep_and_exec_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
-                                     fd_execute_txn_task_info_t * task_info,
-                                     ulong                        txn_cnt,
-                                     fd_tpool_t *                 tpool ) {
-  int res = 0;
+fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
+                                              fd_capture_ctx_t *   capture_ctx,
+                                              fd_txn_p_t *         txns,
+                                              ulong                txn_cnt,
+                                              fd_tpool_t *         tpool,
+                                              fd_spad_t * *        exec_spads,
+                                              ulong                exec_spad_cnt,
+                                              fd_spad_t *          runtime_spad ) {
 
-  fd_tpool_exec_all_rrobin( tpool, 0, fd_tpool_worker_cnt( tpool ),
-                            fd_txn_prep_and_exec_task, task_info, slot_ctx,
-                            task_info->txn_ctx->capture_ctx, 1, 0, txn_cnt );
+  int dump_txn = capture_ctx && slot_ctx->slot_bank.slot >= capture_ctx->dump_proto_start_slot && capture_ctx->dump_txn_to_pb;
 
-  for( ulong txn_idx=0UL; txn_idx<txn_cnt; txn_idx++ ) {
-    if( FD_UNLIKELY( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
-      res |= task_info[txn_idx].exec_res;
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    txns[i].flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
+  }
+
+  fd_execute_txn_task_info_t * task_infos = fd_spad_alloc( runtime_spad,
+                                                           alignof(fd_execute_txn_task_info_t),
+                                                           txn_cnt * sizeof(fd_execute_txn_task_info_t) );
+  ulong * curr_exec_idx_arr = fd_spad_alloc( runtime_spad, alignof(ulong), exec_spad_cnt * sizeof(ulong) );
+  fd_memset( curr_exec_idx_arr, 0xFF, exec_spad_cnt * sizeof(ulong) );
+
+  int err = fd_runtime_prepare_txns_start( slot_ctx, task_infos, txns, txn_cnt, runtime_spad );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(( "Failed to prepare txn" ));
+  }
+
+  /* Setup sanitized txns as incomplete and set the capture context */
+  for( ulong i=0UL; i<txn_cnt; i++ ) {
+    if( FD_UNLIKELY( !( task_infos[i].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
       continue;
     }
+    task_infos[i].txn_ctx->capture_ctx = capture_ctx;
   }
 
-  return res;
-}
-
-/* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/accounts-db/src/accounts.rs#L700 */
-/* fd_runtime_finalize_txns_tpool is the tpool version of fd_runtime_finalize_txn. */
-
-static int
-fd_runtime_finalize_txns_tpool( fd_exec_slot_ctx_t *         slot_ctx,
-                                fd_capture_ctx_t *           capture_ctx,
-                                fd_execute_txn_task_info_t * task_info,
-                                ulong                        txn_cnt,
-                                fd_tpool_t *                 tpool,
-                                fd_spad_t *                  runtime_spad ) {
-
-  /* Store transaction metadata, including logs */
-  fd_runtime_finalize_txns_update_blockstore_meta( slot_ctx, task_info, txn_cnt );
-
-  fd_txncache_insert_t * status_insert  = NULL;
-  uchar *                results        = NULL;
-  ulong                  num_cache_txns = 0UL;
-
-  if( FD_LIKELY( slot_ctx->status_cache ) ) {
-    status_insert = fd_spad_alloc( runtime_spad, alignof(fd_txncache_insert_t), txn_cnt * sizeof(fd_txncache_insert_t) );
-    results       = fd_spad_alloc( runtime_spad, FD_SPAD_ALIGN, txn_cnt * sizeof(uchar) );
-  }
-
-  fd_borrowed_account_t * * accounts_to_save         = fd_spad_alloc( runtime_spad,
-                                                                      FD_SPAD_ALIGN,
-                                                                      MAX_TX_ACCOUNT_LOCKS * txn_cnt * sizeof(fd_borrowed_account_t*) );
-  ulong                     acc_idx                  = 0UL;
-  ulong                     nonvote_txn_count        = 0UL;
-  ulong                     failed_txn_count         = 0UL;
-  ulong                     nonvote_failed_txn_count = 0UL;
-  ulong                     compute_units_used       = 0UL;
-
-  for( ulong txn_idx=0UL; txn_idx<txn_cnt; txn_idx++ ) {
-    /* Transaction was skipped due to preparation failure. */
-    if( FD_UNLIKELY( !( task_info[txn_idx].txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) ) {
-      continue;
-    }
-    fd_exec_txn_ctx_t * txn_ctx      = task_info[txn_idx].txn_ctx;
-    int                 exec_txn_err = task_info[txn_idx].exec_res;
-
-    /* For ledgers that contain txn status, decode and write out for solcap */
-    if( FD_UNLIKELY( capture_ctx != NULL && capture_ctx->capture && capture_ctx->capture_txns ) ) {
-      fd_runtime_write_transaction_status( capture_ctx, slot_ctx, txn_ctx, exec_txn_err );
-    }
-
-    slot_ctx->signature_cnt += txn_ctx->txn_descriptor->signature_cnt;
-
-    int is_vote = fd_txn_is_simple_vote_transaction( txn_ctx->txn_descriptor,
-                                                     txn_ctx->_txn_raw->raw,
-                                                     fd_solana_vote_program_id.key );
-    if( is_vote ) {
-      if( FD_UNLIKELY( exec_txn_err ) ) {
-        failed_txn_count++;
-      }
-    } else {
-      nonvote_txn_count++;
-      if( FD_UNLIKELY( exec_txn_err ) ) {
-        nonvote_failed_txn_count++;
-        failed_txn_count++;
-      }
-    }
-    compute_units_used += txn_ctx->compute_unit_limit - txn_ctx->compute_meter;
-
-    if( FD_LIKELY( slot_ctx->status_cache ) ) {
-      results[num_cache_txns]            = exec_txn_err == 0 ? 1 : 0;
-      fd_txncache_insert_t * curr_insert = &status_insert[num_cache_txns];
-      curr_insert->blockhash             = ((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->recent_blockhash_off);
-      curr_insert->slot                  = slot_ctx->slot_bank.slot;
-      fd_hash_t * hash                   = &txn_ctx->blake_txn_msg_hash;
-      curr_insert->txnhash               = hash->uc;
-      curr_insert->result                = &results[num_cache_txns];
-      num_cache_txns++;
-    }
-
-    if( FD_UNLIKELY( exec_txn_err ) ) {
-      /* Save the fee_payer. Everything but the fee balance should be reset.
-          TODO: an optimization here could be to use a dirty flag in the
-          borrowed account. If the borrowed account data has been changed in
-          any way, then the full account can be rolled back as it is done now.
-          However, most of the time the account data is not changed, and only
-          the lamport balance has to change. */
-      fd_borrowed_account_t * borrowed_account = fd_borrowed_account_init( &txn_ctx->borrowed_accounts[ FD_FEE_PAYER_TXN_IDX ] );
-
-      fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->accounts[ FD_FEE_PAYER_TXN_IDX ], borrowed_account );
-      memcpy( borrowed_account->pubkey->key, &txn_ctx->accounts[ FD_FEE_PAYER_TXN_IDX ], sizeof(fd_pubkey_t) );
-
-      void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
-      fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
-      borrowed_account->meta->info.lamports -= (txn_ctx->execution_fee + txn_ctx->priority_fee);
-
-      accounts_to_save[acc_idx++] = &txn_ctx->borrowed_accounts[ FD_FEE_PAYER_TXN_IDX ];
-      if( txn_ctx->nonce_account_idx_in_txn != ULONG_MAX ) {
-        if( FD_LIKELY( txn_ctx->nonce_account_advanced ) ) {
-          accounts_to_save[acc_idx++] = &txn_ctx->borrowed_accounts[ txn_ctx->nonce_account_idx_in_txn ];
-        } else {
-          accounts_to_save[acc_idx++] = &txn_ctx->rollback_nonce_account[ 0 ];
-        }
-      }
-    } else {
-      int dirty_vote_acc  = txn_ctx->dirty_vote_acc;
-      int dirty_stake_acc = txn_ctx->dirty_stake_acc;
-
-      for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
-        /* We are only interested in saving writable accounts and the fee
-            payer account. */
-        if( !fd_txn_account_is_writable_idx( txn_ctx, (int)i ) && i!=FD_FEE_PAYER_TXN_IDX ) {
-          continue;
-        }
-
-        fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
-
-        if( dirty_vote_acc && !memcmp( acc_rec->const_meta->info.owner, &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
-          fd_vote_store_account( slot_ctx, acc_rec );
-          FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
-            fd_vote_state_versioned_t vsv[1];
-            fd_bincode_decode_ctx_t decode_vsv =
-              { .data    = acc_rec->const_data,
-                .dataend = acc_rec->const_data + acc_rec->const_meta->dlen,
-                .valloc  = fd_spad_virtual( txn_ctx->spad ) };
-
-            int err = fd_vote_state_versioned_decode( vsv, &decode_vsv );
-            if( err ) break; /* out of spad scope */
-
-            fd_vote_block_timestamp_t const * ts = NULL;
-            switch( vsv->discriminant ) {
-            case fd_vote_state_versioned_enum_v0_23_5:
-              ts = &vsv->inner.v0_23_5.last_timestamp;
-              break;
-            case fd_vote_state_versioned_enum_v1_14_11:
-              ts = &vsv->inner.v1_14_11.last_timestamp;
-              break;
-            case fd_vote_state_versioned_enum_current:
-              ts = &vsv->inner.current.last_timestamp;
-              break;
-            default:
-              __builtin_unreachable();
-            }
-
-            fd_vote_record_timestamp_vote_with_slot( slot_ctx,
-                                                     acc_rec->pubkey,
-                                                     ts->timestamp,
-                                                     ts->slot,
-                                                     runtime_spad );
-          } FD_SPAD_FRAME_END;
-        }
-
-        if( dirty_stake_acc && !memcmp( acc_rec->const_meta->info.owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
-          // TODO: does this correctly handle stake account close?
-          fd_store_stake_delegation( slot_ctx, acc_rec );
-        }
-
-        accounts_to_save[acc_idx++] = acc_rec;
-      }
+  // Dump txns in waves
+  if( dump_txn ) {
+    for( ulong i=0UL; i<txn_cnt; i++ ) {
+      /* Manual push/pop on the spad within the callee. */
+      fd_dump_txn_to_protobuf( task_infos[i].txn_ctx, exec_spads[0] );
     }
   }
 
-  /* Accumulate transaction counters */
+  ulong curr_exec_idx = 0UL;
+  while( curr_exec_idx<txn_cnt ) {
+    for( ulong worker_idx=1UL; worker_idx<exec_spad_cnt; worker_idx++ ) {
+      if( curr_exec_idx>=txn_cnt ) {
+        break;
+      }
+      int state = fd_tpool_worker_state( tpool, worker_idx );
+      if( state!=FD_TPOOL_WORKER_STATE_IDLE ) {
+        continue;
+      }
 
-  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->nonvote_txn_count, nonvote_txn_count );
-  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->failed_txn_count, failed_txn_count );
-  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->nonvote_failed_txn_count, nonvote_failed_txn_count );
-  FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->total_compute_units_used, compute_units_used );
+      task_infos[ curr_exec_idx ].spad = exec_spads[ worker_idx ];
 
-  /* All the accounts have been accumulated and can be saved */
+      fd_tpool_exec( tpool, worker_idx, fd_runtime_prepare_execute_finalize_txn_task,
+                     slot_ctx, (ulong)capture_ctx, (ulong)task_infos[curr_exec_idx].txn,
+                     &task_infos[ curr_exec_idx ], exec_spads[ worker_idx ], 0UL,
+                     0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
+      curr_exec_idx_arr[worker_idx] = curr_exec_idx;
 
-  int err = fd_acc_mgr_save_many_tpool( slot_ctx->acc_mgr,
-                                        slot_ctx->funk_txn,
-                                        accounts_to_save,
-                                        acc_idx,
-                                        tpool,
-                                        runtime_spad );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_ERR(( "failed to save edits to accounts" ));
-    return -1;
+      curr_exec_idx++;
+    }
   }
 
-  if( FD_LIKELY( slot_ctx->status_cache ) ) {
-    if( FD_UNLIKELY( !fd_txncache_insert_batch( slot_ctx->status_cache, status_insert, num_cache_txns ) ) ) {
-      FD_LOG_WARNING(("Status cache is full, this should not be possible"));
-    }
+
+  for( ulong worker_idx=1UL; worker_idx<exec_spad_cnt; worker_idx++ ) {
+    fd_tpool_wait( tpool, worker_idx );
   }
 
   return 0;
 
-}
-
-struct fd_pubkey_map_node {
-  ulong       pubkey;
-  uint        hash;
-};
-typedef struct fd_pubkey_map_node fd_pubkey_map_node_t;
-
-#define MAP_NAME                fd_pubkey_map
-#define MAP_T                   fd_pubkey_map_node_t
-#define MAP_KEY                 pubkey
-#define MAP_KEY_T               ulong
-#define MAP_KEY_NULL            0
-#define MAP_KEY_INVAL( k )      k==0
-#define MAP_KEY_EQUAL( k0, k1 ) k0==k1
-#define MAP_KEY_EQUAL_IS_SLOW   1
-#define MAP_KEY_HASH( key )     ( (uint)key )
-#define MAP_MEMOIZE             1
-#include "../../util/tmpl/fd_map_dynamic.c"
-
-/* return 0 on failure, 1 if exists, 2 if inserted */
-static uint
-fd_pubkey_map_insert_if_not_in( fd_pubkey_map_node_t * map,
-                                fd_pubkey_t            pubkey ) {
-  /* Check if entry already exists */
-  ulong h = fd_hash( 0UL, &pubkey, sizeof( fd_pubkey_t ) );
-  fd_pubkey_map_node_t * entry = fd_pubkey_map_query( map, h, NULL );
-  if( entry )
-    return 1;
-
-  /* Insert new */
-  entry = fd_pubkey_map_insert( map, h );
-  if( FD_UNLIKELY( !entry ) ) return 0;  /* check for internal map collision */
-
-  return 2;
-}
-
-/* fd_runtime_generate_wave is responsible for scheduling parallel transactions */
-
-static void
-fd_runtime_generate_wave( fd_execute_txn_task_info_t * task_infos,
-                          ulong *                      prev_incomplete_txn_idxs,
-                          ulong                        prev_incomplete_txn_idxs_cnt,
-                          ulong                        prev_accounts_cnt,
-                          ulong *                      incomplete_txn_idxs,
-                          ulong *                      _incomplete_txn_idxs_cnt,
-                          ulong *                      _incomplete_accounts_cnt,
-                          fd_execute_txn_task_info_t * wave_task_infos,
-                          ulong *                      _wave_task_infos_cnt,
-                          fd_spad_t *                  runtime_spad ) {
-
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-
-  int                    lg_slot_cnt  = fd_ulong_find_msb( prev_accounts_cnt ) + 1;
-  void *                 read_map_mem = fd_spad_alloc( runtime_spad, fd_pubkey_map_align(), fd_pubkey_map_footprint( lg_slot_cnt ) );
-  fd_pubkey_map_node_t * read_map     = fd_pubkey_map_join( fd_pubkey_map_new( read_map_mem, lg_slot_cnt ) );
-
-  void *                 write_map_mem = fd_spad_alloc( runtime_spad, fd_pubkey_map_align(), fd_pubkey_map_footprint( lg_slot_cnt ) );
-  fd_pubkey_map_node_t * write_map     = fd_pubkey_map_join( fd_pubkey_map_new( write_map_mem, lg_slot_cnt ) );
-
-  ulong incomplete_txn_idxs_cnt = 0UL;
-  ulong wave_task_infos_cnt     = 0UL;
-  ulong accounts_in_wave        = 0UL;
-  for( ulong i=0UL; i<prev_incomplete_txn_idxs_cnt; i++ ) {
-    ulong txn_idx           = prev_incomplete_txn_idxs[i];
-    uint  is_executable_now = 1;
-    fd_execute_txn_task_info_t * task_info = &task_infos[txn_idx];
-
-    for( ulong j=0UL; j<task_info->txn_ctx->accounts_cnt; j++ ) {
-      ulong h = fd_hash( 0UL, &task_info->txn_ctx->accounts[j], sizeof( fd_pubkey_t ) );
-      if( fd_pubkey_map_query( write_map, h, NULL ) != NULL ) {
-        is_executable_now = 0;
-        break;
-      }
-      if( fd_txn_account_is_writable_idx( task_info->txn_ctx, (int)j ) ) {
-        if( fd_pubkey_map_query( read_map, h, NULL ) != NULL ) {
-          is_executable_now = 0;
-          break;
-        }
-      }
-    }
-
-    if( !is_executable_now ) {
-      incomplete_txn_idxs[incomplete_txn_idxs_cnt++] = txn_idx;
-    } else {
-      wave_task_infos[wave_task_infos_cnt++] = *task_info;
-    }
-
-    /* Include txn in wave */
-    for( ulong j=0UL; j<task_info->txn_ctx->accounts_cnt; j++ ) {
-      if( fd_txn_account_is_writable_idx( task_info->txn_ctx, (int)j ) ) {
-        uint ins_res = fd_pubkey_map_insert_if_not_in( write_map, task_info->txn_ctx->accounts[j] );
-        if( ins_res==2U ) {
-          accounts_in_wave++;
-        }
-      } else {
-        uint ins_res = fd_pubkey_map_insert_if_not_in( read_map, task_info->txn_ctx->accounts[j] );
-        if( ins_res==2UL ) {
-          accounts_in_wave++;
-        }
-      }
-    }
-
-  }
-
-  *_incomplete_txn_idxs_cnt = incomplete_txn_idxs_cnt;
-  *_incomplete_accounts_cnt = prev_accounts_cnt - accounts_in_wave;
-  *_wave_task_infos_cnt     = wave_task_infos_cnt;
-
-  } FD_SPAD_FRAME_END;
-}
-
-/* NOTE: Don't mess with this call without updating the transaction fuzzing harness appropriately!
-   fd_exec_instr_test.c:_txn_context_create_and_exec.
-
-   This function is the tpool version of fd_runtime_process_txn.
-
-   TODO: This should ONLY be used in offline replay. */
-int
-fd_runtime_process_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
-                                        fd_capture_ctx_t *   capture_ctx,
-                                        fd_txn_p_t *         all_txns,
-                                        ulong                total_txn_cnt,
-                                        fd_tpool_t *         tpool,
-                                        fd_spad_t * *        exec_spads,
-                                        ulong                exec_spad_cnt,
-                                        fd_spad_t *          runtime_spad ) {
-  int dump_txn = capture_ctx && slot_ctx->slot_bank.slot >= capture_ctx->dump_proto_start_slot && capture_ctx->dump_txn_to_pb;
-
-  /* As a note, the batch size of 128 is a relatively arbitrary number. The
-      notion of batching here will change as the transaction execution model
-      changes with respect to transaction execution. */
-  #define BATCH_SIZE (128UL)
-  ulong batch_size = fd_ulong_min( fd_tile_cnt(), BATCH_SIZE );
-
-  for( ulong i=0UL; i<total_txn_cnt; i++ ) {
-    all_txns[i].flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
-  }
-
-  ulong num_batches = total_txn_cnt/batch_size;
-  ulong rem         = total_txn_cnt%batch_size;
-  num_batches      += rem ? 1UL : 0UL;
-
-  int res = 0;
-  for( ulong i=0UL; i<num_batches; i++ ) {
-
-    fd_txn_p_t * txns    = all_txns + (batch_size * i);
-    ulong        txn_cnt = ((i+1UL==num_batches) && rem) ? rem : batch_size;
-
-    fd_execute_txn_task_info_t * task_infos          = fd_spad_alloc( runtime_spad, alignof(fd_execute_txn_task_info_t), txn_cnt * sizeof(fd_execute_txn_task_info_t) );
-    fd_execute_txn_task_info_t * wave_task_infos     = fd_spad_alloc( runtime_spad, alignof(fd_execute_txn_task_info_t), txn_cnt * sizeof(fd_execute_txn_task_info_t) );
-    ulong                        wave_task_infos_cnt = 0UL;
-
-    res = fd_runtime_prepare_txns_start( slot_ctx, task_infos, txns, txn_cnt, runtime_spad );
-    if( res != 0 ) {
-      FD_LOG_DEBUG(("Fail prep 1"));
-    }
-
-    ulong * incomplete_txn_idxs     = fd_spad_alloc( runtime_spad, alignof(ulong), txn_cnt * sizeof(ulong) );
-    ulong   incomplete_txn_idxs_cnt = 0UL;
-    ulong   incomplete_accounts_cnt = 0UL;
-
-    /* Setup sanitized txns as incomplete and set the capture context */
-    for( ulong i=0UL; i<txn_cnt; i++ ) {
-      if( FD_UNLIKELY( !( task_infos[i].txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
-        continue;
-      }
-      incomplete_txn_idxs[incomplete_txn_idxs_cnt++] = i;
-      incomplete_accounts_cnt                       += task_infos[i].txn_ctx->accounts_cnt;
-      task_infos[i].txn_ctx->capture_ctx             = capture_ctx;
-    }
-
-    ulong * next_incomplete_txn_idxs     = fd_spad_alloc( runtime_spad, alignof(ulong), txn_cnt * sizeof(ulong) );
-    ulong   next_incomplete_txn_idxs_cnt = 0UL;
-    ulong   next_incomplete_accounts_cnt = 0UL;
-
-    while( incomplete_txn_idxs_cnt > 0 ) {
-      fd_runtime_generate_wave( task_infos,
-                                incomplete_txn_idxs,
-                                incomplete_txn_idxs_cnt,
-                                incomplete_accounts_cnt,
-                                next_incomplete_txn_idxs,
-                                &next_incomplete_txn_idxs_cnt,
-                                &next_incomplete_accounts_cnt,
-                                wave_task_infos,
-                                &wave_task_infos_cnt,
-                                runtime_spad );
-      ulong * temp_incomplete_txn_idxs = incomplete_txn_idxs;
-      incomplete_txn_idxs              = next_incomplete_txn_idxs;
-      next_incomplete_txn_idxs         = temp_incomplete_txn_idxs;
-      incomplete_txn_idxs_cnt          = next_incomplete_txn_idxs_cnt;
-
-      for( ulong i=0UL; i<exec_spad_cnt; i++ ) {
-        /* Borrowed accounts are allocated during prep and need to
-           persist till the end of finalize. This initial frame will
-           be holding that. */
-        fd_spad_push( exec_spads[ i ] );
-      }
-
-      /* Assign out spads to the transaction contexts. */
-      for( ulong i=0UL; i<wave_task_infos_cnt; i++ ) {
-        wave_task_infos[i].spads = exec_spads;
-      }
-
-      // Dump txns in waves
-      if( dump_txn ) {
-        for( ulong i = 0; i < wave_task_infos_cnt; ++i ) {
-          /* Manual push/pop on the spad within the callee. */
-          fd_dump_txn_to_protobuf( wave_task_infos[i].txn_ctx, exec_spads[0] );
-        }
-      }
-
-      res |= fd_runtime_verify_txn_signatures_tpool( wave_task_infos, wave_task_infos_cnt, tpool );
-      if( FD_UNLIKELY( res ) ) {
-        FD_LOG_WARNING(( "Fail signature verification" ));
-      }
-
-      res |= fd_runtime_prep_and_exec_txns_tpool( slot_ctx, wave_task_infos, wave_task_infos_cnt, tpool );
-      if( res != 0 ) {
-        FD_LOG_DEBUG(( "Fail prep and exec" ));
-      }
-
-      /* We should ONLY be modifying the slot_ctx at this point. */
-
-      int finalize_res = fd_runtime_finalize_txns_tpool( slot_ctx,
-                                                         capture_ctx,
-                                                         wave_task_infos,
-                                                         wave_task_infos_cnt,
-                                                         tpool,
-                                                         runtime_spad );
-      if( finalize_res != 0 ) {
-        FD_LOG_ERR(( "Fail finalize" ));
-      }
-
-      for( ulong i=0UL; i<exec_spad_cnt; i++ ) {
-        /* The first frame, which holds borrowed accounts, can be
-            pretty big, and there are additional dynamic allocations
-            during finalize. */
-        if( FD_UNLIKELY( fd_spad_verify( exec_spads[ i ] ) ) ) {
-          FD_LOG_ERR(( "spad corrupted or overflown" ));
-        }
-        /* We indiscriminately pushed a frame to every spad.
-            So it should be safe to indiscriminately pop here. */
-        fd_spad_pop( exec_spads[ i ] );
-        if( FD_UNLIKELY( fd_spad_frame_used( exec_spads[ i ] )!=0 ) ) {
-          FD_LOG_ERR(( "stray spad frame frame_used=%lu", fd_spad_frame_used( exec_spads[ i ] ) ));
-        }
-      }
-    }
-  }
-  slot_ctx->slot_bank.transaction_count += total_txn_cnt;
-
-  #undef BATCH_SIZE
-
-  return res;
 }
 
 /******************************************************************************/
@@ -3435,11 +2969,11 @@ fd_runtime_block_prepare( fd_blockstore_t * blockstore,
       .raw_block_sz = buf_sz,
   };
 
-  ulong microblock_batch_cnt = 0UL;
-  ulong microblock_cnt       = 0UL;
-  ulong signature_cnt        = 0UL;
-  ulong txn_cnt              = 0UL;
-  ulong account_cnt          = 0UL;
+  ulong microblock_batch_cnt        = 0UL;
+  ulong microblock_cnt              = 0UL;
+  ulong signature_cnt               = 0UL;
+  ulong txn_cnt                     = 0UL;
+  ulong account_cnt                 = 0UL;
   block_info.microblock_batch_infos = fd_spad_alloc( runtime_spad, alignof(fd_microblock_batch_info_t), block->batch_cnt * sizeof(fd_microblock_batch_info_t) );
 
   ulong buf_off = 0UL;
@@ -4073,28 +3607,6 @@ fd_runtime_poh_verify_tpool( fd_poh_verification_info_t * poh_verification_info,
   return 0;
 }
 
-/* for live replay */
-
-static int FD_FN_UNUSED
-fd_runtime_batch_verify_tpool( fd_exec_slot_ctx_t *         slot_ctx,
-                               ulong                        slot FD_PARAM_UNUSED,
-                               fd_microblock_batch_info_t * batch_info FD_PARAM_UNUSED,
-                               bool                         last_batch FD_PARAM_UNUSED,
-                               fd_poh_verification_info_t * poh_verification_info,
-                               ulong                        poh_verification_info_cnt,
-                               fd_tpool_t *                 tpool ) {
-
-  /* fd_runtime_batch_verify_ticks */
-
-  int res = fd_runtime_poh_verify_tpool( poh_verification_info, poh_verification_info_cnt, tpool );
-  if ( FD_UNLIKELY( res != 0 ) ) {
-    FD_LOG_WARNING(("PoH verification failed."));
-    return res;
-  }
-  fd_memcpy( slot_ctx->slot_bank.poh.uc, poh_verification_info[poh_verification_info_cnt - 1].microblock_info->microblock.hdr->hash, sizeof(fd_hash_t) );
-  return 0;
-}
-
 static int
 fd_runtime_block_verify_tpool( fd_exec_slot_ctx_t *    slot_ctx,
                                fd_block_info_t const * block_info,
@@ -4238,14 +3750,28 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
 
   fd_runtime_block_collect_txns( block_info, txn_ptrs );
 
-  res = fd_runtime_process_txns_in_waves_tpool( slot_ctx,
-                                                capture_ctx,
-                                                txn_ptrs,
-                                                txn_cnt,
-                                                tpool,
-                                                exec_spads,
-                                                exec_spad_cnt,
-                                                runtime_spad );
+  /* We want to emulate microblock-by-microblock execution */
+  ulong to_exec_idx = 0UL;
+  for( ulong i=0UL; i<block_info->microblock_batch_cnt; i++ ) {
+    for( ulong j=0UL; j<block_info->microblock_batch_infos[i].microblock_cnt; j++ ) {
+      ulong txn_cnt = block_info->microblock_batch_infos[i].microblock_infos[j].microblock.hdr->txn_cnt;
+      fd_txn_p_t * mblock_txn_ptrs = &txn_ptrs[ to_exec_idx ];
+      ulong        mblock_txn_cnt  = txn_cnt;
+      to_exec_idx += txn_cnt;
+
+      if( !mblock_txn_cnt ) continue;
+
+      res = fd_runtime_process_txns_in_microblock_stream( slot_ctx,
+                                                          capture_ctx,
+                                                          mblock_txn_ptrs,
+                                                          mblock_txn_cnt,
+                                                          tpool,
+                                                          exec_spads,
+                                                          exec_spad_cnt,
+                                                          runtime_spad );
+    }
+  }
+
   if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
     return res;
   }
@@ -4372,8 +3898,7 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
       break;
     }
 
-    /* All code here that makes runtime allocations is scoped to the end of
-       a block*/
+    /* All runtime allocations here are scoped to the end of a block. */
     FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
     if( FD_UNLIKELY( (ret = fd_runtime_block_prepare( slot_ctx->blockstore,

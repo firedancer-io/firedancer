@@ -509,9 +509,9 @@ fd_gossip_contact_info_v2_find_proto_ident( fd_gossip_contact_info_v2_t const * 
       }
 
       /* Annoyingly, fd_gossip_socket_addr->inner and fd_gossip_ip_addr
-         are slightly different, so we can't just 
+         are slightly different, so we can't just
          out_addr->ip = contact_info->addrs[ idx ]
-         
+
          Potential ptimization idea:
          - first 4 + 32/128 bytes of a fd_gossip_socket_addr_t can cast directly to fd_gossip_ip_addr_t AKA:
            fd_memcpy( out_addr, &contact_info->addrs[ socket_entry->index ], sizeof(fd_gossip_ip_addr_t) );
@@ -537,7 +537,7 @@ fd_gossip_contact_info_v2_find_proto_ident( fd_gossip_contact_info_v2_t const * 
 int
 fd_gossip_to_soladdr( fd_gossip_socket_addr_t * dst, fd_gossip_peer_addr_t const * src ) {
   fd_gossip_socket_addr_new_disc( dst, fd_gossip_socket_addr_enum_ip4 );
-  dst->inner.ip4.port = ntohs(src->port); 
+  dst->inner.ip4.port = ntohs(src->port);
   dst->inner.ip4.addr = src->addr;
   return 0;
 }
@@ -887,8 +887,8 @@ fd_gossip_sign_crds_value( fd_gossip_t * glob, fd_crds_value_t * crd ) {
   (*glob->sign_fun)( glob->sign_arg, crd->signature.uc, buf, (ulong)((uchar*)ctx.data - buf), FD_KEYGUARD_SIGN_TYPE_ED25519 );
 }
 
-/* Convert a hash to a bloom filter bit position 
-   https://github.com/anza-xyz/agave/blob/v2.1.7/bloom/src/bloom.rs#L136 */
+/* Convert a hash to a bloom filter bit position */
+/* https://github.com/anza-xyz/agave/blob/v2.1.7/bloom/src/bloom.rs#L136 */
 static ulong
 fd_gossip_bloom_pos( fd_hash_t * hash, ulong key, ulong nbits) {
   for ( ulong i = 0; i < 32U; ++i) {
@@ -1259,7 +1259,7 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   fd_sha256_append( sha2, buf, datalen );
   fd_hash_t key;
   fd_sha256_fini( sha2, key.uc );
-  
+
   fd_msg_stats_elem_t * msg_stat = &glob->msg_stats[ crd->data.discriminant ];
   msg_stat->total_cnt++;
   msg_stat->bytes_rx_cnt += datalen;
@@ -1780,8 +1780,8 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
 
     /* Record the ratio of hits to misses
 
-       These metrics are imprecise as the numbers will vary 
-       per pull request. We keep them to surface 
+       These metrics are imprecise as the numbers will vary
+       per pull request. We keep them to surface
        obvious issues like 100% miss rate.*/
     glob->metrics.handle_pull_req_bloom_filter_result[ FD_METRICS_ENUM_PULL_REQ_BLOOM_FILTER_RESULT_V_HIT_IDX ] += hits;
     glob->metrics.handle_pull_req_bloom_filter_result[ FD_METRICS_ENUM_PULL_REQ_BLOOM_FILTER_RESULT_V_MISS_IDX ] += misses;
@@ -2049,7 +2049,7 @@ fd_gossip_push_value_nolock( fd_gossip_t * glob, fd_crds_data_t * data, fd_hash_
     INC_PUSH_CRDS_DROP_METRIC( UNKNOWN_DISCRIMINANT );
     return -1;
   }
-  
+
 
   /* Wrap the data in a value stub. Sign it. */
   fd_crds_value_t crd;
@@ -2078,10 +2078,10 @@ fd_gossip_push_value_nolock( fd_gossip_t * glob, fd_crds_data_t * data, fd_hash_
   /* Store the value for later pushing/duplicate detection */
   fd_value_elem_t * msg = fd_value_table_query(glob->values, &key, NULL);
   if (msg != NULL) {
-    /* Already have this value, which is strange! 
-       NOTE: This is a different list from duplicate crds values received 
+    /* Already have this value, which is strange!
+       NOTE: This is a different list from duplicate crds values received
        from the network (see metrics.recv_crds_duplicate_message).
-       Reaching this path implies a crds value generated internally was 
+       Reaching this path implies a crds value generated internally was
        detected as a duplicate. */
     glob->metrics.push_crds_duplicate[ data->discriminant ] += 1UL;
     return -1;
