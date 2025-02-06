@@ -306,27 +306,32 @@ fd_txn_account_is_demotion( fd_exec_txn_ctx_t const * txn_ctx, int idx )
   return (is_program && !bpf_upgradeable_in_txn);
 }
 
+/* This function aims to mimic the writable accounts check to populate the writable accounts cache, used
+   to determine if accounts are writable or not.
+
+   https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L38-L47 */
 int
 fd_txn_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, int idx ) {
 
-  int acct_addr_cnt = txn_ctx->txn_descriptor->acct_addr_cnt;
-  if( txn_ctx->txn_descriptor->transaction_version == FD_TXN_V0 ) {
-    acct_addr_cnt += txn_ctx->txn_descriptor->addr_table_adtl_cnt;
-  }
-
-  if( idx==acct_addr_cnt ) {
+  /* https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L43 */
+  if( !fd_txn_is_writable( txn_ctx->txn_descriptor, idx ) ) {
     return 0;
   }
 
+  /* See comments in fd_system_ids.h.
+     https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L44 */
   if( fd_pubkey_is_active_reserved_key(&txn_ctx->accounts[idx] ) ||
       ( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, add_new_reserved_account_keys ) &&
-                           fd_pubkey_is_pending_reserved_key( &txn_ctx->accounts[idx] ) )) {
+                           fd_pubkey_is_pending_reserved_key( &txn_ctx->accounts[idx] ) ) ||
+      ( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, enable_secp256r1_precompile ) &&
+                           fd_pubkey_is_secp256r1_key( &txn_ctx->accounts[idx] ) ) ) {
     return 0;
   }
 
+  /* https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L45 */
   if( fd_txn_account_is_demotion( txn_ctx, idx ) ) {
     return 0;
   }
 
-  return fd_txn_is_writable( txn_ctx->txn_descriptor, idx );
+  return 1;
 }
