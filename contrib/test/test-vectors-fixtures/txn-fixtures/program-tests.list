@@ -25,6 +25,7 @@ dump/test-vectors/txn/fixtures/programs/029643d24384d69aec16860d83a417165de364c9
 dump/test-vectors/txn/fixtures/programs/029cc078c83fff7e16e2e5a857e123a61166d839_265678.fix
 dump/test-vectors/txn/fixtures/programs/02a1a54579bdff5acec9947f63fec1ce0cda0c29_265678.fix
 dump/test-vectors/txn/fixtures/programs/02a2bbb832d191f87ecb8842f4db7a32a6a2f5f8_265678.fix
+dump/test-vectors/txn/fixtures/programs/02ba7c2c651391d57b763a94130868f1cbdb4ef6_179791.fix
 dump/test-vectors/txn/fixtures/programs/02c3e4d1999c94222dedffc8be27b2c4739351cd_265678.fix
 dump/test-vectors/txn/fixtures/programs/02f247a27a981000e10282625e1c489b9b6db90c_265678.fix
 dump/test-vectors/txn/fixtures/programs/02fe2b0bce357cdfc3b1557339b60ce6b592951b_265678.fix
@@ -35,6 +36,7 @@ dump/test-vectors/txn/fixtures/programs/035485e81253d557fc7c483c33a3e62f14c80cec
 dump/test-vectors/txn/fixtures/programs/036e4ae1eafe05a7690280b02ab26a41714c5326_265678.fix
 dump/test-vectors/txn/fixtures/programs/03756b34d21159e4ab852ce72e5368145abba09c_265678.fix
 dump/test-vectors/txn/fixtures/programs/037d31c96ff9f2abcb9147f10c32ad0c24f0c02e_265678.fix
+dump/test-vectors/txn/fixtures/programs/03b11411082235faa4be68dc5132a2c293dcd15f_3677356.fix
 dump/test-vectors/txn/fixtures/programs/03d640fe2c0634399e6469b2429d67abbd52e5d1_2998762.fix
 dump/test-vectors/txn/fixtures/programs/03dc8d0e3e91b0660e951d913960ff71c2ad02cc_2996610.fix
 dump/test-vectors/txn/fixtures/programs/04144c34e527f0d0d1b0b86f3f9623b7d24e359c_265678.fix
@@ -57,6 +59,7 @@ dump/test-vectors/txn/fixtures/programs/0665f9735f6bb5a4548580bf095e92060df757fe
 dump/test-vectors/txn/fixtures/programs/06698074887d5d1ada97f260e52e98bfc31972fe_265678.fix
 dump/test-vectors/txn/fixtures/programs/06740002c85d514f2cb6444fcf5adf9c0ac130ef_265678.fix
 dump/test-vectors/txn/fixtures/programs/068cc35b30caadabaffa523f0c1f2ae7a4f19482_265678.fix
+dump/test-vectors/txn/fixtures/programs/069dfc436fb57aa794d78edfd9867f26830579cf_2753981.fix
 dump/test-vectors/txn/fixtures/programs/06a9104cba7c8ce98c8d9cd6955f48699af999af_265678.fix
 dump/test-vectors/txn/fixtures/programs/06b88a355322eae730ec93cb92c3246562ca6e37_265678.fix
 dump/test-vectors/txn/fixtures/programs/06ccc657a01dd365d072e6a8a7716de1b792b954_265678.fix
@@ -100,6 +103,8 @@ dump/test-vectors/txn/fixtures/programs/0a35f374b08a84d533848879d1975b45e4fcdc74
 dump/test-vectors/txn/fixtures/programs/0a4b70cddf884f2498d8181496277f005bd61a84_265678.fix
 dump/test-vectors/txn/fixtures/programs/0a50a3332dd6ac5fde3d282b69f777e35c9b3c9b_2182106.fix
 dump/test-vectors/txn/fixtures/programs/0a73c09ab08f77e00b0faa8cf0d70408113b0a92_265678.fix
+dump/test-vectors/txn/fixtures/programs/0a902761b7b830127a2b638635fdcf0a12f76b6b_305757.fix
+dump/test-vectors/txn/fixtures/programs/0aa31dfa5397f8e8b5ed8172311b39fe430a36f5_3963902.fix
 dump/test-vectors/txn/fixtures/programs/0ab6570e26950e90e6aa6187a4f100ca115f9ffe_265678.fix
 dump/test-vectors/txn/fixtures/programs/0ac6183c9fbebc1683bf5c9869d8b584dc3525f8_265678.fix
 dump/test-vectors/txn/fixtures/programs/0ac799b39b7f9e1d99befd39cdd366303a616636_3193227.fix
@@ -227,6 +232,7 @@ dump/test-vectors/txn/fixtures/programs/15a25ab3f68c3025338e5029df13231d3f5f6090
 dump/test-vectors/txn/fixtures/programs/15d687af01a10a76dd8c8cb1a1ed7e8d491a6f96_265678.fix
 dump/test-vectors/txn/fixtures/programs/15d8e56f0770d0f5120cc04ee7fb67764c4746ab_265678.fix
 dump/test-vectors/txn/fixtures/programs/15da072d15387034bface5ce5544333a76513b45_265678.fix
+dump/test-vectors/txn/fixtures/programs/15db2654e0c8e41d5b5ce5e73d194b1e118de673_2820435.fix
 dump/test-vectors/txn/fixtures/programs/1612213e2cc9fae9ce40a15b11c4ef935333e37b_265678.fix
 dump/test-vectors/txn/fixtures/programs/162c6216f9b2bd57defe001897d99bf18a8553dc_265678.fix
 dump/test-vectors/txn/fixtures/programs/162e2ae4bdd67309ba9843fe0badec9bb4725719_265678.fix
@@ -302,6 +308,7 @@ dump/test-vectors/txn/fixtures/programs/1b7030333de2c55fc77cda145685a1ad921c6c57
 dump/test-vectors/txn/fixtures/programs/1b8118f6f6de91041843dd72b253c66d34565f9b_265678.fix
 dump/test-vectors/txn/fixtures/programs/1bb8f3fe49dfe1a7c8fd3e7007b1267b70e5f064_265678.fix
 dump/test-vectors/txn/fixtures/programs/1bc7432632aa003646deceb206fdd216cf2ef69a_265678.fix
+dump/test-vectors/txn/fixtures/programs/1bdbfd7c08b7123e35c1a89586acf8acef387771_4122962.fix
 dump/test-vectors/txn/fixtures/programs/1bdf220951eb2df386628cee6f9b4f17ee451cb0_265678.fix
 dump/test-vectors/txn/fixtures/programs/1bfbd2c150e586984e343f6004caa8b2412e009a_265678.fix
 dump/test-vectors/txn/fixtures/programs/1c07f721398888df9cb87360684ea901e546d7b2_265678.fix
@@ -322,6 +329,7 @@ dump/test-vectors/txn/fixtures/programs/1d3e8abee624c01c6a96e9f959e96c6fb4f39de0
 dump/test-vectors/txn/fixtures/programs/1d50ce878c316b8f8c60620ed677f75b31f52498_265678.fix
 dump/test-vectors/txn/fixtures/programs/1d6a25cd475cfa5e98dbb2d05318ff2e1a870c7e_265678.fix
 dump/test-vectors/txn/fixtures/programs/1d7a0059b804b9ddd407dfe83b857f5fb44bbbe8_265678.fix
+dump/test-vectors/txn/fixtures/programs/1d7e8e28576ce6c665c6abc93f20219d3b448bb6_399893.fix
 dump/test-vectors/txn/fixtures/programs/1da09f5dec8ff0899dff7ee9be825c897274161e_265678.fix
 dump/test-vectors/txn/fixtures/programs/1da4678abf452747827af8cf700b438698267709_265678.fix
 dump/test-vectors/txn/fixtures/programs/1da4a54df18bcd644f08c98679bd16f5c765d6ad_265678.fix
@@ -363,6 +371,7 @@ dump/test-vectors/txn/fixtures/programs/2095fbdda47f2a13a089b64e1ca25e611934ab2f
 dump/test-vectors/txn/fixtures/programs/20a238b1a2a19933044afb3e7ba3112a1ee583c6_265678.fix
 dump/test-vectors/txn/fixtures/programs/20ae1fc39f0ee681b4b55270007e18c230ceda3e_265678.fix
 dump/test-vectors/txn/fixtures/programs/20de0940a80f9a4f8e3343f4fb78a8b32aeb7c89_265678.fix
+dump/test-vectors/txn/fixtures/programs/2116c8e15c6523a43cec19a3f831e8ab2780c51f_367099.fix
 dump/test-vectors/txn/fixtures/programs/211b256e88dd4409c99a0d34baa2d0c0741723a3_2359272.fix
 dump/test-vectors/txn/fixtures/programs/2140a360a737fc03065d397aaef69ca38d68ea56_265678.fix
 dump/test-vectors/txn/fixtures/programs/217a13ad91fe3c05bb738639b4591c69a828773c_265678.fix
@@ -692,10 +701,12 @@ dump/test-vectors/txn/fixtures/programs/3efd7cc4619f8139dc5de55a04c7df1edebe58db
 dump/test-vectors/txn/fixtures/programs/3f1aa9fe0ce99fb531f1b0b834fbfce76e9e1081_1874146.fix
 dump/test-vectors/txn/fixtures/programs/3f3c69b39d0842cba8804aa065a180b5ae4ae326_265678.fix
 dump/test-vectors/txn/fixtures/programs/3f4f21fd44517b85f331e022fadf6d1f44f032a6_265678.fix
+dump/test-vectors/txn/fixtures/programs/3f62c509ae465941204be6842ed0be79f9d34d80_3566323.fix
 dump/test-vectors/txn/fixtures/programs/3f6cd15207e3bb62ff4029684216ba0ceba1f12a_265678.fix
 dump/test-vectors/txn/fixtures/programs/3f8765c27b81403237aa5b7f9ce009153ea5aa45_265678.fix
 dump/test-vectors/txn/fixtures/programs/3f8adab2d56cccaa7c9aafbbd8fdb1436948d2b1_265678.fix
 dump/test-vectors/txn/fixtures/programs/3f98e7189e4024d816dd418dc4e277c8a824f3ea_265678.fix
+dump/test-vectors/txn/fixtures/programs/3fa08e1b2100026d0ff6155dd3daea67471c67da_274087.fix
 dump/test-vectors/txn/fixtures/programs/3fa64e65df285be9e4e808c31ccdfdd9b574dc1b_265678.fix
 dump/test-vectors/txn/fixtures/programs/3fa6ad8b809eaebcd5dd286ad60b115750823b5d_265678.fix
 dump/test-vectors/txn/fixtures/programs/3fd3b6917247f6f1e003f3611b67a18ebcaa7f2b_265678.fix
@@ -847,6 +858,7 @@ dump/test-vectors/txn/fixtures/programs/4c8b3ad1343751f14550c93940858886d891b984
 dump/test-vectors/txn/fixtures/programs/4cbbe2f3f047d244ea3642df5ea3b2a3072b6094_265678.fix
 dump/test-vectors/txn/fixtures/programs/4cc171b7c3584933bdbc4ddd2eeaa64975dd57d6_265678.fix
 dump/test-vectors/txn/fixtures/programs/4cd57fb435285576274d04a5ffc5dae126f10f2a_265678.fix
+dump/test-vectors/txn/fixtures/programs/4ce5d49479cc9bb4d3a5d9d70684311a0fd7a6d8_495115.fix
 dump/test-vectors/txn/fixtures/programs/4cedcd0b8ab5d64fbe716865a6ec264b7e1ecb11_265678.fix
 dump/test-vectors/txn/fixtures/programs/4ceddb13f1d331778bca595637b5c27e249d42ef_265678.fix
 dump/test-vectors/txn/fixtures/programs/4d1d2327d37fb9c33db5441816478c299d3b4de5_265678.fix
@@ -921,6 +933,7 @@ dump/test-vectors/txn/fixtures/programs/52a63e15e7e109b1d3f701c267e1b412f9ab93a1
 dump/test-vectors/txn/fixtures/programs/52bec0babefbe755b5e0d038c1dd18ee473a014e_265678.fix
 dump/test-vectors/txn/fixtures/programs/52cee3a5363c9f0edf32b8f6b52fb96c65d6697d_2998299.fix
 dump/test-vectors/txn/fixtures/programs/52d93dcced439c64044529c3412483e6c57e5775_265678.fix
+dump/test-vectors/txn/fixtures/programs/52daa29da542c1fab4a078d4ec208cb352b7c237_3722020.fix
 dump/test-vectors/txn/fixtures/programs/52eb8b393ec6d2ff93dcc06c671916a1ce1bb454_265678.fix
 dump/test-vectors/txn/fixtures/programs/52fbee3f03285c2ab59031335e509e738f7a329f_265678.fix
 dump/test-vectors/txn/fixtures/programs/5306b5952ef18f20661cb742eca45c9213f874ea_265678.fix
@@ -979,6 +992,7 @@ dump/test-vectors/txn/fixtures/programs/57fc57ad6072f086d5cb4632a96e65cbbb49a819
 dump/test-vectors/txn/fixtures/programs/5803e02af71c317adedab648c9a4bb8a0785d295_265678.fix
 dump/test-vectors/txn/fixtures/programs/5805e4b751787d11fa7822362c86b55f77f27a80_265678.fix
 dump/test-vectors/txn/fixtures/programs/580de5b212d1073dc64b1646820173cd1f272583_265678.fix
+dump/test-vectors/txn/fixtures/programs/580ed5edea5c03ad04a670e379183f0edb27f3ce_3766585.fix
 dump/test-vectors/txn/fixtures/programs/58347a94a5b3b2901fa26db88c7c5599a9c11033_265678.fix
 dump/test-vectors/txn/fixtures/programs/584d5811b34acdc9f5f9cc42b2dc79c912fce343_265678.fix
 dump/test-vectors/txn/fixtures/programs/5853f251bba7575b0143ce5cdd82ecf9bc1dce44_265678.fix
@@ -1111,6 +1125,7 @@ dump/test-vectors/txn/fixtures/programs/61a61d1b34ebb98429d4af8ba7ff110fe6d6afa2
 dump/test-vectors/txn/fixtures/programs/61a7bce4d6bb1ed74b2f048ee00055e8ade340b1_2225868.fix
 dump/test-vectors/txn/fixtures/programs/61ac8a5352908053208a3aecb9852a2ecfda0ce5_265678.fix
 dump/test-vectors/txn/fixtures/programs/61f966947c0639bcfcc39396d8a14545aa43478c_265678.fix
+dump/test-vectors/txn/fixtures/programs/620522ab01906554283e12e36d8117dae515f418_3358297.fix
 dump/test-vectors/txn/fixtures/programs/6205f6c1c479402bd6fe7a6a011ed8a87726b43a_265678.fix
 dump/test-vectors/txn/fixtures/programs/621d91964e32435c23bac922c1ef7a4f758d45da_265678.fix
 dump/test-vectors/txn/fixtures/programs/6236e916d8044143afdb8c17d3797d6126fa06c8_265678.fix
@@ -1363,6 +1378,7 @@ dump/test-vectors/txn/fixtures/programs/7ade99678b9f6b8a6c64a143756186e9c42cee87
 dump/test-vectors/txn/fixtures/programs/7ae5161b04f4be4ced93339e8c30c1c50e150840_336358.fix
 dump/test-vectors/txn/fixtures/programs/7b0bdf3bc8b96c84d31b53d46857f0dcf02e978f_265678.fix
 dump/test-vectors/txn/fixtures/programs/7b0cbc17a6e68fb759d3cfe2058ab87956880415_265678.fix
+dump/test-vectors/txn/fixtures/programs/7b1e58017efe2b76b1d3ab04f44c17f2dbe156a5_3521424.fix
 dump/test-vectors/txn/fixtures/programs/7b2b19bacbd26480acc84b2ec2309dab78bcd4d2_265678.fix
 dump/test-vectors/txn/fixtures/programs/7b2d37d7a4e99a84a1e7ba65e3012ba0b2d364a9_265678.fix
 dump/test-vectors/txn/fixtures/programs/7b3f5535b4aea1e007d109410a2cde376a096b85_3197345.fix
@@ -1444,6 +1460,7 @@ dump/test-vectors/txn/fixtures/programs/80d5bfd331a90cd04f02ebeb2daa875bb4d04ba4
 dump/test-vectors/txn/fixtures/programs/80f7ed9dd50d5090558dc3ac67b47e7a57d53601_265678.fix
 dump/test-vectors/txn/fixtures/programs/80fa74e58476bc07e9d6ccca64c374c22da0327c_265678.fix
 dump/test-vectors/txn/fixtures/programs/80fc66f560d55fa1b5edc9fb9c14c0fae58a0ea9_265678.fix
+dump/test-vectors/txn/fixtures/programs/81080522b94bd3dbe80eebed6873659db5a3860a_3454326.fix
 dump/test-vectors/txn/fixtures/programs/8110e6060ad48d75502aa880b74162d020ea1819_265678.fix
 dump/test-vectors/txn/fixtures/programs/8134209f43c8d3dbbb861b30ee71f1f649babc5f_265678.fix
 dump/test-vectors/txn/fixtures/programs/8162e28c300791cf553a31198cd11bad10e0b7bc_265678.fix
@@ -1559,6 +1576,7 @@ dump/test-vectors/txn/fixtures/programs/8ab790cf1e3936cf30649635fa52bf1c868be032
 dump/test-vectors/txn/fixtures/programs/8ac234a9308c1190c404e6a63576063f55399c9f_265678.fix
 dump/test-vectors/txn/fixtures/programs/8ac2b97afa10f62af05cb0ec2b9707994f6c86cf_265678.fix
 dump/test-vectors/txn/fixtures/programs/8ac697710a28f770e7ed681c65cd15333b4ae7fe_265678.fix
+dump/test-vectors/txn/fixtures/programs/8ae8c1d2f378a5e1038cfc6b9a649e4be23b2bef_3788935.fix
 dump/test-vectors/txn/fixtures/programs/8b3b935ddd03507493dc9867f606b68888bd946f_265678.fix
 dump/test-vectors/txn/fixtures/programs/8b3dcf67440ca55dc1d2bc248ef61f034fe68185_265678.fix
 dump/test-vectors/txn/fixtures/programs/8b3eb8d0ae5ac2b5606f38a85d9790fd8db868f5_265678.fix
@@ -1751,6 +1769,7 @@ dump/test-vectors/txn/fixtures/programs/9b37b7a0abba4fe18ed0b38695e962db80dc980a
 dump/test-vectors/txn/fixtures/programs/9b72ec80ef8b3b966214a6872fc37dd6cd8c4aef_265678.fix
 dump/test-vectors/txn/fixtures/programs/9b764649723ceb97dc30207fbc75d494e95341a3_265678.fix
 dump/test-vectors/txn/fixtures/programs/9b8979c9e358d586cc42044fdd261bf7e1f9671e_265678.fix
+dump/test-vectors/txn/fixtures/programs/9b9904644837f830bc3c5db98ed57b35f3915dff_557019.fix
 dump/test-vectors/txn/fixtures/programs/9bbce678b9717be671a10d99d23aee4845e7648c_265678.fix
 dump/test-vectors/txn/fixtures/programs/9bcbd7d4cbdb4620dc79b74e17a786a92a12d905_265678.fix
 dump/test-vectors/txn/fixtures/programs/9be1ddb02934e8c8876427e2b074a5051f713a32_1656662.fix
@@ -1766,6 +1785,7 @@ dump/test-vectors/txn/fixtures/programs/9c7e6374397eb1ade7208cbbbc250a3b10cc031e
 dump/test-vectors/txn/fixtures/programs/9c908a4fa99dfbebd21f89f838f950d95b3a66a1_2074259.fix
 dump/test-vectors/txn/fixtures/programs/9ca673d64d60af8e1dadbf05ae908755253ba381_265678.fix
 dump/test-vectors/txn/fixtures/programs/9cd6656633809de45a7be5ea44ce861059dc6672_265678.fix
+dump/test-vectors/txn/fixtures/programs/9cdac405a51390d2613f9b17fe57266b6daa3d80_3589182.fix
 dump/test-vectors/txn/fixtures/programs/9ce0b9c7e3ccb4623c5738ce7662670c9750fc62_265678.fix
 dump/test-vectors/txn/fixtures/programs/9d0acbc9645fb51710f6ce40d9674af9b9688af3_265678.fix
 dump/test-vectors/txn/fixtures/programs/9d0fa0656201d008504750dca5788eec210ab657_265678.fix
@@ -1776,6 +1796,7 @@ dump/test-vectors/txn/fixtures/programs/9dacaaaf67b58eb8428385fc80972cd1f7f74260
 dump/test-vectors/txn/fixtures/programs/9db0d6ac727a2378226657a9b039ab9a89310ed6_265678.fix
 dump/test-vectors/txn/fixtures/programs/9db1461dcd37b02611635ca297080a30af34492c_265678.fix
 dump/test-vectors/txn/fixtures/programs/9dbb2780a5ab92f14b85f3b2c0119707b58832a8_265678.fix
+dump/test-vectors/txn/fixtures/programs/9dbe0999856f2e886d071ce69afdf317e47a6d60_3131989.fix
 dump/test-vectors/txn/fixtures/programs/9dd56838401bb02398cf1627551f337962cc4e8c_265678.fix
 dump/test-vectors/txn/fixtures/programs/9de7ab82ca6cdc4682b90b83817d16f2b8352055_2615889.fix
 dump/test-vectors/txn/fixtures/programs/9e1d8e4c4acec27409ce44853e044a40a4b1def4_265678.fix
@@ -1824,6 +1845,7 @@ dump/test-vectors/txn/fixtures/programs/a174d16d3f9ceb53c864c959f95624239f06f2ea
 dump/test-vectors/txn/fixtures/programs/a191f961e8f60d382087742fa7a7f624f910c740_3202725.fix
 dump/test-vectors/txn/fixtures/programs/a1ce806bcf467692d7d2571fdd1e0294b6234f24_265678.fix
 dump/test-vectors/txn/fixtures/programs/a1e7cb08f847116f2cb19af3af5792af9741f111_265678.fix
+dump/test-vectors/txn/fixtures/programs/a1f33a08e884b7f10c5693da3d2830c51eae2f8a_620732.fix
 dump/test-vectors/txn/fixtures/programs/a21bd03805fca011a9e029f88a62890821052ca0_265678.fix
 dump/test-vectors/txn/fixtures/programs/a22c9bc3be7cc45b3f71df8e906a314c4a6dd497_265678.fix
 dump/test-vectors/txn/fixtures/programs/a23874e785cdbacabcb9bd2914e5ff5fcf18a87d_265678.fix
@@ -1901,6 +1923,7 @@ dump/test-vectors/txn/fixtures/programs/a9cefe3d9e3402604500338b0d81abfb403bb310
 dump/test-vectors/txn/fixtures/programs/a9dc0c63c5e277a8e07d011ab0978d8cc11e6a46_265678.fix
 dump/test-vectors/txn/fixtures/programs/a9eb1b3b71a8c9d838fd13feaa7d8d550c0ceb24_265678.fix
 dump/test-vectors/txn/fixtures/programs/a9f37c82a25b385e2a305d224bb9d11525245e6b_265678.fix
+dump/test-vectors/txn/fixtures/programs/a9f900d56a144f808d7460c739a2072fb461f167_148681.fix
 dump/test-vectors/txn/fixtures/programs/aa2aa35ce3efe0691ce79258f6d2b22141fc709e_265678.fix
 dump/test-vectors/txn/fixtures/programs/aa3034f397fbe6fee7c85019213330e7ec7bc217_265678.fix
 dump/test-vectors/txn/fixtures/programs/aa49773a86c302586bd51d6b96f2e5a4f7b8e2bf_265678.fix
@@ -1909,6 +1932,7 @@ dump/test-vectors/txn/fixtures/programs/aa7eec20d7a0acc588bb07c486537fc32a5b63fd
 dump/test-vectors/txn/fixtures/programs/aa82f8da1905d69a5ba853c7ac842af94ef2d81d_265678.fix
 dump/test-vectors/txn/fixtures/programs/aabe725582c114a80aa12a6e8f0aa8e5c3e5b59f_265678.fix
 dump/test-vectors/txn/fixtures/programs/aaf899b829910389a768e78800ed5598a7f1f437_265678.fix
+dump/test-vectors/txn/fixtures/programs/aaf97517defc2e2db97f3012823a5d4414267976_211252.fix
 dump/test-vectors/txn/fixtures/programs/ab1874c7fb538f12fec1adb5f2f8bf5d7e617d24_265678.fix
 dump/test-vectors/txn/fixtures/programs/ab1cb9af91054b7e48f7376a48b3753390701634_265678.fix
 dump/test-vectors/txn/fixtures/programs/ab2e6c4e469a394f2a0dec4fc73d7b4a74a177e8_3004050.fix
@@ -1944,6 +1968,7 @@ dump/test-vectors/txn/fixtures/programs/ad9fa854f641cac3f5557d5d725f778208019f39
 dump/test-vectors/txn/fixtures/programs/ada9c869b45e2a006b981f0471e53bacbb0d1e25_265678.fix
 dump/test-vectors/txn/fixtures/programs/adb0c00e4d66bcd12a5ef220c834f0d5cc7f3bbd_265678.fix
 dump/test-vectors/txn/fixtures/programs/adc9f49557561027e9fa84ff12612d1d9b288d62_265678.fix
+dump/test-vectors/txn/fixtures/programs/adf582063500f538fbdeb6e610190ef961f8ab2b_106421.fix
 dump/test-vectors/txn/fixtures/programs/ae2ac2bc5f1ea887379a010878a207630e265388_265678.fix
 dump/test-vectors/txn/fixtures/programs/ae3625448cac01e396fc1ead34823c142753ef9e_265678.fix
 dump/test-vectors/txn/fixtures/programs/ae41e64222e2010f6e6990bc4122bd5b97f06eab_265678.fix
@@ -1976,9 +2001,11 @@ dump/test-vectors/txn/fixtures/programs/b1ae9f1ec2759363ca42ca5816391c61034b5eca
 dump/test-vectors/txn/fixtures/programs/b1b7162d81264ec56fe6d67b1075a8dc9edae5c8_265678.fix
 dump/test-vectors/txn/fixtures/programs/b1d86a80e02b66b024bc62cce7f1f2320dd5a43c_265678.fix
 dump/test-vectors/txn/fixtures/programs/b1fc7365d7869aadc9eea4a43ed4fb7c53794cf2_265678.fix
+dump/test-vectors/txn/fixtures/programs/b20b509a4ff667b846ade548ce3748613d2ad602_55476.fix
 dump/test-vectors/txn/fixtures/programs/b229e60b65b3cbabc79376c8bef9b6e63f470559_265678.fix
 dump/test-vectors/txn/fixtures/programs/b2355a31498d46c8630744bc736986f68a6f6c40_265678.fix
 dump/test-vectors/txn/fixtures/programs/b244ad13b1ec11f5a4a542f341628dcbb0bfbea5_265678.fix
+dump/test-vectors/txn/fixtures/programs/b25f8636ce13e62edc9d427329136aceb8d3d635_588533.fix
 dump/test-vectors/txn/fixtures/programs/b2855de8cddf47c400460a5aa33222966fe54f6c_265678.fix
 dump/test-vectors/txn/fixtures/programs/b2a02731e268fad7ab787dd01e02629bc649255a_265678.fix
 dump/test-vectors/txn/fixtures/programs/b2a84cc4188aa7b760e1626f5769fb979b79a9cf_3432794.fix
@@ -2067,6 +2094,7 @@ dump/test-vectors/txn/fixtures/programs/ba446856bfdb4f94b45e5e9efcf823e81763a0d0
 dump/test-vectors/txn/fixtures/programs/ba5a8ed1d1213f9ac7326e77cd7d81ff9857f246_265678.fix
 dump/test-vectors/txn/fixtures/programs/ba8456672524fcf2f08fcc074c3e2c36a913a721_265678.fix
 dump/test-vectors/txn/fixtures/programs/ba9fb5dc2616f62e991347e146270856180ad5d6_265678.fix
+dump/test-vectors/txn/fixtures/programs/bab08f3af7dbab2fcbf82cc7a99954bfd6d6cc41_3065625.fix
 dump/test-vectors/txn/fixtures/programs/babd2b0c47b293e753772ba56109537bbb33a5fa_265678.fix
 dump/test-vectors/txn/fixtures/programs/bacdf2b5243dc80a50d5918e438cf3a5ff8a6372_265678.fix
 dump/test-vectors/txn/fixtures/programs/bad36ca20e56895a7a76d3aef0637c4d7e9eee59_265678.fix
@@ -2107,6 +2135,7 @@ dump/test-vectors/txn/fixtures/programs/bead8642cd272bac98b4ec6276d2ed37b5eaef18
 dump/test-vectors/txn/fixtures/programs/beb56ea19d12b6ef47a7369e27fdbb4822c52872_265678.fix
 dump/test-vectors/txn/fixtures/programs/bef19d5f0050bdca004df82201bb9585a781b3de_265678.fix
 dump/test-vectors/txn/fixtures/programs/bf32aa3cfe329f5c7b09b9019ef5e10cc5d1daa9_265678.fix
+dump/test-vectors/txn/fixtures/programs/bf528474266fcbe2c69ae841513d2a954bdfde15_2709424.fix
 dump/test-vectors/txn/fixtures/programs/bf67cbf0a7bc9493111e07169d09ab78040acac8_2915173.fix
 dump/test-vectors/txn/fixtures/programs/bf6970780c4ac500f633caf415f22601bfb9e876_265678.fix
 dump/test-vectors/txn/fixtures/programs/bf8b24057e8ae2d3078f92273af1069c21ffa65f_265678.fix
@@ -2255,6 +2284,7 @@ dump/test-vectors/txn/fixtures/programs/ca7e6931dcffa08db8e9e2ee8060d09d1c94359e
 dump/test-vectors/txn/fixtures/programs/ca87cc94b69bcda9a032cb1a91864ec07bd88307_265678.fix
 dump/test-vectors/txn/fixtures/programs/ca87e31c6c9094c86c28c3d690424ce26ec05099_265678.fix
 dump/test-vectors/txn/fixtures/programs/cab09a11d027117f1e62ab93f8ebda0be4498f7e_265678.fix
+dump/test-vectors/txn/fixtures/programs/cac611f2933c12018849200153b147ceecf383cb_3220725.fix
 dump/test-vectors/txn/fixtures/programs/caf25695d303f2db08544113a2ef5f6b2b9eee96_265678.fix
 dump/test-vectors/txn/fixtures/programs/cafc486a820fe0683c588e3defb5daab7a21a707_265678.fix
 dump/test-vectors/txn/fixtures/programs/cb0b8581bc83230bd4d0875a85f184eef626ce01_265678.fix
@@ -2362,6 +2392,7 @@ dump/test-vectors/txn/fixtures/programs/d1ffa9b36365bc727815aadb483d83b6b2dd3f21
 dump/test-vectors/txn/fixtures/programs/d218932653918941ac3e0cde2e3b5d76360e70dc_2994121.fix
 dump/test-vectors/txn/fixtures/programs/d21d9912ffddba17bf1b82589dcddad494f4c496_265678.fix
 dump/test-vectors/txn/fixtures/programs/d22c7ad1052dfc7d86e01638ee8a8828df4947c9_265678.fix
+dump/test-vectors/txn/fixtures/programs/d26e49b9fc387cd17b56bc844f5dc641b331ad82_3243370.fix
 dump/test-vectors/txn/fixtures/programs/d271e09db239b488d0705c4ba5623309f4260d09_265678.fix
 dump/test-vectors/txn/fixtures/programs/d27324b608042c32b4951e9af57e7ea29aa1cda1_265678.fix
 dump/test-vectors/txn/fixtures/programs/d28f0899054a5705c537a07a7f36d92810b3963f_265678.fix
@@ -2554,6 +2585,7 @@ dump/test-vectors/txn/fixtures/programs/e40387844fc1a98715f686caef8a43d790c4425a
 dump/test-vectors/txn/fixtures/programs/e40613923ab4fa20fe7e9acf4a7df8c2e575d741_265678.fix
 dump/test-vectors/txn/fixtures/programs/e4083f17f23f8de41c2a8d57702d0c948b491658_265678.fix
 dump/test-vectors/txn/fixtures/programs/e40b58df52daab9e6f06bf857c8b294fec4ddc72_265678.fix
+dump/test-vectors/txn/fixtures/programs/e4292a820e3b9a77b4f3104858ab74685ceb2606_3744127.fix
 dump/test-vectors/txn/fixtures/programs/e436631072361bae4ffae6adcca101c0af6c8d70_265678.fix
 dump/test-vectors/txn/fixtures/programs/e4392e419498ecb05ac36f83e3e74a5c60c0526c_265678.fix
 dump/test-vectors/txn/fixtures/programs/e4473e9683d3b5f92fb260375b1a63793844d5a6_265678.fix
@@ -2698,6 +2730,7 @@ dump/test-vectors/txn/fixtures/programs/ef6e37cddb088c65fcc8f79c7527e3737d524ebc
 dump/test-vectors/txn/fixtures/programs/ef7b533f7c51b94977a6f64e6f82c2135f8a853b_265678.fix
 dump/test-vectors/txn/fixtures/programs/ef8025e40b0eabe250bac4c2abd2cd72a223ceb8_265678.fix
 dump/test-vectors/txn/fixtures/programs/ef9a14cb202e88b07986f91e52c0fd7279cc23be_4029210.fix
+dump/test-vectors/txn/fixtures/programs/efbe06239e1b44b8df29e49ed115803a11f40680_3476806.fix
 dump/test-vectors/txn/fixtures/programs/efc2509ae4908d676bf116cb07fbd67e01ae870f_265678.fix
 dump/test-vectors/txn/fixtures/programs/efc9d384475916612c8b252428e4349db9ac4dc7_265678.fix
 dump/test-vectors/txn/fixtures/programs/efd90244b40d0fafe27e717d76b3a4b7947cd3fb_265678.fix
@@ -2744,6 +2777,7 @@ dump/test-vectors/txn/fixtures/programs/f497797b3b0d2db3732ce8537dd10e3452d8ea8d
 dump/test-vectors/txn/fixtures/programs/f4b1018f6c91e083a3a3b0fccaef454a3a0628b0_265678.fix
 dump/test-vectors/txn/fixtures/programs/f4d018520754e82f44f97a22ccc06ba4d58bdb73_265678.fix
 dump/test-vectors/txn/fixtures/programs/f4e1674f7530ea87a6690f64a6b7169e984ea604_3109805.fix
+dump/test-vectors/txn/fixtures/programs/f50d739b844ce1e4e4e6c22e98964953ed37d8f2_4091482.fix
 dump/test-vectors/txn/fixtures/programs/f5185dc0a4dbbfcd59f2edce4381f8d09f60e2bc_265678.fix
 dump/test-vectors/txn/fixtures/programs/f54462fbb7be559da5b729163c7cf1ef4feb8f13_265678.fix
 dump/test-vectors/txn/fixtures/programs/f5483a0e755d038bb69f147eb72aa9a597ffd2bc_265678.fix
@@ -2763,6 +2797,7 @@ dump/test-vectors/txn/fixtures/programs/f6424fc19dc8e0b5c3f7aa6c4a71ecf4a2e2ece9
 dump/test-vectors/txn/fixtures/programs/f660d3605838fffc352ebcb791bc6814c6e9855b_265678.fix
 dump/test-vectors/txn/fixtures/programs/f676dd9edc757e1aee2877e48a1b5101dd86d1ed_265678.fix
 dump/test-vectors/txn/fixtures/programs/f68ddfd97cd8e5189451da527e4eceeb09c093bb_265678.fix
+dump/test-vectors/txn/fixtures/programs/f6991461da3dc60085295ec0eb277313dfcd9d55_3176291.fix
 dump/test-vectors/txn/fixtures/programs/f6a60d1c5c62d0625999854a7258cb0923659d17_265678.fix
 dump/test-vectors/txn/fixtures/programs/f6dcd708163bcd22cc80031d8c9719fe18defa6d_265678.fix
 dump/test-vectors/txn/fixtures/programs/f6eb206876d1c909c4fcf685c833bff923c45824_265678.fix
