@@ -518,14 +518,15 @@ void fd_pack_set_initializer_bundles_ready( fd_pack_t * pack );
    though the block-level limits are respected.
 
    Both cases:
-   The non_execution_cus and requested_execution_cus fields of each
-   transaction will be populated with the non execution CUs and
-   requested execution CUs, respectively.  The sum of these two values
-   is the total cost of the transaction, i.e. what is used for all
-   limits, including the total_cus value.  The lower 3 bits of the flags
-   field will be populated (simple vote, bundle, initializer bundle).
-   Inspecting these flags is the proper way to tell which codepath
-   executed.
+   The non_execution_cus and requested_exec_plus_acct_data_cus fields of
+   each transaction will be populated with the non execution CUs and
+   requested execution CUs (including cus derived from the requested
+   loaded accounts data size), respectively.  The sum of these two
+   values is the total cost of the transaction, i.e. what is used for
+   all limits, including the total_cus value.  The lower 3 bits of the
+   flags field will be populated (simple vote, bundle, initializer
+   bundle). Inspecting these flags is the proper way to tell which
+   codepath executed.
 
    Returns the number of transactions in the scheduled microblock or
    bundle.  The return value may be 0 if there are no eligible

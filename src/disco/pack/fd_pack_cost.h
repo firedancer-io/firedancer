@@ -3,19 +3,32 @@
 #include "../../ballet/fd_ballet_base.h"
 #include "fd_compute_budget_program.h"
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
+#include "../../ballet/txn/fd_txn.h"
 
 /* The functions in this header implement the transaction cost model
    that is soon to be part of consensus.
    The cost model consists of several components:
-     * per-signature cost
-     * per-write-lock cost
-     * instruction data length cost
-     * built-in execution cost
-     * BPF execution cost
-   These are all summed to determine the total cost.  Additionally, this
-   header provides a method for determining if a transaction is a simple
-   vote transaction, in which case its costs are used slightly
-   differently. */
+     * per-signature cost: The costs associated with transaction
+       signatures + signatures from precompiles (ED25519 + SECP256K1)
+     * per-write-lock cost: cost assiciated with aquiring write locks
+       for writable accounts listed in the transaction.
+     * instruction data length cost: The fixed cost for each instruction
+       data byte in the transaction payload.
+     * built-in execution cost: The fixed cost associated with "builtin"
+       instructions. "What are builtins" is defined here:
+       https://github.com/anza-xyz/agave/blob/1baa4033e0d2d4175373f07b73ddda2f3cc0a8d6/builtins-default-costs/src/lib.rs#L120-L200
+       After SIMD 170, all builtins have a fixed cost of 3000 cus.
+     * BPF execution cost: The costs assosiated with any instruction
+       that is not a builtin.  This value comes from the VM after
+       transaction execution.
+     * loaded accounts data cost: Costs associated with all the account
+       data loaded from the chain.  This value is known in the
+       transaction loading stage, after accounts data is loaded.
+   These are all summed to determine the total transaction cost. */
+
+/* The exception to these costs are simple vote transactions, incur a
+   fixed cost regardless of their actual execution cost or account data
+   loaded. */
 
 /* To compute the built-in cost, we need to check a table. The table
    is known ahead of time though, so we can build a perfect hash
@@ -51,9 +64,7 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
 
 
 /* The cost model estimates 200,000 CUs for builtin programs that were migrated to BPF */
-#define VOTE_PROG_COST        3000UL
-
-#define MAP_PERFECT_0  ( VOTE_PROG_ID            ), .cost_per_instr=        VOTE_PROG_COST
+#define MAP_PERFECT_0  ( VOTE_PROG_ID            ), .cost_per_instr=        3000UL
 #define MAP_PERFECT_1  ( SYS_PROG_ID             ), .cost_per_instr=        3000UL
 #define MAP_PERFECT_2  ( COMPUTE_BUDGET_PROG_ID  ), .cost_per_instr=        3000UL
 #define MAP_PERFECT_3  ( BPF_UPGRADEABLE_PROG_ID ), .cost_per_instr=        3000UL
@@ -70,9 +81,11 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
                              a16,a17,a18,a19,a20,a21,a22,a23,a24,a25,a26,a27,a28,a29,a30,a31) \
                                           PERFECT_HASH( ((uint)a08 | ((uint)a09<<8) | ((uint)a10<<16) | ((uint)a11<<24)) )
 
-#define FD_PACK_COST_PER_SIGNATURE           (720UL)
-#define FD_PACK_COST_PER_WRITABLE_ACCT       (300UL)
-#define FD_PACK_INV_COST_PER_INSTR_DATA_BYTE (  4UL)
+#define FD_PACK_COST_PER_SIGNATURE           (  720UL)
+#define FD_PACK_COST_PER_ED25519_SIGNATURE   ( 2400UL)
+#define FD_PACK_COST_PER_SECP256K1_SIGNATURE ( 6690UL)
+#define FD_PACK_COST_PER_WRITABLE_ACCT       (  300UL)
+#define FD_PACK_INV_COST_PER_INSTR_DATA_BYTE (    4UL)
 
 /* The computation here is similar to the computation for the max
    fd_txn_t size.  There are various things a transaction can include
@@ -103,6 +116,9 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
    Finally, with any bytes that remain, we can add them to one of the
    instruction datas for 0.25 CUs/byte.
 
+   Note that by default, 64MiB of data are assumed for the loaded
+   accounts data size cost. This corresponds (currently) to 16384 CUs.
+
    This gives a transaction that looks like
      Field                   bytes consumed               CUs used
      sig cnt                      1                             0
@@ -119,29 +135,35 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
      Compute budget program ix    8                           151.25
      62 dummy BPF upg ixs       186                       146,940
      1 dummy non-builtin ix       8                     1,400,001.25
+     loaded accts data cost       0                         16384
    + ---------------------------------------------------------------
-                              1,232                     1,556,782
+                              1,232                     1,573,166
 
    One of the main take-aways from this is that the cost of a
    transaction easily fits in a uint. */
-#define FD_PACK_MAX_TXN_COST (1556782UL)
+#define FD_PACK_MAX_TXN_COST (1573166UL)
 FD_STATIC_ASSERT( FD_PACK_MAX_TXN_COST < (ulong)UINT_MAX, fd_pack_max_cost );
 
 /* Every transaction has at least a fee payer, a writable signer. */
 #define FD_PACK_MIN_TXN_COST (FD_PACK_COST_PER_SIGNATURE+FD_PACK_COST_PER_WRITABLE_ACCT)
 
-/* A typical vote transaction has the authorized voter (writable
-   signer), the vote account (writable non-signer), and the vote program
-   (readonly).  Then it has one instruction, a built-in to the vote
-   program, which is typically 116 bytes long, but occasionally a little
-   less than that.  The mean over several million slots of vote
-   transactions (10B votes) is 115.990 bytes. */
-static const ulong FD_PACK_TYPICAL_VOTE_COST = ( FD_PACK_COST_PER_SIGNATURE                 +
-                                                 2UL*FD_PACK_COST_PER_WRITABLE_ACCT         +
-                                                 116UL/FD_PACK_INV_COST_PER_INSTR_DATA_BYTE +
-                                                 VOTE_PROG_COST );
 
-#undef VOTE_PROG_COST
+/* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_processor.rs#L55 */
+
+#define FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS 2100UL
+
+/* A simple vote transaction has the authorized voter (writable
+   signer), the vote account (writable non-signer), clock sysvar, slot
+   hashes sysvar (both readonly), and the vote program (readonly).  Then
+   it has one instruction a built-in to the vote program, which has a
+   fixed cost of DEFAULT_COMPUTE_UNITS, and an instruction data cost of
+   8.
+
+   See https://github.com/firedancer-io/agave/blob/v2.1.11-fd/sdk/src/simple_vote_transaction_checker.rs */
+static const ulong FD_PACK_SIMPLE_VOTE_COST = ( FD_PACK_COST_PER_SIGNATURE         +
+                                                2UL*FD_PACK_COST_PER_WRITABLE_ACCT +
+                                                FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS      +
+                                                8 );
 
 
 /* Computes the total cost and a few related properties for the
@@ -159,9 +181,12 @@ static const ulong FD_PACK_TYPICAL_VOTE_COST = ( FD_PACK_COST_PER_SIGNATURE     
    per-signature fee). This value is in [0, ULONG_MAX].
    If opt_precompile_sig_cnt is non-null, on success it will contain the
    total number of signatures in precompile instructions, namely Keccak
-   and Ed25519 signature verification programs. This value is in [0,
+   and Ed25519 signature verification programs.  This value is in [0,
    256*64].  Note that this does not do full parsing of the precompile
-   instruction, and it may be malformed.
+   instruction, and it may be malformed.  If
+   opt_loaded_accounts_data_cost is non-null, on success it will contain
+   the total requested cost due to loaded accounts data.  This value is
+   in [0, the returned value).
 
    On failure, returns 0 and does not modify the value pointed to by
    flags, opt_execution_cost, opt_fee, or opt_precompile_sig_cnt. */
@@ -171,34 +196,46 @@ fd_pack_compute_cost( fd_txn_t const * txn,
                       uint           * flags,
                       ulong          * opt_execution_cost,
                       ulong          * opt_fee,
-                      ulong          * opt_precompile_sig_cnt ) {
+                      ulong          * opt_precompile_sig_cnt,
+                      ulong          * opt_loaded_accounts_data_cost ) {
 
 #define ROW(x) fd_pack_builtin_tbl + MAP_PERFECT_HASH_PP( x )
-
   fd_pack_builtin_prog_cost_t const * compute_budget_row     = ROW( COMPUTE_BUDGET_PROG_ID );
-  fd_pack_builtin_prog_cost_t const * vote_row               = ROW( VOTE_PROG_ID           );
   fd_pack_builtin_prog_cost_t const * ed25519_precompile_row = ROW( ED25519_SV_PROG_ID     );
-  fd_pack_builtin_prog_cost_t const * keccak_precompile_row  = ROW( KECCAK_SECP_PROG_ID    );
   fd_pack_builtin_prog_cost_t const * secp256r1_precomp_row  = ROW( SECP256R1_PROG_ID      );
 #undef ROW
 
-  /* We need to be mindful of overflow here, but it's not terrible.
-         signature_cost <= FD_TXN_ACCT_ADDR_MAX*720,
-         writable_cost  <= FD_TXN_ACCT_ADDR_MAX*300 */
+  /* special handling for simple votes */
+  if( FD_UNLIKELY( fd_txn_is_simple_vote_transaction( txn, payload ) ) ) {
+#if DETAILED_LOGGING
+    FD_BASE58_ENCODE_64_BYTES( (const uchar *)fd_txn_get_signatures(txn, payload), signature_cstr );
+    FD_LOG_NOTICE(( "TXN SIMPLE_VOTE signature[%s] total_cost[%lu]", signature_cstr, FD_PACK_SIMPLE_VOTE_COST));
+#endif
+    *flags |= FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
+    fd_ulong_store_if( !!opt_execution_cost,            opt_execution_cost,            FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS );
+    fd_ulong_store_if( !!opt_fee,                       opt_fee,                       0                             );
+    fd_ulong_store_if( !!opt_precompile_sig_cnt,        opt_precompile_sig_cnt,        0                             );
+    fd_ulong_store_if( !!opt_loaded_accounts_data_cost, opt_loaded_accounts_data_cost, 0                             );
+    return FD_PACK_SIMPLE_VOTE_COST;
+  }
 
-  ulong signature_cost = FD_PACK_COST_PER_SIGNATURE      * fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_SIGNER   );
+  *flags &= ~FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
+
+  /* We need to be mindful of overflow here, but it's not terrible.
+     signature_cost < FD_TXN_ACCT_ADDR_MAX*720 + FD_TXN_INSTR_MAX * UCHAR_MAX * 6690,
+     writable_cost  <= FD_TXN_ACCT_ADDR_MAX*300 */
+  ulong signature_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_SIGNER );
+  ulong signature_cost = FD_PACK_COST_PER_SIGNATURE      * signature_cnt;
   ulong writable_cost  = FD_PACK_COST_PER_WRITABLE_ACCT  * fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_WRITABLE );
 
   ulong instr_data_sz      = 0UL; /* < FD_TPU_MTU */
   ulong builtin_cost       = 0UL; /* <= 2370*FD_TXN_INSTR_MAX */
   ulong non_builtin_cnt    = 0UL; /* <= FD_TXN_INSTR_MAX */
-  ulong vote_instr_cnt     = 0UL; /* <= FD_TXN_INSTR_MAX */
   ulong precompile_sig_cnt = 0UL; /* <= FD_TXN_INSTR_MAX * UCHAR_MAX */
   fd_acct_addr_t const * addr_base = fd_txn_get_acct_addrs( txn, payload );
 
   fd_compute_budget_program_state_t cbp[1];
   fd_compute_budget_program_init( cbp );
-
 
   for( ulong i=0UL; i<txn->instr_cnt; i++ ) {
     instr_data_sz += txn->instr[i].data_sz;
@@ -216,21 +253,25 @@ fd_pack_compute_cost( fd_txn_t const * txn,
     if( FD_UNLIKELY( in_tbl==compute_budget_row ) ) {
       if( FD_UNLIKELY( 0==fd_compute_budget_program_parse( payload+txn->instr[i].data_off, txn->instr[i].data_sz, cbp ) ) )
         return 0UL;
-    } else if( FD_UNLIKELY( (in_tbl==ed25519_precompile_row) | (in_tbl==keccak_precompile_row) | (in_tbl==secp256r1_precomp_row) ) ) {
+    } else if( FD_UNLIKELY( (in_tbl==ed25519_precompile_row) ) ) {
       /* First byte is # of signatures.  Branchless tail reading here is
          probably okay, but this seems safer. */
-      precompile_sig_cnt += (txn->instr[i].data_sz>0) ? (ulong)payload[ txn->instr[i].data_off ] : 0UL;
+      ulong ed25519_signature_count = (txn->instr[i].data_sz>0) ? (ulong)payload[ txn->instr[i].data_off ] : 0UL;
+      precompile_sig_cnt += ed25519_signature_count;
+      signature_cost += ed25519_signature_count * FD_PACK_COST_PER_ED25519_SIGNATURE;
+    } else if( FD_UNLIKELY( (in_tbl==secp256r1_precomp_row) ) ) {
+      ulong secp256r1_signature_count = (txn->instr[i].data_sz>0) ? (ulong)payload[ txn->instr[i].data_off ] : 0UL;
+      precompile_sig_cnt += secp256r1_signature_count;
+      signature_cost += secp256r1_signature_count * FD_PACK_COST_PER_SECP256K1_SIGNATURE;
     }
-
-    vote_instr_cnt += (ulong)(in_tbl==vote_row);
-
   }
 
   ulong instr_data_cost = instr_data_sz / FD_PACK_INV_COST_PER_INSTR_DATA_BYTE; /* <= 320 */
 
   ulong fee[1];
   uint compute[1];
-  fd_compute_budget_program_finalize( cbp, txn->instr_cnt, fee, compute );
+  ulong loaded_account_data_cost[1];
+  fd_compute_budget_program_finalize( cbp, txn->instr_cnt, fee, compute, loaded_account_data_cost );
 
   non_builtin_cnt = fd_ulong_min( non_builtin_cnt, FD_COMPUTE_BUDGET_MAX_CU_LIMIT/FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT );
 
@@ -239,16 +280,19 @@ fd_pack_compute_cost( fd_txn_t const * txn,
                                         non_builtin_cnt*FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT
                                        ); /* <= FD_COMPUTE_BUDGET_MAX_CU_LIMIT */
 
+  fd_ulong_store_if( !!opt_execution_cost,            opt_execution_cost,            builtin_cost + non_builtin_cost );
+  fd_ulong_store_if( !!opt_fee,                       opt_fee,                       *fee                          );
+  fd_ulong_store_if( !!opt_precompile_sig_cnt,        opt_precompile_sig_cnt,        precompile_sig_cnt            );
+  fd_ulong_store_if( !!opt_loaded_accounts_data_cost, opt_loaded_accounts_data_cost, *loaded_account_data_cost     );
 
-  if( FD_LIKELY( (vote_instr_cnt==1UL) & (txn->instr_cnt==1UL) ) ) *flags |= FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
-  else                                                             *flags &= ~FD_TXN_P_FLAGS_IS_SIMPLE_VOTE;
-
-  fd_ulong_store_if( !!opt_execution_cost,     opt_execution_cost,     builtin_cost + non_builtin_cost );
-  fd_ulong_store_if( !!opt_fee,                opt_fee,                *fee                            );
-  fd_ulong_store_if( !!opt_precompile_sig_cnt, opt_precompile_sig_cnt, precompile_sig_cnt              );
+#if DETAILED_LOGGING
+  FD_BASE58_ENCODE_64_BYTES( (const uchar *)fd_txn_get_signatures(txn, payload), signature_cstr );
+  FD_LOG_NOTICE(( "TXN signature[%s] signature_cost[%lu]  writable_cost[%lu]  builtin_cost[%lu]  instr_data_cost[%lu]  non_builtin_cost[%lu]  loaded_account_data_cost[%lu]  precompile_sig_cnt[%lu]  fee[%lu]",
+  signature_cstr, signature_cost, writable_cost, builtin_cost, instr_data_cost, non_builtin_cost, *loaded_account_data_cost, precompile_sig_cnt, *fee));
+#endif
 
   /* <= FD_PACK_MAX_COST, so no overflow concerns */
-  return signature_cost + writable_cost + builtin_cost + instr_data_cost + non_builtin_cost;
+  return signature_cost + writable_cost + builtin_cost + instr_data_cost + non_builtin_cost + *loaded_account_data_cost;
 }
 #undef MAP_PERFECT_HASH_PP
 #undef PERFECT_HASH
