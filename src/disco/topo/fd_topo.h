@@ -142,10 +142,6 @@ typedef struct {
       ushort gossip_listen_port;
       ushort repair_intake_listen_port;
       ushort repair_serve_listen_port;
-
-      /* multihoming support */
-      ulong multihome_ip_addrs_cnt;
-      uint  multihome_ip_addrs[FD_NET_MAX_SRC_ADDR];
     } net;
 
     struct {
