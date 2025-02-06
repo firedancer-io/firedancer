@@ -15,7 +15,6 @@
 static void
 fd_snapshot_restore_discard_buf( fd_snapshot_restore_t * self ) {
   /* self->buf might be NULL */
-  fd_valloc_free( self->valloc, self->buf );
   self->buf     = NULL;
   self->buf_ctr = 0UL;
   self->buf_sz  = 0UL;
@@ -33,7 +32,13 @@ fd_snapshot_restore_prepare_buf( fd_snapshot_restore_t * self,
     return self->buf;
 
   fd_snapshot_restore_discard_buf( self );
-  uchar * buf = fd_valloc_malloc( self->valloc, 1UL, sz );
+  if( FD_UNLIKELY( sz>fd_spad_alloc_max( self->spad, FD_SPAD_ALIGN ) ) ) {
+    FD_LOG_WARNING(( "Attempting to allocate beyond size of spad" ));
+    self->failed=1;
+    return NULL;
+  }
+
+  uchar * buf = fd_spad_alloc( self->spad, FD_SPAD_ALIGN, sz );
   if( FD_UNLIKELY( !buf ) ) {
     self->failed = 1;
     return NULL;
@@ -57,12 +62,12 @@ fd_snapshot_restore_footprint( void ) {
 }
 
 fd_snapshot_restore_t *
-fd_snapshot_restore_new( void *                               mem,
-                         fd_acc_mgr_t *                       acc_mgr,
-                         fd_funk_txn_t *                      funk_txn,
-                         fd_valloc_t                          valloc,
-                         void *                               cb_manifest_ctx,
-                         fd_snapshot_restore_cb_manifest_fn_t cb_manifest,
+fd_snapshot_restore_new( void *                                   mem,
+                         fd_acc_mgr_t *                           acc_mgr,
+                         fd_funk_txn_t *                          funk_txn,
+                         fd_spad_t *                              spad,
+                         void *                                   cb_manifest_ctx,
+                         fd_snapshot_restore_cb_manifest_fn_t     cb_manifest,
                          fd_snapshot_restore_cb_status_cache_fn_t cb_status_cache ) {
 
   if( FD_UNLIKELY( !mem ) ) {
@@ -77,12 +82,8 @@ fd_snapshot_restore_new( void *                               mem,
     FD_LOG_WARNING(( "NULL acc_mgr" ));
     return NULL;
   }
-  if( FD_UNLIKELY( !valloc.vt ) ) {
-    FD_LOG_WARNING(( "NULL valloc" ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( !cb_manifest ) ) {
-    FD_LOG_WARNING(( "NULL callback" ));
+  if( FD_UNLIKELY( !spad ) ) {
+    FD_LOG_WARNING(( "NULL spad" ));
     return NULL;
   }
 
@@ -91,7 +92,7 @@ fd_snapshot_restore_new( void *                               mem,
   fd_memset( self, 0, sizeof(fd_snapshot_restore_t) );
   self->acc_mgr     = acc_mgr;
   self->funk_txn    = funk_txn;
-  self->valloc      = valloc;
+  self->spad        = spad;
   self->state       = STATE_DONE;
   self->buf         = NULL;
   self->buf_sz      = 0UL;
@@ -261,7 +262,7 @@ fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
   fd_bincode_decode_ctx_t decode =
       { .data    = restore->buf,
         .dataend = restore->buf + restore->buf_sz,
-        .valloc  = restore->valloc };
+        .valloc  = fd_spad_virtual( restore->spad ) };
   int decode_err = fd_solana_manifest_decode( manifest, &decode );
   if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) {
     /* TODO: The types generator does not yet handle OOM correctly.
@@ -292,17 +293,15 @@ fd_snapshot_restore_manifest( fd_snapshot_restore_t * restore ) {
   /* Move over objects and recover state
      This destroys all remaining fields with the slot context valloc. */
 
-  int err = restore->cb_manifest( restore->cb_manifest_ctx, manifest );
+  int err = 0;
+  if( restore->cb_manifest ) {
+    err = restore->cb_manifest( restore->cb_manifest_ctx, manifest, restore->spad );
+  }
 
   /* Read AccountVec map */
 
   if( FD_LIKELY( !err ) )
     err = fd_snapshot_accv_index( restore->accv_map, &accounts_db );
-
-  /* Discard superfluous fields that the callback didn't move */
-
-  fd_bincode_destroy_ctx_t destroy = { .valloc = restore->valloc };
-  fd_solana_accounts_db_fields_destroy( &accounts_db, &destroy );
 
   /* Discard buffer to reclaim heap space */
 
@@ -332,7 +331,7 @@ fd_snapshot_restore_status_cache( fd_snapshot_restore_t * restore ) {
   fd_bincode_decode_ctx_t decode =
       { .data    = restore->buf,
         .dataend = restore->buf + restore->buf_sz,
-        .valloc  = restore->valloc };
+        .valloc  = fd_spad_virtual( restore->spad ) };
   int decode_err = fd_bank_slot_deltas_decode( slot_deltas, &decode );
   if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) {
     /* TODO: The types generator does not yet handle OOM correctly.
@@ -345,12 +344,7 @@ fd_snapshot_restore_status_cache( fd_snapshot_restore_t * restore ) {
   /* Move over objects and recover state. */
   /* TODO: we ignore the error from status cache restore for now since having the status cache is optional.
            Add status cache to all cases */
-  restore->cb_status_cache( restore->cb_status_cache_ctx, slot_deltas );
-
-  /* Discard superfluous fields that the callback didn't move */
-
-  fd_bincode_destroy_ctx_t destroy = { .valloc = restore->valloc };
-  fd_bank_slot_deltas_destroy( slot_deltas, &destroy );
+  restore->cb_status_cache( restore->cb_status_cache_ctx, slot_deltas, restore->spad );
 
   /* Discard buffer to reclaim heap space (which could be used by
      fd_funk accounts instead) */
@@ -698,6 +692,11 @@ fd_snapshot_restore_chunk( void *       restore_,
   }
 
   return 0;
+}
+
+ulong
+fd_snapshot_restore_get_slot( fd_snapshot_restore_t * restore ) {
+  return restore->slot;
 }
 
 /* fd_snapshot_restore_t implements the consumer interface of a TAR

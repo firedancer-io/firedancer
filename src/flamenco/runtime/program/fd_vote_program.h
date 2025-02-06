@@ -53,19 +53,19 @@ fd_query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_t const * vo
 
 int
 fd_vote_get_state( fd_borrowed_account_t const * self,
-                   fd_valloc_t                   valloc,
+                   fd_spad_t *                   spad,
                    fd_vote_state_versioned_t *   versioned /* out */ );
 
 void
 fd_vote_convert_to_current( fd_vote_state_versioned_t * self,
-                            fd_valloc_t                 valloc );
+                            fd_spad_t *                 spad );
 
 void
 fd_vote_record_timestamp_vote_with_slot( fd_exec_slot_ctx_t * slot_ctx,
                                          fd_pubkey_t const *  vote_acc,
                                          long                 timestamp,
                                          ulong                slot,
-                                         fd_valloc_t          valloc );
+                                         fd_spad_t *          spad );
 
 struct fd_commission_split {
   ulong voter_portion;
@@ -81,8 +81,7 @@ fd_vote_commission_split( fd_vote_state_versioned_t * vote_state_versioned,
 
 void
 fd_vote_store_account( fd_exec_slot_ctx_t *    slot_ctx,
-                       fd_borrowed_account_t * vote_account,
-                       fd_spad_t *             spad );
+                       fd_borrowed_account_t * vote_account );
 
 FD_PROTOTYPES_END
 

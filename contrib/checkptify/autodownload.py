@@ -15,7 +15,7 @@ output_dir = args.output_dir
 if output_dir is None:
     output_dir = 'snaps/' + solana_url.split('//')[1].replace(':','_')
 
-subprocess.run( f'mkdir -p {output_dir}', shell=True )
+os.makedirs(output_dir, exist_ok=True)
 os.chdir( output_dir )
 print( f"output directory: {os.getcwd()}" )
 print( f"solana endpoint: {solana_url}" )
@@ -25,9 +25,10 @@ def download(url):
     subprocess.run( cmd, shell=True )
 
 def relink(snap, link):
-    subprocess.run( f'rm -f tmp-link', shell=True )
-    subprocess.run( f'ln -s {snap} tmp-link', shell=True )
-    subprocess.run( f'mv -f tmp-link {link}', shell=True )
+    if os.path.exists("tmp-link"):
+        os.remove("tmp-link")
+    os.symlink(snap, "tmp-link")
+    os.replace("tmp-link", link)
     print( f'linked {link} to {snap}' )
 
 def rmold(files, keep):

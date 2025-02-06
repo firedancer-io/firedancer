@@ -34,56 +34,54 @@ void fd_sysvar_slot_hashes_init( fd_exec_slot_ctx_t * slot_ctx, fd_slot_hashes_t
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L34 */
 void
-fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx ) {
-  FD_SCRATCH_SCOPE_BEGIN {
+fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
+  fd_slot_hashes_t slot_hashes;
+  if( !fd_sysvar_slot_hashes_read( &slot_hashes, slot_ctx, runtime_spad ) ) {
+    slot_hashes.hashes = deq_fd_slot_hash_t_alloc( fd_spad_virtual( runtime_spad ), FD_SYSVAR_SLOT_HASHES_CAP );
+    FD_TEST( slot_hashes.hashes );
+  }
 
-    fd_slot_hashes_t slot_hashes;
-    if( !fd_sysvar_slot_hashes_read( &slot_hashes, slot_ctx ) ) {
-      slot_hashes.hashes = deq_fd_slot_hash_t_alloc( slot_ctx->valloc, FD_SYSVAR_SLOT_HASHES_CAP );
-      FD_TEST( slot_hashes.hashes );
+  fd_slot_hash_t * hashes = slot_hashes.hashes;
+
+  uchar found = 0;
+  for ( deq_fd_slot_hash_t_iter_t iter = deq_fd_slot_hash_t_iter_init( hashes );
+        !deq_fd_slot_hash_t_iter_done( hashes, iter );
+        iter = deq_fd_slot_hash_t_iter_next( hashes, iter ) ) {
+    fd_slot_hash_t * ele = deq_fd_slot_hash_t_iter_ele( hashes, iter );
+    if ( ele->slot == slot_ctx->slot_bank.slot ) {
+      memcpy( &ele->hash, &slot_ctx->slot_bank.banks_hash, sizeof(fd_hash_t) );
+      found = 1;
     }
+  }
 
-    fd_slot_hash_t * hashes = slot_hashes.hashes;
+  if ( !found ) {
+    // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L2371
+    fd_slot_hash_t slot_hash = {
+      .hash = slot_ctx->slot_bank.banks_hash, // parent hash?
+      .slot = slot_ctx->slot_bank.prev_slot,   // parent_slot
+    };
+    FD_LOG_DEBUG(( "fd_sysvar_slot_hash_update:  slot %lu,  hash %s", slot_hash.slot, FD_BASE58_ENC_32_ALLOCA( slot_hash.hash.key ) ));
+    fd_bincode_destroy_ctx_t ctx2 = { .valloc = fd_spad_virtual( runtime_spad ) };
 
-    uchar found = 0;
-    for ( deq_fd_slot_hash_t_iter_t iter = deq_fd_slot_hash_t_iter_init( hashes );
-          !deq_fd_slot_hash_t_iter_done( hashes, iter );
-          iter = deq_fd_slot_hash_t_iter_next( hashes, iter ) ) {
-      fd_slot_hash_t * ele = deq_fd_slot_hash_t_iter_ele( hashes, iter );
-      if ( ele->slot == slot_ctx->slot_bank.slot ) {
-        memcpy( &ele->hash, &slot_ctx->slot_bank.banks_hash, sizeof(fd_hash_t) );
-        found = 1;
-      }
-    }
+    if (deq_fd_slot_hash_t_full( hashes ) )
+      fd_slot_hash_destroy( deq_fd_slot_hash_t_pop_tail_nocopy( hashes ), &ctx2 );
 
-    if ( !found ) {
-      // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L2371
-      fd_slot_hash_t slot_hash = {
-        .hash = slot_ctx->slot_bank.banks_hash, // parent hash?
-        .slot = slot_ctx->slot_bank.prev_slot,   // parent_slot
-      };
-      FD_LOG_DEBUG(( "fd_sysvar_slot_hash_update:  slot %lu,  hash %s", slot_hash.slot, FD_BASE58_ENC_32_ALLOCA( slot_hash.hash.key ) ));
-      fd_bincode_destroy_ctx_t ctx2 = { .valloc = slot_ctx->valloc };
+    deq_fd_slot_hash_t_push_head( hashes, slot_hash );
+  }
 
-      if (deq_fd_slot_hash_t_full( hashes ) )
-        fd_slot_hash_destroy( deq_fd_slot_hash_t_pop_tail_nocopy( hashes ), &ctx2 );
-
-      deq_fd_slot_hash_t_push_head( hashes, slot_hash );
-    }
-
-    write_slot_hashes( slot_ctx, &slot_hashes );
-    fd_bincode_destroy_ctx_t ctx = { .valloc = slot_ctx->valloc };
-    fd_slot_hashes_destroy( &slot_hashes, &ctx );
-  } FD_SCRATCH_SCOPE_END;
+  write_slot_hashes( slot_ctx, &slot_hashes );
+  fd_bincode_destroy_ctx_t ctx = { .valloc = fd_spad_virtual( runtime_spad ) };
+  fd_slot_hashes_destroy( &slot_hashes, &ctx );
 }
 
 fd_slot_hashes_t *
 fd_sysvar_slot_hashes_read( fd_slot_hashes_t *    result,
-                            fd_exec_slot_ctx_t *  slot_ctx ) {
+                            fd_exec_slot_ctx_t *  slot_ctx,
+                            fd_spad_t *           runtime_spad ) {
 
 //  FD_LOG_INFO(( "SysvarS1otHashes111111111111111111111111111 at slot %lu: " FD_LOG_HEX16_FMT, slot_ctx->slot_bank.slot, FD_LOG_HEX16_FMT_ARGS(     metadata.hash    ) ));
 
-  FD_BORROWED_ACCOUNT_DECL(rec);
+  FD_BORROWED_ACCOUNT_DECL( rec );
   int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t const *)&fd_sysvar_slot_hashes_id, rec );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
     return NULL;
@@ -91,7 +89,7 @@ fd_sysvar_slot_hashes_read( fd_slot_hashes_t *    result,
   fd_bincode_decode_ctx_t decode = {
     .data    = rec->const_data,
     .dataend = rec->const_data + rec->const_meta->dlen,
-    .valloc  = slot_ctx->valloc /* !!! There is no reason to place this on the slot_ctx heap.  Use scratch instead. */
+    .valloc  = fd_spad_virtual( runtime_spad )
   };
 
   if( FD_UNLIKELY( fd_slot_hashes_decode( result, &decode )!=FD_BINCODE_SUCCESS ) )

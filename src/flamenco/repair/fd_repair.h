@@ -103,8 +103,6 @@ int fd_repair_need_orphan( fd_repair_t * glob, ulong slot );
 
 void fd_repair_add_sticky( fd_repair_t * glob, fd_pubkey_t const * id );
 
-void fd_repair_set_permanent( fd_repair_t * glob, fd_pubkey_t const * id );
-
 void fd_repair_set_stake_weights( fd_repair_t * repair,
                                   fd_stake_weight_t const * stake_weights,
                                   ulong stake_weights_cnt );

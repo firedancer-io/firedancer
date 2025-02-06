@@ -14,7 +14,7 @@
    transactions in a block. */
 
 struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
-  ulong                        magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
+  ulong                       magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
 
   fd_funk_txn_t *             funk_txn;
 
@@ -24,7 +24,6 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   fd_blockstore_t *           blockstore;
   fd_block_t *                block;
   fd_exec_epoch_ctx_t *       epoch_ctx;
-  fd_valloc_t                 valloc;
 
   fd_slot_bank_t              slot_bank;
 
@@ -43,7 +42,7 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                       failed_txn_count;
   ulong                       nonvote_failed_txn_count;
   ulong                       total_compute_units_used;
-
+  
   fd_sysvar_cache_t *         sysvar_cache;
 
   fd_txncache_t *             status_cache;
@@ -70,12 +69,13 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
    Example usage:   if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) ) */
 
 #define FD_FEATURE_ACTIVE(_slot_ctx, _feature_name)  (_slot_ctx->slot_bank.slot >= _slot_ctx->epoch_ctx->features. _feature_name)
+#define FD_FEATURE_ACTIVE_OFFSET(_slot_ctx, _offset)  (_slot_ctx->slot_bank.slot >= _slot_ctx->epoch_ctx->features.f[_offset>>3] )
 
 FD_PROTOTYPES_BEGIN
 
 void *
 fd_exec_slot_ctx_new( void *      mem,
-                      fd_valloc_t valloc );
+                      fd_spad_t * spad );
 
 fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_join( void * mem );
@@ -89,14 +89,15 @@ fd_exec_slot_ctx_delete( void * mem );
 /* fd_exec_slot_ctx_recover re-initializes the current epoch/slot
    context and recovers it from the manifest of a Solana Labs snapshot.
    Moves ownership of manifest to this function.  Assumes objects in
-   manifest were allocated using slot ctx valloc (U.B. otherwise).
-   Assumes that slot context and epoch context use same valloc.
+   manifest were allocated using a spad which is scoped to the replay tile.
+   Assumes that slot context and epoch context use same allocator.
    On return, manifest is destroyed.  Returns ctx on success.
    On failure, logs reason for error and returns NULL. */
 
 fd_exec_slot_ctx_t *
 fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *   ctx,
-                          fd_solana_manifest_t * manifest );
+                          fd_solana_manifest_t * manifest,
+                          fd_spad_t *            spad );
 
 /* fd_exec_slot_ctx_recover re-initializes the current slot
    context's status cache from the provided solana slot deltas.
@@ -106,13 +107,9 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *   ctx,
    On failure, logs reason for error and returns NULL. */
 
 fd_exec_slot_ctx_t *
-fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *   ctx,
-                                       fd_bank_slot_deltas_t * slot_deltas );
-
-
-/* Free all allocated memory within a slot ctx */
-void
-fd_exec_slot_ctx_free(fd_exec_slot_ctx_t * ctx);
+fd_exec_slot_ctx_recover_status_cache( fd_exec_slot_ctx_t *    ctx,
+                                       fd_bank_slot_deltas_t * slot_deltas,
+                                       fd_spad_t *             runtime_spad );
 
 FD_PROTOTYPES_END
 

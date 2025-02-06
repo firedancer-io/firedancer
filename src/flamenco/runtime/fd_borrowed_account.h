@@ -49,7 +49,7 @@ typedef struct fd_borrowed_account fd_borrowed_account_t;
 /* This macro provides the same scoping guarantees as the Agave client's
    borrowed account semantics. It allows for implict/explicit dropping of
    borrowed accounts' write locks. It's usage mirrors the use of
-   FD_SCRATCH_SCOPE_{BEGIN,END}. It is also safe to use the original
+   FD_SPAD_FRAME_{BEGIN,END}. It is also safe to use the original
    acquire/release api within the scoped macro in case you don't want
    variables to go out of scope. An example of this is in the extend
    instruction within the bpf loader.

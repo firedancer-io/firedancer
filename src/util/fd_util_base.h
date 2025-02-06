@@ -477,7 +477,7 @@ __extension__ typedef unsigned __int128 uint128;
    hacks to accept this (this is doable).  After that workaround, this
    still doesn't work because, due to tooling limitations, the pragma
    path is relative to the source file directory and the FD_IMPORT path
-   is relative to the the make directory (working around this would
+   is relative to the make directory (working around this would
    require a __FILE__-like directive for the source code directory base
    path).  Even if that did exist, it might still not work because
    out-of-tree builds often require some substitutions to the gcc -M

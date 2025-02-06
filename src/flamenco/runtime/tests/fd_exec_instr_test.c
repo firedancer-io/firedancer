@@ -1,12 +1,13 @@
 
 #include "generated/invoke.pb.h"
-#undef FD_SCRATCH_USE_HANDHOLDING
-#define FD_SCRATCH_USE_HANDHOLDING 1
+#undef FD_SPAD_USE_HANDHOLDING
+#define FD_SPAD_USE_HANDHOLDING 1
 #include "fd_exec_instr_test.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_account.h"
 #include "../fd_executor.h"
 #include "../fd_runtime.h"
+#include "../program/fd_bpf_loader_serialization.h"
 #include "../program/fd_bpf_loader_program.h"
 #include "../program/fd_bpf_program_util.h"
 #include "../program/fd_builtin_programs.h"
@@ -62,11 +63,6 @@ static FD_TL char _report_prefix[100] = {0};
 #include "../../../util/tmpl/fd_sort.c"
 #include "../../vm/fd_vm_base.h"
 
-struct __attribute__((aligned(32UL))) fd_exec_instr_test_runner_private {
-  fd_funk_t * funk;
-  fd_spad_t * spad;
-};
-
 ulong
 fd_exec_instr_test_runner_align( void ) {
   return alignof(fd_exec_instr_test_runner_t);
@@ -102,7 +98,6 @@ fd_exec_instr_test_runner_new( void * mem,
 
   /* Create spad */
   runner->spad = fd_spad_join( fd_spad_new( spad_mem, FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ ) );
-  fd_spad_push_debug( runner->spad );
   return runner;
 }
 
@@ -114,7 +109,6 @@ fd_exec_instr_test_runner_delete( fd_exec_instr_test_runner_t * runner ) {
   if( FD_UNLIKELY( fd_spad_verify( runner->spad ) ) ) {
     FD_LOG_ERR(( "fd_spad_verify() failed" ));
   }
-  fd_spad_pop_debug( runner->spad );
   if( FD_UNLIKELY( fd_spad_frame_used( runner->spad )!=0 ) ) {
     FD_LOG_ERR(( "stray spad frame frame_used=%lu", fd_spad_frame_used( runner->spad ) ));
   }
@@ -240,17 +234,16 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   fd_funk_start_write( funk );
   fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
   fd_funk_end_write( funk );
-  fd_scratch_push();
 
   ulong vote_acct_max = MAX_TX_ACCOUNT_LOCKS;
 
   /* Allocate contexts */
-  uchar *               epoch_ctx_mem = fd_scratch_alloc( fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( vote_acct_max ) );
-  uchar *               slot_ctx_mem  = fd_scratch_alloc( FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
-  uchar *               txn_ctx_mem   = fd_scratch_alloc( FD_EXEC_TXN_CTX_ALIGN,   FD_EXEC_TXN_CTX_FOOTPRINT   );
+  uchar *               epoch_ctx_mem = fd_spad_alloc( runner->spad, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( vote_acct_max ) );
+  uchar *               slot_ctx_mem  = fd_spad_alloc( runner->spad,FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
+  uchar *               txn_ctx_mem   = fd_spad_alloc( runner->spad,FD_EXEC_TXN_CTX_ALIGN,   FD_EXEC_TXN_CTX_FOOTPRINT   );
 
   fd_exec_epoch_ctx_t * epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, vote_acct_max ) );
-  fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_spad_virtual( runner->spad ) ) );
+  fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, runner->spad ) );
   fd_exec_txn_ctx_t *   txn_ctx       = fd_exec_txn_ctx_join  ( fd_exec_txn_ctx_new  ( txn_ctx_mem   ) );
 
   assert( epoch_ctx );
@@ -267,7 +260,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Create account manager */
 
-  fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( fd_scratch_alloc( FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT ), funk );
+  fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( fd_spad_alloc( runner->spad, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT ), funk );
   assert( acc_mgr );
 
   /* Set up slot context */
@@ -283,13 +276,15 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     return 0;
   }
 
-  /* TODO: Restore slot_bank */
+  /* Restore slot_bank */
 
   fd_slot_bank_new( &slot_ctx->slot_bank );
-  fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc, FD_SYSVAR_RECENT_HASHES_CAP );
-  slot_ctx->slot_bank.recent_block_hashes.hashes = recent_block_hashes;
-  fd_block_block_hash_entry_t * recent_block_hash = deq_fd_block_block_hash_entry_t_push_tail_nocopy( recent_block_hashes );
-  fd_memset( recent_block_hash, 0, sizeof(fd_block_block_hash_entry_t) );
+
+  /* Blockhash queue init */
+  fd_block_hash_queue_t * blockhash_queue = &slot_ctx->slot_bank.block_hash_queue;
+  blockhash_queue->max_age   = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
+  blockhash_queue->last_hash = fd_spad_alloc( runner->spad, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
+  fd_memset( blockhash_queue->last_hash, 0, FD_HASH_FOOTPRINT );
 
   /* Set up txn context */
   fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx, txn_ctx );
@@ -303,7 +298,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Set up instruction context */
 
-  fd_instr_info_t * info = fd_valloc_malloc( fd_scratch_virtual(), 8UL, sizeof(fd_instr_info_t) );
+  fd_instr_info_t * info = fd_spad_alloc( runner->spad, 8UL, sizeof(fd_instr_info_t) );
   assert( info );
   memset( info, 0, sizeof(fd_instr_info_t) );
 
@@ -336,7 +331,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     }
 
     if( borrowed_accts[j].const_meta ) {
-      uchar * data = fd_spad_alloc_debug( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
+      uchar * data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
       ulong   dlen = borrowed_accts[j].const_meta->dlen;
       fd_memcpy( data, borrowed_accts[j].const_meta, sizeof(fd_account_meta_t)+dlen );
       borrowed_accts[j].const_meta = (fd_account_meta_t*)data;
@@ -389,7 +384,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Add accounts to bpf program cache */
   fd_funk_start_write( acc_mgr->funk );
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn );
+  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn, runner->spad );
   fd_funk_end_write( acc_mgr->funk );
 
   /* Restore sysvar cache */
@@ -463,9 +458,9 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
     if( last ) {
-      *recent_block_hash = *last;
+      *blockhash_queue->last_hash                = last->blockhash;
       slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
-      slot_ctx->prev_lamports_per_signature = last->fee_calculator.lamports_per_signature;
+      slot_ctx->prev_lamports_per_signature      = last->fee_calculator.lamports_per_signature;
     }
   }
 
@@ -565,7 +560,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_funk_txn_xid_t xid[1] = {0};
   xid[0] = fd_funk_generate_xid();
 
-  /* Create temporary funk transaction and scratch contexts */
+  /* Create temporary funk transaction and spad contexts */
 
   fd_funk_start_write( runner->funk );
   fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
@@ -574,7 +569,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   ulong vote_acct_max = MAX_TX_ACCOUNT_LOCKS;
 
   /* Allocate contexts */
-  uchar *               epoch_ctx_mem = fd_scratch_alloc( fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( vote_acct_max ) );
+  uchar *               epoch_ctx_mem = fd_spad_alloc( runner->spad, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( vote_acct_max ) );
   fd_exec_epoch_ctx_t * epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, vote_acct_max ) );
 
   assert( epoch_ctx );
@@ -584,7 +579,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
 
   /* Create account manager */
-  fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( fd_scratch_alloc( FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT ), funk );
+  fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( fd_spad_alloc( runner->spad, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT ), funk );
   assert( acc_mgr );
 
   /* Set up slot context */
@@ -623,7 +618,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   /* Add accounts to bpf program cache */
   fd_funk_start_write( runner->funk );
-  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn );
+  fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn, runner->spad );
 
   /* Default slot */
   ulong slot = test_ctx->slot_ctx.slot ? test_ctx->slot_ctx.slot : 10; // Arbitrary default > 0
@@ -670,7 +665,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   /* Provide default slot hashes of size 1 if not provided */
   if( !slot_ctx->sysvar_cache->has_slot_hashes ) {
-    fd_slot_hash_t * slot_hashes = deq_fd_slot_hash_t_alloc( fd_scratch_virtual(), 1 );
+    fd_slot_hash_t * slot_hashes = deq_fd_slot_hash_t_alloc( fd_spad_virtual( runner->spad ), 1 );
     fd_slot_hash_t * dummy_elem = deq_fd_slot_hash_t_push_tail_nocopy( slot_hashes );
     memset( dummy_elem, 0, sizeof(fd_slot_hash_t) );
     fd_slot_hashes_t default_slot_hashes = { .hashes = slot_hashes };
@@ -682,7 +677,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
     // Provide a 0-set default entry
     fd_stake_history_entry_t entry = {0};
     fd_sysvar_stake_history_init( slot_ctx );
-    fd_sysvar_stake_history_update( slot_ctx, &entry );
+    fd_sysvar_stake_history_update( slot_ctx, &entry, runner->spad );
   }
 
   /* Provide default last restart slot sysvar if not provided */
@@ -693,7 +688,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   /* Provide a default clock if not present */
   if( !slot_ctx->sysvar_cache->has_clock ) {
     fd_sysvar_clock_init( slot_ctx );
-    fd_sysvar_clock_update( slot_ctx );
+    fd_sysvar_clock_update( slot_ctx, runner->spad );
   }
 
   /* Epoch schedule and rent get set from the epoch bank */
@@ -729,20 +724,16 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
       ( rent->burn_percent            >      100 ) )
     return NULL;
 
-  /* Blockhash queue is given in txn message. We need to populate the following three:
-     - slot_ctx->slot_bank.block_hash_queue (TODO: Does more than just the last_hash need to be populated?)
-     - sysvar_cache_recent_block_hashes
+  /* Blockhash queue is given in txn message. We need to populate the following two fields:
+     - slot_ctx->slot_bank.block_hash_queue
      - slot_ctx->slot_bank.recent_block_hashes */
   ulong num_blockhashes = test_ctx->blockhash_queue_count;
-
-  /* Recent blockhashes init */
-  fd_block_block_hash_entry_t * recent_block_hashes = deq_fd_block_block_hash_entry_t_alloc( slot_ctx->valloc, FD_SYSVAR_RECENT_HASHES_CAP );
 
   /* Blockhash queue init */
   slot_ctx->slot_bank.block_hash_queue.max_age   = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
   slot_ctx->slot_bank.block_hash_queue.ages_root = NULL;
-  slot_ctx->slot_bank.block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_alloc( slot_ctx->valloc, 400 );
-  slot_ctx->slot_bank.block_hash_queue.last_hash = fd_valloc_malloc( slot_ctx->valloc, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
+  slot_ctx->slot_bank.block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_alloc( fd_spad_virtual( runner->spad ), 400 );
+  slot_ctx->slot_bank.block_hash_queue.last_hash = fd_valloc_malloc( fd_spad_virtual( runner->spad ), FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
 
   // Save lamports per signature for most recent blockhash, if sysvar cache contains recent block hashes
   fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
@@ -754,11 +745,6 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
     }
   }
 
-  // Clear and reset recent block hashes sysvar
-  slot_ctx->sysvar_cache->has_recent_block_hashes         = 1;
-  slot_ctx->sysvar_cache->val_recent_block_hashes->hashes = recent_block_hashes;
-  slot_ctx->slot_bank.recent_block_hashes.hashes          = recent_block_hashes;
-
   // Blockhash_queue[end] = last (latest) hash
   // Blockhash_queue[0] = genesis hash
   if( num_blockhashes > 0 ) {
@@ -769,7 +755,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
       fd_block_block_hash_entry_t blockhash_entry;
       memcpy( &blockhash_entry.blockhash, test_ctx->blockhash_queue[i]->bytes, sizeof(fd_hash_t) );
       slot_ctx->slot_bank.poh = blockhash_entry.blockhash;
-      fd_sysvar_recent_hashes_update( slot_ctx );
+      fd_sysvar_recent_hashes_update( slot_ctx, runner->spad );
     }
   } else {
     // Add a default empty blockhash and use it as genesis
@@ -778,12 +764,14 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
     fd_block_block_hash_entry_t blockhash_entry;
     memcpy( &blockhash_entry.blockhash, empty_bytes, sizeof(fd_hash_t) );
     slot_ctx->slot_bank.poh = blockhash_entry.blockhash;
-    fd_sysvar_recent_hashes_update( slot_ctx );
+    fd_sysvar_recent_hashes_update( slot_ctx, runner->spad );
   }
+  fd_sysvar_cache_restore_recent_block_hashes( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
+
   fd_funk_end_write( runner->funk );
 
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
-  uchar * txn_raw_begin = fd_scratch_alloc( alignof(uchar), 10000 ); // max txn size is 1232 but we allocate extra for safety
+  uchar * txn_raw_begin = fd_spad_alloc( runner->spad, alignof(uchar), 10000 ); // max txn size is 1232 but we allocate extra for safety
   uchar * txn_raw_cur_ptr = txn_raw_begin;
 
   /* Compact array of signatures (https://solana.com/docs/core/transactions#transaction)
@@ -884,7 +872,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   }
 
   /* Set up txn descriptor from raw data */
-  fd_txn_t * txn_descriptor = (fd_txn_t *) fd_scratch_alloc( fd_txn_align(), fd_txn_footprint( instr_count, addr_table_cnt ) );
+  fd_txn_t * txn_descriptor = (fd_txn_t *) fd_spad_alloc( runner->spad, fd_txn_align(), fd_txn_footprint( instr_count, addr_table_cnt ) );
   ushort txn_raw_sz = (ushort) (txn_raw_cur_ptr - txn_raw_begin);
   if( !fd_txn_parse( txn_raw_begin, txn_raw_sz, txn_descriptor, NULL ) ) {
     FD_LOG_WARNING(("could not parse txn descriptor"));
@@ -893,13 +881,13 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   /* Run txn preparation phases and execution
      NOTE: This should be modified accordingly if transaction setup logic changes */
-  fd_txn_p_t * txn = fd_scratch_alloc( alignof(fd_txn_p_t), sizeof(fd_txn_p_t) );
+  fd_txn_p_t * txn = fd_spad_alloc( runner->spad, alignof(fd_txn_p_t), sizeof(fd_txn_p_t) );
   memcpy( txn->payload, txn_raw_begin, txn_raw_sz );
   txn->payload_sz = (ulong) txn_raw_sz;
   txn->flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
   memcpy( txn->_, txn_descriptor, fd_txn_footprint( instr_count, addr_table_cnt ) );
 
-  fd_execute_txn_task_info_t * task_info = fd_scratch_alloc( alignof(fd_execute_txn_task_info_t), sizeof(fd_execute_txn_task_info_t) );
+  fd_execute_txn_task_info_t * task_info = fd_spad_alloc( runner->spad, alignof(fd_execute_txn_task_info_t), sizeof(fd_execute_txn_task_info_t) );
   memset( task_info, 0, sizeof(fd_execute_txn_task_info_t) );
   task_info->txn = txn;
 
@@ -907,7 +895,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   tpool->worker_cnt = 1;
   tpool->worker_max = 1;
 
-  fd_runtime_prepare_txns_start( slot_ctx, task_info, txn, 1UL );
+  fd_runtime_prepare_txns_start( slot_ctx, task_info, txn, 1UL, runner->spad );
 
   /* Setup the spad for account allocation */
   task_info->txn_ctx->spad = runner->spad;
@@ -934,9 +922,7 @@ fd_exec_test_instr_context_destroy( fd_exec_instr_test_runner_t * runner,
   fd_acc_mgr_t *        acc_mgr   = slot_ctx->acc_mgr;
   fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
 
-  fd_exec_slot_ctx_free( slot_ctx );
   fd_acc_mgr_delete( acc_mgr );
-  fd_scratch_pop();
 
   fd_funk_start_write( runner->funk );
   fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
@@ -952,7 +938,6 @@ _txn_context_destroy( fd_exec_instr_test_runner_t * runner,
   fd_acc_mgr_t *        acc_mgr   = slot_ctx->acc_mgr;
   fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
 
-  fd_exec_slot_ctx_free( slot_ctx );
   fd_acc_mgr_delete( acc_mgr );
 
   fd_funk_start_write( runner->funk );
@@ -987,6 +972,8 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
                         ulong                         output_bufsz ) {
   fd_exec_test_instr_context_t const * input  = fd_type_pun_const( input_ );
   fd_exec_test_instr_effects_t **      output = fd_type_pun( output_ );
+
+  FD_SPAD_FRAME_BEGIN( runner->spad ) {
 
   /* Convert the Protobuf inputs to a fd_exec context */
   fd_exec_instr_ctx_t ctx[1];
@@ -1090,6 +1077,8 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
 
   *output = effects;
   return actual_end - (ulong)output_buf;
+
+  } FD_SPAD_FRAME_END;
 }
 
 ulong
@@ -1101,10 +1090,11 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
   fd_exec_test_txn_context_t const * input  = fd_type_pun_const( input_ );
   fd_exec_test_txn_result_t **       output = fd_type_pun( output_ );
 
-  FD_SCRATCH_SCOPE_BEGIN {
+  FD_SPAD_FRAME_BEGIN( runner->spad ) {
+
     /* Initialize memory */
-    uchar *               slot_ctx_mem  = fd_scratch_alloc( FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
-    fd_exec_slot_ctx_t *  slot_ctx      = fd_exec_slot_ctx_join ( fd_exec_slot_ctx_new ( slot_ctx_mem, fd_spad_virtual( runner->spad ) ) );
+    uchar *               slot_ctx_mem = fd_spad_alloc( runner->spad, FD_EXEC_SLOT_CTX_ALIGN,  FD_EXEC_SLOT_CTX_FOOTPRINT  );
+    fd_exec_slot_ctx_t *  slot_ctx     = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, runner->spad ) );
 
     /* Create and exec transaction */
     fd_execute_txn_task_info_t * task_info = _txn_context_create_and_exec( runner, slot_ctx, input );
@@ -1248,7 +1238,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
 
     *output = txn_result;
     return actual_end - (ulong)output_buf;
-  } FD_SCRATCH_SCOPE_END;
+  } FD_SPAD_FRAME_END;
 }
 
 
@@ -1262,7 +1252,7 @@ fd_sbpf_program_load_test_run( FD_PARAM_UNUSED fd_exec_instr_test_runner_t * run
   fd_exec_test_elf_loader_effects_t **  output = fd_type_pun( output_ );
 
   fd_sbpf_elf_info_t info;
-  fd_valloc_t valloc = fd_scratch_virtual();
+  fd_valloc_t valloc = fd_spad_virtual( runner->spad );
 
   if ( FD_UNLIKELY( !input->has_elf || !input->elf.data ) ){
     return 0UL;
@@ -1388,7 +1378,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
 
   if( !fd_exec_test_instr_context_create( runner, ctx, input_instr_ctx, skip_extra_checks ) )
     goto error;
-  fd_valloc_t valloc = fd_scratch_virtual();
+  fd_valloc_t valloc = fd_spad_virtual( runner->spad );
   fd_spad_t * spad = fd_exec_instr_test_runner_get_spad( runner );
 
   if (is_cpi) {
@@ -1444,17 +1434,6 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     fd_memcpy( rodata, input->vm_ctx.rodata->bytes, rodata_sz );
   }
 
-  /* Load input data regions */
-  fd_vm_input_region_t * input_regions = NULL;
-  uint input_regions_count = 0U;
-  if( !!(input->vm_ctx.input_data_regions_count) ) {
-    input_regions       = fd_spad_alloc_debug( spad, alignof(fd_vm_input_region_t), sizeof(fd_vm_input_region_t) * input->vm_ctx.input_data_regions_count );
-    input_regions_count = fd_setup_vm_input_regions( input_regions, input->vm_ctx.input_data_regions, input->vm_ctx.input_data_regions_count, spad );
-    if ( !input_regions_count ) {
-      goto error;
-    }
-  }
-
   if( input->vm_ctx.heap_max > FD_VM_HEAP_MAX ) {
     goto error;
   }
@@ -1466,9 +1445,35 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
 
   /* If the program ID account owner is the v1 BPF loader, then alignment is disabled (controlled by
      the `is_deprecated` flag) */
+
+  ulong                   input_sz                = 0UL;
+  ulong                   pre_lens[256]           = {0};
+  fd_vm_input_region_t    input_mem_regions[1000] = {0}; /* We can have a max of (3 * num accounts + 1) regions */
+  fd_vm_acc_region_meta_t acc_region_metas[256]   = {0}; /* instr acc idx to idx */
+  uint                    input_mem_regions_cnt   = 0U;
+  int                     direct_mapping          = FD_FEATURE_ACTIVE( ctx->slot_ctx, bpf_account_data_direct_mapping );
+
   uchar program_id_idx = ctx->instr->program_id;
-  uchar is_deprecated = ( program_id_idx < ctx->txn_ctx->accounts_cnt ) &&
-                        ( !memcmp( ctx->txn_ctx->borrowed_accounts[program_id_idx].const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
+  uchar is_deprecated  = ( program_id_idx < ctx->txn_ctx->accounts_cnt ) &&
+                         ( !memcmp( ctx->txn_ctx->borrowed_accounts[program_id_idx].const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
+
+  if( is_deprecated ) {
+    fd_bpf_loader_input_serialize_unaligned( *ctx,
+                                             &input_sz,
+                                             pre_lens,
+                                             input_mem_regions,
+                                             &input_mem_regions_cnt,
+                                             acc_region_metas,
+                                             !direct_mapping );
+  } else {
+    fd_bpf_loader_input_serialize_aligned( *ctx,
+                                           &input_sz,
+                                           pre_lens,
+                                           input_mem_regions,
+                                           &input_mem_regions_cnt,
+                                           acc_region_metas,
+                                           !direct_mapping );
+  }
 
   fd_vm_init(
     vm,
@@ -1487,9 +1492,9 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
     syscalls,
     NULL, // TODO
     sha,
-    input_regions,
-    input_regions_count,
-    NULL,
+    input_mem_regions,
+    input_mem_regions_cnt,
+    acc_region_metas,
     is_deprecated,
     FD_FEATURE_ACTIVE( ctx->slot_ctx, bpf_account_data_direct_mapping ) );
 
@@ -1520,10 +1525,6 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
                fd_ulong_min(input->syscall_invocation.stack_prefix->size, FD_VM_STACK_MAX) );
   }
 
-  // Propogate the acc_regions_meta to the vm
-  vm->acc_region_metas = fd_valloc_malloc( valloc, alignof(fd_vm_acc_region_meta_t), sizeof(fd_vm_acc_region_meta_t) * input->vm_ctx.input_data_regions_count );
-  fd_setup_vm_acc_region_metas( vm->acc_region_metas, vm, vm->instr_ctx );
-
   // Look up the syscall to execute
   char * syscall_name = (char *)input->syscall_invocation.function_name.bytes;
   fd_sbpf_syscalls_t const * syscall = lookup_syscall_func(syscalls, syscall_name, input->syscall_invocation.function_name.size);
@@ -1537,6 +1538,20 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
       FD_LOG_WARNING(( "instr stack push err" ));
       goto error;
   }
+  /* There's an instr ctx struct embedded in the txn ctx instr stack. */
+  fd_exec_instr_ctx_t * instr_ctx = &ctx->txn_ctx->instr_stack[ ctx->txn_ctx->instr_stack_sz - 1 ];
+  *instr_ctx = (fd_exec_instr_ctx_t) {
+    .instr     = ctx->instr,
+    .txn_ctx   = ctx->txn_ctx,
+    .epoch_ctx = ctx->epoch_ctx,
+    .slot_ctx  = ctx->slot_ctx,
+    .acc_mgr   = ctx->acc_mgr,
+    .funk_txn  = ctx->funk_txn,
+    .parent    = NULL,
+    .index     = 0U,
+    .depth     = 0U,
+    .child_cnt = 0U,
+  };
   int syscall_err = syscall->func( vm, vm->reg[1], vm->reg[2], vm->reg[3], vm->reg[4], vm->reg[5], &vm->reg[0] );
   int stack_pop_err = fd_instr_stack_pop( ctx->txn_ctx, ctx->instr );
   if( FD_UNLIKELY( stack_pop_err ) ) {
@@ -1544,27 +1559,6 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
       goto error;
   }
   if( syscall_err ) {
-    /*  In the CPI syscall, certain checks are performed out of order between Firedancer and Agave's
-        implementation. Certain checks in FD (whose error codes mapped below)
-        do not have a (sequentially) equivalent one in Agave. Thus, it doesn't make sense
-        to declare a mismatch if Firedancer fails such a check when Agave doesn't, as long
-        as both end up error'ing out at some point. We also have other metrics (namely CU count)
-        to rely on. */
-
-    /*  Certain pre-flight checks are not performed in Agave. These manifest as
-        access violations in Agave. The agave_access_violation_mask bitset sets
-        the error codes that are expected to be access violations in Agave. */
-    if( is_cpi &&
-      ( syscall_err == FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS ||
-        syscall_err == FD_VM_SYSCALL_ERR_INSTRUCTION_TOO_LARGE ||
-        syscall_err == FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNTS_EXCEEDED ||
-        syscall_err == FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED ) ) {
-
-      /* FD performs pre-flight checks that manifest as access violations in Agave */
-      vm->instr_ctx->txn_ctx->exec_err      = FD_VM_ERR_EBPF_ACCESS_VIOLATION;
-      vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_EBPF;
-    }
-
     fd_log_collector_program_failure( vm->instr_ctx );
   }
 

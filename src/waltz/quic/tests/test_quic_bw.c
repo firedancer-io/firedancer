@@ -259,8 +259,8 @@ main( int     argc,
   /* allow acks to go */
   for( unsigned j = 0; j < 10; ++j ) {
     FD_LOG_INFO(( "running services" ));
-    service_client( client_quic );;
-    service_server( server_quic );;
+    service_client( client_quic );
+    service_server( server_quic );
   }
 
   FD_TEST( client_quic->metrics.conn_closed_cnt==1 );

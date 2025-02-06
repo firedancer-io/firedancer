@@ -18,8 +18,11 @@
 /* fd_exec_instr_test_runner_t provides fake fd_exec_instr_ctx_t to
    test processing of individual instructions. */
 
-struct fd_exec_instr_test_runner_private;
-typedef struct fd_exec_instr_test_runner_private fd_exec_instr_test_runner_t;
+struct fd_exec_instr_test_runner {
+  fd_funk_t * funk;
+  fd_spad_t * spad;
+};
+typedef struct fd_exec_instr_test_runner fd_exec_instr_test_runner_t;
 
 FD_PROTOTYPES_BEGIN
 

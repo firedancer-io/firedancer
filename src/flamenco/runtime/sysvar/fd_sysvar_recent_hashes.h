@@ -17,11 +17,13 @@ FD_PROTOTYPES_BEGIN
 
 /* Initialize the recent hashes sysvar account. */
 void
-fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx );
+fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx,
+                              fd_spad_t *          runtime_spad );
 
 /* Update the recent hashes sysvar account. This should be called at the start of every slot, before execution commences. */
 void
-fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx );
+fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx,
+                                fd_spad_t *          runtime_spad );
 
 FD_PROTOTYPES_END
 

@@ -18,10 +18,10 @@ void
 sol_compat_check_wksp_usage( void );
 
 fd_exec_instr_test_runner_t *
-sol_compat_setup_scratch_and_runner( void * fmem );
+sol_compat_setup_runner( void );
 
 void
-sol_compat_cleanup_scratch_and_runner( fd_exec_instr_test_runner_t * runner );
+sol_compat_cleanup_runner( fd_exec_instr_test_runner_t * runner );
 
 int
 sol_compat_instr_fixture( fd_exec_instr_test_runner_t * runner,

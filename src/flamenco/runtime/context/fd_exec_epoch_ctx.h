@@ -35,7 +35,7 @@ struct __attribute__((aligned(64UL))) fd_exec_epoch_ctx {
   ulong total_epoch_stake;
 };
 
-#define FD_EXEC_EPOCH_CTX_ALIGN (4096UL)
+#define FD_EXEC_EPOCH_CTX_ALIGN (alignof(fd_exec_epoch_ctx_t))
 #define FD_EXEC_EPOCH_CTX_MAGIC (0x3E64F44C9F44366AUL) /* random */
 
 FD_PROTOTYPES_BEGIN
@@ -113,7 +113,9 @@ fd_exec_epoch_ctx_leaders( fd_exec_epoch_ctx_t * ctx ) {
 }
 
 void
-fd_exec_epoch_ctx_from_prev( fd_exec_epoch_ctx_t * self, fd_exec_epoch_ctx_t * prev );
+fd_exec_epoch_ctx_from_prev( fd_exec_epoch_ctx_t * self, 
+                             fd_exec_epoch_ctx_t * prev,
+                             fd_spad_t *           runtime_spad );
 
 FD_PROTOTYPES_END
 

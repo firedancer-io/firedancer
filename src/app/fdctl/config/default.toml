@@ -218,6 +218,26 @@ dynamic_port_range = "8900-9000"
     # Agave client with the `--account-index-include-key` argument.
     account_index_include_keys = []
 
+    # If account indexes are enabled, this is the absolute directory
+    # path to place the accounts index in.  If this is empty, it
+    # will default to the `accounts_index` subdirectory of the ledger
+    # `path` above.  This option is passed to the Agave client with
+    # the `--accounts-index-path` argument.
+    accounts_index_path = ""
+
+    # Every epoch, the client calculates a hash of all the accounts
+    # on-chain called the Epoch Accounts Hash.  As a part of this
+    # process, the client iterates over the entire accounts database
+    # to calculate serialized hashes for every account which are then
+    # stored in several files in a directory on disk.
+    #
+    # This option specifies the absolute directory path to place the
+    # accounts hash cache data in.  If this is empty, it will default
+    # to the `accounts_hash_cache` subdirectory of the ledger `path`
+    # above.  This option is passed to the Agave client with the
+    # `--accounts-hash-cache-path` argument.
+    accounts_hash_cache_path = ""
+
     # Whether to use compression when storing snapshots.  This option is
     # passed to the Agave client with the
     # `--snapshot-archive-format` argument.
@@ -325,6 +345,12 @@ dynamic_port_range = "8900-9000"
 # chain's state.  Other clients, especially as they bootstrap or catch
 # up to the head of the chain, may request a snapshot.
 [snapshots]
+    # If false, all snapshots (both full and incremental) will not be
+    # produced.  If snapshotting is disabled, this option is passed to
+    # the Agave client by setting the `--snapshot-interval-slots` flag
+    # to 0.
+    enabled = true
+
     # Enable incremental snapshots by setting this flag.  This option is
     # passed to the Agave client (inverted) with the
     # `--no-incremental-snapshots` flag.
@@ -333,7 +359,8 @@ dynamic_port_range = "8900-9000"
     # Set how frequently full snapshots are taken, measured in slots,
     # where one slot is about 400ms on production chains.  It's
     # recommended to leave this to the default or to set it to the same
-    # value that the known validators are using.
+    # value that the known validators are using.  Must be a multiple of
+    # the incremental snapshot interval.
     full_snapshot_interval_slots = 25000
 
     # Set how frequently incremental snapshots are taken, measured in
@@ -437,7 +464,7 @@ dynamic_port_range = "8900-9000"
     # or you need to fetch it.  The snapshot will be fetched from a
     # validator in the list of entrypoints.  If no validators are listed
     # there, starting the validator will fail.  This option is passed
-    # (inverted) to the Agave client with the `no-snapshot-fetch`
+    # (inverted) to the Agave client with the `--no-snapshot-fetch`
     # argument.
     snapshot_fetch = true
 
@@ -732,6 +759,9 @@ dynamic_port_range = "8900-9000"
     # parallel users.
     bank_tile_count = 4
 
+    # TODO: add docs on exec_tile_cnt / exec tile
+    exec_tile_count = 2
+
     # How many shred tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network
     # conditions but there is no need to run more than 1 shred tile
@@ -848,6 +878,12 @@ dynamic_port_range = "8900-9000"
         # ideal either, as it adds latency and jitter to packet
         # handling.
         xdp_aio_depth = 256
+
+        # When the oldest packet in a batch has been queued for more than
+        # the specified duration, flushes the batch out to to the network
+        # device.  Smaller values improve latency, larger values may
+        # improve throughput.
+        flush_timeout_micros = 20
 
         # The maximum number of packets in-flight between a net tile and
         # downstream consumers, after which additional packets begin to
@@ -1355,3 +1391,31 @@ dynamic_port_range = "8900-9000"
         # duplicate transactions will not be submitted and the validator
         # with this option enabled will always be leader.
         disable_status_cache = false
+
+    # The following options relate to the 'fddev pktgen' tool only.
+    # pktgen tests net tile transmit throughput by generating a flood of
+    # non-routable Ethernet frames.  Only use 'fddev pktgen' if you know
+    # what you are doing!  It can cause damage to your system and network
+    # infrastructure.
+    [development.pktgen]
+        # Which cores to run the 'net' and 'pktgen' tiles on.
+        # By default, two fixed cores will be used.  To get reliable
+        # measurements, avoid the use of floating tiles.
+        # This setting overrides [layout.affinity] above.
+        affinity = "auto"
+
+        # fake_dst_ip should be set to the IP address of a neighbor on the
+        # Ethernet network.  (For example the router the system is directly
+        # connected to.)
+        #
+        # The net tile queries the route and neighbor tables as part of the
+        # benchmark.  In short, these resolve the dst MAC address of the
+        # outgoing Ethernet packets.  Since pktgen does not produce IPv4
+        # packets, no traffic actually gets sent to this IP.
+        #
+        # The IP address should fulfill these requirements:
+        # - 'ip route get <IP>' resolves to the XDP interface
+        #   (see [tiles.net.interface])
+        # - 'ip neigh get <NEXTHOP> dev <INTERFACE>' returns REACHABLE
+        # If these requirements are not met, no packets will be sent out.
+        fake_dst_ip = ""  # e.g. "192.0.2.64"

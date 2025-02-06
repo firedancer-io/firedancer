@@ -41,11 +41,12 @@ typedef union fd_features fd_features_t;
    offset in fd_features_t. */
 
 struct fd_feature_id {
-  ulong        index;          /* index of feature in fd_features_t */
-  fd_pubkey_t  id;             /* pubkey of feature */
-  char const * name;           /* feature name cstr */
-  uint         cleaned_up[3];     /* cleaned_up cluster version for feature */
-  uchar        reverted;       /* if the feature was reverted */
+  ulong        index;                     /* index of feature in fd_features_t */
+  fd_pubkey_t  id;                        /* pubkey of feature */
+  char const * name;                      /* feature name cstr */
+  uint         cleaned_up[3];             /* cleaned_up cluster version for feature */
+  uchar        reverted;                  /* if the feature was reverted */
+  uchar        activated_on_all_clusters; /* if the feature was activated on all clusters (currently only used for fuzzing) */
 };
 typedef struct fd_feature_id fd_feature_id_t;
 
@@ -75,7 +76,7 @@ fd_features_enable_cleaned_up( fd_features_t *, uint[3] );
 /* fd_features_enable_one_offs enables all manually passed in features. */
 
 void
-fd_features_enable_one_offs( fd_features_t * features, 
+fd_features_enable_one_offs( fd_features_t * features,
                              char const * *  one_offs,
                              uint            one_offs_cnt,
                              ulong           slot );

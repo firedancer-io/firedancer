@@ -611,13 +611,10 @@ uint
 fd_quic_tx_buffered_raw( fd_quic_t * quic,
                          uchar **    tx_ptr_ptr,
                          uchar *     tx_buf,
-                         ulong       tx_buf_sz,
-                         ulong *     tx_sz,
                          ushort *    ipv4_id,
                          uint        dst_ipv4_addr,
                          ushort      src_udp_port,
-                         ushort      dst_udp_port,
-                         int         flush );
+                         ushort      dst_udp_port );
 
 FD_PROTOTYPES_END
 

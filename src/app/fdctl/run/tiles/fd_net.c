@@ -52,6 +52,9 @@
 
 #define MAX_NET_INS (32UL)
 
+#define FD_NETLINK_REFRESH_INTERVAL_NS (60e9) /* 60s */
+#define FD_XDP_STATS_INTERVAL_NS       (11e6) /* 11ms */
+
 typedef struct {
   fd_wksp_t * mem;
   ulong       chunk0;
@@ -102,8 +105,21 @@ typedef struct {
   fd_net_out_ctx_t gossip_out[1];
   fd_net_out_ctx_t repair_out[1];
 
+  /* Timers (measured in fd_tickcount()) */
+  long        netlink_refresh_interval_ticks;
+  long        next_netlink_refresh;
+
+  long        xdp_stats_interval_ticks;
+  long        next_xdp_stats_refresh;
+
+  long        tx_flush_interval_ticks;
+  long        next_tx_flush;
+
+  /* Flush every N packets */
+  ulong flush_pending;
+  ulong flush_wmark;
+
   fd_ip_t *   ip;
-  long        ip_next_upd;
 
   struct {
     ulong tx_dropped_cnt;
@@ -249,17 +265,20 @@ metrics_write( fd_net_ctx_t * ctx ) {
   ulong rx_sz  = ctx->xsk_aio[ 0 ]->metrics.rx_sz;
   ulong tx_cnt = ctx->xsk_aio[ 0 ]->metrics.tx_cnt;
   ulong tx_sz  = ctx->xsk_aio[ 0 ]->metrics.tx_sz;
+  ulong tx_flush_err_cnt = ctx->xsk_aio[ 0 ]->metrics.tx_flush_err_cnt;
   if( FD_LIKELY( ctx->xsk_aio[ 1 ] ) ) {
     rx_cnt += ctx->xsk_aio[ 1 ]->metrics.rx_cnt;
     rx_sz  += ctx->xsk_aio[ 1 ]->metrics.rx_sz;
     tx_cnt += ctx->xsk_aio[ 1 ]->metrics.tx_cnt;
     tx_sz  += ctx->xsk_aio[ 1 ]->metrics.tx_sz;
+    tx_flush_err_cnt += ctx->xsk_aio[ 1 ]->metrics.tx_flush_err_cnt;
   }
 
   FD_MCNT_SET( NET, RECEIVED_PACKETS, rx_cnt );
   FD_MCNT_SET( NET, RECEIVED_BYTES,   rx_sz  );
   FD_MCNT_SET( NET, SENT_PACKETS,     tx_cnt );
   FD_MCNT_SET( NET, SENT_BYTES,       tx_sz  );
+  FD_MCNT_SET( NET, XSK_SEND_ERRORS,  tx_flush_err_cnt );
 
   FD_MCNT_SET( NET, TX_DROPPED, ctx->metrics.tx_dropped_cnt );
 }
@@ -321,17 +340,23 @@ poll_xdp_statistics( fd_net_ctx_t * ctx ) {
 
 static void
 during_housekeeping( fd_net_ctx_t * ctx ) {
-  long now = fd_log_wallclock();
-  if( FD_UNLIKELY( now > ctx->ip_next_upd ) ) {
-    ctx->ip_next_upd = now + (long)60e9;
+  long now = fd_tickcount();
+
+  if( now > ctx->next_xdp_stats_refresh ) {
+    ctx->next_xdp_stats_refresh = now + ctx->xdp_stats_interval_ticks;
+
+    /* Only net tile 0 polls the statistics, as they are retrieved for the
+       XDP socket which is shared across all net tiles.
+       (FIXME the above comment is wrong) */
+
+    if( FD_LIKELY( !ctx->round_robin_id ) ) poll_xdp_statistics( ctx );
+  }
+
+  if( now > ctx->next_netlink_refresh ) {
+    ctx->next_netlink_refresh = now + ctx->netlink_refresh_interval_ticks;
     fd_ip_arp_fetch( ctx->ip );
     fd_ip_route_fetch( ctx->ip );
   }
-
-  /* Only net tile 0 polls the statistics, as they are retrieved for the
-     XDP socket which is shared across all net tiles. */
-
-  if( FD_LIKELY( !ctx->round_robin_id ) ) poll_xdp_statistics( ctx );
 }
 
 FD_FN_PURE static int
@@ -414,9 +439,18 @@ after_frag( fd_net_ctx_t *      ctx,
             fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
-  (void)sig;
   (void)tsorig;
   (void)stem;
+
+  int  flush_level   = ctx->flush_pending >= ctx->flush_wmark;
+  long now           = fd_tickcount();
+  long next_tx_flush = ctx->next_tx_flush;
+  long deadline      = now + ctx->tx_flush_interval_ticks;
+  int  flush_timeout = now > next_tx_flush;
+  int  flush         = flush_level || flush_timeout;
+  fd_long_store_if( next_tx_flush==LONG_MAX, &ctx->next_tx_flush, deadline ); /* first packet of batch */
+  fd_long_store_if( flush,                   &ctx->next_tx_flush, LONG_MAX ); /* last packet of batch */
+  ctx->flush_pending = flush ? 0UL : ctx->flush_pending+1UL;
 
   fd_aio_pkt_info_t aio_buf = { .buf = ctx->frame, .buf_sz = (ushort)sz };
   if( FD_UNLIKELY( route_loopback( ctx->src_ip_addr, sig ) ) ) {
@@ -424,7 +458,7 @@ after_frag( fd_net_ctx_t *      ctx,
     memset( ctx->frame, 0, 12UL );
 
     ulong sent_cnt;
-    int aio_err = ctx->lo_tx->send_func( ctx->xsk_aio[ 1 ], &aio_buf, 1, &sent_cnt, 1 );
+    int aio_err = ctx->lo_tx->send_func( ctx->xsk_aio[ 1 ], &aio_buf, 1, &sent_cnt, flush );
     ctx->metrics.tx_dropped_cnt += aio_err!=FD_AIO_SUCCESS;
   } else {
     /* extract dst ip */
@@ -454,7 +488,6 @@ after_frag( fd_net_ctx_t *      ctx,
       rtn = fd_ip_route_ip_addr( dst_mac, &next_hop, &if_idx, ctx->ip, dst_ip );
     }
 
-    long now;
     switch( rtn ) {
       case FD_IP_PROBE_RQD:
         /* TODO possibly buffer some data while waiting for ARPs to complete */
@@ -463,8 +496,7 @@ after_frag( fd_net_ctx_t *      ctx,
         send_arp_probe( ctx, next_hop, if_idx );
 
         /* refresh tables */
-        now = fd_log_wallclock();
-        ctx->ip_next_upd = now + (long)200e3;
+        ctx->next_netlink_refresh = fd_tickcount() + (long)( 200e3 * fd_tempo_tick_per_ns( NULL ) );
         break;
       case FD_IP_NO_ROUTE:
         /* cannot make progress here */
@@ -477,13 +509,12 @@ after_frag( fd_net_ctx_t *      ctx,
         memcpy( ctx->frame + 6UL, ctx->src_mac_addr, 6UL );
 
         ulong sent_cnt;
-        int aio_err = ctx->tx->send_func( ctx->xsk_aio[ 0 ], &aio_buf, 1, &sent_cnt, 1 );
+        int aio_err = ctx->tx->send_func( ctx->xsk_aio[ 0 ], &aio_buf, 1, &sent_cnt, flush );
         ctx->metrics.tx_dropped_cnt += aio_err!=FD_AIO_SUCCESS;
         break;
       case FD_IP_RETRY:
         /* refresh tables */
-        now = fd_log_wallclock();
-        ctx->ip_next_upd = now + (long)200e3;
+        ctx->next_netlink_refresh = fd_tickcount() + (long)( 200e3 * fd_tempo_tick_per_ns( NULL ) );
         /* TODO consider buffering */
         break;
       case FD_IP_MULTICAST:
@@ -608,6 +639,11 @@ privileged_init( fd_topo_t *      topo,
   }
 
   ctx->ip = fd_ip_join( fd_ip_new( FD_SCRATCH_ALLOC_APPEND( l, fd_ip_align(), fd_ip_footprint( 0UL, 0UL ) ), 0UL, 0UL ) );
+
+  double tick_per_ns = fd_tempo_tick_per_ns( NULL );
+  ctx->netlink_refresh_interval_ticks = (long)( FD_NETLINK_REFRESH_INTERVAL_NS        * tick_per_ns );
+  ctx->xdp_stats_interval_ticks       = (long)( FD_XDP_STATS_INTERVAL_NS              * tick_per_ns );
+  ctx->tx_flush_interval_ticks        = (long)( (double)tile->net.tx_flush_timeout_ns * tick_per_ns );
 }
 
 static void
@@ -720,6 +756,9 @@ unprivileged_init( fd_topo_t *      topo,
   } else if( FD_UNLIKELY( ctx->repair_serve_listen_port!=0 && ctx->repair_out->mcache==NULL ) ) {
     FD_LOG_ERR(( "repair serve listen port set but no out link was found" ));
   }
+
+  ctx->flush_wmark   = (ulong)( (double)tile->net.xdp_aio_depth * 0.7 );
+  ctx->flush_pending = 0UL;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )

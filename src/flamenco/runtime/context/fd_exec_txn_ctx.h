@@ -60,7 +60,7 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   ulong magic; /* ==FD_EXEC_TXN_CTX_MAGIC */
 
   fd_exec_epoch_ctx_t const * epoch_ctx;
-  fd_exec_slot_ctx_t const *  slot_ctx;
+  fd_exec_slot_ctx_t  const * slot_ctx;
 
   fd_funk_txn_t *       funk_txn;
   fd_acc_mgr_t *        acc_mgr;
@@ -90,7 +90,14 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   ulong                 executable_cnt;                              /* Number of BPF upgradeable loader accounts. */
   fd_borrowed_account_t executable_accounts[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of BPF upgradeable loader program data accounts */
   fd_borrowed_account_t borrowed_accounts[ MAX_TX_ACCOUNT_LOCKS ];   /* Array of borrowed accounts accessed by this transaction. */
-  uchar                 nonce_accounts[ MAX_TX_ACCOUNT_LOCKS ];      /* Nonce accounts in the txn to be saved */
+  /* This is a bit of a misnomer but Agave calls it "rollback".
+     This is the account state that the nonce account should be in when
+     the txn fails.
+     It will advance the nonce account, rather than "roll back".
+   */
+  fd_borrowed_account_t rollback_nonce_account[ 1 ];
+  ulong                 nonce_account_idx_in_txn;                    /* If the transaction has a nonce account that must be advanced, this would be !=ULONG_MAX. */
+  uchar                 nonce_account_advanced;                      /* Nonce account has been advanced. */
   uint                  num_instructions;                            /* Counter for number of instructions in txn */
   fd_txn_return_data_t  return_data;                                 /* Data returned from `return_data` syscalls */
   fd_vote_account_cache_t * vote_accounts_map;                       /* Cache of bank's deserialized vote accounts to support fork choice */
@@ -162,8 +169,8 @@ fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
                        fd_rawtxn_b_t const * txn_raw );
 
 void
-fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t * slot_ctx,
-                                    fd_exec_txn_ctx_t * txn_ctx );
+fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
+                                    fd_exec_txn_ctx_t *        txn_ctx );
 
 void
 fd_exec_txn_ctx_teardown( fd_exec_txn_ctx_t * txn_ctx );

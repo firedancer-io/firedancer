@@ -4,7 +4,7 @@
 #include "../topo/fd_topo.h"
 #include "fd_tpu.h"
 #include "../../waltz/quic/fd_quic_private.h"
-#include "../../app/fdctl/run/tiles/generated/quic_seccomp.h"
+#include "generated/quic_seccomp.h"
 #include "../../util/net/fd_eth.h"
 
 #include <errno.h>
@@ -466,10 +466,15 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "insufficient tile scratch space" ));
   }
 
-  if( FD_UNLIKELY( tile->in_cnt!=1UL ||
-                   strcmp( topo->links[ tile->in_link_id[ 0UL ] ].name, "net_quic" ) ) )
-    FD_LOG_ERR(( "quic tile has none or unexpected input links %lu %s %s",
-                 tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
+  if( FD_UNLIKELY( tile->in_cnt==0 ) ) {
+    FD_LOG_ERR(( "quic tile has no input links" ));
+  }
+  for( ulong i=0; i<tile->in_cnt; i++ ) {
+    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
+    if( FD_UNLIKELY( 0!=strcmp( link->name, "net_quic" ) ) ) {
+      FD_LOG_ERR(( "unexpected input link %s", link->name ));
+    }
+  }
 
   if( FD_UNLIKELY( tile->out_cnt!=2UL ||
                    strcmp( topo->links[ tile->out_link_id[ 0UL ] ].name, "quic_verify" ) ||

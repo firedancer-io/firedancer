@@ -59,6 +59,7 @@ metric introduced.
     <counter name="XdpRxDroppedRingFull" summary="Number of packets dropped because the RX completion queue was empty. This is only reported for net tile 0, since the measurement is across all RX queues." />
     <counter name="XdpRxDroppedOther" summary="Number of packets dropped for other reasons. This is only reported for net tile 0, since the measurement is across all RX queues." />
     <counter name="TxDropped" summary="Number of packets dropped because the TX submission queue was empty. This is reported for all net tiles." />
+    <counter name="XskSendErrors" summary="Number of times calling send(2) on the XSK indicated an error other than EAGAIN." />
 </tile>
 
 <enum name="TpuRecvType">
@@ -196,11 +197,18 @@ metric introduced.
     <int value="0" name="Success" label="Resolved successfully" />
 </enum>
 
+<enum name="ResolveStashOperation">
+    <int value="0" name="Inserted" label="A transaction with an unknown blockhash was added to the stash" />
+    <int value="1" name="Overrun" label="A transaction with an unknown blockhash was dropped because the stash was full" />
+    <int value="2" name="Published" label="A transaction with an unknown blockhash was published as the blockhash became known" />
+    <int value="3" name="Removed" label="A transaction with an unknown blockhash was removed from the stash without publishing, due to a bad LUT resolved failure, or no bank. These errors are double counted with the respective metrics for those categories." />
+</enum>
+
 <tile name="resolv">
     <counter name="NoBankDrop" summary="Count of transactions dropped because the bank was not available" />
+    <counter name="StashOperation" enum="ResolveStashOperation" summary="Count of operations that happened on the transaction stash" />
     <counter name="LutResolved" enum="LutResolveResult" summary="Count of address lookup tables resolved" />
     <counter name="BlockhashExpired" summary="Count of transactions that failed to resolve because the blockhash was expired" />
-    <counter name="BlockhashUnknown" summary="Count of transactions with an unknown blockhash. These may be very recent, very old, nonces, or bogus." />
 </tile>
 
 <enum name="PackTxnInsertReturn">
@@ -229,6 +237,7 @@ metric introduced.
     <int value="3" name="ByteLimit" label="Pack skipped the transaction because it would have exceeded the block data size limit" />
     <int value="4" name="WriteCost" label="Pack skipped the transaction because it would have caused a writable account to exceed the per-account block write cost limit" />
     <int value="5" name="SlowPath" label="Pack skipped the transaction because of account conflicts using the full slow check" />
+    <int value="6" name="DeferSkip" label="Pack skipped the transaction it previously exceeded the per-account block write cost limit too many times" />
 </enum>
 
 <enum name="PackTimingState">
@@ -427,6 +436,157 @@ metric introduced.
 
 <tile name="store">
     <counter name="TransactionsInserted" summary="Count of transactions produced while we were leader in the shreds that have been inserted so far" />
+</tile>
+
+<tile name="replay">
+  <gauge name="Slot" label="The slot that is currently being executing" />
+  <gauge name="LastVotedSlot" label="The last slot that was voted on" />
+
+</tile>
+<tile name="storei">
+  <gauge name="FirstTurbineSlot" label="The first slot for which we have received a turbine shred" />
+  <gauge name="CurrentTurbineSlot" label="The latest slot for which we have received a turbine shred" />
+</tile>
+<enum name="GossipMessage">
+    <int value="0" name="PullRequest"   label="Pull Request" />
+    <int value="1" name="PullResponse"  label="Pull Response" />
+    <int value="2" name="Push"          label="Push" />
+    <int value="3" name="Prune"         label="Prune" />
+    <int value="4" name="Ping"          label="Ping" />
+    <int value="5" name="Pong"          label="Pong" />
+</enum>
+
+<enum name="CrdsValue">
+    <int value="0"  name="ContactInfoV1"                label="Contact Info V1" />
+    <int value="1"  name="Vote"                         label="Vote" />
+    <int value="2"  name="LowestSlot"                   label="Lowest Slot" />
+    <int value="3"  name="SnapshotHashes"               label="Snapshot Hashes" />
+    <int value="4"  name="AccountsHashes"               label="Accounts Hashes" />
+    <int value="5"  name="EpochSlots"                   label="Epoch Slots" />
+    <int value="6"  name="VersionV1"                    label="Version V1" />
+    <int value="7"  name="VersionV2"                    label="Version V2" />
+    <int value="8"  name="NodeInstance"                 label="Node Instance" />
+    <int value="9"  name="DuplicateShred"               label="Duplicate Shred" />
+    <int value="10" name="IncrementalSnapshotHashes"    label="Incremental Snapshot Hashes" />
+    <int value="11" name="ContactInfoV2"                label="Contact Info V2" />
+    <int value="12" name="RestartLastVotedForkSlots"    label="Restart Last Voted Fork Slots" />
+    <int value="13" name="RestartHeaviestFork"          label="Restart Heaviest Fork" />
+</enum>
+
+<enum name="CrdsDropReason">
+    <int value="0"  name="Success"              label="Successfully processed CRDS (not dropped)"/>
+    <int value="1"  name="Duplicate"            label="Duplicate CRDS value"/>
+    <int value="2"  name="UnknownDiscriminant"  label="Unknown discriminant"/>
+    <int value="3"  name="OwnMessage"           label="Own message"/>
+    <int value="4"  name="InvalidSignature"     label="Invalid signature"/>
+    <int value="5"  name="TableFull"            label="Table full"/>
+    <int value="6"  name="PushQueueFull"        label="Push queue full"/>
+    <int value="7"  name="InvalidGossipPort"    label="Invalid gossip port"/>
+    <int value="8"  name="PeerTableFull"        label="Peer table full"/>
+    <int value="9"  name="InactivesQueueFull"   label="Inactives queue full"/>
+    <int value="10" name="DiscardedPeer"        label="Discarded peer"/>
+    <int value="11" name="EncodingFailed"       label="Encoding failed"/>
+</enum>
+
+<enum name="PullReqFailReason">
+    <int value="0" name="PeerNotInActives"  label="Number of PullReq messages from peers that are not in the active set" />
+    <int value="1" name="UnresponsivePeer"  label="Number of PullReq messages from a peer that hasn't responded to our ping message yet" />
+    <int value="2" name="PendingPoolFull"   label="Number of PullReq messages skipped due to the pending pool being full" />
+    <int value="3" name="EncodingFailed"    label="Number of PullReq messages skipped due to message encoding failed" />
+</enum>
+
+<enum name="PullReqBloomFilterResult">
+    <int value="0" name="Hit"    label="Number of PullReq messages that hit the bloom filter" />
+    <int value="1" name="Miss"   label="Number of PullReq messages that missed the bloom filter" />
+</enum>
+
+<enum name="PeerTypes">
+    <int value="0" name="Tvu"    label="TVU"   />
+    <int value="1" name="Repair" label="Repair" />
+    <int value="2" name="Voter"  label="Voter" />
+</enum>
+
+<enum name="PruneFailureReason">
+    <int value="0" name="NotForMe"              label="Prune message not for me" />
+    <int value="1" name="SignEncodingFailed"    label="Prune message sign encoding failed" />
+    <int value="2" name="InvalidSignature"      label="Prune message invalid signature" />
+</enum>
+
+<enum name="GossipPeerState">
+    <int value="0" name="Total"    label="Total Peers Detected" />
+    <int value="1" name="Active"   label="Active" />
+    <int value="2" name="Inactive" label="Inactive" />
+</enum>
+
+<enum name="RecvPongEvent">
+    <int value="0" name="NewPeer"           label="Pong peer is not in table" />
+    <int value="1" name="WrongToken"        label="Pong peer token mismatch" />
+    <int value="2" name="InvalidSignature"  label="Pong peer invalid signature" />
+    <int value="3" name="Expired"           label="Pong peer expired" />
+    <int value="4" name="TableFull"         label="Unable to insert peer due to table full" />
+</enum>
+
+<enum name="SendPingEvent">
+    <int value="0" name="ActivesTableFull"           label="Number of Ping messages we failed to send due to the Active Peers table being full" />
+    <int value="1" name="ActivesTableInsert"         label="Number of Ping messages that cause an insert into the Active Peers table" />
+    <int value="2" name="MaxPingCountExceeded"       label="Number of times we removed a peer from the Actives table, because it repeatedly failed to respond to a ping" />
+</enum>
+
+<enum name="MakePruneEvent">
+    <int value="0" name="StaleEntry"            label="Stale Entry" />
+    <int value="1" name="HighDuplicates"        label="High Duplicates" />
+    <int value="2" name="EncodingFailed"        label="Encoding Failure" />
+</enum>
+
+
+<tile name="gossip">
+    <gauge   name="LastCrdsPushContactInfoPublishTimestampNanos"                                clickhouse_exclude="true" summary="Time (in nanoseconds) of last CRDS Push ContactInfo message publish" />
+    <counter name="MismatchedContactInfoShredVersion"                                           clickhouse_exclude="true" summary="Mismatched Contact Info Shred Version" />
+    <counter name="Ipv6ContactInfo"                                 enum="PeerTypes"            clickhouse_exclude="true" summary="IPv6 Contact Info (by peer type)" />
+    <counter name="ZeroIpv4ContactInfo"                             enum="PeerTypes"            clickhouse_exclude="true" summary="Zero IPv4 Contact Info (by peer type)" />
+    <gauge   name="PeerCounts"                                      enum="PeerTypes"            clickhouse_exclude="true" summary="Number of peers of each type" />
+    <counter name="ShredVersionZero"                                                            clickhouse_exclude="true" summary="Shred version zero" />
+
+    <counter name="ReceivedPackets"                                 clickhouse_exclude="true" summary="Number of all gossip packets received" />
+    <counter name="CorruptedMessages"                               clickhouse_exclude="true" summary="Number of corrupted gossip messages received" />
+    <counter name="ReceivedGossipMessages" enum="GossipMessage"     clickhouse_exclude="true" summary="Number of gossip messages received" />
+    <counter name="ReceivedUnknownMessage"                          clickhouse_exclude="true" summary="Number of gossip messages received that have an unknown discriminant" />
+
+    <counter name="ReceivedCrds"                    enum="CrdsValue"        clickhouse_exclude="true" summary="Number of CRDS values received" />
+    <counter name="ReceivedCrdsDuplicateMessage"    enum="CrdsValue"        clickhouse_exclude="true" summary="Number of duplicate Push,PullResp CRDS values received" />
+    <counter name="ReceivedCrdsDrop"                enum="CrdsDropReason"   clickhouse_exclude="true" summary="Number of CRDS values dropped on receive" />
+
+    <counter name="PushCrds"                    enum="CrdsValue"        clickhouse_exclude="true" summary="Number of CRDS values pushed" />
+    <counter name="PushCrdsDuplicateMessage"    enum="CrdsValue"        clickhouse_exclude="true" summary="Number of duplicate CRDS values inserted (internally)" />
+    <counter name="PushCrdsDrop"                enum="CrdsDropReason"   clickhouse_exclude="true" summary="Number of CRDS values dropped on push" />
+    <gauge   name="PushCrdsQueueCount"                                    clickhouse_exclude="true" summary="Number of CRDS values in the queue to be pushed" />
+
+    <gauge   name="ActivePushDestinations"          clickhouse_exclude="true" summary="Number of active Push destinations" />
+
+    <counter name="RefreshPushStatesFailCount"    clickhouse_exclude="true" summary="Number of failures whilst refreshing push states" />
+
+    <counter name="PullReqFail"             enum="PullReqFailReason"        clickhouse_exclude="true" summary="Number of PullReq messages that failed" />
+    <counter name="PullReqBloomFilter"      enum="PullReqBloomFilterResult" clickhouse_exclude="true" summary="Result of the bloom filter check for a PullReq" />
+    <gauge   name="PullReqRespPackets"                                      clickhouse_exclude="true" summary="Number of packets used to respond to a PullReq" />
+
+    <counter name="PruneFailCount"           enum="PruneFailureReason"      clickhouse_exclude="true" summary="Number of Prune messages that failed" />
+
+    <counter name="MakePruneStaleEntry"           clickhouse_exclude="true" summary="Number of stale entries removed from the stats table while making prune messages" />
+    <counter name="MakePruneHighDuplicates"       clickhouse_exclude="true" summary="Number of origins with high duplicate counts found while making prune messages" />
+    <gauge   name="MakePruneRequestedOrigins"     clickhouse_exclude="true" summary="Number of requested origins in the last prune message we made" />
+    <counter name="MakePruneSignDataEncodeFailed" clickhouse_exclude="true" summary="Number of times we failed to encode the sign data" />
+
+    <counter name="SentGossipMessages" enum="GossipMessage" clickhouse_exclude="true" summary="Number of gossip messages sent" />
+
+    <counter name="SentPackets" clickhouse_exclude="true" summary="Number of Packets sent" />
+
+    <counter name="SendPingEvent" enum="SendPingEvent" clickhouse_exclude="true" summary="Number of Ping messages sent with non-standard outcomes" />
+
+    <counter name="RecvPingInvalidSignature"  clickhouse_exclude="true" summary="Number of times we received a Ping message with an invalid signature" />
+
+    <counter name="RecvPongEvent" enum="RecvPongEvent" clickhouse_exclude="true" summary="Number of Pong messages processed with non-standard outcomes" />
+
+    <gauge   name="GossipPeerCounts" enum="GossipPeerState" clickhouse_exclude="true" summary="Number of gossip peers tracked" />
 </tile>
 
 </metrics>

@@ -1,4 +1,3 @@
-#define FD_SCRATCH_USE_HANDHOLDING 1
 #include "fd_snapshot_loader.h"
 #include "fd_snapshot_http.h"
 #include "fd_snapshot_restore_private.h"
@@ -121,7 +120,10 @@ fd_snapshot_dumper_delete( fd_snapshot_dumper_t * dumper ) {
 
 static int
 fd_snapshot_dumper_on_manifest( void *                 _d,
-                                fd_solana_manifest_t * manifest ) {
+                                fd_solana_manifest_t * manifest,
+                                fd_spad_t *            spad ) {
+
+  (void)spad;
 
   fd_snapshot_dumper_t * d = _d;
   if( !d->want_manifest ) return 0;
@@ -136,11 +138,11 @@ fd_snapshot_dumper_on_manifest( void *                 _d,
     return errno;
   }
 
-  fd_scratch_push();
-  fd_flamenco_yaml_t * yaml = fd_flamenco_yaml_init( fd_flamenco_yaml_new( fd_scratch_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ), file );
+  fd_spad_push( spad );
+  fd_flamenco_yaml_t * yaml = fd_flamenco_yaml_init( fd_flamenco_yaml_new( fd_spad_alloc( spad, fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() ) ), file );
   fd_solana_manifest_walk( yaml, manifest, fd_flamenco_yaml_walk, NULL, 0U );
   fd_flamenco_yaml_delete( yaml );
-  fd_scratch_pop();
+  fd_spad_pop( spad );
 
   int err = 0;
   if( FD_UNLIKELY( (err = ferror( file )) ) ) {
@@ -222,15 +224,13 @@ fd_snapshot_dumper_record( fd_snapshot_dumper_t * d,
 static int
 fd_snapshot_dumper_release( fd_snapshot_dumper_t * d ) {
 
-  fd_exec_slot_ctx_t * slot_ctx = d->slot_ctx;
-  fd_funk_txn_t *      funk_txn = slot_ctx->funk_txn;
+  fd_funk_txn_t *      funk_txn = d->restore->funk_txn;
   fd_funk_txn_xid_t    txn_xid  = funk_txn->xid;
   fd_funk_t *          funk     = d->funk;
   fd_wksp_t *          wksp     = fd_funk_wksp( funk );
   fd_funk_rec_t *      rec_map  = fd_funk_rec_map( funk, wksp );
 
   /* Dump all the records */
-
   for( fd_funk_rec_t const * rec = fd_funk_txn_rec_head( funk_txn, rec_map );
                              rec;
                              rec = fd_funk_rec_next( rec, rec_map ) ) {
@@ -249,7 +249,7 @@ fd_snapshot_dumper_release( fd_snapshot_dumper_t * d ) {
   if( FD_UNLIKELY( !funk_txn ) )
     FD_LOG_ERR(( "Failed to prepare funk txn" ));  /* unreachable */
 
-  slot_ctx->funk_txn = funk_txn;
+  d->restore->funk_txn = funk_txn;
   return 0;
 }
 
@@ -260,7 +260,7 @@ static int
 fd_snapshot_dumper_advance( fd_snapshot_dumper_t * dumper ) {
 
   int advance_err = fd_snapshot_loader_advance( dumper->loader );
-  if( FD_UNLIKELY( advance_err ) ) return advance_err;
+  if( FD_UNLIKELY( advance_err<0 ) ) return advance_err;
 
   int collect_err = fd_snapshot_dumper_release( dumper );
   if( FD_UNLIKELY( collect_err ) ) return collect_err;
@@ -288,7 +288,8 @@ typedef struct fd_snapshot_dump_args fd_snapshot_dump_args_t;
 static int
 do_dump( fd_snapshot_dumper_t *    d,
          fd_snapshot_dump_args_t * args,
-         fd_wksp_t *               wksp ) {
+         fd_wksp_t *               wksp,
+         fd_spad_t *               spad ) {
 
   /* Resolve snapshot source */
 
@@ -318,7 +319,7 @@ do_dump( fd_snapshot_dumper_t *    d,
 
   /* Create loader */
 
-  d->loader = fd_snapshot_loader_new( fd_scratch_alloc( fd_snapshot_loader_align(), fd_snapshot_loader_footprint( args->zstd_window_sz ) ), args->zstd_window_sz );
+  d->loader = fd_snapshot_loader_new( fd_spad_alloc( spad, fd_snapshot_loader_align(), fd_snapshot_loader_footprint( args->zstd_window_sz ) ), args->zstd_window_sz );
   if( FD_UNLIKELY( !d->loader ) ) { FD_LOG_WARNING(( "Failed to create fd_snapshot_loader_t" )); return EXIT_FAILURE; }
 
   /* Create a high-quality hash seed for fd_funk */
@@ -339,17 +340,16 @@ do_dump( fd_snapshot_dumper_t *    d,
 
   /* Create a new processing context */
 
-  d->acc_mgr = fd_acc_mgr_new( fd_scratch_alloc( FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT ), d->funk );
+  d->acc_mgr = fd_acc_mgr_new( fd_spad_alloc( spad, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT ), d->funk );
   if( FD_UNLIKELY( !d->acc_mgr ) ) { FD_LOG_WARNING(( "Failed to create fd_acc_mgr_t" )); return EXIT_FAILURE; }
 
   ulong const vote_acct_max = 1UL;  /* fd_snapshot doesn't retain epoch stakes */
-  d->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( fd_scratch_alloc( fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( vote_acct_max ) ), vote_acct_max ) );
+  d->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( fd_spad_alloc( spad, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( vote_acct_max ) ), vote_acct_max ) );
   if( FD_UNLIKELY( !d->epoch_ctx ) ) { FD_LOG_WARNING(( "Failed to create fd_exec_epoch_ctx_t" )); return EXIT_FAILURE; }
 
-  d->slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( fd_scratch_alloc( FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT ), fd_alloc_virtual( d->alloc ) ) );
+  d->slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( fd_spad_alloc( spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT ), spad ) );
   if( FD_UNLIKELY( !d->slot_ctx ) ) { FD_LOG_WARNING(( "Failed to create fd_exec_slot_ctx_t" )); return EXIT_FAILURE; }
 
-  d->slot_ctx->valloc = fd_alloc_virtual( d->alloc );
   d->slot_ctx->acc_mgr   = d->acc_mgr;
   d->slot_ctx->epoch_ctx = d->epoch_ctx;
 
@@ -359,10 +359,10 @@ do_dump( fd_snapshot_dumper_t *    d,
   fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( d->funk, NULL, &funk_txn_xid, 1 );
   d->slot_ctx->funk_txn = funk_txn;
 
-  void * restore_mem = fd_scratch_alloc( fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
+  void * restore_mem = fd_spad_alloc( spad, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
   if( FD_UNLIKELY( !restore_mem ) ) FD_LOG_ERR(( "Failed to allocate restore buffer" ));  /* unreachable */
 
-  d->restore = fd_snapshot_restore_new( restore_mem, d->acc_mgr, funk_txn, d->slot_ctx->valloc, d, fd_snapshot_dumper_on_manifest, NULL );
+  d->restore = fd_snapshot_restore_new( restore_mem, d->acc_mgr, funk_txn, spad, d, fd_snapshot_dumper_on_manifest, NULL );
   if( FD_UNLIKELY( !d->restore ) ) { FD_LOG_WARNING(( "Failed to create fd_snapshot_restore_t" )); return EXIT_FAILURE; }
 
   /* Set up the snapshot loader */
@@ -444,28 +444,30 @@ cmd_dump( int     argc,
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( args->_page_sz ), args->page_cnt, args->near_cpu, "wksp", 0UL );
   if( FD_UNLIKELY( !wksp ) ) FD_LOG_ERR(( "fd_wksp_new_anonymous() failed" ));
 
-  /* With scratch */
+  /* With spad */
 
-  ulong smax = args->zstd_window_sz + (1<<29);  /* manifest plus 512 MiB headroom */
-  FD_LOG_INFO(( "Using %.2f MiB scratch space", (double)smax/(1<<20) ));
-  uchar * smem = fd_wksp_alloc_laddr( wksp, FD_SCRATCH_SMEM_ALIGN, smax, 1UL );
-  if( FD_UNLIKELY( !smem ) ) FD_LOG_ERR(( "fd_wksp_alloc_laddr for scratch region of size %lu failed", smax ));
-  ulong fmem[16];
-  fd_scratch_attach( smem, fmem, smax, 16UL );
-  fd_scratch_push();
+  ulong       mem_max           = args->zstd_window_sz + (1<<29); /* manifest plus 512 MiB headroom */
+  uchar *     mem               = fd_wksp_alloc_laddr(  wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( mem_max ), 1UL );
+  fd_spad_t * spad              = fd_spad_join( fd_spad_new( mem, mem_max ) );
+  if( FD_UNLIKELY( !spad ) ) {
+    FD_LOG_ERR(( "Failed to allocate spad" ));
+  }
+  fd_spad_push( spad );  
 
   /* With dump context */
 
   fd_snapshot_dumper_t  _dumper[1];
   fd_snapshot_dumper_t * dumper = fd_snapshot_dumper_new( _dumper );
 
-  int rc = do_dump( dumper, args, wksp );
+  int rc = do_dump( dumper, args, wksp, spad );
   FD_LOG_INFO(( "Done. Cleaning up." ));
 
   fd_snapshot_dumper_delete( dumper );
 
-  fd_scratch_pop();
-  fd_scratch_detach( NULL );
+  fd_spad_pop( spad );
+  void * spad_mem = fd_spad_delete( fd_spad_leave( spad ) );
+  fd_wksp_free_laddr( spad_mem );
+
   fd_wksp_delete_anonymous( wksp );
   return rc;
 }

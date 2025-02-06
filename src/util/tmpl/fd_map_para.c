@@ -703,6 +703,12 @@
 
      int mymap_verify( mymap_t const * join );
 
+     // mymap_strerror converts an FD_MAP_SUCCESS / FD_MAP_ERR code into
+     // a human readable cstr.  The lifetime of the returned pointer is
+     // infinite.  The returned pointer is always to a non-NULL cstr.
+
+     char const * mymap_strerror( int err );
+
    Do this as often as desired in a compilation unit to get different
    types of concurrent maps.  Options exist for generating library
    header prototypes and/or library implementations for concurrent maps
@@ -2270,7 +2276,7 @@ MAP_(txn_try)( MAP_(txn_t) * txn,
 
     ulong scale = fd_ulong_min( (fd_ulong_min( lock_cnt+spec_cnt, (1UL<<16)-1UL )*backoff_exp) >> 16, (1UL<<32)-1UL );
     backoff_exp = fd_ulong_min( backoff_exp + (backoff_exp>>2) + (backoff_exp>>4), (1UL<<48)-1UL );
-    mymap_backoff( scale, backoff_seed );
+    MAP_(backoff)( scale, backoff_seed );
   }
 
   /* At this point, if we don't have an error, we have the chain
@@ -2556,7 +2562,7 @@ MAP_(iter_lock)( MAP_(t) * join,
       lock_idx = locked_cnt;
       ulong scale = fd_ulong_min( (fd_ulong_min( lock_cnt-locked_cnt, (1UL<<16)-1UL )*backoff) >> 16, (1UL<<32)-1UL );
       backoff = fd_ulong_min( backoff + (backoff>>2) + (backoff>>4), (1UL<<48)-1UL );
-      mymap_backoff( scale, backoff_seed );
+      MAP_(backoff)( scale, backoff_seed );
     }
   }
 

@@ -12,6 +12,9 @@
 #include "fd_metrics_poh.h"
 #include "fd_metrics_shred.h"
 #include "fd_metrics_store.h"
+#include "fd_metrics_replay.h"
+#include "fd_metrics_storei.h"
+#include "fd_metrics_gossip.h"
 /* Start of LINK OUT metrics */
 
 #define FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF  (0UL)
@@ -146,9 +149,9 @@ extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_IN[FD_METRICS_ALL_LINK_IN_TOT
 #define FD_METRICS_ALL_LINK_OUT_TOTAL (1UL)
 extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_OUT[FD_METRICS_ALL_LINK_OUT_TOTAL];
 
-#define FD_METRICS_TOTAL_SZ (8UL*221UL)
+#define FD_METRICS_TOTAL_SZ (8UL*222UL)
 
-#define FD_METRICS_TILE_KIND_CNT 10
+#define FD_METRICS_TILE_KIND_CNT 13
 extern const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT];
 extern const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT];
 extern const fd_metrics_meta_t * FD_METRICS_TILE_KIND_METRICS[FD_METRICS_TILE_KIND_CNT];

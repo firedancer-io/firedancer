@@ -457,14 +457,18 @@ fd_scratch_publish( void * _end ) {
   /* Poison everything that is trimmed off. Conservatively poison potentially
      less than the region that is trimmed to respect alignment requirements. */
 # if FD_HAS_DEEPASAN
+  ulong aligned_free = fd_ulong_align_dn( fd_scratch_private_free, FD_ASAN_ALIGN );
   ulong aligned_end  = fd_ulong_align_up( end, FD_ASAN_ALIGN );
   ulong aligned_stop = fd_ulong_align_dn( fd_scratch_private_stop, FD_ASAN_ALIGN );
   fd_asan_poison( (void*)aligned_end, aligned_stop - aligned_end );
+  fd_asan_unpoison( (void*)aligned_free, aligned_end - aligned_free );
 # endif
 # if FD_HAS_MSAN
-  ulong aligned_end  = fd_ulong_align_up( end, FD_MSAN_ALIGN );
+  ulong aligned_free = fd_ulong_align_dn( fd_scratch_private_free, FD_ASAN_ALIGN );
+  ulong aligned_end  = fd_ulong_align_up( end, FD_ASAN_ALIGN );
   ulong aligned_stop = fd_ulong_align_dn( fd_scratch_private_stop, FD_MSAN_ALIGN );
   fd_msan_poison( (void*)aligned_end, aligned_stop - aligned_end );
+  fd_msan_unpoison( (void*)aligned_free, aligned_end - aligned_free );
 # endif
 
   fd_scratch_private_free = end;

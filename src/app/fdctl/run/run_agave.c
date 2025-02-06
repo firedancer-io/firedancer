@@ -96,8 +96,13 @@ agave_boot( config_t * config ) {
 
   /* ledger */
   ADD( "--ledger", config->ledger.path );
-  if( strcmp( "", config->ledger.accounts_path ) ) ADD( "--accounts", config->ledger.accounts_path );
   ADDU( "--limit-ledger-size", config->ledger.limit_size );
+  if( strcmp( "", config->ledger.accounts_path ) )
+    ADD( "--accounts", config->ledger.accounts_path );
+  if( strcmp( "", config->ledger.accounts_index_path ) )
+    ADD( "--accounts-index-path", config->ledger.accounts_index_path );
+  if( strcmp( "", config->ledger.accounts_hash_cache_path ) )
+    ADD( "--accounts-hash-cache-path", config->ledger.accounts_hash_cache_path );
   for( ulong i=0UL; i<config->ledger.account_indexes_cnt; i++ )
     ADD( "--account-index", config->ledger.account_indexes[ i ] );
   if( FD_LIKELY( !config->ledger.account_index_include_keys_cnt ) ) {
@@ -136,9 +141,17 @@ agave_boot( config_t * config ) {
   if( config->rpc.bigtable_ledger_storage ) ADD1( "--enable-rpc-bigtable-ledger-storage" );
 
   /* snapshots */
+  if( config->snapshots.enabled ) {
+    if( config->snapshots.incremental_snapshots ) {
+      ADDU( "--full-snapshot-interval-slots", config->snapshots.full_snapshot_interval_slots );
+      ADDU( "--snapshot-interval-slots", config->snapshots.incremental_snapshot_interval_slots );
+    } else {
+      ADDU( "--snapshot-interval-slots", config->snapshots.full_snapshot_interval_slots );
+    }
+  } else {
+    ADDU( "--snapshot-interval-slots", (uint)0 );
+  }
   if( !config->snapshots.incremental_snapshots ) ADD1( "--no-incremental-snapshots" );
-  ADDU( "--full-snapshot-interval-slots", config->snapshots.full_snapshot_interval_slots );
-  ADDU( "--incremental-snapshot-interval-slots", config->snapshots.incremental_snapshot_interval_slots );
   ADD( "--snapshots", config->snapshots.path );
   if( strcmp( "", config->snapshots.incremental_path ) ) ADD( "--incremental-snapshot-archive-path", config->snapshots.incremental_path );
   ADDU( "--maximum-snapshots-to-retain", config->snapshots.maximum_full_snapshots_to_retain );

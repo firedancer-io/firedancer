@@ -35,7 +35,7 @@ fd_stake_program_config_init( fd_exec_slot_ctx_t * global );
 
 int
 fd_stake_get_state( fd_borrowed_account_t const * self,
-                    fd_valloc_t const *           valloc,
+                    fd_spad_t *                   spad,
                     fd_stake_state_v2_t *         out );
 
 fd_stake_history_entry_t

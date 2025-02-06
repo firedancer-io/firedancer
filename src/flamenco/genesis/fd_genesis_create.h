@@ -50,6 +50,7 @@ FD_PROTOTYPES_BEGIN
 
    Assumes that caller is attached to an fd_scratch with sufficient
    memory to buffer intermediate data (16384 + 128*n space, 2 frames).
+   TODO: Replace with spad
 
    THIS METHOD IS NOT SAFE FOR PRODUCTION USE.
    It is intended for development only. */

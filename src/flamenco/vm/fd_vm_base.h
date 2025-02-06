@@ -180,6 +180,13 @@ FD_PROTOTYPES_END
 
 /* VM memory map constants */
 
+#define FD_VM_LO_REGION    (0UL)
+#define FD_VM_PROG_REGION  (1UL)
+#define FD_VM_STACK_REGION (2UL)
+#define FD_VM_HEAP_REGION  (3UL)
+#define FD_VM_INPUT_REGION (4UL)
+#define FD_VM_HIGH_REGION  (5UL)
+
 #define FD_VM_MEM_MAP_PROGRAM_REGION_START  (0x100000000UL)
 #define FD_VM_MEM_MAP_STACK_REGION_START    (0x200000000UL)
 #define FD_VM_MEM_MAP_HEAP_REGION_START     (0x300000000UL)
@@ -607,7 +614,7 @@ fd_vm_trace_reset( fd_vm_trace_t * trace ) {
   return FD_VM_SUCCESS;
 }
 
-/* fd_vm_trace_event_exe records the the current pc, ic, cu and
+/* fd_vm_trace_event_exe records the current pc, ic, cu and
    register file of the VM and the instruction about to execute.  Text
    points to the first word of the instruction about to execute and
    text_cnt points to the number of words available at that point.

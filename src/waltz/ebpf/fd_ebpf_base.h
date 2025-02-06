@@ -33,7 +33,7 @@
    The eBPF virtual machine loads code from ELF binaries not unlike
    native programs on Linux-based operating systems.  While this allows
    using the familiar C build system, it requires a cross-compiler that
-   is capable of generating eBPF bytecode that abides the the afore-
+   is capable of generating eBPF bytecode that abides the afore-
    mentioned kernel verifier rules, such as upstream Clang/LLVM 14 or
    later.
 

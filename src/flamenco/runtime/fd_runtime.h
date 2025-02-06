@@ -19,7 +19,9 @@
 #include "../gossip/fd_gossip.h"
 #include "../repair/fd_repair.h"
 #include "../../ballet/pack/fd_microblock.h"
-
+#include "info/fd_microblock_info.h"
+#include "../../ballet/bmtree/fd_wbmtree.h"
+#include "../../ballet/sbpf/fd_sbpf_loader.h"
 /* Various constant values used by the runtime. */
 
 #define MICRO_LAMPORTS_PER_LAMPORT (1000000UL)
@@ -39,6 +41,9 @@
 
 #define FD_FEATURE_ACTIVE(_slot_ctx, _feature_name)  (_slot_ctx->slot_bank.slot >= _slot_ctx->epoch_ctx->features. _feature_name)
 #define FD_FEATURE_JUST_ACTIVATED(_slot_ctx, _feature_name)  (_slot_ctx->slot_bank.slot == _slot_ctx->epoch_ctx->features. _feature_name)
+#define FD_FEATURE_ACTIVE_OFFSET(_slot_ctx, _offset)  (_slot_ctx->slot_bank.slot >= _slot_ctx->epoch_ctx->features.f[_offset>>3] )
+#define FD_FEATURE_JUST_ACTIVATED_OFFSET(_slot_ctx, _offset)  (_slot_ctx->slot_bank.slot == _slot_ctx->epoch_ctx->features.f[_offset>>3] )
+
 
 #define FD_BLOCKHASH_QUEUE_MAX_ENTRIES    (300UL)
 #define FD_RECENT_BLOCKHASHES_MAX_ENTRIES (150UL)
@@ -105,7 +110,7 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
 
 /* The tight upper bound on borrowed account footprint over the
    execution of a single transaction. */
-#define FD_RUNTIME_BORROWED_ACCOUNT_FOOTPRINT (MAX_TX_ACCOUNT_LOCKS * fd_ulong_align_up( FD_ACC_TOT_SZ_MAX, FD_ACCOUNT_REC_ALIGN ))
+#define FD_RUNTIME_BORROWED_ACCOUNT_FOOTPRINT (MAX_TX_ACCOUNT_LOCKS * FD_ULONG_ALIGN_UP( FD_ACC_TOT_SZ_MAX, FD_ACCOUNT_REC_ALIGN ))
 
 /* The tight-ish upper bound on input region footprint over the
    execution of a single transaction. See input serialization code for
@@ -132,12 +137,12 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
                                                          sizeof(fd_pubkey_t)         /* owner             */                                                + \
                                                          sizeof(ulong)               /* lamports          */                                                + \
                                                          sizeof(ulong)               /* data len          */                                                + \
-                                                         (direct_mapping ? FD_BPF_ALIGN_OF_U128 : fd_ulong_align_up( FD_ACC_SZ_MAX, FD_BPF_ALIGN_OF_U128 )) + \
+                                                         (direct_mapping ? FD_BPF_ALIGN_OF_U128 : FD_ULONG_ALIGN_UP( FD_ACC_SZ_MAX, FD_BPF_ALIGN_OF_U128 )) + \
                                                          MAX_PERMITTED_DATA_INCREASE                                                                        + \
                                                          sizeof(ulong))              /* rent_epoch        */
 
 #define FD_RUNTIME_INPUT_REGION_INSN_FOOTPRINT(account_lock_limit, direct_mapping)                                                                       \
-                                              (fd_ulong_align_up( (sizeof(ulong)         /* acct_cnt       */                                          + \
+                                              (FD_ULONG_ALIGN_UP( (sizeof(ulong)         /* acct_cnt       */                                          + \
                                                                    account_lock_limit*FD_RUNTIME_INPUT_REGION_UNIQUE_ACCOUNT_FOOTPRINT(direct_mapping) + \
                                                                    sizeof(ulong)         /* instr data len */                                          + \
                                                                                          /* No instr data  */                                            \
@@ -192,7 +197,7 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
 #define FD_RUNTIME_BINCODE_AND_NATIVE_FOOTPRINT (2UL*FD_ACC_SZ_MAX*72UL/40UL)
 
 /* Misc other footprint. */
-#define FD_RUNTIME_SYSCALL_TABLE_FOOTPRINT (FD_MAX_INSTRUCTION_STACK_DEPTH*fd_ulong_align_up( fd_sbpf_syscalls_footprint(), fd_sbpf_syscalls_align() ))
+#define FD_RUNTIME_SYSCALL_TABLE_FOOTPRINT (FD_MAX_INSTRUCTION_STACK_DEPTH*FD_ULONG_ALIGN_UP(FD_SBPF_SYSCALLS_FOOTPRINT, FD_SBPF_SYSCALLS_ALIGN))
 
 #ifdef FD_DEBUG_SBPF_TRACES
 #define FD_RUNTIME_VM_TRACE_EVENT_MAX      (1UL<<30)
@@ -216,6 +221,20 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
    TODO: If account lock limits are increased to 128, this macro will need to be updated. */
 #define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ    FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT(64UL, 0)
 #define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT(64UL, 0)
+/* TODO: Update this value once the bound is calculated correctly. */
+#define FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT               (45000000000UL)
+
+/* The below macros aren't used anywhere, but since the spads are used for PoH tick verification, 
+   we ensure that the default spad size is large enough for the wbmtree and leaves */
+
+#define FD_RUNTIME_MERKLE_LEAF_CNT_MAX (FD_TXN_MAX_PER_SLOT * FD_TXN_ACTUAL_SIG_MAX)
+
+#define FD_RUNTIME_MERKLE_VERIFICATION_FOOTPRINT FD_RUNTIME_MERKLE_LEAF_CNT_MAX * sizeof(fd_wbmtree32_leaf_t)     /* leaves */   \
+                                                + sizeof(fd_wbmtree32_t) + sizeof(fd_wbmtree32_node_t)*(FD_RUNTIME_MERKLE_LEAF_CNT_MAX + (FD_RUNTIME_MERKLE_LEAF_CNT_MAX/2)) /* tree footprint */ \
+                                                + FD_RUNTIME_MERKLE_LEAF_CNT_MAX * (sizeof(fd_ed25519_sig_t) + 1) /* sig mbuf */ \
+                                                + 1UL + FD_WBMTREE32_ALIGN + alignof(fd_wbmtree32_leaf_t)         /* aligns */
+
+FD_STATIC_ASSERT( FD_RUNTIME_MERKLE_VERIFICATION_FOOTPRINT <= FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT, merkle verify footprint exceeds txn execution footprint );
 
 /* Helpers for runtime spad frame management. */
 struct fd_runtime_spad_verify_handle_private {
@@ -276,7 +295,9 @@ fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
                                     ulong * out_max_tick_height /* out */ );
 
 void
-fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx, ulong slot );
+fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx,
+                           ulong                slot,
+                           fd_spad_t *          runtime_spad );
 
 int
 fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx );
@@ -306,23 +327,44 @@ fd_runtime_collect_rent_from_account( fd_exec_slot_ctx_t const * slot_ctx,
    This function assumes a full block.
    This needs to be called after epoch processing to get the up to date
    hashes_per_tick.
+
+   Provide scratch memory >= the max size of a batch to use. This is because we can only 
+   assemble shreds by batch, so we iterate and assemble shreds by batch in this function
+   without needing the caller to do so.
  */
 ulong
-fd_runtime_block_verify_ticks( fd_block_micro_t const * micro,
-                               ulong                    micro_cnt,
-                               uchar const *            block_data,
-                               ulong                    tick_height,
-                               ulong                    max_tick_height,
-                               ulong                    hashes_per_tick );
+fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
+                               ulong             slot,
+                               uchar *           block_data_mem,
+                               ulong             block_data_sz,
+                               ulong             tick_height,
+                               ulong             max_tick_height,
+                               ulong             hashes_per_tick );
+
+/* The following microblock-level functions are exposed and non-static due to also being used for fd_replay.
+   The block-level equivalent functions, on the other hand, are mostly static as they are only used
+   for offline replay */
+                                                 
+/* extra fine-grained streaming tick verification */            
+int
+fd_runtime_microblock_verify_ticks( fd_exec_slot_ctx_t *        slot_ctx,
+                                    ulong                       slot,
+                                    fd_microblock_hdr_t const * hdr,
+                                    bool               slot_complete,
+                                    ulong              tick_height,
+                                    ulong              max_tick_height,
+                                    ulong              hashes_per_tick );
 
 int
-fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx );
+fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
+                                  fd_spad_t *          runtime_spad );
 
 int
 fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t *    slot_ctx,
                                          fd_capture_ctx_t *      capture_ctx,
                                          fd_block_info_t const * block_info,
-                                         fd_tpool_t *            tpool );
+                                         fd_tpool_t *            tpool,
+                                         fd_spad_t *             runtime_spad );
 
 /* Transaction Level Execution Management *************************************/
 
@@ -334,7 +376,8 @@ int
 fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
                                fd_execute_txn_task_info_t * task_info,
                                fd_txn_p_t *                 txns,
-                               ulong                        txn_cnt );
+                               ulong                        txn_cnt,
+                               fd_spad_t *                  runtime_spad );
 
 void
 fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info );
@@ -344,23 +387,23 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info );
    transactions on a single core. */
 int
 fd_runtime_process_txns( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_spad_t *          spad,
+                         fd_spad_t *          exec_spad,
                          fd_capture_ctx_t *   capture_ctx,
                          fd_txn_p_t *         txns,
                          ulong                txn_cnt );
 
-
 /* fd_runtime_execute_txns_in_waves_tpool is responsible for end-to-end
    preparing, executing and finalizng a list of transactions. It will schedule
-   out a set of transactions to maximize parallelism*/
+   out a set of transactions to maximize parallelism. */
 int
 fd_runtime_process_txns_in_waves_tpool( fd_exec_slot_ctx_t * slot_ctx,
                                         fd_capture_ctx_t *   capture_ctx,
                                         fd_txn_p_t *         txns,
                                         ulong                txn_cnt,
                                         fd_tpool_t *         tpool,
-                                        fd_spad_t * *        spads, 
-                                        ulong                spads_cnt );
+                                        fd_spad_t * *        exec_spads,
+                                        ulong                exec_spads_cnt,
+                                        fd_spad_t *          runtime_spad );
 
 /* fd_runtime_process_txns and fd_runtime_execute_txns_in_waves_tpool are 
    both entrypoints for executing transactions. Currently, the former is used
@@ -386,23 +429,18 @@ fd_runtime_is_epoch_boundary( fd_epoch_bank_t * epoch_bank,
    the bank hash.
  */
 int
-fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx );
+fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
+                                                fd_tpool_t *         tpool,
+                                                fd_spad_t * *        exec_spads,
+                                                ulong                exec_spad_cnt,
+                                                fd_spad_t *          runtime_spad );
 
 /* Debugging Tools ************************************************************/
 
 void
-fd_runtime_checkpt( fd_capture_ctx_t * capture_ctx,
+fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
                     fd_exec_slot_ctx_t * slot_ctx,
-                    ulong slot );
-
-/* TODO: This logic is very old and likely needs to be reworked to work with the
-   snapshot service. It is not being removed as the logic can probably reused
-   for snapshot minimization. */
-
-void
-fd_runtime_collect_rent_accounts_prune( ulong slot,
-                                        fd_exec_slot_ctx_t * slot_ctx,
-                                        fd_capture_ctx_t * capture_ctx );
+                    ulong                slot );
 
 /* Block Parsing **************************************************************/
 
@@ -431,7 +469,8 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
                              ulong                scheduler,
                              ulong *              txn_cnt,
                              fd_spad_t * *        spads,
-                             ulong                spads_cnt );
+                             ulong                spads_cnt,
+                             fd_spad_t *          runtime_spad );
 
 /* Genesis ********************************************************************/
 
@@ -439,8 +478,9 @@ void
 fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
                          char const *         genesis_filepath,
                          uchar                is_snapshot,
-                         fd_capture_ctx_t   * capture_ctx,
-                         fd_tpool_t *         tpool );
+                         fd_capture_ctx_t *   capture_ctx,
+                         fd_tpool_t *         tpool,
+                         fd_spad_t *          spad );
 
 FD_PROTOTYPES_END
 

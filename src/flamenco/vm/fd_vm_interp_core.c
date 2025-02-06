@@ -234,23 +234,23 @@
    Exit
    At this point, cu is positive and err is clear.
 */
-# define FD_VM_INTERP_SYSCALL_EXEC                                          \
-  /* Setup */                                                               \
-  vm->pc        = pc;                                                       \
-  vm->ic        = ic;                                                       \
-  vm->cu        = cu;                                                       \
-  vm->frame_cnt = frame_cnt;                                                \
-  /* Execution */                                                           \
-  ulong ret[1];                                                             \
-  err = syscall->func( vm, reg[1], reg[2], reg[3], reg[4], reg[5], ret );   \
-  reg[0] = ret[0];                                                          \
-  /* Error handling */                                                      \
-  ulong cu_req = vm->cu;                                                    \
-  cu = fd_ulong_min( cu_req, cu );                                          \
-  if( FD_UNLIKELY( err ) ) {                                                \
-    if( err==FD_VM_ERR_SIGCOST ) cu = 0UL; /* cmov */                       \
-    goto sigsyscall;                                                        \
-  }                                                                         \
+# define FD_VM_INTERP_SYSCALL_EXEC                                            \
+  /* Setup */                                                                 \
+  vm->pc        = pc;                                                         \
+  vm->ic        = ic;                                                         \
+  vm->cu        = cu;                                                         \
+  vm->frame_cnt = frame_cnt;                                                  \
+  /* Execution */                                                             \
+  ulong ret[1];                                                               \
+  err = syscall->func( vm, reg[1], reg[2], reg[3], reg[4], reg[5], ret );     \
+  reg[0] = ret[0];                                                            \
+  /* Error handling */                                                        \
+  ulong cu_req = vm->cu;                                                      \
+  cu = fd_ulong_min( cu_req, cu );                                            \
+  if( FD_UNLIKELY( err ) ) {                                                  \
+    if( err==FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED ) cu = 0UL; /* cmov */ \
+    goto sigsyscall;                                                          \
+  }                                                                           \
   /* Exit */
 
 

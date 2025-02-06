@@ -51,6 +51,11 @@
      exploit CPU and storage caching, streaming and prefetching
      behaviors.
 
+   - Supports asynchronous execution (e.g. issue hints for keys that
+     will be accessed soon, do unrelated work while hints are
+     prefetching need info into local cache in the background, then do
+     key operations ... now all fast and local cache hits).
+
    - Supports non-plain-old-data keys and non-plain-old-data values
      (both of which are gross on real world computers but commonly done
      nevertheless).
@@ -86,12 +91,14 @@
 
      // A mymap_t is a stack declaration friendly quasi-opaque local
      // object used to hold the state of a local join to a mymap.
-     // Similarly, a mymap_query_t holds the local state of an ongoing
-     // operation.  E.g. it is fine to do mymap_t join[1];" to allocate
-     // a mymap_t but the contents should not be used directly.
+     // Similarly, a mymap_query_t / mymap_iter_t holds the local state
+     // of an ongoing operation / iteration.  E.g. it is fine to do
+     // mymap_t join[1];" to allocate a mymap_t but the contents should
+     // not be used directly.
 
      typedef struct mymap_private       mymap_t;
      typedef struct mymap_query_private mymap_query_t;
+     typedef struct mymap_iter_private  mymap_iter_t;
 
      // mymap_lock_max returns the maximum number of version locks that
      // can be used by a mymap.  Will be a positive integer
@@ -186,6 +193,19 @@
      void * mymap_shmap( mymap_t * join );
      void * mymap_shele( mymap_t * join );
 
+     // mymap_lock_{idx,ele0,ele1} specify the mapping between map
+     // version lock indices and element store element indices.  Assumes
+     // join is a current local join and ele_idx / lock_idx is in
+     // [0,ele_max) / is in [0,lock_cnt).  mymap_lock_idx is the index
+     // of the version lock that protects element store element ele_idx,
+     // in [0,lock_cnt).  [mymap_lock_ele0,mymap_lock_ele1) is the
+     // contiguous range of elements protected by lock lock_idx.  ele0
+     // is in [0,ele_max), ele1 is in (0,ele_max], and ele0<ele1.
+
+     ulong mymap_lock_idx ( mymap_t const * join, ulong ele_idx  );
+     ulong mymap_lock_ele0( mymap_t const * join, ulong lock_idx );
+     ulong mymap_lock_ele1( mymap_t const * join, ulong lock_idx );
+
      // mymap_key_{eq,hash} expose the provided MAP_KEY_{EQ,HASH} macros
      // as inlines with strict semantics.  They assume that the provided
      // pointers are in the caller's address space to keys that will not
@@ -237,6 +257,28 @@
      myele_t const * mymap_query_ele_const( mymap_query_t const * query );
      myele_t *       mymap_query_ele      ( mymap_query_t *       query );
 
+     // mymap_hint hints that the caller plans to do an operation
+     // involving key soon.  Assumes join is a current local join, key
+     // points to a valid key in the caller's address space for the
+     // duration of the call and query points to a local scratch to hold
+     // info about the hint.  Returns no interest in key.  On return,
+     // the query memo will be initialized.
+     //
+     // flags is a bit-or of FD_MAP_FLAG flags.  If
+     // FD_MAP_FLAG_PREFETCH_META / FD_MAP_FLAG_PREFETCH_DATA is set,
+     // this will issue a prefetch for key's mymap metadata (i.e. lock
+     // version) / the element at the start of key's probe sequence
+     // (i.e. the location of key or contiguously shortly before it)
+     // FD_MAP_FLAG_PREFETCH combines both for convenience.  This can be
+     // used to overlap key access latency with unrelated operations.
+     // All other flags are ignored.
+
+     void
+     mymap_hint( MAP_(t) const *   join
+                 MAP_KEY_T const * key
+                 MAP_(query_t) *   query,
+                 int               flags );
+
      // mymap_prepare tries to start a insert/modify/blocking query
      // operation for key.  Assumes join is a current local join, key
      // points to valid key in the caller's address space for the
@@ -245,6 +287,15 @@
      // Returns FD_MAP_SUCCESS (0) and a FD_MAP_ERR (negative) on
      // failure.  This is a non-blocking fast O(1) (O(probe_max) worst
      // case) and supports highly concurrent operation.
+     //
+     // flags is a bit-or of FD_MAP_FLAG flags.  If FD_MAP_FLAG_BLOCKING
+     // is set / clear in flags, this is allowed / not allowed to block
+     // the caller.  If FD_MAP_FLAG_USE_HINT is set, this assumes
+     // query's memo is already initialized for key.  This can be used
+     // to avoid redundant expensive key hashing when prefetching.  All
+     // other flags are ignored (the upper 26-bits of flags can be used
+     // to provide a local seed for random backoffs but this is up to
+     // the application and rarely matters in practice).
      //
      // On success, the caller is in a prepare for key and query is
      // initialized with info about prepare.  ele=mymap_query_ele(query)
@@ -279,7 +330,8 @@
      //
      // - FD_MAP_ERR_AGAIN: A potentially conflicting operation was in
      //   progress at some point during the call.  Try again later (e.g.
-     //   after a random exponential backoff).
+     //   after a random exponential backoff).  Never returned on a
+     //   blocking call.
      //
      // - FD_MAP_ERR_FULL: key was not in the map but inserting ele
      //   would require making a probe sequence longer than probe_max.
@@ -315,14 +367,24 @@
      // lifetime of the keys.  Thus the hash function used can be
      // constructed to create ordered iterators over groups of keys.
 
-     int  mymap_prepare( mymap_t * join, ulong const * key, myele_t * sentinel, mymap_query_t * query );
+     int  mymap_prepare( mymap_t * join, ulong const * key, myele_t * sentinel, mymap_query_t * query, int flags );
      void mymap_publish( mymap_query_t * query );
      void mymap_cancel ( mymap_query_t * query );
 
-     // mymap_remove removes key (if key) from the mymap.  Assumes join
-     // is a current local join and key is valid for the duration of the
+     // mymap_remove removes key from the mymap.  Assumes join is a
+     // current local join and key is valid for the duration of the
      // call.  Retains no interest in key.  This is non-blocking fast
      // typically O(1) and supports highly concurrent operation.
+     //
+     // flags is a bit-or of FD_MAP_FLAG flags.  If FD_MAP_FLAG_BLOCKING
+     // is set / clear in flags, this is allowed / not allowed to block
+     // the caller.  If FD_MAP_FLAG_USE_HINT is set, this assumes
+     // query's memo is already initialized for key.  This can be used
+     // to avoid redundant expensive key hashing when prefetching.  If
+     // clear, query is ignored and can be set NULL.  All other flags
+     // are ignored (the upper 26-bits of flags can be used to provide a
+     // local seed for random backoffs but this is up to the application
+     // and rarely matters in practice).
      //
      // Returns FD_MAP_SUCCESS (0) on success and a FD_MAP_ERR
      // (negative) on failure.  On success, key's mapping was removed at
@@ -334,12 +396,12 @@
      //
      // - FD_MAP_ERR_AGAIN: A potentially conflicting operation was in
      //   progress at some point during the call.  Same considerations
-     //   as prepare above.
+     //   as prepare above.  Never returned on a blocking call.
      //
      // IMPORTANT SAFETY TIP!  Do not nest or interleave prepares,
      // remove or queries for the same map on the same thread.
 
-     int mymap_remove( mymap_t * join, ulong const * key );
+     int mymap_remove( mymap_t * join, ulong const * key, mymap_query_t const * query, int flags );
 
      // mymap_query_try tries to speculatively query a mymap for key.
      // On return, query will hold information about the try.  sentinel
@@ -350,6 +412,15 @@
      // sentinel or query.  This is a non-blocking fast O(1)
      // (O(probe_max) worst case) and supports highly concurrent
      // operation.
+     //
+     // flags is a bit-or of FD_MAP_FLAG flags.  If FD_MAP_FLAG_BLOCKING
+     // is set / clear in flags, this is allowed / not allowed to block
+     // the caller.  If FD_MAP_FLAG_USE_HINT is set, this assumes
+     // query's memo is already initialized for key.  This can be used
+     // to avoid redundant expensive key hashing when prefetching.  All
+     // other flags are ignored (the upper 26-bits of flags can be used
+     // to provide a local seed for random backoffs but this is up to
+     // the application and rarely matters in practice).
      //
      // Returns FD_MAP_SUCCESS (0) on success and a FD_MAP_ERR
      // (negative) on failure.  On success, key mapped to the element
@@ -371,7 +442,7 @@
      //   any other concurrent operation.  Among the many implications,
      //   a query will never delay a concurrent query and AGAIN will
      //   never be returned if only concurrent speculative queries are
-     //   in progress.
+     //   in progress.  Never returned on a blocking call.
      //
      // IMPORTANT SAFETY TIP!  THE CALLER SHOULD BE PREPARED TO HANDLE
      // ARBITRARY AND/OR INCONSISTENT VALUES FOR ELEMENT FIELDS DURING
@@ -402,9 +473,108 @@
      mymap_query_try( mymap_t const * join,
                       ulong const *   key,
                       myele_t const * sentinel,
-                      mymap_query_t * query );
+                      mymap_query_t * query,
+                      int             flags );
 
      int mymap_query_test( mymap_query_t const * query );
+
+     // mymap_lock_range tries to acquire locks lock_idx for lock_idx in
+     // [range_start,range_start+range_cnt) (cyclic).
+     //
+     // flags is a bit-or of FD_MAP_FLAG flags.  If FD_MAP_FLAG_BLOCKING
+     // is set / clear in flags, this is allowed / not allowed to block
+     // the caller.  If FD_MAP_FLAG_RDONLY is set, the caller promises
+     // to only read the elements covered by the range while holding the
+     // locks.  All other flags are ignored (the upper 26-bits of flags
+     // can be used to provide a local seed for random backoffs but this
+     // is up to the application and rarely matters in practice).
+     //
+     // Returns FD_MAP_SUCCESS (0) on success and FD_MAP_ERR_AGAIN
+     // (negative) if there was a potentially conflicting operation in
+     // progress at some point during the call.  On success,
+     // version[lock_idx] will hold the version to use when releasing
+     // that lock.  On failure, version may have been clobbered.  AGAIN
+     // is never returned if BLOCKING is set.
+     //
+     // mymap_unlock_range unlocks a similarly specified range.  Assumes
+     // caller has the locks and version[lock_idx] is the value set when
+     // locked was obtained.
+     //
+     // These both assume join is a current local join, range_start is
+     // in [0,lock_cnt), range_cnt is in [0,lock_cnt] and version is
+     // valid with space for lock_cnt entries (YES ... LOCK_CNT, NOT
+     // RANGE_CNT ... this is trivial with a compile time stack
+     // temporary as lock_cnt<=MAP_LOCK_MAX).
+
+     int
+     mymap_lock_range( mymap_t * join,
+                       ulong     range_start,
+                       ulong     range_cnt,
+                       int       flags,
+                       ulong *   version );
+
+     void
+     mymap_unlock_range( mymap_t *     join,
+                         ulong         range_start,
+                         ulong         range_cnt,
+                         ulong const * version );
+
+     // The mymap_iter_* APIs are used to iterate over all keys inserted
+     // into the map with the same memo (to support grouping of keys by
+     // key hash value).  The iteration order will be from the least
+     // recently inserted to most recently inserted.  flags has similar
+     // meaning as other APIs.  Example usage:
+     //
+     //   ulong memo = ... hash of keys to iterate over ...
+     //
+     //   mymap_iter_t iter[1];
+     //   int err = mymap_iter_init( join, memo, 0, iter );
+     //
+     //   if( FD_UNLIKELY( err ) ) {
+     //
+     //     ... At this point, err is FD_MAP_ERR_AGAIN and caller has
+     //     ... ownership of iter.  There was a potentially conflicting
+     //     ... prepare or remove in progress at some point during the
+     //     ... call.  We can try again later (e.g. after a random
+     //     ... backoff or doing other non-conflicting work).
+     //     ... mymap_iter_done will be 1, mymap_iter_fini will be a
+     //     ... no-op.  Never returned if mymap_iter_init flags has
+     //     ... FD_MAP_FLAG_BLOCKING set.
+     //
+     //   } else {
+     //
+     //     ... At this point, we are in an iteration and iteration has
+     //     ... ownership of iter.
+     //
+     //     while( !mymap_iter_done( iter ) ) {
+     //       myele_t * ele = mymap_iter_ele( iter );
+     //
+     //       ... At this point, mymap_key_hash( ele->key, seed ) == memo (==ele's memo if memoized)
+     //
+     //       ... process ele here.
+     //
+     //       ... IMPORTANT!  Generally speaking, it is not okay to
+     //       ... insert, remove, modify, blocking read, non-blocking
+     //       ... read here.  It is okay to read ele and modify any
+     //       ... value fields though.  If mymap_iter_init flags had
+     //       ... FD_MAP_FLAG_RDONLY set, caller promises it is only
+     //       ... reading ele here.
+     //
+     //       mymap_iter_next( iter );
+     //     }
+     //
+     //     mymap_iter_fini( iter );
+     //
+     //     ... At this point, we are not in an iteration and caller has
+     //     ... ownership of iter.
+     //
+     //   }
+
+     int            mymap_iter_init( mymap_t * join, ulong memo, int flags, mymap_iter_t * lmem );
+     int            mymap_iter_done( mymap_iter_t * iter );
+     myele_t *      mymap_iter_ele ( mymap_iter_t * iter );
+     mymap_iter_t * mymap_iter_next( mymap_iter_t * iter );
+     mymap_iter_t * mymap_iter_fini( mymap_iter_t * iter );
 
      // mymap_verify returns FD_MAP_SUCCESS (0) if the join, underlying
      // map and underlying element store give a mapping of unique keys
@@ -414,6 +584,12 @@
      // all the map locks and/or the map is otherwise known to be idle.
 
      int mymap_verify( mymap_t const * join );
+
+     // mymap_strerror converts an FD_MAP_SUCCESS / FD_MAP_ERR code into
+     // a human readable cstr.  The lifetime of the returned pointer is
+     // infinite.  The returned pointer is always to a non-NULL cstr.
+
+     char const * mymap_strerror( int err );
 
    Do this as often as desired in a compilation unit to get different
    types of concurrent maps.  Options exist for generating library
@@ -433,7 +609,7 @@
      mykey_t * key = ... key to insert / modify / blocking query
 
      mymap_query_t query[1];
-     int       err  = mymap_prepare( map, key, sentinel, query );
+     int       err  = mymap_prepare( map, key, sentinel, query, 0 );
      myele_t * ele  = mymap_query_ele ( query );
      ulong     memo = mymap_query_memo( query );
 
@@ -448,6 +624,7 @@
        ... conflicting prepare or remove in progress at some point
        ... during the call.  We can try again later (e.g. after a
        ... random backoff or doing other non-conflicting work).
+       ... Never returned for a blocking call.
 
        ... If err is FD_MAP_ERR_FULL, key was not in the map but
        ... inserting it would have created a key probe sequence longer
@@ -489,7 +666,7 @@
 
      mykey_t * key = ... key to remove
 
-     int err = mymap_remove( map, key );
+     int err = mymap_remove( map, key, NULL, 0 );
 
      if( FD_UNLIKELY( err ) ) {
 
@@ -497,6 +674,7 @@
        ... conflicting prepare or remove in progress at some point
        ... during the call.  We can try again later (e.g. after a random
        ... backoff or doing other non-conflicting work).
+       ... Never returned for a blocking call.
 
        ... If err is FD_MAP_ERR_KEY, key was not in the map at some
        ... point during the call (so remove did not do anything).
@@ -516,7 +694,7 @@
      mykey_t * key = ... key to query
 
      mymap_query_t query[1];
-     int             err  = mymap_query_try( join, key, sentinel, query );
+     int             err  = mymap_query_try( join, key, sentinel, query, 0 );
      myele_t const * ele  = mymap_query_ele_const( query );
      ulong           memo = mymap_query_memo     ( query );
 
@@ -582,6 +760,47 @@
          ... some point in time between try and test.
 
        }
+     }
+
+   Example use of lock_range / unlock (do a parallel snapshot of an
+   entire map at a globally well defined point in time with minimal
+   interference to ongoing concurrent modifications):
+
+     ulong version[ mymap_lock_max() ];
+
+     ulong lock_cnt = mymap_lock_cnt( join );
+
+     mymap_lock_range( join, 0, lock_cnt, FD_MAP_FLAGS_BLOCKING | FD_MAP_FLAGS_RDONLY, version );
+
+     for( ulong lock_idx=0UL; lock_idx<lock_cnt; lock_idx++ ) { ... parallelize this loop over snapshot threads as desired
+       ulong ele0 = mymap_lock_ele0( join, lock_idx );
+       ulong ele1 = mymap_lock_ele1( join, lock_idx );
+
+       ... process element store elements [ele0,ele1) here
+
+       mymap_unlock_range( join, lock_idx, 1UL, version );
+     }
+
+   Note that mymap_lock_range in this example might blocking the caller
+   for a long time if the map is under heavy concurrent modification.
+   To prioritize the snapshotting over these operations, the same API
+   can be used toprioritize the snapshot over ongoing concurrent
+   modifications:
+
+     ulong version[ mymap_lock_max() ];
+
+     ulong lock_cnt = mymap_lock_cnt( join );
+
+     for( ulong lock_idx=0UL; lock_idx<lock_cnt; lock_idx++ )
+       mymap_lock_range( join, lock_idx, 1UL, FD_MAP_FLAGS_BLOCKING | FD_MAP_FLAGS_RDONLY, version );
+
+     for( ulong lock_idx=0UL; lock_idx<lock_cnt; lock_idx++ ) { ... parallelize this loop over snapshot threads as desired
+       ulong ele0 = mymap_lock_ele0( join, lock_idx );
+       ulong ele1 = mymap_lock_ele1( join, lock_idx );
+
+       ... process element store elements [ele0,ele1) here
+
+       mymap_unlock_range( join, lock_idx, 1UL, version );
      }
 
    Implementation overview:
@@ -838,6 +1057,14 @@
 #define FD_MAP_ERR_FULL    (-5)
 #define FD_MAP_ERR_KEY     (-6)
 
+#define FD_MAP_FLAG_BLOCKING      (1<<0)
+#define FD_MAP_FLAG_USE_HINT      (1<<2)
+#define FD_MAP_FLAG_PREFETCH_NONE (0<<3)
+#define FD_MAP_FLAG_PREFETCH_META (1<<3)
+#define FD_MAP_FLAG_PREFETCH_DATA (2<<3)
+#define FD_MAP_FLAG_PREFETCH      (3<<3)
+#define FD_MAP_FLAG_RDONLY        (1<<5)
+
 /* Implementation *****************************************************/
 
 #if MAP_IMPL_STYLE==0 /* local use only */
@@ -895,6 +1122,22 @@ struct MAP_(query_private) {
 };
 
 typedef struct MAP_(query_private) MAP_(query_t);
+
+struct MAP_(iter_private) {
+  MAP_ELE_T     * ele;                     /* Location of the element store in the local address space, indexed [0,ele_max) */
+  MAP_VERSION_T * lock;                    /* Location of the lock versions in the local address space, indexed [0,lock_cnt) */
+  ulong           ele_max;                 /* ==shmem->ele_max */
+  ulong           lock_cnt;                /* ==shmem->lock_cnt */
+  ulong           seed;                    /* ==shmem->seed */
+  ulong           memo;                    /* matching memo for iteration */
+  ulong           ele_idx;                 /* If ele_rem>0, currernt matching element, ignored otherwise */
+  ulong           ele_rem;                 /* Number of elements remaining to probe, in [0,probe_max] */
+  ulong           version_lock0;           /* Index of first lock used by this iter, in [0,lock_cnt] */
+  ulong           version_cnt;             /* Number of locks used by this iter, in [0,lock_cnt] (typically 1) */
+  MAP_VERSION_T   version[ MAP_LOCK_MAX ]; /* Direct mapped cache of version numbers for unlock */
+};
+
+typedef struct MAP_(iter_private) MAP_(iter_t);
 
 FD_PROTOTYPES_BEGIN
 
@@ -1059,12 +1302,16 @@ FD_FN_PURE static inline ulong MAP_(seed)     ( MAP_(t) const * join ) { return 
 FD_FN_PURE static inline void const * MAP_(shmap_const)( MAP_(t) const * join ) { return ((MAP_(shmem_t) const *)join->lock)-1; }
 FD_FN_PURE static inline void const * MAP_(shele_const)( MAP_(t) const * join ) { return join->ele;     }
 
-FD_FN_CONST void       * MAP_(ctx)      ( MAP_(t)       * join ) { return join->ctx; }
-FD_FN_CONST void const * MAP_(ctx_const)( MAP_(t) const * join ) { return join->ctx; }
-FD_FN_CONST ulong        MAP_(ctx_max)  ( MAP_(t) const * join ) { (void)join; return MAP_CTX_MAX; }
+FD_FN_CONST static inline void       * MAP_(ctx)      ( MAP_(t)       * join ) { return join->ctx; }
+FD_FN_CONST static inline void const * MAP_(ctx_const)( MAP_(t) const * join ) { return join->ctx; }
+FD_FN_CONST static inline ulong        MAP_(ctx_max)  ( MAP_(t) const * join ) { (void)join; return MAP_CTX_MAX; }
 
 FD_FN_PURE static inline void * MAP_(shmap)( MAP_(t) * join ) { return ((MAP_(shmem_t) *)join->lock)-1; }
 FD_FN_PURE static inline void * MAP_(shele)( MAP_(t) * join ) { return join->ele; }
+
+FD_FN_PURE static inline ulong MAP_(ele_lock) ( MAP_(t) const * join, ulong ele_idx  ) { return  ele_idx       >> join->lock_shift; }
+FD_FN_PURE static inline ulong MAP_(lock_ele0)( MAP_(t) const * join, ulong lock_idx ) { return  lock_idx      << join->lock_shift; }
+FD_FN_PURE static inline ulong MAP_(lock_ele1)( MAP_(t) const * join, ulong lock_idx ) { return (lock_idx+1UL) << join->lock_shift; }
 
 FD_FN_PURE static inline int
 MAP_(key_eq)( MAP_KEY_T const * k0,
@@ -1089,17 +1336,6 @@ FD_FN_PURE static inline ulong             MAP_(query_memo     )( MAP_(query_t) 
 FD_FN_PURE static inline MAP_ELE_T const * MAP_(query_ele_const)( MAP_(query_t) const * query ) { return query->ele;  }
 FD_FN_PURE static inline MAP_ELE_T       * MAP_(query_ele      )( MAP_(query_t)       * query ) { return query->ele;  }
 
-MAP_STATIC void *    MAP_(new)   ( void * shmem, ulong ele_max, ulong lock_cnt, ulong probe_max, ulong seed );
-MAP_STATIC MAP_(t) * MAP_(join)  ( void * ljoin, void * shmap, void * shele );
-MAP_STATIC void *    MAP_(leave) ( MAP_(t) * join );
-MAP_STATIC void *    MAP_(delete)( void * shmap );
-
-MAP_STATIC int
-MAP_(prepare)( MAP_(t) *         join,
-               MAP_KEY_T const * key,
-               MAP_ELE_T *       sentinel,
-               MAP_(query_t) *   query );
-
 static inline void
 MAP_(publish)( MAP_(query_t) * query ) {
   MAP_VERSION_T volatile * l = query->l;
@@ -1118,16 +1354,6 @@ MAP_(cancel)( MAP_(query_t) * query ) {
   FD_COMPILER_MFENCE();
 }
 
-MAP_STATIC int
-MAP_(remove)( MAP_(t) *         join,
-              MAP_KEY_T const * key );
-
-MAP_STATIC int
-MAP_(query_try)( MAP_(t) const *   join,
-                 MAP_KEY_T const * key,
-                 MAP_ELE_T const * sentinel,
-                 MAP_(query_t) *   query );
-
 static inline int
 MAP_(query_test)( MAP_(query_t) const * query ) {
   MAP_VERSION_T volatile const * l = query->l;
@@ -1138,14 +1364,74 @@ MAP_(query_test)( MAP_(query_t) const * query ) {
   return _v==v ? FD_MAP_SUCCESS : FD_MAP_ERR_AGAIN;
 }
 
+static inline void
+MAP_(unlock_range)( MAP_(t) *             join,
+                    ulong                 range_start,
+                    ulong                 range_cnt,
+                    MAP_VERSION_T const * version ) {
+  MAP_(private_unlock)( join->lock, join->lock_cnt, version, range_start, range_cnt );
+}
+
+FD_FN_PURE static inline int         MAP_(iter_done)( MAP_(iter_t) * iter ) { return !iter->ele_rem; }
+FD_FN_PURE static inline MAP_ELE_T * MAP_(iter_ele) ( MAP_(iter_t) * iter ) { return iter->ele + iter->ele_idx; }
+
+static inline MAP_(iter_t) *
+MAP_(iter_fini)( MAP_(iter_t) * iter ) {
+  MAP_(private_unlock)( iter->lock, iter->lock_cnt, iter->version, iter->version_lock0, iter->version_cnt );
+  return iter;
+}
+
+MAP_STATIC void *    MAP_(new)   ( void * shmem, ulong ele_max, ulong lock_cnt, ulong probe_max, ulong seed );
+MAP_STATIC MAP_(t) * MAP_(join)  ( void * ljoin, void * shmap, void * shele );
+MAP_STATIC void *    MAP_(leave) ( MAP_(t) * join );
+MAP_STATIC void *    MAP_(delete)( void * shmap );
+
+MAP_STATIC void
+MAP_(hint)( MAP_(t) const *   join,
+            MAP_KEY_T const * key,
+            MAP_(query_t) *   query,
+            int               flags );
+
+MAP_STATIC int
+MAP_(prepare)( MAP_(t) *         join,
+               MAP_KEY_T const * key,
+               MAP_ELE_T *       sentinel,
+               MAP_(query_t) *   query,
+               int               flags );
+
+MAP_STATIC int
+MAP_(remove)( MAP_(t) *             join,
+              MAP_KEY_T const *     key,
+              MAP_(query_t) const * query,
+              int                   flags );
+
+MAP_STATIC int
+MAP_(query_try)( MAP_(t) const *   join,
+                 MAP_KEY_T const * key,
+                 MAP_ELE_T const * sentinel,
+                 MAP_(query_t) *   query,
+                 int               flags );
+
 /* FIXME: Consider adding txn API too?  Would work recording the start
    of probe sequences for keys in the transaction and then the txn_try
    would use a bitfield to lock all contiguous regions covered by the
    set of probe sequences. */
 
-/* FIXME: Consider adding an iterator API.  Probably would allow
-   ordered iteration over all keys with the same hash value to support
-   key groups (similar to map_para.c / funk). */
+MAP_STATIC int
+MAP_(lock_range)( MAP_(t) *       join,
+                  ulong           range_start,
+                  ulong           range_cnt,
+                  int             flags,
+                  MAP_VERSION_T * version );
+
+MAP_STATIC int
+MAP_(iter_init)( MAP_(t) *      join,
+                 ulong          memo,
+                 int            flags,
+                 MAP_(iter_t) * iter );
+
+MAP_STATIC MAP_(iter_t) *
+MAP_(iter_next)( MAP_(iter_t) * iter );
 
 MAP_STATIC FD_FN_PURE int MAP_(verify)( MAP_(t) const * join );
 
@@ -1300,11 +1586,34 @@ MAP_(delete)( void * shmap ) {
   return (void *)map;
 }
 
+void
+MAP_(hint)( MAP_(t) const *   join,
+            MAP_KEY_T const * key,
+            MAP_(query_t) *   query,
+            int               flags ) {
+  MAP_ELE_T const *     ele0       = join->ele;
+  MAP_VERSION_T const * lock       = join->lock;
+  ulong                 ele_max    = join->ele_max;
+  ulong                 seed       = join->seed;
+  int                   lock_shift = join->lock_shift;
+
+  ulong memo     = MAP_(key_hash)( key, seed );
+  ulong ele_idx  = memo & (ele_max-1UL);
+  ulong lock_idx = ele_idx >> lock_shift;
+
+  /* TODO: target specific prefetch hints */
+  if( FD_LIKELY( flags & FD_MAP_FLAG_PREFETCH_META ) ) FD_VOLATILE_CONST( lock[ lock_idx ] );
+  if( FD_LIKELY( flags & FD_MAP_FLAG_PREFETCH_DATA ) ) FD_VOLATILE_CONST( ele0[ ele_idx  ] );
+
+  query->memo = memo;
+}
+
 int
 MAP_(prepare)( MAP_(t) *         join,
                MAP_KEY_T const * key,
                MAP_ELE_T *       sentinel,
-               MAP_(query_t) *   query ) {
+               MAP_(query_t) *   query,
+               int               flags ) {
   MAP_ELE_T *     ele0       = join->ele;
   MAP_VERSION_T * lock       = join->lock;
   ulong           ele_max    = join->ele_max;
@@ -1314,141 +1623,172 @@ MAP_(prepare)( MAP_(t) *         join,
   int             lock_shift = join->lock_shift;
   void *          ctx        = join->ctx;
 
-  ulong key_hash      = MAP_(key_hash)( key, seed );
-  ulong ele_idx       = key_hash & (ele_max-1UL);
-  ulong version_lock0 = ele_idx >> lock_shift;
-  ulong version_cnt   = 0UL;
+  ulong memo          = (flags & FD_MAP_FLAG_USE_HINT) ? query->memo : MAP_(key_hash)( key, seed );
+  ulong start_idx     = memo & (ele_max-1UL);
+  ulong version_lock0 = start_idx >> lock_shift;
 
-  MAP_VERSION_T version[ MAP_LOCK_MAX ];
+  int   non_blocking = !(flags & FD_MAP_FLAG_BLOCKING);
+  ulong backoff_max  = (1UL<<32);               /* in [2^32,2^48) */
+  ulong backoff_seed = ((ulong)(uint)flags)>>6; /* 0 usually fine */
 
-  ulong lock_idx = version_lock0;
+  for(;;) { /* Fresh try */
 
-  int err;
+    int err;
 
-  /* At this point, finding any key in the map requires testing at most
-     probe_max contiguous slots. */
+    MAP_VERSION_T version[ MAP_LOCK_MAX ];
+    ulong version_cnt = 0UL;
+    ulong lock_idx    = version_lock0;
 
-  MAP_VERSION_T v = MAP_(private_lock)( lock + lock_idx );
-  if( FD_UNLIKELY( (ulong)v & 1UL ) ) { err = FD_MAP_ERR_AGAIN; goto fail; } /* opt for low contention */
-  version[ lock_idx ] = v;
-  version_cnt++;
+    /* At this point, finding any key in the map requires testing at
+       most probe_max contiguous slots. */
 
-  for( ulong probe_rem=probe_max; probe_rem; probe_rem-- ) {
+    MAP_VERSION_T v = MAP_(private_lock)( lock + lock_idx );
+    if( FD_UNLIKELY( (ulong)v & 1UL ) ) { err = FD_MAP_ERR_AGAIN; goto fail; } /* opt for low contention */
+    version[ lock_idx ] = v;
+    version_cnt++;
 
-    /* At this point, we've acquired the locks from the start of key's
-       probe sequence to ele_idx inclusive and have tested fewer than
-       probe_max slots for key.
+    ulong ele_idx = start_idx;
 
-       If slot ele_idx is empty, we know that the key is currently not
-       in the map and we can insert it here without creating a probe
-       sequence longer than probe_max.  This does not lengthen the probe
-       sequence for any currently mapped keys, preserving the maximum
-       probe sequence length invariant.  Further, this is at the end of
-       all keys that map to the same probe sequence start.  So, we have
-       preserved the key group ordering invariant.
+    for( ulong probe_rem=probe_max; probe_rem; probe_rem-- ) {
 
-       On return, ele will be marked as free.  To insert key into the
-       map, the caller should initialize the slot's key (and memo if
-       necessary), mark the slot as used, and publish to complete the
-       insert.
+      /* At this point, we've acquired the locks from the start of key's
+         probe sequence to ele_idx inclusive and have tested fewer than
+         probe_max slots for key.
 
-       If the caller doesn't want to insert anything (e.g. caller only
-       wants to modify an existing value), the caller should keep the
-       slot marked as free (doesn't matter how the caller modified any
-       other fields) and return the slot as free, and cancel to complete
-       the failed insert (publish would also work ... cancel has
-       theoretically lower risk of false contention).
-  
-       Likewise, if slot ele_idx contains key, we return that slot to
-       the caller.  The caller can tell the difference between the
-       previous case because the slot will be marked as used.
-       
-       On return, the caller can modify the slot's value arbitrarily.
-       IMPORANT SAFETY TIP!  THE CALLER MUST NOT MODIFY THE SLOT'S KEY
-       OR MARK THE SLOT AS FREE.  USE REMOVE BELOW TO REMOVE KEYS.  When
-       done modifying the slot's value, the caller should either publish
-       or cancel depending on what the caller did to the slot's value
-       and how the application manages access to values (publish is
-       always safe but cancel when appropriate has theoretically lower
-       risk of false contention).  Note that cancel is not appropriate
-       for temporary modifications to value (because it can confuse
-       query ABA protection).
+         If slot ele_idx is empty, we know that the key is currently not
+         in the map and we can insert it here without creating a probe
+         sequence longer than probe_max.  This does not lengthen the
+         probe sequence for any currently mapped keys, preserving the
+         maximum probe sequence length invariant.  Further, this is at
+         the end of all keys that map to the same probe sequence start.
+         So, we have preserved the key group ordering invariant.
 
-       In both cases, since we have the lock that covers slot ele_idx,
-       we can unlock any other locks (typically the leading
-       version_cnt-1 but possibly the trailing version_cnt-1 in cases
-       with maps near capacity) locks already acquired to reduce
-       contention with other unrelated operations.  That is, at this
-       point, lock lock_idx is sufficient to prevent any operation for
-       any key breaking key's probe sequence (because it would need to
-       acquire the lock covering ele_idx first). */
+         On return, ele will be marked as free.  To insert key into the
+         map, the caller should initialize the slot's key (and memo if
+         necessary), mark the slot as used, and publish to complete the
+         insert.
 
-    MAP_ELE_T * ele = ele0 + ele_idx;
+         If the caller doesn't want to insert anything (e.g. caller only
+         wants to modify an existing value), the caller should keep the
+         slot marked as free (doesn't matter how the caller modified any
+         other fields) and return the slot as free, and cancel to
+         complete the failed insert (publish would also work ... cancel
+         has theoretically lower risk of false contention).
 
-    if( FD_LIKELY( MAP_(private_ele_is_free)( ctx, ele ) ) || /* opt for low collision */
-        (
-#         if MAP_MEMOIZE && MAP_KEY_EQ_IS_SLOW
-          FD_LIKELY( ele->MAP_MEMO==key_hash            ) &&
-#         endif
-          FD_LIKELY( MAP_(key_eq)( &ele->MAP_KEY, key ) ) /* opt for already in map */
-        ) ) {
+         Likewise, if slot ele_idx contains key, we return that slot to
+         the caller.  The caller can tell the difference between the
+         previous case because the slot will be marked as used.
 
-      lock_idx = ele_idx >> lock_shift;
-      version_lock0 = (version_lock0 + (ulong)(version_lock0==lock_idx)) & (lock_cnt-1UL);
-      MAP_(private_unlock)( lock, lock_cnt, version, version_lock0, version_cnt-1UL );
+         On return, the caller can modify the slot's value arbitrarily.
+         IMPORANT SAFETY TIP!  THE CALLER MUST NOT MODIFY THE SLOT'S KEY
+         OR MARK THE SLOT AS FREE.  USE REMOVE BELOW TO REMOVE KEYS.
+         When done modifying the slot's value, the caller should either
+         publish or cancel depending on what the caller did to the
+         slot's value and how the application manages access to values
+         (publish is always safe but cancel when appropriate has
+         theoretically lower risk of false contention).  Note that
+         cancel is not appropriate for temporary modifications to value
+         (because it can confuse query ABA protection).
 
-      query->memo = key_hash;
-      query->ele  = ele;
-      query->l    = lock + lock_idx;
-      query->v    = version[ lock_idx ];
-      return FD_MAP_SUCCESS;
+         In both cases, since we have the lock that covers slot ele_idx,
+         we can unlock any other locks (typically the leading
+         version_cnt-1 but possibly the trailing version_cnt-1 in cases
+         with maps near capacity) locks already acquired to reduce
+         contention with other unrelated operations.  That is, at this
+         point, lock lock_idx is sufficient to prevent any operation for
+         any key breaking key's probe sequence (because it would need to
+         acquire the lock covering ele_idx first). */
+
+      MAP_ELE_T * ele = ele0 + ele_idx;
+
+      if( FD_LIKELY( MAP_(private_ele_is_free)( ctx, ele ) ) || /* opt for low collision */
+          (
+  #         if MAP_MEMOIZE && MAP_KEY_EQ_IS_SLOW
+            FD_LIKELY( ele->MAP_MEMO==memo                ) &&
+  #         endif
+            FD_LIKELY( MAP_(key_eq)( &ele->MAP_KEY, key ) ) /* opt for already in map */
+          ) ) {
+
+        lock_idx = ele_idx >> lock_shift;
+        version_lock0 = (version_lock0 + (ulong)(version_lock0==lock_idx)) & (lock_cnt-1UL);
+        MAP_(private_unlock)( lock, lock_cnt, version, version_lock0, version_cnt-1UL );
+
+        query->memo = memo;
+        query->ele  = ele;
+        query->l    = lock + lock_idx;
+        query->v    = version[ lock_idx ];
+        return FD_MAP_SUCCESS;
+      }
+
+      /* At this point, slot ele_idx is used by something other than
+         key.  If we still have probes remaining, continue probing for
+         key, locking as necessary.  If we can't acquire a lock, we
+         fail. */
+
+      ele_idx = (ele_idx+1UL) & (ele_max-1UL);
+
+      ulong lock_next = ele_idx >> lock_shift;
+      if( FD_UNLIKELY( (lock_next!=lock_idx) & (lock_next!=version_lock0) ) ) { /* opt for locks that cover many contiguous slots */
+        lock_idx = lock_next;
+
+        MAP_VERSION_T v = MAP_(private_lock)( lock + lock_idx );
+        if( FD_UNLIKELY( (ulong)v & 1UL ) ) { err = FD_MAP_ERR_AGAIN; goto fail; } /* opt for low contention */
+        version[ lock_idx ] = v;
+        version_cnt++;
+      }
     }
 
-    /* At this point, slot ele_idx is used by something other than key.
-       If we still have probes remaining, continue probing for key,
-       locking as necessary.  If we can't acquire a lock, we fail. */
+    /* At this point, we've done probe_max probes without encountering
+       key and we have all the locks.  So we know key is not in the map
+       and that, even if we have space, inserting this key will create a
+       probe sequence longer than probe_max.  That is, map is loaded
+       enough that we consider it full.
 
-    ele_idx = (ele_idx+1UL) & (ele_max-1UL);
+       If probe_max==ele_max, this meaning of full is the traditional
+       non-concurrent meaning of full (literally every slot is known to
+       be used).  Even if probe_max << ele_max, it is possible to fill
+       every slot (e.g. at probe_max==1, a perfect hash of ele_max keys
+       to slot would fill every slot). */
 
-    ulong lock_next = ele_idx >> lock_shift;
-    if( FD_UNLIKELY( (lock_next!=lock_idx) & (lock_next!=version_lock0) ) ) { /* opt for locks that cover many contiguous slots */
-      lock_idx = lock_next;
+    err = FD_MAP_ERR_FULL;
 
-      MAP_VERSION_T v = MAP_(private_lock)( lock + lock_idx );
-      if( FD_UNLIKELY( (ulong)v & 1UL ) ) { err = FD_MAP_ERR_AGAIN; goto fail; } /* opt for low contention */
-      version[ lock_idx ] = v;
-      version_cnt++;
+  fail:
+
+    MAP_(private_unlock)( lock, lock_cnt, version, version_lock0, version_cnt );
+
+    if( FD_UNLIKELY( non_blocking | (err!=FD_MAP_ERR_AGAIN) ) ) {
+      query->memo = memo;
+      query->ele  = sentinel;
+      query->l    = NULL;
+      query->v    = (MAP_VERSION_T)0;
+      return err;
     }
+
+    /* At this point, we hit contention and are blocking (need to try
+       again).  We do a random exponential backoff (with saturation on
+       wrapping) to minimize contention with other threads.  Normalizing
+       out fixed point scalings baked into the below, we spin pause a
+       uniform IID random number of times in [0,backoff_max) where
+       backoff_max is 1 on the first hit and increases by ~30% each time
+       to a maximum of 2^16 (i.e. hundreds microseconds per remaining
+       lock for typical CPU speeds and spin pause delays at maximum
+       backoff). */
+
+    ulong scale = backoff_max >> 16; /* in [2^16,2^32) */
+    backoff_max = fd_ulong_min( backoff_max + (backoff_max>>2) + (backoff_max>>4), (1UL<<48)-1UL ); /* in [2^32,2^48) */
+    MAP_(backoff)( scale, backoff_seed );
+
   }
 
-  /* At this point, we've done probe_max probes without encountering key
-     and we have all the locks.  So we know key is not in the map and
-     that, even if we have space, inserting this key will create a probe
-     sequence longer than probe_max.  That is, map is loaded enough that
-     we consider it full.
+  /* never get here */
 
-     If probe_max==ele_max, this meaning of full is the traditional
-     non-concurrent meaning of full (literally every slot is known to be
-     used).  Even if probe_max << ele_max, it is possible to fill every
-     slot (e.g. at probe_max==1, a perfect hash of ele_max keys to slot
-     would fill every slot). */
-
-  err = FD_MAP_ERR_FULL;
-
-fail:
-
-  MAP_(private_unlock)( lock, lock_cnt, version, version_lock0, version_cnt );
-
-  query->memo = key_hash;
-  query->ele  = sentinel;
-  query->l    = NULL;
-  query->v    = (MAP_VERSION_T)0;
-  return err;
 }
 
 int
-MAP_(remove)( MAP_(t) *         join,
-              MAP_KEY_T const * key ) {
+MAP_(remove)( MAP_(t) *             join,
+              MAP_KEY_T const *     key,
+              MAP_(query_t) const * query,
+              int                   flags ) {
 
   MAP_VERSION_T * lock       = join->lock;
   ulong           lock_cnt   = join->lock_cnt;
@@ -1459,202 +1799,222 @@ MAP_(remove)( MAP_(t) *         join,
   int             lock_shift = join->lock_shift;
   void *          ctx        = join->ctx;
 
-  ulong key_hash      = MAP_(key_hash)( key, seed );
-  ulong start_idx     = key_hash & (ele_max-1UL);
+  ulong memo          = (flags & FD_MAP_FLAG_USE_HINT) ? query->memo : MAP_(key_hash)( key, seed );
+  ulong start_idx     = memo & (ele_max-1UL);
   ulong version_lock0 = start_idx >> lock_shift;
-  ulong version_cnt   = 0UL;
 
-  ulong lock_idx = version_lock0;
+  int   non_blocking = !(flags & FD_MAP_FLAG_BLOCKING);
+  ulong backoff_max  = (1UL<<32);               /* in [2^32,2^48) */
+  ulong backoff_seed = ((ulong)(uint)flags)>>6; /* 0 usually fine */
 
-  MAP_VERSION_T version[ MAP_LOCK_MAX ];
+  for(;;) { /* Fresh try */
 
-  /* At this point, we need to acquire locks covering the start of the
-     probe sequence through up to all contiguously used slots (and, if
-     the map is not completely full, the trailing empty slot). */
+    int err;
 
-  MAP_VERSION_T v = MAP_(private_lock)( lock + lock_idx );
-  if( FD_UNLIKELY( (ulong)v & 1UL ) ) return FD_MAP_ERR_AGAIN; /* opt for low contention */
-  version[ lock_idx ] = v;
-  version_cnt++;
+    MAP_VERSION_T version[ MAP_LOCK_MAX ];
+    ulong version_cnt = 0UL;
+    ulong lock_idx    = version_lock0;
 
-  ulong ele_idx  = start_idx;
-  ulong hole_idx = start_idx;
-  int   found    = 0;
+    /* At this point, we need to acquire locks covering the start of the
+       probe sequence through up to all contiguously used slots (and, if
+       the map is not completely full, the trailing empty slot). */
 
-  ulong contig_cnt;
-  for( contig_cnt=0UL; contig_cnt<ele_max; contig_cnt++ ) {
+    MAP_VERSION_T v = MAP_(private_lock)( lock + lock_idx );
+    if( FD_UNLIKELY( (ulong)v & 1UL ) ) { err = FD_MAP_ERR_AGAIN; goto fail; } /* opt for low contention */
+    version[ lock_idx ] = v;
+    version_cnt++;
 
-    /* At this point, we've acquired the locks covering slots
-       [start_idx,ele_idx] (cyclic) and have confirmed that the
-       contig_cnt slots [start_idx,ele_idx) (cyclic) are used.
+    ulong ele_idx  = start_idx;
+    ulong hole_idx = start_idx;
+    int   found    = 0;
 
-       If slot ele_idx is empty, we are done probing.
+    ulong contig_cnt;
+    for( contig_cnt=0UL; contig_cnt<ele_max; contig_cnt++ ) {
 
-       Otherwise, if we haven't found key yet, we test if slot ele_idx
-       contains key.
+      /* At this point, we've acquired the locks covering slots
+         [start_idx,ele_idx] (cyclic) and have confirmed that the
+         contig_cnt slots [start_idx,ele_idx) (cyclic) are used.
 
-       We can optimize this further by noting that the key can only be
-       in the first probe_max probes and that when we don't find the
-       key, remove has nothing to do (such that we don't have to keep
-       probing for contiguous slots). */
+         If slot ele_idx is empty, we are done probing.
 
-    MAP_ELE_T const * ele = ele0 + ele_idx;
+         Otherwise, if we haven't found key yet, we test if slot ele_idx
+         contains key.
 
-    if( FD_UNLIKELY( MAP_(private_ele_is_free)( ctx, ele ) ) ) break; /* opt for first pass low collision */
+         We can optimize this further by noting that the key can only be
+         in the first probe_max probes and that when we don't find the
+         key, remove has nothing to do (such that we don't have to keep
+         probing for contiguous slots). */
 
-    if( FD_LIKELY( !found ) ) { /* opt for first pass low collision */
-      if( FD_UNLIKELY( contig_cnt>=probe_max ) ) break; /* opt for first pass low collision */
-      found =
-#       if MAP_MEMOMIZE && MAP_KEY_EQ_IS_SLOW
-        FD_LIKELY( ele->MAP_MEMO==key_hash ) &&
-#       endif
-        MAP_(key_eq)( &ele->MAP_KEY, key );
-      if( found ) hole_idx = ele_idx; /* cmov */
-    }
+      MAP_ELE_T const * ele = ele0 + ele_idx;
 
-    /* Continue probing, locking as necessary.  If we can't acquire a
-       lock, fail. */
+      if( FD_UNLIKELY( MAP_(private_ele_is_free)( ctx, ele ) ) ) break; /* opt for first pass low collision */
 
-    ele_idx = (ele_idx+1UL) & (ele_max-1UL);
-
-    ulong lock_next = ele_idx >> lock_shift;
-    if( FD_UNLIKELY( (lock_next!=lock_idx) & (lock_next!=version_lock0) ) ) { /* opt for locks covering many contiguous slots */
-      lock_idx = lock_next;
-
-      MAP_VERSION_T v = MAP_(private_lock)( lock + lock_idx );
-      if( FD_UNLIKELY( (ulong)v & 1UL ) ) { /* opt for low contention */
-        MAP_(private_unlock)( lock, lock_cnt, version, version_lock0, version_cnt );
-        return FD_MAP_ERR_AGAIN;
+      if( FD_LIKELY( !found ) ) { /* opt for first pass low collision */
+        if( FD_UNLIKELY( contig_cnt>=probe_max ) ) break; /* opt for first pass low collision */
+        found =
+  #       if MAP_MEMOMIZE && MAP_KEY_EQ_IS_SLOW
+          FD_LIKELY( ele->MAP_MEMO==memo ) &&
+  #       endif
+          MAP_(key_eq)( &ele->MAP_KEY, key );
+        if( found ) hole_idx = ele_idx; /* cmov */
       }
-      version[ lock_idx ] = v;
-      version_cnt++;
-    }
-  }
 
-  /* At this point, if we haven't found the key, key did not exist in
-     the map at some point during the call.  Release the locks and tell
-     the user the key was already removed. */
+      /* Continue probing, locking as necessary.  If we can't acquire a
+         lock, fail. */
 
-  if( FD_UNLIKELY( !found ) ) {
-    MAP_(private_unlock)( lock, lock_cnt, version, version_lock0, version_cnt );
-    return FD_MAP_ERR_KEY;
-  }
-
-  /* At this point, we have locks covering the contig_cnt used slots
-     starting from start_idx cyclic (and, if contig_cnt<ele_max, any
-     trailing empty slot).  The key to remove is in this range at
-     hole_idx.  Further, all probe sequences are intact.  Make a hole at
-     hole_idx by freeing the key.  Also update the cached lock version
-     to indicate "modified" when we unlock below. */
-
-  MAP_(private_ele_free)( ctx, ele0 + hole_idx );
-
-  lock_idx = hole_idx >> lock_shift;
-  version[ lock_idx ] = (MAP_VERSION_T)((ulong)version[ lock_idx ] + 2UL);
-
-  /* When contig_cnt<ele_max, the trailing empty slot guarantees that
-     the just made hole didn't break any probe sequences for keys not in
-     the contig_cnt slots and that it didn't break any probe sequences
-     in [start_idx,hole_idx).  Probe sequences for keys in
-     (hole_idx,start_idx+contig_cnt) (cyclic) might have been broken
-     though.
-
-     We fix the first key with a broken probe sequence by moving it to
-     the hole just made.  This fills the hole but makes a new hole (and
-     one closer to the empty trailing slot) in the process.  As this
-     shortens the probe sequence for that key, this doesn't break any
-     probe length invariants.  We repeating this process until we've
-     fixed all the contiguous slots after hole_idx.  (As an additional
-     optimization to reduce remove costs when map is nearly full but
-     probe_max << ele_max, we could exploit that only the leading
-     probe_max-1 slots after any created hole might have broken probe
-     sequences.)
-
-     Unfortunately, when contig_cnt==ele_max, we no longer have this
-     guarantee.  But we do have the entire map locked at this point.
-     And we know that probe sequences are intact starting from the most
-     recently created hole.  If we verify enough to eventually wrap back
-     to most recently created hole, we know all probe sequences are
-     intact.  Since fixing broken probe sequences in this fashion always
-     shortens them and there always will be one hole in this process,
-     verifying until we hit the most recently made hole is guaranteed to
-     terminate.  Since there is only one hole, it is sufficient to just
-     test if the next slot to verify is a hole.
-
-     This test works just as well for the more common contig_cnt<ele_max
-     case (it will terminate at the the preexisting trailing empty slot
-     instead of the most recently created hole).  So, for code
-     simplicity, we just do that.
-
-     A nice side effect is this removal process is that implicitly
-     improves probing for remaining keys in the map and does not require
-     tombstones.
-
-     TL;DR  It's a bad idea on many levels to fill up linearly probed
-     maps to their absolute limits ... but this will still work if you
-     do.
-
-     Note also that this process preserves the ordering of keys that
-     hash to the same slot (such that key group ordering is preserved). */
-
-  ele_idx = hole_idx;
-  for(;;) {
-    ele_idx = (ele_idx+1UL) & (ele_max-1UL);
-
-    /* At this point, slots (hole_idx,ele_idx) (cyclic) are used with
-       verified probe sequences.  As per the above, we are guaranteed to
-       eventually hit an empty slot (typically very quickly in practice)
-       and hitting an empty slot guarantees all probe sequences are
-       intact (such that we are done). */
-
-    MAP_ELE_T * ele = ele0 + ele_idx;
-    if( FD_LIKELY( MAP_(private_ele_is_free)( ctx, ele ) ) ) break;
-
-    /* Otherwise, if ele_idx's key probe sequence doesn't start in
-       (hole_idx,ele_idx] (cyclic), its probe sequence is currently
-       broken by the hole at hole_idx.  We fix it by moving ele_idx to
-       hole_idx.  This shortens that key's probe sequence (preserving
-       the invariant) and makes a new hole at ele_idx.  We mark the lock
-       version covering the new hole idx as modified for the unlock
-       below.  Note that the version for the existing hole was already
-       marked as modified when the hole was created so we only bump if
-       ele_idx is covered by a different lock than hole_idx to reduce
-       version churn to near theoretical minimum. */
-
-#   if MAP_MEMOIZE
-    key_hash  = ele->MAP_MEMO;
-#   else
-    key_hash  = MAP_(key_hash)( &ele->MAP_KEY, seed );
-#   endif
-    start_idx = key_hash & (ele_max-1UL);
-
-    if( !( ((hole_idx<start_idx) & (start_idx<=ele_idx)                       ) |
-           ((hole_idx>ele_idx) & ((hole_idx<start_idx) | (start_idx<=ele_idx))) ) ) {
-
-      MAP_(private_ele_move)( ctx, ele0 + hole_idx, ele );
+      ele_idx = (ele_idx+1UL) & (ele_max-1UL);
 
       ulong lock_next = ele_idx >> lock_shift;
-      version[ lock_next ] = (MAP_VERSION_T)((ulong)version[ lock_next ] + ((lock_next!=lock_idx) ? 2UL : 0UL) /* cmov */);
-      lock_idx = lock_next;
+      if( FD_UNLIKELY( (lock_next!=lock_idx) & (lock_next!=version_lock0) ) ) { /* opt for locks covering many contiguous slots */
+        lock_idx = lock_next;
 
-      hole_idx = ele_idx;
+        MAP_VERSION_T v = MAP_(private_lock)( lock + lock_idx );
+        if( FD_UNLIKELY( (ulong)v & 1UL ) ) { err = FD_MAP_ERR_AGAIN; goto fail; } /* opt for low contention */
+        version[ lock_idx ] = v;
+        version_cnt++;
+      }
     }
 
+    /* At this point, if we haven't found the key, key did not exist in
+       the map at some point during the call.  Release the locks and
+       tell the user the key was already removed. */
+
+    if( FD_UNLIKELY( !found ) ) { err = FD_MAP_ERR_KEY; goto fail; }
+
+    /* At this point, we have locks covering the contig_cnt used slots
+       starting from start_idx cyclic (and, if contig_cnt<ele_max, any
+       trailing empty slot).  The key to remove is in this range at
+       hole_idx.  Further, all probe sequences are intact.  Make a hole
+       at hole_idx by freeing the key.  Also update the cached lock
+       version to indicate "modified" when we unlock below. */
+
+    MAP_(private_ele_free)( ctx, ele0 + hole_idx );
+
+    lock_idx = hole_idx >> lock_shift;
+    version[ lock_idx ] = (MAP_VERSION_T)((ulong)version[ lock_idx ] + 2UL);
+
+    /* When contig_cnt<ele_max, the trailing empty slot guarantees that
+       the just made hole didn't break any probe sequences for keys not
+       in the contig_cnt slots and that it didn't break any probe
+       sequences in [start_idx,hole_idx).  Probe sequences for keys in
+       (hole_idx,start_idx+contig_cnt) (cyclic) might have been broken
+       though.
+
+       We fix the first key with a broken probe sequence by moving it to
+       the hole just made.  This fills the hole but makes a new hole
+       (and one closer to the empty trailing slot) in the process.  As
+       this shortens the probe sequence for that key, this doesn't break
+       any probe length invariants.  We repeating this process until
+       we've fixed all the contiguous slots after hole_idx.  (As an
+       additional optimization to reduce remove costs when map is nearly
+       full but probe_max << ele_max, we could exploit that only the
+       leading probe_max-1 slots after any created hole might have
+       broken probe sequences.)
+
+       Unfortunately, when contig_cnt==ele_max, we no longer have this
+       guarantee.  But we do have the entire map locked at this point.
+       And we know that probe sequences are intact starting from the
+       most recently created hole.  If we verify enough to eventually
+       wrap back to most recently created hole, we know all probe
+       sequences are intact.  Since fixing broken probe sequences in
+       this fashion always shortens them and there always will be one
+       hole in this process, verifying until we hit the most recently
+       made hole is guaranteed to terminate.  Since there is only one
+       hole, it is sufficient to just test if the next slot to verify is
+       a hole.
+
+       This test works just as well for the more common
+       contig_cnt<ele_max case (it will terminate at the preexisting
+       trailing empty slot instead of the most recently created hole).
+       So, for code simplicity, we just do that.
+
+       A nice side effect is this removal process is that implicitly
+       improves probing for remaining keys in the map and does not
+       require tombstones.
+
+       TL;DR  It's a bad idea on many levels to fill up linearly probed
+       maps to their absolute limits ... but this will still work if you
+       do.
+
+       Note also that this process preserves the ordering of keys that
+       hash to the same slot (such that key group ordering is
+       preserved). */
+
+    ele_idx = hole_idx;
+    for(;;) {
+      ele_idx = (ele_idx+1UL) & (ele_max-1UL);
+
+      /* At this point, slots (hole_idx,ele_idx) (cyclic) are used with
+         verified probe sequences.  As per the above, we are guaranteed
+         to eventually hit an empty slot (typically very quickly in
+         practice) and hitting an empty slot guarantees all probe
+         sequences are intact (such that we are done). */
+
+      MAP_ELE_T * ele = ele0 + ele_idx;
+      if( FD_LIKELY( MAP_(private_ele_is_free)( ctx, ele ) ) ) break;
+
+      /* Otherwise, if ele_idx's key probe sequence doesn't start in
+         (hole_idx,ele_idx] (cyclic), its probe sequence is currently
+         broken by the hole at hole_idx.  We fix it by moving ele_idx to
+         hole_idx.  This shortens that key's probe sequence (preserving
+         the invariant) and makes a new hole at ele_idx.  We mark the
+         lock version covering the new hole idx as modified for the
+         unlock below.  Note that the version for the existing hole was
+         already marked as modified when the hole was created so we only
+         bump if ele_idx is covered by a different lock than hole_idx to
+         reduce version churn to near theoretical minimum. */
+
+  #   if MAP_MEMOIZE
+      memo      = ele->MAP_MEMO;
+  #   else
+      memo      = MAP_(key_hash)( &ele->MAP_KEY, seed );
+  #   endif
+      start_idx = memo & (ele_max-1UL);
+
+      if( !( ((hole_idx<start_idx) & (start_idx<=ele_idx)                       ) |
+             ((hole_idx>ele_idx) & ((hole_idx<start_idx) | (start_idx<=ele_idx))) ) ) {
+
+        MAP_(private_ele_move)( ctx, ele0 + hole_idx, ele );
+
+        ulong lock_next = ele_idx >> lock_shift;
+        version[ lock_next ] = (MAP_VERSION_T)((ulong)version[ lock_next ] + ((lock_next!=lock_idx) ? 2UL : 0UL) /* cmov */);
+        lock_idx = lock_next;
+
+        hole_idx = ele_idx;
+      }
+
+    }
+
+    /* At this point, key is removed and all remaining keys have intact
+       and ordered probe sequences and we have updated the necessary
+       version cache entries.  Unlock and return success.  */
+
+    MAP_(private_unlock)( lock, lock_cnt, version, version_lock0, version_cnt );
+    return FD_MAP_SUCCESS;
+
+  fail:
+
+    MAP_(private_unlock)( lock, lock_cnt, version, version_lock0, version_cnt );
+
+    if( FD_UNLIKELY( non_blocking | (err!=FD_MAP_ERR_AGAIN) ) ) return err;
+
+    /* At this point, we are blocking and hit contention.  Backoff.  See
+       note in prepare for how this works */
+
+    ulong scale = backoff_max >> 16; /* in [2^16,2^32) */
+    backoff_max = fd_ulong_min( backoff_max + (backoff_max>>2) + (backoff_max>>4), (1UL<<48)-1UL ); /* in [2^32,2^48) */
+    MAP_(backoff)( scale, backoff_seed );
   }
 
-  /* At this point, key is removed and all remaining keys have intact
-     and ordered probe sequences and we have updated the necessary
-     version cache entries.  Unlock and return success.  */
-
-  MAP_(private_unlock)( lock, lock_cnt, version, version_lock0, version_cnt );
-  return FD_MAP_SUCCESS;
+  /* never get here */
 }
 
 int
 MAP_(query_try)( MAP_(t) const *   join,
                  MAP_KEY_T const * key,
                  MAP_ELE_T const * sentinel,
-                 MAP_(query_t) *   query ) {
+                 MAP_(query_t) *   query,
+                 int               flags ) {
 
   MAP_ELE_T *     ele0       = join->ele;
   MAP_VERSION_T * lock       = join->lock;
@@ -1665,96 +2025,307 @@ MAP_(query_try)( MAP_(t) const *   join,
   int             lock_shift = join->lock_shift;
   void const *    ctx        = join->ctx;
 
-  ulong key_hash      = MAP_(key_hash)( key, seed );
-  ulong ele_idx       = key_hash & (ele_max-1UL);
-  ulong version_lock0 = ele_idx >> lock_shift;
-  ulong version_cnt   = 0UL;
+  ulong memo          = (flags & FD_MAP_FLAG_USE_HINT) ? query->memo : MAP_(key_hash)( key, seed );
+  ulong start_idx     = memo & (ele_max-1UL);
+  ulong version_lock0 = start_idx >> lock_shift;
 
-  MAP_VERSION_T version[ MAP_LOCK_MAX ];
+  int   non_blocking = !(flags & FD_MAP_FLAG_BLOCKING);
+  ulong backoff_max  = (1UL<<32);               /* in [2^32,2^48) */
+  ulong backoff_seed = ((ulong)(uint)flags)>>6; /* 0 usually fine */
 
-  ulong lock_idx = version_lock0;
+  for(;;) { /* fresh try */
 
-  int err;
+    int err;
 
-  /* At this point, finding any key in the map requires probing at most
-     probe_max contiguous slots. */
+    MAP_VERSION_T version[ MAP_LOCK_MAX ];
+    ulong version_cnt = 0UL;
+    ulong lock_idx    = version_lock0;
 
-  MAP_VERSION_T v = MAP_(private_try)( lock + lock_idx );
-  if( FD_UNLIKELY( (ulong)v & 1UL ) ) { err = FD_MAP_ERR_AGAIN; goto fail_fast; } /* opt for low contention */
-  version[ lock_idx ] = v;
-  version_cnt++;
+    /* At this point, finding any key in the map requires probing at
+       most probe_max contiguous slots. */
 
-  for( ulong probe_rem=probe_max; probe_rem; probe_rem-- ) {
+    MAP_VERSION_T v = MAP_(private_try)( lock + lock_idx );
+    if( FD_UNLIKELY( (ulong)v & 1UL ) ) { err = FD_MAP_ERR_AGAIN; goto fail_fast; } /* opt for low contention */
+    version[ lock_idx ] = v;
+    version_cnt++;
 
-    /* At this point, we've observed the locks covering the start of
-       key's probe sequence to ele_idx inclusive, they were unlocked
-       when observed and we have done fewer than probe_max probes.
+    ulong ele_idx = start_idx;
 
-       If slot ele_idx is empty, we speculate that key was not in the
-       map at some point during the call.
+    for( ulong probe_rem=probe_max; probe_rem; probe_rem-- ) {
 
-       If slot ele_idx holds key, we let the caller continue speculating
-       about key's value.  We only need to observe the lock covering key
-       after we've found it (if key gets moved or removed, the version
-       of the lock covering it will change). */
+      /* At this point, we've observed the locks covering the start of
+         key's probe sequence to ele_idx inclusive, they were unlocked
+         when observed and we have done fewer than probe_max probes.
 
-    MAP_ELE_T const * ele = ele0 + ele_idx;
+         If slot ele_idx is empty, we speculate that key was not in the
+         map at some point during the call.
 
-    if( FD_UNLIKELY( MAP_(private_ele_is_free)( ctx, ele ) ) ) { err = FD_MAP_ERR_KEY; goto fail; } /* opt for low collision */
+         If slot ele_idx holds key, we let the caller continue speculating
+         about key's value.  We only need to observe the lock covering key
+         after we've found it (if key gets moved or removed, the version
+         of the lock covering it will change). */
 
-    if(
-#       if MAP_MEMOIZE && MAP_KEY_EQ_IS_SLOW
-        FD_LIKELY( ele->MAP_MEMO==key_hash            ) &&
-#       endif
-        FD_LIKELY( MAP_(key_eq)( &ele->MAP_KEY, key ) ) /* opt for found */
-      ) {
+      MAP_ELE_T const * ele = ele0 + ele_idx;
 
-      lock_idx = ele_idx >> lock_shift;
+      if( FD_UNLIKELY( MAP_(private_ele_is_free)( ctx, ele ) ) ) { err = FD_MAP_ERR_KEY; goto fail; } /* opt for low collision */
 
-      query->memo = key_hash;
-      query->ele  = (MAP_ELE_T *)ele;
-      query->l    = lock + lock_idx;
-      query->v    = version[ lock_idx ];
-      return FD_MAP_SUCCESS;
+      if(
+#         if MAP_MEMOIZE && MAP_KEY_EQ_IS_SLOW
+          FD_LIKELY( ele->MAP_MEMO==memo                ) &&
+#         endif
+          FD_LIKELY( MAP_(key_eq)( &ele->MAP_KEY, key ) ) /* opt for found */
+        ) {
+
+        lock_idx = ele_idx >> lock_shift;
+
+        query->memo = memo;
+        query->ele  = (MAP_ELE_T *)ele;
+        query->l    = lock + lock_idx;
+        query->v    = version[ lock_idx ];
+        return FD_MAP_SUCCESS;
+      }
+
+      /* At this point, we speculate slot ele_idx was used by something
+         other than key when observed.  Continue probing slot for key,
+         observing locks as necessary. */
+
+      ele_idx = (ele_idx+1UL) & (ele_max-1UL);
+
+      ulong lock_next = ele_idx >> lock_shift;
+      if( FD_UNLIKELY( (lock_next!=lock_idx) & (lock_next!=version_lock0) ) ) { /* opt for locks cover many contiguous slots */
+        lock_idx = lock_next;
+
+        v = MAP_(private_try)( lock + lock_idx );
+        if( FD_UNLIKELY( (ulong)v & 1UL ) ) { err = FD_MAP_ERR_AGAIN; goto fail_fast; } /* opt for low contention */
+        version[ lock_idx ] = v;
+        version_cnt++;
+      }
     }
 
-    /* At this point, we speculate slot ele_idx was used by something
-       other than key when observed.  Continue probing slot for key,
-       observing locks as necessary. */
+    /* At this point, we did probe_max probes without finding key.  We
+       speculate key was not in the map at some point during the call. */
 
-    ele_idx = (ele_idx+1UL) & (ele_max-1UL);
+    err = FD_MAP_ERR_KEY;
 
-    ulong lock_next = ele_idx >> lock_shift;
-    if( FD_UNLIKELY( (lock_next!=lock_idx) & (lock_next!=version_lock0) ) ) { /* opt for locks cover many contiguous slots */
-      lock_idx = lock_next;
+  fail:
 
-      v = MAP_(private_try)( lock + lock_idx );
-      if( FD_UNLIKELY( (ulong)v & 1UL ) ) { err = FD_MAP_ERR_AGAIN; goto fail_fast; } /* opt for low contention */
-      version[ lock_idx ] = v;
-      version_cnt++;
+    /* If we didn't encounter any contention (i.e. no version numbers
+       changed), we can trust our speculated error.  Otherwise, we tell
+       the user to try again. */
+
+    err = MAP_(private_test)( lock, lock_cnt, version, version_lock0, version_cnt ) ? FD_MAP_ERR_AGAIN : err; /* cmov */
+
+  fail_fast: /* Used when the err is already AGAIN */
+
+    if( FD_UNLIKELY( non_blocking | (err!=FD_MAP_ERR_AGAIN) ) ) {
+      query->memo = memo;
+      query->ele  = (MAP_ELE_T *)sentinel;
+      query->l    = NULL;
+      query->v    = (MAP_VERSION_T)0;
+      return err;
+    }
+
+    /* At this point, we are blocking and hit contention.  Backoff.  See
+       note in prepare for how this works */
+
+    ulong scale = backoff_max >> 16; /* in [2^16,2^32) */
+    backoff_max = fd_ulong_min( backoff_max + (backoff_max>>2) + (backoff_max>>4), (1UL<<48)-1UL ); /* in [2^32,2^48) */
+    MAP_(backoff)( scale, backoff_seed );
+  }
+  /* never get here */
+}
+
+int
+MAP_(lock_range)( MAP_(t) *       join,
+                  ulong           range_start,
+                  ulong           range_cnt,
+                  int             flags,
+                  MAP_VERSION_T * version ) {
+  MAP_VERSION_T * lock     = join->lock;
+  ulong           lock_cnt = join->lock_cnt;
+
+  int   non_blocking  = !(flags & FD_MAP_FLAG_BLOCKING);
+  ulong backoff_max   = (1UL<<32);               /* in [2^32,2^48) */
+  ulong backoff_seed  = ((ulong)(uint)flags)>>6; /* 0 usually fine */
+  ulong version_delta = (flags & FD_MAP_FLAG_RDONLY) ? 0UL : 2UL;
+
+  for(;;) { /* fresh try */
+
+    ulong lock_idx   = range_start;
+    ulong locked_cnt = 0UL;
+    for( ; locked_cnt<range_cnt; locked_cnt++ ) {
+      MAP_VERSION_T v = MAP_(private_lock)( lock + lock_idx );
+      if( FD_UNLIKELY( (ulong)v & 1UL ) ) goto fail; /* opt for low contention */
+      version[ lock_idx ] = (MAP_VERSION_T)((ulong)v + version_delta);
+      lock_idx = (lock_idx+1UL) & (lock_cnt-1UL);
+    }
+
+    return FD_MAP_SUCCESS;
+
+  fail:
+
+    MAP_(private_unlock)( lock, lock_cnt, version, range_start, locked_cnt );
+
+    if( FD_UNLIKELY( non_blocking ) ) return FD_MAP_ERR_AGAIN;
+
+    /* At this point, we are blocking and hit contention.  Backoff.  See
+       note in prepare for how this works */
+
+    ulong scale = backoff_max >> 16; /* in [2^16,2^32) */
+    backoff_max = fd_ulong_min( backoff_max + (backoff_max>>2) + (backoff_max>>4), (1UL<<48)-1UL ); /* in [2^32,2^48) */
+    MAP_(backoff)( scale, backoff_seed );
+  }
+  /* never get here */
+}
+
+int
+MAP_(iter_init)( MAP_(t) *      join,
+                 ulong          memo,
+                 int            flags,
+                 MAP_(iter_t) * iter ) {
+
+  MAP_ELE_T *     ele0       = join->ele;
+  MAP_VERSION_T * lock       = join->lock;
+  ulong           ele_max    = join->ele_max;
+  ulong           lock_cnt   = join->lock_cnt;
+  ulong           probe_max  = join->probe_max;
+  ulong           seed       = join->seed;
+  int             lock_shift = join->lock_shift;
+  void *          ctx        = join->ctx;
+
+  MAP_VERSION_T * version = iter->version;
+
+  ulong start_idx     = memo & (ele_max-1UL);
+  ulong version_lock0 = start_idx >> lock_shift;
+  ulong version_delta = (flags & FD_MAP_FLAG_RDONLY) ? 0UL : 2UL;
+
+  int   non_blocking = !(flags & FD_MAP_FLAG_BLOCKING);
+  ulong backoff_max  = (1UL<<32);               /* in [2^32,2^48) */
+  ulong backoff_seed = ((ulong)(uint)flags)>>6; /* 0 usually fine */
+
+  for(;;) { /* fresh try */
+
+    ulong version_cnt = 0UL;
+    ulong lock_idx    = version_lock0;
+
+    /* At this point, finding any key-val pair that matches memo in the
+       map requires probing at most probe_max contiguous slots. */
+
+    MAP_VERSION_T v = MAP_(private_lock)( lock + lock_idx );
+    if( FD_UNLIKELY( (ulong)v & 1UL ) ) goto fail; /* opt for low contention */
+    version[ lock_idx ] = (MAP_VERSION_T)((ulong)v + version_delta);
+    version_cnt++;
+
+    ulong ele_idx = start_idx;
+    ulong ele_rem = 0UL;
+
+    ulong iter_cnt   = 0UL;
+    ulong iter_start = start_idx;
+
+    for( ; ele_rem<probe_max; ele_rem++ ) {
+
+      /* At this point, we've acquired the locks covering slots
+         [start_idx,ele_idx] (cyclic) and have confirmed that the
+         ele_rem slots [start_idx,ele_idx) (cyclic) are used.  If slot
+         ele_idx is empty, we are done probing. */
+
+      MAP_ELE_T const * ele = ele0 + ele_idx;
+
+      if( FD_UNLIKELY( MAP_(private_ele_is_free)( ctx, ele ) ) ) break; /* opt for first pass low collision */
+
+      iter_start = fd_ulong_if( iter_cnt==0UL, ele_idx, iter_start );
+#     if MAP_MEMOIZE
+      iter_cnt += (ulong)(ele->MAP_MEMO==memo);
+#     else
+      iter_cnt += (ulong)(MAP_(key_hash)( &ele->MAP_KEY, seed )==memo);
+#     endif
+
+      /* Continue probing, locking as necessary.  If we can't acquire a
+         lock, fail. */
+
+      ele_idx = (ele_idx+1UL) & (ele_max-1UL);
+
+      ulong lock_next = ele_idx >> lock_shift;
+      if( FD_UNLIKELY( (lock_next!=lock_idx) & (lock_next!=version_lock0) ) ) { /* opt for locks covering many contiguous slots */
+        lock_idx = lock_next;
+
+        MAP_VERSION_T v = MAP_(private_lock)( lock + lock_idx );
+        if( FD_UNLIKELY( (ulong)v & 1UL ) ) goto fail; /* opt for low contention */
+        version[ lock_idx ] = (MAP_VERSION_T)((ulong)v + version_delta);
+        version_cnt++;
+      }
+    }
+
+    /* At this point, we've acquired the locks covering used slots
+       [start_idx,start_idx+ele_rem) (cyclic) where ele_rem<=probe_max
+       (and, if ele_rem<probe_max, any trailing empty slot).  iter_cnt
+       is the number of slots that matched in this range and iter_start
+       is the index of the first element in this range that matched
+       (start_idx if no matches). */
+
+    iter->ele           = ele0;
+    iter->lock          = lock;
+    iter->ele_max       = ele_max;
+    iter->lock_cnt      = lock_cnt;
+    iter->seed          = seed;
+    iter->memo          = memo;
+    iter->ele_rem       = iter_cnt;
+    iter->ele_idx       = iter_start;
+    iter->version_lock0 = version_lock0;
+    iter->version_cnt   = version_cnt;
+    /* iter->version initialized above */
+
+    return FD_MAP_SUCCESS;
+
+  fail:
+
+    /* At this point, we hit contention acquiring the locks for
+       iteration.  If we not blocking, tell caller to try again later.
+       Otherwise, backoff.  See note in prepare for how this works. */
+
+    MAP_(private_unlock)( lock, lock_cnt, version, version_lock0, version_cnt );
+
+    if( FD_UNLIKELY( non_blocking ) ) {
+      iter->ele_rem     = 0UL; /* make sure can't iterate */
+      iter->version_cnt = 0UL; /* make sure fini is a no-op */
+      return FD_MAP_ERR_AGAIN;
+    }
+
+    ulong scale = backoff_max >> 16; /* in [2^16,2^32) */
+    backoff_max = fd_ulong_min( backoff_max + (backoff_max>>2) + (backoff_max>>4), (1UL<<48)-1UL ); /* in [2^32,2^48) */
+    MAP_(backoff)( scale, backoff_seed );
+  }
+  /* never get here */
+}
+
+MAP_(iter_t) *
+MAP_(iter_next)( MAP_(iter_t) * iter ) {
+  ulong ele_idx = iter->ele_idx;
+  ulong ele_rem = iter->ele_rem - 1UL;
+
+  /* We just finished processing pair ele_idx and we have ele_rem
+     more pairs to process.  If there is at least 1, scan for it. */
+
+  if( ele_rem ) {
+    MAP_ELE_T * ele0    = iter->ele;
+    ulong       ele_max = iter->ele_max;
+    ulong       seed    = iter->seed; (void)seed;
+    ulong       memo    = iter->memo;
+
+    for(;;) {
+      ele_idx = (ele_idx+1UL) & (ele_max-1UL);
+      MAP_ELE_T * ele = ele0 + ele_idx;
+#     if MAP_MEMOIZE
+      if( FD_LIKELY( ele->MAP_MEMO==memo ) ) break;
+#     else
+      if( FD_LIKELY( MAP_(key_hash)( &ele->MAP_KEY, seed )==memo ) ) break;
+#     endif
     }
   }
 
-  /* At this point, we did probe_max probes without finding key.  We
-     speculate key was not in the map at some point during the call. */
-
-  err = FD_MAP_ERR_KEY;
-
-fail:
-
-  /* If we didn't encounter any contention (i.e. no version numbers
-     changed), we can trust our speculated error.  Otherwise, we tell
-     the user to try again. */
-
-  err = MAP_(private_test)( lock, lock_cnt, version, version_lock0, version_cnt ) ? FD_MAP_ERR_AGAIN : err; /* cmov */
-
-fail_fast: /* Used when the err is already AGAIN */
-
-  query->memo = key_hash;
-  query->ele  = (MAP_ELE_T *)sentinel;
-  query->l    = NULL;
-  query->v    = (MAP_VERSION_T)0;
-  return err;
+  iter->ele_idx = ele_idx;
+  iter->ele_rem = ele_rem;
+  return iter;
 }
 
 MAP_STATIC int
@@ -1808,13 +2379,13 @@ MAP_(verify)( MAP_(t) const * join ) {
     MAP_ELE_T const * ele = ele0 + ele_idx;
     if( FD_LIKELY( MAP_(private_ele_is_free)( ctx, ele ) ) ) continue; /* opt for sparse */
 
-    ulong key_hash = MAP_(key_hash)( &ele->MAP_KEY, seed );
+    ulong memo = MAP_(key_hash)( &ele->MAP_KEY, seed );
 
 #   if MAP_MEMOIZE
-    MAP_TEST( ele->MAP_MEMO==key_hash );
+    MAP_TEST( ele->MAP_MEMO==memo );
 #   endif
 
-    ulong probe_idx = key_hash & (ele_max-1UL);
+    ulong probe_idx = memo & (ele_max-1UL);
     ulong probe_cnt = fd_ulong_if( ele_idx>=probe_idx, ele_idx - probe_idx, ele_max + ele_idx - probe_idx ) + 1UL;
     MAP_TEST( probe_cnt<=probe_max );
 

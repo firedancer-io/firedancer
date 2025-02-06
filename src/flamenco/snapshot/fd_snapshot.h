@@ -1,7 +1,6 @@
 #ifndef HEADER_fd_src_flamenco_snapshot_fd_snapshot_h
 #define HEADER_fd_src_flamenco_snapshot_fd_snapshot_h
 
-#include "../../funk/fd_funk_txn.h"
 #if FD_HAS_ZSTD
 
 /* fd_snapshot.h provides high-level blocking APIs for Solana snapshots. */
@@ -10,11 +9,17 @@
 
 FD_PROTOTYPES_BEGIN
 
+/* Whether to initialize these objects inside fd_snapshot_load_manifest_and_status_cache,
+   or just advance the tar cursor. */
+#define FD_SNAPSHOT_RESTORE_NONE         (0)
+#define FD_SNAPSHOT_RESTORE_MANIFEST     (1)
+#define FD_SNAPSHOT_RESTORE_STATUS_CACHE (2)
+
 struct fd_snapshot_load_ctx;
 typedef struct fd_snapshot_load_ctx fd_snapshot_load_ctx_t;
 
 /* fd_snapshot_load_all does a blocking load of a snapshot. It is a wrapper
-   around fd_snapshot_load_new, fd_snapshot_load_init, 
+   around fd_snapshot_load_new, fd_snapshot_load_init,
    fd_snapshot_load_manifest_and_status_cache, and fd_snapshot_load_fini.
 
    fd_snapshot_load_new sets up the context that is passed around for the
@@ -32,8 +37,8 @@ typedef struct fd_snapshot_load_ctx fd_snapshot_load_ctx_t;
    fd_snapshot_load_fini will use the slot context and funk which are now
    populated to setup the runtime and finalize the snapshot load.
 
-   The reason these are broken out is to support loading in the manifest as 
-   quickly as possible, allowing for other operations to start (like 
+   The reason these are broken out is to support loading in the manifest as
+   quickly as possible, allowing for other operations to start (like
    stake-weighted repair) while the rest of the snapshot is being loaded. This
    is needed as loading in the manifest only takes a few seconds and the overall
    time to load in a snapshot is dominated by loading in the append vecs.
@@ -41,11 +46,9 @@ typedef struct fd_snapshot_load_ctx fd_snapshot_load_ctx_t;
    source_cstr is either a local file system path.
    TODO: Add support for an HTTP url.
 
-   slot_ctx is a valid initialized slot context (a funk, acc_mgr, heap
-   valloc, zero-initialized slot bank).
+   slot_ctx is a valid initialized slot context.
 
-   slot_ctx->valloc should have enough space to buffer the snapshot's
-   manifest.
+   spad should have enough space to buffer the snapshot's manifest.
 
    If verify_hash!=0 calculates the snapshot hash.
 
@@ -59,20 +62,26 @@ fd_snapshot_load_ctx_align( void );
 ulong
 fd_snapshot_load_ctx_footprint( void );
 
-fd_snapshot_load_ctx_t * 
+fd_snapshot_load_ctx_t *
 fd_snapshot_load_new( uchar *                mem,
                       const char *           snapshot_file,
                       fd_exec_slot_ctx_t *   slot_ctx,
                       fd_tpool_t *           tpool,
                       uint                   verify_hash,
                       uint                   check_hash,
-                      int                    snapshot_type );
+                      int                    snapshot_type,
+                      fd_spad_t * *          exec_spads,
+                      ulong                  spad_cnt,
+                      fd_spad_t *            runtime_spad );
 
 void
 fd_snapshot_load_init( fd_snapshot_load_ctx_t * ctx );
 
+/* restore_manifest_flags controls if the manifest and status cache objects are initialized or not. */
 void
-fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx );
+fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx,
+                                            ulong *                  base_slot_override,
+                                            int                      restore_manifest_flags );
 
 void
 fd_snapshot_load_accounts( fd_snapshot_load_ctx_t * ctx );
@@ -83,13 +92,20 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx );
 void
 fd_snapshot_load_all( const char *         source_cstr,
                       fd_exec_slot_ctx_t * slot_ctx,
+                      ulong *              base_slot_override,
                       fd_tpool_t *         tpool,
                       uint                 verify_hash,
                       uint                 check_hash,
-                      int                  snapshot_type );
+                      int                  snapshot_type,
+                      fd_spad_t * *        exec_spads,
+                      ulong                exec_spad_cnt,
+                      fd_spad_t *          runtime_spad );
 
 void
 fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx );
+
+ulong
+fd_snapshot_get_slot( fd_snapshot_load_ctx_t * ctx );
 
 FD_PROTOTYPES_END
 

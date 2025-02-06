@@ -91,9 +91,6 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
                                           /* use fd_quic_conn_at_idx instead */
   ulong                   conn_sz;        /* size of one connection element */
 
-  fd_quic_pkt_meta_t *    pkt_meta;       /* records the metadata for the contents
-                                             of each sent packet */
-
   /* flow control - configured initial limits */
   ulong initial_max_data;           /* directly from transport params */
   ulong initial_max_stream_data[4]; /* from 4 transport params indexed by stream type */
@@ -131,6 +128,10 @@ struct fd_quic_pkt {
   uint               ack_flag;    /* ORed together: 0-don't ack  1-ack  2-cancel ack */
 # define ACK_FLAG_RQD     1
 # define ACK_FLAG_CANCEL  2
+
+  ulong              rtt_pkt_number; /* packet number used for rtt */
+  ulong              rtt_ack_time;
+  ulong              rtt_ack_delay;
 };
 
 struct fd_quic_frame_ctx {
@@ -381,6 +382,88 @@ fd_quic_conn_at_idx( fd_quic_state_t * quic_state, ulong idx ) {
   ulong sz   = quic_state->conn_sz;
   return (fd_quic_conn_t*)( addr + idx * sz );
 }
+
+/* called with round-trip-time (rtt) and the ack delay (from the spec)
+ * to sample the round trip times.
+ * Arguments:
+ *   conn            The connection to be updated
+ *   rtt_ticks       The round trip time in ticks
+ *   ack_delay       The ack_delay field supplied by the peer in peer units
+ *
+ * Updates:
+ *   smoothed_rtt    EMA over adjusted rtt
+ *   min_rtt         minimum unadjusted rtt over all samples
+ *   latest_rtt      the most recent rtt sample */
+static inline void
+fd_quic_sample_rtt( fd_quic_conn_t * conn, long rtt_ticks, long ack_delay ) {
+  /* for convenience */
+  fd_quic_conn_rtt_t * rtt = conn->rtt;
+
+  /* ack_delay is in peer units, so scale to put in ticks */
+  float ack_delay_ticks = (float)ack_delay * rtt->peer_ack_delay_scale;
+
+  /* bound ack_delay by peer_max_ack_delay */
+  ack_delay_ticks = fminf( ack_delay_ticks, rtt->peer_max_ack_delay_ticks );
+
+  /* minrtt is estimated from rtt_ticks without adjusting for ack_delay */
+  rtt->min_rtt = fminf( rtt->min_rtt, (float)rtt_ticks );
+
+  /* smoothed_rtt is calculated from adjusted rtt_ticks
+       except: ack_delay must not be subtracted if the result would be less than minrtt */
+  float adj_rtt = fmaxf( rtt->min_rtt, (float)rtt_ticks - (float)ack_delay_ticks );
+
+  rtt->latest_rtt = adj_rtt;
+
+  /* according to rfc 9002 */
+  if( !rtt->is_rtt_valid ) {
+    rtt->smoothed_rtt = adj_rtt;
+    rtt->var_rtt      = adj_rtt * 0.5f;
+    rtt->is_rtt_valid = 1;
+  } else {
+    rtt->smoothed_rtt = (7.f/8.f) * rtt->smoothed_rtt + (1.f/8.f) * adj_rtt;
+    float var_rtt_sample = fabsf( rtt->smoothed_rtt - adj_rtt );
+    rtt->var_rtt = (3.f/4.f) * rtt->var_rtt + (1.f/4.f) * var_rtt_sample;
+
+    FD_DEBUG({
+      double us_per_tick = 1.0 / (double)conn->quic->config.tick_per_us;
+      FD_LOG_NOTICE(( "conn_idx: %u  min_rtt: %f  smoothed_rtt: %f  var_rtt: %f  adj_rtt: %f  rtt_ticks: %f  ack_delay_ticks: %f  diff: %f",
+                       (uint)conn->conn_idx,
+                       us_per_tick * (double)rtt->min_rtt,
+                       us_per_tick * (double)rtt->smoothed_rtt,
+                       us_per_tick * (double)rtt->var_rtt,
+                       us_per_tick * (double)adj_rtt,
+                       us_per_tick * (double)rtt_ticks,
+                       us_per_tick * (double)ack_delay_ticks,
+                       us_per_tick * ( (double)rtt_ticks - (double)ack_delay_ticks ) ));
+    })
+  }
+
+}
+
+static inline ulong
+fd_quic_calc_expiry( fd_quic_conn_t * conn, ulong now ) {
+  /* Instead of a full implementation of PTO, we're setting an expiry
+     time per sent QUIC packet
+     This calculates the expiry time according to the PTO spec
+     6.2.1. Computing PTO
+     When an ack-eliciting packet is transmitted, the sender schedules
+     a timer for the PTO period as follows:
+     PTO = smoothed_rtt + max(4*rttvar, kGranularity) + max_ack_delay  */
+
+  fd_quic_conn_rtt_t * rtt = conn->rtt;
+
+  return now + (ulong)( rtt->smoothed_rtt
+                        + fmaxf( 4.0f * rtt->var_rtt, rtt->sched_granularity_ticks )
+                        + rtt->peer_max_ack_delay_ticks );
+}
+
+uchar *
+fd_quic_gen_stream_frames( fd_quic_conn_t *     conn,
+                           uchar *              payload_ptr,
+                           uchar *              payload_end,
+                           fd_quic_pkt_meta_t * pkt_meta,
+                           ulong                pkt_number,
+                           ulong                now );
 
 FD_PROTOTYPES_END
 

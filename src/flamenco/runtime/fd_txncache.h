@@ -428,13 +428,12 @@ fd_txncache_is_rooted_slot( fd_txncache_t * tc,
 /* fd_txncache_get_entries is responsible for converting the rooted state of
    the status cache back into fd_bank_slot_deltas_t, which is the decoded
    format used by Agave. This is a helper method used to generate Agave-
-   compatible snapshots.
-   TODO: Currently all allocations are done via scratch. This should
-   probably be changed in the future. */
+   compatible snapshots. */
 
 int
 fd_txncache_get_entries( fd_txncache_t *         tc,
-                         fd_bank_slot_deltas_t * bank_slot_deltas );
+                         fd_bank_slot_deltas_t * bank_slot_deltas,
+                         fd_spad_t *             spad );
 
 /* fd_txncache_{is,set}_constipated is used to set and determine if the 
    status cache is currently in a constipated state. */

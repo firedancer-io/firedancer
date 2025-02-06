@@ -21,11 +21,14 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
                            fd_capture_ctx_t *   capture_ctx,
                            fd_hash_t *          hash,
                            ulong                signature_cnt,
-                           fd_tpool_t *         tpool );
+                           fd_tpool_t *         tpool,
+                           fd_spad_t *          runtime_spad );
 
 int
 fd_print_account_hashes( fd_exec_slot_ctx_t * slot_ctx,
-                         fd_tpool_t *         tpool );
+                         fd_tpool_t *         tpool,
+                         fd_spad_t *          runtime_spad );
+
 /* fd_hash_account is the method to compute the account
    hash.  It includes the following content:
     - lamports
@@ -57,38 +60,27 @@ fd_hash_account_current( uchar                      hash  [ static 32 ],
 /* Generate a complete accounts_hash of the entire account database. */
 
 int
-fd_accounts_hash( fd_funk_t          * funk,
-                  fd_slot_bank_t     * slot_bank,
-                  fd_valloc_t          valloc,
-                  fd_tpool_t         * tpool,
-                  fd_hash_t          * accounts_hash );
+fd_accounts_hash( fd_funk_t *      funk,
+                  fd_slot_bank_t * slot_bank,
+                  fd_tpool_t *     tpool,
+                  fd_hash_t *      accounts_hash,
+                  fd_spad_t *      runtime_spad );
 
-/* Special version for verifying incremental snapshot. */
-
-int
-fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx,
-                           fd_hash_t * accounts_hash,
-                           fd_funk_txn_t * child_txn,
-                           ulong do_hash_verify );
-
-/* Same as fd_accounts_hash_inc_only but takes a list of pubkeys to hash.
-   Query the accounts from the root of funk. This is done as a read-only
-   way to generate an accounts hash from a subset of accounts from funk. */
-
-int
-fd_accounts_hash_inc_no_txn( fd_funk_t *                 funk,
-                             fd_valloc_t                 valloc,
-                             fd_hash_t *                 accounts_hash,
-                             fd_funk_rec_key_t const * * pubkeys,
-                             ulong                       pubkeys_len,
-                             ulong                       do_hash_verify );
-
-/* Generate a non-incremental hash of the entire account database, including epoch bank hash. */
+/* Generate a non-incremental hash of the entire account database, conditionally including in the epoch account hash. */
 int
 fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx,
-                  fd_tpool_t * tpool,
-                  fd_hash_t * accounts_hash,
-                  uint check_hash );
+                  fd_tpool_t *         tpool,
+                  fd_hash_t *          accounts_hash,
+                  uint                 check_hash,
+                  fd_spad_t *          runtime_spad );
+
+/* Generate an incremental hash of the entire account database, conditionally including in the epoch account hash. */
+int
+fd_snapshot_inc_hash( fd_exec_slot_ctx_t * slot_ctx,
+                      fd_hash_t *          accounts_hash,
+                      fd_funk_txn_t *      child_txn,
+                      uint                 check_hash,
+                      fd_spad_t *          spad );
 
 /* Generate a non-incremental hash of the entire account database, including
    the epoch account hash. It differs from fd_snapshot_hash in that this version
@@ -106,7 +98,7 @@ fd_snapshot_service_hash( fd_hash_t *       accounts_hash,
                           fd_epoch_bank_t * epoch_bank,
                           fd_funk_t *       funk,
                           fd_tpool_t *      tpool,
-                          fd_valloc_t       valloc );
+                          fd_spad_t *       runtime_spad );
 
 int
 fd_snapshot_service_inc_hash( fd_hash_t *                 accounts_hash,
@@ -116,13 +108,13 @@ fd_snapshot_service_inc_hash( fd_hash_t *                 accounts_hash,
                               fd_funk_t *                 funk,
                               fd_funk_rec_key_t const * * pubkeys,
                               ulong                       pubkeys_len,
-                              fd_valloc_t                 valloc );
+                              fd_spad_t *                 spad );
 
 void
-fd_accounts_check_lthash( fd_funk_t     *  funk,
+fd_accounts_check_lthash( fd_funk_t *      funk,
                           fd_funk_txn_t *  funk_txn,
                           fd_slot_bank_t * slot_bank,
-                          fd_valloc_t      valloc );
+                          fd_spad_t *      runtime_spad );
 
 void
 fd_calculate_epoch_accounts_hash_values(fd_exec_slot_ctx_t * slot_ctx);

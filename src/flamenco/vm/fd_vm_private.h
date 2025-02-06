@@ -9,6 +9,7 @@
 #include "../runtime/context/fd_exec_txn_ctx.h"
 #include "../runtime/fd_runtime.h"
 #include "../features/fd_features.h"
+#include "fd_vm_base.h"
 
 /* FD_VM_ALIGN_RUST_{} define the alignments for relevant rust types.
    Alignments are derived with std::mem::align_of::<T>() and are enforced
@@ -218,7 +219,7 @@ FD_PROTOTYPES_BEGIN
     vm->instr_ctx->txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_INSTR;   \
   }))
 
-#define FD_VADDR_TO_REGION( _vaddr ) fd_ulong_min( (_vaddr) >> 32, 5UL )
+#define FD_VADDR_TO_REGION( _vaddr ) fd_ulong_min( (_vaddr) >> FD_VM_MEM_MAP_REGION_VIRT_ADDR_BITS, FD_VM_HIGH_REGION )
 
 /* fd_vm_instr APIs ***************************************************/
 
@@ -267,21 +268,21 @@ FD_FN_CONST static inline ulong fd_vm_instr_mem_opaddrmode( ulong instr ) { retu
 
 static inline fd_vm_t *
 fd_vm_mem_cfg( fd_vm_t * vm ) {
-  vm->region_haddr[0] = 0UL;               vm->region_ld_sz[0] = (uint)0UL;             vm->region_st_sz[0] = (uint)0UL;
-  vm->region_haddr[1] = (ulong)vm->rodata; vm->region_ld_sz[1] = (uint)vm->rodata_sz;   vm->region_st_sz[1] = (uint)0UL;
-  vm->region_haddr[2] = (ulong)vm->stack;  vm->region_ld_sz[2] = (uint)FD_VM_STACK_MAX; vm->region_st_sz[2] = (uint)FD_VM_STACK_MAX;
-  vm->region_haddr[3] = (ulong)vm->heap;   vm->region_ld_sz[3] = (uint)vm->heap_max;    vm->region_st_sz[3] = (uint)vm->heap_max;
-  vm->region_haddr[5] = 0UL;               vm->region_ld_sz[5] = (uint)0UL;             vm->region_st_sz[5] = (uint)0UL;
+  vm->region_haddr[0] = 0UL;                                vm->region_ld_sz[0]                  = (uint)0UL;             vm->region_st_sz[0]                  = (uint)0UL;
+  vm->region_haddr[FD_VM_PROG_REGION]  = (ulong)vm->rodata; vm->region_ld_sz[FD_VM_PROG_REGION]  = (uint)vm->rodata_sz;   vm->region_st_sz[FD_VM_PROG_REGION]  = (uint)0UL;
+  vm->region_haddr[FD_VM_STACK_REGION] = (ulong)vm->stack;  vm->region_ld_sz[FD_VM_STACK_REGION] = (uint)FD_VM_STACK_MAX; vm->region_st_sz[FD_VM_STACK_REGION] = (uint)FD_VM_STACK_MAX;
+  vm->region_haddr[FD_VM_HEAP_REGION]  = (ulong)vm->heap;   vm->region_ld_sz[FD_VM_HEAP_REGION]  = (uint)vm->heap_max;    vm->region_st_sz[FD_VM_HEAP_REGION]  = (uint)vm->heap_max;
+  vm->region_haddr[5]                  = 0UL;               vm->region_ld_sz[5]                  = (uint)0UL;             vm->region_st_sz[5]                  = (uint)0UL;
   if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, bpf_account_data_direct_mapping ) || !vm->input_mem_regions_cnt ) {
     /* When direct mapping is enabled, we don't use these fields because
        the load and stores are fragmented. */
-    vm->region_haddr[4] = 0UL; 
-    vm->region_ld_sz[4] = 0U; 
-    vm->region_st_sz[4] = 0U;
+    vm->region_haddr[FD_VM_INPUT_REGION] = 0UL; 
+    vm->region_ld_sz[FD_VM_INPUT_REGION] = 0U; 
+    vm->region_st_sz[FD_VM_INPUT_REGION] = 0U;
   } else {
-    vm->region_haddr[4] = vm->input_mem_regions[0].haddr;  
-    vm->region_ld_sz[4] = vm->input_mem_regions[0].region_sz;    
-    vm->region_st_sz[4] = vm->input_mem_regions[0].region_sz;
+    vm->region_haddr[FD_VM_INPUT_REGION] = vm->input_mem_regions[0].haddr;  
+    vm->region_ld_sz[FD_VM_INPUT_REGION] = vm->input_mem_regions[0].region_sz;    
+    vm->region_st_sz[FD_VM_INPUT_REGION] = vm->input_mem_regions[0].region_sz;
   }
   return vm;
 }
@@ -376,9 +377,6 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
   while( FD_UNLIKELY( bytes_left>bytes_in_cur_region ) ) {
     *is_multi_region = 1;
     FD_LOG_DEBUG(( "Size of access spans multiple memory regions" ));
-    if( FD_UNLIKELY( write && vm->input_mem_regions[ region_idx ].is_writable==0U ) ) {
-      return sentinel; /* Illegal write */
-    }
     bytes_left = fd_ulong_sat_sub( bytes_left, bytes_in_cur_region );
 
     region_idx += 1U;
@@ -387,6 +385,10 @@ fd_vm_find_input_mem_region( fd_vm_t const * vm,
       return sentinel; /* Access is too large */
     }
     bytes_in_cur_region = vm->input_mem_regions[ region_idx ].region_sz;
+
+    if( FD_UNLIKELY( write && vm->input_mem_regions[ region_idx ].is_writable==0U ) ) {
+      return sentinel; /* Illegal write */
+    }
   }
 
   ulong adjusted_haddr = vm->input_mem_regions[ start_region_idx ].haddr + offset - vm->input_mem_regions[ start_region_idx ].vaddr_offset;
@@ -409,9 +411,9 @@ fd_vm_mem_haddr( fd_vm_t const *    vm,
   /* Stack memory regions have 4kB unmapped "gaps" in-between each frame (only if direct mapping is disabled).
     https://github.com/solana-labs/rbpf/blob/b503a1867a9cfa13f93b4d99679a17fe219831de/src/memory_region.rs#L141
     */
-  if ( FD_UNLIKELY( region == 2UL && !vm->direct_mapping ) ) {
+  if( FD_UNLIKELY( region==FD_VM_STACK_REGION && !vm->direct_mapping ) ) {
     /* If an access starts in a gap region, that is an access violation */
-    if ( !!( vaddr & 0x1000 ) ) {
+    if( !!(vaddr & 0x1000) ) {
       return sentinel;
     }
 
@@ -427,7 +429,7 @@ fd_vm_mem_haddr( fd_vm_t const *    vm,
   ulong region_sz = (ulong)vm_region_sz[ region ];
   ulong sz_max    = region_sz - fd_ulong_min( offset, region_sz );
 
-  if( region==4UL ) {
+  if( region==FD_VM_INPUT_REGION ) {
     return fd_vm_find_input_mem_region( vm, offset, sz, write, sentinel, is_multi_region );
   }
   
@@ -446,7 +448,7 @@ fd_vm_mem_haddr_fast( fd_vm_t const * vm,
   uchar is_multi = 0;
   ulong region   = FD_VADDR_TO_REGION( vaddr );
   ulong offset   = vaddr & FD_VM_OFFSET_MASK;
-  if( FD_UNLIKELY( region==4UL ) ) {
+  if( FD_UNLIKELY( region==FD_VM_INPUT_REGION ) ) {
     return fd_vm_find_input_mem_region( vm, offset, 1UL, 0, 0UL, &is_multi );
   }
   return vm_region_haddr[ region ] + offset;

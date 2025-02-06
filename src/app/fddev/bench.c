@@ -22,22 +22,6 @@
 #include "../../util/tile/fd_tile_private.h"
 
 void
-bench_cmd_perm( args_t *         args,
-                fd_caps_ctx_t *  caps,
-                config_t * const config ) {
-  (void)args;
-
-  args_t configure_args = {
-    .configure.command = CONFIGURE_CMD_INIT,
-  };
-  for( ulong i=0; i<CONFIGURE_STAGE_COUNT; i++ )
-    configure_args.configure.stages[ i ] = STAGES[ i ];
-  configure_cmd_perm( &configure_args, caps, config );
-
-  run_cmd_perm( NULL, caps, config );
-}
-
-void
 bench_cmd_args( int *    pargc,
                 char *** pargv,
                 args_t * args ) {
@@ -143,7 +127,6 @@ extern int * fd_log_private_shared_lock;
 void
 bench_cmd_fn( args_t *         args,
               config_t * const config ) {
-  (void)args;
 
   ushort dest_port = fd_ushort_if( args->load.no_quic,
                                    config->tiles.quic.regular_transaction_listen_port,

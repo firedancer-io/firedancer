@@ -19,6 +19,9 @@ class Tile(Enum):
     EVENT = 13
     PLUGIN = 14
     GUI = 15
+    REPLAY = 16
+    STOREI = 17
+    GOSSIP = 18
 
 class MetricType(Enum):
     COUNTER = 0

@@ -40,6 +40,7 @@ struct __attribute__((aligned(FD_XSK_AIO_ALIGN))) fd_xsk_aio_private {
   struct {
     ulong tx_cnt;
     ulong tx_sz;
+    ulong tx_flush_err_cnt;
 
     ulong rx_cnt;
     ulong rx_sz;

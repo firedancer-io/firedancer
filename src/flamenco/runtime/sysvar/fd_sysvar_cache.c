@@ -20,7 +20,7 @@ fd_sysvar_cache_footprint( void ) {
 
 fd_sysvar_cache_t *
 fd_sysvar_cache_new( void *      mem,
-                     fd_valloc_t valloc ) {
+                     fd_spad_t * runtime_spad ) {
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -30,7 +30,7 @@ fd_sysvar_cache_new( void *      mem,
   fd_sysvar_cache_t * cache = (fd_sysvar_cache_t *)mem;
   fd_memset( cache, 0, sizeof(fd_sysvar_cache_t) );
 
-  cache->valloc = valloc;
+  cache->runtime_spad = runtime_spad;
 
   FD_COMPILER_MFENCE();
   cache->magic = FD_SYSVAR_CACHE_MAGIC;
@@ -51,8 +51,8 @@ fd_sysvar_cache_delete( fd_sysvar_cache_t * cache ) {
     return NULL;
   }
 
-  if( FD_UNLIKELY( !cache->valloc.vt ) ) {
-    FD_LOG_WARNING(( "NULL alloc" ));
+  if( FD_UNLIKELY( !cache->runtime_spad ) ) {
+    FD_LOG_WARNING(( "NULL spad" ));
     return NULL;
   }
 
@@ -60,7 +60,7 @@ fd_sysvar_cache_delete( fd_sysvar_cache_t * cache ) {
   cache->magic = 0UL;
   FD_COMPILER_MFENCE();
 
-  fd_bincode_destroy_ctx_t ctx = { .valloc = cache->valloc };
+  fd_bincode_destroy_ctx_t ctx = { .valloc = fd_spad_virtual( cache->runtime_spad ) };
 
   /* Call destroy on all objects.
      This is safe even if these objects logically don't exist
@@ -107,18 +107,13 @@ fd_sysvar_cache_restore_##name(                                           \
                                                                           \
     if( account->const_meta->info.lamports == 0UL ) break;                \
                                                                           \
-    /* Destroy previous value */                                          \
-                                                                          \
-    fd_bincode_destroy_ctx_t destroy = { .valloc = cache->valloc };       \
-    type##_destroy( cache->val_##name, &destroy );                        \
-                                                                          \
     /* Decode new value                                                   \
       type##_decode() does not do heap allocations on failure */          \
                                                                           \
     fd_bincode_decode_ctx_t decode =                                      \
       { .data    = account->const_data,                                   \
         .dataend = account->const_data + account->const_meta->dlen,       \
-        .valloc  = cache->valloc };                                       \
+        .valloc  = fd_spad_virtual( cache->runtime_spad ) };              \
     int err = type##_decode( cache->val_##name, &decode );                \
     cache->has_##name = (err==FD_BINCODE_SUCCESS);                        \
   } while(0);                                                             \

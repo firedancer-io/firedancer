@@ -6,6 +6,7 @@
 
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/json/cJSON.h"
+#include "../../flamenco/genesis/fd_genesis_cluster.h"
 
 FD_FN_CONST ulong
 fd_gui_align( void ) {
@@ -283,18 +284,29 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
                               + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_DROPPED_FROM_EXTRA ) ];
   cur->out.pack_retained += fd_ulong_if( inserted_to_extra>=inserted_from_extra, inserted_to_extra-inserted_from_extra, 0UL );
 
-  cur->out.resolv_failed = 0UL;
+  cur->out.resolv_lut_failed = 0UL;
+  cur->out.resolv_expired    = 0UL;
+  cur->out.resolv_ancient    = 0UL;
+  cur->out.resolv_no_ledger  = 0UL;
+  cur->out.resolv_retained   = 0UL;
   for( ulong i=0UL; i<gui->summary.resolv_tile_cnt; i++ ) {
     fd_topo_tile_t const * resolv = &topo->tiles[ fd_topo_find_tile( topo, "resolv", i ) ];
     volatile ulong const * resolv_metrics = fd_metrics_tile( resolv->metrics );
 
-    cur->out.resolv_failed += resolv_metrics[ MIDX( COUNTER, RESOLV, NO_BANK_DROP ) ] +
-                              resolv_metrics[ MIDX( COUNTER, RESOLV, BLOCKHASH_EXPIRED ) ];
-    cur->out.resolv_failed += resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_ACCOUNT_NOT_FOUND ) ]
-                            + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_ACCOUNT_OWNER ) ]
-                            + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_ACCOUNT_DATA ) ]
-                            + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_ACCOUNT_UNINITIALIZED ) ]
-                            + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_LOOKUP_INDEX ) ];
+    cur->out.resolv_no_ledger += resolv_metrics[ MIDX( COUNTER, RESOLV, NO_BANK_DROP ) ];
+    cur->out.resolv_expired += resolv_metrics[ MIDX( COUNTER, RESOLV, BLOCKHASH_EXPIRED ) ];
+    cur->out.resolv_lut_failed += resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_ACCOUNT_NOT_FOUND ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_ACCOUNT_OWNER ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_ACCOUNT_DATA ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_ACCOUNT_UNINITIALIZED ) ]
+                                + resolv_metrics[ MIDX( COUNTER, RESOLV, LUT_RESOLVED_INVALID_LOOKUP_INDEX ) ];
+    cur->out.resolv_ancient += resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_OVERRUN ) ];
+
+    ulong inserted_to_resolv = resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_INSERTED ) ];
+    ulong removed_from_resolv = resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_OVERRUN ) ]
+                              + resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_PUBLISHED ) ]
+                              + resolv_metrics[ MIDX( COUNTER, RESOLV, STASH_OPERATION_REMOVED ) ];
+    cur->out.resolv_retained += fd_ulong_if( inserted_to_resolv>=removed_from_resolv, inserted_to_resolv-removed_from_resolv, 0UL );
   }
 
 
@@ -1431,6 +1443,20 @@ fd_gui_handle_start_progress( fd_gui_t *    gui,
   fd_http_server_ws_broadcast( gui->http );
 }
 
+static void
+fd_gui_handle_genesis_hash( fd_gui_t *    gui,
+                            uchar const * msg ) {
+  FD_BASE58_ENCODE_32_BYTES(msg, hash_cstr);
+  ulong cluster = fd_genesis_cluster_identify(hash_cstr);
+  char const * cluster_name = fd_genesis_cluster_name(cluster);
+
+  if( FD_LIKELY( strcmp( gui->summary.cluster, cluster_name ) ) ) {
+    gui->summary.cluster = fd_genesis_cluster_name(cluster);
+    fd_gui_printf_cluster( gui );
+    fd_http_server_ws_broadcast( gui->http );
+  }
+}
+
 void
 fd_gui_plugin_message( fd_gui_t *    gui,
                        ulong         plugin_msg,
@@ -1485,6 +1511,10 @@ fd_gui_plugin_message( fd_gui_t *    gui,
     }
     case FD_PLUGIN_MSG_START_PROGRESS: {
       fd_gui_handle_start_progress( gui, msg );
+      break;
+    }
+    case FD_PLUGIN_MSG_GENESIS_HASH_KNOWN: {
+      fd_gui_handle_genesis_hash( gui, msg );
       break;
     }
     default:

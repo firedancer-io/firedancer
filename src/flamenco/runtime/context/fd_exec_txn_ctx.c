@@ -140,6 +140,16 @@ int
 fd_txn_borrowed_account_executable_view( fd_exec_txn_ctx_t * ctx,
                                          fd_pubkey_t const *      pubkey,
                                          fd_borrowed_account_t * * account ) {
+  /* First try to fetch the executable account from the existing borrowed accounts.
+     If the pubkey is in the account keys, then we want to re-use that
+     borrowed account since it reflects changes from prior instructions. Referencing the 
+     read-only executable accounts list is incorrect behavior when the program 
+     data account is written to in a prior instruction (e.g. program upgrade + invoke within the same txn) */
+  int err = fd_txn_borrowed_account_view( ctx, pubkey, account );
+  if( FD_UNLIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
+    return FD_ACC_MGR_SUCCESS;
+  }
+
   for( ulong i = 0; i < ctx->executable_cnt; i++ ) {
     if( memcmp( pubkey->uc, ctx->executable_accounts[i].pubkey->uc, sizeof(fd_pubkey_t) )==0 ) {
       // TODO: check if readable???
@@ -260,12 +270,12 @@ fd_exec_txn_ctx_teardown( fd_exec_txn_ctx_t * txn_ctx ) {
 }
 
 void
-fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t * slot_ctx,
-                                    fd_exec_txn_ctx_t * txn_ctx ) {
-  txn_ctx->slot_ctx = slot_ctx;
+fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
+                                    fd_exec_txn_ctx_t *        txn_ctx ) {
+  txn_ctx->slot_ctx  = slot_ctx;
   txn_ctx->epoch_ctx = slot_ctx->epoch_ctx;
-  txn_ctx->funk_txn = NULL;
-  txn_ctx->acc_mgr = slot_ctx->acc_mgr;
+  txn_ctx->funk_txn  = NULL;
+  txn_ctx->acc_mgr   = slot_ctx->acc_mgr;
 }
 
 void

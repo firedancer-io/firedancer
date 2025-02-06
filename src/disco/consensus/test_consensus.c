@@ -544,7 +544,6 @@ main( void ) {
 
 //   snapshot_slot_ctx->acc_mgr    = acc_mgr;
 //   snapshot_slot_ctx->blockstore = blockstore;
-//   snapshot_slot_ctx->valloc     = valloc;
 
 //   fd_runtime_recover_banks( snapshot_slot_ctx, 0 );
 
@@ -556,7 +555,7 @@ main( void ) {
 //     FD_TEST( epoch_bank );
 //     FD_TEST( fd_slot_to_epoch( &epoch_bank->epoch_schedule, i, NULL ) ==
 //              fd_slot_to_epoch( &epoch_bank->epoch_schedule, j, NULL ) );
-//     fd_snapshot_load_all( incremental_snapshot, snapshot_slot_ctx, 1, 1, FD_SNAPSHOT_TYPE_INCREMENTAL );
+//     fd_snapshot_load_all( incremental_snapshot, NULL, snapshot_slot_ctx, 1, 1, FD_SNAPSHOT_TYPE_INCREMENTAL );
 //   }
 
 //   ulong snapshot_slot = snapshot_slot_ctx->slot_bank.slot;
@@ -716,7 +715,6 @@ main( void ) {
 //       FD_LOG_ERR( ( "error adding repair active peer" ) );
 //     }
 //     fd_repair_add_sticky( replay->repair, &_repair_peer_id );
-//     fd_repair_set_permanent( replay->repair, &_repair_peer_id );
 //   }
 
 //   /**********************************************************************/

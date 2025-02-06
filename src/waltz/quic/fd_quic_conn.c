@@ -65,8 +65,6 @@ fd_quic_conn_footprint_ext( fd_quic_limits_t const * limits,
   layout->pkt_meta_off  = off;
   off                  += inflight_pkt_cnt * sizeof(fd_quic_pkt_meta_t);
 
-  /* align total footprint */
-
   return off;
 }
 

@@ -226,6 +226,8 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP_ARRAY( cstr,   ledger.account_indexes                           );
   CFG_POP_ARRAY( cstr,   ledger.account_index_include_keys                );
   CFG_POP_ARRAY( cstr,   ledger.account_index_exclude_keys                );
+  CFG_POP      ( cstr,   ledger.accounts_index_path                       );
+  CFG_POP      ( cstr,   ledger.accounts_hash_cache_path                  );
   CFG_POP      ( bool,   ledger.require_tower                             );
   CFG_POP      ( cstr,   ledger.snapshot_archive_format                   );
 
@@ -260,6 +262,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( bool,   rpc.pubsub_enable_vote_subscription              );
   CFG_POP      ( bool,   rpc.bigtable_ledger_storage                      );
 
+  CFG_POP      ( bool,   snapshots.enabled                                );
   CFG_POP      ( bool,   snapshots.incremental_snapshots                  );
   CFG_POP      ( uint,   snapshots.full_snapshot_interval_slots           );
   CFG_POP      ( uint,   snapshots.incremental_snapshot_interval_slots    );
@@ -278,6 +281,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( uint,   layout.verify_tile_count                         );
   CFG_POP      ( uint,   layout.bank_tile_count                           );
   CFG_POP      ( uint,   layout.shred_tile_count                          );
+  CFG_POP      ( uint,   layout.exec_tile_count                           );
 
   CFG_POP      ( cstr,   hugetlbfs.mount_path                             );
 
@@ -286,6 +290,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( uint,   tiles.net.xdp_rx_queue_size                      );
   CFG_POP      ( uint,   tiles.net.xdp_tx_queue_size                      );
   CFG_POP      ( uint,   tiles.net.xdp_aio_depth                          );
+  CFG_POP      ( uint,   tiles.net.flush_timeout_micros                   );
   CFG_POP      ( uint,   tiles.net.send_buffer_size                       );
   CFG_POP_ARRAY( cstr,   tiles.net.multihome_ip_addrs                     );
 
@@ -349,6 +354,9 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( bool,   development.bench.larger_shred_limits_per_block  );
   CFG_POP      ( ulong,  development.bench.disable_blockstore_from_slot   );
   CFG_POP      ( bool,   development.bench.disable_status_cache           );
+
+  CFG_POP      ( cstr,   development.pktgen.affinity                      );
+  CFG_POP      ( cstr,   development.pktgen.fake_dst_ip                   );
 
   /* Firedancer-only configuration */
 
@@ -449,6 +457,7 @@ fdctl_cfg_validate( config_t * cfg ) {
   CFG_HAS_NON_ZERO ( layout.verify_tile_count );
   CFG_HAS_NON_ZERO ( layout.bank_tile_count );
   CFG_HAS_NON_ZERO ( layout.shred_tile_count );
+  CFG_HAS_NON_ZERO ( layout.exec_tile_count );
 
   CFG_HAS_NON_EMPTY( hugetlbfs.mount_path );
 

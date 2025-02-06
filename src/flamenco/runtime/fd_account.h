@@ -47,7 +47,7 @@
 /* FD_ACC_SZ_MAX is the hardcoded size limit of a Solana account. */
 
 #define MAX_PERMITTED_DATA_LENGTH                 (10UL<<20) /* 10MiB */
-#define MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN (10UL<<21) /* 20MiB */
+#define MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN (10L<<21 ) /* 20MiB */
 
 /* Convenience macro for `fd_account_check_num_insn_accounts()` */
 #define CHECK_NUM_INSN_ACCS( _ctx, _expected ) do {                        \
@@ -59,6 +59,12 @@
 FD_PROTOTYPES_BEGIN
 
 /* Instruction account APIs *******************************************/
+
+/* FIXME: I don't like this way of accessing the account data... */
+static inline void *
+fd_account_get_data( fd_account_meta_t * m ) {
+  return ((char *) m) + m->hlen;
+}
 
 /* Assert that enough ccounts were supplied to this instruction. Returns 
    FD_EXECUTOR_INSTR_SUCCESS if the number of accounts is as expected and 
@@ -374,8 +380,8 @@ fd_account_can_data_be_resized( fd_exec_instr_ctx_t const * instr_ctx,
 
   /* The resize can not exceed the per-transaction maximum
      https://github.com/firedancer-io/agave/blob/1e460f466da60a63c7308e267c053eec41dc1b1c/sdk/src/transaction_context.rs#L1107-L1111 */
-  ulong length_delta = fd_ulong_sat_sub( new_length, acct->dlen );
-  ulong new_accounts_resize_delta = fd_ulong_sat_add( instr_ctx->txn_ctx->accounts_resize_delta, length_delta );
+  long length_delta = fd_long_sat_sub( (long)new_length, (long)acct->dlen );
+  long new_accounts_resize_delta = fd_long_sat_add( (long)instr_ctx->txn_ctx->accounts_resize_delta, length_delta );
   if( FD_UNLIKELY( new_accounts_resize_delta>MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED;
     return 0;
@@ -421,7 +427,5 @@ fd_account_find_idx_of_insn_account( fd_exec_instr_ctx_t const * ctx,
 }
 
 FD_PROTOTYPES_END
-
-#include "fd_account_old.h"
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_account_h */

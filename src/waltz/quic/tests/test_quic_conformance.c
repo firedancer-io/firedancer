@@ -372,6 +372,40 @@ test_quic_rx_max_streams_frame( fd_quic_sandbox_t * sandbox,
   FD_TEST( conn->tx_sup_stream_id == 0xc2 ); /* ignored */
 }
 
+__attribute__((noinline)) void
+test_quic_small_pkt_ping( fd_quic_sandbox_t * sandbox,
+                             fd_rng_t *          rng ) {
+
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_CLIENT );
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  conn->state = FD_QUIC_CONN_STATE_ACTIVE;
+
+  conn->flags |= FD_QUIC_CONN_FLAGS_PING;
+  fd_quic_conn_service( sandbox->quic, conn, 0 );
+
+  /* grab sent packet */
+  fd_frag_meta_t const * frag = fd_quic_sandbox_next_packet( sandbox );
+  FD_TEST( frag );
+  uchar* data = fd_chunk_to_laddr( sandbox, frag->chunk );
+  FD_LOG_HEXDUMP_DEBUG(( "sent packet", data, frag->sz ));
+  FD_LOG_HEXDUMP_DEBUG(( "pkt_key", &conn->keys[3][1].pkt_key, FD_AES_128_KEY_SZ ));
+  FD_LOG_HEXDUMP_DEBUG(( "iv", &conn->keys[3][1].iv, FD_AES_GCM_IV_SZ ));
+  FD_LOG_HEXDUMP_DEBUG(( "hp_key", &conn->keys[3][1].hp_key, FD_AES_128_KEY_SZ ));
+
+  /* internal connection_map setup to process packet */
+  do {
+    fd_quic_conn_map_t * insert_entry = fd_quic_conn_map_insert( fd_quic_get_state(sandbox->quic)->conn_map,
+      FD_LOAD( ulong, conn->peer_cids[0].conn_id ) ); /* insert peer_cid.conn_id */
+    FD_TEST( insert_entry );
+    insert_entry->conn = conn;
+  } while(0);
+
+  ulong before = sandbox->quic->metrics.ack_tx[ FD_QUIC_ACK_TX_NEW ];
+  fd_quic_process_packet( sandbox->quic, data, frag->sz );
+  ulong after = sandbox->quic->metrics.ack_tx[ FD_QUIC_ACK_TX_NEW ]; /* correctly parsed small ping packet */
+  FD_TEST( after == before + 1 );
+}
+
 static __attribute__((noinline)) void
 test_quic_parse_path_challenge( void ) {
   fd_quic_path_challenge_frame_t path_challenge[1];
@@ -390,6 +424,69 @@ test_quic_parse_path_challenge( void ) {
     FD_TEST( fd_quic_decode_path_response_frame( path_response, data,  9UL )==9UL );
     FD_TEST( fd_quic_decode_path_response_frame( path_response, data, 10UL )==9UL );
   } while(0);
+}
+
+static int
+in_stream_list( fd_quic_stream_t * stream, fd_quic_stream_t * sentinel ) {
+  fd_quic_stream_t * curr = sentinel->next;
+  while( curr != sentinel && curr ) {
+    if( curr == stream ) return 1;
+    curr = curr->next;
+  }
+  return 0;
+}
+
+/*
+  Tests edge cases for send_streams
+*/
+static __attribute__ ((noinline)) void
+test_quic_send_streams( fd_quic_sandbox_t * sandbox,
+                        fd_rng_t *          rng ) {
+
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+  conn->tx_sup_stream_id = 20; /* some large number */
+
+  /* empty stream in send_streams gets moved out */
+  do {
+    fd_quic_stream_t * empty_stream = fd_quic_conn_new_stream( conn );
+    FD_TEST( empty_stream );
+
+    /* manually add to send_streams */
+    FD_QUIC_STREAM_LIST_REMOVE( empty_stream );
+    FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, empty_stream );
+
+    FD_TEST( in_stream_list( empty_stream, conn->send_streams ) );
+
+    uchar buf[10];
+    fd_quic_pkt_meta_t pkt_meta = {0};
+
+    fd_quic_gen_stream_frames( conn, buf, buf+sizeof(buf), &pkt_meta, 10, 0 );
+
+    FD_TEST( !in_stream_list( empty_stream, conn->send_streams ) );
+    FD_TEST( in_stream_list( empty_stream, conn->used_streams ) );
+
+  } while(0);
+
+  /* independent of fin, streams with more data than space stay in send_streams */
+  for( int fin=0; fin<2; fin++ ) {
+    fd_quic_stream_t * big_stream = fd_quic_conn_new_stream( conn );
+    conn->tx_max_data = big_stream->tx_max_stream_data = 100;
+    FD_TEST( big_stream );
+    const char data[] = "SOME BIG STRING TO SEND";
+    fd_quic_stream_send( big_stream, data, sizeof(data), fin );
+
+    FD_TEST( in_stream_list( big_stream, conn->send_streams ) );
+
+    uchar buf[FD_QUIC_MAX_FOOTPRINT( stream_e_frame ) + 2]; /* only 2 bytes for actual data*/
+    fd_quic_pkt_meta_t pkt_meta = {0};
+
+    fd_quic_gen_stream_frames( conn, buf, buf+sizeof(buf), &pkt_meta, 10, 0 );
+
+    FD_TEST( in_stream_list( big_stream, conn->send_streams ) );
+    conn->send_streams->next->sentinel = 1; /* rm this one to reset for next test */
+  }
+
 }
 
 int
@@ -447,6 +544,8 @@ main( int     argc,
   test_quic_conn_initial_limits          ( sandbox, rng );
   test_quic_rx_max_data_frame            ( sandbox, rng );
   test_quic_rx_max_streams_frame         ( sandbox, rng );
+  test_quic_small_pkt_ping               ( sandbox, rng );
+  test_quic_send_streams                 ( sandbox, rng );
   test_quic_parse_path_challenge();
 
   /* Wind down */

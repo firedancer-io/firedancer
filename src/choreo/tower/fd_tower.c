@@ -201,7 +201,8 @@ fd_tower_threshold_check( fd_tower_t const *    tower,
                           fd_epoch_t const *    epoch,
                           fd_funk_t *           funk,
                           fd_funk_txn_t const * txn,
-                          ulong                 slot ) {
+                          ulong                 slot,
+                          fd_spad_t *           runtime_spad ) {
 
   /* First, simulate a vote, popping off everything that would be
      expired by voting for the current slot. */
@@ -233,8 +234,8 @@ fd_tower_threshold_check( fd_tower_t const *    tower,
     fd_voter_t const * voter = &epoch_voters[i];
 
     /* Convert the landed_votes into tower's vote_slots interface. */
-    FD_SCRATCH_SCOPE_BEGIN {
-      void * mem = fd_scratch_alloc( fd_tower_align(), fd_tower_footprint() );
+    FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+      void * mem = fd_spad_alloc( runtime_spad, fd_tower_align(), fd_tower_footprint() );
       fd_tower_t * voter_tower = fd_tower_join( fd_tower_new( mem ) );
       fd_tower_from_vote_acc( voter_tower, funk, txn, &voter->rec );
 
@@ -266,7 +267,7 @@ fd_tower_threshold_check( fd_tower_t const *    tower,
       if( FD_LIKELY( vote->slot >= threshold_slot ) ) {
         threshold_stake += voter->stake;
       }
-    } FD_SCRATCH_SCOPE_END;
+    } FD_SPAD_FRAME_END;
   }
 
   double threshold_pct = (double)threshold_stake / (double)epoch->total_stake;
@@ -317,7 +318,8 @@ fd_tower_vote_slot( fd_tower_t *          tower,
                     fd_epoch_t const *    epoch,
                     fd_funk_t *           funk,
                     fd_funk_txn_t const * txn,
-                    fd_ghost_t const *    ghost ) {
+                    fd_ghost_t const *    ghost,
+                    fd_spad_t *           runtime_spad ) {
 
   fd_tower_vote_t const * vote = fd_tower_votes_peek_tail_const( tower );
   fd_ghost_node_t const * root = fd_ghost_root( ghost );
@@ -344,7 +346,7 @@ fd_tower_vote_slot( fd_tower_t *          tower,
     /* The ghost head is on the same fork as our last vote slot, so we
        can vote fork it as long as we pass the threshold check. */
 
-    if( FD_LIKELY( fd_tower_threshold_check( tower, epoch, funk, txn, head->slot ) ) ) {
+    if( FD_LIKELY( fd_tower_threshold_check( tower, epoch, funk, txn, head->slot, runtime_spad ) ) ) {
       FD_LOG_DEBUG(( "[%s] success (threshold). best: %lu. vote: (slot: %lu conf: %lu)", __func__, head->slot, vote->slot, vote->conf ));
       return head->slot;
     }
@@ -438,12 +440,16 @@ fd_tower_from_vote_acc( fd_tower_t *              tower,
   if( FD_UNLIKELY(!state ) ) return;
 
   fd_tower_vote_t vote = { 0 };
-  ulong vote_sz = sizeof(ulong) /* slot */ + sizeof(uint); /* conf */
+  ulong sz = sizeof(fd_voter_vote_old_t);
   for( ulong i = 0; i < fd_voter_state_cnt( state ); i++ ) {
     if( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v0_23_5 ) ) {
-      memcpy( (uchar *)&vote, (uchar *)&state->v0_23_5.tower.votes[i], vote_sz );
+      memcpy( (uchar *)&vote, (uchar *)(state->v0_23_5.votes + i), sz );
+    } else if ( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_v1_14_11 ) ) {
+      memcpy( (uchar *)&vote, (uchar *)(state->v1_14_11.votes + i), sz );
+    } else if ( FD_UNLIKELY( state->discriminant == fd_vote_state_versioned_enum_current ) ) {
+      memcpy( (uchar *)&vote, (uchar *)(state->votes + i) + sizeof(uchar) /* latency */, sz );
     } else {
-      memcpy( (uchar *)&vote, (uchar *)&state->tower.votes[i] + sizeof(uchar) /* latency */, vote_sz );
+      FD_LOG_ERR(( "[%s] unknown state->discriminant %u", __func__, state->discriminant ));
     }
     fd_tower_votes_push_tail( tower, vote );
   }
@@ -457,7 +463,10 @@ fd_tower_to_vote_txn( fd_tower_t const *  tower,
                       fd_pubkey_t const * validator_identity,
                       fd_pubkey_t const * vote_authority,
                       fd_pubkey_t const * vote_acc,
-                      fd_txn_p_t *        vote_txn ) {
+                      fd_txn_p_t *        vote_txn,
+                      fd_spad_t *         runtime_spad ) {
+
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
   fd_compact_vote_state_update_t tower_sync[1] = { 0 };
 
@@ -466,7 +475,7 @@ fd_tower_to_vote_txn( fd_tower_t const *  tower,
   tower_sync->has_timestamp = 1;
   tower_sync->timestamp     = ts;
   tower_sync->lockouts_len  = (ushort)fd_tower_votes_cnt( tower );
-  tower_sync->lockouts      = (fd_lockout_offset_t *)fd_scratch_alloc( alignof(fd_lockout_offset_t),tower_sync->lockouts_len * sizeof(fd_lockout_offset_t) );
+  tower_sync->lockouts      = (fd_lockout_offset_t *)fd_spad_alloc( runtime_spad, alignof(fd_lockout_offset_t),tower_sync->lockouts_len * sizeof(fd_lockout_offset_t) );
 
   ulong i         = 0UL;
   ulong curr_slot = tower_sync->root;
@@ -554,6 +563,8 @@ fd_tower_to_vote_txn( fd_tower_t const *  tower,
     program_id = 3; /* vote program */
   }
   vote_txn->payload_sz = fd_txn_add_instr( txn_meta_out, txn_out, program_id, ix_accs, 2, vote_ix_buf, vote_ix_size );
+
+  } FD_SPAD_FRAME_END;
 }
 
 int

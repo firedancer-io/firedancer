@@ -2,6 +2,7 @@
 
 LOG="/tmp/ledger_log$$"
 TRASH_HASH=""
+THREAD_MEM_BOUND="--thread-mem-bound 0"
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -40,9 +41,8 @@ while [[ $# -gt 0 ]]; do
        shift
        shift
        ;;
-
-    --zst)
-        ZST=1
+    -c|--cluster-version)
+        CLUSTER_VERSION="--cluster-version $2"
         shift
         ;;
     -*|--*)
@@ -80,6 +80,8 @@ set -x
     $PAGES \
     $FUNK_PAGES \
     $SNAPSHOT \
+    $THREAD_MEM_BOUND \
+    $CLUSTER_VERSION \
     --checkpt-mismatch 1 \
     --checkpt-path $CHECKPT_PATH \
     --slot-history 5000 \
@@ -96,7 +98,7 @@ else
     END_SLACK_MESSAGE="@here ALERT: Ledger \`$LEDGER\` Failed using Commit \`$FD_NIGHTLY_COMMIT\` on Branch \`$FD_NIGHTLY_BRANCH\`"
 fi
 
-START_SLOT=$(grep "recovered slot_bank" "$LOG" | tail -n 1 | awk -F'slot=' '{print $2}' | awk '{print $1}')
+START_SLOT=$(basename $SNAPSHOT | cut -d '-' -f 2)
 
 MISMATCHED=$(grep "Bank hash mismatch!" "$LOG" | tail -n 1)
 REPLAY_COMPLETED=$(grep "replay completed" "$LOG" | tail -n 1)
@@ -108,7 +110,7 @@ if [[ -n "$REPLAY_COMPLETED" ]]; then
 elif [[ -n "$MISMATCHED" ]]; then
     MISMATCH_SLOT=$(grep "Bank hash mismatch!" "$LOG" | tail -n 1 | awk -F'slot=' '{print $2}' | awk '{print $1}')
     END_SLACK_MESSAGE+=$'\n'" - Ledger \`$LEDGER\` Starting at Slot \`$START_SLOT\` Mismatched at Slot \`$MISMATCH_SLOT\`, Log at: \`$LOG\`, Checkpoint at: \`$CHECKPT_PATH\`"
-else 
+else
     END_SLACK_MESSAGE+=$'\n'" - Ledger \`$LEDGER\` Failed, Log at: \`$LOG\`"
 fi
 

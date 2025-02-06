@@ -128,7 +128,6 @@ fd_quic_gen_keys(
       FD_QUIC_CRYPTO_LABEL_QUIC_IV_LEN );
 }
 
-
 /* encrypt a packet
 
    uses the keys in keys to encrypt the packet "pkt" with header "hdr"
@@ -199,20 +198,11 @@ fd_quic_crypto_encrypt(
   ulong pkt_number_sz = fd_quic_h0_pkt_num_len( first ) + 1u;
   uchar const * pkt_number_ptr = out + hdr_sz - pkt_number_sz;
 
-  // nonce is quic-iv XORed with packet-number
-  // packet number is 1-4 bytes, so only XOR last pkt_number_sz bytes
   uchar nonce[FD_QUIC_NONCE_SZ] = {0};
-  uint nonce_tmp = FD_QUIC_NONCE_SZ - 4;
-  uchar const * quic_iv = pkt_keys->iv;
-  memcpy( nonce, quic_iv, nonce_tmp );
-  for( uint k = 0; k < 4; ++k ) {
-    uint j = nonce_tmp + k;
-    nonce[j] = (uchar)( quic_iv[j] ^ ( (uchar)( (pkt_number>>( (3u - k) * 8u ))&0xFF ) ) );
-  }
+  fd_quic_get_nonce( nonce, pkt_keys->iv, pkt_number );
 
   // Initial packets cipher uses AEAD_AES_128_GCM with keys derived from the Destination Connection ID field of the
   // first Initial packet sent by the client; see rfc9001 Section 5.2.
-
   fd_aes_gcm_t pkt_cipher[1];
   fd_aes_128_gcm_init( pkt_cipher, pkt_keys->pkt_key, nonce );
 
@@ -275,13 +265,7 @@ fd_quic_crypto_decrypt(
      nonce is quic-iv XORed with *reconstructed* packet-number
      packet number is 1-4 bytes, so only XOR last pkt_number_sz bytes */
   uchar nonce[FD_QUIC_NONCE_SZ] = {0};
-  uint nonce_tmp = FD_QUIC_NONCE_SZ - 4;
-  uchar const * quic_iv = keys->iv;
-  fd_memcpy( nonce, quic_iv, nonce_tmp );
-  for( uint k = 0; k < 4; ++k ) {
-    uint j = nonce_tmp + k;
-    nonce[j] = (uchar)( quic_iv[j] ^ ( (uchar)( (pkt_number>>( (3u - k) * 8u ))&0xFF ) ) );
-  }
+  fd_quic_get_nonce( nonce, keys->iv, pkt_number );
 
   if( FD_UNLIKELY( ( buf_sz < hdr_sz ) |
                    ( buf_sz < hdr_sz+FD_QUIC_CRYPTO_TAG_SZ ) ) )

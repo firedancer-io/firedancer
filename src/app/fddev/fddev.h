@@ -3,8 +3,11 @@
 
 #include "../fdctl/fdctl.h"
 
-int fddev_main( int     argc,
-                char ** argv );
+extern action_t DEV_ACTIONS[];
+
+int
+fddev_main( int     argc,
+            char ** argv );
 
 void
 update_config_for_dev( config_t * const config );
@@ -72,11 +75,6 @@ txn_cmd_fn( args_t *         args,
             config_t * const config );
 
 void
-bench_cmd_perm( args_t *         args,
-                fd_caps_ctx_t *  caps,
-                config_t * const config );
-
-void
 bench_cmd_args( int *    pargc,
                 char *** pargv,
                 args_t * args);
@@ -130,5 +128,18 @@ quic_trace_cmd_args( int *    pargc,
 void
 quic_trace_cmd_fn( args_t *         args,
                    config_t * const config );
+
+void
+dev_help_cmd_fn( args_t *         args,
+                 config_t * const config );
+
+void
+pktgen_cmd_args( int *    pargc,
+                 char *** pargv,
+                 args_t * args );
+
+void
+pktgen_cmd_fn( args_t *         args,
+               config_t * const config );
 
 #endif /* HEADER_fd_src_app_fddev_fddev_h */

@@ -404,7 +404,7 @@ fd_quic_sandbox_send_ping_pkt( fd_quic_sandbox_t * sandbox,
   int crypt_res = fd_quic_crypto_encrypt( pkt_buf, &out_sz, pkt_buf, 13UL, pkt_buf+13, 19UL, keys, keys, pktnum );
   FD_TEST( crypt_res==FD_QUIC_SUCCESS );
 
-  fd_quic_pkt_t pkt_meta = {
+  fd_quic_pkt_t pkt = {
     .ip4 = {{
       .verihl       = FD_IP4_VERIHL(4,5),
       .net_tot_len  = 28,
@@ -422,5 +422,5 @@ fd_quic_sandbox_send_ping_pkt( fd_quic_sandbox_t * sandbox,
     .enc_level  = fd_quic_enc_level_appdata_id,
   };
 
-  fd_quic_process_quic_packet_v1( sandbox->quic, &pkt_meta, pkt_buf, out_sz );
+  fd_quic_process_quic_packet_v1( sandbox->quic, &pkt, pkt_buf, out_sz );
 }

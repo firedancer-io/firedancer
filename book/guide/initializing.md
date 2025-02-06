@@ -141,9 +141,8 @@ XDP is incompatible with a feature of network devices called
 `generic-receive-offload`. This feature must be disabled for Firedancer
 to work.
 
-The command run by the stage is similar to running `ethtool --offload
-<device> generic-receive-offload off` but it also supports bonded
-devices. We can check that it worked:
+The command run by the stage is similar to running `ethtool --offload <device> generic-receive-offload off`
+but it also supports bonded devices. We can check that it worked:
 
 <<< @/snippets/ethtool-gro.ansi
 

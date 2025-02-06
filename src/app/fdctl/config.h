@@ -72,6 +72,8 @@ typedef struct {
     char  account_index_include_keys[ 32 ][ 32 ];
     ulong account_index_exclude_keys_cnt;
     char  account_index_exclude_keys[ 32 ][ 32 ];
+    char  accounts_index_path[ PATH_MAX ];
+    char  accounts_hash_cache_path[ PATH_MAX ];
     int   require_tower;
     char  snapshot_archive_format[ 10 ];
   } ledger;
@@ -119,6 +121,7 @@ typedef struct {
   } rpc;
 
   struct {
+    int  enabled;
     int  incremental_snapshots;
     uint full_snapshot_interval_slots;
     uint incremental_snapshot_interval_slots;
@@ -140,6 +143,7 @@ typedef struct {
     uint verify_tile_count;
     uint bank_tile_count;
     uint shred_tile_count;
+    uint exec_tile_count; /* TODO: redundant ish with bank tile cnt */
   } layout;
 
   struct {
@@ -199,6 +203,11 @@ typedef struct {
       ulong disable_blockstore_from_slot;
       int   disable_status_cache;
     } bench;
+
+    struct {
+      char affinity[ AFFINITY_SZ ];
+      char fake_dst_ip[ 16 ];
+    } pktgen;
   } development;
 
   struct {
@@ -211,6 +220,7 @@ typedef struct {
       uint xdp_rx_queue_size;
       uint xdp_tx_queue_size;
       uint xdp_aio_depth;
+      uint flush_timeout_micros;
 
       uint send_buffer_size;
 

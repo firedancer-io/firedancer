@@ -354,6 +354,7 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "gossip", /* FIREDANCER only */
     "repair", /* FIREDANCER only */
     "replay", /* FIREDANCER only */
+    "exec",   /* FIREDANCER only */
     "rtpool", /* FIREDANCER only */
     "sender", /* FIREDANCER only */
     "eqvoc",  /* FIREDANCER only */
@@ -361,6 +362,7 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "batch",  /* FIREDANCER only */
     "btpool", /* FIREDANCER only */
 #endif
+    "pktgen",
   };
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
@@ -468,9 +470,14 @@ fd_topob_finish( fd_topo_t * topo,
       fd_topo_obj_t * obj = &topo->objs[ j ];
       if( FD_UNLIKELY( obj->wksp_id!=wksp->id ) ) continue;
 
-      offset = fd_ulong_align_up( offset, align( topo, obj ) );
+      ulong align_ = align( topo, obj );
+      if( FD_UNLIKELY( !fd_ulong_is_pow2( align_ ) ) ) FD_LOG_ERR(( "Return value of fdctl_obj_align(%s,%lu) is not a power of 2", obj->name, obj->id ));
+      offset = fd_ulong_align_up( offset, align_ );
       obj->offset = offset;
       obj->footprint = footprint( topo, obj );
+      if( FD_UNLIKELY( 0!=strcmp( obj->name, "tile" ) && (!obj->footprint || obj->footprint>LONG_MAX) ) ) {
+        FD_LOG_ERR(( "fdctl_obj_footprint(%s,%lu) failed", obj->name, obj->id ));
+      }
       offset += obj->footprint;
     }
 

@@ -10,7 +10,8 @@
 
 fd_rent_t *
 fd_sysvar_rent_read( fd_rent_t *                result,
-                     fd_exec_slot_ctx_t const * slot_ctx ) {
+                     fd_exec_slot_ctx_t const * slot_ctx,
+                     fd_spad_t *                runtime_spad ) {
 
   fd_rent_t const * ret = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
   if( FD_UNLIKELY( NULL != ret ) ) {
@@ -29,7 +30,7 @@ fd_sysvar_rent_read( fd_rent_t *                result,
   fd_bincode_decode_ctx_t decode = {
     .data    = rent_rec->const_data,
     .dataend = rent_rec->const_data + rent_rec->const_meta->dlen,
-    .valloc  = slot_ctx->valloc
+    .valloc  = fd_spad_virtual( runtime_spad )
   };
   err = fd_rent_decode( result, &decode );
   if( FD_UNLIKELY( err ) ) {
@@ -42,7 +43,7 @@ fd_sysvar_rent_read( fd_rent_t *                result,
 
 static void
 write_rent( fd_exec_slot_ctx_t * slot_ctx,
-            fd_rent_t const * rent ) {
+            fd_rent_t const *    rent ) {
 
   uchar enc[ 32 ];
 

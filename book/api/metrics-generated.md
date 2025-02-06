@@ -44,6 +44,7 @@
 | net_&#8203;xdp_&#8203;rx_&#8203;dropped_&#8203;ring_&#8203;full | `counter` | Number of packets dropped because the RX completion queue was empty. This is only reported for net tile 0, since the measurement is across all RX queues. |
 | net_&#8203;xdp_&#8203;rx_&#8203;dropped_&#8203;other | `counter` | Number of packets dropped for other reasons. This is only reported for net tile 0, since the measurement is across all RX queues. |
 | net_&#8203;tx_&#8203;dropped | `counter` | Number of packets dropped because the TX submission queue was empty. This is reported for all net tiles. |
+| net_&#8203;xsk_&#8203;send_&#8203;errors | `counter` | Number of times calling send(2) on the XSK indicated an error other than EAGAIN. |
 
 ## Quic Tile
 | Metric | Type | Description |
@@ -141,6 +142,10 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | resolv_&#8203;no_&#8203;bank_&#8203;drop | `counter` | Count of transactions dropped because the bank was not available |
+| resolv_&#8203;stash_&#8203;operation_&#8203;inserted | `counter` | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was added to the stash) |
+| resolv_&#8203;stash_&#8203;operation_&#8203;overrun | `counter` | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was dropped because the stash was full) |
+| resolv_&#8203;stash_&#8203;operation_&#8203;published | `counter` | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was published as the blockhash became known) |
+| resolv_&#8203;stash_&#8203;operation_&#8203;removed | `counter` | Count of operations that happened on the transaction stash (A transaction with an unknown blockhash was removed from the stash without publishing, due to a bad LUT resolved failure, or no bank. These errors are double counted with the respective metrics for those categories.) |
 | resolv_&#8203;lut_&#8203;resolved_&#8203;invalid_&#8203;lookup_&#8203;index | `counter` | Count of address lookup tables resolved (The transaction referenced an index in a LUT that didn't exist) |
 | resolv_&#8203;lut_&#8203;resolved_&#8203;account_&#8203;uninitialized | `counter` | Count of address lookup tables resolved (The account referenced as a LUT hasn't been initialized) |
 | resolv_&#8203;lut_&#8203;resolved_&#8203;invalid_&#8203;account_&#8203;data | `counter` | Count of address lookup tables resolved (The account referenced as a LUT couldn't be parsed) |
@@ -148,7 +153,6 @@
 | resolv_&#8203;lut_&#8203;resolved_&#8203;account_&#8203;not_&#8203;found | `counter` | Count of address lookup tables resolved (The account referenced as a LUT couldn't be found) |
 | resolv_&#8203;lut_&#8203;resolved_&#8203;success | `counter` | Count of address lookup tables resolved (Resolved successfully) |
 | resolv_&#8203;blockhash_&#8203;expired | `counter` | Count of transactions that failed to resolve because the blockhash was expired |
-| resolv_&#8203;blockhash_&#8203;unknown | `counter` | Count of transactions with an unknown blockhash. These may be very recent, very old, nonces, or bogus. |
 
 ## Pack Tile
 | Metric | Type | Description |
@@ -208,6 +212,7 @@
 | pack_&#8203;transaction_&#8203;schedule_&#8203;byte_&#8203;limit | `counter` | Result of trying to consider a transaction for scheduling (Pack skipped the transaction because it would have exceeded the block data size limit) |
 | pack_&#8203;transaction_&#8203;schedule_&#8203;write_&#8203;cost | `counter` | Result of trying to consider a transaction for scheduling (Pack skipped the transaction because it would have caused a writable account to exceed the per-account block write cost limit) |
 | pack_&#8203;transaction_&#8203;schedule_&#8203;slow_&#8203;path | `counter` | Result of trying to consider a transaction for scheduling (Pack skipped the transaction because of account conflicts using the full slow check) |
+| pack_&#8203;transaction_&#8203;schedule_&#8203;defer_&#8203;skip | `counter` | Result of trying to consider a transaction for scheduling (Pack skipped the transaction it previously exceeded the per-account block write cost limit too many times) |
 | pack_&#8203;cus_&#8203;consumed_&#8203;in_&#8203;block | `gauge` | The number of cost units consumed in the current block, or 0 if pack is not currently packing a block |
 | pack_&#8203;cus_&#8203;scheduled | `histogram` | The number of cost units scheduled for each block pack produced.  This can be higher than the block limit because of returned CUs. |
 | pack_&#8203;cus_&#8203;rebated | `histogram` | The number of compute units rebated for each block pack produced.  Compute units are rebated when a transaction fails prior to execution or requests more compute units than it uses. |
@@ -305,3 +310,156 @@
 | Metric | Type | Description |
 |--------|------|-------------|
 | store_&#8203;transactions_&#8203;inserted | `counter` | Count of transactions produced while we were leader in the shreds that have been inserted so far |
+
+## Replay Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| replay_&#8203;slot | `gauge` |  |
+| replay_&#8203;last_&#8203;voted_&#8203;slot | `gauge` |  |
+
+## Storei Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| storei_&#8203;first_&#8203;turbine_&#8203;slot | `gauge` |  |
+| storei_&#8203;current_&#8203;turbine_&#8203;slot | `gauge` |  |
+
+## Gossip Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| gossip_&#8203;last_&#8203;crds_&#8203;push_&#8203;contact_&#8203;info_&#8203;publish_&#8203;timestamp_&#8203;nanos | `gauge` | Time (in nanoseconds) of last CRDS Push ContactInfo message publish |
+| gossip_&#8203;mismatched_&#8203;contact_&#8203;info_&#8203;shred_&#8203;version | `counter` | Mismatched Contact Info Shred Version |
+| gossip_&#8203;ipv6_&#8203;contact_&#8203;info_&#8203;tvu | `counter` | IPv6 Contact Info (by peer type) (TVU) |
+| gossip_&#8203;ipv6_&#8203;contact_&#8203;info_&#8203;repair | `counter` | IPv6 Contact Info (by peer type) (Repair) |
+| gossip_&#8203;ipv6_&#8203;contact_&#8203;info_&#8203;voter | `counter` | IPv6 Contact Info (by peer type) (Voter) |
+| gossip_&#8203;zero_&#8203;ipv4_&#8203;contact_&#8203;info_&#8203;tvu | `counter` | Zero IPv4 Contact Info (by peer type) (TVU) |
+| gossip_&#8203;zero_&#8203;ipv4_&#8203;contact_&#8203;info_&#8203;repair | `counter` | Zero IPv4 Contact Info (by peer type) (Repair) |
+| gossip_&#8203;zero_&#8203;ipv4_&#8203;contact_&#8203;info_&#8203;voter | `counter` | Zero IPv4 Contact Info (by peer type) (Voter) |
+| gossip_&#8203;peer_&#8203;counts_&#8203;tvu | `gauge` | Number of peers of each type (TVU) |
+| gossip_&#8203;peer_&#8203;counts_&#8203;repair | `gauge` | Number of peers of each type (Repair) |
+| gossip_&#8203;peer_&#8203;counts_&#8203;voter | `gauge` | Number of peers of each type (Voter) |
+| gossip_&#8203;shred_&#8203;version_&#8203;zero | `counter` | Shred version zero |
+| gossip_&#8203;received_&#8203;packets | `counter` | Number of all gossip packets received |
+| gossip_&#8203;corrupted_&#8203;messages | `counter` | Number of corrupted gossip messages received |
+| gossip_&#8203;received_&#8203;gossip_&#8203;messages_&#8203;pull_&#8203;request | `counter` | Number of gossip messages received (Pull Request) |
+| gossip_&#8203;received_&#8203;gossip_&#8203;messages_&#8203;pull_&#8203;response | `counter` | Number of gossip messages received (Pull Response) |
+| gossip_&#8203;received_&#8203;gossip_&#8203;messages_&#8203;push | `counter` | Number of gossip messages received (Push) |
+| gossip_&#8203;received_&#8203;gossip_&#8203;messages_&#8203;prune | `counter` | Number of gossip messages received (Prune) |
+| gossip_&#8203;received_&#8203;gossip_&#8203;messages_&#8203;ping | `counter` | Number of gossip messages received (Ping) |
+| gossip_&#8203;received_&#8203;gossip_&#8203;messages_&#8203;pong | `counter` | Number of gossip messages received (Pong) |
+| gossip_&#8203;received_&#8203;unknown_&#8203;message | `counter` | Number of gossip messages received that have an unknown discriminant |
+| gossip_&#8203;received_&#8203;crds_&#8203;contact_&#8203;info_&#8203;v1 | `counter` | Number of CRDS values received (Contact Info V1) |
+| gossip_&#8203;received_&#8203;crds_&#8203;vote | `counter` | Number of CRDS values received (Vote) |
+| gossip_&#8203;received_&#8203;crds_&#8203;lowest_&#8203;slot | `counter` | Number of CRDS values received (Lowest Slot) |
+| gossip_&#8203;received_&#8203;crds_&#8203;snapshot_&#8203;hashes | `counter` | Number of CRDS values received (Snapshot Hashes) |
+| gossip_&#8203;received_&#8203;crds_&#8203;accounts_&#8203;hashes | `counter` | Number of CRDS values received (Accounts Hashes) |
+| gossip_&#8203;received_&#8203;crds_&#8203;epoch_&#8203;slots | `counter` | Number of CRDS values received (Epoch Slots) |
+| gossip_&#8203;received_&#8203;crds_&#8203;version_&#8203;v1 | `counter` | Number of CRDS values received (Version V1) |
+| gossip_&#8203;received_&#8203;crds_&#8203;version_&#8203;v2 | `counter` | Number of CRDS values received (Version V2) |
+| gossip_&#8203;received_&#8203;crds_&#8203;node_&#8203;instance | `counter` | Number of CRDS values received (Node Instance) |
+| gossip_&#8203;received_&#8203;crds_&#8203;duplicate_&#8203;shred | `counter` | Number of CRDS values received (Duplicate Shred) |
+| gossip_&#8203;received_&#8203;crds_&#8203;incremental_&#8203;snapshot_&#8203;hashes | `counter` | Number of CRDS values received (Incremental Snapshot Hashes) |
+| gossip_&#8203;received_&#8203;crds_&#8203;contact_&#8203;info_&#8203;v2 | `counter` | Number of CRDS values received (Contact Info V2) |
+| gossip_&#8203;received_&#8203;crds_&#8203;restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots | `counter` | Number of CRDS values received (Restart Last Voted Fork Slots) |
+| gossip_&#8203;received_&#8203;crds_&#8203;restart_&#8203;heaviest_&#8203;fork | `counter` | Number of CRDS values received (Restart Heaviest Fork) |
+| gossip_&#8203;received_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;contact_&#8203;info_&#8203;v1 | `counter` | Number of duplicate Push,PullResp CRDS values received (Contact Info V1) |
+| gossip_&#8203;received_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;vote | `counter` | Number of duplicate Push,PullResp CRDS values received (Vote) |
+| gossip_&#8203;received_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;lowest_&#8203;slot | `counter` | Number of duplicate Push,PullResp CRDS values received (Lowest Slot) |
+| gossip_&#8203;received_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;snapshot_&#8203;hashes | `counter` | Number of duplicate Push,PullResp CRDS values received (Snapshot Hashes) |
+| gossip_&#8203;received_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;accounts_&#8203;hashes | `counter` | Number of duplicate Push,PullResp CRDS values received (Accounts Hashes) |
+| gossip_&#8203;received_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;epoch_&#8203;slots | `counter` | Number of duplicate Push,PullResp CRDS values received (Epoch Slots) |
+| gossip_&#8203;received_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;version_&#8203;v1 | `counter` | Number of duplicate Push,PullResp CRDS values received (Version V1) |
+| gossip_&#8203;received_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;version_&#8203;v2 | `counter` | Number of duplicate Push,PullResp CRDS values received (Version V2) |
+| gossip_&#8203;received_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;node_&#8203;instance | `counter` | Number of duplicate Push,PullResp CRDS values received (Node Instance) |
+| gossip_&#8203;received_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;duplicate_&#8203;shred | `counter` | Number of duplicate Push,PullResp CRDS values received (Duplicate Shred) |
+| gossip_&#8203;received_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;incremental_&#8203;snapshot_&#8203;hashes | `counter` | Number of duplicate Push,PullResp CRDS values received (Incremental Snapshot Hashes) |
+| gossip_&#8203;received_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;contact_&#8203;info_&#8203;v2 | `counter` | Number of duplicate Push,PullResp CRDS values received (Contact Info V2) |
+| gossip_&#8203;received_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots | `counter` | Number of duplicate Push,PullResp CRDS values received (Restart Last Voted Fork Slots) |
+| gossip_&#8203;received_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;restart_&#8203;heaviest_&#8203;fork | `counter` | Number of duplicate Push,PullResp CRDS values received (Restart Heaviest Fork) |
+| gossip_&#8203;received_&#8203;crds_&#8203;drop_&#8203;success | `counter` | Number of CRDS values dropped on receive (Successfully processed CRDS (not dropped)) |
+| gossip_&#8203;received_&#8203;crds_&#8203;drop_&#8203;duplicate | `counter` | Number of CRDS values dropped on receive (Duplicate CRDS value) |
+| gossip_&#8203;received_&#8203;crds_&#8203;drop_&#8203;unknown_&#8203;discriminant | `counter` | Number of CRDS values dropped on receive (Unknown discriminant) |
+| gossip_&#8203;received_&#8203;crds_&#8203;drop_&#8203;own_&#8203;message | `counter` | Number of CRDS values dropped on receive (Own message) |
+| gossip_&#8203;received_&#8203;crds_&#8203;drop_&#8203;invalid_&#8203;signature | `counter` | Number of CRDS values dropped on receive (Invalid signature) |
+| gossip_&#8203;received_&#8203;crds_&#8203;drop_&#8203;table_&#8203;full | `counter` | Number of CRDS values dropped on receive (Table full) |
+| gossip_&#8203;received_&#8203;crds_&#8203;drop_&#8203;push_&#8203;queue_&#8203;full | `counter` | Number of CRDS values dropped on receive (Push queue full) |
+| gossip_&#8203;received_&#8203;crds_&#8203;drop_&#8203;invalid_&#8203;gossip_&#8203;port | `counter` | Number of CRDS values dropped on receive (Invalid gossip port) |
+| gossip_&#8203;received_&#8203;crds_&#8203;drop_&#8203;peer_&#8203;table_&#8203;full | `counter` | Number of CRDS values dropped on receive (Peer table full) |
+| gossip_&#8203;received_&#8203;crds_&#8203;drop_&#8203;inactives_&#8203;queue_&#8203;full | `counter` | Number of CRDS values dropped on receive (Inactives queue full) |
+| gossip_&#8203;received_&#8203;crds_&#8203;drop_&#8203;discarded_&#8203;peer | `counter` | Number of CRDS values dropped on receive (Discarded peer) |
+| gossip_&#8203;received_&#8203;crds_&#8203;drop_&#8203;encoding_&#8203;failed | `counter` | Number of CRDS values dropped on receive (Encoding failed) |
+| gossip_&#8203;push_&#8203;crds_&#8203;contact_&#8203;info_&#8203;v1 | `counter` | Number of CRDS values pushed (Contact Info V1) |
+| gossip_&#8203;push_&#8203;crds_&#8203;vote | `counter` | Number of CRDS values pushed (Vote) |
+| gossip_&#8203;push_&#8203;crds_&#8203;lowest_&#8203;slot | `counter` | Number of CRDS values pushed (Lowest Slot) |
+| gossip_&#8203;push_&#8203;crds_&#8203;snapshot_&#8203;hashes | `counter` | Number of CRDS values pushed (Snapshot Hashes) |
+| gossip_&#8203;push_&#8203;crds_&#8203;accounts_&#8203;hashes | `counter` | Number of CRDS values pushed (Accounts Hashes) |
+| gossip_&#8203;push_&#8203;crds_&#8203;epoch_&#8203;slots | `counter` | Number of CRDS values pushed (Epoch Slots) |
+| gossip_&#8203;push_&#8203;crds_&#8203;version_&#8203;v1 | `counter` | Number of CRDS values pushed (Version V1) |
+| gossip_&#8203;push_&#8203;crds_&#8203;version_&#8203;v2 | `counter` | Number of CRDS values pushed (Version V2) |
+| gossip_&#8203;push_&#8203;crds_&#8203;node_&#8203;instance | `counter` | Number of CRDS values pushed (Node Instance) |
+| gossip_&#8203;push_&#8203;crds_&#8203;duplicate_&#8203;shred | `counter` | Number of CRDS values pushed (Duplicate Shred) |
+| gossip_&#8203;push_&#8203;crds_&#8203;incremental_&#8203;snapshot_&#8203;hashes | `counter` | Number of CRDS values pushed (Incremental Snapshot Hashes) |
+| gossip_&#8203;push_&#8203;crds_&#8203;contact_&#8203;info_&#8203;v2 | `counter` | Number of CRDS values pushed (Contact Info V2) |
+| gossip_&#8203;push_&#8203;crds_&#8203;restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots | `counter` | Number of CRDS values pushed (Restart Last Voted Fork Slots) |
+| gossip_&#8203;push_&#8203;crds_&#8203;restart_&#8203;heaviest_&#8203;fork | `counter` | Number of CRDS values pushed (Restart Heaviest Fork) |
+| gossip_&#8203;push_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;contact_&#8203;info_&#8203;v1 | `counter` | Number of duplicate CRDS values inserted (internally) (Contact Info V1) |
+| gossip_&#8203;push_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;vote | `counter` | Number of duplicate CRDS values inserted (internally) (Vote) |
+| gossip_&#8203;push_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;lowest_&#8203;slot | `counter` | Number of duplicate CRDS values inserted (internally) (Lowest Slot) |
+| gossip_&#8203;push_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;snapshot_&#8203;hashes | `counter` | Number of duplicate CRDS values inserted (internally) (Snapshot Hashes) |
+| gossip_&#8203;push_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;accounts_&#8203;hashes | `counter` | Number of duplicate CRDS values inserted (internally) (Accounts Hashes) |
+| gossip_&#8203;push_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;epoch_&#8203;slots | `counter` | Number of duplicate CRDS values inserted (internally) (Epoch Slots) |
+| gossip_&#8203;push_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;version_&#8203;v1 | `counter` | Number of duplicate CRDS values inserted (internally) (Version V1) |
+| gossip_&#8203;push_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;version_&#8203;v2 | `counter` | Number of duplicate CRDS values inserted (internally) (Version V2) |
+| gossip_&#8203;push_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;node_&#8203;instance | `counter` | Number of duplicate CRDS values inserted (internally) (Node Instance) |
+| gossip_&#8203;push_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;duplicate_&#8203;shred | `counter` | Number of duplicate CRDS values inserted (internally) (Duplicate Shred) |
+| gossip_&#8203;push_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;incremental_&#8203;snapshot_&#8203;hashes | `counter` | Number of duplicate CRDS values inserted (internally) (Incremental Snapshot Hashes) |
+| gossip_&#8203;push_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;contact_&#8203;info_&#8203;v2 | `counter` | Number of duplicate CRDS values inserted (internally) (Contact Info V2) |
+| gossip_&#8203;push_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;restart_&#8203;last_&#8203;voted_&#8203;fork_&#8203;slots | `counter` | Number of duplicate CRDS values inserted (internally) (Restart Last Voted Fork Slots) |
+| gossip_&#8203;push_&#8203;crds_&#8203;duplicate_&#8203;message_&#8203;restart_&#8203;heaviest_&#8203;fork | `counter` | Number of duplicate CRDS values inserted (internally) (Restart Heaviest Fork) |
+| gossip_&#8203;push_&#8203;crds_&#8203;drop_&#8203;success | `counter` | Number of CRDS values dropped on push (Successfully processed CRDS (not dropped)) |
+| gossip_&#8203;push_&#8203;crds_&#8203;drop_&#8203;duplicate | `counter` | Number of CRDS values dropped on push (Duplicate CRDS value) |
+| gossip_&#8203;push_&#8203;crds_&#8203;drop_&#8203;unknown_&#8203;discriminant | `counter` | Number of CRDS values dropped on push (Unknown discriminant) |
+| gossip_&#8203;push_&#8203;crds_&#8203;drop_&#8203;own_&#8203;message | `counter` | Number of CRDS values dropped on push (Own message) |
+| gossip_&#8203;push_&#8203;crds_&#8203;drop_&#8203;invalid_&#8203;signature | `counter` | Number of CRDS values dropped on push (Invalid signature) |
+| gossip_&#8203;push_&#8203;crds_&#8203;drop_&#8203;table_&#8203;full | `counter` | Number of CRDS values dropped on push (Table full) |
+| gossip_&#8203;push_&#8203;crds_&#8203;drop_&#8203;push_&#8203;queue_&#8203;full | `counter` | Number of CRDS values dropped on push (Push queue full) |
+| gossip_&#8203;push_&#8203;crds_&#8203;drop_&#8203;invalid_&#8203;gossip_&#8203;port | `counter` | Number of CRDS values dropped on push (Invalid gossip port) |
+| gossip_&#8203;push_&#8203;crds_&#8203;drop_&#8203;peer_&#8203;table_&#8203;full | `counter` | Number of CRDS values dropped on push (Peer table full) |
+| gossip_&#8203;push_&#8203;crds_&#8203;drop_&#8203;inactives_&#8203;queue_&#8203;full | `counter` | Number of CRDS values dropped on push (Inactives queue full) |
+| gossip_&#8203;push_&#8203;crds_&#8203;drop_&#8203;discarded_&#8203;peer | `counter` | Number of CRDS values dropped on push (Discarded peer) |
+| gossip_&#8203;push_&#8203;crds_&#8203;drop_&#8203;encoding_&#8203;failed | `counter` | Number of CRDS values dropped on push (Encoding failed) |
+| gossip_&#8203;push_&#8203;crds_&#8203;queue_&#8203;count | `gauge` | Number of CRDS values in the queue to be pushed |
+| gossip_&#8203;active_&#8203;push_&#8203;destinations | `gauge` | Number of active Push destinations |
+| gossip_&#8203;refresh_&#8203;push_&#8203;states_&#8203;fail_&#8203;count | `counter` | Number of failures whilst refreshing push states |
+| gossip_&#8203;pull_&#8203;req_&#8203;fail_&#8203;peer_&#8203;not_&#8203;in_&#8203;actives | `counter` | Number of PullReq messages that failed (Number of PullReq messages from peers that are not in the active set) |
+| gossip_&#8203;pull_&#8203;req_&#8203;fail_&#8203;unresponsive_&#8203;peer | `counter` | Number of PullReq messages that failed (Number of PullReq messages from a peer that hasn't responded to our ping message yet) |
+| gossip_&#8203;pull_&#8203;req_&#8203;fail_&#8203;pending_&#8203;pool_&#8203;full | `counter` | Number of PullReq messages that failed (Number of PullReq messages skipped due to the pending pool being full) |
+| gossip_&#8203;pull_&#8203;req_&#8203;fail_&#8203;encoding_&#8203;failed | `counter` | Number of PullReq messages that failed (Number of PullReq messages skipped due to message encoding failed) |
+| gossip_&#8203;pull_&#8203;req_&#8203;bloom_&#8203;filter_&#8203;hit | `counter` | Result of the bloom filter check for a PullReq (Number of PullReq messages that hit the bloom filter) |
+| gossip_&#8203;pull_&#8203;req_&#8203;bloom_&#8203;filter_&#8203;miss | `counter` | Result of the bloom filter check for a PullReq (Number of PullReq messages that missed the bloom filter) |
+| gossip_&#8203;pull_&#8203;req_&#8203;resp_&#8203;packets | `gauge` | Number of packets used to respond to a PullReq |
+| gossip_&#8203;prune_&#8203;fail_&#8203;count_&#8203;not_&#8203;for_&#8203;me | `counter` | Number of Prune messages that failed (Prune message not for me) |
+| gossip_&#8203;prune_&#8203;fail_&#8203;count_&#8203;sign_&#8203;encoding_&#8203;failed | `counter` | Number of Prune messages that failed (Prune message sign encoding failed) |
+| gossip_&#8203;prune_&#8203;fail_&#8203;count_&#8203;invalid_&#8203;signature | `counter` | Number of Prune messages that failed (Prune message invalid signature) |
+| gossip_&#8203;make_&#8203;prune_&#8203;stale_&#8203;entry | `counter` | Number of stale entries removed from the stats table while making prune messages |
+| gossip_&#8203;make_&#8203;prune_&#8203;high_&#8203;duplicates | `counter` | Number of origins with high duplicate counts found while making prune messages |
+| gossip_&#8203;make_&#8203;prune_&#8203;requested_&#8203;origins | `gauge` | Number of requested origins in the last prune message we made |
+| gossip_&#8203;make_&#8203;prune_&#8203;sign_&#8203;data_&#8203;encode_&#8203;failed | `counter` | Number of times we failed to encode the sign data |
+| gossip_&#8203;sent_&#8203;gossip_&#8203;messages_&#8203;pull_&#8203;request | `counter` | Number of gossip messages sent (Pull Request) |
+| gossip_&#8203;sent_&#8203;gossip_&#8203;messages_&#8203;pull_&#8203;response | `counter` | Number of gossip messages sent (Pull Response) |
+| gossip_&#8203;sent_&#8203;gossip_&#8203;messages_&#8203;push | `counter` | Number of gossip messages sent (Push) |
+| gossip_&#8203;sent_&#8203;gossip_&#8203;messages_&#8203;prune | `counter` | Number of gossip messages sent (Prune) |
+| gossip_&#8203;sent_&#8203;gossip_&#8203;messages_&#8203;ping | `counter` | Number of gossip messages sent (Ping) |
+| gossip_&#8203;sent_&#8203;gossip_&#8203;messages_&#8203;pong | `counter` | Number of gossip messages sent (Pong) |
+| gossip_&#8203;sent_&#8203;packets | `counter` | Number of Packets sent |
+| gossip_&#8203;send_&#8203;ping_&#8203;event_&#8203;actives_&#8203;table_&#8203;full | `counter` | Number of Ping messages sent with non-standard outcomes (Number of Ping messages we failed to send due to the Active Peers table being full) |
+| gossip_&#8203;send_&#8203;ping_&#8203;event_&#8203;actives_&#8203;table_&#8203;insert | `counter` | Number of Ping messages sent with non-standard outcomes (Number of Ping messages that cause an insert into the Active Peers table) |
+| gossip_&#8203;send_&#8203;ping_&#8203;event_&#8203;max_&#8203;ping_&#8203;count_&#8203;exceeded | `counter` | Number of Ping messages sent with non-standard outcomes (Number of times we removed a peer from the Actives table, because it repeatedly failed to respond to a ping) |
+| gossip_&#8203;recv_&#8203;ping_&#8203;invalid_&#8203;signature | `counter` | Number of times we received a Ping message with an invalid signature |
+| gossip_&#8203;recv_&#8203;pong_&#8203;event_&#8203;new_&#8203;peer | `counter` | Number of Pong messages processed with non-standard outcomes (Pong peer is not in table) |
+| gossip_&#8203;recv_&#8203;pong_&#8203;event_&#8203;wrong_&#8203;token | `counter` | Number of Pong messages processed with non-standard outcomes (Pong peer token mismatch) |
+| gossip_&#8203;recv_&#8203;pong_&#8203;event_&#8203;invalid_&#8203;signature | `counter` | Number of Pong messages processed with non-standard outcomes (Pong peer invalid signature) |
+| gossip_&#8203;recv_&#8203;pong_&#8203;event_&#8203;expired | `counter` | Number of Pong messages processed with non-standard outcomes (Pong peer expired) |
+| gossip_&#8203;recv_&#8203;pong_&#8203;event_&#8203;table_&#8203;full | `counter` | Number of Pong messages processed with non-standard outcomes (Unable to insert peer due to table full) |
+| gossip_&#8203;gossip_&#8203;peer_&#8203;counts_&#8203;total | `gauge` | Number of gossip peers tracked (Total Peers Detected) |
+| gossip_&#8203;gossip_&#8203;peer_&#8203;counts_&#8203;active | `gauge` | Number of gossip peers tracked (Active) |
+| gossip_&#8203;gossip_&#8203;peer_&#8203;counts_&#8203;inactive | `gauge` | Number of gossip peers tracked (Inactive) |

@@ -25,8 +25,18 @@
 #define FD_GOSSIP_PULL_TIMEOUT ((ulong)(15e3))   /* 15 seconds */
 /* Max number of validators that can be actively pinged */
 #define FD_ACTIVE_KEY_MAX (1<<8)
-/* Max number of values that can be remembered */
-#define FD_VALUE_KEY_MAX (1<<16)
+
+/* Max number of CRDS values that can be remembered.
+
+   As of 2.1.11 on 02/05/2025, Agave value table (approx) sizes on an unstaked node:
+   | cluster  | num entries | num total (incl. purged)|
+   | testnet  | ~800k       | 1.4m                    |
+   | mainnet  | ~750k       | 1m                      |
+
+   Purged values are counted because:
+    - Our table (currently) does not "purge" values in the same sense Agave does
+    - Purged values are included in bloom filter construction, so we need them anyway */
+#define FD_VALUE_KEY_MAX (1<<21)
 /* Max number of pending timed events */
 #define FD_PENDING_MAX (1<<9)
 /* Number of bloom filter bits in an outgoing pull request packet */
@@ -312,7 +322,7 @@ struct fd_gossip {
     /* Table of receive statistics */
     fd_stats_elem_t * stats;
     /* Table of message type stats */
-    fd_msg_stats_elem_t msg_stats[ FD_KNOWN_CRDS_ENUM_MAX ];
+    fd_msg_stats_elem_t msg_stats[FD_KNOWN_CRDS_ENUM_MAX];
     /* Heap/queue of pending timed events */
     fd_pending_event_t * event_pool;
     fd_pending_heap_t * event_heap;
@@ -335,7 +345,14 @@ struct fd_gossip {
     /* List of added entrypoints at startup */
     ulong entrypoints_cnt;
     fd_gossip_peer_addr_t entrypoints[16];
+    /* Metrics */
+    fd_gossip_metrics_t metrics;
 };
+
+fd_gossip_metrics_t *
+fd_gossip_get_metrics( fd_gossip_t * gossip ) {
+  return &gossip->metrics;
+}
 
 ulong
 fd_gossip_align ( void ) { return 128UL; }
@@ -660,8 +677,10 @@ fd_gossip_add_pending( fd_gossip_t * glob, long when ) {
 /* Send raw data as a UDP packet to an address */
 static void
 fd_gossip_send_raw( fd_gossip_t * glob, const fd_gossip_peer_addr_t * dest, void * data, size_t sz) {
-  if ( sz > PACKET_DATA_SIZE )
+  if ( sz > PACKET_DATA_SIZE ) {
     FD_LOG_ERR(("sending oversized packet, size=%lu", sz));
+  }
+  glob->metrics.send_packet_cnt += 1UL;
   fd_gossip_unlock( glob );
   (*glob->send_fun)(data, sz, dest, glob->send_arg);
   fd_gossip_lock( glob );
@@ -676,11 +695,11 @@ fd_gossip_send( fd_gossip_t * glob, const fd_gossip_peer_addr_t * dest, fd_gossi
   ctx.data = buf;
   ctx.dataend = buf + PACKET_DATA_SIZE;
   if ( fd_gossip_msg_encode( gmsg, &ctx ) ) {
-    FD_LOG_WARNING(("fd_gossip_msg_encode failed"));
-    return;
+    FD_LOG_ERR(( "fd_gossip_msg_encode failed" ));
   }
   size_t sz = (size_t)((const uchar *)ctx.data - buf);
   fd_gossip_send_raw( glob, dest, buf, sz);
+  glob->metrics.send_message[ gmsg->discriminant ] += 1UL;
   // char tmp[100];
   // FD_LOG_WARNING(("sent msg type %u to %s size=%lu", gmsg->discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), dest), sz));
 }
@@ -693,16 +712,20 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   fd_gossip_peer_addr_t * key = &arg->key;
   fd_active_elem_t * val = fd_active_table_query(glob->actives, key, NULL);
   if (val == NULL) {
-    if (fd_active_table_is_full(glob->actives))
+    if (fd_active_table_is_full(glob->actives)) {
+      glob->metrics.send_ping_events[ FD_METRICS_ENUM_SEND_PING_EVENT_V_ACTIVES_TABLE_FULL_IDX ] += 1UL;
       return;
+    }
     val = fd_active_table_insert(glob->actives, key);
     fd_active_new_value(val);
+    glob->metrics.send_ping_events[ FD_METRICS_ENUM_SEND_PING_EVENT_V_ACTIVES_TABLE_INSERT_IDX ] += 1UL;
   } else {
     if (val->pongtime != 0)
       /* Success */
       return;
     if (val->pingcount++ >= MAX_PEER_PING_COUNT) {
       /* Give up. This is a bad peer. */
+      glob->metrics.send_ping_events[ FD_METRICS_ENUM_SEND_PING_EVENT_V_MAX_PING_COUNT_EXCEEDED_IDX ] += 1UL;
       fd_active_table_remove(glob->actives, key);
       fd_peer_table_remove(glob->peers, key);
       return;
@@ -711,8 +734,9 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   val->pingtime = glob->now;
   /* Generate a new token when we start a fresh round of pinging */
   if (val->pingcount == 1U) {
-    for ( ulong i = 0; i < FD_HASH_FOOTPRINT / sizeof(ulong); ++i )
+    for ( ulong i = 0; i < FD_HASH_FOOTPRINT / sizeof(ulong); ++i ) {
       val->pingtoken.ul[i] = fd_rng_ulong(glob->rng);
+    }
   }
 
   /* Keep pinging until we succeed */
@@ -753,6 +777,7 @@ fd_gossip_handle_ping( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
                          /* sig */ ping->signature.uc,
                          /* public_key */ ping->from.uc,
                          sha2 )) {
+    glob->metrics.recv_ping_invalid_signature += 1UL;
     FD_LOG_WARNING(("received ping with invalid signature"));
     return;
   }
@@ -862,12 +887,13 @@ fd_gossip_sign_crds_value( fd_gossip_t * glob, fd_crds_value_t * crd ) {
   (*glob->sign_fun)( glob->sign_arg, crd->signature.uc, buf, (ulong)((uchar*)ctx.data - buf), FD_KEYGUARD_SIGN_TYPE_ED25519 );
 }
 
-/* Convert a hash to a bloom filter bit position */
+/* Convert a hash to a bloom filter bit position 
+   https://github.com/anza-xyz/agave/blob/v2.1.7/bloom/src/bloom.rs#L136 */
 static ulong
 fd_gossip_bloom_pos( fd_hash_t * hash, ulong key, ulong nbits) {
   for ( ulong i = 0; i < 32U; ++i) {
     key ^= (ulong)(hash->uc[i]);
-    key *= 1099511628211UL;
+    key *= 1099511628211UL; // FNV prime
   }
   return key % nbits;
 }
@@ -932,7 +958,8 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   if (ele == NULL)
     return;
 
-  /* Compute the number of packets needed for all the bloom filter parts */
+  /* Compute the number of packets needed for all the bloom filter parts
+     with a desired false positive rate <0.1% (upper bounded by FD_BLOOM_MAX_PACKETS ) */
   ulong nitems = fd_value_table_key_cnt(glob->values);
   ulong nkeys = 1;
   ulong npackets = 1;
@@ -979,10 +1006,14 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
       continue;
     }
     /* Choose which filter packet based on the high bits in the hash */
+    /* https://github.com/anza-xyz/agave/blob/v2.1.7/gossip/src/crds_gossip_pull.rs#L167 */
     ulong index = (nmaskbits == 0 ? 0UL : ( hash->ul[0] >> (64U - nmaskbits) ));
     ulong * chunk = bits + (index*CHUNKSIZE);
+
+    /* https://github.com/anza-xyz/agave/blob/v2.1.7/bloom/src/bloom.rs#L191 */
     for (ulong i = 0; i < nkeys; ++i) {
       ulong pos = fd_gossip_bloom_pos(hash, keys[i], FD_BLOOM_NUM_BITS);
+      /* https://github.com/anza-xyz/agave/blob/v2.1.7/bloom/src/bloom.rs#L182-L185 */
       ulong * j = chunk + (pos>>6U); /* divide by 64 */
       ulong bit = 1UL<<(pos & 63U);
       if (!((*j) & bit)) {
@@ -1024,8 +1055,10 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 /* Handle a pong response */
 static void
 fd_gossip_handle_pong( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, fd_gossip_ping_t const * pong ) {
+#define INC_RECV_PONG_EVENT_CNT( REASON ) glob->metrics.recv_pong_events[ FD_CONCAT3( FD_METRICS_ENUM_RECV_PONG_EVENT_V_,  REASON, _IDX ) ] += 1UL
   fd_active_elem_t * val = fd_active_table_query(glob->actives, from, NULL);
   if (val == NULL) {
+    INC_RECV_PONG_EVENT_CNT( EXPIRED );
     FD_LOG_DEBUG(("received pong too late"));
     return;
   }
@@ -1047,6 +1080,7 @@ fd_gossip_handle_pong( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   fd_hash_t pongtoken;
   fd_sha256_fini( sha, pongtoken.uc );
   if (memcmp(pongtoken.uc, pong->token.uc, 32UL) != 0) {
+    INC_RECV_PONG_EVENT_CNT( WRONG_TOKEN );
     FD_LOG_DEBUG(( "received pong with wrong token" ));
     return;
   }
@@ -1058,6 +1092,7 @@ fd_gossip_handle_pong( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
                          /* sig */ pong->signature.uc,
                          /* public_key */ pong->from.uc,
                          sha2 )) {
+    INC_RECV_PONG_EVENT_CNT( INVALID_SIGNATURE );
     FD_LOG_WARNING(("received pong with invalid signature"));
     return;
   }
@@ -1068,7 +1103,9 @@ fd_gossip_handle_pong( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
   /* Remember that this is a good peer */
   fd_peer_elem_t * peerval = fd_peer_table_query(glob->peers, from, NULL);
   if (peerval == NULL) {
+    INC_RECV_PONG_EVENT_CNT( NEW_PEER );
     if (fd_peer_table_is_full(glob->peers)) {
+      INC_RECV_PONG_EVENT_CNT( TABLE_FULL );
       FD_LOG_DEBUG(("too many peers"));
       return;
     }
@@ -1132,8 +1169,15 @@ fd_gossip_random_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 /* Process an incoming crds value */
 static void
 fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, fd_pubkey_t * pubkey, fd_crds_value_t* crd) {
+#define INC_RECV_CRDS_DROP_METRIC( REASON ) glob->metrics.recv_crds_drop_reason[ FD_CONCAT3( FD_METRICS_ENUM_CRDS_DROP_REASON_V_, REASON, _IDX ) ] += 1UL
+
   /* Verify the signature */
   ulong wallclock;
+  if( FD_UNLIKELY( crd->data.discriminant>=FD_KNOWN_CRDS_ENUM_MAX ) ) {
+    INC_RECV_CRDS_DROP_METRIC( UNKNOWN_DISCRIMINANT );
+  } else {
+    glob->metrics.recv_crds[ crd->data.discriminant ] += 1UL;
+  }
   switch (crd->data.discriminant) {
   case fd_crds_data_enum_contact_info_v1:
     pubkey = &crd->data.inner.contact_info_v1.id;
@@ -1195,10 +1239,9 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     wallclock = FD_NANOSEC_TO_MILLI(glob->now); /* In millisecs */
     break;
   }
-  if (memcmp(pubkey->uc, glob->public_key->uc, 32U) == 0)
+  if (memcmp(pubkey->uc, glob->public_key->uc, 32U) == 0) {
     /* Ignore my own messages */
-    return;
-  if( crd->data.discriminant>=FD_KNOWN_CRDS_ENUM_MAX ) {
+    INC_RECV_CRDS_DROP_METRIC( OWN_MESSAGE );
     return;
   }
 
@@ -1209,7 +1252,6 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   ctx.dataend = buf + PACKET_DATA_SIZE;
   if ( fd_crds_value_encode( crd, &ctx ) ) {
     FD_LOG_ERR(("fd_crds_value_encode failed"));
-    return;
   }
   ulong datalen = (ulong)((uchar*)ctx.data - buf);
   fd_sha256_t sha2[1];
@@ -1226,6 +1268,7 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     /* Already have this value */
     msg_stat->dups_cnt++;
     glob->recv_dup_cnt++;
+    glob->metrics.recv_crds_duplicate_message[ crd->data.discriminant ]++;
     if (from != NULL) {
       /* Record the dup in the receive statistics table */
       fd_stats_elem_t * val = fd_stats_table_query(glob->stats, from, NULL);
@@ -1261,6 +1304,7 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
                          /* sig */ crd->signature.uc,
                          /* public_key */ pubkey->uc,
                          sha )) {
+    INC_RECV_CRDS_DROP_METRIC( INVALID_SIGNATURE );
     FD_LOG_DEBUG(("received crds_value with invalid signature"));
     return;
   }
@@ -1268,6 +1312,7 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   /* Store the value for later pushing/duplicate detection */
   glob->recv_nondup_cnt++;
   if (fd_value_table_is_full(glob->values)) {
+    INC_RECV_CRDS_DROP_METRIC( TABLE_FULL );
     FD_LOG_DEBUG(("too many values"));
     return;
   }
@@ -1279,15 +1324,17 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   fd_memcpy(msg->data, buf, datalen);
   msg->datalen = datalen;
 
-  if (glob->need_push_cnt < FD_NEED_PUSH_MAX) {
+  if ( FD_UNLIKELY( glob->need_push_cnt < FD_NEED_PUSH_MAX ) ) {
     /* Remember that I need to push this value */
     ulong i = ((glob->need_push_head + (glob->need_push_cnt++)) & (FD_NEED_PUSH_MAX-1U));
     fd_hash_copy(glob->need_push + i, &key);
+  } else {
+    INC_RECV_CRDS_DROP_METRIC( PUSH_QUEUE_FULL );
   }
 
   if (crd->data.discriminant == fd_crds_data_enum_contact_info_v1) {
     fd_gossip_contact_info_v1_t * info = &crd->data.inner.contact_info_v1;
-    if( fd_gossip_port_from_socketaddr(&info->gossip) != 0) {
+    if( FD_LIKELY( fd_gossip_port_from_socketaddr(&info->gossip) != 0 ) ){
       /* Remember the peer */
       fd_gossip_peer_addr_t pkey;
       fd_memset(&pkey, 0, sizeof(pkey));
@@ -1295,11 +1342,14 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
       fd_peer_elem_t * val = fd_peer_table_query(glob->peers, &pkey, NULL);
       if (val == NULL) {
         if (fd_peer_table_is_full(glob->peers)) {
+          INC_RECV_CRDS_DROP_METRIC( PEER_TABLE_FULL );
           FD_LOG_DEBUG(("too many peers"));
         } else {
           val = fd_peer_table_insert(glob->peers, &pkey);
-          if (glob->inactives_cnt < INACTIVES_MAX &&
-              fd_active_table_query(glob->actives, &pkey, NULL) == NULL) {
+
+          if ( glob->inactives_cnt >= INACTIVES_MAX ) {
+            INC_RECV_CRDS_DROP_METRIC( INACTIVES_QUEUE_FULL );
+          } else if ( fd_active_table_query(glob->actives, &pkey, NULL) == NULL ) {
             /* Queue this peer for later pinging */
             fd_gossip_peer_addr_copy(glob->inactives + (glob->inactives_cnt++), &pkey);
           }
@@ -1309,7 +1359,11 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
         val->wallclock = wallclock;
         val->stake = 0;
         fd_hash_copy(&val->id, &info->id);
+      } else {
+        INC_RECV_CRDS_DROP_METRIC( DISCARDED_PEER );
       }
+    } else {
+      INC_RECV_CRDS_DROP_METRIC( INVALID_GOSSIP_PORT );
     }
 
     fd_gossip_peer_addr_t peer_addr = { .addr = crd->data.inner.contact_info_v1.gossip.inner.ip4.addr,
@@ -1332,11 +1386,14 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
         fd_peer_elem_t * val = fd_peer_table_query(glob->peers, &pkey, NULL);
         if (val == NULL) {
           if (fd_peer_table_is_full(glob->peers)) {
+            INC_RECV_CRDS_DROP_METRIC( PEER_TABLE_FULL );
             FD_LOG_DEBUG(("too many peers"));
           } else {
             val = fd_peer_table_insert(glob->peers, &pkey);
-            if (glob->inactives_cnt < INACTIVES_MAX &&
-                fd_active_table_query(glob->actives, &pkey, NULL) == NULL) {
+
+            if ( glob->inactives_cnt >= INACTIVES_MAX ) {
+              INC_RECV_CRDS_DROP_METRIC( INACTIVES_QUEUE_FULL );
+            } else if ( fd_active_table_query(glob->actives, &pkey, NULL) == NULL ) {
               /* Queue this peer for later pinging */
               fd_gossip_peer_addr_copy(glob->inactives + (glob->inactives_cnt++), &pkey);
             }
@@ -1346,6 +1403,8 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
           val->wallclock = wallclock;
           val->stake = 0;
           fd_hash_copy(&val->id, &info->from);
+        } else {
+          INC_RECV_CRDS_DROP_METRIC( DISCARDED_PEER );
         }
       }
 
@@ -1359,14 +1418,19 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     }
   }
 
+  glob->metrics.push_crds_queue_cnt = glob->need_push_cnt;
+  glob->metrics.gossip_peer_cnt[ FD_METRICS_ENUM_GOSSIP_PEER_STATE_V_INACTIVE_IDX ] = glob->inactives_cnt;
+
   /* Deliver the data upstream */
   fd_gossip_unlock( glob );
   (*glob->deliver_fun)(&crd->data, glob->deliver_arg);
   fd_gossip_lock( glob );
+
+#undef INC_RECV_CRDS_DROP_METRIC
 }
 
 static int
-verify_signable_data_with_prefix( fd_gossip_prune_msg_t * msg ) {
+verify_signable_data_with_prefix( fd_gossip_t * glob, fd_gossip_prune_msg_t * msg ) {
   fd_gossip_prune_sign_data_with_prefix_t signdata[1] = {0};
   signdata->prefix           = (uchar *)&FD_GOSSIP_PRUNE_DATA_PREFIX;
   signdata->prefix_len       = 18UL;
@@ -1381,6 +1445,7 @@ verify_signable_data_with_prefix( fd_gossip_prune_msg_t * msg ) {
   ctx.data    = buf;
   ctx.dataend = buf + PACKET_DATA_SIZE;
   if ( fd_gossip_prune_sign_data_with_prefix_encode( signdata, &ctx ) ) {
+    glob->metrics.handle_prune_fails[ FD_METRICS_ENUM_PRUNE_FAILURE_REASON_V_SIGN_ENCODING_FAILED_IDX ] += 1UL;
     FD_LOG_WARNING(("fd_gossip_prune_sign_data_encode failed"));
     return 1;
   }
@@ -1394,7 +1459,7 @@ verify_signable_data_with_prefix( fd_gossip_prune_msg_t * msg ) {
 }
 
 static int
-verify_signable_data( fd_gossip_prune_msg_t * msg ) {
+verify_signable_data( fd_gossip_t * glob, fd_gossip_prune_msg_t * msg ) {
   fd_gossip_prune_sign_data_t signdata;
   signdata.pubkey      = msg->data.pubkey;
   signdata.prunes_len  = msg->data.prunes_len;
@@ -1407,6 +1472,7 @@ verify_signable_data( fd_gossip_prune_msg_t * msg ) {
   ctx.data    = buf;
   ctx.dataend = buf + PACKET_DATA_SIZE;
   if ( fd_gossip_prune_sign_data_encode( &signdata, &ctx ) ) {
+    glob->metrics.handle_prune_fails[ FD_METRICS_ENUM_PRUNE_FAILURE_REASON_V_SIGN_ENCODING_FAILED_IDX ] += 1UL;
     FD_LOG_WARNING(("fd_gossip_prune_sign_data_encode failed"));
     return 1;
   }
@@ -1429,8 +1495,9 @@ fd_gossip_handle_prune(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, f
     return;
 
   /* Try to verify the signed data either with the prefix and not the prefix */
-  if ( ! (  verify_signable_data( msg ) == FD_ED25519_SUCCESS ||
-            verify_signable_data_with_prefix( msg ) == FD_ED25519_SUCCESS ) ) {
+  if ( ! (  verify_signable_data( glob, msg ) == FD_ED25519_SUCCESS ||
+            verify_signable_data_with_prefix( glob, msg ) == FD_ED25519_SUCCESS ) ) {
+    glob->metrics.handle_prune_fails[ FD_METRICS_ENUM_PRUNE_FAILURE_REASON_V_INVALID_SIGNATURE_IDX ] += 1UL;
     FD_LOG_WARNING(( "received prune message with invalid signature" ));
     return;
   }
@@ -1627,11 +1694,23 @@ fd_gossip_push_updated_contact(fd_gossip_t * glob) {
 /* Respond to a pull request */
 static void
 fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, fd_gossip_pull_req_t * msg) {
+#define INC_HANDLE_PULL_REQ_FAIL_METRIC( REASON ) glob->metrics.handle_pull_req_fails[ FD_CONCAT3( FD_METRICS_ENUM_PULL_REQ_FAIL_REASON_V_, REASON, _IDX ) ] += 1UL
   fd_active_elem_t * val = fd_active_table_query(glob->actives, from, NULL);
   if (val == NULL || val->pongtime == 0) {
+
+    if ( val == NULL ) {
+      INC_HANDLE_PULL_REQ_FAIL_METRIC( PEER_NOT_IN_ACTIVES );
+    }
+    else if ( val->pongtime == 0 ) {
+      INC_HANDLE_PULL_REQ_FAIL_METRIC( UNRESPONSIVE_PEER );
+    }
+
     /* Ping new peers before responding to requests */
-    if (fd_pending_pool_free( glob->event_pool ) < 100U)
+    /* TODO: is this the right thing to do here? */
+    if (fd_pending_pool_free( glob->event_pool ) < 100U) {
+      INC_HANDLE_PULL_REQ_FAIL_METRIC( PENDING_POOL_FULL );
       return;
+    }
     fd_pending_event_arg_t arg2;
     fd_gossip_peer_addr_copy(&arg2.key, from);
     fd_gossip_make_ping(glob, &arg2);
@@ -1649,6 +1728,7 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   ctx.data = buf;
   ctx.dataend = buf + PACKET_DATA_SIZE;
   if ( fd_gossip_msg_encode( &gmsg, &ctx ) ) {
+    INC_HANDLE_PULL_REQ_FAIL_METRIC( ENCODING_FAILED );
     FD_LOG_WARNING(("fd_gossip_msg_encode failed"));
     return;
   }
@@ -1697,11 +1777,21 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
       continue;
     }
     misses++;
+
+    /* Record the ratio of hits to misses
+
+       These metrics are imprecise as the numbers will vary 
+       per pull request. We keep them to surface 
+       obvious issues like 100% miss rate.*/
+    glob->metrics.handle_pull_req_bloom_filter_result[ FD_METRICS_ENUM_PULL_REQ_BLOOM_FILTER_RESULT_V_HIT_IDX ] += hits;
+    glob->metrics.handle_pull_req_bloom_filter_result[ FD_METRICS_ENUM_PULL_REQ_BLOOM_FILTER_RESULT_V_MISS_IDX ] += misses;
+
     /* Add the value in already encoded form */
     if (newend + ele->datalen - buf > PACKET_DATA_SIZE) {
       /* Packet is getting too large. Flush it */
       ulong sz = (ulong)(newend - buf);
       fd_gossip_send_raw(glob, from, buf, sz);
+      glob->metrics.send_message[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ]++;
       char tmp[100];
       FD_LOG_DEBUG(("sent msg type %u to %s size=%lu", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from), sz));
       ++npackets;
@@ -1717,18 +1807,27 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   if (newend > (uchar *)ctx.data) {
     ulong sz = (ulong)(newend - buf);
     fd_gossip_send_raw(glob, from, buf, sz);
+    glob->metrics.send_message[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ]++;
     char tmp[100];
     FD_LOG_DEBUG(("sent msg type %u to %s size=%lu", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from), sz));
     ++npackets;
   }
 
-  if (misses)
+  if (misses) {
     FD_LOG_DEBUG(("responded to pull request with %lu values in %u packets (%lu filtered out)", misses, npackets, hits));
+  }
+  glob->metrics.handle_pull_req_npackets = npackets;
+#undef INC_HANDLE_PULL_REQ_FAIL_METRIC
 }
 
 /* Handle any gossip message */
 static void
 fd_gossip_recv(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, fd_gossip_msg_t * gmsg) {
+  if ( FD_LIKELY( gmsg->discriminant <= 6 ) ) {
+    glob->metrics.recv_message[gmsg->discriminant] += 1UL;
+  } else {
+    glob->metrics.recv_unknown_message += 1UL;
+  }
   switch (gmsg->discriminant) {
   case fd_gossip_msg_enum_pull_req:
     fd_gossip_handle_pull_req(glob, from, &gmsg->inner.pull_req);
@@ -1853,6 +1952,9 @@ fd_gossip_refresh_push_states( fd_gossip_t * glob, fd_pending_event_arg_t * arg 
   skipadd:
     ++failcnt;
   }
+
+  glob->metrics.active_push_destinations = glob->push_states_cnt;
+  glob->metrics.refresh_push_states_failcnt = (ulong)failcnt;
 }
 
 /* Push the latest values */
@@ -1908,6 +2010,7 @@ fd_gossip_push( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
       if (s->packet_end + msg->datalen - s->packet > PACKET_DATA_SIZE) {
         /* Packet is getting too large. Flush it */
         ulong sz = (ulong)(s->packet_end - s->packet);
+        glob->metrics.send_message[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ]++;
         fd_gossip_send_raw(glob, &s->addr, s->packet, sz);
         char tmp[100];
         FD_LOG_DEBUG(("push to %s size=%lu", fd_gossip_addr_str(tmp, sizeof(tmp), &s->addr), sz));
@@ -1927,6 +2030,7 @@ fd_gossip_push( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
       ulong * crds_len = (ulong *)(s->packet_end_init - sizeof(ulong));
       ulong sz = (ulong)(s->packet_end - s->packet);
       fd_gossip_send_raw(glob, &s->addr, s->packet, sz);
+      glob->metrics.send_message[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ]++;
       char tmp[100];
       FD_LOG_DEBUG(("push to %s size=%lu", fd_gossip_addr_str(tmp, sizeof(tmp), &s->addr), sz));
       s->packet_end = s->packet_end_init;
@@ -1938,6 +2042,15 @@ fd_gossip_push( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 /* Publish an outgoing value. The source id and wallclock are set by this function */
 static int
 fd_gossip_push_value_nolock( fd_gossip_t * glob, fd_crds_data_t * data, fd_hash_t * key_opt ) {
+#define INC_PUSH_CRDS_DROP_METRIC( REASON ) \
+  glob->metrics.push_crds_drop_reason[ FD_CONCAT3( FD_METRICS_ENUM_CRDS_DROP_REASON_V_, REASON , _IDX ) ] += 1UL
+
+  if ( FD_UNLIKELY( data->discriminant >= FD_KNOWN_CRDS_ENUM_MAX ) ) {
+    INC_PUSH_CRDS_DROP_METRIC( UNKNOWN_DISCRIMINANT );
+    return -1;
+  }
+  
+
   /* Wrap the data in a value stub. Sign it. */
   fd_crds_value_t crd;
   fd_memcpy(&crd.data, data, sizeof(fd_crds_data_t));
@@ -1949,6 +2062,7 @@ fd_gossip_push_value_nolock( fd_gossip_t * glob, fd_crds_data_t * data, fd_hash_
   ctx.data = buf;
   ctx.dataend = buf + PACKET_DATA_SIZE;
   if ( fd_crds_value_encode( &crd, &ctx ) ) {
+    INC_PUSH_CRDS_DROP_METRIC( ENCODING_FAILED );
     FD_LOG_ERR(("fd_crds_value_encode failed"));
     return -1;
   }
@@ -1964,10 +2078,16 @@ fd_gossip_push_value_nolock( fd_gossip_t * glob, fd_crds_data_t * data, fd_hash_
   /* Store the value for later pushing/duplicate detection */
   fd_value_elem_t * msg = fd_value_table_query(glob->values, &key, NULL);
   if (msg != NULL) {
-    /* Already have this value, which is strange! */
+    /* Already have this value, which is strange! 
+       NOTE: This is a different list from duplicate crds values received 
+       from the network (see metrics.recv_crds_duplicate_message).
+       Reaching this path implies a crds value generated internally was 
+       detected as a duplicate. */
+    glob->metrics.push_crds_duplicate[ data->discriminant ] += 1UL;
     return -1;
   }
   if (fd_value_table_is_full(glob->values)) {
+    INC_PUSH_CRDS_DROP_METRIC( TABLE_FULL );
     FD_LOG_DEBUG(("too many values"));
     return -1;
   }
@@ -1983,8 +2103,15 @@ fd_gossip_push_value_nolock( fd_gossip_t * glob, fd_crds_data_t * data, fd_hash_
     /* Remember that I need to push this value */
     ulong i = ((glob->need_push_head + (glob->need_push_cnt++)) & (FD_NEED_PUSH_MAX-1U));
     fd_hash_copy(glob->need_push + i, &key);
+  } else {
+    INC_PUSH_CRDS_DROP_METRIC( PUSH_QUEUE_FULL );
   }
+
+  glob->metrics.push_crds_queue_cnt = glob->need_push_cnt;
+  glob->metrics.push_crds[ data->discriminant ] += 1UL;
   return 0;
+
+#undef INC_PUSH_CRDS_DROP_METRIC
 }
 
 int
@@ -2013,6 +2140,7 @@ fd_gossip_make_prune( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     fd_stats_elem_t * ele = fd_stats_table_iter_ele( glob->stats, iter );
     if (ele->last < expire) {
       /* Entry hasn't been updated for a long time */
+      glob->metrics.make_prune_stale_entry += 1UL;
       fd_stats_table_remove( glob->stats, &ele->key );
       continue;
     }
@@ -2020,9 +2148,12 @@ fd_gossip_make_prune( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     fd_pubkey_t origins[8];
     ulong origins_cnt = 0;
     for (ulong i = 0; i < ele->dups_cnt; ++i) {
-      if (ele->dups[i].cnt >= 20U)
+      if (ele->dups[i].cnt >= 20U) {
         fd_hash_copy(&origins[origins_cnt++], &ele->dups[i].origin);
+        glob->metrics.make_prune_high_duplicates += 1UL;
+      }
     }
+    glob->metrics.make_prune_requested_origins = origins_cnt;
     if (origins_cnt == 0U)
       continue;
     /* Get the peer id */
@@ -2049,7 +2180,7 @@ fd_gossip_make_prune( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     fd_gossip_prune_sign_data_t signdata;
     fd_hash_copy(&signdata.pubkey, glob->public_key);
     signdata.prunes_len = origins_cnt;
-    signdata.prunes = origins;;
+    signdata.prunes = origins;
     fd_hash_copy(&signdata.destination, &peerval->id);
     signdata.wallclock = wc;
 
@@ -2058,6 +2189,7 @@ fd_gossip_make_prune( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     ctx.data = buf;
     ctx.dataend = buf + PACKET_DATA_SIZE;
     if ( fd_gossip_prune_sign_data_encode( &signdata, &ctx ) ) {
+      glob->metrics.make_prune_sign_data_encode_failed += 1UL;
       FD_LOG_ERR(("fd_gossip_prune_sign_data_encode failed"));
       return;
     }
@@ -2118,6 +2250,11 @@ fd_gossip_log_stats( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     if (need_inactive && act == NULL && glob->inactives_cnt < INACTIVES_MAX)
       fd_gossip_peer_addr_copy(glob->inactives + (glob->inactives_cnt++), &ele->key);
   }
+
+
+  glob->metrics.gossip_peer_cnt[ FD_METRICS_ENUM_GOSSIP_PEER_STATE_V_TOTAL_IDX ]     = fd_peer_table_key_cnt( glob->peers );
+  glob->metrics.gossip_peer_cnt[ FD_METRICS_ENUM_GOSSIP_PEER_STATE_V_ACTIVE_IDX ]    = fd_active_table_key_cnt( glob->actives );
+  glob->metrics.gossip_peer_cnt[ FD_METRICS_ENUM_GOSSIP_PEER_STATE_V_INACTIVE_IDX ]  = (ulong)glob->inactives_cnt;
 }
 
 /* Set the current protocol time in nanosecs */
@@ -2179,6 +2316,7 @@ fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_g
   fd_gossip_lock( glob );
   FD_SCRATCH_SCOPE_BEGIN {
     glob->recv_pkt_cnt++;
+    glob->metrics.recv_pkt_cnt++;
     /* Deserialize the message */
     fd_gossip_msg_t gmsg;
     fd_bincode_decode_ctx_t ctx;
@@ -2186,11 +2324,13 @@ fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_g
     ctx.dataend = msg + msglen;
     ctx.valloc  = fd_scratch_virtual();
     if (fd_gossip_msg_decode(&gmsg, &ctx)) {
+      glob->metrics.recv_pkt_corrupted_msg += 1UL;
       FD_LOG_WARNING(("corrupt gossip message"));
       fd_gossip_unlock( glob );
       return -1;
     }
     if (ctx.data != ctx.dataend) {
+      glob->metrics.recv_pkt_corrupted_msg += 1UL;
       FD_LOG_WARNING(("corrupt gossip message"));
       fd_gossip_unlock( glob );
       return -1;
