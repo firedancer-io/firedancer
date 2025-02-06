@@ -440,26 +440,34 @@ fd_txn_get_instr_data( fd_txn_instr_t const * instr,
   return (uchar const *)((ulong)payload + (ulong)instr->data_off);
 }
 
-/*
- * 1. has 1 or 2 signatures
- * 2. is legacy message
- * 3. has only one instruction
- * 4. which must be a Vote instruction
+/* fd_txn_is_simple_vote_transaction: Returns 1 if `txn` is a simple
+   vote and 0 otherwise.  `txn` is a non-null pointer to a Solana
+   transaction parsed by fd_txn_parse_core.  `payload` is a non-null
+   pointer to serialization of `txn`, which is coupled with `txn` as
+   both `txn` and `payload` are different representations of the same
+   data.
+
+   A simple vote is a transaction that meets the following criteria:
+   1. has 1 or 2 signatures
+   2. is legacy transaction
+   3. has exactly one instruction
+   4. ...which must be a Vote instruction
  */
 static inline int
 fd_txn_is_simple_vote_transaction( fd_txn_t const * txn,
-                                   void     const * payload,
-                                   uchar    const   vote_program_id[ static 32 ] ) {
-  fd_acct_addr_t const * addr_base = fd_txn_get_acct_addrs( txn, payload );
+                                   void     const * payload ) {
+   /* base58 decode of Vote111111111111111111111111111111111111111 */
+   static const uchar vote_program_id[FD_TXN_ACCT_ADDR_SZ] = {
+      0x07U,0x61U,0x48U,0x1dU,0x35U,0x74U,0x74U,0xbbU,0x7cU,0x4dU,0x76U,0x24U,0xebU,0xd3U,0xbdU,0xb3U,
+      0xd8U,0x35U,0x5eU,0x73U,0xd1U,0x10U,0x43U,0xfcU,0x0dU,0xa3U,0x53U,0x80U,0x00U,0x00U,0x00U,0x00U };
 
-  ulong instr_cnt      = txn->instr_cnt;
-  ulong vote_instr_cnt = 0UL;
-  for( ulong i=0UL; i<txn->instr_cnt; i++ ) {
-    ulong prog_id_idx = (ulong)txn->instr[i].program_id;
-    fd_acct_addr_t const * prog_id = addr_base + prog_id_idx;
-    vote_instr_cnt += (ulong)(0 == memcmp(prog_id->b, vote_program_id, 32UL) );
-  }
-  return (vote_instr_cnt==1UL) && (instr_cnt==1UL) && (txn->transaction_version==FD_TXN_VLEGACY) && (txn->signature_cnt<3UL);
+  fd_acct_addr_t const * addr_base = fd_txn_get_acct_addrs( txn, payload );
+  if( FD_UNLIKELY( txn->instr_cnt!=1UL ) )                      return 0;
+  if( FD_UNLIKELY( txn->transaction_version!=FD_TXN_VLEGACY ) ) return 0;
+  if( FD_UNLIKELY( txn->signature_cnt>2UL ) )                   return 0;
+  ulong prog_id_idx = (ulong)txn->instr[0].program_id;
+  fd_acct_addr_t const * prog_id = addr_base + prog_id_idx;
+  return fd_memeq( prog_id->b, vote_program_id, FD_TXN_ACCT_ADDR_SZ );
 }
 
 /* fd_txn_align returns the alignment in bytes required of a region of

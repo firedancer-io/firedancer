@@ -1,6 +1,7 @@
 #include "../../../../disco/tiles.h"
 
 #include "../../../../disco/pack/fd_pack.h"
+#include "../../../../disco/pack/fd_pack_cost.h"
 #include "../../../../ballet/blake3/fd_blake3.h"
 #include "../../../../ballet/bmtree/fd_bmtree.h"
 #include "../../../../disco/metrics/fd_metrics.h"
@@ -95,8 +96,8 @@ before_frag( fd_bank_ctx_t * ctx,
 }
 
 extern void * fd_ext_bank_pre_balance_info( void const * bank, void * txns, ulong txn_cnt );
-extern void * fd_ext_bank_load_and_execute_txns( void const * bank, void * txns, ulong txn_cnt, int * out_processing_results, int * out_transaction_err, uint * out_consumed_cus );
-extern int    fd_ext_bank_execute_and_commit_bundle( void const * bank, void * txns, ulong txn_cnt, uint * out_consumed_cus );
+extern int    fd_ext_bank_execute_and_commit_bundle( void const * bank, void * txns, ulong txn_cnt, uint * actual_execution_cus, uint * actual_acct_data_cus );
+extern void * fd_ext_bank_load_and_execute_txns( void const * bank, void * txns, ulong txn_cnt, int * out_processing_results, int * out_transaction_err, uint * out_consumed_exec_cus, uint * out_consumed_acct_data_cus );
 extern void   fd_ext_bank_commit_txns( void const * bank, void const * txns, ulong txn_cnt , void * load_and_execute_output, void * pre_balance_info );
 extern void   fd_ext_bank_release_thunks( void * load_and_execute_output );
 extern void   fd_ext_bank_release_pre_balance_info( void * pre_balance_info );
@@ -186,9 +187,10 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
   /* Just because a transaction was executed doesn't mean it succeeded,
      but all executed transactions get committed. */
-  int  processing_results[ MAX_TXN_PER_MICROBLOCK ] = { 0  };
-  int  transaction_err   [ MAX_TXN_PER_MICROBLOCK ] = { 0  };
-  uint consumed_cus      [ MAX_TXN_PER_MICROBLOCK ] = { 0U };
+  int  processing_results    [ MAX_TXN_PER_MICROBLOCK ] = { 0  };
+  int  transaction_err       [ MAX_TXN_PER_MICROBLOCK ] = { 0  };
+  uint consumed_exec_cus     [ MAX_TXN_PER_MICROBLOCK ] = { 0U };
+  uint consumed_acct_data_cus[ MAX_TXN_PER_MICROBLOCK ] = { 0U };
 
   void * pre_balance_info = fd_ext_bank_pre_balance_info( ctx->_bank, ctx->txn_abi_mem, sanitized_txn_cnt );
 
@@ -197,17 +199,27 @@ handle_microblock( fd_bank_ctx_t *     ctx,
                                                                       sanitized_txn_cnt,
                                                                       processing_results,
                                                                       transaction_err,
-                                                                      consumed_cus );
+                                                                      consumed_exec_cus,
+                                                                      consumed_acct_data_cus );
 
   ulong sanitized_idx = 0UL;
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
 
-    uint requested_cus       = txn->pack_cu.requested_execution_cus;
-    uint non_execution_cus   = txn->pack_cu.non_execution_cus;
-    /* Assume failure, set below if success.  If it doesn't land in the
+    uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
+    uint non_execution_cus       = txn->pack_cu.non_execution_cus;
+
+    if( FD_UNLIKELY( fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload ) ) ) {
+      /* Simple votes are charged fixed amounts of compute regardless of
+      the real cost they incur.  fd_ext_bank_load_and_execute_txns
+      returns the real cost, however, so we override it here. */
+      consumed_exec_cus[i] = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
+      consumed_acct_data_cus[i] = 0;
+    }
+
+    /* Assume failure, set below if success.  If it doesn't land cin the
        block, rebate the non-execution CUs too. */
-    txn->bank_cu.rebated_cus = requested_cus + non_execution_cus;
+    txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
     txn->flags               &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
     if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) ) ) continue;
 
@@ -234,23 +246,16 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     if( transaction_err[ sanitized_idx-1UL ] ) ctx->metrics.exec_failed++;
     else                                       ctx->metrics.success++;
 
-    uint executed_cus                = consumed_cus[ sanitized_idx-1UL ];
-    txn->bank_cu.actual_consumed_cus = non_execution_cus + executed_cus;
-    if( FD_UNLIKELY( executed_cus>requested_cus ) ) {
-      /* There's basically a bug in the Agave codebase right now
-         regarding the cost model for some transactions.  Some built-in
-         instructions like creating an address lookup table consume more
-         CUs than the cost model allocates for them, which is only
-         allowed because the runtime computes requested CUs differently
-         from the cost model.  Rather than implement a broken system,
-         we'll just permit the risk of slightly overpacking blocks by
-         ignoring these transactions when it comes to rebating. */
-      FD_LOG_INFO(( "Transaction executed %u CUs but only requested %u CUs", executed_cus, requested_cus ));
-      FD_MCNT_INC( BANK, COST_MODEL_UNDERCOUNT, 1UL );
-      txn->bank_cu.rebated_cus = 0U;
-      continue;
-    }
-    txn->bank_cu.rebated_cus = requested_cus - executed_cus;
+    uint actual_execution_cus        = consumed_exec_cus[ sanitized_idx-1UL ];
+    uint actual_acct_data_cus        = consumed_acct_data_cus[ sanitized_idx-1UL ];
+    txn->bank_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
+
+    /* The VM will stop executing and fail an instruction immediately if
+       it exceeds its requested CUs.  A transaction which requests less
+       account data than it actually consumes will fail in the account
+       loading stage. */
+    FD_TEST( actual_execution_cus + actual_acct_data_cus <= requested_exec_plus_acct_data_cus );
+    txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus - ( actual_execution_cus + actual_acct_data_cus );
   }
 
   /* Commit must succeed so no failure path.  This function takes
@@ -340,20 +345,30 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     sidecar_footprint_bytes += FD_BANK_ABI_TXN_FOOTPRINT_SIDECAR( txn1->acct_addr_cnt, txn1->addr_table_adtl_cnt, txn1->instr_cnt, txn1->addr_table_lookup_cnt );
   }
 
-  uint consumed_cus[ MAX_TXN_PER_MICROBLOCK ] = { 0U };
+  uint actual_execution_cus[ MAX_TXN_PER_MICROBLOCK ] = { 0U };
+  uint actual_acct_data_cus[ MAX_TXN_PER_MICROBLOCK ] = { 0U };
+  uint consumed_cus        [ MAX_TXN_PER_MICROBLOCK ] = { 0U };
   if( FD_LIKELY( execution_success ) ) {
     /* TODO: Plumb through errors. */
-    execution_success = fd_ext_bank_execute_and_commit_bundle( ctx->_bank, ctx->txn_abi_mem, txn_cnt, consumed_cus );
+    execution_success = fd_ext_bank_execute_and_commit_bundle( ctx->_bank, ctx->txn_abi_mem, txn_cnt, actual_execution_cus, actual_acct_data_cus );
   }
 
   if( FD_LIKELY( execution_success ) ) {
     ctx->metrics.success += txn_cnt;
     ctx->metrics.transaction_result[ FD_METRICS_ENUM_TRANSACTION_ERROR_V_SUCCESS_IDX ] += txn_cnt;
-    for( ulong i=0UL; i<txn_cnt; i++ ) txns[ i ].flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+    for( ulong i=0UL; i<txn_cnt; i++ ) {
+      txns[ i ].flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+      consumed_cus[ i ] = actual_execution_cus[ i ] + actual_acct_data_cus[ i ];
+    }
   } else {
     /* If any transaction fails in a bundle ... they all fail */
     for( ulong i=0UL; i<txn_cnt; i++ ) {
       fd_txn_p_t * txn = txns+i;
+
+      /* If the budle failed, we want to set actual cus = requested
+        so that the entire bundle is rebated. */
+      consumed_cus[ i ] = txn->pack_cu.requested_exec_plus_acct_data_cus;
+
       /* Don't double count metrics for transactions that failed to
          sanitize. */
       if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) ) ) continue;
@@ -371,30 +386,16 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t * txn = txns+i;
 
-    uint requested_cus       = txn->pack_cu.requested_execution_cus;
-    uint non_execution_cus   = txn->pack_cu.non_execution_cus;
+    uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
+    uint non_execution_cus                 = txn->pack_cu.non_execution_cus;
     /* Assume failure, set below if success.  If it doesn't land in the
        block, rebate the non-execution CUs too. */
-    txn->bank_cu.rebated_cus = requested_cus + non_execution_cus;
+    txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
 
     if( FD_LIKELY( (txn->flags & (FD_TXN_P_FLAGS_SANITIZE_SUCCESS|FD_TXN_P_FLAGS_EXECUTE_SUCCESS))==(FD_TXN_P_FLAGS_SANITIZE_SUCCESS|FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) {
-      uint executed_cus = consumed_cus[ i ];
-      txn->bank_cu.actual_consumed_cus = non_execution_cus + executed_cus;
-      if( FD_UNLIKELY( executed_cus>requested_cus ) ) {
-        /* There's basically a bug in the Agave codebase right now
-          regarding the cost model for some transactions.  Some built-in
-          instructions like creating an address lookup table consume more
-          CUs than the cost model allocates for them, which is only
-          allowed because the runtime computes requested CUs differently
-          from the cost model.  Rather than implement a broken system,
-          we'll just permit the risk of slightly overpacking blocks by
-          ignoring these transactions when it comes to rebating. */
-        FD_LOG_INFO(( "Transaction executed %u CUs but only requested %u CUs", executed_cus, requested_cus ));
-        FD_MCNT_INC( BANK, COST_MODEL_UNDERCOUNT, 1UL );
-        txn->bank_cu.rebated_cus = 0U;
-        continue;
-      }
-      txn->bank_cu.rebated_cus = requested_cus - executed_cus;
+      txn->bank_cu.actual_consumed_cus = non_execution_cus + consumed_cus[ i ];
+      FD_TEST( consumed_cus[ i ] <= requested_exec_plus_acct_data_cus );
+      txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus - consumed_cus[ i ];
     }
   }
 
