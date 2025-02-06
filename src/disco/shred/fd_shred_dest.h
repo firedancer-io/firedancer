@@ -229,4 +229,14 @@ fd_shred_dest_idx_to_dest( fd_shred_dest_t * sdest, fd_shred_dest_idx_t idx ) {
    FD_SHRED_DEST_NO_DEST. */
 fd_shred_dest_idx_t fd_shred_dest_pubkey_to_idx( fd_shred_dest_t * sdest, fd_pubkey_t const * pubkey );
 
+/* fd_shred_dest_update_source changes the shred destination
+   computation's notion of source.  sdest must be a valid local join.
+   idx must be in [0, staked_cnt+unstaked_cnt).  In particular, idx must
+   not be FD_SHRED_DEST_NO_DEST.  idx is as returned from
+   fd_shred_dest_pubkey_to_idx. */
+static inline void
+fd_shred_dest_update_source( fd_shred_dest_t * sdest, fd_shred_dest_idx_t idx ) {
+  sdest->source_validator_orig_idx = idx;
+}
+
 #endif /* HEADER_fd_src_disco_shred_fd_shred_dest_h */

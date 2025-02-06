@@ -10,22 +10,22 @@ but it is suggested to run it as `sudo`. The command writes an
 abbreviated log output to `stderr` and nothing will be written to
 `stdout`.
 
-| Arguments | Description |
-|----------|-------------|
-| `--config` | Path to a configuration TOML file to run the validator with |
+| Arguments         | Description |
+|-------------------|-------------|
+| `--config <path>` | Path to a configuration TOML file to run the validator with |
 
 ::: details Capabilities
 
-| Capability | Reason |
-|------------|--------|
-| `CAP_NET_RAW` | call `socket(2)` to bind to a raw socket for use by XDP |
-| `CAP_SYS_ADMIN` | call `bpf(2)` with the `BPF_OBJ_GET` command to initialize XDP |
-| `CAP_SYS_ADMIN` | call `unshare(2)` with `CLONE_NEWUSER` to sandbox the process in a user namespace. Only required on kernels which restrict unprivileged user namespaces |
-| `CAP_SETUID` | call `setresuid(2)` to switch uid to the sandbox user. Not required if the UID is already the same as the sandbox UID |
-| `CAP_SETGID` | call `setresgid(2)` to switch gid to the sandbox user. Not required if the GID is already the same as the sandbox GID |
-| `CAP_SYS_RESOURCE` | call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`. Not required if the process already has a high enough limit |
-| `CAP_SYS_RESOURCE` | call `setpriority(2)` to increase thread priorities. Not required if the process already has a nice value of -19 |
-| `CAP_SYS_RESOURCE` | call `rlimit(2)  to increase `RLIMIT_NOFILE` to allow more open files for Agave. Not required if the resource limit is already high enough |
+| Capability             | Reason |
+|------------------------|--------|
+| `CAP_NET_RAW`          | call `socket(2)` to bind to a raw socket for use by XDP |
+| `CAP_SYS_ADMIN`        | call `bpf(2)` with the `BPF_OBJ_GET` command to initialize XDP |
+| `CAP_SYS_ADMIN`        | call `unshare(2)` with `CLONE_NEWUSER` to sandbox the process in a user namespace. Only required on kernels which restrict unprivileged user namespaces |
+| `CAP_SETUID`           | call `setresuid(2)` to switch uid to the sandbox user. Not required if the UID is already the same as the sandbox UID |
+| `CAP_SETGID`           | call `setresgid(2)` to switch gid to the sandbox user. Not required if the GID is already the same as the sandbox GID |
+| `CAP_SYS_RESOURCE`     | call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`. Not required if the process already has a high enough limit |
+| `CAP_SYS_RESOURCE`     | call `setpriority(2)` to increase thread priorities. Not required if the process already has a nice value of -19 |
+| `CAP_SYS_RESOURCE`     | call `rlimit(2)  to increase `RLIMIT_NOFILE` to allow more open files for Agave. Not required if the resource limit is already high enough |
 | `CAP_NET_BIND_SERVICE` | call `bind(2)` to bind to a privileged port for serving metrics. Only required if the bind port is below 1024 |
 
 :::
@@ -39,9 +39,9 @@ issues. The monitor takes over the controlling terminal and refreshes it
 many times a second with up to date information. You can exit the
 monitor by sending Ctrl+C or `SIGINT`.
 
-| Arguments | Description |
-|----------|-------------|
-| `--config` | Path to a configuation TOML file to run the monitor with. This must be the same configuration file the validator was started with |
+| Arguments         | Description |
+|-------------------|-------------|
+| `--config <path>` | Path to a configuation TOML file to run the monitor with. This must be the same configuration file the validator was started with |
 
 ::: details Capabilities
 
@@ -71,6 +71,10 @@ following stages to each configure command:
     device.
  - `ethtool-loopback` Disables UDP segmentation on the loopback device.
 
+| Arguments         | Description |
+|-------------------|-------------|
+| `--config <path>` | Path to a configuation TOML file to configiure the validator with. This must be the same configuration file the validator will be started with |
+
 ::: code-group
 
 ```toml [config.toml]
@@ -92,12 +96,12 @@ and configure the number of combined channels on the network device.
 
 ::: details Capabilities
 
-| Capability | Reason |
-|------------|--------|
-| `root` | increase `/proc/sys/vm/nr_hugepages` and mount hugetblfs filesystems. Only applies for the `hugetlbfs` stage |
-| `root` | increase network device channels with `ethtool --set-channels`. Only applies for the `ethtool-channels` stage |
-| `root` | disable network device generic-receive-offload (gro) with `ethtool --offload IFACE generic-receive-offload off`. Only applies for the `ethtool-gro` stage |
-| `root` | disable network device tx-udp-segmentation with `ethtool --offload lo tx-udp-segmentation off`. Only applies for the `ethtool-loopback` stage |
+| Capability      | Reason |
+|-----------------|--------|
+| `root`          | increase `/proc/sys/vm/nr_hugepages` and mount hugetblfs filesystems. Only applies for the `hugetlbfs` stage |
+| `root`          | increase network device channels with `ethtool --set-channels`. Only applies for the `ethtool-channels` stage |
+| `root`          | disable network device generic-receive-offload (gro) with `ethtool --offload IFACE generic-receive-offload off`. Only applies for the `ethtool-gro` stage |
+| `root`          | disable network device tx-udp-segmentation with `ethtool --offload lo tx-udp-segmentation off`. Only applies for the `ethtool-loopback` stage |
 | `CAP_SYS_ADMIN` | set kernel parameters in `/proc/sys`. Only applies for the `sysctl` stage |
 
 :::
@@ -122,7 +126,7 @@ back as we no longer know what the original value was.
 
 | Capability | Reason |
 |------------|--------|
-| `root` | remove directories from `/mnt`, unmount hugetlbfs. Only applies for the `hugetlbfs` stage |
+| `root`     | remove directories from `/mnt`, unmount hugetlbfs. Only applies for the `hugetlbfs` stage |
 
 :::
 
@@ -136,6 +140,46 @@ exits. The command writes diagnostic messages from logs to `stderr`.
 $ fdctl version
 0.101.11814
 ```
+
+## `set-identity`
+Changes the identity key of a running validator. The `<keypair>`
+argument is required and must be the path to an Agave style
+`identity.json` keypair file. If the path is specified as `-` the key
+will instead be read from `stdin`.
+
+It is not generally safe to call `set-identity`, as another validator
+might be running with the same identity, and if they both produce a
+block or vote concurrently, the validator may violate consensus and be
+subject to (future) slashing.
+
+Best practice requires copying the `tower.bin` file from the prior
+to the new validator, to ensure that vote lockouts are repected.
+
+The validator will not change identity in the middle of a leader slot,
+and will wait until any in-progress leader slot completes before
+switching to the new identity. It is safe to call during or near a
+leader slot because of this wait.
+
+The command exits sucessfully (with an exit code of 0) if the identity
+key was changed, otherwise it will fail and print diagnostic messages to
+`stderr`. Reasons for failure include the validator being unable to open
+or load the tower, when `--require-tower` is specified, or being unable
+to load or verify the provided identity key.
+
+Currently due to implementation limitations, the key can be partially
+changed if the `set-identity` command is cancelled (for example with
+Ctrl+C) while running. The next call to `set-identity` might need to
+provide the `--force` argument to succeed if this occurs, to reset this
+partial state and proceed with setting a new key.
+
+| Arguments         | Description |
+|-------------------|-------------|
+| `<keypair>`       | Path to a `identity.json` keypair file, or `-` to read the JSON formatted key from `stdin` |
+| `--config <path>` | Path to a configuation TOML file of the validator to change identity for. This must be the same configuration file the validator was started with |
+| `--require-tower` | If specified, refuse to set the validator identity if saved tower state is not found |
+| `--force`         | If a `set-identity` operation is abandoned part way through, you will need to specify `--force` to reset the validator key state when trying again |
+
+<<< @/snippets/commands/set-identity.ansi
 
 ## `keys`
 
@@ -155,8 +199,8 @@ Creates a new keypair from the kernel random number generator and writes
 it to the identity key path, or vote key path. The key path is retrieved
 from the configuration TOML file
 
-| Arguments | Description |
-|----------|-------------|
+| Arguments  | Description |
+|------------|-------------|
 | `--config` | Path to a configuation TOML file which determines where the key is written. Either `[consensus.identity_path]` or `[consensus.vote_account_path]` for `identity` or `vote` arguments respectively
 
 ::: code-group

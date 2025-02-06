@@ -19,6 +19,7 @@
 #include "../../version.h"
 
 #include "../../../../disco/keyguard/fd_keyload.h"
+#include "../../../../disco/keyguard/fd_keyswitch.h"
 #include "../../../../disco/gui/fd_gui.h"
 #include "../../../../disco/plugin/fd_plugin.h"
 #include "../../../../ballet/http/fd_http_server.h"
@@ -66,7 +67,9 @@ typedef struct {
   fd_http_server_t * gui_server;
 
   char          version_string[ 16UL ];
-  uchar const * identity_key;
+
+  fd_keyswitch_t * keyswitch;
+  uchar const *    identity_key;
 
   fd_wksp_t * in_mem;
   ulong       in_chunk0;
@@ -112,6 +115,14 @@ loose_footprint( fd_topo_tile_t const * tile FD_FN_UNUSED ) {
   /* Reserve total size of files for compression buffers */
   return fd_spad_footprint( dist_file_sz() ) +
     256UL * (1UL<<20UL); /* 256MiB of heap space for the cJSON allocator */
+}
+
+static inline void
+during_housekeeping( fd_gui_ctx_t * ctx ) {
+  if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    fd_gui_set_identity( ctx->gui, ctx->keyswitch->bytes );
+    fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
 }
 
 static int
@@ -397,6 +408,9 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->gui  = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, ctx->version_string, tile->gui.cluster, ctx->identity_key, tile->gui.is_voting, ctx->topo ) );
   FD_TEST( ctx->gui );
 
+  ctx->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
+  FD_TEST( ctx->keyswitch );
+
   cjson_alloc_ctx = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
   FD_TEST( cjson_alloc_ctx );
   cJSON_Hooks hooks = {
@@ -456,9 +470,10 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_gui_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_gui_ctx_t)
 
-#define STEM_CALLBACK_BEFORE_CREDIT before_credit
-#define STEM_CALLBACK_DURING_FRAG   during_frag
-#define STEM_CALLBACK_AFTER_FRAG    after_frag
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_DURING_FRAG         during_frag
+#define STEM_CALLBACK_AFTER_FRAG          after_frag
 
 #include "../../../../disco/stem/fd_stem.c"
 

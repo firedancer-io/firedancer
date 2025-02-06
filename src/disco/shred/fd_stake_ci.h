@@ -154,6 +154,11 @@ fd_shred_dest_weighted_t * fd_stake_ci_dest_add_init ( fd_stake_ci_t * info     
 void                       fd_stake_ci_dest_add_fini ( fd_stake_ci_t * info, ulong cnt                 );
 
 
+/* fd_stake_ci_set_identity changes the identity of the locally running
+   validator at runtime. */
+void fd_stake_ci_set_identity( fd_stake_ci_t *     info,
+                               fd_pubkey_t const * identity_key );
+
 /* fd_stake_ci_get_{sdest, lsched}_for_slot respectively return a
    pointer to the fd_shred_dest_t and fd_epoch_leaders_t containing
    information about the specified slot, if it is available.  These
