@@ -643,6 +643,7 @@ fd_quic_netem_send( void *                    ctx, /* fd_quic_net_em_t */
     static FD_TL uint seed = 0; /* FIXME use fd_log_tid */
     ulong l = fd_rng_private_expand( seed++ );
     float rnd_num = (float)l * (float)0x1p-64;
+    int weighted_tail = (int)((l&0x7)==0x7); /* 12.5% chance of being 1, else head */
 
     if( rnd_num < mitm_ctx->thresh_drop ) {
       /* dropping behaves as-if the send was successful */
@@ -650,20 +651,24 @@ fd_quic_netem_send( void *                    ctx, /* fd_quic_net_em_t */
     }
 
     if( rnd_num < mitm_ctx->thresh_reorder ) {
-      /* reorder */
+      /* logic: if either buf free, buf it. Else, flush and replace send more recent one if head */
+      schar free = -1;
+      if( mitm_ctx->reorder_buf[0].sz==0 ) free = 0;
+      else if( mitm_ctx->reorder_buf[0].sz==1 ) free = 1;
 
-      /* logic:
-           if we already have a reordered buffer, delay it another packet
-           else store the current packet into the reorder buffer */
-      if( mitm_ctx->reorder_sz > 0UL ) {
-        fd_aio_pkt_info_t lcl_batch[1] = { batch[j] };
-        fd_aio_send( mitm_ctx->dst, lcl_batch, 1UL, NULL, flush );
-
-        /* clear buffer */
-        mitm_ctx->reorder_sz = 0UL;
+      if( free>=0 ) {
+        fd_memcpy( mitm_ctx->reorder_buf[free].buf, batch[j].buf, batch[j].buf_sz );
+        mitm_ctx->reorder_buf[free].sz = batch[j].buf_sz;
+        mitm_ctx->reorder_mru = free;
       } else {
-        fd_memcpy( mitm_ctx->reorder_buf, batch[j].buf, batch[j].buf_sz );
-        mitm_ctx->reorder_sz = batch[j].buf_sz;
+        /* send more recent one if head */
+        int replace_idx = mitm_ctx->reorder_mru ^ weighted_tail;
+        fd_aio_pkt_info_t batch_1[1] = {{ .buf = mitm_ctx->reorder_buf[replace_idx].buf, .buf_sz = (ushort)mitm_ctx->reorder_buf[replace_idx].sz }};
+        fd_aio_send( mitm_ctx->dst, batch_1, 1UL, NULL, flush );
+
+        fd_memcpy( mitm_ctx->reorder_buf[replace_idx].buf, batch[j].buf, batch[j].buf_sz );
+        mitm_ctx->reorder_buf[replace_idx].sz = batch[j].buf_sz;
+        mitm_ctx->reorder_mru = replace_idx;
       }
       continue;
     }
@@ -673,12 +678,18 @@ fd_quic_netem_send( void *                    ctx, /* fd_quic_net_em_t */
     fd_aio_send( mitm_ctx->dst, batch_0, 1UL, NULL, flush );
 
     /* we aren't dropping or reordering, but we might have a prior reorder */
-    if( mitm_ctx->reorder_sz > 0UL ) {
-      fd_aio_pkt_info_t batch_1[1] = {{ .buf = mitm_ctx->reorder_buf, .buf_sz = (ushort)mitm_ctx->reorder_sz }};
-      fd_aio_send( mitm_ctx->dst, batch_1, 1UL, NULL, flush );
+    int send = -1;
+    if( mitm_ctx->reorder_buf[0].sz > 0 ) send = 0;
+    if( mitm_ctx->reorder_buf[1].sz > 0 ) {
+      if( send == -1 ) send = 1; /* only this one free */
+      else send = mitm_ctx->reorder_mru ^ weighted_tail; /* if head, send mru */
+    }
 
-      /* clear the sent buffer */
-      mitm_ctx->reorder_sz = 0UL;
+    if( send>=0 ) {
+      fd_aio_pkt_info_t batch_1[1] = {{ .buf = mitm_ctx->reorder_buf[send].buf, .buf_sz = (ushort)mitm_ctx->reorder_buf[send].sz }};
+      fd_aio_send( mitm_ctx->dst, batch_1, 1UL, NULL, flush );
+      mitm_ctx->reorder_buf[send].sz = 0;
+      mitm_ctx->reorder_mru = send ^ 0x1; /* toggle mru */
     }
   }
 
