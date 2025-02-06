@@ -54,11 +54,11 @@ struct __attribute__((aligned(64))) fd_txn_p {
   union {
    struct {
      uint non_execution_cus;
-     uint requested_execution_cus;
+     uint requested_exec_plus_acct_data_cus;
    } pack_cu; /* Populated by pack. Bank reads these to populate the other struct of the union. */
    struct {
-     uint rebated_cus; /* requested_execution_cus-real execution CUs. Pack reads this for CU rebating. */
-     uint actual_consumed_cus; /* non_execution_cus+real execution CUs. PoH reads this for block CU counting. */
+     uint rebated_cus; /* requested_exec_plus_acct_data_cus-actual used CUs. Pack reads this for CU rebating. */
+     uint actual_consumed_cus; /* non_execution_cus+real execution CUs+real account data cus. PoH reads this for block CU counting. */
    } bank_cu; /* Populated by bank. */
    ulong blockhash_slot; /* Slot provided by resolv tile when txn arrives at the pack tile. Used when txn is in extra storage in pack. */
   };
