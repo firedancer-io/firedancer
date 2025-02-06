@@ -3,11 +3,28 @@
 
 #include "../fd_disco_base.h"
 
+/* fd_keyload_read() reads a JSON encoded keypair from the provided file
+   descriptor.  The key_path is not opened or read from, it is only used
+   to output diagnostic error messages if reading the key fails.
+
+   The keypair provided must be a full page (4096) bytes, not just 64
+   bytes, as additional metadata will be temporarily stored in it while
+   reading and parsing the key.
+
+   If the key data from the file descriptor is not parsable, or any IO
+   or other error is encountered while reading it, the process will be
+   terminated with an error message. */
+
+uchar * FD_FN_SENSITIVE
+fd_keyload_read( int          key_fd,
+                 char const * key_path,
+                 uchar *      keypair );
+
 /* fd_keyload_load() reads the key file from disk and stores the parsed
    contents in a specially mapped page in memory that will not appear in
    core dumps, will not be paged out to disk, is readonly, and is
    protected by guard pages that cannot be accessed.
-   
+
    key_path must point to the first letter in a NUL-terminated cstr that
    is the path on disk of the key file.  The key file must exist, be
    readable, and have the form of a Solana keypair (64 element JSON
@@ -16,7 +33,7 @@
    32) of the public part of the key in binary format.  If
    public_key_only is zero, returns a pointer to the first byte (of 64)
    of the key in binary format.
-   
+
    If the key file is not found, is not parsable, or any IO or other
    error is encountered while reading it, the process will be terminated
    with an error message.
@@ -28,7 +45,7 @@
    a different key is being loaded, or it is not being loaded for use
    in the production binary. */
 
-uchar const * FD_FN_SENSITIVE
+uchar * FD_FN_SENSITIVE
 fd_keyload_load( char const * key_path,
                  int          public_key_only );
 

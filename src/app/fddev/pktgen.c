@@ -37,7 +37,7 @@ add_pktgen_topo( fd_topo_t *  topo,
                        affinity_tile_cnt ));
   }
 
-  fd_topo_tile_t * pktgen_tile = fd_topob_tile( topo, "pktgen", "pktgen", "pktgen", tile_to_cpu[ 0 ], 0 );
+  fd_topo_tile_t * pktgen_tile = fd_topob_tile( topo, "pktgen", "pktgen", "pktgen", tile_to_cpu[ 0 ], 0, 0 );
   pktgen_tile->pktgen.fake_dst_ip = fake_dst_ip;
 
   fd_topob_link( topo, "pktgen_out", "pktgen", 2048UL, FD_NET_MTU, 1UL );
