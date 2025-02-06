@@ -3595,7 +3595,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
 
     /* initialize expiry */
     pkt_meta->expiry = now + conn->idle_timeout;
-    ulong margin = (ulong)(conn->rtt->smoothed_rtt) - (ulong)(3 * conn->rtt->var_rtt);
+    ulong margin = (ulong)(conn->rtt->smoothed_rtt) + (ulong)(3 * conn->rtt->var_rtt);
     if( margin < pkt_meta->expiry ) {
       pkt_meta->expiry -= margin;
     }
