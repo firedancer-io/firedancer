@@ -397,6 +397,8 @@ typedef struct fd_topo_t {
 
   ulong          agave_affinity_cnt;
   ulong          agave_affinity_cpu_idx[ FD_TILE_MAX ];
+
+  ulong          max_page_size; /* 2^21 or 2^30 */
 } fd_topo_t;
 
 typedef struct {

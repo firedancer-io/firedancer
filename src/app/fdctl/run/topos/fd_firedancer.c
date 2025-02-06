@@ -77,6 +77,7 @@ fd_topo_initialize( config_t * config ) {
   int enable_rpc = ( config->rpc.port != 0 );
 
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
+  topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
 
   /*             topo, name */
   fd_topob_wksp( topo, "net_shred"  );

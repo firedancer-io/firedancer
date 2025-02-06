@@ -529,6 +529,11 @@ fdctl_cfg_from_env( int *      pargc,
                                  "%s/.huge",
                                  config->hugetlbfs.mount_path ) );
 
+  ulong max_page_sz = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
+  if( FD_UNLIKELY( max_page_sz!=FD_SHMEM_HUGE_PAGE_SZ && max_page_sz!=FD_SHMEM_GIGANTIC_PAGE_SZ ) ) {
+    FD_LOG_ERR(( "[hugetlbfs.max_page_size] must be \"huge\" or \"gigantic\"" ));
+  }
+
   replace( config->log.path, "{user}", config->user );
   replace( config->log.path, "{name}", config->name );
   if( FD_LIKELY( !strcmp( "auto", config->log.colorize ) ) )       config->log.colorize1 = 2;

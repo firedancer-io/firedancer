@@ -284,6 +284,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( uint,   layout.exec_tile_count                           );
 
   CFG_POP      ( cstr,   hugetlbfs.mount_path                             );
+  CFG_POP      ( cstr,   hugetlbfs.max_page_size                          );
 
   CFG_POP      ( cstr,   tiles.net.interface                              );
   CFG_POP      ( cstr,   tiles.net.xdp_mode                               );
@@ -462,6 +463,7 @@ fdctl_cfg_validate( config_t * cfg ) {
   CFG_HAS_NON_ZERO ( layout.exec_tile_count );
 
   CFG_HAS_NON_EMPTY( hugetlbfs.mount_path );
+  CFG_HAS_NON_EMPTY( hugetlbfs.max_page_size );
 
   CFG_HAS_NON_EMPTY( tiles.net.xdp_mode );
   CFG_HAS_POW2     ( tiles.net.xdp_rx_queue_size );
