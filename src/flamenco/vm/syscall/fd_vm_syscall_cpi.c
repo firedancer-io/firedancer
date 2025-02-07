@@ -477,15 +477,8 @@ ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_had
   ulong FD_EXPAND_THEN_CONCAT2(decl, _vm_addr) = acc_info->data_addr; \
   ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = acc_info->data_sz;
 
-#define VM_SYSCALL_CPI_ACC_INFO_METADATA_MUT( vm, acc_info, decl ) \
-  ulong FD_EXPAND_THEN_CONCAT2(decl, _vm_addr) = acc_info->data_addr; \
-  ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = acc_info->data_sz;
-
 #define VM_SYSCALL_CPI_SET_ACC_INFO_DATA_GET_LEN( vm, acc_info, decl ) \
   ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = acc_info->data_sz;
-
-#define VM_SYSCALL_CPI_SET_ACC_INFO_DATA_SET_LEN( vm, acc_info, decl, len ) \
-  acc_info->data_sz = len;
 
 #include "fd_vm_syscall_cpi_common.c"
 
@@ -512,9 +505,7 @@ ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_had
 #undef VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR
 #undef VM_SYSCALL_CPI_ACC_INFO_DATA
 #undef VM_SYSCALL_CPI_ACC_INFO_METADATA
-#undef VM_SYSCALL_CPI_ACC_INFO_METADATA_MUT
 #undef VM_SYSCALL_CPI_SET_ACC_INFO_DATA_GET_LEN
-#undef VM_SYSCALL_CPI_SET_ACC_INFO_DATA_SET_LEN
 
 /**********************************************************************
    CROSS PROGRAM INVOCATION (Rust ABI)
@@ -553,8 +544,10 @@ ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_had
     /* Extract the vaddr embedded in the RefCell */                                                                                              \
     ulong decl = *FD_EXPAND_THEN_CONCAT2(decl, _hptr_);
 
-#define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, acc_info, decl ) \
-    ulong * decl = FD_VM_MEM_HADDR_ST( vm, *((ulong const *)FD_VM_MEM_HADDR_LD( vm, vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->lamports_box_addr ), FD_VM_RC_REFCELL_ALIGN, sizeof(ulong) )), alignof(ulong), sizeof(ulong) );
+#define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, acc_info, decl )                                                                                                     \
+    ulong FD_EXPAND_THEN_CONCAT2(decl, _vaddr_) =                                                                                                                  \
+      *((ulong const *)FD_VM_MEM_HADDR_LD( vm, vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->lamports_box_addr ), FD_VM_RC_REFCELL_ALIGN, sizeof(ulong) )); \
+    ulong * decl = FD_VM_MEM_HADDR_ST( vm, FD_EXPAND_THEN_CONCAT2(decl, _vaddr_), alignof(ulong), sizeof(ulong) );
 
 #define VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR( vm, acc_info, decl )                                                                                   \
     /* Translate the vaddr to the slice */                                                                                                         \
@@ -565,9 +558,6 @@ ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_had
 
 #define VM_SYSCALL_CPI_ACC_INFO_DATA_LEN_VADDR( vm, acc_info, decl ) \
     ulong decl = fd_ulong_sat_add( vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->data_box_addr ), sizeof(ulong) );
-
-#define VM_SYSCALL_CPI_ACC_INFO_DATA_LEN( vm, acc_info, decl ) \
-    ulong * decl = FD_VM_MEM_HADDR_ST( vm, fd_ulong_sat_add( vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->data_box_addr ), sizeof(ulong) ), 1UL, sizeof(ulong) );
 
 #define VM_SYSCALL_CPI_ACC_INFO_DATA( vm, acc_info, decl )                                                                                         \
     /* Translate the vaddr to the slice */                                                                                                         \
@@ -590,15 +580,6 @@ ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_had
     /* Declare the size of the slice's underlying byte array */                                                                                    \
     ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = FD_EXPAND_THEN_CONCAT2(decl, _hptr_)->len;
 
-#define VM_SYSCALL_CPI_ACC_INFO_METADATA_MUT( vm, acc_info, decl )                                                                                 \
-    /* Translate the vaddr to the slice */                                                                                                         \
-    fd_vm_vec_t * FD_EXPAND_THEN_CONCAT2(decl, _hptr_) =                                                                                           \
-      FD_VM_MEM_HADDR_ST( vm, vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->data_box_addr ), FD_VM_RC_REFCELL_ALIGN, sizeof(fd_vm_vec_t) ); \
-    /* Declare the vaddr of the slice's underlying byte array */                                                                                   \
-    ulong FD_EXPAND_THEN_CONCAT2(decl, _vm_addr) = FD_EXPAND_THEN_CONCAT2(decl, _hptr_)->addr;                                                     \
-    /* Declare the size of the slice's underlying byte array */                                                                                    \
-    ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = FD_EXPAND_THEN_CONCAT2(decl, _hptr_)->len;
-
 #define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_RC_REFCELL_VADDR( vm, acc_info, decl ) \
     ulong decl = vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->lamports_box_addr );
 
@@ -607,9 +588,6 @@ ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_had
 
 #define VM_SYSCALL_CPI_SET_ACC_INFO_DATA_GET_LEN( vm, acc_info, decl ) \
   ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = FD_EXPAND_THEN_CONCAT2(decl, _hptr_)->len;
-
-#define VM_SYSCALL_CPI_SET_ACC_INFO_DATA_SET_LEN( vm, acc_info, decl, len_ ) \
-  FD_EXPAND_THEN_CONCAT2(decl, _hptr_)->len = len_;
 
 #include "fd_vm_syscall_cpi_common.c"
 
@@ -636,10 +614,7 @@ ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_had
 #undef VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR
 #undef VM_SYSCALL_CPI_ACC_INFO_DATA
 #undef VM_SYSCALL_CPI_ACC_INFO_DATA_LEN_VADDR
-#undef VM_SYSCALL_CPI_ACC_INFO_DATA_LEN
 #undef VM_SYSCALL_CPI_ACC_INFO_METADATA
-#undef VM_SYSCALL_CPI_ACC_INFO_METADATA_MUT
 #undef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_RC_REFCELL_VADDR
 #undef VM_SYSCALL_CPI_ACC_INFO_DATA_RC_REFCELL_VADDR
 #undef VM_SYSCALL_CPI_SET_ACC_INFO_DATA_GET_LEN
-#undef VM_SYSCALL_CPI_SET_ACC_INFO_DATA_SET_LEN

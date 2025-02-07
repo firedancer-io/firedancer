@@ -152,4 +152,30 @@ struct __attribute__((packed)) fd_vm_rc_refcell_ref {
 };
 typedef struct fd_vm_rc_refcell_ref fd_vm_rc_refcell_ref_t;
 
+/* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L81
+
+   This struct abstracts over the Rust/C ABI differences for the
+   cross-program-invocation (CPI) syscall.
+   It serves the same purpose as the corresponding struct in Agave.
+   Essentially, it caches the results of translations that have been
+   performed leading up to the CPI.
+   Or, in the case of direct mapping, it sometimes stores the vm
+   virtual addresses for translation later on.
+   In direct mapping, translation is sometimes delayed because
+   "permissions on the realloc region can change during CPI".
+ */
+struct fd_vm_cpi_caller_account {
+  ulong *       lamports;
+  fd_pubkey_t * owner;
+  ulong         orig_data_len;
+  uchar *       serialized_data; /* NULL if direct mapping */
+  ulong         serialized_data_len;
+  ulong         vm_data_vaddr;
+  union {
+    ulong * translated; /* Set if direct mapping false */
+    ulong   vaddr;      /* Set if direct mapping */
+  } ref_to_len_in_vm;
+};
+typedef struct fd_vm_cpi_caller_account fd_vm_cpi_caller_account_t;
+
 #endif /* HEADER_fd_src_flamenco_vm_syscall_fd_vm_cpi_h */
