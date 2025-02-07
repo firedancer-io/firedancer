@@ -2336,12 +2336,18 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
                                   float        vote_fraction,
                                   ulong        bank_tile,
                                   fd_txn_p_t * out ) {
-  /* Try to schedule a bundle first */
-  int bundle_result = fd_pack_try_schedule_bundle( pack, bank_tile, out );
-  if( FD_UNLIKELY( bundle_result>0                         ) ) return (ulong)bundle_result;
-  if( FD_UNLIKELY( bundle_result==TRY_BUNDLE_HAS_CONFLICTS ) ) return 0UL;
-  /* in the NO_READY_BUNDLES or DOES_NOT_FIT case, we schedule like
-     normal. */
+  /* Because we schedule bundles strictly in order, we need to limit
+     bundles to a single bank.  Otherwise, if a bundle is executing on a
+     certain bank and the next bundle conflicts with it, all the other
+     bank tiles will be idle until the first bundle completes. */
+  if( FD_LIKELY( bank_tile==0UL ) ) {
+    /* Try to schedule a bundle first */
+    int bundle_result = fd_pack_try_schedule_bundle( pack, bank_tile, out );
+    if( FD_UNLIKELY( bundle_result>0                         ) ) return (ulong)bundle_result;
+    if( FD_UNLIKELY( bundle_result==TRY_BUNDLE_HAS_CONFLICTS ) ) return 0UL;
+    /* in the NO_READY_BUNDLES or DOES_NOT_FIT case, we schedule like
+       normal. */
+  }
 
   /* TODO: Decide if these are exactly how we want to handle limits */
   total_cus = fd_ulong_min( total_cus, pack->lim->max_cost_per_block - pack->cumulative_block_cost );
