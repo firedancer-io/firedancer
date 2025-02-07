@@ -264,7 +264,25 @@
 
 /* FD_TEST_CUSTOM is like FD_TEST but with a custom error msg err. */
 
-#define FD_TEST_CUSTOM(c,err) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ERR(( "FAIL: %s", (err) )); } while(0)
+#define FD_TEST_CUSTOM(c,...) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ERR(( __VA_ARGS__ )); } while(0)
+
+/* Conditionally enabled assertions which are wrappers around FD_TEST and FD_TEST_CUSTOM */
+
+#ifdef FD_ENABLE_RUNTIME_ASSERTS
+#define FD_RUNTIME_ASSERT(c) FD_TEST(c)
+#define FD_RUNTIME_ASSERT_CUSTOM(c,...) FD_TEST_CUSTOM(c,__VA_ARGS__)
+#else
+#define FD_RUNTIME_ASSERT(c) ( ( void )0 )
+#define FD_RUNTIME_ASSERT_CUSTOM(c,...) ( ( void )0 )
+#endif
+
+#ifdef FD_ENABLE_DEBUG_ASSERTS
+#define FD_DEBUG_ASSERT(c) FD_TEST(c)
+#define FD_DEBUG_ASSERT_CUSTOM(c,...) FD_TEST_CUSTOM(c,__VA_ARGS__)
+#else
+#define FD_DEBUG_ASSERT(c) ( ( void )0 )
+#define FD_DEBUG_ASSERT_CUSTOM(c,...) ( ( void )0 )
+#endif
 
 /* Macros for doing hexedit / tcpdump-like logging of memory regions.
    E.g.

@@ -1,0 +1,33 @@
+Using MACHINE=native
+Using EXTRAS= 
+"openssl not installed, skipping"
+Using FD_HAS_SSE=1
+Using FD_HAS_AVX=1
+Using FD_HAS_AVX512=1 
+Using FD_HAS_GFNI=1
+Using FD_HAS_SHANI=1
+Using FD_HAS_AESNI=1
+Using FIREDANCER_VERSION=0.101.20111
+#######################################################################
+# Generating dependencies for C source src/ballet/ed25519/test_ed25519.c to build/native/gcc/obj/ballet/ed25519/test_ed25519.d
+#######################################################################
+mkdir -pv build/native/gcc/obj/ballet/ed25519/ && \
+gcc -isystem ./opt/include -DFD_HAS_BACKTRACE=0 -DFD_USING_GCC=1 -march=native -mtune=native -Werror -Wall -Wextra -Wpedantic -Wstrict-aliasing=2 -Wconversion -Wdouble-promotion -Wformat-security -Wimplicit-fallthrough=2 -O3 -ffast-math -fno-associative-math -fno-reciprocal-math -DFD_HAS_OPTIMIZATION=1 -DFD_EQVOC_USE_HANDHOLDING=1 -DFD_FORKS_USE_HANDHOLDING=1 -DFD_GHOST_USE_HANDHOLDING=1 -DFD_SCRATCH_USE_HANDHOLDING=1 -DFD_SPAD_USE_HANDHOLDING=1 -DFD_TOWER_USE_HANDHOLDING=1 -DFD_ENABLE_RUNTIME_ASSERTS=1 -DFD_ENABLE_DEBUG_ASSERTS=1 -g -fno-omit-frame-pointer -fPIC -Wl,-z,relro,-z,now -fstack-protector-strong -D_FORTIFY_SOURCE=2 -DFD_HAS_SHANI=1 -DFD_HAS_INT128=1 -DFD_HAS_DOUBLE=1 -DFD_HAS_ALLOCA=1 -DFD_HAS_THREADS=1 -DFD_HAS_OPENSSL=1 -DFD_HAS_X86=1 -DFD_HAS_SSE=1 -DFD_HAS_AVX=1 -DFD_HAS_GFNI=1 -DFD_IS_X86_64=1 -DFD_HAS_AESNI=1 -DFD_HAS_AVX512=1 -D_XOPEN_SOURCE=700 -DFD_HAS_HOSTED=1 -pthread -DFD_HAS_THREADS=1 -DFD_HAS_ATOMIC=1 -mfpmath=sse -falign-functions=32 -mbranch-cost=5 -falign-jumps=32 -falign-labels=32 -falign-loops=32 -DFD_HAS_UCONTEXT=1 -DFD_BUILD_INFO=\"build/native/gcc/info\"  -std=c17 -fwrapv -Wstrict-prototypes -Wformat-signedness -DFD_HAS_SECP256K1=1 -DFD_HAS_S2NBIGNUM=1 -DFD_HAS_ZSTD=1 -DFD_HAS_LZ4=1 -DFD_HAS_ROCKSDB=1 -DROCKSDB_LITE=1 -M -MP src/ballet/ed25519/test_ed25519.c -o build/native/gcc/obj/ballet/ed25519/test_ed25519.d.tmp && \
+sed 's,\(test_ed25519\)\.o[ :]*,build/native/gcc/obj/ballet/ed25519/test_ed25519.o build/native/gcc/obj/ballet/ed25519/test_ed25519.S build/native/gcc/obj/ballet/ed25519/test_ed25519.i build/native/gcc/obj/ballet/ed25519/test_ed25519.d : ,g' < build/native/gcc/obj/ballet/ed25519/test_ed25519.d.tmp > build/native/gcc/obj/ballet/ed25519/test_ed25519.d && \
+rm -fv build/native/gcc/obj/ballet/ed25519/test_ed25519.d.tmp
+removed 'build/native/gcc/obj/ballet/ed25519/test_ed25519.d.tmp'
+Using MACHINE=native
+Using EXTRAS= 
+"openssl not installed, skipping"
+Using FD_HAS_SSE=1
+Using FD_HAS_AVX=1
+Using FD_HAS_AVX512=1 
+Using FD_HAS_GFNI=1
+Using FD_HAS_SHANI=1
+Using FD_HAS_AESNI=1
+Using FIREDANCER_VERSION=0.101.20111
+#######################################################################
+# Compiling C source src/ballet/ed25519/test_ed25519.c to build/native/gcc/obj/ballet/ed25519/test_ed25519.o
+#######################################################################
+mkdir -pv build/native/gcc/obj/ballet/ed25519/ && \
+gcc -isystem ./opt/include -DFD_HAS_BACKTRACE=0 -DFD_USING_GCC=1 -march=native -mtune=native -Werror -Wall -Wextra -Wpedantic -Wstrict-aliasing=2 -Wconversion -Wdouble-promotion -Wformat-security -Wimplicit-fallthrough=2 -O3 -ffast-math -fno-associative-math -fno-reciprocal-math -DFD_HAS_OPTIMIZATION=1 -DFD_EQVOC_USE_HANDHOLDING=1 -DFD_FORKS_USE_HANDHOLDING=1 -DFD_GHOST_USE_HANDHOLDING=1 -DFD_SCRATCH_USE_HANDHOLDING=1 -DFD_SPAD_USE_HANDHOLDING=1 -DFD_TOWER_USE_HANDHOLDING=1 -DFD_ENABLE_RUNTIME_ASSERTS=1 -DFD_ENABLE_DEBUG_ASSERTS=1 -g -fno-omit-frame-pointer -fPIC -Wl,-z,relro,-z,now -fstack-protector-strong -D_FORTIFY_SOURCE=2 -DFD_HAS_SHANI=1 -DFD_HAS_INT128=1 -DFD_HAS_DOUBLE=1 -DFD_HAS_ALLOCA=1 -DFD_HAS_THREADS=1 -DFD_HAS_OPENSSL=1 -DFD_HAS_X86=1 -DFD_HAS_SSE=1 -DFD_HAS_AVX=1 -DFD_HAS_GFNI=1 -DFD_IS_X86_64=1 -DFD_HAS_AESNI=1 -DFD_HAS_AVX512=1 -D_XOPEN_SOURCE=700 -DFD_HAS_HOSTED=1 -pthread -DFD_HAS_THREADS=1 -DFD_HAS_ATOMIC=1 -mfpmath=sse -falign-functions=32 -mbranch-cost=5 -falign-jumps=32 -falign-labels=32 -falign-loops=32 -DFD_HAS_UCONTEXT=1 -DFD_BUILD_INFO=\"build/native/gcc/info\"  -std=c17 -fwrapv -Wstrict-prototypes -Wformat-signedness -DFD_HAS_SECP256K1=1 -DFD_HAS_S2NBIGNUM=1 -DFD_HAS_ZSTD=1 -DFD_HAS_LZ4=1 -DFD_HAS_ROCKSDB=1 -DROCKSDB_LITE=1 -c src/ballet/ed25519/test_ed25519.c -o build/native/gcc/obj/ballet/ed25519/test_ed25519.o

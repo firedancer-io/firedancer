@@ -142,14 +142,10 @@ FD_PROTOTYPES_BEGIN
 
 /* Error logging handholding assertions */
 
-#ifdef FD_RUNTIME_ERR_HANDHOLDING
 /* Asserts that the error and error kind are not populated (zero) */
 #define FD_TXN_TEST_ERR_OVERWRITE( txn_ctx )                           \
-    FD_TEST( !txn_ctx->exec_err );                                     \
-    FD_TEST( !txn_ctx->exec_err_kind )
-#else
-#define FD_TXN_TEST_ERR_OVERWRITE( txn_ctx ) ( ( void )0 )
-#endif
+    FD_RUNTIME_ASSERT( !txn_ctx->exec_err );                                     \
+    FD_RUNTIME_ASSERT( !txn_ctx->exec_err_kind )
 
 #define FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, idx ) (__extension__({ \
     FD_TXN_TEST_ERR_OVERWRITE( txn_ctx );                              \

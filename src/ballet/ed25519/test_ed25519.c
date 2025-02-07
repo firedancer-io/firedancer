@@ -971,7 +971,7 @@ test_verify( fd_rng_t *    rng,
     char cstr[128];
     fd_ed25519_sign( sig, msg, sz, pub, prv, sha );
 
-    FD_TEST_CUSTOM( fd_ed25519_verify( msg, sz, sig, pub, sha )==FD_ED25519_SUCCESS, fd_cstr_printf( cstr, 128UL, NULL, "fd_ed25519_verify(good %lu)", sz ) );
+    FD_TEST_CUSTOM( fd_ed25519_verify( msg, sz, sig, pub, sha )==FD_ED25519_SUCCESS, "fd_ed25519_verify(good %lu)", sz );
 
     long dt = fd_log_wallclock();
     for( ulong rem=iter; rem; rem-- ) {
@@ -1071,15 +1071,13 @@ test_verify( fd_rng_t *    rng,
 
 void
 test_wycheproofs( fd_sha512_t * sha ) {
-  char cstr[128];
-
   for( fd_ed25519_verify_wycheproof_t const * proof = ed25519_verify_wycheproofs;
        proof->msg;
        proof++ ) {
 
     int actual = ( fd_ed25519_verify( proof->msg, proof->msg_sz, proof->sig, proof->pub, sha )
                      == FD_ED25519_SUCCESS );
-    FD_TEST_CUSTOM( actual == proof->ok, fd_cstr_printf( cstr, 128UL, NULL, "fd_ed25519_verify_wycheproof id=%u", proof->tc_id ) );
+    FD_TEST_CUSTOM( actual == proof->ok, "fd_ed25519_verify_wycheproof id=%u", proof->tc_id );
 
   }
   FD_LOG_NOTICE(( "fd_ed25519_verify_wycheproof: ok" ));
@@ -1087,21 +1085,18 @@ test_wycheproofs( fd_sha512_t * sha ) {
 
 void
 test_cctv( fd_sha512_t * sha ) {
-  char cstr[128];
   for( fd_ed25519_verify_cctv_t const * proof = ed25519_verify_cctvs;
        proof->msg;
        proof++ ) {
     int actual = ( fd_ed25519_verify( proof->msg, proof->msg_sz, proof->sig, proof->pub, sha )
                      == FD_ED25519_SUCCESS );
-    FD_TEST_CUSTOM( actual == proof->ok, fd_cstr_printf( cstr, 128UL, NULL, "fd_ed25519_verify_cctv id=%u", proof->tc_id ) );
+    FD_TEST_CUSTOM( actual == proof->ok, "fd_ed25519_verify_cctv id=%u", proof->tc_id );
   }
   FD_LOG_NOTICE(( "fd_ed25519_verify_cctv: ok" ));
 }
 
 void
 test_cctv_batch( fd_rng_t * rng, fd_sha512_t * sha ) {
-  char cstr[128];
-
   uchar const * msg = ed25519_verify_cctvs[7].msg;
   ulong msg_sz = ed25519_verify_cctvs[7].msg_sz;
 
@@ -1132,11 +1127,11 @@ test_cctv_batch( fd_rng_t * rng, fd_sha512_t * sha ) {
 
     int actual = ( fd_ed25519_verify_batch_single_msg( msg, msg_sz, sigs, pubs, shas, 2 )
                      == FD_ED25519_SUCCESS );
-    FD_TEST_CUSTOM( actual == proof->ok, fd_cstr_printf( cstr, 128UL, NULL, "fd_ed25519_verify_cctv_batch(2) id=%u", proof->tc_id ) );
+    FD_TEST_CUSTOM( actual == proof->ok, "fd_ed25519_verify_cctv_batch(2) id=%u", proof->tc_id );
 
     actual = ( fd_ed25519_verify_batch_single_msg( msg, msg_sz, sigs, pubs, shas, 4 )
                      == FD_ED25519_SUCCESS );
-    FD_TEST_CUSTOM( actual == proof->ok, fd_cstr_printf( cstr, 128UL, NULL, "fd_ed25519_verify_cctv_batch(4) id=%u", proof->tc_id ) );
+    FD_TEST_CUSTOM( actual == proof->ok, "fd_ed25519_verify_cctv_batch(4) id=%u", proof->tc_id );
   }
   FD_LOG_NOTICE(( "fd_ed25519_verify_cctv_batch: ok" ));
 }

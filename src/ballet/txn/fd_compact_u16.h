@@ -42,9 +42,7 @@ fd_cu16_dec_fixed( uchar const * buf,
   /* return (ushort)((b0) | (b1 & m0) | (b2 & m01)); */
 
   /* This version is actually substantially faster */
-#if FD_TXN_HANDHOLDING
-  FD_TEST( (1<=sz) & (sz<=3) );
-#endif
+  FD_DEBUG_ASSERT( (1<=sz) & (sz<=3) );
   if( FD_LIKELY( sz==1 ) )
       return (ushort)buf[0];
   if( FD_LIKELY( sz==2 ) )

@@ -204,20 +204,15 @@ FD_PROTOTYPES_BEGIN
 
 /* Error logging handholding assertions */
 
-#ifdef FD_RUNTIME_ERR_HANDHOLDING
 /* Asserts that the error and error kind are populated (non-zero) */
 #define FD_VM_TEST_ERR_EXISTS( vm )                                       \
-    FD_TEST( vm->instr_ctx->txn_ctx->exec_err );                          \
-    FD_TEST( vm->instr_ctx->txn_ctx->exec_err_kind )
+    FD_RUNTIME_ASSERT( vm->instr_ctx->txn_ctx->exec_err );                          \
+    FD_RUNTIME_ASSERT( vm->instr_ctx->txn_ctx->exec_err_kind )
 
 /* Asserts that the error and error kind are not populated (zero) */
 #define FD_VM_TEST_ERR_OVERWRITE( vm )                                    \
-    FD_TEST( !vm->instr_ctx->txn_ctx->exec_err );                         \
-    FD_TEST( !vm->instr_ctx->txn_ctx->exec_err_kind )
-#else
-#define FD_VM_TEST_ERR_EXISTS( vm ) ( ( void )0 )
-#define FD_VM_TEST_ERR_OVERWRITE( vm ) ( ( void )0 )
-#endif
+    FD_RUNTIME_ASSERT( !vm->instr_ctx->txn_ctx->exec_err );                         \
+    FD_RUNTIME_ASSERT( !vm->instr_ctx->txn_ctx->exec_err_kind )
 
 /* Log error within the instr_ctx to match Agave/Rust error. */
 
