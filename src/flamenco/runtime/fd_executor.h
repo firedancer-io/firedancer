@@ -45,6 +45,9 @@ typedef int (* fd_exec_instr_fn_t)( fd_exec_instr_ctx_t * ctx );
 fd_exec_instr_fn_t
 fd_executor_lookup_native_program( fd_borrowed_account_t const * account );
 
+fd_exec_instr_fn_t
+fd_executor_lookup_native_precompile_program( fd_borrowed_account_t const * prog_acc );
+
 int
 fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx );
 
