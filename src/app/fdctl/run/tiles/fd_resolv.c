@@ -347,6 +347,8 @@ after_frag( fd_resolv_ctx_t *   ctx,
   }
 
   fd_txn_m_t *     txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  FD_TEST( txnm->payload_sz<=FD_TPU_MTU );
+  FD_TEST( txnm->txn_t_sz<=FD_TXN_MAX_SZ );
   fd_txn_t const * txnt = fd_txn_m_txn_t( txnm );
 
   /* If we find the recent blockhash, life is simple.  We drop

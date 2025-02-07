@@ -676,6 +676,8 @@ during_frag( fd_pack_ctx_t * ctx,
     }
 
     fd_txn_m_t * txnm = (fd_txn_m_t *)dcache_entry;
+    FD_TEST( txnm->payload_sz<=FD_TPU_MTU );
+    FD_TEST( txnm->txn_t_sz<=FD_TXN_MAX_SZ );
     fd_txn_t * txn  = fd_txn_m_txn_t( txnm );
 
     if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) {
