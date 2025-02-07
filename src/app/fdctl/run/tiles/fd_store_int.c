@@ -734,8 +734,9 @@ unprivileged_init( fd_topo_t *      topo,
                                                 O_WRONLY | O_CREAT,
                                                 S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH );
     if( ctx->shred_cap_ctx.shred_cap_fileno==-1 ) FD_LOG_ERR(( "failed at opening the shredcap file" ));
-  } else if ( strlen( tile->store_int.shred_cap_replay ) > 0 ) {
-    ctx->sim = 1;
+  } else if( strlen( tile->store_int.shred_cap_replay )>0 ) {
+    ctx->sim                           = 1;
+    ctx->store->blockstore->shmem->smr = 0UL;
     FD_TEST( fd_shred_cap_replay( tile->store_int.shred_cap_replay, ctx->store ) == FD_SHRED_CAP_OK );
   }
 
