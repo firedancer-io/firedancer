@@ -1132,10 +1132,10 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     txn_result->has_fee_details                   = false;
 
     if( txn_result->sanitization_error ) {
-      /* If exec_res was an instruction error, capture the error number and idx */
-      if( exec_res == FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR ) {
-        txn_result->instruction_error = (uint32_t) -task_info->txn_ctx->exec_err;
-        txn_result->instruction_error_index = (uint32_t) task_info->txn_ctx->instr_err_idx;
+      if( exec_res==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR ) {
+      /* If exec_res was an instruction error and we have a sanitization error, it was a precompile error */
+        txn_result->instruction_error       = (uint32_t) -txn_ctx->exec_err;
+        txn_result->instruction_error_index = (uint32_t) txn_ctx->instr_err_idx;
 
         /*
         TODO: precompile error codes are not conformant, so we're ignoring custom error codes for them for now. This should be revisited in the future.
@@ -1147,34 +1147,36 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
         }
         */
       }
+
       ulong actual_end = FD_SCRATCH_ALLOC_FINI( l, 1UL );
       _txn_context_destroy( runner, slot_ctx );
 
       *output = txn_result;
       return actual_end - (ulong)output_buf;
-    }
 
-    txn_result->has_fee_details                   = true;
-    txn_result->fee_details.transaction_fee       = slot_ctx->slot_bank.collected_execution_fees;
-    txn_result->fee_details.prioritization_fee    = slot_ctx->slot_bank.collected_priority_fees;
+    } else {
+      /* Capture the instruction error code */
+      if( exec_res==FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR ) {
+        int instr_err_idx                   = txn_ctx->instr_err_idx;
+        int program_id_idx                  = txn_ctx->instr_infos[instr_err_idx].program_id;
 
-    /* Rent is only collected on successfully loaded transactions */
-    txn_result->rent                              = txn_ctx->collected_rent;
+        txn_result->instruction_error       = (uint32_t) -txn_ctx->exec_err;
+        txn_result->instruction_error_index = (uint32_t) instr_err_idx;
 
-    /* At this point, the transaction has executed */
-    if( exec_res ) {
-      /* Instruction error index must be set for the txn error to be an instruction error */
-      if( txn_ctx->instr_err_idx != INT32_MAX ) {
-        txn_result->status = (uint32_t) -FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
-        txn_result->instruction_error = (uint32_t) -exec_res;
-        txn_result->instruction_error_index = (uint32_t) txn_ctx->instr_err_idx;
-        if( exec_res == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
+        /* If the exec err was a custom instr error and came from a precompile instruction, don't capture the custom error code. */
+        if( txn_ctx->exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR &&
+            fd_executor_lookup_native_precompile_program( &txn_ctx->borrowed_accounts[ program_id_idx ] )==NULL ) {
           txn_result->custom_error = txn_ctx->custom_err;
         }
-      } else {
-        txn_result->status = (uint32_t) -exec_res;
       }
     }
+
+    txn_result->has_fee_details                = true;
+    txn_result->fee_details.transaction_fee    = slot_ctx->slot_bank.collected_execution_fees;
+    txn_result->fee_details.prioritization_fee = slot_ctx->slot_bank.collected_priority_fees;
+
+    /* Rent is only collected on successfully loaded transactions */
+    txn_result->rent                           = txn_ctx->collected_rent;
 
     if( txn_ctx->return_data.len > 0 ) {
       txn_result->return_data = FD_SCRATCH_ALLOC_APPEND( l, alignof(pb_bytes_array_t),
