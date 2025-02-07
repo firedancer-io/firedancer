@@ -14,7 +14,6 @@
 #define FD_BLOCK_EPOCH_BANK_TYPE ((uchar)7)
 
 #define FD_RUNTIME_ENC_BINCODE 0xB13C0DEFU /* classic bincode encoding */
-#define FD_RUNTIME_ENC_ARCHIVE 0xA3C417EAU /* archival encoding */
 
 FD_PROTOTYPES_BEGIN
 
@@ -30,12 +29,6 @@ fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx );
 int
 fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx );
 
-int
-fd_runtime_save_slot_bank_archival( fd_exec_slot_ctx_t * slot_ctx );
-
-int
-fd_runtime_save_epoch_bank_archival( fd_exec_slot_ctx_t * slot_ctx );
-
 /* fd_features_restore loads all known feature accounts from the
    accounts database.  This is used when initializing bank from a
    snapshot. */
@@ -46,8 +39,8 @@ fd_features_restore( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad );
 /* Recover slot_bank and epoch_bank from funk. */
 
 void
-fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, 
-                          int                  delete_first, 
+fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
+                          int                  delete_first,
                           int                  clear_first,
                           fd_spad_t *          runtime_spad );
 

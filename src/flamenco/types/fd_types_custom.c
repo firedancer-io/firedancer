@@ -54,6 +54,13 @@ fd_flamenco_txn_decode_unsafe( fd_flamenco_txn_t *       self,
   ctx->data = (void *)( (ulong)ctx->data + sz );
 }
 
+int
+fd_flamenco_txn_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  (void)ctx;
+  (void)total_sz;
+  return 0;
+}
+
 void
 fd_gossip_ip4_addr_walk( void *                       w,
                          fd_gossip_ip4_addr_t const * self,
@@ -164,6 +171,13 @@ int fd_solana_vote_account_decode( fd_solana_vote_account_t * self, fd_bincode_d
   fd_solana_vote_account_new( self );
   fd_solana_vote_account_decode_unsafe( self, ctx );
   return FD_BINCODE_SUCCESS;
+}
+
+int
+fd_solana_vote_account_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  (void)ctx;
+  (void)total_sz;
+  return 0;
 }
 
 int fd_solana_vote_account_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {

@@ -243,9 +243,6 @@ slot_ctx_restore( ulong                 slot,
   fd_slot_bank_destroy( &slot_ctx_out->slot_bank, &destroy_ctx );
   if( magic == FD_RUNTIME_ENC_BINCODE ) {
     FD_TEST( fd_slot_bank_decode( &slot_ctx_out->slot_bank, &decode_ctx ) == FD_BINCODE_SUCCESS );
-  } else if( magic == FD_RUNTIME_ENC_ARCHIVE ) {
-    FD_TEST( fd_slot_bank_decode_archival( &slot_ctx_out->slot_bank, &decode_ctx ) ==
-             FD_BINCODE_SUCCESS );
   } else {
     FD_LOG_ERR( ( "failed to read banks record: invalid magic number" ) );
   }

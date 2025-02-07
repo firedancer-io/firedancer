@@ -57,37 +57,6 @@ fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx ) {
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-int
-fd_runtime_save_epoch_bank_archival( fd_exec_slot_ctx_t * slot_ctx ) {
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  ulong sz = sizeof(uint) + fd_epoch_bank_size(epoch_bank)*2; /* Conservatively estimate double the bincode size */
-  fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
-  int opt_err = 0;
-  fd_funk_rec_t *rec = fd_funk_rec_write_prepare(slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, &id, sz, 1, NULL, &opt_err);
-  if (NULL == rec)
-  {
-    FD_LOG_WARNING(("fd_runtime_save_banks failed: %s", fd_funk_strerror(opt_err)));
-    return opt_err;
-  }
-
-  uchar *buf = fd_funk_val(rec, fd_funk_wksp(slot_ctx->acc_mgr->funk));
-  *(uint*)buf = FD_RUNTIME_ENC_ARCHIVE;
-  fd_bincode_encode_ctx_t ctx = {
-      .data = buf + sizeof(uint),
-      .dataend = buf + sz,
-  };
-
-  if (FD_UNLIKELY(fd_epoch_bank_encode_archival(epoch_bank, &ctx) != FD_BINCODE_SUCCESS))
-  {
-    FD_LOG_WARNING(("fd_runtime_save_banks: fd_firedancer_banks_encode failed"));
-    return -1;
-  }
-
-  rec->val_sz = (uint)((uchar *)ctx.data - buf); /* Fix the final size */
-
-  return FD_RUNTIME_EXECUTE_SUCCESS;
-}
-
 int fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx ) {
   ulong sz = sizeof(uint) + fd_slot_bank_size( &slot_ctx->slot_bank );
 
@@ -129,39 +98,9 @@ int fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx ) {
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-int fd_runtime_save_slot_bank_archival(fd_exec_slot_ctx_t *slot_ctx)
-{
-  ulong sz = sizeof(uint) + fd_slot_bank_size(&slot_ctx->slot_bank)*2; /* Conservatively estimate double the bincode size */
-
-  fd_funk_rec_key_t id = fd_runtime_slot_bank_key();
-  int opt_err = 0;
-  fd_funk_rec_t *rec = fd_funk_rec_write_prepare(slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, &id, sz, 1, NULL, &opt_err);
-  if (NULL == rec)
-  {
-    FD_LOG_WARNING(("fd_runtime_save_banks failed: %s", fd_funk_strerror(opt_err)));
-    return opt_err;
-  }
-
-  uchar *buf = fd_funk_val(rec, fd_funk_wksp(slot_ctx->acc_mgr->funk));
-  *(uint*)buf = FD_RUNTIME_ENC_ARCHIVE;
-  fd_bincode_encode_ctx_t ctx = {
-      .data = buf + sizeof(uint),
-      .dataend = buf + sz,
-  };
-  if (FD_UNLIKELY(fd_slot_bank_encode_archival(&slot_ctx->slot_bank, &ctx) != FD_BINCODE_SUCCESS))
-  {
-    FD_LOG_WARNING(("fd_runtime_save_banks: fd_firedancer_banks_encode failed"));
-    return -1;
-  }
-
-  rec->val_sz = (uint)((uchar *)ctx.data - buf); /* Fix the final size */
-
-  return FD_RUNTIME_EXECUTE_SUCCESS;
-}
-
 void
-fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx, 
-                          int                  delete_first, 
+fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
+                          int                  delete_first,
                           int                  clear_first,
                           fd_spad_t *          runtime_spad ) {
 
@@ -192,8 +131,6 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
     ctx.valloc  = fd_spad_virtual( runtime_spad );
     if( magic == FD_RUNTIME_ENC_BINCODE ) {
       FD_TEST( fd_epoch_bank_decode( epoch_bank, &ctx )==FD_BINCODE_SUCCESS );
-    } else if( magic == FD_RUNTIME_ENC_ARCHIVE ) {
-      FD_TEST( fd_epoch_bank_decode_archival( epoch_bank, &ctx )==FD_BINCODE_SUCCESS );
     } else {
       FD_LOG_ERR(("failed to read banks record: invalid magic number"));
     }
@@ -217,15 +154,13 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
     }
     uint magic = *(uint*)val;
 
-    fd_bincode_decode_ctx_t ctx = { 
+    fd_bincode_decode_ctx_t ctx = {
       .data    = (uchar*)val + sizeof(uint),
       .dataend = (uchar*)val + fd_funk_val_sz( rec ),
       .valloc  = fd_spad_virtual( runtime_spad )
     };
     if( magic == FD_RUNTIME_ENC_BINCODE ) {
       FD_TEST( fd_slot_bank_decode(&slot_ctx->slot_bank, &ctx )==FD_BINCODE_SUCCESS );
-    } else if( magic == FD_RUNTIME_ENC_ARCHIVE ) {
-      FD_TEST( fd_slot_bank_decode_archival(&slot_ctx->slot_bank, &ctx )==FD_BINCODE_SUCCESS );
     } else {
       FD_LOG_ERR(("failed to read banks record: invalid magic number"));
     }
@@ -253,7 +188,7 @@ fd_runtime_delete_banks( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad
 
   /* As the collection pointers are not owned by fd_alloc, zero them
      out to prevent invalid frees by the destroy function.
-     
+
      TODO: This free actually doesn't do anything because of spad. */
 
   fd_bincode_destroy_ctx_t ctx = { .valloc = fd_spad_virtual( runtime_spad ) };

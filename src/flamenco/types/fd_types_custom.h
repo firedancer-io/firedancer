@@ -54,6 +54,7 @@ FD_PROTOTYPES_BEGIN
 #define fd_pubkey_check_zero       fd_hash_check_zero
 #define fd_pubkey_set_zero         fd_hash_set_zero
 #define fd_pubkey_walk             fd_hash_walk
+#define fd_pubkey_decode_footprint fd_hash_decode_footprint
 
 #define fd_hash_decode_archival             fd_hash_decode
 #define fd_hash_decode_archival_preflight   fd_hash_decode_preflight
@@ -108,6 +109,9 @@ typedef struct fd_solana_vote_account fd_solana_vote_account_t;
 
 void
 fd_solana_vote_account_new( fd_solana_vote_account_t * self );
+
+int
+fd_solana_vote_account_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 
 int
 fd_solana_vote_account_decode( fd_solana_vote_account_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -173,6 +177,9 @@ fd_flamenco_txn_decode_preflight( fd_bincode_decode_ctx_t * ctx );
 void
 fd_flamenco_txn_decode_unsafe( fd_flamenco_txn_t *       self,
                                fd_bincode_decode_ctx_t * ctx );
+
+int
+fd_flamenco_txn_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 
 static inline void
 fd_flamenco_txn_destroy( fd_flamenco_txn_t const *  self FD_FN_UNUSED,
