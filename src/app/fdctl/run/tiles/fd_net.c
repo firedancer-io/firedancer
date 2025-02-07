@@ -115,10 +115,6 @@ typedef struct {
   long        tx_flush_interval_ticks;
   long        next_tx_flush;
 
-  /* Flush every N packets */
-  ulong flush_pending;
-  ulong flush_wmark;
-
   fd_ip_t *   ip;
 
   struct {
@@ -442,15 +438,12 @@ after_frag( fd_net_ctx_t *      ctx,
   (void)tsorig;
   (void)stem;
 
-  int  flush_level   = ctx->flush_pending >= ctx->flush_wmark;
   long now           = fd_tickcount();
   long next_tx_flush = ctx->next_tx_flush;
   long deadline      = now + ctx->tx_flush_interval_ticks;
-  int  flush_timeout = now > next_tx_flush;
-  int  flush         = flush_level || flush_timeout;
+  int  flush         = now > next_tx_flush;
   fd_long_store_if( next_tx_flush==LONG_MAX, &ctx->next_tx_flush, deadline ); /* first packet of batch */
   fd_long_store_if( flush,                   &ctx->next_tx_flush, LONG_MAX ); /* last packet of batch */
-  ctx->flush_pending = flush ? 0UL : ctx->flush_pending+1UL;
 
   fd_aio_pkt_info_t aio_buf = { .buf = ctx->frame, .buf_sz = (ushort)sz };
   if( FD_UNLIKELY( route_loopback( ctx->src_ip_addr, sig ) ) ) {
@@ -756,9 +749,6 @@ unprivileged_init( fd_topo_t *      topo,
   } else if( FD_UNLIKELY( ctx->repair_serve_listen_port!=0 && ctx->repair_out->mcache==NULL ) ) {
     FD_LOG_ERR(( "repair serve listen port set but no out link was found" ));
   }
-
-  ctx->flush_wmark   = (ulong)( (double)tile->net.xdp_aio_depth * 0.7 );
-  ctx->flush_pending = 0UL;
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
