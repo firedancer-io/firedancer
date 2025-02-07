@@ -902,7 +902,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   fd_runtime_pre_execute_check( task_info );
 
-  if( !task_info->exec_res ) {
+  if( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) {
     task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
     task_info->exec_res    = fd_execute_txn( task_info );
   }
@@ -1201,6 +1201,14 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     /* Capture borrowed accounts */
     for( ulong j=0UL; j < txn_ctx->accounts_cnt; j++ ) {
       fd_borrowed_account_t * acc = &txn_ctx->borrowed_accounts[j];
+
+      /* For fees-only transactions, only save the fee payer (and potentially the nonce) only */
+      if( task_info->txn->flags & FD_TXN_P_FLAGS_FEES_ONLY ) {
+        if( j!=FD_FEE_PAYER_TXN_IDX && j!=task_info->txn_ctx->nonce_account_idx_in_txn ) {
+          continue;
+        }
+      }
+
       if( !( fd_txn_account_is_writable_idx( txn_ctx, (int)j ) || j==FD_FEE_PAYER_TXN_IDX ) ) continue;
       assert( acc->meta );
 
