@@ -879,12 +879,6 @@ dynamic_port_range = "8900-9000"
         # handling.
         xdp_aio_depth = 256
 
-        # When the oldest packet in a batch has been queued for more than
-        # the specified duration, flushes the batch out to to the network
-        # device.  Smaller values improve latency, larger values may
-        # improve throughput.
-        flush_timeout_micros = 20
-
         # The maximum number of packets in-flight between a net tile and
         # downstream consumers, after which additional packets begin to
         # replace older ones, which will be dropped.  TODO: ... Should

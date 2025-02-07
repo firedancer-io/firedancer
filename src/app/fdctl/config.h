@@ -220,7 +220,6 @@ typedef struct {
       uint xdp_rx_queue_size;
       uint xdp_tx_queue_size;
       uint xdp_aio_depth;
-      uint flush_timeout_micros;
 
       uint send_buffer_size;
     } net;
