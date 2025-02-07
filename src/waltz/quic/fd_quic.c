@@ -1374,6 +1374,8 @@ fd_quic_send_retry( fd_quic_t *               quic,
   uchar retry_pkt[ FD_QUIC_RETRY_LOCAL_SZ ];
   ulong retry_pkt_sz = fd_quic_retry_create( retry_pkt, pkt, state->_rng, state->retry_secret, state->retry_iv, odcid, scid, new_conn_id, expire_at );
 
+  quic->metrics.retry_tx_cnt++;
+
   uchar * tx_ptr = retry_pkt         + retry_pkt_sz;
   if( FD_UNLIKELY( fd_quic_tx_buffered_raw(
         quic,
