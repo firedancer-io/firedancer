@@ -175,6 +175,7 @@ metric introduced.
     <counter name="PktUndersz" summary="Number of QUIC packets dropped due to being too small." />
     <counter name="PktOversz" summary="Number of QUIC packets dropped due to being too large." />
     <counter name="PktVerneg" summary="Number of QUIC version negotiation packets received." />
+    <counter name="PktMetaRetry" summary="Number of QUIC packets that retransmitted." />
 </tile>
 
 <tile name="bundle">
