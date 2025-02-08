@@ -8,10 +8,6 @@
 #include "../../../util/net/fd_eth.h"
 #include <stdio.h>
 
-#if defined(__linux__)
-#include "../../xdp/fd_xdp.h"
-#endif
-
 /* Common helpers for QUIC tests.  The tests using these gain the
    following command-line options:
 
@@ -130,7 +126,6 @@ FD_PROTOTYPES_END
 
 struct fd_quic_udpsock {
   int type;
-# define FD_QUIC_UDPSOCK_TYPE_XSK     1
 # define FD_QUIC_UDPSOCK_TYPE_UDPSOCK 2
 
   uint   listen_ip;
@@ -138,15 +133,6 @@ struct fd_quic_udpsock {
 
   fd_wksp_t * wksp;  /* Handle to the workspace owning the objects */
   union {
-#   if defined(__linux__)
-    struct {
-      fd_xdp_session_t      session;
-      fd_xdp_link_session_t link_session;
-      fd_xsk_t *            xsk;
-      fd_xsk_aio_t *        xsk_aio;
-      fd_aio_eth_wrap_t     eth_wrap;
-    } xdp;
-#   endif
     struct {
       fd_udpsock_t * sock;
       int            sock_fd;
