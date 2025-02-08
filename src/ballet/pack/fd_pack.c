@@ -453,7 +453,7 @@ struct fd_pack_private {
 
   fd_pack_limits_t lim[1];
 
-  ulong      pending_txn_cnt;
+  ulong      pending_txn_cnt; /* Summed across all treaps */
   ulong      microblock_cnt; /* How many microblocks have we
                                 generated in this block? */
   ulong      data_bytes_consumed; /* How much data is in this block so
@@ -1574,11 +1574,16 @@ fd_pack_set_initializer_bundles_ready( fd_pack_t * pack ) {
 
 void
 fd_pack_metrics_write( fd_pack_t const * pack ) {
-  ulong pending_votes = treap_ele_cnt( pack->pending_votes );
-  FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS,       pack->pending_txn_cnt                                                  );
-  FD_MGAUGE_SET( PACK, AVAILABLE_VOTE_TRANSACTIONS,  pending_votes                                                          );
-  FD_MGAUGE_SET( PACK, CONFLICTING_TRANSACTIONS,     pack->pending_txn_cnt - treap_ele_cnt( pack->pending ) - pending_votes );
-  FD_MGAUGE_SET( PACK, SMALLEST_PENDING_TRANSACTION, pack->pending_smallest->cus                                            );
+  ulong pending_regular = treap_ele_cnt( pack->pending        );
+  ulong pending_votes  = treap_ele_cnt( pack->pending_votes   );
+  ulong pending_bundle = treap_ele_cnt( pack->pending_bundles );
+  ulong conflicting    = pack->pending_txn_cnt - pending_votes - pending_bundle - treap_ele_cnt( pack->pending );
+  FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS_ALL,         pack->pending_txn_cnt       );
+  FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS_REGULAR,     pending_regular             );
+  FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS_VOTES,       pending_votes               );
+  FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS_CONFLICTING, conflicting                 );
+  FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS_BUNDLES,     pending_bundle              );
+  FD_MGAUGE_SET( PACK, SMALLEST_PENDING_TRANSACTION,       pack->pending_smallest->cus );
 }
 
 typedef struct {
@@ -2402,9 +2407,8 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   pack->data_bytes_consumed         += nonempty * MICROBLOCK_DATA_OVERHEAD;
 
   /* Update metrics counters */
-  FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS,      pack->pending_txn_cnt                );
-  FD_MGAUGE_SET( PACK, AVAILABLE_VOTE_TRANSACTIONS, treap_ele_cnt( pack->pending_votes ) );
-  FD_MGAUGE_SET( PACK, CUS_CONSUMED_IN_BLOCK,       pack->cumulative_block_cost          );
+  fd_pack_metrics_write( pack );
+  FD_MGAUGE_SET( PACK, CUS_CONSUMED_IN_BLOCK,         pack->cumulative_block_cost          );
 
   fd_histf_sample( pack->txn_per_microblock,  scheduled              );
   fd_histf_sample( pack->vote_per_microblock, status1.txns_scheduled );
