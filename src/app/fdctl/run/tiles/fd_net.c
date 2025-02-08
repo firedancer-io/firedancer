@@ -143,6 +143,7 @@ typedef struct {
     ulong rx_bytes_total;
     ulong rx_undersz_cnt;
     ulong rx_fill_blocked_cnt;
+    ulong rx_backp_cnt;
 
     ulong tx_submit_cnt;
     ulong tx_complete_cnt;
@@ -184,6 +185,7 @@ metrics_write( fd_net_ctx_t * ctx ) {
   FD_MCNT_SET( NET, RX_BYTES_TOTAL,      ctx->metrics.rx_bytes_total      );
   FD_MCNT_SET( NET, RX_UNDERSZ_CNT,      ctx->metrics.rx_undersz_cnt      );
   FD_MCNT_SET( NET, RX_FILL_BLOCKED_CNT, ctx->metrics.rx_fill_blocked_cnt );
+  FD_MCNT_SET( NET, RX_BACKPRESSURE_CNT, ctx->metrics.rx_backp_cnt        );
 
   FD_MCNT_SET( NET, TX_SUBMIT_CNT,     ctx->metrics.tx_submit_cnt     );
   FD_MCNT_SET( NET, TX_COMPLETE_CNT,   ctx->metrics.tx_complete_cnt   );
@@ -602,9 +604,10 @@ after_frag( fd_net_ctx_t *      ctx,
    Attempts to copy out the frame to a downstream tile. */
 
 static void
-net_rx_packet( fd_net_ctx_t * ctx,
-               uchar const *  packet,
-               ulong          sz ) {
+net_rx_packet( fd_net_ctx_t *      ctx,
+               fd_stem_context_t * stem,
+               uchar const *       packet,
+               ulong               sz ) {
 
   uchar const * packet_end = packet + sz;
   uchar const * iphdr      = packet + 14U;
@@ -680,6 +683,8 @@ net_rx_packet( fd_net_ctx_t * ctx,
   ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
   fd_mcache_publish( out->mcache, out->depth, out->seq, sig, out->chunk, sz, 0, 0, tspub );
 
+  *stem->cr_avail -= stem->cr_decrement_amount;
+
   out->seq = fd_seq_inc( out->seq, 1UL );
   out->chunk = fd_dcache_compact_next( out->chunk, FD_NET_MTU, out->chunk0, out->wmark );
 
@@ -728,9 +733,15 @@ net_comp_event( fd_net_ctx_t * ctx,
    ring.  */
 
 static void
-net_rx_event( fd_net_ctx_t * ctx,
-              fd_xsk_t *     xsk,
-              uint           rx_seq ) {
+net_rx_event( fd_net_ctx_t *      ctx,
+              fd_stem_context_t * stem,
+              fd_xsk_t *          xsk,
+              uint                rx_seq ) {
+
+  if( FD_UNLIKELY( *stem->cr_avail < stem->cr_decrement_amount ) ) {
+    ctx->metrics.rx_backp_cnt++;
+    return;
+  }
 
   /* Locate the incoming frame */
 
@@ -758,7 +769,7 @@ net_rx_event( fd_net_ctx_t * ctx,
   /* Pass it to the receive handler */
 
   uchar const * packet = (uchar const *)xsk->umem.addr + frame.addr;
-  net_rx_packet( ctx, packet, frame.len );
+  net_rx_packet( ctx, stem, packet, frame.len );
 
   FD_VOLATILE( *rx_ring->cons ) = rx_ring->cached_cons = rx_seq+1U;
 
@@ -804,7 +815,7 @@ before_credit( fd_net_ctx_t *      ctx,
   if( rx_cons!=rx_prod ) {
     *charge_busy = 1;
     rx_xsk->ring_rx.cached_prod = rx_prod;
-    net_rx_event( ctx, rx_xsk, rx_cons );
+    net_rx_event( ctx, stem, rx_xsk, rx_cons );
   }
 
   uint comp_cons = FD_VOLATILE_CONST( *rx_xsk->ring_cr.cons );
