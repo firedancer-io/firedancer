@@ -141,6 +141,12 @@ typedef struct {
       ushort gossip_listen_port;
       ushort repair_intake_listen_port;
       ushort repair_serve_listen_port;
+
+      ulong netdev_dbl_buf_obj_id; /* dbl_buf containing netdev_tbl */
+      ulong fib4_main_obj_id;      /* fib4 containing main route table */
+      ulong fib4_local_obj_id;     /* fib4 containing local route table */
+      ulong neigh4_obj_id;         /* neigh4 hash map header */
+      ulong neigh4_ele_obj_id;     /* neigh4 hash map slots */
     } net;
 
     struct {

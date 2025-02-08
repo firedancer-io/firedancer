@@ -61,13 +61,11 @@ metric introduced.
     <counter name="TxSubmitCnt" summary="Number of packet transmit jobs submitted." />
     <counter name="TxCompleteCnt" summary="Number of packet transmit jobs marked as completed by the kernel." />
     <counter name="TxBytesTotal" summary="Total number of bytes transmitted (including Ethernet header)." />
-    <counter name="TxOverrunCnt" summary="Number of packet transmit jobs aborted due to overrun by upstream tile." />
     <counter name="TxRouteFailCnt" summary="Number of packet transmit jobs dropped due to route failure." />
+    <counter name="TxNeighborFailCnt" summary="Number of packet transmit jobs dropped due to unresolved neighbor." />
 
     <counter name="XskTxWakeupCnt" summary="Number of XSK sendto syscalls dispatched." />
     <counter name="XskRxWakeupCnt" summary="Number of XSK recvmsg syscalls dispatched." />
-    <counter name="ArpRequestCnt" summary="Number of ARP requests submitted." />
-    <counter name="ArpRequestFailCnt" summary="Number of ARP requests failed to submit." />
 
     <!-- Kernel xdp_statistics struct -->
     <counter name="XdpRxDroppedOther" summary="xdp_statistics_v0.rx_dropped: Dropped for other reasons" />

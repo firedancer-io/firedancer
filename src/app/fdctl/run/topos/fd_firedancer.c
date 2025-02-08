@@ -81,12 +81,13 @@ fd_topo_initialize( config_t * config ) {
   topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
 
   /*             topo, name */
-  fd_topob_wksp( topo, "netbase"    );
-  fd_topob_wksp( topo, "net_shred"  );
-  fd_topob_wksp( topo, "net_gossip" );
-  fd_topob_wksp( topo, "net_repair" );
-  fd_topob_wksp( topo, "net_quic"   );
-  fd_topob_wksp( topo, "net_voter"  );
+  fd_topob_wksp( topo, "netbase"     );
+  fd_topob_wksp( topo, "net_netlink" );
+  fd_topob_wksp( topo, "net_shred"   );
+  fd_topob_wksp( topo, "net_gossip"  );
+  fd_topob_wksp( topo, "net_repair"  );
+  fd_topob_wksp( topo, "net_quic"    );
+  fd_topob_wksp( topo, "net_voter"   );
 
   fd_topob_wksp( topo, "quic_verify"  );
   fd_topob_wksp( topo, "verify_dedup" );
@@ -167,6 +168,7 @@ fd_topo_initialize( config_t * config ) {
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
   /*                                  topo, link_name,      wksp_name,      depth,                                    mtu,                           burst */
+  FOR(net_tile_cnt)    fd_topob_link( topo, "net_netlink",  "net_netlink",  128UL,                                    0UL,                           0UL );
   FOR(net_tile_cnt)    fd_topob_link( topo, "net_gossip",   "net_gossip",   config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
   FOR(net_tile_cnt)    fd_topob_link( topo, "net_repair",   "net_repair",   config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
   FOR(net_tile_cnt)    fd_topob_link( topo, "net_quic",     "net_quic",     config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
@@ -362,8 +364,10 @@ fd_topo_initialize( config_t * config ) {
     ulong net_tile_id = fd_topo_find_tile( topo, "net", i ); FD_TEST( net_tile_id!=ULONG_MAX );
     fd_netlink_topo_join( topo, netlink_tile, &topo->tiles[ net_tile_id ] );
   }
+  fd_topob_tile_in( topo, "netlnk", 0UL, "metric_in", "net_netlink", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 
   /*                                      topo, tile_name, tile_kind_id, fseq_wksp,   link_name,      link_kind_id, reliable,            polled */
+  FOR(net_tile_cnt)    fd_topob_tile_out( topo, "net",     i,                         "net_netlink",  i                                                  );
   FOR(net_tile_cnt) for( ulong j=0UL; j<shred_tile_cnt; j++ )
                        fd_topob_tile_in(  topo, "net",     i,            "metric_in", "shred_net",    j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   FOR(net_tile_cnt)    fd_topob_tile_out( topo, "net",     i,                         "net_shred",    i                                                  );
@@ -540,6 +544,12 @@ fd_topo_initialize( config_t * config ) {
       tile->net.gossip_listen_port             = config->gossip.port;
       tile->net.repair_intake_listen_port      = config->tiles.repair.repair_intake_listen_port;
       tile->net.repair_serve_listen_port       = config->tiles.repair.repair_serve_listen_port;
+
+      tile->net.netdev_dbl_buf_obj_id = netlink_tile->netlink.netdev_dbl_buf_obj_id;
+      tile->net.fib4_main_obj_id      = netlink_tile->netlink.fib4_main_obj_id;
+      tile->net.fib4_local_obj_id     = netlink_tile->netlink.fib4_local_obj_id;
+      tile->net.neigh4_obj_id         = netlink_tile->netlink.neigh4_obj_id;
+      tile->net.neigh4_ele_obj_id     = netlink_tile->netlink.neigh4_ele_obj_id;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "netlnk" ) ) ) {
 
