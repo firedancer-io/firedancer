@@ -35,6 +35,7 @@ use {
     tokio::{
         runtime::{self, Runtime},
         time::{interval, sleep, timeout},
+        sync::watch,
     },
     tokio_stream::wrappers::IntervalStream,
 };
@@ -81,6 +82,7 @@ impl Future for TileFuture {
 
 struct TileExecutor {
     runtime: Runtime,
+    identity_pubkey: (watch::Sender<[u8; 32]>, watch::Receiver<[u8; 32]>),
     stream: Arc<Mutex<Pin<Box<dyn Stream<Item = BundleOrPacket> + Send>>>>,
 }
 
@@ -173,11 +175,12 @@ pub extern "C" fn plugin_bundle_init(
         .unwrap();
 
     let pubkey: [u8; 32] = unsafe { std::ptr::read(pubkey as *const [u8; 32]) };
+    let channel = watch::channel(pubkey);
 
     let task = produce_bundles(
         unsafe { CStr::from_ptr(url).to_string_lossy().into_owned() },
         unsafe { CStr::from_ptr(domain_name).to_string_lossy().into_owned() },
-        pubkey,
+        channel.1.clone(),
     );
 
     let executor = TileExecutor {
@@ -186,6 +189,7 @@ pub extern "C" fn plugin_bundle_init(
             .enable_time()
             .build()
             .unwrap(),
+        identity_pubkey: channel,
         stream: Arc::new(Mutex::new(Box::pin(task))),
     };
 
@@ -195,6 +199,8 @@ pub extern "C" fn plugin_bundle_init(
 #[no_mangle]
 pub extern "C" fn plugin_bundle_poll(
     plugin: *mut c_void,
+    reload_identity: i32,
+    identity_pubkey: *const u8,
     out_type: *mut i32,
     out_block_builder_pubkey: *mut u8,
     out_block_builder_commission: *mut u64,
@@ -202,6 +208,11 @@ pub extern "C" fn plugin_bundle_poll(
     out_data: *mut u8,
 ) {
     let executor = unsafe { &mut *(plugin as *mut TileExecutor) };
+
+    if reload_identity != 0 {
+        let identity: [u8; 32] = unsafe { std::ptr::read(identity_pubkey as *const [u8; 32]) };
+        executor.identity_pubkey.0.send(identity).unwrap();
+    }
 
     let future = TileFuture {
         pending: 64,
@@ -295,7 +306,7 @@ enum StreamSelector {
 }
 
 struct StreamState {
-    identity_pubkey: [u8; 32],
+    identity_pubkey: watch::Receiver<[u8; 32]>,
     client: BlockEngineValidatorClient<InterceptedService<Channel, AuthInterceptor>>,
     auth_client: AuthServiceClient<Channel>,
     access_token: Token,
@@ -307,7 +318,7 @@ struct StreamState {
 fn produce_bundles(
     url: String,
     domain_name: String,
-    identity_pubkey: [u8; 32],
+    identity_pubkey: watch::Receiver<[u8; 32]>,
 ) -> impl Stream<Item = BundleOrPacket> {
     enum Status {
         DisconnectedNotify,
@@ -329,7 +340,7 @@ fn produce_bundles(
     }
 
     let status = Status::Connecting;
-    stream::unfold((status, url, domain_name, identity_pubkey), |(status, url, domain_name, identity_pubkey)| async move {
+    stream::unfold((status, url, domain_name, identity_pubkey), |(status, url, domain_name, mut identity_pubkey)| async move {
         match status {
             Status::DisconnectedNotify => {
                 Some((Some(once(ready(BundleOrPacket::Disconnected)).boxed()), (Status::Disconnected, url, domain_name, identity_pubkey)))
@@ -345,7 +356,7 @@ fn produce_bundles(
                 Some((Some(once(ready(BundleOrPacket::Connected)).boxed()), (Status::Connected(client, auth_client, access_token, refresh_token), url, domain_name, identity_pubkey)))
             }
             Status::Connecting => {
-                let (client, auth_client, access_token, refresh_token) = match connect_auth(&url, &domain_name, &identity_pubkey).await {
+                let (client, auth_client, access_token, refresh_token) = match connect_auth(&url, &domain_name, &mut identity_pubkey).await {
                     Ok(result) => result,
                     Err(ProxyError::AuthenticationPermissionDenied) => {
                         // This error is frequent on hot spares, and the parsed string does not work
@@ -396,7 +407,7 @@ fn produce_bundles(
                 // Annoying to have to use Arc<Mutex<T>> here ... technically this shouldn't be
                 // needed if we could convince the compiler of the right lifetimes.
                 let state = Arc::new(Mutex::new(StreamState {
-                    identity_pubkey,
+                    identity_pubkey: identity_pubkey.clone(),
                     client,
                     auth_client,
                     access_token,
@@ -409,7 +420,7 @@ fn produce_bundles(
                     let _state = state.clone();
 
                     let state = _state.lock().unwrap();
-                    let identity_pubkey = state.identity_pubkey.clone();
+                    let mut identity_pubkey = state.identity_pubkey.clone();
                     let mut client = state.client.clone();
                     let mut auth_client = state.auth_client.clone();
                     let access_token = state.access_token.clone();
@@ -423,7 +434,7 @@ fn produce_bundles(
                             StreamSelector::AuthTimer => {
                                 debug!("auth timer");
                                 let (maybe_new_access, maybe_new_refresh) = match maybe_refresh_auth_tokens(
-                                    &identity_pubkey,
+                                    &mut identity_pubkey,
                                     &mut auth_client,
                                     &access_token,
                                     &refresh_token,
@@ -519,7 +530,7 @@ async fn refresh_block_builder_info(
 async fn connect_auth(
     url: &str,
     domain_name: &str,
-    identity_pubkey: &[u8; 32],
+    identity_pubkey: &mut watch::Receiver<[u8; 32]>,
 ) -> crate::Result<(
     BlockEngineValidatorClient<InterceptedService<Channel, AuthInterceptor>>,
     AuthServiceClient<Channel>,

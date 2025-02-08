@@ -8,6 +8,7 @@
 #include "../../ballet/toml/fd_toml.h"
 #include "../../disco/topo/fd_pod_format.h"
 #include "../../flamenco/genesis/fd_genesis_cluster.h"
+#include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../funk/fd_funk.h"
@@ -224,6 +225,8 @@ fdctl_obj_align( fd_topo_t const *     topo,
     return fd_funk_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
     return fd_txncache_align();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "keyswitch" ) ) ) {
+    return fd_keyswitch_align();
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
     return 0UL;
@@ -265,6 +268,8 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
     return fd_funk_footprint();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
     return fd_txncache_footprint( VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "keyswitch" ) ) ) {
+    return fd_keyswitch_footprint();
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
     return 0UL;

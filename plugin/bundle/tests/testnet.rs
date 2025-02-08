@@ -38,6 +38,8 @@ fn testnet() {
 
         plugin_bundle_poll(
             bundle,
+            0,
+            std::ptr::null_mut(),
             block_builder_pubkey.as_mut_ptr(),
             &mut block_builder_commission as &mut u64,
             &mut out_bundle_len as *mut u64,
