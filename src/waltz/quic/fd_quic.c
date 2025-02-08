@@ -3594,11 +3594,11 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     *pkt_meta = (fd_quic_pkt_meta_t){0};
 
     /* initialize expiry */
-    pkt_meta->expiry = now + conn->idle_timeout;
-    ulong margin = (ulong)(conn->rtt->smoothed_rtt) + (ulong)(3 * conn->rtt->var_rtt);
-    if( margin < pkt_meta->expiry ) {
-      pkt_meta->expiry -= margin;
-    }
+    pkt_meta->expiry = now + (ulong)500e6;
+    //ulong margin = (ulong)(conn->rtt->smoothed_rtt) + (ulong)(3 * conn->rtt->var_rtt);
+    //if( margin < pkt_meta->expiry ) {
+    //  pkt_meta->expiry -= margin;
+    //}
 
     /* initialize tx_time */
     pkt_meta->tx_time = now;
