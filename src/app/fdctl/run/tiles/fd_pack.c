@@ -227,6 +227,11 @@ typedef struct {
   };
 
   struct {
+    long time;
+    ulong all[ FD_METRICS_TOTAL_SZ ];
+  } last_sched_metrics[1];
+
+  struct {
     ulong id;
     ulong txn_cnt;
     ulong txn_received;
@@ -297,6 +302,24 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, extra_txn_deq_align(),    extra_txn_deq_footprint()                                 );
 #endif
   return FD_LAYOUT_FINI( l, scratch_align() );
+}
+
+static inline void
+log_end_block_metrics( fd_pack_ctx_t * ctx,
+                       long            now,
+                       char const    * reason ) {
+#define DELTA( m ) (fd_metrics_tl[ MIDX(COUNTER, PACK, TRANSACTION_SCHEDULE_##m) ] - ctx->last_sched_metrics->all[ MIDX(COUNTER, PACK, TRANSACTION_SCHEDULE_##m) ])
+#define AVAIL( m ) (fd_metrics_tl[ MIDX(GAUGE, PACK, AVAILABLE_TRANSACTIONS_##m) ])
+    FD_LOG_INFO(( "pack_end_block(slot=%lu,%s,%lx,ticks_since_last_schedule=%ld,reasons=%lu,%lu,%lu,%lu,%lu,%lu,%lu;remaining=%lu+%lu+%lu+%lu;smallest=%lu;cus=%lu->%lu)",
+          ctx->leader_slot, reason, ctx->bank_idle_bitset, now-ctx->last_sched_metrics->time,
+          DELTA( TAKEN ), DELTA( CU_LIMIT ), DELTA( FAST_PATH ), DELTA( BYTE_LIMIT ), DELTA( WRITE_COST ), DELTA( SLOW_PATH ), DELTA( DEFER_SKIP ),
+          AVAIL(REGULAR), AVAIL(VOTES), AVAIL(BUNDLES), AVAIL(CONFLICTING),
+          (fd_metrics_tl[ MIDX(GAUGE, PACK, SMALLEST_PENDING_TRANSACTION) ]),
+          (ctx->last_sched_metrics->all[ MIDX(GAUGE, PACK, CUS_CONSUMED_IN_BLOCK) ]),
+          (fd_metrics_tl               [ MIDX(GAUGE, PACK, CUS_CONSUMED_IN_BLOCK) ])
+    ));
+#undef AVAIL
+#undef DELTA
 }
 
 static inline void
@@ -451,6 +474,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, sizeof(fd_done_packing_t), ctx->out_chunk0, ctx->out_wmark );
     }
 
+    log_end_block_metrics( ctx, now, "time" );
     ctx->drain_banks         = 1;
     ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
@@ -543,6 +567,9 @@ after_credit( fd_pack_ctx_t *     ctx,
       ctx->bank_idle_bitset = fd_ulong_pop_lsb( ctx->bank_idle_bitset );
       ctx->skip_cnt         = (long)schedule_cnt * fd_long_if( ctx->use_consumed_cus, (long)bank_cnt/2L, 1L );
       fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now2 );
+
+      memcpy( ctx->last_sched_metrics->all, (ulong const *)fd_metrics_tl, sizeof(ctx->last_sched_metrics->all) );
+      ctx->last_sched_metrics->time = now2;
     }
   }
 
@@ -572,6 +599,7 @@ after_credit( fd_pack_ctx_t *     ctx,
        metric, but we end the slot early so won't see it unless we also
        increment it here. */
     FD_MCNT_INC( PACK, MICROBLOCK_PER_BLOCK_LIMIT, 1UL );
+    log_end_block_metrics( ctx, now, "microblock" );
     ctx->drain_banks         = 1;
     ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
@@ -608,6 +636,7 @@ during_frag( fd_pack_ctx_t * ctx,
 
     if( FD_UNLIKELY( ctx->leader_slot!=ULONG_MAX ) ) {
       FD_LOG_WARNING(( "switching to slot %lu while packing for slot %lu. Draining bank tiles.", fd_disco_poh_sig_slot( sig ), ctx->leader_slot ));
+      log_end_block_metrics( ctx, now_ticks, "switch" );
       ctx->drain_banks         = 1;
       ctx->leader_slot         = ULONG_MAX;
       ctx->slot_microblock_cnt = 0UL;
@@ -934,9 +963,10 @@ unprivileged_init( fd_topo_t *      topo,
                                                        FD_MHIST_SECONDS_MAX( PACK, COMPLETE_MICROBLOCK_DURATION_SECONDS  ) ) );
   ctx->metric_state = 0;
   ctx->metric_state_begin = fd_tickcount();
-  memset( ctx->metric_timing,  '\0', 16*sizeof(long)             );
-  memset( ctx->current_bundle, '\0', sizeof(ctx->current_bundle) );
-  memset( ctx->blk_engine_cfg, '\0', sizeof(ctx->blk_engine_cfg) );
+  memset( ctx->metric_timing,      '\0', 16*sizeof(long)                 );
+  memset( ctx->current_bundle,     '\0', sizeof(ctx->current_bundle)     );
+  memset( ctx->blk_engine_cfg,     '\0', sizeof(ctx->blk_engine_cfg)     );
+  memset( ctx->last_sched_metrics, '\0', sizeof(ctx->last_sched_metrics) );
 
   FD_LOG_INFO(( "packing microblocks of at most %lu transactions to %lu bank tiles", EFFECTIVE_TXN_PER_MICROBLOCK, tile->pack.bank_tile_count ));
 

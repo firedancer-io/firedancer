@@ -268,6 +268,14 @@ metric introduced.
     <int value="15" name="TxnBankLeaderMicroblock" label="Pack scheduled a non-empty microblock" />
 </enum>
 
+<enum name="AvailTxnType">
+  <int value="0" name="All" label="All transactions in any treap" />
+  <int value="1" name="Regular" label="Non-votes in the main treap" />
+  <int value="2" name="Votes" label="Simple votes" />
+  <int value="3" name="Conflicting" label="Non-votes that write to a hotly-contended account" />
+  <int value="4" name="Bundles" label="Transactions that are part of a bundle" />
+</enum>
+
 <tile name="pack">
     <histogram name="ScheduleMicroblockDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
         <summary>Duration of scheduling one microblock</summary>
@@ -296,10 +304,8 @@ metric introduced.
     <counter name="TransactionInsertedFromExtra" summary="Transactions pulled from the extra transaction storage and inserted into pack's primary storage" />
     <counter name="TransactionExpired" summary="Transactions deleted from pack because their TTL expired" />
 
-    <gauge name="AvailableTransactions" summary="The total number of pending transactions in pack's pool that are available to be scheduled" />
-    <gauge name="AvailableVoteTransactions" summary="The number of pending simple vote transactions in pack's pool that are available to be scheduled" />
-    <gauge name="PendingTransactionsHeapSize" summary="The maximum number of pending transactions that pack can consider.  This value is fixed at Firedancer startup but is a useful reference for AvailableTransactions and AvailableVoteTransactions." />
-    <gauge name="ConflictingTransactions" summary="The number of available transactions that are temporarily not being considered due to account lock conflicts with many higher paying transactions" />
+    <gauge name="AvailableTransactions" enum="AvailTxnType" summary="The total number of pending transactions in pack's pool that are available to be scheduled" />
+    <gauge name="PendingTransactionsHeapSize" summary="The maximum number of pending transactions that pack can consider.  This value is fixed at Firedancer startup but is a useful reference for AvailableTransactions." />
 
     <gauge name="SmallestPendingTransaction" summary="A lower bound on the smallest non-vote transaction (in cost units) that is immediately available for scheduling" />
 
