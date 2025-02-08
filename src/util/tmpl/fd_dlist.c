@@ -18,7 +18,7 @@
        ulong prev; // Technically "DLIST_IDX_T DLIST_PREV" (default is ulong prev), do not modify while element is in the dlist
        ulong next; // Technically "DLIST_IDX_T DLIST_NEXT" (default is ulong next), do not modify while element is in the dlist
        ... prev and next can be located arbitrarily in the element and
-       ... can be reused for other purposes when the element is not a in
+       ... can be reused for other purposes when the element is not in a
        ... dlist.  An element should not be moved / released while an
        ... element is in a dlist
      };
@@ -91,7 +91,7 @@
 
      // mydlist_idx_push_{head,tail} pushes the pool element whose index
      // is ele_idx to the dlist's {head,tail} and returns join.  Assumes
-     // ele_idx valid and not already in the dlist.
+     // ele_idx is valid and not already in the dlist.
      /
      // mydlist_idx_pop_{head,tail} pops the pool element at the dlist's
      // {head,tail} and returns its pool index.  Assumes dlist is not
@@ -162,7 +162,7 @@
      // or -1 (i.e. ERR_INVAL) otherwise (logs details).
 
      int
-     mydlist_verify( mydlist_t const * join,    // Current local join to a mydlist.  
+     mydlist_verify( mydlist_t const * join,    // Current local join to a mydlist.
                      ulong             ele_cnt, // Element storage size, in [0,mydlist_ele_max()]
                      myele_t const *   pool );  // Current local join to element storage, indexed [0,ele_cnt)
 
@@ -196,8 +196,7 @@
    different types of dlists.  Variants exist for making header
    prototypes only and/or implementations only if making a library for
    use across multiple compilation units.  Further, options exist to use
-   different hashing functions, comparison functions, etc as detailed
-   below. */
+   different list link types, names, etc as detailed below. */
 
 /* TODO: DOC CONCURRENCY REQUIREMENTS */
 
@@ -207,7 +206,7 @@
 #error "Define DLIST_NAME"
 #endif
 
-/* DLIST_ELE_T is the dlist element type. */
+/* DLIST_ELE_T is the dlist element type */
 
 #ifndef DLIST_ELE_T
 #error "Define DLIST_ELE_T"
