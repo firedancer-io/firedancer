@@ -8,7 +8,6 @@
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../disco/keyguard/fd_keyguard.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
-#include "../../../../waltz/ip/fd_ip.h"
 #include "../../../../disco/fd_disco.h"
 
 #include "../../../../util/net/fd_net_headers.h"
