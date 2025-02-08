@@ -41,6 +41,7 @@
 | net_&#8203;rx_&#8203;bytes_&#8203;total | `counter` | Total number of bytes received (including Ethernet header). |
 | net_&#8203;rx_&#8203;undersz_&#8203;cnt | `counter` | Number of incoming packets dropped due to being too small. |
 | net_&#8203;rx_&#8203;fill_&#8203;blocked_&#8203;cnt | `counter` | Number of incoming packets dropped due to fill ring being full. |
+| net_&#8203;rx_&#8203;backpressure_&#8203;cnt | `counter` | Number of incoming packets dropped due to backpressure. |
 | net_&#8203;tx_&#8203;submit_&#8203;cnt | `counter` | Number of packet transmit jobs submitted. |
 | net_&#8203;tx_&#8203;complete_&#8203;cnt | `counter` | Number of packet transmit jobs marked as completed by the kernel. |
 | net_&#8203;tx_&#8203;bytes_&#8203;total | `counter` | Total number of bytes transmitted (including Ethernet header). |
