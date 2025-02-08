@@ -54,10 +54,12 @@
   do {                                                           \
     uchar * dest = (uchar *)_field_##IDX##_laddr;                \
     memcpy( dest, (FIELD), _field_##IDX##_sz );                  \
-    FIELD_TYPE * ele = fd_type_pun( dest );                      \
     for( ulong i=0; i<(FIELD_CNT); i++ ) {                       \
-      *ele = fd_##FIELD_TYPE##_bswap( *ele );                    \
-      ele++;                                                     \
+      FIELD_TYPE temp;                                           \
+      memcpy( &temp, dest, sizeof(FIELD_TYPE) );                 \
+      temp = fd_##FIELD_TYPE##_bswap( temp );                    \
+      memcpy( dest, &temp, sizeof(FIELD_TYPE) );                 \
+      dest += sizeof(FIELD_TYPE);                                \
     }                                                            \
   } while(0);
 
