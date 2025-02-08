@@ -34,8 +34,7 @@
 #include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../disco/topo/fd_topo.h"
 
-#include "../../../../waltz/xdp/fd_xdp.h"
-#include "../../../../waltz/xdp/fd_xdp1.h"
+#include "../../../../waltz/xdp/fd_xdp_redirect_user.h" /* fd_xsk_activate */
 #include "../../../../waltz/xdp/fd_xsk_private.h"
 #include "../../../../util/log/fd_dtrace.h"
 #include "../../../../util/net/fd_ip4.h"

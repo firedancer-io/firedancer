@@ -4,7 +4,7 @@
 #if defined(__linux__)
 
 #include "fd_xsk.h"
-#include "../../util/fd_util.h"
+#include "../../util/fd_util_base.h"
 
 #include <linux/if_xdp.h>
 
