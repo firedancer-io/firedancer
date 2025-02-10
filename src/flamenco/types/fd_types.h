@@ -5173,6 +5173,29 @@ typedef struct fd_epoch_info_off fd_epoch_info_off_t;
 #define FD_EPOCH_INFO_OFF_FOOTPRINT sizeof(fd_epoch_info_off_t)
 #define FD_EPOCH_INFO_OFF_ALIGN (8UL)
 
+/* Encoded Size: Fixed (22 bytes) */
+struct __attribute__((aligned(8UL))) fd_test_struct {
+  ulong test_0;
+  uchar test_1;
+  uchar test_2;
+  uint test_3;
+  ulong test_4;
+};
+typedef struct fd_test_struct fd_test_struct_t;
+#define FD_TEST_STRUCT_FOOTPRINT sizeof(fd_test_struct_t)
+#define FD_TEST_STRUCT_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_test_struct_off {
+  uint test_0_off;
+  uint test_1_off;
+  uint test_2_off;
+  uint test_3_off;
+  uint test_4_off;
+};
+typedef struct fd_test_struct_off fd_test_struct_off_t;
+#define FD_TEST_STRUCT_OFF_FOOTPRINT sizeof(fd_test_struct_off_t)
+#define FD_TEST_STRUCT_OFF_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -9253,6 +9276,21 @@ ulong fd_epoch_info_align( void );
 int fd_epoch_info_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_epoch_info_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 fd_epoch_info_t * fd_epoch_info_join( void * mem );
+
+void fd_test_struct_new( fd_test_struct_t * self );
+int fd_test_struct_decode( fd_test_struct_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_test_struct_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_test_struct_decode_unsafe( fd_test_struct_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_test_struct_decode_offsets( fd_test_struct_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_test_struct_encode( fd_test_struct_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_test_struct_destroy( fd_test_struct_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_test_struct_walk( void * w, fd_test_struct_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_test_struct_size( fd_test_struct_t const * self );
+ulong fd_test_struct_footprint( void );
+ulong fd_test_struct_align( void );
+int fd_test_struct_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_test_struct_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
+fd_test_struct_t * fd_test_struct_join( void * mem );
 
 FD_PROTOTYPES_END
 

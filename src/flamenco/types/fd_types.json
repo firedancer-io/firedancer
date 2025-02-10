@@ -2789,6 +2789,17 @@
         { "name": "vote_states", "type": "map", "element": "vote_info_pair", "key": "account" },
         { "name": "stake_infos_new_keys_start_idx", "type": "ulong" }
       ]
+    },
+    {
+      "name": "test_struct",
+      "type": "struct",
+      "fields": [
+        { "name": "test_0", "type": "ulong" },
+        { "name": "test_1", "type": "uchar" },
+        { "name": "test_2", "type": "uchar" },
+        { "name": "test_3", "type": "uint"  },
+        { "name": "test_4", "type": "ulong" }
+      ]
     }
   ]
 }

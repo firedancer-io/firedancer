@@ -1158,7 +1158,7 @@ class DequeMember(TypeNode):
             print(f'    fd_bincode_{simpletypes[self.element]}_decode_unsafe( elem, ctx );', file=body)
         else:
             print(f'    {namespace}_{self.element}_new( elem );', file=body)
-            print(f'    {namespace}_{self.element}_decode_unsafe( elem, ctx );', file=body)
+            print(f'    {namespace}_{self.element}_decode_new( ctx, elem );', file=body)
 
         print('  }', file=body)
 
@@ -1410,7 +1410,34 @@ class MapMember(TypeNode):
         print('  }', file=body)
 
     def emitDecodeNew(self):
-        self.emitDecodeUnsafe(False)
+        element_type = self.elem_type()
+        mapname = element_type + "_map"
+        nodename = element_type + "_mapnode_t"
+
+        if self.compact:
+            print(f'  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ushort) );', file=body)
+            print(f'  fd_bincode_compact_u16_decode_unsafe( mem, ctx );', file=body)
+            print(f'  ushort {self.name}_len = *(ushort *)mem;', file=body)
+            print(f'  mem = (uchar *)mem + sizeof(ushort);', file=body)
+        else:
+            print(f'  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );', file=body)
+            print(f'  fd_bincode_uint64_decode_unsafe( mem, ctx );', file=body)
+            print(f'  ulong {self.name}_len = *(ulong *)mem;', file=body)
+            print(f'  mem = (uchar *)mem + sizeof(ulong);', file=body)
+
+        print(f'  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof({nodename}) );', file=body)
+        print(f'  {nodename} * {self.name}_pool = ({nodename} *)mem;', file=body)
+        if self.minalloc > 0:
+            print(f'  mem = (uchar *)mem + fd_ulong_max({self.name}_len, {self.minalloc} );', file=body)
+        else:
+            print(f'  mem = (uchar *)mem + {self.name}_len;', file=body)
+        print(f'  self->{self.name}_root = NULL;', file=body)
+        print(f'  for( ulong i=0; i < {self.name}_len; i++ ) {{', file=body)
+        print(f'    {nodename} * node = {mapname}_acquire( {self.name}_pool );', file=body)
+        print(f'    {namespace}_{self.element}_new( &node->elem );', file=body)
+        print(f'    {namespace}_{self.element}_decode_new( ctx, &node->elem );', file=body)
+        print(f'    {mapname}_insert( self->{self.name}_pool, &self->{self.name}_root, node );', file=body)
+        print('  }', file=body)
 
     def emitEncode(self, archival):
         element_type = self.elem_type()
@@ -1653,7 +1680,49 @@ class TreapMember(TypeNode):
         print('  }', file=body)
 
     def emitDecodeNew(self):
-        self.emitDecodeUnsafe(False)
+        treap_name = self.name + '_treap'
+        treap_t = self.treap_t
+        pool_name = self.name + '_pool'
+
+        if self.upsert:
+            print('  fd_bincode_destroy_ctx_t destroy_ctx = { .valloc = ctx->valloc };', file=body)
+
+        if self.compact:
+            print(f'  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ushort) );', file=body)
+            print(f'  fd_bincode_compact_u16_decode_unsafe( mem, ctx );', file=body)
+            print(f'  ushort {treap_name}_len = *(ushort *)mem;', file=body)
+            print(f'  mem = (uchar *)mem + sizeof(ushort);', file=body)
+        else:
+            print(f'  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );', file=body)
+            print(f'  fd_bincode_compact_u16_decode_unsafe( mem, ctx );', file=body)
+            print(f'  ulong {treap_name}_len = *(ulong *)mem;', file=body)
+            print(f'  mem = (uchar *)mem + sizeof(ulong);', file=body)
+
+        # We use this special allocator to indicate that the data
+        # structure has already been constructed in its final memory layout */
+        print(f'  ulong {treap_name}_max = fd_ulong_max( {treap_name}_len, {self.min_name} );', file=body)
+
+
+        print(f'  self->pool = {pool_name}_alloc( ctx->valloc, {treap_name}_max );', file=body)
+
+        print(f'  self->treap = {treap_name}_alloc( ctx->valloc, {treap_name}_max );', file=body)
+
+
+        print(f'  for( ulong i=0; i < {treap_name}_len; i++ ) {{', file=body)
+        print(f'    {treap_t} * ele = {pool_name}_ele_acquire( self->pool );', file=body)
+        print(f'    {treap_t.rstrip("_t")}_new( ele );', file=body)
+        print(f'    {treap_t.rstrip("_t")}_decode_unsafe( ele, ctx );', file=body)
+
+        if self.upsert:
+            print(f'    {treap_t} * repeated_entry = {treap_name}_ele_query( self->treap, ele->epoch, self->pool );', file=body)
+            print(f'    if( repeated_entry ) {{', file=body)
+            print(f'        {treap_name}_ele_remove( self->treap, repeated_entry, self->pool ); // Remove the element before inserting it back to avoid duplication', file=body)
+            print(f'        {treap_t.rstrip("_t")}_destroy( repeated_entry, &destroy_ctx );', file=body)
+            print(f'        {pool_name}_ele_release( self->pool, repeated_entry );', file=body)
+            print(f'    }}', file=body)
+
+        print(f'    {treap_name}_ele_insert( self->treap, ele, self->pool ); /* this cannot fail */', file=body)
+        print('  }', file=body)
 
     def emitEncode(self, archival):
         name = self.name

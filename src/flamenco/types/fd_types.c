@@ -924,15 +924,18 @@ void * fd_block_hash_queue_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem
     } else
       self->last_hash = NULL;
   }
-  ulong ages_len;
-  fd_bincode_uint64_decode_unsafe( &ages_len, ctx );
-  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    self->ages_root = NULL;
-  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong ages_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(fd_hash_hash_age_pair_t_mapnode_t) );
+  fd_hash_hash_age_pair_t_mapnode_t * ages_pool = (fd_hash_hash_age_pair_t_mapnode_t *)mem;
+  mem = (uchar *)mem + fd_ulong_max(ages_len, 400 );
+  self->ages_root = NULL;
   for( ulong i=0; i < ages_len; i++ ) {
-    fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( self->ages_pool );
+    fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( ages_pool );
     fd_hash_hash_age_pair_new( &node->elem );
-    fd_hash_hash_age_pair_decode_unsafe( &node->elem, ctx );
+    fd_hash_hash_age_pair_decode_new( ctx, &node->elem );
     fd_hash_hash_age_pair_t_map_insert( self->ages_pool, &self->ages_root, node );
   }
   mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
@@ -2496,15 +2499,18 @@ int fd_vote_accounts_serializable_decode_footprint( fd_bincode_decode_ctx_t * ct
 void * fd_vote_accounts_serializable_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
   fd_vote_accounts_serializable_t * self = (fd_vote_accounts_serializable_t *)mem;
   fd_vote_accounts_serializable_new( self );
-  ulong vote_accounts_len;
-  fd_bincode_uint64_decode_unsafe( &vote_accounts_len, ctx );
-  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    self->vote_accounts_root = NULL;
-  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong vote_accounts_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(fd_vote_accounts_pair_serializable_t_mapnode_t) );
+  fd_vote_accounts_pair_serializable_t_mapnode_t * vote_accounts_pool = (fd_vote_accounts_pair_serializable_t_mapnode_t *)mem;
+  mem = (uchar *)mem + fd_ulong_max(vote_accounts_len, 15000 );
+  self->vote_accounts_root = NULL;
   for( ulong i=0; i < vote_accounts_len; i++ ) {
-    fd_vote_accounts_pair_serializable_t_mapnode_t * node = fd_vote_accounts_pair_serializable_t_map_acquire( self->vote_accounts_pool );
+    fd_vote_accounts_pair_serializable_t_mapnode_t * node = fd_vote_accounts_pair_serializable_t_map_acquire( vote_accounts_pool );
     fd_vote_accounts_pair_serializable_new( &node->elem );
-    fd_vote_accounts_pair_serializable_decode_unsafe( &node->elem, ctx );
+    fd_vote_accounts_pair_serializable_decode_new( ctx, &node->elem );
     fd_vote_accounts_pair_serializable_t_map_insert( self->vote_accounts_pool, &self->vote_accounts_root, node );
   }
   return mem;
@@ -2630,15 +2636,18 @@ int fd_vote_accounts_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * to
 void * fd_vote_accounts_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
   fd_vote_accounts_t * self = (fd_vote_accounts_t *)mem;
   fd_vote_accounts_new( self );
-  ulong vote_accounts_len;
-  fd_bincode_uint64_decode_unsafe( &vote_accounts_len, ctx );
-  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    self->vote_accounts_root = NULL;
-  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong vote_accounts_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(fd_vote_accounts_pair_t_mapnode_t) );
+  fd_vote_accounts_pair_t_mapnode_t * vote_accounts_pool = (fd_vote_accounts_pair_t_mapnode_t *)mem;
+  mem = (uchar *)mem + fd_ulong_max(vote_accounts_len, 15000 );
+  self->vote_accounts_root = NULL;
   for( ulong i=0; i < vote_accounts_len; i++ ) {
-    fd_vote_accounts_pair_t_mapnode_t * node = fd_vote_accounts_pair_t_map_acquire( self->vote_accounts_pool );
+    fd_vote_accounts_pair_t_mapnode_t * node = fd_vote_accounts_pair_t_map_acquire( vote_accounts_pool );
     fd_vote_accounts_pair_new( &node->elem );
-    fd_vote_accounts_pair_decode_unsafe( &node->elem, ctx );
+    fd_vote_accounts_pair_decode_new( ctx, &node->elem );
     fd_vote_accounts_pair_t_map_insert( self->vote_accounts_pool, &self->vote_accounts_root, node );
   }
   return mem;
@@ -2845,15 +2854,18 @@ int fd_account_keys_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
 void * fd_account_keys_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
   fd_account_keys_t * self = (fd_account_keys_t *)mem;
   fd_account_keys_new( self );
-  ulong account_keys_len;
-  fd_bincode_uint64_decode_unsafe( &account_keys_len, ctx );
-  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    self->account_keys_root = NULL;
-  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong account_keys_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(fd_account_keys_pair_t_mapnode_t) );
+  fd_account_keys_pair_t_mapnode_t * account_keys_pool = (fd_account_keys_pair_t_mapnode_t *)mem;
+  mem = (uchar *)mem + fd_ulong_max(account_keys_len, 100000 );
+  self->account_keys_root = NULL;
   for( ulong i=0; i < account_keys_len; i++ ) {
-    fd_account_keys_pair_t_mapnode_t * node = fd_account_keys_pair_t_map_acquire( self->account_keys_pool );
+    fd_account_keys_pair_t_mapnode_t * node = fd_account_keys_pair_t_map_acquire( account_keys_pool );
     fd_account_keys_pair_new( &node->elem );
-    fd_account_keys_pair_decode_unsafe( &node->elem, ctx );
+    fd_account_keys_pair_decode_new( ctx, &node->elem );
     fd_account_keys_pair_t_map_insert( self->account_keys_pool, &self->account_keys_root, node );
   }
   return mem;
@@ -3060,15 +3072,18 @@ int fd_stake_weights_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * to
 void * fd_stake_weights_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
   fd_stake_weights_t * self = (fd_stake_weights_t *)mem;
   fd_stake_weights_new( self );
-  ulong stake_weights_len;
-  fd_bincode_uint64_decode_unsafe( &stake_weights_len, ctx );
-  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    self->stake_weights_root = NULL;
-  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong stake_weights_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(fd_stake_weight_t_mapnode_t) );
+  fd_stake_weight_t_mapnode_t * stake_weights_pool = (fd_stake_weight_t_mapnode_t *)mem;
+  mem = (uchar *)mem + stake_weights_len;
+  self->stake_weights_root = NULL;
   for( ulong i=0; i < stake_weights_len; i++ ) {
-    fd_stake_weight_t_mapnode_t * node = fd_stake_weight_t_map_acquire( self->stake_weights_pool );
+    fd_stake_weight_t_mapnode_t * node = fd_stake_weight_t_map_acquire( stake_weights_pool );
     fd_stake_weight_new( &node->elem );
-    fd_stake_weight_decode_unsafe( &node->elem, ctx );
+    fd_stake_weight_decode_new( ctx, &node->elem );
     fd_stake_weight_t_map_insert( self->stake_weights_pool, &self->stake_weights_root, node );
   }
   return mem;
@@ -3594,15 +3609,18 @@ void * fd_stakes_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
   fd_stakes_t * self = (fd_stakes_t *)mem;
   fd_stakes_new( self );
   fd_vote_accounts_decode_new( ctx, &self->vote_accounts );
-  ulong stake_delegations_len;
-  fd_bincode_uint64_decode_unsafe( &stake_delegations_len, ctx );
-  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    self->stake_delegations_root = NULL;
-  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong stake_delegations_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(fd_delegation_pair_t_mapnode_t) );
+  fd_delegation_pair_t_mapnode_t * stake_delegations_pool = (fd_delegation_pair_t_mapnode_t *)mem;
+  mem = (uchar *)mem + stake_delegations_len;
+  self->stake_delegations_root = NULL;
   for( ulong i=0; i < stake_delegations_len; i++ ) {
-    fd_delegation_pair_t_mapnode_t * node = fd_delegation_pair_t_map_acquire( self->stake_delegations_pool );
+    fd_delegation_pair_t_mapnode_t * node = fd_delegation_pair_t_map_acquire( stake_delegations_pool );
     fd_delegation_pair_new( &node->elem );
-    fd_delegation_pair_decode_unsafe( &node->elem, ctx );
+    fd_delegation_pair_decode_new( ctx, &node->elem );
     fd_delegation_pair_t_map_insert( self->stake_delegations_pool, &self->stake_delegations_root, node );
   }
   mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
@@ -3786,15 +3804,18 @@ void * fd_stakes_serializable_decode_new( fd_bincode_decode_ctx_t * ctx, void * 
   fd_stakes_serializable_t * self = (fd_stakes_serializable_t *)mem;
   fd_stakes_serializable_new( self );
   fd_vote_accounts_serializable_decode_new( ctx, &self->vote_accounts );
-  ulong stake_delegations_len;
-  fd_bincode_uint64_decode_unsafe( &stake_delegations_len, ctx );
-  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    self->stake_delegations_root = NULL;
-  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong stake_delegations_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(fd_delegation_pair_t_mapnode_t) );
+  fd_delegation_pair_t_mapnode_t * stake_delegations_pool = (fd_delegation_pair_t_mapnode_t *)mem;
+  mem = (uchar *)mem + stake_delegations_len;
+  self->stake_delegations_root = NULL;
   for( ulong i=0; i < stake_delegations_len; i++ ) {
-    fd_delegation_pair_t_mapnode_t * node = fd_delegation_pair_t_map_acquire( self->stake_delegations_pool );
+    fd_delegation_pair_t_mapnode_t * node = fd_delegation_pair_t_map_acquire( stake_delegations_pool );
     fd_delegation_pair_new( &node->elem );
-    fd_delegation_pair_decode_unsafe( &node->elem, ctx );
+    fd_delegation_pair_decode_new( ctx, &node->elem );
     fd_delegation_pair_t_map_insert( self->stake_delegations_pool, &self->stake_delegations_root, node );
   }
   mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
@@ -3978,15 +3999,18 @@ void * fd_stakes_stake_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
   fd_stakes_stake_t * self = (fd_stakes_stake_t *)mem;
   fd_stakes_stake_new( self );
   fd_vote_accounts_decode_new( ctx, &self->vote_accounts );
-  ulong stake_delegations_len;
-  fd_bincode_uint64_decode_unsafe( &stake_delegations_len, ctx );
-  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    self->stake_delegations_root = NULL;
-  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong stake_delegations_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(fd_stake_pair_t_mapnode_t) );
+  fd_stake_pair_t_mapnode_t * stake_delegations_pool = (fd_stake_pair_t_mapnode_t *)mem;
+  mem = (uchar *)mem + stake_delegations_len;
+  self->stake_delegations_root = NULL;
   for( ulong i=0; i < stake_delegations_len; i++ ) {
-    fd_stake_pair_t_mapnode_t * node = fd_stake_pair_t_map_acquire( self->stake_delegations_pool );
+    fd_stake_pair_t_mapnode_t * node = fd_stake_pair_t_map_acquire( stake_delegations_pool );
     fd_stake_pair_new( &node->elem );
-    fd_stake_pair_decode_unsafe( &node->elem, ctx );
+    fd_stake_pair_decode_new( ctx, &node->elem );
     fd_stake_pair_t_map_insert( self->stake_delegations_pool, &self->stake_delegations_root, node );
   }
   mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
@@ -11235,7 +11259,7 @@ void * fd_vote_state_0_23_5_decode_new( fd_bincode_decode_ctx_t * ctx, void * me
   for( ulong i=0; i < votes_len; i++ ) {
     fd_vote_lockout_t * elem = deq_fd_vote_lockout_t_push_tail_nocopy( votes_deque );
     fd_vote_lockout_new( elem );
-    fd_vote_lockout_decode_unsafe( elem, ctx );
+    fd_vote_lockout_decode_new( ctx, elem );
   }
   {
     uchar o;
@@ -11256,7 +11280,7 @@ void * fd_vote_state_0_23_5_decode_new( fd_bincode_decode_ctx_t * ctx, void * me
   for( ulong i=0; i < epoch_credits_len; i++ ) {
     fd_vote_epoch_credits_t * elem = deq_fd_vote_epoch_credits_t_push_tail_nocopy( epoch_credits_deque );
     fd_vote_epoch_credits_new( elem );
-    fd_vote_epoch_credits_decode_unsafe( elem, ctx );
+    fd_vote_epoch_credits_decode_new( ctx, elem );
   }
   fd_vote_block_timestamp_decode_new( ctx, &self->last_timestamp );
   return mem;
@@ -11473,11 +11497,13 @@ void * fd_vote_authorized_voters_decode_new( fd_bincode_decode_ctx_t * ctx, void
   fd_vote_authorized_voters_t * self = (fd_vote_authorized_voters_t *)mem;
   fd_vote_authorized_voters_new( self );
   fd_bincode_destroy_ctx_t destroy_ctx = { .valloc = ctx->valloc };
-  ulong fd_vote_authorized_voters_treap_len;
-  fd_bincode_uint64_decode_unsafe( &fd_vote_authorized_voters_treap_len, ctx );
-  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    ulong fd_vote_authorized_voters_treap_max = fd_ulong_max( fd_vote_authorized_voters_treap_len, FD_VOTE_AUTHORIZED_VOTERS_MIN );
-  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_compact_u16_decode_unsafe( mem, ctx );
+  ulong fd_vote_authorized_voters_treap_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  ulong fd_vote_authorized_voters_treap_max = fd_ulong_max( fd_vote_authorized_voters_treap_len, FD_VOTE_AUTHORIZED_VOTERS_MIN );
+  self->pool = fd_vote_authorized_voters_pool_alloc( ctx->valloc, fd_vote_authorized_voters_treap_max );
+  self->treap = fd_vote_authorized_voters_treap_alloc( ctx->valloc, fd_vote_authorized_voters_treap_max );
   for( ulong i=0; i < fd_vote_authorized_voters_treap_len; i++ ) {
     fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( self->pool );
     fd_vote_authorized_voter_new( ele );
@@ -11778,7 +11804,7 @@ void * fd_vote_state_1_14_11_decode_new( fd_bincode_decode_ctx_t * ctx, void * m
   for( ulong i=0; i < votes_len; i++ ) {
     fd_vote_lockout_t * elem = deq_fd_vote_lockout_t_push_tail_nocopy( votes_deque );
     fd_vote_lockout_new( elem );
-    fd_vote_lockout_decode_unsafe( elem, ctx );
+    fd_vote_lockout_decode_new( ctx, elem );
   }
   {
     uchar o;
@@ -11801,7 +11827,7 @@ void * fd_vote_state_1_14_11_decode_new( fd_bincode_decode_ctx_t * ctx, void * m
   for( ulong i=0; i < epoch_credits_len; i++ ) {
     fd_vote_epoch_credits_t * elem = deq_fd_vote_epoch_credits_t_push_tail_nocopy( epoch_credits_deque );
     fd_vote_epoch_credits_new( elem );
-    fd_vote_epoch_credits_decode_unsafe( elem, ctx );
+    fd_vote_epoch_credits_decode_new( ctx, elem );
   }
   fd_vote_block_timestamp_decode_new( ctx, &self->last_timestamp );
   return mem;
@@ -12160,7 +12186,7 @@ void * fd_vote_state_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
   for( ulong i=0; i < votes_len; i++ ) {
     fd_landed_vote_t * elem = deq_fd_landed_vote_t_push_tail_nocopy( votes_deque );
     fd_landed_vote_new( elem );
-    fd_landed_vote_decode_unsafe( elem, ctx );
+    fd_landed_vote_decode_new( ctx, elem );
   }
   {
     uchar o;
@@ -12183,7 +12209,7 @@ void * fd_vote_state_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
   for( ulong i=0; i < epoch_credits_len; i++ ) {
     fd_vote_epoch_credits_t * elem = deq_fd_vote_epoch_credits_t_push_tail_nocopy( epoch_credits_deque );
     fd_vote_epoch_credits_new( elem );
-    fd_vote_epoch_credits_decode_unsafe( elem, ctx );
+    fd_vote_epoch_credits_decode_new( ctx, elem );
   }
   fd_vote_block_timestamp_decode_new( ctx, &self->last_timestamp );
   return mem;
@@ -12675,7 +12701,7 @@ void * fd_vote_state_update_decode_new( fd_bincode_decode_ctx_t * ctx, void * me
   for( ulong i=0; i < lockouts_len; i++ ) {
     fd_vote_lockout_t * elem = deq_fd_vote_lockout_t_push_tail_nocopy( lockouts_deque );
     fd_vote_lockout_new( elem );
-    fd_vote_lockout_decode_unsafe( elem, ctx );
+    fd_vote_lockout_decode_new( ctx, elem );
   }
   {
     uchar o;
@@ -13249,7 +13275,7 @@ void * fd_compact_tower_sync_decode_new( fd_bincode_decode_ctx_t * ctx, void * m
   for( ulong i=0; i < lockout_offsets_len; i++ ) {
     fd_lockout_offset_t * elem = deq_fd_lockout_offset_t_push_tail_nocopy( lockout_offsets_deque );
     fd_lockout_offset_new( elem );
-    fd_lockout_offset_decode_unsafe( elem, ctx );
+    fd_lockout_offset_decode_new( ctx, elem );
   }
   fd_hash_decode_new( ctx, &self->hash );
   {
@@ -13385,7 +13411,7 @@ void * fd_tower_sync_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
   for( ulong i=0; i < lockouts_len; i++ ) {
     fd_vote_lockout_t * elem = deq_fd_vote_lockout_t_push_tail_nocopy( lockouts_deque );
     fd_vote_lockout_new( elem );
-    fd_vote_lockout_decode_unsafe( elem, ctx );
+    fd_vote_lockout_decode_new( ctx, elem );
   }
   mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
   fd_bincode_uint64_decode_unsafe( mem, ctx );
@@ -14107,7 +14133,7 @@ void * fd_slot_hashes_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
   for( ulong i=0; i < hashes_len; i++ ) {
     fd_slot_hash_t * elem = deq_fd_slot_hash_t_push_tail_nocopy( hashes_deque );
     fd_slot_hash_new( elem );
-    fd_slot_hash_decode_unsafe( elem, ctx );
+    fd_slot_hash_decode_new( ctx, elem );
   }
   return mem;
 }
@@ -14333,7 +14359,7 @@ void * fd_recent_block_hashes_decode_new( fd_bincode_decode_ctx_t * ctx, void * 
   for( ulong i=0; i < hashes_len; i++ ) {
     fd_block_block_hash_entry_t * elem = deq_fd_block_block_hash_entry_t_push_tail_nocopy( hashes_deque );
     fd_block_block_hash_entry_new( elem );
-    fd_block_block_hash_entry_decode_unsafe( elem, ctx );
+    fd_block_block_hash_entry_decode_new( ctx, elem );
   }
   return mem;
 }
@@ -14866,15 +14892,18 @@ int fd_clock_timestamp_votes_decode_footprint( fd_bincode_decode_ctx_t * ctx, ul
 void * fd_clock_timestamp_votes_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
   fd_clock_timestamp_votes_t * self = (fd_clock_timestamp_votes_t *)mem;
   fd_clock_timestamp_votes_new( self );
-  ulong votes_len;
-  fd_bincode_uint64_decode_unsafe( &votes_len, ctx );
-  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    self->votes_root = NULL;
-  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong votes_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(fd_clock_timestamp_vote_t_mapnode_t) );
+  fd_clock_timestamp_vote_t_mapnode_t * votes_pool = (fd_clock_timestamp_vote_t_mapnode_t *)mem;
+  mem = (uchar *)mem + fd_ulong_max(votes_len, 15000 );
+  self->votes_root = NULL;
   for( ulong i=0; i < votes_len; i++ ) {
-    fd_clock_timestamp_vote_t_mapnode_t * node = fd_clock_timestamp_vote_t_map_acquire( self->votes_pool );
+    fd_clock_timestamp_vote_t_mapnode_t * node = fd_clock_timestamp_vote_t_map_acquire( votes_pool );
     fd_clock_timestamp_vote_new( &node->elem );
-    fd_clock_timestamp_vote_decode_unsafe( &node->elem, ctx );
+    fd_clock_timestamp_vote_decode_new( ctx, &node->elem );
     fd_clock_timestamp_vote_t_map_insert( self->votes_pool, &self->votes_root, node );
   }
   return mem;
@@ -37712,15 +37741,18 @@ void * fd_epoch_info_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
   } else {
     // TODO: Unsure if something needs to be done here
   }
-  ulong vote_states_len;
-  fd_bincode_uint64_decode_unsafe( &vote_states_len, ctx );
-  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
-    self->vote_states_root = NULL;
-  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong vote_states_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(fd_vote_info_pair_t_mapnode_t) );
+  fd_vote_info_pair_t_mapnode_t * vote_states_pool = (fd_vote_info_pair_t_mapnode_t *)mem;
+  mem = (uchar *)mem + vote_states_len;
+  self->vote_states_root = NULL;
   for( ulong i=0; i < vote_states_len; i++ ) {
-    fd_vote_info_pair_t_mapnode_t * node = fd_vote_info_pair_t_map_acquire( self->vote_states_pool );
+    fd_vote_info_pair_t_mapnode_t * node = fd_vote_info_pair_t_map_acquire( vote_states_pool );
     fd_vote_info_pair_new( &node->elem );
-    fd_vote_info_pair_decode_unsafe( &node->elem, ctx );
+    fd_vote_info_pair_decode_new( ctx, &node->elem );
     fd_vote_info_pair_t_map_insert( self->vote_states_pool, &self->vote_states_root, node );
   }
   mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
@@ -37780,6 +37812,127 @@ ulong fd_epoch_info_size( fd_epoch_info_t const * self ) {
   } else {
     size += sizeof(ulong);
   }
+  size += sizeof(ulong);
+  return size;
+}
+
+int fd_test_struct_decode( fd_test_struct_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_test_struct_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    fd_test_struct_new( self );
+  }
+  fd_test_struct_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_test_struct_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  return fd_bincode_bytes_decode_preflight( 22, ctx );
+}
+void fd_test_struct_decode_unsafe( fd_test_struct_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bincode_uint64_decode_unsafe( &self->test_0, ctx );
+  fd_bincode_uint8_decode_unsafe( &self->test_1, ctx );
+  fd_bincode_uint8_decode_unsafe( &self->test_2, ctx );
+  fd_bincode_uint32_decode_unsafe( &self->test_3, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->test_4, ctx );
+}
+int fd_test_struct_encode( fd_test_struct_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->test_0, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint8_encode( (uchar)(self->test_1), ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint8_encode( (uchar)(self->test_2), ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint32_encode( self->test_3, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->test_4, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_test_struct_decode_offsets( fd_test_struct_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  uchar const * data = ctx->data;
+  int err;
+  self->test_0_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint64_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  self->test_1_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint8_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  self->test_2_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint8_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  self->test_3_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint32_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  self->test_4_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint64_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_test_struct_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  void const * start_data = ctx->data;
+  int err = 0;
+  err = fd_bincode_uint64_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint8_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint8_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint32_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if( FD_UNLIKELY( err ) ) return err;
+  *total_sz = (ulong)ctx->data - (ulong)start_data;
+  ctx->data = start_data;
+  return 0;
+}
+void * fd_test_struct_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_test_struct_t * self = (fd_test_struct_t *)mem;
+  fd_test_struct_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint) ); // Align for the type
+  fd_bincode_uint32_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
+void fd_test_struct_new(fd_test_struct_t * self) {
+  fd_memset( self, 0, sizeof(fd_test_struct_t) );
+}
+void fd_test_struct_destroy( fd_test_struct_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+}
+
+ulong fd_test_struct_footprint( void ){ return FD_TEST_STRUCT_FOOTPRINT; }
+ulong fd_test_struct_align( void ){ return FD_TEST_STRUCT_ALIGN; }
+
+void fd_test_struct_walk( void * w, fd_test_struct_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_test_struct", level++ );
+  fun( w, &self->test_0, "test_0", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->test_1, "test_1", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+  fun( w, &self->test_2, "test_2", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+  fun( w, &self->test_3, "test_3", FD_FLAMENCO_TYPE_UINT, "uint", level );
+  fun( w, &self->test_4, "test_4", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_test_struct", level-- );
+}
+ulong fd_test_struct_size( fd_test_struct_t const * self ) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += sizeof(char);
+  size += sizeof(char);
+  size += sizeof(uint);
   size += sizeof(ulong);
   return size;
 }
