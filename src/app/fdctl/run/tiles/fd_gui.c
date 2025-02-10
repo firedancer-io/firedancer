@@ -370,6 +370,8 @@ cjson_free( void * ptr ) {
   }
 }
 
+extern char const fdctl_version_string[];
+
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
@@ -389,12 +391,12 @@ unprivileged_init( fd_topo_t *      topo,
   void * _gui        = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),         fd_gui_footprint() );
   void * _alloc      = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),       fd_alloc_footprint() );
 
-  FD_TEST( fd_cstr_printf_check( ctx->version_string, sizeof( ctx->version_string ), NULL, "%lu.%lu.%lu", FDCTL_MAJOR_VERSION, FDCTL_MINOR_VERSION, FDCTL_PATCH_VERSION ) );
+  FD_TEST( fd_cstr_printf_check( ctx->version_string, sizeof( ctx->version_string ), NULL, "%s", fdctl_version_string ) );
 
   ctx->topo = topo;
   ctx->gui  = fd_gui_join( fd_gui_new( _gui, ctx->gui_server, ctx->version_string, tile->gui.cluster, ctx->identity_key, tile->gui.is_voting, ctx->topo ) );
   FD_TEST( ctx->gui );
-  
+
   cjson_alloc_ctx = fd_alloc_join( fd_alloc_new( _alloc, 1UL ), 1UL );
   FD_TEST( cjson_alloc_ctx );
   cJSON_Hooks hooks = {

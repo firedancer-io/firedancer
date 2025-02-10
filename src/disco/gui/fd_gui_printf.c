@@ -8,6 +8,7 @@
 
 #include "../../ballet/http/fd_http_server_private.h"
 #include "../../ballet/utf8/fd_utf8.h"
+#include "../../app/fdctl/version.h"
 
 static void
 jsonp_strip_trailing_comma( fd_gui_t * gui ) {
@@ -173,6 +174,17 @@ void
 fd_gui_printf_cluster( fd_gui_t * gui ) {
   jsonp_open_envelope( gui, "summary", "cluster" );
     jsonp_string( gui, "value", gui->summary.cluster );
+  jsonp_close_envelope( gui );
+}
+
+void
+fd_gui_printf_commit_hash( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "commit_hash" );
+#ifdef FDCTL_COMMIT_REF_CSTR
+    jsonp_string( gui, "value", FD_EXPAND_THEN_STRINGIFY(FDCTL_COMMIT_REF_CSTR) );
+#else
+    jsonp_string( gui, "value", "0000000000000000000000000000000000000000" );
+#endif
   jsonp_close_envelope( gui );
 }
 

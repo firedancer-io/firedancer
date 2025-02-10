@@ -6,12 +6,21 @@ ifdef FD_HAS_INT128
 ifdef FD_HAS_SSE
 
 include src/app/fdctl/with-version.mk
-$(info Using FIREDANCER_VERSION=$(FIREDANCER_VERSION_MAJOR).$(FIREDANCER_VERSION_MINOR).$(FIREDANCER_VERSION_PATCH))
+$(info Using FIREDANCER_VERSION=$(FIREDANCER_VERSION_MAJOR).$(FIREDANCER_VERSION_MINOR).$(FIREDANCER_VERSION_PATCH) ($(FIREDANCER_CI_COMMIT)))
 
-src/app/fdctl/version.h: src/app/fdctl/version.mk agave/Cargo.toml
-	echo "#define FDCTL_MAJOR_VERSION $(FIREDANCER_VERSION_MAJOR)UL" > $@
-	echo "#define FDCTL_MINOR_VERSION $(FIREDANCER_VERSION_MINOR)UL" >> $@
-	echo "#define FDCTL_PATCH_VERSION $(FIREDANCER_VERSION_PATCH)UL" >> $@
+# Always generate a version file
+$(shell echo "#define FDCTL_MAJOR_VERSION $(FIREDANCER_VERSION_MAJOR)"                          >  src/app/fdctl/version2.h)
+$(shell echo "#define FDCTL_MINOR_VERSION $(FIREDANCER_VERSION_MINOR)"                          >> src/app/fdctl/version2.h)
+$(shell echo "#define FDCTL_PATCH_VERSION $(FIREDANCER_VERSION_PATCH)"                          >> src/app/fdctl/version2.h)
+$(shell echo '#define FDCTL_COMMIT_REF_CSTR "$(FIREDANCER_CI_COMMIT)"'                          >> src/app/fdctl/version2.h)
+$(shell echo "#define FDCTL_COMMIT_REF_U32 0x$(shell echo $(FIREDANCER_CI_COMMIT) | cut -c -8)" >> src/app/fdctl/version2.h)
+
+# Update version.h only if version changed or doesn't exist
+ifneq ($(shell cmp -s src/app/fdctl/version.h src/app/fdctl/version2.h && echo "same"),same)
+src/app/fdctl/version.h: src/app/fdctl/version2.h
+	cp -f src/app/fdctl/version2.h $@
+endif
+
 $(OBJDIR)/obj/app/fdctl/version.d: src/app/fdctl/version.h
 
 .PHONY: fdctl cargo-validator cargo-solana cargo-ledger-tool cargo-plugin-bundle rust solana check-agave-hash frontend
