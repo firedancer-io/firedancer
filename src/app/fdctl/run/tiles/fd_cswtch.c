@@ -15,6 +15,7 @@ typedef struct {
   long next_report_nanos;
 
   ulong            tile_cnt;
+  long             first_seen_died[ FD_TILE_MAX ];
   int              status_fds[ FD_TILE_MAX ];
   volatile ulong * metrics[ FD_TILE_MAX ];
 } fd_cswtch_ctx_t;
@@ -68,7 +69,16 @@ before_credit( fd_cswtch_ctx_t *   ctx,
     /* Supervisor is going to bring the whole process tree down if any
        of the target PIDs died, so we can ignore this and wait. */
     if( FD_UNLIKELY( process_died ) ) {
-      FD_LOG_WARNING(( "cannot get context switch metrics for dead tile idx %lu", i ));
+      if( FD_UNLIKELY( !ctx->first_seen_died[ i ] ) ) {
+        ctx->first_seen_died[ i ] = now;
+      } else if( FD_LIKELY( ctx->first_seen_died[ i ]==LONG_MAX ) ) {
+        /* We already reported this, so we can ignore it. */
+      } else if( FD_UNLIKELY( now-ctx->first_seen_died[ i ] < 10L*1000L*1000L*1000L ) ) {
+        /* Wait 10 seconds for supervisor to kill us before reporting WARNING */
+      } else {
+        FD_LOG_WARNING(( "cannot get context switch metrics for dead tile idx %lu", i ));
+        ctx->first_seen_died[ i ] = LONG_MAX;
+      }
       continue;
     }
 
@@ -158,6 +168,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_cswtch_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_cswtch_ctx_t ), sizeof( fd_cswtch_ctx_t ) );
 
+  memset( ctx->first_seen_died, 0, sizeof( ctx->first_seen_died ) );
   ctx->next_report_nanos = fd_log_wallclock();
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
