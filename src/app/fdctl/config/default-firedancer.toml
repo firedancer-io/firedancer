@@ -1,6 +1,9 @@
 [layout]
     bank_tile_count = 1
 
+    # TODO: add docs on exec_tile_cnt / exec tile
+    exec_tile_count = 2
+
 [gossip]
     port = 8700
 
