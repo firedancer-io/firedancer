@@ -67,7 +67,7 @@ typedef struct {
   ulong map_next;
   ulong map_prev;
 
-  uchar * blockhash;
+  blockhash_t * blockhash;
   uchar _[ FD_TPU_PARSED_MTU ] __attribute__((aligned(alignof(fd_txn_m_t))));
 } fd_stashed_txn_m_t;
 
@@ -88,13 +88,13 @@ typedef struct {
 
 #define MAP_NAME          map_chain
 #define MAP_ELE_T         fd_stashed_txn_m_t
-#define MAP_KEY_T         uchar *
+#define MAP_KEY_T         blockhash_t *
 #define MAP_KEY           blockhash
 #define MAP_IDX_T         ulong
 #define MAP_NEXT          map_next
 #define MAP_PREV          map_prev
-#define MAP_KEY_HASH(k,s) ((s) ^ fd_ulong_load_8( (k) ))
-#define MAP_KEY_EQ(k0,k1) (!memcmp((*k0),(*k1), 32UL))
+#define MAP_KEY_HASH(k,s) ((s) ^ fd_ulong_load_8( (*(k))->b ))
+#define MAP_KEY_EQ(k0,k1) (!memcmp((*(k0))->b, (*(k1))->b, 32UL))
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
 #define MAP_MULTI         1
 
@@ -112,6 +112,9 @@ typedef struct {
 typedef struct {
   ulong round_robin_idx;
   ulong round_robin_cnt;
+
+  int   bundle_failed;
+  ulong bundle_id;
 
   void * root_bank;
   ulong  root_slot;
@@ -135,6 +138,7 @@ typedef struct {
     ulong lut[ FD_METRICS_COUNTER_RESOLV_LUT_RESOLVED_CNT ];
     ulong blockhash_expired;
     ulong blockhash_unknown;
+    ulong bundle_peer_failure_cnt;
     ulong stash[ FD_METRICS_COUNTER_RESOLV_STASH_OPERATION_CNT ];
   } metrics;
 
@@ -177,6 +181,7 @@ metrics_write( fd_resolv_ctx_t * ctx ) {
   FD_MCNT_SET( RESOLV, BLOCKHASH_EXPIRED, ctx->metrics.blockhash_expired );
   FD_MCNT_ENUM_COPY( RESOLV, LUT_RESOLVED, ctx->metrics.lut );
   FD_MCNT_ENUM_COPY( RESOLV, STASH_OPERATION, ctx->metrics.stash );
+  FD_MCNT_SET( RESOLV, TRANSACTION_BUNDLE_PEER_FAILURE, ctx->metrics.bundle_peer_failure_cnt );
 }
 
 static int
@@ -225,9 +230,10 @@ publish_txn( fd_resolv_ctx_t *          ctx,
              fd_stem_context_t *        stem,
              fd_stashed_txn_m_t const * stashed ) {
   fd_txn_m_t *     txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  fd_memcpy( txnm, stashed->_, fd_txn_m_realized_footprint( (fd_txn_m_t *)stashed->_, 1, 0 ) );
+
   fd_txn_t const * txnt = fd_txn_m_txn_t( txnm );
 
-  fd_memcpy( txnm, stashed->_, fd_txn_m_realized_footprint( txnm, 0 ) );
   txnm->reference_slot = ctx->flushing_slot;
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
@@ -243,7 +249,7 @@ publish_txn( fd_resolv_ctx_t *          ctx,
     }
   }
 
-  ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1 );
+  ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 1 );
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, 0UL, txnm->reference_slot, ctx->out_chunk, realized_sz, 0UL, 0UL, tspub );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, realized_sz, ctx->out_chunk0, ctx->out_wmark );
@@ -328,7 +334,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
         blockhash_map_t * blockhash = map_insert( ctx->blockhash_map, *(blockhash_t *)frag->hash );
         blockhash->slot = frag->slot;
 
-        uchar * hash = frag->hash;
+        blockhash_t * hash = (blockhash_t *)frag->hash;
         ctx->flush_pool_idx  = map_chain_idx_query( ctx->map_chain, &hash, ULONG_MAX, ctx->pool );
         ctx->flushing_slot   = frag->slot;
 
@@ -342,6 +348,8 @@ after_frag( fd_resolv_ctx_t *   ctx,
   }
 
   fd_txn_m_t *     txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
+  FD_TEST( txnm->payload_sz<=FD_TPU_MTU );
+  FD_TEST( txnm->txn_t_sz<=FD_TXN_MAX_SZ );
   fd_txn_t const * txnt = fd_txn_m_txn_t( txnm );
 
   /* If we find the recent blockhash, life is simple.  We drop
@@ -367,17 +375,28 @@ after_frag( fd_resolv_ctx_t *   ctx,
     buffer.  If we later see the blockhash come to exist, we forward any
     buffered transactions to back. */
 
+  if( FD_UNLIKELY( txnm->block_engine.bundle_id && (txnm->block_engine.bundle_id!=ctx->bundle_id) ) ) {
+    ctx->bundle_failed = 0;
+    ctx->bundle_id     = txnm->block_engine.bundle_id;
+  }
+
+  if( FD_UNLIKELY( txnm->block_engine.bundle_id && ctx->bundle_failed ) ) {
+    ctx->metrics.bundle_peer_failure_cnt++;
+    return;
+  }
+
   txnm->reference_slot = ctx->completed_slot;
   blockhash_map_t const * blockhash = map_query_const( ctx->blockhash_map, *(blockhash_t*)( fd_txn_m_payload( txnm )+txnt->recent_blockhash_off ), NULL );
   if( FD_LIKELY( blockhash ) ) {
     txnm->reference_slot = blockhash->slot;
     if( FD_UNLIKELY( txnm->reference_slot+151UL<ctx->completed_slot ) ) {
+      if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
       ctx->metrics.blockhash_expired++;
       return;
     }
   }
 
-  int is_bundle_member = 0; /* TODO */
+  int is_bundle_member = !!txnm->block_engine.bundle_id;
   int is_durable_nonce = fd_resolv_is_durable_nonce( txnt, fd_txn_m_payload( txnm ) );
 
   if( FD_UNLIKELY( !is_bundle_member && !is_durable_nonce && !blockhash ) ) {
@@ -400,8 +419,8 @@ after_frag( fd_resolv_ctx_t *   ctx,
        IDX_NULL; and if pool_free returns non-zero, then
        pool_idx_acquire won't return POOL_IDX_NULL. */
     FD_COMPILER_FORGET( stash_txn );
-    fd_memcpy( stash_txn->_, txnm, fd_txn_m_realized_footprint( txnm, 0 ) );
-    stash_txn->blockhash = fd_txn_m_payload( (fd_txn_m_t *)(stash_txn->_) ) + txnt->recent_blockhash_off;
+    fd_memcpy( stash_txn->_, txnm, fd_txn_m_realized_footprint( txnm, 1, 0 ) );
+    stash_txn->blockhash = (blockhash_t *)(fd_txn_m_payload( (fd_txn_m_t *)(stash_txn->_) ) + txnt->recent_blockhash_off);
     ctx->metrics.stash[ FD_METRICS_ENUM_RESOLVE_STASH_OPERATION_V_INSERTED_IDX ]++;
 
     map_chain_ele_insert( ctx->map_chain, stash_txn, ctx->pool );
@@ -413,6 +432,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
     if( FD_UNLIKELY( !ctx->root_bank ) ) {
       FD_MCNT_INC( RESOLV, NO_BANK_DROP, 1 );
+      if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
       return;
     }
 
@@ -420,10 +440,13 @@ after_frag( fd_resolv_ctx_t *   ctx,
     /* result is in [-5, 0]. We want to map -5 to 0, -4 to 1, etc. */
     ctx->metrics.lut[ (ulong)((long)FD_METRICS_COUNTER_RESOLV_LUT_RESOLVED_CNT+result-1L) ]++;
 
-    if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) return;
+    if( FD_UNLIKELY( result!=FD_BANK_ABI_TXN_INIT_SUCCESS ) ) {
+      if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
+      return;
+    }
   }
 
-  ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1 );
+  ulong realized_sz = fd_txn_m_realized_footprint( txnm, 1, 1 );
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, 0UL, txnm->reference_slot, ctx->out_chunk, realized_sz, 0UL, tsorig, tspub );
   ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, realized_sz, ctx->out_chunk0, ctx->out_wmark );
@@ -439,6 +462,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->round_robin_cnt = fd_topo_tile_name_cnt( topo, tile->name );
   ctx->round_robin_idx = tile->kind_id;
+
+  ctx->bundle_failed = 0;
+  ctx->bundle_id     = 0UL;
 
   ctx->completed_slot = 0UL;
   ctx->blockhash_ring_idx = 0UL;

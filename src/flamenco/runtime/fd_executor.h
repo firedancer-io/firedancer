@@ -5,7 +5,7 @@
 #include "context/fd_exec_txn_ctx.h"
 #include "context/fd_exec_instr_ctx.h"
 #include "../../ballet/block/fd_microblock.h"
-#include "../../ballet/pack/fd_microblock.h"
+#include "../../disco/pack/fd_microblock.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../ballet/poh/fd_poh.h"
 #include "../types/fd_types_yaml.h"
@@ -44,6 +44,9 @@ typedef int (* fd_exec_instr_fn_t)( fd_exec_instr_ctx_t * ctx );
 
 fd_exec_instr_fn_t
 fd_executor_lookup_native_program( fd_borrowed_account_t const * account );
+
+fd_exec_instr_fn_t
+fd_executor_lookup_native_precompile_program( fd_borrowed_account_t const * prog_acc );
 
 int
 fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx );

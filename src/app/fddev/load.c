@@ -101,6 +101,7 @@ load_cmd_fn( args_t *         args,
     args->load.connections = config->layout.quic_tile_count;
 
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
+  topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
   add_bench_topo( topo,
                   args->load.affinity,
                   args->load.benchg,

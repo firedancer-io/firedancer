@@ -77,6 +77,7 @@ fd_topo_initialize( config_t * config ) {
   int enable_rpc = ( config->rpc.port != 0 );
 
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
+  topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
 
   /*             topo, name */
   fd_topob_wksp( topo, "net_shred"  );
@@ -516,13 +517,11 @@ fd_topo_initialize( config_t * config ) {
       memcpy(  tile->net.src_mac_addr, config->tiles.net.mac_addr,  6UL );
 
       tile->net.xdp_aio_depth                  = config->tiles.net.xdp_aio_depth;
-      tile->net.tx_flush_timeout_ns            = (long)config->tiles.net.flush_timeout_micros * 1000L;
       tile->net.xdp_rx_queue_size              = config->tiles.net.xdp_rx_queue_size;
       tile->net.xdp_tx_queue_size              = config->tiles.net.xdp_tx_queue_size;
       tile->net.src_ip_addr                    = config->tiles.net.ip_addr;
-      tile->net.zero_copy                      = !!strcmp( config->tiles.net.xdp_mode, "skb" ); /* disable zc for skb */
-      fd_memset( tile->net.xdp_mode, 0, 4 );
-      fd_memcpy( tile->net.xdp_mode, config->tiles.net.xdp_mode, strnlen( config->tiles.net.xdp_mode, 3 ) );  /* GCC complains about strncpy */
+      tile->net.zero_copy                      = 0==strcmp( config->tiles.net.xdp_mode, "drv" ); /* only enable for drv */
+      fd_memcpy( tile->net.xdp_mode, config->tiles.net.xdp_mode, 8 );
 
       tile->net.shred_listen_port              = config->tiles.shred.shred_listen_port;
       tile->net.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;

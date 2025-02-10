@@ -928,19 +928,6 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   /* errors are propagated in the function itself. */
   if( FD_UNLIKELY( err ) ) return err;
 
-  /* In Agave, this is
-     cpi_common =>
-     invoke_context.process_instruction =>
-     invoke_context.push() =>
-     https://github.com/anza-xyz/agave/blob/v2.1.6/sdk/src/transaction_context.rs#L346
-   */
-  vm->instr_ctx->txn_ctx->instr_info_cnt++;
-  if( FD_UNLIKELY( vm->instr_ctx->txn_ctx->instr_info_cnt>FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
-     FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED );
-     return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
-  }
-  fd_memcpy( &vm->instr_ctx->txn_ctx->instr_infos[ vm->instr_ctx->txn_ctx->instr_info_cnt-1UL ], instruction_to_execute, sizeof(*instruction_to_execute) );
-
   /* Set the transaction compute meter to be the same as the VM's compute meter,
      so that the callee cannot use compute units that the caller has already used. */
   vm->instr_ctx->txn_ctx->compute_meter = vm->cu;

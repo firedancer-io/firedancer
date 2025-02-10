@@ -35,6 +35,7 @@ struct fd_ledger_args {
   fd_wksp_t *           wksp;                    /* wksp for blockstore */
   fd_wksp_t *           funk_wksp;               /* wksp for funk */
   fd_wksp_t *           status_cache_wksp;       /* wksp for status cache. */
+  fd_blockstore_t       blockstore_ljoin;
   fd_blockstore_t *     blockstore;              /* blockstore for replay */
   fd_funk_t *           funk;                    /* handle to funk */
   fd_alloc_t *          alloc;                   /* handle to alloc */
@@ -382,7 +383,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     bool block_exists = fd_blockstore_shreds_complete( blockstore, slot);
     fd_blockstore_end_read( blockstore );
     if( !block_exists && slot_meta.slot == slot ) {
-      int err = fd_rocksdb_import_block_blockstore( &rocks_db, 
+      int err = fd_rocksdb_import_block_blockstore( &rocks_db,
                                                     &slot_meta, blockstore,
                                                     ledger_args->copy_txn_status,
                                                     slot == (ledger_args->trash_hash) ? trash_hash_buf : NULL,
@@ -401,6 +402,9 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
         block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED );
 
         /* Remove the old block from the blockstore */
+        for( uint idx = 0; idx <= block_map_entry->slot_complete_idx; idx++ ) {
+          fd_blockstore_shred_remove( blockstore, block_slot, idx );
+        }
         fd_blockstore_slot_remove( blockstore, block_slot );
       }
 
@@ -648,7 +652,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 }
 
 /***************************** Helpers ****************************************/
-static fd_valloc_t 
+static fd_valloc_t
 allocator_setup( fd_wksp_t * wksp ) {
 
   if( FD_UNLIKELY( !wksp ) ) {
@@ -728,7 +732,7 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( args->slot_ctx, args->slot_ctx->funk_txn, args->tpool, args->runtime_spad );
   fd_funk_end_write( funk );
 
-  /* First, load in the sysvars into the sysvar cache. This is required to 
+  /* First, load in the sysvars into the sysvar cache. This is required to
       make the StakeHistory sysvar available to the rewards calculation. */
 
   fd_runtime_sysvar_cache_load( args->slot_ctx );
@@ -925,8 +929,8 @@ init_blockstore( fd_ledger_args_t * args ) {
   void * shmem;
   if( fd_wksp_tag_query( args->wksp, &blockstore_tag, 1, &info, 1 ) > 0 ) {
     shmem = fd_wksp_laddr_fast( args->wksp, info.gaddr_lo );
-    args->blockstore = fd_blockstore_join( shmem );
-    if( args->blockstore == NULL ) {
+    args->blockstore = fd_blockstore_join( &args->blockstore_ljoin, shmem );
+    if( args->blockstore->shmem->magic != FD_BLOCKSTORE_MAGIC ) {
       FD_LOG_ERR(( "failed to join a blockstore" ));
     }
     FD_LOG_NOTICE(( "joined blockstore" ));
@@ -936,9 +940,8 @@ init_blockstore( fd_ledger_args_t * args ) {
     if( shmem == NULL ) {
       FD_LOG_ERR(( "failed to allocate a blockstore" ));
     }
-    args->blockstore = fd_blockstore_join( fd_blockstore_new( shmem, 1, args->hashseed, args->shred_max,
-                                                              args->slot_history_max, 16, txn_max ) );
-    if( args->blockstore == NULL ) {
+    args->blockstore = fd_blockstore_join( &args->blockstore_ljoin, fd_blockstore_new( shmem, 1, args->hashseed, args->shred_max, args->slot_history_max, 16, txn_max ) );
+    if( args->blockstore->shmem->magic != FD_BLOCKSTORE_MAGIC ) {
       fd_wksp_free_laddr( shmem );
       FD_LOG_ERR(( "failed to allocate a blockstore" ));
     }
@@ -1121,10 +1124,10 @@ ingest( fd_ledger_args_t * args ) {
   if( args->snapshot ) {
     fd_snapshot_load_all( args->snapshot,
                           slot_ctx,
-                          NULL, 
-                          args->tpool, 
-                          args->verify_acc_hash, 
-                          args->check_acc_hash , 
+                          NULL,
+                          args->tpool,
+                          args->verify_acc_hash,
+                          args->check_acc_hash ,
                           FD_SNAPSHOT_TYPE_FULL,
                           args->exec_spads,
                           args->exec_spad_cnt,
@@ -1134,11 +1137,11 @@ ingest( fd_ledger_args_t * args ) {
   if( args->incremental ) {
     fd_snapshot_load_all( args->incremental,
                           slot_ctx,
-                          NULL, 
-                          args->tpool, 
-                          args->verify_acc_hash, 
-                          args->check_acc_hash, 
-                          FD_SNAPSHOT_TYPE_INCREMENTAL, 
+                          NULL,
+                          args->tpool,
+                          args->verify_acc_hash,
+                          args->check_acc_hash,
+                          FD_SNAPSHOT_TYPE_INCREMENTAL,
                           args->exec_spads,
                           args->exec_spad_cnt,
                           args->runtime_spad );
@@ -1159,7 +1162,7 @@ ingest( fd_ledger_args_t * args ) {
   }
   fd_blockstore_t * blockstore = args->blockstore;
   if( blockstore ) {
-    blockstore->lps = blockstore->hcs = blockstore->smr = slot_ctx->slot_bank.slot;
+    blockstore->shmem->lps = blockstore->shmem->hcs = blockstore->shmem->smr = slot_ctx->slot_bank.slot;
   }
 
   if( args->funk_only ) {
@@ -1247,7 +1250,7 @@ replay( fd_ledger_args_t * args ) {
   /* Setup slot_ctx */
   fd_funk_t * funk = args->funk;
 
-  void * epoch_ctx_mem = fd_spad_alloc( spad, FD_EXEC_EPOCH_CTX_ALIGN, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) ); 
+  void * epoch_ctx_mem = fd_spad_alloc( spad, FD_EXEC_EPOCH_CTX_ALIGN, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   fd_memset( epoch_ctx_mem, 0, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   args->epoch_ctx = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, args->vote_acct_max ) );
   fd_exec_epoch_ctx_bank_mem_clear( args->epoch_ctx );
@@ -1325,6 +1328,7 @@ replay( fd_ledger_args_t * args ) {
   fd_ledger_main_setup( args );
 
   fd_blockstore_init( args->blockstore, -1, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &args->slot_ctx->slot_bank );
+  fd_buf_shred_pool_reset( args->blockstore->shred_pool, 0 );
 
   FD_LOG_WARNING(( "setup done" ));
 

@@ -574,13 +574,13 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
       fd_blockstore_end_write(blockstore);
       return -1;
     }
-    int rc = fd_blockstore_shred_insert( blockstore, shred );
-    if (rc != FD_BLOCKSTORE_OK_SLOT_COMPLETE && rc != FD_BLOCKSTORE_OK) {
-      FD_LOG_WARNING(("failed to store shred %lu/%lu", slot, i));
-      rocksdb_iter_destroy(iter);
-      fd_blockstore_end_write(blockstore);
-      return -1;
-    }
+    fd_blockstore_shred_insert( blockstore, shred );
+    fd_blockstore_end_write(blockstore);
+    // if (rc != FD_BLOCKSTORE_SUCCESS_SLOT_COMPLETE && rc != FD_BLOCKSTORE_SUCCESS) {
+    //   FD_LOG_WARNING(("failed to store shred %lu/%lu", slot, i));
+    //   rocksdb_iter_destroy(iter);
+    //   return -1;
+    // }
 
     rocksdb_iter_next(iter);
   }
@@ -726,12 +726,12 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
     FD_TEST( blk->txns_meta_gaddr + blk->txns_meta_sz == fd_wksp_gaddr_fast( wksp, cur_laddr ) );
   }
 
-  blockstore->lps = slot;
-  blockstore->hcs = slot;
-  blockstore->smr = slot;
+  blockstore->shmem->lps = slot;
+  blockstore->shmem->hcs = slot;
+  blockstore->shmem->smr = slot;
 
   if( FD_LIKELY( block_map_entry ) ) {
-    block_map_entry->flags = 
+    block_map_entry->flags =
       fd_uchar_set_bit(
       fd_uchar_set_bit(
       fd_uchar_set_bit(

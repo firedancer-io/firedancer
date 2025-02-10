@@ -822,6 +822,12 @@ dynamic_port_range = "8900-9000"
     # writable by the Firedancer user.
     mount_path = "/mnt/.fd"
 
+    # The largest supported page size on the system.  Possible values
+    # are either "huge" (2MiB) or "gigantic" (1GiB).  Larger sizes yield
+    # better performance.  Smaller values may be required on virtualized
+    # environments like cloud providers.
+    max_page_size = "gigantic"
+
 # Tiles are described in detail in the layout section above.  While the
 # layout configuration determines how many of each tile to place on
 # which CPU core to create a functioning system, below is the individual
@@ -878,12 +884,6 @@ dynamic_port_range = "8900-9000"
         # ideal either, as it adds latency and jitter to packet
         # handling.
         xdp_aio_depth = 256
-
-        # When the oldest packet in a batch has been queued for more than
-        # the specified duration, flushes the batch out to to the network
-        # device.  Smaller values improve latency, larger values may
-        # improve throughput.
-        flush_timeout_micros = 20
 
         # The maximum number of packets in-flight between a net tile and
         # downstream consumers, after which additional packets begin to
@@ -988,6 +988,26 @@ dynamic_port_range = "8900-9000"
         # in 1GiB of memory using a single gigantic page.
         signature_cache_size = 33554430
 
+    # The bundle tile receives bundles from a block producer remote
+    # endpoint and forwards them for execution to pack.
+    [tiles.bundle]
+        # True if a bundle tile should be enabled, which receives
+        # bundles from a remote block engine and forwards them for
+        # atomic execution to the pack tile.
+        enabled = false
+
+        # The URL of the block engine to receive blocks from.
+        url = ""
+
+        # The domain name of the TLS certificate to use when verifying
+        # the peer.  If none is provided, the domain from the URL above
+        # will be used by default.
+        #
+        # This is only needed in special cases where the block engine
+        # peer presents a certificate for a different domain that where
+        # it is being accessed.
+        tls_domain_name = ""
+
     # The pack tile takes incoming transactions that have been verified
     # by the verify tile and then deduplicated, and attempts to order
     # them in an optimal way to generate the most fees per compute
@@ -998,8 +1018,8 @@ dynamic_port_range = "8900-9000"
         # option determines the maximum number of transactions that
         # will be stored before those with the lowest estimated
         # profitability get dropped.  The maximum allowed, and default
-        # value is 65534 and it is not recommended to change this.
-        max_pending_transactions = 65534
+        # value is 65529 and it is not recommended to change this.
+        max_pending_transactions = 65529
 
         # When a transaction consumes fewer CUs than it requests, the
         # bank and pack tiles work together to adjust the block limits

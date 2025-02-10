@@ -1374,6 +1374,8 @@ fd_quic_send_retry( fd_quic_t *               quic,
   uchar retry_pkt[ FD_QUIC_RETRY_LOCAL_SZ ];
   ulong retry_pkt_sz = fd_quic_retry_create( retry_pkt, pkt, state->_rng, state->retry_secret, state->retry_iv, odcid, scid, new_conn_id, expire_at );
 
+  quic->metrics.retry_tx_cnt++;
+
   uchar * tx_ptr = retry_pkt         + retry_pkt_sz;
   if( FD_UNLIKELY( fd_quic_tx_buffered_raw(
         quic,
@@ -3594,11 +3596,11 @@ fd_quic_conn_tx( fd_quic_t *      quic,
     *pkt_meta = (fd_quic_pkt_meta_t){0};
 
     /* initialize expiry */
-    pkt_meta->expiry = now + conn->idle_timeout;
-    ulong margin = (ulong)(conn->rtt->smoothed_rtt) + (ulong)(3 * conn->rtt->var_rtt);
-    if( margin < pkt_meta->expiry ) {
-      pkt_meta->expiry -= margin;
-    }
+    pkt_meta->expiry = now + (ulong)500e6;
+    //ulong margin = (ulong)(conn->rtt->smoothed_rtt) + (ulong)(3 * conn->rtt->var_rtt);
+    //if( margin < pkt_meta->expiry ) {
+    //  pkt_meta->expiry -= margin;
+    //}
 
     /* initialize tx_time */
     pkt_meta->tx_time = now;

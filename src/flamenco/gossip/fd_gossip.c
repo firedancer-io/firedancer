@@ -887,8 +887,8 @@ fd_gossip_sign_crds_value( fd_gossip_t * glob, fd_crds_value_t * crd ) {
   (*glob->sign_fun)( glob->sign_arg, crd->signature.uc, buf, (ulong)((uchar*)ctx.data - buf), FD_KEYGUARD_SIGN_TYPE_ED25519 );
 }
 
-/* Convert a hash to a bloom filter bit position */
-/* https://github.com/anza-xyz/agave/blob/v2.1.7/bloom/src/bloom.rs#L136 */
+/* Convert a hash to a bloom filter bit position
+   https://github.com/anza-xyz/agave/blob/v2.1.7/bloom/src/bloom.rs#L136 */
 static ulong
 fd_gossip_bloom_pos( fd_hash_t * hash, ulong key, ulong nbits) {
   for ( ulong i = 0; i < 32U; ++i) {
@@ -1166,109 +1166,29 @@ fd_gossip_random_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   fd_gossip_make_ping(glob, &arg2);
 }
 
-/* Process an incoming crds value */
-static void
-fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, fd_pubkey_t * pubkey, fd_crds_value_t* crd) {
-#define INC_RECV_CRDS_DROP_METRIC( REASON ) glob->metrics.recv_crds_drop_reason[ FD_CONCAT3( FD_METRICS_ENUM_CRDS_DROP_REASON_V_, REASON, _IDX ) ] += 1UL
+/* CRDS processing utils.
+   TODO: move to a separate fd_crds file? Need to decouple gossip metrics first */
 
-  /* Verify the signature */
-  ulong wallclock;
-  if( FD_UNLIKELY( crd->data.discriminant>=FD_KNOWN_CRDS_ENUM_MAX ) ) {
-    INC_RECV_CRDS_DROP_METRIC( UNKNOWN_DISCRIMINANT );
-  } else {
-    glob->metrics.recv_crds[ crd->data.discriminant ] += 1UL;
-  }
-  switch (crd->data.discriminant) {
-  case fd_crds_data_enum_contact_info_v1:
-    pubkey = &crd->data.inner.contact_info_v1.id;
-    wallclock = crd->data.inner.contact_info_v1.wallclock;
-    break;
-  case fd_crds_data_enum_vote:
-    pubkey = &crd->data.inner.vote.from;
-    wallclock = crd->data.inner.vote.wallclock;
-    break;
-  case fd_crds_data_enum_lowest_slot:
-    pubkey = &crd->data.inner.lowest_slot.from;
-    wallclock = crd->data.inner.lowest_slot.wallclock;
-    break;
-  case fd_crds_data_enum_snapshot_hashes:
-    pubkey = &crd->data.inner.snapshot_hashes.from;
-    wallclock = crd->data.inner.snapshot_hashes.wallclock;
-    break;
-  case fd_crds_data_enum_accounts_hashes:
-    pubkey = &crd->data.inner.accounts_hashes.from;
-    wallclock = crd->data.inner.accounts_hashes.wallclock;
-    break;
-  case fd_crds_data_enum_epoch_slots:
-    pubkey = &crd->data.inner.epoch_slots.from;
-    wallclock = crd->data.inner.epoch_slots.wallclock;
-    break;
-  case fd_crds_data_enum_version_v1:
-    pubkey = &crd->data.inner.version_v1.from;
-    wallclock = crd->data.inner.version_v1.wallclock;
-    break;
-  case fd_crds_data_enum_version_v2:
-    pubkey = &crd->data.inner.version_v2.from;
-    wallclock = crd->data.inner.version_v2.wallclock;
-    break;
-  case fd_crds_data_enum_node_instance:
-    pubkey = &crd->data.inner.node_instance.from;
-    wallclock = crd->data.inner.node_instance.wallclock;
-    break;
-  case fd_crds_data_enum_duplicate_shred:
-    pubkey = &crd->data.inner.duplicate_shred.from;
-    wallclock = crd->data.inner.duplicate_shred.wallclock;
-    break;
-  case fd_crds_data_enum_incremental_snapshot_hashes:
-    pubkey = &crd->data.inner.incremental_snapshot_hashes.from;
-    wallclock = crd->data.inner.incremental_snapshot_hashes.wallclock;
-    break;
-  case fd_crds_data_enum_contact_info_v2:
-    pubkey = &crd->data.inner.contact_info_v2.from;
-    wallclock = crd->data.inner.contact_info_v2.wallclock;
-    break;
-  case fd_crds_data_enum_restart_last_voted_fork_slots:
-    pubkey = &crd->data.inner.restart_last_voted_fork_slots.from;
-    wallclock = crd->data.inner.restart_last_voted_fork_slots.wallclock;
-    break;
-  case fd_crds_data_enum_restart_heaviest_fork:
-    pubkey = &crd->data.inner.restart_heaviest_fork.from;
-    wallclock = crd->data.inner.restart_heaviest_fork.wallclock;
-    break;
-  default:
-    wallclock = FD_NANOSEC_TO_MILLI(glob->now); /* In millisecs */
-    break;
-  }
-  if (memcmp(pubkey->uc, glob->public_key->uc, 32U) == 0) {
-    /* Ignore my own messages */
-    INC_RECV_CRDS_DROP_METRIC( OWN_MESSAGE );
-    return;
-  }
+typedef struct{
+  fd_crds_value_t * crd;                // Decoded CRDS value
+  uchar encoded_val[PACKET_DATA_SIZE];  // Raw encoded form
+  ulong encoded_len;                    // Length of encoded data
+  fd_hash_t val_hash;                   // Hash of the value (used as key in the value table)
+  fd_pubkey_t* pubkey;                  // Reference to origin's pubkey
+  ulong wallclock;                      // Timestamp
+} fd_crds_value_processed_t;
 
-  /* Perform the value hash to get the value table key */
-  uchar buf[PACKET_DATA_SIZE];
-  fd_bincode_encode_ctx_t ctx;
-  ctx.data = buf;
-  ctx.dataend = buf + PACKET_DATA_SIZE;
-  if ( fd_crds_value_encode( crd, &ctx ) ) {
-    FD_LOG_ERR(("fd_crds_value_encode failed"));
-  }
-  ulong datalen = (ulong)((uchar*)ctx.data - buf);
-  fd_sha256_t sha2[1];
-  fd_sha256_init( sha2 );
-  fd_sha256_append( sha2, buf, datalen );
-  fd_hash_t key;
-  fd_sha256_fini( sha2, key.uc );
+/* fd_crds_dedup_check returns 1 if key exists in the CRDS value table, 0 otherwise.
+   Also logs the
+    - the host that sent the duplicate message
+    - origin of the actual CRDS value
+   for use in making prune messages. */
+static int
+fd_crds_dup_check( fd_gossip_t * glob, fd_hash_t * key, const fd_gossip_peer_addr_t * from, const fd_pubkey_t * origin ) {
+  fd_value_elem_t * msg = fd_value_table_query(glob->values, key, NULL);
 
-  fd_msg_stats_elem_t * msg_stat = &glob->msg_stats[ crd->data.discriminant ];
-  msg_stat->total_cnt++;
-  msg_stat->bytes_rx_cnt += datalen;
-  fd_value_elem_t * msg = fd_value_table_query(glob->values, &key, NULL);
   if (msg != NULL) {
     /* Already have this value */
-    msg_stat->dups_cnt++;
-    glob->recv_dup_cnt++;
-    glob->metrics.recv_crds_duplicate_message[ crd->data.discriminant ]++;
     if (from != NULL) {
       /* Record the dup in the receive statistics table */
       fd_stats_elem_t * val = fd_stats_table_query(glob->stats, from, NULL);
@@ -1280,154 +1200,319 @@ fd_gossip_recv_crds_value(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
       }
       if (val != NULL) {
         val->last = glob->now;
-        for (ulong i = 0; i < val->dups_cnt; ++i)
-          if (fd_hash_eq(&val->dups[i].origin, pubkey)) {
+        for (ulong i = 0; i < val->dups_cnt; ++i){
+          if (fd_hash_eq(&val->dups[i].origin, origin)) {
             val->dups[i].cnt++;
             goto found_origin;
           }
+        }
         if (val->dups_cnt < 8) {
           ulong i = val->dups_cnt++;
-          fd_hash_copy(&val->dups[i].origin, pubkey);
+          fd_hash_copy(&val->dups[i].origin, origin);
           val->dups[i].cnt = 1;
         }
         found_origin: ;
       }
     }
-    return;
-  }
-
-  /* Verify signature against the encoded CRDS data */
-  uchar* data_buf = &buf[ sizeof(fd_signature_t) ];
-  fd_sha512_t sha[1];
-  if (fd_ed25519_verify( /* msg */ data_buf,
-                         /* sz  */ (ulong)((uchar*)ctx.data - data_buf),
-                         /* sig */ crd->signature.uc,
-                         /* public_key */ pubkey->uc,
-                         sha )) {
-    INC_RECV_CRDS_DROP_METRIC( INVALID_SIGNATURE );
-    FD_LOG_DEBUG(("received crds_value with invalid signature"));
-    return;
-  }
-
-  /* Store the value for later pushing/duplicate detection */
-  glob->recv_nondup_cnt++;
-  if (fd_value_table_is_full(glob->values)) {
-    INC_RECV_CRDS_DROP_METRIC( TABLE_FULL );
-    FD_LOG_DEBUG(("too many values"));
-    return;
-  }
-  msg = fd_value_table_insert(glob->values, &key);
-  msg->wallclock = wallclock;
-  fd_hash_copy(&msg->origin, pubkey);
-
-  /* We store the serialized form of the full CRDS value */
-  fd_memcpy(msg->data, buf, datalen);
-  msg->datalen = datalen;
-
-  if ( FD_UNLIKELY( glob->need_push_cnt < FD_NEED_PUSH_MAX ) ) {
-    /* Remember that I need to push this value */
-    ulong i = ((glob->need_push_head + (glob->need_push_cnt++)) & (FD_NEED_PUSH_MAX-1U));
-    fd_hash_copy(glob->need_push + i, &key);
+    return 1;
   } else {
-    INC_RECV_CRDS_DROP_METRIC( PUSH_QUEUE_FULL );
+    return 0;
+  }
+}
+/* fd_crds_sigverify verifies the data in an encoded CRDS value.
+   Assumes the following CRDS value layout (packed)
+    {
+      fd_signature_t signature;
+      uchar* data;
+    } */
+static int
+fd_crds_sigverify( uchar * crds_encoded_val, ulong crds_encoded_len, fd_pubkey_t * pubkey ) {
+
+  fd_signature_t * sig = (fd_signature_t *)crds_encoded_val;
+  uchar * data = (crds_encoded_val + sizeof(fd_signature_t));
+  ulong datalen = crds_encoded_len - sizeof(fd_signature_t);
+
+  static fd_sha512_t sha[1]; /* static is ok since ed25519_verify calls sha512_init */
+  return fd_ed25519_verify( data,
+                         datalen,
+                         sig->uc,
+                         pubkey->uc,
+                         sha );
+}
+
+
+#define INC_RECV_CRDS_DROP_METRIC( REASON ) glob->metrics.recv_crds_drop_reason[ FD_CONCAT3( FD_METRICS_ENUM_CRDS_DROP_REASON_V_, REASON, _IDX ) ] += 1UL
+
+/* fd_crds_insert sets up and inserts a fd_value_elem_t entry
+   from a fully populated crd_p.
+
+   This only fails if the table is full.   */
+static void
+fd_crds_insert( fd_gossip_t * glob, fd_crds_value_processed_t * crd_p ) {
+  if( FD_UNLIKELY( fd_value_table_is_full( glob->values ) ) ) {
+    INC_RECV_CRDS_DROP_METRIC( TABLE_FULL );
+    FD_LOG_DEBUG(( "too many values" ));
+    return;
   }
 
-  if (crd->data.discriminant == fd_crds_data_enum_contact_info_v1) {
-    fd_gossip_contact_info_v1_t * info = &crd->data.inner.contact_info_v1;
-    if( FD_LIKELY( fd_gossip_port_from_socketaddr(&info->gossip) != 0 ) ){
-      /* Remember the peer */
-      fd_gossip_peer_addr_t pkey;
-      fd_memset(&pkey, 0, sizeof(pkey));
-      fd_gossip_from_soladdr(&pkey, &info->gossip);
-      fd_peer_elem_t * val = fd_peer_table_query(glob->peers, &pkey, NULL);
-      if (val == NULL) {
-        if (fd_peer_table_is_full(glob->peers)) {
-          INC_RECV_CRDS_DROP_METRIC( PEER_TABLE_FULL );
-          FD_LOG_DEBUG(("too many peers"));
-        } else {
-          val = fd_peer_table_insert(glob->peers, &pkey);
+  fd_value_elem_t * ele = fd_value_table_insert(glob->values, &crd_p->val_hash );
+  ele->wallclock = crd_p->wallclock;
+  fd_hash_copy( &ele->origin, crd_p->pubkey );
 
-          if ( glob->inactives_cnt >= INACTIVES_MAX ) {
-            INC_RECV_CRDS_DROP_METRIC( INACTIVES_QUEUE_FULL );
-          } else if ( fd_active_table_query(glob->actives, &pkey, NULL) == NULL ) {
-            /* Queue this peer for later pinging */
-            fd_gossip_peer_addr_copy(glob->inactives + (glob->inactives_cnt++), &pkey);
-          }
-        }
-      }
-      if (val != NULL) {
-        val->wallclock = wallclock;
-        val->stake = 0;
-        fd_hash_copy(&val->id, &info->id);
+  /* Store encoded form of full CRDS value (including signature) */
+  fd_memcpy( ele->data, crd_p->encoded_val, crd_p->encoded_len );
+  ele->datalen = crd_p->encoded_len;
+}
+
+/* fd_gossip_recv_crds_array processes crds_len crds values. First
+   performs a filter pass, dropping duplicate/own values and
+   exiting* on any sigverify failures. Then inserts the filtered
+   values into the CRDS value table. Also performs housekeeping, like
+   updating contact infos and push queue. The filtered crds data is
+   finally dispatched via the glob->deliver_fun callback.
+
+   *(an exit drops the full packet, so no values are inserted into the table)
+   This only fails on a crds value encode failure, which is impossible if
+   the value was derived from a gossip message decode. */
+static void
+fd_gossip_recv_crds_array( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, fd_crds_value_t * crds, ulong crds_len ) {
+  FD_SCRATCH_SCOPE_BEGIN{
+    fd_crds_value_processed_t * filtered_crds = (fd_crds_value_processed_t *)fd_scratch_alloc( alignof(fd_crds_value_processed_t), sizeof(fd_crds_value_processed_t) * crds_len );
+    ulong num_filtered_crds = 0;
+
+    /* OK to reuse since sha256_init is called in every iteration */
+    fd_sha256_t sha2[1];
+
+    /* Filter pass */
+    for( ulong i = 0; i < crds_len; ++i ) {
+      fd_crds_value_processed_t * tmp = &filtered_crds[ num_filtered_crds ]; /* This will overwrite if previous value was dedup, should be safe */
+      tmp->crd = &crds[ i ];
+
+      /* Setup fd_crds_value_processed_t entry */
+
+      if( FD_UNLIKELY( tmp->crd->data.discriminant>=FD_KNOWN_CRDS_ENUM_MAX ) ) {
+        INC_RECV_CRDS_DROP_METRIC( UNKNOWN_DISCRIMINANT );
       } else {
-        INC_RECV_CRDS_DROP_METRIC( DISCARDED_PEER );
+        glob->metrics.recv_crds[ tmp->crd->data.discriminant ] += 1UL;
       }
-    } else {
-      INC_RECV_CRDS_DROP_METRIC( INVALID_GOSSIP_PORT );
+      switch (tmp->crd->data.discriminant) {
+      case fd_crds_data_enum_contact_info_v1:
+        tmp->pubkey = &tmp->crd->data.inner.contact_info_v1.id;
+        tmp->wallclock = tmp->crd->data.inner.contact_info_v1.wallclock;
+        break;
+      case fd_crds_data_enum_vote:
+        tmp->pubkey = &tmp->crd->data.inner.vote.from;
+        tmp->wallclock = tmp->crd->data.inner.vote.wallclock;
+        break;
+      case fd_crds_data_enum_lowest_slot:
+        tmp->pubkey = &tmp->crd->data.inner.lowest_slot.from;
+        tmp->wallclock = tmp->crd->data.inner.lowest_slot.wallclock;
+        break;
+      case fd_crds_data_enum_snapshot_hashes:
+        tmp->pubkey = &tmp->crd->data.inner.snapshot_hashes.from;
+        tmp->wallclock = tmp->crd->data.inner.snapshot_hashes.wallclock;
+        break;
+      case fd_crds_data_enum_accounts_hashes:
+        tmp->pubkey = &tmp->crd->data.inner.accounts_hashes.from;
+        tmp->wallclock = tmp->crd->data.inner.accounts_hashes.wallclock;
+        break;
+      case fd_crds_data_enum_epoch_slots:
+        tmp->pubkey = &tmp->crd->data.inner.epoch_slots.from;
+        tmp->wallclock = tmp->crd->data.inner.epoch_slots.wallclock;
+        break;
+      case fd_crds_data_enum_version_v1:
+        tmp->pubkey = &tmp->crd->data.inner.version_v1.from;
+        tmp->wallclock = tmp->crd->data.inner.version_v1.wallclock;
+        break;
+      case fd_crds_data_enum_version_v2:
+        tmp->pubkey = &tmp->crd->data.inner.version_v2.from;
+        tmp->wallclock = tmp->crd->data.inner.version_v2.wallclock;
+        break;
+      case fd_crds_data_enum_node_instance:
+        tmp->pubkey = &tmp->crd->data.inner.node_instance.from;
+        tmp->wallclock = tmp->crd->data.inner.node_instance.wallclock;
+        break;
+      case fd_crds_data_enum_duplicate_shred:
+        tmp->pubkey = &tmp->crd->data.inner.duplicate_shred.from;
+        tmp->wallclock = tmp->crd->data.inner.duplicate_shred.wallclock;
+        break;
+      case fd_crds_data_enum_incremental_snapshot_hashes:
+        tmp->pubkey = &tmp->crd->data.inner.incremental_snapshot_hashes.from;
+        tmp->wallclock = tmp->crd->data.inner.incremental_snapshot_hashes.wallclock;
+        break;
+      case fd_crds_data_enum_contact_info_v2:
+        tmp->pubkey = &tmp->crd->data.inner.contact_info_v2.from;
+        tmp->wallclock = tmp->crd->data.inner.contact_info_v2.wallclock;
+        break;
+      case fd_crds_data_enum_restart_last_voted_fork_slots:
+        tmp->pubkey = &tmp->crd->data.inner.restart_last_voted_fork_slots.from;
+        tmp->wallclock = tmp->crd->data.inner.restart_last_voted_fork_slots.wallclock;
+        break;
+      case fd_crds_data_enum_restart_heaviest_fork:
+        tmp->pubkey = &tmp->crd->data.inner.restart_heaviest_fork.from;
+        tmp->wallclock = tmp->crd->data.inner.restart_heaviest_fork.wallclock;
+        break;
+      default:
+        tmp->wallclock = FD_NANOSEC_TO_MILLI(glob->now); /* In millisecs */
+        break;
+      }
+      if (memcmp(tmp->pubkey->uc, glob->public_key->uc, 32U) == 0) {
+        /* skip my own messages */
+        INC_RECV_CRDS_DROP_METRIC( OWN_MESSAGE );
+        continue;
+      }
+
+      /* Encode */
+      fd_bincode_encode_ctx_t ctx;
+      ctx.data = tmp->encoded_val;
+      ctx.dataend = tmp->encoded_val + PACKET_DATA_SIZE;
+      if ( fd_crds_value_encode( tmp->crd, &ctx ) ) {
+        FD_LOG_ERR(("fd_crds_value_encode failed"));
+      }
+      tmp->encoded_len = (ulong)((uchar *)ctx.data - tmp->encoded_val);
+
+      /* Get hash */
+      fd_sha256_init( sha2 );
+      fd_sha256_append( sha2, tmp->encoded_val, tmp->encoded_len );
+      fd_sha256_fini( sha2, tmp->val_hash.uc );
+
+      fd_msg_stats_elem_t * msg_stat = &glob->msg_stats[ tmp->crd->data.discriminant ];
+      msg_stat->total_cnt++;
+      msg_stat->bytes_rx_cnt += tmp->encoded_len;
+
+      /* Dedup first */
+      if ( fd_crds_dup_check( glob, &tmp->val_hash, from, tmp->pubkey ) ) {
+        msg_stat->dups_cnt++;
+        glob->recv_dup_cnt++;
+        glob->metrics.recv_crds_duplicate_message[ tmp->crd->data.discriminant ]++;
+        continue; /* skip this entry */
+      }
+
+      glob->recv_nondup_cnt++;
+      /* Sigverify */
+      if( fd_crds_sigverify( tmp->encoded_val, tmp->encoded_len, tmp->pubkey ) ) {
+        INC_RECV_CRDS_DROP_METRIC( INVALID_SIGNATURE );
+        /* drop full packet on bad signature
+           https://github.com/anza-xyz/agave/commit/d68b5de6c0fc07d60cf9749ae82c2651a549e81b */
+        return;
+      }
+      num_filtered_crds++;
     }
 
-    fd_gossip_peer_addr_t peer_addr = { .addr = crd->data.inner.contact_info_v1.gossip.inner.ip4.addr,
-                                        .port = fd_ushort_bswap( crd->data.inner.contact_info_v1.gossip.inner.ip4.port ) };
-    if (glob->my_contact_info.shred_version == 0U && fd_gossip_is_allowed_entrypoint( glob, &peer_addr )) {
-      FD_LOG_NOTICE(("using shred version %lu", (ulong)crd->data.inner.contact_info_v1.shred_version));
-      glob->my_contact_info.shred_version = crd->data.inner.contact_info_v1.shred_version;
-    }
-  }
+    /* Insert pass */
+    for( ulong i = 0; i < num_filtered_crds; ++i ) {
+      fd_crds_value_processed_t * crd_p = &filtered_crds[ i ];
+      fd_crds_insert(  glob, crd_p );
 
-  if (crd->data.discriminant == fd_crds_data_enum_contact_info_v2) {
-    fd_gossip_contact_info_v2_t * info = &crd->data.inner.contact_info_v2;
-    fd_gossip_socket_addr_t socket_addr;
-    if( fd_gossip_contact_info_v2_find_proto_ident( info, FD_GOSSIP_SOCKET_TAG_GOSSIP, &socket_addr ) ) {
-      if( fd_gossip_port_from_socketaddr( &socket_addr ) != 0) {
-        /* Remember the peer */
-        fd_gossip_peer_addr_t pkey;
-        fd_memset(&pkey, 0, sizeof(pkey));
-        fd_gossip_from_soladdr(&pkey, &socket_addr);
-        fd_peer_elem_t * val = fd_peer_table_query(glob->peers, &pkey, NULL);
-        if (val == NULL) {
-          if (fd_peer_table_is_full(glob->peers)) {
-            INC_RECV_CRDS_DROP_METRIC( PEER_TABLE_FULL );
-            FD_LOG_DEBUG(("too many peers"));
-          } else {
-            val = fd_peer_table_insert(glob->peers, &pkey);
+      if ( FD_UNLIKELY( glob->need_push_cnt < FD_NEED_PUSH_MAX ) ) {
+        /* Remember that I need to push this value */
+        ulong i = ((glob->need_push_head + (glob->need_push_cnt++)) & (FD_NEED_PUSH_MAX-1U));
+        fd_hash_copy(glob->need_push + i, &crd_p->val_hash);
+        glob->metrics.push_crds_queue_cnt = glob->need_push_cnt;
+      } else {
+        INC_RECV_CRDS_DROP_METRIC( PUSH_QUEUE_FULL );
+      }
 
-            if ( glob->inactives_cnt >= INACTIVES_MAX ) {
-              INC_RECV_CRDS_DROP_METRIC( INACTIVES_QUEUE_FULL );
-            } else if ( fd_active_table_query(glob->actives, &pkey, NULL) == NULL ) {
-              /* Queue this peer for later pinging */
-              fd_gossip_peer_addr_copy(glob->inactives + (glob->inactives_cnt++), &pkey);
+      fd_crds_value_t * crd = crd_p->crd;
+
+      if( crd->data.discriminant == fd_crds_data_enum_contact_info_v1 ) {
+        fd_gossip_contact_info_v1_t * info = &crd->data.inner.contact_info_v1;
+        if( FD_LIKELY( fd_gossip_port_from_socketaddr(&info->gossip) != 0 ) ){
+          /* Remember the peer */
+          fd_gossip_peer_addr_t pkey;
+          fd_memset(&pkey, 0, sizeof(pkey));
+          fd_gossip_from_soladdr(&pkey, &info->gossip);
+          fd_peer_elem_t * val = fd_peer_table_query(glob->peers, &pkey, NULL);
+          if (val == NULL) {
+            if (fd_peer_table_is_full(glob->peers)) {
+              INC_RECV_CRDS_DROP_METRIC( PEER_TABLE_FULL );
+              FD_LOG_DEBUG(("too many peers"));
+            } else {
+              val = fd_peer_table_insert(glob->peers, &pkey);
+
+              if ( glob->inactives_cnt >= INACTIVES_MAX ) {
+                INC_RECV_CRDS_DROP_METRIC( INACTIVES_QUEUE_FULL );
+              } else if ( fd_active_table_query(glob->actives, &pkey, NULL) == NULL ) {
+                /* Queue this peer for later pinging */
+                fd_gossip_peer_addr_copy(glob->inactives + (glob->inactives_cnt++), &pkey);
+              }
             }
           }
-        }
-        if (val != NULL) {
-          val->wallclock = wallclock;
-          val->stake = 0;
-          fd_hash_copy(&val->id, &info->from);
+          if (val != NULL) {
+            val->wallclock = crd_p->wallclock;
+            val->stake = 0;
+            fd_hash_copy(&val->id, &info->id);
+          } else {
+            INC_RECV_CRDS_DROP_METRIC( DISCARDED_PEER );
+          }
         } else {
-          INC_RECV_CRDS_DROP_METRIC( DISCARDED_PEER );
+          INC_RECV_CRDS_DROP_METRIC( INVALID_GOSSIP_PORT );
+        }
+
+        fd_gossip_peer_addr_t peer_addr = { .addr = crd->data.inner.contact_info_v1.gossip.inner.ip4.addr,
+                                            .port = fd_ushort_bswap( crd->data.inner.contact_info_v1.gossip.inner.ip4.port ) };
+        if (glob->my_contact_info.shred_version == 0U && fd_gossip_is_allowed_entrypoint( glob, &peer_addr )) {
+          FD_LOG_NOTICE(("using shred version %lu", (ulong)crd->data.inner.contact_info_v1.shred_version));
+          glob->my_contact_info.shred_version = crd->data.inner.contact_info_v1.shred_version;
+        }
+
+      }
+
+      if (crd->data.discriminant == fd_crds_data_enum_contact_info_v2) {
+        fd_gossip_contact_info_v2_t * info = &crd->data.inner.contact_info_v2;
+        fd_gossip_socket_addr_t socket_addr;
+        if( fd_gossip_contact_info_v2_find_proto_ident( info, FD_GOSSIP_SOCKET_TAG_GOSSIP, &socket_addr ) ) {
+          if( fd_gossip_port_from_socketaddr( &socket_addr ) != 0) {
+            /* Remember the peer */
+            fd_gossip_peer_addr_t pkey;
+            fd_memset(&pkey, 0, sizeof(pkey));
+            fd_gossip_from_soladdr(&pkey, &socket_addr);
+            fd_peer_elem_t * val = fd_peer_table_query(glob->peers, &pkey, NULL);
+            if (val == NULL) {
+              if (fd_peer_table_is_full(glob->peers)) {
+                INC_RECV_CRDS_DROP_METRIC( PEER_TABLE_FULL );
+                FD_LOG_DEBUG(("too many peers"));
+              } else {
+                val = fd_peer_table_insert(glob->peers, &pkey);
+
+                if ( glob->inactives_cnt >= INACTIVES_MAX ) {
+                  INC_RECV_CRDS_DROP_METRIC( INACTIVES_QUEUE_FULL );
+                } else if ( fd_active_table_query(glob->actives, &pkey, NULL) == NULL ) {
+                  /* Queue this peer for later pinging */
+                  fd_gossip_peer_addr_copy(glob->inactives + (glob->inactives_cnt++), &pkey);
+                }
+              }
+            }
+            if (val != NULL) {
+              val->wallclock = crd_p->wallclock;
+              val->stake = 0;
+              fd_hash_copy(&val->id, &info->from);
+            } else {
+              INC_RECV_CRDS_DROP_METRIC( DISCARDED_PEER );
+            }
+          }
+
+          fd_gossip_peer_addr_t peer_addr = { .addr = socket_addr.inner.ip4.addr,
+                                              /* FIXME: hardcode to ip4 inner? */
+                                              .port = fd_ushort_bswap( fd_gossip_port_from_socketaddr( &socket_addr ) ) };
+          if (glob->my_contact_info.shred_version == 0U && fd_gossip_is_allowed_entrypoint( glob, &peer_addr )) {
+            FD_LOG_NOTICE(("using shred version %lu", (ulong)crd->data.inner.contact_info_v2.shred_version));
+            glob->my_contact_info.shred_version = crd->data.inner.contact_info_v2.shred_version;
+          }
         }
       }
 
-      fd_gossip_peer_addr_t peer_addr = { .addr = socket_addr.inner.ip4.addr,
-                                          /* FIXME: hardcode to ip4 inner? */
-                                          .port = fd_ushort_bswap( fd_gossip_port_from_socketaddr( &socket_addr ) ) };
-      if (glob->my_contact_info.shred_version == 0U && fd_gossip_is_allowed_entrypoint( glob, &peer_addr )) {
-        FD_LOG_NOTICE(("using shred version %lu", (ulong)crd->data.inner.contact_info_v2.shred_version));
-        glob->my_contact_info.shred_version = crd->data.inner.contact_info_v2.shred_version;
-      }
+      glob->metrics.gossip_peer_cnt[ FD_METRICS_ENUM_GOSSIP_PEER_STATE_V_INACTIVE_IDX ] = glob->inactives_cnt;
+
+      /* Deliver the data upstream */
+      fd_gossip_unlock( glob );
+      (*glob->deliver_fun)(&crd->data, glob->deliver_arg);
+      fd_gossip_lock( glob );
     }
-  }
 
-  glob->metrics.push_crds_queue_cnt = glob->need_push_cnt;
-  glob->metrics.gossip_peer_cnt[ FD_METRICS_ENUM_GOSSIP_PEER_STATE_V_INACTIVE_IDX ] = glob->inactives_cnt;
-
-  /* Deliver the data upstream */
-  fd_gossip_unlock( glob );
-  (*glob->deliver_fun)(&crd->data, glob->deliver_arg);
-  fd_gossip_lock( glob );
-
-#undef INC_RECV_CRDS_DROP_METRIC
+  } FD_SCRATCH_SCOPE_END;
 }
+#undef INC_RECV_CRDS_DROP_METRIC
 
 static int
 verify_signable_data_with_prefix( fd_gossip_t * glob, fd_gossip_prune_msg_t * msg ) {
@@ -1820,6 +1905,8 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
 #undef INC_HANDLE_PULL_REQ_FAIL_METRIC
 }
 
+
+
 /* Handle any gossip message */
 static void
 fd_gossip_recv(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, fd_gossip_msg_t * gmsg) {
@@ -1834,14 +1921,12 @@ fd_gossip_recv(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, fd_gossip
     break;
   case fd_gossip_msg_enum_pull_resp: {
     fd_gossip_pull_resp_t * pull_resp = &gmsg->inner.pull_resp;
-    for (ulong i = 0; i < pull_resp->crds_len; ++i)
-      fd_gossip_recv_crds_value(glob, NULL, &pull_resp->pubkey, pull_resp->crds + i);
+    fd_gossip_recv_crds_array( glob, NULL, pull_resp->crds, pull_resp->crds_len );
     break;
   }
   case fd_gossip_msg_enum_push_msg: {
     fd_gossip_push_msg_t * push_msg = &gmsg->inner.push_msg;
-    for (ulong i = 0; i < push_msg->crds_len; ++i)
-      fd_gossip_recv_crds_value(glob, from, &push_msg->pubkey, push_msg->crds + i);
+    fd_gossip_recv_crds_array( glob, from, push_msg->crds, push_msg->crds_len );
     break;
   }
   case fd_gossip_msg_enum_prune_msg:

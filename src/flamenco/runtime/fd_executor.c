@@ -28,10 +28,9 @@
 #include "tests/fd_dump_pb.h"
 
 #include "../../ballet/base58/fd_base58.h"
-#include "../../ballet/pack/fd_pack.h"
-#include "../../ballet/pack/fd_pack_cost.h"
+#include "../../disco/pack/fd_pack.h"
+#include "../../disco/pack/fd_pack_cost.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
-#include "../../ballet/pack/fd_pack.h"
 
 #include "../../util/bits/fd_uwide.h"
 
@@ -1120,10 +1119,11 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       parent = &txn_ctx->instr_stack[ txn_ctx->instr_stack_sz - 1 ];
     }
 
-    int err = fd_instr_stack_push( txn_ctx, instr );
-    if( FD_UNLIKELY( err ) ) {
-      FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, txn_ctx->instr_err_idx );
-      return err;
+    int instr_exec_result = fd_instr_stack_push( txn_ctx, instr );
+    if( FD_UNLIKELY( instr_exec_result ) ) {
+      FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
+      FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, instr_exec_result, txn_ctx->instr_err_idx );
+      return instr_exec_result;
     }
 
     fd_exec_instr_ctx_t * ctx = &txn_ctx->instr_stack[ txn_ctx->instr_stack_sz - 1 ];
@@ -1157,35 +1157,28 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       fd_exec_txn_ctx_reset_return_data( txn_ctx );
     }
 
-    int exec_result = FD_EXECUTOR_INSTR_SUCCESS;
     if( FD_LIKELY( native_prog_fn != NULL ) ) {
       /* Log program invokation (internally caches program_id base58) */
       fd_log_collector_program_invoke( ctx );
-      exec_result = native_prog_fn( ctx );
+      instr_exec_result = native_prog_fn( ctx );
     } else {
-      exec_result = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+      instr_exec_result = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
     }
 
     int stack_pop_err = fd_instr_stack_pop( txn_ctx, instr );
-    if( FD_LIKELY( exec_result == FD_EXECUTOR_INSTR_SUCCESS ) ) {
+    if( FD_LIKELY( instr_exec_result==FD_EXECUTOR_INSTR_SUCCESS ) ) {
       /* Log success */
       fd_log_collector_program_success( ctx );
 
       /* Only report the stack pop error on success */
       if( FD_UNLIKELY( stack_pop_err ) ) {
+        FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
         FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, stack_pop_err, txn_ctx->instr_err_idx );
-        return stack_pop_err;
+        instr_exec_result = stack_pop_err;
       }
     } else {
-      /* if txn_ctx->exec_err is not set, it indicates an instruction error */
-      if( !txn_ctx->exec_err ) {
-        FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, exec_result, txn_ctx->instr_err_idx );
-      }
-
-      if( !txn_ctx->failed_instr ) {
-        txn_ctx->failed_instr = ctx;
-        ctx->instr_err        = (uint)( -exec_result - 1 );
-      }
+      FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
+      FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, instr_exec_result, txn_ctx->instr_err_idx );
 
       /* Log failure cases.
          We assume that the correct type of error is stored in ctx.
@@ -1195,6 +1188,11 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       fd_log_collector_program_failure( ctx );
     }
 
+    if( FD_UNLIKELY( instr_exec_result && !txn_ctx->failed_instr ) ) {
+      txn_ctx->failed_instr = ctx;
+      ctx->instr_err        = (uint)( -instr_exec_result - 1 );
+    }
+
 #ifdef VLOG
   if ( FD_UNLIKELY( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) ) {
     FD_LOG_WARNING(( "instruction executed unsuccessfully: error code %d, custom err: %d, program id: %s", exec_result, txn_ctx->custom_err, FD_BASE58_ENC_32_ALLOCA( instr->program_id_pubkey.uc ));
@@ -1202,8 +1200,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     FD_LOG_WARNING(( "instruction executed successfully: error code %d, custom err: %d, program id: %s", exec_result, txn_ctx->custom_err, FD_BASE58_ENC_32_ALLOCA( instr->program_id_pubkey.uc ));
   }
 #endif
-
-    return exec_result;
+    return instr_exec_result;
   } FD_RUNTIME_TXN_SPAD_FRAME_END;
 }
 
@@ -1405,7 +1402,7 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
       ret = fd_sysvar_instructions_update_current_instr_idx( txn_ctx, i );
       if( ret != FD_ACC_MGR_SUCCESS ) {
         FD_LOG_WARNING(( "sysvar instructions failed to update instruction index" ));
-        return ret;
+        return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
       }
     }
 
@@ -1415,11 +1412,11 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
     }
 
 
-    int exec_result = fd_execute_instr( txn_ctx, &txn_ctx->instr_infos[i] );
+    int instr_exec_result = fd_execute_instr( txn_ctx, &txn_ctx->instr_infos[i] );
 #ifdef VLOG
     FD_LOG_WARNING(( "fd_execute_instr result (%d) for %s", exec_result, FD_BASE58_ENC_64_ALLOCA( sig ) ));
 #endif
-    if( exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
+    if( instr_exec_result != FD_EXECUTOR_INSTR_SUCCESS ) {
       if ( txn_ctx->instr_err_idx == INT_MAX )
       {
         txn_ctx->instr_err_idx = i;
@@ -1427,7 +1424,7 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
 #ifdef VLOG
       if ( 257037453 == txn_ctx->slot_ctx->slot_bank.slot ) {
 #endif
-        if (exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
+        if (instr_exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
 #ifdef VLOG
           FD_LOG_WARNING(( "fd_execute_instr failed (%d:%d) for %s",
                             exec_result,
@@ -1445,7 +1442,7 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
 #ifdef VLOG
       }
 #endif
-      return exec_result;
+      return instr_exec_result ? FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR : FD_RUNTIME_EXECUTE_SUCCESS;
     }
   }
 
@@ -1453,7 +1450,6 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
       into the replay tile once it is implemented. */
   int err = fd_executor_txn_check( txn_ctx->slot_ctx, txn_ctx );
   if( err != FD_EXECUTOR_INSTR_SUCCESS ) {
-    FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, txn_ctx->instr_err_idx );
     FD_LOG_DEBUG(( "fd_executor_txn_check failed (%d)", err ));
     return err;
   }
@@ -1540,7 +1536,7 @@ fd_executor_txn_check( fd_exec_slot_ctx_t const * slot_ctx,
     return FD_RUNTIME_TXN_ERR_UNBALANCED_TRANSACTION;
   }
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 #undef VLOG
 

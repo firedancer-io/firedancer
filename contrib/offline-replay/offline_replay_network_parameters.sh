@@ -22,8 +22,8 @@ case $network in
   "testnet")
     export BUCKET_ENDPOINT="gs://testnet-ledger-asia-east1"
     export GENESIS_FILE="https://api.testnet.solana.com/genesis.tar.bz2"
-    export FUNK_PAGES=400
-    export INDEX_MAX=150000000
+    export FUNK_PAGES=500
+    export INDEX_MAX=200000000
     export PAGES=250
     export AGAVE_TAG=v2.1.1
     export FD_CLUSTER_VERSION=2.1.1

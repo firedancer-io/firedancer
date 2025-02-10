@@ -232,3 +232,7 @@ quic_pkt_oversz{kind="quic",kind_id="0"} 121
 # HELP quic_pkt_verneg Number of QUIC version negotiation packets received.
 # TYPE quic_pkt_verneg counter
 quic_pkt_verneg{kind="quic",kind_id="0"} 122
+
+# HELP quic_retry_sent Number of QUIC Retry packets sent.
+# TYPE quic_retry_sent counter
+quic_retry_sent{kind="quic",kind_id="0"} 123

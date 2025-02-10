@@ -130,8 +130,7 @@ typedef struct {
       ulong  xdp_rx_queue_size;
       ulong  xdp_tx_queue_size;
       ulong  xdp_aio_depth;
-      long   tx_flush_timeout_ns;
-      char   xdp_mode[4];
+      char   xdp_mode[8];
       int    zero_copy;
       uint   src_ip_addr;
       uchar  src_mac_addr[6];
@@ -164,6 +163,12 @@ typedef struct {
     struct {
       ulong tcache_depth;
     } dedup;
+
+    struct {
+      char url[ 256 ];
+      char tls_domain_name[ 256 ];
+      char identity_key_path[ PATH_MAX ];
+    } bundle;
 
     struct {
       ulong max_pending_transactions;
@@ -392,6 +397,8 @@ typedef struct fd_topo_t {
 
   ulong          agave_affinity_cnt;
   ulong          agave_affinity_cpu_idx[ FD_TILE_MAX ];
+
+  ulong          max_page_size; /* 2^21 or 2^30 */
 } fd_topo_t;
 
 typedef struct {
@@ -399,6 +406,8 @@ typedef struct {
 
   int          keep_host_networking;
   ulong        rlimit_file_cnt;
+  ulong        rlimit_address_space;
+  ulong        rlimit_data;
   int          for_tpool;
 
   ulong (*populate_allowed_seccomp)( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_cnt, struct sock_filter * out );

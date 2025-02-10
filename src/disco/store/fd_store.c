@@ -195,44 +195,41 @@ end:
 int
 fd_store_shred_insert( fd_store_t * store,
                        fd_shred_t const * shred ) {
-
   if( FD_UNLIKELY( shred->version != store->expected_shred_version ) ) {
     FD_LOG_WARNING(( "received shred version %lu instead of %lu", (ulong)shred->version, store->expected_shred_version ));
-    return FD_BLOCKSTORE_OK;
+    return FD_BLOCKSTORE_SUCCESS;
   }
 
   fd_blockstore_t * blockstore = store->blockstore;
 
-  if (shred->slot < blockstore->smr) {
-    return FD_BLOCKSTORE_OK;
+  if (shred->slot < blockstore->shmem->smr) {
+    return FD_BLOCKSTORE_SUCCESS;
   }
   uchar shred_type = fd_shred_type( shred->variant );
-  // FD_LOG_INFO(("is chained: %u", fd_shred_is_chained(shred_type) ));
   if( shred_type != FD_SHRED_TYPE_LEGACY_DATA
       && shred_type != FD_SHRED_TYPE_MERKLE_DATA
       && shred_type != FD_SHRED_TYPE_MERKLE_DATA_CHAINED
       && shred_type != FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED ) {
-    return FD_BLOCKSTORE_OK;
+    return FD_BLOCKSTORE_SUCCESS;
   }
 
   if( store->root!=FD_SLOT_NULL && shred->slot<store->root ) {
     FD_LOG_WARNING(( "shred slot is behind root, dropping shred - root: %lu, shred_slot: %lu", store->root, shred->slot ));
-    return FD_BLOCKSTORE_OK;
+    return FD_BLOCKSTORE_SUCCESS;
   }
 
-  fd_blockstore_start_write( blockstore );
+  fd_blockstore_start_read( blockstore );
   if( fd_blockstore_shreds_complete( blockstore, shred->slot ) ) {
-    fd_blockstore_end_write( blockstore );
-    return FD_BLOCKSTORE_OK;
+    fd_blockstore_end_read( blockstore );
+    return FD_BLOCKSTORE_SUCCESS;
   }
-  int rc = fd_blockstore_shred_insert( blockstore, shred );
-  fd_blockstore_end_write( blockstore );
+  fd_blockstore_end_read( blockstore );
+  fd_blockstore_shred_insert( blockstore, shred );
 
   /* FIXME */
-  if( FD_UNLIKELY( rc < FD_BLOCKSTORE_OK ) ) {
-    FD_LOG_ERR( ( "failed to insert shred. reason: %d", rc ) );
-  } else if ( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) {
+  if( FD_UNLIKELY( fd_blockstore_shreds_complete( blockstore, shred->slot ) ) ) {
     fd_store_add_pending( store, shred->slot, (long)5e6, 0, 1 );
+    return FD_BLOCKSTORE_SUCCESS_SLOT_COMPLETE;
   } else {
     fd_store_add_pending( store, shred->slot, FD_REPAIR_BACKOFF_TIME, 0, 0 );
     fd_repair_backoff_t * backoff = fd_repair_backoff_map_query( store->repair_backoff_map, shred->slot, NULL );
@@ -246,8 +243,8 @@ fd_store_shred_insert( fd_store_t * store,
       backoff->last_backoff_duration = FD_REPAIR_BACKOFF_TIME;
       backoff->last_repair_time = store->now;
     }
+    return FD_BLOCKSTORE_SUCCESS;
   }
-  return rc;
 }
 
 void
@@ -374,7 +371,7 @@ fd_store_slot_repair( fd_store_t * store,
 
     if( repair_req_cnt==out_repair_reqs_sz ) {
       backoff->last_backoff_duration += backoff->last_backoff_duration>>2;
-      FD_LOG_INFO( ( "[repair] MAX need %lu [%u, %u], sent %lu requests (backoff: %ld ms)", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt, backoff->last_backoff_duration/(long)1e6 ) );
+      FD_LOG_INFO( ( "[repair] MAX need %lu [%u, %u], sent %lu requests (backoff: %ld ms)", slot, block_map_entry->buffered_idx + 1, complete_idx, repair_req_cnt, backoff->last_backoff_duration/(long)1e6 ) );
       fd_blockstore_end_read( store->blockstore );
       return repair_req_cnt;
     }
@@ -399,8 +396,8 @@ fd_store_slot_repair( fd_store_t * store,
     }
 
     /* Fill in what's missing */
-    for( uint i = block_map_entry->consumed_idx + 1; i <= complete_idx; i++ ) {
-      if( FD_UNLIKELY( fd_buf_shred_query( store->blockstore, slot, i ) != NULL) ) continue;
+    for( uint i = block_map_entry->buffered_idx + 1; i <= complete_idx; i++ ) {
+      if( FD_UNLIKELY( fd_blockstore_shred_test( store->blockstore, slot, i ) ) ) continue;
 
       fd_repair_request_t * repair_req = &out_repair_reqs[repair_req_cnt++];
       repair_req->shred_index = i;
@@ -409,14 +406,14 @@ fd_store_slot_repair( fd_store_t * store,
 
       if( repair_req_cnt == out_repair_reqs_sz ) {
         backoff->last_backoff_duration += backoff->last_backoff_duration>>2;
-        FD_LOG_INFO( ( "[repair] MAX need %lu [%u, %u], sent %lu requests (backoff: %ld ms)", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt, backoff->last_backoff_duration/(long)1e6 ) );
+        FD_LOG_INFO( ( "[repair] MAX need %lu [%u, %u], sent %lu requests (backoff: %ld ms)", slot, block_map_entry->buffered_idx + 1, complete_idx, repair_req_cnt, backoff->last_backoff_duration/(long)1e6 ) );
         fd_blockstore_end_read( store->blockstore );
         return repair_req_cnt;
       }
     }
     if( repair_req_cnt ) {
       backoff->last_backoff_duration += backoff->last_backoff_duration>>2;
-      FD_LOG_INFO( ( "[repair] need %lu [%u, %u], sent %lu requests (backoff: %ld ms)", slot, block_map_entry->consumed_idx + 1, complete_idx, repair_req_cnt, backoff->last_backoff_duration/(long)1e6 ) );
+      FD_LOG_INFO( ( "[repair] need %lu [%u, %u], sent %lu requests (backoff: %ld ms)", slot, block_map_entry->buffered_idx + 1, complete_idx, repair_req_cnt, backoff->last_backoff_duration/(long)1e6 ) );
     }
   }
 

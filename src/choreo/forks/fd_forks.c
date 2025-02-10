@@ -364,10 +364,9 @@ fd_forks_update( fd_forks_t *      forks,
       if( FD_UNLIKELY( !eqvocsafe ) ) {
         double pct = (double)node->replay_stake / (double)epoch->total_stake;
         if( FD_UNLIKELY( pct > FD_EQVOCSAFE_PCT ) ) {
-          FD_LOG_DEBUG( ( "eqvocsafe %lu", block_map_entry->slot ) );
-          block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags,
-                                                     FD_BLOCK_FLAG_EQVOCSAFE );
-          blockstore->hcs        = fd_ulong_max( blockstore->hcs, block_map_entry->slot );
+          FD_LOG_DEBUG(( "eqvocsafe %lu", block_map_entry->slot ));
+          block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_EQVOCSAFE );
+          blockstore->shmem->hcs = fd_ulong_max( blockstore->shmem->hcs, block_map_entry->slot );
         }
       }
 
@@ -375,10 +374,9 @@ fd_forks_update( fd_forks_t *      forks,
       if( FD_UNLIKELY( !confirmed ) ) {
         double pct = (double)node->replay_stake / (double)epoch->total_stake;
         if( FD_UNLIKELY( pct > FD_CONFIRMED_PCT ) ) {
-          FD_LOG_DEBUG( ( "confirmed %lu", block_map_entry->slot ) );
-          block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags,
-                                                     FD_BLOCK_FLAG_CONFIRMED );
-          blockstore->hcs        = fd_ulong_max( blockstore->hcs, block_map_entry->slot );
+          FD_LOG_DEBUG(( "confirmed %lu", block_map_entry->slot ));
+          block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_CONFIRMED );
+          blockstore->shmem->hcs = fd_ulong_max( blockstore->shmem->hcs, block_map_entry->slot );
         }
       }
 
@@ -412,7 +410,7 @@ fd_forks_update( fd_forks_t *      forks,
         double pct = (double)node->rooted_stake / (double)epoch->total_stake;
         if( FD_UNLIKELY( pct > FD_FINALIZED_PCT ) ) {
           ulong smr       = block_map_entry->slot;
-          blockstore->smr = fd_ulong_max( blockstore->smr, smr );
+          blockstore->shmem->smr = fd_ulong_max( blockstore->shmem->smr, smr );
           FD_LOG_DEBUG(( "finalized %lu", block_map_entry->slot ));
           fd_block_map_t * ancestor = block_map_entry;
           while( ancestor ) {

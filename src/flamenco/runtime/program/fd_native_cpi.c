@@ -4,19 +4,14 @@
 #include "../../vm/syscall/fd_vm_syscall.h"
 #include "../../../util/bits/fd_uwide.h"
 
-int 
+int
 fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
                                                   fd_system_program_instruction_t const * instr,
                                                   fd_vm_rust_account_meta_t const * acct_metas,
                                                   ulong acct_metas_len,
                                                   fd_pubkey_t const * signers,
                                                   ulong signers_cnt ) {
-  fd_instr_info_t * instr_info = &ctx->txn_ctx->instr_infos[ ctx->txn_ctx->instr_info_cnt ];
-  ctx->txn_ctx->instr_info_cnt++;
-  if( FD_UNLIKELY( ctx->txn_ctx->instr_info_cnt>FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
-    return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
-  }
-
+  fd_instr_info_t instr_info[ 1 ];
   fd_instruction_account_t instruction_accounts[256];
   ulong instruction_accounts_cnt;
 
@@ -31,9 +26,6 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
     }
   }
 
-  /* TODO: Lamport check may be redundant */
-  ulong starting_lamports_h = 0;
-  ulong starting_lamports_l = 0;
   uchar acc_idx_seen[256];
   memset( acc_idx_seen, 0, 256 );
 
@@ -52,11 +44,6 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
         if( FD_LIKELY( !acc_idx_seen[k] ) ) {
           /* This is the first time seeing this account */
           acc_idx_seen[k] = 1;
-          if( instr_info->borrowed_accounts[j]->const_meta != NULL ) {
-            fd_uwide_inc( &starting_lamports_h, &starting_lamports_l, 
-                          starting_lamports_h, starting_lamports_l,
-                          instr_info->borrowed_accounts[j]->const_meta->info.lamports );
-          }
         }
 
         if( acct_meta->is_writable ) {
@@ -68,9 +55,6 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
         break;
       }
     }
-
-    instr_info->starting_lamports_h = starting_lamports_h;
-    instr_info->starting_lamports_l = starting_lamports_l;
   }
 
   fd_bincode_encode_ctx_t ctx2;
@@ -93,8 +77,8 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
   return fd_execute_instr( ctx->txn_ctx, instr_info );
 }
 
-void 
-fd_native_cpi_create_account_meta( fd_pubkey_t const * key, uchar is_signer, 
+void
+fd_native_cpi_create_account_meta( fd_pubkey_t const * key, uchar is_signer,
                                    uchar is_writable, fd_vm_rust_account_meta_t * meta ) {
   meta->is_signer = is_signer;
   meta->is_writable = is_writable;

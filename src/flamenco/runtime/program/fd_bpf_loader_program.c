@@ -629,7 +629,6 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
           } else {
             err = FD_EXECUTOR_INSTR_ERR_READONLY_DATA_MODIFIED;
           }
-          FD_VM_ERR_FOR_LOG_INSTR( vm, err );
           return err;
         }
       }

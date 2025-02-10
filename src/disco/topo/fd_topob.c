@@ -25,6 +25,8 @@ fd_topob_new( void * mem,
   if( FD_UNLIKELY( strlen( app_name )>=sizeof(topo->app_name) ) ) FD_LOG_ERR(( "app_name too long: %s", app_name ));
   strncpy( topo->app_name, app_name, sizeof(topo->app_name) );
 
+  topo->max_page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+
   return topo;
 }
 
@@ -333,6 +335,7 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "benchs",
     "net",
     "quic",
+    "bundle",
     "verify",
     "dedup",
     "resolv",
@@ -487,8 +490,9 @@ fd_topob_finish( fd_topo_t * topo,
        with an extra align of padding incase gaddr_lo is not aligned. */
     ulong total_wksp_footprint = fd_wksp_footprint( part_max, footprint + fd_topo_workspace_align() + loose_sz );
 
-    ulong page_sz = FD_SHMEM_GIGANTIC_PAGE_SZ;
+    ulong page_sz = topo->max_page_size;
     if( FD_UNLIKELY( total_wksp_footprint < 4 * FD_SHMEM_HUGE_PAGE_SZ ) ) page_sz = FD_SHMEM_HUGE_PAGE_SZ;
+    if( FD_UNLIKELY( page_sz!=FD_SHMEM_HUGE_PAGE_SZ && page_sz!=FD_SHMEM_GIGANTIC_PAGE_SZ ) ) FD_LOG_ERR(( "invalid page_sz" ));
 
     ulong wksp_aligned_footprint = fd_ulong_align_up( total_wksp_footprint, page_sz );
 

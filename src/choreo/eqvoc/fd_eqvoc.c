@@ -168,40 +168,6 @@ fd_eqvoc_fec_search( fd_eqvoc_t const * eqvoc, fd_shred_t const * shred ) {
   return NULL; /* No conflicts */
 }
 
-int
-fd_eqvoc_fec_verify( FD_PARAM_UNUSED fd_eqvoc_t const * eqvoc,
-                     fd_blockstore_t *                  blockstore,
-                     ulong                              slot,
-                     uint                               fec_set_idx,
-                     fd_hash_t *                        chained_hash ) {
-
-  fd_shred_t * shred = NULL;
-  uint         idx   = fec_set_idx;
-  do {
-    fd_blockstore_start_read( blockstore );
-    shred = fd_buf_shred_query( blockstore, slot, idx );
-    fd_blockstore_end_read( blockstore );
-
-#if FD_EQVOC_USE_HANDHOLDING
-    if( FD_UNLIKELY( !shred ) ) {
-      FD_LOG_WARNING(( "[%s] couldn't find shred %lu %u", __func__, slot, fec_set_idx ));
-      return 0;
-    }
-#endif
-
-#if FD_EQVOC_USE_HANDHOLDING
-    FD_TEST( fd_shred_is_chained( fd_shred_type( shred->variant ) ) );
-#endif
-
-    if( FD_UNLIKELY( 0 != memcmp( chained_hash, shred + fd_shred_chain_off( shred->variant ), FD_SHRED_MERKLE_ROOT_SZ ) ) ) {
-      return 0;
-    }
-
-  } while( shred->fec_set_idx == fec_set_idx );
-
-  return 1;
-}
-
 fd_eqvoc_proof_t *
 fd_eqvoc_proof_insert( fd_eqvoc_t * eqvoc, ulong slot, fd_pubkey_t const * from ) {
   fd_slot_pubkey_t key = { slot, *from };
@@ -239,7 +205,7 @@ fd_eqvoc_proof_chunk_insert( fd_eqvoc_proof_t * proof, fd_gossip_duplicate_shred
     FD_LOG_WARNING(( "[%s] received incompatible chunk (slot: %lu from: %s). ignoring.", __func__, proof->key.slot, FD_BASE58_ENC_32_ALLOCA( proof->key.hash.uc ) ));
     return;
   }
-    
+
 
   if( FD_UNLIKELY( fd_eqvoc_proof_set_test( proof->set, chunk->chunk_index ) ) ) {
     FD_LOG_WARNING(( "[%s] already received chunk %u. slot: %lu from: %s. ignoring.", __func__, chunk->chunk_index, proof->key.slot, FD_BASE58_ENC_32_ALLOCA( proof->key.hash.uc ) ));

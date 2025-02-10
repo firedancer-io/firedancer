@@ -3,3 +3,4 @@ repos:
     rev: v5.0.0
     hooks:
     -   id: trailing-whitespace
+        exclude: ^src/app/fdctl/dist/

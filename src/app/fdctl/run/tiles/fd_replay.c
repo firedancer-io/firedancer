@@ -230,8 +230,9 @@ struct fd_replay_tile_ctx {
 
   /* Depends on store_int and is polled in after_credit */
 
-  fd_blockstore_t * blockstore;
+  fd_blockstore_t   blockstore_ljoin;
   int               blockstore_fd; /* file descriptor for archival file */
+  fd_blockstore_t * blockstore;
 
   /* Updated during execution */
 
@@ -363,7 +364,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
-  l = FD_LAYOUT_APPEND( l, 128UL, FD_MBATCH_MAX );
+  l = FD_LAYOUT_APPEND( l, 128UL, FD_SLICE_MAX );
   ulong  thread_spad_size  = fd_spad_footprint( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT );
   l = FD_LAYOUT_APPEND( l, fd_spad_align(), tile->replay.tpool_thread_count * fd_ulong_align_up( thread_spad_size, fd_spad_align() ) );
   l = FD_LAYOUT_APPEND( l, fd_spad_align(), FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT ); /* FIXME: make this configurable */
@@ -1135,7 +1136,7 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
     msg->type = FD_REPLAY_SLOT_TYPE;
     msg->slot_exec.slot = curr_slot;
     msg->slot_exec.parent = ctx->parent_slot;
-    msg->slot_exec.root = ctx->blockstore->smr;
+    msg->slot_exec.root = ctx->blockstore->shmem->smr;
     msg->slot_exec.height = ( block_map_entry ? block_map_entry->block_height : 0UL );
     msg->slot_exec.transaction_count = fork->slot_ctx.slot_bank.transaction_count;
     memcpy( &msg->slot_exec.bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
@@ -1609,11 +1610,11 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     fd_blockstore_end_read( ctx->blockstore );
 
     if( FD_LIKELY( block_map_entry->data_complete_idx != FD_SHRED_IDX_NULL ) ) {
-      uint i = block_map_entry->replayed_idx + 1;
+      uint i = block_map_entry->consumed_idx + 1;
       uint j = block_map_entry->data_complete_idx;
 
       /* If this is the first batch being verified of this block, need to populate the slot_bank's tick height for tick verification */
-      if( FD_UNLIKELY( block_map_entry->replayed_idx + 1 == 0 ) ){
+      if( FD_UNLIKELY( block_map_entry->consumed_idx + 1 == 0 ) ){
         FD_LOG_NOTICE(("Preparing first batch execution of slot %lu", ctx->curr_slot));
         prepare_first_batch_execution( ctx, stem );
       }
@@ -1629,15 +1630,12 @@ after_frag( fd_replay_tile_ctx_t * ctx,
              required because txns can span multiple shreds. */
           ulong mbatch_sz = 0;
 
-          fd_blockstore_start_read( ctx->blockstore );
-
-          int err = fd_blockstore_batch_assemble( ctx->blockstore,
-                                                  ctx->curr_slot,
-                                                  block_map_entry->replayed_idx + 1,
-                                                  FD_MBATCH_MAX,
-                                                  ctx->mbatch,
-                                                  &mbatch_sz );
-          fd_blockstore_end_read( ctx->blockstore );
+          int err = fd_blockstore_slice_query( ctx->blockstore,
+                                               ctx->curr_slot,
+                                               block_map_entry->consumed_idx + 1,
+                                               FD_SLICE_MAX,
+                                               ctx->mbatch,
+                                               &mbatch_sz );
 
           if( FD_UNLIKELY( err ) ){
             FD_LOG_ERR(( "Failed to assemble microblock batch" ));
@@ -1648,10 +1646,13 @@ after_frag( fd_replay_tile_ctx_t * ctx,
             // TODO: handle invalid batch how & do thread handling
             FD_LOG_ERR(( "Failed to process microblock batch" ));
           }
+          if( FD_UNLIKELY( idx == block_map_entry->slot_complete_idx ) ) {
+            for( uint idx = 0; idx <= block_map_entry->slot_complete_idx; idx++ ) {
+              fd_blockstore_shred_remove( ctx->blockstore, ctx->curr_slot, idx );
+            }
+          }
           //replay_mbatch( ctx, block_map_entry->replayed_idx + 1 );
-          fd_blockstore_start_write( ctx->blockstore );
-          block_map_entry->replayed_idx = idx;
-          fd_blockstore_end_write( ctx->blockstore );
+          block_map_entry->consumed_idx = idx;
         }
       }
     }
@@ -1766,7 +1767,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     if( FD_LIKELY( block_ ) ) {
       block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED );
       block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
-      ctx->blockstore->lps   = block_map_entry->slot;
+      ctx->blockstore->shmem->lps   = block_map_entry->slot;
       memcpy( &block_map_entry->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
     }
     fd_blockstore_end_write( ctx->blockstore );
@@ -1822,7 +1823,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
           break;
         }
         s = block_map_entry->parent_slot;
-        if( s < ctx->blockstore->smr ) {
+        if( s < ctx->blockstore->shmem->smr ) {
           break;
         }
         *(ulong*)(msg + 24U + i*8U) = s;
@@ -2476,7 +2477,7 @@ during_housekeeping( void * _ctx ) {
      root and blockstore smr. */
 
   fd_blockstore_start_read( ctx->blockstore );
-  ulong wmk = fd_ulong_min( ctx->root, ctx->blockstore->smr );
+  ulong wmk = fd_ulong_min( ctx->root, ctx->blockstore->shmem->smr );
   fd_blockstore_end_read( ctx->blockstore );
 
   if ( FD_LIKELY( wmk <= fd_fseq_query( ctx->wmk ) ) ) return;
@@ -2557,7 +2558,7 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     ctx->bmtree[i]           = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
-  void * mbatch_mem          = FD_SCRATCH_ALLOC_APPEND( l, 128UL, FD_MBATCH_MAX );
+  void * mbatch_mem          = FD_SCRATCH_ALLOC_APPEND( l, 128UL, FD_SLICE_MAX );
   ulong  thread_spad_size    = fd_spad_footprint( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT );
   void * spad_mem            = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), tile->replay.tpool_thread_count * fd_ulong_align_up( thread_spad_size, fd_spad_align() ) + FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT );
   ulong  scratch_alloc_mem   = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
@@ -2574,7 +2575,6 @@ unprivileged_init( fd_topo_t *      topo,
   /**********************************************************************/
 
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
-  ctx->blockstore = NULL;
 
   ulong blockstore_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "blockstore" );
   FD_TEST( blockstore_obj_id!=ULONG_MAX );
@@ -2583,8 +2583,9 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "no blockstore wksp" ));
   }
 
-  ctx->blockstore = fd_blockstore_join( fd_topo_obj_laddr( topo, blockstore_obj_id ) );
-  FD_TEST( ctx->blockstore!=NULL );
+  ctx->blockstore = fd_blockstore_join( &ctx->blockstore_ljoin, fd_topo_obj_laddr( topo, blockstore_obj_id ) );
+  fd_buf_shred_pool_reset( ctx->blockstore->shred_pool, 0 );
+  FD_TEST( ctx->blockstore->shmem->magic == FD_BLOCKSTORE_MAGIC );
 
   ulong status_cache_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "txncache" );
   FD_TEST( status_cache_obj_id != ULONG_MAX );

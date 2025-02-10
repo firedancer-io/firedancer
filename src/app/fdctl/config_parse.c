@@ -284,13 +284,13 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( uint,   layout.exec_tile_count                           );
 
   CFG_POP      ( cstr,   hugetlbfs.mount_path                             );
+  CFG_POP      ( cstr,   hugetlbfs.max_page_size                          );
 
   CFG_POP      ( cstr,   tiles.net.interface                              );
   CFG_POP      ( cstr,   tiles.net.xdp_mode                               );
   CFG_POP      ( uint,   tiles.net.xdp_rx_queue_size                      );
   CFG_POP      ( uint,   tiles.net.xdp_tx_queue_size                      );
   CFG_POP      ( uint,   tiles.net.xdp_aio_depth                          );
-  CFG_POP      ( uint,   tiles.net.flush_timeout_micros                   );
   CFG_POP      ( uint,   tiles.net.send_buffer_size                       );
 
   CFG_POP      ( ushort, tiles.quic.regular_transaction_listen_port       );
@@ -307,6 +307,10 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( uint,   tiles.verify.mtu                                 );
 
   CFG_POP      ( uint,   tiles.dedup.signature_cache_size                 );
+
+  CFG_POP      ( bool,   tiles.bundle.enabled                             );
+  CFG_POP      ( cstr,   tiles.bundle.url                                 );
+  CFG_POP      ( cstr,   tiles.bundle.tls_domain_name                     );
 
   CFG_POP      ( uint,   tiles.pack.max_pending_transactions              );
   CFG_POP      ( bool,   tiles.pack.use_consumed_cus                      );
@@ -459,6 +463,7 @@ fdctl_cfg_validate( config_t * cfg ) {
   CFG_HAS_NON_ZERO ( layout.exec_tile_count );
 
   CFG_HAS_NON_EMPTY( hugetlbfs.mount_path );
+  CFG_HAS_NON_EMPTY( hugetlbfs.max_page_size );
 
   CFG_HAS_NON_EMPTY( tiles.net.xdp_mode );
   CFG_HAS_POW2     ( tiles.net.xdp_rx_queue_size );

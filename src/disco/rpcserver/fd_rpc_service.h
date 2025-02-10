@@ -19,6 +19,7 @@ struct fd_rpcserver_args {
   fd_valloc_t          valloc;
   int                  offline;
   fd_funk_t *          funk;
+  fd_blockstore_t      blockstore_ljoin;
   fd_blockstore_t *    blockstore;
   int                  blockstore_fd;
   fd_stake_ci_t *      stake_ci;

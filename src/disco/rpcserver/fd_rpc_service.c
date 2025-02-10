@@ -107,7 +107,7 @@ struct fd_rpc_global_ctx {
   fd_valloc_t valloc;
   fd_webserver_t ws;
   fd_funk_t * funk;
-  fd_blockstore_t * blockstore;
+  fd_blockstore_t blockstore[1];
   int blockstore_fd;
   struct fd_ws_subscription sub_list[FD_WS_MAX_SUBS];
   ulong sub_cnt;
@@ -173,11 +173,11 @@ get_slot_from_commitment_level( struct json_values * values, fd_rpc_ctx_t * ctx 
   ulong        commit_str_sz = 0;
   const void * commit_str    = json_get_value( values, PATH_COMMITMENT, 4, &commit_str_sz );
   if( commit_str == NULL || MATCH_STRING( commit_str, commit_str_sz, "confirmed" ) ) {
-    return ctx->global->blockstore->hcs;
+    return ctx->global->blockstore->shmem->hcs;
   } else if( MATCH_STRING( commit_str, commit_str_sz, "processed" ) ) {
-    return ctx->global->blockstore->lps;
+    return ctx->global->blockstore->shmem->lps;
   } else if( MATCH_STRING( commit_str, commit_str_sz, "finalized" ) ) {
-    return ctx->global->blockstore->smr;
+    return ctx->global->blockstore->shmem->smr;
   } else {
     fd_method_error( ctx, -1, "invalid commitment %s", (const char *)commit_str );
     return FD_SLOT_NULL;
@@ -582,8 +582,8 @@ method_getBlockProduction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_webserver_t * ws = &glob->ws;
   fd_blockstore_t * blockstore = glob->blockstore;
   FD_SCRATCH_SCOPE_BEGIN {
-    ulong startslot = blockstore->smr;
-    ulong endslot = blockstore->lps;
+    ulong startslot = blockstore->shmem->smr;
+    ulong endslot = blockstore->shmem->lps;
     fd_per_epoch_info_t const * ei = glob->stake_ci->epoch_info;
     startslot = fd_ulong_max( startslot, fd_ulong_min( ei[0].start_slot, ei[1].start_slot ) );
 
@@ -662,10 +662,10 @@ method_getBlocks(struct json_values* values, fd_rpc_ctx_t * ctx) {
   ulong endslotn = (endslot == NULL ? ULONG_MAX : (ulong)(*(long*)endslot));
 
   fd_blockstore_t * blockstore = ctx->global->blockstore;
-  if (startslotn < blockstore->smr) /* FIXME query archival file */
-    startslotn = blockstore->smr;
-  if (endslotn > blockstore->hcs)
-    endslotn = blockstore->hcs;
+  if (startslotn < blockstore->shmem->smr) /* FIXME query archival file */
+    startslotn = blockstore->shmem->smr;
+  if (endslotn > blockstore->shmem->hcs)
+    endslotn = blockstore->shmem->hcs;
 
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":[");
   uint cnt = 0;
@@ -714,15 +714,15 @@ method_getBlocksWithLimit(struct json_values* values, fd_rpc_ctx_t * ctx) {
   ulong limitn = (ulong)(*(long*)limit);
 
   fd_blockstore_t * blockstore = ctx->global->blockstore;
-  if (startslotn < blockstore->smr)  /* FIXME query archival file */
-    startslotn = blockstore->smr;
+  if (startslotn < blockstore->shmem->smr)  /* FIXME query archival file */
+    startslotn = blockstore->shmem->smr;
   if (limitn > 500000)
     limitn = 500000;
 
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":[");
   uint cnt = 0;
   uint skips = 0;
-  for ( ulong i = startslotn; i <= blockstore->lps && cnt < limitn && skips < 100U; ++i ) {
+  for ( ulong i = startslotn; i <= blockstore->shmem->lps && cnt < limitn && skips < 100U; ++i ) {
     fd_block_map_t meta[1];
     int ret = fd_blockstore_block_map_query_volatile(blockstore, ctx->global->blockstore_fd, i, meta);
     if (!ret) {
@@ -881,7 +881,7 @@ method_getFirstAvailableBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_blockstore_t * blockstore = ctx->global->blockstore;
   fd_webserver_t * ws = &ctx->global->ws;
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
-                       blockstore->smr, ctx->call_id); /* FIXME archival file */
+                       blockstore->shmem->smr, ctx->call_id); /* FIXME archival file */
   return 0;
 }
 
@@ -1110,7 +1110,7 @@ method_getMaxShredInsertSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_blockstore_t * blockstore = ctx->global->blockstore;
   fd_webserver_t * ws = &ctx->global->ws;
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
-                       blockstore->smr, ctx->call_id); /* FIXME archival file */
+                       blockstore->shmem->smr, ctx->call_id); /* FIXME archival file */
   return 0;
 }
 
@@ -1825,7 +1825,7 @@ method_minimumLedgerSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_rpc_global_ctx_t * glob = ctx->global;
   fd_webserver_t * ws = &ctx->global->ws;
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
-                       glob->blockstore->smr, ctx->call_id); /* FIXME archival file */
+                       glob->blockstore->shmem->smr, ctx->call_id); /* FIXME archival file */
   return 0;
 }
 
@@ -2485,13 +2485,13 @@ fd_rpc_start_service(fd_rpcserver_args_t * args, fd_rpc_ctx_t * ctx) {
   fd_rpc_global_ctx_t * gctx = ctx->global;
 
   gctx->funk = args->funk;
-  gctx->blockstore = args->blockstore;
+  memcpy( gctx->blockstore, args->blockstore, sizeof(fd_blockstore_t) );
   gctx->blockstore_fd = args->blockstore_fd;
 
   fd_replay_notif_msg_t * msg = &gctx->last_slot_notify;
   msg->type = FD_REPLAY_SLOT_TYPE;
-  msg->slot_exec.slot = args->blockstore->smr;
-  msg->slot_exec.root = args->blockstore->smr;
+  msg->slot_exec.slot = args->blockstore->shmem->smr;
+  msg->slot_exec.root = args->blockstore->shmem->smr;
 }
 
 void

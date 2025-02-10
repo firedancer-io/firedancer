@@ -72,10 +72,11 @@ fd_xdp_install( uint           if_idx,
   }
 
   uint uxdp_mode = 0;
-  if(      FD_LIKELY( !strcmp( xdp_mode, "skb" ) ) ) uxdp_mode = XDP_FLAGS_SKB_MODE;
-  else if( FD_LIKELY( !strcmp( xdp_mode, "drv" ) ) ) uxdp_mode = XDP_FLAGS_DRV_MODE;
-  else if( FD_LIKELY( !strcmp( xdp_mode, "hw"  ) ) ) uxdp_mode = XDP_FLAGS_HW_MODE;
-  else FD_LOG_ERR(( "unknown XDP mode `%.4s`", xdp_mode ));
+  if(      !strcmp( xdp_mode, "skb"     ) ) uxdp_mode = XDP_FLAGS_SKB_MODE;
+  else if( !strcmp( xdp_mode, "drv"     ) ) uxdp_mode = XDP_FLAGS_DRV_MODE;
+  else if( !strcmp( xdp_mode, "hw"      ) ) uxdp_mode = XDP_FLAGS_HW_MODE;
+  else if( !strcmp( xdp_mode, "generic" ) ) uxdp_mode = 0U;
+  else FD_LOG_ERR(( "unknown XDP mode `%s`", xdp_mode ));
 
   /* Create mutable copy of ELF */
 

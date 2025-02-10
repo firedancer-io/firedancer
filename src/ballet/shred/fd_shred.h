@@ -212,7 +212,7 @@ struct __attribute__((packed)) fd_shred {
 
   union {
     /* Common data shred header */
-    struct __attribute__((packed)) fd_shred_data {
+    struct __attribute__((packed)) {
       /* Slot number difference between this block and the parent block.
          parent_off <= slot.
          Always greater than zero, except for slot 0, in which case the
@@ -232,7 +232,7 @@ struct __attribute__((packed)) fd_shred {
     } data;
 
     /* Common coding shred header */
-    struct __attribute__((packed)) fd_shred_code {
+    struct __attribute__((packed)) {
       /* Total number of data shreds in slot. Must be positive. */
       /* 0x53 */ ushort data_cnt;
 
@@ -245,8 +245,6 @@ struct __attribute__((packed)) fd_shred {
     } code;
   };
 };
-typedef struct fd_shred_data fd_shred_data_t;
-typedef struct fd_shred_code fd_shred_code_t;
 typedef struct fd_shred fd_shred_t;
 
 FD_PROTOTYPES_BEGIN

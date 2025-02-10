@@ -175,15 +175,24 @@ metric introduced.
     <counter name="PktUndersz" summary="Number of QUIC packets dropped due to being too small." />
     <counter name="PktOversz" summary="Number of QUIC packets dropped due to being too large." />
     <counter name="PktVerneg" summary="Number of QUIC version negotiation packets received." />
+    <counter name="RetrySent" summary="Number of QUIC Retry packets sent." />
+</tile>
+
+<tile name="bundle">
+    <counter name="TransactionReceived" summary="Total count of transactions received, including transactions within bundles" />
+    <counter name="PacketReceived" summary="Total count of packets received" />
+    <counter name="BundleReceived" summary="Total count of bundles received" />
 </tile>
 
 <tile name="verify">
+    <counter name="TransactionBundlePeerFailure" summary="Count of transactions that failed to verify because a peer transaction in the bundle failed" />
     <counter name="TransactionParseFailure" summary="Count of transactions that failed to parse" />
     <counter name="TransactionDedupFailure" summary="Count of transactions that failed to deduplicate in the verify stage" />
     <counter name="TransactionVerifyFailure" summary="Count of transactions that failed to deduplicate in the verify stage" />
 </tile>
 
 <tile name="dedup">
+    <counter name="TransactionBundlePeerFailure" summary="Count of transactions that failed to dedup because a peer transaction in the bundle failed" />
     <counter name="TransactionDedupFailure" summary="Count of transactions that failed to deduplicate in the dedup stage" />
     <counter name="GossipedVotesReceived" summary="Count of simple vote transactions received over gossip instead of via the normal TPU path" />
 </tile>
@@ -209,6 +218,7 @@ metric introduced.
     <counter name="StashOperation" enum="ResolveStashOperation" summary="Count of operations that happened on the transaction stash" />
     <counter name="LutResolved" enum="LutResolveResult" summary="Count of address lookup tables resolved" />
     <counter name="BlockhashExpired" summary="Count of transactions that failed to resolve because the blockhash was expired" />
+    <counter name="TransactionBundlePeerFailure" summary="Count of transactions that failed to resolve because a peer transaction in the bundle failed" />
 </tile>
 
 <enum name="PackTxnInsertReturn">
@@ -259,6 +269,14 @@ metric introduced.
     <int value="15" name="TxnBankLeaderMicroblock" label="Pack scheduled a non-empty microblock" />
 </enum>
 
+<enum name="AvailTxnType">
+  <int value="0" name="All" label="All transactions in any treap" />
+  <int value="1" name="Regular" label="Non-votes in the main treap" />
+  <int value="2" name="Votes" label="Simple votes" />
+  <int value="3" name="Conflicting" label="Non-votes that write to a hotly-contended account" />
+  <int value="4" name="Bundles" label="Transactions that are part of a bundle" />
+</enum>
+
 <tile name="pack">
     <histogram name="ScheduleMicroblockDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
         <summary>Duration of scheduling one microblock</summary>
@@ -287,10 +305,8 @@ metric introduced.
     <counter name="TransactionInsertedFromExtra" summary="Transactions pulled from the extra transaction storage and inserted into pack's primary storage" />
     <counter name="TransactionExpired" summary="Transactions deleted from pack because their TTL expired" />
 
-    <gauge name="AvailableTransactions" summary="The total number of pending transactions in pack's pool that are available to be scheduled" />
-    <gauge name="AvailableVoteTransactions" summary="The number of pending simple vote transactions in pack's pool that are available to be scheduled" />
-    <gauge name="PendingTransactionsHeapSize" summary="The maximum number of pending transactions that pack can consider.  This value is fixed at Firedancer startup but is a useful reference for AvailableTransactions and AvailableVoteTransactions." />
-    <gauge name="ConflictingTransactions" summary="The number of available transactions that are temporarily not being considered due to account lock conflicts with many higher paying transactions" />
+    <gauge name="AvailableTransactions" enum="AvailTxnType" summary="The total number of pending transactions in pack's pool that are available to be scheduled" />
+    <gauge name="PendingTransactionsHeapSize" summary="The maximum number of pending transactions that pack can consider.  This value is fixed at Firedancer startup but is a useful reference for AvailableTransactions." />
 
     <gauge name="SmallestPendingTransaction" summary="A lower bound on the smallest non-vote transaction (in cost units) that is immediately available for scheduling" />
 
@@ -369,6 +385,7 @@ metric introduced.
     <int value="36" name="ProgramExecutionTemporarilyRestricted" label="Program execution is temporarily restricted on an account." />
     <int value="37" name="UnbalancedTransaction" label="The total balance before the transaction does not equal the total balance after the transaction." />
     <int value="38" name="ProgramCacheHitMaxLimit" label="The total program cache size hit the maximum allowed limit." />
+    <int value="39" name="BundlePeer" label="Transaction is part of a bundle and one of the peer transactions failed." />
 </enum>
 
 <tile name="bank">

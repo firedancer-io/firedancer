@@ -71,7 +71,8 @@ size_of_versioned( int is_current ) {
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L104
 static inline ulong
 lockout( fd_vote_lockout_t * self ) {
-  return (ulong)pow( INITIAL_LOCKOUT, self->confirmation_count );
+  // Assumes INITIAL_LOCKOUT (the base) = 2
+  return self->confirmation_count<64U ? 1UL<<self->confirmation_count : 0UL;
 }
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L110

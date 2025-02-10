@@ -69,9 +69,9 @@ typedef struct {
     ulong account_indexes_cnt;
     char  account_indexes[ 4 ][ 32 ];
     ulong account_index_include_keys_cnt;
-    char  account_index_include_keys[ 32 ][ 32 ];
+    char  account_index_include_keys[ 32 ][ FD_BASE58_ENCODED_32_SZ ];
     ulong account_index_exclude_keys_cnt;
-    char  account_index_exclude_keys[ 32 ][ 32 ];
+    char  account_index_exclude_keys[ 32 ][ FD_BASE58_ENCODED_32_SZ ];
     char  accounts_index_path[ PATH_MAX ];
     char  accounts_hash_cache_path[ PATH_MAX ];
     int   require_tower;
@@ -150,6 +150,7 @@ typedef struct {
     char gigantic_page_mount_path[ PATH_MAX ];
     char huge_page_mount_path[ PATH_MAX ];
     char mount_path[ PATH_MAX ];
+    char max_page_size[ 16 ];
   } hugetlbfs;
 
   struct {
@@ -220,7 +221,6 @@ typedef struct {
       uint xdp_rx_queue_size;
       uint xdp_tx_queue_size;
       uint xdp_aio_depth;
-      uint flush_timeout_micros;
 
       uint send_buffer_size;
     } net;
@@ -247,6 +247,12 @@ typedef struct {
     struct {
       uint signature_cache_size;
     } dedup;
+
+    struct {
+      int  enabled;
+      char url[ 256 ];
+      char tls_domain_name[ 256 ];
+    } bundle;
 
     struct {
       uint max_pending_transactions;
