@@ -167,7 +167,8 @@ test_deny_namespaces_inner( void ) {
     char * endptr;
     ulong value = strtoul( buf, &endptr, 10 );
     FD_TEST( *endptr=='\n' );
-    if( !strcmp( SYSCTLS[ i ], "/proc/sys/user/max_user_namespaces" ) || !strcmp( SYSCTLS[ i ], "/proc/sys/user/max_mnt_namespaces" ) ) FD_TEST( value==1UL );
+    if(      !strcmp( SYSCTLS[ i ], "/proc/sys/user/max_user_namespaces" ) ) FD_TEST( value==1UL );
+    else if( !strcmp( SYSCTLS[ i ], "/proc/sys/user/max_mnt_namespaces"  ) ) FD_TEST( value==2UL );
     else FD_TEST( !value );
   }
 
@@ -361,7 +362,7 @@ test_resource_limits_inner( void ) {
 
   static struct rlimit_setting rlimits[] = {
     { .resource=RLIMIT_NOFILE,     .limit=0UL },
-    { .resource=RLIMIT_NICE,       .limit=1UL },
+    { .resource=RLIMIT_NICE,       .limit=0UL },
 
     { .resource=RLIMIT_AS,         .limit=0UL },
     { .resource=RLIMIT_CORE,       .limit=0UL },
