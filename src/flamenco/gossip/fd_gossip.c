@@ -2479,9 +2479,9 @@ fd_gossip_set_stake_weights( fd_gossip_t * gossip,
 
 void
 fd_gossip_set_entrypoints( fd_gossip_t * gossip,
-                           uint entrypoints[static 16],
+                           uint const * entrypoints,
                            ulong entrypoints_cnt,
-                           ushort * ports ) {
+                           ushort const * ports ) {
   gossip->entrypoints_cnt = entrypoints_cnt;
   for( ulong i = 0UL; i<entrypoints_cnt; i++) {
     fd_gossip_peer_addr_t addr;

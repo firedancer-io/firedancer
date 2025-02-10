@@ -137,7 +137,13 @@ ushort fd_gossip_get_shred_version( fd_gossip_t const * glob );
 
 void fd_gossip_set_stake_weights( fd_gossip_t * gossip, fd_stake_weight_t const * stake_weights, ulong stake_weights_cnt );
 
-void fd_gossip_set_entrypoints( fd_gossip_t * gossip, uint allowed_entrypoints[static 16], ulong allowed_entrypoints_cnt, ushort * ports );
+/* fd_gossip_set_entrypoints sets ip and ports for initial known
+   validators to gossip to.  These values are set by the operator
+   at startup.  This function should only be called at startup. */
+void fd_gossip_set_entrypoints( fd_gossip_t * gossip,
+                                uint const * allowed_entrypoints, /* big endian ipv4 addresses (allowed_entrypoints_cnt many) */
+                                ulong allowed_entrypoints_cnt,    /* number of allowed entrypoints, assumed to be in [1, FD_ACTIVE_KEY_MAX] */
+                                ushort const * ports );           /* gossip ports of the peers (allowed_entrypoints_cnt many) */
 
 uint fd_gossip_is_allowed_entrypoint( fd_gossip_t * gossip, fd_gossip_peer_addr_t * addr );
 
@@ -198,7 +204,7 @@ struct fd_gossip_metrics {
   ulong gossip_peer_cnt[FD_METRICS_GAUGE_GOSSIP_GOSSIP_PEER_COUNTS_CNT];
   /* TODO: Lock metrics */
 };
-typedef struct fd_gossip_metrics fd_gossip_metrics_t; 
+typedef struct fd_gossip_metrics fd_gossip_metrics_t;
 #define FD_GOSSIP_METRICS_FOOTPRINT ( sizeof( fd_gossip_metrics_t ) )
 
 fd_gossip_metrics_t *
