@@ -55,7 +55,7 @@ def print_sankey(summed: Dict[Tuple[str, Optional[str]], int]):
                       summed[('resolv_stash_operation', 'published')] - \
                       summed[('resolv_stash_operation', 'removed')]
 
-    pack_retained = summed[('pack_available_transactions', None)]
+    pack_retained = summed[('pack_available_transactions', 'all')]
 
     pack_leader_slot = summed[('pack_transaction_inserted', 'priority')] + \
                        summed[('pack_transaction_inserted', 'nonvote_replace')] + \

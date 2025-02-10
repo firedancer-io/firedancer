@@ -335,7 +335,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
         blockhash->slot = frag->slot;
 
         blockhash_t * hash = (blockhash_t *)frag->hash;
-        ctx->flush_pool_idx  = map_chain_idx_query( ctx->map_chain, &hash, ULONG_MAX, ctx->pool );
+        ctx->flush_pool_idx  = map_chain_idx_query_const( ctx->map_chain, &hash, ULONG_MAX, ctx->pool );
         ctx->flushing_slot   = frag->slot;
 
         ctx->completed_slot = frag->slot;
