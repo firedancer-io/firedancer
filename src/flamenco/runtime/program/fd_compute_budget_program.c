@@ -8,9 +8,41 @@
 #include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_epoch_ctx.h"
 #include "../../vm/fd_vm.h"
+#include "fd_builtin_programs.h"
 
-#define DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT  (200000)
-#define DEFAULT_COMPUTE_UNITS                   (150UL)
+#define DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT    (200000UL)
+#define DEFAULT_COMPUTE_UNITS                     (150UL)
+
+/* https://github.com/anza-xyz/agave/blob/v2.1.13/compute-budget/src/compute_budget_limits.rs#L11-L13 */
+#define MAX_BUILTIN_ALLOCATION_COMPUTE_UNIT_LIMIT (3000UL)
+
+FD_FN_PURE static inline uchar
+get_program_kind( fd_exec_txn_ctx_t const * ctx,
+                  fd_txn_instr_t const *    instr ) {
+  fd_pubkey_t const * txn_accs       = ctx->accounts;
+  fd_pubkey_t const * program_pubkey = &txn_accs[ instr->program_id ];
+
+  /* The program is a standard, non-migrating builtin (e.g. system program) */
+  if( fd_is_non_migrating_builtin_program( program_pubkey ) ) {
+    return FD_PROGRAM_KIND_BUILTIN;
+  }
+
+  uchar migrated_yet;
+  uchar is_migrating_program = fd_is_migrating_builtin_program( ctx->slot_ctx, program_pubkey, &migrated_yet );
+
+  /* The program has a BPF migration config but has not been migrated yet, so it's still a builtin program */
+  if( is_migrating_program && !migrated_yet ) {
+    return FD_PROGRAM_KIND_BUILTIN;
+  }
+
+  /* The program has a BPF migration config AND has been migrated */
+  if( is_migrating_program && migrated_yet ) {
+    return FD_PROGRAM_KIND_MIGRATING_BUILTIN;
+  }
+
+  /* The program is some other program kind, i.e. not a builtin */
+  return FD_PROGRAM_KIND_NOT_BUILTIN;
+}
 
 FD_FN_PURE static inline int
 is_compute_budget_instruction( fd_exec_txn_ctx_t const * ctx,
@@ -20,6 +52,26 @@ is_compute_budget_instruction( fd_exec_txn_ctx_t const * ctx,
   return !memcmp(program_pubkey, fd_solana_compute_budget_program_id.key, sizeof(fd_pubkey_t));
 }
 
+/* In our implementation of this function, our parameters map to Agave's as follows:
+  - `num_builtin_instrs` -> `num_non_migratable_builtin_instructions` + `num_not_migrated`
+  - `num_non_builtin_instrs` -> `num_non_builtin_instructions` + `num_migrated`
+
+   https://github.com/anza-xyz/agave/blob/v2.1.13/runtime-transaction/src/compute_budget_instruction_details.rs#L211-L239 */
+FD_FN_PURE static inline ulong
+calculate_default_compute_unit_limit( fd_exec_txn_ctx_t const * ctx,
+                                      ulong                     num_builtin_instrs,
+                                      ulong                     num_non_builtin_instrs,
+                                      ulong                     num_non_compute_budget_instrs ) {
+  if( FD_FEATURE_ACTIVE( ctx->slot_ctx, reserve_minimal_cus_for_builtin_instructions ) ) {
+    /* https://github.com/anza-xyz/agave/blob/v2.1.13/runtime-transaction/src/compute_budget_instruction_details.rs#L227-L234 */
+    return fd_ulong_sat_add( fd_ulong_sat_mul( num_builtin_instrs, MAX_BUILTIN_ALLOCATION_COMPUTE_UNIT_LIMIT ),
+                             fd_ulong_sat_mul( num_non_builtin_instrs, DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT ) );
+  } else {
+    /* https://github.com/anza-xyz/agave/blob/v2.1.13/runtime-transaction/src/compute_budget_instruction_details.rs#L236-L237 */
+    return fd_ulong_sat_mul( num_non_compute_budget_instrs, DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT );
+  }
+}
+
 /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/compute-budget/src/compute_budget_processor.rs#L150-L153 */
 FD_FN_PURE static inline int
 sanitize_requested_heap_size( ulong bytes ) {
@@ -27,7 +79,7 @@ sanitize_requested_heap_size( ulong bytes ) {
 }
 
 /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/compute-budget/src/compute_budget_processor.rs#L69-L148 */
-int 
+int
 fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx, fd_rawtxn_b_t const * txn_raw ) {
   uint   has_compute_units_limit_update              = 0UL;
   uint   has_compute_units_price_update              = 0UL;
@@ -35,7 +87,12 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
   uint   has_loaded_accounts_data_size_limit_update  = 0UL;
 
   ushort requested_heap_size_instr_index             = 0;
-  uint   num_non_compute_budget_instrs               = 0U;
+
+  /* SIMD-170 introduces a conservative CU limit of 3,000 CUs per non-migrated native program,
+     and 200,000 CUs for all other programs (including migrated builtins). */
+  ulong  num_non_compute_budget_instrs               = 0UL;
+  ulong  num_builtin_instrs                          = 0UL;
+  ulong  num_non_builtin_instrs                      = 0UL;
 
   uint   updated_compute_unit_limit                  = 0U;
   uint   updated_requested_heap_size                 = 0U;
@@ -47,10 +104,22 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
   for( ushort i=0; i<ctx->txn_descriptor->instr_cnt; i++ ) {
     fd_txn_instr_t const * instr = &ctx->txn_descriptor->instr[i];
 
+    /* Track builtin vs non-builtin metrics only if SIMD-170 is active */
+    if( FD_FEATURE_ACTIVE( ctx->slot_ctx, reserve_minimal_cus_for_builtin_instructions ) ) {
+      /* Only `FD_PROGRAM_KIND_BUILTIN` gets charged as a builtin instruction */
+      uchar program_kind = get_program_kind( ctx, instr );
+      if( program_kind==FD_PROGRAM_KIND_BUILTIN ) {
+        num_builtin_instrs++;
+      } else {
+        num_non_builtin_instrs++;
+      }
+    }
+
     if( !is_compute_budget_instruction( ctx, instr ) ) {
       num_non_compute_budget_instrs++;
       continue;
     }
+
     /* Deserialize the ComputeBudgetInstruction enum */
     uchar * data = (uchar *)txn_raw->raw + instr->data_off;
 
@@ -122,16 +191,19 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
     if( FD_UNLIKELY( !sanitize_requested_heap_size( updated_requested_heap_size ) ) ) {
       FD_TXN_ERR_FOR_LOG_INSTR( ctx, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA, requested_heap_size_instr_index );
       return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
-    } 
+    }
     ctx->heap_size = updated_requested_heap_size;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1/runtime-transaction/src/compute_budget_instruction_details.rs#L66-L76 */
+  /* https://github.com/anza-xyz/agave/blob/v2.1.13/runtime-transaction/src/compute_budget_instruction_details.rs#L137-L143 */
   if( has_compute_units_limit_update ) {
     ctx->compute_unit_limit = fd_ulong_min( FD_MAX_COMPUTE_UNIT_LIMIT, updated_compute_unit_limit );
   } else {
-    ctx->compute_unit_limit = fd_ulong_min( FD_MAX_COMPUTE_UNIT_LIMIT, 
-                                            (ulong)fd_uint_sat_mul( num_non_compute_budget_instrs, DEFAULT_INSTRUCTION_COMPUTE_UNIT_LIMIT ) );
+    ctx->compute_unit_limit = fd_ulong_min( calculate_default_compute_unit_limit(ctx,
+                                                                                    num_builtin_instrs,
+                                                                                    num_non_builtin_instrs,
+                                                                                    num_non_compute_budget_instrs),
+                                            FD_MAX_COMPUTE_UNIT_LIMIT );
   }
   ctx->compute_meter = ctx->compute_unit_limit;
 
@@ -145,7 +217,7 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
     if( FD_UNLIKELY( updated_loaded_accounts_data_size_limit==0UL ) ) {
       return FD_RUNTIME_TXN_ERR_INVALID_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
     }
-    ctx->loaded_accounts_data_size_limit = 
+    ctx->loaded_accounts_data_size_limit =
       fd_ulong_min( FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT, updated_loaded_accounts_data_size_limit );
   }
 

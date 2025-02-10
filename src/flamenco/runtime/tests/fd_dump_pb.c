@@ -8,9 +8,11 @@
 /***** UTILITY FUNCTIONS *****/
 
 static void
-dump_sorted_features( const fd_features_t * features, fd_exec_test_feature_set_t * output_feature_set ) {
+dump_sorted_features( fd_features_t const * features,
+                      fd_exec_test_feature_set_t * output_feature_set,
+                      fd_spad_t * spad ) {
   /* NOTE: Caller must have a scratch frame prepared */
-  uint64_t * unsorted_features = fd_scratch_alloc( alignof(uint64_t), FD_FEATURE_ID_CNT * sizeof(uint64_t) );
+  uint64_t * unsorted_features = fd_spad_alloc( spad, alignof(uint64_t), FD_FEATURE_ID_CNT * sizeof(uint64_t) );
   ulong num_features = 0;
   for( const fd_feature_id_t * current_feature = fd_feature_iter_init(); !fd_feature_iter_done( current_feature ); current_feature = fd_feature_iter_next( current_feature ) ) {
     if (features->f[current_feature->index] != FD_FEATURE_DISABLED) {
@@ -18,7 +20,7 @@ dump_sorted_features( const fd_features_t * features, fd_exec_test_feature_set_t
     }
   }
   // Sort the features
-  void * scratch = fd_scratch_alloc( sort_uint64_t_stable_scratch_align(), sort_uint64_t_stable_scratch_footprint(num_features) );
+  void * scratch = fd_spad_alloc( spad, sort_uint64_t_stable_scratch_align(), sort_uint64_t_stable_scratch_footprint(num_features) );
   uint64_t * sorted_features = sort_uint64_t_stable_fast( unsorted_features, num_features, scratch );
 
   // Set feature set in message
@@ -28,7 +30,8 @@ dump_sorted_features( const fd_features_t * features, fd_exec_test_feature_set_t
 
 static void
 dump_account_state( fd_borrowed_account_t const * borrowed_account,
-                    fd_exec_test_acct_state_t *   output_account ) {
+                    fd_exec_test_acct_state_t *   output_account,
+                    fd_spad_t *                   spad ) {
     // Address
     fd_memcpy(output_account->address, borrowed_account->pubkey, sizeof(fd_pubkey_t));
 
@@ -36,7 +39,7 @@ dump_account_state( fd_borrowed_account_t const * borrowed_account,
     output_account->lamports = (uint64_t) borrowed_account->const_meta->info.lamports;
 
     // Data
-    output_account->data = fd_scratch_alloc(alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE(borrowed_account->const_meta->dlen));
+    output_account->data = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( borrowed_account->const_meta->dlen ) );
     output_account->data->size = (pb_size_t) borrowed_account->const_meta->dlen;
     fd_memcpy(output_account->data->bytes, borrowed_account->const_data, borrowed_account->const_meta->dlen);
 
@@ -106,8 +109,9 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   */
   // Dump regular accounts first
   txn_context_msg->account_shared_data_count = 0;
-  txn_context_msg->account_shared_data = fd_scratch_alloc( alignof(fd_exec_test_acct_state_t),
-                                                   (txn_ctx->accounts_cnt * 2 + txn_descriptor->addr_table_lookup_cnt + num_sysvar_entries) * sizeof(fd_exec_test_acct_state_t) );
+  txn_context_msg->account_shared_data = fd_spad_alloc( spad,
+                                                        alignof(fd_exec_test_acct_state_t),
+                                                        (txn_ctx->accounts_cnt * 2 + txn_descriptor->addr_table_lookup_cnt + num_sysvar_entries) * sizeof(fd_exec_test_acct_state_t) );
   for( ulong i = 0; i < txn_ctx->accounts_cnt; ++i ) {
     FD_BORROWED_ACCOUNT_DECL(borrowed_account);
     int ret = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->accounts[i], borrowed_account );
@@ -124,7 +128,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
       }
     }
     if( !is_builtin ) {
-      dump_account_state( borrowed_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++] );
+      dump_account_state( borrowed_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
     }
   }
 
@@ -140,7 +144,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     if( !txn_ctx->executable_accounts[i].const_meta ) {
       continue;
     }
-    dump_account_state( &txn_ctx->executable_accounts[i], &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++] );
+    dump_account_state( &txn_ctx->executable_accounts[i], &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
   }
 
   // Reset state
@@ -157,7 +161,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     if( FD_UNLIKELY(ret != FD_ACC_MGR_SUCCESS) ) {
       continue;
     }
-    dump_account_state( borrowed_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++] );
+    dump_account_state( borrowed_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
   }
 
   // Dump sysvars
@@ -178,7 +182,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     }
     // Copy it into output
     if (!account_exists) {
-      dump_account_state( borrowed_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++] );
+      dump_account_state( borrowed_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
     }
   }
 
@@ -208,10 +212,10 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
 
   /* Transaction Context -> tx -> message -> account_keys */
   message->account_keys_count = txn_descriptor->acct_addr_cnt;
-  message->account_keys = fd_scratch_alloc( alignof(pb_bytes_array_t *), PB_BYTES_ARRAY_T_ALLOCSIZE(txn_descriptor->acct_addr_cnt * sizeof(pb_bytes_array_t *)) );
+  message->account_keys = fd_spad_alloc( spad, alignof(pb_bytes_array_t *), PB_BYTES_ARRAY_T_ALLOCSIZE( txn_descriptor->acct_addr_cnt * sizeof(pb_bytes_array_t *) ) );
   fd_acct_addr_t const * account_keys = fd_txn_get_acct_addrs( txn_descriptor, txn_payload );
   for( ulong i = 0; i < txn_descriptor->acct_addr_cnt; i++ ) {
-    pb_bytes_array_t * account_key = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE(sizeof(fd_pubkey_t)) );
+    pb_bytes_array_t * account_key = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( sizeof(fd_pubkey_t) ) );
     account_key->size = sizeof(fd_pubkey_t);
     memcpy( account_key->bytes, &account_keys[i], sizeof(fd_pubkey_t) );
     message->account_keys[i] = account_key;
@@ -219,13 +223,13 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
 
   /* Transaction Context -> tx -> message -> recent_blockhash */
   uchar const * recent_blockhash = fd_txn_get_recent_blockhash( txn_descriptor, txn_payload );
-  message->recent_blockhash = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE(sizeof(fd_hash_t)) );
+  message->recent_blockhash = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( sizeof(fd_hash_t) ) );
   message->recent_blockhash->size = sizeof(fd_hash_t);
   memcpy( message->recent_blockhash->bytes, recent_blockhash, sizeof(fd_hash_t) );
 
   /* Transaction Context -> tx -> message -> instructions */
   message->instructions_count = txn_descriptor->instr_cnt;
-  message->instructions = fd_scratch_alloc( alignof(fd_exec_test_compiled_instruction_t), txn_descriptor->instr_cnt * sizeof(fd_exec_test_compiled_instruction_t) );
+  message->instructions = fd_spad_alloc( spad, alignof(fd_exec_test_compiled_instruction_t), txn_descriptor->instr_cnt * sizeof(fd_exec_test_compiled_instruction_t) );
   for( ulong i = 0; i < txn_descriptor->instr_cnt; ++i ) {
     fd_txn_instr_t instr = txn_descriptor->instr[i];
     fd_exec_test_compiled_instruction_t * compiled_instruction = &message->instructions[i];
@@ -235,7 +239,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
 
     // compiled instruction -> accounts
     compiled_instruction->accounts_count = instr.acct_cnt;
-    compiled_instruction->accounts = fd_scratch_alloc( alignof(uint32_t), instr.acct_cnt * sizeof(uint32_t) );
+    compiled_instruction->accounts = fd_spad_alloc( spad, alignof(uint32_t), instr.acct_cnt * sizeof(uint32_t) );
     uchar const * instr_accounts = fd_txn_get_instr_accts( &instr, txn_payload );
     for( ulong j = 0; j < instr.acct_cnt; ++j ) {
       uchar instr_acct_index = instr_accounts[j];
@@ -244,7 +248,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
 
     // compiled instruction -> data
     uchar const * instr_data = fd_txn_get_instr_data( &instr, txn_payload );
-    compiled_instruction->data = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE(instr.data_sz) );
+    compiled_instruction->data = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( instr.data_sz ) );
     compiled_instruction->data->size = instr.data_sz;
     memcpy( compiled_instruction->data->bytes, instr_data, instr.data_sz );
   }
@@ -254,8 +258,9 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   if( !message->is_legacy ) {
     /* Transaction Context -> tx -> message -> address_table_lookups */
     message->address_table_lookups_count = txn_descriptor->addr_table_lookup_cnt;
-    message->address_table_lookups = fd_scratch_alloc( alignof(fd_exec_test_message_address_table_lookup_t),
-                                                       txn_descriptor->addr_table_lookup_cnt * sizeof(fd_exec_test_message_address_table_lookup_t) );
+    message->address_table_lookups = fd_spad_alloc( spad,
+                                                    alignof(fd_exec_test_message_address_table_lookup_t),
+                                                    txn_descriptor->addr_table_lookup_cnt * sizeof(fd_exec_test_message_address_table_lookup_t) );
     for( ulong i = 0; i < txn_descriptor->addr_table_lookup_cnt; ++i ) {
       // alut -> account_key
       fd_pubkey_t * alut_key = (fd_pubkey_t *) (txn_payload + address_lookup_tables[i].addr_off);
@@ -270,7 +275,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
 
       // alut -> writable_indexes
       message->address_table_lookups[i].writable_indexes_count = address_lookup_tables[i].writable_cnt;
-      message->address_table_lookups[i].writable_indexes = fd_scratch_alloc( alignof(uint32_t), address_lookup_tables[i].writable_cnt * sizeof(uint32_t) );
+      message->address_table_lookups[i].writable_indexes = fd_spad_alloc( spad, alignof(uint32_t), address_lookup_tables[i].writable_cnt * sizeof(uint32_t) );
       uchar * writable_indexes = (uchar *) (txn_payload + address_lookup_tables[i].writable_off);
       for( ulong j = 0; j < address_lookup_tables[i].writable_cnt; ++j ) {
         message->address_table_lookups[i].writable_indexes[j] = writable_indexes[j];
@@ -278,7 +283,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
 
       // alut -> readonly_indexes
       message->address_table_lookups[i].readonly_indexes_count = address_lookup_tables[i].readonly_cnt;
-      message->address_table_lookups[i].readonly_indexes = fd_scratch_alloc( alignof(uint32_t), address_lookup_tables[i].readonly_cnt * sizeof(uint32_t) );
+      message->address_table_lookups[i].readonly_indexes = fd_spad_alloc( spad, alignof(uint32_t), address_lookup_tables[i].readonly_cnt * sizeof(uint32_t) );
       uchar * readonly_indexes = (uchar *) (txn_payload + address_lookup_tables[i].readonly_off);
       for( ulong j = 0; j < address_lookup_tables[i].readonly_cnt; ++j ) {
         message->address_table_lookups[i].readonly_indexes[j] = readonly_indexes[j];
@@ -291,10 +296,10 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
 
   /* Transaction Context -> tx -> signatures */
   sanitized_transaction->signatures_count = txn_descriptor->signature_cnt;
-  sanitized_transaction->signatures = fd_scratch_alloc( alignof(pb_bytes_array_t *), PB_BYTES_ARRAY_T_ALLOCSIZE(txn_descriptor->signature_cnt * sizeof(pb_bytes_array_t *)) );
+  sanitized_transaction->signatures = fd_spad_alloc( spad, alignof(pb_bytes_array_t *), PB_BYTES_ARRAY_T_ALLOCSIZE( txn_descriptor->signature_cnt * sizeof(pb_bytes_array_t *) ) );
   fd_ed25519_sig_t const * signatures = fd_txn_get_signatures( txn_descriptor, txn_payload );
   for( uchar i = 0; i < txn_descriptor->signature_cnt; ++i ) {
-    pb_bytes_array_t * signature = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE(sizeof(fd_ed25519_sig_t)) );
+    pb_bytes_array_t * signature = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( sizeof(fd_ed25519_sig_t) ) );
     signature->size = sizeof(fd_ed25519_sig_t);
     memcpy( signature->bytes, &signatures[i], sizeof(fd_ed25519_sig_t) );
     sanitized_transaction->signatures[i] = signature;
@@ -304,9 +309,10 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
      NOTE: Agave's implementation of register_hash incorrectly allows the blockhash queue to hold max_age + 1 (max 301)
      entries. We have this incorrect logic implemented in fd_sysvar_recent_hashes:register_blockhash and it's not a
      huge issue, but something to keep in mind. */
-  pb_bytes_array_t ** output_blockhash_queue = fd_scratch_alloc(
+  pb_bytes_array_t ** output_blockhash_queue = fd_spad_alloc(
+                                                      spad,
                                                       alignof(pb_bytes_array_t *),
-                                                      PB_BYTES_ARRAY_T_ALLOCSIZE((FD_BLOCKHASH_QUEUE_MAX_ENTRIES + 1) * sizeof(pb_bytes_array_t *)) );
+                                                      PB_BYTES_ARRAY_T_ALLOCSIZE( (FD_BLOCKHASH_QUEUE_MAX_ENTRIES + 1) * sizeof(pb_bytes_array_t *) ) );
   txn_context_msg->blockhash_queue_count = 0;
   txn_context_msg->blockhash_queue = output_blockhash_queue;
 
@@ -324,7 +330,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     fd_hash_t blockhash = n->elem.key;
 
     // Write the blockhash to the correct index (note we write in reverse order since in the Protobuf message, the oldest blockhash goes first)
-    pb_bytes_array_t * output_blockhash = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE(sizeof(fd_hash_t)) );
+    pb_bytes_array_t * output_blockhash = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( sizeof(fd_hash_t) ) );
     output_blockhash->size = sizeof(fd_hash_t);
     memcpy( output_blockhash->bytes, &blockhash, sizeof(fd_hash_t) );
     output_blockhash_queue[FD_BLOCKHASH_QUEUE_MAX_ENTRIES - queue_index] = output_blockhash;
@@ -342,7 +348,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   /* Transaction Context -> epoch_ctx */
   txn_context_msg->has_epoch_ctx = true;
   txn_context_msg->epoch_ctx.has_features = true;
-  dump_sorted_features( &txn_ctx->epoch_ctx->features, &txn_context_msg->epoch_ctx.features );
+  dump_sorted_features( &txn_ctx->epoch_ctx->features, &txn_context_msg->epoch_ctx.features, spad );
 
   /* Transaction Context -> slot_ctx */
   txn_context_msg->has_slot_ctx  = true;
@@ -373,12 +379,12 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
 
   /* Accounts */
   instr_context->accounts_count = (pb_size_t) txn_ctx->accounts_cnt;
-  instr_context->accounts = fd_scratch_alloc(alignof(fd_exec_test_acct_state_t), (instr_context->accounts_count + num_sysvar_entries + txn_ctx->executable_cnt) * sizeof(fd_exec_test_acct_state_t));
+  instr_context->accounts = fd_spad_alloc( txn_ctx->spad, alignof(fd_exec_test_acct_state_t), (instr_context->accounts_count + num_sysvar_entries + txn_ctx->executable_cnt) * sizeof(fd_exec_test_acct_state_t));
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
     // Copy account information over
     fd_borrowed_account_t const * borrowed_account = &txn_ctx->borrowed_accounts[i];
     fd_exec_test_acct_state_t * output_account = &instr_context->accounts[i];
-    dump_account_state( borrowed_account, output_account );
+    dump_account_state( borrowed_account, output_account, txn_ctx->spad );
   }
 
   /* Add sysvar cache variables */
@@ -400,7 +406,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
     // Copy it into output
     if (!account_exists) {
       fd_exec_test_acct_state_t * output_account = &instr_context->accounts[instr_context->accounts_count++];
-      dump_account_state( borrowed_account, output_account );
+      dump_account_state( borrowed_account, output_account, txn_ctx->spad );
     }
   }
 
@@ -422,13 +428,13 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
     // Copy it into output
     if( !account_exists ) {
       fd_exec_test_acct_state_t * output_account = &instr_context->accounts[instr_context->accounts_count++];
-      dump_account_state( borrowed_account, output_account );
+      dump_account_state( borrowed_account, output_account, txn_ctx->spad );
     }
   }
 
   /* Instruction Accounts */
   instr_context->instr_accounts_count = (pb_size_t) instr->acct_cnt;
-  instr_context->instr_accounts = fd_scratch_alloc( alignof(fd_exec_test_instr_acct_t), instr_context->instr_accounts_count * sizeof(fd_exec_test_instr_acct_t) );
+  instr_context->instr_accounts = fd_spad_alloc( txn_ctx->spad, alignof(fd_exec_test_instr_acct_t), instr_context->instr_accounts_count * sizeof(fd_exec_test_instr_acct_t) );
   for( ushort i = 0; i < instr->acct_cnt; i++ ) {
     fd_exec_test_instr_acct_t * output_instr_account = &instr_context->instr_accounts[i];
 
@@ -442,7 +448,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   }
 
   /* Data */
-  instr_context->data = fd_scratch_alloc( alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE(instr->data_sz) );
+  instr_context->data = fd_spad_alloc( txn_ctx->spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( instr->data_sz ) );
   instr_context->data->size = (pb_size_t) instr->data_sz;
   fd_memcpy( instr_context->data->bytes, instr->data, instr->data_sz );
 
@@ -455,7 +461,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   /* Epoch Context */
   instr_context->has_epoch_context = true;
   instr_context->epoch_context.has_features = true;
-  dump_sorted_features( &txn_ctx->epoch_ctx->features, &instr_context->epoch_context.features );
+  dump_sorted_features( &txn_ctx->epoch_ctx->features, &instr_context->epoch_context.features, txn_ctx->spad );
 }
 
 /***** PUBLIC APIs *****/
@@ -464,7 +470,7 @@ void
 fd_dump_instr_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
                            fd_instr_info_t *   instr,
                            ushort              instruction_idx ) {
-  FD_SCRATCH_SCOPE_BEGIN {
+  FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
     // Get base58-encoded tx signature
     const fd_ed25519_sig_t * signatures = fd_txn_get_signatures( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw );
     fd_ed25519_sig_t signature; fd_memcpy( signature, signatures[0], sizeof(fd_ed25519_sig_t) );
@@ -486,7 +492,7 @@ fd_dump_instr_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
 
     /* Output to file */
     ulong out_buf_size = 100 * 1024 * 1024;
-    uint8_t * out = fd_scratch_alloc( alignof(uchar) , out_buf_size );
+    uint8_t * out = fd_spad_alloc( txn_ctx->spad, alignof(uchar) , out_buf_size );
     pb_ostream_t stream = pb_ostream_from_buffer( out, out_buf_size );
     if (pb_encode(&stream, FD_EXEC_TEST_INSTR_CONTEXT_FIELDS, &instr_context)) {
       char output_filepath[256]; fd_memset(output_filepath, 0, sizeof(output_filepath));
@@ -505,12 +511,12 @@ fd_dump_instr_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
         fclose( file );
       }
     }
-  } FD_SCRATCH_SCOPE_END;
+  } FD_SPAD_FRAME_END;
 }
 
 void
 fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t * txn_ctx, fd_spad_t * spad ) {
-  FD_SCRATCH_SCOPE_BEGIN {
+  FD_SPAD_FRAME_BEGIN( spad ) {
     // Get base58-encoded tx signature
     const fd_ed25519_sig_t * signatures = fd_txn_get_signatures( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw );
     fd_ed25519_sig_t signature; fd_memcpy( signature, signatures[0], sizeof(fd_ed25519_sig_t) );
@@ -530,7 +536,7 @@ fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t * txn_ctx, fd_spad_t * spad ) {
 
     /* Output to file */
     ulong out_buf_size = 100 * 1024 * 1024;
-    uint8_t * out = fd_scratch_alloc( alignof(uint8_t), out_buf_size );
+    uint8_t * out = fd_spad_alloc( spad, alignof(uint8_t), out_buf_size );
     pb_ostream_t stream = pb_ostream_from_buffer( out, out_buf_size );
     if( pb_encode( &stream, FD_EXEC_TEST_TXN_CONTEXT_FIELDS, &txn_context_msg ) ) {
       char output_filepath[256]; fd_memset( output_filepath, 0, sizeof(output_filepath) );
@@ -547,7 +553,7 @@ fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t * txn_ctx, fd_spad_t * spad ) {
         fclose( file );
       }
     }
-  } FD_SCRATCH_SCOPE_END;
+  } FD_SPAD_FRAME_END;
 }
 
 
@@ -591,17 +597,17 @@ fd_dump_vm_cpi_state( fd_vm_t *    vm,
 
   sys_ctx.vm_ctx.heap_max = vm->heap_max; /* should be equiv. to txn_ctx->heap_sz */
 
-  FD_SCRATCH_SCOPE_BEGIN{
-    sys_ctx.vm_ctx.rodata = fd_scratch_alloc( 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE(vm->rodata_sz) );
+  FD_SPAD_FRAME_BEGIN( vm->instr_ctx->txn_ctx->spad ) {
+    sys_ctx.vm_ctx.rodata = fd_spad_alloc( vm->instr_ctx->txn_ctx->spad, 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE( vm->rodata_sz ) );
     sys_ctx.vm_ctx.rodata->size = (pb_size_t) vm->rodata_sz;
     fd_memcpy( sys_ctx.vm_ctx.rodata->bytes, vm->rodata, vm->rodata_sz );
 
     pb_size_t stack_sz = (pb_size_t) ( (vm->frame_cnt + 1)*FD_VM_STACK_GUARD_SZ*2 );
-    sys_ctx.syscall_invocation.stack_prefix = fd_scratch_alloc( 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE(stack_sz) );
+    sys_ctx.syscall_invocation.stack_prefix = fd_spad_alloc( vm->instr_ctx->txn_ctx->spad, 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE( stack_sz ) );
     sys_ctx.syscall_invocation.stack_prefix->size = stack_sz;
     fd_memcpy( sys_ctx.syscall_invocation.stack_prefix->bytes, vm->stack, stack_sz );
 
-    sys_ctx.syscall_invocation.heap_prefix = fd_scratch_alloc( 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE(vm->heap_max) );
+    sys_ctx.syscall_invocation.heap_prefix = fd_spad_alloc( vm->instr_ctx->txn_ctx->spad, 8UL, PB_BYTES_ARRAY_T_ALLOCSIZE( vm->heap_max ) );
     sys_ctx.syscall_invocation.heap_prefix->size = (pb_size_t) vm->instr_ctx->txn_ctx->heap_size;
     fd_memcpy( sys_ctx.syscall_invocation.heap_prefix->bytes, vm->heap, vm->instr_ctx->txn_ctx->heap_size );
 
@@ -641,5 +647,5 @@ fd_dump_vm_cpi_state( fd_vm_t *    vm,
 
     fclose(f);
 
-  } FD_SCRATCH_SCOPE_END;
+  } FD_SPAD_FRAME_END;
 }
