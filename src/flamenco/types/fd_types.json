@@ -2791,6 +2791,14 @@
       ]
     },
     {
+      "name": "test_struct_nested",
+      "type": "struct",
+      "fields": [
+        { "name": "nested_0", "type": "uint" },
+        { "name": "nested_1", "type": "uchar" }
+      ]
+    },
+    {
       "name": "test_struct",
       "type": "struct",
       "fields": [
@@ -2798,7 +2806,9 @@
         { "name": "test_1", "type": "uchar" },
         { "name": "test_2", "type": "uchar" },
         { "name": "test_3", "type": "uint"  },
-        { "name": "test_4", "type": "ulong" }
+        { "name": "test_4", "type": "uchar[128]" },
+        { "name": "test_5", "type": "ulong" },
+        { "name": "test_6", "type": "test_struct_nested" }
       ]
     }
   ]

@@ -5173,13 +5173,32 @@ typedef struct fd_epoch_info_off fd_epoch_info_off_t;
 #define FD_EPOCH_INFO_OFF_FOOTPRINT sizeof(fd_epoch_info_off_t)
 #define FD_EPOCH_INFO_OFF_ALIGN (8UL)
 
-/* Encoded Size: Fixed (22 bytes) */
+/* Encoded Size: Fixed (5 bytes) */
+struct __attribute__((aligned(8UL))) fd_test_struct_nested {
+  uint nested_0;
+  uchar nested_1;
+};
+typedef struct fd_test_struct_nested fd_test_struct_nested_t;
+#define FD_TEST_STRUCT_NESTED_FOOTPRINT sizeof(fd_test_struct_nested_t)
+#define FD_TEST_STRUCT_NESTED_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_test_struct_nested_off {
+  uint nested_0_off;
+  uint nested_1_off;
+};
+typedef struct fd_test_struct_nested_off fd_test_struct_nested_off_t;
+#define FD_TEST_STRUCT_NESTED_OFF_FOOTPRINT sizeof(fd_test_struct_nested_off_t)
+#define FD_TEST_STRUCT_NESTED_OFF_ALIGN (8UL)
+
+/* Encoded Size: Fixed (155 bytes) */
 struct __attribute__((aligned(8UL))) fd_test_struct {
   ulong test_0;
   uchar test_1;
   uchar test_2;
   uint test_3;
-  ulong test_4;
+  uchar test_4[128];
+  ulong test_5;
+  fd_test_struct_nested_t test_6;
 };
 typedef struct fd_test_struct fd_test_struct_t;
 #define FD_TEST_STRUCT_FOOTPRINT sizeof(fd_test_struct_t)
@@ -5191,6 +5210,8 @@ struct __attribute__((aligned(8UL))) fd_test_struct_off {
   uint test_2_off;
   uint test_3_off;
   uint test_4_off;
+  uint test_5_off;
+  uint test_6_off;
 };
 typedef struct fd_test_struct_off fd_test_struct_off_t;
 #define FD_TEST_STRUCT_OFF_FOOTPRINT sizeof(fd_test_struct_off_t)
@@ -9276,6 +9297,21 @@ ulong fd_epoch_info_align( void );
 int fd_epoch_info_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_epoch_info_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 fd_epoch_info_t * fd_epoch_info_join( void * mem );
+
+void fd_test_struct_nested_new( fd_test_struct_nested_t * self );
+int fd_test_struct_nested_decode( fd_test_struct_nested_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_test_struct_nested_decode_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_test_struct_nested_decode_unsafe( fd_test_struct_nested_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_test_struct_nested_decode_offsets( fd_test_struct_nested_off_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_test_struct_nested_encode( fd_test_struct_nested_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_test_struct_nested_destroy( fd_test_struct_nested_t * self, fd_bincode_destroy_ctx_t * ctx );
+void fd_test_struct_nested_walk( void * w, fd_test_struct_nested_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_test_struct_nested_size( fd_test_struct_nested_t const * self );
+ulong fd_test_struct_nested_footprint( void );
+ulong fd_test_struct_nested_align( void );
+int fd_test_struct_nested_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_test_struct_nested_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
+fd_test_struct_nested_t * fd_test_struct_nested_join( void * mem );
 
 void fd_test_struct_new( fd_test_struct_t * self );
 int fd_test_struct_decode( fd_test_struct_t * self, fd_bincode_decode_ctx_t * ctx );

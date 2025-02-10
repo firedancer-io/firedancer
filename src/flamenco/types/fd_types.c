@@ -37816,6 +37816,88 @@ ulong fd_epoch_info_size( fd_epoch_info_t const * self ) {
   return size;
 }
 
+int fd_test_struct_nested_decode( fd_test_struct_nested_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_test_struct_nested_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    fd_test_struct_nested_new( self );
+  }
+  fd_test_struct_nested_decode_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_test_struct_nested_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  return fd_bincode_bytes_decode_preflight( 5, ctx );
+}
+void fd_test_struct_nested_decode_unsafe( fd_test_struct_nested_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  fd_bincode_uint32_decode_unsafe( &self->nested_0, ctx );
+  fd_bincode_uint8_decode_unsafe( &self->nested_1, ctx );
+}
+int fd_test_struct_nested_encode( fd_test_struct_nested_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint32_encode( self->nested_0, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint8_encode( (uchar)(self->nested_1), ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_test_struct_nested_decode_offsets( fd_test_struct_nested_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  uchar const * data = ctx->data;
+  int err;
+  self->nested_0_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint32_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  self->nested_1_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint8_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_test_struct_nested_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  void const * start_data = ctx->data;
+  int err = 0;
+  err = fd_bincode_uint32_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint8_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( FD_UNLIKELY( err ) ) return err;
+  *total_sz = (ulong)ctx->data - (ulong)start_data;
+  ctx->data = start_data;
+  return 0;
+}
+void * fd_test_struct_nested_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_test_struct_nested_t * self = (fd_test_struct_nested_t *)mem;
+  fd_test_struct_nested_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint) ); // Align for the type
+  fd_bincode_uint32_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  return mem;
+}
+void fd_test_struct_nested_new(fd_test_struct_nested_t * self) {
+  fd_memset( self, 0, sizeof(fd_test_struct_nested_t) );
+}
+void fd_test_struct_nested_destroy( fd_test_struct_nested_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+}
+
+ulong fd_test_struct_nested_footprint( void ){ return FD_TEST_STRUCT_NESTED_FOOTPRINT; }
+ulong fd_test_struct_nested_align( void ){ return FD_TEST_STRUCT_NESTED_ALIGN; }
+
+void fd_test_struct_nested_walk( void * w, fd_test_struct_nested_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_test_struct_nested", level++ );
+  fun( w, &self->nested_0, "nested_0", FD_FLAMENCO_TYPE_UINT, "uint", level );
+  fun( w, &self->nested_1, "nested_1", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_test_struct_nested", level-- );
+}
+ulong fd_test_struct_nested_size( fd_test_struct_nested_t const * self ) {
+  ulong size = 0;
+  size += sizeof(uint);
+  size += sizeof(char);
+  return size;
+}
+
 int fd_test_struct_decode( fd_test_struct_t * self, fd_bincode_decode_ctx_t * ctx ) {
   void const * data = ctx->data;
   int err = fd_test_struct_decode_preflight( ctx );
@@ -37828,14 +37910,16 @@ int fd_test_struct_decode( fd_test_struct_t * self, fd_bincode_decode_ctx_t * ct
   return FD_BINCODE_SUCCESS;
 }
 int fd_test_struct_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
-  return fd_bincode_bytes_decode_preflight( 22, ctx );
+  return fd_bincode_bytes_decode_preflight( 155, ctx );
 }
 void fd_test_struct_decode_unsafe( fd_test_struct_t * self, fd_bincode_decode_ctx_t * ctx ) {
   fd_bincode_uint64_decode_unsafe( &self->test_0, ctx );
   fd_bincode_uint8_decode_unsafe( &self->test_1, ctx );
   fd_bincode_uint8_decode_unsafe( &self->test_2, ctx );
   fd_bincode_uint32_decode_unsafe( &self->test_3, ctx );
-  fd_bincode_uint64_decode_unsafe( &self->test_4, ctx );
+  fd_bincode_bytes_decode_unsafe( &self->test_4[0], sizeof(self->test_4), ctx );
+  fd_bincode_uint64_decode_unsafe( &self->test_5, ctx );
+  fd_test_struct_nested_decode_unsafe( &self->test_6, ctx );
 }
 int fd_test_struct_encode( fd_test_struct_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
@@ -37847,7 +37931,11 @@ int fd_test_struct_encode( fd_test_struct_t const * self, fd_bincode_encode_ctx_
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint32_encode( self->test_3, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_bincode_uint64_encode( self->test_4, ctx );
+  err = fd_bincode_bytes_encode( self->test_4, sizeof(self->test_4), ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->test_5, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_test_struct_nested_encode( &self->test_6, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -37867,8 +37955,14 @@ int fd_test_struct_decode_offsets( fd_test_struct_off_t * self, fd_bincode_decod
   err = fd_bincode_uint32_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
   self->test_4_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_bytes_decode_preflight( 128, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  self->test_5_off = (uint)( (ulong)ctx->data - (ulong)data );
   err = fd_bincode_uint64_decode_preflight( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  self->test_6_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_test_struct_nested_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 int fd_test_struct_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
@@ -37882,8 +37976,11 @@ int fd_test_struct_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint32_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_bytes_decode_preflight( 128, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_decode_preflight( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_test_struct_nested_decode_footprint( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
@@ -37904,15 +38001,21 @@ void * fd_test_struct_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
   mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint) ); // Align for the type
   fd_bincode_uint32_decode_unsafe( mem, ctx );
   mem = (uchar*)mem + sizeof(uint); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_bytes_decode_unsafe( mem, sizeof(self->test_4), ctx );
+  mem = (uchar*)mem + sizeof(self->test_4); // Leave unaligned
   mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
   fd_bincode_uint64_decode_unsafe( mem, ctx );
   mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_test_struct_nested_decode_new( ctx, &self->test_6 );
   return mem;
 }
 void fd_test_struct_new(fd_test_struct_t * self) {
   fd_memset( self, 0, sizeof(fd_test_struct_t) );
+  fd_test_struct_nested_new( &self->test_6 );
 }
 void fd_test_struct_destroy( fd_test_struct_t * self, fd_bincode_destroy_ctx_t * ctx ) {
+  fd_test_struct_nested_destroy( &self->test_6, ctx );
 }
 
 ulong fd_test_struct_footprint( void ){ return FD_TEST_STRUCT_FOOTPRINT; }
@@ -37924,7 +38027,9 @@ void fd_test_struct_walk( void * w, fd_test_struct_t const * self, fd_types_walk
   fun( w, &self->test_1, "test_1", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
   fun( w, &self->test_2, "test_2", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );
   fun( w, &self->test_3, "test_3", FD_FLAMENCO_TYPE_UINT, "uint", level );
-  fun( w, &self->test_4, "test_4", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, self->test_4, "test_4", FD_FLAMENCO_TYPE_HASH1024, "uchar[128]", level );
+  fun( w, &self->test_5, "test_5", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fd_test_struct_nested_walk( w, &self->test_6, fun, "test_6", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_test_struct", level-- );
 }
 ulong fd_test_struct_size( fd_test_struct_t const * self ) {
@@ -37933,7 +38038,9 @@ ulong fd_test_struct_size( fd_test_struct_t const * self ) {
   size += sizeof(char);
   size += sizeof(char);
   size += sizeof(uint);
+  size += sizeof(char) * 128;
   size += sizeof(ulong);
+  size += fd_test_struct_nested_size( &self->test_6 );
   return size;
 }
 
