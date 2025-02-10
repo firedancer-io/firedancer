@@ -1479,6 +1479,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "accounts_lt_hash",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
+  { .index                     = offsetof(fd_features_t, remove_accounts_delta_hash)>>3,
+    .id                        = {"\x04\xfc\x24\x64\xea\x47\xc7\x01\xce\x63\x3e\xfe\x17\xa1\xa9\xa9\xd2\xdb\x08\x93\x34\x17\x9e\x78\x50\x90\x91\x6c\x31\x8b\xc9\x75"},
+                                 /* LTdLt9Ycbyoipz5fLysCi1NnDnASsZfmJLJXts5ZxZz */
+    .name                      = "remove_accounts_delta_hash",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
   { .index                     = offsetof(fd_features_t, snapshots_lt_hash)>>3,
     .id                        = {"\x04\xfc\x6a\x5f\xbf\x7b\xb5\x56\x65\xe6\x61\xcc\x39\xc8\x8c\xa7\x3e\x31\xe9\xea\xad\x08\x7c\x60\x1c\x5c\x77\xcb\x58\x08\xf8\xbb"},
                                  /* LTsNAP8h1voEVVToMNBNqoiNQex4aqfUrbFhRH3mSQ2 */
@@ -1509,11 +1515,11 @@ fd_feature_id_t const ids[] = {
     .name                      = "move_precompile_verification_to_svm",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
-  { .index      = offsetof(fd_features_t, enable_transaction_loading_failure_fees)>>3,
-    .id         = {"\x05\xc9\x32\x95\xdc\xe3\x71\xd5\xa0\x2c\x0f\xe9\xc0\xa6\x12\xfa\xe6\x68\x7d\x69\x95\x6d\x0d\xb5\x77\xf3\x6e\xf1\xf9\x78\x72\x8c"},
-                  /* PaymEPK2oqwT9TXAVfadjztH2H6KfLEB9Hhd5Q5frvP */
-    .name       = "enable_transaction_loading_failure_fees",
-    .cleaned_up = {UINT_MAX, UINT_MAX, UINT_MAX} },
+  { .index                     = offsetof(fd_features_t, enable_transaction_loading_failure_fees)>>3,
+    .id                        = {"\x05\xc9\x32\x95\xdc\xe3\x71\xd5\xa0\x2c\x0f\xe9\xc0\xa6\x12\xfa\xe6\x68\x7d\x69\x95\x6d\x0d\xb5\x77\xf3\x6e\xf1\xf9\x78\x72\x8c"},
+                                 /* PaymEPK2oqwT9TXAVfadjztH2H6KfLEB9Hhd5Q5frvP */
+    .name                      = "enable_transaction_loading_failure_fees",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index = ULONG_MAX }
 };
@@ -1745,12 +1751,13 @@ fd_feature_id_query( ulong prefix ) {
   case 0x54c5c5132eaae808: return &ids[ 218 ];
   case 0x9e65a24bcb41d3f6: return &ids[ 219 ];
   case 0xaabdffec3f061805: return &ids[ 220 ];
-  case 0x56b57bbf5f6afc04: return &ids[ 221 ];
-  case 0xc66648576f67b1a5: return &ids[ 222 ];
-  case 0x08dc7e6d724d4e47: return &ids[ 223 ];
-  case 0xbda9b281a350ae03: return &ids[ 224 ];
-  case 0x8ef4f4fdbc3d6c85: return &ids[ 225 ];
-  case 0xd571e3dc9532c905: return &ids[ 226 ];
+  case 0x01c747ea6424fc04: return &ids[ 221 ];
+  case 0x56b57bbf5f6afc04: return &ids[ 222 ];
+  case 0xc66648576f67b1a5: return &ids[ 223 ];
+  case 0x08dc7e6d724d4e47: return &ids[ 224 ];
+  case 0xbda9b281a350ae03: return &ids[ 225 ];
+  case 0x8ef4f4fdbc3d6c85: return &ids[ 226 ];
+  case 0xd571e3dc9532c905: return &ids[ 227 ];
   default: break;
   }
 
@@ -1980,11 +1987,12 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, remove_accounts_executable_flag_check
 FD_STATIC_ASSERT( offsetof( fd_features_t, fix_alt_bn128_multiplication_input_length               )>>3==218UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, lift_cpi_caller_restriction                             )>>3==219UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, accounts_lt_hash                                        )>>3==220UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, snapshots_lt_hash                                       )>>3==221UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, reserve_minimal_cus_for_builtin_instructions            )>>3==222UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, raise_block_limits_to_50m                               )>>3==223UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, memmove_syscall_check_reverse                           )>>3==224UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, move_precompile_verification_to_svm                     )>>3==225UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, enable_transaction_loading_failure_fees                 )>>3==226UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, remove_accounts_delta_hash                              )>>3==221UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, snapshots_lt_hash                                       )>>3==222UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, reserve_minimal_cus_for_builtin_instructions            )>>3==223UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, raise_block_limits_to_50m                               )>>3==224UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, memmove_syscall_check_reverse                           )>>3==225UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, move_precompile_verification_to_svm                     )>>3==226UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_transaction_loading_failure_fees                 )>>3==227UL, layout );
 
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

@@ -227,15 +227,17 @@ fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
   slot_ctx->prev_lamports_per_signature = slot_ctx->slot_bank.lamports_per_signature;
   slot_ctx->parent_transaction_count = slot_ctx->slot_bank.transaction_count;
 
-  sort_pubkey_hash_pair_inplace( dirty_keys, dirty_key_cnt );
-  fd_pubkey_hash_pair_list_t list1 = { .pairs = dirty_keys, .pairs_len = dirty_key_cnt };
-
-  fd_hash_account_deltas(&list1, 1, &slot_ctx->account_delta_hash );
+  if( !FD_FEATURE_ACTIVE( slot_ctx, remove_accounts_delta_hash) ) {
+    sort_pubkey_hash_pair_inplace( dirty_keys, dirty_key_cnt );
+    fd_pubkey_hash_pair_list_t list1 = { .pairs = dirty_keys, .pairs_len = dirty_key_cnt };
+    fd_hash_account_deltas(&list1, 1, &slot_ctx->account_delta_hash );
+  }
 
   fd_sha256_t sha;
   fd_sha256_init( &sha );
   fd_sha256_append( &sha, (uchar const *) &slot_ctx->slot_bank.banks_hash, sizeof( fd_hash_t ) );
-  fd_sha256_append( &sha, (uchar const *) &slot_ctx->account_delta_hash, sizeof( fd_hash_t  ) );
+  if( !FD_FEATURE_ACTIVE( slot_ctx, remove_accounts_delta_hash) )
+    fd_sha256_append( &sha, (uchar const *) &slot_ctx->account_delta_hash, sizeof( fd_hash_t  ) );
   fd_sha256_append( &sha, (uchar const *) &slot_ctx->signature_cnt, sizeof( ulong ) );
   fd_sha256_append( &sha, (uchar const *) &slot_ctx->slot_bank.poh, sizeof( fd_hash_t ) );
 
@@ -266,21 +268,37 @@ fd_hash_bank( fd_exec_slot_ctx_t * slot_ctx,
         slot_ctx->signature_cnt );
   }
 
-  FD_LOG_NOTICE(( "\n\n[Replay]\n"
-                  "slot:             %lu\n"
-                  "bank hash:        %s\n"
-                  "parent bank hash: %s\n"
-                  "accounts_delta:   %s\n"
-                  "lthash:           %s\n"
-                  "signature_count:  %lu\n"
-                  "last_blockhash:   %s\n",
-                  slot_ctx->slot_bank.slot,
-                  FD_BASE58_ENC_32_ALLOCA( hash->hash ),
-                  FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.prev_banks_hash.hash ),
-                  FD_BASE58_ENC_32_ALLOCA( slot_ctx->account_delta_hash.hash ),
-                  FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *) slot_ctx->slot_bank.lthash.lthash ),
-                  slot_ctx->signature_cnt,
-                  FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.poh.hash ) ));
+  if( FD_FEATURE_ACTIVE( slot_ctx, remove_accounts_delta_hash) ) {
+    FD_LOG_NOTICE(( "\n\n[Replay]\n"
+                    "slot:             %lu\n"
+                    "bank hash:        %s\n"
+                    "parent bank hash: %s\n"
+                    "lthash:           %s\n"
+                    "signature_count:  %lu\n"
+                    "last_blockhash:   %s\n",
+                    slot_ctx->slot_bank.slot,
+                    FD_BASE58_ENC_32_ALLOCA( hash->hash ),
+                    FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.prev_banks_hash.hash ),
+                    FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *) slot_ctx->slot_bank.lthash.lthash ),
+                    slot_ctx->signature_cnt,
+                    FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.poh.hash ) ));
+  } else {
+    FD_LOG_NOTICE(( "\n\n[Replay]\n"
+                    "slot:             %lu\n"
+                    "bank hash:        %s\n"
+                    "parent bank hash: %s\n"
+                    "accounts_delta:   %s\n"
+                    "lthash:           %s\n"
+                    "signature_count:  %lu\n"
+                    "last_blockhash:   %s\n",
+                    slot_ctx->slot_bank.slot,
+                    FD_BASE58_ENC_32_ALLOCA( hash->hash ),
+                    FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.prev_banks_hash.hash ),
+                    FD_BASE58_ENC_32_ALLOCA( slot_ctx->account_delta_hash.hash ),
+                    FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *) slot_ctx->slot_bank.lthash.lthash ),
+                    slot_ctx->signature_cnt,
+                    FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.poh.hash ) ));
+  }
 }
 
 struct fd_accounts_hash_task_info {
@@ -730,7 +748,7 @@ typedef struct accounts_hash accounts_hash_t;
 /* fd_accounts_sorted_subrange_count will determine the number of accounts that
    should be in the accounts slice for a given range_idx. This is split out to
    from fd_accounts_sorted_subrange_gather to avoid dynamic resizing of the pair.
-   
+
    TODO: The common code in these functions could be factored out. */
 
 static ulong
@@ -877,7 +895,7 @@ fd_accounts_sorted_subrange_gather_task( void *tpool,
                                          ulong n0, ulong n1 FD_PARAM_UNUSED) {
   fd_subrange_task_info_t *    task_info = (fd_subrange_task_info_t *)tpool;
   fd_pubkey_hash_pair_list_t * list      = task_info->lists + m0;
-  fd_accounts_sorted_subrange_gather( task_info->funk, (uint)m0, (uint)task_info->num_lists, 
+  fd_accounts_sorted_subrange_gather( task_info->funk, (uint)m0, (uint)task_info->num_lists,
                                       &list->pairs_len, task_info->lthash_values, n0, list->pairs );
 }
 
@@ -938,7 +956,7 @@ fd_accounts_hash( fd_funk_t *      funk,
       task_info.lists[i].pairs_len = 0UL;
     }
 
-    fd_tpool_exec_all_rrobin( tpool, 0UL, num_lists, fd_accounts_sorted_subrange_gather_task, &task_info, 
+    fd_tpool_exec_all_rrobin( tpool, 0UL, num_lists, fd_accounts_sorted_subrange_gather_task, &task_info,
                               NULL, NULL, 1, 0, num_lists );
     fd_hash_account_deltas( lists, num_lists, accounts_hash );
     fd_lthash_value_t * acc = (fd_lthash_value_t *)fd_type_pun(slot_bank->lthash.lthash);
@@ -954,9 +972,9 @@ fd_accounts_hash( fd_funk_t *      funk,
 }
 
 static int
-fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx, 
-                           fd_hash_t *          accounts_hash, 
-                           fd_funk_txn_t *      child_txn, 
+fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx,
+                           fd_hash_t *          accounts_hash,
+                           fd_funk_txn_t *      child_txn,
                            ulong                do_hash_verify,
                            fd_spad_t *          spad ) {
   FD_LOG_NOTICE(( "accounts_hash_inc_only start for txn %p, do_hash_verify=%s", (void *)child_txn, do_hash_verify ? "true" : "false" ));
@@ -1121,7 +1139,7 @@ fd_accounts_hash_inc_no_txn( fd_funk_t *                 funk,
 }
 
 int
-fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx, 
+fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx,
                   fd_tpool_t *         tpool,
                   fd_hash_t *          accounts_hash,
                   uint                 check_hash,
@@ -1145,7 +1163,7 @@ fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 int
-fd_snapshot_inc_hash( fd_exec_slot_ctx_t * slot_ctx, 
+fd_snapshot_inc_hash( fd_exec_slot_ctx_t * slot_ctx,
                       fd_hash_t *          accounts_hash,
                       fd_funk_txn_t *      child_txn,
                       uint                 do_hash_verify,

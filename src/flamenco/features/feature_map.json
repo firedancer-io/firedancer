@@ -220,6 +220,7 @@
   {"name":"fix_alt_bn128_multiplication_input_length","pubkey":"bn2puAyxUx6JUabAxYdKdJ5QHbNNmKw8dCGuGCyRrFN"},
   {"name":"lift_cpi_caller_restriction","pubkey":"HcW8ZjBezYYgvcbxNJwqv1t484Y2556qJsfNDWvJGZRH"},
   {"name":"accounts_lt_hash","pubkey":"LtHaSHHsUge7EWTPVrmpuexKz6uVHZXZL6cgJa7W7Zn"},
+  {"name":"remove_accounts_delta_hash","pubkey":"LTdLt9Ycbyoipz5fLysCi1NnDnASsZfmJLJXts5ZxZz"},
   {"name":"snapshots_lt_hash","pubkey":"LTsNAP8h1voEVVToMNBNqoiNQex4aqfUrbFhRH3mSQ2"},
   {"name":"reserve_minimal_cus_for_builtin_instructions","pubkey":"C9oAhLxDBm3ssWtJx1yBGzPY55r2rArHmN1pbQn6HogH"},
   {"name":"raise_block_limits_to_50m","pubkey":"5oMCU3JPaFLr8Zr4ct7yFA7jdk6Mw1RmB8K4u9ZbS42z"},
