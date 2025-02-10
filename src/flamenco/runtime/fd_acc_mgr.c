@@ -311,14 +311,14 @@ int
 fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *          acc_mgr,
                            fd_funk_txn_t *         txn,
                            fd_borrowed_account_t * account ) {
+
+  fd_funk_start_write( acc_mgr->funk );
   fd_funk_rec_key_t key = fd_acc_funk_key( account->pubkey );
   fd_funk_t * funk = acc_mgr->funk;
   fd_funk_rec_t * rec = (fd_funk_rec_t *)fd_funk_rec_query( funk, txn, &key );
   if( rec == NULL ) {
     int err;
-    fd_funk_start_write( acc_mgr->funk );
     rec = (fd_funk_rec_t *)fd_funk_rec_insert( funk, txn, &key, &err );
-    fd_funk_end_write( acc_mgr->funk );
     if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %d", err ));
   }
   account->rec = rec;
@@ -330,7 +330,9 @@ fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *          acc_mgr,
   if( fd_funk_val_truncate( account->rec, reclen, fd_funk_alloc( acc_mgr->funk, wksp ), wksp, &err ) == NULL ) {
     FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
   }
-  return fd_acc_mgr_save( acc_mgr, account );
+  err = fd_acc_mgr_save( acc_mgr, account );
+  fd_funk_end_write( acc_mgr->funk );
+  return err;
 }
 
 void
@@ -452,10 +454,10 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *            acc_mgr,
 
     ulong reclen = sizeof(fd_account_meta_t)+account->const_meta->dlen;
     int err;
-    if( FD_UNLIKELY( NULL == fd_funk_val_truncate( account->rec, 
-                                                   reclen, 
-                                                   fd_funk_alloc( acc_mgr->funk, wksp ), 
-                                                   wksp, 
+    if( FD_UNLIKELY( NULL == fd_funk_val_truncate( account->rec,
+                                                   reclen,
+                                                   fd_funk_alloc( acc_mgr->funk, wksp ),
+                                                   wksp,
                                                    &err ) ) ) {
       FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
     }
