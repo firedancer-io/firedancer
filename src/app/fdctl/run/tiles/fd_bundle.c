@@ -227,7 +227,7 @@ after_credit( fd_bundle_ctx_t *   ctx,
     ulong footprint = fd_txn_m_realized_footprint( txnm, 0, 0 );
 
     ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-    fd_stem_publish( stem, ctx->verify_out.idx, 0UL, ctx->verify_out.chunk, footprint, 0UL, 0UL, tspub );
+    fd_stem_publish( stem, ctx->verify_out.idx, type!=2, ctx->verify_out.chunk, footprint, 0UL, 0UL, tspub );
     ctx->verify_out.chunk = fd_dcache_compact_next( ctx->verify_out.chunk, footprint, ctx->verify_out.chunk0, ctx->verify_out.wmark );
   }
 }
