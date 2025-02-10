@@ -759,9 +759,6 @@ dynamic_port_range = "8900-9000"
     # parallel users.
     bank_tile_count = 4
 
-    # TODO: add docs on exec_tile_cnt / exec tile
-    exec_tile_count = 2
-
     # How many shred tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network
     # conditions but there is no need to run more than 1 shred tile
