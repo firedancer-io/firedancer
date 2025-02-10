@@ -26,11 +26,11 @@ fd_vm_derive_pda( fd_vm_t *           vm,
                   uchar *             bump_seed,
                   fd_pubkey_t *       out ) {
 
-  /* This is a preflight check that is performed in Agave before deriving PDAs but after checking the seeds vaddr. 
+  /* This is a preflight check that is performed in Agave before deriving PDAs but after checking the seeds vaddr.
      Weirdly they do two checks for seeds cnt - one before PDA derivation, and one during. The first check will
      fail the preflight checks, and the second should just continue execution. We can't put this check one level up
      because it's only done after haddr conversion / alignment / size checks, which is done by the above line. We
-     also can't rely on just the second check because we need execution to halt. 
+     also can't rely on just the second check because we need execution to halt.
      https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L728-L730 */
   if( FD_UNLIKELY( seeds_cnt>FD_VM_PDA_SEEDS_MAX ) ) {
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_BAD_SEEDS );
@@ -38,8 +38,8 @@ fd_vm_derive_pda( fd_vm_t *           vm,
   }
 
   /* This check does NOT halt execution within `fd_vm_syscall_sol_try_find_program_address`. This means
-     that if the user provides 16 seeds (excluding the bump) in the `try_find_program_address` syscall, 
-     this same check below will be hit 255 times and deduct that many CUs. Very strange... 
+     that if the user provides 16 seeds (excluding the bump) in the `try_find_program_address` syscall,
+     this same check below will be hit 255 times and deduct that many CUs. Very strange...
      https://github.com/anza-xyz/agave/blob/v2.1.0/sdk/pubkey/src/lib.rs#L725-L727 */
   if( FD_UNLIKELY( seeds_cnt+( !!bump_seed )>FD_VM_PDA_SEEDS_MAX ) ) {
     return FD_VM_SYSCALL_ERR_INVALID_PDA;
@@ -50,7 +50,7 @@ fd_vm_derive_pda( fd_vm_t *           vm,
     ulong seed_sz = seed_szs[ i ];
 
     /* If the seed length is 0, then we don't need to append anything. solana_bpf_loader_program::syscalls::translate_slice
-       returns an empty array in host space when given an empty array, which means this seed will have no affect on the PDA. 
+       returns an empty array in host space when given an empty array, which means this seed will have no affect on the PDA.
        https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L737-L742 */
     if( FD_UNLIKELY( !seed_sz ) ) {
       continue;
@@ -69,7 +69,7 @@ fd_vm_derive_pda( fd_vm_t *           vm,
   } else {
     FD_LOG_ERR(( "No program id passed in" ));
   }
-  
+
   fd_sha256_append( vm->sha, "ProgramDerivedAddress", 21UL ); /* TODO: use marker constant */
 
   fd_sha256_fini( vm->sha, out );
@@ -130,7 +130,7 @@ fd_vm_translate_and_check_program_address_inputs( fd_vm_t *             vm,
 https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L729
 
 The main semantic difference between Firedancer's implementation and Solana's is that Solana
-translates all the seed pointers before doing any computation, while Firedancer translates 
+translates all the seed pointers before doing any computation, while Firedancer translates
 the seed pointers on-demand. This is to avoid an extra memory allocation.
 
 This syscall creates a valid program derived address without searching for a bump seed.
@@ -183,7 +183,7 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
   err = fd_vm_derive_pda( vm, program_id, seed_haddrs, seed_szs, seeds_cnt, bump_seed, derived );
   /* Agave does their translation before the calculation, so if the translation fails we should fail
      the syscall.
-     
+
      https://github.com/anza-xyz/agave/blob/v2.0.8/programs/bpf_loader/src/syscalls/mod.rs#L744-L750 */
   if ( FD_UNLIKELY( err != FD_VM_SUCCESS ) ) {
 

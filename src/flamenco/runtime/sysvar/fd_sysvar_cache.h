@@ -57,7 +57,7 @@
 
 struct __attribute__((aligned(16UL))) fd_sysvar_cache_private {
   ulong       magic;  /* ==FD_SYSVAR_CACHE_MAGIC */
-  fd_valloc_t valloc;
+  fd_spad_t * runtime_spad;
 
   /* Declare the val_{...} values */
 # define X( type, name ) \
@@ -94,7 +94,7 @@ fd_sysvar_cache_footprint( void );
 
 fd_sysvar_cache_t *
 fd_sysvar_cache_new( void *      mem,
-                     fd_valloc_t valloc );
+                     fd_spad_t * runtime_spad );
 
 /* fd_sysvar_cache_delete destroys a given sysvar cache object and any
    heap allocations made.  Detaches from the valloc provided in

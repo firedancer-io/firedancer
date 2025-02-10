@@ -181,14 +181,19 @@ fd_quic_udpsock_service( fd_quic_udpsock_t const * udpsock );
 
 /* fd_quic_netem injects packet loss and reordering into an aio link. */
 
+struct fd_quic_netem_reorder_buf {
+  ulong sz;
+  uchar buf[2048];
+};
+
 struct fd_quic_netem {
   fd_aio_t         local;
   fd_aio_t const * dst;
   float            thresh_drop;
   float            thresh_reorder;
 
-  ulong reorder_sz;
-  uchar reorder_buf[2048];
+  struct fd_quic_netem_reorder_buf reorder_buf[2];
+  int                              reorder_mru; /* most recently written reorder buf */
 };
 
 typedef struct fd_quic_netem fd_quic_netem_t;

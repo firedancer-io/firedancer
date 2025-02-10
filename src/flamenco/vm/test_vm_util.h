@@ -20,4 +20,7 @@ test_vm_exec_instr_ctx_delete(
    fd_valloc_t           valloc
 );
 
+void
+test_vm_clear_txn_ctx_err( fd_exec_txn_ctx_t * txn_ctx );
+
 #endif

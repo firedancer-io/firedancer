@@ -113,10 +113,21 @@ const fd_pubkey_t fd_solana_stake_program_buffer_address                = { .uc 
 #define MAP_PERFECT_7       ( SYSVAR_EPOCH_REWARDS_ID ),
 #define MAP_PERFECT_8       ( SYSVAR_LAST_RESTART_ID  ),
 #define MAP_PERFECT_9       ( SYSVAR_PROG_ID          ),
-#define MAP_PERFECT_10      ( SECP256R1_PROG_ID       ),
 
 #include "../../util/tmpl/fd_map_perfect.c"
 #undef PERFECT_HASH
 
-int fd_pubkey_is_active_reserved_key ( fd_pubkey_t const * acct ) { return fd_pubkey_active_reserved_keys_tbl_contains( acct );  }
-int fd_pubkey_is_pending_reserved_key( fd_pubkey_t const * acct ) { return fd_pubkey_pending_reserved_keys_tbl_contains( acct ); }
+int
+fd_pubkey_is_active_reserved_key( fd_pubkey_t const * acct ) {
+  return fd_pubkey_active_reserved_keys_tbl_contains( acct );
+}
+
+int
+fd_pubkey_is_pending_reserved_key( fd_pubkey_t const * acct ) {
+  return fd_pubkey_pending_reserved_keys_tbl_contains( acct );
+}
+
+int
+fd_pubkey_is_secp256r1_key( fd_pubkey_t const * acct ) {
+  return memcmp( acct->uc, fd_solana_secp256r1_program_id.key, sizeof(fd_pubkey_t) )==0;
+}

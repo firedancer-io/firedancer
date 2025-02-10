@@ -130,7 +130,7 @@ typedef struct {
       ulong  xdp_rx_queue_size;
       ulong  xdp_tx_queue_size;
       ulong  xdp_aio_depth;
-      char   xdp_mode[4];
+      char   xdp_mode[8];
       int    zero_copy;
       uint   src_ip_addr;
       uchar  src_mac_addr[6];
@@ -141,10 +141,6 @@ typedef struct {
       ushort gossip_listen_port;
       ushort repair_intake_listen_port;
       ushort repair_serve_listen_port;
-
-      /* multihoming support */
-      ulong multihome_ip_addrs_cnt;
-      uint  multihome_ip_addrs[FD_NET_MAX_SRC_ADDR];
     } net;
 
     struct {
@@ -167,6 +163,12 @@ typedef struct {
     struct {
       ulong tcache_depth;
     } dedup;
+
+    struct {
+      char url[ 256 ];
+      char tls_domain_name[ 256 ];
+      char identity_key_path[ PATH_MAX ];
+    } bundle;
 
     struct {
       ulong max_pending_transactions;
@@ -246,12 +248,17 @@ typedef struct {
       int   vote;
       char  vote_account_path[ PATH_MAX ];
       ulong bank_tile_count;
+      ulong exec_tile_count;
       ulong full_interval;
       ulong incremental_interval;
 
       char  blockstore_file[ PATH_MAX ];
       char  blockstore_checkpt[ PATH_MAX ];
     } replay;
+
+    struct {
+      ulong dummy;
+    } exec;
 
     struct {
       ushort send_to_port;
@@ -355,6 +362,10 @@ typedef struct {
       ulong hash_tpool_thread_count;
     } batch;
 
+    struct {
+      uint fake_dst_ip;
+    } pktgen;
+
   };
 } fd_topo_tile_t;
 
@@ -386,6 +397,8 @@ typedef struct fd_topo_t {
 
   ulong          agave_affinity_cnt;
   ulong          agave_affinity_cpu_idx[ FD_TILE_MAX ];
+
+  ulong          max_page_size; /* 2^21 or 2^30 */
 } fd_topo_t;
 
 typedef struct {
@@ -393,6 +406,8 @@ typedef struct {
 
   int          keep_host_networking;
   ulong        rlimit_file_cnt;
+  ulong        rlimit_address_space;
+  ulong        rlimit_data;
   int          for_tpool;
 
   ulong (*populate_allowed_seccomp)( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong out_cnt, struct sock_filter * out );

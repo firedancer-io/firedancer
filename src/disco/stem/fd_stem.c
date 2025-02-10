@@ -102,13 +102,13 @@
    control, the frag may be torn or corrupt due to an overrun by the
    reader.  If the frag being read from has been overwritten while this
    callback is running, the frag will be ignored and the stem will not
-   call the process function.  Instead it will recover from the overrun
-   and continue with new frags. This function cannot fail.  The ctx is a
-   user-provided context object from when the stem tile was initialized.
-   seq, sig, chunk, and sz are the respective fields from the mcache
-   fragment that was received.  If the producer is not respecting flow
-   control, these may be corrupt or torn and should not be trusted,
-   except for seq which is read atomically.
+   call the after_frag function. Instead it will recover from the
+   overrun and continue with new frags.  This function cannot fail.  The
+   ctx is a user-provided context object from when the stem tile was
+   initialized. seq, sig, chunk, and sz are the respective fields from
+   the mcache fragment that was received.  If the producer is not
+   respecting flow control, these may be corrupt or torn and should not
+   be trusted, except for seq which is read atomically.
 
       AFTER_FRAG
    Is is called immediately after the DURING_FRAG, along with an

@@ -28,7 +28,7 @@
     if( FD_UNLIKELY( _cost>_cu ) ) {                 \
       _vm->cu = 0UL;                                 \
       FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED ); \
-      return FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED; \
+      return FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED; \
     }                                                \
     _vm->cu = _cu - _cost;                           \
   }))
@@ -63,14 +63,14 @@
 
    These macros intentionally don't support multi region loads/stores.
    The load/store macros are used by vm syscalls and mirror the use
-   of translate_slice{_mut}. However, this check does not allow for 
+   of translate_slice{_mut}. However, this check does not allow for
    multi region accesses. So if there is an attempt at a multi region
-   translation, an error will be returned. 
+   translation, an error will be returned.
 
-   FD_VM_MEM_HADDR_ST_UNCHECKED has all of the checks of a load or a 
-   store, but intentionally omits the is_writable checks for the 
-   input region that are done during memory translation. 
-   
+   FD_VM_MEM_HADDR_ST_UNCHECKED has all of the checks of a load or a
+   store, but intentionally omits the is_writable checks for the
+   input region that are done during memory translation.
+
    FD_VM_MEM_HADDR_ST_NO_SZ_CHECK does all of the checks of a load,
    except for a check on the validity of the size of a load. It only
    checks that the specific vaddr that is being translated is valid. */
@@ -83,15 +83,15 @@
     int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _haddr, (align) )); \
     if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                   \
       FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );                                   \
-      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                             \
+      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                    \
     }                                                                                                       \
     if( FD_UNLIKELY( (!_haddr) | _is_multi) ) {                                                             \
       FD_VM_ERR_FOR_LOG_EBPF( _vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );                                       \
-      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                             \
+      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                    \
     }                                                                                                       \
     if ( FD_UNLIKELY( _sigbus ) ) {                                                                         \
       FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );                                \
-      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                             \
+      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                    \
     }                                                                                                       \
     (void const *)_haddr;                                                                                   \
   }))
@@ -158,15 +158,15 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t const *vm, ulong vaddr, ulong align, ulong sz, int 
     int             _sigbus   = fd_vm_is_check_align_enabled( vm ) & (!fd_ulong_is_aligned( _haddr, (align) )); \
     if ( FD_UNLIKELY( sz > LONG_MAX ) ) {                                                                   \
       FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );                                   \
-      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                             \
+      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                    \
     }                                                                                                       \
     if( FD_UNLIKELY( (!_haddr) | _is_multi ) ) {                                                            \
       FD_VM_ERR_FOR_LOG_EBPF( _vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );                                       \
-      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                             \
+      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                    \
     }                                                                                                       \
     if ( FD_UNLIKELY( _sigbus ) ) {                                                                         \
       FD_VM_ERR_FOR_LOG_SYSCALL( _vm, FD_VM_SYSCALL_ERR_UNALIGNED_POINTER );                                \
-      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                             \
+      return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                    \
     }                                                                                                       \
     (void *)_haddr;                                                                                         \
   }))
@@ -186,11 +186,11 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t const *vm, ulong vaddr, ulong align, ulong sz, int 
 
 /* FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_CHECKED simply converts a vaddr within the input memory region
    into an haddr. The sets the region_idx and haddr. */
-#define FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_CHECKED( _vm, _offset, _out_region_idx, _out_haddr ) (__extension__({                \
+#define FD_VM_MEM_HADDR_AND_REGION_IDX_FROM_INPUT_REGION_CHECKED( _vm, _offset, _out_region_idx, _out_haddr ) (__extension__({                  \
   _out_region_idx = fd_vm_get_input_mem_region_idx( _vm, _offset );                                                                             \
-  if( FD_UNLIKELY( _offset>=vm->input_mem_regions[ _out_region_idx ].vaddr_offset+vm->input_mem_regions[ _out_region_idx ].region_sz ) ) {                    \
+  if( FD_UNLIKELY( _offset>=vm->input_mem_regions[ _out_region_idx ].vaddr_offset+vm->input_mem_regions[ _out_region_idx ].region_sz ) ) {      \
     FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );                                                                              \
-    return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                                                                   \
+    return FD_VM_SYSCALL_ERR_SEGFAULT;                                                                                                          \
   }                                                                                                                                             \
   _out_haddr      = (uchar*)_vm->input_mem_regions[ _out_region_idx ].haddr + _offset - _vm->input_mem_regions[ _out_region_idx ].vaddr_offset; \
 }))
@@ -200,7 +200,7 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t const *vm, ulong vaddr, ulong align, ulong sz, int 
 
    Users of this macro should be aware that they should never access the returned value if sz==0.
 
-   https://github.com/solana-labs/solana/blob/767d24e5c10123c079e656cdcf9aeb8a5dae17db/programs/bpf_loader/src/syscalls/mod.rs#L560 
+   https://github.com/solana-labs/solana/blob/767d24e5c10123c079e656cdcf9aeb8a5dae17db/programs/bpf_loader/src/syscalls/mod.rs#L560
 
    LONG_MAX check: https://github.com/anza-xyz/agave/blob/dc4b9dcbbf859ff48f40d00db824bde063fdafcc/programs/bpf_loader/src/syscalls/mod.rs#L580
    Technically, the check in Agave is against

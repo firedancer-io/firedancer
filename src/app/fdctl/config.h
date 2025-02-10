@@ -69,9 +69,9 @@ typedef struct {
     ulong account_indexes_cnt;
     char  account_indexes[ 4 ][ 32 ];
     ulong account_index_include_keys_cnt;
-    char  account_index_include_keys[ 32 ][ 32 ];
+    char  account_index_include_keys[ 32 ][ FD_BASE58_ENCODED_32_SZ ];
     ulong account_index_exclude_keys_cnt;
-    char  account_index_exclude_keys[ 32 ][ 32 ];
+    char  account_index_exclude_keys[ 32 ][ FD_BASE58_ENCODED_32_SZ ];
     char  accounts_index_path[ PATH_MAX ];
     char  accounts_hash_cache_path[ PATH_MAX ];
     int   require_tower;
@@ -143,12 +143,14 @@ typedef struct {
     uint verify_tile_count;
     uint bank_tile_count;
     uint shred_tile_count;
+    uint exec_tile_count; /* TODO: redundant ish with bank tile cnt */
   } layout;
 
   struct {
     char gigantic_page_mount_path[ PATH_MAX ];
     char huge_page_mount_path[ PATH_MAX ];
     char mount_path[ PATH_MAX ];
+    char max_page_size[ 16 ];
   } hugetlbfs;
 
   struct {
@@ -202,6 +204,11 @@ typedef struct {
       ulong disable_blockstore_from_slot;
       int   disable_status_cache;
     } bench;
+
+    struct {
+      char affinity[ AFFINITY_SZ ];
+      char fake_dst_ip[ 16 ];
+    } pktgen;
   } development;
 
   struct {
@@ -216,10 +223,6 @@ typedef struct {
       uint xdp_aio_depth;
 
       uint send_buffer_size;
-
-      ulong multihome_ip_addrs_cnt; /* number of home ip addresses */
-      char  multihome_ip_addrs[FD_NET_MAX_SRC_ADDR][32];
-      uint  multihome_ip4_addrs[FD_NET_MAX_SRC_ADDR];
     } net;
 
     struct {
@@ -244,6 +247,12 @@ typedef struct {
     struct {
       uint signature_cache_size;
     } dedup;
+
+    struct {
+      int  enabled;
+      char url[ 256 ];
+      char tls_domain_name[ 256 ];
+    } bundle;
 
     struct {
       uint max_pending_transactions;

@@ -160,8 +160,8 @@ struct __attribute__((aligned(FD_TXNCACHE_ALIGN))) fd_txncache_private {
 
   ulong constipated_slots_cnt; /* The number of constipated root slots that can be supported and
                                   that are tracked in the below array. */
-  ulong constipated_slots_off; /* The highest N slots that should be rooted will be in this 
-                                  array, assuming that the latest slots were constipated 
+  ulong constipated_slots_off; /* The highest N slots that should be rooted will be in this
+                                  array, assuming that the latest slots were constipated
                                   and not flushed. */
 
   /* Constipation is used here in the same way Funk is constipated. The reason
@@ -545,8 +545,8 @@ fd_txncache_purge_slot( fd_txncache_t * tc,
   }
 }
 
-/* fd_txncache_register_root_slot_private is a helper function that 
-   actually registers the root. This function assumes that the 
+/* fd_txncache_register_root_slot_private is a helper function that
+   actually registers the root. This function assumes that the
    caller has already obtained a lock to the status cache. */
 
 static void
@@ -830,7 +830,9 @@ fd_txncache_ensure_txnpage( fd_txncache_t *                    tc,
   if( FD_LIKELY( page_cnt ) ) {
     uint txnpage_idx = blockcache->pages[ page_cnt-1 ];
     ushort txnpage_free = txnpages[ txnpage_idx ].free;
-    if( FD_LIKELY( txnpage_free ) ) return &txnpages[ txnpage_idx ];
+    if( FD_LIKELY( txnpage_free ) ) {
+      return &txnpages[ txnpage_idx ];
+    }
   }
 
   if( FD_UNLIKELY( page_cnt==tc->txnpages_per_blockhash_max ) ) return NULL;
@@ -1089,22 +1091,23 @@ fd_txncache_is_rooted_slot( fd_txncache_t * tc,
 
 int
 fd_txncache_get_entries( fd_txncache_t *         tc,
-                         fd_bank_slot_deltas_t * slot_deltas ) {
+                         fd_bank_slot_deltas_t * slot_deltas,
+                         fd_spad_t *             spad ) {
 
   fd_rwlock_read( tc->lock );
-  
+
   slot_deltas->slot_deltas_len = tc->root_slots_cnt;
-  slot_deltas->slot_deltas     = fd_scratch_alloc( FD_SLOT_DELTA_ALIGN, tc->root_slots_cnt * sizeof(fd_slot_delta_t) );
+  slot_deltas->slot_deltas     = fd_spad_alloc( spad, FD_SLOT_DELTA_ALIGN, tc->root_slots_cnt * sizeof(fd_slot_delta_t) );
 
   fd_txncache_private_txnpage_t * txnpages   = fd_txncache_get_txnpages( tc );
   ulong                         * root_slots = fd_txncache_get_root_slots( tc );
 
-  for( ulong i=0UL; i<tc->root_slots_cnt; i++ ) {    
+  for( ulong i=0UL; i<tc->root_slots_cnt; i++ ) {
     ulong slot = root_slots[ i ];
 
     slot_deltas->slot_deltas[ i ].slot               = slot;
     slot_deltas->slot_deltas[ i ].is_root            = 1;
-    slot_deltas->slot_deltas[ i ].slot_delta_vec     = fd_scratch_alloc( FD_STATUS_PAIR_ALIGN, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS * sizeof(fd_status_pair_t) );
+    slot_deltas->slot_deltas[ i ].slot_delta_vec     = fd_spad_alloc( spad, FD_STATUS_PAIR_ALIGN, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS * sizeof(fd_status_pair_t) );
     slot_deltas->slot_deltas[ i ].slot_delta_vec_len = 0UL;
     ulong slot_delta_vec_len = 0UL;
 
@@ -1134,7 +1137,7 @@ fd_txncache_get_entries( fd_txncache_t *         tc,
       }
 
       status_pair->value.statuses_len = num_statuses;
-      status_pair->value.statuses     = fd_scratch_alloc( FD_CACHE_STATUS_ALIGN, num_statuses * sizeof(fd_cache_status_t) );
+      status_pair->value.statuses     = fd_spad_alloc( spad, FD_CACHE_STATUS_ALIGN, num_statuses * sizeof(fd_cache_status_t) );
       fd_memset( status_pair->value.statuses, 0, num_statuses * sizeof(fd_cache_status_t) );
 
       /* Copy over every entry for the given slot into the slot deltas. */

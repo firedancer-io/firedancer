@@ -18,24 +18,6 @@
    Unfortunately, the Solana protocol provides this API twice:
    In a C-style ABI and in Rust ABI. */
 
-#define FD_VM_RC_REFCELL_ALIGN (8UL)
-
-struct __attribute__((packed)) fd_vm_rc_refcell_vec {
-  ulong strong;
-  ulong weak;
-  ulong borrow;
-  ulong addr;
-  ulong len;
-};
-typedef struct fd_vm_rc_refcell_vec fd_vm_rc_refcell_vec_t;
-
-struct __attribute__((packed)) fd_vm_rc_refcell {
-  ulong strong;
-  ulong weak;
-  ulong borrow;
-  ulong addr;
-};
-typedef struct fd_vm_rc_refcell fd_vm_rc_refcell_t;
 
 /* Structs fd_vm_c_{...}_t are part of the C ABI for the cross-program
    invocation syscall API. */
@@ -62,17 +44,6 @@ struct fd_vm_c_account_meta {
 };
 
 typedef struct fd_vm_c_account_meta fd_vm_c_account_meta_t;
-
-/* Solana stores pubkey within account meta struct and is used to check if 
-   instructions are too large. 
-   https://github.com/solana-labs/solana/blob/9f6ef2fe629d59d93d227d4561d8f7d5a2fd5f2f/sdk/program/src/instruction.rs#L548 */
-struct fd_vm_sol_account_meta {
-  fd_pubkey_t pubkey;
-  uchar is_signer;
-  uchar is_writable;
-};
-
-typedef struct fd_vm_sol_account_meta fd_vm_sol_account_meta_t;
 
 #define FD_VM_C_ACCOUNT_INFO_ALIGN (8UL)
 #define FD_VM_C_ACCOUNT_INFO_SIZE  (56UL)
@@ -147,5 +118,38 @@ struct __attribute__((packed)) fd_vm_rust_account_info {
 };
 
 typedef struct fd_vm_rust_account_info fd_vm_rust_account_info_t;
+
+/* These define the in-memory layout of Rc<Refcell<T>> types to
+   facilitate checks on Rust AccountInfo fields.
+ */
+
+#define FD_VM_RC_REFCELL_ALIGN (8UL)
+
+struct __attribute__((packed)) fd_vm_rc_refcell {
+  ulong strong;    /* Rc */
+  ulong weak;      /* Rc */
+  ulong borrow;    /* RefCell */
+  ulong payload[]; /* Underlying data */
+};
+typedef struct fd_vm_rc_refcell fd_vm_rc_refcell_t;
+
+struct __attribute__((packed)) fd_vm_rc_refcell_vec {
+  ulong strong; /* Rc */
+  ulong weak;   /* Rc */
+  ulong borrow; /* RefCell */
+  ulong addr;   /* Slice */
+  ulong len;    /* Slice */
+};
+typedef struct fd_vm_rc_refcell_vec fd_vm_rc_refcell_vec_t;
+
+FD_STATIC_ASSERT( sizeof(fd_vm_rc_refcell_t)+sizeof(fd_vm_vec_t)==sizeof(fd_vm_rc_refcell_vec_t), sizeof_fd_vm_rc_refcell_vec_t );
+
+struct __attribute__((packed)) fd_vm_rc_refcell_ref {
+  ulong strong; /* Rc */
+  ulong weak;   /* Rc */
+  ulong borrow; /* RefCell */
+  ulong addr;   /* Ref */
+};
+typedef struct fd_vm_rc_refcell_ref fd_vm_rc_refcell_ref_t;
 
 #endif /* HEADER_fd_src_flamenco_vm_syscall_fd_vm_cpi_h */

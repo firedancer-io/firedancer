@@ -6,7 +6,7 @@
 
 /* FEATURE_ID_CNT is the number of features in ids */
 
-#define FD_FEATURE_ID_CNT (226UL)
+#define FD_FEATURE_ID_CNT (228UL)
 
 union fd_features {
 
@@ -234,11 +234,13 @@ union fd_features {
     /* 0x54c5c5132eaae808 */ ulong fix_alt_bn128_multiplication_input_length;
     /* 0x9e65a24bcb41d3f6 */ ulong lift_cpi_caller_restriction;
     /* 0xaabdffec3f061805 */ ulong accounts_lt_hash;
+    /* 0x01c747ea6424fc04 */ ulong remove_accounts_delta_hash;
     /* 0x56b57bbf5f6afc04 */ ulong snapshots_lt_hash;
     /* 0xc66648576f67b1a5 */ ulong reserve_minimal_cus_for_builtin_instructions;
     /* 0x08dc7e6d724d4e47 */ ulong raise_block_limits_to_50m;
     /* 0xbda9b281a350ae03 */ ulong memmove_syscall_check_reverse;
     /* 0x8ef4f4fdbc3d6c85 */ ulong move_precompile_verification_to_svm;
+    /* 0xd571e3dc9532c905 */ ulong enable_transaction_loading_failure_fees;
   };
 
 };

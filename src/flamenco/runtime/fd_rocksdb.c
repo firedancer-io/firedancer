@@ -206,13 +206,18 @@ fd_rocksdb_get_meta( fd_rocksdb_t *   db,
   ulong ks = fd_ulong_bswap(slot);
   size_t vallen = 0;
 
-  char *err = NULL;
-  char *meta = rocksdb_get_cf(
-    db->db, db->ro, db->cf_handles[FD_ROCKSDB_CFIDX_META], (const char *) &ks, sizeof(ks), &vallen, &err);
+  char * err  = NULL;
+  char * meta = rocksdb_get_cf( db->db,
+                                db->ro,
+                                db->cf_handles[FD_ROCKSDB_CFIDX_META],
+                                (const char *) &ks,
+                                sizeof(ks),
+                                &vallen,
+                                &err );
 
-  if (NULL != err) {
+  if( NULL != err ) {
     FD_LOG_WARNING(( "%s", err ));
-    free (err);
+    free( err );
     return -2;
   }
 
@@ -223,8 +228,9 @@ fd_rocksdb_get_meta( fd_rocksdb_t *   db,
   ctx.data = meta;
   ctx.dataend = &meta[vallen];
   ctx.valloc  = valloc;
-  if ( fd_slot_meta_decode(m, &ctx) )
+  if( fd_slot_meta_decode( m, &ctx ) ) {
     FD_LOG_ERR(("fd_slot_meta_decode failed"));
+  }
 
   free(meta);
 
@@ -505,16 +511,16 @@ int
 fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
                                     fd_slot_meta_t *  m,
                                     fd_blockstore_t * blockstore,
-                                    int txnstatus,
-                                    const uchar *hash_override ) // How much effort should we go to here to confirm the size of the hash override?
-{
+                                    int               txnstatus,
+                                    const uchar *     hash_override,
+                                    fd_valloc_t       valloc ) {
   fd_blockstore_start_write( blockstore );
 
   ulong slot = m->slot;
   ulong start_idx = 0;
   ulong end_idx = m->received;
 
-  rocksdb_iterator_t* iter = rocksdb_create_iterator_cf(db->db, db->ro, db->cf_handles[FD_ROCKSDB_CFIDX_DATA_SHRED]);
+  rocksdb_iterator_t * iter = rocksdb_create_iterator_cf(db->db, db->ro, db->cf_handles[FD_ROCKSDB_CFIDX_DATA_SHRED]);
 
   char k[16];
   ulong slot_be = *((ulong *) &k[0]) = fd_ulong_bswap(slot);
@@ -568,13 +574,13 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
       fd_blockstore_end_write(blockstore);
       return -1;
     }
-    int rc = fd_blockstore_shred_insert( blockstore, shred );
-    if (rc != FD_BLOCKSTORE_OK_SLOT_COMPLETE && rc != FD_BLOCKSTORE_OK) {
-      FD_LOG_WARNING(("failed to store shred %lu/%lu", slot, i));
-      rocksdb_iter_destroy(iter);
-      fd_blockstore_end_write(blockstore);
-      return -1;
-    }
+    fd_blockstore_shred_insert( blockstore, shred );
+    fd_blockstore_end_write(blockstore);
+    // if (rc != FD_BLOCKSTORE_SUCCESS_SLOT_COMPLETE && rc != FD_BLOCKSTORE_SUCCESS) {
+    //   FD_LOG_WARNING(("failed to store shred %lu/%lu", slot, i));
+    //   rocksdb_iter_destroy(iter);
+    //   return -1;
+    // }
 
     rocksdb_iter_next(iter);
   }
@@ -635,11 +641,10 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
         FD_LOG_WARNING(( "rocksdb: %s", err ));
         free( err );
       } else {
-        fd_scratch_push();
         fd_bincode_decode_ctx_t decode = {
           .data    = res,
           .dataend = res + vallen,
-          .valloc  = fd_scratch_virtual(),
+          .valloc  = valloc,
         };
         fd_frozen_hash_versioned_t versioned;
         int decode_err = fd_frozen_hash_versioned_decode( &versioned, &decode );
@@ -650,7 +655,6 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
         fd_memcpy( block_map_entry->bank_hash.hash, versioned.inner.current.frozen_hash.hash, 32UL );
       cleanup:
         free( res );
-        fd_scratch_pop();
       }
     }
   }
@@ -722,12 +726,12 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
     FD_TEST( blk->txns_meta_gaddr + blk->txns_meta_sz == fd_wksp_gaddr_fast( wksp, cur_laddr ) );
   }
 
-  blockstore->lps = slot;
-  blockstore->hcs = slot;
-  blockstore->smr = slot;
+  blockstore->shmem->lps = slot;
+  blockstore->shmem->hcs = slot;
+  blockstore->shmem->smr = slot;
 
   if( FD_LIKELY( block_map_entry ) ) {
-    block_map_entry->flags = 
+    block_map_entry->flags =
       fd_uchar_set_bit(
       fd_uchar_set_bit(
       fd_uchar_set_bit(
@@ -747,9 +751,10 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
 
 int
 fd_rocksdb_import_block_shredcap( fd_rocksdb_t *               db,
-                                    fd_slot_meta_t *           metadata,
-                                    fd_io_buffered_ostream_t * ostream,
-                                    fd_io_buffered_ostream_t * bank_hash_ostream ) {
+                                  fd_slot_meta_t *             metadata,
+                                  fd_io_buffered_ostream_t *   ostream,
+                                  fd_io_buffered_ostream_t *   bank_hash_ostream,
+                                  fd_valloc_t                  valloc ) {
   ulong slot = metadata->slot;
 
   /* pre_slot_hdr_file_offset is the current offset within the file, but
@@ -905,11 +910,10 @@ fd_rocksdb_import_block_shredcap( fd_rocksdb_t *               db,
     FD_LOG_WARNING((" Could not get bank hash data due to err=%s",err ));
     free( err );
   } else {
-    fd_scratch_push();
     fd_bincode_decode_ctx_t decode = {
       .data    = res,
       .dataend = res + vallen,
-      .valloc  = fd_scratch_virtual(),
+      .valloc  = valloc,
     };
     fd_frozen_hash_versioned_t versioned;
     int decode_err = fd_frozen_hash_versioned_decode( &versioned, &decode );
@@ -923,7 +927,6 @@ fd_rocksdb_import_block_shredcap( fd_rocksdb_t *               db,
     fd_io_buffered_ostream_write( bank_hash_ostream, &bank_hash_entry, FD_SHREDCAP_BANK_HASH_ENTRY_FOOTPRINT );
   cleanup:
     free( res );
-    fd_scratch_pop();
   }
   return 0;
 }

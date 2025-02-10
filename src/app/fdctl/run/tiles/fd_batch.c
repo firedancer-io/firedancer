@@ -6,19 +6,18 @@
 
 #include "../../../../flamenco/runtime/fd_hashes.h"
 #include "../../../../flamenco/runtime/fd_txncache.h"
-#include "../../../../flamenco/runtime/fd_runtime.h"
 #include "../../../../flamenco/snapshot/fd_snapshot_create.h"
+#include "../../../../flamenco/runtime/fd_runtime.h"
 
 #include "generated/batch_seccomp.h"
 
 #include <errno.h>
 #include <unistd.h>
 
-#define SCRATCH_MAX         (1024UL << 24) /* 24 MiB */
-#define SCRATCH_DEPTH       (256UL)        /* 256 scratch frames */
-#define TPOOL_WORKER_MEM_SZ (1UL<<30UL)    /* 256MB */
-#define REPLAY_OUT_IDX      (0UL)
-#define EAH_REPLAY_OUT_SIG  (0UL)
+#define REPLAY_OUT_IDX     (0UL)
+#define EAH_REPLAY_OUT_SIG (0UL)
+
+#define MEM_FOOTPRINT      (8UL<<30)
 
 struct fd_snapshot_tile_ctx {
   /* User defined parameters. */
@@ -53,6 +52,9 @@ struct fd_snapshot_tile_ctx {
   /* Replay out link fields for epoch account hash. */
   fd_wksp_t *     replay_out_mem;
   ulong           replay_out_chunk;
+
+  /* Bump allocator */
+  fd_spad_t *     spad;
 };
 typedef struct fd_snapshot_tile_ctx fd_snapshot_tile_ctx_t;
 
@@ -95,9 +97,7 @@ FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_snapshot_tile_ctx_t), sizeof(fd_snapshot_tile_ctx_t) );
-  l = FD_LAYOUT_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->batch.hash_tpool_thread_count * TPOOL_WORKER_MEM_SZ );
-  l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX   ) );
-  l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
+  l = FD_LAYOUT_APPEND( l, fd_spad_align(), fd_ulong_align_up( MEM_FOOTPRINT, fd_spad_align() ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -175,10 +175,12 @@ unprivileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_snapshot_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapshot_tile_ctx_t), sizeof(fd_snapshot_tile_ctx_t) );
   memset( ctx, 0, sizeof(fd_snapshot_tile_ctx_t) );
-  void * tpool_worker_mem    = FD_SCRATCH_ALLOC_APPEND( l, FD_SCRATCH_ALIGN_DEFAULT, tile->batch.hash_tpool_thread_count * TPOOL_WORKER_MEM_SZ );
-  void * scratch_smem        = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX    ) );
-  void * scratch_fmem        = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
+  void * spad_mem            = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), fd_ulong_align_up( MEM_FOOTPRINT, fd_spad_align() ) );
   ulong  scratch_alloc_mem   = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
+
+  if( FD_UNLIKELY( scratch_alloc_mem > (ulong)scratch + scratch_footprint(tile) ) ) {
+    FD_LOG_ERR(( "scratch overflow" ));
+  }
 
   ctx->full_interval           = tile->batch.full_interval;
   ctx->incremental_interval    = tile->batch.incremental_interval;
@@ -204,11 +206,19 @@ unprivileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
   if( FD_LIKELY( tile->batch.hash_tpool_thread_count>1UL ) ) {
     /* Start the tpool workers */
     for( ulong i=1UL; i<tile->batch.hash_tpool_thread_count; i++ ) {
-      if( FD_UNLIKELY( !fd_tpool_worker_push( ctx->tpool, i, (uchar *)tpool_worker_mem + TPOOL_WORKER_MEM_SZ*(i - 1U), TPOOL_WORKER_MEM_SZ ) ) ) {
+      if( FD_UNLIKELY( !fd_tpool_worker_push( ctx->tpool, i, NULL, 0UL ) ) ) {
         FD_LOG_ERR(( "failed to launch worker" ));
       }
     }
   }
+
+  /**********************************************************************/
+  /* spads                                                              */
+  /**********************************************************************/
+  /* FIXME: Define a bound for the size of the spad. It likely needs to be
+     larger than this. */
+  uchar * spad_mem_cur = spad_mem;
+  ctx->spad = fd_spad_join( fd_spad_new( spad_mem_cur, MEM_FOOTPRINT ) );
 
   /**********************************************************************/
   /* funk                                                               */
@@ -232,19 +242,6 @@ unprivileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
   ctx->status_cache = fd_txncache_join( fd_topo_obj_laddr( topo, status_cache_obj_id ) );
   if( FD_UNLIKELY( !ctx->status_cache ) ) {
     FD_LOG_ERR(( "no status cache" ));
-  }
-
-  /**********************************************************************/
-  /* scratch                                                            */
-  /**********************************************************************/
-
-  fd_scratch_attach( scratch_smem, scratch_fmem, SCRATCH_MAX, SCRATCH_DEPTH );
-
-  if( FD_UNLIKELY( scratch_alloc_mem != ( (ulong)scratch + scratch_footprint( tile ) ) ) ) {
-    FD_LOG_ERR(( "scratch_alloc_mem did not match scratch_footprint diff: %lu alloc: %lu footprint: %lu",
-                 scratch_alloc_mem - (ulong)scratch - scratch_footprint( tile ),
-                 scratch_alloc_mem,
-                 (ulong)scratch + scratch_footprint( tile ) ));
   }
 
   /**********************************************************************/
@@ -309,7 +306,8 @@ produce_snapshot( fd_snapshot_tile_ctx_t * ctx, ulong batch_fseq ) {
     /* These parameters are ignored if the snapshot is not incremental. */
     .last_snap_slot           = ctx->last_full_snap_slot,
     .last_snap_acc_hash       = &ctx->last_hash,
-    .last_snap_capitalization = ctx->last_capitalization
+    .last_snap_capitalization = ctx->last_capitalization,
+    .spad                     = ctx->spad
   };
 
   if( !is_incremental ) {
@@ -358,10 +356,9 @@ produce_snapshot( fd_snapshot_tile_ctx_t * ctx, ulong batch_fseq ) {
   }
 
   /* Now that the files are in an expected state, create the snapshot. */
-  FD_SCRATCH_SCOPE_BEGIN {
-    snapshot_ctx.valloc = fd_scratch_virtual();
+  FD_SPAD_FRAME_BEGIN( snapshot_ctx.spad ) {
     fd_snapshot_create_new_snapshot( &snapshot_ctx, &ctx->last_hash, &ctx->last_capitalization );
-  } FD_SCRATCH_SCOPE_END;
+  } FD_SPAD_FRAME_END;
 
   if( is_incremental ) {
     FD_LOG_NOTICE(( "Done creating a snapshot in %s", snapshot_ctx.out_dir ));
@@ -423,11 +420,11 @@ produce_eah( fd_snapshot_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong batch
   }
 
   uint slot_magic = *(uint*)slot_val;
-  FD_SCRATCH_SCOPE_BEGIN {
+  FD_SPAD_FRAME_BEGIN( ctx->spad ) {
     fd_bincode_decode_ctx_t slot_decode_ctx = {
       .data    = (uchar*)slot_val + sizeof(uint),
       .dataend = (uchar*)slot_val + fd_funk_val_sz( slot_rec ),
-      .valloc  = fd_scratch_virtual()
+      .valloc  = fd_spad_virtual( ctx->spad )
     };
 
     if( FD_UNLIKELY( slot_magic!=FD_RUNTIME_ENC_BINCODE ) ) {
@@ -443,7 +440,8 @@ produce_eah( fd_snapshot_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong batch
     /* At this point, calculate the epoch account hash. */
 
     fd_hash_t epoch_account_hash = {0};
-    fd_accounts_hash( funk, &slot_bank, fd_scratch_virtual(), ctx->tpool, &epoch_account_hash );
+
+    fd_accounts_hash( funk, &slot_bank, ctx->tpool, &epoch_account_hash, ctx->spad );
 
     FD_LOG_NOTICE(( "Done computing epoch account hash (%s)", FD_BASE58_ENC_32_ALLOCA( &epoch_account_hash ) ));
 
@@ -460,7 +458,7 @@ produce_eah( fd_snapshot_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong batch
        snapshots to be created again. */
 
     fd_fseq_update( ctx->is_constipated, 0UL );
-  } FD_SCRATCH_SCOPE_END;
+  } FD_SPAD_FRAME_END;
 }
 
 static void

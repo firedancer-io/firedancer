@@ -254,7 +254,7 @@ fd_tls_encode_client_hello( fd_tls_client_hello_t const * in,
 # undef FIELDS
   }
 
-  *extension_tot_sz = fd_ushort_bswap( (ushort)( (ulong)wire_laddr - extension_start ) );
+  FD_STORE( ushort, extension_tot_sz, fd_ushort_bswap( (ushort)( (ulong)wire_laddr - extension_start ) ) );
   return (long)( wire_laddr - (ulong)wire );
 }
 

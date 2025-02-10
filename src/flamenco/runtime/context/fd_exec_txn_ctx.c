@@ -140,6 +140,16 @@ int
 fd_txn_borrowed_account_executable_view( fd_exec_txn_ctx_t * ctx,
                                          fd_pubkey_t const *      pubkey,
                                          fd_borrowed_account_t * * account ) {
+  /* First try to fetch the executable account from the existing borrowed accounts.
+     If the pubkey is in the account keys, then we want to re-use that
+     borrowed account since it reflects changes from prior instructions. Referencing the
+     read-only executable accounts list is incorrect behavior when the program
+     data account is written to in a prior instruction (e.g. program upgrade + invoke within the same txn) */
+  int err = fd_txn_borrowed_account_view( ctx, pubkey, account );
+  if( FD_UNLIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
+    return FD_ACC_MGR_SUCCESS;
+  }
+
   for( ulong i = 0; i < ctx->executable_cnt; i++ ) {
     if( memcmp( pubkey->uc, ctx->executable_accounts[i].pubkey->uc, sizeof(fd_pubkey_t) )==0 ) {
       // TODO: check if readable???
@@ -157,7 +167,7 @@ fd_txn_borrowed_account_executable_view( fd_exec_txn_ctx_t * ctx,
 }
 
 int
-fd_txn_borrowed_account_modify_fee_payer( fd_exec_txn_ctx_t *       ctx, 
+fd_txn_borrowed_account_modify_fee_payer( fd_exec_txn_ctx_t *       ctx,
                                           fd_borrowed_account_t * * account ) {
 
   *account = &ctx->borrowed_accounts[ FD_FEE_PAYER_TXN_IDX ];
@@ -241,7 +251,7 @@ fd_exec_txn_ctx_setup_basic( fd_exec_txn_ctx_t * txn_ctx ) {
   txn_ctx->instr_trace_length = 0;
 
   txn_ctx->exec_err      = 0;
-  txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_EBPF;
+  txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_NONE;
 }
 
 void
@@ -296,27 +306,32 @@ fd_txn_account_is_demotion( fd_exec_txn_ctx_t const * txn_ctx, int idx )
   return (is_program && !bpf_upgradeable_in_txn);
 }
 
+/* This function aims to mimic the writable accounts check to populate the writable accounts cache, used
+   to determine if accounts are writable or not.
+
+   https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L38-L47 */
 int
 fd_txn_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, int idx ) {
 
-  int acct_addr_cnt = txn_ctx->txn_descriptor->acct_addr_cnt;
-  if( txn_ctx->txn_descriptor->transaction_version == FD_TXN_V0 ) {
-    acct_addr_cnt += txn_ctx->txn_descriptor->addr_table_adtl_cnt;
-  }
-
-  if( idx==acct_addr_cnt ) {
+  /* https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L43 */
+  if( !fd_txn_is_writable( txn_ctx->txn_descriptor, idx ) ) {
     return 0;
   }
 
+  /* See comments in fd_system_ids.h.
+     https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L44 */
   if( fd_pubkey_is_active_reserved_key(&txn_ctx->accounts[idx] ) ||
-      ( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, add_new_reserved_account_keys ) && 
-                           fd_pubkey_is_pending_reserved_key( &txn_ctx->accounts[idx] ) )) {
+      ( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, add_new_reserved_account_keys ) &&
+                           fd_pubkey_is_pending_reserved_key( &txn_ctx->accounts[idx] ) ) ||
+      ( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, enable_secp256r1_precompile ) &&
+                           fd_pubkey_is_secp256r1_key( &txn_ctx->accounts[idx] ) ) ) {
     return 0;
   }
 
+  /* https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L45 */
   if( fd_txn_account_is_demotion( txn_ctx, idx ) ) {
     return 0;
   }
 
-  return fd_txn_is_writable( txn_ctx->txn_descriptor, idx );
+  return 1;
 }

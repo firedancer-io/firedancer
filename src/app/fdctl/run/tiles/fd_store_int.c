@@ -82,7 +82,7 @@ struct fd_store_tile_metrics {
   ulong first_turbine_slot;
   ulong current_turbine_slot;
 };
-typedef struct fd_store_tile_metrics fd_store_tile_metrics_t; 
+typedef struct fd_store_tile_metrics fd_store_tile_metrics_t;
 #define FD_STORE_TILE_METRICS_FOOTPRINT ( sizeof( fd_store_tile_metrics_t ) )
 
 struct fd_store_tile_ctx {
@@ -92,8 +92,9 @@ struct fd_store_tile_ctx {
   fd_pubkey_t identity_key[1]; /* Just the public key */
 
   fd_store_t *      store;
-  fd_blockstore_t * blockstore;
+  fd_blockstore_t   blockstore_ljoin;
   int               blockstore_fd; /* file descriptor for archival file */
+  fd_blockstore_t * blockstore;
 
   fd_wksp_t * stake_in_mem;
   ulong       stake_in_chunk0;
@@ -271,13 +272,13 @@ after_frag( fd_store_tile_ctx_t * ctx,
       return;
     }
 
-    if( fd_store_shred_insert( ctx->store, shred ) < FD_BLOCKSTORE_OK ) {
+    if( fd_store_shred_insert( ctx->store, shred ) < FD_BLOCKSTORE_SUCCESS ) {
       FD_LOG_ERR(( "failed inserting to blockstore" ));
     } else if ( ctx->shred_cap_ctx.is_archive ) {
-        uchar shred_cap_flag = FD_SHRED_CAP_FLAG_MARK_REPAIR(0);
-        if ( fd_shred_cap_archive(&ctx->shred_cap_ctx, shred, shred_cap_flag) < FD_SHRED_CAP_OK ) {
-          FD_LOG_ERR(( "failed at archiving repair shred to file" ));
-        }
+      uchar shred_cap_flag = FD_SHRED_CAP_FLAG_MARK_REPAIR( 0 );
+      if( fd_shred_cap_archive( &ctx->shred_cap_ctx, shred, shred_cap_flag ) < FD_SHRED_CAP_OK ) {
+        FD_LOG_ERR( ( "failed at archiving repair shred to file" ) );
+      }
     }
     return;
   }
@@ -310,16 +311,16 @@ after_frag( fd_store_tile_ctx_t * ctx,
     }
     // TODO: improve return value of api to not use < OK
 
-    if( fd_store_shred_insert( ctx->store, &ctx->s34_buffer->pkts[i].shred ) < FD_BLOCKSTORE_OK ) {
+    if( fd_store_shred_insert( ctx->store, shred ) < FD_BLOCKSTORE_SUCCESS ) {
       FD_LOG_ERR(( "failed inserting to blockstore" ));
     } else if ( ctx->shred_cap_ctx.is_archive ) {
       uchar shred_cap_flag = FD_SHRED_CAP_FLAG_MARK_TURBINE(0);
-      if ( fd_shred_cap_archive(&ctx->shred_cap_ctx, &ctx->s34_buffer->pkts[i].shred, shred_cap_flag) < FD_SHRED_CAP_OK ) {
+      if ( fd_shred_cap_archive(&ctx->shred_cap_ctx, shred, shred_cap_flag) < FD_SHRED_CAP_OK ) {
         FD_LOG_ERR(( "failed at archiving turbine shred to file" ));
       }
     }
 
-    fd_store_shred_update_with_shred_from_turbine( ctx->store, &ctx->s34_buffer->pkts[i].shred );
+    fd_store_shred_update_with_shred_from_turbine( ctx->store, shred );
   }
 }
 
@@ -421,8 +422,8 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
     out_buf += sizeof(fd_hash_t);
 
     FD_SCRATCH_SCOPE_BEGIN {
-      ulong caught_up = slot > ctx->store->first_turbine_slot;
-      ulong behind = ctx->store->curr_turbine_slot - slot;
+      ctx->metrics.first_turbine_slot = ctx->store->first_turbine_slot;
+      ctx->metrics.current_turbine_slot = ctx->store->curr_turbine_slot;
 
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
       ulong caught_up_flag = (ctx->store->curr_turbine_slot - slot)<4 ? 0UL : REPLAY_FLAG_CATCHING_UP;
@@ -434,49 +435,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
         replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK );
         FD_LOG_INFO(( "packed block prepared - slot: %lu, mblks: %lu, blockhash: %s, txn_cnt: %lu, shred_cnt: %lu, data_sz: %lu", slot, block->micros_cnt, FD_BASE58_ENC_32_ALLOCA( block_hash->uc ), block->txns_cnt, block->shreds_cnt, block->data_sz ));
       } else {
-
-        fd_txn_p_t * txns = fd_type_pun( out_buf );
-        FD_LOG_DEBUG(( "first turbine: %lu, current received turbine: %lu, behind: %lu current "
-                        "executed: %lu, caught up: %lu",
-                        ctx->store->first_turbine_slot,
-                        ctx->store->curr_turbine_slot,
-                        behind,
-                        slot,
-                        caught_up ));
-
-        ctx->metrics.first_turbine_slot = ctx->store->first_turbine_slot;
-        ctx->metrics.current_turbine_slot = ctx->store->curr_turbine_slot;
-        /* Calls fd_txn_parse_core on every txn in the block and copies the result into the mcache/dcache
-           sent to the replay tile, sending a maximum of 4096 transactions to the replay tile at a time */
-        fd_raw_block_txn_iter_t iter;
-        fd_txn_iter_t * query = fd_txn_iter_map_query( ctx->txn_iter_map, slot, NULL);
-        if( FD_LIKELY( query ) ) {
-          iter = query->iter;
-        } else {
-          iter = fd_raw_block_txn_iter_init(
-            fd_blockstore_block_data_laddr( ctx->blockstore, block ),
-            fd_blockstore_block_batch_laddr( ctx->blockstore, block ),
-            block->batch_cnt
-          );
-        }
-
-        for( ; !fd_raw_block_txn_iter_done( iter ); iter = fd_raw_block_txn_iter_next( iter ) ) {
-          /* TODO: remove magic number for txns per send */
-          if( txn_cnt == 4096 ) break;
-          fd_raw_block_txn_iter_ele( iter, txns + txn_cnt );
-          txn_cnt++;
-        }
-
-        if( FD_LIKELY( query ) )
-            fd_txn_iter_map_remove( ctx->txn_iter_map, query );
-
-        if( FD_LIKELY( !fd_raw_block_txn_iter_done( iter ) ) ) {
-          fd_txn_iter_t * insert = fd_txn_iter_map_insert( ctx->txn_iter_map, slot );
-          insert->iter = iter;
-        } else {
-          replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
-        }
-        FD_LOG_INFO(( "block prepared - slot: %lu, mblks: %lu, blockhash: %s, txn_cnt: %lu, shred_cnt: %lu", slot, block->micros_cnt, FD_BASE58_ENC_32_ALLOCA( block_hash->uc ), txn_cnt, block->shreds_cnt ));
+        replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
       }
 
       out_buf += sizeof(ulong);
@@ -517,7 +476,7 @@ after_credit( fd_store_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( ctx->sim &&
                    ctx->store->pending_slots->start == ctx->store->pending_slots->end ) ) {
-    FD_LOG_WARNING(( "Sim is complete." ));
+    // FD_LOG_WARNING(( "Sim is complete." ));
   }
 
   for( ulong i = 0; i<fd_txn_iter_map_slot_cnt(); i++ ) {
@@ -591,6 +550,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_store_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_store_tile_ctx_t), sizeof(fd_store_tile_ctx_t) );
+  ctx->blockstore = &ctx->blockstore_ljoin;
   // TODO: set the lo_mark_slot to the actual snapshot slot!
   ctx->store = fd_store_join( fd_store_new( FD_SCRATCH_ALLOC_APPEND( l, fd_store_align(), fd_store_footprint() ), 1 ) );
   ctx->repair_req_buffer = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_request_t), MAX_REPAIR_REQS * sizeof(fd_repair_request_t) );
@@ -633,7 +593,7 @@ unprivileged_init( fd_topo_t *      topo,
     do {
       expected_shred_version = fd_fseq_query( gossip_shred_version );
     } while( expected_shred_version==ULONG_MAX );
-    FD_LOG_INFO(( "using shred version %lu", expected_shred_version ));
+    FD_LOG_NOTICE(( "using shred version %lu", expected_shred_version ));
   }
   if( FD_UNLIKELY( expected_shred_version>USHORT_MAX ) ) FD_LOG_ERR(( "invalid shred version %lu", expected_shred_version ));
   FD_TEST( expected_shred_version );
@@ -650,7 +610,7 @@ unprivileged_init( fd_topo_t *      topo,
     ulong tag = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "obj.%lu.wksp_tag", blockstore_obj_id );
     if( FD_LIKELY( fd_wksp_tag_query( ctx->blockstore_wksp, &tag, 1, &info, 1 ) > 0 ) ) {
       void * blockstore_mem = fd_wksp_laddr_fast( ctx->blockstore_wksp, info.gaddr_lo );
-      ctx->blockstore       = fd_blockstore_join( blockstore_mem );
+      ctx->blockstore = fd_blockstore_join( &ctx->blockstore_ljoin, blockstore_mem );
     } else {
       FD_LOG_WARNING(( "failed to find blockstore in workspace. making new blockstore." ));
     }
@@ -660,7 +620,7 @@ unprivileged_init( fd_topo_t *      topo,
       FD_LOG_ERR(( "failed to find blockstore" ));
     }
 
-    ctx->blockstore = fd_blockstore_join( blockstore_shmem );
+    ctx->blockstore = fd_blockstore_join( &ctx->blockstore_ljoin, blockstore_shmem );
   }
 
   FD_LOG_NOTICE(( "blockstore: %s", tile->store_int.blockstore_file ));
@@ -774,10 +734,12 @@ unprivileged_init( fd_topo_t *      topo,
                                                 O_WRONLY | O_CREAT,
                                                 S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH );
     if( ctx->shred_cap_ctx.shred_cap_fileno==-1 ) FD_LOG_ERR(( "failed at opening the shredcap file" ));
-  } else if ( strlen( tile->store_int.shred_cap_replay ) > 0 ) {
-    ctx->sim = 1;
+  } else if( strlen( tile->store_int.shred_cap_replay )>0 ) {
+    ctx->sim                           = 1;
+    ctx->store->blockstore->shmem->smr = 0UL;
     FD_TEST( fd_shred_cap_replay( tile->store_int.shred_cap_replay, ctx->store ) == FD_SHRED_CAP_OK );
   }
+
 }
 
 static ulong

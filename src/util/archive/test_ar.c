@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <errno.h>
 
-FD_IMPORT_BINARY( test_ar, "src/ballet/shred/fixtures/localnet-shreds-0.ar" );
+FD_IMPORT_BINARY( test_ar, "src/util/fixtures/localnet-shreds-0.ar" );
 
 /* test_valid_ar: Read all files from archive. */
 

@@ -163,7 +163,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
   fd_bincode_decode_ctx_t decode =
     { .data    = account->const_data,
       .dataend = account->const_data + account->const_meta->dlen,
-      .valloc  = fd_scratch_virtual() };
+      .valloc  = fd_spad_virtual( ctx->txn_ctx->spad ) };
   if( FD_UNLIKELY( fd_nonce_state_versions_decode( versions, &decode )!=FD_BINCODE_SUCCESS ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
@@ -330,7 +330,7 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
   fd_bincode_decode_ctx_t decode =
     { .data    = from->const_data,
       .dataend = from->const_data + from->const_meta->dlen,
-      .valloc  = fd_scratch_virtual() };
+      .valloc  = fd_spad_virtual( ctx->txn_ctx->spad ) };
   if( FD_UNLIKELY( fd_nonce_state_versions_decode( versions, &decode )!=FD_BINCODE_SUCCESS ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
@@ -544,7 +544,7 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
   fd_bincode_decode_ctx_t decode =
     { .data    = account->const_data,
       .dataend = account->const_data + account->const_meta->dlen,
-      .valloc  = fd_scratch_virtual() };
+      .valloc  = fd_spad_virtual( ctx->txn_ctx->spad ) };
   if( FD_UNLIKELY( fd_nonce_state_versions_decode( versions, &decode )!=FD_BINCODE_SUCCESS ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
@@ -709,7 +709,7 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
   fd_bincode_decode_ctx_t decode =
     { .data    = account->const_data,
       .dataend = account->const_data + account->const_meta->dlen,
-      .valloc  = fd_scratch_virtual() };
+      .valloc  = fd_spad_virtual( ctx->txn_ctx->spad ) };
   if( FD_UNLIKELY( fd_nonce_state_versions_decode( versions, &decode )!=FD_BINCODE_SUCCESS ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
@@ -851,7 +851,7 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
   fd_bincode_decode_ctx_t decode =
     { .data    = account->const_data,
       .dataend = account->const_data + account->const_meta->dlen,
-      .valloc  = fd_scratch_virtual() };
+      .valloc  = fd_spad_virtual( ctx->txn_ctx->spad ) };
   if( FD_UNLIKELY( fd_nonce_state_versions_decode( versions, &decode )!=FD_BINCODE_SUCCESS ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
@@ -888,7 +888,7 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
 int
 fd_load_nonce_account( fd_exec_txn_ctx_t const *   txn_ctx,
                        fd_nonce_state_versions_t * state,
-                       fd_valloc_t                 valloc,
+                       fd_spad_t *                 spad,
                        int *                       perr ) {
 
   *perr = 0;
@@ -947,7 +947,7 @@ fd_load_nonce_account( fd_exec_txn_ctx_t const *   txn_ctx,
   fd_bincode_decode_ctx_t decode = {
     .data    = me_rec->const_data,
     .dataend = me_rec->const_data + me_rec->const_meta->dlen,
-    .valloc  = valloc
+    .valloc  = fd_spad_virtual( spad )
   };
 
   if( fd_nonce_state_versions_decode( state, &decode ) ) {
@@ -1036,7 +1036,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
   fd_bincode_decode_ctx_t decode = {
     .data    = durable_nonce_rec->const_data,
     .dataend = durable_nonce_rec->const_data + durable_nonce_rec->const_meta->dlen,
-    .valloc  = fd_scratch_virtual()
+    .valloc  = fd_spad_virtual( txn_ctx->spad )
   };
 
   fd_nonce_state_versions_t state = {0};

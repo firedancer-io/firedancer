@@ -32,7 +32,7 @@ fd_sandbox_requires_cap_sys_admin( uint desired_uid,
 /* fd_sandbox_enter takes various steps to enter the process into a
    fully sandboxed execution environment where it has very limited
    access to the system.
-   
+
    Any errors encountered while sandboxing the process are fatal: the
    program will print an error and exit rather than continuing
    unsandboxed.  The sandbox must be entered while the process is single
@@ -105,10 +105,12 @@ fd_sandbox_requires_cap_sys_admin( uint desired_uid,
           the prior root.  The cwd is set to the new root with chdir(2).
 
      (13) Most resource limits are reduced to zero, except RLIMIT_NOFILE
-          which is set to the provided rlimit_file_cnt argument, and
-          RLIMIT_NICE which is set to 1.  RLIMIT_CPU and RLIMIT_FSIZE
-          are left unlimited.  RLIMIT_LOCKS and RLIMIT_RSS are
-          deprecated and left unchanged.
+          which is set to the provided rlimit_file_cnt argument,
+          RLIMIT_ADDRESS_SPACE which is set to the provided
+          rlimit_address_space argument, RLIMIT_DATA which is set to the
+          provided rlimit_data argument, and RLIMIT_NICE which is set to
+          1.  RLIMIT_CPU and RLIMIT_FSIZE are left unlimited.
+          RLIMIT_LOCKS and RLIMIT_RSS are deprecated and left unchanged.
 
      (14) All capabilities in the nested user namespace are dropped: the
           effective, permitted, and inherited sets are all cleared.  The
@@ -129,7 +131,7 @@ fd_sandbox_requires_cap_sys_admin( uint desired_uid,
    get loaded into the kernel seccomp filter.  This filter should not be
    constructed by hand, and should be generated from a policy file with
    the script in contrib/generate_filters.py.
-   
+
    Calling fd_sandbox_enter alone is not enough to sandbox a process, as
    it will not be in a PID namespace.  The caller must ensure the
    sandboxed process lives in its own PID namespace so it cannot attempt
@@ -141,6 +143,8 @@ fd_sandbox_enter( uint                 desired_uid,                  /* User ID 
                   int                  keep_host_networking,         /* True to keep the host networking namespace and not unshare it */
                   int                  keep_controlling_terminal,    /* True to disconnect from the controlling terminal session */
                   ulong                rlimit_file_cnt,              /* Maximum open file value to provide to setrlimit(RLIMIT_NOFILE) */
+                  ulong                rlimit_address_space,         /* Maximum address space size to provide to setrlimit(RLIMIT_AS) */
+                  ulong                rlimit_data,                  /* Maximum address space size to provide to setrlimit(RLIMIT_AS) */
                   ulong                allowed_file_descriptor_cnt,  /* Number of entries in the allowed_file_descriptor array */
                   int const *          allowed_file_descriptor,      /* Entries [0, allowed_file_descriptor_cnt) describe the allowed file descriptors */
                   ulong                seccomp_filter_cnt,           /* Number of entries in the seccomp_filter array */
@@ -170,12 +174,12 @@ fd_sandbox_switch_uid_gid( uint desired_uid,   /* User ID to switch the process 
 
 /* fd_sandbox_getpid returns the true PID of the current process as it
    appears in the root PID namespace of the system.
-   
+
    Calling `getpid(2)` from a process inside a PID namespace will
    return a renumbered PID within that namespace, not the PID seen from
    most other processes on the system.  For example, if you want to do a
    `kill -p <pid>` it should be the PID in the root namespace.
-   
+
    This function cannot be called from within the sandbox (it will
    likely SIGSYS due to the seccomp filter) and should be called after
    entering a PID namespace but before entering the sandbox.
@@ -189,11 +193,11 @@ fd_sandbox_getpid( void );
 
 /* fd_sandbox_getpid returns the true TID of the current process as it
    appears in the root PID namespace of the system.
-   
+
    Calling `gettid(2)` from a process inside a PID namespace will
    return a renumbered TID within that namespace, not the TID seen from
    most other processes on the system.
-   
+
    This function cannot be called from within the sandbox (it will
    likely SIGSYS due to the seccomp filter) and should be called after
    entering a PID namespace but before entering the sandbox.

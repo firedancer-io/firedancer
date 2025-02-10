@@ -44,6 +44,7 @@
 | net_&#8203;xdp_&#8203;rx_&#8203;dropped_&#8203;ring_&#8203;full | `counter` | Number of packets dropped because the RX completion queue was empty. This is only reported for net tile 0, since the measurement is across all RX queues. |
 | net_&#8203;xdp_&#8203;rx_&#8203;dropped_&#8203;other | `counter` | Number of packets dropped for other reasons. This is only reported for net tile 0, since the measurement is across all RX queues. |
 | net_&#8203;tx_&#8203;dropped | `counter` | Number of packets dropped because the TX submission queue was empty. This is reported for all net tiles. |
+| net_&#8203;xsk_&#8203;send_&#8203;errors | `counter` | Number of times calling send(2) on the XSK indicated an error other than EAGAIN. |
 
 ## Quic Tile
 | Metric | Type | Description |
@@ -123,10 +124,19 @@
 | quic_&#8203;pkt_&#8203;undersz | `counter` | Number of QUIC packets dropped due to being too small. |
 | quic_&#8203;pkt_&#8203;oversz | `counter` | Number of QUIC packets dropped due to being too large. |
 | quic_&#8203;pkt_&#8203;verneg | `counter` | Number of QUIC version negotiation packets received. |
+| quic_&#8203;retry_&#8203;sent | `counter` | Number of QUIC Retry packets sent. |
+
+## Bundle Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| bundle_&#8203;transaction_&#8203;received | `counter` | Total count of transactions received, including transactions within bundles |
+| bundle_&#8203;packet_&#8203;received | `counter` | Total count of packets received |
+| bundle_&#8203;bundle_&#8203;received | `counter` | Total count of bundles received |
 
 ## Verify Tile
 | Metric | Type | Description |
 |--------|------|-------------|
+| verify_&#8203;transaction_&#8203;bundle_&#8203;peer_&#8203;failure | `counter` | Count of transactions that failed to verify because a peer transaction in the bundle failed |
 | verify_&#8203;transaction_&#8203;parse_&#8203;failure | `counter` | Count of transactions that failed to parse |
 | verify_&#8203;transaction_&#8203;dedup_&#8203;failure | `counter` | Count of transactions that failed to deduplicate in the verify stage |
 | verify_&#8203;transaction_&#8203;verify_&#8203;failure | `counter` | Count of transactions that failed to deduplicate in the verify stage |
@@ -134,6 +144,7 @@
 ## Dedup Tile
 | Metric | Type | Description |
 |--------|------|-------------|
+| dedup_&#8203;transaction_&#8203;bundle_&#8203;peer_&#8203;failure | `counter` | Count of transactions that failed to dedup because a peer transaction in the bundle failed |
 | dedup_&#8203;transaction_&#8203;dedup_&#8203;failure | `counter` | Count of transactions that failed to deduplicate in the dedup stage |
 | dedup_&#8203;gossiped_&#8203;votes_&#8203;received | `counter` | Count of simple vote transactions received over gossip instead of via the normal TPU path |
 
@@ -152,6 +163,7 @@
 | resolv_&#8203;lut_&#8203;resolved_&#8203;account_&#8203;not_&#8203;found | `counter` | Count of address lookup tables resolved (The account referenced as a LUT couldn't be found) |
 | resolv_&#8203;lut_&#8203;resolved_&#8203;success | `counter` | Count of address lookup tables resolved (Resolved successfully) |
 | resolv_&#8203;blockhash_&#8203;expired | `counter` | Count of transactions that failed to resolve because the blockhash was expired |
+| resolv_&#8203;transaction_&#8203;bundle_&#8203;peer_&#8203;failure | `counter` | Count of transactions that failed to resolve because a peer transaction in the bundle failed |
 
 ## Pack Tile
 | Metric | Type | Description |
@@ -198,10 +210,12 @@
 | pack_&#8203;transaction_&#8203;inserted_&#8203;to_&#8203;extra | `counter` | Transactions inserted into the extra transaction storage because pack's primary storage was full |
 | pack_&#8203;transaction_&#8203;inserted_&#8203;from_&#8203;extra | `counter` | Transactions pulled from the extra transaction storage and inserted into pack's primary storage |
 | pack_&#8203;transaction_&#8203;expired | `counter` | Transactions deleted from pack because their TTL expired |
-| pack_&#8203;available_&#8203;transactions | `gauge` | The total number of pending transactions in pack's pool that are available to be scheduled |
-| pack_&#8203;available_&#8203;vote_&#8203;transactions | `gauge` | The number of pending simple vote transactions in pack's pool that are available to be scheduled |
-| pack_&#8203;pending_&#8203;transactions_&#8203;heap_&#8203;size | `gauge` | The maximum number of pending transactions that pack can consider.  This value is fixed at Firedancer startup but is a useful reference for AvailableTransactions and AvailableVoteTransactions. |
-| pack_&#8203;conflicting_&#8203;transactions | `gauge` | The number of available transactions that are temporarily not being considered due to account lock conflicts with many higher paying transactions |
+| pack_&#8203;available_&#8203;transactions_&#8203;all | `gauge` | The total number of pending transactions in pack's pool that are available to be scheduled (All transactions in any treap) |
+| pack_&#8203;available_&#8203;transactions_&#8203;regular | `gauge` | The total number of pending transactions in pack's pool that are available to be scheduled (Non-votes in the main treap) |
+| pack_&#8203;available_&#8203;transactions_&#8203;votes | `gauge` | The total number of pending transactions in pack's pool that are available to be scheduled (Simple votes) |
+| pack_&#8203;available_&#8203;transactions_&#8203;conflicting | `gauge` | The total number of pending transactions in pack's pool that are available to be scheduled (Non-votes that write to a hotly-contended account) |
+| pack_&#8203;available_&#8203;transactions_&#8203;bundles | `gauge` | The total number of pending transactions in pack's pool that are available to be scheduled (Transactions that are part of a bundle) |
+| pack_&#8203;pending_&#8203;transactions_&#8203;heap_&#8203;size | `gauge` | The maximum number of pending transactions that pack can consider.  This value is fixed at Firedancer startup but is a useful reference for AvailableTransactions. |
 | pack_&#8203;smallest_&#8203;pending_&#8203;transaction | `gauge` | A lower bound on the smallest non-vote transaction (in cost units) that is immediately available for scheduling |
 | pack_&#8203;microblock_&#8203;per_&#8203;block_&#8203;limit | `counter` | The number of times pack did not pack a microblock because the limit on microblocks/block had been reached |
 | pack_&#8203;data_&#8203;per_&#8203;block_&#8203;limit | `counter` | The number of times pack did not pack a microblock because it reached reached the data per block limit at the start of trying to schedule a microblock |
@@ -273,6 +287,7 @@
 | bank_&#8203;transaction_&#8203;result_&#8203;program_&#8203;execution_&#8203;temporarily_&#8203;restricted | `counter` | Result of loading and executing a transaction. (Program execution is temporarily restricted on an account.) |
 | bank_&#8203;transaction_&#8203;result_&#8203;unbalanced_&#8203;transaction | `counter` | Result of loading and executing a transaction. (The total balance before the transaction does not equal the total balance after the transaction.) |
 | bank_&#8203;transaction_&#8203;result_&#8203;program_&#8203;cache_&#8203;hit_&#8203;max_&#8203;limit | `counter` | Result of loading and executing a transaction. (The total program cache size hit the maximum allowed limit.) |
+| bank_&#8203;transaction_&#8203;result_&#8203;bundle_&#8203;peer | `counter` | Result of loading and executing a transaction. (Transaction is part of a bundle and one of the peer transactions failed.) |
 | bank_&#8203;processing_&#8203;failed | `counter` | Count of transactions for which the processing stage failed and won't land on chain |
 | bank_&#8203;fee_&#8203;only_&#8203;transactions | `counter` | Count of transactions that will land on chain but without executing |
 | bank_&#8203;executed_&#8203;failed_&#8203;transactions | `counter` | Count of transactions that execute on chain but failed |

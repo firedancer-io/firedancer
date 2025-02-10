@@ -759,6 +759,9 @@ dynamic_port_range = "8900-9000"
     # parallel users.
     bank_tile_count = 4
 
+    # TODO: add docs on exec_tile_cnt / exec tile
+    exec_tile_count = 2
+
     # How many shred tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network
     # conditions but there is no need to run more than 1 shred tile
@@ -818,6 +821,12 @@ dynamic_port_range = "8900-9000"
     # will use it as-is.  If the mount already exists it should be
     # writable by the Firedancer user.
     mount_path = "/mnt/.fd"
+
+    # The largest supported page size on the system.  Possible values
+    # are either "huge" (2MiB) or "gigantic" (1GiB).  Larger sizes yield
+    # better performance.  Smaller values may be required on virtualized
+    # environments like cloud providers.
+    max_page_size = "gigantic"
 
 # Tiles are described in detail in the layout section above.  While the
 # layout configuration determines how many of each tile to place on
@@ -881,13 +890,6 @@ dynamic_port_range = "8900-9000"
         # replace older ones, which will be dropped.  TODO: ... Should
         # this really be configurable?
         send_buffer_size = 16384
-
-        # The XDP program will filter packets that aren't destined for
-        # the IPv4 address of the interface bound above, but sometimes a
-        # validator may advertise multiple IP addresses.  In this case
-        # the additional addresses can be specified here, and packets
-        # addressed to them will be accepted.
-        multihome_ip_addrs = []
 
     # QUIC tiles are responsible for serving network traffic, including
     # parsing and responding to packets and managing connection timeouts
@@ -986,6 +988,26 @@ dynamic_port_range = "8900-9000"
         # in 1GiB of memory using a single gigantic page.
         signature_cache_size = 33554430
 
+    # The bundle tile receives bundles from a block producer remote
+    # endpoint and forwards them for execution to pack.
+    [tiles.bundle]
+        # True if a bundle tile should be enabled, which receives
+        # bundles from a remote block engine and forwards them for
+        # atomic execution to the pack tile.
+        enabled = false
+
+        # The URL of the block engine to receive blocks from.
+        url = ""
+
+        # The domain name of the TLS certificate to use when verifying
+        # the peer.  If none is provided, the domain from the URL above
+        # will be used by default.
+        #
+        # This is only needed in special cases where the block engine
+        # peer presents a certificate for a different domain that where
+        # it is being accessed.
+        tls_domain_name = ""
+
     # The pack tile takes incoming transactions that have been verified
     # by the verify tile and then deduplicated, and attempts to order
     # them in an optimal way to generate the most fees per compute
@@ -996,8 +1018,8 @@ dynamic_port_range = "8900-9000"
         # option determines the maximum number of transactions that
         # will be stored before those with the lowest estimated
         # profitability get dropped.  The maximum allowed, and default
-        # value is 65534 and it is not recommended to change this.
-        max_pending_transactions = 65534
+        # value is 65529 and it is not recommended to change this.
+        max_pending_transactions = 65529
 
         # When a transaction consumes fewer CUs than it requests, the
         # bank and pack tiles work together to adjust the block limits
@@ -1382,3 +1404,31 @@ dynamic_port_range = "8900-9000"
         # duplicate transactions will not be submitted and the validator
         # with this option enabled will always be leader.
         disable_status_cache = false
+
+    # The following options relate to the 'fddev pktgen' tool only.
+    # pktgen tests net tile transmit throughput by generating a flood of
+    # non-routable Ethernet frames.  Only use 'fddev pktgen' if you know
+    # what you are doing!  It can cause damage to your system and network
+    # infrastructure.
+    [development.pktgen]
+        # Which cores to run the 'net' and 'pktgen' tiles on.
+        # By default, two fixed cores will be used.  To get reliable
+        # measurements, avoid the use of floating tiles.
+        # This setting overrides [layout.affinity] above.
+        affinity = "auto"
+
+        # fake_dst_ip should be set to the IP address of a neighbor on the
+        # Ethernet network.  (For example the router the system is directly
+        # connected to.)
+        #
+        # The net tile queries the route and neighbor tables as part of the
+        # benchmark.  In short, these resolve the dst MAC address of the
+        # outgoing Ethernet packets.  Since pktgen does not produce IPv4
+        # packets, no traffic actually gets sent to this IP.
+        #
+        # The IP address should fulfill these requirements:
+        # - 'ip route get <IP>' resolves to the XDP interface
+        #   (see [tiles.net.interface])
+        # - 'ip neigh get <NEXTHOP> dev <INTERFACE>' returns REACHABLE
+        # If these requirements are not met, no packets will be sent out.
+        fake_dst_ip = ""  # e.g. "192.0.2.64"

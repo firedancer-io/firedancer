@@ -11,6 +11,7 @@
 #include "fd_quic_stream_pool.h"
 #include "fd_quic_pretty_print.h"
 
+#include "../../util/log/fd_dtrace.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/net/fd_udp.h"
 
@@ -440,6 +441,8 @@ fd_quic_sample_rtt( fd_quic_conn_t * conn, long rtt_ticks, long ack_delay ) {
 
 }
 
+/* fd_quic_calc_expiry returns the timestamp of the next expiry event. */
+
 static inline ulong
 fd_quic_calc_expiry( fd_quic_conn_t * conn, ulong now ) {
   /* Instead of a full implementation of PTO, we're setting an expiry
@@ -452,10 +455,22 @@ fd_quic_calc_expiry( fd_quic_conn_t * conn, ulong now ) {
 
   fd_quic_conn_rtt_t * rtt = conn->rtt;
 
-  return now + (ulong)( rtt->smoothed_rtt
-                        + fmaxf( 4.0f * rtt->var_rtt, rtt->sched_granularity_ticks )
-                        + rtt->peer_max_ack_delay_ticks );
+  ulong calc_value = now + (ulong)( rtt->smoothed_rtt
+                         + fmaxf( 4.0f * rtt->var_rtt, rtt->sched_granularity_ticks )
+                         + rtt->peer_max_ack_delay_ticks );
+
+  FD_DTRACE_PROBE_2( quic_calc_expiry, conn->our_conn_id, calc_value );
+
+  return now + (ulong)500e6; /* 500ms */
 }
+
+uchar *
+fd_quic_gen_stream_frames( fd_quic_conn_t *     conn,
+                           uchar *              payload_ptr,
+                           uchar *              payload_end,
+                           fd_quic_pkt_meta_t * pkt_meta,
+                           ulong                pkt_number,
+                           ulong                now );
 
 FD_PROTOTYPES_END
 

@@ -48,26 +48,31 @@ extern const fd_pubkey_t fd_solana_config_program_buffer_address;
 extern const fd_pubkey_t fd_solana_feature_program_buffer_address;
 extern const fd_pubkey_t fd_solana_stake_program_buffer_address;
 
-/* fd_pubkey_is_{pending, active}_reserved_key checks to see if the pubkey is
-   a reserved account. They return 1 if the pubkey is in the list, and 
-   0 otherwise.
-   
-   The main difference between the two is that pending reserved keys are feature gated.
+/* fd_pubkey_is_{pending, active}_reserved_key and fd_pubkey_is_secp256r1_key checks to see if the pubkey is
+   a reserved account. They return 1 if the pubkey is in the list, and 0 otherwise.
+
    To verify that the pubkey is a reserved key, the caller will need to check that either:
      1. The pubkey is in the set of active reserved keys
-     2. The pubkey is in the set of pending reserved keys, AND the associated feature is active.
-     
-   At the time of writing, all pending reserved keys are feature-gated by add_new_reserved_account_keys.
-   However, as more reserved keys get added and placed behind feature gates, this API will need to change. 
-   
+     2. The pubkey is in the set of pending reserved keys, AND the `add_new_reserved_account_keys` feature is active.
+     3. The pubkey is the secp256r1 program id, AND the `enable_secp256r1_precompile` feature is active.
+
+   If a pubkey is a reserved key, it will not be added to Agave's message writable accounts cache and thus
+   not be writable.
+
+   Whenever Agave changes the reserved account keys set, new feature-gated checks will need to be implemented in
+   `fd_txn_account_is_writable_idx()`, and additional functions will need to be added here.
+
    Instead of maintaining a map of sysvars and builtins, Agave recommends checking the sysvar owner account, or checking
-   the reserved keys below. 
-   https://github.com/anza-xyz/agave/blob/v2.1.1/sdk/src/reserved_account_keys.rs */
-int 
+   the reserved keys below.
+   https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/src/reserved_account_keys.rs */
+int
 fd_pubkey_is_active_reserved_key( fd_pubkey_t const * acct );
 
-int 
+int
 fd_pubkey_is_pending_reserved_key( fd_pubkey_t const * acct );
+
+int
+fd_pubkey_is_secp256r1_key( fd_pubkey_t const * acct );
 
 FD_PROTOTYPES_END
 

@@ -37,7 +37,8 @@ ulong txn_max = 128;
                                                              txn_max ),                \
                                     1UL );                                             \
   FD_TEST( mem );                                                                      \
-  fd_blockstore_t * blockstore = fd_blockstore_join( fd_blockstore_new( mem,           \
+  fd_blockstore_t * blockstore = fd_blockstore_join( &blockstore_ljoin,                \
+                                                     fd_blockstore_new( mem,           \
                                                                         1,             \
                                                                         0,             \
                                                                         shred_max,     \
@@ -63,14 +64,14 @@ blocks_equal(fd_block_t* block1, fd_block_t* block2) {
   return block1->data_sz == block2->data_sz && block1->rewards.collected_fees == block2->rewards.collected_fees;
 }
 
-fd_block_map_t 
+fd_block_map_t
 query_block(bool expect, fd_blockstore_t * blockstore, int fd, ulong slotn){
   ulong blk_sz;
   fd_block_map_t meta[1];
   fd_block_rewards_t rewards[1];
   fd_hash_t parent_hash;
   uchar * blk_data = NULL;
-  fd_valloc_t valloc = fd_alloc_virtual( fd_blockstore_alloc(blockstore) ); 
+  fd_valloc_t valloc = fd_alloc_virtual( fd_blockstore_alloc(blockstore) );
   bool success = fd_blockstore_block_data_query_volatile( blockstore, fd, slotn, valloc, &parent_hash, meta, rewards, &blk_data, &blk_sz ) == 0;
   if ( blk_data ) {
     fd_alloc_free( fd_blockstore_alloc(blockstore), blk_data );
@@ -96,15 +97,16 @@ test_archive_many_blocks( fd_wksp_t * wksp, int fd, ulong fd_size_max, ulong idx
   FD_TEST( ftruncate(fd, 0) == 0 );
   FD_LOG_NOTICE(("fd is %d", fd));
 
+  fd_blockstore_t blockstore_ljoin;                                                    \
   CREATE_BLOCKSTORE(blockstore, slot_bank, mem, fake_hash);
   FD_TEST(fd_blockstore_init(blockstore, fd, fd_size_max,&slot_bank));
 
   /* Store blocks that have been written to compare them later */
-  fd_block_map_t * block_map_record = fd_alloc_malloc( fd_blockstore_alloc(blockstore), 
+  fd_block_map_t * block_map_record = fd_alloc_malloc( fd_blockstore_alloc(blockstore),
                                                       fd_block_map_align(),
                                                         sizeof(fd_block_map_t) * (blocks + 1) );
   int max_data_sz_pow = 20;
-  uchar buf_out[ (1 << max_data_sz_pow) ]; 
+  uchar buf_out[ (1 << max_data_sz_pow) ];
 
   fd_block_map_t block_map_entry;
   fd_block_t     block;
@@ -127,9 +129,9 @@ test_archive_many_blocks( fd_wksp_t * wksp, int fd, ulong fd_size_max, ulong idx
     fd_block_map_t block_map_entry_out;
     fd_block_t block_out;
     //ulong read_off = block_idx_entry->off;
-    fd_blockstore_block_meta_restore(&blockstore->archiver, fd, block_idx_entry, &block_map_entry_out, &block_out);
-    //read_off = wrap_offset(&blockstore->archiver, read_off + sizeof(fd_block_map_t) + sizeof(fd_block_t));
-    fd_blockstore_block_data_restore(&blockstore->archiver, fd, block_idx_entry, buf_out, block_out.data_sz, block_out.data_sz);
+    fd_blockstore_block_meta_restore(&blockstore->shmem->archiver, fd, block_idx_entry, &block_map_entry_out, &block_out);
+    //read_off = wrap_offset(&blockstore->shmem->archiver, read_off + sizeof(fd_block_map_t) + sizeof(fd_block_t));
+    fd_blockstore_block_data_restore(&blockstore->shmem->archiver, fd, block_idx_entry, buf_out, block_out.data_sz, block_out.data_sz);
 
     /* Check data read back matches data written */
 
@@ -149,7 +151,7 @@ test_archive_many_blocks( fd_wksp_t * wksp, int fd, ulong fd_size_max, ulong idx
     if ( slot % 10 == 0 ) {
       // periodically check all blocks in the block_idx match the blocks in the archive
       // and blocks in archive match what we store in memory
-      for( ulong s = lrw_slot; s != blockstore->mrw_slot; s++ ){
+      for( ulong s = lrw_slot; s != blockstore->shmem->mrw_slot; s++ ){
         fd_block_map_t blk_map = query_block(true, blockstore, fd, s);
         FD_TEST( memcmp( &blk_map, &block_map_record[s], sizeof(fd_block_map_t)) == 0 );
       }
@@ -167,6 +169,7 @@ void test_blockstore_archive_big( fd_wksp_t * wksp, int fd, ulong first_idx_max,
   FD_TEST( ftruncate(fd, 0) == 0 );
 
   ulong idx_max = first_idx_max;
+  fd_blockstore_t blockstore_ljoin;                                                    \
   CREATE_BLOCKSTORE(blockstore, slot_bank, mem, fake_hash);
   FD_TEST(fd_blockstore_init(blockstore, fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &slot_bank));
 
@@ -215,7 +218,8 @@ void test_blockstore_archive_small( fd_wksp_t * wksp, int fd, ulong first_idx_ma
   test_archive_many_blocks( wksp, fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, first_idx_max, first_idx_max );
   ulong last_archived = first_idx_max;
 
-  ulong idx_max = replay_idx_max; 
+  ulong idx_max = replay_idx_max;
+  fd_blockstore_t blockstore_ljoin;                                                    \
   CREATE_BLOCKSTORE( blockstore, slot_bank, mem, fake_hash );
 
   // initialize from fd that was created from the test_archive_many_blocks
@@ -233,9 +237,9 @@ void test_blockstore_archive_small( fd_wksp_t * wksp, int fd, ulong first_idx_ma
   fd_block_map_t lrw_block_map;
   fd_block_t     lrw_block;
   ulong lrw_slot = fd_blockstore_archiver_lrw_slot( blockstore, fd, &lrw_block_map, &lrw_block );
-  FD_LOG_NOTICE(("lrw_slot: %lu, mrw_slot: %lu", lrw_slot, blockstore->mrw_slot));
+  FD_LOG_NOTICE(("lrw_slot: %lu, mrw_slot: %lu", lrw_slot, blockstore->shmem->mrw_slot));
   FD_TEST( lrw_slot == last_archived - (idx_max - 1) + 1);
-  FD_TEST( blockstore->mrw_slot == last_archived);
+  FD_TEST( blockstore->shmem->mrw_slot == last_archived);
 
   /* Insert slot idx_max + 1 into the blockstore, should succeed */
 
@@ -245,12 +249,12 @@ void test_blockstore_archive_small( fd_wksp_t * wksp, int fd, ulong first_idx_ma
   fd_blockstore_block_checkpt( blockstore, &ser, fd, slot);
 
   /* Check that LRW was evicted, and MRW is updated */
-  
+
   lrw_slot = fd_blockstore_archiver_lrw_slot( blockstore, fd, &lrw_block_map, &lrw_block);
   FD_TEST( lrw_slot == slot - fd_block_idx_key_max( block_idx ) + 1);
-  FD_TEST( blockstore->mrw_slot == slot);
+  FD_TEST( blockstore->shmem->mrw_slot == slot);
 
-  for(ulong i = lrw_slot; i != blockstore->mrw_slot; i++){
+  for(ulong i = lrw_slot; i != blockstore->shmem->mrw_slot; i++){
     // can be reasonably sure that the blocks are read from file properly, as
     // the slot key is derived from block_map_out read from the file.
     FD_TEST( fd_block_idx_query(block_idx, i, NULL) );
@@ -262,18 +266,17 @@ void
 test_blockstore_metadata_invalid( int fd ){
   FD_TEST( ftruncate(fd, 0) == 0 );
   fd_blockstore_t blockstore;
-  blockstore.archiver.fd_size_max = 0x6000;
+  blockstore.shmem->archiver.fd_size_max = 0x6000;
 
-  fd_blockstore_archiver_t metadata = { .magic = FD_BLOCKSTORE_MAGIC, 
-                                        .fd_size_max = 0x6000, 
-                                        .head = 2, 
+  fd_blockstore_archiver_t metadata = { .fd_size_max = 0x6000,
+                                        .head = 2,
                                         .tail = 3 };
   FD_TEST( fd_blockstore_archiver_verify(&blockstore, &metadata) );
   metadata.fd_size_max = 0x5000;
   FD_TEST( fd_blockstore_archiver_verify(&blockstore, &metadata) );
 }
 
-int 
+int
 main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
 
@@ -300,10 +303,10 @@ main( int argc, char ** argv ) {
   test_blockstore_archive_small(wksp, fd, 128, 64);
   test_blockstore_metadata_invalid(fd);
 
-  // tested archive with smaller fd size ( on order of 20KB ), by setting FD_BLOCKSTORE_ARCHIVE_MIN_SIZE 
+  // tested archive with smaller fd size ( on order of 20KB ), by setting FD_BLOCKSTORE_ARCHIVE_MIN_SIZE
   ulong small_fd_size_max = FD_BLOCKSTORE_ARCHIVE_MIN_SIZE;
   test_archive_many_blocks(wksp, fd, small_fd_size_max, 4, 128);         // small idx_mas
-  test_archive_many_blocks(wksp, fd, small_fd_size_max, 256, 512);      
+  test_archive_many_blocks(wksp, fd, small_fd_size_max, 256, 512);
   test_archive_many_blocks(wksp, fd, small_fd_size_max, 1 << 12, 1025);  // idx_max > blocks
   test_archive_many_blocks(wksp, fd, small_fd_size_max, 1 << 13, 1<<15); // large blocks
 
@@ -313,7 +316,7 @@ main( int argc, char ** argv ) {
   return 0;
 }
 
-#else 
+#else
 
 int
 main( int     argc,

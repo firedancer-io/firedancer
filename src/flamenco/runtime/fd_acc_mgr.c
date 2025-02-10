@@ -311,14 +311,14 @@ int
 fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *          acc_mgr,
                            fd_funk_txn_t *         txn,
                            fd_borrowed_account_t * account ) {
+
+  fd_funk_start_write( acc_mgr->funk );
   fd_funk_rec_key_t key = fd_acc_funk_key( account->pubkey );
   fd_funk_t * funk = acc_mgr->funk;
   fd_funk_rec_t * rec = (fd_funk_rec_t *)fd_funk_rec_query( funk, txn, &key );
   if( rec == NULL ) {
     int err;
-    fd_funk_start_write( acc_mgr->funk );
     rec = (fd_funk_rec_t *)fd_funk_rec_insert( funk, txn, &key, &err );
-    fd_funk_end_write( acc_mgr->funk );
     if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %d", err ));
   }
   account->rec = rec;
@@ -330,7 +330,9 @@ fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *          acc_mgr,
   if( fd_funk_val_truncate( account->rec, reclen, fd_funk_alloc( acc_mgr->funk, wksp ), wksp, &err ) == NULL ) {
     FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
   }
-  return fd_acc_mgr_save( acc_mgr, account );
+  err = fd_acc_mgr_save( acc_mgr, account );
+  fd_funk_end_write( acc_mgr->funk );
+  return err;
 }
 
 void
@@ -379,99 +381,108 @@ fd_acc_mgr_save_task( void *tpool,
 }
 
 int
-fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *          acc_mgr,
-                            fd_funk_txn_t *         txn,
+fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *            acc_mgr,
+                            fd_funk_txn_t *           txn,
                             fd_borrowed_account_t * * accounts,
-                            ulong accounts_cnt,
-                            fd_tpool_t * tpool ) {
-  FD_SCRATCH_SCOPE_BEGIN {
-    fd_funk_t *        funk = acc_mgr->funk;
-    fd_wksp_t * wksp = fd_funk_wksp( funk );
-    fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
+                            ulong                     accounts_cnt,
+                            fd_tpool_t *              tpool,
+                            fd_spad_t *               runtime_spad ) {
 
-    ulong batch_cnt = fd_ulong_min(
-      fd_funk_rec_map_private_list_cnt( fd_funk_rec_map_key_max( rec_map ) ),
-      fd_ulong_pow2_up( fd_tpool_worker_cnt( tpool ) )
-    );
-    ulong batch_mask = (batch_cnt - 1UL);
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
-    ulong * batch_szs = fd_scratch_alloc( 8UL, batch_cnt * sizeof(ulong) );
-    fd_memset( batch_szs, 0, batch_cnt * sizeof(ulong) );
+  fd_funk_t *     funk    = acc_mgr->funk;
+  fd_wksp_t *     wksp    = fd_funk_wksp( funk );
+  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
 
-    /* Compute the batch sizes */
-    for( ulong i = 0; i < accounts_cnt; i++ ) {
-      ulong batch_idx = i & batch_mask;
-      batch_szs[batch_idx]++;
-    }
+  ulong batch_cnt = fd_ulong_min(
+    fd_funk_rec_map_private_list_cnt( fd_funk_rec_map_key_max( rec_map ) ),
+    fd_ulong_pow2_up( fd_tpool_worker_cnt( tpool ) )
+  );
+  ulong batch_mask = (batch_cnt - 1UL);
 
-    fd_borrowed_account_t * * task_accounts = fd_scratch_alloc( 8UL, accounts_cnt * sizeof(fd_borrowed_account_t *) );
-    fd_acc_mgr_save_task_info_t * task_infos = fd_scratch_alloc( 8UL, batch_cnt * sizeof(fd_acc_mgr_save_task_info_t) );
-    fd_borrowed_account_t * * task_accounts_cursor = task_accounts;
+  ulong * batch_szs = fd_spad_alloc( runtime_spad, 8UL, batch_cnt * sizeof(ulong) );
+  fd_memset( batch_szs, 0, batch_cnt * sizeof(ulong) );
 
-    /* Construct the batches */
-    for( ulong i = 0; i < batch_cnt; i++ ) {
-      ulong batch_sz = batch_szs[i];
-      fd_acc_mgr_save_task_info_t * task_info = &task_infos[i];
+  /* Compute the batch sizes */
+  for( ulong i = 0; i < accounts_cnt; i++ ) {
+    ulong batch_idx = i & batch_mask;
+    batch_szs[batch_idx]++;
+  }
 
-      task_info->accounts_cnt = 0;
-      task_info->accounts = task_accounts_cursor;
-      task_info->result = 0;
+  fd_borrowed_account_t * *     task_accounts        = fd_spad_alloc( runtime_spad, 8UL, accounts_cnt * sizeof(fd_borrowed_account_t *) );
+  fd_acc_mgr_save_task_info_t * task_infos           = fd_spad_alloc( runtime_spad, 8UL, batch_cnt * sizeof(fd_acc_mgr_save_task_info_t) );
+  fd_borrowed_account_t * *     task_accounts_cursor = task_accounts;
 
-      task_accounts_cursor += batch_sz;
-    }
+  /* Construct the batches */
+  for( ulong i = 0; i < batch_cnt; i++ ) {
+    ulong batch_sz = batch_szs[i];
+    fd_acc_mgr_save_task_info_t * task_info = &task_infos[i];
 
-    fd_funk_start_write( funk );
+    task_info->accounts_cnt = 0;
+    task_info->accounts = task_accounts_cursor;
+    task_info->result = 0;
 
-    for( ulong i = 0; i < accounts_cnt; i++ ) {
-      fd_borrowed_account_t * account = accounts[i];
+    task_accounts_cursor += batch_sz;
+  }
 
-      ulong batch_idx = i & batch_mask;
-      fd_acc_mgr_save_task_info_t * task_info = &task_infos[batch_idx];
-      task_info->accounts[task_info->accounts_cnt++] = account;
-      fd_funk_rec_key_t key = fd_acc_funk_key( account->pubkey );
-      fd_funk_rec_t * rec = (fd_funk_rec_t *)fd_funk_rec_query( funk, txn, &key );
-      if( rec == NULL ) {
-        int err;
-        rec = (fd_funk_rec_t *)fd_funk_rec_insert( funk, txn, &key, &err );
-        if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %d", err ));
-      }
-      account->rec = rec;
-      if ( acc_mgr->slots_per_epoch != 0 )
-        fd_funk_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
+  fd_funk_start_write( funk );
 
-      /* This check is to prevent a seg fault in the case where an account with
-         null data tries to get saved. This notably happens if firedancer is
-         attemping to execute a bad block. This should NEVER happen in the case
-         of a proper replay. */
-      if( FD_UNLIKELY( !account->const_meta ) ) {
-        FD_LOG_ERR(( "An account likely does not exist. This block could be invalid." ));
-      }
+  for( ulong i = 0; i < accounts_cnt; i++ ) {
+    fd_borrowed_account_t * account = accounts[i];
 
-      ulong reclen = sizeof(fd_account_meta_t)+account->const_meta->dlen;
+    ulong batch_idx = i & batch_mask;
+    fd_acc_mgr_save_task_info_t * task_info = &task_infos[batch_idx];
+    task_info->accounts[task_info->accounts_cnt++] = account;
+    fd_funk_rec_key_t key = fd_acc_funk_key( account->pubkey );
+    fd_funk_rec_t * rec = (fd_funk_rec_t *)fd_funk_rec_query( funk, txn, &key );
+    if( rec == NULL ) {
       int err;
-      if( fd_funk_val_truncate( account->rec, reclen, fd_funk_alloc( acc_mgr->funk, wksp ), wksp, &err ) == NULL ) {
-        FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
-      }
+      rec = (fd_funk_rec_t *)fd_funk_rec_insert( funk, txn, &key, &err );
+      if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %d", err ));
+    }
+    account->rec = rec;
+    if ( acc_mgr->slots_per_epoch != 0 )
+      fd_funk_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
+
+    /* This check is to prevent a seg fault in the case where an account with
+        null data tries to get saved. This notably happens if firedancer is
+        attemping to execute a bad block. This should NEVER happen in the case
+        of a proper replay. */
+    if( FD_UNLIKELY( !account->const_meta ) ) {
+      FD_LOG_ERR(( "An account likely does not exist. This block could be invalid." ));
     }
 
-    fd_acc_mgr_save_task_args_t task_args = {
-      .acc_mgr = acc_mgr
-    };
-
-    /* Save accounts in a thread pool */
-
-    fd_tpool_exec_all_rrobin( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_acc_mgr_save_task, task_infos, &task_args, NULL, 1, 0, batch_cnt );
-
-    fd_funk_end_write( funk );
-
-    /* Check results */
-    for( ulong i = 0; i < batch_cnt; i++ ) {
-      fd_acc_mgr_save_task_info_t * task_info = &task_infos[i];
-      if( task_info->result != FD_ACC_MGR_SUCCESS ) {
-        return task_info->result;
-      }
+    ulong reclen = sizeof(fd_account_meta_t)+account->const_meta->dlen;
+    int err;
+    if( FD_UNLIKELY( NULL == fd_funk_val_truncate( account->rec,
+                                                   reclen,
+                                                   fd_funk_alloc( acc_mgr->funk, wksp ),
+                                                   wksp,
+                                                   &err ) ) ) {
+      FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
     }
+  }
 
-    return FD_ACC_MGR_SUCCESS;
-  } FD_SCRATCH_SCOPE_END;
+  fd_acc_mgr_save_task_args_t task_args = {
+    .acc_mgr = acc_mgr
+  };
+
+  /* Save accounts in a thread pool */
+
+  fd_tpool_exec_all_rrobin( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_acc_mgr_save_task,
+                            task_infos, &task_args, NULL, 1, 0, batch_cnt );
+
+  fd_funk_end_write( funk );
+
+  /* Check results */
+  for( ulong i = 0; i < batch_cnt; i++ ) {
+    fd_acc_mgr_save_task_info_t * task_info = &task_infos[i];
+    if( task_info->result != FD_ACC_MGR_SUCCESS ) {
+      return task_info->result;
+    }
+  }
+
+  return FD_ACC_MGR_SUCCESS;
+
+  } FD_SPAD_FRAME_END;
 }

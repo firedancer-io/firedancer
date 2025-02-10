@@ -14,17 +14,17 @@
 /* Initialize the slot history sysvar account. */
 void 
 fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx,
-                             fd_valloc_t          valloc );
+                             fd_spad_t *          runtime_spad );
 
 /* Update the slot history sysvar account. This should be called at the end of every slot, after execution has concluded. */
 int
 fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx,
-                               fd_valloc_t          valloc );
+                               fd_spad_t *          runtime_spad );
 
 /* Reads the current value of the slot history sysvar */
 int
 fd_sysvar_slot_history_read( fd_exec_slot_ctx_t * slot_ctx,
-                             fd_valloc_t          valloc, 
+                             fd_spad_t *          runtime_spad, 
                              fd_slot_history_t *  out_history );
 
 int

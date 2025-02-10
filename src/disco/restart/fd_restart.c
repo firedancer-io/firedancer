@@ -324,17 +324,18 @@ fd_restart_convert_raw_bitmap_to_runlength( fd_gossip_restart_last_voted_fork_sl
 }
 
 void
-fd_restart_init( fd_restart_t * restart,
-                 ulong funk_root,
-                 fd_hash_t * root_bank_hash,
+fd_restart_init( fd_restart_t *              restart,
+                 ulong                       funk_root,
+                 fd_hash_t *                 root_bank_hash,
                  fd_vote_accounts_t const ** epoch_stakes,
-                 fd_epoch_schedule_t * epoch_schedule,
-                 int tower_checkpt_fileno,
-                 fd_slot_history_t const * slot_history,
-                 fd_pubkey_t * my_pubkey,
-                 fd_pubkey_t * coordinator_pubkey,
-                 uchar * out_buf,
-                 ulong * out_buf_len ) {
+                 fd_epoch_schedule_t *       epoch_schedule,
+                 int                         tower_checkpt_fileno,
+                 fd_slot_history_t const *   slot_history,
+                 fd_pubkey_t *               my_pubkey,
+                 fd_pubkey_t *               coordinator_pubkey,
+                 uchar *                     out_buf,
+                 ulong *                     out_buf_len,
+                 fd_spad_t *                 runtime_spad ) {
   restart->funk_root                       = funk_root;
   restart->epoch_schedule                  = epoch_schedule;
   restart->root_epoch                      = fd_slot_to_epoch( epoch_schedule, restart->funk_root, NULL ),
@@ -358,7 +359,7 @@ fd_restart_init( fd_restart_t * restart,
   FD_TEST( RESTART_EPOCHS_MAX==2 );
   for( ulong e=0; e<RESTART_EPOCHS_MAX; e++ ) {
     if( epoch_stakes[e]->vote_accounts_root==NULL ) FD_LOG_ERR(( "vote account information is missing for epoch#%lu", restart->root_epoch+e ));
-    restart->num_vote_accts[e]                 = fd_stake_weights_by_node( epoch_stakes[e], restart->stake_weights[e] );
+    restart->num_vote_accts[e]                 = fd_stake_weights_by_node( epoch_stakes[e], restart->stake_weights[e], runtime_spad );
     restart->total_stake[e]                    = 0;
     restart->total_stake_received[e]           = 0;
     restart->total_stake_received_and_voted[e] = 0;

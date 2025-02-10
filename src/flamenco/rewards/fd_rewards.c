@@ -284,8 +284,7 @@ static void
 calculate_previous_epoch_inflation_rewards( fd_exec_slot_ctx_t *                slot_ctx,
                                             ulong                               prev_epoch_capitalization,
                                             ulong                               prev_epoch,
-                                            fd_prev_epoch_inflation_rewards_t * rewards
-) {
+                                            fd_prev_epoch_inflation_rewards_t * rewards ) {
     double slot_in_year = slot_in_year_for_inflation( slot_ctx );
 
     fd_epoch_bank_t const * epoch_bank    = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
@@ -310,6 +309,53 @@ get_minimum_stake_delegation( fd_exec_slot_ctx_t * slot_ctx ) {
   return 1;
 }
 
+static void
+calculate_points_tpool( void  *tpool,
+                        ulong t0 FD_PARAM_UNUSED,      ulong t1 FD_PARAM_UNUSED,
+                        void  *args,
+                        void  *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
+                        ulong l0 FD_PARAM_UNUSED,      ulong l1 FD_PARAM_UNUSED,
+                        ulong m0,                      ulong m1,
+                        ulong n0 FD_PARAM_UNUSED,      ulong n1 FD_PARAM_UNUSED ) {
+  fd_epoch_info_pair_t const *      stake_infos                    = ((fd_epoch_info_pair_t const *)tpool);
+  fd_calculate_points_task_args_t * task_args                      = (fd_calculate_points_task_args_t *)args;
+  fd_stake_history_t const *        stake_history                  = task_args->stake_history;
+  ulong *                           new_warmup_cooldown_rate_epoch = task_args->new_warmup_cooldown_rate_epoch;
+  ulong                             minimum_stake_delegation       = task_args->minimum_stake_delegation;
+
+  uint128 total_points = 0;
+  for( ulong i=m0; i<m1; i++ ) {
+    fd_epoch_info_pair_t const * stake_info = stake_infos + i;
+    fd_stake_t const *           stake      = &stake_info->stake;
+
+    if( FD_UNLIKELY( stake->delegation.stake<minimum_stake_delegation ) ) {
+      continue;
+    }
+
+    /* Check that the vote account is present in our cache */
+    fd_vote_info_pair_t_mapnode_t query_key;
+    fd_pubkey_t const * voter_acc = &stake->delegation.voter_pubkey;
+    fd_memcpy( &query_key.elem.account, voter_acc, sizeof(fd_pubkey_t) );
+    fd_vote_info_pair_t_mapnode_t * vote_state_info = fd_vote_info_pair_t_map_find( task_args->vote_states_pool, task_args->vote_states_root, &query_key );
+    if( FD_UNLIKELY( vote_state_info==NULL ) ) {
+      FD_LOG_DEBUG(( "vote account missing from cache" ));
+      continue;
+    }
+
+    uint128 account_points;
+    int err = calculate_points( stake, &vote_state_info->elem.state, stake_history, new_warmup_cooldown_rate_epoch, &account_points );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_DEBUG(( "failed to calculate points" ));
+      continue;
+    }
+
+    total_points += account_points;
+  }
+
+  FD_ATOMIC_FETCH_AND_ADD( task_args->total_points, total_points );
+
+}
+
 /* Calculates epoch reward points from stake/vote accounts.
 
     https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L472 */
@@ -318,49 +364,32 @@ calculate_reward_points_partitioned( fd_exec_slot_ctx_t *       slot_ctx,
                                      fd_stake_history_t const * stake_history,
                                      ulong                      rewards,
                                      fd_point_value_t *         result,
+                                     fd_tpool_t *               tpool,
                                      fd_epoch_info_t *          temp_info ) {
-  /* There is a cache of vote account keys stored in the slot context */
-  /* TODO: check this cache is correct */
 
   uint128 points = 0;
   ulong minimum_stake_delegation = get_minimum_stake_delegation( slot_ctx );
 
   /* Calculate the points for each stake delegation */
   int _err[1];
-  ulong * new_warmup_cooldown_rate_epoch = fd_scratch_alloc( alignof(ulong), sizeof(ulong) );
+  ulong   new_warmup_cooldown_rate_epoch_val = 0UL;
+  ulong * new_warmup_cooldown_rate_epoch     = &new_warmup_cooldown_rate_epoch_val;
   int is_some = fd_new_warmup_cooldown_rate_epoch( slot_ctx, new_warmup_cooldown_rate_epoch, _err );
   if( FD_UNLIKELY( !is_some ) ) {
     new_warmup_cooldown_rate_epoch = NULL;
   }
 
-  for( ulong idx=0UL; idx<temp_info->stake_infos_len; idx++ ) {
-    FD_SCRATCH_SCOPE_BEGIN {
-      fd_stake_t const * stake = &temp_info->stake_infos[idx].stake;
+  fd_calculate_points_task_args_t task_args = {
+    .stake_history                  = stake_history,
+    .new_warmup_cooldown_rate_epoch = new_warmup_cooldown_rate_epoch,
+    .minimum_stake_delegation       = minimum_stake_delegation,
+    .vote_states_pool               = temp_info->vote_states_pool,
+    .vote_states_root               = temp_info->vote_states_root,
+    .total_points                   = &points,
+  };
 
-      if( FD_UNLIKELY( stake->delegation.stake<minimum_stake_delegation ) ) {
-        continue;
-      }
-
-      /* Check that the vote account is present in our cache */
-      fd_vote_info_pair_t_mapnode_t query_key;
-      fd_pubkey_t const * voter_acc = &stake->delegation.voter_pubkey;
-      fd_memcpy( &query_key.elem.account, voter_acc, sizeof(fd_pubkey_t) );
-      fd_vote_info_pair_t_mapnode_t * vote_state_info = fd_vote_info_pair_t_map_find( temp_info->vote_states_pool, temp_info->vote_states_root, &query_key );
-      if( FD_UNLIKELY( vote_state_info==NULL ) ) {
-        FD_LOG_DEBUG(( "vote account missing from cache" ));
-        continue;
-      }
-
-      uint128 account_points;
-      int err = calculate_points( stake, &vote_state_info->elem.state, stake_history, new_warmup_cooldown_rate_epoch, &account_points );
-      if ( FD_UNLIKELY( err ) ) {
-        FD_LOG_DEBUG(( "failed to calculate points" ));
-        continue;
-      }
-
-      points += account_points;
-    } FD_SCRATCH_SCOPE_END;
-  }
+  fd_tpool_exec_all_batch( tpool, 0UL, fd_tpool_worker_cnt( tpool ), calculate_points_tpool, 
+                           temp_info->stake_infos, &task_args, NULL, 1UL, 0UL, temp_info->stake_infos_len );
 
   if( points > 0 ) {
     result->points  = points;
@@ -370,94 +399,139 @@ calculate_reward_points_partitioned( fd_exec_slot_ctx_t *       slot_ctx,
 
 /* Calculate the partitioned stake rewards for a single stake/vote account pair, updates result with these. */
 static void
-calculate_stake_vote_rewards_account( fd_exec_slot_ctx_t *                       slot_ctx,
-                                      fd_stake_history_t const *                 stake_history,
-                                      ulong                                      rewarded_epoch,
-                                      fd_point_value_t *                         point_value,
-                                      fd_pubkey_t const *                        stake_acc,
-                                      fd_stake_t const *                         stake,
-                                      fd_calculate_stake_vote_rewards_result_t * result,
-                                      fd_epoch_info_t *                          temp_info ) {
-FD_SCRATCH_SCOPE_BEGIN {
-  int _err[1];
-  ulong * new_warmup_cooldown_rate_epoch = fd_scratch_alloc( alignof(ulong), sizeof(ulong) );
-  int is_some = fd_new_warmup_cooldown_rate_epoch( slot_ctx, new_warmup_cooldown_rate_epoch, _err );
-  if( FD_UNLIKELY( !is_some ) ) {
-    new_warmup_cooldown_rate_epoch = NULL;
-  }
+calculate_stake_vote_rewards_account_tpool( void  *tpool,
+                                            ulong t0 FD_PARAM_UNUSED,      ulong t1 FD_PARAM_UNUSED,
+                                            void  *args,
+                                            void  *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
+                                            ulong l0 FD_PARAM_UNUSED,      ulong l1 FD_PARAM_UNUSED,
+                                            ulong m0,                      ulong m1,
+                                            ulong n0 FD_PARAM_UNUSED,      ulong n1 FD_PARAM_UNUSED ) {
+
+  fd_epoch_info_t const *                             temp_info                      = ((fd_epoch_info_t const *)tpool);
+  fd_epoch_info_pair_t const *                        stake_infos                    = temp_info->stake_infos;
+
+  fd_calculate_stake_vote_rewards_task_args_t const * task_args                      = (fd_calculate_stake_vote_rewards_task_args_t const *)args;
+  fd_exec_slot_ctx_t *                                slot_ctx                       = task_args->slot_ctx;
+  fd_stake_history_t const *                          stake_history                  = task_args->stake_history;
+  ulong                                               rewarded_epoch                 = task_args->rewarded_epoch;
+  ulong *                                             new_warmup_cooldown_rate_epoch = task_args->new_warmup_cooldown_rate_epoch;
+  fd_point_value_t *                                  point_value                    = task_args->point_value;
+  fd_calculate_stake_vote_rewards_result_t *          result                         = task_args->result; // written to
+  fd_spad_t *                                         spad                           = task_args->exec_spads[ fd_tile_idx() ];
+  fd_spad_push(spad);
 
   ulong minimum_stake_delegation = get_minimum_stake_delegation( slot_ctx );
-  if( FD_FEATURE_ACTIVE(slot_ctx, stake_minimum_delegation_for_rewards ) ) {
-    if( stake->delegation.stake<minimum_stake_delegation ) {
-      return;
+  ulong total_stake_rewards      = 0UL;
+  ulong dlist_additional_cnt     = 0UL;
+
+  /* Build a local vote reward map */
+  fd_vote_reward_t_mapnode_t * vote_reward_map_pool = fd_vote_reward_t_map_join( fd_vote_reward_t_map_new( fd_spad_alloc( spad,
+                                                                                                                          fd_vote_reward_t_map_align(),
+                                                                                                                          fd_vote_reward_t_map_footprint( m1-m0 )), 
+                                                                                 m1-m0 ) );
+  fd_vote_reward_t_mapnode_t * vote_reward_map_root = NULL;
+
+  for( ulong i=m0; i<m1; i++ ) {
+    fd_epoch_info_pair_t const * stake_info = stake_infos + i;
+    fd_pubkey_t const *          stake_acc  = &stake_info->account;
+    fd_stake_t const *           stake      = &stake_info->stake;
+
+    if( FD_FEATURE_ACTIVE( slot_ctx, stake_minimum_delegation_for_rewards ) ) {
+      if( stake->delegation.stake<minimum_stake_delegation ) {
+        continue;
+      }
     }
+
+    fd_pubkey_t const * voter_acc = &stake->delegation.voter_pubkey;
+    fd_vote_info_pair_t_mapnode_t key;
+    fd_memcpy( &key.elem.account, voter_acc, sizeof(fd_pubkey_t) );
+    fd_vote_info_pair_t_mapnode_t * vote_state_entry = fd_vote_info_pair_t_map_find( temp_info->vote_states_pool, temp_info->vote_states_root, &key );
+    if( FD_UNLIKELY( vote_state_entry==NULL ) ) {
+      continue;
+    }
+
+    fd_vote_state_versioned_t * vote_state = &vote_state_entry->elem.state;
+
+    /* Note, this doesn't actually redeem any rewards.. this is a misnomer. */
+    fd_calculated_stake_rewards_t calculated_stake_rewards[1] = {0};
+    int err = redeem_rewards( stake_history, stake, vote_state, rewarded_epoch, point_value, new_warmup_cooldown_rate_epoch, calculated_stake_rewards );
+    if( FD_UNLIKELY( err!=0 ) ) {
+      FD_LOG_DEBUG(( "redeem_rewards failed for %s with error %d", FD_BASE58_ENC_32_ALLOCA( stake_acc->key ), err ));
+      continue;
+    }
+
+    /* Fetch the comission for the vote account */
+    uchar commission = 0;
+    switch( vote_state->discriminant ) {
+      case fd_vote_state_versioned_enum_current:
+        commission = vote_state->inner.current.commission;
+        break;
+      case fd_vote_state_versioned_enum_v0_23_5:
+        commission = vote_state->inner.v0_23_5.commission;
+        break;
+      case fd_vote_state_versioned_enum_v1_14_11:
+        commission = vote_state->inner.v1_14_11.commission;
+        break;
+      default:
+        FD_LOG_DEBUG(( "unsupported vote account" ));
+        continue;
+    }
+
+    // Find and update the vote reward node in the local map
+    fd_vote_reward_t_mapnode_t vote_map_key[1];
+    fd_memcpy( &vote_map_key->elem.pubkey, voter_acc, sizeof(fd_pubkey_t) );
+    fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_find( result->vote_reward_map_pool, result->vote_reward_map_root, vote_map_key );
+    if( FD_UNLIKELY( vote_reward_node==NULL ) ) {
+      FD_LOG_WARNING(( "vote account is missing from the vote rewards pool" ));
+      continue;
+    }
+
+    vote_reward_node = fd_vote_reward_t_map_find( vote_reward_map_pool, vote_reward_map_root, vote_map_key );
+
+    if( vote_reward_node==NULL ) {
+      vote_reward_node = fd_vote_reward_t_map_acquire( vote_reward_map_pool );
+      fd_memcpy( &vote_reward_node->elem.pubkey, voter_acc, sizeof(fd_pubkey_t) );
+      vote_reward_node->elem.commission   = commission;
+      vote_reward_node->elem.vote_rewards = calculated_stake_rewards->voter_rewards;
+      vote_reward_node->elem.needs_store  = 1;
+      fd_vote_reward_t_map_insert( vote_reward_map_pool, &vote_reward_map_root, vote_reward_node );
+    } else {
+      vote_reward_node->elem.vote_rewards += calculated_stake_rewards->voter_rewards;
+    }
+
+    /* Add the stake reward to list of all stake rewards. The update is thread-safe because each index in the dlist
+      is only ever accessed / written to once among all threads. */
+    fd_stake_reward_t * stake_reward = fd_stake_reward_pool_ele( result->stake_reward_calculation.pool, i );
+    if( FD_UNLIKELY( stake_reward==NULL ) ) {
+      FD_LOG_WARNING(( "could not find stake reward node in pool" ));
+      continue;
+    }
+
+    fd_memcpy( stake_reward->stake_pubkey.uc, stake_acc, sizeof(fd_pubkey_t) );
+    stake_reward->lamports         = calculated_stake_rewards->staker_rewards;
+    stake_reward->credits_observed = calculated_stake_rewards->new_credits_observed;
+    stake_reward->valid            = 1;
+
+    /* Update the total stake rewards */
+    total_stake_rewards += calculated_stake_rewards->staker_rewards;
+    dlist_additional_cnt++;
   }
 
-  fd_pubkey_t const * voter_acc = &stake->delegation.voter_pubkey;
-  fd_vote_info_pair_t_mapnode_t key;
-  fd_memcpy( &key.elem.account, voter_acc, sizeof(fd_pubkey_t) );
-  fd_vote_info_pair_t_mapnode_t * vote_state_entry = fd_vote_info_pair_t_map_find( temp_info->vote_states_pool, temp_info->vote_states_root, &key );
-  if( FD_UNLIKELY( vote_state_entry==NULL ) ) {
-    return;
+  /* Merge vote rewards with result after */
+  for( fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_minimum( vote_reward_map_pool, vote_reward_map_root );
+       vote_reward_node;
+       vote_reward_node = fd_vote_reward_t_map_successor( vote_reward_map_pool, vote_reward_node ) ) {
+
+    fd_vote_reward_t_mapnode_t * result_reward_node = fd_vote_reward_t_map_find( result->vote_reward_map_pool, result->vote_reward_map_root, vote_reward_node );
+    FD_ATOMIC_CAS( &result_reward_node->elem.commission, 0, vote_reward_node->elem.commission );
+    FD_ATOMIC_FETCH_AND_ADD( &result_reward_node->elem.vote_rewards, vote_reward_node->elem.vote_rewards );
+    FD_ATOMIC_CAS( &result_reward_node->elem.needs_store, 0, 1 );
   }
 
-  fd_vote_state_versioned_t * vote_state = &vote_state_entry->elem.state;
+  FD_ATOMIC_FETCH_AND_ADD( &result->stake_reward_calculation.total_stake_rewards_lamports, total_stake_rewards );
+  FD_ATOMIC_FETCH_AND_ADD( &result->stake_reward_calculation.stake_rewards_len, dlist_additional_cnt );
+  fd_spad_pop(spad);
 
-  /* Note, this doesn't actually redeem any rewards.. this is a misnomer. */
-  fd_calculated_stake_rewards_t calculated_stake_rewards[1] = {0};
-  int err = redeem_rewards( stake_history, stake, vote_state, rewarded_epoch, point_value, new_warmup_cooldown_rate_epoch, calculated_stake_rewards );
-  if( FD_UNLIKELY( err!=0 ) ) {
-    FD_LOG_DEBUG(( "redeem_rewards failed for %s with error %d", FD_BASE58_ENC_32_ALLOCA( stake_acc->key ), err ));
-    return;
-  }
-
-  /* Fetch the comission for the vote account */
-  uchar commission = 0;
-  switch( vote_state->discriminant ) {
-    case fd_vote_state_versioned_enum_current:
-      commission = vote_state->inner.current.commission;
-      break;
-    case fd_vote_state_versioned_enum_v0_23_5:
-      commission = vote_state->inner.v0_23_5.commission;
-      break;
-    case fd_vote_state_versioned_enum_v1_14_11:
-      commission = vote_state->inner.v1_14_11.commission;
-      break;
-    default:
-      FD_LOG_DEBUG(( "unsupported vote account" ));
-      return;
-  }
-
-  fd_vote_reward_t_mapnode_t vote_map_key[1];
-  fd_memcpy( &vote_map_key->elem.pubkey, voter_acc, sizeof(fd_pubkey_t) );
-  fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_find( result->vote_reward_map_pool, result->vote_reward_map_root, vote_map_key );
-  if( vote_reward_node == NULL ) {
-    vote_reward_node = fd_vote_reward_t_map_acquire( result->vote_reward_map_pool );
-    fd_memcpy( &vote_reward_node->elem.pubkey, voter_acc, sizeof(fd_pubkey_t) );
-    vote_reward_node->elem.commission   = commission;
-    vote_reward_node->elem.vote_rewards = calculated_stake_rewards->voter_rewards;
-    vote_reward_node->elem.needs_store  = 1;
-    fd_vote_reward_t_map_insert( result->vote_reward_map_pool, &result->vote_reward_map_root, vote_reward_node );
-  } else {
-    vote_reward_node->elem.needs_store = 1;
-    vote_reward_node->elem.vote_rewards = fd_ulong_sat_add( vote_reward_node->elem.vote_rewards,
-                                                            calculated_stake_rewards->voter_rewards );
-  }
-
-  /* Add the stake reward to list of all stake rewards */
-  fd_stake_reward_t * stake_reward = fd_stake_reward_pool_ele_acquire( result->stake_reward_calculation.pool );
-  fd_memcpy( &stake_reward->stake_pubkey, stake_acc, FD_PUBKEY_FOOTPRINT );
-  stake_reward->lamports         = calculated_stake_rewards->staker_rewards;
-  stake_reward->credits_observed = calculated_stake_rewards->new_credits_observed;
-
-  fd_stake_reward_dlist_ele_push_tail( &result->stake_reward_calculation.stake_rewards,
-                                        stake_reward,
-                                        result->stake_reward_calculation.pool );
-  result->stake_reward_calculation.stake_rewards_len += 1UL;
-
-  /* Update the total stake rewards */
-  result->stake_reward_calculation.total_stake_rewards_lamports += calculated_stake_rewards->staker_rewards;
-} FD_SCRATCH_SCOPE_END;
 }
 
 /* Calculates epoch rewards for stake/vote accounts.
@@ -479,34 +553,79 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
                               ulong                                      rewarded_epoch,
                               fd_point_value_t *                         point_value,
                               fd_calculate_stake_vote_rewards_result_t * result,
-                              fd_epoch_info_t                          * temp_info,
-                              fd_valloc_t                                valloc ) {
-  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  ulong rewards_max_count            = fd_delegation_pair_t_map_size( epoch_bank->stakes.stake_delegations_pool, epoch_bank->stakes.stake_delegations_root );
+                              fd_epoch_info_t *                          temp_info,
+                              fd_tpool_t *                               tpool,
+                              fd_spad_t * *                              exec_spads,
+                              ulong                                      exec_spad_cnt,
+                              fd_spad_t *                                runtime_spad ) {
+
+  int _err[1];
+  ulong   new_warmup_cooldown_rate_epoch_val = 0UL;
+  ulong * new_warmup_cooldown_rate_epoch     = &new_warmup_cooldown_rate_epoch_val;
+  int is_some = fd_new_warmup_cooldown_rate_epoch( slot_ctx, new_warmup_cooldown_rate_epoch, _err );
+  if( FD_UNLIKELY( !is_some ) ) {
+    new_warmup_cooldown_rate_epoch = NULL;
+  }
+
+  ulong rewards_max_count = temp_info->stake_infos_len;
 
   /* Create the stake rewards pool and dlist. The pool will be destoyed after the stake rewards have been distributed. */
-  result->stake_reward_calculation.pool = fd_stake_reward_pool_join( fd_stake_reward_pool_new( fd_valloc_malloc( valloc,
-                                                                                                                 fd_stake_reward_pool_align(),
-                                                                                                                 fd_stake_reward_pool_footprint( rewards_max_count ) ), 
+  result->stake_reward_calculation.pool = fd_stake_reward_pool_join( fd_stake_reward_pool_new( fd_spad_alloc( runtime_spad,
+                                                                                                              fd_stake_reward_pool_align(),
+                                                                                                              fd_stake_reward_pool_footprint( rewards_max_count ) ), 
                                                                      rewards_max_count ) );
   fd_stake_reward_dlist_new( &result->stake_reward_calculation.stake_rewards );
   result->stake_reward_calculation.stake_rewards_len = 0UL;
 
   /* Create the vote rewards map. This will be destroyed after the vote rewards have been distributed. */
-  result->vote_reward_map_pool = fd_vote_reward_t_map_join( fd_vote_reward_t_map_new( fd_valloc_malloc( valloc,
-                                                                                                        fd_vote_reward_t_map_align(),
-                                                                                                        fd_vote_reward_t_map_footprint( rewards_max_count )), 
-                                                                                      rewards_max_count ) );
+  ulong vote_account_cnt       = fd_vote_info_pair_t_map_size( temp_info->vote_states_pool, temp_info->vote_states_root );
+  result->vote_reward_map_pool = fd_vote_reward_t_map_join( fd_vote_reward_t_map_new( fd_spad_alloc( runtime_spad,
+                                                                                                     fd_vote_reward_t_map_align(),
+                                                                                                     fd_vote_reward_t_map_footprint( vote_account_cnt )), 
+                                                                                      vote_account_cnt ) );
   result->vote_reward_map_root = NULL;
+
+  /* Pre-fill the vote pubkeys in the vote rewards map pool */
+  for( fd_vote_info_pair_t_mapnode_t * vote_info = fd_vote_info_pair_t_map_minimum( temp_info->vote_states_pool, temp_info->vote_states_root );
+       vote_info;
+       vote_info = fd_vote_info_pair_t_map_successor( temp_info->vote_states_pool, vote_info ) ) {
+
+    fd_pubkey_t const *          voter_pubkey     = &vote_info->elem.account;
+    fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_acquire( result->vote_reward_map_pool );
+
+    fd_memcpy( &vote_reward_node->elem.pubkey, voter_pubkey, sizeof(fd_pubkey_t) );
+    vote_reward_node->elem.vote_rewards = 0UL;
+    vote_reward_node->elem.needs_store  = 0;
+
+    fd_vote_reward_t_map_insert( result->vote_reward_map_pool, &result->vote_reward_map_root, vote_reward_node );
+  }
+
+  /* Pre-allocate the dlist stake reward elements */
+  for( ulong i=0UL; i<temp_info->stake_infos_len; i++ ) {
+    fd_stake_reward_t * stake_reward = fd_stake_reward_pool_ele_acquire( result->stake_reward_calculation.pool );
+    if( FD_UNLIKELY( stake_reward==NULL ) ) {
+      FD_LOG_ERR(( "insufficient space allocated for stake reward calculation pool" ));
+      return;
+    }
+    stake_reward->valid = 0;
+    fd_stake_reward_dlist_ele_push_tail( &result->stake_reward_calculation.stake_rewards, stake_reward, result->stake_reward_calculation.pool );
+  }
+
+  fd_calculate_stake_vote_rewards_task_args_t task_args = {
+    .slot_ctx                       = slot_ctx,
+    .stake_history                  = stake_history,
+    .rewarded_epoch                 = rewarded_epoch,
+    .new_warmup_cooldown_rate_epoch = new_warmup_cooldown_rate_epoch,
+    .point_value                    = point_value,
+    .result                         = result,
+    .exec_spads                     = exec_spads,
+    .exec_spad_cnt                  = exec_spad_cnt,
+  };
 
   /* Loop over all the delegations
      https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L367  */
-  for( ulong i=0UL; i<temp_info->stake_infos_len; i++ ) {
-    fd_pubkey_t const * stake_acc = &temp_info->stake_infos[i].account;
-    fd_stake_t const *  stake     = &temp_info->stake_infos[i].stake;
-
-    calculate_stake_vote_rewards_account( slot_ctx, stake_history, rewarded_epoch, point_value, stake_acc, stake, result, temp_info );
-  }
+  fd_tpool_exec_all_batch( tpool, 0UL, fd_tpool_worker_cnt( tpool ), calculate_stake_vote_rewards_account_tpool, 
+                           temp_info, &task_args, NULL, 1UL, 0UL, temp_info->stake_infos_len );
 }
 
 /* Calculate epoch reward and return vote and stake rewards.
@@ -518,7 +637,10 @@ calculate_validator_rewards( fd_exec_slot_ctx_t *                      slot_ctx,
                              ulong                                     rewards,
                              fd_calculate_validator_rewards_result_t * result,
                              fd_epoch_info_t *                         temp_info,
-                             fd_valloc_t                               valloc ) {
+                             fd_tpool_t *                              tpool,
+                             fd_spad_t * *                             exec_spads,
+                             ulong                                     exec_spad_cnt,
+                             fd_spad_t *                               runtime_spad ) {
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2759-L2786 */
   fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
   if( FD_UNLIKELY( !stake_history ) ) {
@@ -526,7 +648,12 @@ calculate_validator_rewards( fd_exec_slot_ctx_t *                      slot_ctx,
   }
 
   /* Calculate the epoch reward points from stake/vote accounts */
-  calculate_reward_points_partitioned( slot_ctx, stake_history, rewards, &result->point_value, temp_info );
+  calculate_reward_points_partitioned( slot_ctx,
+                                       stake_history,
+                                       rewards,
+                                       &result->point_value,
+                                       tpool,
+                                       temp_info );
 
   /* Calculate the stake and vote rewards for each account */
   calculate_stake_vote_rewards( slot_ctx,
@@ -535,7 +662,10 @@ calculate_validator_rewards( fd_exec_slot_ctx_t *                      slot_ctx,
                                 &result->point_value,
                                 &result->calculate_stake_vote_rewards_result,
                                 temp_info,
-                                valloc );
+                                tpool,
+                                exec_spads,
+                                exec_spad_cnt,
+                                runtime_spad );
 }
 
 /* Calculate the number of blocks required to distribute rewards to all stake accounts.
@@ -564,7 +694,8 @@ hash_rewards_into_partitions( fd_exec_slot_ctx_t *                        slot_c
                               fd_stake_reward_calculation_t *             stake_reward_calculation,
                               fd_hash_t const *                           parent_blockhash,
                               fd_stake_reward_calculation_partitioned_t * result,
-                              fd_valloc_t                                 valloc ) {
+                              fd_spad_t *                                 runtime_spad ) {
+
   /* Initialize a dlist for every partition.
       These will all use the same pool - we do not re-allocate the stake rewards, only move them into partitions. */
   result->partitioned_stake_rewards.pool = stake_reward_calculation->pool;
@@ -572,9 +703,9 @@ hash_rewards_into_partitions( fd_exec_slot_ctx_t *                        slot_c
                                                               slot_ctx->slot_bank.slot,
                                                               stake_reward_calculation->stake_rewards_len );
   result->partitioned_stake_rewards.partitions_len = num_partitions;
-  result->partitioned_stake_rewards.partitions     = fd_valloc_malloc( valloc,
-                                                                       fd_stake_reward_dlist_align(),
-                                                                       fd_stake_reward_dlist_footprint() * num_partitions );
+  result->partitioned_stake_rewards.partitions     = fd_spad_alloc( runtime_spad,
+                                                                    fd_stake_reward_dlist_align(),
+                                                                    fd_stake_reward_dlist_footprint() * num_partitions );
 
   /* Ownership of these dlist's and the pool gets transferred to stake_rewards_by_partition, which then gets transferred to epoch_reward_status.
       These are eventually cleaned up when epoch_reward_status_inactive is called. */
@@ -591,6 +722,10 @@ hash_rewards_into_partitions( fd_exec_slot_ctx_t *                        slot_c
     fd_stake_reward_t * stake_reward = fd_stake_reward_dlist_iter_ele( iter, &stake_reward_calculation->stake_rewards, stake_reward_calculation->pool );
     /* Cache the next iter here, as we will overwrite the DLIST_NEXT value further down in the loop iteration. */
     next_iter = fd_stake_reward_dlist_iter_fwd_next( iter, &stake_reward_calculation->stake_rewards, stake_reward_calculation->pool );
+
+    if( FD_UNLIKELY( !stake_reward->valid ) ) {
+      continue;
+    }
 
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/epoch_rewards_hasher.rs#L43C31-L61 */
     fd_siphash13_t  _sip[1] = {0};
@@ -616,12 +751,15 @@ hash_rewards_into_partitions( fd_exec_slot_ctx_t *                        slot_c
 
    https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L214 */
 static void
-calculate_rewards_for_partitioning( fd_exec_slot_ctx_t                   * slot_ctx,
+calculate_rewards_for_partitioning( fd_exec_slot_ctx_t *                   slot_ctx,
                                     ulong                                  prev_epoch,
-                                    const fd_hash_t                      * parent_blockhash,
+                                    const fd_hash_t *                      parent_blockhash,
                                     fd_partitioned_rewards_calculation_t * result,
-                                    fd_epoch_info_t                      * temp_info,
-                                    fd_valloc_t                            valloc ) {
+                                    fd_epoch_info_t *                      temp_info,
+                                    fd_tpool_t *                           tpool,
+                                    fd_spad_t * *                          exec_spads,
+                                    ulong                                  exec_spad_cnt,
+                                    fd_spad_t *                            runtime_spad ) {
   /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L227 */
   fd_prev_epoch_inflation_rewards_t rewards;
   calculate_previous_epoch_inflation_rewards( slot_ctx, slot_ctx->slot_bank.capitalization, prev_epoch, &rewards );
@@ -629,13 +767,21 @@ calculate_rewards_for_partitioning( fd_exec_slot_ctx_t                   * slot_
   fd_slot_bank_t const * slot_bank = &slot_ctx->slot_bank;
 
   fd_calculate_validator_rewards_result_t validator_result[1] = {0};
-  calculate_validator_rewards( slot_ctx, prev_epoch, rewards.validator_rewards, validator_result, temp_info, valloc );
+  calculate_validator_rewards( slot_ctx,
+                               prev_epoch,
+                               rewards.validator_rewards,
+                               validator_result,
+                               temp_info,
+                               tpool,
+                               exec_spads,
+                               exec_spad_cnt,
+                               runtime_spad );
 
   hash_rewards_into_partitions( slot_ctx,
                                 &validator_result->calculate_stake_vote_rewards_result.stake_reward_calculation,
                                 parent_blockhash,
                                 &result->stake_rewards_by_partition,
-                                valloc );
+                                runtime_spad );
 
   result->stake_rewards_by_partition.total_stake_rewards_lamports =
     validator_result->calculate_stake_vote_rewards_result.stake_reward_calculation.total_stake_rewards_lamports;
@@ -659,15 +805,31 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *             
                                                fd_hash_t const *                                           parent_blockhash,
                                                fd_calculate_rewards_and_distribute_vote_rewards_result_t * result,
                                                fd_epoch_info_t *                                           temp_info,
-                                               fd_valloc_t                                                 valloc ) {
+                                               fd_tpool_t *                                                tpool,
+                                               fd_spad_t * *                                               exec_spads,
+                                               ulong                                                       exec_spad_cnt,
+                                               fd_spad_t *                                                 runtime_spad ) {
+
   /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2406-L2492 */
   fd_partitioned_rewards_calculation_t rewards_calc_result[1] = {0};
-  calculate_rewards_for_partitioning( slot_ctx, prev_epoch, parent_blockhash, rewards_calc_result, temp_info, valloc );
+  calculate_rewards_for_partitioning( slot_ctx,
+                                      prev_epoch,
+                                      parent_blockhash,
+                                      rewards_calc_result,
+                                      temp_info,
+                                      tpool,
+                                      exec_spads,
+                                      exec_spad_cnt,
+                                      runtime_spad );
 
   /* Iterate over all the vote reward nodes */
   for( fd_vote_reward_t_mapnode_t * vote_reward_node = fd_vote_reward_t_map_minimum( rewards_calc_result->vote_reward_map_pool, rewards_calc_result->vote_reward_map_root);
        vote_reward_node;
        vote_reward_node = fd_vote_reward_t_map_successor( rewards_calc_result->vote_reward_map_pool, vote_reward_node ) ) {
+
+    if( FD_UNLIKELY( !vote_reward_node->elem.needs_store ) ) {
+      continue;
+    }
 
     fd_pubkey_t const * vote_pubkey = &vote_reward_node->elem.pubkey;
     FD_BORROWED_ACCOUNT_DECL( vote_rec );
@@ -685,10 +847,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *             
     result->distributed_rewards = fd_ulong_sat_add( result->distributed_rewards, vote_reward_node->elem.vote_rewards );
   }
 
-  /* Free the vote reward map */
-  fd_valloc_free( valloc,
-                  fd_vote_reward_t_map_delete(
-                  fd_vote_reward_t_map_leave( rewards_calc_result->vote_reward_map_pool ) ) );
+  /* There is no need to free the vote reward map since it was spad*/
 
   /* Verify that we didn't pay any more than we expected to */
   result->total_rewards = fd_ulong_sat_add( result->distributed_rewards, rewards_calc_result->stake_rewards_by_partition.total_stake_rewards_lamports );
@@ -709,7 +868,7 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
                                       fd_pubkey_t *        stake_pubkey,
                                       ulong                reward_lamports,
                                       ulong                new_credits_observed,
-                                      fd_valloc_t          valloc ) {
+                                      fd_spad_t *          runtime_spad ) {
 
   FD_BORROWED_ACCOUNT_DECL( stake_acc_rec );
 
@@ -720,7 +879,7 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
   stake_acc_rec->meta->slot = slot_ctx->slot_bank.slot;
 
   fd_stake_state_v2_t stake_state[1] = {0};
-  if( fd_stake_get_state(stake_acc_rec, valloc, stake_state) != 0 ) {
+  if( fd_stake_get_state( stake_acc_rec, runtime_spad, stake_state ) != 0 ) {
     FD_LOG_DEBUG(( "failed to read stake state for %s", FD_BASE58_ENC_32_ALLOCA( stake_pubkey ) ));
     return 1;
   }
@@ -748,18 +907,11 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
 
 /* Sets the epoch reward status to inactive, and destroys any allocated state associated with the active state. */
 static void
-set_epoch_reward_status_inactive( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc ) {
+set_epoch_reward_status_inactive( fd_exec_slot_ctx_t * slot_ctx,
+                                  fd_spad_t *          runtime_spad ) {
   if( slot_ctx->epoch_reward_status.discriminant == fd_epoch_reward_status_enum_Active ) {
-    fd_partitioned_stake_rewards_t * partitioned_rewards = &slot_ctx->epoch_reward_status.inner.Active.partitioned_stake_rewards;
-    /* Destroy the partitions */
-    fd_valloc_free( valloc, 
-                    fd_stake_reward_dlist_delete(
-                    fd_stake_reward_dlist_leave( partitioned_rewards->partitions ) ) );
-
-    /* Destroy the underlying pool */
-    fd_valloc_free( valloc,
-                    fd_stake_reward_pool_delete(
-                    fd_stake_reward_pool_leave( partitioned_rewards->pool ) ) );
+    FD_LOG_NOTICE(( "Done partitioning rewards for current epoch" ));
+    fd_spad_pop( runtime_spad );
   }
   slot_ctx->epoch_reward_status.discriminant = fd_epoch_reward_status_enum_Inactive;
 }
@@ -773,6 +925,7 @@ set_epoch_reward_status_active( fd_exec_slot_ctx_t *             slot_ctx,
                                 ulong                            distribution_starting_block_height,
                                 fd_partitioned_stake_rewards_t * partitioned_rewards ) {
 
+  FD_LOG_NOTICE(( "Setting epoch reward status as active" ));
   slot_ctx->epoch_reward_status.discriminant                                    = fd_epoch_reward_status_enum_Active;
   slot_ctx->epoch_reward_status.inner.Active.distribution_starting_block_height = distribution_starting_block_height;
 
@@ -787,7 +940,7 @@ static void
 distribute_epoch_rewards_in_partition( fd_stake_reward_dlist_t * partition,
                                        fd_stake_reward_t *       pool,
                                        fd_exec_slot_ctx_t *      slot_ctx,
-                                       fd_valloc_t               valloc ) {
+                                       fd_spad_t *               runtime_spad ) {
 
   ulong lamports_distributed = 0UL;
   ulong lamports_burned      = 0UL;
@@ -800,7 +953,8 @@ distribute_epoch_rewards_in_partition( fd_stake_reward_dlist_t * partition,
     if( distribute_epoch_reward_to_stake_acc( slot_ctx,
                                               &stake_reward->stake_pubkey,
                                               stake_reward->lamports,
-                                              stake_reward->credits_observed, valloc ) == 0 ) {
+                                              stake_reward->credits_observed,
+                                              runtime_spad ) == 0 ) {
       lamports_distributed += stake_reward->lamports;
     } else {
       lamports_burned += stake_reward->lamports;
@@ -822,10 +976,20 @@ distribute_epoch_rewards_in_partition( fd_stake_reward_dlist_t * partition,
 
    https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/distribution.rs#L42 */
 void
-fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx, fd_valloc_t valloc ) {
+fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx,
+                                         fd_tpool_t *         tpool,
+                                         fd_spad_t * *        exec_spads,
+                                         ulong                exec_spad_cnt,
+                                         fd_spad_t *          runtime_spad ) {
+
+  (void)tpool;
+  (void)exec_spads;
+  (void)exec_spad_cnt;
+
   if( slot_ctx->epoch_reward_status.discriminant == fd_epoch_reward_status_enum_Inactive ) {
-      return;
+    return;
   }
+
   fd_start_block_height_and_rewards_t * status = &slot_ctx->epoch_reward_status.inner.Active;
 
   fd_slot_bank_t *        slot_bank  = &slot_ctx->slot_bank;
@@ -846,12 +1010,12 @@ fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx, fd_vallo
     distribute_epoch_rewards_in_partition( &status->partitioned_stake_rewards.partitions[ partition_index ],
                                            status->partitioned_stake_rewards.pool,
                                            slot_ctx,
-                                           valloc );
+                                           runtime_spad );
   }
 
   /* If we have finished distributing rewards, set the status to inactive */
   if( fd_ulong_sat_add( height, 1UL ) >= distribution_end_exclusive ) {
-    set_epoch_reward_status_inactive( slot_ctx, valloc );
+    set_epoch_reward_status_inactive( slot_ctx, runtime_spad );
     fd_sysvar_epoch_rewards_set_inactive( slot_ctx );
   }
 }
@@ -863,18 +1027,29 @@ fd_update_rewards( fd_exec_slot_ctx_t * slot_ctx,
                    fd_hash_t const *    parent_blockhash,
                    ulong                parent_epoch,
                    fd_epoch_info_t *    temp_info,
-                   fd_valloc_t          valloc ) {
+                   fd_tpool_t *         tpool,
+                   fd_spad_t * *        exec_spads,
+                   ulong                exec_spad_cnt,
+                   fd_spad_t *          runtime_spad ) {
 
   /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L55 */
   fd_calculate_rewards_and_distribute_vote_rewards_result_t rewards_result[1] = {0};
-  calculate_rewards_and_distribute_vote_rewards( slot_ctx, parent_epoch, parent_blockhash, rewards_result, temp_info, valloc );
+  calculate_rewards_and_distribute_vote_rewards( slot_ctx,
+                                                 parent_epoch,
+                                                 parent_blockhash,
+                                                 rewards_result,
+                                                 temp_info,
+                                                 tpool,
+                                                 exec_spads,
+                                                 exec_spad_cnt,
+                                                 runtime_spad );
 
   /* Distribute all of the partitioned epoch rewards in one go */
   for( ulong i = 0UL; i < rewards_result->stake_rewards_by_partition.partitioned_stake_rewards.partitions_len; i++ ) {
     distribute_epoch_rewards_in_partition( &rewards_result->stake_rewards_by_partition.partitioned_stake_rewards.partitions[ i ],
                                            rewards_result->stake_rewards_by_partition.partitioned_stake_rewards.pool,
                                            slot_ctx,
-                                           valloc );
+                                           runtime_spad );
   }
 }
 
@@ -887,16 +1062,22 @@ fd_begin_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                               fd_hash_t const *    parent_blockhash,
                               ulong                parent_epoch,
                               fd_epoch_info_t *    temp_info,
-                              fd_valloc_t          valloc ) {
-  FD_SCRATCH_SCOPE_BEGIN {
-    /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L55 */
+                              fd_tpool_t *         tpool,
+                              fd_spad_t * *        exec_spads,
+                              ulong                exec_spad_cnt,
+                              fd_spad_t *          runtime_spad ) {
+
+  /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L55 */
   fd_calculate_rewards_and_distribute_vote_rewards_result_t rewards_result[1] = {0};
   calculate_rewards_and_distribute_vote_rewards( slot_ctx,
                                                  parent_epoch,
                                                  parent_blockhash,
                                                  rewards_result,
                                                  temp_info,
-                                                 valloc );
+                                                 tpool,
+                                                 exec_spads,
+                                                 exec_spad_cnt,
+                                                 runtime_spad );
 
   /* https://github.com/anza-xyz/agave/blob/9a7bf72940f4b3cd7fc94f54e005868ce707d53d/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L62 */
   ulong distribution_starting_block_height = slot_ctx->slot_bank.block_height + REWARD_CALCULATION_NUM_BLOCKS;
@@ -915,7 +1096,6 @@ fd_begin_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                 rewards_result->stake_rewards_by_partition.partitioned_stake_rewards.partitions_len,
                                 rewards_result->point_value,
                                 parent_blockhash );
-  } FD_SCRATCH_SCOPE_END;
 }
 
 /*
@@ -925,18 +1105,27 @@ fd_begin_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
     https://github.com/anza-xyz/agave/blob/2316fea4c0852e59c071f72d72db020017ffd7d0/runtime/src/bank/partitioned_epoch_rewards/calculation.rs#L536 */
 void
 fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
-                                            fd_valloc_t          valloc ) {
-FD_SCRATCH_SCOPE_BEGIN {
+                                            fd_tpool_t *         tpool,
+                                            fd_spad_t * *        exec_spads,
+                                            ulong                exec_spad_cnt,
+                                            fd_spad_t *          runtime_spad ) {
   fd_sysvar_epoch_rewards_t epoch_rewards[1];
   if( FD_UNLIKELY( fd_sysvar_epoch_rewards_read( epoch_rewards, slot_ctx )==NULL ) ) {
     FD_LOG_NOTICE(( "failed to read sysvar epoch rewards - the sysvar may not have been created yet" ));
-    set_epoch_reward_status_inactive( slot_ctx, valloc );
+    set_epoch_reward_status_inactive( slot_ctx, runtime_spad );
     return;
   }
 
   FD_LOG_NOTICE(( "recalculating partitioned rewards" ));
 
-  if ( FD_UNLIKELY( epoch_rewards->active ) ) {
+  if( FD_UNLIKELY( epoch_rewards->active ) ) {
+
+    /* If epoch rewards are active, we must calculate the rewards partitions
+       so we can start distributing. For the same reason as described in
+       fd_runtime_process_new_epoch, we must push on a spad frame at this
+       point. */
+    fd_spad_push( runtime_spad );
+
     /* If partitioned rewards are active, the rewarded epoch is always the immediately
         preceeding epoch.
 
@@ -948,7 +1137,7 @@ FD_SCRATCH_SCOPE_BEGIN {
     ulong rewarded_epoch = fd_ulong_sat_sub( epoch, 1UL );
 
     int _err[1] = {0};
-    ulong * new_warmup_cooldown_rate_epoch = fd_scratch_alloc( alignof(ulong), sizeof(ulong) );
+    ulong * new_warmup_cooldown_rate_epoch = fd_spad_alloc( runtime_spad, alignof(ulong), sizeof(ulong) );
     int is_some = fd_new_warmup_cooldown_rate_epoch( slot_ctx, new_warmup_cooldown_rate_epoch, _err );
     if( FD_UNLIKELY( !is_some ) ) {
       new_warmup_cooldown_rate_epoch = NULL;
@@ -969,7 +1158,7 @@ FD_SCRATCH_SCOPE_BEGIN {
 
     ulong stake_delegation_sz  = fd_delegation_pair_t_map_size( stakes->stake_delegations_pool, stakes->stake_delegations_root );
     epoch_info.stake_infos_len = stake_delegation_sz;
-    epoch_info.stake_infos     = fd_scratch_alloc( FD_EPOCH_INFO_PAIR_ALIGN, FD_EPOCH_INFO_PAIR_FOOTPRINT*stake_delegation_sz );
+    epoch_info.stake_infos     = fd_spad_alloc( runtime_spad, FD_EPOCH_INFO_PAIR_ALIGN, FD_EPOCH_INFO_PAIR_FOOTPRINT*stake_delegation_sz );
 
     fd_stake_history_entry_t _accumulator = {
         .effective = 0UL,
@@ -977,32 +1166,54 @@ FD_SCRATCH_SCOPE_BEGIN {
         .deactivating = 0UL
     };
 
-    fd_accumulate_stake_infos( slot_ctx, stakes, stake_history, new_warmup_cooldown_rate_epoch, &_accumulator, &epoch_info, valloc );
-    fd_refresh_vote_accounts( slot_ctx, stake_history, new_warmup_cooldown_rate_epoch, &epoch_info );
+    fd_accumulate_stake_infos( slot_ctx,
+                               stakes,
+                               stake_history,
+                               new_warmup_cooldown_rate_epoch,
+                               &_accumulator,
+                               &epoch_info,
+                               tpool,
+                               exec_spads,
+                               exec_spad_cnt,
+                               runtime_spad );
+    fd_refresh_vote_accounts( slot_ctx,
+                              stake_history,
+                              new_warmup_cooldown_rate_epoch,
+                              &epoch_info,
+                              tpool,
+                              exec_spads,
+                              exec_spad_cnt,
+                              runtime_spad );
 
     /* In future, the calculation will be cached in the snapshot, but for now we just re-calculate it
         (as Agave does). */
     fd_calculate_stake_vote_rewards_result_t calculate_stake_vote_rewards_result[1];
-    calculate_stake_vote_rewards( slot_ctx, stake_history, rewarded_epoch, &point_value, calculate_stake_vote_rewards_result, &epoch_info, valloc );
+    calculate_stake_vote_rewards( slot_ctx,
+                                  stake_history,
+                                  rewarded_epoch,
+                                  &point_value,
+                                  calculate_stake_vote_rewards_result,
+                                  &epoch_info,
+                                  tpool,
+                                  exec_spads,
+                                  exec_spad_cnt,
+                                  runtime_spad );
 
-    /* Free the vote reward map, as this isn't actually used in this code path. */
-    fd_valloc_free( valloc,
-                    fd_vote_reward_t_map_delete(
-                    fd_vote_reward_t_map_leave( calculate_stake_vote_rewards_result->vote_reward_map_pool ) ) );
+    /* The vote reward map isn't actually used in this code path and will only
+       be freed after rewards have been distributed. */
 
     fd_stake_reward_calculation_partitioned_t stake_rewards_by_partition[1];
     hash_rewards_into_partitions( slot_ctx,
                                   &calculate_stake_vote_rewards_result->stake_reward_calculation,
                                   &epoch_rewards->parent_blockhash,
                                   stake_rewards_by_partition,
-                                  valloc );
+                                  runtime_spad );
 
     /* Update the epoch reward status with the newly re-calculated partitions. */
     set_epoch_reward_status_active( slot_ctx,
                                     epoch_rewards->distribution_starting_block_height,
                                     &stake_rewards_by_partition->partitioned_stake_rewards );
   } else {
-    set_epoch_reward_status_inactive( slot_ctx, valloc );
+    set_epoch_reward_status_inactive( slot_ctx, runtime_spad );
   }
-} FD_SCRATCH_SCOPE_END;
 }

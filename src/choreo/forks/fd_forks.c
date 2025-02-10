@@ -281,7 +281,7 @@ fd_forks_prepare( fd_forks_t const *    forks,
                   fd_blockstore_t *     blockstore,
                   fd_exec_epoch_ctx_t * epoch_ctx,
                   fd_funk_t *           funk,
-                  fd_valloc_t           valloc ) {
+                  fd_spad_t *           runtime_spad ) {
 
   /* Check the parent block is present in the blockstore and executed. */
 
@@ -311,15 +311,14 @@ fd_forks_prepare( fd_forks_t const *    forks,
 
     /* Format and join the slot_ctx */
 
-    fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork->slot_ctx,
-                                                                                 valloc ) );
+    fd_exec_slot_ctx_t * slot_ctx = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( &fork->slot_ctx, runtime_spad ) );
     if( FD_UNLIKELY( !slot_ctx ) ) {
       FD_LOG_ERR( ( "failed to new and join slot_ctx" ) );
     }
 
     /* Restore and decode w/ funk */
 
-    slot_ctx_restore( fork->slot, acc_mgr, blockstore, epoch_ctx, funk, valloc, slot_ctx );
+    slot_ctx_restore( fork->slot, acc_mgr, blockstore, epoch_ctx, funk, fd_spad_virtual( runtime_spad ), slot_ctx );
 
     /* Add to frontier */
 
@@ -368,10 +367,9 @@ fd_forks_update( fd_forks_t *      forks,
       if( FD_UNLIKELY( !eqvocsafe ) ) {
         double pct = (double)node->replay_stake / (double)epoch->total_stake;
         if( FD_UNLIKELY( pct > FD_EQVOCSAFE_PCT ) ) {
-          FD_LOG_DEBUG( ( "eqvocsafe %lu", block_map_entry->slot ) );
-          block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags,
-                                                     FD_BLOCK_FLAG_EQVOCSAFE );
-          blockstore->hcs        = fd_ulong_max( blockstore->hcs, block_map_entry->slot );
+          FD_LOG_DEBUG(( "eqvocsafe %lu", block_map_entry->slot ));
+          block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_EQVOCSAFE );
+          blockstore->shmem->hcs = fd_ulong_max( blockstore->shmem->hcs, block_map_entry->slot );
         }
       }
 
@@ -379,10 +377,9 @@ fd_forks_update( fd_forks_t *      forks,
       if( FD_UNLIKELY( !confirmed ) ) {
         double pct = (double)node->replay_stake / (double)epoch->total_stake;
         if( FD_UNLIKELY( pct > FD_CONFIRMED_PCT ) ) {
-          FD_LOG_DEBUG( ( "confirmed %lu", block_map_entry->slot ) );
-          block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags,
-                                                     FD_BLOCK_FLAG_CONFIRMED );
-          blockstore->hcs        = fd_ulong_max( blockstore->hcs, block_map_entry->slot );
+          FD_LOG_DEBUG(( "confirmed %lu", block_map_entry->slot ));
+          block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_CONFIRMED );
+          blockstore->shmem->hcs = fd_ulong_max( blockstore->shmem->hcs, block_map_entry->slot );
         }
       }
 
@@ -416,7 +413,7 @@ fd_forks_update( fd_forks_t *      forks,
         double pct = (double)node->rooted_stake / (double)epoch->total_stake;
         if( FD_UNLIKELY( pct > FD_FINALIZED_PCT ) ) {
           ulong smr       = block_map_entry->slot;
-          blockstore->smr = fd_ulong_max( blockstore->smr, smr );
+          blockstore->shmem->smr = fd_ulong_max( blockstore->shmem->smr, smr );
           FD_LOG_DEBUG(( "finalized %lu", block_map_entry->slot ));
           fd_block_map_t * ancestor = block_map_entry;
           while( ancestor ) {
@@ -431,7 +428,7 @@ fd_forks_update( fd_forks_t *      forks,
 }
 
 void
-fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost, fd_valloc_t valloc ) {
+fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost ) {
   fd_fork_t * tail = NULL;
   fd_fork_t * curr = NULL;
 
@@ -462,7 +459,7 @@ fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost, fd_v
                                                    &tail->slot,
                                                    NULL,
                                                    forks->pool );
-    if( FD_UNLIKELY( !fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( &fork->slot_ctx ), valloc ) ) ) {
+    if( FD_UNLIKELY( !fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( &fork->slot_ctx ) ) ) ) {
       FD_LOG_ERR( ( "could not delete fork slot ctx" ) );
     }
     ulong remove = fd_fork_frontier_idx_remove( forks->frontier,

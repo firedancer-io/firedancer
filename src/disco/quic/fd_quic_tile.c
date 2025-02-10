@@ -136,6 +136,7 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET(   QUIC, RECEIVED_BYTES,   ctx->quic->metrics.net_rx_byte_cnt );
   FD_MCNT_SET(   QUIC, SENT_PACKETS,     ctx->quic->metrics.net_tx_pkt_cnt );
   FD_MCNT_SET(   QUIC, SENT_BYTES,       ctx->quic->metrics.net_tx_byte_cnt );
+  FD_MCNT_SET(   QUIC, RETRY_SENT,       ctx->quic->metrics.retry_tx_cnt );
 
   FD_MGAUGE_SET( QUIC, CONNECTIONS_ACTIVE,  ctx->quic->metrics.conn_active_cnt );
   FD_MCNT_SET(   QUIC, CONNECTIONS_CREATED, ctx->quic->metrics.conn_created_cnt );
@@ -466,10 +467,15 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "insufficient tile scratch space" ));
   }
 
-  if( FD_UNLIKELY( tile->in_cnt!=1UL ||
-                   strcmp( topo->links[ tile->in_link_id[ 0UL ] ].name, "net_quic" ) ) )
-    FD_LOG_ERR(( "quic tile has none or unexpected input links %lu %s %s",
-                 tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
+  if( FD_UNLIKELY( tile->in_cnt==0 ) ) {
+    FD_LOG_ERR(( "quic tile has no input links" ));
+  }
+  for( ulong i=0; i<tile->in_cnt; i++ ) {
+    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
+    if( FD_UNLIKELY( 0!=strcmp( link->name, "net_quic" ) ) ) {
+      FD_LOG_ERR(( "unexpected input link %s", link->name ));
+    }
+  }
 
   if( FD_UNLIKELY( tile->out_cnt!=2UL ||
                    strcmp( topo->links[ tile->out_link_id[ 0UL ] ].name, "quic_verify" ) ||

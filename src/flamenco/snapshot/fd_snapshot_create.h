@@ -46,7 +46,7 @@ struct fd_snapshot_ctx {
   /* These parameters are setup by the caller of the snapshot service. */
   ulong             slot;                      /* Slot for the snapshot. */
   char const *      out_dir;                   /* Output directory. */
-  fd_valloc_t       valloc;                    /* Allocator */
+  fd_spad_t *       spad;                      /* Bump allocator. */
 
   /* The two data structures from the runtime referenced by the snapshot service. */
   fd_funk_t *       funk;                      /* Funk handle. */

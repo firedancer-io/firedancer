@@ -302,6 +302,7 @@ union fd_quic_metrics {
     ulong net_rx_byte_cnt; /* total bytes received (including IP, UDP, QUIC headers) */
     ulong net_tx_pkt_cnt;  /* number of IP packets sent */
     ulong net_tx_byte_cnt; /* total bytes sent */
+    ulong retry_tx_cnt;    /* number of Retry packets sent */
 
     /* Conn metrics */
     ulong conn_active_cnt;         /* number of active conns */

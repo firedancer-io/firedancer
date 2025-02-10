@@ -33379,6 +33379,8 @@ int fd_epoch_info_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
     err = fd_vote_info_pair_decode_preflight( ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
+  err = fd_bincode_uint64_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_epoch_info_decode_unsafe( fd_epoch_info_t * self, fd_bincode_decode_ctx_t * ctx ) {
@@ -33403,6 +33405,7 @@ void fd_epoch_info_decode_unsafe( fd_epoch_info_t * self, fd_bincode_decode_ctx_
     fd_vote_info_pair_decode_unsafe( &node->elem, ctx );
     fd_vote_info_pair_t_map_insert( self->vote_states_pool, &self->vote_states_root, node );
   }
+  fd_bincode_uint64_decode_unsafe( &self->stake_infos_new_keys_start_idx, ctx );
 }
 int fd_epoch_info_encode( fd_epoch_info_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
@@ -33427,6 +33430,8 @@ int fd_epoch_info_encode( fd_epoch_info_t const * self, fd_bincode_encode_ctx_t 
     err = fd_bincode_uint64_encode( vote_states_len, ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
+  err = fd_bincode_uint64_encode( self->stake_infos_new_keys_start_idx, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 int fd_epoch_info_decode_offsets( fd_epoch_info_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
@@ -33450,6 +33455,9 @@ int fd_epoch_info_decode_offsets( fd_epoch_info_off_t * self, fd_bincode_decode_
     err = fd_vote_info_pair_decode_preflight( ctx );
     if( FD_UNLIKELY( err ) ) return err;
   }
+  self->stake_infos_new_keys_start_idx_off = (uint)( (ulong)ctx->data - (ulong)data );
+  err = fd_bincode_uint64_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_epoch_info_new(fd_epoch_info_t * self) {
@@ -33486,6 +33494,7 @@ void fd_epoch_info_walk( void * w, fd_epoch_info_t const * self, fd_types_walk_f
       fd_vote_info_pair_walk(w, &n->elem, fun, "vote_states", level );
     }
   }
+  fun( w, &self->stake_infos_new_keys_start_idx, "stake_infos_new_keys_start_idx", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_epoch_info", level-- );
 }
 ulong fd_epoch_info_size( fd_epoch_info_t const * self ) {
@@ -33503,6 +33512,7 @@ ulong fd_epoch_info_size( fd_epoch_info_t const * self ) {
   } else {
     size += sizeof(ulong);
   }
+  size += sizeof(ulong);
   return size;
 }
 

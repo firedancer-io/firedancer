@@ -116,6 +116,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
     /* TODO: this code would maybe be easier to read if we inverted the branches */
     if( duplicate_index!=ULONG_MAX ) {
       if ( FD_UNLIKELY( duplicate_index >= deduplicated_instruction_accounts_cnt ) ) {
+        FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS, instr_ctx->txn_ctx->instr_err_idx );
         return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
       }
 
@@ -164,11 +165,17 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
 
     /* Check that the account is not read-only in the caller but writable in the callee */
     if( FD_UNLIKELY( instruction_account->is_writable && !fd_instr_acc_is_writable( instr_ctx->instr, pubkey ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( pubkey->uc, id_b58 );
+      fd_log_collector_msg_many( instr_ctx, 2, id_b58, id_b58_len, "'s writable privilege escalated", 31UL );
+      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_ctx->instr_err_idx );
       return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
     }
 
     /* If the account is signed in the callee, it must be signed by the caller or the program */
     if ( FD_UNLIKELY( instruction_account->is_signer && !( fd_instr_acc_is_signer( instr_ctx->instr, pubkey ) || fd_vm_syscall_cpi_is_signer( pubkey, signers, signers_cnt) ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( pubkey->uc, id_b58 );
+      fd_log_collector_msg_many( instr_ctx, 2, id_b58, id_b58_len, "'s signer privilege escalated", 29UL );
+      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_ctx->instr_err_idx );
       return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
     }
   }
@@ -189,6 +196,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
           ( !!(instruction_accounts[i].is_writable) * FD_INSTR_ACCT_FLAGS_IS_WRITABLE ) |
           ( !!(instruction_accounts[i].is_signer  ) * FD_INSTR_ACCT_FLAGS_IS_SIGNER   ) );
     } else {
+      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS, instr_ctx->txn_ctx->instr_err_idx );
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     }
   }
@@ -362,11 +370,11 @@ fd_vm_syscall_cpi_check_authorized_program( fd_pubkey_t const *        program_i
 }
 
 /* Helper functions to get the absolute vaddrs of the serialized accounts pubkey, lamports and owner.
-  
+
    For the accounts not owned by the deprecated loader, all of these offsets into the accounts metadata region
    are static from fd_vm_acc_region_meta->metadata_region_offset.
 
-   For accounts owned by the deprecated loader, the unaligned serializer is used, which means only the pubkey 
+   For accounts owned by the deprecated loader, the unaligned serializer is used, which means only the pubkey
    and lamports offsets are static from the metadata_region_offset. The owner is serialized into the region
    immediately following the account data region (if present) at a fixed offset.
  */
@@ -387,9 +395,13 @@ static inline
 ulong serialized_owner_vaddr( fd_vm_t * vm, fd_vm_acc_region_meta_t * acc_region_meta ) {
   if ( vm->is_deprecated ) {
     /* For deprecated loader programs, the owner is serialized into the start of the region
-       following the account data region (if present) at a fixed offset. */
+       following the account data region (if present) at a fixed offset.
+       If the account data region is not present, the owner is
+       serialized into the same fixed offset following the account's
+       metadata region.
+     */
     return FD_VM_MEM_MAP_INPUT_REGION_START + vm->input_mem_regions[
-      acc_region_meta->has_data_region ? acc_region_meta->region_idx+2 : acc_region_meta->region_idx+1
+      acc_region_meta->has_data_region ? acc_region_meta->region_idx+1U : acc_region_meta->region_idx
     ].vaddr_offset;
   }
 
@@ -398,8 +410,25 @@ ulong serialized_owner_vaddr( fd_vm_t * vm, fd_vm_acc_region_meta_t * acc_region
 
 static inline
 ulong serialized_lamports_vaddr( fd_vm_t * vm, fd_vm_acc_region_meta_t * acc_region_meta ) {
-  return FD_VM_MEM_MAP_INPUT_REGION_START + acc_region_meta->metadata_region_offset + 
+  return FD_VM_MEM_MAP_INPUT_REGION_START + acc_region_meta->metadata_region_offset +
     (vm->is_deprecated ? VM_SERIALIZED_UNALIGNED_LAMPORTS_OFFSET : VM_SERIALIZED_LAMPORTS_OFFSET);
+}
+
+/* The data and lamports fields are in an Rc<Refcell<T>> in the Rust ABI AccountInfo.
+   These macros perform the equivalent of Rc<Refcell<T>>.as_ptr() in Agave.
+   This function doesn't actually touch any memory.
+   It performs pointer arithmetic.
+ */
+FD_FN_CONST static inline
+ulong vm_syscall_cpi_acc_info_rc_refcell_as_ptr( ulong rc_refcell_vaddr ) {
+  return (ulong) &(((fd_vm_rc_refcell_t *)rc_refcell_vaddr)->payload);
+}
+
+/* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L327
+ */
+FD_FN_CONST static inline
+ulong vm_syscall_cpi_data_len_vaddr_c( ulong acct_info_vaddr, ulong data_len_haddr, ulong acct_info_haddr ) {
+  return fd_ulong_sat_sub( fd_ulong_sat_add( acct_info_vaddr, data_len_haddr ), acct_info_haddr );
 }
 
 /**********************************************************************
@@ -448,7 +477,14 @@ ulong serialized_lamports_vaddr( fd_vm_t * vm, fd_vm_acc_region_meta_t * acc_reg
   ulong FD_EXPAND_THEN_CONCAT2(decl, _vm_addr) = acc_info->data_addr; \
   ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = acc_info->data_sz;
 
-#define VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN( vm, acc_info, decl, len ) \
+#define VM_SYSCALL_CPI_ACC_INFO_METADATA_MUT( vm, acc_info, decl ) \
+  ulong FD_EXPAND_THEN_CONCAT2(decl, _vm_addr) = acc_info->data_addr; \
+  ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = acc_info->data_sz;
+
+#define VM_SYSCALL_CPI_SET_ACC_INFO_DATA_GET_LEN( vm, acc_info, decl ) \
+  ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = acc_info->data_sz;
+
+#define VM_SYSCALL_CPI_SET_ACC_INFO_DATA_SET_LEN( vm, acc_info, decl, len ) \
   acc_info->data_sz = len;
 
 #include "fd_vm_syscall_cpi_common.c"
@@ -476,7 +512,9 @@ ulong serialized_lamports_vaddr( fd_vm_t * vm, fd_vm_acc_region_meta_t * acc_reg
 #undef VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR
 #undef VM_SYSCALL_CPI_ACC_INFO_DATA
 #undef VM_SYSCALL_CPI_ACC_INFO_METADATA
-#undef VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN
+#undef VM_SYSCALL_CPI_ACC_INFO_METADATA_MUT
+#undef VM_SYSCALL_CPI_SET_ACC_INFO_DATA_GET_LEN
+#undef VM_SYSCALL_CPI_SET_ACC_INFO_DATA_SET_LEN
 
 /**********************************************************************
    CROSS PROGRAM INVOCATION (Rust ABI)
@@ -506,60 +544,72 @@ ulong serialized_lamports_vaddr( fd_vm_t * vm, fd_vm_acc_region_meta_t * acc_reg
 #define VM_SYSCALL_CPI_ACC_META_PUBKEY( vm, acc_meta ) acc_meta->pubkey
 
 /* VM_SYSCALL_CPI_ACC_INFO_T accessors */
+
 /* The lamports and the account data are stored behind RefCells,
    so we have an additional layer of indirection to unwrap. */
-#define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_VADDR( vm, acc_info, decl )                                             \
-    /* Translate the pointer to the RefCell */                                                                   \
-    fd_vm_rc_refcell_t * FD_EXPAND_THEN_CONCAT2(decl, _box) =                                                    \
-      FD_VM_MEM_HADDR_ST( vm, acc_info->lamports_box_addr, FD_VM_RC_REFCELL_ALIGN, sizeof(fd_vm_rc_refcell_t) ); \
-    /* Extract the vaddr the RefCell points to */                                                                \
-    ulong decl = FD_EXPAND_THEN_CONCAT2(decl, _box)->addr;
+#define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_VADDR( vm, acc_info, decl )                                                                             \
+    ulong const * FD_EXPAND_THEN_CONCAT2(decl, _hptr_) =                                                                                         \
+      FD_VM_MEM_HADDR_LD( vm, vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->lamports_box_addr ), FD_VM_RC_REFCELL_ALIGN, sizeof(ulong) ); \
+    /* Extract the vaddr embedded in the RefCell */                                                                                              \
+    ulong decl = *FD_EXPAND_THEN_CONCAT2(decl, _hptr_);
 
-#define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, acc_info, decl )                                                         \
-    /* Translate the pointer to the RefCell */                                                                          \
-    fd_vm_rc_refcell_t * FD_EXPAND_THEN_CONCAT2(decl, _box) =                                                          \
-      FD_VM_MEM_HADDR_ST( vm, acc_info->lamports_box_addr, FD_VM_RC_REFCELL_ALIGN, sizeof(fd_vm_rc_refcell_t) );       \
-    /* Translate the pointer to the underlying data */                                                                 \
-    ulong * decl = FD_VM_MEM_HADDR_ST( vm, FD_EXPAND_THEN_CONCAT2(decl, _box)->addr, alignof(ulong), sizeof(ulong) );
+#define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, acc_info, decl ) \
+    ulong * decl = FD_VM_MEM_HADDR_ST( vm, *((ulong const *)FD_VM_MEM_HADDR_LD( vm, vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->lamports_box_addr ), FD_VM_RC_REFCELL_ALIGN, sizeof(ulong) )), alignof(ulong), sizeof(ulong) );
 
-#define VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR( vm, acc_info, decl )                                                 \
-    /* Translate the pointer to the RefCell */                                                                   \
-    fd_vm_rc_refcell_vec_t * FD_EXPAND_THEN_CONCAT2(decl, _box) =                                                \
-      FD_VM_MEM_HADDR_ST( vm, acc_info->data_box_addr, FD_VM_RC_REFCELL_ALIGN, sizeof(fd_vm_rc_refcell_vec_t) ); \
-    /* Extract the vaddr the RefCell points to */                                                                \
-    ulong decl = FD_EXPAND_THEN_CONCAT2(decl, _box)->addr;
+#define VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR( vm, acc_info, decl )                                                                                   \
+    /* Translate the vaddr to the slice */                                                                                                         \
+    fd_vm_vec_t const * FD_EXPAND_THEN_CONCAT2(decl, _hptr_) =                                                                                     \
+      FD_VM_MEM_HADDR_LD( vm, vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->data_box_addr ), FD_VM_RC_REFCELL_ALIGN, sizeof(fd_vm_vec_t) ); \
+    /* Extract the vaddr embedded in the slice */                                                                                                  \
+    ulong decl = FD_EXPAND_THEN_CONCAT2(decl, _hptr_)->addr;
 
-/* TODO: possibly define a refcell unwrapping macro to simplify this? */
-#define VM_SYSCALL_CPI_ACC_INFO_DATA( vm, acc_info, decl )                                                       \
-    /* Translate the pointer to the RefCell */                                                                   \
-    fd_vm_rc_refcell_vec_t * FD_EXPAND_THEN_CONCAT2(decl, _box) =                                                \
-      FD_VM_MEM_HADDR_ST( vm, acc_info->data_box_addr, FD_VM_RC_REFCELL_ALIGN, sizeof(fd_vm_rc_refcell_vec_t) ); \
-    /* Declare the vm addr of the underlying data, as we sometimes need it later */                              \
-    ulong FD_EXPAND_THEN_CONCAT2(decl, _vm_addr) = FD_EXPAND_THEN_CONCAT2(decl, _box)->addr;                     \
-    /* Translate the pointer to the underlying data */                                                           \
-    uchar * decl = FD_VM_MEM_HADDR_ST(                                                                           \
-      vm, FD_EXPAND_THEN_CONCAT2(decl, _box)->addr, alignof(uchar), FD_EXPAND_THEN_CONCAT2(decl, _box)->len );   \
-    /* Declare the size of the underlying data */                                                                \
-    ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = FD_EXPAND_THEN_CONCAT2(decl, _box)->len;
+#define VM_SYSCALL_CPI_ACC_INFO_DATA_LEN_VADDR( vm, acc_info, decl ) \
+    ulong decl = fd_ulong_sat_add( vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->data_box_addr ), sizeof(ulong) );
 
-#define VM_SYSCALL_CPI_ACC_INFO_METADATA( vm, acc_info, decl )                                                   \
-    /* Translate the pointer to the RefCell */                                                                   \
-    fd_vm_rc_refcell_vec_t * FD_EXPAND_THEN_CONCAT2(decl, _box) =                                                \
-      FD_VM_MEM_HADDR_ST( vm, acc_info->data_box_addr, FD_VM_RC_REFCELL_ALIGN, sizeof(fd_vm_rc_refcell_vec_t) ); \
-    /* Declare the vm addr of the underlying data, as we sometimes need it later */                              \
-    ulong FD_EXPAND_THEN_CONCAT2(decl, _vm_addr) = FD_EXPAND_THEN_CONCAT2(decl, _box)->addr;                     \
-    /* Declare the size of the underlying data */                                                                \
-    ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = FD_EXPAND_THEN_CONCAT2(decl, _box)->len;
+#define VM_SYSCALL_CPI_ACC_INFO_DATA_LEN( vm, acc_info, decl ) \
+    ulong * decl = FD_VM_MEM_HADDR_ST( vm, fd_ulong_sat_add( vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->data_box_addr ), sizeof(ulong) ), 1UL, sizeof(ulong) );
 
-/* The data and lamports fields are in an Rc<Refcell<T>> in the Rust SDK AccountInfo */
+#define VM_SYSCALL_CPI_ACC_INFO_DATA( vm, acc_info, decl )                                                                                         \
+    /* Translate the vaddr to the slice */                                                                                                         \
+    fd_vm_vec_t const * FD_EXPAND_THEN_CONCAT2(decl, _hptr_) =                                                                                     \
+      FD_VM_MEM_HADDR_LD( vm, vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->data_box_addr ), FD_VM_RC_REFCELL_ALIGN, sizeof(fd_vm_vec_t) ); \
+    /* Declare the vaddr of the slice's underlying byte array */                                                                                   \
+    ulong FD_EXPAND_THEN_CONCAT2(decl, _vm_addr) = FD_EXPAND_THEN_CONCAT2(decl, _hptr_)->addr;                                                     \
+    /* Declare the size of the slice's underlying byte array */                                                                                    \
+    ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = FD_EXPAND_THEN_CONCAT2(decl, _hptr_)->len;                                                          \
+    /* Translate the vaddr to the underlying byte array */                                                                                         \
+    uchar * decl = FD_VM_MEM_SLICE_HADDR_ST(                                                                                                       \
+      vm, FD_EXPAND_THEN_CONCAT2(decl, _hptr_)->addr, alignof(uchar), FD_EXPAND_THEN_CONCAT2(decl, _hptr_)->len );
+
+#define VM_SYSCALL_CPI_ACC_INFO_METADATA( vm, acc_info, decl )                                                                                     \
+    /* Translate the vaddr to the slice */                                                                                                         \
+    fd_vm_vec_t const * FD_EXPAND_THEN_CONCAT2(decl, _hptr_) =                                                                                     \
+      FD_VM_MEM_HADDR_LD( vm, vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->data_box_addr ), FD_VM_RC_REFCELL_ALIGN, sizeof(fd_vm_vec_t) ); \
+    /* Declare the vaddr of the slice's underlying byte array */                                                                                   \
+    ulong FD_EXPAND_THEN_CONCAT2(decl, _vm_addr) = FD_EXPAND_THEN_CONCAT2(decl, _hptr_)->addr;                                                     \
+    /* Declare the size of the slice's underlying byte array */                                                                                    \
+    ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = FD_EXPAND_THEN_CONCAT2(decl, _hptr_)->len;
+
+#define VM_SYSCALL_CPI_ACC_INFO_METADATA_MUT( vm, acc_info, decl )                                                                                 \
+    /* Translate the vaddr to the slice */                                                                                                         \
+    fd_vm_vec_t * FD_EXPAND_THEN_CONCAT2(decl, _hptr_) =                                                                                           \
+      FD_VM_MEM_HADDR_ST( vm, vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->data_box_addr ), FD_VM_RC_REFCELL_ALIGN, sizeof(fd_vm_vec_t) ); \
+    /* Declare the vaddr of the slice's underlying byte array */                                                                                   \
+    ulong FD_EXPAND_THEN_CONCAT2(decl, _vm_addr) = FD_EXPAND_THEN_CONCAT2(decl, _hptr_)->addr;                                                     \
+    /* Declare the size of the slice's underlying byte array */                                                                                    \
+    ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = FD_EXPAND_THEN_CONCAT2(decl, _hptr_)->len;
+
 #define VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_RC_REFCELL_VADDR( vm, acc_info, decl ) \
-    ulong decl = acc_info->lamports_box_addr;
+    ulong decl = vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->lamports_box_addr );
 
 #define VM_SYSCALL_CPI_ACC_INFO_DATA_RC_REFCELL_VADDR( vm, acc_info, decl ) \
-    ulong decl = acc_info->data_box_addr;
+    ulong decl = vm_syscall_cpi_acc_info_rc_refcell_as_ptr( acc_info->data_box_addr );
 
-#define VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN( vm, acc_info, decl, len_ ) \
-  FD_EXPAND_THEN_CONCAT2(decl, _box)->len = len_;
+#define VM_SYSCALL_CPI_SET_ACC_INFO_DATA_GET_LEN( vm, acc_info, decl ) \
+  ulong FD_EXPAND_THEN_CONCAT2(decl, _len) = FD_EXPAND_THEN_CONCAT2(decl, _hptr_)->len;
+
+#define VM_SYSCALL_CPI_SET_ACC_INFO_DATA_SET_LEN( vm, acc_info, decl, len_ ) \
+  FD_EXPAND_THEN_CONCAT2(decl, _hptr_)->len = len_;
 
 #include "fd_vm_syscall_cpi_common.c"
 
@@ -585,7 +635,11 @@ ulong serialized_lamports_vaddr( fd_vm_t * vm, fd_vm_acc_region_meta_t * acc_reg
 #undef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS
 #undef VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR
 #undef VM_SYSCALL_CPI_ACC_INFO_DATA
+#undef VM_SYSCALL_CPI_ACC_INFO_DATA_LEN_VADDR
+#undef VM_SYSCALL_CPI_ACC_INFO_DATA_LEN
 #undef VM_SYSCALL_CPI_ACC_INFO_METADATA
+#undef VM_SYSCALL_CPI_ACC_INFO_METADATA_MUT
 #undef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_RC_REFCELL_VADDR
 #undef VM_SYSCALL_CPI_ACC_INFO_DATA_RC_REFCELL_VADDR
-#undef VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN
+#undef VM_SYSCALL_CPI_SET_ACC_INFO_DATA_GET_LEN
+#undef VM_SYSCALL_CPI_SET_ACC_INFO_DATA_SET_LEN

@@ -23,8 +23,8 @@ static void *                  _cb_v_ctx      = NULL;
 int
 cb_manifest( void *                 ctx,
              fd_solana_manifest_t * manifest,
-             fd_valloc_t            valloc ) {
-  (void)valloc;
+             fd_spad_t *            spad ) {
+  (void)spad;
   _cb_v_manifest = manifest;
   _cb_v_ctx      = ctx;
   return _cb_retcode;
@@ -32,7 +32,9 @@ cb_manifest( void *                 ctx,
 
 int
 cb_status_cache( void *                  ctx,
-                 fd_bank_slot_deltas_t * cache ) {
+                 fd_bank_slot_deltas_t * cache,
+                 fd_spad_t *             spad ) {
+  (void)spad;
   _cb_v_cache = cache;
   _cb_v_ctx   = ctx;
   return _cb_retcode;
@@ -55,17 +57,6 @@ main( int     argc,
   FD_TEST( wksp );
   ulong const static_tag = 1UL;
 
-  ulong const fd_alloc_tag = 41UL;
-  fd_alloc_t * alloc = fd_alloc_join( fd_alloc_new( fd_wksp_alloc_laddr( wksp, fd_alloc_align(), fd_alloc_footprint(), fd_alloc_tag ), fd_alloc_tag ), 0UL );
-  FD_TEST( alloc );
-
-  ulong const scratch_tag = 90UL;
-  ulong   smax = 16384UL;
-  uchar * smem = fd_wksp_alloc_laddr( wksp, FD_SCRATCH_SMEM_ALIGN, smax, scratch_tag );
-  FD_TEST( smem );
-  ulong fmem[ 16 ];
-  fd_scratch_attach( smem, fmem, smax, 16UL );
-
   /* Setup slot context */
 
   ulong const txn_max =  16UL;
@@ -83,7 +74,9 @@ main( int     argc,
 
   void * restore_mem = fd_wksp_alloc_laddr( wksp, fd_snapshot_restore_align(), fd_snapshot_restore_footprint(), static_tag );
 
-  fd_valloc_t _valloc = fd_alloc_virtual( alloc );
+  fd_spad_t * _spad = fd_spad_new( fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( 4194304UL ), static_tag ), 4194304UL );
+  fd_spad_push( _spad );
+  FD_LOG_WARNING(("SPAD %lu", _spad->mem_max));
 
   fd_funk_txn_xid_t xid[1] = {{ .ul = {4} }};
   ulong             restore_slot = 999UL;
@@ -94,28 +87,30 @@ main( int     argc,
      context that is waiting for a manifest. */
 
 # define NEW_RESTORE() \
-    fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, _dummy_ctx, cb_manifest, cb_status_cache )
+    fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _spad, _dummy_ctx, cb_manifest, cb_status_cache )
 
   /* NEW_RESTORE_POST_MANIFEST is a convenience macro to create a new
      snapshot restore context that pretends that the manifest has
      already been restored. */
 
 # define NEW_RESTORE_POST_MANIFEST() __extension__({ \
-    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, _dummy_ctx, cb_manifest, cb_status_cache ); \
+    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _spad, _dummy_ctx, cb_manifest, cb_status_cache ); \
     restore->manifest_done = MANIFEST_DONE_SEEN; \
     restore->slot          = restore_slot; \
     restore; \
   })
 
   /* Test invalid params */
-
-  FD_TEST( !fd_snapshot_restore_new( NULL,        acc_mgr, NULL, _valloc, NULL, cb_manifest, cb_status_cache ) );  /* NULL mem */
-  FD_TEST( !fd_snapshot_restore_new( restore_mem, NULL,    NULL, _valloc, NULL, cb_manifest, cb_status_cache ) );  /* NULL acc_mgr */
+  fd_spad_push( _spad );
+  FD_TEST( !fd_snapshot_restore_new( NULL,        acc_mgr, NULL, _spad, NULL, cb_manifest, cb_status_cache ) );  /* NULL mem */
+  FD_TEST( !fd_snapshot_restore_new( restore_mem, NULL,    NULL, _spad, NULL, cb_manifest, cb_status_cache ) );  /* NULL acc_mgr */
+  fd_spad_pop( _spad );
 
   /* Reject accounts before manifest */
 
   do {
-    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, NULL, cb_manifest, cb_status_cache );
+    fd_spad_push( _spad );
+    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _spad, NULL, cb_manifest, cb_status_cache );
     FD_TEST( restore );
     FD_TEST( restore->failed        == 0 );
     FD_TEST( restore->manifest_done == 0 );
@@ -128,63 +123,73 @@ main( int     argc,
     FD_TEST( EINVAL==fd_snapshot_restore_chunk( restore, "A", 1UL ) );
 
     fd_snapshot_restore_delete( restore );
+    fd_spad_pop( _spad );
   } while(0);
 
   /* Reject invalid status cache */
 
   do {
-    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, NULL, cb_manifest, cb_status_cache );
+    fd_spad_push( _spad );
+    FD_LOG_WARNING(("SPAD %lu", _spad->mem_max));
+    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _spad, NULL, cb_manifest, cb_status_cache );
     FD_TEST( restore );
     fd_tar_meta_t meta = { .name = "snapshots/status_cache", .typeflag = FD_TAR_TYPE_REGULAR };
     FD_TEST( 0==fd_snapshot_restore_file( restore, &meta, 18UL ) );
     FD_TEST( restore->buf );
     FD_TEST( EINVAL==fd_snapshot_restore_chunk( restore, "AAAAAAAAAAAAAAAAAA", 18UL ) );
     fd_snapshot_restore_delete( restore );
+    fd_spad_pop( _spad );
   } while(0);
 
   /* Reject invalid manifest */
 
   do {
-    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, NULL, cb_manifest, cb_status_cache );
+    fd_spad_push( _spad );
+    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _spad, NULL, cb_manifest, cb_status_cache );
     FD_TEST( restore );
     fd_tar_meta_t meta = { .name = "snapshots/123/123", .typeflag = FD_TAR_TYPE_REGULAR };
     FD_TEST( 0==fd_snapshot_restore_file( restore, &meta, 18UL ) );
     FD_TEST( restore->buf );
     FD_TEST( EINVAL==fd_snapshot_restore_chunk( restore, "AAAAAAAAAAAAAAAAAA", 18UL ) );
     fd_snapshot_restore_delete( restore );
+    fd_spad_pop( _spad );
   } while(0);
 
   /* Test status cache with size exceeding buffer size (out of memory) */
 
   do {
-    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, NULL, cb_manifest, cb_status_cache );
+    fd_spad_push( _spad );
+    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _spad, NULL, cb_manifest, cb_status_cache );
     FD_TEST( restore );
     fd_tar_meta_t meta = { .name = "snapshots/status_cache", .typeflag = FD_TAR_TYPE_REGULAR };
     FD_TEST( ENOMEM==fd_snapshot_restore_file( restore, &meta, ULONG_MAX ) );
     FD_TEST( restore->failed == 1 );
     fd_snapshot_restore_delete( restore );
+    fd_spad_pop( _spad );
   } while(0);
 
   /* Test manifest with size exceeding buffer size (out of memory) */
 
   do {
-    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _valloc, NULL, cb_manifest, cb_status_cache );
+    fd_spad_push( _spad );
+    fd_snapshot_restore_t * restore = fd_snapshot_restore_new( restore_mem, acc_mgr, NULL, _spad, NULL, cb_manifest, cb_status_cache );
     FD_TEST( restore );
     fd_tar_meta_t meta = { .name = "snapshots/123/123", .typeflag = FD_TAR_TYPE_REGULAR };
     FD_TEST( ENOMEM==fd_snapshot_restore_file( restore, &meta, ULONG_MAX ) );
     FD_TEST( restore->failed == 1 );
     fd_snapshot_restore_delete( restore );
+    fd_spad_pop( _spad );
   } while(0);
 
   /* Test basic manifest */
 
   do {
-    fd_scratch_push();
+    fd_spad_push( _spad );
     fd_solana_manifest_t manifest[1] = {{ .bank = { .slot = 3UL } }};
     ulong manifest_sz = fd_solana_manifest_size( manifest );
 
     ulong   data_sz = manifest_sz;
-    uchar * data    = fd_scratch_alloc( 1UL, data_sz );
+    uchar * data    = fd_spad_alloc( _spad, 8UL, data_sz );
     fd_bincode_encode_ctx_t encode =
       { .data    = data,
         .dataend = data + manifest_sz + 1 };
@@ -206,27 +211,27 @@ main( int     argc,
     FD_TEST( restore->slot          == 3UL                );
 
     fd_snapshot_restore_delete( restore );
-    fd_scratch_pop();
+    fd_spad_pop( _spad );
   } while(0);
 
   /* Test basic status cache */
 
   do {
-    fd_scratch_push();
+    fd_spad_push( _spad );
     /* Create basic slot delta */
     fd_bank_slot_deltas_t cache[1];
     cache->slot_deltas_len = 1;
-    cache->slot_deltas = fd_scratch_alloc(fd_slot_delta_align(), fd_slot_delta_footprint());
+    cache->slot_deltas = fd_spad_alloc( _spad, fd_slot_delta_align(), fd_slot_delta_footprint() );
     cache->slot_deltas->is_root = 0;
     cache->slot_deltas->slot = 10;
     cache->slot_deltas->slot_delta_vec_len = 1;
-    cache->slot_deltas->slot_delta_vec = fd_scratch_alloc(fd_status_pair_align(), fd_status_pair_footprint());
+    cache->slot_deltas->slot_delta_vec = fd_spad_alloc( _spad, fd_status_pair_align(), fd_status_pair_footprint() );
 
     fd_status_pair_t * pair = cache->slot_deltas->slot_delta_vec;
     fd_memset( pair->hash.uc, 1UL, sizeof(fd_hash_t) );
     pair->value.txn_idx = 2;
     pair->value.statuses_len = 1;
-    pair->value.statuses = fd_scratch_alloc( fd_cache_status_align(), fd_cache_status_footprint() );
+    pair->value.statuses = fd_spad_alloc( _spad, fd_cache_status_align(), fd_cache_status_footprint() );
 
     fd_cache_status_t * status = pair->value.statuses;
     status->result.discriminant = 0;
@@ -235,7 +240,7 @@ main( int     argc,
     ulong sz = fd_bank_slot_deltas_size( cache );
 
     ulong   data_sz = sz;
-    uchar * data    = fd_scratch_alloc( 1UL, data_sz );
+    uchar * data    = fd_spad_alloc( _spad, 8UL, data_sz );
     fd_bincode_encode_ctx_t encode =
       { .data    = data,
         .dataend = data + sz + 1 };
@@ -256,18 +261,18 @@ main( int     argc,
     FD_TEST( restore->status_cache_done == 1   );
 
     fd_snapshot_restore_delete( restore );
-    fd_scratch_pop();
+    fd_spad_pop( _spad );
   } while(0);
 
   /* Ignore trailing data after manifest */
 
   do {
-    fd_scratch_push();
+    fd_spad_push( _spad );
     fd_solana_manifest_t manifest[1] = {0};
     ulong manifest_sz = fd_solana_manifest_size( manifest );
 
     ulong   data_sz = manifest_sz + 16UL;
-    uchar * data    = fd_scratch_alloc( 1UL, data_sz );
+    uchar * data    = fd_spad_alloc( _spad, 8UL, data_sz );
     fd_bincode_encode_ctx_t encode =
       { .data    = data,
         .dataend = data + manifest_sz + 1 };
@@ -288,12 +293,13 @@ main( int     argc,
     FD_TEST( 0==fd_snapshot_restore_chunk( restore, data, manifest_sz + 1 ) );
 
     fd_snapshot_restore_delete( restore );
-    fd_scratch_pop();
+    fd_spad_pop( _spad );
   } while(0);
 
   /* Test empty file */
 
   do {
+    fd_spad_push( _spad );
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
     _set_accv_sz( restore, /* slot */ 1UL, /* id */ 1UL, /* sz */ 0UL );
@@ -303,11 +309,13 @@ main( int     argc,
     FD_TEST( 0==fd_snapshot_restore_chunk( restore, NULL, 0UL ) );
     FD_TEST( restore->state == STATE_IGNORE );
     fd_snapshot_restore_delete( restore );
+    fd_spad_pop( _spad );
   } while(0);
 
   /* Test undersz AppendVec (torn header) */
 
   do {
+    fd_spad_push( _spad );
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
     restore->manifest_done = 1;
@@ -318,11 +326,13 @@ main( int     argc,
     FD_TEST( restore->failed == 1 );
 
     fd_snapshot_restore_delete( restore );
+    fd_spad_pop( _spad );
   } while(0);
 
   /* Test undersz AppendVec (no body) */
 
   do {
+    fd_spad_push( _spad );
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
     restore->manifest_done = 1;
@@ -339,11 +349,13 @@ main( int     argc,
     } while(0);
 
     fd_snapshot_restore_delete( restore );
+    fd_spad_pop( _spad );
   } while(0);
 
   /* Test undersz AppendVec (torn body) */
 
   do {
+    fd_spad_push( _spad );
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
     restore->manifest_done = 1;
@@ -360,11 +372,13 @@ main( int     argc,
     } while(0);
 
     fd_snapshot_restore_delete( restore );
+    fd_spad_pop( _spad );
   } while(0);
 
   /* Reject account with too high slot number */
 
   do {
+    fd_spad_push( _spad );
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
     restore->manifest_done = 1;
@@ -374,11 +388,13 @@ main( int     argc,
     FD_TEST( EINVAL==fd_snapshot_restore_file( restore, &accv_meta, sizeof(fd_solana_account_hdr_t) ) );
     FD_TEST( restore->failed == 1 );
     fd_snapshot_restore_delete( restore );
+    fd_spad_pop( _spad );
   } while(0);
 
   /* Dead accounts must be inserted into database too */
 
   do {
+    fd_spad_push( _spad );
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
     restore->manifest_done = MANIFEST_DONE_SEEN;
@@ -403,11 +419,13 @@ main( int     argc,
 
     fd_funk_txn_cancel( funk, restore->funk_txn, 0 );
     fd_snapshot_restore_delete( restore );
+    fd_spad_pop( _spad );
   } while(0);
 
   /* Old revision must not overrule dead account */
 
   do {
+    fd_spad_push( _spad );
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
     restore->manifest_done = MANIFEST_DONE_SEEN;
@@ -447,6 +465,7 @@ main( int     argc,
 
     fd_funk_txn_cancel( funk, restore->funk_txn, 0 );
     fd_snapshot_restore_delete( restore );
+    fd_spad_pop( _spad );
   } while(0);
 
   /* When an old revision is encountered, only that revision should be
@@ -454,6 +473,7 @@ main( int     argc,
      database. */
 
   do {
+    fd_spad_push( _spad );
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
     restore->manifest_done = MANIFEST_DONE_SEEN;
@@ -524,11 +544,13 @@ main( int     argc,
 
     fd_funk_txn_cancel( funk, restore->funk_txn, 0 );
     fd_snapshot_restore_delete( restore );
+    fd_spad_pop( _spad );
   } while(0);
 
   /* Test undersz AppendVec (real sz smaller than indicated sz) */
 
   do {
+    fd_spad_push( _spad );
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
     restore->manifest_done = 1;
@@ -539,11 +561,13 @@ main( int     argc,
     FD_TEST( restore->failed == 1 );
 
     fd_snapshot_restore_delete( restore );
+    fd_spad_pop( _spad );
   } while(0);
 
   /* Test accounts */
 
   do {
+    fd_spad_push( _spad );
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
     restore->manifest_done = MANIFEST_DONE_SEEN;
@@ -632,6 +656,7 @@ main( int     argc,
     FD_TEST( 0== fd_snapshot_restore_chunk( restore, "ABCD", 4UL ) );
 
     fd_snapshot_restore_delete( restore );
+    fd_spad_pop( _spad );
   } while(0);
 
 # undef NEW_RESTORE_POST_MANIFEST
@@ -640,11 +665,10 @@ main( int     argc,
 
   fd_funk_end_write( funk );
 
-  fd_wksp_free_laddr( fd_scratch_detach( NULL ) );
+  fd_wksp_free_laddr( fd_spad_delete( fd_spad_leave( _spad ) ) );
   fd_wksp_free_laddr( restore_mem );
   fd_wksp_free_laddr( fd_acc_mgr_delete( acc_mgr ) );
   fd_wksp_free_laddr( fd_funk_delete( fd_funk_leave( funk ) ) );
-  fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
   fd_wksp_delete_anonymous( wksp );
 
   FD_LOG_NOTICE(( "pass" ));

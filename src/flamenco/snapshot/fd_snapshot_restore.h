@@ -52,7 +52,7 @@ typedef struct fd_snapshot_restore fd_snapshot_restore_t;
 typedef int
 (* fd_snapshot_restore_cb_manifest_fn_t)( void *                 ctx,
                                           fd_solana_manifest_t * manifest,
-                                          fd_valloc_t            valloc );
+                                          fd_spad_t *            spad );
 
 /* fd_snapshot_restore_cb_status_cache_fn_t is a callback that provides the
    user of snapshot restore with the deserialized slot deltas.  The caller
@@ -64,7 +64,8 @@ typedef int
    API. */
 typedef int
 (* fd_snapshot_restore_cb_status_cache_fn_t)( void *                  ctx,
-                                              fd_bank_slot_deltas_t * slot_deltas );
+                                              fd_bank_slot_deltas_t * slot_deltas,
+                                              fd_spad_t *             spad );
 
 FD_PROTOTYPES_BEGIN
 
@@ -81,7 +82,7 @@ fd_snapshot_restore_footprint( void );
    region, which adheres to above alignment/footprint requirements.
    Returns qualified handle to object given restore object on success.
 
-   valloc is a memory allocator that outlives the snapshot restore
+   spad is a bump allocator that outlives the snapshot restore
    object.  This allocator is used to buffer the serialized snapshot
    manifest (ca ~500 MB) and account data.
 
@@ -107,13 +108,13 @@ fd_snapshot_restore_t *
 fd_snapshot_restore_new( void *                               mem,
                          fd_acc_mgr_t *                       acc_mgr,
                          fd_funk_txn_t *                      txn,
-                         fd_valloc_t                          valloc,
+                         fd_spad_t *                          spad,
                          void *                               cb_manifest_ctx,
                          fd_snapshot_restore_cb_manifest_fn_t cb_manifest,
                          fd_snapshot_restore_cb_status_cache_fn_t cb_status_cache );
 
 /* fd_snapshot_restore_delete destroys the given restore object and
-   frees any resources.  Returns main and scratch memory region back to
+   frees any resources.  Returns allocated memory region back to
    caller. */
 
 void *

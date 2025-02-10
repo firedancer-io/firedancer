@@ -1,5 +1,5 @@
-/* This file contains all the logic that is common to both the C and Rust 
-   CPI syscalls (sol_invoke_signed_{rust/c}). As such, all of the functions in 
+/* This file contains all the logic that is common to both the C and Rust
+   CPI syscalls (sol_invoke_signed_{rust/c}). As such, all of the functions in
    here are templated and will be instantiated for both the C and Rust CPI ABIs.
 
    The only difference between the C and Rust CPI syscalls is the ABI data layout
@@ -8,17 +8,33 @@
 
    The entry-point for these syscalls is VM_SYSCALL_CPI_ENTRYPOINT.
 
-   Note that the code for these syscalls could be simplified somewhat, but we have opted to keep 
+   Note that the code for these syscalls could be simplified somewhat, but we have opted to keep
    it as close to the Solana code as possible to make it easier to audit that we execute equivalently.
    Most of the top-level functions in this file correspond directly to functions in the Solana codebase
    and links to the source have been provided.
  */
 
+/* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L23
+
+   This is used for checking that the account info pointers given by the
+   user match up with the addresses in the serialized account metadata.
+
+   Field name length is restricted to 54 because
+   127 - (37 + 18 + 18) leaves 54 characters for the field name
+ */
+#define VM_SYSCALL_CPI_CHECK_ACCOUNT_INFO_POINTER_FIELD_MAX_54(vm, vm_addr, expected_vm_addr, field_name) \
+  if( FD_UNLIKELY( vm_addr!=expected_vm_addr )) {                                                         \
+    fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,                                             \
+      "Invalid account info pointer `%s': %#lx != %#lx", field_name, vm_addr, expected_vm_addr );         \
+    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );                                   \
+    return FD_VM_SYSCALL_ERR_INVALID_POINTER;                                                             \
+  }
+
 /* fd_vm_syscall_cpi_instruction_to_instr_{c/rust} takes the translated
    CPI ABI structures (instruction and account meta list), and uses these
    to populate a fd_instr_info_t struct. This struct can then be given to the
    FD runtime for execution.
-   
+
 Parameters:
 - vm: handle to the vm
 - cpi_instr: instruction to execute laid out in the CPI ABI format (Rust or C)
@@ -74,7 +90,7 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
           acc_idx_seen[j] = 1;
           if( out_instr->borrowed_accounts[i]->const_meta ) {
             /* TODO: what if this account is borrowed as writable? */
-            fd_uwide_inc( 
+            fd_uwide_inc(
               &starting_lamports_h, &starting_lamports_l,
               starting_lamports_h, starting_lamports_l,
               out_instr->borrowed_accounts[i]->const_meta->info.lamports );
@@ -96,6 +112,9 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
       }
     }
     if( FD_UNLIKELY( !account_found ) ) {
+      FD_BASE58_ENCODE_32_BYTES( pubkey, id_b58 );
+      fd_log_collector_msg_many( vm->instr_ctx, 2, "Instruction references an unknown account ", 42UL, id_b58, id_b58_len );
+      FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_MISSING_ACC );
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
   }
@@ -109,16 +128,16 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
   return FD_VM_SUCCESS;
 }
 
-/* 
+/*
 fd_vm_syscall_cpi_update_callee_acc_{rust/c} corresponds to solana_bpf_loader_program::syscalls::cpi::update_callee_account:
 https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L1302
 
 (the copy of the account stored in the instruction context's
 borrowed accounts cache)
 
-This function should be called before the CPI instruction is executed. Its purpose is to 
-update the callee account's view of the given account with any changes the caller may made 
-to the account before the CPI instruction is executed. 
+This function should be called before the CPI instruction is executed. Its purpose is to
+update the callee account's view of the given account with any changes the caller may made
+to the account before the CPI instruction is executed.
 
 The callee's view of the account is the borrowed accounts cache, so to update the
 callee account we look up the account in the borrowed accounts cache and update it.
@@ -140,9 +159,6 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
 
   VM_SYSCALL_CPI_ACC_INFO_METADATA( vm, account_info, caller_acc_data );
 
-  // FIXME: should this be FD_VM_CU_MEM_UPDATE? Changing this changes the CU behaviour from main
-  FD_VM_CU_UPDATE( vm, caller_acc_data_len / FD_VM_CPI_BYTES_PER_UNIT );
-
   fd_borrowed_account_t * callee_acc = NULL;
   int err = fd_instr_borrowed_account_modify_idx(vm->instr_ctx, instr_acc_idx, 0, &callee_acc);
   if( FD_UNLIKELY( err ) ) {
@@ -154,14 +170,13 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
     /* If the account is not modifiable, we can't change it (and it can't have been changed by the callee) */
     return FD_VM_SUCCESS;
   }
-  
-  /* Update the lamports. TODO: This should technically be a load, but it
-     doesn't matter in this case.  */
+
   VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, account_info, caller_acc_lamports );
-  if( callee_acc->meta->info.lamports!=*caller_acc_lamports ) { 
+  if( callee_acc->meta->info.lamports!=*caller_acc_lamports ) {
     err = fd_account_set_lamports( vm->instr_ctx, instr_acc_idx, *caller_acc_lamports );
     if( FD_UNLIKELY( err ) ) {
-      return err;
+      FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+      return -1;
     }
   }
 
@@ -171,7 +186,7 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
     /* FIXME: double-check these permissions, especially the callee_acc_idx */
 
     /* Translate and get the account data */
-    uchar const * caller_acc_data = FD_VM_MEM_HADDR_LD( vm, caller_acc_data_vm_addr, sizeof(uchar), caller_acc_data_len ); 
+    uchar const * caller_acc_data = FD_VM_MEM_SLICE_HADDR_LD( vm, caller_acc_data_vm_addr, sizeof(uchar), caller_acc_data_len );
 
     if( fd_account_can_data_be_resized( vm->instr_ctx, callee_acc->meta, caller_acc_data_len, &err ) &&
         fd_account_can_data_be_changed( vm->instr_ctx, instr_acc_idx, &err ) ) {
@@ -180,16 +195,18 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
 
       err = fd_account_set_data_from_slice( vm->instr_ctx, instr_acc_idx, caller_acc_data, caller_acc_data_len );
       if( FD_UNLIKELY( err ) ) {
-        return err;
+        FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+        return -1;
       }
-    } else if( FD_UNLIKELY( caller_acc_data_len!=callee_acc->const_meta->dlen || 
+    } else if( FD_UNLIKELY( caller_acc_data_len!=callee_acc->const_meta->dlen ||
                             memcmp( callee_acc->const_data, caller_acc_data, caller_acc_data_len ) ) ) {
-      return err;
+      FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+      return -1;
     }
 
   } else { /* Direct mapping enabled */
     ulong region_idx  = vm->acc_region_metas[ instr_acc_idx ].region_idx;
-    uint original_len = vm->acc_region_metas[ instr_acc_idx ].has_data_region ? 
+    uint original_len = vm->acc_region_metas[ instr_acc_idx ].has_data_region ?
                         vm->input_mem_regions[ region_idx ].region_sz : 0U;
     ulong prev_len    = callee_acc->const_meta->dlen;
     ulong post_len    = caller_acc_data_len;
@@ -201,37 +218,41 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
       ulong realloc_bytes_used = fd_ulong_sat_sub( post_len, original_len );
 
       if( FD_UNLIKELY( vm->is_deprecated && realloc_bytes_used ) ) {
-        return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+        FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC );
+        return -1;
       }
 
       err = fd_account_set_data_length( vm->instr_ctx, instr_acc_idx, post_len );
       if( FD_UNLIKELY( err ) ) {
-        return err;
+        FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+        return -1;
       }
 
 
       if( realloc_bytes_used ) {
         /* We need to get the relevant data slice. However, we know that the
            current length currently exceeds the original length for the account
-           data. This means that all of the additional bytes must exist in the 
+           data. This means that all of the additional bytes must exist in the
            account data resizing region. As an invariant, original_len must be
-           equal to the length of the account data region. This means we can 
-           smartly look up the right region and don't need to worry about 
-           multiple region access.We just need to load in the bytes from 
+           equal to the length of the account data region. This means we can
+           smartly look up the right region and don't need to worry about
+           multiple region access.We just need to load in the bytes from
            (original len, post_len]. */
-        uchar const * realloc_data = FD_VM_MEM_HADDR_LD( vm, caller_acc_data_vm_addr+original_len, alignof(uchar), realloc_bytes_used );
+        uchar const * realloc_data = FD_VM_MEM_SLICE_HADDR_LD( vm, caller_acc_data_vm_addr+original_len, alignof(uchar), realloc_bytes_used );
 
         uchar * data = NULL;
         ulong   dlen = 0UL;
         err = fd_account_get_data_mut( vm->instr_ctx, instr_acc_idx, &data, &dlen );
         if( FD_UNLIKELY( err ) ) {
-          return err;
+          FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+          return -1;
         }
         fd_memcpy( data+original_len, realloc_data, realloc_bytes_used );
       }
-      
+
     } else if( FD_UNLIKELY( prev_len!=post_len ) ) {
-      return err;
+      FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+      return -1;
     }
   }
 
@@ -239,19 +260,20 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                         vm,
   if( FD_UNLIKELY( memcmp( callee_acc->meta->info.owner, caller_acc_owner, sizeof(fd_pubkey_t) ) ) ) {
     err = fd_account_set_owner( vm->instr_ctx, instr_acc_idx, (fd_pubkey_t*)caller_acc_owner );
     if( FD_UNLIKELY( err ) ) {
-      return err;
+      FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+      return -1;
     }
   }
 
   return FD_VM_SUCCESS;
 }
 
-/* 
-fd_vm_syscall_cpi_translate_and_update_accounts_ mirrors the behaviour of 
+/*
+fd_vm_syscall_cpi_translate_and_update_accounts_ mirrors the behaviour of
 solana_bpf_loader_program::syscalls::cpi::translate_and_update_accounts:
 https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L954-L1085
 
-It translates the caller accounts to the host address space, and then calls 
+It translates the caller accounts to the host address space, and then calls
 fd_vm_syscall_cpi_update_callee_acc to update the callee borrowed account with any changes
 the caller has made to the account during execution before this CPI call.
 
@@ -273,16 +295,17 @@ Populates the given out_callee_indices and out_caller_indices arrays:
 */
 #define VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC FD_EXPAND_THEN_CONCAT2(fd_vm_syscall_cpi_translate_and_update_accounts_, VM_SYSCALL_CPI_ABI)
 static int
-VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC( 
+VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
                               fd_vm_t *                         vm,
                               fd_instruction_account_t const *  instruction_accounts,
                               ulong const                       instruction_accounts_cnt,
+                              ulong                             acct_infos_va,
+                              fd_pubkey_t const * *             account_info_keys, /* same length as account_infos_length */
                               VM_SYSCALL_CPI_ACC_INFO_T const * account_infos,
                               ulong const                       account_infos_length,
                               ulong *                           out_callee_indices,
                               ulong *                           out_caller_indices,
                               ulong *                           out_len ) {
-
   for( ulong i=0UL; i<instruction_accounts_cnt; i++ ) {
     if( i!=instruction_accounts[i].index_in_callee ) {
       /* Skip duplicate accounts */
@@ -307,16 +330,20 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
     /* Find the indicies of the account in the caller and callee instructions */
     uint found = 0;
     for( ulong j=0; (j < account_infos_length) && !found; j++ ) {
-
-      /* Look up the pubkey to see if it is the account we're looking for,
-         error out if invalid address (implies bad account_infos and is also what Agave does).
-         https://github.com/firedancer-io/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L828-L832 */
-      fd_pubkey_t const * acct_addr = FD_VM_MEM_HADDR_LD( 
-        vm, account_infos[j].pubkey_addr, alignof(uchar), sizeof(fd_pubkey_t) );
-
+      fd_pubkey_t const * acct_addr = account_info_keys[ j ];
+      /* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L912
+       */
       if( memcmp( account_key->uc, acct_addr->uc, sizeof(fd_pubkey_t) ) != 0 ) {
         continue;
       }
+
+      /* The following error is practically unreachable because
+         essentially the same check is performed in
+         prepare_instruction().  So a missing account error would have
+         been returned then and there.  Hence, we are skipping this
+         duplicate check here.
+         https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L914-L923
+       */
 
       /* Record the indicies of this account */
       ulong index_in_caller = instruction_accounts[i].index_in_caller;
@@ -327,98 +354,163 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
       }
       found = 1;
 
-      if ( vm->direct_mapping ) {
-        /* Check that the account info pointers given by the user correspond to the correct locations
-           in the serialized account metadata
-           
-           https://github.com/anza-xyz/agave/blob/v2.1.7/programs/bpf_loader/src/syscalls/cpi.rs#L116 */
-        fd_vm_acc_region_meta_t * acc_region_meta = &vm->acc_region_metas[index_in_caller];
+      /* Logically this check isn't ever going to fail due to how the
+         account_info_keys array is set up.  We replicate the check for
+         clarity and also to guard against accidental violation of the
+         assumed invariant in the future.
+         https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L926-L928
+       */
+      if( FD_UNLIKELY( j >= account_infos_length ) ) {
+        FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
+        return FD_VM_SYSCALL_ERR_INVALID_LENGTH;
+      }
+
+      /* The following implements the checks in from_account_info which
+         is invoked as do_translate() in translate_and_update_accounts()
+         https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L931
+       */
+      ////// BEGIN from_account_info
+
+      fd_vm_acc_region_meta_t * acc_region_meta = &vm->acc_region_metas[index_in_caller];
+      if( FD_LIKELY( vm->direct_mapping ) ) {
+        /* https://github.com/anza-xyz/agave/blob/v2.1.7/programs/bpf_loader/src/syscalls/cpi.rs#L116
+         */
         ulong expected_pubkey_vaddr = serialized_pubkey_vaddr( vm, acc_region_meta );
-        if( FD_UNLIKELY( account_infos[j].pubkey_addr!=expected_pubkey_vaddr )) {
-          /* Max msg_sz: 40 + 18 + 18 = 76 < 127 => we can use printf */
-          fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,
-            "Invalid account info pointer `key': %#lx != %#lx", account_infos[j].pubkey_addr, expected_pubkey_vaddr );
-          FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
-          return -1;
-        }
+        /* Max msg_sz: 40 + 18 + 18 = 76 < 127 */
+        VM_SYSCALL_CPI_CHECK_ACCOUNT_INFO_POINTER_FIELD_MAX_54(vm, account_infos[j].pubkey_addr, expected_pubkey_vaddr, "key");
 
-        /* https://github.com/anza-xyz/agave/blob/v2.1.7/programs/bpf_loader/src/syscalls/cpi.rs#L122 */
+        /* https://github.com/anza-xyz/agave/blob/v2.1.7/programs/bpf_loader/src/syscalls/cpi.rs#L122
+         */
         ulong expected_owner_vaddr = serialized_owner_vaddr( vm, acc_region_meta );
-        if( FD_UNLIKELY( account_infos[j].owner_addr!=expected_owner_vaddr )) {
-          /* Max msg_sz: 42 + 18 + 18 = 78 < 127 => we can use printf */
-          fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,
-            "Invalid account info pointer `owner': %#lx != %#lx", account_infos[j].owner_addr, expected_owner_vaddr );
-          FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
-          return -1;
-        }
+        /* Max msg_sz: 42 + 18 + 18 = 78 < 127 */
+        VM_SYSCALL_CPI_CHECK_ACCOUNT_INFO_POINTER_FIELD_MAX_54(vm, account_infos[j].owner_addr, expected_owner_vaddr, "owner");
+      }
 
-        /* Check that the account's lamports Rc<RefCell<T>> is not stored in the account. Because a refcell is
-           only present if the Rust SDK is used, we only need to check this for the Rust SDK.
-
-         https://github.com/anza-xyz/agave/blob/v2.1.7/programs/bpf_loader/src/syscalls/cpi.rs#L140 */
+      /* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L134
+       */
+      VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_VADDR( vm, (account_infos + j), lamports_vaddr );
+      if( FD_LIKELY( vm->direct_mapping ) ) {
+        /* https://github.com/anza-xyz/agave/blob/v2.1.7/programs/bpf_loader/src/syscalls/cpi.rs#L140
+           Check that the account's lamports Rc<RefCell<&mut u64>> is
+           not stored in the account.
+           Because a refcell is only present if the Rust SDK is used, we
+           only need to check this for the Rust ABI.
+        */
         #ifdef VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_RC_REFCELL_VADDR
         VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_RC_REFCELL_VADDR( vm, (account_infos + j), lamports_rc_vaddr )
         if ( FD_UNLIKELY( lamports_rc_vaddr >= FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
           FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
-          return -1;
+          return FD_VM_SYSCALL_ERR_INVALID_POINTER;
         }
         #endif
 
-        /* https://github.com/anza-xyz/agave/blob/v2.1.7/programs/bpf_loader/src/syscalls/cpi.rs#L144 */
-        VM_SYSCALL_CPI_ACC_INFO_LAMPORTS_VADDR( vm, (account_infos + j), lamports_vaddr )
+        /* https://github.com/anza-xyz/agave/blob/v2.1.7/programs/bpf_loader/src/syscalls/cpi.rs#L144
+         */
         ulong expected_lamports_vaddr = serialized_lamports_vaddr( vm, acc_region_meta );
-        if( FD_UNLIKELY( lamports_vaddr!=expected_lamports_vaddr )) {
-          /* Max msg_sz: 45 + 18 + 18 = 81 < 127 => we can use printf */
-          fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,
-            "Invalid account info pointer `lamports': %#lx != %#lx", lamports_vaddr, expected_lamports_vaddr );
-          FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
-          return -1;
-        }
+        /* Max msg_sz: 45 + 18 + 18 = 81 < 127 */
+        VM_SYSCALL_CPI_CHECK_ACCOUNT_INFO_POINTER_FIELD_MAX_54(vm, lamports_vaddr, expected_lamports_vaddr, "lamports");
+      }
+      /* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L151
+       */
+      VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, (account_infos + j), lamports_haddr );
+      (void)lamports_haddr;
 
-        /* Check that the account's data Rc<RefCell<T>> is not stored in the account. Because a refcell is
-           only present if the Rust SDK is used, we only need to check this for the Rust SDK.
+      /* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L154
+       */
+      FD_VM_MEM_HADDR_ST( vm, (account_infos + j)->owner_addr, alignof(uchar), sizeof(fd_pubkey_t) );
 
-         https://github.com/anza-xyz/agave/blob/v2.1.7/programs/bpf_loader/src/syscalls/cpi.rs#L161 */
+      if( FD_LIKELY( vm->direct_mapping ) ) {
+        /* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L161
+           Check that the account's data Rc<RefCell<T>> is not stored in
+           the account.
+           Because a refcell is only present if the Rust SDK is used, we
+           only need to check this for the Rust ABI.
+         */
         #ifdef VM_SYSCALL_CPI_ACC_INFO_DATA_RC_REFCELL_VADDR
         VM_SYSCALL_CPI_ACC_INFO_DATA_RC_REFCELL_VADDR( vm, (account_infos + j), data_rc_vaddr )
         if( FD_UNLIKELY( data_rc_vaddr >= FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
           FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
-          return -1;
+          return FD_VM_SYSCALL_ERR_INVALID_POINTER;
         }
         #endif
+      }
 
+      /* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L166
+       */
+      VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR( vm, (account_infos + j), data_vaddr );
+
+      if( FD_LIKELY( vm->direct_mapping ) ) {
         /* https://github.com/anza-xyz/agave/blob/v2.1.7/programs/bpf_loader/src/syscalls/cpi.rs#L172 */
         ulong expected_data_region_vaddr = FD_VM_MEM_MAP_INPUT_REGION_START +
           vm->input_mem_regions[acc_region_meta->region_idx].vaddr_offset;
-        VM_SYSCALL_CPI_ACC_INFO_DATA_VADDR( vm, (account_infos + j), data_vaddr )
-        if( FD_UNLIKELY( data_vaddr!=expected_data_region_vaddr )) {
-          /* Max msg_sz: 41 + 18 + 18 = 77 < 127 => we can use printf */
-          fd_log_collector_printf_dangerous_max_127( vm->instr_ctx,
-            "Invalid account info pointer `data': %#lx != %#lx", data_vaddr, expected_data_region_vaddr );
-          FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_POINTER );
-          return -1;
-        }
+        /* Max msg_sz: 41 + 18 + 18 = 77 < 127 */
+        VM_SYSCALL_CPI_CHECK_ACCOUNT_INFO_POINTER_FIELD_MAX_54(vm, data_vaddr, expected_data_region_vaddr, "data");
       }
 
+      /* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L180
+       */
+      VM_SYSCALL_CPI_SET_ACC_INFO_DATA_GET_LEN( vm, (account_infos + j), data_vaddr );
+      FD_VM_CU_UPDATE( vm, data_vaddr_len / FD_VM_CPI_BYTES_PER_UNIT );
+
+      /* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L187
+         https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L331
+       */
+      if( FD_UNLIKELY( !vm->direct_mapping ) ) {
+        #ifdef VM_SYSCALL_CPI_ACC_INFO_DATA_LEN
+        /* Rust ABI */
+        VM_SYSCALL_CPI_ACC_INFO_DATA_LEN( vm, (account_infos + j), data_len );
+        (void)acct_infos_va;
+        (void)data_len;
+        #else
+        /* C ABI */
+        FD_VM_MEM_HADDR_ST(
+          vm,
+          vm_syscall_cpi_data_len_vaddr_c(
+            fd_ulong_sat_add( acct_infos_va, fd_ulong_sat_mul( j, VM_SYSCALL_CPI_ACC_INFO_SIZE ) ),
+            (ulong)&((account_infos + j)->data_sz),
+            (ulong)(account_infos + j)
+          ),
+          1UL,
+          sizeof(ulong)
+        );
+        #endif
+      }
+
+      /* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L228
+       */
+      if( FD_UNLIKELY( !vm->direct_mapping ) ) {
+        // FIXME Ideally we'd have a version of the macro that only does the nested translation.
+        VM_SYSCALL_CPI_ACC_INFO_DATA( vm, (account_infos + j), data_haddr );
+        (void)data_haddr;
+        (void)data_haddr_len;
+        (void)data_haddr_vm_addr;
+      }
+
+      ////// END from_account_info
+
+      // TODO We should be able to cache the results of translation and reuse them in the update function.
       /* Update the callee account to reflect any changes the caller has made */
       int err = VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( vm, &account_infos[j], (uchar)index_in_caller );
       if( FD_UNLIKELY( err ) ) {
-        /* We should propagate the instruction error from fd_vm_syscall_cpi_update_callee_acc. */
-        FD_VM_ERR_FOR_LOG_INSTR( vm, err );
-        return -1;
+        /* errors are propagated in the function itself. */
+        return err;
       }
     }
 
     if( !found ) {
-      /* TODO: magic number */
-      return 1002;
+      /* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L966
+       */
+      FD_BASE58_ENCODE_32_BYTES( account_key->uc, id_b58 );
+      fd_log_collector_msg_many( vm->instr_ctx, 2, "Instruction references an unknown account ", 42UL, id_b58, id_b58_len );
+      FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_MISSING_ACC );
+      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
   }
-  
+
   return FD_VM_SUCCESS;
 }
 
-/* fd_vm_cpi_update_caller_acc_{rust/c} mirrors the behaviour of 
+/* fd_vm_cpi_update_caller_acc_{rust/c} mirrors the behaviour of
 solana_bpf_loader_program::syscalls::cpi::update_caller_account:
 https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1291
 
@@ -451,7 +543,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                   vm,
     if( FD_UNLIKELY( err && ( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) ) {
       return 1;
     }
-    
+
     /* Update the caller account lamports with the value from the callee */
     VM_SYSCALL_CPI_ACC_INFO_LAMPORTS( vm, caller_acc_info, caller_acc_lamports );
     *caller_acc_lamports = callee_acc_rec->const_meta->info.lamports;
@@ -466,9 +558,9 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                   vm,
     VM_SYSCALL_CPI_ACC_INFO_DATA( vm, caller_acc_info, caller_acc_data );
 
     ulong const updated_data_len = callee_acc_rec->const_meta->dlen;
-    if( !updated_data_len ) fd_memset( (void*)caller_acc_data, 0, caller_acc_data_len ); 
+    if( !updated_data_len ) fd_memset( (void*)caller_acc_data, 0, caller_acc_data_len );
 
-    if( caller_acc_data_len != updated_data_len ) {    
+    if( caller_acc_data_len != updated_data_len ) {
       /* FIXME: missing MAX_PERMITTED_DATA_INCREASE check from solana
         https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1342 */
 
@@ -476,9 +568,16 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                   vm,
       https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1361
         I don't think we do but need to double-check. */
 
-      VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN( vm, caller_acc_info, caller_acc_data, updated_data_len );
+      /* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L1453
+       */
+      caller_acc_data = FD_VM_MEM_SLICE_HADDR_ST( vm, caller_acc_data_vm_addr, alignof(uchar), updated_data_len );
 
-      /* Update the serialized len field 
+      VM_SYSCALL_CPI_ACC_INFO_METADATA_MUT( vm, caller_acc_info, caller_acc_data_mut );
+      (void)caller_acc_data_mut_vm_addr;
+      (void)caller_acc_data_mut_len;
+      VM_SYSCALL_CPI_SET_ACC_INFO_DATA_SET_LEN( vm, caller_acc_info, caller_acc_data_mut, updated_data_len );
+
+      /* Update the serialized len field
         https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1437 */
       ulong * caller_len = FD_VM_MEM_HADDR_ST( vm, fd_ulong_sat_sub(caller_acc_data_vm_addr, sizeof(ulong)), alignof(ulong), sizeof(ulong) );
       *caller_len = updated_data_len;
@@ -487,10 +586,10 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                   vm,
         https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1534 */
     }
 
-    fd_memcpy( (void*)caller_acc_data, callee_acc_rec->const_data, updated_data_len );
+    fd_memcpy( caller_acc_data, callee_acc_rec->const_data, updated_data_len );
   } else { /* Direct mapping enabled */
 
-    /* Look up the borrowed account from the instruction context, which will 
+    /* Look up the borrowed account from the instruction context, which will
        contain the callee's changes. */
     fd_borrowed_account_t * callee_acc_rec = NULL;
     int err = fd_instr_borrowed_account_view( vm->instr_ctx, pubkey, &callee_acc_rec );
@@ -505,9 +604,9 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                   vm,
     /* Update the caller account owner with the value from the callee */
     uchar const * updated_owner = callee_acc_rec->const_meta->info.owner;
     uchar * caller_acc_owner    = (uchar*)FD_VM_MEM_HADDR_ST( vm, caller_acc_info->owner_addr, alignof(uchar), sizeof(fd_pubkey_t) );
-    if( updated_owner ) { 
+    if( updated_owner ) {
       fd_memcpy( caller_acc_owner, updated_owner, sizeof(fd_pubkey_t) );
-    } else { 
+    } else {
       fd_memset( caller_acc_owner, 0,             sizeof(fd_pubkey_t) );
     }
 
@@ -517,7 +616,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                   vm,
        https://github.com/anza-xyz/agave/blob/36323b6dcd3e29e4d6fe6d73d716a3f33927148b/programs/bpf_loader/src/syscalls/cpi.rs#L1311 */
     VM_SYSCALL_CPI_ACC_INFO_METADATA( vm, caller_acc_info, caller_acc_data );
     ulong region_idx = vm->acc_region_metas[ instr_acc_idx ].region_idx;
-    uint original_len = vm->acc_region_metas[ instr_acc_idx ].has_data_region ? 
+    uint original_len = vm->acc_region_metas[ instr_acc_idx ].has_data_region ?
                         vm->input_mem_regions[ region_idx ].region_sz : 0U;
 
     uchar zero_all_mapped_spare_capacity = 0;
@@ -575,7 +674,10 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                   vm,
 
       /* Because the account data length changed from before to after the
          CPI we must update the fields appropriately. */
-      VM_SYSCALL_CPI_SET_ACC_INFO_DATA_LEN( vm, caller_acc_info, caller_acc_data, post_len );
+      VM_SYSCALL_CPI_ACC_INFO_METADATA_MUT( vm, caller_acc_info, caller_acc_data_mut );
+      (void)caller_acc_data_mut_vm_addr;
+      (void)caller_acc_data_mut_len;
+      VM_SYSCALL_CPI_SET_ACC_INFO_DATA_SET_LEN( vm, caller_acc_info, caller_acc_data_mut, post_len );
       ulong * caller_len = FD_VM_MEM_HADDR_ST( vm, fd_ulong_sat_sub( caller_acc_data_vm_addr, sizeof(ulong) ), alignof(ulong), sizeof(ulong) );
       *caller_len = post_len;
     }
@@ -654,7 +756,9 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   VM_SYSCALL_CPI_INSTR_T const * cpi_instruction =
     FD_VM_MEM_HADDR_LD( vm, instruction_va, VM_SYSCALL_CPI_INSTR_ALIGN, VM_SYSCALL_CPI_INSTR_SIZE );
 
-  /* Translate the program ID */
+  /* This needs to be here for the C ABI
+     https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L655
+   */
   fd_pubkey_t const * program_id = (fd_pubkey_t *)VM_SYSCALL_CPI_INSTR_PROGRAM_ID( vm, cpi_instruction );
 
   /* Translate CPI account metas *************************************************/
@@ -663,54 +767,9 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
                               VM_SYSCALL_CPI_ACC_META_ALIGN,
                               fd_ulong_sat_mul( VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction ), VM_SYSCALL_CPI_ACC_META_SIZE ) );
 
-  /* Agave consumes CU in translate_instruction
-     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L445 */
-  if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) ) {
-    FD_VM_CU_UPDATE( vm, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) / FD_VM_CPI_BYTES_PER_UNIT );
-  }
-
-  /* Derive PDA signers ************************************************/
-  fd_pubkey_t signers[ FD_CPI_MAX_SIGNER_CNT ] = {0};
-  fd_pubkey_t * caller_program_id = &vm->instr_ctx->txn_ctx->accounts[ vm->instr_ctx->instr->program_id ];
-  /* This is the equivalent of translate_slice in translate_signers:
-     https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L595 */
-  fd_vm_vec_t const * signers_seeds = FD_VM_MEM_SLICE_HADDR_LD( vm, signers_seeds_va, FD_VM_VEC_ALIGN, fd_ulong_sat_mul( signers_seeds_cnt, FD_VM_VEC_SIZE ) );
-  /* Right after translating, Agave checks against MAX_SIGNERS:
-     https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L602 */
-  if( FD_UNLIKELY( signers_seeds_cnt > FD_CPI_MAX_SIGNER_CNT ) ) {
-    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS );
-    return FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS;
-  }
-
-  for( ulong i=0UL; i<signers_seeds_cnt; i++ ) {
-
-    /* This function will precompute the memory translation required and do
-       some preflight checks. */
-    void const * signer_seed_haddrs[ FD_VM_PDA_SEEDS_MAX ];
-    ulong        signer_seed_lens  [ FD_VM_PDA_SEEDS_MAX ];
-
-    int err = fd_vm_translate_and_check_program_address_inputs( vm, 
-                                                                signers_seeds[i].addr, 
-                                                                signers_seeds[i].len,
-                                                                0UL,
-                                                                signer_seed_haddrs,
-                                                                signer_seed_lens ,
-                                                                NULL );
-    if( FD_UNLIKELY( err ) ) {
-      FD_VM_ERR_FOR_LOG_SYSCALL( vm, err );
-      return err;
-    }
-
-    err = fd_vm_derive_pda( vm, caller_program_id, signer_seed_haddrs, signer_seed_lens, signers_seeds[i].len, NULL, &signers[i] );
-    if( FD_UNLIKELY( err ) ) {
-      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_BAD_SEEDS );
-      return FD_VM_SYSCALL_ERR_BAD_SEEDS;
-    }
-  }
-
   /* Translate instruction data *************************************************/
 
-  uchar const * data = FD_VM_MEM_SLICE_HADDR_LD( 
+  uchar const * data = FD_VM_MEM_SLICE_HADDR_LD(
     vm, VM_SYSCALL_CPI_INSTR_DATA_ADDR( cpi_instruction ),
     FD_VM_ALIGN_RUST_U8,
     VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ));
@@ -724,20 +783,74 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
     return err;
   }
 
+  /* Agave consumes CU in translate_instruction
+     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L445 */
+  if( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, loosen_cpi_size_restriction ) ) {
+    FD_VM_CU_UPDATE( vm, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) / FD_VM_CPI_BYTES_PER_UNIT );
+  }
+
+  /* Final checks for translate_instruction
+   */
+  for( ulong i=0UL; i<VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction ); i++ ) {
+    VM_SYSCALL_CPI_ACC_META_T const * cpi_acct_meta = &cpi_account_metas[i];
+    if( FD_UNLIKELY( cpi_acct_meta->is_signer > 1U || cpi_acct_meta->is_writable > 1U ) ) {
+      /* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L471
+         https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L698
+       */
+      FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    }
+    /* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L700
+     */
+    (void)VM_SYSCALL_CPI_ACC_META_PUBKEY( vm, cpi_acct_meta );
+  }
+
+  /* Derive PDA signers ************************************************/
+  fd_pubkey_t signers[ FD_CPI_MAX_SIGNER_CNT ] = {0};
+  fd_pubkey_t * caller_program_id = &vm->instr_ctx->txn_ctx->accounts[ vm->instr_ctx->instr->program_id ];
+  /* This is the equivalent of translate_slice in translate_signers:
+     https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L595 */
+  if( FD_LIKELY( signers_seeds_cnt > 0UL ) ) {
+    fd_vm_vec_t const * signers_seeds = FD_VM_MEM_SLICE_HADDR_LD( vm, signers_seeds_va, FD_VM_ALIGN_RUST_SLICE_U8_REF, fd_ulong_sat_mul( signers_seeds_cnt, FD_VM_VEC_SIZE ) );
+    /* Right after translating, Agave checks against MAX_SIGNERS:
+       https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L602 */
+    if( FD_UNLIKELY( signers_seeds_cnt > FD_CPI_MAX_SIGNER_CNT ) ) {
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS );
+      return FD_VM_SYSCALL_ERR_TOO_MANY_SIGNERS;
+    }
+
+    for( ulong i=0UL; i<signers_seeds_cnt; i++ ) {
+
+      /* This function will precompute the memory translation required and do
+        some preflight checks. */
+      void const * signer_seed_haddrs[ FD_VM_PDA_SEEDS_MAX ];
+      ulong        signer_seed_lens  [ FD_VM_PDA_SEEDS_MAX ];
+
+      int err = fd_vm_translate_and_check_program_address_inputs( vm,
+                                                                  signers_seeds[i].addr,
+                                                                  signers_seeds[i].len,
+                                                                  0UL,
+                                                                  signer_seed_haddrs,
+                                                                  signer_seed_lens ,
+                                                                  NULL );
+      if( FD_UNLIKELY( err ) ) {
+        return err;
+      }
+
+      err = fd_vm_derive_pda( vm, caller_program_id, signer_seed_haddrs, signer_seed_lens, signers_seeds[i].len, NULL, &signers[i] );
+      if( FD_UNLIKELY( err ) ) {
+        FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_BAD_SEEDS );
+        return FD_VM_SYSCALL_ERR_BAD_SEEDS;
+      }
+    }
+  }
+
   /* Create the instruction to execute (in the input format the FD runtime expects) from
      the translated CPI ABI inputs. */
-  fd_instr_info_t * instruction_to_execute = &vm->instr_ctx->txn_ctx->instr_infos[ vm->instr_ctx->txn_ctx->instr_info_cnt ];
-
-  vm->instr_ctx->txn_ctx->instr_info_cnt++;
-  if( FD_UNLIKELY( vm->instr_ctx->txn_ctx->instr_info_cnt>FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
-     FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED );
-     return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
-  }
+  fd_instr_info_t instruction_to_execute[ 1 ];
 
   err = VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( vm, cpi_instruction, cpi_account_metas, program_id, data, instruction_to_execute );
   if( FD_UNLIKELY( err ) ) {
-    /* We should propagate the instruction error from fd_vm_syscall_cpi_instruction_to_instr. */
-    FD_VM_ERR_FOR_LOG_INSTR( vm, err );
     return err;
   }
 
@@ -746,11 +859,8 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   fd_instruction_account_t instruction_accounts[256];
   ulong instruction_accounts_cnt;
   err = fd_vm_prepare_instruction( vm->instr_ctx->instr, instruction_to_execute, vm->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
-  if( FD_UNLIKELY( err ) ) {
-    /* We should propagate the instruction error from fd_vm_prepare_instruction. */
-    FD_VM_ERR_FOR_LOG_INSTR( vm, err );
-    return err;
-  }
+  /* Errors are propagated in the function itself. */
+  if( FD_UNLIKELY( err ) ) return err;
 
   /* Authorized program check *************************************************/
 
@@ -761,7 +871,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   }
 
   /* Translate account infos ******************************************/
-  /* Direct mapping check 
+  /* Direct mapping check
      https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/cpi.rs#L805-L814 */
   ulong acc_info_total_sz = fd_ulong_sat_mul( acct_info_cnt, VM_SYSCALL_CPI_ACC_INFO_SIZE );
   if( FD_UNLIKELY( vm->direct_mapping && fd_ulong_sat_add( acct_infos_va, acc_info_total_sz ) >= FD_VM_MEM_MAP_INPUT_REGION_START ) ) {
@@ -790,14 +900,34 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
     }
   }
 
+  fd_pubkey_t const * acct_info_keys[ FD_CPI_MAX_ACCOUNT_INFOS ];
+  for( ulong acct_idx = 0UL; acct_idx < acct_info_cnt; acct_idx++ ) {
+    /* Translate each pubkey address specified in account_infos.
+       Failed translation should lead to an access violation and
+       implies that obviously bad account_info has been supplied.
+       https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L833-L841 */
+      acct_info_keys[ acct_idx ] = FD_VM_MEM_HADDR_LD( vm, acc_infos[ acct_idx ].pubkey_addr, alignof(uchar), sizeof(fd_pubkey_t) );
+  }
+
   /* Update the callee accounts with any changes made by the caller prior to this CPI execution */
   ulong callee_account_keys[256];
   ulong caller_accounts_to_update[256];
   ulong caller_accounts_to_update_len = 0;
-  err = VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC( vm, instruction_accounts, instruction_accounts_cnt, acc_infos, acct_info_cnt, callee_account_keys, caller_accounts_to_update, &caller_accounts_to_update_len );
+  err = VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
+    vm,
+    instruction_accounts,
+    instruction_accounts_cnt,
+    acct_infos_va,
+    acct_info_keys,
+    acc_infos,
+    acct_info_cnt,
+    callee_account_keys,
+    caller_accounts_to_update,
+    &caller_accounts_to_update_len
+  );
   /* errors are propagated in the function itself. */
   if( FD_UNLIKELY( err ) ) return err;
-  
+
   /* Set the transaction compute meter to be the same as the VM's compute meter,
      so that the callee cannot use compute units that the caller has already used. */
   vm->instr_ctx->txn_ctx->compute_meter = vm->cu;
@@ -812,11 +942,8 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   *_ret = instr_exec_res;
 
-  if( FD_UNLIKELY( err_exec ) ) {
-    /* We should propagate the instruction error from fd_execute_instr. */
-    FD_VM_ERR_FOR_LOG_INSTR( vm, err_exec );
-    return err_exec;
-  }
+  /* Errors are propagated in fd_execute_instr. */
+  if( FD_UNLIKELY( err_exec ) ) return err_exec;
 
   /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/syscalls/cpi.rs#L1128-L1145 */
   /* Update all account permissions before updating the account data updates.
@@ -850,14 +977,12 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
   /* Update the caller accounts with any changes made by the callee during CPI execution */
   for( ulong i=0UL; i<caller_accounts_to_update_len; i++ ) {
     /* https://github.com/firedancer-io/solana/blob/508f325e19c0fd8e16683ea047d7c1a85f127e74/programs/bpf_loader/src/syscalls/cpi.rs#L939-L943 */
-    /* We only want to update the writable accounts, because the non-writable 
+    /* We only want to update the writable accounts, because the non-writable
        caller accounts can't be changed during a CPI execution. */
     if( fd_instr_acc_is_writable_idx( vm->instr_ctx->instr, callee_account_keys[i] ) ) {
       fd_pubkey_t const * callee = &vm->instr_ctx->instr->acct_pubkeys[callee_account_keys[i]];
       err = VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC(vm, &acc_infos[caller_accounts_to_update[i]], (uchar)callee_account_keys[i], callee);
       if( FD_UNLIKELY( err ) ) {
-        /* We should propagate the instruction error from fd_vm_cpi_update_caller_acc. */
-        FD_VM_ERR_FOR_LOG_INSTR( vm, err );
         return err;
       }
     }

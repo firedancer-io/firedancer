@@ -4,7 +4,7 @@
 #include "../../fd_flamenco_base.h"
 #include "../../../ballet/block/fd_microblock.h"
 #include "../../../ballet/txn/fd_txn.h"
-#include "../../../ballet/pack/fd_microblock.h"
+#include "../../../disco/pack/fd_microblock.h"
 
 struct fd_microblock_info {
   union {

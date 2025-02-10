@@ -73,9 +73,10 @@ main( int argc, char ** argv ) {
   fd_blockstore_t * blockstore;
   ulong tag = FD_BLOCKSTORE_MAGIC;
   fd_wksp_tag_query_info_t info;
+  fd_blockstore_t blockstore_ljoin;
   if ( fd_wksp_tag_query( wksp, &tag, 1, &info, 1 ) > 0) {
     shmem = fd_wksp_laddr_fast( wksp, info.gaddr_lo );
-    blockstore = fd_blockstore_join( shmem );
+    blockstore = fd_blockstore_join( &blockstore_ljoin, shmem );
     if ( blockstore == NULL ) {
       FD_LOG_ERR(( "failed to join a blockstore" ));
     }
@@ -85,7 +86,7 @@ main( int argc, char ** argv ) {
       FD_LOG_ERR(( "failed to allocate a blockstore" ));
     }
 
-    blockstore = fd_blockstore_join( fd_blockstore_new( shmem, 1, hashseed, shred_max, slot_history_max, 16, shred_max ) );
+    blockstore = fd_blockstore_join( &blockstore_ljoin, fd_blockstore_new( shmem, 1, hashseed, shred_max, slot_history_max, 16, shred_max ) );
     if ( blockstore == NULL ) {
       fd_wksp_free_laddr( shmem );
       FD_LOG_ERR(( "failed to allocate a blockstore" ));
