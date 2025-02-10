@@ -50,20 +50,18 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
 #define MAP_PERFECT_HASH_R( ptr ) PERFECT_HASH( fd_uint_load_4( (uchar const *)ptr->b + 8UL ) )
 
 
-#define VOTE_PROG_COST 3000UL
+/* The cost model estimates 200,000 CUs for builtin programs that were migrated to BPF */
+#define VOTE_PROG_COST        3000UL
 
-#define MAP_PERFECT_0  ( STAKE_PROG_ID           ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_1  ( CONFIG_PROG_ID          ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_2  ( VOTE_PROG_ID            ), .cost_per_instr=VOTE_PROG_COST
-#define MAP_PERFECT_3  ( SYS_PROG_ID             ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_4  ( COMPUTE_BUDGET_PROG_ID  ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_5  ( BPF_UPGRADEABLE_PROG_ID ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_6  ( BPF_LOADER_1_PROG_ID    ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_7  ( BPF_LOADER_2_PROG_ID    ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_8  ( LOADER_V4_PROG_ID       ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_9 ( KECCAK_SECP_PROG_ID     ), .cost_per_instr=         3000UL
-#define MAP_PERFECT_10 ( ED25519_SV_PROG_ID      ), .cost_per_instr=        3000UL
-#define MAP_PERFECT_11 ( SECP256R1_PROG_ID       ), .cost_per_instr=        3000UL
+#define MAP_PERFECT_0  ( VOTE_PROG_ID            ), .cost_per_instr=        VOTE_PROG_COST
+#define MAP_PERFECT_1  ( SYS_PROG_ID             ), .cost_per_instr=        3000UL
+#define MAP_PERFECT_2  ( COMPUTE_BUDGET_PROG_ID  ), .cost_per_instr=        3000UL
+#define MAP_PERFECT_3  ( BPF_UPGRADEABLE_PROG_ID ), .cost_per_instr=        3000UL
+#define MAP_PERFECT_4  ( BPF_LOADER_1_PROG_ID    ), .cost_per_instr=        3000UL
+#define MAP_PERFECT_5  ( BPF_LOADER_2_PROG_ID    ), .cost_per_instr=        3000UL
+#define MAP_PERFECT_6  ( LOADER_V4_PROG_ID       ), .cost_per_instr=        3000UL
+#define MAP_PERFECT_7  ( KECCAK_SECP_PROG_ID     ), .cost_per_instr=        3000UL
+#define MAP_PERFECT_8  ( ED25519_SV_PROG_ID      ), .cost_per_instr=        3000UL
 
 #include "../../util/tmpl/fd_map_perfect.c"
 

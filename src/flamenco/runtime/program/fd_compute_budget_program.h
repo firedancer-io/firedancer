@@ -13,6 +13,15 @@
 #define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE (0)
 #define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED         (1)
 
+/* SIMD-170 defines new default compute units for builtin, non-builtin, and migrated programs:
+   - Any non-migrated builtins have a conservative default CU limit of 3,000 CUs.
+   - Any migrated and non-builtins have a default CU limit of 200,000 CUs.
+
+   https://github.com/anza-xyz/agave/blob/v2.1.13/runtime-transaction/src/builtin_programs_filter.rs#L9-L19 */
+#define FD_PROGRAM_KIND_NOT_BUILTIN       (0)
+#define FD_PROGRAM_KIND_BUILTIN           (1)
+#define FD_PROGRAM_KIND_MIGRATING_BUILTIN (2)
+
 FD_PROTOTYPES_BEGIN
 
 int fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx, fd_rawtxn_b_t const * txn_raw );
