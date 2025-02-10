@@ -182,6 +182,13 @@ validator is booted, and then an a message with `mainnet` (or other
 known cluster) when the validator learns its cluster from a downloaded
 snapshot.
 
+#### `summary.commit_hash`
+| frequency | type     | example         |
+|-----------|----------|-----------------|
+| *Once*    | `string` | `"78eefec7c779ef138aaaf4afe76cd6eaf4807006"` |
+
+The commit hash used to build the validator.
+
 #### `summary.identity_key`
 | frequency | type     | example        |
 |-----------|----------|----------------|
