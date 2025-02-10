@@ -19,7 +19,7 @@ the solana submodule _after_ pulling the latest changes. For example:
 
 ```sh [bash]
 ~/firedancer $ git fetch
-~/firedancer $ git checkout v0.1
+~/firedancer $ git checkout __FD_LATEST_VERSION__
 ~/firedancer $ git submodule update
 ```
 

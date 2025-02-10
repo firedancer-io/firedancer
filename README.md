@@ -33,7 +33,8 @@ validator code.
 
 Both validators are built from this codebase. The Firedancer validator
 is not ready for test or production use and has no releases.
-Frankendancer is currently in testing on the Solana testnet.
+Frankendancer is currently available on both Solana testnet and
+mainnet-beta.
 
 ## Developing
 Firedancer currently only supports Linux and requires a relatively new

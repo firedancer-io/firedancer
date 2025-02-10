@@ -36,7 +36,7 @@ user = "firedancer"
 [consensus]
     expected_genesis_hash = "4uhcVJyU9pJkvQyS88uRDiswHXSCkY3zQawwpjk2NsNY"
     known_validators = [
-        "5D1fNXzvv5NjV1ysLjirC4WY92RNsVH18vjmcszZd8on", 
+        "5D1fNXzvv5NjV1ysLjirC4WY92RNsVH18vjmcszZd8on",
         "dDzy5SR3AXdYWVqbDEkVFdvSPCtS9ihF5kJkHCtXoFs",
         "Ft5fbkqNa76vnsjYNwjDZUXoTWpP7VYm3mtsaQckQADN",
         "eoKpUABi59aT4rR9HGS3LcMecfut9x7zJyodWWP43YQ",
@@ -90,7 +90,7 @@ efficient pipeline for processing transactions.
 
 Each tile needs a dedicated CPU core and it will be saturated at 100%
 utilization. The Agave process will run on the cores under the
-`agave_affinity` and this should not overlap with tile cores. 
+`agave_affinity` and this should not overlap with tile cores.
 
 :::
 
@@ -111,6 +111,28 @@ It is suggested to run as many tiles as possible and tune the tile
 counts for maximum system throughput so that the Solana network can run
 faster.  There are some example tuned configurations in the
 `src/app/fdctl/config/` folder to work from.
+
+::: tip TIP
+
+You can set the `affinity` and `agave_affinity` to `"auto"`. This will let
+Firedancer detect the topology of the system and automatically configure
+the assignment of the tiles to cpu cores. This setting is the default option.
+
+:::
+
+## GUI
+
+Firedancer has a GUI that can provide a lot of useful information
+about the validator. You can enable it by adding the following in the
+config TOML:
+
+```toml
+[tiles.gui]
+    enabled = true
+```
+
+By default it will listen on `127.0.0.1:80`. You can configure this using
+the `[tile.gui.gui_listen_address]` and `[tiles.gui.gui_listen_port]` options.
 
 ## Options
 The list of all available configuration options and their default values
