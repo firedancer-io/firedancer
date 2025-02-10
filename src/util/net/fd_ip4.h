@@ -183,8 +183,8 @@ fd_ip4_hdr_check_fast( void const * vp_hdr ) {
 
 /* fd_cstr_to_ip4_addr parses an IPv4 address matching format
    %u.%u.%u.%u  On success stores address to out and returns 1. On fail
-   returns 0.  The given address is returned in host byte order such
-   that "1.0.0.0" => 0x01000000. */
+   returns 0.  The given address is returned in network byte order such
+   that "1.0.0.0" => 0x00000001. */
 
 int
 fd_cstr_to_ip4_addr( char const * s,
@@ -192,8 +192,8 @@ fd_cstr_to_ip4_addr( char const * s,
 
 /* fd_ip4_addr_is_public checks if the given IPv4 address is a public address.
    assumed to be in net byte order.  */
-  
-FD_FN_CONST static inline int 
+
+FD_FN_CONST static inline int
 fd_ip4_addr_is_public( uint addr ) {
   uint addr_host = fd_uint_bswap( addr );
   return !((addr_host >= fd_uint_bswap( IP4_PRIVATE_RANGE1_START_NET ) && addr_host <= fd_uint_bswap( IP4_PRIVATE_RANGE1_END_NET )) ||
