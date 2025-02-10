@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitepress'
+import latestVersion from './version-plugin.js';
 
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
@@ -16,6 +17,10 @@ export default defineConfig({
     ['meta', { name: 'og:locale', content: 'en' }],
     ['meta', { name: 'og:site_name', content: 'Firedancer' }],
   ],
+
+  vite: {
+    plugins: [latestVersion()]
+  },
 
   themeConfig: {
     logo: { src: '/fire.svg', width: 24, height: 24 },

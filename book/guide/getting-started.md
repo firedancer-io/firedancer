@@ -16,7 +16,7 @@ for that validator. Firedancer hopes to reduce these over time.
 
 **Minimum**
 
-- 12-Core CPU @ >2.5GHz
+- 24-Core AMD or Intel CPU @ >2.5GHz
 - 64GB RAM
 - 512GB SSD
 
@@ -56,7 +56,7 @@ convenience script. First, clone the source code with:
 ```sh [bash]
 $ git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git
 $ cd firedancer
-$ git checkout v0.305.20111 # Or the latest Frankendancer release
+$ git checkout __FD_LATEST_VERSION__ # Or the latest Frankendancer release
 ```
 
 Then you can run the `deps.sh` script to install system packages and
@@ -181,7 +181,8 @@ user = "firedancer"
 
 This configuration will cause Firedancer to run as the user `firedancer`
 on the local machine. The `identity_path` and `vote_account_path` should
-be Agave style keys, which can be generated with the Solana Labs cli.
+be Agave style keys, which can be generated using `solana-keygen`.
+`solana-keygen` is part of the [Solana CLI](https://docs.anza.xyz/cli/install).
 
 This will put the ledger in `/home/firedancer/.firedancer/fd1/ledger`.
 To customize this path, refer to the [configuration
@@ -198,10 +199,6 @@ validator clients while keeping the `ledger` directory in place.
 Additionally, this configuration enables the full RPC API at port 8899.
 Although the port will not be published to other validators in gossip,
 use a firewall to restrict access to this port for maximum security.
-
-Currently, `testnet` is the only live cluster that Firedancer can be run
-against and trying to start against `devnet` or `mainnet-beta`
-entrypoints will result in an error.
 
 The Firedancer client can report diagnostic metrics similar to an Agave
 client. It is recommended to set the `[reporting.solana_metrics_config]`
@@ -292,18 +289,22 @@ systemd --switched-root --system --deserialize 17
           └─fdctl run --config ~/config.toml
               ├─fdctl run-agave --config-fd 0
               │   └─35*[{fdctl}]
-              ├─fdctl run1 net 0 --pipe-fd 7 --config-fd 0
-              ├─fdctl run1 quic 0 --pipe-fd 8 --config-fd 0
-              ├─fdctl run1 verify 0 --pipe-fd 9 --config-fd 0
-              ├─fdctl run1 verify 1 --pipe-fd 10 --config-fd 0
-              ├─fdctl run1 verify 2 --pipe-fd 11 --config-fd 0
-              ├─fdctl run1 verify 3 --pipe-fd 12 --config-fd 0
-              ├─fdctl run1 verify 4 --pipe-fd 13 --config-fd 0
-              ├─fdctl run1 pack 0 --pipe-fd 15 --config-fd 0
-              ├─fdctl run1 dedup 0 --pipe-fd 14 --config-fd 0
-              ├─fdctl run1 shred 0 --pipe-fd 16 --config-fd 0
-              ├─fdctl run1 metric 0 --pipe-fd 18 --config-fd 0
-              └─fdctl run1 sign 0 --pipe-fd 17 --config-fd 0
+              ├─cswtch:0 run1 cswtch 0 --pipe-fd 20 --config-fd 0
+              ├─dedup:0 run1 dedup 0 --pipe-fd 15 --config-fd 0
+              ├─gui:0 run1 gui 0 --pipe-fd 22 --config-fd 0
+              ├─metric:0 run1 metric 0 --pipe-fd 19 --config-fd 0
+              ├─net:0 run1 net 0 --pipe-fd 7 --config-fd 0
+              ├─pack:0 run1 pack 0 --pipe-fd 16 --config-fd 0
+              ├─plugin:0 run1 plugin 0 --pipe-fd 21 --config-fd 0
+              ├─quic:0 run1 quic 0 --pipe-fd 8 --config-fd 0
+              ├─shred:0 run1 shred 0 --pipe-fd 17 --config-fd 0
+              ├─sign:0 run1 sign 0 --pipe-fd 18 --config-fd 0
+              ├─verify:0 run1 verify 0 --pipe-fd 9 --config-fd 0
+              ├─verify:1 run1 verify 1 --pipe-fd 10 --config-fd 0
+              ├─verify:2 run1 verify 2 --pipe-fd 11 --config-fd 0
+              ├─verify:3 run1 verify 3 --pipe-fd 12 --config-fd 0
+              ├─verify:4 run1 verify 4 --pipe-fd 13 --config-fd 0
+              └─verify:5 run1 verify 5 --pipe-fd 14 --config-fd 0
 ```
 
 If any of the processes dies or is killed it will bring all of the

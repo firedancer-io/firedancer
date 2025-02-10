@@ -22,9 +22,9 @@ guide for requirements and instructions.
 
 ::: details What branch or tag should I build from?
 
-You can always checkout the `v0.1` tag, which will point to the
-latest release. For more information, refer to the [releases](./getting-started.md#releases)
-section.
+You should checkout and build from a tagged release. The latest
+version is `__FD_LATEST_VERSION__`. For more information, refer
+to the [releases](./getting-started.md#releases) section.
 
 :::
 
