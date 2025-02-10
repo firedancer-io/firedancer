@@ -834,7 +834,8 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
                                                                   0UL,
                                                                   signer_seed_haddrs,
                                                                   signer_seed_lens ,
-                                                                  NULL );
+                                                                  NULL,
+                                                                  0U );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
