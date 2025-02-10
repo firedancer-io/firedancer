@@ -44,7 +44,13 @@ before_frag( fd_verify_ctx_t * ctx,
   (void)in_idx;
   (void)sig;
 
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_QUIC || ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
+  /* Bundle tile can produce both "bundles" and "packets", a packet is a
+     regular transaction and should be round-robined between verify
+     tiles, while bundles need to go through verify:0 currently to
+     prevent interleaving of bundle streams. */
+  int is_bundle_packet = (ctx->in_kind[ in_idx ]==IN_KIND_BUNDLE && !sig);
+
+  if( FD_LIKELY( is_bundle_packet || ctx->in_kind[ in_idx ]==IN_KIND_QUIC || ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
     return (seq % ctx->round_robin_cnt) != ctx->round_robin_idx;
   } else {
     return 0;
