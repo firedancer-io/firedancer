@@ -737,6 +737,9 @@ unprivileged_init( fd_topo_t *      topo,
   } else if( strlen( tile->store_int.shred_cap_replay )>0 ) {
     ctx->sim                           = 1;
     ctx->store->blockstore->shmem->smr = 0UL;
+    while( ctx->store->blockstore->shmem->smr==0UL ) {
+      FD_LOG_DEBUG(( "Waiting for blockstore to be initialized" ));
+    }
     FD_TEST( fd_shred_cap_replay( tile->store_int.shred_cap_replay, ctx->store ) == FD_SHRED_CAP_OK );
   }
 
