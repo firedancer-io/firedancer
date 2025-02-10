@@ -61,6 +61,13 @@ fd_flamenco_txn_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_s
   return 0;
 }
 
+static void *
+fd_flamenco_txn_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  (void)ctx;
+  (void)mem;
+  return NULL;
+}
+
 void
 fd_gossip_ip4_addr_walk( void *                       w,
                          fd_gossip_ip4_addr_t const * self,
@@ -328,6 +335,14 @@ int fd_solana_vote_account_encode( fd_solana_vote_account_t const * self, fd_bin
   err = fd_bincode_uint64_encode( self->rent_epoch, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
+}
+
+void *
+fd_solana_vote_account_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  (void)ctx;
+  (void)mem;
+  /* TODO:FIXME:*/
+  return NULL;
 }
 
 int fd_archive_decode_skip_field( fd_bincode_decode_ctx_t * ctx, ushort tag ) {

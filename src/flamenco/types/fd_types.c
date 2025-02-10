@@ -242,6 +242,19 @@ int fd_feature_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz
   ctx->data = start_data;
   return 0;
 }
+void * fd_feature_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_feature_t * self = (fd_feature_t *)mem;
+  fd_feature_new( self );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_activated_at = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->activated_at, ctx );
+    }
+  }
+  return mem;
+}
 void fd_feature_new(fd_feature_t * self) {
   fd_memset( self, 0, sizeof(fd_feature_t) );
 }
@@ -312,6 +325,14 @@ int fd_fee_calculator_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_fee_calculator_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_fee_calculator_t * self = (fd_fee_calculator_t *)mem;
+  fd_fee_calculator_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
 }
 void fd_fee_calculator_new(fd_fee_calculator_t * self) {
   fd_memset( self, 0, sizeof(fd_fee_calculator_t) );
@@ -389,6 +410,18 @@ int fd_hash_age_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_s
   ctx->data = start_data;
   return 0;
 }
+void * fd_hash_age_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_hash_age_t * self = (fd_hash_age_t *)mem;
+  fd_hash_age_new( self );
+  fd_fee_calculator_decode_new( ctx, &self->fee_calculator );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_hash_age_new(fd_hash_age_t * self) {
   fd_memset( self, 0, sizeof(fd_hash_age_t) );
   fd_fee_calculator_new( &self->fee_calculator );
@@ -461,6 +494,13 @@ int fd_hash_hash_age_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_hash_hash_age_pair_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_hash_hash_age_pair_t * self = (fd_hash_hash_age_pair_t *)mem;
+  fd_hash_hash_age_pair_new( self );
+  fd_hash_decode_new( ctx, &self->key );
+  fd_hash_age_decode_new( ctx, &self->val );
+  return mem;
 }
 void fd_hash_hash_age_pair_new(fd_hash_hash_age_pair_t * self) {
   fd_memset( self, 0, sizeof(fd_hash_hash_age_pair_t) );
@@ -633,6 +673,40 @@ int fd_block_hash_vec_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_block_hash_vec_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_block_hash_vec_t * self = (fd_block_hash_vec_t *)mem;
+  fd_block_hash_vec_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    if( o ) {
+      fd_hash_new( self->last_hash );
+      fd_hash_decode_unsafe( self->last_hash, ctx );
+    } else
+      self->last_hash = NULL;
+  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong ages_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( ages_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_HASH_HASH_AGE_PAIR_ALIGN );
+    for( ulong i=0; i < ages_len; i++ ) {
+      fd_hash_hash_age_pair_new( (fd_hash_hash_age_pair_t *)mem + i );
+      fd_hash_hash_age_pair_decode_new( ctx, (fd_hash_hash_age_pair_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_HASH_HASH_AGE_PAIR_FOOTPRINT*ages_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
 }
 void fd_block_hash_vec_new(fd_block_hash_vec_t * self) {
   fd_memset( self, 0, sizeof(fd_block_hash_vec_t) );
@@ -835,6 +909,37 @@ int fd_block_hash_queue_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong *
   ctx->data = start_data;
   return 0;
 }
+void * fd_block_hash_queue_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_block_hash_queue_t * self = (fd_block_hash_queue_t *)mem;
+  fd_block_hash_queue_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    if( o ) {
+      fd_hash_new( self->last_hash );
+      fd_hash_decode_unsafe( self->last_hash, ctx );
+    } else
+      self->last_hash = NULL;
+  }
+  ulong ages_len;
+  fd_bincode_uint64_decode_unsafe( &ages_len, ctx );
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    self->ages_root = NULL;
+  }
+  for( ulong i=0; i < ages_len; i++ ) {
+    fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( self->ages_pool );
+    fd_hash_hash_age_pair_new( &node->elem );
+    fd_hash_hash_age_pair_decode_unsafe( &node->elem, ctx );
+    fd_hash_hash_age_pair_t_map_insert( self->ages_pool, &self->ages_root, node );
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_block_hash_queue_new(fd_block_hash_queue_t * self) {
   fd_memset( self, 0, sizeof(fd_block_hash_queue_t) );
 }
@@ -963,6 +1068,26 @@ int fd_fee_rate_governor_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   ctx->data = start_data;
   return 0;
 }
+void * fd_fee_rate_governor_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_fee_rate_governor_t * self = (fd_fee_rate_governor_t *)mem;
+  fd_fee_rate_governor_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  return mem;
+}
 void fd_fee_rate_governor_new(fd_fee_rate_governor_t * self) {
   fd_memset( self, 0, sizeof(fd_fee_rate_governor_t) );
 }
@@ -1039,6 +1164,17 @@ int fd_slot_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_slot_pair_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_slot_pair_t * self = (fd_slot_pair_t *)mem;
+  fd_slot_pair_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
 }
 void fd_slot_pair_new(fd_slot_pair_t * self) {
   fd_memset( self, 0, sizeof(fd_slot_pair_t) );
@@ -1140,6 +1276,25 @@ int fd_hard_forks_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_hard_forks_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_hard_forks_t * self = (fd_hard_forks_t *)mem;
+  fd_hard_forks_new( self );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong hard_forks_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( hard_forks_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_SLOT_PAIR_ALIGN );
+    for( ulong i=0; i < hard_forks_len; i++ ) {
+      fd_slot_pair_new( (fd_slot_pair_t *)mem + i );
+      fd_slot_pair_decode_new( ctx, (fd_slot_pair_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_SLOT_PAIR_FOOTPRINT*hard_forks_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
 }
 void fd_hard_forks_new(fd_hard_forks_t * self) {
   fd_memset( self, 0, sizeof(fd_hard_forks_t) );
@@ -1257,6 +1412,29 @@ int fd_inflation_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_
   ctx->data = start_data;
   return 0;
 }
+void * fd_inflation_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_inflation_t * self = (fd_inflation_t *)mem;
+  fd_inflation_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(double) ); // Align for the type
+  fd_bincode_double_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(double); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(double) ); // Align for the type
+  fd_bincode_double_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(double); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(double) ); // Align for the type
+  fd_bincode_double_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(double); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(double) ); // Align for the type
+  fd_bincode_double_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(double); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(double) ); // Align for the type
+  fd_bincode_double_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(double); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(double) ); // Align for the type
+  fd_bincode_double_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(double); // Leave unaligned
+  return mem;
+}
 void fd_inflation_new(fd_inflation_t * self) {
   fd_memset( self, 0, sizeof(fd_inflation_t) );
 }
@@ -1343,6 +1521,20 @@ int fd_rent_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) 
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_rent_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_rent_t * self = (fd_rent_t *)mem;
+  fd_rent_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(double) ); // Align for the type
+  fd_bincode_double_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(double); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  return mem;
 }
 void fd_rent_new(fd_rent_t * self) {
   fd_memset( self, 0, sizeof(fd_rent_t) );
@@ -1452,6 +1644,26 @@ int fd_epoch_schedule_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   ctx->data = start_data;
   return 0;
 }
+void * fd_epoch_schedule_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_epoch_schedule_t * self = (fd_epoch_schedule_t *)mem;
+  fd_epoch_schedule_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_bool_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_epoch_schedule_new(fd_epoch_schedule_t * self) {
   fd_memset( self, 0, sizeof(fd_epoch_schedule_t) );
 }
@@ -1552,6 +1764,19 @@ int fd_rent_collector_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   ctx->data = start_data;
   return 0;
 }
+void * fd_rent_collector_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_rent_collector_t * self = (fd_rent_collector_t *)mem;
+  fd_rent_collector_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_epoch_schedule_decode_new( ctx, &self->epoch_schedule );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(double) ); // Align for the type
+  fd_bincode_double_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(double); // Leave unaligned
+  fd_rent_decode_new( ctx, &self->rent );
+  return mem;
+}
 void fd_rent_collector_new(fd_rent_collector_t * self) {
   fd_memset( self, 0, sizeof(fd_rent_collector_t) );
   fd_epoch_schedule_new( &self->epoch_schedule );
@@ -1646,6 +1871,23 @@ int fd_stake_history_entry_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_stake_history_entry_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_stake_history_entry_t * self = (fd_stake_history_entry_t *)mem;
+  fd_stake_history_entry_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
 }
 void fd_stake_history_entry_new(fd_stake_history_entry_t * self) {
   fd_memset( self, 0, sizeof(fd_stake_history_entry_t) );
@@ -1748,6 +1990,25 @@ int fd_stake_history_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * to
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_stake_history_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_stake_history_t * self = (fd_stake_history_t *)mem;
+  fd_stake_history_new( self );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong fd_stake_history_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  *(ulong*)mem = 512;
+  mem = (uchar *)mem + sizeof(ulong);
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  *(ulong*)mem = 0UL; // offset
+  mem = (uchar *)mem + sizeof(ulong);
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_STAKE_HISTORY_ENTRY_ALIGN );
+  for( ulong i=0UL; i<fd_stake_history_len; i++ ) {
+    fd_stake_history_entry_decode_new( ctx, (fd_stake_history_entry_t *)mem + i );
+  }
+  return mem;
 }
 void fd_stake_history_new(fd_stake_history_t * self) {
   fd_memset( self, 0, sizeof(fd_stake_history_t) );
@@ -1888,6 +2149,32 @@ int fd_solana_account_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   ctx->data = start_data;
   return 0;
 }
+void * fd_solana_account_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_solana_account_t * self = (fd_solana_account_t *)mem;
+  fd_solana_account_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong data_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( data_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, 8UL );
+    fd_bincode_bytes_decode_unsafe( mem, data_len, ctx );
+    mem = (uchar *)mem + data_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  fd_pubkey_decode_new( ctx, &self->owner );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_bool_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_solana_account_new(fd_solana_account_t * self) {
   fd_memset( self, 0, sizeof(fd_solana_account_t) );
   fd_pubkey_new( &self->owner );
@@ -1987,6 +2274,16 @@ int fd_vote_accounts_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   ctx->data = start_data;
   return 0;
 }
+void * fd_vote_accounts_pair_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_vote_accounts_pair_t * self = (fd_vote_accounts_pair_t *)mem;
+  fd_vote_accounts_pair_new( self );
+  fd_pubkey_decode_new( ctx, &self->key );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_solana_vote_account_decode_new( ctx, &self->value );
+  return mem;
+}
 void fd_vote_accounts_pair_new(fd_vote_accounts_pair_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_accounts_pair_t) );
   fd_pubkey_new( &self->key );
@@ -2076,6 +2373,16 @@ int fd_vote_accounts_pair_serializable_decode_footprint( fd_bincode_decode_ctx_t
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_vote_accounts_pair_serializable_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_vote_accounts_pair_serializable_t * self = (fd_vote_accounts_pair_serializable_t *)mem;
+  fd_vote_accounts_pair_serializable_new( self );
+  fd_pubkey_decode_new( ctx, &self->key );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_solana_account_decode_new( ctx, &self->value );
+  return mem;
 }
 void fd_vote_accounts_pair_serializable_new(fd_vote_accounts_pair_serializable_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_accounts_pair_serializable_t) );
@@ -2185,6 +2492,22 @@ int fd_vote_accounts_serializable_decode_footprint( fd_bincode_decode_ctx_t * ct
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_vote_accounts_serializable_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_vote_accounts_serializable_t * self = (fd_vote_accounts_serializable_t *)mem;
+  fd_vote_accounts_serializable_new( self );
+  ulong vote_accounts_len;
+  fd_bincode_uint64_decode_unsafe( &vote_accounts_len, ctx );
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    self->vote_accounts_root = NULL;
+  }
+  for( ulong i=0; i < vote_accounts_len; i++ ) {
+    fd_vote_accounts_pair_serializable_t_mapnode_t * node = fd_vote_accounts_pair_serializable_t_map_acquire( self->vote_accounts_pool );
+    fd_vote_accounts_pair_serializable_new( &node->elem );
+    fd_vote_accounts_pair_serializable_decode_unsafe( &node->elem, ctx );
+    fd_vote_accounts_pair_serializable_t_map_insert( self->vote_accounts_pool, &self->vote_accounts_root, node );
+  }
+  return mem;
 }
 void fd_vote_accounts_serializable_new(fd_vote_accounts_serializable_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_accounts_serializable_t) );
@@ -2304,6 +2627,22 @@ int fd_vote_accounts_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * to
   ctx->data = start_data;
   return 0;
 }
+void * fd_vote_accounts_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_vote_accounts_t * self = (fd_vote_accounts_t *)mem;
+  fd_vote_accounts_new( self );
+  ulong vote_accounts_len;
+  fd_bincode_uint64_decode_unsafe( &vote_accounts_len, ctx );
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    self->vote_accounts_root = NULL;
+  }
+  for( ulong i=0; i < vote_accounts_len; i++ ) {
+    fd_vote_accounts_pair_t_mapnode_t * node = fd_vote_accounts_pair_t_map_acquire( self->vote_accounts_pool );
+    fd_vote_accounts_pair_new( &node->elem );
+    fd_vote_accounts_pair_decode_unsafe( &node->elem, ctx );
+    fd_vote_accounts_pair_t_map_insert( self->vote_accounts_pool, &self->vote_accounts_root, node );
+  }
+  return mem;
+}
 void fd_vote_accounts_new(fd_vote_accounts_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_accounts_t) );
 }
@@ -2388,6 +2727,15 @@ int fd_account_keys_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_account_keys_pair_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_account_keys_pair_t * self = (fd_account_keys_pair_t *)mem;
+  fd_account_keys_pair_new( self );
+  fd_pubkey_decode_new( ctx, &self->key );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  return mem;
 }
 void fd_account_keys_pair_new(fd_account_keys_pair_t * self) {
   fd_memset( self, 0, sizeof(fd_account_keys_pair_t) );
@@ -2494,6 +2842,22 @@ int fd_account_keys_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
   ctx->data = start_data;
   return 0;
 }
+void * fd_account_keys_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_account_keys_t * self = (fd_account_keys_t *)mem;
+  fd_account_keys_new( self );
+  ulong account_keys_len;
+  fd_bincode_uint64_decode_unsafe( &account_keys_len, ctx );
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    self->account_keys_root = NULL;
+  }
+  for( ulong i=0; i < account_keys_len; i++ ) {
+    fd_account_keys_pair_t_mapnode_t * node = fd_account_keys_pair_t_map_acquire( self->account_keys_pool );
+    fd_account_keys_pair_new( &node->elem );
+    fd_account_keys_pair_decode_unsafe( &node->elem, ctx );
+    fd_account_keys_pair_t_map_insert( self->account_keys_pool, &self->account_keys_root, node );
+  }
+  return mem;
+}
 void fd_account_keys_new(fd_account_keys_t * self) {
   fd_memset( self, 0, sizeof(fd_account_keys_t) );
 }
@@ -2578,6 +2942,15 @@ int fd_stake_weight_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_stake_weight_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_stake_weight_t * self = (fd_stake_weight_t *)mem;
+  fd_stake_weight_new( self );
+  fd_pubkey_decode_new( ctx, &self->key );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
 }
 void fd_stake_weight_new(fd_stake_weight_t * self) {
   fd_memset( self, 0, sizeof(fd_stake_weight_t) );
@@ -2683,6 +3056,22 @@ int fd_stake_weights_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * to
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_stake_weights_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_stake_weights_t * self = (fd_stake_weights_t *)mem;
+  fd_stake_weights_new( self );
+  ulong stake_weights_len;
+  fd_bincode_uint64_decode_unsafe( &stake_weights_len, ctx );
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    self->stake_weights_root = NULL;
+  }
+  for( ulong i=0; i < stake_weights_len; i++ ) {
+    fd_stake_weight_t_mapnode_t * node = fd_stake_weight_t_map_acquire( self->stake_weights_pool );
+    fd_stake_weight_new( &node->elem );
+    fd_stake_weight_decode_unsafe( &node->elem, ctx );
+    fd_stake_weight_t_map_insert( self->stake_weights_pool, &self->stake_weights_root, node );
+  }
+  return mem;
 }
 void fd_stake_weights_new(fd_stake_weights_t * self) {
   fd_memset( self, 0, sizeof(fd_stake_weights_t) );
@@ -2793,6 +3182,24 @@ int fd_delegation_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   ctx->data = start_data;
   return 0;
 }
+void * fd_delegation_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_delegation_t * self = (fd_delegation_t *)mem;
+  fd_delegation_new( self );
+  fd_pubkey_decode_new( ctx, &self->voter_pubkey );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(double) ); // Align for the type
+  fd_bincode_double_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(double); // Leave unaligned
+  return mem;
+}
 void fd_delegation_new(fd_delegation_t * self) {
   fd_memset( self, 0, sizeof(fd_delegation_t) );
   fd_pubkey_new( &self->voter_pubkey );
@@ -2870,6 +3277,13 @@ int fd_delegation_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   ctx->data = start_data;
   return 0;
 }
+void * fd_delegation_pair_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_delegation_pair_t * self = (fd_delegation_pair_t *)mem;
+  fd_delegation_pair_new( self );
+  fd_pubkey_decode_new( ctx, &self->account );
+  fd_delegation_decode_new( ctx, &self->delegation );
+  return mem;
+}
 void fd_delegation_pair_new(fd_delegation_pair_t * self) {
   fd_memset( self, 0, sizeof(fd_delegation_pair_t) );
   fd_pubkey_new( &self->account );
@@ -2944,6 +3358,15 @@ int fd_stake_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz )
   ctx->data = start_data;
   return 0;
 }
+void * fd_stake_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_stake_t * self = (fd_stake_t *)mem;
+  fd_stake_new( self );
+  fd_delegation_decode_new( ctx, &self->delegation );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_stake_new(fd_stake_t * self) {
   fd_memset( self, 0, sizeof(fd_stake_t) );
   fd_delegation_new( &self->delegation );
@@ -3014,6 +3437,13 @@ int fd_stake_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_stake_pair_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_stake_pair_t * self = (fd_stake_pair_t *)mem;
+  fd_stake_pair_new( self );
+  fd_pubkey_decode_new( ctx, &self->account );
+  fd_stake_decode_new( ctx, &self->stake );
+  return mem;
 }
 void fd_stake_pair_new(fd_stake_pair_t * self) {
   fd_memset( self, 0, sizeof(fd_stake_pair_t) );
@@ -3159,6 +3589,30 @@ int fd_stakes_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz 
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_stakes_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_stakes_t * self = (fd_stakes_t *)mem;
+  fd_stakes_new( self );
+  fd_vote_accounts_decode_new( ctx, &self->vote_accounts );
+  ulong stake_delegations_len;
+  fd_bincode_uint64_decode_unsafe( &stake_delegations_len, ctx );
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    self->stake_delegations_root = NULL;
+  }
+  for( ulong i=0; i < stake_delegations_len; i++ ) {
+    fd_delegation_pair_t_mapnode_t * node = fd_delegation_pair_t_map_acquire( self->stake_delegations_pool );
+    fd_delegation_pair_new( &node->elem );
+    fd_delegation_pair_decode_unsafe( &node->elem, ctx );
+    fd_delegation_pair_t_map_insert( self->stake_delegations_pool, &self->stake_delegations_root, node );
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_stake_history_decode_new( ctx, &self->stake_history );
+  return mem;
 }
 void fd_stakes_new(fd_stakes_t * self) {
   fd_memset( self, 0, sizeof(fd_stakes_t) );
@@ -3328,6 +3782,30 @@ int fd_stakes_serializable_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
   ctx->data = start_data;
   return 0;
 }
+void * fd_stakes_serializable_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_stakes_serializable_t * self = (fd_stakes_serializable_t *)mem;
+  fd_stakes_serializable_new( self );
+  fd_vote_accounts_serializable_decode_new( ctx, &self->vote_accounts );
+  ulong stake_delegations_len;
+  fd_bincode_uint64_decode_unsafe( &stake_delegations_len, ctx );
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    self->stake_delegations_root = NULL;
+  }
+  for( ulong i=0; i < stake_delegations_len; i++ ) {
+    fd_delegation_pair_t_mapnode_t * node = fd_delegation_pair_t_map_acquire( self->stake_delegations_pool );
+    fd_delegation_pair_new( &node->elem );
+    fd_delegation_pair_decode_unsafe( &node->elem, ctx );
+    fd_delegation_pair_t_map_insert( self->stake_delegations_pool, &self->stake_delegations_root, node );
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_stake_history_decode_new( ctx, &self->stake_history );
+  return mem;
+}
 void fd_stakes_serializable_new(fd_stakes_serializable_t * self) {
   fd_memset( self, 0, sizeof(fd_stakes_serializable_t) );
   fd_vote_accounts_serializable_new( &self->vote_accounts );
@@ -3496,6 +3974,30 @@ int fd_stakes_stake_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
   ctx->data = start_data;
   return 0;
 }
+void * fd_stakes_stake_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_stakes_stake_t * self = (fd_stakes_stake_t *)mem;
+  fd_stakes_stake_new( self );
+  fd_vote_accounts_decode_new( ctx, &self->vote_accounts );
+  ulong stake_delegations_len;
+  fd_bincode_uint64_decode_unsafe( &stake_delegations_len, ctx );
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    self->stake_delegations_root = NULL;
+  }
+  for( ulong i=0; i < stake_delegations_len; i++ ) {
+    fd_stake_pair_t_mapnode_t * node = fd_stake_pair_t_map_acquire( self->stake_delegations_pool );
+    fd_stake_pair_new( &node->elem );
+    fd_stake_pair_decode_unsafe( &node->elem, ctx );
+    fd_stake_pair_t_map_insert( self->stake_delegations_pool, &self->stake_delegations_root, node );
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_stake_history_decode_new( ctx, &self->stake_history );
+  return mem;
+}
 void fd_stakes_stake_new(fd_stakes_stake_t * self) {
   fd_memset( self, 0, sizeof(fd_stakes_stake_t) );
   fd_vote_accounts_new( &self->vote_accounts );
@@ -3615,6 +4117,22 @@ int fd_bank_incremental_snapshot_persistence_decode_footprint( fd_bincode_decode
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_bank_incremental_snapshot_persistence_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_bank_incremental_snapshot_persistence_t * self = (fd_bank_incremental_snapshot_persistence_t *)mem;
+  fd_bank_incremental_snapshot_persistence_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_hash_decode_new( ctx, &self->full_hash );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_hash_decode_new( ctx, &self->incremental_hash );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
 }
 void fd_bank_incremental_snapshot_persistence_new(fd_bank_incremental_snapshot_persistence_t * self) {
   fd_memset( self, 0, sizeof(fd_bank_incremental_snapshot_persistence_t) );
@@ -3737,6 +4255,28 @@ int fd_node_vote_accounts_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   ctx->data = start_data;
   return 0;
 }
+void * fd_node_vote_accounts_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_node_vote_accounts_t * self = (fd_node_vote_accounts_t *)mem;
+  fd_node_vote_accounts_new( self );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong vote_accounts_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( vote_accounts_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_PUBKEY_ALIGN );
+    for( ulong i=0; i < vote_accounts_len; i++ ) {
+      fd_pubkey_new( (fd_pubkey_t *)mem + i );
+      fd_pubkey_decode_new( ctx, (fd_pubkey_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_PUBKEY_FOOTPRINT*vote_accounts_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_node_vote_accounts_new(fd_node_vote_accounts_t * self) {
   fd_memset( self, 0, sizeof(fd_node_vote_accounts_t) );
 }
@@ -3826,6 +4366,13 @@ int fd_pubkey_node_vote_accounts_pair_decode_footprint( fd_bincode_decode_ctx_t 
   ctx->data = start_data;
   return 0;
 }
+void * fd_pubkey_node_vote_accounts_pair_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_pubkey_node_vote_accounts_pair_t * self = (fd_pubkey_node_vote_accounts_pair_t *)mem;
+  fd_pubkey_node_vote_accounts_pair_new( self );
+  fd_pubkey_decode_new( ctx, &self->key );
+  fd_node_vote_accounts_decode_new( ctx, &self->value );
+  return mem;
+}
 void fd_pubkey_node_vote_accounts_pair_new(fd_pubkey_node_vote_accounts_pair_t * self) {
   fd_memset( self, 0, sizeof(fd_pubkey_node_vote_accounts_pair_t) );
   fd_pubkey_new( &self->key );
@@ -3898,6 +4445,13 @@ int fd_pubkey_pubkey_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_pubkey_pubkey_pair_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_pubkey_pubkey_pair_t * self = (fd_pubkey_pubkey_pair_t *)mem;
+  fd_pubkey_pubkey_pair_new( self );
+  fd_pubkey_decode_new( ctx, &self->key );
+  fd_pubkey_decode_new( ctx, &self->value );
+  return mem;
 }
 void fd_pubkey_pubkey_pair_new(fd_pubkey_pubkey_pair_t * self) {
   fd_memset( self, 0, sizeof(fd_pubkey_pubkey_pair_t) );
@@ -4068,6 +4622,43 @@ int fd_epoch_stakes_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
   ctx->data = start_data;
   return 0;
 }
+void * fd_epoch_stakes_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_epoch_stakes_t * self = (fd_epoch_stakes_t *)mem;
+  fd_epoch_stakes_new( self );
+  fd_stakes_decode_new( ctx, &self->stakes );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong node_id_to_vote_accounts_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( node_id_to_vote_accounts_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_ALIGN );
+    for( ulong i=0; i < node_id_to_vote_accounts_len; i++ ) {
+      fd_pubkey_node_vote_accounts_pair_new( (fd_pubkey_node_vote_accounts_pair_t *)mem + i );
+      fd_pubkey_node_vote_accounts_pair_decode_new( ctx, (fd_pubkey_node_vote_accounts_pair_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT*node_id_to_vote_accounts_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong epoch_authorized_voters_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( epoch_authorized_voters_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_PUBKEY_PUBKEY_PAIR_ALIGN );
+    for( ulong i=0; i < epoch_authorized_voters_len; i++ ) {
+      fd_pubkey_pubkey_pair_new( (fd_pubkey_pubkey_pair_t *)mem + i );
+      fd_pubkey_pubkey_pair_decode_new( ctx, (fd_pubkey_pubkey_pair_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_PUBKEY_PUBKEY_PAIR_FOOTPRINT*epoch_authorized_voters_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
+}
 void fd_epoch_stakes_new(fd_epoch_stakes_t * self) {
   fd_memset( self, 0, sizeof(fd_epoch_stakes_t) );
   fd_stakes_new( &self->stakes );
@@ -4179,6 +4770,15 @@ int fd_epoch_epoch_stakes_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, 
   ctx->data = start_data;
   return 0;
 }
+void * fd_epoch_epoch_stakes_pair_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_epoch_epoch_stakes_pair_t * self = (fd_epoch_epoch_stakes_pair_t *)mem;
+  fd_epoch_epoch_stakes_pair_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_epoch_stakes_decode_new( ctx, &self->value );
+  return mem;
+}
 void fd_epoch_epoch_stakes_pair_new(fd_epoch_epoch_stakes_pair_t * self) {
   fd_memset( self, 0, sizeof(fd_epoch_epoch_stakes_pair_t) );
   fd_epoch_stakes_new( &self->value );
@@ -4250,6 +4850,15 @@ int fd_pubkey_u64_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_pubkey_u64_pair_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_pubkey_u64_pair_t * self = (fd_pubkey_u64_pair_t *)mem;
+  fd_pubkey_u64_pair_new( self );
+  fd_pubkey_decode_new( ctx, &self->_0 );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
 }
 void fd_pubkey_u64_pair_new(fd_pubkey_u64_pair_t * self) {
   fd_memset( self, 0, sizeof(fd_pubkey_u64_pair_t) );
@@ -4443,6 +5052,53 @@ int fd_unused_accounts_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_unused_accounts_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_unused_accounts_t * self = (fd_unused_accounts_t *)mem;
+  fd_unused_accounts_new( self );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong unused1_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( unused1_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_PUBKEY_ALIGN );
+    for( ulong i=0; i < unused1_len; i++ ) {
+      fd_pubkey_new( (fd_pubkey_t *)mem + i );
+      fd_pubkey_decode_new( ctx, (fd_pubkey_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_PUBKEY_FOOTPRINT*unused1_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong unused2_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( unused2_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_PUBKEY_ALIGN );
+    for( ulong i=0; i < unused2_len; i++ ) {
+      fd_pubkey_new( (fd_pubkey_t *)mem + i );
+      fd_pubkey_decode_new( ctx, (fd_pubkey_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_PUBKEY_FOOTPRINT*unused2_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong unused3_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( unused3_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_PUBKEY_U64_PAIR_ALIGN );
+    for( ulong i=0; i < unused3_len; i++ ) {
+      fd_pubkey_u64_pair_new( (fd_pubkey_u64_pair_t *)mem + i );
+      fd_pubkey_u64_pair_decode_new( ctx, (fd_pubkey_u64_pair_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_PUBKEY_U64_PAIR_FOOTPRINT*unused3_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
 }
 void fd_unused_accounts_new(fd_unused_accounts_t * self) {
   fd_memset( self, 0, sizeof(fd_unused_accounts_t) );
@@ -4960,6 +5616,110 @@ int fd_deserializable_versioned_bank_decode_footprint( fd_bincode_decode_ctx_t *
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_deserializable_versioned_bank_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_deserializable_versioned_bank_t * self = (fd_deserializable_versioned_bank_t *)mem;
+  fd_deserializable_versioned_bank_new( self );
+  fd_block_hash_vec_decode_new( ctx, &self->blockhash_queue );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong ancestors_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( ancestors_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_SLOT_PAIR_ALIGN );
+    for( ulong i=0; i < ancestors_len; i++ ) {
+      fd_slot_pair_new( (fd_slot_pair_t *)mem + i );
+      fd_slot_pair_decode_new( ctx, (fd_slot_pair_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_SLOT_PAIR_FOOTPRINT*ancestors_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  fd_hash_decode_new( ctx, &self->hash );
+  fd_hash_decode_new( ctx, &self->parent_hash );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_hard_forks_decode_new( ctx, &self->hard_forks );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( self->hashes_per_tick, ctx );
+    } else
+      self->hashes_per_tick = NULL;
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint128) ); // Align for the type
+  fd_bincode_uint128_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint128); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(double) ); // Align for the type
+  fd_bincode_double_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(double); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_pubkey_decode_new( ctx, &self->collector_id );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_fee_calculator_decode_new( ctx, &self->fee_calculator );
+  fd_fee_rate_governor_decode_new( ctx, &self->fee_rate_governor );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_rent_collector_decode_new( ctx, &self->rent_collector );
+  fd_epoch_schedule_decode_new( ctx, &self->epoch_schedule );
+  fd_inflation_decode_new( ctx, &self->inflation );
+  fd_stakes_decode_new( ctx, &self->stakes );
+  fd_unused_accounts_decode_new( ctx, &self->unused_accounts );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong epoch_stakes_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( epoch_stakes_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_EPOCH_EPOCH_STAKES_PAIR_ALIGN );
+    for( ulong i=0; i < epoch_stakes_len; i++ ) {
+      fd_epoch_epoch_stakes_pair_new( (fd_epoch_epoch_stakes_pair_t *)mem + i );
+      fd_epoch_epoch_stakes_pair_decode_new( ctx, (fd_epoch_epoch_stakes_pair_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_EPOCH_EPOCH_STAKES_PAIR_FOOTPRINT*epoch_stakes_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_bool_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  return mem;
 }
 void fd_deserializable_versioned_bank_new(fd_deserializable_versioned_bank_t * self) {
   fd_memset( self, 0, sizeof(fd_deserializable_versioned_bank_t) );
@@ -5556,6 +6316,110 @@ int fd_serializable_versioned_bank_decode_footprint( fd_bincode_decode_ctx_t * c
   ctx->data = start_data;
   return 0;
 }
+void * fd_serializable_versioned_bank_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_serializable_versioned_bank_t * self = (fd_serializable_versioned_bank_t *)mem;
+  fd_serializable_versioned_bank_new( self );
+  fd_block_hash_vec_decode_new( ctx, &self->blockhash_queue );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong ancestors_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( ancestors_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_SLOT_PAIR_ALIGN );
+    for( ulong i=0; i < ancestors_len; i++ ) {
+      fd_slot_pair_new( (fd_slot_pair_t *)mem + i );
+      fd_slot_pair_decode_new( ctx, (fd_slot_pair_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_SLOT_PAIR_FOOTPRINT*ancestors_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  fd_hash_decode_new( ctx, &self->hash );
+  fd_hash_decode_new( ctx, &self->parent_hash );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_hard_forks_decode_new( ctx, &self->hard_forks );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( self->hashes_per_tick, ctx );
+    } else
+      self->hashes_per_tick = NULL;
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint128) ); // Align for the type
+  fd_bincode_uint128_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint128); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(double) ); // Align for the type
+  fd_bincode_double_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(double); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_pubkey_decode_new( ctx, &self->collector_id );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_fee_calculator_decode_new( ctx, &self->fee_calculator );
+  fd_fee_rate_governor_decode_new( ctx, &self->fee_rate_governor );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_rent_collector_decode_new( ctx, &self->rent_collector );
+  fd_epoch_schedule_decode_new( ctx, &self->epoch_schedule );
+  fd_inflation_decode_new( ctx, &self->inflation );
+  fd_stakes_serializable_decode_new( ctx, &self->stakes );
+  fd_unused_accounts_decode_new( ctx, &self->unused_accounts );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong epoch_stakes_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( epoch_stakes_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_EPOCH_EPOCH_STAKES_PAIR_ALIGN );
+    for( ulong i=0; i < epoch_stakes_len; i++ ) {
+      fd_epoch_epoch_stakes_pair_new( (fd_epoch_epoch_stakes_pair_t *)mem + i );
+      fd_epoch_epoch_stakes_pair_decode_new( ctx, (fd_epoch_epoch_stakes_pair_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_EPOCH_EPOCH_STAKES_PAIR_FOOTPRINT*epoch_stakes_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_bool_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  return mem;
+}
 void fd_serializable_versioned_bank_new(fd_serializable_versioned_bank_t * self) {
   fd_memset( self, 0, sizeof(fd_serializable_versioned_bank_t) );
   fd_block_hash_vec_new( &self->blockhash_queue );
@@ -5776,6 +6640,26 @@ int fd_bank_hash_stats_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   ctx->data = start_data;
   return 0;
 }
+void * fd_bank_hash_stats_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_bank_hash_stats_t * self = (fd_bank_hash_stats_t *)mem;
+  fd_bank_hash_stats_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_bank_hash_stats_new(fd_bank_hash_stats_t * self) {
   fd_memset( self, 0, sizeof(fd_bank_hash_stats_t) );
 }
@@ -5858,6 +6742,14 @@ int fd_bank_hash_info_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   ctx->data = start_data;
   return 0;
 }
+void * fd_bank_hash_info_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_bank_hash_info_t * self = (fd_bank_hash_info_t *)mem;
+  fd_bank_hash_info_new( self );
+  fd_hash_decode_new( ctx, &self->accounts_delta_hash );
+  fd_hash_decode_new( ctx, &self->accounts_hash );
+  fd_bank_hash_stats_decode_new( ctx, &self->stats );
+  return mem;
+}
 void fd_bank_hash_info_new(fd_bank_hash_info_t * self) {
   fd_memset( self, 0, sizeof(fd_bank_hash_info_t) );
   fd_hash_new( &self->accounts_delta_hash );
@@ -5936,6 +6828,15 @@ int fd_slot_map_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * to
   ctx->data = start_data;
   return 0;
 }
+void * fd_slot_map_pair_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_slot_map_pair_t * self = (fd_slot_map_pair_t *)mem;
+  fd_slot_map_pair_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_hash_decode_new( ctx, &self->hash );
+  return mem;
+}
 void fd_slot_map_pair_new(fd_slot_map_pair_t * self) {
   fd_memset( self, 0, sizeof(fd_slot_map_pair_t) );
   fd_hash_new( &self->hash );
@@ -6008,6 +6909,17 @@ int fd_snapshot_acc_vec_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong *
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_snapshot_acc_vec_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_snapshot_acc_vec_t * self = (fd_snapshot_acc_vec_t *)mem;
+  fd_snapshot_acc_vec_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
 }
 void fd_snapshot_acc_vec_new(fd_snapshot_acc_vec_t * self) {
   fd_memset( self, 0, sizeof(fd_snapshot_acc_vec_t) );
@@ -6120,6 +7032,28 @@ int fd_snapshot_slot_acc_vecs_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   ctx->data = start_data;
   return 0;
 }
+void * fd_snapshot_slot_acc_vecs_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_snapshot_slot_acc_vecs_t * self = (fd_snapshot_slot_acc_vecs_t *)mem;
+  fd_snapshot_slot_acc_vecs_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong account_vecs_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( account_vecs_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_SNAPSHOT_ACC_VEC_ALIGN );
+    for( ulong i=0; i < account_vecs_len; i++ ) {
+      fd_snapshot_acc_vec_new( (fd_snapshot_acc_vec_t *)mem + i );
+      fd_snapshot_acc_vec_decode_new( ctx, (fd_snapshot_acc_vec_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_SNAPSHOT_ACC_VEC_FOOTPRINT*account_vecs_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
+}
 void fd_snapshot_slot_acc_vecs_new(fd_snapshot_slot_acc_vecs_t * self) {
   fd_memset( self, 0, sizeof(fd_snapshot_slot_acc_vecs_t) );
 }
@@ -6216,6 +7150,7 @@ int fd_reward_type_decode( fd_reward_type_t * self, fd_bincode_decode_ctx_t * ct
   return FD_BINCODE_SUCCESS;
 }
 int fd_reward_type_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_reward_type_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_reward_type_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -6498,6 +7433,59 @@ int fd_solana_accounts_db_fields_decode_footprint( fd_bincode_decode_ctx_t * ctx
   ctx->data = start_data;
   return 0;
 }
+void * fd_solana_accounts_db_fields_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_solana_accounts_db_fields_t * self = (fd_solana_accounts_db_fields_t *)mem;
+  fd_solana_accounts_db_fields_new( self );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong storages_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( storages_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_SNAPSHOT_SLOT_ACC_VECS_ALIGN );
+    for( ulong i=0; i < storages_len; i++ ) {
+      fd_snapshot_slot_acc_vecs_new( (fd_snapshot_slot_acc_vecs_t *)mem + i );
+      fd_snapshot_slot_acc_vecs_decode_new( ctx, (fd_snapshot_slot_acc_vecs_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_SNAPSHOT_SLOT_ACC_VECS_FOOTPRINT*storages_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_bank_hash_info_decode_new( ctx, &self->bank_hash_info );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong historical_roots_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( historical_roots_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+    for( ulong i=0; i < historical_roots_len; i++ ) {
+      fd_bincode_uint64_decode_unsafe( (ulong *)mem + i, ctx );
+    }
+    mem = (uchar *)mem + sizeof(ulong)*historical_roots_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong historical_roots_with_hash_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( historical_roots_with_hash_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_SLOT_MAP_PAIR_ALIGN );
+    for( ulong i=0; i < historical_roots_with_hash_len; i++ ) {
+      fd_slot_map_pair_new( (fd_slot_map_pair_t *)mem + i );
+      fd_slot_map_pair_decode_new( ctx, (fd_slot_map_pair_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_SLOT_MAP_PAIR_FOOTPRINT*historical_roots_with_hash_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
+}
 void fd_solana_accounts_db_fields_new(fd_solana_accounts_db_fields_t * self) {
   fd_memset( self, 0, sizeof(fd_solana_accounts_db_fields_t) );
   fd_bank_hash_info_new( &self->bank_hash_info );
@@ -6715,6 +7703,43 @@ int fd_versioned_epoch_stakes_current_decode_footprint( fd_bincode_decode_ctx_t 
   ctx->data = start_data;
   return 0;
 }
+void * fd_versioned_epoch_stakes_current_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_versioned_epoch_stakes_current_t * self = (fd_versioned_epoch_stakes_current_t *)mem;
+  fd_versioned_epoch_stakes_current_new( self );
+  fd_stakes_stake_decode_new( ctx, &self->stakes );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong node_id_to_vote_accounts_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( node_id_to_vote_accounts_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_ALIGN );
+    for( ulong i=0; i < node_id_to_vote_accounts_len; i++ ) {
+      fd_pubkey_node_vote_accounts_pair_new( (fd_pubkey_node_vote_accounts_pair_t *)mem + i );
+      fd_pubkey_node_vote_accounts_pair_decode_new( ctx, (fd_pubkey_node_vote_accounts_pair_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_PUBKEY_NODE_VOTE_ACCOUNTS_PAIR_FOOTPRINT*node_id_to_vote_accounts_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong epoch_authorized_voters_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( epoch_authorized_voters_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_PUBKEY_PUBKEY_PAIR_ALIGN );
+    for( ulong i=0; i < epoch_authorized_voters_len; i++ ) {
+      fd_pubkey_pubkey_pair_new( (fd_pubkey_pubkey_pair_t *)mem + i );
+      fd_pubkey_pubkey_pair_decode_new( ctx, (fd_pubkey_pubkey_pair_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_PUBKEY_PUBKEY_PAIR_FOOTPRINT*epoch_authorized_voters_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
+}
 void fd_versioned_epoch_stakes_current_new(fd_versioned_epoch_stakes_current_t * self) {
   fd_memset( self, 0, sizeof(fd_versioned_epoch_stakes_current_t) );
   fd_stakes_stake_new( &self->stakes );
@@ -6808,6 +7833,7 @@ int fd_versioned_epoch_stakes_decode( fd_versioned_epoch_stakes_t * self, fd_bin
   return FD_BINCODE_SUCCESS;
 }
 int fd_versioned_epoch_stakes_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_versioned_epoch_stakes_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_versioned_epoch_stakes_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -6944,6 +7970,15 @@ int fd_versioned_epoch_stakes_pair_decode_footprint( fd_bincode_decode_ctx_t * c
   ctx->data = start_data;
   return 0;
 }
+void * fd_versioned_epoch_stakes_pair_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_versioned_epoch_stakes_pair_t * self = (fd_versioned_epoch_stakes_pair_t *)mem;
+  fd_versioned_epoch_stakes_pair_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_versioned_epoch_stakes_decode_new( ctx, &self->val );
+  return mem;
+}
 void fd_versioned_epoch_stakes_pair_new(fd_versioned_epoch_stakes_pair_t * self) {
   fd_memset( self, 0, sizeof(fd_versioned_epoch_stakes_pair_t) );
   fd_versioned_epoch_stakes_new( &self->val );
@@ -7041,6 +8076,21 @@ int fd_reward_info_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   ctx->data = start_data;
   return 0;
 }
+void * fd_reward_info_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_reward_info_t * self = (fd_reward_info_t *)mem;
+  fd_reward_info_new( self );
+  fd_reward_type_decode_new( ctx, &self->reward_type );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_reward_info_new(fd_reward_info_t * self) {
   fd_memset( self, 0, sizeof(fd_reward_info_t) );
   fd_reward_type_new( &self->reward_type );
@@ -7109,6 +8159,14 @@ int fd_slot_lthash_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_slot_lthash_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_slot_lthash_t * self = (fd_slot_lthash_t *)mem;
+  fd_slot_lthash_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_bytes_decode_unsafe( mem, sizeof(self->lthash), ctx );
+  mem = (uchar*)mem + sizeof(self->lthash); // Leave unaligned
+  return mem;
 }
 void fd_slot_lthash_new(fd_slot_lthash_t * self) {
   fd_memset( self, 0, sizeof(fd_slot_lthash_t) );
@@ -7389,6 +8447,57 @@ int fd_solana_manifest_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_solana_manifest_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_solana_manifest_t * self = (fd_solana_manifest_t *)mem;
+  fd_solana_manifest_new( self );
+  fd_deserializable_versioned_bank_decode_new( ctx, &self->bank );
+  fd_solana_accounts_db_fields_decode_new( ctx, &self->accounts_db );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    if( o ) {
+      fd_bank_incremental_snapshot_persistence_new( self->bank_incremental_snapshot_persistence );
+      fd_bank_incremental_snapshot_persistence_decode_unsafe( self->bank_incremental_snapshot_persistence, ctx );
+    } else
+      self->bank_incremental_snapshot_persistence = NULL;
+  }
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    if( o ) {
+      fd_hash_new( self->epoch_account_hash );
+      fd_hash_decode_unsafe( self->epoch_account_hash, ctx );
+    } else
+      self->epoch_account_hash = NULL;
+  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong versioned_epoch_stakes_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( versioned_epoch_stakes_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_VERSIONED_EPOCH_STAKES_PAIR_ALIGN );
+    for( ulong i=0; i < versioned_epoch_stakes_len; i++ ) {
+      fd_versioned_epoch_stakes_pair_new( (fd_versioned_epoch_stakes_pair_t *)mem + i );
+      fd_versioned_epoch_stakes_pair_decode_new( ctx, (fd_versioned_epoch_stakes_pair_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_VERSIONED_EPOCH_STAKES_PAIR_FOOTPRINT*versioned_epoch_stakes_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    if( o ) {
+      fd_slot_lthash_new( self->lthash );
+      fd_slot_lthash_decode_unsafe( self->lthash, ctx );
+    } else
+      self->lthash = NULL;
+  }
+  return mem;
 }
 void fd_solana_manifest_new(fd_solana_manifest_t * self) {
   fd_memset( self, 0, sizeof(fd_solana_manifest_t) );
@@ -7687,6 +8796,48 @@ int fd_solana_manifest_serializable_decode_footprint( fd_bincode_decode_ctx_t * 
   ctx->data = start_data;
   return 0;
 }
+void * fd_solana_manifest_serializable_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_solana_manifest_serializable_t * self = (fd_solana_manifest_serializable_t *)mem;
+  fd_solana_manifest_serializable_new( self );
+  fd_serializable_versioned_bank_decode_new( ctx, &self->bank );
+  fd_solana_accounts_db_fields_decode_new( ctx, &self->accounts_db );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    if( o ) {
+      fd_bank_incremental_snapshot_persistence_new( self->bank_incremental_snapshot_persistence );
+      fd_bank_incremental_snapshot_persistence_decode_unsafe( self->bank_incremental_snapshot_persistence, ctx );
+    } else
+      self->bank_incremental_snapshot_persistence = NULL;
+  }
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    if( o ) {
+      fd_hash_new( self->epoch_account_hash );
+      fd_hash_decode_unsafe( self->epoch_account_hash, ctx );
+    } else
+      self->epoch_account_hash = NULL;
+  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong versioned_epoch_stakes_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( versioned_epoch_stakes_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_VERSIONED_EPOCH_STAKES_PAIR_ALIGN );
+    for( ulong i=0; i < versioned_epoch_stakes_len; i++ ) {
+      fd_versioned_epoch_stakes_pair_new( (fd_versioned_epoch_stakes_pair_t *)mem + i );
+      fd_versioned_epoch_stakes_pair_decode_new( ctx, (fd_versioned_epoch_stakes_pair_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_VERSIONED_EPOCH_STAKES_PAIR_FOOTPRINT*versioned_epoch_stakes_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
+}
 void fd_solana_manifest_serializable_new(fd_solana_manifest_serializable_t * self) {
   fd_memset( self, 0, sizeof(fd_solana_manifest_serializable_t) );
   fd_serializable_versioned_bank_new( &self->bank );
@@ -7808,6 +8959,17 @@ int fd_rust_duration_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * to
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_rust_duration_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_rust_duration_t * self = (fd_rust_duration_t *)mem;
+  fd_rust_duration_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint) ); // Align for the type
+  fd_bincode_uint32_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint); // Leave unaligned
+  return mem;
 }
 void fd_rust_duration_new(fd_rust_duration_t * self) {
   fd_memset( self, 0, sizeof(fd_rust_duration_t) );
@@ -7962,6 +9124,28 @@ int fd_poh_config_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   ctx->data = start_data;
   return 0;
 }
+void * fd_poh_config_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_poh_config_t * self = (fd_poh_config_t *)mem;
+  fd_poh_config_new( self );
+  fd_rust_duration_decode_new( ctx, &self->target_tick_duration );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( self->target_tick_count, ctx );
+    } else
+      self->target_tick_count = NULL;
+  }
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_hashes_per_tick = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->hashes_per_tick, ctx );
+    }
+  }
+  return mem;
+}
 void fd_poh_config_new(fd_poh_config_t * self) {
   fd_memset( self, 0, sizeof(fd_poh_config_t) );
   fd_rust_duration_new( &self->target_tick_duration );
@@ -8092,6 +9276,23 @@ int fd_string_pubkey_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   ctx->data = start_data;
   return 0;
 }
+void * fd_string_pubkey_pair_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_string_pubkey_pair_t * self = (fd_string_pubkey_pair_t *)mem;
+  fd_string_pubkey_pair_new( self );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong string_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( string_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, 8UL );
+    fd_bincode_bytes_decode_unsafe( mem, string_len, ctx );
+    mem = (uchar *)mem + string_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  fd_pubkey_decode_new( ctx, &self->pubkey );
+  return mem;
+}
 void fd_string_pubkey_pair_new(fd_string_pubkey_pair_t * self) {
   fd_memset( self, 0, sizeof(fd_string_pubkey_pair_t) );
   fd_pubkey_new( &self->pubkey );
@@ -8174,6 +9375,13 @@ int fd_pubkey_account_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_pubkey_account_pair_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_pubkey_account_pair_t * self = (fd_pubkey_account_pair_t *)mem;
+  fd_pubkey_account_pair_new( self );
+  fd_pubkey_decode_new( ctx, &self->key );
+  fd_solana_account_decode_new( ctx, &self->account );
+  return mem;
 }
 void fd_pubkey_account_pair_new(fd_pubkey_account_pair_t * self) {
   fd_memset( self, 0, sizeof(fd_pubkey_account_pair_t) );
@@ -8465,6 +9673,73 @@ int fd_genesis_solana_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   ctx->data = start_data;
   return 0;
 }
+void * fd_genesis_solana_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_genesis_solana_t * self = (fd_genesis_solana_t *)mem;
+  fd_genesis_solana_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong accounts_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( accounts_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_PUBKEY_ACCOUNT_PAIR_ALIGN );
+    for( ulong i=0; i < accounts_len; i++ ) {
+      fd_pubkey_account_pair_new( (fd_pubkey_account_pair_t *)mem + i );
+      fd_pubkey_account_pair_decode_new( ctx, (fd_pubkey_account_pair_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT*accounts_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong native_instruction_processors_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( native_instruction_processors_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_STRING_PUBKEY_PAIR_ALIGN );
+    for( ulong i=0; i < native_instruction_processors_len; i++ ) {
+      fd_string_pubkey_pair_new( (fd_string_pubkey_pair_t *)mem + i );
+      fd_string_pubkey_pair_decode_new( ctx, (fd_string_pubkey_pair_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_STRING_PUBKEY_PAIR_FOOTPRINT*native_instruction_processors_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong rewards_pools_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( rewards_pools_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_PUBKEY_ACCOUNT_PAIR_ALIGN );
+    for( ulong i=0; i < rewards_pools_len; i++ ) {
+      fd_pubkey_account_pair_new( (fd_pubkey_account_pair_t *)mem + i );
+      fd_pubkey_account_pair_decode_new( ctx, (fd_pubkey_account_pair_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_PUBKEY_ACCOUNT_PAIR_FOOTPRINT*rewards_pools_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_poh_config_decode_new( ctx, &self->poh_config );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_fee_rate_governor_decode_new( ctx, &self->fee_rate_governor );
+  fd_rent_decode_new( ctx, &self->rent );
+  fd_inflation_decode_new( ctx, &self->inflation );
+  fd_epoch_schedule_decode_new( ctx, &self->epoch_schedule );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint) ); // Align for the type
+  fd_bincode_uint32_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint); // Leave unaligned
+  return mem;
+}
 void fd_genesis_solana_new(fd_genesis_solana_t * self) {
   fd_memset( self, 0, sizeof(fd_genesis_solana_t) );
   fd_poh_config_new( &self->poh_config );
@@ -8637,6 +9912,26 @@ int fd_sol_sysvar_clock_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong *
   ctx->data = start_data;
   return 0;
 }
+void * fd_sol_sysvar_clock_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_sol_sysvar_clock_t * self = (fd_sol_sysvar_clock_t *)mem;
+  fd_sol_sysvar_clock_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_sol_sysvar_clock_new(fd_sol_sysvar_clock_t * self) {
   fd_memset( self, 0, sizeof(fd_sol_sysvar_clock_t) );
 }
@@ -8706,6 +10001,14 @@ int fd_sol_sysvar_last_restart_slot_decode_footprint( fd_bincode_decode_ctx_t * 
   ctx->data = start_data;
   return 0;
 }
+void * fd_sol_sysvar_last_restart_slot_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_sol_sysvar_last_restart_slot_t * self = (fd_sol_sysvar_last_restart_slot_t *)mem;
+  fd_sol_sysvar_last_restart_slot_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_sol_sysvar_last_restart_slot_new(fd_sol_sysvar_last_restart_slot_t * self) {
   fd_memset( self, 0, sizeof(fd_sol_sysvar_last_restart_slot_t) );
 }
@@ -8774,6 +10077,17 @@ int fd_vote_lockout_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_vote_lockout_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_vote_lockout_t * self = (fd_vote_lockout_t *)mem;
+  fd_vote_lockout_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint) ); // Align for the type
+  fd_bincode_uint32_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint); // Leave unaligned
+  return mem;
 }
 void fd_vote_lockout_new(fd_vote_lockout_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_lockout_t) );
@@ -8850,6 +10164,17 @@ int fd_lockout_offset_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_lockout_offset_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_lockout_offset_t * self = (fd_lockout_offset_t *)mem;
+  fd_lockout_offset_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_varint_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  return mem;
 }
 void fd_lockout_offset_new(fd_lockout_offset_t * self) {
   fd_memset( self, 0, sizeof(fd_lockout_offset_t) );
@@ -8933,6 +10258,27 @@ int fd_vote_authorized_voter_decode_footprint( fd_bincode_decode_ctx_t * ctx, ul
   ctx->data = start_data;
   return 0;
 }
+void * fd_vote_authorized_voter_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_vote_authorized_voter_t * self = (fd_vote_authorized_voter_t *)mem;
+  fd_vote_authorized_voter_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_pubkey_decode_new( ctx, &self->pubkey );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_vote_authorized_voter_new(fd_vote_authorized_voter_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_authorized_voter_t) );
   fd_pubkey_new( &self->pubkey );
@@ -9012,6 +10358,18 @@ int fd_vote_prior_voter_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong *
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_vote_prior_voter_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_vote_prior_voter_t * self = (fd_vote_prior_voter_t *)mem;
+  fd_vote_prior_voter_new( self );
+  fd_pubkey_decode_new( ctx, &self->pubkey );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
 }
 void fd_vote_prior_voter_new(fd_vote_prior_voter_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_prior_voter_t) );
@@ -9103,6 +10461,21 @@ int fd_vote_prior_voter_0_23_5_decode_footprint( fd_bincode_decode_ctx_t * ctx, 
   ctx->data = start_data;
   return 0;
 }
+void * fd_vote_prior_voter_0_23_5_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_vote_prior_voter_0_23_5_t * self = (fd_vote_prior_voter_0_23_5_t *)mem;
+  fd_vote_prior_voter_0_23_5_new( self );
+  fd_pubkey_decode_new( ctx, &self->pubkey );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_vote_prior_voter_0_23_5_new(fd_vote_prior_voter_0_23_5_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_prior_voter_0_23_5_t) );
   fd_pubkey_new( &self->pubkey );
@@ -9188,6 +10561,20 @@ int fd_vote_epoch_credits_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   ctx->data = start_data;
   return 0;
 }
+void * fd_vote_epoch_credits_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_vote_epoch_credits_t * self = (fd_vote_epoch_credits_t *)mem;
+  fd_vote_epoch_credits_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_vote_epoch_credits_new(fd_vote_epoch_credits_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_epoch_credits_t) );
 }
@@ -9260,6 +10647,17 @@ int fd_vote_block_timestamp_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulo
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_vote_block_timestamp_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_vote_block_timestamp_t * self = (fd_vote_block_timestamp_t *)mem;
+  fd_vote_block_timestamp_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
 }
 void fd_vote_block_timestamp_new(fd_vote_block_timestamp_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_block_timestamp_t) );
@@ -9357,6 +10755,20 @@ int fd_vote_prior_voters_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   ctx->data = start_data;
   return 0;
 }
+void * fd_vote_prior_voters_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_vote_prior_voters_t * self = (fd_vote_prior_voters_t *)mem;
+  fd_vote_prior_voters_new( self );
+  for( ulong i=0; i<32; i++ ) {
+    fd_vote_prior_voter_decode_unsafe( self->buf + i, ctx );
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_bool_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  return mem;
+}
 void fd_vote_prior_voters_new(fd_vote_prior_voters_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_prior_voters_t) );
   for( ulong i=0; i<32; i++ )
@@ -9446,6 +10858,17 @@ int fd_vote_prior_voters_0_23_5_decode_footprint( fd_bincode_decode_ctx_t * ctx,
   ctx->data = start_data;
   return 0;
 }
+void * fd_vote_prior_voters_0_23_5_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_vote_prior_voters_0_23_5_t * self = (fd_vote_prior_voters_0_23_5_t *)mem;
+  fd_vote_prior_voters_0_23_5_new( self );
+  for( ulong i=0; i<32; i++ ) {
+    fd_vote_prior_voter_0_23_5_decode_unsafe( self->buf + i, ctx );
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_vote_prior_voters_0_23_5_new(fd_vote_prior_voters_0_23_5_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_prior_voters_0_23_5_t) );
   for( ulong i=0; i<32; i++ )
@@ -9523,6 +10946,15 @@ int fd_landed_vote_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_landed_vote_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_landed_vote_t * self = (fd_landed_vote_t *)mem;
+  fd_landed_vote_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  fd_vote_lockout_decode_new( ctx, &self->lockout );
+  return mem;
 }
 void fd_landed_vote_new(fd_landed_vote_t * self) {
   fd_memset( self, 0, sizeof(fd_landed_vote_t) );
@@ -9779,6 +11211,56 @@ int fd_vote_state_0_23_5_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   ctx->data = start_data;
   return 0;
 }
+void * fd_vote_state_0_23_5_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_vote_state_0_23_5_t * self = (fd_vote_state_0_23_5_t *)mem;
+  fd_vote_state_0_23_5_new( self );
+  fd_pubkey_decode_new( ctx, &self->node_pubkey );
+  fd_pubkey_decode_new( ctx, &self->authorized_voter );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_vote_prior_voters_0_23_5_decode_new( ctx, &self->prior_voters );
+  fd_pubkey_decode_new( ctx, &self->authorized_withdrawer );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong votes_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(fd_vote_lockout_t) ); //deque
+  fd_vote_lockout_t * votes_deque = (fd_vote_lockout_t *)mem;
+  ulong votes_max = fd_ulong_max( votes_len, 32 );
+  mem = (uchar *)mem + votes_max;
+  for( ulong i=0; i < votes_len; i++ ) {
+    fd_vote_lockout_t * elem = deq_fd_vote_lockout_t_push_tail_nocopy( votes_deque );
+    fd_vote_lockout_new( elem );
+    fd_vote_lockout_decode_unsafe( elem, ctx );
+  }
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_root_slot = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->root_slot, ctx );
+    }
+  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong epoch_credits_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(fd_vote_epoch_credits_t) ); //deque
+  fd_vote_epoch_credits_t * epoch_credits_deque = (fd_vote_epoch_credits_t *)mem;
+  ulong epoch_credits_max = fd_ulong_max( epoch_credits_len, 64 );
+  mem = (uchar *)mem + epoch_credits_max;
+  for( ulong i=0; i < epoch_credits_len; i++ ) {
+    fd_vote_epoch_credits_t * elem = deq_fd_vote_epoch_credits_t_push_tail_nocopy( epoch_credits_deque );
+    fd_vote_epoch_credits_new( elem );
+    fd_vote_epoch_credits_decode_unsafe( elem, ctx );
+  }
+  fd_vote_block_timestamp_decode_new( ctx, &self->last_timestamp );
+  return mem;
+}
 void fd_vote_state_0_23_5_new(fd_vote_state_0_23_5_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_state_0_23_5_t) );
   fd_pubkey_new( &self->node_pubkey );
@@ -9986,6 +11468,29 @@ int fd_vote_authorized_voters_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_vote_authorized_voters_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_vote_authorized_voters_t * self = (fd_vote_authorized_voters_t *)mem;
+  fd_vote_authorized_voters_new( self );
+  fd_bincode_destroy_ctx_t destroy_ctx = { .valloc = ctx->valloc };
+  ulong fd_vote_authorized_voters_treap_len;
+  fd_bincode_uint64_decode_unsafe( &fd_vote_authorized_voters_treap_len, ctx );
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    ulong fd_vote_authorized_voters_treap_max = fd_ulong_max( fd_vote_authorized_voters_treap_len, FD_VOTE_AUTHORIZED_VOTERS_MIN );
+  }
+  for( ulong i=0; i < fd_vote_authorized_voters_treap_len; i++ ) {
+    fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( self->pool );
+    fd_vote_authorized_voter_new( ele );
+    fd_vote_authorized_voter_decode_unsafe( ele, ctx );
+    fd_vote_authorized_voter_t * repeated_entry = fd_vote_authorized_voters_treap_ele_query( self->treap, ele->epoch, self->pool );
+    if( repeated_entry ) {
+        fd_vote_authorized_voters_treap_ele_remove( self->treap, repeated_entry, self->pool ); // Remove the element before inserting it back to avoid duplication
+        fd_vote_authorized_voter_destroy( repeated_entry, &destroy_ctx );
+        fd_vote_authorized_voters_pool_ele_release( self->pool, repeated_entry );
+    }
+    fd_vote_authorized_voters_treap_ele_insert( self->treap, ele, self->pool ); /* this cannot fail */
+  }
+  return mem;
 }
 void fd_vote_authorized_voters_new(fd_vote_authorized_voters_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_authorized_voters_t) );
@@ -10253,6 +11758,53 @@ int fd_vote_state_1_14_11_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_vote_state_1_14_11_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_vote_state_1_14_11_t * self = (fd_vote_state_1_14_11_t *)mem;
+  fd_vote_state_1_14_11_new( self );
+  fd_pubkey_decode_new( ctx, &self->node_pubkey );
+  fd_pubkey_decode_new( ctx, &self->authorized_withdrawer );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong votes_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(fd_vote_lockout_t) ); //deque
+  fd_vote_lockout_t * votes_deque = (fd_vote_lockout_t *)mem;
+  ulong votes_max = fd_ulong_max( votes_len, 32 );
+  mem = (uchar *)mem + votes_max;
+  for( ulong i=0; i < votes_len; i++ ) {
+    fd_vote_lockout_t * elem = deq_fd_vote_lockout_t_push_tail_nocopy( votes_deque );
+    fd_vote_lockout_new( elem );
+    fd_vote_lockout_decode_unsafe( elem, ctx );
+  }
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_root_slot = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->root_slot, ctx );
+    }
+  }
+  fd_vote_authorized_voters_decode_new( ctx, &self->authorized_voters );
+  fd_vote_prior_voters_decode_new( ctx, &self->prior_voters );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong epoch_credits_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(fd_vote_epoch_credits_t) ); //deque
+  fd_vote_epoch_credits_t * epoch_credits_deque = (fd_vote_epoch_credits_t *)mem;
+  ulong epoch_credits_max = fd_ulong_max( epoch_credits_len, 64 );
+  mem = (uchar *)mem + epoch_credits_max;
+  for( ulong i=0; i < epoch_credits_len; i++ ) {
+    fd_vote_epoch_credits_t * elem = deq_fd_vote_epoch_credits_t_push_tail_nocopy( epoch_credits_deque );
+    fd_vote_epoch_credits_new( elem );
+    fd_vote_epoch_credits_decode_unsafe( elem, ctx );
+  }
+  fd_vote_block_timestamp_decode_new( ctx, &self->last_timestamp );
+  return mem;
 }
 void fd_vote_state_1_14_11_new(fd_vote_state_1_14_11_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_state_1_14_11_t) );
@@ -10589,6 +12141,53 @@ int fd_vote_state_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   ctx->data = start_data;
   return 0;
 }
+void * fd_vote_state_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_vote_state_t * self = (fd_vote_state_t *)mem;
+  fd_vote_state_new( self );
+  fd_pubkey_decode_new( ctx, &self->node_pubkey );
+  fd_pubkey_decode_new( ctx, &self->authorized_withdrawer );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong votes_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(fd_landed_vote_t) ); //deque
+  fd_landed_vote_t * votes_deque = (fd_landed_vote_t *)mem;
+  ulong votes_max = fd_ulong_max( votes_len, 32 );
+  mem = (uchar *)mem + votes_max;
+  for( ulong i=0; i < votes_len; i++ ) {
+    fd_landed_vote_t * elem = deq_fd_landed_vote_t_push_tail_nocopy( votes_deque );
+    fd_landed_vote_new( elem );
+    fd_landed_vote_decode_unsafe( elem, ctx );
+  }
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_root_slot = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->root_slot, ctx );
+    }
+  }
+  fd_vote_authorized_voters_decode_new( ctx, &self->authorized_voters );
+  fd_vote_prior_voters_decode_new( ctx, &self->prior_voters );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong epoch_credits_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(fd_vote_epoch_credits_t) ); //deque
+  fd_vote_epoch_credits_t * epoch_credits_deque = (fd_vote_epoch_credits_t *)mem;
+  ulong epoch_credits_max = fd_ulong_max( epoch_credits_len, 64 );
+  mem = (uchar *)mem + epoch_credits_max;
+  for( ulong i=0; i < epoch_credits_len; i++ ) {
+    fd_vote_epoch_credits_t * elem = deq_fd_vote_epoch_credits_t_push_tail_nocopy( epoch_credits_deque );
+    fd_vote_epoch_credits_new( elem );
+    fd_vote_epoch_credits_decode_unsafe( elem, ctx );
+  }
+  fd_vote_block_timestamp_decode_new( ctx, &self->last_timestamp );
+  return mem;
+}
 void fd_vote_state_new(fd_vote_state_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_state_t) );
   fd_pubkey_new( &self->node_pubkey );
@@ -10762,6 +12361,7 @@ int fd_vote_state_versioned_decode( fd_vote_state_versioned_t * self, fd_bincode
   return FD_BINCODE_SUCCESS;
 }
 int fd_vote_state_versioned_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_vote_state_versioned_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_vote_state_versioned_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -11061,6 +12661,41 @@ int fd_vote_state_update_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   ctx->data = start_data;
   return 0;
 }
+void * fd_vote_state_update_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_vote_state_update_t * self = (fd_vote_state_update_t *)mem;
+  fd_vote_state_update_new( self );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong lockouts_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(fd_vote_lockout_t) ); //deque
+  fd_vote_lockout_t * lockouts_deque = (fd_vote_lockout_t *)mem;
+  ulong lockouts_max = fd_ulong_max( lockouts_len, 32 );
+  mem = (uchar *)mem + lockouts_max;
+  for( ulong i=0; i < lockouts_len; i++ ) {
+    fd_vote_lockout_t * elem = deq_fd_vote_lockout_t_push_tail_nocopy( lockouts_deque );
+    fd_vote_lockout_new( elem );
+    fd_vote_lockout_decode_unsafe( elem, ctx );
+  }
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_root = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->root, ctx );
+    }
+  }
+  fd_hash_decode_new( ctx, &self->hash );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_timestamp = !!o;
+    if( o ) {
+      fd_bincode_int64_decode_unsafe( &self->timestamp, ctx );
+    }
+  }
+  return mem;
+}
 void fd_vote_state_update_new(fd_vote_state_update_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_state_update_t) );
   fd_hash_new( &self->hash );
@@ -11278,6 +12913,37 @@ int fd_compact_vote_state_update_decode_footprint( fd_bincode_decode_ctx_t * ctx
   ctx->data = start_data;
   return 0;
 }
+void * fd_compact_vote_state_update_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_compact_vote_state_update_t * self = (fd_compact_vote_state_update_t *)mem;
+  fd_compact_vote_state_update_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ushort) );
+  fd_bincode_compact_u16_decode_unsafe( mem, ctx );
+  ushort lockouts_len = *(ushort *)mem;
+  mem = (uchar *)mem + sizeof(ushort);
+  if( lockouts_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_LOCKOUT_OFFSET_ALIGN );
+    for( ulong i=0; i < lockouts_len; i++ ) {
+      fd_lockout_offset_new( (fd_lockout_offset_t *)mem + i );
+      fd_lockout_offset_decode_new( ctx, (fd_lockout_offset_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_LOCKOUT_OFFSET_FOOTPRINT*lockouts_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  fd_hash_decode_new( ctx, &self->hash );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_timestamp = !!o;
+    if( o ) {
+      fd_bincode_int64_decode_unsafe( &self->timestamp, ctx );
+    }
+  }
+  return mem;
+}
 void fd_compact_vote_state_update_new(fd_compact_vote_state_update_t * self) {
   fd_memset( self, 0, sizeof(fd_compact_vote_state_update_t) );
   fd_hash_new( &self->hash );
@@ -11383,6 +13049,13 @@ int fd_compact_vote_state_update_switch_decode_footprint( fd_bincode_decode_ctx_
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_compact_vote_state_update_switch_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_compact_vote_state_update_switch_t * self = (fd_compact_vote_state_update_switch_t *)mem;
+  fd_compact_vote_state_update_switch_new( self );
+  fd_compact_vote_state_update_decode_new( ctx, &self->compact_vote_state_update );
+  fd_hash_decode_new( ctx, &self->hash );
+  return mem;
 }
 void fd_compact_vote_state_update_switch_new(fd_compact_vote_state_update_switch_t * self) {
   fd_memset( self, 0, sizeof(fd_compact_vote_state_update_switch_t) );
@@ -11559,6 +13232,37 @@ int fd_compact_tower_sync_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   ctx->data = start_data;
   return 0;
 }
+void * fd_compact_tower_sync_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_compact_tower_sync_t * self = (fd_compact_tower_sync_t *)mem;
+  fd_compact_tower_sync_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ushort) );
+  fd_bincode_compact_u16_decode_unsafe( mem, ctx );
+  ushort lockout_offsets_len = *(ushort *)mem;
+  mem = (uchar *)mem + sizeof(ushort);
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(fd_lockout_offset_t) ); //deque
+  fd_lockout_offset_t * lockout_offsets_deque = (fd_lockout_offset_t *)mem;
+  ulong lockout_offsets_max = fd_ulong_max( lockout_offsets_len, 32 );
+  mem = (uchar *)mem + lockout_offsets_max;
+  for( ulong i=0; i < lockout_offsets_len; i++ ) {
+    fd_lockout_offset_t * elem = deq_fd_lockout_offset_t_push_tail_nocopy( lockout_offsets_deque );
+    fd_lockout_offset_new( elem );
+    fd_lockout_offset_decode_unsafe( elem, ctx );
+  }
+  fd_hash_decode_new( ctx, &self->hash );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_timestamp = !!o;
+    if( o ) {
+      fd_bincode_int64_decode_unsafe( &self->timestamp, ctx );
+    }
+  }
+  fd_hash_decode_new( ctx, &self->block_id );
+  return mem;
+}
 void fd_compact_tower_sync_new(fd_compact_tower_sync_t * self) {
   fd_memset( self, 0, sizeof(fd_compact_tower_sync_t) );
   fd_hash_new( &self->hash );
@@ -11667,6 +13371,44 @@ int fd_tower_sync_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_tower_sync_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_tower_sync_t * self = (fd_tower_sync_t *)mem;
+  fd_tower_sync_new( self );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong lockouts_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(fd_vote_lockout_t) ); //deque
+  fd_vote_lockout_t * lockouts_deque = (fd_vote_lockout_t *)mem;
+  mem = (uchar *)mem + lockouts_len;
+  for( ulong i=0; i < lockouts_len; i++ ) {
+    fd_vote_lockout_t * elem = deq_fd_vote_lockout_t_push_tail_nocopy( lockouts_deque );
+    fd_vote_lockout_new( elem );
+    fd_vote_lockout_decode_unsafe( elem, ctx );
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_root = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->root, ctx );
+    }
+  }
+  fd_hash_decode_new( ctx, &self->hash );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_timestamp = !!o;
+    if( o ) {
+      fd_bincode_int64_decode_unsafe( &self->timestamp, ctx );
+    }
+  }
+  fd_hash_decode_new( ctx, &self->block_id );
+  return mem;
 }
 void fd_tower_sync_new(fd_tower_sync_t * self) {
   fd_memset( self, 0, sizeof(fd_tower_sync_t) );
@@ -11803,6 +13545,13 @@ int fd_tower_sync_switch_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   ctx->data = start_data;
   return 0;
 }
+void * fd_tower_sync_switch_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_tower_sync_switch_t * self = (fd_tower_sync_switch_t *)mem;
+  fd_tower_sync_switch_new( self );
+  fd_tower_sync_decode_new( ctx, &self->tower_sync );
+  fd_hash_decode_new( ctx, &self->hash );
+  return mem;
+}
 void fd_tower_sync_switch_new(fd_tower_sync_switch_t * self) {
   fd_memset( self, 0, sizeof(fd_tower_sync_switch_t) );
   fd_tower_sync_new( &self->tower_sync );
@@ -11905,6 +13654,24 @@ int fd_slot_history_inner_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_slot_history_inner_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_slot_history_inner_t * self = (fd_slot_history_inner_t *)mem;
+  fd_slot_history_inner_new( self );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong blocks_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( blocks_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+    for( ulong i=0; i < blocks_len; i++ ) {
+      fd_bincode_uint64_decode_unsafe( (ulong *)mem + i, ctx );
+    }
+    mem = (uchar *)mem + sizeof(ulong)*blocks_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
 }
 void fd_slot_history_inner_new(fd_slot_history_inner_t * self) {
   fd_memset( self, 0, sizeof(fd_slot_history_inner_t) );
@@ -12029,6 +13796,23 @@ int fd_slot_history_bitvec_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
   ctx->data = start_data;
   return 0;
 }
+void * fd_slot_history_bitvec_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_slot_history_bitvec_t * self = (fd_slot_history_bitvec_t *)mem;
+  fd_slot_history_bitvec_new( self );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    if( o ) {
+      fd_slot_history_inner_new( self->bits );
+      fd_slot_history_inner_decode_unsafe( self->bits, ctx );
+    } else
+      self->bits = NULL;
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_slot_history_bitvec_new(fd_slot_history_bitvec_t * self) {
   fd_memset( self, 0, sizeof(fd_slot_history_bitvec_t) );
 }
@@ -12116,6 +13900,15 @@ int fd_slot_history_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
   ctx->data = start_data;
   return 0;
 }
+void * fd_slot_history_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_slot_history_t * self = (fd_slot_history_t *)mem;
+  fd_slot_history_new( self );
+  fd_slot_history_bitvec_decode_new( ctx, &self->bits );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_slot_history_new(fd_slot_history_t * self) {
   fd_memset( self, 0, sizeof(fd_slot_history_t) );
   fd_slot_history_bitvec_new( &self->bits );
@@ -12187,6 +13980,15 @@ int fd_slot_hash_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_slot_hash_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_slot_hash_t * self = (fd_slot_hash_t *)mem;
+  fd_slot_hash_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_hash_decode_new( ctx, &self->hash );
+  return mem;
 }
 void fd_slot_hash_new(fd_slot_hash_t * self) {
   fd_memset( self, 0, sizeof(fd_slot_hash_t) );
@@ -12291,6 +14093,24 @@ int fd_slot_hashes_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   ctx->data = start_data;
   return 0;
 }
+void * fd_slot_hashes_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_slot_hashes_t * self = (fd_slot_hashes_t *)mem;
+  fd_slot_hashes_new( self );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong hashes_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(fd_slot_hash_t) ); //deque
+  fd_slot_hash_t * hashes_deque = (fd_slot_hash_t *)mem;
+  ulong hashes_max = fd_ulong_max( hashes_len, 512 );
+  mem = (uchar *)mem + hashes_max;
+  for( ulong i=0; i < hashes_len; i++ ) {
+    fd_slot_hash_t * elem = deq_fd_slot_hash_t_push_tail_nocopy( hashes_deque );
+    fd_slot_hash_new( elem );
+    fd_slot_hash_decode_unsafe( elem, ctx );
+  }
+  return mem;
+}
 void fd_slot_hashes_new(fd_slot_hashes_t * self) {
   fd_memset( self, 0, sizeof(fd_slot_hashes_t) );
 }
@@ -12386,6 +14206,13 @@ int fd_block_block_hash_entry_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_block_block_hash_entry_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_block_block_hash_entry_t * self = (fd_block_block_hash_entry_t *)mem;
+  fd_block_block_hash_entry_new( self );
+  fd_hash_decode_new( ctx, &self->blockhash );
+  fd_fee_calculator_decode_new( ctx, &self->fee_calculator );
+  return mem;
 }
 void fd_block_block_hash_entry_new(fd_block_block_hash_entry_t * self) {
   fd_memset( self, 0, sizeof(fd_block_block_hash_entry_t) );
@@ -12491,6 +14318,24 @@ int fd_recent_block_hashes_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_recent_block_hashes_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_recent_block_hashes_t * self = (fd_recent_block_hashes_t *)mem;
+  fd_recent_block_hashes_new( self );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong hashes_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(fd_block_block_hash_entry_t) ); //deque
+  fd_block_block_hash_entry_t * hashes_deque = (fd_block_block_hash_entry_t *)mem;
+  ulong hashes_max = fd_ulong_max( hashes_len, 151 );
+  mem = (uchar *)mem + hashes_max;
+  for( ulong i=0; i < hashes_len; i++ ) {
+    fd_block_block_hash_entry_t * elem = deq_fd_block_block_hash_entry_t_push_tail_nocopy( hashes_deque );
+    fd_block_block_hash_entry_new( elem );
+    fd_block_block_hash_entry_decode_unsafe( elem, ctx );
+  }
+  return mem;
 }
 void fd_recent_block_hashes_new(fd_recent_block_hashes_t * self) {
   fd_memset( self, 0, sizeof(fd_recent_block_hashes_t) );
@@ -12731,6 +14576,58 @@ int fd_slot_meta_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_
   ctx->data = start_data;
   return 0;
 }
+void * fd_slot_meta_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_slot_meta_t * self = (fd_slot_meta_t *)mem;
+  fd_slot_meta_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong next_slot_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( next_slot_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+    for( ulong i=0; i < next_slot_len; i++ ) {
+      fd_bincode_uint64_decode_unsafe( (ulong *)mem + i, ctx );
+    }
+    mem = (uchar *)mem + sizeof(ulong)*next_slot_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong entry_end_indexes_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( entry_end_indexes_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(uint) );
+    for( ulong i=0; i < entry_end_indexes_len; i++ ) {
+      fd_bincode_uint32_decode_unsafe( (uint *)mem + i, ctx );
+    }
+    mem = (uchar *)mem + sizeof(uint)*entry_end_indexes_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
+}
 void fd_slot_meta_new(fd_slot_meta_t * self) {
   fd_memset( self, 0, sizeof(fd_slot_meta_t) );
 }
@@ -12847,6 +14744,18 @@ int fd_clock_timestamp_vote_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulo
   ctx->data = start_data;
   return 0;
 }
+void * fd_clock_timestamp_vote_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_clock_timestamp_vote_t * self = (fd_clock_timestamp_vote_t *)mem;
+  fd_clock_timestamp_vote_new( self );
+  fd_pubkey_decode_new( ctx, &self->pubkey );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_clock_timestamp_vote_new(fd_clock_timestamp_vote_t * self) {
   fd_memset( self, 0, sizeof(fd_clock_timestamp_vote_t) );
   fd_pubkey_new( &self->pubkey );
@@ -12954,6 +14863,22 @@ int fd_clock_timestamp_votes_decode_footprint( fd_bincode_decode_ctx_t * ctx, ul
   ctx->data = start_data;
   return 0;
 }
+void * fd_clock_timestamp_votes_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_clock_timestamp_votes_t * self = (fd_clock_timestamp_votes_t *)mem;
+  fd_clock_timestamp_votes_new( self );
+  ulong votes_len;
+  fd_bincode_uint64_decode_unsafe( &votes_len, ctx );
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    self->votes_root = NULL;
+  }
+  for( ulong i=0; i < votes_len; i++ ) {
+    fd_clock_timestamp_vote_t_mapnode_t * node = fd_clock_timestamp_vote_t_map_acquire( self->votes_pool );
+    fd_clock_timestamp_vote_new( &node->elem );
+    fd_clock_timestamp_vote_decode_unsafe( &node->elem, ctx );
+    fd_clock_timestamp_vote_t_map_insert( self->votes_pool, &self->votes_root, node );
+  }
+  return mem;
+}
 void fd_clock_timestamp_votes_new(fd_clock_timestamp_votes_t * self) {
   fd_memset( self, 0, sizeof(fd_clock_timestamp_votes_t) );
 }
@@ -13030,6 +14955,12 @@ int fd_sysvar_fees_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_sysvar_fees_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_sysvar_fees_t * self = (fd_sysvar_fees_t *)mem;
+  fd_sysvar_fees_new( self );
+  fd_fee_calculator_decode_new( ctx, &self->fee_calculator );
+  return mem;
 }
 void fd_sysvar_fees_new(fd_sysvar_fees_t * self) {
   fd_memset( self, 0, sizeof(fd_sysvar_fees_t) );
@@ -13156,6 +15087,30 @@ int fd_sysvar_epoch_rewards_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulo
   ctx->data = start_data;
   return 0;
 }
+void * fd_sysvar_epoch_rewards_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_sysvar_epoch_rewards_t * self = (fd_sysvar_epoch_rewards_t *)mem;
+  fd_sysvar_epoch_rewards_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_hash_decode_new( ctx, &self->parent_blockhash );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint128) ); // Align for the type
+  fd_bincode_uint128_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint128); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_bool_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  return mem;
+}
 void fd_sysvar_epoch_rewards_new(fd_sysvar_epoch_rewards_t * self) {
   fd_memset( self, 0, sizeof(fd_sysvar_epoch_rewards_t) );
   fd_hash_new( &self->parent_blockhash );
@@ -13242,6 +15197,15 @@ int fd_config_keys_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong *
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_config_keys_pair_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_config_keys_pair_t * self = (fd_config_keys_pair_t *)mem;
+  fd_config_keys_pair_new( self );
+  fd_pubkey_decode_new( ctx, &self->key );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_bool_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  return mem;
 }
 void fd_config_keys_pair_new(fd_config_keys_pair_t * self) {
   fd_memset( self, 0, sizeof(fd_config_keys_pair_t) );
@@ -13365,6 +15329,31 @@ int fd_stake_config_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_stake_config_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_stake_config_t * self = (fd_stake_config_t *)mem;
+  fd_stake_config_new( self );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ushort) );
+  fd_bincode_compact_u16_decode_unsafe( mem, ctx );
+  ushort config_keys_len = *(ushort *)mem;
+  mem = (uchar *)mem + sizeof(ushort);
+  if( config_keys_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_CONFIG_KEYS_PAIR_ALIGN );
+    for( ulong i=0; i < config_keys_len; i++ ) {
+      fd_config_keys_pair_new( (fd_config_keys_pair_t *)mem + i );
+      fd_config_keys_pair_decode_new( ctx, (fd_config_keys_pair_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_CONFIG_KEYS_PAIR_FOOTPRINT*config_keys_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(double) ); // Align for the type
+  fd_bincode_double_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(double); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  return mem;
 }
 void fd_stake_config_new(fd_stake_config_t * self) {
   fd_memset( self, 0, sizeof(fd_stake_config_t) );
@@ -13498,6 +15487,26 @@ int fd_feature_entry_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * to
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_feature_entry_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_feature_entry_t * self = (fd_feature_entry_t *)mem;
+  fd_feature_entry_new( self );
+  fd_pubkey_decode_new( ctx, &self->pubkey );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong description_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( description_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, 8UL );
+    fd_bincode_bytes_decode_unsafe( mem, description_len, ctx );
+    mem = (uchar *)mem + description_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
 }
 void fd_feature_entry_new(fd_feature_entry_t * self) {
   fd_memset( self, 0, sizeof(fd_feature_entry_t) );
@@ -13795,6 +15804,61 @@ int fd_firedancer_bank_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   ctx->data = start_data;
   return 0;
 }
+void * fd_firedancer_bank_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_firedancer_bank_t * self = (fd_firedancer_bank_t *)mem;
+  fd_firedancer_bank_new( self );
+  fd_stakes_decode_new( ctx, &self->stakes );
+  fd_recent_block_hashes_decode_new( ctx, &self->recent_block_hashes );
+  fd_clock_timestamp_votes_decode_new( ctx, &self->timestamp_votes );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_hash_decode_new( ctx, &self->poh );
+  fd_hash_decode_new( ctx, &self->banks_hash );
+  fd_fee_rate_governor_decode_new( ctx, &self->fee_rate_governor );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint128) ); // Align for the type
+  fd_bincode_uint128_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint128); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(double) ); // Align for the type
+  fd_bincode_double_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(double); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_inflation_decode_new( ctx, &self->inflation );
+  fd_epoch_schedule_decode_new( ctx, &self->epoch_schedule );
+  fd_rent_decode_new( ctx, &self->rent );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_vote_accounts_decode_new( ctx, &self->epoch_stakes );
+  fd_sol_sysvar_last_restart_slot_decode_new( ctx, &self->last_restart_slot );
+  return mem;
+}
 void fd_firedancer_bank_new(fd_firedancer_bank_t * self) {
   fd_memset( self, 0, sizeof(fd_firedancer_bank_t) );
   fd_stakes_new( &self->stakes );
@@ -13942,6 +16006,7 @@ int fd_cluster_type_decode( fd_cluster_type_t * self, fd_bincode_decode_ctx_t * 
   return FD_BINCODE_SUCCESS;
 }
 int fd_cluster_type_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_cluster_type_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_cluster_type_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -14244,6 +16309,51 @@ int fd_epoch_bank_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_epoch_bank_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_epoch_bank_t * self = (fd_epoch_bank_t *)mem;
+  fd_epoch_bank_new( self );
+  fd_stakes_decode_new( ctx, &self->stakes );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint128) ); // Align for the type
+  fd_bincode_uint128_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint128); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(double) ); // Align for the type
+  fd_bincode_double_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(double); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_inflation_decode_new( ctx, &self->inflation );
+  fd_epoch_schedule_decode_new( ctx, &self->epoch_schedule );
+  fd_rent_decode_new( ctx, &self->rent );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_hash_decode_new( ctx, &self->genesis_hash );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint) ); // Align for the type
+  fd_bincode_uint32_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint); // Leave unaligned
+  for( ulong i=0; i<3; i++ ) {
+    fd_bincode_uint32_decode_unsafe( self->cluster_version + i, ctx );
+  }
+  fd_vote_accounts_decode_new( ctx, &self->next_epoch_stakes );
+  fd_epoch_schedule_decode_new( ctx, &self->rent_epoch_schedule );
+  return mem;
 }
 void fd_epoch_bank_new(fd_epoch_bank_t * self) {
   fd_memset( self, 0, sizeof(fd_epoch_bank_t) );
@@ -14629,6 +16739,68 @@ int fd_slot_bank_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_
   ctx->data = start_data;
   return 0;
 }
+void * fd_slot_bank_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_slot_bank_t * self = (fd_slot_bank_t *)mem;
+  fd_slot_bank_new( self );
+  fd_clock_timestamp_votes_decode_new( ctx, &self->timestamp_votes );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_hash_decode_new( ctx, &self->poh );
+  fd_hash_decode_new( ctx, &self->banks_hash );
+  fd_hash_decode_new( ctx, &self->epoch_account_hash );
+  fd_fee_rate_governor_decode_new( ctx, &self->fee_rate_governor );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_vote_accounts_decode_new( ctx, &self->epoch_stakes );
+  fd_sol_sysvar_last_restart_slot_decode_new( ctx, &self->last_restart_slot );
+  fd_account_keys_decode_new( ctx, &self->stake_account_keys );
+  fd_account_keys_decode_new( ctx, &self->vote_account_keys );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_slot_lthash_decode_new( ctx, &self->lthash );
+  fd_block_hash_queue_decode_new( ctx, &self->block_hash_queue );
+  fd_hash_decode_new( ctx, &self->prev_banks_hash );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_use_preceeding_epoch_stakes = !!o;
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( &self->use_preceeding_epoch_stakes, ctx );
+    }
+  }
+  fd_hard_forks_decode_new( ctx, &self->hard_forks );
+  return mem;
+}
 void fd_slot_bank_new(fd_slot_bank_t * self) {
   fd_memset( self, 0, sizeof(fd_slot_bank_t) );
   fd_clock_timestamp_votes_new( &self->timestamp_votes );
@@ -14800,6 +16972,23 @@ int fd_prev_epoch_inflation_rewards_decode_footprint( fd_bincode_decode_ctx_t * 
   ctx->data = start_data;
   return 0;
 }
+void * fd_prev_epoch_inflation_rewards_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_prev_epoch_inflation_rewards_t * self = (fd_prev_epoch_inflation_rewards_t *)mem;
+  fd_prev_epoch_inflation_rewards_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(double) ); // Align for the type
+  fd_bincode_double_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(double); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(double) ); // Align for the type
+  fd_bincode_double_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(double); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(double) ); // Align for the type
+  fd_bincode_double_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(double); // Leave unaligned
+  return mem;
+}
 void fd_prev_epoch_inflation_rewards_new(fd_prev_epoch_inflation_rewards_t * self) {
   fd_memset( self, 0, sizeof(fd_prev_epoch_inflation_rewards_t) );
 }
@@ -14957,6 +17146,31 @@ int fd_vote_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) 
   ctx->data = start_data;
   return 0;
 }
+void * fd_vote_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_vote_t * self = (fd_vote_t *)mem;
+  fd_vote_new( self );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong slots_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); //deque
+  ulong * slots_deque = (ulong *)mem;
+  mem = (uchar *)mem + slots_len;
+  for( ulong i=0; i < slots_len; i++ ) {
+    ulong * elem = deq_ulong_push_tail_nocopy( slots_deque );
+    fd_bincode_uint64_decode_unsafe( elem, ctx );
+  }
+  fd_hash_decode_new( ctx, &self->hash );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    if( o ) {
+      fd_bincode_int64_decode_unsafe( self->timestamp, ctx );
+    } else
+      self->timestamp = NULL;
+  }
+  return mem;
+}
 void fd_vote_new(fd_vote_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_t) );
   fd_hash_new( &self->hash );
@@ -15079,6 +17293,17 @@ int fd_vote_init_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_
   ctx->data = start_data;
   return 0;
 }
+void * fd_vote_init_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_vote_init_t * self = (fd_vote_init_t *)mem;
+  fd_vote_init_new( self );
+  fd_pubkey_decode_new( ctx, &self->node_pubkey );
+  fd_pubkey_decode_new( ctx, &self->authorized_voter );
+  fd_pubkey_decode_new( ctx, &self->authorized_withdrawer );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  return mem;
+}
 void fd_vote_init_new(fd_vote_init_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_init_t) );
   fd_pubkey_new( &self->node_pubkey );
@@ -15152,6 +17377,7 @@ int fd_vote_authorize_decode( fd_vote_authorize_t * self, fd_bincode_decode_ctx_
   return FD_BINCODE_SUCCESS;
 }
 int fd_vote_authorize_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_vote_authorize_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_vote_authorize_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -15276,6 +17502,13 @@ int fd_vote_authorize_pubkey_decode_footprint( fd_bincode_decode_ctx_t * ctx, ul
   ctx->data = start_data;
   return 0;
 }
+void * fd_vote_authorize_pubkey_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_vote_authorize_pubkey_t * self = (fd_vote_authorize_pubkey_t *)mem;
+  fd_vote_authorize_pubkey_new( self );
+  fd_pubkey_decode_new( ctx, &self->pubkey );
+  fd_vote_authorize_decode_new( ctx, &self->vote_authorize );
+  return mem;
+}
 void fd_vote_authorize_pubkey_new(fd_vote_authorize_pubkey_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_authorize_pubkey_t) );
   fd_pubkey_new( &self->pubkey );
@@ -15354,6 +17587,13 @@ int fd_vote_switch_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   ctx->data = start_data;
   return 0;
 }
+void * fd_vote_switch_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_vote_switch_t * self = (fd_vote_switch_t *)mem;
+  fd_vote_switch_new( self );
+  fd_vote_decode_new( ctx, &self->vote );
+  fd_hash_decode_new( ctx, &self->hash );
+  return mem;
+}
 void fd_vote_switch_new(fd_vote_switch_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_switch_t) );
   fd_vote_new( &self->vote );
@@ -15431,6 +17671,13 @@ int fd_update_vote_state_switch_decode_footprint( fd_bincode_decode_ctx_t * ctx,
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_update_vote_state_switch_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_update_vote_state_switch_t * self = (fd_update_vote_state_switch_t *)mem;
+  fd_update_vote_state_switch_new( self );
+  fd_vote_state_update_decode_new( ctx, &self->vote_state_update );
+  fd_hash_decode_new( ctx, &self->hash );
+  return mem;
 }
 void fd_update_vote_state_switch_new(fd_update_vote_state_switch_t * self) {
   fd_memset( self, 0, sizeof(fd_update_vote_state_switch_t) );
@@ -15558,6 +17805,25 @@ int fd_vote_authorize_with_seed_args_decode_footprint( fd_bincode_decode_ctx_t *
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_vote_authorize_with_seed_args_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_vote_authorize_with_seed_args_t * self = (fd_vote_authorize_with_seed_args_t *)mem;
+  fd_vote_authorize_with_seed_args_new( self );
+  fd_vote_authorize_decode_new( ctx, &self->authorization_type );
+  fd_pubkey_decode_new( ctx, &self->current_authority_derived_key_owner );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong current_authority_derived_key_seed_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( current_authority_derived_key_seed_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, 8UL );
+    fd_bincode_bytes_decode_unsafe( mem, current_authority_derived_key_seed_len, ctx );
+    mem = (uchar *)mem + current_authority_derived_key_seed_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  fd_pubkey_decode_new( ctx, &self->new_authority );
+  return mem;
 }
 void fd_vote_authorize_with_seed_args_new(fd_vote_authorize_with_seed_args_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_authorize_with_seed_args_t) );
@@ -15689,6 +17955,24 @@ int fd_vote_authorize_checked_with_seed_args_decode_footprint( fd_bincode_decode
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_vote_authorize_checked_with_seed_args_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_vote_authorize_checked_with_seed_args_t * self = (fd_vote_authorize_checked_with_seed_args_t *)mem;
+  fd_vote_authorize_checked_with_seed_args_new( self );
+  fd_vote_authorize_decode_new( ctx, &self->authorization_type );
+  fd_pubkey_decode_new( ctx, &self->current_authority_derived_key_owner );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong current_authority_derived_key_seed_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( current_authority_derived_key_seed_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, 8UL );
+    fd_bincode_bytes_decode_unsafe( mem, current_authority_derived_key_seed_len, ctx );
+    mem = (uchar *)mem + current_authority_derived_key_seed_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
 }
 void fd_vote_authorize_checked_with_seed_args_new(fd_vote_authorize_checked_with_seed_args_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_authorize_checked_with_seed_args_t) );
@@ -15937,6 +18221,7 @@ int fd_vote_instruction_decode( fd_vote_instruction_t * self, fd_bincode_decode_
   return FD_BINCODE_SUCCESS;
 }
 int fd_vote_instruction_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_vote_instruction_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_vote_instruction_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -16387,6 +18672,18 @@ int fd_system_program_instruction_create_account_decode_footprint( fd_bincode_de
   ctx->data = start_data;
   return 0;
 }
+void * fd_system_program_instruction_create_account_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_system_program_instruction_create_account_t * self = (fd_system_program_instruction_create_account_t *)mem;
+  fd_system_program_instruction_create_account_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_pubkey_decode_new( ctx, &self->owner );
+  return mem;
+}
 void fd_system_program_instruction_create_account_new(fd_system_program_instruction_create_account_t * self) {
   fd_memset( self, 0, sizeof(fd_system_program_instruction_create_account_t) );
   fd_pubkey_new( &self->owner );
@@ -16524,6 +18821,30 @@ int fd_system_program_instruction_create_account_with_seed_decode_footprint( fd_
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_system_program_instruction_create_account_with_seed_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_system_program_instruction_create_account_with_seed_t * self = (fd_system_program_instruction_create_account_with_seed_t *)mem;
+  fd_system_program_instruction_create_account_with_seed_new( self );
+  fd_pubkey_decode_new( ctx, &self->base );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong seed_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( seed_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, 8UL );
+    fd_bincode_bytes_decode_unsafe( mem, seed_len, ctx );
+    mem = (uchar *)mem + seed_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_pubkey_decode_new( ctx, &self->owner );
+  return mem;
 }
 void fd_system_program_instruction_create_account_with_seed_new(fd_system_program_instruction_create_account_with_seed_t * self) {
   fd_memset( self, 0, sizeof(fd_system_program_instruction_create_account_with_seed_t) );
@@ -16666,6 +18987,27 @@ int fd_system_program_instruction_allocate_with_seed_decode_footprint( fd_bincod
   ctx->data = start_data;
   return 0;
 }
+void * fd_system_program_instruction_allocate_with_seed_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_system_program_instruction_allocate_with_seed_t * self = (fd_system_program_instruction_allocate_with_seed_t *)mem;
+  fd_system_program_instruction_allocate_with_seed_new( self );
+  fd_pubkey_decode_new( ctx, &self->base );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong seed_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( seed_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, 8UL );
+    fd_bincode_bytes_decode_unsafe( mem, seed_len, ctx );
+    mem = (uchar *)mem + seed_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_pubkey_decode_new( ctx, &self->owner );
+  return mem;
+}
 void fd_system_program_instruction_allocate_with_seed_new(fd_system_program_instruction_allocate_with_seed_t * self) {
   fd_memset( self, 0, sizeof(fd_system_program_instruction_allocate_with_seed_t) );
   fd_pubkey_new( &self->base );
@@ -16795,6 +19137,24 @@ int fd_system_program_instruction_assign_with_seed_decode_footprint( fd_bincode_
   ctx->data = start_data;
   return 0;
 }
+void * fd_system_program_instruction_assign_with_seed_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_system_program_instruction_assign_with_seed_t * self = (fd_system_program_instruction_assign_with_seed_t *)mem;
+  fd_system_program_instruction_assign_with_seed_new( self );
+  fd_pubkey_decode_new( ctx, &self->base );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong seed_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( seed_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, 8UL );
+    fd_bincode_bytes_decode_unsafe( mem, seed_len, ctx );
+    mem = (uchar *)mem + seed_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  fd_pubkey_decode_new( ctx, &self->owner );
+  return mem;
+}
 void fd_system_program_instruction_assign_with_seed_new(fd_system_program_instruction_assign_with_seed_t * self) {
   fd_memset( self, 0, sizeof(fd_system_program_instruction_assign_with_seed_t) );
   fd_pubkey_new( &self->base );
@@ -16922,6 +19282,26 @@ int fd_system_program_instruction_transfer_with_seed_decode_footprint( fd_bincod
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_system_program_instruction_transfer_with_seed_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_system_program_instruction_transfer_with_seed_t * self = (fd_system_program_instruction_transfer_with_seed_t *)mem;
+  fd_system_program_instruction_transfer_with_seed_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong from_seed_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( from_seed_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, 8UL );
+    fd_bincode_bytes_decode_unsafe( mem, from_seed_len, ctx );
+    mem = (uchar *)mem + from_seed_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  fd_pubkey_decode_new( ctx, &self->from_owner );
+  return mem;
 }
 void fd_system_program_instruction_transfer_with_seed_new(fd_system_program_instruction_transfer_with_seed_t * self) {
   fd_memset( self, 0, sizeof(fd_system_program_instruction_transfer_with_seed_t) );
@@ -17129,6 +19509,7 @@ int fd_system_program_instruction_decode( fd_system_program_instruction_t * self
   return FD_BINCODE_SUCCESS;
 }
 int fd_system_program_instruction_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_system_program_instruction_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_system_program_instruction_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -17544,6 +19925,7 @@ int fd_system_error_decode( fd_system_error_t * self, fd_bincode_decode_ctx_t * 
   return FD_BINCODE_SUCCESS;
 }
 int fd_system_error_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_system_error_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_system_error_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -17712,6 +20094,13 @@ int fd_stake_authorized_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong *
   ctx->data = start_data;
   return 0;
 }
+void * fd_stake_authorized_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_stake_authorized_t * self = (fd_stake_authorized_t *)mem;
+  fd_stake_authorized_new( self );
+  fd_pubkey_decode_new( ctx, &self->staker );
+  fd_pubkey_decode_new( ctx, &self->withdrawer );
+  return mem;
+}
 void fd_stake_authorized_new(fd_stake_authorized_t * self) {
   fd_memset( self, 0, sizeof(fd_stake_authorized_t) );
   fd_pubkey_new( &self->staker );
@@ -17794,6 +20183,18 @@ int fd_stake_lockup_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
   ctx->data = start_data;
   return 0;
 }
+void * fd_stake_lockup_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_stake_lockup_t * self = (fd_stake_lockup_t *)mem;
+  fd_stake_lockup_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_pubkey_decode_new( ctx, &self->custodian );
+  return mem;
+}
 void fd_stake_lockup_new(fd_stake_lockup_t * self) {
   fd_memset( self, 0, sizeof(fd_stake_lockup_t) );
   fd_pubkey_new( &self->custodian );
@@ -17866,6 +20267,13 @@ int fd_stake_instruction_initialize_decode_footprint( fd_bincode_decode_ctx_t * 
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_stake_instruction_initialize_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_stake_instruction_initialize_t * self = (fd_stake_instruction_initialize_t *)mem;
+  fd_stake_instruction_initialize_new( self );
+  fd_stake_authorized_decode_new( ctx, &self->authorized );
+  fd_stake_lockup_decode_new( ctx, &self->lockup );
+  return mem;
 }
 void fd_stake_instruction_initialize_new(fd_stake_instruction_initialize_t * self) {
   fd_memset( self, 0, sizeof(fd_stake_instruction_initialize_t) );
@@ -17992,6 +20400,22 @@ int fd_stake_lockup_custodian_args_decode_footprint( fd_bincode_decode_ctx_t * c
   ctx->data = start_data;
   return 0;
 }
+void * fd_stake_lockup_custodian_args_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_stake_lockup_custodian_args_t * self = (fd_stake_lockup_custodian_args_t *)mem;
+  fd_stake_lockup_custodian_args_new( self );
+  fd_stake_lockup_decode_new( ctx, &self->lockup );
+  fd_sol_sysvar_clock_decode_new( ctx, &self->clock );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    if( o ) {
+      fd_pubkey_new( self->custodian );
+      fd_pubkey_decode_unsafe( self->custodian, ctx );
+    } else
+      self->custodian = NULL;
+  }
+  return mem;
+}
 void fd_stake_lockup_custodian_args_new(fd_stake_lockup_custodian_args_t * self) {
   fd_memset( self, 0, sizeof(fd_stake_lockup_custodian_args_t) );
   fd_stake_lockup_new( &self->lockup );
@@ -18073,6 +20497,7 @@ int fd_stake_authorize_decode( fd_stake_authorize_t * self, fd_bincode_decode_ct
   return FD_BINCODE_SUCCESS;
 }
 int fd_stake_authorize_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_stake_authorize_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_stake_authorize_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -18196,6 +20621,13 @@ int fd_stake_instruction_authorize_decode_footprint( fd_bincode_decode_ctx_t * c
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_stake_instruction_authorize_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_stake_instruction_authorize_t * self = (fd_stake_instruction_authorize_t *)mem;
+  fd_stake_instruction_authorize_new( self );
+  fd_pubkey_decode_new( ctx, &self->pubkey );
+  fd_stake_authorize_decode_new( ctx, &self->stake_authorize );
+  return mem;
 }
 void fd_stake_instruction_authorize_new(fd_stake_instruction_authorize_t * self) {
   fd_memset( self, 0, sizeof(fd_stake_instruction_authorize_t) );
@@ -18323,6 +20755,25 @@ int fd_authorize_with_seed_args_decode_footprint( fd_bincode_decode_ctx_t * ctx,
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_authorize_with_seed_args_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_authorize_with_seed_args_t * self = (fd_authorize_with_seed_args_t *)mem;
+  fd_authorize_with_seed_args_new( self );
+  fd_pubkey_decode_new( ctx, &self->new_authorized_pubkey );
+  fd_stake_authorize_decode_new( ctx, &self->stake_authorize );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong authority_seed_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( authority_seed_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, 8UL );
+    fd_bincode_bytes_decode_unsafe( mem, authority_seed_len, ctx );
+    mem = (uchar *)mem + authority_seed_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  fd_pubkey_decode_new( ctx, &self->authority_owner );
+  return mem;
 }
 void fd_authorize_with_seed_args_new(fd_authorize_with_seed_args_t * self) {
   fd_memset( self, 0, sizeof(fd_authorize_with_seed_args_t) );
@@ -18454,6 +20905,24 @@ int fd_authorize_checked_with_seed_args_decode_footprint( fd_bincode_decode_ctx_
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_authorize_checked_with_seed_args_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_authorize_checked_with_seed_args_t * self = (fd_authorize_checked_with_seed_args_t *)mem;
+  fd_authorize_checked_with_seed_args_new( self );
+  fd_stake_authorize_decode_new( ctx, &self->stake_authorize );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong authority_seed_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( authority_seed_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, 8UL );
+    fd_bincode_bytes_decode_unsafe( mem, authority_seed_len, ctx );
+    mem = (uchar *)mem + authority_seed_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  fd_pubkey_decode_new( ctx, &self->authority_owner );
+  return mem;
 }
 void fd_authorize_checked_with_seed_args_new(fd_authorize_checked_with_seed_args_t * self) {
   fd_memset( self, 0, sizeof(fd_authorize_checked_with_seed_args_t) );
@@ -18615,6 +21084,27 @@ int fd_lockup_checked_args_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_lockup_checked_args_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_lockup_checked_args_t * self = (fd_lockup_checked_args_t *)mem;
+  fd_lockup_checked_args_new( self );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    if( o ) {
+      fd_bincode_int64_decode_unsafe( self->unix_timestamp, ctx );
+    } else
+      self->unix_timestamp = NULL;
+  }
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( self->epoch, ctx );
+    } else
+      self->epoch = NULL;
+  }
+  return mem;
 }
 void fd_lockup_checked_args_new(fd_lockup_checked_args_t * self) {
   fd_memset( self, 0, sizeof(fd_lockup_checked_args_t) );
@@ -18832,6 +21322,36 @@ int fd_lockup_args_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_lockup_args_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_lockup_args_t * self = (fd_lockup_args_t *)mem;
+  fd_lockup_args_new( self );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    if( o ) {
+      fd_bincode_int64_decode_unsafe( self->unix_timestamp, ctx );
+    } else
+      self->unix_timestamp = NULL;
+  }
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    if( o ) {
+      fd_bincode_uint64_decode_unsafe( self->epoch, ctx );
+    } else
+      self->epoch = NULL;
+  }
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    if( o ) {
+      fd_pubkey_new( self->custodian );
+      fd_pubkey_decode_unsafe( self->custodian, ctx );
+    } else
+      self->custodian = NULL;
+  }
+  return mem;
 }
 void fd_lockup_args_new(fd_lockup_args_t * self) {
   fd_memset( self, 0, sizeof(fd_lockup_args_t) );
@@ -19109,6 +21629,7 @@ int fd_stake_instruction_decode( fd_stake_instruction_t * self, fd_bincode_decod
   return FD_BINCODE_SUCCESS;
 }
 int fd_stake_instruction_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_stake_instruction_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_stake_instruction_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -19508,6 +22029,16 @@ int fd_stake_meta_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   ctx->data = start_data;
   return 0;
 }
+void * fd_stake_meta_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_stake_meta_t * self = (fd_stake_meta_t *)mem;
+  fd_stake_meta_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_stake_authorized_decode_new( ctx, &self->authorized );
+  fd_stake_lockup_decode_new( ctx, &self->lockup );
+  return mem;
+}
 void fd_stake_meta_new(fd_stake_meta_t * self) {
   fd_memset( self, 0, sizeof(fd_stake_meta_t) );
   fd_stake_authorized_new( &self->authorized );
@@ -19577,6 +22108,14 @@ int fd_stake_flags_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   ctx->data = start_data;
   return 0;
 }
+void * fd_stake_flags_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_stake_flags_t * self = (fd_stake_flags_t *)mem;
+  fd_stake_flags_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  return mem;
+}
 void fd_stake_flags_new(fd_stake_flags_t * self) {
   fd_memset( self, 0, sizeof(fd_stake_flags_t) );
 }
@@ -19636,6 +22175,12 @@ int fd_stake_state_v2_initialized_decode_footprint( fd_bincode_decode_ctx_t * ct
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_stake_state_v2_initialized_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_stake_state_v2_initialized_t * self = (fd_stake_state_v2_initialized_t *)mem;
+  fd_stake_state_v2_initialized_new( self );
+  fd_stake_meta_decode_new( ctx, &self->meta );
+  return mem;
 }
 void fd_stake_state_v2_initialized_new(fd_stake_state_v2_initialized_t * self) {
   fd_memset( self, 0, sizeof(fd_stake_state_v2_initialized_t) );
@@ -19712,6 +22257,14 @@ int fd_stake_state_v2_stake_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulo
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_stake_state_v2_stake_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_stake_state_v2_stake_t * self = (fd_stake_state_v2_stake_t *)mem;
+  fd_stake_state_v2_stake_new( self );
+  fd_stake_meta_decode_new( ctx, &self->meta );
+  fd_stake_decode_new( ctx, &self->stake );
+  fd_stake_flags_decode_new( ctx, &self->stake_flags );
+  return mem;
 }
 void fd_stake_state_v2_stake_new(fd_stake_state_v2_stake_t * self) {
   fd_memset( self, 0, sizeof(fd_stake_state_v2_stake_t) );
@@ -19808,6 +22361,7 @@ int fd_stake_state_v2_decode( fd_stake_state_v2_t * self, fd_bincode_decode_ctx_
   return FD_BINCODE_SUCCESS;
 }
 int fd_stake_state_v2_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_stake_state_v2_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_stake_state_v2_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -19981,6 +22535,14 @@ int fd_nonce_data_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   ctx->data = start_data;
   return 0;
 }
+void * fd_nonce_data_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_nonce_data_t * self = (fd_nonce_data_t *)mem;
+  fd_nonce_data_new( self );
+  fd_pubkey_decode_new( ctx, &self->authority );
+  fd_hash_decode_new( ctx, &self->durable_nonce );
+  fd_fee_calculator_decode_new( ctx, &self->fee_calculator );
+  return mem;
+}
 void fd_nonce_data_new(fd_nonce_data_t * self) {
   fd_memset( self, 0, sizeof(fd_nonce_data_t) );
   fd_pubkey_new( &self->authority );
@@ -20055,6 +22617,7 @@ int fd_nonce_state_decode( fd_nonce_state_t * self, fd_bincode_decode_ctx_t * ct
   return FD_BINCODE_SUCCESS;
 }
 int fd_nonce_state_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_nonce_state_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_nonce_state_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -20192,6 +22755,7 @@ int fd_nonce_state_versions_decode( fd_nonce_state_versions_t * self, fd_bincode
   return FD_BINCODE_SUCCESS;
 }
 int fd_nonce_state_versions_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_nonce_state_versions_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_nonce_state_versions_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -20346,6 +22910,17 @@ int fd_compute_budget_program_instruction_request_units_deprecated_decode_footpr
   ctx->data = start_data;
   return 0;
 }
+void * fd_compute_budget_program_instruction_request_units_deprecated_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_compute_budget_program_instruction_request_units_deprecated_t * self = (fd_compute_budget_program_instruction_request_units_deprecated_t *)mem;
+  fd_compute_budget_program_instruction_request_units_deprecated_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint) ); // Align for the type
+  fd_bincode_uint32_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint) ); // Align for the type
+  fd_bincode_uint32_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint); // Leave unaligned
+  return mem;
+}
 void fd_compute_budget_program_instruction_request_units_deprecated_new(fd_compute_budget_program_instruction_request_units_deprecated_t * self) {
   fd_memset( self, 0, sizeof(fd_compute_budget_program_instruction_request_units_deprecated_t) );
 }
@@ -20451,6 +23026,7 @@ int fd_compute_budget_program_instruction_decode( fd_compute_budget_program_inst
   return FD_BINCODE_SUCCESS;
 }
 int fd_compute_budget_program_instruction_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_compute_budget_program_instruction_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_compute_budget_program_instruction_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   ushort discriminant = 0;
   int err = fd_bincode_compact_u16_decode( &discriminant, ctx );
@@ -20695,6 +23271,25 @@ int fd_config_keys_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   ctx->data = start_data;
   return 0;
 }
+void * fd_config_keys_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_config_keys_t * self = (fd_config_keys_t *)mem;
+  fd_config_keys_new( self );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ushort) );
+  fd_bincode_compact_u16_decode_unsafe( mem, ctx );
+  ushort keys_len = *(ushort *)mem;
+  mem = (uchar *)mem + sizeof(ushort);
+  if( keys_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_CONFIG_KEYS_PAIR_ALIGN );
+    for( ulong i=0; i < keys_len; i++ ) {
+      fd_config_keys_pair_new( (fd_config_keys_pair_t *)mem + i );
+      fd_config_keys_pair_decode_new( ctx, (fd_config_keys_pair_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_CONFIG_KEYS_PAIR_FOOTPRINT*keys_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
+}
 void fd_config_keys_new(fd_config_keys_t * self) {
   fd_memset( self, 0, sizeof(fd_config_keys_t) );
 }
@@ -20809,6 +23404,25 @@ int fd_bpf_loader_program_instruction_write_decode_footprint( fd_bincode_decode_
   ctx->data = start_data;
   return 0;
 }
+void * fd_bpf_loader_program_instruction_write_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_bpf_loader_program_instruction_write_t * self = (fd_bpf_loader_program_instruction_write_t *)mem;
+  fd_bpf_loader_program_instruction_write_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint) ); // Align for the type
+  fd_bincode_uint32_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint); // Leave unaligned
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong bytes_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( bytes_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, 8UL );
+    fd_bincode_bytes_decode_unsafe( mem, bytes_len, ctx );
+    mem = (uchar *)mem + bytes_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
+}
 void fd_bpf_loader_program_instruction_write_new(fd_bpf_loader_program_instruction_write_t * self) {
   fd_memset( self, 0, sizeof(fd_bpf_loader_program_instruction_write_t) );
 }
@@ -20882,6 +23496,7 @@ int fd_bpf_loader_program_instruction_decode( fd_bpf_loader_program_instruction_
   return FD_BINCODE_SUCCESS;
 }
 int fd_bpf_loader_program_instruction_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_bpf_loader_program_instruction_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_bpf_loader_program_instruction_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -21050,6 +23665,25 @@ int fd_loader_v4_program_instruction_write_decode_footprint( fd_bincode_decode_c
   ctx->data = start_data;
   return 0;
 }
+void * fd_loader_v4_program_instruction_write_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_loader_v4_program_instruction_write_t * self = (fd_loader_v4_program_instruction_write_t *)mem;
+  fd_loader_v4_program_instruction_write_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint) ); // Align for the type
+  fd_bincode_uint32_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint); // Leave unaligned
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong bytes_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( bytes_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, 8UL );
+    fd_bincode_bytes_decode_unsafe( mem, bytes_len, ctx );
+    mem = (uchar *)mem + bytes_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
+}
 void fd_loader_v4_program_instruction_write_new(fd_loader_v4_program_instruction_write_t * self) {
   fd_memset( self, 0, sizeof(fd_loader_v4_program_instruction_write_t) );
 }
@@ -21119,6 +23753,14 @@ int fd_loader_v4_program_instruction_truncate_decode_footprint( fd_bincode_decod
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_loader_v4_program_instruction_truncate_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_loader_v4_program_instruction_truncate_t * self = (fd_loader_v4_program_instruction_truncate_t *)mem;
+  fd_loader_v4_program_instruction_truncate_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint) ); // Align for the type
+  fd_bincode_uint32_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint); // Leave unaligned
+  return mem;
 }
 void fd_loader_v4_program_instruction_truncate_new(fd_loader_v4_program_instruction_truncate_t * self) {
   fd_memset( self, 0, sizeof(fd_loader_v4_program_instruction_truncate_t) );
@@ -21223,6 +23865,7 @@ int fd_loader_v4_program_instruction_decode( fd_loader_v4_program_instruction_t 
   return FD_BINCODE_SUCCESS;
 }
 int fd_loader_v4_program_instruction_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_loader_v4_program_instruction_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_loader_v4_program_instruction_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -21434,6 +24077,25 @@ int fd_bpf_upgradeable_loader_program_instruction_write_decode_footprint( fd_bin
   ctx->data = start_data;
   return 0;
 }
+void * fd_bpf_upgradeable_loader_program_instruction_write_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_bpf_upgradeable_loader_program_instruction_write_t * self = (fd_bpf_upgradeable_loader_program_instruction_write_t *)mem;
+  fd_bpf_upgradeable_loader_program_instruction_write_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint) ); // Align for the type
+  fd_bincode_uint32_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint); // Leave unaligned
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong bytes_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( bytes_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, 8UL );
+    fd_bincode_bytes_decode_unsafe( mem, bytes_len, ctx );
+    mem = (uchar *)mem + bytes_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
+}
 void fd_bpf_upgradeable_loader_program_instruction_write_new(fd_bpf_upgradeable_loader_program_instruction_write_t * self) {
   fd_memset( self, 0, sizeof(fd_bpf_upgradeable_loader_program_instruction_write_t) );
 }
@@ -21504,6 +24166,14 @@ int fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_decod
   ctx->data = start_data;
   return 0;
 }
+void * fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t * self = (fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t *)mem;
+  fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_new(fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t * self) {
   fd_memset( self, 0, sizeof(fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t) );
 }
@@ -21564,6 +24234,14 @@ int fd_bpf_upgradeable_loader_program_instruction_extend_program_decode_footprin
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_bpf_upgradeable_loader_program_instruction_extend_program_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_bpf_upgradeable_loader_program_instruction_extend_program_t * self = (fd_bpf_upgradeable_loader_program_instruction_extend_program_t *)mem;
+  fd_bpf_upgradeable_loader_program_instruction_extend_program_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint) ); // Align for the type
+  fd_bincode_uint32_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint); // Leave unaligned
+  return mem;
 }
 void fd_bpf_upgradeable_loader_program_instruction_extend_program_new(fd_bpf_upgradeable_loader_program_instruction_extend_program_t * self) {
   fd_memset( self, 0, sizeof(fd_bpf_upgradeable_loader_program_instruction_extend_program_t) );
@@ -21689,6 +24367,7 @@ int fd_bpf_upgradeable_loader_program_instruction_decode( fd_bpf_upgradeable_loa
   return FD_BINCODE_SUCCESS;
 }
 int fd_bpf_upgradeable_loader_program_instruction_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_bpf_upgradeable_loader_program_instruction_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_bpf_upgradeable_loader_program_instruction_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -21932,6 +24611,20 @@ int fd_bpf_upgradeable_loader_state_buffer_decode_footprint( fd_bincode_decode_c
   ctx->data = start_data;
   return 0;
 }
+void * fd_bpf_upgradeable_loader_state_buffer_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_bpf_upgradeable_loader_state_buffer_t * self = (fd_bpf_upgradeable_loader_state_buffer_t *)mem;
+  fd_bpf_upgradeable_loader_state_buffer_new( self );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    if( o ) {
+      fd_pubkey_new( self->authority_address );
+      fd_pubkey_decode_unsafe( self->authority_address, ctx );
+    } else
+      self->authority_address = NULL;
+  }
+  return mem;
+}
 void fd_bpf_upgradeable_loader_state_buffer_new(fd_bpf_upgradeable_loader_state_buffer_t * self) {
   fd_memset( self, 0, sizeof(fd_bpf_upgradeable_loader_state_buffer_t) );
 }
@@ -22003,6 +24696,12 @@ int fd_bpf_upgradeable_loader_state_program_decode_footprint( fd_bincode_decode_
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_bpf_upgradeable_loader_state_program_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_bpf_upgradeable_loader_state_program_t * self = (fd_bpf_upgradeable_loader_state_program_t *)mem;
+  fd_bpf_upgradeable_loader_state_program_new( self );
+  fd_pubkey_decode_new( ctx, &self->programdata_address );
+  return mem;
 }
 void fd_bpf_upgradeable_loader_state_program_new(fd_bpf_upgradeable_loader_state_program_t * self) {
   fd_memset( self, 0, sizeof(fd_bpf_upgradeable_loader_state_program_t) );
@@ -22117,6 +24816,23 @@ int fd_bpf_upgradeable_loader_state_program_data_decode_footprint( fd_bincode_de
   ctx->data = start_data;
   return 0;
 }
+void * fd_bpf_upgradeable_loader_state_program_data_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_bpf_upgradeable_loader_state_program_data_t * self = (fd_bpf_upgradeable_loader_state_program_data_t *)mem;
+  fd_bpf_upgradeable_loader_state_program_data_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    if( o ) {
+      fd_pubkey_new( self->upgrade_authority_address );
+      fd_pubkey_decode_unsafe( self->upgrade_authority_address, ctx );
+    } else
+      self->upgrade_authority_address = NULL;
+  }
+  return mem;
+}
 void fd_bpf_upgradeable_loader_state_program_data_new(fd_bpf_upgradeable_loader_state_program_data_t * self) {
   fd_memset( self, 0, sizeof(fd_bpf_upgradeable_loader_state_program_data_t) );
 }
@@ -22219,6 +24935,7 @@ int fd_bpf_upgradeable_loader_state_decode( fd_bpf_upgradeable_loader_state_t * 
   return FD_BINCODE_SUCCESS;
 }
 int fd_bpf_upgradeable_loader_state_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_bpf_upgradeable_loader_state_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_bpf_upgradeable_loader_state_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -22409,6 +25126,18 @@ int fd_loader_v4_state_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   ctx->data = start_data;
   return 0;
 }
+void * fd_loader_v4_state_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_loader_v4_state_t * self = (fd_loader_v4_state_t *)mem;
+  fd_loader_v4_state_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_pubkey_decode_new( ctx, &self->authority_address_or_next_version );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_loader_v4_state_new(fd_loader_v4_state_t * self) {
   fd_memset( self, 0, sizeof(fd_loader_v4_state_t) );
   fd_pubkey_new( &self->authority_address_or_next_version );
@@ -22488,6 +25217,15 @@ int fd_frozen_hash_status_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   ctx->data = start_data;
   return 0;
 }
+void * fd_frozen_hash_status_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_frozen_hash_status_t * self = (fd_frozen_hash_status_t *)mem;
+  fd_frozen_hash_status_new( self );
+  fd_hash_decode_new( ctx, &self->frozen_hash );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_bool_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  return mem;
+}
 void fd_frozen_hash_status_new(fd_frozen_hash_status_t * self) {
   fd_memset( self, 0, sizeof(fd_frozen_hash_status_t) );
   fd_hash_new( &self->frozen_hash );
@@ -22547,6 +25285,7 @@ int fd_frozen_hash_versioned_decode( fd_frozen_hash_versioned_t * self, fd_binco
   return FD_BINCODE_SUCCESS;
 }
 int fd_frozen_hash_versioned_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_frozen_hash_versioned_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_frozen_hash_versioned_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -22747,6 +25486,32 @@ int fd_lookup_table_meta_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   ctx->data = start_data;
   return 0;
 }
+void * fd_lookup_table_meta_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_lookup_table_meta_t * self = (fd_lookup_table_meta_t *)mem;
+  fd_lookup_table_meta_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_authority = !!o;
+    if( o ) {
+      fd_pubkey_new( &self->authority );
+      fd_pubkey_decode_unsafe( &self->authority, ctx );
+    }
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ushort) ); // Align for the type
+  fd_bincode_uint16_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ushort); // Leave unaligned
+  return mem;
+}
 void fd_lookup_table_meta_new(fd_lookup_table_meta_t * self) {
   fd_memset( self, 0, sizeof(fd_lookup_table_meta_t) );
 }
@@ -22829,6 +25594,12 @@ int fd_address_lookup_table_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulo
   ctx->data = start_data;
   return 0;
 }
+void * fd_address_lookup_table_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_address_lookup_table_t * self = (fd_address_lookup_table_t *)mem;
+  fd_address_lookup_table_new( self );
+  fd_lookup_table_meta_decode_new( ctx, &self->meta );
+  return mem;
+}
 void fd_address_lookup_table_new(fd_address_lookup_table_t * self) {
   fd_memset( self, 0, sizeof(fd_address_lookup_table_t) );
   fd_lookup_table_meta_new( &self->meta );
@@ -22895,6 +25666,7 @@ int fd_address_lookup_table_state_decode( fd_address_lookup_table_state_t * self
   return FD_BINCODE_SUCCESS;
 }
 int fd_address_lookup_table_state_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_address_lookup_table_state_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_address_lookup_table_state_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -23053,6 +25825,22 @@ int fd_gossip_bitvec_u8_inner_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   ctx->data = start_data;
   return 0;
 }
+void * fd_gossip_bitvec_u8_inner_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_bitvec_u8_inner_t * self = (fd_gossip_bitvec_u8_inner_t *)mem;
+  fd_gossip_bitvec_u8_inner_new( self );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong vec_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( vec_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, 8UL );
+    fd_bincode_bytes_decode_unsafe( mem, vec_len, ctx );
+    mem = (uchar *)mem + vec_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
+}
 void fd_gossip_bitvec_u8_inner_new(fd_gossip_bitvec_u8_inner_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_bitvec_u8_inner_t) );
 }
@@ -23167,6 +25955,23 @@ int fd_gossip_bitvec_u8_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong *
   ctx->data = start_data;
   return 0;
 }
+void * fd_gossip_bitvec_u8_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_bitvec_u8_t * self = (fd_gossip_bitvec_u8_t *)mem;
+  fd_gossip_bitvec_u8_new( self );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_bits = !!o;
+    if( o ) {
+      fd_gossip_bitvec_u8_inner_new( &self->bits );
+      fd_gossip_bitvec_u8_inner_decode_unsafe( &self->bits, ctx );
+    }
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_gossip_bitvec_u8_new(fd_gossip_bitvec_u8_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_bitvec_u8_t) );
 }
@@ -23276,6 +26081,24 @@ int fd_gossip_bitvec_u64_inner_decode_footprint( fd_bincode_decode_ctx_t * ctx, 
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_gossip_bitvec_u64_inner_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_bitvec_u64_inner_t * self = (fd_gossip_bitvec_u64_inner_t *)mem;
+  fd_gossip_bitvec_u64_inner_new( self );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong vec_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( vec_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+    for( ulong i=0; i < vec_len; i++ ) {
+      fd_bincode_uint64_decode_unsafe( (ulong *)mem + i, ctx );
+    }
+    mem = (uchar *)mem + sizeof(ulong)*vec_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
 }
 void fd_gossip_bitvec_u64_inner_new(fd_gossip_bitvec_u64_inner_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_bitvec_u64_inner_t) );
@@ -23396,6 +26219,23 @@ int fd_gossip_bitvec_u64_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   ctx->data = start_data;
   return 0;
 }
+void * fd_gossip_bitvec_u64_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_bitvec_u64_t * self = (fd_gossip_bitvec_u64_t *)mem;
+  fd_gossip_bitvec_u64_new( self );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_bits = !!o;
+    if( o ) {
+      fd_gossip_bitvec_u64_inner_new( &self->bits );
+      fd_gossip_bitvec_u64_inner_decode_unsafe( &self->bits, ctx );
+    }
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_gossip_bitvec_u64_new(fd_gossip_bitvec_u64_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_bitvec_u64_t) );
 }
@@ -23483,6 +26323,14 @@ int fd_gossip_ping_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   ctx->data = start_data;
   return 0;
 }
+void * fd_gossip_ping_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_ping_t * self = (fd_gossip_ping_t *)mem;
+  fd_gossip_ping_new( self );
+  fd_pubkey_decode_new( ctx, &self->from );
+  fd_hash_decode_new( ctx, &self->token );
+  fd_signature_decode_new( ctx, &self->signature );
+  return mem;
+}
 void fd_gossip_ping_new(fd_gossip_ping_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_ping_t) );
   fd_pubkey_new( &self->from );
@@ -23560,6 +26408,7 @@ int fd_gossip_ip_addr_decode( fd_gossip_ip_addr_t * self, fd_bincode_decode_ctx_
   return FD_BINCODE_SUCCESS;
 }
 int fd_gossip_ip_addr_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_gossip_ip_addr_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_gossip_ip_addr_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -23781,6 +26630,31 @@ int fd_gossip_prune_data_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   ctx->data = start_data;
   return 0;
 }
+void * fd_gossip_prune_data_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_prune_data_t * self = (fd_gossip_prune_data_t *)mem;
+  fd_gossip_prune_data_new( self );
+  fd_pubkey_decode_new( ctx, &self->pubkey );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong prunes_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( prunes_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_PUBKEY_ALIGN );
+    for( ulong i=0; i < prunes_len; i++ ) {
+      fd_pubkey_new( (fd_pubkey_t *)mem + i );
+      fd_pubkey_decode_new( ctx, (fd_pubkey_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_PUBKEY_FOOTPRINT*prunes_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  fd_signature_decode_new( ctx, &self->signature );
+  fd_pubkey_decode_new( ctx, &self->destination );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_gossip_prune_data_new(fd_gossip_prune_data_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_prune_data_t) );
   fd_pubkey_new( &self->pubkey );
@@ -23937,6 +26811,30 @@ int fd_gossip_prune_sign_data_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   ctx->data = start_data;
   return 0;
 }
+void * fd_gossip_prune_sign_data_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_prune_sign_data_t * self = (fd_gossip_prune_sign_data_t *)mem;
+  fd_gossip_prune_sign_data_new( self );
+  fd_pubkey_decode_new( ctx, &self->pubkey );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong prunes_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( prunes_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_PUBKEY_ALIGN );
+    for( ulong i=0; i < prunes_len; i++ ) {
+      fd_pubkey_new( (fd_pubkey_t *)mem + i );
+      fd_pubkey_decode_new( ctx, (fd_pubkey_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_PUBKEY_FOOTPRINT*prunes_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  fd_pubkey_decode_new( ctx, &self->destination );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_gossip_prune_sign_data_new(fd_gossip_prune_sign_data_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_prune_sign_data_t) );
   fd_pubkey_new( &self->pubkey );
@@ -24065,6 +26963,23 @@ int fd_gossip_prune_sign_data_with_prefix_decode_footprint( fd_bincode_decode_ct
   ctx->data = start_data;
   return 0;
 }
+void * fd_gossip_prune_sign_data_with_prefix_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_prune_sign_data_with_prefix_t * self = (fd_gossip_prune_sign_data_with_prefix_t *)mem;
+  fd_gossip_prune_sign_data_with_prefix_new( self );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong prefix_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( prefix_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, 8UL );
+    fd_bincode_bytes_decode_unsafe( mem, prefix_len, ctx );
+    mem = (uchar *)mem + prefix_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  fd_gossip_prune_sign_data_decode_new( ctx, &self->data );
+  return mem;
+}
 void fd_gossip_prune_sign_data_with_prefix_new(fd_gossip_prune_sign_data_with_prefix_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_prune_sign_data_with_prefix_t) );
   fd_gossip_prune_sign_data_new( &self->data );
@@ -24149,6 +27064,15 @@ int fd_gossip_socket_addr_old_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   ctx->data = start_data;
   return 0;
 }
+void * fd_gossip_socket_addr_old_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_socket_addr_old_t * self = (fd_gossip_socket_addr_old_t *)mem;
+  fd_gossip_socket_addr_old_new( self );
+  fd_gossip_ip_addr_decode_new( ctx, &self->addr );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ushort) ); // Align for the type
+  fd_bincode_uint16_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ushort); // Leave unaligned
+  return mem;
+}
 void fd_gossip_socket_addr_old_new(fd_gossip_socket_addr_old_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_socket_addr_old_t) );
   fd_gossip_ip_addr_new( &self->addr );
@@ -24225,6 +27149,15 @@ int fd_gossip_socket_addr_ip4_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_gossip_socket_addr_ip4_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_socket_addr_ip4_t * self = (fd_gossip_socket_addr_ip4_t *)mem;
+  fd_gossip_socket_addr_ip4_new( self );
+  fd_gossip_ip4_addr_decode_new( ctx, &self->addr );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ushort) ); // Align for the type
+  fd_bincode_uint16_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ushort); // Leave unaligned
+  return mem;
 }
 void fd_gossip_socket_addr_ip4_new(fd_gossip_socket_addr_ip4_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_socket_addr_ip4_t) );
@@ -24323,6 +27256,21 @@ int fd_gossip_socket_addr_ip6_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   ctx->data = start_data;
   return 0;
 }
+void * fd_gossip_socket_addr_ip6_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_socket_addr_ip6_t * self = (fd_gossip_socket_addr_ip6_t *)mem;
+  fd_gossip_socket_addr_ip6_new( self );
+  fd_gossip_ip6_addr_decode_new( ctx, &self->addr );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ushort) ); // Align for the type
+  fd_bincode_uint16_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ushort); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint) ); // Align for the type
+  fd_bincode_uint32_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint) ); // Align for the type
+  fd_bincode_uint32_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint); // Leave unaligned
+  return mem;
+}
 void fd_gossip_socket_addr_ip6_new(fd_gossip_socket_addr_ip6_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_socket_addr_ip6_t) );
   fd_gossip_ip6_addr_new( &self->addr );
@@ -24398,6 +27346,7 @@ int fd_gossip_socket_addr_decode( fd_gossip_socket_addr_t * self, fd_bincode_dec
   return FD_BINCODE_SUCCESS;
 }
 int fd_gossip_socket_addr_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_gossip_socket_addr_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_gossip_socket_addr_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -24656,6 +27605,28 @@ int fd_gossip_contact_info_v1_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   ctx->data = start_data;
   return 0;
 }
+void * fd_gossip_contact_info_v1_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_contact_info_v1_t * self = (fd_gossip_contact_info_v1_t *)mem;
+  fd_gossip_contact_info_v1_new( self );
+  fd_pubkey_decode_new( ctx, &self->id );
+  fd_gossip_socket_addr_decode_new( ctx, &self->gossip );
+  fd_gossip_socket_addr_decode_new( ctx, &self->tvu );
+  fd_gossip_socket_addr_decode_new( ctx, &self->tvu_fwd );
+  fd_gossip_socket_addr_decode_new( ctx, &self->repair );
+  fd_gossip_socket_addr_decode_new( ctx, &self->tpu );
+  fd_gossip_socket_addr_decode_new( ctx, &self->tpu_fwd );
+  fd_gossip_socket_addr_decode_new( ctx, &self->tpu_vote );
+  fd_gossip_socket_addr_decode_new( ctx, &self->rpc );
+  fd_gossip_socket_addr_decode_new( ctx, &self->rpc_pubsub );
+  fd_gossip_socket_addr_decode_new( ctx, &self->serve_repair );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ushort) ); // Align for the type
+  fd_bincode_uint16_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ushort); // Leave unaligned
+  return mem;
+}
 void fd_gossip_contact_info_v1_new(fd_gossip_contact_info_v1_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_contact_info_v1_t) );
   fd_pubkey_new( &self->id );
@@ -24793,6 +27764,19 @@ int fd_gossip_vote_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_gossip_vote_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_vote_t * self = (fd_gossip_vote_t *)mem;
+  fd_gossip_vote_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  fd_pubkey_decode_new( ctx, &self->from );
+  fd_flamenco_txn_decode_new( ctx, &self->txn );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
 }
 void fd_gossip_vote_new(fd_gossip_vote_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_vote_t) );
@@ -24960,6 +27944,40 @@ int fd_gossip_lowest_slot_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   ctx->data = start_data;
   return 0;
 }
+void * fd_gossip_lowest_slot_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_lowest_slot_t * self = (fd_gossip_lowest_slot_t *)mem;
+  fd_gossip_lowest_slot_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  fd_pubkey_decode_new( ctx, &self->from );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong slots_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( slots_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+    for( ulong i=0; i < slots_len; i++ ) {
+      fd_bincode_uint64_decode_unsafe( (ulong *)mem + i, ctx );
+    }
+    mem = (uchar *)mem + sizeof(ulong)*slots_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_gossip_lowest_slot_new(fd_gossip_lowest_slot_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_lowest_slot_t) );
   fd_pubkey_new( &self->from );
@@ -25104,6 +28122,29 @@ int fd_gossip_slot_hashes_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   ctx->data = start_data;
   return 0;
 }
+void * fd_gossip_slot_hashes_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_slot_hashes_t * self = (fd_gossip_slot_hashes_t *)mem;
+  fd_gossip_slot_hashes_new( self );
+  fd_pubkey_decode_new( ctx, &self->from );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong hashes_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( hashes_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_SLOT_HASH_ALIGN );
+    for( ulong i=0; i < hashes_len; i++ ) {
+      fd_slot_hash_new( (fd_slot_hash_t *)mem + i );
+      fd_slot_hash_decode_new( ctx, (fd_slot_hash_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_SLOT_HASH_FOOTPRINT*hashes_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_gossip_slot_hashes_new(fd_gossip_slot_hashes_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_slot_hashes_t) );
   fd_pubkey_new( &self->from );
@@ -25207,6 +28248,18 @@ int fd_gossip_slots_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_gossip_slots_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_slots_t * self = (fd_gossip_slots_t *)mem;
+  fd_gossip_slots_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_gossip_bitvec_u8_decode_new( ctx, &self->slots );
+  return mem;
 }
 void fd_gossip_slots_new(fd_gossip_slots_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_slots_t) );
@@ -25322,6 +28375,28 @@ int fd_gossip_flate2_slots_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
   ctx->data = start_data;
   return 0;
 }
+void * fd_gossip_flate2_slots_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_flate2_slots_t * self = (fd_gossip_flate2_slots_t *)mem;
+  fd_gossip_flate2_slots_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong compressed_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( compressed_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, 8UL );
+    fd_bincode_bytes_decode_unsafe( mem, compressed_len, ctx );
+    mem = (uchar *)mem + compressed_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
+}
 void fd_gossip_flate2_slots_new(fd_gossip_flate2_slots_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_flate2_slots_t) );
 }
@@ -25400,6 +28475,7 @@ int fd_gossip_slots_enum_decode( fd_gossip_slots_enum_t * self, fd_bincode_decod
   return FD_BINCODE_SUCCESS;
 }
 int fd_gossip_slots_enum_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_gossip_slots_enum_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_gossip_slots_enum_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -25613,6 +28689,32 @@ int fd_gossip_epoch_slots_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   ctx->data = start_data;
   return 0;
 }
+void * fd_gossip_epoch_slots_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_epoch_slots_t * self = (fd_gossip_epoch_slots_t *)mem;
+  fd_gossip_epoch_slots_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  fd_pubkey_decode_new( ctx, &self->from );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong slots_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( slots_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_GOSSIP_SLOTS_ENUM_ALIGN );
+    for( ulong i=0; i < slots_len; i++ ) {
+      fd_gossip_slots_enum_new( (fd_gossip_slots_enum_t *)mem + i );
+      fd_gossip_slots_enum_decode_new( ctx, (fd_gossip_slots_enum_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_GOSSIP_SLOTS_ENUM_FOOTPRINT*slots_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_gossip_epoch_slots_new(fd_gossip_epoch_slots_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_epoch_slots_t) );
   fd_pubkey_new( &self->from );
@@ -25780,6 +28882,32 @@ int fd_gossip_version_v1_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_gossip_version_v1_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_version_v1_t * self = (fd_gossip_version_v1_t *)mem;
+  fd_gossip_version_v1_new( self );
+  fd_pubkey_decode_new( ctx, &self->from );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ushort) ); // Align for the type
+  fd_bincode_uint16_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ushort); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ushort) ); // Align for the type
+  fd_bincode_uint16_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ushort); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ushort) ); // Align for the type
+  fd_bincode_uint16_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ushort); // Leave unaligned
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_commit = !!o;
+    if( o ) {
+      fd_bincode_uint32_decode_unsafe( &self->commit, ctx );
+    }
+  }
+  return mem;
 }
 void fd_gossip_version_v1_new(fd_gossip_version_v1_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_version_v1_t) );
@@ -25958,6 +29086,35 @@ int fd_gossip_version_v2_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   ctx->data = start_data;
   return 0;
 }
+void * fd_gossip_version_v2_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_version_v2_t * self = (fd_gossip_version_v2_t *)mem;
+  fd_gossip_version_v2_new( self );
+  fd_pubkey_decode_new( ctx, &self->from );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ushort) ); // Align for the type
+  fd_bincode_uint16_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ushort); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ushort) ); // Align for the type
+  fd_bincode_uint16_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ushort); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ushort) ); // Align for the type
+  fd_bincode_uint16_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ushort); // Leave unaligned
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_commit = !!o;
+    if( o ) {
+      fd_bincode_uint32_decode_unsafe( &self->commit, ctx );
+    }
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint) ); // Align for the type
+  fd_bincode_uint32_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint); // Leave unaligned
+  return mem;
+}
 void fd_gossip_version_v2_new(fd_gossip_version_v2_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_version_v2_t) );
   fd_pubkey_new( &self->from );
@@ -26096,6 +29253,29 @@ int fd_gossip_version_v3_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   ctx->data = start_data;
   return 0;
 }
+void * fd_gossip_version_v3_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_version_v3_t * self = (fd_gossip_version_v3_t *)mem;
+  fd_gossip_version_v3_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ushort) ); // Align for the type
+  fd_bincode_uint16_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ushort); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ushort) ); // Align for the type
+  fd_bincode_uint16_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ushort); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ushort) ); // Align for the type
+  fd_bincode_uint16_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ushort); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint) ); // Align for the type
+  fd_bincode_uint32_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint) ); // Align for the type
+  fd_bincode_uint32_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ushort) ); // Align for the type
+  fd_bincode_uint16_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ushort); // Leave unaligned
+  return mem;
+}
 void fd_gossip_version_v3_new(fd_gossip_version_v3_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_version_v3_t) );
 }
@@ -26189,6 +29369,21 @@ int fd_gossip_node_instance_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulo
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_gossip_node_instance_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_node_instance_t * self = (fd_gossip_node_instance_t *)mem;
+  fd_gossip_node_instance_new( self );
+  fd_pubkey_decode_new( ctx, &self->from );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
 }
 void fd_gossip_node_instance_new(fd_gossip_node_instance_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_node_instance_t) );
@@ -26365,6 +29560,44 @@ int fd_gossip_duplicate_shred_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   ctx->data = start_data;
   return 0;
 }
+void * fd_gossip_duplicate_shred_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_duplicate_shred_t * self = (fd_gossip_duplicate_shred_t *)mem;
+  fd_gossip_duplicate_shred_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ushort) ); // Align for the type
+  fd_bincode_uint16_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ushort); // Leave unaligned
+  fd_pubkey_decode_new( ctx, &self->from );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint) ); // Align for the type
+  fd_bincode_uint32_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong chunk_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( chunk_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, 8UL );
+    fd_bincode_bytes_decode_unsafe( mem, chunk_len, ctx );
+    mem = (uchar *)mem + chunk_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
+}
 void fd_gossip_duplicate_shred_new(fd_gossip_duplicate_shred_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_duplicate_shred_t) );
   fd_pubkey_new( &self->from );
@@ -26517,6 +29750,30 @@ int fd_gossip_incremental_snapshot_hashes_decode_footprint( fd_bincode_decode_ct
   ctx->data = start_data;
   return 0;
 }
+void * fd_gossip_incremental_snapshot_hashes_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_incremental_snapshot_hashes_t * self = (fd_gossip_incremental_snapshot_hashes_t *)mem;
+  fd_gossip_incremental_snapshot_hashes_new( self );
+  fd_pubkey_decode_new( ctx, &self->from );
+  fd_slot_hash_decode_new( ctx, &self->base_hash );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong hashes_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( hashes_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_SLOT_HASH_ALIGN );
+    for( ulong i=0; i < hashes_len; i++ ) {
+      fd_slot_hash_new( (fd_slot_hash_t *)mem + i );
+      fd_slot_hash_decode_new( ctx, (fd_slot_hash_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_SLOT_HASH_FOOTPRINT*hashes_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_gossip_incremental_snapshot_hashes_new(fd_gossip_incremental_snapshot_hashes_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_incremental_snapshot_hashes_t) );
   fd_pubkey_new( &self->from );
@@ -26625,6 +29882,20 @@ int fd_gossip_socket_entry_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_gossip_socket_entry_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_socket_entry_t * self = (fd_gossip_socket_entry_t *)mem;
+  fd_gossip_socket_entry_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ushort) ); // Align for the type
+  fd_bincode_uint16_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ushort); // Leave unaligned
+  return mem;
 }
 void fd_gossip_socket_entry_new(fd_gossip_socket_entry_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_socket_entry_t) );
@@ -26865,6 +30136,63 @@ int fd_gossip_contact_info_v2_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   ctx->data = start_data;
   return 0;
 }
+void * fd_gossip_contact_info_v2_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_contact_info_v2_t * self = (fd_gossip_contact_info_v2_t *)mem;
+  fd_gossip_contact_info_v2_new( self );
+  fd_pubkey_decode_new( ctx, &self->from );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_varint_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ushort) ); // Align for the type
+  fd_bincode_uint16_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ushort); // Leave unaligned
+  fd_gossip_version_v3_decode_new( ctx, &self->version );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ushort) );
+  fd_bincode_compact_u16_decode_unsafe( mem, ctx );
+  ushort addrs_len = *(ushort *)mem;
+  mem = (uchar *)mem + sizeof(ushort);
+  if( addrs_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_GOSSIP_IP_ADDR_ALIGN );
+    for( ulong i=0; i < addrs_len; i++ ) {
+      fd_gossip_ip_addr_new( (fd_gossip_ip_addr_t *)mem + i );
+      fd_gossip_ip_addr_decode_new( ctx, (fd_gossip_ip_addr_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_GOSSIP_IP_ADDR_FOOTPRINT*addrs_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ushort) );
+  fd_bincode_compact_u16_decode_unsafe( mem, ctx );
+  ushort sockets_len = *(ushort *)mem;
+  mem = (uchar *)mem + sizeof(ushort);
+  if( sockets_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_GOSSIP_SOCKET_ENTRY_ALIGN );
+    for( ulong i=0; i < sockets_len; i++ ) {
+      fd_gossip_socket_entry_new( (fd_gossip_socket_entry_t *)mem + i );
+      fd_gossip_socket_entry_decode_new( ctx, (fd_gossip_socket_entry_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_GOSSIP_SOCKET_ENTRY_FOOTPRINT*sockets_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ushort) );
+  fd_bincode_compact_u16_decode_unsafe( mem, ctx );
+  ushort extensions_len = *(ushort *)mem;
+  mem = (uchar *)mem + sizeof(ushort);
+  if( extensions_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(uint) );
+    for( ulong i=0; i < extensions_len; i++ ) {
+      fd_bincode_uint32_decode_unsafe( (uint *)mem + i, ctx );
+    }
+    mem = (uchar *)mem + sizeof(uint)*extensions_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
+}
 void fd_gossip_contact_info_v2_new(fd_gossip_contact_info_v2_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_contact_info_v2_t) );
   fd_pubkey_new( &self->from );
@@ -26992,6 +30320,14 @@ int fd_restart_run_length_encoding_inner_decode_footprint( fd_bincode_decode_ctx
   ctx->data = start_data;
   return 0;
 }
+void * fd_restart_run_length_encoding_inner_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_restart_run_length_encoding_inner_t * self = (fd_restart_run_length_encoding_inner_t *)mem;
+  fd_restart_run_length_encoding_inner_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ushort) ); // Align for the type
+  fd_bincode_uint16_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ushort); // Leave unaligned
+  return mem;
+}
 void fd_restart_run_length_encoding_inner_new(fd_restart_run_length_encoding_inner_t * self) {
   fd_memset( self, 0, sizeof(fd_restart_run_length_encoding_inner_t) );
 }
@@ -27090,6 +30426,25 @@ int fd_restart_run_length_encoding_decode_footprint( fd_bincode_decode_ctx_t * c
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_restart_run_length_encoding_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_restart_run_length_encoding_t * self = (fd_restart_run_length_encoding_t *)mem;
+  fd_restart_run_length_encoding_new( self );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong offsets_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( offsets_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_RESTART_RUN_LENGTH_ENCODING_INNER_ALIGN );
+    for( ulong i=0; i < offsets_len; i++ ) {
+      fd_restart_run_length_encoding_inner_new( (fd_restart_run_length_encoding_inner_t *)mem + i );
+      fd_restart_run_length_encoding_inner_decode_new( ctx, (fd_restart_run_length_encoding_inner_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_RESTART_RUN_LENGTH_ENCODING_INNER_FOOTPRINT*offsets_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
 }
 void fd_restart_run_length_encoding_new(fd_restart_run_length_encoding_t * self) {
   fd_memset( self, 0, sizeof(fd_restart_run_length_encoding_t) );
@@ -27193,6 +30548,22 @@ int fd_restart_raw_offsets_bitvec_u8_inner_decode_footprint( fd_bincode_decode_c
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_restart_raw_offsets_bitvec_u8_inner_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_restart_raw_offsets_bitvec_u8_inner_t * self = (fd_restart_raw_offsets_bitvec_u8_inner_t *)mem;
+  fd_restart_raw_offsets_bitvec_u8_inner_new( self );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong bits_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( bits_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, 8UL );
+    fd_bincode_bytes_decode_unsafe( mem, bits_len, ctx );
+    mem = (uchar *)mem + bits_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
 }
 void fd_restart_raw_offsets_bitvec_u8_inner_new(fd_restart_raw_offsets_bitvec_u8_inner_t * self) {
   fd_memset( self, 0, sizeof(fd_restart_raw_offsets_bitvec_u8_inner_t) );
@@ -27308,6 +30679,23 @@ int fd_restart_raw_offsets_bitvec_decode_footprint( fd_bincode_decode_ctx_t * ct
   ctx->data = start_data;
   return 0;
 }
+void * fd_restart_raw_offsets_bitvec_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_restart_raw_offsets_bitvec_t * self = (fd_restart_raw_offsets_bitvec_t *)mem;
+  fd_restart_raw_offsets_bitvec_new( self );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    self->has_bits = !!o;
+    if( o ) {
+      fd_restart_raw_offsets_bitvec_u8_inner_new( &self->bits );
+      fd_restart_raw_offsets_bitvec_u8_inner_decode_unsafe( &self->bits, ctx );
+    }
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_restart_raw_offsets_bitvec_new(fd_restart_raw_offsets_bitvec_t * self) {
   fd_memset( self, 0, sizeof(fd_restart_raw_offsets_bitvec_t) );
 }
@@ -27384,6 +30772,12 @@ int fd_restart_raw_offsets_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
   ctx->data = start_data;
   return 0;
 }
+void * fd_restart_raw_offsets_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_restart_raw_offsets_t * self = (fd_restart_raw_offsets_t *)mem;
+  fd_restart_raw_offsets_new( self );
+  fd_restart_raw_offsets_bitvec_decode_new( ctx, &self->offsets );
+  return mem;
+}
 void fd_restart_raw_offsets_new(fd_restart_raw_offsets_t * self) {
   fd_memset( self, 0, sizeof(fd_restart_raw_offsets_t) );
   fd_restart_raw_offsets_bitvec_new( &self->offsets );
@@ -27453,6 +30847,7 @@ int fd_restart_slots_offsets_decode( fd_restart_slots_offsets_t * self, fd_binco
   return FD_BINCODE_SUCCESS;
 }
 int fd_restart_slots_offsets_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_restart_slots_offsets_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_restart_slots_offsets_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -27649,6 +31044,23 @@ int fd_gossip_restart_last_voted_fork_slots_decode_footprint( fd_bincode_decode_
   ctx->data = start_data;
   return 0;
 }
+void * fd_gossip_restart_last_voted_fork_slots_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_restart_last_voted_fork_slots_t * self = (fd_gossip_restart_last_voted_fork_slots_t *)mem;
+  fd_gossip_restart_last_voted_fork_slots_new( self );
+  fd_pubkey_decode_new( ctx, &self->from );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_restart_slots_offsets_decode_new( ctx, &self->offsets );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_hash_decode_new( ctx, &self->last_voted_hash );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ushort) ); // Align for the type
+  fd_bincode_uint16_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ushort); // Leave unaligned
+  return mem;
+}
 void fd_gossip_restart_last_voted_fork_slots_new(fd_gossip_restart_last_voted_fork_slots_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_restart_last_voted_fork_slots_t) );
   fd_pubkey_new( &self->from );
@@ -27763,6 +31175,25 @@ int fd_gossip_restart_heaviest_fork_decode_footprint( fd_bincode_decode_ctx_t * 
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_gossip_restart_heaviest_fork_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_restart_heaviest_fork_t * self = (fd_gossip_restart_heaviest_fork_t *)mem;
+  fd_gossip_restart_heaviest_fork_new( self );
+  fd_pubkey_decode_new( ctx, &self->from );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  fd_hash_decode_new( ctx, &self->last_slot_hash );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ushort) ); // Align for the type
+  fd_bincode_uint16_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ushort); // Leave unaligned
+  return mem;
 }
 void fd_gossip_restart_heaviest_fork_new(fd_gossip_restart_heaviest_fork_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_restart_heaviest_fork_t) );
@@ -27989,6 +31420,7 @@ int fd_crds_data_decode( fd_crds_data_t * self, fd_bincode_decode_ctx_t * ctx ) 
   return FD_BINCODE_SUCCESS;
 }
 int fd_crds_data_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_crds_data_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_crds_data_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -28454,6 +31886,28 @@ int fd_crds_bloom_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   ctx->data = start_data;
   return 0;
 }
+void * fd_crds_bloom_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_crds_bloom_t * self = (fd_crds_bloom_t *)mem;
+  fd_crds_bloom_new( self );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong keys_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( keys_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+    for( ulong i=0; i < keys_len; i++ ) {
+      fd_bincode_uint64_decode_unsafe( (ulong *)mem + i, ctx );
+    }
+    mem = (uchar *)mem + sizeof(ulong)*keys_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  fd_gossip_bitvec_u64_decode_new( ctx, &self->bits );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_crds_bloom_new(fd_crds_bloom_t * self) {
   fd_memset( self, 0, sizeof(fd_crds_bloom_t) );
   fd_gossip_bitvec_u64_new( &self->bits );
@@ -28555,6 +32009,18 @@ int fd_crds_filter_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   ctx->data = start_data;
   return 0;
 }
+void * fd_crds_filter_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_crds_filter_t * self = (fd_crds_filter_t *)mem;
+  fd_crds_filter_new( self );
+  fd_crds_bloom_decode_new( ctx, &self->filter );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint) ); // Align for the type
+  fd_bincode_uint32_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint); // Leave unaligned
+  return mem;
+}
 void fd_crds_filter_new(fd_crds_filter_t * self) {
   fd_memset( self, 0, sizeof(fd_crds_filter_t) );
   fd_crds_bloom_new( &self->filter );
@@ -28633,6 +32099,13 @@ int fd_crds_value_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   ctx->data = start_data;
   return 0;
 }
+void * fd_crds_value_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_crds_value_t * self = (fd_crds_value_t *)mem;
+  fd_crds_value_new( self );
+  fd_signature_decode_new( ctx, &self->signature );
+  fd_crds_data_decode_new( ctx, &self->data );
+  return mem;
+}
 void fd_crds_value_new(fd_crds_value_t * self) {
   fd_memset( self, 0, sizeof(fd_crds_value_t) );
   fd_signature_new( &self->signature );
@@ -28710,6 +32183,13 @@ int fd_gossip_pull_req_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_gossip_pull_req_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_pull_req_t * self = (fd_gossip_pull_req_t *)mem;
+  fd_gossip_pull_req_new( self );
+  fd_crds_filter_decode_new( ctx, &self->filter );
+  fd_crds_value_decode_new( ctx, &self->value );
+  return mem;
 }
 void fd_gossip_pull_req_new(fd_gossip_pull_req_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_pull_req_t) );
@@ -28824,6 +32304,26 @@ int fd_gossip_pull_resp_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong *
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_gossip_pull_resp_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_pull_resp_t * self = (fd_gossip_pull_resp_t *)mem;
+  fd_gossip_pull_resp_new( self );
+  fd_pubkey_decode_new( ctx, &self->pubkey );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong crds_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( crds_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_CRDS_VALUE_ALIGN );
+    for( ulong i=0; i < crds_len; i++ ) {
+      fd_crds_value_new( (fd_crds_value_t *)mem + i );
+      fd_crds_value_decode_new( ctx, (fd_crds_value_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_CRDS_VALUE_FOOTPRINT*crds_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
 }
 void fd_gossip_pull_resp_new(fd_gossip_pull_resp_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_pull_resp_t) );
@@ -28952,6 +32452,26 @@ int fd_gossip_push_msg_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   ctx->data = start_data;
   return 0;
 }
+void * fd_gossip_push_msg_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_push_msg_t * self = (fd_gossip_push_msg_t *)mem;
+  fd_gossip_push_msg_new( self );
+  fd_pubkey_decode_new( ctx, &self->pubkey );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong crds_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( crds_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_CRDS_VALUE_ALIGN );
+    for( ulong i=0; i < crds_len; i++ ) {
+      fd_crds_value_new( (fd_crds_value_t *)mem + i );
+      fd_crds_value_decode_new( ctx, (fd_crds_value_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_CRDS_VALUE_FOOTPRINT*crds_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
+}
 void fd_gossip_push_msg_new(fd_gossip_push_msg_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_push_msg_t) );
   fd_pubkey_new( &self->pubkey );
@@ -29042,6 +32562,13 @@ int fd_gossip_prune_msg_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong *
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_gossip_prune_msg_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_gossip_prune_msg_t * self = (fd_gossip_prune_msg_t *)mem;
+  fd_gossip_prune_msg_new( self );
+  fd_pubkey_decode_new( ctx, &self->pubkey );
+  fd_gossip_prune_data_decode_new( ctx, &self->data );
+  return mem;
 }
 void fd_gossip_prune_msg_new(fd_gossip_prune_msg_t * self) {
   fd_memset( self, 0, sizeof(fd_gossip_prune_msg_t) );
@@ -29164,6 +32691,7 @@ int fd_gossip_msg_decode( fd_gossip_msg_t * self, fd_bincode_decode_ctx_t * ctx 
   return FD_BINCODE_SUCCESS;
 }
 int fd_gossip_msg_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_gossip_msg_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_gossip_msg_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -29406,6 +32934,17 @@ int fd_addrlut_create_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   ctx->data = start_data;
   return 0;
 }
+void * fd_addrlut_create_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_addrlut_create_t * self = (fd_addrlut_create_t *)mem;
+  fd_addrlut_create_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  return mem;
+}
 void fd_addrlut_create_new(fd_addrlut_create_t * self) {
   fd_memset( self, 0, sizeof(fd_addrlut_create_t) );
 }
@@ -29506,6 +33045,25 @@ int fd_addrlut_extend_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_addrlut_extend_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_addrlut_extend_t * self = (fd_addrlut_extend_t *)mem;
+  fd_addrlut_extend_new( self );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong new_addrs_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( new_addrs_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_PUBKEY_ALIGN );
+    for( ulong i=0; i < new_addrs_len; i++ ) {
+      fd_pubkey_new( (fd_pubkey_t *)mem + i );
+      fd_pubkey_decode_new( ctx, (fd_pubkey_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_PUBKEY_FOOTPRINT*new_addrs_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
 }
 void fd_addrlut_extend_new(fd_addrlut_extend_t * self) {
   fd_memset( self, 0, sizeof(fd_addrlut_extend_t) );
@@ -29616,6 +33174,7 @@ int fd_addrlut_instruction_decode( fd_addrlut_instruction_t * self, fd_bincode_d
   return FD_BINCODE_SUCCESS;
 }
 int fd_addrlut_instruction_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_addrlut_instruction_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_addrlut_instruction_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -29812,6 +33371,20 @@ int fd_repair_request_header_decode_footprint( fd_bincode_decode_ctx_t * ctx, ul
   ctx->data = start_data;
   return 0;
 }
+void * fd_repair_request_header_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_repair_request_header_t * self = (fd_repair_request_header_t *)mem;
+  fd_repair_request_header_new( self );
+  fd_signature_decode_new( ctx, &self->signature );
+  fd_pubkey_decode_new( ctx, &self->sender );
+  fd_pubkey_decode_new( ctx, &self->recipient );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint) ); // Align for the type
+  fd_bincode_uint32_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint); // Leave unaligned
+  return mem;
+}
 void fd_repair_request_header_new(fd_repair_request_header_t * self) {
   fd_memset( self, 0, sizeof(fd_repair_request_header_t) );
   fd_signature_new( &self->signature );
@@ -29902,6 +33475,18 @@ int fd_repair_window_index_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
   ctx->data = start_data;
   return 0;
 }
+void * fd_repair_window_index_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_repair_window_index_t * self = (fd_repair_window_index_t *)mem;
+  fd_repair_window_index_new( self );
+  fd_repair_request_header_decode_new( ctx, &self->header );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_repair_window_index_new(fd_repair_window_index_t * self) {
   fd_memset( self, 0, sizeof(fd_repair_window_index_t) );
   fd_repair_request_header_new( &self->header );
@@ -29984,6 +33569,18 @@ int fd_repair_highest_window_index_decode_footprint( fd_bincode_decode_ctx_t * c
   ctx->data = start_data;
   return 0;
 }
+void * fd_repair_highest_window_index_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_repair_highest_window_index_t * self = (fd_repair_highest_window_index_t *)mem;
+  fd_repair_highest_window_index_new( self );
+  fd_repair_request_header_decode_new( ctx, &self->header );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_repair_highest_window_index_new(fd_repair_highest_window_index_t * self) {
   fd_memset( self, 0, sizeof(fd_repair_highest_window_index_t) );
   fd_repair_request_header_new( &self->header );
@@ -30058,6 +33655,15 @@ int fd_repair_orphan_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * to
   ctx->data = start_data;
   return 0;
 }
+void * fd_repair_orphan_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_repair_orphan_t * self = (fd_repair_orphan_t *)mem;
+  fd_repair_orphan_new( self );
+  fd_repair_request_header_decode_new( ctx, &self->header );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
+}
 void fd_repair_orphan_new(fd_repair_orphan_t * self) {
   fd_memset( self, 0, sizeof(fd_repair_orphan_t) );
   fd_repair_request_header_new( &self->header );
@@ -30129,6 +33735,15 @@ int fd_repair_ancestor_hashes_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_repair_ancestor_hashes_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_repair_ancestor_hashes_t * self = (fd_repair_ancestor_hashes_t *)mem;
+  fd_repair_ancestor_hashes_new( self );
+  fd_repair_request_header_decode_new( ctx, &self->header );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
 }
 void fd_repair_ancestor_hashes_new(fd_repair_ancestor_hashes_t * self) {
   fd_memset( self, 0, sizeof(fd_repair_ancestor_hashes_t) );
@@ -30300,6 +33915,7 @@ int fd_repair_protocol_decode( fd_repair_protocol_t * self, fd_bincode_decode_ct
   return FD_BINCODE_SUCCESS;
 }
 int fd_repair_protocol_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_repair_protocol_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_repair_protocol_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -30555,6 +34171,7 @@ int fd_repair_response_decode( fd_repair_response_t * self, fd_bincode_decode_ct
   return FD_BINCODE_SUCCESS;
 }
 int fd_repair_response_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_repair_response_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_repair_response_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -31160,6 +34777,7 @@ int fd_instr_error_enum_decode( fd_instr_error_enum_t * self, fd_bincode_decode_
   return FD_BINCODE_SUCCESS;
 }
 int fd_instr_error_enum_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_instr_error_enum_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_instr_error_enum_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -31685,6 +35303,15 @@ int fd_txn_instr_error_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   ctx->data = start_data;
   return 0;
 }
+void * fd_txn_instr_error_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_txn_instr_error_t * self = (fd_txn_instr_error_t *)mem;
+  fd_txn_instr_error_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  fd_instr_error_enum_decode_new( ctx, &self->error );
+  return mem;
+}
 void fd_txn_instr_error_new(fd_txn_instr_error_t * self) {
   fd_memset( self, 0, sizeof(fd_txn_instr_error_t) );
   fd_instr_error_enum_new( &self->error );
@@ -32077,6 +35704,7 @@ int fd_txn_error_enum_decode( fd_txn_error_enum_t * self, fd_bincode_decode_ctx_
   return FD_BINCODE_SUCCESS;
 }
 int fd_txn_error_enum_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_txn_error_enum_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_txn_error_enum_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -32495,6 +36123,7 @@ int fd_txn_result_decode( fd_txn_result_t * self, fd_bincode_decode_ctx_t * ctx 
   return FD_BINCODE_SUCCESS;
 }
 int fd_txn_result_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) { return 0; }
+void * fd_txn_result_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) { return NULL; }
 int fd_txn_result_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
@@ -32638,6 +36267,13 @@ int fd_cache_status_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
   ctx->data = start_data;
   return 0;
 }
+void * fd_cache_status_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_cache_status_t * self = (fd_cache_status_t *)mem;
+  fd_cache_status_new( self );
+  fd_bincode_bytes_decode_unsafe( self->key_slice, 20, ctx );
+  fd_txn_result_decode_new( ctx, &self->result );
+  return mem;
+}
 void fd_cache_status_new(fd_cache_status_t * self) {
   fd_memset( self, 0, sizeof(fd_cache_status_t) );
   fd_txn_result_new( &self->result );
@@ -32751,6 +36387,28 @@ int fd_status_value_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
   ctx->data = start_data;
   return 0;
 }
+void * fd_status_value_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_status_value_t * self = (fd_status_value_t *)mem;
+  fd_status_value_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong statuses_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( statuses_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_CACHE_STATUS_ALIGN );
+    for( ulong i=0; i < statuses_len; i++ ) {
+      fd_cache_status_new( (fd_cache_status_t *)mem + i );
+      fd_cache_status_decode_new( ctx, (fd_cache_status_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_CACHE_STATUS_FOOTPRINT*statuses_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
+}
 void fd_status_value_new(fd_status_value_t * self) {
   fd_memset( self, 0, sizeof(fd_status_value_t) );
 }
@@ -32839,6 +36497,13 @@ int fd_status_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_status_pair_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_status_pair_t * self = (fd_status_pair_t *)mem;
+  fd_status_pair_new( self );
+  fd_hash_decode_new( ctx, &self->hash );
+  fd_status_value_decode_new( ctx, &self->value );
+  return mem;
 }
 void fd_status_pair_new(fd_status_pair_t * self) {
   fd_memset( self, 0, sizeof(fd_status_pair_t) );
@@ -32965,6 +36630,31 @@ int fd_slot_delta_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   ctx->data = start_data;
   return 0;
 }
+void * fd_slot_delta_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_slot_delta_t * self = (fd_slot_delta_t *)mem;
+  fd_slot_delta_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_bool_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong slot_delta_vec_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( slot_delta_vec_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_STATUS_PAIR_ALIGN );
+    for( ulong i=0; i < slot_delta_vec_len; i++ ) {
+      fd_status_pair_new( (fd_status_pair_t *)mem + i );
+      fd_status_pair_decode_new( ctx, (fd_status_pair_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_STATUS_PAIR_FOOTPRINT*slot_delta_vec_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
+}
 void fd_slot_delta_new(fd_slot_delta_t * self) {
   fd_memset( self, 0, sizeof(fd_slot_delta_t) );
 }
@@ -33083,6 +36773,25 @@ int fd_bank_slot_deltas_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong *
   ctx->data = start_data;
   return 0;
 }
+void * fd_bank_slot_deltas_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_bank_slot_deltas_t * self = (fd_bank_slot_deltas_t *)mem;
+  fd_bank_slot_deltas_new( self );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong slot_deltas_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( slot_deltas_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_SLOT_DELTA_ALIGN );
+    for( ulong i=0; i < slot_deltas_len; i++ ) {
+      fd_slot_delta_new( (fd_slot_delta_t *)mem + i );
+      fd_slot_delta_decode_new( ctx, (fd_slot_delta_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_SLOT_DELTA_FOOTPRINT*slot_deltas_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
+}
 void fd_bank_slot_deltas_new(fd_bank_slot_deltas_t * self) {
   fd_memset( self, 0, sizeof(fd_bank_slot_deltas_t) );
 }
@@ -33169,6 +36878,13 @@ int fd_pubkey_rewardinfo_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_pubkey_rewardinfo_pair_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_pubkey_rewardinfo_pair_t * self = (fd_pubkey_rewardinfo_pair_t *)mem;
+  fd_pubkey_rewardinfo_pair_new( self );
+  fd_pubkey_decode_new( ctx, &self->pubkey );
+  fd_reward_info_decode_new( ctx, &self->reward_info );
+  return mem;
 }
 void fd_pubkey_rewardinfo_pair_new(fd_pubkey_rewardinfo_pair_t * self) {
   fd_memset( self, 0, sizeof(fd_pubkey_rewardinfo_pair_t) );
@@ -33277,6 +36993,20 @@ int fd_optional_account_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong *
   ctx->data = start_data;
   return 0;
 }
+void * fd_optional_account_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_optional_account_t * self = (fd_optional_account_t *)mem;
+  fd_optional_account_new( self );
+  {
+    uchar o;
+    fd_bincode_bool_decode_unsafe( &o, ctx );
+    if( o ) {
+      fd_solana_account_new( self->account );
+      fd_solana_account_decode_unsafe( self->account, ctx );
+    } else
+      self->account = NULL;
+  }
+  return mem;
+}
 void fd_optional_account_new(fd_optional_account_t * self) {
   fd_memset( self, 0, sizeof(fd_optional_account_t) );
 }
@@ -33366,6 +37096,20 @@ int fd_calculated_stake_points_decode_footprint( fd_bincode_decode_ctx_t * ctx, 
   ctx->data = start_data;
   return 0;
 }
+void * fd_calculated_stake_points_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_calculated_stake_points_t * self = (fd_calculated_stake_points_t *)mem;
+  fd_calculated_stake_points_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uint128) ); // Align for the type
+  fd_bincode_uint128_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uint128); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(uchar) ); // Align for the type
+  fd_bincode_uint8_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(uchar); // Leave unaligned
+  return mem;
+}
 void fd_calculated_stake_points_new(fd_calculated_stake_points_t * self) {
   fd_memset( self, 0, sizeof(fd_calculated_stake_points_t) );
 }
@@ -33446,6 +37190,20 @@ int fd_calculated_stake_rewards_decode_footprint( fd_bincode_decode_ctx_t * ctx,
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_calculated_stake_rewards_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_calculated_stake_rewards_t * self = (fd_calculated_stake_rewards_t *)mem;
+  fd_calculated_stake_rewards_new( self );
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
 }
 void fd_calculated_stake_rewards_new(fd_calculated_stake_rewards_t * self) {
   fd_memset( self, 0, sizeof(fd_calculated_stake_rewards_t) );
@@ -33573,6 +37331,33 @@ int fd_duplicate_slot_proof_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulo
   ctx->data = start_data;
   return 0;
 }
+void * fd_duplicate_slot_proof_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_duplicate_slot_proof_t * self = (fd_duplicate_slot_proof_t *)mem;
+  fd_duplicate_slot_proof_new( self );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong shred1_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( shred1_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, 8UL );
+    fd_bincode_bytes_decode_unsafe( mem, shred1_len, ctx );
+    mem = (uchar *)mem + shred1_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong shred2_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( shred2_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, 8UL );
+    fd_bincode_bytes_decode_unsafe( mem, shred2_len, ctx );
+    mem = (uchar *)mem + shred2_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  return mem;
+}
 void fd_duplicate_slot_proof_new(fd_duplicate_slot_proof_t * self) {
   fd_memset( self, 0, sizeof(fd_duplicate_slot_proof_t) );
 }
@@ -33656,6 +37441,13 @@ int fd_epoch_info_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   ctx->data = start_data;
   return 0;
 }
+void * fd_epoch_info_pair_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_epoch_info_pair_t * self = (fd_epoch_info_pair_t *)mem;
+  fd_epoch_info_pair_new( self );
+  fd_pubkey_decode_new( ctx, &self->account );
+  fd_stake_decode_new( ctx, &self->stake );
+  return mem;
+}
 void fd_epoch_info_pair_new(fd_epoch_info_pair_t * self) {
   fd_memset( self, 0, sizeof(fd_epoch_info_pair_t) );
   fd_pubkey_new( &self->account );
@@ -33733,6 +37525,13 @@ int fd_vote_info_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_vote_info_pair_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_vote_info_pair_t * self = (fd_vote_info_pair_t *)mem;
+  fd_vote_info_pair_new( self );
+  fd_pubkey_decode_new( ctx, &self->account );
+  fd_vote_state_versioned_decode_new( ctx, &self->state );
+  return mem;
 }
 void fd_vote_info_pair_new(fd_vote_info_pair_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_info_pair_t) );
@@ -33895,6 +37694,39 @@ int fd_epoch_info_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   *total_sz = (ulong)ctx->data - (ulong)start_data;
   ctx->data = start_data;
   return 0;
+}
+void * fd_epoch_info_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem ) {
+  fd_epoch_info_t * self = (fd_epoch_info_t *)mem;
+  fd_epoch_info_new( self );
+  mem = (void *)fd_ulong_align_up( (ulong)mem, alignof(ulong) );
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  ulong stake_infos_len = *(ulong *)mem;
+  mem = (uchar *)mem + sizeof(ulong);
+  if( stake_infos_len ) {
+    mem = (void *)fd_ulong_align_up( (ulong)mem, FD_EPOCH_INFO_PAIR_ALIGN );
+    for( ulong i=0; i < stake_infos_len; i++ ) {
+      fd_epoch_info_pair_new( (fd_epoch_info_pair_t *)mem + i );
+      fd_epoch_info_pair_decode_new( ctx, (fd_epoch_info_pair_t *)mem + i );
+    }
+    mem = (uchar *)mem + FD_EPOCH_INFO_PAIR_FOOTPRINT*stake_infos_len;
+  } else {
+    // TODO: Unsure if something needs to be done here
+  }
+  ulong vote_states_len;
+  fd_bincode_uint64_decode_unsafe( &vote_states_len, ctx );
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    self->vote_states_root = NULL;
+  }
+  for( ulong i=0; i < vote_states_len; i++ ) {
+    fd_vote_info_pair_t_mapnode_t * node = fd_vote_info_pair_t_map_acquire( self->vote_states_pool );
+    fd_vote_info_pair_new( &node->elem );
+    fd_vote_info_pair_decode_unsafe( &node->elem, ctx );
+    fd_vote_info_pair_t_map_insert( self->vote_states_pool, &self->vote_states_root, node );
+  }
+  mem = (uchar*)fd_ulong_align_up( (ulong)mem, alignof(ulong) ); // Align for the type
+  fd_bincode_uint64_decode_unsafe( mem, ctx );
+  mem = (uchar*)mem + sizeof(ulong); // Leave unaligned
+  return mem;
 }
 void fd_epoch_info_new(fd_epoch_info_t * self) {
   fd_memset( self, 0, sizeof(fd_epoch_info_t) );

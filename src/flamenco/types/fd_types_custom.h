@@ -55,6 +55,7 @@ FD_PROTOTYPES_BEGIN
 #define fd_pubkey_set_zero         fd_hash_set_zero
 #define fd_pubkey_walk             fd_hash_walk
 #define fd_pubkey_decode_footprint fd_hash_decode_footprint
+#define fd_pubkey_decode_new       fd_hash_decode_new
 
 #define fd_hash_decode_archival             fd_hash_decode
 #define fd_hash_decode_archival_preflight   fd_hash_decode_preflight
@@ -148,6 +149,9 @@ fd_solana_vote_account_footprint( void );
 ulong
 fd_solana_vote_account_align( void );
 
+void *
+fd_solana_vote_account_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
+
 /* Transaction wrapper ************************************************/
 
 /* fd_flamenco_txn_t is yet another fd_txn_t wrapper.
@@ -195,6 +199,9 @@ fd_flamenco_txn_encode( fd_flamenco_txn_t const * self,
                         fd_bincode_encode_ctx_t * ctx ) {
   return fd_bincode_bytes_encode( self->raw, self->raw_sz, ctx );
 }
+
+static void * FD_FN_UNUSED
+fd_flamenco_txn_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 
 static inline void
 fd_flamenco_txn_walk( void *                    w,

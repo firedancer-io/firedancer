@@ -5932,6 +5932,8 @@ void fd_reward_type_destroy( fd_reward_type_t * self, fd_bincode_destroy_ctx_t *
 void fd_reward_type_walk( void * w, fd_reward_type_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_reward_type_size( fd_reward_type_t const * self );
 ulong fd_reward_type_footprint( void );
+int fd_reward_type_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_reward_type_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_reward_type_align( void );
 
 FD_FN_PURE uchar fd_reward_type_is_fee( fd_reward_type_t const * self );
@@ -5984,6 +5986,8 @@ void fd_versioned_epoch_stakes_destroy( fd_versioned_epoch_stakes_t * self, fd_b
 void fd_versioned_epoch_stakes_walk( void * w, fd_versioned_epoch_stakes_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_versioned_epoch_stakes_size( fd_versioned_epoch_stakes_t const * self );
 ulong fd_versioned_epoch_stakes_footprint( void );
+int fd_versioned_epoch_stakes_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_versioned_epoch_stakes_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_versioned_epoch_stakes_align( void );
 
 FD_FN_PURE uchar fd_versioned_epoch_stakes_is_Current( fd_versioned_epoch_stakes_t const * self );
@@ -6391,6 +6395,8 @@ void fd_vote_state_versioned_destroy( fd_vote_state_versioned_t * self, fd_binco
 void fd_vote_state_versioned_walk( void * w, fd_vote_state_versioned_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_vote_state_versioned_size( fd_vote_state_versioned_t const * self );
 ulong fd_vote_state_versioned_footprint( void );
+int fd_vote_state_versioned_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_vote_state_versioned_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_vote_state_versioned_align( void );
 
 FD_FN_PURE uchar fd_vote_state_versioned_is_v0_23_5( fd_vote_state_versioned_t const * self );
@@ -6741,6 +6747,8 @@ void fd_cluster_type_destroy( fd_cluster_type_t * self, fd_bincode_destroy_ctx_t
 void fd_cluster_type_walk( void * w, fd_cluster_type_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_cluster_type_size( fd_cluster_type_t const * self );
 ulong fd_cluster_type_footprint( void );
+int fd_cluster_type_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_cluster_type_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_cluster_type_align( void );
 
 FD_FN_PURE uchar fd_cluster_type_is_Testnet( fd_cluster_type_t const * self );
@@ -6838,6 +6846,8 @@ void fd_vote_authorize_destroy( fd_vote_authorize_t * self, fd_bincode_destroy_c
 void fd_vote_authorize_walk( void * w, fd_vote_authorize_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_vote_authorize_size( fd_vote_authorize_t const * self );
 ulong fd_vote_authorize_footprint( void );
+int fd_vote_authorize_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_vote_authorize_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_vote_authorize_align( void );
 
 FD_FN_PURE uchar fd_vote_authorize_is_voter( fd_vote_authorize_t const * self );
@@ -6931,6 +6941,8 @@ void fd_vote_instruction_destroy( fd_vote_instruction_t * self, fd_bincode_destr
 void fd_vote_instruction_walk( void * w, fd_vote_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_vote_instruction_size( fd_vote_instruction_t const * self );
 ulong fd_vote_instruction_footprint( void );
+int fd_vote_instruction_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_vote_instruction_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_vote_instruction_align( void );
 
 FD_FN_PURE uchar fd_vote_instruction_is_initialize_account( fd_vote_instruction_t const * self );
@@ -7052,6 +7064,8 @@ void fd_system_program_instruction_destroy( fd_system_program_instruction_t * se
 void fd_system_program_instruction_walk( void * w, fd_system_program_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_system_program_instruction_size( fd_system_program_instruction_t const * self );
 ulong fd_system_program_instruction_footprint( void );
+int fd_system_program_instruction_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_system_program_instruction_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_system_program_instruction_align( void );
 
 FD_FN_PURE uchar fd_system_program_instruction_is_create_account( fd_system_program_instruction_t const * self );
@@ -7092,6 +7106,8 @@ void fd_system_error_destroy( fd_system_error_t * self, fd_bincode_destroy_ctx_t
 void fd_system_error_walk( void * w, fd_system_error_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_system_error_size( fd_system_error_t const * self );
 ulong fd_system_error_footprint( void );
+int fd_system_error_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_system_error_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_system_error_align( void );
 
 FD_FN_PURE uchar fd_system_error_is_account_already_in_use( fd_system_error_t const * self );
@@ -7184,6 +7200,8 @@ void fd_stake_authorize_destroy( fd_stake_authorize_t * self, fd_bincode_destroy
 void fd_stake_authorize_walk( void * w, fd_stake_authorize_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_stake_authorize_size( fd_stake_authorize_t const * self );
 ulong fd_stake_authorize_footprint( void );
+int fd_stake_authorize_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_stake_authorize_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_stake_authorize_align( void );
 
 FD_FN_PURE uchar fd_stake_authorize_is_staker( fd_stake_authorize_t const * self );
@@ -7277,6 +7295,8 @@ void fd_stake_instruction_destroy( fd_stake_instruction_t * self, fd_bincode_des
 void fd_stake_instruction_walk( void * w, fd_stake_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_stake_instruction_size( fd_stake_instruction_t const * self );
 ulong fd_stake_instruction_footprint( void );
+int fd_stake_instruction_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_stake_instruction_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_stake_instruction_align( void );
 
 FD_FN_PURE uchar fd_stake_instruction_is_initialize( fd_stake_instruction_t const * self );
@@ -7387,6 +7407,8 @@ void fd_stake_state_v2_destroy( fd_stake_state_v2_t * self, fd_bincode_destroy_c
 void fd_stake_state_v2_walk( void * w, fd_stake_state_v2_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_stake_state_v2_size( fd_stake_state_v2_t const * self );
 ulong fd_stake_state_v2_footprint( void );
+int fd_stake_state_v2_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_stake_state_v2_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_stake_state_v2_align( void );
 
 FD_FN_PURE uchar fd_stake_state_v2_is_uninitialized( fd_stake_state_v2_t const * self );
@@ -7424,6 +7446,8 @@ void fd_nonce_state_destroy( fd_nonce_state_t * self, fd_bincode_destroy_ctx_t *
 void fd_nonce_state_walk( void * w, fd_nonce_state_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_nonce_state_size( fd_nonce_state_t const * self );
 ulong fd_nonce_state_footprint( void );
+int fd_nonce_state_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_nonce_state_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_nonce_state_align( void );
 
 FD_FN_PURE uchar fd_nonce_state_is_uninitialized( fd_nonce_state_t const * self );
@@ -7442,6 +7466,8 @@ void fd_nonce_state_versions_destroy( fd_nonce_state_versions_t * self, fd_binco
 void fd_nonce_state_versions_walk( void * w, fd_nonce_state_versions_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_nonce_state_versions_size( fd_nonce_state_versions_t const * self );
 ulong fd_nonce_state_versions_footprint( void );
+int fd_nonce_state_versions_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_nonce_state_versions_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_nonce_state_versions_align( void );
 
 FD_FN_PURE uchar fd_nonce_state_versions_is_legacy( fd_nonce_state_versions_t const * self );
@@ -7475,6 +7501,8 @@ void fd_compute_budget_program_instruction_destroy( fd_compute_budget_program_in
 void fd_compute_budget_program_instruction_walk( void * w, fd_compute_budget_program_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_compute_budget_program_instruction_size( fd_compute_budget_program_instruction_t const * self );
 ulong fd_compute_budget_program_instruction_footprint( void );
+int fd_compute_budget_program_instruction_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_compute_budget_program_instruction_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_compute_budget_program_instruction_align( void );
 
 FD_FN_PURE uchar fd_compute_budget_program_instruction_is_request_units_deprecated( fd_compute_budget_program_instruction_t const * self );
@@ -7529,6 +7557,8 @@ void fd_bpf_loader_program_instruction_destroy( fd_bpf_loader_program_instructio
 void fd_bpf_loader_program_instruction_walk( void * w, fd_bpf_loader_program_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_bpf_loader_program_instruction_size( fd_bpf_loader_program_instruction_t const * self );
 ulong fd_bpf_loader_program_instruction_footprint( void );
+int fd_bpf_loader_program_instruction_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_bpf_loader_program_instruction_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_bpf_loader_program_instruction_align( void );
 
 FD_FN_PURE uchar fd_bpf_loader_program_instruction_is_write( fd_bpf_loader_program_instruction_t const * self );
@@ -7577,6 +7607,8 @@ void fd_loader_v4_program_instruction_destroy( fd_loader_v4_program_instruction_
 void fd_loader_v4_program_instruction_walk( void * w, fd_loader_v4_program_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_loader_v4_program_instruction_size( fd_loader_v4_program_instruction_t const * self );
 ulong fd_loader_v4_program_instruction_footprint( void );
+int fd_loader_v4_program_instruction_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_loader_v4_program_instruction_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_loader_v4_program_instruction_align( void );
 
 FD_FN_PURE uchar fd_loader_v4_program_instruction_is_write( fd_loader_v4_program_instruction_t const * self );
@@ -7648,6 +7680,8 @@ void fd_bpf_upgradeable_loader_program_instruction_destroy( fd_bpf_upgradeable_l
 void fd_bpf_upgradeable_loader_program_instruction_walk( void * w, fd_bpf_upgradeable_loader_program_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_bpf_upgradeable_loader_program_instruction_size( fd_bpf_upgradeable_loader_program_instruction_t const * self );
 ulong fd_bpf_upgradeable_loader_program_instruction_footprint( void );
+int fd_bpf_upgradeable_loader_program_instruction_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_bpf_upgradeable_loader_program_instruction_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_bpf_upgradeable_loader_program_instruction_align( void );
 
 FD_FN_PURE uchar fd_bpf_upgradeable_loader_program_instruction_is_initialize_buffer( fd_bpf_upgradeable_loader_program_instruction_t const * self );
@@ -7723,6 +7757,8 @@ void fd_bpf_upgradeable_loader_state_destroy( fd_bpf_upgradeable_loader_state_t 
 void fd_bpf_upgradeable_loader_state_walk( void * w, fd_bpf_upgradeable_loader_state_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_bpf_upgradeable_loader_state_size( fd_bpf_upgradeable_loader_state_t const * self );
 ulong fd_bpf_upgradeable_loader_state_footprint( void );
+int fd_bpf_upgradeable_loader_state_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_bpf_upgradeable_loader_state_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_bpf_upgradeable_loader_state_align( void );
 
 FD_FN_PURE uchar fd_bpf_upgradeable_loader_state_is_uninitialized( fd_bpf_upgradeable_loader_state_t const * self );
@@ -7775,6 +7811,8 @@ void fd_frozen_hash_versioned_destroy( fd_frozen_hash_versioned_t * self, fd_bin
 void fd_frozen_hash_versioned_walk( void * w, fd_frozen_hash_versioned_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_frozen_hash_versioned_size( fd_frozen_hash_versioned_t const * self );
 ulong fd_frozen_hash_versioned_footprint( void );
+int fd_frozen_hash_versioned_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_frozen_hash_versioned_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_frozen_hash_versioned_align( void );
 
 FD_FN_PURE uchar fd_frozen_hash_versioned_is_current( fd_frozen_hash_versioned_t const * self );
@@ -7821,6 +7859,8 @@ void fd_address_lookup_table_state_destroy( fd_address_lookup_table_state_t * se
 void fd_address_lookup_table_state_walk( void * w, fd_address_lookup_table_state_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_address_lookup_table_state_size( fd_address_lookup_table_state_t const * self );
 ulong fd_address_lookup_table_state_footprint( void );
+int fd_address_lookup_table_state_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_address_lookup_table_state_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_address_lookup_table_state_align( void );
 
 FD_FN_PURE uchar fd_address_lookup_table_state_is_uninitialized( fd_address_lookup_table_state_t const * self );
@@ -7914,6 +7954,8 @@ void fd_gossip_ip_addr_destroy( fd_gossip_ip_addr_t * self, fd_bincode_destroy_c
 void fd_gossip_ip_addr_walk( void * w, fd_gossip_ip_addr_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_gossip_ip_addr_size( fd_gossip_ip_addr_t const * self );
 ulong fd_gossip_ip_addr_footprint( void );
+int fd_gossip_ip_addr_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_gossip_ip_addr_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_gossip_ip_addr_align( void );
 
 FD_FN_PURE uchar fd_gossip_ip_addr_is_ip4( fd_gossip_ip_addr_t const * self );
@@ -8022,6 +8064,8 @@ void fd_gossip_socket_addr_destroy( fd_gossip_socket_addr_t * self, fd_bincode_d
 void fd_gossip_socket_addr_walk( void * w, fd_gossip_socket_addr_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_gossip_socket_addr_size( fd_gossip_socket_addr_t const * self );
 ulong fd_gossip_socket_addr_footprint( void );
+int fd_gossip_socket_addr_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_gossip_socket_addr_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_gossip_socket_addr_align( void );
 
 FD_FN_PURE uchar fd_gossip_socket_addr_is_ip4( fd_gossip_socket_addr_t const * self );
@@ -8130,6 +8174,8 @@ void fd_gossip_slots_enum_destroy( fd_gossip_slots_enum_t * self, fd_bincode_des
 void fd_gossip_slots_enum_walk( void * w, fd_gossip_slots_enum_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_gossip_slots_enum_size( fd_gossip_slots_enum_t const * self );
 ulong fd_gossip_slots_enum_footprint( void );
+int fd_gossip_slots_enum_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_gossip_slots_enum_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_gossip_slots_enum_align( void );
 
 FD_FN_PURE uchar fd_gossip_slots_enum_is_flate2( fd_gossip_slots_enum_t const * self );
@@ -8358,6 +8404,8 @@ void fd_restart_slots_offsets_destroy( fd_restart_slots_offsets_t * self, fd_bin
 void fd_restart_slots_offsets_walk( void * w, fd_restart_slots_offsets_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_restart_slots_offsets_size( fd_restart_slots_offsets_t const * self );
 ulong fd_restart_slots_offsets_footprint( void );
+int fd_restart_slots_offsets_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_restart_slots_offsets_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_restart_slots_offsets_align( void );
 
 FD_FN_PURE uchar fd_restart_slots_offsets_is_run_length_encoding( fd_restart_slots_offsets_t const * self );
@@ -8406,6 +8454,8 @@ void fd_crds_data_destroy( fd_crds_data_t * self, fd_bincode_destroy_ctx_t * ctx
 void fd_crds_data_walk( void * w, fd_crds_data_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_crds_data_size( fd_crds_data_t const * self );
 ulong fd_crds_data_footprint( void );
+int fd_crds_data_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_crds_data_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_crds_data_align( void );
 
 FD_FN_PURE uchar fd_crds_data_is_contact_info_v1( fd_crds_data_t const * self );
@@ -8553,6 +8603,8 @@ void fd_gossip_msg_destroy( fd_gossip_msg_t * self, fd_bincode_destroy_ctx_t * c
 void fd_gossip_msg_walk( void * w, fd_gossip_msg_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_gossip_msg_size( fd_gossip_msg_t const * self );
 ulong fd_gossip_msg_footprint( void );
+int fd_gossip_msg_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_gossip_msg_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_gossip_msg_align( void );
 
 FD_FN_PURE uchar fd_gossip_msg_is_pull_req( fd_gossip_msg_t const * self );
@@ -8609,6 +8661,8 @@ void fd_addrlut_instruction_destroy( fd_addrlut_instruction_t * self, fd_bincode
 void fd_addrlut_instruction_walk( void * w, fd_addrlut_instruction_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_addrlut_instruction_size( fd_addrlut_instruction_t const * self );
 ulong fd_addrlut_instruction_footprint( void );
+int fd_addrlut_instruction_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_addrlut_instruction_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_addrlut_instruction_align( void );
 
 FD_FN_PURE uchar fd_addrlut_instruction_is_create_lut( fd_addrlut_instruction_t const * self );
@@ -8708,6 +8762,8 @@ void fd_repair_protocol_destroy( fd_repair_protocol_t * self, fd_bincode_destroy
 void fd_repair_protocol_walk( void * w, fd_repair_protocol_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_repair_protocol_size( fd_repair_protocol_t const * self );
 ulong fd_repair_protocol_footprint( void );
+int fd_repair_protocol_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_repair_protocol_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_repair_protocol_align( void );
 
 FD_FN_PURE uchar fd_repair_protocol_is_LegacyWindowIndex( fd_repair_protocol_t const * self );
@@ -8746,6 +8802,8 @@ void fd_repair_response_destroy( fd_repair_response_t * self, fd_bincode_destroy
 void fd_repair_response_walk( void * w, fd_repair_response_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_repair_response_size( fd_repair_response_t const * self );
 ulong fd_repair_response_footprint( void );
+int fd_repair_response_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_repair_response_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_repair_response_align( void );
 
 FD_FN_PURE uchar fd_repair_response_is_ping( fd_repair_response_t const * self );
@@ -8762,6 +8820,8 @@ void fd_instr_error_enum_destroy( fd_instr_error_enum_t * self, fd_bincode_destr
 void fd_instr_error_enum_walk( void * w, fd_instr_error_enum_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_instr_error_enum_size( fd_instr_error_enum_t const * self );
 ulong fd_instr_error_enum_footprint( void );
+int fd_instr_error_enum_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_instr_error_enum_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_instr_error_enum_align( void );
 
 FD_FN_PURE uchar fd_instr_error_enum_is_generic_error( fd_instr_error_enum_t const * self );
@@ -8899,6 +8959,8 @@ void fd_txn_error_enum_destroy( fd_txn_error_enum_t * self, fd_bincode_destroy_c
 void fd_txn_error_enum_walk( void * w, fd_txn_error_enum_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_txn_error_enum_size( fd_txn_error_enum_t const * self );
 ulong fd_txn_error_enum_footprint( void );
+int fd_txn_error_enum_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_txn_error_enum_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_txn_error_enum_align( void );
 
 FD_FN_PURE uchar fd_txn_error_enum_is_account_in_use( fd_txn_error_enum_t const * self );
@@ -8987,6 +9049,8 @@ void fd_txn_result_destroy( fd_txn_result_t * self, fd_bincode_destroy_ctx_t * c
 void fd_txn_result_walk( void * w, fd_txn_result_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
 ulong fd_txn_result_size( fd_txn_result_t const * self );
 ulong fd_txn_result_footprint( void );
+int fd_txn_result_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_txn_result_decode_new( fd_bincode_decode_ctx_t * ctx, void * mem );
 ulong fd_txn_result_align( void );
 
 FD_FN_PURE uchar fd_txn_result_is_ok( fd_txn_result_t const * self );

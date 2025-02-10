@@ -118,7 +118,7 @@ fd_vm_strerror( int err ) {
   case FD_VM_ERR_SIGCOST:     return "SIGCOST compute unit limit exceeded";
   case FD_VM_ERR_SIGFPE:      return "SIGFPE division by zero";
   case FD_VM_ERR_SIGFPE_OF:   return "SIGFPE division overflow";
-  case FD_VM_ERR_SIGSYSCALL:  return "SIGSYSCALL syscall error"; 
+  case FD_VM_ERR_SIGSYSCALL:  return "SIGSYSCALL syscall error";
   case FD_VM_ERR_SIGABORT:    return "SIGABORT abort error";
 
   /* VM validate error codes */
@@ -569,28 +569,27 @@ fd_vm_delete( void * shmem ) {
 }
 
 fd_vm_t *
-fd_vm_init(
-   fd_vm_t * vm,
-   fd_exec_instr_ctx_t *instr_ctx,
-   ulong heap_max,
-   ulong entry_cu,
-   uchar const * rodata,
-   ulong rodata_sz,
-   ulong const * text,
-   ulong text_cnt,
-   ulong text_off,
-   ulong text_sz,
-   ulong entry_pc,
-   ulong * calldests,
-   ulong sbpf_version,
-   fd_sbpf_syscalls_t * syscalls,
-   fd_vm_trace_t * trace,
-   fd_sha256_t * sha,
-   fd_vm_input_region_t * mem_regions,
-   uint mem_regions_cnt,
-   fd_vm_acc_region_meta_t * acc_region_metas,
-   uchar is_deprecated,
-   int direct_mapping ) {
+fd_vm_init( fd_vm_t *                 vm,
+            fd_exec_instr_ctx_t *     instr_ctx,
+            ulong                     heap_max,
+            ulong                     entry_cu,
+            uchar const *             rodata,
+            ulong                     rodata_sz,
+            ulong const *             text,
+            ulong                     text_cnt,
+            ulong                     text_off,
+            ulong                     text_sz,
+            ulong                     entry_pc,
+            ulong *                   calldests,
+            ulong                     sbpf_version,
+            fd_sbpf_syscalls_t *      syscalls,
+            fd_vm_trace_t *           trace,
+            fd_sha256_t *             sha,
+            fd_vm_input_region_t *    mem_regions,
+            uint                      mem_regions_cnt,
+            fd_vm_acc_region_meta_t * acc_region_metas,
+            uchar                     is_deprecated,
+            int                       direct_mapping ) {
 
   if ( FD_UNLIKELY( vm == NULL ) ) {
     FD_LOG_WARNING(( "NULL vm" ));
