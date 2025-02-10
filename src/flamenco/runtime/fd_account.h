@@ -66,8 +66,8 @@ fd_account_get_data( fd_account_meta_t * m ) {
   return ((char *) m) + m->hlen;
 }
 
-/* Assert that enough ccounts were supplied to this instruction. Returns 
-   FD_EXECUTOR_INSTR_SUCCESS if the number of accounts is as expected and 
+/* Assert that enough ccounts were supplied to this instruction. Returns
+   FD_EXECUTOR_INSTR_SUCCESS if the number of accounts is as expected and
    FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS otherwise.
    https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L492-L503 */
 static inline int
@@ -80,7 +80,7 @@ fd_account_check_num_insn_accounts( fd_exec_instr_ctx_t * ctx,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* fd_account_get_owner mirrors Anza function 
+/* fd_account_get_owner mirrors Anza function
    solana_sdk::transaction_context:Borrowed_account::get_owner.  Returns 0
    iff the owner is retrieved successfully.
    https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L734-L738 */
@@ -98,7 +98,7 @@ fd_account_get_owner( fd_exec_instr_ctx_t const * ctx,
   return (fd_pubkey_t const *) account->const_meta->info.owner;
 }
 
-/* fd_account_set_owner mirrors Anza function 
+/* fd_account_set_owner mirrors Anza function
    solana_sdk::transaction_context:Borrowed_account::set_owner.  Returns 0
    iff the owner is set successfully.  Acquires a writable handle. */
 int
@@ -143,12 +143,12 @@ fd_account_set_lamports( fd_exec_instr_ctx_t const * ctx,
                          ulong                       instr_acc_idx,
                          ulong                       lamports );
 
-/* 
-  fd_account_checked_{add,sub}_lamports mirros Anza 
+/*
+  fd_account_checked_{add,sub}_lamports mirros Anza
    add/removes lamports to/from an
    account.  Does not update global capitalization.  Returns 0 on
    success or an FD_EXECUTOR_INSTR_ERR_{...} code on failure.
-   Gracefully handles underflow.  Acquires a writable handle. 
+   Gracefully handles underflow.  Acquires a writable handle.
    https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L798-L817 */
 
 static inline int
@@ -159,7 +159,7 @@ fd_account_checked_add_lamports( fd_exec_instr_ctx_t const * ctx,
   fd_borrowed_account_t * account = NULL;
   do {
     int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)instr_acc_idx, 0UL, &account );
-    if( FD_UNLIKELY( err ) ) { 
+    if( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
     }
   } while(0);
@@ -181,7 +181,7 @@ fd_account_checked_sub_lamports( fd_exec_instr_ctx_t const * ctx,
   fd_borrowed_account_t * account = NULL;
   do {
     int err = fd_instr_borrowed_account_modify_idx( ctx, (uchar)instr_acc_idx, 0UL, &account );
-    if( FD_UNLIKELY( err ) ) { 
+    if( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
     }
   } while(0);
@@ -195,18 +195,18 @@ fd_account_checked_sub_lamports( fd_exec_instr_ctx_t const * ctx,
   return fd_account_set_lamports( ctx, instr_acc_idx, balance_post );
 }
 
-/* fd_account_get_data_mut mirrors Anza function 
-   solana_sdk::transaction_context::BorrowedAccount::set_lamports. 
+/* fd_account_get_data_mut mirrors Anza function
+   solana_sdk::transaction_context::BorrowedAccount::set_lamports.
    Returns a writable slice of the account data (transaction wide).
    Acquires a writable handle. This function assumes that the relevant
    borrowed has already acquired exclusive write access.
    https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L824-L831 */
-int 
-fd_account_get_data_mut( fd_exec_instr_ctx_t const * ctx, 
+int
+fd_account_get_data_mut( fd_exec_instr_ctx_t const * ctx,
                          ulong                       instr_acc_idx,
                          uchar * *                   data_out,
                          ulong *                     dlen_out );
-              
+
 /* TODO: Implement fd_account_spare_data_capacity_mut which is used in direct mapping */
 
 /* fd_account_set_data_from_slice mirrors Anza function
@@ -244,7 +244,7 @@ fd_account_is_rent_exempt_at_data_length( fd_exec_instr_ctx_t const * ctx,
   assert( meta != NULL );
   fd_rent_t rent    = ctx->epoch_ctx->epoch_bank.rent;
   ulong min_balance = fd_rent_exempt_minimum_balance( &rent, meta->dlen );
-  return meta->info.lamports >= min_balance; 
+  return meta->info.lamports >= min_balance;
 }
 
 /* fd_account_is_executable returns 1 if the given account has the
@@ -260,7 +260,7 @@ fd_account_is_executable( fd_account_meta_t const * meta ) {
 /* fd_account_is_executable_internal was introduced to move towards deprecating the `is_executable` flag.
    It returns true if the `remove_accounts_executable_flag_checks` feature is inactive AND fd_account_is_executable
    return true. This is newly used in account modification logic to eventually allow "executable" accounts to be
-   modified. 
+   modified.
    https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/sdk/transaction-context/src/lib.rs#L1052-L1060 */
 
 FD_FN_PURE static inline int
@@ -280,8 +280,8 @@ fd_account_set_executable( fd_exec_instr_ctx_t const * ctx,
                            ulong                       instr_acc_idx,
                            int                         is_executable );
 
-/* fd_account_get_rent_epoch mirrors Anza function 
-   solana_sdk::transaction_context::BorrowedAccount::get_rent_epoch. 
+/* fd_account_get_rent_epoch mirrors Anza function
+   solana_sdk::transaction_context::BorrowedAccount::get_rent_epoch.
    https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L1040-1042 */
 
 static inline ulong
@@ -325,7 +325,7 @@ fd_account_is_owned_by_current_program( fd_instr_info_t const *   info,
   return 0==memcmp( info->program_id_pubkey.key, acct->info.owner, sizeof(fd_pubkey_t) );
 }
 
-/* fd_account_can_data_be changed mirrors Anza function 
+/* fd_account_can_data_be changed mirrors Anza function
    solana_sdk::transaction_context::BorrowedAccount::can_data_be_changed.
    https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/sdk/transaction-context/src/lib.rs#L1136-L1152 */
 static inline int
@@ -356,8 +356,8 @@ fd_account_can_data_be_changed( fd_exec_instr_ctx_t const * ctx,
   return 1;
 }
 
-/* fd_account_can_data_be_resized mirrors Anza function 
-   solana_sdk::transaction_context::BorrowedAccount::can_data_be_resized 
+/* fd_account_can_data_be_resized mirrors Anza function
+   solana_sdk::transaction_context::BorrowedAccount::can_data_be_resized
    https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L1096-L1119
 */
 static inline int
@@ -392,7 +392,7 @@ fd_account_can_data_be_resized( fd_exec_instr_ctx_t const * instr_ctx,
 }
 
 /* fd_account_update_acounts_resize_delta mirrors Anza function
-   solana_sdk::transaction_context:BorrowedAccount::update_accounts_resize_delta. 
+   solana_sdk::transaction_context:BorrowedAccount::update_accounts_resize_delta.
    https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L1128-L1138 */
 
 int
@@ -421,6 +421,21 @@ fd_account_find_idx_of_insn_account( fd_exec_instr_ctx_t const * ctx,
   for( ushort i=0; i<ctx->instr->acct_cnt; i++ ) {
     if( 0==memcmp( pubkey, &ctx->instr->acct_pubkeys[i], sizeof(fd_pubkey_t) ) ) {
       return (int)i;
+    }
+  }
+  return -1;
+}
+
+/* Backward scan over transaction accounts
+   Returns -1 if not found
+   https://github.com/anza-xyz/agave/blob/228d3b3427abcf3ecfe9757bfa5de411fc020773/sdk/src/transaction_context.rs#L249
+ */
+static inline int
+fd_account_find_index_of_program_account( fd_exec_txn_ctx_t const * ctx,
+                                          fd_pubkey_t *             pubkey ) {
+  for( ulong i=ctx->accounts_cnt; i>0UL; i-- ) {
+    if( 0==memcmp( pubkey, &ctx->accounts[ i-1UL ], sizeof(fd_pubkey_t) ) ) {
+      return (int)((ushort)i);
     }
   }
   return -1;

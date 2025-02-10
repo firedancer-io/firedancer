@@ -201,37 +201,47 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
     }
   }
 
-  /* Check that the program account is executable. We need to ensure that the
-     program account is a valid instruction account.
-     https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L635-L648 */
-  fd_borrowed_account_t * program_rec = NULL;
+  if( FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot_ctx, lift_cpi_caller_restriction ) ) {
+    if( FD_UNLIKELY( -1==fd_account_find_index_of_program_account( instr_ctx->txn_ctx, &callee_instr->program_id_pubkey ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( callee_instr->program_id_pubkey.uc, id_b58 );
+      fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
+      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
+      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+    }
+  } else {
+    /* Check that the program account is executable. We need to ensure that the
+       program account is a valid instruction account.
+       https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L635-L648 */
+    fd_borrowed_account_t * program_rec = NULL;
 
-  /* Caller is in charge of setting an appropriate sentinel value (i.e., UCHAR_MAX) for callee_instr->program_id if not found. */
-  /* We allow dead accounts to be borrowed here because that's what agave currently does.
-     https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/program-runtime/src/invoke_context.rs#L453 */
-  int err = fd_txn_borrowed_account_view_idx_allow_dead( instr_ctx->txn_ctx, callee_instr->program_id, &program_rec );
-  if( FD_UNLIKELY( err ) ) {
-    /* https://github.com/anza-xyz/agave/blob/a9ac3f55fcb2bc735db0d251eda89897a5dbaaaa/program-runtime/src/invoke_context.rs#L434 */
-    FD_BASE58_ENCODE_32_BYTES( callee_instr->program_id_pubkey.uc, id_b58 );
-    fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
-    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
-    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
-  }
+    /* Caller is in charge of setting an appropriate sentinel value (i.e., UCHAR_MAX) for callee_instr->program_id if not found. */
+    /* We allow dead accounts to be borrowed here because that's what agave currently does.
+     */
+    int err = fd_txn_borrowed_account_view_idx_allow_dead( instr_ctx->txn_ctx, callee_instr->program_id, &program_rec );
+    if( FD_UNLIKELY( err ) ) {
+      /* https://github.com/anza-xyz/agave/blob/a9ac3f55fcb2bc735db0d251eda89897a5dbaaaa/program-runtime/src/invoke_context.rs#L434 */
+      FD_BASE58_ENCODE_32_BYTES( callee_instr->program_id_pubkey.uc, id_b58 );
+      fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
+      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
+      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+    }
 
-  if( FD_UNLIKELY( fd_account_find_idx_of_insn_account( instr_ctx, &callee_instr->program_id_pubkey )==-1 ) ) {
-    FD_BASE58_ENCODE_32_BYTES( callee_instr->program_id_pubkey.uc, id_b58 );
-    fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
-    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
-    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
-  }
+    if( FD_UNLIKELY( fd_account_find_idx_of_insn_account( instr_ctx, &callee_instr->program_id_pubkey )==-1 ) ) {
+      FD_BASE58_ENCODE_32_BYTES( callee_instr->program_id_pubkey.uc, id_b58 );
+      fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
+      FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
+      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+    }
 
-  fd_account_meta_t const * program_meta = program_rec->const_meta;
-
-  if( FD_UNLIKELY( !fd_account_is_executable( program_meta ) ) ) {
-    FD_BASE58_ENCODE_32_BYTES( callee_instr->program_id_pubkey.uc, id_b58 );
-    fd_log_collector_msg_many( instr_ctx, 3, "Account ", 8UL, id_b58, id_b58_len, " is not executable", 18UL );
-    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE, instr_ctx->txn_ctx->instr_err_idx );
-    return FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE;
+    if( !FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot_ctx, remove_accounts_executable_flag_checks ) ) {
+      fd_account_meta_t const * program_meta = program_rec->const_meta;
+      if( FD_UNLIKELY( !fd_account_is_executable( program_meta ) ) ) {
+        FD_BASE58_ENCODE_32_BYTES( callee_instr->program_id_pubkey.uc, id_b58 );
+        fd_log_collector_msg_many( instr_ctx, 3, "Account ", 8UL, id_b58, id_b58_len, " is not executable", 18UL );
+        FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE, instr_ctx->txn_ctx->instr_err_idx );
+        return FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE;
+      }
+    }
   }
 
   *instruction_accounts_cnt = duplicate_indicies_cnt;
