@@ -279,6 +279,18 @@ fd_spad_delete( void * shspad ) {
   FD_VOLATILE( spad->magic ) = 0UL;
   FD_COMPILER_MFENCE();
 
+# if FD_HAS_DEEPASAN
+  /* unpoison the entire memory region upon deletion */
+  ulong aligned_start = fd_ulong_align_up( (ulong)fd_spad_private_mem(spad), FD_ASAN_ALIGN );
+  ulong aligned_end   = fd_ulong_align_dn( (ulong)fd_spad_private_mem(spad) + spad->mem_max, FD_ASAN_ALIGN );
+  fd_asan_unpoison( (void*)aligned_start, aligned_end - aligned_start );
+# endif
+#if FD_HAS_MSAN
+  ulong aligned_start = fd_ulong_align_up( (ulong)fd_spad_private_mem(spad), FD_ASAN_ALIGN );
+  ulong aligned_end   = fd_ulong_align_dn( (ulong)fd_spad_private_mem(spad) + spad->mem_max, FD_ASAN_ALIGN );
+  fd_msan_unpoison( (void*)aligned_start, aligned_end - aligned_start );
+#endif
+
   return spad;
 }
 
@@ -597,7 +609,10 @@ fd_spad_alloc_impl( fd_spad_t * spad,
 # if FD_HAS_DEEPASAN
   ulong aligned_start = fd_ulong_align_dn( (ulong)buf, FD_ASAN_ALIGN );
   ulong aligned_end   = fd_ulong_align_up( (ulong)buf + sz, FD_ASAN_ALIGN );
+  ulong aligned_free  = fd_ulong_align_dn( (ulong)fd_spad_private_mem( spad ) + spad->mem_max, FD_ASAN_ALIGN );
   fd_asan_unpoison( (void*)aligned_start, aligned_end - aligned_start );
+  /* poison the region up to mem_max to account for any canceled prepares */
+  fd_asan_poison( (void*) aligned_end, aligned_free - aligned_end );
 # endif
 #if FD_HAS_MSAN
   ulong aligned_start = fd_ulong_align_dn( (ulong)buf, FD_ASAN_ALIGN );
@@ -611,6 +626,17 @@ static inline void
 fd_spad_trim_impl( fd_spad_t * spad,
               void *      hi ) {
   spad->mem_used = (ulong)hi - (ulong)fd_spad_private_mem( spad );
+// Trim should poison the region from hi to mem max
+#if FD_HAS_DEEPASAN
+  ulong aligned_start = fd_ulong_align_up( (ulong)fd_spad_private_mem(spad) + spad->mem_used, FD_ASAN_ALIGN );
+  ulong aligned_end   = fd_ulong_align_dn( (ulong)fd_spad_private_mem(spad) + spad->mem_max, FD_ASAN_ALIGN );
+  fd_asan_poison( (void*)aligned_start, aligned_end - aligned_start );
+#endif
+#if FD_HAS_MSAN
+  ulong aligned_start = fd_ulong_align_up( (ulong)fd_spad_private_mem(spad) + spad->mem_used, FD_ASAN_ALIGN );
+  ulong aligned_end   = fd_ulong_align_dn( (ulong)fd_spad_private_mem(spad) + spad->mem_max, FD_ASAN_ALIGN );
+  fd_msan_poison( (void*)aligned_start, aligned_end - aligned_start );
+#endif
 }
 
 static inline void *
@@ -621,6 +647,13 @@ fd_spad_prepare_impl( fd_spad_t * spad,
   align = fd_ulong_if( align>0UL, align, FD_SPAD_ALLOC_ALIGN_DEFAULT ); /* typically compile time */
   ulong   off = fd_ulong_align_up( spad->mem_used, align );
   uchar * buf = fd_spad_private_mem( spad ) + off;
+#if FD_HAS_DEEPASAN
+  /* unpoison the entire memory region from buf to mem_max */
+  ulong aligned_start = fd_ulong_align_dn( (ulong)buf, FD_ASAN_ALIGN );
+  ulong aligned_end = fd_ulong_align_up( (ulong)fd_spad_private_mem(spad) + spad->mem_max, FD_ASAN_ALIGN );
+  fd_asan_unpoison( (void*)aligned_start, aligned_end - aligned_start );
+#endif
+
   spad->mem_used = off;
   return buf;
 }
@@ -628,6 +661,12 @@ fd_spad_prepare_impl( fd_spad_t * spad,
 static inline void
 fd_spad_cancel_impl( fd_spad_t * spad ) {
   (void)spad;
+#if FD_HAS_DEEPASAN
+  /* poison the entire memory region from mem_used to mem_max to cancel any in-progress prepares */
+  ulong aligned_start = fd_ulong_align_up( (ulong)fd_spad_private_mem(spad) + spad->mem_used, FD_ASAN_ALIGN );
+  ulong aligned_end   = fd_ulong_align_dn( (ulong)fd_spad_private_mem(spad) + spad->mem_max, FD_ASAN_ALIGN );
+  fd_asan_poison( (void*)aligned_start, aligned_end - aligned_start );
+#endif
 }
 
 static inline void
@@ -641,7 +680,9 @@ fd_spad_publish_impl( fd_spad_t * spad,
 # if FD_HAS_DEEPASAN
   ulong aligned_start = fd_ulong_align_dn( (ulong)buf, FD_ASAN_ALIGN );
   ulong aligned_end   = fd_ulong_align_up( (ulong)buf + sz, FD_ASAN_ALIGN );
+  ulong aligned_free  = fd_ulong_align_dn( (ulong)fd_spad_private_mem( spad ) + spad->mem_max, FD_ASAN_ALIGN );
   fd_asan_unpoison( (void*)aligned_start, aligned_end - aligned_start );
+  fd_asan_poison( (void*) aligned_end, aligned_free - aligned_end );
 # endif
 #if FD_HAS_MSAN
   ulong aligned_start = fd_ulong_align_dn( (ulong)buf, FD_ASAN_ALIGN );
