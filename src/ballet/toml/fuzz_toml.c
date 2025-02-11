@@ -31,7 +31,7 @@ LLVMFuzzerTestOneInput( uchar const * data_,
   uchar scratch[128];
   uchar pod_data[256];
   uchar * pod = fd_pod_join( fd_pod_new( pod_data, sizeof(pod_data) ) );
-  fd_toml_parse( data, size, pod, scratch, sizeof(scratch) );
+  fd_toml_parse( data, size, pod, scratch, sizeof(scratch), NULL );
   fd_pod_delete( fd_pod_leave( pod ) );
   return 0;
 }

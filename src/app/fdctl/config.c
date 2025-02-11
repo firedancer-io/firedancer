@@ -29,6 +29,14 @@
 #include <sys/utsname.h>
 #include <sys/wait.h>
 
+/* FD_TOML_POD_SZ sets the buffer size of the fd_pod that will hold the
+   parsed config file content.
+
+   This should be large enough to hold a Firedancer TOML file with all
+   config options set. */
+
+#define FD_TOML_POD_SZ (1UL<<20)
+
 void
 replace( char *       in,
          const char * pat,
@@ -62,10 +70,35 @@ fdctl_cfg_load_buf( config_t *   out,
   static uchar pod_mem[ 1UL<<30 ];
   uchar * pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
 
+  fd_toml_err_info_t toml_err[1];
   uchar scratch[ 4096 ];
-  long toml_err = fd_toml_parse( buf, sz, pod, scratch, sizeof(scratch) );
-  if( FD_UNLIKELY( toml_err!=FD_TOML_SUCCESS ) ) {
-    FD_LOG_ERR(( "Invalid config (%s)", path ));
+  int toml_errc = fd_toml_parse( buf, sz, pod, scratch, sizeof(scratch), toml_err );
+  if( FD_UNLIKELY( toml_errc!=FD_TOML_SUCCESS ) ) {
+    /* Override the default error messages of fd_toml for a better user
+       experience */
+    switch( toml_errc ) {
+    case FD_TOML_ERR_POD:
+      FD_LOG_ERR(( "Failed to parse config file (%s): ran out of buffer space while parsing (Increase FD_TOML_POD_SZ?)", path ));
+      break;
+    case FD_TOML_ERR_SCRATCH:
+      FD_LOG_ERR(( "Failed to parse config file (%s) at line %lu: ran out of scratch space while parsing", path, toml_err->line ));
+      break;
+    case FD_TOML_ERR_KEY:
+      FD_LOG_ERR(( "Failed to parse config file (%s) at line %lu: oversize key", path, toml_err->line ));
+      break;
+    case FD_TOML_ERR_DUP:
+      FD_LOG_ERR(( "Failed to parse config file (%s) at line %lu: duplicate key", path, toml_err->line ));
+      break;
+    case FD_TOML_ERR_RANGE:
+      FD_LOG_ERR(( "Failed to parse config file (%s) at line %lu: invalid value for key", path, toml_err->line ));
+      break;
+    case FD_TOML_ERR_PARSE:
+      FD_LOG_ERR(( "Failed to parse config file (%s) at line %lu", path, toml_err->line ));
+      break;
+    default:
+      FD_LOG_ERR(( "Failed to parse config file (%s): %s", path, fd_toml_strerror( toml_errc ) ));
+      break;
+    }
   }
 
   if( FD_UNLIKELY( !fdctl_pod_to_cfg( out, pod ) ) ) {
@@ -89,6 +122,13 @@ fdctl_cfg_load_file( config_t *   out,
     FD_LOG_ERR(( "fstat(%s) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   }
   ulong toml_sz = (ulong)st.st_size;
+
+  if( FD_UNLIKELY( toml_sz==0UL ) ) {
+    if( FD_UNLIKELY( 0!=close( fd ) ) ) {
+      FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
+    return;
+  }
 
   void * mem = mmap( NULL, toml_sz, PROT_READ, MAP_PRIVATE, fd, 0 );
   if( FD_UNLIKELY( mem==MAP_FAILED ) ) {
@@ -393,15 +433,15 @@ fdctl_cfg_from_env( int *      pargc,
 
   memset( config, 0, sizeof(config_t) );
 #if FD_HAS_NO_AGAVE
-  static uchar pod_mem1[ 1UL<<20 ];
-  static uchar pod_mem2[ 1UL<<20 ];
+  static uchar pod_mem1[ FD_TOML_POD_SZ ];
+  static uchar pod_mem2[ FD_TOML_POD_SZ ];
   uchar * pod1 = fd_pod_join( fd_pod_new( pod_mem1, sizeof(pod_mem1) ) );
   uchar * pod2 = fd_pod_join( fd_pod_new( pod_mem2, sizeof(pod_mem2) ) );
 
   uchar scratch[ 4096 ];
-  long toml_err = fd_toml_parse( fdctl_default_config, fdctl_default_config_sz, pod1, scratch, sizeof(scratch) );
+  int toml_err = fd_toml_parse( fdctl_default_config, fdctl_default_config_sz, pod1, scratch, sizeof(scratch), NULL );
   if( FD_UNLIKELY( toml_err!=FD_TOML_SUCCESS ) ) FD_LOG_ERR(( "Invalid config (%s)", "default.toml" ));
-  toml_err = fd_toml_parse( fdctl_default_firedancer_config, fdctl_default_firedancer_config_sz, pod2, scratch, sizeof(scratch) );
+  toml_err = fd_toml_parse( fdctl_default_firedancer_config, fdctl_default_firedancer_config_sz, pod2, scratch, sizeof(scratch), NULL );
   if( FD_UNLIKELY( toml_err!=FD_TOML_SUCCESS ) ) FD_LOG_ERR(( "Invalid config (%s)", "default-firedancer.toml" ));
 
   if( FD_UNLIKELY( !fdctl_pod_to_cfg( config, pod1 ) ) ) FD_LOG_ERR(( "Invalid config (%s)", "default.toml" ));

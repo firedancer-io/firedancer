@@ -9,12 +9,26 @@
 
 /* Error codes */
 
-#define FD_TOML_SUCCESS     ( 0L)  /* ok */
-#define FD_TOML_ERR_POD     (-1L)  /* ran out of output space */
-#define FD_TOML_ERR_SCRATCH (-2L)  /* ran out of scratch space */
-#define FD_TOML_ERR_KEY     (-3L)  /* oversz key */
-#define FD_TOML_ERR_DUP     (-4L)  /* duplicate key */
-#define FD_TOML_ERR_RANGE   (-5L)  /* overflow */
+#define FD_TOML_SUCCESS     ( 0)  /* ok */
+#define FD_TOML_ERR_POD     (-1)  /* ran out of output space */
+#define FD_TOML_ERR_SCRATCH (-2)  /* ran out of scratch space */
+#define FD_TOML_ERR_KEY     (-3)  /* oversz key */
+#define FD_TOML_ERR_DUP     (-4)  /* duplicate key */
+#define FD_TOML_ERR_RANGE   (-5)  /* overflow */
+#define FD_TOML_ERR_PARSE   (-6)  /* parse fail */
+
+/* FD_TOML_PATH_MAX is the max supported pod path length. */
+
+#define FD_TOML_PATH_MAX (512UL)
+
+/* fd_toml_err_info_t contains information about a TOML parse failure.  */
+
+struct fd_toml_err_info {
+  ulong line; /* 1-indexed line number */
+  /* ... add more info here ... */
+};
+
+typedef struct fd_toml_err_info fd_toml_err_info_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -25,12 +39,13 @@ FD_PROTOTYPES_BEGIN
    an fd_pod_t.  [scratch,scratch+scratch_sz) is arbitrary unaligned
    scratch memory used during deserialization.  scratch_sz>=4kB
    recommended.  If scratch_sz is too small, may fail to deserialize
-   long strings and sub tables.   On success, returns FD_POD_SUCCESS.
-   On parse failure returns the line number at which the failure
-   occurred (1-indexed). If the pod does not have enough space returns
-   FD_TOML_ERR_OOM.  Note that toml is not interpreted as a cstr -- No
-   terminating zero is fine and so are stray zeros in the middle of the
-   file.
+   long strings and sub tables.  On success, returns FD_TOML_SUCCESS.
+   On parse failure returns FD_TOML_ERR_*.  If opt_err!=NULL,
+   initializes *opt_err with error information (even if the return code
+   was success).
+
+   Note that toml is not interpreted as a cstr -- No terminating zero is
+   fine and so are stray zeros in the middle of the file.
 
    fd_toml_parse is not hardened against untrusted input. fd_toml_parse
    is not optimized for performance.
@@ -86,12 +101,20 @@ FD_PROTOTYPES_BEGIN
 
    - Infinite and NaN floats are rejected. */
 
-long
-fd_toml_parse( void const * toml,
-               ulong        toml_sz,
-               uchar *      pod,
-               uchar *      scratch,
-               ulong        scratch_sz );
+int
+fd_toml_parse( void const *         toml,
+               ulong                toml_sz,
+               uchar *              pod,
+               uchar *              scratch,
+               ulong                scratch_sz,
+               fd_toml_err_info_t * opt_err );
+
+/* fd_toml_strerror returns a human-readable error string with static
+   storage describing the given FD_TOML_ERR_* code.  Works for negative
+   return values in fd_toml_parse. */
+
+FD_FN_CONST char const *
+fd_toml_strerror( int err );
 
 FD_PROTOTYPES_END
 
