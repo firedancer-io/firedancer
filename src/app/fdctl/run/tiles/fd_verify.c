@@ -52,9 +52,11 @@ before_frag( fd_verify_ctx_t * ctx,
 
   if( FD_LIKELY( is_bundle_packet || ctx->in_kind[ in_idx ]==IN_KIND_QUIC || ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) {
     return (seq % ctx->round_robin_cnt) != ctx->round_robin_idx;
-  } else {
-    return 0;
+  } else if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_BUNDLE ) ) {
+    return ctx->round_robin_idx!=0UL;
   }
+
+  return 0;
 }
 
 /* during_frag is called between pairs for sequence number checks, as
