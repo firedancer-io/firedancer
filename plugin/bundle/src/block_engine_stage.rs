@@ -434,7 +434,7 @@ fn produce_bundles(
                     async move {
                         match item {
                             StreamSelector::AuthTimer => {
-                                debug!("auth timer");
+                                info!("auth timer");
                                 let (maybe_new_access, maybe_new_refresh) = match maybe_refresh_auth_tokens(
                                     &mut identity_pubkey,
                                     &mut auth_client,
@@ -456,7 +456,7 @@ fn produce_bundles(
                                 }
                             }
                             StreamSelector::MaintenanceTimer => {
-                                debug!("maintenance timer");
+                                info!("maintenance timer");
                                 let (block_builder_pubkey, block_builder_commission) = match refresh_block_builder_info(&mut client).await {
                                     Ok(result) => result,
                                     Err(err) => return Some((StreamSelector::Err(err), block_builder_pubkey, block_builder_commission)),
@@ -548,7 +548,7 @@ async fn connect_auth(
         })?
         .tcp_keepalive(Some(Duration::from_secs(60)));
 
-    debug!("connecting to block engine: {} ... {}", url, domain_name);
+    info!("connecting to block engine: {} ... {}", url, domain_name);
 
     #[derive(Debug)]
     struct FDKeyLog {}
@@ -599,7 +599,7 @@ async fn connect_auth(
         }
     }
 
-    debug!("connecting to auth: {}", url);
+    info!("connecting to auth: {}", url);
     let auth_channel = timeout(Duration::from_secs(5), backend_endpoint.connect())
         .await
         .map_err(|_| ProxyError::AuthenticationConnectionTimeout)?
@@ -607,7 +607,7 @@ async fn connect_auth(
 
     let mut auth_client = AuthServiceClient::new(auth_channel);
 
-    debug!("generating authentication token");
+    info!("generating authentication token");
     let (access_token, refresh_token) = timeout(
         Duration::from_secs(5),
         generate_auth_tokens(&mut auth_client, identity_pubkey),
@@ -615,7 +615,7 @@ async fn connect_auth(
     .await
     .map_err(|_| ProxyError::AuthenticationTimeout)??;
 
-    debug!("connecting to block engine: {}", url);
+    info!("connecting to block engine: {}", url);
     let block_engine_channel = timeout(Duration::from_secs(5), backend_endpoint.connect())
         .await
         .map_err(|_| ProxyError::BlockEngineConnectionTimeout)?

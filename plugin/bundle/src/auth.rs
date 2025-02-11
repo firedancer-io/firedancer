@@ -56,7 +56,7 @@ pub async fn generate_auth_tokens(
 )> {
     let pubkey = identity_pubkey.borrow_and_update().deref().to_vec();
 
-    debug!("generate_auth_challenge");
+    info!("generate_auth_challenge");
     let challenge_response = auth_service_client
         .generate_auth_challenge(GenerateAuthChallengeRequest {
             role: Role::Validator as i32,
@@ -93,7 +93,7 @@ pub async fn generate_auth_tokens(
         plugin_bundle_sign_challenge(challenge_cstr.as_ptr(), signed_challenge.as_mut_ptr());
     }
 
-    debug!("generate_auth_tokens");
+    info!("generate_auth_tokens");
     let auth_tokens = auth_service_client
         .generate_auth_tokens(GenerateAuthTokensRequest {
             challenge: formatted_challenge,
@@ -122,6 +122,8 @@ pub async fn maybe_refresh_auth_tokens(
     Option<Token>, // access token
     Option<Token>, // refresh token
 )> {
+    info!("expires_at_utc {:?}, {:?}", access_token.expires_at_utc, refresh_token.expires_at_utc);
+
     let access_token_expiry: u64 = access_token
         .expires_at_utc
         .as_ref()
@@ -139,6 +141,11 @@ pub async fn maybe_refresh_auth_tokens(
         access_token_expiry.checked_sub(now).unwrap_or_default() <= refresh_within_s;
     let should_generate_new_tokens = pubkey.has_changed().unwrap() ||
         refresh_token_expiry.checked_sub(now).unwrap_or_default() <= refresh_within_s;
+
+    info!(
+        "should_refresh_access: {}, should_generate_new_tokens: {}",
+        should_refresh_access, should_generate_new_tokens
+    );
 
     if should_generate_new_tokens {
         let (new_access_token, new_refresh_token) = timeout(
