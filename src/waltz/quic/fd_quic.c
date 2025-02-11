@@ -1755,6 +1755,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   }
 
   /* update last activity */
+  FD_DTRACE_PROBE_2( fd_quic_initial_touch_last_activity, conn->our_conn_id, state->now );
   conn->last_activity = state->now;
   conn->flags &= ~( FD_QUIC_CONN_FLAGS_PING_SENT | FD_QUIC_CONN_FLAGS_PING );
 
@@ -1906,6 +1907,7 @@ fd_quic_handle_v1_handshake(
   }
 
   /* update last activity */
+  FD_DTRACE_PROBE_2( fd_quic_hs_touch_last_activity, conn->our_conn_id, fd_quic_get_state( quic )->now );
   conn->last_activity = fd_quic_get_state( quic )->now;
   conn->flags &= ~( FD_QUIC_CONN_FLAGS_PING_SENT | FD_QUIC_CONN_FLAGS_PING );
 
@@ -2161,6 +2163,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
   }
 
   /* update last activity */
+  FD_DTRACE_PROBE_2( fd_quic_one_rtt_touch_last_activity, conn->our_conn_id, fd_quic_get_state( quic )->now );
   conn->last_activity = fd_quic_get_state( quic )->now;
 
   /* update expected packet number */
@@ -2168,7 +2171,6 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
 
   return tot_sz;
 }
-
 
 /* process v1 quic packets
    returns number of bytes consumed, or FD_QUIC_PARSE_FAIL upon error */
@@ -2215,6 +2217,8 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     if( dcid.sz == FD_QUIC_CONN_ID_SZ ) {
       conn = fd_quic_conn_query( state->conn_map, fd_ulong_load_8( dcid.conn_id ) );
     }
+
+    FD_DTRACE_PROBE_1( fd_quic_process_quic_packet_v1_long_hdr, fd_ulong_load_8(dcid.conn_id) );
     fd_quic_conn_id_t scid = fd_quic_conn_id_new( long_hdr->src_conn_id, long_hdr->src_conn_id_len );
 
     uchar long_packet_type = fd_quic_h0_long_packet_type( *cur_ptr );
@@ -2259,6 +2263,7 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
 
     /* find connection id */
     ulong dst_conn_id = fd_ulong_load_8( cur_ptr+1 );
+    FD_DTRACE_PROBE_1( fd_quic_process_quic_packet_v1_short_hdr, dst_conn_id );
     conn = fd_quic_conn_query( state->conn_map, dst_conn_id );
     if( FD_UNLIKELY( !conn ) ) {
       FD_DEBUG( FD_LOG_DEBUG(( "one_rtt failed: no connection found" )) );
@@ -2867,6 +2872,7 @@ fd_quic_svc_poll( fd_quic_t *      quic,
         FD_DEBUG( FD_LOG_WARNING(( "%s  conn %p  conn_idx: %u  closing due to idle timeout (%g ms)",
             conn->server?"SERVER":"CLIENT",
             (void *)conn, conn->conn_idx, (double)conn->idle_timeout / 1e6 )); )
+        FD_DTRACE_PROBE_1( fd_quic_conn_idle_timeout, conn->our_conn_id );
 
         conn->state = FD_QUIC_CONN_STATE_DEAD;
         quic->metrics.conn_timeout_cnt++;

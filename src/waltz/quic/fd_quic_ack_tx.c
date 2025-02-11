@@ -128,6 +128,7 @@ fd_quic_gen_ack_frames( fd_quic_ack_gen_t * gen,
       FD_DEBUG( FD_LOG_DEBUG(( "insufficient buffer space to send ACK" )); )
       break;
     }
+    FD_DTRACE_PROBE_2( fd_quic_ack_frame_created, ack_frame.largest_ack, ack_frame.first_ack_range );
     payload_ptr += frame_sz;
     FD_ACK_DEBUG( FD_LOG_DEBUG(( "gen=%p sending ACK enc=%u range=[%lu,%lu) seq=%u sz=%lu",
         (void *)gen, enc_level, ack->pkt_number.offset_lo, ack->pkt_number.offset_hi, gen->tail, frame_sz )); )
