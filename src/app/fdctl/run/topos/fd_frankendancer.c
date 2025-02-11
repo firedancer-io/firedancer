@@ -270,7 +270,9 @@ fd_topo_initialize( config_t * config ) {
 
     if( plugins_enabled ) {
       fd_topob_wksp( topo, "bundle_plugi" );
-      fd_topob_link( topo, "bundle_plugi", "bundle_plugi", 128UL, sizeof(fd_plugin_msg_block_engine_update_t), 1UL );
+      /* bundle_plugi must be kind of deep, to prevent exhausting shared
+         flow control credits when publishing many packets at once. */
+      fd_topob_link( topo, "bundle_plugi", "bundle_plugi", 65536UL, sizeof(fd_plugin_msg_block_engine_update_t), 1UL );
       fd_topob_tile_in( topo, "plugin", 0UL, "metric_in", "bundle_plugi", 0UL, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
       fd_topob_tile_out( topo, "bundle", 0UL, "bundle_plugi", 0UL );
     }
