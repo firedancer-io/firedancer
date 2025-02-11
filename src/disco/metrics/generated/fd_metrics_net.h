@@ -111,5 +111,11 @@
 #define FD_METRICS_COUNTER_NET_XDP_TX_RING_EMPTY_DESCS_DESC "xdp_statistics_v1.tx_ring_empty_descs: Failed to retrieve item from tx ring"
 #define FD_METRICS_COUNTER_NET_XDP_TX_RING_EMPTY_DESCS_CVT  (FD_METRICS_CONVERTER_NONE)
 
-#define FD_METRICS_NET_TOTAL (18UL)
+#define FD_METRICS_COUNTER_NET_TX_FULL_FAIL_CNT_OFF  (34UL)
+#define FD_METRICS_COUNTER_NET_TX_FULL_FAIL_CNT_NAME "net_tx_full_fail_cnt"
+#define FD_METRICS_COUNTER_NET_TX_FULL_FAIL_CNT_TYPE (FD_METRICS_TYPE_COUNTER)
+#define FD_METRICS_COUNTER_NET_TX_FULL_FAIL_CNT_DESC "Number of packet transmit jobs dropped due to XDP TX ring full or missing completions."
+#define FD_METRICS_COUNTER_NET_TX_FULL_FAIL_CNT_CVT  (FD_METRICS_CONVERTER_NONE)
+
+#define FD_METRICS_NET_TOTAL (19UL)
 extern const fd_metrics_meta_t FD_METRICS_NET[FD_METRICS_NET_TOTAL];

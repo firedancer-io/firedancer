@@ -241,6 +241,7 @@ typedef struct {
     ulong tx_route_fail_cnt;
     ulong tx_no_xdp_cnt;
     ulong tx_neigh_fail_cnt;
+    ulong tx_full_fail_cnt;
 
     ulong xsk_tx_wakeup_cnt;
     ulong xsk_rx_wakeup_cnt;
@@ -280,6 +281,7 @@ metrics_write( fd_net_ctx_t * ctx ) {
   FD_MCNT_SET( NET, TX_BYTES_TOTAL,       ctx->metrics.tx_bytes_total    );
   FD_MCNT_SET( NET, TX_ROUTE_FAIL_CNT,    ctx->metrics.tx_route_fail_cnt );
   FD_MCNT_SET( NET, TX_NEIGHBOR_FAIL_CNT, ctx->metrics.tx_neigh_fail_cnt );
+  FD_MCNT_SET( NET, TX_FULL_FAIL_CNT,     ctx->metrics.tx_full_fail_cnt  );
 
   FD_MCNT_SET( NET, XSK_TX_WAKEUP_CNT,    ctx->metrics.xsk_tx_wakeup_cnt    );
   FD_MCNT_SET( NET, XSK_RX_WAKEUP_CNT,    ctx->metrics.xsk_rx_wakeup_cnt    );
@@ -540,7 +542,10 @@ before_frag( fd_net_ctx_t * ctx,
 
   /* Skip if TX is blocked */
 
-  if( FD_UNLIKELY( !net_tx_ready( ctx, if_idx ) ) ) return 1;
+  if( FD_UNLIKELY( !net_tx_ready( ctx, if_idx ) ) ) {
+    ctx->metrics.tx_full_fail_cnt++;
+    return 1;
+  }
 
   /* Allocate buffer for receive */
 

@@ -55,6 +55,7 @@
 | net_&#8203;xdp_&#8203;rx_&#8203;ring_&#8203;full | `counter` | xdp_statistics_v1.rx_ring_full: Dropped due to rx ring being full |
 | net_&#8203;xdp_&#8203;rx_&#8203;fill_&#8203;ring_&#8203;empty_&#8203;descs | `counter` | xdp_statistics_v1.rx_fill_ring_empty_descs: Failed to retrieve item from fill ring |
 | net_&#8203;xdp_&#8203;tx_&#8203;ring_&#8203;empty_&#8203;descs | `counter` | xdp_statistics_v1.tx_ring_empty_descs: Failed to retrieve item from tx ring |
+| net_&#8203;tx_&#8203;full_&#8203;fail_&#8203;cnt | `counter` | Number of packet transmit jobs dropped due to XDP TX ring full or missing completions. |
 
 ## Quic Tile
 | Metric | Type | Description |
