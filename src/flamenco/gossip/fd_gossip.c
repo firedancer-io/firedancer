@@ -29,9 +29,9 @@
 /* Max number of CRDS values that can be remembered.
 
    As of 2.1.11 on 02/05/2025, Agave value table (approx) sizes on an unstaked node:
-   | cluster  | num entries | num total (incl. purged)|
-   | testnet  | ~800k       | 1.4m                    |
-   | mainnet  | ~750k       | 1m                      |
+   | cluster  | num unique entries | num total (unique + purged) |
+   | testnet  | ~800k              | 1.4m                        |
+   | mainnet  | ~750k              | 1m                          |
 
    Purged values are counted because:
     - Our table (currently) does not "purge" values in the same sense Agave does
@@ -39,6 +39,8 @@
 #define FD_VALUE_KEY_MAX (1<<21)
 /* Max number of pending timed events */
 #define FD_PENDING_MAX (1<<9)
+/* Sample rate of bloom filters. */
+#define FD_BLOOM_SAMPLE_RATE 8U
 /* Number of bloom filter bits in an outgoing pull request packet */
 #define FD_BLOOM_NUM_BITS (512U*8U) /* 0.5 Kbyte */
 /* Max number of bloom filter keys in an outgoing pull request packet */
@@ -259,6 +261,10 @@ typedef struct fd_stats_elem fd_stats_elem_t;
 #define MAP_KEY_COPY fd_gossip_peer_addr_copy
 #define MAP_T        fd_stats_elem_t
 #include "../../util/tmpl/fd_map_giant.c"
+
+#define SET_NAME fd_gossip_filter_selection
+#define SET_MAX  FD_BLOOM_MAX_PACKETS
+#include "../../util/tmpl/fd_smallset.c"
 
 struct fd_msg_stats_elem {
   ulong bytes_rx_cnt;
@@ -991,8 +997,47 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   ulong num_bits_set[FD_BLOOM_MAX_PACKETS];
   for (ulong i = 0; i < npackets; ++i)
     num_bits_set[i] = 0;
+
+  /* Bloom filter set sampling
+
+    This effectively translates to sending out 1/8
+    of the full bloom filter set every new pull request
+    loop.
+
+    Some observations:
+      - Duplicate CRDS received rate* decreases dramatically
+        (from being 90% of incoming CRDS traffic to nearly negligible)
+      - Unique CRDS received rate* doesn't appear to be affected by
+        sampling
+
+      * rate measured in values/minute
+    https://github.com/anza-xyz/agave/blob/v2.1.11/gossip/src/crds_gossip_pull.rs#L157-L163 */
+  ushort indices[FD_BLOOM_MAX_PACKETS];
+  for( ushort i = 0; i < npackets; ++i) {
+    indices[i] = i;
+  }
+  ushort indices_len = (ushort)npackets;
+  ulong filter_sample_size = (indices_len + FD_BLOOM_SAMPLE_RATE - 1) / FD_BLOOM_SAMPLE_RATE;
+  FD_TEST( filter_sample_size <= FD_BLOOM_MAX_PACKETS );
+
+  fd_gossip_filter_selection_t selected_filters = fd_gossip_filter_selection_null();
+
+  for( ushort i = 0; i < filter_sample_size; ++i) {
+    ulong idx = fd_rng_ushort( glob->rng ) % indices_len;
+
+    /* swap and remove */
+    ushort filter_idx = indices[ idx ];
+    indices[ idx ] = indices[ --indices_len ];
+
+    /* insert */
+    selected_filters = fd_gossip_filter_selection_insert( selected_filters, filter_idx );
+  }
+
+  FD_TEST( fd_gossip_filter_selection_cnt( selected_filters ) == filter_sample_size );
+
+
 #define CHUNKSIZE (FD_BLOOM_NUM_BITS/64U)
-  ulong bits[CHUNKSIZE * FD_BLOOM_MAX_PACKETS];
+  ulong bits[CHUNKSIZE * FD_BLOOM_MAX_PACKETS]; /* TODO: can we bound size based on sample rate instead? */
   fd_memset(bits, 0, CHUNKSIZE*8U*npackets);
   ulong expire = FD_NANOSEC_TO_MILLI(glob->now) - FD_GOSSIP_VALUE_EXPIRE;
   for( fd_value_table_iter_t iter = fd_value_table_iter_init( glob->values );
@@ -1005,9 +1050,18 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
       fd_value_table_remove( glob->values, hash );
       continue;
     }
-    /* Choose which filter packet based on the high bits in the hash */
-    /* https://github.com/anza-xyz/agave/blob/v2.1.7/gossip/src/crds_gossip_pull.rs#L167 */
+    /* Choose which filter packet based on the high bits in the hash,
+       https://github.com/anza-xyz/agave/blob/v2.1.7/gossip/src/crds_gossip_pull.rs#L167
+
+       skip if packet not part of sample
+       https://github.com/anza-xyz/agave/blob/v2.1.11/gossip/src/crds_gossip_pull.rs#L175-L177
+      */
+
     ulong index = (nmaskbits == 0 ? 0UL : ( hash->ul[0] >> (64U - nmaskbits) ));
+    if( FD_LIKELY( !fd_gossip_filter_selection_test( selected_filters, index ) ) ) {
+      continue;
+    };
+
     ulong * chunk = bits + (index*CHUNKSIZE);
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.7/bloom/src/bloom.rs#L191 */
@@ -1043,11 +1097,13 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   fd_memcpy(ci, &glob->my_contact_info, sizeof(fd_gossip_contact_info_v1_t));
   fd_gossip_sign_crds_value(glob, value);
 
-  for (uint i = 0; i < npackets; ++i) {
-    /* Update the filter mask specific part */
-    filter->mask = (nmaskbits == 0 ? ~0UL : ((i << (64U - nmaskbits)) | (~0UL >> nmaskbits)));
-    filter->filter.num_bits_set = num_bits_set[i];
-    bitvec->bits.vec = bits + (i*CHUNKSIZE);
+  for( fd_gossip_filter_selection_iter_t iter = fd_gossip_filter_selection_iter_init( selected_filters );
+       !fd_gossip_filter_selection_iter_done( iter );
+       iter = fd_gossip_filter_selection_iter_next( iter ) ){
+    ulong index = fd_gossip_filter_selection_iter_idx( iter );
+    filter->mask = (nmaskbits == 0 ? ~0UL : ((index << (64U - nmaskbits)) | (~0UL >> nmaskbits)));
+    filter->filter.num_bits_set = num_bits_set[index];
+    bitvec->bits.vec = bits + (index*CHUNKSIZE);
     fd_gossip_send(glob, &ele->key, &gmsg);
   }
 }
