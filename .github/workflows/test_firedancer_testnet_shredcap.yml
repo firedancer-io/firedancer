@@ -1,0 +1,67 @@
+name: Firedancer Testnet Shredcap
+on:
+  workflow_call:
+    inputs:
+      machine:
+        type: string
+        default: linux_gcc_zen2
+  workflow_dispatch:
+jobs:
+  firedancer-testnet-shredcap:
+    timeout-minutes: 30
+    runs-on: [self-hosted, 512G]
+    env:
+      CC: gcc
+      MACHINE: ${{ inputs.machine }}
+      EXTRAS: no-agave
+      AGAVE_VERSION: v2.0.3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: ./.github/actions/deps
+      - uses: ./.github/actions/hugepages
+        with:
+          count_gigantic: 250
+          count_huge: 1000 # TODO: this is required until we can handle anonymouse workspaces and loose huge pages in fddev
+
+      - name: build
+        run: |
+          make -j fddev
+
+      - name: find OBJDIR
+        run: |
+          echo OBJDIR=$(make help | grep OBJDIR | awk '{print $4}') >> $GITHUB_ENV
+
+      - name: agave repo setup # need for solana-keygen
+        run: |
+          cd ..
+          if [ ! -d "agave" ]; then
+            git clone https://github.com/anza-xyz/agave.git
+          fi
+          cd agave
+          git fetch
+          git checkout ${{ env.AGAVE_VERSION }}
+          source ~/.cargo/env
+          ./cargo build --release
+          echo "AGAVE_PATH=$(pwd)/target/release" >> $GITHUB_ENV
+
+      - name: run shrecap replay test
+        timeout-minutes: 10
+        run: |
+          sudo prlimit --pid=$$ --nofile=1048576
+          sudo prlimit --pid=$$ --memlock=unlimited
+          CC=gcc DUMP_DIR=../dump DATA_DIR=/data/svc_firedancer ./contrib/test/run_fd_shred_cap.sh
+
+      - name: clean up validators, keys, and cluster artifacts
+        if: always()
+        run: |
+          rm -rf /data/svc_firedancer/shredcap_testnet.blockstore
+          rm -rf /data/svc_firedancer/shredcap_testnet.funk
+          rm -rf fd-identity-keypair.json
+          rm -rf fd-vote-keypair.json
+          rm -rf fd_shredcap.toml
+
+
+

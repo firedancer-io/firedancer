@@ -567,6 +567,7 @@ fd_topo_initialize( config_t * config ) {
       strncpy( tile->store_int.slots_pending, config->tiles.store_int.slots_pending, sizeof( tile->store_int.slots_pending ) );
       strncpy( tile->store_int.shred_cap_archive, config->tiles.store_int.shred_cap_archive, sizeof(tile->store_int.shred_cap_archive) );
       strncpy( tile->store_int.shred_cap_replay, config->tiles.store_int.shred_cap_replay, sizeof(tile->store_int.shred_cap_replay) );
+      tile->store_int.shred_cap_end_slot     = config->tiles.store_int.shred_cap_end_slot;
       tile->store_int.expected_shred_version = config->consensus.expected_shred_version;
       tile->store_int.in_wen_restart         = config->tiles.replay.in_wen_restart;
 
