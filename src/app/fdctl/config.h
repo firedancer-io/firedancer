@@ -318,6 +318,7 @@ typedef struct {
       char  slots_pending[PATH_MAX];
       char  shred_cap_archive[ PATH_MAX ];
       char  shred_cap_replay[ PATH_MAX ];
+      ulong shred_cap_end_slot;
     } store_int;
 
     struct {

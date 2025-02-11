@@ -323,6 +323,7 @@ typedef struct {
       char  identity_key_path[ PATH_MAX ];
       char  shred_cap_archive[ PATH_MAX ];
       char  shred_cap_replay[ PATH_MAX ];
+      ulong shred_cap_end_slot;
 
       int   in_wen_restart;
 
