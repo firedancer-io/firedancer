@@ -1910,7 +1910,7 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
 /* Handle any gossip message */
 static void
 fd_gossip_recv(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, fd_gossip_msg_t * gmsg) {
-  if ( FD_LIKELY( gmsg->discriminant <= 6 ) ) {
+  if ( FD_LIKELY( gmsg->discriminant < FD_METRICS_COUNTER_GOSSIP_RECEIVED_GOSSIP_MESSAGES_CNT ) ) {
     glob->metrics.recv_message[gmsg->discriminant] += 1UL;
   } else {
     glob->metrics.recv_unknown_message += 1UL;
