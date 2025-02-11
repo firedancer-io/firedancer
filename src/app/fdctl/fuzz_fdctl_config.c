@@ -24,7 +24,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   uchar * pod = fd_pod_join( fd_pod_new( pod_mem, sizeof(pod_mem) ) );
 
   static uchar scratch[ 4096 ];
-  (void)fd_toml_parse( data, size, pod, scratch, sizeof(scratch) );
+  (void)fd_toml_parse( data, size, pod, scratch, sizeof(scratch), NULL );
 
   static config_t config = {0};
   fdctl_pod_to_cfg( &config, pod );

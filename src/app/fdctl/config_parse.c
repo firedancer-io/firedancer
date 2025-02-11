@@ -162,7 +162,7 @@ fdctl_pod_find_leftover( uchar * pod ) {
   c -= 1;
   fd_cstr_fini( c );
 
-  FD_LOG_WARNING(( "Unrecognized key `%s`", path ));
+  FD_LOG_WARNING(( "Config file contains unrecognized key `%s`", path ));
   return 0;
 }
 
