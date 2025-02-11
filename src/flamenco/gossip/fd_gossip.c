@@ -639,7 +639,7 @@ fd_gossip_update_tpu_addr( fd_gossip_t * glob,
 
   fd_gossip_lock( glob );
   fd_gossip_to_soladdr(&glob->my_contact_info.tpu, tpu);
-  fd_gossip_to_soladdr(&glob->my_contact_info.tpu_fwd, tpu);
+  fd_gossip_to_soladdr(&glob->my_contact_info.tpu_fwd, tpu_fwd);
   fd_gossip_unlock( glob );
 
   return 0;
