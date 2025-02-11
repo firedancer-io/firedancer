@@ -10,7 +10,7 @@
 
 #define FD_VM_RETURN_DATA_MAX  (1024UL) /* FIXME: DOCUMENT AND DOES THIS BELONG HERE? */
 
-/* The maximum number of seeds a PDA can have 
+/* The maximum number of seeds a PDA can have
    https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/sdk/program/src/pubkey.rs#L21 */
 #define FD_VM_PDA_SEEDS_MAX    (16UL)
 /* The maximum length of a PDA seed
@@ -32,9 +32,9 @@
   input_string = b"sol_get_epoch_stake"
   hash_value = compute_murmur3_hash(input_string)
   print(f"The Murmur3 hash of '{input_string}' as u32 is: {hex(hash_value)}")
-  
-  Output: 
-  The Murmur3 hash of 'b'sol_get_epoch_stake'' as u32 is: 0x5be92f4a 
+
+  Output:
+  The Murmur3 hash of 'b'sol_get_epoch_stake'' as u32 is: 0x5be92f4a
   ```
 */
 
@@ -66,7 +66,7 @@
 
    It is the syscall's responsibility to deduct from vm->cu its specific
    cost model (not including the syscall instruction itself).  As such,
-   when a syscall returns COMPUTE_BUDGET_EXCEEDED, it should have set 
+   when a syscall returns COMPUTE_BUDGET_EXCEEDED, it should have set
    vm->cu to zero. When it returns anything else, it should have set cu
    to something in [1,cu_at_function_entry].
 
@@ -130,7 +130,7 @@ FD_VM_SYSCALL_DECL( abort );
      FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget.
       *_ret unchanged. vm->cu==0.
 
-     FD_VM_SYSCALL_ERR_INVALID_STRING: Bad filepath string 
+     FD_VM_SYSCALL_ERR_INVALID_STRING: Bad filepath string
 
      FD_VM_SYSCALL_ERR_PANIC: *_ret unchanged. *_ret unchanged. vm->cu
      decremented and vm->cu>0. */
@@ -150,7 +150,7 @@ FD_VM_SYSCALL_DECL( sol_panic );
 
    Return:
 
-     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget. 
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget.
      *_ret unchanged. vm->cu==0.
 
      FD_VM_SYSCALL_ERR_INVALID_STRING: bad message string.  *_ret=1.
@@ -200,7 +200,7 @@ FD_VM_SYSCALL_DECL( sol_log_64 );
 
    Return:
 
-     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget. 
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget.
      *_ret unchanged. vm->cu==0.
 
      FD_VM_SYSCALL_ERR_SEGFAULT: bad address range.  *_ret unchanged.  vm->cu
@@ -227,7 +227,7 @@ FD_VM_SYSCALL_DECL( sol_log_pubkey );
 
    Return:
 
-     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget. 
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget.
      *_ret unchanged. vm->cu==0.
 
      FD_VM_SUCCESS: success.  *_ret=0.  vm->cu decremented and vm->cu>0.
@@ -258,7 +258,7 @@ FD_VM_SYSCALL_DECL( sol_log_compute_units );
 
    Return:
 
-     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget. 
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget.
      *_ret unchanged. vm->cu==0.
 
      FD_VM_SYSCALL_ERR_SEGFAULT: bad address range.  *_ret unchanged.  vm->cu
@@ -327,7 +327,7 @@ FD_VM_SYSCALL_DECL( sol_alloc_free );
 
   Return:
 
-     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget. 
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget.
      *_ret unchanged. vm->cu==0.
 
      FD_VM_SYSCALL_ERR_COPY_OVERLAPPING: address ranges for src and dst overlap
@@ -357,7 +357,7 @@ FD_VM_SYSCALL_DECL( sol_memcpy );
 
   Return:
 
-     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget. 
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget.
      *_ret unchanged. vm->cu==0.
 
      FD_VM_SYSCALL_ERR_SEGFAULT: bad address range (including out not 4 byte
@@ -389,7 +389,7 @@ FD_VM_SYSCALL_DECL( sol_memcmp );
 
   Return:
 
-     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget. 
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget.
      *_ret unchanged. vm->cu==0.
 
      FD_VM_SYSCALL_ERR_SEGFAULT: bad address range.  *_ret unchanged.  vm->cu
@@ -413,7 +413,7 @@ FD_VM_SYSCALL_DECL( sol_memset );
 
   Return:
 
-     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget. 
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget.
      *_ret unchanged. vm->cu==0.
 
      FD_VM_SYSCALL_ERR_SEGFAULT: bad address range.  *_ret unchanged.  vm->cu
@@ -495,10 +495,10 @@ FD_VM_SYSCALL_DECL( sol_get_epoch_rewards_sysvar     );
      FD_VM_SUCCESS: success. vm->cu decremented and vm->cu>0.
       - *_ret = 2 if sysvar id is not in {clock,schedule,rewards,rent,slot hashes,stake history,last restart slot}
                   OR sysvar account does not exist.
-      - *_ret = 1 if [offset,offset+sz) is outside of sysvar data buffer. 
+      - *_ret = 1 if [offset,offset+sz) is outside of sysvar data buffer.
       - *_ret = 0 if success.
 
-     On return, sz bytes of appropriate offset sysvar data will be copied into 
+     On return, sz bytes of appropriate offset sysvar data will be copied into
      haddr belonging to out_vaddr. */
 FD_VM_SYSCALL_DECL( sol_get_sysvar );
 
@@ -528,8 +528,8 @@ FD_VM_SYSCALL_DECL( sol_get_sysvar );
      FD_VM_ERR_ABORT: offset+sz overflow.  *_ret unchanged.
 
      FD_VM_SUCCESS: success. vm->cu decremented and vm->cu>0.
-      - *_ret = 0 if success. 
-      - if var_addr == 0, returns the total active stake on the cluster. Otherwise, 
+      - *_ret = 0 if success.
+      - if var_addr == 0, returns the total active stake on the cluster. Otherwise,
         returns the vote account's delegated stake. */
 
 FD_VM_SYSCALL_DECL( sol_get_epoch_stake );
@@ -689,7 +689,7 @@ FD_VM_SYSCALL_DECL( sol_create_program_address );
 
    Return:
 
-     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget. 
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget.
      *_ret unchanged. Compute budget decremented.
 
      FD_VM_SYSCALL_ERR_BAD_SEEDS: seed_cnt and/or seed[i].sz too large,
@@ -808,7 +808,7 @@ FD_VM_SYSCALL_DECL( sol_alt_bn128_compression );
 
      FD_VM_ERR_INVAL: cnt too large.  *_ret unchanged.
 
-     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget. 
+     FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED: insufficient compute budget.
      *_ret unchanged. Compute budget decremented.
 
      FD_VM_SYSCALL_ERR_SEGFAULT: bad address range for slice, hash and/or
@@ -883,13 +883,14 @@ fd_vm_derive_pda( fd_vm_t *           vm,
                   fd_pubkey_t *       out );
 
 int
-fd_vm_translate_and_check_program_address_inputs( fd_vm_t *           vm,
-                                                  ulong               seeds_vaddr,
-                                                  ulong               seeds_cnt,
-                                                  ulong               program_id_vaddr,
-                                                  void const * *      out_seed_haddrs,
-                                                  ulong *             out_seed_szs,
-                                                  fd_pubkey_t const * * out_program_id );
+fd_vm_translate_and_check_program_address_inputs( fd_vm_t *             vm,
+                                                  ulong                 seeds_vaddr,
+                                                  ulong                 seeds_cnt,
+                                                  ulong                 program_id_vaddr,
+                                                  void const * *        out_seed_haddrs,
+                                                  ulong *               out_seed_szs,
+                                                  fd_pubkey_t const * * out_program_id,
+                                                  uchar                 abort_on_seed_mem_max );
 FD_PROTOTYPES_END
 
 #endif /* HEADER_src_flamenco_vm_syscall_fd_vm_syscall_h */

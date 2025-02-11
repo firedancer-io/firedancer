@@ -45,6 +45,16 @@ fd_vm_derive_pda( fd_vm_t *           vm,
     return FD_VM_SYSCALL_ERR_INVALID_PDA;
   }
 
+  for( ulong i=0UL; i<seeds_cnt; i++ ) {
+    /* This is an unconditional check in Agave:
+       https://github.com/anza-xyz/agave/blob/v2.1.6/sdk/pubkey/src/lib.rs#L729-L731
+     */
+    if( FD_UNLIKELY( seed_szs[ i ]>FD_VM_PDA_SEED_MEM_MAX ) ) {
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_BAD_SEEDS );
+      return FD_VM_SYSCALL_ERR_BAD_SEEDS;
+    }
+  }
+
   fd_sha256_init( vm->sha );
   for( ulong i=0UL; i<seeds_cnt; i++ ) {
     ulong seed_sz = seed_szs[ i ];
@@ -94,7 +104,8 @@ fd_vm_translate_and_check_program_address_inputs( fd_vm_t *             vm,
                                                   ulong                 program_id_vaddr,
                                                   void const * *        out_seed_haddrs,
                                                   ulong *               out_seed_szs,
-                                                  fd_pubkey_t const * * out_program_id ) {
+                                                  fd_pubkey_t const * * out_program_id,
+                                                  uchar                 abort_on_seed_mem_max ) {
 
   fd_vm_vec_t const * untranslated_seeds = FD_VM_MEM_SLICE_HADDR_LD( vm, seeds_vaddr, FD_VM_ALIGN_RUST_SLICE_U8_REF,
                                                                      fd_ulong_sat_mul( seeds_cnt, FD_VM_VEC_SIZE ) );
@@ -109,8 +120,15 @@ fd_vm_translate_and_check_program_address_inputs( fd_vm_t *             vm,
   for( ulong i=0UL; i<seeds_cnt; i++ ) {
     ulong seed_sz = untranslated_seeds[i].len;
     /* Another preflight check
-       https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L734-L736 */
-    if( FD_UNLIKELY( seed_sz>FD_VM_PDA_SEED_MEM_MAX ) ) {
+       https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L734-L736
+       When this function is called from syscalls, we would like to
+       abort when exceeding SEED_MEM_MAX.
+       However, when we reuse this function from CPI for signer
+       translation, this check doesn't exist.  Sigh.
+       Instead, the check is delayed until deriving PDA.
+       https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L543
+     */
+    if( FD_UNLIKELY( seed_sz>FD_VM_PDA_SEED_MEM_MAX && abort_on_seed_mem_max ) ) {
       FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_BAD_SEEDS );
       return FD_VM_SYSCALL_ERR_BAD_SEEDS;
     }
@@ -173,7 +191,8 @@ fd_vm_syscall_sol_create_program_address( /**/            void *  _vm,
                                                               program_id_vaddr,
                                                               seed_haddrs,
                                                               seed_szs,
-                                                              &program_id );
+                                                              &program_id,
+                                                              1U );
   if( FD_UNLIKELY( err ) ) {
     *_ret = 0UL;
     return err;
@@ -248,7 +267,8 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
                                                               program_id_vaddr,
                                                               seed_haddrs,
                                                               seed_szs,
-                                                              &program_id );
+                                                              &program_id,
+                                                              1U );
   if( FD_UNLIKELY( err ) ) {
     *_ret = 0UL;
     return err;
