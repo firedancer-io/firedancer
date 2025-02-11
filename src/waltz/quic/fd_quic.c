@@ -491,7 +491,7 @@ fd_quic_init( fd_quic_t * quic ) {
   }
   state->svc_delay[ FD_QUIC_SVC_INSTANT ] = 0UL;
   state->svc_delay[ FD_QUIC_SVC_ACK_TX  ] = quic->config.ack_delay;
-  state->svc_delay[ FD_QUIC_SVC_WAIT    ] = quic->config.idle_timeout;
+  state->svc_delay[ FD_QUIC_SVC_WAIT    ] = quic->config.idle_timeout * 10;
 
   /* Check TX AIO */
 
@@ -2706,7 +2706,8 @@ fd_quic_tls_cb_peer_params( void *        context,
 
   /* set the max_idle_timeout to the min of our and peer max_idle_timeout */
   if( peer_tp->max_idle_timeout ) {
-    conn->idle_timeout = fd_ulong_min( (ulong)(1e6) * peer_tp->max_idle_timeout, conn->idle_timeout );
+    /* 10 for margin of safety */
+    conn->idle_timeout = 10*fd_ulong_min( (ulong)(1e6) * peer_tp->max_idle_timeout, conn->idle_timeout );
   }
 
   /* set ack_delay_exponent so we can properly interpret peer's ack_delays

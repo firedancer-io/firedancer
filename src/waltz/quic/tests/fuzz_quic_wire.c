@@ -198,7 +198,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
 
   /* Simulate conn timeout */
   while( state->svc_queue[ FD_QUIC_SVC_WAIT ].head != UINT_MAX ) {
-    ulong idle_timeout_ts = conn->last_activity + quic->config.idle_timeout + 1UL;
+    ulong idle_timeout_ts = conn->last_activity + 10*quic->config.idle_timeout + 1UL;
     fd_quic_conn_t * conn = fd_quic_conn_at_idx( state, state->svc_queue[ FD_QUIC_SVC_WAIT ].head );
 
     /* Idle timeouts should not be scheduled significantly late */

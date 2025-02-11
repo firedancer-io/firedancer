@@ -945,7 +945,7 @@ dynamic_port_range = "8900-9000"
         idle_timeout_millis = 10000
 
         # Max delay for outgoing ACKs.
-        ack_delay_millis = 50
+        ack_delay_millis = 25
 
         # QUIC retry is a feature to combat new connection request
         # spamming.  See rfc9000 8.1.2 for more details.  This flag

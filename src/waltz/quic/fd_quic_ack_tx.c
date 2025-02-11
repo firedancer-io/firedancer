@@ -55,11 +55,13 @@ fd_quic_ack_pkt( fd_quic_ack_gen_t * gen,
 
   /* Attempt to allocate another ACK queue entry */
   if( gen->head - gen->tail >= FD_QUIC_ACK_QUEUE_CNT ) {
+    FD_DTRACE_PROBE_3( fd_quic_ack_tx_overflow, enc_level, pkt_number, now );
     FD_DEBUG( FD_LOG_DEBUG(( "ACK queue overflow! (excessive reordering)" )); )
     return FD_QUIC_ACK_TX_ENOSPC;
   }
 
   /* Start new pending ACK */
+  FD_DTRACE_PROBE_3( fd_quic_ack_range_new, enc_level, pkt_number, now );
   FD_ACK_DEBUG( FD_LOG_DEBUG(( "gen=%p queue ACK for enc=%u pkt_num=%lu seq=%u",
     (void *)gen, enc_level, pkt_number, gen->head )); )
   fd_quic_ack_t * next_ack = fd_quic_ack_queue_ele( gen, gen->head );
@@ -105,6 +107,7 @@ fd_quic_gen_ack_frames( fd_quic_ack_gen_t * gen,
   for( ; gen->tail != gen->head; gen->tail++ ) {
     fd_quic_ack_t * ack = fd_quic_ack_queue_ele( gen, gen->tail );
     if( ack->enc_level != enc_level ) {
+      FD_DTRACE_PROBE_2( fd_quic_ack_tx_enc_level_break, ack->enc_level, enc_level );
       FD_ACK_DEBUG( FD_LOG_DEBUG(( "need encryption level %u for ACKs but have %u", ack->enc_level, enc_level )); )
       break;
     }
@@ -134,6 +137,7 @@ fd_quic_gen_ack_frames( fd_quic_ack_gen_t * gen,
   if( gen->head == gen->tail ) {
     gen->is_elicited = 0;
   } else {
+    FD_DTRACE_PROBE_1( fd_quic_ack_not_all_frames_flushed, gen->head - gen->tail );
     FD_ACK_DEBUG( FD_LOG_DEBUG(( "Not all ACK frames were flushed" )); )
   }
 
