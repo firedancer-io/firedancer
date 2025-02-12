@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
 jobs:
   ledger-replay:
-    timeout-minutes: 30
+    timeout-minutes: 15
     runs-on: [self-hosted, 512G]
     env:
       CC: gcc
@@ -29,7 +29,7 @@ jobs:
       - uses: ./.github/actions/hugepages
         with:
           count_gigantic: 320
-          count_huge: 1000 # TODO: this is required until we can handle anonymouse workspaces and loose huge pages in fddev
+          count_huge: 1000 # TODO: this is required until we can handle anonymous workspaces and loose huge pages in fddev
 
       - name: build
         run: |
