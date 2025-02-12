@@ -162,7 +162,8 @@ fd_neigh4_netlink_solicit( fd_netlink_t * netlink,
   request.nlh = (struct nlmsghdr) {
     .nlmsg_type  = RTM_NEWNEIGH,
     .nlmsg_flags = NLM_F_REQUEST|NLM_F_ACK|NLM_F_EXCL|NLM_F_CREATE,
-    .nlmsg_seq   = seq
+    .nlmsg_seq   = seq,
+    .nlmsg_len   = sizeof(request)
   };
   request.ndm = (struct ndmsg) {
     .ndm_family  = AF_INET,
@@ -192,32 +193,25 @@ fd_neigh4_netlink_solicit( fd_netlink_t * netlink,
 
   /* Get error code */
 
-  for( ulong attempt=0UL; attempt<64UL; attempt++ ) {
-    uchar buf[ 4096 ];
-    long recv_res = fd_netlink_read_socket( netlink->fd, buf, sizeof(buf) );
-    if( FD_UNLIKELY( recv_res<0 ) ) {
-      FD_LOG_WARNING(( "netlink recv failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-      return errno;
-    }
-
-    struct nlmsghdr const * nlh = fd_type_pun_const( buf );
-    if( FD_UNLIKELY( nlh->nlmsg_seq != seq ) ) {
-      /* Should only happen if caller misbehaves */
-      FD_LOG_WARNING(( "Dropping rtnetlink message type=%u seq=%u", nlh->nlmsg_type, nlh->nlmsg_seq ));
-      continue;
-    }
-
-    if( FD_UNLIKELY( nlh->nlmsg_type!=NLMSG_ERROR ) ) {
-      /* Should never happen */
-      FD_LOG_WARNING(( "unexpected nlmsg_type %u for RTM_NEWNEIGH request", nlh->nlmsg_type ));
-      continue;
-    }
-
-    struct nlmsgerr * err = NLMSG_DATA( nlh );
-    int nl_err = -err->error;
-    return nl_err;
+  uchar buf[ 4096 ];
+  long recv_res = fd_netlink_read_socket( netlink->fd, buf, sizeof(buf) );
+  if( FD_UNLIKELY( recv_res<0 ) ) {
+    FD_LOG_WARNING(( "netlink recv failed (%d-%s)", errno, fd_io_strerror( errno ) ));
+    return errno;
   }
 
-  FD_LOG_WARNING(( "Giving up on receiving response code for RTM_NEWNEIGH request" ));
-  return 0;
+  struct nlmsghdr const * nlh = fd_type_pun_const( buf );
+  if( FD_UNLIKELY( nlh->nlmsg_seq!=seq ) ) {
+    /* Should only happen if caller misbehaves */
+    FD_LOG_ERR(( "Unexpected netlink message type=%u seq=%u", nlh->nlmsg_type, nlh->nlmsg_seq ));
+  }
+
+  if( FD_UNLIKELY( nlh->nlmsg_type!=NLMSG_ERROR ) ) {
+    /* Should never happen */
+    FD_LOG_ERR(( "unexpected netlink response nlmsg_type %u for RTM_NEWNEIGH request", nlh->nlmsg_type ));
+  }
+
+  struct nlmsgerr * err = NLMSG_DATA( nlh );
+  int nl_err = -err->error;
+  return nl_err;
 }
