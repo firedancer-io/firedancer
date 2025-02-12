@@ -402,6 +402,7 @@ fd_topo_run_tile_t fd_tile_netlnk = {
   .name                     = "netlnk",
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
+  .desired_capabilities     = (1UL<<CAP_NET_ADMIN),
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
   .privileged_init          = privileged_init,

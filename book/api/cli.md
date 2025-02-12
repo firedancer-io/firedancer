@@ -19,6 +19,7 @@ abbreviated log output to `stderr` and nothing will be written to
 | Capability | Reason |
 |------------|--------|
 | `CAP_NET_RAW` | call `socket(2)` to bind to a raw socket for use by XDP |
+| `CAP_NET_ADMIN` | call `RTM_NEWNEIGH` in `rtnetlink(7)` to dispatch ARP requests for neighbor discovery |
 | `CAP_SYS_ADMIN` | call `bpf(2)` with the `BPF_OBJ_GET` command to initialize XDP |
 | `CAP_SYS_ADMIN` | call `unshare(2)` with `CLONE_NEWUSER` to sandbox the process in a user namespace. Only required on kernels which restrict unprivileged user namespaces |
 | `CAP_SETUID` | call `setresuid(2)` to switch uid to the sandbox user. Not required if the UID is already the same as the sandbox UID |
