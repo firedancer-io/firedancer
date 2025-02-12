@@ -431,6 +431,7 @@ OBJDIR=$(OBJDIR) \
 MACHINE=$(MACHINE) \
 LLVM_PROFILE_FILE="$(OBJDIR)/cov/raw/test_vectors-%p.profraw" \
 LOG_PATH="$(OBJDIR)/log/fd-test-vectors-report" \
+NUM_PROCESSES=8	\
 contrib/test/run_test_vectors.sh
 
 seccomp-policies:
