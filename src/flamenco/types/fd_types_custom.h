@@ -54,6 +54,9 @@ FD_PROTOTYPES_BEGIN
 #define fd_pubkey_check_zero       fd_hash_check_zero
 #define fd_pubkey_set_zero         fd_hash_set_zero
 #define fd_pubkey_walk             fd_hash_walk
+#define fd_pubkey_decode_inner     fd_hash_decode_inner
+#define fd_pubkey_decode_footprint fd_hash_decode_footprint
+#define fd_pubkey_decode_new       fd_hash_decode_new
 
 #define fd_hash_decode_archival             fd_hash_decode
 #define fd_hash_decode_archival_preflight   fd_hash_decode_preflight
@@ -144,6 +147,15 @@ fd_solana_vote_account_footprint( void );
 ulong
 fd_solana_vote_account_align( void );
 
+int
+fd_solana_vote_account_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+
+void *
+fd_solana_vote_account_decode_new( void * mem, fd_bincode_decode_ctx_t * ctx );
+
+void
+fd_solana_vote_account_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+
 /* Transaction wrapper ************************************************/
 
 /* fd_flamenco_txn_t is yet another fd_txn_t wrapper.
@@ -206,6 +218,16 @@ fd_flamenco_txn_walk( void *                    w,
   /* For now, just print the transaction's signature */
   fun( w, sig0, name, FD_FLAMENCO_TYPE_SIG512, "txn", level );
 }
+
+int
+fd_flamenco_txn_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+
+void *
+fd_flamenco_txn_decode_new( void * mem, fd_bincode_decode_ctx_t * ctx );
+
+void
+fd_flamenco_txn_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+
 
 /* Represents the lamport balance associated with an account. */
 typedef ulong fd_acc_lamports_t;

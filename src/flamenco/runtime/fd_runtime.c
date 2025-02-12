@@ -1677,14 +1677,24 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
         fd_funk_start_write( slot_ctx->acc_mgr->funk );
         fd_vote_store_account( slot_ctx, acc_rec );
         FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
-          fd_vote_state_versioned_t vsv[1];
-          fd_bincode_decode_ctx_t decode_vsv =
-            { .data    = acc_rec->const_data,
-              .dataend = acc_rec->const_data + acc_rec->const_meta->dlen,
-              .valloc  = fd_spad_virtual( txn_ctx->spad ) };
+          fd_bincode_decode_ctx_t decode_vsv = {
+            .data    = acc_rec->const_data,
+            .dataend = acc_rec->const_data + acc_rec->const_meta->dlen,
+            .valloc  = fd_spad_virtual( txn_ctx->spad )
+          };
 
-          int err = fd_vote_state_versioned_decode( vsv, &decode_vsv );
-          if( err ) break; /* out of spad scope */
+          ulong total_sz = 0UL;
+          int err = fd_vote_state_versioned_decode_footprint( &decode_vsv, &total_sz );
+          if( FD_UNLIKELY( err ) ) {
+            FD_LOG_ERR(( "failed to decode vote state versioned" ));
+            continue;
+          }
+
+          FD_LOG_WARNING(("TOTAL SZ %lu", total_sz));
+
+          uchar * mem = fd_spad_alloc( txn_ctx->spad, 8UL, 10000 );
+          fd_vote_state_versioned_decode_new( mem, &decode_vsv );
+          fd_vote_state_versioned_t * vsv = (fd_vote_state_versioned_t *)mem;
 
           fd_vote_block_timestamp_t const * ts = NULL;
           switch( vsv->discriminant ) {

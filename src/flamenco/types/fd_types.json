@@ -2789,6 +2789,59 @@
         { "name": "vote_states", "type": "map", "element": "vote_info_pair", "key": "account" },
         { "name": "stake_infos_new_keys_start_idx", "type": "ulong" }
       ]
+    },
+    {
+      "name": "test_struct_nested",
+      "type": "struct",
+      "fields": [
+        { "name": "test_0", "type": "ulong" },
+        { "name": "test_1", "type": "uchar[32]" }
+      ]
+    },
+    {
+      "name": "test_struct_option",
+      "type": "struct",
+      "fields": [
+        { "name": "test_0", "type": "option", "element": "uint" }
+      ]
+    },
+
+    {
+      "name": "test_struct_map_obj",
+      "type": "struct",
+      "fields": [
+        { "name": "key", "type": "pubkey" },
+        { "name": "val", "type": "uint" }
+      ]
+    },
+    {
+      "name": "test_struct",
+      "type": "struct",
+      "fields": [
+        { "name": "test_0",  "type": "ulong" },
+        { "name": "test_1",  "type": "uchar" },
+        { "name": "test_2",  "type": "char*" },
+        { "name": "test_3",  "type": "vector", "element": "ulong" },
+        { "name": "test_4",  "type": "test_struct_nested" },
+        { "name": "test_5",  "type": "vector", "element": "test_struct_nested" },
+        { "name": "test_6",  "type": "static_vector", "element": "ushort", "size": 4 },
+        { "name": "test_7",  "type": "static_vector", "element": "test_struct_nested", "size": 2 },
+        { "name": "test_8",  "type": "deque", "element": "uint", "min": 8 },
+        { "name": "test_9",  "type": "map", "element": "test_struct_map_obj", "key": "key" },
+        { "name": "test_10", "type": "option", "element": "ulong" },
+        { "name": "test_11", "type": "option", "element": "test_struct_option" },
+        { "name": "test_12", "type": "array", "element": "uchar", "length": 2 },
+        { "name": "test_13", "type": "array", "element": "test_struct_option", "length": 2 },
+        { "name": "test_14", "type": "array", "element": "uint", "length": 2 }
+      ]
+    },
+    {
+      "name": "test_enum",
+      "type": "enum",
+      "variants": [
+        { "name": "test_0",  "type": "ulong" },
+        { "name": "test_1",  "type": "uint" }
+      ]
     }
   ]
 }

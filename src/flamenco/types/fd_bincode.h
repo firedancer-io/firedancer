@@ -71,6 +71,16 @@ typedef struct fd_bincode_destroy_ctx fd_bincode_destroy_ctx_t;
     ctx->data = ptr + sizeof(type); \
     return FD_BINCODE_SUCCESS; \
   } \
+  static inline int \
+  fd_bincode_##name##_decode_footprint( fd_bincode_decode_ctx_t * ctx, \
+                                        ulong *                   total_sz ) { \
+    uchar const * ptr = (uchar const *) ctx->data; \
+    if ( FD_UNLIKELY((void const *)(ptr + sizeof(type)) > ctx->dataend ) ) \
+      return FD_BINCODE_ERR_UNDERFLOW; \
+    ctx->data = ptr + sizeof(type); \
+    *total_sz += sizeof(type); \
+    return FD_BINCODE_SUCCESS; \
+  } \
   static inline void \
   fd_bincode_##name##_decode_unsafe( type *                    self, \
                                      fd_bincode_decode_ctx_t * ctx ) { \
@@ -131,6 +141,22 @@ fd_bincode_bool_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   return FD_BINCODE_SUCCESS;
 }
 
+static inline int
+fd_bincode_bool_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+
+  uchar const * ptr = (uchar const *)ctx->data;
+  if( FD_UNLIKELY( ptr+1 > (uchar const *)ctx->dataend ) )
+    return FD_BINCODE_ERR_UNDERFLOW;
+
+  if( FD_UNLIKELY( *ptr & (~1U) ) )
+    return FD_BINCODE_ERR_ENCODING;
+
+  ctx->data = ptr + 1;
+  *total_sz += 1;
+
+  return FD_BINCODE_SUCCESS;
+}
+
 static inline void
 fd_bincode_bool_decode_unsafe( uchar *                   self,
                                fd_bincode_decode_ctx_t * ctx ) {
@@ -169,13 +195,30 @@ static inline int
 fd_bincode_bytes_decode_preflight( ulong                     len,
                                    fd_bincode_decode_ctx_t * ctx ) {
   uchar * ptr = (uchar *) ctx->data;
-  if ( FD_UNLIKELY((ulong)( (uchar *) ctx->dataend - ptr) < len ) ) // Get wrap-around case right
+  if ( FD_UNLIKELY((ulong)( (uchar *) ctx->dataend - ptr) < len ) ) { // Get wrap-around case right
     return FD_BINCODE_ERR_UNDERFLOW;
+  }
 
   ctx->data = ptr + len;
 
   return FD_BINCODE_SUCCESS;
 }
+
+static inline int
+fd_bincode_bytes_decode_footprint( ulong                     len,
+                                   fd_bincode_decode_ctx_t * ctx,
+                                   ulong *                   total_sz ) {
+  uchar * ptr = (uchar *) ctx->data;
+  if ( FD_UNLIKELY((ulong)( (uchar *) ctx->dataend - ptr) < len ) ) { // Get wrap-around case right
+    return FD_BINCODE_ERR_UNDERFLOW;
+  }
+
+  ctx->data = ptr + len;
+  *total_sz += len;
+
+  return FD_BINCODE_SUCCESS;
+}
+
 
 static inline void
 fd_bincode_bytes_decode_unsafe( uchar *                   self,
@@ -234,6 +277,45 @@ fd_bincode_compact_u16_decode( ushort *                  self,
 
   return FD_BINCODE_ERR_UNDERFLOW;
 }
+
+/* Alternate versions of fd_cu16_dec to make the function signature more consistent with the
+   other fd_bincode_decode functions.  */
+   static inline int
+   fd_bincode_compact_u16_decode_with_footprint( ushort *                  self,
+                                                 fd_bincode_decode_ctx_t * ctx,
+                                                 ulong *                   total_sz ) {
+     const uchar * ptr = (const uchar*) ctx->data;
+     if( FD_UNLIKELY( ptr==NULL ) ) {
+       return FD_BINCODE_ERR_UNDERFLOW;
+     }
+
+     if( FD_LIKELY( (void *) (ptr + 1) <= ctx->dataend && !(0x80U & ptr[0]) ) ) {
+       *self = (ushort)ptr[0];
+       ctx->data = ptr + 1;
+       *total_sz += 1;
+       return FD_BINCODE_SUCCESS;
+     }
+
+     if( FD_LIKELY( (void *) (ptr + 2) <= ctx->dataend && !(0x80U & ptr[1]) ) ) {
+       if( FD_UNLIKELY( !ptr[1] ) ) /* Detect non-minimal encoding */
+         return FD_BINCODE_ERR_ENCODING;
+       *self = (ushort)((ulong)(ptr[0]&0x7FUL) + (((ulong)ptr[1])<<7));
+       ctx->data = ptr + 2;
+       *total_sz += 2;
+       return FD_BINCODE_SUCCESS;
+     }
+
+     if( FD_LIKELY( (void *) (ptr + 3) <= ctx->dataend && !(0xFCU & ptr[2]) ) ) {
+       if( FD_UNLIKELY( !ptr[2] ) ) /* Detect non-minimal encoding */
+         return FD_BINCODE_ERR_ENCODING;
+       *self = (ushort)((ulong)(ptr[0]&0x7FUL) + (((ulong)(ptr[1]&0x7FUL))<<7) + (((ulong)ptr[2])<<14));
+       ctx->data = ptr + 3;
+       *total_sz += 3;
+       return FD_BINCODE_SUCCESS;
+     }
+
+     return FD_BINCODE_ERR_UNDERFLOW;
+   }
 
 static inline void
 fd_bincode_compact_u16_decode_unsafe( ushort *                  self,
@@ -355,6 +437,36 @@ fd_bincode_varint_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
 
     uint byte = *(uchar const *)ctx->data;
     ctx->data = (uchar const *)ctx->data + 1;
+    out |= (byte & 0x7FUL) << shift;
+
+    if( (byte & 0x80U) == 0U ) {
+      if( (out>>shift) != byte )
+        return FD_BINCODE_ERR_ENCODING;
+      if( byte==0U && (shift!=0U || out!=0UL) )
+        return FD_BINCODE_ERR_ENCODING;
+      return FD_BINCODE_SUCCESS;
+    }
+
+    shift += 7U;
+
+  }
+
+  return FD_BINCODE_ERR_ENCODING;
+}
+
+static inline int
+fd_bincode_varint_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  ulong out   = 0UL;
+  uint  shift = 0U;
+
+  while( FD_LIKELY( shift < 64U ) ) {
+
+    if( FD_UNLIKELY( ctx->data >= ctx->dataend ) )
+      return FD_BINCODE_ERR_UNDERFLOW;
+
+    uint byte = *(uchar const *)ctx->data;
+    ctx->data = (uchar const *)ctx->data + 1;
+    *total_sz += 1;
     out |= (byte & 0x7FUL) << shift;
 
     if( (byte & 0x80U) == 0U ) {

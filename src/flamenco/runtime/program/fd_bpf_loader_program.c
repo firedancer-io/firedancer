@@ -124,53 +124,6 @@ fd_bpf_loader_v2_is_executable( fd_exec_slot_ctx_t * slot_ctx,
   return 0;
 }
 
-
-/* This is literally called before every single instruction execution */
-int
-fd_bpf_loader_v3_is_executable( fd_exec_slot_ctx_t *        slot_ctx,
-                                fd_pubkey_t const *         pubkey,
-                                fd_exec_instr_ctx_t const * instr_ctx ) {
-  int err = 0;
-  fd_account_meta_t const * meta = fd_acc_mgr_view_raw( slot_ctx->acc_mgr, slot_ctx->funk_txn,
-                                                        (fd_pubkey_t *) pubkey, NULL, &err, NULL );
-  if( FD_UNLIKELY( !fd_acc_exists( meta ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
-  }
-
-  if( FD_UNLIKELY( memcmp( meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
-  }
-
-  if( FD_UNLIKELY( meta->info.executable!=1 ) ) {
-    return FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE;
-  }
-
-  fd_bincode_decode_ctx_t ctx = {
-    .data    = (uchar *)meta     + meta->hlen,
-    .dataend = (char *) ctx.data + meta->dlen,
-    .valloc  = fd_spad_virtual( instr_ctx->txn_ctx->spad ),
-  };
-
-  fd_bpf_upgradeable_loader_state_t loader_state = {0};
-  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode( &loader_state, &ctx ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-  }
-
-  if( FD_UNLIKELY( !fd_bpf_upgradeable_loader_state_is_program( &loader_state ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-  }
-
-  /* Check if programdata account exists */
-  fd_account_meta_t const * programdata_meta =
-    (fd_account_meta_t const *)fd_acc_mgr_view_raw( slot_ctx->acc_mgr, slot_ctx->funk_txn,
-                                                    (fd_pubkey_t *) &loader_state.inner.program.programdata_address, NULL, &err, NULL );
-  if( FD_UNLIKELY( !fd_acc_exists( programdata_meta ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
-  }
-
-  return 0;
-}
-
 /* TODO: This can be combined with the other bpf loader state decode function */
 fd_account_meta_t const *
 read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t *                 txn_ctx,
@@ -367,17 +320,23 @@ int
 fd_bpf_loader_v3_program_get_state( fd_exec_txn_ctx_t const *           txn_ctx,
                                     fd_borrowed_account_t const *       borrowed_acc,
                                     fd_bpf_upgradeable_loader_state_t * state ) {
+
+    (void)txn_ctx;
+
     /* Check to see if the buffer account is already initialized */
     fd_bincode_decode_ctx_t ctx = {
       .data    = borrowed_acc->const_data,
       .dataend = borrowed_acc->const_data + borrowed_acc->const_meta->dlen,
-      .valloc  = fd_spad_virtual( txn_ctx->spad ),
     };
 
-    int err = fd_bpf_upgradeable_loader_state_decode( state, &ctx );
+    ulong total_sz = 0UL;
+    int err = fd_bpf_upgradeable_loader_state_decode_footprint( &ctx, &total_sz );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
+
+    fd_bpf_upgradeable_loader_state_decode_new( state, &ctx );
+
     return FD_BINCODE_SUCCESS;
 }
 
@@ -685,6 +644,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
   decode_ctx.dataend = &data[ instr_ctx->instr->data_sz > 1232UL ? 1232UL : instr_ctx->instr->data_sz ];
   decode_ctx.valloc  = fd_spad_virtual( instr_ctx->txn_ctx->spad );
 
+  FD_LOG_ERR(("MAKE IT HERE"));
   int err = fd_bpf_upgradeable_loader_program_instruction_decode( &instruction, &decode_ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;

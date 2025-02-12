@@ -679,7 +679,7 @@ fd_log_private_hexdump_msg( char const * descr,
   char         line_buf[ FD_LOG_HEXDUMP_BYTES_PER_LINE+1 ];
   char const * blob     = (char const *)mem;
   ulong        blob_off = 0UL;
-  ulong        blob_sz  = fd_ulong_min( sz, FD_LOG_HEXDUMP_MAX_INPUT_BLOB_SZ );
+  ulong        blob_sz  = sz;//fd_ulong_min( sz, FD_LOG_HEXDUMP_MAX_INPUT_BLOB_SZ );
 
   for( ; blob_off<blob_sz; blob_off++ ) {
     ulong col_idx = blob_off % FD_LOG_HEXDUMP_BYTES_PER_LINE;
