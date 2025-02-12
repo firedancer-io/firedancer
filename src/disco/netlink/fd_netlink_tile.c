@@ -300,6 +300,8 @@ during_housekeeping( fd_netlink_tile_ctx_t * ctx ) {
   }
 }
 
+/* before_credit is called once per loop iteration */
+
 static void
 before_credit( fd_netlink_tile_ctx_t * ctx,
                fd_stem_context_t *     stem FD_PARAM_UNUSED,
@@ -318,6 +320,16 @@ before_credit( fd_netlink_tile_ctx_t * ctx,
     netlink_monitor_read( ctx, 0 );
   }
 
+}
+
+/* after_poll_overrun is called when fd_stem.c was overrun while
+   checking for new fragments.  This typically happens when
+   before_credit takes too long (e.g. we were in a blocking netlink
+   read) */
+
+static void
+after_poll_overrun( fd_netlink_tile_ctx_t * ctx ) {
+  ctx->idle_cnt = -1L;
 }
 
 /* after_frag handles a neighbor solicit request */
@@ -375,7 +387,9 @@ after_frag( fd_netlink_tile_ctx_t * ctx,
   /* Trigger neighbor solicit via netlink */
 
   int netlink_res = fd_neigh4_netlink_solicit( ctx->nl_req, if_idx, ip4_addr );
-  if( FD_UNLIKELY( netlink_res<0 ) ) {
+  if( FD_UNLIKELY( netlink_res!=0 ) ) {
+    FD_LOG_WARNING(( "`ip neigh add " FD_IP4_ADDR_FMT " dev %u use nud incomplete` failed (%i-%s)",
+                     FD_IP4_ADDR_FMT_ARGS( ip4_addr ), if_idx, netlink_res, fd_io_strerror( netlink_res ) ));
     ctx->metrics.neigh_solicits_fails++;
     return;
   }
@@ -393,6 +407,7 @@ after_frag( fd_netlink_tile_ctx_t * ctx,
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_BEFORE_CREDIT       before_credit
+#define STEM_CALLBACK_AFTER_POLL_OVERRUN  after_poll_overrun
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 
 #include "../stem/fd_stem.c"

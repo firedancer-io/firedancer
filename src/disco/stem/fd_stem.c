@@ -111,10 +111,10 @@
    be trusted, except for seq which is read atomically.
 
       AFTER_FRAG
-   Is is called immediately after the DURING_FRAG, along with an
-   additional check that the reader was not overrun while handling the
-   frag.  If the reader was overrun, the frag is abandoned and this
-   function is not called.  This callback is not invoked if the stem is
+   Is called immediately after the DURING_FRAG, along with an additional
+   check that the reader was not overrun while handling the frag.  If
+   the reader was overrun, the frag is abandoned and this function is
+   not called.  This callback is not invoked if the stem is
    backpressured, as it would not read a frag in the first place.
    in_idx will be the index of the in that the frag was received from.
    You should not read the frag data directly here, as it might still
@@ -126,7 +126,12 @@
    number of the fragment that was read from the input mcache. sig,
    chunk, sz, and tsorig are the respective fields from the mcache
    fragment that was received.  If the producer is not respecting flow
-   control, these may be corrupt or torn and should not be trusted. */
+   control, these may be corrupt or torn and should not be trusted.
+
+      AFTER_POLL_OVERRUN
+   Is called when an overrun is detected while polling for new frags.
+   This callback is not called when an overrun is detected in
+   during_frag. */
 
 #if !FD_HAS_SSE
 #error "fd_stem requires SSE"
@@ -553,7 +558,12 @@ STEM_(run1)( ulong                        in_cnt,
         finish_regime = &metric_regime_ticks[7];
         this_in->accum[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_COUNT_OFF ]++;
         this_in->accum[ FD_METRICS_COUNTER_LINK_OVERRUN_POLLING_FRAG_COUNT_OFF ] += (uint)(-diff);
+
+#ifdef STEM_CALLBACK_AFTER_POLL_OVERRUN
+        STEM_CALLBACK_AFTER_POLL_OVERRUN( ctx );
+#endif
       }
+
       /* Don't bother with spin as polling multiple locations */
       *housekeeping_regime += housekeeping_ticks;
       *prefrag_regime += prefrag_ticks;
