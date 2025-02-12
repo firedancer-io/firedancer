@@ -587,9 +587,10 @@ monitor_cmd_fn( args_t *         args,
                       allow_fds_cnt,
                       allow_fds,
                       sock_filter_policy_monitor_instr_cnt,
-                      seccomp_filter );
+                      seccomp_filter,
+                      0UL );
   } else {
-    fd_sandbox_switch_uid_gid( config->uid, config->gid );
+    fd_sandbox_switch_uid_gid( config->uid, config->gid, 0UL );
   }
 
   fd_topo_fill( &config->topo );

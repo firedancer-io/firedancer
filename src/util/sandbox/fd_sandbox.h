@@ -69,28 +69,40 @@ fd_sandbox_requires_cap_sys_admin( uint desired_uid,
      (4) The session keyring is replaced with an anonymous keyring.
 
      (5) If keep_controlling_terminal is 0, the process is placed into a
-          new process group and session, with no controlling terminal.
-          This means Ctrl+C from a launching terminal will not deliver
-          SIGINT.
+         new process group and session, with no controlling terminal.
+         This means Ctrl+C from a launching terminal will not deliver
+         SIGINT.
 
-     (6) The effective, real, and saved-set user ID and GID are switched
+     (6) The permitted capabilities are reduced to the minimum required
+         to continue sandboxing, as well as the capabilities requested
+         in desired_capabilities.
+
+     (7) All inheritable and ambient capabilities are dropped.
+
+     (8) If required, SECBIT_KEEP_CAPS is temporarily enabled so that
+         capabilities are retained after a user ID change (either
+         because the kernel requires CAP_SYS_ADMIN to create a user
+         namespace, or because desired_capabilities is not zero).
+
+     (9) The effective, real, and saved-set user ID and GID are switched
          to the desired_uid and desired_gid respectively if they are not
-         already.
+         already.  This has the side effect of clearing out the
+         effective capability set.
 
-     (7) The CLONE_NEWNS, CLONE_NEWNET, CLONE_NEWCGROUP, CLONE_NEWIPC,
-         and CLONE_NEWUTS namespaces are unshared.
+     (10) The CLONE_NEWNS, CLONE_NEWNET, CLONE_NEWCGROUP, CLONE_NEWIPC,
+          and CLONE_NEWUTS namespaces are unshared.
 
-     (8) The CLONE_NEWUSER namespace is unshared.  The new user
-         namespace is set to deny the setgroups(2) syscall, and then a
-         new UID and GID mapping is established: UID 1 and GID 1 in the
-         namespace map to the desired_uid and desired_gid outside the
-         namespace.
+     (11) The CLONE_NEWUSER namespace is unshared.  The new user
+          namespace is set to deny the setgroups(2) syscall, and then a
+          new UID and GID mapping is established: UID 1 and GID 1 in the
+          namespace map to the desired_uid and desired_gid outside the
+          namespace.
 
-     (9) The /proc/sys/user/ sysctls are reduced to zero to prevent
-         creation of any new namespaces, except one more user and one
-         more mount namespace are allowed (to be created soon).
+     (12) The /proc/sys/user/ sysctls are reduced to zero to prevent
+          creation of any new namespaces, except one more user and one
+          more mount namespace are allowed (to be created soon).
 
-     (10) The CLONE_NEWUSER namespace is unshared again, to enter
+     (13) The CLONE_NEWUSER namespace is unshared again, to enter
           another nested user namespace.  This is required to prevent
           modification of the namespace sysctls set above.  The new
           nested namespace is also set to deny the setgroups(2) syscall
@@ -98,13 +110,13 @@ fd_sandbox_requires_cap_sys_admin( uint desired_uid,
           namespace map to UID 1 and GID 1 in the parent (and so map to
           the desired_uid and desired_gid outside the parent).
 
-     (11) The process dumpable bit is cleared.
+     (14) The process dumpable bit is cleared.
 
-     (12) The root filesystem is pivoted into a new empty directory
+     (15) The root filesystem is pivoted into a new empty directory
           created in /tmp.  This unmounts all other mounts, including
           the prior root.  The cwd is set to the new root with chdir(2).
 
-     (13) Most resource limits are reduced to zero, except RLIMIT_NOFILE
+     (16) Most resource limits are reduced to zero, except RLIMIT_NOFILE
           which is set to the provided rlimit_file_cnt argument,
           RLIMIT_ADDRESS_SPACE which is set to the provided
           rlimit_address_space argument, RLIMIT_DATA which is set to the
@@ -112,18 +124,19 @@ fd_sandbox_requires_cap_sys_admin( uint desired_uid,
           1.  RLIMIT_CPU and RLIMIT_FSIZE are left unlimited.
           RLIMIT_LOCKS and RLIMIT_RSS are deprecated and left unchanged.
 
-     (14) All capabilities in the nested user namespace are dropped: the
-          effective, permitted, and inherited sets are all cleared.  The
-          ambient capability set is cleared, and the capability bounding
-          set is zeroed.  The securebits are set to be maximally
-          restrictive: keep caps locked, noroot, etc...
+     (17) The ambient, inheritable and capability sets are zeroed.  The
+          bounding, permitted are reduced to desired_capabilities.  The
+          effective capabilities are raised to desired_capabilities.
 
-     (15) The no_new_privs bit is set.
+     (18) The securebits are set to be maximally restrictive: keep caps
+          locked, noroot, etc...
 
-     (16) An empty landlock restriction is applied to prevent any and
+     (19) The no_new_privs bit is set.
+
+     (20) An empty landlock restriction is applied to prevent any and
           all filesystem operations.
 
-     (17) Finally, a seccomp-bpf filter is installed to prevent most
+     (21) Finally, a seccomp-bpf filter is installed to prevent most
           syscalls from being made.  The filter is provided in the
           seccomp_filter argument.
 
@@ -148,7 +161,8 @@ fd_sandbox_enter( uint                 desired_uid,                  /* User ID 
                   ulong                allowed_file_descriptor_cnt,  /* Number of entries in the allowed_file_descriptor array */
                   int const *          allowed_file_descriptor,      /* Entries [0, allowed_file_descriptor_cnt) describe the allowed file descriptors */
                   ulong                seccomp_filter_cnt,           /* Number of entries in the seccomp_filter array */
-                  struct sock_filter * seccomp_filter );             /* Entries [0, seccomp_filter_cnt) describe the instructions of the seccomp-bpf program to apply */
+                  struct sock_filter * seccomp_filter,               /* Entries [0, seccomp_filter_cnt) describe the instructions of the seccomp-bpf program to apply */
+                  ulong                desired_capabilities );       /* Bit set like (1<<CAP_NET_RAW) of capabilities to retain inside the sandbox for the caller's user namespace */
 
 /* fd_sandbox_switch_uid_gid switches the calling process effective,
    real, and saved-set user ID and GID are switched to the desired_uid
@@ -164,13 +178,27 @@ fd_sandbox_enter( uint                 desired_uid,                  /* User ID 
    only required if the user actually needs to be switched (we are not
    already the desired IDs).
 
-   The Linux kernel clears the dumpable bit on a thread when it
-   switches UID or GID as a security measure, but this function restores
-   the dumpable bit to true. */
+   The specific list of things that happen are:
+
+     (1) If desired_capabilities is not zero, SECBIT_KEEP_CAPS is
+         temporarily enabled so that capabilities are retained after a
+         user ID change.
+
+     (2) The effective, real, and saved-set user ID and GID are switched
+         to the desired_uid and desired_gid respectively if they are not
+         already.  This has the side effect of clearing out the
+         effective capability set, and clearing the dumpable bit.
+
+     (3) The dumpable bit is restored to true.
+
+     (4) SECBIT_KEEP_CAPS is disabled.
+
+     (5) The effective capabilities are raised to desired_capabilities. */
 
 void
-fd_sandbox_switch_uid_gid( uint desired_uid,   /* User ID to switch the process to */
-                           uint desired_gid ); /* Group ID to switch the process to */
+fd_sandbox_switch_uid_gid( uint  desired_uid,             /* User ID to switch the process to */
+                           uint  desired_gid,             /* Group ID to switch the process to */
+                           ulong desired_capabilities );  /* Bit set like (1<<CAP_NET_RAW) of capabilities to retain */
 
 /* fd_sandbox_getpid returns the true PID of the current process as it
    appears in the root PID namespace of the system.

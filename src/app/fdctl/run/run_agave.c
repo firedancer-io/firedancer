@@ -234,7 +234,7 @@ agave_main( void * args ) {
                                  &fd_tile_private_stack0, &fd_tile_private_stack1 );
   FD_LOG_NOTICE(( "booting agave pid:%lu", fd_log_group_id() ));
 
-  fd_sandbox_switch_uid_gid( config->uid, config->gid );
+  fd_sandbox_switch_uid_gid( config->uid, config->gid, 0UL );
 
   agave_boot( config );
   return 0;

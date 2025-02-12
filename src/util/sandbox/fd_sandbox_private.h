@@ -148,16 +148,17 @@ fd_sandbox_private_set_rlimits( ulong rlimit_file_cnt,
 ulong
 fd_sandbox_private_read_cap_last_cap( void );
 
-/* Drop all capabilities (effective, permitted, and inherited) in the
-   current thread, clear the capability bounding set, and set the
-   securebits flags of the current thread to be maximally restrictive.
-   Also clear the ambient capabilities.
+/* Drop all ambient and inheritable capabilities in the current thread.
+   Clear the capability bounding set.  Restrict the effective and
+   permitted capabilities of the current thread to the capability set
+   in desired_capabilities.
 
    cap_last_cap should be the value of /proc/sys/kernel/cap_last_cap,
    the highest capability known to the running Linux kernel. */
 
 void
-fd_sandbox_private_drop_caps( ulong cap_last_cap );
+fd_sandbox_private_drop_caps( ulong cap_last_cap,
+                              ulong desired_capabilities );
 
 /* Apply an empty landlock restriction to the current process.  This
    prevents all filesystem operations: writes, reads truncates,
@@ -204,7 +205,8 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
                                      ulong       rlimit_address_space,
                                      ulong       rlimit_data,
                                      ulong       allowed_file_descriptor_cnt,
-                                     int const * allowed_file_descriptor );
+                                     int const * allowed_file_descriptor,
+                                     ulong       desired_capabilities );
 
 FD_PROTOTYPES_END
 

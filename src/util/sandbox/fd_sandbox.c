@@ -431,7 +431,8 @@ fd_sandbox_private_set_rlimits( ulong rlimit_file_cnt,
 }
 
 void
-fd_sandbox_private_drop_caps( ulong cap_last_cap ) {
+fd_sandbox_private_drop_caps( ulong cap_last_cap,
+                              ulong desired_capabilities ) {
   if( -1==prctl( PR_SET_SECUREBITS,
                  SECBIT_KEEP_CAPS_LOCKED | SECBIT_NO_SETUID_FIXUP |
                     SECBIT_NO_SETUID_FIXUP_LOCKED | SECBIT_NOROOT |
@@ -444,7 +445,14 @@ fd_sandbox_private_drop_caps( ulong cap_last_cap ) {
 
   struct __user_cap_header_struct hdr = { _LINUX_CAPABILITY_VERSION_3, 0 };
   struct __user_cap_data_struct   data[2] = { { 0 } };
-  if( -1==syscall( SYS_capset, &hdr, data ) )                          FD_LOG_ERR(( "syscall(SYS_capset) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( -1==syscall( SYS_capget, &hdr, data ) ) FD_LOG_ERR(( "syscall(SYS_capget) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  data[ 0 ].permitted &= (uint)( desired_capabilities     );
+  data[ 1 ].permitted &= (uint)( desired_capabilities>>32 );
+  data[ 0 ].effective = data[ 0 ].permitted;
+  data[ 1 ].effective = data[ 1 ].permitted;
+  data[ 0 ].inheritable = 0U;
+  data[ 1 ].inheritable = 0U;
+  if( -1==syscall( SYS_capset, &hdr, data ) ) FD_LOG_ERR(( "syscall(SYS_capset) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( -1==prctl( PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0 ) ) FD_LOG_ERR(( "prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
@@ -569,7 +577,8 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
                                      ulong       rlimit_address_space,
                                      ulong       rlimit_data,
                                      ulong       allowed_file_descriptor_cnt,
-                                     int const * allowed_file_descriptor ) {
+                                     int const * allowed_file_descriptor,
+                                     ulong       desired_capabilities ) {
   /* Read the highest capability index on the currently running kernel
      from /proc */
   ulong cap_last_cap = fd_sandbox_private_read_cap_last_cap();
@@ -613,19 +622,38 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
      so we need to make sure to carry this through the switch_uid_gid
      which would drop all capabilities by default. */
   int userns_requires_cap_sys_admin = fd_sandbox_requires_cap_sys_admin( desired_uid, desired_gid );
-  if( userns_requires_cap_sys_admin ) {
+  int keep_caps = userns_requires_cap_sys_admin || desired_capabilities!=0;
+  if( keep_caps ) {
     if( -1==prctl( PR_SET_KEEPCAPS, 1 ) ) FD_LOG_ERR(( "prctl(PR_SET_KEEPCAPS, 1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    /* Drop capabilities that don't need to be retained across the UID
+       switch.  (Dropping inheritable caps also drops ambient caps) */
+    struct __user_cap_header_struct capheader;
+    capheader.version = _LINUX_CAPABILITY_VERSION_3;
+    capheader.pid = 0;
+    struct __user_cap_data_struct capdata[2] = { {0} };
+    capdata[ 0 ].permitted |= (uint)( desired_capabilities     );
+    capdata[ 1 ].permitted |= (uint)( desired_capabilities>>32 );
+    capdata[ CAP_TO_INDEX( CAP_SYS_ADMIN ) ].permitted |= CAP_TO_MASK( CAP_SYS_ADMIN );
+    capdata[ CAP_TO_INDEX( CAP_SETUID    ) ].permitted |= CAP_TO_MASK( CAP_SETUID    );
+    capdata[ CAP_TO_INDEX( CAP_SETGID    ) ].permitted |= CAP_TO_MASK( CAP_SETGID    );
+    capdata[ CAP_TO_INDEX( CAP_SETUID    ) ].effective |= CAP_TO_MASK( CAP_SETUID    );
+    capdata[ CAP_TO_INDEX( CAP_SETGID    ) ].effective |= CAP_TO_MASK( CAP_SETGID    );
+    if( -1==syscall( SYS_capset, &capheader, capdata ) ) FD_LOG_ERR(( "syscall(SYS_capset) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
+
   fd_sandbox_private_switch_uid_gid( desired_uid, desired_gid );
 
   /* Now raise CAP_SYS_ADMIN again after we switched UID/GID, if it's
      required to create the user namespace. */
-  if( userns_requires_cap_sys_admin ) {
+  if( keep_caps ) {
     struct __user_cap_header_struct capheader;
     capheader.version = _LINUX_CAPABILITY_VERSION_3;
     capheader.pid = 0;
     struct __user_cap_data_struct capdata[2] = { {0} };
     if( -1==syscall( SYS_capget, &capheader, capdata ) ) FD_LOG_ERR(( "syscall(SYS_capget) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    capdata[ 0 ].effective |= (uint)( desired_capabilities     );
+    capdata[ 1 ].effective |= (uint)( desired_capabilities>>32 );
     capdata[ CAP_TO_INDEX( CAP_SYS_ADMIN ) ].effective |= CAP_TO_MASK( CAP_SYS_ADMIN );
     if( -1==syscall( SYS_capset, &capheader, capdata ) ) FD_LOG_ERR(( "syscall(SYS_capset) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
@@ -664,7 +692,7 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
   fd_sandbox_private_set_rlimits( rlimit_file_cnt, rlimit_address_space, rlimit_data );
 
   /* And drop all the capabilities we have in the new user namespace. */
-  fd_sandbox_private_drop_caps( cap_last_cap );
+  fd_sandbox_private_drop_caps( cap_last_cap, desired_capabilities );
 
   if( -1==prctl( PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0 ) ) FD_LOG_ERR(( "prctl(PR_SET_NO_NEW_PRIVS, 1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
@@ -680,7 +708,8 @@ fd_sandbox_enter( uint                 desired_uid,
                   ulong                allowed_file_descriptor_cnt,
                   int const *          allowed_file_descriptor,
                   ulong                seccomp_filter_cnt,
-                  struct sock_filter * seccomp_filter ) {
+                  struct sock_filter * seccomp_filter,
+                  ulong                desired_capabilities ) {
   if( seccomp_filter_cnt>USHORT_MAX ) FD_LOG_ERR(( "seccomp_filter_cnt must not be more than %d", USHORT_MAX ));
 
   fd_sandbox_private_enter_no_seccomp( desired_uid,
@@ -691,7 +720,8 @@ fd_sandbox_enter( uint                 desired_uid,
                                        rlimit_address_space,
                                        rlimit_data,
                                        allowed_file_descriptor_cnt,
-                                       allowed_file_descriptor );
+                                       allowed_file_descriptor,
+                                       desired_capabilities );
 
   FD_LOG_INFO(( "sandbox: full sandbox is being enabled" )); /* log before seccomp in-case logging not allowed in sandbox */
 
@@ -700,9 +730,31 @@ fd_sandbox_enter( uint                 desired_uid,
 }
 
 void
-fd_sandbox_switch_uid_gid( uint desired_uid,
-                           uint desired_gid ) {
+fd_sandbox_switch_uid_gid( uint  desired_uid,
+                           uint  desired_gid,
+                           ulong desired_capabilities ) {
+  if( desired_capabilities ) {
+    /* Keep capabilities after UID switch */
+    if( -1==prctl( PR_SET_KEEPCAPS, 1 ) ) FD_LOG_ERR(( "prctl(PR_SET_KEEPCAPS, 1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
   fd_sandbox_private_switch_uid_gid( desired_uid, desired_gid );
+
+  if( desired_capabilities ) {
+    /* Disable PR_SET_KEEPCAPS */
+    if( -1==prctl( PR_SET_KEEPCAPS, 0 ) ) FD_LOG_ERR(( "prctl(PR_SET_KEEPCAPS, 0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+    /* Re-enable effective capabilities */
+    struct __user_cap_header_struct capheader;
+    capheader.version = _LINUX_CAPABILITY_VERSION_3;
+    capheader.pid = 0;
+    struct __user_cap_data_struct capdata[2] = { {0} };
+    if( -1==syscall( SYS_capget, &capheader, capdata ) ) FD_LOG_ERR(( "syscall(SYS_capget) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    capdata[ 0 ].effective |= (uint)( desired_capabilities     );
+    capdata[ 1 ].effective |= (uint)( desired_capabilities>>32 );
+    if( -1==syscall( SYS_capset, &capheader, capdata ) ) FD_LOG_ERR(( "syscall(SYS_capset) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
   FD_LOG_INFO(( "sandbox: sandbox disabled" ));
 }
 

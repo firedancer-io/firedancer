@@ -279,7 +279,7 @@ test_pivot_root( void ) {
 }
 
 void
-test_drop_caps_inner( void ) {
+test_drop_caps_inner( uint desired_capabilities ) {
   uint uid = getuid();
   uint gid = getgid();
   FD_TEST( -1!=unshare( CLONE_NEWUSER ) );
@@ -317,7 +317,7 @@ test_drop_caps_inner( void ) {
   FD_TEST( capdata[ 1 ].permitted  ==0x000001FF );
   FD_TEST( capdata[ 1 ].inheritable==0x000001FF );
 
-  fd_sandbox_private_drop_caps( cap_last_cap );
+  fd_sandbox_private_drop_caps( cap_last_cap, desired_capabilities );
 
   secbits = prctl( PR_GET_SECUREBITS );
   FD_TEST( secbits==(SECBIT_KEEP_CAPS_LOCKED | SECBIT_NO_SETUID_FIXUP |
@@ -330,8 +330,8 @@ test_drop_caps_inner( void ) {
   }
 
   FD_TEST( -1!=syscall( SYS_capget, &capheader, capdata ) );
-  FD_TEST( capdata[ 0 ].effective  ==0U );
-  FD_TEST( capdata[ 0 ].permitted  ==0U );
+  FD_TEST( capdata[ 0 ].effective  ==desired_capabilities );
+  FD_TEST( capdata[ 0 ].permitted  ==desired_capabilities );
   FD_TEST( capdata[ 0 ].inheritable==0U );
   FD_TEST( capdata[ 1 ].effective  ==0U );
   FD_TEST( capdata[ 1 ].permitted  ==0U );
@@ -340,7 +340,7 @@ test_drop_caps_inner( void ) {
 
 void
 test_drop_caps( void ) {
-  TEST_FORK_EXIT_CODE( test_drop_caps_inner(), 0 );
+  TEST_FORK_EXIT_CODE( test_drop_caps_inner( 0UL ), 0 );
 }
 
 struct rlimit_setting {
@@ -491,7 +491,7 @@ test_seccomp( void ) {
 void
 test_undumpable_inner( void ) {
   int allow_fds[] = { 0, 1, 2, 3 };
-  fd_sandbox_private_enter_no_seccomp( getuid(), getgid(), 0, 0, 0UL, 0UL, 0UL, 4UL, allow_fds );
+  fd_sandbox_private_enter_no_seccomp( getuid(), getgid(), 0, 0, 0UL, 0UL, 0UL, 4UL, allow_fds, 0UL );
   FD_TEST( !prctl( PR_GET_DUMPABLE ) );
   FD_TEST( !prctl( PR_GET_KEEPCAPS ) );
 
@@ -514,7 +514,7 @@ test_controlling_terminal_inner( void ) {
   int sid1 = getsid( 0 );
   FD_TEST( -1!=sid1 );
   int allow_fds[] = { 0, 1, 2, 3 };
-  fd_sandbox_private_enter_no_seccomp( getuid(), getgid(), 0, 0, 0UL, 0UL, 0UL, 4UL, allow_fds );
+  fd_sandbox_private_enter_no_seccomp( getuid(), getgid(), 0, 0, 0UL, 0UL, 0UL, 4UL, allow_fds, 0UL );
   int sid2 = getsid( 1 );
   FD_TEST( -1!=sid2 );
   FD_TEST( sid1!=sid2 );
@@ -531,7 +531,7 @@ test_netns_inner( void ) {
   FD_TEST( ifs[ 1 ].if_name != NULL );
 
   int allow_fds[] = { 0, 1, 2, 3 };
-  fd_sandbox_private_enter_no_seccomp( getuid(), getgid(), 0, 0, 0UL, 0UL, 0UL, 4UL, allow_fds );
+  fd_sandbox_private_enter_no_seccomp( getuid(), getgid(), 0, 0, 0UL, 0UL, 0UL, 4UL, allow_fds, 0UL );
 
   ifs = if_nameindex();
   FD_TEST( !ifs );
@@ -545,6 +545,7 @@ test_netns( void ) {
 int
 main( int     argc,
       char ** argv ) {
+  fd_log_enable_unclean_exit();
   fd_boot( &argc, &argv );
 
   FD_LOG_NOTICE(( "Test clear environment" ));

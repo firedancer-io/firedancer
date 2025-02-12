@@ -339,9 +339,10 @@ main_pid_namespace( void * _args ) {
                       allow_fds_cnt,
                       allow_fds,
                       sock_filter_policy_pidns_instr_cnt,
-                      seccomp_filter );
+                      seccomp_filter,
+                      0UL );
   } else {
-    fd_sandbox_switch_uid_gid( config->uid, config->gid );
+    fd_sandbox_switch_uid_gid( config->uid, config->gid, 0UL );
   }
 
   /* Reap child process PIDs so they don't show up in `ps` etc.  All of
@@ -833,9 +834,10 @@ run_firedancer( config_t * const config,
                       allow_fds_cnt,
                       allow_fds,
                       sock_filter_policy_main_instr_cnt,
-                      seccomp_filter );
+                      seccomp_filter,
+                      0UL );
   } else {
-    fd_sandbox_switch_uid_gid( config->uid, config->gid );
+    fd_sandbox_switch_uid_gid( config->uid, config->gid, 0UL );
   }
 
   /* the only clean way to exit is SIGINT or SIGTERM on this parent process,
