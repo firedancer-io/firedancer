@@ -810,7 +810,11 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot );
      O(1).  Returns the current `consumed_idx` for the shred's slot if
      insert is successful, otherwise returns FD_SHRED_IDX_NULL on error.
      Reasons for error include this shred is already in the blockstore or
-     the blockstore is full. */
+     the blockstore is full.
+
+     fd_blockstore_shred_insert will manage locking, so the caller
+     should NOT be acquiring the blockstore read/write lock before
+     calling this function. */
 
 void
 fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred );

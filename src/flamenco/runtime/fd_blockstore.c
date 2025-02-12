@@ -560,6 +560,7 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
                         mblk,
                         slot ));
 
+        fd_blockstore_start_write( blockstore );
         fd_txn_key_t const * sigs =
             (fd_txn_key_t const *)( (ulong)raw + (ulong)txn->signature_off );
         fd_txn_map_t * txn_map = fd_blockstore_txn_map( blockstore );
@@ -570,6 +571,9 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
           }
           fd_txn_key_t sig;
           fd_memcpy( &sig, sigs + j, sizeof( sig ) );
+
+          if( fd_txn_map_query( txn_map, &sig, NULL ) != NULL ) continue;
+
           fd_txn_map_t * elem = fd_txn_map_insert( txn_map, &sig );
           if( elem == NULL ) { break; }
           elem->slot       = slot;
@@ -585,6 +589,7 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
             ref->sz                       = pay_sz;
           }
         }
+        fd_blockstore_end_write( blockstore );
 
         blockoff += pay_sz;
       }
@@ -1132,9 +1137,12 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
      it is invariant that we must have a connected, linear chain for the
      SMR and its ancestors. */
 
+  fd_blockstore_start_read( blockstore );
   if( FD_UNLIKELY( slot <= blockstore->shmem->smr ) ) {
+    fd_blockstore_end_read( blockstore );
     return;
   }
+  fd_blockstore_end_read( blockstore );
 
   /* Test if the blockstore already contains this shred key. */
 
