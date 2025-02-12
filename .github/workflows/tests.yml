@@ -66,7 +66,7 @@ jobs:
           - test-case: linux_clang_icelake
             machine: linux_clang_icelake
             label: icelake
-            extras: "asan ubsan rpath fuzz-stubs handholding"
+            extras: "asan deepasan ubsan rpath fuzz-stubs handholding"
             targets: "all integration-test fdctl"
             compiler: clang
             compiler-version: 15.0.6
