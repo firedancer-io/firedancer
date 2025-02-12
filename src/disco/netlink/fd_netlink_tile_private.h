@@ -7,6 +7,7 @@
 #include "../../waltz/mib/fd_dbl_buf.h"
 #include "../../waltz/mib/fd_netdev_tbl.h"
 #include "../../waltz/neigh/fd_neigh4_map.h"
+#include "../../waltz/neigh/fd_neigh4_probe.h"
 
 /* FD_NETLINK_TILE_CTX_MAGIC uniquely identifies a fd_netlink_tile_ctx_t.
    CHange this whenever the fd_netlink_tile_ctx_t struct changes. */
@@ -44,6 +45,9 @@ struct fd_netlink_tile_ctx {
   fd_neigh4_hmap_t neigh4[1];
   uint             neigh4_ifidx;
   long             idle_cnt;
+
+  /* Neighbor table prober */
+  fd_neigh4_prober_t prober[1];
 
   struct {
     ulong link_full_syncs;
