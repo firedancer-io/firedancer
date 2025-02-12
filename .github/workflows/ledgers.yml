@@ -14,7 +14,7 @@ on:
   workflow_dispatch:
 jobs:
   ledger-replay:
-    timeout-minutes: 30
+    timeout-minutes: 15
     runs-on: [self-hosted, 512G]
     env:
       CC: gcc
