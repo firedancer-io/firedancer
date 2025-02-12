@@ -114,7 +114,7 @@ fd_pending_slots_iter_next( fd_pending_slots_t * pending_slots,
       break;
     }
     long * ele = &pending_slots->pending[ i & FD_PENDING_MASK ];
-    if( i <= pending_slots->lo_wmark || *ele == 0 ) {
+    if( FD_LIKELY( i <= pending_slots->lo_wmark || *ele == 0 ) ){
       /* Empty or useless slot */
       if( pending_slots->start == i )
         pending_slots->start = i+1U; /* Pop it */

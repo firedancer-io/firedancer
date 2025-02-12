@@ -637,7 +637,7 @@ FD_FN_CONST ulong fd_tpool_footprint( ulong worker_max );
 
 /* fd_tpool_init formats a memory region mem with the appropriate
    alignment and footprint as a thread pool that can support up to
-   worker_max worker threads.  worker max must be in [1,FD_TILE_MAX].
+   worker_max worker threasds.  worker max must be in [1,FD_TILE_MAX].
    Returns a handle for the tpool (this is not a simple cast of mem) on
    success and NULL on failure (logs details).  On a success return,
    worker 0 will already exist.  Many threads can temporarily assume the
@@ -646,7 +646,7 @@ FD_FN_CONST ulong fd_tpool_footprint( ulong worker_max );
    operation and can also flexibly participates in the tpool in bulk
    operations.  This uses init/fini semantics instead of
    new/join/leave/delete semantics because thread pools aren't
-   meaningfully sharable between processes / thread groups.  This
+   meaningfully sharable between proceses / thread groups.  This
    function acts as a compiler memory fence. */
 
 fd_tpool_t *

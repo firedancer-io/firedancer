@@ -1151,20 +1151,7 @@
 #define MAP_IMPL_STYLE 0
 #endif
 
-/* Commom map error codes (FIXME: probably should get around to making
-   unified error codes, error strings and/or flags across util at least
-   so we don't have to do this in the generator itself) */
-
-#define FD_MAP_SUCCESS     (0)
-#define FD_MAP_ERR_INVAL   (-1)
-#define FD_MAP_ERR_AGAIN   (-2)
-#define FD_MAP_ERR_CORRUPT (-3)
-//#define FD_MAP_ERR_EMPTY   (-4)
-//#define FD_MAP_ERR_FULL    (-5)
-#define FD_MAP_ERR_KEY     (-6)
-
-#define FD_MAP_FLAG_BLOCKING (1)
-#define FD_MAP_FLAG_ADAPTIVE (2)
+#include "../../util/tmpl/fd_map_util.h"
 
 /* Implementation *****************************************************/
 
