@@ -9,14 +9,14 @@
 #include "../../choreo/tower/fd_tower.h"
 #include "../../flamenco/types/fd_types.h"
 
-#define RESTART_MAGIC_TAG                         128UL
+#define FD_RESTART_MAGIC_TAG                                128UL
 
 /* Protocol parameters of wen-restart */
-#define RESTART_EPOCHS_MAX                       2UL
-#define HEAVIEST_FORK_THRESHOLD_DELTA_PERCENT    38UL
-#define WAIT_FOR_NEXT_EPOCH_THRESHOLD_PERCENT    33UL
-#define WAIT_FOR_SUPERMAJORITY_THRESHOLD_PERCENT 80UL
-#define LAST_VOTED_FORK_MAX_SLOTS                0xFFFFUL
+#define FD_RESTART_EPOCHS_MAX                               2UL
+#define FD_RESTART_HEAVIEST_FORK_THRESHOLD_DELTA_PERCENT    38UL
+#define FD_RESTART_WAIT_FOR_NEXT_EPOCH_THRESHOLD_PERCENT    33UL
+#define FD_RESTART_WAIT_FOR_SUPERMAJORITY_THRESHOLD_PERCENT 80UL
+#define FD_RESTART_LAST_VOTED_FORK_MAX_SLOTS                0xFFFFUL
 
 /* Implementation-specific parameters */
 #define FD_RESTART_MAX_PEERS               40200UL
@@ -26,11 +26,11 @@
 #define FD_RESTART_LINK_BYTES_MAX          ( sizeof(fd_gossip_restart_last_voted_fork_slots_t)+FD_RESTART_RAW_BITMAP_BYTES_MAX )
 
 typedef enum {
-    WR_STAGE_WAIT_FOR_INIT                = 0,
-    WR_STAGE_FIND_HEAVIEST_FORK_SLOT_NUM  = 1,
-    WR_STAGE_FIND_HEAVIEST_FORK_BANK_HASH = 2,
-    WR_STAGE_GENERATE_SNAPSHOT            = 3,
-    WR_STAGE_DONE                         = 4
+    FD_RESTART_STAGE_WAIT_FOR_INIT                = 0,
+    FD_RESTART_STAGE_FIND_HEAVIEST_FORK_SLOT_NUM  = 1,
+    FD_RESTART_STAGE_FIND_HEAVIEST_FORK_BANK_HASH = 2,
+    FD_RESTART_STAGE_GENERATE_SNAPSHOT            = 3,
+    FD_RESTART_STAGE_DONE                         = 4
 } fd_wen_restart_stage_t;
 
 /* fd_restart_t contains all the states maintained by wen-restart.
@@ -43,15 +43,15 @@ struct fd_restart {
   ulong                  root_epoch;
   fd_hash_t              root_bank_hash;
   fd_epoch_schedule_t *  epoch_schedule;
-  ulong                  total_stake[ RESTART_EPOCHS_MAX ];
-  ulong                  num_vote_accts[ RESTART_EPOCHS_MAX ];
-  fd_stake_weight_t      stake_weights[ RESTART_EPOCHS_MAX ][ FD_RESTART_MAX_PEERS ];
+  ulong                  total_stake[ FD_RESTART_EPOCHS_MAX ];
+  ulong                  num_vote_accts[ FD_RESTART_EPOCHS_MAX ];
+  fd_stake_weight_t      stake_weights[ FD_RESTART_EPOCHS_MAX ][ FD_RESTART_MAX_PEERS ];
 
   /* States maintained by the FIND_HEAVIEST_FORK_SLOT_NUM stage */
-  ulong                  total_stake_received[ RESTART_EPOCHS_MAX ];
-  ulong                  total_stake_received_and_voted[ RESTART_EPOCHS_MAX ];
-  uchar                  last_voted_fork_slots_received[ RESTART_EPOCHS_MAX ][ FD_RESTART_MAX_PEERS ];
-  ulong                  slot_to_stake[ LAST_VOTED_FORK_MAX_SLOTS ]; /* the index is an offset from funk_root */
+  ulong                  total_stake_received[ FD_RESTART_EPOCHS_MAX ];
+  ulong                  total_stake_received_and_voted[ FD_RESTART_EPOCHS_MAX ];
+  uchar                  last_voted_fork_slots_received[ FD_RESTART_EPOCHS_MAX ][ FD_RESTART_MAX_PEERS ];
+  ulong                  slot_to_stake[ FD_RESTART_LAST_VOTED_FORK_MAX_SLOTS ]; /* the index is an offset from funk_root */
 
   /* States maintained by the FIND_HEAVIEST_FORK_BANK_HASH stage */
   fd_pubkey_t            my_pubkey;
@@ -117,15 +117,15 @@ fd_restart_init( fd_restart_t *             restart,
    whether we have received such messages from more than 80% stake where
    80% is specified as WAIT_FOR_SUPERMAJORITY_THRESHOLD_PERCENT. If so,
    out_heaviest_fork_found would be set to 1, and the stage will be set
-   to WR_STAGE_FIND_HEAVIEST_FORK_BANK_HASH.
+   to FD_RESTART_STAGE_FIND_HEAVIEST_FORK_BANK_HASH.
 
    In case of a heaviest_fork message, the function would check whether
    this message comes from the wen-restart coordinator, and if so, record
    the heaviest fork information in this message for later verification. */
 void
 fd_restart_recv_gossip_msg( fd_restart_t * restart,
-                            void * gossip_msg,
-                            ulong * out_heaviest_fork_found );
+                            void *         gossip_msg,
+                            ulong *        out_heaviest_fork_found );
 
 /* fd_restart_find_heaviest_fork_bank_hash will check whether the funk
    root happens to be the chosen heaviest fork slot. If so, it simply
@@ -135,8 +135,8 @@ fd_restart_recv_gossip_msg( fd_restart_t * restart,
    heaviest fork slot in order to get the bank hash. */
 void
 fd_restart_find_heaviest_fork_bank_hash( fd_restart_t * restart,
-                                         fd_funk_t * funk,
-                                         ulong * out_need_repair );
+                                         fd_funk_t *    funk,
+                                         ulong *        out_need_repair );
 
 /* fd_restart_verify_heaviest_fork is invoked repeatedly by the replay
    tile. It is a no-op if either the coordinator heaviest fork hash or
@@ -148,9 +148,13 @@ fd_restart_find_heaviest_fork_bank_hash( fd_restart_t * restart,
    out_buf will hold a message of type fd_gossip_restart_heaviest_fork_t,
    which will be sent out by the gossip tile. */
 void
-fd_restart_verify_heaviest_fork( fd_restart_t * restart,
-                                 uchar * out_buf,
-                                 ulong * out_send );
+fd_restart_verify_heaviest_fork( fd_restart_t *   restart,
+                                 ulong *          is_constipated,
+                                 fd_slot_pair_t * hard_forks,
+                                 ulong            hard_forks_len,
+                                 fd_hash_t *      genesis_hash,
+                                 uchar *          out_buf,
+                                 ulong *          out_send );
 
 /* fd_restart_convert_runlength_to_raw_bitmap converts the bitmap in
    a last_voted_fork_slots message from the run length encoding into
@@ -163,26 +167,19 @@ fd_restart_verify_heaviest_fork( fd_restart_t * restart,
    gossip tile tries to send out a last_voted_fork_slots message. */
 void
 fd_restart_convert_runlength_to_raw_bitmap( fd_gossip_restart_last_voted_fork_slots_t * msg,
-                                            uchar * out_bitmap,
-                                            ulong * out_bitmap_len );
+                                            uchar *                                     out_bitmap,
+                                            ulong *                                     out_bitmap_len );
 
 void
 fd_restart_convert_raw_bitmap_to_runlength( fd_gossip_restart_last_voted_fork_slots_t * msg,
-                                            fd_restart_run_length_encoding_inner_t * out_encoding );
+                                            fd_restart_run_length_encoding_inner_t *    out_encoding );
 
 /* fd_restart_tower_checkpt checkpoints the latest sent tower into a
-   local file and it is invoked every time the replay tile sends out
-   a tower vote; fd_restart_tower_restore reads this checkpoint file
-   in fd_restart_init for the last_voted_fork_slot message sent out */
+   file and it is invoked every time the replay tile sends a tower vote. */
 void
 fd_restart_tower_checkpt( fd_hash_t const * vote_bank_hash,
-                          fd_tower_t * tower,
-                          ulong root,
-                          int tower_checkpt_fileno );
-
-void
-fd_restart_tower_restore( fd_hash_t * vote_bank_hash,
-                          ulong * tower_slots,
-                          ulong * tower_height,
-                          int tower_checkpt_fileno );
+                          fd_tower_t *      tower,
+                          fd_ghost_t *      ghost,
+                          ulong             root,
+                          int               tower_checkpt_fileno );
 #endif
