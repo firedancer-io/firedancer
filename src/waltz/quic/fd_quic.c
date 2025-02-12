@@ -491,7 +491,7 @@ fd_quic_init( fd_quic_t * quic ) {
   }
   state->svc_delay[ FD_QUIC_SVC_INSTANT ] = 0UL;
   state->svc_delay[ FD_QUIC_SVC_ACK_TX  ] = quic->config.ack_delay;
-  state->svc_delay[ FD_QUIC_SVC_WAIT    ] = quic->config.idle_timeout;
+  state->svc_delay[ FD_QUIC_SVC_WAIT    ] = quic->config.idle_timeout * 10;
 
   /* Check TX AIO */
 
@@ -1368,6 +1368,7 @@ fd_quic_send_retry( fd_quic_t *               quic,
                     uint                      dst_ip_addr,
                     ushort                    dst_udp_port ) {
 
+  FD_DTRACE_PROBE_3( fd_quic_send_retry, fd_ulong_load_8(odcid->conn_id), new_conn_id, dst_ip_addr );
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
   ulong expire_at = state->now + quic->config.retry_ttl;
@@ -1755,6 +1756,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
   }
 
   /* update last activity */
+  FD_DTRACE_PROBE_2( fd_quic_initial_touch_last_activity, conn->our_conn_id, state->now );
   conn->last_activity = state->now;
   conn->flags &= ~( FD_QUIC_CONN_FLAGS_PING_SENT | FD_QUIC_CONN_FLAGS_PING );
 
@@ -1906,6 +1908,7 @@ fd_quic_handle_v1_handshake(
   }
 
   /* update last activity */
+  FD_DTRACE_PROBE_2( fd_quic_hs_touch_last_activity, conn->our_conn_id, fd_quic_get_state( quic )->now );
   conn->last_activity = fd_quic_get_state( quic )->now;
   conn->flags &= ~( FD_QUIC_CONN_FLAGS_PING_SENT | FD_QUIC_CONN_FLAGS_PING );
 
@@ -2161,6 +2164,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
   }
 
   /* update last activity */
+  FD_DTRACE_PROBE_2( fd_quic_one_rtt_touch_last_activity, conn->our_conn_id, fd_quic_get_state( quic )->now );
   conn->last_activity = fd_quic_get_state( quic )->now;
 
   /* update expected packet number */
@@ -2168,7 +2172,6 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
 
   return tot_sz;
 }
-
 
 /* process v1 quic packets
    returns number of bytes consumed, or FD_QUIC_PARSE_FAIL upon error */
@@ -2215,9 +2218,13 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     if( dcid.sz == FD_QUIC_CONN_ID_SZ ) {
       conn = fd_quic_conn_query( state->conn_map, fd_ulong_load_8( dcid.conn_id ) );
     }
+
     fd_quic_conn_id_t scid = fd_quic_conn_id_new( long_hdr->src_conn_id, long_hdr->src_conn_id_len );
 
     uchar long_packet_type = fd_quic_h0_long_packet_type( *cur_ptr );
+
+    FD_DTRACE_PROBE_3( fd_quic_process_quic_packet_v1_long_hdr, long_packet_type, fd_ulong_load_8(dcid.conn_id),
+                       conn ? conn->our_conn_id : 0 );
 
     /* encryption level matches that of TLS */
     pkt->enc_level = long_packet_type; /* V2 uses an indirect mapping */
@@ -2259,6 +2266,7 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
 
     /* find connection id */
     ulong dst_conn_id = fd_ulong_load_8( cur_ptr+1 );
+    FD_DTRACE_PROBE_1( fd_quic_process_quic_packet_v1_short_hdr, dst_conn_id );
     conn = fd_quic_conn_query( state->conn_map, dst_conn_id );
     if( FD_UNLIKELY( !conn ) ) {
       FD_DEBUG( FD_LOG_DEBUG(( "one_rtt failed: no connection found" )) );
@@ -2706,7 +2714,8 @@ fd_quic_tls_cb_peer_params( void *        context,
 
   /* set the max_idle_timeout to the min of our and peer max_idle_timeout */
   if( peer_tp->max_idle_timeout ) {
-    conn->idle_timeout = fd_ulong_min( (ulong)(1e6) * peer_tp->max_idle_timeout, conn->idle_timeout );
+    /* 10 for margin of safety */
+    conn->idle_timeout = 10*fd_ulong_min( (ulong)(1e6) * peer_tp->max_idle_timeout, conn->idle_timeout );
   }
 
   /* set ack_delay_exponent so we can properly interpret peer's ack_delays
@@ -2863,9 +2872,13 @@ fd_quic_svc_poll( fd_quic_t *      quic,
             "... the connection is silently closed and its state is discarded
             when it remains idle for longer than the minimum of the
             max_idle_timeout value advertised by both endpoints." */
+        if( FD_UNLIKELY( !fd_quic_conn_query( state->conn_map, conn->our_conn_id ) ) ) {
+          FD_DTRACE_PROBE_1( fd_quic_timeout_missing_conn, conn->our_conn_id );
+        }
         FD_DEBUG( FD_LOG_WARNING(( "%s  conn %p  conn_idx: %u  closing due to idle timeout (%g ms)",
             conn->server?"SERVER":"CLIENT",
             (void *)conn, conn->conn_idx, (double)conn->idle_timeout / 1e6 )); )
+        FD_DTRACE_PROBE_1( fd_quic_conn_idle_timeout, conn->our_conn_id );
 
         conn->state = FD_QUIC_CONN_STATE_DEAD;
         quic->metrics.conn_timeout_cnt++;
@@ -3854,6 +3867,8 @@ fd_quic_conn_tx( fd_quic_t *      quic,
       /* next iteration should skip the current packet number */
       pkt_meta->pkt_number++;
     }
+
+    FD_DTRACE_PROBE_3( fd_quic_conn_tx, conn_id, enc_level, pkt_number );
 
     if( enc_level == fd_quic_enc_level_appdata_id ) {
       /* short header must be last in datagram
