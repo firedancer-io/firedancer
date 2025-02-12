@@ -1368,6 +1368,7 @@ fd_quic_send_retry( fd_quic_t *               quic,
                     uint                      dst_ip_addr,
                     ushort                    dst_udp_port ) {
 
+  FD_DTRACE_PROBE_3( fd_quic_send_retry, fd_ulong_load_8(odcid->conn_id), new_conn_id, dst_ip_addr );
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
   ulong expire_at = state->now + quic->config.retry_ttl;
@@ -2218,10 +2219,12 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
       conn = fd_quic_conn_query( state->conn_map, fd_ulong_load_8( dcid.conn_id ) );
     }
 
-    FD_DTRACE_PROBE_1( fd_quic_process_quic_packet_v1_long_hdr, fd_ulong_load_8(dcid.conn_id) );
     fd_quic_conn_id_t scid = fd_quic_conn_id_new( long_hdr->src_conn_id, long_hdr->src_conn_id_len );
 
     uchar long_packet_type = fd_quic_h0_long_packet_type( *cur_ptr );
+
+    FD_DTRACE_PROBE_3( fd_quic_process_quic_packet_v1_long_hdr, long_packet_type, fd_ulong_load_8(dcid.conn_id),
+                       conn ? conn->our_conn_id : 0 );
 
     /* encryption level matches that of TLS */
     pkt->enc_level = long_packet_type; /* V2 uses an indirect mapping */
@@ -2869,6 +2872,9 @@ fd_quic_svc_poll( fd_quic_t *      quic,
             "... the connection is silently closed and its state is discarded
             when it remains idle for longer than the minimum of the
             max_idle_timeout value advertised by both endpoints." */
+        if( FD_UNLIKELY( !fd_quic_conn_query( state->conn_map, conn->our_conn_id ) ) ) {
+          FD_DTRACE_PROBE_1( fd_quic_timeout_missing_conn, conn->our_conn_id );
+        }
         FD_DEBUG( FD_LOG_WARNING(( "%s  conn %p  conn_idx: %u  closing due to idle timeout (%g ms)",
             conn->server?"SERVER":"CLIENT",
             (void *)conn, conn->conn_idx, (double)conn->idle_timeout / 1e6 )); )
@@ -3861,6 +3867,8 @@ fd_quic_conn_tx( fd_quic_t *      quic,
       /* next iteration should skip the current packet number */
       pkt_meta->pkt_number++;
     }
+
+    FD_DTRACE_PROBE_3( fd_quic_conn_tx, conn_id, enc_level, pkt_number );
 
     if( enc_level == fd_quic_enc_level_appdata_id ) {
       /* short header must be last in datagram
