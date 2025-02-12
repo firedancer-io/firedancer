@@ -1,4 +1,9 @@
 #include "../fd_util.h"
+#if FD_HAS_HOSTED
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 #define ELE_MAX  (8UL)
 #define ELE_IDX_NULL (~0UL)
@@ -179,6 +184,11 @@ struct tst_ele {
 };
 
 typedef struct tst_ele tst_ele_t;
+
+#ifndef FD_TMPL_USE_HANDHOLDING
+#define FD_UNDEF_HANDHOLDING
+#define FD_TMPL_USE_HANDHOLDING 1
+#endif
 
 #define POOL_NAME  tst_pool
 #define POOL_T     tst_ele_t
@@ -581,6 +591,38 @@ main( int     argc,
     }
   }
 
+  /* test handholding */
+#if FD_HAS_HOSTED && FD_TMPL_USE_HANDHOLDING
+  #define FD_EXPECT_LOG_ERR( CALL ) do {                           \
+    FD_LOG_DEBUG(( "Testing that "#CALL" triggers exit( 1 )" ));   \
+    pid_t pid = fork();                                            \
+    FD_TEST( pid >= 0 );                                           \
+    if( pid == 0 ) {                                               \
+      fd_log_level_logfile_set( 5 );                               \
+      __typeof__(CALL) res = (CALL);                               \
+      __asm__("" : "+r"(res));                                     \
+      _exit( 0 );                                                  \
+    }                                                              \
+    int status = 0;                                                \
+    wait( &status );                                               \
+                                                                   \
+    FD_TEST( WIFEXITED(status) && (WEXITSTATUS(status) == 1) );    \
+  } while( 0 )                                                     \
+
+  FD_LOG_NOTICE(( "Testing boundary conditions of operations on an empty dlist" ));
+  FD_TEST( tst_dlist_remove_all( tst_dlist, tst_ele ) );
+  FD_EXPECT_LOG_ERR( tst_dlist_idx_peek_head      ( tst_dlist, tst_ele ) );
+  FD_EXPECT_LOG_ERR( tst_dlist_ele_peek_tail      ( tst_dlist, tst_ele ) );
+  FD_EXPECT_LOG_ERR( tst_dlist_ele_peek_head      ( tst_dlist, tst_ele ) );
+  FD_EXPECT_LOG_ERR( tst_dlist_ele_peek_tail_const( tst_dlist, tst_ele ) );
+  FD_EXPECT_LOG_ERR( tst_dlist_ele_peek_head_const( tst_dlist, tst_ele ) );
+  FD_EXPECT_LOG_ERR( tst_dlist_idx_peek_tail      ( tst_dlist, tst_ele ) );
+  FD_EXPECT_LOG_ERR( tst_dlist_idx_pop_head       ( tst_dlist, tst_ele ) );
+  FD_EXPECT_LOG_ERR( tst_dlist_idx_pop_tail       ( tst_dlist, tst_ele ) );
+#else
+  FD_LOG_WARNING(( "skip: testing handholding, requires hosted" ));
+#endif
+
   FD_LOG_NOTICE(( "Test destruction" ));
 
   FD_TEST( !tst_dlist_leave( NULL ) ); /* NULL dlist */
@@ -588,7 +630,7 @@ main( int     argc,
   FD_TEST( tst_dlist_leave( tst_dlist )==(void *)shdlist );
 
   FD_TEST( !tst_dlist_delete( NULL        ) ); /* NULL shdlist */
-  FD_TEST( !tst_dlist_delete( (void *)1UL ) ); /* misaliged    */
+  FD_TEST( !tst_dlist_delete( (void *)1UL ) ); /* misaligned    */
 
   FD_TEST( tst_dlist_delete( shdlist )==(void *)shmem );
 
@@ -605,3 +647,7 @@ main( int     argc,
   return 0;
 }
 
+#ifdef FD_UNDEF_HANDHOLDING
+#undef FD_TMPL_USE_HANDHOLDING
+#undef FD_UNDEF_HANDHOLDING
+#endif

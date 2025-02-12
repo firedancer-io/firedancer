@@ -56,7 +56,7 @@
      // mymap_chain_cnt_est returns a reasonable number of chains to use
      // for a map that is expected to hold up to ele_max_est elements.
      // ele_max_est will be clamped to be in [1,mymap_ele_max()] and the
-     // return value will be a integer power-of-two in
+     // return value will be an integer power-of-two in
      // [1,mymap_chain_max()].
 
      ulong mymap_chain_cnt_est( ulong ele_max_est );
@@ -239,11 +239,11 @@
    compilation units.  Further, options exist to use index compression,
    different hashing functions, comparison functions, etc as detailed
    below.
-   
+
    If MAP_MULTI is defined to be 1, the map will support multiple
    entries for the same key. In this case, the existing API works as
    is, but new methods are provided:
-   
+
      ulong                                           // Index of found element on success, sentinel on failure
      mymap_idx_next_const( ulong           prev,     // Previous result of mymap_idx_query_const
                            ulong           sentinel, // Value to return on failure
@@ -338,6 +338,13 @@
 
 #ifndef MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL
 #define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 0
+#endif
+
+/* FD_TMPL_USE_HANDHOLDING is disabled by default in production */
+
+#ifndef FD_TMPL_USE_HANDHOLDING
+#define FD_UNDEF_HANDHOLDING
+#define FD_TMPL_USE_HANDHOLDING 0
 #endif
 
 /* Implementation *****************************************************/
@@ -508,6 +515,9 @@ FD_FN_PURE static inline MAP_(iter_t)
 MAP_(iter_next)( MAP_(iter_t)      iter,
                  MAP_(t) const *   join,
                  MAP_ELE_T const * pool ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( MAP_(iter_done)( iter, join, pool ) ) ) FD_LOG_ERR(( "assumes not done" ));
+#endif
   ulong chain_rem = iter.chain_rem;
   ulong ele_idx   = iter.ele_idx;
 
@@ -542,6 +552,9 @@ FD_FN_CONST static inline ulong
 MAP_(iter_idx)( MAP_(iter_t)    iter,
                 MAP_(t) const * join,
                 MAP_ELE_T *     pool ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( MAP_(iter_done)( iter, join, pool ) ) ) FD_LOG_ERR(( "assumes not done" ));
+#endif
   (void)join; (void)pool;
   return iter.ele_idx;
 }
@@ -550,6 +563,9 @@ FD_FN_CONST static inline MAP_ELE_T *
 MAP_(iter_ele)( MAP_(iter_t)    iter,
                 MAP_(t) const * join,
                 MAP_ELE_T *     pool ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( MAP_(iter_done)( iter, join, pool ) ) ) FD_LOG_ERR(( "assumes not done" ));
+#endif
   (void)join; (void)pool;
   return pool + iter.ele_idx;
 }
@@ -558,6 +574,9 @@ FD_FN_CONST static inline MAP_ELE_T const *
 MAP_(iter_ele_const) ( MAP_(iter_t)      iter,
                        MAP_(t) const *   join,
                        MAP_ELE_T const * pool ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( MAP_(iter_done)( iter, join, pool ) ) ) FD_LOG_ERR(( "assumes not done" ));
+#endif
   (void)join; (void)pool;
   return pool + iter.ele_idx;
 }
@@ -733,10 +752,44 @@ MAP_(delete)( void * shmap ) {
   return shmap;
 }
 
+FD_FN_PURE MAP_IMPL_STATIC ulong
+MAP_(idx_query)( MAP_(t) *         join,
+                 MAP_KEY_T const * key,
+                 ulong             sentinel,
+                 MAP_ELE_T *       pool ) {
+  MAP_(private_t) * map = MAP_(private)( join );
+
+  /* Find the key */
+
+  MAP_IDX_T * head = MAP_(private_chain)( map ) + MAP_(private_chain_idx)( key, map->seed, map->chain_cnt );
+  MAP_IDX_T * cur  = head;
+  for(;;) {
+    ulong ele_idx = MAP_(private_unbox)( *cur );
+    if( FD_UNLIKELY( MAP_(private_idx_is_null)( ele_idx ) ) ) break; /* optimize for found */
+    if( FD_LIKELY( MAP_(key_eq)( key, &pool[ ele_idx ].MAP_KEY ) ) ) { /* optimize for found */
+      /* Found, move it to the front of the chain */
+      if( FD_UNLIKELY( cur!=head ) ) { /* Assume already at head from previous query */
+        *cur = pool[ ele_idx ].MAP_NEXT;
+        pool[ ele_idx ].MAP_NEXT = *head;
+        *head = MAP_(private_box)( ele_idx );
+      }
+      return ele_idx;
+    }
+    cur = &pool[ ele_idx ].MAP_NEXT; /* Retain the pointer to next so we can rewrite it later. */
+  }
+
+  /* Not found */
+
+  return sentinel;
+}
+
 MAP_IMPL_STATIC MAP_(t) *
 MAP_(idx_insert)( MAP_(t) *   join,
                   ulong       ele_idx,
                   MAP_ELE_T * pool ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( MAP_(idx_query)( join, &pool[ ele_idx ].MAP_KEY, 0UL, pool ) ) ) FD_LOG_ERR(( "ele_idx already in map" ));
+#endif
   MAP_(private_t) * map = MAP_(private)( join );
 
   MAP_IDX_T * head = MAP_(private_chain)( map ) + MAP_(private_chain_idx)( &pool[ ele_idx ].MAP_KEY, map->seed, map->chain_cnt );
@@ -796,37 +849,6 @@ MAP_(idx_remove_fast)( MAP_(t) *   join,
 #endif
 
 FD_FN_PURE MAP_IMPL_STATIC ulong
-MAP_(idx_query)( MAP_(t) *         join,
-                 MAP_KEY_T const * key,
-                 ulong             sentinel,
-                 MAP_ELE_T *       pool ) {
-  MAP_(private_t) * map = MAP_(private)( join );
-
-  /* Find the key */
-
-  MAP_IDX_T * head = MAP_(private_chain)( map ) + MAP_(private_chain_idx)( key, map->seed, map->chain_cnt );
-  MAP_IDX_T * cur  = head;
-  for(;;) {
-    ulong ele_idx = MAP_(private_unbox)( *cur );
-    if( FD_UNLIKELY( MAP_(private_idx_is_null)( ele_idx ) ) ) break; /* optimize for found */
-    if( FD_LIKELY( MAP_(key_eq)( key, &pool[ ele_idx ].MAP_KEY ) ) ) { /* optimize for found */
-      /* Found, move it to the front of the chain */
-      if( FD_UNLIKELY( cur!=head ) ) { /* Assume already at head from previous query */
-        *cur = pool[ ele_idx ].MAP_NEXT;
-        pool[ ele_idx ].MAP_NEXT = *head;
-        *head = MAP_(private_box)( ele_idx );
-      }
-      return ele_idx;
-    }
-    cur = &pool[ ele_idx ].MAP_NEXT; /* Retain the pointer to next so we can rewrite it later. */
-  }
-
-  /* Not found */
-
-  return sentinel;
-}
-
-FD_FN_PURE MAP_IMPL_STATIC ulong
 MAP_(idx_query_const)( MAP_(t) const *   join,
                        MAP_KEY_T const * key,
                        ulong             sentinel,
@@ -855,7 +877,7 @@ MAP_(idx_next_const)( ulong             prev,     // Previous result of mymap_id
                       ulong             sentinel, // Value to return on failure
                       MAP_ELE_T const * pool ) {  // Current local join to element storage
   /* Go to next element in chain */
-  
+
   MAP_ELE_T const * prev_ele = &pool[ prev ];
   MAP_IDX_T const * cur = &prev_ele->MAP_NEXT;
   for(;;) {
@@ -937,7 +959,7 @@ MAP_(verify)( MAP_(t) const *   join,
       MAP_TEST( idx2 == ele_idx );
 #endif
     }
-  
+
 # undef MAP_TEST
 
   return 0;
@@ -1026,3 +1048,7 @@ FD_PROTOTYPES_END
 #undef MAP_NAME
 #undef MAP_MULTI
 #undef MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL
+#ifdef FD_UNDEF_HANDHOLDING
+#undef FD_TMPL_USE_HANDHOLDING
+#undef FD_UNDEF_HANDHOLDING
+#endif

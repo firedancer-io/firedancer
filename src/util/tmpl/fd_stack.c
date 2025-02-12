@@ -114,7 +114,7 @@ static inline STACK_T *
 STACK_(join)( void * shstack ) {
   STACK_(private_t) * hdr = (STACK_(private_t) *)shstack;
   return hdr->stack;
-} 
+}
 
 static inline void * STACK_(leave) ( STACK_T * stack   ) { return (void *)STACK_(private_hdr_from_stack)( stack ); }
 static inline void * STACK_(delete)( void *    shstack ) { return shstack; }
