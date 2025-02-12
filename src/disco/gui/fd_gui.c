@@ -121,6 +121,17 @@ fd_gui_join( void * shmem ) {
 }
 
 void
+fd_gui_set_identity( fd_gui_t *    gui,
+                     uchar const * identity_pubkey ) {
+  memcpy( gui->summary.identity_key->uc, identity_pubkey, 32UL );
+  fd_base58_encode_32( identity_pubkey, NULL, gui->summary.identity_key_base58 );
+  gui->summary.identity_key_base58[ FD_BASE58_ENCODED_32_SZ-1UL ] = '\0';
+
+  fd_gui_printf_identity_key( gui );
+  fd_http_server_ws_broadcast( gui->http );
+}
+
+void
 fd_gui_ws_open( fd_gui_t * gui,
                 ulong      ws_conn_id ) {
   void (* printers[] )( fd_gui_t * gui ) = {
