@@ -18,8 +18,8 @@ check if you're using a supported compiler and to run `./deps.sh`!
 the solana submodule _after_ pulling the latest changes. For example:
 
 ```sh [bash]
-~/firedancer $ git fetch
-~/firedancer $ git checkout v0.1
+~/firedancer $ git fetch --tags
+~/firedancer $ git checkout v0.305.20111
 ~/firedancer $ git submodule update
 ```
 
