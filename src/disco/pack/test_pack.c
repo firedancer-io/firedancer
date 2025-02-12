@@ -1,5 +1,6 @@
 #include "../../ballet/fd_ballet.h"
 #include "fd_pack.h"
+#include "fd_pack_cost.h"
 #include "fd_compute_budget_program.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../ballet/base58/fd_base58.h"
@@ -7,7 +8,6 @@
 #include <math.h>
 
 FD_IMPORT_BINARY( sample_vote, "src/disco/pack/sample_vote.bin" );
-#define SAMPLE_VOTE_COST (4335UL)
 
 #define MAX_TEST_TXNS (1024UL)
 #define MAX_DATA_PER_BLOCK (5UL*1024UL*1024UL)
@@ -80,18 +80,24 @@ init_all( ulong pack_depth,
    each character in reads and writes one account for each character in
    writes.  The characters before the nul-terminator in reads and writes
    should be in [0x30, 0x70), basically numbers and uppercase letters.
-   Adds a unique signer.  Packing should estimate compute usage near the
-   specified value.  Fee will be set to 5^priority, so that even with a
-   large stall, it should still schedule in decreasing priority order.
-   priority should be in (0, 13.5].  Stores the created transaction in
-   txn_scratch[ i ] and payload_scratch[ i ].  Returns the priority fee
-   in lamports. */
-static ulong
+   Adds a unique signer.  A computeBudgetInstruction will be included
+   with compute requested cus and another instruction will be added
+   requesting loaded_data_sz bytes of accounts data.  Fee will be set to
+   5^priority, so that even with a large stall, it should still schedule
+   in decreasing priority order.  priority should be in (0, 13.5].
+   Stores the created transaction in txn_scratch[ i ] and
+   payload_scratch[ i ].  If priority_fees is non-null, it will contain
+   the priority fee in lamports. If pack_cost_estimate is non-null, it
+   will contain the cost estimate used by pack when packing blocks. */
+static void
 make_transaction( ulong        i,
                   uint         compute,
+                  uint         loaded_data_sz,
                   double       priority,
                   char const * writes,
-                  char const * reads    ) {
+                  char const * reads,
+                  ulong *      priority_fees,
+                  ulong *      pack_cost_estimate ) {
   uchar * p = payload_scratch[ i ];
   uchar * p_base = p;
   fd_txn_t * t = (fd_txn_t*) txn_scratch[ i ];
@@ -113,7 +119,7 @@ make_transaction( ulong        i,
   t->acct_addr_off = FD_TXN_SIGNATURE_SZ+1UL;
 
   /* Add the signer */
-  *p = 's' + 0x80; fd_memcpy( p+1, &i, sizeof(ulong) ); memset( p+9, 'S', 32-9 ); p += FD_TXN_ACCT_ADDR_SZ;
+  *p = 's' + 0x80; fd_memcpy( p+1, &i, sizeof(ulong) ); memset( p+9, 'S', FD_TXN_ACCT_ADDR_SZ-9 ); p += FD_TXN_ACCT_ADDR_SZ;
   /* Add the writable accounts */
   for( ulong i = 0UL; writes[i] != '\0'; i++ ) {
     memset( p, writes[i], FD_TXN_ACCT_ADDR_SZ );
@@ -133,7 +139,7 @@ make_transaction( ulong        i,
   t->addr_table_lookup_cnt = 0;
   t->addr_table_adtl_writable_cnt = 0;
   t->addr_table_adtl_cnt = 0;
-  t->instr_cnt = (ushort)(2UL + (ulong)fd_uint_popcnt( compute ));
+  t->instr_cnt = (ushort)(3UL + (ulong)fd_uint_popcnt( compute ));
 
   uchar prog_start = (uchar)(1UL+strlen( writes ));
 
@@ -153,11 +159,22 @@ make_transaction( ulong        i,
   t->instr[ 1 ].acct_off = (ushort)(p - p_base);
   t->instr[ 1 ].data_off = (ushort)(p - p_base);
 
+  /* 3 corresponds to SetComputeUnitPrice */
   ulong rewards_per_cu = (ulong) (pow( 5.0, priority )*10000.0 / (double)compute);
   *p = 3; fd_memcpy( p+1, &rewards_per_cu, sizeof(ulong) );
   p += 9UL;
 
-  ulong j = 2UL;
+  t->instr[ 2 ].program_id = prog_start;
+  t->instr[ 2 ].acct_cnt = 0;
+  t->instr[ 2 ].data_sz = 5;
+  t->instr[ 2 ].acct_off = (ushort)(p - p_base);
+  t->instr[ 2 ].data_off = (ushort)(p - p_base);
+
+  /* 4 corresponds to SetLoadedAccountsDataSizeLimit */
+  *p = 4; fd_memcpy( p+1, &loaded_data_sz, sizeof(uint) );
+  p += 5UL;
+
+  ulong j = 3UL;
   for( uint i = 0U; i<32U; i++ ) {
     if( compute & (1U << i) ) {
       *p = (uchar)i;
@@ -172,7 +189,9 @@ make_transaction( ulong        i,
   }
 
   payload_sz[ i ] = (ulong)(p-p_base);
-  return (rewards_per_cu * compute + 999999UL)/1000000UL;
+  uint flags;
+  fd_ulong_store_if( !!priority_fees, priority_fees, (rewards_per_cu * compute + 999999UL)/1000000UL );
+  fd_ulong_store_if( !!pack_cost_estimate, pack_cost_estimate, fd_pack_compute_cost((fd_txn_t const *)txn_scratch[ i ], payload_scratch[ i ], &flags, NULL, NULL, NULL, NULL) );
 }
 
 static void
@@ -237,12 +256,13 @@ schedule_validate_microblock( fd_pack_t * pack,
 
     ulong rewards = 0UL;
     uint compute = 0U;
+    ulong requested_loaded_accounts_data_cost = 0UL;
     if( FD_LIKELY( txn->instr_cnt>2UL ) ) {
       fd_txn_instr_t ix = txn->instr[0]; /* For these transactions, the compute budget instr is always the first 2*/
       FD_TEST( fd_compute_budget_program_parse( txnp->payload + ix.data_off, ix.data_sz, &cbp ) );
       ix = txn->instr[1];
       FD_TEST( fd_compute_budget_program_parse( txnp->payload + ix.data_off, ix.data_sz, &cbp ) );
-      fd_compute_budget_program_finalize( &cbp, txn->instr_cnt, &rewards, &compute );
+      fd_compute_budget_program_finalize( &cbp, txn->instr_cnt, &rewards, &compute, &requested_loaded_accounts_data_cost );
     } /* else it's a vote */
 
     total_rewards += rewards;
@@ -290,16 +310,19 @@ void test0( void ) {
   FD_LOG_NOTICE(( "TEST 0" ));
   fd_pack_t * pack = init_all( 128UL, 3UL, 128UL, &outcome );
   ulong i = 0UL;
-  ulong rewards = 0UL;
-  rewards += make_transaction( i,  500U, 11.0, "A",    "B" ); insert( i++, pack );
-  rewards += make_transaction( i,  500U, 10.0, "C",    "D" ); insert( i++, pack );
-  rewards += make_transaction( i,  800U, 10.0, "EFGH", "D" ); insert( i++, pack );
-  schedule_validate_microblock( pack, 30000UL, 0.0f, 3UL, rewards, 0UL, &outcome );
+  ulong reward;
+  ulong cost_estimate;
+  ulong total_rewards = 0UL;
+  ulong total_cost_estimate = 0UL;
+  make_transaction( i,  500U, 500U, 11.0, "A",    "B", &reward, &cost_estimate );  insert( i++, pack ); total_cost_estimate += cost_estimate; total_rewards += reward;
+  make_transaction( i,  500U, 500U, 10.0, "C",    "D", &reward, &cost_estimate );  insert( i++, pack ); total_cost_estimate += cost_estimate; total_rewards += reward;
+  make_transaction( i,  800U, 500U, 10.0, "EFGH", "D", &reward, &cost_estimate );  insert( i++, pack ); total_cost_estimate += cost_estimate; total_rewards += reward;
+  schedule_validate_microblock( pack, total_cost_estimate, 0.0f, 3UL, total_rewards, 0UL, &outcome );
 
-  make_transaction( i,  500U, 10.0, "D", "I" );    insert( i++, pack );
-  schedule_validate_microblock( pack, 30000UL, 0.0f, 0UL, 0UL, 1UL, &outcome ); /* Can't schedule because conflict*/
-  schedule_validate_microblock( pack, 30000UL, 0.0f, 0UL, 0UL, 2UL, &outcome ); /* conflict continues ... */
-  schedule_validate_microblock( pack, 30000UL, 0.0f, 1UL, 0UL, 0UL, &outcome ); /* conflict gone.*/
+  make_transaction( i,  500U, 500U, 10.0, "D", "I", &reward, &cost_estimate );  insert( i++, pack ); total_cost_estimate += cost_estimate; total_rewards += reward;
+  schedule_validate_microblock( pack, total_cost_estimate, 0.0f, 0UL, 0UL, 1UL, &outcome ); /* Can't schedule because conflict*/
+  schedule_validate_microblock( pack, total_cost_estimate, 0.0f, 0UL, 0UL, 2UL, &outcome ); /* conflict continues ... */
+  schedule_validate_microblock( pack, total_cost_estimate, 0.0f, 1UL, 0UL, 0UL, &outcome ); /* conflict gone.*/
 }
 
 /* The original two that broke my first algorithm */
@@ -307,10 +330,13 @@ void test1( void ) {
   FD_LOG_NOTICE(( "TEST 1" ));
   fd_pack_t * pack = init_all( 128UL, 1UL, 128UL, &outcome );
   ulong i = 0;
-  ulong reward1 = make_transaction( i,  500U, 11.0, "A", "B" ); insert( i++, pack );
-  ulong reward2 = make_transaction( i,  500U, 10.0, "B", "A" ); insert( i++, pack );
-  schedule_validate_microblock( pack, 30000UL, 0.0f, 1UL, reward1, 0UL, &outcome );
-  schedule_validate_microblock( pack, 30000UL, 0.0f, 1UL, reward2, 0UL, &outcome );
+  ulong cost_estimate;
+  ulong total_cost_estimate = 0UL;
+  ulong reward1, reward2;
+  make_transaction( i,  500U, 500U, 11.0, "A", "B", &reward1, &cost_estimate );  insert( i++, pack ); total_cost_estimate += cost_estimate;
+  make_transaction( i,  500U, 500U, 10.0, "B", "A", &reward2, &cost_estimate );  insert( i++, pack ); total_cost_estimate += cost_estimate;
+  schedule_validate_microblock( pack, total_cost_estimate, 0.0f, 1UL, reward1, 0UL, &outcome );
+  schedule_validate_microblock( pack, total_cost_estimate, 0.0f, 1UL, reward2, 0UL, &outcome );
 }
 
 void test2( void ) {
@@ -318,12 +344,15 @@ void test2( void ) {
   fd_pack_t * pack = init_all( 128UL, 1UL, 128UL, &outcome );
   ulong i = 0;
   double j = 13.0;
-  ulong r0 = make_transaction( i,  500U, j--, "B", "A" ); insert( i++, pack );
-  ulong r1 = make_transaction( i,  500U, j--, "C", "B" ); insert( i++, pack );
-  ulong r2 = make_transaction( i,  500U, j--, "D", "C" ); insert( i++, pack );
-  ulong r3 = make_transaction( i,  500U, j--, "A", "D" ); insert( i++, pack );
-  schedule_validate_microblock( pack, 30000UL, 0.0f, 2UL, r0+r2, 0UL, &outcome );
-  schedule_validate_microblock( pack, 30000UL, 0.0f, 2UL, r1+r3, 0UL, &outcome );
+  ulong cost_estimate;
+  ulong total_cost_estimate = 0UL;
+  ulong r0, r1, r2, r3;
+  make_transaction( i,  500U, 500U, j--, "B", "A", &r0, &cost_estimate );  insert( i++, pack ); total_cost_estimate += cost_estimate;
+  make_transaction( i,  500U, 500U, j--, "C", "B", &r1, &cost_estimate );  insert( i++, pack ); total_cost_estimate += cost_estimate;
+  make_transaction( i,  500U, 500U, j--, "D", "C", &r2, &cost_estimate );  insert( i++, pack ); total_cost_estimate += cost_estimate;
+  make_transaction( i,  500U, 500U, j--, "A", "D", &r3, &cost_estimate );  insert( i++, pack ); total_cost_estimate += cost_estimate;
+  schedule_validate_microblock( pack, total_cost_estimate, 0.0f, 2UL, r0+r2, 0UL, &outcome );
+  schedule_validate_microblock( pack, total_cost_estimate, 0.0f, 2UL, r1+r3, 0UL, &outcome );
 
   /* A smart scheduler that allows read bypass could schedule the first 3 at
      the same time then #4 after they all finish. */
@@ -333,20 +362,22 @@ void test_vote( void ) {
   FD_LOG_NOTICE(( "TEST VOTE" ));
   fd_pack_t * pack = init_all( 128UL, 1UL, 4UL, &outcome );
   ulong i = 0;
+  ulong pack_cost_estimate = 0UL;
+  uint flags = 0UL;
 
-  make_vote_transaction( i ); insert( i++, pack );
-  make_vote_transaction( i ); insert( i++, pack );
-  make_vote_transaction( i ); insert( i++, pack );
-  make_vote_transaction( i ); insert( i++, pack );
+  make_vote_transaction( i ); pack_cost_estimate += fd_pack_compute_cost((fd_txn_t const *)txn_scratch[ i ], payload_scratch[ i ], &flags, NULL, NULL, NULL, NULL); insert( i++, pack );
+  make_vote_transaction( i ); pack_cost_estimate += fd_pack_compute_cost((fd_txn_t const *)txn_scratch[ i ], payload_scratch[ i ], &flags, NULL, NULL, NULL, NULL); insert( i++, pack );
+  make_vote_transaction( i ); pack_cost_estimate += fd_pack_compute_cost((fd_txn_t const *)txn_scratch[ i ], payload_scratch[ i ], &flags, NULL, NULL, NULL, NULL); insert( i++, pack );
+  make_vote_transaction( i ); pack_cost_estimate += fd_pack_compute_cost((fd_txn_t const *)txn_scratch[ i ], payload_scratch[ i ], &flags, NULL, NULL, NULL, NULL); insert( i++, pack );
 
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 4UL );
-  schedule_validate_microblock( pack, 30000UL, 0.0f, 0UL, 0UL, 0UL, &outcome );
+  schedule_validate_microblock( pack, pack_cost_estimate, 0.0f, 0UL, 0UL, 0UL, &outcome );
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 4UL );
 
-  schedule_validate_microblock( pack, 30000UL, 0.25f, 1UL, 0UL, 0UL, &outcome );
+  schedule_validate_microblock( pack, pack_cost_estimate, 0.25f, 1UL, 0UL, 0UL, &outcome );
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 3UL );
 
-  schedule_validate_microblock( pack, 30000UL, 1.0f, 3UL, 0UL, 0UL, &outcome );
+  schedule_validate_microblock( pack, pack_cost_estimate, 1.0f, 3UL, 0UL, 0UL, &outcome );
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
 
   for( ulong j=0UL; j<3UL; j++ ) FD_TEST( outcome.results[ j ].flags==FD_TXN_P_FLAGS_IS_SIMPLE_VOTE );
@@ -357,13 +388,15 @@ test_delete( void ) {
   ulong i = 0UL;
   FD_LOG_NOTICE(( "TEST DELETE" ));
   fd_pack_t * pack = init_all( 10240UL, 4UL, 128UL, &outcome );
+  ulong cost_estimate;
+  ulong total_cost_estimate = 0UL;
 
-  make_transaction( i, 800U, 12.0, "A", "B" ); insert( i++, pack );
-  make_transaction( i, 700U, 11.0, "C", "D" ); insert( i++, pack );
-  make_transaction( i, 600U, 10.0, "E", "F" ); insert( i++, pack );
-  make_transaction( i, 500U,  9.0, "G", "H" ); insert( i++, pack );
-  make_transaction( i, 400U,  8.0, "I", "J" ); insert( i++, pack );
-  make_transaction( i, 300U,  7.0, "K", "L" ); insert( i++, pack );
+  make_transaction( i, 800U, 500U, 12.0, "A", "B", NULL, &cost_estimate );  insert( i++, pack ); total_cost_estimate += cost_estimate;
+  make_transaction( i, 700U, 500U, 11.0, "C", "D", NULL, &cost_estimate );  insert( i++, pack ); total_cost_estimate += cost_estimate;
+  make_transaction( i, 600U, 500U, 10.0, "E", "F", NULL, &cost_estimate );  insert( i++, pack ); total_cost_estimate += cost_estimate;
+  make_transaction( i, 500U, 500U,  9.0, "G", "H", NULL, &cost_estimate );  insert( i++, pack ); total_cost_estimate += cost_estimate;
+  make_transaction( i, 400U, 500U,  8.0, "I", "J", NULL, &cost_estimate );  insert( i++, pack ); total_cost_estimate += cost_estimate;
+  make_transaction( i, 300U, 500U,  7.0, "K", "L", NULL, &cost_estimate );  insert( i++, pack ); total_cost_estimate += cost_estimate;
 
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 6UL );
 
@@ -377,7 +410,7 @@ test_delete( void ) {
 
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 3UL );
 
-  schedule_validate_microblock( pack, 300000UL, 0.0f, 3UL, 0UL, 0UL, &outcome );
+  schedule_validate_microblock( pack, total_cost_estimate, 0.0f, 3UL, 0UL, 0UL, &outcome );
 
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
 
@@ -393,29 +426,32 @@ test_delete( void ) {
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
 
   i=0UL;
-  ulong r0 = make_transaction( i, 800U, 12.0, "A", "B" ); insert( i++, pack );
-  /*      */ make_transaction( i, 700U, 11.0, "A", "D" ); insert( i++, pack );
-  ulong r2 = make_transaction( i, 600U, 10.0, "A", "F" ); insert( i++, pack );
-  /*      */ make_transaction( i, 500U,  9.0, "A", "H" ); insert( i++, pack );
-  /*      */ make_transaction( i, 400U,  8.0, "A", "J" ); insert( i++, pack );
-  /*      */ make_transaction( i, 300U,  7.0, "A", "L" ); insert( i++, pack );
+  ulong r0, r2;
+  ulong cost0, cost1, cost5;
+  make_transaction( i, 800U, 500U, 12.0, "A", "B", &r0,   &cost0 );  insert( i++, pack ); total_cost_estimate += cost0;
+  make_transaction( i, 700U, 500U, 11.0, "A", "D", NULL, &cost1 );  insert( i++, pack ); total_cost_estimate += cost1;
+  make_transaction( i, 600U, 500U, 10.0, "A", "F", &r2,   &cost_estimate );  insert( i++, pack ); total_cost_estimate += cost_estimate;
+  make_transaction( i, 500U, 500U,  9.0, "A", "H", NULL, &cost_estimate );  insert( i++, pack ); total_cost_estimate += cost_estimate;
+  make_transaction( i, 400U, 500U,  8.0, "A", "J", NULL, &cost_estimate );  insert( i++, pack ); total_cost_estimate += cost_estimate;
+  make_transaction( i, 300U, 500U,  7.0, "A", "L", NULL, &cost5 );  insert( i++, pack ); total_cost_estimate += cost5;
 
   /* They all conflict now */
 
-  schedule_validate_microblock( pack, 300000UL, 0.0f, 1UL, r0, 1UL, &outcome );
+  schedule_validate_microblock( pack, total_cost_estimate, 0.0f, 1UL, r0, 1UL, &outcome );
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 5UL );
 
+  total_cost_estimate -= cost0 + cost1 + cost5;
   FD_TEST( !fd_pack_delete_transaction( pack, sig0 ) );
   FD_TEST(  fd_pack_delete_transaction( pack, sig1 ) );
   FD_TEST(  fd_pack_delete_transaction( pack, sig5 ) );
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 3UL );
 
   /* wait the gap */
-  schedule_validate_microblock( pack, 300000UL, 0.0f, 0UL, 0, 2UL, &outcome );
-  schedule_validate_microblock( pack, 300000UL, 0.0f, 0UL, 0, 3UL, &outcome );
-  schedule_validate_microblock( pack, 300000UL, 0.0f, 0UL, 0, 0UL, &outcome );
+  schedule_validate_microblock( pack, total_cost_estimate, 0.0f, 0UL, 0, 2UL, &outcome );
+  schedule_validate_microblock( pack, total_cost_estimate, 0.0f, 0UL, 0, 3UL, &outcome );
+  schedule_validate_microblock( pack, total_cost_estimate, 0.0f, 0UL, 0, 0UL, &outcome );
 
-  schedule_validate_microblock( pack, 300000UL, 0.0f, 1UL, r2, 1UL, &outcome );
+  schedule_validate_microblock( pack, total_cost_estimate, 0.0f, 1UL, r2, 1UL, &outcome );
   FD_TEST(  fd_pack_delete_transaction( pack, sig3 ) );
   FD_TEST(  fd_pack_delete_transaction( pack, sig4 ) );
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
@@ -427,12 +463,12 @@ test_expiration( void ) {
   FD_LOG_NOTICE(( "TEST EXPIRATION" ));
   fd_pack_t * pack = init_all( 10240UL, 4UL, 128UL, &outcome );
 
-  make_transaction( i, 800U, 12.0, "A", "B" ); insert( i++, pack );
-  make_transaction( i, 700U, 11.0, "C", "D" ); insert( i++, pack );
-  make_transaction( i, 600U, 10.0, "E", "F" ); insert( i++, pack );
-  make_transaction( i, 500U,  9.0, "G", "H" ); insert( i++, pack );
-  make_transaction( i, 400U,  8.0, "I", "J" ); insert( i++, pack );
-  make_transaction( i, 300U,  7.0, "K", "L" ); insert( i++, pack );
+  make_transaction( i, 800U, 500U, 12.0, "A", "B", NULL, NULL ); insert( i++, pack );
+  make_transaction( i, 700U, 500U, 11.0, "C", "D", NULL, NULL ); insert( i++, pack );
+  make_transaction( i, 600U, 500U, 10.0, "E", "F", NULL, NULL ); insert( i++, pack );
+  make_transaction( i, 500U, 500U,  9.0, "G", "H", NULL, NULL ); insert( i++, pack );
+  make_transaction( i, 400U, 500U,  8.0, "I", "J", NULL, NULL ); insert( i++, pack );
+  make_transaction( i, 300U, 500U,  7.0, "K", "L", NULL, NULL ); insert( i++, pack );
 
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 6UL );
 
@@ -444,33 +480,33 @@ test_expiration( void ) {
 
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 4UL );
 
-  schedule_validate_microblock( pack, 300000UL, 0.0f, 4UL, 0UL, 0UL, &outcome );
+  schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 4UL, 0UL, 0UL, &outcome );
 
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
 
   FD_TEST( fd_pack_expire_before( pack, 10UL ) == 0UL );
 
   /* These 4 get rejected because they are expired */
-  make_transaction( i, 800U, 12.0, "A", "B" ); insert( i++, pack );
-  make_transaction( i, 700U, 11.0, "C", "D" ); insert( i++, pack );
-  make_transaction( i, 600U, 10.0, "E", "F" ); insert( i++, pack );
-  make_transaction( i, 500U,  9.0, "G", "H" ); insert( i++, pack );
+  make_transaction( i, 800U, 500U, 12.0, "A", "B", NULL, NULL ); insert( i++, pack );
+  make_transaction( i, 700U, 500U, 11.0, "C", "D", NULL, NULL ); insert( i++, pack );
+  make_transaction( i, 600U, 500U, 10.0, "E", "F", NULL, NULL ); insert( i++, pack );
+  make_transaction( i, 500U, 500U,  9.0, "G", "H", NULL, NULL ); insert( i++, pack );
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
 
-  make_transaction( i, 500U,  9.0, "A", "H" ); insert( i++, pack );
-  make_transaction( i, 400U,  8.0, "A", "J" ); insert( i++, pack );
-  make_transaction( i, 300U,  7.0, "A", "L" ); insert( i++, pack );
+  make_transaction( i, 500U, 500U,  9.0, "A", "H", NULL, NULL ); insert( i++, pack );
+  make_transaction( i, 400U, 500U,  8.0, "A", "J", NULL, NULL ); insert( i++, pack );
+  make_transaction( i, 300U, 500U,  7.0, "A", "L", NULL, NULL ); insert( i++, pack );
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 3UL );
 
-  schedule_validate_microblock( pack, 300000UL, 0.0f, 1UL, 0UL, 0UL, &outcome );
-  schedule_validate_microblock( pack, 300000UL, 0.0f, 0UL, 0UL, 1UL, &outcome );
+  schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 1UL, 0UL, 0UL, &outcome );
+  schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 0UL, 0UL, 1UL, &outcome );
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 2UL );
   /* Even though txn 10 is expired, it was already scheduled, so account
      A is still in use. */
   FD_TEST( fd_pack_expire_before( pack, 12UL ) == 1UL );
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 1UL );
-  schedule_validate_microblock( pack, 300000UL, 0.0f, 0UL, 0UL, 1UL, &outcome );
-  schedule_validate_microblock( pack, 300000UL, 0.0f, 1UL, 0UL, 0UL, &outcome );
+  schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 0UL, 0UL, 1UL, &outcome );
+  schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 1UL, 0UL, 0UL, &outcome );
 
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
 }
@@ -480,7 +516,7 @@ performance_test2( void ) {
   FD_LOG_NOTICE(( "TEST INDEPENDENT PERFORMANCE" ));
 
   fd_pack_limits_t limits[ 1 ] = { {
-      .max_cost_per_block        = FD_PACK_MAX_COST_PER_BLOCK,
+      .max_cost_per_block        = 1000000000,
       .max_vote_cost_per_block   = 0UL,
       .max_write_cost_per_acct   = FD_PACK_MAX_WRITE_COST_PER_ACCT,
       .max_data_bytes_per_block  = ULONG_MAX/2UL,
@@ -541,7 +577,7 @@ performance_test2( void ) {
       }
       ulong scheduled = 0UL;
       for( ulong i=0UL; i<1024UL/MAX_TXN_PER_MICROBLOCK+1UL; i++ ) {
-        scheduled += fd_pack_schedule_next_microblock( pack, MAX_TXN_PER_MICROBLOCK*1200UL, 0.0f, i&3UL, outcome.results );
+        scheduled += fd_pack_schedule_next_microblock( pack, MAX_TXN_PER_MICROBLOCK*26000UL, 0.0f, i&3UL, outcome.results );
         fd_pack_microblock_complete( pack, i&3UL );
       }
       FD_TEST( scheduled==1024UL );
@@ -560,8 +596,9 @@ performance_test2( void ) {
 void performance_test( int extra_bench ) {
   ulong i = 0UL;
   FD_LOG_NOTICE(( "TEST PERFORMANCE" ));
-  make_transaction( i,   700U, 12.0, "ABC", "DEF" );    /* Total cost 8625 */
-  make_transaction( i+1, 500U, 12.0, "GHJ", "KLMNOP" ); /* Total cost 8425 */
+  ulong tx1_cost, tx2_cost;
+  make_transaction( i,   700U, 500U, 12.0, "ABC", "DEF", NULL, &tx1_cost );    /* Total cost 11634 */
+  make_transaction( i+1, 500U, 500U, 12.0, "GHJ", "KLMNOP", NULL, &tx2_cost ); /* Total cost 11434 */
 
   fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ, 1UL, 0UL, "test_pack", 0UL );
 
@@ -639,9 +676,9 @@ void performance_test( int extra_bench ) {
 
       if( FD_LIKELY( iter>=WARMUP ) ) skip0     -= fd_log_wallclock( );
       for( ulong j=0UL; j<heap_sz/2UL; j++ ) {
-        /* With a cap of 7700 CUs, nothing fits, but we scan the whole heap
+        /* With a cap of tx2_cost-1 CUs, nothing fits, but we scan the whole heap
            each time to figure that out. */
-        fd_pack_schedule_next_microblock( pack, 7700UL, 0.0f, 0UL, outcome.results );
+        fd_pack_schedule_next_microblock( pack, tx2_cost - 1UL, 0.0f, 0UL, outcome.results );
         fd_pack_microblock_complete( pack, 0UL );
       }
       if( FD_LIKELY( iter>=WARMUP ) ) skip0     += fd_log_wallclock( );
@@ -651,9 +688,9 @@ void performance_test( int extra_bench ) {
 
       if( FD_LIKELY( iter>=WARMUP ) ) schedule  -= fd_log_wallclock( );
       for( ulong j=0UL; j<heap_sz; j++ ) {
-        /* With a cap of 8700 CUs, we schedule 1 transaction and then
+        /* With a cap of tx1_cost CUs, we schedule 1 transaction and then
            immediately break. */
-        FD_TEST( 1UL==fd_pack_schedule_next_microblock( pack, 8700UL, 0.0f, 0UL, outcome.results ) );
+        FD_TEST( 1UL==fd_pack_schedule_next_microblock( pack, tx1_cost, 0.0f, 0UL, outcome.results ));
         fd_pack_microblock_complete( pack, 0UL );
       }
       if( FD_LIKELY( iter>=WARMUP ) ) schedule += fd_log_wallclock( );
@@ -676,11 +713,12 @@ void performance_test( int extra_bench ) {
       FD_TEST( fd_pack_avail_txn_cnt( pack )==heap_sz );
       if( FD_LIKELY( iter>=WARMUP ) ) skip1  -= fd_log_wallclock( );
       for( ulong j=0UL; j<heap_sz/2UL; j++ ) {
-        /* With a cap of 17400 CUs, we schedule a copy of transaction 1,
-           scan through all the duplicates of transaction 1 (which
-           conflict because of accounts), finally find an instance of
-           transaction 2, schedule it, and then immediately break. */
-        FD_TEST( 2UL==fd_pack_schedule_next_microblock( pack, 17400UL, 0.0f, 0UL, outcome.results ) );
+        /* With a cap of tx1_cost+tx2_cost+1 CUs, we schedule a copy of
+           transaction 1, scan through all the duplicates of transaction
+           1 (which conflict because of accounts), finally find an
+           instance of transaction 2, schedule it, and then immediately
+           break. */
+        FD_TEST( 2UL==fd_pack_schedule_next_microblock( pack, tx1_cost+tx2_cost+1, 0.0f, 0UL, outcome.results ) );
         fd_pack_microblock_complete( pack, 0UL );
       }
       if( FD_LIKELY( iter>=WARMUP ) ) skip1 += fd_log_wallclock( );
@@ -750,7 +788,7 @@ void performance_end_block( void ) {
   ulong footprint = fd_pack_footprint( 4096UL, 0UL, 8UL, limits );
   void * _mem = fd_wksp_alloc_laddr( wksp, fd_pack_align(), footprint, 4UL );
 
-  make_transaction( 0UL, 800U, 4.0, "", "" );
+  make_transaction( 0UL, 800U, 500U, 4.0, "", "", NULL, NULL );
 
   FD_LOG_NOTICE(( "Writers\tTime (ms/call)" ));
   fd_pack_t * pack = fd_pack_join( fd_pack_new( _mem, 4096UL, 0UL, 8UL, limits, rng ) );
@@ -796,7 +834,7 @@ void heap_overflow_test( void ) {
   fd_pack_t * pack = init_all( 1024UL, 1UL, 2UL, &outcome );
   /* Insert a bunch of low-paying transactions */
   for( ulong j=0UL; j<1024UL; j++ ) {
-    make_transaction( j, 800U, 4.0, "ABC", "DEF" );
+    make_transaction( j, 800U, 500U, 3.0, "ABC", "DEF", NULL, NULL );  /* 11733 cus */
     fd_txn_e_t * slot       = fd_pack_insert_txn_init( pack );
     fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ j ];
     slot->txnp->payload_sz  = payload_sz[ j ];
@@ -810,14 +848,14 @@ void heap_overflow_test( void ) {
   /* Now insert higher-paying transactions. They should mostly take the
      place of the low-paying transactions, but it's probabilistic since
      the transactions conflict a lot. */
-  ulong r_hi = make_transaction( 1UL, 500U, 10.0, "GHJ", "KLMNOP" );
+  ulong r_hi;
   for( ulong j=0UL; j<1024UL; j++ ) {
-    payload_scratch[1][ 1+(j%8) ]++;
+    make_transaction( j, 500U, 500U, 10.0, "GHJ", "KLMNOP", &r_hi, NULL );  /* 11434 cus */
     fd_txn_e_t * slot       = fd_pack_insert_txn_init( pack );
-    fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ 1UL ];
-    slot->txnp->payload_sz  = payload_sz[ 1UL ];
-    fd_memcpy( slot->txnp->payload, payload_scratch[ 1UL ], payload_sz[ 1UL ]                                              );
-    fd_memcpy( TXN(slot->txnp),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
+    fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ j ];
+    slot->txnp->payload_sz  = payload_sz[ j ];
+    fd_memcpy( slot->txnp->payload, payload_scratch[ j ], payload_sz[ j ]                                              );
+    fd_memcpy( TXN(slot->txnp),     txn,                  fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
     fd_pack_insert_txn_fini( pack, slot, 0UL );
   }
@@ -825,7 +863,8 @@ void heap_overflow_test( void ) {
   FD_TEST( fd_pack_avail_txn_cnt( pack )==1024UL );
 
   for( ulong j=0UL; j<1024UL; j++ ) {
-    schedule_validate_microblock( pack, 10000UL, 0.0f, j<900UL?1UL:0UL, j<900UL?r_hi:0UL, 0UL, &outcome );
+    /* 30000 cannot fit more that 1 transaction. */
+    schedule_validate_microblock( pack, 12000, 0.0f, j<900UL?1UL:0UL, j<900UL?r_hi:0UL, 0UL, &outcome );
   }
 
   FD_TEST( fd_pack_avail_txn_cnt( pack )==0UL );
@@ -837,18 +876,19 @@ test_gap( void ) {
 
   for( ulong gap=1UL; gap<=FD_PACK_MAX_BANK_TILES; gap++ ) {
     fd_pack_t * pack = init_all( 10240UL, gap, 2UL, &outcome );
-
     ulong i=0UL;
-    ulong reward1 = make_transaction( i,  500U, 11.0, "A", "B" );      insert( i++, pack );
-    ulong reward2 = make_transaction( i,  500U, 10.0, "B", "A" );      insert( i++, pack );
+    ulong reward1, reward2;
+    make_transaction( i,  500U, 500U, 11.0, "A", "B", &reward1, NULL ); insert( i++, pack );  /* 11034 cus */
+    make_transaction( i,  500U, 500U, 10.0, "B", "A", &reward2, NULL ); insert( i++, pack );
 
-    schedule_validate_microblock( pack, 10000UL, 0.0f, 1UL, reward1, 0UL, &outcome );
+    /* 30000 in only enough to fit 1 transaction */
+    schedule_validate_microblock( pack, 12000UL, 0.0f, 1UL, reward1, 0UL, &outcome );
 
-    for( ulong j=1UL; j<gap; j++ ) schedule_validate_microblock( pack, 10000UL, 0.0f, 0UL, 0UL, j, &outcome );
+    for( ulong j=1UL; j<gap; j++ ) schedule_validate_microblock( pack, 12000UL, 0.0f, 0UL, 0UL, j, &outcome );
 
     FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
 
-    schedule_validate_microblock( pack, 10000UL, 0.0f, 1UL, reward2, 0UL, &outcome );
+    schedule_validate_microblock( pack, 12000UL, 0.0f, 1UL, reward2, 0UL, &outcome );
   }
 }
 
@@ -882,10 +922,10 @@ test_limits( void ) {
     }
 
     /* Test that as we gradually increase the CU limit, the correct number of votes get scheduled */
-    for( ulong cu_limit=0UL; cu_limit<45UL*SAMPLE_VOTE_COST; cu_limit += SAMPLE_VOTE_COST ) {
+    for( ulong cu_limit=0UL; cu_limit<45UL*FD_PACK_SIMPLE_VOTE_COST; cu_limit += FD_PACK_SIMPLE_VOTE_COST ) {
       /* FIXME: CU limit for votes is done based on the typical cost,
          which is slightly different from the sample vote cost. */
-      schedule_validate_microblock( pack, cu_limit*4349/SAMPLE_VOTE_COST, 1.0f, cu_limit/SAMPLE_VOTE_COST, 0UL, 0UL, &outcome );
+      schedule_validate_microblock( pack, cu_limit, 1.0f, cu_limit/FD_PACK_SIMPLE_VOTE_COST, 0UL, 0UL, &outcome );
     }
     /* sum_{x=0}^44 x = 990, so there should be 34 transactions left */
     FD_TEST( fd_pack_avail_txn_cnt( pack )==34UL );
@@ -896,14 +936,14 @@ test_limits( void ) {
   if( 1 ) {
     fd_pack_t * pack = init_all( 1024UL, 1UL, 1024UL, &outcome );
 
-    for( ulong j=0UL; j<FD_PACK_MAX_VOTE_COST_PER_BLOCK/(1024UL*SAMPLE_VOTE_COST); j++ ) {
+    for( ulong j=0UL; j<FD_PACK_MAX_VOTE_COST_PER_BLOCK/(1024UL*FD_PACK_SIMPLE_VOTE_COST); j++ ) {
       for( ulong i=0UL; i<1024UL; i++ ) { make_vote_transaction( i ); insert( i, pack ); }
       schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 1.0f, 1024UL, 0UL, 0UL, &outcome );
     }
 
     for( ulong i=0UL; i<1024UL; i++ ) { make_vote_transaction( i ); insert( i, pack ); }
-    ulong consumed_cost = (1024UL*SAMPLE_VOTE_COST)*(FD_PACK_MAX_VOTE_COST_PER_BLOCK/(1024UL*SAMPLE_VOTE_COST));
-    ulong expected_votes = (FD_PACK_MAX_VOTE_COST_PER_BLOCK-consumed_cost)/SAMPLE_VOTE_COST;
+    ulong consumed_cost = (1024UL*FD_PACK_SIMPLE_VOTE_COST)*(FD_PACK_MAX_VOTE_COST_PER_BLOCK/(1024UL*FD_PACK_SIMPLE_VOTE_COST));
+    ulong expected_votes = (FD_PACK_MAX_VOTE_COST_PER_BLOCK-consumed_cost)/FD_PACK_SIMPLE_VOTE_COST;
 
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 1.0f,        expected_votes, 0UL, 0UL, &outcome );
     FD_TEST( fd_pack_avail_txn_cnt( pack )==1024UL-expected_votes );
@@ -916,27 +956,31 @@ test_limits( void ) {
   /* Test the block writer limit */
   if( 1 ) {
     fd_pack_t * pack = init_all( 1024UL, 1UL, 1024UL, &outcome );
-    /* The limit is based on cost units, and make_transaction takes just
-       compute CUs.  The additional cost units are 7325. */
-    for( ulong j=0UL; j<24UL; j++ ) {
-      make_transaction( 0UL, 478310UL, 11.0, "A", "B" );
-      insert( 0UL, pack );
+    /* The limit is based on cost units, which are determined by the cost model (i.e. fd_pack_compute_cost) */
+    ulong j;
+    ulong total_cus = 20334UL;
+    for( j=0UL; j<FD_PACK_MAX_WRITE_COST_PER_ACCT/total_cus; j++ ) {
+      make_transaction( j, 10000UL, 500U, 11.0, "A", "B", NULL, &total_cus );  /* transaction cost estimate = total_cus*/
+      FD_TEST( 20334UL==total_cus );
+      insert( j, pack );
       schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 1UL, 0UL, 0UL, &outcome );
     }
-    /* Consumed 11,655,240 cost units, so this next one can't fit. */
+    /* Consumed total_cus*FD_PACK_MAX_COST_PER_BLOCK/(4*total_cus)=11,966,340
+       cost units, so this next one can't fit (due to
+       FD_PACK_MAX_WRITE_COST_PER_ACCT) */
 
-    make_transaction( 0UL, 478310UL, 11.0, "A", "B" );
-    insert( 0UL, pack );
+    make_transaction( j, 10000UL, 500U, 11.0, "A", "B", NULL, NULL );
+    insert( j++, pack );
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 0UL, 0UL, 0UL, &outcome );
     FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
 
-    outcome.results->bank_cu.rebated_cus = outcome.results->pack_cu.requested_execution_cus;
+    outcome.results->bank_cu.rebated_cus = (uint)((total_cus + (total_cus*FD_PACK_MAX_COST_PER_BLOCK/(4*total_cus))) - FD_PACK_MAX_WRITE_COST_PER_ACCT);
     fd_pack_rebate_cus( pack, outcome.results, 1UL );
-    /* Now consumed CUs is 11,170,954, so it just fits. */
+    /* Now consumed CUs is 12M - total_cus, so it just fits. */
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 1UL, 0UL, 0UL, &outcome );
 
-    make_transaction( 0UL, 478310U, 11.0, "A", "B" );
-    insert( 0UL, pack );
+    make_transaction( j, 10000UL, 500U, 11.0, "A", "B", NULL, NULL );
+    insert( j++, pack );
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 0UL, 0UL, 0UL, &outcome );
     FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
 
@@ -947,37 +991,42 @@ test_limits( void ) {
 
   /* Test the total cost block limit */
   if( 1 ) {
-    fd_pack_t * pack = init_all( 1024UL, 1UL, 1024UL, &outcome );
-    /* The limit is based on cost units, and make_transaction takes just
-       compute CUs.  Add the +1 to force the rounding to make these
-       close enough. */
+    fd_pack_t * pack = init_all( 1024UL, 1UL, 512UL, &outcome );
+    /* The limit is based on cost units, which are determined by the cost model (i.e. fd_pack_compute_cost). */
+    const ulong total_cus = 20334UL;
+    const ulong almost_full_iter = (FD_PACK_MAX_COST_PER_BLOCK/( 8*total_cus ));
     ulong i=0UL;
-    for( ulong j=0UL; j<FD_PACK_MAX_COST_PER_BLOCK/4000004UL; j++ ) {
-      make_transaction( i, 1000001U, 11.0, "A", "B" );     insert( i++, pack );
-      make_transaction( i, 1000001U, 11.0, "C", "D" );     insert( i++, pack );
-      make_transaction( i, 1000001U, 11.0, "E", "F" );     insert( i++, pack );
-      make_transaction( i, 1000001U, 11.0, "G", "H" );     insert( i++, pack );
-      schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 4UL, 0UL, 0UL, &outcome );
+    for( ulong j=0UL; j<almost_full_iter; j++ ) {
+      /* We do it in batches of 8 so that the writer cost limit doesn't dominate */
+      make_transaction( i, 10000UL, 500U, 11.0, "A", "B", NULL, NULL );     insert( i++, pack );
+      make_transaction( i, 10000UL, 500U, 11.0, "C", "D", NULL, NULL );     insert( i++, pack );
+      make_transaction( i, 10000UL, 500U, 11.0, "E", "F", NULL, NULL );     insert( i++, pack );
+      make_transaction( i, 10000UL, 500U, 11.0, "G", "H", NULL, NULL );     insert( i++, pack );
+      make_transaction( i, 10000UL, 500U, 11.0, "J", "K", NULL, NULL );     insert( i++, pack );
+      make_transaction( i, 10000UL, 500U, 11.0, "L", "M", NULL, NULL );     insert( i++, pack );
+      make_transaction( i, 10000UL, 500U, 11.0, "N", "O", NULL, NULL );     insert( i++, pack );
+      make_transaction( i, 10000UL, 500U, 11.0, "P", "Q", NULL, NULL );     insert( i++, pack );
+      schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 8UL, 0UL, 0UL, &outcome );
+      i = i%512UL;
     }
 
-    make_transaction( i, 1000001U, 11.0, "J", "K" );     insert( i++, pack );
-    make_transaction( i, 1000001U, 11.0, "L", "M" );     insert( i++, pack );
-    make_transaction( i, 1000001U, 11.0, "N", "P" );     insert( i++, pack );
-    make_transaction( i, 1000001U, 10.0, "Q", "R" );     insert( i++, pack );
-    schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 3UL, 0UL, 0UL, &outcome );
+    /* We are at almost_full_iter*8*total_cus = 47988240
+       The remaining 11760 will not be enough for any more txns */
+    make_transaction( i, 10000UL, 500U, 11.0, "A", "B", NULL, NULL );     insert( i++, pack );
+    schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 0UL, 0UL, 0UL, &outcome );
     FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
 
-    outcome.results[ 0 ].bank_cu.rebated_cus = outcome.results[ 0 ].pack_cu.requested_execution_cus;
-    outcome.results[ 1 ].bank_cu.rebated_cus = outcome.results[ 1 ].pack_cu.requested_execution_cus;
-    outcome.results[ 2 ].bank_cu.rebated_cus = outcome.results[ 2 ].pack_cu.requested_execution_cus;
-    fd_pack_rebate_cus( pack, outcome.results, 3UL );
+
+    /* rebate just enough cus to have the total_cus needed for one more */
+    outcome.results[ 0 ].bank_cu.rebated_cus = (uint)(total_cus - (FD_PACK_MAX_COST_PER_BLOCK - almost_full_iter*8UL*total_cus - 7UL*total_cus));
+    fd_pack_rebate_cus( pack, outcome.results, 1UL );
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 1UL, 0UL, 0UL, &outcome );
 
     fd_pack_end_block( pack );
-    make_transaction( i, 1000001U, 11.0, "J", "K" );     insert( i++, pack );
-    make_transaction( i, 1000001U, 11.0, "L", "M" );     insert( i++, pack );
-    make_transaction( i, 1000001U, 11.0, "N", "P" );     insert( i++, pack );
-    make_transaction( i, 1000001U, 10.0, "Q", "R" );     insert( i++, pack );
+    make_transaction( i, 10000UL, 500U, 11.0, "J", "K", NULL, NULL );     insert( i++, pack );
+    make_transaction( i, 10000UL, 500U, 11.0, "L", "M", NULL, NULL );     insert( i++, pack );
+    make_transaction( i, 10000UL, 500U, 11.0, "N", "P", NULL, NULL );     insert( i++, pack );
+    make_transaction( i, 10000UL, 500U, 10.0, "Q", "R", NULL, NULL );     insert( i++, pack );
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 4UL, 0UL, 0UL, &outcome );
   }
 
@@ -988,28 +1037,30 @@ test_limits( void ) {
 
     /* Iterates 844 times, consuming all but 3328 bytes */
     ulong i=0UL;
-    for( ulong j=0UL; j<MAX_DATA_PER_BLOCK/(48UL + 5UL*1232UL); j++ ) {
-      make_transaction( i, 1000U, 11.0, "A", "B" );   payload_sz[i]=1232UL;  insert( i++, pack );
-      make_transaction( i, 1000U, 11.0, "C", "D" );   payload_sz[i]=1232UL;  insert( i++, pack );
-      make_transaction( i, 1000U, 11.0, "E", "F" );   payload_sz[i]=1232UL;  insert( i++, pack );
-      make_transaction( i, 1000U, 11.0, "G", "H" );   payload_sz[i]=1232UL;  insert( i++, pack );
-      make_transaction( i, 1000U, 11.0, "I", "J" );   payload_sz[i]=1232UL;  insert( i++, pack );
+    ulong almost_full_iter = (MAX_DATA_PER_BLOCK/(48 + 5UL*1232UL));
+    for( ulong j=0UL; j<almost_full_iter; j++ ) {
+      make_transaction( i, 1000UL, 500U, 11.0, "A", "B", NULL, NULL );   payload_sz[i]=1232UL;  insert( i++, pack );
+      make_transaction( i, 1000UL, 500U, 11.0, "C", "D", NULL, NULL );   payload_sz[i]=1232UL;  insert( i++, pack );
+      make_transaction( i, 1000UL, 500U, 11.0, "E", "F", NULL, NULL );   payload_sz[i]=1232UL;  insert( i++, pack );
+      make_transaction( i, 1000UL, 500U, 11.0, "G", "H", NULL, NULL );   payload_sz[i]=1232UL;  insert( i++, pack );
+      make_transaction( i, 1000UL, 500U, 11.0, "I", "J", NULL, NULL );   payload_sz[i]=1232UL;  insert( i++, pack );
 
       schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 5UL, 0UL, 0UL, &outcome );
       i = i%512UL;
     }
 
-    make_transaction( i, 1000U, 11.0, "A", "B" );   payload_sz[i]=1232UL;  insert( i++, pack );
-    make_transaction( i, 1000U, 11.0, "C", "D" );   payload_sz[i]=1232UL;  insert( i++, pack );
-    make_transaction( i, 1000U, 11.0, "E", "F" );   payload_sz[i]=1232UL;  insert( i++, pack );
-    make_transaction( i, 1000U, 11.0, "G", "H" );   payload_sz[i]=1232UL;  insert( i++, pack );
-    make_transaction( i, 1000U, 11.0, "I", "J" );   payload_sz[i]=1232UL;  insert( i++, pack );
+    /* 3328 - 48 = 3280 */
+    make_transaction( i, 1000UL, 500U, 11.0, "K", "L", NULL, NULL );   payload_sz[i]=1232UL;  insert( i++, pack );
+    make_transaction( i, 1000UL, 500U, 11.0, "M", "N", NULL, NULL );   payload_sz[i]=1232UL;  insert( i++, pack );
+    make_transaction( i, 1000UL, 500U, 10.0, "O", "P", NULL, NULL );   payload_sz[i]=816UL;   insert( i++, pack );
+    make_transaction( i, 1000UL, 500U, 10.0, "Q", "R", NULL, NULL );   payload_sz[i]=1232UL;  insert( i++, pack );
+    make_transaction( i, 1000UL, 500U, 10.0, "S", "T", NULL, NULL );   payload_sz[i]=1232UL;   insert( i++, pack );
 
-    schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 2UL, 0UL, 0UL, &outcome );
-    FD_TEST( fd_pack_avail_txn_cnt( pack )==3UL );
+    schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 3UL, 0UL, 0UL, &outcome );
+    FD_TEST( fd_pack_avail_txn_cnt( pack )==2UL );
 
     fd_pack_end_block( pack );
-    schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 3UL, 0UL, 0UL, &outcome );
+    schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 2UL, 0UL, 0UL, &outcome );
   }
 }
 
@@ -1026,18 +1077,18 @@ test_vote_qos( void ) {
   ulong i=16UL;
   /* treap is imbalanced so will accept any non-vote, even extremely
      non-lucrative ones. */
-  make_transaction( i, 1000000UL, 0.001, "A", "B" ); FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
-  make_transaction( i, 1000000UL, 0.001, "A", "B" ); FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
-  make_transaction( i, 1000000UL, 0.001, "A", "B" ); FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
-  make_transaction( i, 1000000UL, 0.001, "A", "B" ); FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  make_transaction( i, 1000000UL, 500U, 0.001, "A", "B", NULL, NULL ); FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  make_transaction( i, 1000000UL, 500U, 0.001, "A", "B", NULL, NULL ); FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  make_transaction( i, 1000000UL, 500U, 0.001, "A", "B", NULL, NULL ); FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  make_transaction( i, 1000000UL, 500U, 0.001, "A", "B", NULL, NULL ); FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
   /* Now it's balanced, so the non-vote will be compared with the other
      non-votes.  It's not better than them, so reject. */
-  make_transaction( i, 1000000UL, 0.001, "A", "B" ); FD_TEST( insert( i++, pack )==FD_PACK_INSERT_REJECT_PRIORITY        );
+  make_transaction( i, 1000000UL, 500U, 0.001, "A", "B", NULL, NULL ); FD_TEST( insert( i++, pack )==FD_PACK_INSERT_REJECT_PRIORITY        );
 
-  make_transaction( i, 100UL, 13.0, "A", "B" );      FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
-  make_transaction( i, 100UL, 13.0, "A", "B" );      FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
-  make_transaction( i, 100UL, 13.0, "A", "B" );      FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
-  make_transaction( i, 100UL, 13.0, "A", "B" );      FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  make_transaction( i, 100UL, 500U, 13.0, "A", "B", NULL, NULL );      FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  make_transaction( i, 100UL, 500U, 13.0, "A", "B", NULL, NULL );      FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  make_transaction( i, 100UL, 500U, 13.0, "A", "B", NULL, NULL );      FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  make_transaction( i, 100UL, 500U, 13.0, "A", "B", NULL, NULL );      FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
   /* The first non-votes are worse than the votes, so now these
      lucrative transactions have replaced the old non-votes and we still
      have 12 pending votes */
@@ -1048,15 +1099,15 @@ test_vote_qos( void ) {
 
   /* Now replace 8 votes with non-votes */
   for( ulong j=0UL; j<8UL; j++ ) {
-    make_transaction( i, 100UL, 13.0, "A", "B" );    FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+    make_transaction( i, 100UL, 500U, 13.0, "A", "B", NULL, NULL );    FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
   }
   /* Exactly 25% votes, so this is not considered imbalanced and QoS
      rules allow it. */
-  make_transaction( i, 100UL, 13.0, "A", "B" );      FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
+  make_transaction( i, 100UL, 500U, 13.0, "A", "B", NULL, NULL );      FD_TEST( insert( i++, pack )==FD_PACK_INSERT_ACCEPT_NONVOTE_REPLACE );
 
   /* It's now low on votes (<25%), so inserting a non-vote will compare
      only against other non-votes. */
-  make_transaction( i, 100UL, 13.0, "A", "B" );      FD_TEST( insert( i++, pack )==FD_PACK_INSERT_REJECT_PRIORITY        );
+  make_transaction( i, 100UL, 500U, 13.0, "A", "B", NULL, NULL );      FD_TEST( insert( i++, pack )==FD_PACK_INSERT_REJECT_PRIORITY        );
 }
 
 static inline void
@@ -1104,7 +1155,7 @@ test_reject_writes_to_sysvars( void ) {
     "Secp256r1SigVerify1111111111111111111111111"
   };
   for( ulong i=0UL; i<29UL; i++ ) {
-    make_transaction( i, 1000001U, 11.0, "A", "B" );
+    make_transaction( i, 1000001U, 500U, 11.0, "A", "B", NULL, NULL );
     /* Replace A with the sysvar */
     fd_base58_decode_32( sysvars[ i ], payload_scratch[ i ] + 97UL );
     payload_scratch[ i ][ 129UL ]++; /* so it no longer is the compute budget program */
@@ -1119,13 +1170,13 @@ test_reject( void ) {
   fd_pack_t * pack = init_all( 1024UL, 1UL, 128UL, &outcome );
   ulong i = 0UL;
 
-  make_transaction( i, 1000001U, 11.0, "A", "B" );
+  make_transaction( i, 1000001U, 500U, 11.0, "A", "B", NULL, NULL );
   fd_txn_t * txn = (fd_txn_t*) txn_scratch[ i ];
   fd_memset( payload_scratch[ i ]+txn->instr[ 0 ].data_off, 0xFF, 4 );
   FD_TEST( insert( i, pack )==FD_PACK_INSERT_REJECT_ESTIMATION_FAIL );
 
   i++;
-  make_transaction( i, 1000001U, 11.0, "ABC", "DEF" ); /* 6 listed + fee payer + 2 programs */
+  make_transaction( i, 1000001U, 500U, 11.0, "ABC", "DEF", NULL, NULL ); /* 6 listed + fee payer + 2 programs */
   txn = (fd_txn_t*) txn_scratch[ i ];
   txn->addr_table_lookup_cnt        = 1;
   txn->addr_table_adtl_writable_cnt = 20;
@@ -1133,11 +1184,11 @@ test_reject( void ) {
   FD_TEST( insert( i, pack )==FD_PACK_INSERT_REJECT_ACCOUNT_CNT );
 
   i++;
-  make_transaction( i, 1000001U, 11.0, "A", "A" );
+  make_transaction( i, 1000001U, 500U, 11.0, "A", "A", NULL, NULL );
   FD_TEST( insert( i, pack )==FD_PACK_INSERT_REJECT_DUPLICATE_ACCT );
 
   i++;
-  make_transaction( i, 1000001U, 11.0, "A", "B" );
+  make_transaction( i, 1000001U, 500U, 11.0, "A", "B", NULL, NULL );
   FD_TEST( insert( i, pack )>=0 );
   FD_TEST( insert( i, pack )==FD_PACK_INSERT_REJECT_DUPLICATE );
 

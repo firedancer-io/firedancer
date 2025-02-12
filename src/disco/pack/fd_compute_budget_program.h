@@ -36,13 +36,15 @@ static const uchar FD_COMPUTE_BUDGET_PROGRAM_ID[FD_TXN_ACCT_ADDR_SZ] = {
 
 /* Any requests for larger heap frames must be a multiple of 1k or the
    transaction is malformed. */
-#define FD_COMPUTE_BUDGET_HEAP_FRAME_GRANULARITY          (1024UL)
+#define FD_COMPUTE_BUDGET_HEAP_FRAME_GRANULARITY         (       1024UL)
 /* SetComputeUnitPrice specifies the price in "micro-lamports," which is
    10^(-6) lamports, so 10^(-15) SOL. */
-#define FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT     (1000000UL)
+#define FD_COMPUTE_BUDGET_MICRO_LAMPORTS_PER_LAMPORT     (    1000000UL)
 
-#define FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT         ( 200000UL)
-#define FD_COMPUTE_BUDGET_MAX_CU_LIMIT                   (1400000UL)
+#define FD_COMPUTE_BUDGET_DEFAULT_INSTR_CU_LIMIT         (     200000UL)
+#define FD_COMPUTE_BUDGET_MAX_CU_LIMIT                   (    1400000UL)
+#define FD_COMPUTE_BUDGET_HEAP_COST                      (          8UL)
+#define FD_COMPUTE_BUDGET_ACCOUNT_DATA_COST_PAGE_SIZE    (32UL * 1024UL)
 
 /* Max loaded data size is 64 MiB */
 #define FD_COMPUTE_BUDGET_MAX_LOADED_DATA_SZ    (64UL*1024UL*1024UL)
@@ -154,7 +156,8 @@ static inline void
 fd_compute_budget_program_finalize( fd_compute_budget_program_state_t const * state,
                                     ulong                                     instr_cnt,
                                     ulong *                                   out_rewards,
-                                    uint *                                    out_compute ) {
+                                    uint *                                    out_compute,
+                                    ulong *                                   out_loaded_account_data_cost ) {
   ulong cu_limit = 0UL;
   if( FD_LIKELY( (state->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_CU)==0U ) ) {
     /* Use default compute limit */
@@ -164,6 +167,21 @@ fd_compute_budget_program_finalize( fd_compute_budget_program_state_t const * st
   cu_limit = fd_ulong_min( cu_limit, FD_COMPUTE_BUDGET_MAX_CU_LIMIT );
 
   *out_compute = (uint)cu_limit;
+
+  ulong loaded_accounts_data_size = 0UL;
+  if( FD_LIKELY( (state->flags & FD_COMPUTE_BUDGET_PROGRAM_FLAG_SET_LOADED_DATA_SZ)==0U ) ) {
+    /* Use default loaded account data size */
+    loaded_accounts_data_size = FD_COMPUTE_BUDGET_MAX_LOADED_DATA_SZ;
+  } else loaded_accounts_data_size = state->loaded_acct_data_sz;
+
+  /* https://github.com/firedancer-io/agave/blob/927c6d30ed5e1baea30c06ebf2aa0c9bae0e1dd1/sdk/fee-structure/src/lib.rs#L122-L129
+
+     loaded_accounts_data_size <= FD_COMPUTE_BUDGET_MAX_LOADED_DATA_SZ
+     means no overflow */
+  ulong loaded_accounts_data_cost = FD_COMPUTE_BUDGET_HEAP_COST * ( (
+   loaded_accounts_data_size + ( FD_COMPUTE_BUDGET_ACCOUNT_DATA_COST_PAGE_SIZE - 1UL )
+  ) / FD_COMPUTE_BUDGET_ACCOUNT_DATA_COST_PAGE_SIZE );
+  *out_loaded_account_data_cost = loaded_accounts_data_cost;
 
   ulong total_fee = 0UL;
 

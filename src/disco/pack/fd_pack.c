@@ -871,12 +871,13 @@ fd_pack_estimate_rewards_and_compute( fd_txn_e_t        * txne,
   fd_txn_t * txn = TXN(txne->txnp);
   ulong sig_rewards = FD_PACK_FEE_PER_SIGNATURE * txn->signature_cnt; /* Easily in [5000, 635000] */
 
-  ulong execution_cus;
-  ulong adtl_rewards;
+  ulong requested_execution_cus;
+  ulong priority_rewards;
   ulong precompile_sigs;
-  ulong cost = fd_pack_compute_cost( txn, txne->txnp->payload, &txne->txnp->flags, &execution_cus, &adtl_rewards, &precompile_sigs );
+  ulong requested_loaded_accounts_data_cost;
+  ulong cost_estimate = fd_pack_compute_cost( txn, txne->txnp->payload, &txne->txnp->flags, &requested_execution_cus, &priority_rewards, &precompile_sigs, &requested_loaded_accounts_data_cost );
 
-  if( FD_UNLIKELY( !cost ) ) return 0;
+  if( FD_UNLIKELY( !cost_estimate ) ) return 0;
 
   /* precompile_sigs <= 16320, so after the addition,
      sig_rewards < 83,000,000 */
@@ -888,10 +889,10 @@ fd_pack_estimate_rewards_and_compute( fd_txn_e_t        * txne,
     fd_acct_addr_t const * acct_addr = fd_txn_get_acct_addrs( txn, txnp->payload ) + (ulong)prog_id_idx;
   }
   */
-  out->rewards                              = (adtl_rewards < (UINT_MAX - sig_rewards)) ? (uint)(sig_rewards + adtl_rewards) : UINT_MAX;
-  out->compute_est                          = (uint)cost;
-  out->txn->pack_cu.requested_execution_cus = (uint)execution_cus;
-  out->txn->pack_cu.non_execution_cus       = (uint)(cost - execution_cus);
+  out->rewards                              = (priority_rewards < (UINT_MAX - sig_rewards)) ? (uint)(sig_rewards + priority_rewards) : UINT_MAX;
+  out->compute_est                          = (uint)cost_estimate;
+  out->txn->pack_cu.requested_exec_plus_acct_data_cus = (uint)(requested_execution_cus + requested_loaded_accounts_data_cost);
+  out->txn->pack_cu.non_execution_cus       = (uint)(cost_estimate - requested_execution_cus - requested_loaded_accounts_data_cost);
 
   return fd_int_if( txne->txnp->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE, 1, 2 );
 }
@@ -1834,7 +1835,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
       fd_memcpy( out->payload, cur->txn->payload, cur->txn->payload_sz                                           );
       fd_memcpy( TXN(out),     txn,               fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
       out->payload_sz                      = cur->txn->payload_sz;
-      out->pack_cu.requested_execution_cus = cur->txn->pack_cu.requested_execution_cus;
+      out->pack_cu.requested_exec_plus_acct_data_cus = cur->txn->pack_cu.requested_exec_plus_acct_data_cus;
       out->pack_cu.non_execution_cus       = cur->txn->pack_cu.non_execution_cus;
       out->flags                           = cur->txn->flags;
     }
@@ -2268,7 +2269,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
     fd_memcpy( out->payload, cur->txn->payload, cur->txn->payload_sz                                           );
     fd_memcpy( TXN(out),     txn,               fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
     out->payload_sz                      = cur->txn->payload_sz;
-    out->pack_cu.requested_execution_cus = cur->txn->pack_cu.requested_execution_cus;
+    out->pack_cu.requested_exec_plus_acct_data_cus = cur->txn->pack_cu.requested_exec_plus_acct_data_cus;
     out->pack_cu.non_execution_cus       = cur->txn->pack_cu.non_execution_cus;
     out->flags                           = cur->txn->flags;
     out++;
@@ -2358,7 +2359,7 @@ fd_pack_schedule_next_microblock( fd_pack_t *  pack,
   total_cus = fd_ulong_min( total_cus, pack->lim->max_cost_per_block - pack->cumulative_block_cost );
   ulong vote_cus = fd_ulong_min( (ulong)((float)total_cus * vote_fraction),
                                  pack->lim->max_vote_cost_per_block - pack->cumulative_vote_cost );
-  ulong vote_reserved_txns = fd_ulong_min( vote_cus/FD_PACK_TYPICAL_VOTE_COST,
+  ulong vote_reserved_txns = fd_ulong_min( vote_cus/FD_PACK_SIMPLE_VOTE_COST,
                                            (ulong)((float)pack->lim->max_txn_per_microblock * vote_fraction) );
 
 

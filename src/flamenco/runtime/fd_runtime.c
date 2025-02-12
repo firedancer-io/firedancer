@@ -1721,8 +1721,7 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   }
 
   int is_vote = fd_txn_is_simple_vote_transaction( txn_ctx->txn_descriptor,
-                                                 txn_ctx->_txn_raw->raw,
-                                                 fd_solana_vote_program_id.key );
+                                                 txn_ctx->_txn_raw->raw );
   if( !is_vote ){
     FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->nonvote_txn_count, 1 );
     if( FD_UNLIKELY( exec_txn_err ) ){
