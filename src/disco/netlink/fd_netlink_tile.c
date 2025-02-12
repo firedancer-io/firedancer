@@ -11,11 +11,13 @@
 
 #include <errno.h>
 #include <net/if.h>
+#include <netinet/in.h> /* MSG_DONTWAIT */
 #include <sys/socket.h> /* SOL_{...} */
 #include <sys/random.h> /* getrandom */
 #include <sys/time.h> /* struct timeval */
 #include <linux/rtnetlink.h> /* RTM_{...} */
 
+#define FD_SOCKADDR_IN_SZ sizeof(struct sockaddr_in)
 #include "generated/netlink_seccomp.h"
 
 /* Hardcoded limits */
@@ -105,7 +107,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           struct sock_filter *   out ) {
   fd_netlink_tile_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_TEST( ctx->magic==FD_NETLINK_TILE_CTX_MAGIC );
-  populate_sock_filter_policy_netlink( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->nl_monitor->fd, (uint)ctx->nl_req->fd );
+  populate_sock_filter_policy_netlink( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->nl_monitor->fd, (uint)ctx->nl_req->fd, (uint)ctx->prober->sock_fd );
   return sock_filter_policy_netlink_instr_cnt;
 }
 
@@ -158,6 +160,11 @@ privileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( 0!=bind( ctx->nl_monitor->fd, &sa.sa, sizeof(struct sockaddr_nl) ) ) ) {
     FD_LOG_ERR(( "bind(sock,RT_NETLINK,RTMGRP_{LINK,NEIGH,IPV4_ROUTE}) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
+
+  float const max_probes_per_second =   3.f;
+  float const max_probe_burst       = 128.f;
+  float const probe_delay_seconds   =  15.f;
+  fd_neigh4_prober_init( ctx->prober, max_probes_per_second, max_probe_burst, probe_delay_seconds );
 
   /* Set duration of blocking reads in before_credit */
   struct timeval tv = { .tv_usec = 3753, }; /* 3.75ms */
@@ -331,6 +338,7 @@ after_frag( fd_netlink_tile_ctx_t * ctx,
             fd_stem_context_t *     stem ) {
   (void)in_idx; (void)seq; (void)tsorig; (void)stem;
 
+  long now = fd_tickcount();
   ctx->idle_cnt = -1L;
 
   /* Parse request (fully contained in sig field) */
@@ -373,8 +381,7 @@ after_frag( fd_netlink_tile_ctx_t * ctx,
 
   /* Trigger neighbor solicit via netlink */
 
-  int netlink_res = fd_neigh4_netlink_solicit( ctx->nl_req, if_idx, ip4_addr );
-  if( FD_UNLIKELY( netlink_res<0 ) ) {
+  if( 0!=fd_neigh4_probe_rate_limited( ctx->prober, ele, ip4_addr, now ) ) {
     ctx->metrics.neigh_solicits_fails++;
     return;
   }

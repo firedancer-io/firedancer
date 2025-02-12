@@ -9,6 +9,8 @@ struct __attribute__((aligned(16))) fd_neigh4_entry {
   uint  ip4_addr;
   uchar mac_addr[6]; /* MAC address */
   uchar state;
+  uchar _pad[1];
+  long  probe_suppress_until;
 };
 
 typedef struct fd_neigh4_entry fd_neigh4_entry_t;

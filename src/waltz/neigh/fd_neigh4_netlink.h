@@ -34,18 +34,6 @@ fd_neigh4_netlink_ingest_message( fd_neigh4_hmap_t *      map,
                                   struct nlmsghdr const * msg,
                                   uint                    if_idx );
 
-/* fd_neigh4_netlink_solicit requests the kernel to create a new neighbor
-   table entry and start an ARP request for it.  Uses sendto(2) syscall.
-   Immediately tries to recvfrom(2) the error code.  Assumes that netlink
-   socket is not bound and has no buffered messages.  Returns 0 on success
-   and netlink error code on failure.  The most common reason for failure
-   is EEXIST (neighbor entry already exists). */
-
-int
-fd_neigh4_netlink_solicit( fd_netlink_t * netlink,
-                           uint           if_idx,
-                           uint           ip4_addr );
-
 FD_PROTOTYPES_END
 
 #endif /* defined(__linux__) */
