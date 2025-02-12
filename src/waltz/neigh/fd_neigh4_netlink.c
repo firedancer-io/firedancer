@@ -6,8 +6,6 @@
 #include <linux/rtnetlink.h> /* RTM_NEWNEIGH */
 #include <linux/neighbour.h> /* struct ndmsg */
 #include "../ip/fd_netlink1.h"
-#include "../../util/fd_util.h"
-#include "../../util/net/fd_ip4.h"
 #include "fd_neigh4_map.h"
 
 int
@@ -144,74 +142,4 @@ fd_neigh4_netlink_ingest_message( fd_neigh4_hmap_t *      map,
 
   }
 
-}
-
-int
-fd_neigh4_netlink_solicit( fd_netlink_t * netlink,
-                           uint           if_idx,
-                           uint           ip4_addr ) {
-
-  uint seq = netlink->seq++;
-
-  struct {
-    struct nlmsghdr nlh;
-    struct ndmsg    ndm;
-    struct nlattr   nla_dst;
-    uint            dst_addr;
-  } request;
-  request.nlh = (struct nlmsghdr) {
-    .nlmsg_type  = RTM_NEWNEIGH,
-    .nlmsg_flags = NLM_F_REQUEST|NLM_F_ACK|NLM_F_EXCL|NLM_F_CREATE,
-    .nlmsg_seq   = seq,
-    .nlmsg_len   = sizeof(request)
-  };
-  request.ndm = (struct ndmsg) {
-    .ndm_family  = AF_INET,
-    .ndm_ifindex = (int)if_idx,
-    .ndm_state   = NUD_INCOMPLETE, /* neighbor entry starts out as empty */
-    .ndm_flags   = NTF_USE /* mark neighbor as used which triggers ARP request */
-  };
-  request.nla_dst = (struct nlattr) {
-    .nla_type = NDA_DST,
-    .nla_len  = (ushort)( sizeof(struct nlattr) + fd_uint_align_up( sizeof(uint), NLA_ALIGNTO ) )
-  };
-  request.dst_addr = ip4_addr; /* big endian */
-
-  /* Send request */
-
-  long send_res = sendto( netlink->fd, &request, sizeof(request), 0, NULL, 0 );
-  if( FD_UNLIKELY( send_res<0 ) ) {
-    FD_LOG_WARNING(( "netlink send(RTM_NEWNEIGH,NLM_F_REQUEST|NLM_F_ACK|NLM_F_EXCL|NLM_F_CREATE," FD_IP4_ADDR_FMT ") failed (%d-%s)",
-                     FD_IP4_ADDR_FMT_ARGS( ip4_addr ), errno, fd_io_strerror( errno ) ));
-    return errno;
-  }
-  if( FD_UNLIKELY( send_res!=sizeof(request) ) ) {
-    FD_LOG_WARNING(( "netlink send(RTM_NEWNEIGH,NLM_F_REQUEST|NLM_F_ACK|NLM_F_EXCL|NLM_F_CREATE," FD_IP4_ADDR_FMT ") failed (short write)",
-                     FD_IP4_ADDR_FMT_ARGS( ip4_addr ) ));
-    return EPIPE;
-  }
-
-  /* Get error code */
-
-  uchar buf[ 4096 ];
-  long recv_res = fd_netlink_read_socket( netlink->fd, buf, sizeof(buf) );
-  if( FD_UNLIKELY( recv_res<0 ) ) {
-    FD_LOG_WARNING(( "netlink recv failed (%d-%s)", errno, fd_io_strerror( errno ) ));
-    return errno;
-  }
-
-  struct nlmsghdr const * nlh = fd_type_pun_const( buf );
-  if( FD_UNLIKELY( nlh->nlmsg_seq!=seq ) ) {
-    /* Should only happen if caller misbehaves */
-    FD_LOG_ERR(( "Unexpected netlink message type=%u seq=%u", nlh->nlmsg_type, nlh->nlmsg_seq ));
-  }
-
-  if( FD_UNLIKELY( nlh->nlmsg_type!=NLMSG_ERROR ) ) {
-    /* Should never happen */
-    FD_LOG_ERR(( "unexpected netlink response nlmsg_type %u for RTM_NEWNEIGH request", nlh->nlmsg_type ));
-  }
-
-  struct nlmsgerr * err = NLMSG_DATA( nlh );
-  int nl_err = -err->error;
-  return nl_err;
 }

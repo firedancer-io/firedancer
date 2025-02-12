@@ -501,5 +501,7 @@
 | netlnk_&#8203;interface_&#8203;count | `gauge` | Number of network interfaces |
 | netlnk_&#8203;route_&#8203;count_&#8203;local | `gauge` | Number of IPv4 routes (Local) |
 | netlnk_&#8203;route_&#8203;count_&#8203;main | `gauge` | Number of IPv4 routes (Main) |
-| netlnk_&#8203;neighbor_&#8203;solicits_&#8203;sent | `counter` | Number of neighbor solicit requests sent to kernel |
-| netlnk_&#8203;neighbor_&#8203;solicits_&#8203;fails | `counter` | Number of neighbor solicit requests that failed to send |
+| netlnk_&#8203;neigh_&#8203;probe_&#8203;sent | `counter` | Number of neighbor solicit requests sent to kernel |
+| netlnk_&#8203;neigh_&#8203;probe_&#8203;fails | `counter` | Number of neighbor solicit requests that failed to send (kernel too slow) |
+| netlnk_&#8203;neigh_&#8203;probe_&#8203;rate_&#8203;limit_&#8203;host | `counter` | Number of neighbor solicit that exceeded the per-host rate limit |
+| netlnk_&#8203;neigh_&#8203;probe_&#8203;rate_&#8203;limit_&#8203;global | `counter` | Number of neighbor solicit that exceeded the global rate limit |

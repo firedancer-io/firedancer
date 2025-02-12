@@ -8,8 +8,6 @@
 #include <linux/rtnetlink.h>
 #include "../../util/fd_util.h"
 
-FD_STATIC_ASSERT( sizeof(fd_neigh4_entry_t)==16, layout );
-
 static void
 dump_neighbor_table( fd_neigh4_hmap_t * map,
                      fd_netlink_t *     netlink1,

@@ -9,6 +9,8 @@ struct __attribute__((aligned(16))) fd_neigh4_entry {
   uint  ip4_addr;
   uchar mac_addr[6]; /* MAC address */
   uchar state;
+  uchar _pad[1];
+  long  probe_suppress_until;
 };
 
 typedef struct fd_neigh4_entry fd_neigh4_entry_t;
@@ -22,7 +24,7 @@ typedef struct fd_neigh4_entry fd_neigh4_entry_t;
 
 FD_PROTOTYPES_BEGIN
 
-#if FD_HAS_HOSTED && FD_HAS_SSE
+#if FD_HAS_HOSTED
 
 /* fd_neigh4_hmap_fprintf prints the routing table to the given FILE *
    pointer (or target equivalent).  Order of routes is undefined but
@@ -34,7 +36,7 @@ int
 fd_neigh4_hmap_fprintf( fd_neigh4_hmap_t const * map,
                         void *                   file );
 
-#endif /* FD_HAS_HOSTED && FD_HAS_SSE */
+#endif /* FD_HAS_HOSTED */
 
 FD_PROTOTYPES_END
 

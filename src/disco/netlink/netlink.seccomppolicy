@@ -3,7 +3,8 @@
 #
 # nl_mon_fd: An rtnetlink socket used to monitor updates
 # nl_req_fd: An rtnetlink socket used for request-reply
-unsigned int logfile_fd, unsigned int nl_mon_fd, unsigned int nl_req_fd
+# arp_probe_fd: A UDP socket used to indirectly generate ARP probes
+uint logfile_fd, uint nl_mon_fd, uint nl_req_fd, uint arp_probe_fd
 
 # logging: all log messages are written to a file and/or pipe
 #
@@ -21,14 +22,26 @@ write: (or (eq (arg 0) 2)
 # descriptor 3 is always the logfile.
 fsync: (eq (arg 0) logfile_fd)
 
-# sendto(2) is used to send netlink requests to the kernel
+# nl_req_fd: Periodically send read-only/unprivileged rtnetlink requests
+#
+# arp_probe_fd: Send UDP packets that cause the kernel to generate ARP
+# requests
+#
 # (In theory could use send(2) but that syscall doesn't exist on arm64)
-sendto: (and (eq (arg 0) nl_req_fd)
-             (eq (arg 3) 0)
-             (eq (arg 4) 0)
-             (eq (arg 5) 0))
+sendto: (or (and (eq (arg 0) nl_req_fd)
+                 (eq (arg 3) 0)
+                 (eq (arg 4) 0)
+                 (eq (arg 5) 0))
+            (and (eq (arg 0) arp_probe_fd)
+                 (eq (arg 1) 0)
+                 (eq (arg 2) 0)
+                 (eq (arg 3) MSG_DONTWAIT)
+                 (eq (arg 5) FD_SOCKADDR_IN_SZ)))
 
-# recvfrom(2) is used to receive netlink responses from the kernel
+# nl_mon_fd: Monitor for asynchronous rtnetlink updates
+#
+# nl_req_fd: Read replies to rtnetlink requests
+#
 # (Using recvfrom(2) instead of recv(2) for same ABI reasons as above)
 recvfrom: (and (or (eq (arg 0) nl_mon_fd)
                    (eq (arg 0) nl_req_fd))
