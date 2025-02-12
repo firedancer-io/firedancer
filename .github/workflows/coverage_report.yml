@@ -21,6 +21,10 @@ jobs:
 
       - uses: ./.github/actions/deps
       - uses: ./.github/actions/hugepages
+        with:
+          count_gigantic: 60
+          count_huge: 100 # TODO: this is required until we can handle anonymous workspaces and loose huge pages in fddev
+
       - uses: dtolnay/rust-toolchain@1.73.0
 
       - name: Generate all coverage
