@@ -49,7 +49,7 @@ void
 fd_sysvar_fees_new_derived(
   fd_exec_slot_ctx_t * slot_ctx,
   fd_fee_rate_governor_t base_fee_rate_governor,
-  ulong latest_singatures_per_slot
+  ulong latest_signatures_per_slot
 ) {
   fd_fee_rate_governor_t me = {
     .target_signatures_per_slot = base_fee_rate_governor.target_signatures_per_slot,
@@ -68,7 +68,7 @@ fd_sysvar_fees_new_derived(
       fd_ulong_max(
         me.min_lamports_per_signature,
         me.target_lamports_per_signature
-        * fd_ulong_min(latest_singatures_per_slot, (ulong)UINT_MAX)
+        * fd_ulong_min(latest_signatures_per_slot, (ulong)UINT_MAX)
         / me.target_signatures_per_slot
       )
     );

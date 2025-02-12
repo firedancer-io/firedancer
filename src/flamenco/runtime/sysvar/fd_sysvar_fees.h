@@ -20,7 +20,7 @@ fd_sysvar_fees_read( fd_sysvar_fees_t *         result,
 void
 fd_sysvar_fees_new_derived( fd_exec_slot_ctx_t *   slot_ctx,
                             fd_fee_rate_governor_t base_fee_rate_governor,
-                            ulong                  latest_singatures_per_slot );
+                            ulong                  latest_signatures_per_slot );
 
 /* Updates fees for every slot. */
 void
