@@ -541,7 +541,8 @@ fd_topo_initialize( config_t * config ) {
     FOR(archiver_feeder_tile_cnt) {
       fd_topob_link( topo, "arch_f_w", "arch_f_w", config->tiles.net.send_buffer_size, FD_NET_MTU, 1UL );
       fd_topob_tile_out( topo, "arch_f", i, "arch_f_w", i );
-      fd_topob_tile_in(  topo, "arch_w", 0UL, "metric_in", "arch_f_w", i, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+      // TODO: making this reliable slows it down?
+      fd_topob_tile_in(  topo, "arch_w", 0UL, "metric_in", "arch_f_w", i, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
     }
   }
 

@@ -43,18 +43,10 @@ struct fd_archiver_playback_tile_ctx {
 
   double tick_per_ns;
 
+  ulong now;
   ulong next_publish_ns;
 
-  ulong startup_delay_ns;
-
-  ulong pending_publish_link_idx;
-  fd_archiver_frag_header_t pending_publish_header;
-
   fd_archiver_playback_out_ctx_t out[ 32 ];
-
-  /* debugging stuff */
-  ulong last_repair_seq;
-  ulong last_shred_seq;
 };
 typedef struct fd_archiver_playback_tile_ctx fd_archiver_playback_tile_ctx_t;
 
@@ -111,11 +103,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
-static inline ulong 
-now( fd_archiver_playback_tile_ctx_t * ctx ) {
-  return (ulong)((double)(fd_tickcount()) / ctx->tick_per_ns);
-}
-
 static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
@@ -168,8 +155,6 @@ unprivileged_init( fd_topo_t *      topo,
     }
   }
 
-  ctx->startup_delay_ns = now( ctx ) + (1000000000 * FD_ARCHIVER_STARTUP_DELAY_SECONDS);
-
   /* Setup output links */
   for( ulong i=0; i<tile->out_cnt; i++ ) {
     fd_topo_link_t * link      = &topo->links[ tile->out_link_id[ i ] ];
@@ -182,48 +167,9 @@ unprivileged_init( fd_topo_t *      topo,
   }
 }
 
-static inline int
-should_delay_publish( fd_archiver_playback_tile_ctx_t * ctx ) {
-  if( FD_UNLIKELY(( ctx->next_publish_ns == 0L )) ) {
-    return 0;
-  }
-
-  ulong now_ns = now( ctx );
-  return now_ns < ctx->next_publish_ns || now_ns < ctx->startup_delay_ns;
-}
-
-static inline void
-publish( fd_archiver_playback_tile_ctx_t * ctx,
-         fd_stem_context_t *               stem ) {
-  /* FIXME: Debugging stuff, remove */
-  // fd_archiver_frag_header_t * header = &ctx->pending_publish_header;
-  // if( header->tile_id == FD_ARCHIVER_TILE_ID_REPAIR ) {
-  //   if( ctx->last_repair_seq ) {
-  //     if( !( header->seq == (ctx->last_repair_seq + 1) ) ) {
-  //       FD_LOG_ERR(( "header->seq=%lu ctx->last_repair_seq=%lu", header->seq, ctx->last_repair_seq ));
-  //     }
-  //   }
-  //   ctx->last_repair_seq = header->seq;
-  // }
-
-  // if( header->tile_id == FD_ARCHIVER_TILE_ID_SHRED ) {
-  //   if( ctx->last_shred_seq ) {
-  //     if( !( header->seq == (ctx->last_shred_seq + 1) ) ) {
-  //       FD_LOG_ERR(( "header->seq=%lu ctx->last_shred_seq=%lu", header->seq, ctx->last_shred_seq ));
-  //     }
-  //   }
-  //   ctx->last_shred_seq = header->seq;
-  // }
-
-  /* Publish the pending fragment */
-  fd_stem_publish( stem, ctx->pending_publish_link_idx, ctx->pending_publish_header.sig, ctx->out[ ctx->pending_publish_link_idx ].chunk, ctx->pending_publish_header.sz, 0UL, 0UL, 0UL);
-  ctx->out[ ctx->pending_publish_link_idx ].chunk = fd_dcache_compact_next( ctx->out[ ctx->pending_publish_link_idx ].chunk,
-                                                                               ctx->pending_publish_header.sz,
-                                                                           ctx->out[ ctx->pending_publish_link_idx ].chunk0,
-                                                                            ctx->out[ ctx->pending_publish_link_idx ].wmark );
-
-  /* Reset the state */
-  memset( &ctx->pending_publish_header, 0, FD_ARCHIVER_FRAG_HEADER_FOOTPRINT );
+static void
+during_housekeeping( fd_archiver_playback_tile_ctx_t * ctx ) {
+  ctx->now =(ulong)((double)(fd_tickcount()) / ctx->tick_per_ns);
 }
  
 static inline void
@@ -235,17 +181,6 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
   (void)stem;
   (void)opt_poll_in;
   (void)charge_busy;
-
-  /* Check to see if we have a pending frag ready to publish */
-  if( FD_LIKELY(( ctx->pending_publish_header.magic )) ) {
-    /* If we should delay, do not consume any more fragments from the archive but instead return */
-    if( FD_UNLIKELY( should_delay_publish( ctx ) )) {
-      return;
-    } else {
-      /* If we have caught up, publish the fragment */
-      publish( ctx, stem );
-    }
-  }
 
   /* Check if we've reached EOF in the archive. */
   if( FD_UNLIKELY( ctx->archive_off >= ctx->archive_size ||
@@ -259,60 +194,64 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
   }
 
   /* Consume the header */
-  uchar const * hdr_ptr = (uchar const *)ctx->archive_map + ctx->archive_off;
-  fd_memcpy( &ctx->pending_publish_header, hdr_ptr, FD_ARCHIVER_FRAG_HEADER_FOOTPRINT );
-  ctx->archive_off += FD_ARCHIVER_FRAG_HEADER_FOOTPRINT;
-  if( FD_UNLIKELY( ctx->pending_publish_header.magic != FD_ARCHIVER_HEADER_MAGIC ) ) {
-    FD_LOG_ERR(( "bad magic in archive header: %lu", ctx->pending_publish_header.magic ));
+  uchar * hdr_ptr                    = (uchar *)ctx->archive_map + ctx->archive_off;
+  fd_archiver_frag_header_t * header = fd_type_pun( hdr_ptr );
+  if( FD_UNLIKELY( header->magic != FD_ARCHIVER_HEADER_MAGIC ) ) {
+    FD_LOG_ERR(( "bad magic in archive header: %lu", header->magic ));
   }
+
+  /* Determine if we should wait before publishing this */
+  if( ctx->next_publish_ns != 0UL && ctx->next_publish_ns > ctx->now + header->ns_since_prev_fragment ) {
+    return;
+  }
+  ctx->archive_off += FD_ARCHIVER_FRAG_HEADER_FOOTPRINT;
 
   /* Determine the output link on which to send the frag */
   ulong out_link_idx = 0UL;
-  switch ( ctx->pending_publish_header.tile_id ) {
+  switch ( header->tile_id ) {
     case FD_ARCHIVER_TILE_ID_SHRED:
     out_link_idx = NET_SHRED_OUT_IDX;
-    ctx->stats.net_shred_out_cnt += 1;
     break;
     case FD_ARCHIVER_TILE_ID_QUIC:
     out_link_idx = NET_QUIC_OUT_IDX;
-    ctx->stats.net_quic_out_cnt += 1;
     break;
     case FD_ARCHIVER_TILE_ID_GOSSIP:
     out_link_idx = NET_GOSSIP_OUT_IDX;
-    ctx->stats.net_gossip_out_cnt += 1;
     break;
     case FD_ARCHIVER_TILE_ID_REPAIR:
     out_link_idx = NET_REPAIR_OUT_IDX;
-    ctx->stats.net_repair_out_cnt += 1;
     break;
     default:
     FD_LOG_ERR(( "unsupported tile id" ));
   }
 
   /* Copy fragment from archive file into the output link, ready for publishing */
-  if( FD_UNLIKELY( (ctx->archive_size - ctx->archive_off) < ctx->pending_publish_header.sz ) ) {
-    FD_LOG_WARNING(( "playback_stats net_shred_out_cnt=%lu, net_quic_out_cnt=%lu, net_gossip_out_cnt=%lu, net_repair_out_cnt=%lu",
-                     ctx->stats.net_shred_out_cnt,
-                     ctx->stats.net_quic_out_cnt,
-                     ctx->stats.net_gossip_out_cnt,
-                     ctx->stats.net_repair_out_cnt ));
+  if( FD_UNLIKELY( (ctx->archive_size - ctx->archive_off) < header->sz ) ) {
     FD_LOG_ERR(( "archive file too small" ));
   }
-  ctx->pending_publish_link_idx = out_link_idx;
 
   uchar const * frag_ptr = (uchar const *)ctx->archive_map + ctx->archive_off;
   uchar       * dst      = (uchar *)fd_chunk_to_laddr( ctx->out[ out_link_idx ].mem, ctx->out[ out_link_idx ].chunk );
-  fd_memcpy( dst, frag_ptr, ctx->pending_publish_header.sz );
-  ctx->archive_off += ctx->pending_publish_header.sz;
-  ctx->next_publish_ns = now( ctx ) + ctx->pending_publish_header.ns_since_prev_fragment;
+  fd_memcpy( dst, frag_ptr, header->sz );
+
+  fd_stem_publish( stem, out_link_idx, header->sig, ctx->out[ out_link_idx ].chunk, header->sz, 0UL, 0UL, 0UL);
+  ctx->out[ out_link_idx ].chunk = fd_dcache_compact_next( ctx->out[ out_link_idx ].chunk,
+                                                                            header->sz,
+                                                                        ctx->out[ out_link_idx ].chunk0,
+                                                                        ctx->out[ out_link_idx ].wmark );
+
+  ctx->archive_off += header->sz;
+  ctx->next_publish_ns = ctx->now + header->ns_since_prev_fragment;
 }
 
 #define STEM_BURST (1UL)
+#define STEM_LAZY  (21474836)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_archiver_playback_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_archiver_playback_tile_ctx_t)
 
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 
 #include "../../../../disco/stem/fd_stem.c"
 

@@ -138,36 +138,39 @@ before_frag( fd_archiver_feeder_tile_ctx_t * ctx,
   (void)sig;
   (void)seq;
 
+  return 0;
+
  
     /* gossip */
     if ( ctx->round_robin_idx == 0) {
-      if( ctx->count >= 100000 ) {
-        return 1;
-      }
-      ctx->count += 1;
+      // if( ctx->count >= 100000 ) {
+      //   return 1;
+      // }
+      // ctx->count += 1;
       return 0;
     }
 
     /* repair */
     if( ctx->round_robin_idx == 1 ) {
-      return !((seq % 4) == 1);
+      return 0;
+      // return !((seq % 4) == 1);
     }
-    if( ctx->round_robin_idx == 2 ) {
-      return !((seq % 4) == 2);
-    }
-    if( ctx->round_robin_idx == 3 ) {
-      return !((seq % 4) == 3);
-    }
-    if( ctx->round_robin_idx == 4 ) {
-      return !((seq % 4) == 0);
-    }
+    // if( ctx->round_robin_idx == 2 ) {
+    //   return !((seq % 4) == 2);
+    // }
+    // if( ctx->round_robin_idx == 3 ) {
+    //   return !((seq % 4) == 3);
+    // }
+    // if( ctx->round_robin_idx == 4 ) {
+    //   return !((seq % 4) == 0);
+    // }
 
     /* shred */
     if( ctx->round_robin_idx == 5 ) {
-      if( ctx->count >= 50000 ) {
-        return 1;
-      }
-      ctx->count += 1;
+      // if( ctx->count >= 50000 ) {
+      //   return 1;
+      // }
+      // ctx->count += 1;
       return 0;
     }
     // if( ctx->round_robin_idx == 6 ) {
@@ -233,6 +236,8 @@ after_frag( fd_archiver_feeder_tile_ctx_t * ctx,
   (void)in_idx;
   (void)seq;
   (void)sig;
+  (void)tsorig;
+  (void)stem;
 
   /* Publish the message to the queue */
   ulong full_sz = sz + FD_ARCHIVER_FRAG_HEADER_FOOTPRINT;

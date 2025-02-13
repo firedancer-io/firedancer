@@ -14,10 +14,9 @@
 #include <linux/if_xdp.h>
 #include "generated/archiver_writer_seccomp.h"
 
-#define FD_ARCHIVER_WRITER_OUT_BUF_SZ (10240UL)
-
-/* Initial size of the mmapped region. This will grow. */
-#define FD_ARCHIVER_WRITER_MMAP_INITIAL_SIZE  (8034920448UL)
+#define FD_ARCHIVER_WRITER_ALLOC_TAG   (3UL)
+#define FD_ARCHIVER_WRITER_FRAG_BUF_SZ (FD_NET_MTU)
+#define FD_ARCHIVER_WRITER_OUT_BUF_SZ  (FD_SHMEM_GIGANTIC_PAGE_SZ)
 
 struct fd_archiver_writer_stats {
   ulong net_shred_in_cnt;
@@ -34,27 +33,22 @@ typedef struct {
 } fd_archiver_writer_in_ctx_t;
 
 struct fd_archiver_writer_tile_ctx {
+  void * out_buf;
+
   fd_archiver_writer_in_ctx_t in[ 32 ];
 
   fd_archiver_writer_stats_t stats;
 
-  ulong buf_sz;
-  uchar buf[ FD_ARCHIVER_WRITER_OUT_BUF_SZ ];
-
+  ulong now;
   ulong  last_packet_ns;
   double tick_per_ns;
 
-  int     archive_file_fd;
-  char *  mmap_addr;
-  ulong   mmap_size;
-  ulong   mmap_off;
-  ulong   mmap_unsynced_offset;
+  fd_io_buffered_ostream_t archive_ostream;
 
-  /* Debugging stuff */
-  ulong last_repair_seq;
-  ulong last_shred_seq;
+  uchar frag_buf[FD_ARCHIVER_WRITER_FRAG_BUF_SZ];
 
-  ulong msync_housekeeping_interval_cnt;
+  fd_alloc_t * alloc;
+  fd_valloc_t  valloc;
 };
 typedef struct fd_archiver_writer_tile_ctx fd_archiver_writer_tile_ctx_t;
 
@@ -122,13 +116,13 @@ privileged_init( fd_topo_t *      topo,
     FD_SCRATCH_ALLOC_INIT( l, scratch );
     fd_archiver_writer_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_archiver_writer_tile_ctx_t), sizeof(fd_archiver_writer_tile_ctx_t) ); 
     memset( ctx, 0, sizeof(fd_archiver_writer_tile_ctx_t) );
+    FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
     FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
-    tile->archiver.archive_fd = open( tile->archiver.archive_path, O_RDWR | O_CREAT, 0666 );
+    tile->archiver.archive_fd = open( tile->archiver.archive_path, O_RDWR | O_CREAT | O_DIRECT, 0666 );
     if ( FD_UNLIKELY( tile->archiver.archive_fd == -1 ) ) {
       FD_LOG_ERR(( "failed to open or create archive file %s %d %d %s", tile->archiver.archive_path, tile->archiver.archive_fd, errno, strerror(errno) ));
     }
-    ctx->archive_file_fd = tile->archiver.archive_fd;
 }
 
 static void
@@ -138,6 +132,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_archiver_writer_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_archiver_writer_tile_ctx_t), sizeof(fd_archiver_writer_tile_ctx_t) );
+  void * alloc_shmem                  = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   /* Setup the archive tile to be in the expected state */
@@ -145,32 +140,11 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( err==-1 ) ) {
     FD_LOG_ERR(( "failed to truncate the archive file (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
-  err = ftruncate( tile->archiver.archive_fd, FD_ARCHIVER_WRITER_MMAP_INITIAL_SIZE );
-  if( FD_UNLIKELY( err==-1 ) ) {
-    FD_LOG_ERR(( "failed to set initial size of archive file (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
 
   long seek = lseek( tile->archiver.archive_fd, 0UL, SEEK_SET );
   if( FD_UNLIKELY( seek!=0L ) ) {
     FD_LOG_ERR(( "failed to seek to the beginning of the archive file" ));
   }
-
-  /* mmap the file in */
-  ctx->mmap_size  = FD_ARCHIVER_WRITER_MMAP_INITIAL_SIZE;
-  ctx->mmap_off  = 0UL;
-  ctx->mmap_addr = mmap( NULL,
-                         ctx->mmap_size,
-                         PROT_WRITE,
-                         MAP_SHARED,
-                         tile->archiver.archive_fd,
-                         0 );
-  if( ctx->mmap_addr == MAP_FAILED ) {
-    FD_LOG_ERR(( "failed to mmap archive file. errno=%i (%s)", errno, strerror(errno) ));
-  }
-  if( madvise( ctx->mmap_addr, ctx->mmap_size, MADV_SEQUENTIAL ) ) {
-    FD_LOG_WARNING(( "madvise(MADV_SEQUENTIAL) failed (%i-%s)", errno, strerror(errno) ));
-  }
-  ctx->mmap_unsynced_offset = ctx->mmap_off;
 
   /* Input links */
   for( ulong i=0; i<tile->in_cnt; i++ ) {
@@ -182,84 +156,34 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
   }
 
+  /* Allocator */
+  ctx->alloc = fd_alloc_join( fd_alloc_new( alloc_shmem, FD_ARCHIVER_WRITER_ALLOC_TAG ), fd_tile_idx() );
+  if( FD_UNLIKELY( !ctx->alloc ) ) {
+    FD_LOG_ERR( ( "fd_alloc_join failed" ) );
+  }
+  ctx->valloc = fd_alloc_virtual( ctx->alloc );
+
+  /* Allocate output buffer */
+  ctx->out_buf = fd_valloc_malloc( ctx->valloc, 4096, FD_ARCHIVER_WRITER_OUT_BUF_SZ );
+  if( FD_UNLIKELY( !ctx->out_buf ) ) {
+    FD_LOG_ERR(( "failed to allocate output buffer" ));
+  }
+
+  /* Initialize output stream */
+  if( FD_UNLIKELY( !fd_io_buffered_ostream_init( 
+    &ctx->archive_ostream,
+    tile->archiver.archive_fd,
+    ctx->out_buf,
+    FD_ARCHIVER_WRITER_OUT_BUF_SZ ) ) ) {
+    FD_LOG_ERR(( "failed to initialize ostream" ));
+  }
+
   ctx->tick_per_ns = fd_tempo_tick_per_ns( NULL );
-}
-
-static inline ulong 
-now( fd_archiver_writer_tile_ctx_t * ctx ) {
-  return (ulong)((double)(fd_tickcount()) / ctx->tick_per_ns);
-}
-
-static void
-mmap_sync( fd_archiver_writer_tile_ctx_t * ctx, int flags ) {
-
-  /* 
-  0     mmap_addr       mmap_unsynced_offset     mmap_offset         
-  
-  
-   */
-
-  FD_LOG_WARNING(( "syncing mmap" ));
-  ulong raw_sync_len = ctx->mmap_off;
-  if( raw_sync_len < FD_SHMEM_NORMAL_PAGE_SZ ) {
-    return;
-  }
-  ulong sync_len = (raw_sync_len / FD_SHMEM_NORMAL_PAGE_SZ) * FD_SHMEM_NORMAL_PAGE_SZ;
-
-  if( msync(
-    ctx->mmap_addr + sync_len,
-    sync_len,
-    flags ) != 0 ) {
-    FD_LOG_ERR(( "msync failed. errno=%i sync_len=%lu", errno, sync_len ));
-  }
-
-  ctx->mmap_unsynced_offset = ctx->mmap_unsynced_offset + sync_len;
 }
 
 static void
 during_housekeeping( fd_archiver_writer_tile_ctx_t * ctx ) {
-  (void)ctx;
-  ctx->msync_housekeeping_interval_cnt = ctx->msync_housekeeping_interval_cnt % 40;
-  if( ctx->msync_housekeeping_interval_cnt == 0 ) {
-    mmap_sync( ctx, MS_SYNC );
-  }
-  ctx->msync_housekeeping_interval_cnt += 1;
-
-  FD_LOG_WARNING(( "writer stats: net_shred_in_cnt=%lu net_quic_in_cnt=%lu net_gossip_in_cnt=%lu net_repair_in_cnt=%lu",
-    ctx->stats.net_shred_in_cnt,
-    ctx->stats.net_quic_in_cnt,
-    ctx->stats.net_gossip_in_cnt,
-    ctx->stats.net_repair_in_cnt ));
-}
-
-/* Expand the mmap region if the next write would exceed the current size. */
-static void
-resize_mmap( fd_archiver_writer_tile_ctx_t * ctx ) {
-  ulong new_size = ctx->mmap_size + FD_SHMEM_HUGE_PAGE_SZ * 10;
-
-  mmap_sync( ctx, MS_SYNC ); 
-
-  /* ftruncate to new_size */
-  if( FD_UNLIKELY( ftruncate( ctx->archive_file_fd, (off_t)new_size ) ) ) {
-    FD_LOG_ERR(( "ftruncate to %lu bytes failed: %i (%s)",
-                 new_size, errno, strerror(errno) ));
-  }
-
-  /* mremap our existing mapping to the new size */
-  void * new_map = mremap( ctx->mmap_addr, 
-                           ctx->mmap_size,
-                           new_size,
-                           MREMAP_MAYMOVE );
-  if( new_map == MAP_FAILED ) {
-    FD_LOG_ERR(( "mremap failed: %i (%s)", errno, strerror(errno) ));
-  }
-  if( madvise( new_map, new_size, MADV_SEQUENTIAL ) ) {
-    FD_LOG_WARNING(( "madvise(MADV_SEQUENTIAL) after mremap failed (%i-%s)", errno, strerror(errno) ));
-  }
-
-  ctx->mmap_addr = (char *)new_map;
-  ctx->mmap_size = new_size;
-  ctx->mmap_unsynced_offset = ctx->mmap_off;
+  ctx->now =(ulong)((double)(fd_tickcount()) / ctx->tick_per_ns);
 }
 
 static inline void
@@ -279,14 +203,14 @@ during_frag( fd_archiver_writer_tile_ctx_t * ctx,
   }
 
   /* Write the incoming fragment to the ostream */
-  /* This is safe to do inside during_frag because this tile is a reliable consumer and so can never be overran. */
   char * src = (char *)fd_chunk_to_laddr( ctx->in[in_idx].mem, chunk );
 
   /* Update the timestamp of the fragment, so that we have a total ordering */
   fd_archiver_frag_header_t * header = fd_type_pun( src );
+  FD_TEST(( header->magic == FD_ARCHIVER_HEADER_MAGIC ));
 
   /* Set the relative delay on the packet */
-  ulong now_ns = now( ctx );
+  ulong now_ns = ctx->now;
   if( ctx->last_packet_ns == 0UL ) {
     header->ns_since_prev_fragment = 0L;
   } else {
@@ -294,32 +218,45 @@ during_frag( fd_archiver_writer_tile_ctx_t * ctx,
   }
   ctx->last_packet_ns = now_ns;
 
-  /* Resize the mmap region if necessary */
-  if( FD_UNLIKELY( ctx->mmap_off + sz > ctx->mmap_size ) ) {
-    FD_LOG_ERR(( "mmap too small" ));
-    resize_mmap( ctx );
+  /* Copy fragment into buffer */
+  fd_memcpy( ctx->frag_buf, src, sz );
+
+  // ctx->stats.net_repair_in_cnt  += header->tile_id == FD_ARCHIVER_TILE_ID_REPAIR;
+  // ctx->stats.net_gossip_in_cnt  += header->tile_id == FD_ARCHIVER_TILE_ID_GOSSIP;
+  // ctx->stats.net_shred_in_cnt   += header->tile_id == FD_ARCHIVER_TILE_ID_SHRED;
+  // ctx->stats.net_quic_in_cnt    += header->tile_id == FD_ARCHIVER_TILE_ID_QUIC;
+}
+
+static inline void
+after_frag( fd_archiver_writer_tile_ctx_t * ctx,
+            ulong                           in_idx,
+            ulong                           seq,
+            ulong                           sig,
+            ulong                           sz,
+            ulong                           tsorig,
+            fd_stem_context_t *             stem ) {
+  (void)in_idx;
+  (void)seq;
+  (void)sig;
+  (void)tsorig;
+  (void)stem;
+
+  /* Write frag to file */
+  int err = fd_io_buffered_ostream_write( &ctx->archive_ostream, ctx->frag_buf, sz );
+  if( FD_UNLIKELY( err != 0 ) ) {
+    FD_LOG_WARNING(( "failed to write %lu bytes to output buffer. error: %d", sz, err ));
   }
-
-  /* Copy fragment into the mapped region */
-  char * dst = ctx->mmap_addr + ctx->mmap_off;
-  memcpy( dst, src, sz );
-  ctx->mmap_off += sz;
-
-  ctx->stats.net_repair_in_cnt  += header->tile_id == FD_ARCHIVER_TILE_ID_REPAIR;
-  ctx->stats.net_gossip_in_cnt  += header->tile_id == FD_ARCHIVER_TILE_ID_GOSSIP;
-  ctx->stats.net_shred_in_cnt   += header->tile_id == FD_ARCHIVER_TILE_ID_SHRED;
-  ctx->stats.net_quic_in_cnt    += header->tile_id == FD_ARCHIVER_TILE_ID_QUIC;
 }
 
 #define STEM_BURST (1UL)
-#define STEM_LAZY  (2147483647)
+#define STEM_LAZY  (214748364)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_archiver_writer_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_archiver_writer_tile_ctx_t)
 
-#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
-#define STEM_CALLBACK_DURING_FRAG         during_frag
-// #define STEM_CALLBACK_AFTER_FRAG          after_frag
+#define STEM_CALLBACK_DURING_FRAG          during_frag
+#define STEM_CALLBACK_AFTER_FRAG           after_frag
+#define STEM_CALLBACK_DURING_HOUSEKEEPING  during_housekeeping
 
 #include "../../../../disco/stem/fd_stem.c"
 
