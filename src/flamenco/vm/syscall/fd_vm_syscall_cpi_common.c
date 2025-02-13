@@ -571,8 +571,12 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
     if( !updated_data_len ) fd_memset( (void*)caller_acc_data, 0, caller_acc_data_len );
 
     if( caller_acc_data_len != updated_data_len ) {
-      /* FIXME: missing MAX_PERMITTED_DATA_INCREASE check from solana
-        https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1342 */
+      // https://github.com/anza-xyz/agave/blob/a1ed2b1052bde05e79c31388b399dba9da10f7de/programs/bpf_loader/src/syscalls/cpi.rs#L1374
+      ulong max_increase = (vm->direct_mapping && vm->is_deprecated) ? 0UL : MAX_PERMITTED_DATA_INCREASE;
+      if( FD_UNLIKELY( updated_data_len>fd_ulong_sat_add( (ulong)caller_acc_data_len, max_increase ) ) ) {
+        FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC);
+        return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+      }
 
       /* FIXME: do we need to zero the memory that was previously used, if the new data_len is smaller?
       https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1361
@@ -655,8 +659,9 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
       /* There is an illegal data overflow if the post len is greater than the
          original data len + the max resizing limit (10KiB). Can't resize the
          account if the deprecated loader is being used */
-      ulong max_increase = vm->is_deprecated ? 0UL : 10240UL;
+      ulong max_increase = vm->is_deprecated ? 0UL : MAX_PERMITTED_DATA_INCREASE;
       if( FD_UNLIKELY( post_len>fd_ulong_sat_add( (ulong)original_len, max_increase ) ) ) {
+        FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC);
         return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
       }
       /* There is additonal handling in the case where the account is larger
