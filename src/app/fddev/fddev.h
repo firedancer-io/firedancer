@@ -142,4 +142,8 @@ void
 pktgen_cmd_fn( args_t *         args,
                config_t * const config );
 
+void
+spy_cmd_fn( args_t *         args,
+            config_t * const config );
+
 #endif /* HEADER_fd_src_app_fddev_fddev_h */
