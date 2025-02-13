@@ -1583,12 +1583,16 @@ fd_pack_metrics_write( fd_pack_t const * pack ) {
   ulong pending_votes  = treap_ele_cnt( pack->pending_votes   );
   ulong pending_bundle = treap_ele_cnt( pack->pending_bundles );
   ulong conflicting    = pack->pending_txn_cnt - pending_votes - pending_bundle - treap_ele_cnt( pack->pending );
-  FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS_ALL,         pack->pending_txn_cnt       );
   FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS_REGULAR,     pending_regular             );
   FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS_VOTES,       pending_votes               );
   FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS_CONFLICTING, conflicting                 );
   FD_MGAUGE_SET( PACK, AVAILABLE_TRANSACTIONS_BUNDLES,     pending_bundle              );
   FD_MGAUGE_SET( PACK, SMALLEST_PENDING_TRANSACTION,       pack->pending_smallest->cus );
+}
+
+void
+fd_pack_metrics_fixed_int_write( fd_pack_t const * pack ) {
+  FD_MGAUGE_SET(PACK, AVAILABLE_TRANSACTIONS_ALL, pack->pending_txn_cnt );
 }
 
 typedef struct {

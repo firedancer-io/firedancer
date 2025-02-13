@@ -86,9 +86,13 @@ during_housekeeping( fd_bundle_ctx_t * ctx ) {
 
 static inline void
 metrics_write( fd_bundle_ctx_t * ctx ) {
-  FD_MCNT_SET( BUNDLE, TRANSACTION_RECEIVED, ctx->metrics.txn_received );
   FD_MCNT_SET( BUNDLE, BUNDLE_RECEIVED, ctx->metrics.bundle_received );
   FD_MCNT_SET( BUNDLE, PACKET_RECEIVED, ctx->metrics.packet_received );
+}
+
+static inline void
+metrics_write_fixed_interval( fd_bundle_ctx_t * ctx ) {
+  FD_MCNT_SET( BUNDLE, TRANSACTION_RECEIVED, ctx->metrics.txn_received );
 }
 
 extern void
@@ -423,9 +427,10 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_bundle_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_bundle_ctx_t)
 
-#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
-#define STEM_CALLBACK_METRICS_WRITE       metrics_write
-#define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_DURING_HOUSEKEEPING          during_housekeeping
+#define STEM_CALLBACK_FIXED_METRICS_WRITE_INTERVAL metrics_write_fixed_interval
+#define STEM_CALLBACK_METRICS_WRITE                metrics_write
+#define STEM_CALLBACK_AFTER_CREDIT                 after_credit
 
 #include "../../../../disco/stem/fd_stem.c"
 

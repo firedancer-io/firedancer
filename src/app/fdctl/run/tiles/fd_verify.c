@@ -30,6 +30,12 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_verify_ctx_t * ctx ) {
+  (void)ctx;
+  return;
+}
+
+static inline void
+metrics_write_fixed_interval( fd_verify_ctx_t * ctx ) {
   FD_MCNT_SET( VERIFY, TRANSACTION_BUNDLE_PEER_FAILURE, ctx->metrics.bundle_peer_fail_cnt );
   FD_MCNT_SET( VERIFY, TRANSACTION_PARSE_FAILURE,       ctx->metrics.parse_fail_cnt );
   FD_MCNT_SET( VERIFY, TRANSACTION_DEDUP_FAILURE,       ctx->metrics.dedup_fail_cnt );
@@ -245,10 +251,11 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_verify_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_verify_ctx_t)
 
-#define STEM_CALLBACK_METRICS_WRITE metrics_write
-#define STEM_CALLBACK_BEFORE_FRAG   before_frag
-#define STEM_CALLBACK_DURING_FRAG   during_frag
-#define STEM_CALLBACK_AFTER_FRAG    after_frag
+#define STEM_CALLBACK_FIXED_METRICS_WRITE_INTERVAL metrics_write_fixed_interval
+#define STEM_CALLBACK_METRICS_WRITE                metrics_write
+#define STEM_CALLBACK_BEFORE_FRAG                  before_frag
+#define STEM_CALLBACK_DURING_FRAG                  during_frag
+#define STEM_CALLBACK_AFTER_FRAG                   after_frag
 
 #include "../../../../disco/stem/fd_stem.c"
 

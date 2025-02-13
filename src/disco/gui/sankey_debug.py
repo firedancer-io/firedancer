@@ -105,6 +105,7 @@ block_engine:         {in_block_engine:10,}
 gossip:               {in_gossip:10,}
 udp:                  {in_udp:10,}
 quic:                 {in_quic:10,}
+pack_cranked:         {pack_cranked:10,}
 ----------------------------------------
 IN TOTAL:             {in_block_engine + in_gossip + in_udp + in_quic:10,}
 
@@ -133,7 +134,6 @@ COMPUTED RESOLV OUT:  {in_block_engine + in_udp + in_quic + in_gossip - verify_o
 RECONCILE RESOLV IN:  {recon_resolv_in:10,}
 RECONCILE RESOLV OUT: {recon_resolv_out:10,}
 
-pack_cranked:         {pack_cranked:10,}
 pack_retained:        {pack_retained:10,}
 pack_leader_slot:     {pack_leader_slot:10,}
 pack_expired:         {pack_expired:10,}

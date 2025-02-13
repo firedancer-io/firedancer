@@ -57,6 +57,7 @@ typedef struct {
   struct {
     ulong bundle_peer_failure_cnt;
     ulong dedup_fail_cnt;
+    ulong gossiped_votes_received;
   } metrics;
 } fd_dedup_ctx_t;
 
@@ -75,8 +76,16 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 static inline void
 metrics_write( fd_dedup_ctx_t * ctx ) {
+  (void)ctx;
+  return;
+}
+
+static inline void
+metrics_write_fixed_interval( fd_dedup_ctx_t * ctx ) {
   FD_MCNT_SET( DEDUP, TRANSACTION_BUNDLE_PEER_FAILURE, ctx->metrics.bundle_peer_failure_cnt );
-  FD_MCNT_SET( DEDUP, TRANSACTION_DEDUP_FAILURE,       ctx->metrics.dedup_fail_cnt );
+  FD_MCNT_SET( DEDUP, TRANSACTION_DEDUP_FAILURE,       ctx->metrics.dedup_fail_cnt          );
+  FD_MCNT_SET( DEDUP, GOSSIPED_VOTES_RECEIVED,         ctx->metrics.gossiped_votes_received );
+
 }
 
 /* during_frag is called between pairs for sequence number checks, as
@@ -168,7 +177,7 @@ after_frag( fd_dedup_ctx_t *    ctx,
     txnm->txn_t_sz = (ushort)fd_txn_parse( fd_txn_m_payload( txnm ), txnm->payload_sz, txn, NULL );
     if( FD_UNLIKELY( !txnm->txn_t_sz ) ) FD_LOG_ERR(( "fd_txn_parse failed for vote transactions that should have been sigverified" ));
 
-    if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) FD_MCNT_INC( DEDUP, GOSSIPED_VOTES_RECEIVED, 1UL );
+    if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) ) ctx->metrics.gossiped_votes_received++;
   }
 
   int is_dup = 0;
@@ -301,9 +310,10 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_dedup_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_dedup_ctx_t)
 
-#define STEM_CALLBACK_METRICS_WRITE metrics_write
-#define STEM_CALLBACK_DURING_FRAG   during_frag
-#define STEM_CALLBACK_AFTER_FRAG    after_frag
+#define STEM_CALLBACK_FIXED_METRICS_WRITE_INTERVAL metrics_write_fixed_interval
+#define STEM_CALLBACK_METRICS_WRITE                metrics_write
+#define STEM_CALLBACK_DURING_FRAG                  during_frag
+#define STEM_CALLBACK_AFTER_FRAG                   after_frag
 
 #include "../../../../disco/stem/fd_stem.c"
 

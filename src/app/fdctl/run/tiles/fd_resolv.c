@@ -136,6 +136,7 @@ typedef struct {
 
   struct {
     ulong lut[ FD_METRICS_COUNTER_RESOLV_LUT_RESOLVED_CNT ];
+    ulong no_bank_drop;
     ulong blockhash_expired;
     ulong blockhash_unknown;
     ulong bundle_peer_failure_cnt;
@@ -177,8 +178,9 @@ fd_ext_resolv_tile_cnt( void ) {
 }
 
 static inline void
-metrics_write( fd_resolv_ctx_t * ctx ) {
+metrics_write_fixed_interval( fd_resolv_ctx_t * ctx ) {
   FD_MCNT_SET( RESOLV, BLOCKHASH_EXPIRED, ctx->metrics.blockhash_expired );
+  FD_MCNT_SET( RESOLV, NO_BANK_DROP, ctx->metrics.no_bank_drop );
   FD_MCNT_ENUM_COPY( RESOLV, LUT_RESOLVED, ctx->metrics.lut );
   FD_MCNT_ENUM_COPY( RESOLV, STASH_OPERATION, ctx->metrics.stash );
   FD_MCNT_SET( RESOLV, TRANSACTION_BUNDLE_PEER_FAILURE, ctx->metrics.bundle_peer_failure_cnt );
@@ -237,7 +239,7 @@ publish_txn( fd_resolv_ctx_t *          ctx,
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
     if( FD_UNLIKELY( !ctx->root_bank ) ) {
-      FD_MCNT_INC( RESOLV, NO_BANK_DROP, 1 );
+      ctx->metrics.no_bank_drop++;
       return 0;
     } else {
       int result = fd_bank_abi_resolve_address_lookup_tables( ctx->root_bank, 0, ctx->root_slot, txnt, fd_txn_m_payload( txnm ), fd_txn_m_alut( txnm ) );
@@ -430,7 +432,7 @@ after_frag( fd_resolv_ctx_t *   ctx,
 
   if( FD_UNLIKELY( txnt->addr_table_adtl_cnt ) ) {
     if( FD_UNLIKELY( !ctx->root_bank ) ) {
-      FD_MCNT_INC( RESOLV, NO_BANK_DROP, 1 );
+      ctx->metrics.no_bank_drop++;
       if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
       return;
     }
@@ -517,11 +519,11 @@ unprivileged_init( fd_topo_t *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_resolv_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_resolv_ctx_t)
 
-#define STEM_CALLBACK_METRICS_WRITE metrics_write
-#define STEM_CALLBACK_AFTER_CREDIT  after_credit
-#define STEM_CALLBACK_BEFORE_FRAG   before_frag
-#define STEM_CALLBACK_DURING_FRAG   during_frag
-#define STEM_CALLBACK_AFTER_FRAG    after_frag
+#define STEM_CALLBACK_FIXED_METRICS_WRITE_INTERVAL metrics_write_fixed_interval
+#define STEM_CALLBACK_AFTER_CREDIT                 after_credit
+#define STEM_CALLBACK_BEFORE_FRAG                  before_frag
+#define STEM_CALLBACK_DURING_FRAG                  during_frag
+#define STEM_CALLBACK_AFTER_FRAG                   after_frag
 
 #include "../../../../disco/stem/fd_stem.c"
 

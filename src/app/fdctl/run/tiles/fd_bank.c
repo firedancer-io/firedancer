@@ -42,6 +42,7 @@ typedef struct {
     ulong txn_load_address_lookup_tables[ 6 ];
     ulong transaction_result[ 40 ];
     ulong processing_failed;
+    ulong precompile_verify_failure;
     ulong fee_only;
     ulong exec_failed;
     ulong success;
@@ -68,14 +69,18 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 static inline void
 metrics_write( fd_bank_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( BANK, SLOT_ACQUIRE,  ctx->metrics.slot_acquire );
-
-  FD_MCNT_ENUM_COPY( BANK, TRANSACTION_LOAD_ADDRESS_TABLES, ctx->metrics.txn_load_address_lookup_tables );
   FD_MCNT_ENUM_COPY( BANK, TRANSACTION_RESULT,  ctx->metrics.transaction_result );
+}
 
-  FD_MCNT_SET( BANK, PROCESSING_FAILED,            ctx->metrics.processing_failed );
-  FD_MCNT_SET( BANK, FEE_ONLY_TRANSACTIONS,        ctx->metrics.fee_only          );
-  FD_MCNT_SET( BANK, EXECUTED_FAILED_TRANSACTIONS, ctx->metrics.exec_failed       );
-  FD_MCNT_SET( BANK, SUCCESSFUL_TRANSACTIONS,      ctx->metrics.success           );
+static inline void
+metrics_write_fixed_interval( fd_bank_ctx_t * ctx ) {
+  FD_MCNT_ENUM_COPY( BANK, TRANSACTION_LOAD_ADDRESS_TABLES, ctx->metrics.txn_load_address_lookup_tables );
+
+  FD_MCNT_SET( BANK, PROCESSING_FAILED,            ctx->metrics.processing_failed         );
+  FD_MCNT_SET( BANK, PRECOMPILE_VERIFY_FAILURE,    ctx->metrics.precompile_verify_failure );
+  FD_MCNT_SET( BANK, FEE_ONLY_TRANSACTIONS,        ctx->metrics.fee_only                  );
+  FD_MCNT_SET( BANK, EXECUTED_FAILED_TRANSACTIONS, ctx->metrics.exec_failed               );
+  FD_MCNT_SET( BANK, SUCCESSFUL_TRANSACTIONS,      ctx->metrics.success                   );
 }
 
 static int
@@ -172,7 +177,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     int precompile_result = fd_ext_bank_verify_precompiles( ctx->_bank, abi_txn );
     if( FD_UNLIKELY( precompile_result ) ) {
-      FD_MCNT_INC( BANK, PRECOMPILE_VERIFY_FAILURE, 1 );
+      ctx->metrics.precompile_verify_failure++;
       continue;
     }
 
@@ -299,12 +304,6 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_trailer_t), poh_shred_mtu );
   FD_STATIC_ASSERT( MAX_MICROBLOCK_SZ-(MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t))>=sizeof(fd_microblock_bank_trailer_t), poh_shred_mtu );
 
-  /* We have a race window with the GUI, where if the slot is ending it
-     will snap these metrics to draw the waterfall, but see them outdated
-     because housekeeping hasn't run.  For now just update them here, but
-     PoH should eventually flush the pipeline before ending the slot. */
-  metrics_write( ctx );
-
   ulong bank_sig = fd_disco_bank_sig( slot, ctx->_microblock_idx );
 
   /* We always need to publish, even if there are no successfully executed
@@ -351,7 +350,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     int precompile_result = fd_ext_bank_verify_precompiles( ctx->_bank, abi_txn );
     if( FD_UNLIKELY( precompile_result ) ) {
       execution_success = 0;
-      FD_MCNT_INC( BANK, PRECOMPILE_VERIFY_FAILURE, 1 );
+      ctx->metrics.precompile_verify_failure++;
       continue;
     }
 
@@ -452,8 +451,6 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     fd_stem_publish( stem, 0UL, bank_sig, ctx->out_chunk, new_sz, 0UL, 0UL, tspub );
     ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, new_sz, ctx->out_chunk0, ctx->out_wmark );
   }
-
-  metrics_write( ctx );
 }
 
 static inline void
@@ -520,10 +517,11 @@ unprivileged_init( fd_topo_t *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_bank_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_bank_ctx_t)
 
-#define STEM_CALLBACK_METRICS_WRITE metrics_write
-#define STEM_CALLBACK_BEFORE_FRAG   before_frag
-#define STEM_CALLBACK_DURING_FRAG   during_frag
-#define STEM_CALLBACK_AFTER_FRAG    after_frag
+#define STEM_CALLBACK_FIXED_METRICS_WRITE_INTERVAL metrics_write_fixed_interval
+#define STEM_CALLBACK_METRICS_WRITE                metrics_write
+#define STEM_CALLBACK_BEFORE_FRAG                  before_frag
+#define STEM_CALLBACK_DURING_FRAG                  during_frag
+#define STEM_CALLBACK_AFTER_FRAG                   after_frag
 
 #include "../../../../disco/stem/fd_stem.c"
 
