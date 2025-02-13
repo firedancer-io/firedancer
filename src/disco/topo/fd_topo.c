@@ -447,7 +447,7 @@ fd_topo_print_log( int         stdout,
   } while( 0 )
 
 #define PRINTOUT( ... ) do {                                                            \
-    int n = snprintf( cur_out, remaining_in, __VA_ARGS__ );                             \
+    int n = snprintf( cur_out, remaining_out, __VA_ARGS__ );                            \
     if( FD_UNLIKELY( n < 0 ) ) FD_LOG_ERR(( "snprintf failed" ));                       \
     if( FD_UNLIKELY( (ulong)n >= remaining_out ) ) FD_LOG_ERR(( "snprintf overflow" )); \
     remaining_out -= (ulong)n;                                                          \
