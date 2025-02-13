@@ -37,7 +37,7 @@ fd_neigh4_netlink_request_dump( fd_netlink_t * netlink,
     return errno;
   }
   if( FD_UNLIKELY( send_res!=sizeof(request ) ) ) {
-    FD_LOG_WARNING(( "netlink send(RTM_GETROUTE,NLM_F_REQUEST|NLM_F_DUMP) failed (short write)" ));
+    FD_LOG_WARNING(( "netlink send(RTM_GETNEIGH,NLM_F_REQUEST|NLM_F_DUMP) failed (short write)" ));
     return EPIPE;
   }
 
