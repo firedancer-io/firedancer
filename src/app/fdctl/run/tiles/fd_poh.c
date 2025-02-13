@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "../../../../disco/tiles.h"
+#include "../../../../disco/plugin/fd_bundle_crank.h"
 
 /* Let's say there was a computer, the "leader" computer, that acted as
    a bank.  Users could send it messages saying they wanted to deposit
@@ -504,6 +505,15 @@ typedef struct {
   fd_keyswitch_t * keyswitch;
   fd_pubkey_t identity_key;
 
+  /* We need a few pieces of information to compute the right addresses
+     for bundle crank information that we need to send to pack. */
+  struct {
+    int enabled;
+    fd_pubkey_t vote_account;
+    fd_bundle_crank_gen_t gen[1];
+  } bundle;
+
+
   /* The Agave client needs to be notified when the leader changes,
      so that they can resume the replay stage if it was suspended waiting. */
   void * signal_leader_change;
@@ -523,6 +533,7 @@ typedef struct {
   fd_histf_t begin_leader_delay[ 1 ];
   fd_histf_t first_microblock_delay[ 1 ];
   fd_histf_t slot_done_delay[ 1 ];
+  fd_histf_t bundle_init_delay[ 1 ];
 } fd_poh_ctx_t;
 
 /* The PoH recorder is implemented in Firedancer but for now needs to
@@ -918,9 +929,18 @@ publish_plugin_slot_end( fd_poh_ctx_t * ctx,
   ctx->plugin_out->chunk = fd_dcache_compact_next( ctx->plugin_out->chunk, sizeof(fd_plugin_msg_slot_end_t), ctx->plugin_out->chunk0, ctx->plugin_out->wmark );
 }
 
+extern int
+fd_ext_bank_load_account( void const *  bank,
+                          int           fixed_root,
+                          uchar const * addr,
+                          uchar *       owner,
+                          uchar *       data,
+                          ulong *       data_sz );
+
 CALLED_FROM_RUST static void
 publish_became_leader( fd_poh_ctx_t * ctx,
-                       ulong          slot ) {
+                       ulong          slot,
+                       ulong          epoch ) {
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
   fd_histf_sample( ctx->begin_leader_delay, (ulong)((double)(fd_log_wallclock()-ctx->reset_slot_start_ns)/tick_per_ns) );
 
@@ -931,6 +951,35 @@ publish_became_leader( fd_poh_ctx_t * ctx,
 
        See extended comments in the config file on this option. */
     ctx->reset_slot_start_ns = fd_log_wallclock() - (long)((double)(slot-ctx->reset_slot)*ctx->slot_duration_ns);
+  }
+
+  fd_bundle_crank_tip_payment_config_t config[1]             = { 0 };
+  fd_acct_addr_t                       tip_receiver_owner[1] = { 0 };
+
+  if( FD_UNLIKELY( ctx->bundle.enabled ) ) {
+    long bundle_time = -fd_tickcount();
+    fd_acct_addr_t tip_payment_config[1];
+    fd_acct_addr_t tip_receiver[1];
+    fd_bundle_crank_get_addresses( ctx->bundle.gen, epoch, tip_payment_config, tip_receiver );
+
+    fd_acct_addr_t _dummy[1];
+    uchar          dummy[1];
+
+    void const * bank = ctx->current_leader_bank;
+
+    /* Calling rust from a C function that is CALLED_FROM_RUST risks
+       deadlock.  In this case, I checked the load_account function and
+       ensured it never calls any C functions that acquire the lock. */
+    ulong sz1 = sizeof(config), sz2 = 1UL;
+    int found1 = fd_ext_bank_load_account( bank, 0, tip_payment_config->b, _dummy->b,             (uchar *)config, &sz1 );
+    int found2 = fd_ext_bank_load_account( bank, 0, tip_receiver->b,       tip_receiver_owner->b,          dummy,  &sz2 );
+    /* The bundle crank code detects whether the accounts were found by
+       whether they have non-zero values (since found and uninitialized
+       should be treated the same), so we actually don't really care
+       about the value of found{1,2}. */
+    (void)found1; (void)found2;
+    bundle_time += fd_tickcount();
+    fd_histf_sample( ctx->bundle_init_delay, (ulong)bundle_time );
   }
 
   long slot_start_ns = ctx->reset_slot_start_ns + (long)((double)(slot-ctx->reset_slot)*ctx->slot_duration_ns);
@@ -948,6 +997,11 @@ publish_became_leader( fd_poh_ctx_t * ctx,
   leader->max_microblocks_in_slot = ctx->max_microblocks_per_slot;
   leader->ticks_per_slot          = ctx->ticks_per_slot;
   leader->total_skipped_ticks     = ctx->ticks_per_slot*(slot-ctx->reset_slot);
+  leader->epoch                   = epoch;
+  leader->bundle->config[0]       = config[0];
+
+  memcpy( leader->bundle->last_blockhash,     ctx->reset_hash,    32UL );
+  memcpy( leader->bundle->tip_receiver_owner, tip_receiver_owner, 32UL );
 
   if( FD_UNLIKELY( leader->ticks_per_slot+leader->total_skipped_ticks>=MAX_SKIPPED_TICKS ) )
     FD_LOG_ERR(( "Too many skipped ticks %lu for slot %lu, chain must halt", leader->ticks_per_slot+leader->total_skipped_ticks, slot ));
@@ -966,6 +1020,7 @@ publish_became_leader( fd_poh_ctx_t * ctx,
 CALLED_FROM_RUST void
 fd_ext_poh_begin_leader( void const * bank,
                          ulong        slot,
+                         ulong        epoch,
                          ulong        hashcnt_per_tick ) {
   fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
 
@@ -1026,7 +1081,7 @@ fd_ext_poh_begin_leader( void const * bank,
   FD_TEST( ctx->highwater_leader_slot==ULONG_MAX || slot>=ctx->highwater_leader_slot );
   ctx->highwater_leader_slot = fd_ulong_max( fd_ulong_if( ctx->highwater_leader_slot==ULONG_MAX, 0UL, ctx->highwater_leader_slot ), slot );
 
-  publish_became_leader( ctx, slot );
+  publish_became_leader( ctx, slot, epoch );
   FD_LOG_INFO(( "fd_ext_poh_begin_leader(slot=%lu, highwater_leader_slot=%lu, last_slot=%lu, last_hashcnt=%lu)", slot, ctx->highwater_leader_slot, ctx->last_slot, ctx->last_hashcnt ));
 
   fd_ext_poh_write_unlock();
@@ -1632,9 +1687,10 @@ during_housekeeping( fd_poh_ctx_t * ctx ) {
 
 static inline void
 metrics_write( fd_poh_ctx_t * ctx ) {
-  FD_MHIST_COPY( POH, BEGIN_LEADER_DELAY_SECONDS,     ctx->begin_leader_delay );
-  FD_MHIST_COPY( POH, FIRST_MICROBLOCK_DELAY_SECONDS, ctx->first_microblock_delay );
-  FD_MHIST_COPY( POH, SLOT_DONE_DELAY_SECONDS,        ctx->slot_done_delay );
+  FD_MHIST_COPY( POH, BEGIN_LEADER_DELAY_SECONDS,      ctx->begin_leader_delay     );
+  FD_MHIST_COPY( POH, FIRST_MICROBLOCK_DELAY_SECONDS,  ctx->first_microblock_delay );
+  FD_MHIST_COPY( POH, SLOT_DONE_DELAY_SECONDS,         ctx->slot_done_delay        );
+  FD_MHIST_COPY( POH, BUNDLE_INITIALIZE_DELAY_SECONDS, ctx->bundle_init_delay      );
 }
 
 static int
@@ -1931,6 +1987,13 @@ privileged_init( fd_topo_t *      topo,
 
   const uchar * identity_key = fd_keyload_load( tile->poh.identity_key_path, /* pubkey only: */ 1 );
   fd_memcpy( ctx->identity_key.uc, identity_key, 32UL );
+
+  if( FD_UNLIKELY( tile->poh.bundle.enabled ) ) {
+    if( FD_UNLIKELY( !fd_base58_decode_32( tile->poh.bundle.vote_account_path, ctx->bundle.vote_account.uc ) ) ) {
+      const uchar * vote_key = fd_keyload_load( tile->poh.bundle.vote_account_path, /* pubkey only: */ 1 );
+      fd_memcpy( ctx->bundle.vote_account.uc, vote_key, 32UL );
+    }
+  }
 }
 
 /* The Agave client needs to communicate to the shred tile what
@@ -2073,6 +2136,16 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->max_active_descendant = 0UL;
 
+  if( FD_UNLIKELY( tile->poh.bundle.enabled ) ) {
+    ctx->bundle.enabled = 1;
+    NONNULL( fd_bundle_crank_gen_init( ctx->bundle.gen, (fd_acct_addr_t const *)tile->poh.bundle.tip_distribution_program_addr,
+             (fd_acct_addr_t const *)tile->poh.bundle.tip_payment_program_addr,
+             (fd_acct_addr_t const *)ctx->bundle.vote_account.uc,
+             (fd_acct_addr_t const *)ctx->bundle.vote_account.uc, 0UL ) ); /* last two arguments are properly bogus */
+  } else {
+    ctx->bundle.enabled = 0;
+  }
+
   ulong poh_shred_obj_id = fd_pod_query_ulong( topo->props, "poh_shred", ULONG_MAX );
   FD_TEST( poh_shred_obj_id!=ULONG_MAX );
 
@@ -2125,6 +2198,9 @@ unprivileged_init( fd_topo_t *      topo,
                                                             FD_MHIST_SECONDS_MAX( POH, FIRST_MICROBLOCK_DELAY_SECONDS  ) ) );
   fd_histf_join( fd_histf_new( ctx->slot_done_delay, FD_MHIST_SECONDS_MIN( POH, SLOT_DONE_DELAY_SECONDS  ),
                                                      FD_MHIST_SECONDS_MAX( POH, SLOT_DONE_DELAY_SECONDS  ) ) );
+
+  fd_histf_join( fd_histf_new( ctx->bundle_init_delay, FD_MHIST_SECONDS_MIN( POH, BUNDLE_INITIALIZE_DELAY_SECONDS  ),
+                                                       FD_MHIST_SECONDS_MAX( POH, BUNDLE_INITIALIZE_DELAY_SECONDS  ) ) );
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];

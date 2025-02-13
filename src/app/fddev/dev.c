@@ -117,12 +117,23 @@ update_config_for_dev( config_t * const config ) {
     }
   }
 
-  if( FD_LIKELY( !strcmp( config->consensus.vote_account_path, "" ) ) )
+  if( FD_LIKELY( !strcmp( config->consensus.vote_account_path, "" ) ) ) {
     FD_TEST( fd_cstr_printf_check( config->consensus.vote_account_path,
                                    sizeof( config->consensus.vote_account_path ),
                                    NULL,
                                    "%s/vote-account.json",
                                    config->scratch_directory ) );
+    /* If using bundles, pack and poh need the vote account too */
+    if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
+      ulong pack_id = fd_topo_find_tile( &config->topo, "pack", 0 );
+      fd_topo_tile_t * pack_topo = &config->topo.tiles[ pack_id ];
+      memcpy( pack_topo->pack.bundle.vote_account_path, config->consensus.vote_account_path, sizeof(pack_topo->pack.bundle.vote_account_path) );
+
+      ulong poh_id = fd_topo_find_tile( &config->topo, "poh", 0 );
+      fd_topo_tile_t * poh_topo = &config->topo.tiles[ poh_id ];
+      memcpy( poh_topo->poh.bundle.vote_account_path, config->consensus.vote_account_path, sizeof(poh_topo->poh.bundle.vote_account_path) );
+    }
+  }
 
   ulong gui_idx = fd_topo_find_tile( &config->topo, "gui", 0UL );
   if( FD_LIKELY( gui_idx!=ULONG_MAX ) ) {

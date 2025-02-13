@@ -434,6 +434,9 @@ metric introduced.
     <histogram name="SlotDoneDelaySeconds" min="0.001" max="0.6" converter="seconds">
         <summary>Delay between when we become leader in a slot and when we finish the slot.</summary>
     </histogram>
+    <histogram name="BundleInitializeDelaySeconds" min="0.00000001" max="0.01" converter="seconds">
+        <summary>Delay in starting the slot caused by loading the information needed to generate the bundle crank transactions</summary>
+    </histogram>
 </tile>
 
 <enum name="ShredProcessingResult">

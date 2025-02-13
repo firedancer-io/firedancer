@@ -113,7 +113,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(verify_tile_cnt) fd_topob_tile( topo, "verify",  "verify",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   /**/                 fd_topob_tile( topo, "dedup",   "dedup",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   FOR(resolv_tile_cnt) fd_topob_tile( topo, "resolv",  "resolv",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 1,        0 );
-  /**/                 fd_topob_tile( topo, "pack",    "pack",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+  /**/                 fd_topob_tile( topo, "pack",    "pack",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        config->tiles.bundle.enabled );
   FOR(bank_tile_cnt)   fd_topob_tile( topo, "bank",    "bank",    "metric_in",  tile_to_cpu[ topo->tile_cnt ], 1,        0 );
   /**/                 fd_topob_tile( topo, "poh",     "poh",     "metric_in",  tile_to_cpu[ topo->tile_cnt ], 1,        1 );
   FOR(shred_tile_cnt)  fd_topob_tile( topo, "shred",   "shred",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        1 );
@@ -235,13 +235,17 @@ fd_topo_initialize( config_t * config ) {
 
   if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
     fd_topob_wksp( topo, "bundle_verif" );
-    fd_topob_wksp( topo, "bundle_sign"   );
-    fd_topob_wksp( topo, "sign_bundle"   );
-    fd_topob_wksp( topo, "bundle"        );
+    fd_topob_wksp( topo, "bundle_sign"  );
+    fd_topob_wksp( topo, "sign_bundle"  );
+    fd_topob_wksp( topo, "pack_sign"    );
+    fd_topob_wksp( topo, "sign_pack"    );
+    fd_topob_wksp( topo, "bundle"       );
 
     /**/                 fd_topob_link( topo, "bundle_verif", "bundle_verif", config->tiles.verify.receive_buffer_size, FD_TPU_PARSED_MTU,         1UL );
     /**/                 fd_topob_link( topo, "bundle_sign",  "bundle_sign",  128UL,                                    9UL,                       1UL );
     /**/                 fd_topob_link( topo, "sign_bundle",  "sign_bundle",  128UL,                                    64UL,                      1UL );
+    /**/                 fd_topob_link( topo, "pack_sign",    "pack_sign",    128UL,                                    1232UL,                    1UL );
+    /**/                 fd_topob_link( topo, "sign_pack",    "sign_pack",    128UL,                                    64UL,                      1UL );
 
     /**/                 fd_topob_tile( topo, "bundle",  "bundle",  "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 1 );
 
@@ -252,6 +256,11 @@ fd_topo_initialize( config_t * config ) {
     /**/                 fd_topob_tile_out( topo, "bundle", 0UL,                        "bundle_sign",    0UL                                                );
     /**/                 fd_topob_tile_in(  topo, "bundle", 0UL,           "metric_in", "sign_bundle",    0UL,        FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
     /**/                 fd_topob_tile_out( topo, "sign",   0UL,                        "sign_bundle",    0UL                                                );
+
+    /**/                 fd_topob_tile_in(  topo, "sign",   0UL,           "metric_in", "pack_sign",      0UL,        FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+    /**/                 fd_topob_tile_out( topo, "pack",   0UL,                        "pack_sign",      0UL                                                );
+    /**/                 fd_topob_tile_in(  topo, "pack",   0UL,           "metric_in", "sign_pack",      0UL,        FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
+    /**/                 fd_topob_tile_out( topo, "sign",   0UL,                        "sign_pack",      0UL                                                );
 
     if( plugins_enabled ) {
       fd_topob_wksp( topo, "bundle_plugi" );
@@ -375,6 +384,20 @@ fd_topo_initialize( config_t * config ) {
       tile->pack.larger_shred_limits_per_block = config->development.bench.larger_shred_limits_per_block;
       tile->pack.use_consumed_cus              = config->tiles.pack.use_consumed_cus;
 
+      if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
+#define PARSE_PUBKEY( _tile, f ) \
+        if( FD_UNLIKELY( !fd_base58_decode_32( config->tiles.bundle.f, tile->_tile.bundle.f ) ) )  \
+          FD_LOG_ERR(( "[tiles.bundle.enabled] set to true, but failed to parse [tiles.bundle."#f"] %s", config->tiles.bundle.f ));
+        tile->pack.bundle.enabled = 1;
+        PARSE_PUBKEY( pack, tip_distribution_program_addr );
+        PARSE_PUBKEY( pack, tip_payment_program_addr      );
+        PARSE_PUBKEY( pack, tip_distribution_authority    );
+        tile->pack.bundle.commission_bps = config->tiles.bundle.commission_bps;
+        strncpy( tile->pack.bundle.identity_key_path, config->consensus.identity_path, sizeof(tile->pack.bundle.identity_key_path) );
+        strncpy( tile->pack.bundle.vote_account_path, config->consensus.vote_account_path, sizeof(tile->pack.bundle.vote_account_path) );
+      } else {
+        fd_memset( &tile->pack.bundle, '\0', sizeof(tile->pack.bundle) );
+      }
     } else if( FD_UNLIKELY( !strcmp( tile->name, "bank" ) ) ) {
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "poh" ) ) ) {
@@ -383,6 +406,16 @@ fd_topo_initialize( config_t * config ) {
       tile->poh.plugins_enabled = plugins_enabled;
       tile->poh.bank_cnt = config->layout.bank_tile_count;
       tile->poh.lagged_consecutive_leader_start = config->tiles.poh.lagged_consecutive_leader_start;
+
+      if( FD_UNLIKELY( config->tiles.bundle.enabled ) ) {
+        tile->poh.bundle.enabled = 1;
+        PARSE_PUBKEY( poh, tip_distribution_program_addr );
+        PARSE_PUBKEY( poh, tip_payment_program_addr      );
+        strncpy( tile->poh.bundle.vote_account_path, config->consensus.vote_account_path, sizeof(tile->poh.bundle.vote_account_path) );
+#undef PARSE_PUBKEY
+      } else {
+        fd_memset( &tile->poh.bundle, '\0', sizeof(tile->poh.bundle) );
+      }
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ) ) {
       fd_memcpy( tile->shred.src_mac_addr, config->tiles.net.mac_addr, 6 );

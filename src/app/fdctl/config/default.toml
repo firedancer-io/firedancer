@@ -1059,6 +1059,35 @@ dynamic_port_range = "8900-9000"
         # it is being accessed.
         tls_domain_name = ""
 
+        # The tip distribution program is used to control the
+        # distribution of tips that transactions from bundles may pay.
+        # This should be set to the public key of the tip distribution
+        # program.  Consult the block engine provider's documentation
+        # for the appropriate value of this field.
+        tip_distribution_program_addr = ""
+
+        # The tip payment program handles the regular collection of tips
+        # into the account configured by the tip distribution program.
+        # This should be set to the public key of the tip payment
+        # program.  Consult the block engine provider's documentation
+        # for the appropriate value of this field.
+        tip_payment_program_addr = ""
+
+        # A validator may want to distribute tips from transactions to
+        # their stakers or to any other relevant parties.  Authority is
+        # delegated to the public key provided in the
+        # tip_distribution_authority to determine the distribution by
+        # uploading a Merkle tree.  This field should be set to the
+        # base58 public key.
+        tip_distribution_authority = ""
+
+        # The standard tip distribution mechanism distributes tips
+        # pro-rata to stakers with the validator optionally taking a
+        # portion as a fee.  The commission set below, measured in basis
+        # points (100ths of a percent), determines the validator's
+        # portion.
+        commission_bps = 0
+
     # The pack tile takes incoming transactions that have been verified
     # by the verify tile and then deduplicated, and attempts to order
     # them in an optimal way to generate the most fees per compute
