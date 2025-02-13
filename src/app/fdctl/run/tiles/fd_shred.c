@@ -639,7 +639,7 @@ after_frag( fd_shred_ctx_t *    ctx,
   fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+2UL), sz2, 0UL, ctx->tsorig, tspub );
   if( FD_UNLIKELY( s34[ 3 ].shred_cnt ) )
     fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+3UL ), sz3, 0UL, ctx->tsorig, tspub );
-
+  FD_MCNT_INC( SHRED, FEC_DELIVERED, set->data_shred_cnt + set->parity_shred_cnt );
 
   /* Compute all the destinations for all the new shreds */
 

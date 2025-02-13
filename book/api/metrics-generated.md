@@ -335,6 +335,7 @@
 | shred_&#8203;fec_&#8203;set_&#8203;spilled | `counter` | The number of FEC sets that were spilled because they didn't complete in time and we needed space |
 | shred_&#8203;shred_&#8203;rejected_&#8203;initial | `counter` | The number shreds that were rejected before any resources were allocated for the FEC set |
 | shred_&#8203;fec_&#8203;rejected_&#8203;fatal | `counter` | The number of FEC sets that were rejected for reasons that cause the whole FEC set to become invalid |
+| shred_&#8203;fec_&#8203;delivered | `counter` | The number of FEC sets that were delivered to the store |
 
 ## Store Tile
 | Metric | Type | Description |
@@ -346,12 +347,26 @@
 |--------|------|-------------|
 | replay_&#8203;slot | `gauge` |  |
 | replay_&#8203;last_&#8203;voted_&#8203;slot | `gauge` |  |
+| replay_&#8203;block_&#8203;map_&#8203;contention1 | `counter` |  |
+| replay_&#8203;block_&#8203;map_&#8203;lock_&#8203;query_&#8203;slice | `counter` |  |
+| replay_&#8203;fork_&#8203;update_&#8203;micros | `gauge` |  |
 
 ## Storei Tile
 | Metric | Type | Description |
 |--------|------|-------------|
 | storei_&#8203;first_&#8203;turbine_&#8203;slot | `gauge` |  |
 | storei_&#8203;current_&#8203;turbine_&#8203;slot | `gauge` |  |
+| storei_&#8203;block_&#8203;map_&#8203;lock_&#8203;prepare1 | `counter` |  |
+| storei_&#8203;block_&#8203;map_&#8203;lock_&#8203;prepare2 | `counter` |  |
+| storei_&#8203;block_&#8203;map_&#8203;lock_&#8203;prepare_&#8203;parent | `counter` |  |
+| storei_&#8203;block_&#8203;map_&#8203;lock_&#8203;repair | `counter` |  |
+| storei_&#8203;block_&#8203;map_&#8203;lock_&#8203;repair_&#8203;anc | `counter` |  |
+| storei_&#8203;prepare_&#8203;parent_&#8203;slot | `gauge` |  |
+| storei_&#8203;prepare_&#8203;slot | `gauge` |  |
+| storei_&#8203;repair_&#8203;shreds_&#8203;received | `counter` | Count of repair shreds received |
+| storei_&#8203;shreds_&#8203;recieved | `counter` | Count of shreds received |
+| storei_&#8203;shreds_&#8203;inserted | `counter` | Count of shreds inserted |
+| storei_&#8203;repair_&#8203;shreds_&#8203;inserted | `counter` | Count of repair shreds inserted |
 
 ## Gossip Tile
 | Metric | Type | Description |
@@ -510,3 +525,8 @@
 | netlnk_&#8203;neigh_&#8203;probe_&#8203;fails | `counter` | Number of neighbor solicit requests that failed to send (kernel too slow) |
 | netlnk_&#8203;neigh_&#8203;probe_&#8203;rate_&#8203;limit_&#8203;host | `counter` | Number of neighbor solicit that exceeded the per-host rate limit |
 | netlnk_&#8203;neigh_&#8203;probe_&#8203;rate_&#8203;limit_&#8203;global | `counter` | Number of neighbor solicit that exceeded the global rate limit |
+
+## Repair Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| repair_&#8203;shreds_&#8203;delivered | `counter` | Count of repair shreds delivered to store |

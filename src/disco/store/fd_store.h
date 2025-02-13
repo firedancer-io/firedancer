@@ -3,6 +3,8 @@
 
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../metrics/fd_metrics.h"
+
 
 #include "util.h"
 #include "fd_pending_slots.h"

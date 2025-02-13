@@ -52,7 +52,7 @@ replay_slice( fd_blockstore_t * blockstore, uchar * slice, ulong slot, uint idx 
   FD_LOG_NOTICE(( "replay_batch: slot: %lu, idx: %u", slot, idx ));
 
   ulong slice_sz;
-  int err = fd_blockstore_slice_query( blockstore, slot, idx, FD_SLICE_MAX, slice, &slice_sz );
+  int err = fd_blockstore_slice_query( blockstore, slot, idx, FD_SLICE_MAX, slice, &slice_sz, NULL );
   FD_TEST( slice_sz < FD_SLICE_MAX );
   FD_TEST( err == FD_BLOCKSTORE_SUCCESS );
 
@@ -121,10 +121,10 @@ main( int argc, char ** argv ) {
         shred_type == FD_SHRED_TYPE_MERKLE_DATA ||
         shred_type == FD_SHRED_TYPE_MERKLE_DATA_CHAINED ||
         shred_type == FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED ) {
-      if( FD_UNLIKELY( !fd_blockstore_shreds_complete( blockstore, shred->slot ) ) ) {
+      if( FD_UNLIKELY( !fd_blockstore_shreds_complete( blockstore, shred->slot, NULL ) ) ) {
         fd_blockstore_shred_insert( blockstore, shred );
 
-        if ( fd_blockstore_shreds_complete( blockstore, shred->slot ) ) {
+        if ( fd_blockstore_shreds_complete( blockstore, shred->slot, NULL ) ) {
           // fd_blockstore_start_read( blockstore );
           fd_block_meta_t * block_map_entry = fd_blockstore_block_map_query( blockstore, shred->slot );
           // fd_blockstore_end_read( blockstore );

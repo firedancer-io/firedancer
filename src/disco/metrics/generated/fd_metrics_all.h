@@ -13,6 +13,7 @@
 #include "fd_metrics_poh.h"
 #include "fd_metrics_shred.h"
 #include "fd_metrics_store.h"
+#include "fd_metrics_repair.h"
 #include "fd_metrics_replay.h"
 #include "fd_metrics_storei.h"
 #include "fd_metrics_gossip.h"
@@ -153,7 +154,7 @@ extern const fd_metrics_meta_t FD_METRICS_ALL_LINK_OUT[FD_METRICS_ALL_LINK_OUT_T
 
 #define FD_METRICS_TOTAL_SZ (8UL*224UL)
 
-#define FD_METRICS_TILE_KIND_CNT 15
+#define FD_METRICS_TILE_KIND_CNT 16
 extern const char * FD_METRICS_TILE_KIND_NAMES[FD_METRICS_TILE_KIND_CNT];
 extern const ulong FD_METRICS_TILE_KIND_SIZES[FD_METRICS_TILE_KIND_CNT];
 extern const fd_metrics_meta_t * FD_METRICS_TILE_KIND_METRICS[FD_METRICS_TILE_KIND_CNT];

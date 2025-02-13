@@ -194,7 +194,7 @@ slot_ctx_restore( ulong                 slot,
                   fd_valloc_t           valloc,
                   fd_exec_slot_ctx_t *  slot_ctx_out ) {
   fd_funk_txn_t *  txn_map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
-  bool block_exists = fd_blockstore_shreds_complete( blockstore, slot );
+  bool block_exists = fd_blockstore_shreds_complete( blockstore, slot, NULL );
 
   FD_LOG_DEBUG( ( "Current slot %lu", slot ) );
   if( !block_exists )
@@ -282,7 +282,7 @@ fd_forks_prepare( fd_forks_t const *    forks,
 
   /* Check the parent block is present in the blockstore and executed. */
 
-  if( FD_UNLIKELY( !fd_blockstore_shreds_complete( blockstore, parent_slot ) ) ) {
+  if( FD_UNLIKELY( !fd_blockstore_shreds_complete( blockstore, parent_slot, NULL ) ) ) {
     FD_LOG_WARNING( ( "fd_forks_prepare missing parent_slot %lu", parent_slot ) );
   }
 

@@ -545,8 +545,10 @@ during_frag( fd_replay_tile_ctx_t * ctx,
   // }
 
   uchar block_flags = 0;
-  int err = FD_MAP_ERR_AGAIN;
+  int   err = FD_MAP_ERR_AGAIN;
+  int loop = -1;
   while( err == FD_MAP_ERR_AGAIN ){
+    loop++;
     fd_block_map_query_t quer[1] = { 0 };
     err = fd_block_map_query_try( ctx->blockstore->block_map, &ctx->curr_slot, NULL, quer, 0 );
     fd_block_meta_t * block_map_entry = fd_block_map_query_ele( quer );
@@ -555,6 +557,7 @@ during_frag( fd_replay_tile_ctx_t * ctx,
     block_flags = block_map_entry->flags;
     err = fd_block_map_query_test( quer );
   }
+  FD_MCNT_INC( REPLAY, BLOCK_MAP_CONTENTION1, (ulong)loop);
 
   if( FD_UNLIKELY( fd_uchar_extract_bit( block_flags, FD_BLOCK_FLAG_PROCESSED ) ) ) {
     FD_LOG_WARNING(( "block already processed - slot: %lu", ctx->curr_slot ));
@@ -1579,6 +1582,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
             ulong                  sz,
             ulong                  tsorig,
             fd_stem_context_t *    stem ) {
+  long time0 = -fd_log_wallclock();
   (void)sig;
   (void)sz;
   (void)seq;
@@ -1657,13 +1661,15 @@ after_frag( fd_replay_tile_ctx_t * ctx,
           /* Copy shred payloads into `buf` so that they are contiguous. This is
              required because txns can span multiple shreds. */
           ulong mbatch_sz = 0;
-
+          ulong contention = 0;
           int err = fd_blockstore_slice_query( ctx->blockstore,
                                                ctx->curr_slot,
                                                consumed_idx + 1,
                                                FD_SLICE_MAX,
                                                ctx->mbatch,
-                                               &mbatch_sz );
+                                               &mbatch_sz,
+                                               &contention );
+          FD_MCNT_INC( REPLAY, BLOCK_MAP_LOCK_QUERY_SLICE, contention );
 
           if( FD_UNLIKELY( err ) ){
             FD_LOG_ERR(( "Failed to assemble microblock batch" ));
@@ -1828,8 +1834,10 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       FD_LOG_ERR(( "failed to insert ghost node %lu", fork->slot ));
     }
 #endif
+    long fork_time = -fd_log_wallclock();
     fd_forks_update( ctx->forks, ctx->blockstore, ctx->epoch, ctx->funk, ctx->ghost, fork->slot );
-
+    fork_time += fd_log_wallclock();
+    FD_MGAUGE_SET( REPLAY, FORK_UPDATE_MICROS, (ulong)fork_time / 1000 );
     /**********************************************************************/
     /* Consensus: decide (1) the fork for pack; (2) the fork to vote on   */
     /**********************************************************************/
@@ -2065,6 +2073,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
   } else {
     FD_LOG_DEBUG(( "NOT publishing mblk to poh - slot: %lu, parent_slot: %lu, flags: %lx", curr_slot, ctx->parent_slot, flags ));
   }
+  FD_LOG_INFO(( "[replay] after_frag: %ld ms", time0 + fd_log_wallclock() ));
 
 #if STOP_SLOT
   if( FD_UNLIKELY( curr_slot == STOP_SLOT ) ) {

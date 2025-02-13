@@ -949,16 +949,18 @@ fd_blockstore_slice_query( fd_blockstore_t * blockstore,
                            uint              idx,
                            ulong             max,
                            uchar *           buf,
-                           ulong *           buf_sz );
+                           ulong *           buf_sz,
+                           ulong *           loop_cnt_opt );
 
 /* fd_blockstore_shreds_complete should be a replacement for anywhere that is
    querying for an fd_block_t * for existence but not actually using the block data.
    Semantically equivalent to query_block( slot ) != NULL.
-
+   loop_cnt_opt measures the contention on the block map for metrics, and
+   is optional.
    Implementation is lockfree and safe with concurrent operations on
    blockstore. */
 int
-fd_blockstore_shreds_complete( fd_blockstore_t * blockstore, ulong slot );
+fd_blockstore_shreds_complete( fd_blockstore_t * blockstore, ulong slot, ulong * loop_cnt_opt );
 
 /* fd_blockstore_block_height_update sets the block height.
 

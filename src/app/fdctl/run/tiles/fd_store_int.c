@@ -211,6 +211,7 @@ during_frag( fd_store_tile_ctx_t * ctx,
     uchar const * shred = fd_chunk_to_laddr_const( ctx->repair_in_mem, chunk );
 
     memcpy( ctx->shred_buffer, shred, sz );
+    FD_MCNT_INC( STOREI, REPAIR_SHREDS_RECEIVED, 1UL );
     return;
   }
 
@@ -240,6 +241,7 @@ during_frag( fd_store_tile_ctx_t * ctx,
   fd_shred34_t const * s34 = fd_chunk_to_laddr_const( shred_in->mem, chunk );
 
   memcpy( ctx->s34_buffer, s34, sz );
+  FD_MCNT_INC( STOREI, SHREDS_RECIEVED, s34->shred_cnt );
 }
 
 static void
@@ -250,6 +252,7 @@ after_frag( fd_store_tile_ctx_t * ctx,
             ulong                 sz,
             ulong                 tsorig,
             fd_stem_context_t *   stem ) {
+  long time0 = fd_log_wallclock();
   (void)seq;
   (void)sig;
   (void)sz;
@@ -281,6 +284,8 @@ after_frag( fd_store_tile_ctx_t * ctx,
         FD_LOG_ERR( ( "failed at archiving repair shred to file" ) );
       }
     }
+    FD_LOG_INFO(( "[storei] after_frag: %ld ms", time0 + fd_log_wallclock() ));
+    FD_MCNT_INC( STOREI, REPAIR_SHREDS_INSERTED, 1UL );
     return;
   }
 
@@ -320,9 +325,11 @@ after_frag( fd_store_tile_ctx_t * ctx,
         FD_LOG_ERR(( "failed at archiving turbine shred to file" ));
       }
     }
+    FD_MCNT_INC( STOREI, SHREDS_INSERTED, 1UL );
 
     fd_store_shred_update_with_shred_from_turbine( ctx->store, shred );
   }
+  FD_LOG_INFO(( "[storei] after_frag: %ld ms", time0 + fd_log_wallclock() ));
 }
 
 static void
@@ -401,10 +408,11 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
                      ( ctx->store->curr_turbine_slot - slot ) < 5 ) );
 
     uchar * out_buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
-
-    if( !fd_blockstore_shreds_complete( ctx->blockstore, slot ) ) {
+    ulong contention = 0;
+    if( !fd_blockstore_shreds_complete( ctx->blockstore, slot, &contention ) ) {
       FD_LOG_ERR(( "could not find block - slot: %lu", slot ));
     }
+    FD_MCNT_INC( STOREI, BLOCK_MAP_LOCK_PREPARE1, contention );
 
     ulong parent_slot = fd_blockstore_parent_slot_query( ctx->blockstore, slot );
     if ( FD_UNLIKELY( parent_slot == FD_SLOT_NULL ) ) FD_LOG_ERR(( "could not find slot %lu meta", slot ));

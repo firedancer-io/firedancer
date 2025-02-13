@@ -471,20 +471,44 @@ metric introduced.
     <counter name="FecSetSpilled" summary="The number of FEC sets that were spilled because they didn't complete in time and we needed space" />
     <counter name="ShredRejectedInitial" summary="The number shreds that were rejected before any resources were allocated for the FEC set" />
     <counter name="FecRejectedFatal" summary="The number of FEC sets that were rejected for reasons that cause the whole FEC set to become invalid" />
+    <counter name="FecDelivered" summary="The number of FEC sets that were delivered to the store" />
 </tile>
 
 <tile name="store">
     <counter name="TransactionsInserted" summary="Count of transactions produced while we were leader in the shreds that have been inserted so far" />
 </tile>
 
+<tile name="repair">
+    <counter name="BlockMapRepairShred" summary="The number of times the block map was contended for in repair_shred" />
+</tile>
+
 <tile name="replay">
   <gauge name="Slot" label="The slot that is currently being executing" />
   <gauge name="LastVotedSlot" label="The last slot that was voted on" />
-
+  <counter name="BlockMapContention1" label="The number of times the block map was contended for in during_frag" />
+  <counter name="BlockMapLockQuerySlice" label="The number of times the block map was contended for in during_query_slice" />
+  <gauge   name="ForkUpdateMicros"       label="The time in micros spent updating the fork" />
 </tile>
+
+<tile name="repair">
+    <counter name="ShredsDelivered" summary="Count of repair shreds delivered to store" />
+</tile>
+
 <tile name="storei">
   <gauge name="FirstTurbineSlot" label="The first slot for which we have received a turbine shred" />
   <gauge name="CurrentTurbineSlot" label="The latest slot for which we have received a turbine shred" />
+  <counter name="BlockMapLockPrepare1" label="The number of times the block map was contended for in prepare" />
+  <counter name="BlockMapLockPrepare2" label="The number of times the block map was contended for in prepare" />
+  <counter name="BlockMapLockPrepareParent" label="The number of times the parent block map was contended for in prepare" />
+  <counter name="BlockMapLockRepair" label="The number of times the block map was contended for in store/store_slot_repair" />
+  <counter name="BlockMapLockRepairAnc" label="The number of times the parent block map was contended for in store/store_slot_repair" />
+  <gauge   name="PrepareParentSlot"     label="The slot for which we are preparing the parent" />
+  <gauge   name="PrepareSlot"           label="The slot for which we are preparing" />
+
+  <counter name="RepairShredsReceived" summary="Count of repair shreds received" />
+  <counter name="ShredsRecieved"       summary="Count of shreds received" />
+  <counter name="ShredsInserted"       summary="Count of shreds inserted" />
+  <counter name="RepairShredsInserted" summary="Count of repair shreds inserted" />
 </tile>
 <enum name="GossipMessage">
     <int value="0" name="PullRequest"   label="Pull Request" />

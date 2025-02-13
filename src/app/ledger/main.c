@@ -379,7 +379,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     FD_LOG_DEBUG(( "reading slot %lu", slot ));
 
     /* If we have reached a new block, load one in from rocksdb to the blockstore */
-    bool block_exists = fd_blockstore_shreds_complete( blockstore, slot);
+    bool block_exists = fd_blockstore_shreds_complete( blockstore, slot, NULL);
     if( !block_exists && slot_meta.slot == slot ) {
       int err = fd_rocksdb_import_block_blockstore( &rocks_db,
                                                     &slot_meta, blockstore,

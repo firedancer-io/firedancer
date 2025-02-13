@@ -13,6 +13,7 @@
 #include "../../../../disco/net/fd_net_tile.h"
 #include "../../../../disco/shred/fd_stake_ci.h"
 #include "../../../../disco/topo/fd_pod_format.h"
+#include "../../../../disco/metrics/fd_metrics.h"
 
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -277,6 +278,7 @@ repair_shred_deliver( fd_shred_t const *            shred,
   ulong sig = 0UL;
   fd_stem_publish( ctx->stem, 0UL, sig, ctx->store_out_chunk, shred_sz, 0UL, 0UL, tspub );
   ctx->store_out_chunk = fd_dcache_compact_next( ctx->store_out_chunk, shred_sz, ctx->store_out_chunk0, ctx->store_out_wmark );
+  FD_MCNT_INC( REPAIR, SHREDS_DELIVERED, 1UL );
 }
 
 static void
@@ -357,6 +359,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
             ulong                  sz,
             ulong                  tsorig,
             fd_stem_context_t *    stem ) {
+  long time0 = fd_log_wallclock();
   (void)seq;
   (void)tsorig;
 
@@ -373,6 +376,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( in_idx==STORE_IN_IDX ) ) {
     handle_new_repair_requests( ctx, ctx->buffer, sz );
+    FD_LOG_INFO(( "[repair] after_frag: %ld ms", time0 + fd_log_wallclock() ));
     return;
   }
 
@@ -392,6 +396,8 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     fd_repair_recv_serv_packet( ctx->repair, ctx->buffer + hdr_sz, sz - hdr_sz, &peer_addr );
   else
     FD_LOG_WARNING(( "received packet for port %u, which seems wrong", (uint)fd_ushort_bswap( dport ) ));
+
+  FD_LOG_INFO(( "[repair] after_frag: %ld ms", time0 + fd_log_wallclock() ));
 }
 
 static inline void
@@ -430,7 +436,9 @@ repair_get_shred( ulong  slot,
 
   if( shred_idx == UINT_MAX ) {
     int err = FD_MAP_ERR_AGAIN;
+    int loop = -1;
     while( err == FD_MAP_ERR_AGAIN ) {
+      loop++;
       fd_block_map_query_t query[1] = { 0 };
       err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, query, 0 );
       fd_block_meta_t * meta = fd_block_map_query_ele( query );
@@ -439,6 +447,7 @@ repair_get_shred( ulong  slot,
       shred_idx = (uint)meta->slot_complete_idx;
       err = fd_block_map_query_test( query );
     }
+    FD_MCNT_INC( REPAIR, BLOCK_MAP_REPAIR_SHRED, (ulong) loop );
   }
   long sz = fd_buf_shred_query_copy_data( blockstore, slot, shred_idx, buf, buf_max );
   return sz;

@@ -440,7 +440,7 @@ fd_rocksdb_copy_over_txn_status_range( fd_rocksdb_t *    src,
   for ( ulong slot = start_slot; slot <= end_slot; ++slot ) {
     FD_LOG_NOTICE(( "fd_rocksdb_copy_over_txn_status_range: %lu", slot ));
     fd_block_meta_t * block_entry = fd_blockstore_block_map_query( blockstore, slot );
-    if( FD_LIKELY( block_entry && fd_blockstore_shreds_complete( blockstore, slot) ) ) {
+    if( FD_LIKELY( block_entry && fd_blockstore_shreds_complete( blockstore, slot, NULL ) ) ) {
       fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_entry->block_gaddr );
       uchar * data = fd_wksp_laddr_fast( wksp, blk->data_gaddr );
       fd_block_txn_t * txns = fd_wksp_laddr_fast( wksp, blk->txns_gaddr );
@@ -588,7 +588,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
 
   fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
   fd_block_meta_t * block_map_entry = fd_blockstore_block_map_query( blockstore, slot );
-  if( FD_LIKELY( block_map_entry && fd_blockstore_shreds_complete( blockstore, slot ) ) ) {
+  if( FD_LIKELY( block_map_entry && fd_blockstore_shreds_complete( blockstore, slot, NULL ) ) ) {
     size_t vallen = 0;
     char * err = NULL;
     char * res = rocksdb_get_cf(
@@ -658,7 +658,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
     }
   }
 
-  if( txnstatus && FD_LIKELY( block_map_entry && fd_blockstore_shreds_complete( blockstore, slot ) ) ) {
+  if( txnstatus && FD_LIKELY( block_map_entry && fd_blockstore_shreds_complete( blockstore, slot, NULL ) ) ) {
     fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_map_entry->block_gaddr );
     uchar * data = fd_wksp_laddr_fast( wksp, blk->data_gaddr );
     fd_block_txn_t * txns = fd_wksp_laddr_fast( wksp, blk->txns_gaddr );
