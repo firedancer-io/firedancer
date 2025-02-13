@@ -1111,8 +1111,10 @@ fd_gossip_update_gossip_metrics( fd_gossip_metrics_t * metrics ) {
   FD_MCNT_ENUM_COPY( GOSSIP, RECEIVED_GOSSIP_MESSAGES, metrics->recv_message );
   FD_MCNT_SET( GOSSIP, RECEIVED_UNKNOWN_MESSAGE, metrics->recv_unknown_message );
 
-  FD_MCNT_ENUM_COPY( GOSSIP, RECEIVED_CRDS, metrics->recv_crds );
-  FD_MCNT_ENUM_COPY( GOSSIP, RECEIVED_CRDS_DUPLICATE_MESSAGE, metrics->recv_crds_duplicate_message );
+  FD_MCNT_ENUM_COPY( GOSSIP, RECEIVED_CRDS_PUSH, metrics->recv_crds[ FD_GOSSIP_CRDS_ROUTE_PUSH ] );
+  FD_MCNT_ENUM_COPY( GOSSIP, RECEIVED_CRDS_PULL, metrics->recv_crds[ FD_GOSSIP_CRDS_ROUTE_PULL_RESP ] );
+  FD_MCNT_ENUM_COPY( GOSSIP, RECEIVED_CRDS_DUPLICATE_MESSAGE_PUSH, metrics->recv_crds_duplicate_message[ FD_GOSSIP_CRDS_ROUTE_PUSH ] );
+  FD_MCNT_ENUM_COPY( GOSSIP, RECEIVED_CRDS_DUPLICATE_MESSAGE_PULL, metrics->recv_crds_duplicate_message[ FD_GOSSIP_CRDS_ROUTE_PULL_RESP ] );
   FD_MCNT_ENUM_COPY( GOSSIP, RECEIVED_CRDS_DROP, metrics->recv_crds_drop_reason );
 
   FD_MCNT_ENUM_COPY( GOSSIP, PUSH_CRDS, metrics->push_crds );
