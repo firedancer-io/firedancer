@@ -116,21 +116,11 @@ before_credit( fd_quic_ctx_t *     ctx,
 
 static inline void
 metrics_write( fd_quic_ctx_t * ctx ) {
-  FD_MCNT_SET  ( QUIC, TXNS_RECEIVED_UDP,       ctx->metrics.txns_received_udp );
-  FD_MCNT_SET  ( QUIC, TXNS_RECEIVED_QUIC_FAST, ctx->metrics.txns_received_quic_fast );
-  FD_MCNT_SET  ( QUIC, TXNS_RECEIVED_QUIC_FRAG, ctx->metrics.txns_received_quic_frag );
   FD_MCNT_SET  ( QUIC, FRAGS_OK,                ctx->metrics.frag_ok_cnt );
   FD_MCNT_SET  ( QUIC, FRAGS_GAP,               ctx->metrics.frag_gap_cnt );
   FD_MCNT_SET  ( QUIC, FRAGS_DUP,               ctx->metrics.frag_dup_cnt );
-  FD_MCNT_SET  ( QUIC, TXNS_OVERRUN,            ctx->metrics.reasm_overrun );
-  FD_MCNT_SET  ( QUIC, TXNS_ABANDONED,          ctx->metrics.reasm_abandoned );
   FD_MCNT_SET  ( QUIC, TXN_REASMS_STARTED,      ctx->metrics.reasm_started );
   FD_MGAUGE_SET( QUIC, TXN_REASMS_ACTIVE,       (ulong)fd_long_max( ctx->metrics.reasm_active, 0L ) );
-
-  FD_MCNT_SET( QUIC, LEGACY_TXN_UNDERSZ, ctx->metrics.udp_pkt_too_small );
-  FD_MCNT_SET( QUIC, LEGACY_TXN_OVERSZ,  ctx->metrics.udp_pkt_too_large );
-  FD_MCNT_SET( QUIC, TXN_UNDERSZ,        ctx->metrics.quic_txn_too_small );
-  FD_MCNT_SET( QUIC, TXN_OVERSZ,         ctx->metrics.quic_txn_too_large );
 
   FD_MCNT_SET(   QUIC, RECEIVED_PACKETS, ctx->quic->metrics.net_rx_pkt_cnt );
   FD_MCNT_SET(   QUIC, RECEIVED_BYTES,   ctx->quic->metrics.net_rx_byte_cnt );
@@ -148,16 +138,6 @@ metrics_write( fd_quic_ctx_t * ctx ) {
   FD_MCNT_SET(   QUIC, CONNECTION_ERROR_NO_SLOTS,   ctx->quic->metrics.conn_err_no_slots_cnt );
   FD_MCNT_SET(   QUIC, CONNECTION_ERROR_RETRY_FAIL, ctx->quic->metrics.conn_err_retry_fail_cnt );
 
-  FD_MCNT_ENUM_COPY( QUIC, PKT_CRYPTO_FAILED,  ctx->quic->metrics.pkt_decrypt_fail_cnt );
-  FD_MCNT_ENUM_COPY( QUIC, PKT_NO_KEY,         ctx->quic->metrics.pkt_no_key_cnt );
-  FD_MCNT_SET(       QUIC, PKT_NO_CONN,        ctx->quic->metrics.pkt_no_conn_cnt );
-  FD_MCNT_SET(       QUIC, PKT_TX_ALLOC_FAIL,  ctx->quic->metrics.pkt_tx_alloc_fail_cnt );
-  FD_MCNT_SET(       QUIC, PKT_NET_HEADER_INVALID,  ctx->quic->metrics.pkt_net_hdr_err_cnt );
-  FD_MCNT_SET(       QUIC, PKT_QUIC_HEADER_INVALID, ctx->quic->metrics.pkt_quic_hdr_err_cnt );
-  FD_MCNT_SET(       QUIC, PKT_UNDERSZ,        ctx->quic->metrics.pkt_undersz_cnt );
-  FD_MCNT_SET(       QUIC, PKT_OVERSZ,         ctx->quic->metrics.pkt_oversz_cnt );
-  FD_MCNT_SET(       QUIC, PKT_VERNEG,         ctx->quic->metrics.pkt_verneg_cnt );
-
   FD_MCNT_SET(   QUIC, HANDSHAKES_CREATED,         ctx->quic->metrics.hs_created_cnt );
   FD_MCNT_SET(   QUIC, HANDSHAKE_ERROR_ALLOC_FAIL, ctx->quic->metrics.hs_err_alloc_fail_cnt );
 
@@ -171,6 +151,30 @@ metrics_write( fd_quic_ctx_t * ctx ) {
 
   FD_MHIST_COPY( QUIC, SERVICE_DURATION_SECONDS, ctx->quic->metrics.service_duration );
   FD_MHIST_COPY( QUIC, RECEIVE_DURATION_SECONDS, ctx->quic->metrics.receive_duration );
+}
+
+static inline void
+metrics_write_fixed_interval( fd_quic_ctx_t * ctx ) {
+  FD_MCNT_SET  ( QUIC, TXNS_RECEIVED_UDP,       ctx->metrics.txns_received_udp );
+  FD_MCNT_SET  ( QUIC, TXNS_RECEIVED_QUIC_FAST, ctx->metrics.txns_received_quic_fast );
+  FD_MCNT_SET  ( QUIC, TXNS_RECEIVED_QUIC_FRAG, ctx->metrics.txns_received_quic_frag );
+  FD_MCNT_SET  ( QUIC, TXNS_OVERRUN,            ctx->metrics.reasm_overrun );
+  FD_MCNT_SET  ( QUIC, TXNS_ABANDONED,          ctx->metrics.reasm_abandoned );
+
+  FD_MCNT_SET( QUIC, LEGACY_TXN_UNDERSZ, ctx->metrics.udp_pkt_too_small );
+  FD_MCNT_SET( QUIC, LEGACY_TXN_OVERSZ,  ctx->metrics.udp_pkt_too_large );
+  FD_MCNT_SET( QUIC, TXN_UNDERSZ,        ctx->metrics.quic_txn_too_small );
+  FD_MCNT_SET( QUIC, TXN_OVERSZ,         ctx->metrics.quic_txn_too_large );
+
+  FD_MCNT_ENUM_COPY( QUIC, PKT_CRYPTO_FAILED,  ctx->quic->metrics.pkt_decrypt_fail_cnt );
+  FD_MCNT_ENUM_COPY( QUIC, PKT_NO_KEY,         ctx->quic->metrics.pkt_no_key_cnt );
+  FD_MCNT_SET(       QUIC, PKT_NO_CONN,        ctx->quic->metrics.pkt_no_conn_cnt );
+  FD_MCNT_SET(       QUIC, PKT_TX_ALLOC_FAIL,  ctx->quic->metrics.pkt_tx_alloc_fail_cnt );
+  FD_MCNT_SET(       QUIC, PKT_NET_HEADER_INVALID,  ctx->quic->metrics.pkt_net_hdr_err_cnt );
+  FD_MCNT_SET(       QUIC, PKT_QUIC_HEADER_INVALID, ctx->quic->metrics.pkt_quic_hdr_err_cnt );
+  FD_MCNT_SET(       QUIC, PKT_UNDERSZ,        ctx->quic->metrics.pkt_undersz_cnt );
+  FD_MCNT_SET(       QUIC, PKT_OVERSZ,         ctx->quic->metrics.pkt_oversz_cnt );
+  FD_MCNT_SET(       QUIC, PKT_VERNEG,         ctx->quic->metrics.pkt_verneg_cnt );
 }
 
 static int
@@ -613,12 +617,13 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_quic_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_quic_ctx_t)
 
-#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
-#define STEM_CALLBACK_METRICS_WRITE       metrics_write
-#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
-#define STEM_CALLBACK_BEFORE_FRAG         before_frag
-#define STEM_CALLBACK_DURING_FRAG         during_frag
-#define STEM_CALLBACK_AFTER_FRAG          after_frag
+#define STEM_CALLBACK_DURING_HOUSEKEEPING          during_housekeeping
+#define STEM_CALLBACK_FIXED_METRICS_WRITE_INTERVAL metrics_write_fixed_interval
+#define STEM_CALLBACK_METRICS_WRITE                metrics_write
+#define STEM_CALLBACK_BEFORE_CREDIT                before_credit
+#define STEM_CALLBACK_BEFORE_FRAG                  before_frag
+#define STEM_CALLBACK_DURING_FRAG                  during_frag
+#define STEM_CALLBACK_AFTER_FRAG                   after_frag
 
 #include "../stem/fd_stem.c"
 
