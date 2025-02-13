@@ -138,18 +138,7 @@ before_frag( fd_archiver_feeder_tile_ctx_t * ctx,
   (void)sig;
   (void)seq;
 
-  /* limit gossip */
-  if ( ctx->round_robin_idx == 0) {
-      /* TODO: maybe just filter out contact infos? */
-      if( ctx->count >= 100000 ) {
-        return 1;
-      }
-      ctx->count += 1;
-      return 0;
-    }
-
-  return 0;
-
+ 
     /* gossip */
     if ( ctx->round_robin_idx == 0) {
       if( ctx->count >= 100000 ) {
@@ -175,20 +164,24 @@ before_frag( fd_archiver_feeder_tile_ctx_t * ctx,
 
     /* shred */
     if( ctx->round_robin_idx == 5 ) {
-      return !((seq % 5) == 1);
+      if( ctx->count >= 50000 ) {
+        return 1;
+      }
+      ctx->count += 1;
+      return 0;
     }
-    if( ctx->round_robin_idx == 6 ) {
-      return !((seq % 5) == 2);
-    }
-    if( ctx->round_robin_idx == 7 ) {
-      return !((seq % 5) == 3);
-    }
-    if( ctx->round_robin_idx == 8 ) {
-      return !((seq % 5) == 4);
-    }
-    if( ctx->round_robin_idx == 9 ) {
-      return !((seq % 5) == 0);
-    }
+    // if( ctx->round_robin_idx == 6 ) {
+    //   return !((seq % 5) == 2);
+    // }
+    // if( ctx->round_robin_idx == 7 ) {
+    //   return !((seq % 5) == 3);
+    // }
+    // if( ctx->round_robin_idx == 8 ) {
+    //   return !((seq % 5) == 4);
+    // }
+    // if( ctx->round_robin_idx == 9 ) {
+    //   return !((seq % 5) == 0);
+    // }
     
   return 1;
 }

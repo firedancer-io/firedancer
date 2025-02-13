@@ -199,15 +199,15 @@ mmap_sync( fd_archiver_writer_tile_ctx_t * ctx, int flags ) {
   
    */
 
-
-  ulong raw_sync_len = ctx->mmap_off - ctx->mmap_unsynced_offset;
+  FD_LOG_WARNING(( "syncing mmap" ));
+  ulong raw_sync_len = ctx->mmap_off;
   if( raw_sync_len < FD_SHMEM_NORMAL_PAGE_SZ ) {
     return;
   }
   ulong sync_len = (raw_sync_len / FD_SHMEM_NORMAL_PAGE_SZ) * FD_SHMEM_NORMAL_PAGE_SZ;
 
   if( msync(
-    ctx->mmap_addr + ctx->mmap_unsynced_offset,
+    ctx->mmap_addr + sync_len,
     sync_len,
     flags ) != 0 ) {
     FD_LOG_ERR(( "msync failed. errno=%i sync_len=%lu", errno, sync_len ));
@@ -294,33 +294,6 @@ during_frag( fd_archiver_writer_tile_ctx_t * ctx,
   }
   ctx->last_packet_ns = now_ns;
 
-  /* Copy the frag to the buffer */
-  if( FD_UNLIKELY(( sz > FD_ARCHIVER_WRITER_OUT_BUF_SZ )) ) {
-    FD_LOG_ERR(( "buffer too small" ));
-  }
-  memcpy( ctx->buf, src, sz );
-  ctx->buf_sz = sz;
-
-  ctx->stats.net_repair_in_cnt  += header->tile_id == FD_ARCHIVER_TILE_ID_REPAIR;
-  ctx->stats.net_gossip_in_cnt  += header->tile_id == FD_ARCHIVER_TILE_ID_GOSSIP;
-  ctx->stats.net_shred_in_cnt   += header->tile_id == FD_ARCHIVER_TILE_ID_SHRED;
-  ctx->stats.net_quic_in_cnt    += header->tile_id == FD_ARCHIVER_TILE_ID_QUIC;
-}
-
-static inline void
-after_frag( fd_archiver_writer_tile_ctx_t * ctx,
-            ulong                           in_idx,
-            ulong                           seq,
-            ulong                           sig,
-            ulong                           sz,
-            ulong                           tsorig,
-            fd_stem_context_t *             stem ) {
-  (void)in_idx;
-  (void)seq;
-  (void)sig;
-  (void)tsorig;
-  (void)stem;
-
   /* Resize the mmap region if necessary */
   if( FD_UNLIKELY( ctx->mmap_off + sz > ctx->mmap_size ) ) {
     FD_LOG_ERR(( "mmap too small" ));
@@ -329,28 +302,13 @@ after_frag( fd_archiver_writer_tile_ctx_t * ctx,
 
   /* Copy fragment into the mapped region */
   char * dst = ctx->mmap_addr + ctx->mmap_off;
-  memcpy( dst, ctx->buf, sz );
+  memcpy( dst, src, sz );
   ctx->mmap_off += sz;
 
-  /* FIXME: Debugging stuff, remove */
-  fd_archiver_frag_header_t * header = fd_type_pun( ctx->buf );
-  if( header->tile_id == FD_ARCHIVER_TILE_ID_REPAIR ) {
-    if( ctx->last_repair_seq ) {
-      if( !( header->seq == (ctx->last_repair_seq + 1) ) ) {
-        FD_LOG_ERR(( "header->seq=%lu ctx->last_repair_seq=%lu", header->seq, ctx->last_repair_seq ));
-      }
-    }
-    ctx->last_repair_seq = header->seq;
-  }
-
-  if( header->tile_id == FD_ARCHIVER_TILE_ID_SHRED ) {
-    if( ctx->last_shred_seq ) {
-      if( !( header->seq == (ctx->last_shred_seq + 1) ) ) {
-        FD_LOG_ERR(( "header->seq=%lu ctx->last_shred_seq=%lu", header->seq, ctx->last_shred_seq ));
-      }
-    }
-    ctx->last_shred_seq = header->seq;
-  }
+  ctx->stats.net_repair_in_cnt  += header->tile_id == FD_ARCHIVER_TILE_ID_REPAIR;
+  ctx->stats.net_gossip_in_cnt  += header->tile_id == FD_ARCHIVER_TILE_ID_GOSSIP;
+  ctx->stats.net_shred_in_cnt   += header->tile_id == FD_ARCHIVER_TILE_ID_SHRED;
+  ctx->stats.net_quic_in_cnt    += header->tile_id == FD_ARCHIVER_TILE_ID_QUIC;
 }
 
 #define STEM_BURST (1UL)
@@ -361,7 +319,7 @@ after_frag( fd_archiver_writer_tile_ctx_t * ctx,
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_DURING_FRAG         during_frag
-#define STEM_CALLBACK_AFTER_FRAG          after_frag
+// #define STEM_CALLBACK_AFTER_FRAG          after_frag
 
 #include "../../../../disco/stem/fd_stem.c"
 

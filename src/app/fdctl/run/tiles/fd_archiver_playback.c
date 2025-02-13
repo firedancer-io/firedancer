@@ -196,24 +196,24 @@ static inline void
 publish( fd_archiver_playback_tile_ctx_t * ctx,
          fd_stem_context_t *               stem ) {
   /* FIXME: Debugging stuff, remove */
-  fd_archiver_frag_header_t * header = &ctx->pending_publish_header;
-  if( header->tile_id == FD_ARCHIVER_TILE_ID_REPAIR ) {
-    if( ctx->last_repair_seq ) {
-      if( !( header->seq == (ctx->last_repair_seq + 1) ) ) {
-        FD_LOG_ERR(( "header->seq=%lu ctx->last_repair_seq=%lu", header->seq, ctx->last_repair_seq ));
-      }
-    }
-    ctx->last_repair_seq = header->seq;
-  }
+  // fd_archiver_frag_header_t * header = &ctx->pending_publish_header;
+  // if( header->tile_id == FD_ARCHIVER_TILE_ID_REPAIR ) {
+  //   if( ctx->last_repair_seq ) {
+  //     if( !( header->seq == (ctx->last_repair_seq + 1) ) ) {
+  //       FD_LOG_ERR(( "header->seq=%lu ctx->last_repair_seq=%lu", header->seq, ctx->last_repair_seq ));
+  //     }
+  //   }
+  //   ctx->last_repair_seq = header->seq;
+  // }
 
-  if( header->tile_id == FD_ARCHIVER_TILE_ID_SHRED ) {
-    if( ctx->last_shred_seq ) {
-      if( !( header->seq == (ctx->last_shred_seq + 1) ) ) {
-        FD_LOG_ERR(( "header->seq=%lu ctx->last_shred_seq=%lu", header->seq, ctx->last_shred_seq ));
-      }
-    }
-    ctx->last_shred_seq = header->seq;
-  }
+  // if( header->tile_id == FD_ARCHIVER_TILE_ID_SHRED ) {
+  //   if( ctx->last_shred_seq ) {
+  //     if( !( header->seq == (ctx->last_shred_seq + 1) ) ) {
+  //       FD_LOG_ERR(( "header->seq=%lu ctx->last_shred_seq=%lu", header->seq, ctx->last_shred_seq ));
+  //     }
+  //   }
+  //   ctx->last_shred_seq = header->seq;
+  // }
 
   /* Publish the pending fragment */
   fd_stem_publish( stem, ctx->pending_publish_link_idx, ctx->pending_publish_header.sig, ctx->out[ ctx->pending_publish_link_idx ].chunk, ctx->pending_publish_header.sz, 0UL, 0UL, 0UL);
