@@ -3,7 +3,7 @@
 
 /* fd_dbl_buf.h provides a concurrent lock-free double buffer.  A double
    buffer contains two buffers that take turns holding a message for
-   consumers and receving a new message by a producer.
+   consumers and receiving a new message by a producer.
 
    Supports a single producer thread and an arbitrary number of consumer
    threads.  Optimized for rare updates and frequent polling (e.g. config).
@@ -113,7 +113,7 @@ fd_dbl_buf_seq_query( fd_dbl_buf_t * buf ) {
 FD_FN_PURE static inline void *
 fd_dbl_buf_slot( fd_dbl_buf_t * buf,
                  ulong          seq ) {
-  return (seq&1) ? buf+buf->buf1 : buf+buf->buf0;
+  return (seq&1) ? ((char *)buf)+buf->buf1 : ((char *)buf)+buf->buf0;
 }
 
 /* fd_dbl_buf_insert appends a message to the double buffer.
