@@ -2227,7 +2227,7 @@ class EnumType:
                 empty = False
                 v.emitMember()
         if empty:
-            print('  uchar nonempty; /* Hack to support enums with no inner structures */ ', file=header)
+            print('  uchar nonempty; /* Hack to support enums with no inner structures */', file=header)
         print("};", file=header)
         print(f"typedef union {n}_inner {n}_inner_t;\n", file=header)
 
@@ -2253,7 +2253,7 @@ class EnumType:
                     empty = False
                     v.emitOffsetUnionMember()
             if empty:
-                print('  uchar nonempty; /* Hack to support enums with no inner structures */ ', file=header)
+                print('  uchar nonempty; /* Hack to support enums with no inner structures */', file=header)
             print("};", file=header)
             print(f"typedef union {n}_off_inner {n}_off_inner_t;\n", file=header)
 

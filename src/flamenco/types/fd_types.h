@@ -441,7 +441,7 @@ typedef struct fd_account_meta_off fd_account_meta_off_t;
 struct __attribute__((aligned(8UL))) fd_vote_accounts_pair {
   fd_pubkey_t key;
   ulong stake;
-  fd_solana_vote_account_t value;
+  fd_solana_account_t value;
 };
 typedef struct fd_vote_accounts_pair fd_vote_accounts_pair_t;
 #define FD_VOTE_ACCOUNTS_PAIR_FOOTPRINT sizeof(fd_vote_accounts_pair_t)
@@ -1242,7 +1242,7 @@ typedef struct fd_snapshot_slot_acc_vecs_off fd_snapshot_slot_acc_vecs_off_t;
 #define FD_SNAPSHOT_SLOT_ACC_VECS_OFF_ALIGN (8UL)
 
 union fd_reward_type_inner {
-  uchar nonempty; /* Hack to support enums with no inner structures */ 
+  uchar nonempty; /* Hack to support enums with no inner structures */
 };
 typedef union fd_reward_type_inner fd_reward_type_inner_t;
 
@@ -2531,7 +2531,7 @@ typedef struct fd_firedancer_bank_off fd_firedancer_bank_off_t;
 #define FD_FIREDANCER_BANK_OFF_ALIGN (16UL)
 
 union fd_cluster_type_inner {
-  uchar nonempty; /* Hack to support enums with no inner structures */ 
+  uchar nonempty; /* Hack to support enums with no inner structures */
 };
 typedef union fd_cluster_type_inner fd_cluster_type_inner_t;
 
@@ -2734,7 +2734,7 @@ typedef struct fd_vote_init_off fd_vote_init_off_t;
 #define FD_VOTE_INIT_OFF_ALIGN (8UL)
 
 union fd_vote_authorize_inner {
-  uchar nonempty; /* Hack to support enums with no inner structures */ 
+  uchar nonempty; /* Hack to support enums with no inner structures */
 };
 typedef union fd_vote_authorize_inner fd_vote_authorize_inner_t;
 
@@ -3008,7 +3008,7 @@ typedef struct fd_system_program_instruction fd_system_program_instruction_t;
 #define FD_SYSTEM_PROGRAM_INSTRUCTION_ALIGN (8UL)
 
 union fd_system_error_inner {
-  uchar nonempty; /* Hack to support enums with no inner structures */ 
+  uchar nonempty; /* Hack to support enums with no inner structures */
 };
 typedef union fd_system_error_inner fd_system_error_inner_t;
 
@@ -3098,7 +3098,7 @@ typedef struct fd_stake_lockup_custodian_args_off fd_stake_lockup_custodian_args
 #define FD_STAKE_LOCKUP_CUSTODIAN_ARGS_OFF_ALIGN (8UL)
 
 union fd_stake_authorize_inner {
-  uchar nonempty; /* Hack to support enums with no inner structures */ 
+  uchar nonempty; /* Hack to support enums with no inner structures */
 };
 typedef union fd_stake_authorize_inner fd_stake_authorize_inner_t;
 
@@ -5459,6 +5459,10 @@ void fd_solana_account_walk( void * w, fd_solana_account_t const * self, fd_type
 ulong fd_solana_account_size( fd_solana_account_t const * self );
 ulong fd_solana_account_footprint( void );
 ulong fd_solana_account_align( void );
+int fd_solana_account_decode_archival( fd_solana_account_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_solana_account_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );
+void fd_solana_account_decode_archival_unsafe( fd_solana_account_t * self, fd_bincode_decode_ctx_t * ctx );
+int fd_solana_account_encode_archival( fd_solana_account_t const * self, fd_bincode_encode_ctx_t * ctx );
 
 void fd_vote_accounts_pair_new( fd_vote_accounts_pair_t * self );
 int fd_vote_accounts_pair_decode( fd_vote_accounts_pair_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -5869,7 +5873,7 @@ fd_reward_type_enum_fee = 0,
 fd_reward_type_enum_rent = 1,
 fd_reward_type_enum_staking = 2,
 fd_reward_type_enum_voting = 3,
-}; 
+};
 void fd_solana_accounts_db_fields_new( fd_solana_accounts_db_fields_t * self );
 int fd_solana_accounts_db_fields_decode( fd_solana_accounts_db_fields_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_solana_accounts_db_fields_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -5909,7 +5913,7 @@ ulong fd_versioned_epoch_stakes_align( void );
 FD_FN_PURE uchar fd_versioned_epoch_stakes_is_Current( fd_versioned_epoch_stakes_t const * self );
 enum {
 fd_versioned_epoch_stakes_enum_Current = 0,
-}; 
+};
 void fd_versioned_epoch_stakes_pair_new( fd_versioned_epoch_stakes_pair_t * self );
 int fd_versioned_epoch_stakes_pair_decode( fd_versioned_epoch_stakes_pair_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_versioned_epoch_stakes_pair_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -6250,7 +6254,7 @@ enum {
 fd_vote_state_versioned_enum_v0_23_5 = 0,
 fd_vote_state_versioned_enum_v1_14_11 = 1,
 fd_vote_state_versioned_enum_current = 2,
-}; 
+};
 void fd_vote_state_update_new( fd_vote_state_update_t * self );
 int fd_vote_state_update_decode( fd_vote_state_update_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_vote_state_update_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -6544,7 +6548,7 @@ fd_cluster_type_enum_Testnet = 0,
 fd_cluster_type_enum_MainnetBeta = 1,
 fd_cluster_type_enum_Devnet = 2,
 fd_cluster_type_enum_Development = 3,
-}; 
+};
 void fd_epoch_bank_new( fd_epoch_bank_t * self );
 int fd_epoch_bank_decode( fd_epoch_bank_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_epoch_bank_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -6630,7 +6634,7 @@ FD_FN_PURE uchar fd_vote_authorize_is_withdrawer( fd_vote_authorize_t const * se
 enum {
 fd_vote_authorize_enum_voter = 0,
 fd_vote_authorize_enum_withdrawer = 1,
-}; 
+};
 void fd_vote_authorize_pubkey_new( fd_vote_authorize_pubkey_t * self );
 int fd_vote_authorize_pubkey_decode( fd_vote_authorize_pubkey_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_vote_authorize_pubkey_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -6736,7 +6740,7 @@ fd_vote_instruction_enum_compact_update_vote_state = 12,
 fd_vote_instruction_enum_compact_update_vote_state_switch = 13,
 fd_vote_instruction_enum_tower_sync = 14,
 fd_vote_instruction_enum_tower_sync_switch = 15,
-}; 
+};
 void fd_system_program_instruction_create_account_new( fd_system_program_instruction_create_account_t * self );
 int fd_system_program_instruction_create_account_decode( fd_system_program_instruction_create_account_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_system_program_instruction_create_account_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -6836,7 +6840,7 @@ fd_system_program_instruction_enum_allocate_with_seed = 9,
 fd_system_program_instruction_enum_assign_with_seed = 10,
 fd_system_program_instruction_enum_transfer_with_seed = 11,
 fd_system_program_instruction_enum_upgrade_nonce_account = 12,
-}; 
+};
 void fd_system_error_new_disc( fd_system_error_t * self, uint discriminant );
 void fd_system_error_new( fd_system_error_t * self );
 int fd_system_error_decode( fd_system_error_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -6868,7 +6872,7 @@ fd_system_error_enum_address_with_seed_mismatch = 5,
 fd_system_error_enum_nonce_no_recent_blockhashes = 6,
 fd_system_error_enum_nonce_blockhash_not_expired = 7,
 fd_system_error_enum_nonce_unexpected_blockhash_value = 8,
-}; 
+};
 void fd_stake_authorized_new( fd_stake_authorized_t * self );
 int fd_stake_authorized_decode( fd_stake_authorized_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_stake_authorized_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -6934,7 +6938,7 @@ FD_FN_PURE uchar fd_stake_authorize_is_withdrawer( fd_stake_authorize_t const * 
 enum {
 fd_stake_authorize_enum_staker = 0,
 fd_stake_authorize_enum_withdrawer = 1,
-}; 
+};
 void fd_stake_instruction_authorize_new( fd_stake_instruction_authorize_t * self );
 int fd_stake_instruction_authorize_decode( fd_stake_instruction_authorize_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_stake_instruction_authorize_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -7044,7 +7048,7 @@ fd_stake_instruction_enum_deactivate_delinquent = 14,
 fd_stake_instruction_enum_redelegate = 15,
 fd_stake_instruction_enum_move_stake = 16,
 fd_stake_instruction_enum_move_lamports = 17,
-}; 
+};
 void fd_stake_meta_new( fd_stake_meta_t * self );
 int fd_stake_meta_decode( fd_stake_meta_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_stake_meta_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -7114,7 +7118,7 @@ fd_stake_state_v2_enum_uninitialized = 0,
 fd_stake_state_v2_enum_initialized = 1,
 fd_stake_state_v2_enum_stake = 2,
 fd_stake_state_v2_enum_rewards_pool = 3,
-}; 
+};
 void fd_nonce_data_new( fd_nonce_data_t * self );
 int fd_nonce_data_decode( fd_nonce_data_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_nonce_data_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -7144,7 +7148,7 @@ FD_FN_PURE uchar fd_nonce_state_is_initialized( fd_nonce_state_t const * self );
 enum {
 fd_nonce_state_enum_uninitialized = 0,
 fd_nonce_state_enum_initialized = 1,
-}; 
+};
 void fd_nonce_state_versions_new_disc( fd_nonce_state_versions_t * self, uint discriminant );
 void fd_nonce_state_versions_new( fd_nonce_state_versions_t * self );
 int fd_nonce_state_versions_decode( fd_nonce_state_versions_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -7162,7 +7166,7 @@ FD_FN_PURE uchar fd_nonce_state_versions_is_current( fd_nonce_state_versions_t c
 enum {
 fd_nonce_state_versions_enum_legacy = 0,
 fd_nonce_state_versions_enum_current = 1,
-}; 
+};
 void fd_compute_budget_program_instruction_request_units_deprecated_new( fd_compute_budget_program_instruction_request_units_deprecated_t * self );
 int fd_compute_budget_program_instruction_request_units_deprecated_decode( fd_compute_budget_program_instruction_request_units_deprecated_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_compute_budget_program_instruction_request_units_deprecated_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -7198,7 +7202,7 @@ fd_compute_budget_program_instruction_enum_request_heap_frame = 1,
 fd_compute_budget_program_instruction_enum_set_compute_unit_limit = 2,
 fd_compute_budget_program_instruction_enum_set_compute_unit_price = 3,
 fd_compute_budget_program_instruction_enum_set_loaded_accounts_data_size_limit = 4,
-}; 
+};
 void fd_config_keys_new( fd_config_keys_t * self );
 int fd_config_keys_decode( fd_config_keys_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_config_keys_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -7240,7 +7244,7 @@ FD_FN_PURE uchar fd_bpf_loader_program_instruction_is_finalize( fd_bpf_loader_pr
 enum {
 fd_bpf_loader_program_instruction_enum_write = 0,
 fd_bpf_loader_program_instruction_enum_finalize = 1,
-}; 
+};
 void fd_loader_v4_program_instruction_write_new( fd_loader_v4_program_instruction_write_t * self );
 int fd_loader_v4_program_instruction_write_decode( fd_loader_v4_program_instruction_write_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_loader_v4_program_instruction_write_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -7290,7 +7294,7 @@ fd_loader_v4_program_instruction_enum_deploy = 2,
 fd_loader_v4_program_instruction_enum_retract = 3,
 fd_loader_v4_program_instruction_enum_transfer_authority = 4,
 fd_loader_v4_program_instruction_enum_finalize = 5,
-}; 
+};
 void fd_bpf_upgradeable_loader_program_instruction_write_new( fd_bpf_upgradeable_loader_program_instruction_write_t * self );
 int fd_bpf_upgradeable_loader_program_instruction_write_decode( fd_bpf_upgradeable_loader_program_instruction_write_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_bpf_upgradeable_loader_program_instruction_write_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -7356,7 +7360,7 @@ fd_bpf_upgradeable_loader_program_instruction_enum_set_authority = 4,
 fd_bpf_upgradeable_loader_program_instruction_enum_close = 5,
 fd_bpf_upgradeable_loader_program_instruction_enum_extend_program = 6,
 fd_bpf_upgradeable_loader_program_instruction_enum_set_authority_checked = 7,
-}; 
+};
 void fd_bpf_upgradeable_loader_state_buffer_new( fd_bpf_upgradeable_loader_state_buffer_t * self );
 int fd_bpf_upgradeable_loader_state_buffer_decode( fd_bpf_upgradeable_loader_state_buffer_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_bpf_upgradeable_loader_state_buffer_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -7414,7 +7418,7 @@ fd_bpf_upgradeable_loader_state_enum_uninitialized = 0,
 fd_bpf_upgradeable_loader_state_enum_buffer = 1,
 fd_bpf_upgradeable_loader_state_enum_program = 2,
 fd_bpf_upgradeable_loader_state_enum_program_data = 3,
-}; 
+};
 void fd_loader_v4_state_new( fd_loader_v4_state_t * self );
 int fd_loader_v4_state_decode( fd_loader_v4_state_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_loader_v4_state_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -7454,7 +7458,7 @@ ulong fd_frozen_hash_versioned_align( void );
 FD_FN_PURE uchar fd_frozen_hash_versioned_is_current( fd_frozen_hash_versioned_t const * self );
 enum {
 fd_frozen_hash_versioned_enum_current = 0,
-}; 
+};
 void fd_lookup_table_meta_new( fd_lookup_table_meta_t * self );
 int fd_lookup_table_meta_decode( fd_lookup_table_meta_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_lookup_table_meta_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -7496,7 +7500,7 @@ FD_FN_PURE uchar fd_address_lookup_table_state_is_lookup_table( fd_address_looku
 enum {
 fd_address_lookup_table_state_enum_uninitialized = 0,
 fd_address_lookup_table_state_enum_lookup_table = 1,
-}; 
+};
 void fd_gossip_bitvec_u8_inner_new( fd_gossip_bitvec_u8_inner_t * self );
 int fd_gossip_bitvec_u8_inner_decode( fd_gossip_bitvec_u8_inner_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_gossip_bitvec_u8_inner_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -7574,7 +7578,7 @@ FD_FN_PURE uchar fd_gossip_ip_addr_is_ip6( fd_gossip_ip_addr_t const * self );
 enum {
 fd_gossip_ip_addr_enum_ip4 = 0,
 fd_gossip_ip_addr_enum_ip6 = 1,
-}; 
+};
 void fd_gossip_prune_data_new( fd_gossip_prune_data_t * self );
 int fd_gossip_prune_data_decode( fd_gossip_prune_data_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_gossip_prune_data_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -7664,7 +7668,7 @@ FD_FN_PURE uchar fd_gossip_socket_addr_is_ip6( fd_gossip_socket_addr_t const * s
 enum {
 fd_gossip_socket_addr_enum_ip4 = 0,
 fd_gossip_socket_addr_enum_ip6 = 1,
-}; 
+};
 void fd_gossip_contact_info_v1_new( fd_gossip_contact_info_v1_t * self );
 int fd_gossip_contact_info_v1_decode( fd_gossip_contact_info_v1_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_gossip_contact_info_v1_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -7754,7 +7758,7 @@ FD_FN_PURE uchar fd_gossip_slots_enum_is_uncompressed( fd_gossip_slots_enum_t co
 enum {
 fd_gossip_slots_enum_enum_flate2 = 0,
 fd_gossip_slots_enum_enum_uncompressed = 1,
-}; 
+};
 void fd_gossip_epoch_slots_new( fd_gossip_epoch_slots_t * self );
 int fd_gossip_epoch_slots_decode( fd_gossip_epoch_slots_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_gossip_epoch_slots_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -7940,7 +7944,7 @@ FD_FN_PURE uchar fd_restart_slots_offsets_is_raw_offsets( fd_restart_slots_offse
 enum {
 fd_restart_slots_offsets_enum_run_length_encoding = 0,
 fd_restart_slots_offsets_enum_raw_offsets = 1,
-}; 
+};
 void fd_gossip_restart_last_voted_fork_slots_new( fd_gossip_restart_last_voted_fork_slots_t * self );
 int fd_gossip_restart_last_voted_fork_slots_decode( fd_gossip_restart_last_voted_fork_slots_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_gossip_restart_last_voted_fork_slots_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -8006,7 +8010,7 @@ fd_crds_data_enum_incremental_snapshot_hashes = 10,
 fd_crds_data_enum_contact_info_v2 = 11,
 fd_crds_data_enum_restart_last_voted_fork_slots = 12,
 fd_crds_data_enum_restart_heaviest_fork = 13,
-}; 
+};
 void fd_crds_bloom_new( fd_crds_bloom_t * self );
 int fd_crds_bloom_decode( fd_crds_bloom_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_crds_bloom_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -8116,7 +8120,7 @@ fd_gossip_msg_enum_push_msg = 2,
 fd_gossip_msg_enum_prune_msg = 3,
 fd_gossip_msg_enum_ping = 4,
 fd_gossip_msg_enum_pong = 5,
-}; 
+};
 void fd_addrlut_create_new( fd_addrlut_create_t * self );
 int fd_addrlut_create_decode( fd_addrlut_create_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_addrlut_create_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -8164,7 +8168,7 @@ fd_addrlut_instruction_enum_freeze_lut = 1,
 fd_addrlut_instruction_enum_extend_lut = 2,
 fd_addrlut_instruction_enum_deactivate_lut = 3,
 fd_addrlut_instruction_enum_close_lut = 4,
-}; 
+};
 void fd_repair_request_header_new( fd_repair_request_header_t * self );
 int fd_repair_request_header_decode( fd_repair_request_header_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_repair_request_header_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -8262,7 +8266,7 @@ fd_repair_protocol_enum_window_index = 8,
 fd_repair_protocol_enum_highest_window_index = 9,
 fd_repair_protocol_enum_orphan = 10,
 fd_repair_protocol_enum_ancestor_hashes = 11,
-}; 
+};
 void fd_repair_response_new_disc( fd_repair_response_t * self, uint discriminant );
 void fd_repair_response_new( fd_repair_response_t * self );
 int fd_repair_response_decode( fd_repair_response_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -8278,7 +8282,7 @@ ulong fd_repair_response_align( void );
 FD_FN_PURE uchar fd_repair_response_is_ping( fd_repair_response_t const * self );
 enum {
 fd_repair_response_enum_ping = 0,
-}; 
+};
 void fd_instr_error_enum_new_disc( fd_instr_error_enum_t * self, uint discriminant );
 void fd_instr_error_enum_new( fd_instr_error_enum_t * self );
 int fd_instr_error_enum_decode( fd_instr_error_enum_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -8400,7 +8404,7 @@ fd_instr_error_enum_enum_max_accounts_data_allocations_exceeded = 50,
 fd_instr_error_enum_enum_max_accounts_exceeded = 51,
 fd_instr_error_enum_enum_max_instruction_trace_length_exceeded = 52,
 fd_instr_error_enum_enum_builtin_programs_must_consume_compute_units = 53,
-}; 
+};
 void fd_txn_instr_error_new( fd_txn_instr_error_t * self );
 int fd_txn_instr_error_decode( fd_txn_instr_error_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_txn_instr_error_decode_preflight( fd_bincode_decode_ctx_t * ctx );
@@ -8500,7 +8504,7 @@ fd_txn_error_enum_enum_invalid_loaded_accounts_data_size_limit = 33,
 fd_txn_error_enum_enum_resanitization_needed = 34,
 fd_txn_error_enum_enum_program_execution_temporarily_restricted = 35,
 fd_txn_error_enum_enum_unbalanced_transaction = 36,
-}; 
+};
 void fd_txn_result_new_disc( fd_txn_result_t * self, uint discriminant );
 void fd_txn_result_new( fd_txn_result_t * self );
 int fd_txn_result_decode( fd_txn_result_t * self, fd_bincode_decode_ctx_t * ctx );
@@ -8518,7 +8522,7 @@ FD_FN_PURE uchar fd_txn_result_is_error( fd_txn_result_t const * self );
 enum {
 fd_txn_result_enum_ok = 0,
 fd_txn_result_enum_error = 1,
-}; 
+};
 void fd_cache_status_new( fd_cache_status_t * self );
 int fd_cache_status_decode( fd_cache_status_t * self, fd_bincode_decode_ctx_t * ctx );
 int fd_cache_status_decode_preflight( fd_bincode_decode_ctx_t * ctx );

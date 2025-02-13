@@ -91,58 +91,6 @@ union fd_gossip_ip6_addr {
 
 typedef union fd_gossip_ip6_addr fd_gossip_ip6_addr_t;
 
-/* Solana account struct for vote accounts. */
-/* Encoded Size: Fixed (113 bytes) */
-struct __attribute__((aligned(8UL))) fd_solana_vote_account {
-  ulong lamports;
-  fd_pubkey_t node_pubkey;
-  long last_timestamp_ts;
-  ulong last_timestamp_slot;
-  fd_pubkey_t owner;
-  uchar executable;
-  ulong rent_epoch;
-};
-typedef struct fd_solana_vote_account fd_solana_vote_account_t;
-#define FD_SOLANA_VOTE_ACCOUNT_FOOTPRINT sizeof(fd_solana_vote_account_t)
-#define FD_SOLANA_VOTE_ACCOUNT_ALIGN (8UL)
-
-void
-fd_solana_vote_account_new( fd_solana_vote_account_t * self );
-
-int
-fd_solana_vote_account_decode( fd_solana_vote_account_t * self, fd_bincode_decode_ctx_t * ctx );
-
-#define fd_solana_vote_account_decode_archival fd_solana_vote_account_decode
-
-int
-fd_solana_vote_account_decode_preflight( fd_bincode_decode_ctx_t * ctx );
-
-#define fd_solana_vote_account_decode_archival_preflight fd_solana_vote_account_decode_preflight
-
-void
-fd_solana_vote_account_decode_unsafe( fd_solana_vote_account_t * self, fd_bincode_decode_ctx_t * ctx );
-
-#define fd_solana_vote_account_decode_archival_unsafe fd_solana_vote_account_decode_unsafe
-
-int
-fd_solana_vote_account_encode( fd_solana_vote_account_t const * self, fd_bincode_encode_ctx_t * ctx );
-
-#define fd_solana_vote_account_encode_archival fd_solana_vote_account_encode
-
-void
-fd_solana_vote_account_destroy( fd_solana_vote_account_t * self, fd_bincode_destroy_ctx_t * ctx );
-
-void
-fd_solana_vote_account_walk( void * w, fd_solana_vote_account_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-
-ulong
-fd_solana_vote_account_size( fd_solana_vote_account_t const * self );
-
-ulong
-fd_solana_vote_account_footprint( void );
-
-ulong
-fd_solana_vote_account_align( void );
 
 /* Transaction wrapper ************************************************/
 

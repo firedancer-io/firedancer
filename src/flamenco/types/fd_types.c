@@ -2797,6 +2797,158 @@ int fd_solana_account_encode( fd_solana_account_t const * self, fd_bincode_encod
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
+enum {
+  fd_solana_account_lamports_TAG = (0 << 6) | FD_ARCHIVE_META_ULONG,
+  fd_solana_account_data_TAG = (1 << 6) | FD_ARCHIVE_META_VECTOR,
+  fd_solana_account_owner_TAG = (2 << 6) | FD_ARCHIVE_META_STRUCT,
+  fd_solana_account_executable_TAG = (3 << 6) | FD_ARCHIVE_META_BOOL,
+  fd_solana_account_rent_epoch_TAG = (4 << 6) | FD_ARCHIVE_META_ULONG,
+};
+int fd_solana_account_decode_archival( fd_solana_account_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  void const * data = ctx->data;
+  int err = fd_solana_account_decode_archival_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ctx->data = data;
+  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {
+    fd_solana_account_new( self );
+  }
+  fd_solana_account_decode_archival_unsafe( self, ctx );
+  return FD_BINCODE_SUCCESS;
+}
+int fd_solana_account_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  int err;
+  ushort tag = FD_ARCHIVE_META_SENTINAL;
+  void * offset = NULL;
+  for(;;) {
+  err = fd_bincode_uint16_decode( &tag, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( FD_UNLIKELY( tag == FD_ARCHIVE_META_SENTINAL ) ) break;
+  switch( tag ) {
+  case (ushort)fd_solana_account_lamports_TAG: {
+  err = fd_bincode_uint64_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  break;
+  }
+  case (ushort)fd_solana_account_data_TAG: {
+  err = fd_archive_decode_setup_length( ctx, &offset );
+  if( FD_UNLIKELY( err ) ) return err;
+  ulong data_len;
+  err = fd_bincode_uint64_decode( &data_len, ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if( data_len ) {
+    err = fd_bincode_bytes_decode_preflight( data_len, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  }
+  err = fd_archive_decode_check_length( ctx, offset );
+  if( FD_UNLIKELY( err ) ) return err;
+  break;
+  }
+  case (ushort)fd_solana_account_owner_TAG: {
+  err = fd_archive_decode_setup_length( ctx, &offset );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_pubkey_decode_archival_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_archive_decode_check_length( ctx, offset );
+  if( FD_UNLIKELY( err ) ) return err;
+  break;
+  }
+  case (ushort)fd_solana_account_executable_TAG: {
+  err = fd_bincode_bool_decode_preflight( ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  break;
+  }
+  case (ushort)fd_solana_account_rent_epoch_TAG: {
+  err = fd_bincode_uint64_decode_preflight( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  break;
+  }
+  default:
+    err = fd_archive_decode_skip_field( ctx, tag );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+void fd_solana_account_decode_archival_unsafe( fd_solana_account_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  ushort tag = FD_ARCHIVE_META_SENTINAL;
+  void * offset = NULL;
+  for(;;) {
+  fd_bincode_uint16_decode( &tag, ctx );
+  if( FD_UNLIKELY( tag == FD_ARCHIVE_META_SENTINAL ) ) break;
+  switch( tag ) {
+  case (ushort)fd_solana_account_lamports_TAG: {
+  fd_bincode_uint64_decode_unsafe( &self->lamports, ctx );
+  break;
+  }
+  case (ushort)fd_solana_account_data_TAG: {
+  fd_archive_decode_setup_length( ctx, &offset );
+  fd_bincode_uint64_decode_unsafe( &self->data_len, ctx );
+  if( self->data_len ) {
+    self->data = fd_valloc_malloc( ctx->valloc, 8UL, self->data_len );
+    fd_bincode_bytes_decode_unsafe( self->data, self->data_len, ctx );
+  } else
+    self->data = NULL;
+  break;
+  }
+  case (ushort)fd_solana_account_owner_TAG: {
+  fd_archive_decode_setup_length( ctx, &offset );
+  fd_pubkey_decode_archival_unsafe( &self->owner, ctx );
+  break;
+  }
+  case (ushort)fd_solana_account_executable_TAG: {
+  fd_bincode_bool_decode_unsafe( &self->executable, ctx );
+  break;
+  }
+  case (ushort)fd_solana_account_rent_epoch_TAG: {
+  fd_bincode_uint64_decode_unsafe( &self->rent_epoch, ctx );
+  break;
+  }
+  default:
+    fd_archive_decode_skip_field( ctx, tag );
+    break;
+  }
+  }
+}
+int fd_solana_account_encode_archival( fd_solana_account_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  void * offset = NULL;
+  err = fd_bincode_uint16_encode( (ushort)fd_solana_account_lamports_TAG, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->lamports, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint16_encode( (ushort)fd_solana_account_data_TAG, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_archive_encode_setup_length( ctx, &offset );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->data_len, ctx );
+  if( FD_UNLIKELY(err) ) return err;
+  if( self->data_len ) {
+    err = fd_bincode_bytes_encode( self->data, self->data_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  err = fd_archive_encode_set_length( ctx, offset );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint16_encode( (ushort)fd_solana_account_owner_TAG, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_archive_encode_setup_length( ctx, &offset );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_pubkey_encode_archival( &self->owner, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_archive_encode_set_length( ctx, offset );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint16_encode( (ushort)fd_solana_account_executable_TAG, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_bool_encode( (uchar)(self->executable), ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint16_encode( (ushort)fd_solana_account_rent_epoch_TAG, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->rent_epoch, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint16_encode( FD_ARCHIVE_META_SENTINAL, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
 int fd_solana_account_decode_offsets( fd_solana_account_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
   uchar const * data = ctx->data;
   int err;
@@ -2876,14 +3028,14 @@ int fd_vote_accounts_pair_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_decode_preflight( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  err = fd_solana_vote_account_decode_preflight( ctx );
+  err = fd_solana_account_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_vote_accounts_pair_decode_unsafe( fd_vote_accounts_pair_t * self, fd_bincode_decode_ctx_t * ctx ) {
   fd_pubkey_decode_unsafe( &self->key, ctx );
   fd_bincode_uint64_decode_unsafe( &self->stake, ctx );
-  fd_solana_vote_account_decode_unsafe( &self->value, ctx );
+  fd_solana_account_decode_unsafe( &self->value, ctx );
 }
 int fd_vote_accounts_pair_encode( fd_vote_accounts_pair_t const * self, fd_bincode_encode_ctx_t * ctx ) {
   int err;
@@ -2891,7 +3043,7 @@ int fd_vote_accounts_pair_encode( fd_vote_accounts_pair_t const * self, fd_binco
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_bincode_uint64_encode( self->stake, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_solana_vote_account_encode( &self->value, ctx );
+  err = fd_solana_account_encode( &self->value, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
@@ -2937,7 +3089,7 @@ int fd_vote_accounts_pair_decode_archival_preflight( fd_bincode_decode_ctx_t * c
   case (ushort)fd_vote_accounts_pair_value_TAG: {
   err = fd_archive_decode_setup_length( ctx, &offset );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_solana_vote_account_decode_archival_preflight( ctx );
+  err = fd_solana_account_decode_archival_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_archive_decode_check_length( ctx, offset );
   if( FD_UNLIKELY( err ) ) return err;
@@ -2969,7 +3121,7 @@ void fd_vote_accounts_pair_decode_archival_unsafe( fd_vote_accounts_pair_t * sel
   }
   case (ushort)fd_vote_accounts_pair_value_TAG: {
   fd_archive_decode_setup_length( ctx, &offset );
-  fd_solana_vote_account_decode_archival_unsafe( &self->value, ctx );
+  fd_solana_account_decode_archival_unsafe( &self->value, ctx );
   break;
   }
   default:
@@ -2997,7 +3149,7 @@ int fd_vote_accounts_pair_encode_archival( fd_vote_accounts_pair_t const * self,
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_archive_encode_setup_length( ctx, &offset );
   if( FD_UNLIKELY( err ) ) return err;
-  err = fd_solana_vote_account_encode_archival( &self->value, ctx );
+  err = fd_solana_account_encode_archival( &self->value, ctx );
   if( FD_UNLIKELY( err ) ) return err;
   err = fd_archive_encode_set_length( ctx, offset );
   if( FD_UNLIKELY( err ) ) return err;
@@ -3015,18 +3167,18 @@ int fd_vote_accounts_pair_decode_offsets( fd_vote_accounts_pair_off_t * self, fd
   err = fd_bincode_uint64_decode_preflight( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   self->value_off = (uint)( (ulong)ctx->data - (ulong)data );
-  err = fd_solana_vote_account_decode_preflight( ctx );
+  err = fd_solana_account_decode_preflight( ctx );
   if( FD_UNLIKELY( err ) ) return err;
   return FD_BINCODE_SUCCESS;
 }
 void fd_vote_accounts_pair_new(fd_vote_accounts_pair_t * self) {
   fd_memset( self, 0, sizeof(fd_vote_accounts_pair_t) );
   fd_pubkey_new( &self->key );
-  fd_solana_vote_account_new( &self->value );
+  fd_solana_account_new( &self->value );
 }
 void fd_vote_accounts_pair_destroy( fd_vote_accounts_pair_t * self, fd_bincode_destroy_ctx_t * ctx ) {
   fd_pubkey_destroy( &self->key, ctx );
-  fd_solana_vote_account_destroy( &self->value, ctx );
+  fd_solana_account_destroy( &self->value, ctx );
 }
 
 ulong fd_vote_accounts_pair_footprint( void ){ return FD_VOTE_ACCOUNTS_PAIR_FOOTPRINT; }
@@ -3036,14 +3188,14 @@ void fd_vote_accounts_pair_walk( void * w, fd_vote_accounts_pair_t const * self,
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_vote_accounts_pair", level++ );
   fd_pubkey_walk( w, &self->key, fun, "key", level );
   fun( w, &self->stake, "stake", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
-  fd_solana_vote_account_walk( w, &self->value, fun, "value", level );
+  fd_solana_account_walk( w, &self->value, fun, "value", level );
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_vote_accounts_pair", level-- );
 }
 ulong fd_vote_accounts_pair_size( fd_vote_accounts_pair_t const * self ) {
   ulong size = 0;
   size += fd_pubkey_size( &self->key );
   size += sizeof(ulong);
-  size += fd_solana_vote_account_size( &self->value );
+  size += fd_solana_account_size( &self->value );
   return size;
 }
 
