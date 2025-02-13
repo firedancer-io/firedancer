@@ -3,10 +3,15 @@
 #include "generated/pack_seccomp.h"
 
 #include "../../../../disco/topo/fd_pod_format.h"
+#include "../../../../disco/keyguard/fd_keyload.h"
+#include "../../../../disco/keyguard/fd_keyswitch.h"
+#include "../../../../disco/keyguard/fd_keyguard.h"
 #include "../../../../disco/shred/fd_shredder.h"
 #include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../disco/pack/fd_pack.h"
 #include "../../../../disco/pack/fd_pack_pacing.h"
+
+#include "../../../../ballet/base64/fd_base64.h"
 
 #include <linux/unistd.h>
 
@@ -19,6 +24,7 @@
 #define IN_KIND_RESOLV (0UL)
 #define IN_KIND_POH    (1UL)
 #define IN_KIND_BANK   (2UL)
+#define IN_KIND_SIGN   (3UL)
 
 #define MAX_SLOTS_PER_EPOCH          432000UL
 
@@ -102,6 +108,10 @@ FD_IMPORT( wait_duration, "src/disco/pack/pack_delay.bin", ulong, 6, "" );
 
 #endif
 
+typedef struct {
+  fd_acct_addr_t commission_pubkey[1];
+  ulong          commission;
+} block_builder_info_t;
 
 typedef struct {
   fd_wksp_t * mem;
@@ -240,12 +250,23 @@ typedef struct {
     fd_txn_e_t * const * bundle; /* points to _txn when non-NULL */
   } current_bundle[1];
 
+  block_builder_info_t blk_engine_cfg[1];
+
   struct {
-    struct {
-      fd_acct_addr_t commission_pubkey[1];
-      ulong          commision;
-    } current, next;
-  } blk_engine_cfg[1];
+    int                   enabled;
+    int                   ib_inserted; /* in this slot */
+    fd_acct_addr_t        vote_pubkey[1];
+    fd_acct_addr_t        identity_pubkey[1];
+    fd_bundle_crank_gen_t gen[1];
+    fd_acct_addr_t        tip_receiver_owner[1];
+    ulong                 epoch;
+    fd_bundle_crank_tip_payment_config_t prev_config[1]; /* as of start of slot, then updated */
+    uchar                 recent_blockhash[32];
+    fd_ed25519_sig_t      last_sig[1];
+
+    fd_keyswitch_t *      keyswitch;
+    fd_keyguard_client_t  keyguard_client[1];
+  } crank[1];
 
 
   /* Used between during_frag and after_frag */
@@ -253,6 +274,8 @@ typedef struct {
   fd_txn_p_t pending_rebate[ MAX_TXN_PER_MICROBLOCK ]; /* indexed [0, pending_rebate_cnt) */
 } fd_pack_ctx_t;
 
+#define BUNDLE_META_SZ 40UL
+FD_STATIC_ASSERT( sizeof(block_builder_info_t)==BUNDLE_META_SZ, blk_engine_cfg );
 
 #define FD_PACK_METRIC_STATE_TRANSACTIONS 0
 #define FD_PACK_METRIC_STATE_BANKS        1
@@ -272,6 +295,15 @@ update_metric_state( fd_pack_ctx_t * ctx,
     ctx->metric_state_begin = effective_as_of;
     ctx->metric_state = current_state;
   }
+}
+
+static inline void
+remove_ib( fd_pack_ctx_t * ctx ) {
+  /* It's likely the initializer bundle is long scheduled, but we want to
+     try deleting it just in case. */
+  if( FD_UNLIKELY( ctx->crank->enabled & ctx->crank->ib_inserted ) )
+    fd_pack_delete_transaction( ctx->pack, (fd_ed25519_sig_t const *)ctx->crank->last_sig );
+  ctx->crank->ib_inserted = 0;
 }
 
 
@@ -295,7 +327,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
   l = FD_LAYOUT_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t )                                   );
   l = FD_LAYOUT_APPEND( l, fd_rng_align(),           fd_rng_footprint()                                        );
   l = FD_LAYOUT_APPEND( l, fd_pack_align(),          fd_pack_footprint( tile->pack.max_pending_transactions,
-                                                                        1,
+                                                                        BUNDLE_META_SZ,
                                                                         tile->pack.bank_tile_count,
                                                                         limits                               ) );
 #if FD_PACK_USE_EXTRA_STORAGE
@@ -337,6 +369,11 @@ metrics_write( fd_pack_ctx_t * ctx ) {
 static inline void
 during_housekeeping( fd_pack_ctx_t * ctx ) {
   ctx->approx_wallclock_ns = fd_log_wallclock();
+
+  if( FD_UNLIKELY( ctx->crank->enabled && fd_keyswitch_state_query( ctx->crank->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+    fd_memcpy( ctx->crank->identity_pubkey, ctx->crank->keyswitch->bytes, 32UL );
+    fd_keyswitch_state( ctx->crank->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
+  }
 }
 
 static inline void
@@ -479,7 +516,8 @@ after_credit( fd_pack_ctx_t *     ctx,
     ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
     fd_pack_end_block( ctx->pack );
-    fd_pack_set_initializer_bundles_ready( ctx->pack );
+    remove_ib( ctx );
+
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_LEADER,       0 );
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_BANKS,        0 );
     update_metric_state( ctx, now, FD_PACK_METRIC_STATE_MICROBLOCKS,  0 );
@@ -523,6 +561,52 @@ after_credit( fd_pack_ctx_t *     ctx,
   int any_scheduled = 0;
 
   *charge_busy = 1;
+
+  /* Consider creating initializer bundles to crank the tip programs.
+     Craning requires inserting a bundle, which can't be done while
+     another insert is in progress. */
+  if( FD_LIKELY( ctx->crank->enabled && !ctx->current_bundle->bundle ) ) {
+    block_builder_info_t const * top_meta = fd_pack_peek_bundle_meta( ctx->pack );
+    if( FD_UNLIKELY( top_meta ) ) {
+      /* Have bundles, in a reasonable state to crank. */
+
+      fd_txn_e_t * _bundle[ 1UL ];
+      fd_txn_e_t * const * bundle = fd_pack_insert_bundle_init( ctx->pack, _bundle, 1UL );
+
+      ulong txn_sz = fd_bundle_crank_generate( ctx->crank->gen, ctx->crank->prev_config, top_meta->commission_pubkey,
+          ctx->crank->identity_pubkey, ctx->crank->tip_receiver_owner, ctx->crank->epoch, top_meta->commission,
+          bundle[0]->txnp->payload, TXN( bundle[0]->txnp ) );
+
+      if( FD_LIKELY( txn_sz==0UL ) ) { /* Everything in good shape! */
+        fd_pack_insert_bundle_cancel( ctx->pack, bundle, 1UL );
+        fd_pack_set_initializer_bundles_ready( ctx->pack );
+      }
+      else if( FD_LIKELY( txn_sz<ULONG_MAX ) ) {
+        bundle[0]->txnp->payload_sz = (ushort)txn_sz;
+        memcpy( bundle[0]->txnp->payload+TXN(bundle[0]->txnp)->recent_blockhash_off, ctx->crank->recent_blockhash, 32UL );
+
+        fd_keyguard_client_sign( ctx->crank->keyguard_client, bundle[0]->txnp->payload+1UL,
+            bundle[0]->txnp->payload+65UL, txn_sz-65UL, FD_KEYGUARD_SIGN_TYPE_ED25519 );
+
+        memcpy( ctx->crank->last_sig, bundle[0]->txnp->payload+1UL, 64UL );
+
+        ctx->crank->ib_inserted = 1;
+        int retval = fd_pack_insert_bundle_fini( ctx->pack, bundle, 1UL, ctx->leader_slot-1UL, 1, NULL );
+        if( FD_UNLIKELY( retval<0 ) ) FD_LOG_WARNING(( "inserting initializer bundle returned %i", retval ));
+        else {
+          /* Update the cached copy of the on-chain state. It won't be read
+             again until after scheduling the initializer bundle we just
+             inserted because peek_bundle_meta will return NULL */
+
+          *(ctx->crank->prev_config->block_builder) = *(top_meta->commission_pubkey);
+          ctx->crank->prev_config->commission_pct   = top_meta->commission;
+        }
+      } else {
+        /* Already logged a warning in this case */
+        fd_pack_insert_bundle_cancel( ctx->pack, bundle, 1UL );
+      }
+    }
+  }
 
   /* Try to schedule the next microblock.  Do we have any idle bank
      tiles in the first `pacing_bank_cnt`? */
@@ -604,6 +688,8 @@ after_credit( fd_pack_ctx_t *     ctx,
     ctx->leader_slot         = ULONG_MAX;
     ctx->slot_microblock_cnt = 0UL;
     fd_pack_end_block( ctx->pack );
+    remove_ib( ctx );
+
   }
 }
 
@@ -641,6 +727,7 @@ during_frag( fd_pack_ctx_t * ctx,
       ctx->leader_slot         = ULONG_MAX;
       ctx->slot_microblock_cnt = 0UL;
       fd_pack_end_block( ctx->pack );
+      remove_ib( ctx );
     }
     ctx->leader_slot = fd_disco_poh_sig_slot( sig );
 
@@ -661,6 +748,15 @@ during_frag( fd_pack_ctx_t * ctx,
     /* We may still get overrun, but then we'll never use this and just
        reinitialize it the next time when we actually become leader. */
     fd_pack_pacing_init( ctx->pacer, now_ticks, end_ticks, (float)ctx->ticks_per_ns, ctx->slot_max_cost );
+
+    if( FD_UNLIKELY( ctx->crank->enabled ) ) {
+      /* If we get overrun, we'll just never use these values, but the
+         old values aren't really useful either. */
+      ctx->crank->epoch = became_leader->epoch;
+      *(ctx->crank->prev_config) = *(became_leader->bundle->config);
+      memcpy( ctx->crank->recent_blockhash,   became_leader->bundle->last_blockhash,     32UL );
+      memcpy( ctx->crank->tip_receiver_owner, became_leader->bundle->tip_receiver_owner, 32UL );
+    }
 
     FD_LOG_INFO(( "pack_became_leader(slot=%lu,ends_at=%ld)", ctx->leader_slot, became_leader->slot_end_ns ));
 
@@ -690,6 +786,11 @@ during_frag( fd_pack_ctx_t * ctx,
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_TPU_RESOLVED_MTU ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
+    fd_txn_m_t * txnm = (fd_txn_m_t *)dcache_entry;
+    FD_TEST( txnm->payload_sz<=FD_TPU_MTU );
+    FD_TEST( txnm->txn_t_sz<=FD_TXN_MAX_SZ );
+    fd_txn_t * txn  = fd_txn_m_txn_t( txnm );
+
     if( FD_UNLIKELY( (ctx->leader_slot==ULONG_MAX) & (sig>ctx->highest_observed_slot) ) ) {
       /* Using the resolv tile's knowledge of the current slot is a bit
          of a hack, since we don't get any info if there are no
@@ -704,10 +805,6 @@ during_frag( fd_pack_ctx_t * ctx,
       FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
     }
 
-    fd_txn_m_t * txnm = (fd_txn_m_t *)dcache_entry;
-    FD_TEST( txnm->payload_sz<=FD_TPU_MTU );
-    FD_TEST( txnm->txn_t_sz<=FD_TXN_MAX_SZ );
-    fd_txn_t * txn  = fd_txn_m_txn_t( txnm );
 
     if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) {
       ctx->is_bundle = 1;
@@ -724,11 +821,14 @@ during_frag( fd_pack_ctx_t * ctx,
           FD_LOG_WARNING(( "pack got a partial bundle" ));
           return;
         }
+        ctx->blk_engine_cfg->commission = txnm->block_engine.commission;
+        memcpy( ctx->blk_engine_cfg->commission_pubkey->b, txnm->block_engine.commission_pubkey, 32UL );
+
         ctx->current_bundle->bundle = fd_pack_insert_bundle_init( ctx->pack, ctx->current_bundle->_txn, ctx->current_bundle->txn_cnt );
       }
       ctx->cur_spot                           = ctx->current_bundle->bundle[ ctx->current_bundle->txn_received ];
       ctx->current_bundle->min_blockhash_slot = fd_ulong_min( ctx->current_bundle->min_blockhash_slot, sig );
-      /* TODO: handle commission stuff */
+
 
     } else {
       ctx->is_bundle = 0;
@@ -772,6 +872,7 @@ during_frag( fd_pack_ctx_t * ctx,
   }
 }
 
+
 /* After the transaction has been fully received, and we know we were
    not overrun while reading it, insert it into pack. */
 
@@ -797,6 +898,7 @@ after_frag( fd_pack_ctx_t *     ctx,
     ctx->slot_end_ns = ctx->_slot_end_ns;
     fd_pack_set_block_limits( ctx->pack, ctx->slot_max_microblocks, ctx->slot_max_data );
     fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );
+
     break;
   }
   case IN_KIND_BANK: {
@@ -819,7 +921,7 @@ after_frag( fd_pack_ctx_t *     ctx,
       if( FD_UNLIKELY( ctx->current_bundle->txn_cnt==0UL ) ) return;
       if( FD_UNLIKELY( ++(ctx->current_bundle->txn_received)==ctx->current_bundle->txn_cnt ) ) {
         long insert_duration = -fd_tickcount();
-        int result = fd_pack_insert_bundle_fini( ctx->pack, ctx->current_bundle->bundle, ctx->current_bundle->txn_cnt, ctx->current_bundle->min_blockhash_slot, 0 );
+        int result = fd_pack_insert_bundle_fini( ctx->pack, ctx->current_bundle->bundle, ctx->current_bundle->txn_cnt, ctx->current_bundle->min_blockhash_slot, 0, ctx->blk_engine_cfg );
         insert_duration      += fd_tickcount();
         ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
         fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
@@ -845,6 +947,28 @@ after_frag( fd_pack_ctx_t *     ctx,
 }
 
 static void
+privileged_init( fd_topo_t *      topo,
+                 fd_topo_tile_t * tile ) {
+  if( FD_LIKELY( !tile->pack.bundle.enabled ) ) return;
+
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+
+  FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_pack_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
+
+  if( FD_UNLIKELY( !strcmp( tile->pack.bundle.identity_key_path, "" ) ) )
+    FD_LOG_ERR(( "identity_key_path not set" ));
+
+  const uchar * identity_key = fd_keyload_load( tile->pack.bundle.identity_key_path, /* pubkey only: */ 1 );
+  fd_memcpy( ctx->crank->identity_pubkey->b, identity_key, 32UL );
+
+  if( FD_UNLIKELY( !fd_base58_decode_32( tile->pack.bundle.vote_account_path, ctx->crank->vote_pubkey->b ) ) ) {
+    const uchar * vote_key = fd_keyload_load( tile->pack.bundle.vote_account_path, /* pubkey only: */ 1 );
+    fd_memcpy( ctx->crank->vote_pubkey->b, vote_key, 32UL );
+  }
+}
+
+static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
@@ -860,7 +984,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_UNLIKELY( tile->pack.max_pending_transactions >= USHORT_MAX-5UL ) ) FD_LOG_ERR(( "pack tile supports up to %lu pending transactions", USHORT_MAX-6UL ));
 
-  ulong pack_footprint = fd_pack_footprint( tile->pack.max_pending_transactions, 1, tile->pack.bank_tile_count, limits );
+  ulong pack_footprint = fd_pack_footprint( tile->pack.max_pending_transactions, BUNDLE_META_SZ, tile->pack.bank_tile_count, limits );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_pack_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
@@ -868,7 +992,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !rng ) ) FD_LOG_ERR(( "fd_rng_new failed" ));
 
   ctx->pack = fd_pack_join( fd_pack_new( FD_SCRATCH_ALLOC_APPEND( l, fd_pack_align(), pack_footprint ),
-                                         tile->pack.max_pending_transactions, 1, tile->pack.bank_tile_count,
+                                         tile->pack.max_pending_transactions, BUNDLE_META_SZ, tile->pack.bank_tile_count,
                                          limits, rng ) );
   if( FD_UNLIKELY( !ctx->pack ) ) FD_LOG_ERR(( "fd_pack_new failed" ));
 
@@ -881,6 +1005,7 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_LIKELY( !strcmp( link->name, "dedup_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
     else if( FD_LIKELY( !strcmp( link->name, "poh_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( FD_LIKELY( !strcmp( link->name, "bank_poh"    ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK;
+    else if( FD_LIKELY( !strcmp( link->name, "sign_pack"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
     else FD_LOG_ERR(( "pack tile has unexpected input link %lu %s", i, link->name ));
   }
 
@@ -889,6 +1014,46 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !out_cnt                                ) ) FD_LOG_ERR(( "pack tile connects to no banking tiles" ));
   if( FD_UNLIKELY( out_cnt>FD_PACK_PACK_MAX_OUT            ) ) FD_LOG_ERR(( "pack tile connects to too many banking tiles" ));
   if( FD_UNLIKELY( out_cnt!=tile->pack.bank_tile_count+1UL ) ) FD_LOG_ERR(( "pack tile connects to %lu banking tiles, but tile->pack.bank_tile_count is %lu", out_cnt-1UL, tile->pack.bank_tile_count ));
+
+
+  ctx->crank->enabled = tile->pack.bundle.enabled;
+  if( FD_UNLIKELY( tile->pack.bundle.enabled ) ) {
+    if( FD_UNLIKELY( !fd_bundle_crank_gen_init( ctx->crank->gen, (fd_acct_addr_t const *)tile->pack.bundle.tip_distribution_program_addr,
+            (fd_acct_addr_t const *)tile->pack.bundle.tip_payment_program_addr,
+            (fd_acct_addr_t const *)ctx->crank->vote_pubkey->b,
+            (fd_acct_addr_t const *)tile->pack.bundle.tip_distribution_authority, tile->pack.bundle.commission_bps ) ) ) {
+      FD_LOG_ERR(( "constructing bundle generator failed" ));
+    }
+
+    ulong sign_in_idx  = fd_topo_find_tile_in_link ( topo, tile, "sign_pack", tile->kind_id );
+    ulong sign_out_idx = fd_topo_find_tile_out_link( topo, tile, "pack_sign", tile->kind_id );
+    FD_TEST( sign_in_idx!=ULONG_MAX );
+    fd_topo_link_t * sign_in = &topo->links[ tile->in_link_id[ sign_in_idx ] ];
+    fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ sign_out_idx ] ];
+    if( FD_UNLIKELY( !fd_keyguard_client_join( fd_keyguard_client_new( ctx->crank->keyguard_client,
+            sign_out->mcache,
+            sign_out->dcache,
+            sign_in->mcache,
+            sign_in->dcache ) ) ) ) {
+      FD_LOG_ERR(( "failed to construct keyguard" ));
+    }
+    /* Initialize enough of the prev config that it produces a
+       transaction */
+    ctx->crank->prev_config->discriminator       = 0x82ccfa1ee0aa0c9bUL;
+    ctx->crank->prev_config->tip_receiver->b[1]  = 1;
+    ctx->crank->prev_config->block_builder->b[2] = 1;
+
+    memset( ctx->crank->tip_receiver_owner, '\0', 32UL );
+    memset( ctx->crank->recent_blockhash,   '\0', 32UL );
+    memset( ctx->crank->last_sig,           '\0', 64UL );
+    ctx->crank->ib_inserted    = 0;
+    ctx->crank->epoch          = 0UL;
+    ctx->crank->keyswitch = fd_keyswitch_join( fd_topo_obj_laddr( topo, tile->keyswitch_obj_id ) );
+    FD_TEST( ctx->crank->keyswitch );
+  } else {
+    memset( ctx->crank, '\0', sizeof(ctx->crank) );
+  }
+
 
 #if FD_PACK_USE_EXTRA_STORAGE
   ctx->extra_txn_deq = extra_txn_deq_join( extra_txn_deq_new( FD_SCRATCH_ALLOC_APPEND( l, extra_txn_deq_align(),
@@ -916,6 +1081,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->insert_to_extra               = 0;
 #endif
   ctx->use_consumed_cus              = tile->pack.use_consumed_cus;
+  ctx->crank->enabled                = tile->pack.bundle.enabled;
 
   ctx->wait_duration_ticks[ 0 ] = ULONG_MAX;
   for( ulong i=1UL; i<MAX_TXN_PER_MICROBLOCK+1UL; i++ ) {
@@ -1035,6 +1201,7 @@ fd_topo_run_tile_t fd_tile_pack = {
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
   .scratch_footprint        = scratch_footprint,
+  .privileged_init          = privileged_init,
   .unprivileged_init        = unprivileged_init,
   .run                      = stem_run,
 };

@@ -16,13 +16,14 @@ FD_PROTOTYPES_BEGIN
 
 /* Role definitions ***************************************************/
 
-#define FD_KEYGUARD_ROLE_VOTER   (0)  /* vote transaction sender */
-#define FD_KEYGUARD_ROLE_GOSSIP  (1)  /* gossip participant */
-#define FD_KEYGUARD_ROLE_LEADER  (2)  /* block producer (shreds) */
-#define FD_KEYGUARD_ROLE_REPAIR  (4)  /* Repair tile */
-#define FD_KEYGUARD_ROLE_BUNDLE  (5)  /* Bundle tile */
-#define FD_KEYGUARD_ROLE_EVENT   (6)  /* Event tile */
-#define FD_KEYGUARD_ROLE_CNT     (7)  /* number of known roles */
+#define FD_KEYGUARD_ROLE_VOTER        (0)  /* vote transaction sender */
+#define FD_KEYGUARD_ROLE_GOSSIP       (1)  /* gossip participant */
+#define FD_KEYGUARD_ROLE_LEADER       (2)  /* block producer (shreds) */
+#define FD_KEYGUARD_ROLE_REPAIR       (4)  /* Repair tile */
+#define FD_KEYGUARD_ROLE_BUNDLE       (5)  /* Bundle tile */
+#define FD_KEYGUARD_ROLE_EVENT        (6)  /* Event tile */
+#define FD_KEYGUARD_ROLE_BUNDLE_CRANK (7)  /* Sign cranking transactions for bundle tips */
+#define FD_KEYGUARD_ROLE_CNT          (8)  /* number of known roles */
 
 /* Payload types ******************************************************/
 
@@ -44,7 +45,7 @@ FD_PROTOTYPES_BEGIN
 #define FD_KEYGUARD_PAYLOAD_REPAIR (1UL<<FD_KEYGUARD_PAYLOAD_LG_REPAIR)
 #define FD_KEYGUARD_PAYLOAD_PING   (1UL<<FD_KEYGUARD_PAYLOAD_LG_PING  )
 #define FD_KEYGUARD_PAYLOAD_BUNDLE (1UL<<FD_KEYGUARD_PAYLOAD_LG_BUNDLE)
-#define FD_KEYGUARD_PAYLOAD_EVENT  (1UL<<FD_KEYGUARD_PAYLOAD_LG_EVENT)
+#define FD_KEYGUARD_PAYLOAD_EVENT  (1UL<<FD_KEYGUARD_PAYLOAD_LG_EVENT )
 
 /* Sign types *********************************************************/
 

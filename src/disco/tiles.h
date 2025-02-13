@@ -6,6 +6,7 @@
 #include "../ballet/shred/fd_shred.h"
 #include "pack/fd_pack.h"
 #include "topo/fd_topo.h"
+#include "plugin/fd_bundle_crank.h"
 
 #include <linux/filter.h>
 
@@ -61,6 +62,20 @@ struct fd_became_leader {
      publish to show peers they were skipped correctly.  This is used
      to adjust some pack limits. */
   ulong total_skipped_ticks;
+
+  /* The epoch of the slot for which we are becoming leader. */
+  ulong epoch;
+
+  /* Information from the accounts database as of the start of the slot
+     determined by the bank above that is necessary to crank the bundle
+     tip programs properly.  If bundles are not enabled (determined
+     externally, but the relevant tiles should know), these fields are
+     set to 0. */
+  struct {
+    fd_bundle_crank_tip_payment_config_t config[1];
+    uchar                                tip_receiver_owner[32];
+    uchar                                last_blockhash[32];
+  } bundle[1];
 };
 typedef struct fd_became_leader fd_became_leader_t;
 

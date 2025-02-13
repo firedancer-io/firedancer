@@ -194,6 +194,15 @@ typedef struct {
       int   larger_max_cost_per_block;
       int   larger_shred_limits_per_block;
       int   use_consumed_cus;
+      struct {
+        int   enabled;
+        uchar tip_distribution_program_addr[ 32 ];
+        uchar tip_payment_program_addr[ 32 ];
+        uchar tip_distribution_authority[ 32 ];
+        ulong commission_bps;
+        char  identity_key_path[ PATH_MAX ];
+        char  vote_account_path[ PATH_MAX ]; /* or pubkey is okay */
+      } bundle;
     } pack;
 
     struct {
@@ -201,6 +210,12 @@ typedef struct {
       int   plugins_enabled;
       ulong bank_cnt;
       char  identity_key_path[ PATH_MAX ];
+      struct {
+        int   enabled;
+        uchar tip_payment_program_addr[ 32 ];
+        uchar tip_distribution_program_addr[ 32 ];
+        char  vote_account_path[ PATH_MAX ];
+      } bundle;
     } poh;
 
     struct {
