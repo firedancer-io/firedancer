@@ -651,7 +651,7 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
   /* PR_SET_KEEPCAPS will already be 0 if we didn't need to raise
      CAP_SYS_ADMIN, but we always clear it anyway. */
   if( -1==prctl( PR_SET_KEEPCAPS, 0 ) ) FD_LOG_ERR(( "prctl(PR_SET_KEEPCAPS, 0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( -1==prctl( PR_SET_DUMPABLE, 0 ) ) FD_LOG_ERR(( "prctl(PR_SET_DUMPABLE, 0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( -1==prctl( PR_SET_DUMPABLE, 1 ) ) FD_LOG_ERR(( "prctl(PR_SET_DUMPABLE, 1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   /* Now remount the filesystem root so no files are accessible any more. */
   fd_sandbox_private_pivot_root();
