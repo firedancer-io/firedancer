@@ -1445,8 +1445,16 @@ fd_gossip_recv_crds_array( fd_gossip_t * glob, const fd_gossip_peer_addr_t * fro
       }
 
       glob->recv_nondup_cnt++;
-      /* Sigverify */
-      if( fd_crds_sigverify( tmp->encoded_val, tmp->encoded_len, tmp->pubkey ) ) {
+      /* Sigverify step
+         Skip verifying epoch slots because they:
+          - are not used anywhere within the client
+            - still store them in table for forwarding +
+              prune message construction
+          - represent a significant portion of inbound CRDS
+            traffic (~90%)
+          - will be deprecated soon */
+      if( tmp->crd->data.discriminant != fd_crds_data_enum_epoch_slots &&
+          fd_crds_sigverify( tmp->encoded_val, tmp->encoded_len, tmp->pubkey ) ) {
         INC_RECV_CRDS_DROP_METRIC( INVALID_SIGNATURE );
         /* drop full packet on bad signature
            https://github.com/anza-xyz/agave/commit/d68b5de6c0fc07d60cf9749ae82c2651a549e81b */
