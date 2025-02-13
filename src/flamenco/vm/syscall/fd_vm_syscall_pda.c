@@ -105,17 +105,25 @@ fd_vm_translate_and_check_program_address_inputs( fd_vm_t *             vm,
                                                   void const * *        out_seed_haddrs,
                                                   ulong *               out_seed_szs,
                                                   fd_pubkey_t const * * out_program_id,
-                                                  uchar                 abort_on_seed_mem_max ) {
+                                                  uchar                 is_syscall ) {
 
   fd_vm_vec_t const * untranslated_seeds = FD_VM_MEM_SLICE_HADDR_LD( vm, seeds_vaddr, FD_VM_ALIGN_RUST_SLICE_U8_REF,
                                                                      fd_ulong_sat_mul( seeds_cnt, FD_VM_VEC_SIZE ) );
 
   /* This is a preflight check that is performed in Agave before deriving PDAs but after checking the seeds vaddr.
+     When called to help CPI signer translation, this logs an
+     instruction error:
+     https://github.com/anza-xyz/agave/blob/v2.1.11/programs/bpf_loader/src/syscalls/cpi.rs#L538-L540
+     However, when called from a syscall, this logs a syscall error:
      https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L728-L730 */
   if( FD_UNLIKELY( seeds_cnt>FD_VM_PDA_SEEDS_MAX ) ) {
-    FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_BAD_SEEDS );
-    return FD_VM_SYSCALL_ERR_BAD_SEEDS;
-
+    if( is_syscall ) {
+      FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_BAD_SEEDS );
+      return FD_VM_SYSCALL_ERR_BAD_SEEDS;
+    } else {
+      FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_MAX_SEED_LENGTH_EXCEEDED );
+      return FD_EXECUTOR_INSTR_ERR_MAX_SEED_LENGTH_EXCEEDED;
+    }
   }
   for( ulong i=0UL; i<seeds_cnt; i++ ) {
     ulong seed_sz = untranslated_seeds[i].len;
@@ -128,7 +136,7 @@ fd_vm_translate_and_check_program_address_inputs( fd_vm_t *             vm,
        Instead, the check is delayed until deriving PDA.
        https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L543
      */
-    if( FD_UNLIKELY( seed_sz>FD_VM_PDA_SEED_MEM_MAX && abort_on_seed_mem_max ) ) {
+    if( FD_UNLIKELY( seed_sz>FD_VM_PDA_SEED_MEM_MAX && is_syscall ) ) {
       FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_BAD_SEEDS );
       return FD_VM_SYSCALL_ERR_BAD_SEEDS;
     }

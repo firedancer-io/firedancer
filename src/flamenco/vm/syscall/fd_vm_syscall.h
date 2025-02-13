@@ -890,7 +890,7 @@ fd_vm_translate_and_check_program_address_inputs( fd_vm_t *             vm,
                                                   void const * *        out_seed_haddrs,
                                                   ulong *               out_seed_szs,
                                                   fd_pubkey_t const * * out_program_id,
-                                                  uchar                 abort_on_seed_mem_max );
+                                                  uchar                 is_syscall );
 FD_PROTOTYPES_END
 
 #endif /* HEADER_src_flamenco_vm_syscall_fd_vm_syscall_h */
