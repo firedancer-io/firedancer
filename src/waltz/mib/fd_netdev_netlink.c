@@ -120,13 +120,14 @@ fd_netdev_netlink_load_table( fd_netdev_tbl_join_t * tbl,
       switch( rat->rta_type ) {
 
       case IFLA_IFNAME:
-        if( FD_UNLIKELY( rta_sz==0 || rta_sz>=IFNAMSIZ ) ) {
+        /* Includes trailing zero */
+        if( FD_UNLIKELY( rta_sz==0 || rta_sz>IFNAMSIZ ) ) {
           FD_LOG_WARNING(( "Error reading interface table: IFLA_IFNAME has unsupported size %lu", rta_sz ));
           err = EPROTO;
           goto fail;
         }
         memcpy( netdev->name, rta, rta_sz );
-        netdev->name[ rta_sz ] = '\0';
+        netdev->name[ rta_sz-1 ] = '\0';
         break;
 
       case IFLA_ADDRESS:

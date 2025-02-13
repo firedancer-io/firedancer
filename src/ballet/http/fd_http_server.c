@@ -4,6 +4,7 @@
 #include "picohttpparser.h"
 #include "fd_sha1.h"
 #include "../base64/fd_base64.h"
+#include "../../util/net/fd_ip4.h"
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -282,8 +283,12 @@ fd_http_server_listen( fd_http_server_t * http,
     .sin_addr.s_addr = address,
   };
 
-  if( FD_UNLIKELY( -1==bind( sockfd, fd_type_pun( &addr ), sizeof( addr ) ) ) ) FD_LOG_ERR(( "bind failed (%i-%s)", errno, strerror( errno ) ));
-  if( FD_UNLIKELY( -1==listen( sockfd, (int)http->max_conns ) ) ) FD_LOG_ERR(( "listen failed (%i-%s)", errno, strerror( errno ) ));
+  if( FD_UNLIKELY( -1==bind( sockfd, fd_type_pun( &addr ), sizeof( addr ) ) ) ) {
+    FD_LOG_ERR(( "bind(%i,AF_INET," FD_IP4_ADDR_FMT ":%u) failed (%i-%s)",
+                 sockfd, FD_IP4_ADDR_FMT_ARGS( address ), port,
+                 errno, fd_io_strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( -1==listen( sockfd, (int)http->max_conns ) ) ) FD_LOG_ERR(( "listen failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   http->socket_fd = sockfd;
   http->pollfds[ http->max_conns+http->max_ws_conns ].fd = http->socket_fd;

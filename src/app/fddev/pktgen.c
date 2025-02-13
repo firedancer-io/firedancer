@@ -83,6 +83,7 @@ pktgen_cmd_fn( args_t *         args,
   /* FIXME this allocates lots of memory unnecessarily */
   initialize_workspaces( config );
   initialize_stacks( config );
+  fdctl_setup_netns( config );
   (void)fd_topo_install_xdp( &config->topo );;
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
 

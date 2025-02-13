@@ -11,7 +11,9 @@
 #include <fcntl.h>
 #include <sched.h>
 #include <dirent.h>
+#include <net/if.h> /* IFF_UP */
 
+#include <sys/ioctl.h> /* ioctl(2) */
 #include <sys/mman.h> /* for mprotect */
 #include <sys/stat.h>
 #include <sys/socket.h>
@@ -40,6 +42,16 @@ enter_network_namespace( const char * interface ) {
     FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", path, errno, fd_io_strerror( errno ) ));
   int ret = close( fd );
   if( FD_UNLIKELY( ret ) ) FD_LOG_ERR(( "enter_network_namespace %d (%i-%s)", ret, errno, fd_io_strerror( errno ) ));
+
+  /* `ip link set dev lo up`
+     Done via the ioctl API for simplicity.  Requires a dummy socket. */
+  int ifreq_fd = socket( AF_INET, SOCK_DGRAM, 0 );
+  if( FD_UNLIKELY( ifreq_fd<0 ) ) FD_LOG_ERR(( "socket(AF_INET,SOCK_DGRAM,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  struct ifreq ifr = { .ifr_name = "lo" };
+  if( FD_UNLIKELY( ioctl( ifreq_fd, SIOCGIFFLAGS, &ifr ) ) ) FD_LOG_ERR(( "ioctl(SIOCGIFFLAGS,\"lo\") failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  ifr.ifr_flags |= (IFF_UP|IFF_RUNNING);
+  if( FD_UNLIKELY( ioctl( ifreq_fd, SIOCSIFFLAGS, &ifr ) ) ) FD_LOG_ERR(( "ioctl(SIOCGIFFLAGS,\"lo\",IFF_UP|IFF_RUNNING) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close( ifreq_fd ) ) ) FD_LOG_ERR(( "failed to close dummy UDP socket (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
 void
