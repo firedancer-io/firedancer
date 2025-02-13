@@ -20,6 +20,7 @@ $(call add-objs,flame,fd_fddev)
 $(call add-objs,load,fd_fddev)
 $(call add-objs,pktgen,fd_fddev)
 $(call add-objs,txn,fd_fddev)
+$(call add-objs,spy,fd_fddev)
 
 # fddev tiles
 $(call add-objs,tiles/fd_bencho,fd_fddev)

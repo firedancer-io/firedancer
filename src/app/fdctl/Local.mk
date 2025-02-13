@@ -26,7 +26,7 @@ $(OBJDIR)/obj/app/fdctl/version.d: src/app/fdctl/version.h
 .PHONY: fdctl cargo-validator cargo-solana cargo-ledger-tool cargo-plugin-bundle rust solana check-agave-hash frontend
 
 # fdctl core
-$(call add-objs,main1 config config_parse caps utility keys ready mem spy help version,fd_fdctl)
+$(call add-objs,main1 config config_parse caps utility keys ready mem help version,fd_fdctl)
 $(call add-objs,netconf,fd_fdctl)
 $(call add-objs,run/run run/run1 run/run_agave,fd_fdctl)
 $(call add-objs,monitor/monitor monitor/helper,fd_fdctl)

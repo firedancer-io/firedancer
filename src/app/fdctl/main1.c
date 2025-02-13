@@ -15,7 +15,6 @@ action_t ACTIONS[] = {
   { .name = "keys",       .args = keys_cmd_args,      .fn = keys_cmd_fn,       .perm = NULL,                .description = "Generate new keypairs for use with the validator or print a public key" },
   { .name = "ready",      .args = NULL,               .fn = ready_cmd_fn,      .perm = NULL,                .description = "Wait for all tiles to be running" },
   { .name = "mem",        .args = NULL,               .fn = mem_cmd_fn,        .perm = NULL,                .description = "Print workspace memory and tile topology information" },
-  { .name = "spy",        .args = NULL,               .fn = spy_cmd_fn,        .perm = NULL,                .description = "Spy on and print out gossip traffic" },
   { .name = "netconf",    .args = NULL,               .fn = netconf_cmd_fn,    .perm = NULL,                .description = "Print network configuration" },
   { .name = "help",       .args = NULL,               .fn = help_cmd_fn,       .perm = NULL,                .description = "Print this help message" },
   { .name = "version",    .args = NULL,               .fn = version_cmd_fn,    .perm = NULL,                .description = "Show the current software version" },

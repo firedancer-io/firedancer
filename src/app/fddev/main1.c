@@ -123,6 +123,7 @@ action_t DEV_ACTIONS[] = {
   { .name = "quic-trace", .args = quic_trace_cmd_args, .fn = quic_trace_cmd_fn, .perm = NULL,           .description = "Trace quic tile", .is_diagnostic=1 },
   { .name = "txn",        .args = txn_cmd_args,        .fn = txn_cmd_fn,        .perm = txn_cmd_perm,   .description = "Send a transaction to an fddev instance" },
   { .name = "wksp",       .args = NULL,                .fn = wksp_cmd_fn,       .perm = wksp_cmd_perm,  .description = "Initialize workspaces" },
+  { .name = "spy",        .args = NULL,                .fn = spy_cmd_fn,        .perm = NULL,           .description = "Spy on and print out gossip traffic" },
   {0}
 };
 

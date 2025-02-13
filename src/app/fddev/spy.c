@@ -4,7 +4,7 @@
 
 #define _GNU_SOURCE         /* See feature_test_macros(7) */
 
-#include "fdctl.h"
+#include "../fdctl/fdctl.h"
 #include "../../flamenco/gossip/fd_gossip.h"
 #include "../../flamenco/types/fd_types_yaml.h"
 #include "../../util/net/fd_eth.h"
