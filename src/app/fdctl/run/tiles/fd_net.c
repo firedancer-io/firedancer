@@ -528,7 +528,7 @@ before_frag( fd_net_ctx_t * ctx,
   uint net_tile_id  = ctx->net_tile_id;
   uint net_tile_cnt = ctx->net_tile_cnt;
   uint if_idx       = ctx->tx_op.if_idx;
-  if( FD_UNLIKELY( if_idx>ctx->xsk_cnt ) ) return 1; /* ignore */
+  if( FD_UNLIKELY( if_idx>=ctx->xsk_cnt ) ) return 1; /* ignore */
 
   /* Load balance TX */
 
