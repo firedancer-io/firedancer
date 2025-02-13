@@ -531,12 +531,20 @@ fdctl_cfg_from_env( int *      pargc,
   config->is_live_cluster = cluster != FD_CLUSTER_UNKNOWN;
 
   if( FD_UNLIKELY( config->development.netns.enabled ) ) {
-    /* not currently supporting multihoming on netns */
-    if( FD_UNLIKELY( strcmp( config->development.netns.interface0, config->tiles.net.interface ) ) )
+    if( !strcmp( config->tiles.net.interface, "" ) ) {
+      memcpy( config->tiles.net.interface, config->development.netns.interface0, sizeof(config->tiles.net.interface) );
+    }
+
+    if( !strcmp( config->development.pktgen.fake_dst_ip, "" ) ) {
+      memcpy( config->development.pktgen.fake_dst_ip, config->development.netns.interface1_addr, sizeof(config->development.netns.interface1_addr) );
+    }
+
+    if( FD_UNLIKELY( strcmp( config->development.netns.interface0, config->tiles.net.interface ) ) ) {
       FD_LOG_ERR(( "netns interface and firedancer interface are different. If you are using the "
                    "[development.netns] functionality to run Firedancer in a network namespace "
                    "for development, the configuration file must specify that "
-                   "[development.netns.interface0] is the same as [net.interface]" ));
+                   "[development.netns.interface0] is the same as [tiles.net.interface]" ));
+    }
 
     if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->development.netns.interface0_addr, &config->tiles.net.ip_addr ) ) )
       FD_LOG_ERR(( "configuration specifies invalid netns IP address `%s`", config->development.netns.interface0_addr ));

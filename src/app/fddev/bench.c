@@ -169,6 +169,7 @@ bench_cmd_fn( args_t *         args,
   update_config_for_dev( config );
 
   run_firedancer_init( config, 1 );
+  fdctl_setup_netns( config );
 
   fd_xdp_fds_t fds = fd_topo_install_xdp( &config->topo );
   (void)fds;

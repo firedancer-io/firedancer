@@ -48,8 +48,6 @@ fd_netlink_topo_create( fd_topo_tile_t *            netlink_tile,
 
   /* Configure neighbor hashmap: Open addressed hashmap with 3.0 sparsity
      factor and 16 long probe chain */
-  uint  const neigh_if_idx    = if_nametoindex( config->tiles.net.interface );
-  if( FD_UNLIKELY( !neigh_if_idx ) ) FD_LOG_ERR(( "if_nametoindex(%s) failed (%i-%s)", config->tiles.net.interface, errno, fd_io_strerror( errno ) ));
   ulong const neigh_ele_max   = fd_ulong_pow2_up( 3UL * config->tiles.netlink.max_neighbors );
   ulong const neigh_ele_align = alignof(fd_neigh4_entry_t);
   ulong const neigh_ele_fp    = neigh_ele_max * sizeof(fd_neigh4_entry_t);
@@ -67,7 +65,7 @@ fd_netlink_topo_create( fd_topo_tile_t *            netlink_tile,
   netlink_tile->netlink.netdev_dbl_buf_obj_id = netdev_dbl_buf_obj->id;
   netlink_tile->netlink.fib4_main_obj_id      = fib4_main_obj->id;
   netlink_tile->netlink.fib4_local_obj_id     = fib4_local_obj->id;
-  netlink_tile->netlink.neigh_if_idx          = neigh_if_idx;
+  memcpy( netlink_tile->netlink.neigh_if, config->tiles.net.interface, sizeof(netlink_tile->netlink.neigh_if) );
   netlink_tile->netlink.neigh4_obj_id         = neigh4_obj->id;
   netlink_tile->netlink.neigh4_ele_obj_id     = neigh4_ele_obj->id;
 }
@@ -135,10 +133,13 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "Topology contains more than one netlink tile" ));
   }
 
+  uint const neigh_if_idx = if_nametoindex( tile->netlink.neigh_if );
+  if( FD_UNLIKELY( !neigh_if_idx ) ) FD_LOG_ERR(( "if_nametoindex(%.16s) failed (%i-%s)", tile->netlink.neigh_if, errno, fd_io_strerror( errno ) ));
+
   fd_netlink_tile_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   fd_memset( ctx, 0, sizeof(fd_netlink_tile_ctx_t) );
   ctx->magic = FD_NETLINK_TILE_CTX_MAGIC;
-  ctx->neigh4_ifidx = tile->netlink.neigh_if_idx;
+  ctx->neigh4_ifidx = neigh_if_idx;
 
   if( FD_UNLIKELY( !fd_netlink_init( ctx->nl_monitor, 1000U ) ) ) {
     FD_LOG_ERR(( "Failed to connect to rtnetlink" ));
