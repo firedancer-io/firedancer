@@ -1466,11 +1466,18 @@ authorize( ulong                         vote_acct_idx,
         FD_EXECUTOR_INSTR_SUCCESS ==
         verify_authorized_signer( &vote_state->authorized_withdrawer, signers );
 
+    // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L869-L872
+    ulong target_epoch;
+    rc = fd_ulong_checked_add( clock->leader_schedule_epoch, 1UL, &target_epoch );
+    if( FD_UNLIKELY( rc!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    }
+
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L866
     rc = set_new_authorized_voter( vote_state,
                                    authorized,
                                    clock->epoch,
-                                   clock->leader_schedule_epoch + 1UL,
+                                   target_epoch,
                                    authorized_withdrawer_signer,
                                    signers,
                                    ctx );
