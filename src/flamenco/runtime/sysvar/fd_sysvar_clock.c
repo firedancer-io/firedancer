@@ -7,6 +7,7 @@
 #include "../fd_system_ids.h"
 #include "../context/fd_exec_epoch_ctx.h"
 #include "../context/fd_exec_slot_ctx.h"
+#include "../../fd_flamenco_base.h"
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/stake_weighted_timestamp.rs#L14 */
 #define MAX_ALLOWABLE_DRIFT_FAST ( 25 )
@@ -216,11 +217,36 @@ fd_calculate_stake_weighted_timestamp( fd_exec_slot_ctx_t * slot_ctx,
       fd_clock_timestamp_vote_t_mapnode_t query_vote_acc_node;
       query_vote_acc_node.elem.pubkey = *vote_pubkey;
       fd_clock_timestamp_vote_t_mapnode_t * vote_acc_node = fd_clock_timestamp_vote_t_map_find(timestamp_votes_pool, timestamp_votes_root, &query_vote_acc_node);
-      ulong vote_timestamp;
-      ulong vote_slot;
+      ulong vote_timestamp = 0;
+      ulong vote_slot = 0;
       if( vote_acc_node == NULL ) {
-        vote_timestamp = (ulong)n->elem.value.last_timestamp_ts;
-        vote_slot = n->elem.value.last_timestamp_slot;
+
+        fd_bincode_decode_ctx_t ctx = {
+          .data    = n->elem.value.data,
+          .dataend = n->elem.value.data + n->elem.value.data_len,
+          .valloc  = fd_spad_virtual( runtime_spad )
+        };
+
+        fd_vote_state_versioned_t vsv[1];
+        fd_vote_state_versioned_decode( vsv, &ctx );
+
+        switch( vsv->discriminant ) {
+          case fd_vote_state_versioned_enum_v0_23_5:
+            vote_timestamp = (ulong)vsv->inner.v0_23_5.last_timestamp.timestamp;
+            vote_slot = vsv->inner.v0_23_5.last_timestamp.slot;
+            break;
+          case fd_vote_state_versioned_enum_v1_14_11:
+            vote_timestamp = (ulong)vsv->inner.v1_14_11.last_timestamp.timestamp;
+            vote_slot = vsv->inner.v1_14_11.last_timestamp.slot;
+            break;
+          case fd_vote_state_versioned_enum_current:
+            vote_timestamp = (ulong)vsv->inner.current.last_timestamp.timestamp;
+            vote_slot = vsv->inner.current.last_timestamp.slot;
+            break;
+          default:
+            __builtin_unreachable();
+        }
+
       } else {
         vote_timestamp = (ulong)vote_acc_node->elem.timestamp;
         vote_slot = vote_acc_node->elem.slot;
@@ -356,7 +382,7 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad 
   clock.epoch = epoch_new;
   if( epoch_old != epoch_new ) {
     long timestamp_estimate = 0L;
-    fd_calculate_stake_weighted_timestamp( slot_ctx, 
+    fd_calculate_stake_weighted_timestamp( slot_ctx,
                                            &timestamp_estimate,
                                            FD_FEATURE_ACTIVE( slot_ctx, warp_timestamp_again ),
                                            runtime_spad );

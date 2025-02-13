@@ -2364,13 +2364,43 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
        n && i < FD_CLUSTER_NODE_CNT;
        n = fd_vote_accounts_pair_t_map_successor_const( pool, n ) ) {
     if( n->elem.stake == 0 ) continue;
+
+    /* TODO: Define a helper that gets specific fields. */
+    fd_bincode_decode_ctx_t dec_ctx = {
+      .data    = n->elem.value.data,
+      .dataend = n->elem.value.data + n->elem.value.data_len,
+      .valloc  = fd_spad_virtual( ctx->runtime_spad )
+    };
+
+    fd_vote_state_versioned_t vsv[1];
+    fd_vote_state_versioned_decode( vsv, &dec_ctx );
+
+    fd_pubkey_t node_pubkey;
+    ulong       last_ts_slot;
+    switch( vsv->discriminant ) {
+      case fd_vote_state_versioned_enum_v0_23_5:
+        node_pubkey  = vsv->inner.v0_23_5.node_pubkey;
+        last_ts_slot = vsv->inner.v0_23_5.last_timestamp.slot;
+        break;
+      case fd_vote_state_versioned_enum_v1_14_11:
+        node_pubkey = vsv->inner.v1_14_11.node_pubkey;
+        last_ts_slot = vsv->inner.v1_14_11.last_timestamp.slot;
+        break;
+      case fd_vote_state_versioned_enum_current:
+        node_pubkey = vsv->inner.current.node_pubkey;
+        last_ts_slot = vsv->inner.current.last_timestamp.slot;
+        break;
+      default:
+        __builtin_unreachable();
+    }
+
     fd_vote_update_msg_t * msg = (fd_vote_update_msg_t *)(dst + sizeof(ulong) + i*112U);
     memset( msg, 0, 112U );
     memcpy( msg->vote_pubkey, n->elem.key.uc, sizeof(fd_pubkey_t) );
-    memcpy( msg->node_pubkey, n->elem.value.node_pubkey.uc, sizeof(fd_pubkey_t) );
+    memcpy( msg->node_pubkey, node_pubkey.uc, sizeof(fd_pubkey_t) );
     msg->activated_stake = n->elem.stake;
-    msg->last_vote = n->elem.value.last_timestamp_slot;
-    msg->is_delinquent = (uchar)(msg->last_vote == 0);
+    msg->last_vote       = last_ts_slot;
+    msg->is_delinquent   = (uchar)(msg->last_vote == 0);
     ++i;
   }
 

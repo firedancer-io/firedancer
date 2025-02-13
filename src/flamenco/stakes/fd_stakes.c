@@ -10,8 +10,9 @@
    => (active stake) ordered by node identity).  Returns the tree root. */
 
 static fd_stake_weight_t_mapnode_t *
-fd_stakes_accum_by_node( fd_vote_accounts_t const * in,
-                         fd_stake_weight_t_mapnode_t *    out_pool ) {
+fd_stakes_accum_by_node( fd_vote_accounts_t const *    in,
+                         fd_stake_weight_t_mapnode_t * out_pool,
+                         fd_spad_t *                   runtime_spad ) {
 
   /* Stakes::staked_nodes(&self: Stakes) -> HashMap<Pubkey, u64> */
 
@@ -32,18 +33,42 @@ fd_stakes_accum_by_node( fd_vote_accounts_t const * in,
     /* ... filter(|(stake, _)| *stake != 0u64) */
     if( n->elem.stake == 0UL ) continue;
 
+    fd_bincode_decode_ctx_t ctx = {
+      .data    = n->elem.value.data,
+      .dataend = n->elem.value.data + n->elem.value.data_len,
+      .valloc  = fd_spad_virtual( runtime_spad )
+    };
+
+    fd_vote_state_versioned_t vsv[1];
+    fd_vote_state_versioned_decode( vsv, &ctx );
+
+    fd_pubkey_t node_pubkey;
+    switch( vsv->discriminant ) {
+      case fd_vote_state_versioned_enum_v0_23_5:
+        node_pubkey = vsv->inner.v0_23_5.node_pubkey;
+        break;
+      case fd_vote_state_versioned_enum_v1_14_11:
+        node_pubkey = vsv->inner.v1_14_11.node_pubkey;
+        break;
+      case fd_vote_state_versioned_enum_current:
+        node_pubkey = vsv->inner.current.node_pubkey;
+        break;
+      default:
+        __builtin_unreachable();
+    }
+
+
     /* Extract node pubkey */
-    fd_pubkey_t const * node_pubkey = &n->elem.value.node_pubkey;
 
     fd_pubkey_t null_key = {0};
-    if( memcmp( node_pubkey, null_key.uc, sizeof(fd_pubkey_t) ) == 0 ) {
+    if( memcmp( &node_pubkey, null_key.uc, sizeof(fd_pubkey_t) ) == 0 ) {
       FD_LOG_WARNING(( "vote account %s skipped", FD_BASE58_ENC_32_ALLOCA( n->elem.key.key ) ));
       continue;
     }
     /* Check if node identity was previously visited */
     fd_stake_weight_t_mapnode_t * query = fd_stake_weight_t_map_acquire( out_pool );
     FD_TEST( query );
-    query->elem.key = *node_pubkey;
+    query->elem.key = node_pubkey;
     fd_stake_weight_t_mapnode_t * node = fd_stake_weight_t_map_find( out_pool, out_root, query );
 
     if( FD_UNLIKELY( node ) ) {
@@ -125,7 +150,7 @@ fd_stake_weights_by_node( fd_vote_accounts_t const * accs,
 
   /* Accumulate stakes to rb tree */
 
-  fd_stake_weight_t_mapnode_t const * root = fd_stakes_accum_by_node( accs, pool );
+  fd_stake_weight_t_mapnode_t const * root = fd_stakes_accum_by_node( accs, pool, runtime_spad );
 
   /* Export to sorted list */
 
@@ -146,6 +171,10 @@ deserialize_and_update_vote_account( fd_exec_slot_ctx_t *                slot_ct
                                      fd_vote_state_versioned_t *         vote_state,
                                      fd_spad_t *                         runtime_spad ) {
 
+  (void)elem;
+  (void)stake_delegations_root;
+  (void)stake_delegations_pool;
+
   FD_BORROWED_ACCOUNT_DECL( vote_account );
   if( FD_UNLIKELY( fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, vote_account_pubkey, vote_account ) ) ) {
     FD_LOG_DEBUG(( "Vote account not found" ));
@@ -162,37 +191,6 @@ deserialize_and_update_vote_account( fd_exec_slot_ctx_t *                slot_ct
   if( FD_UNLIKELY( fd_vote_state_versioned_decode( vote_state, &decode ) ) ) {
     return 1;
   }
-
-  fd_vote_block_timestamp_t last_timestamp;
-  fd_pubkey_t node_pubkey;
-
-  switch( vote_state->discriminant ) {
-    case fd_vote_state_versioned_enum_current:
-      last_timestamp = vote_state->inner.current.last_timestamp;
-      node_pubkey    = vote_state->inner.current.node_pubkey;
-      break;
-    case fd_vote_state_versioned_enum_v0_23_5:
-      last_timestamp = vote_state->inner.v0_23_5.last_timestamp;
-      node_pubkey    = vote_state->inner.v0_23_5.node_pubkey;
-      break;
-    case fd_vote_state_versioned_enum_v1_14_11:
-      last_timestamp = vote_state->inner.v1_14_11.last_timestamp;
-      node_pubkey    = vote_state->inner.v1_14_11.node_pubkey;
-      break;
-    default:
-      __builtin_unreachable();
-  }
-
-  fd_memcpy( &elem->elem.key, vote_account->pubkey, sizeof(fd_pubkey_t));
-  elem->elem.value.lamports = vote_account->const_meta->info.lamports;
-
-  fd_memcpy(elem->elem.value.node_pubkey.uc, node_pubkey.uc, sizeof(fd_pubkey_t));
-  elem->elem.value.last_timestamp_ts   = last_timestamp.timestamp;
-  elem->elem.value.last_timestamp_slot = last_timestamp.slot;
-
-  fd_memcpy( &elem->elem.value.owner, vote_account->const_meta->info.owner, sizeof(fd_pubkey_t) );
-  elem->elem.value.executable = (uchar)vote_account->const_meta->info.executable;
-  elem->elem.value.rent_epoch = vote_account->const_meta->info.rent_epoch;
 
   // Get the stake amount from the stake delegations map
   fd_stake_weight_t_mapnode_t temp;
@@ -292,14 +290,14 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
   ulong vote_states_pool_sz   = fd_vote_accounts_pair_t_map_size( stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root )
                               + fd_account_keys_pair_t_map_size( slot_bank->vote_account_keys.account_keys_pool, slot_bank->vote_account_keys.account_keys_root );
   temp_info->vote_states_root = NULL;
-  temp_info->vote_states_pool = fd_vote_info_pair_t_map_alloc( fd_spad_virtual( runtime_spad ), vote_states_pool_sz ); 
+  temp_info->vote_states_pool = fd_vote_info_pair_t_map_alloc( fd_spad_virtual( runtime_spad ), vote_states_pool_sz );
 
   /* Create a map of <pubkey, stake> to store the total stake of each vote account. */
   void * mem = fd_spad_alloc( runtime_spad, fd_stake_weight_t_map_align(), fd_stake_weight_t_map_footprint( vote_states_pool_sz ) );
   fd_stake_weight_t_mapnode_t * pool = fd_stake_weight_t_map_join( fd_stake_weight_t_map_new( mem, vote_states_pool_sz ) );
   fd_stake_weight_t_mapnode_t * root = NULL;
 
-  /* We can optimize this function by only iterating over the vote accounts (since there's much fewer of them) instead of all 
+  /* We can optimize this function by only iterating over the vote accounts (since there's much fewer of them) instead of all
      of the stake accounts, and pre-inserting them into the delegations pool. This way, the delegation calculations can be tpooled. */
   for( fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_minimum( stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root );
         elem;
@@ -324,7 +322,7 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
     }
   }
 
-  ulong worker_cnt = fd_ulong_min( temp_info->stake_infos_len, 
+  ulong worker_cnt = fd_ulong_min( temp_info->stake_infos_len,
                                    fd_ulong_min( fd_tpool_worker_cnt( tpool ), exec_spad_cnt ) );
   fd_compute_stake_delegations_t task_args  = {
     .epoch                     = stakes->epoch,
@@ -348,12 +346,13 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
     fd_vote_state_versioned_t vote_state[1] = {0};
     if( FD_LIKELY( !deserialize_and_update_vote_account( slot_ctx, elem, root, pool, vote_account_pubkey, vote_state, runtime_spad ) ) ) {
       total_epoch_stake += elem->elem.stake;
-
       // Insert into the temporary vote states cache
       fd_vote_info_pair_t_mapnode_t * new_vote_state_node = fd_vote_info_pair_t_map_acquire( temp_info->vote_states_pool );
       fd_memcpy( &new_vote_state_node->elem.account, vote_account_pubkey, sizeof(fd_pubkey_t) );
       fd_memcpy( &new_vote_state_node->elem.state, vote_state, sizeof(fd_vote_state_versioned_t) );
       fd_vote_info_pair_t_map_insert( temp_info->vote_states_pool, &temp_info->vote_states_root, new_vote_state_node );
+    } else {
+      FD_LOG_ERR(( "Failed to deserialize vote account" ));
     }
   }
 
@@ -366,10 +365,10 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
     fd_vote_state_versioned_t vote_state[1] = {0};
     fd_vote_accounts_pair_t_mapnode_t key;
     fd_memcpy( &key.elem.key, vote_account_pubkey, sizeof(fd_pubkey_t) );
-    
+
     /* No need to process duplicate vote account keys. This is a mostly redundant check
        since upserting vote accounts also checks against the vote stakes, but this is
-       there anyways in case that ever changes */ 
+       there anyways in case that ever changes */
     if( FD_UNLIKELY( fd_vote_accounts_pair_t_map_find( stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root, &key ) ) ) {
       continue;
     }
@@ -468,7 +467,7 @@ accumulate_stake_cache_delegations_tpool( void  *tpool,
 /* Accumulates information about epoch stakes into `temp_info`, which is a temporary cache
    used to save intermediate state about stake and vote accounts to avoid them from having to
    be recomputed on every access, especially at the epoch boundary. Also collects stats in `accumulator` */
-void 
+void
 fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
                            fd_stakes_t const *        stakes,
                            fd_stake_history_t const * history,
@@ -487,9 +486,9 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
 
   /* Batch up the stake info accumulations via tpool. Currently this is only marginally more efficient because we
      do not have access to iterators at a specific index in constant or logarithmic time. */
-  ulong worker_cnt                                         = fd_ulong_min( stake_delegations_pool_sz, 
+  ulong worker_cnt                                         = fd_ulong_min( stake_delegations_pool_sz,
                                                                            fd_ulong_min( fd_tpool_worker_cnt( tpool ), exec_spads_cnt ) );
-  fd_delegation_pair_t_mapnode_t ** batch_delegation_roots = fd_spad_alloc( runtime_spad, alignof(fd_delegation_pair_t_mapnode_t *), 
+  fd_delegation_pair_t_mapnode_t ** batch_delegation_roots = fd_spad_alloc( runtime_spad, alignof(fd_delegation_pair_t_mapnode_t *),
                                                                                       ( worker_cnt + 1 )*sizeof(fd_delegation_pair_t_mapnode_t *) );
 
   ulong * idx_starts = fd_spad_alloc( runtime_spad, alignof(ulong), worker_cnt * sizeof(ulong) );

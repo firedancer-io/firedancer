@@ -1711,13 +1711,16 @@ method_getVersion(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
 static void
 vote_account_to_json(fd_webserver_t * ws, fd_vote_accounts_pair_t_mapnode_t const * vote_node) {
-  char pubkey[50];
-  fd_base58_encode_32(vote_node->elem.value.node_pubkey.uc, 0, pubkey);
-  char key[50];
-  fd_base58_encode_32(vote_node->elem.key.uc, 0, key);
-  // TODO: epochCredits and lastVote
-  fd_web_reply_sprintf(ws, "{\"commission\":0,\"epochVoteAccount\":true,\"epochCredits\":[],\"nodePubkey\":\"%s\",\"lastVote\":%lu,\"activatedStake\":%lu,\"votePubkey\":\"%s\",\"rootSlot\":0}",
-                       pubkey, vote_node->elem.value.last_timestamp_slot, vote_node->elem.stake, key);
+  (void)ws;
+  (void)vote_node;
+  /* TODO: This needs to be fixed to work with new vote cache. */
+  // char pubkey[50];
+  // fd_base58_encode_32(vote_node->elem.value.node_pubkey.uc, 0, pubkey);
+  // char key[50];
+  // fd_base58_encode_32(vote_node->elem.key.uc, 0, key);
+  // // TODO: epochCredits and lastVote
+  // fd_web_reply_sprintf(ws, "{\"commission\":0,\"epochVoteAccount\":true,\"epochCredits\":[],\"nodePubkey\":\"%s\",\"lastVote\":%lu,\"activatedStake\":%lu,\"votePubkey\":\"%s\",\"rootSlot\":0}",
+  //                      pubkey, vote_node->elem.value.last_timestamp_slot, vote_node->elem.stake, key);
 }
 
 // Implementation of the "getVoteAccounts" methods

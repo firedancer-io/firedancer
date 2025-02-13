@@ -464,7 +464,31 @@ fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
       n;
       n = fd_vote_accounts_pair_t_map_successor( vote_accounts_pool, n ), i++) {
 
-    validator_stakes[i].pubkey = n->elem.value.node_pubkey;
+    fd_bincode_decode_ctx_t ctx = {
+      .data    = n->elem.value.data,
+      .dataend = n->elem.value.data + n->elem.value.data_len,
+      .valloc  = fd_spad_virtual( runtime_spad )
+    };
+
+    fd_vote_state_versioned_t vsv[1];
+    fd_vote_state_versioned_decode( vsv, &ctx );
+
+    fd_pubkey_t node_pubkey;
+    switch( vsv->discriminant ) {
+      case fd_vote_state_versioned_enum_v0_23_5:
+        node_pubkey = vsv->inner.v0_23_5.node_pubkey;
+        break;
+      case fd_vote_state_versioned_enum_v1_14_11:
+        node_pubkey = vsv->inner.v1_14_11.node_pubkey;
+        break;
+      case fd_vote_state_versioned_enum_current:
+        node_pubkey = vsv->inner.current.node_pubkey;
+        break;
+      default:
+        __builtin_unreachable();
+    }
+
+    validator_stakes[i].pubkey = node_pubkey;
     validator_stakes[i].stake = n->elem.stake;
 
     total_staked += n->elem.stake;
@@ -3141,53 +3165,54 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
       fd_vote_accounts_pair_t_mapnode_t *node = fd_vote_accounts_pair_t_map_acquire(vacc_pool);
       FD_TEST( node );
 
-      fd_vote_block_timestamp_t last_timestamp = {0};
-      fd_pubkey_t               node_pubkey    = {0};
-      FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-        /* Deserialize content */
-        fd_vote_state_versioned_t vs[1];
-        fd_bincode_decode_ctx_t decode = {
-          .data    = acc->account.data,
-          .dataend = acc->account.data + acc->account.data_len,
-          .valloc  = fd_spad_virtual( runtime_spad )
-        };
-        int decode_err = fd_vote_state_versioned_decode( vs, &decode );
-        if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) {
-          FD_LOG_WARNING(( "fd_vote_state_versioned_decode failed (%d)", decode_err ));
-          return;
-        }
+      /* FIXME: Reimplement when we try to fix genesis. */
+      // fd_vote_block_timestamp_t last_timestamp = {0};
+      // fd_pubkey_t               node_pubkey    = {0};
+      // 1FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+      //   /* Deserialize content */
+      //   fd_vote_state_versioned_t vs[1];
+      //   fd_bincode_decode_ctx_t decode = {
+      //     .data    = acc->account.data,
+      //     .dataend = acc->account.data + acc->account.data_len,
+      //     .valloc  = fd_spad_virtual( runtime_spad )
+      //   };
+      //   int decode_err = fd_vote_state_versioned_decode( vs, &decode );
+      //   if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) {
+      //     FD_LOG_WARNING(( "fd_vote_state_versioned_decode failed (%d)", decode_err ));
+      //     return;
+      //   }
 
-        switch( vs->discriminant )
-        {
-        case fd_vote_state_versioned_enum_current:
-          last_timestamp = vs->inner.current.last_timestamp;
-          node_pubkey    = vs->inner.current.node_pubkey;
-          break;
-        case fd_vote_state_versioned_enum_v0_23_5:
-          last_timestamp = vs->inner.v0_23_5.last_timestamp;
-          node_pubkey    = vs->inner.v0_23_5.node_pubkey;
-          break;
-        case fd_vote_state_versioned_enum_v1_14_11:
-          last_timestamp = vs->inner.v1_14_11.last_timestamp;
-          node_pubkey    = vs->inner.v1_14_11.node_pubkey;
-          break;
-        default:
-          __builtin_unreachable();
-        }
+      //   switch( vs->discriminant )
+      //   {
+      //   case fd_vote_state_versioned_enum_current:
+      //     last_timestamp = vs->inner.current.last_timestamp;
+      //     node_pubkey    = vs->inner.current.node_pubkey;
+      //     break;
+      //   case fd_vote_state_versioned_enum_v0_23_5:
+      //     last_timestamp = vs->inner.v0_23_5.last_timestamp;
+      //     node_pubkey    = vs->inner.v0_23_5.node_pubkey;
+      //     break;
+      //   case fd_vote_state_versioned_enum_v1_14_11:
+      //     last_timestamp = vs->inner.v1_14_11.last_timestamp;
+      //     node_pubkey    = vs->inner.v1_14_11.node_pubkey;
+      //     break;
+      //   default:
+      //     __builtin_unreachable();
+      //   }
 
-      } FD_SPAD_FRAME_END;
+      // } FD_SPAD_FRAME_END;
 
-      fd_memcpy(node->elem.key.key, acc->key.key, sizeof(fd_pubkey_t));
-      node->elem.stake = acc->account.lamports;
-      node->elem.value = (fd_solana_vote_account_t){
-        .lamports = acc->account.lamports,
-        .node_pubkey = node_pubkey,
-        .last_timestamp_ts = last_timestamp.timestamp,
-        .last_timestamp_slot = last_timestamp.slot,
-        .owner = acc->account.owner,
-        .executable = acc->account.executable,
-        .rent_epoch = acc->account.rent_epoch
-      };
+      // fd_memcpy(node->elem.key.key, acc->key.key, sizeof(fd_pubkey_t));
+      // node->elem.stake = acc->account.lamports;
+      // node->elem.value = (fd_solana_vote_account_t){
+      //   .lamports = acc->account.lamports,
+      //   .node_pubkey = node_pubkey,
+      //   .last_timestamp_ts = last_timestamp.timestamp,
+      //   .last_timestamp_slot = last_timestamp.slot,
+      //   .owner = acc->account.owner,
+      //   .executable = acc->account.executable,
+      //   .rent_epoch = acc->account.rent_epoch
+      // };
 
       fd_vote_accounts_pair_t_map_insert( vacc_pool, &vacc_root, node );
 
