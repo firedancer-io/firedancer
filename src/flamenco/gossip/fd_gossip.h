@@ -24,6 +24,18 @@
 #define FD_GOSSIP_SOCKET_TAG_TVU                (10)
 #define FD_GOSSIP_SOCKET_TAG_TVU_QUIC           (11)
 
+
+enum fd_gossip_crds_route {
+    FD_GOSSIP_ROUTE_PULL_RESP,
+    FD_GOSSIP_ROUTE_PUSH,
+    FD_GOSSIP_ROUTE_INTERNAL,
+
+    /* Add entries above this one */
+    FD_GOSSIP_ROUTE_COUNT
+  };
+
+typedef enum fd_gossip_crds_route fd_gossip_crds_route_t;
+
 /* Global state of gossip protocol */
 typedef struct fd_gossip fd_gossip_t;
 ulong         fd_gossip_align    ( void );
@@ -158,9 +170,8 @@ struct fd_gossip_metrics {
   ulong recv_unknown_message;
 
   /* Receive CRDS */
-  /* TODO: seperate into Push/Pull */
-  ulong recv_crds[FD_METRICS_COUNTER_GOSSIP_RECEIVED_CRDS_CNT];
-  ulong recv_crds_duplicate_message[FD_METRICS_COUNTER_GOSSIP_RECEIVED_CRDS_DUPLICATE_MESSAGE_CNT];
+  ulong recv_crds[FD_GOSSIP_ROUTE_COUNT][FD_METRICS_COUNTER_GOSSIP_RECEIVED_CRDS_PUSH_CNT];
+  ulong recv_crds_duplicate_message[FD_GOSSIP_ROUTE_COUNT][FD_METRICS_COUNTER_GOSSIP_RECEIVED_CRDS_DUPLICATE_MESSAGE_PUSH_CNT];
   ulong recv_crds_drop_reason[FD_METRICS_COUNTER_GOSSIP_RECEIVED_CRDS_DROP_CNT];
 
 
