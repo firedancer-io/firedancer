@@ -100,6 +100,11 @@ dynamic_port_range = "8900-9000"
 #    NOTICE  2023-01-23 04:56:07.890123456 GMT-06 45678:45678 user:host:f0 app:thread:0 src/file.c(901)[func]: 1 is the loneliest number
 #
 # to the permanent log (log file).
+#
+# Firedancer does not support rotating the log file in response to
+# SIGUSR1 or SIGUSR2.  Instead it will silently swallow and ignore these
+# signals.  To perform log rotation, it is suggested to use a mechanism
+# like the `copytruncate` directive of `logrotate`.
 [log]
     # Absolute file path of where to place the log file.  It will be
     # appended to, or created if it does not already exist. The
