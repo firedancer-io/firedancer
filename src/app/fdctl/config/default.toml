@@ -1135,15 +1135,6 @@ dynamic_port_range = "8900-9000"
     # endpoint to clients to view it.
     [tiles.gui]
         # If the GUI is enabled.
-        #
-        # Names and icons of peer validators will not be displayed in
-        # the GUI unless the program-id index is enabled, which can be
-        # done by setting
-        #
-        # [ledger]
-        #   account_indexes = ["program-id"]
-        #
-        # In your configuration above.
         enabled = true
 
         # The address to listen on.  By default, if enabled, the GUI
