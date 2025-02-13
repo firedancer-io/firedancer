@@ -1196,7 +1196,7 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
        to dummy values because we do not have all the necessary metadata
        yet. */
 
-    block_map_entry->slot = block_map_entry->slot;
+    block_map_entry->slot = slot;
 
     block_map_entry->parent_slot = slot - shred->data.parent_off;
     memset( block_map_entry->child_slots, UCHAR_MAX, FD_BLOCKSTORE_CHILD_SLOT_MAX * sizeof(ulong) );
