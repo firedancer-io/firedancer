@@ -16,7 +16,7 @@
 
    If no matching neighbor table entry exists, the system should send
    broadcast an ARP request (e.g. "who is 192.168.12.13? tell
-   192.168.12.4").  ARP relies to this request will then go to the
+   192.168.12.4").  ARP replies to this request will then go to the
    kernel.  The kernel also needs to be told that it should expect an
    ARP reply to avoid drops.
 
@@ -26,15 +26,16 @@
       `ip neigh add IP_ADDR nud incomplete`
       Requires CAP_NET_ADMIN (to send RTM_NEWNEIGH)
 
-   2. Add a neighbor table entry, make the kernel increase the ARP
+   2. Add a neighbor table entry, make the kernel issue the ARP
       request: `ip neigh add IP_ADDR nud incomplete use`
       Requires CAP_NET_ADMIN (to send RTM_NEWNEIGH)
 
-   3. Send a UDP datagram, which indirectly makes the kernel do an ARP
+   3. Send a UDP datagram which indirectly makes the kernel do an ARP
       request: `echo "hello" | nc -u IP_ADDR:65535`
       Does not require privileges
 
    4. Send an IP packet (ICMP echo, invalid ICMP, invalid next proto...)
+      which indirectly makes the kernel do an ARP request
       `ping IP_ADDR -c 1`
       Requires CAP_NET_RAW to create a SOCK_RAW socket
 
