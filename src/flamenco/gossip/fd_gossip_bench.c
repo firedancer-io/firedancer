@@ -21,6 +21,8 @@
 uchar smem[ MY_SMAX ] __attribute__((aligned(FD_SCRATCH_SMEM_ALIGN)));
 ulong fmem[ MY_DEPTH ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
 
+const char * read_path = "/home/rsivakumaran/scratch/gossip/gossip_epoch_msg_dump";
+
 /* Add peer entrypoint.testnet.solana.com */
 fd_gossip_peer_addr_t testnet_entrypt_addr = {
     .addr = 0x23cbaa1e, /* 35.203.170.30 */
@@ -46,7 +48,7 @@ send_packet_fun( uchar const * data, size_t sz, fd_gossip_peer_addr_t const * ad
     (void)arg;
     static uint cnt = 0;
     char filename[100];
-    sprintf(filename, "/home/rsivakumaran/scratch/gossip/firedancer_epoch_pull_reqs/%u.bin", cnt++);
+    sprintf(filename, "/home/rsivakumaran/scratch/gossip/fd/epoch_pull_reqs/%u.bin", cnt++);
     FILE * file = fopen(filename, "wb");
     if ( file ) {
         fwrite( data, 1, sz, file );
@@ -110,8 +112,8 @@ void
 populate_crds( fd_gossip_t * glob ){
     DIR * dir;
     struct dirent * ent;
-    const char * path = "/home/rsivakumaran/scratch/gossip/gossip_epoch_msg_dump/";
-    dir = opendir( path );
+
+    dir = opendir( read_path );
     if (dir == NULL) {
         perror("opendir");
         return;
@@ -123,7 +125,7 @@ populate_crds( fd_gossip_t * glob ){
         if (ent->d_type == DT_REG) {
             printf("%s\n", ent->d_name);
             char fullpath[1024];
-            snprintf(fullpath, sizeof(fullpath), "%s/%s", path, ent->d_name);
+            snprintf(fullpath, sizeof(fullpath), "%s/%s", read_path, ent->d_name);
 
             FILE *file = fopen(fullpath, "rb");
             if (file == NULL) {
