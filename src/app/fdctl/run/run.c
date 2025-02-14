@@ -744,11 +744,11 @@ fdctl_setup_netns( config_t * config ) {
   if( config->development.netns.enabled ) {
     enter_network_namespace( config->tiles.net.interface );
     close_network_namespace_original_fd();
+    
+    fd_cfg_stage_ethtool_channels.init( config );
+    fd_cfg_stage_ethtool_gro     .init( config );
+    fd_cfg_stage_ethtool_loopback.init( config );
   }
-
-  fd_cfg_stage_ethtool_channels.init( config );
-  fd_cfg_stage_ethtool_gro     .init( config );
-  fd_cfg_stage_ethtool_loopback.init( config );
 }
 
 /* The boot sequence is a little bit involved...
