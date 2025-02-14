@@ -442,6 +442,26 @@ set_lockup_meta( fd_stake_meta_t *             self,
 typedef fd_stake_history_entry_t fd_stake_activation_status_t;
 
 fd_stake_history_entry_t const *
+fd_stake_history_ele_binary_search_const( fd_stake_history_t const * history,
+                                          ulong epoch ) {
+  ulong start = 0UL;
+  ulong end  = history->fd_stake_history_len - 1;
+
+  while ( start<=end ) {
+    ulong mid = start + ( end - start ) / 2UL;
+    if( history->fd_stake_history[mid].epoch==epoch ) {
+      return &history->fd_stake_history[mid];
+    } else if( history->fd_stake_history[mid].epoch<epoch ) {
+      if ( mid==0 ) return NULL;
+      end = mid - 1;
+    } else {
+      start = mid + 1;
+    }
+  }
+  return NULL;
+}
+
+fd_stake_history_entry_t const *
 fd_stake_history_ele_query_const( fd_stake_history_t const * history,
                                   ulong epoch ) {
   if( 0 == history->fd_stake_history_len ) {
@@ -454,16 +474,17 @@ fd_stake_history_ele_query_const( fd_stake_history_t const * history,
 
   ulong off = (history->fd_stake_history[0].epoch - epoch);
   if( off >= history->fd_stake_history_len ) {
-    return NULL;
+    return fd_stake_history_ele_binary_search_const( history, epoch );
   }
 
   ulong e = (off + history->fd_stake_history_offset) & (history->fd_stake_history_size - 1);
 
-  if ( history->fd_stake_history[e].epoch != epoch ) {
-    return NULL;
+  if ( history->fd_stake_history[e].epoch == epoch ) {
+    return &history->fd_stake_history[e];
   }
 
-  return &history->fd_stake_history[e];
+  // if the epoch did not match, we do a binary search
+  return fd_stake_history_ele_binary_search_const( history, epoch );
 }
 
 // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/sdk/program/src/stake/state.rs#L728
@@ -558,10 +579,7 @@ stake_activating_and_deactivating( fd_delegation_t const *    self,
   ulong effective_stake  = effective_activating.effective;
   ulong activating_stake = effective_activating.activating;
 
-  fd_stake_history_entry_t const * cluster_stake_at_activation_epoch = NULL;
-
-  fd_stake_history_entry_t k;
-  k.epoch = self->deactivation_epoch;
+  fd_stake_history_entry_t const * cluster_stake_at_deactivation_epoch = NULL;
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/stake/state.rs#L652
   if( target_epoch<self->deactivation_epoch ) {
@@ -577,19 +595,11 @@ stake_activating_and_deactivating( fd_delegation_t const *    self,
     // https://github.com/anza-xyz/agave/blob/be16321eb0db3e12a57a32f59febbf54b92ebb7c/sdk/program/src/stake/state.rs#L662
     return ( fd_stake_history_entry_t ){
         .effective = effective_stake, .deactivating = effective_stake, .activating = 0 };
-  } else if( stake_history!=NULL ) {
+  } else if( stake_history &&
+             ( cluster_stake_at_deactivation_epoch = fd_stake_history_ele_query_const( stake_history, self->deactivation_epoch ) ) ) {
     // https://github.com/anza-xyz/agave/blob/be16321eb0db3e12a57a32f59febbf54b92ebb7c/sdk/program/src/stake/state.rs#L665
-    fd_stake_history_entry_t const * n = fd_stake_history_ele_query_const( stake_history, k.epoch );
-
-    if( NULL!=n ) { cluster_stake_at_activation_epoch = n; }
-
-    if( cluster_stake_at_activation_epoch==NULL ) {
-      fd_stake_history_entry_t entry = { .effective = 0, .activating = 0, .deactivating = 0 };
-
-      return entry;
-    }
     ulong                      prev_epoch         = self->deactivation_epoch;
-    fd_stake_history_entry_t const * prev_cluster_stake = cluster_stake_at_activation_epoch;
+    fd_stake_history_entry_t const * prev_cluster_stake = cluster_stake_at_deactivation_epoch;
 
     ulong current_epoch;
     ulong current_effective_stake = effective_stake;
@@ -1383,7 +1393,7 @@ delegate( fd_exec_instr_ctx_t const *   ctx,
   fd_stake_state_v2_t stake_state = {0};
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L330
   FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, stake_account_index, stake_account ) {
-  
+
   rc = get_state( stake_account, ctx->txn_ctx->spad, &stake_state );
   if( FD_UNLIKELY( rc ) ) return rc;
 
@@ -1572,7 +1582,7 @@ split( fd_exec_instr_ctx_t const * ctx,
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L422
   if( FD_UNLIKELY( lamports>stake_account->const_meta->info.lamports ) )
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
-    
+
   rc = get_state( stake_account, ctx->txn_ctx->spad, &stake_state );
   if( FD_UNLIKELY( rc ) ) return rc;
 
