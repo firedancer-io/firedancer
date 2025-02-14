@@ -249,7 +249,7 @@ after_frag( fd_archiver_writer_tile_ctx_t * ctx,
 }
 
 #define STEM_BURST (1UL)
-#define STEM_LAZY  (214748364)
+#define STEM_LAZY  (50UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_archiver_writer_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_archiver_writer_tile_ctx_t)

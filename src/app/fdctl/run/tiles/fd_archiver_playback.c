@@ -48,8 +48,8 @@ struct fd_archiver_playback_tile_ctx {
 
   double tick_per_ns;
 
+  ulong prev_publish_time;
   ulong now;
-  ulong next_publish_ns;
 
   fd_archiver_playback_out_ctx_t out[ 32 ];
 
@@ -203,8 +203,14 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
     FD_LOG_ERR(( "bad magic in archive header: %lu", header->magic ));
   }
 
+  /* should delay: now < prev + ns_since_prev */
+  /*              ^                                                    */
+  /* ^prev                            ^prev + ns_since+prev            */
+
   /* Determine if we should wait before publishing this */
-  if( ctx->next_publish_ns != 0UL && ctx->next_publish_ns > ctx->now + header->ns_since_prev_fragment ) {
+  /* need to delay if now > (when we should publish it)  */
+  if( ctx->prev_publish_time != 0UL && 
+    ( ctx->now < ( ctx->prev_publish_time + header->ns_since_prev_fragment - 500000000 ) )) {
     return;
   }
 
@@ -242,12 +248,11 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
                                                                             header->sz,
                                                                         ctx->out[ out_link_idx ].chunk0,
                                                                         ctx->out[ out_link_idx ].wmark );
-
-  ctx->next_publish_ns = ctx->now + header->ns_since_prev_fragment;
+  ctx->prev_publish_time = ctx->now;
 }
 
 #define STEM_BURST (1UL)
-#define STEM_LAZY  (21474836)
+#define STEM_LAZY  (50UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_archiver_playback_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_archiver_playback_tile_ctx_t)
