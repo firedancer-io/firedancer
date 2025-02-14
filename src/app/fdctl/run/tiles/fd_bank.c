@@ -207,7 +207,9 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
 
     uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
-    uint non_execution_cus       = txn->pack_cu.non_execution_cus;
+    uint non_execution_cus                 = txn->pack_cu.non_execution_cus;
+    uint actual_execution_cus              = consumed_exec_cus[ sanitized_idx-1UL ];
+    uint actual_acct_data_cus              = consumed_acct_data_cus[ sanitized_idx-1UL ];
 
     if( FD_UNLIKELY( fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload ) ) ) {
       /* Simple votes are charged fixed amounts of compute regardless of
@@ -236,6 +238,12 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     if( FD_UNLIKELY( !(processing_results[ sanitized_idx-1UL ] & FD_BANK_TRANSACTION_LANDED) ) ) continue;
 
+    /* FeesOnly transactions are transactions that failed to load
+       before they even reach the VM stage. They have zero execution
+       cost but do charge for the account data they are able to load. */
+    txn->bank_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
+    txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus - ( actual_execution_cus + actual_acct_data_cus );
+
     /* TXN_P_FLAGS_EXECUTE_SUCCESS means that it should be included in
        the block.  It's a bit of a misnomer now that there are fee-only
        transactions. */
@@ -246,15 +254,12 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     if( transaction_err[ sanitized_idx-1UL ] ) ctx->metrics.exec_failed++;
     else                                       ctx->metrics.success++;
 
-    uint actual_execution_cus        = consumed_exec_cus[ sanitized_idx-1UL ];
-    uint actual_acct_data_cus        = consumed_acct_data_cus[ sanitized_idx-1UL ];
-    txn->bank_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
-
     /* The VM will stop executing and fail an instruction immediately if
        it exceeds its requested CUs.  A transaction which requests less
        account data than it actually consumes will fail in the account
        loading stage. */
     FD_TEST( actual_execution_cus + actual_acct_data_cus <= requested_exec_plus_acct_data_cus );
+    txn->bank_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
     txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus - ( actual_execution_cus + actual_acct_data_cus );
   }
 
@@ -358,7 +363,13 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     ctx->metrics.transaction_result[ FD_METRICS_ENUM_TRANSACTION_ERROR_V_SUCCESS_IDX ] += txn_cnt;
     for( ulong i=0UL; i<txn_cnt; i++ ) {
       txns[ i ].flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
-      consumed_cus[ i ] = actual_execution_cus[ i ] + actual_acct_data_cus[ i ];
+      if( FD_UNLIKELY( fd_txn_is_simple_vote_transaction( TXN(txns + i), txns[ i ].payload ) ) ) {
+          /* Although bundles dont typically contain simple votes, we want
+            to charge them correctly anyways. */
+        consumed_cus[ i ] = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
+      } else {
+        consumed_cus[ i ] = actual_execution_cus[ i ] + actual_acct_data_cus[ i ];
+      }
     }
   } else {
     /* If any transaction fails in a bundle ... they all fail */
