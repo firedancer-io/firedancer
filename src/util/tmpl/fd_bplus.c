@@ -879,7 +879,7 @@ static inline void BPLUS_(remove)( BPLUS_(t) * join, BPLUS_PAIR_T * pair ) { BPL
 
 BPLUS_STATIC void BPLUS_(flush)( BPLUS_(t) * join );
 
-FD_FN_PURE BPLUS_STATIC int BPLUS_(verify)( BPLUS_(t) const * join );
+BPLUS_STATIC int BPLUS_(verify)( BPLUS_(t) const * join );
 
 /* Iteration */
 /* FIXME: FD_FN_CONST for nul/eq/eq_nul/pair/pair_const?  FD_FN_PURE for

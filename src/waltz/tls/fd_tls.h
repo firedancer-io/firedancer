@@ -370,10 +370,10 @@ fd_tls_leave( fd_tls_t * );
 void *
 fd_tls_delete( void * );
 
-FD_FN_PURE char const *
+char const *
 fd_tls_alert_cstr( uint alert );
 
-FD_FN_PURE char const *
+char const *
 fd_tls_reason_cstr( uint reason );
 
 /* fd_tls_server_handshake ingests a TLS message from the client.

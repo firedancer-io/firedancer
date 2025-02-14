@@ -620,7 +620,7 @@ MAP_(idx_next_const)( ulong             prev,     // Previous result of mymap_id
 
 #endif /* MAP_MULTI!=0 */
 
-FD_FN_PURE int
+int
 MAP_(verify)( MAP_(t) const *   join,
               ulong             ele_cnt,
               MAP_ELE_T const * pool );
@@ -887,7 +887,7 @@ MAP_(idx_next_const)( ulong             prev,     // Previous result of mymap_id
 
 #endif /* MAP_MULTI!=0 */
 
-FD_FN_PURE MAP_IMPL_STATIC int
+MAP_IMPL_STATIC int
 MAP_(verify)( MAP_(t) const *   join,
               ulong             ele_cnt,
               MAP_ELE_T const * pool ) {

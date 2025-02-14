@@ -1565,7 +1565,7 @@ MAP_(iter_unlock)( MAP_(t) *     join,
 
 MAP_STATIC void MAP_(reset)( MAP_(t) * join );
 
-MAP_STATIC FD_FN_PURE int MAP_(verify)( MAP_(t) const * join );
+MAP_STATIC int MAP_(verify)( MAP_(t) const * join );
 
 MAP_STATIC FD_FN_CONST char const * MAP_(strerror)( int err );
 

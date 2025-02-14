@@ -274,7 +274,7 @@ FD_FN_CONST ulong
 fd_quic_conn_align( void );
 
 /* returns the footprint of the connection object for given limits */
-FD_FN_PURE ulong
+ulong
 fd_quic_conn_footprint( fd_quic_limits_t const * );
 
 /* called by fd_quic_new to initialize the connection objects

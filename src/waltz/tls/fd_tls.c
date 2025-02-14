@@ -1719,7 +1719,7 @@ fd_tls_client_hs_wait_finished( fd_tls_t const *      const client,
   return (long)read_sz;
 }
 
-FD_FN_PURE char const *
+char const *
 fd_tls_alert_cstr( uint alert ) {
   switch( alert ) {
   case FD_TLS_ALERT_UNEXPECTED_MESSAGE:
@@ -1781,7 +1781,7 @@ fd_tls_alert_cstr( uint alert ) {
   }
 }
 
-FD_FN_PURE char const *
+char const *
 fd_tls_reason_cstr( uint reason ) {
   switch( reason ) {
   case FD_TLS_REASON_ILLEGAL_STATE:

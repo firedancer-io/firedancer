@@ -68,7 +68,7 @@ fd_quic_conn_footprint_ext( fd_quic_limits_t const * limits,
   return off;
 }
 
-FD_FN_PURE ulong
+ulong
 fd_quic_conn_footprint( fd_quic_limits_t const * limits ) {
   fd_quic_conn_layout_t layout;
   return fd_quic_conn_footprint_ext( limits, &layout );

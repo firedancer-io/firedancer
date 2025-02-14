@@ -162,7 +162,7 @@
      // or -1 (i.e. ERR_INVAL) otherwise (logs details).
 
      int
-     mydlist_verify( mydlist_t const * join,    // Current local join to a mydlist.  
+     mydlist_verify( mydlist_t const * join,    // Current local join to a mydlist.
                      ulong             ele_cnt, // Element storage size, in [0,mydlist_ele_max()]
                      myele_t const *   pool );  // Current local join to element storage, indexed [0,ele_cnt)
 
@@ -642,7 +642,7 @@ DLIST_(t) *       DLIST_(join)     ( void *      shdlist );
 void *            DLIST_(leave)    ( DLIST_(t) * join    );
 void *            DLIST_(delete)   ( void *      shdlist );
 
-FD_FN_PURE int
+int
 DLIST_(verify)( DLIST_(t) const *   join,
                 ulong               ele_cnt,
                 DLIST_ELE_T const * pool );
@@ -753,7 +753,7 @@ DLIST_(delete)( void * shdlist ) {
   return shdlist;
 }
 
-FD_FN_PURE DLIST_IMPL_STATIC int
+DLIST_IMPL_STATIC int
 DLIST_(verify)( DLIST_(t) const *   join,
                 ulong               ele_cnt,
                 DLIST_ELE_T const * pool ) {

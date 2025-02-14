@@ -490,7 +490,7 @@ TREAP_STATIC FD_FN_PURE TREAP_(rev_iter_t) TREAP_(rev_iter_next)( TREAP_(rev_ite
 
 TREAP_STATIC TREAP_(t) * TREAP_(merge)( TREAP_(t) * treap_a, TREAP_(t) * treap_b, TREAP_T * pool );
 
-TREAP_STATIC FD_FN_PURE int TREAP_(verify)( TREAP_(t) const * treap, TREAP_T const * pool );
+TREAP_STATIC int TREAP_(verify)( TREAP_(t) const * treap, TREAP_T const * pool );
 
 /* inlines */
 

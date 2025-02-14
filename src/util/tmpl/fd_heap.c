@@ -319,7 +319,7 @@ HEAP_STATIC HEAP_(t) * HEAP_(idx_insert)( HEAP_(t) * heap, ulong n, HEAP_T * poo
 
 HEAP_STATIC HEAP_(t) * HEAP_(idx_remove_min)( HEAP_(t) * heap, HEAP_T * pool );
 
-HEAP_STATIC FD_FN_PURE int HEAP_(verify)( HEAP_(t) const * heap, HEAP_T const * pool );
+HEAP_STATIC int HEAP_(verify)( HEAP_(t) const * heap, HEAP_T const * pool );
 
 /* inlines */
 

@@ -387,7 +387,7 @@ fd_quic_conn_get_pkt_meta_free_count( fd_quic_conn_t * conn );
 FD_QUIC_API FD_FN_CONST ulong
 fd_quic_align( void );
 
-FD_QUIC_API FD_FN_PURE ulong
+FD_QUIC_API ulong
 fd_quic_footprint( fd_quic_limits_t const * limits );
 
 /* fd_quic_new formats an unused memory region for use as a QUIC client

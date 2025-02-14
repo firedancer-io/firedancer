@@ -537,7 +537,7 @@ MAP_(query_safe)( MAP_T const *     join,
                    MAP_KEY_T const * key,
                    MAP_T const *     null );
 
-FD_FN_PURE int
+int
 MAP_(verify)( MAP_T const * join );
 
 MAP_T *
@@ -974,7 +974,7 @@ MAP_(query_safe)( MAP_T const *     join,
   return sentinel;
 }
 
-FD_FN_PURE MAP_IMPL_STATIC int
+MAP_IMPL_STATIC int
 MAP_(verify)( MAP_T const * join ) {
 
 # define MAP_TEST(c) do {                                                        \

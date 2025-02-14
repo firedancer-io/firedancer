@@ -28,7 +28,7 @@
    (multiplexer).  An arbitrary number of QUIC tiles can be run.  Each
    UDP flow must stick to one QUIC tile. */
 
-FD_FN_CONST static inline fd_quic_limits_t
+static inline fd_quic_limits_t
 quic_limits( fd_topo_tile_t const * tile ) {
   fd_quic_limits_t limits = {
     .conn_cnt      = tile->quic.max_concurrent_connections,
