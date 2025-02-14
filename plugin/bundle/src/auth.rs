@@ -141,22 +141,30 @@ pub async fn maybe_refresh_auth_tokens(
         refresh_token_expiry.checked_sub(now).unwrap_or_default() <= refresh_within_s;
 
     if should_generate_new_tokens {
+        log::info!("Refreshing auth tokens");
         let (new_access_token, new_refresh_token) = timeout(
             *connection_timeout,
             generate_auth_tokens(auth_service_client, pubkey),
         )
         .await
-        .map_err(|_| ProxyError::MethodTimeout("generate_auth_tokens".to_string()))?
+        .map_err(|_| {
+            log::info!("generate_auth_tokens timed out");
+            ProxyError::MethodTimeout("generate_auth_tokens".to_string())
+        })?
         .map_err(|e| ProxyError::MethodError(e.to_string()))?;
 
         return Ok((Some(new_access_token), Some(new_refresh_token)));
     } else if should_refresh_access {
+        log::info!("Refreshing access tokens");
         let new_access_token = timeout(
             *connection_timeout,
             refresh_access_token(auth_service_client, refresh_token),
         )
         .await
-        .map_err(|_| ProxyError::MethodTimeout("refresh_access_token".to_string()))?
+        .map_err(|_| {
+            log::info!("refresh_access_token timed out");
+            ProxyError::MethodTimeout("refresh_access_token".to_string())
+        })?
         .map_err(|e| ProxyError::MethodError(e.to_string()))?;
 
         return Ok((Some(new_access_token), None));
