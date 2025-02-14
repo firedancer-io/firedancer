@@ -235,12 +235,14 @@ during_housekeeping( fd_shred_ctx_t * ctx ) {
   if( FD_UNLIKELY( fd_keyswitch_state_query( ctx->keyswitch )==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
     ulong seq_must_complete = ctx->keyswitch->param;
 
-    if( FD_UNLIKELY( fd_seq_le( seq_must_complete, ctx->poh_in_expect_seq ) ) ) {
+    if( FD_UNLIKELY( fd_seq_lt( ctx->poh_in_expect_seq, seq_must_complete ) ) ) {
       /* See fd_keyswitch.h, we need to flush any in-flight shreds from
          the leader pipeline before switching key. */
+      FD_LOG_WARNING(( "Flushing in-flight unpublished shreds, must reach seq %lu, currently at %lu ...", seq_must_complete, ctx->poh_in_expect_seq ));
       return;
     }
 
+    fd_memcpy( ctx->identity_key->uc, ctx->keyswitch->bytes, 32UL );
     fd_stake_ci_set_identity( ctx->stake_ci, ctx->identity_key );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
   }

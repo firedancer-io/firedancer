@@ -198,7 +198,7 @@ poll_keyswitch( fd_topo_t * topo,
         FD_COMPILER_MFENCE();
         shred->state = FD_KEYSWITCH_STATE_SWITCH_PENDING;
         FD_COMPILER_MFENCE();
-        FD_LOG_INFO(( "Flushing in-flight unpublished shreds..." ));
+        FD_LOG_INFO(( "Flushing in-flight unpublished shreds, must reach seq %lu...", *halted_seq ));
       }
 
       *state = FD_SET_IDENTITY_STATE_SHRED_FLUSH_REQUESTED;
@@ -215,8 +215,9 @@ poll_keyswitch( fd_topo_t * topo,
         if( FD_LIKELY( shred->state==FD_KEYSWITCH_STATE_COMPLETED ) ) {
           continue;
         } else if( FD_UNLIKELY( shred->state==FD_KEYSWITCH_STATE_SWITCH_PENDING ) ) {
+          /* If any of the shred tiles is still pending, we need to wait. */
           FD_SPIN_PAUSE();
-          break;
+          return;
         } else {
           FD_LOG_ERR(( "Unexpected shred:%lu keyswitch state %lu", tile->kind_id, shred->state ));
         }
