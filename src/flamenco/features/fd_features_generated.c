@@ -1377,8 +1377,8 @@ fd_feature_id_t const ids[] = {
     .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_secp256r1_precompile)>>3,
-    .id                        = {"\x0d\x06\x71\xf0\x4f\xe3\x38\x2c\x46\xac\x54\x4a\xad\x9b\x98\x50\xa8\xa0\x26\x18\x41\x58\x58\xbf\xe8\xf0\xca\x6c\x04\x32\x18\x93"},
-                                 /* sr11RdZWgbHTHxSroPALe6zgaT5A1K9LcE4nfsZS4gi */
+    .id                        = {"\x0d\x07\x69\xb2\x4d\xf9\xa6\xa3\xbe\x46\x1c\xcd\x33\x4f\x22\xcd\x35\x49\x98\xc6\xf6\xaf\xb6\x8c\xe5\x39\xef\x19\x11\x48\x56\xa4"},
+                                 /* srremy31J5Y25FrAApwVb9kZcfXbusYMMsvTK9aWv5q */
     .name                      = "enable_secp256r1_precompile",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
@@ -1734,7 +1734,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0x0b9047b5bb9ef961: return &ids[ 201 ];
   case 0xa5a66405d0ab6309: return &ids[ 202 ];
   case 0x81fcbfa0d0f6b105: return &ids[ 203 ];
-  case 0x2c38e34ff071060d: return &ids[ 204 ];
+  case 0xa3a6f94db269070d: return &ids[ 204 ];
   case 0x829062f252ef5ba8: return &ids[ 205 ];
   case 0x1db51f609c8fcd07: return &ids[ 206 ];
   case 0xe5937c9dd5edd306: return &ids[ 207 ];
