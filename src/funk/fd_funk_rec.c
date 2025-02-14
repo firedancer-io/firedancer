@@ -242,7 +242,7 @@ fd_funk_rec_modify( fd_funk_t *           funk,
   return (fd_funk_rec_t *)rec;
 }
 
-FD_FN_PURE int
+int
 fd_funk_rec_is_modified( fd_funk_t *           funk,
                          fd_funk_rec_t const * rec ) {
 

@@ -509,7 +509,7 @@ POOL_STATIC int POOL_(lock)( POOL_(t) * join, int blocking );
 
 POOL_STATIC void POOL_(reset)( POOL_(t) * join, ulong sentinel_cnt );
 
-POOL_STATIC FD_FN_PURE int POOL_(verify)( POOL_(t) const * join );
+POOL_STATIC int POOL_(verify)( POOL_(t) const * join );
 
 POOL_STATIC FD_FN_CONST char const * POOL_(strerror)( int err );
 

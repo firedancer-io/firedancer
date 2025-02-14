@@ -111,7 +111,7 @@ struct __attribute__((packed)) fd_voter_meta {
 typedef struct fd_voter_meta fd_voter_meta_t;
 
 struct __attribute__((packed)) fd_voter_state {
-  uint discriminant; 
+  uint discriminant;
   union {
     struct __attribute__((packed)) {
       fd_voter_meta_old_t meta;
@@ -173,7 +173,10 @@ fd_voter_state_vote( fd_voter_state_t const * state ) {
 /* fd_voter_state_root returns the voter's tower root.  Assumes `state`
    is a valid fd_voter_state_t. */
 
-FD_FN_PURE static inline ulong
+#if FD_VOTER_USE_HANDHOLDING
+FD_FN_PURE
+#endif
+static inline ulong
 fd_voter_state_root( fd_voter_state_t const * state ) {
   ulong cnt = fd_voter_state_cnt( state );
   if( FD_UNLIKELY( !cnt ) ) return FD_SLOT_NULL;

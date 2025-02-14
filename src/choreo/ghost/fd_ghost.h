@@ -8,7 +8,7 @@
 
    - LMD is an acronym for "latest message-driven".  It describes how
      votes are counted when picking the best fork.  In this scheme, only
-     a validator's latest vote counts.  So if a validator votes for slot 
+     a validator's latest vote counts.  So if a validator votes for slot
      3 and then slot 5, the vote for 5 overwrites the vote for 3.
 
    - GHOST is an acronym for "greedy heaviest-observed subtree":
@@ -117,14 +117,14 @@ struct __attribute__((aligned(128UL))) fd_ghost {
   ulong ghost_gaddr; /* wksp gaddr of this in the backing wksp, non-zero gaddr */
   ulong seed;        /* seed for various hashing function used under the hood, arbitrary */
   ulong root_idx;    /* node_pool idx of the root */
-  
+
   /* version fseq. query pre & post read. if value is ULONG_MAX, ghost
      is uninitialized or invalid.
 
      odd:  if either pre or post is odd, discard read.
      even: if pre == post, read is consistent. */
 
-  ulong ver_gaddr; 
+  ulong ver_gaddr;
 
   /* The ghost node_pool is a memory pool of tree nodes from which one
      is allocated for each slot.  The node map is a fd_map_chain to
@@ -276,7 +276,7 @@ fd_ghost_child( fd_ghost_t const * ghost, fd_ghost_node_t const * parent ) {
    local join and has been initialized with fd_ghost_init and is
    therefore non-empty. */
 
-FD_FN_PURE fd_ghost_node_t const *
+fd_ghost_node_t const *
 fd_ghost_head( fd_ghost_t const * ghost, fd_ghost_node_t const * node );
 
 /* fd_ghost_query returns the node keyed by `slot` or NULL if not
@@ -294,7 +294,7 @@ fd_ghost_query( fd_ghost_t const * ghost, ulong slot ) {
    returns NULL with handholding enabled).  This is guaranteed to be
    non-NULL if slot1 and slot2 are both present. */
 
-FD_FN_PURE fd_ghost_node_t const *
+fd_ghost_node_t const *
 fd_ghost_gca( fd_ghost_t const * ghost, ulong slot1, ulong slot2 );
 
 /* fd_ghost_is_ancestor returns 1 if `ancestor` is `slot`'s ancestor, 0
@@ -376,7 +376,7 @@ FD_FN_PURE int
 fd_ghost_verify( fd_ghost_t const * ghost );
 
 /* fd_ghost_print pretty-prints a formatted ghost tree.  Printing begins
-   from `node` (it will appear as the root in the print output). 
+   from `node` (it will appear as the root in the print output).
 
    The most straightforward and commonly used printing pattern is:
    `fd_ghost_print( ghost, fd_ghost_root( ghost ) )`

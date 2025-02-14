@@ -150,7 +150,7 @@ fd_toml_upsert_empty_pod( fd_toml_parser_t * parser ) {
 
 /* fd_toml_avail returns the number of bytes available for parsing. */
 
-FD_FN_PURE static inline ulong
+static inline ulong
 fd_toml_avail( fd_toml_parser_t const * parser ) {
   if( FD_UNLIKELY( parser->c.data > parser->data_end ) ) {
     FD_LOG_CRIT(( "Parse cursor is out of bounds" ));

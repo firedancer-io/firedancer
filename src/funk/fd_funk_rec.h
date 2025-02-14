@@ -315,7 +315,7 @@ fd_funk_txn_rec_tail( fd_funk_txn_t const * txn,        /* Assumes an in-prepara
 
    This is a reasonably fast O(1). */
 
-FD_FN_PURE fd_funk_rec_t *
+fd_funk_rec_t *
 fd_funk_rec_modify( fd_funk_t *           funk,
                     fd_funk_rec_t const * rec );
 
@@ -324,7 +324,7 @@ fd_funk_rec_modify( fd_funk_t *           funk,
    key (or there is no prior incarnation). Returns -1 if rec is part
    of a published transaction. Return 0 otherwise. */
 
-FD_FN_PURE int
+int
 fd_funk_rec_is_modified( fd_funk_t *           funk,
                          fd_funk_rec_t const * rec );
 

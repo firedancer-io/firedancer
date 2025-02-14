@@ -169,7 +169,7 @@ fd_fib4_cnt( fd_fib4_t const * fib );
    guaranteed to succeed, if fib is in PREPARE state.  If fib is in ACTIVE
    state returns 0. */
 
-FD_FN_PURE ulong
+ulong
 fd_fib4_free_cnt( fd_fib4_t const * fib );
 
 #if FD_HAS_HOSTED

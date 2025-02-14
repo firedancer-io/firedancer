@@ -367,7 +367,7 @@ fd_runtime_collect_rent( fd_exec_slot_ctx_t * slot_ctx ) {
 /* fee to be deposited should be > 0
    Returns 0 if validation succeeds
    Returns the amount to burn(==fee) on failure */
-FD_FN_PURE static ulong
+static ulong
 fd_runtime_validate_fee_collector( fd_exec_slot_ctx_t    const * slot_ctx,
                                    fd_borrowed_account_t const * collector,
                                    ulong                         fee ) {

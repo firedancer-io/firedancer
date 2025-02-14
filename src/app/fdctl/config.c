@@ -229,7 +229,7 @@ username_to_id( config_t * config ) {
   if( FD_UNLIKELY( munmap( results, 4096 ) ) ) FD_LOG_ERR(( "munmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 }
 
-FD_FN_CONST fd_topo_run_tile_t *
+fd_topo_run_tile_t *
 fd_topo_tile_to_config( fd_topo_tile_t const * tile ) {
   fd_topo_run_tile_t ** run = TILES;
   while( *run ) {
