@@ -1,3 +1,5 @@
+#define _GNU_SOURCE  /* Enable GNU and POSIX extensions */
+
 #include "../../../../disco/tiles.h"
 
 #include "fd_archiver.h"
@@ -17,13 +19,17 @@
 #define NET_GOSSIP_OUT_IDX (2UL)
 #define NET_REPAIR_OUT_IDX (3UL)
 
+#define FD_ARCHIVER_PLAYBACK_ALLOC_TAG   (3UL)
+
 #define FD_ARCHIVER_STARTUP_DELAY_SECONDS (1)
+#define FD_ARCHIVE_PLAYBACK_BUFFER_SZ      (FD_SHMEM_GIGANTIC_PAGE_SZ)
 
 struct fd_archiver_playback_stats {
   ulong net_shred_out_cnt;
   ulong net_quic_out_cnt;
   ulong net_gossip_out_cnt;
   ulong net_repair_out_cnt;
+
 };
 typedef struct fd_archiver_playback_stats fd_archiver_playback_stats_t;
 
@@ -35,9 +41,8 @@ typedef struct {
 } fd_archiver_playback_out_ctx_t;
 
 struct fd_archiver_playback_tile_ctx {
-  void * archive_map;
-  ulong  archive_size;
-  ulong  archive_off;
+  fd_io_buffered_istream_t istream;
+  uchar *                  istream_buf;
 
   fd_archiver_playback_stats_t stats;
 
@@ -47,6 +52,9 @@ struct fd_archiver_playback_tile_ctx {
   ulong next_publish_ns;
 
   fd_archiver_playback_out_ctx_t out[ 32 ];
+
+  fd_alloc_t * alloc;
+  fd_valloc_t  valloc;
 };
 typedef struct fd_archiver_playback_tile_ctx fd_archiver_playback_tile_ctx_t;
 
@@ -114,9 +122,10 @@ privileged_init( fd_topo_t *      topo,
     FD_SCRATCH_ALLOC_INIT( l, scratch );
     fd_archiver_playback_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_archiver_playback_tile_ctx_t), sizeof(fd_archiver_playback_tile_ctx_t) ); 
     memset( ctx, 0, sizeof(fd_archiver_playback_tile_ctx_t) );
+    FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
     FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
-    tile->archiver.archive_fd = open( tile->archiver.archive_path, O_RDONLY, 0666 );
+    tile->archiver.archive_fd = open( tile->archiver.archive_path, O_RDONLY | O_DIRECT, 0666 );
     if ( FD_UNLIKELY( tile->archiver.archive_fd == -1 ) ) {
       FD_LOG_ERR(( "failed to open archive file %s %d %d %s", tile->archiver.archive_path, tile->archiver.archive_fd, errno, strerror(errno) ));
     }
@@ -129,30 +138,30 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_archiver_playback_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_archiver_playback_tile_ctx_t), sizeof(fd_archiver_playback_tile_ctx_t) );
+  void * alloc_shmem                    = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
   ctx->tick_per_ns = fd_tempo_tick_per_ns( NULL );
 
-  /* mmap the file in */
-  struct stat st;
-  if( FD_UNLIKELY( fstat( tile->archiver.archive_fd, &st ) ) ) {
-    FD_LOG_ERR(( "fstat on archive fd failed (%i-%s)", errno, strerror(errno) ));
+  /* Allocator */
+  ctx->alloc = fd_alloc_join( fd_alloc_new( alloc_shmem, FD_ARCHIVER_PLAYBACK_ALLOC_TAG ), fd_tile_idx() );
+  if( FD_UNLIKELY( !ctx->alloc ) ) {
+    FD_LOG_ERR( ( "fd_alloc_join failed" ) );
   }
-  ctx->archive_size = (ulong)st.st_size;
-  void * map_addr = mmap( NULL, ctx->archive_size, PROT_READ, MAP_PRIVATE, tile->archiver.archive_fd, 0 );
-  if( FD_UNLIKELY( map_addr == MAP_FAILED ) ) {
-    FD_LOG_ERR(( "mmap of archive file failed (%i-%s)", errno, strerror(errno) ));
-  }
-  ctx->archive_map = map_addr;
-  ctx->archive_off = 0UL;
+  ctx->valloc = fd_alloc_virtual( ctx->alloc );
 
-  /* scan for the last non-zero byte - the archive file may have trailing zero bytes */
-  uchar * p         = (uchar *)map_addr;
-  for( long i=(long)ctx->archive_size - 1L; i>=0L; i-- ) {
-    if( p[i] != 0U ) {
-      ctx->archive_size = (ulong)i + 1UL;
-      break;
-    }
+  /* Allocate output buffer */
+  ctx->istream_buf = fd_valloc_malloc( ctx->valloc, 4096, FD_ARCHIVE_PLAYBACK_BUFFER_SZ );
+  if( FD_UNLIKELY( !ctx->istream_buf ) ) {
+    FD_LOG_ERR(( "failed to allocate input buffer" ));
+  }
+
+  /* initialize the file reader */
+  fd_io_buffered_istream_init( &ctx->istream, tile->archiver.archive_fd, ctx->istream_buf, FD_ARCHIVE_PLAYBACK_BUFFER_SZ );
+
+  /* perform the initial read */
+  if( FD_UNLIKELY(( !fd_io_buffered_istream_fetch( &ctx->istream ) )) ) {
+    FD_LOG_WARNING(( "failed initial read" ));
   }
 
   /* Setup output links */
@@ -182,20 +191,14 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
   (void)opt_poll_in;
   (void)charge_busy;
 
-  /* Check if we've reached EOF in the archive. */
-  if( FD_UNLIKELY( ctx->archive_off >= ctx->archive_size ||
-                   (ctx->archive_size - ctx->archive_off) < FD_ARCHIVER_FRAG_HEADER_FOOTPRINT ) ) {
-    FD_LOG_WARNING(( "playback_stats net_shred_out_cnt=%lu, net_quic_out_cnt=%lu, net_gossip_out_cnt=%lu, net_repair_out_cnt=%lu",
-                     ctx->stats.net_shred_out_cnt,
-                     ctx->stats.net_quic_out_cnt,
-                     ctx->stats.net_gossip_out_cnt,
-                     ctx->stats.net_repair_out_cnt ));
-    FD_LOG_ERR(( "end of archive file" ));
+  /* Peek the header without consuming anything, to see if we need to wait */
+  char const * peek = fd_io_buffered_istream_peek( &ctx->istream );
+  if( FD_UNLIKELY(( !peek )) ) {
+    FD_LOG_ERR(( "failed to peek" ));
   }
 
   /* Consume the header */
-  uchar * hdr_ptr                    = (uchar *)ctx->archive_map + ctx->archive_off;
-  fd_archiver_frag_header_t * header = fd_type_pun( hdr_ptr );
+  fd_archiver_frag_header_t * header = fd_type_pun( (char *)peek );
   if( FD_UNLIKELY( header->magic != FD_ARCHIVER_HEADER_MAGIC ) ) {
     FD_LOG_ERR(( "bad magic in archive header: %lu", header->magic ));
   }
@@ -204,7 +207,6 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
   if( ctx->next_publish_ns != 0UL && ctx->next_publish_ns > ctx->now + header->ns_since_prev_fragment ) {
     return;
   }
-  ctx->archive_off += FD_ARCHIVER_FRAG_HEADER_FOOTPRINT;
 
   /* Determine the output link on which to send the frag */
   ulong out_link_idx = 0UL;
@@ -225,14 +227,15 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
     FD_LOG_ERR(( "unsupported tile id" ));
   }
 
-  /* Copy fragment from archive file into the output link, ready for publishing */
-  if( FD_UNLIKELY( (ctx->archive_size - ctx->archive_off) < header->sz ) ) {
-    FD_LOG_ERR(( "archive file too small" ));
+  /* Consume the header from the stream */
+  fd_archiver_frag_header_t header_tmp;
+  if( FD_UNLIKELY( fd_io_buffered_istream_read( &ctx->istream, &header_tmp, FD_ARCHIVER_FRAG_HEADER_FOOTPRINT ) )) {
+    FD_LOG_ERR(( "failed to consume header" ));
   }
 
-  uchar const * frag_ptr = (uchar const *)ctx->archive_map + ctx->archive_off;
+  /* Consume the fragment from the stream */
   uchar       * dst      = (uchar *)fd_chunk_to_laddr( ctx->out[ out_link_idx ].mem, ctx->out[ out_link_idx ].chunk );
-  fd_memcpy( dst, frag_ptr, header->sz );
+  fd_io_buffered_istream_read( &ctx->istream, dst, header_tmp.sz );
 
   fd_stem_publish( stem, out_link_idx, header->sig, ctx->out[ out_link_idx ].chunk, header->sz, 0UL, 0UL, 0UL);
   ctx->out[ out_link_idx ].chunk = fd_dcache_compact_next( ctx->out[ out_link_idx ].chunk,
@@ -240,7 +243,6 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
                                                                         ctx->out[ out_link_idx ].chunk0,
                                                                         ctx->out[ out_link_idx ].wmark );
 
-  ctx->archive_off += header->sz;
   ctx->next_publish_ns = ctx->now + header->ns_since_prev_fragment;
 }
 
