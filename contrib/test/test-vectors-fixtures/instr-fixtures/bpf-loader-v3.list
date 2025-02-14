@@ -8,6 +8,7 @@ dump/test-vectors/instr/fixtures/bpf-loader-v3/b12ffbfaddfbe2b91bc773e602e6332f1
 dump/test-vectors/instr/fixtures/bpf-loader-v3/990563ae7eb4ef56bf61683e23ae4a2bd0606bdb_1579578.fix
 dump/test-vectors/instr/fixtures/bpf-loader-v3/001f7d052e94e53211232fe89856de144eadd532_2106574.fix
 dump/test-vectors/instr/fixtures/bpf-loader-v3/096f79a1f0594e3895e7705c5aec31d1b1c0e1d9_2108067.fix
+dump/test-vectors/instr/fixtures/bpf-loader-v3/0cdad37da376b4ad5ad7d143905d9cffe8485ac5_542271.fix
 dump/test-vectors/instr/fixtures/bpf-loader-v3/0d27553996f676a4a311964e09c04ca53d76a276_2106892.fix
 dump/test-vectors/instr/fixtures/bpf-loader-v3/12664445169ee71639c76b2f380ba6e93caf8b25_2105070.fix
 dump/test-vectors/instr/fixtures/bpf-loader-v3/154eaa88fb4c67d219f6a76ed6fc4af9351fe677_2108280.fix
