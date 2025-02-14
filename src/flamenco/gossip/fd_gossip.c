@@ -1016,8 +1016,8 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 
   /* Compute the number of packets needed for all the bloom filter parts
      with a desired false positive rate <0.1% (upper bounded by FD_BLOOM_MAX_PACKETS ) */
-  ulong nitems = fd_ulong_max( fd_value_table_key_cnt(glob->values), 65536UL );
-  ulong nkeys = 1;
+  ulong nitems = fd_value_table_key_cnt(glob->values);
+  ulong nkeys = 3;
   ulong npackets = 1;
   uint nmaskbits = 0;
   double e = 0;
@@ -1025,8 +1025,8 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
     do {
       double n = ((double)nitems)/((double)npackets); /* Assume even division of values */
       double m = (double)FD_BLOOM_NUM_BITS;
-      nkeys = fd_ulong_max(1U, (ulong)((m/n)*0.69314718055994530941723212145818 /* ln(2) */));
-      nkeys = fd_ulong_min(nkeys, FD_BLOOM_MAX_KEYS);
+      // nkeys = fd_ulong_max(1U, (ulong)((m/n)*0.69314718055994530941723212145818 /* ln(2) */));
+      // nkeys = fd_ulong_min(nkeys, FD_BLOOM_MAX_KEYS);
       if (npackets == FD_BLOOM_MAX_PACKETS)
         break;
       double k = (double)nkeys;
@@ -1042,7 +1042,8 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   /* Generate random keys */
   ulong keys[FD_BLOOM_MAX_KEYS];
   for (ulong i = 0; i < nkeys; ++i)
-    keys[i] = fd_rng_ulong(glob->rng);
+    // keys[i] = fd_rng_ulong(glob->rng);
+    keys[i] = i;
   /* Set all the bits */
   ulong num_bits_set[FD_BLOOM_MAX_PACKETS];
   for (ulong i = 0; i < npackets; ++i)

@@ -46,7 +46,7 @@ send_packet_fun( uchar const * data, size_t sz, fd_gossip_peer_addr_t const * ad
     (void)arg;
     static uint cnt = 0;
     char filename[100];
-    sprintf(filename, "/home/rsivakumaran/scratch/gossip/firedancer_pull_reqs/%u.bin", cnt++);
+    sprintf(filename, "/home/rsivakumaran/scratch/gossip/firedancer_epoch_pull_reqs/%u.bin", cnt++);
     FILE * file = fopen(filename, "wb");
     if ( file ) {
         fwrite( data, 1, sz, file );
@@ -110,7 +110,7 @@ void
 populate_crds( fd_gossip_t * glob ){
     DIR * dir;
     struct dirent * ent;
-    const char * path = "/home/rsivakumaran/scratch/gossip/gossip_crds_msg_dump/";
+    const char * path = "/home/rsivakumaran/scratch/gossip/gossip_epoch_msg_dump/";
     dir = opendir( path );
     if (dir == NULL) {
         perror("opendir");
