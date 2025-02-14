@@ -1411,7 +1411,7 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
       fd_dump_instr_to_protobuf(txn_ctx, &txn_ctx->instr_infos[i], i);
     }
 
-
+    txn_ctx->current_instr_idx = i;
     int instr_exec_result = fd_execute_instr( txn_ctx, &txn_ctx->instr_infos[i] );
 #ifdef VLOG
     FD_LOG_WARNING(( "fd_execute_instr result (%d) for %s", exec_result, FD_BASE58_ENC_64_ALLOCA( sig ) ));
