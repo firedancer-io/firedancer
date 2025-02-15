@@ -62,7 +62,8 @@ export default defineConfig({
           text: 'Internals',
           collapsed: false,
           items: [
-            { text: 'Netlink', link: 'netlink' },
+            { text: 'Net Tile', link: 'internals/net_tile' },
+            { text: 'Netlink', link: 'internals/netlink' },
           ]
         }
       ] },
