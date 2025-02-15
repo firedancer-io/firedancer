@@ -1,29 +1,6 @@
 /* The net tile translates between AF_XDP and fd_tango
    traffic.  It is responsible for setting up the XDP and
-   XSK socket configuration.
-
-   ### Why does this tile bind to loopback?
-
-   The Linux kernel routes outgoing packets addressed to IP addresses
-   owned by the system via loopback.  (See `ip route show table local`)
-   The net tile partially matches this behavior.  For better performance
-   and simplicity, a second XDP socket is used.
-
-   Sending such traffic out through the real network interface to the
-   router might result in connectivity issues.
-
-   There are two reasons to send packets to our own public IP address:
-
-   * For testing and development.
-   * The Agave code sends local traffic to itself to
-     as part of routine operation (eg, when it's the leader
-     it sends votes to its own TPU socket).
-
-   So for now we need to also bind to loopback. This is a
-   small performance hit for other traffic, but we only
-   redirect packets destined for our target IP and port so
-   it will not otherwise interfere. Loopback only supports
-   XDP in SKB mode. */
+   XSK socket configuration. */
 
 #include <errno.h>
 #include <fcntl.h>
