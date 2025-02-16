@@ -105,14 +105,12 @@ extern int    fd_ext_bank_verify_precompiles( void const * bank, void const * tx
 
 static inline void
 during_frag( fd_bank_ctx_t * ctx,
-             ulong           in_idx,
-             ulong           seq,
-             ulong           sig,
+             ulong           in_idx FD_PARAM_UNUSED,
+             ulong           seq    FD_PARAM_UNUSED,
+             ulong           sig    FD_PARAM_UNUSED,
              ulong           chunk,
-             ulong           sz ) {
-  (void)in_idx;
-  (void)seq;
-  (void)sig;
+             ulong           sz,
+             ulong           ctl    FD_PARAM_UNUSED ) {
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->pack_in_mem, chunk );
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );

@@ -307,11 +307,11 @@ before_frag( fd_shred_ctx_t * ctx,
 static void
 during_frag( fd_shred_ctx_t * ctx,
              ulong            in_idx,
-             ulong            seq,
+             ulong            seq FD_PARAM_UNUSED,
              ulong            sig,
              ulong            chunk,
-             ulong            sz ) {
-  (void)seq;
+             ulong            sz,
+             ulong            ctl ) {
 
   ctx->skip_frag = 0;
 
@@ -461,7 +461,7 @@ during_frag( fd_shred_ctx_t * ctx,
        the FEC resolver when we know it won't be overrun anymore. */
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_NET_MTU ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
-    uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
+    uchar const * dcache_entry = (uchar const *)fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk ) + ctl;
     ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
     FD_TEST( hdr_sz <= sz ); /* Should be ensured by the net tile */
     fd_shred_t const * shred = fd_shred_parse( dcache_entry+hdr_sz, sz-hdr_sz );

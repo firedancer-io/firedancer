@@ -614,11 +614,11 @@ after_credit( fd_pack_ctx_t *     ctx,
 static inline void
 during_frag( fd_pack_ctx_t * ctx,
              ulong           in_idx,
-             ulong           seq,
+             ulong           seq FD_PARAM_UNUSED,
              ulong           sig,
              ulong           chunk,
-             ulong           sz ) {
-  (void)seq;
+             ulong           sz,
+             ulong           ctl FD_PARAM_UNUSED ) {
 
   uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
 

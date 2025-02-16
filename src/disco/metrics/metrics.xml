@@ -57,12 +57,17 @@ metric introduced.
     <counter name="RxUnderszCnt" summary="Number of incoming packets dropped due to being too small." />
     <counter name="RxFillBlockedCnt" summary="Number of incoming packets dropped due to fill ring being full." />
     <counter name="RxBackpressureCnt" summary="Number of incoming packets dropped due to backpressure." />
+    <gauge name="RxBusyCnt" summary="Number of receive buffers currently busy." />
+    <gauge name="RxIdleCnt" summary="Number of receive buffers currently idle." />
 
     <counter name="TxSubmitCnt" summary="Number of packet transmit jobs submitted." />
     <counter name="TxCompleteCnt" summary="Number of packet transmit jobs marked as completed by the kernel." />
     <counter name="TxBytesTotal" summary="Total number of bytes transmitted (including Ethernet header)." />
     <counter name="TxRouteFailCnt" summary="Number of packet transmit jobs dropped due to route failure." />
     <counter name="TxNeighborFailCnt" summary="Number of packet transmit jobs dropped due to unresolved neighbor." />
+    <counter name="TxFullFailCnt" summary="Number of packet transmit jobs dropped due to XDP TX ring full or missing completions." />
+    <gauge name="TxBusyCnt" summary="Number of transmit buffers currently busy." />
+    <gauge name="TxIdleCnt" summary="Number of transmit buffers currently idle." />
 
     <counter name="XskTxWakeupCnt" summary="Number of XSK sendto syscalls dispatched." />
     <counter name="XskRxWakeupCnt" summary="Number of XSK recvmsg syscalls dispatched." />
@@ -74,8 +79,6 @@ metric introduced.
     <counter name="XdpRxRingFull" summary="xdp_statistics_v1.rx_ring_full: Dropped due to rx ring being full" />
     <counter name="XdpRxFillRingEmptyDescs" summary="xdp_statistics_v1.rx_fill_ring_empty_descs: Failed to retrieve item from fill ring" />
     <counter name="XdpTxRingEmptyDescs" summary="xdp_statistics_v1.tx_ring_empty_descs: Failed to retrieve item from tx ring" />
-
-    <counter name="TxFullFailCnt" summary="Number of packet transmit jobs dropped due to XDP TX ring full or missing completions." />
 </tile>
 
 <enum name="TpuRecvType">

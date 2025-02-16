@@ -221,12 +221,11 @@ during_housekeeping( fd_poh_ctx_t * ctx ) {
 static inline void
 during_frag( fd_poh_ctx_t * ctx,
              ulong         in_idx,
-             ulong         seq,
+             ulong         seq FD_PARAM_UNUSED,
              ulong         sig,
              ulong         chunk,
-             ulong         sz ) {
-  (void)seq;
-  (void)sig;
+             ulong         sz,
+             ulong         ctl FD_PARAM_UNUSED ) {
 
   ctx->filter_frag = 0;
 

@@ -332,17 +332,12 @@ after_credit( fd_benchg_ctx_t *   ctx,
 
 static inline void
 during_frag( fd_benchg_ctx_t * ctx,
-             ulong             in_idx,
-             ulong             seq,
-             ulong             sig,
+             ulong             in_idx FD_PARAM_UNUSED,
+             ulong             seq    FD_PARAM_UNUSED,
+             ulong             sig    FD_PARAM_UNUSED,
              ulong             chunk,
-             ulong             sz ) {
-  (void)in_idx;
-  (void)seq;
-  (void)sig;
-  (void)chunk;
-  (void)sz;
-
+             ulong             sz     FD_PARAM_UNUSED,
+             ulong             ctl    FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( !ctx->has_recent_blockhash ) ) {
     fd_memcpy( ctx->recent_blockhash, fd_chunk_to_laddr( ctx->mem, chunk ), 32UL );
     ctx->has_recent_blockhash = 1;

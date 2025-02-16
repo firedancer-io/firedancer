@@ -125,7 +125,8 @@ during_frag( void * _ctx,
              ulong  seq,
              ulong  sig,
              ulong  chunk,
-             ulong  sz ) {
+             ulong  sz,
+             ulong  ctl FD_PARAM_UNUSED ) {
   during_frag_sensitive( _ctx, in_idx, seq, sig, chunk, sz );
 }
 

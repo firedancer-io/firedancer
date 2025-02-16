@@ -42,11 +42,16 @@
 | net_&#8203;rx_&#8203;undersz_&#8203;cnt | `counter` | Number of incoming packets dropped due to being too small. |
 | net_&#8203;rx_&#8203;fill_&#8203;blocked_&#8203;cnt | `counter` | Number of incoming packets dropped due to fill ring being full. |
 | net_&#8203;rx_&#8203;backpressure_&#8203;cnt | `counter` | Number of incoming packets dropped due to backpressure. |
+| net_&#8203;rx_&#8203;busy_&#8203;cnt | `gauge` | Number of receive buffers currently busy. |
+| net_&#8203;rx_&#8203;idle_&#8203;cnt | `gauge` | Number of receive buffers currently idle. |
 | net_&#8203;tx_&#8203;submit_&#8203;cnt | `counter` | Number of packet transmit jobs submitted. |
 | net_&#8203;tx_&#8203;complete_&#8203;cnt | `counter` | Number of packet transmit jobs marked as completed by the kernel. |
 | net_&#8203;tx_&#8203;bytes_&#8203;total | `counter` | Total number of bytes transmitted (including Ethernet header). |
 | net_&#8203;tx_&#8203;route_&#8203;fail_&#8203;cnt | `counter` | Number of packet transmit jobs dropped due to route failure. |
 | net_&#8203;tx_&#8203;neighbor_&#8203;fail_&#8203;cnt | `counter` | Number of packet transmit jobs dropped due to unresolved neighbor. |
+| net_&#8203;tx_&#8203;full_&#8203;fail_&#8203;cnt | `counter` | Number of packet transmit jobs dropped due to XDP TX ring full or missing completions. |
+| net_&#8203;tx_&#8203;busy_&#8203;cnt | `gauge` | Number of transmit buffers currently busy. |
+| net_&#8203;tx_&#8203;idle_&#8203;cnt | `gauge` | Number of transmit buffers currently idle. |
 | net_&#8203;xsk_&#8203;tx_&#8203;wakeup_&#8203;cnt | `counter` | Number of XSK sendto syscalls dispatched. |
 | net_&#8203;xsk_&#8203;rx_&#8203;wakeup_&#8203;cnt | `counter` | Number of XSK recvmsg syscalls dispatched. |
 | net_&#8203;xdp_&#8203;rx_&#8203;dropped_&#8203;other | `counter` | xdp_statistics_v0.rx_dropped: Dropped for other reasons |
@@ -55,7 +60,6 @@
 | net_&#8203;xdp_&#8203;rx_&#8203;ring_&#8203;full | `counter` | xdp_statistics_v1.rx_ring_full: Dropped due to rx ring being full |
 | net_&#8203;xdp_&#8203;rx_&#8203;fill_&#8203;ring_&#8203;empty_&#8203;descs | `counter` | xdp_statistics_v1.rx_fill_ring_empty_descs: Failed to retrieve item from fill ring |
 | net_&#8203;xdp_&#8203;tx_&#8203;ring_&#8203;empty_&#8203;descs | `counter` | xdp_statistics_v1.tx_ring_empty_descs: Failed to retrieve item from tx ring |
-| net_&#8203;tx_&#8203;full_&#8203;fail_&#8203;cnt | `counter` | Number of packet transmit jobs dropped due to XDP TX ring full or missing completions. |
 
 ## Quic Tile
 | Metric | Type | Description |

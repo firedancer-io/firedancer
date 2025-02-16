@@ -34,15 +34,15 @@ before_frag( void * _ctx FD_FN_UNUSED,
 }
 
 static void
-during_frag( void * _ctx FD_FN_UNUSED,
-             ulong  in_idx,
-             ulong  seq,
-             ulong  sig,
+during_frag( void * _ctx   FD_PARAM_UNUSED,
+             ulong  in_idx FD_PARAM_UNUSED,
+             ulong  seq    FD_PARAM_UNUSED,
+             ulong  sig    FD_PARAM_UNUSED,
              ulong  chunk,
-             ulong  sz ) {
-  (void)in_idx; (void)seq; (void)sig;
+             ulong  sz,
+             ulong  ctl ) {
   fd_quic_ctx_t * ctx = &fd_quic_trace_ctx;
-  fd_memcpy( ctx->buffer, (uchar const *)fd_chunk_to_laddr_const( ctx->in_mem, chunk ), sz );
+  fd_memcpy( ctx->buffer, fd_net_rx_translate_frag( &ctx->net_in_bounds, chunk, ctl, sz ), sz );
 }
 
 static int

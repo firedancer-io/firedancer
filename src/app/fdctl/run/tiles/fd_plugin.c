@@ -47,12 +47,11 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 static inline void
 during_frag( fd_plugin_ctx_t * ctx,
              ulong             in_idx,
-             ulong             seq,
+             ulong             seq FD_PARAM_UNUSED,
              ulong             sig,
              ulong             chunk,
-             ulong             sz ) {
-  (void)seq;
-  (void)sig;
+             ulong             sz,
+             ulong             ctl FD_PARAM_UNUSED ) {
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
   ulong * dst = (ulong *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
