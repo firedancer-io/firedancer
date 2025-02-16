@@ -16,14 +16,6 @@ loop that passes incoming packets down to app tiles, and routes outgoing
 packets to the right network interface.  Internally, it wakes up the
 kernel ~20k times a second to do batches of RX and TX.
 
-::: warning
-
-This manual page refers to a future version of the net tile in
-Firedancer v0.4.  Some information is not accurate for the current
-release version (Firedancer v0.3).
-
-:::
-
 ### Terminology
 
 - NIC: "Network interface"

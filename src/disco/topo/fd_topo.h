@@ -130,6 +130,7 @@ typedef struct {
       char   interface[ 16 ];
       ulong  xdp_rx_queue_size;
       ulong  xdp_tx_queue_size;
+      ulong  free_ring_depth;
       long   tx_flush_timeout_ns;
       char   xdp_mode[8];
       int    zero_copy;
@@ -143,6 +144,7 @@ typedef struct {
       ushort repair_intake_listen_port;
       ushort repair_serve_listen_port;
 
+      ulong umem_dcache_obj_id;    /* dcache for XDP UMEM frames */
       ulong netdev_dbl_buf_obj_id; /* dbl_buf containing netdev_tbl */
       ulong fib4_main_obj_id;      /* fib4 containing main route table */
       ulong fib4_local_obj_id;     /* fib4 containing local route table */
@@ -397,7 +399,7 @@ typedef struct {
 /* An fd_topo_t represents the overall structure of a Firedancer
    configuration, describing all the workspaces, tiles, and links
    between them. */
-typedef struct fd_topo_t {
+struct fd_topo {
   char           app_name[ 256UL ];
   uchar          props[ 16384UL ];
 
@@ -415,7 +417,8 @@ typedef struct fd_topo_t {
   ulong          agave_affinity_cpu_idx[ FD_TILE_MAX ];
 
   ulong          max_page_size; /* 2^21 or 2^30 */
-} fd_topo_t;
+};
+typedef struct fd_topo fd_topo_t;
 
 typedef struct {
   char const * name;

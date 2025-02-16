@@ -226,12 +226,11 @@ finalize_new_cluster_contact_info( fd_sender_tile_ctx_t * ctx ) {
 static void
 during_frag( fd_sender_tile_ctx_t * ctx,
              ulong                  in_idx,
-             ulong                  seq,
-             ulong                  sig,
+             ulong                  seq FD_PARAM_UNUSED,
+             ulong                  sig FD_PARAM_UNUSED,
              ulong                  chunk,
-             ulong                  sz ) {
-  (void)seq;
-  (void)sig;
+             ulong                  sz,
+             ulong                  ctl FD_PARAM_UNUSED ) {
 
   if( FD_UNLIKELY( in_idx==ctx->sign_in_idx ) ) {
     FD_LOG_CRIT(( "signing tile send out of band fragment" ));

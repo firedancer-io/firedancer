@@ -8,15 +8,15 @@
 #include <sys/socket.h> /* MSG_DONTWAIT needed before importing the net seccomp filter */
 #include <linux/if_xdp.h>
 
-#include "../../../../disco/metrics/fd_metrics.h"
-#include "../../../../disco/netlink/fd_netlink_tile.h" /* neigh4_solicit */
-#include "../../../../disco/topo/fd_topo.h"
+#include "../metrics/fd_metrics.h"
+#include "../netlink/fd_netlink_tile.h" /* neigh4_solicit */
+#include "../topo/fd_topo.h"
 
-#include "../../../../waltz/ip/fd_fib4.h"
-#include "../../../../waltz/neigh/fd_neigh4_map.h"
-#include "../../../../waltz/xdp/fd_xdp_redirect_user.h" /* fd_xsk_activate */
-#include "../../../../waltz/xdp/fd_xsk_private.h"
-#include "../../../../util/log/fd_dtrace.h"
+#include "../../waltz/ip/fd_fib4.h"
+#include "../../waltz/neigh/fd_neigh4_map.h"
+#include "../../waltz/xdp/fd_xdp_redirect_user.h" /* fd_xsk_activate */
+#include "../../waltz/xdp/fd_xsk.h"
+#include "../../util/log/fd_dtrace.h"
 
 #include <unistd.h>
 #include <linux/unistd.h>
@@ -51,11 +51,6 @@ typedef struct {
   ulong *          sync;
   ulong            depth;
   ulong            seq;
-
-  fd_wksp_t * mem;
-  ulong       chunk0;
-  ulong       wmark;
-  ulong       chunk;
 } fd_net_out_ctx_t;
 
 /* fd_net_flusher_t controls the pacing of XDP sendto calls for flushing
@@ -149,9 +144,18 @@ typedef struct fd_net_free_ring fd_net_free_ring_t;
 
 typedef struct {
   /* An "XSK" is an AF_XDP socket */
-  uint       xsk_cnt;
-  fd_xsk_t * xsk[ 2 ];
-  int        prog_link_fds[ 2 ];
+  uint     xsk_cnt;
+  fd_xsk_t xsk[ 2 ];
+  int      prog_link_fds[ 2 ];
+
+  /* UMEM frame region within dcache */
+  void *   umem_frame0; /* First UMEM frame (>=umem_base) */
+  ulong    umem_sz;     /* Usable UMEM size starting at frame0 */
+
+  /* UMEM chunk region within workspace */
+  void *   umem_base;   /* UMEM workspace base */
+  uint     umem_chunk0; /* Lowest allowed chunk number */
+  uint     umem_wmark;  /* Highest allowed chunk number */
 
   /* All net tiles are subscribed to the same TX links.  (These are
      incoming links from app tiles asking the net tile to send out packets)
@@ -171,8 +175,8 @@ typedef struct {
   /* Round-robin cycle serivce operations */
   uint rr_idx;
 
-  /* Rings tracking free packet buffers */
-  fd_net_free_ring_t free_tx[ 2 ];
+  /* Ring tracking free packet buffers */
+  fd_net_free_ring_t free_tx;
 
   uint   src_ip_addr;
   uchar  src_mac_addr[6];
@@ -211,6 +215,8 @@ typedef struct {
     ulong rx_undersz_cnt;
     ulong rx_fill_blocked_cnt;
     ulong rx_backp_cnt;
+    long  rx_busy_cnt;
+    long  rx_idle_cnt;
 
     ulong tx_submit_cnt;
     ulong tx_complete_cnt;
@@ -219,6 +225,8 @@ typedef struct {
     ulong tx_no_xdp_cnt;
     ulong tx_neigh_fail_cnt;
     ulong tx_full_fail_cnt;
+    long  tx_busy_cnt;
+    long  tx_idle_cnt;
 
     ulong xsk_tx_wakeup_cnt;
     ulong xsk_rx_wakeup_cnt;
@@ -232,26 +240,23 @@ scratch_align( void ) {
 
 FD_FN_PURE static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
-  /* TODO reproducing this conditional memory layout twice is susceptible to bugs. Use more robust object discovery */
-  (void)tile;
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof(fd_net_ctx_t), sizeof(fd_net_ctx_t) );
-  l = FD_LAYOUT_APPEND( l, fd_xsk_align(),        fd_xsk_footprint( FD_NET_MTU, tile->net.xdp_rx_queue_size, tile->net.xdp_rx_queue_size, tile->net.xdp_tx_queue_size, tile->net.xdp_tx_queue_size ) );
-  l = FD_LAYOUT_APPEND( l, alignof(ulong),        tile->net.xdp_tx_queue_size * sizeof(ulong) );
-  if( FD_UNLIKELY( strcmp( tile->net.interface, "lo" ) && tile->kind_id == 0 ) ) {
-    l = FD_LAYOUT_APPEND( l, fd_xsk_align(),      fd_xsk_footprint( FD_NET_MTU, tile->net.xdp_rx_queue_size, tile->net.xdp_rx_queue_size, tile->net.xdp_tx_queue_size, tile->net.xdp_tx_queue_size ) );
-    l = FD_LAYOUT_APPEND( l, alignof(ulong),      tile->net.xdp_tx_queue_size * sizeof(ulong) );
-  }
+  l = FD_LAYOUT_APPEND( l, alignof(fd_net_ctx_t), sizeof(fd_net_ctx_t)                      );
+  l = FD_LAYOUT_APPEND( l, alignof(ulong),        tile->net.free_ring_depth * sizeof(ulong) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 static void
 metrics_write( fd_net_ctx_t * ctx ) {
-  FD_MCNT_SET( NET, RX_PKT_CNT,          ctx->metrics.rx_pkt_cnt          );
-  FD_MCNT_SET( NET, RX_BYTES_TOTAL,      ctx->metrics.rx_bytes_total      );
-  FD_MCNT_SET( NET, RX_UNDERSZ_CNT,      ctx->metrics.rx_undersz_cnt      );
-  FD_MCNT_SET( NET, RX_FILL_BLOCKED_CNT, ctx->metrics.rx_fill_blocked_cnt );
-  FD_MCNT_SET( NET, RX_BACKPRESSURE_CNT, ctx->metrics.rx_backp_cnt        );
+  FD_MCNT_SET(   NET, RX_PKT_CNT,          ctx->metrics.rx_pkt_cnt          );
+  FD_MCNT_SET(   NET, RX_BYTES_TOTAL,      ctx->metrics.rx_bytes_total      );
+  FD_MCNT_SET(   NET, RX_UNDERSZ_CNT,      ctx->metrics.rx_undersz_cnt      );
+  FD_MCNT_SET(   NET, RX_FILL_BLOCKED_CNT, ctx->metrics.rx_fill_blocked_cnt );
+  FD_MCNT_SET(   NET, RX_BACKPRESSURE_CNT, ctx->metrics.rx_backp_cnt        );
+  FD_MGAUGE_SET( NET, RX_BUSY_CNT, (ulong)fd_long_max( ctx->metrics.rx_busy_cnt, 0L ) );
+  FD_MGAUGE_SET( NET, RX_IDLE_CNT, (ulong)fd_long_max( ctx->metrics.rx_idle_cnt, 0L ) );
+  FD_MGAUGE_SET( NET, TX_BUSY_CNT, (ulong)fd_long_max( ctx->metrics.tx_busy_cnt, 0L ) );
+  FD_MGAUGE_SET( NET, TX_IDLE_CNT, (ulong)fd_long_max( ctx->metrics.tx_idle_cnt, 0L ) );
 
   FD_MCNT_SET( NET, TX_SUBMIT_CNT,        ctx->metrics.tx_submit_cnt     );
   FD_MCNT_SET( NET, TX_COMPLETE_CNT,      ctx->metrics.tx_complete_cnt   );
@@ -286,7 +291,7 @@ poll_xdp_statistics( fd_net_ctx_t * ctx ) {
   for( ulong j=0UL; j<xsk_cnt; j++ ) {
     struct xdp_statistics_v1 sub_stats;
     uint optlen = (uint)sizeof(struct xdp_statistics_v1);
-    if( FD_UNLIKELY( -1==getsockopt( ctx->xsk[ j ]->xsk_fd, SOL_XDP, XDP_STATISTICS, &sub_stats, &optlen ) ) )
+    if( FD_UNLIKELY( -1==getsockopt( ctx->xsk[ j ].xsk_fd, SOL_XDP, XDP_STATISTICS, &sub_stats, &optlen ) ) )
       FD_LOG_ERR(( "getsockopt(SOL_XDP, XDP_STATISTICS) failed: %s", strerror( errno ) ));
     if( FD_UNLIKELY( optlen!=sizeof(struct xdp_statistics_v0) &&
                      optlen!=sizeof(struct xdp_statistics_v1) ) ) {
@@ -328,9 +333,9 @@ net_is_fatal_xdp_error( int err ) {
 static int
 net_tx_ready( fd_net_ctx_t * ctx,
               uint           if_idx ) {
-  fd_xsk_t *           xsk     = ctx->xsk[ if_idx ];
-  fd_ring_desc_t *     tx_ring = &xsk->ring_tx;
-  fd_net_free_ring_t * free    = ctx->free_tx + if_idx;
+  fd_xsk_t *           xsk     = &ctx->xsk[ if_idx ];
+  fd_xdp_ring_t *      tx_ring = &xsk->ring_tx;
+  fd_net_free_ring_t * free    = &ctx->free_tx;
   if( free->prod == free->cons ) return 0; /* drop */
   if( tx_ring->prod - tx_ring->cons >= tx_ring->depth ) return 0; /* drop */
   return 1;
@@ -341,8 +346,10 @@ net_tx_ready( fd_net_ctx_t * ctx,
 
 static void
 net_rx_wakeup( fd_net_ctx_t * ctx,
-               fd_xsk_t *     xsk ) {
+               fd_xsk_t *     xsk,
+               int *          charge_busy ) {
   if( !fd_xsk_rx_need_wakeup( xsk ) ) return;
+  *charge_busy = 1;
   struct msghdr _ignored[ 1 ] = { 0 };
   if( FD_UNLIKELY( -1==recvmsg( xsk->xsk_fd, _ignored, MSG_DONTWAIT ) ) ) {
     if( FD_UNLIKELY( net_is_fatal_xdp_error( errno ) ) ) {
@@ -364,9 +371,11 @@ net_rx_wakeup( fd_net_ctx_t * ctx,
 
 static void
 net_tx_wakeup( fd_net_ctx_t * ctx,
-               fd_xsk_t *     xsk ) {
+               fd_xsk_t *     xsk,
+               int *          charge_busy ) {
   if( !fd_xsk_tx_need_wakeup( xsk ) ) return;
   if( FD_VOLATILE_CONST( *xsk->ring_tx.prod )==FD_VOLATILE_CONST( *xsk->ring_tx.cons ) ) return;
+  *charge_busy = 1;
   if( FD_UNLIKELY( -1==sendto( xsk->xsk_fd, NULL, 0, MSG_DONTWAIT, NULL, 0 ) ) ) {
     if( FD_UNLIKELY( net_is_fatal_xdp_error( errno ) ) ) {
       FD_LOG_ERR(( "xsk sendto failed xsk_fd=%d (%i-%s)", xsk->xsk_fd, errno, fd_io_strerror( errno ) ));
@@ -384,30 +393,56 @@ net_tx_wakeup( fd_net_ctx_t * ctx,
 
 /* net_tx_periodic_wakeup does a timer based xsk_sendmsg wakeup. */
 
-static inline void
+static inline int
 net_tx_periodic_wakeup( fd_net_ctx_t * ctx,
                         uint           if_idx,
-                        long           now ) {
-  uint tx_prod = FD_VOLATILE_CONST( *ctx->xsk[ if_idx ]->ring_tx.prod );
-  uint tx_cons = FD_VOLATILE_CONST( *ctx->xsk[ if_idx ]->ring_tx.cons );
+                        long           now,
+                        int *          charge_busy ) {
+  uint tx_prod = FD_VOLATILE_CONST( *ctx->xsk[ if_idx ].ring_tx.prod );
+  uint tx_cons = FD_VOLATILE_CONST( *ctx->xsk[ if_idx ].ring_tx.cons );
   int tx_ring_empty = tx_prod==tx_cons;
   if( fd_net_flusher_check( ctx->tx_flusher+if_idx, now, tx_ring_empty ) ) {
-    net_tx_wakeup( ctx, ctx->xsk[ if_idx ] );
+    net_tx_wakeup( ctx, &ctx->xsk[ if_idx ], charge_busy );
     fd_net_flusher_wakeup( ctx->tx_flusher+if_idx, now );
   }
+  return 0;
 }
 
 static void
 during_housekeeping( fd_net_ctx_t * ctx ) {
   long now = fd_tickcount();
 
+  ctx->metrics.rx_busy_cnt = 0UL;
+  ctx->metrics.rx_idle_cnt = 0UL;
+  ctx->metrics.tx_busy_cnt = 0UL;
+  ctx->metrics.tx_idle_cnt = fd_seq_diff( ctx->free_tx.prod, ctx->free_tx.cons );
+  for( uint j=0U; j<ctx->xsk_cnt; j++ ) {
+    fd_xsk_t * xsk = &ctx->xsk[ j ];
+    /* Refresh all sequence numbers (consumer first, then producer) */
+    FD_COMPILER_MFENCE();
+    xsk->ring_fr.cached_cons = FD_VOLATILE_CONST( *xsk->ring_fr.cons );
+    xsk->ring_fr.cached_prod = FD_VOLATILE_CONST( *xsk->ring_fr.prod );
+    xsk->ring_rx.cached_cons = FD_VOLATILE_CONST( *xsk->ring_rx.cons );
+    xsk->ring_rx.cached_prod = FD_VOLATILE_CONST( *xsk->ring_rx.prod );
+    xsk->ring_tx.cached_cons = FD_VOLATILE_CONST( *xsk->ring_tx.cons );
+    xsk->ring_tx.cached_prod = FD_VOLATILE_CONST( *xsk->ring_tx.prod );
+    xsk->ring_cr.cached_cons = FD_VOLATILE_CONST( *xsk->ring_cr.cons );
+    xsk->ring_cr.cached_prod = FD_VOLATILE_CONST( *xsk->ring_cr.prod );
+    FD_COMPILER_MFENCE();
+    ctx->metrics.rx_busy_cnt += (long)(int)( xsk->ring_rx.cached_prod - xsk->ring_rx.cached_cons );
+    ctx->metrics.rx_idle_cnt += (long)(int)( xsk->ring_fr.cached_prod - xsk->ring_fr.cached_cons );
+    ctx->metrics.tx_busy_cnt += (long)(int)( xsk->ring_tx.cached_prod - xsk->ring_tx.cached_cons );
+    ctx->metrics.tx_busy_cnt += (long)(int)( xsk->ring_cr.cached_prod - xsk->ring_cr.cached_cons );
+  }
+
   if( now > ctx->next_xdp_stats_refresh ) {
     ctx->next_xdp_stats_refresh = now + ctx->xdp_stats_interval_ticks;
     poll_xdp_statistics( ctx );
   }
 
+  int _charge_busy = 0;
   for( uint j=0U; j<ctx->xsk_cnt; j++ ) {
-    net_rx_wakeup( ctx, ctx->xsk[ j ] );
+    net_rx_wakeup( ctx, &ctx->xsk[ j ], &_charge_busy );
   }
 }
 
@@ -446,7 +481,7 @@ net_tx_route( fd_net_ctx_t * ctx,
     return 1;
   }
 
-  if( FD_UNLIKELY( if_idx!=ctx->xsk[ 0 ]->if_idx ) ) {
+  if( FD_UNLIKELY( if_idx!=ctx->xsk[ 0 ].if_idx ) ) {
     ctx->metrics.tx_no_xdp_cnt++;
     return 0;
   }
@@ -526,7 +561,7 @@ before_frag( fd_net_ctx_t * ctx,
 
   /* Allocate buffer for receive */
 
-  fd_net_free_ring_t * free      = ctx->free_tx + if_idx;
+  fd_net_free_ring_t * free      = &ctx->free_tx;
   ulong                alloc_seq = free->cons;
   void *               frame     = (void *)free->queue[ alloc_seq % free->depth ];
   free->cons = fd_seq_inc( alloc_seq, 1UL );
@@ -543,25 +578,23 @@ before_frag( fd_net_ctx_t * ctx,
 static inline void
 during_frag( fd_net_ctx_t * ctx,
              ulong          in_idx,
-             ulong          seq,
-             ulong          sig,
+             ulong          seq FD_PARAM_UNUSED,
+             ulong          sig FD_PARAM_UNUSED,
              ulong          chunk,
-             ulong          sz ) {
-  (void)in_idx; (void)seq; (void)sig;
-
+             ulong          sz,
+             ulong          ctl FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_NET_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
   if( FD_UNLIKELY( sz<14UL ) )
     FD_LOG_ERR(( "packet too small %lu (in_idx=%lu)", sz, in_idx ));
 
-  fd_xsk_t * xsk = ctx->xsk[ ctx->tx_op.if_idx ];
-
   void * frame = ctx->tx_op.frame;
-  if( FD_UNLIKELY( (ulong)frame+sz > (ulong)xsk->umem.addr + xsk->umem.len ) )
-    FD_LOG_ERR(( "frame %p out of bounds (beyond %p)", frame, (void *)( (ulong)xsk->umem.addr + xsk->umem.len ) ));
-  if( FD_UNLIKELY( (ulong)frame < (ulong)xsk->umem.addr ) )
-    FD_LOG_ERR(( "frame %p out of bounds (below %p)", frame, (void *)xsk->umem.addr ));
+  if( FD_UNLIKELY( (ulong)frame < (ulong)ctx->umem_frame0 ) )
+    FD_LOG_ERR(( "frame %p out of bounds (below %p)", frame, (void *)ctx->umem_frame0 ));
+  ulong umem_off = (ulong)frame - (ulong)ctx->umem_frame0;
+  if( FD_UNLIKELY( (ulong)umem_off > (ulong)ctx->umem_sz ) )
+    FD_LOG_ERR(( "frame %p out of bounds (beyond %p)", frame, (void *)ctx->umem_sz ));
 
   /* Speculatively copy frame into XDP buffer */
   uchar const * src = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
@@ -584,7 +617,7 @@ after_frag( fd_net_ctx_t *      ctx,
 
   uint       if_idx = ctx->tx_op.if_idx;
   uchar *    frame  = ctx->tx_op.frame;
-  fd_xsk_t * xsk    = ctx->xsk[ if_idx ];
+  fd_xsk_t * xsk    = &ctx->xsk[ if_idx ];
 
   memcpy( frame, ctx->tx_op.mac_addrs, 12 );
 
@@ -594,11 +627,11 @@ after_frag( fd_net_ctx_t *      ctx,
      (This invariant breaks if any other packet is sent over this ring
      between before_frag and this point, e.g. send_arp_probe.) */
 
-  fd_ring_desc_t * tx_ring = &xsk->ring_tx;
-  uint             tx_seq  = FD_VOLATILE_CONST( *tx_ring->prod );
-  uint             tx_mask = tx_ring->depth - 1U;
+  fd_xdp_ring_t * tx_ring = &xsk->ring_tx;
+  uint            tx_seq  = FD_VOLATILE_CONST( *tx_ring->prod );
+  uint            tx_mask = tx_ring->depth - 1U;
   xsk->ring_tx.packet_ring[ tx_seq&tx_mask ] = (struct xdp_desc) {
-    .addr    = (ulong)frame - (ulong)xsk->umem.addr,
+    .addr    = (ulong)frame - (ulong)ctx->umem_frame0,
     .len     = (uint)sz,
     .options = 0
   };
@@ -620,19 +653,27 @@ after_frag( fd_net_ctx_t *      ctx,
 static void
 net_rx_packet( fd_net_ctx_t *      ctx,
                fd_stem_context_t * stem,
-               uchar const *       packet,
-               ulong               sz ) {
+               ulong               umem_off,
+               ulong               sz,
+               uint *              freed_chunk ) {
 
+  ulong umem_lowbits = umem_off & 0x3fUL;
+
+  uchar const * packet     = (uchar const *)ctx->umem_frame0 + umem_off;
   uchar const * packet_end = packet + sz;
   uchar const * iphdr      = packet + 14U;
 
+  /* Translate packet to UMEM frame index */
+  ulong chunk = ctx->umem_chunk0 + (umem_off>>FD_CHUNK_LG_SZ);
+
   /* Filter for UDP/IPv4 packets. Test for ethtype and ipproto in 1
-      branch */
+     branch */
   uint test_ethip = ( (uint)packet[12] << 16u ) | ( (uint)packet[13] << 8u ) | (uint)packet[23];
-  if( FD_UNLIKELY( test_ethip!=0x080011 ) )
+  if( FD_UNLIKELY( test_ethip!=0x080011 ) ) {
     FD_LOG_ERR(( "Firedancer received a packet from the XDP program that was either "
                   "not an IPv4 packet, or not a UDP packet. It is likely your XDP program "
                   "is not configured correctly." ));
+  }
 
   /* IPv4 is variable-length, so lookup IHL to find start of UDP */
   uint iplen = ( ( (uint)iphdr[0] ) & 0x0FU ) * 4U;
@@ -652,6 +693,7 @@ net_rx_packet( fd_net_ctx_t *      ctx,
 
   FD_DTRACE_PROBE_4( net_tile_pkt_rx, ip_srcaddr, udp_srcport, udp_dstport, sz );
 
+  /* Route packet to downstream tile */
   ushort proto;
   fd_net_out_ctx_t * out;
   if(      FD_UNLIKELY( udp_dstport==ctx->shred_listen_port ) ) {
@@ -687,18 +729,20 @@ net_rx_packet( fd_net_ctx_t *      ctx,
                   ctx->repair_serve_listen_port ));
   }
 
-  fd_memcpy( fd_chunk_to_laddr( out->mem, out->chunk ), packet, sz );
-
   /* tile can decide how to partition based on src ip addr and src port */
   ulong sig = fd_disco_netmux_sig( ip_srcaddr, udp_srcport, 0U, proto, 14UL+8UL+iplen );
 
-  ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-  fd_mcache_publish( out->mcache, out->depth, out->seq, sig, out->chunk, sz, 0, 0, tspub );
+  /* Peek the mline for an old frame */
+  fd_frag_meta_t * mline = out->mcache + fd_mcache_line_idx( out->seq, out->depth );
+  *freed_chunk = mline->chunk;
 
+  /* Overwrite the mline with the new frame */
+  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_mcache_publish( out->mcache, out->depth, out->seq, sig, chunk, sz, umem_lowbits, 0, tspub );
+
+  /* Wind up for the next iteration */
   *stem->cr_avail -= stem->cr_decrement_amount;
-
   out->seq = fd_seq_inc( out->seq, 1UL );
-  out->chunk = fd_dcache_compact_next( out->chunk, FD_NET_MTU, out->chunk0, out->wmark );
 
   ctx->metrics.rx_pkt_cnt++;
   ctx->metrics.rx_bytes_total += sz;
@@ -710,29 +754,28 @@ net_rx_packet( fd_net_ctx_t *      ctx,
 static void
 net_comp_event( fd_net_ctx_t * ctx,
                 fd_xsk_t *     xsk,
-                uint           xsk_idx,
                 uint           comp_seq ) {
 
   /* Locate the incoming frame */
 
-  fd_ring_desc_t * comp_ring  = &xsk->ring_cr;
-  uint             comp_mask  = comp_ring->depth - 1U;
-  ulong            frame      = FD_VOLATILE_CONST( comp_ring->frame_ring[ comp_seq&comp_mask ] );
-  ulong const      frame_mask = FD_NET_MTU - 1UL;
-  if( FD_UNLIKELY( frame+FD_NET_MTU > xsk->umem.len ) ) {
-    FD_LOG_ERR(( "Bounds check failed: frame=0x%lx umem.len=0x%lx",
-                 frame, (ulong)xsk->umem.len ));
+  fd_xdp_ring_t * comp_ring  = &xsk->ring_cr;
+  uint            comp_mask  = comp_ring->depth - 1U;
+  ulong           frame      = FD_VOLATILE_CONST( comp_ring->frame_ring[ comp_seq&comp_mask ] );
+  ulong const     frame_mask = FD_NET_MTU - 1UL;
+  if( FD_UNLIKELY( frame+FD_NET_MTU > ctx->umem_sz ) ) {
+    FD_LOG_ERR(( "Bounds check failed: frame=0x%lx umem_sz=0x%lx",
+                 frame, (ulong)ctx->umem_sz ));
   }
 
   /* Check if we have space to return the freed frame */
 
-  fd_net_free_ring_t * free      = ctx->free_tx + xsk_idx;
+  fd_net_free_ring_t * free      = &ctx->free_tx;
   ulong                free_prod = free->prod;
   ulong                free_mask = free->depth - 1UL;
   long free_cnt = fd_seq_diff( free_prod, free->cons );
   if( FD_UNLIKELY( free_cnt>=(long)free->depth ) ) return; /* blocked */
 
-  free->queue[ free_prod&free_mask ] = xsk->umem.addr + (frame & (~frame_mask));
+  free->queue[ free_prod&free_mask ] = (ulong)ctx->umem_frame0 + (frame & (~frame_mask));
   free->prod = fd_seq_inc( free_prod, 1UL );
 
   /* Wind up for next iteration */
@@ -753,28 +796,29 @@ net_rx_event( fd_net_ctx_t *      ctx,
               fd_xsk_t *          xsk,
               uint                rx_seq ) {
 
-  if( FD_UNLIKELY( *stem->cr_avail < stem->cr_decrement_amount ) ) {
-    ctx->metrics.rx_backp_cnt++;
-    return;
-  }
+  // FIXME(topointon): Temporarily disabling backpressure feature because it triggers even with FD_TOPOB_UNRELIABLE
+  //if( FD_UNLIKELY( *stem->cr_avail < stem->cr_decrement_amount ) ) {
+  //  ctx->metrics.rx_backp_cnt++;
+  //  return;
+  //}
 
   /* Locate the incoming frame */
 
-  fd_ring_desc_t * rx_ring = &xsk->ring_rx;
-  uint             rx_mask = rx_ring->depth - 1U;
-  struct xdp_desc  frame   = FD_VOLATILE_CONST( rx_ring->packet_ring[ rx_seq&rx_mask ] );
+  fd_xdp_ring_t * rx_ring = &xsk->ring_rx;
+  uint            rx_mask = rx_ring->depth - 1U;
+  struct xdp_desc frame   = FD_VOLATILE_CONST( rx_ring->packet_ring[ rx_seq&rx_mask ] );
 
   if( FD_UNLIKELY( frame.len>FD_NET_MTU ) )
     FD_LOG_ERR(( "received a UDP packet with a too large payload (%u)", frame.len ));
 
   /* Check if we have space in the fill ring to free the frame */
 
-  fd_ring_desc_t * fill_ring  = &xsk->ring_fr;
-  uint             fill_depth = fill_ring->depth;
-  uint             fill_mask  = fill_depth-1U;
-  ulong            frame_mask = FD_NET_MTU - 1UL;
-  uint             fill_prod  = FD_VOLATILE_CONST( *fill_ring->prod );
-  uint             fill_cons  = FD_VOLATILE_CONST( *fill_ring->cons );
+  fd_xdp_ring_t * fill_ring  = &xsk->ring_fr;
+  uint            fill_depth = fill_ring->depth;
+  uint            fill_mask  = fill_depth-1U;
+  ulong           frame_mask = FD_NET_MTU - 1UL;
+  uint            fill_prod  = FD_VOLATILE_CONST( *fill_ring->prod );
+  uint            fill_cons  = FD_VOLATILE_CONST( *fill_ring->cons );
 
   if( FD_UNLIKELY( (int)(fill_prod-fill_cons) >= (int)fill_depth ) ) {
     ctx->metrics.rx_fill_blocked_cnt++;
@@ -783,16 +827,25 @@ net_rx_event( fd_net_ctx_t *      ctx,
 
   /* Pass it to the receive handler */
 
-  uchar const * packet = (uchar const *)xsk->umem.addr + frame.addr;
-  net_rx_packet( ctx, stem, packet, frame.len );
+  uint freed_chunk = UINT_MAX;
+  net_rx_packet( ctx, stem, frame.addr, frame.len, &freed_chunk );
 
   FD_COMPILER_MFENCE();
   FD_VOLATILE( *rx_ring->cons ) = rx_ring->cached_cons = rx_seq+1U;
 
-  /* Free the frame by returning it back to the fill ring */
+  /* If this mcache publish shadowed a previous publish, mark the old
+     frame as free. */
 
-  fill_ring->frame_ring[ fill_prod&fill_mask ] = frame.addr & (~frame_mask);
-  FD_VOLATILE( *fill_ring->prod ) = fill_ring->cached_prod = fill_prod+1U;
+  if( FD_LIKELY( freed_chunk!=UINT_MAX ) ) {
+    if( FD_UNLIKELY( ( freed_chunk < ctx->umem_chunk0 ) |
+                     ( freed_chunk > ctx->umem_wmark ) ) ) {
+      FD_LOG_ERR(( "mcache corruption detected: chunk=%u chunk0=%u wmark=%u",
+                   freed_chunk, ctx->umem_chunk0, ctx->umem_wmark ));
+    }
+    ulong freed_off = (freed_chunk - ctx->umem_chunk0)<<FD_CHUNK_LG_SZ;
+    fill_ring->frame_ring[ fill_prod&fill_mask ] = freed_off & (~frame_mask);
+    FD_VOLATILE( *fill_ring->prod ) = fill_ring->cached_prod = fill_prod+1U;
+  }
 
 }
 
@@ -810,7 +863,7 @@ before_credit( fd_net_ctx_t *      ctx,
 
   if( ctx->tx_op.frame ) {
     *charge_busy = 1;
-    fd_net_free_ring_t * free      = ctx->free_tx + ctx->tx_op.if_idx;
+    fd_net_free_ring_t * free      = &ctx->free_tx;
     ulong                alloc_seq = free->prod;
     free->queue[ alloc_seq % free->depth ] = (ulong)ctx->tx_op.frame;
     free->prod = fd_seq_inc( alloc_seq, 1UL );
@@ -821,16 +874,20 @@ before_credit( fd_net_ctx_t *      ctx,
      (Round-robin through sockets) */
 
   uint       rr_idx = ctx->rr_idx;
-  fd_xsk_t * rr_xsk = ctx->xsk[ rr_idx ];
+  fd_xsk_t * rr_xsk = &ctx->xsk[ rr_idx ];
   ctx->rr_idx++;
   ctx->rr_idx = fd_uint_if( ctx->rr_idx>=ctx->xsk_cnt, 0, ctx->rr_idx );
 
-  uint rx_cons = FD_VOLATILE_CONST( *rr_xsk->ring_rx.cons );
+  net_tx_periodic_wakeup( ctx, rr_idx, fd_tickcount(), charge_busy );
+
+  uint rx_cons = rr_xsk->ring_rx.cached_cons;
   uint rx_prod = FD_VOLATILE_CONST( *rr_xsk->ring_rx.prod );
   if( rx_cons!=rx_prod ) {
     *charge_busy = 1;
     rr_xsk->ring_rx.cached_prod = rx_prod;
     net_rx_event( ctx, stem, rr_xsk, rx_cons );
+  } else {
+    net_rx_wakeup( ctx, rr_xsk, charge_busy );
   }
 
   uint comp_cons = FD_VOLATILE_CONST( *rr_xsk->ring_cr.cons );
@@ -838,58 +895,42 @@ before_credit( fd_net_ctx_t *      ctx,
   if( comp_cons!=comp_prod ) {
     *charge_busy = 1;
     rr_xsk->ring_cr.cached_prod = comp_prod;
-    net_comp_event( ctx, rr_xsk, rr_idx, comp_cons );
+    net_comp_event( ctx, rr_xsk, comp_cons );
   }
-
-  net_tx_periodic_wakeup( ctx, rr_idx, fd_tickcount() );
 
 }
 
-/* net_xsk_bootstrap does the initial UMEM frame to RX/TX ring assignments.
-   First assigns UMEM frames to the XDP FILL ring, then assigns frames to
-   the net tile free_tx queue. */
+/* net_xsk_bootstrap assigns UMEM frames to the FILL ring. */
 
-static void
+static ulong
 net_xsk_bootstrap( fd_net_ctx_t * ctx,
-                   uint           xsk_idx ) {
-  fd_xsk_t * xsk = ctx->xsk[ xsk_idx ];
+                   uint           xsk_idx,
+                   ulong          frame_off ) {
+  fd_xsk_t * xsk = &ctx->xsk[ xsk_idx ];
 
-  ulong       frame_off = 0UL;
   ulong const frame_sz  = FD_NET_MTU;
-  ulong const rx_depth  = ctx->xsk[ xsk_idx ]->ring_rx.depth;
-  ulong const tx_depth  = ctx->free_tx[ xsk_idx ].depth;
+  ulong const fr_depth  = ctx->xsk[ xsk_idx ].ring_fr.depth;
 
-  fd_ring_desc_t * fill      = &xsk->ring_fr;
-  uint             fill_prod = fill->cached_prod;
-  for( ulong j=0UL; j<rx_depth; j++ ) {
+  fd_xdp_ring_t * fill      = &xsk->ring_fr;
+  uint            fill_prod = fill->cached_prod;
+  for( ulong j=0UL; j<fr_depth; j++ ) {
     fill->frame_ring[ j ] = frame_off;
     frame_off += frame_sz;
   }
-  FD_VOLATILE( *fill->prod ) = fill->cached_prod = fill_prod + (uint)rx_depth;
+  FD_VOLATILE( *fill->prod ) = fill->cached_prod = fill_prod + (uint)fr_depth;
 
-  ulong const umem_base = xsk->umem.addr;
-  for( ulong j=0; j<tx_depth; j++ ) {
-    ctx->free_tx[ xsk_idx ].queue[ j ] = umem_base + frame_off;
-    frame_off += frame_sz;
-  }
-  ctx->free_tx[ xsk_idx ].prod  = tx_depth;
-  ctx->free_tx[ xsk_idx ].depth = tx_depth;
+  return frame_off;
 }
 
-/* init_link_session is part of privileged_init.  It only runs on net
-   tile 0.  This function does shared pre-configuration used by all
-   other net tiles.  This includes installing the XDP program and
-   setting up the XSKMAP into which the other net tiles can register
-   themselves into.
+/* privileged_init does the following initialization steps:
 
-   session, link_session, lo_session get initialized with session
-   objects.  tile points to the net tile's config.  if_idx, lo_idx
-   locate the device IDs of the main and loopback interface.
-   *xsk_map_fd, *lo_xsk_map_fd are set to the newly created XSKMAP file
-   descriptors.
+   - Create an AF_XDP socket
+   - Map XDP metadata rings
+   - Register UMEM data region with socket
+   - Insert AF_XDP socket into xsk_map
 
-   Note that if the main interface is loopback, then the loopback-
-   related structures are uninitialized.
+   Net tile 0 also runs fd_xdp_install and repeats the above step for
+   the loopback device.  (Unless the main interface is already loopback)
 
    Kernel object references:
 
@@ -909,39 +950,77 @@ privileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
+  fd_net_ctx_t * ctx     = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_net_ctx_t), sizeof(fd_net_ctx_t) );
+  ulong *        free_tx = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), tile->net.free_ring_depth * sizeof(ulong) );;
 
-  fd_net_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_net_ctx_t), sizeof(fd_net_ctx_t) );
   fd_memset( ctx, 0, sizeof(fd_net_ctx_t) );
 
   uint if_idx = if_nametoindex( tile->net.interface );
   if( FD_UNLIKELY( !if_idx ) ) FD_LOG_ERR(( "if_nametoindex(%s) failed", tile->net.interface ));
 
+  /* Load up dcache containing UMEM */
+
+  void * const dcache_mem          = fd_topo_obj_laddr( topo, tile->net.umem_dcache_obj_id );
+  void * const umem_dcache         = fd_dcache_join( dcache_mem );
+  ulong  const umem_dcache_data_sz = fd_dcache_data_sz( umem_dcache );
+  ulong  const umem_frame_sz       = 2048UL;
+
+  /* Left shrink UMEM region to be 4096 byte aligned */
+
+  void * const umem_frame0 = (void *)fd_ulong_align_up( (ulong)umem_dcache, 4096UL );
+  ulong        umem_sz     = umem_dcache_data_sz - ((ulong)umem_frame0 - (ulong)umem_dcache);
+  umem_sz = fd_ulong_align_dn( umem_sz, umem_frame_sz );
+
+  /* Derive chunk bounds */
+
+  void * const umem_base   = fd_wksp_containing( dcache_mem );
+  ulong  const umem_chunk0 = ( (ulong)umem_frame0 - (ulong)umem_base )>>FD_CHUNK_LG_SZ;
+  ulong  const umem_wmark  = umem_chunk0 + ( ( umem_sz-umem_frame_sz )>>FD_CHUNK_LG_SZ );
+  if( FD_UNLIKELY( umem_chunk0>UINT_MAX || umem_wmark>UINT_MAX || umem_chunk0>umem_wmark ) ) {
+    FD_LOG_ERR(( "Calculated invalid UMEM bounds [%lu,%lu]", umem_chunk0, umem_wmark ));
+  }
+
+  if( FD_UNLIKELY( !umem_base   ) ) FD_LOG_ERR(( "UMEM dcache is not in a workspace" ));
+  if( FD_UNLIKELY( !umem_dcache ) ) FD_LOG_ERR(( "Failed to join UMEM dcache" ));
+
+  ctx->umem_frame0 = umem_frame0;
+  ctx->umem_sz     = umem_sz;
+  ctx->umem_base   = dcache_mem;
+  ctx->umem_chunk0 = (uint)umem_chunk0;
+  ctx->umem_wmark  = (uint)umem_wmark;
+
+  ctx->free_tx.queue = free_tx;
+  ctx->free_tx.depth = tile->net.xdp_tx_queue_size;
+
   /* Create and install XSKs */
+
+  fd_xsk_params_t params0 = {
+    .if_idx      = if_idx,
+    .if_queue_id = (uint)tile->kind_id,
+    .bind_flags  = tile->net.zero_copy ? XDP_ZEROCOPY : XDP_COPY,
+
+    .fr_depth  = tile->net.xdp_rx_queue_size,
+    .rx_depth  = tile->net.xdp_rx_queue_size,
+    .cr_depth  = tile->net.xdp_tx_queue_size,
+    .tx_depth  = tile->net.xdp_tx_queue_size,
+
+    .umem_addr = umem_frame0,
+    .frame_sz  = umem_frame_sz,
+    .umem_sz   = umem_sz
+  };
 
   int xsk_map_fd = 123462;
   ctx->prog_link_fds[ 0 ] = 123463;
-  ctx->xsk[ 0 ] =
-      fd_xsk_join(
-      fd_xsk_new( FD_SCRATCH_ALLOC_APPEND( l, fd_xsk_align(), fd_xsk_footprint( FD_NET_MTU, tile->net.xdp_rx_queue_size, tile->net.xdp_rx_queue_size, tile->net.xdp_tx_queue_size, tile->net.xdp_tx_queue_size ) ),
-                  FD_NET_MTU,
-                  tile->net.xdp_rx_queue_size,
-                  tile->net.xdp_rx_queue_size,
-                  tile->net.xdp_tx_queue_size,
-                  tile->net.xdp_tx_queue_size ) );
-  if( FD_UNLIKELY( !ctx->xsk[ 0 ] ) )                                                    FD_LOG_ERR(( "fd_xsk_new failed" ));
-  uint flags = tile->net.zero_copy ? XDP_ZEROCOPY : XDP_COPY;
-  if( FD_UNLIKELY( !fd_xsk_init( ctx->xsk[ 0 ], if_idx, (uint)tile->kind_id, flags ) ) ) FD_LOG_ERR(( "failed to bind xsk for net tile %lu", tile->kind_id ));
-  if( FD_UNLIKELY( !fd_xsk_activate( ctx->xsk[ 0 ], xsk_map_fd ) ) )                     FD_LOG_ERR(( "failed to activate xsk for net tile %lu", tile->kind_id ));
+  /* Init XSK */
+  if( FD_UNLIKELY( !fd_xsk_init( &ctx->xsk[ 0 ], &params0 ) ) )       FD_LOG_ERR(( "failed to bind xsk for net tile %lu", tile->kind_id ));
+  if( FD_UNLIKELY( !fd_xsk_activate( &ctx->xsk[ 0 ], xsk_map_fd ) ) ) FD_LOG_ERR(( "failed to activate xsk for net tile %lu", tile->kind_id ));
 
   if( FD_UNLIKELY( fd_sandbox_gettid()==fd_sandbox_getpid() ) ) {
     /* Kind of gross.. in single threaded mode we don't want to close the xsk_map_fd
        since it's shared with other net tiles.  Just check for that by seeing if we
        are the only thread in the process. */
-    if( FD_UNLIKELY( -1==close( xsk_map_fd ) ) )                                         FD_LOG_ERR(( "close(%d) failed (%d-%s)", xsk_map_fd, errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( -1==close( xsk_map_fd ) ) )                     FD_LOG_ERR(( "close(%d) failed (%d-%s)", xsk_map_fd, errno, fd_io_strerror( errno ) ));
   }
-
-  ctx->free_tx[ 0 ].queue = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), tile->net.xdp_tx_queue_size * sizeof(ulong) );
-  ctx->free_tx[ 0 ].depth = tile->net.xdp_tx_queue_size;
 
   /* Networking tile at index 0 also binds to loopback (only queue 0 available on lo) */
 
@@ -960,6 +1039,7 @@ privileged_init( fd_topo_t *      topo,
     uint lo_idx = if_nametoindex( "lo" );
     if( FD_UNLIKELY( !lo_idx ) ) FD_LOG_ERR(( "if_nametoindex(lo) failed" ));
 
+    /* FIXME move this to fd_topo_run */
     fd_xdp_fds_t lo_fds = fd_xdp_install( lo_idx,
                                           tile->net.src_ip_addr,
                                           sizeof(udp_port_candidates)/sizeof(udp_port_candidates[0]),
@@ -967,21 +1047,14 @@ privileged_init( fd_topo_t *      topo,
                                           "skb" );
 
     ctx->prog_link_fds[ 1 ] = lo_fds.prog_link_fd;
-    ctx->xsk[ 1 ] =
-        fd_xsk_join(
-        fd_xsk_new( FD_SCRATCH_ALLOC_APPEND( l, fd_xsk_align(), fd_xsk_footprint( FD_NET_MTU, tile->net.xdp_rx_queue_size, tile->net.xdp_rx_queue_size, tile->net.xdp_tx_queue_size, tile->net.xdp_tx_queue_size ) ),
-                    FD_NET_MTU,
-                    tile->net.xdp_rx_queue_size,
-                    tile->net.xdp_rx_queue_size,
-                    tile->net.xdp_tx_queue_size,
-                    tile->net.xdp_tx_queue_size ) );
-    if( FD_UNLIKELY( !ctx->xsk[ 1 ] ) )                                                            FD_LOG_ERR(( "fd_xsk_join failed" ));
-    if( FD_UNLIKELY( !fd_xsk_init( ctx->xsk[ 1 ], lo_idx, (uint)tile->kind_id, 0 /* flags */ ) ) ) FD_LOG_ERR(( "failed to bind lo_xsk" ));
-    if( FD_UNLIKELY( !fd_xsk_activate( ctx->xsk[ 1 ], lo_fds.xsk_map_fd ) ) )                          FD_LOG_ERR(( "failed to activate lo_xsk" ));
-    if( FD_UNLIKELY( -1==close( lo_fds.xsk_map_fd ) ) )                                                FD_LOG_ERR(( "close(%d) failed (%d-%s)", xsk_map_fd, errno, fd_io_strerror( errno ) ));
-
-    ctx->free_tx[ 1 ].queue = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong), tile->net.xdp_tx_queue_size * sizeof(ulong) );
-    ctx->free_tx[ 1 ].depth = tile->net.xdp_tx_queue_size;
+    /* init xsk 1 */
+    fd_xsk_params_t params1 = params0;
+    params1.if_idx      = lo_idx; /* probably always 1 */
+    params1.if_queue_id = 0;
+    params1.bind_flags  = 0;
+    if( FD_UNLIKELY( !fd_xsk_init( &ctx->xsk[ 1 ], &params1 ) ) )              FD_LOG_ERR(( "failed to bind lo_xsk" ));
+    if( FD_UNLIKELY( !fd_xsk_activate( &ctx->xsk[ 1 ], lo_fds.xsk_map_fd ) ) ) FD_LOG_ERR(( "failed to activate lo_xsk" ));
+    if( FD_UNLIKELY( -1==close( lo_fds.xsk_map_fd ) ) )                        FD_LOG_ERR(( "close(%d) failed (%d-%s)", xsk_map_fd, errno, fd_io_strerror( errno ) ));
   }
 
   double tick_per_ns = fd_tempo_tick_per_ns( NULL );
@@ -1035,41 +1108,25 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->quic_out->sync   = fd_mcache_seq_laddr( ctx->quic_out->mcache );
       ctx->quic_out->depth  = fd_mcache_depth( ctx->quic_out->mcache );
       ctx->quic_out->seq    = fd_mcache_seq_query( ctx->quic_out->sync );
-      ctx->quic_out->chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( quic_out->dcache ), quic_out->dcache );
-      ctx->quic_out->mem    = topo->workspaces[ topo->objs[ quic_out->dcache_obj_id ].wksp_id ].wksp;
-      ctx->quic_out->wmark  = fd_dcache_compact_wmark ( ctx->quic_out->mem, quic_out->dcache, quic_out->mtu );
-      ctx->quic_out->chunk  = ctx->quic_out->chunk0;
     } else if( strcmp( out_link->name, "net_shred" ) == 0 ) {
       fd_topo_link_t * shred_out = out_link;
       ctx->shred_out->mcache = shred_out->mcache;
       ctx->shred_out->sync   = fd_mcache_seq_laddr( ctx->shred_out->mcache );
       ctx->shred_out->depth  = fd_mcache_depth( ctx->shred_out->mcache );
       ctx->shred_out->seq    = fd_mcache_seq_query( ctx->shred_out->sync );
-      ctx->shred_out->chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( shred_out->dcache ), shred_out->dcache );
-      ctx->shred_out->mem    = topo->workspaces[ topo->objs[ shred_out->dcache_obj_id ].wksp_id ].wksp;
-      ctx->shred_out->wmark  = fd_dcache_compact_wmark ( ctx->shred_out->mem, shred_out->dcache, shred_out->mtu );
-      ctx->shred_out->chunk  = ctx->shred_out->chunk0;
     } else if( strcmp( out_link->name, "net_gossip" ) == 0 ) {
       fd_topo_link_t * gossip_out = out_link;
       ctx->gossip_out->mcache = gossip_out->mcache;
       ctx->gossip_out->sync   = fd_mcache_seq_laddr( ctx->gossip_out->mcache );
       ctx->gossip_out->depth  = fd_mcache_depth( ctx->gossip_out->mcache );
       ctx->gossip_out->seq    = fd_mcache_seq_query( ctx->gossip_out->sync );
-      ctx->gossip_out->chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( gossip_out->dcache ), gossip_out->dcache );
-      ctx->gossip_out->mem    = topo->workspaces[ topo->objs[ gossip_out->dcache_obj_id ].wksp_id ].wksp;
-      ctx->gossip_out->wmark  = fd_dcache_compact_wmark ( ctx->gossip_out->mem, gossip_out->dcache, gossip_out->mtu );
-      ctx->gossip_out->chunk  = ctx->gossip_out->chunk0;
     } else if( strcmp( out_link->name, "net_repair" ) == 0 ) {
       fd_topo_link_t * repair_out = out_link;
       ctx->repair_out->mcache = repair_out->mcache;
       ctx->repair_out->sync   = fd_mcache_seq_laddr( ctx->repair_out->mcache );
       ctx->repair_out->depth  = fd_mcache_depth( ctx->repair_out->mcache );
       ctx->repair_out->seq    = fd_mcache_seq_query( ctx->repair_out->sync );
-      ctx->repair_out->chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( repair_out->dcache ), repair_out->dcache );
-      ctx->repair_out->mem    = topo->workspaces[ topo->objs[ repair_out->dcache_obj_id ].wksp_id ].wksp;
-      ctx->repair_out->wmark  = fd_dcache_compact_wmark ( ctx->repair_out->mem, repair_out->dcache, repair_out->mtu );
-      ctx->repair_out->chunk  = ctx->repair_out->chunk0;
-    } else if( strcmp( out_link->name, "net_netlink" ) == 0 ) {
+    } else if( strcmp( out_link->name, "net_netlnk" ) == 0 ) {
       fd_topo_link_t * netlink_out = out_link;
       ctx->neigh4_solicit->mcache = netlink_out->mcache;
       ctx->neigh4_solicit->depth  = fd_mcache_depth( ctx->neigh4_solicit->mcache );
@@ -1113,10 +1170,39 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "fd_neigh4_hmap_join failed" ));
   }
 
+  /* Initialize TX free ring */
+
+  ulong const frame_sz  = 2048UL;
+  ulong       frame_off = 0UL;
+  ulong const tx_depth  = ctx->free_tx.depth;
+  for( ulong j=0; j<tx_depth; j++ ) {
+    ctx->free_tx.queue[ j ] = (ulong)ctx->umem_frame0 + frame_off;
+    frame_off += frame_sz;
+  }
+  ctx->free_tx.prod = tx_depth;
+
+  /* Initialize RX mcache chunks */
+
+  for( ulong i=0UL; i<(tile->out_cnt); i++ ) {
+    fd_topo_link_t * out_link = &topo->links[ tile->out_link_id[ i  ] ];
+    fd_frag_meta_t * mcache   = out_link->mcache;
+    for( ulong j=0UL; j<fd_mcache_depth( mcache ); j++ ) {
+      mcache[ j ].chunk = (uint)( ctx->umem_chunk0 + (frame_off>>FD_CHUNK_LG_SZ) );
+      frame_off += frame_sz;
+    }
+  }
+
+  /* Initialize FILL ring */
+
+  int _charge_busy = 0;
   for( uint j=0U; j<ctx->xsk_cnt; j++ ) {
-    net_xsk_bootstrap( ctx, j );
-    net_rx_wakeup( ctx, ctx->xsk[ j ] );
-    net_tx_wakeup( ctx, ctx->xsk[ j ] );
+    frame_off = net_xsk_bootstrap( ctx, j, frame_off );
+    net_rx_wakeup( ctx, &ctx->xsk[ j ], &_charge_busy );
+    net_tx_wakeup( ctx, &ctx->xsk[ j ], &_charge_busy );
+  }
+
+  if( FD_UNLIKELY( frame_off > ctx->umem_sz ) ) {
+    FD_LOG_ERR(( "UMEM is too small" ));
   }
 }
 
@@ -1131,9 +1217,9 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
 
   /* A bit of a hack, if there is no loopback XSK for this tile, we still need to pass
      two "allow" FD arguments to the net policy, so we just make them both the same. */
-  int allow_fd2 = ctx->xsk_cnt>1UL ? ctx->xsk[ 1 ]->xsk_fd : ctx->xsk[ 0 ]->xsk_fd;
-  FD_TEST( ctx->xsk[ 0 ]->xsk_fd >= 0 && allow_fd2 >= 0 );
-  populate_sock_filter_policy_net( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->xsk[ 0 ]->xsk_fd, (uint)allow_fd2 );
+  int allow_fd2 = ctx->xsk_cnt>1UL ? ctx->xsk[ 1 ].xsk_fd : ctx->xsk[ 0 ].xsk_fd;
+  FD_TEST( ctx->xsk[ 0 ].xsk_fd >= 0 && allow_fd2 >= 0 );
+  populate_sock_filter_policy_net( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->xsk[ 0 ].xsk_fd, (uint)allow_fd2 );
   return sock_filter_policy_net_instr_cnt;
 }
 
@@ -1154,9 +1240,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
 
-                                      out_fds[ out_cnt++ ] = ctx->xsk[ 0 ]->xsk_fd;
+                                      out_fds[ out_cnt++ ] = ctx->xsk[ 0 ].xsk_fd;
                                       out_fds[ out_cnt++ ] = ctx->prog_link_fds[ 0 ];
-  if( FD_LIKELY( ctx->xsk_cnt>1UL ) ) out_fds[ out_cnt++ ] = ctx->xsk[ 1 ]->xsk_fd;
+  if( FD_LIKELY( ctx->xsk_cnt>1UL ) ) out_fds[ out_cnt++ ] = ctx->xsk[ 1 ].xsk_fd;
   if( FD_LIKELY( ctx->xsk_cnt>1UL ) ) out_fds[ out_cnt++ ] = ctx->prog_link_fds[ 1 ];
   return out_cnt;
 }
@@ -1174,7 +1260,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 
-#include "../../../../disco/stem/fd_stem.c"
+#include "../stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_net = {
   .name                     = "net",

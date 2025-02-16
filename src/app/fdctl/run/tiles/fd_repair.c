@@ -7,11 +7,10 @@
 #include "generated/repair_seccomp.h"
 #include "../../../../flamenco/repair/fd_repair.h"
 #include "../../../../flamenco/runtime/fd_blockstore.h"
-#include "../../../../flamenco/fd_flamenco.h"
-#include "../../../../util/fd_util.h"
 #include "../../../../disco/store/util.h"
 #include "../../../../disco/fd_disco.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
+#include "../../../../disco/net/fd_net_tile.h"
 #include "../../../../disco/shred/fd_stake_ci.h"
 #include "../../../../disco/topo/fd_pod_format.h"
 
@@ -67,9 +66,7 @@ struct fd_repair_tile_ctx {
   ulong       repair_req_in_chunk0;
   ulong       repair_req_in_wmark;
 
-  fd_wksp_t *     net_in_mem;
-  ulong           net_in_chunk0;
-  ulong           net_in_wmark;
+  fd_net_rx_bounds_t net_in_bounds;
 
   fd_frag_meta_t * net_out_mcache;
   ulong *          net_out_sync;
@@ -306,12 +303,11 @@ before_frag( fd_repair_tile_ctx_t * ctx,
 static void
 during_frag( fd_repair_tile_ctx_t * ctx,
              ulong                  in_idx,
-             ulong                  seq,
-             ulong                  sig,
+             ulong                  seq FD_PARAM_UNUSED,
+             ulong                  sig FD_PARAM_UNUSED,
              ulong                  chunk,
-             ulong                  sz ) {
-  (void)seq;
-  (void)sig;
+             ulong                  sz,
+             ulong                  ctl ) {
 
   uchar const * dcache_entry;
   ulong dcache_entry_sz;
@@ -344,11 +340,7 @@ during_frag( fd_repair_tile_ctx_t * ctx,
     dcache_entry = fd_chunk_to_laddr_const( ctx->repair_req_in_mem, chunk );
     dcache_entry_sz = sz;
   } else if ( FD_LIKELY( in_idx == NET_IN_IDX ) ) {
-    if( FD_UNLIKELY( chunk<ctx->net_in_chunk0 || chunk>ctx->net_in_wmark || sz>FD_NET_MTU ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->net_in_chunk0, ctx->net_in_wmark ));
-    }
-
-    dcache_entry = fd_chunk_to_laddr_const( ctx->net_in_mem, chunk );
+    dcache_entry = fd_net_rx_translate_frag( &ctx->net_in_bounds, chunk, ctl, sz );
     dcache_entry_sz = sz;
   } else {
     FD_LOG_ERR(("Unknown in_idx %lu for repair", in_idx));
@@ -578,10 +570,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->blockstore!=NULL );
 
   fd_topo_link_t * netmux_link = &topo->links[ tile->in_link_id[ 0 ] ];
-
-  ctx->net_in_mem  = topo->workspaces[ topo->objs[ netmux_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->net_in_chunk0  = fd_disco_compact_chunk0( ctx->net_in_mem );
-  ctx->net_in_wmark  = fd_disco_compact_wmark ( ctx->net_in_mem, netmux_link->mtu );
+  fd_net_rx_bounds_init( &ctx->net_in_bounds, netmux_link->dcache );
 
   FD_LOG_NOTICE(( "repair starting" ));
 

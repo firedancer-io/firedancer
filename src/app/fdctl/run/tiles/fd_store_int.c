@@ -188,11 +188,11 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED) {
 static void
 during_frag( fd_store_tile_ctx_t * ctx,
              ulong                 in_idx,
-             ulong                 seq,
+             ulong                 seq FD_PARAM_UNUSED,
              ulong                 sig,
              ulong                 chunk,
-             ulong                 sz ) {
-  (void)seq;
+             ulong                 sz,
+             ulong                 ctl FD_PARAM_UNUSED ) {
 
   if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
     if( FD_UNLIKELY( chunk<ctx->stake_in_chunk0 || chunk>ctx->stake_in_wmark ) )

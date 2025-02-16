@@ -285,15 +285,12 @@ before_frag( fd_benchs_ctx_t * ctx,
 
 static inline void
 during_frag( fd_benchs_ctx_t * ctx,
-             ulong             in_idx,
-             ulong             seq,
-             ulong             sig,
+             ulong             in_idx FD_PARAM_UNUSED,
+             ulong             seq    FD_PARAM_UNUSED,
+             ulong             sig    FD_PARAM_UNUSED,
              ulong             chunk,
-             ulong             sz ) {
-  (void)in_idx;
-  (void)seq;
-  (void)sig;
-
+             ulong             sz,
+             ulong             ctl    FD_PARAM_UNUSED ) {
   if( ctx->no_quic ) {
 
     if( FD_UNLIKELY( -1==send( ctx->conn_fd[ ctx->packet_cnt % ctx->conn_cnt ], fd_chunk_to_laddr( ctx->mem, chunk ), sz, 0 ) ) )
