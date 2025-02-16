@@ -8,27 +8,6 @@
 #include "../../util/net/fd_ip4.h"
 
 void
-load_cmd_perm( args_t *         args,
-                  fd_caps_ctx_t *  caps,
-                  config_t * const config ) {
-  (void)args;
-
-  args_t configure_args = {
-    .configure.command = CONFIGURE_CMD_INIT,
-  };
-  FD_TEST( CONFIGURE_STAGE_COUNT>2 );
-  for( ulong i=0; i<CONFIGURE_STAGE_COUNT; i++ ) {
-    if( FD_LIKELY( STAGES[ i ] ) ) {
-      if( FD_UNLIKELY( !strcmp( STAGES[ i ]->name, "hugetlbfs" ) ) )
-        configure_args.configure.stages[ 0 ] = STAGES[ i ];
-    }
-  }
-  configure_args.configure.stages[ 2 ] = NULL;
-  configure_cmd_perm( &configure_args, caps, config );
-
-}
-
-void
 load_cmd_args( int *    pargc,
                   char *** pargv,
                   args_t * args ) {
@@ -60,6 +39,46 @@ load_cmd_args( int *    pargc,
   }
 
   args->load.no_quic = fd_env_strip_cmdline_contains( pargc, pargv, "--no-quic" );
+
+}
+
+void
+load_cmd_topo( args_t *   args,
+               config_t * config ) {
+  add_bench_topo( &config->topo,
+                  args->load.affinity,
+                  args->load.benchg,
+                  args->load.benchs,
+                  args->load.accounts,
+                  args->load.transaction_mode,
+                  args->load.contending_fraction,
+                  args->load.cu_price_spread,
+                  args->load.connections,
+                  args->load.tpu_port,
+                  args->load.tpu_ip,
+                  args->load.rpc_port,
+                  args->load.rpc_ip,
+                  args->load.no_quic );
+}
+
+void
+load_cmd_perm( args_t *         args,
+               fd_caps_ctx_t *  caps,
+               config_t * const config ) {
+  (void)args;
+
+  args_t configure_args = {
+    .configure.command = CONFIGURE_CMD_INIT,
+  };
+  FD_TEST( CONFIGURE_STAGE_COUNT>2 );
+  for( ulong i=0; i<CONFIGURE_STAGE_COUNT; i++ ) {
+    if( FD_LIKELY( STAGES[ i ] ) ) {
+      if( FD_UNLIKELY( !strcmp( STAGES[ i ]->name, "hugetlbfs" ) ) )
+        configure_args.configure.stages[ 0 ] = STAGES[ i ];
+    }
+  }
+  configure_args.configure.stages[ 2 ] = NULL;
+  configure_cmd_perm( &configure_args, caps, config );
 
 }
 
@@ -99,24 +118,6 @@ load_cmd_fn( args_t *         args,
 
   if( FD_UNLIKELY( !args->load.connections ) )
     args->load.connections = config->layout.quic_tile_count;
-
-  fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
-  topo->max_page_size = fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size );
-  add_bench_topo( topo,
-                  args->load.affinity,
-                  args->load.benchg,
-                  args->load.benchs,
-                  args->load.accounts,
-                  args->load.transaction_mode,
-                  args->load.contending_fraction,
-                  args->load.cu_price_spread,
-                  args->load.connections,
-                  args->load.tpu_port,
-                  args->load.tpu_ip,
-                  args->load.rpc_port,
-                  args->load.rpc_ip,
-                  args->load.no_quic );
-  config->topo = *topo;
 
   args_t configure_args = {
     .configure.command = CONFIGURE_CMD_INIT,

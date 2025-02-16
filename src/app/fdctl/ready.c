@@ -1,9 +1,5 @@
 #include "fdctl.h"
 
-#include "run/run.h"
-
-#include "../../tango/fd_tango.h"
-
 void
 ready_cmd_fn( args_t *         args,
               config_t * const config ) {

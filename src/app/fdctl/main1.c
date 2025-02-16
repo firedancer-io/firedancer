@@ -2,6 +2,8 @@
 #define FD_UNALIGNED_ACCESS_STYLE 0
 
 #include "fdctl.h"
+#include "run/topos/topos.h"
+#include "../../disco/topo/fd_topob.h"
 
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -240,6 +242,8 @@ fdctl_boot( int *        pargc,
   fd_log_level_logfile_set( config->log.level_logfile1 );
   fd_log_level_stderr_set( config->log.level_stderr1 );
   fd_log_level_flush_set( config->log.level_flush1 );
+
+  fd_topob_new( &config->topo, config->name, fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size ) );
 }
 
 static config_t config;
@@ -296,6 +300,16 @@ main1( int     argc,
   args_t args = {0};
   if( FD_LIKELY( action->args ) ) action->args( &argc, &argv, &args );
   if( FD_UNLIKELY( argc ) ) FD_LOG_ERR(( "unknown argument `%s`", argv[ 0 ] ));
+  if( !action->topo ) {
+    /* Create a standard validator */
+    fd_topos_create_validator( &config.topo, &config );
+    if( !strcmp( config.layout.affinity, "auto" ) ) fd_topob_auto_layout( &config.topo );
+    fd_topos_seal( &config.topo );
+    FD_LOG_WARNING(( "TOPO"));
+  } else {
+    FD_LOG_WARNING(( "EEJE"));
+    action->topo( &args, &config );
+  }
 
   /* check if we are appropriate permissioned to run the desired command */
   if( FD_LIKELY( action->perm ) ) {

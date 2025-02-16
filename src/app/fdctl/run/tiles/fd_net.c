@@ -1069,7 +1069,7 @@ unprivileged_init( fd_topo_t *      topo,
       ctx->repair_out->mem    = topo->workspaces[ topo->objs[ repair_out->dcache_obj_id ].wksp_id ].wksp;
       ctx->repair_out->wmark  = fd_dcache_compact_wmark ( ctx->repair_out->mem, repair_out->dcache, repair_out->mtu );
       ctx->repair_out->chunk  = ctx->repair_out->chunk0;
-    } else if( strcmp( out_link->name, "net_netlink" ) == 0 ) {
+    } else if( strcmp( out_link->name, "net_netlnk" ) == 0 ) {
       fd_topo_link_t * netlink_out = out_link;
       ctx->neigh4_solicit->mcache = netlink_out->mcache;
       ctx->neigh4_solicit->depth  = fd_mcache_depth( ctx->neigh4_solicit->mcache );

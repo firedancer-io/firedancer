@@ -479,7 +479,7 @@ fd_topo_print_log( int         stdout,
 
     char size[ 24 ];
     fd_topo_mem_sz_string( fd_topo_mlock_max_tile1( topo, tile ), size );
-    PRINT( "  %2lu (%7s): %12s  kind_id=%-2lu  wksp_id=%-2lu  cpu_idx=", i, size, tile->name, tile->kind_id, topo->objs[ tile->tile_obj_id ].wksp_id );
+    PRINT( "  %2lu (%7s): %12s:%-2lu  wksp_id=%-2lu  cpu_idx=", i, size, tile->name, tile->kind_id, topo->objs[ tile->tile_obj_id ].wksp_id );
     if( tile->cpu_idx!=ULONG_MAX ) {
       PRINT( "%lu", tile->cpu_idx );
     } else {

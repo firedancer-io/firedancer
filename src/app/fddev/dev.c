@@ -5,6 +5,8 @@
 
 #include "../fdctl/configure/configure.h"
 #include "../fdctl/run/run.h"
+#include "../fdctl/run/topos/topos.h"
+#include "../../disco/topo/fd_topob.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -26,6 +28,14 @@ dev_cmd_args( int *    pargc,
   const char * debug_tile = fd_env_strip_cmdline_cstr( pargc, pargv, "--debug-tile", NULL, NULL );
   if( FD_UNLIKELY( debug_tile ) )
     strncpy( args->dev.debug_tile, debug_tile, sizeof( args->dev.debug_tile ) - 1 );
+}
+
+void
+dev_cmd_topo( args_t *   args FD_PARAM_UNUSED,
+              config_t * config ) {
+  fd_topos_create_validator( &config->topo, config );
+  if( !strcmp( config->layout.affinity, "auto" ) ) fd_topob_auto_layout( &config->topo );
+  fd_topos_seal( &config->topo );
 }
 
 void

@@ -2,6 +2,8 @@
 #include "../fddev.h"
 #include "../../fdctl/fdctl.h"
 #include "../../fdctl/configure/configure.h"
+#include "../../fdctl/run/topos/topos.h"
+#include "../../../disco/topo/fd_topob.h"
 
 #include <poll.h>
 #include <fcntl.h>
@@ -170,6 +172,11 @@ fddev_test_run( int     argc,
       config->log.lock_fd = init_log_memfd();
       config->tick_per_ns_mu = fd_tempo_tick_per_ns( &config->tick_per_ns_sigma );
       config->consensus.poh_speed_test = 0;
+
+      fd_topob_new( &config->topo, config->name, fd_cstr_to_shmem_page_sz( config->hugetlbfs.max_page_size ) );
+      fd_topos_create_validator( &config->topo, config );
+      if( !strcmp( config->layout.affinity, "auto" ) ) fd_topob_auto_layout( &config->topo );
+      fd_topos_seal( &config->topo );
 
       return run( config );
     } else {
