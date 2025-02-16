@@ -224,7 +224,7 @@ check_alpine_pkgs () {
 }
 
 check_macos_pkgs () {
-  local REQUIRED_FORMULAE=( perl autoconf gettext automake flex bison protobuf )
+  local REQUIRED_FORMULAE=( cmake perl autoconf gettext automake flex bison protobuf )
 
   echo "[~] Checking for required brew formulae"
 
