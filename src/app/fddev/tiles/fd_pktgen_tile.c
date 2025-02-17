@@ -11,6 +11,9 @@
 #include "../../../disco/topo/fd_topo.h"
 #include "../../../util/net/fd_eth.h"
 
+extern uint fd_pktgen_active;
+uint fd_pktgen_active = 0U;
+
 struct fd_pktgen_tile_ctx {
   void * out_base;
   ulong  chunk0;
@@ -53,6 +56,8 @@ static void
 before_credit( fd_pktgen_tile_ctx_t * ctx,
                fd_stem_context_t *    stem,
                int *                  charge_busy ) {
+  if( FD_VOLATILE_CONST( fd_pktgen_active )!=1U ) return;
+
   *charge_busy = 1;
 
   /* Select an arbitrary public IP as the fake destination.  The outgoing
