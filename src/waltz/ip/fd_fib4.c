@@ -2,6 +2,11 @@
 #include "fd_fib4_private.h"
 #include "../../util/fd_util.h"
 
+static const fd_fib4_hop_t
+fd_fib4_hop_blackhole = {
+  .rtype = FD_FIB4_RTYPE_BLACKHOLE
+};
+
 FD_FN_CONST ulong
 fd_fib4_align( void ) {
   return alignof(fd_fib4_t);
@@ -43,9 +48,10 @@ fd_fib4_new( void * mem,
   fd_memset( fib4, 0, sizeof(fd_fib4_t)               );
   fd_memset( keys, 0, route_max*sizeof(fd_fib4_key_t) );
   fd_memset( vals, 0, route_max*sizeof(fd_fib4_hop_t) );
-  fib4->max     = (uint)route_max;
+  fib4->max     = route_max;
   fib4->hop_off = (ulong)vals - (ulong)fib4;
   keys[0].prio  = UINT_MAX;
+  vals[0].rtype = FD_FIB4_RTYPE_THROW;
 
   fd_fib4_clear( fib4 );
 
@@ -69,26 +75,7 @@ fd_fib4_delete( void * mem ) {
 
 void
 fd_fib4_clear( fd_fib4_t * fib4 ) {
-
-  /* Step 1: Make default route negative */
-
-  fd_fib4_hop_tbl( fib4 )->rtype = FD_FIB4_RTYPE_BLACKHOLE;
-  FD_COMPILER_MFENCE();
-
-  /* Step 2: Disable all other routes */
-
-  fib4->active_cnt = 1U;
-  FD_COMPILER_MFENCE();
-
-  /* Step 3: Indicate we are mid write */
-
-  fib4->generation++;
-  FD_COMPILER_MFENCE();
-
-  /* Step 4: Update metadata */
-
-  fib4->generation++;
-  fib4->prepare_cnt = 1U;
+  fib4->cnt = 1UL;
 }
 
 FD_FN_PURE ulong
@@ -98,14 +85,13 @@ fd_fib4_max( fd_fib4_t const * fib ) {
 
 FD_FN_PURE ulong
 fd_fib4_cnt( fd_fib4_t const * fib ) {
-  return fib->prepare_cnt ? fib->prepare_cnt : fib->active_cnt;
+  return fib->cnt;
 }
 
 ulong
 fd_fib4_free_cnt( fd_fib4_t const * fib ) {
-  if( FD_UNLIKELY( fib->prepare_cnt==0 ) ) return 0UL;
-  if( FD_UNLIKELY( fib->prepare_cnt > fib->max ) ) FD_LOG_CRIT(( "prepare_cnt > max" ));
-  return fib->max - fib->prepare_cnt;
+  if( FD_UNLIKELY( fib->cnt > fib->max ) ) FD_LOG_ERR(( "invalid fib4 state: cnt>max" ));
+  return fib->max - fib->cnt;
 }
 
 fd_fib4_hop_t *
@@ -113,17 +99,20 @@ fd_fib4_append( fd_fib4_t * fib,
                 uint        ip4_dst,
                 int         prefix,
                 uint        prio ) {
-  if( FD_UNLIKELY( fib->prepare_cnt>=fib->max ) ) {
-    FD_LOG_WARNING(( "Failed to insert route, route table is full (%u max)", fib->max ));
-    return NULL;
-  }
-  if( FD_UNLIKELY( fib->prepare_cnt==0 ) ) {
-    FD_LOG_WARNING(( "Attempted to write to fib4 without lock" ));
+
+  ulong const generation = fib->generation;
+
+  if( FD_UNLIKELY( fib->cnt>=fib->max ) ) {
+    FD_LOG_WARNING(( "Failed to insert route, route table is full (%lu max)", fib->max ));
     return NULL;
   }
 
-  uint idx = fib->prepare_cnt;
-  fib->prepare_cnt = idx+1U;
+  FD_COMPILER_MFENCE();
+  fib->generation = generation+1UL;
+  FD_COMPILER_MFENCE();
+
+  ulong idx = fib->cnt;
+  fib->cnt = idx+1UL;
 
   fd_fib4_key_t * key = fd_fib4_key_tbl( fib ) + idx;
   *key = (fd_fib4_key_t) {
@@ -131,30 +120,13 @@ fd_fib4_append( fd_fib4_t * fib,
     .mask = prefix>0 ? fd_uint_mask( 32-prefix, 31 ) : 0U,
     .prio = prio
   };
-  return fd_fib4_hop_tbl( fib ) + idx;
-}
+  fd_fib4_hop_t * entry = fd_fib4_hop_tbl( fib ) + idx;
 
-void
-fd_fib4_publish( fd_fib4_t * fib ) {
-
-  /* Step 1: Enable new routes */
-
-  fib->active_cnt = fib->prepare_cnt;
+  FD_COMPILER_MFENCE();
+  fib->generation = generation+2UL;
   FD_COMPILER_MFENCE();
 
-  /* Step 2: Make default route neutral */
-
-  fd_fib4_hop_tbl( fib )->rtype = FD_FIB4_RTYPE_THROW;
-  FD_COMPILER_MFENCE();
-
-  /* Step 3: Indicate that write is complete */
-
-  fib->generation++;
-  FD_COMPILER_MFENCE();
-
-  /* Step 4: Update metadata */
-
-  fib->prepare_cnt = 0U;
+  return entry;
 }
 
 fd_fib4_hop_t const *
@@ -166,14 +138,15 @@ fd_fib4_lookup( fd_fib4_t const * fib,
     return fd_fib4_hop_tbl_const( fib ) + 0; /* dead route */
   }
   ip4_dst = fd_uint_bswap( ip4_dst );
+  fd_fib4_key_t const * keys = fd_fib4_key_tbl_const( fib );
 
   ulong generation = FD_VOLATILE_CONST( fib->generation );
-  fd_fib4_key_t const * keys = fd_fib4_key_tbl_const( fib );
   FD_COMPILER_MFENCE();
 
   ulong best_idx  = 0UL; /* dead route */
   int   best_mask = 32;  /* least specific mask (/0) */
-  for( ulong j=0UL; j<(fib->active_cnt); j++ ) {
+  ulong cnt       = fib->cnt;
+  for( ulong j=0UL; j<cnt; j++ ) {
     /* FIXME consider branch variant? */
     int match         = (ip4_dst & keys[j].mask)==keys[j].addr;
     int mask_bits     = fd_uint_find_lsb_w_default( keys[j].mask, 32 );
@@ -189,7 +162,7 @@ fd_fib4_lookup( fd_fib4_t const * fib,
 
   FD_COMPILER_MFENCE();
   if( FD_UNLIKELY( FD_VOLATILE_CONST( fib->generation )!=generation ) ) {
-    return fd_fib4_hop_tbl_const( fib ) + 0; /* dead route */
+    return &fd_fib4_hop_blackhole; /* torn read */
   }
   return out;
 }
@@ -289,11 +262,11 @@ fd_fib4_fprintf( fd_fib4_t const * fib,
   fd_fib4_hop_t const * hop_tbl = fd_fib4_hop_tbl_const( fib );
 
   FD_COMPILER_MFENCE();
-  ulong active_cnt = fib->active_cnt;
+  ulong cnt        = fib->cnt;
   ulong generation = fib->generation;
   FD_COMPILER_MFENCE();
 
-  for( ulong j=0UL; j<active_cnt; j++ ) {
+  for( ulong j=0UL; j<cnt; j++ ) {
     FD_COMPILER_MFENCE();
     fd_fib4_key_t key = key_tbl[j];
     fd_fib4_hop_t hop = hop_tbl[j];

@@ -45,13 +45,8 @@ main( int     argc,
   fd_fib4_t * fib_main  = fd_fib4_join( fd_fib4_new( fib2_mem, 16 ) );
   fd_fib4_hop_t candidate[2];
 
-  /* Ensure FIB in PREPARE state returns BLACKHOLE */
+  /* Ensure empty FIB returns THROW */
 
-  FD_TEST( fd_fib4_lookup( fib_local, candidate, 0x12345678, 0 )->rtype==FD_FIB4_RTYPE_BLACKHOLE );
-
-  /* Ensure empty FIB in ACTIVE returns THROW */
-
-  fd_fib4_publish( fib_local );
   FD_TEST( fd_fib4_lookup( fib_local, candidate, 0x12345678, 0 )->rtype==FD_FIB4_RTYPE_THROW );
 
   /* Simple production scenario
@@ -78,7 +73,6 @@ main( int     argc,
   *fd_fib4_append( fib_local, FD_IP4_ADDR( 127,0,0,0     ),  8, 0 ) = (fd_fib4_hop_t){ .rtype=FD_FIB4_RTYPE_LOCAL,     .if_idx=1, .scope=254, .ip4_src=FD_IP4_ADDR( 127,0,0,1   ) };
   *fd_fib4_append( fib_local, FD_IP4_ADDR( 127,0,0,1     ), 32, 0 ) = (fd_fib4_hop_t){ .rtype=FD_FIB4_RTYPE_LOCAL,     .if_idx=1, .scope=254, .ip4_src=FD_IP4_ADDR( 127,0,0,1   ) };
   *fd_fib4_append( fib_local, FD_IP4_ADDR( 127,0,255,255 ), 32, 0 ) = (fd_fib4_hop_t){ .rtype=FD_FIB4_RTYPE_BROADCAST, .if_idx=1, .scope=253, .ip4_src=FD_IP4_ADDR( 127,0,0,1   ) };
-  fd_fib4_publish( fib_local );
 
   test_fib_print( fib_local,
     "throw default metric 4294967295\n"
@@ -94,7 +88,6 @@ main( int     argc,
   FD_TEST( fd_fib4_free_cnt( fib_main )>=2 );
   *fd_fib4_append( fib_main, FD_IP4_ADDR( 0,0,0,0     ),  0, 300 ) = (fd_fib4_hop_t){ .rtype=FD_FIB4_RTYPE_UNICAST, .ip4_gw=FD_IP4_ADDR( 192,0,2,161 ), .if_idx=6,             .ip4_src=FD_IP4_ADDR( 192,0,2,165 ) };
   *fd_fib4_append( fib_main, FD_IP4_ADDR( 192,0,2,161 ), 27, 300 ) = (fd_fib4_hop_t){ .rtype=FD_FIB4_RTYPE_UNICAST,                                     .if_idx=6, .scope=253, .ip4_src=FD_IP4_ADDR( 192,0,2,165 ) };
-  fd_fib4_publish( fib_main );
 
   test_fib_print( fib_main,
     "throw default metric 4294967295\n"
@@ -142,9 +135,14 @@ main( int     argc,
 
 # undef QUERY
 
+  /* Clear again */
+  fd_fib4_clear( fib_main );
+  FD_TEST( fd_fib4_lookup( fib_local, candidate, 0x12345678, 0 )->rtype==FD_FIB4_RTYPE_THROW );
+
   fd_fib4_delete( fd_fib4_leave( fib_local ) );
   fd_fib4_delete( fd_fib4_leave( fib_main  ) );
 
+  FD_LOG_NOTICE(( "pass" ));
   fd_halt();
   return 0;
 }
