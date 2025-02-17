@@ -322,7 +322,7 @@ fd_tpu_reasm_cancel( fd_tpu_reasm_t *      reasm,
 #define C4 ( 9650029242287828579UL)
 #define C5 ( 2870177450012600261UL)
 
-static inline ulong
+FD_FN_PURE static inline ulong
 fd_tpu_reasm_key_hash( fd_tpu_reasm_key_t const * k,
                        ulong                      seed ) {
 

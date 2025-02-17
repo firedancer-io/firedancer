@@ -101,7 +101,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 /* dist_file_sz returns the sum of static asset file sizes */
 
-static ulong
+FD_FN_CONST static ulong
 dist_file_sz( void ) {
   ulong tot_sz = 0UL;
   for( fd_http_static_file_t * f = STATIC_FILES; f->name; f++ ) {

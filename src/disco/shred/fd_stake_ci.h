@@ -78,8 +78,8 @@ typedef struct fd_stake_ci fd_stake_ci_t;
    outright if needed, but it's pretty large (~30 MB!), so you probably
    don't want it on the stack. */
 
-static inline ulong fd_stake_ci_footprint( void ) { return sizeof (fd_stake_ci_t); }
-static inline ulong fd_stake_ci_align    ( void ) { return alignof(fd_stake_ci_t); }
+FD_FN_CONST static inline ulong fd_stake_ci_footprint( void ) { return sizeof (fd_stake_ci_t); }
+FD_FN_CONST static inline ulong fd_stake_ci_align    ( void ) { return alignof(fd_stake_ci_t); }
 
 /* fd_stake_ci_new formats a piece of memory as a valid stake contact
    information store.  `identity_key` is a pointer to the public key of

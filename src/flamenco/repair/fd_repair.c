@@ -33,7 +33,7 @@
 #define FD_REPAIR_NUM_NEEDED_PEERS (4)
 
 /* Test if two hash values are equal */
-static int fd_hash_eq( const fd_hash_t * key1, const fd_hash_t * key2 ) {
+FD_FN_PURE static int fd_hash_eq( const fd_hash_t * key1, const fd_hash_t * key2 ) {
   for (ulong i = 0; i < 32U/sizeof(ulong); ++i)
     if (key1->ul[i] != key2->ul[i])
       return 0;
@@ -41,7 +41,7 @@ static int fd_hash_eq( const fd_hash_t * key1, const fd_hash_t * key2 ) {
 }
 
 /* Hash a hash value */
-static ulong fd_hash_hash( const fd_hash_t * key, ulong seed ) {
+FD_FN_PURE static ulong fd_hash_hash( const fd_hash_t * key, ulong seed ) {
   return key->ul[0] ^ seed;
 }
 
@@ -52,13 +52,13 @@ static void fd_hash_copy( fd_hash_t * keyd, const fd_hash_t * keys ) {
 }
 
 /* Test if two addresses are equal */
-int fd_repair_peer_addr_eq( const fd_repair_peer_addr_t * key1, const fd_repair_peer_addr_t * key2 ) {
+FD_FN_PURE int fd_repair_peer_addr_eq( const fd_repair_peer_addr_t * key1, const fd_repair_peer_addr_t * key2 ) {
   FD_STATIC_ASSERT(sizeof(fd_repair_peer_addr_t) == sizeof(ulong),"messed up size");
   return key1->l == key2->l;
 }
 
 /* Hash an address */
-ulong fd_repair_peer_addr_hash( const fd_repair_peer_addr_t * key, ulong seed ) {
+FD_FN_PURE ulong fd_repair_peer_addr_hash( const fd_repair_peer_addr_t * key, ulong seed ) {
   FD_STATIC_ASSERT(sizeof(fd_repair_peer_addr_t) == sizeof(ulong),"messed up size");
   return (key->l + seed + 7242237688154252699UL)*9540121337UL;
 }
@@ -114,12 +114,14 @@ struct fd_dupdetect_elem {
 };
 typedef struct fd_dupdetect_elem fd_dupdetect_elem_t;
 
+FD_FN_PURE
 int fd_dupdetect_eq( const fd_dupdetect_key_t * key1, const fd_dupdetect_key_t * key2 ) {
   return (key1->type == key2->type) &&
          (key1->slot == key2->slot) &&
          (key1->shred_index == key2->shred_index);
 }
 
+FD_FN_PURE
 ulong fd_dupdetect_hash( const fd_dupdetect_key_t * key, ulong seed ) {
   return (key->slot + seed)*9540121337UL + key->shred_index*131U;
 }
@@ -136,11 +138,11 @@ void fd_dupdetect_copy( fd_dupdetect_key_t * keyd, const fd_dupdetect_key_t * ke
 #define MAP_T        fd_dupdetect_elem_t
 #include "../../util/tmpl/fd_map_giant.c"
 
-int fd_repair_nonce_eq( const fd_repair_nonce_t * key1, const fd_repair_nonce_t * key2 ) {
+FD_FN_PURE int fd_repair_nonce_eq( const fd_repair_nonce_t * key1, const fd_repair_nonce_t * key2 ) {
   return *key1 == *key2;
 }
 
-ulong fd_repair_nonce_hash( const fd_repair_nonce_t * key, ulong seed ) {
+FD_FN_PURE ulong fd_repair_nonce_hash( const fd_repair_nonce_t * key, ulong seed ) {
   return (*key + seed + 7242237688154252699UL)*9540121337UL;
 }
 
@@ -240,10 +242,10 @@ struct fd_repair {
     int good_peer_cache_file_fd;
 };
 
-ulong
+FD_FN_CONST ulong
 fd_repair_align ( void ) { return 128UL; }
 
-ulong
+FD_FN_CONST ulong
 fd_repair_footprint( void ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_repair_t), sizeof(fd_repair_t) );

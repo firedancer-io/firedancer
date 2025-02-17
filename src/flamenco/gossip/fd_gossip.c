@@ -75,13 +75,13 @@
 #define MAX_PEER_PING_COUNT (10000U)
 
 /* Test if two addresses are equal */
-static int fd_gossip_peer_addr_eq( const fd_gossip_peer_addr_t * key1, const fd_gossip_peer_addr_t * key2 ) {
+FD_FN_PURE static int fd_gossip_peer_addr_eq( const fd_gossip_peer_addr_t * key1, const fd_gossip_peer_addr_t * key2 ) {
   FD_STATIC_ASSERT(sizeof(fd_gossip_peer_addr_t) == sizeof(ulong),"messed up size");
   return key1->l == key2->l;
 }
 
 /* Hash an address */
-static ulong fd_gossip_peer_addr_hash( const fd_gossip_peer_addr_t * key, ulong seed ) {
+FD_FN_PURE static ulong fd_gossip_peer_addr_hash( const fd_gossip_peer_addr_t * key, ulong seed ) {
   FD_STATIC_ASSERT(sizeof(fd_gossip_peer_addr_t) == sizeof(ulong),"messed up size");
   return (key->l + seed + 7242237688154252699UL)*9540121337UL;
 }
@@ -360,10 +360,10 @@ fd_gossip_get_metrics( fd_gossip_t * gossip ) {
   return &gossip->metrics;
 }
 
-ulong
+FD_FN_CONST ulong
 fd_gossip_align ( void ) { return 128UL; }
 
-ulong
+FD_FN_CONST ulong
 fd_gossip_footprint( void ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_t), sizeof(fd_gossip_t) );

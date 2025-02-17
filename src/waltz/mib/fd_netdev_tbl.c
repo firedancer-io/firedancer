@@ -13,7 +13,7 @@ fd_netdev_tbl_align( void ) {
   return FD_NETDEV_TBL_ALIGN;
 }
 
-ulong
+FD_FN_CONST ulong
 fd_netdev_tbl_footprint( ulong dev_max,
                          ulong bond_max ) {
   if( FD_UNLIKELY( dev_max ==0UL || dev_max >USHORT_MAX ) ) return 0UL;

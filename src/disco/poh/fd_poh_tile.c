@@ -2,12 +2,12 @@
 
 #include "../metrics/fd_metrics.h"
 
-ulong
+FD_FN_CONST ulong
 fd_poh_tile_align( void ) {
   return 128UL;
 }
 
-ulong
+FD_FN_CONST ulong
 fd_poh_tile_footprint( void ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_poh_tile_ctx_t ), sizeof( fd_poh_tile_ctx_t ) );
@@ -148,7 +148,7 @@ fd_poh_tile_publish_became_leader( fd_poh_tile_ctx_t * ctx,
     FD_LOG_ERR(( "Too many skipped ticks %lu for slot %lu, chain must halt", leader->ticks_per_slot+leader->total_skipped_ticks, slot ));
 
   FD_LOG_INFO(( "became_leader(slot=%lu)", slot ));
-  
+
   ulong sig = fd_disco_poh_sig( slot, POH_PKT_TYPE_BECAME_LEADER, 0UL );
   ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
   ctx->publish_pack_func( ctx->arg, tspub, sig, sizeof(fd_became_leader_t) );
@@ -289,7 +289,7 @@ fd_poh_tile_reset( fd_poh_tile_ctx_t * ctx,
   } else {
     ctx->reset_slot_start_ns = fd_log_wallclock(); /* safe to call from Rust */
   }
-  ctx->expect_sequential_leader_slot = ULONG_MAX;  
+  ctx->expect_sequential_leader_slot = ULONG_MAX;
 
   memcpy( ctx->hash, reset_blockhash, 32UL );
   ctx->slot         = completed_bank_slot+1UL;

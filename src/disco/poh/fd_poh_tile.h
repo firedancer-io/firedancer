@@ -83,7 +83,7 @@ struct fd_poh_tile_ctx {
 
      As well, the next leader slot that we can transition into will
      always be strictly more than the slot this hashcnt is in, otherwise
-     we could potentially become leader for a slot twice. */   
+     we could potentially become leader for a slot twice. */
   ulong last_slot;
   ulong last_hashcnt;
 
@@ -181,11 +181,11 @@ typedef struct fd_poh_tile_ctx fd_poh_tile_ctx_t;
 
 FD_PROTOTYPES_BEGIN
 
-ulong
+FD_FN_CONST ulong
 fd_poh_tile_align( void );
 
 ulong
-fd_poh_tile_footprint( void );
+FD_FN_CONST fd_poh_tile_footprint( void );
 
 void
 fd_poh_tile_publish_microblock( fd_poh_tile_ctx_t * ctx,
@@ -194,7 +194,7 @@ fd_poh_tile_publish_microblock( fd_poh_tile_ctx_t * ctx,
                                 ulong               hashcnt_delta,
                                 fd_txn_p_t *        txns,
                                 ulong               txn_cnt );
-                              
+
 void
 fd_poh_tile_initialize( fd_poh_tile_ctx_t * ctx,
                         ulong               tick_duration_ns, /* See clock comments above, will be 500ns for mainnet-beta. */

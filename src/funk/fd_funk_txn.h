@@ -72,13 +72,13 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_funk_txn_{cidx,idx} convert between an index and a compressed index. */
 
-static inline uint  fd_funk_txn_cidx( ulong idx ) { return (uint) idx; }
-static inline ulong fd_funk_txn_idx ( uint  idx ) { return (ulong)idx; }
+FD_FN_CONST static inline uint  fd_funk_txn_cidx( ulong idx ) { return (uint) idx; }
+FD_FN_CONST static inline ulong fd_funk_txn_idx ( uint  idx ) { return (ulong)idx; }
 
 /* fd_funk_txn_idx_is_null returns 1 if idx is FD_FUNK_TXN_IDX_NULL and
    0 otherwise. */
 
-static inline int fd_funk_txn_idx_is_null( ulong idx ) { return idx==FD_FUNK_TXN_IDX_NULL; }
+FD_FN_CONST static inline int fd_funk_txn_idx_is_null( ulong idx ) { return idx==FD_FUNK_TXN_IDX_NULL; }
 
 /* Generate a globally unique pseudo-random xid */
 fd_funk_txn_xid_t fd_funk_generate_xid(void);

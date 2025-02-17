@@ -156,7 +156,7 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
 
 typedef struct fd_fec_resolver fd_fec_resolver_t;
 
-ulong
+FD_FN_PURE ulong
 fd_fec_resolver_footprint( ulong depth,
                            ulong partial_depth,
                            ulong complete_depth,
@@ -181,7 +181,7 @@ fd_fec_resolver_footprint( ulong depth,
   return FD_LAYOUT_FINI( layout, FD_FEC_RESOLVER_ALIGN );
 }
 
-ulong fd_fec_resolver_align( void ) { return FD_FEC_RESOLVER_ALIGN; }
+FD_FN_CONST ulong fd_fec_resolver_align( void ) { return FD_FEC_RESOLVER_ALIGN; }
 
 
 void *
