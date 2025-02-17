@@ -104,8 +104,8 @@ FD_PROTOTYPES_BEGIN
 
    fd_fec_resolver_alignment returns the required alignment of a region
    of memory for it to be used as a FEC resolver. */
-ulong fd_fec_resolver_footprint( ulong depth, ulong partial_depth, ulong complete_depth, ulong done_depth );
-ulong fd_fec_resolver_align    ( void );
+FD_FN_PURE ulong fd_fec_resolver_footprint( ulong depth, ulong partial_depth, ulong complete_depth, ulong done_depth );
+FD_FN_CONST ulong fd_fec_resolver_align    ( void );
 
 /* fd_fec_resolver_new formats a region of memory as a FEC resolver.
    shmem must have the required alignment and footprint.  signer is a

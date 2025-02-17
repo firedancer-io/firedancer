@@ -12,12 +12,12 @@
 #include "../../util/log/fd_log.h"
 #include "fd_xsk_private.h"
 
-ulong
+FD_FN_CONST ulong
 fd_xsk_align( void ) {
   return FD_XSK_ALIGN;
 }
 
-static ulong
+FD_FN_CONST static ulong
 fd_xsk_umem_footprint( ulong frame_sz,
                        ulong fr_depth,
                        ulong rx_depth,

@@ -37,7 +37,7 @@ fd_bank_hash_cmp_align( void ) {
   return 128UL;
 }
 
-static inline ulong
+FD_FN_CONST static inline ulong
 fd_bank_hash_cmp_footprint( void ) {
   /* clang-format off */
     return FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,

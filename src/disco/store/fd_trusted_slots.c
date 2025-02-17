@@ -1,11 +1,11 @@
 #include "fd_trusted_slots.h"
 
-ulong
+FD_FN_CONST ulong
 fd_trusted_slots_align( void ) {
   return alignof(fd_trusted_slots_t);
 }
 
-ulong
+FD_FN_CONST ulong
 fd_trusted_slots_footprint( ulong slots_max ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_trusted_slots_t), sizeof(fd_trusted_slots_t) );
@@ -29,7 +29,7 @@ fd_trusted_slots_new( void * shmem, ulong slot_max ) {
 
   FD_SCRATCH_ALLOC_INIT(l, shmem);
   fd_trusted_slots_t * trusted_slots = (fd_trusted_slots_t *)FD_SCRATCH_ALLOC_APPEND( l,  alignof(fd_trusted_slots_t), sizeof(fd_trusted_slots_t) );
-  
+
   void * slot_pool_mem = fd_slot_pool_new( FD_SCRATCH_ALLOC_APPEND( l, fd_slot_pool_align(), fd_slot_pool_footprint( slot_max ) ), slot_max );
   if( !slot_pool_mem ) {
     FD_LOG_WARNING(( "fd_slot_pool_new failed" ));
@@ -65,7 +65,7 @@ fd_trusted_slots_join( void * shmem ) {
     FD_LOG_WARNING(( "misaligned trusted_slots" ));
     return NULL;
   }
-  
+
   fd_trusted_slots_t * trusted_slots = (fd_trusted_slots_t *)shmem;
   trusted_slots->slot_pool = fd_slot_pool_join( trusted_slots->slot_pool );
   if( !trusted_slots->slot_pool ) {
@@ -84,7 +84,7 @@ fd_trusted_slots_join( void * shmem ) {
 
 int
 fd_trusted_slots_find( fd_trusted_slots_t * trusted_slots,
-                       ulong                slot ) {  
+                       ulong                slot ) {
   fd_slot_ele_t * ele = fd_slot_treap_ele_query( trusted_slots->slot_treap, slot, trusted_slots->slot_pool );
   return (ele!=NULL);
 }
@@ -98,7 +98,7 @@ fd_trusted_slots_add( fd_trusted_slots_t * trusted_slots,
 
   fd_slot_ele_t * ele = fd_slot_pool_ele_acquire( trusted_slots->slot_pool );
   ele->key = slot;
-  
+
   fd_slot_treap_ele_insert( trusted_slots->slot_treap, ele, trusted_slots->slot_pool );
 }
 

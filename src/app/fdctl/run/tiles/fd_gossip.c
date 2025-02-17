@@ -56,7 +56,7 @@
 
 static volatile ulong * fd_shred_version;
 
-static int
+FD_FN_PURE static int
 fd_pubkey_eq( fd_pubkey_t const * key1, fd_pubkey_t const * key2 ) {
   return memcmp( key1->key, key2->key, sizeof(fd_pubkey_t) ) == 0;
 }

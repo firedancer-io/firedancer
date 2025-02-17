@@ -386,8 +386,8 @@ struct fd_txn_map {
 };
 typedef struct fd_txn_map fd_txn_map_t;
 
-int fd_txn_key_equal(fd_txn_key_t const * k0, fd_txn_key_t const * k1);
-ulong fd_txn_key_hash(fd_txn_key_t const * k, ulong seed);
+FD_FN_PURE int fd_txn_key_equal(fd_txn_key_t const * k0, fd_txn_key_t const * k1);
+FD_FN_PURE ulong fd_txn_key_hash(fd_txn_key_t const * k, ulong seed);
 
 #define MAP_NAME             fd_txn_map
 #define MAP_T                fd_txn_map_t

@@ -34,7 +34,7 @@ typedef struct fd_snapshot_accv_key fd_snapshot_accv_key_t;
 static const fd_snapshot_accv_key_t
 fd_snapshot_accv_key_null = { 0UL, 0UL };
 
-static inline ulong
+FD_FN_PURE static inline ulong
 fd_snapshot_accv_key_hash( fd_snapshot_accv_key_t key ) {
   return fd_hash( 0x39c49607bf16463aUL, &key, sizeof(fd_snapshot_accv_key_t) );
 }
