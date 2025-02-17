@@ -20,15 +20,15 @@ FD_PROTOTYPES_BEGIN
    table_id is in [0,2^31).  table_id is typically RT_TABLE_LOCAL or
    RT_TABLE_MAIN.  These are 255 and 254 respectively on Linux.  Assumes
    netlink has a usable rtnetlink socket.  fib is a writable join to a fib4
-   object in PREPARE or ACTIVE state.  Logs to debug level for diagnostics
-   and warning level in case of error.
+   object.  Logs to debug level for diagnostics and warning level in case
+   of error.
 
-   Returns FD_FIB4_NETLINK_SUCCESS on success and leaves fib in ACTIVE
-   state and netlink ready for the next request.  fib is not guaranteed to
-   mirror the route table precisely even on success.  (May turn routes with
-   unsupported type or attribute into blackhole routes.)
+   Returns FD_FIB4_NETLINK_SUCCESS on success and leaves netlink ready
+   for the next request.  fib is not guaranteed to mirror the route
+   table precisely even on success.  (May turn routes with unsupported
+   type or attribute into blackhole routes.)
 
-   On failure, leaves fib in PREPARE state (which blackholes all packets).
+   On failure, leaves a route table that blackholes all packets.
    Return values FD_FIB4_NETLINK_ERR_{...} in case of error as follows:
 
      OOPS:  Internal error (bug) occurred.

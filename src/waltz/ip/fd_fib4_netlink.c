@@ -240,8 +240,6 @@ fd_fib4_netlink_load_table( fd_fib4_t *    fib,
     return FD_FIB_NETLINK_ERR_OOPS;
   }
 
-  fd_fib4_publish( fib );
-
   return 0;
 }
 

@@ -13,13 +13,7 @@
    (many reader threads, one writer thread)  Refer to each function for
    thread safety.
 
-   A fib4 has two states: PREPARE and ACTIVE.  In ACTIVE state, FIB lookups
-   function as expected but writes are prohibited.  In PREPARE state, any
-   FIB lookup returns 'FD_FIB4_RTYPE_BLACKHOLE' but writes are allowed.
-
-   A fib4 always has a dummy route at index 0.  In PREPARE state, this
-   route is a BLACKHOLE route (terminate routing and drops the packet),
-   otherwise it is a THROW route (continue routing with next table).
+   A fib4 always has a dummy route at index 0.
 
    FIXME: CONSIDER TRIE BASED DATA STRUCTURE
 
@@ -92,27 +86,20 @@ fd_fib4_delete( void * mem );
    updates are not supported).  During an update, fd_fib4_lookup calls
    temporarily return a route entry with FD_FIB4_RTYPE_BLACKHOLE, which
    means outgoing packets get dropped.  (This is preferable to potentially
-   making an incorrect routing decision based on a partial route table.)
+   making an incorrect routing decision based on a partial route table.) */
 
-   Example usage:
-
-     fd_fib4_clear()
-     ... multiple calls to fd_fib4_append() ...
-     fd_fib4_publish() */
-
-/* fd_fib4_clear removes all route entries.  Transitions the fib to PREPARE
-   state. */
+/* fd_fib4_clear removes all route table entries but the first.  Sets
+   the first route table entry to "throw 0.0.0.0/0 metric ((2<<32)-1)". */
 
 void
 fd_fib4_clear( fd_fib4_t * fib );
 
-/* fd_fib4_append attempts to add a new route entry.  Assumes the fib is in
-   PREPARE state.  If fd_fib4_free_cnt(fib) returned non-zero immediately
-   prior to calling append, then append is guaranteed to succeed.
+/* fd_fib4_append attempts to add a new route entry.  If
+   fd_fib4_free_cnt(fib) returned non-zero immediately prior to calling
+   append, then append is guaranteed to succeed.
 
-   Returns a hop object to be filled by the caller on success.  On failure,
-   returns NULL and logs warning.  Reasons for failure include no space
-   left or fib not in PREPARE state. */
+   Returns a hop object to be filled by the caller on success.  On
+   failure, returns NULL and logs warning. */
 
 fd_fib4_hop_t *
 fd_fib4_append( fd_fib4_t * fib,
@@ -120,18 +107,10 @@ fd_fib4_append( fd_fib4_t * fib,
                 int         prefix,
                 uint        prio );
 
-/* fd_fib4_publish transitions the fib from PREPARE to ACTIVE state.  If
-   the fib is already ACTIVE does nothing. */
-
-void
-fd_fib4_publish( fd_fib4_t * fib );
-
 /* Read APIs *************************************************************/
 
 /* fd_fib4_lookup resolves the next hop for an arbitrary IPv4 address.
    If route was not found, retval->rtype is set to FD_FIB4_RTYPE_THROW.
-   If fib is not in ACTIVE state, retval->rtype is set to
-   FD_FIB4_RTYPE_BLACKHOLE.
 
    Thread safe: Multiple threads can use the read API concurrently without
    affecting each other.  If a write by one thread is in progress, all
@@ -158,16 +137,13 @@ fd_fib4_hop_or( fd_fib4_hop_t const * left,
 FD_FN_PURE ulong
 fd_fib4_max( fd_fib4_t const * fib );
 
-/* fd_fib4_cnt returns the number of routes in the table.  In PREPARE state
-   returns the number of pending routes, in ACTIVE state returns the number
-   of active routes. */
+/* fd_fib4_cnt returns the number of routes in the table. */
 
 FD_FN_PURE ulong
 fd_fib4_cnt( fd_fib4_t const * fib );
 
 /* fd_fib4_free_cnt returns the number of fd_fib4_append calls that are
-   guaranteed to succeed, if fib is in PREPARE state.  If fib is in ACTIVE
-   state returns 0. */
+   guaranteed to succeed. */
 
 ulong
 fd_fib4_free_cnt( fd_fib4_t const * fib );
@@ -177,7 +153,7 @@ fd_fib4_free_cnt( fd_fib4_t const * fib );
 /* fd_fib4_fprintf prints the routing table to the given FILE * pointer (or
    target equivalent).  Order of routes is undefined but guaranteed to be
    stable between calls.  Outputs ASCII encoding with LF newlines.  Returns
-   errno on failure and 0 on success.  Only works on ACTIVE tables. */
+   errno on failure and 0 on success. */
 
 int
 fd_fib4_fprintf( fd_fib4_t const * fib,

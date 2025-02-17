@@ -14,9 +14,8 @@ typedef struct fd_fib4_key fd_fib4_key_t;
 
 struct __attribute__((aligned(FD_FIB4_ALIGN))) fd_fib4 {
   ulong generation;
-  uint  prepare_cnt;  /* >0 implies PREPARE state, ==0 implies ACTIVE */
-  uint  active_cnt;
-  uint  max;
+  ulong cnt;
+  ulong max;
   ulong hop_off;
   /* fd_fib4_key_t[] follows */
   /* fd_fib4_hop_t[] follows */
