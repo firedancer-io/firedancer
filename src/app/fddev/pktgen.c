@@ -107,6 +107,7 @@ render_status( ulong volatile const * net_metrics ) {
   static double rx_drop_pps  = 0.0;
   static double tx_ok_pps    = 0.0;
   static double tx_bps       = 0.0;
+  static double ns_per_pkt   = 0.0;
 
   if( FD_UNLIKELY( ts_last==-1 ) ) ts_last = fd_log_wallclock();
   long now = fd_log_wallclock();
@@ -154,6 +155,10 @@ render_status( ulong volatile const * net_metrics ) {
     rx_drop_last         = rx_drop_now;
     tx_ok_last           = tx_ok_now;
     tx_byte_last         = tx_byte_now;
+
+    ulong pkt_delta = rx_ok_delta+tx_ok_delta;
+    ns_per_pkt = (busy_r*(double)dt) / (double)pkt_delta;
+    if( !pkt_delta ) ns_per_pkt = 0.0;
   }
 
   ulong rx_idle = net_metrics[ MIDX( GAUGE, NET, RX_IDLE_CNT ) ];
@@ -161,12 +166,13 @@ render_status( ulong volatile const * net_metrics ) {
   ulong tx_idle = net_metrics[ MIDX( GAUGE, NET, TX_IDLE_CNT ) ];
   ulong tx_busy = net_metrics[ MIDX( GAUGE, NET, TX_BUSY_CNT ) ];
   printf( "\033[2K" "  Net busy: %.2f%%\n"
+          "\033[2K" "  Throughput: %.0f ns/pkt\n"
           "\033[2K" "  RX ok:   %10.3e pps %10.3e bps\n"
           "\033[2K" "  RX drop: %10.3e pps\n"
           "\033[2K" "  TX ok:   %10.3e pps %10.3e bps\n"
           "\033[2K" "  RX bufs: %6lu idle %6lu busy\n"
           "\033[2K" "  TX bufs: %6lu idle %6lu busy\n",
-          100.*busy_r,
+          100.*busy_r, ns_per_pkt,
           rx_ok_pps,   rx_bps,
           rx_drop_pps,
           tx_ok_pps,   tx_bps,
