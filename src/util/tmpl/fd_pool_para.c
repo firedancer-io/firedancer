@@ -505,6 +505,8 @@ POOL_STATIC POOL_ELE_T * POOL_(acquire)( POOL_(t) * join, POOL_ELE_T * sentinel,
 
 POOL_STATIC int POOL_(release)( POOL_(t) * join, POOL_ELE_T * ele, int blocking );
 
+POOL_STATIC int POOL_(is_empty)( POOL_(t) * join );
+
 POOL_STATIC int POOL_(lock)( POOL_(t) * join, int blocking );
 
 POOL_STATIC void POOL_(reset)( POOL_(t) * join, ulong sentinel_cnt );
@@ -746,6 +748,13 @@ POOL_(release)( POOL_(t) *   join,
   FD_COMPILER_MFENCE();
 
   return err;
+}
+
+POOL_STATIC int
+POOL_(is_empty)( POOL_(t) * join ) {
+  ulong ver_top = join->pool->ver_top;
+  ulong ele_idx = POOL_(private_vidx_idx)( ver_top );
+  return POOL_(idx_is_null)( ele_idx );
 }
 
 POOL_STATIC int
