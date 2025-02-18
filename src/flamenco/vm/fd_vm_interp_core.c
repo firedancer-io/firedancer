@@ -242,16 +242,16 @@
   vm->frame_cnt = frame_cnt;                                                  \
   /* Execution */                                                             \
   ulong ret[1];                                                               \
-  err = syscall->func( vm, reg[1], reg[2], reg[3], reg[4], reg[5], ret );     \
+  fd_exec_result_t exec_res = syscall->func( vm, reg[1], reg[2], reg[3], reg[4], reg[5], ret );     \
   reg[0] = ret[0];                                                            \
   /* Error handling */                                                        \
   ulong cu_req = vm->cu;                                                      \
   cu = fd_ulong_min( cu_req, cu );                                            \
-  if( FD_UNLIKELY( err ) ) {                                                  \
-    if( err==FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED ) cu = 0UL; /* cmov */ \
-    FD_VM_TEST_ERR_EXISTS( vm );                                              \
-    goto sigsyscall;                                                          \
-  }                                                                           \
+  if( FD_UNLIKELY( exec_res ) ) {                                             \
+    if( exec_res.err==FD_VM_SYSCALL_ERR_COMPUTE_BUDGET_EXCEEDED ) cu = 0UL; /* cmov */ \
+    res.exec_res = exec_res;                                                           \
+    goto sigsyscall;                                                                   \
+  }                                                                                    \
   /* Exit */
 
 
@@ -1161,20 +1161,20 @@ interp_exec:
 #define FD_VM_INTERP_FAULT                                          \
   ic_correction = pc - pc0 + 1UL - ic_correction;                   \
   ic += ic_correction;                                              \
-  if ( FD_UNLIKELY( ic_correction > cu ) ) err = FD_VM_ERR_SIGCOST; \
+  if ( FD_UNLIKELY( ic_correction > cu ) ) res.err = FD_VM_ERR_SIGCOST; \
   cu -= fd_ulong_min( ic_correction, cu )
 
-sigtext:     err = FD_VM_ERR_SIGTEXT;     FD_VM_INTERP_FAULT;                     goto interp_halt;
-sigtextbr:   err = FD_VM_ERR_SIGTEXT;     /* ic current */      /* cu current */  goto interp_halt;
-sigcall:     err = FD_VM_ERR_SIGILL;      /* ic current */      /* cu current */  goto interp_halt;
-sigstack:    err = FD_VM_ERR_SIGSTACK;    /* ic current */      /* cu current */  goto interp_halt;
-sigill:      err = FD_VM_ERR_SIGILL;      FD_VM_INTERP_FAULT;                     goto interp_halt;
-sigsegv:     err = FD_VM_ERR_SIGSEGV;     FD_VM_INTERP_FAULT;                     goto interp_halt;
-sigcost:     err = FD_VM_ERR_SIGCOST;     /* ic current */      cu = 0UL;         goto interp_halt;
-sigsyscall:  err = FD_VM_ERR_SIGSYSCALL;  /* ic current */      /* cu current */  goto interp_halt;
-sigfpe:      err = FD_VM_ERR_SIGFPE;      FD_VM_INTERP_FAULT;                     goto interp_halt;
-sigfpeof:    err = FD_VM_ERR_SIGFPE_OF;   FD_VM_INTERP_FAULT;                     goto interp_halt;
-sigexit:     /* err current */            /* ic current */      /* cu current */  goto interp_halt;
+sigtext:     res = FD_VM_ERR_SIGTEXT;     FD_VM_INTERP_FAULT;                     goto interp_halt;
+sigtextbr:   res = FD_VM_ERR_SIGTEXT;     /* ic current */      /* cu current */  goto interp_halt;
+sigcall:     res = FD_VM_ERR_SIGILL;      /* ic current */      /* cu current */  goto interp_halt;
+sigstack:    res = FD_VM_ERR_SIGSTACK;    /* ic current */      /* cu current */  goto interp_halt;
+sigill:      res = FD_VM_ERR_SIGILL;      FD_VM_INTERP_FAULT;                     goto interp_halt;
+sigsegv:     res = FD_VM_ERR_SIGSEGV;     FD_VM_INTERP_FAULT;                     goto interp_halt;
+sigcost:     res = FD_VM_ERR_SIGCOST;     /* ic current */      cu = 0UL;         goto interp_halt;
+sigsyscall:  res.err =  FD_VM_ERR_SIGSYSCALL;  /* ic current */      /* cu current */  goto interp_halt;
+sigfpe:      res = FD_VM_ERR_SIGFPE;      FD_VM_INTERP_FAULT;                     goto interp_halt;
+sigfpeof:    res = FD_VM_ERR_SIGFPE_OF;   FD_VM_INTERP_FAULT;                     goto interp_halt;
+sigexit:     /* res current */            /* ic current */      /* cu current */  goto interp_halt;
 
 #undef FD_VM_INTERP_FAULT
 

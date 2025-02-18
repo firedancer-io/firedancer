@@ -306,7 +306,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t       ctx,
 }
 
 /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L500-L603 */
-int
+fd_exec_result_t
 fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
                                          ulong const *       pre_lens,
                                          uchar *             buffer,
@@ -346,9 +346,9 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
 
       ulong lamports = FD_LOAD( ulong, buffer+start );
       if( lamports!=view_acc->const_meta->info.lamports ) {
-        int err = fd_account_set_lamports( &ctx, i, lamports );
-        if( FD_UNLIKELY( err ) ) {
-          return err;
+        fd_exec_result_t res = fd_account_set_lamports( &ctx, i, lamports );
+        if( FD_UNLIKELY( res.err ) ) {
+          return res;
         }
       }
       start += sizeof(ulong); // lamports
@@ -364,47 +364,47 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
       fd_account_meta_t const * metadata_check = view_acc->const_meta;
       if( FD_UNLIKELY( fd_ulong_sat_sub( post_len, metadata_check->dlen )>MAX_PERMITTED_DATA_INCREASE ||
                        post_len>MAX_PERMITTED_DATA_LENGTH ) ) {
-        return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+        return fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC );
       }
 
       if( copy_account_data ) {
         /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L551-563 */
-        int err = 0;
-        if( fd_account_can_data_be_resized( &ctx, view_acc->const_meta, post_len, &err ) &&
-            fd_account_can_data_be_changed( &ctx, i, &err ) ) {
+        fd_exec_result_t res;
+        if( fd_account_can_data_be_resized( &ctx, view_acc->const_meta, post_len, &res ) &&
+            fd_account_can_data_be_changed( &ctx, i, &res ) ) {
 
-          int err = fd_account_set_data_from_slice( &ctx, i, post_data, post_len );
-          if( FD_UNLIKELY( err ) ) {
-            return err;
+          fd_exec_result_t res = fd_account_set_data_from_slice( &ctx, i, post_data, post_len );
+          if( FD_UNLIKELY( res.err ) ) {
+            return res;
           }
 
         } else if( FD_UNLIKELY( view_acc->const_meta->dlen!=post_len ||
                                 memcmp( view_acc->const_data, post_data, post_len ) ) ) {
-          return err;
+          return res;
         }
         start += pre_len;
       } else { /* If direct mapping is enabled */
         /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L564-587 */
         start += FD_BPF_ALIGN_OF_U128 - alignment_offset;
-        int err = 0;
-        if( fd_account_can_data_be_resized( &ctx, view_acc->const_meta, post_len, &err ) &&
-            fd_account_can_data_be_changed( &ctx, i, &err ) ) {
+        fd_exec_result_t res;
+        if( fd_account_can_data_be_resized( &ctx, view_acc->const_meta, post_len, &res ) &&
+            fd_account_can_data_be_changed( &ctx, i, &res ) ) {
 
-          err = fd_account_set_data_length( &ctx, i, post_len );
-          if( FD_UNLIKELY( err ) ) {
-            return err;
+          res = fd_account_set_data_length( &ctx, i, post_len );
+          if( FD_UNLIKELY( res.err ) ) {
+            return res;
           }
 
           ulong allocated_bytes = fd_ulong_sat_sub( post_len, pre_len );
           if( allocated_bytes ) {
             uchar * acc_data = NULL;
             ulong   acc_dlen = 0UL;
-            err = fd_account_get_data_mut( &ctx, i, &acc_data, &acc_dlen );
-            if( FD_UNLIKELY( err ) ) {
-              return err;
+            res = fd_account_get_data_mut( &ctx, i, &acc_data, &acc_dlen );
+            if( FD_UNLIKELY( res.err ) ) {
+              return res;
             }
             if( FD_UNLIKELY( pre_len+allocated_bytes>acc_dlen ) ) {
-              return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+              return fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
             }
             /* We want to copy in the reallocated bytes from the input
                buffer directly into the borrowed account data buffer
@@ -412,7 +412,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
               memcpy( acc_data+pre_len, buffer+start, allocated_bytes );
           }
         } else if( FD_UNLIKELY( view_acc->const_meta->dlen!=post_len ) ) {
-          return err;
+          return res;
         }
       }
 
@@ -421,15 +421,15 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
       start += alignment_offset;
       start += sizeof(ulong); // rent epoch
       if( memcmp( view_acc->const_meta->info.owner, owner, sizeof(fd_pubkey_t) ) ) {
-        int err = fd_account_set_owner( &ctx, i, owner );
-        if( FD_UNLIKELY( err ) ) {
-          return err;
+        fd_exec_result_t res = fd_account_set_owner( &ctx, i, owner );
+        if( FD_UNLIKELY( res.err ) ) {
+          return res;
         }
       }
     }
   }
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_exec_ok();
 }
 
 uchar *
@@ -571,7 +571,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t       ctx,
   return serialized_params_start;
 }
 
-int
+fd_exec_result_t
 fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx,
                                            ulong const *       pre_lens,
                                            uchar *             input,
@@ -601,9 +601,9 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx,
 
       ulong lamports = FD_LOAD( ulong, input_cursor );
       if( view_acc->const_meta && view_acc->const_meta->info.lamports!=lamports ) {
-        int err = fd_account_set_lamports( &ctx, i, lamports );
-        if( FD_UNLIKELY( err ) ) {
-          return err;
+        fd_exec_result_t res = fd_account_set_lamports( &ctx, i, lamports );
+        if( FD_UNLIKELY( res.err ) ) {
+          return res;
         }
       }
       input_cursor += sizeof(ulong); /* lamports */
@@ -614,16 +614,16 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx,
         ulong   pre_len   = pre_lens[i];
         uchar * post_data = input_cursor;
         if( view_acc->const_meta ) {
-          int err = 0;
-          if( fd_account_can_data_be_resized( &ctx, view_acc->const_meta, pre_len, &err ) &&
-              fd_account_can_data_be_changed( &ctx, i, &err ) ) {
-            err = fd_account_set_data_from_slice( &ctx, i, post_data, pre_len );
-            if( FD_UNLIKELY( err ) ) {
-              return err;
+          fd_exec_result_t res;
+          if( fd_account_can_data_be_resized( &ctx, view_acc->const_meta, pre_len, &res ) &&
+              fd_account_can_data_be_changed( &ctx, i, &res ) ) {
+            res = fd_account_set_data_from_slice( &ctx, i, post_data, pre_len );
+            if( FD_UNLIKELY( res.err ) ) {
+              return res;
             }
           } else if( view_acc->const_meta->dlen != pre_len ||
                      memcmp( post_data, view_acc->const_data, pre_len ) ) {
-            return err;
+            return res;
           }
         }
         input_cursor += pre_len;
@@ -635,8 +635,8 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx,
   }
 
   if( FD_UNLIKELY( input_cursor>input+input_sz ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    return fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
   }
 
-  return 0;
+  return fd_ok( 0 );
 }

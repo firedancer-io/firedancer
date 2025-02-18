@@ -101,7 +101,7 @@ fd_account_get_owner( fd_exec_instr_ctx_t const * ctx,
 /* fd_account_set_owner mirrors Anza function
    solana_sdk::transaction_context:Borrowed_account::set_owner.  Returns 0
    iff the owner is set successfully.  Acquires a writable handle. */
-int
+fd_exec_result_t
 fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
                       ulong                       instr_acc_idx,
                       fd_pubkey_t const *         owner );
@@ -138,7 +138,7 @@ fd_account_get_lamports2( fd_exec_instr_ctx_t const * ctx,
    0 and updates meta->lamports.  On failure, returns an
    FD_EXECUTOR_INSTR_ERR_{...} code.  Acquires a writable handle. */
 
-int
+fd_exec_result_t
 fd_account_set_lamports( fd_exec_instr_ctx_t const * ctx,
                          ulong                       instr_acc_idx,
                          ulong                       lamports );
@@ -201,7 +201,7 @@ fd_account_checked_sub_lamports( fd_exec_instr_ctx_t const * ctx,
    Acquires a writable handle. This function assumes that the relevant
    borrowed has already acquired exclusive write access.
    https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L824-L831 */
-int
+fd_exec_result_t
 fd_account_get_data_mut( fd_exec_instr_ctx_t const * ctx,
                          ulong                       instr_acc_idx,
                          uchar * *                   data_out,
@@ -217,7 +217,7 @@ fd_account_get_data_mut( fd_exec_instr_ctx_t const * ctx,
    data.  Acquires a writable handle.
    https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L867-882 */
 
-int
+fd_exec_result_t
 fd_account_set_data_from_slice( fd_exec_instr_ctx_t const * ctx,
                                 ulong                       instr_acc_idx,
                                 uchar const *               data,
@@ -331,28 +331,28 @@ fd_account_is_owned_by_current_program( fd_instr_info_t const *   info,
 static inline int
 fd_account_can_data_be_changed( fd_exec_instr_ctx_t const * ctx,
                                 ulong                       instr_acc_idx,
-                                int *                       err ) {
+                                fd_exec_result_t *          err ) {
 
   fd_instr_info_t const * instr = ctx->instr;
   assert( instr_acc_idx < instr->acct_cnt );
   fd_account_meta_t const * meta = instr->borrowed_accounts[ instr_acc_idx ]->const_meta;
 
   if( FD_UNLIKELY( fd_account_is_executable_internal( ctx->slot_ctx, meta ) ) ) {
-    *err = FD_EXECUTOR_INSTR_ERR_EXECUTABLE_DATA_MODIFIED;
+    *err = fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_EXECUTABLE_DATA_MODIFIED );
     return 0;
   }
 
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( instr, instr_acc_idx ) ) ) {
-    *err = FD_EXECUTOR_INSTR_ERR_READONLY_DATA_MODIFIED;
+    *err = fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_READONLY_DATA_MODIFIED );
     return 0;
   }
 
   if( FD_UNLIKELY( !fd_account_is_owned_by_current_program( instr, meta ) ) ) {
-    *err = FD_EXECUTOR_INSTR_ERR_EXTERNAL_DATA_MODIFIED;
+    *err = fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_EXTERNAL_DATA_MODIFIED );
     return 0;
   }
 
-  *err = FD_EXECUTOR_INSTR_SUCCESS;
+  *err = fd_exec_ok();
   return 1;
 }
 
@@ -364,17 +364,17 @@ static inline int
 fd_account_can_data_be_resized( fd_exec_instr_ctx_t const * instr_ctx,
                                 fd_account_meta_t const *   acct,
                                 ulong                       new_length,
-                                int *                       err ) {
+                                fd_exec_result_t *          err ) {
   /* Only the owner can change the length of the data */
   if( FD_UNLIKELY( ( acct->dlen != new_length ) &
                    ( !fd_account_is_owned_by_current_program( instr_ctx->instr, acct ) ) ) ) {
-    *err = FD_EXECUTOR_INSTR_ERR_ACC_DATA_SIZE_CHANGED;
+    *err = fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_DATA_SIZE_CHANGED );
     return 0;
   }
 
   /* The new length can not exceed the maximum permitted length */
   if( FD_UNLIKELY( new_length>MAX_PERMITTED_DATA_LENGTH ) ) {
-    *err = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+    *err = fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC );
     return 0;
   }
 
@@ -383,11 +383,11 @@ fd_account_can_data_be_resized( fd_exec_instr_ctx_t const * instr_ctx,
   long length_delta = fd_long_sat_sub( (long)new_length, (long)acct->dlen );
   long new_accounts_resize_delta = fd_long_sat_add( (long)instr_ctx->txn_ctx->accounts_resize_delta, length_delta );
   if( FD_UNLIKELY( new_accounts_resize_delta>MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN ) ) {
-    *err = FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED;
+    *err = fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED );
     return 0;
   }
 
-  *err = FD_EXECUTOR_INSTR_SUCCESS;
+  *err = fd_exec_ok();
   return 1;
 }
 
@@ -399,7 +399,7 @@ int
 fd_account_update_accounts_resize_delta( fd_exec_instr_ctx_t const * ctx,
                                          ulong                       instr_acc_idx,
                                          ulong                       new_len,
-                                         int *                       err );
+                                         fd_exec_result_t *          err );
 
 FD_FN_PURE static inline int
 fd_account_is_zeroed( fd_account_meta_t const * acct ) {

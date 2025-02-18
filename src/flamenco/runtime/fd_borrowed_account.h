@@ -58,16 +58,16 @@ typedef struct fd_borrowed_account fd_borrowed_account_t;
 
 #define FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( _ctx, _idx, _account ) do {   \
   if( FD_UNLIKELY( _idx>=(_ctx)->instr->acct_cnt ) ) {                    \
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;                     \
+    return fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS );                     \
   }                                                                       \
   fd_borrowed_account_t * _account = NULL;                                \
   int _err = fd_instr_borrowed_account_view_idx( _ctx, _idx, &_account ); \
   if( FD_UNLIKELY( _err != FD_ACC_MGR_SUCCESS ) ) {                       \
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;                     \
+    return fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS );                     \
   }                                                                       \
   int _acquire_result = fd_borrowed_account_acquire_write(_account);      \
   if( FD_UNLIKELY( !_acquire_result ) ) {                                 \
-    return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;                       \
+    return fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED );                       \
   }                                                                       \
   fd_borrowed_account_t *  __fd_borrowed_lock_guard_ ## __LINE__          \
     __attribute__((cleanup(fd_borrowed_account_release_write_private)))   \

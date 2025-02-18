@@ -4,13 +4,13 @@
 /* FIXME: MAKE DIFFERENT VERSIONS FOR EACH COMBO OF CHECK_ALIGN/TRACE? */
 /* TODO: factor out common unpacking code */
 
-int
+fd_vm_result_t
 fd_vm_exec_notrace( fd_vm_t * vm ) {
 
 # undef FD_VM_INTERP_EXE_TRACING_ENABLED
 # undef FD_VM_INTERP_MEM_TRACING_ENABLED
 
-  if( FD_UNLIKELY( !vm ) ) return FD_VM_ERR_INVAL;
+  if( FD_UNLIKELY( !vm ) ) return fd_vm_err( FD_VM_ERR_INVAL );
 
   /* Pull out variables needed for the fd_vm_interp_core template */
   ulong frame_max   = FD_VM_STACK_FRAME_MAX; /* FIXME: vm->frame_max to make this run-time configured */
@@ -31,21 +31,21 @@ fd_vm_exec_notrace( fd_vm_t * vm ) {
 
   fd_vm_shadow_t * FD_RESTRICT shadow = vm->shadow;
 
-  int err = FD_VM_SUCCESS;
+  fd_vm_result_t res = fd_vm_ok();
 
   /* Run the VM */
 # include "fd_vm_interp_core.c"
 
-  return err;
+  return res;
 }
 
-int
+fd_vm_result_t
 fd_vm_exec_trace( fd_vm_t * vm ) {
 
 # define FD_VM_INTERP_EXE_TRACING_ENABLED 1
 # define FD_VM_INTERP_MEM_TRACING_ENABLED 1
 
-  if( FD_UNLIKELY( !vm ) ) return FD_VM_ERR_INVAL;
+  if( FD_UNLIKELY( !vm ) ) return fd_vm_err( FD_VM_ERR_INVAL );
 
   /* Pull out variables needed for the fd_vm_interp_core template */
   ulong frame_max   = FD_VM_STACK_FRAME_MAX; /* FIXME: vm->frame_max to make this run-time configured */
@@ -66,7 +66,7 @@ fd_vm_exec_trace( fd_vm_t * vm ) {
 
   fd_vm_shadow_t * FD_RESTRICT shadow = vm->shadow;
 
-  int err = FD_VM_SUCCESS;
+  fd_vm_result_t res = fd_vm_ok();
 
   /* Run the VM */
 # include "fd_vm_interp_core.c"
@@ -74,5 +74,5 @@ fd_vm_exec_trace( fd_vm_t * vm ) {
 # undef FD_VM_INTERP_EXE_TRACING_ENABLED
 # undef FD_VM_INTERP_MEM_TRACING_ENABLED
 
-  return err;
+  return res;
 }

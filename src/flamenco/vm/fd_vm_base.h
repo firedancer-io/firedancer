@@ -12,6 +12,7 @@
 
 #include "../fd_flamenco_base.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h" /* FIXME: functionality needed from here probably should be moved here */
+#include "../runtime/fd_executor_err.h"
 
 /* FD_VM_SUCCESS is zero and returned to indicate that an operation
    completed successfully.  FD_VM_ERR_* are negative integers and
@@ -140,6 +141,46 @@
 
 
 FD_PROTOTYPES_BEGIN
+
+struct fd_vm_result {
+  fd_exec_result_t exec_res;
+  int err;
+};
+typedef struct fd_vm_result fd_vm_result_t;
+
+static inline fd_vm_result_t
+fd_vm_err( fd_exec_result_t exec_res, int err ) {
+  fd_vm_result_t res {
+    .exec_res = exec_res,
+    .err = err
+  };
+  return res;
+}
+
+static inline fd_vm_result_t
+fd_vm_err( int err ) {
+  fd_vm_result_t res {
+    .exec_res = {
+      .kind=FD_EXECUTOR_ERR_KIND_NONE,
+      .err=0
+    },
+    .err = err
+  };
+  return res;
+}
+
+static inline fd_vm_result_t
+fd_vm_ok( void ) {
+  fd_vm_result_t res {
+    .exec_res = {
+      .kind=FD_EXECUTOR_ERR_KIND_NONE,
+      .err=0
+    },
+    .err = FD_VM_SUCCESS
+  };
+  return res;
+}
+
 
 /* fd_vm_strerror converts an FD_VM_SUCCESS / FD_VM_ERR_* code into
    a human readable cstr.  The lifetime of the returned pointer is

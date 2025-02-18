@@ -1,12 +1,15 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_executor_err_h
 #define HEADER_fd_src_flamenco_runtime_fd_executor_err_h
+#include "../../util/fd_util_base.h"
+#include "context/fd_exec_txn_ctx.h"
 
 /* Instruction error types */
 
-#define FD_EXECUTOR_ERR_KIND_NONE    (0)
-#define FD_EXECUTOR_ERR_KIND_EBPF    (1)
-#define FD_EXECUTOR_ERR_KIND_SYSCALL (2)
-#define FD_EXECUTOR_ERR_KIND_INSTR   (3)
+#define FD_EXECUTOR_ERR_KIND_NONE         (0)
+#define FD_EXECUTOR_ERR_KIND_EBPF         (1)
+#define FD_EXECUTOR_ERR_KIND_SYSCALL      (2)
+#define FD_EXECUTOR_ERR_KIND_INSTR        (3)
+#define FD_EXECUTOR_ERR_KIND_INSTR_CUSTOM (4)
 
 /* Instruction error codes */
 
@@ -96,5 +99,89 @@
 
 #define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE (0)
 #define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED         (1)
+
+struct fd_exec_result {
+  int kind;
+  int err;
+};
+typedef struct fd_exec_result fd_exec_result_t;
+
+/* Constructor */
+/* TODO: do we even need a constructor? It's just going to be a wrapper around struct initialization */
+/* what about packing this struct? it will be 8 bytes... which is the size of a pointer anyways... */
+/* TODO: should these be macros? */
+static inline fd_exec_result_t
+fd_exec_ebpf_err(int err) {
+  fd_exec_result_t res {
+    .kind = FD_EXECUTOR_ERR_KIND_EBPF,
+    .err = err
+  };
+  return res;
+}
+
+static inline fd_exec_result_t
+fd_exec_syscall_err(int err) {
+  fd_exec_result_t res {
+    .kind = FD_EXECUTOR_ERR_KIND_SYSCALL,
+    .err = err
+  };
+  return res;
+}
+
+static inline fd_exec_result_t
+fd_exec_instr_err(int err) {
+  fd_exec_result_t res {
+    .kind = FD_EXECUTOR_ERR_KIND_INSTR,
+    .err = err
+  };
+  return res;
+}
+
+static inline fd_exec_result_t
+fd_exec_instr_custom_err( int err ) {
+  fd_exec_result_t res {
+    .kind = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR,
+    .err = err,
+  };
+  return res;
+}
+
+/* TODO: should this just hardcode success to 0? */
+/* or just fd_runtime_ok? */
+static inline fd_exec_result_t
+fd_exec_ok( void ) {
+  fd_exec_result_t res {
+    .kind = FD_EXECUTOR_ERR_KIND_NONE,
+    .err = FD_EXECUTOR_INSTR_SUCCESS
+  };
+  return res;
+}
+
+static inline fd_exec_result_t
+fd_ok( int success ) {
+  fd_exec_result_t res {
+    .kind = FD_EXECUTOR_ERR_KIND_NONE,
+    .err = success
+  };
+  return res; 
+}
+
+struct fd_instr_exec_result {
+  fd_exec_result_t res;
+  int instr_err_idx;
+};
+typedef struct fd_instr_exec_result fd_instr_exec_result_t;
+
+static inline fd_instr_exec_result_t
+fd_instr_err( fd_exec_result_t res, int instr_err_idx ) {
+  fd_instr_exec_result_t instr_res {
+    .res = res,
+    .instr_err_idx = instr_err_idx
+  };
+  return instr_res; 
+}
+
+
+/* how to do accessors? */
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_executor_err_h */
