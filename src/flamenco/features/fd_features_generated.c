@@ -8,13 +8,15 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xe7\x5f\xc6\x7c\x5f\x30\x77\x25\xb6\x9e\x15\xbc\x0f\xd3\x26\x29\x0b\x7c\x02\x21\xaf\x9b\x5a\x1d\xfe\xac\x67\x40\x80\x67\x4c\x3a"},
                                  /* GaBtBJvmS4Arjj5W1NmFcyvPjsHN38UGYDq2MDwbs9Qu */
     .name                      = "deprecate_rewards_sysvar",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, pico_inflation)>>3,
     .id                        = {"\x32\xda\x36\xc8\x6b\xd3\x95\x70\x85\x28\x50\xc5\x40\xb6\xea\xeb\xda\xf1\xca\x6d\x30\x85\x46\x37\x34\xa2\x73\x4c\xd7\xb3\x83\x80"},
                                  /* 4RWNif6C2WCNiKVW7otP4G7dkmkHGyKQWRpuZ1pxKU5m */
     .name                      = "pico_inflation",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, devnet_and_testnet)>>3,
     .id                        = {"\xb8\xf9\x9d\x82\x20\x0f\x99\x8b\x98\xc4\x89\xbc\x09\x52\xdf\x91\x9e\xf2\xb5\x9b\xe9\xf7\x54\xee\xea\x83\x26\x25\x63\xbb\xec\x05"},
@@ -26,13 +28,15 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xa3\x3a\x7e\xd2\x59\x88\xe1\x47\x3f\x2d\xd4\xb8\xd8\x11\xea\x38\x4d\xf8\x81\x37\x10\xd2\x32\xe0\xaf\xc1\x60\x43\xf1\xbf\xbf\xac"},
                                  /* BzBBveUDymEYoYzcMWNQCx3cd4jQs7puaVFHLtsbB6fm */
     .name                      = "full_inflation_vote",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, full_inflation_enable)>>3,
     .id                        = {"\x60\xf1\x06\xaa\x86\x1f\x57\xe7\x69\x46\x83\x60\x05\x72\x0e\x3a\xe9\xfb\xb0\x6b\xb0\x66\x90\xe6\x29\xa6\x61\x92\x93\xbe\x01\x7d"},
                                  /* 7XRJcS5Ud5vxGB54JbK9N2vBZVwnwdBNeJW1ibRgD9gx */
     .name                      = "full_inflation_enable",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, secp256k1_program_enabled)>>3,
     .id                        = {"\xc1\xc4\x49\x57\x9c\x05\x24\xd9\xe1\x68\xa6\x5a\x60\xd6\x93\x3f\x7a\xfc\x55\x08\x10\xf6\x46\x64\x97\x01\xc4\x7e\x18\x6d\x5b\x35"},
@@ -80,7 +84,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xec\x81\xa2\x94\x94\x89\xa4\xfa\xeb\xca\x4d\xb5\x9a\x5f\x29\x03\x7b\xbb\x84\x7e\x8a\x53\xfb\x72\xe2\x35\x5d\xce\xa5\xdc\x04\xb2"},
                                  /* GvDsGDkH5gyzwpDhxNixx8vtx1kwYHH13RiNAPw27zXb */
     .name                      = "warp_timestamp_again",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, check_init_vote_data)>>3,
     .id                        = {"\x26\xd6\xbf\x1a\x22\x53\xab\x30\xc7\xee\x40\x65\x9c\xa3\x5d\xd9\x95\x33\x6d\x11\x41\x80\x06\x9c\x93\xce\xf1\xf6\xa0\x90\x19\xee"},
@@ -189,7 +194,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x65\xdc\x35\xc6\x6f\x58\x1e\x4b\x7f\x4e\xe4\x3c\x60\x48\x03\x3f\x33\x88\x72\x50\x61\x81\xf7\x08\x47\x16\x9a\x51\xb9\x72\xd2\xe9"},
                                  /* 7rcw5UtqgDTBBv2EcynNfYckgdAaH1MAsCjKgXMkN7Ri */
     .name                      = "curve25519_syscall_enabled",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, versioned_tx_message_enabled)>>3,
     .id                        = {"\x22\x78\xa2\xf5\x73\x65\xa4\x7c\x62\x3b\xfa\x86\xf3\x78\x94\xac\x71\x21\xbc\x8c\x18\x53\xe7\xd5\xed\xee\xda\xec\xa7\x1f\x59\xe7"},
@@ -647,7 +653,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x5b\x45\x71\x0e\x10\xc2\x51\xd1\xa1\x7a\xb4\x60\x29\x22\x23\x9c\x36\x0c\xb7\x5a\xd9\x63\x42\x25\x23\x74\xd9\xdc\x01\xaa\x52\x3a"},
                                  /* 79HWsX9rpnnJBPcdNURVqygpMAfxdrAirzAGAVmf92im */
     .name                      = "disable_deploy_of_alloc_free_syscall",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, include_account_index_in_rent_error)>>3,
     .id                        = {"\x15\x08\x72\xd0\x0b\x30\xdc\x2f\x0a\xe0\x27\x5b\x00\xb9\x34\x35\x76\xf1\x2e\xe5\x53\x23\x9e\xf1\x7e\x55\xe1\xbd\x4a\x1e\x56\x23"},
@@ -737,7 +744,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x70\x6d\x18\x65\x6d\x4b\x39\xe5\xf1\xf0\x6a\xaf\x74\xd6\x4c\xc4\x75\xf9\x46\x4d\x36\x80\x64\xf1\x47\x00\xe9\xf2\x4e\x8b\x12\x2d"},
                                  /* 8Zs9W7D9MpSEtUWSQdGniZk2cNmV22y6FLJwCx53asme */
     .name                      = "enable_bpf_loader_extend_program_ix",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_early_verification_of_account_modifications)>>3,
     .id                        = {"\x60\x7a\xb1\x3a\x4e\x8d\x68\x8f\x13\xba\xcf\xd0\x61\xb5\x93\x07\x83\xc6\x06\x3d\x78\xe8\x67\x55\x90\xa3\x62\xb6\xce\x26\xd6\x75"},
@@ -791,7 +799,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x10\x1e\xe3\xe6\xb1\x43\x55\x85\x09\x0f\xe0\x6c\xb6\xa5\x1e\xe8\x32\x49\x2a\xec\x96\x74\xe0\x9a\x96\xc7\x86\xc8\x80\x69\x5f\x8c"},
                                  /* 25vqsfjk7Nv1prsQJmA4Xu1bN61s8LXCBGUPp8Rfy1UF */
     .name                      = "incremental_snapshot_only_incremental_hash_calculation",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, disable_cpi_setting_executable_and_rent_epoch)>>3,
     .id                        = {"\x96\xc9\xcb\xaa\x07\x49\x4b\x20\x79\x14\xfa\xee\xb2\x59\xe0\x0f\xdc\x79\xca\x7d\xba\x69\xb2\x5b\x1a\xe8\x15\xd8\x6e\x90\xfa\xc8"},
@@ -825,7 +834,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xd4\xaa\xef\x53\x4b\x5a\xa1\xad\x90\xf8\x49\xb9\x13\x45\x25\x3c\x4c\x39\x46\x28\xb4\xb6\xb4\xfa\x41\x0d\xb5\x1e\xa1\x4f\xa8\xf5"},
                                  /* FKAcEvNgSY79RpqsPNUV5gDyumopH4cEHqUxyfm8b8Ap */
     .name                      = "relax_authority_signer_check_for_lookup_table_creation",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, stop_sibling_instruction_search_at_parent)>>3,
     .id                        = {"\xc9\x39\x83\xfd\x35\x0d\xfd\x41\xbe\x29\x91\x43\x10\x56\xfc\x45\xcf\x1b\x83\x50\x1d\x26\x21\x7f\xf5\x55\x94\xc1\xee\xd6\xb1\xf0"},
@@ -893,13 +903,15 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x49\x88\x17\x26\xf7\x23\x43\x9f\xb0\xa3\xf3\x59\xda\xeb\xa1\x8a\x3a\x8e\xd1\xf7\x0c\x15\x1b\x1d\xa4\x92\xb1\x6e\xfa\xe0\xfc\x09"},
                                  /* 5x3825XS7M2A3Ekbn5VGGkvFoAg5qrRWkTrY4bARP1GL */
     .name                      = "enable_bpf_loader_set_authority_checked_ix",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_alt_bn128_syscall)>>3,
     .id                        = {"\x85\xbf\xc5\xb6\xde\x1e\xef\xaa\xa4\x86\xcc\x6c\x6a\x80\xda\xed\x94\x7b\x18\xac\x7f\x7c\xc2\x5d\xf9\x58\x4a\x86\x98\xb3\xff\x7b"},
                                  /* A16q37opZdQMCbe5qJ6xpBB9usykfv8jZaMkxvZQi4GJ */
     .name                      = "enable_alt_bn128_syscall",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_program_redeployment_cooldown)>>3,
     .id                        = {"\xfd\x6d\xcb\x0b\xa2\x88\x5c\x79\xeb\x88\x3d\x86\xf2\xe6\x33\x89\x5a\x3d\x23\x69\x38\x9b\x1f\xa6\xad\xb4\x94\xe2\x3e\xe0\x54\x84"},
@@ -912,13 +924,15 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x0b\xbb\xa2\x5c\x08\xb9\x8e\x8a\xbc\xe8\xb4\x63\x97\x94\x37\x88\xf2\xa6\xa0\x91\x29\xf3\xc1\x8b\x35\x49\x07\x6a\x1d\x5f\x63\x33"},
                                  /* noRuG2kzACwgaY7TVmLRnUNPLKNVQE1fb7X55YWBehp */
     .name                      = "commission_updates_only_allowed_in_first_half_of_epoch",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_turbine_fanout_experiments)>>3,
     .id                        = {"\xb2\xcf\xa9\xc3\x4d\xe4\xe6\x33\x25\x4b\x10\xed\xcc\xb9\xf3\x06\xbe\x3b\x9a\xdb\x9c\xed\xc0\x5b\xa2\x9f\xda\x85\x71\xb5\xae\x99"},
                                  /* D31EFnLgdiysi84Woo3of4JMu7VmasUS3Z7j9HYXCeLY */
     .name                      = "enable_turbine_fanout_experiments",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, disable_turbine_fanout_experiments)>>3,
     .id                        = {"\xed\x7a\x0f\x5d\x50\x53\xdf\xc3\x1a\x51\x89\xb6\x66\xfb\x7e\xb7\xb5\xf8\x91\x7c\xd3\xee\x46\x82\x07\x9e\x28\x44\xb1\xb0\x0d\xf9"},
@@ -951,7 +965,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x2b\x19\xba\xab\x09\xcd\xf6\xb3\x1b\xf1\x51\xc9\xb4\x3b\x0e\xd7\x89\xcc\x3f\x9a\x80\x21\x94\xfc\xbd\x78\xaf\xab\xe5\x1a\xbd\xf6"},
                                  /* 3uFHb9oKdGfgZGJK9EHaAXN4USvnQtAFC13Fh5gGFS5B */
     .name                      = "update_hashes_per_tick",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_big_mod_exp_syscall)>>3,
     .id                        = {"\xc3\xee\x12\xb0\x1a\x5b\x31\x3a\xe4\xe6\xc1\xc1\xb0\x76\x81\xe6\xe4\x62\x1e\xfa\x9e\x71\x16\xfc\x35\x72\xe8\x64\xcd\x4e\xa6\x38"},
@@ -1030,7 +1045,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xac\xda\xc5\x37\x50\xa9\x7a\x0e\xb4\x8f\xa3\x40\xa0\xcc\xd2\x80\x94\x20\x2c\xc7\x60\x42\x4a\xd0\xa9\xc0\xd3\x31\xe6\xd6\x62\xf0"},
                                  /* Cdkc8PPTeTNUPoZEfCY5AyetUrEdkZtNPMgz58nqyaHD */
     .name                      = "switch_to_new_elf_parser",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, round_up_heap_size)>>3,
     .id                        = {"\xa6\xc6\xf9\xd5\x39\x30\xd1\xe2\xaa\xfa\xc5\x3d\xd9\x8e\xeb\xc2\xf3\xdb\x6c\x9a\xde\xeb\xf2\x61\x38\x73\x42\x7d\x71\x86\xb9\xb4"},
@@ -1063,7 +1079,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x43\xae\x75\x5b\x05\xd6\x4d\xda\x6b\x93\x44\x69\xa0\x06\xea\xf0\x99\x27\xf4\xbc\x96\x0e\xc6\x48\x64\x47\xc0\x53\x52\xfb\x1a\x7a"},
                                  /* 5ZCcFAzJ1zsFKe1KSZa9K92jhx7gkcKj97ci2DBo1vwj */
     .name                      = "simplify_writable_program_account_check",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, stop_truncating_strings_in_syscalls)>>3,
     .id                        = {"\x00\x05\xee\xe8\x9f\xd8\x51\x2f\x51\x9c\xc1\x76\xca\xbb\xe0\xf6\x3a\x39\x61\x09\xda\xa5\x4d\x9a\xb7\x98\xa3\x01\x0d\x5a\xb8\x0f"},
@@ -1076,7 +1093,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x9f\x59\x3a\x49\x85\xf1\xaa\x61\x96\x8e\x49\xb3\x45\xce\xea\xed\xbb\x96\x54\x09\xa4\x3d\x8d\xba\xbb\x57\xc7\x64\x0d\xfc\x59\x90"},
                                  /* Bj2jmUsM2iRhfdLLDSTkhM5UQRQvQHm57HSmPibPtEyu */
     .name                      = "clean_up_delegation_errors",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, vote_state_add_vote_latency)>>3,
     .id                        = {"\x61\xd8\xd7\x1f\x81\x6f\x32\x74\x56\x37\x18\x3c\x8b\x7e\x6e\xaa\x28\x71\xb5\x22\x61\x11\xb0\x39\x6d\xb6\x4f\xad\x75\xad\x77\xc4"},
@@ -1103,19 +1121,22 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xec\xee\x93\x40\x57\x22\xb0\x74\x49\xc1\xf9\xe5\xef\x54\x03\xef\x18\x4d\x87\xf9\x31\x68\x96\x18\xad\x21\xb8\xf7\x00\x3d\x8a\xce"},
                                  /* GwtDQBghCTBgmX2cpEGNPxTEBUTQRaDMGTr5qychdGMj */
     .name                      = "reduce_stake_warmup_cooldown",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, revise_turbine_epoch_stakes)>>3,
     .id                        = {"\x9b\x5f\xa2\xbe\x99\xfd\xb8\x81\x7d\x7d\x2d\xcf\x73\xa0\xf6\x56\x57\xea\x7b\x3c\x6a\xf6\x13\x59\x13\x4a\x2f\x56\x10\x11\xd2\xad"},
                                  /* BTWmtJC8U5ZLMbBUUA1k6As62sYjPEjAiNAT55xYGdJU */
     .name                      = "revise_turbine_epoch_stakes",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_poseidon_syscall)>>3,
     .id                        = {"\xd4\xeb\x2e\xcb\x2c\x82\xbf\x3c\xc6\xab\x6d\x6c\xbc\x2f\x29\x03\xab\xa5\x57\xd7\x2d\xc4\x4e\xfd\xbc\x5f\xf1\xc0\x6c\xde\xa2\xd7"},
                                  /* FL9RsQA6TVUoh5xJQ9d936RHSebA1NLQqe3Zv9sXZRpr */
     .name                      = "enable_poseidon_syscall",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, timely_vote_credits)>>3,
     .id                        = {"\x0d\x4d\x3c\x51\x23\x21\xd3\xe9\x47\x3d\xc8\x19\x36\x5e\x45\xf8\x09\x81\x7b\xaf\xff\x69\x17\x9f\x2e\x58\x3d\xf1\x6e\xc8\x10\x6b"},
@@ -1153,7 +1174,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xc5\x96\xc3\xf1\x5d\x5b\xb5\x9b\x10\x5f\xf4\xd6\x41\x2c\x69\xe2\xdc\x8c\xa7\xdf\x6f\xba\x27\x60\xfb\x3e\x5b\x98\x46\xe4\xb4\xef"},
                                  /* EJJewYSddEEtSZHiqugnvhQHiWyZKjkFDQASd7oKSagn */
     .name                      = "enable_alt_bn128_compression_syscall",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, programify_feature_gate_program)>>3,
     .id                        = {"\x6c\x03\x23\xfe\xae\x55\x9b\x6b\x0f\xa5\x65\xc1\x18\x46\x40\xe3\x6a\x92\x67\xe8\x05\xc2\x7d\x8b\x88\x1b\x5e\xca\xa3\xaf\x6e\x77"},
@@ -1166,31 +1188,36 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xc8\xc8\x3f\xaf\x32\xd0\x79\xe7\xc9\x8b\x45\x2f\x6c\x6c\xa4\xaf\xeb\x86\xdd\x45\xc7\x5d\xa9\xf3\x0d\x91\xab\x70\x0d\xdc\x41\x23"},
                                  /* EWme9uFqfy1ikK1jhJs8fM5hxWnK336QJpbscNtizkTU */
     .name                      = "update_hashes_per_tick2",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, update_hashes_per_tick3)>>3,
     .id                        = {"\x6a\xdb\x81\x96\xaa\x89\x39\x58\xb8\xa9\xd8\xbb\xee\x56\xa6\x5a\x47\x46\xfa\xbd\x4c\x0f\x02\x92\x4c\xbc\x74\xc0\x6a\x05\xf5\xb8"},
                                  /* 8C8MCtsab5SsfammbzvYz65HHauuUYdbY2DZ4sznH6h5 */
     .name                      = "update_hashes_per_tick3",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, update_hashes_per_tick4)>>3,
     .id                        = {"\x6f\x99\x8d\x05\xe5\xcd\x11\xa5\x69\x28\x27\xa5\xd1\xb4\x93\x29\x32\x39\x50\x4f\xb2\xea\x66\xe1\xb5\x37\x61\xe5\x87\x88\x1f\x41"},
                                  /* 8We4E7DPwF2WfAN8tRTtWQNhi98B99Qpuj7JoZ3Aikgg */
     .name                      = "update_hashes_per_tick4",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, update_hashes_per_tick5)>>3,
     .id                        = {"\xa1\x78\xa3\x8e\x6a\xb3\x14\xa4\x11\x95\x61\x1e\x9e\xcb\x9a\x75\x42\xa9\x54\xa3\x80\xb9\x59\xc8\x10\xa5\x6d\xdf\x38\xbe\xcb\x59"},
                                  /* BsKLKAn1WM4HVhPRDsjosmqSg2J8Tq5xP2s2daDS6Ni4 */
     .name                      = "update_hashes_per_tick5",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, update_hashes_per_tick6)>>3,
     .id                        = {"\xd4\xda\xe2\x6a\x8f\xf0\x49\x6c\x64\x64\x3e\x27\x5c\xc8\xc0\x94\x75\x19\xed\x99\xc6\x64\xe7\x3f\x62\xcc\x5c\xd4\x7b\xbc\x67\xe1"},
                                  /* FKu1qYwLQSiehz644H6Si65U5ZQ2cp9GxsyFUfYcuADv */
     .name                      = "update_hashes_per_tick6",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, validate_fee_collector_account)>>3,
     .id                        = {"\x0c\x42\x9f\xae\x63\x29\x2c\x8c\xaa\x94\x19\xe1\xf6\xb4\xd9\x16\x5e\x43\xb4\xc7\xb1\x1f\xe0\x9d\x01\xd9\x0a\xc5\x1c\x70\x7f\x14"},
@@ -1209,19 +1236,22 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xe6\x0f\x1e\xeb\x2f\x39\x7b\xd1\x39\xaa\x31\xee\x23\x84\x80\x69\x51\x99\x93\x80\xc2\x55\x53\xef\xeb\xa2\xe0\x16\x79\xa0\x01\x7c"},
                                  /* GV49KKQdBNaiv2pgqhS2Dy3GWYJGXMTVYbYkdk91orRy */
     .name                      = "drop_legacy_shreds",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, consume_blockstore_duplicate_proofs)>>3,
     .id                        = {"\x52\x74\x2c\x7b\x6b\x86\x07\x02\x0c\x27\x5c\x4c\xf2\x6e\xf1\xe3\xcd\x47\xeb\xf2\x78\xe2\x9d\x0b\xfb\x96\xfb\x13\xad\x6f\x8a\xb0"},
                                  /* 6YsBCejwK96GZCkJ6mkZ4b68oP63z2PLoQmWjC7ggTqZ */
     .name                      = "consume_blockstore_duplicate_proofs",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, index_erasure_conflict_duplicate_proofs)>>3,
     .id                        = {"\x09\x74\xa1\x2b\x1c\x70\x2e\x59\xf6\x09\xfb\x6d\xaa\x47\x17\x37\xf4\xa5\xc2\xfb\x0b\xd9\x6b\x33\xcb\x93\xc4\x0c\xdd\x46\x4f\x23"},
                                  /* dupPajaLy2SSn8ko42aZz4mHANDNrLe8Nw8VQgFecLa */
     .name                      = "index_erasure_conflict_duplicate_proofs",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, curve25519_restrict_msm_length)>>3,
     .id                        = {"\x09\xa2\xb5\xbc\x88\x50\x95\xbe\x4d\xe1\x58\x5a\x7f\xf3\x63\x72\xc1\x6f\x40\x3a\x9a\x48\x0f\xd3\x51\xd3\xb3\xa5\xc6\x0c\x4b\x91"},
@@ -1248,7 +1278,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x60\xbe\x49\xea\xb9\xe9\x43\x8c\x58\x9b\x35\x47\xbc\x1b\x1b\x0d\x04\xbc\x74\xd2\x57\xe1\xf2\xa5\x02\x66\x17\xf3\x49\xb5\xe0\xe9"},
                                  /* 7WeS1vfPRgeeoXArLh7879YcB9mgE9ktjPDtajXeWfXn */
     .name                      = "disable_bpf_loader_instructions",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, deprecate_executable_meta_update_in_bpf_loader)>>3,
     .id                        = {"\x0b\x0a\xa6\x6d\xae\x07\x63\x9b\x6d\x90\xe0\xf3\x1d\xba\x64\x52\xba\x3d\xc3\x44\x31\x30\xdf\x7e\xab\xd4\x1e\xd3\xab\x4d\x33\x47"},
@@ -1308,7 +1339,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x29\xb5\x7d\x02\xf6\x06\xf2\xf1\x3c\xe6\x5d\x22\xd1\xfc\x80\x59\xcd\x36\x5a\x6d\x1c\x97\x5a\xbf\x46\x0f\x48\x0e\x16\x11\xe2\xa4"},
                                  /* 3opE3EzAKnUftUDURkzMgwpNgimBAypW1mNDYH4x4Zg7 */
     .name                      = "reward_full_priority_fee",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, disable_rent_fees_collection)>>3,
     .id                        = {"\xa8\x0c\x7c\x9c\x46\xc9\x15\x1d\x98\x48\x72\x27\x55\x41\x17\x88\x22\xad\x13\x7f\x8c\x63\x6f\x91\xf7\x6d\x86\xac\xdd\xbb\xcc\xf5"},
@@ -1320,7 +1352,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\x6e\xf0\xdf\x34\x81\xac\xed\xb6\x4d\x00\x3d\x88\xc9\x5a\x7a\x25\xa0\xd7\x00\x98\x07\xa8\x51\x37\x06\xb3\x0e\x23\xfb\xce\xa9\xcc"},
                                  /* 8U4skmMVnF6k2kMvrWbQuRUT3qQSiTYpSjqmhmgfthZu */
     .name                      = "add_new_reserved_account_keys",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, chained_merkle_conflict_duplicate_proofs)>>3,
     .id                        = {"\x09\x25\x36\xba\xe5\x72\x41\x7e\x11\xa8\xc5\xcd\x87\x81\x90\x62\x5d\x31\x81\xc1\x19\x26\xb7\xab\xec\xb1\x65\x55\xc8\xb0\xc1\xf7"},
