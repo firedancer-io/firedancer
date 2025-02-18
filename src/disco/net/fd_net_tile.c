@@ -7,6 +7,7 @@
 #include <net/if.h>
 #include <sys/socket.h> /* MSG_DONTWAIT needed before importing the net seccomp filter */
 #include <linux/if_xdp.h>
+#include <poll.h>
 
 #include "../metrics/fd_metrics.h"
 #include "../netlink/fd_netlink_tile.h" /* neigh4_solicit */
@@ -348,10 +349,9 @@ static void
 net_rx_wakeup( fd_net_ctx_t * ctx,
                fd_xsk_t *     xsk,
                int *          charge_busy ) {
-  if( !fd_xsk_rx_need_wakeup( xsk ) ) return;
   *charge_busy = 1;
-  struct msghdr _ignored[ 1 ] = { 0 };
-  if( FD_UNLIKELY( -1==recvmsg( xsk->xsk_fd, _ignored, MSG_DONTWAIT ) ) ) {
+  struct pollfd fds[1] = {{ .fd=xsk->xsk_fd, .events=POLLIN }};
+  if( FD_UNLIKELY( -1==poll( fds, 1, 0 ) ) ) {
     if( FD_UNLIKELY( net_is_fatal_xdp_error( errno ) ) ) {
       FD_LOG_ERR(( "xsk recvmsg failed xsk_fd=%d (%i-%s)", xsk->xsk_fd, errno, fd_io_strerror( errno ) ));
     }
@@ -420,19 +420,19 @@ during_housekeeping( fd_net_ctx_t * ctx ) {
     fd_xsk_t * xsk = &ctx->xsk[ j ];
     /* Refresh all sequence numbers (consumer first, then producer) */
     FD_COMPILER_MFENCE();
-    xsk->ring_fr.cached_cons = FD_VOLATILE_CONST( *xsk->ring_fr.cons );
-    xsk->ring_fr.cached_prod = FD_VOLATILE_CONST( *xsk->ring_fr.prod );
-    xsk->ring_rx.cached_cons = FD_VOLATILE_CONST( *xsk->ring_rx.cons );
-    xsk->ring_rx.cached_prod = FD_VOLATILE_CONST( *xsk->ring_rx.prod );
-    xsk->ring_tx.cached_cons = FD_VOLATILE_CONST( *xsk->ring_tx.cons );
-    xsk->ring_tx.cached_prod = FD_VOLATILE_CONST( *xsk->ring_tx.prod );
-    xsk->ring_cr.cached_cons = FD_VOLATILE_CONST( *xsk->ring_cr.cons );
-    xsk->ring_cr.cached_prod = FD_VOLATILE_CONST( *xsk->ring_cr.prod );
+    uint fr_cons = FD_VOLATILE_CONST( *xsk->ring_fr.cons );
+    uint fr_prod = FD_VOLATILE_CONST( *xsk->ring_fr.prod );
+    uint rx_cons = FD_VOLATILE_CONST( *xsk->ring_rx.cons );
+    uint rx_prod = FD_VOLATILE_CONST( *xsk->ring_rx.prod );
+    uint tx_cons = FD_VOLATILE_CONST( *xsk->ring_tx.cons );
+    uint tx_prod = FD_VOLATILE_CONST( *xsk->ring_tx.prod );
+    uint cr_cons = FD_VOLATILE_CONST( *xsk->ring_cr.cons );
+    uint cr_prod = FD_VOLATILE_CONST( *xsk->ring_cr.prod );
     FD_COMPILER_MFENCE();
-    ctx->metrics.rx_busy_cnt += (long)(int)( xsk->ring_rx.cached_prod - xsk->ring_rx.cached_cons );
-    ctx->metrics.rx_idle_cnt += (long)(int)( xsk->ring_fr.cached_prod - xsk->ring_fr.cached_cons );
-    ctx->metrics.tx_busy_cnt += (long)(int)( xsk->ring_tx.cached_prod - xsk->ring_tx.cached_cons );
-    ctx->metrics.tx_busy_cnt += (long)(int)( xsk->ring_cr.cached_prod - xsk->ring_cr.cached_cons );
+    ctx->metrics.rx_busy_cnt += (long)(int)( rx_prod-rx_cons );
+    ctx->metrics.rx_idle_cnt += (long)(int)( fr_prod-fr_cons );
+    ctx->metrics.tx_busy_cnt += (long)(int)( tx_prod-tx_cons );
+    ctx->metrics.tx_busy_cnt += (long)(int)( cr_prod-cr_cons );
   }
 
   if( now > ctx->next_xdp_stats_refresh ) {
@@ -440,10 +440,10 @@ during_housekeeping( fd_net_ctx_t * ctx ) {
     poll_xdp_statistics( ctx );
   }
 
-  int _charge_busy = 0;
-  for( uint j=0U; j<ctx->xsk_cnt; j++ ) {
-    net_rx_wakeup( ctx, &ctx->xsk[ j ], &_charge_busy );
-  }
+  //int _charge_busy = 0;
+  //for( uint j=0U; j<ctx->xsk_cnt; j++ ) {
+  //  net_rx_wakeup( ctx, &ctx->xsk[ j ], &_charge_busy );
+  //}
 }
 
 /* net_tx_route resolves the destination interface index, src MAC address,
@@ -640,7 +640,7 @@ after_frag( fd_net_ctx_t *      ctx,
   ctx->tx_op.frame = NULL;
 
   /* Register newly enqueued packet */
-  FD_VOLATILE( *xsk->ring_tx.prod ) = tx_ring->cached_prod = tx_seq+1U;
+  FD_VOLATILE( *xsk->ring_tx.prod ) = tx_seq+1U;
   ctx->metrics.tx_submit_cnt++;
   ctx->metrics.tx_bytes_total += sz;
   fd_net_flusher_inc( ctx->tx_flusher+if_idx, fd_tickcount() );
@@ -780,7 +780,7 @@ net_comp_event( fd_net_ctx_t * ctx,
 
   /* Wind up for next iteration */
 
-  FD_VOLATILE( *comp_ring->cons ) = comp_ring->cached_cons = comp_seq+1U;
+  FD_VOLATILE( *comp_ring->cons ) = comp_seq+1U;
 
   ctx->metrics.tx_complete_cnt++;
 
@@ -831,7 +831,7 @@ net_rx_event( fd_net_ctx_t *      ctx,
   net_rx_packet( ctx, stem, frame.addr, frame.len, &freed_chunk );
 
   FD_COMPILER_MFENCE();
-  FD_VOLATILE( *rx_ring->cons ) = rx_ring->cached_cons = rx_seq+1U;
+  FD_VOLATILE( *rx_ring->cons ) = rx_seq+1U;
 
   /* If this mcache publish shadowed a previous publish, mark the old
      frame as free. */
@@ -844,7 +844,7 @@ net_rx_event( fd_net_ctx_t *      ctx,
     }
     ulong freed_off = (freed_chunk - ctx->umem_chunk0)<<FD_CHUNK_LG_SZ;
     fill_ring->frame_ring[ fill_prod&fill_mask ] = freed_off & (~frame_mask);
-    FD_VOLATILE( *fill_ring->prod ) = fill_ring->cached_prod = fill_prod+1U;
+    FD_VOLATILE( *fill_ring->prod ) = fill_prod+1U;
   }
 
 }
@@ -877,24 +877,23 @@ before_credit( fd_net_ctx_t *      ctx,
   fd_xsk_t * rr_xsk = &ctx->xsk[ rr_idx ];
   ctx->rr_idx++;
   ctx->rr_idx = fd_uint_if( ctx->rr_idx>=ctx->xsk_cnt, 0, ctx->rr_idx );
+  ctx->rr_idx = 0;
 
-  net_tx_periodic_wakeup( ctx, rr_idx, fd_tickcount(), charge_busy );
+  //net_tx_periodic_wakeup( ctx, rr_idx, fd_tickcount(), charge_busy );
 
-  uint rx_cons = rr_xsk->ring_rx.cached_cons;
+  uint rx_cons =                    *rr_xsk->ring_rx.cons;
   uint rx_prod = FD_VOLATILE_CONST( *rr_xsk->ring_rx.prod );
   if( rx_cons!=rx_prod ) {
     *charge_busy = 1;
-    rr_xsk->ring_rx.cached_prod = rx_prod;
     net_rx_event( ctx, stem, rr_xsk, rx_cons );
   } else {
     net_rx_wakeup( ctx, rr_xsk, charge_busy );
   }
 
-  uint comp_cons = FD_VOLATILE_CONST( *rr_xsk->ring_cr.cons );
+  uint comp_cons =                    *rr_xsk->ring_cr.cons;
   uint comp_prod = FD_VOLATILE_CONST( *rr_xsk->ring_cr.prod );
   if( comp_cons!=comp_prod ) {
     *charge_busy = 1;
-    rr_xsk->ring_cr.cached_prod = comp_prod;
     net_comp_event( ctx, rr_xsk, comp_cons );
   }
 
@@ -912,12 +911,12 @@ net_xsk_bootstrap( fd_net_ctx_t * ctx,
   ulong const fr_depth  = ctx->xsk[ xsk_idx ].ring_fr.depth;
 
   fd_xdp_ring_t * fill      = &xsk->ring_fr;
-  uint            fill_prod = fill->cached_prod;
+  uint            fill_prod = FD_VOLATILE_CONST( *fill->prod );
   for( ulong j=0UL; j<fr_depth; j++ ) {
     fill->frame_ring[ j ] = frame_off;
     frame_off += frame_sz;
   }
-  FD_VOLATILE( *fill->prod ) = fill->cached_prod = fill_prod + (uint)fr_depth;
+  FD_VOLATILE( *fill->prod ) = fill_prod + (uint)fr_depth;
 
   return frame_off;
 }
@@ -998,6 +997,9 @@ privileged_init( fd_topo_t *      topo,
     .if_idx      = if_idx,
     .if_queue_id = (uint)tile->kind_id,
     .bind_flags  = tile->net.zero_copy ? XDP_ZEROCOPY : XDP_COPY,
+
+    .busy_poll_budget = tile->net.xdp_rx_queue_size / 2,
+    .busy_poll_usecs  = 50,
 
     .fr_depth  = tile->net.xdp_rx_queue_size,
     .rx_depth  = tile->net.xdp_rx_queue_size,

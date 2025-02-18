@@ -12,6 +12,20 @@
 #include "../../util/log/fd_log.h"
 #include "fd_xsk.h"
 
+/* Support for older kernels */
+
+#ifndef SO_BUSY_POLL
+#define SO_BUSY_POLL 46
+#endif
+
+#ifndef SO_PREFER_BUSY_POLL
+#define SO_PREFER_BUSY_POLL	69
+#endif
+
+#ifndef SO_BUSY_POLL_BUDGET
+#define SO_BUSY_POLL_BUDGET	70
+#endif
+
 /* Join/leave *********************************************************/
 
 /* fd_xsk_mmap_offset_cstr: Returns a cstr describing the given offset
@@ -180,7 +194,8 @@ fd_xsk_t *
 fd_xsk_init( fd_xsk_t *              xsk,
              fd_xsk_params_t const * params ) {
 
-  if( FD_UNLIKELY( !xsk ) ) { FD_LOG_WARNING(( "NULL xsk" )); return NULL; }
+  if( FD_UNLIKELY( !xsk    ) ) { FD_LOG_WARNING(( "NULL xsk"    )); return NULL; }
+  if( FD_UNLIKELY( !params ) ) { FD_LOG_WARNING(( "NULL params" )); return NULL; }
   memset( xsk, 0, sizeof(fd_xsk_t) );
 
   if( FD_UNLIKELY( !params->if_idx ) ) { FD_LOG_WARNING(( "zero if_idx" )); return NULL; }
@@ -199,6 +214,11 @@ fd_xsk_init( fd_xsk_t *              xsk,
   }
   if( FD_UNLIKELY( !params->frame_sz || !fd_ulong_is_pow2( params->frame_sz ) ) ) {
     FD_LOG_WARNING(( "invalid frame_sz" ));
+    return NULL;
+  }
+  if( FD_UNLIKELY( ( !( params->bind_flags & XDP_USE_NEED_WAKEUP ) ) == /* xor */
+                   ( !( params->busy_poll_budget                 ) ) ) ) {
+    FD_LOG_WARNING(( "unsupported XDP mode: either XDP_USE_NEED_WAKEUP or SO_PREFERRED_BUSY_POLL required" ));
     return NULL;
   }
 
@@ -224,9 +244,36 @@ fd_xsk_init( fd_xsk_t *              xsk,
   if( FD_UNLIKELY( 0!=fd_xsk_mmap_ring( &xsk->ring_fr, xsk->xsk_fd, XDP_UMEM_PGOFF_FILL_RING,       sizeof(ulong),           params->fr_depth, &xsk->offsets.fr ) ) ) goto fail;
   if( FD_UNLIKELY( 0!=fd_xsk_mmap_ring( &xsk->ring_cr, xsk->xsk_fd, XDP_UMEM_PGOFF_COMPLETION_RING, sizeof(ulong),           params->cr_depth, &xsk->offsets.cr ) ) ) goto fail;
 
+  /* If requested, enable preferred busy polling */
+
+  if( params->busy_poll_budget ) {
+    int prefer_busy_poll = 1;
+    if( FD_UNLIKELY( 0!=setsockopt( xsk->xsk_fd, SOL_SOCKET, SO_PREFER_BUSY_POLL, &prefer_busy_poll, sizeof(int) ) ) ) {
+      /* FIXME CONSIDER FALLBACK TO USE_WAKEUP MODE */
+      int err = errno;
+      FD_LOG_WARNING(( "setsockopt(xsk_fd,SOL_SOCKET,SO_PREFER_BUSY_POLL,1) failed (%i-%s)", err, fd_io_strerror( err ) ));
+      if( err==EINVAL ) {
+        FD_LOG_WARNING(( "Hint: Does your kernel support preferred busy polling? SO_PREFER_BUSY_POLL is available since Linux 5.11" ));
+      }
+      return NULL;
+    }
+
+    if( FD_UNLIKELY( 0!=setsockopt( xsk->xsk_fd, SOL_SOCKET, SO_BUSY_POLL, &params->busy_poll_usecs, sizeof(ulong) ) ) ) {
+      FD_LOG_WARNING(( "setsockopt(xsk_fd,SOL_SOCKET,SO_BUSY_POLL,%lu) failed (%i-%s)",
+                       params->busy_poll_usecs, errno, fd_io_strerror( errno ) ));
+      return NULL;
+    }
+
+    if( FD_UNLIKELY( 0!=setsockopt( xsk->xsk_fd, SOL_SOCKET, SO_BUSY_POLL_BUDGET, &params->busy_poll_budget, sizeof(ulong) ) ) ) {
+      FD_LOG_WARNING(( "setsockopt(xsk_fd,SOL_SOCKET,SO_BUSY_POLL_BUDGET,%lu) failed (%i-%s)",
+                       params->busy_poll_budget, errno, fd_io_strerror( errno ) ));
+      return NULL;
+    }
+  }
+
   /* Bind XSK to queue on network interface */
 
-  uint flags = XDP_USE_NEED_WAKEUP | params->bind_flags;
+  uint flags = params->bind_flags;
   struct sockaddr_xdp sa = {
     .sxdp_family   = PF_XDP,
     .sxdp_ifindex  = xsk->if_idx,

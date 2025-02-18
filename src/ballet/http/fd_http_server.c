@@ -1158,7 +1158,7 @@ write_conn( fd_http_server_t * http,
 
 int
 fd_http_server_poll( fd_http_server_t * http ) {
-  int nfds = poll( http->pollfds, http->max_conns+http->max_ws_conns+1UL, 0 );
+  int nfds = poll( http->pollfds, http->max_conns+http->max_ws_conns+1UL, 1000 );
   if( FD_UNLIKELY( 0==nfds ) ) return 0;
   else if( FD_UNLIKELY( -1==nfds && errno==EINTR ) ) return 0;
   else if( FD_UNLIKELY( -1==nfds ) ) FD_LOG_ERR(( "poll failed (%i-%s)", errno, strerror( errno ) ));

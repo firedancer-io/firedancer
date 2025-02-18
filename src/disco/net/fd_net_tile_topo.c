@@ -110,10 +110,8 @@ fd_topos_net_tile_umem( fd_topo_t * topo,
 
   fd_topo_tile_t * net_tile = &topo->tiles[ fd_topo_find_tile( topo, "net", net_kind_id ) ];
 
-  ulong rx_depth = net_tile->net.xdp_rx_queue_size;
-  ulong tx_depth = net_tile->net.xdp_tx_queue_size;
-  rx_depth += (rx_depth/2UL);
-  tx_depth += (tx_depth/2UL);
+  ulong rx_depth = 2UL * net_tile->net.xdp_rx_queue_size;
+  ulong tx_depth = 2UL * net_tile->net.xdp_tx_queue_size;
 
   if( net_kind_id ) {
     /* Double it for loopback XSK */
