@@ -14,6 +14,9 @@ LOG="/tmp/ledger_log$$"
 
 DATA_DIR=${DATA_DIR:="/data/svc_firedancer"}
 
+rm -rf $DATA_DIR/shredcap_testnet.blockstore
+rm -rf $DATA_DIR/shredcap_testnet.funk
+
 TOML=$DATA_DIR/fd_shredcap.toml
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
