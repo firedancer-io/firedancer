@@ -1,82 +1,9 @@
 #include "fd_topob.h"
 
 #include "fd_pod_format.h"
+#include "fd_cpu_topo.h"
 #include "../../util/shmem/fd_shmem_private.h"
 #include "../../util/tile/fd_tile_private.h"
-
-#include <errno.h>
-
-ulong
-fd_topob_sibling_idx( ulong cpu_idx ) {
-
-  /* If hyperthreading is turned on, return the cpu paired with cpu_idx.
-     If hyperthreading is off, return cpu_idx. On any error, return ULONG_MAX. */
-
-  char   path[64];
-  FILE * fp = fopen( fd_cstr_printf( path, 64UL, NULL, "/sys/devices/system/cpu/cpu%lu/topology/thread_siblings_list", cpu_idx ), "r" );
-  if( FD_UNLIKELY( !fp ) ) {
-    FD_LOG_WARNING(( "fopen( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-    return ULONG_MAX;
-  }
-
-  char value[16];
-  if( FD_UNLIKELY( !fgets( value, 16, fp ) ) ) {
-    FD_LOG_WARNING(( "failed to read file %s", path ));
-    if( FD_UNLIKELY( fclose( fp ) ) ) {
-      FD_LOG_WARNING(( "fclose( \"%s\" ) failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
-    }
-    return ULONG_MAX;
-  }
-
-  if( FD_UNLIKELY( fclose( fp ) ) ) {
-    FD_LOG_WARNING(( "fclose( \"%s\" ) failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
-  }
-
-  char * saveptr;
-  char * token = strtok_r( value, ",", &saveptr );
-  while( token!=NULL ) {
-      ulong cpu_id = fd_cstr_to_ulong( token );
-      if( FD_UNLIKELY( errno==EINVAL ) ) {
-        FD_LOG_WARNING(( "failed to parse cpu siblings list" ));
-        return ULONG_MAX;
-      }
-      if( cpu_id!=cpu_idx ) return cpu_id;
-      token = strtok_r( NULL, ",", &saveptr );
-  }
-
-  return cpu_idx;
-}
-
-ulong
-fd_topob_online_cpus( ushort * parsed_cpu_list ) {
-
-  /* Parse the list of online CPUs which is an affinity-like string.
-     Returns 0 if there are any errors. */
-
-  char   path[64];
-  FILE * fp = fopen( "/sys/devices/system/cpu/online", "r" );
-  if( FD_UNLIKELY( !fp ) ) {
-    FD_LOG_WARNING(( "fopen( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
-    return 0;
-  }
-
-  char value[16384];
-  if( FD_UNLIKELY( !fgets( value, 16384, fp ) ) ) {
-    FD_LOG_WARNING(( "failed to read file %s", path ));
-    if( FD_UNLIKELY( fclose( fp ) ) ) {
-      FD_LOG_WARNING(( "fclose( \"%s\" ) failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
-    }
-    return 0;
-  }
-
-  if( FD_UNLIKELY( fclose( fp ) ) ) {
-    FD_LOG_WARNING(( "fclose( \"%s\" ) failed (%i-%s); attempting to continue", path, errno, fd_io_strerror( errno ) ));
-  }
-
-  /* FIXME: fd_tile_private_parse can crash */
-  ulong  online_cpu_cnt = fd_tile_private_cpus_parse( value, parsed_cpu_list );
-  return online_cpu_cnt;
-}
 
 fd_topo_t *
 fd_topob_new( void * mem,
@@ -455,7 +382,7 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "pktgen",
   };
 
-  char const * CORE[] = {
+  char const * CRITICAL_TILES[] = {
     "pack",
     "poh",
   };
@@ -465,59 +392,73 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     tile->cpu_idx = ULONG_MAX;
   }
 
-  ulong cpu_ordering[ FD_TILE_MAX ] = { 0UL };
-  ulong cpu_siblings[ FD_TILE_MAX ] = { 0UL };
+  fd_topo_cpus_t cpus[1];
+  fd_topo_cpus_init( cpus );
 
-  ushort online_cpus[ FD_TILE_MAX ];
-  ulong  online_cpu_cnt = fd_topob_online_cpus( online_cpus );
-  if( FD_UNLIKELY( online_cpu_cnt<topo->tile_cnt ) ) {
-    FD_LOG_ERR(( "auto layout cannot be determined because you have more tiles (%lu) than online CPU cores (%lu)",
-                 topo->tile_cnt, online_cpu_cnt ));
-  }
+  ulong cpu_ordering[ FD_TILE_MAX ] = { 0UL };
+  int   pairs_assigned[ FD_TILE_MAX ] = { 0 };
 
   ulong next_cpu_idx   = 0UL;
-  ulong num_numa_nodes = fd_numa_node_cnt();
-  for( ulong i=0UL; i<num_numa_nodes; i++ ) {
-    for( ulong j=0UL; j<online_cpu_cnt; j++ ) {
-      ulong cpu_idx   = (ulong)online_cpus[ j ];
-      ulong numa_node = fd_numa_node_idx( cpu_idx );
+  for( ulong i=0UL; i<cpus->numa_node_cnt; i++ ) {
+    for( ulong j=0UL; j<cpus->cpu_cnt; j++ ) {
+      fd_topo_cpu_t * cpu = &cpus->cpu[ j ];
 
-      if( FD_UNLIKELY( numa_node!=i ) ) continue;
-      if( FD_UNLIKELY( cpu_siblings[ cpu_idx ] ) ) continue;
+      if( FD_UNLIKELY( pairs_assigned[ j ] || cpu->numa_node!=i ) ) continue;
 
       FD_TEST( next_cpu_idx<FD_TILE_MAX );
-      cpu_ordering[ next_cpu_idx++ ] = cpu_idx;
-      /* check for hyperthreaded pair */
-      ulong sibling = fd_topob_sibling_idx( cpu_idx );
-      if( FD_LIKELY( sibling!=ULONG_MAX && sibling!=cpu_idx ) ) {
+      cpu_ordering[ next_cpu_idx++ ] = j;
+
+      if( FD_UNLIKELY( cpu->sibling!=ULONG_MAX ) ) {
+        /* If the CPU has a HT pair, place it immediately after so they
+           are sequentially assigned. */
         FD_TEST( next_cpu_idx<FD_TILE_MAX );
-        cpu_ordering[ next_cpu_idx++ ] = sibling;
-        /* add 1 so that 0 indicates unprocessed CPU */
-        cpu_siblings[ sibling ] = cpu_idx+1UL;
-        cpu_siblings[ cpu_idx ] = sibling+1UL;
+        cpu_ordering[ next_cpu_idx++ ] = cpu->sibling;
+        pairs_assigned[ cpu->sibling ] = 1;
       }
     }
   }
 
-  FD_TEST( next_cpu_idx==online_cpu_cnt );
+  FD_TEST( next_cpu_idx==cpus->cpu_cnt );
+
+  int cpu_assigned[ FD_TILE_MAX ] = {0};
 
   ulong cpu_idx = 0UL;
   for( ulong i=0UL; i<sizeof(ORDERED)/sizeof(ORDERED[0]); i++ ) {
     for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
       fd_topo_tile_t * tile = &topo->tiles[ j ];
       if( !strcmp( tile->name, ORDERED[ i ] ) ) {
-        if( FD_UNLIKELY( cpu_idx>=online_cpu_cnt ) ) {
+        if( FD_UNLIKELY( cpu_idx>=cpus->cpu_cnt ) ) {
           FD_LOG_ERR(( "auto layout cannot set affinity for tile `%s:%lu` because all the CPUs are already assigned", tile->name, tile->kind_id ));
         } else {
-          tile->cpu_idx = cpu_ordering[ cpu_idx++ ];
-          /* We want to allocate the full physical core for work intensive tiles */
-          for( ulong k=0UL; k<sizeof(CORE)/sizeof(CORE[0]); k++ ) {
-            if( !strcmp( tile->name, CORE[ k ] ) && cpu_idx<online_cpu_cnt ) {
-              if( cpu_ordering[ cpu_idx ] == cpu_siblings[ tile->cpu_idx ]-1UL ) {
-                cpu_idx++;
+          /* Certain tiles are latency and throughput critical and
+             should not get a HT pair assigned. */
+          fd_topo_cpu_t const * cpu = &cpus->cpu[ cpu_ordering[ cpu_idx ] ];
+
+          int is_ht_critical = 0;
+          if( FD_UNLIKELY( cpu->sibling!=ULONG_MAX ) ) {
+            for( ulong k=0UL; k<sizeof(CRITICAL_TILES)/sizeof(CRITICAL_TILES[0]); k++ ) {
+              if( !strcmp( tile->name, CRITICAL_TILES[ k ] ) ) {
+                is_ht_critical = 1;
+                break;
               }
-              break;
             }
+          }
+
+          if( FD_UNLIKELY( is_ht_critical ) ) {
+            ulong try_assign = cpu_idx;
+            while( cpu_assigned[ cpu_ordering[ try_assign ] ] || (cpus->cpu[ cpu_ordering[ try_assign ] ].sibling!=ULONG_MAX && cpu_assigned[ cpus->cpu[ cpu_ordering[ try_assign ] ].sibling ]) ) {
+              try_assign++;
+              if( FD_UNLIKELY( try_assign>=cpus->cpu_cnt ) ) FD_LOG_ERR(( "auto layout cannot set affinity for tile `%s:%lu` because all the CPUs are already assigned or have a HT pair assigned", tile->name, tile->kind_id ));
+            }
+
+            cpu_assigned[ cpu_ordering[ try_assign ] ] = 1;
+            cpu_assigned[ cpus->cpu[ cpu_ordering[ try_assign ] ].sibling ] = 1;
+            tile->cpu_idx = cpu_ordering[ try_assign ];
+            while( cpu_assigned[ cpu_ordering[ cpu_idx ] ] ) cpu_idx++;
+          } else {
+            cpu_assigned[ cpu_ordering[ cpu_idx ] ] = 1;
+            tile->cpu_idx = cpu_ordering[ cpu_idx ];
+            while( cpu_assigned[ cpu_ordering[ cpu_idx ] ] ) cpu_idx++;
           }
         }
       }
@@ -540,7 +481,7 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     if( FD_UNLIKELY( !found ) ) FD_LOG_WARNING(( "auto layout cannot affine tile `%s:%lu` because it is unknown. Leaving it floating", tile->name, tile->kind_id ));
   }
 
-  for( ulong i=cpu_idx; i<online_cpu_cnt; i++ ) {
+  for( ulong i=cpu_idx; i<cpus->cpu_cnt; i++ ) {
     if( FD_LIKELY( topo->agave_affinity_cnt<sizeof(topo->agave_affinity_cpu_idx)/sizeof(topo->agave_affinity_cpu_idx[0]) ) ) {
       topo->agave_affinity_cpu_idx[ topo->agave_affinity_cnt++ ] = cpu_ordering[ i ];
     }

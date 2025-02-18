@@ -77,6 +77,7 @@ endif
 $(call add-objs,configure/configure,fd_fdctl)
 $(call add-objs,configure/hugetlbfs,fd_fdctl)
 $(call add-objs,configure/sysctl,fd_fdctl)
+$(call add-objs,configure/hyperthreads,fd_fdctl)
 $(call add-objs,configure/ethtool-channels,fd_fdctl)
 $(call add-objs,configure/ethtool-gro,fd_fdctl)
 $(call add-objs,configure/ethtool-loopback,fd_fdctl)
