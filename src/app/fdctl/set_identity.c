@@ -334,9 +334,9 @@ err:
   FD_LOG_ERR(( "Usage: fdctl set-identity <keypair> [--require-tower]" ));
 }
 
-void FD_FN_SENSITIVE
-set_identity_cmd_fn( args_t *         args,
-                     config_t * const config ) {
+static void FD_FN_SENSITIVE
+set_identity( args_t *         args,
+              config_t * const config ) {
   (void)args;
 
   uchar check_public_key[ 32 ];
@@ -368,4 +368,10 @@ set_identity_cmd_fn( args_t *         args,
 
   if( FD_UNLIKELY( has_error ) ) FD_LOG_ERR(( "Failed to switch identity key to `%s`, check validator logs for details", identity_key_base58 ));
   else                           FD_LOG_NOTICE(( "Validator identity key switched to `%s`", identity_key_base58 ));
+}
+
+void
+set_identity_cmd_fn( args_t *         args,
+                     config_t * const config ) {
+  set_identity( args, config );
 }
