@@ -393,14 +393,11 @@ fd_funkier_rec_verify( fd_funkier_t * funk ) {
   for( ulong rec_idx=0UL; rec_idx<rec_max; rec_idx++ ) rec_pool.ele[ rec_idx ].tag = 0U;
 
   do {
-    ulong cnt = 0UL;
-
     ulong txn_idx = FD_FUNKIER_TXN_IDX_NULL;
     ulong rec_idx = funk->rec_head_idx;
     while( !fd_funkier_rec_idx_is_null( rec_idx ) ) {
       TEST( (rec_idx<rec_max) && (fd_funkier_txn_idx( rec_pool.ele[ rec_idx ].txn_cidx )==txn_idx) && rec_pool.ele[ rec_idx ].tag==0U );
       rec_pool.ele[ rec_idx ].tag = 1U;
-      cnt++;
       fd_funkier_rec_query_t query[1];
       fd_funkier_rec_t const * rec2 = fd_funkier_rec_query_try_global( funk, NULL, rec_pool.ele[ rec_idx ].pair.key, NULL, query );
       if( FD_UNLIKELY( rec_pool.ele[ rec_idx ].flags & FD_FUNKIER_REC_FLAG_ERASE ) )
@@ -420,7 +417,6 @@ fd_funkier_rec_verify( fd_funkier_t * funk ) {
       while( !fd_funkier_rec_idx_is_null( rec_idx ) ) {
         TEST( (rec_idx<rec_max) && (fd_funkier_txn_idx( rec_pool.ele[ rec_idx ].txn_cidx )==txn_idx) && rec_pool.ele[ rec_idx ].tag==0U );
         rec_pool.ele[ rec_idx ].tag = 1U;
-        cnt++;
         fd_funkier_rec_query_t query[1];
         fd_funkier_rec_t const * rec2 = fd_funkier_rec_query_try_global( funk, txn, rec_pool.ele[ rec_idx ].pair.key, NULL, query );
         if( FD_UNLIKELY( rec_pool.ele[ rec_idx ].flags & FD_FUNKIER_REC_FLAG_ERASE ) )
@@ -435,14 +431,11 @@ fd_funkier_rec_verify( fd_funkier_t * funk ) {
   } while(0);
 
   do {
-    ulong cnt = 0UL;
-
     ulong txn_idx = FD_FUNKIER_TXN_IDX_NULL;
     ulong rec_idx = funk->rec_tail_idx;
     while( !fd_funkier_rec_idx_is_null( rec_idx ) ) {
       TEST( (rec_idx<rec_max) && (fd_funkier_txn_idx( rec_pool.ele[ rec_idx ].txn_cidx )==txn_idx) && rec_pool.ele[ rec_idx ].tag==1U );
       rec_pool.ele[ rec_idx ].tag = 2U;
-      cnt++;
       ulong prev_idx = rec_pool.ele[ rec_idx ].prev_idx;
       if( !fd_funkier_rec_idx_is_null( prev_idx ) ) TEST( rec_pool.ele[ prev_idx ].next_idx==rec_idx );
       rec_idx = prev_idx;
@@ -457,7 +450,6 @@ fd_funkier_rec_verify( fd_funkier_t * funk ) {
       while( !fd_funkier_rec_idx_is_null( rec_idx ) ) {
         TEST( (rec_idx<rec_max) && (fd_funkier_txn_idx( rec_pool.ele[ rec_idx ].txn_cidx )==txn_idx) && rec_pool.ele[ rec_idx ].tag==1U );
         rec_pool.ele[ rec_idx ].tag = 2U;
-        cnt++;
         ulong prev_idx = rec_pool.ele[ rec_idx ].prev_idx;
         if( !fd_funkier_rec_idx_is_null( prev_idx ) ) TEST( rec_pool.ele[ prev_idx ].next_idx==rec_idx );
         rec_idx = prev_idx;

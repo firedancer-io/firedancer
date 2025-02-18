@@ -837,7 +837,6 @@ fd_funkier_txn_verify( fd_funkier_t * funk ) {
   /* Visit all transactions in preparation, traversing from oldest to
      youngest. */
 
-  ulong prep_cnt = 0UL;
   do {
 
     /* Push all children of funk to the stack */
@@ -856,7 +855,6 @@ fd_funkier_txn_verify( fd_funkier_t * funk ) {
       txn_pool.ele[ child_idx ].tag        = 1UL;
       txn_pool.ele[ child_idx ].stack_cidx = fd_funkier_txn_cidx( stack_idx );
       stack_idx                   = child_idx;
-      prep_cnt++;
 
       ulong next_idx = fd_funkier_txn_idx( txn_pool.ele[ child_idx ].sibling_next_cidx );
       if( !fd_funkier_txn_idx_is_null( next_idx ) ) TEST( fd_funkier_txn_idx( txn_pool.ele[ next_idx ].sibling_prev_cidx )==child_idx );
@@ -885,7 +883,6 @@ fd_funkier_txn_verify( fd_funkier_t * funk ) {
         txn_pool.ele[ child_idx ].tag        = 1UL;
         txn_pool.ele[ child_idx ].stack_cidx = fd_funkier_txn_cidx( stack_idx );
         stack_idx                   = child_idx;
-        prep_cnt++;
 
         ulong next_idx = fd_funkier_txn_idx( txn_pool.ele[ child_idx ].sibling_next_cidx );
         if( !fd_funkier_txn_idx_is_null( next_idx ) ) TEST( fd_funkier_txn_idx( txn_pool.ele[ next_idx ].sibling_prev_cidx )==child_idx );
@@ -898,7 +895,6 @@ fd_funkier_txn_verify( fd_funkier_t * funk ) {
   /* Do it again with a youngest to oldest traversal to test reverse
      link integrity */
 
-  prep_cnt = 0UL;
   do {
 
     /* Push all children of funk to the stack */
@@ -917,7 +913,6 @@ fd_funkier_txn_verify( fd_funkier_t * funk ) {
       txn_pool.ele[ child_idx ].tag        = 2UL;
       txn_pool.ele[ child_idx ].stack_cidx = fd_funkier_txn_cidx( stack_idx );
       stack_idx                   = child_idx;
-      prep_cnt++;
 
       ulong prev_idx = fd_funkier_txn_idx( txn_pool.ele[ child_idx ].sibling_prev_cidx );
       if( !fd_funkier_txn_idx_is_null( prev_idx ) ) TEST( fd_funkier_txn_idx( txn_pool.ele[ prev_idx ].sibling_next_cidx )==child_idx );
@@ -946,7 +941,6 @@ fd_funkier_txn_verify( fd_funkier_t * funk ) {
         txn_pool.ele[ child_idx ].tag        = 2UL;
         txn_pool.ele[ child_idx ].stack_cidx = fd_funkier_txn_cidx( stack_idx );
         stack_idx                   = child_idx;
-        prep_cnt++;
 
         ulong prev_idx = fd_funkier_txn_idx( txn_pool.ele[ child_idx ].sibling_prev_cidx );
         if( !fd_funkier_txn_idx_is_null( prev_idx ) ) TEST( fd_funkier_txn_idx( txn_pool.ele[ prev_idx ].sibling_next_cidx )==child_idx );
