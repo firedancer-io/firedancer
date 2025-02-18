@@ -439,13 +439,13 @@ fd_vm_setup_state_for_execution( fd_vm_t * vm ) ;
    a trace.  fd_vm_exec_notrace runs without without tracing even if vm
    is attached to a trace. */
 
-int
+fd_vm_result_t
 fd_vm_exec_trace( fd_vm_t * vm );
 
-int
+fd_vm_result_t
 fd_vm_exec_notrace( fd_vm_t * vm );
 
-static inline int
+static inline fd_vm_result_t
 fd_vm_exec( fd_vm_t * vm ) {
   if( FD_UNLIKELY( vm->trace ) ) return fd_vm_exec_trace  ( vm );
   else                           return fd_vm_exec_notrace( vm );

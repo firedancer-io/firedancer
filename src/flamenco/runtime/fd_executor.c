@@ -306,7 +306,7 @@ fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx ) {
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/verify_precompiles.rs#L11-L34 */
-int
+fd_instr_exec_result
 fd_executor_verify_precompiles( fd_exec_txn_ctx_t * txn_ctx ) {
   ushort                 instr_cnt = txn_ctx->txn_descriptor->instr_cnt;
   fd_acct_addr_t const * tx_accs   = fd_txn_get_acct_addrs( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw );
@@ -971,16 +971,16 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 }
 
 /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L319-L357 */
-static inline int
+static inline fd_exec_result_t
 fd_txn_ctx_push( fd_exec_txn_ctx_t * txn_ctx,
                  fd_instr_info_t *   instr ) {
   /* Earlier checks in the permalink are redundant since Agave maintains instr stack and trace accounts separately
      https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L327-L328 */
   ulong starting_lamports_h = 0UL;
   ulong starting_lamports_l = 0UL;
-  int err = fd_instr_info_sum_account_lamports( instr, &starting_lamports_h, &starting_lamports_l );
-  if( FD_UNLIKELY( err ) ) {
-    return err;
+  fd_exec_result_t res = fd_instr_info_sum_account_lamports( instr, &starting_lamports_h, &starting_lamports_l );
+  if( FD_UNLIKELY( res.err ) ) {
+    return res;
   }
   instr->starting_lamports_h = starting_lamports_h;
   instr->starting_lamports_l = starting_lamports_l;
@@ -998,31 +998,31 @@ fd_txn_ctx_push( fd_exec_txn_ctx_t * txn_ctx,
     /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L333-L334 */
     ulong current_caller_lamport_sum_h = 0UL;
     ulong current_caller_lamport_sum_l = 0UL;
-    int err = fd_instr_info_sum_account_lamports( caller_instruction_context->instr, &current_caller_lamport_sum_h, &current_caller_lamport_sum_l );
-    if( FD_UNLIKELY( err ) ) {
-      return err;
+    fd_exec_result_t res = fd_instr_info_sum_account_lamports( caller_instruction_context->instr, &current_caller_lamport_sum_h, &current_caller_lamport_sum_l );
+    if( FD_UNLIKELY( res.err ) ) {
+      return res;
     }
 
     /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L335-L339 */
     if( FD_UNLIKELY( current_caller_lamport_sum_h!=original_caller_lamport_sum_h ||
                      current_caller_lamport_sum_l!=original_caller_lamport_sum_l ) ) {
-      return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
+      return fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR );
     }
   }
 
   /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L347-L351 */
   if( FD_UNLIKELY( txn_ctx->instr_trace_length>=FD_MAX_INSTRUCTION_TRACE_LENGTH ) ) {
-    return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
+    return fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED );
   }
   txn_ctx->instr_trace_length++;
 
   /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L352-L356 */
   if( FD_UNLIKELY( txn_ctx->instr_stack_sz>=FD_MAX_INSTRUCTION_STACK_DEPTH ) ) {
-    return FD_EXECUTOR_INSTR_ERR_CALL_DEPTH;
+    return fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_CALL_DEPTH );
   }
   txn_ctx->instr_stack_sz++;
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_exec_ok();
 }
 
 /* Pushes a new instruction onto the instruction stack and trace. This check loops through all instructions in the current call stack
@@ -1030,7 +1030,7 @@ fd_txn_ctx_push( fd_exec_txn_ctx_t * txn_ctx,
    the responsibility of the caller to populate the newly pushed instruction fields, which are undefined otherwise.
 
    https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L246-L290 */
-int
+fd_exec_result_t
 fd_instr_stack_push( fd_exec_txn_ctx_t *     txn_ctx,
                      fd_instr_info_t *       instr ) {
   /* Agave keeps a vector of vectors called program_indices that stores the program_id index for each instruction within the transaction.
@@ -1042,7 +1042,7 @@ fd_instr_stack_push( fd_exec_txn_ctx_t *     txn_ctx,
      The only way for the vector to be empty is if the program_id is the native loader, so we can a program_id check here
      */
   if( FD_UNLIKELY( !memcmp(instr->program_id_pubkey.key, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t)) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+    return fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID );
   }
   /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L256-L286 */
   if( txn_ctx->instr_stack_sz ) {
@@ -1064,7 +1064,7 @@ fd_instr_stack_push( fd_exec_txn_ctx_t *     txn_ctx,
     }
     /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L282-L285 */
     if( FD_UNLIKELY( contains && !is_last ) ) {
-      return FD_EXECUTOR_INSTR_ERR_REENTRANCY_NOT_ALLOWED;
+      return fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_REENTRANCY_NOT_ALLOWED );
     }
   }
   /* "Push" a new instruction onto the stack by simply incrementing the stack and trace size counters
@@ -1077,12 +1077,12 @@ fd_instr_stack_push( fd_exec_txn_ctx_t *     txn_ctx,
    checking for unbalanced instructions if the program execution was successful within fd_execute_instr.
 
    https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/program-runtime/src/invoke_context.rs#L293-L298 */
-int
+fd_exec_result_t
 fd_instr_stack_pop( fd_exec_txn_ctx_t *       txn_ctx,
                     fd_instr_info_t const *   instr ) {
   /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L362-L364 */
   if( FD_UNLIKELY( txn_ctx->instr_stack_sz==0 ) ) {
-    return FD_EXECUTOR_INSTR_ERR_CALL_DEPTH;
+    return fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_CALL_DEPTH );
   }
   txn_ctx->instr_stack_sz--;
 
@@ -1091,7 +1091,7 @@ fd_instr_stack_pop( fd_exec_txn_ctx_t *       txn_ctx,
   for( ushort i=0; i<instr->acct_cnt; i++ ) {
     if( FD_UNLIKELY( instr->borrowed_accounts[i]->const_meta->info.executable &&
                       instr->borrowed_accounts[i]->refcnt_excl ) ) {
-      return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_OUTSTANDING;
+      return fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_BORROW_OUTSTANDING );
     }
   }
 
@@ -1099,31 +1099,32 @@ fd_instr_stack_pop( fd_exec_txn_ctx_t *       txn_ctx,
      https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L366-L380 */
   ulong ending_lamports_h = 0UL;
   ulong ending_lamports_l = 0UL;
-  int err = fd_instr_info_sum_account_lamports( instr, &ending_lamports_h, &ending_lamports_l );
-  if( FD_UNLIKELY( err ) ) {
-    return err;
+  fd_exec_result_t res = fd_instr_info_sum_account_lamports( instr, &ending_lamports_h, &ending_lamports_l );
+  if( FD_UNLIKELY( res.err ) ) {
+    return res;
   }
   if( FD_UNLIKELY( ending_lamports_l != instr->starting_lamports_l || ending_lamports_h != instr->starting_lamports_h ) ) {
-   return FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR;
+   return fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_UNBALANCED_INSTR );
   }
 
-  return FD_EXECUTOR_INSTR_SUCCESS;;
+  return fd_exec_ok();
 }
 
-int
+fd_exec_result_t
 fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr ) {
   FD_RUNTIME_TXN_SPAD_FRAME_BEGIN( txn_ctx->spad, txn_ctx ) {
+    fd_exec_result_t instr_exec_result;
     fd_exec_instr_ctx_t * parent = NULL;
     if( txn_ctx->instr_stack_sz ) {
       parent = &txn_ctx->instr_stack[ txn_ctx->instr_stack_sz - 1 ];
     }
 
-    int instr_exec_result = fd_instr_stack_push( txn_ctx, instr );
-    if( FD_UNLIKELY( instr_exec_result ) ) {
-      FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
-      FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, instr_exec_result, txn_ctx->instr_err_idx );
-      return instr_exec_result;
+    fd_exec_result_t instr_stack_push_res = fd_instr_stack_push( txn_ctx, instr );
+    if( FD_UNLIKELY( instr_stack_push_res.err ) ) {
+      // FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
+      // FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, instr_stack_push_res.err, txn_ctx->instr_err_idx );
+      return fd_exec_instr_err( instr_stack_push_res );
     }
 
     fd_exec_instr_ctx_t * ctx = &txn_ctx->instr_stack[ txn_ctx->instr_stack_sz - 1 ];
@@ -1162,23 +1163,23 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       fd_log_collector_program_invoke( ctx );
       instr_exec_result = native_prog_fn( ctx );
     } else {
-      instr_exec_result = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+      instr_exec_result = fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID );
     }
 
-    int stack_pop_err = fd_instr_stack_pop( txn_ctx, instr );
-    if( FD_LIKELY( instr_exec_result==FD_EXECUTOR_INSTR_SUCCESS ) ) {
+    fd_exec_result_t stack_pop_res = fd_instr_stack_pop( txn_ctx, instr );
+    if( FD_LIKELY( instr_exec_result.err==FD_EXECUTOR_INSTR_SUCCESS ) ) {
       /* Log success */
       fd_log_collector_program_success( ctx );
 
       /* Only report the stack pop error on success */
-      if( FD_UNLIKELY( stack_pop_err ) ) {
-        FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
-        FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, stack_pop_err, txn_ctx->instr_err_idx );
-        instr_exec_result = stack_pop_err;
+      if( FD_UNLIKELY( stack_pop_res.err ) ) {
+        // FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
+        // FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, stack_pop_err, txn_ctx->instr_err_idx );
+        instr_exec_result = stack_pop_res;
       }
     } else {
-      FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
-      FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, instr_exec_result, txn_ctx->instr_err_idx );
+      // FD_TXN_PREPARE_ERR_OVERWRITE( txn_ctx );
+      // FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, instr_exec_result, txn_ctx->instr_err_idx );
 
       /* Log failure cases.
          We assume that the correct type of error is stored in ctx.
@@ -1188,7 +1189,8 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       fd_log_collector_program_failure( ctx );
     }
 
-    if( FD_UNLIKELY( instr_exec_result && !txn_ctx->failed_instr ) ) {
+    /* ask manik about this */
+    if( FD_UNLIKELY( instr_exec_result.err && !txn_ctx->failed_instr ) ) {
       txn_ctx->failed_instr = ctx;
       ctx->instr_err        = (uint)( -instr_exec_result - 1 );
     }
@@ -1200,7 +1202,7 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     FD_LOG_WARNING(( "instruction executed successfully: error code %d, custom err: %d, program id: %s", exec_result, txn_ctx->custom_err, FD_BASE58_ENC_32_ALLOCA( instr->program_id_pubkey.uc ));
   }
 #endif
-    return instr_exec_result;
+    return fd_exec_instr_err( instr_exec_result );
   } FD_RUNTIME_TXN_SPAD_FRAME_END;
 }
 
@@ -1336,7 +1338,7 @@ fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
   fd_exec_txn_ctx_setup( txn_ctx, txn_descriptor, txn_raw );
 
   /* Unroll accounts from aluts and place into correct spots */
-  int res = fd_executor_setup_accessed_accounts_for_txn( txn_ctx );
+  fd_exec_result_t res = fd_executor_setup_accessed_accounts_for_txn( txn_ctx );
 
   return res;
 }
@@ -1442,6 +1444,8 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
 #ifdef VLOG
       }
 #endif
+      /* make a transaction error wrapper here? Like agave?? */
+      /* what kind of error should this function return? */
       return instr_exec_result ? FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR : FD_RUNTIME_EXECUTE_SUCCESS;
     }
   }

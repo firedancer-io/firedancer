@@ -17,7 +17,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t       ctx,
                                        fd_vm_acc_region_meta_t * acc_region_metas,
                                        int                       copy_account_data );
 
-int
+fd_exec_result_t
 fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx, 
                                          ulong const *       pre_lens,
                                          uchar *             buffer,
@@ -33,7 +33,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t       ctx,
                                          fd_vm_acc_region_meta_t * acc_region_metas,
                                          int                       copy_account_data );
 
-int
+fd_exec_result_t
 fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx,
                                            ulong const *       pre_lens,
                                            uchar *             input,

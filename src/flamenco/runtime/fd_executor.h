@@ -21,8 +21,8 @@
    and fails in case of error. */
 #define FD_EXEC_CU_UPDATE( ctx, cost ) do {               \
   fd_exec_instr_ctx_t * _ctx = (ctx);                     \
-  int err = fd_exec_consume_cus( _ctx->txn_ctx, (cost) ); \
-  if( FD_UNLIKELY( err ) ) return err;                    \
+  fd_exec_result_t res = fd_exec_consume_cus( _ctx->txn_ctx, (cost) ); \
+  if( FD_UNLIKELY( res.err ) ) return res;                    \
   } while(0)
 
 FD_PROTOTYPES_BEGIN
@@ -64,7 +64,7 @@ fd_executor_verify_precompiles( fd_exec_txn_ctx_t * txn_ctx );
 int
 fd_executor_txn_verify( fd_exec_txn_ctx_t * txn_ctx );
 
-int
+fd_exec_result_t
 fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr_info );
 
@@ -120,26 +120,26 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx );
 int
 fd_executor_validate_account_locks( fd_exec_txn_ctx_t const * txn_ctx );
 
-static inline int
+static inline fd_exec_result_t
 fd_exec_consume_cus( fd_exec_txn_ctx_t * txn_ctx,
                      ulong               cus ) {
   ulong new_cus   =  txn_ctx->compute_meter - cus;
   int   underflow = (txn_ctx->compute_meter < cus);
   if( FD_UNLIKELY( underflow ) ) {
     txn_ctx->compute_meter = 0UL;
-    return FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED;
+    return fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED );
   }
   txn_ctx->compute_meter = new_cus;
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_exec_ok();
 }
 
 /* We expose these only for the fuzzing harness.
    Normally you shouldn't be invoking these manually. */
-int
+fd_exec_result_t
 fd_instr_stack_push( fd_exec_txn_ctx_t *     txn_ctx,
                      fd_instr_info_t *       instr );
 
-int
+fd_exec_result_t
 fd_instr_stack_pop( fd_exec_txn_ctx_t *       txn_ctx,
                     fd_instr_info_t const *   instr );
 

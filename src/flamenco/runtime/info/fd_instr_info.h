@@ -96,7 +96,7 @@ fd_instr_any_signed( fd_instr_info_t const * info,
 
    Aborts on integer overflow. */
 
-int
+fd_exec_result_t
 fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr, 
                                     ulong *                 total_lamports_h, 
                                     ulong *                 total_lamports_l );

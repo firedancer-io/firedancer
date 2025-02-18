@@ -1794,6 +1794,7 @@ fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
     task_info->exec_res   = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
   }
 
+  /* make this return an error and then set the error accordingly here. */
   fd_runtime_pre_execute_check( task_info );
   if( FD_UNLIKELY( !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
     res  = task_info->exec_res;
