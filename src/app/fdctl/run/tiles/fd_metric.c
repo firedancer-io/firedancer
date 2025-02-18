@@ -1,24 +1,19 @@
-#include "../../../../disco/tiles.h"
+#include "../../version.h"
 
+#include "../../../../disco/metrics/fd_prometheus.h"
+#include "../../../../ballet/http/fd_http_server.h"
+#include "../../../../util/net/fd_ip4.h"
+
+#include <sys/types.h>
 #include <sys/socket.h> /* SOCK_CLOEXEC, SOCK_NONBLOCK needed for seccomp filter */
+#include <unistd.h>
+#include <string.h>
+
 #if defined(__aarch64__)
 #include "generated/metric.arm64_seccomp.h"
 #else
 #include "generated/metric_seccomp.h"
 #endif
-
-#include "../../version.h"
-
-#include "../../../../disco/keyguard/fd_keyload.h"
-#include "../../../../disco/metrics/fd_prometheus.h"
-#include "../../../../ballet/http/fd_http_server.h"
-#include "../../../../util/net/fd_ip4.h"
-
-#include <errno.h>
-#include <sys/types.h>
-#include <unistd.h>
-#include <string.h>
-#include <stdio.h>
 
 #define FD_HTTP_SERVER_METRICS_MAX_CONNS          128
 #define FD_HTTP_SERVER_METRICS_MAX_REQUEST_LEN    8192
@@ -59,8 +54,7 @@ before_credit( fd_metric_ctx_t *   ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
   (void)stem;
-
-  *charge_busy = fd_http_server_poll( ctx->metrics_server );
+  *charge_busy = fd_http_server_poll( ctx->metrics_server, 1 ); /* 1ms */
 }
 
 static fd_http_server_response_t
@@ -161,6 +155,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 }
 
 #define STEM_BURST (1UL)
+#define STEM_LAZY ((long)10e6) /* 10ms */
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_metric_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_metric_ctx_t)

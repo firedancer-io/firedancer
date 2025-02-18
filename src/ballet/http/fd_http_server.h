@@ -422,11 +422,13 @@ int
 fd_http_server_ws_broadcast( fd_http_server_t * http );
 
 /* fd_http_server_poll needs to be continuously called in a spin loop to
-   drive the HTTP server forward.  Returns 1 if there was any work to do
-   on the HTTP server, or 0 otherwise. */
+   drive the HTTP server forward.  poll_timeout is the timeout arg to
+   poll(2).  poll_timeout==0 does a non-blocking socket poll.   Returns
+   1 if there was any work to do on the HTTP server, or 0 otherwise. */
 
 int
-fd_http_server_poll( fd_http_server_t * http );
+fd_http_server_poll( fd_http_server_t * http,
+                     int                poll_timeout );
 
 FD_PROTOTYPES_END
 
