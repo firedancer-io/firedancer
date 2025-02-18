@@ -688,6 +688,7 @@ extern configure_stage_t fd_cfg_stage_ethtool_channels;
 extern configure_stage_t fd_cfg_stage_ethtool_gro;
 extern configure_stage_t fd_cfg_stage_ethtool_loopback;
 extern configure_stage_t fd_cfg_stage_sysctl;
+extern configure_stage_t fd_cfg_stage_hyperthreads;
 
 void
 fdctl_check_configure( config_t * config ) {
@@ -718,6 +719,11 @@ fdctl_check_configure( config_t * config ) {
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
     FD_LOG_ERR(( "Kernel parameters are not configured correctly: %s. You can run `fdctl configure init sysctl` "
                  "to set kernel parameters correctly.", check.message ));
+
+  check = fd_cfg_stage_hyperthreads.check( config );
+  if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
+    FD_LOG_ERR(( "Hyperthreading is not configured correctly: %s. You can run `fdctl configure init hyperthread` "
+                 "to configure hyperthreading correctly.", check.message ));
 }
 
 void
@@ -744,7 +750,7 @@ fdctl_setup_netns( config_t * config ) {
   if( config->development.netns.enabled ) {
     enter_network_namespace( config->tiles.net.interface );
     close_network_namespace_original_fd();
-    
+
     fd_cfg_stage_ethtool_channels.init( config );
     fd_cfg_stage_ethtool_gro     .init( config );
     fd_cfg_stage_ethtool_loopback.init( config );

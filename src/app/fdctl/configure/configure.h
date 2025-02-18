@@ -65,6 +65,7 @@ typedef struct configure_stage {
 
 extern configure_stage_t fd_cfg_stage_hugetlbfs;
 extern configure_stage_t fd_cfg_stage_sysctl;
+extern configure_stage_t fd_cfg_stage_hyperthreads;
 extern configure_stage_t fd_cfg_stage_ethtool_channels;
 extern configure_stage_t fd_cfg_stage_ethtool_gro;
 extern configure_stage_t fd_cfg_stage_ethtool_loopback;

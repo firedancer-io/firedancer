@@ -65,6 +65,7 @@ following stages to each configure command:
     and mounts huge page filesystems for then under a path in the
     configuration TOML file.
  - `sysctl` Set required kernel parameters.
+ - `hyperthreads` Disables hyperthreaded pair for critical CPU cores.
  - `ethtool-channels` Configures the number of channels on the network
     device.
  - `ethtool-gro` Disables generic receive offload (GRO) on the network
