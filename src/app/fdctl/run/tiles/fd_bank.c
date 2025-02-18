@@ -209,14 +209,6 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     uint requested_exec_plus_acct_data_cus = txn->pack_cu.requested_exec_plus_acct_data_cus;
     uint non_execution_cus                 = txn->pack_cu.non_execution_cus;
 
-    if( FD_UNLIKELY( fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload ) ) ) {
-      /* Simple votes are charged fixed amounts of compute regardless of
-      the real cost they incur.  fd_ext_bank_load_and_execute_txns
-      returns the real cost, however, so we override it here. */
-      consumed_exec_cus[i] = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
-      consumed_acct_data_cus[i] = 0;
-    }
-
     /* Assume failure, set below if success.  If it doesn't land cin the
        block, rebate the non-execution CUs too. */
     txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
@@ -224,6 +216,15 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) ) ) continue;
 
     sanitized_idx++;
+
+    int is_simple_vote = 0;
+    if( FD_UNLIKELY( is_simple_vote = fd_txn_is_simple_vote_transaction( TXN(txn), txn->payload ) ) ) {
+      /* Simple votes are charged fixed amounts of compute regardless of
+      the real cost they incur.  fd_ext_bank_load_and_execute_txns
+      returns the real cost, however, so we override it here. */
+      consumed_exec_cus[ sanitized_idx-1UL ] = FD_PACK_VOTE_DEFAULT_COMPUTE_UNITS;
+      consumed_acct_data_cus[ sanitized_idx-1UL ] = 0;
+    }
 
     /* Stash the result in the flags value so that pack can inspect it.
      */
@@ -236,8 +237,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     if( FD_UNLIKELY( !(processing_results[ sanitized_idx-1UL ] & FD_BANK_TRANSACTION_LANDED) ) ) continue;
 
-    uint actual_execution_cus              = consumed_exec_cus[ sanitized_idx-1UL ];
-    uint actual_acct_data_cus              = consumed_acct_data_cus[ sanitized_idx-1UL ];
+    uint actual_execution_cus = consumed_exec_cus[ sanitized_idx-1UL ];
+    uint actual_acct_data_cus = consumed_acct_data_cus[ sanitized_idx-1UL ];
 
     /* FeesOnly transactions are transactions that failed to load
        before they even reach the VM stage. They have zero execution
@@ -259,7 +260,13 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        it exceeds its requested CUs.  A transaction which requests less
        account data than it actually consumes will fail in the account
        loading stage. */
-    FD_TEST( actual_execution_cus + actual_acct_data_cus <= requested_exec_plus_acct_data_cus );
+    if( FD_UNLIKELY( actual_execution_cus+actual_acct_data_cus > requested_exec_plus_acct_data_cus ) ) {
+      FD_LOG_ERR(( "Actual CUs unexpectedly exceeded requested amount. actual_execution_cus (%u) actual_acct_data_cus "
+                   "(%u) requested_exec_plus_acct_data_cus (%u) is_simple_vote (%i) exec_failed (%i)",
+                   actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus, is_simple_vote,
+                   transaction_err[ sanitized_idx-1UL ] ));
+    }
+
     txn->bank_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
     txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus - ( actual_execution_cus + actual_acct_data_cus );
   }
