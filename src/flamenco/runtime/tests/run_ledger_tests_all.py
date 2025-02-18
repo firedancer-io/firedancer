@@ -25,11 +25,8 @@ def group_cpus_by_num_batches(num_batches=4):
     print(f"Batch size: {batch_size}")
 
     # Create batches of CPUs
-    batches = [list(range(i, min(i + batch_size, num_cpus))) for i in range(2, num_cpus, batch_size)]
+    batches = [list(range(i, min(i + batch_size, num_cpus))) for i in range(2, num_cpus, batch_size)][:num_batches]
     # if we had some extras, add them to the last batch
-    if num_cpus%batch_size != 0:
-        batches[-2].extend(batches[-1])
-        batches.pop()
     return batches
 
 def worker(command_queue, available_params, error_occurred, error_event):
