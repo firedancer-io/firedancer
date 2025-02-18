@@ -131,7 +131,7 @@ before_credit( fd_gui_ctx_t *      ctx,
                int *               charge_busy ) {
   (void)stem;
 
-  int charge_busy_server = fd_http_server_poll( ctx->gui_server );
+  int charge_busy_server = fd_http_server_poll( ctx->gui_server, 0 );
   int charge_poll        = fd_gui_poll( ctx->gui );
 
   *charge_busy = charge_busy_server | charge_poll;
