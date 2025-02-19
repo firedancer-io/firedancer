@@ -499,6 +499,8 @@ typedef struct {
      Agave refers to this as the "working bank". */
   void const * current_leader_bank;
 
+  ulong oldest_reference_slot;
+
   fd_sha256_t * sha256;
 
   fd_stake_ci_t * stake_ci;
@@ -729,10 +731,12 @@ fd_ext_poh_write_unlock( void ) {
    not need any locking, since they are called serially from the single
    PoH tile. */
 
-extern CALLED_FROM_RUST void fd_ext_bank_acquire( void const * bank );
-extern CALLED_FROM_RUST void fd_ext_bank_release( void const * bank );
-extern CALLED_FROM_RUST void fd_ext_poh_signal_leader_change( void * sender );
-extern                  void fd_ext_poh_register_tick( void const * bank, uchar const * hash );
+extern CALLED_FROM_RUST void  fd_ext_bank_acquire( void const * bank );
+extern CALLED_FROM_RUST void  fd_ext_bank_release( void const * bank );
+extern CALLED_FROM_RUST void  fd_ext_poh_signal_leader_change( void * sender );
+extern                  void  fd_ext_poh_register_tick( void const * bank, uchar const * hash );
+extern                  ulong fd_ext_bank_oldest_reference_slot( void const * bank );
+
 
 /* fd_ext_poh_initialize is called by Agave on startup to
    initialize the PoH tile with some static configuration, and the
@@ -1012,6 +1016,7 @@ publish_became_leader( fd_poh_ctx_t * ctx,
   leader->max_microblocks_in_slot = ctx->max_microblocks_per_slot;
   leader->ticks_per_slot          = ctx->ticks_per_slot;
   leader->total_skipped_ticks     = ctx->ticks_per_slot*(slot-ctx->reset_slot);
+  leader->oldest_reference_slot   = ctx->oldest_reference_slot;
   leader->epoch                   = epoch;
   leader->bundle->config[0]       = config[0];
 
@@ -1091,6 +1096,7 @@ fd_ext_poh_begin_leader( void const * bank,
   }
 
   ctx->current_leader_bank     = bank;
+  ctx->oldest_reference_slot   = fd_ext_bank_oldest_reference_slot( bank );
   ctx->microblocks_lower_bound = 0UL;
   ctx->cus_used                = 0UL;
   ctx->expect_microblock_idx   = 0UL;
