@@ -352,7 +352,7 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
       fd_memcpy( &new_vote_state_node->elem.state, vote_state, sizeof(fd_vote_state_versioned_t) );
       fd_vote_info_pair_t_map_insert( temp_info->vote_states_pool, &temp_info->vote_states_root, new_vote_state_node );
     } else {
-      FD_LOG_ERR(( "Failed to deserialize vote account" ));
+      FD_LOG_WARNING(( "Failed to deserialize vote account" ));
     }
   }
 
