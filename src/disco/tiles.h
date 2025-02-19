@@ -85,6 +85,11 @@ struct fd_became_leader {
     uchar                                tip_receiver_owner[32];
     uchar                                last_blockhash[32];
   } bundle[1];
+
+  /* The oldest slot that can be used as a reference blockhash, where
+     the blockhash would still be valid and not expired.  Pack will drop
+     transactions older than this. */
+  ulong oldest_reference_slot;
 };
 typedef struct fd_became_leader fd_became_leader_t;
 
