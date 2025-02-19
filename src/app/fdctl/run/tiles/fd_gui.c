@@ -82,21 +82,13 @@ scratch_align( void ) {
 }
 
 FD_FN_PURE static inline ulong
-scratch_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
-
+scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_gui_ctx_t ), sizeof( fd_gui_ctx_t ) );
   l = FD_LAYOUT_APPEND( l, fd_http_server_align(),  fd_http_server_footprint( GUI_PARAMS ) );
   l = FD_LAYOUT_APPEND( l, fd_gui_align(),          fd_gui_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_alloc_align(),        fd_alloc_footprint() );
-  ulong sz = FD_LAYOUT_FINI( l, scratch_align() );
-
-# if FD_HAS_ZSTD
-  sz = fd_ulong_max( sz, ZSTD_estimateCCtxSize( DIST_COMPRESSION_LEVEL ) );
-# endif
-
-  return sz;
+  return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
 /* dist_file_sz returns the sum of static asset file sizes */
@@ -111,9 +103,10 @@ dist_file_sz( void ) {
 }
 
 FD_FN_PURE static inline ulong
-loose_footprint( fd_topo_tile_t const * tile FD_FN_UNUSED ) {
+loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   /* Reserve total size of files for compression buffers */
   return fd_spad_footprint( dist_file_sz() ) +
+    fd_ulong_align_up( ZSTD_estimateCCtxSize( DIST_COMPRESSION_LEVEL ), FD_WKSP_ALIGN_DEFAULT ) +
     256UL * (1UL<<20UL); /* 256MiB of heap space for the cJSON allocator */
 }
 
@@ -315,11 +308,28 @@ privileged_init( fd_topo_t *      topo,
    wksp space is available. */
 
 static void
-pre_compress_files( fd_wksp_t * wksp,
-                    ZSTD_CCtx * cctx ) {
+pre_compress_files( fd_wksp_t * wksp ) {
+
+  /* Allocate ZSTD compression context.  Freed when exiting this
+     function's scope. */
+  ulong  cctx_sz  = ZSTD_estimateCCtxSize( DIST_COMPRESSION_LEVEL );
+  void * cctx_mem = fd_wksp_alloc_laddr( wksp, 16UL, cctx_sz, 1UL );
+  if( FD_UNLIKELY( !cctx_mem ) ) {
+    FD_LOG_WARNING(( "Failed to allocate compressor" ));
+    return;
+  }
+  ZSTD_CCtx * cctx = ZSTD_initStaticCCtx( cctx_mem, cctx_sz );
+  if( FD_UNLIKELY( !cctx ) ) {
+    FD_LOG_WARNING(( "Failed to create ZSTD compression context" ));
+    fd_wksp_free_laddr( cctx_mem );
+    return;
+  }
+
+  /* Allocate permanent space for the compressed files. */
   ulong glo, ghi;
   if( FD_UNLIKELY( !fd_wksp_alloc_at_least( wksp, FD_SPAD_ALIGN, loose_footprint( NULL ), 1UL, &glo, &ghi ) ) ) {
     FD_LOG_WARNING(( "Failed to allocate space for compressing assets" ));
+    fd_wksp_free_laddr( cctx_mem );
     return;
   }
   fd_spad_t * spad = fd_spad_join( fd_spad_new( fd_wksp_laddr_fast( wksp, glo ), fd_spad_mem_max_max( ghi-glo ) ) );
@@ -354,6 +364,7 @@ pre_compress_files( fd_wksp_t * wksp,
     compressed_sz   += fd_ulong_if( !!f->zstd_data_len, f->zstd_data_len, *f->data_len );
   }
 
+  fd_wksp_free_laddr( cctx_mem );
   FD_LOG_INFO(( "Compressed assets (%lu bytes => %lu bytes)", uncompressed_sz, compressed_sz ));
 }
 
@@ -387,11 +398,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
 # if FD_HAS_ZSTD
-  /* Temporarily use tile memory to compress dist assets */
-  ZSTD_CCtx * cctx = ZSTD_initStaticCCtx( scratch, topo->objs[ tile->tile_obj_id ].footprint );
-  pre_compress_files( fd_wksp_containing( scratch ), cctx );
-  /* zstd.h: there is no corresponding "free" function */
-  cctx = NULL;
+  pre_compress_files( topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp );
 # endif
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
