@@ -363,7 +363,17 @@ check( config_t * const config ) {
           PARTIALLY_CONFIGURED( "mount `%s` is not mounted with `relatime`, expected `relatime`", mount_path[ i ] );
         }
 
-        char * pagesize = strtok_r( NULL, ",", &saveptr2 );
+        char * gid = strtok_r( NULL, ",", &saveptr2 );
+        if( FD_UNLIKELY( !gid ) ) FD_LOG_ERR(( "error parsing `/proc/self/mounts`, line `%s`", line ));
+
+        char * pagesize;
+        if( FD_UNLIKELY( !strncmp( "gid=", gid, 4UL ) ) ) {
+          pagesize = strtok_r( NULL, ",", &saveptr2 );
+          if( FD_UNLIKELY( !pagesize ) ) FD_LOG_ERR(( "error parsing `/proc/self/mounts`, line `%s`", line ));
+        } else {
+          pagesize = gid;
+        }
+
         if( FD_UNLIKELY( !pagesize ) ) FD_LOG_ERR(( "error parsing `/proc/self/mounts`, line `%s`", line ));
         if( FD_UNLIKELY( strcmp( pagesize, MOUNT_PAGE_SIZE[ i ] ) ) ) {
           if( FD_UNLIKELY( fclose( fp ) ) )
