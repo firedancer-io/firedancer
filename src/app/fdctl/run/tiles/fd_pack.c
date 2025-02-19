@@ -28,22 +28,14 @@
 #define MICROBLOCK_DURATION_NS  (0L)
 
 /* There are 151 accepted blockhashes, but those don't include skips.
-   This check is neither precise nor accurate, but just good enough.
-   The bank tile does the final check.  We give a little margin for a
-   few percent skip rate. */
+   When we become leader, poh informs us of the actual precise value
+   including skips, but before then we have this check, which is neither
+   precise nor accurate, but just good enough.  The bank tile does the
+   final check.  We give a little margin for a few percent skip rate. */
 #define TRANSACTION_LIFETIME_SLOTS 160UL
 
 /* About 6 kB on the stack */
 #define FD_PACK_PACK_MAX_OUT FD_PACK_MAX_BANK_TILES
-
-/* Time is normally a long, but pack expects a ulong.  Add -LONG_MIN to
-   the time values so that LONG_MIN maps to 0, LONG_MAX maps to
-   ULONG_MAX, and everything in between maps linearly with a slope of 1.
-   Just subtracting LONG_MIN results in signed integer overflow, which
-   is U.B. */
-#define TIME_OFFSET 0x8000000000000000UL
-FD_STATIC_ASSERT( (ulong)LONG_MIN+TIME_OFFSET==0UL,       time_offset );
-FD_STATIC_ASSERT( (ulong)LONG_MAX+TIME_OFFSET==ULONG_MAX, time_offset );
 
 
 /* Optionally allow a larger limit for benchmarking */
@@ -164,6 +156,12 @@ typedef struct {
      after_frag in case the tile gets overrun. */
   long _slot_end_ns;
   long slot_end_ns;
+
+  /* oldest_reference_slot is the inclusive oldest slot number that a
+     transaction's recent blockhash can be from and still be allowed in
+     this block.  This variable is only used and updated between
+     during_frag and after_frag. */
+  ulong oldest_reference_slot;
 
   /* pacer and ticks_per_ns are used for pacing CUs through the slot,
      i.e. deciding when to schedule a microblock given the number of CUs
@@ -644,8 +642,6 @@ during_frag( fd_pack_ctx_t * ctx,
     }
     ctx->leader_slot = fd_disco_poh_sig_slot( sig );
 
-    ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->leader_slot, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
-    FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
 
     fd_became_leader_t * became_leader = (fd_became_leader_t *)dcache_entry;
     ctx->leader_bank          = became_leader->bank;
@@ -669,6 +665,7 @@ during_frag( fd_pack_ctx_t * ctx,
        below to the correct value. */
     ctx->slot_end_ns = 0L;
     ctx->_slot_end_ns = became_leader->slot_end_ns;
+    ctx->oldest_reference_slot = became_leader->oldest_reference_slot;
 
     update_metric_state( ctx, fd_tickcount(), FD_PACK_METRIC_STATE_LEADER, 1 );
     return;
@@ -797,6 +794,10 @@ after_frag( fd_pack_ctx_t *     ctx,
     ctx->slot_end_ns = ctx->_slot_end_ns;
     fd_pack_set_block_limits( ctx->pack, ctx->slot_max_microblocks, ctx->slot_max_data );
     fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );
+
+    ulong exp_cnt = fd_pack_expire_before( ctx->pack, ctx->oldest_reference_slot );
+    FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
+
     break;
   }
   case IN_KIND_BANK: {
@@ -911,6 +912,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->ticks_per_ns                  = fd_tempo_tick_per_ns( NULL );
   ctx->last_successful_insert        = 0L;
   ctx->highest_observed_slot         = 0UL;
+  ctx->oldest_reference_slot         = 0UL;
   ctx->microblock_duration_ticks     = (ulong)(fd_tempo_tick_per_ns( NULL )*(double)MICROBLOCK_DURATION_NS  + 0.5);
 #if FD_PACK_USE_EXTRA_STORAGE
   ctx->insert_to_extra               = 0;

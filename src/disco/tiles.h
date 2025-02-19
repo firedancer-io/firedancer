@@ -61,6 +61,11 @@ struct fd_became_leader {
      publish to show peers they were skipped correctly.  This is used
      to adjust some pack limits. */
   ulong total_skipped_ticks;
+
+  /* The oldest slot that can be used as a reference blockhash, where
+     the blockhash would still be valid and not expired.  Pack will drop
+     transactions older than this. */
+  ulong oldest_reference_slot;
 };
 typedef struct fd_became_leader fd_became_leader_t;
 
