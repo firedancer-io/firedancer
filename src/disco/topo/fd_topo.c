@@ -414,6 +414,7 @@ fd_topo_print_log( int         stdout,
          !fd_pod_iter_done( iter );
          iter=fd_pod_iter_next( iter ) ) {
       fd_pod_info_t info = fd_pod_iter_info( iter );
+      if( !strncmp( info.key, "seed", info.key_sz ) ) continue;
       PRINT( "  %.*s", (int)info.key_sz, info.key );
       switch( info.val_type ) {
       case FD_POD_VAL_TYPE_CSTR:

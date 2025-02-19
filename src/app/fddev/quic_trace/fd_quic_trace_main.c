@@ -86,8 +86,8 @@ quic_trace_cmd_fn( args_t *         args,
   quic_ctx->quic  = (void *)( (ulong)quic_tile_base + (ulong)quic_ctx->quic  - ctx_raddr );
 
   fd_topo_link_t * net_quic = &topo->links[ quic_tile->in_link_id[ 0 ] ];
-  quic_ctx->in_mem = topo->workspaces[ topo->objs[ net_quic->dcache_obj_id ].wksp_id ].wksp;
-  FD_LOG_INFO(( "net->quic link at %p", (void *)quic_ctx->in_mem ));
+  fd_net_rx_bounds_init( &quic_ctx->net_in_bounds, net_quic->dcache );
+  FD_LOG_INFO(( "net->quic dcache at %p", (void *)net_quic->dcache ));
 
   /* Join shared memory objects
      Mostly nops but verifies object magic numbers to ensure that

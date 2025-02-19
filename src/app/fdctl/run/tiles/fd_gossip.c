@@ -14,17 +14,15 @@
 
 #include "../../../../disco/fd_disco.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
+#include "../../../../disco/net/fd_net_tile.h"
 #include "../../../../disco/store/util.h"
 #include "../../../../flamenco/gossip/fd_gossip.h"
 #include "../../../../flamenco/runtime/fd_system_ids.h"
 #include "../../../../disco/restart/fd_restart.h"
-#include "../../../../util/fd_util.h"
-#include "../../../../util/net/fd_eth.h"
 #include "../../../../util/net/fd_ip4.h"
 #include "../../../../util/net/fd_udp.h"
 #include "../../../../util/net/fd_net_headers.h"
 #include "../../../../disco/plugin/fd_plugin.h"
-#include "../../../../flamenco/runtime/context/fd_exec_slot_ctx.h"
 
 #include "generated/gossip_seccomp.h"
 
@@ -56,7 +54,7 @@
 
 static volatile ulong * fd_shred_version;
 
-static int
+FD_FN_PURE static int
 fd_pubkey_eq( fd_pubkey_t const * key1, fd_pubkey_t const * key2 ) {
   return memcmp( key1->key, key2->key, sizeof(fd_pubkey_t) ) == 0;
 }
@@ -175,9 +173,7 @@ struct fd_gossip_tile_ctx {
   fd_gossip_peer_addr_t repair_serve_addr;
   ushort                gossip_listen_port;
 
-  fd_wksp_t *     net_in_mem;
-  ulong           net_in_chunk;
-  ulong           net_in_wmark;
+  fd_net_rx_bounds_t net_in_bounds;
 
   fd_frag_meta_t * net_out_mcache;
   ulong *          net_out_sync;
@@ -473,12 +469,11 @@ before_frag( fd_gossip_tile_ctx_t * ctx,
 static inline void
 during_frag( fd_gossip_tile_ctx_t * ctx,
              ulong                  in_idx,
-             ulong                  seq,
-             ulong                  sig,
+             ulong                  seq FD_PARAM_UNUSED,
+             ulong                  sig FD_PARAM_UNUSED,
              ulong                  chunk,
-             ulong                  sz ) {
-  (void)seq;
-  (void)sig;
+             ulong                  sz,
+             ulong                  ctl ) {
 
   if( in_idx==REPLAY_IN_IDX ) {
     if( FD_UNLIKELY( chunk<ctx->replay_in_chunk0 || chunk>ctx->replay_in_wmark || sz>FD_RESTART_LINK_BYTES_MAX+sizeof(uint) ) ) {
@@ -519,14 +514,9 @@ during_frag( fd_gossip_tile_ctx_t * ctx,
 
   if( in_idx!=NET_IN_IDX ) return;
 
-  if( FD_UNLIKELY( chunk<ctx->net_in_chunk || chunk>ctx->net_in_wmark || sz>FD_NET_MTU ) ) {
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->net_in_chunk, ctx->net_in_wmark ));
-  }
-
-  uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->net_in_mem, chunk );
-
+  void const * src = fd_net_rx_translate_frag( &ctx->net_in_bounds, chunk, ctl, sz );
   ctx->gossip_buffer_sz = sz;
-  fd_memcpy( ctx->gossip_buffer, dcache_entry, sz );
+  fd_memcpy( ctx->gossip_buffer, src, sz );
 }
 
 static void
@@ -975,10 +965,7 @@ unprivileged_init( fd_topo_t *      topo,
   FD_LOG_NOTICE(( "gossip listening on port %u", tile->gossip.gossip_listen_port ));
 
   fd_topo_link_t * netmux_link = &topo->links[ tile->in_link_id[ NET_IN_IDX ] ];
-
-  ctx->net_in_mem    = topo->workspaces[ topo->objs[ netmux_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->net_in_chunk  = fd_disco_compact_chunk0( ctx->net_in_mem );
-  ctx->net_in_wmark  = fd_disco_compact_wmark( ctx->net_in_mem, netmux_link->mtu );
+  fd_net_rx_bounds_init( &ctx->net_in_bounds, netmux_link->dcache );
 
   fd_topo_link_t * voter_in = &topo->links[ tile->in_link_id[ VOTER_IN_IDX ] ];
   ctx->voter_in_mem    = topo->workspaces[ topo->objs[ voter_in->dcache_obj_id ].wksp_id ].wksp;

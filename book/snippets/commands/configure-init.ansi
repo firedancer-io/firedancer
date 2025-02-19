@@ -13,6 +13,10 @@ $ fdctl configure init all
 [32mNOTICE [0m RUN: `echo "1" > /proc/sys/net/ipv4/conf/lo/accept_local`
 [93mWARNING[0m kernel parameter `/proc/sys/net/core/bpf_jit_enable` is too low (got 0 but expected at least 1). Proceeding but performance may be reduced.
 [93mWARNING[0m kernel parameter `/proc/sys/kernel/numa_balancing` is set to 1, not the expected value of 0. Proceeding but performance may be reduced.
+[32mNOTICE [0m hyperthreads ... unconfigured ... pack cpu 5 has hyperthread pair 37 which should be offline
+[32mNOTICE [0m hyperthreads ... configuring
+[32mNOTICE [0m RUN: `echo "0" > /sys/devices/system/cpu/cpu37/online`
+[32mNOTICE [0m RUN: `echo "0" > /sys/devices/system/cpu/cpu40/online`
 [32mNOTICE [0m ethtool-channels ... unconfigured ... device `ens3f0` does not have right number of channels (got 1 but expected 2)
 [32mNOTICE [0m ethtool-channels ... configuring
 [32mNOTICE [0m ethtool-channels ... RUN: `ethtool --set-channels ens3f0 combined 2`

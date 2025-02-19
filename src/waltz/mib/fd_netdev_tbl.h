@@ -86,7 +86,7 @@ FD_PROTOTYPES_BEGIN
 FD_FN_CONST ulong
 fd_netdev_tbl_align( void );
 
-ulong
+FD_FN_CONST ulong
 fd_netdev_tbl_footprint( ulong dev_max,
                          ulong bond_max );
 

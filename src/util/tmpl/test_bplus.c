@@ -7,7 +7,7 @@ struct pair {
 
 typedef struct pair pair_t;
 
-static inline int
+FD_FN_PURE static inline int
 ulong_cmp( ulong const * _a,
            ulong const * _b ) {
   ulong a = *_a;

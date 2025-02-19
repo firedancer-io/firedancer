@@ -20,6 +20,7 @@ configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   &fd_cfg_stage_netns,
   &fd_cfg_stage_hugetlbfs,
   &fd_cfg_stage_sysctl,
+  &fd_cfg_stage_hyperthreads,
   &fd_cfg_stage_ethtool_channels,
   &fd_cfg_stage_ethtool_gro,
   &fd_cfg_stage_ethtool_loopback,

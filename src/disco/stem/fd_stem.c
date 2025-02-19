@@ -615,7 +615,7 @@ STEM_(run1)( ulong                        in_cnt,
     ulong tsorig   = (ulong)this_in_mline->tsorig; (void)tsorig;
 
 #ifdef STEM_CALLBACK_DURING_FRAG
-    STEM_CALLBACK_DURING_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz );
+    STEM_CALLBACK_DURING_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, ctl );
 #endif
 
     FD_COMPILER_MFENCE();

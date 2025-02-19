@@ -444,11 +444,11 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
 static void
 during_frag( fd_replay_tile_ctx_t * ctx,
              ulong                  in_idx,
-             ulong                  seq,
+             ulong                  seq FD_PARAM_UNUSED,
              ulong                  sig,
              ulong                  chunk,
-             ulong                  sz ) {
-  (void)seq;
+             ulong                  sz,
+             ulong                  ctl FD_PARAM_UNUSED ) {
 
   ctx->skip_frag = 0;
 

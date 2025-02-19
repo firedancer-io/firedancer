@@ -148,7 +148,7 @@ main( int     argc,
   while( !stop ) {
     long current = fd_log_wallclock();
 
-    fd_http_server_poll( state.http );
+    fd_http_server_poll( state.http, 0 );
 
     if( FD_UNLIKELY( current-now>1000L*1000L*1000L ) ) {
       ws_send_all( state.http );

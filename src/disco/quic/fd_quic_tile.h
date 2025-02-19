@@ -3,6 +3,7 @@
 
 #include "fd_tpu.h"
 #include "../stem/fd_stem.h"
+#include "../net/fd_net_tile.h"
 #include "../../waltz/quic/fd_quic.h"
 
 typedef struct {
@@ -24,9 +25,7 @@ typedef struct {
   ulong round_robin_cnt;
   ulong round_robin_id;
 
-  fd_wksp_t * in_mem;
-  ulong       in_chunk0;
-  ulong       in_wmark;
+  fd_net_rx_bounds_t net_in_bounds;
 
   fd_frag_meta_t * net_out_mcache;
   ulong *          net_out_sync;

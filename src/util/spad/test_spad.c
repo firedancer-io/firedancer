@@ -13,12 +13,6 @@
 #define fd_spad_prepare   fd_spad_prepare_debug
 #define fd_spad_cancel    fd_spad_cancel_debug
 #define fd_spad_publish   fd_spad_publish_debug
-
-#undef  FD_SPAD_FRAME_BEGIN
-#undef  FD_SPAD_FRAME_END
-
-#define FD_SPAD_FRAME_BEGIN FD_SPAD_FRAME_BEGIN_DEBUG
-#define FD_SPAD_FRAME_END   FD_SPAD_FRAME_END_DEBUG
 #endif
 
 FD_STATIC_ASSERT( FD_SPAD_LG_ALIGN      ==7,                       unit_test );
@@ -30,6 +24,122 @@ FD_STATIC_ASSERT( FD_SPAD_ALLOC_ALIGN_DEFAULT== 16UL, unit_test );
 
 #define FOOTPRINT_MAX 1048576UL
 static uchar mem[ FOOTPRINT_MAX ] __attribute__((aligned(FD_SPAD_ALIGN)));
+
+FD_FN_UNUSED static void
+test_spad_deepasan_allocation(uchar* addr, ulong sz, int is_first_alloc ) {
+  /* the first allocation in spad may not have alignment padding */
+  if( !is_first_alloc ) {
+    /* test that accessing the byte right before the alllocated array is poisoned */
+    FD_TEST( fd_asan_test( (void*)( addr - 1 ) ) == 1 );
+  }
+  /* test that the allocated bytes in the array are unpoisoned */
+  FD_TEST( fd_asan_query( addr, sz ) == NULL );
+  /* test that accessing the byte right outside the allocated array is poisoned */
+  FD_TEST( fd_asan_test( (void*)( addr + sz ) ) == 1 );
+}
+
+FD_FN_UNUSED static void
+test_spad_deepasan( fd_spad_t * spad ) {
+  fd_spad_reset( spad );
+  fd_spad_push( spad );
+
+  /* Note that the align may be 1,
+     but deep asan will align to a minimum of 8 bytes */
+
+  /* test a basic non 8-byte aligned allocation */
+  uchar* arr_frame_1 = (uchar *)fd_spad_alloc( spad, 1, 12UL );
+
+  {
+    /* test the allocation of arr_frame_1 */
+    FD_TEST( arr_frame_1 );
+    test_spad_deepasan_allocation( arr_frame_1, 12, 1 );
+  }
+
+  fd_spad_push( spad );
+
+  /* test the alloc then trim API */
+  {
+    uchar* arr_frame_2 = (uchar *)fd_spad_alloc( spad, 1, 20UL );
+    FD_TEST( arr_frame_2 );
+    test_spad_deepasan_allocation( arr_frame_2, 20, 0 );
+    /* test trimming the allocation to a non 8-byte aligned size */
+    fd_spad_trim( spad, arr_frame_2 + 15 );
+    test_spad_deepasan_allocation( arr_frame_2, 15, 0 );
+  }
+
+  /* test the prepare then cancel API */
+  {
+    uchar* prepare_then_cancel = (uchar *)fd_spad_prepare( spad, 1, 50 );
+    /* test that accessing the byte right before prepare_then_cancel is poisoned */
+    FD_TEST( fd_asan_test( (void*)( prepare_then_cancel - 1 ) ) == 1 );
+    /* test that rest of the spad region is unpoisoned */
+    FD_TEST( fd_asan_query( prepare_then_cancel, fd_spad_alloc_max( spad, 1 ) ) == NULL );
+
+    /* test that fd_spad_cancel resets the memory region to poisoned */
+    fd_spad_cancel( spad );
+    FD_TEST( fd_asan_query( fd_spad_frame_hi( spad ), fd_spad_alloc_max( spad, 1 ) ) == fd_spad_frame_hi( spad ) );
+  }
+
+  /* test the prepare then publish API */
+  {
+    /* test that fd_spad_publish gives a correct allocation */
+    uchar* prepare_then_publish = (uchar *)fd_spad_prepare( spad, 1, 50 );
+    fd_spad_publish( spad, 50 );
+    test_spad_deepasan_allocation( prepare_then_publish, 50, 0 );
+  }
+
+  /* test the prepare then alloc and prepare then trim API */
+  {
+    /* test that fd_spad_alloc cancels a fd_spad_prepare by re-poisoning the memory region */
+    uchar* prepare_then_alloc = (uchar *)fd_spad_prepare( spad, 1, 50 );
+    prepare_then_alloc = (uchar *)fd_spad_alloc( spad, 1, 50 );
+    test_spad_deepasan_allocation( prepare_then_alloc, 50, 0 );
+
+    /* test that trim cancels any in-progress prepare and
+       memory is correctly poisoned when trim is used to set the frame_hi
+       regardless of the previous allocation. */
+    uchar* prepare_then_trim = (uchar *)fd_spad_prepare( spad, 1, 50 );
+    (void)prepare_then_trim;
+    fd_spad_trim( spad, prepare_then_alloc - 2 );
+    FD_TEST( fd_spad_frame_hi( spad ) == prepare_then_alloc - 2 );
+    /* remaining memory should be poisoned */
+    FD_TEST( fd_asan_query( fd_spad_frame_hi( spad ), fd_spad_alloc_max( spad, 1 ) ) == fd_spad_frame_hi( spad ) );
+  }
+
+  /* test prepare, push, pop API */
+  {
+    /* test a prepare with an align of 32 bytes, which will render that memory used
+       until the frame is popped */
+    uchar* prepare_then_push = (uchar *)fd_spad_prepare( spad, 32, 50 );
+    /* the 32 byte alignment should bring mem_used up to 96 bytes */
+    FD_TEST( fd_spad_mem_used( spad ) == 96 );
+    /* test that accessing the byte right before prepare_then_push is poisoned */
+    FD_TEST( fd_asan_test( (void*)( prepare_then_push - 1) ) == 1 );
+    fd_spad_push( spad );
+    /* test that the remaining spad memory region is poisoned after a push */
+    FD_TEST( fd_asan_query( fd_spad_frame_lo( spad ), fd_spad_alloc_max( spad, 1 ) ) == fd_spad_frame_lo( spad ) );
+
+    uchar* prepare_then_pop = (uchar *)fd_spad_prepare( spad, 1, 50 );
+    (void)prepare_then_pop;
+    fd_spad_pop( spad );
+    /* remaining spad memory region should be poisoned after a pop */
+    FD_TEST( fd_asan_query( fd_spad_frame_hi( spad ), fd_spad_alloc_max( spad, 1 ) ) == fd_spad_frame_hi( spad ) );
+  }
+
+  /* test accessing memory after pop */
+  {
+    fd_spad_pop( spad );
+    uchar* frame_hi_ptr = fd_spad_frame_hi( spad );
+    /* test that all memory from the frame hi ptr is poisoned after popping a frame */
+    FD_TEST( fd_asan_query( frame_hi_ptr, fd_spad_alloc_max( spad, 1 ) ) == frame_hi_ptr );
+
+    fd_spad_pop( spad );
+    /* test that arr_frame_1 is poisoned after the pop */
+    FD_TEST( fd_asan_test( arr_frame_1 ) == 1 );
+  }
+
+  fd_spad_reset( spad );
+}
 
 int
 main( int     argc,
@@ -269,6 +379,9 @@ main( int     argc,
 
   }
 
+#if FD_HAS_DEEPASAN
+  test_spad_deepasan( spad );
+#endif
   /* Test destructors */
 
   FD_TEST( !fd_spad_leave( NULL ) ); /* NULL spad */

@@ -351,6 +351,12 @@ main( int     argc,
     }
 
     FD_TEST( ctr[0]==1 && ctr[1]==1 && ctr[2]==1 && ctr[3]==1 && ctr[4]==1 && ctr[5]==1 );
+
+    /* FIXME: more extensive tests here */
+    FD_TURNSTILE_BEGIN(0) { ctr[0]++; } FD_TURNSTILE_BLOCKED { ctr[1]++; } FD_TURNSTILE_END;
+    FD_TURNSTILE_BEGIN(1) { ctr[2]++; } FD_TURNSTILE_BLOCKED { ctr[3]++; } FD_TURNSTILE_END;
+    FD_TEST( ctr[0]==2 && ctr[1]==1 && ctr[2]==2 && ctr[3]==1 );
+
   } while(0);
 
   do {

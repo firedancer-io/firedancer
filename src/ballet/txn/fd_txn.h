@@ -410,31 +410,31 @@ typedef union fd_acct_addr fd_acct_addr_t;
    alignment.  U.B. If `payload` and `txn` were not arguments to a valid
    `fd_txn_parse` call or if either was modified after the parse call.
    */
-static inline fd_ed25519_sig_t const *
+FD_FN_PURE static inline fd_ed25519_sig_t const *
 fd_txn_get_signatures( fd_txn_t const * txn,
                        void     const * payload ) {
    return (fd_ed25519_sig_t const *)((ulong)payload + (ulong)txn->signature_off);
 }
 
-static inline fd_acct_addr_t const *
+FD_FN_PURE static inline fd_acct_addr_t const *
 fd_txn_get_acct_addrs( fd_txn_t const * txn,
                        void     const * payload ) {
   return (fd_acct_addr_t const *)((ulong)payload + (ulong)txn->acct_addr_off);
 }
 
-static inline uchar const *
+FD_FN_PURE static inline uchar const *
 fd_txn_get_recent_blockhash( fd_txn_t const * txn,
                              void     const * payload ) {
   return (uchar const *)((ulong)payload + (ulong)txn->recent_blockhash_off);
 }
 
-static inline uchar const *
+FD_FN_PURE static inline uchar const *
 fd_txn_get_instr_accts( fd_txn_instr_t const * instr,
                         void           const * payload ) {
   return (uchar const *)((ulong)payload + (ulong)instr->acct_off);
 }
 
-static inline uchar const *
+FD_FN_PURE static inline uchar const *
 fd_txn_get_instr_data( fd_txn_instr_t const * instr,
                        void           const * payload ) {
   return (uchar const *)((ulong)payload + (ulong)instr->data_off);

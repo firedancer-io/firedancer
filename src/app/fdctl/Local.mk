@@ -33,7 +33,6 @@ $(call add-objs,monitor/monitor monitor/helper,fd_fdctl)
 $(call make-fuzz-test,fuzz_fdctl_config,fuzz_fdctl_config,fd_fdctl fd_ballet fd_util)
 
 # fdctl tiles
-$(call add-objs,run/tiles/fd_net,fd_fdctl)
 $(call add-objs,run/tiles/fd_verify,fd_fdctl)
 $(call add-objs,run/tiles/fd_dedup,fd_fdctl)
 $(call add-objs,run/tiles/fd_resolv,fd_fdctl)
@@ -77,6 +76,7 @@ endif
 $(call add-objs,configure/configure,fd_fdctl)
 $(call add-objs,configure/hugetlbfs,fd_fdctl)
 $(call add-objs,configure/sysctl,fd_fdctl)
+$(call add-objs,configure/hyperthreads,fd_fdctl)
 $(call add-objs,configure/ethtool-channels,fd_fdctl)
 $(call add-objs,configure/ethtool-gro,fd_fdctl)
 $(call add-objs,configure/ethtool-loopback,fd_fdctl)

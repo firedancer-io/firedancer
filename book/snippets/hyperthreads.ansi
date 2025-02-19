@@ -1,0 +1,8 @@
+$ sudo fdctl configure init hyperthreads
+[32mNOTICE [0m hyperthreads ... unconfigured ... pack cpu 5 has hyperthread pair 37 which should be offline
+[32mNOTICE [0m hyperthreads ... configuring
+[32mNOTICE [0m RUN: `echo "0" > /sys/devices/system/cpu/cpu37/online`
+[32mNOTICE [0m RUN: `echo "0" > /sys/devices/system/cpu/cpu40/online`
+
+$ cat /sys/devices/system/cpu/cpu37/online
+0

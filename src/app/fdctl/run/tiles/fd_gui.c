@@ -101,7 +101,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 
 /* dist_file_sz returns the sum of static asset file sizes */
 
-static ulong
+FD_FN_CONST static ulong
 dist_file_sz( void ) {
   ulong tot_sz = 0UL;
   for( fd_http_static_file_t * f = STATIC_FILES; f->name; f++ ) {
@@ -131,7 +131,7 @@ before_credit( fd_gui_ctx_t *      ctx,
                int *               charge_busy ) {
   (void)stem;
 
-  int charge_busy_server = fd_http_server_poll( ctx->gui_server );
+  int charge_busy_server = fd_http_server_poll( ctx->gui_server, 0 );
   int charge_poll        = fd_gui_poll( ctx->gui );
 
   *charge_busy = charge_busy_server | charge_poll;
@@ -141,14 +141,12 @@ before_credit( fd_gui_ctx_t *      ctx,
 
 static inline void
 during_frag( fd_gui_ctx_t * ctx,
-             ulong          in_idx,
-             ulong          seq,
+             ulong          in_idx FD_PARAM_UNUSED,
+             ulong          seq    FD_PARAM_UNUSED,
              ulong          sig,
              ulong          chunk,
-             ulong          sz ) {
-  (void)in_idx;
-  (void)seq;
-  (void)sig;
+             ulong          sz,
+             ulong          gui    FD_PARAM_UNUSED ) {
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in_mem, chunk );
 

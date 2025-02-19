@@ -33,12 +33,11 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 static void
 during_frag( fd_exec_tile_ctx_t * ctx,
              ulong                in_idx,
-             ulong                seq,
-             ulong                sig,
+             ulong                seq FD_PARAM_UNUSED,
+             ulong                sig FD_PARAM_UNUSED,
              ulong                chunk,
-             ulong                sz ) {
-  (void)seq;
-  (void)sig;
+             ulong                sz,
+             ulong                ctl FD_PARAM_UNUSED ) {
 
   if( FD_UNLIKELY( in_idx == ctx->replay_exec_in_idx ) ) {
     if( FD_UNLIKELY( chunk < ctx->replay_in_chunk0 || chunk > ctx->replay_in_wmark ) ) {
@@ -83,7 +82,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_exec_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_exec_tile_ctx_t), sizeof(fd_exec_tile_ctx_t) );
 
   ctx->tile_cnt = fd_topo_tile_name_cnt( topo, tile->name );
-  ctx->tile_idx = tile->kind_id;  
+  ctx->tile_idx = tile->kind_id;
 
   ctx->replay_exec_in_idx = fd_topo_find_tile_in_link( topo, tile, "replay_exec", ctx->tile_idx );
   FD_TEST( ctx->replay_exec_in_idx != ULONG_MAX );

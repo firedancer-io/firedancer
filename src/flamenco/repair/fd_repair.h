@@ -20,12 +20,12 @@
 
 /* Global state of repair protocol */
 typedef struct fd_repair fd_repair_t;
-ulong         fd_repair_align    ( void );
-ulong         fd_repair_footprint( void );
-void *        fd_repair_new      ( void * shmem, ulong seed );
-fd_repair_t * fd_repair_join     ( void * shmap );
-void *        fd_repair_leave    ( fd_repair_t * join );
-void *        fd_repair_delete   ( void * shmap );
+FD_FN_CONST ulong         fd_repair_align    ( void );
+FD_FN_CONST ulong         fd_repair_footprint( void );
+            void *        fd_repair_new      ( void * shmem, ulong seed );
+            fd_repair_t * fd_repair_join     ( void * shmap );
+            void *        fd_repair_leave    ( fd_repair_t * join );
+            void *        fd_repair_delete   ( void * shmap );
 
 typedef fd_gossip_peer_addr_t fd_repair_peer_addr_t;
 

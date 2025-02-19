@@ -475,14 +475,14 @@ fd_blockstore_fini( fd_blockstore_t * blockstore ) {
 
 /* txn map helpers */
 
-int
+FD_FN_PURE int
 fd_txn_key_equal( fd_txn_key_t const * k0, fd_txn_key_t const * k1 ) {
   for( ulong i = 0; i < FD_ED25519_SIG_SZ / sizeof( ulong ); ++i )
     if( k0->v[i] != k1->v[i] ) return 0;
   return 1;
 }
 
-ulong
+FD_FN_PURE ulong
 fd_txn_key_hash( fd_txn_key_t const * k, ulong seed ) {
   ulong h = seed;
   for( ulong i = 0; i < FD_ED25519_SIG_SZ / sizeof( ulong ); ++i )

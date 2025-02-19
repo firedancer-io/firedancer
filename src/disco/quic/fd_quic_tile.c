@@ -192,20 +192,16 @@ before_frag( fd_quic_ctx_t * ctx,
 
 static void
 during_frag( fd_quic_ctx_t * ctx,
-             ulong           in_idx,
-             ulong           seq,
-             ulong           sig,
+             ulong           in_idx FD_PARAM_UNUSED,
+             ulong           seq    FD_PARAM_UNUSED,
+             ulong           sig    FD_PARAM_UNUSED,
              ulong           chunk,
-             ulong           sz ) {
-  (void)in_idx;
-  (void)seq;
-  (void)sig;
+             ulong           sz,
+             ulong           ctl ) {
+  void const * src = fd_net_rx_translate_frag( &ctx->net_in_bounds, chunk, ctl, sz );
 
-  if( FD_UNLIKELY( chunk<ctx->in_chunk0 || chunk>ctx->in_wmark || sz > FD_NET_MTU ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_chunk0, ctx->in_wmark ));
-
-  uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in_mem, chunk );
-  fd_memcpy( ctx->buffer, src, sz ); /* TODO: Eliminate copy... fd_aio needs refactoring */
+  /* FIXME this copy could be eliminated by combining it with the decrypt operation */
+  fd_memcpy( ctx->buffer, src, sz );
 }
 
 static void
@@ -548,9 +544,7 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( !fd_quic_init( quic ) ) ) FD_LOG_ERR(( "fd_quic_init failed" ));
 
   fd_topo_link_t * net_in = &topo->links[ tile->in_link_id[ 0 ] ];
-  ctx->in_mem    = topo->workspaces[ topo->objs[ net_in->dcache_obj_id ].wksp_id ].wksp;
-  ctx->in_chunk0 = fd_dcache_compact_chunk0( ctx->in_mem, net_in->dcache );
-  ctx->in_wmark  = fd_dcache_compact_wmark ( ctx->in_mem, net_in->dcache, net_in->mtu );
+  fd_net_rx_bounds_init( &ctx->net_in_bounds, net_in->dcache );
 
   fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ 1 ] ];
 

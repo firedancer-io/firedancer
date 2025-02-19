@@ -13,10 +13,10 @@
 extern fd_topo_run_tile_t * TILES[];
 
 
-#define CONFIGURE_STAGE_COUNT 11
+#define CONFIGURE_STAGE_COUNT 12
 struct configure_stage;
 
-typedef union {
+union fdctl_args {
   struct {
     char  tile_name[ 7UL ];
     ulong kind_id;
@@ -100,7 +100,9 @@ typedef union {
     int event;
     int dump; /* whether the user requested --dump */
   } quic_trace;
-} args_t;
+};
+
+typedef union fdctl_args args_t;
 
 typedef struct fd_caps_ctx fd_caps_ctx_t;
 

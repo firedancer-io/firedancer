@@ -642,7 +642,7 @@ FD_STATIC_ASSERT( offsetof(fd_pack_t, pending_txn_cnt)==FD_PACK_PENDING_TXN_CNT_
 int delete_transaction( fd_pack_t * pack, fd_ed25519_sig_t const * sig0, int delete_full_bundle, int move_from_penalty_treap );
 static inline void insert_bundle_impl( fd_pack_t * pack, ulong bundle_idx, ulong txn_cnt, fd_pack_ord_txn_t * * bundle, ulong expires_at );
 
-ulong
+FD_FN_PURE ulong
 fd_pack_footprint( ulong                    pack_depth,
                    int                      enable_bundles,
                    ulong                    bank_tile_cnt,

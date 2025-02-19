@@ -42,7 +42,7 @@ slot_get_idx( fd_tpu_reasm_t const *      reasm,
   return (uint)slot_idx;
 }
 
-static inline ulong
+FD_FN_CONST static inline ulong
 slot_get_offset( ulong slot_idx ) {
   return slot_idx * FD_TPU_REASM_MTU;
 }

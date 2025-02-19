@@ -91,13 +91,12 @@ before_credit( fd_rpcserv_tile_ctx_t * ctx,
 
 static void
 during_frag( fd_rpcserv_tile_ctx_t * ctx,
-             ulong                  in_idx,
-             ulong                  seq,
-             ulong                  sig,
-             ulong                  chunk,
-             ulong                  sz ) {
-  (void)seq;
-  (void)sig;
+             ulong                   in_idx,
+             ulong                   seq FD_PARAM_UNUSED,
+             ulong                   sig FD_PARAM_UNUSED,
+             ulong                   chunk,
+             ulong                   sz,
+             ulong                   ctl FD_PARAM_UNUSED ) {
 
   if( FD_UNLIKELY( in_idx==REPLAY_NOTIF_IDX ) ) {
     if( FD_UNLIKELY( chunk<ctx->replay_notif_in_chunk0 || chunk>ctx->replay_notif_in_wmark ) ) {

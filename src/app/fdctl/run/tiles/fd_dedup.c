@@ -101,12 +101,11 @@ metrics_write( fd_dedup_ctx_t * ctx ) {
 static inline void
 during_frag( fd_dedup_ctx_t * ctx,
              ulong            in_idx,
-             ulong            seq,
-             ulong            sig,
+             ulong            seq FD_PARAM_UNUSED,
+             ulong            sig FD_PARAM_UNUSED,
              ulong            chunk,
-             ulong            sz ) {
-  (void)seq;
-  (void)sig;
+             ulong            sz,
+             ulong            ctl FD_PARAM_UNUSED ) {
 
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_TPU_PARSED_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));

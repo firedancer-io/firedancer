@@ -65,10 +65,10 @@ typedef struct configure_stage {
 
 extern configure_stage_t fd_cfg_stage_hugetlbfs;
 extern configure_stage_t fd_cfg_stage_sysctl;
+extern configure_stage_t fd_cfg_stage_hyperthreads;
 extern configure_stage_t fd_cfg_stage_ethtool_channels;
 extern configure_stage_t fd_cfg_stage_ethtool_gro;
 extern configure_stage_t fd_cfg_stage_ethtool_loopback;
-extern configure_stage_t fd_cfg_stage_workspace;
 
 extern configure_stage_t * STAGES[];
 
@@ -112,5 +112,10 @@ check_file( const char * path,
             uint         uid,
             uint         gid,
             uint         mode );
+
+int
+configure_stage( configure_stage_t * stage,
+                 configure_cmd_t     command,
+                 config_t * const    config );
 
 #endif /* HEADER_fd_src_app_fdctl_configure_configure_h */

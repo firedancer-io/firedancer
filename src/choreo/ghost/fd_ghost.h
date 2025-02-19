@@ -301,7 +301,7 @@ fd_ghost_gca( fd_ghost_t const * ghost, ulong slot1, ulong slot2 );
    otherwise.  Also returns 0 if either `ancestor` or `slot` are not in
    ghost. */
 
-FD_FN_PURE int
+int
 fd_ghost_is_ancestor( fd_ghost_t const * ghost, ulong ancestor, ulong slot );
 
 /* Operations */
@@ -372,7 +372,7 @@ fd_ghost_publish( fd_ghost_t * ghost, ulong slot );
    node is >= the sum of weights of its direct children.  Returns 0 if
    verify succeeds, -1 otherwise. */
 
-FD_FN_PURE int
+int
 fd_ghost_verify( fd_ghost_t const * ghost );
 
 /* fd_ghost_print pretty-prints a formatted ghost tree.  Printing begins

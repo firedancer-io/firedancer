@@ -7,12 +7,12 @@ struct fd_solcap_writer {
   uchar dummy;
 };
 
-ulong
+FD_FN_CONST ulong
 fd_solcap_writer_align( void ) {
   return alignof(fd_solcap_writer_t);
 }
 
-ulong
+FD_FN_CONST ulong
 fd_solcap_writer_footprint( void ) {
   return sizeof(fd_solcap_writer_t);
 }

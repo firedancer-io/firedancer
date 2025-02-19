@@ -740,7 +740,7 @@ interp_exec:
 
   FD_VM_INTERP_BRANCH_BEGIN(0x85depr) { /* FD_SBPF_OP_CALL_IMM */
 
-    fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( syscalls, imm, NULL );
+    fd_sbpf_syscalls_t const * syscall = imm!=fd_sbpf_syscalls_key_null() ? fd_sbpf_syscalls_query_const( syscalls, imm, NULL ) : NULL;
     if( FD_UNLIKELY( !syscall ) ) { /* Optimize for the syscall case */
 
       /* Note we do the stack push before updating the pc(*). This implies

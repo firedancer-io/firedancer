@@ -20,8 +20,8 @@ FD_PROTOTYPES_BEGIN
    fd_ulong_clear_lsb  ( x, n       ) returns x with bits [0,n) cleared.  U.B. if n is not in [0,64].
    fd_ulong_set_lsb    ( x, n       ) returns x with bits [0,n) set. U.B. if n is not in [0,64].
    fd_ulong_flip_lsb   ( x, n       ) returns x with bits [0,n) flipped. U.B. if n is not in [0,64].
-   fd_ulong_extract_lsb( x, n       ) returns bits [0,n) of x.  U.B. if b is not in [0,64).
-   fd_ulong_insert_lsb ( x, n, y    ) returns x with bits [0,n) set to y.  U.B. if b is not in [0,64) and/or y is not in [0,2^n).
+   fd_ulong_extract_lsb( x, n       ) returns bits [0,n) of x.  U.B. if n is not in [0,64].
+   fd_ulong_insert_lsb ( x, n, y    ) returns x with bits [0,n) set to y.  U.B. if n is not in [0,64] and/or y is not in [0,2^n).
 
    fd_ulong_mask       ( l, h       ) returns the ulong bits [l,h] set and all other bits 0.  U.B. if not 0<=l<=h<64.
    fd_ulong_clear      ( x, l, h    ) returns x with bits [l,h] cleared.  U.B. if not 0<=l<=h<64.
@@ -31,6 +31,7 @@ FD_PROTOTYPES_BEGIN
    fd_ulong_insert     ( x, l, h, y ) returns x with bits [l,h] set to y.
                                       U.B. if not 0<=l<=h<64 and/or y is not in in [0,2^(h-l+1)).
 
+   fd_ulong_lsb        ( x          ) returns 2^i where i is the index of x's least significant set bit (x = 0 returns 0)
    fd_ulong_pop_lsb    ( x          ) returns x with the least significant set bit cleared (0 returns 0).
 
    FIXME: CONSIDER HAVING (A,X) INSTEAD OF (X,A)?
@@ -190,6 +191,7 @@ FD_FN_CONST static inline T    fd_##T##_set         ( T x, int l, int h ) { retu
 FD_FN_CONST static inline T    fd_##T##_flip        ( T x, int l, int h ) { return (T)(x ^  fd_##T##_mask(l,h));                 } \
 FD_FN_CONST static inline T    fd_##T##_extract     ( T x, int l, int h ) { return (T)( (x>>l) & fd_##T##_mask_lsb(h-l+1) );     } \
 FD_FN_CONST static inline T    fd_##T##_insert      ( T x, int l, int h, T y ) { return (T)(fd_##T##_clear(x,l,h) | (y<<l));     } \
+FD_FN_CONST static inline T    fd_##T##_lsb         ( T x               ) { return (T)(x ^ (x & (x-(T)1)));                      } \
 FD_FN_CONST static inline T    fd_##T##_pop_lsb     ( T x               ) { return (T)(x & (x-(T)1));                            } \
 FD_FN_CONST static inline int  fd_##T##_is_aligned  ( T x, T a          ) { a--; return !(x & a);                                } \
 FD_FN_CONST static inline T    fd_##T##_alignment   ( T x, T a          ) { a--; return (T)( x    &  a);                         } \
@@ -1013,4 +1015,3 @@ fd_ulong_svw_dec_tail( uchar const * b,
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_util_bits_fd_bits_h */
-

@@ -71,7 +71,7 @@ configure_cmd_perm( args_t *         args,
   }
 }
 
-static int
+int
 configure_stage( configure_stage_t * stage,
                  configure_cmd_t     command,
                  config_t * const    config ) {

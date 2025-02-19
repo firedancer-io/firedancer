@@ -16,7 +16,8 @@ during_frag( void * _ctx   FD_PARAM_UNUSED,
              ulong  seq    FD_PARAM_UNUSED,
              ulong  sig    FD_PARAM_UNUSED,
              ulong  chunk,
-             ulong  sz ) {
+             ulong  sz,
+             ulong  ctl    FD_PARAM_UNUSED ) {
   fd_quic_ctx_t * ctx = &fd_quic_trace_ctx;
   fd_memcpy( ctx->buffer, fd_chunk_to_laddr_const( fd_quic_trace_log_base, chunk ), sz );
 }
