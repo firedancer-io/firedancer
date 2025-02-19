@@ -1,0 +1,15 @@
+name: cpusonline
+description: 'Switch all CPUs to online'
+inputs: {}
+outputs: {}
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -x
+        for cpu in /sys/devices/system/cpu/cpu[0-9]*; do
+          if [ "$(cat "$cpu/online")" -eq 0 ]; then
+            echo 1 | sudo tee "$cpu/online" > /dev/null
+          fi
+        done
