@@ -92,45 +92,65 @@ fd_topo_cpus_online( ulong cpu_idx ) {
   return (int)read_uint_file( path, "error reading cpu online status" );
 }
 
+#define SMT_STATE_FORCE_OFF     (0)
+#define SMT_STATE_OFF           (1)
+#define SMT_STATE_ON            (2)
+#define SMT_STATE_NOT_SUPPORTED (3)
+
+static int
+fd_topo_smt_state( void ) {
+  char path[ PATH_MAX ];
+  fd_cstr_printf_check( path, sizeof( path ), NULL, "/sys/devices/system/cpu/smt/control" );
+
+  int fd = open( path, O_RDONLY );
+  if( FD_UNLIKELY( -1==fd ) ) FD_LOG_ERR(( "open( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+
+  char line[ 64UL ];
+  long bytes_read = read( fd, line, sizeof( line ) );
+  if( FD_UNLIKELY( -1==bytes_read ) ) FD_LOG_ERR(( "read( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+  else if ( FD_UNLIKELY( (ulong)bytes_read>=sizeof( line ) ) ) FD_LOG_ERR(( "read( \"%s\" ) failed: buffer too small", path ));
+
+  if( FD_UNLIKELY( close( fd ) ) ) FD_LOG_ERR(( "close( \"%s\" ) failed (%i-%s)", path, errno, fd_io_strerror( errno ) ));
+
+  line[ bytes_read ] = '\0';
+  if( FD_UNLIKELY( !strncmp( line, "forceoff", 8 ) ) ) return SMT_STATE_FORCE_OFF;
+  else if( FD_UNLIKELY( !strncmp( line, "off", 3 ) ) ) return SMT_STATE_OFF;
+  else if( FD_UNLIKELY( !strncmp( line, "on", 2 ) ) ) return SMT_STATE_ON;
+  else if( FD_UNLIKELY( !strncmp( line, "notsupported", 2 ) ) )  return SMT_STATE_NOT_SUPPORTED;
+  else FD_LOG_ERR(( "unexpected smt state `%s`", line ));
+}
+
 void
 fd_topo_cpus_init( fd_topo_cpus_t * cpus ) {
   cpus->numa_node_cnt = fd_numa_node_cnt();
   cpus->cpu_cnt = fd_topo_cpu_cnt();
+
+  int hyperthreaded = 0;
+  int smt_state = fd_topo_smt_state();
+  if( FD_UNLIKELY( smt_state==SMT_STATE_FORCE_OFF || smt_state==SMT_STATE_OFF ) ) {
+    /* Top half of the CPUs should be off */
+    cpus->cpu_cnt /= 2;
+  } else if( FD_UNLIKELY( smt_state==SMT_STATE_ON ) ) {
+    hyperthreaded = 1;
+  }
 
   for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
     cpus->cpu[ i ].idx = i;
     cpus->cpu[ i ].online = fd_topo_cpus_online( i );
     cpus->cpu[ i ].numa_node = fd_numa_node_idx( i );
     cpus->cpu[ i ].sibling = ULONG_MAX;
-  }
 
-  ulong hyperthread_expect_gap = ULONG_MAX;
-  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
-    ulong sibling = ULONG_MAX;
-    if( FD_LIKELY( cpus->cpu[ i ].online ) ) sibling = fd_topob_sibling_idx( i );
-    if( FD_UNLIKELY( sibling!=ULONG_MAX && cpus->cpu[ i ].sibling!=ULONG_MAX ) ) {
-      if( FD_UNLIKELY( cpus->cpu[ i ].sibling!=sibling ) ) FD_LOG_ERR(( "cpu%lu has multiple siblings", i ));
-      continue;
-    }
-
-    if( FD_UNLIKELY( sibling!=ULONG_MAX ) ) {
-      if( FD_UNLIKELY( hyperthread_expect_gap==ULONG_MAX ) ) {
-        FD_TEST( i<sibling );
-        hyperthread_expect_gap = sibling-i;
-      } else {
-        if( FD_UNLIKELY( sibling-i!=hyperthread_expect_gap ) ) FD_LOG_ERR(( "unexpected hyperthread gap: %lu", sibling-i ));
-      }
-
-      cpus->cpu[ i ].sibling = sibling;
-      cpus->cpu[ sibling ].sibling = i;
+    if( FD_UNLIKELY( hyperthreaded ) ) {
+      if( FD_LIKELY( i<cpus->cpu_cnt/2UL ) ) cpus->cpu[ i ].sibling = i+cpus->cpu_cnt/2UL;
+      else                                   cpus->cpu[ i ].sibling = i-cpus->cpu_cnt/2UL;
     }
   }
 
-  if( FD_UNLIKELY( hyperthread_expect_gap!=ULONG_MAX ) ) {
-    for( ulong i=0UL; i<cpus->cpu_cnt/2UL; i++ ) {
-      if( FD_UNLIKELY( cpus->cpu[ i ].sibling==ULONG_MAX ) ) {
-        cpus->cpu[ i ].sibling = i+hyperthread_expect_gap;
-        cpus->cpu[ i+hyperthread_expect_gap ].sibling = i;
+  if( FD_UNLIKELY( hyperthreaded ) ) {
+    for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+      if( FD_LIKELY( cpus->cpu[ i ].online && cpus->cpu[ cpus->cpu[ i ].sibling ].online ) ) {
+        ulong sibling = fd_topob_sibling_idx( i );
+        if( FD_UNLIKELY( cpus->cpu[ i ].sibling!=sibling ) ) FD_LOG_ERR(( "cpu%lu has unexpected sibling %lu (expected %lu)", i, sibling, cpus->cpu[ i ].sibling ));
       }
     }
   }
