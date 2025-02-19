@@ -287,6 +287,7 @@ fdctl_pod_to_cfg( config_t * config,
 
   CFG_POP      ( cstr,   tiles.net.interface                              );
   CFG_POP      ( cstr,   tiles.net.xdp_mode                               );
+  CFG_POP      ( bool,   tiles.net.xdp_force_zero_copy                    );
   CFG_POP      ( uint,   tiles.net.xdp_rx_queue_size                      );
   CFG_POP      ( uint,   tiles.net.xdp_tx_queue_size                      );
   CFG_POP      ( uint,   tiles.net.flush_timeout_micros                   );

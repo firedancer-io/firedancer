@@ -997,7 +997,7 @@ privileged_init( fd_topo_t *      topo,
   fd_xsk_params_t params0 = {
     .if_idx      = if_idx,
     .if_queue_id = (uint)tile->kind_id,
-    .bind_flags  = tile->net.zero_copy ? XDP_ZEROCOPY : XDP_COPY,
+    .bind_flags  = tile->net.zero_copy ? XDP_ZEROCOPY : 0,
 
     .fr_depth  = tile->net.xdp_rx_queue_size,
     .rx_depth  = tile->net.xdp_rx_queue_size,
