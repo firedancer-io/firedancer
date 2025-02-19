@@ -106,7 +106,9 @@ FD_FN_PURE static inline ulong
 loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   /* Reserve total size of files for compression buffers */
   return fd_spad_footprint( dist_file_sz() ) +
+#   if FD_HAS_ZSTD
     fd_ulong_align_up( ZSTD_estimateCCtxSize( DIST_COMPRESSION_LEVEL ), FD_WKSP_ALIGN_DEFAULT ) +
+#   endif
     256UL * (1UL<<20UL); /* 256MiB of heap space for the cJSON allocator */
 }
 
