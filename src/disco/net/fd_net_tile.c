@@ -909,7 +909,7 @@ net_xsk_bootstrap( fd_net_ctx_t * ctx,
   fd_xsk_t * xsk = &ctx->xsk[ xsk_idx ];
 
   ulong const frame_sz  = FD_NET_MTU;
-  ulong const fr_depth  = ctx->xsk[ xsk_idx ].ring_fr.depth;
+  ulong const fr_depth  = ctx->xsk[ xsk_idx ].ring_fr.depth/2UL;
 
   fd_xdp_ring_t * fill      = &xsk->ring_fr;
   uint            fill_prod = fill->cached_prod;
@@ -999,7 +999,7 @@ privileged_init( fd_topo_t *      topo,
     .if_queue_id = (uint)tile->kind_id,
     .bind_flags  = tile->net.zero_copy ? XDP_ZEROCOPY : XDP_COPY,
 
-    .fr_depth  = tile->net.xdp_rx_queue_size,
+    .fr_depth  = tile->net.xdp_rx_queue_size*2,
     .rx_depth  = tile->net.xdp_rx_queue_size,
     .cr_depth  = tile->net.xdp_tx_queue_size,
     .tx_depth  = tile->net.xdp_tx_queue_size,
