@@ -48,12 +48,12 @@ fd_acc_mgr_cache_key( fd_pubkey_t const * pubkey ) {
   memcpy( id.uc, pubkey, sizeof(fd_pubkey_t) );
   memset( id.uc + sizeof(fd_pubkey_t), 0, sizeof(fd_funkier_rec_key_t) - sizeof(fd_pubkey_t) );
 
-  id.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_ELF_CACHE;
+  id.c[ FD_FUNKIER_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_ELF_CACHE;
 
   return id;
 }
 
-/* Similar to the below function, but gets the executable program content for the v4 loader. 
+/* Similar to the below function, but gets the executable program content for the v4 loader.
    Unlike the v3 loader, the programdata is stored in a single program account. The program must
    NOT be retracted to be added to the cache. */
 static int
@@ -195,10 +195,10 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
-    int funk_err = FD_FUNK_SUCCESS;
+    int funk_err = FD_FUNKIER_SUCCESS;
     fd_funkier_rec_t const * existing_rec = fd_funkier_rec_query_global( funk, funk_txn, &id, NULL );
     fd_funkier_rec_t *       rec          = fd_funkier_rec_write_prepare( funk, funk_txn, &id, fd_sbpf_validated_program_footprint( &elf_info ), 1, existing_rec, &funk_err );
-    if( rec == NULL || funk_err != FD_FUNK_SUCCESS ) {
+    if( rec == NULL || funk_err != FD_FUNKIER_SUCCESS ) {
       return -1;
     }
 
@@ -351,7 +351,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_
       /* Make a list of rec ptrs to process */
       ulong rec_cnt = 0UL;
       for( ; NULL != rec; rec = fd_funkier_txn_next_rec( funk, rec ) ) {
-        if( rec->flags & FD_FUNK_REC_FLAG_ERASE ) continue;
+        if( rec->flags & FD_FUNKIER_REC_FLAG_ERASE ) continue;
         recs[ rec_cnt ] = rec;
 
         if( rec_cnt==65536UL ) {
@@ -361,7 +361,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_
         rec_cnt++;
       }
 
-      fd_tpool_exec_all_block( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_bpf_scan_task, 
+      fd_tpool_exec_all_block( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_bpf_scan_task,
                                recs, slot_ctx, is_bpf_program, 1, 0, rec_cnt );
 
       for( ulong i = 0; i<rec_cnt; i++ ) {
@@ -379,7 +379,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_
     } FD_SPAD_FRAME_END;
   }
 
-  if( fd_funkier_txn_publish_into_parent( funk, cache_txn, 1 ) != FD_FUNK_SUCCESS ) {
+  if( fd_funkier_txn_publish_into_parent( funk, cache_txn, 1 ) != FD_FUNKIER_SUCCESS ) {
     FD_LOG_ERR(( "fd_funkier_txn_publish_into_parent() failed" ));
     return -1;
   }
@@ -415,7 +415,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
   for (fd_funkier_rec_t const *rec = fd_funkier_txn_first_rec( funk, funk_txn );
        NULL != rec;
        rec = fd_funkier_txn_next_rec( funk, rec )) {
-    if( !fd_funkier_key_is_acc( rec->pair.key ) || ( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) {
+    if( !fd_funkier_key_is_acc( rec->pair.key ) || ( rec->flags & FD_FUNKIER_REC_FLAG_ERASE ) ) {
       continue;
     }
 
@@ -433,7 +433,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
 
   FD_LOG_DEBUG(( "loaded program cache: %lu", cnt));
 
-  if( fd_funkier_txn_publish_into_parent( funk, cache_txn, 1 ) != FD_FUNK_SUCCESS ) {
+  if( fd_funkier_txn_publish_into_parent( funk, cache_txn, 1 ) != FD_FUNKIER_SUCCESS ) {
     FD_LOG_ERR(( "fd_funkier_txn_publish_into_parent() failed" ));
     return -1;
   }
@@ -476,7 +476,7 @@ fd_bpf_load_cache_entry( fd_exec_slot_ctx_t const *     slot_ctx,
 
   fd_funkier_rec_t const * rec = fd_funkier_rec_query_global(funk, funk_txn, &id, NULL);
 
-  if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) ) {
+  if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNKIER_REC_FLAG_ERASE ) ) ) {
     return -1;
   }
 

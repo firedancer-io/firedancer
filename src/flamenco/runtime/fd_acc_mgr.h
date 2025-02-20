@@ -96,7 +96,7 @@ FD_FN_PURE static inline fd_funkier_rec_key_t
 fd_acc_funk_key( fd_pubkey_t const * pubkey ) {
   fd_funkier_rec_key_t key = {0};
   fd_memcpy( key.c, pubkey, sizeof(fd_pubkey_t) );
-  key.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_ACC;
+  key.c[ FD_FUNKIER_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_ACC;
   return key;
 }
 
@@ -105,7 +105,7 @@ fd_acc_funk_key( fd_pubkey_t const * pubkey ) {
 
 FD_FN_PURE static inline int
 fd_funkier_key_is_acc( fd_funkier_rec_key_t const * id ) {
-  return id->c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] == FD_FUNK_KEY_TYPE_ACC;
+  return id->c[ FD_FUNKIER_REC_KEY_FOOTPRINT - 1 ] == FD_FUNK_KEY_TYPE_ACC;
 }
 
 /* fd_funkier_key_to_acc reinterprets a funk rec key as an account address.

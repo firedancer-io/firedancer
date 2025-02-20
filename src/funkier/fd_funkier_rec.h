@@ -104,6 +104,8 @@ FD_STATIC_ASSERT( sizeof(fd_funkier_rec_t) == 4U*32U, record size is wrong );
 #define MAP_MEMOIZE           1
 #define MAP_IMPL_STYLE        1
 #include "../util/tmpl/fd_map_para.c"
+#undef  MAP_MEMOIZE
+#undef  MAP_HASH
 
 typedef fd_funkier_rec_map_query_t fd_funkier_rec_query_t;
 

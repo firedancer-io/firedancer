@@ -728,9 +728,7 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   fd_runtime_update_leaders( args->slot_ctx, args->slot_ctx->slot_bank.slot, args->runtime_spad );
   fd_calculate_epoch_accounts_hash_values( args->slot_ctx );
 
-  fd_funkier_start_write( funk );
   fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( args->slot_ctx, args->slot_ctx->funk_txn, args->tpool, args->runtime_spad );
-  fd_funkier_end_write( funk );
 
   /* First, load in the sysvars into the sysvar cache. This is required to
       make the StakeHistory sysvar available to the rewards calculation. */
@@ -909,7 +907,7 @@ init_funk( fd_ledger_args_t * args ) {
   if( args->restore_funk ) {
     funk = fd_funkier_recover_checkpoint( args->funk_file, 1, args->restore_funk, &args->funk_close_args );
   } else  {
-    funk = fd_funkier_open_file( args->funk_file, 1, args->hashseed, args->txns_max, args->index_max, args->funk_page_cnt*(1UL<<30), FD_FUNK_OVERWRITE, &args->funk_close_args );
+    funk = fd_funkier_open_file( args->funk_file, 1, args->hashseed, args->txns_max, args->index_max, args->funk_page_cnt*(1UL<<30), FD_FUNKIER_OVERWRITE, &args->funk_close_args );
   }
   args->funk = funk;
   args->funk_wksp = fd_funkier_wksp( funk );
@@ -1188,12 +1186,14 @@ ingest( fd_ledger_args_t * args ) {
     }
   }
 
+#ifdef FD_FUNKIER_HANDHOLDING
   if( args->verify_funk ) {
     FD_LOG_NOTICE(( "verifying funky" ));
     if( fd_funkier_verify( funk ) ) {
       FD_LOG_ERR(( "verification failed" ));
     }
   }
+#endif
 
   checkpt( args );
 
