@@ -31,14 +31,16 @@ fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx ) {
   ulong sz = sizeof(uint) + fd_epoch_bank_size(epoch_bank);
   fd_funkier_rec_key_t id = fd_runtime_epoch_bank_key();
   int opt_err = 0;
-  fd_funkier_rec_t *rec = fd_funkier_rec_write_prepare(slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, &id, sz, 1, NULL, &opt_err);
+  fd_funkier_rec_prepare_t prepare[1];
+  fd_funkier_t * funk = slot_ctx->acc_mgr->funk;
+  fd_funkier_rec_t *rec = fd_funkier_rec_prepare(funk, slot_ctx->funk_txn, &id, prepare, &opt_err);
   if (NULL == rec)
   {
     FD_LOG_WARNING(("fd_runtime_save_banks failed: %s", fd_funkier_strerror(opt_err)));
     return opt_err;
   }
 
-  uchar *buf = fd_funkier_val(rec, fd_funkier_wksp(slot_ctx->acc_mgr->funk));
+  uchar *buf = fd_funkier_val_truncate(rec, sz, fd_funkier_alloc( funk, fd_funkier_wksp(funk) ), fd_funkier_wksp(funk), NULL);
   *(uint*)buf = FD_RUNTIME_ENC_BINCODE;
   fd_bincode_encode_ctx_t ctx = {
       .data = buf + sizeof(uint),
@@ -48,9 +50,12 @@ fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx ) {
   if (FD_UNLIKELY(fd_epoch_bank_encode(epoch_bank, &ctx) != FD_BINCODE_SUCCESS))
   {
     FD_LOG_WARNING(("fd_runtime_save_banks: fd_firedancer_banks_encode failed"));
+    fd_funkier_rec_cancel( prepare );
     return -1;
   }
   FD_TEST(ctx.data == ctx.dataend);
+
+  fd_funkier_rec_publish( prepare );
 
   FD_LOG_DEBUG(( "epoch frozen, slot=%lu bank_hash=%s poh_hash=%s", slot_ctx->slot_bank.slot, FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.banks_hash.hash ), FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.poh.hash ) ));
 
@@ -63,15 +68,17 @@ fd_runtime_save_epoch_bank_archival( fd_exec_slot_ctx_t * slot_ctx ) {
   ulong sz = sizeof(uint) + fd_epoch_bank_size(epoch_bank)*2; /* Conservatively estimate double the bincode size */
   fd_funkier_rec_key_t id = fd_runtime_epoch_bank_key();
   int opt_err = 0;
-  fd_funkier_rec_t *rec = fd_funkier_rec_write_prepare(slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, &id, sz, 1, NULL, &opt_err);
+  fd_funkier_rec_prepare_t prepare[1];
+  fd_funkier_t * funk = slot_ctx->acc_mgr->funk;
+  fd_funkier_rec_t *rec = fd_funkier_rec_prepare(funk, slot_ctx->funk_txn, &id, prepare, &opt_err);
   if (NULL == rec)
   {
     FD_LOG_WARNING(("fd_runtime_save_banks failed: %s", fd_funkier_strerror(opt_err)));
     return opt_err;
   }
 
-  uchar *buf = fd_funkier_val(rec, fd_funkier_wksp(slot_ctx->acc_mgr->funk));
-  *(uint*)buf = FD_RUNTIME_ENC_ARCHIVE;
+  uchar *buf = fd_funkier_val_truncate(rec, sz, fd_funkier_alloc( funk, fd_funkier_wksp(funk) ), fd_funkier_wksp(funk), NULL);
+  *(uint*)buf = FD_RUNTIME_ENC_BINCODE;
   fd_bincode_encode_ctx_t ctx = {
       .data = buf + sizeof(uint),
       .dataend = buf + sz,
@@ -80,10 +87,13 @@ fd_runtime_save_epoch_bank_archival( fd_exec_slot_ctx_t * slot_ctx ) {
   if (FD_UNLIKELY(fd_epoch_bank_encode_archival(epoch_bank, &ctx) != FD_BINCODE_SUCCESS))
   {
     FD_LOG_WARNING(("fd_runtime_save_banks: fd_firedancer_banks_encode failed"));
+    fd_funkier_rec_cancel( prepare );
     return -1;
   }
 
   rec->val_sz = (uint)((uchar *)ctx.data - buf); /* Fix the final size */
+
+  fd_funkier_rec_publish( prepare );
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
