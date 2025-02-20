@@ -146,9 +146,23 @@ fetch () {
 }
 
 check_fedora_pkgs () {
-  local REQUIRED_RPMS=( perl autoconf gettext-devel automake flex bison cmake clang gmp-devel protobuf-compiler llvm-toolset lcov systemd-devel pkgconf patch )
+  local REQUIRED_RPMS=(
+    curl               # download rustup
+    diffutils          # build system
+    make               # build system
+    pkgconf            # build system
+    patch              # build system
+    gcc                # compiler
+    gcc-c++            # compiler
+
+    cmake              # Agave (RocksDB)
+    clang-devel        # Agave (bindgen)
+    systemd-devel      # Agave
+    perl               # Agave (OpenSSL)
+    protobuf-compiler  # Agave, solfuzz
+  )
   if [[ $DEVMODE == 1 ]]; then
-    REQUIRED_RPMS+=( lua5.1 lua5.1-bitop )
+    REQUIRED_RPMS+=( autoconf automake bison cmake clang flex gettext-devel gmp-devel llvm-toolset lcov lua5.1 lua5.1-bitop )
   fi
 
   echo "[~] Checking for required RPM packages"
@@ -173,9 +187,19 @@ check_fedora_pkgs () {
 }
 
 check_debian_pkgs () {
-  local REQUIRED_DEBS=( perl autoconf gettext automake autopoint flex bison build-essential gcc-multilib protobuf-compiler llvm lcov libgmp-dev libudev-dev cmake libclang-dev pkgconf )
+  local REQUIRED_DEBS=(
+    curl               # download rustup
+    diffutils          # build system
+    build-essential    # C/C++ compiler
+    pkgconf            # build system
+
+    cmake              # Agave (protobuf-src)
+    libclang-dev       # Agave (bindgen)
+    libudev-dev        # Agave
+    protobuf-compiler  # Agave
+  )
   if [[ $DEVMODE == 1 ]]; then
-    REQUIRED_DEBS+=( lua5.1 lua5.1-bitop )
+    REQUIRED_DEBS+=( autoconf automake autopoint bison flex gcc-multilib gettext llvm lcov libgmp-dev lua5.1 lua5.1-bitop perl )
   fi
 
   echo "[~] Checking for required DEB packages"
@@ -200,7 +224,16 @@ check_debian_pkgs () {
 }
 
 check_alpine_pkgs () {
-  local REQUIRED_APKS=( perl autoconf gettext automake flex bison build-base linux-headers protobuf-dev patch libucontext-dev )
+  local REQUIRED_APKS=(
+    build-base       # C/C++ compiler
+    curl             # download rustup
+    linux-headers    # base dependency
+    libucontext-dev  # base dependency
+    patch            # build system
+  )
+  if [[ $DEVMODE == 1 ]]; then
+    REQUIRED_APKS+=( autoconf automake bison flex gettext perl protobuf-dev )
+  fi
 
   echo "[~] Checking for required APK packages"
 
@@ -536,10 +569,10 @@ install () {
   fi
   ( install_zstd      )
   ( install_lz4       )
-  ( install_secp256k1 )
   ( install_s2n       )
   #( install_openssl   )
   if [[ $DEVMODE == 1 ]]; then
+    ( install_secp256k1 )
     ( install_snappy    )
     ( install_rocksdb   )
   fi
