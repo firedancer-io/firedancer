@@ -96,7 +96,7 @@ before_frag( fd_bank_ctx_t * ctx,
 }
 
 extern void * fd_ext_bank_pre_balance_info( void const * bank, void * txns, ulong txn_cnt );
-extern int    fd_ext_bank_execute_and_commit_bundle( void const * bank, void * txns, ulong txn_cnt, uint * actual_execution_cus, uint * actual_acct_data_cus );
+extern int    fd_ext_bank_execute_and_commit_bundle( void const * bank, void * txns, ulong txn_cnt, int * out_transaction_err, uint * actual_execution_cus, uint * actual_acct_data_cus );
 extern void * fd_ext_bank_load_and_execute_txns( void const * bank, void * txns, ulong txn_cnt, int * out_processing_results, int * out_transaction_err, uint * out_consumed_exec_cus, uint * out_consumed_acct_data_cus );
 extern void   fd_ext_bank_commit_txns( void const * bank, void const * txns, ulong txn_cnt , void * load_and_execute_output, void * pre_balance_info );
 extern void   fd_ext_bank_release_thunks( void * load_and_execute_output );
@@ -356,12 +356,14 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     sidecar_footprint_bytes += FD_BANK_ABI_TXN_FOOTPRINT_SIDECAR( txn1->acct_addr_cnt, txn1->addr_table_adtl_cnt, txn1->instr_cnt, txn1->addr_table_lookup_cnt );
   }
 
+  int  transaction_err     [ MAX_TXN_PER_MICROBLOCK ];
+  for( ulong i=0UL; i<txn_cnt; i++ ) transaction_err[ i ] = FD_METRICS_ENUM_TRANSACTION_ERROR_V_BUNDLE_PEER_IDX;
+
   uint actual_execution_cus[ MAX_TXN_PER_MICROBLOCK ] = { 0U };
   uint actual_acct_data_cus[ MAX_TXN_PER_MICROBLOCK ] = { 0U };
   uint consumed_cus        [ MAX_TXN_PER_MICROBLOCK ] = { 0U };
   if( FD_LIKELY( execution_success ) ) {
-    /* TODO: Plumb through errors. */
-    execution_success = fd_ext_bank_execute_and_commit_bundle( ctx->_bank, ctx->txn_abi_mem, txn_cnt, actual_execution_cus, actual_acct_data_cus );
+    execution_success = fd_ext_bank_execute_and_commit_bundle( ctx->_bank, ctx->txn_abi_mem, txn_cnt, transaction_err, actual_execution_cus, actual_acct_data_cus );
   }
 
   if( FD_LIKELY( execution_success ) ) {
@@ -369,6 +371,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     ctx->metrics.transaction_result[ FD_METRICS_ENUM_TRANSACTION_ERROR_V_SUCCESS_IDX ] += txn_cnt;
     for( ulong i=0UL; i<txn_cnt; i++ ) {
       txns[ i ].flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+      txns[ i ].flags = (txns[ i ].flags & 0x00FFFFFFU); /* Clear error bits to indicate success */
       if( FD_UNLIKELY( fd_txn_is_simple_vote_transaction( TXN(txns + i), txns[ i ].payload ) ) ) {
           /* Although bundles dont typically contain simple votes, we want
             to charge them correctly anyways. */
@@ -391,8 +394,9 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) ) ) continue;
 
       txn->flags &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+      txn->flags = (txn->flags & 0x00FFFFFFU) | ((uint)transaction_err[ i ]<<24);
       ctx->metrics.processing_failed++;
-      ctx->metrics.transaction_result[ FD_METRICS_ENUM_TRANSACTION_ERROR_V_BUNDLE_PEER_IDX ]++;
+      ctx->metrics.transaction_result[ transaction_err[ i ] ]++;
     }
   }
 
