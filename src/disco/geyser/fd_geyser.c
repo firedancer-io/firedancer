@@ -8,7 +8,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include "fd_geyser.h"
-#include "../../funk/fd_funk_filemap.h"
+#include "../../funkier/fd_funkier_filemap.h"
 #include "../../tango/mcache/fd_mcache.h"
 #include "../../flamenco/runtime/fd_acc_mgr.h"
 #include "../../util/wksp/fd_wksp_private.h"
@@ -25,7 +25,7 @@
 #include "sham_link.h"
 
 struct fd_geyser {
-  fd_funk_t *          funk;
+  fd_funkier_t *          funk;
   fd_blockstore_t      blockstore_ljoin;
   fd_blockstore_t *    blockstore;
   int                  blockstore_fd;
@@ -68,7 +68,7 @@ fd_geyser_new( void * mem, fd_geyser_args_t * args ) {
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   FD_TEST( scratch_top <= (ulong)mem + fd_geyser_footprint() );
 
-  self->funk = fd_funk_open_file( args->funk_file, 1, 0, 0, 0, 0, FD_FUNK_READONLY, NULL );
+  self->funk = fd_funkier_open_file( args->funk_file, 1, 0, 0, 0, 0, FD_FUNK_READONLY, NULL );
   if( self->funk == NULL ) {
     FD_LOG_ERR(( "failed to join a funky" ));
   }
@@ -227,9 +227,9 @@ replay_sham_link_after_frag(fd_geyser_t * ctx, fd_replay_notif_msg_t * msg) {
         FD_SCRATCH_SCOPE_BEGIN {
           fd_pubkey_t addr;
           fd_memcpy(&addr, msg->accts.accts[i].id, 32U );
-          fd_funk_rec_key_t key = fd_acc_funk_key( &addr );
+          fd_funkier_rec_key_t key = fd_acc_funk_key( &addr );
           ulong datalen;
-          void * data = fd_funk_rec_query_xid_safe( ctx->funk, &key, &msg->accts.funk_xid, fd_scratch_virtual(), &datalen );
+          void * data = fd_funkier_rec_query_xid_safe( ctx->funk, &key, &msg->accts.funk_xid, fd_scratch_virtual(), &datalen );
           if( data ) {
             fd_account_meta_t const * meta = fd_type_pun_const( data );
             (*ctx->acct_fun)( msg->accts.funk_xid.ul[0], msg->accts.sig, &addr, meta, (uchar*)data + meta->hlen, meta->dlen, ctx->fun_arg );

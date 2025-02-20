@@ -154,7 +154,7 @@ fd_forks_prepare( fd_forks_t const *    forks,
                   fd_acc_mgr_t *        acc_mgr,
                   fd_blockstore_t *     blockstore,
                   fd_exec_epoch_ctx_t * epoch_ctx,
-                  fd_funk_t *           funk,
+                  fd_funkier_t *           funk,
                   fd_spad_t *           runtime_spad );
 
 /* fd_forks_update updates `blockstore` and `ghost` with the latest
@@ -166,7 +166,7 @@ void
 fd_forks_update( fd_forks_t *          forks,
                  fd_blockstore_t *     blockstore,
                  fd_epoch_t *          epoch,
-                 fd_funk_t *           funk,
+                 fd_funkier_t *           funk,
                  fd_ghost_t *          ghost,
                  ulong                 slot );
 

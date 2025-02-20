@@ -305,7 +305,7 @@ struct fd_accounts_hash_task_info {
   fd_exec_slot_ctx_t * slot_ctx;
   fd_pubkey_t acc_pubkey[1];
   fd_hash_t acc_hash[1];
-  fd_funk_rec_t const * rec;
+  fd_funkier_rec_t const * rec;
   uint should_erase;
   uint hash_changed;
 };
@@ -329,7 +329,7 @@ fd_account_hash_task( void *tpool,
   fd_accounts_hash_task_info_t * task_info = ((fd_accounts_hash_task_data_t *)tpool)->info + m0;
   fd_exec_slot_ctx_t * slot_ctx = task_info->slot_ctx;
   int err = 0;
-  fd_funk_txn_t const * txn_out = NULL;
+  fd_funkier_txn_t const * txn_out = NULL;
   fd_account_meta_t const * acc_meta = fd_acc_mgr_view_raw( slot_ctx->acc_mgr, slot_ctx->funk_txn, task_info->acc_pubkey, &task_info->rec, &err, &txn_out );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS || !acc_meta ) ) {
     FD_LOG_WARNING(( "failed to view account during bank hash" ));
@@ -338,10 +338,10 @@ fd_account_hash_task( void *tpool,
 
   fd_account_meta_t * acc_meta_parent = NULL;
   if( NULL != txn_out ) {
-    fd_funk_t *     funk = slot_ctx->acc_mgr->funk;
-    fd_wksp_t *     wksp = fd_funk_wksp( funk );
-    fd_funk_txn_t * txn_map  = fd_funk_txn_map( funk, wksp );
-    txn_out = fd_funk_txn_parent( (fd_funk_txn_t *) txn_out, txn_map );
+    fd_funkier_t *     funk = slot_ctx->acc_mgr->funk;
+    fd_wksp_t *     wksp = fd_funkier_wksp( funk );
+    fd_funkier_txn_t * txn_map  = fd_funkier_txn_map( funk, wksp );
+    txn_out = fd_funkier_txn_parent( (fd_funkier_txn_t *) txn_out, txn_map );
     acc_meta_parent = (fd_account_meta_t *)fd_acc_mgr_view_raw( slot_ctx->acc_mgr, txn_out, task_info->acc_pubkey, NULL, &err, NULL);
   }
 
@@ -362,7 +362,7 @@ fd_account_hash_task( void *tpool,
     }
   } else {
     uchar *             acc_data = fd_account_get_data((fd_account_meta_t *) acc_meta);
-    fd_pubkey_t const * acc_key  = fd_funk_key_to_acc( task_info->rec->pair.key );
+    fd_pubkey_t const * acc_key  = fd_funkier_key_to_acc( task_info->rec->pair.key );
     fd_lthash_value_t new_lthash_value;
     fd_lthash_zero(&new_lthash_value);
     fd_hash_account_current( task_info->acc_hash->hash, &new_lthash_value, acc_meta, acc_key->key, acc_data );
@@ -375,7 +375,7 @@ fd_account_hash_task( void *tpool,
 
   if( FD_LIKELY(task_info->hash_changed && ((NULL != acc_meta_parent) && (acc_meta_parent->info.lamports != 0) ) ) ) {
     uchar *             acc_data = fd_account_get_data(acc_meta_parent);
-    fd_pubkey_t const * acc_key  = fd_funk_key_to_acc( task_info->rec->pair.key );
+    fd_pubkey_t const * acc_key  = fd_funkier_key_to_acc( task_info->rec->pair.key );
     fd_lthash_value_t old_lthash_value;
     fd_lthash_zero(&old_lthash_value);
     fd_hash_t old_hash;
@@ -394,18 +394,18 @@ fd_collect_modified_accounts( fd_exec_slot_ctx_t *           slot_ctx,
                               fd_accounts_hash_task_data_t * task_data,
                               fd_spad_t *                    runtime_spad ) {
   fd_acc_mgr_t *  acc_mgr = slot_ctx->acc_mgr;
-  fd_funk_t *     funk    = acc_mgr->funk;
-  fd_funk_txn_t * txn     = slot_ctx->funk_txn;
+  fd_funkier_t *     funk    = acc_mgr->funk;
+  fd_funkier_txn_t * txn     = slot_ctx->funk_txn;
 
   ulong rec_cnt = 0;
-  for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, txn );
+  for( fd_funkier_rec_t const * rec = fd_funkier_txn_first_rec( funk, txn );
        NULL != rec;
-       rec = fd_funk_txn_next_rec( funk, rec ) ) {
+       rec = fd_funkier_txn_next_rec( funk, rec ) ) {
 
-    if( !fd_funk_key_is_acc( rec->pair.key  ) )
+    if( !fd_funkier_key_is_acc( rec->pair.key  ) )
       continue;
 
-    fd_pubkey_t const * pubkey  = fd_funk_key_to_acc( rec->pair.key );
+    fd_pubkey_t const * pubkey  = fd_funkier_key_to_acc( rec->pair.key );
 
     if (((pubkey->ul[0] == 0) & (pubkey->ul[1] == 0) & (pubkey->ul[2] == 0) & (pubkey->ul[3] == 0)))
       FD_LOG_WARNING(( "null pubkey (system program?) showed up as modified" ));
@@ -418,13 +418,13 @@ fd_collect_modified_accounts( fd_exec_slot_ctx_t *           slot_ctx,
   /* Iterate over accounts that have been changed in the current
      database transaction. */
   ulong task_info_idx = 0;
-  for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, txn );
+  for( fd_funkier_rec_t const * rec = fd_funkier_txn_first_rec( funk, txn );
        NULL != rec;
-       rec = fd_funk_txn_next_rec( funk, rec ) ) {
+       rec = fd_funkier_txn_next_rec( funk, rec ) ) {
 
-    fd_pubkey_t const * acc_key  = fd_funk_key_to_acc( rec->pair.key );
+    fd_pubkey_t const * acc_key  = fd_funkier_key_to_acc( rec->pair.key );
 
-    if( !fd_funk_key_is_acc( rec->pair.key  ) )
+    if( !fd_funkier_key_is_acc( rec->pair.key  ) )
       continue;
 
     fd_accounts_hash_task_info_t * task_info = &task_data->info[task_info_idx++];
@@ -446,8 +446,8 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
                            fd_tpool_t *         tpool,
                            fd_spad_t *          runtime_spad ) {
   fd_acc_mgr_t *  acc_mgr = slot_ctx->acc_mgr;
-  fd_funk_t *     funk    = acc_mgr->funk;
-  fd_funk_txn_t * txn     = slot_ctx->funk_txn;
+  fd_funkier_t *     funk    = acc_mgr->funk;
+  fd_funkier_txn_t * txn     = slot_ctx->funk_txn;
 
   /* Collect list of changed accounts to be added to bank hash */
   fd_accounts_hash_task_data_t task_data;
@@ -486,7 +486,7 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
     FD_BORROWED_ACCOUNT_DECL(acc_rec);
     acc_rec->const_rec = task_info->rec;
 
-    fd_pubkey_t const * acc_key = fd_funk_key_to_acc( task_info->rec->pair.key );
+    fd_pubkey_t const * acc_key = fd_funkier_key_to_acc( task_info->rec->pair.key );
     int err = fd_acc_mgr_modify( acc_mgr, txn, acc_key, 0, 0UL, acc_rec);
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_ERR(( "failed to modify account during bank hash" ));
@@ -564,7 +564,7 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
     }
 
     /* All removed recs should be stored with the slot from the funk txn. */
-    fd_funk_rec_remove( funk, fd_funk_rec_modify(funk, task_info->rec), task_info->rec->pair.xid->ul[0] );
+    fd_funkier_rec_remove( funk, fd_funkier_rec_modify(funk, task_info->rec), task_info->rec->pair.xid->ul[0] );
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
@@ -576,7 +576,7 @@ fd_print_account_hashes( fd_exec_slot_ctx_t * slot_ctx,
                          fd_spad_t *          runtime_spad ) {
 
   // fd_acc_mgr_t *  acc_mgr = slot_ctx->acc_mgr;
-  // fd_funk_txn_t * txn     = slot_ctx->funk_txn;
+  // fd_funkier_txn_t * txn     = slot_ctx->funk_txn;
 
   /* Collect list of changed accounts to be added to bank hash */
   fd_accounts_hash_task_data_t task_data;
@@ -726,21 +726,21 @@ fd_hash_account_current( uchar                     hash[ static 32 ],
 }
 
 struct accounts_hash {
-  fd_funk_rec_t * key;
+  fd_funkier_rec_t * key;
   ulong  hash;
 };
 typedef struct accounts_hash accounts_hash_t;
 
 #define MAP_NAME accounts_hash
-#define MAP_KEY_T fd_funk_rec_t *
+#define MAP_KEY_T fd_funkier_rec_t *
 #define MAP_HASH_T ulong
-#define MAP_KEY_EQUAL(k0,k1) ((NULL != k0) && (NULL != k1) && fd_funk_rec_key_eq( k0->pair.key, k1->pair.key ))
-#define MAP_KEY_HASH(p) fd_funk_rec_key_hash( p->pair.key, 2887034UL )
+#define MAP_KEY_EQUAL(k0,k1) ((NULL != k0) && (NULL != k1) && fd_funkier_rec_key_eq( k0->pair.key, k1->pair.key ))
+#define MAP_KEY_HASH(p) fd_funkier_rec_key_hash( p->pair.key, 2887034UL )
 #define MAP_KEY_EQUAL_IS_SLOW 1
 #define MAP_KEY_NULL 0UL
 #define MAP_KEY_INVAL(k) (NULL == k)
 
-// #define MAP_KEY_COPY(kd,ks)   fd_funk_xid_key_pair_copy((kd),(ks))
+// #define MAP_KEY_COPY(kd,ks)   fd_funkier_xid_key_pair_copy((kd),(ks))
 
 #define MAP_T    accounts_hash_t
 #include "../../util/tmpl/fd_map_dynamic.c"
@@ -752,22 +752,22 @@ typedef struct accounts_hash accounts_hash_t;
    TODO: The common code in these functions could be factored out. */
 
 static ulong
-fd_accounts_sorted_subrange_count( fd_funk_t * funk,
+fd_accounts_sorted_subrange_count( fd_funkier_t * funk,
                                    uint        range_idx,
                                    uint        range_cnt ) {
 
-  fd_wksp_t *     wksp              = fd_funk_wksp( funk );
-  fd_funk_rec_t * rec_map           = fd_funk_rec_map( funk, wksp );
-  ulong           num_iter_accounts = fd_funk_rec_map_key_max( rec_map );
+  fd_wksp_t *     wksp              = fd_funkier_wksp( funk );
+  fd_funkier_rec_t * rec_map           = fd_funkier_rec_map( funk, wksp );
+  ulong           num_iter_accounts = fd_funkier_rec_map_key_max( rec_map );
   ulong           num_pairs         = 0UL;
   ulong           range_len         = ULONG_MAX/range_cnt;
   ulong           range_min         = range_len*range_idx;
   ulong           range_max         = (range_idx+1U<range_cnt) ? (range_min+range_len-1U) : ULONG_MAX;
 
   for( ulong i = num_iter_accounts; i; --i ) {
-    fd_funk_rec_t const * rec = rec_map + (i-1UL);
+    fd_funkier_rec_t const * rec = rec_map + (i-1UL);
     if ( (rec->map_next >> 63) ||                           /* unused map entry */
-         !fd_funk_key_is_acc( rec->pair.key ) ||            /* not a solana record */
+         !fd_funkier_key_is_acc( rec->pair.key ) ||            /* not a solana record */
          (rec->flags & FD_FUNK_REC_FLAG_ERASE) ||           /* this is a tombstone */
          (rec->pair.xid->ul[0] | rec->pair.xid->ul[1]) != 0 /* not root xid */ ) {
       continue;
@@ -778,7 +778,7 @@ fd_accounts_sorted_subrange_count( fd_funk_t * funk,
       continue;
     }
 
-    fd_account_meta_t * metadata = (fd_account_meta_t *)fd_funk_val_const( rec, wksp );
+    fd_account_meta_t * metadata = (fd_account_meta_t *)fd_funkier_val_const( rec, wksp );
     int is_empty = (metadata->info.lamports == 0);
     if( is_empty ) {
       continue;
@@ -795,7 +795,7 @@ fd_accounts_sorted_subrange_count( fd_funk_t * funk,
 }
 
 static void
-fd_accounts_sorted_subrange_gather( fd_funk_t *             funk,
+fd_accounts_sorted_subrange_gather( fd_funkier_t *             funk,
                                     uint                    range_idx,
                                     uint                    range_cnt,
                                     ulong *                 num_pairs_out,
@@ -803,9 +803,9 @@ fd_accounts_sorted_subrange_gather( fd_funk_t *             funk,
                                     ulong                   n0,
                                     fd_pubkey_hash_pair_t * pairs ) {
 
-  fd_wksp_t *     wksp              = fd_funk_wksp( funk );
-  fd_funk_rec_t * rec_map           = fd_funk_rec_map( funk, wksp );
-  ulong           num_iter_accounts = fd_funk_rec_map_key_max( rec_map );
+  fd_wksp_t *     wksp              = fd_funkier_wksp( funk );
+  fd_funkier_rec_t * rec_map           = fd_funkier_rec_map( funk, wksp );
+  ulong           num_iter_accounts = fd_funkier_rec_map_key_max( rec_map );
   ulong           num_pairs         = 0UL;
   ulong           range_len         = ULONG_MAX/range_cnt;
   ulong           range_min         = range_len*range_idx;
@@ -814,9 +814,9 @@ fd_accounts_sorted_subrange_gather( fd_funk_t *             funk,
   fd_lthash_value_t accum = {0};
 
   for( ulong i = num_iter_accounts; i; --i ) {
-    fd_funk_rec_t const * rec = rec_map + (i-1UL);
+    fd_funkier_rec_t const * rec = rec_map + (i-1UL);
     if ( (rec->map_next >> 63) ||                           /* unused map entry */
-         !fd_funk_key_is_acc( rec->pair.key ) ||            /* not a solana record */
+         !fd_funkier_key_is_acc( rec->pair.key ) ||            /* not a solana record */
          (rec->flags & FD_FUNK_REC_FLAG_ERASE) ||           /* this is a tombstone */
          (rec->pair.xid->ul[0] | rec->pair.xid->ul[1]) != 0 /* not root xid */ ) {
       continue;
@@ -826,7 +826,7 @@ fd_accounts_sorted_subrange_gather( fd_funk_t *             funk,
     if( n<range_min || n>range_max ) {
       continue;
     }
-    fd_account_meta_t * metadata = (fd_account_meta_t *)fd_funk_val_const( rec, wksp );
+    fd_account_meta_t * metadata = (fd_account_meta_t *)fd_funkier_val_const( rec, wksp );
     int is_empty = (metadata->info.lamports == 0);
     if( is_empty ) {
       continue;
@@ -865,7 +865,7 @@ fd_accounts_sorted_subrange_gather( fd_funk_t *             funk,
 }
 
 struct fd_subrange_task_info {
-  fd_funk_t *                  funk;
+  fd_funkier_t *                  funk;
   ulong                        num_lists;
   fd_pubkey_hash_pair_list_t * lists;
   fd_lthash_value_t *          lthash_values;
@@ -900,7 +900,7 @@ fd_accounts_sorted_subrange_gather_task( void *tpool,
 }
 
 int
-fd_accounts_hash( fd_funk_t *      funk,
+fd_accounts_hash( fd_funkier_t *      funk,
                   fd_slot_bank_t * slot_bank,
                   fd_tpool_t *     tpool,
                   fd_hash_t *      accounts_hash,
@@ -912,9 +912,9 @@ fd_accounts_hash( fd_funk_t *      funk,
     fd_lthash_value_t * lthash_values = fd_spad_alloc( runtime_spad, FD_LTHASH_VALUE_ALIGN, FD_LTHASH_VALUE_FOOTPRINT );
     fd_lthash_zero( &lthash_values[0] );
 
-    fd_wksp_t *             wksp              = fd_funk_wksp( funk );
-    fd_funk_rec_t *         rec_map           = fd_funk_rec_map( funk, wksp );
-    ulong                   num_iter_accounts = fd_funk_rec_map_key_max( rec_map );
+    fd_wksp_t *             wksp              = fd_funkier_wksp( funk );
+    fd_funkier_rec_t *         rec_map           = fd_funkier_rec_map( funk, wksp );
+    ulong                   num_iter_accounts = fd_funkier_rec_map_key_max( rec_map );
     fd_pubkey_hash_pair_t * pairs             = fd_spad_alloc( runtime_spad,
                                                                FD_PUBKEY_HASH_PAIR_ALIGN,
                                                                num_iter_accounts * sizeof(fd_pubkey_hash_pair_t) );
@@ -974,19 +974,19 @@ fd_accounts_hash( fd_funk_t *      funk,
 static int
 fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx,
                            fd_hash_t *          accounts_hash,
-                           fd_funk_txn_t *      child_txn,
+                           fd_funkier_txn_t *      child_txn,
                            ulong                do_hash_verify,
                            fd_spad_t *          spad ) {
   FD_LOG_NOTICE(( "accounts_hash_inc_only start for txn %p, do_hash_verify=%s", (void *)child_txn, do_hash_verify ? "true" : "false" ));
 
   FD_SPAD_FRAME_BEGIN( spad ) {
 
-  fd_funk_t *     funk    = slot_ctx->acc_mgr->funk;
-  fd_wksp_t *     wksp    = fd_funk_wksp( funk );
-  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
+  fd_funkier_t *     funk    = slot_ctx->acc_mgr->funk;
+  fd_wksp_t *     wksp    = fd_funkier_wksp( funk );
+  fd_funkier_rec_t * rec_map = fd_funkier_rec_map( funk, wksp );
 
   // How many total records are we dealing with?
-  ulong                   num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
+  ulong                   num_iter_accounts = fd_funkier_rec_map_key_cnt( rec_map );
   ulong                   num_pairs         = 0UL;
   fd_pubkey_hash_pair_t * pairs             = fd_spad_alloc( spad, FD_PUBKEY_HASH_PAIR_ALIGN, num_iter_accounts * sizeof(fd_pubkey_hash_pair_t) );
   if( FD_UNLIKELY( !pairs ) ) {
@@ -995,11 +995,11 @@ fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_blake3_t * b3 = NULL;
 
-  for (fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, child_txn ); NULL != rec; rec = fd_funk_txn_next_rec(funk, rec)) {
-    if ( !fd_funk_key_is_acc( rec->pair.key ) || ( rec->flags & FD_FUNK_REC_FLAG_ERASE ) )
+  for (fd_funkier_rec_t const *rec = fd_funkier_txn_first_rec( funk, child_txn ); NULL != rec; rec = fd_funkier_txn_next_rec(funk, rec)) {
+    if ( !fd_funkier_key_is_acc( rec->pair.key ) || ( rec->flags & FD_FUNK_REC_FLAG_ERASE ) )
       continue;
 
-    fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funk_val_const( rec, wksp );
+    fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funkier_val_const( rec, wksp );
     int is_empty = (metadata->info.lamports == 0);
 
     if (is_empty) {
@@ -1056,22 +1056,22 @@ fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx,
    Query the accounts from the root of funk. This is done as a read-only
    way to generate an accounts hash from a subset of accounts from funk. */
 static int
-fd_accounts_hash_inc_no_txn( fd_funk_t *                 funk,
+fd_accounts_hash_inc_no_txn( fd_funkier_t *                 funk,
                              fd_hash_t *                 accounts_hash,
-                             fd_funk_rec_key_t const * * pubkeys,
+                             fd_funkier_rec_key_t const * * pubkeys,
                              ulong                       pubkeys_len,
                              ulong                       do_hash_verify,
                              fd_spad_t *                 spad ) {
   FD_LOG_NOTICE(( "accounts_hash_inc_no_txn" ));
 
-  fd_wksp_t *     wksp    = fd_funk_wksp( funk );
-  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
+  fd_wksp_t *     wksp    = fd_funkier_wksp( funk );
+  fd_funkier_rec_t * rec_map = fd_funkier_rec_map( funk, wksp );
 
   /* Pre-allocate the number of pubkey pairs that we are iterating over. */
 
   FD_SPAD_FRAME_BEGIN( spad ) {
 
-  ulong                   num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
+  ulong                   num_iter_accounts = fd_funkier_rec_map_key_cnt( rec_map );
   ulong                   num_pairs         = 0UL;
   fd_pubkey_hash_pair_t * pairs             = fd_spad_alloc( spad,
                                                              FD_PUBKEY_HASH_PAIR_ALIGN,
@@ -1085,9 +1085,9 @@ fd_accounts_hash_inc_no_txn( fd_funk_t *                 funk,
 
 
   for( ulong i=0UL; i<pubkeys_len; i++ ) {
-    fd_funk_rec_t const * rec = fd_funk_rec_query( funk, NULL, pubkeys[i] );
+    fd_funkier_rec_t const * rec = fd_funkier_rec_query( funk, NULL, pubkeys[i] );
 
-    fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funk_val_const( rec, wksp );
+    fd_account_meta_t * metadata = (fd_account_meta_t *) fd_funkier_val_const( rec, wksp );
     int is_empty = (!metadata || metadata->info.lamports == 0);
 
     if( is_empty ) {
@@ -1165,7 +1165,7 @@ fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx,
 int
 fd_snapshot_inc_hash( fd_exec_slot_ctx_t * slot_ctx,
                       fd_hash_t *          accounts_hash,
-                      fd_funk_txn_t *      child_txn,
+                      fd_funkier_txn_t *      child_txn,
                       uint                 do_hash_verify,
                       fd_spad_t *          spad ) {
 
@@ -1191,7 +1191,7 @@ fd_snapshot_service_hash( fd_hash_t *       accounts_hash,
                           fd_hash_t *       snapshot_hash,
                           fd_slot_bank_t *  slot_bank,
                           fd_epoch_bank_t * epoch_bank,
-                          fd_funk_t *       funk,
+                          fd_funkier_t *       funk,
                           fd_tpool_t *      tpool,
                           fd_spad_t *       runtime_spad ) {
 
@@ -1217,8 +1217,8 @@ fd_snapshot_service_inc_hash( fd_hash_t *                 accounts_hash,
                               fd_hash_t *                 snapshot_hash,
                               fd_slot_bank_t *            slot_bank,
                               fd_epoch_bank_t *           epoch_bank,
-                              fd_funk_t *                 funk,
-                              fd_funk_rec_key_t const * * pubkeys,
+                              fd_funkier_t *                 funk,
+                              fd_funkier_rec_key_t const * * pubkeys,
                               ulong                       pubkeys_len,
                               fd_spad_t *                 spad ) {
 
@@ -1241,24 +1241,24 @@ fd_snapshot_service_inc_hash( fd_hash_t *                 accounts_hash,
 
 /* Re-computes the lthash from the current slot */
 void
-fd_accounts_check_lthash( fd_funk_t *      funk,
-                          fd_funk_txn_t *  funk_txn,
+fd_accounts_check_lthash( fd_funkier_t *      funk,
+                          fd_funkier_txn_t *  funk_txn,
                           fd_slot_bank_t * slot_bank,
                           fd_spad_t *      runtime_spad ) {
 
-  fd_wksp_t *     wksp = fd_funk_wksp( funk );
-  fd_funk_rec_t * rec_map  = fd_funk_rec_map( funk, wksp );
-  fd_funk_txn_t * txn_map  = fd_funk_txn_map( funk, wksp );
+  fd_wksp_t *     wksp = fd_funkier_wksp( funk );
+  fd_funkier_rec_t * rec_map  = fd_funkier_rec_map( funk, wksp );
+  fd_funkier_txn_t * txn_map  = fd_funkier_txn_map( funk, wksp );
 
   // How many txns are we dealing with?
   ulong txn_cnt = 1;
-  fd_funk_txn_t * txn = funk_txn;
+  fd_funkier_txn_t * txn = funk_txn;
   while (NULL != txn) {
     txn_cnt++;
-    txn = fd_funk_txn_parent( txn, txn_map );
+    txn = fd_funkier_txn_parent( txn, txn_map );
   }
 
-  fd_funk_txn_t ** txns = fd_alloca_check(sizeof(fd_funk_txn_t *), sizeof(fd_funk_txn_t *) * txn_cnt);
+  fd_funkier_txn_t ** txns = fd_alloca_check(sizeof(fd_funkier_txn_t *), sizeof(fd_funkier_txn_t *) * txn_cnt);
   if ( FD_UNLIKELY(NULL == txns))
     FD_LOG_ERR(( "Unable to allocate txn pointers" ));
 
@@ -1270,11 +1270,11 @@ fd_accounts_check_lthash( fd_funk_t *      funk,
     txns[--txn_idx] = txn;
     if (NULL == txn)
       break;
-    txn = fd_funk_txn_parent( txn, txn_map );
+    txn = fd_funkier_txn_parent( txn, txn_map );
   }
 
   // How many total records are we dealing with?
-  ulong           num_iter_accounts = fd_funk_rec_map_key_cnt( rec_map );
+  ulong           num_iter_accounts = fd_funkier_rec_map_key_cnt( rec_map );
 
   int accounts_hash_slots = fd_ulong_find_msb(num_iter_accounts  ) + 1;
 
@@ -1288,15 +1288,15 @@ fd_accounts_check_lthash( fd_funk_t *      funk,
   // walk up the transactions...
   for (ulong idx = 0; idx < txn_cnt; idx++) {
     FD_LOG_WARNING(("txn idx %lu", idx));
-    for (fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, txns[idx]);
+    for (fd_funkier_rec_t const *rec = fd_funkier_txn_first_rec( funk, txns[idx]);
          NULL != rec;
-         rec = fd_funk_txn_next_rec(funk, rec)) {
-      if ( fd_funk_key_is_acc( rec->pair.key ) && !( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) {
-        accounts_hash_t * q = accounts_hash_query(hash_map, (fd_funk_rec_t *) rec, NULL);
+         rec = fd_funkier_txn_next_rec(funk, rec)) {
+      if ( fd_funkier_key_is_acc( rec->pair.key ) && !( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) {
+        accounts_hash_t * q = accounts_hash_query(hash_map, (fd_funkier_rec_t *) rec, NULL);
         if (NULL != q)
           accounts_hash_remove(hash_map, q);
         if (!(rec->flags & FD_FUNK_REC_FLAG_ERASE))
-          accounts_hash_insert(hash_map, (fd_funk_rec_t *) rec);
+          accounts_hash_insert(hash_map, (fd_funkier_rec_t *) rec);
       }
     }
   }
@@ -1311,7 +1311,7 @@ fd_accounts_check_lthash( fd_funk_t *      funk,
   for( ulong slot_idx=0UL; slot_idx<slot_cnt; slot_idx++ ) {
     accounts_hash_t *slot = &hash_map[slot_idx];
     if (FD_UNLIKELY (NULL != slot->key)) {
-      void const * data = fd_funk_val_const( slot->key, wksp );
+      void const * data = fd_funkier_val_const( slot->key, wksp );
       fd_account_meta_t * metadata = (fd_account_meta_t *)fd_type_pun_const( data );
       if( FD_UNLIKELY(metadata->info.lamports != 0) ) {
         uchar *             acc_data = fd_account_get_data(metadata);

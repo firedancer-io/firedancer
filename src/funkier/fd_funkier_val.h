@@ -2,7 +2,7 @@
 #define HEADER_fd_src_funk_fd_funkier_val_h
 
 /* This provides APIs for managing funk record values.  It is generally
-   not meant to be included directly.  Use fd_funk.h instead. */
+   not meant to be included directly.  Use fd_funkier.h instead. */
 
 #include "fd_funkier_rec.h" /* Includes fd_funkier_txn.h, fd_funkier_base.h */
 

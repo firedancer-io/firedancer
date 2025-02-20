@@ -1,8 +1,8 @@
 #include "../../../../disco/tiles.h"
 
 #include "../../../../disco/topo/fd_pod_format.h"
-#include "../../../../funk/fd_funk.h"
-#include "../../../../funk/fd_funk_filemap.h"
+#include "../../../../funkier/fd_funkier.h"
+#include "../../../../funkier/fd_funkier_filemap.h"
 
 #include "../../../../flamenco/runtime/fd_hashes.h"
 #include "../../../../flamenco/runtime/fd_txncache.h"
@@ -29,7 +29,7 @@ struct fd_snapshot_tile_ctx {
   /* Shared data structures. */
   fd_txncache_t * status_cache;
   ulong         * is_constipated;
-  fd_funk_t     * funk;
+  fd_funkier_t     * funk;
 
   /* File descriptors used for snapshot generation. */
   int             tmp_fd;
@@ -374,14 +374,14 @@ produce_snapshot( fd_snapshot_tile_ctx_t * ctx, ulong batch_fseq ) {
 
 }
 
-static fd_funk_txn_t*
-get_eah_txn( fd_funk_t * funk, ulong slot ) {
+static fd_funkier_txn_t*
+get_eah_txn( fd_funkier_t * funk, ulong slot ) {
 
-  fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
-  for( fd_funk_txn_map_iter_t iter = fd_funk_txn_map_iter_init( txn_map );
-         !fd_funk_txn_map_iter_done( txn_map, iter );
-         iter = fd_funk_txn_map_iter_next( txn_map, iter ) ) {
-    fd_funk_txn_t * txn = fd_funk_txn_map_iter_ele( txn_map, iter );
+  fd_funkier_txn_t * txn_map = fd_funkier_txn_map( funk, fd_funkier_wksp( funk ) );
+  for( fd_funkier_txn_map_iter_t iter = fd_funkier_txn_map_iter_init( txn_map );
+         !fd_funkier_txn_map_iter_done( txn_map, iter );
+         iter = fd_funkier_txn_map_iter_next( txn_map, iter ) ) {
+    fd_funkier_txn_t * txn = fd_funkier_txn_map_iter_ele( txn_map, iter );
     if( txn->xid.ul[0]==slot ) {
       FD_LOG_NOTICE(( "Found transaction for eah" ));
       return txn;
@@ -406,16 +406,16 @@ produce_eah( fd_snapshot_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong batch
   /* First, we must retrieve the corresponding slot_bank. We have the guarantee
      that the root record is frozen from the replay tile. */
 
-  fd_funk_t *           funk     = ctx->funk;
-  fd_funk_txn_t *       eah_txn  = get_eah_txn( funk, eah_slot );
-  fd_funk_rec_key_t     slot_id  = fd_runtime_slot_bank_key();
-  fd_funk_rec_t const * slot_rec = fd_funk_rec_query( funk, eah_txn, &slot_id );
+  fd_funkier_t *           funk     = ctx->funk;
+  fd_funkier_txn_t *       eah_txn  = get_eah_txn( funk, eah_slot );
+  fd_funkier_rec_key_t     slot_id  = fd_runtime_slot_bank_key();
+  fd_funkier_rec_t const * slot_rec = fd_funkier_rec_query( funk, eah_txn, &slot_id );
   if( FD_UNLIKELY( !slot_rec ) ) {
     FD_LOG_ERR(( "Failed to read slot bank record: missing record" ));
   }
-  void * slot_val = fd_funk_val( slot_rec, fd_funk_wksp( funk ) );
+  void * slot_val = fd_funkier_val( slot_rec, fd_funkier_wksp( funk ) );
 
-  if( FD_UNLIKELY( fd_funk_val_sz( slot_rec )<sizeof(uint) ) ) {
+  if( FD_UNLIKELY( fd_funkier_val_sz( slot_rec )<sizeof(uint) ) ) {
     FD_LOG_ERR(( "Failed to read slot bank record: empty record" ));
   }
 
@@ -423,7 +423,7 @@ produce_eah( fd_snapshot_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong batch
   FD_SPAD_FRAME_BEGIN( ctx->spad ) {
     fd_bincode_decode_ctx_t slot_decode_ctx = {
       .data    = (uchar*)slot_val + sizeof(uint),
-      .dataend = (uchar*)slot_val + fd_funk_val_sz( slot_rec ),
+      .dataend = (uchar*)slot_val + fd_funkier_val_sz( slot_rec ),
       .valloc  = fd_spad_virtual( ctx->spad )
     };
 
@@ -478,7 +478,7 @@ after_credit( fd_snapshot_tile_ctx_t * ctx,
   if( FD_UNLIKELY( !ctx->is_funk_active ) ) {
     /* Setting these parameters are not required because we are joining the
        funk that was setup in the replay tile. */
-    ctx->funk = fd_funk_open_file( ctx->funk_file,
+    ctx->funk = fd_funkier_open_file( ctx->funk_file,
                                    1UL,
                                    0UL,
                                    0UL,

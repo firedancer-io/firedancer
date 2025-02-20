@@ -107,7 +107,7 @@ fd_snapshot_restore_footprint( void );
 fd_snapshot_restore_t *
 fd_snapshot_restore_new( void *                               mem,
                          fd_acc_mgr_t *                       acc_mgr,
-                         fd_funk_txn_t *                      txn,
+                         fd_funkier_txn_t *                      txn,
                          fd_spad_t *                          spad,
                          void *                               cb_manifest_ctx,
                          fd_snapshot_restore_cb_manifest_fn_t cb_manifest,

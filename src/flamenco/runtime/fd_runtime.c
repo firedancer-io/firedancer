@@ -188,20 +188,20 @@ fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off, ulon
     return;
   }
 
-  fd_funk_txn_t * txn     = slot_ctx->funk_txn;
+  fd_funkier_txn_t * txn     = slot_ctx->funk_txn;
   fd_acc_mgr_t *  acc_mgr = slot_ctx->acc_mgr;
-  fd_funk_t *     funk    = slot_ctx->acc_mgr->funk;
-  fd_wksp_t *     wksp    = fd_funk_wksp( funk );
+  fd_funkier_t *     funk    = slot_ctx->acc_mgr->funk;
+  fd_wksp_t *     wksp    = fd_funkier_wksp( funk );
 
-  fd_funk_partvec_t * partvec = fd_funk_get_partvec( funk, wksp );
+  fd_funkier_partvec_t * partvec = fd_funkier_get_partvec( funk, wksp );
 
-  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
+  fd_funkier_rec_t * rec_map = fd_funkier_rec_map( funk, wksp );
 
-  for( fd_funk_rec_t const *rec_ro = fd_funk_part_head( partvec, (uint)off, rec_map );
+  for( fd_funkier_rec_t const *rec_ro = fd_funkier_part_head( partvec, (uint)off, rec_map );
        rec_ro != NULL;
-       rec_ro = fd_funk_part_next( rec_ro, rec_map ) ) {
+       rec_ro = fd_funkier_part_next( rec_ro, rec_map ) ) {
 
-    if ( FD_UNLIKELY( !fd_funk_key_is_acc( rec_ro->pair.key ) ) ) {
+    if ( FD_UNLIKELY( !fd_funkier_key_is_acc( rec_ro->pair.key ) ) ) {
       continue;
     }
 
@@ -1392,9 +1392,9 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
   slot_ctx->nonvote_failed_txn_count           = 0UL;
   slot_ctx->total_compute_units_used           = 0UL;
 
-  fd_funk_start_write( slot_ctx->acc_mgr->funk );
+  fd_funkier_start_write( slot_ctx->acc_mgr->funk );
   int result = fd_runtime_block_sysvar_update_pre_execute( slot_ctx, runtime_spad );
-  fd_funk_end_write( slot_ctx->acc_mgr->funk );
+  fd_funkier_end_write( slot_ctx->acc_mgr->funk );
   if( FD_UNLIKELY( result != 0 ) ) {
     FD_LOG_WARNING(("updating sysvars failed"));
     return result;
@@ -1416,7 +1416,7 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t *    slot_ctx,
                                          fd_tpool_t *            tpool,
                                          fd_spad_t *             runtime_spad ) {
 
-  fd_funk_start_write( slot_ctx->acc_mgr->funk );
+  fd_funkier_start_write( slot_ctx->acc_mgr->funk );
 
   fd_sysvar_slot_history_update( slot_ctx, runtime_spad );
 
@@ -1426,7 +1426,7 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t *    slot_ctx,
   int result = fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( slot_ctx, slot_ctx->funk_txn, tpool, runtime_spad );
   if( FD_UNLIKELY( result ) ) {
     FD_LOG_WARNING(( "update bpf program cache failed" ));
-    fd_funk_end_write( slot_ctx->acc_mgr->funk );
+    fd_funkier_end_write( slot_ctx->acc_mgr->funk );
     return result;
   }
 
@@ -1439,7 +1439,7 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t *    slot_ctx,
 
   if( FD_UNLIKELY( result!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
     FD_LOG_WARNING(( "hashing bank failed" ));
-    fd_funk_end_write( slot_ctx->acc_mgr->funk );
+    fd_funkier_end_write( slot_ctx->acc_mgr->funk );
     return result;
   }
 
@@ -1449,11 +1449,11 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t *    slot_ctx,
   result = fd_runtime_save_slot_bank( slot_ctx );
   if( FD_UNLIKELY( result!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     FD_LOG_WARNING(( "failed to save slot bank" ));
-    fd_funk_end_write( slot_ctx->acc_mgr->funk );
+    fd_funkier_end_write( slot_ctx->acc_mgr->funk );
     return result;
   }
 
-  fd_funk_end_write( slot_ctx->acc_mgr->funk );
+  fd_funkier_end_write( slot_ctx->acc_mgr->funk );
 
   slot_ctx->total_compute_units_requested = 0UL;
 
@@ -1508,7 +1508,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
   }
 
   fd_exec_txn_ctx_t * txn_ctx    = task_info->txn_ctx;
-  fd_funk_txn_t *     parent_txn = txn_ctx->slot_ctx->funk_txn;
+  fd_funkier_txn_t *     parent_txn = txn_ctx->slot_ctx->funk_txn;
   txn_ctx->funk_txn              = parent_txn;
   fd_executor_setup_borrowed_accounts_for_txn( txn_ctx );
 
@@ -1635,9 +1635,9 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
   /* For ledgers that contain txn status, decode and write out for solcap */
   if( capture_ctx != NULL && capture_ctx->capture && capture_ctx->capture_txns ) {
     // TODO: probably need to get rid of this lock or special case it to not use funk's lock.
-    fd_funk_start_write( slot_ctx->acc_mgr->funk );
+    fd_funkier_start_write( slot_ctx->acc_mgr->funk );
     fd_runtime_write_transaction_status( capture_ctx, slot_ctx, txn_ctx, exec_txn_err );
-    fd_funk_end_write( slot_ctx->acc_mgr->funk );
+    fd_funkier_end_write( slot_ctx->acc_mgr->funk );
   }
   FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->signature_cnt, txn_ctx->txn_descriptor->signature_cnt );
 
@@ -1698,7 +1698,7 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
 
       if( dirty_vote_acc && 0==memcmp( acc_rec->const_meta->info.owner, &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
         /* lock for inserting/modifying vote accounts in slot ctx. */
-        fd_funk_start_write( slot_ctx->acc_mgr->funk );
+        fd_funkier_start_write( slot_ctx->acc_mgr->funk );
         fd_vote_store_account( slot_ctx, acc_rec );
         FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
           fd_vote_state_versioned_t vsv[1];
@@ -1730,14 +1730,14 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
                                                    ts->timestamp,
                                                    ts->slot );
         } FD_SPAD_FRAME_END;
-        fd_funk_end_write( slot_ctx->acc_mgr->funk );
+        fd_funkier_end_write( slot_ctx->acc_mgr->funk );
       }
 
       if( dirty_stake_acc && 0==memcmp( acc_rec->const_meta->info.owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
         // TODO: does this correctly handle stake account close?
-        fd_funk_start_write( slot_ctx->acc_mgr->funk );
+        fd_funkier_start_write( slot_ctx->acc_mgr->funk );
         fd_store_stake_delegation( slot_ctx, acc_rec );
-        fd_funk_end_write( slot_ctx->acc_mgr->funk );
+        fd_funkier_end_write( slot_ctx->acc_mgr->funk );
       }
 
       fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->borrowed_accounts[i] );
@@ -2290,9 +2290,9 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
   ulong lamports_to_burn = ( stateless ? 0UL : target_program_account->const_meta->info.lamports ) + source_buffer_account->const_meta->info.lamports;
 
   /* Start a funk write txn */
-  fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
-  fd_funk_txn_xid_t migration_xid = fd_funk_generate_xid();
-  slot_ctx->funk_txn = fd_funk_txn_prepare( slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, &migration_xid, 0UL );
+  fd_funkier_txn_t * parent_txn = slot_ctx->funk_txn;
+  fd_funkier_txn_xid_t migration_xid = fd_funkier_generate_xid();
+  slot_ctx->funk_txn = fd_funkier_txn_prepare( slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, &migration_xid, 0UL );
 
   /* Attempt serialization of program account. If the program is stateless, we want to create the account. Otherwise,
      we want a writable handle to modify the existing account.
@@ -2371,13 +2371,13 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
      a BPF cache entry here because the program is technically "delayed visibility", so the program
      should not be invokable until the next slot. The cache entry will be created at the end of the
      block as a part of the finalize routine. */
-  fd_funk_txn_publish_into_parent( slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, 1 );
+  fd_funkier_txn_publish_into_parent( slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, 1 );
   slot_ctx->funk_txn = parent_txn;
   return;
 
 fail:
   /* Cancel the in-preparation transaction and discard any in-progress changes. */
-  fd_funk_txn_cancel( slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, 0UL );
+  fd_funkier_txn_cancel( slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, 0UL );
   slot_ctx->funk_txn = parent_txn;
 }
 
@@ -3425,7 +3425,7 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
   fd_memcpy( epoch_bank->genesis_hash.uc, genesis_hash.uc, sizeof(fd_hash_t) );
   epoch_bank->cluster_type = genesis_block.cluster_type;
 
-  fd_funk_start_write( slot_ctx->acc_mgr->funk );
+  fd_funkier_start_write( slot_ctx->acc_mgr->funk );
 
   if( !is_snapshot ) {
     fd_runtime_init_bank_from_genesis( slot_ctx,
@@ -3488,7 +3488,7 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
   slot_ctx->slot_bank.vote_account_keys.account_keys_root   = NULL;
   slot_ctx->slot_bank.vote_account_keys.account_keys_pool   = fd_account_keys_pair_t_map_alloc( fd_spad_virtual( runtime_spad), 100000UL );
 
-  fd_funk_end_write( slot_ctx->acc_mgr->funk );
+  fd_funkier_end_write( slot_ctx->acc_mgr->funk );
 
   fd_bincode_destroy_ctx_t ctx2 = { .valloc = fd_spad_virtual( runtime_spad ) };
   fd_genesis_solana_destroy( &genesis_block, &ctx2 );
@@ -3687,18 +3687,18 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
                              fd_tpool_t *         tpool,
                              fd_spad_t *          runtime_spad ) {
   /* Publish any transaction older than 31 slots */
-  fd_funk_t *       funk       = slot_ctx->acc_mgr->funk;
-  fd_funk_txn_t *   txnmap     = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
+  fd_funkier_t *       funk       = slot_ctx->acc_mgr->funk;
+  fd_funkier_txn_t *   txnmap     = fd_funkier_txn_map( funk, fd_funkier_wksp( funk ) );
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
 
   if( capture_ctx != NULL ) {
-    fd_funk_start_write( funk );
+    fd_funkier_start_write( funk );
     fd_runtime_checkpt( capture_ctx, slot_ctx, slot_ctx->slot_bank.slot );
-    fd_funk_end_write( funk );
+    fd_funkier_end_write( funk );
   }
 
   uint depth = 0;
-  for( fd_funk_txn_t * txn = slot_ctx->funk_txn; txn; txn = fd_funk_txn_parent(txn, txnmap) ) {
+  for( fd_funkier_txn_t * txn = slot_ctx->funk_txn; txn; txn = fd_funkier_txn_parent(txn, txnmap) ) {
     if( ++depth == (FD_RUNTIME_NUM_ROOT_BLOCKS - 1 ) ) {
       FD_LOG_DEBUG(("publishing %s (slot %lu)", FD_BASE58_ENC_32_ALLOCA( &txn->xid ), txn->xid.ul[0]));
 
@@ -3708,13 +3708,13 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
         fd_txncache_register_constipated_slot( slot_ctx->status_cache, txn->xid.ul[0] );
       }
 
-      fd_funk_start_write( funk );
+      fd_funkier_start_write( funk );
       if( slot_ctx->epoch_ctx->constipate_root ) {
-        fd_funk_txn_t * parent = fd_funk_txn_parent( txn, txnmap );
+        fd_funkier_txn_t * parent = fd_funkier_txn_parent( txn, txnmap );
         if( parent != NULL ) {
           slot_ctx->root_slot = txn->xid.ul[0];
 
-          if( FD_UNLIKELY( fd_funk_txn_publish_into_parent( funk, txn, 1) != FD_FUNK_SUCCESS ) ) {
+          if( FD_UNLIKELY( fd_funkier_txn_publish_into_parent( funk, txn, 1) != FD_FUNK_SUCCESS ) ) {
             FD_LOG_ERR(( "Unable to publish into the parent transaction" ));
           }
         }
@@ -3730,7 +3730,7 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
           fd_txncache_set_is_constipated( slot_ctx->status_cache, 1 );
         }
 
-        if( FD_UNLIKELY( !fd_funk_txn_publish( funk, txn, 1 ) ) ) {
+        if( FD_UNLIKELY( !fd_funkier_txn_publish( funk, txn, 1 ) ) ) {
           FD_LOG_ERR(( "No transactions were published" ));
         }
       }
@@ -3742,7 +3742,7 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
         epoch_bank->eah_start_slot = ULONG_MAX;
       }
 
-      fd_funk_end_write( funk );
+      fd_funkier_end_write( funk );
 
       break;
     }
@@ -3845,27 +3845,27 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
     if( FD_UNLIKELY( prev_epoch<new_epoch || !slot_idx ) ) {
       FD_LOG_DEBUG(( "Epoch boundary" ));
       /* Epoch boundary! */
-      fd_funk_start_write( slot_ctx->acc_mgr->funk );
+      fd_funkier_start_write( slot_ctx->acc_mgr->funk );
       fd_runtime_process_new_epoch( slot_ctx,
                                     new_epoch - 1UL,
                                     tpool,
                                     exec_spads,
                                     exec_spad_cnt,
                                     runtime_spad );
-      fd_funk_end_write( slot_ctx->acc_mgr->funk );
+      fd_funkier_end_write( slot_ctx->acc_mgr->funk );
     }
   }
 
   if( slot_ctx->slot_bank.slot != 0UL && (
       FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ||
       FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature ) ) ) {
-    fd_funk_start_write( slot_ctx->acc_mgr->funk );
+    fd_funkier_start_write( slot_ctx->acc_mgr->funk );
     fd_distribute_partitioned_epoch_rewards( slot_ctx,
                                              tpool,
                                              exec_spads,
                                              exec_spad_cnt,
                                              runtime_spad );
-    fd_funk_end_write( slot_ctx->acc_mgr->funk );
+    fd_funkier_end_write( slot_ctx->acc_mgr->funk );
   }
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
@@ -3889,7 +3889,7 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
     return err;
   }
 
-  fd_funk_t * funk = slot_ctx->acc_mgr->funk;
+  fd_funkier_t * funk = slot_ctx->acc_mgr->funk;
 
   ulong slot = slot_ctx->slot_bank.slot;
 
@@ -3898,7 +3898,7 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
   int ret = FD_RUNTIME_EXECUTE_SUCCESS;
   do {
     /* Use the blockhash as the funk xid */
-    fd_funk_txn_xid_t xid;
+    fd_funkier_txn_xid_t xid;
 
     fd_blockstore_start_read( slot_ctx->blockstore );
     fd_hash_t const * hash = fd_blockstore_block_hash_query( slot_ctx->blockstore, slot );
@@ -3907,12 +3907,12 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
       FD_LOG_WARNING(( "missing blockhash for %lu", slot ));
       break;
     } else {
-      fd_memcpy( xid.uc, hash->uc, sizeof(fd_funk_txn_xid_t) );
+      fd_memcpy( xid.uc, hash->uc, sizeof(fd_funkier_txn_xid_t) );
       xid.ul[0] = slot_ctx->slot_bank.slot;
       /* push a new transaction on the stack */
-      fd_funk_start_write( funk );
-      slot_ctx->funk_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &xid, 1 );
-      fd_funk_end_write( funk );
+      fd_funkier_start_write( funk );
+      slot_ctx->funk_txn = fd_funkier_txn_prepare( funk, slot_ctx->funk_txn, &xid, 1 );
+      fd_funkier_end_write( funk );
     }
     fd_blockstore_end_read( slot_ctx->blockstore );
 
@@ -3969,9 +3969,9 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
   slot_ctx->slot_bank.transaction_count += block_info.txn_cnt;
 
-  fd_funk_start_write( slot_ctx->acc_mgr->funk );
+  fd_funkier_start_write( slot_ctx->acc_mgr->funk );
   fd_runtime_save_slot_bank( slot_ctx );
-  fd_funk_end_write( slot_ctx->acc_mgr->funk );
+  fd_funkier_end_write( slot_ctx->acc_mgr->funk );
 
   slot_ctx->slot_bank.prev_slot = slot;
   // FIXME: this shouldn't be doing this, it doesn't work with forking. punting changing it though
@@ -3997,19 +3997,19 @@ fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
   if( capture_ctx->checkpt_path != NULL ) {
     if( !is_abort_slot ) {
       FD_LOG_NOTICE(( "checkpointing at slot=%lu to file=%s", slot, capture_ctx->checkpt_path ));
-      fd_funk_end_write( slot_ctx->acc_mgr->funk );
+      fd_funkier_end_write( slot_ctx->acc_mgr->funk );
     } else {
       FD_LOG_NOTICE(( "checkpointing after mismatch to file=%s", capture_ctx->checkpt_path ));
     }
 
     unlink( capture_ctx->checkpt_path );
-    int err = fd_wksp_checkpt( fd_funk_wksp( slot_ctx->acc_mgr->funk ), capture_ctx->checkpt_path, 0666, 0, NULL );
+    int err = fd_wksp_checkpt( fd_funkier_wksp( slot_ctx->acc_mgr->funk ), capture_ctx->checkpt_path, 0666, 0, NULL );
     if ( err ) {
       FD_LOG_ERR(( "backup failed: error %d", err ));
     }
 
     if( !is_abort_slot ) {
-      fd_funk_start_write( slot_ctx->acc_mgr->funk );
+      fd_funkier_start_write( slot_ctx->acc_mgr->funk );
     }
   }
 

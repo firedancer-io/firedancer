@@ -3,7 +3,7 @@
 
 /* This provides APIs for managing forks (preparing, publishing and
    cancelling funk transactions).  It is generally not meant to be
-   included directly.  Use fd_funk.h instead. */
+   included directly.  Use fd_funkier.h instead. */
 
 #include "fd_funkier_base.h"
 

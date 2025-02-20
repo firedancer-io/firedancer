@@ -114,7 +114,7 @@ fd_sysvar_cache_delete( fd_sysvar_cache_t * cache );
 void
 fd_sysvar_cache_restore( fd_sysvar_cache_t * cache,
                          fd_acc_mgr_t *      acc_mgr,
-                         fd_funk_txn_t *     funk_txn );
+                         fd_funkier_txn_t *     funk_txn );
 
 /* fd_sysvar_cache_restore_{name} restores only the given sysvar object from the given slot context */
 
@@ -122,7 +122,7 @@ fd_sysvar_cache_restore( fd_sysvar_cache_t * cache,
 void                                                                   \
 fd_sysvar_cache_restore_##name( fd_sysvar_cache_t * cache,             \
                          fd_acc_mgr_t *      acc_mgr,                  \
-                         fd_funk_txn_t *     funk_txn ); 
+                         fd_funkier_txn_t *     funk_txn ); 
   FD_SYSVAR_CACHE_ITER(X)
 # undef X
 

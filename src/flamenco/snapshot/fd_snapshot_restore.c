@@ -64,7 +64,7 @@ fd_snapshot_restore_footprint( void ) {
 fd_snapshot_restore_t *
 fd_snapshot_restore_new( void *                                   mem,
                          fd_acc_mgr_t *                           acc_mgr,
-                         fd_funk_txn_t *                          funk_txn,
+                         fd_funkier_txn_t *                          funk_txn,
                          fd_spad_t *                              spad,
                          void *                                   cb_manifest_ctx,
                          fd_snapshot_restore_cb_manifest_fn_t     cb_manifest,
@@ -158,7 +158,7 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
 
   /* Prepare for account lookup */
   fd_acc_mgr_t *      acc_mgr  = restore->acc_mgr;
-  fd_funk_txn_t *     funk_txn = restore->funk_txn;
+  fd_funkier_txn_t *     funk_txn = restore->funk_txn;
   fd_pubkey_t const * key      = fd_type_pun_const( hdr->meta.pubkey );
   fd_borrowed_account_t rec[1]; fd_borrowed_account_init( rec );
   char key_cstr[ FD_BASE58_ENCODED_32_SZ ];

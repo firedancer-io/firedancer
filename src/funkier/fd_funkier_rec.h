@@ -2,7 +2,7 @@
 #define HEADER_fd_src_funk_fd_funkier_rec_h
 
 /* This provides APIs for managing funk records.  It is generally not
-   meant to be included directly.  Use fd_funk.h instead.
+   meant to be included directly.  Use fd_funkier.h instead.
 
    The following APIs are thread safe and can be interleaved arbirarily
    across threads:

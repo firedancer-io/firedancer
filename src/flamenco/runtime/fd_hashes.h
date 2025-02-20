@@ -3,12 +3,12 @@
 
 #include "../fd_flamenco_base.h"
 #include "../types/fd_types.h"
-#include "../../funk/fd_funk.h"
+#include "../../funkier/fd_funkier.h"
 #include "../../ballet/lthash/fd_lthash.h"
 
 #define FD_PUBKEY_HASH_PAIR_ALIGN (16UL)
 struct __attribute__((aligned(FD_PUBKEY_HASH_PAIR_ALIGN))) fd_pubkey_hash_pair {
-  fd_funk_rec_t const * rec;
+  fd_funkier_rec_t const * rec;
   fd_hash_t     const * hash;
 };
 typedef struct fd_pubkey_hash_pair fd_pubkey_hash_pair_t;
@@ -60,7 +60,7 @@ fd_hash_account_current( uchar                      hash  [ static 32 ],
 /* Generate a complete accounts_hash of the entire account database. */
 
 int
-fd_accounts_hash( fd_funk_t *      funk,
+fd_accounts_hash( fd_funkier_t *      funk,
                   fd_slot_bank_t * slot_bank,
                   fd_tpool_t *     tpool,
                   fd_hash_t *      accounts_hash,
@@ -78,25 +78,25 @@ fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx,
 int
 fd_snapshot_inc_hash( fd_exec_slot_ctx_t * slot_ctx,
                       fd_hash_t *          accounts_hash,
-                      fd_funk_txn_t *      child_txn,
+                      fd_funkier_txn_t *      child_txn,
                       uint                 check_hash,
                       fd_spad_t *          spad );
 
 /* Generate a non-incremental hash of the entire account database, including
    the epoch account hash. It differs from fd_snapshot_hash in that this version
-   is used by the snapshot service which doesn't have access to a slot_ctx 
-   handle. However, it retains a copy of funk, slot_bank, and epoch_bank. 
+   is used by the snapshot service which doesn't have access to a slot_ctx
+   handle. However, it retains a copy of funk, slot_bank, and epoch_bank.
    Do the same for the incremental hash. These functions are also
    responsible for conditionally including the epoch account hash into
    the account hash. These hashes are used by the snapshot service.
    TODO: These should be used to generate the hashes from snapshot loading. */
- 
+
 int
 fd_snapshot_service_hash( fd_hash_t *       accounts_hash,
                           fd_hash_t *       snapshot_hash,
                           fd_slot_bank_t *  slot_bank,
                           fd_epoch_bank_t * epoch_bank,
-                          fd_funk_t *       funk,
+                          fd_funkier_t *       funk,
                           fd_tpool_t *      tpool,
                           fd_spad_t *       runtime_spad );
 
@@ -105,14 +105,14 @@ fd_snapshot_service_inc_hash( fd_hash_t *                 accounts_hash,
                               fd_hash_t *                 snapshot_hash,
                               fd_slot_bank_t *            slot_bank,
                               fd_epoch_bank_t *           epoch_bank,
-                              fd_funk_t *                 funk,
-                              fd_funk_rec_key_t const * * pubkeys,
+                              fd_funkier_t *                 funk,
+                              fd_funkier_rec_key_t const * * pubkeys,
                               ulong                       pubkeys_len,
                               fd_spad_t *                 spad );
 
 void
-fd_accounts_check_lthash( fd_funk_t *      funk,
-                          fd_funk_txn_t *  funk_txn,
+fd_accounts_check_lthash( fd_funkier_t *      funk,
+                          fd_funkier_txn_t *  funk_txn,
                           fd_slot_bank_t * slot_bank,
                           fd_spad_t *      runtime_spad );
 

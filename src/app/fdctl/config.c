@@ -11,7 +11,7 @@
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_txncache.h"
-#include "../../funk/fd_funk.h"
+#include "../../funkier/fd_funkier.h"
 #include "../../waltz/ip/fd_fib4.h"
 #include "../../waltz/mib/fd_dbl_buf.h"
 #undef FD_MAP_FLAG_BLOCKING

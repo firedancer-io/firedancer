@@ -62,7 +62,7 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   fd_exec_epoch_ctx_t const * epoch_ctx;
   fd_exec_slot_ctx_t  const * slot_ctx;
 
-  fd_funk_txn_t *       funk_txn;
+  fd_funkier_txn_t *       funk_txn;
   fd_acc_mgr_t *        acc_mgr;
   fd_spad_t *           spad;                                        /* Sized out to handle the worst case footprint of single transaction execution. */
 

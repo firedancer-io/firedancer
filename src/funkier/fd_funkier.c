@@ -63,7 +63,7 @@ fd_funkier_new( void * shmem,
     return NULL;
   }
 
-  if( txn_max>FD_FUNKIER_TXN_IDX_NULL ) { /* See note in fd_funk.h about this limit */
+  if( txn_max>FD_FUNKIER_TXN_IDX_NULL ) { /* See note in fd_funkier.h about this limit */
     FD_LOG_WARNING(( "txn_max too large for index compression" ));
     return NULL;
   }

@@ -135,7 +135,7 @@ fd_restart_recv_gossip_msg( fd_restart_t * restart,
    heaviest fork slot in order to get the bank hash. */
 void
 fd_restart_find_heaviest_fork_bank_hash( fd_restart_t * restart,
-                                         fd_funk_t * funk,
+                                         fd_funkier_t * funk,
                                          ulong * out_need_repair );
 
 /* fd_restart_verify_heaviest_fork is invoked repeatedly by the replay

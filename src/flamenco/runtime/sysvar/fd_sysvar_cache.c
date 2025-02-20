@@ -91,7 +91,7 @@ void                                                                      \
 fd_sysvar_cache_restore_##name(                                           \
   fd_sysvar_cache_t * cache,                                              \
   fd_acc_mgr_t *      acc_mgr,                                            \
-  fd_funk_txn_t *     funk_txn) {                                         \
+  fd_funkier_txn_t *     funk_txn) {                                         \
   do {                                                                    \
     fd_pubkey_t const * pubkey = &fd_sysvar_##name##_id;                  \
     FD_BORROWED_ACCOUNT_DECL( account );                                  \
@@ -124,7 +124,7 @@ fd_sysvar_cache_restore_##name(                                           \
 void
 fd_sysvar_cache_restore( fd_sysvar_cache_t * cache,
                          fd_acc_mgr_t *      acc_mgr,
-                         fd_funk_txn_t *     funk_txn ) {
+                         fd_funkier_txn_t *     funk_txn ) {
 # define X( type, name )                                               \
 fd_sysvar_cache_restore_##name( cache, acc_mgr, funk_txn );
   FD_SYSVAR_CACHE_ITER(X)

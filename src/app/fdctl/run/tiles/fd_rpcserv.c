@@ -13,7 +13,7 @@
 #include "../../../../disco/shred/fd_stake_ci.h"
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../disco/rpcserver/fd_rpc_service.h"
-#include "../../../../funk/fd_funk_filemap.h"
+#include "../../../../funkier/fd_funkier_filemap.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "generated/rpcserv_seccomp.h"
 
@@ -134,7 +134,7 @@ after_frag( fd_rpcserv_tile_ctx_t * ctx,
   if( FD_LIKELY( in_idx==REPLAY_NOTIF_IDX ) ) {
     if( FD_UNLIKELY( !ctx->activated ) ) {
       fd_rpcserver_args_t * args = &ctx->args;
-      args->funk = fd_funk_open_file(
+      args->funk = fd_funkier_open_file(
         ctx->funk_file, 1, 0, 0, 0, 0, FD_FUNK_READ_WRITE, NULL );
       if( FD_UNLIKELY( args->funk == NULL ) ) {
         FD_LOG_ERR(( "failed to join a funky" ));

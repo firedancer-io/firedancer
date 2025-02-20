@@ -57,8 +57,8 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
   #define FD_INCREMENTAL_KEY_INIT_BOUND (100000UL)
   ulong                       incremental_key_bound = FD_INCREMENTAL_KEY_INIT_BOUND;
   ulong                       incremental_key_cnt   = 0UL;
-  fd_funk_rec_key_t const * * incremental_keys      = snapshot_ctx->is_incremental ? 
-                                                      fd_spad_alloc( snapshot_ctx->spad, alignof(fd_funk_rec_key_t*), sizeof(fd_funk_rec_key_t*) * incremental_key_bound ) :
+  fd_funkier_rec_key_t const * * incremental_keys      = snapshot_ctx->is_incremental ? 
+                                                      fd_spad_alloc( snapshot_ctx->spad, alignof(fd_funkier_rec_key_t*), sizeof(fd_funkier_rec_key_t*) * incremental_key_bound ) :
                                                       NULL;
 
   #undef FD_INCREMENTAL_KEY_INIT_BOUND
@@ -67,20 +67,20 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
      iterate through funk and accumulate the size of all of the records
      from all slots before the snapshot_slot. */
 
-  fd_funk_t * funk           = snapshot_ctx->acc_mgr->funk;
+  fd_funkier_t * funk           = snapshot_ctx->acc_mgr->funk;
   ulong       prev_sz        = 0UL;
   ulong       tombstones_cnt = 0UL;
-  for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, NULL ); NULL != rec; rec = fd_funk_txn_next_rec( funk, rec ) ) {
+  for( fd_funkier_rec_t const * rec = fd_funkier_txn_first_rec( funk, NULL ); NULL != rec; rec = fd_funkier_txn_next_rec( funk, rec ) ) {
 
-    if( !fd_funk_key_is_acc( rec->pair.key ) ) {
+    if( !fd_funkier_key_is_acc( rec->pair.key ) ) {
       continue;
     }
 
     tombstones_cnt++;
 
     int                 is_tombstone = rec->flags & FD_FUNK_REC_FLAG_ERASE;                     
-    uchar const *       raw          = fd_funk_val( rec, fd_funk_wksp( funk ) );
-    fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funk_rec_get_erase_data( rec ) ) : 
+    uchar const *       raw          = fd_funkier_val( rec, fd_funkier_wksp( funk ) );
+    fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funkier_rec_get_erase_data( rec ) ) : 
                                                       (fd_account_meta_t*)raw;
 
     if( !metadata ) {
@@ -106,10 +106,10 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
       if( FD_UNLIKELY( incremental_key_cnt==incremental_key_bound ) ) {
         /* Dynamically resize if needed. */
         incremental_key_bound *= 2UL;
-        fd_funk_rec_key_t const * * new_incremental_keys = fd_spad_alloc( snapshot_ctx->spad, 
-                                                                          alignof(fd_funk_rec_key_t*),
-                                                                          sizeof(fd_funk_rec_key_t*) * incremental_key_bound );
-        fd_memcpy( new_incremental_keys, incremental_keys, sizeof(fd_funk_rec_key_t*) * incremental_key_cnt );
+        fd_funkier_rec_key_t const * * new_incremental_keys = fd_spad_alloc( snapshot_ctx->spad, 
+                                                                          alignof(fd_funkier_rec_key_t*),
+                                                                          sizeof(fd_funkier_rec_key_t*) * incremental_key_bound );
+        fd_memcpy( new_incremental_keys, incremental_keys, sizeof(fd_funkier_rec_key_t*) * incremental_key_cnt );
         fd_valloc_free( fd_spad_virtual( snapshot_ctx->spad ), incremental_keys );
         incremental_keys = new_incremental_keys;
       }
@@ -276,28 +276,28 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
     FD_LOG_ERR(( "Unable to create previous accounts file" ));
   }
 
-  fd_funk_rec_t * * tombstones = snapshot_ctx->is_incremental ? NULL : 
-                                 fd_spad_alloc( snapshot_ctx->spad, alignof(fd_funk_rec_t*), sizeof(fd_funk_rec_t*) * tombstones_cnt );
+  fd_funkier_rec_t * * tombstones = snapshot_ctx->is_incremental ? NULL : 
+                                 fd_spad_alloc( snapshot_ctx->spad, alignof(fd_funkier_rec_t*), sizeof(fd_funkier_rec_t*) * tombstones_cnt );
   tombstones_cnt = 0UL;
 
-  for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, NULL ); NULL != rec; rec = fd_funk_txn_next_rec( funk, rec ) ) {
+  for( fd_funkier_rec_t const * rec = fd_funkier_txn_first_rec( funk, NULL ); NULL != rec; rec = fd_funkier_txn_next_rec( funk, rec ) ) {
 
     /* Get the account data. */
 
-    if( !fd_funk_key_is_acc( rec->pair.key ) ) {
+    if( !fd_funkier_key_is_acc( rec->pair.key ) ) {
       continue;
     }
 
     fd_pubkey_t const * pubkey       = fd_type_pun_const( rec->pair.key[0].uc );
     int                 is_tombstone = rec->flags & FD_FUNK_REC_FLAG_ERASE;                     
-    uchar const *       raw          = fd_funk_val( rec, fd_funk_wksp( funk ) );
-    fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funk_rec_get_erase_data( rec ) ) : 
+    uchar const *       raw          = fd_funkier_val( rec, fd_funkier_wksp( funk ) );
+    fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funkier_rec_get_erase_data( rec ) ) : 
                                                       (fd_account_meta_t*)raw;
 
     if( !snapshot_ctx->is_incremental && is_tombstone ) {
       /* If we are in a full snapshot, we need to gather all of the accounts
          that we plan on deleting. */
-      tombstones[ tombstones_cnt++ ] = (fd_funk_rec_t*)rec;
+      tombstones[ tombstones_cnt++ ] = (fd_funkier_rec_t*)rec;
     }
 
     if( !metadata ) {
@@ -416,16 +416,16 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
   for( ulong i=0UL; i<snapshot_slot_key_cnt; i++ ) {
     
     fd_pubkey_t const * pubkey = snapshot_slot_keys[i];
-    fd_funk_rec_key_t key = fd_acc_funk_key( pubkey );
+    fd_funkier_rec_key_t key = fd_acc_funk_key( pubkey );
 
-    fd_funk_rec_t const * rec = fd_funk_rec_query( funk, NULL, &key );
+    fd_funkier_rec_t const * rec = fd_funkier_rec_query( funk, NULL, &key );
     if( FD_UNLIKELY( !rec ) ) {
       FD_LOG_ERR(( "Previously found record can no longer be found" ));
     }
 
     int                 is_tombstone = rec->flags & FD_FUNK_REC_FLAG_ERASE;
-    uchar       const * raw          = fd_funk_val( rec, fd_funk_wksp( funk ) );
-    fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funk_rec_get_erase_data( rec ) ) : 
+    uchar       const * raw          = fd_funkier_val( rec, fd_funkier_wksp( funk ) );
+    fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funkier_rec_get_erase_data( rec ) ) : 
                                                       (fd_account_meta_t*)raw;
 
     if( FD_UNLIKELY( !metadata ) ) {
@@ -479,13 +479,13 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
      Without this, we are actually not cleaning up any tombstones from funk. */
 
   if( snapshot_ctx->is_incremental ) {
-    fd_funk_start_write( funk );
-    err = fd_funk_rec_forget( funk, tombstones, tombstones_cnt );
+    fd_funkier_start_write( funk );
+    err = fd_funkier_rec_forget( funk, tombstones, tombstones_cnt );
     if( FD_UNLIKELY( err!=FD_FUNK_SUCCESS ) ) {
       FD_LOG_ERR(( "Unable to forget tombstones" ));
     }
     FD_LOG_NOTICE(( "Compacted %lu tombstone records", tombstones_cnt ));
-    fd_funk_end_write( funk );
+    fd_funkier_end_write( funk );
   }
 
   fd_valloc_free( fd_spad_virtual( snapshot_ctx->spad ), snapshot_slot_keys );
@@ -712,7 +712,7 @@ fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *                snapshot_ct
 static inline void
 fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
 
-  fd_funk_t * funk = snapshot_ctx->funk;
+  fd_funkier_t * funk = snapshot_ctx->funk;
 
   /* Initialize the account manager. */
 
@@ -724,14 +724,14 @@ fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
 
   /* First the epoch bank. */
 
-  fd_funk_rec_key_t     epoch_id  = fd_runtime_epoch_bank_key();
-  fd_funk_rec_t const * epoch_rec = fd_funk_rec_query( funk, NULL, &epoch_id );
+  fd_funkier_rec_key_t     epoch_id  = fd_runtime_epoch_bank_key();
+  fd_funkier_rec_t const * epoch_rec = fd_funkier_rec_query( funk, NULL, &epoch_id );
   if( FD_UNLIKELY( !epoch_rec ) ) {
     FD_LOG_ERR(( "Failed to read epoch bank record: missing record" ));
   }
-  void * epoch_val = fd_funk_val( epoch_rec, fd_funk_wksp( funk ) );
+  void * epoch_val = fd_funkier_val( epoch_rec, fd_funkier_wksp( funk ) );
 
-  if( FD_UNLIKELY( fd_funk_val_sz( epoch_rec )<sizeof(uint) ) ) {
+  if( FD_UNLIKELY( fd_funkier_val_sz( epoch_rec )<sizeof(uint) ) ) {
     FD_LOG_ERR(( "Failed to read epoch bank record: empty record" ));
   }
 
@@ -739,7 +739,7 @@ fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
 
   fd_bincode_decode_ctx_t epoch_decode_ctx = {
     .data    = (uchar*)epoch_val + sizeof(uint),
-    .dataend = (uchar*)epoch_val + fd_funk_val_sz( epoch_rec ),
+    .dataend = (uchar*)epoch_val + fd_funkier_val_sz( epoch_rec ),
     .valloc  = fd_spad_virtual( snapshot_ctx->spad )
   };
 
@@ -754,14 +754,14 @@ fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
 
   /* Now the slot bank. */
 
-  fd_funk_rec_key_t     slot_id  = fd_runtime_slot_bank_key();
-  fd_funk_rec_t const * slot_rec = fd_funk_rec_query( funk, NULL, &slot_id );
+  fd_funkier_rec_key_t     slot_id  = fd_runtime_slot_bank_key();
+  fd_funkier_rec_t const * slot_rec = fd_funkier_rec_query( funk, NULL, &slot_id );
   if( FD_UNLIKELY( !slot_rec ) ) {
     FD_LOG_ERR(( "Failed to read slot bank record: missing record" ));
   }
-  void * slot_val = fd_funk_val( slot_rec, fd_funk_wksp( funk ) );
+  void * slot_val = fd_funkier_val( slot_rec, fd_funkier_wksp( funk ) );
 
-  if( FD_UNLIKELY( fd_funk_val_sz( slot_rec )<sizeof(uint) ) ) {
+  if( FD_UNLIKELY( fd_funkier_val_sz( slot_rec )<sizeof(uint) ) ) {
     FD_LOG_ERR(( "Failed to read slot bank record: empty record" ));
   }
 
@@ -769,7 +769,7 @@ fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
 
   fd_bincode_decode_ctx_t slot_decode_ctx = {
     .data    = (uchar*)slot_val + sizeof(uint),
-    .dataend = (uchar*)slot_val + fd_funk_val_sz( slot_rec ),
+    .dataend = (uchar*)slot_val + fd_funkier_val_sz( slot_rec ),
     .valloc  = fd_spad_virtual( snapshot_ctx->spad )
   };
 

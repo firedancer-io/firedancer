@@ -14,8 +14,8 @@
 #include "../../../waltz/xdp/fd_xdp1.h"
 #include "../../../flamenco/runtime/fd_blockstore.h"
 #include "../../../flamenco/runtime/fd_txncache.h"
-#include "../../../funk/fd_funk_filemap.h"
-#include "../../../funk/fd_funk.h"
+#include "../../../funkier/fd_funkier_filemap.h"
+#include "../../../funkier/fd_funkier.h"
 #include "../../../waltz/ip/fd_fib4.h"
 #include "../../../waltz/mib/fd_dbl_buf.h"
 #undef FD_MAP_FLAG_BLOCKING

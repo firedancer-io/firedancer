@@ -7,18 +7,18 @@
 
 /* This file must not depend on fd_executor.h */
 
-fd_funk_rec_key_t
+fd_funkier_rec_key_t
 fd_runtime_epoch_bank_key( void ) {
-  fd_funk_rec_key_t id;
+  fd_funkier_rec_key_t id;
   fd_memset(&id, 1, sizeof(id));
   id.c[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_BLOCK_EPOCH_BANK_TYPE;
 
   return id;
 }
 
-fd_funk_rec_key_t
+fd_funkier_rec_key_t
 fd_runtime_slot_bank_key( void ) {
-  fd_funk_rec_key_t id;
+  fd_funkier_rec_key_t id;
   fd_memset(&id, 1, sizeof(id));
   id.c[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_BLOCK_SLOT_BANK_TYPE;
 
@@ -29,16 +29,16 @@ int
 fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   ulong sz = sizeof(uint) + fd_epoch_bank_size(epoch_bank);
-  fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
+  fd_funkier_rec_key_t id = fd_runtime_epoch_bank_key();
   int opt_err = 0;
-  fd_funk_rec_t *rec = fd_funk_rec_write_prepare(slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, &id, sz, 1, NULL, &opt_err);
+  fd_funkier_rec_t *rec = fd_funkier_rec_write_prepare(slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, &id, sz, 1, NULL, &opt_err);
   if (NULL == rec)
   {
-    FD_LOG_WARNING(("fd_runtime_save_banks failed: %s", fd_funk_strerror(opt_err)));
+    FD_LOG_WARNING(("fd_runtime_save_banks failed: %s", fd_funkier_strerror(opt_err)));
     return opt_err;
   }
 
-  uchar *buf = fd_funk_val(rec, fd_funk_wksp(slot_ctx->acc_mgr->funk));
+  uchar *buf = fd_funkier_val(rec, fd_funkier_wksp(slot_ctx->acc_mgr->funk));
   *(uint*)buf = FD_RUNTIME_ENC_BINCODE;
   fd_bincode_encode_ctx_t ctx = {
       .data = buf + sizeof(uint),
@@ -61,16 +61,16 @@ int
 fd_runtime_save_epoch_bank_archival( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   ulong sz = sizeof(uint) + fd_epoch_bank_size(epoch_bank)*2; /* Conservatively estimate double the bincode size */
-  fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
+  fd_funkier_rec_key_t id = fd_runtime_epoch_bank_key();
   int opt_err = 0;
-  fd_funk_rec_t *rec = fd_funk_rec_write_prepare(slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, &id, sz, 1, NULL, &opt_err);
+  fd_funkier_rec_t *rec = fd_funkier_rec_write_prepare(slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, &id, sz, 1, NULL, &opt_err);
   if (NULL == rec)
   {
-    FD_LOG_WARNING(("fd_runtime_save_banks failed: %s", fd_funk_strerror(opt_err)));
+    FD_LOG_WARNING(("fd_runtime_save_banks failed: %s", fd_funkier_strerror(opt_err)));
     return opt_err;
   }
 
-  uchar *buf = fd_funk_val(rec, fd_funk_wksp(slot_ctx->acc_mgr->funk));
+  uchar *buf = fd_funkier_val(rec, fd_funkier_wksp(slot_ctx->acc_mgr->funk));
   *(uint*)buf = FD_RUNTIME_ENC_ARCHIVE;
   fd_bincode_encode_ctx_t ctx = {
       .data = buf + sizeof(uint),
@@ -91,9 +91,9 @@ fd_runtime_save_epoch_bank_archival( fd_exec_slot_ctx_t * slot_ctx ) {
 int fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx ) {
   ulong sz = sizeof(uint) + fd_slot_bank_size( &slot_ctx->slot_bank );
 
-  fd_funk_rec_key_t id      = fd_runtime_slot_bank_key();
+  fd_funkier_rec_key_t id      = fd_runtime_slot_bank_key();
   int               opt_err = 0;
-  fd_funk_rec_t *   rec     = fd_funk_rec_write_prepare( slot_ctx->acc_mgr->funk,
+  fd_funkier_rec_t *   rec     = fd_funkier_rec_write_prepare( slot_ctx->acc_mgr->funk,
                                                          slot_ctx->funk_txn,
                                                          &id,
                                                          sz,
@@ -101,11 +101,11 @@ int fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx ) {
                                                          NULL,
                                                          &opt_err );
   if( !rec ) {
-    FD_LOG_WARNING(( "fd_runtime_save_banks failed: %s", fd_funk_strerror( opt_err ) ));
+    FD_LOG_WARNING(( "fd_runtime_save_banks failed: %s", fd_funkier_strerror( opt_err ) ));
     return opt_err;
   }
 
-  uchar * buf = fd_funk_val( rec, fd_funk_wksp( slot_ctx->acc_mgr->funk ) );
+  uchar * buf = fd_funkier_val( rec, fd_funkier_wksp( slot_ctx->acc_mgr->funk ) );
   *(uint*)buf = FD_RUNTIME_ENC_BINCODE;
   fd_bincode_encode_ctx_t ctx = {
       .data    = buf + sizeof(uint),
@@ -133,16 +133,16 @@ int fd_runtime_save_slot_bank_archival(fd_exec_slot_ctx_t *slot_ctx)
 {
   ulong sz = sizeof(uint) + fd_slot_bank_size(&slot_ctx->slot_bank)*2; /* Conservatively estimate double the bincode size */
 
-  fd_funk_rec_key_t id = fd_runtime_slot_bank_key();
+  fd_funkier_rec_key_t id = fd_runtime_slot_bank_key();
   int opt_err = 0;
-  fd_funk_rec_t *rec = fd_funk_rec_write_prepare(slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, &id, sz, 1, NULL, &opt_err);
+  fd_funkier_rec_t *rec = fd_funkier_rec_write_prepare(slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, &id, sz, 1, NULL, &opt_err);
   if (NULL == rec)
   {
-    FD_LOG_WARNING(("fd_runtime_save_banks failed: %s", fd_funk_strerror(opt_err)));
+    FD_LOG_WARNING(("fd_runtime_save_banks failed: %s", fd_funkier_strerror(opt_err)));
     return opt_err;
   }
 
-  uchar *buf = fd_funk_val(rec, fd_funk_wksp(slot_ctx->acc_mgr->funk));
+  uchar *buf = fd_funkier_val(rec, fd_funkier_wksp(slot_ctx->acc_mgr->funk));
   *(uint*)buf = FD_RUNTIME_ENC_ARCHIVE;
   fd_bincode_encode_ctx_t ctx = {
       .data = buf + sizeof(uint),
@@ -165,17 +165,17 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
                           int                  clear_first,
                           fd_spad_t *          runtime_spad ) {
 
-  fd_funk_t *           funk         = slot_ctx->acc_mgr->funk;
-  fd_funk_txn_t *       txn          = slot_ctx->funk_txn;
+  fd_funkier_t *           funk         = slot_ctx->acc_mgr->funk;
+  fd_funkier_txn_t *       txn          = slot_ctx->funk_txn;
   fd_exec_epoch_ctx_t * epoch_ctx    = slot_ctx->epoch_ctx;
   {
-    fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
-    fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id, NULL);
+    fd_funkier_rec_key_t id = fd_runtime_epoch_bank_key();
+    fd_funkier_rec_t const * rec = fd_funkier_rec_query_global(funk, txn, &id, NULL);
     if ( rec == NULL )
       FD_LOG_ERR(("failed to read banks record: missing record"));
-    void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
+    void * val = fd_funkier_val( rec, fd_funkier_wksp(funk) );
 
-    if( fd_funk_val_sz( rec ) < sizeof(uint) ) {
+    if( fd_funkier_val_sz( rec ) < sizeof(uint) ) {
       FD_LOG_ERR(("failed to read banks record: empty record"));
     }
     uint magic = *(uint*)val;
@@ -186,7 +186,7 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
     fd_epoch_bank_t *       epoch_bank = fd_exec_epoch_ctx_bank_mem_setup( epoch_ctx );
     fd_bincode_decode_ctx_t ctx;
     ctx.data    = (uchar*)val + sizeof(uint);
-    ctx.dataend = (uchar*)val + fd_funk_val_sz( rec );
+    ctx.dataend = (uchar*)val + fd_funkier_val_sz( rec );
     /* We use this special allocator to indicate that the data
        structure has already been constructed in its final memory layout */
     ctx.valloc  = fd_spad_virtual( runtime_spad );
@@ -206,20 +206,20 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
       fd_bincode_destroy_ctx_t ctx = { .valloc = fd_spad_virtual( runtime_spad ) };
       fd_slot_bank_destroy( &slot_ctx->slot_bank, &ctx );
     }
-    fd_funk_rec_key_t     id  = fd_runtime_slot_bank_key();
-    fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, txn, &id, NULL );
+    fd_funkier_rec_key_t     id  = fd_runtime_slot_bank_key();
+    fd_funkier_rec_t const * rec = fd_funkier_rec_query_global( funk, txn, &id, NULL );
     if ( rec == NULL )
       FD_LOG_ERR(("failed to read banks record: missing record"));
-    void * val = fd_funk_val( rec, fd_funk_wksp( funk ) );
+    void * val = fd_funkier_val( rec, fd_funkier_wksp( funk ) );
 
-    if( fd_funk_val_sz( rec ) < sizeof(uint) ) {
+    if( fd_funkier_val_sz( rec ) < sizeof(uint) ) {
       FD_LOG_ERR(( "failed to read banks record: empty record" ));
     }
     uint magic = *(uint*)val;
 
     fd_bincode_decode_ctx_t ctx = { 
       .data    = (uchar*)val + sizeof(uint),
-      .dataend = (uchar*)val + fd_funk_val_sz( rec ),
+      .dataend = (uchar*)val + fd_funkier_val_sz( rec ),
       .valloc  = fd_spad_virtual( runtime_spad )
     };
     if( magic == FD_RUNTIME_ENC_BINCODE ) {

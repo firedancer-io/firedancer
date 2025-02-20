@@ -145,7 +145,7 @@ fd_forks_query_const( fd_forks_t const * forks, ulong slot ) {
 //                   fd_acc_mgr_t *        acc_mgr,
 //                   fd_blockstore_t *     blockstore,
 //                   fd_exec_epoch_ctx_t * epoch_ctx,
-//                   fd_funk_t *           funk,
+//                   fd_funkier_t *           funk,
 //                   fd_valloc_t           valloc ) {
 //   // Remove slot ctx from frontier
 //   fd_fork_t * child = fd_fork_frontier_ele_remove( forks->frontier,
@@ -170,14 +170,14 @@ fd_forks_query_const( fd_forks_t const * forks, ulong slot ) {
 //   fork->slot_ctx.slot_bank.slot      = curr_slot;
 
 //   fork->slot_ctx.status_cache = status_cache;
-//   fd_funk_txn_xid_t xid;
+//   fd_funkier_txn_xid_t xid;
 
-//   fd_memcpy( xid.uc, blockhash.uc, sizeof( fd_funk_txn_xid_t));
+//   fd_memcpy( xid.uc, blockhash.uc, sizeof( fd_funkier_txn_xid_t));
 //   xid.ul[0] = fork->slot_ctx.slot_bank.slot;
 //   /* push a new transaction on the stack */
-//   fd_funk_start_write( funk );
-//   fork->slot_ctx.funk_txn = fd_funk_txn_prepare( funk, fork->slot_ctx.funk_txn, &xid, 1 );
-//   fd_funk_end_write( funk );
+//   fd_funkier_start_write( funk );
+//   fork->slot_ctx.funk_txn = fd_funkier_txn_prepare( funk, fork->slot_ctx.funk_txn, &xid, 1 );
+//   fd_funkier_end_write( funk );
 
 //   int res = fd_runtime_publish_old_txns( &fork->slot_ctx, capture_ctx );
 //   if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
@@ -190,10 +190,10 @@ slot_ctx_restore( ulong                 slot,
                   fd_acc_mgr_t *        acc_mgr,
                   fd_blockstore_t *     blockstore,
                   fd_exec_epoch_ctx_t * epoch_ctx,
-                  fd_funk_t *           funk,
+                  fd_funkier_t *           funk,
                   fd_valloc_t           valloc,
                   fd_exec_slot_ctx_t *  slot_ctx_out ) {
-  fd_funk_txn_t *  txn_map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
+  fd_funkier_txn_t *  txn_map = fd_funkier_txn_map( funk, fd_funkier_wksp( funk ) );
 
   fd_blockstore_start_read( blockstore );
   fd_block_map_t const * block = fd_blockstore_block_map_query( blockstore, slot );
@@ -204,28 +204,28 @@ slot_ctx_restore( ulong                 slot,
   if( !block_exists )
     FD_LOG_ERR( ( "missing block at slot we're trying to restore" ) );
 
-  fd_funk_txn_xid_t xid;
-  memcpy( xid.uc, block->block_hash.uc, sizeof( fd_funk_txn_xid_t ) );
+  fd_funkier_txn_xid_t xid;
+  memcpy( xid.uc, block->block_hash.uc, sizeof( fd_funkier_txn_xid_t ) );
   xid.ul[0]             = slot;
-  fd_funk_rec_key_t id  = fd_runtime_slot_bank_key();
-  fd_funk_txn_t *   txn = fd_funk_txn_query( &xid, txn_map );
+  fd_funkier_rec_key_t id  = fd_runtime_slot_bank_key();
+  fd_funkier_txn_t *   txn = fd_funkier_txn_query( &xid, txn_map );
   if( !txn ) {
-    memset( xid.uc, 0, sizeof( fd_funk_txn_xid_t ) );
+    memset( xid.uc, 0, sizeof( fd_funkier_txn_xid_t ) );
     xid.ul[0] = slot;
-    txn       = fd_funk_txn_query( &xid, txn_map );
+    txn       = fd_funkier_txn_query( &xid, txn_map );
     if( !txn ) {
       FD_LOG_ERR( ( "missing txn, parent slot %lu", slot ) );
     }
   }
-  fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, txn, &id, NULL );
+  fd_funkier_rec_t const * rec = fd_funkier_rec_query_global( funk, txn, &id, NULL );
   if( rec == NULL ) FD_LOG_ERR( ( "failed to read banks record" ) );
-  void * val = fd_funk_val( rec, fd_funk_wksp( funk ) );
+  void * val = fd_funkier_val( rec, fd_funkier_wksp( funk ) );
 
   uint magic = *(uint *)val;
 
   fd_bincode_decode_ctx_t decode_ctx;
   decode_ctx.data    = (uchar *)val + sizeof( uint );
-  decode_ctx.dataend = (uchar *)val + fd_funk_val_sz( rec );
+  decode_ctx.dataend = (uchar *)val + fd_funkier_val_sz( rec );
   decode_ctx.valloc  = valloc;
 
   FD_TEST( slot_ctx_out->magic == FD_EXEC_SLOT_CTX_MAGIC );
@@ -280,7 +280,7 @@ fd_forks_prepare( fd_forks_t const *    forks,
                   fd_acc_mgr_t *        acc_mgr,
                   fd_blockstore_t *     blockstore,
                   fd_exec_epoch_ctx_t * epoch_ctx,
-                  fd_funk_t *           funk,
+                  fd_funkier_t *           funk,
                   fd_spad_t *           runtime_spad ) {
 
   /* Check the parent block is present in the blockstore and executed. */
@@ -332,11 +332,11 @@ void
 fd_forks_update( fd_forks_t *      forks,
                  fd_blockstore_t * blockstore,
                  fd_epoch_t *      epoch,
-                 fd_funk_t *       funk,
+                 fd_funkier_t *       funk,
                  fd_ghost_t *      ghost,
                  ulong             slot ) {
   fd_fork_t *     fork = fd_fork_frontier_ele_query( forks->frontier, &slot, NULL, forks->pool );
-  fd_funk_txn_t * txn  = fork->slot_ctx.funk_txn;
+  fd_funkier_txn_t * txn  = fork->slot_ctx.funk_txn;
 
   fd_voter_t * epoch_voters = fd_epoch_voters( epoch );
   for( ulong i = 0; i < fd_epoch_voters_slot_cnt( epoch_voters ); i++ ) {

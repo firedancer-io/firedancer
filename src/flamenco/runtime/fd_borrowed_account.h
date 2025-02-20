@@ -3,7 +3,7 @@
 
 #include "../../ballet/txn/fd_txn.h"
 #include "../types/fd_types.h"
-#include "../../funk/fd_funk_rec.h"
+#include "../../funkier/fd_funkier_rec.h"
 
 
 /* TODO This should be called fd_txn_acct. */
@@ -15,15 +15,15 @@ struct __attribute__((aligned(8UL))) fd_borrowed_account {
 
   fd_account_meta_t const   * const_meta;
   uchar             const   * const_data;
-  fd_funk_rec_t     const   * const_rec;
+  fd_funkier_rec_t     const   * const_rec;
 
   fd_account_meta_t         * meta;
   uchar                     * data;
-  fd_funk_rec_t             * rec;
+  fd_funkier_rec_t             * rec;
 
   fd_account_meta_t const   * orig_meta;
   uchar             const   * orig_data;
-  fd_funk_rec_t     const   * orig_rec;
+  fd_funkier_rec_t     const   * orig_rec;
 
   ulong                       starting_dlen;
   ulong                       starting_lamports;

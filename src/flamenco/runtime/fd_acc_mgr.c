@@ -10,7 +10,7 @@
 
 fd_acc_mgr_t *
 fd_acc_mgr_new( void *      mem,
-                fd_funk_t * funk ) {
+                fd_funkier_t * funk ) {
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -41,7 +41,7 @@ fd_acc_mgr_delete( fd_acc_mgr_t * acc_mgr ) {
 
 static ulong
 fd_rent_lists_key_to_bucket( fd_acc_mgr_t * acc_mgr,
-                             fd_funk_rec_t const * rec ) {
+                             fd_funkier_rec_t const * rec ) {
   fd_pubkey_t const * key = fd_type_pun_const( &rec->pair.key[0].uc );
   ulong prefixX_be = key->ul[0];
   ulong prefixX    = fd_ulong_bswap( prefixX_be );
@@ -49,7 +49,7 @@ fd_rent_lists_key_to_bucket( fd_acc_mgr_t * acc_mgr,
 }
 
 static uint
-fd_rent_lists_cb( fd_funk_rec_t * rec,
+fd_rent_lists_cb( fd_funkier_rec_t * rec,
                   uint            part_cnt,
                   void *          cb_arg ) {
   (void)part_cnt;
@@ -57,9 +57,9 @@ fd_rent_lists_cb( fd_funk_rec_t * rec,
   fd_exec_slot_ctx_t * slot_ctx = (fd_exec_slot_ctx_t *)cb_arg;
   fd_acc_mgr_t *       acc_mgr  = slot_ctx->acc_mgr;
 
-  if( fd_funk_key_is_acc( rec->pair.key ) ) {
+  if( fd_funkier_key_is_acc( rec->pair.key ) ) {
     if( acc_mgr->skip_rent_rewrites ) {
-      void const * data = fd_funk_val( rec, fd_funk_wksp(acc_mgr->funk) );
+      void const * data = fd_funkier_val( rec, fd_funkier_wksp(acc_mgr->funk) );
       fd_account_meta_t const * metadata = fd_type_pun_const( data );
 
       fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
@@ -92,21 +92,21 @@ fd_acc_mgr_set_slots_per_epoch( fd_exec_slot_ctx_t * slot_ctx,
   acc_mgr->skip_rent_rewrites = !!skip_rent_rewrites;
   acc_mgr->part_width         = fd_rent_partition_width( slots_per_epoch );
 
-  fd_funk_repartition( acc_mgr->funk, (uint)slots_per_epoch, fd_rent_lists_cb, slot_ctx );
+  fd_funkier_repartition( acc_mgr->funk, (uint)slots_per_epoch, fd_rent_lists_cb, slot_ctx );
 }
 
 fd_account_meta_t const *
 fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
-                     fd_funk_txn_t const *  txn,
+                     fd_funkier_txn_t const *  txn,
                      fd_pubkey_t const *    pubkey,
-                     fd_funk_rec_t const ** orec,
+                     fd_funkier_rec_t const ** orec,
                      int *                  opt_err,
-                     fd_funk_txn_t const ** txn_out  ) {
+                     fd_funkier_txn_t const ** txn_out  ) {
 
-  fd_funk_rec_key_t id   = fd_acc_funk_key( pubkey );
-  fd_funk_t *       funk = acc_mgr->funk;
+  fd_funkier_rec_key_t id   = fd_acc_funk_key( pubkey );
+  fd_funkier_t *       funk = acc_mgr->funk;
 
-  fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, txn, &id, txn_out );
+  fd_funkier_rec_t const * rec = fd_funkier_rec_query_global( funk, txn, &id, txn_out );
 
   if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) )  {
     fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT );
@@ -115,7 +115,7 @@ fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
   if( NULL != orec )
     *orec = rec;
 
-  void const * raw = fd_funk_val( rec, fd_funk_wksp(funk) );
+  void const * raw = fd_funkier_val( rec, fd_funkier_wksp(funk) );
   // TODO/FIXME: this check causes issues with some metadata writes
 
   fd_account_meta_t const * metadata = fd_type_pun_const( raw );
@@ -129,7 +129,7 @@ fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
 
 int
 fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
-                 fd_funk_txn_t const *   txn,
+                 fd_funkier_txn_t const *   txn,
                  fd_pubkey_t const *     pubkey,
                  fd_borrowed_account_t * account) {
   /* TODO: re-add this check after consulting on why this builtin program check.
@@ -168,25 +168,25 @@ fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
 
 fd_account_meta_t *
 fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
-                       fd_funk_txn_t *       txn,
+                       fd_funkier_txn_t *       txn,
                        fd_pubkey_t const *   pubkey,
                        int                   do_create,
                        ulong                 min_data_sz,
-                       fd_funk_rec_t const * opt_con_rec,
-                       fd_funk_rec_t **      opt_out_rec,
+                       fd_funkier_rec_t const * opt_con_rec,
+                       fd_funkier_rec_t **      opt_out_rec,
                        int *                 opt_err ) {
 
-  fd_funk_t *       funk = acc_mgr->funk;
+  fd_funkier_t *       funk = acc_mgr->funk;
 
-  fd_funk_rec_key_t id   = fd_acc_funk_key( pubkey );
+  fd_funkier_rec_key_t id   = fd_acc_funk_key( pubkey );
 
 //#ifdef VLOG
 //  ulong rec_cnt = 0;
-//  for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, txn );
+//  for( fd_funkier_rec_t const * rec = fd_funkier_txn_first_rec( funk, txn );
 //       NULL != rec;
-//       rec = fd_funk_txn_next_rec( funk, rec ) ) {
+//       rec = fd_funkier_txn_next_rec( funk, rec ) ) {
 //
-//    if( !fd_funk_key_is_acc( rec->pair.key  ) ) continue;
+//    if( !fd_funkier_key_is_acc( rec->pair.key  ) ) continue;
 //
 //    FD_LOG_DEBUG(( "fd_acc_mgr_modify_raw: %s create: %s  rec_cnt: %d", FD_BASE58_ENC_32_ALLOCA( rec->pair.key->uc ), do_create ? "true" : "false", rec_cnt));
 //
@@ -197,7 +197,7 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
 //#endif
 
   int funk_err = FD_FUNK_SUCCESS;
-  fd_funk_rec_t * rec = fd_funk_rec_write_prepare( funk, txn, &id, sizeof(fd_account_meta_t)+min_data_sz, do_create, opt_con_rec, &funk_err );
+  fd_funkier_rec_t * rec = fd_funkier_rec_write_prepare( funk, txn, &id, sizeof(fd_account_meta_t)+min_data_sz, do_create, opt_con_rec, &funk_err );
 
   if( FD_UNLIKELY( !rec ) )  {
     if( FD_LIKELY( funk_err==FD_FUNK_ERR_KEY ) ) {
@@ -205,7 +205,7 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
       return NULL;
     }
     /* Irrecoverable funky internal error [[noreturn]] */
-    FD_LOG_ERR(( "fd_funk_rec_write_prepare(%s) failed (%i-%s)", FD_BASE58_ENC_32_ALLOCA( pubkey->key ), funk_err, fd_funk_strerror( funk_err ) ));
+    FD_LOG_ERR(( "fd_funkier_rec_write_prepare(%s) failed (%i-%s)", FD_BASE58_ENC_32_ALLOCA( pubkey->key ), funk_err, fd_funkier_strerror( funk_err ) ));
   }
 
   if (NULL != opt_out_rec)
@@ -214,9 +214,9 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
   // At this point, we don't know if the record WILL be rent exempt so
   // it is safer to just stick it into the partition and look at it later.
   if ( acc_mgr->slots_per_epoch != 0 )
-    fd_funk_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
+    fd_funkier_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
 
-  fd_account_meta_t * ret = fd_funk_val( rec, fd_funk_wksp( funk ) );
+  fd_account_meta_t * ret = fd_funkier_val( rec, fd_funkier_wksp( funk ) );
 
   if( do_create && ret->magic==0UL ) {
     fd_account_meta_init( ret );
@@ -232,7 +232,7 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
 
 int
 fd_acc_mgr_modify( fd_acc_mgr_t *          acc_mgr,
-                   fd_funk_txn_t *         txn,
+                   fd_funkier_txn_t *         txn,
                    fd_pubkey_t const *     pubkey,
                    int                     do_create,
                    ulong                   min_data_sz,
@@ -299,9 +299,9 @@ fd_acc_mgr_save( fd_acc_mgr_t *          acc_mgr,
     return FD_ACC_MGR_SUCCESS;
   }
 
-  fd_wksp_t * wksp = fd_funk_wksp( acc_mgr->funk );
+  fd_wksp_t * wksp = fd_funkier_wksp( acc_mgr->funk );
   ulong reclen = sizeof(fd_account_meta_t)+account->const_meta->dlen;
-  uchar * raw = fd_funk_val( account->rec, wksp );
+  uchar * raw = fd_funkier_val( account->rec, wksp );
   fd_memcpy( raw, account->meta, reclen );
 
   return FD_ACC_MGR_SUCCESS;
@@ -309,29 +309,29 @@ fd_acc_mgr_save( fd_acc_mgr_t *          acc_mgr,
 
 int
 fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *          acc_mgr,
-                           fd_funk_txn_t *         txn,
+                           fd_funkier_txn_t *         txn,
                            fd_borrowed_account_t * account ) {
 
-  fd_funk_start_write( acc_mgr->funk );
-  fd_funk_rec_key_t key = fd_acc_funk_key( account->pubkey );
-  fd_funk_t * funk = acc_mgr->funk;
-  fd_funk_rec_t * rec = (fd_funk_rec_t *)fd_funk_rec_query( funk, txn, &key );
+  fd_funkier_start_write( acc_mgr->funk );
+  fd_funkier_rec_key_t key = fd_acc_funk_key( account->pubkey );
+  fd_funkier_t * funk = acc_mgr->funk;
+  fd_funkier_rec_t * rec = (fd_funkier_rec_t *)fd_funkier_rec_query( funk, txn, &key );
   if( rec == NULL ) {
     int err;
-    rec = (fd_funk_rec_t *)fd_funk_rec_insert( funk, txn, &key, &err );
+    rec = (fd_funkier_rec_t *)fd_funkier_rec_insert( funk, txn, &key, &err );
     if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %d", err ));
   }
   account->rec = rec;
   if ( acc_mgr->slots_per_epoch != 0 )
-    fd_funk_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
+    fd_funkier_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
   ulong reclen = sizeof(fd_account_meta_t)+account->const_meta->dlen;
-  fd_wksp_t * wksp = fd_funk_wksp( acc_mgr->funk );
+  fd_wksp_t * wksp = fd_funkier_wksp( acc_mgr->funk );
   int err;
-  if( fd_funk_val_truncate( account->rec, reclen, fd_funk_alloc( acc_mgr->funk, wksp ), wksp, &err ) == NULL ) {
+  if( fd_funkier_val_truncate( account->rec, reclen, fd_funkier_alloc( acc_mgr->funk, wksp ), wksp, &err ) == NULL ) {
     FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
   }
   err = fd_acc_mgr_save( acc_mgr, account );
-  fd_funk_end_write( acc_mgr->funk );
+  fd_funkier_end_write( acc_mgr->funk );
   return err;
 }
 
@@ -382,7 +382,7 @@ fd_acc_mgr_save_task( void *tpool,
 
 int
 fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *            acc_mgr,
-                            fd_funk_txn_t *           txn,
+                            fd_funkier_txn_t *           txn,
                             fd_borrowed_account_t * * accounts,
                             ulong                     accounts_cnt,
                             fd_tpool_t *              tpool,
@@ -390,12 +390,12 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *            acc_mgr,
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
-  fd_funk_t *     funk    = acc_mgr->funk;
-  fd_wksp_t *     wksp    = fd_funk_wksp( funk );
-  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
+  fd_funkier_t *     funk    = acc_mgr->funk;
+  fd_wksp_t *     wksp    = fd_funkier_wksp( funk );
+  fd_funkier_rec_t * rec_map = fd_funkier_rec_map( funk, wksp );
 
   ulong batch_cnt = fd_ulong_min(
-    fd_funk_rec_map_private_list_cnt( fd_funk_rec_map_key_max( rec_map ) ),
+    fd_funkier_rec_map_private_list_cnt( fd_funkier_rec_map_key_max( rec_map ) ),
     fd_ulong_pow2_up( fd_tpool_worker_cnt( tpool ) )
   );
   ulong batch_mask = (batch_cnt - 1UL);
@@ -425,7 +425,7 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *            acc_mgr,
     task_accounts_cursor += batch_sz;
   }
 
-  fd_funk_start_write( funk );
+  fd_funkier_start_write( funk );
 
   for( ulong i = 0; i < accounts_cnt; i++ ) {
     fd_borrowed_account_t * account = accounts[i];
@@ -433,16 +433,16 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *            acc_mgr,
     ulong batch_idx = i & batch_mask;
     fd_acc_mgr_save_task_info_t * task_info = &task_infos[batch_idx];
     task_info->accounts[task_info->accounts_cnt++] = account;
-    fd_funk_rec_key_t key = fd_acc_funk_key( account->pubkey );
-    fd_funk_rec_t * rec = (fd_funk_rec_t *)fd_funk_rec_query( funk, txn, &key );
+    fd_funkier_rec_key_t key = fd_acc_funk_key( account->pubkey );
+    fd_funkier_rec_t * rec = (fd_funkier_rec_t *)fd_funkier_rec_query( funk, txn, &key );
     if( rec == NULL ) {
       int err;
-      rec = (fd_funk_rec_t *)fd_funk_rec_insert( funk, txn, &key, &err );
+      rec = (fd_funkier_rec_t *)fd_funkier_rec_insert( funk, txn, &key, &err );
       if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %d", err ));
     }
     account->rec = rec;
     if ( acc_mgr->slots_per_epoch != 0 )
-      fd_funk_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
+      fd_funkier_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
 
     /* This check is to prevent a seg fault in the case where an account with
         null data tries to get saved. This notably happens if firedancer is
@@ -454,9 +454,9 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *            acc_mgr,
 
     ulong reclen = sizeof(fd_account_meta_t)+account->const_meta->dlen;
     int err;
-    if( FD_UNLIKELY( NULL == fd_funk_val_truncate( account->rec,
+    if( FD_UNLIKELY( NULL == fd_funkier_val_truncate( account->rec,
                                                    reclen,
-                                                   fd_funk_alloc( acc_mgr->funk, wksp ),
+                                                   fd_funkier_alloc( acc_mgr->funk, wksp ),
                                                    wksp,
                                                    &err ) ) ) {
       FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
@@ -472,7 +472,7 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *            acc_mgr,
   fd_tpool_exec_all_rrobin( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_acc_mgr_save_task,
                             task_infos, &task_args, NULL, 1, 0, batch_cnt );
 
-  fd_funk_end_write( funk );
+  fd_funkier_end_write( funk );
 
   /* Check results */
   for( ulong i = 0; i < batch_cnt; i++ ) {

@@ -32,7 +32,7 @@
 #include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../choreo/fd_choreo.h"
 #include "../../../../disco/store/fd_epoch_forks.h"
-#include "../../../../funk/fd_funk_filemap.h"
+#include "../../../../funkier/fd_funkier_filemap.h"
 #include "../../../../flamenco/snapshot/fd_snapshot_create.h"
 #include "../../../../disco/plugin/fd_plugin.h"
 #include "../../../../ballet/bmtree/fd_wbmtree.h"
@@ -200,7 +200,7 @@ struct fd_replay_tile_ctx {
 
   fd_alloc_t *          alloc;
   fd_valloc_t           valloc;
-  fd_funk_t *           funk;
+  fd_funkier_t *           funk;
   fd_acc_mgr_t *        acc_mgr;
   fd_exec_epoch_ctx_t * epoch_ctx;
   fd_epoch_t *          epoch;
@@ -326,8 +326,8 @@ struct fd_replay_tile_ctx {
   ulong   prev_incr_snapshot_dist;  /* Tracking for incremental snapshot creation */
   ulong   double_constipation_slot; /* Tracking for double constipation if any */
 
-  fd_funk_txn_t * false_root;
-  fd_funk_txn_t * second_false_root;
+  fd_funkier_txn_t * false_root;
+  fd_funkier_txn_t * second_false_root;
 
   int     is_caught_up;
 
@@ -577,16 +577,16 @@ static void
 funk_cancel( fd_replay_tile_ctx_t * ctx, ulong mismatch_slot ) {
   fd_blockstore_start_read( ctx->blockstore );
   fd_hash_t const * root_block_hash = fd_blockstore_block_hash_query( ctx->blockstore, mismatch_slot );
-  fd_funk_txn_xid_t xid;
-  memcpy( xid.uc, root_block_hash, sizeof( fd_funk_txn_xid_t ) );
+  fd_funkier_txn_xid_t xid;
+  memcpy( xid.uc, root_block_hash, sizeof( fd_funkier_txn_xid_t ) );
   fd_blockstore_end_read( ctx->blockstore );
 
-  fd_funk_start_write( ctx->funk );
+  fd_funkier_start_write( ctx->funk );
   xid.ul[0]                    = mismatch_slot;
-  fd_funk_txn_t * txn_map      = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
-  fd_funk_txn_t * mismatch_txn = fd_funk_txn_query( &xid, txn_map );
-  FD_TEST( fd_funk_txn_cancel( ctx->funk, mismatch_txn, 1 ) );
-  fd_funk_end_write( ctx->funk );
+  fd_funkier_txn_t * txn_map      = fd_funkier_txn_map( ctx->funk, fd_funkier_wksp( ctx->funk ) );
+  fd_funkier_txn_t * mismatch_txn = fd_funkier_txn_query( &xid, txn_map );
+  FD_TEST( fd_funkier_txn_cancel( ctx->funk, mismatch_txn, 1 ) );
+  fd_funkier_end_write( ctx->funk );
 }
 
 struct fd_status_check_ctx {
@@ -605,9 +605,9 @@ blockstore_publish( fd_replay_tile_ctx_t * ctx, ulong wmk ) {
 
 static void
 txncache_publish( fd_replay_tile_ctx_t * ctx,
-                  fd_funk_txn_t *        txn_map,
-                  fd_funk_txn_t *        to_root_txn,
-                  fd_funk_txn_t *        rooted_txn ) {
+                  fd_funkier_txn_t *        txn_map,
+                  fd_funkier_txn_t *        to_root_txn,
+                  fd_funkier_txn_t *        rooted_txn ) {
 
 
   /* For the status cache, we stop rooting until the status cache has been
@@ -621,7 +621,7 @@ txncache_publish( fd_replay_tile_ctx_t * ctx,
     return;
   }
 
-  fd_funk_txn_t * txn = to_root_txn;
+  fd_funkier_txn_t * txn = to_root_txn;
   while( txn!=rooted_txn ) {
     ulong slot = txn->xid.ul[0];
     if( FD_LIKELY( !fd_txncache_get_is_constipated( ctx->slot_ctx->status_cache ) ) ) {
@@ -631,7 +631,7 @@ txncache_publish( fd_replay_tile_ctx_t * ctx,
       FD_LOG_INFO(( "Registering constipated slot %lu", slot ));
       fd_txncache_register_constipated_slot( ctx->slot_ctx->status_cache, slot );
     }
-    txn = fd_funk_txn_parent( txn, txn_map );
+    txn = fd_funkier_txn_parent( txn, txn_map );
   }
 }
 
@@ -705,12 +705,12 @@ snapshot_state_update( fd_replay_tile_ctx_t * ctx, ulong wmk ) {
 
 static void
 funk_publish( fd_replay_tile_ctx_t * ctx,
-              fd_funk_txn_t *        to_root_txn,
-              fd_funk_txn_t *        txn_map,
+              fd_funkier_txn_t *        to_root_txn,
+              fd_funkier_txn_t *        txn_map,
               ulong                  wmk,
               uchar                  is_constipated ) {
 
-  fd_funk_start_write( ctx->funk );
+  fd_funkier_start_write( ctx->funk );
 
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
 
@@ -721,12 +721,12 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
   if( ctx->double_constipation_slot ) {
     FD_LOG_NOTICE(( "Double constipation publish for wmk=%lu", wmk ));
 
-    fd_funk_txn_t * txn = to_root_txn;
+    fd_funkier_txn_t * txn = to_root_txn;
     while( txn!=ctx->second_false_root ) {
-      if( FD_UNLIKELY( fd_funk_txn_publish_into_parent( ctx->funk, txn, 0 ) ) ) {
+      if( FD_UNLIKELY( fd_funkier_txn_publish_into_parent( ctx->funk, txn, 0 ) ) ) {
         FD_LOG_ERR(( "Can't publish funk transaction" ));
       }
-      txn = fd_funk_txn_parent( txn, txn_map );
+      txn = fd_funkier_txn_parent( txn, txn_map );
     }
 
   } else if( is_constipated ) {
@@ -741,8 +741,8 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
       /* First, find the txn where the corresponding slot is the minimum
          pending transaction where >= eah_start_slot. */
 
-      fd_funk_txn_t * txn        = to_root_txn;
-      fd_funk_txn_t * parent_txn = fd_funk_txn_parent( txn, txn_map );
+      fd_funkier_txn_t * txn        = to_root_txn;
+      fd_funkier_txn_t * parent_txn = fd_funkier_txn_parent( txn, txn_map );
 
       while( parent_txn ) {
 
@@ -752,7 +752,7 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
           break;
         }
         txn        = parent_txn;
-        parent_txn = fd_funk_txn_parent( txn, txn_map );
+        parent_txn = fd_funkier_txn_parent( txn, txn_map );
       }
 
       /* We should never get to this point because of the constipated root.
@@ -774,13 +774,13 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
 
       FD_LOG_NOTICE(( "Publishing into constipated root for wmk=%lu", wmk ));
       /* Standard constipated case where we aren't considering the eah. */
-      fd_funk_txn_t * txn        = to_root_txn;
+      fd_funkier_txn_t * txn        = to_root_txn;
 
       while( txn!=ctx->false_root ) {
-        if( FD_UNLIKELY( fd_funk_txn_publish_into_parent( ctx->funk, txn, 0 ) ) ) {
+        if( FD_UNLIKELY( fd_funkier_txn_publish_into_parent( ctx->funk, txn, 0 ) ) ) {
           FD_LOG_ERR(( "Can't publish funk transaction" ));
         }
-        txn = fd_funk_txn_parent( txn, txn_map );
+        txn = fd_funkier_txn_parent( txn, txn_map );
       }
     }
   } else {
@@ -800,8 +800,8 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
          publish. We only want to publish all slots that are <= the slot that
          we will calculate the epoch account hash for. */
 
-      fd_funk_txn_t * txn        = to_root_txn;
-      fd_funk_txn_t * parent_txn = fd_funk_txn_parent( txn, txn_map );
+      fd_funkier_txn_t * txn        = to_root_txn;
+      fd_funkier_txn_t * parent_txn = fd_funkier_txn_parent( txn, txn_map );
       while( parent_txn ) {
         /* We need to be careful here because the eah start slot may be skipped
            so the actual slot that we calculate the eah for may be greater than
@@ -816,7 +816,7 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
           break;
         }
         txn        = parent_txn;
-        parent_txn = fd_funk_txn_parent( txn, txn_map );
+        parent_txn = fd_funkier_txn_parent( txn, txn_map );
       }
 
       /* At this point, we know txn is the funk txn that we will want to
@@ -825,7 +825,7 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
 
       FD_LOG_NOTICE(( "The eah has an expected start slot of %lu and is being created for slot %lu", epoch_bank->eah_start_slot, txn->xid.ul[0] ));
 
-      if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk, txn, 1 ) ) ) {
+      if( FD_UNLIKELY( !fd_funkier_txn_publish( ctx->funk, txn, 1 ) ) ) {
         FD_LOG_ERR(( "failed to funk publish" ));
       }
 
@@ -845,20 +845,20 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
          including the watermark. This will publish any in-prep ancestors
          of root_txn as well. */
 
-      if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk, to_root_txn, 1 ) ) ) {
+      if( FD_UNLIKELY( !fd_funkier_txn_publish( ctx->funk, to_root_txn, 1 ) ) ) {
         FD_LOG_ERR(( "failed to funk publish slot %lu", wmk ));
       }
     }
   }
 
-  fd_funk_end_write( ctx->funk );
+  fd_funkier_end_write( ctx->funk );
 
 }
 
-static fd_funk_txn_t*
+static fd_funkier_txn_t*
 get_rooted_txn( fd_replay_tile_ctx_t * ctx,
-                fd_funk_txn_t *        to_root_txn,
-                fd_funk_txn_t *        txn_map,
+                fd_funkier_txn_t *        to_root_txn,
+                fd_funkier_txn_t *        txn_map,
                 uchar                  is_constipated ) {
 
   /* We need to get the rooted transaction that we are publishing into. This
@@ -874,9 +874,9 @@ get_rooted_txn( fd_replay_tile_ctx_t * ctx,
     if( FD_UNLIKELY( !ctx->second_false_root ) ) {
 
       /* Set value of second false root, save it and publish to txncache. */
-      fd_funk_txn_t * txn = to_root_txn;
+      fd_funkier_txn_t * txn = to_root_txn;
       while( txn->xid.ul[0]>ctx->double_constipation_slot ) {
-        txn = fd_funk_txn_parent( txn, txn_map );
+        txn = fd_funkier_txn_parent( txn, txn_map );
       }
 
       if( FD_LIKELY( !fd_txncache_get_is_constipated( ctx->slot_ctx->status_cache ) ) ) {
@@ -895,11 +895,11 @@ get_rooted_txn( fd_replay_tile_ctx_t * ctx,
 
     if( FD_UNLIKELY( !ctx->false_root ) ) {
 
-      fd_funk_txn_t * txn        = to_root_txn;
-      fd_funk_txn_t * parent_txn = fd_funk_txn_parent( txn, txn_map );
+      fd_funkier_txn_t * txn        = to_root_txn;
+      fd_funkier_txn_t * parent_txn = fd_funkier_txn_parent( txn, txn_map );
       while( parent_txn ) {
         txn        = parent_txn;
-        parent_txn = fd_funk_txn_parent( txn, txn_map );
+        parent_txn = fd_funkier_txn_parent( txn, txn_map );
       }
 
       ctx->false_root = txn;
@@ -916,7 +916,7 @@ get_rooted_txn( fd_replay_tile_ctx_t * ctx,
 }
 
 static void
-funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funk_txn_xid_t const * xid ) {
+funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funkier_txn_xid_t const * xid ) {
 
   FD_LOG_NOTICE(( "Entering funk_and_txncache_publish for wmk=%lu", wmk ));
 
@@ -1010,9 +1010,9 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funk_txn_xi
 
   /* Handle updates to funk and the status cache. */
 
-  fd_funk_txn_t * txn_map     = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
-  fd_funk_txn_t * to_root_txn = fd_funk_txn_query( xid, txn_map );
-  fd_funk_txn_t * rooted_txn  = get_rooted_txn( ctx, to_root_txn, txn_map, is_constipated );
+  fd_funkier_txn_t * txn_map     = fd_funkier_txn_map( ctx->funk, fd_funkier_wksp( ctx->funk ) );
+  fd_funkier_txn_t * to_root_txn = fd_funkier_txn_query( xid, txn_map );
+  fd_funkier_txn_t * rooted_txn  = get_rooted_txn( ctx, to_root_txn, txn_map, is_constipated );
 
   txncache_publish( ctx, txn_map, to_root_txn, rooted_txn );
 
@@ -1291,18 +1291,18 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
 
   fork->slot_ctx.status_cache = ctx->status_cache;
 
-  fd_funk_txn_xid_t xid = { 0 };
+  fd_funkier_txn_xid_t xid = { 0 };
 
   if( flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
-    memset( xid.uc, 0, sizeof(fd_funk_txn_xid_t) );
+    memset( xid.uc, 0, sizeof(fd_funkier_txn_xid_t) );
   } else {
-    fd_memcpy(xid.uc, ctx->blockhash.uc, sizeof(fd_funk_txn_xid_t));
+    fd_memcpy(xid.uc, ctx->blockhash.uc, sizeof(fd_funkier_txn_xid_t));
   }
   xid.ul[0] = fork->slot_ctx.slot_bank.slot;
   /* push a new transaction on the stack */
-  fd_funk_start_write( ctx->funk );
-  fork->slot_ctx.funk_txn = fd_funk_txn_prepare(ctx->funk, fork->slot_ctx.funk_txn, &xid, 1);
-  fd_funk_end_write( ctx->funk );
+  fd_funkier_start_write( ctx->funk );
+  fork->slot_ctx.funk_txn = fd_funkier_txn_prepare(ctx->funk, fork->slot_ctx.funk_txn, &xid, 1);
+  fd_funkier_end_write( ctx->funk );
 
   if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_block_pre_execute_process_new_epoch( &fork->slot_ctx,
                                                                                                  ctx->tpool,
@@ -2196,12 +2196,12 @@ read_snapshot( void *              _ctx,
                              ctx->slot_ctx->slot_bank.slot,
                              ctx->runtime_spad );
   FD_LOG_NOTICE(( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
-  fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
+  fd_funkier_start_write( ctx->slot_ctx->acc_mgr->funk );
   fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( ctx->slot_ctx,
                                                         ctx->slot_ctx->funk_txn,
                                                         ctx->tpool,
                                                         ctx->runtime_spad );
-  fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
+  fd_funkier_end_write( ctx->slot_ctx->acc_mgr->funk );
   FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
   fd_blockstore_start_write( ctx->slot_ctx->blockstore );
@@ -2257,12 +2257,12 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
     snapshot_slot                      = 1UL;
 
     FD_LOG_NOTICE(( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
-    fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
+    fd_funkier_start_write( ctx->slot_ctx->acc_mgr->funk );
     fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( ctx->slot_ctx,
                                                           ctx->slot_ctx->funk_txn,
                                                           ctx->tpool,
                                                           ctx->runtime_spad );
-    fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
+    fd_funkier_end_write( ctx->slot_ctx->acc_mgr->funk );
     FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
   }
@@ -2281,7 +2281,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   fd_epoch_init( ctx->epoch, &snapshot_fork->slot_ctx.epoch_ctx->epoch_bank );
   fd_ghost_init( ctx->ghost, snapshot_slot );
 
-  fd_funk_rec_key_t key = { 0 };
+  fd_funkier_rec_key_t key = { 0 };
   fd_memcpy( key.c, ctx->vote_acc, sizeof(fd_pubkey_t) );
   key.c[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
   fd_tower_from_vote_acc( ctx->tower, ctx->funk, snapshot_fork->slot_ctx.funk_txn, &key );
@@ -2515,8 +2515,8 @@ during_housekeeping( void * _ctx ) {
 
   fd_blockstore_start_read( ctx->blockstore );
   fd_hash_t const * root_block_hash = fd_blockstore_block_hash_query( ctx->blockstore, wmk );
-  fd_funk_txn_xid_t xid;
-  memcpy( xid.uc, root_block_hash, sizeof( fd_funk_txn_xid_t ) );
+  fd_funkier_txn_xid_t xid;
+  memcpy( xid.uc, root_block_hash, sizeof( fd_funkier_txn_xid_t ) );
   fd_blockstore_end_read( ctx->blockstore );
   xid.ul[0] = wmk;
 
@@ -2640,20 +2640,20 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* TODO: This below code needs to be shared as a topology object. This
      will involve adding support to create a funk-based file here. */
-  fd_funk_t * funk;
+  fd_funkier_t * funk;
   const char * snapshot = tile->replay.snapshot;
   if( strcmp( snapshot, "funk" ) == 0 ) {
     /* Funk database already exists. The parameters are actually mostly ignored. */
-    funk = fd_funk_open_file(
+    funk = fd_funkier_open_file(
       tile->replay.funk_file, 1, ctx->funk_seed, tile->replay.funk_txn_max,
         tile->replay.funk_rec_max, tile->replay.funk_sz_gb * (1UL<<30),
         FD_FUNK_READ_WRITE, NULL );
   } else if( strncmp( snapshot, "wksp:", 5 ) == 0) {
     /* Recover funk database from a checkpoint. */
-    funk = fd_funk_recover_checkpoint( tile->replay.funk_file, 1, snapshot+5, NULL );
+    funk = fd_funkier_recover_checkpoint( tile->replay.funk_file, 1, snapshot+5, NULL );
   } else {
     /* Create new funk database */
-    funk = fd_funk_open_file(
+    funk = fd_funkier_open_file(
       tile->replay.funk_file, 1, ctx->funk_seed, tile->replay.funk_txn_max,
         tile->replay.funk_rec_max, tile->replay.funk_sz_gb * (1UL<<30),
         FD_FUNK_OVERWRITE, NULL );
@@ -2663,7 +2663,7 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "no funk loaded" ));
   }
   ctx->funk = funk;
-  ctx->funk_wksp = fd_funk_wksp( funk );
+  ctx->funk_wksp = fd_funkier_wksp( funk );
   if( FD_UNLIKELY( ctx->funk_wksp == NULL ) ) {
     FD_LOG_ERR(( "no funk wksp" ));
   }

@@ -106,7 +106,7 @@ typedef struct fd_rpc_acct_map_elem fd_rpc_acct_map_elem_t;
 struct fd_rpc_global_ctx {
   fd_valloc_t valloc;
   fd_webserver_t ws;
-  fd_funk_t * funk;
+  fd_funkier_t * funk;
   fd_blockstore_t blockstore[1];
   int blockstore_fd;
   struct fd_ws_subscription sub_list[FD_WS_MAX_SUBS];
@@ -135,9 +135,9 @@ struct fd_rpc_ctx {
 
 static void *
 read_account( fd_rpc_ctx_t * ctx, fd_pubkey_t * acct, ulong * result_len ) {
-  fd_funk_rec_key_t recid = fd_acc_funk_key(acct);
-  fd_funk_t * funk = ctx->global->funk;
-  return fd_funk_rec_query_safe(funk, &recid, fd_scratch_virtual(), result_len);
+  fd_funkier_rec_key_t recid = fd_acc_funk_key(acct);
+  fd_funkier_t * funk = ctx->global->funk;
+  return fd_funkier_rec_query_safe(funk, &recid, fd_scratch_virtual(), result_len);
 }
 
 static void
@@ -161,10 +161,10 @@ fd_method_error( fd_rpc_ctx_t * ctx, int errcode, const char* format, ... ) {
 
 
 static void *
-read_account_with_xid( fd_rpc_ctx_t * ctx, fd_pubkey_t * acct, fd_funk_txn_xid_t * xid, ulong * result_len ) {
-  fd_funk_rec_key_t recid = fd_acc_funk_key(acct);
-  fd_funk_t * funk = ctx->global->funk;
-  return fd_funk_rec_query_xid_safe(funk, &recid, xid, fd_scratch_virtual(), result_len);
+read_account_with_xid( fd_rpc_ctx_t * ctx, fd_pubkey_t * acct, fd_funkier_txn_xid_t * xid, ulong * result_len ) {
+  fd_funkier_rec_key_t recid = fd_acc_funk_key(acct);
+  fd_funkier_t * funk = ctx->global->funk;
+  return fd_funkier_rec_query_xid_safe(funk, &recid, xid, fd_scratch_virtual(), result_len);
 }
 
 
@@ -203,13 +203,13 @@ read_epoch_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
       glob->epoch_bank = NULL;
     }
 
-    fd_funk_rec_key_t recid = fd_runtime_epoch_bank_key();
+    fd_funkier_rec_key_t recid = fd_runtime_epoch_bank_key();
     ulong vallen;
-    fd_funk_t * funk = ctx->global->funk;
+    fd_funkier_t * funk = ctx->global->funk;
 
     /* FIXME always uses the root's epoch bank because we don't serialize it */
 
-    void * val = fd_funk_rec_query_safe(funk, &recid, fd_scratch_virtual(), &vallen);
+    void * val = fd_funkier_rec_query_safe(funk, &recid, fd_scratch_virtual(), &vallen);
     if( val == NULL ) {
       FD_LOG_WARNING(( "failed to decode epoch_bank" ));
       return NULL;
@@ -244,11 +244,11 @@ read_epoch_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
 
 fd_slot_bank_t *
 read_slot_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
-  fd_funk_rec_key_t recid = fd_runtime_slot_bank_key();
+  fd_funkier_rec_key_t recid = fd_runtime_slot_bank_key();
   ulong vallen;
 
   fd_rpc_global_ctx_t * glob = ctx->global;
-  fd_funk_t * funk = ctx->global->funk;
+  fd_funkier_t * funk = ctx->global->funk;
 
   fd_block_map_t block_map_entry = { 0 };
   fd_blockstore_block_map_query_volatile( glob->blockstore, glob->blockstore_fd, slot, &block_map_entry );
@@ -256,12 +256,12 @@ read_slot_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
     FD_LOG_WARNING( ( "query_volatile failed" ) );
     return NULL;
   }
-  fd_funk_txn_xid_t xid = { 0 };
-  memcpy( xid.uc, &block_map_entry.block_hash, sizeof( fd_funk_txn_xid_t ) );
+  fd_funkier_txn_xid_t xid = { 0 };
+  memcpy( xid.uc, &block_map_entry.block_hash, sizeof( fd_funkier_txn_xid_t ) );
   xid.ul[0] = slot;
-  void * val = fd_funk_rec_query_xid_safe(funk, &recid, &xid, fd_scratch_virtual(), &vallen);
+  void * val = fd_funkier_rec_query_xid_safe(funk, &recid, &xid, fd_scratch_virtual(), &vallen);
   if( FD_UNLIKELY( !val ) ) {
-    val = fd_funk_rec_query_safe(funk, &recid, fd_scratch_virtual(), &vallen);
+    val = fd_funkier_rec_query_safe(funk, &recid, fd_scratch_virtual(), &vallen);
     if( FD_UNLIKELY( !val ) ) {
       FD_LOG_WARNING(( "failed to decode slot_bank" ));
       return NULL;
