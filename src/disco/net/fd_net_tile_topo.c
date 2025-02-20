@@ -115,7 +115,7 @@ fd_topos_net_tile_umem( fd_topo_t * topo,
   rx_depth += (rx_depth/2UL);
   tx_depth += (tx_depth/2UL);
 
-  if( net_kind_id ) {
+  if( net_kind_id==0 ) {
     /* Double it for loopback XSK */
     rx_depth *= 2UL;
     tx_depth *= 2UL;
