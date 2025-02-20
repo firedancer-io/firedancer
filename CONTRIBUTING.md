@@ -1,3 +1,26 @@
+## Developing
+Firedancer currently only supports Linux and requires a relatively new
+kernel, at least v4.18 to build.
+
+```console
+$ git clone --recurse-submodules https://github.com/firedancer-io/firedancer.git
+$ cd firedancer
+$ ./deps.sh +dev
+$ make -j run
+```
+
+The `make run` target runs the `fddev dev` command. This development
+command will ensure your system is configured correctly before creating
+a genesis block, some keys, a faucet, and then starting a validator on
+the local machine. `fddev` will use `sudo` to make privileged changes to
+system configuration where needed. If `sudo` is not available, you may
+need to run the command as root.
+
+By default `fddev` will create a new development cluster, if you wish to
+join this cluster with other validators, you can define
+`[rpc.entrypoints]` in the configuration file to point at your first
+validator and run `fddev dev` again.
+
 ## Firedancer Code Style Guide
 
 Below is an incomplete list of code style rules.
