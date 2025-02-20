@@ -114,8 +114,8 @@ typedef fd_funkier_rec_map_query_t fd_funkier_rec_query_t;
    fd_funkier_rec_prepare. */
 
 struct _fd_funkier_rec_prepare {
-  fd_funkier_rec_map_t rec_map;
-  fd_funkier_rec_pool_t rec_pool;
+  fd_funkier_t * funk;
+  fd_wksp_t * wksp;
   fd_funkier_rec_t * rec;
   ulong * rec_head_idx;
   ulong * rec_tail_idx;

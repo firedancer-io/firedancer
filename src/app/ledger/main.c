@@ -676,7 +676,6 @@ allocator_setup( fd_wksp_t * wksp ) {
 void
 fd_ledger_main_setup( fd_ledger_args_t * args ) {
   fd_flamenco_boot( NULL, NULL );
-  fd_funkier_t * funk = args->funk;
 
   /* Setup capture context */
   int has_solcap           = args->capture_fpath && args->capture_fpath[0] != '\0';
@@ -911,8 +910,7 @@ init_funk( fd_ledger_args_t * args ) {
   }
   args->funk = funk;
   args->funk_wksp = fd_funkier_wksp( funk );
-  FD_LOG_NOTICE(( "funky at global address 0x%016lx with %lu records", fd_wksp_gaddr_fast( args->funk_wksp, funk ),
-                                                                       fd_funkier_rec_cnt( fd_funkier_rec_map( funk, args->funk_wksp ) ) ));
+  FD_LOG_NOTICE(( "funky at global address 0x%016lx", fd_wksp_gaddr_fast( args->funk_wksp, funk ) );
 }
 
 void
@@ -1130,7 +1128,7 @@ ingest( fd_ledger_args_t * args ) {
                           args->exec_spads,
                           args->exec_spad_cnt,
                           args->runtime_spad );
-    FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funkier_rec_cnt( fd_funkier_rec_map( funk, fd_funkier_wksp( funk ) ) ) ));
+    FD_LOG_NOTICE(( "imported records from snapshot" ));
   }
   if( args->incremental ) {
     fd_snapshot_load_all( args->incremental,

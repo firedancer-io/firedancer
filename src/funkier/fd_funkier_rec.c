@@ -164,10 +164,10 @@ fd_funkier_rec_prepare( fd_funkier_t *               funk,
     }
   }
 
-  fd_wksp_t * wksp = fd_funkier_wksp( funk );
-  prepare->rec_map = fd_funkier_rec_map( funk, wksp );
-  prepare->rec_pool = fd_funkier_rec_pool( funk, wksp );
-  fd_funkier_rec_t * rec = prepare->rec = fd_funkier_rec_pool_acquire( &prepare->rec_pool, NULL, 1, opt_err );
+  rec->funk = funk
+  rec->wksp = fd_funkier_wksp( funk );
+  fd_funkier_rec_pool_t rec_pool = fd_funkier_rec_pool( funk, wksp );
+  fd_funkier_rec_t * rec = prepare->rec = fd_funkier_rec_pool_acquire( &rec_pool, NULL, 1, opt_err );
   if( rec != NULL ) {
     if( txn == NULL ) {
       fd_funkier_txn_xid_set_root( rec->pair.xid );
@@ -198,9 +198,12 @@ fd_funkier_rec_publish( fd_funkier_rec_prepare_t * prepare ) {
   fd_funkier_rec_t * rec = prepare->rec;
   ulong * rec_head_idx = prepare->rec_head_idx;
   ulong * rec_tail_idx = prepare->rec_tail_idx;
+  fd_funkier_rec_map_t rec_map = fd_funkier_rec_map( prepare->funk, prepare->wksp );
+  fd_funkier_rec_pool_t rec_pool = fd_funkier_rec_pool( prepare->funk, prepare->wksp );
+
   /* Use the tail idx to establish an order even if there is concurrency */
   ulong rec_prev_idx;
-  ulong rec_idx = (ulong)( rec - prepare->rec_pool.ele );
+  ulong rec_idx = (ulong)( rec - rec_pool.ele );
   for(;;) {
     rec_prev_idx = *rec_tail_idx;
     if( FD_ATOMIC_CAS( rec_tail_idx, rec_prev_idx, rec_idx ) == rec_prev_idx ) break;
@@ -212,13 +215,14 @@ fd_funkier_rec_publish( fd_funkier_rec_prepare_t * prepare ) {
     prepare->rec_pool.ele[ rec_prev_idx ].next_idx = rec_idx;
   }
 
-  if( fd_funkier_rec_map_insert( &prepare->rec_map, rec, FD_MAP_FLAG_BLOCKING ) ) {
+  if( fd_funkier_rec_map_insert( &rec_map, rec, FD_MAP_FLAG_BLOCKING ) ) {
     FD_LOG_CRIT(( "fd_funkier_rec_map_insert failed" ));
   }
 }
 
 void
 fd_funkier_rec_cancel( fd_funkier_rec_prepare_t * prepare ) {
+  fd_funkier_val_flush( prepare->rec, fd_funkier_alloc( prepare->funk, prepare->wksp ), prepare->wksp );
   fd_funkier_rec_pool_release( &prepare->rec_pool, prepare->rec, 1 );
 }
 

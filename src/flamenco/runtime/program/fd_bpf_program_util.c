@@ -196,19 +196,21 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     }
 
     int funk_err = FD_FUNKIER_SUCCESS;
-    fd_funkier_rec_t const * existing_rec = fd_funkier_rec_query_global( funk, funk_txn, &id, NULL );
-    fd_funkier_rec_t *       rec          = fd_funkier_rec_write_prepare( funk, funk_txn, &id, fd_sbpf_validated_program_footprint( &elf_info ), 1, existing_rec, &funk_err );
+    fd_funkier_rec_prepare_t prepare[1];
+    fd_funkier_rec_t * rec = fd_funkier_rec_prepare( funk, funk_txn, &id, prepare, NULL );
     if( rec == NULL || funk_err != FD_FUNKIER_SUCCESS ) {
       return -1;
     }
 
-    void * val = fd_funkier_val( rec, fd_funkier_wksp( funk ) );
+    fd_wksp_t * wksp = fd_funkier_wksp( funk );
+    void * val = fd_funkier_val_truncate( rec, fd_sbpf_validated_program_footprint( &elf_info ), fd_funkier_alloc( funk, wksp ), wksp, NULL );;
     fd_sbpf_validated_program_t * validated_prog = fd_sbpf_validated_program_new( val, &elf_info );
 
     ulong  prog_align     = fd_sbpf_program_align();
     ulong  prog_footprint = fd_sbpf_program_footprint( &elf_info );
     fd_sbpf_program_t * prog = fd_sbpf_program_new(  fd_spad_alloc( runtime_spad, prog_align, prog_footprint ), &elf_info, validated_prog->rodata );
     if( FD_UNLIKELY( !prog ) ) {
+      fd_funkier_rec_cancel( prepare );
       return -1;
     }
 
@@ -226,7 +228,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, false ) ) ) {
       /* Remove pending funk record */
       FD_LOG_DEBUG(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
-      fd_funkier_rec_remove( funk, rec, funk_txn->xid.ul[0] );
+      fd_funkier_rec_cancel( prepare );
       return -1;
     }
 
@@ -269,7 +271,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     if( FD_UNLIKELY( res ) ) {
       /* Remove pending funk record */
       FD_LOG_DEBUG(( "fd_vm_validate() failed" ));
-      fd_funkier_rec_remove( funk, rec, 0UL );
+      fd_funkier_rec_cancel( prepare );
       return -1;
     }
 
@@ -282,6 +284,8 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     validated_prog->text_cnt = prog->text_cnt;
     validated_prog->text_sz = prog->text_sz;
     validated_prog->rodata_sz = prog->rodata_sz;
+
+    fd_funkier_rec_publish( prepare );
 
     return 0;
   } FD_SPAD_FRAME_END;
@@ -474,17 +478,22 @@ fd_bpf_load_cache_entry( fd_exec_slot_ctx_t const *     slot_ctx,
   fd_funkier_txn_t * funk_txn = slot_ctx->funk_txn;
   fd_funkier_rec_key_t id   = fd_acc_mgr_cache_key( program_pubkey );
 
-  fd_funkier_rec_t const * rec = fd_funkier_rec_query_global(funk, funk_txn, &id, NULL);
+  for(;;) {
+    fd_funkier_rec_query_t query[1];
+    fd_funkier_rec_t const * rec = fd_funkier_rec_query_try_global(funk, funk_txn, &id, query);
 
-  if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNKIER_REC_FLAG_ERASE ) ) ) {
-    return -1;
+    if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNKIER_REC_FLAG_ERASE ) ) ) {
+      return -1;
+    }
+
+    void const * data = fd_funkier_val_const( rec, fd_funkier_wksp(funk) );
+
+    /* TODO: magic check */
+
+    *valid_prog = (fd_sbpf_validated_program_t *)data;
+
+    if( fd_funkier_rec_query_test( query ) ) return 0;
+
+    /* Try again */
   }
-
-  void const * data = fd_funkier_val_const( rec, fd_funkier_wksp(funk) );
-
-  /* TODO: magic check */
-
-  *valid_prog = (fd_sbpf_validated_program_t *)data;
-
-  return 0;
 }
