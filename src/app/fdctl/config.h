@@ -217,7 +217,7 @@ struct fdctl_config {
       uint   ip_addr;
       uchar  mac_addr[6];
       char   xdp_mode[ 8 ];
-      int    xdp_force_zero_copy;
+      int    xdp_zero_copy;
 
       uint xdp_rx_queue_size;
       uint xdp_tx_queue_size;

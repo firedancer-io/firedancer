@@ -50,7 +50,7 @@ fd_topos_net_tiles( fd_topo_t *      topo,
     tile->net.xdp_rx_queue_size = config->tiles.net.xdp_rx_queue_size;
     tile->net.xdp_tx_queue_size = config->tiles.net.xdp_tx_queue_size;
     tile->net.src_ip_addr       = config->tiles.net.ip_addr;
-    tile->net.zero_copy         = config->tiles.net.xdp_force_zero_copy;
+    tile->net.zero_copy         = config->tiles.net.xdp_zero_copy;
     fd_memset( tile->net.xdp_mode, 0, 4 );
     fd_memcpy( tile->net.xdp_mode, config->tiles.net.xdp_mode, strnlen( config->tiles.net.xdp_mode, 3 ) );  /* GCC complains about strncpy */
 
@@ -115,7 +115,7 @@ fd_topos_net_tile_umem( fd_topo_t * topo,
   rx_depth += (rx_depth/2UL);
   tx_depth += (tx_depth/2UL);
 
-  if( net_kind_id ) {
+  if( net_kind_id==0 ) {
     /* Double it for loopback XSK */
     rx_depth *= 2UL;
     tx_depth *= 2UL;

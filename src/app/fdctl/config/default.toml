@@ -893,7 +893,7 @@ dynamic_port_range = "8900-9000"
         # the xdp_mode option above).  If the kernel/hardware does not
         # support zero copy, `fdctl run` will fail to start up with
         # "operation not supported".
-        xdp_force_zero_copy = false
+        xdp_zero_copy = false
 
         # XDP uses metadata queues shared across the kernel and
         # userspace to relay events about incoming and outgoing packets.

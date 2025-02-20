@@ -997,7 +997,11 @@ privileged_init( fd_topo_t *      topo,
   fd_xsk_params_t params0 = {
     .if_idx      = if_idx,
     .if_queue_id = (uint)tile->kind_id,
-    .bind_flags  = tile->net.zero_copy ? XDP_ZEROCOPY : 0,
+
+    /* Some kernels produce EOPNOTSUP errors on sendto calls when
+       starting up without either XDP_ZEROCOPY or XDP_COPY
+       (e.g. 5.14.0-503.23.1.el9_5 with i40e) */
+    .bind_flags  = tile->net.zero_copy ? XDP_ZEROCOPY : XDP_COPY,
 
     .fr_depth  = tile->net.xdp_rx_queue_size*2,
     .rx_depth  = tile->net.xdp_rx_queue_size,

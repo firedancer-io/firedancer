@@ -21,6 +21,7 @@ jobs:
           submodules: recursive
 
       - uses: ./.github/actions/deps
+      - uses: ./.github/actions/cpusonline
       - uses: ./.github/actions/hugepages
         with:
           count_gigantic: 250
