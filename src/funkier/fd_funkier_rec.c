@@ -164,9 +164,9 @@ fd_funkier_rec_prepare( fd_funkier_t *               funk,
     }
   }
 
-  rec->funk = funk
-  rec->wksp = fd_funkier_wksp( funk );
-  fd_funkier_rec_pool_t rec_pool = fd_funkier_rec_pool( funk, wksp );
+  prepare->funk = funk;
+  prepare->wksp = fd_funkier_wksp( funk );
+  fd_funkier_rec_pool_t rec_pool = fd_funkier_rec_pool( funk, prepare->wksp );
   fd_funkier_rec_t * rec = prepare->rec = fd_funkier_rec_pool_acquire( &rec_pool, NULL, 1, opt_err );
   if( rec != NULL ) {
     if( txn == NULL ) {
@@ -176,7 +176,7 @@ fd_funkier_rec_prepare( fd_funkier_t *               funk,
       prepare->rec_tail_idx = &funk->rec_tail_idx;
     } else {
       fd_funkier_txn_xid_copy( rec->pair.xid, &txn->xid );
-      fd_funkier_txn_pool_t txn_pool = fd_funkier_txn_pool( funk, wksp );
+      fd_funkier_txn_pool_t txn_pool = fd_funkier_txn_pool( funk, prepare->wksp );
       rec->txn_cidx = fd_funkier_txn_cidx( (ulong)( txn - txn_pool.ele ) );
       prepare->rec_head_idx = &txn->rec_head_idx;
       prepare->rec_tail_idx = &txn->rec_tail_idx;
@@ -212,7 +212,7 @@ fd_funkier_rec_publish( fd_funkier_rec_prepare_t * prepare ) {
   if( fd_funkier_rec_idx_is_null( rec_prev_idx ) ) {
     *rec_head_idx = rec_idx;
   } else {
-    prepare->rec_pool.ele[ rec_prev_idx ].next_idx = rec_idx;
+    rec_pool.ele[ rec_prev_idx ].next_idx = rec_idx;
   }
 
   if( fd_funkier_rec_map_insert( &rec_map, rec, FD_MAP_FLAG_BLOCKING ) ) {
@@ -223,7 +223,8 @@ fd_funkier_rec_publish( fd_funkier_rec_prepare_t * prepare ) {
 void
 fd_funkier_rec_cancel( fd_funkier_rec_prepare_t * prepare ) {
   fd_funkier_val_flush( prepare->rec, fd_funkier_alloc( prepare->funk, prepare->wksp ), prepare->wksp );
-  fd_funkier_rec_pool_release( &prepare->rec_pool, prepare->rec, 1 );
+  fd_funkier_rec_pool_t rec_pool = fd_funkier_rec_pool( prepare->funk, prepare->wksp );
+  fd_funkier_rec_pool_release( &rec_pool, prepare->rec, 1 );
 }
 
 int
