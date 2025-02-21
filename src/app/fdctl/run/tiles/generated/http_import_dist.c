@@ -3,9 +3,9 @@
 
 FD_IMPORT_BINARY( file0, "src/app/fdctl/dist/assets/firedancer-D_J0EzUc.svg" );
 FD_IMPORT_BINARY( file1, "src/app/fdctl/dist/assets/firedancer_logo-CrgwxzPk.svg" );
-FD_IMPORT_BINARY( file2, "src/app/fdctl/dist/assets/index-B14c7oeR.css" );
-FD_IMPORT_BINARY( file3, "src/app/fdctl/dist/assets/index-BmkA9nie.js" );
-FD_IMPORT_BINARY( file4, "src/app/fdctl/dist/assets/index-CLskW7VO.js" );
+FD_IMPORT_BINARY( file2, "src/app/fdctl/dist/assets/index-D1m0jlEc.js" );
+FD_IMPORT_BINARY( file3, "src/app/fdctl/dist/assets/index-D2Cc6_k3.css" );
+FD_IMPORT_BINARY( file4, "src/app/fdctl/dist/assets/index-DiIImpOK.js" );
 FD_IMPORT_BINARY( file5, "src/app/fdctl/dist/assets/index-Dz6VwGqc.css" );
 FD_IMPORT_BINARY( file6, "src/app/fdctl/dist/assets/inter-tight-latin-400-normal-BW_APOAv.woff" );
 FD_IMPORT_BINARY( file7, "src/app/fdctl/dist/assets/inter-tight-latin-400-normal-CjmW70MP.woff2" );
@@ -25,17 +25,17 @@ fd_http_static_file_t STATIC_FILES[] = {
         .data_len = &file1_sz,
     },
     {
-        .name = "/assets/index-B14c7oeR.css",
+        .name = "/assets/index-D1m0jlEc.js",
         .data = file2,
         .data_len = &file2_sz,
     },
     {
-        .name = "/assets/index-BmkA9nie.js",
+        .name = "/assets/index-D2Cc6_k3.css",
         .data = file3,
         .data_len = &file3_sz,
     },
     {
-        .name = "/assets/index-CLskW7VO.js",
+        .name = "/assets/index-DiIImpOK.js",
         .data = file4,
         .data_len = &file4_sz,
     },
