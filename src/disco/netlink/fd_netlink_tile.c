@@ -169,7 +169,7 @@ privileged_init( fd_topo_t *      topo,
   fd_neigh4_prober_init( ctx->prober, max_probes_per_second, max_probe_burst, probe_delay_seconds );
 
   /* Set duration of blocking reads in before_credit */
-  struct timeval tv = { .tv_usec = 3753, }; /* 3.75ms */
+  struct timeval tv = { .tv_usec = 2000 }; /* 2ms */
   if( FD_UNLIKELY( 0!=setsockopt( ctx->nl_monitor->fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(struct timeval) ) ) ) {
     FD_LOG_ERR(( "setsockopt(sock,SOL_SOCKET,SO_RCVTIMEO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
@@ -407,7 +407,7 @@ after_frag( fd_netlink_tile_ctx_t * ctx,
 }
 
 #define STEM_BURST (1UL)
-#define STEM_LAZY ((ulong)43e6) /* 43ms */
+#define STEM_LAZY ((ulong)13e6) /* 13ms */
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_netlink_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_netlink_tile_ctx_t)
