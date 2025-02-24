@@ -580,6 +580,7 @@ monitor_cmd_fn( args_t *         args,
     fd_sandbox_enter( config->uid,
                       config->gid,
                       0,
+                      0,
                       1, /* Keep controlling terminal for main so it can receive Ctrl+C */
                       0UL,
                       0UL,
