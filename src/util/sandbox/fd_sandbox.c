@@ -476,7 +476,7 @@ struct landlock_ruleset_attr {
 };
 
 void
-fd_sandbox_private_landlock_restrict_self( void ) {
+fd_sandbox_private_landlock_restrict_self( int allow_connect ) {
   struct landlock_ruleset_attr attr = {
     .handled_access_fs =
       LANDLOCK_ACCESS_FS_EXECUTE |
@@ -496,9 +496,10 @@ fd_sandbox_private_landlock_restrict_self( void ) {
       LANDLOCK_ACCESS_FS_TRUNCATE |
       LANDLOCK_ACCESS_FS_IOCTL_DEV,
     .handled_access_net =
-      LANDLOCK_ACCESS_NET_BIND_TCP |
-      LANDLOCK_ACCESS_NET_CONNECT_TCP,
+      LANDLOCK_ACCESS_NET_BIND_TCP,
   };
+
+  if( FD_UNLIKELY( !allow_connect ) ) attr.handled_access_net |= LANDLOCK_ACCESS_NET_CONNECT_TCP;
 
   long abi = syscall( SYS_landlock_create_ruleset, NULL, 0, LANDLOCK_CREATE_RULESET_VERSION );
   if( -1L==abi && (errno==ENOSYS || errno==EOPNOTSUPP ) ) return;
@@ -564,6 +565,7 @@ void
 fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
                                      uint        desired_gid,
                                      int         keep_host_networking,
+                                     int         allow_connect,
                                      int         keep_controlling_terminal,
                                      ulong       rlimit_file_cnt,
                                      ulong       rlimit_address_space,
@@ -658,7 +660,7 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
 
   /* Add an empty landlock restriction to further prevent filesystem
      access. */
-  fd_sandbox_private_landlock_restrict_self();
+  fd_sandbox_private_landlock_restrict_self( allow_connect );
 
   /* And trim all the resource limits down to zero. */
   fd_sandbox_private_set_rlimits( rlimit_file_cnt, rlimit_address_space, rlimit_data );
@@ -673,6 +675,7 @@ void
 fd_sandbox_enter( uint                 desired_uid,
                   uint                 desired_gid,
                   int                  keep_host_networking,
+                  int                  allow_connect,
                   int                  keep_controlling_terminal,
                   ulong                rlimit_file_cnt,
                   ulong                rlimit_address_space,
@@ -686,6 +689,7 @@ fd_sandbox_enter( uint                 desired_uid,
   fd_sandbox_private_enter_no_seccomp( desired_uid,
                                        desired_gid,
                                        keep_host_networking,
+                                       allow_connect,
                                        keep_controlling_terminal,
                                        rlimit_file_cnt,
                                        rlimit_address_space,

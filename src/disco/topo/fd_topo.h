@@ -439,6 +439,7 @@ typedef struct {
   char const * name;
 
   int          keep_host_networking;
+  int          allow_connect;
   ulong        rlimit_file_cnt;
   ulong        rlimit_address_space;
   ulong        rlimit_data;
