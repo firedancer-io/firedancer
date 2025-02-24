@@ -170,13 +170,13 @@ fd_check_sysvar_account( fd_exec_instr_ctx_t const * ctx,
   fd_pubkey_t const * txn_accs       = ctx->txn_ctx->accounts;
 
   if( insn_acc_idx>=ctx->instr->acct_cnt ) {
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS );
   }
 
   fd_pubkey_t const * insn_acc_key = &txn_accs[ instr_acc_idxs[ insn_acc_idx ] ];
 
   if( memcmp( expected_id, insn_acc_key, sizeof(fd_pubkey_t) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
   }
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_instr_ok();
 }

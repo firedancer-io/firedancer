@@ -79,7 +79,7 @@ sanitize_requested_heap_size( ulong bytes ) {
 }
 
 /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/compute-budget/src/compute_budget_processor.rs#L69-L148 */
-int
+fd_txn_exec_result_t
 fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx, fd_rawtxn_b_t const * txn_raw ) {
   uint   has_compute_units_limit_update              = 0UL;
   uint   has_compute_units_price_update              = 0UL;
@@ -132,14 +132,13 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
 
     int ret = fd_compute_budget_program_instruction_decode( &instruction, &decode_ctx );
     if ( ret ) {
-      FD_TXN_ERR_FOR_LOG_INSTR( ctx, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA, i );
-      return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
+      return fd_txn_instr_err( fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA ), i );
     }
 
     switch( instruction.discriminant ) {
       case fd_compute_budget_program_instruction_enum_request_heap_frame: {
         if( FD_UNLIKELY( has_requested_heap_size ) ) {
-          return FD_RUNTIME_TXN_ERR_DUPLICATE_INSTRUCTION;
+          return fd_txn_err( FD_RUNTIME_TXN_ERR_DUPLICATE_INSTRUCTION );
         }
 
         has_requested_heap_size     = 1U;
@@ -150,7 +149,7 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
       }
       case fd_compute_budget_program_instruction_enum_set_compute_unit_limit: {
         if( FD_UNLIKELY( has_compute_units_limit_update ) ) {
-          return FD_RUNTIME_TXN_ERR_DUPLICATE_INSTRUCTION;
+          return fd_txn_err( FD_RUNTIME_TXN_ERR_DUPLICATE_INSTRUCTION );
         }
 
         has_compute_units_limit_update  = 1U;
@@ -160,7 +159,7 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
       }
       case fd_compute_budget_program_instruction_enum_set_compute_unit_price: {
         if( FD_UNLIKELY( has_compute_units_price_update ) ) {
-          return FD_RUNTIME_TXN_ERR_DUPLICATE_INSTRUCTION;
+          return fd_txn_err( FD_RUNTIME_TXN_ERR_DUPLICATE_INSTRUCTION );
         }
 
         has_compute_units_price_update = 1U;
@@ -171,7 +170,7 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
       }
       case fd_compute_budget_program_instruction_enum_set_loaded_accounts_data_size_limit: {
           if( FD_UNLIKELY( has_loaded_accounts_data_size_limit_update ) ) {
-            return FD_RUNTIME_TXN_ERR_DUPLICATE_INSTRUCTION;
+            return fd_txn_err( FD_RUNTIME_TXN_ERR_DUPLICATE_INSTRUCTION );
           }
 
           has_loaded_accounts_data_size_limit_update = 1U;
@@ -180,8 +179,7 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
           break;
       }
       default: {
-        FD_TXN_ERR_FOR_LOG_INSTR( ctx, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA, i );
-        return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
+        return fd_txn_instr_err( fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA ), i );
       }
     }
   }
@@ -189,8 +187,7 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
   /* https://github.com/anza-xyz/agave/blob/v2.1/runtime-transaction/src/compute_budget_instruction_details.rs#L51-L64 */
   if( has_requested_heap_size ) {
     if( FD_UNLIKELY( !sanitize_requested_heap_size( updated_requested_heap_size ) ) ) {
-      FD_TXN_ERR_FOR_LOG_INSTR( ctx, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA, requested_heap_size_instr_index );
-      return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
+      return fd_txn_instr_err( fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA ), requested_heap_size_instr_index );
     }
     ctx->heap_size = updated_requested_heap_size;
   }
@@ -215,17 +212,17 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
   /* https://github.com/anza-xyz/agave/blob/v2.1/runtime-transaction/src/compute_budget_instruction_details.rs#L84-L93 */
   if( has_loaded_accounts_data_size_limit_update ) {
     if( FD_UNLIKELY( updated_loaded_accounts_data_size_limit==0UL ) ) {
-      return FD_RUNTIME_TXN_ERR_INVALID_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
+      return fd_txn_err( FD_RUNTIME_TXN_ERR_INVALID_LOADED_ACCOUNTS_DATA_SIZE_LIMIT );
     }
     ctx->loaded_accounts_data_size_limit =
       fd_ulong_min( FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT, updated_loaded_accounts_data_size_limit );
   }
 
-  return FD_RUNTIME_EXECUTE_SUCCESS;
+  return fd_txn_ok();
 }
 
 
-int fd_compute_budget_program_execute( fd_exec_instr_ctx_t * ctx ) {
+fd_exec_result_t fd_compute_budget_program_execute( fd_exec_instr_ctx_t * ctx ) {
   FD_EXEC_CU_UPDATE( ctx, DEFAULT_COMPUTE_UNITS );
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_instr_ok();
 }

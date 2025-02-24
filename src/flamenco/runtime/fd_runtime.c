@@ -1501,18 +1501,18 @@ fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
 /* fd_runtime_pre_execute_check is responsible for conducting many of the
    transaction sanitization checks. */
 
-void
+fd_txn_exec_result_t
 fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
-  if( FD_UNLIKELY( !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
-    return;
-  }
+  // if( FD_UNLIKELY( !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
+  //   return;
+  // }
 
   fd_exec_txn_ctx_t * txn_ctx    = task_info->txn_ctx;
   fd_funk_txn_t *     parent_txn = txn_ctx->slot_ctx->funk_txn;
   txn_ctx->funk_txn              = parent_txn;
   fd_executor_setup_borrowed_accounts_for_txn( txn_ctx );
 
-  int err;
+  fd_txn_exec_result_t res = fd_txn_ok();
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/src/transaction/sanitized.rs#L263-L275
      TODO: Agave's precompile verification is done at the slot level, before batching and executing transactions. This logic should probably
@@ -1539,54 +1539,48 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
 
   */
   if( !FD_FEATURE_ACTIVE( task_info->txn_ctx->slot_ctx, move_precompile_verification_to_svm ) ) {
-    err = fd_executor_verify_precompiles( txn_ctx );
-    if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    res = fd_executor_verify_precompiles( txn_ctx );
+    if( FD_UNLIKELY( res.err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       task_info->txn->flags = 0U;
-      task_info->exec_res   = err;
-      return;
+      return res;
     }
   }
 
   /* Post-sanitization checks. Called from `prepare_sanitized_batch()` which, for now, only is used
      to lock the accounts and perform a couple basic validations.
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118 */
-  err = fd_executor_validate_account_locks( txn_ctx );
-  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+  res = fd_executor_validate_account_locks( txn_ctx );
+  if( FD_UNLIKELY( res.err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     task_info->txn->flags = 0U;
-    task_info->exec_res   = err;
-    return;
+    return res;
   }
 
   /* `load_and_execute_transactions()` -> `check_transactions()`
      https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L3667-L3672 */
-  err = fd_executor_check_transactions( txn_ctx );
-  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+  res = fd_executor_check_transactions( txn_ctx );
+  if( FD_UNLIKELY( res.err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     task_info->txn->flags = 0U;
-    task_info->exec_res = err;
-    return;
+    return res;
   }
 
   /* `load_and_execute_sanitized_transactions()` -> `validate_fees()` -> `validate_transaction_fee_payer()`
      https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L236-L249 */
-  err = fd_executor_validate_transaction_fee_payer( txn_ctx );
-  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+  res = fd_executor_validate_transaction_fee_payer( txn_ctx );
+  if( FD_UNLIKELY( res.err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     task_info->txn->flags = 0U;
-    task_info->exec_res = err;
-    return;
+    return res;
   }
 
   /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
-  err = fd_executor_load_transaction_accounts( txn_ctx );
-  if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+  res = fd_executor_load_transaction_accounts( txn_ctx );
+  if( FD_UNLIKELY( res.err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     if( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, enable_transaction_loading_failure_fees ) ) {
       /* Regardless of whether transaction accounts were loaded successfully, the transaction is
          included in the block and transaction fees are collected.
          https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/transaction_processor.rs#L341-L357 */
       task_info->txn->flags |= FD_TXN_P_FLAGS_FEES_ONLY;
-      task_info->exec_res    = err;
     } else {
       task_info->txn->flags = 0U;
-      task_info->exec_res   = err;
     }
   }
 
@@ -1603,6 +1597,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
 
      So, at this point, the transaction is committable.
    */
+  return res;
 }
 
 /* fd_runtime_finalize_txn is a helper used by the non-tpool transaction
@@ -1618,7 +1613,7 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
      the calculation of the bound of the spad as defined in fd_runtime.h. */
 
   if( FD_UNLIKELY( !( task_info->txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) ) {
-    return -1;
+      return -1;
   }
 
   /* Store transaction info including logs */
@@ -1771,33 +1766,36 @@ fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
                                     fd_execute_txn_task_info_t * task_info,
                                     fd_spad_t *                  exec_spad ) {
 
-  int res = 0;
+  fd_txn_exec_result_t exec_res;
 
   task_info->txn_ctx              = fd_spad_alloc( exec_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
   fd_exec_txn_ctx_t * txn_ctx     = task_info->txn_ctx;
-  task_info->exec_res             = -1;
+  task_info->exec_res             = fd_txn_ok();
   task_info->txn                  = txn;
   fd_txn_t const * txn_descriptor = (fd_txn_t const *) txn->_;
   task_info->txn_ctx->spad        = exec_spad;
 
   fd_rawtxn_b_t raw_txn = { .raw = txn->payload, .txn_sz = (ushort)txn->payload_sz };
 
-  res = fd_execute_txn_prepare_start( slot_ctx, txn_ctx, txn_descriptor, &raw_txn );
-  if( FD_UNLIKELY( res ) ) {
+  exec_res = fd_execute_txn_prepare_start( slot_ctx, txn_ctx, txn_descriptor, &raw_txn );
+  if( FD_UNLIKELY( exec_res.err ) ) {
     txn->flags = 0U;
+    task_info->exec_res = exec_res;
     return -1;
   }
 
   if( FD_UNLIKELY( fd_executor_txn_verify( txn_ctx )!=0 ) ) {
     FD_LOG_WARNING(( "sigverify failed: %s", FD_BASE58_ENC_64_ALLOCA( (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ) ));
     task_info->txn->flags = 0U;
-    task_info->exec_res   = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
+    task_info->exec_res = fd_txn_err( FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE );
+    return -1;
   }
 
   /* make this return an error and then set the error accordingly here. */
-  fd_runtime_pre_execute_check( task_info );
+  exec_res = fd_runtime_pre_execute_check( task_info );
+  /* check the sanitization flags because fee only transactions exist */
   if( FD_UNLIKELY( !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
-    res  = task_info->exec_res;
+    task_info->exec_res = exec_res;
     return -1;
   }
 
@@ -1805,11 +1803,11 @@ fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
   task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
   task_info->exec_res    = fd_execute_txn( task_info );
 
-  if( task_info->exec_res==0 ) {
+  if( task_info->exec_res.err==0 ) {
     fd_txn_reclaim_accounts( task_info->txn_ctx );
   }
 
-  return res;
+  return 0;
 
 }
 

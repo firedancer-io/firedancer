@@ -3,7 +3,7 @@
 
 /* https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/sdk/transaction-context/src/lib.rs#L789-L815 */
 /* Assignes the owner of this account (transaction wide) */
-fd_exec_result_t
+int
 fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
                       ulong                       instr_acc_idx,
                       fd_pubkey_t const *         owner ) {
@@ -21,23 +21,23 @@ fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
 
   /* Only the owner can assign a new owner */
   if( FD_UNLIKELY( !fd_account_is_owned_by_current_program( instr, meta ) ) ) {
-    return fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID );
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID );
   }
   /* And only if the account is writable */
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( instr, instr_acc_idx ) ) ) {
-    return fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID );
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID );
   }
   /* And only if the account is not executable */
   if( FD_UNLIKELY( fd_account_is_executable_internal( ctx->slot_ctx, meta ) ) ) {
-    return fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID );
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID );
   }
   /* And only if the data is zero-initialized or empty */
   if( FD_UNLIKELY( !fd_account_is_zeroed( meta ) ) ) {
-    return fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID );
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MODIFIED_PROGRAM_ID );
   }
   /* Don't copy the account if the owner does not change */
   if( !memcmp( account->const_meta->info.owner, owner, sizeof( fd_pubkey_t ) ) ) {
-    return fd_exec_instr_err( FD_EXECUTOR_INSTR_SUCCESS );
+    return fd_instr_ok();
   }
 
   do {
@@ -50,7 +50,7 @@ fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
   /* Agave self.touch() is a no-op */
 
   memcpy( account->meta->info.owner, owner, sizeof(fd_pubkey_t) );
-  return fd_exec_ok();
+  return fd_instr_ok();
 }
 
 /* https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/sdk/transaction-context/src/lib.rs#L823-L845 */
@@ -71,22 +71,22 @@ fd_account_set_lamports( fd_exec_instr_ctx_t const * ctx,
   /* An account not owned by the program cannot have its blanace decrease */
   if( FD_UNLIKELY( ( !fd_account_is_owned_by_current_program( ctx->instr, account->const_meta ) ) &&
                    ( lamports < account->const_meta->info.lamports ) ) ) {
-    return fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_EXTERNAL_ACCOUNT_LAMPORT_SPEND );
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_EXTERNAL_ACCOUNT_LAMPORT_SPEND );
   }
 
   /* The balance of read-only may not change */
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, instr_acc_idx ) ) ) {
-    return fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_READONLY_LAMPORT_CHANGE );
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_READONLY_LAMPORT_CHANGE );
   }
 
   /* The balance of executable accounts may not change */
   if( FD_UNLIKELY( fd_account_is_executable_internal( ctx->slot_ctx, account->const_meta ) ) ) {
-    return fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_EXECUTABLE_LAMPORT_CHANGE );
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_EXECUTABLE_LAMPORT_CHANGE );
   }
 
   /* Don't copy the account if the lamports do not change */
   if( lamports==account->const_meta->info.lamports ) {
-   return fd_exec_instr_err( FD_EXECUTOR_INSTR_SUCCESS );
+   return fd_instr_ok();
   }
 
   do {
@@ -99,7 +99,7 @@ fd_account_set_lamports( fd_exec_instr_ctx_t const * ctx,
   /* Agave self.touch() is a no-op */
 
   account->meta->info.lamports = lamports;
-  return fd_exec_ok();
+  return fd_instr_ok();
 }
 
 fd_exec_result_t
@@ -108,9 +108,9 @@ fd_account_get_data_mut( fd_exec_instr_ctx_t const * ctx,
                          uchar * *                   data_out,
                          ulong *                     dlen_out ) {
 
-  fd_exec_result_t res;
-  if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx, instr_acc_idx, &res ) ) ) {
-    return res;
+  int err;
+  if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx, instr_acc_idx, &err ) ) ) {
+    return fd_instr_err( err );
   }
 
   fd_borrowed_account_t * account = NULL;
@@ -128,7 +128,7 @@ fd_account_get_data_mut( fd_exec_instr_ctx_t const * ctx,
   if (NULL != dlen_out)
     *dlen_out = account->meta->dlen;
 
-  return fd_exec_ok();
+  return fd_instr_ok();
 }
 
 fd_exec_result_t
@@ -145,19 +145,19 @@ fd_account_set_data_from_slice( fd_exec_instr_ctx_t const * ctx,
     }
   } while(0);
 
-  fd_exec_result_t res;
-  if( FD_UNLIKELY( !fd_account_can_data_be_resized( ctx, account->const_meta, data_sz, &res ) ) ) {
-    return res;
+  int err;
+  if( FD_UNLIKELY( !fd_account_can_data_be_resized( ctx, account->const_meta, data_sz, &err ) ) ) {
+    return fd_instr_err( err );;
   }
 
-  if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx, instr_acc_idx, &res ) ) ) {
-    return res;
+  if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx, instr_acc_idx, &err ) ) ) {
+    return fd_instr_err( err );;
   }
 
   /* Agave self.touch() is a no-op */
 
-  if( FD_UNLIKELY( !fd_account_update_accounts_resize_delta( ctx, instr_acc_idx, data_sz, &res ) ) ) {
-    return res;
+  if( FD_UNLIKELY( !fd_account_update_accounts_resize_delta( ctx, instr_acc_idx, data_sz, &err ) ) ) {
+    return fd_instr_err( err );
   }
 
   do {
@@ -171,10 +171,10 @@ fd_account_set_data_from_slice( fd_exec_instr_ctx_t const * ctx,
   account->meta->dlen = data_sz;
   fd_memcpy( account->data, data, data_sz );
 
-  return fd_exec_ok();
+  return fd_instr_ok();
 }
 
-int
+fd_exec_result_t
 fd_account_set_data_length( fd_exec_instr_ctx_t const * ctx,
                             ulong                       instr_acc_idx,
                             ulong                       new_len ) {
@@ -189,24 +189,24 @@ fd_account_set_data_length( fd_exec_instr_ctx_t const * ctx,
 
   int err = FD_EXECUTOR_INSTR_SUCCESS;
   if( FD_UNLIKELY( !fd_account_can_data_be_resized( ctx, account->const_meta, new_len, &err ) ) ) {
-    return err;
+    return fd_instr_err( err );
   }
 
   if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx, instr_acc_idx, &err ) ) ) {
-    return err;
+    return fd_instr_err( err );
   }
 
   ulong old_len = account->const_meta->dlen;
 
   /* Don't copy the account if the length does not change */
   if( old_len==new_len ) {
-    return FD_EXECUTOR_INSTR_SUCCESS;
+    return fd_instr_ok();
   }
 
   /* Agave self.touch() is a no-op */
 
   if( FD_UNLIKELY( !fd_account_update_accounts_resize_delta( ctx, instr_acc_idx, new_len, &err ) ) ) {
-    return err;
+    return fd_instr_err( err );
   }
 
   do {
@@ -221,10 +221,10 @@ fd_account_set_data_length( fd_exec_instr_ctx_t const * ctx,
   }
 
   account->meta->dlen = new_len;
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_instr_ok();
 }
 
-int
+fd_exec_result_t
 fd_account_set_executable( fd_exec_instr_ctx_t const * ctx,
                            ulong                       instr_acc_idx,
                            int                         is_executable ) {
@@ -245,27 +245,27 @@ fd_account_set_executable( fd_exec_instr_ctx_t const * ctx,
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank_const( ctx->epoch_ctx );
   fd_rent_t const * rent = &epoch_bank->rent;
   if( FD_UNLIKELY( account->const_meta->info.lamports<fd_rent_exempt_minimum_balance( rent, meta->dlen ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT );
   }
 
   /* Only the owner can set the exectuable flag */
   if( FD_UNLIKELY( !fd_account_is_owned_by_current_program( instr, meta ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED );
   }
 
   /* And only if the account is writable */
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( instr, instr_acc_idx ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED );
   }
 
   /* One can not clear the executable flag  */
   if( FD_UNLIKELY( fd_account_is_executable_internal( ctx->slot_ctx, meta ) && !is_executable ) ) {
-    return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_EXECUTABLE_MODIFIED );
   }
 
   /* Don't copy the account if the exectuable flag does not change */
   if( fd_account_is_executable( meta ) == is_executable ) {
-    return FD_EXECUTOR_INSTR_SUCCESS;
+    return fd_instr_ok();
   }
 
   do {
@@ -279,7 +279,7 @@ fd_account_set_executable( fd_exec_instr_ctx_t const * ctx,
 
   account->meta->info.executable = !!is_executable;
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_instr_ok();
 }
 
 /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L1128-L1138 */
@@ -287,11 +287,11 @@ int
 fd_account_update_accounts_resize_delta( fd_exec_instr_ctx_t const * ctx,
                                          ulong                       instr_acc_idx,
                                          ulong                       new_len,
-                                         fd_exec_result_t *          res ) {
+                                         int *                       err ) {
 
   fd_borrowed_account_t * account = NULL;
-  *res = fd_exec_instr_err( fd_instr_borrowed_account_view_idx( ctx, (uchar)instr_acc_idx, &account ) );
-  if( FD_UNLIKELY( res->err ) ) {
+  *err = fd_instr_borrowed_account_view_idx( ctx, (uchar)instr_acc_idx, &account );
+  if( FD_UNLIKELY( *err ) ) {
     return 0;
   }
 
@@ -301,6 +301,6 @@ fd_account_update_accounts_resize_delta( fd_exec_instr_ctx_t const * ctx,
      could be replaced with a normal addition. However to match execution with
      the agave client, this is being left as a sat add */
   ctx->txn_ctx->accounts_resize_delta = fd_ulong_sat_add( ctx->txn_ctx->accounts_resize_delta, size_delta );
-  *res = fd_exec_ok();
+  *err = FD_EXECUTOR_INSTR_SUCCESS;
   return 1;
 }

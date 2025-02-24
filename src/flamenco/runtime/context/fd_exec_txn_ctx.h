@@ -129,12 +129,12 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
 
   fd_log_collector_t          log_collector;             /* Log collector instance */
 
-  /* Execution error and type, to match Agave. */
-  int exec_err;
-  int exec_err_kind;
+//   /* Execution error and type, to match Agave. */
+//   int exec_err;
+//   int exec_err_kind;
 
-   /* The current instruction index being executed */
-  int current_instr_idx;
+//    /* The current instruction index being executed */
+//   int current_instr_idx;
 };
 
 #define FD_EXEC_TXN_CTX_ALIGN     (alignof(fd_exec_txn_ctx_t))

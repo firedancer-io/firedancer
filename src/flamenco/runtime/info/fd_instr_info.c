@@ -82,12 +82,12 @@ fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr,
                   instr->borrowed_accounts[i]->const_meta->info.lamports );
     
     if( tmp_total_lamports_h < *total_lamports_h ) {
-      return fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW );
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW );
     }
 
     *total_lamports_h = tmp_total_lamports_h;
     *total_lamports_l = tmp_total_lamports_l;
   }
 
-  return fd_exec_ok();
+  return fd_instr_ok();
 }

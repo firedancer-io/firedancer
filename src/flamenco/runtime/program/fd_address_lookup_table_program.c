@@ -57,7 +57,7 @@ fd_addrlut_deserialize( fd_addrlut_t * lut,
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
 
   if( lut->state.discriminant==fd_address_lookup_table_state_enum_uninitialized )
-    return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT );
   FD_TEST( lut->state.discriminant == fd_address_lookup_table_state_enum_lookup_table );
 
   if( data_sz < FD_ADDRLUT_META_SZ )
@@ -72,7 +72,7 @@ fd_addrlut_deserialize( fd_addrlut_t * lut,
   lut->addr     = fd_type_pun_const( raw_addr_data );
   lut->addr_cnt = raw_addr_data_sz / 32UL;
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_instr_ok();
 }
 
 static int
@@ -93,7 +93,7 @@ fd_addrlut_serialize_meta( fd_address_lookup_table_state_t const * state,
   int bin_err = fd_address_lookup_table_state_encode( state, &encode );
   FD_TEST( !bin_err );
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_instr_ok();
 }
 
 static ulong
@@ -156,7 +156,7 @@ fd_addrlut_status( fd_lookup_table_meta_t const * state,
    otherwise introduces no side effects.  i.e.
 
      if not fd_borrowed_account_acquire_write():
-       return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED
+       return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED )
      ... read only operations ...
      fd_borrowed_account_release_write()
      ... arbitrary logic ...
@@ -164,7 +164,7 @@ fd_addrlut_status( fd_lookup_table_meta_t const * state,
    Is equivalent to
 
      if not fd_borrowed_account_acquire_write_is_safe():
-       return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED
+       return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED )
      ... read only operations ...
      ... arbitrary logic ... */
 
@@ -194,7 +194,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   if( !FD_FEATURE_ACTIVE( ctx->slot_ctx, relax_authority_signer_check_for_lookup_table_creation )
       && lut_acct->const_meta->dlen != 0UL ) {
     fd_log_collector_msg_literal( ctx, "Table account must not be allocated" );
-    return FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED );
   }
 
   } FD_BORROWED_ACCOUNT_DROP( lut_acct );
@@ -213,7 +213,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   if( !FD_FEATURE_ACTIVE( ctx->slot_ctx, relax_authority_signer_check_for_lookup_table_creation )
       && !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_AUTHORITY ) ) {
     fd_log_collector_msg_literal( ctx, "Authority account must be a signer" );
-    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
   }
 
   } FD_BORROWED_ACCOUNT_DROP( authority_acct );
@@ -230,7 +230,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L89-L92 */
   if( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_PAYER ) ) {
     fd_log_collector_msg_literal( ctx, "Payer account must be a signer" );
-    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
   }
 
   } FD_BORROWED_ACCOUNT_DROP( payer_acct );
@@ -240,7 +240,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   do {
     fd_slot_hashes_t const * slot_hashes = fd_sysvar_cache_slot_hashes( ctx->slot_ctx->sysvar_cache );
     if( FD_UNLIKELY( !slot_hashes ) )
-      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR );
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L97 */
     ulong is_recent_slot = slot_hashes_position( slot_hashes->hashes, create->recent_slot )!=ULONG_MAX;
@@ -248,7 +248,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
       /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L100-L105 */
       /* Max msg_sz: 24 - 3 + 20 = 41 < 127 => we can use printf */
       fd_log_collector_printf_dangerous_max_127( ctx, "%lu is not a recent slot", create->recent_slot );
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
     } else {
       derivation_slot = create->recent_slot;
     }
@@ -271,13 +271,13 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
     /* Max msg_sz: 44 - 2 + 45 = 87 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
       "Table address must match derived address: %s", FD_BASE58_ENC_32_ALLOCA( derived_tbl_key ) );
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L129-L135 */
   if( FD_FEATURE_ACTIVE( ctx->slot_ctx, relax_authority_signer_check_for_lookup_table_creation )
       && 0==memcmp( lut_owner, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) {
-    return FD_EXECUTOR_INSTR_SUCCESS;
+    return fd_instr_ok();
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L137-L142 */
@@ -389,7 +389,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
   } FD_BORROWED_ACCOUNT_DROP( lut_acct );
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_instr_ok();
 
 # undef ACC_IDX_LUT
 # undef ACC_IDX_AUTHORITY
@@ -410,7 +410,7 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L178-L181 */
   if( FD_UNLIKELY( 0!=memcmp( lut_acct->const_meta->info.owner, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER );
   }
 
   } FD_BORROWED_ACCOUNT_DROP( lut_acct );
@@ -427,7 +427,7 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L186-L189 */
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_AUTHORITY ) ) ) {
     fd_log_collector_msg_literal( ctx, "Authority account must be a signer" );
-    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
   }
 
   } FD_BORROWED_ACCOUNT_DROP( authority_acct );
@@ -452,24 +452,24 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L197-L200 */
   if( FD_UNLIKELY( !state->meta.has_authority ) ) {
     fd_log_collector_msg_literal( ctx, "Lookup table is already frozen");
-    return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE );
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L201-L203 */
   if( FD_UNLIKELY( 0!=memcmp( state->meta.authority.key, authority_key->key, sizeof(fd_pubkey_t) ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY );
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L204-L207 */
   if( FD_UNLIKELY( state->meta.deactivation_slot!=ULONG_MAX ) ) {
     fd_log_collector_msg_literal( ctx, "Deactivated tables cannot be frozen" );
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L208-L211 */
   if( FD_UNLIKELY( !lut->addr_cnt ) ) {
     fd_log_collector_msg_literal( ctx, "Empty lookup tables cannot be frozen" );
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
   }
 
   uchar *data = NULL;
@@ -489,7 +489,7 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   } FD_BORROWED_ACCOUNT_DROP( lut_acct );
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_instr_ok();
 # undef ACC_IDX_LUT
 # undef ACC_IDX_AUTHORITY
 }
@@ -514,7 +514,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L233-235 */
   if( FD_UNLIKELY( 0!=memcmp( lut_acct->const_meta->info.owner, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) )
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER );
 
   } FD_BORROWED_ACCOUNT_DROP( lut_acct );
 
@@ -531,7 +531,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L241-L244 */
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_AUTHORITY ) ) ) {
     fd_log_collector_msg_literal( ctx, "Authority account must be a signer" );
-    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
   }
 
   } FD_BORROWED_ACCOUNT_DROP( authority_acct );
@@ -561,30 +561,30 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L253-L255 */
   if( FD_UNLIKELY( !state->meta.has_authority ) ) {
-    return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE );
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L256-L258 */
   if( FD_UNLIKELY( 0!=memcmp( state->meta.authority.key, authority_key->key, sizeof(fd_pubkey_t) ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY );
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L259-L262 */
   if( FD_UNLIKELY( state->meta.deactivation_slot != ULONG_MAX ) ) {
     fd_log_collector_msg_literal( ctx, "Deactivated tables cannot be extended" );
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L263-L269 */
   if( FD_UNLIKELY( lut->addr_cnt >= FD_ADDRLUT_MAX_ADDR_CNT ) ) {
     fd_log_collector_msg_literal( ctx, "Lookup table is full and cannot contain more addresses" );
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L271-L274 */
   if( FD_UNLIKELY( !extend->new_addrs_len ) ) {
     fd_log_collector_msg_literal( ctx, "Must extend with at least one address" );
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L276-L279 */
@@ -594,13 +594,13 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
     /* Max msg_sz: 65 - 6 + 20*2 = 99 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
       "Extended lookup table length %lu would exceed max capacity of %lu", new_addr_cnt, FD_ADDRLUT_MAX_ADDR_CNT );
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L290 */
   fd_sol_sysvar_clock_t clock[1];
   if( FD_UNLIKELY( !fd_sysvar_clock_read( clock, ctx->slot_ctx ) ) )
-    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L291-L299 */
   if( clock->slot!=state->meta.last_extended_slot ) {
@@ -656,7 +656,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L327-L330 */
     if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_PAYER ) ) ) {
       fd_log_collector_msg_literal( ctx, "Payer account must be a signer" );
-      return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
     }
 
     } FD_BORROWED_ACCOUNT_DROP( payer_acct );
@@ -691,7 +691,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
     } FD_SPAD_FRAME_END;
   }
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_instr_ok();
 
 # undef ACC_IDX_LUT
 # undef ACC_IDX_AUTHORITY
@@ -712,7 +712,7 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L348-L350 */
   if( FD_UNLIKELY( 0!=memcmp( lut_acct->const_meta->info.owner, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) )
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER );
 
   } FD_BORROWED_ACCOUNT_DROP( lut_acct );
 
@@ -728,7 +728,7 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L356-L359 */
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_AUTHORITY ) ) ) {
     fd_log_collector_msg_literal( ctx, "Authority account must be a signer" );
-    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
   }
 
   } FD_BORROWED_ACCOUNT_DROP( authority_acct );
@@ -753,24 +753,24 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L367-L370 */
   if( FD_UNLIKELY( !state->meta.has_authority ) ) {
     fd_log_collector_msg_literal( ctx, "Lookup table is already frozen" );
-    return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE );
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L371-L373 */
   if( FD_UNLIKELY( 0!=memcmp( state->meta.authority.key, authority_key->key, sizeof(fd_pubkey_t) ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY );
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L374-L377 */
   if( FD_UNLIKELY( state->meta.deactivation_slot != ULONG_MAX ) ) {
     fd_log_collector_msg_literal( ctx, "Lookup table is already deactivated" );
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L380 */
   fd_sol_sysvar_clock_t clock[1];
   if( FD_UNLIKELY( !fd_sysvar_clock_read( clock, ctx->slot_ctx ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR );
   }
 
   uchar * data = NULL;
@@ -791,7 +791,7 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   } FD_BORROWED_ACCOUNT_DROP( lut_acct );
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_instr_ok();
 
 # undef ACC_IDX_LUT
 # undef ACC_IDX_AUTHORITY
@@ -812,7 +812,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L397-L399 */
   if( FD_UNLIKELY( 0!=memcmp( lut_acct->const_meta->info.owner, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) )
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER );
 
   } FD_BORROWED_ACCOUNT_DROP( lut_acct );
 
@@ -828,7 +828,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L405-L408 */
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_AUTHORITY ) ) ) {
     fd_log_collector_msg_literal( ctx, "Authority account must be a signer" );
-    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
   }
 
   } FD_BORROWED_ACCOUNT_DROP( authority_acct );
@@ -837,13 +837,13 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L411 */
   if( FD_UNLIKELY( ctx->instr->acct_cnt<3 ) ) {
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS );
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L412-L420 */
   if( FD_UNLIKELY( ctx->instr->borrowed_accounts[0]==ctx->instr->borrowed_accounts[2] ) ) {
     fd_log_collector_msg_literal( ctx, "Lookup table cannot be the recipient of reclaimed lamports" );
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
   }
 
   ulong         withdrawn_lamports = 0UL;
@@ -868,24 +868,24 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L428-L431 */
   if( FD_UNLIKELY( !state->meta.has_authority ) ) {
     fd_log_collector_msg_literal( ctx,  "Lookup table is frozen" );
-    return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE );
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L432-L434 */
   if( FD_UNLIKELY( 0!=memcmp( state->meta.authority.key, authority_key->key, sizeof(fd_pubkey_t) ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY );
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L437 */
   fd_sol_sysvar_clock_t clock[1];
   if( FD_UNLIKELY( !fd_sysvar_clock_read( clock, ctx->slot_ctx ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR );
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L438 */
   fd_slot_hashes_t const * slot_hashes = fd_sysvar_cache_slot_hashes( ctx->slot_ctx->sysvar_cache );
   if( FD_UNLIKELY( !slot_hashes ) ) { 
-    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR );
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L440 */
@@ -895,12 +895,12 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   switch( status ) {
     case FD_ADDRLUT_STATUS_ACTIVATED:
       fd_log_collector_msg_literal( ctx, "Lookup table is not deactivated" );
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
     case FD_ADDRLUT_STATUS_DEACTIVATING:
       /* Max msg_sz: 65 - 3 + 20 = 82 < 127 => we can use printf */
       fd_log_collector_printf_dangerous_max_127( ctx,
         "Table cannot be closed until it's fully deactivated in %lu blocks", remaining_blocks );
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
     case FD_ADDRLUT_STATUS_DEACTIVATED:
       break;
     default:
@@ -938,7 +938,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   } FD_BORROWED_ACCOUNT_DROP( lut_acct );
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_instr_ok();
 
 # undef ACC_IDX_LUT
 # undef ACC_IDX_AUTHORITY
@@ -949,7 +949,7 @@ int
 fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t * ctx ) {
   /* Prevent execution of migrated native programs */
   if( FD_UNLIKELY( FD_FEATURE_ACTIVE( ctx->slot_ctx, migrate_address_lookup_table_program_to_core_bpf ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID );
   }
 
   FD_EXEC_CU_UPDATE( ctx, DEFAULT_COMPUTE_UNITS );
@@ -957,7 +957,7 @@ fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t * ctx ) {
   uchar const * instr_data    = ctx->instr->data;
   ulong         instr_data_sz = ctx->instr->data_sz;
   if( FD_UNLIKELY( instr_data==NULL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
   }
 
   FD_SPAD_FRAME_BEGIN( ctx->txn_ctx->spad ) {
@@ -971,7 +971,7 @@ fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t * ctx ) {
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L28 */
     if( FD_UNLIKELY( fd_addrlut_instruction_decode( instr, &decode ) ||
                      (ulong)instr_data + 1232UL < (ulong)decode.data ) ) {
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
     }
 
     switch( instr->discriminant ) {
@@ -990,7 +990,7 @@ fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t * ctx ) {
     }
   } FD_SPAD_FRAME_END;
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_instr_ok();
 }
 
 /**********************************************************************/
@@ -1017,7 +1017,7 @@ is_active( fd_address_lookup_table_t const * self,
 
 /* Sets active_addresses_len on success
    https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L142-L164 */
-int
+fd_txn_exec_result_t
 fd_get_active_addresses_len( fd_address_lookup_table_t * self,
                              ulong                       current_slot,
                              fd_slot_hash_t const *      slot_hashes,
@@ -1025,7 +1025,7 @@ fd_get_active_addresses_len( fd_address_lookup_table_t * self,
                              ulong *                     active_addresses_len ) {
   /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L147-L152 */
   if( FD_UNLIKELY( !is_active( self, current_slot, slot_hashes ) ) ) {
-    return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
+    return fd_txn_err( FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND );
   }
 
   /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L157-L161 */
@@ -1033,5 +1033,5 @@ fd_get_active_addresses_len( fd_address_lookup_table_t * self,
       ? addresses_len
       : self->meta.last_extended_slot_start_index;
   
-  return FD_RUNTIME_EXECUTE_SUCCESS;
+  return fd_txn_ok();
 }

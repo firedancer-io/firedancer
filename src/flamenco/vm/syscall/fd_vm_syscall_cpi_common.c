@@ -115,7 +115,7 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
       FD_BASE58_ENCODE_32_BYTES( pubkey, id_b58 );
       fd_log_collector_msg_many( vm->instr_ctx, 2, "Instruction references an unknown account ", 42UL, id_b58, id_b58_len );
       FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_MISSING_ACC );
-      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_ACC );
     }
   }
 
@@ -514,7 +514,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
       FD_BASE58_ENCODE_32_BYTES( account_key->uc, id_b58 );
       fd_log_collector_msg_many( vm->instr_ctx, 2, "Instruction references an unknown account ", 42UL, id_b58, id_b58_len );
       FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_MISSING_ACC );
-      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_ACC );
     }
   }
 
@@ -575,7 +575,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
       ulong max_increase = (vm->direct_mapping && vm->is_deprecated) ? 0UL : MAX_PERMITTED_DATA_INCREASE;
       if( FD_UNLIKELY( updated_data_len>fd_ulong_sat_add( (ulong)caller_acc_data_len, max_increase ) ) ) {
         FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC);
-        return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC );
       }
 
       /* FIXME: do we need to zero the memory that was previously used, if the new data_len is smaller?
@@ -662,7 +662,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
       ulong max_increase = vm->is_deprecated ? 0UL : MAX_PERMITTED_DATA_INCREASE;
       if( FD_UNLIKELY( post_len>fd_ulong_sat_add( (ulong)original_len, max_increase ) ) ) {
         FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC);
-        return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC );
       }
       /* There is additonal handling in the case where the account is larger
          than it was previously, but it has still grown since it was initially
@@ -805,7 +805,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
          https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L698
        */
       FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
     }
     /* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L700
      */

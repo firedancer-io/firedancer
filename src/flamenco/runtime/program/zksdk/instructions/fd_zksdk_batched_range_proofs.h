@@ -67,7 +67,7 @@ batched_range_proof_init_and_validate( uchar *                                  
   //TODO: https://github.com/anza-xyz/agave/blob/v2.0.1/zk-sdk/src/zk_elgamal_proof_program/proof_data/batched_range_proof/batched_range_proof_u64.rs#L87
 
   batched_range_proof_transcript_init( transcript, context );
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_instr_ok();
 }
 
 #endif /* HEADER_fd_zksdk_batched_range_proofs_h */

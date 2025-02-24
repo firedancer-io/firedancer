@@ -18,7 +18,7 @@ fd_zksdk_process_close_context_state( fd_exec_instr_ctx_t * ctx ) {
   FD_BORROWED_ACCOUNT_DECL( owner_acc );
   FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, ACC_IDX_OWNER, owner_acc ) {
     if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_OWNER ) ) ) {
-      return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
     }
     fd_memcpy( owner_pubkey, owner_acc->pubkey, sizeof(fd_pubkey_t) );
   } FD_BORROWED_ACCOUNT_DROP( owner_acc );
@@ -36,7 +36,7 @@ fd_zksdk_process_close_context_state( fd_exec_instr_ctx_t * ctx ) {
   } FD_BORROWED_ACCOUNT_DROP( dest_acc );
 
   if( FD_UNLIKELY( fd_memeq( proof_pubkey, dest_pubkey, sizeof(fd_pubkey_t) ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L151-L152 */
@@ -54,7 +54,7 @@ fd_zksdk_process_close_context_state( fd_exec_instr_ctx_t * ctx ) {
 
     /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L157-L159 */
     if( FD_UNLIKELY( !fd_memeq( owner_pubkey, expected_owner_addr, sizeof(fd_pubkey_t) ) ) ) {
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER );
     }
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L161-L162 */
@@ -82,7 +82,7 @@ fd_zksdk_process_close_context_state( fd_exec_instr_ctx_t * ctx ) {
   } FD_BORROWED_ACCOUNT_DROP( dest_acc );
   } FD_BORROWED_ACCOUNT_DROP( proof_acc );
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_instr_ok();
 }
 
 /* fd_zksdk_process_verify_proof is equivalent to process_verify_proof()
@@ -148,7 +148,7 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
     fd_zksdk_instr_verify_proof = &fd_zksdk_instr_verify_proof_batched_grouped_ciphertext_3_handles_validity;
     break;
   default:
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L42 */
@@ -186,7 +186,7 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
        Note: instr_id is guaranteed to be valid, to access values in the arrays. */
     if (ctx->instr->data_sz != 1 + proof_data_sz) {
       fd_log_collector_msg_literal( ctx, "invalid proof data" );
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
     }
     context = instr_data + 1;
   }
@@ -198,7 +198,7 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
   if( FD_UNLIKELY( err ) ) {
     //TODO: full log, including err
     fd_log_collector_msg_literal( ctx, "proof_verification failed" );
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
   }
 
   /* Create context state if accounts are provided with the instruction
@@ -218,12 +218,12 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
 
       /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L103-L105 */
       if( FD_UNLIKELY( !fd_memeq( proof_context_acc->const_meta->info.owner, &fd_solana_zk_elgamal_proof_program_id, sizeof(fd_pubkey_t) ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER );
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L107-L112 */
       if( FD_UNLIKELY( proof_context_acc->const_meta->dlen >= CTX_HEAD_SZ && proof_context_acc->const_data[32] != 0 ) ) {
-        return FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED );
       }
 
       /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L114-L115
@@ -249,5 +249,5 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
     } FD_BORROWED_ACCOUNT_DROP( proof_context_acc );
   }
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_instr_ok();
 }

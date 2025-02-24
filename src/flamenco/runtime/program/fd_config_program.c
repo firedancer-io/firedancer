@@ -24,7 +24,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
   /* Deserialize the Config Program instruction data, which consists only of the ConfigKeys
      https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L21 */
   if( FD_UNLIKELY( ctx->instr->data==NULL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
   }
 
   fd_bincode_decode_ctx_t decode =
@@ -38,7 +38,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
      (hardcoded constant by Agave limited_deserialize) */
   if( FD_UNLIKELY( decode_result != FD_BINCODE_SUCCESS || 
                    (ulong)ctx->instr->data + 1232UL < (ulong)decode.data ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L22-L26 */
@@ -57,7 +57,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L29-L31 */
 
   if( FD_UNLIKELY( 0!=memcmp( &config_acc_rec->const_meta->info.owner, fd_solana_config_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER );
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L33-L40 */
@@ -93,7 +93,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
      https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L50-L56 */
 
   if( FD_UNLIKELY( current_signer_key_cnt==0UL && !is_config_account_signer ) ) {
-    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L58 */
@@ -123,13 +123,13 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
         /* Max msg_sz: 33 - 2 + 45 = 76 < 127 => we can use printf */
         fd_log_collector_printf_dangerous_max_127( ctx,
           "account %s is not in account list", FD_BASE58_ENC_32_ALLOCA( signer ) );
-        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
       }
       if( FD_UNLIKELY( !fd_borrowed_account_acquire_read( signer_account ) ) ) {
         /* Max msg_sz: 33 - 2 + 45 = 76 < 127 => we can use printf */
         fd_log_collector_printf_dangerous_max_127( ctx,
           "account %s is not in account list", FD_BASE58_ENC_32_ALLOCA( signer ) );
-        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;  /* seems to be deliberately not ACC_BORROW_FAILED? */
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );  /* seems to be deliberately not ACC_BORROW_FAILED? */
       }
 
       /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L72-L79 */
@@ -138,7 +138,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
         /* Max msg_sz: 33 - 2 + 45 = 76 < 127 => we can use printf */
         fd_log_collector_printf_dangerous_max_127( ctx,
           "account %s signer_key().is_none()", FD_BASE58_ENC_32_ALLOCA( signer ) );
-        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
       }
 
       /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L80-L87 */
@@ -147,7 +147,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
         /* Max msg_sz: 53 - 3 + 20 = 70 < 127 => we can use printf */
         fd_log_collector_printf_dangerous_max_127( ctx,
           "account[%lu].signer_key() does not match Config data)", counter+1 );
-        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
       }
 
       /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L89-L98 */
@@ -166,7 +166,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
           /* Max msg_sz: 39 - 2 + 45 = 82 < 127 => we can use printf */
           fd_log_collector_printf_dangerous_max_127( ctx,
             "account %s is not in stored signer list", FD_BASE58_ENC_32_ALLOCA( signer ) );
-          return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
         }
       }
 
@@ -176,7 +176,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
       /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L101 */
       fd_log_collector_msg_literal( ctx, "account[0].signer_key().is_none()" );
-      return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
 
     }
   }
@@ -192,7 +192,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
       if( FD_UNLIKELY( memcmp( &key_list.keys[i].key, &key_list.keys[j].key, sizeof(fd_pubkey_t) ) == 0 && 
                         key_list.keys[i].signer == key_list.keys[j].signer ) ) {
         fd_log_collector_msg_literal( ctx, "new config contains duplicate keys" );
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
       }
     }
   }
@@ -203,7 +203,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
     /* Max msg_sz: 35 - 6 + 2*20 = 69 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
       "too few signers: %lu; expected: %lu", counter, current_signer_key_cnt );
-    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE )IRED_SIGNATURE );
   }
 
   /* Upgrade to writable handle
@@ -216,7 +216,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
   if( FD_UNLIKELY( config_acc_rec->const_meta->dlen<ctx->instr->data_sz ) ) {
     fd_log_collector_msg_literal( ctx, "instruction data too large" );
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
   }
 
   /* Inlined solana_sdk::transaction_context::BorrowedAccount::get_data_mut */
@@ -241,7 +241,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
   } FD_BORROWED_ACCOUNT_DROP( config_acc_rec );
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_instr_ok()
 # undef ACC_IDX_CONFIG
 
 }
@@ -250,7 +250,7 @@ int
 fd_config_program_execute( fd_exec_instr_ctx_t * ctx ) {
   /* Prevent execution of migrated native programs */
   if( FD_UNLIKELY( FD_FEATURE_ACTIVE( ctx->slot_ctx, migrate_config_program_to_core_bpf ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID );
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.27/programs/config/src/config_processor.rs#L14

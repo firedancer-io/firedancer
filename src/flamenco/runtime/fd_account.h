@@ -52,7 +52,7 @@
 /* Convenience macro for `fd_account_check_num_insn_accounts()` */
 #define CHECK_NUM_INSN_ACCS( _ctx, _expected ) do {                        \
   if( FD_UNLIKELY( (_ctx)->instr->acct_cnt<(_expected) ) ) {               \
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;                      \
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS );                      \
   }                                                                        \
 } while(0)
 
@@ -75,9 +75,9 @@ fd_account_check_num_insn_accounts( fd_exec_instr_ctx_t * ctx,
                                     uint                  expected_accounts ) {
 
   if( FD_UNLIKELY( ctx->instr->acct_cnt<expected_accounts ) ) {
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS );
   }
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_instr_ok();
 }
 
 /* fd_account_get_owner mirrors Anza function
@@ -101,7 +101,7 @@ fd_account_get_owner( fd_exec_instr_ctx_t const * ctx,
 /* fd_account_set_owner mirrors Anza function
    solana_sdk::transaction_context:Borrowed_account::set_owner.  Returns 0
    iff the owner is set successfully.  Acquires a writable handle. */
-fd_exec_result_t
+int
 fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
                       ulong                       instr_acc_idx,
                       fd_pubkey_t const *         owner );
@@ -151,7 +151,7 @@ fd_account_set_lamports( fd_exec_instr_ctx_t const * ctx,
    Gracefully handles underflow.  Acquires a writable handle.
    https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L798-L817 */
 
-static inline int
+static inline fd_exec_result_t
 fd_account_checked_add_lamports( fd_exec_instr_ctx_t const * ctx,
                                  ulong                       instr_acc_idx,
                                  ulong                       lamports ) {
@@ -167,13 +167,13 @@ fd_account_checked_add_lamports( fd_exec_instr_ctx_t const * ctx,
   ulong balance_post = 0UL;
   int err = fd_ulong_checked_add( account->const_meta->info.lamports, lamports, &balance_post );
   if( FD_UNLIKELY( err ) ) {
-    return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW );
   }
 
   return fd_account_set_lamports( ctx, instr_acc_idx, balance_post );
 }
 
-static inline int
+static inline fd_exec_result_t
 fd_account_checked_sub_lamports( fd_exec_instr_ctx_t const * ctx,
                                  ulong                       instr_acc_idx,
                                  ulong                       lamports ) {
@@ -189,7 +189,7 @@ fd_account_checked_sub_lamports( fd_exec_instr_ctx_t const * ctx,
   ulong balance_post = 0UL;
   int err = fd_ulong_checked_sub( account->const_meta->info.lamports, lamports, &balance_post );
   if( FD_UNLIKELY( err ) ) {
-    return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW );
   }
 
   return fd_account_set_lamports( ctx, instr_acc_idx, balance_post );
@@ -228,7 +228,7 @@ fd_account_set_data_from_slice( fd_exec_instr_ctx_t const * ctx,
    Acquires a writable handle. Returns 0 on success.
    https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L994-L900 */
 
-int
+fd_exec_result_t
 fd_account_set_data_length( fd_exec_instr_ctx_t const * ctx,
                             ulong                       instr_acc_idx,
                             ulong                       new_len );
@@ -331,28 +331,28 @@ fd_account_is_owned_by_current_program( fd_instr_info_t const *   info,
 static inline int
 fd_account_can_data_be_changed( fd_exec_instr_ctx_t const * ctx,
                                 ulong                       instr_acc_idx,
-                                fd_exec_result_t *          err ) {
+                                int *                       err ) {
 
   fd_instr_info_t const * instr = ctx->instr;
   assert( instr_acc_idx < instr->acct_cnt );
   fd_account_meta_t const * meta = instr->borrowed_accounts[ instr_acc_idx ]->const_meta;
 
   if( FD_UNLIKELY( fd_account_is_executable_internal( ctx->slot_ctx, meta ) ) ) {
-    *err = fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_EXECUTABLE_DATA_MODIFIED );
+    *err = FD_EXECUTOR_INSTR_ERR_EXECUTABLE_DATA_MODIFIED;
     return 0;
   }
 
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( instr, instr_acc_idx ) ) ) {
-    *err = fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_READONLY_DATA_MODIFIED );
+    *err = FD_EXECUTOR_INSTR_ERR_READONLY_DATA_MODIFIED;
     return 0;
   }
 
   if( FD_UNLIKELY( !fd_account_is_owned_by_current_program( instr, meta ) ) ) {
-    *err = fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_EXTERNAL_DATA_MODIFIED );
+    *err = FD_EXECUTOR_INSTR_ERR_EXTERNAL_DATA_MODIFIED;
     return 0;
   }
 
-  *err = fd_exec_ok();
+  *err = FD_EXECUTOR_INSTR_SUCCESS;
   return 1;
 }
 
@@ -364,17 +364,17 @@ static inline int
 fd_account_can_data_be_resized( fd_exec_instr_ctx_t const * instr_ctx,
                                 fd_account_meta_t const *   acct,
                                 ulong                       new_length,
-                                fd_exec_result_t *          err ) {
+                                int *                       err ) {
   /* Only the owner can change the length of the data */
   if( FD_UNLIKELY( ( acct->dlen != new_length ) &
                    ( !fd_account_is_owned_by_current_program( instr_ctx->instr, acct ) ) ) ) {
-    *err = fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_DATA_SIZE_CHANGED );
+    *err = FD_EXECUTOR_INSTR_ERR_ACC_DATA_SIZE_CHANGED;
     return 0;
   }
 
   /* The new length can not exceed the maximum permitted length */
   if( FD_UNLIKELY( new_length>MAX_PERMITTED_DATA_LENGTH ) ) {
-    *err = fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC );
+    *err = FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
     return 0;
   }
 
@@ -383,11 +383,11 @@ fd_account_can_data_be_resized( fd_exec_instr_ctx_t const * instr_ctx,
   long length_delta = fd_long_sat_sub( (long)new_length, (long)acct->dlen );
   long new_accounts_resize_delta = fd_long_sat_add( (long)instr_ctx->txn_ctx->accounts_resize_delta, length_delta );
   if( FD_UNLIKELY( new_accounts_resize_delta>MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN ) ) {
-    *err = fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED );
+    *err = FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED;
     return 0;
   }
 
-  *err = fd_exec_ok();
+  *err = FD_EXECUTOR_INSTR_SUCCESS;
   return 1;
 }
 
@@ -399,7 +399,7 @@ int
 fd_account_update_accounts_resize_delta( fd_exec_instr_ctx_t const * ctx,
                                          ulong                       instr_acc_idx,
                                          ulong                       new_len,
-                                         fd_exec_result_t *          err );
+                                         int *                       err );
 
 FD_FN_PURE static inline int
 fd_account_is_zeroed( fd_account_meta_t const * acct ) {

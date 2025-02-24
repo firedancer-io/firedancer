@@ -3,7 +3,7 @@
 #include "../vm/syscall/fd_vm_syscall.h"
 #include "../../ballet/ed25519/fd_curve25519.h"
 
-int
+fd_exec_result_t
 fd_pubkey_create_with_seed( fd_exec_instr_ctx_t const * ctx,
                             uchar const                 base [ static 32 ],
                             char const *                seed,
@@ -32,7 +32,7 @@ fd_pubkey_create_with_seed( fd_exec_instr_ctx_t const * ctx,
 
   fd_sha256_fini( &sha, out );
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_instr_ok();
 }
 
 /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/sdk/program/src/pubkey.rs#L578-L625 */
@@ -76,6 +76,7 @@ fd_pubkey_derive_pda( fd_pubkey_t const * program_id,
      https://github.com/anza-xyz/agave/blob/6ac4fe32e28d8ceb4085072b61fa0c6cb09baac1/sdk/program/src/pubkey.rs#L599-L601 */
   if( FD_UNLIKELY( fd_ed25519_point_validate( out->key ) ) ) {
     *custom_err = FD_PUBKEY_ERR_INVALID_SEEDS;
+    return fd_instr_custom_err( )
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 

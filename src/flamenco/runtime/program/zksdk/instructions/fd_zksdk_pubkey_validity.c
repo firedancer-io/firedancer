@@ -57,7 +57,7 @@ fd_zksdk_verify_proof_pubkey_validity(
   fd_ristretto255_multi_scalar_mul( res, scalars, points, 2 );
 
   if( FD_LIKELY( fd_ristretto255_point_eq( res, y ) ) ) {
-    return FD_EXECUTOR_INSTR_SUCCESS;
+    return fd_instr_ok();
   }
   return FD_ZKSDK_VERIFY_PROOF_ERROR;
 }

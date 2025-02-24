@@ -94,7 +94,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
       FD_BASE58_ENCODE_32_BYTES( callee_pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, "Instruction references an unknown account ", 42UL, id_b58, id_b58_len );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
-      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_ACC );
     }
 
     /* If there was an instruction account before this one which referenced the same
@@ -117,7 +117,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
     if( duplicate_index!=ULONG_MAX ) {
       if ( FD_UNLIKELY( duplicate_index >= deduplicated_instruction_accounts_cnt ) ) {
         FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS, instr_ctx->txn_ctx->instr_err_idx );
-        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS );
       }
 
       duplicate_indices[duplicate_indicies_cnt++] = duplicate_index;
@@ -141,7 +141,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
         FD_BASE58_ENCODE_32_BYTES( callee_pubkey->uc, id_b58 );
         fd_log_collector_msg_many( instr_ctx, 2, "Instruction references an unknown account ", 42UL, id_b58, id_b58_len );
         FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
-        return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_ACC );
       }
 
       /* Add the instruction account to the duplicate indicies array */
@@ -168,7 +168,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
       FD_BASE58_ENCODE_32_BYTES( pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, id_b58, id_b58_len, "'s writable privilege escalated", 31UL );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_ctx->instr_err_idx );
-      return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION );
     }
 
     /* If the account is signed in the callee, it must be signed by the caller or the program */
@@ -176,7 +176,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
       FD_BASE58_ENCODE_32_BYTES( pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, id_b58, id_b58_len, "'s signer privilege escalated", 29UL );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_ctx->instr_err_idx );
-      return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION );
     }
   }
 
@@ -197,7 +197,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
           ( !!(instruction_accounts[i].is_signer  ) * FD_INSTR_ACCT_FLAGS_IS_SIGNER   ) );
     } else {
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS, instr_ctx->txn_ctx->instr_err_idx );
-      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS );
     }
   }
 
@@ -206,7 +206,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
       FD_BASE58_ENCODE_32_BYTES( callee_instr->program_id_pubkey.uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
-      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_ACC );
     }
   } else {
     /* Check that the program account is executable. We need to ensure that the
@@ -223,14 +223,14 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
       FD_BASE58_ENCODE_32_BYTES( callee_instr->program_id_pubkey.uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
-      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_ACC );
     }
 
     if( FD_UNLIKELY( fd_account_find_idx_of_insn_account( instr_ctx, &callee_instr->program_id_pubkey )==-1 ) ) {
       FD_BASE58_ENCODE_32_BYTES( callee_instr->program_id_pubkey.uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
-      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_ACC );
     }
 
     if( !FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot_ctx, remove_accounts_executable_flag_checks ) ) {
@@ -239,7 +239,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
         FD_BASE58_ENCODE_32_BYTES( callee_instr->program_id_pubkey.uc, id_b58 );
         fd_log_collector_msg_many( instr_ctx, 3, "Account ", 8UL, id_b58, id_b58_len, " is not executable", 18UL );
         FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE, instr_ctx->txn_ctx->instr_err_idx );
-        return FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE );
       }
     }
   }

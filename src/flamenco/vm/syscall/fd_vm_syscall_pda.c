@@ -122,7 +122,7 @@ fd_vm_translate_and_check_program_address_inputs( fd_vm_t *             vm,
       return FD_VM_SYSCALL_ERR_BAD_SEEDS;
     } else {
       FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_MAX_SEED_LENGTH_EXCEEDED );
-      return FD_EXECUTOR_INSTR_ERR_MAX_SEED_LENGTH_EXCEEDED;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MAX_SEED_LENGTH_EXCEEDED );
     }
   }
   for( ulong i=0UL; i<seeds_cnt; i++ ) {

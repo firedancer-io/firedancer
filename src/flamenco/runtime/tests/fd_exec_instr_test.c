@@ -1689,7 +1689,7 @@ __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
 
     if( cpi_exec_effects == NULL ) {
       FD_LOG_WARNING(( "fd_execute_instr is disabled" ));
-      return FD_EXECUTOR_INSTR_SUCCESS;
+      return fd_instr_ok();
     }
 
     // Iterate through instruction accounts
@@ -1742,5 +1742,5 @@ __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
         break;
       }
     }
-    return FD_EXECUTOR_INSTR_SUCCESS;
+    return fd_instr_ok();
 }

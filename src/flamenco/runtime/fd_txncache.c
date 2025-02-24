@@ -969,6 +969,7 @@ fd_txncache_query_batch( fd_txncache_t *             tc,
                          void *                      query_func_ctx,
                          int ( * query_func )( ulong slot, void * ctx ),
                          int *                       out_results ) {
+  /* should have a runtime assertion here that queries_cnt equals out_results_cnt */
   fd_rwlock_read( tc->lock );
   fd_txncache_private_txnpage_t * txnpages = fd_txncache_get_txnpages( tc );
   for( ulong i=0UL; i<queries_cnt; i++ ) {

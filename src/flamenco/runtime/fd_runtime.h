@@ -62,11 +62,11 @@
 #define FD_WRITABLE_ACCS_IN_SLOT (160000UL)
 
 struct fd_execute_txn_task_info {
-  fd_spad_t * *       spads;
-  fd_spad_t *         spad;
-  fd_exec_txn_ctx_t * txn_ctx;
-  fd_txn_p_t *        txn;
-  int                 exec_res;
+  fd_spad_t * *        spads;
+  fd_spad_t *          spad;
+  fd_exec_txn_ctx_t *  txn_ctx;
+  fd_txn_p_t *         txn;
+  fd_txn_exec_result_t exec_res;
 };
 typedef struct fd_execute_txn_task_info fd_execute_txn_task_info_t;
 
@@ -398,7 +398,7 @@ fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
                                ulong                        txn_cnt,
                                fd_spad_t *                  runtime_spad );
 
-void
+fd_txn_exec_result_t
 fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info );
 
 /* fd_runtime_process_txns is responsible for end-to-end preparing, executing,

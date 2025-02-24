@@ -11,7 +11,7 @@ int
 fd_executor_zk_elgamal_proof_program_execute( fd_exec_instr_ctx_t * ctx ) {
   /* Feature-gate program activation */
   if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( ctx->slot_ctx, zk_elgamal_proof_program_enabled ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID )TED_PROGRAM_ID );
   }
 
   uchar const * instr_data    = ctx->instr->data;
@@ -19,7 +19,7 @@ fd_executor_zk_elgamal_proof_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L172-L176 */
   if( FD_UNLIKELY( instr_data_sz==0UL ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
   }
 
   switch( instr_data[0] ) {
@@ -90,7 +90,7 @@ fd_executor_zk_elgamal_proof_program_execute( fd_exec_instr_ctx_t * ctx ) {
     break;
 
   default:
-    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
   }
 
   return fd_zksdk_process_verify_proof( ctx );

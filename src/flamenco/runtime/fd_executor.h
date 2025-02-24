@@ -48,10 +48,10 @@ fd_executor_lookup_native_program( fd_borrowed_account_t const * account );
 fd_exec_instr_fn_t
 fd_executor_lookup_native_precompile_program( fd_borrowed_account_t const * prog_acc );
 
-int
+fd_txn_exec_result_t
 fd_executor_check_transactions( fd_exec_txn_ctx_t * txn_ctx );
 
-int
+fd_txn_exec_result_t
 fd_executor_verify_precompiles( fd_exec_txn_ctx_t * txn_ctx );
 
 /* fd_execute_instr creates a new fd_exec_instr_ctx_t and performs
@@ -68,7 +68,7 @@ fd_exec_result_t
 fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
                   fd_instr_info_t *   instr_info );
 
-int
+fd_txn_exec_result_t
 fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
                               fd_exec_txn_ctx_t *        txn_ctx,
                               fd_txn_t const *           txn_descriptor,
@@ -78,13 +78,13 @@ fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
   Execute the given transaction.
 
   Makes changes to the Funk accounts DB. */
-int
+fd_txn_exec_result_t
 fd_execute_txn( fd_execute_txn_task_info_t * task_info );
 
 uint
 fd_executor_txn_uses_sysvar_instructions( fd_exec_txn_ctx_t const * txn_ctx );
 
-int
+fd_txn_exec_result_t
 fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx );
 
 void
@@ -114,10 +114,10 @@ fd_executor_is_blockhash_valid_for_age( fd_block_hash_queue_t const * block_hash
 FD_FN_CONST char const *
 fd_executor_instr_strerror( int err );
 
-int
+fd_txn_exec_result_t
 fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx );
 
-int
+fd_txn_exec_result_t
 fd_executor_validate_account_locks( fd_exec_txn_ctx_t const * txn_ctx );
 
 static inline fd_exec_result_t
@@ -127,10 +127,10 @@ fd_exec_consume_cus( fd_exec_txn_ctx_t * txn_ctx,
   int   underflow = (txn_ctx->compute_meter < cus);
   if( FD_UNLIKELY( underflow ) ) {
     txn_ctx->compute_meter = 0UL;
-    return fd_exec_instr_err( FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED );
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED );
   }
   txn_ctx->compute_meter = new_cus;
-  return fd_exec_ok();
+  return fd_instr_ok();
 }
 
 /* We expose these only for the fuzzing harness.

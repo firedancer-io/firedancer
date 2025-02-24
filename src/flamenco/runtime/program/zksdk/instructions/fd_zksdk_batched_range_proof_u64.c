@@ -24,7 +24,7 @@ fd_zksdk_verify_proof_range_u64(
   );
 
   if( FD_LIKELY( res == FD_RANGEPROOFS_SUCCESS ) ) {
-    return FD_EXECUTOR_INSTR_SUCCESS;
+    return fd_instr_ok();
   }
   return FD_ZKSDK_VERIFY_PROOF_ERROR;
 }

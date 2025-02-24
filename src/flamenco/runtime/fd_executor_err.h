@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_executor_err_h
 #define HEADER_fd_src_flamenco_runtime_fd_executor_err_h
+#include "fd_runtime_err.h"
 #include "../../util/fd_util_base.h"
-#include "context/fd_exec_txn_ctx.h"
 
 /* Instruction error types */
 
@@ -9,7 +9,6 @@
 #define FD_EXECUTOR_ERR_KIND_EBPF         (1)
 #define FD_EXECUTOR_ERR_KIND_SYSCALL      (2)
 #define FD_EXECUTOR_ERR_KIND_INSTR        (3)
-#define FD_EXECUTOR_ERR_KIND_INSTR_CUSTOM (4)
 
 /* Instruction error codes */
 
@@ -100,9 +99,13 @@
 #define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE (0)
 #define FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED         (1)
 
-struct fd_exec_result {
-  int kind;
-  int err;
+struct __attribute__((packed)) fd_exec_result {
+  /* kind and err matching agave */
+  uchar kind;
+  schar err;
+
+  /* custom err is a u32 in agave */
+  uint custom_err;
 };
 typedef struct fd_exec_result fd_exec_result_t;
 
@@ -111,37 +114,41 @@ typedef struct fd_exec_result fd_exec_result_t;
 /* what about packing this struct? it will be 8 bytes... which is the size of a pointer anyways... */
 /* TODO: should these be macros? */
 static inline fd_exec_result_t
-fd_exec_ebpf_err(int err) {
+fd_ebpf_err(schar err) {
   fd_exec_result_t res {
     .kind = FD_EXECUTOR_ERR_KIND_EBPF,
-    .err = err
+    .err = err,
+    .custom_err = 0
   };
   return res;
 }
 
 static inline fd_exec_result_t
-fd_exec_syscall_err(int err) {
+fd_syscall_err(schar err) {
   fd_exec_result_t res {
     .kind = FD_EXECUTOR_ERR_KIND_SYSCALL,
-    .err = err
+    .err = err,
+    .custom_err = 0
   };
   return res;
 }
 
 static inline fd_exec_result_t
-fd_exec_instr_err(int err) {
+fd_instr_err(schar err) {
   fd_exec_result_t res {
     .kind = FD_EXECUTOR_ERR_KIND_INSTR,
-    .err = err
+    .err = err,
+    .custom_err = 0,
   };
   return res;
 }
 
 static inline fd_exec_result_t
-fd_exec_instr_custom_err( int err ) {
+fd_instr_custom_err( uint custom_err ) {
   fd_exec_result_t res {
-    .kind = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR,
-    .err = err,
+    .kind = FD_EXECUTOR_ERR_KIND_INSTR,
+    .err = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR,
+    .custom_err = custom_err,
   };
   return res;
 }
@@ -149,39 +156,69 @@ fd_exec_instr_custom_err( int err ) {
 /* TODO: should this just hardcode success to 0? */
 /* or just fd_runtime_ok? */
 static inline fd_exec_result_t
-fd_exec_ok( void ) {
+fd_instr_ok( void ) {
   fd_exec_result_t res {
     .kind = FD_EXECUTOR_ERR_KIND_NONE,
-    .err = FD_EXECUTOR_INSTR_SUCCESS
+    .err = FD_EXECUTOR_INSTR_SUCCESS,
+    .custom_err = 0,
   };
   return res;
 }
 
 static inline fd_exec_result_t
-fd_ok( int success ) {
+fd_ok( schar success ) {
   fd_exec_result_t res {
     .kind = FD_EXECUTOR_ERR_KIND_NONE,
-    .err = success
+    .err = success,
+    .custom_err = 0,
   };
-  return res; 
+  return res;
 }
 
-struct fd_instr_exec_result {
-  fd_exec_result_t res;
-  int instr_err_idx;
+struct __attribute__((packed)) fd_txn_exec_result {
+  fd_exec_result_t instr_res;
+  uchar instr_err_idx;
+  schar err;
 };
-typedef struct fd_instr_exec_result fd_instr_exec_result_t;
+typedef struct fd_txn_exec_result fd_txn_exec_result_t;
 
-static inline fd_instr_exec_result_t
-fd_instr_err( fd_exec_result_t res, int instr_err_idx ) {
-  fd_instr_exec_result_t instr_res {
-    .res = res,
-    .instr_err_idx = instr_err_idx
+static inline fd_txn_exec_result_t
+fd_txn_instr_err( fd_exec_result_t res, uchar instr_err_idx ) {
+  fd_txn_exec_result_t txn_res {
+    .instr_res = res,
+    .instr_err_idx = instr_err_idx,
+    .err = FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR,
   };
-  return instr_res; 
+  return txn_res;
 }
 
+static inline fd_txn_exec_result_t
+fd_txn_err( schar err ) {
+  fd_txn_exec_result_t txn_res {
+    .instr_res = {
+      .kind = FD_EXECUTOR_ERR_KIND_NONE,
+      .err = FD_EXECUTOR_INSTR_SUCCESS,
+      .custom_err = 0,
+    },
+    .instr_err_idx = 0,
+    .err = err,
+  };
+  return txn_res;
+}
 
-/* how to do accessors? */
+/* is this really needed?? */
+static inline fd_txn_exec_result_t
+fd_txn_ok( void ) {
+  fd_txn_exec_result_t txn_res {
+    .instr_res = {
+      .kind = FD_EXECUTOR_ERR_KIND_NONE,
+      .err = FD_EXECUTOR_INSTR_SUCCESS,
+      .custom_err = 0,
+    },
+    .instr_err_idx = 0,
+    .err = FD_RUNTIME_EXECUTE_SUCCESS,
+  };
+  return txn_res;
+}
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_executor_err_h */

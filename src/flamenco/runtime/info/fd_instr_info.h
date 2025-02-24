@@ -1,6 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_runtime_info_fd_instr_info_h
 #define HEADER_fd_src_flamenco_runtime_info_fd_instr_info_h
 
+#include "../fd_executor_err.h"
 #include "../../fd_flamenco_base.h"
 #include "../../types/fd_types.h"
 #include "../fd_borrowed_account.h"

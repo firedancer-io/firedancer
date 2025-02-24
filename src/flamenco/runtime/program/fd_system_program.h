@@ -20,23 +20,23 @@ FD_PROTOTYPES_BEGIN
 
 /* fd_system_program_execute is the entrypoint for the system program */
 
-int fd_system_program_execute( fd_exec_instr_ctx_t * ctx ) ;
+fd_exec_result_t fd_system_program_execute( fd_exec_instr_ctx_t * ctx ) ;
 
 /* System program instruction handlers */
 
-int fd_system_program_exec_create_account          ( fd_exec_instr_ctx_t * ctx, fd_system_program_instruction_create_account_t const *           data     );
-int fd_system_program_exec_assign                  ( fd_exec_instr_ctx_t * ctx, fd_pubkey_t const *                                              owner    );
-int fd_system_program_exec_transfer                ( fd_exec_instr_ctx_t * ctx, ulong                                                            lamports );
-int fd_system_program_exec_create_account_with_seed( fd_exec_instr_ctx_t * ctx, fd_system_program_instruction_create_account_with_seed_t const * data     );
-int fd_system_program_exec_advance_nonce_account   ( fd_exec_instr_ctx_t * ctx                                                                            );
-int fd_system_program_exec_withdraw_nonce_account  ( fd_exec_instr_ctx_t * ctx, ulong                                                            lamports );
-int fd_system_program_exec_initialize_nonce_account( fd_exec_instr_ctx_t * ctx, fd_pubkey_t const *                                              pubkey   );
-int fd_system_program_exec_authorize_nonce_account ( fd_exec_instr_ctx_t * ctx, fd_pubkey_t const *                                              pubkey   );
-int fd_system_program_exec_allocate                ( fd_exec_instr_ctx_t * ctx, ulong                                                            space    );
-int fd_system_program_exec_allocate_with_seed      ( fd_exec_instr_ctx_t * ctx, fd_system_program_instruction_allocate_with_seed_t const *       data     );
-int fd_system_program_exec_assign_with_seed        ( fd_exec_instr_ctx_t * ctx, fd_system_program_instruction_assign_with_seed_t const *         data     );
-int fd_system_program_exec_transfer_with_seed      ( fd_exec_instr_ctx_t * ctx, fd_system_program_instruction_transfer_with_seed_t const *       data     );
-int fd_system_program_exec_upgrade_nonce_account   ( fd_exec_instr_ctx_t * ctx                                                                            );
+fd_exec_result_t fd_system_program_exec_create_account           ( fd_exec_instr_ctx_t * ctx, fd_system_program_instruction_create_account_t const *           data     );
+fd_exec_result_t fd_system_program_exec_assign                   ( fd_exec_instr_ctx_t * ctx, fd_pubkey_t const *                                              owner    );
+fd_exec_result_t fd_system_program_exec_transfer                 ( fd_exec_instr_ctx_t * ctx, ulong                                                            lamports );
+fd_exec_result_t fd_system_program_exec_create_account_with_seed ( fd_exec_instr_ctx_t * ctx, fd_system_program_instruction_create_account_with_seed_t const * data     );
+fd_exec_result_t fd_system_program_exec_advance_nonce_account    ( fd_exec_instr_ctx_t * ctx                                                                            );
+fd_exec_result_t fd_system_program_exec_withdraw_nonce_account   ( fd_exec_instr_ctx_t * ctx, ulong                                                            lamports );
+fd_exec_result_t fd_system_program_exec_initialize_nonce_account ( fd_exec_instr_ctx_t * ctx, fd_pubkey_t const *                                              pubkey   );
+fd_exec_result_t fd_system_program_exec_authorize_nonce_account  ( fd_exec_instr_ctx_t * ctx, fd_pubkey_t const *                                              pubkey   );
+fd_exec_result_t fd_system_program_exec_allocate                 ( fd_exec_instr_ctx_t * ctx, ulong                                                            space    );
+fd_exec_result_t fd_system_program_exec_allocate_with_seed       ( fd_exec_instr_ctx_t * ctx, fd_system_program_instruction_allocate_with_seed_t const *       data     );
+fd_exec_result_t fd_system_program_exec_assign_with_seed         ( fd_exec_instr_ctx_t * ctx, fd_system_program_instruction_assign_with_seed_t const *         data     );
+fd_exec_result_t fd_system_program_exec_transfer_with_seed       ( fd_exec_instr_ctx_t * ctx, fd_system_program_instruction_transfer_with_seed_t const *       data     );
+fd_exec_result_t fd_system_program_exec_upgrade_nonce_account    ( fd_exec_instr_ctx_t * ctx                                                                            );
 
 /* User APIs */
 

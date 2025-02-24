@@ -45,61 +45,61 @@ program_error_to_instr_error( ulong  err,
       *custom_err = 0;
       return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
     case INVALID_ARGUMENT:
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
     case INVALID_INSTRUCTION_DATA:
-      return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
     case INVALID_ACCOUNT_DATA:
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     case ACCOUNT_DATA_TOO_SMALL:
-      return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL );
     case INSUFFICIENT_FUNDS:
-      return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS );
     case INCORRECT_PROGRAM_ID:
-      return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID );
     case MISSING_REQUIRED_SIGNATURES:
-      return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
     case ACCOUNT_ALREADY_INITIALIZED:
-      return FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED );
     case UNINITIALIZED_ACCOUNT:
-      return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT );
     case NOT_ENOUGH_ACCOUNT_KEYS:
-      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS );
     case ACCOUNT_BORROW_FAILED:
-      return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED );
     case MAX_SEED_LENGTH_EXCEEDED:
-      return FD_EXECUTOR_INSTR_ERR_MAX_SEED_LENGTH_EXCEEDED;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MAX_SEED_LENGTH_EXCEEDED );
     case INVALID_SEEDS:
-      return FD_EXECUTOR_INSTR_ERR_INVALID_SEEDS;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_SEEDS );
     case BORSH_IO_ERROR:
-      return FD_EXECUTOR_INSTR_ERR_BORSH_IO_ERROR;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_BORSH_IO_ERROR );
     case ACCOUNT_NOT_RENT_EXEMPT:
-      return FD_EXECUTOR_INSTR_ERR_ACC_NOT_RENT_EXEMPT;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_NOT_RENT_EXEMPT );
     case UNSUPPORTED_SYSVAR:
-      return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR );
     case ILLEGAL_OWNER:
-      return FD_EXECUTOR_INSTR_ERR_ILLEGAL_OWNER;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ILLEGAL_OWNER );
     case MAX_ACCOUNTS_DATA_ALLOCATIONS_EXCEEDED:
-      return FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED );
     case INVALID_ACCOUNT_DATA_REALLOC:
-      return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC );
     case MAX_INSTRUCTION_TRACE_LENGTH_EXCEEDED:
-      return FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MAX_INSN_TRACE_LENS_EXCEEDED );
     case BUILTIN_PROGRAMS_MUST_CONSUME_COMPUTE_UNITS:
-      return FD_EXECUTOR_INSTR_ERR_BUILTINS_MUST_CONSUME_CUS;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_BUILTINS_MUST_CONSUME_CUS );
     case INVALID_ACCOUNT_OWNER:
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER );
     case ARITHMETIC_OVERFLOW:
-      return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW );
     case IMMUTABLE:
-      return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE );
     case INCORRECT_AUTHORITY:
-      return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY );
     default:
       if( err>>BUILTIN_BIT_SHIFT == 0 ) {
         *custom_err = (uint)err;
         return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
       }
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ERR;
+      return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ERR );
   }
 }
 
@@ -134,15 +134,15 @@ fd_bpf_loader_v3_is_executable( fd_exec_slot_ctx_t *        slot_ctx,
   fd_account_meta_t const * meta = fd_acc_mgr_view_raw( slot_ctx->acc_mgr, slot_ctx->funk_txn,
                                                         (fd_pubkey_t *) pubkey, NULL, &err, NULL );
   if( FD_UNLIKELY( !fd_acc_exists( meta ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_ACC );
   }
 
   if( FD_UNLIKELY( memcmp( meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER );
   }
 
   if( FD_UNLIKELY( meta->info.executable!=1 ) ) {
-    return FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE );
   }
 
   fd_bincode_decode_ctx_t ctx = {
@@ -165,7 +165,7 @@ fd_bpf_loader_v3_is_executable( fd_exec_slot_ctx_t *        slot_ctx,
     (fd_account_meta_t const *)fd_acc_mgr_view_raw( slot_ctx->acc_mgr, slot_ctx->funk_txn,
                                                     (fd_pubkey_t *) &loader_state.inner.program.programdata_address, NULL, &err, NULL );
   if( FD_UNLIKELY( !fd_acc_exists( programdata_meta ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_ACC );
   }
 
   return 0;
@@ -251,7 +251,7 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
   if( FD_UNLIKELY( !syscalls ) ) {
     //TODO: full log including err
     fd_log_collector_msg_literal( instr_ctx, "Failed to register syscalls" );
-    return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE );
   }
   fd_vm_syscall_register_slot( syscalls, instr_ctx->slot_ctx, 1);
 
@@ -314,14 +314,14 @@ fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
     /* direct mapping */  direct_mapping );
   if ( FD_UNLIKELY( vm == NULL ) ) {
     FD_LOG_WARNING(( "NULL vm" ));
-    return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE );
   }
 
   int validate_result = fd_vm_validate( vm );
   if( FD_UNLIKELY( validate_result!=FD_VM_SUCCESS ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_instr_ok();
 }
 
 /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L195-L218 */
@@ -345,11 +345,11 @@ write_program_data( fd_exec_instr_ctx_t *   instr_ctx,
     /* Max msg_sz: 24 - 6 + 2*20 = 58 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( instr_ctx,
       "Write overflow %lu < %lu", program->const_meta->dlen, write_offset );
-    return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL );
   }
 
   if( FD_UNLIKELY( program_data_offset>dlen ) ) {
-    return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL );
   }
 
   if( FD_LIKELY( bytes_len ) ) {
@@ -358,7 +358,7 @@ write_program_data( fd_exec_instr_ctx_t *   instr_ctx,
 
   } FD_BORROWED_ACCOUNT_DROP( program );
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_instr_ok();
 }
 
 /* get_state() */
@@ -398,7 +398,7 @@ fd_bpf_loader_v3_program_set_state( fd_exec_instr_ctx_t *               instr_ct
   }
 
   if( FD_UNLIKELY( state_size>dlen ) ) {
-    return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL );
   }
 
   fd_bincode_encode_ctx_t ctx = {
@@ -408,7 +408,7 @@ fd_bpf_loader_v3_program_set_state( fd_exec_instr_ctx_t *               instr_ct
 
   err = fd_bpf_upgradeable_loader_state_encode( state, &ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_GENERIC_ERR );
   }
 
   return FD_BINCODE_SUCCESS;
@@ -423,13 +423,13 @@ common_close_account( fd_pubkey_t * authority_address,
   fd_pubkey_t const * txn_accs       = instr_ctx->txn_ctx->accounts;
 
   if( FD_UNLIKELY( !authority_address ) ) {
-    return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE );
   }
   if( FD_UNLIKELY( memcmp( authority_address, &txn_accs[ instr_acc_idxs[ 2UL ] ], sizeof(fd_pubkey_t) ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY );
   }
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 2UL ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+    return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
   }
 
   FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 0UL, close_account     ) {
@@ -450,7 +450,7 @@ common_close_account( fd_pubkey_t * authority_address,
     return err;
   }
 
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_instr_ok();
 
   } FD_BORROWED_ACCOUNT_DROP( recipient_account );
   } FD_BORROWED_ACCOUNT_DROP( close_account     );
@@ -638,8 +638,8 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
     /* https://github.com/anza-xyz/agave/blob/v2.1.10/program-runtime/src/invoke_context.rs#L564-L577 */
     /* If the result returned from fd_vm_exec is an error, there are three possibilities:
         1. When fd_vm_exec error is a SyscallError and error kind is an InstructionError, return the actual InstructionError
-        2. When fd_vm_exec error is a SyscallError, but error kind is not an InstructionError, return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE
-        3. When fd_vm_exec error is not a SyscallError, return FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE
+        2. When fd_vm_exec error is a SyscallError, but error kind is not an InstructionError, return fd_instr_err( FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE )
+        3. When fd_vm_exec error is not a SyscallError, return fd_instr_err( FD_EXECUTOR_INSTR_ERR_PROGRAM_FAILED_TO_COMPLETE )
     */
     if( FD_UNLIKELY( vm_res.err==FD_VM_ERR_SIGSYSCALL && vm_res.exec_res.kind==FD_EXECUTOR_ERR_KIND_INSTR ) ) {
       return vm_res.exec_res;
@@ -777,7 +777,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
     case fd_bpf_upgradeable_loader_program_instruction_enum_deploy_with_max_data_len: {
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L527-L541 */
       if( FD_UNLIKELY( fd_account_check_num_insn_accounts( instr_ctx, 4U ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS );
       }
       fd_pubkey_t const * payer_key       = &txn_accs[ instr_acc_idxs[ 0UL ] ];
       fd_pubkey_t const * programdata_key = &txn_accs[ instr_acc_idxs[ 1UL ] ];
@@ -795,10 +795,10 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       fd_sol_sysvar_clock_t clock = {0};
       if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock, instr_ctx->slot_ctx ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_GENERIC_ERR );
       }
       if( fd_account_check_num_insn_accounts( instr_ctx, 8U ) ) {
-        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS );
       }
       fd_pubkey_t const * authority_key = &txn_accs[ instr_acc_idxs[ 7UL ] ];
 
@@ -817,16 +817,16 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
       if( FD_UNLIKELY( !fd_bpf_upgradeable_loader_state_is_uninitialized( &loader_state ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account already initialized" );
-        return FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED );
       }
       if( FD_UNLIKELY( program->const_meta->dlen<SIZE_OF_PROGRAM ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account too small" );
-        return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL );
       }
       if( FD_UNLIKELY( program->const_meta->info.lamports<fd_rent_exempt_minimum_balance( rent,
                                                                                            program->const_meta->dlen ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account not rent-exempt" );
-        return FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_EXECUTABLE_ACCOUNT_NOT_RENT_EXEMPT );
       }
       new_program_id = program->pubkey;
 
@@ -857,15 +857,15 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         if( FD_UNLIKELY( (authority_key==NULL) != (buffer_state.inner.buffer.authority_address == NULL) ||
             (authority_key!=NULL && memcmp( buffer_state.inner.buffer.authority_address, authority_key, sizeof(fd_pubkey_t) ) ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Buffer and upgrade authority don't match" );
-          return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY );
         }
         if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 7UL ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Upgrade authority did not sign" );
-          return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
         }
       } else {
         fd_log_collector_msg_literal( instr_ctx, "Invalid Buffer account" );
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
       }
       buffer_key         = buffer->pubkey;
       buffer_data_offset = BUFFER_METADATA_SIZE;
@@ -881,12 +881,12 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       if( FD_UNLIKELY( instruction.inner.deploy_with_max_data_len.max_data_len<buffer_data_len ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Max data length is too small to hold Buffer data" );
-        return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL );
       }
 
       if( FD_UNLIKELY( programdata_len>MAX_PERMITTED_DATA_LENGTH ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Max data length is too large" );
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
       }
 
       } FD_BORROWED_ACCOUNT_DROP( buffer );
@@ -909,7 +909,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
       if( FD_UNLIKELY( memcmp( derived_address, programdata_key, sizeof(fd_pubkey_t) ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "ProgramData address is not derived" );
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
       }
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L610-L627 */
@@ -968,7 +968,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* Load and verify the program bits */
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 3UL, buffer ) {
       if( FD_UNLIKELY( buffer_data_offset>buffer->const_meta->dlen ) ) {
-        return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL );
       }
 
       const uchar * buffer_data = buffer->const_data + buffer_data_offset;
@@ -999,10 +999,10 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L675-L689 */
       if( FD_UNLIKELY( PROGRAMDATA_METADATA_SIZE+buffer_data_len>programdata->const_meta->dlen ) ) {
-        return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL );
       }
       if( FD_UNLIKELY( buffer_data_offset>buffer->const_meta->dlen ) ) {
-        return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL );
       }
 
       uchar * programdata_data = NULL;
@@ -1018,7 +1018,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 3UL, buffer ) {
 
       if( FD_UNLIKELY( buffer_data_offset>buffer->const_meta->dlen ) ) {
-        return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL );
       }
       const uchar * src_slice = buffer->const_data + buffer_data_offset;
       fd_memcpy( dst_slice, src_slice, dst_slice_len );
@@ -1061,7 +1061,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
     case fd_bpf_upgradeable_loader_program_instruction_enum_upgrade: {
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L704-L714 */
       if( FD_UNLIKELY( fd_account_check_num_insn_accounts( instr_ctx, 3U ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS );
       }
       fd_pubkey_t const * programdata_key = &txn_accs[ instr_acc_idxs[ 0UL ] ];
 
@@ -1078,7 +1078,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       if( FD_UNLIKELY( fd_account_check_num_insn_accounts( instr_ctx, 7U ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS );
       }
       fd_pubkey_t const * authority_key = &txn_accs[ instr_acc_idxs[ 6UL ] ];
 
@@ -1091,15 +1091,15 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, remove_accounts_executable_flag_checks ) &&
                        !fd_account_is_executable( program->const_meta ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account not executable" );
-        return FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE );
       }
       if( FD_UNLIKELY( !fd_instr_acc_is_writable( instr_ctx->instr, program->pubkey ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account not writeable" );
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
       }
       if( FD_UNLIKELY( memcmp( &program->const_meta->info.owner, program_id, sizeof(fd_pubkey_t) ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account not owned by loader" );
-        return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID );
       }
       fd_bpf_upgradeable_loader_state_t program_state = {0};
       err = fd_bpf_loader_v3_program_get_state( instr_ctx->txn_ctx, program, &program_state );
@@ -1109,7 +1109,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_is_program( &program_state ) ) ) {
         if( FD_UNLIKELY( memcmp( &program_state.inner.program.programdata_address, programdata_key, sizeof(fd_pubkey_t) ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Program and ProgramData account mismatch" );
-          return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
         }
       } else {
         fd_log_collector_msg_literal( instr_ctx, "Invalid Program account" );
@@ -1136,15 +1136,15 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         if( FD_UNLIKELY( (authority_key==NULL) != (buffer_state.inner.buffer.authority_address == NULL) ||
             (authority_key!=NULL && memcmp( buffer_state.inner.buffer.authority_address, authority_key, sizeof(fd_pubkey_t) ) ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Buffer and upgrade authority don't match" );
-          return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY );
         }
         if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 6UL ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Upgrade authority did not sign" );
-          return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
         }
       } else {
         fd_log_collector_msg_literal( instr_ctx, "Invalid Buffer account" );
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
       }
       buffer_lamports    = buffer->const_meta->info.lamports;
       buffer_data_offset = BUFFER_METADATA_SIZE;
@@ -1173,11 +1173,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       if( FD_UNLIKELY( programdata->const_meta->dlen<fd_ulong_sat_add( PROGRAMDATA_METADATA_SIZE, buffer_data_len ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "ProgramData account not large enough" );
-        return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL );
       }
       if( FD_UNLIKELY( fd_ulong_sat_add( programdata->const_meta->info.lamports, buffer_lamports )<programdata_balance_required ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Buffer account balance too low to fund upgrade" );
-        return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS );
       }
       err = fd_bpf_loader_v3_program_get_state( instr_ctx->txn_ctx, programdata, &programdata_state );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
@@ -1185,25 +1185,25 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock, instr_ctx->slot_ctx ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_GENERIC_ERR );
       }
 
       if( fd_bpf_upgradeable_loader_state_is_program_data( &programdata_state ) ) {
         if( FD_UNLIKELY( clock.slot==programdata_state.inner.program_data.slot ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Program was deployed in this block already" );
-          return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
         }
         if( FD_UNLIKELY( !programdata_state.inner.program_data.upgrade_authority_address ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Prrogram not upgradeable" );
-          return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE );
         }
         if( FD_UNLIKELY( memcmp( programdata_state.inner.program_data.upgrade_authority_address, authority_key, sizeof(fd_pubkey_t) ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Incorrect upgrade authority provided" );
-          return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY );
         }
         if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 6UL ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Upgrade authority did not sign" );
-          return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
         }
       } else {
         fd_log_collector_msg_literal( instr_ctx, "Invalid ProgramData account" );
@@ -1218,7 +1218,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 2UL, buffer ) {
 
       if( FD_UNLIKELY( buffer_data_offset>buffer->const_meta->dlen ) ) {
-        return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL );
       }
 
       const uchar * buffer_data = buffer->const_data + buffer_data_offset;
@@ -1245,7 +1245,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L846-L875 */
       /* We want to copy over the data and zero out the rest */
       if( FD_UNLIKELY( programdata_data_offset+buffer_data_len>programdata->const_meta->dlen ) ) {
-        return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL );
       }
 
       uchar * programdata_data = NULL;
@@ -1260,7 +1260,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 2UL, buffer ) {
 
       if( FD_UNLIKELY( buffer_data_offset>buffer->const_meta->dlen ) ){
-        return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL );
       }
 
       const uchar * src_slice = buffer->const_data + buffer_data_offset;
@@ -1308,7 +1308,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
     /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L893-L957 */
     case fd_bpf_upgradeable_loader_program_instruction_enum_set_authority: {
       if( FD_UNLIKELY( fd_account_check_num_insn_accounts( instr_ctx, 2U ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS );
       }
 
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 0UL, account ) {
@@ -1328,19 +1328,19 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       if( fd_bpf_upgradeable_loader_state_is_buffer( &account_state ) ) {
         if( FD_UNLIKELY( !new_authority ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Buffer authority is not optional" );
-          return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY );
         }
         if( FD_UNLIKELY( !account_state.inner.buffer.authority_address ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Buffer is immutable" );
-          return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE );
         }
         if( FD_UNLIKELY( memcmp( account_state.inner.buffer.authority_address, present_authority_key, sizeof(fd_pubkey_t) ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Incorrect buffer authority provided" );
-          return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY );
         }
         if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 1UL ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Buffer authority did not sign" );
-          return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
         }
         account_state.inner.buffer.authority_address = new_authority;
         err = fd_bpf_loader_v3_program_set_state( instr_ctx, 0UL, &account_state );
@@ -1350,15 +1350,15 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       } else if( fd_bpf_upgradeable_loader_state_is_program_data( &account_state ) ) {
         if( FD_UNLIKELY( !account_state.inner.program_data.upgrade_authority_address ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Program not upgradeable" );
-          return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE );
         }
         if( FD_UNLIKELY( memcmp( account_state.inner.program_data.upgrade_authority_address, present_authority_key, sizeof(fd_pubkey_t) ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Incorrect upgrade authority provided" );
-          return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY );
         }
         if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 1UL ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Upgrade authority did not sign" );
-          return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
         }
         account_state.inner.program_data.upgrade_authority_address = new_authority;
         err = fd_bpf_loader_v3_program_set_state( instr_ctx, 0UL, &account_state );
@@ -1367,7 +1367,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         }
       } else {
         fd_log_collector_msg_literal( instr_ctx, "Account does not support authorities" );
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
       }
 
       /* Max msg_sz: 16 - 2 + 45 = 59 < 127 => we can use printf */
@@ -1380,11 +1380,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
     /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L958-L1030 */
     case fd_bpf_upgradeable_loader_program_instruction_enum_set_authority_checked: {
       if( !FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, enable_bpf_loader_set_authority_checked_ix ) ) {
-        return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
       }
 
       if( FD_UNLIKELY( fd_account_check_num_insn_accounts( instr_ctx, 3U ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS );
       }
 
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 0UL, account ) {
@@ -1401,19 +1401,19 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       if( fd_bpf_upgradeable_loader_state_is_buffer( &account_state ) ) {
         if( FD_UNLIKELY( !account_state.inner.buffer.authority_address ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Buffer is immutable" );
-          return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE );
         }
         if( FD_UNLIKELY( memcmp( account_state.inner.buffer.authority_address, present_authority_key, sizeof(fd_pubkey_t) ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Incorrect buffer authority provided" );
-          return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY );
         }
         if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 1UL ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Buffer authority did not sign" );
-          return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
         }
         if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 2UL ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "New authority did not sign" );
-          return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
         }
         account_state.inner.buffer.authority_address = (fd_pubkey_t*)new_authority_key;
         err = fd_bpf_loader_v3_program_set_state( instr_ctx, 0UL, &account_state );
@@ -1423,19 +1423,19 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       } else if( fd_bpf_upgradeable_loader_state_is_program_data( &account_state ) ) {
         if( FD_UNLIKELY( !account_state.inner.program_data.upgrade_authority_address ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Program not upgradeable" );
-          return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE );
         }
         if( FD_UNLIKELY( memcmp( account_state.inner.program_data.upgrade_authority_address, present_authority_key, sizeof(fd_pubkey_t) ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Incorrect upgrade authority provided" );
-          return FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INCORRECT_AUTHORITY );
         }
         if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 1UL ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Upgrade authority did not sign" );
-          return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
         }
         if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( instr_ctx->instr, 2UL ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "New authority did not sign" );
-          return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE );
         }
         account_state.inner.program_data.upgrade_authority_address = (fd_pubkey_t*)new_authority_key;
         err = fd_bpf_loader_v3_program_set_state( instr_ctx, 0UL, &account_state );
@@ -1444,7 +1444,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         }
       } else {
         fd_log_collector_msg_literal( instr_ctx, "Account does not support authorities" );
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
       }
 
       /* Max msg_sz: 16 - 2 + 45 = 59 < 127 => we can use printf */
@@ -1459,11 +1459,11 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1032-L1046 */
       if( FD_UNLIKELY( fd_account_check_num_insn_accounts( instr_ctx, 2U ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS );
       }
       if( FD_UNLIKELY( instr_acc_idxs[ 0UL ]==instr_acc_idxs[ 1UL ] ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Recipient is the same as the account being closed" );
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
       }
 
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 0UL, close_account ) {
@@ -1505,7 +1505,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         fd_borrowed_account_release_write( close_account );
 
         if( FD_UNLIKELY( fd_account_check_num_insn_accounts( instr_ctx, 3U ) ) ) {
-          return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS );
         }
 
         err = common_close_account( close_account_state.inner.buffer.authority_address, instr_ctx, &close_account_state );
@@ -1519,7 +1519,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1069-L1129 */
       } else if( fd_bpf_upgradeable_loader_state_is_program_data( &close_account_state ) ) {
         if( FD_UNLIKELY( fd_account_check_num_insn_accounts( instr_ctx, 4U ) ) ) {
-          return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS );
         }
 
         fd_borrowed_account_release_write( close_account );
@@ -1530,19 +1530,19 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
         if( FD_UNLIKELY( !fd_instr_acc_is_writable( instr_ctx->instr, program_key ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Program account is not writable" );
-          return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
         }
         if( FD_UNLIKELY( memcmp( program_account->const_meta->info.owner, program_id, sizeof(fd_pubkey_t) ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Program account not owned by loader" );
-          return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID );
         }
         fd_sol_sysvar_clock_t clock = {0};
         if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock, instr_ctx->slot_ctx ) ) ) {
-          return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR );
         }
         if( FD_UNLIKELY( clock.slot==close_account_state.inner.program_data.slot ) ) {
           fd_log_collector_msg_literal( instr_ctx,"Program was deployed in this block already" );
-          return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG )RR_INVALID_ARG );
         }
 
         fd_bpf_upgradeable_loader_state_t program_state = {0};
@@ -1553,7 +1553,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         if( fd_bpf_upgradeable_loader_state_is_program( &program_state ) ) {
           if( FD_UNLIKELY( memcmp( &program_state.inner.program.programdata_address, close_key, sizeof(fd_pubkey_t) ) ) ) {
             fd_log_collector_msg_literal( instr_ctx,"Program account does not match ProgramData account" );
-            return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+            return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
           }
           fd_borrowed_account_release_write( program_account );
 
@@ -1574,7 +1574,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
         } else {
           fd_log_collector_msg_literal( instr_ctx, "Invalid program account" );
-          return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
         }
 
         /* Max msg_sz: 17 - 2 + 45 = 60 < 127 => we can use printf */
@@ -1584,7 +1584,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         } FD_BORROWED_ACCOUNT_DROP( program_account );
       } else {
         fd_log_collector_msg_literal( instr_ctx, "Account does not support closing" );
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
       }
 
       } FD_BORROWED_ACCOUNT_DROP( close_account );
@@ -1597,7 +1597,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       uint additional_bytes = instruction.inner.extend_program.additional_bytes;
       if( FD_UNLIKELY( additional_bytes==0U ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Additional bytes must be greater than 0" );
-        return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA );
       }
 
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 0UL, programdata_account ) {
@@ -1611,22 +1611,22 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       if( FD_UNLIKELY( memcmp( program_id, programdata_account->const_meta->info.owner, sizeof(fd_pubkey_t) ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "ProgramData owner is invalid" );
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER );
       }
       if( FD_UNLIKELY( !fd_instr_acc_is_writable( instr_ctx->instr, programdata_key ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "ProgramData is not writable" );
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
       }
 
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 1UL, program_account ) {
 
       if( FD_UNLIKELY( !fd_instr_acc_is_writable( instr_ctx->instr, program_account->pubkey ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account is not writable" );
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
       }
       if( FD_UNLIKELY( memcmp( program_id, program_account->const_meta->info.owner, sizeof(fd_pubkey_t) ) ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program account not owned by loader" );
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER );
       }
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1172-L1190 */
@@ -1638,7 +1638,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       if( fd_bpf_upgradeable_loader_state_is_program( &program_state ) ) {
         if( FD_UNLIKELY( memcmp( &program_state.inner.program.programdata_address, programdata_key, sizeof(fd_pubkey_t) ) ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Program account does not match ProgramData account" );
-          return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
         }
       } else {
         fd_log_collector_msg_literal( instr_ctx, "Invalid program account" );
@@ -1654,12 +1654,12 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
         /* Max msg_sz: 85 - 6 + 2*20 = 119 < 127 => we can use printf */
         fd_log_collector_printf_dangerous_max_127( instr_ctx,
           "Extended ProgramData length of %lu bytes exceeds max account data length of %lu bytes", new_len, MAX_PERMITTED_DATA_LENGTH );
-        return FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_REALLOC );
       }
 
       fd_sol_sysvar_clock_t clock = {0};
       if( FD_UNLIKELY( !fd_sysvar_clock_read( &clock, instr_ctx->slot_ctx ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR );
       }
 
       fd_bpf_upgradeable_loader_state_t programdata_state = {0};
@@ -1671,12 +1671,12 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       if( fd_bpf_upgradeable_loader_state_is_program_data( &programdata_state ) ) {
         if( FD_UNLIKELY( clock.slot==programdata_state.inner.program_data.slot ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Program was extended in this block already" );
-          return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
         }
 
         if( FD_UNLIKELY( !programdata_state.inner.program_data.upgrade_authority_address ) ) {
           fd_log_collector_msg_literal( instr_ctx, "Cannot extend ProgramData accounts that are not upgradeable" );
-          return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE );
         }
         upgrade_authority_address = programdata_state.inner.program_data.upgrade_authority_address;
       } else {
@@ -1700,7 +1700,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       if( FD_UNLIKELY( required_payment>0UL ) ) {
         if ( FD_UNLIKELY( instr_ctx->instr->acct_cnt<=3UL ) ) {
-          return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+          return fd_instr_err( FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS );
         }
 
         fd_pubkey_t const * payer_key = &txn_accs[ instr_acc_idxs[ 3UL ] ];
@@ -1725,7 +1725,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/programs/bpf_loader/src/lib.rs#L1258-L1293 */
       if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( programdata_account ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_ACC );
       }
 
       /* Programdata account set data length */
@@ -1735,7 +1735,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       }
 
       if( FD_UNLIKELY( PROGRAMDATA_METADATA_SIZE>programdata_account->const_meta->dlen ) ) {
-        return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL );
       }
 
       uchar * programdata_data = programdata_account->data + PROGRAMDATA_METADATA_SIZE;
@@ -1754,7 +1754,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
          The set_state function also contains an ownership check. */
 
       if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( programdata_account ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+        return fd_instr_err( FD_EXECUTOR_INSTR_ERR_MISSING_ACC );
       }
 
       programdata_state.discriminant                                 = fd_bpf_upgradeable_loader_state_enum_program_data;
@@ -1778,7 +1778,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
   }
-  return FD_EXECUTOR_INSTR_SUCCESS;
+  return fd_instr_ok();
 }
 
 /* process_instruction_inner() */
