@@ -242,6 +242,10 @@ during_housekeeping( fd_shred_ctx_t * ctx ) {
       return;
     }
 
+    char identity_key_str[ FD_BASE58_ENCODED_32_SZ ] = {0};
+    fd_base58_encode_32( ctx->identity_key->uc, NULL, identity_key_str );
+    FD_LOG_INFO(( "Shred tile changing identity to `%s`", identity_key_str ));
+
     fd_memcpy( ctx->identity_key->uc, ctx->keyswitch->bytes, 32UL );
     fd_stake_ci_set_identity( ctx->stake_ci, ctx->identity_key );
     fd_keyswitch_state( ctx->keyswitch, FD_KEYSWITCH_STATE_COMPLETED );
