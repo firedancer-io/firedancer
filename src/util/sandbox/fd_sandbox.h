@@ -121,7 +121,10 @@ fd_sandbox_requires_cap_sys_admin( uint desired_uid,
      (15) The no_new_privs bit is set.
 
      (16) An empty landlock restriction is applied to prevent any and
-          all filesystem operations.
+          all filesystem operations, except the connect(2) syscall might
+          continue to be allowed if allow_connect is nonzero.  Note that
+          this restriction is separate from the seccomp-bpf filter, and
+          the syscall might still be prevented by that.
 
      (17) Finally, a seccomp-bpf filter is installed to prevent most
           syscalls from being made.  The filter is provided in the
@@ -141,6 +144,7 @@ void
 fd_sandbox_enter( uint                 desired_uid,                  /* User ID to switch the process to inside the sandbox */
                   uint                 desired_gid,                  /* Group ID to switch the process to inside the sandbox */
                   int                  keep_host_networking,         /* True to keep the host networking namespace and not unshare it */
+                  int                  allow_connect,                /* True if the connect(2) syscall should be allowed via. landlock */
                   int                  keep_controlling_terminal,    /* True to disconnect from the controlling terminal session */
                   ulong                rlimit_file_cnt,              /* Maximum open file value to provide to setrlimit(RLIMIT_NOFILE) */
                   ulong                rlimit_address_space,         /* Maximum address space size to provide to setrlimit(RLIMIT_AS) */
