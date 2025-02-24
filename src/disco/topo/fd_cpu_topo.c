@@ -125,13 +125,27 @@ fd_topo_cpus_init( fd_topo_cpus_t * cpus ) {
   cpus->numa_node_cnt = fd_numa_node_cnt();
   cpus->cpu_cnt = fd_topo_cpu_cnt();
 
+  int all_online_no_ht = 1;
+  for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
+    if( FD_UNLIKELY( !fd_topo_cpus_online( i ) ) ) {
+      all_online_no_ht = 0;
+      break;
+    } else {
+      ulong sibling = fd_topob_sibling_idx( i );
+      if( FD_LIKELY( sibling!=ULONG_MAX ) ) {
+        all_online_no_ht = 0;
+        break;
+      }
+    }
+  }
+
   int hyperthreaded = 0;
   int smt_state = fd_topo_smt_state();
   if( FD_UNLIKELY( smt_state==SMT_STATE_FORCE_OFF || smt_state==SMT_STATE_OFF ) ) {
     /* Top half of the CPUs should be off */
     cpus->cpu_cnt /= 2;
   } else if( FD_UNLIKELY( smt_state==SMT_STATE_ON ) ) {
-    hyperthreaded = 1;
+    if( FD_UNLIKELY( !all_online_no_ht ) ) hyperthreaded = 1;
   }
 
   for( ulong i=0UL; i<cpus->cpu_cnt; i++ ) {
