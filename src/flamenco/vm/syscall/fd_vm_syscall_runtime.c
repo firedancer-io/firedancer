@@ -208,9 +208,9 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
     return FD_VM_SYSCALL_ERR_ABORT;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L210-L213 
+  /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L210-L213
      We don't need this, we already checked we can store in out_vaddr with requested sz. */
-  
+
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/sysvar.rs#L215-L221 */
   if( FD_UNLIKELY( memcmp( sysvar_id->uc, fd_sysvar_clock_id.uc,             FD_PUBKEY_FOOTPRINT ) &&
                    memcmp( sysvar_id->uc, fd_sysvar_epoch_schedule_id.uc,    FD_PUBKEY_FOOTPRINT ) &&
@@ -262,7 +262,7 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
   fd_vm_t * vm = (fd_vm_t *)_vm;
 
   /* Var addr of 0 returns the total active stake on the cluster.
-  
+
      https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2057-L2075 */
   if( FD_UNLIKELY( var_addr==0UL ) ) {
     /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2065-L2066 */
@@ -536,23 +536,23 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
          https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/programs/bpf_loader/src/syscalls/mod.rs#L1469 */
 
       FD_VM_MEM_CHECK_NON_OVERLAPPING( vm,
-        result_meta_vaddr, FD_VM_SYSCALL_PROCESSED_SIBLING_INSTRUCTION_SIZE,
-        result_program_id_vaddr, sizeof(fd_pubkey_t) );
+        (ulong)result_meta_haddr, FD_VM_SYSCALL_PROCESSED_SIBLING_INSTRUCTION_SIZE,
+        (ulong)result_program_id_haddr, sizeof(fd_pubkey_t) );
       FD_VM_MEM_CHECK_NON_OVERLAPPING( vm,
-        result_meta_vaddr, FD_VM_SYSCALL_PROCESSED_SIBLING_INSTRUCTION_SIZE,
-        result_accounts_vaddr, accounts_meta_total_size );
+        (ulong)result_meta_haddr, FD_VM_SYSCALL_PROCESSED_SIBLING_INSTRUCTION_SIZE,
+        (ulong)result_accounts_haddr, accounts_meta_total_size );
       FD_VM_MEM_CHECK_NON_OVERLAPPING( vm,
-        result_meta_vaddr, FD_VM_SYSCALL_PROCESSED_SIBLING_INSTRUCTION_SIZE,
-        result_data_vaddr, result_meta_haddr->data_len );
+        (ulong)result_meta_haddr, FD_VM_SYSCALL_PROCESSED_SIBLING_INSTRUCTION_SIZE,
+        (ulong)result_data_haddr, result_meta_haddr->data_len );
       FD_VM_MEM_CHECK_NON_OVERLAPPING( vm,
-        result_program_id_vaddr, sizeof(fd_pubkey_t),
-        result_data_vaddr, result_meta_haddr->data_len );
+        (ulong)result_program_id_haddr, sizeof(fd_pubkey_t),
+        (ulong)result_data_haddr, result_meta_haddr->data_len );
       FD_VM_MEM_CHECK_NON_OVERLAPPING( vm,
-        result_program_id_vaddr, sizeof(fd_pubkey_t),
-        result_accounts_vaddr, accounts_meta_total_size );
+        (ulong)result_program_id_haddr, sizeof(fd_pubkey_t),
+        (ulong)result_accounts_haddr, accounts_meta_total_size );
       FD_VM_MEM_CHECK_NON_OVERLAPPING( vm,
-        result_data_vaddr, result_meta_haddr->data_len,
-        result_accounts_vaddr, accounts_meta_total_size );
+        (ulong)result_data_haddr, result_meta_haddr->data_len,
+        (ulong)result_accounts_haddr, accounts_meta_total_size );
 
       /* Copy the instruction into the result addresses
          https://github.com/anza-xyz/agave/blob/70089cce5119c9afaeb2986e2ecaa6d4505ec15d/programs/bpf_loader/src/syscalls/mod.rs#L1506-L1528
