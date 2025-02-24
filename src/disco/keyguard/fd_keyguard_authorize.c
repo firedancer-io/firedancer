@@ -1,5 +1,6 @@
 #include "fd_keyguard.h"
 #include "fd_keyguard_client.h"
+#include "../plugin/fd_bundle_crank_constants.h"
 
 struct fd_keyguard_sign_req {
   fd_keyguard_authority_t * authority;
@@ -25,6 +26,32 @@ fd_keyguard_authorize_gossip( fd_keyguard_authority_t const * authority,
   /* FIXME Add gossip message authorization here */
   (void)authority; (void)data; (void)sz; (void)sign_type;
   return 1;
+}
+
+static int
+fd_keyguard_authorize_bundle_crank_txn( fd_keyguard_authority_t const * authority,
+                                        uchar const *                   data,
+                                        ulong                           sz,
+                                        int                             sign_type ) {
+  static const uchar disc1[ 8 ] = { FD_BUNDLE_CRANK_DISC_INIT_TIP_DISTR };
+  static const uchar disc2[ 8 ] = { FD_BUNDLE_CRANK_DISC_CHANGE_TIP_RCV };
+  static const uchar disc3[ 8 ] = { FD_BUNDLE_CRANK_DISC_CHANGE_BLK_BLD };
+
+  if( sign_type != FD_KEYGUARD_SIGN_TYPE_ED25519 ) return 0;
+
+  (void)authority;
+  /* TODO: we can check a lot more bytes */
+  switch( sz ) {
+    case (FD_BUNDLE_CRANK_2_SZ-65UL):
+      return fd_memeq( data+FD_BUNDLE_CRANK_2_IX1_DISC_OFF-65UL, disc2, 8UL ) &&
+             fd_memeq( data+FD_BUNDLE_CRANK_2_IX2_DISC_OFF-65UL, disc3, 8UL );
+    case (FD_BUNDLE_CRANK_3_SZ-65UL):
+      return fd_memeq( data+FD_BUNDLE_CRANK_3_IX1_DISC_OFF-65UL, disc1, 8UL ) &&
+             fd_memeq( data+FD_BUNDLE_CRANK_3_IX2_DISC_OFF-65UL, disc2, 8UL ) &&
+             fd_memeq( data+FD_BUNDLE_CRANK_3_IX3_DISC_OFF-65UL, disc3, 8UL );
+    default:
+      return 0;
+  }
 }
 
 static int
@@ -165,6 +192,13 @@ fd_keyguard_payload_authorize( fd_keyguard_authority_t const * authority,
     }
     /* no further restrictions on event */
     return 1;
+
+  case FD_KEYGUARD_ROLE_BUNDLE_CRANK:
+    if( FD_UNLIKELY( payload_mask != FD_KEYGUARD_PAYLOAD_TXN ) ) {
+      FD_LOG_WARNING(( "unauthorized payload type for event (mask=%#lx)", payload_mask ));
+      return 0;
+    }
+    return fd_keyguard_authorize_bundle_crank_txn( authority, data, sz, sign_type );
 
   default:
     FD_LOG_WARNING(( "unsupported role=%#x", (uint)role ));

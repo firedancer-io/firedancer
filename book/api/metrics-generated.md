@@ -315,6 +315,7 @@
 | poh_&#8203;begin_&#8203;leader_&#8203;delay_&#8203;seconds | `histogram` | Delay between when we become leader in a slot and when we receive the bank. |
 | poh_&#8203;first_&#8203;microblock_&#8203;delay_&#8203;seconds | `histogram` | Delay between when we become leader in a slot and when we receive the first microblock. |
 | poh_&#8203;slot_&#8203;done_&#8203;delay_&#8203;seconds | `histogram` | Delay between when we become leader in a slot and when we finish the slot. |
+| poh_&#8203;bundle_&#8203;initialize_&#8203;delay_&#8203;seconds | `histogram` | Delay in starting the slot caused by loading the information needed to generate the bundle crank transactions |
 
 ## Shred Tile
 | Metric | Type | Description |
