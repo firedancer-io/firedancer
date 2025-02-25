@@ -57,14 +57,21 @@ fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
   fd_funkier_rec_key_t id   = fd_acc_funk_key( pubkey );
   fd_funkier_t *       funk = acc_mgr->funk;
 
-  fd_funkier_rec_t const * rec = fd_funkier_rec_query_global( funk, txn, &id, txn_out );
+  fd_funkier_rec_query_t query[1];
+  fd_funkier_txn_t const * dummy_txn_out[1];
+  if( !txn_out ) txn_out = dummy_txn_out;
+  fd_funkier_rec_t const * rec = fd_funkier_rec_query_try_global( funk, txn, &id, txn_out, query );
 
-  if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) )  {
+  if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNKIER_REC_FLAG_ERASE ) ) )  {
     fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT );
     return NULL;
   }
   if( NULL != orec )
     *orec = rec;
+
+  /* This is a work around until we can call fd_funkier_rec_query_test in all the right spots */
+  if( *txn_out ) FD_TEST( fd_funkier_txn_is_frozen( *txn_out ) );
+  else           FD_TEST( fd_funkier_last_publish_is_frozen( funk ) );
 
   void const * raw = fd_funkier_val( rec, fd_funkier_wksp(funk) );
   // TODO/FIXME: this check causes issues with some metadata writes
@@ -107,112 +114,6 @@ fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
   account->orig_rec  = account->const_rec;
   account->orig_meta = account->const_meta = meta;
   account->orig_data = account->const_data = (uchar const *)meta + meta->hlen;
-
-  if( ULONG_MAX == account->starting_dlen )
-    account->starting_dlen = meta->dlen;
-
-  if( ULONG_MAX == account->starting_lamports )
-    account->starting_lamports = meta->info.lamports;
-
-  return FD_ACC_MGR_SUCCESS;
-}
-
-fd_account_meta_t *
-fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
-                       fd_funkier_txn_t *       txn,
-                       fd_pubkey_t const *   pubkey,
-                       int                   do_create,
-                       ulong                 min_data_sz,
-                       fd_funkier_rec_t const * opt_con_rec,
-                       fd_funkier_rec_t **      opt_out_rec,
-                       int *                 opt_err ) {
-
-  fd_funkier_t *       funk = acc_mgr->funk;
-
-  fd_funkier_rec_key_t id   = fd_acc_funk_key( pubkey );
-
-//#ifdef VLOG
-//  ulong rec_cnt = 0;
-//  for( fd_funkier_rec_t const * rec = fd_funkier_txn_first_rec( funk, txn );
-//       NULL != rec;
-//       rec = fd_funkier_txn_next_rec( funk, rec ) ) {
-//
-//    if( !fd_funkier_key_is_acc( rec->pair.key  ) ) continue;
-//
-//    FD_LOG_DEBUG(( "fd_acc_mgr_modify_raw: %s create: %s  rec_cnt: %d", FD_BASE58_ENC_32_ALLOCA( rec->pair.key->uc ), do_create ? "true" : "false", rec_cnt));
-//
-//    rec_cnt++;
-//  }
-//
-//  FD_LOG_DEBUG(( "fd_acc_mgr_modify_raw: %s create: %s", FD_BASE58_ENC_32_ALLOCA( pubkey->uc ), do_create ? "true" : "false"));
-//#endif
-
-  int funk_err = FD_FUNK_SUCCESS;
-  fd_funkier_rec_t * rec = fd_funkier_rec_write_prepare( funk, txn, &id, sizeof(fd_account_meta_t)+min_data_sz, do_create, opt_con_rec, &funk_err );
-
-  if( FD_UNLIKELY( !rec ) )  {
-    if( FD_LIKELY( funk_err==FD_FUNK_ERR_KEY ) ) {
-      fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT );
-      return NULL;
-    }
-    /* Irrecoverable funky internal error [[noreturn]] */
-    FD_LOG_ERR(( "fd_funkier_rec_write_prepare(%s) failed (%i-%s)", FD_BASE58_ENC_32_ALLOCA( pubkey->key ), funk_err, fd_funkier_strerror( funk_err ) ));
-  }
-
-  if (NULL != opt_out_rec)
-    *opt_out_rec = rec;
-
-  // At this point, we don't know if the record WILL be rent exempt so
-  // it is safer to just stick it into the partition and look at it later.
-  if ( acc_mgr->slots_per_epoch != 0 )
-    fd_funkier_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
-
-  fd_account_meta_t * ret = fd_funkier_val( rec, fd_funkier_wksp( funk ) );
-
-  if( do_create && ret->magic==0UL ) {
-    fd_account_meta_init( ret );
-  }
-
-  if( ret->magic != FD_ACCOUNT_META_MAGIC ) {
-    fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_WRONG_MAGIC );
-    return NULL;
-  }
-
-  return ret;
-}
-
-int
-fd_acc_mgr_modify( fd_acc_mgr_t *          acc_mgr,
-                   fd_funkier_txn_t *         txn,
-                   fd_pubkey_t const *     pubkey,
-                   int                     do_create,
-                   ulong                   min_data_sz,
-                   fd_borrowed_account_t * account ) {
-  int err = FD_ACC_MGR_SUCCESS;
-
-  fd_account_meta_t * meta = fd_acc_mgr_modify_raw( acc_mgr, txn, pubkey, do_create, min_data_sz, account->const_rec, &account->rec, &err );
-  if( FD_UNLIKELY( !meta ) ) return err;
-
-  assert( account->magic == FD_BORROWED_ACCOUNT_MAGIC );
-
-  fd_memcpy(account->pubkey, pubkey, sizeof(fd_pubkey_t));
-
-  if( FD_UNLIKELY( meta->magic != FD_ACCOUNT_META_MAGIC ) )
-    return FD_ACC_MGR_ERR_WRONG_MAGIC;
-
-#ifdef VLOG
-  FD_LOG_DEBUG(( "fd_acc_mgr_modify: %s create: %s  lamports: %ld  owner: %s  executable: %s,  rent_epoch: %ld, data_len: %ld",
-                 FD_BASE58_ENC_32_ALLOCA( pubkey->uc ),
-                 do_create ? "true" : "false",
-                 meta->info.lamports,
-                 FD_BASE58_ENC_32_ALLOCA( meta->info.owner ),
-                 meta->info.executable ? "true" : "false",
-                 meta->info.rent_epoch, meta->dlen ));
-#endif
-
-  account->orig_rec  = account->const_rec  = account->rec;
-  account->orig_meta = account->const_meta = account->meta = meta;
-  account->orig_data = account->const_data = account->data = (uchar *)meta + meta->hlen;
 
   if( ULONG_MAX == account->starting_dlen )
     account->starting_dlen = meta->dlen;

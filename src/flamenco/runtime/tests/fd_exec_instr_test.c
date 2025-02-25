@@ -70,9 +70,12 @@ fd_exec_instr_test_runner_align( void ) {
 
 ulong
 fd_exec_instr_test_runner_footprint( void ) {
+  ulong txn_max = 4+fd_tile_cnt();
+  ulong rec_max = 1024UL;
+
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_exec_instr_test_runner_align(), sizeof(fd_exec_instr_test_runner_t) );
-  l = FD_LAYOUT_APPEND( l, fd_funkier_align(),                   fd_funkier_footprint()                 );
+  l = FD_LAYOUT_APPEND( l, fd_funkier_align(),                   fd_funkier_footprint( txn_max, rec_max)                 );
   return FD_LAYOUT_FINI( l, fd_exec_instr_test_runner_align() );
 }
 
@@ -80,13 +83,14 @@ fd_exec_instr_test_runner_t *
 fd_exec_instr_test_runner_new( void * mem,
                                void * spad_mem,
                                ulong  wksp_tag ) {
-  FD_SCRATCH_ALLOC_INIT( l, mem );
-  void * runner_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_instr_test_runner_align(), sizeof(fd_exec_instr_test_runner_t) );
-  void * funk_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_funkier_align(),                   fd_funkier_footprint()                 );
-  FD_SCRATCH_ALLOC_FINI( l, fd_exec_instr_test_runner_align() );
-
   ulong txn_max = 4+fd_tile_cnt();
   ulong rec_max = 1024UL;
+
+  FD_SCRATCH_ALLOC_INIT( l, mem );
+  void * runner_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_instr_test_runner_align(), sizeof(fd_exec_instr_test_runner_t) );
+  void * funk_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_funkier_align(),                   fd_funkier_footprint( txn_max, rec_max) );
+  FD_SCRATCH_ALLOC_FINI( l, fd_exec_instr_test_runner_align() );
+
   fd_funkier_t * funk = fd_funkier_join( fd_funkier_new( funk_mem, wksp_tag, (ulong)fd_tickcount(), txn_max, rec_max ) );
   if( FD_UNLIKELY( !funk ) ) {
     FD_LOG_WARNING(( "fd_funkier_new() failed" ));

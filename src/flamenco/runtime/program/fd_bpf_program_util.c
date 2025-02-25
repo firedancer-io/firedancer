@@ -480,7 +480,7 @@ fd_bpf_load_cache_entry( fd_exec_slot_ctx_t const *     slot_ctx,
 
   for(;;) {
     fd_funkier_rec_query_t query[1];
-    fd_funkier_rec_t const * rec = fd_funkier_rec_query_try_global(funk, funk_txn, &id, query);
+    fd_funkier_rec_t const * rec = fd_funkier_rec_query_try_global(funk, funk_txn, &id, NULL, query);
 
     if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNKIER_REC_FLAG_ERASE ) ) ) {
       return -1;

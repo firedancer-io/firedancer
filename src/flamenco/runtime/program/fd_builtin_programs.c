@@ -135,23 +135,29 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
                           ulong                sz ) {
 
   fd_acc_mgr_t *      acc_mgr = slot_ctx->acc_mgr;
-  fd_funkier_txn_t *     txn     = slot_ctx->funk_txn;
-  FD_BORROWED_ACCOUNT_DECL(rec);
+  fd_funkier_txn_t *  txn     = slot_ctx->funk_txn;
+  fd_funkier_rec_key_t id = fd_acc_funk_key( &pubkey );
+  fd_funkier_rec_prepare_t prepare[1];
+  fd_funkier_t * funk = acc_mgr->funk;
+  fd_funkier_rec_t * funk_rec = fd_funkier_rec_prepare( funk, txn, &id, prepare, NULL );
+  FD_TEST( !!funk_rec );
 
-  int err = fd_acc_mgr_modify( acc_mgr, txn, &pubkey, 1, sz, rec);
-  FD_TEST( !err );
+  uchar * buf = fd_funkier_val_truncate(funk_rec, sizeof(fd_account_meta_t)+sz, fd_funkier_alloc( funk, fd_funkier_wksp(funk) ), fd_funkier_wksp(funk), NULL);
 
-  rec->meta->dlen            = sz;
-  rec->meta->info.lamports   = 1UL;
-  rec->meta->info.rent_epoch = 0UL;
-  rec->meta->info.executable = 1;
-  fd_memcpy( rec->meta->info.owner, fd_solana_native_loader_id.key, 32 );
-  memcpy( rec->data, data, sz );
+  fd_account_meta_t * meta = (fd_account_meta_t *)buf;
+  memset( meta, 0, sizeof(fd_account_meta_t) );
+  meta->magic           = FD_ACCOUNT_META_MAGIC;
+  meta->hlen            = sizeof(fd_account_meta_t);
+  meta->dlen            = sz;
+  meta->info.lamports   = 1UL;
+  meta->info.rent_epoch = 0UL;
+  meta->info.executable = 1;
+  fd_memcpy( meta->info.owner, fd_solana_native_loader_id.key, 32 );
+  memcpy( meta+1, data, sz );
+
+  fd_funkier_rec_publish( prepare );
 
   slot_ctx->slot_bank.capitalization++;
-
-  // err = fd_acc_mgr_commit( acc_mgr, rec, slot_ctx );
-  FD_TEST( !err );
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/inline_spl_token.rs#L74 */
@@ -166,25 +172,32 @@ write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_acc_mgr_t *      acc_mgr = slot_ctx->acc_mgr;
   fd_funkier_txn_t *     txn     = slot_ctx->funk_txn;
   fd_pubkey_t const * key     = (fd_pubkey_t const *)&fd_solana_spl_native_mint_id;
-  FD_BORROWED_ACCOUNT_DECL(rec);
-
+  fd_funkier_rec_key_t id = fd_acc_funk_key( key );
+  fd_funkier_rec_prepare_t prepare[1];
+  fd_funkier_t * funk = acc_mgr->funk;
+  fd_funkier_rec_t * funk_rec = fd_funkier_rec_prepare( funk, txn, &id, prepare, NULL );
+  FD_TEST( !!funk_rec );
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/inline_spl_token.rs#L86-L90 */
   static uchar const data[] = {
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 9, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
       0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 
-  int err = fd_acc_mgr_modify( acc_mgr, txn, key, 1, sizeof(data), rec );
-  FD_TEST( !err );
 
-  rec->meta->dlen            = sizeof(data);
-  rec->meta->info.lamports   = 1000000000UL;
-  rec->meta->info.rent_epoch = 1UL;
-  rec->meta->info.executable = 0;
-  fd_memcpy( rec->meta->info.owner, fd_solana_spl_token_id.key, 32 );
-  memcpy( rec->data, data, sizeof(data) );
+  uchar * buf = fd_funkier_val_truncate(funk_rec, sizeof(fd_account_meta_t)+sizeof(data), fd_funkier_alloc( funk, fd_funkier_wksp(funk) ), fd_funkier_wksp(funk), NULL);
 
-  FD_TEST( !err );
+  fd_account_meta_t * meta = (fd_account_meta_t *)buf;
+  memset( meta, 0, sizeof(fd_account_meta_t) );
+  meta->magic           = FD_ACCOUNT_META_MAGIC;
+  meta->hlen            = sizeof(fd_account_meta_t);
+  meta->dlen            = sizeof(data);
+  meta->info.lamports   = 1000000000UL;
+  meta->info.rent_epoch = 1UL;
+  meta->info.executable = 0;
+  fd_memcpy( meta->info.owner, fd_solana_spl_token_id.key, 32 );
+  memcpy( meta+1, data, sizeof(data) );
+
+  fd_funkier_rec_publish( prepare );
 }
 
 void fd_builtin_programs_init( fd_exec_slot_ctx_t * slot_ctx ) {
