@@ -242,9 +242,9 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_wksp( topo, "bundle"       );
 
     /**/                 fd_topob_link( topo, "bundle_verif", "bundle_verif", config->tiles.verify.receive_buffer_size, FD_TPU_PARSED_MTU,         1UL );
-    /**/                 fd_topob_link( topo, "bundle_sign",  "bundle_sign",  128UL,                                    9UL,                       1UL );
+    /**/                 fd_topob_link( topo, "bundle_sign",  "bundle_sign",  65536UL,                                  9UL,                       1UL );
     /**/                 fd_topob_link( topo, "sign_bundle",  "sign_bundle",  128UL,                                    64UL,                      1UL );
-    /**/                 fd_topob_link( topo, "pack_sign",    "pack_sign",    128UL,                                    1232UL,                    1UL );
+    /**/                 fd_topob_link( topo, "pack_sign",    "pack_sign",    65536UL,                                  1232UL,                    1UL );
     /**/                 fd_topob_link( topo, "sign_pack",    "sign_pack",    128UL,                                    64UL,                      1UL );
 
     /**/                 fd_topob_tile( topo, "bundle",  "bundle",  "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 1 );
