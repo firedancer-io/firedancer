@@ -98,7 +98,8 @@ fd_sandbox_requires_cap_sys_admin( uint desired_uid,
           namespace map to UID 1 and GID 1 in the parent (and so map to
           the desired_uid and desired_gid outside the parent).
 
-     (11) The process dumpable bit is cleared.
+     (11) The process dumpable bit is cleared, unless the dumpable
+          argument is nonzero in which case it is set.
 
      (12) The root filesystem is pivoted into a new empty directory
           created in /tmp.  This unmounts all other mounts, including
@@ -146,6 +147,7 @@ fd_sandbox_enter( uint                 desired_uid,                  /* User ID 
                   int                  keep_host_networking,         /* True to keep the host networking namespace and not unshare it */
                   int                  allow_connect,                /* True if the connect(2) syscall should be allowed via. landlock */
                   int                  keep_controlling_terminal,    /* True to disconnect from the controlling terminal session */
+                  int                  dumpable,                     /* True if the "dumpable" attribute of the process should be kept, otherwise it will be cleared */
                   ulong                rlimit_file_cnt,              /* Maximum open file value to provide to setrlimit(RLIMIT_NOFILE) */
                   ulong                rlimit_address_space,         /* Maximum address space size to provide to setrlimit(RLIMIT_AS) */
                   ulong                rlimit_data,                  /* Maximum address space size to provide to setrlimit(RLIMIT_AS) */

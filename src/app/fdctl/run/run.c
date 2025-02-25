@@ -335,6 +335,7 @@ main_pid_namespace( void * _args ) {
                       0,
                       0,
                       0,
+                      0,
                       1UL+child_cnt, /* RLIMIT_NOFILE needs to be set to the nfds argument of poll() */
                       0UL,
                       0UL,
@@ -852,6 +853,7 @@ run_firedancer( config_t * const config,
                       0,
                       0,
                       1, /* Keep controlling terminal for main so it can receive Ctrl+C */
+                      0,
                       0UL,
                       0UL,
                       0UL,

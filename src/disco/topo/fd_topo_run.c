@@ -53,6 +53,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
                   fd_topo_tile_t *     tile,
                   int                  sandbox,
                   int                  keep_controlling_terminal,
+                  int                  dumpable,
                   uint                 uid,
                   uint                 gid,
                   int                  allow_fd,
@@ -105,6 +106,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
                       tile_run->keep_host_networking,
                       tile_run->allow_connect,
                       keep_controlling_terminal,
+                      dumpable,
                       tile_run->rlimit_file_cnt,
                       tile_run->rlimit_address_space,
                       tile_run->rlimit_data,
@@ -148,7 +150,7 @@ run_tile_thread_main( void * _args ) {
   FD_COMPILER_MFENCE();
   ((fd_topo_run_thread_args_t *)_args)->copied = 1;
 
-  fd_topo_run_tile( args.topo, args.tile, 0, 1, args.uid, args.gid, -1, NULL, NULL, &args.tile_run );
+  fd_topo_run_tile( args.topo, args.tile, 0, 1, 1, args.uid, args.gid, -1, NULL, NULL, &args.tile_run );
   if( FD_UNLIKELY( args.done_futex ) ) {
     for(;;) {
       if( FD_LIKELY( INT_MAX==FD_ATOMIC_CAS( args.done_futex, INT_MAX, (int)args.tile->id ) ) ) break;
