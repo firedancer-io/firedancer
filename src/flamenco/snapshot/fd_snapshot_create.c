@@ -536,7 +536,7 @@ fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t        * snapshot_ctx,
     new_node->elem.key   = n->elem.key;
     new_node->elem.stake = n->elem.stake;
     /* Now to populate the value, lookup the account using the acc mgr */
-    FD_BORROWED_ACCOUNT_DECL( vote_acc );
+    FD_TXN_ACCOUNT_DECL( vote_acc );
     int err = fd_acc_mgr_view( snapshot_ctx->acc_mgr, NULL, &n->elem.key, vote_acc );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "Failed to view vote account from stakes cache %s", FD_BASE58_ENC_32_ALLOCA(&n->elem.key) ));
@@ -558,7 +558,7 @@ fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t        * snapshot_ctx,
      program is migrated to a bpf program. It will likely be replaced by an
      index of stake/vote accounts. */
 
-  FD_BORROWED_ACCOUNT_DECL( stake_acc );
+  FD_TXN_ACCOUNT_DECL( stake_acc );
   fd_delegation_pair_t_mapnode_t *      nn = NULL;
   for( fd_delegation_pair_t_mapnode_t * n  = fd_delegation_pair_t_map_minimum(
       old_stakes->stake_delegations_pool, old_stakes->stake_delegations_root ); n; n=nn ) {

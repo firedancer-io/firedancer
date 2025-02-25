@@ -92,7 +92,7 @@ fd_sysvar_cache_restore_##name(                                           \
   fd_funk_txn_t *     funk_txn ) {                                        \
   do {                                                                    \
     fd_pubkey_t const * pubkey = &fd_sysvar_##name##_id;                  \
-    FD_BORROWED_ACCOUNT_DECL( account );                                  \
+    FD_TXN_ACCOUNT_DECL( account );                                       \
     int view_err = fd_acc_mgr_view( acc_mgr, funk_txn, pubkey, account ); \
     if( view_err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) break;                 \
                                                                           \
@@ -177,7 +177,7 @@ fd_check_sysvar_account( fd_exec_instr_ctx_t const * ctx,
                          ulong                       insn_acc_idx,
                          fd_pubkey_t const *         expected_id ) {
   uchar const *       instr_acc_idxs = ctx->instr->acct_txn_idxs;
-  fd_pubkey_t const * txn_accs       = ctx->txn_ctx->accounts;
+  fd_pubkey_t const * txn_accs       = ctx->txn_ctx->account_keys;
 
   if( insn_acc_idx>=ctx->instr->acct_cnt ) {
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;

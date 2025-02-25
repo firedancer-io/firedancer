@@ -51,8 +51,12 @@ fd_vote_program_execute( fd_exec_instr_ctx_t * ctx );
 ulong
 fd_query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_t const * vote_accounts );
 
+/* An implementation of solana_sdk::transaction_context::BorrowedAccount::get_state
+   for setting the vote state.
+
+   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L965 */
 int
-fd_vote_get_state( fd_borrowed_account_t const * self,
+fd_vote_get_state( fd_txn_account_t const *      self,
                    fd_spad_t *                   spad,
                    fd_vote_state_versioned_t * * versioned /* out */ );
 
@@ -79,8 +83,8 @@ fd_vote_commission_split( fd_vote_state_versioned_t * vote_state_versioned,
                           fd_commission_split_t *     result );
 
 void
-fd_vote_store_account( fd_exec_slot_ctx_t *    slot_ctx,
-                       fd_borrowed_account_t * vote_account );
+fd_vote_store_account( fd_exec_slot_ctx_t * slot_ctx,
+                       fd_txn_account_t *   vote_account );
 
 FD_PROTOTYPES_END
 

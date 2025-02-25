@@ -43,7 +43,7 @@ fd_sysvar_last_restart_slot_read( fd_sol_sysvar_last_restart_slot_t * result,
     return result;
   }
 
-  FD_BORROWED_ACCOUNT_DECL(acc);
+  FD_TXN_ACCOUNT_DECL( acc );
   int err = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_last_restart_slot_id, acc);
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return NULL;
 

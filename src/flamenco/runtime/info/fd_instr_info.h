@@ -3,8 +3,7 @@
 
 #include "../../fd_flamenco_base.h"
 #include "../../types/fd_types.h"
-#include "../fd_borrowed_account.h"
-
+#include "../fd_txn_account.h"
 // TODO: rename to _MASK
 #define FD_INSTR_ACCT_FLAGS_IS_SIGNER   (0x01U)
 #define FD_INSTR_ACCT_FLAGS_IS_WRITABLE (0x02U)
@@ -12,24 +11,24 @@
 #define FD_INSTR_ACCT_MAX (256)
 
 struct fd_instr_info {
-  uchar                   program_id;
-  ushort                  data_sz;
-  ushort                  acct_cnt;
+  uchar               program_id;
+  ushort              data_sz;
+  ushort              acct_cnt;
 
-  uchar *                 data;
-  fd_pubkey_t             program_id_pubkey;
+  uchar *             data;
+  fd_pubkey_t         program_id_pubkey;
 
-  uchar                   acct_txn_idxs[FD_INSTR_ACCT_MAX];
-  uchar                   acct_flags[FD_INSTR_ACCT_MAX];
-  fd_pubkey_t             acct_pubkeys[FD_INSTR_ACCT_MAX];
-  uchar                   is_duplicate[FD_INSTR_ACCT_MAX];
+  uchar               acct_txn_idxs[FD_INSTR_ACCT_MAX];
+  uchar               acct_flags[FD_INSTR_ACCT_MAX];
+  fd_pubkey_t         acct_pubkeys[FD_INSTR_ACCT_MAX];
+  uchar               is_duplicate[FD_INSTR_ACCT_MAX];
 
   /* Indexed by index in instruction, not by index in transaction. */
-  fd_borrowed_account_t * borrowed_accounts[FD_INSTR_ACCT_MAX];
+  fd_txn_account_t *  accounts[FD_INSTR_ACCT_MAX];
 
   /* fd_uwide representation of uint_128 */
-  ulong                   starting_lamports_h;
-  ulong                   starting_lamports_l;
+  ulong               starting_lamports_h;
+  ulong               starting_lamports_l;
 };
 
 typedef struct fd_instr_info fd_instr_info_t;
@@ -39,7 +38,7 @@ FD_PROTOTYPES_BEGIN
 void
 fd_convert_txn_instr_to_instr( fd_exec_txn_ctx_t *     txn_ctx,
                                fd_txn_instr_t const *  txn_instr,
-                               fd_borrowed_account_t * borrowed_accounts,
+                               fd_txn_account_t *      accts,
                                fd_instr_info_t *       instr );
 
 FD_FN_PURE static inline int
@@ -97,8 +96,8 @@ fd_instr_any_signed( fd_instr_info_t const * info,
    Aborts on integer overflow. */
 
 int
-fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr, 
-                                    ulong *                 total_lamports_h, 
+fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr,
+                                    ulong *                 total_lamports_h,
                                     ulong *                 total_lamports_l );
 
 static inline void

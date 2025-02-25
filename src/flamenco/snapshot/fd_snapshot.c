@@ -38,7 +38,7 @@ typedef struct fd_snapshot_load_ctx fd_snapshot_load_ctx_t;
 
 static void
 fd_hashes_load( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
-  FD_BORROWED_ACCOUNT_DECL( block_hashes_rec );
+  FD_TXN_ACCOUNT_DECL( block_hashes_rec );
   int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_recent_block_hashes_id, block_hashes_rec );
 
   if( err != FD_ACC_MGR_SUCCESS ) {

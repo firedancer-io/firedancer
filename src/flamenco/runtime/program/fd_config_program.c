@@ -1,5 +1,5 @@
 #include "fd_config_program.h"
-#include "../fd_account.h"
+#include "../fd_borrowed_account.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_executor.h"
 #include "../fd_system_ids.h"
@@ -20,6 +20,8 @@ static int
 _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
 # define ACC_IDX_CONFIG ((uchar)0)
+
+  int err;
 
   /* Deserialize the Config Program instruction data, which consists only of the ConfigKeys
      https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L21 */
@@ -53,9 +55,12 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
   int                 is_config_account_signer = 0;
   fd_pubkey_t const * config_account_key       = NULL;
   fd_config_keys_t *  current_data             = NULL;
-  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, ACC_IDX_CONFIG, config_acc_rec ) {
 
-  config_account_key = config_acc_rec->pubkey;
+  /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/config/src/config_processor.rs#L26 */
+  fd_guarded_borrowed_account_t config_acc_rec;
+  FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_CONFIG, &config_acc_rec );
+
+  config_account_key = config_acc_rec.acct->pubkey;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L27 */
 
@@ -63,15 +68,15 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L29-L31 */
 
-  if( FD_UNLIKELY( 0!=memcmp( &config_acc_rec->const_meta->info.owner, fd_solana_config_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+  if( FD_UNLIKELY( 0!=memcmp( &config_acc_rec.acct->const_meta->info.owner, fd_solana_config_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L33-L40 */
 
   fd_bincode_decode_ctx_t config_acc_state_decode_context = {
-    .data    = config_acc_rec->const_data,
-    .dataend = config_acc_rec->const_data + config_acc_rec->const_meta->dlen,
+    .data    = config_acc_rec.acct->const_data,
+    .dataend = config_acc_rec.acct->const_data + config_acc_rec.acct->const_meta->dlen,
   };
   total_sz      = 0UL;
   decode_result = fd_config_keys_decode_footprint( &config_acc_state_decode_context, &total_sz );
@@ -88,9 +93,9 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
   current_data = fd_config_keys_decode( mem, &config_acc_state_decode_context );
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L42 */
+  /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/config/src/config_processor.rs#L43 */
 
-  } FD_BORROWED_ACCOUNT_DROP( config_acc_rec );
+  fd_borrowed_account_drop( &config_acc_rec );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L44-L49 */
 
@@ -133,19 +138,13 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
       /* Intentionally don't use the scoping macro here because Anza maps the
          error to missing required signature if the try borrow fails */
-      fd_borrowed_account_t * signer_account = NULL;
-      int borrow_err = fd_instr_borrowed_account_view_idx( ctx, (uchar)counter, &signer_account );
-      if( FD_UNLIKELY( borrow_err!=FD_ACC_MGR_SUCCESS ) ) {
+      fd_borrowed_account_t signer_account;
+      int borrow_err = fd_exec_instr_ctx_try_borrow_account( ctx, (uchar)counter, &signer_account );
+      if( FD_UNLIKELY( borrow_err ) ) {
         /* Max msg_sz: 33 - 2 + 45 = 76 < 127 => we can use printf */
         fd_log_collector_printf_dangerous_max_127( ctx,
           "account %s is not in account list", FD_BASE58_ENC_32_ALLOCA( signer ) );
         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-      }
-      if( FD_UNLIKELY( !fd_borrowed_account_acquire_read( signer_account ) ) ) {
-        /* Max msg_sz: 33 - 2 + 45 = 76 < 127 => we can use printf */
-        fd_log_collector_printf_dangerous_max_127( ctx,
-          "account %s is not in account list", FD_BASE58_ENC_32_ALLOCA( signer ) );
-        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;  /* seems to be deliberately not ACC_BORROW_FAILED? */
       }
 
       /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L72-L79 */
@@ -159,7 +158,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
       /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L80-L87 */
 
-      if( FD_UNLIKELY( 0!=memcmp( signer_account->pubkey, signer, sizeof(fd_pubkey_t) ) ) ) {
+      if( FD_UNLIKELY( 0!=memcmp( signer_account.acct->pubkey, signer, sizeof(fd_pubkey_t) ) ) ) {
         /* Max msg_sz: 53 - 3 + 20 = 70 < 127 => we can use printf */
         fd_log_collector_printf_dangerous_max_127( ctx,
           "account[%lu].signer_key() does not match Config data)", counter+1 );
@@ -186,7 +185,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
         }
       }
 
-      fd_borrowed_account_release_read( signer_account );
+      /* implicit drop of signer account */
 
     } else if( !is_config_account_signer ) {
 
@@ -223,39 +222,29 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
   }
 
   /* Upgrade to writable handle
-     https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L128-L129 */
-
-  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, ACC_IDX_CONFIG, config_acc_rec ) {
+     https://github.com/anza-xyz/agave/blob/v2.1.4/programs/config/src/config_processor.rs#L125-L126 */
+  FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_CONFIG, &config_acc_rec );
 
   /* Upgrade to writable handle
-     https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L130-L133 */
+    https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L130-L133 */
 
-  if( FD_UNLIKELY( config_acc_rec->const_meta->dlen<ctx->instr->data_sz ) ) {
+  if( FD_UNLIKELY( config_acc_rec.acct->const_meta->dlen<ctx->instr->data_sz ) ) {
     fd_log_collector_msg_literal( ctx, "instruction data too large" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
-  /* Inlined solana_sdk::transaction_context::BorrowedAccount::get_data_mut */
-
-  do {
-    int err;
-    if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx, 0, &err ) ) ) {
-      return err;
-    }
-  } while(0);
-
-  do {
-    int err = fd_instr_borrowed_account_modify_idx( ctx, 0, config_acc_rec->const_meta->dlen, &config_acc_rec );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
-  } while(0);
+  /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/config/src/config_processor.rs#L131 */
+  uchar * data = NULL;
+  ulong   dlen = 0UL;
+  err = fd_borrowed_account_get_data_mut( &config_acc_rec, &data, &dlen );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
 
   /* copy_from_slice */
+  fd_memcpy( data, ctx->instr->data, ctx->instr->data_sz );
 
-  fd_memcpy( config_acc_rec->data, ctx->instr->data, ctx->instr->data_sz );
-
-  /* Implicitly dropped in Anza */
-
-  } FD_BORROWED_ACCOUNT_DROP( config_acc_rec );
+  /* Implicitly dropped */
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 # undef ACC_IDX_CONFIG
