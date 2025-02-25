@@ -6,7 +6,7 @@
 
    Address: BPFLoaderUpgradeab1e11111111111111111111111 */
 
-#include "../fd_account.h"
+#include "../fd_borrowed_account.h"
 #include "fd_bpf_program_util.h"
 
 #define DEFAULT_LOADER_COMPUTE_UNITS     (570UL )
@@ -51,9 +51,9 @@
 FD_PROTOTYPES_BEGIN
 
 fd_bpf_upgradeable_loader_state_t *
-fd_bpf_loader_program_get_state( fd_borrowed_account_t const * acc,
-                                 fd_spad_t *                   spad,
-                                 int *                         err );
+fd_bpf_loader_program_get_state( fd_txn_account_t const * acc,
+                                 fd_spad_t *              spad,
+                                 int *                    err );
 
 int
 fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,

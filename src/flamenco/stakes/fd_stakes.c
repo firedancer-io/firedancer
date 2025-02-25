@@ -182,7 +182,7 @@ deserialize_and_update_vote_account( fd_exec_slot_ctx_t *                slot_ct
                                      fd_pubkey_t const *                 vote_account_pubkey,
                                      fd_spad_t *                         runtime_spad ) {
 
-  FD_BORROWED_ACCOUNT_DECL( vote_account );
+  FD_TXN_ACCOUNT_DECL( vote_account );
   if( FD_UNLIKELY( fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, vote_account_pubkey, vote_account ) ) ) {
     FD_LOG_DEBUG(( "Vote account not found" ));
     return NULL;
@@ -451,7 +451,7 @@ accumulate_stake_cache_delegations_tpool( void  *tpool,
                                           n != delegations_roots[worker_idx+1];
                                           n =  fd_delegation_pair_t_map_successor( delegations_pool, n ) ) {
 
-      FD_BORROWED_ACCOUNT_DECL(acc);
+      FD_TXN_ACCOUNT_DECL( acc );
       int rc = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &n->elem.account, acc );
       if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS || acc->const_meta->info.lamports==0UL ) ) {
         continue;
@@ -555,7 +555,7 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
   for( fd_account_keys_pair_t_mapnode_t * n = fd_account_keys_pair_t_map_minimum( slot_ctx->slot_bank.stake_account_keys.account_keys_pool, slot_ctx->slot_bank.stake_account_keys.account_keys_root );
        n;
        n = fd_account_keys_pair_t_map_successor( slot_ctx->slot_bank.stake_account_keys.account_keys_pool, n ) ) {
-    FD_BORROWED_ACCOUNT_DECL(acc);
+    FD_TXN_ACCOUNT_DECL( acc );
     int rc = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, &n->elem.key, acc);
     if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS || acc->const_meta->info.lamports==0UL ) ) {
       continue;
@@ -651,8 +651,8 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
 }
 
 int
-write_stake_state( fd_borrowed_account_t *  stake_acc_rec,
-                   fd_stake_state_v2_t *    stake_state ) {
+write_stake_state( fd_txn_account_t *    stake_acc_rec,
+                   fd_stake_state_v2_t * stake_state ) {
 
   ulong encoded_stake_state_size = fd_stake_state_v2_size(stake_state);
 

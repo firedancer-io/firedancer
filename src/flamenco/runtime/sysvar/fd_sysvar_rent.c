@@ -17,7 +17,7 @@ fd_sysvar_rent_read( fd_exec_slot_ctx_t const * slot_ctx,
     return (fd_rent_t*)ret;
   }
 
-  FD_BORROWED_ACCOUNT_DECL(rent_rec);
+  FD_TXN_ACCOUNT_DECL( rent_rec );
 
   int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_rent_id, rent_rec );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
