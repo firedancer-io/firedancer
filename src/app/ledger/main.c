@@ -1303,7 +1303,7 @@ replay( fd_ledger_args_t * args ) {
                             args->exec_spads,
                             args->exec_spad_cnt,
                             args->runtime_spad );
-      FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funkier_rec_cnt( fd_funkier_rec_map( funk, fd_funkier_wksp( funk ) ) ) ));
+      FD_LOG_NOTICE(( "imported from snapshot" ));
     }
   }
   if( args->genesis ) {
