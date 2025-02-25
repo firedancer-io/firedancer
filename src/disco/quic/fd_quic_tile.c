@@ -211,10 +211,12 @@ after_frag( fd_quic_ctx_t *     ctx,
             ulong               sig,
             ulong               sz,
             ulong               tsorig,
+            ulong               tspub,
             fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
   (void)tsorig;
+  (void)tspub;
   (void)stem;
 
   ulong proto = fd_disco_netmux_sig_proto( sig );

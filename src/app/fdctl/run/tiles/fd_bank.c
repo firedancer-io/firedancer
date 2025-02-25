@@ -293,6 +293,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
      it shards / scales horizontally here, while PoH does not. */
   fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst + txn_cnt*sizeof(fd_txn_p_t) );
   hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, txn_cnt, trailer->hash );
+  trailer->is_last_in_bundle = 1;
 
   /* MAX_MICROBLOCK_SZ - (MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t)) == 64
      so there's always 64 extra bytes at the end to stash the hash. */
@@ -444,6 +445,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
     fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst+sizeof(fd_txn_p_t) );
     hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, 1UL, trailer->hash );
+    trailer->is_last_in_bundle = (i==txn_cnt-1UL);
 
     ulong bank_sig = fd_disco_bank_sig( slot, ctx->_microblock_idx+i );
 
@@ -463,9 +465,11 @@ after_frag( fd_bank_ctx_t *     ctx,
             ulong               sig,
             ulong               sz,
             ulong               tsorig,
+            ulong               tspub,
             fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)tsorig;
+  (void)tspub;
 
   if( FD_UNLIKELY( ctx->_is_bundle ) ) handle_bundle( ctx, seq, sig, sz, stem );
   else                                 handle_microblock( ctx, seq, sig, sz, stem );

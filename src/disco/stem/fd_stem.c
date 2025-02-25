@@ -124,9 +124,9 @@
    initialized.  stem should only be used for calling fd_stem_publish to
    publish a fragment to downstream consumers.  seq is the sequence
    number of the fragment that was read from the input mcache. sig,
-   chunk, sz, and tsorig are the respective fields from the mcache
-   fragment that was received.  If the producer is not respecting flow
-   control, these may be corrupt or torn and should not be trusted.
+   chunk, sz, tsorig, and tspub are the respective fields from the
+   mcache fragment that was received.  If the producer is not respecting
+   flow control, these may be corrupt or torn and should not be trusted.
 
       AFTER_POLL_OVERRUN
    Is called when an overrun is detected while polling for new frags.
@@ -613,6 +613,7 @@ STEM_(run1)( ulong                        in_cnt,
     ulong sz       = (ulong)this_in_mline->sz;     (void)sz;
     ulong ctl      = (ulong)this_in_mline->ctl;    (void)ctl;
     ulong tsorig   = (ulong)this_in_mline->tsorig; (void)tsorig;
+    ulong tspub    = (ulong)this_in_mline->tspub;  (void)tspub;
 
 #ifdef STEM_CALLBACK_DURING_FRAG
     STEM_CALLBACK_DURING_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz, ctl );
@@ -636,7 +637,7 @@ STEM_(run1)( ulong                        in_cnt,
     }
 
 #ifdef STEM_CALLBACK_AFTER_FRAG
-    STEM_CALLBACK_AFTER_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, sz, tsorig, &stem );
+    STEM_CALLBACK_AFTER_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, sz, tsorig, tspub, &stem );
 #endif
 
     /* Windup for the next in poll and accumulate diagnostics */

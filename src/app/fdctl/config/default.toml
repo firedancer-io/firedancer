@@ -1210,7 +1210,7 @@ dynamic_port_range = "8900-9000"
         # endpoint but exposing it to the internet from a production
         # validator is not recommended as it increases the attack
         # surface of the validator.
-        gui_listen_address = "127.0.0.1"
+        gui_listen_address = "0.0.0.0"
 
         # The port to listen on.
         gui_listen_port = 80

@@ -530,11 +530,13 @@ after_frag( fd_shred_ctx_t *    ctx,
             ulong               sig,
             ulong               sz,
             ulong               tsorig,
+            ulong               _tspub,
             fd_stem_context_t * stem ) {
   (void)seq;
   (void)sig;
   (void)sz;
   (void)tsorig;
+  (void)_tspub;
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_CONTACT ) ) {
     finalize_new_cluster_contact_info( ctx );
