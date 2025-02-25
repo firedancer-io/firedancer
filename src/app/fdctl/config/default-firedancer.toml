@@ -26,6 +26,8 @@
         use_consumed_cus = false
     [tiles.batch]
         hash_tpool_thread_count = 3
+    [tiles.restart]
+        in_wen_restart = false
 
 [consensus]
     vote = true
