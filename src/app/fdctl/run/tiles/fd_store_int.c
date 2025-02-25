@@ -803,7 +803,7 @@ metrics_write( fd_store_tile_ctx_t * ctx ) {
 }
 
 #define STEM_BURST (1UL)
-#define STEM_LAZY  (128L*3000L)
+#define STEM_LAZY  (1<<31)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_store_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_store_tile_ctx_t)

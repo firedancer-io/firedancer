@@ -291,7 +291,7 @@ repair_shred_deliver( fd_shred_t const *            shred,
 
   *seqp = fd_seq_inc( seq, 1UL );
 
-  //ifd_stem_publish( ctx->stem, 0UL, sig, ctx->store_out_chunk, shred_sz, 0UL, 0UL, tspub );
+  //fd_stem_publish( ctx->stem, 0UL, sig, ctx->store_out_chunk, shred_sz, 0UL, 0UL, tspub );
   ctx->store_out_chunk = fd_dcache_compact_next( ctx->store_out_chunk, shred_sz, ctx->store_out_chunk0, ctx->store_out_wmark );
 }
 
