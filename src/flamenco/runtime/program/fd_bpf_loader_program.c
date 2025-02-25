@@ -564,14 +564,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
   vm->cu -= heap_cost_result;
 
   int exec_err = fd_vm_exec( vm );
-
-  /* (SIMD-182) Consume ALL requested CUs on non-Syscall errors */
-  if( FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, deplete_cu_meter_on_vm_failure )
-      && exec_err != FD_VM_ERR_SIGSYSCALL ) {
-    instr_ctx->txn_ctx->compute_meter = 0UL;
-  } else {
-    instr_ctx->txn_ctx->compute_meter = vm->cu;
-  }
+  instr_ctx->txn_ctx->compute_meter = vm->cu;
 
   if( FD_UNLIKELY( vm->trace ) ) {
     int err = fd_vm_trace_printf( vm->trace, vm->syscalls );
@@ -589,6 +582,14 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
 
   /* Handles instr + EBPF errors */
   if( FD_UNLIKELY( exec_err!=FD_VM_SUCCESS ) ) {
+
+    /* https://github.com/anza-xyz/agave/blob/v2.1.13/programs/bpf_loader/src/lib.rs#L1434-L1439 */
+    /* (SIMD-182) Consume ALL requested CUs on non-Syscall errors */
+    if( FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, deplete_cu_meter_on_vm_failure )
+        && exec_err != FD_VM_ERR_SIGSYSCALL ) {
+      instr_ctx->txn_ctx->compute_meter = 0UL;
+    }
+
     /* EBPF error case
        Edge case with error codes: if direct mapping is enabled, the EBPF error is an access violation,
        and the access type was a store, a different error code is returned to give developers more insight
