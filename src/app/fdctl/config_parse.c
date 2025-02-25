@@ -405,9 +405,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( cstr,   tiles.replay.status_cache                        );
   CFG_POP      ( ulong,  tiles.replay.tpool_thread_count                  );
   CFG_POP      ( cstr,   tiles.replay.cluster_version                     );
-  CFG_POP      ( bool,   tiles.replay.in_wen_restart                      );
   CFG_POP      ( cstr,   tiles.replay.tower_checkpt                       );
-  CFG_POP      ( cstr,   tiles.replay.wen_restart_coordinator             );
 
   CFG_POP      ( cstr,   tiles.store_int.slots_pending                    );
   CFG_POP      ( cstr,   tiles.store_int.shred_cap_archive                );
@@ -418,6 +416,10 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( ulong,  tiles.batch.incremental_interval                 );
   CFG_POP      ( cstr,   tiles.batch.out_dir                              );
   CFG_POP      ( ulong,  tiles.batch.hash_tpool_thread_count              );
+
+  CFG_POP      ( bool,   tiles.restart.in_wen_restart                     );
+  CFG_POP      ( cstr,   tiles.restart.wen_restart_coordinator            );
+  CFG_POP      ( cstr,   tiles.restart.genesis_hash                       );
 
 # undef CFG_POP
 # undef CFG_ARRAY
