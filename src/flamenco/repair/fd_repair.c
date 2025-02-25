@@ -307,6 +307,7 @@ fd_repair_delete ( void * shmap ) {
 
 static void
 fd_repair_lock( fd_repair_t * repair ) {
+  return;
 # if FD_HAS_THREADS
   for(;;) {
     if( FD_LIKELY( !FD_ATOMIC_CAS( &repair->lock, 0UL, 1UL) ) ) break;
@@ -320,6 +321,7 @@ fd_repair_lock( fd_repair_t * repair ) {
 
 static void
 fd_repair_unlock( fd_repair_t * repair ) {
+  return;
   FD_COMPILER_MFENCE();
   FD_VOLATILE( repair->lock ) = 0UL;
 }

@@ -278,7 +278,20 @@ repair_shred_deliver( fd_shred_t const *            shred,
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
   ulong sig = 0UL;
-  fd_stem_publish( ctx->stem, 0UL, sig, ctx->store_out_chunk, shred_sz, 0UL, 0UL, tspub );
+  if( *ctx->stem->in_backpressure ) {
+    FD_LOG_WARNING(( "received shred with slot %lu and idx %u in_backpressure=%lu", shred->slot, shred->idx, *ctx->stem->in_backpressure ));
+    FD_LOG_INFO(("repair ctx->stem decr amount %lu",ctx->stem->cr_decrement_amount ));
+  }
+
+  ulong * seqp = &ctx->stem->seqs[ 0UL ];
+  ulong   seq  = *seqp;
+  FD_LOG_WARNING(( "publishing repair frag %lu", seq ));
+  fd_mcache_publish( ctx->stem->mcaches[ 0UL ], ctx->stem->depths[ 0UL ], seq, sig, ctx->store_out_chunk, shred_sz, 0UL, 0UL, tspub );
+  *ctx->stem->cr_avail -= ctx->stem->cr_decrement_amount;
+
+  *seqp = fd_seq_inc( seq, 1UL );
+
+  //ifd_stem_publish( ctx->stem, 0UL, sig, ctx->store_out_chunk, shred_sz, 0UL, 0UL, tspub );
   ctx->store_out_chunk = fd_dcache_compact_next( ctx->store_out_chunk, shred_sz, ctx->store_out_chunk0, ctx->store_out_wmark );
 }
 
@@ -688,7 +701,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-/* TODO: This is probably not correct. */
 #define STEM_BURST (1UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_repair_tile_ctx_t

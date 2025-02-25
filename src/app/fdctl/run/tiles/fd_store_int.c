@@ -208,7 +208,9 @@ during_frag( fd_store_tile_ctx_t * ctx,
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->repair_in_chunk0, ctx->repair_in_wmark ));
     }
 
-    uchar const * shred = fd_chunk_to_laddr_const( ctx->repair_in_mem, chunk );
+    fd_shred_t const * shred = fd_chunk_to_laddr_const( ctx->repair_in_mem, chunk );
+
+    FD_LOG_WARNING(( "received repair shred with seq %lu slot %lu and idx %u and frag", seq, shred->slot, shred->idx ));
 
     memcpy( ctx->shred_buffer, shred, sz );
     return;
@@ -470,6 +472,10 @@ after_credit( fd_store_tile_ctx_t * ctx,
               fd_stem_context_t *   stem,
               int *                 opt_poll_in,
               int *                 charge_busy ) {
+                  if( !stem->should_housekeep) {
+                    return;
+                  }
+
   (void)opt_poll_in;
 
   /* TODO: Don't charge the tile as busy if after_credit isn't actually
@@ -797,6 +803,7 @@ metrics_write( fd_store_tile_ctx_t * ctx ) {
 }
 
 #define STEM_BURST (1UL)
+#define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_store_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_store_tile_ctx_t)

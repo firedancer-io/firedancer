@@ -340,6 +340,8 @@ STEM_(run1)( ulong                        in_cnt,
   for(;;) {
 
     /* Do housekeeping at a low rate in the background */
+    int do_housekeeping = 0;
+    (void)do_housekeeping;
 
     ulong housekeeping_ticks = 0UL;
     if( FD_UNLIKELY( (now-then)>=0L ) ) {
@@ -397,6 +399,7 @@ STEM_(run1)( ulong                        in_cnt,
             FD_COMPILER_MFENCE();
           }
         }
+        do_housekeeping = 1;
 
 #ifdef STEM_CALLBACK_DURING_HOUSEKEEPING
         STEM_CALLBACK_DURING_HOUSEKEEPING( ctx );
@@ -450,6 +453,9 @@ STEM_(run1)( ulong                        in_cnt,
 
       .cr_avail            = &cr_avail,
       .cr_decrement_amount = fd_ulong_if( out_cnt>0UL, 1UL, 0UL ),
+
+      .should_housekeep    = do_housekeeping,
+      .in_backpressure = &metric_in_backp,
     };
 #endif
 

@@ -165,7 +165,11 @@ fd_topo_workspace_fill( fd_topo_t *      topo,
     for( ulong j=0UL; j<tile->in_cnt; j++ ) {
       if( FD_UNLIKELY( topo->objs[ tile->in_link_fseq_obj_id[ j ] ].wksp_id!=wksp->id ) ) continue;
       tile->in_link_fseq[ j ] = fd_fseq_join( fd_topo_obj_laddr( topo, tile->in_link_fseq_obj_id[ j ] ) );
-      FD_TEST( tile->in_link_fseq[ j ] );
+      //FD_TEST( tile->in_link_fseq[ j ] );
+      if ( !tile->in_link_fseq[j]) {
+        FD_LOG_ERR(( "broken link: %p, %s", (void *)tile->in_link_fseq[j], topo->links[tile->in_link_id[j]].name ));
+
+      }
     }
   }
 }

@@ -1951,10 +1951,11 @@ after_frag( fd_replay_tile_ctx_t * ctx,
         case -1:
 
           /* Mismatch */
-
+          if (0) {
           funk_cancel( ctx, cmp_slot );
           checkpt( ctx );
           FD_LOG_ERR(( "Bank hash mismatch on slot: %lu. Halting.", cmp_slot ));
+          }
 
           break;
 

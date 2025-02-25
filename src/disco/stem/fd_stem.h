@@ -12,6 +12,9 @@ struct fd_stem_context {
 
    ulong *           cr_avail;
    ulong             cr_decrement_amount;
+
+   int                should_housekeep;
+   ulong  * in_backpressure;
 };
 
 typedef struct fd_stem_context fd_stem_context_t;
@@ -43,6 +46,7 @@ fd_stem_publish( fd_stem_context_t * stem,
   ulong   seq  = *seqp;
   fd_mcache_publish( stem->mcaches[ out_idx ], stem->depths[ out_idx ], seq, sig, chunk, sz, ctl, tsorig, tspub );
   *stem->cr_avail -= stem->cr_decrement_amount;
+  
   *seqp = fd_seq_inc( seq, 1UL );
 }
 
