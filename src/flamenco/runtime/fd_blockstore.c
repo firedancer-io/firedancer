@@ -1312,19 +1312,17 @@ fd_buf_shred_query_copy_data( fd_blockstore_t * blockstore, ulong slot, uint idx
   if( buf_sz < FD_SHRED_MAX_SZ ) return -1;
   fd_shred_key_t key = { slot, idx };
   ulong          sz  = 0;
-  int            err = FD_MAP_ERR_AGAIN;
-  while( err == FD_MAP_ERR_AGAIN ) {
+  for(;;) {
     fd_buf_shred_map_query_t query[1] = { 0 };
-    err = fd_buf_shred_map_query_try( blockstore->shred_map, &key, NULL, query );
+    int err = fd_buf_shred_map_query_try( blockstore->shred_map, &key, NULL, query );
+    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) )     return -1;
+    if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) )   return -1;
+    if( FD_UNLIKELY( err == FD_MAP_ERR_CORRUPT ) ) FD_LOG_ERR(( "[%s] map corrupt. shred %lu %u", __func__, slot, idx ));
     fd_buf_shred_t const * shred = fd_buf_shred_map_query_ele_const( query );
     sz = fd_shred_sz( &shred->hdr );
     memcpy( buf, shred->buf, sz );
-    err = fd_buf_shred_map_query_test( query );
-    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return -1;
-    if( FD_UNLIKELY( err == FD_MAP_ERR_CORRUPT ) ) FD_LOG_ERR(( "[%s] map corrupt. shred %lu %u", __func__, slot, idx ));
+    if( FD_LIKELY( fd_buf_shred_map_query_test( query ) == FD_MAP_SUCCESS ) ) return (long)sz;
   }
-  FD_TEST( !err );
-  return (long)sz;
 }
 
 fd_block_t *
