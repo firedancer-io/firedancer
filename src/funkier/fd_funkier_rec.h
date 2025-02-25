@@ -235,6 +235,17 @@ fd_funkier_rec_publish( fd_funkier_rec_prepare_t * prepare );
 void
 fd_funkier_rec_cancel( fd_funkier_rec_prepare_t * prepare );
 
+/* fd_funkier_rec_clone copies a record from an ancestor transaction
+   to create a new record in the given transaction. The record can be
+   modified afterward and must then be published. */
+
+fd_funkier_rec_t *
+fd_funkier_rec_clone( fd_funkier_t *               funk,
+                      fd_funkier_txn_t *           txn,
+                      fd_funkier_rec_key_t const * key,
+                      fd_funkier_rec_prepare_t *   prepare,
+                      int *                        opt_err );
+
 /* fd_funkier_rec_is_full returns true if no more records can be
    allocated. */
 

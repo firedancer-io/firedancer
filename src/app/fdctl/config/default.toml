@@ -1243,6 +1243,19 @@ dynamic_port_range = "8900-9000"
     # `--no-clone` argument to `fddev`.
     no_clone = false
 
+    # As part of security sandboxing, the dumpable bit of each process
+    # is cleared with prctl( PR_SET_DUMPABLE, 0 ).  This prevents other
+    # processes from attaching via. `ptrace(2)` which could be a
+    # security issue, and also prevents core dumps from being generated
+    # which might leak sensitive information.  If the sandbox is
+    # disabled, core dumps are always produced and this option has no
+    # effect.
+    #
+    # This option can be enabled in production if a crash cannot be
+    # easily reproduced, but it decreases security and should not be
+    # enabled during routine running of the validator.
+    core_dump = false
+
     # Firedancer currently hosts a Agave client as a child process
     # when it starts up, to provide functionality that has not yet been
     # implemented. For development sometimes it is desirable to not

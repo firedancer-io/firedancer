@@ -227,6 +227,41 @@ fd_funkier_rec_cancel( fd_funkier_rec_prepare_t * prepare ) {
   fd_funkier_rec_pool_release( &rec_pool, prepare->rec, 1 );
 }
 
+fd_funkier_rec_t *
+fd_funkier_rec_clone( fd_funkier_t *               funk,
+                      fd_funkier_txn_t *           txn,
+                      fd_funkier_rec_key_t const * key,
+                      fd_funkier_rec_prepare_t *   prepare,
+                      int *                        opt_err ) {
+  fd_funkier_rec_t * new_rec = fd_funkier_rec_prepare( funk, txn, key, prepare, opt_err );
+  if( !new_rec ) return NULL;
+
+  for(;;) {
+    fd_funkier_rec_query_t query[1];
+    fd_funkier_rec_t const * old_rec = fd_funkier_rec_query_try_global( funk, txn, key, NULL, query );
+    if( !old_rec ) {
+      fd_int_store_if( !!opt_err, opt_err, FD_FUNKIER_ERR_KEY );
+      fd_funkier_rec_cancel( prepare );
+      return NULL;
+    }
+
+    fd_wksp_t * wksp = fd_funkier_wksp( funk );
+    ulong val_sz = old_rec->val_sz;
+    void * buf = fd_funkier_val_truncate( new_rec, val_sz, fd_funkier_alloc( funk, wksp ), wksp, opt_err );
+    if( !buf ) {
+      fd_funkier_rec_cancel( prepare );
+      return NULL;
+    }
+    memcpy( buf, fd_funkier_val( old_rec, wksp ), val_sz );
+
+    if( fd_funkier_rec_query_test( query ) ) {
+      return new_rec;
+    }
+  }
+}
+
+
+
 int
 fd_funkier_rec_is_full( fd_funkier_t * funk ) {
   fd_wksp_t * wksp = fd_funkier_wksp( funk );

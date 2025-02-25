@@ -269,6 +269,7 @@ typedef struct {
       char  cluster_version[ 32 ];
       int   in_wen_restart;
       char  tower_checkpt[ PATH_MAX ];
+      char  expected_genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
       char  wen_restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
       int   plugins_enabled;
 
@@ -439,6 +440,7 @@ typedef struct {
   char const * name;
 
   int          keep_host_networking;
+  int          allow_connect;
   ulong        rlimit_file_cnt;
   ulong        rlimit_address_space;
   ulong        rlimit_data;
@@ -782,6 +784,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
                   fd_topo_tile_t *     tile,
                   int                  sandbox,
                   int                  keep_controlling_terminal,
+                  int                  dumpable,
                   uint                 uid,
                   uint                 gid,
                   int                  allow_fd,
