@@ -63,6 +63,7 @@ $(call add-objs,run/tiles/fd_rpcserv,fd_fdctl)
 $(call add-objs,run/tiles/fd_batch,fd_fdctl)
 $(call add-objs,run/tiles/fd_batch_thread,fd_fdctl)
 $(call add-objs,run/tiles/fd_exec,fd_fdctl)
+$(call add-objs,run/tiles/fd_restart,fd_fdctl)
 endif
 
 # fdctl topologies
