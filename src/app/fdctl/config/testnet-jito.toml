@@ -40,9 +40,5 @@ scratch_directory = "/data/fd1"
     enabled = true
     url = "https://ny.testnet.block-engine.jito.wtf"
 
-    # For the testnet endpoint, Jito presents a certificate for
-    # internal.ny.testnet instead of ny.testnet
-    tls_domain_name = "internal.ny.testnet.block-engine.jito.wtf"
-
 [tiles.gui]
     gui_listen_address = "0.0.0.0"
