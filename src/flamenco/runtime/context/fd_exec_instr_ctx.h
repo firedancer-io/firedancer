@@ -53,6 +53,22 @@ fd_exec_instr_ctx_leave( fd_exec_instr_ctx_t * ctx );
 void *
 fd_exec_instr_ctx_delete( void * mem );
 
+/* Operators */
+
+/* Assert that enough ccounts were supplied to this instruction. Returns
+   FD_EXECUTOR_INSTR_SUCCESS if the number of accounts is as expected and
+   FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS otherwise.
+   https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L492-L503 */
+static inline int
+fd_exec_instr_ctx_check_num_insn_accounts( fd_exec_instr_ctx_t * ctx,
+                                    uint                  expected_accounts ) {
+
+  if( FD_UNLIKELY( ctx->instr->acct_cnt<expected_accounts ) ) {
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+  }
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
 /* Helpers for borrowing instruction accounts */
 
 static inline int

@@ -1,0 +1,145 @@
+#ifndef HEADER_fd_src_flamenco_runtime_fd_txn_acct_h
+#define HEADER_fd_src_flamenco_runtime_fd_txn_acct_h
+
+#include "../../ballet/txn/fd_txn.h"
+#include "../types/fd_types.h"
+#include "../../funk/fd_funk_rec.h"
+#include "fd_acc_mgr.h"
+#include "../context/fd_exec_txn_ctx.h"
+
+struct __attribute__((aligned(8UL))) fd_txn_acct {
+  ulong                       magic;
+
+  fd_pubkey_t                 pubkey[1];
+
+  fd_account_meta_t const   * const_meta;
+  uchar             const   * const_data;
+  fd_funk_rec_t     const   * const_rec;
+
+  fd_account_meta_t         * meta;
+  uchar                     * data;
+  fd_funk_rec_t             * rec;
+
+  fd_account_meta_t const   * orig_meta;
+  uchar             const   * orig_data;
+  fd_funk_rec_t     const   * orig_rec;
+
+  /* consider making this a struct or removing entirely if not needed */
+  ulong                       starting_dlen;
+  ulong                       starting_lamports;
+  ulong                       starting_owner_dlen;
+
+  /* Provide read/write mutual exclusion semantics.
+     Used for single-threaded logic only, thus not comparable to a
+     data synchronization lock. */
+
+  ushort refcnt_excl;
+  ushort refcnt_shared;
+
+  uchar account_found;
+};
+typedef struct fd_txn_acct fd_txn_acct_t;
+#define FD_TXN_ACCT_FOOTPRINT (sizeof(fd_txn_acct_t))
+#define FD_TXN_ACCT_ALIGN     (8UL)
+#define FD_TXN_ACCT_MAGIC     (0xF15EDF1C51F51AA1UL)
+
+/* Initializes an fd_txn_acct from a pointer to a region of memory */
+fd_txn_acct_t *
+fd_txn_acct_init( void * ptr );
+
+/* Accessors */
+
+/* Resizes the account data */
+void
+fd_txn_acct_resize( fd_txn_acct_t * acct,
+                    ulong           dlen );
+
+/* Returns the total size of the account shared data */
+FD_FN_PURE static inline ulong
+fd_txn_acct_raw_size( fd_txn_acct_t const * acct ) {
+  ulong dlen = ( acct->const_meta != NULL ) ? acct->const_meta->dlen : 0;
+  return sizeof(fd_account_meta_t) + dlen;
+}
+
+/* Operators */
+
+/* buf is a handle to the account shared data.
+   Sets the account shared data as mutable. */
+fd_txn_acct_t *
+fd_txn_acct_make_mutable( fd_txn_acct_t * acct,
+                          void *          buf );
+
+/* In Agave, dummy accounts are sometimes created that contain metadata
+   that differs from what's in the accounts DB.  For example, see
+   handling of the executable bit in
+   fd_executor_load_transaction_accounts().
+   This allows us to emulate that by modifying metadata of read-only
+   borrowed accounts without those modification writing through to
+   funk. */
+
+/* buf is a handle to the account shared data.
+   Sets the account shared data as read only. */
+fd_txn_acct_t *
+fd_txn_acct_make_read_only( fd_txn_acct_t * acct,
+                            void *          buf );
+
+/* Restores the original contents of the account shared data into 
+   its read-only fields (const_meta, const_data, const_rec).
+   If the account metadata was modified, returns a pointer to metadata,
+   otherwise returns null. */
+void *
+fd_txn_acct_restore( fd_txn_acct_t * acct );
+
+/* Desctructor */
+void *
+fd_txn_acct_destroy( fd_txn_acct_t * acct );
+
+/* read/write mutual exclusion */
+FD_FN_PURE static inline int
+fd_txn_acct_acquire_write_is_safe( fd_txn_acct_t const * acct ) {
+  return (!acct->refcnt_excl) & (!acct->refcnt_shared);
+}
+
+FD_FN_PURE static inline int
+fd_txn_acct_acquire_read_is_safe( fd_txn_acct_t const * acct ) {
+  return (!acct->refcnt_excl);
+}
+
+/* fd_txn_acct_acquire_write acquires write/exclusive access.
+   Causes all other write or read acquire attempts will fail.  Returns 1
+   on success, 0 on failure. */
+static inline int
+fd_txn_acct_acquire_write( fd_txn_acct_t * acct ) {
+  if( FD_UNLIKELY( !fd_txn_acct_acquire_write_is_safe( acct ) ) ) {
+    return 0;
+  }
+  acct->refcnt_excl = (ushort)1;
+  return 1;
+}
+
+/* fd_txn_acct_release_write{_private} releases a write/exclusive
+   access handle. The private version should only be used by the try borrow
+   scoping macro. */
+static inline void
+fd_txn_acct_release_write( fd_txn_acct_t * acct ) {
+  FD_TEST( acct->refcnt_excl==1U );
+  acct->refcnt_excl = (ushort)0;
+}
+   
+static inline void
+fd_txn_acct_release_write_private(fd_txn_acct_t ** acct ) {
+  /* Only release if it is not yet released */
+  if( !fd_txn_acct_acquire_write_is_safe( *acct ) ) {
+    fd_txn_acct_release_write( *acct );
+  }
+  acct = NULL;
+}
+
+/* Factory constructors */
+fd_txn_acct_t *
+fd_create_txn_acct( fd_txn_acct_t * acct_ptr, fd_pubkey_t * acc_pubkey, fd_exec_txn_ctx_t * txn_ctx );
+
+fd_txn_acct_t
+fd_create_txn_acct_decl( fd_pubkey_t * acc_pubkey, fd_exec_txn_ctx_t * txn_ctx );
+
+#endif /* HEADER_fd_src_flamenco_runtime_fd_txn_acct_h */

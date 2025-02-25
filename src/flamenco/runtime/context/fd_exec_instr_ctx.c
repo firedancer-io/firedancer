@@ -102,7 +102,7 @@ fd_instr_borrowed_account_view( fd_exec_instr_ctx_t * ctx,
 
   return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
 }
-
+/* replace these with try_borrow_account and try_borrow_instruction_account semantics */
 int
 fd_instr_borrowed_account_modify_idx( fd_exec_instr_ctx_t const * ctx,
                                       ulong                       idx,
@@ -148,3 +148,6 @@ fd_instr_borrowed_account_modify( fd_exec_instr_ctx_t *     ctx,
 
   return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
 }
+
+/* move the other functions from fd_account.h to here that operate on the instr context */
+

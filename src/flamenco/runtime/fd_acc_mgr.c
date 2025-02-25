@@ -131,7 +131,7 @@ int
 fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
                  fd_funk_txn_t const *   txn,
                  fd_pubkey_t const *     pubkey,
-                 fd_borrowed_account_t * account) {
+                 fd_txn_acct_t * account) {
   /* TODO: re-add this check after consulting on why this builtin program check.
      Is it the case that the  */
   // if( fd_pubkey_is_builtin_program( pubkey )
