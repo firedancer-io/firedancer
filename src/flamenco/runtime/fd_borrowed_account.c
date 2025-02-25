@@ -11,7 +11,6 @@ fd_borrowed_account_get_data_mut( fd_borrowed_account_t * borrowed_acct,
     return err;
   }
 
-  /* const meta or not? what is this used for? */
   if ( data_out != NULL )
     *data_out = acct->data;
   if ( dlen_out != NULL )

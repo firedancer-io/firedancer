@@ -239,6 +239,7 @@ fd_borrowed_account_is_signer( fd_borrowed_account_t const * borrowed_acct ) {
     return 0;
   }
   /* TODO rename without idx */
+  /* TODO instruction acct should just store whether it is a signer */
   return fd_instr_acc_is_signer_idx( borrowed_acct->instr_ctx->instr, borrowed_acct->instr_acc_idx );
 }
 
@@ -256,7 +257,7 @@ fd_borrowed_account_is_writable( fd_borrowed_account_t const * borrowed_acct ) {
   }
 
   fd_instr_info_t const * instr = instr_ctx->instr;
-  /* TODO acct should just store whether it is writable... */
+  /* TODO instruction acct should just store whether it is writable... */
   return !!(instr->acct_flags[borrowed_acct->instr_acc_idx] & FD_INSTR_ACCT_FLAGS_IS_WRITABLE);
 }
 

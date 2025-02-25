@@ -70,6 +70,14 @@ fd_exec_instr_ctx_check_num_insn_accounts( fd_exec_instr_ctx_t * ctx,
 }
 
 /* Helpers for borrowing instruction accounts */
+/* These should use txn_acct's borrowing semantics for read/write checking */
+/* Agave calls borrow_mut as a check, so we should too */
+/* TODO: need to get index in transaction */
+
+/* steps: 
+   1. get the account (txn_acct ) 
+   2. check for read/write exclusion and fail if necessary 
+   3. call borrowed account constructor to get a borrowed account from the txn_acct*/
 
 static inline int
 fd_instr_borrowed_account_view_idx( fd_exec_instr_ctx_t const * ctx,

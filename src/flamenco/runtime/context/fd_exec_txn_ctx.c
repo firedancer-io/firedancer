@@ -82,7 +82,8 @@ fd_exec_txn_ctx_delete( void * mem ) {
 
   return mem;
 }
-
+/* these should return txn_acct, not borrowed account
+   Also these should use borrowing semantics from txn_acct to check if it's ok to read/write to the account */
 int
 fd_txn_borrowed_account_view_idx( fd_exec_txn_ctx_t * ctx,
                                   uchar idx,
@@ -91,7 +92,7 @@ fd_txn_borrowed_account_view_idx( fd_exec_txn_ctx_t * ctx,
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
-  fd_borrowed_account_t * txn_account = &ctx->borrowed_accounts[idx];
+  fd_txn_acct_t * txn_account = &ctx->accounts[idx];
   *account = txn_account;
 
   if( FD_UNLIKELY( !fd_acc_exists( txn_account->const_meta ) ) ) {
