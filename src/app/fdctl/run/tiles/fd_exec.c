@@ -60,11 +60,13 @@ after_frag( fd_exec_tile_ctx_t * ctx FD_PARAM_UNUSED,
             ulong                sig,
             ulong                sz,
             ulong                tsorig,
+            ulong                tspub,
             fd_stem_context_t *  stem ) {
   (void)seq;
   (void)sig;
   (void)sz;
   (void)tsorig;
+  (void)tspub;
   (void)stem;
 }
 
