@@ -582,6 +582,7 @@ monitor_cmd_fn( args_t *         args,
                       0,
                       0,
                       1, /* Keep controlling terminal for main so it can receive Ctrl+C */
+                      0,
                       0UL,
                       0UL,
                       0UL,

@@ -567,6 +567,7 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
                                      int         keep_host_networking,
                                      int         allow_connect,
                                      int         keep_controlling_terminal,
+                                     int         dumpable,
                                      ulong       rlimit_file_cnt,
                                      ulong       rlimit_address_space,
                                      ulong       rlimit_data,
@@ -652,8 +653,8 @@ fd_sandbox_private_enter_no_seccomp( uint        desired_uid,
 
   /* PR_SET_KEEPCAPS will already be 0 if we didn't need to raise
      CAP_SYS_ADMIN, but we always clear it anyway. */
-  if( -1==prctl( PR_SET_KEEPCAPS, 0 ) ) FD_LOG_ERR(( "prctl(PR_SET_KEEPCAPS, 0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( -1==prctl( PR_SET_DUMPABLE, 0 ) ) FD_LOG_ERR(( "prctl(PR_SET_DUMPABLE, 0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( -1==prctl( PR_SET_KEEPCAPS, 0 ) )        FD_LOG_ERR(( "prctl(PR_SET_KEEPCAPS, 0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( -1==prctl( PR_SET_DUMPABLE, dumpable ) ) FD_LOG_ERR(( "prctl(PR_SET_DUMPABLE, 0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   /* Now remount the filesystem root so no files are accessible any more. */
   fd_sandbox_private_pivot_root();
@@ -677,6 +678,7 @@ fd_sandbox_enter( uint                 desired_uid,
                   int                  keep_host_networking,
                   int                  allow_connect,
                   int                  keep_controlling_terminal,
+                  int                  dumpable,
                   ulong                rlimit_file_cnt,
                   ulong                rlimit_address_space,
                   ulong                rlimit_data,
@@ -691,6 +693,7 @@ fd_sandbox_enter( uint                 desired_uid,
                                        keep_host_networking,
                                        allow_connect,
                                        keep_controlling_terminal,
+                                       dumpable,
                                        rlimit_file_cnt,
                                        rlimit_address_space,
                                        rlimit_data,
