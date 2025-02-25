@@ -4,7 +4,7 @@
 #include "fd_txn_acct.h"
 #include "program/fd_program_util.h"
 #include "context/fd_exec_epoch_ctx.h"
-
+#include "sysvar/fd_sysvar_rent.h"
 /* FD_ACC_SZ_MAX is the hardcoded size limit of a Solana account. */
 
 #define MAX_PERMITTED_DATA_LENGTH                 (10UL<<20) /* 10MiB */
@@ -83,7 +83,8 @@ fd_account_get_rent_epoch( fd_borrowed_account_t const * borrowed_acct ) {
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L739 */
 
 int
-fd_borrowed_account_set_owner( fd_borrowed_account_t const * borrowed_acct );
+fd_borrowed_account_set_owner( fd_borrowed_account_t * borrowed_acct,
+                               fd_pubkey_t const *     owner );
 
 /* fd_borrowed_account_set_lamports mirrors Agave function
    solana_sdk::transaction_context::BorrowedAccount::set_lamports.
@@ -111,8 +112,8 @@ fd_borrowed_account_set_lamports( fd_borrowed_account_t * borrowed_acct,
 
 int
 fd_borrowed_account_set_data_from_slice( fd_borrowed_account_t * borrowed_acct,
-                                uchar const *           data,
-                                ulong                   data_sz );
+                                         uchar const *           data,
+                                         ulong                   data_sz );
 
 /* fd_borrowed_account_set_data_length mirrors Agave function
    solana_sdk::transaction_context::BorrowedAccount::set_data_length.
@@ -122,7 +123,7 @@ fd_borrowed_account_set_data_from_slice( fd_borrowed_account_t * borrowed_acct,
 
 int
 fd_borrowed_account_set_data_length( fd_borrowed_account_t * borrowed_acct,
-                            ulong                   new_len );
+                                     ulong                   new_len );
 
 /* fd_account_set_executable mirrors Agave function
    solana_sdk::transaction_context::BorrowedAccount::set_executable.
@@ -177,7 +178,7 @@ fd_borrowed_account_checked_sub_lamports( fd_borrowed_account_t * borrowed_acct,
    /* TODO do we need err as an out parameter? */
    /* TODO simplify accessors, assign variables at top of function */
 int
-fd_borrowed_account_update_accounts_resize_delta( fd_borrowed_account_t const * borrowed_acct,
+fd_borrowed_account_update_accounts_resize_delta( fd_borrowed_account_t * borrowed_acct,
                                                   ulong                         new_len,
                                                   int *                         err );
 
@@ -192,10 +193,12 @@ fd_borrowed_account_update_accounts_resize_delta( fd_borrowed_account_t const * 
 
 static inline int
 fd_borrowed_account_is_rent_exempt_at_data_length( fd_borrowed_account_t const * borrowed_acct ) {
-  FD_TEST( borrowed_acct->acct->const_meta != NULL );
+  fd_txn_acct_t * acct = borrowed_acct->acct;
+  FD_TEST( acct->const_meta != NULL );
+
   fd_rent_t rent    = borrowed_acct->instr_ctx->epoch_ctx->epoch_bank.rent;
   ulong min_balance = fd_rent_exempt_minimum_balance( &rent, meta->dlen );
-  return borrowed_acct->acct->const_meta->info.lamports >= min_balance;
+  return acct->const_meta->info.lamports >= min_balance;
 }
 
 /* fd_borrowed_account_is_executable mirrors Agave function
@@ -247,11 +250,14 @@ fd_borrowed_account_is_signer( fd_borrowed_account_t const * borrowed_acct ) {
 
 static inline int
 fd_borrowed_account_is_writable( fd_borrowed_account_t const * borrowed_acct ) {
-  if( FD_UNLIKELY( borrowed_acct->instr_acc_idx >= borrowed_acct->instr_ctx->instr->acct_cnt ) ) {
+  fd_exec_instr_ctx_t const * instr_ctx = borrowed_acct->instr_ctx;
+  if( FD_UNLIKELY( borrowed_acct->instr_acc_idx >= instr_ctx->instr->acct_cnt ) ) {
     return 0;
   }
-  /* TODO rename without idx */
-  return fd_instr_acc_is_writable_idx( borrowed_acct->instr_ctx->instr, borrowed_acct->instr_acc_idx );
+
+  fd_instr_info_t const * instr = instr_ctx->instr;
+  /* TODO acct should just store whether it is writable... */
+  return !!(instr->acct_flags[borrowed_acct->instr_acc_idx] & FD_INSTR_ACCT_FLAGS_IS_WRITABLE);
 }
 
 /* fd_borrowed_account_is_owned_by_current_program mirrors Agave's
@@ -277,27 +283,26 @@ fd_borrowed_account_is_owned_by_current_program( fd_borrowed_account_t const * b
 static inline int
 fd_borrowed_account_can_data_be_changed( fd_borrowed_account_t const * borrowed_acct,
                                          int *                       err ) {
-   
-     fd_instr_info_t const * instr = borrowed_acct->instr_ctx->instr;
-     FD_TEST( borrowed_acct->instr_acc_idx < instr->acct_cnt );
-   
-     if( FD_UNLIKELY( fd_borrowed_account_is_executable_internal( borrowed_acct ) ) ) {
-       *err = FD_EXECUTOR_INSTR_ERR_EXECUTABLE_DATA_MODIFIED;
-       return 0;
-     }
-   
-     if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( instr, borrowed_acct->instr_acc_idx ) ) ) {
-       *err = FD_EXECUTOR_INSTR_ERR_READONLY_DATA_MODIFIED;
-       return 0;
-     }
-   
-     if( FD_UNLIKELY( !fd_borrowed_account_is_owned_by_current_program( borrowed_acct ) ) ) {
-       *err = FD_EXECUTOR_INSTR_ERR_EXTERNAL_DATA_MODIFIED;
-       return 0;
-     }
-   
-     *err = FD_EXECUTOR_INSTR_SUCCESS;
-     return 1;
+  fd_instr_info_t const * instr = borrowed_acct->instr_ctx->instr;
+  FD_TEST( borrowed_acct->instr_acc_idx < instr->acct_cnt );
+
+  if( FD_UNLIKELY( fd_borrowed_account_is_executable_internal( borrowed_acct ) ) ) {
+    *err = FD_EXECUTOR_INSTR_ERR_EXECUTABLE_DATA_MODIFIED;
+    return 0;
+  }
+
+  if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( instr, borrowed_acct->instr_acc_idx ) ) ) {
+    *err = FD_EXECUTOR_INSTR_ERR_READONLY_DATA_MODIFIED;
+    return 0;
+  }
+
+  if( FD_UNLIKELY( !fd_borrowed_account_is_owned_by_current_program( borrowed_acct ) ) ) {
+    *err = FD_EXECUTOR_INSTR_ERR_EXTERNAL_DATA_MODIFIED;
+    return 0;
+  }
+
+  *err = FD_EXECUTOR_INSTR_SUCCESS;
+  return 1;
 }
 
 /* fd_borrowed_account_can_data_be_resized mirrors Agave function
@@ -311,8 +316,10 @@ static inline int
 fd_borrowed_account_can_data_be_resized( fd_borrowed_account_t const * borrowed_acct,
                                          ulong                         new_length,
                                          int *                         err ) {
+  fd_txn_acct_t * acct = borrowed_acct->acct;
+
   /* Only the owner can change the length of the data */
-  if( FD_UNLIKELY( ( borrowed_acct->acct->const_meta->dlen != new_length ) &
+  if( FD_UNLIKELY( ( acct->const_meta->dlen != new_length ) &
                    ( !fd_borrowed_account_is_owned_by_current_program( borrowed_acct ) ) ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_ACC_DATA_SIZE_CHANGED;
     return 0;
@@ -326,9 +333,9 @@ fd_borrowed_account_can_data_be_resized( fd_borrowed_account_t const * borrowed_
 
   /* The resize can not exceed the per-transaction maximum
      https://github.com/firedancer-io/agave/blob/1e460f466da60a63c7308e267c053eec41dc1b1c/sdk/src/transaction_context.rs#L1107-L1111 */
-  long length_delta = fd_long_sat_sub( (long)new_length, (long)borrowed_acct->acct->const_meta->dlen );
+  long length_delta = fd_long_sat_sub( (long)new_length, (long)acct->const_meta->dlen );
   long new_accounts_resize_delta = fd_long_sat_add( (long)borrowed_acct->instr_ctx->txn_ctx->accounts_resize_delta, length_delta );
-  if( FD_UNLIKELY( new_accounts_resize_delta>MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN ) ) {
+  if( FD_UNLIKELY( new_accounts_resize_delta > MAX_PERMITTED_ACCOUNT_DATA_ALLOCS_PER_TXN ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_MAX_ACCS_DATA_ALLOCS_EXCEEDED;
     return 0;
   }
@@ -339,9 +346,10 @@ fd_borrowed_account_can_data_be_resized( fd_borrowed_account_t const * borrowed_
 
 FD_FN_PURE static inline int
 fd_borrowed_account_is_zeroed( fd_borrowed_account_t const * borrowed_acct ) {
-  // TODO: optimize this
-  uchar const * data = ((uchar *) borrowed_acct->acct->const_meta) + borrowed_acct->acct->const_meta->hlen;
-  for( ulong i=0UL; i < borrowed_acct->acct->const_meta->dlen; i++ )
+  fd_txn_acct_t * acct = borrowed_acct->acct;
+  /* TODO: optimize this */
+  uchar const * data = ((uchar *) acct->const_meta) + acct->const_meta->hlen;
+  for( ulong i=0UL; i < acct->const_meta->dlen; i++ )
     if( data[i] != 0 )
       return 0;
   return 1;
@@ -356,8 +364,9 @@ fd_borrowed_account_is_zeroed( fd_borrowed_account_t const * borrowed_acct ) {
 static inline int
 fd_borrowed_account_find_idx_of_account( fd_borrowed_account_t const * borrowed_acct,
                                          fd_pubkey_t *               pubkey ) {
-  for( ushort i=0; i<borrowed_acct->instr_ctx->instr->acct_cnt; i++ ) {
-    if( 0==memcmp( pubkey, &borrowed_acct->instr_ctx->instr->acct_pubkeys[i], sizeof(fd_pubkey_t) ) ) {
+  fd_exec_instr_ctx_t const * instr_ctx = borrowed_acct->instr_ctx;
+  for( ushort i=0; i<instr_ctx->instr->acct_cnt; i++ ) {
+    if( 0==memcmp( pubkey, &instr_ctx->instr->acct_pubkeys[i], sizeof(fd_pubkey_t) ) ) {
       return (int)i;
     }
   }
