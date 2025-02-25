@@ -382,7 +382,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   instr_context->accounts = fd_spad_alloc( txn_ctx->spad, alignof(fd_exec_test_acct_state_t), (instr_context->accounts_count + num_sysvar_entries + txn_ctx->executable_cnt) * sizeof(fd_exec_test_acct_state_t));
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
     // Copy account information over
-    fd_borrowed_account_t const * borrowed_account = &txn_ctx->borrowed_accounts[i];
+    fd_borrowed_account_t const * borrowed_account = &txn_ctx->accounts[i];
     fd_exec_test_acct_state_t * output_account = &instr_context->accounts[i];
     dump_account_state( borrowed_account, output_account, txn_ctx->spad );
   }

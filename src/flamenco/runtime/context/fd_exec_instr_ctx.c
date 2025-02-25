@@ -83,68 +83,37 @@ fd_exec_instr_ctx_delete( void * mem ) {
 }
 
 int
-fd_instr_borrowed_account_view( fd_exec_instr_ctx_t * ctx,
-                                fd_pubkey_t const *      pubkey,
-                                fd_borrowed_account_t * * account ) {
-  for( ulong i = 0; i < ctx->instr->acct_cnt; i++ ) {
-    if( memcmp( pubkey->uc, ctx->instr->acct_pubkeys[i].uc, sizeof(fd_pubkey_t) )==0 ) {
-      // TODO: check if readable???
-      fd_borrowed_account_t * instr_account = ctx->instr->borrowed_accounts[i];
-      *account = instr_account;
-
-      if( FD_UNLIKELY( !instr_account ) ) {
-        return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
-      }
-
-      return FD_ACC_MGR_SUCCESS;
-    }
+fd_exec_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t const * ctx,
+                                      int                         idx,
+                                      fd_borrowed_account_t *     account ) {
+  /* Return a MissingAccount error if the idx is out of bounds.
+     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L603 */
+  if( FD_UNLIKELY( idx >= ctx->instr->acct_cnt ) ) {
+    return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
   }
 
-  return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+  fd_txn_account_t * instr_account = ctx->instr->accounts[idx];
+
+  /* Return a AccountBorrowFailed error if the write is not acquirable.
+     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L605 */
+  int acquire_result = fd_txn_account_acquire_write( instr_account );
+  if( FD_UNLIKELY( !acquire_result ) ) {
+    return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
+  }
+
+  /* Return a BorrowedAccount upon success.
+     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L606 */
+  fd_borrowed_account_init( account, instr_account, ctx, idx );
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-int
-fd_instr_borrowed_account_modify_idx( fd_exec_instr_ctx_t const * ctx,
-                                      ulong                       idx,
-                                      ulong                       min_data_sz,
-                                      fd_borrowed_account_t **    account ) {
-  if( FD_UNLIKELY( idx >= ctx->instr->acct_cnt ) )
-    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
-  if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, idx ) ) ) {
-    /* FIXME: we should just handle the try_borrow_account semantics correctly */
-    FD_LOG_DEBUG(( "unwritable account passed to fd_instr_borrowed_account_modify_idx (idx=%lu)", idx ));
-  }
-
-  fd_borrowed_account_t * instr_account = ctx->instr->borrowed_accounts[idx];
-  if( min_data_sz>instr_account->const_meta->dlen ) {
-    fd_borrowed_account_resize( instr_account, min_data_sz );
-  }
-
-  /* TODO: consider checking if account is writable */
-  *account = instr_account;
-  return FD_ACC_MGR_SUCCESS;
-}
-
-int
-fd_instr_borrowed_account_modify( fd_exec_instr_ctx_t *     ctx,
-                                  fd_pubkey_t const *       pubkey,
-                                  ulong                     min_data_sz,
-                                  fd_borrowed_account_t * * account ) {
+int fd_exec_instr_ctx_try_borrow_account_with_key(fd_exec_instr_ctx_t *   ctx,
+                                                  fd_pubkey_t const *     pubkey,
+                                                  fd_borrowed_account_t * account ) {
   for( ulong i = 0; i < ctx->instr->acct_cnt; i++ ) {
     if( memcmp( pubkey->uc, ctx->instr->acct_pubkeys[i].uc, sizeof(fd_pubkey_t) )==0 ) {
-      // TODO: check if writable???
-      if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, (uchar)i ) ) ) {
-        // FIXME: we should just handle the try_borrow_account semantics correctly
-        FD_LOG_DEBUG(( "unwritable account passed to fd_instr_borrowed_account_modify_idx (idx=%lu, account=%s)", i, FD_BASE58_ENC_32_ALLOCA( pubkey ) ));
-      }
-      fd_borrowed_account_t * instr_account = ctx->instr->borrowed_accounts[i];
-      if( min_data_sz > instr_account->const_meta->dlen ) {
-        fd_borrowed_account_resize( instr_account, min_data_sz );
-      }
-      *account = instr_account;
-      return FD_ACC_MGR_SUCCESS;
+      return fd_exec_instr_ctx_try_borrow_account( ctx, i, account );
     }
   }
-
-  return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+  return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
 }

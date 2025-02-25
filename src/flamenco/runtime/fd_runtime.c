@@ -950,7 +950,7 @@ fd_txn_copy_meta( fd_exec_txn_ctx_t * txn_ctx, uchar * dest, ulong dest_sz ) {
   txn_status.post_balances = post_balances;
 
   for (ulong idx = 0; idx < acct_cnt; idx++) {
-    fd_borrowed_account_t const * acct = &txn_ctx->borrowed_accounts[idx];
+    fd_txn_account_t const * acct = &txn_ctx->accounts[idx];
     ulong pre = ( acct->starting_lamports == ULONG_MAX ? 0UL : acct->starting_lamports );
     pre_balances[idx] = pre;
     post_balances[idx] = ( acct->meta ? acct->meta->info.lamports :
@@ -1052,7 +1052,7 @@ fd_runtime_finalize_txns_update_blockstore_meta( fd_exec_slot_ctx_t *         sl
   for( ulong txn_idx = 0; txn_idx < txn_cnt; txn_idx++ ) {
     /* Prebalance compensation */
     fd_exec_txn_ctx_t * txn_ctx = task_info[txn_idx].txn_ctx;
-    txn_ctx->borrowed_accounts[0].starting_lamports += (txn_ctx->execution_fee + txn_ctx->priority_fee);
+    txn_ctx->accounts[0].starting_lamports += (txn_ctx->execution_fee + txn_ctx->priority_fee);
     /* Get the size without the copy */
     tot_meta_sz += fd_txn_copy_meta( txn_ctx, NULL, 0 );
   }
@@ -1673,20 +1673,20 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
        any way, then the full account can be rolled back as it is done now.
        However, most of the time the account data is not changed, and only
        the lamport balance has to change. */
-    fd_borrowed_account_t * borrowed_account = fd_borrowed_account_init( &txn_ctx->borrowed_accounts[0] );
+    fd_txn_account_t * acct = fd_txn_account_init( &txn_ctx->accounts[0] );
 
-    fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->accounts[0], borrowed_account );
-    memcpy( borrowed_account->pubkey->key, &txn_ctx->accounts[0], sizeof(fd_pubkey_t) );
+    fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->accounts[0], acct );
+    memcpy( acct->pubkey->key, &txn_ctx->accounts[0], sizeof(fd_pubkey_t) );
 
-    void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
-    fd_borrowed_account_make_modifiable( borrowed_account, borrowed_account_data );
-    borrowed_account->meta->info.lamports -= (txn_ctx->execution_fee + txn_ctx->priority_fee);
+    void * acct_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
+    fd_txn_account_make_mutable( acct, acct_data );
+    acct->meta->info.lamports -= (txn_ctx->execution_fee + txn_ctx->priority_fee);
 
-    fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->borrowed_accounts[0] );
+    fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->accounts[0] );
 
     if( txn_ctx->nonce_account_idx_in_txn != ULONG_MAX ) {
       if( FD_LIKELY( txn_ctx->nonce_account_advanced ) ) {
-        fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->borrowed_accounts[ txn_ctx->nonce_account_idx_in_txn ] );
+        fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->accounts[ txn_ctx->nonce_account_idx_in_txn ] );
       } else {
         fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->rollback_nonce_account[ 0 ] );
       }
@@ -1703,7 +1703,7 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
         continue;
       }
 
-      fd_borrowed_account_t * acc_rec = &txn_ctx->borrowed_accounts[i];
+      fd_txn_account_t * acc_rec = &txn_ctx->accounts[i];
 
       if( dirty_vote_acc && 0==memcmp( acc_rec->const_meta->info.owner, &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
         /* lock for inserting/modifying vote accounts in slot ctx. */
@@ -1760,7 +1760,7 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
         fd_funk_end_write( slot_ctx->acc_mgr->funk );
       }
 
-      fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->borrowed_accounts[i] );
+      fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->accounts[i] );
     }
   }
 
@@ -1799,6 +1799,7 @@ fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
   task_info->txn                  = txn;
   fd_txn_t const * txn_descriptor = (fd_txn_t const *) txn->_;
   task_info->txn_ctx->spad        = exec_spad;
+  
 
   fd_rawtxn_b_t raw_txn = { .raw = txn->payload, .txn_sz = (ushort)txn->payload_sz };
 

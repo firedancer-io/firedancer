@@ -66,20 +66,6 @@ fd_account_get_data( fd_account_meta_t * m ) {
   return ((char *) m) + m->hlen;
 }
 
-/* Assert that enough ccounts were supplied to this instruction. Returns
-   FD_EXECUTOR_INSTR_SUCCESS if the number of accounts is as expected and
-   FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS otherwise.
-   https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L492-L503 */
-static inline int
-fd_account_check_num_insn_accounts( fd_exec_instr_ctx_t * ctx,
-                                    uint                  expected_accounts ) {
-
-  if( FD_UNLIKELY( ctx->instr->acct_cnt<expected_accounts ) ) {
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-  }
-  return FD_EXECUTOR_INSTR_SUCCESS;
-}
-
 /* fd_account_get_owner mirrors Anza function
    solana_sdk::transaction_context:Borrowed_account::get_owner.  Returns 0
    iff the owner is retrieved successfully.
@@ -110,7 +96,7 @@ fd_account_set_owner( fd_exec_instr_ctx_t const * ctx,
    solana_sdk::transaction_context::BorrowedAccount::get_lamports.
    Returns current number of lamports in account.  Well behaved if meta
    is NULL. */
-
+  /* TODO why is it using the meta?? */
 static inline ulong
 fd_account_get_lamports( fd_account_meta_t const * meta ) {
   if( FD_UNLIKELY( !meta ) ) return 0UL;  /* (!meta) considered an internal error */
@@ -335,7 +321,7 @@ fd_account_can_data_be_changed( fd_exec_instr_ctx_t const * ctx,
 
   fd_instr_info_t const * instr = ctx->instr;
   assert( instr_acc_idx < instr->acct_cnt );
-  fd_account_meta_t const * meta = instr->borrowed_accounts[ instr_acc_idx ]->const_meta;
+  fd_account_meta_t const * meta = instr->accounts[ instr_acc_idx ]->const_meta;
 
   if( FD_UNLIKELY( fd_account_is_executable_internal( ctx->slot_ctx, meta ) ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_EXECUTABLE_DATA_MODIFIED;

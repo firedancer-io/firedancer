@@ -172,7 +172,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t       ctx,
       acc_idx_seen[acc_idx] = 1;
       dup_acc_idx[acc_idx]  = i;
 
-      fd_borrowed_account_t * view_acc = ctx.instr->borrowed_accounts[i];
+      fd_borrowed_account_t * view_acc = ctx.instr->accounts[i];
       ulong acc_data_len = view_acc->const_meta->dlen;
 
       serialized_size += sizeof(uchar)               // is_signer
@@ -230,7 +230,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t       ctx,
       FD_STORE( uchar, serialized_params, FD_NON_DUP_MARKER );
       serialized_params += sizeof(uchar);
 
-      fd_borrowed_account_t * view_acc = ctx.instr->borrowed_accounts[i];
+      fd_borrowed_account_t * view_acc = ctx.instr->accounts[i];
 
       /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L465 */
       fd_account_meta_t const * metadata = view_acc->const_meta;
@@ -326,7 +326,7 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t ctx,
     uchar         acc_idx = instr_acc_idxs[i];
 
     start++; // position
-    fd_borrowed_account_t * view_acc = ctx.instr->borrowed_accounts[i];
+    fd_borrowed_account_t * view_acc = ctx.instr->accounts[i];
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
       /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L515-517 */
       start += 7UL;
@@ -459,7 +459,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t       ctx,
     acc_idx_seen[acc_idx] = 1;
     dup_acc_idx[acc_idx]  = i;
 
-    fd_borrowed_account_t * view_acc     = ctx.instr->borrowed_accounts[i];
+    fd_borrowed_account_t * view_acc     = ctx.instr->accounts[i];
     ulong                   acc_data_len = view_acc->const_meta->dlen;
 
     pre_lens[i] = acc_data_len;
@@ -511,7 +511,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t       ctx,
       FD_STORE( uchar, serialized_params, FD_NON_DUP_MARKER );
       serialized_params += sizeof(uchar);
 
-      fd_borrowed_account_t * view_acc = ctx.instr->borrowed_accounts[i];
+      fd_borrowed_account_t * view_acc = ctx.instr->accounts[i];
       fd_account_meta_t const * metadata = view_acc->const_meta;
 
       uchar is_signer = (uchar)fd_instr_acc_is_signer_idx( ctx.instr, (uchar)i );
@@ -597,7 +597,7 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t ctx,
                       sizeof(uchar) +      /* is_writable */
                       sizeof(fd_pubkey_t); /* key */
 
-      fd_borrowed_account_t * view_acc = ctx.instr->borrowed_accounts[i];
+      fd_borrowed_account_t * view_acc = ctx.instr->accounts[i];
 
       ulong lamports = FD_LOAD( ulong, input_cursor );
       if( view_acc->const_meta && view_acc->const_meta->info.lamports!=lamports ) {

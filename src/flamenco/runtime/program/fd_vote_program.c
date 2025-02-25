@@ -175,28 +175,22 @@ set_state( ulong                       self_acct_idx,
            fd_borrowed_account_t *     self,
            fd_vote_state_versioned_t * state,
            fd_exec_instr_ctx_t const * ctx ) {
-
-  // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/src/transaction_context.rs#L977
-  do {
-    int err = 0;
-    if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx, self_acct_idx, &err ) ) )
-      return err;
-  } while(0);
-
-  do {
-    int err = fd_instr_borrowed_account_modify_idx( ctx, self_acct_idx, 0UL, &self );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_modify_idx failed (%d)", err ));
-  } while(0);
+  uchar * data = NULL;
+  ulong   dlen = 0UL;
+  int err = fd_borrowed_account_get_data_mut( self, &data, &dlen );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/src/transaction_context.rs#L978
   ulong serialized_size = fd_vote_state_versioned_size( state );
-  if( FD_UNLIKELY( serialized_size > self->const_meta->dlen ) )
+  if( FD_UNLIKELY( serialized_size > dlen ) )
     return FD_EXECUTOR_INSTR_ERR_ACC_DATA_TOO_SMALL;
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/src/transaction_context.rs#L983
   fd_bincode_encode_ctx_t encode =
-    { .data    = self->data,
-      .dataend = self->data + self->meta->dlen };
+    { .data    = data,
+      .dataend = data + dlen };
   do {
     int err = fd_vote_state_versioned_encode( state, &encode );
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_vote_state_versioned_encode failed (%d)", err ));

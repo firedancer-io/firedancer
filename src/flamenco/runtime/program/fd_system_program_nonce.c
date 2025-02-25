@@ -282,7 +282,11 @@ fd_system_program_exec_advance_nonce_account( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L425-L426 */
 
   uchar const             instr_acc_idx = 0;
-  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, instr_acc_idx, account ) {
+  fd_guarded_borrowed_account_t * account = NULL;
+  err = fd_exec_instr_ctx_try_borrow_account( ctx, instr_acc_idx, account );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L427-L432 */
 
@@ -305,7 +309,6 @@ fd_system_program_exec_advance_nonce_account( fd_exec_instr_ctx_t * ctx ) {
   err = fd_system_program_advance_nonce_account( ctx, account, instr_acc_idx );
 
   /* Implicit drop */
-  } FD_BORROWED_ACCOUNT_DROP( account );
 
   return err;
 }
@@ -318,13 +321,17 @@ static int
 fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
                                           ulong                 requested_lamports,
                                           fd_rent_t const *     rent ) {
-
+  int err;
   ulong const from_acct_idx = 0UL;
   ulong const to_acct_idx   = 1UL;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L82-L83 */
 
-  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, from_acct_idx, from ) {
+  fd_guarded_borrowed_account_t * from = NULL;
+  err = fd_exec_instr_ctx_try_borrow_account( ctx, from_acct_idx, from );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L84-L91 */
 
@@ -338,13 +345,11 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L93 */
 
   fd_bincode_decode_ctx_t decode = {
-    .data    = from->const_data,
-    .dataend = from->const_data + from->const_meta->dlen
+    .data    = from->acct->const_data,
+    .dataend = from->acct->const_data + from->acct->const_meta->dlen
   };
-
   ulong total_sz = 0UL;
-  int   err      = fd_nonce_state_versions_decode_footprint( &decode, &total_sz );
-
+  err = fd_nonce_state_versions_decode_footprint( &decode, &total_sz );
   if( FD_UNLIKELY( err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -376,16 +381,16 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
   case fd_nonce_state_enum_uninitialized: {
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L95-L106 */
 
-    if( FD_UNLIKELY( requested_lamports > from->const_meta->info.lamports ) ) {
+    if( FD_UNLIKELY( requested_lamports > from->acct->const_meta->info.lamports ) ) {
       /* Max msg_sz: 59 - 6 + 20 + 20 = 93 < 127 => we can use printf */
       fd_log_collector_printf_dangerous_max_127( ctx,
-        "Withdraw nonce account: insufficient lamports %lu, need %lu", from->const_meta->info.lamports, requested_lamports );
+        "Withdraw nonce account: insufficient lamports %lu, need %lu", from->acct->const_meta->info.lamports, requested_lamports );
       return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
     }
 
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L105 */
 
-    *signer = *from->pubkey;
+    *signer = *from->acct->pubkey;
 
     break;
   }
@@ -394,7 +399,7 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L107-L132 */
     fd_nonce_data_t * data = &state->inner.initialized;
 
-    if( requested_lamports == from->const_meta->info.lamports ) {
+    if( requested_lamports == from->acct->const_meta->info.lamports ) {
         /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L108-L117 */
 
       /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L109 */
@@ -480,7 +485,7 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L145 */
 
-    } FD_BORROWED_ACCOUNT_DROP( from );
+    fd_borrowed_account_drop( from );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L146-L147 */
 
@@ -679,7 +684,11 @@ fd_system_program_exec_initialize_nonce_account( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L464-L465 */
 
   uchar const             instr_acc_idx = 0;
-  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, instr_acc_idx, account ) {
+  fd_guarded_borrowed_account_t * account = NULL;
+  err = fd_exec_instr_ctx_try_borrow_account( ctx, instr_acc_idx, account );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L466-L471 */
 
@@ -712,7 +721,7 @@ fd_system_program_exec_initialize_nonce_account( fd_exec_instr_ctx_t * ctx,
   err = fd_system_program_initialize_nonce_account( ctx, account, instr_acc_idx, authorized, rent );
 
   /* Implicit drop */
-  } FD_BORROWED_ACCOUNT_DROP( account );
+  fd_borrowed_account_drop( account );
 
   return err;
 }
@@ -849,14 +858,18 @@ fd_system_program_exec_authorize_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L484-L485 */
 
-  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, 0, account ) {
+  fd_guarded_borrowed_account_t * account = NULL;
+  err = fd_exec_instr_ctx_try_borrow_account( ctx, 0, account );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L486 */
 
   err = fd_system_program_authorize_nonce_account( ctx, account, 0UL, nonce_authority );
 
   /* Implicit drop */
-  } FD_BORROWED_ACCOUNT_DROP( account );
+  fd_borrowed_account_drop( account );
 
   return err;
 }
@@ -877,7 +890,11 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L490-L491 */
 
-  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, nonce_acct_idx, account ) {
+  fd_guarded_borrowed_account_t * account = NULL;
+  err = fd_exec_instr_ctx_try_borrow_account( ctx, nonce_acct_idx, account );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L492-L494 */
 
@@ -935,7 +952,6 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
   } while(0);
 
   /* Implicit drop */
-  } FD_BORROWED_ACCOUNT_DROP( account );
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }

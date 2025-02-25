@@ -7,6 +7,7 @@
 #include "../../ballet/txn/fd_txn.h"
 #include "../../funk/fd_funk.h"
 #include "fd_borrowed_account.h"
+#include "fd_borrowed_account_redo.h"
 
 /* FD_ACC_MGR_{SUCCESS,ERR{...}} are fd_acc_mgr_t specific error codes.
    To be stored in an int. */
@@ -102,7 +103,7 @@ fd_acc_funk_key( fd_pubkey_t const * pubkey ) {
 
 /* fd_funk_key_is_acc returns 1 if given fd_funk key is an account
    managed by fd_acc_mgr_t, and 0 otherwise. */
-
+  
 FD_FN_PURE static inline int
 fd_funk_key_is_acc( fd_funk_rec_key_t const * id ) {
   return id->c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] == FD_FUNK_KEY_TYPE_ACC;
@@ -193,7 +194,7 @@ int
 fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
                  fd_funk_txn_t const *   txn,
                  fd_pubkey_t const *     pubkey,
-                 fd_borrowed_account_t * account );
+                 fd_txn_account_t * account );
 
 /* fd_acc_mgr_modify_raw requests a writable handle to an account.
    Follows interface of fd_acc_mgr_modify_raw with the following
@@ -244,7 +245,7 @@ fd_acc_mgr_modify( fd_acc_mgr_t *          acc_mgr,
                    fd_pubkey_t const *     pubkey,
                    int                     do_create,
                    ulong                   min_data_sz,
-                   fd_borrowed_account_t * account );
+                   fd_txn_account_t * account );
 
 int
 fd_acc_mgr_save( fd_acc_mgr_t *          acc_mgr,

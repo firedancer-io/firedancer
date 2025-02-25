@@ -38,7 +38,7 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
         instr_info->acct_pubkeys[j] = ctx->instr->acct_pubkeys[k];
         instr_info->acct_txn_idxs[j] = ctx->instr->acct_txn_idxs[k];
         instr_info->acct_flags[j] = 0;
-        instr_info->borrowed_accounts[j] = ctx->instr->borrowed_accounts[k];
+        instr_info->accounts[j] = ctx->instr->accounts[k];
 
         instr_info->is_duplicate[j] = acc_idx_seen[k];
         if( FD_LIKELY( !acc_idx_seen[k] ) ) {

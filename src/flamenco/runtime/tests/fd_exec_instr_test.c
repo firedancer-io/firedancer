@@ -320,7 +320,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   assert( acc_mgr->funk );
 
-  fd_borrowed_account_t * borrowed_accts = txn_ctx->borrowed_accounts;
+  fd_borrowed_account_t * borrowed_accts = txn_ctx->accounts;
   fd_memset( borrowed_accts, 0, test_ctx->accounts_count * sizeof(fd_borrowed_account_t) );
   txn_ctx->accounts_cnt = test_ctx->accounts_count;
 
@@ -508,7 +508,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     flags |= test_ctx->instr_accounts[j].is_writable ? FD_INSTR_ACCT_FLAGS_IS_WRITABLE : 0;
     flags |= test_ctx->instr_accounts[j].is_signer   ? FD_INSTR_ACCT_FLAGS_IS_SIGNER   : 0;
 
-    info->borrowed_accounts[j] = acc;
+    info->accounts[j] = acc;
     info->acct_flags       [j] = (uchar)flags;
     memcpy( info->acct_pubkeys[j].uc, acc->pubkey, sizeof(fd_pubkey_t) );
     info->acct_txn_idxs[j]     = (uchar) index;
@@ -1052,7 +1052,7 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
   /* Capture borrowed accounts */
 
   for( ulong j=0UL; j < ctx->txn_ctx->accounts_cnt; j++ ) {
-    fd_borrowed_account_t * acc = &ctx->txn_ctx->borrowed_accounts[j];
+    fd_borrowed_account_t * acc = &ctx->txn_ctx->accounts[j];
     if( !acc->const_meta ) {
       continue;
     }
@@ -1191,7 +1191,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
 
         /* If the exec err was a custom instr error and came from a precompile instruction, don't capture the custom error code. */
         if( txn_ctx->exec_err==FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR &&
-            fd_executor_lookup_native_precompile_program( &txn_ctx->borrowed_accounts[ program_id_idx ] )==NULL ) {
+            fd_executor_lookup_native_precompile_program( &txn_ctx->accounts[ program_id_idx ] )==NULL ) {
           txn_result->custom_error = txn_ctx->custom_err;
         }
       }
@@ -1228,7 +1228,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
 
     /* Capture borrowed accounts */
     for( ulong j=0UL; j < txn_ctx->accounts_cnt; j++ ) {
-      fd_borrowed_account_t * acc = &txn_ctx->borrowed_accounts[j];
+      fd_borrowed_account_t * acc = &txn_ctx->accounts[j];
 
       /* For fees-only transactions, only save the fee payer (and potentially the nonce) only */
       if( task_info->txn->flags & FD_TXN_P_FLAGS_FEES_ONLY ) {
@@ -1491,7 +1491,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
 
   uchar program_id_idx = ctx->instr->program_id;
   uchar is_deprecated  = ( program_id_idx < ctx->txn_ctx->accounts_cnt ) &&
-                         ( !memcmp( ctx->txn_ctx->borrowed_accounts[program_id_idx].const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
+                         ( !memcmp( ctx->txn_ctx->accounts[program_id_idx].const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
   if( is_deprecated ) {
     fd_bpf_loader_input_serialize_unaligned( *ctx,
@@ -1734,7 +1734,7 @@ __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
            TODO: Once direct mapping is enabled we _technically_ don't need
                  this check */
 
-        if( fd_txn_borrowed_account_view_idx( txn_ctx, idx_in_txn, &acct ) ) {
+        if( fd_exec_txn_ctx_get_txn_acct_view_idx( txn_ctx, idx_in_txn, &acct ) ) {
           break;
         }
         if( acct->meta == NULL ){
@@ -1742,7 +1742,7 @@ __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
         }
 
         /* Now borrow mutably (with resize) */
-        int err = fd_txn_borrowed_account_modify_idx( txn_ctx,
+        int err = fd_exec_txn_ctx_get_txn_acct_modify_idx( txn_ctx,
                                                       idx_in_txn,
                                                       /* Do not reallocate if data is not going to be modified */
                                                       acct_state->data ? acct_state->data->size : 0UL,
