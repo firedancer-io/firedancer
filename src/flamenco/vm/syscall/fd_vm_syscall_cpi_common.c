@@ -58,7 +58,7 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
   out_instr->program_id = UCHAR_MAX;
 
   /* Find the index of the CPI instruction's program account in the transaction */
-  fd_pubkey_t * txn_accs = vm->instr_ctx->txn_ctx->accounts;
+  fd_pubkey_t * txn_accs = vm->instr_ctx->txn_ctx->account_keys;
   for( ulong i=0UL; i < vm->instr_ctx->txn_ctx->accounts_cnt; i++ ) {
     if( !memcmp( program_id, &txn_accs[i], sizeof( fd_pubkey_t ) ) ) {
       out_instr->program_id = (uchar)i;
@@ -82,18 +82,18 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
         memcpy( out_instr->acct_pubkeys[i].uc, pubkey, sizeof( fd_pubkey_t ) );
         out_instr->acct_txn_idxs[i]     = (uchar)j;
         out_instr->acct_flags[i]        = 0;
-        out_instr->borrowed_accounts[i] = &vm->instr_ctx->txn_ctx->borrowed_accounts[j];
+        out_instr->accounts[i] = &vm->instr_ctx->txn_ctx->accounts[j];
         out_instr->is_duplicate[i]      = acc_idx_seen[j];
 
         if( FD_LIKELY( !acc_idx_seen[j] ) ) {
           /* This is the first time seeing this account */
           acc_idx_seen[j] = 1;
-          if( out_instr->borrowed_accounts[i]->const_meta ) {
+          if( out_instr->accounts[i]->const_meta ) {
             /* TODO: what if this account is borrowed as writable? */
             fd_uwide_inc(
               &starting_lamports_h, &starting_lamports_l,
               starting_lamports_h, starting_lamports_l,
-              out_instr->borrowed_accounts[i]->const_meta->info.lamports );
+              out_instr->accounts[i]->const_meta->info.lamports );
           }
         }
 
@@ -153,21 +153,25 @@ static int
 VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                          vm,
                                       fd_vm_cpi_caller_account_t const * caller_account,
                                       uchar                              instr_acc_idx ) {
+  int err;
 
-  fd_borrowed_account_t * callee_acc = NULL;
-  int err = fd_instr_borrowed_account_modify_idx(vm->instr_ctx, instr_acc_idx, 0, &callee_acc);
+  /* Borrow the callee account.
+     TODO: Agave borrows before this function call. Consider refactoring to borrow the account at the same place as Agave.
+     https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/syscalls/cpi.rs#L893 */
+  fd_guarded_borrowed_account_t callee_acc;
+  err = fd_exec_instr_ctx_try_borrow_account( vm->instr_ctx, instr_acc_idx, &callee_acc );
   if( FD_UNLIKELY( err ) ) {
     /* No need to do anything if the account is missing from the borrowed accounts cache */
     return FD_VM_SUCCESS;
   }
 
-  if( FD_UNLIKELY( !callee_acc->meta ) ) {
+  if( FD_UNLIKELY( !callee_acc.acct->meta ) ) {
     /* If the account is not modifiable, we can't change it (and it can't have been changed by the callee) */
     return FD_VM_SUCCESS;
   }
 
-  if( callee_acc->meta->info.lamports!=*(caller_account->lamports) ) {
-    err = fd_account_set_lamports( vm->instr_ctx, instr_acc_idx, *(caller_account->lamports) );
+  if( callee_acc.acct->meta->info.lamports!=*(caller_account->lamports) ) {
+    err = fd_borrowed_account_set_lamports( &callee_acc, *(caller_account->lamports) );
     if( FD_UNLIKELY( err ) ) {
       FD_VM_ERR_FOR_LOG_INSTR( vm, err );
       return -1;
@@ -179,18 +183,18 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                          vm,
     /* Update the account data, if the account data can be changed */
     /* FIXME: double-check these permissions, especially the callee_acc_idx */
 
-    if( fd_account_can_data_be_resized( vm->instr_ctx, callee_acc->meta, caller_account->serialized_data_len, &err ) &&
-        fd_account_can_data_be_changed( vm->instr_ctx, instr_acc_idx, &err ) ) {
+    if( fd_borrowed_account_can_data_be_resized( &callee_acc, caller_account->serialized_data_len, &err ) &&
+        fd_borrowed_account_can_data_be_changed( &callee_acc, &err ) ) {
         /* We must ignore the errors here, as they are informational and do not mean the result is invalid. */
         /* TODO: not pass informational errors like this? */
 
-      err = fd_account_set_data_from_slice( vm->instr_ctx, instr_acc_idx, caller_account->serialized_data, caller_account->serialized_data_len );
+      err = fd_borrowed_account_set_data_from_slice( &callee_acc, caller_account->serialized_data, caller_account->serialized_data_len );
       if( FD_UNLIKELY( err ) ) {
         FD_VM_ERR_FOR_LOG_INSTR( vm, err );
         return -1;
       }
-    } else if( FD_UNLIKELY( caller_account->serialized_data_len!=callee_acc->const_meta->dlen ||
-                            memcmp( callee_acc->const_data, caller_account->serialized_data, caller_account->serialized_data_len ) ) ) {
+    } else if( FD_UNLIKELY( caller_account->serialized_data_len!=callee_acc.acct->const_meta->dlen ||
+                            memcmp( callee_acc.acct->const_data, caller_account->serialized_data, caller_account->serialized_data_len ) ) ) {
       FD_VM_ERR_FOR_LOG_INSTR( vm, err );
       return -1;
     }
@@ -198,12 +202,12 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                          vm,
   } else { /* Direct mapping enabled */
     ulong * ref_to_len = FD_VM_MEM_HADDR_ST( vm, caller_account->ref_to_len_in_vm.vaddr, alignof(ulong), sizeof(ulong) );
     ulong   orig_len   = caller_account->orig_data_len;
-    ulong   prev_len   = callee_acc->const_meta->dlen;
+    ulong   prev_len   = callee_acc.acct->const_meta->dlen;
     ulong   post_len   = *ref_to_len;
 
     int err;
-    if( fd_account_can_data_be_resized( vm->instr_ctx, callee_acc->meta, post_len, &err ) &&
-        fd_account_can_data_be_changed( vm->instr_ctx, instr_acc_idx, &err ) ) {
+    if( fd_borrowed_account_can_data_be_resized( &callee_acc, post_len, &err ) &&
+        fd_borrowed_account_can_data_be_changed( &callee_acc, &err ) ) {
 
       ulong realloc_bytes_used = fd_ulong_sat_sub( post_len, orig_len );
 
@@ -212,7 +216,7 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                          vm,
         return -1;
       }
 
-      err = fd_account_set_data_length( vm->instr_ctx, instr_acc_idx, post_len );
+      err = fd_borrowed_account_set_data_length( &callee_acc, post_len );
       if( FD_UNLIKELY( err ) ) {
         FD_VM_ERR_FOR_LOG_INSTR( vm, err );
         return -1;
@@ -232,7 +236,7 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                          vm,
 
         uchar * data = NULL;
         ulong   dlen = 0UL;
-        err = fd_account_get_data_mut( vm->instr_ctx, instr_acc_idx, &data, &dlen );
+        err = fd_borrowed_account_get_data_mut( &callee_acc, &data, &dlen );
         if( FD_UNLIKELY( err ) ) {
           FD_VM_ERR_FOR_LOG_INSTR( vm, err );
           return -1;
@@ -246,8 +250,8 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                          vm,
     }
   }
 
-  if( FD_UNLIKELY( memcmp( callee_acc->meta->info.owner, caller_account->owner, sizeof(fd_pubkey_t) ) ) ) {
-    err = fd_account_set_owner( vm->instr_ctx, instr_acc_idx, caller_account->owner );
+  if( FD_UNLIKELY( memcmp( callee_acc.acct->meta->info.owner, caller_account->owner, sizeof(fd_pubkey_t) ) ) ) {
+    err = fd_borrowed_account_set_owner( &callee_acc, caller_account->owner );
     if( FD_UNLIKELY( err ) ) {
       FD_VM_ERR_FOR_LOG_INSTR( vm, err );
       return -1;
@@ -305,13 +309,13 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
     /* `fd_vm_prepare_instruction()` will always set up a valid index for `index_in_caller`, so we can access the borrowed account directly.
        A borrowed account will always have non-NULL meta (if the account doesn't exist, `fd_executor_setup_borrowed_accounts_for_txn()`
        will set its meta up) */
-    fd_borrowed_account_t const * acc_rec     = vm->instr_ctx->instr->borrowed_accounts[instruction_accounts[i].index_in_caller];
-    fd_pubkey_t const *           account_key = acc_rec->pubkey;
-    fd_account_meta_t const *     acc_meta    = acc_rec->const_meta;
+    fd_txn_account_t const *  acc_rec     = vm->instr_ctx->instr->accounts[instruction_accounts[i].index_in_caller];
+    fd_pubkey_t const *       account_key = acc_rec->pubkey;
+    fd_account_meta_t const * acc_meta    = acc_rec->const_meta;
 
     /* If the account is known and executable, we only need to consume the compute units.
        Executable accounts can't be modified, so we don't need to update the callee account. */
-    if( fd_account_is_executable( acc_meta ) ) {
+    if( fd_txn_account_is_executable( acc_rec ) ) {
       // FIXME: should this be FD_VM_CU_MEM_UPDATE? Changing this changes the CU behaviour from main (because of the base cost)
       FD_VM_CU_UPDATE( vm, acc_meta->dlen / FD_VM_CPI_BYTES_PER_UNIT );
       continue;
@@ -546,28 +550,32 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
                                        fd_vm_cpi_caller_account_t const * caller_account,
                                        uchar                              instr_acc_idx,
                                        fd_pubkey_t const *                pubkey ) {
+  int err;
 
   if( !vm->direct_mapping ) {
     /* Look up the borrowed account from the instruction context, which will contain
-      the callee's changes. */
-    fd_borrowed_account_t * callee_acc_rec = NULL;
-    int err = fd_instr_borrowed_account_view( vm->instr_ctx, pubkey, &callee_acc_rec );
+      the callee's changes.
+      TODO: Agave borrows before entering this function. We should consider doing the same.
+      https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/syscalls/cpi.rs#L1168-L1169 */
+    fd_guarded_borrowed_account_t borrowed_callee_acc;
+    err = fd_exec_instr_ctx_try_borrow_account_with_key( vm->instr_ctx, pubkey, &borrowed_callee_acc );
     if( FD_UNLIKELY( err && ( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) ) {
       return 1;
     }
 
+    fd_txn_account_t * callee_acc = borrowed_callee_acc.acct;
     /* Update the caller account lamports with the value from the callee */
-    *(caller_account->lamports) = callee_acc_rec->const_meta->info.lamports;
+    *(caller_account->lamports) = callee_acc->const_meta->info.lamports;
 
     /* Update the caller account owner with the value from the callee */
-    uchar const * updated_owner = callee_acc_rec->const_meta->info.owner;
+    uchar const * updated_owner = callee_acc->const_meta->info.owner;
     if( updated_owner ) fd_memcpy( caller_account->owner, updated_owner, sizeof(fd_pubkey_t) );
     else                fd_memset( caller_account->owner, 0,             sizeof(fd_pubkey_t) );
 
     /* Update the caller account data with the value from the callee */
     VM_SYSCALL_CPI_ACC_INFO_DATA( vm, caller_acc_info, caller_acc_data );
 
-    ulong const updated_data_len = callee_acc_rec->const_meta->dlen;
+    ulong const updated_data_len = callee_acc->const_meta->dlen;
     if( !updated_data_len ) fd_memset( (void*)caller_acc_data, 0, caller_acc_data_len );
 
     if( caller_acc_data_len != updated_data_len ) {
@@ -598,22 +606,26 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
         https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L1534 */
     }
 
-    fd_memcpy( caller_acc_data, callee_acc_rec->const_data, updated_data_len );
+    fd_memcpy( caller_acc_data, callee_acc->const_data, updated_data_len );
   } else { /* Direct mapping enabled */
 
     /* Look up the borrowed account from the instruction context, which will
-       contain the callee's changes. */
-    fd_borrowed_account_t * callee_acc_rec = NULL;
-    int err = fd_instr_borrowed_account_view( vm->instr_ctx, pubkey, &callee_acc_rec );
-    if( FD_UNLIKELY( err && err!=FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
+       contain the callee's changes.
+       TODO: Agave borrows before entering this function. We should consider doing the same.
+       https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/syscalls/cpi.rs#L1168-L1169 */
+    fd_guarded_borrowed_account_t borrowed_callee_acc;
+    err = fd_exec_instr_ctx_try_borrow_account_with_key( vm->instr_ctx, pubkey, &borrowed_callee_acc );
+    if( FD_UNLIKELY( err && ( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) ) {
       return 1;
     }
 
+    fd_txn_account_t * callee_acc = borrowed_callee_acc.acct;
+
     /* Update the caller account lamports with the value from the callee */
-    *(caller_account->lamports) = callee_acc_rec->const_meta->info.lamports;
+    *(caller_account->lamports) = callee_acc->const_meta->info.lamports;
 
     /* Update the caller account owner with the value from the callee */
-    uchar const * updated_owner = callee_acc_rec->const_meta->info.owner;
+    uchar const * updated_owner = callee_acc->const_meta->info.owner;
     if( updated_owner ) {
       fd_memcpy( caller_account->owner, updated_owner, sizeof(fd_pubkey_t) );
     } else {
@@ -629,29 +641,26 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
 
     uchar zero_all_mapped_spare_capacity = 0;
     /* This case can only be triggered if the original length is more than 0 */
-    if( callee_acc_rec->const_meta->dlen < original_len ) {
-      ulong new_len = callee_acc_rec->const_meta->dlen;
+    if( callee_acc->const_meta->dlen < original_len ) {
+      ulong new_len = callee_acc->const_meta->dlen;
       /* Allocate into the buffer to make sure that the original data len
          is still valid but don't change the dlen. Zero out the rest of the
          memory which is not used. */
-      err = fd_instr_borrowed_account_modify( vm->instr_ctx, pubkey, original_len, &callee_acc_rec );
-      if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-        return 1;
-      }
-      callee_acc_rec->meta->dlen = new_len;
+      fd_txn_account_resize( callee_acc, original_len );
+      callee_acc->meta->dlen = new_len;
       zero_all_mapped_spare_capacity = 1;
     }
 
     /* Update the account data region if an account data region exists. We
        know that one exists iff the original len was non-zero. */
     ulong acc_region_idx = vm->acc_region_metas[instr_acc_idx].region_idx;
-    if( original_len && vm->input_mem_regions[ acc_region_idx ].haddr!=(ulong)callee_acc_rec->data ) {
-      vm->input_mem_regions[ acc_region_idx ].haddr = (ulong)callee_acc_rec->data;
+    if( original_len && vm->input_mem_regions[ acc_region_idx ].haddr!=(ulong)callee_acc->data ) {
+      vm->input_mem_regions[ acc_region_idx ].haddr = (ulong)callee_acc->data;
       zero_all_mapped_spare_capacity = 1;
     }
 
     ulong prev_len = caller_acc_data_len;
-    ulong post_len = callee_acc_rec->const_meta->dlen;
+    ulong post_len = callee_acc->const_meta->dlen;
 
     /* Do additional handling in the case where the data size has changed in
        the course of the callee's CPI. */
@@ -695,8 +704,8 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
        prev_len > post_len, then dlen should be equal to original_len. */
     ulong spare_len = fd_ulong_sat_sub( fd_ulong_if( zero_all_mapped_spare_capacity, original_len, prev_len ), post_len );
     if( FD_UNLIKELY( spare_len ) ) {
-      if( callee_acc_rec->const_meta->dlen>spare_len ) {
-        memset( callee_acc_rec->data+callee_acc_rec->const_meta->dlen-spare_len, 0, spare_len );
+      if( callee_acc->const_meta->dlen>spare_len ) {
+        memset( callee_acc->data+callee_acc->const_meta->dlen-spare_len, 0, spare_len );
       }
     }
 
@@ -710,7 +719,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
         resizing_idx++;
       }
       uchar * to_slice   = (uchar*)vm->input_mem_regions[ resizing_idx ].haddr;
-      uchar * from_slice = callee_acc_rec->data + original_len;
+      uchar * from_slice = callee_acc->data + original_len;
 
       fd_memcpy( to_slice, from_slice, realloc_bytes_used );
     }
@@ -814,7 +823,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Derive PDA signers ************************************************/
   fd_pubkey_t signers[ FD_CPI_MAX_SIGNER_CNT ] = {0};
-  fd_pubkey_t * caller_program_id = &vm->instr_ctx->txn_ctx->accounts[ vm->instr_ctx->instr->program_id ];
+  fd_pubkey_t * caller_program_id = &vm->instr_ctx->txn_ctx->account_keys[ vm->instr_ctx->instr->program_id ];
   /* This is the equivalent of translate_slice in translate_signers:
      https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/programs/bpf_loader/src/syscalls/cpi.rs#L595 */
   if( FD_LIKELY( signers_seeds_cnt > 0UL ) ) {
@@ -966,7 +975,13 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
          "caller account". Only writable accounts are caller accounts. */
       if( fd_instr_acc_is_writable_idx( vm->instr_ctx->instr, i ) ) {
 
-        uchar is_writable = !!fd_account_can_data_be_changed( vm->instr_ctx, i, &err );
+        /* Borrow the callee account
+           https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/syscalls/cpi.rs#L1154-L1155 */
+        fd_guarded_borrowed_account_t callee_acc;
+        FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( vm->instr_ctx, i, &callee_acc );
+
+        /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/syscalls/cpi.rs#L1298 */
+        uchar is_writable = !!fd_borrowed_account_can_data_be_changed( &callee_acc, &err );
         /* Lookup memory regions for the account data and the realloc region. */
         ulong data_region_idx    = vm->acc_region_metas[i].has_data_region ? vm->acc_region_metas[i].region_idx : 0;
         ulong realloc_region_idx = vm->acc_region_metas[i].has_resizing_region ? vm->acc_region_metas[i].region_idx : 0;

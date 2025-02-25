@@ -19,7 +19,7 @@
 FD_FN_PURE static inline uchar
 get_program_kind( fd_exec_txn_ctx_t const * ctx,
                   fd_txn_instr_t const *    instr ) {
-  fd_pubkey_t const * txn_accs       = ctx->accounts;
+  fd_pubkey_t const * txn_accs       = ctx->account_keys;
   fd_pubkey_t const * program_pubkey = &txn_accs[ instr->program_id ];
 
   /* The program is a standard, non-migrating builtin (e.g. system program) */
@@ -47,7 +47,7 @@ get_program_kind( fd_exec_txn_ctx_t const * ctx,
 FD_FN_PURE static inline int
 is_compute_budget_instruction( fd_exec_txn_ctx_t const * ctx,
                                fd_txn_instr_t    const * instr ) {
-  fd_pubkey_t const * txn_accs       = ctx->accounts;
+  fd_pubkey_t const * txn_accs       = ctx->account_keys;
   fd_pubkey_t const * program_pubkey = &txn_accs[ instr->program_id ];
   return !memcmp(program_pubkey, fd_solana_compute_budget_program_id.key, sizeof(fd_pubkey_t));
 }

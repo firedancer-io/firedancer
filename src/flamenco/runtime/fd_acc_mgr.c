@@ -129,10 +129,10 @@ fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
 }
 
 int
-fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
-                 fd_funk_txn_t const *   txn,
-                 fd_pubkey_t const *     pubkey,
-                 fd_borrowed_account_t * account) {
+fd_acc_mgr_view( fd_acc_mgr_t *        acc_mgr,
+                 fd_funk_txn_t const * txn,
+                 fd_pubkey_t const *   pubkey,
+                 fd_txn_account_t *    account) {
   /* TODO: re-add this check after consulting on why this builtin program check.
      Is it the case that the  */
   // if( fd_pubkey_is_builtin_program( pubkey )
@@ -148,8 +148,8 @@ fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
-  if( FD_UNLIKELY( FD_BORROWED_ACCOUNT_MAGIC != account->magic ) ) {
-    FD_LOG_ERR(( "bad magic for borrowed account - acc: %s, expected: %016lx, got: %016lx", FD_BASE58_ENC_32_ALLOCA( pubkey->uc ), FD_BORROWED_ACCOUNT_MAGIC, account->magic ));
+  if( FD_UNLIKELY( FD_TXN_ACCOUNT_MAGIC != account->magic ) ) {
+    FD_LOG_ERR(( "bad magic for borrowed account - acc: %s, expected: %016lx, got: %016lx", FD_BASE58_ENC_32_ALLOCA( pubkey->uc ), FD_TXN_ACCOUNT_MAGIC, account->magic ));
   }
 
   fd_memcpy(account->pubkey, pubkey, sizeof(fd_pubkey_t));
@@ -232,18 +232,18 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
 }
 
 int
-fd_acc_mgr_modify( fd_acc_mgr_t *          acc_mgr,
-                   fd_funk_txn_t *         txn,
-                   fd_pubkey_t const *     pubkey,
-                   int                     do_create,
-                   ulong                   min_data_sz,
-                   fd_borrowed_account_t * account ) {
+fd_acc_mgr_modify( fd_acc_mgr_t *      acc_mgr,
+                   fd_funk_txn_t *     txn,
+                   fd_pubkey_t const * pubkey,
+                   int                 do_create,
+                   ulong               min_data_sz,
+                   fd_txn_account_t *  account ) {
   int err = FD_ACC_MGR_SUCCESS;
 
   fd_account_meta_t * meta = fd_acc_mgr_modify_raw( acc_mgr, txn, pubkey, do_create, min_data_sz, account->const_rec, &account->rec, &err );
   if( FD_UNLIKELY( !meta ) ) return err;
 
-  assert( account->magic == FD_BORROWED_ACCOUNT_MAGIC );
+  assert( account->magic == FD_TXN_ACCOUNT_MAGIC );
 
   fd_memcpy(account->pubkey, pubkey, sizeof(fd_pubkey_t));
 
@@ -292,8 +292,8 @@ fd_acc_mgr_strerror( int err ) {
 }
 
 int
-fd_acc_mgr_save( fd_acc_mgr_t *          acc_mgr,
-                 fd_borrowed_account_t * account ) {
+fd_acc_mgr_save( fd_acc_mgr_t *     acc_mgr,
+                 fd_txn_account_t * account ) {
   if( account->meta == NULL || account->rec == NULL ) {
     // The meta is NULL so the account is not writable.
     FD_LOG_DEBUG(( "fd_acc_mgr_save: account is not writable: %s", FD_BASE58_ENC_32_ALLOCA( account->pubkey ) ));
@@ -309,9 +309,9 @@ fd_acc_mgr_save( fd_acc_mgr_t *          acc_mgr,
 }
 
 int
-fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *          acc_mgr,
-                           fd_funk_txn_t *         txn,
-                           fd_borrowed_account_t * account ) {
+fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *     acc_mgr,
+                           fd_funk_txn_t *    txn,
+                           fd_txn_account_t * account ) {
 
   fd_funk_start_write( acc_mgr->funk );
   fd_funk_rec_key_t key = fd_acc_funk_key( account->pubkey );
@@ -354,7 +354,7 @@ struct fd_acc_mgr_save_task_args {
 typedef struct fd_acc_mgr_save_task_args fd_acc_mgr_save_task_args_t;
 
 struct fd_acc_mgr_save_task_info {
-  fd_borrowed_account_t * * accounts;
+  fd_txn_account_t * * accounts;
   ulong accounts_cnt;
   int result;
 };
@@ -382,12 +382,12 @@ fd_acc_mgr_save_task( void *tpool,
 }
 
 int
-fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *            acc_mgr,
-                            fd_funk_txn_t *           txn,
-                            fd_borrowed_account_t * * accounts,
-                            ulong                     accounts_cnt,
-                            fd_tpool_t *              tpool,
-                            fd_spad_t *               runtime_spad ) {
+fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *       acc_mgr,
+                            fd_funk_txn_t *      txn,
+                            fd_txn_account_t * * accounts,
+                            ulong                accounts_cnt,
+                            fd_tpool_t *         tpool,
+                            fd_spad_t *          runtime_spad ) {
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
@@ -410,9 +410,9 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *            acc_mgr,
     batch_szs[batch_idx]++;
   }
 
-  fd_borrowed_account_t * *     task_accounts        = fd_spad_alloc( runtime_spad, 8UL, accounts_cnt * sizeof(fd_borrowed_account_t *) );
+  fd_txn_account_t * *          task_accounts        = fd_spad_alloc( runtime_spad, 8UL, accounts_cnt * sizeof(fd_txn_account_t *) );
   fd_acc_mgr_save_task_info_t * task_infos           = fd_spad_alloc( runtime_spad, 8UL, batch_cnt * sizeof(fd_acc_mgr_save_task_info_t) );
-  fd_borrowed_account_t * *     task_accounts_cursor = task_accounts;
+  fd_txn_account_t * *          task_accounts_cursor = task_accounts;
 
   /* Construct the batches */
   for( ulong i = 0; i < batch_cnt; i++ ) {
@@ -429,7 +429,7 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *            acc_mgr,
   fd_funk_start_write( funk );
 
   for( ulong i = 0; i < accounts_cnt; i++ ) {
-    fd_borrowed_account_t * account = accounts[i];
+    fd_txn_account_t * account = accounts[i];
 
     ulong batch_idx = i & batch_mask;
     fd_acc_mgr_save_task_info_t * task_info = &task_infos[batch_idx];

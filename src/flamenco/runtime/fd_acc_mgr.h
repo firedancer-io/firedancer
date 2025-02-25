@@ -6,7 +6,7 @@
 #include "../fd_flamenco_base.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../funk/fd_funk.h"
-#include "fd_borrowed_account.h"
+#include "fd_txn_account.h"
 
 /* FD_ACC_MGR_{SUCCESS,ERR{...}} are fd_acc_mgr_t specific error codes.
    To be stored in an int. */
@@ -190,10 +190,10 @@ fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
                      fd_funk_txn_t const ** txn_out   );
 
 int
-fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
-                 fd_funk_txn_t const *   txn,
-                 fd_pubkey_t const *     pubkey,
-                 fd_borrowed_account_t * account );
+fd_acc_mgr_view( fd_acc_mgr_t *        acc_mgr,
+                 fd_funk_txn_t const * txn,
+                 fd_pubkey_t const *   pubkey,
+                 fd_txn_account_t *    account );
 
 /* fd_acc_mgr_modify_raw requests a writable handle to an account.
    Follows interface of fd_acc_mgr_modify_raw with the following
@@ -239,31 +239,31 @@ fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
                        int *                 opt_err );
 
 int
-fd_acc_mgr_modify( fd_acc_mgr_t *          acc_mgr,
-                   fd_funk_txn_t *         txn,
-                   fd_pubkey_t const *     pubkey,
-                   int                     do_create,
-                   ulong                   min_data_sz,
-                   fd_borrowed_account_t * account );
+fd_acc_mgr_modify( fd_acc_mgr_t *       acc_mgr,
+                   fd_funk_txn_t *      txn,
+                   fd_pubkey_t const *  pubkey,
+                   int                  do_create,
+                   ulong                min_data_sz,
+                   fd_txn_account_t *   account );
 
 int
-fd_acc_mgr_save( fd_acc_mgr_t *          acc_mgr,
-                 fd_borrowed_account_t * account );
+fd_acc_mgr_save( fd_acc_mgr_t *     acc_mgr,
+                 fd_txn_account_t * account );
 
 /* This version of save is for old code written before tpool integration */
 
 int
-fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *          acc_mgr,
-                           fd_funk_txn_t *         txn,
-                           fd_borrowed_account_t * account );
+fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *     acc_mgr,
+                           fd_funk_txn_t *    txn,
+                           fd_txn_account_t * account );
 
 int
-fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *           acc_mgr,
-                            fd_funk_txn_t *          txn,
-                            fd_borrowed_account_t ** accounts,
-                            ulong                    accounts_cnt,
-                            fd_tpool_t *             tpool,
-                            fd_spad_t *              runtime_spad );
+fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *      acc_mgr,
+                            fd_funk_txn_t *     txn,
+                            fd_txn_account_t ** accounts,
+                            ulong               accounts_cnt,
+                            fd_tpool_t *        tpool,
+                            fd_spad_t *         runtime_spad );
 
 void
 fd_acc_mgr_lock( fd_acc_mgr_t * acc_mgr );

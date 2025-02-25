@@ -6,10 +6,10 @@
 #include "../fd_system_ids.h"
 #include "../fd_executor.h"
 #include "../sysvar/fd_sysvar_rent.h"
-#include "../fd_account.h"
+#include "../fd_borrowed_account.h"
 #include "fd_bpf_loader_program.h"
 
-/* 
+/*
   Notes about loader v4 since it differs slightly from the previous BPF v3 loader...
     - There are three possible states for a loader v4 program:
       - Retracted
@@ -69,8 +69,8 @@ FD_FN_PURE uchar
 fd_loader_v4_status_is_finalized( fd_loader_v4_state_t const * state );
 
 int
-fd_loader_v4_get_state( fd_borrowed_account_t const * program,
-                        fd_loader_v4_state_t *        state );
+fd_loader_v4_get_state( fd_txn_account_t const * program,
+                        fd_loader_v4_state_t *   state );
 
 int
 fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx );
