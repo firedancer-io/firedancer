@@ -840,17 +840,24 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *             
     }
 
     fd_pubkey_t const * vote_pubkey = &vote_reward_node->elem.pubkey;
-    FD_BORROWED_ACCOUNT_DECL( vote_rec );
 
-    if( FD_UNLIKELY( fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, vote_pubkey, 1, 0UL, vote_rec ) != FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_ERR(( "Unable to modify vote account" ));
+    fd_funkier_t * funk = slot_ctx->acc_mgr->funk;
+    fd_funkier_rec_prepare_t prepare[1];
+    fd_funkier_rec_key_t id   = fd_acc_funk_key( vote_pubkey );
+    int opt_err;
+    fd_funkier_rec_t * vote_rec = fd_funkier_rec_clone(funk, slot_ctx->funk_txn, &id, prepare, &opt_err);
+    if( !vote_rec ) {
+      FD_LOG_ERR(( "Unable to modify vote account: funk error %d", opt_err ));
     }
 
-    vote_rec->meta->slot = slot_ctx->slot_bank.slot;
+    fd_account_meta_t * meta = (fd_account_meta_t * )fd_funkier_val( vote_rec, fd_funkier_wksp(funk) );
+    meta->slot = slot_ctx->slot_bank.slot;
 
-    if( FD_UNLIKELY( fd_borrowed_account_checked_add_lamports( vote_rec, vote_reward_node->elem.vote_rewards ) ) ) {
+    if( FD_UNLIKELY( fd_borrowed_account_checked_add_lamports( meta, vote_reward_node->elem.vote_rewards ) ) ) {
       FD_LOG_ERR(( "Adding lamports to vote account would cause overflow" ));
     }
+
+    fd_funkier_rec_publish( prepare );
 
     result->distributed_rewards = fd_ulong_sat_add( result->distributed_rewards, vote_reward_node->elem.vote_rewards );
   }
@@ -878,13 +885,17 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
                                       ulong                new_credits_observed,
                                       fd_spad_t *          runtime_spad ) {
 
-  FD_BORROWED_ACCOUNT_DECL( stake_acc_rec );
-
-  if( FD_UNLIKELY( fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, stake_pubkey, 0, 0UL, stake_acc_rec ) != FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_ERR(( "Unable to modify stake account" ));
+  fd_funkier_t * funk = slot_ctx->acc_mgr->funk;
+  fd_funkier_rec_prepare_t prepare[1];
+  fd_funkier_rec_key_t id   = fd_acc_funk_key( stake_pubkey );
+  int opt_err;
+  fd_funkier_rec_t * stake_rec = fd_funkier_rec_clone(funk, slot_ctx->funk_txn, &id, prepare, &opt_err);
+  if( !stake_rec ) {
+    FD_LOG_ERR(( "Unable to modify stake account: funk error %d", opt_err ));
   }
 
-  stake_acc_rec->meta->slot = slot_ctx->slot_bank.slot;
+  fd_account_meta_t * meta = (fd_account_meta_t * )fd_funkier_val( stake_rec, fd_funkier_wksp(funk) );
+  meta->slot = slot_ctx->slot_bank.slot;
 
   fd_stake_state_v2_t stake_state[1] = {0};
   if( fd_stake_get_state( stake_acc_rec, runtime_spad, stake_state ) != 0 ) {
@@ -897,7 +908,7 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
     return 1;
   }
 
-  if( fd_borrowed_account_checked_add_lamports( stake_acc_rec, reward_lamports ) ) {
+  if( fd_borrowed_account_checked_add_lamports( meta, reward_lamports ) ) {
     FD_LOG_DEBUG(( "failed to add lamports to stake account" ));
     return 1;
   }
@@ -909,6 +920,8 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
   if( FD_UNLIKELY( write_stake_state( stake_acc_rec, stake_state ) != 0 ) ) {
     FD_LOG_ERR(( "write_stake_state failed" ));
   }
+
+  fd_funkier_rec_publish( prepare );
 
   return 0;
 }
