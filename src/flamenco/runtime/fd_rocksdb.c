@@ -523,8 +523,6 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
                                     int               txnstatus,
                                     const uchar *     hash_override,
                                     fd_valloc_t       valloc ) {
-  fd_blockstore_start_write( blockstore );
-
   ulong slot = m->slot;
   ulong start_idx = 0;
   ulong end_idx = m->received;
@@ -553,14 +551,12 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
     if (!valid || cur_slot != slot) {
       FD_LOG_WARNING(("missing shreds for slot %lu", slot));
       rocksdb_iter_destroy(iter);
-      fd_blockstore_end_write(blockstore);
       return -1;
     }
 
     if (index != i) {
       FD_LOG_WARNING(("missing shred %lu at index %lu for slot %lu", i, index, slot));
       rocksdb_iter_destroy(iter);
-      fd_blockstore_end_write(blockstore);
       return -1;
     }
 
@@ -570,7 +566,6 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
     if (data == NULL) {
       FD_LOG_WARNING(("failed to read shred %lu/%lu", slot, i));
       rocksdb_iter_destroy(iter);
-      fd_blockstore_end_write(blockstore);
       return -1;
     }
 
@@ -580,10 +575,8 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
     if (shred == NULL) {
       FD_LOG_WARNING(("failed to parse shred %lu/%lu", slot, i));
       rocksdb_iter_destroy(iter);
-      fd_blockstore_end_write(blockstore);
       return -1;
     }
-    fd_blockstore_end_write(blockstore);
     fd_blockstore_shred_insert( blockstore, shred );
     // if (rc != FD_BLOCKSTORE_SUCCESS_SLOT_COMPLETE && rc != FD_BLOCKSTORE_SUCCESS) {
     //   FD_LOG_WARNING(("failed to store shred %lu/%lu", slot, i));
@@ -697,7 +690,6 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
     fd_alloc_t * alloc = fd_blockstore_alloc( blockstore );
     uchar * cur_laddr = fd_alloc_malloc( alloc, 1, tot_meta_sz );
     if( cur_laddr == NULL ) {
-      fd_blockstore_end_write(blockstore);
       return 0;
     }
     ((ulong*)cur_laddr)[0] = blk->txns_meta_gaddr; /* Link to previous allocation */
@@ -743,7 +735,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
 
   blockstore->shmem->lps = slot;
   blockstore->shmem->hcs = slot;
-  blockstore->shmem->smr = slot;
+  blockstore->shmem->wmk = slot;
 
   if( FD_LIKELY( block_map_entry ) ) {
     block_map_entry->flags =
@@ -760,7 +752,6 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
         FD_BLOCK_FLAG_FINALIZED );
   }
 
-  fd_blockstore_end_write( blockstore );
   return 0;
 }
 

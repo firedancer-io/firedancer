@@ -461,10 +461,6 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_shmem {
   ulong wksp_tag;
   ulong seed;
 
-  /* Concurrency */
-
-  fd_rwseq_lock_t lock;
-
   /* Persistence */
 
   fd_blockstore_archiver_t archiver;
@@ -474,7 +470,6 @@ struct __attribute__((aligned(FD_BLOCKSTORE_ALIGN))) fd_blockstore_shmem {
 
   ulong lps; /* latest processed slot */
   ulong hcs; /* highest confirmed slot */
-  ulong smr; /* supermajority root. DO NOT MODIFY DIRECTLY. */
   ulong wmk; /* watermark. DO NOT MODIFY DIRECTLY. */
 
   /* Config limits */
@@ -984,30 +979,6 @@ fd_blockstore_block_height_update( fd_blockstore_t * blockstore, ulong slot, ulo
 
 void
 fd_blockstore_publish( fd_blockstore_t * blockstore, int fd, ulong wmk );
-
-/* fd_blockstore_start_read acquires the read lock */
-static inline void
-fd_blockstore_start_read( fd_blockstore_t * blockstore ) {
-  fd_rwseq_start_read( &blockstore->shmem->lock );
-}
-
-/* fd_blockstore_end_read releases the read lock */
-static inline void
-fd_blockstore_end_read( fd_blockstore_t * blockstore ) {
-  fd_rwseq_end_read( &blockstore->shmem->lock );
-}
-
-/* fd_blockstore_start_write acquire the write lock */
-static inline void
-fd_blockstore_start_write( fd_blockstore_t * blockstore ) {
-  fd_rwseq_start_write( &blockstore->shmem->lock );
-}
-
-/* fd_blockstore_end_write releases the write lock */
-static inline void
-fd_blockstore_end_write( fd_blockstore_t * blockstore ) {
-  fd_rwseq_end_write( &blockstore->shmem->lock );
-}
 
 void
 fd_blockstore_log_block_status( fd_blockstore_t * blockstore, ulong around_slot );

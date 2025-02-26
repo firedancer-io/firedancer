@@ -380,18 +380,11 @@ fd_forks_update( fd_forks_t *      forks,
         if( FD_UNLIKELY( pct > FD_CONFIRMED_PCT ) ) {
           FD_LOG_DEBUG(( "confirmed %lu", block_map_entry->slot ));
           block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_CONFIRMED );
-        }
-      }
-      fd_block_map_publish( query );
-
-      fd_blockstore_start_write( blockstore );
-      if( FD_UNLIKELY( !eqvocsafe || !confirmed ) ) {
-        double pct = (double)node->replay_stake / (double)epoch->total_stake;
-        if( FD_UNLIKELY( pct > FD_EQVOCSAFE_PCT ) ) {
+          forks->confirmed_wmark = fd_ulong_max( forks->confirmed_wmark, block_map_entry->slot );
           blockstore->shmem->hcs = fd_ulong_max( blockstore->shmem->hcs, vote );
         }
       }
-      fd_blockstore_end_write( blockstore );
+      fd_block_map_publish( query );
     }
 
     /* Check if this voter's root >= ghost root. We can't process
@@ -425,13 +418,8 @@ fd_forks_update( fd_forks_t *      forks,
       if( FD_UNLIKELY( !finalized ) ) {
         double pct = (double)node->rooted_stake / (double)epoch->total_stake;
         if( FD_UNLIKELY( pct > FD_FINALIZED_PCT ) ) {
-          ulong smr       = block_map_entry->slot;
-
-          fd_blockstore_start_write( blockstore );
-          blockstore->shmem->smr = fd_ulong_max( blockstore->shmem->smr, smr );
-          fd_blockstore_end_write( blockstore );
-
-          FD_LOG_DEBUG(( "finalized %lu", smr ));
+          FD_LOG_DEBUG(( "finalized %lu", block_map_entry->slot ));
+          forks->finalized_wmark = block_map_entry->slot;
           fd_block_meta_t * ancestor = block_map_entry;
           /* block_map_entry ptr is still valid because we haven't published yet. */
           while( ancestor ) {

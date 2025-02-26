@@ -81,10 +81,6 @@ fd_blockstore_new( void * shmem,
   blockstore_shmem->wksp_tag         = wksp_tag;
   blockstore_shmem->seed             = seed;
 
-  FD_COMPILER_MFENCE();
-  fd_rwseq_new( &blockstore_shmem->lock );
-  FD_COMPILER_MFENCE();
-
   blockstore_shmem->archiver = (fd_blockstore_archiver_t){
       .fd_size_max = FD_BLOCKSTORE_ARCHIVE_MIN_SIZE,
       .head        = FD_BLOCKSTORE_ARCHIVE_START,
@@ -94,7 +90,7 @@ fd_blockstore_new( void * shmem,
 
   blockstore_shmem->lps = FD_SLOT_NULL;
   blockstore_shmem->hcs = FD_SLOT_NULL;
-  blockstore_shmem->smr = FD_SLOT_NULL;
+  blockstore_shmem->wmk = FD_SLOT_NULL;
 
   blockstore_shmem->shred_max  = shred_max;
   blockstore_shmem->block_max  = block_max;
@@ -411,7 +407,6 @@ fd_blockstore_init( fd_blockstore_t * blockstore, int fd, ulong fd_size_max, fd_
 
   blockstore->shmem->lps = smr;
   blockstore->shmem->hcs = smr;
-  blockstore->shmem->smr = smr;
   blockstore->shmem->wmk = smr;
 
   fd_block_map_query_t query[1];
@@ -565,7 +560,7 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
                         slot,
                         txn_sz ));
         }
-        fd_txn_t const * txn = (fd_txn_t const *)txn_out;
+        // fd_txn_t const * txn = (fd_txn_t const *)txn_out;
 
         if( pay_sz == 0UL )
           FD_LOG_ERR(( "failed to parse transaction %lu in microblock %lu in slot %lu",
@@ -573,36 +568,34 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
                         mblk,
                         slot ));
 
-        fd_blockstore_start_write( blockstore );
-        fd_txn_key_t const * sigs =
-            (fd_txn_key_t const *)( (ulong)raw + (ulong)txn->signature_off );
-        fd_txn_map_t * txn_map = fd_blockstore_txn_map( blockstore );
-        for( ulong j = 0; j < txn->signature_cnt; j++ ) {
-          if( FD_UNLIKELY( fd_txn_map_key_cnt( txn_map ) ==
-                           fd_txn_map_key_max( txn_map ) ) ) {
-            break;
-          }
-          fd_txn_key_t sig;
-          fd_memcpy( &sig, sigs + j, sizeof( sig ) );
+        // fd_txn_key_t const * sigs =
+        //     (fd_txn_key_t const *)( (ulong)raw + (ulong)txn->signature_off );
+        // fd_txn_map_t * txn_map = fd_blockstore_txn_map( blockstore );
+        // for( ulong j = 0; j < txn->signature_cnt; j++ ) {
+        //   if( FD_UNLIKELY( fd_txn_map_key_cnt( txn_map ) ==
+        //                    fd_txn_map_key_max( txn_map ) ) ) {
+        //     break;
+        //   }
+        //   fd_txn_key_t sig;
+        //   fd_memcpy( &sig, sigs + j, sizeof( sig ) );
 
-          if( fd_txn_map_query( txn_map, &sig, NULL ) != NULL ) continue;
+        //   if( fd_txn_map_query( txn_map, &sig, NULL ) != NULL ) continue;
 
-          fd_txn_map_t * elem = fd_txn_map_insert( txn_map, &sig );
-          if( elem == NULL ) { break; }
-          elem->slot       = slot;
-          elem->offset     = blockoff;
-          elem->sz         = pay_sz;
-          elem->meta_gaddr = 0;
-          elem->meta_sz    = 0;
+        //   fd_txn_map_t * elem = fd_txn_map_insert( txn_map, &sig );
+        //   if( elem == NULL ) { break; }
+        //   elem->slot       = slot;
+        //   elem->offset     = blockoff;
+        //   elem->sz         = pay_sz;
+        //   elem->meta_gaddr = 0;
+        //   elem->meta_sz    = 0;
 
-          if( txns_cnt < FD_TXN_MAX_PER_SLOT ) {
-            fd_block_txn_t * ref = &txns[txns_cnt++];
-            ref->txn_off                  = blockoff;
-            ref->id_off                   = (ulong)( sigs + j ) - (ulong)data;
-            ref->sz                       = pay_sz;
-          }
-        }
-        fd_blockstore_end_write( blockstore );
+        //   if( txns_cnt < FD_TXN_MAX_PER_SLOT ) {
+        //     fd_block_txn_t * ref = &txns[txns_cnt++];
+        //     ref->txn_off                  = blockoff;
+        //     ref->id_off                   = (ulong)( sigs + j ) - (ulong)data;
+        //     ref->sz                       = pay_sz;
+        //   }
+        // }
 
         blockoff += pay_sz;
       }
@@ -1184,16 +1177,6 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
   ulong slot = shred->slot;
   fd_shred_key_t key = { slot, .idx = shred->idx };
 
-  /* Check this shred > SMR. We ignore shreds before the SMR because by
-     it is invariant that we must have a connected, linear chain for the
-     SMR and its ancestors. */
-  fd_blockstore_start_read( blockstore );
-  if( FD_UNLIKELY( slot <= blockstore->shmem->smr ) ) {
-    fd_blockstore_end_read( blockstore );
-    return;
-  }
-  fd_blockstore_end_read( blockstore );
-
   /* Test if the blockstore already contains this shred key. */
 
   if( FD_UNLIKELY( fd_blockstore_shred_test( blockstore, slot, shred->idx ) ) ) {
@@ -1629,12 +1612,9 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
 
   ulong off = ULONG_MAX;
   for(;;) {
-    uint seqnum;
-    if( FD_UNLIKELY( fd_rwseq_start_concur_read( &blockstore->shmem->lock, &seqnum ) ) ) continue;
     idx_entry = fd_block_idx_query( block_idx, slot, NULL );
     if( FD_LIKELY( idx_entry ) ) off = idx_entry->off;
-    if( FD_UNLIKELY( fd_rwseq_check_concur_read( &blockstore->shmem->lock, seqnum ) ) ) continue;
-    else break;
+    break;
   }
 
   if ( FD_UNLIKELY( off < ULONG_MAX ) ) { /* optimize for non-archival queries */
@@ -1769,12 +1749,9 @@ fd_blockstore_block_map_query_volatile( fd_blockstore_t * blockstore,
 
   ulong off = ULONG_MAX;
   for( ;; ) {
-    uint seqnum;
-    if( FD_UNLIKELY( fd_rwseq_start_concur_read( &blockstore->shmem->lock, &seqnum ) ) ) continue;
     fd_block_idx_t * idx_entry = fd_block_idx_query( block_idx, slot, NULL );
     if( FD_LIKELY( idx_entry ) ) off = idx_entry->off;
-    if( FD_UNLIKELY( fd_rwseq_check_concur_read( &blockstore->shmem->lock, seqnum ) ) ) continue;
-    else break;
+    break;
   }
 
   if( FD_UNLIKELY( off < ULONG_MAX ) ) { /* optimize for non-archival queries */
@@ -1830,28 +1807,21 @@ fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore,
   fd_txn_map_t * txn_map = fd_blockstore_txn_map( blockstore );
 
   for(;;) {
-    uint seqnum;
-    if( FD_UNLIKELY( fd_rwseq_start_concur_read( &blockstore->shmem->lock, &seqnum ) ) ) continue;
-
     fd_txn_key_t key;
     memcpy( &key, sig, sizeof(key) );
     fd_txn_map_t const * txn_map_entry = fd_txn_map_query_safe( txn_map, &key, NULL );
     if( FD_UNLIKELY( txn_map_entry == NULL ) ) return FD_BLOCKSTORE_ERR_TXN_MISSING;
     memcpy( txn_out, txn_map_entry, sizeof(fd_txn_map_t) );
-    if( FD_UNLIKELY( fd_rwseq_check_concur_read( &blockstore->shmem->lock, seqnum ) ) ) continue;
-    else break;
+    break;
   }
 
   fd_block_idx_t * block_idx = fd_blockstore_block_idx( blockstore );
 
   ulong off = ULONG_MAX;
   for(;;) {
-    uint seqnum;
-    if( FD_UNLIKELY( fd_rwseq_start_concur_read( &blockstore->shmem->lock, &seqnum ) ) ) continue;
     fd_block_idx_t * idx_entry = fd_block_idx_query( block_idx, txn_out->slot, NULL );
     if( FD_LIKELY( idx_entry ) ) off = idx_entry->off;
-    if( FD_UNLIKELY( fd_rwseq_check_concur_read( &blockstore->shmem->lock, seqnum ) ) ) continue;
-    else break;
+    break;
   }
 
   if ( FD_UNLIKELY( off < ULONG_MAX ) ) { /* optimize for non-archival */
@@ -1873,9 +1843,6 @@ fd_blockstore_txn_query_volatile( fd_blockstore_t * blockstore,
   }
 
   for(;;) {
-    uint seqnum;
-    if( FD_UNLIKELY( fd_rwseq_start_concur_read( &blockstore->shmem->lock, &seqnum ) ) ) continue;
-
     fd_block_map_query_t quer[1] = { 0 };
     fd_block_map_query_try( blockstore->block_map, &txn_out->slot, NULL, quer, 0 );
     fd_block_meta_t const * query = fd_block_map_query_ele_const( quer );
@@ -2004,7 +1971,7 @@ fd_blockstore_log_mem_usage( fd_blockstore_t * blockstore ) {
 
   ulong * q = fd_blockstore_slot_deque( blockstore );
   fd_slot_deque_remove_all( q );
-  fd_slot_deque_push_tail( q, blockstore->shmem->smr );
+  fd_slot_deque_push_tail( q, blockstore->shmem->wmk );
   while( !fd_slot_deque_empty( q ) ) {
     ulong curr = fd_slot_deque_pop_head( q );
 
