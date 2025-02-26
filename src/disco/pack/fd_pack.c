@@ -1011,27 +1011,39 @@ delete_worst( fd_pack_t * pack,
        it does happen, find the first one that isn't free. */
     while( FD_UNLIKELY( sample->root==FD_ORD_TXN_ROOT_FREE ) ) sample = &pack->pool[ (++sample_i)%pool_max ];
 
-    int       root_idx = sample->root;
-    float     score    = 0.0f;
+    int       root_idx   = sample->root;
+    float     multiplier = 0.0f; /* The smaller this is, the more biased we'll be to deleting it */
+    treap_t * treap;
     switch( root_idx & FD_ORD_TXN_ROOT_TAG_MASK ) {
+      default:
       case FD_ORD_TXN_ROOT_FREE: {
         FD_TEST( 0 );
-        break;
+        return -1; /* Can't be hit */
       }
       case FD_ORD_TXN_ROOT_PENDING: {
+        treap = pack->pending;
         ulong vote_cnt = treap_ele_cnt( pack->pending_votes );
-        if( FD_LIKELY( !is_vote || (vote_cnt>=pack->pack_depth/4UL ) ) ) score = (float)sample->rewards / (float)sample->compute_est;
+        if( FD_LIKELY( !is_vote || (vote_cnt>=pack->pack_depth/4UL ) ) ) multiplier = 1.0f;
         break;
       }
       case FD_ORD_TXN_ROOT_PENDING_VOTE: {
+        treap = pack->pending_votes;
         ulong vote_cnt = treap_ele_cnt( pack->pending_votes );
-        if( FD_LIKELY( is_vote || (vote_cnt<=3UL*pack->pack_depth/4UL ) ) ) score = (float)sample->rewards / (float)sample->compute_est;
+        if( FD_LIKELY( is_vote || (vote_cnt<=3UL*pack->pack_depth/4UL ) ) ) multiplier = 1.0f;
         break;
       }
       case FD_ORD_TXN_ROOT_PENDING_BUNDLE: {
         /* We don't have a way to tell how much these actually pay in
            rewards, so we just assume they are very high. */
-        score = FLT_MAX;
+        treap = pack->pending_bundles;
+        /* We cap rewards at UINT_MAX lamports for estimation, and min
+           CUs is about 1000, which means rewards/compute < 5e6.
+           FLT_MAX is around 3e38. That means, 1e20*rewards/compute is
+           much less than FLT_MAX, so we won't have any issues with
+           overflow.  On the other hand, if rewards==1 lamport and
+           compute is 2 million CUs, 1e20*1/2e6 is still higher than any
+           normal transaction. */
+        multiplier = 1e20f;
         break;
       }
       case FD_ORD_TXN_ROOT_PENALTY( 0 ): {
@@ -1042,10 +1054,18 @@ delete_worst( fd_pack_t * pack,
         fd_pack_penalty_treap_t * q = penalty_map_query( pack->penalty_treaps, penalty_acct, NULL );
         FD_TEST( q );
         ulong cnt = treap_ele_cnt( q->penalty_treap );
-        score = (float)sample->rewards / (float)sample->compute_est * sqrtf( 100.0f / (float)cnt );
+        treap = q->penalty_treap;
+
+        multiplier = sqrtf( 100.0f / (float)fd_ulong_max( 100UL, cnt ) );
         break;
       }
     }
+    /* Get the worst from the sampled treap */
+    treap_fwd_iter_t _cur=treap_fwd_iter_init( treap, pack->pool );
+    FD_TEST( !treap_fwd_iter_done( _cur ) ); /* It can't be empty because we just sampled an element from it. */
+    sample = treap_fwd_iter_ele( _cur, pack->pool );
+
+    float score = multiplier * (float)sample->rewards / (float)sample->compute_est;
     worst = fd_ptr_if( score<worst_score, sample, worst );
     worst_score = fd_float_if( worst_score<score, worst_score, score );
   }
