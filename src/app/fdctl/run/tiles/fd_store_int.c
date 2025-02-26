@@ -402,28 +402,21 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
 
     uchar * out_buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
 
-    fd_blockstore_start_read( ctx->blockstore );
-    fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, slot );
-    fd_block_t * block = fd_blockstore_block_query( ctx->blockstore, slot );
-
-    if( block == NULL ) { /* needed later down below for txn iteration */
+    if( !fd_blockstore_shreds_complete( ctx->blockstore, slot ) ) {
       FD_LOG_ERR(( "could not find block - slot: %lu", slot ));
     }
 
-    if( block_map_entry == NULL ) {
-      FD_LOG_ERR(( "could not find slot meta" ));
-    }
+    ulong parent_slot = fd_blockstore_parent_slot_query( ctx->blockstore, slot );
+    if ( FD_UNLIKELY( parent_slot == FD_SLOT_NULL ) ) FD_LOG_ERR(( "could not find slot %lu meta", slot ));
 
-    fd_hash_t const * block_hash = fd_blockstore_block_hash_query( ctx->blockstore, slot );
-    fd_blockstore_end_read( ctx->blockstore );
-    if( block_hash == NULL ) {
-      FD_LOG_ERR(( "could not find slot meta" ));
-    }
-
-    FD_STORE( ulong, out_buf, block_map_entry->parent_slot );
+    FD_STORE( ulong, out_buf, parent_slot );
     out_buf += sizeof(ulong);
+    int err = fd_blockstore_block_hash_copy( ctx->blockstore, slot, out_buf, sizeof(fd_hash_t) );
 
-    memcpy( out_buf, block_hash->uc, sizeof(fd_hash_t) );
+    if( FD_UNLIKELY( err ) ){
+      FD_LOG_ERR(( "could not find slot meta" ));
+    }
+
     out_buf += sizeof(fd_hash_t);
 
     FD_SCRATCH_SCOPE_BEGIN {
@@ -438,7 +431,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       if( FD_UNLIKELY( fd_trusted_slots_find( ctx->trusted_slots, slot ) ) ) {
         /* if is caught up and is leader */
         replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK );
-        FD_LOG_INFO(( "packed block prepared - slot: %lu, mblks: %lu, blockhash: %s, txn_cnt: %lu, shred_cnt: %lu, data_sz: %lu", slot, block->micros_cnt, FD_BASE58_ENC_32_ALLOCA( block_hash->uc ), block->txns_cnt, block->shreds_cnt, block->data_sz ));
+        FD_LOG_INFO(( "packed block prepared - slot: %lu", slot ));
       } else {
         replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
       }
@@ -717,16 +710,21 @@ unprivileged_init( fd_topo_t *      topo,
     char   buf[20]; /* max # of digits for a ulong */
 
     ulong cnt = 1;
-    fd_blockstore_start_write( ctx->blockstore );
-    FD_TEST( fd_block_map_remove( fd_blockstore_block_map (ctx->blockstore), &snapshot_slot ) );
+    FD_TEST( fd_blockstore_block_meta_remove( ctx->blockstore, snapshot_slot ) );
+
     while( fgets( buf, sizeof( buf ), file ) ) {
       char *       endptr;
       ulong        slot  = strtoul( buf, &endptr, 10 );
-      fd_block_map_t * block_map_entry        = fd_blockstore_block_map_query( ctx->blockstore, slot );
-                       block_map_entry->flags = 0;
+      fd_block_map_query_t query[1] = { 0 };
+      int err = fd_block_map_prepare( ctx->blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+      fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
+      if( err || block_map_entry->slot != slot ) {
+        FD_LOG_ERR(( "init: slot %lu does not match block_map_entry->slot %lu", slot, block_map_entry->slot ));
+      }
+      block_map_entry->flags = 0;
+      fd_block_map_publish( query );
       fd_store_add_pending( ctx->store, slot, (long)cnt++, 0, 0 );
     }
-    fd_blockstore_end_write( ctx->blockstore );
     fclose( file );
   }
 

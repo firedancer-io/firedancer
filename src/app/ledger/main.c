@@ -379,9 +379,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     FD_LOG_DEBUG(( "reading slot %lu", slot ));
 
     /* If we have reached a new block, load one in from rocksdb to the blockstore */
-    fd_blockstore_start_read( blockstore );
     bool block_exists = fd_blockstore_shreds_complete( blockstore, slot);
-    fd_blockstore_end_read( blockstore );
     if( !block_exists && slot_meta.slot == slot ) {
       int err = fd_rocksdb_import_block_blockstore( &rocks_db,
                                                     &slot_meta, blockstore,
@@ -392,34 +390,40 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
         FD_LOG_ERR(( "Failed to import block %lu", start_slot ));
       }
 
-      fd_blockstore_start_write( blockstore );
-
       /* Remove the previous block from the blockstore */
       if( FD_LIKELY( block_slot < slot ) ) {
         /* Mark the block as successfully processed */
-        fd_block_map_t * block_map_entry = fd_block_map_query( fd_blockstore_block_map( blockstore ), &block_slot, NULL );
+
+        fd_block_map_query_t query[1] = {0};
+        int err = fd_block_map_prepare( blockstore->block_map, &block_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+        fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
+
+        if( FD_UNLIKELY( err || block_map_entry->slot != block_slot ) ) FD_LOG_ERR(( "failed to prepare block map query" ));
+
         block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
         block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED );
 
+        ulong slot_complete_idx = block_map_entry->slot_complete_idx;
+        fd_block_map_publish( query );
+
         /* Remove the old block from the blockstore */
-        for( uint idx = 0; idx <= block_map_entry->slot_complete_idx; idx++ ) {
+        for( uint idx = 0; idx <= slot_complete_idx; idx++ ) {
           fd_blockstore_shred_remove( blockstore, block_slot, idx );
         }
         fd_blockstore_slot_remove( blockstore, block_slot );
       }
-
       /* Mark the new block as replaying */
-      fd_block_map_t * block_map_entry = fd_block_map_query( fd_blockstore_block_map( blockstore ), &slot, NULL );
+      fd_block_map_query_t query[1] = {0};
+      err = fd_block_map_prepare( blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+      fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
+      if( FD_UNLIKELY( err || block_map_entry->slot != slot ) ) FD_LOG_ERR(( "failed to prepare block map query" ));
       block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
-
-      fd_blockstore_end_write( blockstore );
+      fd_block_map_publish( query );
 
       block_slot = slot;
     }
 
-    fd_blockstore_start_read( blockstore );
     fd_block_t * blk = fd_blockstore_block_query( blockstore, slot ); /* can't be removed atm, populating slot_ctx->block below */
-    fd_blockstore_end_read( blockstore );
     if( blk == NULL ) {
       FD_LOG_WARNING(( "failed to read slot %lu", slot ));
       continue;
@@ -487,11 +491,12 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     slot_cnt++;
 
     fd_blockstore_start_read( blockstore );
-    fd_hash_t const * expected = fd_blockstore_block_hash_query( blockstore, slot );
-    if( FD_UNLIKELY( !expected ) ) FD_LOG_ERR( ( "slot %lu is missing its hash", slot ) );
-    else if( FD_UNLIKELY( 0 != memcmp( ledger_args->slot_ctx->slot_bank.poh.hash, expected->hash, 32UL ) ) ) {
+    fd_hash_t expected;
+    int err = fd_blockstore_block_hash_copy( blockstore, slot, expected.hash, 32UL );
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR( ( "slot %lu is missing its hash", slot ) );
+    else if( FD_UNLIKELY( 0 != memcmp( ledger_args->slot_ctx->slot_bank.poh.hash, expected.hash, 32UL ) ) ) {
       char expected_hash[ FD_BASE58_ENCODED_32_SZ ];
-      fd_acct_addr_cstr( expected_hash, expected->hash );
+      fd_acct_addr_cstr( expected_hash, expected.hash );
       char poh_hash[ FD_BASE58_ENCODED_32_SZ ];
       fd_acct_addr_cstr( poh_hash, ledger_args->slot_ctx->slot_bank.poh.hash );
       FD_LOG_WARNING(( "PoH hash mismatch! slot=%lu expected=%s, got=%s",
@@ -522,15 +527,15 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       }
     }
 
-    expected = fd_blockstore_bank_hash_query( blockstore, slot );
-    if( FD_UNLIKELY( !expected ) ) {
+    err = fd_blockstore_bank_hash_copy( blockstore, slot, &expected );
+    if( FD_UNLIKELY( err) ) {
       FD_LOG_ERR(( "slot %lu is missing its bank hash", slot ));
     } else if( FD_UNLIKELY( 0 != memcmp( ledger_args->slot_ctx->slot_bank.banks_hash.hash,
-                                         expected->hash,
+                                         expected.hash,
                                          32UL ) ) ) {
 
       char expected_hash[ FD_BASE58_ENCODED_32_SZ ];
-      fd_acct_addr_cstr( expected_hash, expected->hash );
+      fd_acct_addr_cstr( expected_hash, expected.hash );
       char bank_hash[ FD_BASE58_ENCODED_32_SZ ];
       fd_acct_addr_cstr( bank_hash, ledger_args->slot_ctx->slot_bank.banks_hash.hash );
 

@@ -193,19 +193,16 @@ slot_ctx_restore( ulong                 slot,
                   fd_funkier_t *           funk,
                   fd_valloc_t           valloc,
                   fd_exec_slot_ctx_t *  slot_ctx_out ) {
-  fd_funkier_txn_t *  txn_map = fd_funkier_txn_map( funk, fd_funkier_wksp( funk ) );
-
-  fd_blockstore_start_read( blockstore );
-  fd_block_map_t const * block = fd_blockstore_block_map_query( blockstore, slot );
+  fd_funkier_txn_map_t txn_map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
   bool block_exists = fd_blockstore_shreds_complete( blockstore, slot );
-  fd_blockstore_end_read( blockstore );
 
   FD_LOG_DEBUG( ( "Current slot %lu", slot ) );
   if( !block_exists )
     FD_LOG_ERR( ( "missing block at slot we're trying to restore" ) );
 
   fd_funkier_txn_xid_t xid;
-  memcpy( xid.uc, block->block_hash.uc, sizeof( fd_funkier_txn_xid_t ) );
+  int err = fd_blockstore_block_hash_copy( blockstore, slot, xid.uc, sizeof( fd_funk_txn_xid_t ) );
+  if ( FD_UNLIKELY( err ) ) FD_LOG_ERR( ( "failed to read block hash" ) );
   xid.ul[0]             = slot;
   fd_funkier_rec_key_t id  = fd_runtime_slot_bank_key();
   fd_funkier_txn_t *   txn = fd_funkier_txn_query( &xid, txn_map );
@@ -285,11 +282,9 @@ fd_forks_prepare( fd_forks_t const *    forks,
 
   /* Check the parent block is present in the blockstore and executed. */
 
-  fd_blockstore_start_read( blockstore );
   if( FD_UNLIKELY( !fd_blockstore_shreds_complete( blockstore, parent_slot ) ) ) {
     FD_LOG_WARNING( ( "fd_forks_prepare missing parent_slot %lu", parent_slot ) );
   }
-  fd_blockstore_end_read( blockstore );
 
   /* Query for parent_slot in the frontier. */
 
@@ -360,8 +355,11 @@ fd_forks_update( fd_forks_t *      forks,
 
       fd_ghost_node_t const * node = fd_ghost_query( ghost, vote );
 
-      fd_blockstore_start_write( blockstore );
-      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, vote );
+
+      fd_block_map_query_t query[1] = { 0 };
+      int err = fd_block_map_prepare( blockstore->block_map, &vote, NULL, query, FD_MAP_FLAG_BLOCKING );
+      fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
+      if( FD_UNLIKELY( err || block_map_entry->slot != vote ) ) FD_LOG_ERR(( "failed to prepare block map query" ));
 
       int eqvocsafe = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_EQVOCSAFE );
       if( FD_UNLIKELY( !eqvocsafe ) ) {
@@ -369,7 +367,6 @@ fd_forks_update( fd_forks_t *      forks,
         if( FD_UNLIKELY( pct > FD_EQVOCSAFE_PCT ) ) {
           FD_LOG_DEBUG(( "eqvocsafe %lu", block_map_entry->slot ));
           block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_EQVOCSAFE );
-          blockstore->shmem->hcs = fd_ulong_max( blockstore->shmem->hcs, block_map_entry->slot );
         }
       }
 
@@ -379,10 +376,17 @@ fd_forks_update( fd_forks_t *      forks,
         if( FD_UNLIKELY( pct > FD_CONFIRMED_PCT ) ) {
           FD_LOG_DEBUG(( "confirmed %lu", block_map_entry->slot ));
           block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_CONFIRMED );
-          blockstore->shmem->hcs = fd_ulong_max( blockstore->shmem->hcs, block_map_entry->slot );
         }
       }
+      fd_block_map_publish( query );
 
+      fd_blockstore_start_write( blockstore );
+      if( FD_UNLIKELY( !eqvocsafe || !confirmed ) ) {
+        double pct = (double)node->replay_stake / (double)epoch->total_stake;
+        if( FD_UNLIKELY( pct > FD_EQVOCSAFE_PCT ) ) {
+          blockstore->shmem->hcs = fd_ulong_max( blockstore->shmem->hcs, vote );
+        }
+      }
       fd_blockstore_end_write( blockstore );
     }
 
@@ -406,23 +410,42 @@ fd_forks_update( fd_forks_t *      forks,
 
       /* Check if it has crossed finalized threshold. */
 
-      fd_blockstore_start_write( blockstore );
-      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, root );
-      int finalized = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_FINALIZED );
+      /* Doing a blocking read because of nested if/loops, and it's
+         easier to reason about than if we had to loop for non-blocking
+         writes. Every prepare is followed by publish/cancel. */
+      fd_block_map_query_t query[1] = { 0 };
+      int err = fd_block_map_prepare( blockstore->block_map, &root, NULL, query, FD_MAP_FLAG_BLOCKING );
+      fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
+      if( FD_UNLIKELY( err || block_map_entry->slot != root ) ) FD_LOG_ERR(( "failed to prepare block map query" ));
+      int               finalized       = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_FINALIZED );
       if( FD_UNLIKELY( !finalized ) ) {
         double pct = (double)node->rooted_stake / (double)epoch->total_stake;
         if( FD_UNLIKELY( pct > FD_FINALIZED_PCT ) ) {
           ulong smr       = block_map_entry->slot;
+
+          fd_blockstore_start_write( blockstore );
           blockstore->shmem->smr = fd_ulong_max( blockstore->shmem->smr, smr );
-          FD_LOG_DEBUG(( "finalized %lu", block_map_entry->slot ));
-          fd_block_map_t * ancestor = block_map_entry;
+          fd_blockstore_end_write( blockstore );
+
+          FD_LOG_DEBUG(( "finalized %lu", smr ));
+          fd_block_meta_t * ancestor = block_map_entry;
+          /* block_map_entry ptr is still valid because we haven't published yet. */
           while( ancestor ) {
             ancestor->flags = fd_uchar_set_bit( ancestor->flags, FD_BLOCK_FLAG_FINALIZED );
-            ancestor        = fd_blockstore_block_map_query( blockstore, ancestor->parent_slot );
+            ulong ancestor_slot = ancestor->parent_slot;
+            fd_block_map_publish( query );
+
+            fd_block_map_prepare( blockstore->block_map, &ancestor_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+            ancestor = fd_block_map_query_ele( query );
+            if( FD_UNLIKELY( !ancestor || ancestor->slot != ancestor_slot) ) {
+              break;
+            }
           }
         }
       }
-      fd_blockstore_end_write( blockstore );
+      /* cancel the last prepare for non-existent ancestor*/
+      fd_block_map_cancel( query );
+      FD_TEST(fd_block_map_verify( blockstore->block_map ) == FD_MAP_SUCCESS);
     }
   }
 }

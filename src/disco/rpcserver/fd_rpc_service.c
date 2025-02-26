@@ -250,7 +250,7 @@ read_slot_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
   fd_rpc_global_ctx_t * glob = ctx->global;
   fd_funkier_t * funk = ctx->global->funk;
 
-  fd_block_map_t block_map_entry = { 0 };
+  fd_block_meta_t block_map_entry = { 0 };
   fd_blockstore_block_map_query_volatile( glob->blockstore, glob->blockstore_fd, slot, &block_map_entry );
   if( FD_UNLIKELY( block_map_entry.slot != slot ) ) {
     FD_LOG_WARNING( ( "query_volatile failed" ) );
@@ -513,7 +513,7 @@ method_getBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
   ulong blk_sz;
   fd_blockstore_t * blockstore = ctx->global->blockstore;
-  fd_block_map_t meta[1];
+  fd_block_meta_t meta[1];
   fd_block_rewards_t rewards[1];
   fd_hash_t parent_hash;
   uchar * blk_data;
@@ -618,7 +618,7 @@ method_getBlockProduction(struct json_values* values, fd_rpc_ctx_t * ctx) {
             product_rb_insert( pool, &root, nd );
           }
           nd->nleader++;
-          fd_block_map_t block_map_entry = { 0 };
+          fd_block_meta_t block_map_entry = { 0 };
           if( fd_blockstore_block_map_query_volatile( blockstore, ctx->global->blockstore_fd, i, &block_map_entry ) ) {
             continue;
           }
@@ -681,7 +681,7 @@ method_getBlocks(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":[");
   uint cnt = 0;
   for ( ulong i = startslotn; i <= endslotn && cnt < 500000U; ++i ) {
-    fd_block_map_t meta[1];
+    fd_block_meta_t meta[1];
     int ret = fd_blockstore_block_map_query_volatile(blockstore, ctx->global->blockstore_fd, i, meta);
     if (!ret) {
       fd_web_reply_sprintf(ws, "%s%lu", (cnt==0 ? "" : ","), i);
@@ -734,7 +734,7 @@ method_getBlocksWithLimit(struct json_values* values, fd_rpc_ctx_t * ctx) {
   uint cnt = 0;
   uint skips = 0;
   for ( ulong i = startslotn; i <= blockstore->shmem->lps && cnt < limitn && skips < 100U; ++i ) {
-    fd_block_map_t meta[1];
+    fd_block_meta_t meta[1];
     int ret = fd_blockstore_block_map_query_volatile(blockstore, ctx->global->blockstore_fd, i, meta);
     if (!ret) {
       fd_web_reply_sprintf(ws, "%s%lu", (cnt==0 ? "" : ","), i);
@@ -769,7 +769,7 @@ method_getBlockTime(struct json_values* values, fd_rpc_ctx_t * ctx) {
   ulong slotn = (ulong)(*(long*)slot);
 
   fd_blockstore_t * blockstore = ctx->global->blockstore;
-  fd_block_map_t meta[1];
+  fd_block_meta_t meta[1];
   int ret = fd_blockstore_block_map_query_volatile(blockstore, ctx->global->blockstore_fd, slotn, meta);
   if (ret) {
     fd_method_error(ctx, -1, "invalid slot: %lu", slotn);
@@ -810,7 +810,7 @@ method_getEpochInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
     }
     ulong slot_index;
     ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot, &slot_index );
-    fd_block_map_t meta[1];
+    fd_block_meta_t meta[1];
     int ret = fd_blockstore_block_map_query_volatile(ctx->global->blockstore, ctx->global->blockstore_fd, slot, meta);
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"absoluteSlot\":%lu,\"blockHeight\":%lu,\"epoch\":%lu,\"slotIndex\":%lu,\"slotsInEpoch\":%lu,\"transactionCount\":%lu},\"id\":%s}" CRLF,
                          slot,
@@ -1325,7 +1325,7 @@ method_getSignaturesForAddress(struct json_values* values, fd_rpc_ctx_t * ctx) {
     fd_rpc_global_ctx_t * gctx = ctx->global;
     fd_rpc_acct_map_elem_t const * ele = fd_rpc_acct_map_ele_query_const( gctx->acct_map, &acct, NULL, gctx->acct_pool );
     ulong cnt = 0;
-    fd_block_map_t block_map_entry = { 0 };
+    fd_block_meta_t block_map_entry = { 0 };
     while( ele != NULL && cnt < limit ) {
       if( cnt ) EMIT_SIMPLE(",");
 

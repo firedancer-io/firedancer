@@ -427,19 +427,20 @@ repair_get_shred( ulong  slot,
   if( FD_UNLIKELY( blockstore == NULL ) ) {
     return -1;
   }
-  fd_blockstore_start_read( blockstore );
 
   if( shred_idx == UINT_MAX ) {
-    fd_block_map_t * meta = fd_blockstore_block_map_query( blockstore, slot );
-    if( meta == NULL ) {
-      fd_blockstore_end_read( blockstore );
-      return -1L;
+    int err = FD_MAP_ERR_AGAIN;
+    while( err == FD_MAP_ERR_AGAIN ) {
+      fd_block_map_query_t query[1] = { 0 };
+      err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, query, 0 );
+      fd_block_meta_t * meta = fd_block_map_query_ele( query );
+      if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return -1L;
+      if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
+      shred_idx = (uint)meta->slot_complete_idx;
+      err = fd_block_map_query_test( query );
     }
-    shred_idx = (uint)meta->slot_complete_idx;
   }
   long sz = fd_buf_shred_query_copy_data( blockstore, slot, shred_idx, buf, buf_max );
-
-  fd_blockstore_end_read( blockstore );
   return sz;
 }
 
@@ -451,17 +452,7 @@ repair_get_parent( ulong  slot,
   if( FD_UNLIKELY( blockstore == NULL ) ) {
     return FD_SLOT_NULL;
   }
-  fd_blockstore_start_read( blockstore );
-
-  fd_block_map_t * meta = fd_blockstore_block_map_query( blockstore, slot );
-  if( meta == NULL ) {
-    fd_blockstore_end_read( blockstore );
-    return FD_SLOT_NULL;
-  }
-  ulong res = meta->parent_slot;
-
-  fd_blockstore_end_read( blockstore );
-  return res;
+  return fd_blockstore_parent_slot_query( blockstore, slot );
 }
 
 static void
