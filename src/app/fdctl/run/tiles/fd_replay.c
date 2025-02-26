@@ -100,6 +100,9 @@ struct fd_replay_tile_ctx {
   fd_wksp_t * funk_wksp;
   fd_wksp_t * status_cache_wksp;
 
+  fd_wksp_t  * replay_public_wksp;
+  fd_runtime_public_t * replay_public;
+
   // Store tile input
   fd_wksp_t * store_in_mem;
   ulong       store_in_chunk0;
@@ -2166,6 +2169,7 @@ read_snapshot( void *              _ctx,
       fd_snapshot_load_ctx_t * tmp_snap_ctx = fd_snapshot_load_new( tmp_mem,
                                                                     incremental,
                                                                     ctx->slot_ctx,
+                                                                    NULL,
                                                                     ctx->tpool,
                                                                     false,
                                                                     false,
@@ -2190,6 +2194,7 @@ read_snapshot( void *              _ctx,
     fd_snapshot_load_ctx_t * snap_ctx = fd_snapshot_load_new( mem,
                                                               snapshot,
                                                               ctx->slot_ctx,
+                                                              NULL,
                                                               ctx->tpool,
                                                               false,
                                                               false,
@@ -2238,6 +2243,7 @@ read_snapshot( void *              _ctx,
     /* TODO: enable snapshot verification */
     fd_snapshot_load_all( incremental,
                           ctx->slot_ctx,
+                          NULL,
                           &base_slot,
                           ctx->tpool,
                           false,
@@ -2409,6 +2415,10 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
 
   fd_fork_t * fork = fd_forks_query( ctx->forks, ctx->curr_slot );
   ctx->slot_ctx = &fork->slot_ctx;
+
+  // Tell the world about the current activate features
+  fd_memcpy ( &ctx->replay_public->features,  &ctx->slot_ctx->epoch_ctx->features, sizeof(ctx->replay_public->features) );
+
   FD_TEST( ctx->slot_ctx );
 }
 
@@ -3110,6 +3120,18 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->slots_replayed_file = fopen( tile->replay.slots_replayed, "w" );
     FD_TEST( ctx->slots_replayed_file );
   }
+
+  /* replay public setup */
+  ulong replay_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "replay_pub" );
+  FD_TEST( replay_obj_id!=ULONG_MAX );
+  ctx->replay_public_wksp = topo->workspaces[ topo->objs[ replay_obj_id ].wksp_id ].wksp;
+
+  if( ctx->replay_public_wksp==NULL ) {
+    FD_LOG_ERR(( "no replay_public workspace" ));
+  }
+
+  ctx->replay_public = fd_runtime_public_join( fd_topo_obj_laddr( topo, replay_obj_id ) );
+  FD_TEST( ctx->replay_public!=NULL );
 }
 
 static ulong

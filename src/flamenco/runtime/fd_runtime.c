@@ -4030,3 +4030,20 @@ fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
 //
 // What slots exactly do cache'd account_updates go into?  how are
 // they hashed (which slot?)?
+
+ulong
+fd_runtime_public_footprint ( void ) {
+  return sizeof(fd_runtime_public_t);
+}
+
+fd_runtime_public_t *
+fd_runtime_public_join ( void * ptr )
+{
+  return (fd_runtime_public_t *) ptr;
+}
+
+void *
+fd_runtime_public_new ( void * ptr )  {
+  fd_memset(ptr, 0, sizeof(fd_runtime_public_t));
+  return ptr;
+}

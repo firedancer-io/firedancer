@@ -17,6 +17,7 @@ FD_PROTOTYPES_BEGIN
 
 struct fd_snapshot_load_ctx;
 typedef struct fd_snapshot_load_ctx fd_snapshot_load_ctx_t;
+typedef struct fd_runtime_ctx fd_runtime_ctx_t;
 
 /* fd_snapshot_load_all does a blocking load of a snapshot. It is a wrapper
    around fd_snapshot_load_new, fd_snapshot_load_init,
@@ -66,6 +67,7 @@ fd_snapshot_load_ctx_t *
 fd_snapshot_load_new( uchar *                mem,
                       const char *           snapshot_file,
                       fd_exec_slot_ctx_t *   slot_ctx,
+                      fd_runtime_ctx_t   *   runtime_ctx,
                       fd_tpool_t *           tpool,
                       uint                   verify_hash,
                       uint                   check_hash,
@@ -92,6 +94,7 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx );
 void
 fd_snapshot_load_all( const char *         source_cstr,
                       fd_exec_slot_ctx_t * slot_ctx,
+                      fd_runtime_ctx_t   * runtime_ctx,
                       ulong *              base_slot_override,
                       fd_tpool_t *         tpool,
                       uint                 verify_hash,

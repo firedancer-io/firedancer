@@ -53,6 +53,9 @@ struct fd_snapshot_tile_ctx {
   fd_wksp_t *     replay_out_mem;
   ulong           replay_out_chunk;
 
+  fd_wksp_t  *    replay_public_wksp;
+  fd_runtime_public_t * replay_public;
+
   /* Bump allocator */
   fd_spad_t *     spad;
 };
@@ -280,6 +283,18 @@ unprivileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
   fd_topo_link_t * replay_out = &topo->links[ tile->out_link_id[ REPLAY_OUT_IDX ] ];
   ctx->replay_out_mem         = topo->workspaces[ topo->objs[ replay_out->dcache_obj_id ].wksp_id ].wksp;
   ctx->replay_out_chunk       = fd_dcache_compact_chunk0( ctx->replay_out_mem, replay_out->dcache );;
+
+  /* replay public setup */
+  ulong replay_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "replay_pub" );
+  FD_TEST( replay_obj_id!=ULONG_MAX );
+  ctx->replay_public_wksp = topo->workspaces[ topo->objs[ replay_obj_id ].wksp_id ].wksp;
+
+  if( ctx->replay_public_wksp==NULL ) {
+    FD_LOG_ERR(( "no replay_public workspace" ));
+  }
+
+  ctx->replay_public = fd_runtime_public_join( fd_topo_obj_laddr( topo, replay_obj_id ) );
+  FD_TEST( ctx->replay_public!=NULL );
 }
 
 static void

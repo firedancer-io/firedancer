@@ -249,6 +249,15 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
 
 FD_STATIC_ASSERT( FD_RUNTIME_MERKLE_VERIFICATION_FOOTPRINT <= FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT, merkle verify footprint exceeds txn execution footprint );
 
+/* definition of the public/readable workspace */
+struct fd_runtime_public {
+  ulong         epoch;
+  fd_features_t features;
+};
+typedef struct fd_runtime_public fd_runtime_public_t;
+
+/* Helpers for runtime public frame management. */
+
 /* Helpers for runtime spad frame management. */
 struct fd_runtime_spad_verify_handle_private {
   fd_spad_t *         spad;
@@ -502,6 +511,20 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
                          fd_capture_ctx_t *   capture_ctx,
                          fd_tpool_t *         tpool,
                          fd_spad_t *          spad );
+
+ulong
+fd_runtime_public_footprint ( void );
+
+fd_runtime_public_t *
+fd_runtime_public_join ( void * ptr ) ;
+
+void *
+fd_runtime_public_new ( void * ptr ) ;
+
+FD_FN_CONST static inline ulong
+fd_runtime_public_align( void ) {
+  return alignof(fd_runtime_public_t);
+}
 
 FD_PROTOTYPES_END
 

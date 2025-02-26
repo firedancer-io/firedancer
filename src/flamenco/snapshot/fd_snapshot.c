@@ -7,6 +7,7 @@
 #include "../runtime/fd_system_ids.h"
 #include "../runtime/context/fd_exec_epoch_ctx.h"
 #include "../runtime/context/fd_exec_slot_ctx.h"
+#include "../runtime/context/fd_runtime_ctx.h"
 #include "../rewards/fd_rewards.h"
 
 #include <assert.h>
@@ -19,6 +20,7 @@ struct fd_snapshot_load_ctx {
   /* User-defined parameters. */
   const char *           snapshot_file;
   fd_exec_slot_ctx_t *   slot_ctx;
+  fd_runtime_ctx_t *     runtime_ctx;
   fd_tpool_t *           tpool;
   uint                   verify_hash;
   uint                   check_hash;
@@ -88,6 +90,7 @@ fd_snapshot_load_ctx_t *
 fd_snapshot_load_new( uchar *                mem,
                       const char *           snapshot_file,
                       fd_exec_slot_ctx_t *   slot_ctx,
+                      fd_runtime_ctx_t   *   runtime_ctx,
                       fd_tpool_t *           tpool,
                       uint                   verify_hash,
                       uint                   check_hash,
@@ -102,6 +105,7 @@ fd_snapshot_load_new( uchar *                mem,
   fd_snapshot_load_ctx_t * ctx = (fd_snapshot_load_ctx_t *)mem;
   ctx->snapshot_file = snapshot_file;
   ctx->slot_ctx      = slot_ctx;
+  ctx->runtime_ctx   = runtime_ctx;
   ctx->tpool         = tpool;
   ctx->verify_hash   = verify_hash;
   ctx->check_hash    = check_hash;
@@ -165,10 +169,10 @@ fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx,
                                           acc_mgr,
                                           funk_txn,
                                           ctx->runtime_spad,
-                                          ctx->slot_ctx, 
+                                          ctx->slot_ctx,
                                           (restore_manifest_flags & FD_SNAPSHOT_RESTORE_MANIFEST) ? restore_manifest : NULL,
                                           (restore_manifest_flags & FD_SNAPSHOT_RESTORE_STATUS_CACHE) ? restore_status_cache : NULL );
-  
+
   ctx->loader  = fd_snapshot_loader_new ( loader_mem, ZSTD_WINDOW_SZ );
 
   if( FD_UNLIKELY( !ctx->restore || !ctx->loader ) ) {
@@ -291,6 +295,7 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
 void
 fd_snapshot_load_all( const char *         source_cstr,
                       fd_exec_slot_ctx_t * slot_ctx,
+                      fd_runtime_ctx_t   * runtime_ctx,
                       ulong *              base_slot_override,
                       fd_tpool_t *         tpool,
                       uint                 verify_hash,
@@ -304,6 +309,7 @@ fd_snapshot_load_all( const char *         source_cstr,
   fd_snapshot_load_ctx_t * ctx = fd_snapshot_load_new( mem,
                                                        source_cstr,
                                                        slot_ctx,
+                                                       runtime_ctx,
                                                        tpool,
                                                        verify_hash,
                                                        check_hash,
@@ -361,7 +367,7 @@ fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx ) {
   fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
 }
 
-ulong 
+ulong
 fd_snapshot_get_slot( fd_snapshot_load_ctx_t * ctx ) {
   return fd_snapshot_restore_get_slot( ctx->restore );
 }
