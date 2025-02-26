@@ -1,14 +1,10 @@
 #include "../fdctl.h"
-
 #include "generated/monitor_seccomp.h"
 #include "helper.h"
-
 #include <stdio.h>
 #include <signal.h>
 #include <sys/syscall.h>
 #include <linux/capability.h>
-#include <termios.h>
-#include <fcntl.h>
 
 void
 monitor_cmd_args( int *    pargc,
@@ -297,17 +293,6 @@ run_monitor( config_t * const config,
   } while(0)
   ulong line_count = 0;
   int monitor_pane = 0;
-  /* Disables character echo and canonical mode since we want the input to be processes immediately.*/
-  struct termios terminal_config;
-  if( FD_UNLIKELY( 0!=tcgetattr(STDIN_FILENO, &terminal_config) ) ) FD_LOG_ERR(( "tcgetattr failed" ));
-  
-  terminal_config.c_lflag &= (tcflag_t)~(ICANON | ECHO);
-  if( FD_UNLIKELY( 0!=tcsetattr(STDIN_FILENO, TCSANOW, &terminal_config) ) ) FD_LOG_ERR(( "tcsetattr failed" ));
-  
-  /* Terminal also set to non blocking in case the user doesn't send any input. */
-  int terminal_flag = fcntl(STDIN_FILENO, F_GETFL, 0);
-  if( FD_UNLIKELY( -1==terminal_flag ) ) FD_LOG_ERR(( "fcntl get flag failed" ));
-  if( FD_UNLIKELY( -1==fcntl(STDIN_FILENO, F_SETFL, terminal_flag | O_NONBLOCK) ) ) FD_LOG_ERR(( "fcntl set flag failed" )); 
 
   for(;;) {
     /* Wait a somewhat randomized amount and then make a diagnostic
@@ -326,7 +311,7 @@ run_monitor( config_t * const config,
 
     
     /* move to beginning of line, n lines ago */
-    PRINT( "\033[2J\033[%luF", line_count );
+    PRINT( "\033[2J\033[H");
 
     /* drain any firedancer log messages into the terminal */
     if( FD_UNLIKELY( drain_output_fd >= 0 ) ) drain_to_buffer( &buf, &buf_sz, drain_output_fd );
@@ -338,8 +323,9 @@ run_monitor( config_t * const config,
     }
 
     char * mon_start = buf;
+    
     if( FD_UNLIKELY( drain_output_fd >= 0 ) ) PRINT( TEXT_NEWLINE );
-    if( FD_UNLIKELY(getchar() == '\t') ) monitor_pane = !monitor_pane;
+    if( FD_UNLIKELY(fd_getchar() == '\t') ) monitor_pane = !monitor_pane;
 
     long dt = now-then;
 

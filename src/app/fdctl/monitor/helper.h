@@ -107,4 +107,7 @@ printf_pct( char ** buf,
             ulong  den_then,
             double lhopital_den );
 
+int
+fd_getchar(void);
+
 #endif /* HEADER_fd_src_app_fdctl_monitor_helper_h */
