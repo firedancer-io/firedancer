@@ -96,7 +96,7 @@ main( int argc, char ** argv ) {
   fd_blockstore_t * blockstore = fd_blockstore_join( &blockstore_ljoin, shblockstore );
   fd_buf_shred_pool_reset( blockstore->shred_pool, 0 );
 
-  blockstore->shmem->smr = 0;
+  blockstore->shmem->wmk = 0;
 
   FILE * shred_cap = fopen( "/data/emwang/testnet.shredcap", "rb" );
   FD_TEST( shred_cap );
@@ -142,7 +142,6 @@ main( int argc, char ** argv ) {
             }
             idx++;
           }
-          fd_blockstore_end_read( blockstore );
         }
 
 
