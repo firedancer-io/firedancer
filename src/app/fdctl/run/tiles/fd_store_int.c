@@ -93,7 +93,6 @@ struct fd_store_tile_ctx {
 
   fd_store_t *      store;
   fd_blockstore_t   blockstore_ljoin;
-  int               blockstore_fd; /* file descriptor for archival file */
   fd_blockstore_t * blockstore;
 
   fd_wksp_t * stake_in_mem;
@@ -528,7 +527,7 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "identity_key_path not set" ));
 
   ctx->identity_key[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->store_int.identity_key_path, /* pubkey only: */ 1 ) );
-  ctx->blockstore_fd = open( tile->store_int.blockstore_file, O_RDONLY );
+  ctx->blockstore_ljoin.arch_fd = open( tile->store_int.blockstore_file, O_RDONLY );
 }
 
 static void
@@ -768,7 +767,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   fd_store_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_store_tile_ctx_t), sizeof(fd_store_tile_ctx_t) );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
-  populate_sock_filter_policy_store_int( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->blockstore_fd );
+  populate_sock_filter_policy_store_int( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->blockstore_ljoin.arch_fd );
   return sock_filter_policy_store_int_instr_cnt;
 }
 
@@ -789,7 +788,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = STDERR_FILENO;
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
-  out_fds[ out_cnt++ ] = ctx->blockstore_fd;
+  out_fds[ out_cnt++ ] = ctx->blockstore_ljoin.arch_fd;
   return out_cnt;
 }
 

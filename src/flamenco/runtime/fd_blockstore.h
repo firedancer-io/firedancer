@@ -502,6 +502,10 @@ struct fd_blockstore {
   fd_buf_shred_pool_t shred_pool[1];
   fd_buf_shred_map_t  shred_map[1];
   fd_block_map_t      block_map[1];
+
+  /* local fds to indexing and archiver files */
+
+  int  arch_fd;
 };
 typedef struct fd_blockstore fd_blockstore_t;
 

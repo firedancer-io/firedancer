@@ -39,8 +39,8 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   char const * blockstore_file = fd_env_strip_cmdline_cstr( argc, argv, "--blockstore-file", NULL, NULL );
   if( FD_UNLIKELY( !blockstore_file ))
     FD_LOG_ERR(( "--blockstore-file argument is required" ));
-  args->blockstore_fd = open( blockstore_file, O_RDONLY );
-  if( args->blockstore_fd == -1 ) {
+  args->blockstore_ljoin.arch_fd = open( blockstore_file, O_RDONLY );
+  if( args->blockstore_ljoin.arch_fd == -1 ) {
     FD_LOG_ERR(( "failed to open blockstore file" ));
   }
 

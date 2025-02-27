@@ -196,7 +196,7 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_WARNING(("%s: %s", tile->replay.blockstore_file, strerror( errno )));
   }
 
-  args->blockstore_fd = ctx->blockstore_fd;
+  args->blockstore_ljoin.arch_fd = ctx->blockstore_fd;
 
   void * alloc_shalloc = fd_alloc_new( alloc_shmem, 3UL );
   if( FD_UNLIKELY( !alloc_shalloc ) ) {

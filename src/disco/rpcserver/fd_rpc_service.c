@@ -2502,7 +2502,7 @@ fd_rpc_start_service(fd_rpcserver_args_t * args, fd_rpc_ctx_t * ctx) {
 
   gctx->funk = args->funk;
   memcpy( gctx->blockstore, args->blockstore, sizeof(fd_blockstore_t) );
-  gctx->blockstore_fd = args->blockstore_fd;
+  gctx->blockstore_fd = args->blockstore_ljoin.arch_fd;
 
   fd_replay_notif_msg_t * msg = &gctx->last_slot_notify;
   msg->type = FD_REPLAY_SLOT_TYPE;

@@ -103,13 +103,13 @@ test_archive_many_blocks( fd_wksp_t * wksp, int fd, ulong fd_size_max, ulong idx
 
   /* Store blocks that have been written to compare them later */
   fd_block_meta_t * block_map_record = fd_alloc_malloc( fd_blockstore_alloc(blockstore),
-                                                      fd_block_map_align(),
+                                                        128UL,
                                                         sizeof(fd_block_meta_t) * (blocks + 1) );
   int max_data_sz_pow = 20;
   uchar buf_out[ (1 << max_data_sz_pow) ];
 
   fd_block_meta_t block_map_entry;
-  fd_block_t     block;
+  fd_block_t      block;
 
   for( ulong slot = 1; slot <= blocks; slot++ ){
     ulong data_sz = (ulong) (1 << (rand() % 18 + 2));
@@ -264,8 +264,10 @@ void test_blockstore_archive_small( fd_wksp_t * wksp, int fd, ulong first_idx_ma
 
 void
 test_blockstore_metadata_invalid( int fd ){
-  FD_TEST( ftruncate(fd, 0) == 0 );
+  FD_TEST( ftruncate( fd, 0 ) == 0 );
   fd_blockstore_t blockstore;
+  fd_blockstore_shmem_t shmem;
+  blockstore.shmem = &shmem;
   blockstore.shmem->archiver.fd_size_max = 0x6000;
 
   fd_blockstore_archiver_t metadata = { .fd_size_max = 0x6000,

@@ -28,7 +28,6 @@ struct fd_geyser {
   fd_funk_t *          funk;
   fd_blockstore_t      blockstore_ljoin;
   fd_blockstore_t *    blockstore;
-  int                  blockstore_fd;
   fd_stake_ci_t *      stake_ci;
   replay_sham_link_t * rep_notify;
   stake_sham_link_t *  stake_notify;
@@ -86,7 +85,7 @@ fd_geyser_new( void * mem, fd_geyser_args_t * args ) {
   if( self->blockstore->shmem->magic != FD_BLOCKSTORE_MAGIC ) {
     FD_LOG_ERR(( "failed to join a blockstore" ));
   }
-  self->blockstore_fd = args->blockstore_fd;
+  self->blockstore->arch_fd = args->blockstore_fd;
   fd_wksp_mprotect( wksp, 1 );
 
   fd_pubkey_t identity_key[1]; /* Just the public key */
@@ -186,7 +185,7 @@ fd_geyser_replay_block( fd_geyser_t * ctx, ulong slotn ) {
       fd_hash_t parent_hash;
       uchar * blk_data;
       ulong blk_sz;
-      if( fd_blockstore_block_data_query_volatile( ctx->blockstore, ctx->blockstore_fd, slotn, fd_scratch_virtual(), &parent_hash, meta, rewards, &blk_data, &blk_sz ) ) {
+      if( fd_blockstore_block_data_query_volatile( ctx->blockstore, ctx->blockstore->arch_fd, slotn, fd_scratch_virtual(), &parent_hash, meta, rewards, &blk_data, &blk_sz ) ) {
         FD_LOG_WARNING(( "failed to retrieve block for slot %lu", slotn ));
         return;
       }

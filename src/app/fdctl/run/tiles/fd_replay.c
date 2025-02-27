@@ -231,7 +231,6 @@ struct fd_replay_tile_ctx {
   /* Depends on store_int and is polled in after_credit */
 
   fd_blockstore_t   blockstore_ljoin;
-  int               blockstore_fd; /* file descriptor for archival file */
   fd_blockstore_t * blockstore;
 
   /* Updated during execution */
@@ -2090,7 +2089,7 @@ tpool_boot( fd_topo_t * topo, ulong total_thread_count ) {
 static void
 kickoff_repair_orphans( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
-  fd_blockstore_init( ctx->slot_ctx->blockstore, ctx->blockstore_fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &ctx->slot_ctx->slot_bank );
+  fd_blockstore_init( ctx->slot_ctx->blockstore, ctx->blockstore->arch_fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &ctx->slot_ctx->slot_bank );
 
   publish_stake_weights( ctx, stem, ctx->slot_ctx );
   fd_fseq_update( ctx->published_wmark, ctx->slot_ctx->slot_bank.slot );
@@ -2245,7 +2244,7 @@ read_snapshot( void *              _ctx,
   FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
   fd_blockstore_init( ctx->slot_ctx->blockstore,
-                      ctx->blockstore_fd,
+                      ctx->blockstore->arch_fd,
                       FD_BLOCKSTORE_ARCHIVE_MIN_SIZE,
                       &ctx->slot_ctx->slot_bank );
 }
@@ -2569,7 +2568,7 @@ during_housekeeping( void * _ctx ) {
   fd_blockstore_block_hash_copy( ctx->blockstore, wmark, xid.uc, sizeof( fd_funk_txn_xid_t ) );
   xid.ul[0] = wmark;
 
-  if( FD_LIKELY( ctx->blockstore ) ) fd_blockstore_publish( ctx->blockstore, ctx->blockstore_fd, wmark );
+  if( FD_LIKELY( ctx->blockstore ) ) fd_blockstore_publish( ctx->blockstore, ctx->blockstore->arch_fd, wmark );
   if( FD_LIKELY( ctx->forks ) ) fd_forks_publish( ctx->forks, wmark, ctx->ghost );
   if( FD_LIKELY( ctx->funk ) ) funk_and_txncache_publish( ctx, wmark, &xid );
   if( FD_LIKELY( ctx->ghost ) ) {
@@ -2596,9 +2595,9 @@ privileged_init( fd_topo_t *      topo,
   FD_TEST( sizeof(ulong) == getrandom( &ctx->funk_seed, sizeof(ulong), 0 ) );
   FD_TEST( sizeof(ulong) == getrandom( &ctx->status_cache_seed, sizeof(ulong), 0 ) );
 
-  ctx->blockstore_fd = open( tile->replay.blockstore_file, O_RDWR | O_CREAT, 0666 );
-  if ( FD_UNLIKELY( ctx->blockstore_fd == -1 ) ) {
-    FD_LOG_ERR(( "failed to open or create blockstore archival file %s %d %d %s", tile->replay.blockstore_file, ctx->blockstore_fd, errno, strerror(errno) ));
+  ctx->blockstore_ljoin.arch_fd = open( tile->replay.blockstore_file, O_RDWR | O_CREAT, 0666 );
+  if ( FD_UNLIKELY( ctx->blockstore_ljoin.arch_fd == -1 ) ) {
+    FD_LOG_ERR(( "failed to open or create blockstore archival file %s %d %d %s", tile->replay.blockstore_file, ctx->blockstore->arch_fd, errno, strerror(errno) ));
   }
 }
 
@@ -3103,7 +3102,7 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
   fd_replay_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_ctx_t), sizeof(fd_replay_tile_ctx_t) );
   FD_SCRATCH_ALLOC_FINI( l, sizeof(fd_replay_tile_ctx_t) );
 
-  populate_sock_filter_policy_replay( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->blockstore_fd );
+  populate_sock_filter_policy_replay( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->blockstore_ljoin.arch_fd );
   return sock_filter_policy_replay_instr_cnt;
 }
 
@@ -3124,7 +3123,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
-  out_fds[ out_cnt++ ] = ctx->blockstore_fd;
+  out_fds[ out_cnt++ ] = ctx->blockstore_ljoin.arch_fd;
   return out_cnt;
 }
 
