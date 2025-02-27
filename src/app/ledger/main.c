@@ -322,6 +322,8 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
   fd_features_restore( ledger_args->slot_ctx, ledger_args->runtime_spad );
 
+  fd_memcpy( &g_runtime_ctx->public->features, &ledger_args->slot_ctx->epoch_ctx->->features, sizeof(fd_features_t) );
+
   fd_runtime_update_leaders( ledger_args->slot_ctx, ledger_args->slot_ctx->slot_bank.slot, ledger_args->runtime_spad );
 
   fd_calculate_epoch_accounts_hash_values( ledger_args->slot_ctx );
