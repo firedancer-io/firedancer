@@ -168,7 +168,7 @@ during_frag( fd_gui_ctx_t * ctx,
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PLUGIN ) ) {
     /* ... todo... sigh, sz is not correct since it's too big */
-    if( FD_LIKELY( sig==FD_PLUGIN_MSG_GOSSIP_UPDATE || sig==FD_PLUGIN_MSG_VALIDATOR_INFO ) ) {
+    if( FD_LIKELY( sig==FD_PLUGIN_MSG_GOSSIP_UPDATE ) ) {
       ulong peer_cnt = ((ulong *)src)[ 0 ];
       FD_TEST( peer_cnt<=40200 );
       sz = 8UL + peer_cnt*FD_GOSSIP_LINK_MSG_SIZE;
