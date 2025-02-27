@@ -111,12 +111,6 @@ struct fd_hash_hash_age_pair_t_mapnode {
     int redblack_color;
 };
 static inline fd_hash_hash_age_pair_t_mapnode_t *
-fd_hash_hash_age_pair_t_map_alloc( fd_valloc_t valloc, ulong len ) {
-  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, fd_hash_hash_age_pair_t_map_align(), fd_hash_hash_age_pair_t_map_footprint(len));
-  return fd_hash_hash_age_pair_t_map_join(fd_hash_hash_age_pair_t_map_new(mem, len));
-}
-static inline fd_hash_hash_age_pair_t_mapnode_t *
 fd_hash_hash_age_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
   if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
   *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_hash_hash_age_pair_t_map_align() );
@@ -496,12 +490,6 @@ struct fd_vote_accounts_pair_serializable_t_mapnode {
     int redblack_color;
 };
 static inline fd_vote_accounts_pair_serializable_t_mapnode_t *
-fd_vote_accounts_pair_serializable_t_map_alloc( fd_valloc_t valloc, ulong len ) {
-  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, fd_vote_accounts_pair_serializable_t_map_align(), fd_vote_accounts_pair_serializable_t_map_footprint(len));
-  return fd_vote_accounts_pair_serializable_t_map_join(fd_vote_accounts_pair_serializable_t_map_new(mem, len));
-}
-static inline fd_vote_accounts_pair_serializable_t_mapnode_t *
 fd_vote_accounts_pair_serializable_t_map_join_new( void * * alloc_mem, ulong len ) {
   if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
   *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_vote_accounts_pair_serializable_t_map_align() );
@@ -537,12 +525,6 @@ struct fd_vote_accounts_pair_t_mapnode {
     ulong redblack_right;
     int redblack_color;
 };
-static inline fd_vote_accounts_pair_t_mapnode_t *
-fd_vote_accounts_pair_t_map_alloc( fd_valloc_t valloc, ulong len ) {
-  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, fd_vote_accounts_pair_t_map_align(), fd_vote_accounts_pair_t_map_footprint(len));
-  return fd_vote_accounts_pair_t_map_join(fd_vote_accounts_pair_t_map_new(mem, len));
-}
 static inline fd_vote_accounts_pair_t_mapnode_t *
 fd_vote_accounts_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
   if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
@@ -597,12 +579,6 @@ struct fd_account_keys_pair_t_mapnode {
     int redblack_color;
 };
 static inline fd_account_keys_pair_t_mapnode_t *
-fd_account_keys_pair_t_map_alloc( fd_valloc_t valloc, ulong len ) {
-  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, fd_account_keys_pair_t_map_align(), fd_account_keys_pair_t_map_footprint(len));
-  return fd_account_keys_pair_t_map_join(fd_account_keys_pair_t_map_new(mem, len));
-}
-static inline fd_account_keys_pair_t_mapnode_t *
 fd_account_keys_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
   if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
   *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_account_keys_pair_t_map_align() );
@@ -656,12 +632,6 @@ struct fd_stake_weight_t_mapnode {
     ulong redblack_right;
     int redblack_color;
 };
-static inline fd_stake_weight_t_mapnode_t *
-fd_stake_weight_t_map_alloc( fd_valloc_t valloc, ulong len ) {
-  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, fd_stake_weight_t_map_align(), fd_stake_weight_t_map_footprint(len));
-  return fd_stake_weight_t_map_join(fd_stake_weight_t_map_new(mem, len));
-}
 static inline fd_stake_weight_t_mapnode_t *
 fd_stake_weight_t_map_join_new( void * * alloc_mem, ulong len ) {
   if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
@@ -775,12 +745,6 @@ struct fd_delegation_pair_t_mapnode {
     int redblack_color;
 };
 static inline fd_delegation_pair_t_mapnode_t *
-fd_delegation_pair_t_map_alloc( fd_valloc_t valloc, ulong len ) {
-  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, fd_delegation_pair_t_map_align(), fd_delegation_pair_t_map_footprint(len));
-  return fd_delegation_pair_t_map_join(fd_delegation_pair_t_map_new(mem, len));
-}
-static inline fd_delegation_pair_t_mapnode_t *
 fd_delegation_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
   if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
   *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_delegation_pair_t_map_align() );
@@ -850,12 +814,6 @@ struct fd_stake_pair_t_mapnode {
     ulong redblack_right;
     int redblack_color;
 };
-static inline fd_stake_pair_t_mapnode_t *
-fd_stake_pair_t_map_alloc( fd_valloc_t valloc, ulong len ) {
-  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, fd_stake_pair_t_map_align(), fd_stake_pair_t_map_footprint(len));
-  return fd_stake_pair_t_map_join(fd_stake_pair_t_map_new(mem, len));
-}
 static inline fd_stake_pair_t_mapnode_t *
 fd_stake_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
   if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
@@ -1838,12 +1796,6 @@ typedef struct fd_landed_vote_off fd_landed_vote_off_t;
 #undef DEQUE_T
 #undef DEQUE_MAX
 static inline fd_vote_lockout_t *
-deq_fd_vote_lockout_t_alloc( fd_valloc_t valloc, ulong max ) {
-  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, deq_fd_vote_lockout_t_align(), deq_fd_vote_lockout_t_footprint( max ) );
-  return deq_fd_vote_lockout_t_join( deq_fd_vote_lockout_t_new( mem, max ) );
-}
-static inline fd_vote_lockout_t *
 deq_fd_vote_lockout_t_join_new( void * * alloc_mem, ulong max ) {
   if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
   *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, deq_fd_vote_lockout_t_align() );
@@ -1857,12 +1809,6 @@ deq_fd_vote_lockout_t_join_new( void * * alloc_mem, ulong max ) {
 #undef DEQUE_NAME
 #undef DEQUE_T
 #undef DEQUE_MAX
-static inline fd_vote_epoch_credits_t *
-deq_fd_vote_epoch_credits_t_alloc( fd_valloc_t valloc, ulong max ) {
-  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, deq_fd_vote_epoch_credits_t_align(), deq_fd_vote_epoch_credits_t_footprint( max ) );
-  return deq_fd_vote_epoch_credits_t_join( deq_fd_vote_epoch_credits_t_new( mem, max ) );
-}
 static inline fd_vote_epoch_credits_t *
 deq_fd_vote_epoch_credits_t_join_new( void * * alloc_mem, ulong max ) {
   if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
@@ -1912,15 +1858,6 @@ typedef struct fd_vote_state_0_23_5_off fd_vote_state_0_23_5_off_t;
 #define POOL_NEXT parent
 #include "../../util/tmpl/fd_pool.c"
 static inline fd_vote_authorized_voter_t *
-fd_vote_authorized_voters_pool_alloc( fd_valloc_t valloc, ulong num ) {
-  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
-  return fd_vote_authorized_voters_pool_join( fd_vote_authorized_voters_pool_new(
-      fd_valloc_malloc( valloc,
-                        fd_vote_authorized_voters_pool_align(),
-                        fd_vote_authorized_voters_pool_footprint( num ) ),
-      num ) );
-}
-static inline fd_vote_authorized_voter_t *
 fd_vote_authorized_voters_pool_join_new( void * * alloc_mem, ulong num ) {
   if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
   *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_vote_authorized_voters_pool_align() );
@@ -1934,15 +1871,6 @@ fd_vote_authorized_voters_pool_join_new( void * * alloc_mem, ulong num ) {
 #define TREAP_CMP(q,e) ( (q == (e)->epoch) ? 0 : ( (q < (e)->epoch) ? -1 : 1 ) )
 #define TREAP_LT(e0,e1) ((e0)->epoch<(e1)->epoch)
 #include "../../util/tmpl/fd_treap.c"
-static inline fd_vote_authorized_voters_treap_t *
-fd_vote_authorized_voters_treap_alloc( fd_valloc_t valloc, ulong num ) {
-  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
-  return fd_vote_authorized_voters_treap_join( fd_vote_authorized_voters_treap_new(
-      fd_valloc_malloc( valloc,
-                        fd_vote_authorized_voters_treap_align(),
-                        fd_vote_authorized_voters_treap_footprint( num ) ),
-      num ) );
-}
 static inline fd_vote_authorized_voters_treap_t *
 fd_vote_authorized_voters_treap_join_new( void * * alloc_mem, ulong num ) {
   if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
@@ -2007,12 +1935,6 @@ typedef struct fd_vote_state_1_14_11_off fd_vote_state_1_14_11_off_t;
 #undef DEQUE_NAME
 #undef DEQUE_T
 #undef DEQUE_MAX
-static inline fd_landed_vote_t *
-deq_fd_landed_vote_t_alloc( fd_valloc_t valloc, ulong max ) {
-  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, deq_fd_landed_vote_t_align(), deq_fd_landed_vote_t_footprint( max ) );
-  return deq_fd_landed_vote_t_join( deq_fd_landed_vote_t_new( mem, max ) );
-}
 static inline fd_landed_vote_t *
 deq_fd_landed_vote_t_join_new( void * * alloc_mem, ulong max ) {
   if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
@@ -2157,12 +2079,6 @@ typedef struct fd_compact_vote_state_update_switch_off fd_compact_vote_state_upd
 #undef DEQUE_NAME
 #undef DEQUE_T
 #undef DEQUE_MAX
-static inline fd_lockout_offset_t *
-deq_fd_lockout_offset_t_alloc( fd_valloc_t valloc, ulong max ) {
-  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, deq_fd_lockout_offset_t_align(), deq_fd_lockout_offset_t_footprint( max ) );
-  return deq_fd_lockout_offset_t_join( deq_fd_lockout_offset_t_new( mem, max ) );
-}
 static inline fd_lockout_offset_t *
 deq_fd_lockout_offset_t_join_new( void * * alloc_mem, ulong max ) {
   if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
@@ -2318,12 +2234,6 @@ typedef struct fd_slot_hash_off fd_slot_hash_off_t;
 #undef DEQUE_T
 #undef DEQUE_MAX
 static inline fd_slot_hash_t *
-deq_fd_slot_hash_t_alloc( fd_valloc_t valloc, ulong max ) {
-  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, deq_fd_slot_hash_t_align(), deq_fd_slot_hash_t_footprint( max ) );
-  return deq_fd_slot_hash_t_join( deq_fd_slot_hash_t_new( mem, max ) );
-}
-static inline fd_slot_hash_t *
 deq_fd_slot_hash_t_join_new( void * * alloc_mem, ulong max ) {
   if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
   *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, deq_fd_slot_hash_t_align() );
@@ -2370,12 +2280,6 @@ typedef struct fd_block_block_hash_entry_off fd_block_block_hash_entry_off_t;
 #undef DEQUE_NAME
 #undef DEQUE_T
 #undef DEQUE_MAX
-static inline fd_block_block_hash_entry_t *
-deq_fd_block_block_hash_entry_t_alloc( fd_valloc_t valloc, ulong max ) {
-  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, deq_fd_block_block_hash_entry_t_align(), deq_fd_block_block_hash_entry_t_footprint( max ) );
-  return deq_fd_block_block_hash_entry_t_join( deq_fd_block_block_hash_entry_t_new( mem, max ) );
-}
 static inline fd_block_block_hash_entry_t *
 deq_fd_block_block_hash_entry_t_join_new( void * * alloc_mem, ulong max ) {
   if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
@@ -2464,12 +2368,6 @@ struct fd_clock_timestamp_vote_t_mapnode {
     ulong redblack_right;
     int redblack_color;
 };
-static inline fd_clock_timestamp_vote_t_mapnode_t *
-fd_clock_timestamp_vote_t_map_alloc( fd_valloc_t valloc, ulong len ) {
-  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, fd_clock_timestamp_vote_t_map_align(), fd_clock_timestamp_vote_t_map_footprint(len));
-  return fd_clock_timestamp_vote_t_map_join(fd_clock_timestamp_vote_t_map_new(mem, len));
-}
 static inline fd_clock_timestamp_vote_t_mapnode_t *
 fd_clock_timestamp_vote_t_map_join_new( void * * alloc_mem, ulong len ) {
   if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
@@ -2813,12 +2711,6 @@ typedef struct fd_prev_epoch_inflation_rewards_off fd_prev_epoch_inflation_rewar
 #undef DEQUE_NAME
 #undef DEQUE_T
 #undef DEQUE_MAX
-static inline ulong *
-deq_ulong_alloc( fd_valloc_t valloc, ulong max ) {
-  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, deq_ulong_align(), deq_ulong_footprint( max ) );
-  return deq_ulong_join( deq_ulong_new( mem, max ) );
-}
 static inline ulong *
 deq_ulong_join_new( void * * alloc_mem, ulong max ) {
   if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
@@ -5282,12 +5174,6 @@ struct fd_vote_info_pair_t_mapnode {
     ulong redblack_right;
     int redblack_color;
 };
-static inline fd_vote_info_pair_t_mapnode_t *
-fd_vote_info_pair_t_map_alloc( fd_valloc_t valloc, ulong len ) {
-  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, fd_vote_info_pair_t_map_align(), fd_vote_info_pair_t_map_footprint(len));
-  return fd_vote_info_pair_t_map_join(fd_vote_info_pair_t_map_new(mem, len));
-}
 static inline fd_vote_info_pair_t_mapnode_t *
 fd_vote_info_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
   if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow

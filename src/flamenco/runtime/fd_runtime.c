@@ -3166,7 +3166,10 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
   slot_ctx->slot_bank.block_height    = 0UL;
 
   slot_ctx->slot_bank.block_hash_queue.ages_root = NULL;
-  slot_ctx->slot_bank.block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_alloc( fd_spad_virtual( runtime_spad ), 400 );
+  uchar * pool_mem = fd_spad_alloc( runtime_spad,
+                                    fd_hash_hash_age_pair_t_map_align(),
+                                    fd_hash_hash_age_pair_t_map_footprint( 400UL ) );
+  slot_ctx->slot_bank.block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( pool_mem, 400UL ) );
   fd_hash_hash_age_pair_t_mapnode_t * node       = fd_hash_hash_age_pair_t_map_acquire( slot_ctx->slot_bank.block_hash_queue.ages_pool );
   node->elem = (fd_hash_hash_age_pair_t){
     .key = *genesis_hash,
@@ -3327,7 +3330,8 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
     }
   }
 
-  slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc( fd_spad_virtual( runtime_spad ), 100000 );  /* FIXME remove magic constant */
+  /* FIXME: use properly for genesis */
+  //slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc( fd_spad_virtual( runtime_spad ), 100000 );  /* FIXME remove magic constant */
   slot_ctx->slot_bank.epoch_stakes.vote_accounts_root = NULL;
 
   fd_vote_accounts_pair_t_mapnode_t * next_pool = fd_exec_epoch_ctx_next_epoch_stakes_join( slot_ctx->epoch_ctx );
@@ -3378,7 +3382,8 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
   };
 
   slot_ctx->slot_bank.capitalization             = capitalization;
-  slot_ctx->slot_bank.timestamp_votes.votes_pool = fd_clock_timestamp_vote_t_map_alloc( fd_spad_virtual( runtime_spad ), 10000 ); /* FIXME: remove magic constant */
+  /* FIXME: reimplement this */
+  //slot_ctx->slot_bank.timestamp_votes.votes_pool = fd_clock_timestamp_vote_t_map_alloc( fd_spad_virtual( runtime_spad ), 10000 ); /* FIXME: remove magic constant */
   slot_ctx->slot_bank.timestamp_votes.votes_root = NULL;
 
 }
@@ -3524,11 +3529,12 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
     }
   }
 
+  /* FIXME: Get working again */
   slot_ctx->slot_bank.stake_account_keys.account_keys_root = NULL;
-  slot_ctx->slot_bank.stake_account_keys.account_keys_pool = fd_account_keys_pair_t_map_alloc( fd_spad_virtual( runtime_spad), 100000UL );
+  //slot_ctx->slot_bank.stake_account_keys.account_keys_pool = fd_account_keys_pair_t_map_alloc( fd_spad_virtual( runtime_spad), 100000UL );
 
   slot_ctx->slot_bank.vote_account_keys.account_keys_root   = NULL;
-  slot_ctx->slot_bank.vote_account_keys.account_keys_pool   = fd_account_keys_pair_t_map_alloc( fd_spad_virtual( runtime_spad), 100000UL );
+  //slot_ctx->slot_bank.vote_account_keys.account_keys_pool   = fd_account_keys_pair_t_map_alloc( fd_spad_virtual( runtime_spad), 100000UL );
 
   fd_funk_end_write( slot_ctx->acc_mgr->funk );
 

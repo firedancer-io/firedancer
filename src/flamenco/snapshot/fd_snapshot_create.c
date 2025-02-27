@@ -519,9 +519,14 @@ fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t        * snapshot_ctx,
      vote account data. Instead we will copy over the raw contents of all of
      the vote accounts. */
 
-  ulong vote_accounts_len                      = fd_vote_accounts_pair_t_map_size( old_stakes->vote_accounts.vote_accounts_pool, old_stakes->vote_accounts.vote_accounts_root );
-  new_stakes->vote_accounts.vote_accounts_pool = fd_vote_accounts_pair_serializable_t_map_alloc( fd_spad_virtual( snapshot_ctx->spad ),
-                                                                                                 fd_ulong_max(vote_accounts_len, 15000 ) );
+  ulong   vote_accounts_len                    = fd_vote_accounts_pair_t_map_size( old_stakes->vote_accounts.vote_accounts_pool,
+                                                                                   old_stakes->vote_accounts.vote_accounts_root );
+  ulong   vote_acc_max                         = fd_ulong_max( vote_accounts_len, 15000 );
+  uchar * pool_mem                             = fd_spad_alloc( snapshot_ctx->spad,
+                                                                fd_vote_accounts_pair_serializable_t_map_align(),
+                                                                fd_vote_accounts_pair_serializable_t_map_footprint( vote_acc_max ) );
+  new_stakes->vote_accounts.vote_accounts_pool = fd_vote_accounts_pair_serializable_t_map_join(
+                                                  fd_vote_accounts_pair_serializable_t_map_new( pool_mem, vote_acc_max ) );
   new_stakes->vote_accounts.vote_accounts_root = NULL;
 
   for( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(

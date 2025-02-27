@@ -668,7 +668,10 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   /* Provide default slot hashes of size 1 if not provided */
   if( !slot_ctx->sysvar_cache->has_slot_hashes ) {
-    fd_slot_hash_t * slot_hashes = deq_fd_slot_hash_t_alloc( fd_spad_virtual( runner->spad ), 1 );
+    uchar * deque_mem = fd_spad_alloc( runner->spad,
+                                       deq_fd_slot_hash_t_align(),
+                                       deq_fd_slot_hash_t_footprint( 1UL ) );
+    fd_slot_hash_t * slot_hashes = deq_fd_slot_hash_t_join( deq_fd_slot_hash_t_new( deque_mem, 1UL ) );
     fd_slot_hash_t * dummy_elem = deq_fd_slot_hash_t_push_tail_nocopy( slot_hashes );
     memset( dummy_elem, 0, sizeof(fd_slot_hash_t) );
     fd_slot_hashes_t default_slot_hashes = { .hashes = slot_hashes };
@@ -737,7 +740,10 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   /* Blockhash queue init */
   slot_ctx->slot_bank.block_hash_queue.max_age   = FD_BLOCKHASH_QUEUE_MAX_ENTRIES;
   slot_ctx->slot_bank.block_hash_queue.ages_root = NULL;
-  slot_ctx->slot_bank.block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_alloc( fd_spad_virtual( runner->spad ), 400 );
+  uchar * pool_mem = fd_spad_alloc( runner->spad,
+                                    fd_hash_hash_age_pair_t_map_align(),
+                                    fd_hash_hash_age_pair_t_map_footprint( 400 ) );
+  slot_ctx->slot_bank.block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( pool_mem, 400 ) );
   slot_ctx->slot_bank.block_hash_queue.last_hash = fd_valloc_malloc( fd_spad_virtual( runner->spad ), FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
 
   // Save lamports per signature for most recent blockhash, if sysvar cache contains recent block hashes
