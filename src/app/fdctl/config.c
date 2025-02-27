@@ -11,6 +11,7 @@
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_txncache.h"
+#include "../../flamenco/runtime/fd_runtime.h"
 #include "../../funk/fd_funk.h"
 #include "../../waltz/ip/fd_fib4.h"
 #include "../../waltz/mib/fd_dbl_buf.h"
@@ -261,6 +262,8 @@ fdctl_obj_align( fd_topo_t const *     topo,
     return fd_cnc_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "fseq" ) ) ) {
     return fd_fseq_align();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "replay_pub" ) ) ) {
+    return fd_runtime_public_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
     return FD_METRICS_ALIGN;
   } else if( FD_UNLIKELY( !strcmp( obj->name, "opaque" ) ) ) {
@@ -314,6 +317,8 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
     return fd_cnc_footprint( 0UL );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "fseq" ) ) ) {
     return fd_fseq_footprint();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "replay_pub" ) ) ) {
+    return fd_runtime_public_footprint();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
     return FD_METRICS_FOOTPRINT( VAL("in_cnt"), VAL("cons_cnt") );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "opaque" ) ) ) {
