@@ -668,7 +668,8 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   /* Provide default slot hashes of size 1 if not provided */
   if( !slot_ctx->sysvar_cache->has_slot_hashes ) {
-    fd_slot_hash_t * slot_hashes = deq_fd_slot_hash_t_alloc( fd_spad_virtual( runner->spad ), 1 );
+    uchar * deque_mem = fd_spad_alloc( runner->spad, deq_fd_slot_hash_t_align(), deq_fd_slot_hash_t_footprint( 1 ) );
+    fd_slot_hash_t * slot_hashes = deq_fd_slot_hash_t_join( deq_fd_slot_hash_t_new( deque_mem, 1 ) );
     fd_slot_hash_t * dummy_elem = deq_fd_slot_hash_t_push_tail_nocopy( slot_hashes );
     memset( dummy_elem, 0, sizeof(fd_slot_hash_t) );
     fd_slot_hashes_t default_slot_hashes = { .hashes = slot_hashes };

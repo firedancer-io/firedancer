@@ -1838,12 +1838,6 @@ typedef struct fd_landed_vote_off fd_landed_vote_off_t;
 #undef DEQUE_T
 #undef DEQUE_MAX
 static inline fd_vote_lockout_t *
-deq_fd_vote_lockout_t_alloc( fd_valloc_t valloc, ulong max ) {
-  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, deq_fd_vote_lockout_t_align(), deq_fd_vote_lockout_t_footprint( max ) );
-  return deq_fd_vote_lockout_t_join( deq_fd_vote_lockout_t_new( mem, max ) );
-}
-static inline fd_vote_lockout_t *
 deq_fd_vote_lockout_t_join_new( void * * alloc_mem, ulong max ) {
   if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
   *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, deq_fd_vote_lockout_t_align() );
@@ -1857,12 +1851,6 @@ deq_fd_vote_lockout_t_join_new( void * * alloc_mem, ulong max ) {
 #undef DEQUE_NAME
 #undef DEQUE_T
 #undef DEQUE_MAX
-static inline fd_vote_epoch_credits_t *
-deq_fd_vote_epoch_credits_t_alloc( fd_valloc_t valloc, ulong max ) {
-  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, deq_fd_vote_epoch_credits_t_align(), deq_fd_vote_epoch_credits_t_footprint( max ) );
-  return deq_fd_vote_epoch_credits_t_join( deq_fd_vote_epoch_credits_t_new( mem, max ) );
-}
 static inline fd_vote_epoch_credits_t *
 deq_fd_vote_epoch_credits_t_join_new( void * * alloc_mem, ulong max ) {
   if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
@@ -1989,12 +1977,6 @@ typedef struct fd_vote_state_1_14_11_off fd_vote_state_1_14_11_off_t;
 #undef DEQUE_NAME
 #undef DEQUE_T
 #undef DEQUE_MAX
-static inline fd_landed_vote_t *
-deq_fd_landed_vote_t_alloc( fd_valloc_t valloc, ulong max ) {
-  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, deq_fd_landed_vote_t_align(), deq_fd_landed_vote_t_footprint( max ) );
-  return deq_fd_landed_vote_t_join( deq_fd_landed_vote_t_new( mem, max ) );
-}
 static inline fd_landed_vote_t *
 deq_fd_landed_vote_t_join_new( void * * alloc_mem, ulong max ) {
   if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
@@ -2139,12 +2121,6 @@ typedef struct fd_compact_vote_state_update_switch_off fd_compact_vote_state_upd
 #undef DEQUE_NAME
 #undef DEQUE_T
 #undef DEQUE_MAX
-static inline fd_lockout_offset_t *
-deq_fd_lockout_offset_t_alloc( fd_valloc_t valloc, ulong max ) {
-  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, deq_fd_lockout_offset_t_align(), deq_fd_lockout_offset_t_footprint( max ) );
-  return deq_fd_lockout_offset_t_join( deq_fd_lockout_offset_t_new( mem, max ) );
-}
 static inline fd_lockout_offset_t *
 deq_fd_lockout_offset_t_join_new( void * * alloc_mem, ulong max ) {
   if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
@@ -2300,12 +2276,6 @@ typedef struct fd_slot_hash_off fd_slot_hash_off_t;
 #undef DEQUE_T
 #undef DEQUE_MAX
 static inline fd_slot_hash_t *
-deq_fd_slot_hash_t_alloc( fd_valloc_t valloc, ulong max ) {
-  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, deq_fd_slot_hash_t_align(), deq_fd_slot_hash_t_footprint( max ) );
-  return deq_fd_slot_hash_t_join( deq_fd_slot_hash_t_new( mem, max ) );
-}
-static inline fd_slot_hash_t *
 deq_fd_slot_hash_t_join_new( void * * alloc_mem, ulong max ) {
   if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
   *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, deq_fd_slot_hash_t_align() );
@@ -2352,12 +2322,6 @@ typedef struct fd_block_block_hash_entry_off fd_block_block_hash_entry_off_t;
 #undef DEQUE_NAME
 #undef DEQUE_T
 #undef DEQUE_MAX
-static inline fd_block_block_hash_entry_t *
-deq_fd_block_block_hash_entry_t_alloc( fd_valloc_t valloc, ulong max ) {
-  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, deq_fd_block_block_hash_entry_t_align(), deq_fd_block_block_hash_entry_t_footprint( max ) );
-  return deq_fd_block_block_hash_entry_t_join( deq_fd_block_block_hash_entry_t_new( mem, max ) );
-}
 static inline fd_block_block_hash_entry_t *
 deq_fd_block_block_hash_entry_t_join_new( void * * alloc_mem, ulong max ) {
   if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
@@ -2795,12 +2759,6 @@ typedef struct fd_prev_epoch_inflation_rewards_off fd_prev_epoch_inflation_rewar
 #undef DEQUE_NAME
 #undef DEQUE_T
 #undef DEQUE_MAX
-static inline ulong *
-deq_ulong_alloc( fd_valloc_t valloc, ulong max ) {
-  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow
-  void * mem = fd_valloc_malloc( valloc, deq_ulong_align(), deq_ulong_footprint( max ) );
-  return deq_ulong_join( deq_ulong_new( mem, max ) );
-}
 static inline ulong *
 deq_ulong_join_new( void * * alloc_mem, ulong max ) {
   if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow

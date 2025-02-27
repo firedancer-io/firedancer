@@ -114,7 +114,11 @@ from_vote_state_1_14_11( fd_vote_state_t *         vote_state,
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/vote_state_1_14_11.rs#L72
   if( vote_state->votes ) {
-    vote_state_1_14_11->votes = deq_fd_vote_lockout_t_alloc( fd_spad_virtual( spad ), deq_fd_landed_vote_t_cnt( vote_state->votes ) );
+    uchar * deque_mem = fd_spad_alloc( spad,
+                                       deq_fd_vote_lockout_t_align(),
+                                       deq_fd_vote_lockout_t_footprint( deq_fd_landed_vote_t_cnt( vote_state->votes ) ) );
+    vote_state_1_14_11->votes = deq_fd_vote_lockout_t_join(
+      deq_fd_vote_lockout_t_new( deque_mem, deq_fd_landed_vote_t_cnt( vote_state->votes ) ) );
     for( deq_fd_landed_vote_t_iter_t iter = deq_fd_landed_vote_t_iter_init( vote_state->votes );
          !deq_fd_landed_vote_t_iter_done( vote_state->votes, iter );
          iter = deq_fd_landed_vote_t_iter_next( vote_state->votes, iter ) ) {
@@ -365,7 +369,10 @@ landed_votes_from_lockouts( fd_vote_lockout_t * lockouts,
 
   ulong cnt = deq_fd_vote_lockout_t_cnt( lockouts );
         cnt = fd_ulong_max( cnt, MAX_LOCKOUT_HISTORY );
-  fd_landed_vote_t * landed_votes = deq_fd_landed_vote_t_alloc( fd_spad_virtual( spad ), cnt );
+  uchar * deque_mem = fd_spad_alloc( spad,
+                                     deq_fd_landed_vote_t_align(),
+                                     deq_fd_landed_vote_t_footprint( cnt ) );
+  fd_landed_vote_t * landed_votes = deq_fd_landed_vote_t_join( deq_fd_landed_vote_t_new( deque_mem, deq_fd_landed_vote_t_footprint( cnt ) ) );
 
   for( deq_fd_vote_lockout_t_iter_t iter = deq_fd_vote_lockout_t_iter_init( lockouts );
        !deq_fd_vote_lockout_t_iter_done( lockouts, iter );
@@ -1925,7 +1932,11 @@ do_process_vote_state_update( fd_vote_state_t *           vote_state,
   if( FD_UNLIKELY( rc ) ) return rc;
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L1177
-  fd_landed_vote_t * landed_votes = deq_fd_landed_vote_t_alloc( fd_spad_virtual( ctx->txn_ctx->spad ), deq_fd_vote_lockout_t_cnt( vote_state_update->lockouts ) );
+  uchar * deque_mem = fd_spad_alloc( ctx->txn_ctx->spad,
+                                     deq_fd_landed_vote_t_align(),
+                                     deq_fd_landed_vote_t_footprint( deq_fd_vote_lockout_t_cnt( vote_state_update->lockouts ) ) );
+
+  fd_landed_vote_t * landed_votes = deq_fd_landed_vote_t_join( deq_fd_landed_vote_t_new( deque_mem, deq_fd_vote_lockout_t_cnt( vote_state_update->lockouts ) ) );
   for( deq_fd_vote_lockout_t_iter_t iter =
            deq_fd_vote_lockout_t_iter_init( vote_state_update->lockouts );
        !deq_fd_vote_lockout_t_iter_done( vote_state_update->lockouts, iter );
@@ -2125,7 +2136,10 @@ fd_vote_decode_compact_update( fd_compact_vote_state_update_t * compact_update,
   ulong lockouts_len = compact_update->lockouts_len;
   ulong lockouts_max = fd_ulong_max( lockouts_len, MAX_LOCKOUT_HISTORY );
 
-  vote_update->lockouts = deq_fd_vote_lockout_t_alloc( fd_spad_virtual( ctx->txn_ctx->spad ), lockouts_max );
+  uchar * deque_mem = fd_spad_alloc( ctx->txn_ctx->spad,
+                                     deq_fd_vote_lockout_t_align(),
+                                     deq_fd_vote_lockout_t_footprint( lockouts_max ) );
+  vote_update->lockouts = deq_fd_vote_lockout_t_join( deq_fd_vote_lockout_t_new( deque_mem, lockouts_max ) );
   ulong slot            = fd_ulong_if( vote_update->has_root, vote_update->root, 0 );
 
   for( ulong i=0; i < lockouts_len; ++i ) {
