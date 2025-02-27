@@ -127,8 +127,6 @@ fd_snapshot_load_init( fd_snapshot_load_ctx_t * ctx ) {
       break;
   }
 
-  fd_funkier_start_write( ctx->slot_ctx->acc_mgr->funk );
-
   ctx->par_txn   = ctx->slot_ctx->funk_txn;
   ctx->child_txn = ctx->slot_ctx->funk_txn;
   if( ctx->verify_hash && FD_FEATURE_ACTIVE( ctx->slot_ctx, incremental_snapshot_only_incremental_hash_calculation ) ) {
@@ -165,10 +163,10 @@ fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx,
                                           acc_mgr,
                                           funk_txn,
                                           ctx->runtime_spad,
-                                          ctx->slot_ctx, 
+                                          ctx->slot_ctx,
                                           (restore_manifest_flags & FD_SNAPSHOT_RESTORE_MANIFEST) ? restore_manifest : NULL,
                                           (restore_manifest_flags & FD_SNAPSHOT_RESTORE_STATUS_CACHE) ? restore_status_cache : NULL );
-  
+
   ctx->loader  = fd_snapshot_loader_new ( loader_mem, ZSTD_WINDOW_SZ );
 
   if( FD_UNLIKELY( !ctx->restore || !ctx->loader ) ) {
@@ -284,8 +282,6 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
 
   /* We don't need to free any of the loader memory since it is allocated
      from a spad. */
-
-  fd_funkier_end_write( ctx->slot_ctx->acc_mgr->funk );
 }
 
 void
@@ -323,8 +319,6 @@ fd_snapshot_load_all( const char *         source_cstr,
 void
 fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx ) {
 
-  fd_funkier_start_write( ctx->slot_ctx->acc_mgr->funk );
-
   size_t slen = strlen( ctx->snapshot_file );
   char * snapshot_cstr = fd_spad_alloc( ctx->runtime_spad, 8UL, slen + 1 );
   fd_cstr_fini( fd_cstr_append_text( fd_cstr_init( snapshot_cstr ), ctx->snapshot_file, slen ) );
@@ -357,11 +351,9 @@ fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx ) {
        this is not expected. */
     FD_LOG_ERR(( "Failed to load snapshot (%d-%s)", err, fd_io_strerror( err ) ));
   }
-
-  fd_funkier_end_write( ctx->slot_ctx->acc_mgr->funk );
 }
 
-ulong 
+ulong
 fd_snapshot_get_slot( fd_snapshot_load_ctx_t * ctx ) {
   return fd_snapshot_restore_get_slot( ctx->restore );
 }

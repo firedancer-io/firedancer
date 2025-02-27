@@ -164,7 +164,6 @@ fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *          acc_mgr,
                            fd_funkier_txn_t *         txn,
                            fd_borrowed_account_t * account ) {
 
-  fd_funkier_start_write( acc_mgr->funk );
   fd_funkier_rec_key_t key = fd_acc_funk_key( account->pubkey );
   fd_funkier_t * funk = acc_mgr->funk;
   fd_funkier_rec_t * rec = (fd_funkier_rec_t *)fd_funkier_rec_query( funk, txn, &key );
@@ -174,8 +173,6 @@ fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *          acc_mgr,
     if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %d", err ));
   }
   account->rec = rec;
-  if ( acc_mgr->slots_per_epoch != 0 )
-    fd_funkier_part_set(funk, rec, (uint)fd_rent_lists_key_to_bucket( acc_mgr, rec ));
   ulong reclen = sizeof(fd_account_meta_t)+account->const_meta->dlen;
   fd_wksp_t * wksp = fd_funkier_wksp( acc_mgr->funk );
   int err;
@@ -183,7 +180,6 @@ fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *          acc_mgr,
     FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
   }
   err = fd_acc_mgr_save( acc_mgr, account );
-  fd_funkier_end_write( acc_mgr->funk );
   return err;
 }
 
@@ -242,13 +238,10 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *            acc_mgr,
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
-  fd_funkier_t *     funk    = acc_mgr->funk;
+  fd_funkier_t *  funk    = acc_mgr->funk;
   fd_wksp_t *     wksp    = fd_funkier_wksp( funk );
-  fd_funkier_rec_t * rec_map = fd_funkier_rec_map( funk, wksp );
 
-  ulong batch_cnt = fd_ulong_min(
-    fd_funkier_rec_map_private_list_cnt( fd_funkier_rec_map_key_max( rec_map ) ),
-    fd_ulong_pow2_up( fd_tpool_worker_cnt( tpool ) )
+  ulong batch_cnt = fd_ulong_pow2_up( fd_tpool_worker_cnt( tpool ) );
   );
   ulong batch_mask = (batch_cnt - 1UL);
 
@@ -276,8 +269,6 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *            acc_mgr,
 
     task_accounts_cursor += batch_sz;
   }
-
-  fd_funkier_start_write( funk );
 
   for( ulong i = 0; i < accounts_cnt; i++ ) {
     fd_borrowed_account_t * account = accounts[i];
@@ -323,8 +314,6 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *            acc_mgr,
 
   fd_tpool_exec_all_rrobin( tpool, 0, fd_tpool_worker_cnt( tpool ), fd_acc_mgr_save_task,
                             task_infos, &task_args, NULL, 1, 0, batch_cnt );
-
-  fd_funkier_end_write( funk );
 
   /* Check results */
   for( ulong i = 0; i < batch_cnt; i++ ) {

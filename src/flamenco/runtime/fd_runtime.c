@@ -179,64 +179,9 @@ fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx ) {
 
 static void
 fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off, ulong epoch ) {
-
-  /* Every known Solana cluster currently has no rent-paying accounts. If
-     this feature is active, that means that there is no condition in which
-     we need to iterate through a rent partition. Put more simply, if this
-     feature is active, rent is NEVER collected. */
-  if( FD_FEATURE_ACTIVE( slot_ctx, skip_rent_rewrites ) ) {
-    return;
-  }
-
-  fd_funkier_txn_t * txn     = slot_ctx->funk_txn;
-  fd_acc_mgr_t *  acc_mgr = slot_ctx->acc_mgr;
-  fd_funkier_t *     funk    = slot_ctx->acc_mgr->funk;
-  fd_wksp_t *     wksp    = fd_funkier_wksp( funk );
-
-  fd_funkier_partvec_t * partvec = fd_funkier_get_partvec( funk, wksp );
-
-  fd_funkier_rec_t * rec_map = fd_funkier_rec_map( funk, wksp );
-
-  for( fd_funkier_rec_t const *rec_ro = fd_funkier_part_head( partvec, (uint)off, rec_map );
-       rec_ro != NULL;
-       rec_ro = fd_funkier_part_next( rec_ro, rec_map ) ) {
-
-    if ( FD_UNLIKELY( !fd_funkier_key_is_acc( rec_ro->pair.key ) ) ) {
-      continue;
-    }
-
-    fd_pubkey_t const *key = fd_type_pun_const( rec_ro->pair.key[0].uc );
-    FD_BORROWED_ACCOUNT_DECL( rec );
-    int err = fd_acc_mgr_view( acc_mgr, txn, key, rec );
-
-    /* Account might not exist anymore in the current world */
-    if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-      continue;
-    }
-    if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "fd_runtime_collect_rent: fd_acc_mgr_view failed (%d)", err ));
-      continue;
-    }
-
-    /* Check if latest version in this transaction */
-    if( rec_ro!=rec->const_rec ) {
-      continue;
-    }
-
-    /* Upgrade read-only handle to writable */
-    err = fd_acc_mgr_modify(
-        acc_mgr, txn, key,
-        /* do_create   */ 0,
-        /* min_data_sz */ 0UL,
-        rec);
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_modify failed (%d)", err ));
-      continue;
-    }
-
-    /* Actually invoke rent collection */
-    slot_ctx->slot_bank.collected_rent += fd_runtime_collect_rent_from_account( slot_ctx, rec->meta, key, epoch );
-  }
+  (void)slot_ctx;
+  (void)off;
+  (void)epoch;
 }
 
 /* Yes, this is a real function that exists in Solana. Yes, I am ashamed I have had to replicate it. */
@@ -1401,9 +1346,7 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
   slot_ctx->nonvote_failed_txn_count           = 0UL;
   slot_ctx->total_compute_units_used           = 0UL;
 
-  fd_funkier_start_write( slot_ctx->acc_mgr->funk );
   int result = fd_runtime_block_sysvar_update_pre_execute( slot_ctx, runtime_spad );
-  fd_funkier_end_write( slot_ctx->acc_mgr->funk );
   if( FD_UNLIKELY( result != 0 ) ) {
     FD_LOG_WARNING(("updating sysvars failed"));
     return result;
@@ -3697,17 +3640,15 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
                              fd_spad_t *          runtime_spad ) {
   /* Publish any transaction older than 31 slots */
   fd_funkier_t *       funk       = slot_ctx->acc_mgr->funk;
-  fd_funkier_txn_t *   txnmap     = fd_funkier_txn_map( funk, fd_funkier_wksp( funk ) );
+  fd_funkier_txn_pool_t txnpool   = fd_funkier_txn_pool( funk, fd_funkier_wksp( funk ) );
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
 
   if( capture_ctx != NULL ) {
-    fd_funkier_start_write( funk );
     fd_runtime_checkpt( capture_ctx, slot_ctx, slot_ctx->slot_bank.slot );
-    fd_funkier_end_write( funk );
   }
 
   uint depth = 0;
-  for( fd_funkier_txn_t * txn = slot_ctx->funk_txn; txn; txn = fd_funkier_txn_parent(txn, txnmap) ) {
+  for( fd_funkier_txn_t * txn = slot_ctx->funk_txn; txn; txn = fd_funkier_txn_parent(txn, &txnpool) ) {
     if( ++depth == (FD_RUNTIME_NUM_ROOT_BLOCKS - 1 ) ) {
       FD_LOG_DEBUG(("publishing %s (slot %lu)", FD_BASE58_ENC_32_ALLOCA( &txn->xid ), txn->xid.ul[0]));
 
@@ -3719,7 +3660,7 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
 
       fd_funkier_start_write( funk );
       if( slot_ctx->epoch_ctx->constipate_root ) {
-        fd_funkier_txn_t * parent = fd_funkier_txn_parent( txn, txnmap );
+        fd_funkier_txn_t * parent = fd_funkier_txn_parent( txn, &txnpool );
         if( parent != NULL ) {
           slot_ctx->root_slot = txn->xid.ul[0];
 

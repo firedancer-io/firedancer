@@ -156,8 +156,7 @@ _load_account( fd_borrowed_account_t *           acc,
     return 0;
 
   assert( acc_mgr->funk );
-  assert( acc_mgr->funk->magic == FD_FUNK_MAGIC );
-  fd_funkier_start_write( acc_mgr->funk );
+  assert( acc_mgr->funk->magic == FD_FUNKIER_MAGIC );
   int err = fd_acc_mgr_modify( /* acc_mgr     */ acc_mgr,
                                /* txn         */ funk_txn,
                                /* pubkey      */ pubkey,
@@ -179,7 +178,6 @@ _load_account( fd_borrowed_account_t *           acc,
   acc->meta = NULL;
   acc->data = NULL;
   acc->rec  = NULL;
-  fd_funkier_end_write( acc_mgr->funk );
 
   return 1;
 }
@@ -235,9 +233,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Create temporary funk transaction and scratch contexts */
 
-  fd_funkier_start_write( funk );
   fd_funkier_txn_t * funk_txn = fd_funkier_txn_prepare( funk, NULL, xid, 1 );
-  fd_funkier_end_write( funk );
 
   ulong vote_acct_max = MAX_TX_ACCOUNT_LOCKS;
 
@@ -387,9 +383,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   }
 
   /* Add accounts to bpf program cache */
-  fd_funkier_start_write( acc_mgr->funk );
   fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn, runner->spad );
-  fd_funkier_end_write( acc_mgr->funk );
 
   /* Restore sysvar cache */
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
@@ -566,9 +560,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   /* Create temporary funk transaction and spad contexts */
 
-  fd_funkier_start_write( runner->funk );
   fd_funkier_txn_t * funk_txn = fd_funkier_txn_prepare( funk, NULL, xid, 1 );
-  fd_funkier_end_write( runner->funk );
 
   ulong vote_acct_max = MAX_TX_ACCOUNT_LOCKS;
 
@@ -603,9 +595,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_slot_bank_new( &slot_ctx->slot_bank );
 
   /* Initialize builtin accounts */
-  fd_funkier_start_write( runner->funk );
   fd_builtin_programs_init( slot_ctx );
-  fd_funkier_end_write( runner->funk );
 
   /* Load account states into funk (note this is different from the account keys):
     Account state = accounts to populate Funk
@@ -726,7 +716,6 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
       ( rent->exemption_threshold     >    999.0 ) |
       ( rent->lamports_per_uint8_year > UINT_MAX ) |
       ( rent->burn_percent            >      100 ) ) {
-    fd_funk_end_write( runner->funk );
     return NULL;
   }
 
