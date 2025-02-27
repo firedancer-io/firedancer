@@ -96,7 +96,7 @@ fdctl_cfg_get_bool( int *                 out,
     return 0;
   }
   ulong u; fd_ulong_svw_dec( (uchar const *)info->val, &u );
-  *out = (int)u;
+  *out = fd_int_zz_dec( (uint)u );
   return 1;
 }
 

@@ -415,7 +415,12 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
     if( FD_LIKELY( (txn->flags & (FD_TXN_P_FLAGS_SANITIZE_SUCCESS|FD_TXN_P_FLAGS_EXECUTE_SUCCESS))==(FD_TXN_P_FLAGS_SANITIZE_SUCCESS|FD_TXN_P_FLAGS_EXECUTE_SUCCESS) ) ) {
       txn->bank_cu.actual_consumed_cus = non_execution_cus + consumed_cus[ i ];
-      FD_TEST( consumed_cus[ i ] <= requested_exec_plus_acct_data_cus );
+      /* FD_TEST( consumed_cus[ i ] <= requested_exec_plus_acct_data_cus ); */
+      if( FD_UNLIKELY( consumed_cus[ i ] > requested_exec_plus_acct_data_cus ) ) {
+        FD_LOG_WARNING(( "transaction %lu in bundle consumed %u CUs > requested %u CUs", i, consumed_cus[ i ], requested_exec_plus_acct_data_cus ));
+        FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
+        consumed_cus[ i ] = requested_exec_plus_acct_data_cus;
+      }
       txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus - consumed_cus[ i ];
     }
   }
