@@ -17,6 +17,8 @@ struct fd_idxer_tile_ctx {
 
   fd_blockstore_t   blockstore_ljoin;
   fd_blockstore_t * blockstore;
+
+  ulong slot;
 };
 typedef struct fd_idxer_tile_ctx fd_idxer_tile_ctx_t;
 
@@ -53,8 +55,9 @@ during_frag( fd_idxer_tile_ctx_t * ctx,
                     ctx->replay_in_chunk0,
                     ctx->replay_in_wmark ));
     }
-    uchar * txn = fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
-    FD_LOG_HEXDUMP_DEBUG(( "idxer tile recieved txn: ", txn, sz ));
+    uchar * slot_done = fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
+    FD_LOG_WARNING(("idxer recieved slot: %lu", *(ulong *)slot_done));
+    ctx->slot = *(ulong *)slot_done;
   }
 }
 
@@ -71,6 +74,8 @@ after_frag( fd_idxer_tile_ctx_t * ctx FD_PARAM_UNUSED,
   (void)sz;
   (void)tsorig;
   (void)stem;
+
+  //deshred( ctx->blockstore, ctx->slot );
 }
 
 static void

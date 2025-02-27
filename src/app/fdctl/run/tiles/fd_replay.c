@@ -1807,9 +1807,11 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     /**********************************************************************/
     /* RPC: Send to idxer tile to deshred                                 */
     /**********************************************************************/
-    
-    //fd_chunk_to_laddr( ctx->replay_idxer_out_mem, ctx->replay_idxer_out_chunk )
-    //fd_stem_publish( stem, IDXER_IN_IDX, 0, ctx->blockhash.uc, sizeof(fd_hash_t), 0UL, 0UL, 0UL );
+
+    uchar * deshred_buf = fd_chunk_to_laddr( ctx->replay_idxer_out_mem, ctx->replay_idxer_out_chunk );
+    FD_STORE( ulong, deshred_buf, curr_slot );
+    fd_stem_publish( stem, ctx->replay_idxer_out_idx, 0, ctx->replay_idxer_out_chunk, 8UL, 0UL, 0UL, 0UL );
+    ctx->replay_idxer_out_chunk = fd_dcache_compact_next( ctx->replay_idxer_out_chunk, 8UL, ctx->replay_idxer_out_chunk0, ctx->replay_idxer_out_wmark );
 
     /**********************************************************************/
     /* Consensus: update ghost and forks                                  */
