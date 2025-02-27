@@ -14,12 +14,12 @@ Security-relevant bugs in Firedancer v0.1 should be submitted to our [Immunefi b
 Under the terms and conditions of the program, you may be eligible for a reward.
 
 Code outside the scope of the bug bounty program is still in development.
-It is yet to go through more rigorous security testing and auditing.
+It has yet to go through more rigorous security testing and auditing.
 If you find a bug outside the bug bounty program's scope, submit it as a [GitHub issue](https://github.com/firedancer-io/firedancer/issues).
 
 ## Third Party Security Audits
 
-The Firedancer project engages third party firms to conduct independent security audits of Firedancer.
+The Firedancer project engages third-party firms to conduct independent security audits of Firedancer.
 
 As these third-party audits are completed and issues are sufficiently addressed, we make those audit reports public.
 
