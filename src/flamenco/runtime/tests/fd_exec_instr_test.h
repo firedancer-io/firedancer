@@ -36,9 +36,9 @@ ulong
 fd_exec_instr_test_runner_footprint( void );
 
 /* fd_exec_instr_test_runner_new formats two memory regions, one for use as an
-   instruction test runner and another for an spad.  `mem` must be 
-   part of an fd_wksp.  Does additional wksp allocs.  wksp_tag is the tag 
-   used for wksp allocs managed by the runner.  Returns newly created runner 
+   instruction test runner and another for an spad.  `mem` must be
+   part of an fd_wksp.  Does additional wksp allocs.  wksp_tag is the tag
+   used for wksp allocs managed by the runner.  Returns newly created runner
    on success.  On failure, returns NULL and logs reason for error. */
 
 fd_exec_instr_test_runner_t *
@@ -58,10 +58,10 @@ fd_exec_instr_test_runner_get_spad( fd_exec_instr_test_runner_t * runner );
 
 /* fd_exec_test_instr_context_create takes in a test runner and InstrCtx protobuf
    and creates an fd_exec_instr_ctx_t that can be used in runtime.
-   
-   Setting is_syscall avoids some operations/checks only relevant for 
+
+   Setting is_syscall avoids some operations/checks only relevant for
    program instructions.
-   
+
    Should be coupled with fd_exec_test_instr_context_destroy when the instr_ctx
    is no longer needed. */
 int
@@ -107,13 +107,13 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
                       void *                        output_buf,
                       ulong                         output_bufsz );
 
-/* 
+/*
    Executes several transactions within a single slot. A few things to know when using this harness...
    - Any sysvars provided will override any initial values set from `fd_runtime_init_program`
    - This does not test sigverify
    - Epoch boundaries are NOT tested
    - Tested Firedancer code is `fd_runtime_block_execute_tpool`
-   - Associated entrypoint tested in Agave is `confirm_slot_entries` (except sigverify is removed and verify_ticks is included) 
+   - Associated entrypoint tested in Agave is `confirm_slot_entries` (except sigverify is removed and verify_ticks is included)
    - (idk about this yet) Recent blockhashes sysvar account must NOT be provided in the input account states. Instead, the sysvar is populated through the input blockhash queue.
 */
 ulong
@@ -123,12 +123,12 @@ fd_exec_block_test_run( fd_exec_instr_test_runner_t * runner,
                         void *                        output_buf,
                         ulong                         output_bufsz );
 
-/* Loads an ELF binary (in input->elf.data()). 
+/* Loads an ELF binary (in input->elf.data()).
    output_buf points to a memory region of output_bufsz bytes where the
    result is allocated into. During execution, the contents of
    fd_sbpf_program_t are wrapped in *output (backed by output_buf).
 
-   Returns number of bytes allocated at output_buf OR 0UL on any 
+   Returns number of bytes allocated at output_buf OR 0UL on any
    harness-specific failures. Execution failures still return number of allocated bytes,
    but output is incomplete/undefined.
    */
