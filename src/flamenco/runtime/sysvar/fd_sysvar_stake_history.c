@@ -22,8 +22,7 @@ write_stake_history( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 static fd_stake_history_t *
-fd_sysvar_stake_history_read( fd_stake_history_t * result,
-                              fd_exec_slot_ctx_t * slot_ctx,
+fd_sysvar_stake_history_read( fd_exec_slot_ctx_t * slot_ctx,
                               fd_spad_t *          runtime_spad ) {
   FD_BORROWED_ACCOUNT_DECL( stake_rec );
   int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_stake_history_id, stake_rec );
@@ -31,14 +30,22 @@ fd_sysvar_stake_history_read( fd_stake_history_t * result,
     return NULL;
 
   fd_bincode_decode_ctx_t ctx = {
-    .data = stake_rec->const_data,
-    .dataend = (char *) stake_rec->const_data + stake_rec->const_meta->dlen,
-    .valloc  = fd_spad_virtual( runtime_spad )
+    .data    = stake_rec->const_data,
+    .dataend = (char *)stake_rec->const_data + stake_rec->const_meta->dlen,
   };
 
-  if( FD_UNLIKELY( fd_stake_history_decode( result, &ctx )!=FD_BINCODE_SUCCESS ) )
+  ulong total_sz = 0UL;
+  err = fd_stake_history_decode_footprint( &ctx, &total_sz );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
     return NULL;
-  return result;
+  }
+
+  uchar * mem = fd_spad_alloc( runtime_spad, fd_stake_history_align(), total_sz );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "Failed to allocate memory for stake history" ));
+  }
+
+  return fd_stake_history_decode( mem, &ctx );
 }
 
 void
@@ -53,28 +60,25 @@ fd_sysvar_stake_history_update( fd_exec_slot_ctx_t *       slot_ctx,
                                 fd_stake_history_entry_t * entry,
                                 fd_spad_t *                runtime_spad ) {
   // Need to make this maybe zero copies of map...
-  fd_stake_history_t stake_history;
-  fd_sysvar_stake_history_read( &stake_history, slot_ctx, runtime_spad );
+  fd_stake_history_t * stake_history = fd_sysvar_stake_history_read( slot_ctx, runtime_spad );
 
-  if( stake_history.fd_stake_history_offset == 0 ) {
-    stake_history.fd_stake_history_offset = stake_history.fd_stake_history_size - 1;
+  if( stake_history->fd_stake_history_offset == 0 ) {
+    stake_history->fd_stake_history_offset = stake_history->fd_stake_history_size - 1;
   } else {
-    stake_history.fd_stake_history_offset--;  
+    stake_history->fd_stake_history_offset--;
   }
 
-  if( stake_history.fd_stake_history_len < stake_history.fd_stake_history_size ) {
-    stake_history.fd_stake_history_len++;
+  if( stake_history->fd_stake_history_len < stake_history->fd_stake_history_size ) {
+    stake_history->fd_stake_history_len++;
   }
 
   // This should be done with a bit mask
-  ulong idx = stake_history.fd_stake_history_offset;
+  ulong idx = stake_history->fd_stake_history_offset;
 
-  stake_history.fd_stake_history[ idx ].epoch = entry->epoch;
-  stake_history.fd_stake_history[ idx ].activating = entry->activating;
-  stake_history.fd_stake_history[ idx ].effective = entry->effective;
-  stake_history.fd_stake_history[ idx ].deactivating = entry->deactivating;
+  stake_history->fd_stake_history[ idx ].epoch = entry->epoch;
+  stake_history->fd_stake_history[ idx ].activating = entry->activating;
+  stake_history->fd_stake_history[ idx ].effective = entry->effective;
+  stake_history->fd_stake_history[ idx ].deactivating = entry->deactivating;
 
-  write_stake_history( slot_ctx, &stake_history );
-  fd_bincode_destroy_ctx_t destroy = { .valloc = fd_spad_virtual( runtime_spad ) };
-  fd_stake_history_destroy( &stake_history, &destroy );
+  write_stake_history( slot_ctx, stake_history );
 }

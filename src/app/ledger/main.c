@@ -830,8 +830,7 @@ ingest_rocksdb( char const *      file,
 
     ++blk_cnt;
 
-    fd_bincode_destroy_ctx_t ctx = { .valloc = valloc };
-    fd_slot_meta_destroy( &slot_meta, &ctx );
+    fd_slot_meta_destroy( &slot_meta );
 
     ret = fd_rocksdb_root_iter_next( &iter, &slot_meta, valloc );
     if( ret < 0 ) {

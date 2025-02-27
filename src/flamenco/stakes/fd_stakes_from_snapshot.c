@@ -215,7 +215,6 @@ main( int     argc,
 
   fd_scratch_attach( smem, fmem, smax, scratch_depth );
   fd_scratch_push();
-  fd_valloc_t scratch_valloc = fd_scratch_virtual();
 
   /* Open file */
 
@@ -253,16 +252,24 @@ main( int     argc,
   /* Deserialize manifest */
 
   long dt = -fd_log_wallclock();
-  fd_solana_manifest_t manifest;
 
   fd_bincode_decode_ctx_t decode = {
-    .valloc  = scratch_valloc,
     .data    = manifest_bin,
     .dataend = (void *)( (ulong)manifest_bin + manifest_binsz ),
   };
-  if( FD_UNLIKELY( FD_BINCODE_SUCCESS!=
-                   fd_solana_manifest_decode( &manifest, &decode ) ) )
-    FD_LOG_ERR(( "Failed to deserialize manifest" ));
+
+  ulong total_sz   = 0UL;
+  int   decode_err = fd_solana_manifest_decode_footprint( &decode, &total_sz );
+  if( FD_UNLIKELY( decode_err ) ) {
+    FD_LOG_ERR(( "Failed to decode manifest" ));
+  }
+
+  uchar * mem = fd_scratch_alloc( alignof(fd_solana_manifest_t), total_sz );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "Unable to allocate memory for manifest" ));
+  }
+
+  fd_solana_manifest_t * manifest = fd_solana_manifest_decode( mem, &decode );
 
   fd_wksp_free_laddr( manifest_bin ); manifest_bin = NULL;
   dt += fd_log_wallclock();
@@ -274,13 +281,13 @@ main( int     argc,
   fd_scratch_push();
   switch( action ) {
   case ACTION_LEADERS:
-    res = action_leaders( &manifest, epoch );
+    res = action_leaders( manifest, epoch );
     break;
   case ACTION_NODES:
-    res = action_nodes( &manifest, epoch );
+    res = action_nodes( manifest, epoch );
     break;
   case ACTION_EPOCHS:
-    res = action_epochs( &manifest );
+    res = action_epochs( manifest );
     break;
   default:
     __builtin_unreachable();

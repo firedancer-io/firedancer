@@ -42,11 +42,11 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                       failed_txn_count;
   ulong                       nonvote_failed_txn_count;
   ulong                       total_compute_units_used;
-  
+
   fd_sysvar_cache_t *         sysvar_cache;
 
   fd_txncache_t *             status_cache;
-  fd_slot_history_t           slot_history[1];
+  fd_slot_history_t *         slot_history;
 
   int                         enable_exec_recording; /* Enable/disable execution metadata
                                                      recording, e.g. txn logs.  Analogue

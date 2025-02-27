@@ -314,16 +314,25 @@ verify_vote_txn( fd_gossip_vote_t const * vote ) {
     return -1;
   }
 
-  fd_vote_instruction_t vote_instr = { 0 };
   fd_bincode_decode_ctx_t decode = {
-                                    .data    = instr_data,
-                                    .dataend = instr_data + instr_data_sz,
-                                    .valloc  = fd_scratch_virtual()
+    .data    = instr_data,
+    .dataend = instr_data + instr_data_sz
   };
-  int decode_result = fd_vote_instruction_decode( &vote_instr, &decode );
-  if( decode_result != FD_BINCODE_SUCCESS) {
+
+  ulong total_sz      = 0UL;
+  int   decode_result = fd_vote_instruction_decode_footprint( &decode, &total_sz );
+  if( FD_UNLIKELY( decode_result != FD_BINCODE_SUCCESS ) ) {
     return -1;
-  } else if ( !is_vote_state_update_instr( vote_instr.discriminant ) ) {
+  }
+
+  uchar * mem = fd_scratch_alloc( fd_vote_instruction_align(), total_sz );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "Unable to allocate memory for vote instruction" ));
+  }
+
+  fd_vote_instruction_t * vote_instr = fd_vote_instruction_decode( mem, &decode );
+
+  if( !is_vote_state_update_instr( vote_instr->discriminant ) ) {
     return -1;
   }
 

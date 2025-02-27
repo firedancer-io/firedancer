@@ -19,8 +19,7 @@ fd_sysvar_rent_init( fd_exec_slot_ctx_t * slot_ctx );
    Returns result on success, NULL otherwise. */
 
 fd_rent_t *
-fd_sysvar_rent_read( fd_rent_t *                result,
-                     fd_exec_slot_ctx_t const * slot_ctx,
+fd_sysvar_rent_read( fd_exec_slot_ctx_t const * slot_ctx,
                      fd_spad_t *                runtime_spad );
 
 /* fd_rent_exempt_minimum_balance returns the minimum balance needed

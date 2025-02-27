@@ -227,10 +227,20 @@ fd_rocksdb_get_meta( fd_rocksdb_t *   db,
   fd_bincode_decode_ctx_t ctx;
   ctx.data = meta;
   ctx.dataend = &meta[vallen];
-  ctx.valloc  = valloc;
-  if( fd_slot_meta_decode( m, &ctx ) ) {
-    FD_LOG_ERR(("fd_slot_meta_decode failed"));
+
+  ulong total_sz = 0UL;
+  if( fd_slot_meta_decode_footprint( &ctx, &total_sz ) ) {
+    FD_LOG_ERR(( "fd_slot_meta_decode failed" ));
   }
+
+  uchar * mem = fd_valloc_malloc( valloc, fd_slot_meta_align(), total_sz );
+  if( NULL == mem ) {
+    FD_LOG_ERR(( "fd_valloc_malloc failed" ));
+  }
+
+  fd_slot_meta_decode( mem, &ctx );
+
+  fd_memcpy( m, mem, sizeof(fd_slot_meta_t) );
 
   free(meta);
 
@@ -398,13 +408,13 @@ fd_rocksdb_copy_over_slot_indexed_range( fd_rocksdb_t * src,
        cf_idx == FD_ROCKSDB_CFIDX_PROGRAM_COSTS      ||
        cf_idx == FD_ROCKSDB_CFIDX_TRANSACTION_STATUS ||
        cf_idx == FD_ROCKSDB_CFIDX_ADDRESS_SIGNATURES ) {
-    FD_LOG_NOTICE(("fd_rocksdb_copy_over_range: skipping cf_idx=%lu because not slot indexed", cf_idx));
+    FD_LOG_NOTICE(( "fd_rocksdb_copy_over_range: skipping cf_idx=%lu because not slot indexed", cf_idx ));
     return 0;
   }
 
   rocksdb_iterator_t * iter = rocksdb_create_iterator_cf( src->db, src->ro, src->cf_handles[cf_idx] );
   if ( FD_UNLIKELY( iter == NULL ) ) {
-    FD_LOG_ERR(("rocksdb_create_iterator_cf failed for cf_idx=%lu", cf_idx));
+    FD_LOG_ERR(( "rocksdb_create_iterator_cf failed for cf_idx=%lu", cf_idx ));
   }
 
   for ( fd_rocksdb_iter_seek_to_slot_if_possible( iter, cf_idx, start_slot ); rocksdb_iter_valid( iter ); rocksdb_iter_next( iter ) ) {
@@ -642,16 +652,22 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
       } else {
         fd_bincode_decode_ctx_t decode = {
           .data    = res,
-          .dataend = res + vallen,
-          .valloc  = valloc,
+          .dataend = res + vallen
         };
-        fd_frozen_hash_versioned_t versioned;
-        int decode_err = fd_frozen_hash_versioned_decode( &versioned, &decode );
+        ulong total_sz = 0UL;
+        int decode_err = fd_frozen_hash_versioned_decode_footprint( &decode, &total_sz );
+
+        uchar * mem = fd_valloc_malloc( valloc, fd_frozen_hash_versioned_align(), total_sz );
+        if( NULL == mem ) {
+          FD_LOG_ERR(( "fd_valloc_malloc failed" ));
+        }
+
+        fd_frozen_hash_versioned_t * versioned = fd_frozen_hash_versioned_decode( mem, &decode );
         if( FD_UNLIKELY( decode_err!=FD_BINCODE_SUCCESS ) ) goto cleanup;
         if( FD_UNLIKELY( decode.data!=decode.dataend    ) ) goto cleanup;
-        if( FD_UNLIKELY( versioned.discriminant !=fd_frozen_hash_versioned_enum_current ) ) goto cleanup;
+        if( FD_UNLIKELY( versioned->discriminant !=fd_frozen_hash_versioned_enum_current ) ) goto cleanup;
         /* Success */
-        fd_memcpy( block_map_entry->bank_hash.hash, versioned.inner.current.frozen_hash.hash, 32UL );
+        fd_memcpy( block_map_entry->bank_hash.hash, versioned->inner.current.frozen_hash.hash, 32UL );
       cleanup:
         free( res );
       }
@@ -912,17 +928,20 @@ fd_rocksdb_import_block_shredcap( fd_rocksdb_t *               db,
     fd_bincode_decode_ctx_t decode = {
       .data    = res,
       .dataend = res + vallen,
-      .valloc  = valloc,
     };
-    fd_frozen_hash_versioned_t versioned;
-    int decode_err = fd_frozen_hash_versioned_decode( &versioned, &decode );
+    ulong total_sz = 0UL;
+    int decode_err = fd_frozen_hash_versioned_decode_footprint( &decode, &total_sz );
+
+    uchar * mem = fd_valloc_malloc( valloc, fd_frozen_hash_versioned_align(), total_sz );
+
+    fd_frozen_hash_versioned_t * versioned = fd_frozen_hash_versioned_decode( mem, &decode );
+
     if( FD_UNLIKELY( decode_err != FD_BINCODE_SUCCESS ) ) goto cleanup;
     if( FD_UNLIKELY( decode.data!=decode.dataend    ) ) goto cleanup;
-    if( FD_UNLIKELY( versioned.discriminant != fd_frozen_hash_versioned_enum_current ) ) goto cleanup;
-
+    if( FD_UNLIKELY( versioned->discriminant != fd_frozen_hash_versioned_enum_current ) ) goto cleanup;
     fd_shredcap_bank_hash_entry_t bank_hash_entry;
     bank_hash_entry.slot = slot;
-    fd_memcpy( &bank_hash_entry.bank_hash, versioned.inner.current.frozen_hash.hash, 32UL );
+    fd_memcpy( &bank_hash_entry.bank_hash, versioned->inner.current.frozen_hash.hash, 32UL );
     fd_io_buffered_ostream_write( bank_hash_ostream, &bank_hash_entry, FD_SHREDCAP_BANK_HASH_ENTRY_FOOTPRINT );
   cleanup:
     free( res );

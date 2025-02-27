@@ -293,7 +293,7 @@ generic_program_to_json( fd_webserver_t * ws,
   return NULL;
 }
 
-const char*
+const char *
 vote_program_to_json( fd_webserver_t * ws,
                       fd_txn_t * txn,
                       fd_txn_instr_t * instr,
@@ -302,22 +302,28 @@ vote_program_to_json( fd_webserver_t * ws,
   (void)txn;
   FD_SCRATCH_SCOPE_BEGIN { /* read_epoch consumes a ton of scratch space! */
     if( *need_comma ) EMIT_SIMPLE(",");
-    fd_vote_instruction_t   instruction;
     fd_bincode_decode_ctx_t decode = {
       .data    = raw + instr->data_off,
       .dataend = raw + instr->data_off + instr->data_sz,
-      .valloc  = fd_scratch_virtual()
     };
-    int decode_result = fd_vote_instruction_decode( &instruction, &decode );
+    ulong total_sz      = 0UL;
+    int   decode_result = fd_vote_instruction_decode_footprint( &decode, &total_sz );
     if( decode_result != FD_BINCODE_SUCCESS ) {
       EMIT_SIMPLE("null");
       return NULL;
     }
 
+    uchar * mem = fd_scratch_alloc( fd_vote_instruction_align(), total_sz );
+    if( FD_UNLIKELY( !mem ) ) {
+      FD_LOG_ERR(( "Unable to allocate memory for vote instruction" ));
+    }
+
+    fd_vote_instruction_t * instruction = fd_vote_instruction_decode( mem, &decode );
+
     EMIT_SIMPLE("{\"parsed\":");
 
     fd_rpc_json_t * json = fd_rpc_json_init( fd_rpc_json_new( fd_scratch_alloc( fd_rpc_json_align(), fd_rpc_json_footprint() ) ), ws );
-    fd_vote_instruction_walk( json, &instruction, fd_rpc_json_walk, NULL, 0 );
+    fd_vote_instruction_walk( json, instruction, fd_rpc_json_walk, NULL, 0 );
 
     EMIT_SIMPLE(",\"program\":\"vote\",\"programId\":\"Vote111111111111111111111111111111111111111\",\"stackHeight\":null}");
     *need_comma = 1;
@@ -334,22 +340,28 @@ system_program_to_json( fd_webserver_t * ws,
   (void)txn;
   FD_SCRATCH_SCOPE_BEGIN { /* read_epoch consumes a ton of scratch space! */
     if( *need_comma ) EMIT_SIMPLE(",");
-    fd_system_program_instruction_t instruction;
     fd_bincode_decode_ctx_t decode = {
       .data    = raw + instr->data_off,
-      .dataend = raw + instr->data_off + instr->data_sz,
-      .valloc  = fd_scratch_virtual()
+      .dataend = raw + instr->data_off + instr->data_sz
     };
-    int decode_result = fd_system_program_instruction_decode( &instruction, &decode );
+    ulong total_sz      = 0UL;
+    int   decode_result = fd_system_program_instruction_decode_footprint( &decode, &total_sz );
     if( decode_result != FD_BINCODE_SUCCESS ) {
       EMIT_SIMPLE("null");
       return NULL;
     }
 
+    uchar * mem = fd_scratch_alloc( fd_system_program_instruction_align(), total_sz );
+    if( FD_UNLIKELY( !mem ) ) {
+      FD_LOG_ERR(( "Unable to allocate memory for system program instruction" ));
+    }
+
+    fd_system_program_instruction_t * instruction = fd_system_program_instruction_decode( mem, &decode );
+
     EMIT_SIMPLE("{\"parsed\":");
 
     fd_rpc_json_t * json = fd_rpc_json_init( fd_rpc_json_new( fd_scratch_alloc( fd_rpc_json_align(), fd_rpc_json_footprint() ) ), ws );
-    fd_system_program_instruction_walk( json, &instruction, fd_rpc_json_walk, NULL, 0 );
+    fd_system_program_instruction_walk( json, instruction, fd_rpc_json_walk, NULL, 0 );
 
     EMIT_SIMPLE(",\"program\":\"system\",\"programId\":\"11111111111111111111111111111111\",\"stackHeight\":null}");
     *need_comma = 1;
@@ -388,22 +400,28 @@ compute_budget_program_to_json( fd_webserver_t * ws,
   (void)txn;
   FD_SCRATCH_SCOPE_BEGIN { /* read_epoch consumes a ton of scratch space! */
     if( *need_comma ) EMIT_SIMPLE(",");
-    fd_compute_budget_program_instruction_t instruction;
     fd_bincode_decode_ctx_t decode = {
       .data    = raw + instr->data_off,
       .dataend = raw + instr->data_off + instr->data_sz,
-      .valloc  = fd_scratch_virtual()
     };
-    int decode_result = fd_compute_budget_program_instruction_decode( &instruction, &decode );
+    ulong total_sz      = 0UL;
+    int   decode_result = fd_compute_budget_program_instruction_decode_footprint( &decode, &total_sz );
     if( decode_result != FD_BINCODE_SUCCESS ) {
       EMIT_SIMPLE("null");
       return NULL;
     }
 
+    uchar * mem = fd_scratch_alloc( fd_compute_budget_program_instruction_align(), total_sz );
+    if( FD_UNLIKELY( !mem ) ) {
+      FD_LOG_ERR(( "Unable to allocate memory for compute budget program instruction" ));
+    }
+
+    fd_compute_budget_program_instruction_t * instruction = fd_compute_budget_program_instruction_decode( mem, &decode );
+
     EMIT_SIMPLE("{\"parsed\":");
 
     fd_rpc_json_t * json = fd_rpc_json_init( fd_rpc_json_new( fd_scratch_alloc( fd_rpc_json_align(), fd_rpc_json_footprint() ) ), ws );
-    fd_compute_budget_program_instruction_walk( json, &instruction, fd_rpc_json_walk, NULL, 0 );
+    fd_compute_budget_program_instruction_walk( json, instruction, fd_rpc_json_walk, NULL, 0 );
 
     EMIT_SIMPLE(",\"program\":\"compute_budget\",\"programId\":\"ComputeBudget111111111111111111111111111111\",\"stackHeight\":null}");
     *need_comma = 1;
