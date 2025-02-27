@@ -194,7 +194,7 @@ int
 fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
                  fd_funk_txn_t const *   txn,
                  fd_pubkey_t const *     pubkey,
-                 fd_txn_acct_t * account );
+                 fd_txn_account_t * account );
 
 /* fd_acc_mgr_modify_raw requests a writable handle to an account.
    Follows interface of fd_acc_mgr_modify_raw with the following

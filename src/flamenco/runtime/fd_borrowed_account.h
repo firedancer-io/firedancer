@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_borrowed_account_h
 #define HEADER_fd_src_flamenco_runtime_fd_borrowed_account_h
 
-#include "fd_txn_acct.h"
+#include "fd_txn_account.h"
 #include "program/fd_program_util.h"
 #include "context/fd_exec_epoch_ctx.h"
 #include "sysvar/fd_sysvar_rent.h"
@@ -13,11 +13,44 @@
 /* TODO Add setters and more functions to mimic Agave Borrowed Account API */
 
 struct fd_borrowed_account {
-  fd_txn_acct_t *             acct;
+  fd_txn_account_t *             acct;
   fd_exec_instr_ctx_t const * instr_ctx;
   int                         instr_acc_idx;
 };
 typedef struct fd_borrowed_account fd_borrowed_account_t;
+
+/* prevents borrowed accounts from going out of scope without releasing a borrow */
+#define borrow_guard __attribute__((cleanup(fd_borrowed_account_destroy)))
+
+FD_PROTOTYPES_BEGIN
+
+/* Constructor */
+
+static inline int
+fd_borrowed_account_init(fd_borrowed_account_t * borrowed_acct, fd_txn_account_t * acct, fd_exec_instr_ctx_t const * instr_ctx, int instr_acc_idx ) {
+  borrowed_acct->acct = acct;
+  borrowed_acct->instr_ctx = instr_ctx;
+  borrowed_acct->instr_acc_idx = instr_acc_idx;
+}
+
+/* Drop mirrors the behavior of rust's std::mem::drop on mutable borrows. 
+   Releases the acquired write to the borrowed account object. */
+
+static inline void
+fd_borrowed_account_drop( fd_borrowed_account_t * borrowed_acct ) {
+  fd_txn_account_release_write_private( borrowed_acct->acct );
+}
+
+/* Destructor  */
+
+static inline void
+fd_borrowed_account_destroy( fd_borrowed_account_t ** borrowed_acct ) {
+  /* Ensure drop was called beforehand to release the acquired write (mutable borrow) */
+  FD_TEST( fd_txn_account_acquire_write_is_safe( (*borrowed_acct)->acct ) );
+  borrowed_acct = NULL;
+}
+
+#define FD_BORROWED_ACCOUNT_SCOPE_BEGIN( _ctx, _idx, _account )
 
 /* Getters */
 
@@ -70,7 +103,7 @@ fd_borrowed_account_get_lamports( fd_borrowed_account_t * borrowed_acct ) {
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1034 */
 
 static inline ulong
-fd_account_get_rent_epoch( fd_borrowed_account_t const * borrowed_acct ) {
+fd_borrowed_account_get_rent_epoch( fd_borrowed_account_t const * borrowed_acct ) {
   FD_TEST( borrowed_acct->acct->const_meta != NULL );
   return borrowed_acct->acct->const_meta->info.rent_epoch;
 }
@@ -193,7 +226,7 @@ fd_borrowed_account_update_accounts_resize_delta( fd_borrowed_account_t * borrow
 
 static inline int
 fd_borrowed_account_is_rent_exempt_at_data_length( fd_borrowed_account_t const * borrowed_acct ) {
-  fd_txn_acct_t * acct = borrowed_acct->acct;
+  fd_txn_account_t * acct = borrowed_acct->acct;
   FD_TEST( acct->const_meta != NULL );
 
   fd_rent_t rent    = borrowed_acct->instr_ctx->epoch_ctx->epoch_bank.rent;
@@ -211,7 +244,7 @@ fd_borrowed_account_is_rent_exempt_at_data_length( fd_borrowed_account_t const *
 
 FD_FN_PURE static inline int
 fd_borrowed_account_is_executable( fd_borrowed_account_t const * borrowed_acct ) {
-    return !!borrowed_acct->acct->const_meta->info.executable;
+    return fd_txn_account_is_executable( borrowed_acct->acct );
 }
 
 /* fd_borrowed_account_is_executable_internal is a private function for deprecating the `is_executable` flag.
@@ -280,7 +313,6 @@ fd_borrowed_account_is_owned_by_current_program( fd_borrowed_account_t const * b
 
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1074 */
 
-   /* TODO do we need err as an out parameter? */
 static inline int
 fd_borrowed_account_can_data_be_changed( fd_borrowed_account_t const * borrowed_acct,
                                          int *                       err ) {
@@ -311,13 +343,11 @@ fd_borrowed_account_can_data_be_changed( fd_borrowed_account_t const * borrowed_
 
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L1092 */
 
-   /* TODO do we need err as an out parameter? */
-   /* TODO simplify accessors, assign variables at top of function */
 static inline int
 fd_borrowed_account_can_data_be_resized( fd_borrowed_account_t const * borrowed_acct,
                                          ulong                         new_length,
                                          int *                         err ) {
-  fd_txn_acct_t * acct = borrowed_acct->acct;
+  fd_txn_account_t * acct = borrowed_acct->acct;
 
   /* Only the owner can change the length of the data */
   if( FD_UNLIKELY( ( acct->const_meta->dlen != new_length ) &
@@ -347,7 +377,7 @@ fd_borrowed_account_can_data_be_resized( fd_borrowed_account_t const * borrowed_
 
 FD_FN_PURE static inline int
 fd_borrowed_account_is_zeroed( fd_borrowed_account_t const * borrowed_acct ) {
-  fd_txn_acct_t * acct = borrowed_acct->acct;
+  fd_txn_account_t * acct = borrowed_acct->acct;
   /* TODO: optimize this */
   uchar const * data = ((uchar *) acct->const_meta) + acct->const_meta->hlen;
   for( ulong i=0UL; i < acct->const_meta->dlen; i++ )
@@ -391,5 +421,7 @@ fd_borrowed_account_find_index_of_program_account( fd_exec_txn_ctx_t const * ctx
   }
   return -1;
 }
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_borrowed_account_h */

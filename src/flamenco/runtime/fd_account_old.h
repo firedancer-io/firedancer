@@ -321,7 +321,7 @@ fd_account_can_data_be_changed( fd_exec_instr_ctx_t const * ctx,
 
   fd_instr_info_t const * instr = ctx->instr;
   assert( instr_acc_idx < instr->acct_cnt );
-  fd_account_meta_t const * meta = instr->borrowed_accounts[ instr_acc_idx ]->const_meta;
+  fd_account_meta_t const * meta = instr->accounts[ instr_acc_idx ]->const_meta;
 
   if( FD_UNLIKELY( fd_account_is_executable_internal( ctx->slot_ctx, meta ) ) ) {
     *err = FD_EXECUTOR_INSTR_ERR_EXECUTABLE_DATA_MODIFIED;

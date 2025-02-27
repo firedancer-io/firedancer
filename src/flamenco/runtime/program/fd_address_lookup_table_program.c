@@ -183,31 +183,40 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   ulong               lut_lamports = 0UL;
   fd_pubkey_t const * lut_key      = NULL;
   uchar const *       lut_owner    = NULL;
-  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, ACC_IDX_LUT, lut_acct ) {
+
+  borrow_guard fd_borrowed_account_t * lut_acct = NULL;
+  int err = fd_exec_instr_ctx_try_borrow_account( ctx, ACC_IDX_LUT, lut_acct );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L60-L62 */
-  lut_lamports = lut_acct->const_meta->info.lamports;
-  lut_key      = lut_acct->pubkey;
-  lut_owner    = lut_acct->const_meta->info.owner;
+  lut_lamports = lut_acct->acct->const_meta->info.lamports;
+  lut_key      = lut_acct->acct->pubkey;
+  lut_owner    = lut_acct->acct->const_meta->info.owner;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L63-L70 */
   if( !FD_FEATURE_ACTIVE( ctx->slot_ctx, relax_authority_signer_check_for_lookup_table_creation )
-      && lut_acct->const_meta->dlen != 0UL ) {
+      && lut_acct->acct->const_meta->dlen != 0UL ) {
     fd_log_collector_msg_literal( ctx, "Table account must not be allocated" );
     return FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED;
   }
-
-  } FD_BORROWED_ACCOUNT_DROP( lut_acct );
+  fd_borrowed_account_drop( lut_acct );
 
   /* Prepare authority account ****************************************/
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L73-L74 */
 
   fd_pubkey_t const * authority_key = NULL;
   /* try_borrow_instruction_account => get_index_of_instruction_account_in_transaction */
-  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, ACC_IDX_AUTHORITY, authority_acct ) {
+  borrow_guard fd_borrowed_account_t * authority_acct = NULL;
+  err = fd_exec_instr_ctx_try_borrow_account( ctx, ACC_IDX_LUT, authority_acct );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
+
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L75 */
-  authority_key = authority_acct->pubkey;
+  authority_key = authority_acct->acct->pubkey;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L76-L83 */
   if( !FD_FEATURE_ACTIVE( ctx->slot_ctx, relax_authority_signer_check_for_lookup_table_creation )
@@ -215,14 +224,14 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
     fd_log_collector_msg_literal( ctx, "Authority account must be a signer" );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
-
-  } FD_BORROWED_ACCOUNT_DROP( authority_acct );
+  fd_borrowed_account_drop( authority_acct );
 
   /* Prepare payer account ********************************************/
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L86-L87 */
 
   /* try_borrow_account => get_index_of_instruction_account_in_transaction */
-  fd_pubkey_t const * payer_key = NULL; 
+  fd_pubkey_t const * payer_key = NULL;
+  borrow_guard fd_borrowed_account_t * payer_acct = NULL;
   FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, ACC_IDX_PAYER, payer_acct ) {
 
   payer_key = payer_acct->pubkey;
@@ -841,7 +850,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L412-L420 */
-  if( FD_UNLIKELY( ctx->instr->borrowed_accounts[0]==ctx->instr->borrowed_accounts[2] ) ) {
+  if( FD_UNLIKELY( ctx->instr->accounts[0]==ctx->instr->accounts[2] ) ) {
     fd_log_collector_msg_literal( ctx, "Lookup table cannot be the recipient of reclaimed lamports" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }

@@ -2452,20 +2452,9 @@ get_optional_pubkey( fd_exec_instr_ctx_t *          ctx,
 // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L60
 static int
 get_stake_account( fd_exec_instr_ctx_t const * ctx,
-                   fd_borrowed_account_t **    out ) {
-
-  if( FD_UNLIKELY( ctx->instr->acct_cnt<1 ) )
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-
-  // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L61
-  do {
-    int err = fd_instr_borrowed_account_view_idx( ctx, 0, out );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_instr_borrowed_account_view_idx failed (%d-%s)", err, fd_acc_mgr_strerror( err ) ));
-  } while(0);
-
-  fd_borrowed_account_t * account = *out;
-  if( FD_UNLIKELY( !fd_borrowed_account_acquire_write( account ) ) )
-    return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_FAILED;
+                   fd_borrowed_account_t *     out ) {
+  int err = fd_exec_instr_ctx_try_borrow_account( ctx, 0, out );
+  fd_borrowed_account_t * account = out;
 
   // https://github.com/https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L62-L65
   if( FD_UNLIKELY( memcmp( account->const_meta->info.owner, fd_solana_stake_program_id.key, 32UL ) ) )

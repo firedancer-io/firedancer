@@ -82,18 +82,18 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
         memcpy( out_instr->acct_pubkeys[i].uc, pubkey, sizeof( fd_pubkey_t ) );
         out_instr->acct_txn_idxs[i]     = (uchar)j;
         out_instr->acct_flags[i]        = 0;
-        out_instr->borrowed_accounts[i] = &vm->instr_ctx->txn_ctx->borrowed_accounts[j];
+        out_instr->accounts[i] = &vm->instr_ctx->txn_ctx->accounts[j];
         out_instr->is_duplicate[i]      = acc_idx_seen[j];
 
         if( FD_LIKELY( !acc_idx_seen[j] ) ) {
           /* This is the first time seeing this account */
           acc_idx_seen[j] = 1;
-          if( out_instr->borrowed_accounts[i]->const_meta ) {
+          if( out_instr->accounts[i]->const_meta ) {
             /* TODO: what if this account is borrowed as writable? */
             fd_uwide_inc(
               &starting_lamports_h, &starting_lamports_l,
               starting_lamports_h, starting_lamports_l,
-              out_instr->borrowed_accounts[i]->const_meta->info.lamports );
+              out_instr->accounts[i]->const_meta->info.lamports );
           }
         }
 
@@ -305,13 +305,13 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
     /* `fd_vm_prepare_instruction()` will always set up a valid index for `index_in_caller`, so we can access the borrowed account directly.
        A borrowed account will always have non-NULL meta (if the account doesn't exist, `fd_executor_setup_borrowed_accounts_for_txn()`
        will set its meta up) */
-    fd_borrowed_account_t const * acc_rec     = vm->instr_ctx->instr->borrowed_accounts[instruction_accounts[i].index_in_caller];
+    fd_txn_account_t const * acc_rec     = vm->instr_ctx->instr->accounts[instruction_accounts[i].index_in_caller];
     fd_pubkey_t const *           account_key = acc_rec->pubkey;
     fd_account_meta_t const *     acc_meta    = acc_rec->const_meta;
 
     /* If the account is known and executable, we only need to consume the compute units.
        Executable accounts can't be modified, so we don't need to update the callee account. */
-    if( fd_account_is_executable( acc_meta ) ) {
+    if( fd_txn_account_is_executable( acc_rec ) ) {
       // FIXME: should this be FD_VM_CU_MEM_UPDATE? Changing this changes the CU behaviour from main (because of the base cost)
       FD_VM_CU_UPDATE( vm, acc_meta->dlen / FD_VM_CPI_BYTES_PER_UNIT );
       continue;

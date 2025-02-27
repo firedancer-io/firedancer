@@ -145,7 +145,7 @@ fd_system_program_allocate( fd_exec_instr_ctx_t * ctx,
 
   /* Assumes that acct_idx was bounds checked */
 
-  fd_borrowed_account_t * account = ctx->instr->borrowed_accounts[ acct_idx ];
+  fd_borrowed_account_t * account = ctx->instr->accounts[ acct_idx ];
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L78-L85 */
 
@@ -202,7 +202,7 @@ fd_system_program_assign( fd_exec_instr_ctx_t * ctx,
 
   /* Assumes addr_idx was bounds checked */
 
-  fd_borrowed_account_t * account = ctx->instr->borrowed_accounts[ acct_idx ];
+  fd_borrowed_account_t * account = ctx->instr->accounts[ acct_idx ];
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L121-L123 */
 

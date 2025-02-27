@@ -118,18 +118,12 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
       /* Intentionally don't use the scoping macro here because Anza maps the 
          error to missing required signature if the try borrow fails */
       fd_borrowed_account_t * signer_account = NULL;
-      int borrow_err = fd_instr_borrowed_account_view_idx( ctx, (uchar)counter, &signer_account );
-      if( FD_UNLIKELY( borrow_err!=FD_ACC_MGR_SUCCESS ) ) {
+      int borrow_err = fd_exec_instr_ctx_try_borrow_account( ctx, (uchar)counter, signer_account );
+      if( FD_UNLIKELY( borrow_err ) ) {
         /* Max msg_sz: 33 - 2 + 45 = 76 < 127 => we can use printf */
         fd_log_collector_printf_dangerous_max_127( ctx,
           "account %s is not in account list", FD_BASE58_ENC_32_ALLOCA( signer ) );
         return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
-      }
-      if( FD_UNLIKELY( !fd_borrowed_account_acquire_read( signer_account ) ) ) {
-        /* Max msg_sz: 33 - 2 + 45 = 76 < 127 => we can use printf */
-        fd_log_collector_printf_dangerous_max_127( ctx,
-          "account %s is not in account list", FD_BASE58_ENC_32_ALLOCA( signer ) );
-        return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;  /* seems to be deliberately not ACC_BORROW_FAILED? */
       }
 
       /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L72-L79 */
@@ -170,7 +164,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
         }
       }
 
-      fd_borrowed_account_release_read( signer_account );
+      fd_borrowed_account_drop( signer_account );
 
     } else if( !is_config_account_signer ) {
 
@@ -221,6 +215,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
   /* Inlined solana_sdk::transaction_context::BorrowedAccount::get_data_mut */
 
+  /* TODO replace with borrowed account API */
   do {
     int err;
     if( FD_UNLIKELY( !fd_account_can_data_be_changed( ctx, 0, &err ) ) ) {

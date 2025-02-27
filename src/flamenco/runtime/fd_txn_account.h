@@ -1,13 +1,14 @@
-#ifndef HEADER_fd_src_flamenco_runtime_fd_txn_acct_h
-#define HEADER_fd_src_flamenco_runtime_fd_txn_acct_h
+#ifndef HEADER_fd_src_flamenco_runtime_fd_txn_account_h
+#define HEADER_fd_src_flamenco_runtime_fd_txn_account_h
 
 #include "../../ballet/txn/fd_txn.h"
 #include "../types/fd_types.h"
 #include "../../funk/fd_funk_rec.h"
 #include "fd_acc_mgr.h"
 #include "../context/fd_exec_txn_ctx.h"
+#include <cstdint>
 
-struct __attribute__((aligned(8UL))) fd_txn_acct {
+struct __attribute__((aligned(8UL))) fd_txn_account {
   ulong                       magic;
 
   fd_pubkey_t                 pubkey[1];
@@ -38,35 +39,42 @@ struct __attribute__((aligned(8UL))) fd_txn_acct {
 
   uchar account_found;
 };
-typedef struct fd_txn_acct fd_txn_acct_t;
-#define FD_TXN_ACCT_FOOTPRINT (sizeof(fd_txn_acct_t))
+typedef struct fd_txn_account fd_txn_account_t;
+#define FD_TXN_ACCT_FOOTPRINT (sizeof(fd_txn_account_t))
 #define FD_TXN_ACCT_ALIGN     (8UL)
 #define FD_TXN_ACCT_MAGIC     (0xF15EDF1C51F51AA1UL)
 
-/* Initializes an fd_txn_acct from a pointer to a region of memory */
-fd_txn_acct_t *
-fd_txn_acct_init( void * ptr );
+#define FD_TXN_ACCT_DECL(_x)  fd_txn_account_t _x[1]; fd_txn_account_init(_x);
+
+/* Initializes an fd_txn_account from a pointer to a region of memory */
+fd_txn_account_t *
+fd_txn_account_init( void * ptr );
 
 /* Accessors */
 
 /* Resizes the account data */
 void
-fd_txn_acct_resize( fd_txn_acct_t * acct,
+fd_txn_account_resize( fd_txn_account_t * acct,
                     ulong           dlen );
 
 /* Returns the total size of the account shared data */
 FD_FN_PURE static inline ulong
-fd_txn_acct_raw_size( fd_txn_acct_t const * acct ) {
+fd_txn_account_raw_size( fd_txn_account_t const * acct ) {
   ulong dlen = ( acct->const_meta != NULL ) ? acct->const_meta->dlen : 0;
   return sizeof(fd_account_meta_t) + dlen;
+}
+
+static inline int
+fd_txn_account_is_executable( fd_txn_account_t * acct ) {
+  return !!acct->const_meta->info.executable;
 }
 
 /* Operators */
 
 /* buf is a handle to the account shared data.
    Sets the account shared data as mutable. */
-fd_txn_acct_t *
-fd_txn_acct_make_mutable( fd_txn_acct_t * acct,
+fd_txn_account_t *
+fd_txn_account_make_mutable( fd_txn_account_t * acct,
                           void *          buf );
 
 /* In Agave, dummy accounts are sometimes created that contain metadata
@@ -79,8 +87,8 @@ fd_txn_acct_make_mutable( fd_txn_acct_t * acct,
 
 /* buf is a handle to the account shared data.
    Sets the account shared data as read only. */
-fd_txn_acct_t *
-fd_txn_acct_make_read_only( fd_txn_acct_t * acct,
+fd_txn_account_t *
+fd_txn_account_make_readonly( fd_txn_account_t * acct,
                             void *          buf );
 
 /* Restores the original contents of the account shared data into 
@@ -88,58 +96,51 @@ fd_txn_acct_make_read_only( fd_txn_acct_t * acct,
    If the account metadata was modified, returns a pointer to metadata,
    otherwise returns null. */
 void *
-fd_txn_acct_restore( fd_txn_acct_t * acct );
-
-/* Desctructor */
-void *
-fd_txn_acct_destroy( fd_txn_acct_t * acct );
+fd_txn_account_restore( fd_txn_account_t * acct );
 
 /* read/write mutual exclusion */
+
 FD_FN_PURE static inline int
-fd_txn_acct_acquire_write_is_safe( fd_txn_acct_t const * acct ) {
+fd_txn_account_acquire_write_is_safe( fd_txn_account_t const * acct ) {
   return (!acct->refcnt_excl) & (!acct->refcnt_shared);
 }
 
 FD_FN_PURE static inline int
-fd_txn_acct_acquire_read_is_safe( fd_txn_acct_t const * acct ) {
+fd_txn_account_acquire_read_is_safe( fd_txn_account_t const * acct ) {
   return (!acct->refcnt_excl);
 }
 
-/* fd_txn_acct_acquire_write acquires write/exclusive access.
+/* fd_txn_account_acquire_write acquires write/exclusive access.
    Causes all other write or read acquire attempts will fail.  Returns 1
    on success, 0 on failure. */
 static inline int
-fd_txn_acct_acquire_write( fd_txn_acct_t * acct ) {
-  if( FD_UNLIKELY( !fd_txn_acct_acquire_write_is_safe( acct ) ) ) {
+fd_txn_account_acquire_write( fd_txn_account_t * acct ) {
+  if( FD_UNLIKELY( !fd_txn_account_acquire_write_is_safe( acct ) ) ) {
     return 0;
   }
   acct->refcnt_excl = (ushort)1;
   return 1;
 }
 
-/* fd_txn_acct_release_write{_private} releases a write/exclusive
+/* fd_txn_account_release_write{_private} releases a write/exclusive
    access handle. The private version should only be used by the try borrow
    scoping macro. */
 static inline void
-fd_txn_acct_release_write( fd_txn_acct_t * acct ) {
+fd_txn_account_release_write( fd_txn_account_t * acct ) {
   FD_TEST( acct->refcnt_excl==1U );
   acct->refcnt_excl = (ushort)0;
 }
    
 static inline void
-fd_txn_acct_release_write_private(fd_txn_acct_t ** acct ) {
+fd_txn_account_release_write_private(fd_txn_account_t * acct ) {
   /* Only release if it is not yet released */
-  if( !fd_txn_acct_acquire_write_is_safe( *acct ) ) {
-    fd_txn_acct_release_write( *acct );
+  if( !fd_txn_account_acquire_write_is_safe( acct ) ) {
+    fd_txn_account_release_write( acct );
   }
-  acct = NULL;
 }
 
 /* Factory constructors */
-fd_txn_acct_t *
-fd_create_txn_acct( fd_txn_acct_t * acct_ptr, fd_pubkey_t * acc_pubkey, fd_exec_txn_ctx_t * txn_ctx );
+int
+fd_txn_account_create_from_funk( fd_txn_account_t * acct_ptr, fd_pubkey_t * acc_pubkey, fd_acc_mgr_t * acc_mgr, fd_funk_txn_t * funk_txn );
 
-fd_txn_acct_t
-fd_create_txn_acct_decl( fd_pubkey_t * acc_pubkey, fd_exec_txn_ctx_t * txn_ctx );
-
-#endif /* HEADER_fd_src_flamenco_runtime_fd_txn_acct_h */
+#endif /* HEADER_fd_src_flamenco_runtime_fd_txn_account_h */

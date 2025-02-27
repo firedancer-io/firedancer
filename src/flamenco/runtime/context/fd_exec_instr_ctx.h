@@ -3,7 +3,7 @@
 
 #include "../../fd_flamenco_base.h"
 #include "../info/fd_instr_info.h"
-#include "../fd_acc_mgr.h"
+#include "../fd_borrowed_account.h"
 #include "../fd_executor_err.h"
 
 /* fd_exec_instr_ctx_t is the context needed to execute a single
@@ -55,10 +55,13 @@ fd_exec_instr_ctx_delete( void * mem );
 
 /* Operators */
 
-/* Assert that enough ccounts were supplied to this instruction. Returns
+/* Mirrors Agave function solana_sdk::transaction_context::InstructionContext::check_number_of_instruction_accounts
+
+   Assert that enough accounts were supplied to this instruction. Returns
    FD_EXECUTOR_INSTR_SUCCESS if the number of accounts is as expected and
    FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS otherwise.
-   https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/sdk/src/transaction_context.rs#L492-L503 */
+
+   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L490 */
 static inline int
 fd_exec_instr_ctx_check_num_insn_accounts( fd_exec_instr_ctx_t * ctx,
                                     uint                  expected_accounts ) {
@@ -69,46 +72,25 @@ fd_exec_instr_ctx_check_num_insn_accounts( fd_exec_instr_ctx_t * ctx,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* Helpers for borrowing instruction accounts */
-/* These should use txn_acct's borrowing semantics for read/write checking */
-/* Agave calls borrow_mut as a check, so we should too */
-/* TODO: need to get index in transaction */
+/* Mirrors Agave function solana_sdk::transaction_context::InstructionContext::try_borrow_account.
 
-/* steps: 
-   1. get the account (txn_acct ) 
-   2. check for read/write exclusion and fail if necessary 
-   3. call borrowed account constructor to get a borrowed account from the txn_acct*/
+   Borrows an account from the instruction context with a given account index.
 
-static inline int
-fd_instr_borrowed_account_view_idx( fd_exec_instr_ctx_t const * ctx,
-                                    ulong                       idx,
-                                    fd_borrowed_account_t **    account ) {
-  if( FD_UNLIKELY( idx >= ctx->instr->acct_cnt ) ) {
-    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
-  }
-
-  fd_borrowed_account_t * instr_account = ctx->instr->borrowed_accounts[idx];
-  FD_TEST( instr_account->const_meta != NULL );
-  *account = instr_account;
-  return FD_ACC_MGR_SUCCESS;
-}
+   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L594 */
 
 int
-fd_instr_borrowed_account_view( fd_exec_instr_ctx_t *    ctx,
-                                fd_pubkey_t const *      pubkey,
-                                fd_borrowed_account_t ** account );
+fd_exec_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t const * ctx,
+                                      int                         idx,
+                                      fd_borrowed_account_t *     account );
+
+/* A wrapper around fd_exec_instr_ctx_try_borrow_account that accepts an account pubkey.
+
+   Borrows an account from the instruction context with a given pubkey. */
 
 int
-fd_instr_borrowed_account_modify_idx( fd_exec_instr_ctx_t const * ctx,
-                                      ulong                       idx,
-                                      ulong                       min_data_sz,
-                                      fd_borrowed_account_t **    account );
-
-int
-fd_instr_borrowed_account_modify( fd_exec_instr_ctx_t *    ctx,
-                                  fd_pubkey_t const *      pubkey,
-                                  ulong                    min_data_sz,
-                                  fd_borrowed_account_t ** account );
+fd_exec_instr_ctx_try_borrow_account_with_key( fd_exec_instr_ctx_t *   ctx,
+                                               fd_pubkey_t const *     pubkey,
+                                               fd_borrowed_account_t * account );
 
 FD_PROTOTYPES_END
 

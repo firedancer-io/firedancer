@@ -4,7 +4,7 @@ int
 fd_borrowed_account_get_data_mut( fd_borrowed_account_t * borrowed_acct,
                                   uchar * *               data_out,
                                   ulong *                 dlen_out ) {
-  fd_txn_acct_t * acct = borrowed_acct->acct;
+  fd_txn_account_t * acct = borrowed_acct->acct;
 
   int err = fd_borrowed_account_can_data_be_changed( borrowed_acct );
   if ( FD_UNLIKELY( err ) ) {
@@ -22,7 +22,7 @@ fd_borrowed_account_get_data_mut( fd_borrowed_account_t * borrowed_acct,
 int
 fd_borrowed_account_set_owner( fd_borrowed_account_t * borrowed_acct,
                                fd_pubkey_t const *     owner ) {
-  fd_txn_acct_t * acct = borrowed_acct->acct;
+  fd_txn_account_t * acct = borrowed_acct->acct;
 
   /* Only the owner can assign a new owner */
   if( FD_UNLIKELY( !fd_borrowed_account_is_owned_by_current_program( borrowed_acct ) ) ) {
@@ -60,7 +60,7 @@ fd_borrowed_account_set_owner( fd_borrowed_account_t * borrowed_acct,
 int
 fd_borrowed_account_set_lamports( fd_borrowed_account_t * borrowed_acct,
                                   ulong                   lamports ) {
-  fd_txn_acct_t * acct = borrowed_acct->acct;
+  fd_txn_account_t * acct = borrowed_acct->acct;
 
   /* An account not owned by the program cannot have its blanace decrease */
   if( FD_UNLIKELY( ( !fd_borrowed_account_is_owned_by_current_program( borrowed_acct ) ) &&
@@ -93,7 +93,7 @@ int
 fd_account_set_data_from_slice( fd_borrowed_account_t * borrowed_acct,
                                 uchar const *           data,
                                 ulong                   data_sz ) {
-  fd_txn_acct_t * acct = borrowed_acct->acct;
+  fd_txn_account_t * acct = borrowed_acct->acct;
 
   int err;
   if ( FD_UNLIKELY( !fd_borrowed_account_can_data_be_resized( borrowed_acct, data_sz, &err ) ) ) {
@@ -120,7 +120,7 @@ fd_account_set_data_from_slice( fd_borrowed_account_t * borrowed_acct,
 int
 fd_borrowed_account_set_data_length( fd_borrowed_account_t * borrowed_acct,
                                      ulong                   new_len ) {
-  fd_txn_acct_t * acct = borrowed_acct->acct;
+  fd_txn_account_t * acct = borrowed_acct->acct;
   int err              = FD_EXECUTOR_INSTR_SUCCESS;
 
   if( FD_UNLIKELY( !fd_borrowed_account_can_data_be_resized( borrowed_acct, new_len, &err ) ) ) {
@@ -156,7 +156,7 @@ int
 fd_borrowed_account_set_executable( fd_borrowed_account_t * borrowed_acct,
                                     int                     is_executable ) {
   fd_exec_instr_ctx_t const * instr_ctx = borrowed_acct->instr_ctx;
-  fd_txn_acct_t *             acct      = borrowed_acct->acct;
+  fd_txn_account_t *             acct      = borrowed_acct->acct;
 
   /* To become executable an account must be rent exempt */
   /* TODO cleanup rent */
@@ -198,7 +198,7 @@ fd_borrowed_account_update_accounts_resize_delta( fd_borrowed_account_t * borrow
                                                   ulong                   new_len,
                                                   int *                   err ) {
   fd_exec_instr_ctx_t const * instr_ctx  = borrowed_acct->instr_ctx;
-  fd_txn_acct_t *             acct       = borrowed_acct->acct;
+  fd_txn_account_t *             acct       = borrowed_acct->acct;
   ulong                       size_delta = fd_ulong_sat_sub( new_len, acct->const_meta->dlen );
 
   /* TODO: The size delta should never exceed the value of ULONG_MAX so this

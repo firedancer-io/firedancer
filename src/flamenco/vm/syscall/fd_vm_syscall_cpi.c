@@ -217,7 +217,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
     /* Caller is in charge of setting an appropriate sentinel value (i.e., UCHAR_MAX) for callee_instr->program_id if not found. */
     /* We allow dead accounts to be borrowed here because that's what agave currently does.
      */
-    int err = fd_txn_borrowed_account_view_idx_allow_dead( instr_ctx->txn_ctx, callee_instr->program_id, &program_rec );
+    int err = fd_exec_txn_ctx_get_txn_acct_view_idx_allow_dead( instr_ctx->txn_ctx, callee_instr->program_id, &program_rec );
     if( FD_UNLIKELY( err ) ) {
       /* https://github.com/anza-xyz/agave/blob/a9ac3f55fcb2bc735db0d251eda89897a5dbaaaa/program-runtime/src/invoke_context.rs#L434 */
       FD_BASE58_ENCODE_32_BYTES( callee_instr->program_id_pubkey.uc, id_b58 );

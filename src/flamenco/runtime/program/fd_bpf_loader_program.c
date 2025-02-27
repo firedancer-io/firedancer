@@ -178,7 +178,7 @@ read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t *              
                                                fd_bpf_upgradeable_loader_state_t * result,
                                                int *                               opt_err ) {
   fd_borrowed_account_t * rec = NULL;
-  int err = fd_txn_borrowed_account_view_idx( txn_ctx, program_id, &rec );
+  int err = fd_exec_txn_ctx_get_txn_acct_view_idx( txn_ctx, program_id, &rec );
   if( FD_UNLIKELY( err ) ) {
     *opt_err = err;
     return NULL;
@@ -614,7 +614,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
          serialized account vaddr range, then try to retrieve a more specific
          vm error based on the account's accesss permissions. */
       for( ulong i=0UL; i<instr_ctx->instr->acct_cnt; i++ ) {
-        fd_borrowed_account_t * instr_acc = instr_ctx->instr->borrowed_accounts[i];
+        fd_borrowed_account_t * instr_acc = instr_ctx->instr->accounts[i];
         ulong idx = acc_region_metas[i].region_idx;
         if( input_mem_regions[idx].vaddr_offset<=vaddr_offset && vaddr_offset<input_mem_regions[idx].vaddr_offset+pre_lens[i]+acc_region_addl_off ) {
 
@@ -837,15 +837,10 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* Verify Buffer account */
 
       fd_borrowed_account_t * buffer = NULL;
-      err = fd_instr_borrowed_account_view_idx( instr_ctx, 3UL, &buffer );
-      if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-        return err;
-      }
-
-      fd_pubkey_t * buffer_key = NULL;
-      ulong buffer_data_offset = 0UL;
-      ulong buffer_data_len    = 0UL;
-      ulong programdata_len    = 0UL;
+      fd_pubkey_t * buffer_key       = NULL;
+      ulong buffer_data_offset       = 0UL;
+      ulong buffer_data_len          = 0UL;
+      ulong programdata_len          = 0UL;
       FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 3UL, buffer ) {
 
       fd_bpf_upgradeable_loader_state_t buffer_state = {0};
@@ -1793,7 +1788,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     /* TODO: Agave uses `get_last_program_key`, we should have equivalent semantics:
        https://github.com//anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L491-L492 */
     fd_pubkey_t const *     program_id      = &ctx->instr->program_id_pubkey;
-    int err = fd_txn_borrowed_account_view_idx( ctx->txn_ctx, ctx->instr->program_id, &program_account );
+    int err = fd_exec_txn_ctx_get_txn_acct_view_idx( ctx->txn_ctx, ctx->instr->program_id, &program_account );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
       return err;
     }
@@ -1854,7 +1849,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       Every error that comes out of this block is mapped to an InvalidAccountData instruction error in Agave. */
 
     fd_borrowed_account_t * program_acc_view = NULL;
-    int read_result = fd_txn_borrowed_account_view_idx( ctx->txn_ctx, ctx->instr->program_id, &program_acc_view );
+    int read_result = fd_exec_txn_ctx_get_txn_acct_view_idx( ctx->txn_ctx, ctx->instr->program_id, &program_acc_view );
     if( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
@@ -1884,7 +1879,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
       fd_borrowed_account_t * program_data_account = NULL;
       fd_pubkey_t * programdata_pubkey = (fd_pubkey_t *)&program_account_state.inner.program.programdata_address;
-      err = fd_txn_borrowed_account_executable_view( ctx->txn_ctx, programdata_pubkey, &program_data_account );
+      err = fd_exec_txn_ctx_get_txn_acct_executable_view( ctx->txn_ctx, programdata_pubkey, &program_data_account );
       if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
