@@ -1943,7 +1943,7 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
 
   ulong curr_exec_idx = 0UL;
   while( curr_exec_idx<txn_cnt ) {
-    for( ulong worker_idx=1UL; worker_idx<exec_spad_cnt; worker_idx++ ) {
+    for( ulong worker_idx=1UL; worker_idx<=exec_spad_cnt; worker_idx++ ) {
       if( curr_exec_idx>=txn_cnt ) {
         break;
       }
@@ -1952,12 +1952,12 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
         continue;
       }
 
-      task_infos[ curr_exec_idx ].spad = exec_spads[ worker_idx ];
+      task_infos[ curr_exec_idx ].spad = exec_spads[ worker_idx-1UL ];
       task_infos[ curr_exec_idx ].txn  = &txns[ curr_exec_idx ];
 
       fd_tpool_exec( tpool, worker_idx, fd_runtime_prepare_execute_finalize_txn_task,
                      slot_ctx, (ulong)capture_ctx, (ulong)task_infos[curr_exec_idx].txn,
-                     &task_infos[ curr_exec_idx ], exec_spads[ worker_idx ], (ulong)dump_txn,
+                     &task_infos[ curr_exec_idx ], exec_spads[ worker_idx-1UL ], (ulong)dump_txn,
                      0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
 
       curr_exec_idx++;

@@ -1018,6 +1018,15 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   fd_runtime_init_program( slot_ctx, runner->spad );
   fd_funk_end_write( runner->funk );
 
+  /* Load in the txn accounts; accounts are loaded in the same way as the txn harness, where 0-lamport accounts are 0-set */
+  for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
+    FD_BORROWED_ACCOUNT_DECL(acc);
+    _load_txn_account( acc, acc_mgr, funk_txn, &test_ctx->acct_states[i], 0 );
+  }
+
+  /* Restore sysvar cache */
+  fd_runtime_sysvar_cache_load( slot_ctx );
+
   /* Finish init epoch bank sysvars */
   epoch_bank->epoch_schedule      = *slot_ctx->sysvar_cache->val_epoch_schedule;
   epoch_bank->rent_epoch_schedule = *slot_ctx->sysvar_cache->val_epoch_schedule;
@@ -1165,18 +1174,6 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
     fd_vote_store_account( slot_ctx, acc );
   }
 
-  /* Load in the rest of the txn accounts; accounts are loaded in the same way as the txn harness, where 0-lamport accounts are 0-set */
-  for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
-    FD_BORROWED_ACCOUNT_DECL(acc);
-
-    // Don't override any duplicate accounts
-    int res = _load_txn_account( acc, acc_mgr, funk_txn, &test_ctx->acct_states[i], 0 );
-    if( FD_UNLIKELY( !res ) ) continue;
-  }
-
-  /* Restore sysvar cache */
-  fd_runtime_sysvar_cache_load( slot_ctx );
-
   /* Update leader schedule */
   fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot, runner->spad );
 
@@ -1228,6 +1225,8 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   for( ulong i=0UL; i<microblock_cnt; i++ ) {
     fd_exec_test_microblock_t const * input_microblock = &test_ctx->microblocks[i];
     fd_microblock_info_t *            microblock_info  = &microblock_infos[i];
+    fd_microblock_hdr_t *             microblock_hdr   = fd_spad_alloc( runner->spad, alignof(fd_microblock_hdr_t), sizeof(fd_microblock_hdr_t) );
+    fd_memset( microblock_hdr, 0, sizeof(fd_microblock_hdr_t) );
 
     ulong txn_cnt       = input_microblock->txns_count;
     ulong signature_cnt = 0UL;
@@ -1256,10 +1255,12 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
       account_cnt   += fd_txn_account_cnt( TXN( txn ), FD_TXN_ACCT_CAT_ALL );
     }
 
-    // microblock_info->microblock.hdr->txn_cnt = txn_cnt;
-    microblock_info->signature_cnt           = signature_cnt;
-    microblock_info->account_cnt             = account_cnt;
-    microblock_info->txns                    = txn_ptrs;
+    microblock_hdr->txn_cnt         = txn_cnt;
+    microblock_info->microblock.raw = (uchar *)microblock_hdr;
+
+    microblock_info->signature_cnt = signature_cnt;
+    microblock_info->account_cnt   = account_cnt;
+    microblock_info->txns          = txn_ptrs;
 
     batch_signature_cnt += signature_cnt;
     batch_txn_cnt       += txn_cnt;
@@ -1270,6 +1271,8 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   block_info->txn_cnt       = batch_info->txn_cnt       = batch_txn_cnt;
   block_info->account_cnt   = batch_info->account_cnt   = batch_account_cnt;
 
+  fd_funk_end_write( runner->funk );
+
   /* Initialize tpool and spad(s)
     TODO: We should decide how many workers to use for the execution tpool. We might have a bunch of
     transactions within a single block, but increasing the worker cnt increases the memory requirements by
@@ -1277,17 +1280,22 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
     multiple cores, so it may be possible to get away with only 1 worker. Additionally, Agave will more than
     likely always be the execution speed bottleneck, so we can play around with numbers and see what yields
     the best results. */
-  // ulong worker_max = fd_tile_cnt();
-  ulong worker_max = 1;
+  ulong worker_max = 2UL;
   void * tpool_mem = fd_spad_alloc( runner->spad, FD_TPOOL_ALIGN, FD_TPOOL_FOOTPRINT( worker_max ) );
   fd_tpool_t * tpool = fd_tpool_init( tpool_mem, worker_max );
+  fd_tpool_worker_push( tpool, 1UL, NULL, 0UL );
 
-  fd_spad_t * spad = runner->spad;
-  fd_funk_end_write( runner->funk );
+  fd_spad_t * runtime_spad = runner->spad;
+
+  /* Format a small chunk of memory for the exec spads
+     TODO: This memory needs a better bound. */
+  ulong       exec_spad_mem_max = 1UL << 30;
+  void *      exec_spad_mem     = fd_spad_alloc( runtime_spad, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( exec_spad_mem_max ) );
+  fd_spad_t * exec_spad         = fd_spad_join( fd_spad_new( exec_spad_mem, exec_spad_mem_max ) );
 
   // Prepare. Execute. Finalize.
-  fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, tpool, &spad, 1UL, spad );
-  int res = fd_runtime_block_execute_tpool( slot_ctx, NULL, block_info, tpool, &spad, 1UL, spad );
+  fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, tpool, &exec_spad, 1UL, runtime_spad );
+  int res = fd_runtime_block_execute_tpool( slot_ctx, NULL, block_info, tpool, &exec_spad, 1UL, runtime_spad );
 
   return res;
 }

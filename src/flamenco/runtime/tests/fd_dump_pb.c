@@ -432,16 +432,16 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
 
   // 5. Dump sysvars + builtins
   fd_pubkey_t const fd_relevant_sysvar_ids[] = {
+    fd_sysvar_recent_block_hashes_id,
     fd_sysvar_clock_id,
+    fd_sysvar_slot_history_id,
+    fd_sysvar_slot_hashes_id,
     fd_sysvar_epoch_schedule_id,
     fd_sysvar_epoch_rewards_id,
     fd_sysvar_fees_id,
     fd_sysvar_rent_id,
-    fd_sysvar_slot_hashes_id,
-    fd_sysvar_recent_block_hashes_id,
     fd_sysvar_stake_history_id,
     fd_sysvar_last_restart_slot_id,
-    // fd_sysvar_instructions_id,
   };
 
   fd_pubkey_t const loaded_builtins[] = {
@@ -640,16 +640,16 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
 
   /* Prepare sysvar cache accounts */
   fd_pubkey_t const fd_relevant_sysvar_ids[] = {
+    fd_sysvar_recent_block_hashes_id,
     fd_sysvar_clock_id,
+    fd_sysvar_slot_history_id,
+    fd_sysvar_slot_hashes_id,
     fd_sysvar_epoch_schedule_id,
     fd_sysvar_epoch_rewards_id,
     fd_sysvar_fees_id,
     fd_sysvar_rent_id,
-    fd_sysvar_slot_hashes_id,
-    fd_sysvar_recent_block_hashes_id,
     fd_sysvar_stake_history_id,
     fd_sysvar_last_restart_slot_id,
-    fd_sysvar_instructions_id,
   };
   const ulong num_sysvar_entries = (sizeof(fd_relevant_sysvar_ids) / sizeof(fd_pubkey_t));
 
@@ -771,13 +771,14 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
                                                  fd_instr_info_t const *        instr ) {
   /* Prepare sysvar cache accounts */
   fd_pubkey_t const fd_relevant_sysvar_ids[] = {
+    fd_sysvar_recent_block_hashes_id,
     fd_sysvar_clock_id,
+    fd_sysvar_slot_history_id,
+    fd_sysvar_slot_hashes_id,
     fd_sysvar_epoch_schedule_id,
     fd_sysvar_epoch_rewards_id,
     fd_sysvar_fees_id,
     fd_sysvar_rent_id,
-    fd_sysvar_slot_hashes_id,
-    fd_sysvar_recent_block_hashes_id,
     fd_sysvar_stake_history_id,
     fd_sysvar_last_restart_slot_id,
     fd_sysvar_instructions_id,
