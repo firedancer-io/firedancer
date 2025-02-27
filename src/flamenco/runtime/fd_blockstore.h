@@ -1043,4 +1043,8 @@ fd_blockstore_archiver_verify( fd_blockstore_t * blockstore, fd_blockstore_archi
 ulong
 fd_blockstore_archiver_lrw_slot( fd_blockstore_t * blockstore, int fd, fd_block_meta_t * lrw_block_meta, fd_block_t * lrw_block );
 
+/** TODO Move to idxr headers */
+int
+deshred( fd_blockstore_t * blockstore, ulong slot );
+
 #endif /* HEADER_fd_src_flamenco_runtime_fd_blockstore_h */

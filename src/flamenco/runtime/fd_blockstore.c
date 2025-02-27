@@ -562,7 +562,8 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
                         slot,
                         txn_sz ));
         }
-        // fd_txn_t const * txn = (fd_txn_t const *)txn_out;
+
+        fd_txn_t const * txn = (fd_txn_t const *)txn_out;
 
         if( pay_sz == 0UL )
           FD_LOG_ERR(( "failed to parse transaction %lu in microblock %lu in slot %lu",
@@ -570,34 +571,34 @@ fd_blockstore_scan_block( fd_blockstore_t * blockstore, ulong slot, fd_block_t *
                         mblk,
                         slot ));
 
-        // fd_txn_key_t const * sigs =
-        //     (fd_txn_key_t const *)( (ulong)raw + (ulong)txn->signature_off );
-        // fd_txn_map_t * txn_map = fd_blockstore_txn_map( blockstore );
-        // for( ulong j = 0; j < txn->signature_cnt; j++ ) {
-        //   if( FD_UNLIKELY( fd_txn_map_key_cnt( txn_map ) ==
-        //                    fd_txn_map_key_max( txn_map ) ) ) {
-        //     break;
-        //   }
-        //   fd_txn_key_t sig;
-        //   fd_memcpy( &sig, sigs + j, sizeof( sig ) );
+        fd_txn_key_t const * sigs =
+            (fd_txn_key_t const *)( (ulong)raw + (ulong)txn->signature_off );
+        fd_txn_map_t * txn_map = fd_blockstore_txn_map( blockstore );
+        for( ulong j = 0; j < txn->signature_cnt; j++ ) {
+          if( FD_UNLIKELY( fd_txn_map_key_cnt( txn_map ) ==
+                           fd_txn_map_key_max( txn_map ) ) ) {
+            break;
+          }
+          fd_txn_key_t sig;
+          fd_memcpy( &sig, sigs + j, sizeof( sig ) );
 
-        //   if( fd_txn_map_query( txn_map, &sig, NULL ) != NULL ) continue;
+          if( fd_txn_map_query( txn_map, &sig, NULL ) != NULL ) continue;
 
-        //   fd_txn_map_t * elem = fd_txn_map_insert( txn_map, &sig );
-        //   if( elem == NULL ) { break; }
-        //   elem->slot       = slot;
-        //   elem->offset     = blockoff;
-        //   elem->sz         = pay_sz;
-        //   elem->meta_gaddr = 0;
-        //   elem->meta_sz    = 0;
+           fd_txn_map_t * elem = fd_txn_map_insert( txn_map, &sig );
+           if( elem == NULL ) { break; }
+           elem->slot       = slot;
+           elem->offset     = blockoff;
+           elem->sz         = pay_sz;
+           elem->meta_gaddr = 0;
+           elem->meta_sz    = 0;
 
-        //   if( txns_cnt < FD_TXN_MAX_PER_SLOT ) {
-        //     fd_block_txn_t * ref = &txns[txns_cnt++];
-        //     ref->txn_off                  = blockoff;
-        //     ref->id_off                   = (ulong)( sigs + j ) - (ulong)data;
-        //     ref->sz                       = pay_sz;
-        //   }
-        // }
+           if( txns_cnt < FD_TXN_MAX_PER_SLOT ) {
+             fd_block_txn_t * ref = &txns[txns_cnt++];
+             ref->txn_off                  = blockoff;
+             ref->id_off                   = (ulong)( sigs + j ) - (ulong)data;
+             ref->sz                       = pay_sz;
+           }
+         }
 
         blockoff += pay_sz;
       }
@@ -1047,7 +1048,7 @@ fd_blockstore_shred_remove( fd_blockstore_t * blockstore, ulong slot, uint idx )
 
 /* Deshred into a block once we've received all shreds for a slot. */
 
-static int
+int
 deshred( fd_blockstore_t * blockstore, ulong slot ) {
   FD_LOG_NOTICE(( "[%s] slot %lu", __func__, slot ));
 
@@ -1345,11 +1346,10 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
 
   /* Received all shreds, so try to assemble a block. */
 
-  if( FD_UNLIKELY( slot_complete_idx != FD_SHRED_IDX_NULL &&
+  /*if( FD_UNLIKELY( slot_complete_idx != FD_SHRED_IDX_NULL &&
                    buffered_idx == slot_complete_idx ) ) {
     deshred( blockstore, shred->slot );
-  }
-  //FD_TEST( fd_block_map_verify( blockstore->block_map ) == FD_MAP_SUCCESS );
+  }*/
 }
 
 int

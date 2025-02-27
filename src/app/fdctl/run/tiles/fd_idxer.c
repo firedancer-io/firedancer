@@ -5,6 +5,7 @@
 #include "../../../../flamenco/runtime/fd_blockstore.h"
 
 #include "generated/idxer_seccomp.h"
+#include "../../../../flamenco/runtime/fd_indexer.h"
 
 struct fd_idxer_tile_ctx {
   ulong  replay_idxer_in_idx;
@@ -56,7 +57,7 @@ during_frag( fd_idxer_tile_ctx_t * ctx,
                     ctx->replay_in_wmark ));
     }
     uchar * slot_done = fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
-    FD_LOG_WARNING(("idxer recieved slot: %lu", *(ulong *)slot_done));
+    FD_LOG_DEBUG(("idxer recieved slot: %lu", *(ulong *)slot_done));
     ctx->slot = *(ulong *)slot_done;
   }
 }
@@ -75,7 +76,7 @@ after_frag( fd_idxer_tile_ctx_t * ctx FD_PARAM_UNUSED,
   (void)tsorig;
   (void)stem;
 
-  //deshred( ctx->blockstore, ctx->slot );
+  deshred( ctx->blockstore, ctx->slot );
 }
 
 static void
