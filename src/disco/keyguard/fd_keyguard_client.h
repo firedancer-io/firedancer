@@ -32,10 +32,12 @@
 struct __attribute__((aligned(FD_KEYGUARD_CLIENT_ALIGN))) fd_keyguard_client {
   fd_frag_meta_t * request;
   ulong            request_seq;
+  ulong            request_depth;
   uchar          * request_data;
 
   fd_frag_meta_t * response;
   ulong            response_seq;
+  ulong            response_depth;
   uchar          * response_data;
 };
 typedef struct fd_keyguard_client fd_keyguard_client_t;
