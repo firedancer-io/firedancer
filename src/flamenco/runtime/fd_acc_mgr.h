@@ -196,6 +196,14 @@ fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
                  fd_borrowed_account_t * account );
 
 int
+fd_acc_mgr_modify( fd_acc_mgr_t *          acc_mgr,
+                   fd_funkier_txn_t *      txn,
+                   fd_pubkey_t const *     pubkey,
+                   int                     do_create,
+                   ulong                   min_data_sz,
+                   fd_borrowed_account_t * account );
+
+int
 fd_acc_mgr_save( fd_acc_mgr_t *          acc_mgr,
                  fd_borrowed_account_t * account );
 
