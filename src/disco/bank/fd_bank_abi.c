@@ -297,15 +297,19 @@ fd_bank_abi_resolve_address_lookup_tables( void const *     bank,
 
     if( FD_UNLIKELY( (data_sz<56UL) | (data_sz>(56UL+256UL*32UL)) ) ) return FD_BANK_ABI_TXN_INIT_ERR_INVALID_ACCOUNT_DATA;
 
-    fd_address_lookup_table_state_t table[1];
     fd_bincode_decode_ctx_t bincode = {
       .data    = data,
       .dataend = data+data_sz,
-      .valloc  = {0},
     };
 
-    result = fd_address_lookup_table_state_decode( table, &bincode );
+    ulong total_sz = 0UL;
+    result = fd_address_lookup_table_state_decode_footprint( &bincode, &total_sz );
     if( FD_UNLIKELY( result!=FD_BINCODE_SUCCESS ) ) return FD_BANK_ABI_TXN_INIT_ERR_INVALID_ACCOUNT_DATA;
+
+    if( FD_UNLIKELY( total_sz!=data_sz ) ) return FD_BANK_ABI_TXN_INIT_ERR_INVALID_ACCOUNT_DATA;
+
+    fd_address_lookup_table_state_t table[1];
+    fd_address_lookup_table_state_decode( table, &bincode );
 
     result = fd_address_lookup_table_state_is_lookup_table( table );
     if( FD_UNLIKELY( !result ) ) return FD_BANK_ABI_TXN_INIT_ERR_ACCOUNT_UNINITIALIZED;

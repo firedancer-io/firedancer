@@ -12,7 +12,7 @@
 /* The slot history sysvar contains a bit-vector indicating which slots have been processed in the current epoch. */
 
 /* Initialize the slot history sysvar account. */
-void 
+void
 fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx,
                              fd_spad_t *          runtime_spad );
 
@@ -22,10 +22,9 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx,
                                fd_spad_t *          runtime_spad );
 
 /* Reads the current value of the slot history sysvar */
-int
+fd_slot_history_t *
 fd_sysvar_slot_history_read( fd_exec_slot_ctx_t * slot_ctx,
-                             fd_spad_t *          runtime_spad, 
-                             fd_slot_history_t *  out_history );
+                             fd_spad_t *          runtime_spad );
 
 int
 fd_sysvar_slot_history_find_slot( fd_slot_history_t const * history,

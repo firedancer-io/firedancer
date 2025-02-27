@@ -38,13 +38,21 @@ fd_sysvar_epoch_rewards_read(
     return NULL;
   }
 
-  fd_bincode_decode_ctx_t decode =
-    { .data    = acc->const_data,
-      .dataend = acc->const_data + acc->const_meta->dlen,
-      .valloc  = {0}  /* valloc not required */ };
+  fd_bincode_decode_ctx_t decode = {
+    .data    = acc->const_data,
+    .dataend = acc->const_data + acc->const_meta->dlen
+  };
 
-  if( FD_UNLIKELY( fd_sysvar_epoch_rewards_decode( result, &decode )!=FD_BINCODE_SUCCESS ) )
+  ulong total_sz = 0UL;
+  err = fd_sysvar_epoch_rewards_decode_footprint( &decode, &total_sz );
+
+  if( FD_UNLIKELY( err ) ) {
     return NULL;
+  }
+
+  /* We assume here that the data structure is properly allocated already.
+     This could potentially be unsafe if not handled correctly by the caller. */
+  fd_sysvar_epoch_rewards_decode( result, &decode );
 
   return result;
 }

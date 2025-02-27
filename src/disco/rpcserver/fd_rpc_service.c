@@ -196,9 +196,7 @@ read_epoch_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
     }
 
     if( glob->epoch_bank != NULL ) {
-      fd_bincode_destroy_ctx_t binctx;
-      binctx.valloc = glob->valloc;
-      fd_epoch_bank_destroy( glob->epoch_bank, &binctx );
+      fd_epoch_bank_destroy( glob->epoch_bank );
       fd_valloc_free( glob->valloc, glob->epoch_bank );
       glob->epoch_bank = NULL;
     }
@@ -215,30 +213,31 @@ read_epoch_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
       return NULL;
     }
     uint magic = *(uint*)val;
-    fd_epoch_bank_t * epoch_bank = fd_valloc_malloc( glob->valloc, fd_epoch_bank_align(), fd_epoch_bank_footprint() );
-    fd_epoch_bank_new( epoch_bank );
     fd_bincode_decode_ctx_t binctx;
-    binctx.data = (uchar*)val + sizeof(uint);
+    binctx.data    = (uchar*)val + sizeof(uint);
     binctx.dataend = (uchar*)val + vallen;
-    binctx.valloc  = glob->valloc;
+
+    fd_epoch_bank_t * epoch_bank = NULL;
     if( magic == FD_RUNTIME_ENC_BINCODE ) {
-      if( fd_epoch_bank_decode( epoch_bank, &binctx )!=FD_BINCODE_SUCCESS ) {
+      ulong total_sz = 0UL;
+      if( fd_epoch_bank_decode_footprint( &binctx, &total_sz )!=FD_BINCODE_SUCCESS ) {
         FD_LOG_WARNING(( "failed to decode epoch_bank" ));
-        fd_valloc_free( glob->valloc, epoch_bank );
         return NULL;
       }
-    } else if( magic == FD_RUNTIME_ENC_ARCHIVE ) {
-      if( fd_epoch_bank_decode_archival( epoch_bank, &binctx )!=FD_BINCODE_SUCCESS ) {
-        FD_LOG_WARNING(( "failed to decode epoch_bank" ));
-        fd_valloc_free( glob->valloc, epoch_bank );
+
+      uchar * mem = fd_scratch_alloc( fd_epoch_bank_align(), total_sz );
+      if( FD_UNLIKELY( !mem ) ) {
+        FD_LOG_ERR(( "Unable to allocate memory for epoch bank" ));
         return NULL;
       }
+
+      epoch_bank = fd_epoch_bank_decode( mem, &binctx );
     } else {
       FD_LOG_ERR(("failed to read banks record: invalid magic number"));
     }
 
-    glob->epoch_bank = epoch_bank;
-    glob->epoch_bank_epoch = fd_slot_to_epoch(&epoch_bank->epoch_schedule, slot, NULL);
+    glob->epoch_bank       = epoch_bank;
+    glob->epoch_bank_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot, NULL );
   } FD_SCRATCH_SCOPE_END;
 }
 
@@ -269,22 +268,25 @@ read_slot_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
   }
 
   uint magic = *(uint*)val;
-  fd_slot_bank_t * slot_bank = fd_scratch_alloc( fd_slot_bank_align(), fd_slot_bank_footprint() );
-  fd_slot_bank_new( slot_bank );
   fd_bincode_decode_ctx_t binctx;
   binctx.data = (uchar*)val + sizeof(uint);
   binctx.dataend = (uchar*)val + vallen;
-  binctx.valloc  = fd_scratch_virtual();
+
+  fd_slot_bank_t * slot_bank = NULL;
   if( magic == FD_RUNTIME_ENC_BINCODE ) {
-    if( fd_slot_bank_decode( slot_bank, &binctx )!=FD_BINCODE_SUCCESS ) {
+    ulong total_sz = 0UL;
+    if( fd_slot_bank_decode_footprint( &binctx, &total_sz )!=FD_BINCODE_SUCCESS ) {
       FD_LOG_WARNING(( "failed to decode slot_bank" ));
       return NULL;
     }
-  } else if( magic == FD_RUNTIME_ENC_ARCHIVE ) {
-    if( fd_slot_bank_decode_archival( slot_bank, &binctx )!=FD_BINCODE_SUCCESS ) {
-      FD_LOG_WARNING(( "failed to decode slot_bank" ));
+
+    uchar * mem = fd_scratch_alloc( fd_slot_bank_align(), total_sz );
+    if( FD_UNLIKELY( !mem ) ) {
+      FD_LOG_ERR(( "Unable to allocate memory for slot bank" ));
       return NULL;
     }
+
+    slot_bank = fd_slot_bank_decode( mem, &binctx );
   } else {
     FD_LOG_ERR(( "failed to read banks record: invalid magic number" ));
   }
@@ -2516,17 +2518,15 @@ fd_rpc_stop_service(fd_rpc_ctx_t * ctx) {
   if (fd_webserver_stop(valloc, &glob->ws))
     FD_LOG_ERR(("fd_webserver_stop failed"));
   if( ctx->global->epoch_bank != NULL ) {
-    fd_bincode_destroy_ctx_t binctx;
-    binctx.valloc = valloc;
-    fd_epoch_bank_destroy( glob->epoch_bank, &binctx );
+    fd_epoch_bank_destroy( glob->epoch_bank );
     fd_valloc_free( valloc, glob->epoch_bank );
     glob->epoch_bank = NULL;
   }
   if ( FD_LIKELY( glob->perf_samples ) ) {
     fd_valloc_free( valloc, fd_perf_sample_deque_delete( fd_perf_sample_deque_leave( glob->perf_samples ) ) );
   }
-  fd_valloc_free(valloc, ctx->global);
-  fd_valloc_free(valloc, ctx);
+  fd_valloc_free( valloc, ctx->global );
+  fd_valloc_free( valloc, ctx );
 }
 
 int

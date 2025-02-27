@@ -60,13 +60,11 @@ fd_sysvar_cache_delete( fd_sysvar_cache_t * cache ) {
   cache->magic = 0UL;
   FD_COMPILER_MFENCE();
 
-  fd_bincode_destroy_ctx_t ctx = { .valloc = fd_spad_virtual( cache->runtime_spad ) };
-
   /* Call destroy on all objects.
      This is safe even if these objects logically don't exist
      (destory is safe on zero-initialized values and is idempotent) */
 # define X( type, name ) \
-  type##_destroy( cache->val_##name, &ctx );
+  type##_destroy( cache->val_##name );
   FD_SYSVAR_CACHE_ITER(X)
 # undef X
 
@@ -91,7 +89,7 @@ void                                                                      \
 fd_sysvar_cache_restore_##name(                                           \
   fd_sysvar_cache_t * cache,                                              \
   fd_acc_mgr_t *      acc_mgr,                                            \
-  fd_funk_txn_t *     funk_txn) {                                         \
+  fd_funk_txn_t *     funk_txn ) {                                        \
   do {                                                                    \
     fd_pubkey_t const * pubkey = &fd_sysvar_##name##_id;                  \
     FD_BORROWED_ACCOUNT_DECL( account );                                  \
@@ -109,13 +107,25 @@ fd_sysvar_cache_restore_##name(                                           \
                                                                           \
     /* Decode new value                                                   \
       type##_decode() does not do heap allocations on failure */          \
-                                                                          \
-    fd_bincode_decode_ctx_t decode =                                      \
-      { .data    = account->const_data,                                   \
-        .dataend = account->const_data + account->const_meta->dlen,       \
-        .valloc  = fd_spad_virtual( cache->runtime_spad ) };              \
-    int err = type##_decode( cache->val_##name, &decode );                \
+    fd_bincode_decode_ctx_t decode = {                                    \
+      .data    = account->const_data,                                     \
+      .dataend = account->const_data + account->const_meta->dlen          \
+    };                                                                    \
+    ulong total_sz    = 0UL;                                              \
+    int   err         = type##_decode_footprint( &decode, &total_sz );    \
     cache->has_##name = (err==FD_BINCODE_SUCCESS);                        \
+    if( FD_UNLIKELY( err ) ) {                                            \
+      break;                                                              \
+    }                                                                     \
+                                                                          \
+    type##_t * mem = fd_spad_alloc( cache->runtime_spad,                  \
+                                    type##_align(),                       \
+                                    total_sz );                           \
+    if( FD_UNLIKELY( !mem ) ) {                                           \
+      FD_LOG_ERR(( "memory allocation failed" ));                         \
+    }                                                                     \
+    type##_decode( mem, &decode );                                        \
+    fd_memcpy( cache->val_##name, mem, sizeof(type##_t) );                \
   } while(0);                                                             \
 }
   FD_SYSVAR_CACHE_ITER(X)

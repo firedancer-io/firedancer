@@ -875,8 +875,7 @@ static int
 distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
                                       fd_pubkey_t *        stake_pubkey,
                                       ulong                reward_lamports,
-                                      ulong                new_credits_observed,
-                                      fd_spad_t *          runtime_spad ) {
+                                      ulong                new_credits_observed ) {
 
   FD_BORROWED_ACCOUNT_DECL( stake_acc_rec );
 
@@ -887,7 +886,7 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
   stake_acc_rec->meta->slot = slot_ctx->slot_bank.slot;
 
   fd_stake_state_v2_t stake_state[1] = {0};
-  if( fd_stake_get_state( stake_acc_rec, runtime_spad, stake_state ) != 0 ) {
+  if( fd_stake_get_state( stake_acc_rec, stake_state ) != 0 ) {
     FD_LOG_DEBUG(( "failed to read stake state for %s", FD_BASE58_ENC_32_ALLOCA( stake_pubkey ) ));
     return 1;
   }
@@ -947,8 +946,7 @@ set_epoch_reward_status_active( fd_exec_slot_ctx_t *             slot_ctx,
 static void
 distribute_epoch_rewards_in_partition( fd_stake_reward_dlist_t * partition,
                                        fd_stake_reward_t *       pool,
-                                       fd_exec_slot_ctx_t *      slot_ctx,
-                                       fd_spad_t *               runtime_spad ) {
+                                       fd_exec_slot_ctx_t *      slot_ctx ) {
 
   ulong lamports_distributed = 0UL;
   ulong lamports_burned      = 0UL;
@@ -961,8 +959,7 @@ distribute_epoch_rewards_in_partition( fd_stake_reward_dlist_t * partition,
     if( distribute_epoch_reward_to_stake_acc( slot_ctx,
                                               &stake_reward->stake_pubkey,
                                               stake_reward->lamports,
-                                              stake_reward->credits_observed,
-                                              runtime_spad ) == 0 ) {
+                                              stake_reward->credits_observed ) == 0 ) {
       lamports_distributed += stake_reward->lamports;
     } else {
       lamports_burned += stake_reward->lamports;
@@ -1017,8 +1014,7 @@ fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx,
     ulong partition_index = height - distribution_starting_block_height;
     distribute_epoch_rewards_in_partition( &status->partitioned_stake_rewards.partitions[ partition_index ],
                                            status->partitioned_stake_rewards.pool,
-                                           slot_ctx,
-                                           runtime_spad );
+                                           slot_ctx );
   }
 
   /* If we have finished distributing rewards, set the status to inactive */
@@ -1056,8 +1052,7 @@ fd_update_rewards( fd_exec_slot_ctx_t * slot_ctx,
   for( ulong i = 0UL; i < rewards_result->stake_rewards_by_partition.partitioned_stake_rewards.partitions_len; i++ ) {
     distribute_epoch_rewards_in_partition( &rewards_result->stake_rewards_by_partition.partitioned_stake_rewards.partitions[ i ],
                                            rewards_result->stake_rewards_by_partition.partitioned_stake_rewards.pool,
-                                           slot_ctx,
-                                           runtime_spad );
+                                           slot_ctx );
   }
 }
 
