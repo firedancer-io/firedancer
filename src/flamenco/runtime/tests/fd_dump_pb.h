@@ -56,6 +56,7 @@
 #include "../../vm/fd_vm.h"
 #include "../../../util/log/fd_log.h"
 #include "../program/fd_address_lookup_table_program.h"
+#include "../program/fd_bpf_loader_program.h"
 
 #include "../../nanopb/pb_encode.h"
 #include "generated/elf.pb.h"

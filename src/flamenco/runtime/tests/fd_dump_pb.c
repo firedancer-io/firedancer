@@ -136,22 +136,25 @@ dump_executable_account_if_exists( fd_exec_slot_ctx_t const *        slot_ctx,
     return;
   }
 
-  fd_bpf_upgradeable_loader_state_t program_loader_state = {0};
   fd_bincode_decode_ctx_t ctx = {
     .data    = program_account->data->bytes,
     .dataend = program_account->data->bytes + program_account->data->size,
-    .valloc  = fd_spad_virtual( spad ),
   };
 
-  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode( &program_loader_state, &ctx ) ) ) {
+  ulong total_sz = 0UL;
+  int err = fd_bpf_upgradeable_loader_state_decode_footprint( &ctx, &total_sz );
+  if( FD_UNLIKELY( err ) ) {
     return;
   }
 
-  if( !fd_bpf_upgradeable_loader_state_is_program( &program_loader_state ) ) {
+  uchar * mem = fd_spad_alloc( spad, FD_BPF_UPGRADEABLE_LOADER_STATE_ALIGN, total_sz );
+  fd_bpf_upgradeable_loader_state_t * program_loader_state = fd_bpf_upgradeable_loader_state_decode( mem, &ctx );
+
+  if( !fd_bpf_upgradeable_loader_state_is_program( program_loader_state ) ) {
     return;
   }
 
-  fd_pubkey_t * programdata_acc = &program_loader_state.inner.program.programdata_address;
+  fd_pubkey_t * programdata_acc = &program_loader_state->inner.program.programdata_address;
   dump_account_if_not_already_dumped( slot_ctx, programdata_acc, spad, out_account_states, out_account_states_count, NULL );
 }
 
