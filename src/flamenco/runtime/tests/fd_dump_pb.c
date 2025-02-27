@@ -34,12 +34,14 @@ dump_vote_accounts( fd_vote_accounts_t const *     vote_accounts,
     vote_out->vote_account.lamports      = curr->elem.value.lamports;
     vote_out->vote_account.rent_epoch    = curr->elem.value.rent_epoch;
     vote_out->vote_account.executable    = curr->elem.value.executable;
-    vote_out->vote_account.data->size    = (pb_size_t) curr->elem.value.data_len;
     vote_out->vote_account.has_seed_addr = false;
 
     fd_memcpy( &vote_out->vote_account.address, &curr->elem.key, sizeof(fd_pubkey_t) );
-    fd_memcpy( &vote_out->vote_account.data->bytes, curr->elem.value.data, curr->elem.value.data_len );
     fd_memcpy( &vote_out->vote_account.owner, &curr->elem.value.owner, sizeof(fd_pubkey_t) );
+
+    vote_out->vote_account.data = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( curr->elem.value.data_len ) );
+    vote_out->vote_account.data->size = (pb_size_t) curr->elem.value.data_len;
+    fd_memcpy( &vote_out->vote_account.data->bytes, curr->elem.value.data, curr->elem.value.data_len );
   }
 
   *out_vote_accounts       = vote_account_out;
