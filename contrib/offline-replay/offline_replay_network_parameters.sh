@@ -31,7 +31,7 @@ case $network in
   "devnet")
     export BUCKET_ENDPOINT="gs://solana-devnet-ledger-us-ny5"
     export GENESIS_FILE="https://api.devnet.solana.com/genesis.tar.bz2"
-    export FUNK_PAGES=400
+    export FUNK_PAGES=500
     export INDEX_MAX=200000000
     export PAGES=250
     export AGAVE_TAG=v2.1.13
