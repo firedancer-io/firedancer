@@ -1912,15 +1912,6 @@ typedef struct fd_vote_state_0_23_5_off fd_vote_state_0_23_5_off_t;
 #define POOL_NEXT parent
 #include "../../util/tmpl/fd_pool.c"
 static inline fd_vote_authorized_voter_t *
-fd_vote_authorized_voters_pool_alloc( fd_valloc_t valloc, ulong num ) {
-  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
-  return fd_vote_authorized_voters_pool_join( fd_vote_authorized_voters_pool_new(
-      fd_valloc_malloc( valloc,
-                        fd_vote_authorized_voters_pool_align(),
-                        fd_vote_authorized_voters_pool_footprint( num ) ),
-      num ) );
-}
-static inline fd_vote_authorized_voter_t *
 fd_vote_authorized_voters_pool_join_new( void * * alloc_mem, ulong num ) {
   if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
   *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_vote_authorized_voters_pool_align() );

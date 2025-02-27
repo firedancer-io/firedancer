@@ -215,7 +215,11 @@ authorized_voters_new( ulong                         epoch,
                        fd_pubkey_t const *           pubkey,
                        fd_spad_t *                   spad,
                        fd_vote_authorized_voters_t * authorized_voters /* out */ ) {
-  authorized_voters->pool  = fd_vote_authorized_voters_pool_alloc ( fd_spad_virtual( spad ), FD_VOTE_AUTHORIZED_VOTERS_MIN );
+  uchar * pool_mem = fd_spad_alloc( spad,
+                                    fd_vote_authorized_voters_pool_align(),
+                                    fd_vote_authorized_voters_pool_footprint( FD_VOTE_AUTHORIZED_VOTERS_MIN ) );
+  authorized_voters->pool = fd_vote_authorized_voters_pool_join(
+                              fd_vote_authorized_voters_pool_new( pool_mem, FD_VOTE_AUTHORIZED_VOTERS_MIN ) );
 
   uchar * treap_mem = fd_spad_alloc( spad,
                                      fd_vote_authorized_voters_treap_align(),
