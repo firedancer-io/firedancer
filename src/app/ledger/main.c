@@ -794,9 +794,15 @@ ingest_rocksdb( char const *      file,
   fd_slot_meta_t slot_meta = {0};
   fd_memset( &slot_meta, 0, sizeof(slot_meta) );
 
-  int ret = fd_rocksdb_root_iter_seek( &iter, &rocks_db, start_slot, &slot_meta, valloc );
-  if( ret < 0 ) {
-    FD_LOG_ERR(( "fd_rocksdb_root_iter_seek returned %d", ret ));
+  int block_found = -1;
+  while ( block_found!=0 && start_slot<=end_slot ) {
+    block_found = fd_rocksdb_root_iter_seek( &iter, &rocks_db, start_slot, &slot_meta, valloc );
+    if ( block_found!=0 ) {
+      start_slot++;
+    }
+  }
+  if( FD_UNLIKELY( block_found!=0 ) ) {
+    FD_LOG_ERR(( "unable to seek to any slot" ));
   }
 
   uchar trash_hash_buf[32];
@@ -828,7 +834,7 @@ ingest_rocksdb( char const *      file,
 
     fd_slot_meta_destroy( &slot_meta );
 
-    ret = fd_rocksdb_root_iter_next( &iter, &slot_meta, valloc );
+    int ret = fd_rocksdb_root_iter_next( &iter, &slot_meta, valloc );
     if( ret < 0 ) {
       // FD_LOG_WARNING(("Failed for slot %lu", slot + 1));
       ret = fd_rocksdb_get_meta( &rocks_db, slot + 1, &slot_meta, valloc );
