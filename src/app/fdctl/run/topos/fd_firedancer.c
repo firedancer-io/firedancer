@@ -156,7 +156,10 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "constipate" );
 
 
-  if( enable_rpc ) fd_topob_wksp( topo, "rpcsrv" );
+  if( enable_rpc ) {
+    fd_topob_wksp( topo, "rpcsrv" );
+    fd_topob_wksp( topo, "replay_idxer" );
+  }
 
   #define FOR(cnt) for( ulong i=0UL; i<cnt; i++ )
 
@@ -179,8 +182,8 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "gossip_repla", "gossip_repla", 128UL,                                    4UL + 128UL + 8192UL,          1UL );
   /**/                 fd_topob_link( topo, "replay_gossi", "replay_gossi", 128UL,                                    4UL + 128UL + 8192UL,          1UL );
   /**/                 fd_topob_link( topo, "replay_store", "replay_store", 128UL,                                    sizeof(ulong) * 2,             1UL );
-  FOR(exec_tile_cnt)   fd_topob_link( topo, "replay_exec",  "replay_exec",   128UL,                                   sizeof(fd_txn_p_t),            FD_TXN_MAX_PER_SLOT );
-
+  FOR(exec_tile_cnt)   fd_topob_link( topo, "replay_exec",  "replay_exec",  128UL,                                    sizeof(fd_txn_p_t),            FD_TXN_MAX_PER_SLOT );
+  if( enable_rpc ){    fd_topob_link( topo, "replay_idxer", "replay_idxer", 128UL,                                    8,                             1 );  }
   /**/                 fd_topob_link( topo, "gossip_verif", "gossip_verif", config->tiles.verify.receive_buffer_size, FD_TPU_MTU,                    1UL );
   /**/                 fd_topob_link( topo, "gossip_eqvoc", "gossip_eqvoc", 128UL,                                    FD_TPU_MTU,                    1UL );
 
@@ -266,7 +269,10 @@ fd_topo_initialize( config_t * config ) {
   /* These thread tiles must be defined immediately after the snapshot tile. */
   FOR(batch_tpool_thread_count-1)  fd_topob_tile( topo, "btpool",  "btpool",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
 
-  if( enable_rpc )                 fd_topob_tile( topo, "rpcsrv",  "rpcsrv",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+  if( enable_rpc ){                fd_topob_tile( topo, "rpcsrv",  "rpcsrv",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+                                   fd_topob_tile( topo, "idxer",   "idxer",   "metric_in", tile_to_cpu[ topo->tile_cnt ],  0,        0 );
+  }
+
 
   fd_topo_tile_t * store_tile  = &topo->tiles[ fd_topo_find_tile( topo, "storei", 0UL ) ];
   fd_topo_tile_t * replay_tile = &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ];
@@ -286,7 +292,9 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_tile_uses( topo, repair_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   if( enable_rpc ) {
     fd_topo_tile_t * rpcserv_tile = &topo->tiles[ fd_topo_find_tile( topo, "rpcsrv", 0UL ) ];
+    fd_topo_tile_t * idxr_tile = &topo->tiles[ fd_topo_find_tile( topo, "idxer", 0UL ) ];
     fd_topob_tile_uses( topo, rpcserv_tile, blockstore_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
+    fd_topob_tile_uses( topo, idxr_tile,    blockstore_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
   }
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_obj->id, "blockstore" ) );

@@ -497,8 +497,10 @@ struct fd_blockstore {
 
   fd_blockstore_shmem_t * shmem; /* read/writes to shmem must call fd_blockstore_start_read()*/
 
-  /* local join handles */
+  int idxr_fd; /* local file descriptor for the blockstore archival file */
+  int archiver_fd; /* local file descriptor for the blockstore archiver file */
 
+  /* local join handles */
   fd_buf_shred_pool_t shred_pool[1];
   fd_buf_shred_map_t  shred_map[1];
   fd_block_map_t      block_map[1];

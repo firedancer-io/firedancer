@@ -108,6 +108,7 @@ struct fd_rpc_global_ctx {
   fd_webserver_t ws;
   fd_funk_t * funk;
   fd_blockstore_t blockstore[1];
+  
   int blockstore_fd;
   struct fd_ws_subscription sub_list[FD_WS_MAX_SUBS];
   ulong sub_cnt;

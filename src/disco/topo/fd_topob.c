@@ -376,6 +376,7 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "sender", /* FIREDANCER only */
     "eqvoc",  /* FIREDANCER only */
     "rpcsrv", /* FIREDANCER only */
+    "idxer",  /* FIREDANCER only */
     "batch",  /* FIREDANCER only */
     "btpool", /* FIREDANCER only */
 #endif
