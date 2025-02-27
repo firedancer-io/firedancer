@@ -904,7 +904,8 @@ fd_accounts_hash( fd_funk_t *      funk,
                   fd_slot_bank_t * slot_bank,
                   fd_tpool_t *     tpool,
                   fd_hash_t *      accounts_hash,
-                  fd_spad_t *      runtime_spad ) {
+                  fd_spad_t *      runtime_spad,
+                  int              lthash_enabled ) {
   FD_LOG_NOTICE(("accounts_hash start"));
 
   if( tpool == NULL || fd_tpool_worker_cnt( tpool ) <= 1U ) {
@@ -965,8 +966,13 @@ fd_accounts_hash( fd_funk_t *      funk,
     }
 
   }
-  FD_LOG_NOTICE(( "accounts_lthash %s", FD_LTHASH_ENC_32_ALLOCA( (fd_lthash_value_t *)slot_bank->lthash.lthash ) ));
-  FD_LOG_NOTICE(( "accounts_hash %s", FD_BASE58_ENC_32_ALLOCA( accounts_hash->hash ) ));
+
+  if( lthash_enabled ) {
+    // FIXME: Once this is enabled on mainnet, we can rip out all the account_delta_hash supporting code
+    fd_lthash_hash( (fd_lthash_value_t *)slot_bank->lthash.lthash, accounts_hash->hash );
+    FD_LOG_NOTICE(( "accounts_lthash %s", FD_BASE58_ENC_32_ALLOCA( accounts_hash->hash ) ));
+  } else
+    FD_LOG_NOTICE(( "accounts_hash %s", FD_BASE58_ENC_32_ALLOCA( accounts_hash->hash ) ));
 
   return 0;
 }
@@ -1150,7 +1156,7 @@ fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_NOTICE(( "snapshot is including epoch account hash" ));
     fd_sha256_t h;
     fd_hash_t   hash;
-    fd_accounts_hash( slot_ctx->acc_mgr->funk, &slot_ctx->slot_bank, tpool, &hash, runtime_spad );
+    fd_accounts_hash( slot_ctx->acc_mgr->funk, &slot_ctx->slot_bank, tpool, &hash, runtime_spad, FD_FEATURE_ACTIVE( slot_ctx, snapshots_lt_hash) );
 
     fd_sha256_init( &h );
     fd_sha256_append( &h, (uchar const *) hash.hash, sizeof( fd_hash_t ) );
@@ -1159,7 +1165,7 @@ fd_snapshot_hash( fd_exec_slot_ctx_t * slot_ctx,
 
     return 0;
   }
-  return fd_accounts_hash( slot_ctx->acc_mgr->funk, &slot_ctx->slot_bank, tpool, accounts_hash, runtime_spad );
+  return fd_accounts_hash( slot_ctx->acc_mgr->funk, &slot_ctx->slot_bank, tpool, accounts_hash, runtime_spad, FD_FEATURE_ACTIVE( slot_ctx, snapshots_lt_hash) );
 }
 
 int
@@ -1196,7 +1202,8 @@ fd_snapshot_service_hash( fd_hash_t *       accounts_hash,
                           fd_spad_t *       runtime_spad ) {
 
   fd_sha256_t h;
-  fd_accounts_hash( funk, slot_bank, tpool, accounts_hash, runtime_spad );
+  int lthash_enabled = FD_FEATURE_ACTIVE_( slot_bank->slot, g_runtime_ctx->public->features, snapshots_lt_hash );
+  fd_accounts_hash( funk, slot_bank, tpool, accounts_hash, runtime_spad, lthash_enabled );
 
   int should_include_eah = epoch_bank->eah_stop_slot != ULONG_MAX && epoch_bank->eah_start_slot == ULONG_MAX;
 

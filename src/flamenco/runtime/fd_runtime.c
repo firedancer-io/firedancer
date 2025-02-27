@@ -3764,7 +3764,7 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
 
       if( txn->xid.ul[0] >= epoch_bank->eah_start_slot ) {
         if( !FD_FEATURE_ACTIVE( slot_ctx, accounts_lt_hash ) ) {
-          fd_accounts_hash( slot_ctx->acc_mgr->funk, &slot_ctx->slot_bank, tpool, &slot_ctx->slot_bank.epoch_account_hash, runtime_spad );
+          fd_accounts_hash( slot_ctx->acc_mgr->funk, &slot_ctx->slot_bank, tpool, &slot_ctx->slot_bank.epoch_account_hash, runtime_spad, 0 );
         }
         epoch_bank->eah_start_slot = ULONG_MAX;
       }
@@ -4041,3 +4041,20 @@ fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
 //
 // What slots exactly do cache'd account_updates go into?  how are
 // they hashed (which slot?)?
+
+ulong
+fd_runtime_public_footprint ( void ) {
+  return sizeof(fd_runtime_public_t);
+}
+
+fd_runtime_public_t *
+fd_runtime_public_join ( void * ptr )
+{
+  return (fd_runtime_public_t *) ptr;
+}
+
+void *
+fd_runtime_public_new ( void * ptr )  {
+  fd_memset(ptr, 0, sizeof(fd_runtime_public_t));
+  return ptr;
+}
