@@ -257,12 +257,17 @@ handle_microblock( fd_bank_ctx_t *     ctx,
     /* The VM will stop executing and fail an instruction immediately if
        it exceeds its requested CUs.  A transaction which requests less
        account data than it actually consumes will fail in the account
-       loading stage. */
+       loading stage. ... todo ... enforce this check after SIMD-170
+       is released. */
     if( FD_UNLIKELY( actual_execution_cus+actual_acct_data_cus > requested_exec_plus_acct_data_cus ) ) {
-      FD_LOG_ERR(( "Actual CUs unexpectedly exceeded requested amount. actual_execution_cus (%u) actual_acct_data_cus "
+      FD_LOG_DEBUG(( "Actual CUs unexpectedly exceeded requested amount. actual_execution_cus (%u) actual_acct_data_cus "
                    "(%u) requested_exec_plus_acct_data_cus (%u) is_simple_vote (%i) exec_failed (%i)",
                    actual_execution_cus, actual_acct_data_cus, requested_exec_plus_acct_data_cus, is_simple_vote,
                    transaction_err[ sanitized_idx-1UL ] ));
+      FD_LOG_HEXDUMP_DEBUG(( "txn", txn->payload, txn->payload_sz ));
+
+      actual_execution_cus = requested_exec_plus_acct_data_cus;
+      actual_acct_data_cus = 0UL;
     }
 
     txn->bank_cu.actual_consumed_cus = non_execution_cus + actual_execution_cus + actual_acct_data_cus;
@@ -417,8 +422,8 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       txn->bank_cu.actual_consumed_cus = non_execution_cus + consumed_cus[ i ];
       /* FD_TEST( consumed_cus[ i ] <= requested_exec_plus_acct_data_cus ); */
       if( FD_UNLIKELY( consumed_cus[ i ] > requested_exec_plus_acct_data_cus ) ) {
-        FD_LOG_WARNING(( "transaction %lu in bundle consumed %u CUs > requested %u CUs", i, consumed_cus[ i ], requested_exec_plus_acct_data_cus ));
-        FD_LOG_HEXDUMP_WARNING(( "txn", txn->payload, txn->payload_sz ));
+        FD_LOG_DEBUG(( "transaction %lu in bundle consumed %u CUs > requested %u CUs", i, consumed_cus[ i ], requested_exec_plus_acct_data_cus ));
+        FD_LOG_HEXDUMP_DEBUG(( "txn", txn->payload, txn->payload_sz ));
         consumed_cus[ i ] = requested_exec_plus_acct_data_cus;
       }
       txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus - consumed_cus[ i ];
