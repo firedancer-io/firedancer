@@ -612,37 +612,50 @@ fd_system_program_execute( fd_exec_instr_ctx_t * ctx ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
-  fd_system_program_instruction_t instruction;
-  fd_bincode_decode_ctx_t decode =
-    { .data    = data,
-      .dataend = data + ctx->instr->data_sz,
-      .valloc  = fd_spad_virtual( ctx->txn_ctx->spad ) };
-  /* Fail if the number of bytes consumed by deserialize exceeds 1232 */
-  if( fd_system_program_instruction_decode( &instruction, &decode ) ||
-      (ulong)data + 1232UL < (ulong)decode.data )
+  fd_bincode_decode_ctx_t decode = {
+    .data    = data,
+    .dataend = data + ctx->instr->data_sz
+  };
+
+  ulong total_sz   = 0UL;
+  int   decode_err = fd_system_program_instruction_decode_footprint( &decode, &total_sz );
+  if( FD_UNLIKELY( decode_err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+  }
+
+  uchar * mem = fd_spad_alloc( ctx->txn_ctx->spad, fd_system_program_instruction_align(), total_sz );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "Unable to allocate memory for system program instruction" ));
+  }
+
+  fd_system_program_instruction_t * instruction = fd_system_program_instruction_decode( mem, &decode );
+  /* If the decoder consumes more than the TXN_MTU (1232) bytes, the transaction
+     should fail. */
+  if( FD_UNLIKELY( (ulong)data + FD_TXN_MTU < (ulong)decode.data ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
+  }
 
   int result = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
-  switch( instruction.discriminant ) {
+  switch( instruction->discriminant ) {
   case fd_system_program_instruction_enum_create_account: {
     result = fd_system_program_exec_create_account(
-        ctx, &instruction.inner.create_account );
+        ctx, &instruction->inner.create_account );
     break;
   }
   case fd_system_program_instruction_enum_assign: {
     result = fd_system_program_exec_assign(
-        ctx, &instruction.inner.assign );
+        ctx, &instruction->inner.assign );
     break;
   }
   case fd_system_program_instruction_enum_transfer: {
     result = fd_system_program_exec_transfer(
-        ctx, instruction.inner.transfer );
+        ctx, instruction->inner.transfer );
     break;
   }
   case fd_system_program_instruction_enum_create_account_with_seed: {
     result = fd_system_program_exec_create_account_with_seed(
-        ctx, &instruction.inner.create_account_with_seed );
+        ctx, &instruction->inner.create_account_with_seed );
     break;
   }
   case fd_system_program_instruction_enum_advance_nonce_account: {
@@ -651,39 +664,39 @@ fd_system_program_execute( fd_exec_instr_ctx_t * ctx ) {
   }
   case fd_system_program_instruction_enum_withdraw_nonce_account: {
     result = fd_system_program_exec_withdraw_nonce_account(
-        ctx, instruction.inner.withdraw_nonce_account );
+        ctx, instruction->inner.withdraw_nonce_account );
     break;
   }
   case fd_system_program_instruction_enum_initialize_nonce_account: {
     result = fd_system_program_exec_initialize_nonce_account(
-        ctx, &instruction.inner.initialize_nonce_account );
+        ctx, &instruction->inner.initialize_nonce_account );
     break;
   }
   case fd_system_program_instruction_enum_authorize_nonce_account: {
     result = fd_system_program_exec_authorize_nonce_account(
-        ctx, &instruction.inner.authorize_nonce_account );
+        ctx, &instruction->inner.authorize_nonce_account );
     break;
   }
   case fd_system_program_instruction_enum_allocate: {
-    result = fd_system_program_exec_allocate( ctx, instruction.inner.allocate );
+    result = fd_system_program_exec_allocate( ctx, instruction->inner.allocate );
     break;
   }
   case fd_system_program_instruction_enum_allocate_with_seed: {
     // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L525
     result = fd_system_program_exec_allocate_with_seed(
-        ctx, &instruction.inner.allocate_with_seed );
+        ctx, &instruction->inner.allocate_with_seed );
     break;
   }
   case fd_system_program_instruction_enum_assign_with_seed: {
     // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L545
     result = fd_system_program_exec_assign_with_seed(
-        ctx, &instruction.inner.assign_with_seed );
+        ctx, &instruction->inner.assign_with_seed );
     break;
   }
   case fd_system_program_instruction_enum_transfer_with_seed: {
     // https://github.com/solana-labs/solana/blob/b00d18cec4011bb452e3fe87a3412a3f0146942e/runtime/src/system_instruction_processor.rs#L412
     result = fd_system_program_exec_transfer_with_seed(
-        ctx, &instruction.inner.transfer_with_seed );
+        ctx, &instruction->inner.transfer_with_seed );
     break;
   }
   case fd_system_program_instruction_enum_upgrade_nonce_account: {
@@ -693,7 +706,5 @@ fd_system_program_execute( fd_exec_instr_ctx_t * ctx ) {
   }
   }
 
-  fd_bincode_destroy_ctx_t destroy = { .valloc = fd_spad_virtual( ctx->txn_ctx->spad ) };
-  fd_system_program_instruction_destroy( &instruction, &destroy );
   return result;
 }

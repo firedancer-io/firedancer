@@ -191,7 +191,7 @@ slot_ctx_restore( ulong                 slot,
                   fd_blockstore_t *     blockstore,
                   fd_exec_epoch_ctx_t * epoch_ctx,
                   fd_funk_t *           funk,
-                  fd_valloc_t           valloc,
+                  fd_spad_t *           runtime_spad,
                   fd_exec_slot_ctx_t *  slot_ctx_out ) {
   fd_funk_txn_t *  txn_map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
 
@@ -223,29 +223,33 @@ slot_ctx_restore( ulong                 slot,
 
   uint magic = *(uint *)val;
 
-  fd_bincode_decode_ctx_t decode_ctx;
-  decode_ctx.data    = (uchar *)val + sizeof( uint );
-  decode_ctx.dataend = (uchar *)val + fd_funk_val_sz( rec );
-  decode_ctx.valloc  = valloc;
+  fd_bincode_decode_ctx_t decode_ctx = {
+    .data    = (uchar *)val + sizeof(uint),
+    .dataend = (uchar *)val + fd_funk_val_sz( rec )
+  };
 
   FD_TEST( slot_ctx_out->magic == FD_EXEC_SLOT_CTX_MAGIC );
 
-  slot_ctx_out->funk_txn = txn;
-
+  slot_ctx_out->funk_txn   = txn;
   slot_ctx_out->acc_mgr    = acc_mgr;
   slot_ctx_out->blockstore = blockstore;
   slot_ctx_out->epoch_ctx  = epoch_ctx;
 
-  fd_bincode_destroy_ctx_t destroy_ctx = {
-      .valloc = valloc,
-  };
+  if( FD_LIKELY( magic==FD_RUNTIME_ENC_BINCODE ) ) {
+    ulong total_sz = 0UL;
+    err = fd_slot_bank_decode_footprint( &decode_ctx, &total_sz );
+    if( FD_UNLIKELY( err != FD_BINCODE_SUCCESS ) ) {
+      FD_LOG_ERR( ( "failed to decode banks record" ) );
+    }
 
-  fd_slot_bank_destroy( &slot_ctx_out->slot_bank, &destroy_ctx );
-  if( magic == FD_RUNTIME_ENC_BINCODE ) {
-    FD_TEST( fd_slot_bank_decode( &slot_ctx_out->slot_bank, &decode_ctx ) == FD_BINCODE_SUCCESS );
-  } else if( magic == FD_RUNTIME_ENC_ARCHIVE ) {
-    FD_TEST( fd_slot_bank_decode_archival( &slot_ctx_out->slot_bank, &decode_ctx ) ==
-             FD_BINCODE_SUCCESS );
+    uchar * mem = fd_spad_alloc( runtime_spad, fd_slot_bank_align(), total_sz );
+    if( FD_UNLIKELY( !mem ) ) {
+      FD_LOG_ERR( ( "failed to allocate memory for slot bank" ) );
+    }
+
+    fd_slot_bank_t * slot_bank = fd_slot_bank_decode( mem, &decode_ctx );
+
+    fd_memcpy( &slot_ctx_out->slot_bank, slot_bank, sizeof(fd_slot_bank_t) );
   } else {
     FD_LOG_ERR( ( "failed to read banks record: invalid magic number" ) );
   }
@@ -318,7 +322,7 @@ fd_forks_prepare( fd_forks_t const *    forks,
 
     /* Restore and decode w/ funk */
 
-    slot_ctx_restore( fork->slot, acc_mgr, blockstore, epoch_ctx, funk, fd_spad_virtual( runtime_spad ), slot_ctx );
+    slot_ctx_restore( fork->slot, acc_mgr, blockstore, epoch_ctx, funk, runtime_spad, slot_ctx );
 
     /* Add to frontier */
 

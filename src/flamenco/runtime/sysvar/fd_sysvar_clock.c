@@ -62,13 +62,18 @@ fd_sysvar_clock_read( fd_sol_sysvar_clock_t *    result,
   if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) )
     return NULL;
 
-  fd_bincode_decode_ctx_t ctx =
-    { .data    = acc->const_data,
-      .dataend = acc->const_data + acc->const_meta->dlen,
-      .valloc  = {0}  /* valloc not required */ };
+  fd_bincode_decode_ctx_t ctx = {
+    .data    = acc->const_data,
+    .dataend = acc->const_data + acc->const_meta->dlen,
+  };
 
-  if( FD_UNLIKELY( fd_sol_sysvar_clock_decode( result, &ctx )!=FD_BINCODE_SUCCESS ) )
+  ulong total_sz = 0UL;
+  int   err      = fd_sol_sysvar_clock_decode_footprint( &ctx, &total_sz );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
     return NULL;
+  }
+
+  fd_sol_sysvar_clock_decode( result, &ctx );
   return result;
 }
 
@@ -224,11 +229,21 @@ fd_calculate_stake_weighted_timestamp( fd_exec_slot_ctx_t * slot_ctx,
         fd_bincode_decode_ctx_t ctx = {
           .data    = n->elem.value.data,
           .dataend = n->elem.value.data + n->elem.value.data_len,
-          .valloc  = fd_spad_virtual( runtime_spad )
         };
 
-        fd_vote_state_versioned_t vsv[1];
-        fd_vote_state_versioned_decode( vsv, &ctx );
+        ulong total_sz = 0UL;
+        int   err      = fd_vote_state_versioned_decode_footprint( &ctx, &total_sz );
+        if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+          FD_LOG_WARNING(( "Vote state versioned decode footprint failed" ));
+          continue;
+        }
+
+        uchar * mem = fd_spad_alloc( runtime_spad, fd_vote_state_versioned_align(), total_sz );
+        if( FD_UNLIKELY( !mem ) ) {
+          FD_LOG_ERR(( "Unable to allocate memory for vote state versioned" ));
+        }
+
+        fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( mem, &ctx );
 
         switch( vsv->discriminant ) {
           case fd_vote_state_versioned_enum_v0_23_5:
@@ -329,32 +344,45 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad 
 
   fd_pubkey_t const * key = &fd_sysvar_clock_id;
 
-  FD_BORROWED_ACCOUNT_DECL(rec);
-  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, key, rec);
-  if (err)
-    FD_LOG_CRIT(( "fd_acc_mgr_view(clock) failed: %d", err ));
+  FD_BORROWED_ACCOUNT_DECL( rec );
+  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, key, rec );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_ERR(( "fd_acc_mgr_view(clock) failed: %d", err ));
+  }
 
-  fd_bincode_decode_ctx_t ctx;
-  ctx.data    = rec->const_data;
-  ctx.dataend = rec->const_data + rec->const_meta->dlen;
-  ctx.valloc  = fd_spad_virtual( runtime_spad );
-  fd_sol_sysvar_clock_t clock;
-  if( fd_sol_sysvar_clock_decode( &clock, &ctx ) )
-    FD_LOG_ERR(("fd_sol_sysvar_clock_decode failed"));
+  fd_bincode_decode_ctx_t ctx = {
+    .data    = rec->const_data,
+    .dataend = rec->const_data + rec->const_meta->dlen
+  };
 
-  long ancestor_timestamp = clock.unix_timestamp;
+  ulong total_sz = 0UL;
+  err = fd_sol_sysvar_clock_decode_footprint( &ctx, &total_sz );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_ERR(( "fd_sol_sysvar_clock_decode_footprint failed" ));
+  }
+
+  uchar * mem = fd_spad_alloc( runtime_spad, fd_sol_sysvar_clock_align(), total_sz );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "Failed to allocate memory for clock" ));
+  }
+
+  fd_sol_sysvar_clock_t * clock = fd_sol_sysvar_clock_decode( mem, &ctx );
+
+  long ancestor_timestamp = clock->unix_timestamp;
 
   if( slot_ctx->slot_bank.slot != 0 ) {
     fd_calculate_stake_weighted_timestamp( slot_ctx,
-                                           &clock.unix_timestamp,
+                                           &clock->unix_timestamp,
                                            FD_FEATURE_ACTIVE( slot_ctx, warp_timestamp_again ),
                                            runtime_spad );
   }
 
-  if( 0 == clock.unix_timestamp ) {
+  if( FD_UNLIKELY( !clock->unix_timestamp ) ) {
     /* generate timestamp for genesis */
     long timestamp_estimate         = estimate_timestamp( slot_ctx );
-    long bounded_timestamp_estimate = bound_timestamp_estimate( slot_ctx, timestamp_estimate, clock.epoch_start_timestamp );
+    long bounded_timestamp_estimate = bound_timestamp_estimate( slot_ctx,
+                                                                timestamp_estimate,
+                                                                clock->epoch_start_timestamp );
     if( timestamp_estimate != bounded_timestamp_estimate ) {
       FD_LOG_INFO(( "corrected timestamp_estimate %ld to %ld", timestamp_estimate, bounded_timestamp_estimate ));
     }
@@ -370,35 +398,37 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad 
       FD_LOG_DEBUG(( "clock rewind detected: %ld -> %ld", ancestor_timestamp, bounded_timestamp_estimate ));
       bounded_timestamp_estimate = ancestor_timestamp;
     }
-    clock.unix_timestamp = bounded_timestamp_estimate;
+    clock->unix_timestamp = bounded_timestamp_estimate;
   }
 
-  clock.slot  = slot_ctx->slot_bank.slot;
+  clock->slot  = slot_ctx->slot_bank.slot;
 
-  ulong epoch_old = clock.epoch;
+  ulong             epoch_old  = clock->epoch;
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  ulong epoch_new = fd_slot_to_epoch( &epoch_bank->epoch_schedule, clock.slot, NULL );
-  FD_LOG_DEBUG(("Epoch old %lu new %lu slot %lu", epoch_old, epoch_new, clock.slot));
-  clock.epoch = epoch_new;
+  ulong              epoch_new = fd_slot_to_epoch( &epoch_bank->epoch_schedule,
+                                                   clock->slot,
+                                                   NULL );
+  FD_LOG_DEBUG(("Epoch old %lu new %lu slot %lu", epoch_old, epoch_new, clock->slot));
+  clock->epoch = epoch_new;
   if( epoch_old != epoch_new ) {
     long timestamp_estimate = 0L;
     fd_calculate_stake_weighted_timestamp( slot_ctx,
                                            &timestamp_estimate,
                                            FD_FEATURE_ACTIVE( slot_ctx, warp_timestamp_again ),
                                            runtime_spad );
-    clock.unix_timestamp        = fd_long_max( timestamp_estimate, ancestor_timestamp );
-    clock.epoch_start_timestamp = clock.unix_timestamp;
-    clock.leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot );
+    clock->unix_timestamp        = fd_long_max( timestamp_estimate, ancestor_timestamp );
+    clock->epoch_start_timestamp = clock->unix_timestamp;
+    clock->leader_schedule_epoch = fd_slot_to_leader_schedule_epoch( &epoch_bank->epoch_schedule, slot_ctx->slot_bank.slot );
   }
 
   FD_LOG_DEBUG(( "Updated clock at slot %lu", slot_ctx->slot_bank.slot ));
-  FD_LOG_DEBUG(( "clock.slot: %lu", clock.slot ));
-  FD_LOG_DEBUG(( "clock.epoch_start_timestamp: %ld", clock.epoch_start_timestamp ));
-  FD_LOG_DEBUG(( "clock.epoch: %lu", clock.epoch ));
-  FD_LOG_DEBUG(( "clock.leader_schedule_epoch: %lu", clock.leader_schedule_epoch ));
-  FD_LOG_DEBUG(( "clock.unix_timestamp: %ld", clock.unix_timestamp ));
+  FD_LOG_DEBUG(( "clock.slot: %lu", clock->slot ));
+  FD_LOG_DEBUG(( "clock.epoch_start_timestamp: %ld", clock->epoch_start_timestamp ));
+  FD_LOG_DEBUG(( "clock.epoch: %lu", clock->epoch ));
+  FD_LOG_DEBUG(( "clock.leader_schedule_epoch: %lu", clock->leader_schedule_epoch ));
+  FD_LOG_DEBUG(( "clock.unix_timestamp: %ld", clock->unix_timestamp ));
 
-  ulong sz = fd_sol_sysvar_clock_size( &clock );
+  ulong sz = fd_sol_sysvar_clock_size( clock );
   FD_BORROWED_ACCOUNT_DECL( acc );
   err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, key, 1, sz, acc );
   if( err ) {
@@ -409,7 +439,7 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad 
     .data    = acc->data,
     .dataend = acc->data+sz,
   };
-  if( fd_sol_sysvar_clock_encode( &clock, &e_ctx ) ) {
+  if( fd_sol_sysvar_clock_encode( clock, &e_ctx ) ) {
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
   }
 

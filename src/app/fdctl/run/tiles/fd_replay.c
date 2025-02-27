@@ -1327,11 +1327,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   }
 
   /* Read slot history into slot ctx */
-  res = fd_sysvar_slot_history_read( &fork->slot_ctx, ctx->runtime_spad, fork->slot_ctx.slot_history );
-
-  if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
-    FD_LOG_ERR(( "slot history read failed" ));
-  }
+  fork->slot_ctx.slot_history = fd_sysvar_slot_history_read( &fork->slot_ctx, ctx->runtime_spad );
 
   if( is_new_epoch_in_new_block ) {
     publish_stake_weights( ctx, stem, &fork->slot_ctx );
@@ -1395,6 +1391,8 @@ process_and_exec_mbatch( fd_replay_tile_ctx_t * ctx,
   }
 
   fd_poh_verifier_t     poh_info         = {0};
+  (void)poh_info;
+
   fd_microblock_hdr_t * hdr              = NULL;
   ulong                 off              = sizeof(ulong);
   for( ulong i=0UL; i<micro_cnt; i++ ){
@@ -1736,10 +1734,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     block_info->signature_cnt = fork->slot_ctx.signature_cnt;
 
     /* Destroy the slot history */
-    fd_bincode_destroy_ctx_t destroy_ctx = {
-      .valloc = fd_spad_virtual( ctx->runtime_spad )
-    };
-    fd_slot_history_destroy( fork->slot_ctx.slot_history, &destroy_ctx );
+    fd_slot_history_destroy( fork->slot_ctx.slot_history );
     for( ulong i = 0UL; i<ctx->bank_cnt; i++ ) {
       fd_tpool_wait( ctx->tpool, i+1 );
     }
@@ -2369,11 +2364,20 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
     fd_bincode_decode_ctx_t dec_ctx = {
       .data    = n->elem.value.data,
       .dataend = n->elem.value.data + n->elem.value.data_len,
-      .valloc  = fd_spad_virtual( ctx->runtime_spad )
     };
 
-    fd_vote_state_versioned_t vsv[1];
-    fd_vote_state_versioned_decode( vsv, &dec_ctx );
+    ulong total_sz = 0UL;
+    int err = fd_vote_state_versioned_decode_footprint( &dec_ctx, &total_sz );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_ERR(( "Unexpected failure in decoding vote state" ));
+    }
+
+    uchar * mem = fd_spad_alloc( ctx->runtime_spad, fd_vote_state_versioned_align(), total_sz );
+    if( FD_UNLIKELY( !mem ) ) {
+      FD_LOG_ERR(( "Unable to allocate memory for memory" ));
+    }
+
+    fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( mem, &dec_ctx );
 
     fd_pubkey_t node_pubkey;
     ulong       last_ts_slot;
@@ -2383,11 +2387,11 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
         last_ts_slot = vsv->inner.v0_23_5.last_timestamp.slot;
         break;
       case fd_vote_state_versioned_enum_v1_14_11:
-        node_pubkey = vsv->inner.v1_14_11.node_pubkey;
+        node_pubkey  = vsv->inner.v1_14_11.node_pubkey;
         last_ts_slot = vsv->inner.v1_14_11.last_timestamp.slot;
         break;
       case fd_vote_state_versioned_enum_current:
-        node_pubkey = vsv->inner.current.node_pubkey;
+        node_pubkey  = vsv->inner.current.node_pubkey;
         last_ts_slot = vsv->inner.current.last_timestamp.slot;
         break;
       default:
@@ -2436,9 +2440,8 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     if( FD_UNLIKELY( ctx->in_wen_restart ) ) {
       ulong buf_len = 0;
       uchar * buf = fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk );
-      fd_sysvar_slot_history_read( ctx->slot_ctx,
-                                   ctx->runtime_spad,
-                                   ctx->slot_ctx->slot_history );
+      ctx->slot_ctx->slot_history = fd_sysvar_slot_history_read( ctx->slot_ctx,
+                                                                 ctx->runtime_spad );
 
       fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
       fd_vote_accounts_t const * epoch_stakes[ RESTART_EPOCHS_MAX ] = { &epoch_bank->stakes.vote_accounts,

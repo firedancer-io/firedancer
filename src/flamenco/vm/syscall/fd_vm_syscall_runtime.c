@@ -144,9 +144,7 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
   void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_RENT, FD_RENT_FOOTPRINT );
 
   /* FIXME: is it possible to do the read in-place? */
-  fd_rent_t rent[1];
-  fd_rent_new( rent ); /* FIXME: probably should be init as not a distributed persistent object */
-  fd_sysvar_rent_read( rent, instr_ctx->slot_ctx, instr_ctx->txn_ctx->spad );
+  fd_rent_t * rent = fd_sysvar_rent_read( instr_ctx->slot_ctx, instr_ctx->txn_ctx->spad );
   /* FIXME: no delete function to match new (probably should be fini for the same reason anyway) */
 
   memcpy( out, rent, FD_RENT_FOOTPRINT );

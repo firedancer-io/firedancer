@@ -32,20 +32,11 @@ typedef struct fd_bincode_encode_ctx fd_bincode_encode_ctx_t;
 /* Context argument used for decoding */
 struct fd_bincode_decode_ctx {
   /* Current position in data buffer */
-  void const *   data;
+  void const * data;
   /* End of buffer */
-  void const *   dataend;
-  /* Allocator for dynamic memory */
-  fd_valloc_t    valloc;
+  void const * dataend;
 };
 typedef struct fd_bincode_decode_ctx fd_bincode_decode_ctx_t;
-
-/* Context argument used for calling "destroy" on a structure */
-struct fd_bincode_destroy_ctx {
-  /* Allocator for dynamic memory */
-  fd_valloc_t valloc;
-};
-typedef struct fd_bincode_destroy_ctx fd_bincode_destroy_ctx_t;
 
 #define FD_BINCODE_SUCCESS         (    0)
 #define FD_BINCODE_ERR_UNDERFLOW   (-1001) /* Attempted to read past end of buffer */
@@ -64,7 +55,7 @@ typedef struct fd_bincode_destroy_ctx fd_bincode_destroy_ctx_t;
     return FD_BINCODE_SUCCESS; \
   } \
   static inline int \
-  fd_bincode_##name##_decode_preflight( fd_bincode_decode_ctx_t * ctx ) { \
+  fd_bincode_##name##_decode_footprint( fd_bincode_decode_ctx_t * ctx ) { \
     uchar const * ptr = (uchar const *) ctx->data; \
     if ( FD_UNLIKELY((void const *)(ptr + sizeof(type)) > ctx->dataend ) ) \
       return FD_BINCODE_ERR_UNDERFLOW; \
@@ -117,7 +108,7 @@ fd_bincode_bool_decode( uchar *                   self,
 }
 
 static inline int
-fd_bincode_bool_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+fd_bincode_bool_decode_footprint( fd_bincode_decode_ctx_t * ctx ) {
 
   uchar const * ptr = (uchar const *)ctx->data;
   if( FD_UNLIKELY( ptr+1 > (uchar const *)ctx->dataend ) )
@@ -166,11 +157,12 @@ fd_bincode_bytes_decode( uchar *                   self,
 }
 
 static inline int
-fd_bincode_bytes_decode_preflight( ulong                     len,
+fd_bincode_bytes_decode_footprint( ulong                     len,
                                    fd_bincode_decode_ctx_t * ctx ) {
   uchar * ptr = (uchar *) ctx->data;
-  if ( FD_UNLIKELY((ulong)( (uchar *) ctx->dataend - ptr) < len ) ) // Get wrap-around case right
+  if ( FD_UNLIKELY((ulong)( (uchar *) ctx->dataend - ptr) < len ) ) { // Get wrap-around case right
     return FD_BINCODE_ERR_UNDERFLOW;
+  }
 
   ctx->data = ptr + len;
 
@@ -344,7 +336,7 @@ fd_bincode_varint_decode( ulong *                   self,
 }
 
 static inline int
-fd_bincode_varint_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+fd_bincode_varint_decode_footprint( fd_bincode_decode_ctx_t * ctx ) {
   ulong out   = 0UL;
   uint  shift = 0U;
 

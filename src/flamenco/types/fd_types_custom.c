@@ -1,3 +1,5 @@
+#include "fd_types_custom.h"
+#include "fd_bincode.h"
 #include "fd_types.h"
 #ifndef SOURCE_fd_src_flamenco_types_fd_types_c
 #error "fd_types_custom.c is part of the fd_types.c compile uint"
@@ -6,44 +8,53 @@
 #include <stdio.h>
 
 int
-fd_flamenco_txn_decode( fd_flamenco_txn_t *       self,
-                        fd_bincode_decode_ctx_t * ctx ) {
-  static FD_TL fd_txn_parse_counters_t counters[1];
-  ulong bufsz = (ulong)ctx->dataend - (ulong)ctx->data;
-  ulong sz;
-  ulong res = fd_txn_parse_core( ctx->data, bufsz, self->txn, counters, &sz );
-  if( FD_UNLIKELY( !res ) ) {
-    /* TODO: Remove this debug print in prod */
-    FD_LOG_DEBUG(( "Failed to decode txn (fd_txn.c:%lu)",
-                   counters->failure_ring[ counters->failure_cnt % FD_TXN_PARSE_COUNTERS_RING_SZ ] ));
-    return -1000001;
-  }
-  fd_memcpy( self->raw, ctx->data, sz );
-  self->raw_sz = sz;
-  ctx->data = (void *)( (ulong)ctx->data + sz );
-  return 0;
+fd_flamenco_txn_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_flamenco_txn_t);
+  void const * start_data = ctx->data;
+  int err = fd_flamenco_txn_decode_footprint_inner( ctx, total_sz );
+  ctx->data = start_data;
+  return err;
 }
 
 int
-fd_flamenco_txn_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+fd_flamenco_txn_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   ulong bufsz = (ulong)ctx->dataend - (ulong)ctx->data;
   fd_flamenco_txn_t self;
-  ulong sz;
-  ulong res = fd_txn_parse_core( ctx->data, bufsz, self.txn, NULL, &sz );
+  ulong sz  = 0UL;
+  ulong res = fd_txn_parse_core( ctx->data,
+                                 bufsz,
+                                 self.txn,
+                                 NULL,
+                                 &sz );
   if( FD_UNLIKELY( !res ) ) {
     return -1000001;
   }
-  ctx->data = (void *)( (ulong)ctx->data + sz );
+  ctx->data  = (void *)( (ulong)ctx->data + sz );
+  *total_sz += sz;
   return 0;
 }
 
+void *
+fd_flamenco_txn_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_flamenco_txn_t * self = (fd_flamenco_txn_t *)mem;
+  fd_flamenco_txn_new( self );
+  void *   alloc_region = (uchar *)mem + sizeof(fd_flamenco_txn_t);
+  void * * alloc_mem    = &alloc_region;
+  fd_flamenco_txn_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+
 void
-fd_flamenco_txn_decode_unsafe( fd_flamenco_txn_t *       self,
-                               fd_bincode_decode_ctx_t * ctx ) {
+fd_flamenco_txn_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_flamenco_txn_t * self = (fd_flamenco_txn_t *)struct_mem;
   static FD_TL fd_txn_parse_counters_t counters[1];
   ulong bufsz = (ulong)ctx->dataend - (ulong)ctx->data;
-  ulong sz;
-  ulong res = fd_txn_parse_core( ctx->data, bufsz, self->txn, counters, &sz );
+  ulong sz    = 0UL;
+  ulong res   = fd_txn_parse_core( ctx->data,
+                                   bufsz,
+                                   self->txn,
+                                   counters,
+                                   &sz );
   if( FD_UNLIKELY( !res ) ) {
     FD_LOG_ERR(( "Failed to decode txn (fd_txn.c:%lu)",
                  counters->failure_ring[ counters->failure_cnt % FD_TXN_PARSE_COUNTERS_RING_SZ ] ));
@@ -80,40 +91,86 @@ fd_gossip_ip6_addr_walk( void *                       w,
   fun( w, buf, name, FD_FLAMENCO_TYPE_CSTR, "ip6_addr", level );
 }
 
-int fd_tower_sync_decode( fd_tower_sync_t * self, fd_bincode_decode_ctx_t * ctx ) {
-  void const * data = ctx->data;
-  int err = fd_tower_sync_decode_preflight( ctx );
+int fd_tower_sync_encode( fd_tower_sync_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  FD_LOG_ERR(( "todo"));
+}
+
+int fd_tower_sync_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_tower_sync_t);
+  void const * start_data = ctx->data;
+  int err = fd_tower_sync_decode_footprint_inner( ctx, total_sz );
+  ctx->data = start_data;
+  return err;
+}
+
+int fd_tower_sync_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  /* This is a modified version of fd_compact_tower_sync_decode_footprint_inner() */
+  int err = 0;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+
+  /* The first modification is that we want to grab the value fo the root. */
+  ulong root = 0UL;
+  fd_bincode_decode_ctx_t root_ctx = { .data = (uchar*)ctx->data - sizeof(ulong), .dataend = ctx->data };
+  fd_bincode_uint64_decode_unsafe( &root, &root_ctx );
+  root = root != ULONG_MAX ? root : 0UL;
+  /* Done with first modificiation */
+
+
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-  ctx->data = data;
-  fd_tower_sync_new( self );
-  fd_tower_sync_decode_unsafe( self, ctx );
-  return FD_BINCODE_SUCCESS;
-}
+  ushort lockout_offsets_len;
+  err = fd_bincode_compact_u16_decode( &lockout_offsets_len, ctx );
 
-int fd_tower_sync_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {
+  if( FD_UNLIKELY( err ) ) return err;
+  ulong lockout_offsets_max = fd_ulong_max( lockout_offsets_len, 32 );
+  *total_sz += deq_fd_lockout_offset_t_align() + deq_fd_lockout_offset_t_footprint( lockout_offsets_max );
 
-    // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L1054-L1060
-    fd_compact_tower_sync_t compact_tower_sync[1];
-    fd_bincode_decode_ctx_t decode_ctx = { .data = ctx->data, .dataend = ctx->dataend, .valloc = ctx->valloc };
-    // Try to decode compact_tower_sync to check that lockout offsets don't cause an overflow
-    int err = fd_compact_tower_sync_decode( compact_tower_sync, &decode_ctx );
-    if( FD_UNLIKELY( err ) ) return err;
-    ctx->data = decode_ctx.data;
+  for( ulong i = 0; i < lockout_offsets_len; ++i ) {
 
-    // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L1061
-    ulong root = compact_tower_sync->root != ULONG_MAX ? compact_tower_sync->root : 0;
-    for (deq_fd_lockout_offset_t_iter_t iter = deq_fd_lockout_offset_t_iter_init( compact_tower_sync->lockout_offsets );
-                                              !deq_fd_lockout_offset_t_iter_done( compact_tower_sync->lockout_offsets, iter );
-                                        iter = deq_fd_lockout_offset_t_iter_next( compact_tower_sync->lockout_offsets, iter )) {
-      const fd_lockout_offset_t * lockout_offset = deq_fd_lockout_offset_t_iter_ele_const( compact_tower_sync->lockout_offsets, iter );
-      // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L1066
-      err = __builtin_uaddl_overflow( root, lockout_offset->offset, &root );
-      if( FD_UNLIKELY( err ) ) return err;
+    uchar const * start_data = ctx->data;
+    err = fd_lockout_offset_decode_footprint_inner( ctx, total_sz );
+    if( FD_UNLIKELY( err ) ) {
+      return err;
     }
-    return FD_BINCODE_SUCCESS;
+
+    /* The second modification is that we want to grab the lockout offset from
+    the deque to make sure that we can do a checked add successfully. */
+    fd_lockout_offset_t lockout_offset = {0};
+    fd_bincode_decode_ctx_t lockout_ctx = { .data = start_data, .dataend = start_data+sizeof(fd_lockout_offset_t) };
+    fd_lockout_offset_decode_inner( &lockout_offset, NULL, &lockout_ctx );
+    err = __builtin_uaddl_overflow( root, lockout_offset.offset, &root );
+    if( FD_UNLIKELY( err ) ) {
+      return err;
+    }
+    /* Done with second modification. */
+  }
+
+  err = fd_hash_decode_footprint_inner( ctx, total_sz );
+  if( FD_UNLIKELY( err ) ) return err;
+  {
+    uchar o;
+    err = fd_bincode_bool_decode( &o, ctx );
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    if( o ) {
+      err = fd_bincode_int64_decode_footprint( ctx );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  err = fd_hash_decode_footprint_inner( ctx, total_sz );
+  if( FD_UNLIKELY( err ) ) return err;
+  return 0;
 }
 
-void fd_tower_sync_decode_unsafe( fd_tower_sync_t * self, fd_bincode_decode_ctx_t * ctx ) {
+void * fd_tower_sync_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_tower_sync_t * self = (fd_tower_sync_t *)mem;
+  fd_tower_sync_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_tower_sync_t);
+  void * * alloc_mem = &alloc_region;
+  fd_tower_sync_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+
+void fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_tower_sync_t * self = (fd_tower_sync_t *)struct_mem;
   self->has_root = 1;
   fd_bincode_uint64_decode_unsafe( &self->root, ctx );
   self->has_root = self->root != ULONG_MAX;
@@ -121,7 +178,12 @@ void fd_tower_sync_decode_unsafe( fd_tower_sync_t * self, fd_bincode_decode_ctx_
   ushort lockout_offsets_len;
   fd_bincode_compact_u16_decode_unsafe( &lockout_offsets_len, ctx );
   ulong lockout_offsets_max = fd_ulong_max( lockout_offsets_len, 32 );
-  self->lockouts = deq_fd_vote_lockout_t_alloc( ctx->valloc, lockout_offsets_max );
+  self->lockouts = deq_fd_vote_lockout_t_join_new( alloc_mem, lockout_offsets_max );
+
+  /* NOTE: Agave does a a checked add on the sum of the root with all of the
+     lockout offsets in their custom deserializer for tower sync votes. If the
+     checked add is violated (this should never happen), the deocder will
+     return NULL.  */
 
   // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L1062-L1077
   ulong last_slot = ((self->root == ULONG_MAX) ? 0 : self->root);
@@ -129,14 +191,14 @@ void fd_tower_sync_decode_unsafe( fd_tower_sync_t * self, fd_bincode_decode_ctx_
     fd_vote_lockout_t * elem = deq_fd_vote_lockout_t_push_tail_nocopy( self->lockouts );
 
     fd_lockout_offset_t o;
-    fd_lockout_offset_decode_unsafe( &o, ctx );
+    fd_lockout_offset_decode_inner( &o, alloc_mem, ctx );
 
     elem->slot = last_slot + o.offset;
     elem->confirmation_count = o.confirmation_count;
     last_slot = elem->slot;
   }
 
-  fd_hash_decode_unsafe( &self->hash, ctx );
+  fd_hash_decode_inner( &self->hash, alloc_mem, ctx );
   {
     uchar o;
     fd_bincode_bool_decode_unsafe( &o, ctx );
@@ -145,15 +207,7 @@ void fd_tower_sync_decode_unsafe( fd_tower_sync_t * self, fd_bincode_decode_ctx_
       fd_bincode_int64_decode_unsafe( &self->timestamp, ctx );
     }
   }
-  fd_hash_decode_unsafe( &self->block_id, ctx );
-}
-
-int fd_tower_sync_decode_offsets( fd_tower_sync_off_t * self, fd_bincode_decode_ctx_t * ctx ) {
-  FD_LOG_ERR(( "todo"));
-}
-
-int fd_tower_sync_encode( fd_tower_sync_t const * self, fd_bincode_encode_ctx_t * ctx ) {
-  FD_LOG_ERR(( "todo"));
+  fd_hash_decode_inner( &self->block_id, alloc_mem, ctx );
 }
 
 int fd_archive_decode_skip_field( fd_bincode_decode_ctx_t * ctx, ushort tag ) {

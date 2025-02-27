@@ -63,13 +63,21 @@ fd_sysvar_epoch_schedule_read( fd_epoch_schedule_t *      result,
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return NULL;
 
-  fd_bincode_decode_ctx_t decode =
-    { .data    = acc->const_data,
-      .dataend = acc->const_data + acc->const_meta->dlen,
-      .valloc  = {0}  /* valloc not required */ };
+  fd_bincode_decode_ctx_t decode = {
+    .data    = acc->const_data,
+    .dataend = acc->const_data + acc->const_meta->dlen
+  };
 
-  if( FD_UNLIKELY( fd_epoch_schedule_decode( result, &decode )!=FD_BINCODE_SUCCESS ) )
+  ulong total_sz = 0UL;
+  err = fd_epoch_schedule_decode_footprint( &decode, &total_sz );
+  if( FD_UNLIKELY( err ) ) {
     return NULL;
+  }
+
+  /* Assumes that result has been properly allocated and setup by the caller. */
+
+  fd_epoch_schedule_decode( result, &decode );
+
   return result;
 }
 

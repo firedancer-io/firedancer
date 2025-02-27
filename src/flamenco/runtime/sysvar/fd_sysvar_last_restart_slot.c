@@ -46,14 +46,21 @@ fd_sysvar_last_restart_slot_read( fd_sol_sysvar_last_restart_slot_t * result,
   int err = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_last_restart_slot_id, acc);
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return NULL;
 
-  fd_bincode_decode_ctx_t decode =
-    { .data    = acc->const_data,
-      .dataend = acc->const_data + acc->const_meta->dlen,
-      .valloc  = {0}  /* valloc not required */ };
+  fd_bincode_decode_ctx_t decode = {
+    .data    = acc->const_data,
+    .dataend = acc->const_data + acc->const_meta->dlen
+  };
 
-  if( FD_UNLIKELY( fd_sol_sysvar_last_restart_slot_decode( result, &decode )!=FD_BINCODE_SUCCESS ) ) {
+  ulong total_sz = 0UL;
+  err = fd_sol_sysvar_last_restart_slot_decode_footprint( &decode, &total_sz );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
     return NULL;
   }
+
+  /* This assumes that the result has been setup already with the correct
+     memory layout (pointers point to valid sized buffers, etc) */
+
+  fd_sol_sysvar_last_restart_slot_decode( result, &decode );
   return result;
 }
 

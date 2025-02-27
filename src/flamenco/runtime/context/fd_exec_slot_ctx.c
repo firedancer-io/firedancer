@@ -114,15 +114,24 @@ recover_clock( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
 
    /* Extract vote timestamp of account */
 
-
    fd_bincode_decode_ctx_t ctx = {
     .data    = n->elem.value.data,
     .dataend = n->elem.value.data + n->elem.value.data_len,
-    .valloc  = fd_spad_virtual( runtime_spad )
   };
 
-  fd_vote_state_versioned_t vsv[1];
-  fd_vote_state_versioned_decode( vsv, &ctx );
+  ulong total_sz = 0UL;
+  int err = fd_vote_state_versioned_decode_footprint( &ctx, &total_sz );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(( "vote state decode footprint failed" ));
+    return 0;
+  }
+
+  uchar * mem = fd_spad_alloc( runtime_spad, fd_vote_state_versioned_align(), total_sz );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "Unable to allocate memory for versioned vote state" ));
+  }
+
+  fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( mem, &ctx );
 
   long timestamp = 0;
   ulong slot = 0;
@@ -169,9 +178,8 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   fd_epoch_bank_t *     epoch_bank  = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
 
   /* Clean out prior bank */
-  fd_bincode_destroy_ctx_t destroy = { .valloc = valloc };
   fd_slot_bank_t * slot_bank = &slot_ctx->slot_bank;
-  fd_slot_bank_destroy( slot_bank, &destroy );
+  fd_slot_bank_destroy( slot_bank );
   fd_slot_bank_new( slot_bank );
 
   for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(
@@ -240,7 +248,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   /* Copy stakes->stake_history */
   fd_memcpy( &epoch_bank->stakes.stake_history, &oldbank->stakes.stake_history, sizeof(oldbank->stakes.stake_history));
 
-  fd_stakes_destroy( &oldbank->stakes, &destroy );
+  fd_stakes_destroy( &oldbank->stakes );
 
   /* Index vote accounts */
 
@@ -434,7 +442,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
           elem );
     }
 
-    fd_vote_accounts_destroy( &curr_stakes, &destroy );
+    fd_vote_accounts_destroy( &curr_stakes );
 
     /* Move next EpochStakes
        TODO Can we derive this instead of trusting the snapshot? */
@@ -459,7 +467,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
     }
 
-    fd_vote_accounts_destroy( &next_stakes, &destroy );
+    fd_vote_accounts_destroy( &next_stakes );
   } while(0);
 
   if ( NULL != manifest->lthash )
@@ -479,8 +487,7 @@ fd_exec_slot_ctx_recover( fd_exec_slot_ctx_t *   slot_ctx,
 
   /* Regardless of result, always destroy manifest.
      TODO: This doesn't do anything. */
-  fd_bincode_destroy_ctx_t destroy = { .valloc = fd_spad_virtual( spad ) };
-  fd_solana_manifest_destroy( manifest, &destroy );
+  fd_solana_manifest_destroy( manifest );
   fd_memset( manifest, 0, sizeof(fd_solana_manifest_t) );
 
   return res;
