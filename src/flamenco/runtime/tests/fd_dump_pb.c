@@ -496,20 +496,56 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   block_context->epoch_ctx.ticks_per_slot             = epoch_ctx->epoch_bank.ticks_per_slot;
   block_context->epoch_ctx.genesis_creation_time      = epoch_ctx->epoch_bank.genesis_creation_time;
 
+  /* Dumping stake accounts */
+
+  // BlockContext -> EpochContext -> new_stake_accounts (stake accounts for the current running epoch)
+  ulong new_stake_account_cnt = fd_account_keys_pair_t_map_size( slot_ctx->slot_bank.stake_account_keys.account_keys_pool,
+                                                                 slot_ctx->slot_bank.stake_account_keys.account_keys_root );
+  block_context->epoch_ctx.new_stake_accounts_count = 0UL;
+  block_context->epoch_ctx.new_stake_accounts       = fd_spad_alloc( spad,
+                                                                    alignof(fd_exec_test_stake_account_t),
+                                                                    new_stake_account_cnt * sizeof(fd_exec_test_stake_account_t) );
+
+  for( fd_account_keys_pair_t_mapnode_t const * curr = fd_account_keys_pair_t_map_minimum_const(
+          slot_ctx->slot_bank.stake_account_keys.account_keys_pool,
+          slot_ctx->slot_bank.stake_account_keys.account_keys_root );
+       curr;
+       curr = fd_account_keys_pair_t_map_successor_const( slot_ctx->slot_bank.stake_account_keys.account_keys_pool, curr ) ) {
+
+    // Verify the stake state before dumping
+    FD_BORROWED_ACCOUNT_DECL( account );
+    int rc = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &curr->elem.key, account );
+    if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) ) {
+      continue;
+    }
+
+    // Dump the stake account
+    fd_exec_test_stake_account_t * stake_out = &block_context->epoch_ctx.new_stake_accounts[block_context->epoch_ctx.new_stake_accounts_count++];
+
+    // No need to store anything besides the account data
+    stake_out->has_stake_account = true;
+    dump_account_state( account, &stake_out->stake_account, spad );
+  }
+
   // BlockContext -> EpochContext -> stake_accounts (stake accounts at epoch T)
   ulong stake_account_cnt = fd_delegation_pair_t_map_size( epoch_ctx->epoch_bank.stakes.stake_delegations_pool,
                                                            epoch_ctx->epoch_bank.stakes.stake_delegations_root );
-  ulong idx               = 0UL;
-  block_context->epoch_ctx.stake_accounts = fd_spad_alloc( spad,
-                                                           alignof(fd_exec_test_stake_account_t),
-                                                           stake_account_cnt * sizeof(fd_exec_test_stake_account_t) );
+  block_context->epoch_ctx.stake_accounts_count = 0UL;
+  block_context->epoch_ctx.stake_accounts       = fd_spad_alloc( spad,
+              alignof(fd_exec_test_stake_account_t),
+              stake_account_cnt * sizeof(fd_exec_test_stake_account_t) );
 
   for( fd_delegation_pair_t_mapnode_t const * curr = fd_delegation_pair_t_map_minimum_const(
           epoch_ctx->epoch_bank.stakes.stake_delegations_pool,
           epoch_ctx->epoch_bank.stakes.stake_delegations_root );
        curr;
        curr = fd_delegation_pair_t_map_successor_const( epoch_ctx->epoch_bank.stakes.stake_delegations_pool, curr ) ) {
-    fd_exec_test_stake_account_t * stake_out = &block_context->epoch_ctx.stake_accounts[idx++];
+    FD_BORROWED_ACCOUNT_DECL( account );
+    if( fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &curr->elem.account, account ) ) {
+      continue;
+    }
+
+    fd_exec_test_stake_account_t * stake_out = &block_context->epoch_ctx.stake_accounts[block_context->epoch_ctx.stake_accounts_count++];
 
     stake_out->has_stake_account    = true;
     stake_out->stake                = curr->elem.delegation.stake;
@@ -518,12 +554,38 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
     stake_out->warmup_cooldown_rate = curr->elem.delegation.warmup_cooldown_rate;
 
     fd_memcpy( stake_out->voter_pubkey, &curr->elem.delegation.voter_pubkey, sizeof(fd_pubkey_t) );
-    dump_account_if_not_already_dumped( slot_ctx,
-                                        &curr->elem.account,
-                                        spad,
-                                        &stake_out->stake_account,
-                                        &block_context->acct_states_count,
-                                        NULL );
+    dump_account_state( account, &stake_out->stake_account, spad );
+  }
+
+  /* Dumping vote accounts */
+
+  // BlockContext -> EpochContext -> new_vote_accounts (vote accounts for the current running epoch)
+  ulong new_vote_account_cnt = fd_account_keys_pair_t_map_size( slot_ctx->slot_bank.vote_account_keys.account_keys_pool,
+                                                                slot_ctx->slot_bank.vote_account_keys.account_keys_root );
+  block_context->epoch_ctx.new_vote_accounts_count = 0UL;
+  block_context->epoch_ctx.new_vote_accounts       = fd_spad_alloc( spad,
+                                                                   alignof(fd_exec_test_vote_account_t),
+                                                                   new_vote_account_cnt * sizeof(fd_exec_test_vote_account_t) );
+
+  for( fd_account_keys_pair_t_mapnode_t const * curr = fd_account_keys_pair_t_map_minimum_const(
+          slot_ctx->slot_bank.vote_account_keys.account_keys_pool,
+          slot_ctx->slot_bank.vote_account_keys.account_keys_root );
+       curr;
+       curr = fd_account_keys_pair_t_map_successor_const( slot_ctx->slot_bank.vote_account_keys.account_keys_pool, curr ) ) {
+
+    // Verify the vote account before dumping
+    FD_BORROWED_ACCOUNT_DECL( account );
+    int rc = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &curr->elem.key, account );
+    if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) ) {
+      continue;
+    }
+
+    // Dump the vote account
+    fd_exec_test_vote_account_t * vote_out = &block_context->epoch_ctx.new_vote_accounts[block_context->epoch_ctx.new_vote_accounts_count++];
+
+    // No need to store anything besides the account data
+    vote_out->has_vote_account = true;
+    dump_account_state( account, &vote_out->vote_account, spad );
   }
 
   // BlockContext -> EpochContext -> vote_accounts_t (vote accounts at epoch T)
