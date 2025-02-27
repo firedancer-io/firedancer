@@ -741,7 +741,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
   if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_head_const( rbh->hashes );
-    if( last ) {
+    if( last && last->fee_calculator.lamports_per_signature!=0UL ) {
       slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
       slot_ctx->prev_lamports_per_signature      = last->fee_calculator.lamports_per_signature;
     }
