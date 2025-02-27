@@ -509,6 +509,15 @@ test_expiration( void ) {
   schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 1UL, 0UL, 0UL, &outcome );
 
   FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
+
+  /* Insert enough to cause them to go in the penalty treap */
+  for( ulong j=0UL; j<200UL; j++ ) {
+    make_transaction( i, 800U, 500U, 12.0, "A", "B", NULL, NULL ); insert( i++, pack );
+  }
+  FD_TEST( fd_pack_expire_before( pack, i-100UL ) == 100UL );
+  for( ulong i=100UL; i<200UL; i++ ) {
+    schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 1UL, 0UL, 0UL, &outcome );
+  }
 }
 
 static void
