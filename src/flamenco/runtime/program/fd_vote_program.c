@@ -216,8 +216,13 @@ authorized_voters_new( ulong                         epoch,
                        fd_spad_t *                   spad,
                        fd_vote_authorized_voters_t * authorized_voters /* out */ ) {
   authorized_voters->pool  = fd_vote_authorized_voters_pool_alloc ( fd_spad_virtual( spad ), FD_VOTE_AUTHORIZED_VOTERS_MIN );
-  authorized_voters->treap = fd_vote_authorized_voters_treap_alloc( fd_spad_virtual( spad ), FD_VOTE_AUTHORIZED_VOTERS_MIN );
-  if( 0 == fd_vote_authorized_voters_pool_free( authorized_voters->pool) ) {
+
+  uchar * treap_mem = fd_spad_alloc( spad,
+                                     fd_vote_authorized_voters_treap_align(),
+                                     fd_vote_authorized_voters_treap_footprint( 1UL ) );
+  authorized_voters->treap = fd_vote_authorized_voters_treap_join(
+                              fd_vote_authorized_voters_treap_new( treap_mem, 1UL ) );
+  if( 0 == fd_vote_authorized_voters_pool_free( authorized_voters->pool ) ) {
     FD_LOG_ERR(( "Authorized_voter pool is empty" ));
   }
   fd_vote_authorized_voter_t * ele =

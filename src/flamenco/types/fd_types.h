@@ -1935,15 +1935,6 @@ fd_vote_authorized_voters_pool_join_new( void * * alloc_mem, ulong num ) {
 #define TREAP_LT(e0,e1) ((e0)->epoch<(e1)->epoch)
 #include "../../util/tmpl/fd_treap.c"
 static inline fd_vote_authorized_voters_treap_t *
-fd_vote_authorized_voters_treap_alloc( fd_valloc_t valloc, ulong num ) {
-  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
-  return fd_vote_authorized_voters_treap_join( fd_vote_authorized_voters_treap_new(
-      fd_valloc_malloc( valloc,
-                        fd_vote_authorized_voters_treap_align(),
-                        fd_vote_authorized_voters_treap_footprint( num ) ),
-      num ) );
-}
-static inline fd_vote_authorized_voters_treap_t *
 fd_vote_authorized_voters_treap_join_new( void * * alloc_mem, ulong num ) {
   if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
   *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_vote_authorized_voters_treap_align() );

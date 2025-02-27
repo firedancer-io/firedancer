@@ -214,20 +214,13 @@ class PrimitiveMember(TypeNode):
         if self.decode:
             PrimitiveMember.emitDecodeFootprintMap[self.type](self.name, self.varint)
 
-    def string_decode_unsafe(n, varint, no_alloc):
-        if no_alloc:
-            print(f'{indent}  ulong slen;', file=body)
-            print(f'{indent}  fd_bincode_uint64_decode_unsafe( &slen, ctx );', file=body)
-            print(f'{indent}  self->{n} = *alloc_mem;', file=body)
-            print(f'{indent}  fd_bincode_bytes_decode_unsafe( (uchar *)self->{n}, slen, ctx );', file=body)
-            print(f"{indent}  self->{n}[slen] = '\\0';", file=body)
-            print(f'{indent}  *alloc_mem = (uchar *)(*alloc_mem) + slen;', file=body)
-        else:
-            print(f'{indent}  ulong slen;', file=body)
-            print(f'{indent}  fd_bincode_uint64_decode_unsafe( &slen, ctx );', file=body)
-            print(f'{indent}  self->{n} = fd_valloc_malloc( ctx->valloc, 1, slen + 1 );', file=body)
-            print(f'{indent}  fd_bincode_bytes_decode_unsafe( (uchar *)self->{n}, slen, ctx );', file=body)
-            print(f"{indent}  self->{n}[slen] = '\\0';", file=body)
+    def string_decode_unsafe(n, varint):
+        print(f'{indent}  ulong slen;', file=body)
+        print(f'{indent}  fd_bincode_uint64_decode_unsafe( &slen, ctx );', file=body)
+        print(f'{indent}  self->{n} = *alloc_mem;', file=body)
+        print(f'{indent}  fd_bincode_bytes_decode_unsafe( (uchar *)self->{n}, slen, ctx );', file=body)
+        print(f"{indent}  self->{n}[slen] = '\\0';", file=body)
+        print(f'{indent}  *alloc_mem = (uchar *)(*alloc_mem) + slen;', file=body)
 
     def ushort_decode_unsafe(n, varint):
         if varint:
@@ -243,25 +236,25 @@ class PrimitiveMember(TypeNode):
 
     # TODO: This should be renamed to decode not decode_unsafe
     emitDecodeUnsafeMap = {
-        "char" :      lambda n, varint, no_alloc: print(f'{indent}  fd_bincode_uint8_decode_unsafe( (uchar *) &self->{n}, ctx );', file=body),
-        "char*" :     lambda n, varint, no_alloc: PrimitiveMember.string_decode_unsafe(n, varint, no_alloc),
-        "char[32]" :  lambda n, varint, no_alloc: print(f'{indent}  fd_bincode_bytes_decode_unsafe( &self->{n}[0], sizeof(self->{n}), ctx );', file=body),
-        "double" :    lambda n, varint, no_alloc: print(f'{indent}  fd_bincode_double_decode_unsafe( &self->{n}, ctx );', file=body),
-        "long" :      lambda n, varint, no_alloc: print(f'{indent}  fd_bincode_uint64_decode_unsafe( (ulong *) &self->{n}, ctx );', file=body),
-        "uint" :      lambda n, varint, no_alloc: print(f'{indent}  fd_bincode_uint32_decode_unsafe( &self->{n}, ctx );', file=body),
-        "uint128" :   lambda n, varint, no_alloc: print(f'{indent}  fd_bincode_uint128_decode_unsafe( &self->{n}, ctx );', file=body),
-        "bool" :      lambda n, varint, no_alloc: print(f'{indent}  fd_bincode_bool_decode_unsafe( &self->{n}, ctx );', file=body),
-        "uchar" :     lambda n, varint, no_alloc: print(f'{indent}  fd_bincode_uint8_decode_unsafe( &self->{n}, ctx );', file=body),
-        "uchar[32]" : lambda n, varint, no_alloc: print(f'{indent}  fd_bincode_bytes_decode_unsafe( &self->{n}[0], sizeof(self->{n}), ctx );', file=body),
-        "uchar[128]" :lambda n, varint, no_alloc: print(f'{indent}  fd_bincode_bytes_decode_unsafe( &self->{n}[0], sizeof(self->{n}), ctx );', file=body),
-        "uchar[2048]":lambda n, varint, no_alloc: print(f'{indent}  fd_bincode_bytes_decode_unsafe( &self->{n}[0], sizeof(self->{n}), ctx );', file=body),
-        "ulong" :     lambda n, varint, no_alloc: PrimitiveMember.ulong_decode_unsafe(n, varint),
-        "ushort" :    lambda n, varint, no_alloc: PrimitiveMember.ushort_decode_unsafe(n, varint),
+        "char" :      lambda n, varint: print(f'{indent}  fd_bincode_uint8_decode_unsafe( (uchar *) &self->{n}, ctx );', file=body),
+        "char*" :     lambda n, varint: PrimitiveMember.string_decode_unsafe(n, varint),
+        "char[32]" :  lambda n, varint: print(f'{indent}  fd_bincode_bytes_decode_unsafe( &self->{n}[0], sizeof(self->{n}), ctx );', file=body),
+        "double" :    lambda n, varint: print(f'{indent}  fd_bincode_double_decode_unsafe( &self->{n}, ctx );', file=body),
+        "long" :      lambda n, varint: print(f'{indent}  fd_bincode_uint64_decode_unsafe( (ulong *) &self->{n}, ctx );', file=body),
+        "uint" :      lambda n, varint: print(f'{indent}  fd_bincode_uint32_decode_unsafe( &self->{n}, ctx );', file=body),
+        "uint128" :   lambda n, varint: print(f'{indent}  fd_bincode_uint128_decode_unsafe( &self->{n}, ctx );', file=body),
+        "bool" :      lambda n, varint: print(f'{indent}  fd_bincode_bool_decode_unsafe( &self->{n}, ctx );', file=body),
+        "uchar" :     lambda n, varint: print(f'{indent}  fd_bincode_uint8_decode_unsafe( &self->{n}, ctx );', file=body),
+        "uchar[32]" : lambda n, varint: print(f'{indent}  fd_bincode_bytes_decode_unsafe( &self->{n}[0], sizeof(self->{n}), ctx );', file=body),
+        "uchar[128]" :lambda n, varint: print(f'{indent}  fd_bincode_bytes_decode_unsafe( &self->{n}[0], sizeof(self->{n}), ctx );', file=body),
+        "uchar[2048]":lambda n, varint: print(f'{indent}  fd_bincode_bytes_decode_unsafe( &self->{n}[0], sizeof(self->{n}), ctx );', file=body),
+        "ulong" :     lambda n, varint: PrimitiveMember.ulong_decode_unsafe(n, varint),
+        "ushort" :    lambda n, varint: PrimitiveMember.ushort_decode_unsafe(n, varint),
     }
 
     def emitDecodeInner(self):
         if self.decode:
-            PrimitiveMember.emitDecodeUnsafeMap[self.type](self.name, self.varint, True)
+            PrimitiveMember.emitDecodeUnsafeMap[self.type](self.name, self.varint)
 
     def string_encode(n, varint):
         print(f'{indent}  ulong slen = strlen( (char *) self->{n} );', file=body)
@@ -1239,15 +1232,6 @@ class TreapMember(TypeNode):
         if self.treap_prio is not None:
             print(f"#define TREAP_PRIO {self.treap_prio}", file=header)
         print("#include \"../../util/tmpl/fd_treap.c\"", file=header)
-        print(f'static inline {treap_name}_t *', file=header)
-        print(f'{treap_name}_alloc( fd_valloc_t valloc, ulong num ) {{', file=header)
-        print(f'  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow', file=header)
-        print(f'  return {treap_name}_join( {treap_name}_new(', file=header)
-        print(f'      fd_valloc_malloc( valloc,', file=header)
-        print(f'                        {treap_name}_align(),', file=header)
-        print(f'                        {treap_name}_footprint( num ) ),', file=header)
-        print(f'      num ) );', file=header)
-        print("}", file=header)
         print(f'static inline {treap_name}_t *', file=header)
         print(f'{treap_name}_join_new( void * * alloc_mem, ulong num ) {{', file=header)
         print(f'  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow', file=header)
