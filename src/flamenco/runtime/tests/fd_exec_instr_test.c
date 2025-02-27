@@ -1015,7 +1015,7 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
 
   /* Initialize runtime */
   fd_funk_start_write( runner->funk );
-  fd_runtime_init_program( slot_ctx, runner->spad );
+  fd_builtin_programs_init( slot_ctx );
   fd_funk_end_write( runner->funk );
 
   /* Load in the txn accounts; accounts are loaded in the same way as the txn harness, where 0-lamport accounts are 0-set */
@@ -1045,9 +1045,8 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
     ulong                       deactivation_epoch   = test_ctx->epoch_ctx.stake_accounts[i].deactivation_epoch;
     double                      warmup_cooldown_rate = test_ctx->epoch_ctx.stake_accounts[i].warmup_cooldown_rate;
 
-    // Override duplicate accounts here
-    int res = _load_txn_account( acc, acc_mgr, funk_txn, stake_account, 0 );
-    if( FD_UNLIKELY( !res ) ) continue;
+    // Load in the stake account
+    _load_txn_account( acc, acc_mgr, funk_txn, stake_account, 0 );
 
     fd_delegation_pair_t_mapnode_t * stake_node = fd_delegation_pair_t_map_acquire( epoch_bank->stakes.stake_delegations_pool );
     fd_memcpy( &stake_node->elem.account, &stake_account->address, sizeof(fd_pubkey_t) );
@@ -1069,9 +1068,8 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
     fd_exec_test_acct_state_t * vote_account = &test_ctx->epoch_ctx.vote_accounts_t[i].vote_account;
     ulong                       stake        = test_ctx->epoch_ctx.vote_accounts_t[i].stake;
 
-    // Override duplicate accounts here
-    int res = _load_txn_account( acc, acc_mgr, funk_txn, vote_account, 0 );
-    if( FD_UNLIKELY( !res ) ) continue;
+    // Load in the vote account
+    _load_txn_account( acc, acc_mgr, funk_txn, vote_account, 0 );
 
     fd_vote_accounts_pair_t_mapnode_t * vote_node = fd_vote_accounts_pair_t_map_acquire( epoch_bank->stakes.vote_accounts.vote_accounts_pool );
     vote_node->elem.stake = stake;
@@ -1096,9 +1094,8 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
     fd_exec_test_acct_state_t * vote_account = &test_ctx->epoch_ctx.vote_accounts_t_1[i].vote_account;
     ulong                       stake        = test_ctx->epoch_ctx.vote_accounts_t_1[i].stake;
 
-    // Don't override any accounts here
-    int res = _load_txn_account( acc, acc_mgr, funk_txn, vote_account, 0 );
-    if( FD_UNLIKELY( !res ) ) continue;
+    // Load in the vote account
+    _load_txn_account( acc, acc_mgr, funk_txn, vote_account, 0 );
 
     fd_vote_accounts_pair_t_mapnode_t * vote_node = fd_vote_accounts_pair_t_map_acquire( epoch_bank->next_epoch_stakes.vote_accounts_pool );
     vote_node->elem.stake = stake;
@@ -1125,9 +1122,8 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
     fd_exec_test_acct_state_t * vote_account = &test_ctx->epoch_ctx.vote_accounts_t_2[i].vote_account;
     ulong                       stake        = test_ctx->epoch_ctx.vote_accounts_t_2[i].stake;
 
-    // Don't override any accounts here
-    int res = _load_txn_account( acc, acc_mgr, funk_txn, vote_account, 0 );
-    if( FD_UNLIKELY( !res ) ) continue;
+    // Load in the vote account
+    _load_txn_account( acc, acc_mgr, funk_txn, vote_account, 0 );
 
     fd_vote_accounts_pair_t_mapnode_t * vote_node = fd_vote_accounts_pair_t_map_acquire( slot_bank->epoch_stakes.vote_accounts_pool );
     vote_node->elem.stake = stake;
@@ -1154,6 +1150,7 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
     fd_exec_test_acct_state_t * stake_account = &test_ctx->epoch_ctx.new_stake_accounts[i].stake_account;
 
     // Load in the txn account
+    // TODO: This is a little bit hacky - this does not ensure that the stake account keys are populated properly
     int res = _load_txn_account( acc, acc_mgr, funk_txn, stake_account, 0 );
     if( FD_UNLIKELY( !res ) ) continue;
 
@@ -1168,6 +1165,7 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
     fd_exec_test_acct_state_t * vote_account = &test_ctx->epoch_ctx.new_vote_accounts[i].vote_account;
 
     // Load in the txn account
+    // TODO: See note right above
     int res = _load_txn_account( acc, acc_mgr, funk_txn, vote_account, 0 );
     if( FD_UNLIKELY( !res ) ) continue;
 
