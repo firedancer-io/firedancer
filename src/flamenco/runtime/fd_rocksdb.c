@@ -438,6 +438,25 @@ fd_rocksdb_copy_over_slot_indexed_range( fd_rocksdb_t * src,
   return 0;
 }
 
+static ulong
+parse_txn( uchar const * raw, ulong max_buf_sz, fd_txn_key_t * sig_out ) {
+  uchar txn_out[FD_TXN_MAX_SZ];
+  ulong pay_sz = 0;
+  ulong txn_sz = fd_txn_parse_core( (uchar const *)raw,
+                              fd_ulong_min(max_buf_sz, FD_TXN_MTU),
+                              txn_out,
+                              NULL,
+                              &pay_sz );
+  if( txn_sz == 0 || txn_sz > FD_TXN_MTU || pay_sz == 0) {
+    FD_LOG_ERR(( "failed to parse transaction. txn size: %lu",
+                  txn_sz ));
+  }
+  fd_txn_t const * txn = (fd_txn_t const *)txn_out;
+  fd_memcpy( sig_out, (fd_txn_key_t const *) ((ulong)raw + (ulong)txn->signature_off), sizeof( fd_txn_key_t ) );
+  return pay_sz;
+}
+
+
 int
 fd_rocksdb_copy_over_txn_status_range( fd_rocksdb_t *    src,
                                        fd_rocksdb_t *    dst,
@@ -445,25 +464,53 @@ fd_rocksdb_copy_over_txn_status_range( fd_rocksdb_t *    src,
                                        ulong             start_slot,
                                        ulong             end_slot ) {
   /* Look up the blocks data and iterate through its transactions */
-  fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
 
   for ( ulong slot = start_slot; slot <= end_slot; ++slot ) {
     FD_LOG_NOTICE(( "fd_rocksdb_copy_over_txn_status_range: %lu", slot ));
+
     fd_block_meta_t * block_entry = fd_blockstore_block_map_query( blockstore, slot );
+
     if( FD_LIKELY( block_entry && fd_blockstore_shreds_complete( blockstore, slot) ) ) {
-      fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_entry->block_gaddr );
-      uchar * data = fd_wksp_laddr_fast( wksp, blk->data_gaddr );
-      fd_block_txn_t * txns = fd_wksp_laddr_fast( wksp, blk->txns_gaddr );
-      /* TODO: change txn indexing after blockstore refactor */
-      ulong last_txn_off = ULONG_MAX;
-      for ( ulong j = 0; j < blk->txns_cnt; ++j ) {
-        fd_txn_key_t sig;
-        fd_memcpy( &sig, data + txns[j].id_off, sizeof(sig) );
-        if( txns[j].txn_off != last_txn_off ) {
-          last_txn_off = txns[j].txn_off;
-          fd_rocksdb_copy_over_txn_status( src, dst, slot, &sig );
+
+      // TODO: give rocksdb an alloc?
+      uchar * batch_buf = fd_alloc_malloc( fd_blockstore_alloc( blockstore ),
+                                           128UL,
+                                              block_entry->slot_complete_idx * FD_SHRED_MIN_SZ );
+
+      ulong  batch_idx = 0;
+      ulong  batch_sz = 0;
+      while( batch_idx <= block_entry->slot_complete_idx ){
+        int err = fd_blockstore_slice_query( blockstore, slot, (uint)batch_idx, block_entry->slot_complete_idx * FD_SHRED_MIN_SZ, batch_buf, &batch_sz );
+        if( FD_UNLIKELY( err )) {
+          FD_LOG_ERR(("fd_blockstore_slice_query failed"));
+        }
+
+        ulong micro_cnt = FD_LOAD( ulong, batch_buf );
+        ulong       off = sizeof(ulong);
+
+        for( ulong i = 0UL; i < micro_cnt; i++ ){
+          fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( batch_buf + off );
+          off += sizeof(fd_microblock_hdr_t);
+
+          for( ulong t=0UL; t<hdr->txn_cnt; t++ ){
+            uchar const * raw    = batch_buf + off;
+            fd_txn_key_t sig = { 0 };
+            ulong pay_sz = parse_txn( raw, batch_sz - off, &sig );
+
+            /* only copy over the first signature of each txn */
+            fd_rocksdb_copy_over_txn_status( src, dst, slot, &sig );
+
+            off += pay_sz;
+          }
+        }
+
+        if( FD_UNLIKELY( batch_idx == 0 ) ){
+          batch_idx = fd_block_set_const_iter_init( block_entry->data_complete_idxs ) + 1;
+        } else {
+          batch_idx = fd_block_set_const_iter_next( block_entry->data_complete_idxs, batch_idx - 1 ) + 1;
         }
       }
+      fd_alloc_free( fd_blockstore_alloc( blockstore ), batch_buf );
     }
   }
   return 0;
@@ -669,24 +716,48 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
 
   if( txnstatus && FD_LIKELY( block_map_entry && fd_blockstore_shreds_complete( blockstore, slot ) ) ) {
     fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_map_entry->block_gaddr );
-    uchar * data = fd_wksp_laddr_fast( wksp, blk->data_gaddr );
-    fd_block_txn_t * txns = fd_wksp_laddr_fast( wksp, blk->txns_gaddr );
-
-    /* TODO: change txn indexing after blockstore refactor */
-    /* Compute the total size of the logs */
+    uchar * batch_buf = fd_alloc_malloc( fd_blockstore_alloc( blockstore ),
+                                         128UL,
+                                         block_map_entry->slot_complete_idx * FD_SHRED_MIN_SZ );
     ulong tot_meta_sz = 2*sizeof(ulong);
-    for ( ulong j = 0; j < blk->txns_cnt; ++j ) {
-      if( j == 0 || txns[j].txn_off != txns[j-1].txn_off ) {
-        fd_txn_key_t sig;
-        fd_memcpy( &sig, data + txns[j].id_off, sizeof( sig ) );
-        ulong sz;
-        void * raw = fd_rocksdb_get_txn_status_raw( db, slot, &sig, &sz );
-        if( raw != NULL ) {
-          free(raw);
-          tot_meta_sz += sz;
+
+    ulong  batch_idx = 0;
+    ulong  batch_sz = 0;
+
+    /* Compute the total size of the logs */
+
+    while( batch_idx <= block_map_entry->slot_complete_idx ){
+      int err = fd_blockstore_slice_query( blockstore, slot, (uint)batch_idx, block_map_entry->slot_complete_idx * FD_SHRED_MIN_SZ, batch_buf, &batch_sz );
+      if( FD_UNLIKELY( err )) FD_LOG_ERR(("fd_blockstore_slice_query failed"));
+
+      ulong micro_cnt = FD_LOAD( ulong, batch_buf );
+      ulong       off = sizeof(ulong);
+      for( ulong i = 0UL; i < micro_cnt; i++ ){
+        fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( batch_buf + off );
+        off += sizeof(fd_microblock_hdr_t);
+
+        for( ulong t=0UL; t<hdr->txn_cnt; t++ ){
+          uchar const * raw    = batch_buf + off;
+          fd_txn_key_t sig;
+          ulong pay_sz = parse_txn( raw, batch_sz - off, &sig );
+
+          ulong sz;
+          void * rec = fd_rocksdb_get_txn_status_raw( db, slot, &sig, &sz );
+          if( rec != NULL ) {
+            free( rec );
+            tot_meta_sz += sz;
+          }
+          off += pay_sz;
         }
       }
+
+      if( FD_UNLIKELY( batch_idx == 0 ) ){
+        batch_idx = fd_block_set_const_iter_init( block_map_entry->data_complete_idxs ) + 1;
+      } else {
+        batch_idx = fd_block_set_const_iter_next( block_map_entry->data_complete_idxs, batch_idx - 1 ) + 1;
+      }
     }
+
     fd_alloc_t * alloc = fd_blockstore_alloc( blockstore );
     uchar * cur_laddr = fd_alloc_malloc( alloc, 1, tot_meta_sz );
     if( cur_laddr == NULL ) {
@@ -703,20 +774,36 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
     ulong meta_gaddr = 0;
     ulong meta_sz = 0;
     fd_txn_key_t sig = { 0 };
-    for ( ulong j = 0; j < blk->txns_cnt; ++j ) {
-      if( j == 0 || txns[j].txn_off != txns[j-1].txn_off ) {
-        fd_memcpy( &sig, data + txns[j].id_off, sizeof( sig ) );
-        ulong sz;
-        void * raw = fd_rocksdb_get_txn_status_raw( db, slot, &sig, &sz );
-        if( raw == NULL ) {
-          meta_gaddr = 0;
-          meta_sz = 0;
-        } else {
-          fd_memcpy(cur_laddr, raw, sz);
-          free(raw);
-          meta_gaddr = fd_wksp_gaddr_fast( wksp, cur_laddr );
-          meta_sz = sz;
-          cur_laddr += sz;
+
+    batch_idx = 0;
+    while( batch_idx <= block_map_entry->slot_complete_idx ){
+      int err = fd_blockstore_slice_query( blockstore, slot, (uint)batch_idx, block_map_entry->slot_complete_idx * FD_SHRED_MIN_SZ, batch_buf, &batch_sz );
+      if( FD_UNLIKELY( err )) FD_LOG_ERR(("fd_blockstore_slice_query failed"));
+
+      ulong micro_cnt = FD_LOAD( ulong, batch_buf );
+      ulong       off = sizeof(ulong);
+      for( ulong i = 0UL; i < micro_cnt; i++ ){
+        fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( batch_buf + off );
+        off += sizeof(fd_microblock_hdr_t);
+
+        for( ulong t=0UL; t<hdr->txn_cnt; t++ ){
+          uchar const * raw    = batch_buf + off;
+          fd_txn_key_t sig;
+          ulong pay_sz = parse_txn( raw, batch_sz - off, &sig );
+
+          ulong sz;
+          void * rec = fd_rocksdb_get_txn_status_raw( db, slot, &sig, &sz );
+          if( rec == NULL ) {
+            meta_gaddr = 0;
+            meta_sz = 0;
+          } else {
+            fd_memcpy(cur_laddr, raw, sz);
+            free( rec );
+            meta_gaddr = fd_wksp_gaddr_fast( wksp, cur_laddr );
+            meta_sz = sz;
+            cur_laddr += sz;
+          }
+          off += pay_sz;
         }
       }
       fd_txn_map_t * txn_map_entry = fd_txn_map_query( txn_map, &sig, NULL );
@@ -728,6 +815,12 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
       }
       txn_map_entry->meta_gaddr = meta_gaddr;
       txn_map_entry->meta_sz = meta_sz;
+
+      if( FD_UNLIKELY( batch_idx == 0 ) ){
+        batch_idx = fd_block_set_const_iter_init( block_map_entry->data_complete_idxs ) + 1;
+      } else {
+        batch_idx = fd_block_set_const_iter_next( block_map_entry->data_complete_idxs, batch_idx - 1 ) + 1;
+      }
     }
 
     FD_TEST( blk->txns_meta_gaddr + blk->txns_meta_sz == fd_wksp_gaddr_fast( wksp, cur_laddr ) );
