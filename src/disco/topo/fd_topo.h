@@ -272,6 +272,7 @@ typedef struct {
       char  expected_genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
       char  wen_restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
       int   plugins_enabled;
+      int   rpc_enabled;
 
       /* not specified in TOML */
 

@@ -45,7 +45,7 @@ during_frag( fd_idxer_tile_ctx_t * ctx,
   (void)seq;
   (void)sig;
 
-  if( FD_UNLIKELY( in_idx == ctx->replay_exec_in_idx ) ) {
+  if( FD_UNLIKELY( in_idx == ctx->replay_idxer_in_idx ) ) {
     if( FD_UNLIKELY( chunk < ctx->replay_in_chunk0 || chunk > ctx->replay_in_wmark ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]",
                     chunk,

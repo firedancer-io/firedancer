@@ -158,6 +158,7 @@ fd_topo_initialize( config_t * config ) {
 
   if( enable_rpc ) {
     fd_topob_wksp( topo, "rpcsrv" );
+    fd_topob_wksp( topo, "idxer" );
     fd_topob_wksp( topo, "replay_idxer" );
   }
 
@@ -483,6 +484,8 @@ fd_topo_initialize( config_t * config ) {
   if( enable_rpc ) {
     fd_topob_tile_in(  topo, "rpcsrv", 0UL, "metric_in",  "replay_notif", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
     fd_topob_tile_in(  topo, "rpcsrv", 0UL, "metric_in",  "stake_out",    0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+    fd_topob_tile_in(  topo, "idxer", 0UL, "metric_in",   "replay_idxer", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+    fd_topob_tile_out( topo, "replay", 0UL,       "replay_idxer",   0UL                                                 );
   }
 
   /* For now the only plugin consumer is the GUI */
@@ -623,6 +626,7 @@ fd_topo_initialize( config_t * config ) {
       tile->replay.funk_txn_max = config->tiles.replay.funk_txn_max;
       strncpy( tile->replay.funk_file, config->tiles.replay.funk_file, sizeof(tile->replay.funk_file) );
       tile->replay.plugins_enabled = plugins_enabled;
+      tile->replay.rpc_enabled     = enable_rpc;
 
       if( FD_UNLIKELY( !strncmp( config->tiles.replay.genesis,  "", 1 )
                     && !strncmp( config->tiles.replay.snapshot, "", 1 ) ) ) {
@@ -719,6 +723,8 @@ fd_topo_initialize( config_t * config ) {
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "exec" ) ) ) {
 
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "idxer" ) ) ) {
+      /* blockstore fd */
     } else {
       FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
     }

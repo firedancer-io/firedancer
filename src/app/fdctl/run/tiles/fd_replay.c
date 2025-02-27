@@ -189,6 +189,13 @@ struct fd_replay_tile_ctx {
   ulong       votes_plugin_out_chunk;
   long        last_plugin_push_time;
 
+  // Inputs to indexer tile
+  ulong       replay_idxer_out_idx;
+  fd_wksp_t * replay_idxer_out_mem;
+  ulong       replay_idxer_out_chunk0;
+  ulong       replay_idxer_out_wmark;
+  ulong       replay_idxer_out_chunk;
+
   char const * blockstore_checkpt;
   int          tx_metadata_storage;
   char const * funk_checkpt;
@@ -1800,8 +1807,9 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     /**********************************************************************/
     /* RPC: Send to idxer tile to deshred                                 */
     /**********************************************************************/
-
     
+    //fd_chunk_to_laddr( ctx->replay_idxer_out_mem, ctx->replay_idxer_out_chunk )
+    //fd_stem_publish( stem, IDXER_IN_IDX, 0, ctx->blockhash.uc, sizeof(fd_hash_t), 0UL, 0UL, 0UL );
 
     /**********************************************************************/
     /* Consensus: update ghost and forks                                  */
@@ -3089,6 +3097,18 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->votes_plugin_out_chunk0 = fd_dcache_compact_chunk0( ctx->votes_plugin_out_mem, votes_plugin_out->dcache );
     ctx->votes_plugin_out_wmark  = fd_dcache_compact_wmark ( ctx->votes_plugin_out_mem, votes_plugin_out->dcache, votes_plugin_out->mtu );
     ctx->votes_plugin_out_chunk  = ctx->votes_plugin_out_chunk0;
+  }
+
+  if( FD_LIKELY( tile->replay.rpc_enabled ) ){
+    ctx->replay_idxer_out_idx = fd_topo_find_tile_out_link( topo, tile, "replay_idxer", 0 );
+    fd_topo_link_t const * replay_idxer_out = &topo->links[ tile->out_link_id[ ctx->replay_idxer_out_idx ] ];
+    if( strcmp( replay_idxer_out->name, "replay_idxer" ) ) {
+      FD_LOG_ERR(("output link confusion for output %lu", ctx->replay_idxer_out_idx));
+    }
+    ctx->replay_idxer_out_mem    = topo->workspaces[ topo->objs[ replay_idxer_out->dcache_obj_id ].wksp_id ].wksp;
+    ctx->replay_idxer_out_chunk0 = fd_dcache_compact_chunk0( ctx->replay_idxer_out_mem, replay_idxer_out->dcache );
+    ctx->replay_idxer_out_wmark  = fd_dcache_compact_wmark ( ctx->replay_idxer_out_mem, replay_idxer_out->dcache, replay_idxer_out->mtu );
+    ctx->replay_idxer_out_chunk  = ctx->replay_idxer_out_chunk0;
   }
 
   if( strnlen( tile->replay.slots_replayed, sizeof(tile->replay.slots_replayed) )>0UL ) {
