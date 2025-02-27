@@ -599,12 +599,25 @@ after_credit( fd_pack_ctx_t *     ctx,
         int retval = fd_pack_insert_bundle_fini( ctx->pack, bundle, 1UL, ctx->leader_slot-1UL, 1, NULL );
         if( FD_UNLIKELY( retval<0 ) ) FD_LOG_WARNING(( "inserting initializer bundle returned %i", retval ));
         else {
-          /* Update the cached copy of the on-chain state. It won't be read
-             again until after scheduling the initializer bundle we just
-             inserted because peek_bundle_meta will return NULL */
+          /* Update the cached copy of the on-chain state.  This seems a
+             little dangerous, since we're updating it as if the bundle
+             succeeded without knowing if that's true, but here's why
+             it's safe:
 
-          *(ctx->crank->prev_config->block_builder) = *(top_meta->commission_pubkey);
-          ctx->crank->prev_config->commission_pct   = top_meta->commission;
+             From now until we get the rebate call for this initializer
+             bundle (which lets us know if it succeeded or failed), pack
+             will be in [Pending] state, which means peek_bundle_meta
+             will return NULL, so we won't read this state.
+
+             Then, if the initializer bundle failed, we'll go into
+             [Failed] IB state until the end of the block, which will
+             cause top_meta to remain NULL so we don't read these values
+             again.
+
+             Otherwise, the initializer bundle succeeded, which means
+             that these are the right values to use. */
+          fd_bundle_crank_apply( ctx->crank->gen, ctx->crank->prev_config, top_meta->commission_pubkey,
+                                 ctx->crank->tip_receiver_owner, ctx->crank->epoch, top_meta->commission );
         }
       } else {
         /* Already logged a warning in this case */
