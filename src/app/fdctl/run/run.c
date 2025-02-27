@@ -724,7 +724,7 @@ fdctl_check_configure( config_t * config ) {
 
   check = fd_cfg_stage_hyperthreads.check( config );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
-    FD_LOG_ERR(( "Hyperthreading is not configured correctly: %s. You can run `fdctl configure init hyperthread` "
+    FD_LOG_ERR(( "Hyperthreading is not configured correctly: %s. You can run `fdctl configure init hyperthreads` "
                  "to configure hyperthreading correctly.", check.message ));
 }
 
