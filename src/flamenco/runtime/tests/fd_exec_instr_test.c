@@ -1018,25 +1018,6 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   fd_runtime_init_program( slot_ctx, runner->spad );
   fd_funk_end_write( runner->funk );
 
-  /* Initialize stakes and caches */
-  slot_bank->stake_account_keys.account_keys_root = NULL;
-  slot_bank->stake_account_keys.account_keys_pool = fd_account_keys_pair_t_map_alloc( fd_spad_virtual( runner->spad ), vote_acct_max );
-
-  slot_bank->vote_account_keys.account_keys_root = NULL;
-  slot_bank->vote_account_keys.account_keys_pool = fd_account_keys_pair_t_map_alloc( fd_spad_virtual( runner->spad ), vote_acct_max );
-
-  /* Load in accounts; accounts are loaded in the same way as the txn harness, where 0-lamport accounts are 0-set */
-  for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
-    FD_BORROWED_ACCOUNT_DECL(acc);
-
-    // Don't override any duplicate accounts
-    int res = _load_txn_account( acc, acc_mgr, funk_txn, &test_ctx->acct_states[i], 0 );
-    if( FD_UNLIKELY( !res ) ) continue;
-  }
-
-  /* Restore sysvar cache */
-  fd_runtime_sysvar_cache_load( slot_ctx );
-
   /* Finish init epoch bank sysvars */
   epoch_bank->epoch_schedule      = *slot_ctx->sysvar_cache->val_epoch_schedule;
   epoch_bank->rent_epoch_schedule = *slot_ctx->sysvar_cache->val_epoch_schedule;
@@ -1056,7 +1037,7 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
     double                      warmup_cooldown_rate = test_ctx->epoch_ctx.stake_accounts[i].warmup_cooldown_rate;
 
     // Override duplicate accounts here
-    int res = _load_txn_account( acc, acc_mgr, funk_txn, stake_account, 1 );
+    int res = _load_txn_account( acc, acc_mgr, funk_txn, stake_account, 0 );
     if( FD_UNLIKELY( !res ) ) continue;
 
     fd_delegation_pair_t_mapnode_t * stake_node = fd_delegation_pair_t_map_acquire( epoch_bank->stakes.stake_delegations_pool );
@@ -1080,7 +1061,7 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
     ulong                       stake        = test_ctx->epoch_ctx.vote_accounts_t[i].stake;
 
     // Override duplicate accounts here
-    int res = _load_txn_account( acc, acc_mgr, funk_txn, vote_account, 1 );
+    int res = _load_txn_account( acc, acc_mgr, funk_txn, vote_account, 0 );
     if( FD_UNLIKELY( !res ) ) continue;
 
     fd_vote_accounts_pair_t_mapnode_t * vote_node = fd_vote_accounts_pair_t_map_acquire( epoch_bank->stakes.vote_accounts.vote_accounts_pool );
@@ -1154,6 +1135,47 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
                                         &slot_bank->epoch_stakes.vote_accounts_root,
                                         vote_node );
   }
+
+  /* Initialize the current running epoch stake and vote accounts */
+  slot_bank->stake_account_keys.account_keys_root = NULL;
+  slot_bank->stake_account_keys.account_keys_pool = fd_account_keys_pair_t_map_alloc( fd_spad_virtual( runner->spad ), vote_acct_max );
+  for( uint i=0U; i<test_ctx->epoch_ctx.new_stake_accounts_count; i++ ) {
+    FD_BORROWED_ACCOUNT_DECL( acc );
+
+    fd_exec_test_acct_state_t * stake_account = &test_ctx->epoch_ctx.new_stake_accounts[i].stake_account;
+
+    // Load in the txn account
+    int res = _load_txn_account( acc, acc_mgr, funk_txn, stake_account, 0 );
+    if( FD_UNLIKELY( !res ) ) continue;
+
+    fd_store_stake_delegation( slot_ctx, acc );
+  }
+
+  slot_bank->vote_account_keys.account_keys_root = NULL;
+  slot_bank->vote_account_keys.account_keys_pool = fd_account_keys_pair_t_map_alloc( fd_spad_virtual( runner->spad ), vote_acct_max );
+  for( uint i=0U; i<test_ctx->epoch_ctx.new_vote_accounts_count; i++ ) {
+    FD_BORROWED_ACCOUNT_DECL( acc );
+
+    fd_exec_test_acct_state_t * vote_account = &test_ctx->epoch_ctx.new_vote_accounts[i].vote_account;
+
+    // Load in the txn account
+    int res = _load_txn_account( acc, acc_mgr, funk_txn, vote_account, 0 );
+    if( FD_UNLIKELY( !res ) ) continue;
+
+    fd_vote_store_account( slot_ctx, acc );
+  }
+
+  /* Load in the rest of the txn accounts; accounts are loaded in the same way as the txn harness, where 0-lamport accounts are 0-set */
+  for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
+    FD_BORROWED_ACCOUNT_DECL(acc);
+
+    // Don't override any duplicate accounts
+    int res = _load_txn_account( acc, acc_mgr, funk_txn, &test_ctx->acct_states[i], 0 );
+    if( FD_UNLIKELY( !res ) ) continue;
+  }
+
+  /* Restore sysvar cache */
+  fd_runtime_sysvar_cache_load( slot_ctx );
 
   /* Update leader schedule */
   fd_runtime_update_leaders( slot_ctx, slot_ctx->slot_bank.slot, runner->spad );
