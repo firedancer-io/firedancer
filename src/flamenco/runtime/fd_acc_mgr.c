@@ -1,4 +1,5 @@
 #include "fd_acc_mgr.h"
+#include "fd_runtime.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "context/fd_exec_epoch_ctx.h"
 #include "context/fd_exec_slot_ctx.h"

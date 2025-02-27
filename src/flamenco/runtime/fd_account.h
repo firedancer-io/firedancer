@@ -38,6 +38,7 @@
 
 #include "fd_executor_err.h"
 #include "fd_system_ids.h"
+#include "fd_runtime.h"
 #include "context/fd_exec_epoch_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
 #include "program/fd_program_util.h"

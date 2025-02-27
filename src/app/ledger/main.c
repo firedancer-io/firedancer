@@ -1273,6 +1273,7 @@ replay( fd_ledger_args_t * args ) {
   fd_runtime_ctx_new(runtime_ctx);
   runtime_ctx->private_valloc = args->valloc;
   runtime_ctx->public = fd_runtime_public_join( runtime_public_mem );
+  g_runtime_ctx = runtime_ctx;
 
   fd_features_enable_cleaned_up( &args->epoch_ctx->features, args->epoch_ctx->epoch_bank.cluster_version );
   fd_features_enable_one_offs( &args->epoch_ctx->features, args->one_off_features, args->one_off_features_cnt, 0UL );

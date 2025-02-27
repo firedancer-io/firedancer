@@ -5,17 +5,21 @@
 #include "../../../util/wksp/fd_wksp.h"
 #include "../fd_runtime.h"
 
+typedef struct fd_runtime_public fd_runtime_public_t;
+
 /* definition of process specific runtime context
 
    Everything in this is address space specific and not intended to be visible between
    tiles.
  */
+
 struct fd_runtime_ctx {
   fd_valloc_t                 private_valloc;
   fd_runtime_public_t        *public;
 };
 typedef struct fd_runtime_ctx fd_runtime_ctx_t;
 
+// FIXME: get rid of this...
 extern fd_runtime_ctx_t * g_runtime_ctx;
 
 FD_PROTOTYPES_BEGIN
