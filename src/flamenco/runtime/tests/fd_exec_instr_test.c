@@ -968,7 +968,7 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
                                                                        fd_ulong_max( test_ctx->epoch_ctx.vote_accounts_t_count,
                                                                                         fd_ulong_max( test_ctx->epoch_ctx.vote_accounts_t_1_count,
                                                                                                          test_ctx->epoch_ctx.vote_accounts_t_2_count ) ) ) );
-  uchar *               epoch_ctx_mem = fd_spad_alloc( runner->spad, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( vote_acct_max ) );
+  uchar *               epoch_ctx_mem = fd_spad_alloc( runner->spad, 128UL, fd_exec_epoch_ctx_footprint( vote_acct_max ) );
   fd_exec_epoch_ctx_t * epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, vote_acct_max ) );
 
   /* Create account manager */
