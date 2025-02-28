@@ -1746,6 +1746,8 @@ class OpaqueType(TypeNode):
         print(f'int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
         print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
         print(f'void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );', file=header)
+        print(f'void {n}_to_global( {n}_t const * self, {n}_global_t * out );', file=header)
+        print(f'void {n}_to_local( {n}_global_t const * self, {n}_t * out );', file=header)
         print("", file=header)
 
     def emitImpls(self):
@@ -1791,6 +1793,14 @@ class OpaqueType(TypeNode):
         print(f'void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
         print(f'  fd_bincode_bytes_decode_unsafe( struct_mem, sizeof({n}_t), ctx );', file=body)
         print(f'  return;', file=body)
+        print(f'}}', file=body)
+
+        print(f'void {n}_to_local( {n}_t const * self, {n}_global_t * out ) {{', file=body)
+        print(f'  fd_memcpy( out, self, sizeof({n}_t) );', file=body)
+        print(f'}}', file=body)
+
+        print(f'void {n}_to_global( {n}_global_t * self, {n}_t * out ) {{', file=body)
+        print(f'  fd_memcpy( out, self, sizeof({n}_t) );', file=body)
         print(f'}}', file=body)
 
         print("", file=body)
@@ -1892,24 +1902,13 @@ class StructType(TypeNode):
         print(f'int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
         print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
         print(f'void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );', file=header)
+        print(f'void {n}_to_global( {n}_t const * self, {n}_global_t * out );', file=header)
+        print(f'void {n}_to_local( {n}_global_t const * self, {n}_t * out );', file=header)
         print("", file=header)
 
     def emitEncodes(self):
         n = self.fullname
         self.emitEncode(n)
-
-    def emitDecode(self, n):
-        print(f'int {n}_decode( {n}_t * self, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
-        print(f'  void const * data = ctx->data;', file=body)
-        print(f'  int err = {n}_decode_footprint( ctx );', file=body)
-        print(f'  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-        print(f'  ctx->data = data;', file=body)
-        print('  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {', file=body)
-        print(f'    {n}_new( self );', file=body)
-        print('  }', file=body)
-        print(f'  {n}_decode_unsafe( self, ctx );', file=body)
-        print(f'  return FD_BINCODE_SUCCESS;', file=body)
-        print(f'}}', file=body)
 
     def emitEncode(self, n):
         print(f'int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx ) {{', file=body)
@@ -2119,6 +2118,8 @@ class EnumType:
         print(f'int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
         print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
         print(f'void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );', file=header)
+        print(f'void {n}_to_global( {n}_t const * self, {n}_global_t * out );', file=header)
+        print(f'void {n}_to_local( {n}_global_t const * self, {n}_t * out );', file=header)
 
         print("", file=header)
 
