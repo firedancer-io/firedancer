@@ -491,7 +491,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     slot_cnt++;
 
     fd_hash_t expected;
-    int err = fd_blockstore_block_hash_copy( blockstore, slot, expected.hash, 32UL );
+    int err = fd_blockstore_block_hash_query( blockstore, slot, &expected );
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR( ( "slot %lu is missing its hash", slot ) );
     else if( FD_UNLIKELY( 0 != memcmp( ledger_args->slot_ctx->slot_bank.poh.hash, expected.hash, 32UL ) ) ) {
       char expected_hash[ FD_BASE58_ENCODED_32_SZ ];
@@ -525,7 +525,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       }
     }
 
-    err = fd_blockstore_bank_hash_copy( blockstore, slot, &expected );
+    err = fd_blockstore_bank_hash_query( blockstore, slot, &expected );
     if( FD_UNLIKELY( err) ) {
       FD_LOG_ERR(( "slot %lu is missing its bank hash", slot ));
     } else if( FD_UNLIKELY( 0 != memcmp( ledger_args->slot_ctx->slot_bank.banks_hash.hash,

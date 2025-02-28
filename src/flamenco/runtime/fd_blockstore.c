@@ -719,37 +719,29 @@ fd_buf_shred_query_copy_data( fd_blockstore_t * blockstore, ulong slot, uint idx
 }
 
 int
-fd_blockstore_block_hash_copy( fd_blockstore_t * blockstore, ulong slot, uchar * buf_out, ulong buf_sz ) {
-  int err = FD_MAP_ERR_AGAIN;
-  while( err == FD_MAP_ERR_AGAIN ){
+fd_blockstore_block_hash_query( fd_blockstore_t * blockstore, ulong slot, fd_hash_t * hash_out ) {
+  for(;;) { /* Speculate */
     fd_block_map_query_t query[1] = { 0 };
-    err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, query, 0 );
-    fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
-
-    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
+    int err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, query, 0 );
+    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) )   return FD_BLOCKSTORE_ERR_KEY;
     if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
-
-    fd_memcpy( buf_out, &block_map_entry->block_hash, buf_sz );
-    err = fd_block_map_query_test( query );
+    fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
+    memcpy( hash_out, &block_map_entry->block_hash, sizeof(fd_hash_t) );
+    if( FD_LIKELY( fd_block_map_query_test( query ) == FD_MAP_SUCCESS ) ) return FD_BLOCKSTORE_SUCCESS;
   }
-  return FD_BLOCKSTORE_SUCCESS;
 }
 
 int
-fd_blockstore_bank_hash_copy( fd_blockstore_t * blockstore, ulong slot, fd_hash_t * hash_out ) {
-  int err = FD_MAP_ERR_AGAIN;
-  while( err == FD_MAP_ERR_AGAIN ){
+fd_blockstore_bank_hash_query( fd_blockstore_t * blockstore, ulong slot, fd_hash_t * hash_out ) {
+  for(;;) { /* Speculate */
     fd_block_map_query_t query[1] = { 0 };
-    err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, query, 0 );
-    fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
-
-    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
+    int err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, query, 0 );
+    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) )   return FD_BLOCKSTORE_ERR_KEY;
     if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
-
-    fd_memcpy( hash_out, &block_map_entry->bank_hash, sizeof( fd_hash_t ) );
-    err = fd_block_map_query_test( query );
+    fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
+    memcpy( hash_out, &block_map_entry->bank_hash, sizeof(fd_hash_t) );
+    if( FD_LIKELY( fd_block_map_query_test( query ) == FD_MAP_SUCCESS ) ) return FD_BLOCKSTORE_SUCCESS;
   }
-  return FD_BLOCKSTORE_SUCCESS;
 }
 
 ulong
