@@ -17,7 +17,6 @@ struct fake_rec {
     std::vector<long> _data;
     bool _erased = false;
     bool _touched = false;
-    uint _part = FD_FUNK_PART_NULL;
 
     fake_rec() = delete;
     fake_rec(ulong key) : _key(key) { }
@@ -100,8 +99,6 @@ struct fake_funk {
       _real = fd_funk_join( fd_funk_new( mem, 1, 1234U, txn_max, rec_max ) );
 #endif
 
-      fd_funk_set_num_partitions( _real, MAX_PARTS );
-
       _txns[ROOT_KEY] = new fake_txn(ROOT_KEY);
     }
     ~fake_funk() {
@@ -150,7 +147,6 @@ struct fake_funk {
       if (fd_funk_val_sz(rec2) > rec->size())
         rec2 = fd_funk_val_truncate(rec2, rec->size(), fd_funk_alloc(_real, _wksp), _wksp, NULL);
       memcpy(fd_funk_val(rec2, _wksp), rec->data(), rec->size());
-      rec->_part = rec2->part;
       fd_funk_end_write(_real);
     }
 
@@ -193,9 +189,6 @@ struct fake_funk {
       auto key = rec->real_id();
       auto* rec2 = fd_funk_rec_query(_real, txn2, &key);
       assert(rec2 != NULL);
-      uint part = ((uint)lrand48())%MAX_PARTS;
-      assert(!fd_funk_part_set(_real, (fd_funk_rec*)rec2, part));
-      rec->_part = part;
       fd_funk_end_write(_real);
     }
 
@@ -420,7 +413,6 @@ struct fake_funk {
           assert(!(rec->flags & FD_FUNK_REC_FLAG_ERASE));
           assert(fd_funk_val_sz(rec) == rec2->size());
           assert(memcmp(fd_funk_val(rec, _wksp), rec2->data(), rec2->size()) == 0);
-          assert(rec->part == rec2->_part);
         }
 
         fd_funk_txn_t * txn_map = fd_funk_txn_map( _real, fd_funk_wksp( _real ) );
