@@ -1182,7 +1182,7 @@ metrics_write( fd_gossip_tile_ctx_t * ctx ) {
 #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
-#define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_FIXED_METRICS_WRITE       metrics_write
 
 #include "../../../../disco/stem/fd_stem.c"
 

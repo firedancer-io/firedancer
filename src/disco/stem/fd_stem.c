@@ -31,6 +31,17 @@
    or monitoring tools.  The ctx is a user-provided context object from
    when the stem tile was initialized.
 
+     FIXED_METRICS_WRITE_INTERVAL
+   Tiles that accumulate high frequency metrics may need to periodically
+   publish them synchronously with other tiles.  This allows observers
+   to sample metrics across multiple tiles and use them in the same
+   calculation coherently.  This callback supports this use case by
+   running at a fixed interval syncronized across all tiles.  This is
+   done on a best-effort basis; invocations of this callback will occur
+   at roughly the same time.  This callback should be used minimally
+   to avoid overcrowding shared memory.
+
+
      BEFORE_CREDIT
    Is called every iteration of the stem run loop, whether there is a
    new frag ready to receive or not.  This callback is also still
@@ -341,12 +352,29 @@ STEM_(run1)( ulong                        in_cnt,
   FD_LOG_INFO(( "Running stem" ));
   FD_MGAUGE_SET( TILE, STATUS, 1UL );
   long then = fd_tickcount();
+  long sync_min = (long)((double)lazy * fd_tempo_tick_per_ns( NULL ));  /* # of ticks between fixed-interval metrics runs */
+  long then_fixed_interval = (then + sync_min) - ( (then) % sync_min ); /* Align counter with sync_min */
   long now  = then;
   for(;;) {
+    ulong housekeeping_ticks = 0UL;
+
+    /* Run metrics callback on a fixed interval */
+    if ( FD_UNLIKELY( (now-then_fixed_interval)>=0L ) ) {
+        FD_COMPILER_MFENCE();
+#ifdef STEM_CALLBACK_FIXED_METRICS_WRITE_INTERVAL
+        STEM_CALLBACK_FIXED_METRICS_WRITE_INTERVAL( ctx );
+#endif
+        FD_COMPILER_MFENCE();
+
+        /* Reload housekeeping timer */
+        then_fixed_interval += sync_min;
+        long next = fd_tickcount();
+        housekeeping_ticks += (ulong)(next - now);
+        now = next;
+    }
 
     /* Do housekeeping at a low rate in the background */
 
-    ulong housekeeping_ticks = 0UL;
     if( FD_UNLIKELY( (now-then)>=0L ) ) {
       ulong event_idx = (ulong)event_map[ event_seq ];
 
@@ -443,7 +471,7 @@ STEM_(run1)( ulong                        in_cnt,
       /* Reload housekeeping timer */
       then = now + (long)fd_tempo_async_reload( rng, async_min );
       long next = fd_tickcount();
-      housekeeping_ticks = (ulong)(next - now);
+      housekeeping_ticks += (ulong)(next - now);
       now = next;
     }
 
@@ -727,6 +755,7 @@ STEM_(run)( fd_topo_t *      topo,
 #undef STEM_LAZY
 #undef STEM_CALLBACK_DURING_HOUSEKEEPING
 #undef STEM_CALLBACK_METRICS_WRITE
+#undef STEM_CALLBACK_FIXED_METRICS_WRITE_INTERVAL
 #undef STEM_CALLBACK_BEFORE_CREDIT
 #undef STEM_CALLBACK_AFTER_CREDIT
 #undef STEM_CALLBACK_BEFORE_FRAG
