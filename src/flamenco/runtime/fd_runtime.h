@@ -342,6 +342,15 @@ fd_runtime_collect_rent_from_account( fd_slot_bank_t const *  slot_bank,
                                       fd_pubkey_t const *     key,
                                       ulong                   epoch );
 
+void
+fd_runtime_update_slots_per_epoch( fd_exec_slot_ctx_t * slot_ctx,
+                                   ulong                slots_per_epoch,
+                                   fd_spad_t *          runtime_spad );
+
+void
+fd_runtime_register_new_fresh_account( fd_exec_slot_ctx_t * slot_ctx,
+                                       fd_pubkey_t const  * pubkey );
+
 /* Block Level Execution Prep/Finalize ****************************************/
 
 #define FD_BLOCK_OK                          (0UL)

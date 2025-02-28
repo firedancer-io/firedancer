@@ -1160,7 +1160,7 @@ class MapMember(TypeNode):
         print(f'#include "../../util/tmpl/fd_redblack.c"', file=body)
         print(f'long {mapname}_compare( {nodename} * left, {nodename} * right ) {{', file=body)
         key = self.key
-        if key == "pubkey" or key == "account" or key == "key":
+        if (key == "pubkey" or key == "account" or key == "key"):
             print(f'  return memcmp( left->elem.{key}.uc, right->elem.{key}.uc, sizeof(right->elem.{key}) );', file=body)
         else:
             print(f'  return (long)( left->elem.{key} - right->elem.{key} );', file=body)

@@ -58,6 +58,8 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                       snapshot_freq;
   ulong                       incremental_freq;
   ulong                       last_snapshot_slot;
+
+  fd_rent_fresh_accounts_t    rent_fresh_accounts;
 };
 
 #define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))

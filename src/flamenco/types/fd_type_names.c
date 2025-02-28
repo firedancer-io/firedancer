@@ -1,5 +1,5 @@
 // This is an auto-generated file. To add entries, edit fd_types.json
-#define FD_TYPE_NAME_COUNT 238
+#define FD_TYPE_NAME_COUNT 241
 static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_hash",
  "fd_pubkey",
@@ -239,4 +239,7 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_account_costs_pair",
  "fd_account_costs",
  "fd_cost_tracker",
+ "fd_pubkey_node",
+ "fd_rent_fresh_accounts_partition",
+ "fd_rent_fresh_accounts",
 };
