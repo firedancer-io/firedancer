@@ -408,7 +408,6 @@ run_monitor( config_t * const config,
     }
 
     }
-    fd_log_sleep(dt);
     if( FD_UNLIKELY( with_sankey ) ) {
       /* We only need to count from one of the benchs, since they both receive
         all of the transactions. */
@@ -562,8 +561,9 @@ monitor_cmd_fn( args_t *         args,
   if( FD_UNLIKELY( sigaction( SIGINT, &sa, NULL ) ) )
     FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  int allow_fds[ 4 ];
+  int allow_fds[ 5];
   ulong allow_fds_cnt = 0;
+  allow_fds[ allow_fds_cnt++ ] = 0; /* stdin */
   allow_fds[ allow_fds_cnt++ ] = 1; /* stdout */
   allow_fds[ allow_fds_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( fd_log_private_logfile_fd()!=-1 && fd_log_private_logfile_fd()!=1 ) )

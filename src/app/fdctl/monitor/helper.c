@@ -179,31 +179,42 @@ printf_pct( char ** buf,
 }
 
 int
-fd_getchar()
-{
+fd_getchar() {
 
   struct termios term_old, term_new;
   int ch[1] = {0};
 
   /* Disables character echo and canonical mode since we want the input to be processes immediately.*/
-  if( FD_UNLIKELY( 0!=tcgetattr(STDIN_FILENO, &term_old) ) ) FD_LOG_ERR(( "tcgetattr failed due to error: %s", strerror(errno) ));
+  if( FD_UNLIKELY( 0!=tcgetattr( STDIN_FILENO, &term_old ) ) ) {
+    FD_LOG_ERR(( "tcgetattr failed due to error: %s", strerror( errno ) ));
+  }
   term_new = term_old;
   term_new.c_lflag &= (tcflag_t)~(ICANON | ECHO); 
-  if( FD_UNLIKELY( 0!=tcsetattr(STDIN_FILENO, TCSANOW, &term_new) ) ) FD_LOG_WARNING(( "tcsetattr failed due to error: %s", strerror(errno) ));
+  if( FD_UNLIKELY( 0!=tcsetattr( STDIN_FILENO, TCSANOW, &term_new ) ) ) {
+    FD_LOG_WARNING(( "tcsetattr failed due to error: %s", strerror( errno ) ));
+  }
 
   /* Terminal also set to non blocking in case the user doesn't send any input. */
-  int terminal_flag = fcntl(STDIN_FILENO, F_GETFL, 0);
-  if( FD_UNLIKELY( -1==terminal_flag ) ) FD_LOG_ERR(( "fcntl get flag failed due to error: %s", strerror(errno) ));
-  if( FD_UNLIKELY( -1==fcntl(STDIN_FILENO, F_SETFL, terminal_flag | O_NONBLOCK) ) ) FD_LOG_ERR(( "fcntl set flag failed due to error: %s", strerror(errno) )); 
-
-  int bytes = (int)read(STDIN_FILENO, ch, 1);
+  int terminal_flag = fcntl( STDIN_FILENO, F_GETFL, 0 );
+  if( FD_UNLIKELY( -1==terminal_flag ) ) { 
+    FD_LOG_ERR(( "fcntl get flag failed due to error: %s", strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( -1==fcntl(STDIN_FILENO, F_SETFL, terminal_flag | O_NONBLOCK ) ) ) {
+    FD_LOG_ERR(( "fcntl set flag failed due to error: %s", strerror( errno ) )); 
+  }
+  int bytes = (int)read( STDIN_FILENO, ch, 1 );
 
   /* Check if the read was not successfull, lack of input and being set to non blocking would result in EAGAIN(11) */
-  if( FD_UNLIKELY( -1==bytes && 11 != errno ) ) FD_LOG_ERR(( "fd_getchar read failed due to error: %s",strerror(errno) ));
-
+  if( FD_UNLIKELY( -1==bytes && 11 != errno ) ) {
+    FD_LOG_ERR(( "fd_getchar read failed due to error: %s",strerror(errno) ));
+  }
   /* Set the terminal back to the original configuration */
-  if( FD_UNLIKELY( 0!=tcsetattr(STDIN_FILENO, TCSANOW, &term_old ) ) ) FD_LOG_WARNING(( "tcsetattr failed due to error: %i",errno ));
-  if( FD_UNLIKELY( -1==fcntl(STDIN_FILENO, F_SETFL, terminal_flag ) ) ) FD_LOG_ERR(( "fcntl set flag failed due to error: %s", strerror(errno) )); 
+  if( FD_UNLIKELY( 0!=tcsetattr( STDIN_FILENO, TCSANOW, &term_old ) ) ) {
+    FD_LOG_WARNING(( "tcsetattr failed due to error: %s",strerror( errno ) ));
+  }
+  if( FD_UNLIKELY( -1==fcntl( STDIN_FILENO, F_SETFL, terminal_flag ) ) ) {
+    FD_LOG_ERR(( "fcntl set flag failed due to error: %s", strerror( errno ) ));
+  }
+  
   return (int)*ch;
-
 }

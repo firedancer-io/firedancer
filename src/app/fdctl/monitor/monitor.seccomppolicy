@@ -61,4 +61,16 @@ exit_group
 # arg0 is the file descriptor we wish to read from.  The monitor will
 # ensure this is always the stderr pipe that it created the Firedancer
 # child process with.
-read: (eq (arg 0) drain_output_fd)
+read: (or (eq (arg 0) drain_output_fd)
+          (eq (arg 0) 0))
+
+# monitor: set and get terminal attributes
+# The monitor uses this syscall by calling tcgetattr and tcsetattr to
+# save the original configuration of the terminal and disable character
+# echo and canonical mode so the input is processed immediatly.
+ioctl
+
+# monitor: set stdin to be nonblocking
+# The monitor must not be blocked when reading stdin if there is no
+# input from the user. This syscall is used to set the O_NONBLOCK flag.
+fcntl
