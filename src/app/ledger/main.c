@@ -403,13 +403,13 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
         block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
         block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED );
 
-        ulong slot_complete_idx = block_map_entry->slot_complete_idx;
         fd_block_map_publish( query );
 
         /* Remove the old block from the blockstore */
-        for( uint idx = 0; idx <= slot_complete_idx; idx++ ) {
+        /*for( uint idx = 0; idx <= slot_complete_idx; idx++ ) {
           fd_blockstore_shred_remove( blockstore, block_slot, idx );
-        }
+        }*/
+        fd_blockstore_block_allocs_remove( blockstore, block_slot );
         fd_blockstore_slot_remove( blockstore, block_slot );
       }
       /* Mark the new block as replaying */
@@ -423,7 +423,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       block_slot = slot;
     }
 
-    fd_block_t * blk = fd_blockstore_block_query( blockstore, slot ); /* can't be removed atm, populating slot_ctx->block below */
+    fd_block_t * blk = fd_blockstore_block_query( blockstore, slot );
     if( blk == NULL ) {
       FD_LOG_WARNING(( "failed to read slot %lu", slot ));
       continue;
