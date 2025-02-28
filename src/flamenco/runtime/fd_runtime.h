@@ -438,7 +438,8 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
                                               fd_tpool_t *         tpool,
                                               fd_spad_t * *        exec_spads,
                                               ulong                exec_spad_cnt,
-                                              fd_spad_t *          runtime_spad );
+                                              fd_spad_t *          runtime_spad,
+                                              fd_cost_tracker_t *  cost_tracker_opt );
 
 /* fd_runtime_process_txns and fd_runtime_execute_txns_in_waves_tpool are
    both entrypoints for executing transactions. Currently, the former is used
