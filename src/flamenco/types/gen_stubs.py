@@ -140,11 +140,8 @@ class PrimitiveMember(TypeNode):
     def emitMember(self):
         PrimitiveMember.emitMemberMap[self.type](self.name)
 
-    def emitOffsetMember(self):
-        print(f'  uint {self.name}_off;', file=header)
-
-    def emitOffsetUnionMember(self):
-        print(f'{indent}  uint {self.name}_off;', file=header)
+    def emitMemberGlobal(self):
+        PrimitiveMember.emitMemberMap[self.type](self.name)
 
     def isFixedSize(self):
         if self.varint:
@@ -256,6 +253,10 @@ class PrimitiveMember(TypeNode):
         if self.decode:
             PrimitiveMember.emitDecodeUnsafeMap[self.type](self.name, self.varint)
 
+    def emitDecodeInnerGlobal(self):
+        if self.decode:
+            PrimitiveMember.emitDecodeUnsafeMap[self.type](self.name, self.varint)
+
     def string_encode(n, varint):
         print(f'{indent}  ulong slen = strlen( (char *) self->{n} );', file=body)
         print(f'{indent}  err = fd_bincode_uint64_encode( slen, ctx );', file=body)
@@ -355,6 +356,12 @@ class StructMember(TypeNode):
     def emitMember(self):
         print(f'{indent}  {namespace}_{self.type}_t {self.name};', file=header)
 
+    def emitMemberGlobal(self):
+        if self.type in fixedsizetypes:
+            print(f'{indent}  {namespace}_{self.type}_t {self.name};', file=header)
+        else:
+            print(f'{indent}  {namespace}_{self.type}_global_t {self.name};', file=header)
+
     def isFixedSize(self):
         return self.type in fixedsizetypes
 
@@ -363,12 +370,6 @@ class StructMember(TypeNode):
 
     def isFuzzy(self):
         return self.type in fuzzytypes
-
-    def emitOffsetMember(self):
-        print(f'  uint {self.name}_off;', file=header)
-
-    def emitOffsetUnionMember(self):
-        print(f'{indent}  {namespace}_{self.type}_off_t {self.name}_off;', file=header)
 
     def emitNew(self):
         print(f'{indent}  {namespace}_{self.type}_new( &self->{self.name} );', file=body)
@@ -382,6 +383,9 @@ class StructMember(TypeNode):
 
     def emitDecodeInner(self):
         print(f'{indent}  {namespace}_{self.type}_decode_inner( &self->{self.name}, alloc_mem, ctx );', file=body)
+
+    def emitDecodeInnerGlobal(self):
+        print(f'{indent}  {namespace}_{self.type}_decode_inner_global( &self->{self.name}, alloc_mem, ctx );', file=body)
 
     def emitEncode(self):
         print(f'{indent}  err = {namespace}_{self.type}_encode( &self->{self.name}, ctx );', file=body)
@@ -416,8 +420,12 @@ class VectorMember(TypeNode):
         else:
             print(f'  {namespace}_{self.element}_t * {self.name};', file=header)
 
-    def emitOffsetMember(self):
-        print(f'  uint {self.name}_off;', file=header)
+    def emitMemberGlobal(self):
+        if self.compact:
+            print(f'  ushort {self.name}_len;', file=header)
+        else:
+            print(f'  ulong {self.name}_len;', file=header)
+        print(f'  ulong {self.name}_gaddr;', file=header)
 
     def emitNew(self):
         pass
@@ -502,6 +510,43 @@ class VectorMember(TypeNode):
 
         print('  } else', file=body)
         print(f'    self->{self.name} = NULL;', file=body)
+
+    def emitDecodeInnerGlobal(self):
+        if self.compact:
+            print(f'  fd_bincode_compact_u16_decode_unsafe( &self->{self.name}_len, ctx );', file=body)
+        else:
+            print(f'  fd_bincode_uint64_decode_unsafe( &self->{self.name}_len, ctx );', file=body)
+        print(f'  if( self->{self.name}_len ) {{', file=body)
+        el = f'{namespace}_{self.element}'
+        el = el.upper()
+
+        if self.element == "uchar":
+            print(f'    self->{self.name}_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );', file=body)
+            print(f'    fd_bincode_bytes_decode_unsafe( *alloc_mem, self->{self.name}_len, ctx );', file=body)
+            print(f'    *alloc_mem = (uchar *)(*alloc_mem) + self->{self.name}_len;', file=body)
+        else:
+            if self.element in simpletypes:
+                print(f'    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), 8UL );', file=body)
+                print(f'    self->{self.name}_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );', file=body)
+                print(f'    uchar * cur_mem = (uchar *)(*alloc_mem);', file=body)
+                print(f'    *alloc_mem = (uchar *)(*alloc_mem) + sizeof({self.element})*self->{self.name}_len;', file=body)
+            else:
+                print(f'    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), {el}_ALIGN );', file=body)
+                print(f'    self->{self.name}_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );', file=body)
+                print(f'    uchar * cur_mem = (uchar *)(*alloc_mem);', file=body)
+                print(f'    *alloc_mem = (uchar *)(*alloc_mem) + {el}_FOOTPRINT*self->{self.name}_len;', file=body)
+
+            print(f'    for( ulong i=0; i < self->{self.name}_len; i++ ) {{', file=body)
+            if self.element in simpletypes:
+                print(f'      fd_bincode_{simpletypes[self.element]}_decode_unsafe( ({self.element}*)(cur_mem + sizeof({self.element}) * i), ctx );', file=body)
+            else:
+                print(f'      {namespace}_{self.element}_new( ({namespace}_{self.element}_t *)(cur_mem + {el}_FOOTPRINT * i) );', file=body)
+                print(f'      {namespace}_{self.element}_decode_inner_global( cur_mem + {el}_FOOTPRINT * i, alloc_mem, ctx );', file=body)
+
+            print('    }', file=body)
+
+        print('  } else', file=body)
+        print(f'    self->{self.name}_gaddr = 0UL;', file=body)
 
     def emitEncode(self):
         if self.compact:
@@ -597,8 +642,15 @@ class StaticVectorMember(TypeNode):
         else:
             print(f'  {namespace}_{self.element}_t {self.name}[{self.size}];', file=header)
 
-    def emitOffsetMember(self):
-        print(f'  uint {self.name}_off;', file=header)
+    def emitMemberGlobal(self):
+        print(f'  ulong {self.name}_len;', file=header)
+        print(f'  ulong {self.name}_size;', file=header)
+        print(f'  ulong {self.name}_offset;', file=header)
+
+        if self.element in simpletypes:
+            print(f'  {self.element} {self.name}[{self.size}];', file=header)
+        else:
+            print(f'  {namespace}_{self.element}_t {self.name}[{self.size}];', file=header)
 
     def emitNew(self):
         size = self.size
@@ -658,6 +710,22 @@ class StaticVectorMember(TypeNode):
             print(f'    fd_bincode_{simpletypes[self.element]}_decode_unsafe( self->{self.name} + i, ctx );', file=body)
         else:
             print(f'    {namespace}_{self.element}_decode_inner( self->{self.name} + i, alloc_mem, ctx );', file=body)
+        print('  }', file=body)
+
+    def emitDecodeInnerGlobal(self):
+        print(f'  fd_bincode_uint64_decode_unsafe( &self->{self.name}_len, ctx );', file=body)
+        print(f'  self->{self.name}_size = {self.size};', file=body)
+        print(f'  self->{self.name}_offset = 0;', file=body)
+
+        if self.element == "uchar":
+            print(f'  fd_bincode_bytes_decode_unsafe( self->{self.name}, self->{self.name}_len, ctx );', file=body)
+            return
+
+        print(f'  for( ulong i=0; i<self->{self.name}_len; i++ ) {{', file=body)
+        if self.element in simpletypes:
+            print(f'    fd_bincode_{simpletypes[self.element]}_decode_unsafe( self->{self.name} + i, ctx );', file=body)
+        else:
+            print(f'    {namespace}_{self.element}_decode_inner_global( self->{self.name} + i, alloc_mem, ctx );', file=body)
         print('  }', file=body)
 
     def emitEncode(self):
@@ -793,8 +861,12 @@ class DequeMember(TypeNode):
             min_tag = ""
         print(f'  {self.elem_type()} * {self.name}; /* fd_deque_dynamic{min_tag} */', file=header)
 
-    def emitOffsetMember(self):
-        print(f'  uint {self.name}_off;', file=header)
+    def emitMemberGlobal(self):
+        if self.min:
+            min_tag = f" (min cnt {self.min})"
+        else:
+            min_tag = ""
+        print(f'  ulong {self.name}_gaddr; /* fd_deque_dynamic{min_tag} */', file=header)
 
     def emitNew(self):
         pass
@@ -845,7 +917,6 @@ class DequeMember(TypeNode):
             print('  }', file=body)
 
     def emitDecodeInner(self):
-        pass
         if self.compact:
             print(f'  ushort {self.name}_len;', file=body)
             print(f'  fd_bincode_compact_u16_decode_unsafe( &{self.name}_len, ctx );', file=body)
@@ -867,6 +938,37 @@ class DequeMember(TypeNode):
         else:
             print(f'    {namespace}_{self.element}_new( elem );', file=body)
             print(f'    {namespace}_{self.element}_decode_inner( elem, alloc_mem, ctx );', file=body)
+
+        print('  }', file=body)
+
+    def emitDecodeInnerGlobal(self):
+        if self.compact:
+            print(f'  ushort {self.name}_len;', file=body)
+            print(f'  fd_bincode_compact_u16_decode_unsafe( &{self.name}_len, ctx );', file=body)
+        else:
+            print(f'  ulong {self.name}_len;', file=body)
+            print(f'  fd_bincode_uint64_decode_unsafe( &{self.name}_len, ctx );', file=body)
+
+        print(f'  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, {self.prefix()}_align() );', file=body)
+
+        deque_type =  f"{self.element}" if self.element in simpletypes else f"{namespace}_{self.element}_t"
+
+        if self.min:
+            print(f'  ulong {self.name}_max = fd_ulong_max( {self.name}_len, {self.min} );', file=body)
+            print(f'  self->{self.name}_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );', file=body)
+            print(f'  {deque_type} * {self.name} = {self.prefix()}_join_new( alloc_mem, {self.name}_max );', file=body)
+        else:
+            print(f'  self->{self.name}_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );', file=body)
+            print(f'  {deque_type} * {self.name} = {self.prefix()}_join_new( alloc_mem, {self.name}_len );', file=body)
+
+        print(f'  for( ulong i=0; i < {self.name}_len; i++ ) {{', file=body)
+        print(f'    {self.elem_type()} * elem = {self.prefix()}_push_tail_nocopy( {self.name} );', file=body);
+
+        if self.element in simpletypes:
+            print(f'    fd_bincode_{simpletypes[self.element]}_decode_unsafe( elem, ctx );', file=body)
+        else:
+            print(f'    {namespace}_{self.element}_new( elem );', file=body)
+            print(f'    {namespace}_{self.element}_decode_inner_global( elem, alloc_mem, ctx );', file=body)
 
         print('  }', file=body)
 
@@ -1032,8 +1134,10 @@ class MapMember(TypeNode):
         print(f'  {element_type}_mapnode_t * {self.name}_pool;', file=header)
         print(f'  {element_type}_mapnode_t * {self.name}_root;', file=header)
 
-    def emitOffsetMember(self):
-        print(f'  uint {self.name}_off;', file=header)
+    def emitMemberGlobal(self):
+        element_type = self.elem_type()
+        print(f'  ulong {self.name}_pool_gaddr;', file=header)
+        print(f'  ulong {self.name}_root_gaddr;', file=header)
 
     def emitNew(self):
         pass
@@ -1085,9 +1189,6 @@ class MapMember(TypeNode):
         else:
             print(f'  ulong {self.name}_len;', file=body)
             print(f'  fd_bincode_uint64_decode_unsafe( &{self.name}_len, ctx );', file=body)
-
-        # We use this special allocator to indicate that the data
-        # structure has already been constructed in its final memory layout */
         if self.minalloc > 0:
             print(f'  self->{self.name}_pool = {mapname}_join_new( alloc_mem, fd_ulong_max( {self.name}_len, {self.minalloc} ) );', file=body)
         else:
@@ -1099,6 +1200,35 @@ class MapMember(TypeNode):
         print(f'    {namespace}_{self.element}_decode_inner( &node->elem, alloc_mem, ctx );', file=body)
         print(f'    {mapname}_insert( self->{self.name}_pool, &self->{self.name}_root, node );', file=body)
         print('  }', file=body)
+
+    def emitDecodeInnerGlobal(self):
+        element_type = self.elem_type()
+        mapname = element_type + "_map"
+        nodename = element_type + "_mapnode_t"
+
+        if self.compact:
+            print(f'  ushort {self.name}_len;', file=body)
+            print(f'  fd_bincode_compact_u16_decode_unsafe( &{self.name}_len, ctx );', file=body)
+        else:
+            print(f'  ulong {self.name}_len;', file=body)
+            print(f'  fd_bincode_uint64_decode_unsafe( &{self.name}_len, ctx );', file=body)
+
+        print(f'  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, {mapname}_align() );', file=body)
+        print(f'  self->{self.name}_pool_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );', file=body)
+
+        if self.minalloc > 0:
+            print(f'  {nodename} * {self.name}_pool = {mapname}_join_new( alloc_mem, fd_ulong_max( {self.name}_len, {self.minalloc} ) );', file=body)
+        else:
+            print(f'  {nodename} * {self.name}_pool = {mapname}_join_new( alloc_mem, {self.name}_len );', file=body)
+        print(f'  {nodename} * {self.name}_root = NULL;', file=body)
+        print(f'  self->{self.name}_root_gaddr = 0UL;', file=body)
+        print(f'  for( ulong i=0; i < {self.name}_len; i++ ) {{', file=body)
+        print(f'    {nodename} * node = {mapname}_acquire( {self.name}_pool );', file=body)
+        print(f'    {namespace}_{self.element}_new( &node->elem );', file=body)
+        print(f'    {namespace}_{self.element}_decode_inner( &node->elem, alloc_mem, ctx );', file=body)
+        print(f'    {mapname}_insert( {self.name}_pool, &{self.name}_root, node );', file=body)
+        print(f'  }}', file=body)
+        print(f'  self->{self.name}_root_gaddr = fd_wksp_gaddr_fast( ctx->wksp, {self.name}_root);', file=body)
 
     def emitEncode(self):
         element_type = self.elem_type()
@@ -1233,8 +1363,9 @@ class TreapMember(TypeNode):
         print(f'  {self.treap_t} * pool;', file=header)
         print(f'  {self.name}_treap_t * treap;', file=header)
 
-    def emitOffsetMember(self):
-        print(f'  uint {self.name}_off;', file=header)
+    def emitMemberGlobal(self):
+        print(f'  ulong pool_gaddr;', file=header)
+        print(f'  ulong treap_gaddr;', file=header)
 
     def emitNew(self):
         pass
@@ -1300,12 +1431,49 @@ class TreapMember(TypeNode):
             print(f'    {treap_t} * repeated_entry = {treap_name}_ele_query( self->treap, ele->epoch, self->pool );', file=body)
             print(f'    if( repeated_entry ) {{', file=body)
             print(f'        {treap_name}_ele_remove( self->treap, repeated_entry, self->pool ); // Remove the element before inserting it back to avoid duplication', file=body)
-            #print(f'        {treap_t.rstrip("_t")}_destroy( repeated_entry, &destroy_ctx );', file=body)
             print(f'        {pool_name}_ele_release( self->pool, repeated_entry );', file=body)
             print(f'    }}', file=body)
 
         print(f'    {treap_name}_ele_insert( self->treap, ele, self->pool ); /* this cannot fail */', file=body)
         print('  }', file=body)
+
+    def emitDecodeInnerGlobal(self):
+        treap_name = self.name + '_treap'
+        treap_t = self.treap_t
+        pool_name = self.name + '_pool'
+
+        if self.compact:
+            print(f'  ushort {treap_name}_len;', file=body)
+            print(f'  fd_bincode_compact_u16_decode_unsafe( &{treap_name}_len, ctx );', file=body)
+        else:
+            print(f'  ulong {treap_name}_len;', file=body)
+            print(f'  fd_bincode_uint64_decode_unsafe( &{treap_name}_len, ctx );', file=body)
+
+        print(f'  ulong {treap_name}_max = fd_ulong_max( {treap_name}_len, {self.min_name} );', file=body)
+        print(f'  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, {pool_name}_align() );', file=body)
+        print(f'  self->pool_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );', file=body)
+        print(f'  {treap_t} * pool = {pool_name}_join_new( alloc_mem, {treap_name}_max );', file=body)
+
+        print(f'  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, {treap_name}_align() );', file=body)
+        print(f'  self->treap_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );', file=body)
+        print(f'  {treap_name}_t * treap = {treap_name}_join_new( alloc_mem, {treap_name}_max );', file=body)
+        print(f'  for( ulong i=0; i < {treap_name}_len; i++ ) {{', file=body)
+        print(f'    {treap_t} * ele = {pool_name}_ele_acquire( pool );', file=body)
+        print(f'    {treap_t.rstrip("_t")}_new( ele );', file=body)
+        print(f'    {treap_t.rstrip("_t")}_decode_inner( ele, alloc_mem, ctx );', file=body)
+
+        if self.upsert:
+            print(f'    {treap_t} * repeated_entry = {treap_name}_ele_query( treap, ele->epoch, pool );', file=body)
+            print(f'    if( repeated_entry ) {{', file=body)
+            print(f'        {treap_name}_ele_remove( treap, repeated_entry, pool ); // Remove the element before inserting it back to avoid duplication', file=body)
+            print(f'        {pool_name}_ele_release( pool, repeated_entry );', file=body)
+            print(f'    }}', file=body)
+
+        print(f'    {treap_name}_ele_insert( treap, ele, pool ); /* this cannot fail */', file=body)
+        print('  }', file=body)
+        print(f'  self->pool_gaddr  = fd_wksp_gaddr_fast( ctx->wksp, pool );', file=body)
+        print(f'  self->treap_gaddr = fd_wksp_gaddr_fast( ctx->wksp, treap );', file=body)
+
 
     def emitEncode(self):
         name = self.name
@@ -1416,8 +1584,15 @@ class OptionMember(TypeNode):
             else:
                 print(f'  {namespace}_{self.element}_t * {self.name};', file=header)
 
-    def emitOffsetMember(self):
-        print(f'  uint {self.name}_off;', file=header)
+    def emitMemberGlobal(self):
+        if self.flat:
+            if self.element in simpletypes:
+                print(f'  {self.element} {self.name};', file=header)
+            else:
+                print(f'  {namespace}_{self.element}_t {self.name};', file=header)
+            print(f'  uchar has_{self.name};', file=header)
+        else:
+            print(f'  ulong {self.name}_gaddr;', file=header)
 
     def emitNew(self):
         pass
@@ -1491,6 +1666,42 @@ class OptionMember(TypeNode):
                 print(f'      {namespace}_{self.element}_decode_inner( self->{self.name}, alloc_mem, ctx );', file=body)
             print('    } else {', file=body)
             print(f'      self->{self.name} = NULL;', file=body)
+            print('    }', file=body)
+        print('  }', file=body)
+
+    def emitDecodeInnerGlobal(self):
+        print(f'  //TODO OPTION;', file=body)
+        print('  {', file=body)
+        print('    uchar o;', file=body)
+        print('    fd_bincode_bool_decode_unsafe( &o, ctx );', file=body)
+        if self.flat:
+            print(f'    self->has_{self.name} = !!o;', file=body)
+            print('    if( o ) {', file=body)
+            if self.element in simpletypes:
+                print(f'      fd_bincode_{simpletypes[self.element]}_decode_unsafe( &self->{self.name}, ctx );', file=body)
+            else:
+                el = f'{namespace}_{self.element}'
+                el = el.upper()
+                print(f'      {namespace}_{self.element}_new( &self->{self.name} );', file=body)
+                print(f'      {namespace}_{self.element}_decode_inner_global( &self->{self.name}, alloc_mem, ctx );', file=body)
+            print('    }', file=body)
+        else:
+            print('    if( o ) {', file=body)
+            if self.element in simpletypes:
+                print(f'      *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, 8UL );', file=body)
+                print(f'      self->{self.name}_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );', file=body)
+                print(f'      fd_bincode_{simpletypes[self.element]}_decode_unsafe( *alloc_mem, ctx );', file=body)
+                print(f'      *alloc_mem = (uchar *)*alloc_mem + sizeof({self.element});', file=body)
+            else:
+                el = f'{namespace}_{self.element}'
+                el = el.upper()
+                print(f'      *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, {el}_ALIGN );', file=body)
+                print(f'      self->{self.name}_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );', file=body)
+                print(f'      {namespace}_{self.element}_new( *alloc_mem );', file=body)
+                print(f'      *alloc_mem = (uchar *)*alloc_mem + {el}_FOOTPRINT;', file=body)
+                print(f'      {namespace}_{self.element}_decode_inner_global( fd_wksp_laddr_fast( ctx->wksp, self->{self.name}_gaddr ), alloc_mem, ctx );', file=body)
+            print('    } else {', file=body)
+            print(f'      self->{self.name}_gaddr = 0UL;', file=body)
             print('    }', file=body)
         print('  }', file=body)
 
@@ -1598,8 +1809,11 @@ class ArrayMember(TypeNode):
         else:
             print(f'  {namespace}_{self.element}_t {self.name}[{self.length}];', file=header)
 
-    def emitOffsetMember(self):
-        print(f'  uint {self.name}_off;', file=header)
+    def emitMemberGlobal(self):
+      if self.element in simpletypes:
+          print(f'  {self.element} {self.name}[{self.length}];', file=header)
+      else:
+          print(f'  {namespace}_{self.element}_t {self.name}[{self.length}];', file=header)
 
     def emitNew(self):
         length = self.length
@@ -1639,6 +1853,20 @@ class ArrayMember(TypeNode):
 
         if self.element == "uchar":
             print(f'  fd_bincode_bytes_decode_unsafe( self->{self.name}, {length}, ctx );', file=body)
+            return
+
+        print(f'  for( ulong i=0; i<{length}; i++ ) {{', file=body)
+        if self.element in simpletypes:
+            print(f'    fd_bincode_{simpletypes[self.element]}_decode_unsafe( self->{self.name} + i, ctx );', file=body)
+        else:
+            print(f'    {namespace}_{self.element}_decode_inner( self->{self.name} + i, alloc_mem, ctx );', file=body)
+        print('  }', file=body)
+
+    def emitDecodeInnerGlobal(self):
+        length = self.length
+
+        if self.element == "uchar":
+            print(f'  fd_bincode_bytes_decode_unsafe( self->{self.name}, {length}, ctx ); // array array', file=body)
             return
 
         print(f'  for( ulong i=0; i<{length}; i++ ) {{', file=body)
@@ -1746,8 +1974,8 @@ class OpaqueType(TypeNode):
         print(f'int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
         print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
         print(f'void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );', file=header)
-        print(f'void {n}_to_global( {n}_t const * self, {n}_global_t * out );', file=header)
-        print(f'void {n}_to_local( {n}_global_t const * self, {n}_t * out );', file=header)
+        print(f'void * {n}_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
+        print(f'void {n}_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );', file=header)
         print("", file=header)
 
     def emitImpls(self):
@@ -1795,12 +2023,14 @@ class OpaqueType(TypeNode):
         print(f'  return;', file=body)
         print(f'}}', file=body)
 
-        print(f'void {n}_to_local( {n}_t const * self, {n}_global_t * out ) {{', file=body)
-        print(f'  fd_memcpy( out, self, sizeof({n}_t) );', file=body)
+        print(f'void * {n}_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        print(f'  fd_bincode_bytes_decode_unsafe( mem, sizeof({n}_t), ctx );', file=body)
+        print(f'  return mem;', file=body)
         print(f'}}', file=body)
 
-        print(f'void {n}_to_global( {n}_global_t * self, {n}_t * out ) {{', file=body)
-        print(f'  fd_memcpy( out, self, sizeof({n}_t) );', file=body)
+        print(f'void {n}_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        print(f'  fd_bincode_bytes_decode_unsafe( struct_mem, sizeof({n}_t), ctx );', file=body)
+        print(f'  return;', file=body)
         print(f'}}', file=body)
 
         print("", file=body)
@@ -1876,15 +2106,15 @@ class StructType(TypeNode):
         print(f"#define {n.upper()}_ALIGN ({self.alignment}UL)", file=header)
         print("", file=header)
 
-        # Offset type
-        print(f'struct {self.attribute}{n}_off {{', file=header)
+        # Global type
+        print(f'struct {self.attribute}{n}_global {{', file=header)
         for f in self.fields:
-            f.emitOffsetMember()
+            f.emitMemberGlobal()
         print("};", file=header)
-        print(f'typedef struct {n}_off {n}_off_t;', file=header)
+        print(f'typedef struct {n}_global {n}_global_t;', file=header)
 
-        print(f"#define {n.upper()}_OFF_FOOTPRINT sizeof({n}_off_t)", file=header)
-        print(f"#define {n.upper()}_OFF_ALIGN ({self.alignment}UL)", file=header)
+        print(f"#define {n.upper()}_GLOBAL_FOOTPRINT sizeof({n}_global_t)", file=header)
+        print(f"#define {n.upper()}_GLOBAL_ALIGN ({self.alignment}UL)", file=header)
         print("", file=header)
 
     def emitPrototypes(self):
@@ -1902,8 +2132,8 @@ class StructType(TypeNode):
         print(f'int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
         print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
         print(f'void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );', file=header)
-        print(f'void {n}_to_global( {n}_t const * self, {n}_global_t * out );', file=header)
-        print(f'void {n}_to_local( {n}_global_t const * self, {n}_t * out );', file=header)
+        print(f'void * {n}_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
+        print(f'void {n}_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );', file=header)
         print("", file=header)
 
     def emitEncodes(self):
@@ -1961,6 +2191,23 @@ class StructType(TypeNode):
                 if hasattr(f, "ignore_underflow") and f.ignore_underflow:
                     print('  if( ctx->data == ctx->dataend ) return;', file=body)
                 f.emitDecodeInner()
+            print(f'}}', file=body)
+
+            print(f'void * {n}_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+            print(f'  {n}_global_t * self = ({n}_global_t *)mem;', file=body)
+            print(f'  {n}_new( ({n}_t *)self );', file=body)
+            print(f'  void * alloc_region = (uchar *)mem + sizeof({n}_global_t);', file=body)
+            print(f'  void * * alloc_mem = &alloc_region;', file=body)
+            print(f'  {n}_decode_inner_global( mem, alloc_mem, ctx );', file=body)
+            print(f'  return self;', file=body)
+            print(f'}}', file=body)
+
+            print(f'void {n}_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+            print(f'  {n}_global_t * self = ({n}_global_t *)struct_mem;', file=body)
+            for f in self.fields:
+                if hasattr(f, "ignore_underflow") and f.ignore_underflow:
+                    print('  if( ctx->data == ctx->dataend ) return;', file=body)
+                f.emitDecodeInnerGlobal()
             print(f'}}', file=body)
 
         print(f'void {n}_new({n}_t * self) {{', file=body)
@@ -2065,6 +2312,17 @@ class EnumType:
         print("};", file=header)
         print(f"typedef union {n}_inner {n}_inner_t;\n", file=header)
 
+        print(f'union {self.attribute}{n}_inner_global {{', file=header)
+        empty = True
+        for v in self.variants:
+            if not isinstance(v, str):
+                empty = False
+                v.emitMemberGlobal()
+        if empty:
+            print('  uchar nonempty; /* Hack to support enums with no inner structures */', file=header)
+        print("};", file=header)
+        print(f"typedef union {n}_inner_global {n}_inner_global_t;\n", file=header)
+
         if self.comment is not None:
             print(f'/* {self.comment} */', file=header)
 
@@ -2073,36 +2331,18 @@ class EnumType:
         print(f'  {n}_inner_t inner;', file=header)
         print("};", file=header)
         print(f"typedef struct {n} {n}_t;", file=header)
-
         print(f"#define {n.upper()}_FOOTPRINT sizeof({n}_t)", file=header)
         print(f"#define {n.upper()}_ALIGN ({self.alignment}UL)", file=header)
+
+        print(f"struct {self.attribute}{n}_global {{", file=header)
+        print(f'  {self.repr} discriminant;', file=header)
+        print(f'  {n}_inner_global_t inner;', file=header)
+        print("};", file=header)
+        print(f"typedef struct {n}_global {n}_global_t;", file=header)
+
+        print(f"#define {n.upper()}_GLOBAL_FOOTPRINT sizeof({n}_global_t)", file=header)
+        print(f"#define {n.upper()}_GLOBAL_ALIGN ({self.alignment}UL)", file=header)
         print("", file=header)
-
-        if self.zerocopy:
-            # Offset type
-            print(f'union {self.attribute}{n}_off_inner {{', file=header)
-            empty = True
-            for v in self.variants:
-                if not isinstance(v, str):
-                    empty = False
-                    v.emitOffsetUnionMember()
-            if empty:
-                print('  uchar nonempty; /* Hack to support enums with no inner structures */', file=header)
-            print("};", file=header)
-            print(f"typedef union {n}_off_inner {n}_off_inner_t;\n", file=header)
-
-            if self.comment is not None:
-                print(f'/* {self.comment} */', file=header)
-
-            print(f"struct {self.attribute}{n}_off {{", file=header)
-            print(f'  {self.repr} discriminant;', file=header)
-            print(f'  {n}_off_inner_t inner;', file=header)
-            print("};", file=header)
-            print(f"typedef struct {n}_off {n}_off_t;", file=header)
-
-            print(f"#define {n.upper()}_OFF_FOOTPRINT sizeof({n}_off_t)", file=header)
-            print(f"#define {n.upper()}_OFF_ALIGN ({self.alignment}UL)", file=header)
-            print("", file=header)
 
     def emitPrototypes(self):
         n = self.fullname
@@ -2118,8 +2358,8 @@ class EnumType:
         print(f'int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
         print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
         print(f'void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );', file=header)
-        print(f'void {n}_to_global( {n}_t const * self, {n}_global_t * out );', file=header)
-        print(f'void {n}_to_local( {n}_global_t const * self, {n}_t * out );', file=header)
+        print(f'void * {n}_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
+        print(f'void {n}_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );', file=header)
 
         print("", file=header)
 
@@ -2209,6 +2449,9 @@ class EnumType:
         print(f'  {n}_decode_inner( mem, alloc_mem, ctx );', file=body)
         print(f'  return self;', file=body)
         print(f'}}', file=body)
+
+        print(f'void * {n}_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {{ return NULL; }}', file=body)
+        print(f'void {n}_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{}}', file=body)
 
         print(f'void {n}_inner_new( {n}_inner_t * self, {self.repr} discriminant ) {{', file=body)
         print('  switch( discriminant ) {', file=body)
