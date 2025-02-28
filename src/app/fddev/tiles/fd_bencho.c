@@ -158,10 +158,9 @@ service_txn_count( fd_bencho_ctx_t * ctx ) {
 static inline void
 after_credit( fd_bencho_ctx_t *   ctx,
               fd_stem_context_t * stem,
-              int *               opt_poll_in,
+              long                last_tc     FD_PARAM_UNUSED,
+              int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
-  (void)opt_poll_in;
-
   int did_work_rpc                = fd_rpc_client_service( ctx->rpc, 0 );
   int did_work_service_block_hash = service_block_hash( ctx, stem );
   int did_work_service_txn_count  = service_txn_count( ctx );

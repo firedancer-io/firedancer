@@ -470,6 +470,7 @@ produce_eah( fd_snapshot_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong batch
 static void
 after_credit( fd_snapshot_tile_ctx_t * ctx,
               fd_stem_context_t *      stem,
+              long                     last_tc     FD_PARAM_UNUSED,
               int *                    opt_poll_in FD_PARAM_UNUSED,
               int *                    charge_busy FD_PARAM_UNUSED ) {
 

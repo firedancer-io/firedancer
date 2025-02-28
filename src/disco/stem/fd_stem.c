@@ -61,17 +61,23 @@
    callback. The stem should only be used for calling fd_stem_publish to
    publish a fragment to downstream consumers.
 
+   The 'last_tc' argument is the fd_tickcount() value that was read
+   torwards the very end of the loop iteration (but before
+   FD_SPIN_PAUSE).
+
    The opt_poll_in argument determines if the stem should proceed with
-   checking for new fragments to consumer, or should `continue` the main
-   stem loop to do credit checking again.  This could be used if the
-   after_credit function publishes, and the flow control needs to be
-   checked again.  By default, opt_poll_in is true and the stem will
+   checking for new fragments to consume, or should reset to the
+   beginning of the stem loop (non-zero returned).  This could be used
+   if the after_credit function publishes, and the flow control needs to
+   be checked again.  By default, *opt_poll_in == 1 and the stem will
    poll for fragments right away without rerunning the loop or checking
    for credits.
 
-   The charge_busy argument is 0 by default, and should be set to 1 if
-   the after_credit function is doing work that should be accounted for
-   as part of the tiles busy indicator.
+
+   If the expression (*opt_poll_in==1 && *charge_busy==0) is true then
+   time spent in after_credit is counted as idle.  This is the case if
+   the callback didn't write to *opt_poll_in or *charge_busy.  In any
+   other case, time spent in after_credit is counted as busy.
 
       BEFORE_FRAG
    Is called immediately whenever a new fragment has been detected that
@@ -486,7 +492,7 @@ STEM_(run1)( ulong                        in_cnt,
 #ifdef STEM_CALLBACK_AFTER_CREDIT
     int poll_in = 1;
     int charge_busy_after = 0;
-    STEM_CALLBACK_AFTER_CREDIT( ctx, &stem, &poll_in, &charge_busy_after );
+    STEM_CALLBACK_AFTER_CREDIT( ctx, &stem, now, &poll_in, &charge_busy_after );
     if( FD_UNLIKELY( !poll_in ) ) {
       metric_regime_ticks[1] += housekeeping_ticks;
       long next = fd_tickcount();

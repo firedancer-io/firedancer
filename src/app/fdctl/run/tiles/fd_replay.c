@@ -2463,10 +2463,9 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
 static void
 after_credit( fd_replay_tile_ctx_t * ctx,
               fd_stem_context_t *    stem,
-              int *                  opt_poll_in,
+              long                   last_tc     FD_PARAM_UNUSED,
+              int *                  opt_poll_in FD_PARAM_UNUSED,
               int *                  charge_busy ) {
-  (void)opt_poll_in;
-
   if( FD_UNLIKELY( ctx->snapshot_init_done==0 ) ) {
     init_snapshot( ctx, stem );
     ctx->snapshot_init_done = 1;

@@ -173,10 +173,9 @@ FD_STATIC_ASSERT( sizeof(large_noop_t)==1232UL, txn );
 static inline void
 after_credit( fd_benchg_ctx_t *   ctx,
               fd_stem_context_t * stem,
-              int *               opt_poll_in,
+              long                last_tc     FD_PARAM_UNUSED,
+              int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
-  (void)opt_poll_in;
-
   if( FD_UNLIKELY( !ctx->has_recent_blockhash ) ) return;
 
   *charge_busy = 1;

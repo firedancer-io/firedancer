@@ -188,6 +188,7 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 static inline void
 after_credit( fd_poh_ctx_t *      ctx,
               fd_stem_context_t * stem,
+              long                last_tc FD_PARAM_UNUSED,
               int *               opt_poll_in,
               int *               charge_busy ) {
   ctx->stem = stem;

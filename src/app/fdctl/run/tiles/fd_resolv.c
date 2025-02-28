@@ -259,6 +259,7 @@ publish_txn( fd_resolv_ctx_t *          ctx,
 static inline void
 after_credit( fd_resolv_ctx_t *   ctx,
               fd_stem_context_t * stem,
+              long                last_tc FD_PARAM_UNUSED,
               int *               opt_poll_in,
               int *               charge_busy ) {
   if( FD_LIKELY( ctx->flush_pool_idx==ULONG_MAX ) ) return;

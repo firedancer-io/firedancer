@@ -631,16 +631,15 @@ publish_peers_to_plugin( fd_gossip_tile_ctx_t * ctx,
 static void
 after_credit( fd_gossip_tile_ctx_t * ctx,
               fd_stem_context_t *    stem,
-              int *                  opt_poll_in,
+              long                   last_tc,
+              int *                  opt_poll_in FD_PARAM_UNUSED,
               int *                  charge_busy ) {
-  (void)opt_poll_in;
-
   /* TODO: Don't charge the tile as busy if after_credit isn't actually
      doing any work. */
   *charge_busy = 1;
 
   ctx->stem = stem;
-  ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong tsorig = fd_frag_meta_ts_comp( last_tc );
 
   fd_mcache_seq_update( ctx->shred_contact_out_sync, ctx->shred_contact_out_seq );
   fd_mcache_seq_update( ctx->repair_contact_out_sync, ctx->repair_contact_out_seq );
