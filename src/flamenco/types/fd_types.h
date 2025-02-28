@@ -5317,6 +5317,143 @@ typedef struct fd_epoch_info_off fd_epoch_info_off_t;
 #define FD_EPOCH_INFO_OFF_FOOTPRINT sizeof(fd_epoch_info_off_t)
 #define FD_EPOCH_INFO_OFF_ALIGN (8UL)
 
+/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L153-L161 */
+/* Encoded Size: Fixed (48 bytes) */
+struct __attribute__((aligned(8UL))) fd_usage_cost_details {
+  ulong signature_cost;
+  ulong write_lock_cost;
+  ulong data_bytes_cost;
+  ulong programs_execution_cost;
+  ulong loaded_accounts_data_size_cost;
+  ulong allocated_accounts_data_size;
+};
+typedef struct fd_usage_cost_details fd_usage_cost_details_t;
+#define FD_USAGE_COST_DETAILS_FOOTPRINT sizeof(fd_usage_cost_details_t)
+#define FD_USAGE_COST_DETAILS_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_usage_cost_details_off {
+  uint signature_cost_off;
+  uint write_lock_cost_off;
+  uint data_bytes_cost_off;
+  uint programs_execution_cost_off;
+  uint loaded_accounts_data_size_cost_off;
+  uint allocated_accounts_data_size_off;
+};
+typedef struct fd_usage_cost_details_off fd_usage_cost_details_off_t;
+#define FD_USAGE_COST_DETAILS_OFF_FOOTPRINT sizeof(fd_usage_cost_details_off_t)
+#define FD_USAGE_COST_DETAILS_OFF_ALIGN (8UL)
+
+union fd_transaction_cost_inner {
+  fd_usage_cost_details_t transaction;
+};
+typedef union fd_transaction_cost_inner fd_transaction_cost_inner_t;
+
+/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L20-L23 */
+struct fd_transaction_cost {
+  uint discriminant;
+  fd_transaction_cost_inner_t inner;
+};
+typedef struct fd_transaction_cost fd_transaction_cost_t;
+#define FD_TRANSACTION_COST_FOOTPRINT sizeof(fd_transaction_cost_t)
+#define FD_TRANSACTION_COST_ALIGN (8UL)
+
+/* Encoded Size: Fixed (40 bytes) */
+struct __attribute__((aligned(8UL))) fd_account_costs_pair {
+  fd_pubkey_t key;
+  ulong cost;
+};
+typedef struct fd_account_costs_pair fd_account_costs_pair_t;
+#define FD_ACCOUNT_COSTS_PAIR_FOOTPRINT sizeof(fd_account_costs_pair_t)
+#define FD_ACCOUNT_COSTS_PAIR_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_account_costs_pair_off {
+  uint key_off;
+  uint cost_off;
+};
+typedef struct fd_account_costs_pair_off fd_account_costs_pair_off_t;
+#define FD_ACCOUNT_COSTS_PAIR_OFF_FOOTPRINT sizeof(fd_account_costs_pair_off_t)
+#define FD_ACCOUNT_COSTS_PAIR_OFF_ALIGN (8UL)
+
+typedef struct fd_account_costs_pair_t_mapnode fd_account_costs_pair_t_mapnode_t;
+#define REDBLK_T fd_account_costs_pair_t_mapnode_t
+#define REDBLK_NAME fd_account_costs_pair_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+struct fd_account_costs_pair_t_mapnode {
+    fd_account_costs_pair_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_account_costs_pair_t_mapnode_t *
+fd_account_costs_pair_t_map_alloc( fd_valloc_t valloc, ulong len ) {
+  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
+  void * mem = fd_valloc_malloc( valloc, fd_account_costs_pair_t_map_align(), fd_account_costs_pair_t_map_footprint(len));
+  return fd_account_costs_pair_t_map_join(fd_account_costs_pair_t_map_new(mem, len));
+}
+static inline fd_account_costs_pair_t_mapnode_t *
+fd_account_costs_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
+  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_account_costs_pair_t_map_align() );
+  void * map_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + fd_account_costs_pair_t_map_footprint( len );
+  return fd_account_costs_pair_t_map_join( fd_account_costs_pair_t_map_new( map_mem, len ) );
+}
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_account_costs {
+  fd_account_costs_pair_t_mapnode_t * account_costs_pool;
+  fd_account_costs_pair_t_mapnode_t * account_costs_root;
+};
+typedef struct fd_account_costs fd_account_costs_t;
+#define FD_ACCOUNT_COSTS_FOOTPRINT sizeof(fd_account_costs_t)
+#define FD_ACCOUNT_COSTS_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_account_costs_off {
+  uint account_costs_off;
+};
+typedef struct fd_account_costs_off fd_account_costs_off_t;
+#define FD_ACCOUNT_COSTS_OFF_FOOTPRINT sizeof(fd_account_costs_off_t)
+#define FD_ACCOUNT_COSTS_OFF_ALIGN (8UL)
+
+/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L62-L79 */
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_cost_tracker {
+  ulong account_cost_limit;
+  ulong block_cost_limit;
+  ulong vote_cost_limit;
+  fd_account_costs_t cost_by_writable_accounts;
+  ulong block_cost;
+  ulong vote_cost;
+  ulong transaction_count;
+  ulong allocated_accounts_data_size;
+  ulong transaction_signature_count;
+  ulong secp256k1_instruction_signature_count;
+  ulong ed25519_instruction_signature_count;
+  ulong secp256r1_instruction_signature_count;
+};
+typedef struct fd_cost_tracker fd_cost_tracker_t;
+#define FD_COST_TRACKER_FOOTPRINT sizeof(fd_cost_tracker_t)
+#define FD_COST_TRACKER_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_cost_tracker_off {
+  uint account_cost_limit_off;
+  uint block_cost_limit_off;
+  uint vote_cost_limit_off;
+  uint cost_by_writable_accounts_off;
+  uint block_cost_off;
+  uint vote_cost_off;
+  uint transaction_count_off;
+  uint allocated_accounts_data_size_off;
+  uint transaction_signature_count_off;
+  uint secp256k1_instruction_signature_count_off;
+  uint ed25519_instruction_signature_count_off;
+  uint secp256r1_instruction_signature_count_off;
+};
+typedef struct fd_cost_tracker_off fd_cost_tracker_off_t;
+#define FD_COST_TRACKER_OFF_FOOTPRINT sizeof(fd_cost_tracker_off_t)
+#define FD_COST_TRACKER_OFF_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -8753,6 +8890,73 @@ int fd_epoch_info_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
 int fd_epoch_info_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_epoch_info_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_epoch_info_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+
+void fd_usage_cost_details_new( fd_usage_cost_details_t * self );
+int fd_usage_cost_details_encode( fd_usage_cost_details_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_usage_cost_details_destroy( fd_usage_cost_details_t * self );
+void fd_usage_cost_details_walk( void * w, fd_usage_cost_details_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_usage_cost_details_size( fd_usage_cost_details_t const * self );
+ulong fd_usage_cost_details_footprint( void );
+ulong fd_usage_cost_details_align( void );
+int fd_usage_cost_details_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+int fd_usage_cost_details_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_usage_cost_details_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_usage_cost_details_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+
+void fd_transaction_cost_new_disc( fd_transaction_cost_t * self, uint discriminant );
+void fd_transaction_cost_new( fd_transaction_cost_t * self );
+int fd_transaction_cost_encode( fd_transaction_cost_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_transaction_cost_destroy( fd_transaction_cost_t * self );
+void fd_transaction_cost_walk( void * w, fd_transaction_cost_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_transaction_cost_size( fd_transaction_cost_t const * self );
+ulong fd_transaction_cost_footprint( void );
+ulong fd_transaction_cost_align( void );
+int fd_transaction_cost_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+int fd_transaction_cost_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_transaction_cost_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_transaction_cost_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+
+FD_FN_PURE uchar fd_transaction_cost_is_simple_vote( fd_transaction_cost_t const * self );
+FD_FN_PURE uchar fd_transaction_cost_is_transaction( fd_transaction_cost_t const * self );
+enum {
+fd_transaction_cost_enum_simple_vote = 0,
+fd_transaction_cost_enum_transaction = 1,
+};
+void fd_account_costs_pair_new( fd_account_costs_pair_t * self );
+int fd_account_costs_pair_encode( fd_account_costs_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_account_costs_pair_destroy( fd_account_costs_pair_t * self );
+void fd_account_costs_pair_walk( void * w, fd_account_costs_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_account_costs_pair_size( fd_account_costs_pair_t const * self );
+ulong fd_account_costs_pair_footprint( void );
+ulong fd_account_costs_pair_align( void );
+int fd_account_costs_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+int fd_account_costs_pair_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_account_costs_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_account_costs_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+
+void fd_account_costs_new( fd_account_costs_t * self );
+int fd_account_costs_encode( fd_account_costs_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_account_costs_destroy( fd_account_costs_t * self );
+void fd_account_costs_walk( void * w, fd_account_costs_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_account_costs_size( fd_account_costs_t const * self );
+ulong fd_account_costs_footprint( void );
+ulong fd_account_costs_align( void );
+int fd_account_costs_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+int fd_account_costs_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_account_costs_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_account_costs_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+
+void fd_cost_tracker_new( fd_cost_tracker_t * self );
+int fd_cost_tracker_encode( fd_cost_tracker_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_cost_tracker_destroy( fd_cost_tracker_t * self );
+void fd_cost_tracker_walk( void * w, fd_cost_tracker_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_cost_tracker_size( fd_cost_tracker_t const * self );
+ulong fd_cost_tracker_footprint( void );
+ulong fd_cost_tracker_align( void );
+int fd_cost_tracker_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+int fd_cost_tracker_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_cost_tracker_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_cost_tracker_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 
 FD_PROTOTYPES_END
 
