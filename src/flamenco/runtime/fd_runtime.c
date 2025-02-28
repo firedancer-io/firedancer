@@ -3814,14 +3814,14 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
 
       if( !mblock_txn_cnt ) continue;
 
-      res = fd_runtime_process_txns_in_microblock_stream( slot_ctx,
-                                                          capture_ctx,
-                                                          mblock_txn_ptrs,
-                                                          mblock_txn_cnt,
-                                                          tpool,
-                                                          exec_spads,
-                                                          exec_spad_cnt,
-                                                          runtime_spad );
+      res |= fd_runtime_process_txns_in_microblock_stream( slot_ctx,
+                                                           capture_ctx,
+                                                           mblock_txn_ptrs,
+                                                           mblock_txn_cnt,
+                                                           tpool,
+                                                           exec_spads,
+                                                           exec_spad_cnt,
+                                                           runtime_spad );
     }
   }
 

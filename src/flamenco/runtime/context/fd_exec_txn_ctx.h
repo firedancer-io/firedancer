@@ -72,6 +72,7 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   ulong                 compute_meter;                               /* Remaining compute units */
   ulong                 heap_size;                                   /* Heap size for VMs for this transaction. */
   ulong                 loaded_accounts_data_size_limit;             /* Loaded accounts data size limit for this transaction. */
+  ulong                 loaded_accounts_data_size;                   /* The actual transaction loaded data size */
   uint                  prioritization_fee_type;                     /* The type of prioritization fee to use. */
   fd_txn_t const *      txn_descriptor;                              /* Descriptor of the transaction. */
   fd_rawtxn_b_t         _txn_raw[1];                                 /* Raw bytes of the transaction. */

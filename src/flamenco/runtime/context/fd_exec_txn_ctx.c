@@ -228,14 +228,15 @@ fd_exec_txn_ctx_setup_basic( fd_exec_txn_ctx_t * txn_ctx ) {
   txn_ctx->prioritization_fee_type = FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED;
   txn_ctx->custom_err         = UINT_MAX;
 
-  txn_ctx->instr_stack_sz     = 0;
-  txn_ctx->accounts_cnt       = 0;
-  txn_ctx->executable_cnt     = 0;
-  txn_ctx->paid_fees          = 0;
-  txn_ctx->heap_size          = FD_VM_HEAP_DEFAULT;
+  txn_ctx->instr_stack_sz                  = 0;
+  txn_ctx->accounts_cnt                    = 0UL;
+  txn_ctx->executable_cnt                  = 0UL;
+  txn_ctx->paid_fees                       = 0UL;
+  txn_ctx->heap_size                       = FD_VM_HEAP_DEFAULT;
   txn_ctx->loaded_accounts_data_size_limit = FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
-  txn_ctx->accounts_resize_delta = 0;
-  txn_ctx->collected_rent     = 0UL;
+  txn_ctx->loaded_accounts_data_size       = 0UL;
+  txn_ctx->accounts_resize_delta           = 0UL;
+  txn_ctx->collected_rent                  = 0UL;
 
   txn_ctx->num_instructions = 0;
   memset( txn_ctx->return_data.program_id.key, 0, sizeof(fd_pubkey_t) );

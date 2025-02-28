@@ -391,7 +391,6 @@ accumulate_and_check_loaded_account_data_size( ulong   acc_size,
 int
 fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
   ulong                 requested_loaded_accounts_data_size = txn_ctx->loaded_accounts_data_size_limit;
-  ulong                 accumulated_account_size            = 0UL;
   fd_rawtxn_b_t const * txn_raw                             = txn_ctx->_txn_raw;
   ushort                instr_cnt                           = txn_ctx->txn_descriptor->instr_cnt;
 
@@ -530,7 +529,7 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
 
     err = accumulate_and_check_loaded_account_data_size( acc_size,
                                                          requested_loaded_accounts_data_size,
-                                                         &accumulated_account_size );
+                                                         &txn_ctx->loaded_accounts_data_size );
 
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       return err;
@@ -610,7 +609,7 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
        However, it is important to not double count repeated owners. */
     err = accumulate_and_check_loaded_account_data_size( owner_account->const_meta->dlen,
                                                          requested_loaded_accounts_data_size,
-                                                         &accumulated_account_size );
+                                                         &txn_ctx->loaded_accounts_data_size );
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       return err;
     }
