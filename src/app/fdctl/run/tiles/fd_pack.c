@@ -487,6 +487,11 @@ after_credit( fd_pack_ctx_t *     ctx,
         (fd_fseq_query( ctx->bank_current[poll_cursor] )==ctx->bank_expect[poll_cursor]) ) ) {
       *charge_busy = 1;
       ctx->bank_idle_bitset |= 1UL<<poll_cursor;
+
+      long complete_duration = -fd_tickcount();
+      int completed = fd_pack_microblock_complete( ctx->pack, (ulong)poll_cursor );
+      complete_duration      += fd_tickcount();
+      if( FD_LIKELY( completed ) ) fd_histf_sample( ctx->complete_duration, (ulong)complete_duration );
     }
 
     ctx->poll_cursor = poll_cursor;
@@ -613,15 +618,7 @@ after_credit( fd_pack_ctx_t *     ctx,
   if( FD_LIKELY( ctx->bank_idle_bitset & fd_ulong_mask_lsb( pacing_bank_cnt ) ) ) { /* Optimize for schedule */
     any_ready = 1;
 
-    int i               = fd_ulong_find_lsb( ctx->bank_idle_bitset );
-
-    /* You can maybe make the case that this should happen as soon
-       as we detect the bank has become idle, but doing it now probably
-       helps with account locality. */
-    long complete_duration = -fd_tickcount();
-    int completed = fd_pack_microblock_complete( ctx->pack, (ulong)i );
-    complete_duration      += fd_tickcount();
-    if( FD_LIKELY( completed ) ) fd_histf_sample( ctx->complete_duration, (ulong)complete_duration );
+    int i = fd_ulong_find_lsb( ctx->bank_idle_bitset );
 
     fd_txn_p_t * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
     long schedule_duration = -fd_tickcount();
