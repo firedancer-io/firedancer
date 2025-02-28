@@ -422,7 +422,6 @@ fd_funk_rec_insert( fd_funk_t *               funk,
   *_rec_tail_idx = rec_idx;
 
   fd_funk_val_init( rec );
-  fd_funk_part_init( rec );
 
   fd_int_store_if( !!opt_err, opt_err, FD_FUNK_SUCCESS );
   return rec;
@@ -475,7 +474,6 @@ fd_funk_rec_remove( fd_funk_t *     funk,
      reasons, we need to remember what was deleted. */
 
   fd_funk_val_flush( rec, fd_funk_alloc( funk, wksp ), wksp );
-  fd_funk_part_set_intern( fd_funk_get_partvec( funk, wksp ), rec_map, rec, FD_FUNK_PART_NULL );
   rec->flags |= FD_FUNK_REC_FLAG_ERASE;
 
   /* At this point, the 5 most significant bytes should store data about the
