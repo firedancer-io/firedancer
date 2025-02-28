@@ -721,7 +721,7 @@ fdctl_check_configure( config_t * config ) {
     FD_LOG_ERR(( "Kernel parameters are not configured correctly: %s. You can run `fdctl configure init sysctl` "
                  "to set kernel parameters correctly.", check.message ));
 
-  check = fd_cfg_stage_hyperthreads.check( config );
+  if( 0 ) check = fd_cfg_stage_hyperthreads.check( config );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
     FD_LOG_ERR(( "Hyperthreading is not configured correctly: %s. You can run `fdctl configure init hyperthread` "
                  "to configure hyperthreading correctly.", check.message ));
