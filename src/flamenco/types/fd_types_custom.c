@@ -66,6 +66,12 @@ fd_flamenco_txn_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_
 }
 
 void
+fd_flamenco_txn_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  FD_LOG_ERR(("TODO: Implement"));
+}
+
+
+void
 fd_gossip_ip4_addr_walk( void *                       w,
                          fd_gossip_ip4_addr_t const * self,
                          fd_types_walk_fn_t           fun,
@@ -208,6 +214,10 @@ void fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_binco
     }
   }
   fd_hash_decode_inner( &self->block_id, alloc_mem, ctx );
+}
+
+void fd_tower_sync_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  FD_LOG_ERR(("TODO: Implement"));
 }
 
 int fd_archive_decode_skip_field( fd_bincode_decode_ctx_t * ctx, ushort tag ) {

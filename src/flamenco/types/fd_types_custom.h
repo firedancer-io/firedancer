@@ -44,8 +44,6 @@ FD_PROTOTYPES_BEGIN
 
 #define fd_pubkey_new              fd_hash_new
 #define fd_pubkey_encode           fd_hash_encode
-#define fd_pubkey_decode_archival  fd_hash_decode
-#define fd_pubkey_encode_archival  fd_hash_encode
 #define fd_pubkey_destroy          fd_hash_destroy
 #define fd_pubkey_size             fd_hash_size
 #define fd_pubkey_check_zero       fd_hash_check_zero
@@ -55,6 +53,8 @@ FD_PROTOTYPES_BEGIN
 #define fd_pubkey_decode_footprint fd_hash_decode_footprint
 #define fd_pubkey_decode_footprint_inner fd_hash_decode_footprint_inner
 #define fd_pubkey_decode       fd_hash_decode
+#define fd_pubkey_decode_global fd_hash_decode_global
+#define fd_pubkey_decode_inner_global fd_hash_decode_inner_global
 
 struct __attribute__((aligned(8UL))) fd_option_slot {
   uchar is_some;
@@ -75,6 +75,9 @@ typedef struct fd_txnstatusidx fd_txnstatusidx_t;
 typedef uint fd_gossip_ip4_addr_t;
 typedef uint fd_gossip_ip4_addr_t;
 
+typedef uint fd_gossip_ip4_addr_global_t;
+typedef uint fd_gossip_ip4_addr_global_t;
+
 /* IPv6 ***************************************************************/
 
 union fd_gossip_ip6_addr {
@@ -85,6 +88,13 @@ union fd_gossip_ip6_addr {
 
 typedef union fd_gossip_ip6_addr fd_gossip_ip6_addr_t;
 
+union fd_gossip_ip6_addr_global {
+  uchar  uc[ 16 ];
+  ushort us[  8 ];
+  uint   ul[  4 ];
+};
+
+typedef union fd_gossip_ip6_addr_global fd_gossip_ip6_addr_global_t;
 
 int
 fd_solana_vote_account_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
@@ -113,6 +123,18 @@ struct fd_flamenco_txn {
 };
 
 typedef struct fd_flamenco_txn fd_flamenco_txn_t;
+
+struct fd_flamenco_txn_global {
+  union {
+    uchar                  txn_buf[ FD_TXN_MAX_SZ ];
+    __extension__ fd_txn_t txn[0];
+  };
+  uchar raw[ FD_TXN_MTU ];
+  ulong raw_sz;
+};
+
+typedef struct fd_flamenco_txn_global fd_flamenco_txn_global_t;
+
 
 static inline void
 fd_flamenco_txn_new( fd_flamenco_txn_t * self FD_FN_UNUSED ) {}
@@ -161,6 +183,8 @@ fd_flamenco_txn_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void
 fd_flamenco_txn_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 
+void
+fd_flamenco_txn_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 
 /* Represents the lamport balance associated with an account. */
 typedef ulong fd_acc_lamports_t;
