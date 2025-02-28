@@ -107,4 +107,9 @@ printf_pct( char ** buf,
             ulong  den_then,
             double lhopital_den );
 
+/* fd_getchar will read a key press from stdin and return the ASCII
+   integer of the character. */
+int
+fd_getchar(void);
+
 #endif /* HEADER_fd_src_app_fdctl_monitor_helper_h */
