@@ -243,39 +243,6 @@ typedef struct fd_block_rewards fd_block_rewards_t;
    To avoid confusion, please use `fd_bits.h` API
    ie. `fd_uchar_set_bit`, `fd_uchar_extract_bit`. */
 
-struct fd_block {
-
-  /* Computed rewards */
-
-  fd_block_rewards_t rewards;
-
-  /* data region
-
-  A block's data region is indexed to support iterating by shred,
-  microblock/entry batch, microblock/entry, or transaction.
-  This is done by iterating the headers for each, stored in allocated
-  memory.
-  To iterate shred payloads, for example, a caller should iterate the headers in tandem with the data region
-  (offsetting by the bytes indicated in the shred header).
-
-  Note random access of individual shred indices is not performant, due to the variable-length
-  nature of shreds. */
-
-  ulong data_gaddr;   /* ptr to the beginning of the block's allocated data region */
-  ulong data_sz;      /* block size */
-  ulong shreds_gaddr; /* ptr to the first fd_block_shred_t */
-  ulong shreds_cnt;
-  ulong batch_gaddr;  /* list of fd_block_entry_batch_t */
-  ulong batch_cnt;
-  ulong micros_gaddr; /* ptr to the list of fd_block_micro_t */
-  ulong micros_cnt;
-  ulong txns_gaddr;   /* ptr to the list of fd_block_txn_t */
-  ulong txns_cnt;
-  ulong txns_meta_gaddr; /* ptr to the allocation for txn meta data */
-  ulong txns_meta_sz;
-};
-typedef struct fd_block fd_block_t;
-
 #define SET_NAME fd_block_set
 #define SET_MAX  FD_SHRED_MAX_PER_SLOT
 #include "../../util/tmpl/fd_set.c"
@@ -671,24 +638,6 @@ fd_blockstore_alloc( fd_blockstore_t * blockstore ) {
   return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore), blockstore->shmem->alloc_gaddr );
 }
 
-/* fd_blockstore_block_data_laddr returns a local pointer to the block's
-   data.  The returned pointer lifetime is until the block is removed. */
-
-FD_FN_PURE static inline uchar *
-fd_blockstore_block_data_laddr( fd_blockstore_t * blockstore, fd_block_t * block ) {
-  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->data_gaddr );
-}
-
-FD_FN_PURE static inline fd_block_entry_batch_t *
-fd_blockstore_block_batch_laddr( fd_blockstore_t * blockstore, fd_block_t * block ) {
-  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->batch_gaddr );
-}
-
-FD_FN_PURE static inline fd_block_micro_t *
-fd_blockstore_block_micro_laddr( fd_blockstore_t * blockstore, fd_block_t * block ) {
-  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->micros_gaddr );
-}
-
 /* fd_blockstore_shred_test returns 1 if a shred keyed by (slot, idx) is
    already in the blockstore and 0 otherwise.  */
 
@@ -708,19 +657,6 @@ fd_buf_shred_query_copy_data( fd_blockstore_t * blockstore,
                               uint              shred_idx,
                               void *            buf,
                               ulong             buf_max );
-
-/* fd_blockstore_block_query queries blockstore for block at slot.
-   Returns a pointer to the block or NULL if not in blockstore.  The
-   returned pointer lifetime is until the block is removed.  Check
-   return value for error info.
-
-   In theory the caller does not need to wrap this function in a
-   start/end read. What is being read lives in the block_meta object,
-   and this function does a valid concurrent read for the block_gaddr.
-   The fd_block_t object itself has no such guarantees, and needs a
-   read/write lock to modify. */
-fd_block_t *
-fd_blockstore_block_query( fd_blockstore_t * blockstore, ulong slot );
 
 /* fd_blockstore_block_hash_copy queries blockstore for the block hash
    at slot. This is the final poh hash for a slot.
@@ -817,17 +753,6 @@ fd_blockstore_block_map_query( fd_blockstore_t * blockstore, ulong slot );
    This is non-blocking. */
 ulong
 fd_blockstore_parent_slot_query( fd_blockstore_t * blockstore, ulong slot );
-
-/* fd_blockstore_block_frontier_query query the frontier i.e. all the
-   blocks that need to be replayed that haven't been.  These are the
-   slot children of the current frontier that are shred complete.
-
-   IMPORTANT!  Caller MUST hold the read lock when calling this
-   function. */
-fd_block_t *
-fd_blockstore_block_frontier_query( fd_blockstore_t * blockstore,
-                                    ulong *           parents,
-                                    ulong             parents_sz );
 
 /* fd_blockstore_block_data_query_volatile queries the block map entry
    (metadata and block data) in a lock-free thread-safe manner that does
@@ -991,50 +916,8 @@ fd_blockstore_log_mem_usage( fd_blockstore_t * blockstore );
 
 FD_PROTOTYPES_END
 
-/* fd_blockstore_ser is a serialization context for archiving a block to
-   disk. */
-
-struct fd_blockstore_ser {
-  fd_block_meta_t * block_map;
-  fd_block_t      * block;
-  uchar           * data;
-};
-typedef struct fd_blockstore_ser fd_blockstore_ser_t;
-
-/* Archives a block and block map entry to fd at blockstore->off, and does
-   any necessary bookkeeping.
-   If fd is -1, no write is attempted. Returns written size */
-ulong
-fd_blockstore_block_checkpt( fd_blockstore_t * blockstore,
-                             fd_blockstore_ser_t * ser,
-                             int fd,
-                             ulong slot );
-
-/* Restores a block and block map entry from fd at given offset. As this used by
-   rpcserver, it must return an error code instead of throwing an error on failure. */
-int
-fd_blockstore_block_meta_restore( fd_blockstore_archiver_t * archvr,
-                                  int fd,
-                                  fd_block_idx_t * block_idx_entry,
-                                  fd_block_meta_t * block_map_entry_out,
-                                  fd_block_t * block_out );
-
-/* Reads block data from fd into a given buf. Modifies data_off similarly to
-   meta_restore */
-int
-fd_blockstore_block_data_restore( fd_blockstore_archiver_t * archvr,
-                                  int fd,
-                                  fd_block_idx_t * block_idx_entry,
-                                  uchar * buf_out,
-                                  ulong buf_max,
-                                  ulong data_sz );
-
-/* Returns 0 if the archive metadata is valid */
-bool
-fd_blockstore_archiver_verify( fd_blockstore_t * blockstore, fd_blockstore_archiver_t * archiver );
-
-/* Reads from fd a block meta object, and returns the slot number */
-ulong
-fd_blockstore_archiver_lrw_slot( fd_blockstore_t * blockstore, int fd, fd_block_meta_t * lrw_block_meta, fd_block_t * lrw_block );
+#ifndef BLOCK_ARCHIVING
+#define BLOCK_ARCHIVING 0
+#endif
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_blockstore_h */
