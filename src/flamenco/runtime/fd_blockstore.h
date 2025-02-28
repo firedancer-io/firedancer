@@ -658,21 +658,31 @@ fd_buf_shred_query_copy_data( fd_blockstore_t * blockstore,
                               void *            buf,
                               ulong             buf_max );
 
-/* fd_blockstore_block_hash_copy queries blockstore for the block hash
-   at slot. This is the final poh hash for a slot.
+/* fd_blockstore_block_hash_query performs a blocking query (concurrent
+   writers are not blocked) for the block hash of slot.  Returns
+   FD_BLOCKSTORE_SUCCESS on success and FD_BLOCKSTORE_ERR_KEY if slot is
+   not in blockstore.  Cannot fail.  On success, a copy of the block
+   hash will be populated in `block_hash`.  Retains no interest in
+   `slot` or `block_hash`.
 
-   This is non-blocking, and does the memcpy of hash so the caller doesn't
-   need to manage the block map entry */
+   The block hash is the final poh hash for a slot and available on the
+   last microblock header. */
+
 int
-fd_blockstore_block_hash_copy( fd_blockstore_t * blockstore, ulong slot, uchar * buf_out, ulong sz );
+fd_blockstore_block_hash_query( fd_blockstore_t * blockstore, ulong slot, fd_hash_t * block_hash );
 
-/* fd_blockstore_bank_hash_copy query blockstore for the bank hash for
-   a given slot.
+/* fd_blockstore_bank_hash_query performs a blocking query (concurrent
+   writers are not blocked) for the bank hash of slot.  Returns
+   FD_BLOCKSTORE_SUCCESS on success and FD_BLOCKSTORE_ERR_KEY if slot is
+   not in blockstore.  Cannot fail.  On success, a copy of the bank hash
+   will be populated in `bank_hash`.  Retains no interest in `slot` or
+   `bank_hash`.
 
-   This is non-blocking, and does the memcpy of hash so the caller doesn't
-   need to manage the block map entry */
+   The bank hash is a hash of the execution state (the "bank") after
+   executing the block for a given slot. */
+
 int
-fd_blockstore_bank_hash_copy( fd_blockstore_t * blockstore, ulong slot, fd_hash_t * out );
+fd_blockstore_bank_hash_query( fd_blockstore_t * blockstore, ulong slot, fd_hash_t * bank_hash );
 
 /* fd_blockstore_block_map_query queries the blockstore for the block
    map entry at slot.  Returns a pointer to the slot meta or NULL if not

@@ -416,12 +416,8 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
 
     FD_STORE( ulong, out_buf, parent_slot );
     out_buf += sizeof(ulong);
-    int err = fd_blockstore_block_hash_copy( ctx->blockstore, slot, out_buf, sizeof(fd_hash_t) );
-
-    if( FD_UNLIKELY( err ) ){
-      FD_LOG_ERR(( "could not find slot meta" ));
-    }
-
+    int err = fd_blockstore_block_hash_query( ctx->blockstore, slot, (fd_hash_t *)fd_type_pun( out_buf ) );
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "could not find slot meta" ));
     out_buf += sizeof(fd_hash_t);
 
     FD_SCRATCH_SCOPE_BEGIN {
