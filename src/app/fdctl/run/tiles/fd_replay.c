@@ -583,13 +583,10 @@ checkpt( fd_replay_tile_ctx_t * ctx ) {
 
 static void
 funk_cancel( fd_replay_tile_ctx_t * ctx, ulong mismatch_slot ) {
-  fd_funk_txn_xid_t xid;
-  fd_blockstore_block_hash_copy( ctx->blockstore, mismatch_slot, xid.uc, sizeof( fd_funk_txn_xid_t ) );
-
-  fd_funk_start_write( ctx->funk );
-  xid.ul[0]                    = mismatch_slot;
+  fd_funk_txn_xid_t xid        = { .ul = { mismatch_slot, mismatch_slot } };
   fd_funk_txn_t * txn_map      = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
   fd_funk_txn_t * mismatch_txn = fd_funk_txn_query( &xid, txn_map );
+  fd_funk_start_write( ctx->funk );
   FD_TEST( fd_funk_txn_cancel( ctx->funk, mismatch_txn, 1 ) );
   fd_funk_end_write( ctx->funk );
 }
@@ -1293,7 +1290,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   if( flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
     memset( xid.uc, 0, sizeof(fd_funk_txn_xid_t) );
   } else {
-    fd_memcpy(xid.uc, ctx->blockhash.uc, sizeof(fd_funk_txn_xid_t));
+    xid.ul[1] = fork->slot_ctx.slot_bank.slot;
   }
   xid.ul[0] = fork->slot_ctx.slot_bank.slot;
   /* push a new transaction on the stack */
@@ -2565,10 +2562,7 @@ during_housekeeping( void * _ctx ) {
   if ( FD_LIKELY( wmark <= fd_fseq_query( ctx->published_wmark ) ) ) return;
   FD_LOG_NOTICE(( "wmk %lu => %lu", fd_fseq_query( ctx->published_wmark ), wmark ));
 
-  fd_funk_txn_xid_t xid;
-  fd_blockstore_block_hash_copy( ctx->blockstore, wmark, xid.uc, sizeof( fd_funk_txn_xid_t ) );
-  xid.ul[0] = wmark;
-
+  fd_funk_txn_xid_t xid = { .ul = { wmark, wmark } };
   if( FD_LIKELY( ctx->blockstore ) ) fd_blockstore_publish( ctx->blockstore, ctx->blockstore_fd, wmark );
   if( FD_LIKELY( ctx->forks ) ) fd_forks_publish( ctx->forks, wmark, ctx->ghost );
   if( FD_LIKELY( ctx->funk ) ) funk_and_txncache_publish( ctx, wmark, &xid );
