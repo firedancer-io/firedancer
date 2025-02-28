@@ -592,6 +592,9 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
   fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
   fd_block_meta_t * block_map_entry = fd_blockstore_block_map_query( blockstore, slot );
   if( FD_LIKELY( block_map_entry && fd_blockstore_shreds_complete( blockstore, slot ) ) ) {
+
+    deshred( blockstore, slot ); /* txn indexing */
+
     size_t vallen = 0;
     char * err = NULL;
     char * res = rocksdb_get_cf(

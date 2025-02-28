@@ -5,7 +5,6 @@
 #include "../../../../flamenco/runtime/fd_blockstore.h"
 
 #include "generated/idxer_seccomp.h"
-#include "../../../../flamenco/runtime/fd_indexer.h"
 
 struct fd_idxer_tile_ctx {
   ulong  replay_idxer_in_idx;

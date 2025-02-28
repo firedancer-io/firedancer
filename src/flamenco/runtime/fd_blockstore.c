@@ -1306,8 +1306,8 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
     block_map_entry->slot_complete_idx = shred->idx;
   }
 
-  ulong buffered_idx      = block_map_entry->buffered_idx;
-  ulong slot_complete_idx = block_map_entry->slot_complete_idx;
+  //ulong buffered_idx      = block_map_entry->buffered_idx;
+  //ulong slot_complete_idx = block_map_entry->slot_complete_idx;
   ulong parent_slot       = block_map_entry->parent_slot;
 
   FD_LOG_DEBUG(( "shred: (%lu, %u). consumed: %u, received: %u, complete: %u",
