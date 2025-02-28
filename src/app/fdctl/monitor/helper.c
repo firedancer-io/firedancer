@@ -1,7 +1,6 @@
 #include "helper.h"
 #include <termios.h>
 #include <fcntl.h>
-#include <unistd.h>
 #include <stdio.h>
 #include <errno.h>
 

@@ -325,88 +325,87 @@ run_monitor( config_t * const config,
     char * mon_start = buf;
     
     if( FD_UNLIKELY( drain_output_fd >= 0 ) ) PRINT( TEXT_NEWLINE );
-    if( FD_UNLIKELY(fd_getchar() == '\t') ) monitor_pane = !monitor_pane;
+    if( FD_UNLIKELY( fd_getchar() == '\t' ) ) monitor_pane = !monitor_pane;
 
     long dt = now-then;
 
     char now_cstr[ FD_LOG_WALLCLOCK_CSTR_BUF_SZ ];
-    if( !monitor_pane ){
-    PRINT( "snapshot for %s | Use TAB to switch panes" TEXT_NEWLINE, fd_log_wallclock_cstr( now, now_cstr ) );
-    PRINT( "    tile |     pid |      stale | heart | nivcsw              | nvcsw               | in backp |           backp cnt |  %% hkeep |  %% wait  |  %% backp | %% finish" TEXT_NEWLINE );
-    PRINT( "---------+---------+------------+-------+---------------------+---------------------+----------+---------------------+----------+----------+----------+----------" TEXT_NEWLINE );
-    for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
-      tile_snap_t * prv = &tile_snap_prv[ tile_idx ];
-      tile_snap_t * cur = &tile_snap_cur[ tile_idx ];
-      PRINT( " %7s", topo->tiles[ tile_idx ].name );
-      PRINT( " | %7lu", cur->pid );
-      PRINT( " | " ); printf_stale   ( &buf, &buf_sz, (long)(0.5+ns_per_tic*(double)(toc - (long)cur->heartbeat)), 1e8 /* 100 millis */ );
-      PRINT( " | " ); printf_heart   ( &buf, &buf_sz, (long)cur->heartbeat, (long)prv->heartbeat  );
-      PRINT( " | " ); printf_err_cnt ( &buf, &buf_sz, cur->nivcsw,          prv->nivcsw );
-      PRINT( " | " ); printf_err_cnt ( &buf, &buf_sz, cur->nvcsw,           prv->nvcsw  );
-      PRINT( " | " ); printf_err_bool( &buf, &buf_sz, cur->in_backp,        prv->in_backp   );
-      PRINT( " | " ); printf_err_cnt ( &buf, &buf_sz, cur->backp_cnt,       prv->backp_cnt  );
+    if( !monitor_pane ) {
+      PRINT( "snapshot for %s | Use TAB to switch panes" TEXT_NEWLINE, fd_log_wallclock_cstr( now, now_cstr ) );
+      PRINT( "    tile |     pid |      stale | heart | nivcsw              | nvcsw               | in backp |           backp cnt |  %% hkeep |  %% wait  |  %% backp | %% finish" TEXT_NEWLINE );
+      PRINT( "---------+---------+------------+-------+---------------------+---------------------+----------+---------------------+----------+----------+----------+----------" TEXT_NEWLINE );
+      for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
+        tile_snap_t * prv = &tile_snap_prv[ tile_idx ];
+        tile_snap_t * cur = &tile_snap_cur[ tile_idx ];
+        PRINT( " %7s", topo->tiles[ tile_idx ].name );
+        PRINT( " | %7lu", cur->pid );
+        PRINT( " | " ); printf_stale   ( &buf, &buf_sz, (long)(0.5+ns_per_tic*(double)(toc - (long)cur->heartbeat)), 1e8 /* 100 millis */ );
+        PRINT( " | " ); printf_heart   ( &buf, &buf_sz, (long)cur->heartbeat, (long)prv->heartbeat  );
+        PRINT( " | " ); printf_err_cnt ( &buf, &buf_sz, cur->nivcsw,          prv->nivcsw );
+        PRINT( " | " ); printf_err_cnt ( &buf, &buf_sz, cur->nvcsw,           prv->nvcsw  );
+        PRINT( " | " ); printf_err_bool( &buf, &buf_sz, cur->in_backp,        prv->in_backp   );
+        PRINT( " | " ); printf_err_cnt ( &buf, &buf_sz, cur->backp_cnt,       prv->backp_cnt  );
 
-      ulong cur_hkeep_ticks      = cur->regime_ticks[0]+cur->regime_ticks[1]+cur->regime_ticks[2];
-      ulong prv_hkeep_ticks      = prv->regime_ticks[0]+prv->regime_ticks[1]+prv->regime_ticks[2];
+        ulong cur_hkeep_ticks      = cur->regime_ticks[0]+cur->regime_ticks[1]+cur->regime_ticks[2];
+        ulong prv_hkeep_ticks      = prv->regime_ticks[0]+prv->regime_ticks[1]+prv->regime_ticks[2];
 
-      ulong cur_wait_ticks       = cur->regime_ticks[3]+cur->regime_ticks[6];
-      ulong prv_wait_ticks       = prv->regime_ticks[3]+prv->regime_ticks[6];
+        ulong cur_wait_ticks       = cur->regime_ticks[3]+cur->regime_ticks[6];
+        ulong prv_wait_ticks       = prv->regime_ticks[3]+prv->regime_ticks[6];
 
-      ulong cur_backp_ticks      = cur->regime_ticks[5];
-      ulong prv_backp_ticks      = prv->regime_ticks[5];
+        ulong cur_backp_ticks      = cur->regime_ticks[5];
+        ulong prv_backp_ticks      = prv->regime_ticks[5];
 
-      ulong cur_processing_ticks = cur->regime_ticks[4]+cur->regime_ticks[7];
-      ulong prv_processing_ticks = prv->regime_ticks[4]+prv->regime_ticks[7];
+        ulong cur_processing_ticks = cur->regime_ticks[4]+cur->regime_ticks[7];
+        ulong prv_processing_ticks = prv->regime_ticks[4]+prv->regime_ticks[7];
 
-      PRINT( " | " ); printf_pct( &buf, &buf_sz, cur_hkeep_ticks,      prv_hkeep_ticks,      0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
-      PRINT( " | " ); printf_pct( &buf, &buf_sz, cur_wait_ticks,       prv_wait_ticks,       0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
-      PRINT( " | " ); printf_pct( &buf, &buf_sz, cur_backp_ticks,      prv_backp_ticks,      0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
-      PRINT( " | " ); printf_pct( &buf, &buf_sz, cur_processing_ticks, prv_processing_ticks, 0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
-      PRINT( TEXT_NEWLINE );
-    }
-    } else {
-    PRINT( "             link |  tot TPS |  tot bps | uniq TPS | uniq bps |   ha tr%% | uniq bw%% | filt tr%% | filt bw%% |           ovrnp cnt |           ovrnr cnt |            slow cnt |             tx seq" TEXT_NEWLINE );
-    PRINT( "------------------+----------+----------+----------+----------+----------+----------+----------+----------+---------------------+---------------------+---------------------+-------------------" TEXT_NEWLINE );
-
-    ulong link_idx = 0UL;
-    for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
-      for( ulong in_idx=0UL; in_idx<topo->tiles[ tile_idx ].in_cnt; in_idx++ ) {
-        link_snap_t * prv = &link_snap_prv[ link_idx ];
-        link_snap_t * cur = &link_snap_cur[ link_idx ];
-
-        fd_topo_link_t * link = &topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx ] ];
-        ulong producer_tile_id = fd_topo_find_link_producer( topo, link );
-        FD_TEST( producer_tile_id != ULONG_MAX );
-        char const * producer = topo->tiles[ producer_tile_id ].name;
-        PRINT( " %7s->%-7s", producer, topo->tiles[ tile_idx ].name );
-        ulong cur_raw_cnt = /* cur->cnc_diag_ha_filt_cnt + */ cur->fseq_diag_tot_cnt;
-        ulong cur_raw_sz  = /* cur->cnc_diag_ha_filt_sz  + */ cur->fseq_diag_tot_sz;
-        ulong prv_raw_cnt = /* prv->cnc_diag_ha_filt_cnt + */ prv->fseq_diag_tot_cnt;
-        ulong prv_raw_sz  = /* prv->cnc_diag_ha_filt_sz  + */ prv->fseq_diag_tot_sz;
-
-        PRINT( " | " ); printf_rate( &buf, &buf_sz, 1e9, 0., cur_raw_cnt,             prv_raw_cnt,             dt );
-        PRINT( " | " ); printf_rate( &buf, &buf_sz, 8e9, 0., cur_raw_sz,              prv_raw_sz,              dt ); /* Assumes sz incl framing */
-        PRINT( " | " ); printf_rate( &buf, &buf_sz, 1e9, 0., cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt,  dt );
-        PRINT( " | " ); printf_rate( &buf, &buf_sz, 8e9, 0., cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,   dt ); /* Assumes sz incl framing */
-
-        PRINT( " | " ); printf_pct ( &buf, &buf_sz, cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt, 0.,
-                                    cur_raw_cnt,             prv_raw_cnt,            DBL_MIN );
-        PRINT( " | " ); printf_pct ( &buf, &buf_sz, cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,  0.,
-                                    cur_raw_sz,              prv_raw_sz,             DBL_MIN ); /* Assumes sz incl framing */
-        PRINT( " | " ); printf_pct ( &buf, &buf_sz, cur->fseq_diag_filt_cnt, prv->fseq_diag_filt_cnt, 0.,
-                                    cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt,  DBL_MIN );
-        PRINT( " | " ); printf_pct ( &buf, &buf_sz, cur->fseq_diag_filt_sz,  prv->fseq_diag_filt_sz, 0.,
-                                    cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,  DBL_MIN ); /* Assumes sz incl framing */
-
-        PRINT( " | " ); printf_err_cnt( &buf, &buf_sz, cur->fseq_diag_ovrnp_cnt, prv->fseq_diag_ovrnp_cnt );
-        PRINT( " | " ); printf_err_cnt( &buf, &buf_sz, cur->fseq_diag_ovrnr_cnt, prv->fseq_diag_ovrnr_cnt );
-        PRINT( " | " ); printf_err_cnt( &buf, &buf_sz, cur->fseq_diag_slow_cnt,  prv->fseq_diag_slow_cnt  );
-        PRINT( " | " ); printf_seq(     &buf, &buf_sz, cur->mcache_seq,          prv->mcache_seq  );
+        PRINT( " | " ); printf_pct( &buf, &buf_sz, cur_hkeep_ticks,      prv_hkeep_ticks,      0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
+        PRINT( " | " ); printf_pct( &buf, &buf_sz, cur_wait_ticks,       prv_wait_ticks,       0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
+        PRINT( " | " ); printf_pct( &buf, &buf_sz, cur_backp_ticks,      prv_backp_ticks,      0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
+        PRINT( " | " ); printf_pct( &buf, &buf_sz, cur_processing_ticks, prv_processing_ticks, 0., tile_total_ticks( cur ), tile_total_ticks( prv ), DBL_MIN );
         PRINT( TEXT_NEWLINE );
-        link_idx++;
       }
-    }
+    } else {
+      PRINT( "             link |  tot TPS |  tot bps | uniq TPS | uniq bps |   ha tr%% | uniq bw%% | filt tr%% | filt bw%% |           ovrnp cnt |           ovrnr cnt |            slow cnt |             tx seq" TEXT_NEWLINE );
+      PRINT( "------------------+----------+----------+----------+----------+----------+----------+----------+----------+---------------------+---------------------+---------------------+-------------------" TEXT_NEWLINE );
 
+      ulong link_idx = 0UL;
+      for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
+        for( ulong in_idx=0UL; in_idx<topo->tiles[ tile_idx ].in_cnt; in_idx++ ) {
+          link_snap_t * prv = &link_snap_prv[ link_idx ];
+          link_snap_t * cur = &link_snap_cur[ link_idx ];
+
+          fd_topo_link_t * link = &topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx ] ];
+          ulong producer_tile_id = fd_topo_find_link_producer( topo, link );
+          FD_TEST( producer_tile_id != ULONG_MAX );
+          char const * producer = topo->tiles[ producer_tile_id ].name;
+          PRINT( " %7s->%-7s", producer, topo->tiles[ tile_idx ].name );
+          ulong cur_raw_cnt = /* cur->cnc_diag_ha_filt_cnt + */ cur->fseq_diag_tot_cnt;
+          ulong cur_raw_sz  = /* cur->cnc_diag_ha_filt_sz  + */ cur->fseq_diag_tot_sz;
+          ulong prv_raw_cnt = /* prv->cnc_diag_ha_filt_cnt + */ prv->fseq_diag_tot_cnt;
+          ulong prv_raw_sz  = /* prv->cnc_diag_ha_filt_sz  + */ prv->fseq_diag_tot_sz;
+
+          PRINT( " | " ); printf_rate( &buf, &buf_sz, 1e9, 0., cur_raw_cnt,             prv_raw_cnt,             dt );
+          PRINT( " | " ); printf_rate( &buf, &buf_sz, 8e9, 0., cur_raw_sz,              prv_raw_sz,              dt ); /* Assumes sz incl framing */
+          PRINT( " | " ); printf_rate( &buf, &buf_sz, 1e9, 0., cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt,  dt );
+          PRINT( " | " ); printf_rate( &buf, &buf_sz, 8e9, 0., cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,   dt ); /* Assumes sz incl framing */
+
+          PRINT( " | " ); printf_pct ( &buf, &buf_sz, cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt, 0.,
+                                      cur_raw_cnt,             prv_raw_cnt,            DBL_MIN );
+          PRINT( " | " ); printf_pct ( &buf, &buf_sz, cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,  0.,
+                                      cur_raw_sz,              prv_raw_sz,             DBL_MIN ); /* Assumes sz incl framing */
+          PRINT( " | " ); printf_pct ( &buf, &buf_sz, cur->fseq_diag_filt_cnt, prv->fseq_diag_filt_cnt, 0.,
+                                      cur->fseq_diag_tot_cnt,  prv->fseq_diag_tot_cnt,  DBL_MIN );
+          PRINT( " | " ); printf_pct ( &buf, &buf_sz, cur->fseq_diag_filt_sz,  prv->fseq_diag_filt_sz, 0.,
+                                      cur->fseq_diag_tot_sz,   prv->fseq_diag_tot_sz,  DBL_MIN ); /* Assumes sz incl framing */
+
+          PRINT( " | " ); printf_err_cnt( &buf, &buf_sz, cur->fseq_diag_ovrnp_cnt, prv->fseq_diag_ovrnp_cnt );
+          PRINT( " | " ); printf_err_cnt( &buf, &buf_sz, cur->fseq_diag_ovrnr_cnt, prv->fseq_diag_ovrnr_cnt );
+          PRINT( " | " ); printf_err_cnt( &buf, &buf_sz, cur->fseq_diag_slow_cnt,  prv->fseq_diag_slow_cnt  );
+          PRINT( " | " ); printf_seq(     &buf, &buf_sz, cur->mcache_seq,          prv->mcache_seq  );
+          PRINT( TEXT_NEWLINE );
+          link_idx++;
+        }
+      }
     }
     if( FD_UNLIKELY( with_sankey ) ) {
       /* We only need to count from one of the benchs, since they both receive
