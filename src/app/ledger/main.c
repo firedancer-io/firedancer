@@ -322,8 +322,6 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
   fd_features_restore( ledger_args->slot_ctx, ledger_args->runtime_spad );
 
-  fd_memcpy( &g_runtime_ctx->public->features, &ledger_args->slot_ctx->epoch_ctx->->features, sizeof(fd_features_t) );
-
   fd_runtime_update_leaders( ledger_args->slot_ctx, ledger_args->slot_ctx->slot_bank.slot, ledger_args->runtime_spad );
 
   fd_calculate_epoch_accounts_hash_values( ledger_args->slot_ctx );
@@ -1279,6 +1277,9 @@ replay( fd_ledger_args_t * args ) {
 
   fd_features_enable_cleaned_up( &args->epoch_ctx->features, args->epoch_ctx->epoch_bank.cluster_version );
   fd_features_enable_one_offs( &args->epoch_ctx->features, args->one_off_features, args->one_off_features_cnt, 0UL );
+
+  // activate them
+  fd_memcpy( &g_runtime_ctx->public->features, &args->epoch_ctx->features, sizeof(fd_features_t) );
 
   void * slot_ctx_mem        = fd_spad_alloc( spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
   args->slot_ctx             = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, spad ) );
