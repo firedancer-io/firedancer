@@ -1,11 +1,64 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_rocksdb_h
 #define HEADER_fd_src_flamenco_runtime_fd_rocksdb_h
 
+#include "../../ballet/block/fd_microblock.h"
+#include "fd_blockstore.h"
+
+/** allocations made for offline-replay in the blockstore */
+struct fd_block {
+  /* Used only in offline at the moment. Stored in the blockstore
+     memory and used to iterate the block's contents.
+
+   A block's data region is indexed to support iterating by shred,
+   microblock/entry batch, microblock/entry, or transaction.
+   This is done by iterating the headers for each, stored in allocated
+   memory.
+   To iterate shred payloads, for example, a caller should iterate the headers in tandem with the data region
+   (offsetting by the bytes indicated in the shred header).
+
+   Note random access of individual shred indices is not performant, due to the variable-length
+   nature of shreds. */
+
+  ulong data_gaddr;   /* ptr to the beginning of the block's allocated data region */
+  ulong data_sz;      /* block size */
+  ulong shreds_gaddr; /* ptr to the first fd_block_shred_t */
+  ulong shreds_cnt;
+  ulong batch_gaddr;  /* list of fd_block_entry_batch_t */
+  ulong batch_cnt;
+  ulong micros_gaddr; /* ptr to the list of fd_block_micro_t */
+  ulong micros_cnt;
+  ulong txns_gaddr;   /* ptr to the list of fd_block_txn_t */
+  ulong txns_cnt;
+  ulong txns_meta_gaddr; /* ptr to the allocation for txn meta data */
+  ulong txns_meta_sz;
+};
+typedef struct fd_block fd_block_t;
+
+FD_PROTOTYPES_BEGIN
+
+/* fd_blockstore_block_data_laddr returns a local pointer to the block's
+   data.  The returned pointer lifetime is until the block is removed. */
+
+FD_FN_PURE static inline uchar *
+fd_blockstore_block_data_laddr( fd_blockstore_t * blockstore, fd_block_t * block ) {
+  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->data_gaddr );
+}
+
+FD_FN_PURE static inline fd_block_entry_batch_t *
+fd_blockstore_block_batch_laddr( fd_blockstore_t * blockstore, fd_block_t * block ) {
+  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->batch_gaddr );
+}
+
+FD_FN_PURE static inline fd_block_micro_t *
+fd_blockstore_block_micro_laddr( fd_blockstore_t * blockstore, fd_block_t * block ) {
+  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->micros_gaddr );
+}
+
+FD_PROTOTYPES_END
+
 #if FD_HAS_ROCKSDB
 
 #include "../../ballet/shred/fd_shred.h"
-#include "../../ballet/block/fd_microblock.h"
-#include "fd_blockstore.h"
 #include <rocksdb/c.h>
 
 #define FD_ROCKSDB_CF_CNT (22UL)
@@ -241,54 +294,6 @@ fd_rocksdb_import_block_shredcap( fd_rocksdb_t *             db,
                                   fd_io_buffered_ostream_t * ostream,
                                   fd_io_buffered_ostream_t * bank_hash_ostream,
                                   fd_valloc_t                valloc );
-
-/** allocations made for offline-replay in the blockstore */
-struct fd_block {
-  /* Used only in offline at the moment. Stored in the blockstore
-     memory and used to iterate the block's contents.
-
-   A block's data region is indexed to support iterating by shred,
-   microblock/entry batch, microblock/entry, or transaction.
-   This is done by iterating the headers for each, stored in allocated
-   memory.
-   To iterate shred payloads, for example, a caller should iterate the headers in tandem with the data region
-   (offsetting by the bytes indicated in the shred header).
-
-   Note random access of individual shred indices is not performant, due to the variable-length
-   nature of shreds. */
-
-   ulong data_gaddr;   /* ptr to the beginning of the block's allocated data region */
-   ulong data_sz;      /* block size */
-   ulong shreds_gaddr; /* ptr to the first fd_block_shred_t */
-   ulong shreds_cnt;
-   ulong batch_gaddr;  /* list of fd_block_entry_batch_t */
-   ulong batch_cnt;
-   ulong micros_gaddr; /* ptr to the list of fd_block_micro_t */
-   ulong micros_cnt;
-   ulong txns_gaddr;   /* ptr to the list of fd_block_txn_t */
-   ulong txns_cnt;
-   ulong txns_meta_gaddr; /* ptr to the allocation for txn meta data */
-   ulong txns_meta_sz;
-};
-typedef struct fd_block fd_block_t;
-
-/* fd_blockstore_block_data_laddr returns a local pointer to the block's
-   data.  The returned pointer lifetime is until the block is removed. */
-
-FD_FN_PURE static inline uchar *
-fd_blockstore_block_data_laddr( fd_blockstore_t * blockstore, fd_block_t * block ) {
-  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->data_gaddr );
-}
-
-FD_FN_PURE static inline fd_block_entry_batch_t *
-fd_blockstore_block_batch_laddr( fd_blockstore_t * blockstore, fd_block_t * block ) {
-  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->batch_gaddr );
-}
-
-FD_FN_PURE static inline fd_block_micro_t *
-fd_blockstore_block_micro_laddr( fd_blockstore_t * blockstore, fd_block_t * block ) {
-  return fd_wksp_laddr_fast( fd_blockstore_wksp( blockstore ), block->micros_gaddr );
-}
 
 /* fd_blockstore_block_query queries blockstore for block at slot.
    Returns a pointer to the block or NULL if not in blockstore.  The
