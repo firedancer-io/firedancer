@@ -477,16 +477,7 @@ STEM_(run1)( ulong                        in_cnt,
      different threads of execution.  We only count the transition
      from not backpressured to backpressured. */
 
-    if( FD_UNLIKELY( cr_avail<burst ) ) {
-      metric_backp_cnt += (ulong)!metric_in_backp;
-      metric_in_backp   = 1UL;
-      FD_SPIN_PAUSE();
-      metric_regime_ticks[2] += housekeeping_ticks;
-      long next = fd_tickcount();
-      metric_regime_ticks[5] += (ulong)(next - now);
-      now = next;
-      continue;
-    }
+    (void)burst;
     metric_in_backp = 0UL;
 
 #ifdef STEM_CALLBACK_AFTER_CREDIT
