@@ -217,7 +217,7 @@ union fd_features {
     /* 0x0b9047b5bb9ef961 */ ulong move_stake_and_move_lamports_ixs;
     /* 0xa5a66405d0ab6309 */ ulong deprecate_legacy_vote_ixs;
     /* 0x81fcbfa0d0f6b105 */ ulong partitioned_epoch_rewards_superfeature;
-    /* 0x2c38e34ff071060d */ ulong enable_secp256r1_precompile;
+    /* 0xa3a6f94db269070d */ ulong enable_secp256r1_precompile;
     /* 0x829062f252ef5ba8 */ ulong get_sysvar_syscall_enabled;
     /* 0x1db51f609c8fcd07 */ ulong disable_sbpf_v0_execution;
     /* 0xe5937c9dd5edd306 */ ulong reenable_sbpf_v0_execution;
