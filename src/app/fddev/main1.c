@@ -34,7 +34,7 @@ configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
   NULL,
 };
 
-extern fd_topo_run_tile_t fd_tile_net;
+extern fd_topo_run_tile_t fd_tile_xdp;
 extern fd_topo_run_tile_t fd_tile_netlnk;
 extern fd_topo_run_tile_t fd_tile_quic;
 extern fd_topo_run_tile_t fd_tile_bundle;
@@ -73,7 +73,7 @@ extern fd_topo_run_tile_t fd_tile_rpcserv;
 #endif
 
 fd_topo_run_tile_t * TILES[] = {
-  &fd_tile_net,
+  &fd_tile_xdp,
   &fd_tile_netlnk,
   &fd_tile_quic,
   &fd_tile_bundle,

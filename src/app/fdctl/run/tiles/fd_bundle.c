@@ -125,10 +125,9 @@ typedef struct fd_bundle_msg fd_bundle_msg_t;
 static inline void
 after_credit( fd_bundle_ctx_t *   ctx,
               fd_stem_context_t * stem,
-              int *               opt_poll_in,
+              long                last_tc     FD_PARAM_UNUSED,
+              int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
-  (void)opt_poll_in;
-
   if( FD_UNLIKELY( !ctx->plugin_initialized ) ) {
     ctx->plugin_initialized = 1;
 
