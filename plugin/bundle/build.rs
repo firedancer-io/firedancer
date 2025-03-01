@@ -34,5 +34,5 @@ fn main() -> Result<(), std::io::Error> {
             "InstructionErrorType",
             "#[cfg_attr(test, derive(enum_iterator::Sequence))]",
         )
-        .compile(&protos, &[proto_base_path])
+        .compile_protos(&protos, &[proto_base_path])
 }
