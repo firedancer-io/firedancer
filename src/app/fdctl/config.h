@@ -217,7 +217,7 @@ struct fdctl_config {
       char   interface[ IF_NAMESIZE ];
       uint   ip_addr;
       uchar  mac_addr[6];
-      char   xdp_mode[ 8 ];
+      char   xdp_mode[8];
       int    xdp_zero_copy;
 
       uint xdp_rx_queue_size;
@@ -225,6 +225,12 @@ struct fdctl_config {
       uint flush_timeout_micros;
 
       uint send_buffer_size;
+
+      struct {
+        int   enabled;
+        ulong napi_poll_interval_nanos;
+        ulong napi_poll_duration_nanos;
+      } busy_poll;
     } net;
 
     struct {

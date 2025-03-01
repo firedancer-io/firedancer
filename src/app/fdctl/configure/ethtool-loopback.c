@@ -26,7 +26,6 @@ static char const udpseg_feature[] = UDPSEG_FEATURE;
 
 static int
 enabled( config_t * const config ) {
-  /* FIXME support for netns is missing */
   return !config->development.netns.enabled;
 }
 

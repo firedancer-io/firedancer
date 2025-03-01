@@ -174,13 +174,17 @@ struct fd_xsk_params {
      Aligned by FD_XSK_ALIGN. */
   ulong umem_sz;
 
-  /* Linux interface index */
+  /* if_idx: Linux interface index */
   uint if_idx;
 
-  /* Interface queue index */
+  /* if_queue_id: interface queue index */
   uint if_queue_id;
 
-  /* sockaddr_xdp.sxdp_flags additional params, e.g. XDP_ZEROCOPY */
+  /* busy_poll_usecs: max time elapsed polling during poll(2) call */
+  ulong busy_poll_usecs;
+
+  /* sockaddr_xdp.sxdp_flags additional params, e.g.
+     XDP_ZEROCOPY, XDP_USE_NEED_WAKEUP */
   uint bind_flags;
 };
 
@@ -190,7 +194,6 @@ struct fd_xsk {
   /* Informational */
   uint if_idx;       /* index of net device */
   uint if_queue_id;  /* net device combined queue index */
-  long log_suppress_until_ns; /* suppress log messages until this time */
 
   /* Kernel descriptor of XSK rings in local address space
      returned by getsockopt(SOL_XDP, XDP_MMAP_OFFSETS) */
@@ -199,8 +202,13 @@ struct fd_xsk {
   /* AF_XDP socket file descriptor */
   int xsk_fd;
 
-  /* ring_{rx,tx,fr,cr}: XSK ring descriptors */
+  /* busy_poll: 0 if disabled, 1 if enabled */
+  int busy_poll;
 
+  /* napi_id: ID of NAPI instance (used to configure softirq, etc) */
+  uint napi_id;
+
+  /* ring_{rx,tx,fr,cr}: XSK ring descriptors */
   fd_xdp_ring_t ring_rx;
   fd_xdp_ring_t ring_tx;
   fd_xdp_ring_t ring_fr;
@@ -216,11 +224,12 @@ FD_PROTOTYPES_BEGIN
    destructive operation.  As of 2024-Jun, AF_XDP zero copy support is
    still buggy in some device drivers.
 
-   Assume that all traffic sent to this interface is compromised.  On
-   some devices, the NIC is instructed to DMA all incoming packets into
-   UMEM, even ones not belonging to Firedancer.  Those are then later
-   on software-copied out to skbs again.  This further implies that
-   enabling AF_XDP can slow down the regular kernel receive path.
+   Assume that all traffic sent to this interface becomes visible to all
+   apps on the system.  On some devices, the NIC is instructed to DMA
+   all incoming packets into UMEM, even ones not belonging to Firedancer.
+   Those are then later on software-copied out to skbs again.  This
+   further implies that enabling AF_XDP can slow down the regular kernel
+   receive path.
 
    Requires CAP_SYS_ADMIN. May issue the following syscalls:
 
@@ -230,7 +239,11 @@ FD_PROTOTYPES_BEGIN
    - mmap( ..., fd, ... )
    - bind( fd, ... )
    - munmap  ; on fail
-   - close   ; on fail */
+   - close   ; on fail
+
+   Requires that either XDP_USE_NEED_WAKEUP is set in params->bind_flags
+   or that params->busy_poll_budget is non-zero.  In the latter case,
+   SO_PREFER_BUSY_POLL is enabled which requires a recent kernel. */
 
 fd_xsk_t *
 fd_xsk_init( fd_xsk_t *              xsk,

@@ -33,7 +33,7 @@ pktgen_topo( config_t * const config ) {
   }
   if( FD_LIKELY( !is_auto_affinity ) ) {
     if( FD_UNLIKELY( affinity_tile_cnt!=4UL ) )
-      FD_LOG_ERR(( "Invalid [development.pktgen.affinity]: must include exactly three CPUs" ));
+      FD_LOG_ERR(( "Invalid [development.pktgen.affinity]: must include exactly 4 CPUs" ));
   }
 
   /* Reset topology from scratch */
@@ -83,13 +83,15 @@ extern uint fd_pktgen_active;
    Should be called at a low rate (~500ms). */
 
 static void
-render_status( ulong volatile const * net_metrics ) {
+render_status( ulong volatile const * net_metrics,
+               fd_topo_tile_t *       net_tile ) {
   fputs( "\0337"      /* save cursor position */
          "\033[H"     /* move cursor to (0,0) */
          "\033[2K\n", /* create an empty line to avoid spamming look back buffer */
          stdout );
-  printf( "\033[2K" "[Firedancer pktgen] mode=%s\n",
-          FD_VOLATILE_CONST( fd_pktgen_active ) ? "send+recv" : "recv" );
+  printf( "\033[2K" "[Firedancer pktgen] action=%s mode=%s\n",
+          FD_VOLATILE_CONST( fd_pktgen_active ) ? "send+recv" : "recv",
+          net_tile->net.xdp_busy_poll ? "busy-poll" : "softirq" );
 
   /* Render packet per second rates */
   static long   ts_last       = -1L;
@@ -98,8 +100,10 @@ render_status( ulong volatile const * net_metrics ) {
   static ulong  rx_ok_last    = 0UL;
   static ulong  rx_byte_last  = 0UL;
   static ulong  rx_drop_last  = 0UL;
+  static ulong  rx_wake_last  = 0UL;
   static ulong  tx_ok_last    = 0UL;
   static ulong  tx_byte_last  = 0UL;
+  static ulong  tx_wake_last  = 0UL;
 
   static double busy_r       = 0.0;
   static double rx_ok_pps    = 0.0;
@@ -107,6 +111,8 @@ render_status( ulong volatile const * net_metrics ) {
   static double rx_drop_pps  = 0.0;
   static double tx_ok_pps    = 0.0;
   static double tx_bps       = 0.0;
+  static double ns_per_pkt   = 0.0;
+  static double wake_rate    = 0.0;
 
   if( FD_UNLIKELY( ts_last==-1 ) ) ts_last = fd_log_wallclock();
   long now = fd_log_wallclock();
@@ -128,8 +134,10 @@ render_status( ulong volatile const * net_metrics ) {
     /* */ rx_drop_now  += net_metrics[ MIDX( COUNTER, NET, XDP_RX_DROPPED_OTHER ) ];
     /* */ rx_drop_now  += net_metrics[ MIDX( COUNTER, NET, XDP_RX_INVALID_DESCS ) ];
     /* */ rx_drop_now  += net_metrics[ MIDX( COUNTER, NET, XDP_RX_RING_FULL     ) ];
+    ulong rx_wake_now   = net_metrics[ MIDX( COUNTER, NET, XSK_RX_WAKEUP_CNT    ) ];
     ulong tx_ok_now     = net_metrics[ MIDX( COUNTER, NET, TX_COMPLETE_CNT      ) ];
     ulong tx_byte_now   = net_metrics[ MIDX( COUNTER, NET, TX_BYTES_TOTAL       ) ];
+    ulong tx_wake_now   = net_metrics[ MIDX( COUNTER, NET, XSK_TX_WAKEUP_CNT    ) ];
 
     ulong cum_idle_delta = cum_idle_now-cum_idle_last;
     ulong cum_tick_delta = cum_tick_now-cum_tick_last;
@@ -138,6 +146,8 @@ render_status( ulong volatile const * net_metrics ) {
     ulong rx_drop_delta  = rx_drop_now -rx_drop_last;
     ulong tx_ok_delta    = tx_ok_now   -tx_ok_last;
     ulong tx_byte_delta  = tx_byte_now -tx_byte_last;
+    ulong wake_delta     = rx_wake_now -rx_wake_last;
+    /* */ wake_delta    += tx_wake_now -tx_wake_last;
 
     busy_r               = 1.0 - ( (double)cum_idle_delta / (double)cum_tick_delta );
     rx_ok_pps            = 1e9*( (double)rx_ok_delta  /(double)dt );
@@ -145,6 +155,7 @@ render_status( ulong volatile const * net_metrics ) {
     rx_drop_pps          = 1e9*( (double)rx_drop_delta/(double)dt );
     tx_ok_pps            = 1e9*( (double)tx_ok_delta  /(double)dt );
     tx_bps               = 8e9*( (double)tx_byte_delta/(double)dt );
+    wake_rate            = 1e9*( (double)wake_delta   /(double)dt );
 
     ts_last              = now;
     cum_idle_last        = cum_idle_now;
@@ -152,8 +163,14 @@ render_status( ulong volatile const * net_metrics ) {
     rx_ok_last           = rx_ok_now;
     rx_byte_last         = rx_byte_now;
     rx_drop_last         = rx_drop_now;
+    rx_wake_last         = rx_wake_now;
     tx_ok_last           = tx_ok_now;
     tx_byte_last         = tx_byte_now;
+    tx_wake_last         = tx_wake_now;
+
+    ulong pkt_delta = rx_ok_delta+tx_ok_delta;
+    ns_per_pkt = (busy_r*(double)dt) / (double)pkt_delta;
+    if( !pkt_delta ) ns_per_pkt = 0.0;
   }
 
   ulong rx_idle = net_metrics[ MIDX( GAUGE, NET, RX_IDLE_CNT ) ];
@@ -161,12 +178,16 @@ render_status( ulong volatile const * net_metrics ) {
   ulong tx_idle = net_metrics[ MIDX( GAUGE, NET, TX_IDLE_CNT ) ];
   ulong tx_busy = net_metrics[ MIDX( GAUGE, NET, TX_BUSY_CNT ) ];
   printf( "\033[2K" "  Net busy: %.2f%%\n"
+          "\033[2K" "  Throughput: %.0f ns/pkt\n"
+          "\033[2K" "  Syscall: %10.3e /s\n"
           "\033[2K" "  RX ok:   %10.3e pps %10.3e bps\n"
           "\033[2K" "  RX drop: %10.3e pps\n"
           "\033[2K" "  TX ok:   %10.3e pps %10.3e bps\n"
           "\033[2K" "  RX bufs: %6lu idle %6lu busy\n"
           "\033[2K" "  TX bufs: %6lu idle %6lu busy\n",
           100.*busy_r,
+          ns_per_pkt,
+          wake_rate,
           rx_ok_pps,   rx_bps,
           rx_drop_pps,
           tx_ok_pps,   tx_bps,
@@ -199,6 +220,8 @@ pktgen_cmd_fn( args_t *         args,
     configure_stage( &fd_cfg_stage_hugetlbfs,        CONFIGURE_CMD_INIT, config );
     configure_stage( &fd_cfg_stage_ethtool_channels, CONFIGURE_CMD_INIT, config );
     configure_stage( &fd_cfg_stage_ethtool_gro,      CONFIGURE_CMD_INIT, config );
+    configure_stage( &fd_cfg_stage_hyperthreads,     CONFIGURE_CMD_INIT, config );
+    configure_stage( &fd_cfg_stage_sysfs_busypoll,   CONFIGURE_CMD_INIT, config );
   }
 
   fdctl_check_configure( config );
@@ -235,7 +258,7 @@ pktgen_cmd_fn( args_t *         args,
   puts( "" );
   char input[ 256 ] = {0};
   for(;;) {
-    render_status( net_metrics );
+    render_status( net_metrics, net_tile );
     fputs( "pktgen> ", stdout );
     fflush( stdout );
 
@@ -243,7 +266,7 @@ pktgen_cmd_fn( args_t *         args,
       struct pollfd fds[1] = {{ .fd=STDIN_FILENO, .events=POLLIN }};
       int poll_res = poll( fds, 1, 500 );
       if( poll_res==0 ) {
-        render_status( net_metrics );
+        render_status( net_metrics, net_tile );
         continue;
       } else if( poll_res>0 ) {
         break;
