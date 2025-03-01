@@ -141,7 +141,6 @@ fetch () {
     checkout_repo secp256k1 https://github.com/bitcoin-core/secp256k1 "v0.5.0"
     checkout_repo rocksdb   https://github.com/facebook/rocksdb       "v9.7.4"
     checkout_repo snappy    https://github.com/google/snappy          "1.2.1"
-    checkout_repo luajit    https://github.com/LuaJIT/LuaJIT          "v2.0.5"
   fi
 }
 
@@ -162,7 +161,7 @@ check_fedora_pkgs () {
     protobuf-compiler  # Agave, solfuzz
   )
   if [[ $DEVMODE == 1 ]]; then
-    REQUIRED_RPMS+=( autoconf automake bison cmake clang flex gettext-devel gmp-devel llvm-toolset lcov lua5.1 lua5.1-bitop )
+    REQUIRED_RPMS+=( autoconf automake bison cmake clang flex gettext-devel gmp-devel llvm-toolset lcov )
   fi
 
   echo "[~] Checking for required RPM packages"
@@ -199,7 +198,7 @@ check_debian_pkgs () {
     protobuf-compiler  # Agave
   )
   if [[ $DEVMODE == 1 ]]; then
-    REQUIRED_DEBS+=( autoconf automake autopoint bison flex gcc-multilib gettext llvm lcov libgmp-dev lua5.1 lua5.1-bitop perl )
+    REQUIRED_DEBS+=( autoconf automake autopoint bison flex gcc-multilib gettext llvm lcov libgmp-dev perl )
   fi
 
   echo "[~] Checking for required DEB packages"
