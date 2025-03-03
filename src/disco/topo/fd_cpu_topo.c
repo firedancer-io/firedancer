@@ -101,7 +101,8 @@ fd_topo_cpus_init( fd_topo_cpus_t * cpus ) {
     cpus->cpu[ i ].idx = i;
     cpus->cpu[ i ].online = fd_topo_cpus_online( i );
     cpus->cpu[ i ].numa_node = fd_numa_node_idx( i );
-    cpus->cpu[ i ].sibling = fd_topob_sibling_idx( i );
+    if( FD_LIKELY( cpus->cpu[ i ].online ) ) cpus->cpu[ i ].sibling = fd_topob_sibling_idx( i );
+    else                                     cpus->cpu[ i ].sibling = ULONG_MAX;
   }
 }
 
