@@ -584,9 +584,10 @@ after_frag( fd_shred_ctx_t *    ctx,
 
     fd_fec_set_t const * out_fec_set[ 1 ];
     fd_shred_t   const * out_shred[ 1 ];
+    uchar                out_merkle_root[ sizeof(fd_bmtree_node_t) ];
 
     long add_shred_timing  = -fd_tickcount();
-    int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, slot_leader->uc, out_fec_set, out_shred );
+    int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, slot_leader->uc, out_fec_set, out_shred, out_merkle_root );
     add_shred_timing      +=  fd_tickcount();
 
     fd_histf_sample( ctx->metrics->add_shred_timing, (ulong)add_shred_timing );
@@ -611,15 +612,15 @@ after_frag( fd_shred_ctx_t *    ctx,
       /* send this validated shred signature to the replay tile --
          but do not store to blockstore (that happens when the fec
          set is resolved )*/
-#if FD_HAS_NO_AGAVE
+#     if FD_HAS_NO_AGAVE
       uchar * buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
       ulong   sz  = fd_shred_header_sz( shred->variant );
       fd_memcpy( buf, shred, sz );
       ulong tspub       = fd_frag_meta_ts_comp( fd_tickcount() );
-      ulong replay_sig  = fd_disco_replay_sig( shred->slot, shred->fec_set_idx, shred->idx, !fd_shred_is_data( fd_shred_type( shred->variant ) ), rv == FD_FEC_RESOLVER_SHRED_COMPLETES );
+      ulong replay_sig  = fd_disco_replay_sig( shred->slot, shred->fec_set_idx, shred->idx, fd_shred_is_code( fd_shred_type( shred->variant ) ), rv == FD_FEC_RESOLVER_SHRED_COMPLETES );
       fd_stem_publish( stem, REPLAY_OUT_IDX, replay_sig, ctx->replay_out_chunk, sz, 0UL, ctx->tsorig, tspub );
       ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sz, ctx->replay_out_chunk0, ctx->replay_out_wmark );
-#endif
+#     endif
     }
     if( FD_LIKELY( rv!=FD_FEC_RESOLVER_SHRED_COMPLETES ) ) return;
 

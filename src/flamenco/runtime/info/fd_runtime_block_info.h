@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_flamenco_runtime_info_fd_block_info_h
-#define HEADER_fd_src_flamenco_runtime_info_fd_block_info_h
+#ifndef HEADER_fd_src_flamenco_runtime_info_fd_runtime_block_info_h
+#define HEADER_fd_src_flamenco_runtime_info_fd_runtime_block_info_h
 
 #include "../../../util/fd_util_base.h"
 #include "../../../ballet/block/fd_microblock.h"
@@ -7,7 +7,7 @@
 
 #include "fd_microblock_batch_info.h"
 
-struct fd_block_info {
+struct fd_runtime_block_info {
   ulong microblock_batch_cnt;
   ulong microblock_cnt;
   ulong signature_cnt;
@@ -19,6 +19,6 @@ struct fd_block_info {
   void const *  raw_block;
   ulong         raw_block_sz;
 };
-typedef struct fd_block_info fd_block_info_t;
+typedef struct fd_runtime_block_info fd_runtime_block_info_t;
 
-#endif /* HEADER_fd_src_flamenco_runtime_info_fd_block_info_h */
+#endif /* HEADER_fd_src_flamenco_runtime_info_fd_runtime_block_info_h */

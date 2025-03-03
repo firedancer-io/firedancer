@@ -177,13 +177,13 @@ fd_topo_initialize( config_t * config ) {
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_sign",   "shred_sign",   128UL,                                    32UL,                          1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "sign_shred",   "sign_shred",   128UL,                                    64UL,                          1UL );
 
-  /**/                 fd_topob_link( topo, "shred_replay", "shred_replay",  128UL,                                    FD_SHRED_MIN_SZ,               1UL );
+  /**/                 fd_topob_link( topo, "shred_replay", "shred_replay", 128UL,                                    64UL,                          1UL );
   /**/                 fd_topob_link( topo, "gossip_sign",  "gossip_sign",  128UL,                                    2048UL,                        1UL );
   /**/                 fd_topob_link( topo, "sign_gossip",  "sign_gossip",  128UL,                                    64UL,                          1UL );
   /**/                 fd_topob_link( topo, "gossip_repla", "gossip_repla", 128UL,                                    4UL + 128UL + 8192UL,          1UL );
   /**/                 fd_topob_link( topo, "replay_gossi", "replay_gossi", 128UL,                                    4UL + 128UL + 8192UL,          1UL );
   /**/                 fd_topob_link( topo, "replay_store", "replay_store", 128UL,                                    sizeof(ulong) * 2,             1UL );
-  FOR(exec_tile_cnt)   fd_topob_link( topo, "replay_exec",  "replay_exec",   128UL,                                   sizeof(fd_txn_p_t),            FD_TXN_MAX_PER_SLOT );
+  FOR(exec_tile_cnt)   fd_topob_link( topo, "replay_exec",  "replay_exec",  128UL,                                   sizeof(fd_txn_p_t),            FD_TXN_MAX_PER_SLOT );
 
   /**/                 fd_topob_link( topo, "replay_rpair", "replay_rpair", 4096UL,                                   sizeof(ulong) * 2,            1UL );
 

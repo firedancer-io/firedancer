@@ -126,19 +126,19 @@ main( int argc, char ** argv ) {
 
         if ( fd_blockstore_shreds_complete( blockstore, shred->slot ) ) {
           // fd_blockstore_start_read( blockstore );
-          fd_block_meta_t * block_map_entry = fd_blockstore_block_map_query( blockstore, shred->slot );
+          fd_block_info_t * block_info = fd_blockstore_block_map_query( blockstore, shred->slot );
           // fd_blockstore_end_read( blockstore );
-          FD_LOG_NOTICE(( "slot %lu block_map_entry->consumed_idx: %u, block_map_entry->buffered_idx: %u", shred->slot, block_map_entry->consumed_idx, block_map_entry->buffered_idx ));
+          FD_LOG_NOTICE(( "slot %lu block_info->consumed_idx: %u, block_info->buffered_idx: %u", shred->slot, block_info->consumed_idx, block_info->buffered_idx ));
 
-          uint idx = block_map_entry->consumed_idx + 1;
-          while( idx < block_map_entry->buffered_idx ) {
-            if( FD_UNLIKELY( fd_block_set_test( block_map_entry->data_complete_idxs, idx ) ) ) {
-              FD_LOG_NOTICE(( "replay_batch: slot: %lu, start_shred_idx: %u, end_shred_idx: %u", shred->slot, block_map_entry->consumed_idx + 1, idx ));
+          uint idx = block_info->consumed_idx + 1;
+          while( idx < block_info->buffered_idx ) {
+            if( FD_UNLIKELY( fd_block_set_test( block_info->data_complete_idxs, idx ) ) ) {
+              FD_LOG_NOTICE(( "replay_batch: slot: %lu, start_shred_idx: %u, end_shred_idx: %u", shred->slot, block_info->consumed_idx + 1, idx ));
 
               /* FIXME: backpressure? consumer will need to make sure they aren't overrun */
 
-              replay_slice( blockstore, slice, shred->slot, block_map_entry->consumed_idx + 1 );
-              block_map_entry->consumed_idx = idx;
+              replay_slice( blockstore, slice, shred->slot, block_info->consumed_idx + 1 );
+              block_info->consumed_idx = idx;
             }
             idx++;
           }

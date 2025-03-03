@@ -1,159 +1,247 @@
-#ifndef HEADER_fd_src_disco_replay_fd_replay_h
-#define HEADER_fd_src_disco_replay_fd_replay_h
+#ifndef HEADER_fd_src_choreo_replay_fd_replay_h
+#define HEADER_fd_src_choreo_replay_fd_replay_h
 
-/* fd_replay provides services to replay data from a pcap file into a
-   tango frag stream. */
+/* This provides APIs for orchestrating replay of blocks as they are
+   received from the cluster.
+
+   Concepts:
+
+   - Blocks are aggregations of entries aka. microblocks which are
+     groupings of txns and are constructed by the block producer (see
+     fd_pack).
+
+   - Entries are grouped into entry batches by the block producer (see
+     fd_pack / fd_shredder).
+
+   - Entry batches are divided into chunks known as shreds by the block
+     producer (see fd_shredder).
+
+   - Shreds are grouped into forward-error-correction sets (FEC sets) by
+     the block producer (see fd_shredder).
+
+   - Shreds are transmitted to the rest of the cluster via the Turbine
+     protocol (see fd_shredder / fd_shred).
+
+   - Once enough shreds within a FEC set are received to recover the
+     entirety of the shred data encoded by that FEC set, the receiver
+     can "complete" the FEC set (see fd_fec_resolver).
+
+   - If shreds in the FEC set are missing such that it can't complete,
+     the receiver can use the Repair protocol to request missing shreds
+     in FEC set (see fd_repair).
+
+   - Once all the FEC sets complete within an entry batch is now
+     replayable (see fd_replay).
+
+   - Replay describes a grouping of completed entry batches as a block
+     slice.  Because shreds are received over the network and multiple
+     entry batches may be completed at once, an entire slice is queued
+     for replay (vs. individual entry batches)
+
+   - Replay uses the frontier to determine which of the fork heads aka.
+     banks the slice should be replayed from.  This is required because
+     each fork head has an independent state ie. different set of txns
+     that have been executed (see fd_replay / fd_forks).
+
+   - This process is repeated for every slice in the block at which
+     point the block is executed (see fd_replay).
+
+   - Replay of all the slices in a block must happen in order, as well
+     as the entry batches within the slice and the entries within the
+     entry batch.  However, replay of the txns within an entry can
+     happen out-of-order (see fd_replay). */
 
 #include "../fd_disco_base.h"
+#include "../../ballet/reedsol/fd_reedsol.h"
+#include "../../flamenco/runtime/fd_blockstore.h"
+#include "../../tango/fseq/fd_fseq.h"
 
-/* Beyond the standard FD_CNC_SIGNAL_HALT, FD_REPLAY_CNC_SIGNAL_ACK can
-   be raised by a cnc thread with an open command session while the
-   replay is in the RUN state.  The replay will transition from ACK->RUN
-   the next time it processes cnc signals to indicate it is running
-   normally.  If a signal other than ACK, HALT, or RUN is raised, it
-   will be logged as unexpected and transitioned by back to RUN. */
 
-#define FD_REPLAY_CNC_SIGNAL_ACK (4UL)
+/* FD_REPLAY_USE_HANDHOLDING:  Define this to non-zero at compile time
+   to turn on additional runtime checks and logging. */
 
-/* A fd_replay_tile will use the fseq and cnc application regions
-   to accumulate flow control diagnostics in the standard ways.  It
-   additionally will accumulate to the cnc application region the
-   following tile specific counters:
+#ifndef FD_REPLAY_USE_HANDHOLDING
+#define FD_REPLAY_USE_HANDHOLDING 1
+#endif
 
-     CHUNK_IDX     is the chunk idx where reply tile should start publishing payloads on boot (ignored if not valid on boot)
-     PCAP_DONE     is cleared before the tile starts processing the pcap and is set when the pcap processing is done
-     PCAP_PUB_CNT  is the number of pcap packets published by the replay
-     PCAP_PUB_SZ   is the number of pcap packet payload bytes published by the replay
-     PCAP_FILT_CNT is the number of pcap packets filtered by the replay
-     PCAP_FILT_SZ  is the number of pcap packet payload bytes filtered by the replay
+/* fd_replay_fec_idxs is a bit vec that tracks the received data shred
+   idxs in the FEC set. */
 
-   As such, the cnc app region must be at least 64B in size.
+#define SET_NAME     fd_replay_fec_idxs
+#define SET_MAX      FD_REEDSOL_DATA_SHREDS_MAX
+#define SET_WORD_CNT (SET_MAX / sizeof(ulong) + 1)
+FD_STATIC_ASSERT( FD_REEDSOL_DATA_SHREDS_MAX % sizeof(ulong) != 0, fd_replay_fec_idxs );
+#include "../../util/tmpl/fd_set.c"
 
-   Except for IN_BACKP, none of the diagnostics are cleared at
-   tile startup (as such that they can be accumulated over multiple
-   runs).  Clearing is up to monitoring scripts. */
+/* fd_replay_fec_t tracks in-progress FEC sets.  It's synchronized with
+   fd_fec_resolver, so the FEC sets fd_replay tracks should roughly
+   match fd_fec_resolver's in-progress FEC sets.  This state might be
+   slightly delayed, because the replay tile is a downstream consumer of
+   the shred tile, and therefore fd_replay_fec lags fd_fec_resolver. */
 
-#define FD_REPLAY_CNC_DIAG_CHUNK_IDX     (2UL) /* On 1st cache line of app region, updated by producer, frequently */
-#define FD_REPLAY_CNC_DIAG_PCAP_DONE     (3UL) /* ", rarely */
-#define FD_REPLAY_CNC_DIAG_PCAP_PUB_CNT  (4UL) /* ", frequently */
-#define FD_REPLAY_CNC_DIAG_PCAP_PUB_SZ   (5UL) /* ", frequently */
-#define FD_REPLAY_CNC_DIAG_PCAP_FILT_CNT (6UL) /* ", frequently */
-#define FD_REPLAY_CNC_DIAG_PCAP_FILT_SZ  (7UL) /* ", frequently */
+struct fd_replay_fec {
+  ulong key;  /* map key. 32 msb = slot, 32 lsb = fec_set_idx */
+  ulong prev; /* internal use by dlist */
+  ulong next; /* internal use by dlist and pool */
+  ulong hash; /* internal use by map_chain */
 
-/* FD_REPLAY_TILE_OUT_MAX are the maximum number of outputs a replay
-   tile can have.  These limits are more or less arbitrary from a
-   functional correctness POV.  They mostly exist to set some practical
-   upper bounds for things like scratch footprint. */
+  long ts;   /* timestamp upon receiving the first shred */
 
-#define FD_REPLAY_TILE_OUT_MAX FD_FRAG_META_ORIG_MAX
+  /* On the first shred that completes the FEC set, either data_cnt or
+     last_idx must be populated with the correct value because one of
+     the following must be true: we received at least one coding shred
+     and therefore have the data_cnt or we received all the data shreds
+     in the FEC set and therefore know the last data shred idx. */
 
-/* FD_REPLAY_TILE_SCRATCH_{ALIGN,FOOTPRINT} specify the alignment and
-   footprint needed for a replay tile scratch region that can support
-   out_cnt outputs.  ALIGN is an integer power of 2 of at least double
-   cache line to mitigate various kinds of false sharing.  FOOTPRINT
-   will be an integer multiple of ALIGN.  out_cnt is assumed to be valid
-   (i.e. at most FD_REPLAY_TILE_OUT_MAX).  These are provided to
-   facilitate compile time declarations. */
+  ulong data_cnt; /* count of data shreds in the FEC set */
+  ulong last_idx; /* last data shred idx in the FEC set */
 
-#define FD_REPLAY_TILE_SCRATCH_ALIGN (128UL)
-#define FD_REPLAY_TILE_SCRATCH_FOOTPRINT( out_cnt )  \
-  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,  \
-    FD_FCTL_ALIGN, FD_FCTL_FOOTPRINT( (out_cnt) ) ), \
-    FD_REPLAY_TILE_SCRATCH_ALIGN )
+  /* This set is used to track which data shred indices to request if
+     needing repairs. */
+
+  fd_replay_fec_idxs_t idxs[FD_REEDSOL_DATA_SHREDS_MAX / sizeof(ulong) + 1];
+ };
+ typedef struct fd_replay_fec fd_replay_fec_t;
+
+#define POOL_NAME fd_replay_fec_pool
+#define POOL_T    fd_replay_fec_t
+#include "../../util/tmpl/fd_pool.c"
+
+#define MAP_NAME  fd_replay_fec_map
+#define MAP_ELE_T fd_replay_fec_t
+#include "../../util/tmpl/fd_map_chain.c"
+
+#define DLIST_NAME  fd_replay_fec_dlist
+#define DLIST_ELE_T fd_replay_fec_t
+#include "../../util/tmpl/fd_dlist.c"
+
+/* fd_replay_slice_t describes a replayable slice of a block which is
+   a group of one or more completed entry batches. */
+
+struct fd_replay_slice {
+  uint  start_idx;
+  uint  end_idx;
+};
+typedef struct fd_replay_slice fd_replay_slice_t;
+
+#define DEQUE_NAME fd_replay_slice_deque
+#define DEQUE_T    fd_replay_slice_t
+#include "../../util/tmpl/fd_deque_dynamic.c"
+
+#define FD_REPLAY_MAGIC (0xf17eda2ce77e91a70UL) /* firedancer replay version 0 */
+
+/* fd_replay_t is the top-level structure that maintains an LRU cache
+   (pool, dlist, map) of the outstanding block slices that need replay.
+
+   The replay order is FIFO so the first slice to go into the LRU will
+   also be the first to attempt replay. */
+
+struct __attribute__((aligned(128UL))) fd_replay {
+  fd_replay_fec_t *       fec_pool;
+  fd_replay_fec_map_t *   fec_map;
+  fd_replay_fec_dlist_t * fec_dlist;
+  fd_replay_slice_t *     slice_deque;
+};
+typedef struct fd_replay fd_replay_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_replay_tile replays a packets in a pcap file as a tango fragment
-   stream from origin orig into the given mcache and dcache.  The tile
-   can send to out_cnt reliable consumers and an arbitrary number of
-   unreliable consumers.  (While reliable consumers are simple to reason
-   about, they have especially high demands on their implementation as a
-   single slow reliable consumer can backpressure the replay and _all_
-   other consumers using the replay.)
+/* Constructors */
 
-   When this is called, the cnc should be in the BOOT state.  Returns 0
-   on a successful run of the replay tile.  That is, the tile booted
-   successfully (transitioning the cnc from BOOT->RUN), ran (handling
-   any application specific cnc signals while running), and (after
-   receiving a HALT signal) halted successfully (transitioning the cnc
-   from HALT->BOOT before return).  Returns a non-zero error code if the
-   tile fails to boot up (logs details ... the cnc will not be
-   transitioned from its original state and thus is likely bootable
-   again if its original state was BOOT).  For maximally robust
-   operation in the current implementation, all reliable consumers
-   should be halted and/or caught up before this tile is halted.
+/* fd_replay_{align,footprint} return the required alignment and
+   footprint of a memory region suitable for use as replay with up to
+   slice_max slices and vote_max votes. */
 
-   There are no theoretical restrictions on the mcache depth.
-   Practically, it is recommend it be as large as possible, especially
-   for bursty streams and/or a large number of reliable consumers.  This
-   implementation indexes chunks relative to the workspace used by the
-   mcache to facilitate easy muxing.  The dcache size should be adequate
-   for compact writing.
+FD_FN_CONST static inline ulong
+fd_replay_align( void ) {
+  return alignof(fd_replay_t);
+}
 
-   cr_max is the maximum number of flow control credits the replay tile
-   is allowed for publishing frags.  It represents the maximum number of
-   frags a reliable out can lag behind the output stream.  In the
-   general case, the optimal value is usually
-   min(mcache.depth,out[*].lag_max).  If cr_max is zero, mcache.depth
-   will be used as a default for cr_max.  This is equivalent to
-   assuming, as is typically the case, outs are allowed to lag the
-   replay by up mcache.depth frags.
+FD_FN_CONST static inline ulong
+fd_replay_footprint( ulong fec_max, ulong slice_max ) {
+  return FD_LAYOUT_FINI(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_APPEND(
+    FD_LAYOUT_INIT,
+      alignof(fd_replay_t),          sizeof(fd_replay_t) ),
+      fd_replay_fec_pool_align(),    fd_replay_fec_pool_footprint( fec_max ) ),
+      fd_replay_fec_map_align(),     fd_replay_fec_map_footprint( fec_max ) ),
+      fd_replay_fec_dlist_align(),   fd_replay_fec_dlist_footprint() ),
+      fd_replay_slice_deque_align(), fd_replay_slice_deque_footprint( slice_max ) ),
+    fd_replay_align() );
+}
 
-   lazy is the ballpark interval in ns for how often to receive credits
-   from consumers.  Too small a lazy will drown the system in cache
-   coherence traffic.  Too large a lazy will degrade system throughput
-   because of producers stalled, waiting for credits.  lazy should be
-   roughly proportional to cr_max and the constant of proportionality
-   should be less than the smaller of how fast a producer can generate
-   frags / how fast a consumer can process frags typically.  <=0
-   indicates to pick a conservative default.
+/* fd_replay_new formats an unused memory region for use as a replay.
+   mem is a non-NULL pointer to this region in the local address space
+   with the required footprint and alignment. */
 
-   scratch points to tile scratch memory.  fd_replay_tile_scratch_align
-   and fd_replay_tile_scratch_footprint return the required alignment
-   and footprint needed for this region.  This memory region is
-   exclusively owned by the replay tile while the tile is running and is
-   ideally near the core running the replay tile.
-   fd_replay_tile_scratch_align will return the same value as
-   FD_REPLAY_TILE_SCRATCH_ALIGN.  If out_cnt is not valid,
-   fd_replay_tile_scratch_footprint silently returns 0 so callers can
-   diagnose configuration issues.  Otherwise,
-   fd_replay_tile_scratch_footprint will return the same value as
-   FD_REPLAY_TILE_SCRATCH_FOOTPRINT.
-   
-   The lifetime of the cnc, mcache, dcache, out_fseq[*], rng and scratch
-   used by this tile should be a superset of this tile's lifetime.
-   While this tile is running, no other tile should use cnc for its
-   command and control, publish into mcache or dcache, use the rng for
-   anything (and the rng should be seeded distinctly from all other rngs
-   in the system), or use scratch for anything.  This tile uses the
-   fseqs passed to it in the usual producer ways (e.g. discovering the
-   location of reliable consumers in the mcache's sequence space and
-   updating producer oriented diagnostics).  The out_fseq array and
-   pcap_path cstr will not be used the after the tile has successfully
-   booted (transitioned the cnc from BOOT to RUN) or returned (e.g.
-   failed to boot), whichever comes first. */
+void *
+fd_replay_new( void * shmem, ulong seed, ulong slice_max );
 
-FD_FN_CONST ulong
-fd_replay_tile_scratch_align( void );
+/* fd_replay_join joins the caller to the replay.  replay points to the
+   first byte of the memory region backing the replay in the caller's
+   address space.
 
-FD_FN_CONST ulong
-fd_replay_tile_scratch_footprint( ulong out_cnt );
+   Returns a pointer in the local address space to replay on success. */
 
-int
-fd_replay_tile( fd_cnc_t *       cnc,       /* Local join to the replay's command-and-control */
-                char const *     pcap_path, /* Points to first byte of cstr with the path to the pcap to use */
-                ulong            pkt_max,   /* Upper bound of a size of packet in the pcap */
-                ulong            orig,      /* Origin for this pcap fragment stream, in [0,FD_FRAG_META_ORIG_MAX) */
-                fd_frag_meta_t * mcache,    /* Local join to the replay's frag stream output mcache */
-                uchar *          dcache,    /* Local join to the replay's frag stream output dcache */
-                ulong            out_cnt,   /* Number of reliable consumers, reliable consumers are indexed [0,out_cnt) */
-                ulong **         out_fseq,  /* out_fseq[out_idx] is the local join to reliable consumer out_idx's fseq */
-                ulong            cr_max,    /* Maximum number of flow control credits, 0 means use a reasonable default */
-                long             lazy,      /* Lazyiness, <=0 means use a reasonable default */
-                fd_rng_t *       rng,       /* Local join to the rng this replay should use */
-                void *           scratch ); /* Tile scratch memory */
+fd_replay_t *
+fd_replay_join( void * replay );
+
+/* fd_replay_leave leaves a current local join.  Returns a pointer to the
+   underlying shared memory region on success and NULL on failure (logs
+   details).  Reasons for failure include replay is NULL. */
+
+void *
+fd_replay_leave( fd_replay_t const * replay );
+
+/* fd_replay_delete unformats a memory region used as a replay.
+   Assumes only the nobody is joined to the region.  Returns a
+   pointer to the underlying shared memory region or NULL if used
+   obviously in error (e.g. replay is obviously not a replay ... logs
+   details).  The ownership of the memory region is transferred to the
+   caller. */
+
+void *
+fd_replay_delete( void * replay );
+
+/* fd_replay_init initializes a replay.  Assumes replay is a valid local
+   join and no one else is joined.  root is the initial root replay will
+   use.  This is the snapshot slot if booting from a snapshot, 0 if the
+   genesis slot.
+
+   In general, this should be called by the same process that formatted
+   replay's memory, ie. the caller of fd_replay_new. */
+
+void
+fd_replay_init( fd_replay_t * replay, ulong root );
+
+FD_FN_PURE static inline fd_replay_fec_t *
+fd_replay_fec_query( fd_replay_t * replay, ulong slot, uint fec_set_idx ) {
+  ulong key = slot << 32 | (ulong)fec_set_idx;
+  return fd_replay_fec_map_ele_query( replay->fec_map, &key, NULL, replay->fec_pool );
+}
+
+static inline fd_replay_fec_t *
+fd_replay_fec_insert( fd_replay_t * replay, ulong slot, uint fec_set_idx ) {
+  fd_replay_fec_t * fec = fd_replay_fec_pool_ele_acquire( replay->fec_pool );
+  memset( fec, 0, sizeof( fd_replay_fec_t ) );
+  fec->key = slot << 32 | (ulong)fec_set_idx;
+  fec->ts  = fd_log_wallclock();
+  fd_replay_fec_map_ele_insert( replay->fec_map, fec, replay->fec_pool ); /* cannot fail */
+  return fec;
+}
+
+static inline void
+fd_replay_fec_remove( fd_replay_t * replay, ulong slot, uint fec_set_idx ) {
+  ulong             key = slot << 32 | (ulong)fec_set_idx;
+  fd_replay_fec_t * fec = fd_replay_fec_map_ele_remove( replay->fec_map, &key, NULL, replay->fec_pool ); /* cannot fail */
+  FD_TEST( fec );
+  fd_replay_fec_pool_ele_release( replay->fec_pool, fec ); /* cannot fail */
+}
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_disco_replay_fd_replay_h */
-
+#endif /* HEADER_fd_src_choreo_replay_fd_replay_h */

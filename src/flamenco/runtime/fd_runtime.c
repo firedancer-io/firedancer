@@ -1147,7 +1147,7 @@ fd_runtime_microblock_verify_ticks( fd_exec_slot_ctx_t *        slot_ctx,
   */
   fd_block_map_query_t quer[1];
   int err = fd_block_map_prepare( slot_ctx->blockstore->block_map, &slot, NULL, quer, FD_MAP_FLAG_BLOCKING );
-  fd_block_meta_t * query = fd_block_map_query_ele( quer );
+  fd_block_info_t * query = fd_block_map_query_ele( quer );
   if( FD_UNLIKELY( err || query->slot != slot ) ) {
     FD_LOG_ERR(( "fd_runtime_microblock_verify_ticks: fd_block_map_prepare on %lu failed", slot ));
   }
@@ -1230,7 +1230,7 @@ fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
   while( err == FD_MAP_ERR_AGAIN ) {
     fd_block_map_query_t quer[1] = {0};
     err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, quer, 0 );
-    fd_block_meta_t * query = fd_block_map_query_ele( quer );
+    fd_block_info_t * query = fd_block_map_query_ele( quer );
     if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) )continue;
     if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) FD_LOG_ERR(( "fd_runtime_block_verify_ticks: fd_block_map_query_try failed" ));
     slot_complete_idx = query->slot_complete_idx;
@@ -1417,7 +1417,7 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
 int
 fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t *    slot_ctx,
                                          fd_capture_ctx_t *      capture_ctx,
-                                         fd_block_info_t const * block_info,
+                                         fd_runtime_block_info_t const * block_info,
                                          fd_tpool_t *            tpool,
                                          fd_spad_t *             runtime_spad ) {
 
@@ -3004,13 +3004,13 @@ fd_runtime_block_prepare( fd_blockstore_t * blockstore,
                           fd_block_t *      block,
                           ulong             slot,
                           fd_spad_t *       runtime_spad,
-                          fd_block_info_t * out_block_info ) {
+                          fd_runtime_block_info_t * out_block_info ) {
   uchar const *                  buf         = fd_blockstore_block_data_laddr( blockstore, block );
   ulong const                    buf_sz      = block->data_sz;
   fd_block_entry_batch_t const * batch_laddr = fd_blockstore_block_batch_laddr( blockstore, block );
   ulong const                    batch_cnt   = block->batch_cnt;
 
-  fd_block_info_t block_info = {
+  fd_runtime_block_info_t block_info = {
       .raw_block    = buf,
       .raw_block_sz = buf_sz,
   };
@@ -3085,7 +3085,7 @@ fd_runtime_microblock_batch_collect_txns( fd_microblock_batch_info_t const * mic
 }
 
 static ulong
-fd_runtime_block_collect_txns( fd_block_info_t const * block_info,
+fd_runtime_block_collect_txns( fd_runtime_block_info_t const * block_info,
                                fd_txn_p_t *            out_txns ) {
   for( ulong i=0UL; i<block_info->microblock_batch_cnt; i++ ) {
     ulong txns_collected = fd_runtime_microblock_batch_collect_txns( &block_info->microblock_batch_infos[i], out_txns );
@@ -3557,7 +3557,7 @@ fd_runtime_microblock_batch_verify_info_collect( fd_microblock_batch_info_t cons
 }
 
 static void
-fd_runtime_block_verify_info_collect( fd_block_info_t const *      block_info,
+fd_runtime_block_verify_info_collect( fd_runtime_block_info_t const *      block_info,
                                       fd_hash_t       const *      in_poh_hash,
                                       fd_poh_verification_info_t * poh_verification_info)
 {
@@ -3662,7 +3662,7 @@ fd_runtime_poh_verify_tpool( fd_poh_verification_info_t * poh_verification_info,
 
 static int
 fd_runtime_block_verify_tpool( fd_exec_slot_ctx_t *    slot_ctx,
-                               fd_block_info_t const * block_info,
+                               fd_runtime_block_info_t const * block_info,
                                fd_hash_t       const * in_poh_hash,
                                fd_hash_t *             out_poh_hash,
                                fd_tpool_t *            tpool,
@@ -3781,7 +3781,7 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
 static int
 fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
                                 fd_capture_ctx_t *      capture_ctx,
-                                fd_block_info_t const * block_info,
+                                fd_runtime_block_info_t const * block_info,
                                 fd_tpool_t *            tpool,
                                 fd_spad_t * *           exec_spads,
                                 ulong                   exec_spad_cnt,
@@ -3922,7 +3922,7 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
   ulong slot = slot_ctx->slot_bank.slot;
 
   long block_eval_time = -fd_log_wallclock();
-  fd_block_info_t block_info;
+  fd_runtime_block_info_t block_info;
   int ret = FD_RUNTIME_EXECUTE_SUCCESS;
   do {
 

@@ -249,14 +249,14 @@ read_slot_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
   fd_rpc_global_ctx_t * glob = ctx->global;
   fd_funk_t * funk = ctx->global->funk;
 
-  fd_block_meta_t block_map_entry = { 0 };
-  fd_blockstore_block_map_query_volatile( glob->blockstore, glob->blockstore_fd, slot, &block_map_entry );
-  if( FD_UNLIKELY( block_map_entry.slot != slot ) ) {
+  fd_block_info_t block_info = { 0 };
+  fd_blockstore_block_map_query_volatile( glob->blockstore, glob->blockstore_fd, slot, &block_info );
+  if( FD_UNLIKELY( block_info.slot != slot ) ) {
     FD_LOG_WARNING( ( "query_volatile failed" ) );
     return NULL;
   }
   fd_funk_txn_xid_t xid = { 0 };
-  memcpy( xid.uc, &block_map_entry.block_hash, sizeof( fd_funk_txn_xid_t ) );
+  memcpy( xid.uc, &block_info.block_hash, sizeof( fd_funk_txn_xid_t ) );
   xid.ul[0] = slot;
   void * val = fd_funk_rec_query_xid_safe(funk, &recid, &xid, fd_scratch_virtual(), &vallen);
   if( FD_UNLIKELY( !val ) ) {
@@ -515,7 +515,7 @@ method_getBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
 
   ulong blk_sz;
   fd_blockstore_t * blockstore = ctx->global->blockstore;
-  fd_block_meta_t meta[1];
+  fd_block_info_t meta[1];
   fd_block_rewards_t rewards[1];
   fd_hash_t parent_hash;
   uchar * blk_data;
@@ -620,11 +620,11 @@ method_getBlockProduction(struct json_values* values, fd_rpc_ctx_t * ctx) {
             product_rb_insert( pool, &root, nd );
           }
           nd->nleader++;
-          fd_block_meta_t block_map_entry = { 0 };
-          if( fd_blockstore_block_map_query_volatile( blockstore, ctx->global->blockstore_fd, i, &block_map_entry ) ) {
+          fd_block_info_t block_info = { 0 };
+          if( fd_blockstore_block_map_query_volatile( blockstore, ctx->global->blockstore_fd, i, &block_info ) ) {
             continue;
           }
-          if( !block_map_entry.block_gaddr ) {
+          if( !block_info.block_gaddr ) {
             continue;
           }
           nd->nproduced++;
@@ -683,7 +683,7 @@ method_getBlocks(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":[");
   uint cnt = 0;
   for ( ulong i = startslotn; i <= endslotn && cnt < 500000U; ++i ) {
-    fd_block_meta_t meta[1];
+    fd_block_info_t meta[1];
     int ret = fd_blockstore_block_map_query_volatile(blockstore, ctx->global->blockstore_fd, i, meta);
     if (!ret) {
       fd_web_reply_sprintf(ws, "%s%lu", (cnt==0 ? "" : ","), i);
@@ -736,7 +736,7 @@ method_getBlocksWithLimit(struct json_values* values, fd_rpc_ctx_t * ctx) {
   uint cnt = 0;
   uint skips = 0;
   for ( ulong i = startslotn; i <= blockstore->shmem->lps && cnt < limitn && skips < 100U; ++i ) {
-    fd_block_meta_t meta[1];
+    fd_block_info_t meta[1];
     int ret = fd_blockstore_block_map_query_volatile(blockstore, ctx->global->blockstore_fd, i, meta);
     if (!ret) {
       fd_web_reply_sprintf(ws, "%s%lu", (cnt==0 ? "" : ","), i);
@@ -771,7 +771,7 @@ method_getBlockTime(struct json_values* values, fd_rpc_ctx_t * ctx) {
   ulong slotn = (ulong)(*(long*)slot);
 
   fd_blockstore_t * blockstore = ctx->global->blockstore;
-  fd_block_meta_t meta[1];
+  fd_block_info_t meta[1];
   int ret = fd_blockstore_block_map_query_volatile(blockstore, ctx->global->blockstore_fd, slotn, meta);
   if (ret) {
     fd_method_error(ctx, -1, "invalid slot: %lu", slotn);
@@ -812,7 +812,7 @@ method_getEpochInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
     }
     ulong slot_index;
     ulong epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot, &slot_index );
-    fd_block_meta_t meta[1];
+    fd_block_info_t meta[1];
     int ret = fd_blockstore_block_map_query_volatile(ctx->global->blockstore, ctx->global->blockstore_fd, slot, meta);
     fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"absoluteSlot\":%lu,\"blockHeight\":%lu,\"epoch\":%lu,\"slotIndex\":%lu,\"slotsInEpoch\":%lu,\"transactionCount\":%lu},\"id\":%s}" CRLF,
                          slot,
@@ -1327,17 +1327,17 @@ method_getSignaturesForAddress(struct json_values* values, fd_rpc_ctx_t * ctx) {
     fd_rpc_global_ctx_t * gctx = ctx->global;
     fd_rpc_acct_map_elem_t const * ele = fd_rpc_acct_map_ele_query_const( gctx->acct_map, &acct, NULL, gctx->acct_pool );
     ulong cnt = 0;
-    fd_block_meta_t block_map_entry = { 0 };
+    fd_block_info_t block_info = { 0 };
     while( ele != NULL && cnt < limit ) {
       if( cnt ) EMIT_SIMPLE(",");
 
-      if( FD_UNLIKELY( block_map_entry.slot != ele->slot ) ) {
-        fd_blockstore_block_map_query_volatile( gctx->blockstore, ctx->global->blockstore_fd, ele->slot, &block_map_entry );
+      if( FD_UNLIKELY( block_info.slot != ele->slot ) ) {
+        fd_blockstore_block_map_query_volatile( gctx->blockstore, ctx->global->blockstore_fd, ele->slot, &block_info );
       }
       char buf64[FD_BASE58_ENCODED_64_SZ];
       fd_base58_encode_64(ele->sig, NULL, buf64);
       fd_web_reply_sprintf(ws, "{\"blockTime\":%ld,\"confirmationStatus\":%s,\"err\":null,\"memo\":null,\"signature\":\"%s\",\"slot\":%lu}",
-                           block_map_entry.ts/(long)1e9, block_flags_to_confirmation_status(block_map_entry.flags), buf64, ele->slot);
+                           block_info.ts/(long)1e9, block_flags_to_confirmation_status(block_info.flags), buf64, ele->slot);
 
       cnt++;
 
