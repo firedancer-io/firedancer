@@ -149,11 +149,10 @@ typedef struct {
   int      prog_link_fds[ 2 ];
 
   /* UMEM frame region within dcache */
-  void *   umem_frame0; /* First UMEM frame (>=umem_base) */
+  void *   umem_frame0; /* First UMEM frame */
   ulong    umem_sz;     /* Usable UMEM size starting at frame0 */
 
   /* UMEM chunk region within workspace */
-  void *   umem_base;   /* UMEM workspace base */
   uint     umem_chunk0; /* Lowest allowed chunk number */
   uint     umem_wmark;  /* Highest allowed chunk number */
 
@@ -985,7 +984,6 @@ privileged_init( fd_topo_t *      topo,
 
   ctx->umem_frame0 = umem_frame0;
   ctx->umem_sz     = umem_sz;
-  ctx->umem_base   = dcache_mem;
   ctx->umem_chunk0 = (uint)umem_chunk0;
   ctx->umem_wmark  = (uint)umem_wmark;
 
