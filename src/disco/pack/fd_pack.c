@@ -1225,7 +1225,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
     replaces = 1;
   }
 
-  ord->txn->flags &= ~FD_TXN_P_FLAGS_BUNDLE;
+  ord->txn->flags &= ~(FD_TXN_P_FLAGS_BUNDLE | FD_TXN_P_FLAGS_INITIALIZER_BUNDLE);
   ord->skip = FD_PACK_SKIP_CNT;
 
   /* At this point, we know we have space to insert the transaction and
