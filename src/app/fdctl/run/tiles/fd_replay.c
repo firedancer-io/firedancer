@@ -59,6 +59,7 @@
 #define PACK_IN_IDX    (1UL)
 #define GOSSIP_IN_IDX  (2UL)
 #define BATCH_IN_IDX   (3UL)
+#define SHRED_IN_IDX   (4UL)
 
 #define STAKE_OUT_IDX  (0UL)
 #define NOTIF_OUT_IDX  (1UL)
@@ -119,6 +120,12 @@ struct fd_replay_tile_ctx {
   fd_wksp_t * batch_in_mem;
   ulong       batch_in_chunk0;
   ulong       batch_in_wmark;
+
+  // Shred tile input
+  ulong       shred_in_seq;
+  fd_wksp_t * shred_in_mem;
+  ulong       shred_in_chunk0;
+  ulong       shred_in_wmark;
 
   // Notification output defs
   fd_frag_meta_t * notif_out_mcache;
@@ -443,10 +450,42 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
   }
 }
 
+static int
+before_frag( fd_replay_tile_ctx_t * ctx,
+             ulong                  in_idx,
+             ulong                  seq,
+             ulong                  sig ) {
+  (void)ctx;
+  (void)seq;
+
+  if( in_idx == SHRED_IN_IDX ){
+    /* Rudimentary shred filtering */
+
+    ulong slot = fd_disco_replay_sig_slot( sig );
+    uchar block_flags = 0;
+    int err = FD_MAP_ERR_AGAIN;
+    while( err == FD_MAP_ERR_AGAIN ){
+      fd_block_map_query_t quer[1] = { 0 };
+      err = fd_block_map_query_try( ctx->blockstore->block_map, &slot, NULL, quer, 0 );
+      fd_block_meta_t * block_map_entry = fd_block_map_query_ele( quer );
+      if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
+      if( FD_UNLIKELY( err == FD_MAP_ERR_KEY )) break;
+      block_flags = block_map_entry->flags;
+      err = fd_block_map_query_test( quer );
+    }
+
+    if( FD_UNLIKELY( fd_uchar_extract_bit( block_flags, FD_BLOCK_FLAG_PROCESSED ) ) ) {
+      FD_LOG_INFO(( "before_frag filtering: block already processed - slot: %lu", slot ));
+      return 1; /* skip this frag */
+    }
+  }
+  return 0;
+}
+
 static void
 during_frag( fd_replay_tile_ctx_t * ctx,
              ulong                  in_idx,
-             ulong                  seq FD_PARAM_UNUSED,
+             ulong                  seq,
              ulong                  sig,
              ulong                  chunk,
              ulong                  sz,
@@ -464,11 +503,11 @@ during_frag( fd_replay_tile_ctx_t * ctx,
        Updated block hash/PoH hash (fd_hash_t - 32 bytes)
        Microblock as a list of fd_txn_p_t (sz * sizeof(fd_txn_p_t)) */
 
-    ctx->curr_slot = fd_disco_replay_sig_slot( sig );
+    ctx->curr_slot = fd_disco_replay_old_sig_slot( sig );
     if( FD_UNLIKELY( ctx->curr_slot < fd_fseq_query( ctx->published_wmark ) ) ) {
       FD_LOG_WARNING(( "store sent slot %lu before our root.", ctx->curr_slot ));
     }
-    ctx->flags = fd_disco_replay_sig_flags( sig );
+    ctx->flags = fd_disco_replay_old_sig_flags( sig );
     ctx->txn_cnt = sz;
 
     ctx->parent_slot = FD_LOAD( ulong, src );
@@ -481,6 +520,28 @@ during_frag( fd_replay_tile_ctx_t * ctx,
     fd_memcpy( dst_poh, src, sz * sizeof(fd_txn_p_t) );
 
     FD_LOG_INFO(( "other microblock - slot: %lu, parent_slot: %lu, txn_cnt: %lu", ctx->curr_slot, ctx->parent_slot, sz ));
+  } else if ( in_idx == SHRED_IN_IDX ) {
+    if( FD_UNLIKELY( chunk<ctx->shred_in_chunk0 || chunk>ctx->shred_in_wmark || sz>FD_SHRED_CODE_HEADER_SZ ) ) {
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->shred_in_chunk0, ctx->shred_in_wmark ));
+    }
+    ulong  slot       = fd_disco_replay_sig_slot( sig );
+    uint   fec_idx    = fd_disco_replay_sig_fec_idx( sig );
+    uint   shred_idx  = fd_disco_replay_sig_shred_idx( sig );
+
+    fd_shred_t * shred_hdr = (fd_shred_t *)fd_type_pun(fd_chunk_to_laddr( ctx->shred_in_mem, chunk ));
+
+    /* shred currently produces at a far higher rate than replay, and
+       the link could get overrun */
+    if( fd_seq_diff( seq, ctx->shred_in_seq ) != 1 ) {
+      FD_LOG_WARNING(( "shred link overrun: seq %lu, expected %lu", seq, ctx->shred_in_seq + 1 ));
+    }
+    ctx->shred_in_seq = seq;
+    FD_TEST( slot == shred_hdr->slot );
+    FD_TEST( fec_idx == shred_hdr->fec_set_idx );
+
+    FD_LOG_DEBUG(( "Notified of shred sent from the shred tile: slot: %lu, shred_idx: %u", slot, shred_idx ));
+    ctx->skip_frag = 1;
+    return;
   } else if( in_idx == PACK_IN_IDX ) {
     if( FD_UNLIKELY( chunk<ctx->pack_in_chunk0 || chunk>ctx->pack_in_wmark || sz>USHORT_MAX ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->pack_in_chunk0, ctx->pack_in_wmark ));
@@ -557,7 +618,7 @@ during_frag( fd_replay_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( fd_uchar_extract_bit( block_flags, FD_BLOCK_FLAG_PROCESSED ) ) ) {
-    FD_LOG_WARNING(( "block already processed - slot: %lu", ctx->curr_slot ));
+    FD_LOG_WARNING(( "block already processed - slot: %lu, from %lu", ctx->curr_slot, in_idx ));
     ctx->skip_frag = 1;
   }
   if( FD_UNLIKELY( fd_uchar_extract_bit( block_flags, FD_BLOCK_FLAG_DEADBLOCK ) ) ) {
@@ -1342,7 +1403,7 @@ init_poh( fd_replay_tile_ctx_t * ctx ) {
   }
   msg->tick_height = ctx->slot_ctx->slot_bank.slot * msg->ticks_per_slot;
 
-  ulong sig = fd_disco_replay_sig( ctx->slot_ctx->slot_bank.slot, REPLAY_FLAG_INIT );
+  ulong sig = fd_disco_replay_old_sig( ctx->slot_ctx->slot_bank.slot, REPLAY_FLAG_INIT );
   fd_mcache_publish( bank_out->mcache, bank_out->depth, bank_out->seq, sig, bank_out->chunk, sizeof(fd_poh_init_msg_t), 0UL, 0UL, 0UL );
   bank_out->chunk = fd_dcache_compact_next( bank_out->chunk, sizeof(fd_poh_init_msg_t), bank_out->chunk0, bank_out->wmark );
   bank_out->seq = fd_seq_inc( bank_out->seq, 1UL );
@@ -1719,7 +1780,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
 
     hash_transactions( ctx->bmtree[ bank_idx ], txns, txn_cnt, microblock_trailer->hash );
 
-    ulong sig = fd_disco_replay_sig( curr_slot, flags );
+    ulong sig = fd_disco_replay_old_sig( curr_slot, flags );
     fd_mcache_publish( bank_out->mcache, bank_out->depth, bank_out->seq, sig, bank_out->chunk, txn_cnt, 0UL, 0UL, 0UL );
     bank_out->chunk = fd_dcache_compact_next( bank_out->chunk, (txn_cnt * sizeof(fd_txn_p_t)) + sizeof(fd_microblock_trailer_t), bank_out->chunk0, bank_out->wmark );
     bank_out->seq = fd_seq_inc( bank_out->seq, 1UL );
@@ -1852,7 +1913,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       ulong curr_slot = reset_fork->slot_ctx.slot_bank.slot;
       FD_LOG_DEBUG(( "publishing mblk to poh - slot: %lu, parent_slot: %lu, flags: %lx", curr_slot, parent_slot, flags ));
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-      ulong sig = fd_disco_replay_sig( curr_slot, flags );
+      ulong sig = fd_disco_replay_old_sig( curr_slot, flags );
       fd_mcache_publish( bank_out->mcache, bank_out->depth, bank_out->seq, sig, bank_out->chunk, txn_cnt, 0UL, tsorig, tspub );
       bank_out->chunk = fd_dcache_compact_next( bank_out->chunk, (txn_cnt * sizeof(fd_txn_p_t)) + sizeof(fd_microblock_trailer_t), bank_out->chunk0, bank_out->wmark );
       bank_out->seq = fd_seq_inc( bank_out->seq, 1UL );
@@ -2027,7 +2088,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       && ( ( flags & REPLAY_FLAG_MICROBLOCK ) ) ) {
     // FD_LOG_INFO(( "publishing mblk to poh - slot: %lu, parent_slot: %lu", curr_slot, ctx->parent_slot ));
     ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-    ulong sig = fd_disco_replay_sig( curr_slot, flags );
+    ulong sig = fd_disco_replay_old_sig( curr_slot, flags );
     fd_mcache_publish( bank_out->mcache, bank_out->depth, bank_out->seq, sig, bank_out->chunk, txn_cnt, 0UL, tsorig, tspub );
     bank_out->chunk = fd_dcache_compact_next( bank_out->chunk, (txn_cnt * sizeof(fd_txn_p_t)) + sizeof(fd_microblock_trailer_t), bank_out->chunk0, bank_out->wmark );
     bank_out->seq = fd_seq_inc( bank_out->seq, 1UL );
@@ -3001,6 +3062,11 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->batch_in_chunk0           = fd_dcache_compact_chunk0( ctx->batch_in_mem, batch_in_link->dcache );
   ctx->batch_in_wmark            = fd_dcache_compact_wmark( ctx->batch_in_mem, batch_in_link->dcache, batch_in_link->mtu );
 
+  fd_topo_link_t * shred_in_link = &topo->links[ tile->in_link_id[ SHRED_IN_IDX ] ];
+  ctx->shred_in_mem              = topo->workspaces[ topo->objs[ shred_in_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->shred_in_chunk0           = fd_dcache_compact_chunk0( ctx->shred_in_mem, shred_in_link->dcache );
+  ctx->shred_in_wmark            = fd_dcache_compact_wmark( ctx->shred_in_mem, shred_in_link->dcache, shred_in_link->mtu );
+
   fd_topo_link_t * notif_out = &topo->links[ tile->out_link_id[ NOTIF_OUT_IDX ] ];
   ctx->notif_out_mcache      = notif_out->mcache;
   ctx->notif_out_sync        = fd_mcache_seq_laddr( ctx->notif_out_mcache );
@@ -3130,6 +3196,7 @@ metrics_write( fd_replay_tile_ctx_t * ctx ) {
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
+#define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write

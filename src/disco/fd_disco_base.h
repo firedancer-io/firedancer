@@ -107,7 +107,7 @@ FD_FN_CONST static inline ulong fd_disco_bank_sig_slot( ulong sig ) { return (si
 FD_FN_CONST static inline ulong fd_disco_bank_sig_microblock_idx( ulong sig ) { return sig & 0xFFFFFFFFUL; }
 
 FD_FN_CONST static inline ulong
-fd_disco_replay_sig( ulong slot,
+fd_disco_replay_old_sig( ulong slot,
                      ulong flags ) {
    /* The low byte of the signature field is the flags for replay message.
       The higher 7 bytes are the slot number.  These flags indicate the status
@@ -118,8 +118,31 @@ fd_disco_replay_sig( ulong slot,
   return (slot << 8) | (flags & 0xFFUL);
 }
 
-FD_FN_CONST static inline ulong fd_disco_replay_sig_flags( ulong sig ) { return (sig & 0xFFUL); }
-FD_FN_CONST static inline ulong fd_disco_replay_sig_slot( ulong sig ) { return (sig >> 8); }
+FD_FN_CONST static inline ulong fd_disco_replay_old_sig_flags( ulong sig ) { return (sig & 0xFFUL); }
+FD_FN_CONST static inline ulong fd_disco_replay_old_sig_slot( ulong sig ) { return (sig >> 8); }
+
+FD_FN_CONST static inline ulong
+fd_disco_replay_sig( ulong  slot,
+                     uint   fec_idx,
+                     uint   shred_idx,
+                     int    is_parity,
+                     int    is_fec_complete ) {
+  /*
+     | 32 LSB of slot | 15 LSB of fec_idx | 15 LSB of shred_idx | 1 bit of shred data/code type | 1 bit if shred completes the fec set |
+     | slot[63:32]    | fec_idx[17:31]    | shred_idx[2:16]     | is_parity[1:1]                | is_complete[0:0]                     |
+   */
+  return ( (slot & 0xFFFFFFFF) << 32 )
+         | (((ulong)fec_idx & 0x7FFF) << 17 )
+         | (((ulong)shred_idx & 0x7FFFUL) << 2 )
+         | ( is_parity ? 0x2 : 0x0 )        // 10 or 00
+         | ( is_fec_complete ? 1UL : 0UL ); // 01 or 00
+}
+
+FD_FN_CONST static inline ulong fd_disco_replay_sig_slot( ulong sig ) { return (sig >> 32) & 0xFFFFFFFFUL; }
+FD_FN_CONST static inline uint  fd_disco_replay_sig_fec_idx( ulong sig ) { return (uint)((sig >> 17) & 0x7FFFUL); }
+FD_FN_CONST static inline uint  fd_disco_replay_sig_shred_idx( ulong sig ) { return (uint)(( sig >> 2 ) & 0x7FFFUL); }
+FD_FN_CONST static inline int   fd_disco_replay_sig_is_parity( ulong sig ) { return (int)(sig & 0x2UL); }
+FD_FN_CONST static inline int   fd_disco_replay_sig_is_fec_complete( ulong sig ) { return (int)(sig & 0x1UL); }
 
 FD_FN_PURE static inline ulong
 fd_disco_compact_chunk0( void * wksp ) {
