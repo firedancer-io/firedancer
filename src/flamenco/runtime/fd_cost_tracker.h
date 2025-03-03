@@ -1,6 +1,9 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_cost_tracker_h
 #define HEADER_fd_src_flamenco_runtime_fd_cost_tracker_h
 
+/* Combined logic from Agave's `cost_model.rs` and `cost_tracker.rs` for validating
+   block limits, specifically during replay. */
+
 #include "../../disco/pack/fd_pack_cost.h"
 #include "../vm/fd_vm_base.h"
 #include "context/fd_exec_txn_ctx.h"
@@ -14,6 +17,8 @@ struct __attribute__((aligned(8UL))) fd_cost_tracker {
 	ulong block_cost_limit;
 	ulong vote_cost_limit;
 
+	/* `cost_by_writable_accounts` is represented as a map in Agave that contains */
+
 	/* Stats aggregated inter-block */
 	ulong block_cost;
 	ulong vote_cost;
@@ -26,7 +31,19 @@ struct __attribute__((aligned(8UL))) fd_cost_tracker {
 };
 typedef struct fd_cost_tracker fd_cost_tracker_t;
 
+// https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L20
 #define WRITE_LOCK_UNITS ( 300UL )
+
+// https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L42
+#define MAX_BLOCK_ACCOUNTS_DATA_SIZE_DELTA ( 100000000UL )
+
+/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L18-L33 */
+#define FD_COST_TRACKER_SUCCESS																		  ( 0 )
+#define FD_COST_TRACKER_ERROR_WOULD_EXCEED_BLOCK_MAX_LIMIT          ( 1 )
+#define FD_COST_TRACKER_ERROR_WOULD_EXCEED_VOTE_MAX_LIMIT           ( 2 )
+#define FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT        ( 3 )
+#define FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT ( 4 )
+#define FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_TOTAL_LIMIT ( 5 )
 
 FD_PROTOTYPES_BEGIN
 
@@ -37,6 +54,14 @@ FD_PROTOTYPES_BEGIN
 fd_transaction_cost_t
 fd_calculate_cost_for_executed_transaction( fd_exec_txn_ctx_t const * txn_ctx,
 																					  fd_spad_t * 							spad );
+
+/* Modeled after `CostTracker::try_add()`. Checks to see if the transaction cost
+   would fit in this block. Returns an error on failure.
+
+	 https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L163-L173 */
+int
+fd_cost_tracker_try_add( fd_cost_tracker_t * 					 self,
+												 fd_transaction_cost_t const * tx_cost );
 
 FD_PROTOTYPES_END
 

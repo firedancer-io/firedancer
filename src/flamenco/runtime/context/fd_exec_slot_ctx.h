@@ -9,6 +9,7 @@
 #include "../sysvar/fd_sysvar_cache.h"
 #include "../../types/fd_types.h"
 #include "../fd_txncache.h"
+#include "../fd_cost_tracker.h"
 
 /* fd_exec_slot_ctx_t is the context that stays constant during all
    transactions in a block. */
@@ -58,6 +59,8 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                       snapshot_freq;
   ulong                       incremental_freq;
   ulong                       last_snapshot_slot;
+
+  fd_cost_tracker_t           cost_tracker;
 };
 
 #define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))

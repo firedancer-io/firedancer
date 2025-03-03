@@ -177,7 +177,77 @@ calculate_non_vote_transaction_cost( fd_exec_txn_ctx_t const * txn_ctx,
 																};
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L69-L95 */
+/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L26-L42 */
+FD_FN_PURE static inline int
+transaction_cost_sum( fd_transaction_cost_t const * self ) {
+	switch( self->discriminant ) {
+		case fd_transaction_cost_enum_simple_vote: {
+			/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L38 */
+			return FD_PACK_SIMPLE_VOTE_COST;
+		}
+		case fd_transaction_cost_enum_transaction: {
+			/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L164-L171 */
+			fd_usage_cost_details_t const * usage_cost = &self->inner.transaction;
+			ulong                           cost = usage_cost->signature_cost;
+			cost 																 = fd_ulong_sat_add( cost, usage_cost->write_lock_cost );
+			cost 																 = fd_ulong_sat_add( cost, usage_cost->data_bytes_cost );
+			cost 																 = fd_ulong_sat_add( cost, usage_cost->programs_execution_cost );
+			cost 																 = fd_ulong_sat_add( cost, usage_cost->loaded_accounts_data_size_cost );
+			return cost;
+		}
+		default: {
+			__builtin_unreachable();
+		}
+	}
+}
+
+/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L277-L322 */
+FD_FN_PURE static inline int
+would_fit( fd_cost_tracker_t const *     self,
+	         fd_transaction_cost_t const * tx_cost ) {
+	/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L281 */
+  ulong cost = transaction_cost_sum( tx_cost );
+
+	/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L283-L288 */
+	if( tx_cost->discriminant==fd_transaction_cost_enum_simple_vote ) {
+		if( FD_UNLIKELY( fd_ulong_sat_add( self->vote_cost, cost )>self->vote_cost_limit ) ) {
+			return FD_COST_TRACKER_ERROR_WOULD_EXCEED_VOTE_MAX_LIMIT;
+		}
+	}
+
+	/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L290-L293 */
+	if( FD_UNLIKELY( fd_ulong_sat_add( self->block_cost, cost )>self->block_cost_limit ) ) {
+		return FD_COST_TRACKER_ERROR_WOULD_EXCEED_BLOCK_MAX_LIMIT;
+	}
+
+	/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L295-L298 */
+	if( FD_UNLIKELY( cost>self->account_cost_limit ) ) {
+		return FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT;
+	}
+
+	/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L300-L301 */
+	ulong tx_cost_allocated_accounts_data_size = ( tx_cost->discriminant==fd_transaction_cost_enum_transaction ) ?
+																							   tx_cost->inner.transaction.allocated_accounts_data_size :
+																								 0UL;
+	ulong allocated_accounts_data_size = fd_ulong_sat_add( self->allocated_accounts_data_size,
+																												 tx_cost_allocated_accounts_data_size );
+
+	/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L303-L304 */
+	if( FD_UNLIKELY( allocated_accounts_data_size>MAX_BLOCK_ACCOUNTS_DATA_SIZE_DELTA ) ) {
+		return FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_BLOCK_LIMIT;
+	}
+
+	return FD_COST_TRACKER_SUCCESS;
+}
+
+static inline void
+add_transaction_cost( fd_cost_tracker_t *           self,
+ 										  fd_transaction_cost_t const * tx_cost ) {
+
+}
+
+/** PUBLIC FUNCTIONS ***/
+
 fd_transaction_cost_t
 fd_calculate_cost_for_executed_transaction( fd_exec_txn_ctx_t const * txn_ctx,
 																						fd_spad_t * 							spad ) {
@@ -194,4 +264,18 @@ fd_calculate_cost_for_executed_transaction( fd_exec_txn_ctx_t const * txn_ctx,
 
 	/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L85-L93 */
 	return calculate_non_vote_transaction_cost( txn_ctx, loaded_accounts_data_size_cost, instructions_data_cost, spad );
+}
+
+int
+fd_cost_tracker_try_add( fd_cost_tracker_t * self,
+												 fd_transaction_cost_t const * tx_cost ) {
+	/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L167 */
+  int err = would_fit( self, tx_cost );
+	if( FD_UNLIKELY( err ) ) return err;
+
+  /* We don't need `updated_costliest_account_cost` since it seems to be for a different use case
+	   other than validating block cost limits.
+	   https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L168 */
+  add_transaction_cost( self, tx_cost );
+  return FD_COST_TRACKER_SUCCESS;
 }

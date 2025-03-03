@@ -5,6 +5,7 @@
 #include "fd_pubkey_utils.h"
 
 #include "fd_executor.h"
+#include "fd_cost_tracker.h"
 #include "fd_account.h"
 #include "fd_hashes.h"
 #include "fd_txncache.h"
@@ -1397,6 +1398,9 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
   slot_ctx->nonvote_failed_txn_count           = 0UL;
   slot_ctx->total_compute_units_used           = 0UL;
 
+  /* Reset the cost tracker */
+  fd_memset( &slot_ctx->cost_tracker, 0, sizeof(fd_cost_tracker_t) );
+
   fd_funk_start_write( slot_ctx->acc_mgr->funk );
   int result = fd_runtime_block_sysvar_update_pre_execute( slot_ctx, runtime_spad );
   fd_funk_end_write( slot_ctx->acc_mgr->funk );
@@ -1793,7 +1797,6 @@ fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
 
   int res = 0;
 
-  task_info->txn_ctx              = fd_spad_alloc( exec_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
   fd_exec_txn_ctx_t * txn_ctx     = task_info->txn_ctx;
   task_info->exec_res             = -1;
   task_info->txn                  = txn;
@@ -1859,20 +1862,12 @@ fd_runtime_prepare_execute_finalize_txn_task( void * tpool,
     fd_dump_txn_to_protobuf( task_info->txn_ctx, exec_spad );
   }
 
-  FD_SPAD_FRAME_BEGIN( exec_spad ) {
-
   fd_runtime_prepare_and_execute_txn( slot_ctx,
                                       txn,
                                       task_info,
                                       exec_spad );
 
-  if( FD_FEATURE_ACTIVE( slot_ctx, apply_cost_tracker_during_replay ) ) {
-
-  }
-
   fd_runtime_finalize_txn( slot_ctx, capture_ctx, task_info );
-
-  } FD_SPAD_FRAME_END;
 
 }
 
@@ -1920,6 +1915,7 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
                                               fd_spad_t *          runtime_spad ) {
 
   int dump_txn = capture_ctx && slot_ctx->slot_bank.slot >= capture_ctx->dump_proto_start_slot && capture_ctx->dump_txn_to_pb;
+  int res      = 0;
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     txns[i].flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
@@ -1931,6 +1927,13 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
 
   ulong curr_exec_idx = 0UL;
   while( curr_exec_idx<txn_cnt ) {
+    ulong exec_idx_start = curr_exec_idx;
+
+    // Push a new spad frame for each exec spad
+    for( ulong worker_idx=1UL; worker_idx<exec_spad_cnt; worker_idx++ ) {
+      fd_spad_push( exec_spads[ worker_idx ] );
+    }
+
     for( ulong worker_idx=1UL; worker_idx<exec_spad_cnt; worker_idx++ ) {
       if( curr_exec_idx>=txn_cnt ) {
         break;
@@ -1940,8 +1943,11 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
         continue;
       }
 
-      task_infos[ curr_exec_idx ].spad = exec_spads[ worker_idx ];
-      task_infos[ curr_exec_idx ].txn  = &txns[ curr_exec_idx ];
+      task_infos[ curr_exec_idx ].spad    = exec_spads[ worker_idx ];
+      task_infos[ curr_exec_idx ].txn     = &txns[ curr_exec_idx ];
+      task_infos[ curr_exec_idx ].txn_ctx = fd_spad_alloc( task_infos[ curr_exec_idx ].spad,
+                                                           FD_EXEC_TXN_CTX_ALIGN,
+                                                           FD_EXEC_TXN_CTX_FOOTPRINT );
 
       fd_tpool_exec( tpool, worker_idx, fd_runtime_prepare_execute_finalize_txn_task,
                      slot_ctx, (ulong)capture_ctx, (ulong)task_infos[curr_exec_idx].txn,
@@ -1950,11 +1956,38 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
 
       curr_exec_idx++;
     }
-  }
 
+    /* Wait for the workers to finish before we try to dispatch them a new task */
+    for( ulong worker_idx=1UL; worker_idx<exec_spad_cnt; worker_idx++ ) {
+      fd_tpool_wait( tpool, worker_idx );
+    }
 
-  for( ulong worker_idx=1UL; worker_idx<exec_spad_cnt; worker_idx++ ) {
-    fd_tpool_wait( tpool, worker_idx );
+    /* Verify cost tracker limits
+       https://github.com/anza-xyz/agave/blob/v2.2.0/ledger/src/blockstore_processor.rs#L284-L299 */
+    if( FD_FEATURE_ACTIVE( slot_ctx, apply_cost_tracker_during_replay ) ) {
+      for( ulong i=exec_idx_start; i<curr_exec_idx; i++ ) {
+
+        /* Skip any transactions that were not processed */
+        fd_execute_txn_task_info_t const * task_info = &task_infos[ i ];
+        if( FD_UNLIKELY( !( task_info->txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) ) continue;
+
+        fd_exec_txn_ctx_t const * txn_ctx          = task_info->txn_ctx;
+        fd_transaction_cost_t     transaction_cost = fd_calculate_cost_for_executed_transaction( task_info->txn_ctx,
+                                                                                                 runtime_spad );
+
+        /* https://github.com/anza-xyz/agave/blob/v2.2.0/ledger/src/blockstore_processor.rs#L302-L307 */
+        res |= fd_cost_tracker_add( &slot_ctx->cost_tracker, &transaction_cost );
+        if( FD_UNLIKELY( res ) ) break;
+      }
+    }
+
+    // Pop the spad frame
+    for( ulong worker_idx=1UL; worker_idx<exec_spad_cnt; worker_idx++ ) {
+      fd_spad_pop( exec_spads[ worker_idx ] );
+    }
+
+    /* If there was a error with cost tracker calculations, return the error */
+    if( FD_UNLIKELY( res ) ) return res;
   }
 
   return 0;
@@ -3828,6 +3861,9 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
                                                            runtime_spad );
     }
   }
+
+  /* Verify accumulated cost tracker values after execution. Agave does this a level lower when executing the
+     batch, but it doesn't matter because if the cost tracker fails at any point, the block gets yeeted anyways. */
 
   if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
     return res;
