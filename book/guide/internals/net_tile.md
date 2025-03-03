@@ -3,7 +3,7 @@
 Net tiles provide fast networking to a Firedancer system.
 
 At a high level, a net tile acts as a translation layer between the
-Internet (IPv4) and the Firedancer messaging subsystem ("tango").
+Internet (IPv4) and Firedancer's internal message bus ("tango").
 
 Currently, all versions of Firedancer use the Linux AF_XDP APIs, which
 bypass most of the Linux network stack.  AF_XDP bypasses large parts of
@@ -16,7 +16,7 @@ loop that passes incoming packets down to app tiles, and routes outgoing
 packets to the right network interface.  Internally, it wakes up the
 kernel ~20k times a second to do batches of RX and TX.
 
-### Terminology
+## Terminology
 
 - NIC: "Network interface"
 - XDP: "eXpress Data Path", a family of Linux APIs
@@ -29,6 +29,15 @@ kernel ~20k times a second to do batches of RX and TX.
 - TX: "Transmit" (Packets sent by a Firedancer app tile)
 - UMEM: Buffer space for packets
 - UMEM frame: A single buffer that can fit one packet
+
+## Why XDP?
+
+> Why doesn't Firedancer just use sockets like other applications?
+> What is the purpose of XDP?
+
+In short: UDP sockets incur so much overhead that a system is easily
+overwhelmed by a 25 Gbps packet flood. Linux XDP handles about _20 times
+more traffic_ per CPU than a socket in default configuration.
 
 ## XDP modes
 
@@ -60,7 +69,7 @@ incrementally.
 
 :::
 
-## XDP Lifecycle
+## XDP lifecycle
 
 ::: info REFERENCE
 
@@ -225,7 +234,7 @@ but cannot see any other TX links.
 
 The net tile speculatively copies TX packets but checks for overruns.
 
-## RX Lifecycle
+## RX flow
 
 ```
     ┌──────┐     ┌──────┐
@@ -368,7 +377,7 @@ and source port.  In case there are multiple tiles of the same kind
 (e.g. quic), packets with the same load balancing hash will be handled
 by the same tile.
 
-## TX Lifecycle
+## TX flow
 
 The TX lifecycle of each incoming packet involves three steps:
 
@@ -447,6 +456,226 @@ public gateway, in hopes that the traffic gets mirrored back.
 But for now, Firedancer also binds XDP to loopback. This is a small performance hit for other traffic, but otherwise won't interfere.
 
 The loopback device only supports XDP in SKB mode.
+
+## Scheduling
+
+There are three steps involved in receiving/transmitting packets via
+XDP.
+
+1. React to hardware events (kernel driver)
+2. Translate between batches of hardware descriptors and XDP descriptors (kernel driver)
+3. Translate between batches of tango descriptors and XDP descriptors (userland / net tile)
+
+::: tip DESCRIPTORS
+
+A descriptor contains a pointer to, the length of, and metadata of a
+message/packet.
+
+See section [Network abstraction layers](#descriptor-translation).
+
+:::
+
+There is a noticeable cost of transitioning between these steps due to
+the kernel/userland split (impacts throughput).  Larger batch sizes
+amortize this cost at the expense of latency.
+
+It is the responsibility of the net tile to schedule these batch
+operations such that a good latency/throughput balance is met.
+Additionally, there should be fairness between RX and TX: Even if there
+are so many RX packets that the CPU is always busy, the net tile should
+continue to send out TX packets.
+
+The net tile supports two scheduling modes: "softirq" and "preferred
+busy polling".
+
+### softirq
+
+softirq is the default scheduling mode.  In this mode, step 3 spins on
+the net tile.  Steps 1 and 2 run on an arbitrary 'ksoftirqd' kernel
+thread or sometimes steal time from a net tile (during a syscall).
+
+How exactly kernel time is scheduled is out of the scope of this
+document and varies across kernel versions.  See also 'NAPI / IRQ
+suspension' in the kernel doc pages:
+https://docs.kernel.org/networking/napi.html#irq-suspension
+
+ksoftirqd threads are problematic because they might steal time off
+other app tiles such as 'poh'. This can cause odd effects such as a
+leader slot skipping due to a basic packet flood that the validator
+should otherwise handle.
+
+Pseudocode:
+
+```
+event loop {
+
+  every 20 us {
+
+  }
+
+  always {
+
+    if hardware RX packets are queued {
+      recvmsg()
+    }
+
+  }
+
+}
+```
+
+### Preferred busy polling
+
+_Preferred busy polling_ is the fastest scheduling mode.  This mode was
+introduced in Linux 5.11.  ([LWN Article](https://lwn.net/Articles/836250/))
+
+In this mode, steps 1, 2, and 3 take turns running on a net tile.
+
+The name of this mode roughly means "prefer busy polling a network
+device for new events instead of reacting to interrupt requests".  Since
+the net tile is busy looping on a pinned thread anyway, this mode
+naturally is a good fit.
+
+Kernel implementation notes:
+
+- XSK syscall handlers enter NAPI busy poll via `sk_busy_loop` here:
+  - [xsk_sendmsg](https://elixir.bootlin.com/linux/v6.13.4/source/net/xdp/xsk.c#L911)
+  - [xsk_recvmsg](https://elixir.bootlin.com/linux/v6.13.4/source/net/xdp/xsk.c#L952)
+  - There is no apparent difference in behavior between xsk_sendmsg and
+    xsk_recvmsg in Linux 6.13.4 when busy polling is enabled.
+- [napi_busy_loop](https://elixir.bootlin.com/linux/v6.13.4/source/net/core/dev.c#L6426)
+  repeatedly calls the `napi->poll` callback for a single XSK until:
+  - The RX and TX packet handled count exceeds `budget` (the value of `SO_BUSY_POLL_BUDGET`)
+  - A timeout is reached (the value of `SO_BUSY_POLL`)
+  - The loop called `napi->poll` more than `napi_defer_hard_irqs` times
+- The `napi->poll` callback is driver specific. Examples:
+  - [ice_napi_poll](https://elixir.bootlin.com/linux/v6.13.4/source/drivers/net/ethernet/intel/ice/ice_txrx.c#L1527)
+  - [mlx5e_napi_poll](https://elixir.bootlin.com/linux/v6.13.4/source/drivers/net/ethernet/mellanox/mlx5/core/en_txrx.c#L124)
+
+If there is nothing to do (XDP TX ring empty, no incoming packets),
+`napi_busy_loop` spins `napi_defer_hard_irq` times, then rearms softirq.
+
+::: warning BLOCK PRIORITY INVERSION
+
+If the driver's `napi->poll` XDP logic is blocked due to heavy traffic,
+softirq can also get rearmed.
+
+This is problematic if there is heavy traffic. If the xdp tile fails to
+clear rings fast enough before calling `xsk_recvmsg`, the kernel will
+start flickering between softirq and busy polling.
+
+:::
+
+Reasons for blockage are
+- XDP tile too slow: the RX or COMPLETION rings are full
+- XDP tile too slow: the FILL ring is empty
+- NIC too slow: can't transmit packets fast enough to clear TX ring
+
+Therefore, the xdp tile consumes all XDP descriptors that were observed
+immediately after a wakeup, before issuing another wakeup.
+
+**Pseudocode**
+
+The timing roughly corresponds to the following pseudocode.
+
+```
+loop {
+
+  interrupt housekeeping { ... }
+  interrupt metrics      { ... }
+
+  round-robin tango frag busy poll            // nested loop (tile)
+  ... either until a xsk TX ring is blocked
+  ... or     until a timeout is reached
+
+  cur_xsk := (rr_idx++) % rr_cnt
+  consume all COMPLETION events  on cur_xsk   // nested loop (tile)
+  consume all RX         events  on cur_xsk   // nested loop (tile)
+  NAPI busy poll via xsk_recvmsg on cur_xsk   // nested loop (kernel)
+  ... either until the RX ring is full  (SO_BUSY_POLL_BUDGET)
+  ... or     until a timeout is reached (SO_BUSY_POLL)
+
+}
+```
+
+The three nested loops that run in the tile context are flattened into
+the loop harness.
+
+## Network abstraction layers
+
+Take an arbitrary Ethernet adapter with an SFP28 port. Assuming the NIC
+is already initialized and in the right mode, what communication happens
+between a CPU and the NIC when receiving packets?
+
+The answer is conceptually simple:
+
+- The CPU sends messages to the NIC describing free buffer space (backed
+  by the system's DRAM).
+
+- For each packet that arrives, the NIC copies the packet into such a
+  buffer. Then, it sends a "packet descriptor" to the CPU. It includes a
+  pointer to the packet payload and the size in bytes.
+
+#### Descriptor translation
+
+```
+  ┌────────────┐
+  │  Network   │
+  │  Device    │
+  └──┬─────────┘
+     │ hardware descriptor
+  ┌──▼────────────────────┐
+  │           ┌────────┐  │          ┌──────────────┐
+  │  Network  │Classify│  │ xdp_desc │  Firedancer  │
+  │  Driver   │ (eBPF) │  ┼──────────►  net tile    │
+  │           └────────┘  │          └───┬──────────┘
+  └───┬───────────────────┘              │
+      │ sk_buff                          │ frag_meta
+  ┌───▼─────────────────┐            ┌───▼──────────┐
+  │   Regular Sockets   │            │  Firedancer  │
+  │   Path ....         │            │  app tiles   │
+  └─────────────────────┘            └──────────────┘
+
+Figure showing RX descriptor flow with an XDP supporting driver.
+```
+
+Each hardware vendor uses a different packet descriptor format.
+Vendors keep inventing new formats as they release new hardware. It is
+logistically impossible to support all possible network drivers in
+application code.
+
+There exist several translation layers to solve this problem. Each of
+them provides an API built around a generic descriptor format. Apps can
+build against this one descriptor format and support many Ethernet
+devices by different vendors.
+
+Popular examples of such translation layers are Berkeley sockets, of
+course, Linux XDP, ibverbs, DPDK, and netmap.
+
+The puzzle is complete: The net tile polls/drives the XDP subsystem by
+syscalling to the kernel, translating hardware descriptors to XDP
+descriptors. Then, the net tile translates XDP descriptors to "tango"
+descriptors, which is Firedancer's home-grown message format.
+
+#### Performance
+
+The latency and throughput is largely determined by the complexity of
+the translation layer: How much code is executed going from the hardware
+descriptor to the generic descriptor? Is the content of the packet
+copied?
+
+In order to receive 10 million packets per second on a single CPU core,
+a packet has to be handled every 100 nanoseconds on average.  On a 3 GHz
+CPU, that's about 300 CPU cycles.
+
+With Linux sockets, each incoming packet travels through routing,
+traffic shaping, a firewall, multiplexing, a socket buffer, and may
+cross multiple CPUs. Quite difficult to achieve in 100ns.
+
+Linux XDP cuts out the complexity without compromising on hardware
+support. Linux network drivers that support XDP directly translate
+hardware descriptors to 'xdp_desc'. A slower fallback is available for
+drivers that don't (skb mode).
 
 ## Development
 
@@ -558,7 +787,6 @@ Firedancer v0.4 net tile. This list is likely to become out of date.
   - IPv6 is considerably more expensive than IPv4 due to far lower MTUs
     (1280 on IPv6 vs 1500 on IPv4), mandatory UDP checksums, and
     longer addresses requiring a more complex route table lookup routine
-- The net tile does not (yet) use `SO_PREFERRED_BUSY_POLL`
 - The net tile supports only one external network interface
   (in addition to loopback)
 - fdctl does not yet configure IRQ affinity, nor disable NIC interrupts,

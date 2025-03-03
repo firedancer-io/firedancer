@@ -1,8 +1,9 @@
 #ifndef HEADER_fd_src_disco_net_fd_net_tile_h
 #define HEADER_fd_src_disco_net_fd_net_tile_h
 
-/* fd_net_tile.h contains APIs for providing XDP networking to a
-   Firedancer topology using the 'net' tile. */
+/* fd_net_tile.h contains APIs for providing Ethernet networking to a
+   Firedancer topology.  Designed to support multiple kinds of net tiles
+   but currently only uses the 'xdp' tile. */
 
 #include "../fd_disco_base.h"
 #include "../../tango/dcache/fd_dcache.h"
@@ -68,8 +69,8 @@ FD_PROTOTYPES_END
 
 FD_PROTOTYPES_BEGIN
 
-/* fd_topos_net_tiles appends the net and netlnk tiles to the
-   topology.  These tiles provide fast XDP networking. */
+/* fd_topos_net_tiles appends the xdp and netlnk tiles to the
+   topology. */
 
 void
 fd_topos_net_tiles( fd_topo_t *      topo,

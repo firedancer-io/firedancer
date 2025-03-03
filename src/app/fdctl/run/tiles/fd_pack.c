@@ -433,13 +433,10 @@ insert_from_extra( fd_pack_ctx_t * ctx ) {
 static inline void
 after_credit( fd_pack_ctx_t *     ctx,
               fd_stem_context_t * stem,
-              int *               opt_poll_in,
+              long                now,
+              int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
-  (void)opt_poll_in;
-
   if( FD_UNLIKELY( (ctx->skip_cnt--)>0L ) ) return; /* It would take ages for this to hit LONG_MIN */
-
-  long now = fd_tickcount();
 
   int pacing_bank_cnt = (int)fd_pack_pacing_enabled_bank_cnt( ctx->pacer, now );
   if( FD_UNLIKELY( !pacing_bank_cnt ) ) return;

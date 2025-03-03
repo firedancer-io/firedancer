@@ -462,10 +462,9 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
 static void
 after_credit( fd_store_tile_ctx_t * ctx,
               fd_stem_context_t *   stem,
-              int *                 opt_poll_in,
+              long                  last_tc     FD_PARAM_UNUSED,
+              int *                 opt_poll_in FD_PARAM_UNUSED,
               int *                 charge_busy ) {
-  (void)opt_poll_in;
-
   /* TODO: Don't charge the tile as busy if after_credit isn't actually
      doing any work. */
   *charge_busy = 1;

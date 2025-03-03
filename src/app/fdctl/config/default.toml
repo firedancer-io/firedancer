@@ -883,7 +883,7 @@ dynamic_port_range = "8900-9000"
         # supported".
         xdp_mode = "skb"
 
-        # This option helps reducing CPU usage when receiving packets.
+        # This option helps reduce CPU usage when receiving packets.
         # If enabled, the net tile instructs the network device to copy
         # packets directly (DMA) into the working memory of downstream
         # tiles (such as the quic tile).  This allows scaling ingress up
@@ -909,7 +909,7 @@ dynamic_port_range = "8900-9000"
         # the specified duration, flushes the batch out to to the network
         # device.  Smaller values improve latency, larger values may
         # improve throughput.
-        flush_timeout_micros = 20
+        flush_timeout_micros = 10
 
         # The maximum number of packets in-flight between a net tile and
         # downstream consumers, after which additional packets begin to
@@ -917,6 +917,22 @@ dynamic_port_range = "8900-9000"
         # less memory.  Larger values decrease link overruns caused by
         # excessive latency.
         send_buffer_size = 16384
+
+        # XDP busy polling improves performance. Requires Linux 5.11 or
+        # newer. Reduces CPU usage of ksoftirqd kernel threads.
+        # See https://docs.firedancer.io/guide/net_tile.html#preferred-busy-polling
+        [tiles.net.busy_poll]
+            # True if SO_PREFER_BUSY_POLL should be enabled.
+            # Enables the 'sysfs-busypoll' configure stage.
+            enabled = true
+
+            # Approx duration to wait between NAPI poll wakeups.
+            # (nanoseconds)
+            napi_poll_interval_nanos = 10000
+
+            # Max duration to run a NAPI busy poll loop. (nanoseconds)
+            # Can be up to 80% of napi_poll_interval_nanos.
+            napi_poll_duration_nanos = 1000
 
     # The netlink tile forwards Linux network configuration to net tiles.
     # This config section contains advanced options that typically do not

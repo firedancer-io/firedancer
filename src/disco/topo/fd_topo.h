@@ -137,6 +137,10 @@ typedef struct {
       uint   src_ip_addr;
       uchar  src_mac_addr[6];
 
+      int    xdp_busy_poll;
+      ulong  napi_poll_interval;
+      ulong  napi_poll_duration;
+
       ushort shred_listen_port;
       ushort quic_transaction_listen_port;
       ushort legacy_transaction_listen_port;

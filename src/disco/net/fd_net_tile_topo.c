@@ -53,6 +53,9 @@ fd_topos_net_tiles( fd_topo_t *      topo,
     tile->net.zero_copy         = config->tiles.net.xdp_zero_copy;
     fd_memset( tile->net.xdp_mode, 0, 4 );
     fd_memcpy( tile->net.xdp_mode, config->tiles.net.xdp_mode, strnlen( config->tiles.net.xdp_mode, 3 ) );  /* GCC complains about strncpy */
+    tile->net.xdp_busy_poll      = config->tiles.net.busy_poll.enabled;
+    tile->net.napi_poll_duration = config->tiles.net.busy_poll.napi_poll_duration_nanos;
+    tile->net.napi_poll_interval = config->tiles.net.busy_poll.napi_poll_interval_nanos;
 
     tile->net.umem_dcache_obj_id    = umem_obj->id;
     tile->net.netdev_dbl_buf_obj_id = netlink_tile->netlink.netdev_dbl_buf_obj_id;

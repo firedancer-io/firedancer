@@ -396,12 +396,10 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
 static inline void
 after_credit( fd_repair_tile_ctx_t * ctx,
-              fd_stem_context_t *    stem,
-              int *                  opt_poll_in,
+              fd_stem_context_t *    stem        FD_PARAM_UNUSED,
+              long                   last_tc     FD_PARAM_UNUSED,
+              int *                  opt_poll_in FD_PARAM_UNUSED,
               int *                  charge_busy ) {
-  (void)stem;
-  (void)opt_poll_in;
-
   /* TODO: Don't charge the tile as busy if after_credit isn't actually
      doing any work. */
   *charge_busy = 1;

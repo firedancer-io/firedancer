@@ -293,6 +293,10 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( uint,   tiles.net.flush_timeout_micros                   );
   CFG_POP      ( uint,   tiles.net.send_buffer_size                       );
 
+  CFG_POP      ( bool,   tiles.net.busy_poll.enabled                      );
+  CFG_POP      ( ulong,  tiles.net.busy_poll.napi_poll_interval_nanos     );
+  CFG_POP      ( ulong,  tiles.net.busy_poll.napi_poll_duration_nanos     );
+
   CFG_POP      ( ulong,  tiles.netlink.max_routes                         );
   CFG_POP      ( ulong,  tiles.netlink.max_neighbors                      );
 
