@@ -3,6 +3,7 @@
 #include "../../../../disco/quic/fd_tpu.h"
 #include "../../../../disco/tiles.h"
 #include "../../../../disco/topo/fd_topob.h"
+#include "../../../../disco/topo/fd_cpu_topo.h"
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../disco/plugin/fd_plugin.h"
 #include "../../../../util/tile/fd_tile_private.h"
@@ -90,16 +91,19 @@ fd_topo_initialize( config_t * config ) {
     FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.affinity] and [layout.agave_affinity] must both be set to 'auto' or both be set to a specific CPU affinity string." ));
   }
 
+  fd_topo_cpus_t cpus[1];
+  fd_topo_cpus_init( cpus );
+
   ulong affinity_tile_cnt = 0UL;
   if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_tile_private_cpus_parse( config->layout.affinity, parsed_tile_to_cpu );
 
   ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
   for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
-    if( FD_UNLIKELY( parsed_tile_to_cpu[ i ]!=USHORT_MAX && parsed_tile_to_cpu[ i ]>=fd_numa_cpu_cnt() ) )
+    if( FD_UNLIKELY( parsed_tile_to_cpu[ i ]!=USHORT_MAX && parsed_tile_to_cpu[ i ]>=cpus->cpu_cnt ) )
       FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.affinity] specifies a CPU index of %hu, but the system "
                    "only has %lu CPUs. You should either change the CPU allocations in the affinity string, or increase the number of CPUs "
                    "in the system.",
-                   parsed_tile_to_cpu[ i ], fd_numa_cpu_cnt() ));
+                   parsed_tile_to_cpu[ i ], cpus->cpu_cnt ));
     tile_to_cpu[ i ] = fd_ulong_if( parsed_tile_to_cpu[ i ]==USHORT_MAX, ULONG_MAX, (ulong)parsed_tile_to_cpu[ i ] );
   }
 
@@ -292,11 +296,11 @@ fd_topo_initialize( config_t * config ) {
       ulong agave_cpu_cnt = fd_tile_private_cpus_parse( config->layout.agave_affinity, agave_cpu );
 
       for( ulong i=0UL; i<agave_cpu_cnt; i++ ) {
-        if( FD_UNLIKELY( agave_cpu[ i ]>=fd_numa_cpu_cnt() ) )
+        if( FD_UNLIKELY( agave_cpu[ i ]>=cpus->cpu_cnt ) )
           FD_LOG_ERR(( "The CPU affinity string in the configuration file under [layout.agave_affinity] specifies a CPU index of %hu, but the system "
                        "only has %lu CPUs. You should either change the CPU allocations in the affinity string, or increase the number of CPUs "
                        "in the system.",
-                       agave_cpu[ i ], fd_numa_cpu_cnt() ));
+                       agave_cpu[ i ], cpus->cpu_cnt ));
 
         for( ulong j=0UL; j<topo->tile_cnt; j++ ) {
           fd_topo_tile_t * tile = &topo->tiles[ j ];
