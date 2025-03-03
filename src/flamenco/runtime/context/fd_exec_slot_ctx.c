@@ -26,6 +26,7 @@ fd_exec_slot_ctx_new( void *      mem,
   fd_slot_bank_new( &self->slot_bank );
 
   self->sysvar_cache = fd_sysvar_cache_new( fd_spad_alloc( runtime_spad, fd_sysvar_cache_align(), fd_sysvar_cache_footprint() ), runtime_spad );
+  self->cost_tracker = fd_cost_tracker_new( fd_spad_alloc( runtime_spad, alignof(fd_cost_tracker_t), sizeof(fd_cost_tracker_t) ), runtime_spad );
 
   /* This is inactive by default */
   self->epoch_reward_status.discriminant = fd_epoch_reward_status_enum_Inactive;

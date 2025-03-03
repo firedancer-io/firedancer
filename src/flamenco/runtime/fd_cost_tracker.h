@@ -12,14 +12,19 @@
 #include "fd_executor.h"
 
 struct __attribute__((aligned(8UL))) fd_cost_tracker {
+	ulong magic; /* ==FD_COST_TRACKER_MAGIC */
+
 	/* Limits set at initialization and at the epoch boundary (if new feature activations change this) */
 	ulong account_cost_limit;
 	ulong block_cost_limit;
 	ulong vote_cost_limit;
 
-	/* `cost_by_writable_accounts` is represented as a map in Agave that contains */
+	/* `cost_by_writable_accounts` is represented as a map in Agave with capacity of 4096 and maps
+	   account keys to usage costs. This map gets aggregated throughout a block and is used to validate
+		 block limits. */
+  fd_account_costs_t cost_by_writable_accounts;
 
-	/* Stats aggregated inter-block */
+	/* Stats aggregated intra-block */
 	ulong block_cost;
 	ulong vote_cost;
 	ulong transaction_count;
@@ -31,11 +36,28 @@ struct __attribute__((aligned(8UL))) fd_cost_tracker {
 };
 typedef struct fd_cost_tracker fd_cost_tracker_t;
 
+#define FD_COST_TRACKER_MAGIC ( 0x1ae35a7b6e06f9cc ) // random value
+
 // https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L20
 #define WRITE_LOCK_UNITS ( 300UL )
 
 // https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L42
 #define MAX_BLOCK_ACCOUNTS_DATA_SIZE_DELTA ( 100000000UL )
+
+// https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L34
+#define MAX_WRITABLE_ACCOUNT_UNITS ( 12000000UL )
+
+// https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L28
+#define MAX_BLOCK_UNITS ( 48000000UL )
+
+// https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L29C11-L29C36
+#define MAX_BLOCK_UNITS_SIMD_0207 ( 50000000UL )
+
+// https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/block_cost_limits.rs#L38
+#define MAX_VOTE_UNITS ( 36000000UL )
+
+// https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L15
+#define WRITABLE_ACCOUNTS_PER_BLOCK ( 4096UL )
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L18-L33 */
 #define FD_COST_TRACKER_SUCCESS																		  ( 0 )
@@ -46,6 +68,15 @@ typedef struct fd_cost_tracker fd_cost_tracker_t;
 #define FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_DATA_TOTAL_LIMIT ( 5 )
 
 FD_PROTOTYPES_BEGIN
+
+fd_cost_tracker_t *
+fd_cost_tracker_new( void *      mem,
+                     fd_spad_t * runtime_spad );
+
+void
+fd_cost_tracker_reset( fd_cost_tracker_t *  		  self,
+											 fd_exec_slot_ctx_t const * slot_ctx,
+											 fd_spad_t * 				  		  spad );
 
 /* Modeled after `CostModel::calculate_cost_for_executed_transaction()`.
    Used to compute transaction cost information for executed transactions.
@@ -60,7 +91,8 @@ fd_calculate_cost_for_executed_transaction( fd_exec_txn_ctx_t const * txn_ctx,
 
 	 https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L163-L173 */
 int
-fd_cost_tracker_try_add( fd_cost_tracker_t * 					 self,
+fd_cost_tracker_try_add( fd_cost_tracker_t *  				 self,
+		   								 	 fd_exec_txn_ctx_t const *     txn_ctx,
 												 fd_transaction_cost_t const * tx_cost );
 
 FD_PROTOTYPES_END

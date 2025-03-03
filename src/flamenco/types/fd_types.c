@@ -28140,6 +28140,160 @@ int fd_transaction_cost_encode( fd_transaction_cost_t const * self, fd_bincode_e
   return fd_transaction_cost_inner_encode( &self->inner, self->discriminant, ctx );
 }
 
+int fd_account_costs_pair_encode( fd_account_costs_pair_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_pubkey_encode( &self->key, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->cost, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_account_costs_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_account_costs_pair_t);
+  void const * start_data = ctx->data;
+  int err = fd_account_costs_pair_decode_footprint_inner( ctx, total_sz );
+  ctx->data = start_data;
+  return err;
+}
+int fd_account_costs_pair_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  int err = 0;
+  err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return 0;
+}
+void * fd_account_costs_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_account_costs_pair_t * self = (fd_account_costs_pair_t *)mem;
+  fd_account_costs_pair_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_account_costs_pair_t);
+  void * * alloc_mem = &alloc_region;
+  fd_account_costs_pair_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_account_costs_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_account_costs_pair_t * self = (fd_account_costs_pair_t *)struct_mem;
+  fd_pubkey_decode_inner( &self->key, alloc_mem, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->cost, ctx );
+}
+void fd_account_costs_pair_new(fd_account_costs_pair_t * self) {
+  fd_memset( self, 0, sizeof(fd_account_costs_pair_t) );
+  fd_pubkey_new( &self->key );
+}
+void fd_account_costs_pair_destroy( fd_account_costs_pair_t * self ) {
+  fd_pubkey_destroy( &self->key );
+}
+
+ulong fd_account_costs_pair_footprint( void ){ return FD_ACCOUNT_COSTS_PAIR_FOOTPRINT; }
+ulong fd_account_costs_pair_align( void ){ return FD_ACCOUNT_COSTS_PAIR_ALIGN; }
+
+void fd_account_costs_pair_walk( void * w, fd_account_costs_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_account_costs_pair", level++ );
+  fd_pubkey_walk( w, &self->key, fun, "key", level );
+  fun( w, &self->cost, "cost", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_account_costs_pair", level-- );
+}
+ulong fd_account_costs_pair_size( fd_account_costs_pair_t const * self ) {
+  ulong size = 0;
+  size += fd_pubkey_size( &self->key );
+  size += sizeof(ulong);
+  return size;
+}
+
+int fd_account_costs_encode( fd_account_costs_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  if( self->account_costs_root ) {
+    ulong account_costs_len = fd_account_costs_pair_t_map_size( self->account_costs_pool, self->account_costs_root );
+    err = fd_bincode_uint64_encode( account_costs_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    for( fd_account_costs_pair_t_mapnode_t * n = fd_account_costs_pair_t_map_minimum( self->account_costs_pool, self->account_costs_root ); n; n = fd_account_costs_pair_t_map_successor( self->account_costs_pool, n ) ) {
+      err = fd_account_costs_pair_encode( &n->elem, ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  } else {
+    ulong account_costs_len = 0;
+    err = fd_bincode_uint64_encode( account_costs_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_account_costs_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_account_costs_t);
+  void const * start_data = ctx->data;
+  int err = fd_account_costs_decode_footprint_inner( ctx, total_sz );
+  ctx->data = start_data;
+  return err;
+}
+int fd_account_costs_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  int err = 0;
+  ulong account_costs_len = 0UL;
+  err = fd_bincode_uint64_decode( &account_costs_len, ctx );
+  ulong account_costs_cnt = fd_ulong_max( account_costs_len, 4096 );
+  *total_sz += fd_account_costs_pair_t_map_align() + fd_account_costs_pair_t_map_footprint( account_costs_cnt );
+  if( FD_UNLIKELY( err ) ) return err;
+  for( ulong i=0; i < account_costs_len; i++ ) {
+    err = fd_account_costs_pair_decode_footprint_inner( ctx, total_sz );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  return 0;
+}
+void * fd_account_costs_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_account_costs_t * self = (fd_account_costs_t *)mem;
+  fd_account_costs_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_account_costs_t);
+  void * * alloc_mem = &alloc_region;
+  fd_account_costs_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_account_costs_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_account_costs_t * self = (fd_account_costs_t *)struct_mem;
+  ulong account_costs_len;
+  fd_bincode_uint64_decode_unsafe( &account_costs_len, ctx );
+  self->account_costs_pool = fd_account_costs_pair_t_map_join_new( alloc_mem, fd_ulong_max( account_costs_len, 4096 ) );
+  self->account_costs_root = NULL;
+  for( ulong i=0; i < account_costs_len; i++ ) {
+    fd_account_costs_pair_t_mapnode_t * node = fd_account_costs_pair_t_map_acquire( self->account_costs_pool );
+    fd_account_costs_pair_new( &node->elem );
+    fd_account_costs_pair_decode_inner( &node->elem, alloc_mem, ctx );
+    fd_account_costs_pair_t_map_insert( self->account_costs_pool, &self->account_costs_root, node );
+  }
+}
+void fd_account_costs_new(fd_account_costs_t * self) {
+  fd_memset( self, 0, sizeof(fd_account_costs_t) );
+}
+void fd_account_costs_destroy( fd_account_costs_t * self ) {
+  for( fd_account_costs_pair_t_mapnode_t * n = fd_account_costs_pair_t_map_minimum(self->account_costs_pool, self->account_costs_root ); n; n = fd_account_costs_pair_t_map_successor(self->account_costs_pool, n) ) {
+    fd_account_costs_pair_destroy( &n->elem );
+  }
+  self->account_costs_pool = NULL;
+  self->account_costs_root = NULL;
+}
+
+ulong fd_account_costs_footprint( void ){ return FD_ACCOUNT_COSTS_FOOTPRINT; }
+ulong fd_account_costs_align( void ){ return FD_ACCOUNT_COSTS_ALIGN; }
+
+void fd_account_costs_walk( void * w, fd_account_costs_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_account_costs", level++ );
+  if( self->account_costs_root ) {
+    for( fd_account_costs_pair_t_mapnode_t * n = fd_account_costs_pair_t_map_minimum(self->account_costs_pool, self->account_costs_root ); n; n = fd_account_costs_pair_t_map_successor( self->account_costs_pool, n ) ) {
+      fd_account_costs_pair_walk(w, &n->elem, fun, "account_costs", level );
+    }
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_account_costs", level-- );
+}
+ulong fd_account_costs_size( fd_account_costs_t const * self ) {
+  ulong size = 0;
+  if( self->account_costs_root ) {
+    size += sizeof(ulong);
+    for( fd_account_costs_pair_t_mapnode_t * n = fd_account_costs_pair_t_map_minimum( self->account_costs_pool, self->account_costs_root ); n; n = fd_account_costs_pair_t_map_successor( self->account_costs_pool, n ) ) {
+      size += fd_account_costs_pair_size( &n->elem );
+    }
+  } else {
+    size += sizeof(ulong);
+  }
+  return size;
+}
+
 #define REDBLK_T fd_hash_hash_age_pair_t_mapnode_t
 #define REDBLK_NAME fd_hash_hash_age_pair_t_map
 #define REDBLK_IMPL_STYLE 2
@@ -28202,4 +28356,11 @@ long fd_clock_timestamp_vote_t_map_compare( fd_clock_timestamp_vote_t_mapnode_t 
 #include "../../util/tmpl/fd_redblack.c"
 long fd_vote_info_pair_t_map_compare( fd_vote_info_pair_t_mapnode_t * left, fd_vote_info_pair_t_mapnode_t * right ) {
   return memcmp( left->elem.account.uc, right->elem.account.uc, sizeof(right->elem.account) );
+}
+#define REDBLK_T fd_account_costs_pair_t_mapnode_t
+#define REDBLK_NAME fd_account_costs_pair_t_map
+#define REDBLK_IMPL_STYLE 2
+#include "../../util/tmpl/fd_redblack.c"
+long fd_account_costs_pair_t_map_compare( fd_account_costs_pair_t_mapnode_t * left, fd_account_costs_pair_t_mapnode_t * right ) {
+  return memcmp( left->elem.key.uc, right->elem.key.uc, sizeof(right->elem.key) );
 }

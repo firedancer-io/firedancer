@@ -1399,7 +1399,7 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
   slot_ctx->total_compute_units_used           = 0UL;
 
   /* Reset the cost tracker */
-  fd_memset( &slot_ctx->cost_tracker, 0, sizeof(fd_cost_tracker_t) );
+  fd_cost_tracker_reset( slot_ctx->cost_tracker, slot_ctx, runtime_spad );
 
   fd_funk_start_write( slot_ctx->acc_mgr->funk );
   int result = fd_runtime_block_sysvar_update_pre_execute( slot_ctx, runtime_spad );
@@ -1976,7 +1976,7 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
                                                                                                  runtime_spad );
 
         /* https://github.com/anza-xyz/agave/blob/v2.2.0/ledger/src/blockstore_processor.rs#L302-L307 */
-        res |= fd_cost_tracker_add( &slot_ctx->cost_tracker, &transaction_cost );
+        res |= fd_cost_tracker_try_add( &slot_ctx->cost_tracker, txn_ctx, &transaction_cost );
         if( FD_UNLIKELY( res ) ) break;
       }
     }
@@ -3851,22 +3851,18 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
 
       if( !mblock_txn_cnt ) continue;
 
-      res |= fd_runtime_process_txns_in_microblock_stream( slot_ctx,
-                                                           capture_ctx,
-                                                           mblock_txn_ptrs,
-                                                           mblock_txn_cnt,
-                                                           tpool,
-                                                           exec_spads,
-                                                           exec_spad_cnt,
-                                                           runtime_spad );
+      res = fd_runtime_process_txns_in_microblock_stream( slot_ctx,
+                                                          capture_ctx,
+                                                          mblock_txn_ptrs,
+                                                          mblock_txn_cnt,
+                                                          tpool,
+                                                          exec_spads,
+                                                          exec_spad_cnt,
+                                                          runtime_spad );
+      if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+        return res;
+      }
     }
-  }
-
-  /* Verify accumulated cost tracker values after execution. Agave does this a level lower when executing the
-     batch, but it doesn't matter because if the cost tracker fails at any point, the block gets yeeted anyways. */
-
-  if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
-    return res;
   }
 
   long block_finalize_time = -fd_log_wallclock();

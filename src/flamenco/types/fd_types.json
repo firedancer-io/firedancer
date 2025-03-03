@@ -2811,6 +2811,21 @@
         { "name": "transaction", "type": "usage_cost_details" }
       ],
       "comment": "https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L20-L23"
+    },
+    {
+      "name": "account_costs_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "key", "type": "pubkey" },
+        { "name": "cost", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "account_costs",
+      "type": "struct",
+      "fields": [
+        { "name": "account_costs", "type": "map", "element": "account_costs_pair", "key": "key", "minalloc":4096 }
+      ]
     }
   ]
 }

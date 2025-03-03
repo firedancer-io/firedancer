@@ -5357,6 +5357,65 @@ typedef struct fd_transaction_cost fd_transaction_cost_t;
 #define FD_TRANSACTION_COST_FOOTPRINT sizeof(fd_transaction_cost_t)
 #define FD_TRANSACTION_COST_ALIGN (8UL)
 
+/* Encoded Size: Fixed (40 bytes) */
+struct __attribute__((aligned(8UL))) fd_account_costs_pair {
+  fd_pubkey_t key;
+  ulong cost;
+};
+typedef struct fd_account_costs_pair fd_account_costs_pair_t;
+#define FD_ACCOUNT_COSTS_PAIR_FOOTPRINT sizeof(fd_account_costs_pair_t)
+#define FD_ACCOUNT_COSTS_PAIR_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_account_costs_pair_off {
+  uint key_off;
+  uint cost_off;
+};
+typedef struct fd_account_costs_pair_off fd_account_costs_pair_off_t;
+#define FD_ACCOUNT_COSTS_PAIR_OFF_FOOTPRINT sizeof(fd_account_costs_pair_off_t)
+#define FD_ACCOUNT_COSTS_PAIR_OFF_ALIGN (8UL)
+
+typedef struct fd_account_costs_pair_t_mapnode fd_account_costs_pair_t_mapnode_t;
+#define REDBLK_T fd_account_costs_pair_t_mapnode_t
+#define REDBLK_NAME fd_account_costs_pair_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+struct fd_account_costs_pair_t_mapnode {
+    fd_account_costs_pair_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_account_costs_pair_t_mapnode_t *
+fd_account_costs_pair_t_map_alloc( fd_valloc_t valloc, ulong len ) {
+  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
+  void * mem = fd_valloc_malloc( valloc, fd_account_costs_pair_t_map_align(), fd_account_costs_pair_t_map_footprint(len));
+  return fd_account_costs_pair_t_map_join(fd_account_costs_pair_t_map_new(mem, len));
+}
+static inline fd_account_costs_pair_t_mapnode_t *
+fd_account_costs_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
+  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_account_costs_pair_t_map_align() );
+  void * map_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + fd_account_costs_pair_t_map_footprint( len );
+  return fd_account_costs_pair_t_map_join( fd_account_costs_pair_t_map_new( map_mem, len ) );
+}
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_account_costs {
+  fd_account_costs_pair_t_mapnode_t * account_costs_pool;
+  fd_account_costs_pair_t_mapnode_t * account_costs_root;
+};
+typedef struct fd_account_costs fd_account_costs_t;
+#define FD_ACCOUNT_COSTS_FOOTPRINT sizeof(fd_account_costs_t)
+#define FD_ACCOUNT_COSTS_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_account_costs_off {
+  uint account_costs_off;
+};
+typedef struct fd_account_costs_off fd_account_costs_off_t;
+#define FD_ACCOUNT_COSTS_OFF_FOOTPRINT sizeof(fd_account_costs_off_t)
+#define FD_ACCOUNT_COSTS_OFF_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -8825,6 +8884,30 @@ enum {
 fd_transaction_cost_enum_simple_vote = 0,
 fd_transaction_cost_enum_transaction = 1,
 };
+void fd_account_costs_pair_new( fd_account_costs_pair_t * self );
+int fd_account_costs_pair_encode( fd_account_costs_pair_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_account_costs_pair_destroy( fd_account_costs_pair_t * self );
+void fd_account_costs_pair_walk( void * w, fd_account_costs_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_account_costs_pair_size( fd_account_costs_pair_t const * self );
+ulong fd_account_costs_pair_footprint( void );
+ulong fd_account_costs_pair_align( void );
+int fd_account_costs_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+int fd_account_costs_pair_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_account_costs_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_account_costs_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+
+void fd_account_costs_new( fd_account_costs_t * self );
+int fd_account_costs_encode( fd_account_costs_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_account_costs_destroy( fd_account_costs_t * self );
+void fd_account_costs_walk( void * w, fd_account_costs_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_account_costs_size( fd_account_costs_t const * self );
+ulong fd_account_costs_footprint( void );
+ulong fd_account_costs_align( void );
+int fd_account_costs_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+int fd_account_costs_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_account_costs_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_account_costs_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+
 FD_PROTOTYPES_END
 
 #endif // HEADER_FD_RUNTIME_TYPES
