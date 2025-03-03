@@ -583,13 +583,10 @@ checkpt( fd_replay_tile_ctx_t * ctx ) {
 
 static void
 funk_cancel( fd_replay_tile_ctx_t * ctx, ulong mismatch_slot ) {
-  fd_funk_txn_xid_t xid;
-  fd_blockstore_block_hash_copy( ctx->blockstore, mismatch_slot, xid.uc, sizeof( fd_funk_txn_xid_t ) );
-
-  fd_funk_start_write( ctx->funk );
-  xid.ul[0]                    = mismatch_slot;
+  fd_funk_txn_xid_t xid        = { .ul = { mismatch_slot, mismatch_slot } };
   fd_funk_txn_t * txn_map      = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
   fd_funk_txn_t * mismatch_txn = fd_funk_txn_query( &xid, txn_map );
+  fd_funk_start_write( ctx->funk );
   FD_TEST( fd_funk_txn_cancel( ctx->funk, mismatch_txn, 1 ) );
   fd_funk_end_write( ctx->funk );
 }
@@ -1169,19 +1166,12 @@ send_tower_sync( fd_replay_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( !ctx->vote ) ) return;
   FD_LOG_NOTICE( ( "sending tower sync" ) );
   ulong vote_slot = fd_tower_votes_peek_tail_const( ctx->tower )->slot;
-  fd_hash_t vote_bank_hash[1] = { 0 };
+  fd_hash_t vote_bank_hash[1]  = { 0 };
   fd_hash_t vote_block_hash[1] = { 0 };
-  int err = fd_blockstore_bank_hash_copy( ctx->blockstore, vote_slot, vote_bank_hash );
-  if( err ) {
-    FD_LOG_WARNING(("no vote bank hash found"));
-    return;
-  }
-
-  err = fd_blockstore_block_hash_copy( ctx->blockstore, vote_slot, vote_block_hash[0].uc, sizeof(fd_hash_t) );
-  if( err ) {
-    FD_LOG_WARNING(("no vote block hash found"));
-    return;
-  }
+  int err = fd_blockstore_bank_hash_query( ctx->blockstore, vote_slot, vote_bank_hash );
+  if( err ) FD_LOG_ERR(( "invariant violation: missing bank hash for tower vote" ));
+  err = fd_blockstore_block_hash_query( ctx->blockstore, vote_slot, vote_block_hash );
+  if( err ) FD_LOG_ERR(( "invariant violation: missing block hash for tower vote" ));
 
   /* Build a vote state update based on current tower votes. */
 
@@ -1293,7 +1283,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   if( flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
     memset( xid.uc, 0, sizeof(fd_funk_txn_xid_t) );
   } else {
-    fd_memcpy(xid.uc, ctx->blockhash.uc, sizeof(fd_funk_txn_xid_t));
+    xid.ul[1] = fork->slot_ctx.slot_bank.slot;
   }
   xid.ul[0] = fork->slot_ctx.slot_bank.slot;
   /* push a new transaction on the stack */
@@ -1400,7 +1390,7 @@ process_and_exec_mbatch( fd_replay_tile_ctx_t * ctx,
   fd_microblock_hdr_t * hdr              = NULL;
   ulong                 off              = sizeof(ulong);
   for( ulong i=0UL; i<micro_cnt; i++ ){
-    hdr     = (fd_microblock_hdr_t *)fd_type_pun( ctx->mbatch + off );
+    hdr = (fd_microblock_hdr_t *)fd_type_pun( ctx->mbatch + off );
     int res = fd_runtime_microblock_verify_ticks( ctx->slot_ctx,
                                                   ctx->curr_slot,
                                                   hdr,
@@ -1466,7 +1456,8 @@ process_and_exec_mbatch( fd_replay_tile_ctx_t * ctx,
     if( FD_UNLIKELY( !fork ) ) {
       FD_LOG_ERR(( "Unable to select a fork" ));
     }
-    res = fd_runtime_process_txns_in_microblock_stream( &fork->slot_ctx,
+
+    err = fd_runtime_process_txns_in_microblock_stream( &fork->slot_ctx,
                                                         ctx->capture_ctx,
                                                         txn_p,
                                                         hdr->txn_cnt,
@@ -1475,33 +1466,35 @@ process_and_exec_mbatch( fd_replay_tile_ctx_t * ctx,
                                                         ctx->exec_spad_cnt,
                                                         ctx->runtime_spad );
 
-    if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
+    fd_block_map_query_t query[1] = { 0 };
+    fd_block_map_prepare( ctx->blockstore->block_map, &ctx->curr_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+    fd_block_meta_t * block_meta = fd_block_map_query_ele( query );
+    if( FD_UNLIKELY( !block_meta || block_meta->slot != ctx->curr_slot ) ) FD_LOG_ERR(( "[%s] invariant violation: missing block_meta %lu", __func__, ctx->curr_slot ));
+
+    if( err != FD_RUNTIME_EXECUTE_SUCCESS ) {
       FD_LOG_WARNING(( "microblk process: block invalid - slot: %lu", ctx->curr_slot ));
-
-      fd_block_map_query_t query[1] = { 0 };
-      fd_block_map_prepare( ctx->blockstore->block_map, &ctx->curr_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
-      fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
-
-      if( FD_LIKELY( block_map_entry && block_map_entry->slot == ctx->curr_slot ) ) { // a non block_map_entry would have slot 0
-        block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_DEADBLOCK );
-        FD_COMPILER_MFENCE();
-        block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
-        memcpy( &block_map_entry->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof(fd_hash_t) );
-      }
+      block_meta->flags = fd_uchar_set_bit( block_meta->flags, FD_BLOCK_FLAG_DEADBLOCK );
+      FD_COMPILER_MFENCE();
+      block_meta->flags = fd_uchar_clear_bit( block_meta->flags, FD_BLOCK_FLAG_REPLAYING );
       fd_block_map_publish( query );
       return -1;
-    } else {
-      /* Push notifications for account updates */
-      publish_account_notifications( ctx, fork, ctx->curr_slot, txn_p, hdr->txn_cnt );
     }
+
+    if( last_batch && i == micro_cnt - 1 ) {
+
+      // Copy block hash to slot_bank poh for updating the sysvars
+
+      memcpy( fork->slot_ctx.slot_bank.poh.uc, hdr->hash, sizeof(fd_hash_t) );
+
+      block_meta->flags = fd_uchar_set_bit( block_meta->flags, FD_BLOCK_FLAG_PROCESSED );
+      FD_COMPILER_MFENCE();
+      block_meta->flags = fd_uchar_clear_bit( block_meta->flags, FD_BLOCK_FLAG_REPLAYING );
+      memcpy( &block_meta->block_hash, hdr->hash, sizeof(fd_hash_t) );
+      memcpy( &block_meta->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof(fd_hash_t) );
+    }
+    publish_account_notifications( ctx, fork, ctx->curr_slot, txn_p, hdr->txn_cnt );
+    fd_block_map_publish( query );
   }
-
-  err = fd_block_map_prepare( ctx->blockstore->block_map, &ctx->curr_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
-  fd_block_meta_t * blk_entry = fd_block_map_query_ele( query );
-  if( FD_UNLIKELY( err || blk_entry->slot != ctx->curr_slot ) ) FD_LOG_ERR(( "Failed to prepare block map entry, shouldn't be possible" ));
-  blk_entry->in_poh_hash = *(fd_hash_t *)fd_type_pun( hdr->hash );
-  fd_block_map_publish( query );
-
   return 0;
 }
 
@@ -1754,8 +1747,6 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     /* Call fd_runtime_block_execute_finalize_tpool which updates sysvar and cleanup some other stuff */
     /**************************************************************************************************/
 
-    // Copy over latest blockhash to slot_bank poh for updating the sysvars
-    fd_memcpy( fork->slot_ctx.slot_bank.poh.uc, ctx->blockhash.uc, sizeof(fd_hash_t) );
     fd_block_info_t block_info[1];
     block_info->signature_cnt = fork->slot_ctx.signature_cnt;
 
@@ -2565,10 +2556,7 @@ during_housekeeping( void * _ctx ) {
   if ( FD_LIKELY( wmark <= fd_fseq_query( ctx->published_wmark ) ) ) return;
   FD_LOG_NOTICE(( "wmk %lu => %lu", fd_fseq_query( ctx->published_wmark ), wmark ));
 
-  fd_funk_txn_xid_t xid;
-  fd_blockstore_block_hash_copy( ctx->blockstore, wmark, xid.uc, sizeof( fd_funk_txn_xid_t ) );
-  xid.ul[0] = wmark;
-
+  fd_funk_txn_xid_t xid = { .ul = { wmark, wmark } };
   if( FD_LIKELY( ctx->blockstore ) ) fd_blockstore_publish( ctx->blockstore, ctx->blockstore_fd, wmark );
   if( FD_LIKELY( ctx->forks ) ) fd_forks_publish( ctx->forks, wmark, ctx->ghost );
   if( FD_LIKELY( ctx->funk ) ) funk_and_txncache_publish( ctx, wmark, &xid );

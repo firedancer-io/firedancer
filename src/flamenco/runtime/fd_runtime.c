@@ -3544,21 +3544,13 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
   fd_block_info_t block_info;
   int ret = FD_RUNTIME_EXECUTE_SUCCESS;
   do {
-    /* Use the blockhash as the funk xid */
-    fd_funk_txn_xid_t xid;
 
-    int err = fd_blockstore_block_hash_copy( slot_ctx->blockstore, slot, xid.uc, sizeof(fd_funk_txn_xid_t) );
-    if( FD_UNLIKELY( err ) ) {
-      ret = FD_RUNTIME_EXECUTE_GENERIC_ERR;
-      FD_LOG_WARNING(( "missing blockhash for %lu", slot ));
-      break;
-    } else {
-      xid.ul[0] = slot_ctx->slot_bank.slot;
-      /* push a new transaction on the stack */
-      fd_funk_start_write( funk );
-      slot_ctx->funk_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &xid, 1 );
-      fd_funk_end_write( funk );
-    }
+    /* Start a new funk txn. */
+
+    fd_funk_txn_xid_t xid = { .ul = { slot_ctx->slot_bank.slot, slot_ctx->slot_bank.slot } };
+    fd_funk_start_write( funk );
+    slot_ctx->funk_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &xid, 1 );
+    fd_funk_end_write( funk );
 
     if( FD_UNLIKELY( (ret = fd_runtime_block_pre_execute_process_new_epoch( slot_ctx,
                                                                             tpool,

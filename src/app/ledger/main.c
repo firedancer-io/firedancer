@@ -403,13 +403,13 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
         block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
         block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED );
 
-        ulong slot_complete_idx = block_map_entry->slot_complete_idx;
         fd_block_map_publish( query );
 
         /* Remove the old block from the blockstore */
-        for( uint idx = 0; idx <= slot_complete_idx; idx++ ) {
+        /*for( uint idx = 0; idx <= slot_complete_idx; idx++ ) {
           fd_blockstore_shred_remove( blockstore, block_slot, idx );
-        }
+        }*/
+        fd_blockstore_block_allocs_remove( blockstore, block_slot );
         fd_blockstore_slot_remove( blockstore, block_slot );
       }
       /* Mark the new block as replaying */
@@ -423,7 +423,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       block_slot = slot;
     }
 
-    fd_block_t * blk = fd_blockstore_block_query( blockstore, slot ); /* can't be removed atm, populating slot_ctx->block below */
+    fd_block_t * blk = fd_blockstore_block_query( blockstore, slot );
     if( blk == NULL ) {
       FD_LOG_WARNING(( "failed to read slot %lu", slot ));
       continue;
@@ -491,7 +491,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     slot_cnt++;
 
     fd_hash_t expected;
-    int err = fd_blockstore_block_hash_copy( blockstore, slot, expected.hash, 32UL );
+    int err = fd_blockstore_block_hash_query( blockstore, slot, &expected );
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR( ( "slot %lu is missing its hash", slot ) );
     else if( FD_UNLIKELY( 0 != memcmp( ledger_args->slot_ctx->slot_bank.poh.hash, expected.hash, 32UL ) ) ) {
       char expected_hash[ FD_BASE58_ENCODED_32_SZ ];
@@ -525,7 +525,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       }
     }
 
-    err = fd_blockstore_bank_hash_copy( blockstore, slot, &expected );
+    err = fd_blockstore_bank_hash_query( blockstore, slot, &expected );
     if( FD_UNLIKELY( err) ) {
       FD_LOG_ERR(( "slot %lu is missing its bank hash", slot ));
     } else if( FD_UNLIKELY( 0 != memcmp( ledger_args->slot_ctx->slot_bank.banks_hash.hash,

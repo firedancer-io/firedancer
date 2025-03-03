@@ -200,10 +200,7 @@ slot_ctx_restore( ulong                 slot,
   if( !block_exists )
     FD_LOG_ERR( ( "missing block at slot we're trying to restore" ) );
 
-  fd_funk_txn_xid_t xid;
-  int err = fd_blockstore_block_hash_copy( blockstore, slot, xid.uc, sizeof( fd_funk_txn_xid_t ) );
-  if ( FD_UNLIKELY( err ) ) FD_LOG_ERR( ( "failed to read block hash" ) );
-  xid.ul[0]             = slot;
+  fd_funk_txn_xid_t xid        = { .ul = { slot, slot } };
   fd_funk_rec_key_t id  = fd_runtime_slot_bank_key();
   fd_funk_txn_t *   txn = fd_funk_txn_query( &xid, txn_map );
   if( !txn ) {
@@ -234,7 +231,7 @@ slot_ctx_restore( ulong                 slot,
 
   if( FD_LIKELY( magic==FD_RUNTIME_ENC_BINCODE ) ) {
     ulong total_sz = 0UL;
-    err = fd_slot_bank_decode_footprint( &decode_ctx, &total_sz );
+    int err = fd_slot_bank_decode_footprint( &decode_ctx, &total_sz );
     if( FD_UNLIKELY( err != FD_BINCODE_SUCCESS ) ) {
       FD_LOG_ERR( ( "failed to decode banks record" ) );
     }

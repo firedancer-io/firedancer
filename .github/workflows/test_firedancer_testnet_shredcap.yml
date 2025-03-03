@@ -58,11 +58,10 @@ jobs:
       - name: clean up validators, keys, and cluster artifacts
         if: always()
         run: |
-          rm -rf /data/svc_firedancer/shredcap_testnet.blockstore
-          rm -rf /data/svc_firedancer/shredcap_testnet.funk
-          rm -rf fd-identity-keypair.json
-          rm -rf fd-vote-keypair.json
-          rm -rf fd_shredcap.toml
-
-
-
+          sudo rm -rf /data/svc_firedancer/shredcap_testnet.blockstore
+          sudo rm -rf /data/svc_firedancer/shredcap_testnet.funk
+          sudo rm -rf fd-identity-keypair.json
+          sudo rm -rf fd-vote-keypair.json
+          sudo rm -rf fd_shredcap.toml
+          sudo killall fddev || true
+          sudo $OBJDIR/bin/fddev configure fini all || true
