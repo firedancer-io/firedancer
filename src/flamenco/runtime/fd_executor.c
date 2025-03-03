@@ -721,9 +721,6 @@ fd_executor_calculate_fee( fd_exec_txn_ctx_t *txn_ctx,
                           ulong *ret_execution_fee,
                           ulong *ret_priority_fee) {
 
-  // https://github.com/anza-xyz/agave/blob/2e6ca8c1f62db62c1db7f19c9962d4db43d0d550/sdk/src/fee.rs#L82
-  #define ACCOUNT_DATA_COST_PAGE_SIZE fd_ulong_sat_mul(32, 1024)
-
   // https://github.com/firedancer-io/solana/blob/08a1ef5d785fe58af442b791df6c4e83fe2e7c74/runtime/src/bank.rs#L4443
   ulong priority     = 0UL;
   ulong priority_fee = 0UL;
@@ -791,8 +788,6 @@ fd_executor_calculate_fee( fd_exec_txn_ctx_t *txn_ctx,
   } else {
     *ret_priority_fee = priority_fee;
   }
-
-  #undef ACCOUNT_DATA_COST_PAGE_SIZE
 }
 
 static int
