@@ -68,9 +68,9 @@ read: (or (eq (arg 0) drain_output_fd)
 # The monitor uses this syscall by calling tcgetattr and tcsetattr to
 # save the original configuration of the terminal and disable character
 # echo and canonical mode so the input is processed immediatly.
-ioctl
+ioctl: (eq (arg 0) 0)
 
 # monitor: set stdin to be nonblocking
 # The monitor must not be blocked when reading stdin if there is no
 # input from the user. This syscall is used to set the O_NONBLOCK flag.
-fcntl
+fcntl: (eq (arg 0) 0)
