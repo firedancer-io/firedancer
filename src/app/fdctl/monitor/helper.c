@@ -185,7 +185,7 @@ fd_getchar( void ) {
 
   /* Disables character echo and canonical mode since we want the input to be processes immediately.*/
   if( FD_UNLIKELY( 0!=tcgetattr( STDIN_FILENO, &term_old ) ) ) {
-    FD_LOG_ERR(( "tcgetattr failed due to error: %s", strerror( errno ) ));
+    FD_LOG_ERR(( "tcgetattr(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   term_new = term_old;
   term_new.c_lflag &= (tcflag_t)~(ICANON | ECHO); 
