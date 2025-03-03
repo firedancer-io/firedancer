@@ -82,6 +82,11 @@ fd_gui_printf_slot_request( fd_gui_t * gui,
                             ulong      id );
 
 void
+fd_gui_printf_peer_request( fd_gui_t *          gui,
+                            fd_pubkey_t const * pubkey,
+                            ulong               id );
+
+void
 fd_gui_printf_live_tile_timers( fd_gui_t * gui );
 
 void

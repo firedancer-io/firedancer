@@ -796,10 +796,51 @@ account, or validator information published to the config program, but
 all identities will have at least one of these fields reported. Once an
 identity is no longer in these three data sources, it will be removed.
 
+#### `peers.query`
+| frequency   | type           | example |
+|-------------|----------------|---------|
+| *Request*   | `PeerResponse` | below   |
+
+| param  | type       | description |
+|--------|------------|-------------|
+| peer  | `string` | A peer pubkey to request info for |
+
+Initiates a request to the server for `peers.leader_schedule` messages
+for every entry in the current epoch leader schedule.
+
+::: details Example
+
+```json
+{
+    "topic": "peers",
+    "key": "query",
+    "id": 17,
+    "params": {
+        "peer": "Fe4StcZSQ228dKK2hni7aCP7ZprNhj8QKWzFe5usGFYF"
+    }
+}
+```
+
+```json
+{
+    "topic": "slot",
+    "key": "query",
+    "id": 17,
+    "value": {
+        "peer": {
+            "identity_pubkey": "Fe4StcZSQ228dKK2hni7aCP7ZprNhj8QKWzFe5usGFYF",
+            "gossip": { /* ... see below ... */ },
+            "vote": { /* ... see below ... */ },
+            "info": { /* ... see below ... */ }
+        }
+    }
+}
+```
+
 #### `peers.update`
-| frequency      | type         | example     |
-|----------------|--------------|-------------|
-| *Once* + *60s* | `PeerUpdate` | below       |
+| frequency      | type          | example     |
+|----------------|---------------|-------------|
+| *Once* + *60s* | `PeersUpdate` | below       |
 
 ::: details Example
 
@@ -889,9 +930,14 @@ identity is no longer in these three data sources, it will be removed.
 **`PeersUpdate`**
 | Field      | Type   | Description
 |------------|--------|------------
-| add    | `GossipPeerUpdate[]` | List of peer validators that were added since the last update, or all of the peers for the first update after connecting |
-| update | `GossipPeerUpdate[]` | List of peer validators that were changed since the last update |
-| remove | `GossipPeerRemove[]` | List of peer validators that were removed since the last update |
+| add    | `PeerUpdate[]` | List of peer validators that were added since the last update, or all of the peers for the first update after connecting |
+| update | `PeerUpdate[]` | List of peer validators that were changed since the last update |
+| remove | `PeerRemove[]` | List of peer validators that were removed since the last update |
+
+**`PeerResponse`**
+| Field | Type         | Description
+|-------|--------------|------------
+| peer  | `PeerUpdate` | information about the requested peer |
 
 The `gossip.update` message is republished every five seconds, with a
 list of gossip peers added, removed, or updated. The list of peers is

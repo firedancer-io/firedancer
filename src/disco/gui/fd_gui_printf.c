@@ -972,6 +972,21 @@ fd_gui_printf_peers_all( fd_gui_t * gui ) {
   jsonp_close_envelope( gui );
 }
 
+void
+fd_gui_printf_peer_request( fd_gui_t *          gui,
+                            fd_pubkey_t const * pubkey,
+                            ulong               id ) {
+  jsonp_open_envelope( gui, "peers", "query" );
+    jsonp_ulong( gui, "id", id );
+    jsonp_open_object( gui, "value" );
+
+      fd_http_server_printf( gui->http, "\"peer\": ");
+      fd_gui_printf_peer( gui, pubkey->uc );
+
+    jsonp_close_object( gui );
+  jsonp_close_envelope( gui );
+}
+
 static void
 fd_gui_printf_ts_tile_timers( fd_gui_t *                   gui,
                               fd_gui_tile_timers_t const * prev,

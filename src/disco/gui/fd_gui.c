@@ -176,7 +176,8 @@ fd_gui_ws_open( fd_gui_t * gui,
   }
 
   /* Print peers last because it's the largest message and would
-     block other information. */
+     block other information. ... todo ... eventually abolish this and
+     replace with frontend-initiated peer queries */
   fd_gui_printf_peers_all( gui );
   FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
 }
@@ -836,6 +837,25 @@ fd_gui_request_slot( fd_gui_t *    gui,
 }
 
 int
+fd_gui_request_peer( fd_gui_t *    gui,
+                      ulong         ws_conn_id,
+                      ulong         request_id,
+                      cJSON const * params ) {
+  const cJSON * pubkey_param = cJSON_GetObjectItemCaseSensitive( params, "peer" );
+  if( FD_UNLIKELY( !cJSON_IsString( pubkey_param ) ) ) return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+
+  const char * _pubkey_cstr = pubkey_param->valuestring;
+  fd_pubkey_t pubkey;
+  if( FD_UNLIKELY( !fd_base58_decode_32( _pubkey_cstr, pubkey.uc ) ) ) {
+    return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+  }
+
+  fd_gui_printf_peer_request( gui, &pubkey, request_id );
+  FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
+  return 0;
+}
+
+int
 fd_gui_ws_message( fd_gui_t *    gui,
                    ulong         ws_conn_id,
                    uchar const * data,
@@ -883,6 +903,16 @@ fd_gui_ws_message( fd_gui_t *    gui,
 
     cJSON_Delete( json );
     return 0;
+  } else if( FD_LIKELY( !strcmp( topic->valuestring, "peers" ) && !strcmp( key->valuestring, "query" ) ) ) {
+    const cJSON * params = cJSON_GetObjectItemCaseSensitive( json, "params" );
+    if( FD_UNLIKELY( !cJSON_IsObject( params ) ) ) {
+      cJSON_Delete( json );
+      return FD_HTTP_SERVER_CONNECTION_CLOSE_BAD_REQUEST;
+    }
+
+    int result = fd_gui_request_peer( gui, ws_conn_id, id, params );
+    cJSON_Delete( json );
+    return result;
   }
 
   cJSON_Delete( json );
