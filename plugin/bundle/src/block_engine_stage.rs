@@ -377,8 +377,8 @@ fn produce_bundles(
 
                 let (subscribe_bundles_stream, subscribe_packets_stream, block_builder_pubkey, block_builder_commission) = match subscribe_block_engine_bundles_and_packets(&mut client).await {
                     Ok(result) => result,
-                    Err(_) => {
-                        warn!("block engine subscription error");
+                    Err(err) => {
+                        warn!("block engine subscription error: {:?}", err);
                         return Some((None, (Status::DisconnectedNotify, url, domain_name, identity_pubkey)));
                     }
                 };
