@@ -5317,6 +5317,46 @@ typedef struct fd_epoch_info_off fd_epoch_info_off_t;
 #define FD_EPOCH_INFO_OFF_FOOTPRINT sizeof(fd_epoch_info_off_t)
 #define FD_EPOCH_INFO_OFF_ALIGN (8UL)
 
+/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L153-L161 */
+/* Encoded Size: Fixed (48 bytes) */
+struct __attribute__((aligned(8UL))) fd_usage_cost_details {
+  ulong signature_cost;
+  ulong write_lock_cost;
+  ulong data_bytes_cost;
+  ulong programs_execution_cost;
+  ulong loaded_accounts_data_size_cost;
+  ulong allocated_accounts_data_size;
+};
+typedef struct fd_usage_cost_details fd_usage_cost_details_t;
+#define FD_USAGE_COST_DETAILS_FOOTPRINT sizeof(fd_usage_cost_details_t)
+#define FD_USAGE_COST_DETAILS_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_usage_cost_details_off {
+  uint signature_cost_off;
+  uint write_lock_cost_off;
+  uint data_bytes_cost_off;
+  uint programs_execution_cost_off;
+  uint loaded_accounts_data_size_cost_off;
+  uint allocated_accounts_data_size_off;
+};
+typedef struct fd_usage_cost_details_off fd_usage_cost_details_off_t;
+#define FD_USAGE_COST_DETAILS_OFF_FOOTPRINT sizeof(fd_usage_cost_details_off_t)
+#define FD_USAGE_COST_DETAILS_OFF_ALIGN (8UL)
+
+union fd_transaction_cost_inner {
+  fd_usage_cost_details_t transaction;
+};
+typedef union fd_transaction_cost_inner fd_transaction_cost_inner_t;
+
+/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L20-L23 */
+struct fd_transaction_cost {
+  uint discriminant;
+  fd_transaction_cost_inner_t inner;
+};
+typedef struct fd_transaction_cost fd_transaction_cost_t;
+#define FD_TRANSACTION_COST_FOOTPRINT sizeof(fd_transaction_cost_t)
+#define FD_TRANSACTION_COST_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -8754,6 +8794,37 @@ int fd_epoch_info_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong *
 void * fd_epoch_info_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_epoch_info_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 
+void fd_usage_cost_details_new( fd_usage_cost_details_t * self );
+int fd_usage_cost_details_encode( fd_usage_cost_details_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_usage_cost_details_destroy( fd_usage_cost_details_t * self );
+void fd_usage_cost_details_walk( void * w, fd_usage_cost_details_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_usage_cost_details_size( fd_usage_cost_details_t const * self );
+ulong fd_usage_cost_details_footprint( void );
+ulong fd_usage_cost_details_align( void );
+int fd_usage_cost_details_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+int fd_usage_cost_details_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_usage_cost_details_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_usage_cost_details_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+
+void fd_transaction_cost_new_disc( fd_transaction_cost_t * self, uint discriminant );
+void fd_transaction_cost_new( fd_transaction_cost_t * self );
+int fd_transaction_cost_encode( fd_transaction_cost_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_transaction_cost_destroy( fd_transaction_cost_t * self );
+void fd_transaction_cost_walk( void * w, fd_transaction_cost_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_transaction_cost_size( fd_transaction_cost_t const * self );
+ulong fd_transaction_cost_footprint( void );
+ulong fd_transaction_cost_align( void );
+int fd_transaction_cost_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+int fd_transaction_cost_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_transaction_cost_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_transaction_cost_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+
+FD_FN_PURE uchar fd_transaction_cost_is_simple_vote( fd_transaction_cost_t const * self );
+FD_FN_PURE uchar fd_transaction_cost_is_transaction( fd_transaction_cost_t const * self );
+enum {
+fd_transaction_cost_enum_simple_vote = 0,
+fd_transaction_cost_enum_transaction = 1,
+};
 FD_PROTOTYPES_END
 
 #endif // HEADER_FD_RUNTIME_TYPES

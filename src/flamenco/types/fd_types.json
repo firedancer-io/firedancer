@@ -2789,6 +2789,28 @@
         { "name": "vote_states", "type": "map", "element": "vote_info_pair", "key": "account" },
         { "name": "stake_infos_new_keys_start_idx", "type": "ulong" }
       ]
+    },
+    {
+      "name": "usage_cost_details",
+      "type": "struct",
+      "fields": [
+        { "name": "signature_cost", "type": "ulong" },
+        { "name": "write_lock_cost", "type": "ulong" },
+        { "name": "data_bytes_cost", "type": "ulong" },
+        { "name": "programs_execution_cost", "type": "ulong" },
+        { "name": "loaded_accounts_data_size_cost", "type": "ulong" },
+        { "name": "allocated_accounts_data_size", "type": "ulong" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L153-L161"
+    },
+    {
+      "name": "transaction_cost",
+      "type": "enum",
+      "variants": [
+        { "name": "simple_vote" },
+        { "name": "transaction", "type": "usage_cost_details" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L20-L23"
     }
   ]
 }

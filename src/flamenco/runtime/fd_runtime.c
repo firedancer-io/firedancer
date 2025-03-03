@@ -1866,6 +1866,10 @@ fd_runtime_prepare_execute_finalize_txn_task( void * tpool,
                                       task_info,
                                       exec_spad );
 
+  if( FD_FEATURE_ACTIVE( slot_ctx, apply_cost_tracker_during_replay ) ) {
+
+  }
+
   fd_runtime_finalize_txn( slot_ctx, capture_ctx, task_info );
 
   } FD_SPAD_FRAME_END;

@@ -14,9 +14,15 @@ struct __attribute__((aligned(8UL))) fd_cost_tracker {
 	ulong block_cost_limit;
 	ulong vote_cost_limit;
 
-	/* Stats aggregated between blocks */
-	ulong total_executed_units;
-	ulong total_loaded_data_sz;
+	/* Stats aggregated inter-block */
+	ulong block_cost;
+	ulong vote_cost;
+	ulong transaction_count;
+	ulong allocated_accounts_data_size;
+	ulong transaction_signature_count;
+	ulong secp256k1_instruction_signature_count;
+	ulong ed25519_instruction_signature_count;
+	ulong secp256r1_instruction_signature_count;
 };
 typedef struct fd_cost_tracker fd_cost_tracker_t;
 
@@ -24,11 +30,11 @@ typedef struct fd_cost_tracker fd_cost_tracker_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* Modelled after `CostModel::calculate_cost_for_executed_transaction()` and `TransactionCost::sum()` in Agave.
-   Used to compute the transaction cost (in CUs) for a given transaction.
+/* Modeled after `CostModel::calculate_cost_for_executed_transaction()`.
+   Used to compute transaction cost information for executed transactions.
 
    https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L69-L95 */
-FD_FN_PURE ulong
+fd_transaction_cost_t
 fd_calculate_cost_for_executed_transaction( fd_exec_txn_ctx_t const * txn_ctx,
 																					  fd_spad_t * 							spad );
 

@@ -27916,6 +27916,230 @@ ulong fd_epoch_info_size( fd_epoch_info_t const * self ) {
   return size;
 }
 
+int fd_usage_cost_details_encode( fd_usage_cost_details_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->signature_cost, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->write_lock_cost, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->data_bytes_cost, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->programs_execution_cost, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->loaded_accounts_data_size_cost, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->allocated_accounts_data_size, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_usage_cost_details_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_usage_cost_details_t);
+  void const * start_data = ctx->data;
+  int err = fd_usage_cost_details_decode_footprint_inner( ctx, total_sz );
+  ctx->data = start_data;
+  return err;
+}
+int fd_usage_cost_details_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  int err = 0;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return 0;
+}
+void * fd_usage_cost_details_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_usage_cost_details_t * self = (fd_usage_cost_details_t *)mem;
+  fd_usage_cost_details_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_usage_cost_details_t);
+  void * * alloc_mem = &alloc_region;
+  fd_usage_cost_details_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_usage_cost_details_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_usage_cost_details_t * self = (fd_usage_cost_details_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->signature_cost, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->write_lock_cost, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->data_bytes_cost, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->programs_execution_cost, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->loaded_accounts_data_size_cost, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->allocated_accounts_data_size, ctx );
+}
+void fd_usage_cost_details_new(fd_usage_cost_details_t * self) {
+  fd_memset( self, 0, sizeof(fd_usage_cost_details_t) );
+}
+void fd_usage_cost_details_destroy( fd_usage_cost_details_t * self ) {
+}
+
+ulong fd_usage_cost_details_footprint( void ){ return FD_USAGE_COST_DETAILS_FOOTPRINT; }
+ulong fd_usage_cost_details_align( void ){ return FD_USAGE_COST_DETAILS_ALIGN; }
+
+void fd_usage_cost_details_walk( void * w, fd_usage_cost_details_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_usage_cost_details", level++ );
+  fun( w, &self->signature_cost, "signature_cost", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->write_lock_cost, "write_lock_cost", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->data_bytes_cost, "data_bytes_cost", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->programs_execution_cost, "programs_execution_cost", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->loaded_accounts_data_size_cost, "loaded_accounts_data_size_cost", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->allocated_accounts_data_size, "allocated_accounts_data_size", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_usage_cost_details", level-- );
+}
+ulong fd_usage_cost_details_size( fd_usage_cost_details_t const * self ) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  return size;
+}
+
+FD_FN_PURE uchar fd_transaction_cost_is_simple_vote(fd_transaction_cost_t const * self) {
+  return self->discriminant == 0;
+}
+FD_FN_PURE uchar fd_transaction_cost_is_transaction(fd_transaction_cost_t const * self) {
+  return self->discriminant == 1;
+}
+void fd_transaction_cost_inner_new( fd_transaction_cost_inner_t * self, uint discriminant );
+int fd_transaction_cost_inner_decode_footprint( uint discriminant, fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 1: {
+    err = fd_usage_cost_details_decode_footprint_inner( ctx, total_sz );
+    if( FD_UNLIKELY( err ) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  default: return FD_BINCODE_ERR_ENCODING;
+  }
+}
+int fd_transaction_cost_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_transaction_cost_t);
+  void const * start_data = ctx->data;
+  int err =  fd_transaction_cost_decode_footprint_inner( ctx, total_sz );
+  ctx->data = start_data;
+  return err;
+}
+int fd_transaction_cost_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  uint discriminant = 0;
+  int err = fd_bincode_uint32_decode( &discriminant, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return fd_transaction_cost_inner_decode_footprint( discriminant, ctx, total_sz );
+}
+void fd_transaction_cost_inner_decode_inner( fd_transaction_cost_inner_t * self, void * * alloc_mem, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
+  switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    fd_usage_cost_details_decode_inner( &self->transaction, alloc_mem, ctx );
+    break;
+  }
+  }
+}
+void fd_transaction_cost_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_transaction_cost_t * self = (fd_transaction_cost_t *)struct_mem; /* #goated */
+  fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
+  fd_transaction_cost_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
+}
+void * fd_transaction_cost_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_transaction_cost_t * self = (fd_transaction_cost_t *)mem;
+  fd_transaction_cost_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_transaction_cost_t);
+  void * * alloc_mem = &alloc_region; /* #goated */
+  fd_transaction_cost_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_transaction_cost_inner_new( fd_transaction_cost_inner_t * self, uint discriminant ) {
+  switch( discriminant ) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    fd_usage_cost_details_new( &self->transaction );
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_transaction_cost_new_disc( fd_transaction_cost_t * self, uint discriminant ) {
+  self->discriminant = discriminant;
+  fd_transaction_cost_inner_new( &self->inner, self->discriminant );
+}
+void fd_transaction_cost_new( fd_transaction_cost_t * self ) {
+  fd_memset( self, 0, sizeof(fd_transaction_cost_t) );
+  fd_transaction_cost_new_disc( self, UINT_MAX );
+}
+void fd_transaction_cost_inner_destroy( fd_transaction_cost_inner_t * self, uint discriminant ) {
+  switch( discriminant ) {
+  case 1: {
+    fd_usage_cost_details_destroy( &self->transaction );
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type" ));
+  }
+}
+void fd_transaction_cost_destroy( fd_transaction_cost_t * self ) {
+  fd_transaction_cost_inner_destroy( &self->inner, self->discriminant );
+}
+
+ulong fd_transaction_cost_footprint( void ){ return FD_TRANSACTION_COST_FOOTPRINT; }
+ulong fd_transaction_cost_align( void ){ return FD_TRANSACTION_COST_ALIGN; }
+
+void fd_transaction_cost_walk( void * w, fd_transaction_cost_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_transaction_cost", level++);
+  switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "simple_vote", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 1: {
+    fun( w, self, "transaction", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    fd_usage_cost_details_walk( w, &self->inner.transaction, fun, "transaction", level );
+    break;
+  }
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_transaction_cost", level-- );
+}
+ulong fd_transaction_cost_size( fd_transaction_cost_t const * self ) {
+  ulong size = 0;
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  case 1: {
+    size += fd_usage_cost_details_size( &self->inner.transaction );
+    break;
+  }
+  }
+  return size;
+}
+
+int fd_transaction_cost_inner_encode( fd_transaction_cost_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  switch (discriminant) {
+  case 1: {
+    err = fd_usage_cost_details_encode( &self->transaction, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_transaction_cost_encode( fd_transaction_cost_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err = fd_bincode_uint32_encode( self->discriminant, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return fd_transaction_cost_inner_encode( &self->inner, self->discriminant, ctx );
+}
+
 #define REDBLK_T fd_hash_hash_age_pair_t_mapnode_t
 #define REDBLK_NAME fd_hash_hash_age_pair_t_map
 #define REDBLK_IMPL_STYLE 2
