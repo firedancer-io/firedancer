@@ -324,6 +324,8 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   fd_memset( borrowed_accts, 0, test_ctx->accounts_count * sizeof(fd_borrowed_account_t) );
   txn_ctx->accounts_cnt = test_ctx->accounts_count;
 
+  int has_program_id = 0;
+
   for( ulong j=0UL; j < test_ctx->accounts_count; j++ ) {
     memcpy(  &(txn_ctx->accounts[j]), test_ctx->accounts[j].address, sizeof(fd_pubkey_t) );
     if( !_load_account( &borrowed_accts[j], acc_mgr, funk_txn, &test_ctx->accounts[j] ) ) {
@@ -337,6 +339,25 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
       borrowed_accts[j].const_meta = (fd_account_meta_t*)data;
       borrowed_accts[j].const_data = data + sizeof(fd_account_meta_t);
     }
+
+    if( !memcmp( borrowed_accts[j].pubkey, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
+      has_program_id = 1;
+      info->program_id = (uchar)txn_ctx->accounts_cnt;
+    }
+  }
+
+  /* If the program id is not in the set of accounts it must be added to the set of accounts. */
+  if( FD_UNLIKELY( !has_program_id ) ) {
+    fd_borrowed_account_t * program_acc = &borrowed_accts[ test_ctx->accounts_count ];
+    fd_pubkey_t *           program_key = &txn_ctx->accounts[ txn_ctx->accounts_cnt ];
+    fd_borrowed_account_init( program_acc );
+    memcpy( program_key, test_ctx->program_id, sizeof(fd_pubkey_t) );
+    memcpy( program_acc->pubkey, test_ctx->program_id, sizeof(fd_pubkey_t) );
+    program_acc->meta = fd_spad_alloc( txn_ctx->spad, alignof(fd_account_meta_t*), sizeof(fd_account_meta_t*) );
+    program_acc->const_meta = program_acc->meta;
+    fd_account_meta_init( program_acc->meta );
+    info->program_id = (uchar)txn_ctx->accounts_cnt;
+    txn_ctx->accounts_cnt++;
   }
 
   /* Load in executable accounts */
