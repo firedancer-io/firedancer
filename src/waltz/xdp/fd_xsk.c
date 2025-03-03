@@ -79,7 +79,7 @@ fd_xsk_mmap_ring( fd_xdp_ring_t * ring,
    space and zeroes fd_ring_desc_t. */
 static void
 fd_xsk_munmap_ring( fd_xdp_ring_t * ring,
-                    long             map_off ) {
+                    long            map_off ) {
   if( FD_UNLIKELY( !ring->mem ) ) return;
 
   void * mem = ring->mem;

@@ -1158,6 +1158,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   for( uint j=0U; j<2U; j++ ) {
+    ctx->tx_flusher[ j ].pending_cnt           = 0UL;
     ctx->tx_flusher[ j ].pending_wmark         = (ulong)( (double)tile->net.xdp_tx_queue_size * 0.7 );
     ctx->tx_flusher[ j ].tail_flush_backoff    = (long)( (double)tile->net.tx_flush_timeout_ns * fd_tempo_tick_per_ns( NULL ) );
     ctx->tx_flusher[ j ].next_tail_flush_ticks = LONG_MAX;
