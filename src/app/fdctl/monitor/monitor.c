@@ -560,7 +560,7 @@ monitor_cmd_fn( args_t *         args,
   if( FD_UNLIKELY( sigaction( SIGINT, &sa, NULL ) ) )
     FD_LOG_ERR(( "sigaction(SIGINT) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  int allow_fds[ 5];
+  int allow_fds[ 5 ];
   ulong allow_fds_cnt = 0;
   allow_fds[ allow_fds_cnt++ ] = 0; /* stdin */
   allow_fds[ allow_fds_cnt++ ] = 1; /* stdout */

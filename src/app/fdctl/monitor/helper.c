@@ -190,29 +190,29 @@ fd_getchar( void ) {
   term_new = term_old;
   term_new.c_lflag &= (tcflag_t)~(ICANON | ECHO); 
   if( FD_UNLIKELY( 0!=tcsetattr( STDIN_FILENO, TCSANOW, &term_new ) ) ) {
-    FD_LOG_WARNING(( "tcsetattr failed due to error: %s", strerror( errno ) ));
+    FD_LOG_WARNING(( "tcsetattr(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   /* Terminal also set to non blocking in case the user doesn't send any input. */
   int terminal_flag = fcntl( STDIN_FILENO, F_GETFL, 0 );
   if( FD_UNLIKELY( -1==terminal_flag ) ) { 
-    FD_LOG_ERR(( "fcntl get flag failed due to error: %s", strerror( errno ) ));
+    FD_LOG_ERR(( "fcntl(STDIN_FILENO,F_GETFL) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   if( FD_UNLIKELY( -1==fcntl(STDIN_FILENO, F_SETFL, terminal_flag | O_NONBLOCK ) ) ) {
-    FD_LOG_ERR(( "fcntl set flag failed due to error: %s", strerror( errno ) )); 
+    FD_LOG_ERR(( "fcntl(STDIN_FILENO,F_SETFL) failed (%i-%s)", errno, fd_io_strerror( errno ) )); 
   }
-  int bytes = (int)read( STDIN_FILENO, ch, 1 );
+  long bytes = read( STDIN_FILENO, ch, 1 );
 
   /* Check if the read was not successfull, lack of input and being set to non blocking would result in EAGAIN(11) */
-  if( FD_UNLIKELY( -1==bytes && 11 != errno ) ) {
-    FD_LOG_ERR(( "fd_getchar read failed due to error: %s",strerror(errno) ));
+  if( FD_UNLIKELY( -1==bytes && errno!=EAGAIN ) ) {
+    FD_LOG_ERR(( "read(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   /* Set the terminal back to the original configuration */
   if( FD_UNLIKELY( 0!=tcsetattr( STDIN_FILENO, TCSANOW, &term_old ) ) ) {
-    FD_LOG_WARNING(( "tcsetattr failed due to error: %s",strerror( errno ) ));
+    FD_LOG_WARNING(( "tcsetattr(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   if( FD_UNLIKELY( -1==fcntl( STDIN_FILENO, F_SETFL, terminal_flag ) ) ) {
-    FD_LOG_ERR(( "fcntl set flag failed due to error: %s", strerror( errno ) ));
+    FD_LOG_ERR(( "fcntl(STDIN_FILENO, F_SETFL) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   
   return (int)*ch;
