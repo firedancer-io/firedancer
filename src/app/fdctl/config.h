@@ -339,6 +339,11 @@ struct fdctl_config {
     } batch;
 
   } tiles;
+
+  struct {
+    int always_enabled;
+    char config_path[ PATH_MAX ];
+  } geyser;
 };
 
 typedef struct fdctl_config config_t;

@@ -1,0 +1,21 @@
+diff --cc src/app/fdctl/config.h
+index f24eb1ea7,093940e41..000000000
+--- a/src/app/fdctl/config.h
++++ b/src/app/fdctl/config.h
+@@@ -339,9 -319,12 +339,14 @@@ struct fdctl_config 
+      } batch;
+  
+    } tiles;
++ 
+ -  struct {
+++    struct {
++     int always_enabled;
++     char config_path[ PATH_MAX ];
++   } geyser;
+ -} config_t;
+ +};
+ +
+ +typedef struct fdctl_config config_t;
+  
+  FD_PROTOTYPES_BEGIN
+  
