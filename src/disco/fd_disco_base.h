@@ -107,7 +107,7 @@ FD_FN_CONST static inline ulong fd_disco_bank_sig_slot( ulong sig ) { return (si
 FD_FN_CONST static inline ulong fd_disco_bank_sig_microblock_idx( ulong sig ) { return sig & 0xFFFFFFFFUL; }
 
 FD_FN_CONST static inline ulong
-fd_disco_replay_sig( ulong slot,
+fd_disco_replay_old_sig( ulong slot,
                      ulong flags ) {
    /* The low byte of the signature field is the flags for replay message.
       The higher 7 bytes are the slot number.  These flags indicate the status
@@ -118,8 +118,31 @@ fd_disco_replay_sig( ulong slot,
   return (slot << 8) | (flags & 0xFFUL);
 }
 
-FD_FN_CONST static inline ulong fd_disco_replay_sig_flags( ulong sig ) { return (sig & 0xFFUL); }
-FD_FN_CONST static inline ulong fd_disco_replay_sig_slot( ulong sig ) { return (sig >> 8); }
+FD_FN_CONST static inline ulong fd_disco_replay_old_sig_flags( ulong sig ) { return (sig & 0xFFUL); }
+FD_FN_CONST static inline ulong fd_disco_replay_old_sig_slot( ulong sig ) { return (sig >> 8); }
+
+FD_FN_CONST static inline ulong
+fd_disco_replay_sig( ulong  slot,
+                    ushort parent_off,
+                    uint   fec_idx,
+                    uchar  shred_flags,
+                    int    is_turbine ) {
+  /*
+     |  32 LSB of slot  | 8 LSB of parent_off | 15 LSB of fec_idx | 8 bits of data flags | 1 bit turbine/repair flag |
+     | slot[32:63]      | parent_off[24:31]   | shred_idx[9:23]     | shred_flags[8:1]     | is_turbine[0:0]           |
+   */
+  return ((slot & 0xFFFFFFFF) << 32 )
+         | ((ulong)(fd_ushort_min( parent_off, 255 ) & 0xFF) << 24 )
+         | ((ulong)(fec_idx & 0x7FFF) << 9 )
+         | ((ulong)shred_flags << 8 )
+         | ( is_turbine ? 1UL : 0UL );
+}
+
+FD_FN_CONST static inline ulong  fd_disco_replay_sig_slot( ulong sig ) { return (sig >> 32); }
+FD_FN_CONST static inline ushort fd_disco_replay_sig_parent_off( ulong sig ) { return (sig >> 24) & 0xFF; }
+FD_FN_CONST static inline uint   fd_disco_replay_sig_fec_idx( ulong sig ) { return (sig >> 9) & 0x7FFUL; }
+FD_FN_CONST static inline uchar  fd_disco_replay_sig_flags( ulong sig ) { return ( sig >> 1 ) & 0xFFUL; }
+FD_FN_CONST static inline int    fd_disco_replay_sig_is_turbine( ulong sig ) { return (int)(sig & 1UL); }
 
 FD_FN_PURE static inline ulong
 fd_disco_compact_chunk0( void * wksp ) {
