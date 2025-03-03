@@ -178,7 +178,7 @@ printf_pct( char ** buf,
 }
 
 int
-fd_getchar() {
+fd_getchar( void ) {
 
   struct termios term_old, term_new;
   int ch[1] = {0};
