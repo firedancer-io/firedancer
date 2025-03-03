@@ -1,4 +1,4 @@
-/* The net tile translates between AF_XDP and fd_tango
+/* The xdp tile translates between AF_XDP and fd_tango
    traffic.  It is responsible for setting up the XDP and
    XSK socket configuration. */
 
@@ -8,20 +8,20 @@
 #include <sys/socket.h> /* MSG_DONTWAIT needed before importing the net seccomp filter */
 #include <linux/if_xdp.h>
 
-#include "../metrics/fd_metrics.h"
-#include "../netlink/fd_netlink_tile.h" /* neigh4_solicit */
-#include "../topo/fd_topo.h"
+#include "../../metrics/fd_metrics.h"
+#include "../../netlink/fd_netlink_tile.h" /* neigh4_solicit */
+#include "../../topo/fd_topo.h"
 
-#include "../../waltz/ip/fd_fib4.h"
-#include "../../waltz/neigh/fd_neigh4_map.h"
-#include "../../waltz/xdp/fd_xdp_redirect_user.h" /* fd_xsk_activate */
-#include "../../waltz/xdp/fd_xsk.h"
-#include "../../util/log/fd_dtrace.h"
+#include "../../../waltz/ip/fd_fib4.h"
+#include "../../../waltz/neigh/fd_neigh4_map.h"
+#include "../../../waltz/xdp/fd_xdp_redirect_user.h" /* fd_xsk_activate */
+#include "../../../waltz/xdp/fd_xsk.h"
+#include "../../../util/log/fd_dtrace.h"
 
 #include <unistd.h>
 #include <linux/unistd.h>
 
-#include "generated/net_seccomp.h"
+#include "generated/xdp_seccomp.h"
 
 /* MAX_NET_INS controls the max number of TX links that a net tile can
    serve. */
@@ -1214,8 +1214,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
      two "allow" FD arguments to the net policy, so we just make them both the same. */
   int allow_fd2 = ctx->xsk_cnt>1UL ? ctx->xsk[ 1 ].xsk_fd : ctx->xsk[ 0 ].xsk_fd;
   FD_TEST( ctx->xsk[ 0 ].xsk_fd >= 0 && allow_fd2 >= 0 );
-  populate_sock_filter_policy_net( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->xsk[ 0 ].xsk_fd, (uint)allow_fd2 );
-  return sock_filter_policy_net_instr_cnt;
+  populate_sock_filter_policy_xdp( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->xsk[ 0 ].xsk_fd, (uint)allow_fd2 );
+  return sock_filter_policy_xdp_instr_cnt;
 }
 
 static ulong
@@ -1255,7 +1255,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 
-#include "../stem/fd_stem.c"
+#include "../../stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_net = {
   .name                     = "net",
