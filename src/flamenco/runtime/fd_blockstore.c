@@ -275,7 +275,7 @@ fd_blockstore_init( fd_blockstore_t * blockstore, int fd, ulong fd_size_max, fd_
                                        FD_BLOCK_FLAG_EQVOCSAFE ),
                                        FD_BLOCK_FLAG_CONFIRMED ),
                                        FD_BLOCK_FLAG_FINALIZED );
-  ele->reference_tick = 0;
+  // ele->ref_tick = 0;
   ele->ts             = 0;
   ele->consumed_idx   = 0;
   ele->received_idx   = 0;
@@ -562,8 +562,8 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
     block_map_entry->bank_hash      = ( fd_hash_t ){ 0 };
     block_map_entry->flags          = fd_uchar_set_bit( 0, FD_BLOCK_FLAG_RECEIVING );
     block_map_entry->ts             = 0;
-    block_map_entry->reference_tick = (uchar)( (int)shred->data.flags &
-                                               (int)FD_SHRED_DATA_REF_TICK_MASK );
+    // block_map_entry->ref_tick = (uchar)( (int)shred->data.flags &
+                                              //  (int)FD_SHRED_DATA_REF_TICK_MASK );
     block_map_entry->buffered_idx   = UINT_MAX;
     block_map_entry->received_idx   = 0;
     block_map_entry->consumed_idx   = UINT_MAX;

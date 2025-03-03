@@ -1616,6 +1616,8 @@ after_frag( fd_replay_tile_ctx_t * ctx,
   (void)sz;
   (void)seq;
 
+  if( FD_UNLIKELY( ctx->skip_frag ) ) return;
+
   /**********************************************************************/
   /* Handle gossip messages for wen-restart                             */
   /**********************************************************************/
@@ -1642,7 +1644,6 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     return;
   }
 
-  if( FD_UNLIKELY( ctx->skip_frag ) ) return;
   if( FD_UNLIKELY( in_idx == STORE_IN_IDX ) ) {
 
     /* Execute microblock batches as they are received from the blockstore.
@@ -1797,7 +1798,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     /* Call fd_runtime_block_execute_finalize_tpool which updates sysvar and cleanup some other stuff */
     /**************************************************************************************************/
 
-    fd_block_info_t block_info[1];
+    fd_runtime_block_info_t block_info[1];
     block_info->signature_cnt = fork->slot_ctx.signature_cnt;
 
     /* Destroy the slot history */
@@ -2324,7 +2325,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
     }
 
     FD_TEST( fd_runtime_block_execute_prepare( ctx->slot_ctx, ctx->runtime_spad ) == 0 );
-    fd_block_info_t info = {.signature_cnt = 0 };
+    fd_runtime_block_info_t info = {.signature_cnt = 0 };
     FD_TEST( fd_runtime_block_execute_finalize_tpool( ctx->slot_ctx,
                                                       NULL,
                                                       &info,

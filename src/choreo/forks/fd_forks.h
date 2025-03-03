@@ -17,6 +17,9 @@
 
 struct fd_fork {
   ulong slot; /* the fork head and frontier key */
+  uchar tick; /* the reference tick of the most recently replayed block
+                 slice. This is a monotonically increasing value for a
+                 given slot. */
   ulong next; /* reserved for use by fd_pool and fd_map_chain */
   ulong prev; /* reserved for use by fd_forks_publish */
   int   lock; /* IMPORTANT SAFETY TIP! lock is a boolean indicating

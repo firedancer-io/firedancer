@@ -238,6 +238,21 @@ struct fd_block_rewards {
 };
 typedef struct fd_block_rewards fd_block_rewards_t;
 
+#define SET_NAME fd_fec_idxs
+#define SET_MAX  67
+#include "../../util/tmpl/fd_set.c"
+
+struct fd_fec_info {
+  ulong         key;       /* 32 msb = slot, 32 lsb = idx  */
+  ulong         slot;      /* slot for this block */
+  uint          idx;       /* fec set idx */
+  fd_fec_idxs_t idxs;      /* bit vec of received data shred idxs in the FEC set */
+  ulong         data_cnt;  /* cnt of total data shreds */
+  ulong         code_cnt;  /*  shreds */
+  int           completes; /* whether this FEC set completes the entry batch */
+};
+typedef struct fd_fec_info fd_fec_info_t;
+
 /* Remaining bits [4, 8) are reserved.
 
    To avoid confusion, please use `fd_bits.h` API
@@ -265,7 +280,6 @@ struct fd_block_meta {
   fd_hash_t merkle_hash;    /* the last FEC set's merkle hash */
   ulong     fec_cnt;        /* the number of FEC sets in the slot */
   uchar     flags;
-  uchar     reference_tick; /* the tick when the leader prepared the block. */
   long      ts;             /* the wallclock time when we finished receiving the block. */
 
   /* Windowing
@@ -319,9 +333,9 @@ typedef struct fd_block_meta fd_block_meta_t;
 #undef FD_MAP_ERR_KEY
 #undef FD_MAP_FLAG_BLOCKING
 
-#define MAP_NAME        fd_block_map
-#define MAP_ELE_T       fd_block_meta_t
-#define MAP_KEY         slot
+#define MAP_NAME                  fd_block_map
+#define MAP_ELE_T                 fd_block_meta_t
+#define MAP_KEY                   slot
 #define MAP_ELE_IS_FREE(ctx, ele) ((ele)->slot == 0)
 #define MAP_ELE_FREE(ctx, ele)    ((ele)->slot = 0)
 #define MAP_KEY_HASH(key, seed)   (void)(seed), (*(key))
