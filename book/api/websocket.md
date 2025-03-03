@@ -513,6 +513,7 @@ tranasactions per second.
         "next_leader_slot": 285228774,
         "waterfall": {
             "in": {
+                "pack_cranked": 1,
                 "pack_retained": 2011,
                 "resolv_retained": 13,
                 "quic": 66767,
@@ -1049,6 +1050,7 @@ new validator identity.
         },
         "waterfall": {
             "in": {
+                "pack_cranked": 1,
                 "pack_retained": 0,
                 "resolv_retained": 0,
                 "quic": 28159,
@@ -1161,6 +1163,7 @@ new validator identity.
 **`TxnWaterfallIn`**
 | Field           | Type     | Description |
 |-----------------|----------|-------------|
+| pack_cranked    | `number` | Transactions were created by pack as part of an initializer bundle. Initializer bundles are special bundles created by pack that manage block engine state on the chain. They contain crank transactions, which create and update tip distribution accounts. There is typically one crank transaction per leader rotation. |
 | pack_retained   | `number` | Transactions were received during or prior to an earlier leader slot, but weren't executed because they weren't a high enough priority, and were retained inside the validator to potentially be included in a later slot |
 | resolv_retained | `number` | Transactions were received during or prior to an earlier leader slot, but weren't executed because we did not know the blockhash they referenced. They were instead kept in a holding area in case we learn the blockhash later |
 | quic            | `number` | A QUIC transaction was received. The stream does not have to successfully complete |
