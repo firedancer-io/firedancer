@@ -28294,6 +28294,136 @@ ulong fd_account_costs_size( fd_account_costs_t const * self ) {
   return size;
 }
 
+int fd_cost_tracker_encode( fd_cost_tracker_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->account_cost_limit, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->block_cost_limit, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->vote_cost_limit, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_account_costs_encode( &self->cost_by_writable_accounts, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->block_cost, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->vote_cost, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->transaction_count, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->allocated_accounts_data_size, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->transaction_signature_count, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->secp256k1_instruction_signature_count, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->ed25519_instruction_signature_count, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->secp256r1_instruction_signature_count, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_cost_tracker_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_cost_tracker_t);
+  void const * start_data = ctx->data;
+  int err = fd_cost_tracker_decode_footprint_inner( ctx, total_sz );
+  ctx->data = start_data;
+  return err;
+}
+int fd_cost_tracker_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  int err = 0;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_account_costs_decode_footprint_inner( ctx, total_sz );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return 0;
+}
+void * fd_cost_tracker_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_cost_tracker_t * self = (fd_cost_tracker_t *)mem;
+  fd_cost_tracker_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_cost_tracker_t);
+  void * * alloc_mem = &alloc_region;
+  fd_cost_tracker_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_cost_tracker_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_cost_tracker_t * self = (fd_cost_tracker_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->account_cost_limit, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->block_cost_limit, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->vote_cost_limit, ctx );
+  fd_account_costs_decode_inner( &self->cost_by_writable_accounts, alloc_mem, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->block_cost, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->vote_cost, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->transaction_count, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->allocated_accounts_data_size, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->transaction_signature_count, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->secp256k1_instruction_signature_count, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->ed25519_instruction_signature_count, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->secp256r1_instruction_signature_count, ctx );
+}
+void fd_cost_tracker_new(fd_cost_tracker_t * self) {
+  fd_memset( self, 0, sizeof(fd_cost_tracker_t) );
+  fd_account_costs_new( &self->cost_by_writable_accounts );
+}
+void fd_cost_tracker_destroy( fd_cost_tracker_t * self ) {
+  fd_account_costs_destroy( &self->cost_by_writable_accounts );
+}
+
+ulong fd_cost_tracker_footprint( void ){ return FD_COST_TRACKER_FOOTPRINT; }
+ulong fd_cost_tracker_align( void ){ return FD_COST_TRACKER_ALIGN; }
+
+void fd_cost_tracker_walk( void * w, fd_cost_tracker_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_cost_tracker", level++ );
+  fun( w, &self->account_cost_limit, "account_cost_limit", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->block_cost_limit, "block_cost_limit", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->vote_cost_limit, "vote_cost_limit", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fd_account_costs_walk( w, &self->cost_by_writable_accounts, fun, "cost_by_writable_accounts", level );
+  fun( w, &self->block_cost, "block_cost", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->vote_cost, "vote_cost", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->transaction_count, "transaction_count", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->allocated_accounts_data_size, "allocated_accounts_data_size", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->transaction_signature_count, "transaction_signature_count", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->secp256k1_instruction_signature_count, "secp256k1_instruction_signature_count", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->ed25519_instruction_signature_count, "ed25519_instruction_signature_count", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->secp256r1_instruction_signature_count, "secp256r1_instruction_signature_count", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_cost_tracker", level-- );
+}
+ulong fd_cost_tracker_size( fd_cost_tracker_t const * self ) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += fd_account_costs_size( &self->cost_by_writable_accounts );
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  return size;
+}
+
 #define REDBLK_T fd_hash_hash_age_pair_t_mapnode_t
 #define REDBLK_NAME fd_hash_hash_age_pair_t_map
 #define REDBLK_IMPL_STYLE 2

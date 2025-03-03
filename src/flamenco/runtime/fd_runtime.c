@@ -1398,9 +1398,6 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
   slot_ctx->nonvote_failed_txn_count           = 0UL;
   slot_ctx->total_compute_units_used           = 0UL;
 
-  /* Reset the cost tracker */
-  fd_cost_tracker_reset( slot_ctx->cost_tracker, slot_ctx, runtime_spad );
-
   fd_funk_start_write( slot_ctx->acc_mgr->funk );
   int result = fd_runtime_block_sysvar_update_pre_execute( slot_ctx, runtime_spad );
   fd_funk_end_write( slot_ctx->acc_mgr->funk );
@@ -1921,9 +1918,14 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
     txns[i].flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
   }
 
-  fd_execute_txn_task_info_t * task_infos = fd_spad_alloc( runtime_spad,
-                                                           alignof(fd_execute_txn_task_info_t),
-                                                           txn_cnt * sizeof(fd_execute_txn_task_info_t) );
+  fd_execute_txn_task_info_t * task_infos   = fd_spad_alloc( runtime_spad,
+                                                             alignof(fd_execute_txn_task_info_t),
+                                                             txn_cnt * sizeof(fd_execute_txn_task_info_t) );
+  fd_cost_tracker_t *          cost_tracker = fd_spad_alloc( runtime_spad,
+                                                             FD_COST_TRACKER_ALIGN,
+                                                             FD_COST_TRACKER_FOOTPRINT );
+  fd_cost_tracker_init( cost_tracker, slot_ctx, runtime_spad );
+
 
   ulong curr_exec_idx = 0UL;
   while( curr_exec_idx<txn_cnt ) {
@@ -1976,7 +1978,7 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
                                                                                                  runtime_spad );
 
         /* https://github.com/anza-xyz/agave/blob/v2.2.0/ledger/src/blockstore_processor.rs#L302-L307 */
-        res |= fd_cost_tracker_try_add( &slot_ctx->cost_tracker, txn_ctx, &transaction_cost );
+        res |= fd_cost_tracker_try_add( cost_tracker, txn_ctx, &transaction_cost );
         if( FD_UNLIKELY( res ) ) break;
       }
     }

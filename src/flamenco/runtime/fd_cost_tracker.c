@@ -179,7 +179,7 @@ calculate_non_vote_transaction_cost( fd_exec_txn_ctx_t const * txn_ctx,
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L26-L42 */
-FD_FN_PURE static inline int
+FD_FN_PURE static inline ulong
 transaction_cost_sum( fd_transaction_cost_t const * self ) {
 	switch( self->discriminant ) {
 		case fd_transaction_cost_enum_simple_vote: {
@@ -328,45 +328,19 @@ add_transaction_cost( fd_cost_tracker_t *           self,
 
 /** PUBLIC FUNCTIONS ***/
 
-fd_cost_tracker_t *
-fd_cost_tracker_new( void *      mem,
-                     fd_spad_t * runtime_spad ) {
-	if( FD_UNLIKELY( !mem ) ) {
-		FD_LOG_WARNING(( "NULL mem" ));
-		return NULL;
-	}
-
-	fd_cost_tracker_t * cost_tracker = (fd_cost_tracker_t *)mem;
-	fd_memset( cost_tracker, 0, sizeof(fd_cost_tracker_t) );
-
-	cost_tracker->cost_by_writable_accounts.account_costs_root = NULL;
-	cost_tracker->cost_by_writable_accounts.account_costs_pool = fd_account_costs_pair_t_map_alloc( fd_spad_virtual( runtime_spad ),
-																																																	WRITABLE_ACCOUNTS_PER_BLOCK );
-	if( FD_UNLIKELY( !cost_tracker->cost_by_writable_accounts.account_costs_pool ) ) {
-		FD_LOG_ERR(( "Unable to allocate memory for account costs pool" ));
-		return NULL;
-	}
-
-	FD_COMPILER_MFENCE();
-	cost_tracker->magic = FD_COST_TRACKER_MAGIC;
-	FD_COMPILER_MFENCE();
-
-	return cost_tracker;
-}
-
 void
-fd_cost_tracker_reset( fd_cost_tracker_t *  		  self,
-											 fd_exec_slot_ctx_t const * slot_ctx,
-											 fd_spad_t * 				  		  spad ) {
+fd_cost_tracker_init( fd_cost_tracker_t *  		   self,
+											fd_exec_slot_ctx_t const * slot_ctx,
+											fd_spad_t * 				  		 spad ) {
   // Set limits appropriately
 	self->account_cost_limit = MAX_WRITABLE_ACCOUNT_UNITS;
 	self->block_cost_limit   = FD_FEATURE_ACTIVE( slot_ctx, raise_block_limits_to_50m ) ? MAX_BLOCK_UNITS_SIMD_0207 : MAX_BLOCK_UNITS;
 	self->vote_cost_limit    = MAX_VOTE_UNITS;
 
-	// Reset account costs map
-	fd_account_costs_pair_t_map_release_tree( self->cost_by_writable_accounts.account_costs_pool,
-																						self->cost_by_writable_accounts.account_costs_root );
+	// Init cost tracker map
 	self->cost_by_writable_accounts.account_costs_root = NULL;
+	self->cost_by_writable_accounts.account_costs_pool = fd_account_costs_pair_t_map_alloc( fd_spad_virtual( spad ),
+																																													WRITABLE_ACCOUNTS_PER_BLOCK );
 
 	// Reset aggregated stats for new block
 	self->block_cost                            = 0UL;

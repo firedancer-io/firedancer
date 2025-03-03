@@ -5416,6 +5416,44 @@ typedef struct fd_account_costs_off fd_account_costs_off_t;
 #define FD_ACCOUNT_COSTS_OFF_FOOTPRINT sizeof(fd_account_costs_off_t)
 #define FD_ACCOUNT_COSTS_OFF_ALIGN (8UL)
 
+/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L62-L79 */
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_cost_tracker {
+  ulong account_cost_limit;
+  ulong block_cost_limit;
+  ulong vote_cost_limit;
+  fd_account_costs_t cost_by_writable_accounts;
+  ulong block_cost;
+  ulong vote_cost;
+  ulong transaction_count;
+  ulong allocated_accounts_data_size;
+  ulong transaction_signature_count;
+  ulong secp256k1_instruction_signature_count;
+  ulong ed25519_instruction_signature_count;
+  ulong secp256r1_instruction_signature_count;
+};
+typedef struct fd_cost_tracker fd_cost_tracker_t;
+#define FD_COST_TRACKER_FOOTPRINT sizeof(fd_cost_tracker_t)
+#define FD_COST_TRACKER_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_cost_tracker_off {
+  uint account_cost_limit_off;
+  uint block_cost_limit_off;
+  uint vote_cost_limit_off;
+  uint cost_by_writable_accounts_off;
+  uint block_cost_off;
+  uint vote_cost_off;
+  uint transaction_count_off;
+  uint allocated_accounts_data_size_off;
+  uint transaction_signature_count_off;
+  uint secp256k1_instruction_signature_count_off;
+  uint ed25519_instruction_signature_count_off;
+  uint secp256r1_instruction_signature_count_off;
+};
+typedef struct fd_cost_tracker_off fd_cost_tracker_off_t;
+#define FD_COST_TRACKER_OFF_FOOTPRINT sizeof(fd_cost_tracker_off_t)
+#define FD_COST_TRACKER_OFF_ALIGN (8UL)
+
 
 FD_PROTOTYPES_BEGIN
 
@@ -8907,6 +8945,18 @@ int fd_account_costs_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * to
 int fd_account_costs_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 void * fd_account_costs_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_account_costs_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+
+void fd_cost_tracker_new( fd_cost_tracker_t * self );
+int fd_cost_tracker_encode( fd_cost_tracker_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_cost_tracker_destroy( fd_cost_tracker_t * self );
+void fd_cost_tracker_walk( void * w, fd_cost_tracker_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_cost_tracker_size( fd_cost_tracker_t const * self );
+ulong fd_cost_tracker_footprint( void );
+ulong fd_cost_tracker_align( void );
+int fd_cost_tracker_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+int fd_cost_tracker_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_cost_tracker_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_cost_tracker_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 
 FD_PROTOTYPES_END
 

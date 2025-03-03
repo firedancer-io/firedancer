@@ -2826,6 +2826,25 @@
       "fields": [
         { "name": "account_costs", "type": "map", "element": "account_costs_pair", "key": "key", "minalloc":4096 }
       ]
+    },
+    {
+      "name": "cost_tracker",
+      "type": "struct",
+      "fields": [
+        { "name": "account_cost_limit", "type": "ulong" },
+        { "name": "block_cost_limit", "type": "ulong" },
+        { "name": "vote_cost_limit", "type": "ulong" },
+        { "name": "cost_by_writable_accounts", "type": "account_costs"},
+        { "name": "block_cost", "type": "ulong" },
+        { "name": "vote_cost", "type": "ulong" },
+        { "name": "transaction_count", "type": "ulong" },
+        { "name": "allocated_accounts_data_size", "type": "ulong" },
+        { "name": "transaction_signature_count", "type": "ulong" },
+        { "name": "secp256k1_instruction_signature_count", "type": "ulong" },
+        { "name": "ed25519_instruction_signature_count", "type": "ulong" },
+        { "name": "secp256r1_instruction_signature_count", "type": "ulong" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L62-L79"
     }
   ]
 }
