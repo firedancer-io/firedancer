@@ -4,6 +4,7 @@
 #include "context/fd_exec_slot_ctx.h"
 #include "fd_rent_lists.h"
 #include "fd_rocksdb.h"
+#include "fd_director.h"
 #include "sysvar/fd_sysvar_rent.h"
 #include "fd_system_ids.h"
 #include <assert.h>
@@ -138,6 +139,8 @@ fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
   //     || memcmp(pubkey->uc, fd_solana_compute_budget_program_id.uc, sizeof(fd_pubkey_t))==0 ) {
   //   txn = NULL;
   // }
+  fd_director_load_account_into_funk( acc_mgr->director, txn, pubkey );
+
   int err = FD_ACC_MGR_SUCCESS;
   fd_account_meta_t const * meta = fd_acc_mgr_view_raw( acc_mgr, txn, pubkey, &account->const_rec, &err, NULL );
   if( FD_UNLIKELY( !fd_acc_exists( meta ) ) ) {

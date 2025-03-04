@@ -7,6 +7,7 @@
 #include "../../ballet/txn/fd_txn.h"
 #include "../../funk/fd_funk.h"
 #include "fd_borrowed_account.h"
+#include "fd_director.h"
 
 /* FD_ACC_MGR_{SUCCESS,ERR{...}} are fd_acc_mgr_t specific error codes.
    To be stored in an int. */
@@ -45,6 +46,8 @@
    (fd_account_meta_t, padding, account data). */
 
 struct __attribute__((aligned(16UL))) fd_acc_mgr {
+  fd_director_t * director;
+
   fd_funk_t * funk;
 
   ulong slots_per_epoch;  /* see epoch schedule.  do not update directly */
