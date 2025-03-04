@@ -5,6 +5,7 @@
 #include "context/fd_exec_slot_ctx.h"
 #include "fd_rent_lists.h"
 #include "fd_rocksdb.h"
+#include "fd_director.h"
 #include "sysvar/fd_sysvar_rent.h"
 #include "fd_system_ids.h"
 #include <assert.h>
@@ -16,6 +17,10 @@ fd_funk_get_acc_meta_readonly( fd_funk_t *            funk,
                                fd_funk_rec_t const ** orec,
                                int *                  opt_err,
                                fd_funk_txn_t const ** txn_out  ) {
+
+  /* Load the account into Funk */
+  fd_director_load_account_into_funk( NULL, txn, pubkey ); /* FIXME */
+
   fd_funk_rec_key_t id = fd_funk_acc_key( pubkey );
 
   /* When we access this pointer later on in the execution pipeline, we assume that
@@ -63,6 +68,10 @@ fd_funk_get_acc_meta_mutable( fd_funk_t *             funk,
                               fd_funk_rec_t **        opt_out_rec,
                               fd_funk_rec_prepare_t * out_prepare,
                               int *                   opt_err ) {
+
+  /* Load the account into Funk */
+  fd_director_load_account_into_funk( NULL, txn, pubkey ); /* FIXME */
+
   fd_wksp_t *       wksp = fd_funk_wksp(funk);
   fd_funk_rec_key_t id   = fd_funk_acc_key( pubkey );
 

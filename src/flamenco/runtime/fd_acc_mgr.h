@@ -6,7 +6,8 @@
 #include "../fd_flamenco_base.h"
 #include "../../ballet/txn/fd_txn.h"
 #include "../../funk/fd_funk.h"
-#include "fd_txn_account.h"
+#include "fd_borrowed_account.h"
+#include "fd_director.h"
 
 /* FD_ACC_MGR_{SUCCESS,ERR{...}} are account management specific error codes.
    To be stored in an int. */
