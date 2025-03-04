@@ -266,6 +266,8 @@ typedef struct {
 
     fd_keyswitch_t *      keyswitch;
     fd_keyguard_client_t  keyguard_client[1];
+
+    ulong                 metrics[4];
   } crank[1];
 
 
@@ -358,6 +360,7 @@ static inline void
 metrics_write( fd_pack_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( PACK, TRANSACTION_INSERTED,          ctx->insert_result  );
   FD_MCNT_ENUM_COPY( PACK, METRIC_TIMING,        ((ulong*)ctx->metric_timing) );
+  FD_MCNT_ENUM_COPY( PACK, BUNDLE_CRANK_STATUS,           ctx->crank->metrics );
   FD_MHIST_COPY( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS, ctx->schedule_duration );
   FD_MHIST_COPY( PACK, NO_SCHED_MICROBLOCK_DURATION_SECONDS, ctx->no_sched_duration );
   FD_MHIST_COPY( PACK, INSERT_TRANSACTION_DURATION_SECONDS,  ctx->insert_duration   );
@@ -585,6 +588,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       if( FD_LIKELY( txn_sz==0UL ) ) { /* Everything in good shape! */
         fd_pack_insert_bundle_cancel( ctx->pack, bundle, 1UL );
         fd_pack_set_initializer_bundles_ready( ctx->pack );
+        ctx->crank->metrics[ 0 ]++;
       }
       else if( FD_LIKELY( txn_sz<ULONG_MAX ) ) {
         bundle[0]->txnp->payload_sz = (ushort)txn_sz;
@@ -597,8 +601,11 @@ after_credit( fd_pack_ctx_t *     ctx,
 
         ctx->crank->ib_inserted = 1;
         int retval = fd_pack_insert_bundle_fini( ctx->pack, bundle, 1UL, ctx->leader_slot-1UL, 1, NULL );
-        if( FD_UNLIKELY( retval<0 ) ) FD_LOG_WARNING(( "inserting initializer bundle returned %i", retval ));
-        else {
+        ctx->insert_result[ retval + FD_PACK_INSERT_RETVAL_OFF ]++;
+        if( FD_UNLIKELY( retval<0 ) ) {
+          ctx->crank->metrics[ 3 ]++;
+          FD_LOG_WARNING(( "inserting initializer bundle returned %i", retval ));
+        } else {
           /* Update the cached copy of the on-chain state.  This seems a
              little dangerous, since we're updating it as if the bundle
              succeeded without knowing if that's true, but here's why
@@ -618,10 +625,12 @@ after_credit( fd_pack_ctx_t *     ctx,
              that these are the right values to use. */
           fd_bundle_crank_apply( ctx->crank->gen, ctx->crank->prev_config, top_meta->commission_pubkey,
                                  ctx->crank->tip_receiver_owner, ctx->crank->epoch, top_meta->commission );
+          ctx->crank->metrics[ 1 ]++;
         }
       } else {
         /* Already logged a warning in this case */
         fd_pack_insert_bundle_cancel( ctx->pack, bundle, 1UL );
+        ctx->crank->metrics[ 2 ]++;
       }
     }
   }
@@ -820,6 +829,7 @@ during_frag( fd_pack_ctx_t * ctx,
       ctx->is_bundle = 1;
       if( FD_LIKELY( txnm->block_engine.bundle_id!=ctx->current_bundle->id ) ) {
         if( FD_UNLIKELY( ctx->current_bundle->bundle ) ) {
+          FD_MCNT_INC( PACK, TRANSACTION_DROPPED_PARTIAL_BUNDLE, ctx->current_bundle->txn_received );
           fd_pack_insert_bundle_cancel( ctx->pack, ctx->current_bundle->bundle, ctx->current_bundle->txn_cnt );
         }
         ctx->current_bundle->id                 = txnm->block_engine.bundle_id;
@@ -828,7 +838,8 @@ during_frag( fd_pack_ctx_t * ctx,
         ctx->current_bundle->txn_received       = 0UL;
 
         if( FD_UNLIKELY( ctx->current_bundle->txn_cnt==0UL ) ) {
-          FD_LOG_WARNING(( "pack got a partial bundle" ));
+          FD_MCNT_INC( PACK, TRANSACTION_DROPPED_PARTIAL_BUNDLE, 1UL );
+          ctx->current_bundle->id = 0UL;
           return;
         }
         ctx->blk_engine_cfg->commission = txnm->block_engine.commission;
