@@ -567,10 +567,7 @@ after_credit( fd_pack_ctx_t *     ctx,
 
   *charge_busy = 1;
 
-  /* Consider creating initializer bundles to crank the tip programs.
-     Craning requires inserting a bundle, which can't be done while
-     another insert is in progress. */
-  if( FD_LIKELY( ctx->crank->enabled && !ctx->current_bundle->bundle ) ) {
+  if( FD_LIKELY( ctx->crank->enabled ) ) {
     block_builder_info_t const * top_meta = fd_pack_peek_bundle_meta( ctx->pack );
     if( FD_UNLIKELY( top_meta ) ) {
       /* Have bundles, in a reasonable state to crank. */
@@ -992,7 +989,7 @@ unprivileged_init( fd_topo_t *      topo,
     .max_microblocks_per_block = (ulong)UINT_MAX, /* Limit not known yet */
   }};
 
-  if( FD_UNLIKELY( tile->pack.max_pending_transactions >= USHORT_MAX-5UL ) ) FD_LOG_ERR(( "pack tile supports up to %lu pending transactions", USHORT_MAX-6UL ));
+  if( FD_UNLIKELY( tile->pack.max_pending_transactions >= USHORT_MAX-10UL ) ) FD_LOG_ERR(( "pack tile supports up to %lu pending transactions", USHORT_MAX-11UL ));
 
   ulong pack_footprint = fd_pack_footprint( tile->pack.max_pending_transactions, BUNDLE_META_SZ, tile->pack.bank_tile_count, limits );
 

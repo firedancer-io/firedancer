@@ -651,7 +651,7 @@ fd_pack_footprint( ulong                    pack_depth,
 
   int enable_bundles = !!bundle_meta_sz;
   ulong l;
-  ulong extra_depth        = fd_ulong_if( enable_bundles, 1UL+FD_PACK_MAX_TXN_PER_BUNDLE, 1UL ); /* space for use between init and fini */
+  ulong extra_depth        = fd_ulong_if( enable_bundles, 1UL+2UL*FD_PACK_MAX_TXN_PER_BUNDLE, 1UL ); /* space for use between init and fini */
   ulong max_acct_in_treap  = pack_depth * FD_TXN_ACCT_ADDR_MAX;
   ulong max_txn_per_mblk   = fd_ulong_max( limits->max_txn_per_microblock,
                                            fd_ulong_if( enable_bundles, FD_PACK_MAX_TXN_PER_BUNDLE, 0UL ) );
@@ -697,7 +697,7 @@ fd_pack_new( void                   * mem,
              fd_rng_t                * rng           ) {
 
   int enable_bundles = !!bundle_meta_sz;
-  ulong extra_depth        = fd_ulong_if( enable_bundles, 1UL+FD_PACK_MAX_TXN_PER_BUNDLE, 1UL );
+  ulong extra_depth        = fd_ulong_if( enable_bundles, 1UL+2UL*FD_PACK_MAX_TXN_PER_BUNDLE, 1UL );
   ulong max_acct_in_treap  = pack_depth * FD_TXN_ACCT_ADDR_MAX;
   ulong max_txn_per_mblk   = fd_ulong_max( limits->max_txn_per_microblock,
                                            fd_ulong_if( enable_bundles, FD_PACK_MAX_TXN_PER_BUNDLE, 0UL ) );
@@ -831,7 +831,7 @@ fd_pack_join( void * mem ) {
 
   int enable_bundles = !!pack->bundle_meta_sz;
   ulong pack_depth             = pack->pack_depth;
-  ulong extra_depth            = fd_ulong_if( enable_bundles, 1UL+FD_PACK_MAX_TXN_PER_BUNDLE, 1UL );
+  ulong extra_depth            = fd_ulong_if( enable_bundles, 1UL+2UL*FD_PACK_MAX_TXN_PER_BUNDLE, 1UL );
   ulong bank_tile_cnt          = pack->bank_tile_cnt;
   ulong max_txn_per_microblock = fd_ulong_max( pack->lim->max_txn_per_microblock,
                                                fd_ulong_if( enable_bundles, FD_PACK_MAX_TXN_PER_BUNDLE, 0UL ) );
