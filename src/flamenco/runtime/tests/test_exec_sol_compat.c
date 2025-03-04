@@ -86,7 +86,7 @@ main( int     argc,
 
     FD_TEST( frames_used_pre_test == frames_used_post_test );
     FD_TEST( mem_used_pre_test    == mem_used_post_test    );
- 
+
     // Free runner
     sol_compat_cleanup_runner( runner );
 

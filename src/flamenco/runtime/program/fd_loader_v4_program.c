@@ -110,7 +110,7 @@ check_program_account( fd_exec_instr_ctx_t *         instr_ctx,
 }
 
 /* `process_instruction_write()` writes ELF data into an undeployed program account.
-   This could either be a program which was already deployed and then retracted, or 
+   This could either be a program which was already deployed and then retracted, or
    a new program which is uninitialized with enough space allocated from a call to `truncate`.
 
    Accounts:
@@ -170,7 +170,7 @@ fd_loader_v4_program_instruction_write( fd_exec_instr_ctx_t *                   
   } FD_BORROWED_ACCOUNT_DROP( program );
 }
 
-/* `process_instruction_truncate()` resizes an undeployed program account to the specified size. 
+/* `process_instruction_truncate()` resizes an undeployed program account to the specified size.
    Initialization is taken care of when the program account size is first increased. Decreasing the size
    to 0 will close the program account.
 
@@ -226,7 +226,7 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
     } else {
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L154-L159 */
       fd_loader_v4_state_t state = {0};
-      err = check_program_account( instr_ctx, program, authority_address, &state ); 
+      err = check_program_account( instr_ctx, program, authority_address, &state );
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
@@ -246,8 +246,8 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
 
     /* Note that this new_program_dlen is only relevant when new_size > 0 */
     ulong new_program_dlen = fd_ulong_sat_add( LOADER_V4_PROGRAM_DATA_OFFSET, new_size );
-    ulong required_lamports = ( new_size==0UL ) ? 
-                                0UL : 
+    ulong required_lamports = ( new_size==0UL ) ?
+                                0UL :
                                 fd_ulong_max( fd_rent_exempt_minimum_balance( rent, new_program_dlen ),
                                               1UL );
 
@@ -320,10 +320,10 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
 }
 
 /* `process_instruction_deploy()` will verify the ELF bytes of a program account in a `Retracted`
-   state and deploy it if successful, making it ready for use. Optionally, a source buffer account 
-   may be provided to copy the ELF bytes from. In this case, the program data is overwritten by the 
-   data in the buffer account, and the buffer account is closed with some of its lamports transferred 
-   to the program account if needed to meet the minimum rent exemption balance. 
+   state and deploy it if successful, making it ready for use. Optionally, a source buffer account
+   may be provided to copy the ELF bytes from. In this case, the program data is overwritten by the
+   data in the buffer account, and the buffer account is closed with some of its lamports transferred
+   to the program account if needed to meet the minimum rent exemption balance.
 
    Other notes:
    - Newly deployed programs may not be retracted/redeployed within `LOADER_V4_DEPLOYMENT_COOLDOWN_IN_SLOTS` (750) slots.
@@ -351,8 +351,8 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
     /* Here Agave tries to acquire the source buffer account but does not fail if it is not present.
        We will only try to borrow the account when we need it.
 
-       https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L220-L222 
-       
+       https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L220-L222
+
        No-op for us... */
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L223-L228 */
@@ -368,9 +368,9 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
     ulong current_slot = clock->slot;
 
     /* `current_slot == 0` indicates that the program hasn't been deployed yet, so a cooldown check
-       is not needed. Otherwise, a cooldown of 750 slots is applied before being able to 
-       redeploy or retract the program. 
-       
+       is not needed. Otherwise, a cooldown of 750 slots is applied before being able to
+       redeploy or retract the program.
+
        https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L231-L240 */
     if( FD_UNLIKELY( current_slot>0UL && fd_ulong_sat_add( program_state.slot, LOADER_V4_DEPLOYMENT_COOLDOWN_IN_SLOTS )>current_slot ) ) {
       fd_log_collector_msg_literal( instr_ctx, "Program was deployed recently, cooldown still in effect" );
@@ -386,8 +386,8 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
 
   /* Since our borrowed account semantics are slightly different than Agave's, we drop the program account above
      (since the variable is no longer needed) and acquire a new borrowed account that may point to the program account
-     OR a new buffer account, if it's present. This way, the account borrowing semantics stay conformant with Agave. 
-     
+     OR a new buffer account, if it's present. This way, the account borrowing semantics stay conformant with Agave.
+
      If the source program (account key at idx 2) is present, we acquire that as the buffer and perform checks on its
      state to make sure it's valid. Otherwise, we reacquire the same program account from above. */
   ulong buffer_idx = ( source_program_present ) ? 2UL : 0UL;
@@ -416,7 +416,7 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
     uchar const * programdata = buffer->const_data + LOADER_V4_PROGRAM_DATA_OFFSET;
 
     /* Our program cache is fundamentally different from Agave's. Here, they would perform verifications and
-       add the program to their cache, but we only perform verifications now and defer cache population to the 
+       add the program to their cache, but we only perform verifications now and defer cache population to the
        end of the slot. Since programs cannot be invoked until the next slot anyways, doing this is okay.
 
        https://github.com/anza-xyz/agave/blob/09ef71223b24e30e59eaeaf5eb95e85f222c7de1/programs/loader-v4/src/lib.rs#L262-L269 */
@@ -438,13 +438,13 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
         if( FD_UNLIKELY( rent==NULL ) ) {
           return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
         }
-        
+
         /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L297 */
         ulong required_lamports = fd_rent_exempt_minimum_balance( rent, buffer->const_meta->dlen );
 
         /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L298 */
         ulong transfer_lamports = fd_ulong_sat_sub( required_lamports, program->const_meta->info.lamports );
-        
+
         /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L299 */
         err = fd_account_set_data_from_slice( instr_ctx, 0UL, buffer->const_data, buffer->const_meta->dlen );
         if( FD_UNLIKELY( err ) ) {
@@ -488,12 +488,12 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
 
 /* `process_instruction_retract()` retracts a currently deployed program, making it writable
    and uninvokable. After a program is retracted, users can write and truncate data freely,
-   allowing them to upgrade or close the program account. 
-   
+   allowing them to upgrade or close the program account.
+
    Other notes:
    - Newly deployed programs may not be retracted/redeployed within `LOADER_V4_DEPLOYMENT_COOLDOWN_IN_SLOTS` (750) slots.
    - When a program is retracted, the executable flag is NOT changed.
-   
+
    Accounts:
     0. Program account (writable)
     1. Authority account (signer)
@@ -552,7 +552,7 @@ fd_loader_v4_program_instruction_retract( fd_exec_instr_ctx_t * instr_ctx ) {
    0. Program account (writable)
    1. Current authority (signer)
    2. New authority (signer
-   
+
    https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L371-L401 */
 static int
 fd_loader_v4_program_instruction_transfer_authority( fd_exec_instr_ctx_t * instr_ctx ) {
@@ -562,10 +562,10 @@ fd_loader_v4_program_instruction_transfer_authority( fd_exec_instr_ctx_t * instr
   FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 0UL, program ) {
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L378-L380 */
     fd_pubkey_t const * authority_address = &instr_ctx->instr->acct_pubkeys[ 1UL ];
-    
+
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L381-L383 */
     fd_pubkey_t const * new_authority_address = &instr_ctx->instr->acct_pubkeys[ 2UL ];
-    
+
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L384-L389 */
     fd_loader_v4_state_t state = {0};
     err = check_program_account( instr_ctx, program, authority_address, &state );
@@ -596,7 +596,7 @@ fd_loader_v4_program_instruction_transfer_authority( fd_exec_instr_ctx_t * instr
   } FD_BORROWED_ACCOUNT_DROP( program );
 }
 
-/* `process_instruction_finalize()` finalizes the program account, rendering it immutable. 
+/* `process_instruction_finalize()` finalizes the program account, rendering it immutable.
 
    Other notes:
    - Users must specify a "next version" which, from my inspection, serves no functional purpose besides showing up
@@ -618,12 +618,12 @@ fd_loader_v4_program_instruction_finalize( fd_exec_instr_ctx_t * instr_ctx ) {
   /* Contains variables that need to be accessed in multiple borrowed account scopes.
      https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L410-L412 */
   fd_pubkey_t const *  authority_address       = &instr_ctx->instr->acct_pubkeys[ 1UL ];
-  fd_pubkey_t const *  address_of_next_version = &instr_ctx->instr->acct_pubkeys[ 2UL ]; 
+  fd_pubkey_t const *  address_of_next_version = &instr_ctx->instr->acct_pubkeys[ 2UL ];
   fd_loader_v4_state_t state                   = {0};
 
   FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( instr_ctx, 0UL, program ) {
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L413-L418 */
-    
+
     err = check_program_account( instr_ctx, program, authority_address, &state );
     if( FD_UNLIKELY( err ) ) {
       return err;
@@ -680,7 +680,7 @@ fd_loader_v4_program_instruction_finalize( fd_exec_instr_ctx_t * instr_ctx ) {
 
 /* `process_instruction_inner()`, the entrypoint for all loader v4 instruction invocations +
    any loader v4-owned programs.
-   
+
    https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L463-L526 */
 int
 fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
@@ -702,31 +702,39 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
          https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L473 */
       uchar const * data = instr_ctx->instr->data;
 
-      fd_loader_v4_program_instruction_t instruction = {0};
       fd_bincode_decode_ctx_t decode_ctx = {
         .data    = data,
-        .dataend = &data[ instr_ctx->instr->data_sz > 1232UL ? 1232UL : instr_ctx->instr->data_sz ],
-        .valloc  = fd_spad_virtual( instr_ctx->txn_ctx->spad ),
+        .dataend = &data[ instr_ctx->instr->data_sz > FD_TXN_MTU ? FD_TXN_MTU : instr_ctx->instr->data_sz ]
       };
 
-      if( FD_UNLIKELY( fd_loader_v4_program_instruction_decode( &instruction, &decode_ctx ) ) ) {
+      ulong total_sz = 0UL;
+      if( FD_UNLIKELY( fd_loader_v4_program_instruction_decode_footprint( &decode_ctx, &total_sz ) ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
       }
 
+      uchar * mem = fd_spad_alloc( instr_ctx->txn_ctx->spad,
+                                   fd_loader_v4_program_instruction_align(),
+                                   total_sz );
+      if( FD_UNLIKELY( !mem ) ) {
+        FD_LOG_ERR(( "Unable to allocate memory for loader v4 instruction" ));
+      }
+
+      fd_loader_v4_program_instruction_t * instruction = fd_loader_v4_program_instruction_decode( mem, &decode_ctx );
+
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L473-L486 */
-      switch( instruction.discriminant ) {
+      switch( instruction->discriminant ) {
         case fd_loader_v4_program_instruction_enum_write: {
           CHECK_NUM_INSN_ACCS( instr_ctx, 2U );
 
           /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L474-L476 */
-          rc = fd_loader_v4_program_instruction_write( instr_ctx, &instruction.inner.write );
+          rc = fd_loader_v4_program_instruction_write( instr_ctx, &instruction->inner.write );
           break;
         }
         case fd_loader_v4_program_instruction_enum_truncate: {
           CHECK_NUM_INSN_ACCS( instr_ctx, 2U );
 
           /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L477-L479 */
-          rc = fd_loader_v4_program_instruction_truncate( instr_ctx, &instruction.inner.truncate );
+          rc = fd_loader_v4_program_instruction_truncate( instr_ctx, &instruction->inner.truncate );
           break;
         }
         case fd_loader_v4_program_instruction_enum_deploy: {

@@ -591,8 +591,10 @@ metric introduced.
     <counter name="ReceivedGossipMessages" enum="GossipMessage"     clickhouse_exclude="true" summary="Number of gossip messages received" />
     <counter name="ReceivedUnknownMessage"                          clickhouse_exclude="true" summary="Number of gossip messages received that have an unknown discriminant" />
 
-    <counter name="ReceivedCrds"                    enum="CrdsValue"        clickhouse_exclude="true" summary="Number of CRDS values received" />
-    <counter name="ReceivedCrdsDuplicateMessage"    enum="CrdsValue"        clickhouse_exclude="true" summary="Number of duplicate Push,PullResp CRDS values received" />
+    <counter name="ReceivedCrdsPush"                    enum="CrdsValue"        clickhouse_exclude="true" summary="Number of CRDS values received from push messages" />
+    <counter name="ReceivedCrdsPull"                    enum="CrdsValue"        clickhouse_exclude="true" summary="Number of CRDS values received from pull response messages" />
+    <counter name="ReceivedCrdsDuplicateMessagePush"    enum="CrdsValue"        clickhouse_exclude="true" summary="Number of duplicate CRDS values received from push messages" />
+    <counter name="ReceivedCrdsDuplicateMessagePull"    enum="CrdsValue"        clickhouse_exclude="true" summary="Number of duplicate CRDS values received from pull response messages" />
     <counter name="ReceivedCrdsDrop"                enum="CrdsDropReason"   clickhouse_exclude="true" summary="Number of CRDS values dropped on receive" />
 
     <counter name="PushCrds"                    enum="CrdsValue"        clickhouse_exclude="true" summary="Number of CRDS values pushed" />

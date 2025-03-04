@@ -54,7 +54,7 @@ fd_query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_t const * vo
 int
 fd_vote_get_state( fd_borrowed_account_t const * self,
                    fd_spad_t *                   spad,
-                   fd_vote_state_versioned_t *   versioned /* out */ );
+                   fd_vote_state_versioned_t * * versioned /* out */ );
 
 void
 fd_vote_convert_to_current( fd_vote_state_versioned_t * self,

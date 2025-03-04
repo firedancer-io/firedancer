@@ -38,3 +38,8 @@ lseek: (and (not (or (eq (arg 0) 2)
 # STDOUT.
 read: (not (or (eq (arg 0) 2)
                (eq (arg 0) logfile_fd)))
+
+# metrics: reduce CPU usage by sleeping
+clock_nanosleep: (and (eq (arg 0) CLOCK_REALTIME)
+                      (eq (arg 1) 0)
+                      (eq (arg 3) 0))

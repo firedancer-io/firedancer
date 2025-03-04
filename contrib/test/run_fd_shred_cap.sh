@@ -1,14 +1,5 @@
 #!/bin/bash
 
-cleanup() {
-  sudo killall fddev || true
-  sudo $FD_DIR/$OBJDIR/bin/fddev configure fini all  || true
-  exit $status
-}
-
-trap cleanup EXIT SIGINT SIGTERM
-sudo killall fddev || true
-
 DUMP_DIR=${DUMP_DIR:="./dump"}
 LOG="/tmp/ledger_log$$"
 
@@ -22,6 +13,15 @@ TOML=$DATA_DIR/fd_shredcap.toml
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 FD_DIR="$SCRIPT_DIR/../.."
 OBJDIR=${OBJDIR:-build/native/${CC}}
+
+cleanup() {
+  sudo killall fddev || true
+  sudo $FD_DIR/$OBJDIR/bin/fddev configure fini all   --config "$(readlink -f "$TOML")"  || true
+  exit $status
+}
+
+trap cleanup EXIT SIGINT SIGTERM
+sudo killall fddev || true
 
 # check to make sure theres 120 GB of space in the data directory
 if [ "$(df -k --output=avail $DATA_DIR | tail -n1)" -lt 120000000 ]; then

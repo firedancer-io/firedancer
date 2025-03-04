@@ -50,11 +50,25 @@ fd_addrlut_deserialize( fd_addrlut_t * lut,
 
   lut = fd_addrlut_new( lut ); FD_TEST( lut );
 
-  fd_bincode_decode_ctx_t decode =
-    { .data    = data,
-      .dataend = data+data_sz };
-  if( FD_UNLIKELY( fd_address_lookup_table_state_decode( &lut->state, &decode )!=FD_BINCODE_SUCCESS ) )
+  /* We anticipate that we require no allocations to decode the address lookup
+     table state size and that the data is already preallocated. */
+  fd_bincode_decode_ctx_t decode = {
+    .data    = data,
+    .dataend = data+data_sz
+  };
+
+  ulong total_sz = 0UL;
+  if( FD_UNLIKELY( fd_address_lookup_table_state_decode_footprint( &decode, &total_sz )!=FD_BINCODE_SUCCESS ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
+
+  /* NOTE: We technically don't need this check if we assume that the caller
+     is correctly handling the memory that is passed into this function. */
+  if( FD_UNLIKELY( total_sz!=sizeof(fd_address_lookup_table_state_t) ) ) {
+    FD_LOG_ERR(( "Unexpected total size of address lookup table state" ));
+  }
+
+  fd_address_lookup_table_state_decode( &lut->state, &decode );
 
   if( lut->state.discriminant==fd_address_lookup_table_state_enum_uninitialized )
     return FD_EXECUTOR_INSTR_ERR_UNINITIALIZED_ACCOUNT;
@@ -222,7 +236,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L86-L87 */
 
   /* try_borrow_account => get_index_of_instruction_account_in_transaction */
-  fd_pubkey_t const * payer_key = NULL; 
+  fd_pubkey_t const * payer_key = NULL;
   FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, ACC_IDX_PAYER, payer_acct ) {
 
   payer_key = payer_acct->pubkey;
@@ -260,7 +274,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   ulong       seed_szs[2] = { sizeof(fd_pubkey_t), sizeof(ulong) };
   seeds[0] = (uchar *)authority_key;
   seeds[1] = (uchar *)&derivation_slot;
-  int err = fd_pubkey_derive_pda( &fd_solana_address_lookup_table_program_id, 2UL, seeds, 
+  int err = fd_pubkey_derive_pda( &fd_solana_address_lookup_table_program_id, 2UL, seeds,
                                   seed_szs, (uchar*)&create->bump_seed, derived_tbl_key, &ctx->txn_ctx->custom_err );
   if( FD_UNLIKELY( err ) ) {
     return err;
@@ -380,7 +394,7 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   uchar * data = NULL;
   ulong   dlen = 0UL;
   int err = fd_account_get_data_mut( ctx, ACC_IDX_LUT, &data, &dlen );
-  if( FD_UNLIKELY( err ) ) { 
+  if( FD_UNLIKELY( err ) ) {
     return err;
   }
 
@@ -443,7 +457,7 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L195 */
   fd_addrlut_t lut[1];
   int err = fd_addrlut_deserialize( lut, lut_data, lut_data_sz );
-  if( FD_UNLIKELY( err ) ) { 
+  if( FD_UNLIKELY( err ) ) {
     return err;
   }
 
@@ -483,7 +497,7 @@ freeze_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   state->meta.has_authority = 0;
 
   err = fd_addrlut_serialize_meta( &lut->state, data, dlen );
-  if( FD_UNLIKELY( err ) ) { 
+  if( FD_UNLIKELY( err ) ) {
     return err;
   }
 
@@ -553,8 +567,8 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L251 */
   fd_addrlut_t lut[1];
   int err = fd_addrlut_deserialize( lut, (uchar *)lut_data, lut_data_sz );
-  if( FD_UNLIKELY( err ) ) { 
-    return err; 
+  if( FD_UNLIKELY( err ) ) {
+    return err;
   }
 
   fd_address_lookup_table_t * state = &lut->state.inner.lookup_table;
@@ -623,7 +637,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L307-L310 */
   err = fd_addrlut_serialize_meta( &lut->state, lut_acct->data, lut_acct->meta->dlen );
-  if( FD_UNLIKELY( err ) ) { 
+  if( FD_UNLIKELY( err ) ) {
     return err;
   }
 
@@ -744,7 +758,7 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L365 */
   fd_addrlut_t lut[1];
   int err = fd_addrlut_deserialize( lut, (uchar *)lut_data, lut_data_sz );
-  if( FD_UNLIKELY( err ) ) { 
+  if( FD_UNLIKELY( err ) ) {
     return err;
   }
 
@@ -785,7 +799,7 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L383-L386 */
   err = fd_addrlut_serialize_meta( &lut->state, data, dlen );
-  if( FD_UNLIKELY( err ) ) { 
+  if( FD_UNLIKELY( err ) ) {
     return err;
   }
 
@@ -859,7 +873,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L426 */
   fd_addrlut_t lut[1];
   int err = fd_addrlut_deserialize( lut, (uchar *)lut_data, lut_data_sz );
-  if( FD_UNLIKELY( err ) ) { 
+  if( FD_UNLIKELY( err ) ) {
     return err;
   }
 
@@ -884,7 +898,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L438 */
   fd_slot_hashes_t const * slot_hashes = fd_sysvar_cache_slot_hashes( ctx->slot_ctx->sysvar_cache );
-  if( FD_UNLIKELY( !slot_hashes ) ) { 
+  if( FD_UNLIKELY( !slot_hashes ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
 
@@ -906,7 +920,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
     default:
       __builtin_unreachable();
   }
-  
+
   } FD_BORROWED_ACCOUNT_DROP( lut_acct );
 
   /* Add lamports to recipient ****************************************/
@@ -963,16 +977,23 @@ fd_address_lookup_table_program_execute( fd_exec_instr_ctx_t * ctx ) {
   FD_SPAD_FRAME_BEGIN( ctx->txn_ctx->spad ) {
 
     fd_bincode_decode_ctx_t decode = {
-      .valloc  = fd_spad_virtual( ctx->txn_ctx->spad ),
       .data    = instr_data,
       .dataend = instr_data + instr_data_sz
     };
-    fd_addrlut_instruction_t instr[1];
+
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L28 */
-    if( FD_UNLIKELY( fd_addrlut_instruction_decode( instr, &decode ) ||
-                     (ulong)instr_data + 1232UL < (ulong)decode.data ) ) {
+    ulong total_sz = 0UL;
+    if( FD_UNLIKELY( fd_addrlut_instruction_decode_footprint( &decode, &total_sz ) ||
+                     (ulong)instr_data + FD_TXN_MTU < (ulong)decode.data ) ) {
       return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
     }
+
+    uchar * mem = fd_spad_alloc( ctx->txn_ctx->spad, fd_addrlut_instruction_align(), total_sz );
+    if( FD_UNLIKELY( !mem ) ) {
+      FD_LOG_ERR(( "Unable to allocate memory for alut instruction" ));
+    }
+
+    fd_addrlut_instruction_t * instr = fd_addrlut_instruction_decode( mem, &decode );
 
     switch( instr->discriminant ) {
     case fd_addrlut_instruction_enum_create_lut:
@@ -1032,6 +1053,6 @@ fd_get_active_addresses_len( fd_address_lookup_table_t * self,
   *active_addresses_len = ( current_slot > self->meta.last_extended_slot )
       ? addresses_len
       : self->meta.last_extended_slot_start_index;
-  
+
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }

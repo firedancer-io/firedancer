@@ -27,19 +27,25 @@ void
 test_voter_v1_14_11( void ) {
   fd_voter_state_t * state = (fd_voter_state_t *)fd_type_pun( v1_14_11 );
 
-  fd_bincode_decode_ctx_t ctx;
-  ctx.data    = v1_14_11;
-  ctx.dataend = v1_14_11 + sizeof(v1_14_11);
-  ctx.valloc  = fd_libc_alloc_virtual();
-  fd_vote_state_versioned_t versioned = {0};
-  int err = fd_vote_state_versioned_decode( &versioned, &ctx );
+  fd_bincode_decode_ctx_t ctx = {
+    .data    = v1_14_11,
+    .dataend = v1_14_11 + sizeof(v1_14_11)
+  };
+
+  ulong total_sz = 0UL;
+  int err = fd_vote_state_versioned_decode_footprint( &ctx, &total_sz );
   FD_TEST( err == FD_BINCODE_SUCCESS );
 
-  FD_TEST( state->discriminant == versioned.discriminant );
+  uchar * mem = malloc( total_sz );
+  FD_TEST( mem );
+
+  fd_vote_state_versioned_t * versioned = fd_vote_state_versioned_decode( mem, &ctx );
+
+  FD_TEST( state->discriminant == versioned->discriminant );
   FD_TEST( fd_voter_state_cnt( state ) > 0 );
-  FD_TEST( fd_voter_state_cnt( state ) == deq_fd_vote_lockout_t_cnt( versioned.inner.v1_14_11.votes ) );
-  FD_TEST( fd_voter_state_vote( state ) == deq_fd_vote_lockout_t_peek_tail( versioned.inner.v1_14_11.votes )->slot );
-  FD_TEST( fd_voter_state_root( state ) == versioned.inner.v1_14_11.root_slot );
+  FD_TEST( fd_voter_state_cnt( state ) == deq_fd_vote_lockout_t_cnt( versioned->inner.v1_14_11.votes ) );
+  FD_TEST( fd_voter_state_vote( state ) == deq_fd_vote_lockout_t_peek_tail( versioned->inner.v1_14_11.votes )->slot );
+  FD_TEST( fd_voter_state_root( state ) == versioned->inner.v1_14_11.root_slot );
 }
 
 void
@@ -49,16 +55,21 @@ test_voter_current( void ) {
   fd_bincode_decode_ctx_t ctx;
   ctx.data    = current;
   ctx.dataend = current + sizeof(current);
-  ctx.valloc  = fd_libc_alloc_virtual();
-  fd_vote_state_versioned_t versioned = {0};
-  int err = fd_vote_state_versioned_decode( &versioned, &ctx );
+
+  ulong total_sz = 0UL;
+  int err = fd_vote_state_versioned_decode_footprint( &ctx, &total_sz );
   FD_TEST( err == FD_BINCODE_SUCCESS );
 
-  FD_TEST( state->discriminant == versioned.discriminant );
+  uchar * mem = malloc( total_sz );
+  FD_TEST( mem );
+
+  fd_vote_state_versioned_t * versioned = fd_vote_state_versioned_decode( mem, &ctx );
+
+  FD_TEST( state->discriminant == versioned->discriminant );
   FD_TEST( fd_voter_state_cnt( state ) > 0 );
-  FD_TEST( fd_voter_state_cnt( state ) == deq_fd_landed_vote_t_cnt( versioned.inner.current.votes ) );
-  FD_TEST( fd_voter_state_vote( state ) == deq_fd_landed_vote_t_peek_tail( versioned.inner.current.votes )->lockout.slot );
-  FD_TEST( fd_voter_state_root( state ) == versioned.inner.current.root_slot );
+  FD_TEST( fd_voter_state_cnt( state ) == deq_fd_landed_vote_t_cnt( versioned->inner.current.votes ) );
+  FD_TEST( fd_voter_state_vote( state ) == deq_fd_landed_vote_t_peek_tail( versioned->inner.current.votes )->lockout.slot );
+  FD_TEST( fd_voter_state_root( state ) == versioned->inner.current.root_slot );
 }
 
 int

@@ -27,25 +27,32 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
-  fd_bincode_decode_ctx_t decode =
-    { .valloc  = fd_spad_virtual( ctx->txn_ctx->spad ),
-      .data    = ctx->instr->data,
-      .dataend = ctx->instr->data + ctx->instr->data_sz };
+  fd_bincode_decode_ctx_t decode = {
+    .data    = ctx->instr->data,
+    .dataend = ctx->instr->data + ctx->instr->data_sz
+  };
 
-  fd_config_keys_t key_list = {0};
-  int decode_result = fd_config_keys_decode( &key_list, &decode );
-  /* Fail if the number of bytes consumed by deserialize exceeds 1232
+  ulong total_sz      = 0UL;
+  int   decode_result = fd_config_keys_decode_footprint( &decode, &total_sz );
+  /* Fail if the number of bytes consumed by deserialize exceeds the txn MTU
      (hardcoded constant by Agave limited_deserialize) */
-  if( FD_UNLIKELY( decode_result != FD_BINCODE_SUCCESS || 
-                   (ulong)ctx->instr->data + 1232UL < (ulong)decode.data ) ) {
+  if( FD_UNLIKELY( decode_result != FD_BINCODE_SUCCESS ||
+                   (ulong)ctx->instr->data + FD_TXN_MTU < (ulong)decode.data ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
+  uchar * mem = fd_spad_alloc( ctx->txn_ctx->spad, fd_config_keys_align(), total_sz );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "Unable to allocate memory for config keys" ));
+  }
+
+  fd_config_keys_t * key_list = fd_config_keys_decode( mem, &decode );
+
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L22-L26 */
 
-  fd_config_keys_t current_data;
-  int is_config_account_signer = 0;
-  fd_pubkey_t const * config_account_key = NULL;
+  int                 is_config_account_signer = 0;
+  fd_pubkey_t const * config_account_key       = NULL;
+  fd_config_keys_t *  current_data             = NULL;
   FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, ACC_IDX_CONFIG, config_acc_rec ) {
 
   config_account_key = config_acc_rec->pubkey;
@@ -63,16 +70,23 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L33-L40 */
 
   fd_bincode_decode_ctx_t config_acc_state_decode_context = {
-    .valloc  = fd_spad_virtual( ctx->txn_ctx->spad ),
     .data    = config_acc_rec->const_data,
     .dataend = config_acc_rec->const_data + config_acc_rec->const_meta->dlen,
   };
-  decode_result = fd_config_keys_decode( &current_data, &config_acc_state_decode_context );
+  total_sz      = 0UL;
+  decode_result = fd_config_keys_decode_footprint( &config_acc_state_decode_context, &total_sz );
   if( FD_UNLIKELY( decode_result!=FD_BINCODE_SUCCESS ) ) {
     //TODO: full log, including err
     fd_log_collector_msg_literal( ctx, "Unable to deserialize config account" );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
+
+  mem = fd_spad_alloc( ctx->txn_ctx->spad, fd_config_keys_align(), total_sz );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "Unable to allocate memory for config account" ));
+  }
+
+  current_data = fd_config_keys_decode( mem, &config_acc_state_decode_context );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L42 */
 
@@ -80,12 +94,14 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L44-L49 */
 
-  fd_pubkey_t * current_signer_keys    = fd_spad_alloc( ctx->txn_ctx->spad, alignof(fd_pubkey_t), sizeof(fd_pubkey_t) * current_data.keys_len );
+  fd_pubkey_t * current_signer_keys    = fd_spad_alloc( ctx->txn_ctx->spad,
+                                                        alignof(fd_pubkey_t),
+                                                        sizeof(fd_pubkey_t) * current_data->keys_len );
   ulong         current_signer_key_cnt = 0UL;
 
-  for( ulong i=0UL; i < current_data.keys_len; i++ ) {
-    if( current_data.keys[i].signer ) {
-      current_signer_keys[ current_signer_key_cnt++ ] = current_data.keys[i].key;
+  for( ulong i=0UL; i < current_data->keys_len; i++ ) {
+    if( current_data->keys[i].signer ) {
+      current_signer_keys[ current_signer_key_cnt++ ] = current_data->keys[i].key;
     }
   }
 
@@ -101,9 +117,9 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
   ulong counter = 0UL;
   /* Invariant: counter <= key_list.keys_len */
 
-  for( ulong i=0UL; i<key_list.keys_len; i++ ) {
-    if( !key_list.keys[i].signer ) continue;
-    fd_pubkey_t const * signer = &key_list.keys[i].key;
+  for( ulong i=0UL; i<key_list->keys_len; i++ ) {
+    if( !key_list->keys[i].signer ) continue;
+    fd_pubkey_t const * signer = &key_list->keys[i].key;
 
     /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L60 */
 
@@ -115,7 +131,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
       /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L62-L71 */
 
-      /* Intentionally don't use the scoping macro here because Anza maps the 
+      /* Intentionally don't use the scoping macro here because Anza maps the
          error to missing required signature if the try borrow fails */
       fd_borrowed_account_t * signer_account = NULL;
       int borrow_err = fd_instr_borrowed_account_view_idx( ctx, (uchar)counter, &signer_account );
@@ -152,7 +168,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
 
       /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L89-L98 */
 
-      if( current_data.keys_len>0UL ) {
+      if( current_data->keys_len>0UL ) {
         /* https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L90 */
         int is_signer = 0;
         for( ulong j=0UL; j<current_signer_key_cnt; j++ ) {
@@ -185,12 +201,12 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
      https://github.com/solana-labs/solana/blob/v1.17.17/programs/config/src/config_processor.rs#L105-L115
 
   TODO: Agave uses a O(n log n) algorithm here */
-  for( ulong i = 0; i < key_list.keys_len; i++ ) {
-    for( ulong j = 0; j < key_list.keys_len; j++ ) {
+  for( ulong i = 0; i < key_list->keys_len; i++ ) {
+    for( ulong j = 0; j < key_list->keys_len; j++ ) {
       if( i == j ) continue;
 
-      if( FD_UNLIKELY( memcmp( &key_list.keys[i].key, &key_list.keys[j].key, sizeof(fd_pubkey_t) ) == 0 && 
-                        key_list.keys[i].signer == key_list.keys[j].signer ) ) {
+      if( FD_UNLIKELY( memcmp( &key_list->keys[i].key, &key_list->keys[j].key, sizeof(fd_pubkey_t) ) == 0 &&
+                        key_list->keys[i].signer == key_list->keys[j].signer ) ) {
         fd_log_collector_msg_literal( ctx, "new config contains duplicate keys" );
         return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
       }

@@ -107,9 +107,6 @@ class PrimitiveMember(TypeNode):
         self.encode = ("encode" not in json or json["encode"])
         self.walk = ("walk" not in json or json["walk"])
 
-    def propogateArchival(self, nametypes):
-        pass
-
     def emitPreamble(self):
         pass
 
@@ -121,7 +118,7 @@ class PrimitiveMember(TypeNode):
 
     def emitDestroy(self):
         if self.type == "char*":
-            print(f"""  if( self->{self.name} ) {{\n    fd_valloc_free( ctx->valloc, self->{self.name} );\n    self->{self.name} = NULL;\n  }}""", file=body)
+            print(f'  self->{self.name} = NULL;\n', file=body)
 
     emitMemberMap = {
         "char" :      lambda n: print(f'  char {n};',      file=header),
@@ -166,54 +163,71 @@ class PrimitiveMember(TypeNode):
             return False
         return self.type in fuzzytypes
 
-    def string_decode_preflight(n, varint):
+    def string_decode_footprint(n, varint):
+        # This ends up working for decode_footprint but in a hacky way
         print(f'{indent}  ulong slen;', file=body)
         print(f'{indent}  err = fd_bincode_uint64_decode( &slen, ctx );', file=body)
         print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-        print(f'{indent}  err = fd_bincode_bytes_decode_preflight( slen, ctx );', file=body)
+        print(f'{indent}  err = fd_bincode_bytes_decode_footprint( slen, ctx );', file=body)
         print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
 
-    def ushort_decode_preflight(n, varint):
+    def ushort_decode_footprint(n, varint):
         if varint:
             print(f'{indent}  do {{ ushort _tmp; err = fd_bincode_compact_u16_decode( &_tmp, ctx ); }} while(0);', file=body),
         else:
-            print(f'{indent}  err = fd_bincode_uint16_decode_preflight( ctx );', file=body),
+            print(f'{indent}  err = fd_bincode_uint16_decode_footprint( ctx );', file=body),
         print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
 
-    def ulong_decode_preflight(n, varint):
+    def ulong_decode_footprint(n, varint):
         if varint:
-            print(f'{indent}  err = fd_bincode_varint_decode_preflight( ctx );', file=body),
+            print(f'{indent}  err = fd_bincode_varint_decode_footprint( ctx );', file=body),
         else:
-            print(f'{indent}  err = fd_bincode_uint64_decode_preflight( ctx );', file=body),
+            print(f'{indent}  err = fd_bincode_uint64_decode_footprint( ctx );', file=body),
         print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
 
-    emitDecodePreflightMap = {
-        "char" :      lambda n, varint: print(f'{indent}  err = fd_bincode_uint8_decode_preflight( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
-        "char*" :     lambda n, varint: PrimitiveMember.string_decode_preflight(n, varint),
-        "char[32]" :  lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_decode_preflight( 32, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
-        "double" :    lambda n, varint: print(f'{indent}  err = fd_bincode_double_decode_preflight( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
-        "long" :      lambda n, varint: print(f'{indent}  err = fd_bincode_uint64_decode_preflight( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
-        "uint" :      lambda n, varint: print(f'{indent}  err = fd_bincode_uint32_decode_preflight( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
-        "uint128" :   lambda n, varint: print(f'{indent}  err = fd_bincode_uint128_decode_preflight( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
-        "bool" :      lambda n, varint: print(f'{indent}  err = fd_bincode_bool_decode_preflight( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
-        "uchar" :     lambda n, varint: print(f'{indent}  err = fd_bincode_uint8_decode_preflight( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
-        "uchar[32]" : lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_decode_preflight( 32, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
-        "uchar[128]" :lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_decode_preflight( 128, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
-        "uchar[2048]":lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_decode_preflight( 2048, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
-        "ulong" :     lambda n, varint: PrimitiveMember.ulong_decode_preflight(n, varint),
-        "ushort" :    lambda n, varint: PrimitiveMember.ushort_decode_preflight(n, varint),
+    def string_decode_footprint(n, varint):
+        print(f'{indent}  ulong slen;', file=body)
+        print(f'{indent}  err = fd_bincode_uint64_decode( &slen, ctx );', file=body)
+        print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+        print(f'{indent}  err = fd_bincode_bytes_decode_footprint( slen, ctx );', file=body)
+        print(f'{indent}  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+        print(f'{indent}  *total_sz += slen;', file=body)
+
+    emitDecodeFootprintMap = {
+        "char" :      lambda n, varint: print(f'{indent}  err = fd_bincode_uint8_decode_footprint( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
+        "char*" :     lambda n, varint: PrimitiveMember.string_decode_footprint(n, varint),
+        "char[32]" :  lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_decode_footprint( 32, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
+        "double" :    lambda n, varint: print(f'{indent}  err = fd_bincode_double_decode_footprint( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
+        "long" :      lambda n, varint: print(f'{indent}  err = fd_bincode_uint64_decode_footprint( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
+        "uint" :      lambda n, varint: print(f'{indent}  err = fd_bincode_uint32_decode_footprint( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
+        "uint128" :   lambda n, varint: print(f'{indent}  err = fd_bincode_uint128_decode_footprint( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
+        "bool" :      lambda n, varint: print(f'{indent}  err = fd_bincode_bool_decode_footprint( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
+        "uchar" :     lambda n, varint: print(f'{indent}  err = fd_bincode_uint8_decode_footprint( ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
+        "uchar[32]" : lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_decode_footprint( 32, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
+        "uchar[128]" :lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_decode_footprint( 128, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
+        "uchar[2048]":lambda n, varint: print(f'{indent}  err = fd_bincode_bytes_decode_footprint( 2048, ctx );\n  if( FD_UNLIKELY( err ) ) return err;', file=body),
+        "ulong" :     lambda n, varint: PrimitiveMember.ulong_decode_footprint(n, varint),
+        "ushort" :    lambda n, varint: PrimitiveMember.ushort_decode_footprint(n, varint),
     }
 
-    def emitDecodePreflight(self, archival):
+    def emitDecodeFootprint(self):
         if self.decode:
-            PrimitiveMember.emitDecodePreflightMap[self.type](self.name, self.varint);
+            PrimitiveMember.emitDecodeFootprintMap[self.type](self.name, self.varint)
 
-    def string_decode_unsafe(n, varint):
-        print(f'{indent}  ulong slen;', file=body)
-        print(f'{indent}  fd_bincode_uint64_decode_unsafe( &slen, ctx );', file=body)
-        print(f'{indent}  self->{n} = fd_valloc_malloc( ctx->valloc, 1, slen + 1 );', file=body)
-        print(f'{indent}  fd_bincode_bytes_decode_unsafe( (uchar *)self->{n}, slen, ctx );', file=body)
-        print(f"{indent}  self->{n}[slen] = '\\0';", file=body)
+    def string_decode_unsafe(n, varint, no_alloc):
+        if no_alloc:
+            print(f'{indent}  ulong slen;', file=body)
+            print(f'{indent}  fd_bincode_uint64_decode_unsafe( &slen, ctx );', file=body)
+            print(f'{indent}  self->{n} = *alloc_mem;', file=body)
+            print(f'{indent}  fd_bincode_bytes_decode_unsafe( (uchar *)self->{n}, slen, ctx );', file=body)
+            print(f"{indent}  self->{n}[slen] = '\\0';", file=body)
+            print(f'{indent}  *alloc_mem = (uchar *)(*alloc_mem) + slen;', file=body)
+        else:
+            print(f'{indent}  ulong slen;', file=body)
+            print(f'{indent}  fd_bincode_uint64_decode_unsafe( &slen, ctx );', file=body)
+            print(f'{indent}  self->{n} = fd_valloc_malloc( ctx->valloc, 1, slen + 1 );', file=body)
+            print(f'{indent}  fd_bincode_bytes_decode_unsafe( (uchar *)self->{n}, slen, ctx );', file=body)
+            print(f"{indent}  self->{n}[slen] = '\\0';", file=body)
 
     def ushort_decode_unsafe(n, varint):
         if varint:
@@ -227,26 +241,27 @@ class PrimitiveMember(TypeNode):
         else:
             print(f'{indent}  fd_bincode_uint64_decode_unsafe( &self->{n}, ctx );', file=body),
 
+    # TODO: This should be renamed to decode not decode_unsafe
     emitDecodeUnsafeMap = {
-        "char" :      lambda n, varint: print(f'{indent}  fd_bincode_uint8_decode_unsafe( (uchar *) &self->{n}, ctx );', file=body),
-        "char*" :     lambda n, varint: PrimitiveMember.string_decode_unsafe(n, varint),
-        "char[32]" :  lambda n, varint: print(f'{indent}  fd_bincode_bytes_decode_unsafe( &self->{n}[0], sizeof(self->{n}), ctx );', file=body),
-        "double" :    lambda n, varint: print(f'{indent}  fd_bincode_double_decode_unsafe( &self->{n}, ctx );', file=body),
-        "long" :      lambda n, varint: print(f'{indent}  fd_bincode_uint64_decode_unsafe( (ulong *) &self->{n}, ctx );', file=body),
-        "uint" :      lambda n, varint: print(f'{indent}  fd_bincode_uint32_decode_unsafe( &self->{n}, ctx );', file=body),
-        "uint128" :   lambda n, varint: print(f'{indent}  fd_bincode_uint128_decode_unsafe( &self->{n}, ctx );', file=body),
-        "bool" :      lambda n, varint: print(f'{indent}  fd_bincode_bool_decode_unsafe( &self->{n}, ctx );', file=body),
-        "uchar" :     lambda n, varint: print(f'{indent}  fd_bincode_uint8_decode_unsafe( &self->{n}, ctx );', file=body),
-        "uchar[32]" : lambda n, varint: print(f'{indent}  fd_bincode_bytes_decode_unsafe( &self->{n}[0], sizeof(self->{n}), ctx );', file=body),
-        "uchar[128]" :lambda n, varint: print(f'{indent}  fd_bincode_bytes_decode_unsafe( &self->{n}[0], sizeof(self->{n}), ctx );', file=body),
-        "uchar[2048]":lambda n, varint: print(f'{indent}  fd_bincode_bytes_decode_unsafe( &self->{n}[0], sizeof(self->{n}), ctx );', file=body),
-        "ulong" :     lambda n, varint: PrimitiveMember.ulong_decode_unsafe(n, varint),
-        "ushort" :    lambda n, varint: PrimitiveMember.ushort_decode_unsafe(n, varint),
+        "char" :      lambda n, varint, no_alloc: print(f'{indent}  fd_bincode_uint8_decode_unsafe( (uchar *) &self->{n}, ctx );', file=body),
+        "char*" :     lambda n, varint, no_alloc: PrimitiveMember.string_decode_unsafe(n, varint, no_alloc),
+        "char[32]" :  lambda n, varint, no_alloc: print(f'{indent}  fd_bincode_bytes_decode_unsafe( &self->{n}[0], sizeof(self->{n}), ctx );', file=body),
+        "double" :    lambda n, varint, no_alloc: print(f'{indent}  fd_bincode_double_decode_unsafe( &self->{n}, ctx );', file=body),
+        "long" :      lambda n, varint, no_alloc: print(f'{indent}  fd_bincode_uint64_decode_unsafe( (ulong *) &self->{n}, ctx );', file=body),
+        "uint" :      lambda n, varint, no_alloc: print(f'{indent}  fd_bincode_uint32_decode_unsafe( &self->{n}, ctx );', file=body),
+        "uint128" :   lambda n, varint, no_alloc: print(f'{indent}  fd_bincode_uint128_decode_unsafe( &self->{n}, ctx );', file=body),
+        "bool" :      lambda n, varint, no_alloc: print(f'{indent}  fd_bincode_bool_decode_unsafe( &self->{n}, ctx );', file=body),
+        "uchar" :     lambda n, varint, no_alloc: print(f'{indent}  fd_bincode_uint8_decode_unsafe( &self->{n}, ctx );', file=body),
+        "uchar[32]" : lambda n, varint, no_alloc: print(f'{indent}  fd_bincode_bytes_decode_unsafe( &self->{n}[0], sizeof(self->{n}), ctx );', file=body),
+        "uchar[128]" :lambda n, varint, no_alloc: print(f'{indent}  fd_bincode_bytes_decode_unsafe( &self->{n}[0], sizeof(self->{n}), ctx );', file=body),
+        "uchar[2048]":lambda n, varint, no_alloc: print(f'{indent}  fd_bincode_bytes_decode_unsafe( &self->{n}[0], sizeof(self->{n}), ctx );', file=body),
+        "ulong" :     lambda n, varint, no_alloc: PrimitiveMember.ulong_decode_unsafe(n, varint),
+        "ushort" :    lambda n, varint, no_alloc: PrimitiveMember.ushort_decode_unsafe(n, varint),
     }
 
-    def emitDecodeUnsafe(self, archival):
+    def emitDecodeInner(self):
         if self.decode:
-            PrimitiveMember.emitDecodeUnsafeMap[self.type](self.name, self.varint);
+            PrimitiveMember.emitDecodeUnsafeMap[self.type](self.name, self.varint, True)
 
     def string_encode(n, varint):
         print(f'{indent}  ulong slen = strlen( (char *) self->{n} );', file=body)
@@ -286,9 +301,9 @@ class PrimitiveMember(TypeNode):
         "ushort" :    lambda n, varint: PrimitiveMember.ushort_encode(n, varint),
     }
 
-    def emitEncode(self, archival):
+    def emitEncode(self):
         if self.encode:
-            PrimitiveMember.emitEncodeMap[self.type](self.name, self.varint);
+            PrimitiveMember.emitEncodeMap[self.type](self.name, self.varint)
 
     emitSizeMap = {
         "char" :      lambda n, varint, inner: print(f'{indent}  size += sizeof(char);', file=body),
@@ -331,40 +346,12 @@ class PrimitiveMember(TypeNode):
         if self.walk:
             PrimitiveMember.emitWalkMap[self.type](self.name, inner);
 
-    metaTagMap = {
-        "char" :      "FD_ARCHIVE_META_CHAR",
-        "char*" :     "FD_ARCHIVE_META_STRING",
-        "char[32]" :  "FD_ARCHIVE_META_CHAR32",
-        "double" :    "FD_ARCHIVE_META_DOUBLE",
-        "long" :      "FD_ARCHIVE_META_LONG",
-        "uint" :      "FD_ARCHIVE_META_UINT",
-        "uint128" :   "FD_ARCHIVE_META_UINT128",
-        "bool" :      "FD_ARCHIVE_META_BOOL",
-        "uchar" :     "FD_ARCHIVE_META_UCHAR",
-        "uchar[32]" : "FD_ARCHIVE_META_UCHAR32",
-        "uchar[128]" :"FD_ARCHIVE_META_UCHAR128",
-        "uchar[2048]":"FD_ARCHIVE_META_UCHAR2048",
-        "ulong" :     "FD_ARCHIVE_META_ULONG",
-        "ushort" :    "FD_ARCHIVE_META_USHORT",
-    }
-    def metaTag(self):
-        return PrimitiveMember.metaTagMap[self.type]
-
-
 # This is a member which IS a struct, NOT a member OF a struct
 class StructMember(TypeNode):
     def __init__(self, container, json):
         super().__init__(json)
         self.type = json["type"]
         self.ignore_underflow = (bool(json["ignore_underflow"]) if "ignore_underflow" in json else False)
-
-    def propogateArchival(self, nametypes):
-        fulltype = f'{namespace}_{self.type}'
-        if fulltype in nametypes:
-            nametypes[fulltype].propogateArchival(nametypes)
-
-    def metaTag(self):
-        return "FD_ARCHIVE_META_STRUCT"
 
     def emitPreamble(self):
         pass
@@ -394,20 +381,17 @@ class StructMember(TypeNode):
         print(f'{indent}  {namespace}_{self.type}_new( &self->{self.name} );', file=body)
 
     def emitDestroy(self):
-        print(f'{indent}  {namespace}_{self.type}_destroy( &self->{self.name}, ctx );', file=body)
+        print(f'{indent}  {namespace}_{self.type}_destroy( &self->{self.name} );', file=body)
 
-    def emitDecodePreflight(self, archival):
-        atag = ('_archival' if archival else '')
-        print(f'{indent}  err = {namespace}_{self.type}_decode{atag}_preflight( ctx );', file=body)
+    def emitDecodeFootprint(self):
+        print(f'{indent}  err = {namespace}_{self.type}_decode_footprint_inner( ctx, total_sz );', file=body)
         print(f'{indent}  if( FD_UNLIKELY( err ) ) return err;', file=body)
 
-    def emitDecodeUnsafe(self, archival):
-        atag = ('_archival' if archival else '')
-        print(f'{indent}  {namespace}_{self.type}_decode{atag}_unsafe( &self->{self.name}, ctx );', file=body)
+    def emitDecodeInner(self):
+        print(f'{indent}  {namespace}_{self.type}_decode_inner( &self->{self.name}, alloc_mem, ctx );', file=body)
 
-    def emitEncode(self, archival):
-        atag = ('_archival' if archival else '')
-        print(f'{indent}  err = {namespace}_{self.type}_encode{atag}( &self->{self.name}, ctx );', file=body)
+    def emitEncode(self):
+        print(f'{indent}  err = {namespace}_{self.type}_encode( &self->{self.name}, ctx );', file=body)
         print(f'{indent}  if( FD_UNLIKELY( err ) ) return err;', file=body)
 
     def emitSize(self, inner):
@@ -422,15 +406,6 @@ class VectorMember(TypeNode):
         self.element = json["element"]
         self.compact = ("modifier" in json and json["modifier"] == "compact")
         self.ignore_underflow = (bool(json["ignore_underflow"]) if "ignore_underflow" in json else False)
-
-
-    def propogateArchival(self, nametypes):
-        fulltype = f'{namespace}_{self.element}'
-        if fulltype in nametypes:
-            nametypes[fulltype].propogateArchival(nametypes)
-
-    def metaTag(self):
-        return "FD_ARCHIVE_META_VECTOR"
 
     def emitPreamble(self):
         pass
@@ -460,13 +435,11 @@ class VectorMember(TypeNode):
             pass
         else:
             print(f'    for( ulong i=0; i < self->{self.name}_len; i++ )', file=body)
-            print(f'      {namespace}_{self.element}_destroy( self->{self.name} + i, ctx );', file=body)
-        print(f'    fd_valloc_free( ctx->valloc, self->{self.name} );', file=body)
+            print(f'      {namespace}_{self.element}_destroy( self->{self.name} + i );', file=body)
         print(f'    self->{self.name} = NULL;', file=body)
         print('  }', file=body)
 
-    def emitDecodePreflight(self, archival):
-        atag = ('_archival' if archival else '')
+    def emitDecodeFootprint(self):
         if self.compact:
             print(f'  ushort {self.name}_len;', file=body)
             print(f'  err = fd_bincode_compact_u16_decode( &{self.name}_len, ctx );', file=body)
@@ -479,24 +452,29 @@ class VectorMember(TypeNode):
         el = el.upper()
 
         if self.element == "uchar":
-            print(f'    err = fd_bincode_bytes_decode_preflight( {self.name}_len, ctx );', file=body)
+            print(f'    *total_sz += 8UL + {self.name}_len;', file=body)
+            print(f'    err = fd_bincode_bytes_decode_footprint( {self.name}_len, ctx );', file=body)
             print(f'    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
 
         else:
+            if self.element in simpletypes:
+                  print(f'    *total_sz += 8UL + sizeof({self.element})*{self.name}_len;', file=body)
+            else:
+                  print(f'    *total_sz += {el}_ALIGN + {el}_FOOTPRINT*{self.name}_len;', file=body)
+
             print(f'    for( ulong i=0; i < {self.name}_len; i++ ) {{', file=body)
 
             if self.element in simpletypes:
-                print(f'      err = fd_bincode_{simpletypes[self.element]}_decode_preflight( ctx );', file=body)
+                print(f'      err = fd_bincode_{simpletypes[self.element]}_decode_footprint( ctx );', file=body)
             else:
-                print(f'      err = {namespace}_{self.element}_decode{atag}_preflight( ctx );', file=body)
+                print(f'      err = {namespace}_{self.element}_decode_footprint_inner( ctx, total_sz );', file=body)
 
             print(f'      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
             print('    }', file=body)
 
         print('  }', file=body)
 
-    def emitDecodeUnsafe(self, archival):
-        atag = ('_archival' if archival else '')
+    def emitDecodeInner(self):
         if self.compact:
             print(f'  fd_bincode_compact_u16_decode_unsafe( &self->{self.name}_len, ctx );', file=body)
         else:
@@ -506,14 +484,18 @@ class VectorMember(TypeNode):
         el = el.upper()
 
         if self.element == "uchar":
-            print(f'    self->{self.name} = fd_valloc_malloc( ctx->valloc, 8UL, self->{self.name}_len );', file=body)
+            print(f'    self->{self.name} = *alloc_mem;', file=body)
             print(f'    fd_bincode_bytes_decode_unsafe( self->{self.name}, self->{self.name}_len, ctx );', file=body)
-
+            print(f'    *alloc_mem = (uchar *)(*alloc_mem) + self->{self.name}_len;', file=body)
         else:
             if self.element in simpletypes:
-                print(f'    self->{self.name} = fd_valloc_malloc( ctx->valloc, 8UL, sizeof({self.element})*self->{self.name}_len );', file=body)
+                print(f'    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), 8UL );', file=body)
+                print(f'    self->{self.name} = *alloc_mem;', file=body)
+                print(f'    *alloc_mem = (uchar *)(*alloc_mem) + sizeof({self.element})*self->{self.name}_len;', file=body)
             else:
-                print(f'    self->{self.name} = ({namespace}_{self.element}_t *)fd_valloc_malloc( ctx->valloc, {el}_ALIGN, {el}_FOOTPRINT*self->{self.name}_len );', file=body)
+                print(f'    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), {el}_ALIGN );', file=body)
+                print(f'    self->{self.name} = *alloc_mem;', file=body)
+                print(f'    *alloc_mem = (uchar *)(*alloc_mem) + {el}_FOOTPRINT*self->{self.name}_len;', file=body)
 
             print(f'    for( ulong i=0; i < self->{self.name}_len; i++ ) {{', file=body)
 
@@ -521,15 +503,14 @@ class VectorMember(TypeNode):
                 print(f'      fd_bincode_{simpletypes[self.element]}_decode_unsafe( self->{self.name} + i, ctx );', file=body)
             else:
                 print(f'      {namespace}_{self.element}_new( self->{self.name} + i );', file=body)
-                print(f'      {namespace}_{self.element}_decode{atag}_unsafe( self->{self.name} + i, ctx );', file=body)
+                print(f'      {namespace}_{self.element}_decode_inner( self->{self.name} + i, alloc_mem, ctx );', file=body)
 
             print('    }', file=body)
 
         print('  } else', file=body)
         print(f'    self->{self.name} = NULL;', file=body)
 
-    def emitEncode(self, archival):
-        atag = ('_archival' if archival else '')
+    def emitEncode(self):
         if self.compact:
             print(f'  err = fd_bincode_compact_u16_encode( &self->{self.name}_len, ctx );', file=body)
         else:
@@ -547,7 +528,7 @@ class VectorMember(TypeNode):
             if self.element in simpletypes:
                 print(f'      err = fd_bincode_{simpletypes[self.element]}_encode( self->{self.name}[i], ctx );', file=body)
             else:
-                print(f'      err = {namespace}_{self.element}_encode{atag}( self->{self.name} + i, ctx );', file=body)
+                print(f'      err = {namespace}_{self.element}_encode( self->{self.name} + i, ctx );', file=body)
                 print('      if( FD_UNLIKELY( err ) ) return err;', file=body)
 
             print('    }', file=body)
@@ -604,14 +585,6 @@ class StaticVectorMember(TypeNode):
         self.size = (json["size"] if "size" in json else None)
         self.ignore_underflow = (bool(json["ignore_underflow"]) if "ignore_underflow" in json else False)
 
-    def propogateArchival(self, nametypes):
-        fulltype = f'{namespace}_{self.element}'
-        if fulltype in nametypes:
-            nametypes[fulltype].propogateArchival(nametypes)
-
-    def metaTag(self):
-        return "FD_ARCHIVE_META_STATIC_VECTOR"
-
     def isFixedSize(self):
         return False
 
@@ -651,10 +624,9 @@ class StaticVectorMember(TypeNode):
             pass
         else:
             print(f'  for( ulong i=0; i<{size}; i++ )', file=body)
-            print(f'    {namespace}_{self.element}_destroy( self->{self.name} + i, ctx );', file=body)
+            print(f'    {namespace}_{self.element}_destroy( self->{self.name} + i );', file=body)
 
-    def emitDecodePreflight(self, archival):
-        atag = ('_archival' if archival else '')
+    def emitDecodeFootprint(self):
         print(f'  ulong {self.name}_len;', file=body)
         print(f'  err = fd_bincode_uint64_decode( &{self.name}_len, ctx );', file=body)
         print(f'  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
@@ -663,24 +635,23 @@ class StaticVectorMember(TypeNode):
         el = el.upper()
 
         if self.element == "uchar":
-            print(f'    err = fd_bincode_bytes_decode_preflight( {self.name}_len, ctx );', file=body)
+            print(f'    err = fd_bincode_bytes_decode_footprint( {self.name}_len, ctx );', file=body)
             print(f'    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
 
         else:
             print(f'    for( ulong i=0; i < {self.name}_len; i++ ) {{', file=body)
 
             if self.element in simpletypes:
-                print(f'      err = fd_bincode_{simpletypes[self.element]}_decode_preflight( ctx );', file=body)
+                print(f'      err = fd_bincode_{simpletypes[self.element]}_decode_footprint( ctx );', file=body)
             else:
-                print(f'      err = {namespace}_{self.element}_decode{atag}_preflight( ctx );', file=body)
+                print(f'      err = {namespace}_{self.element}_decode_footprint_inner( ctx, total_sz );', file=body)
 
             print(f'      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
             print('    }', file=body)
 
         print('  }', file=body)
 
-    def emitDecodeUnsafe(self, archival):
-        atag = ('_archival' if archival else '')
+    def emitDecodeInner(self):
         print(f'  fd_bincode_uint64_decode_unsafe( &self->{self.name}_len, ctx );', file=body)
         print(f'  self->{self.name}_size = {self.size};', file=body)
         print(f'  self->{self.name}_offset = 0;', file=body)
@@ -693,20 +664,17 @@ class StaticVectorMember(TypeNode):
         if self.element in simpletypes:
             print(f'    fd_bincode_{simpletypes[self.element]}_decode_unsafe( self->{self.name} + i, ctx );', file=body)
         else:
-            print(f'    {namespace}_{self.element}_decode{atag}_unsafe( self->{self.name} + i, ctx );', file=body)
+            print(f'    {namespace}_{self.element}_decode_inner( self->{self.name} + i, alloc_mem, ctx );', file=body)
         print('  }', file=body)
 
-    def emitEncode(self, archival):
-        atag = ('_archival' if archival else '')
-
-        atag = ('_archival' if archival else '')
+    def emitEncode(self):
         print(f'  err = fd_bincode_uint64_encode( self->{self.name}_len, ctx );', file=body)
         print(f'  if( FD_UNLIKELY(err) ) return err;', file=body)
         print(f'  if( FD_UNLIKELY( 0 == self->{self.name}_len ) ) return FD_BINCODE_SUCCESS;', file=body)
 
         if self.element == "uchar":
             #print(f'  err = fd_bincode_bytes_encode( self->{self.name}, self->{self.name}_len, ctx );', file=body)
-            print(f'  TODO: implement this windowed properly', file=body)
+            print(f' TODO: implement this windowed properly', file=body)
             print('  if( FD_UNLIKELY( err ) ) return err;', file=body)
             return
 
@@ -718,7 +686,7 @@ class StaticVectorMember(TypeNode):
         if self.element in simpletypes:
             print(f'    err = fd_bincode_{simpletypes[self.element]}_encode( self->{self.name}[idx], ctx );', file=body)
         else:
-            print(f'    err = {namespace}_{self.element}_encode{atag}( self->{self.name} + idx, ctx );', file=body)
+            print(f'    err = {namespace}_{self.element}_encode( self->{self.name} + idx, ctx );', file=body)
         print('    if( FD_UNLIKELY( err ) ) return err;', file=body)
         print('  }', file=body)
 
@@ -767,16 +735,16 @@ class StringMember(VectorMember):
         self.compact = False
         self.ignore_underflow = False
 
-    def emitDecodePreflight(self, archival):
-        atag = ('_archival' if archival else '')
+    def emitDecodeFootprint(self):
         print(f'  ulong {self.name}_len;', file=body)
         print(f'  err = fd_bincode_uint64_decode( &{self.name}_len, ctx );', file=body)
         print(f'  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
+        print(f'  *total_sz += {self.name}_len;', file=body)
         print(f'  if( {self.name}_len ) {{', file=body)
         el = f'{namespace}_{self.element}'
         el = el.upper()
 
-        print(f'    err = fd_bincode_bytes_decode_preflight( {self.name}_len, ctx );', file=body)
+        print(f'    err = fd_bincode_bytes_decode_footprint( {self.name}_len, ctx );', file=body)
         print(f'    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
         print(f'    err = !fd_utf8_verify( (char const *) ctx->data - {self.name}_len, {self.name}_len );', file=body)
         print(f'    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
@@ -790,14 +758,6 @@ class DequeMember(TypeNode):
         self.compact = ("modifier" in json and json["modifier"] == "compact")
         self.min = json.get("min", None)
         self.growth = (json["growth"] if "growth" in json else None)
-
-    def propogateArchival(self, nametypes):
-        fulltype = f'{namespace}_{self.element}'
-        if fulltype in nametypes:
-            nametypes[fulltype].propogateArchival(nametypes)
-
-    def metaTag(self):
-        return "FD_ARCHIVE_META_DEQUE"
 
     def elem_type(self):
         if self.element in simpletypes:
@@ -826,6 +786,15 @@ class DequeMember(TypeNode):
         print(f'  void * mem = fd_valloc_malloc( valloc, {dp}_align(), {dp}_footprint( max ) );', file=header)
         print(f'  return {dp}_join( {dp}_new( mem, max ) );', file=header)
         print("}", file=header)
+        print(f'static inline {element_type} *', file=header)
+        print(f'{dp}_join_new( void * * alloc_mem, ulong max ) {{', file=header)
+        print(f'  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow', file=header)
+        print(f'  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, {dp}_align() );', file=header)
+        print(f'  void * deque_mem = *alloc_mem;', file=header)
+        print(f'  *alloc_mem = (uchar *)*alloc_mem + {dp}_footprint( max );', file=header)
+        print(f'  return {dp}_join( {dp}_new( deque_mem, max ) );', file=header)
+        print("}", file=header)
+
 
     def emitPostamble(self):
         pass
@@ -850,14 +819,12 @@ class DequeMember(TypeNode):
         else:
             print(f'    for( {self.prefix()}_iter_t iter = {self.prefix()}_iter_init( self->{self.name} ); !{self.prefix()}_iter_done( self->{self.name}, iter ); iter = {self.prefix()}_iter_next( self->{self.name}, iter ) ) {{', file=body)
             print(f'      {self.elem_type()} * ele = {self.prefix()}_iter_ele( self->{self.name}, iter );', file=body)
-            print(f'      {namespace}_{self.element}_destroy( ele, ctx );', file=body)
+            print(f'      {namespace}_{self.element}_destroy( ele );', file=body)
             print('    }', file=body)
-        print(f'    fd_valloc_free( ctx->valloc, {self.prefix()}_delete( {self.prefix()}_leave( self->{self.name}) ) );', file=body)
         print(f'    self->{self.name} = NULL;', file=body)
         print('  }', file=body)
 
-    def emitDecodePreflight(self, archival):
-        atag = ('_archival' if archival else '')
+    def emitDecodeFootprint(self):
         if self.compact:
             print(f'  ushort {self.name}_len;', file=body)
             print(f'  err = fd_bincode_compact_u16_decode( &{self.name}_len, ctx );', file=body)
@@ -866,25 +833,32 @@ class DequeMember(TypeNode):
             print(f'  err = fd_bincode_uint64_decode( &{self.name}_len, ctx );', file=body)
         print(f'  if( FD_UNLIKELY( err ) ) return err;', file=body)
 
+        if self.min:
+            print(f'  ulong {self.name}_max = fd_ulong_max( {self.name}_len, {self.min} );', file=body)
+            print(f'  *total_sz += {self.prefix()}_align() + {self.prefix()}_footprint( {self.name}_max );', file=body)
+        else:
+            print(f'  ulong {self.name}_max = {self.name}_len == 0 ? 1 : {self.name}_len;', file=body)
+            print(f'  *total_sz += {self.prefix()}_align() + {self.prefix()}_footprint( {self.name}_max ) ;', file=body)
+
         if self.element in fuzzytypes:
             fixedsize = fixedsizetypes[self.element]
             print(f'  ulong {self.name}_sz;', file=body)
             print(f'  if( FD_UNLIKELY( __builtin_umull_overflow( {self.name}_len, {fixedsize}, &{self.name}_sz ) ) ) return FD_BINCODE_ERR_UNDERFLOW;', file=body)
-            print(f'  err = fd_bincode_bytes_decode_preflight( {self.name}_sz, ctx );', file=body)
+            print(f'  err = fd_bincode_bytes_decode_footprint( {self.name}_sz, ctx );', file=body)
             print(f'  if( FD_UNLIKELY( err ) ) return err;', file=body)
         else:
             print(f'  for( ulong i = 0; i < {self.name}_len; ++i ) {{', file=body)
 
             if self.element in simpletypes:
-                print(f'    err = fd_bincode_{simpletypes[self.element]}_decode_preflight( ctx );', file=body)
+                print(f'    err = fd_bincode_{simpletypes[self.element]}_decode_footprint( ctx );', file=body)
             else:
-                print(f'    err = {namespace}_{self.element}_decode{atag}_preflight( ctx );', file=body)
+                print(f'    err = {namespace}_{self.element}_decode_footprint_inner( ctx, total_sz );', file=body)
             print(f'    if( FD_UNLIKELY( err ) ) return err;', file=body)
 
             print('  }', file=body)
 
-    def emitDecodeUnsafe(self, archival):
-        atag = ('_archival' if archival else '')
+    def emitDecodeInner(self):
+        pass
         if self.compact:
             print(f'  ushort {self.name}_len;', file=body)
             print(f'  fd_bincode_compact_u16_decode_unsafe( &{self.name}_len, ctx );', file=body)
@@ -894,9 +868,9 @@ class DequeMember(TypeNode):
 
         if self.min:
             print(f'  ulong {self.name}_max = fd_ulong_max( {self.name}_len, {self.min} );', file=body)
-            print(f'  self->{self.name} = {self.prefix()}_alloc( ctx->valloc, {self.name}_max );', file=body)
+            print(f'  self->{self.name} = {self.prefix()}_join_new( alloc_mem, {self.name}_max );', file=body)
         else:
-            print(f'  self->{self.name} = {self.prefix()}_alloc( ctx->valloc, {self.name}_len );', file=body)
+            print(f'  self->{self.name} = {self.prefix()}_join_new( alloc_mem, {self.name}_len );', file=body)
 
         print(f'  for( ulong i=0; i < {self.name}_len; i++ ) {{', file=body)
         print(f'    {self.elem_type()} * elem = {self.prefix()}_push_tail_nocopy( self->{self.name} );', file=body);
@@ -905,12 +879,12 @@ class DequeMember(TypeNode):
             print(f'    fd_bincode_{simpletypes[self.element]}_decode_unsafe( elem, ctx );', file=body)
         else:
             print(f'    {namespace}_{self.element}_new( elem );', file=body)
-            print(f'    {namespace}_{self.element}_decode{atag}_unsafe( elem, ctx );', file=body)
+            print(f'    {namespace}_{self.element}_decode_inner( elem, alloc_mem, ctx );', file=body)
 
         print('  }', file=body)
 
-    def emitEncode(self, archival):
-        atag = ('_archival' if archival else '')
+
+    def emitEncode(self):
         print(f'  if( self->{self.name} ) {{', file=body)
 
         if self.compact:
@@ -927,7 +901,7 @@ class DequeMember(TypeNode):
         if self.element in simpletypes:
             print(f'      err = fd_bincode_{simpletypes[self.element]}_encode( ele[0], ctx );', file=body)
         else:
-            print(f'      err = {namespace}_{self.element}_encode{atag}( ele, ctx );', file=body)
+            print(f'      err = {namespace}_{self.element}_encode( ele, ctx );', file=body)
             print('      if( FD_UNLIKELY( err ) ) return err;', file=body)
 
         print('    }', file=body)
@@ -1007,14 +981,6 @@ class MapMember(TypeNode):
         self.compact = ("modifier" in json and json["modifier"] == "compact")
         self.minalloc = (int(json["minalloc"]) if "minalloc" in json else 0)
 
-    def propogateArchival(self, nametypes):
-        fulltype = f'{namespace}_{self.element}'
-        if fulltype in nametypes:
-            nametypes[fulltype].propogateArchival(nametypes)
-
-    def metaTag(self):
-        return "FD_ARCHIVE_META_MAP"
-
     def elem_type(self):
         if self.element in simpletypes:
             return self.element
@@ -1045,6 +1011,14 @@ class MapMember(TypeNode):
         print(f'  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow', file=header)
         print(f'  void * mem = fd_valloc_malloc( valloc, {mapname}_align(), {mapname}_footprint(len));', file=header)
         print(f'  return {mapname}_join({mapname}_new(mem, len));', file=header)
+        print("}", file=header)
+        print(f'static inline {nodename}_t *', file=header)
+        print(f'{mapname}_join_new( void * * alloc_mem, ulong len ) {{', file=header)
+        print(f'  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow', file=header)
+        print(f'  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, {mapname}_align() );', file=header)
+        print(f'  void * map_mem = *alloc_mem;', file=header)
+        print(f'  *alloc_mem = (uchar *)*alloc_mem + {mapname}_footprint( len );', file=header)
+        print(f'  return {mapname}_join( {mapname}_new( map_mem, len ) );', file=header)
         print("}", file=header)
 
     def emitPostamble(self):
@@ -1083,36 +1057,40 @@ class MapMember(TypeNode):
         nodename = element_type + "_mapnode_t"
 
         print(f'  for( {nodename} * n = {mapname}_minimum(self->{self.name}_pool, self->{self.name}_root ); n; n = {mapname}_successor(self->{self.name}_pool, n) ) {{', file=body);
-        print(f'    {namespace}_{self.element}_destroy( &n->elem, ctx );', file=body)
+        print(f'    {namespace}_{self.element}_destroy( &n->elem );', file=body)
         print('  }', file=body)
-        print(f'  fd_valloc_free( ctx->valloc, {mapname}_delete( {mapname}_leave( self->{self.name}_pool ) ) );', file=body)
         print(f'  self->{self.name}_pool = NULL;', file=body)
         print(f'  self->{self.name}_root = NULL;', file=body)
 
-    def emitDecodePreflight(self, archival):
+    def emitDecodeFootprint(self):
         element_type = self.elem_type()
         mapname = element_type + "_map"
         nodename = element_type + "_mapnode_t"
-        atag = ('_archival' if archival else '')
 
         if self.compact:
-            print(f'  ushort {self.name}_len;', file=body)
+            print(f'  ushort {self.name}_len = 0;', file=body)
             print(f'  err = fd_bincode_compact_u16_decode( &{self.name}_len, ctx );', file=body)
         else:
-            print(f'  ulong {self.name}_len;', file=body)
+            print(f'  ulong {self.name}_len = 0UL;', file=body)
             print(f'  err = fd_bincode_uint64_decode( &{self.name}_len, ctx );', file=body)
+
+        if self.minalloc > 0:
+            print(f'  ulong {self.name}_cnt = fd_ulong_max( {self.name}_len, {self.minalloc} );', file=body)
+        else:
+            print(f'  ulong {self.name}_cnt = {self.name}_len;', file=body)
+        print(f'  *total_sz += {mapname}_align() + {mapname}_footprint( {self.name}_cnt );', file=body)
+
         print('  if( FD_UNLIKELY( err ) ) return err;', file=body)
 
         print(f'  for( ulong i=0; i < {self.name}_len; i++ ) {{', file=body)
-        print(f'    err = {namespace}_{self.element}_decode{atag}_preflight( ctx );', file=body)
+        print(f'    err = {namespace}_{self.element}_decode_footprint_inner( ctx, total_sz );', file=body)
         print('    if( FD_UNLIKELY( err ) ) return err;', file=body)
         print('  }', file=body)
 
-    def emitDecodeUnsafe(self, archival):
+    def emitDecodeInner(self):
         element_type = self.elem_type()
         mapname = element_type + "_map"
         nodename = element_type + "_mapnode_t"
-        atag = ('_archival' if archival else '')
 
         if self.compact:
             print(f'  ushort {self.name}_len;', file=body)
@@ -1123,25 +1101,22 @@ class MapMember(TypeNode):
 
         # We use this special allocator to indicate that the data
         # structure has already been constructed in its final memory layout */
-        print('  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {', file=body)
         if self.minalloc > 0:
-            print(f'    self->{self.name}_pool = {mapname}_alloc( ctx->valloc, fd_ulong_max({self.name}_len, {self.minalloc} ) );', file=body)
+            print(f'  self->{self.name}_pool = {mapname}_join_new( alloc_mem, fd_ulong_max( {self.name}_len, {self.minalloc} ) );', file=body)
         else:
-            print(f'    self->{self.name}_pool = {mapname}_alloc( ctx->valloc, {self.name}_len );', file=body)
-        print(f'    self->{self.name}_root = NULL;', file=body)
-        print('  }', file=body)
+            print(f'  self->{self.name}_pool = {mapname}_join_new( alloc_mem, {self.name}_len );', file=body)
+        print(f'  self->{self.name}_root = NULL;', file=body)
         print(f'  for( ulong i=0; i < {self.name}_len; i++ ) {{', file=body)
-        print(f'    {nodename} * node = {mapname}_acquire( self->{self.name}_pool );', file=body);
+        print(f'    {nodename} * node = {mapname}_acquire( self->{self.name}_pool );', file=body)
         print(f'    {namespace}_{self.element}_new( &node->elem );', file=body)
-        print(f'    {namespace}_{self.element}_decode{atag}_unsafe( &node->elem, ctx );', file=body)
+        print(f'    {namespace}_{self.element}_decode_inner( &node->elem, alloc_mem, ctx );', file=body)
         print(f'    {mapname}_insert( self->{self.name}_pool, &self->{self.name}_root, node );', file=body)
         print('  }', file=body)
 
-    def emitEncode(self, archival):
+    def emitEncode(self):
         element_type = self.elem_type()
         mapname = element_type + "_map"
         nodename = element_type + "_mapnode_t"
-        atag = ('_archival' if archival else '')
 
         print(f'  if( self->{self.name}_root ) {{', file=body)
         if self.compact:
@@ -1153,7 +1128,7 @@ class MapMember(TypeNode):
         print('    if( FD_UNLIKELY( err ) ) return err;', file=body)
 
         print(f'    for( {nodename} * n = {mapname}_minimum( self->{self.name}_pool, self->{self.name}_root ); n; n = {mapname}_successor( self->{self.name}_pool, n ) ) {{', file=body);
-        print(f'      err = {namespace}_{self.element}_encode{atag}( &n->elem, ctx );', file=body)
+        print(f'      err = {namespace}_{self.element}_encode( &n->elem, ctx );', file=body)
         print('      if( FD_UNLIKELY( err ) ) return err;', file=body)
         print('    }', file=body)
         print('  } else {', file=body)
@@ -1221,14 +1196,6 @@ class TreapMember(TypeNode):
         self.upsert = json.get("upsert", False)
         self.min_name = f"{self.name.upper()}_MIN"
 
-    def propogateArchival(self, nametypes):
-        fulltype = self.treap_t.rstrip("_t")
-        if fulltype in nametypes:
-            nametypes[fulltype].propogateArchival(nametypes)
-
-    def metaTag(self):
-        return "FD_ARCHIVE_META_TREAP"
-
     def emitPreamble(self):
         name = self.name
         treap_name = name + '_treap'
@@ -1254,6 +1221,14 @@ class TreapMember(TypeNode):
         print(f'                        {pool}_footprint( num ) ),', file=header)
         print(f'      num ) );', file=header)
         print("}", file=header)
+        print(f'static inline {treap_t} *', file=header)
+        print(f'{pool}_join_new( void * * alloc_mem, ulong num ) {{', file=header)
+        print(f'  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow', file=header)
+        print(f'  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, {pool}_align() );', file=header)
+        print(f'  void * pool_mem = *alloc_mem;', file=header)
+        print(f'  *alloc_mem = (uchar *)*alloc_mem + {pool}_footprint( num );', file=header)
+        print(f'  return {pool}_join( {pool}_new( pool_mem, num ) );', file=header)
+        print("}", file=header)
         print(f"#define TREAP_NAME {treap_name}", file=header)
         print(f"#define TREAP_T {treap_t}", file=header)
         print(f"#define TREAP_QUERY_T {treap_query_t}", file=header)
@@ -1272,6 +1247,14 @@ class TreapMember(TypeNode):
         print(f'                        {treap_name}_align(),', file=header)
         print(f'                        {treap_name}_footprint( num ) ),', file=header)
         print(f'      num ) );', file=header)
+        print("}", file=header)
+        print(f'static inline {treap_name}_t *', file=header)
+        print(f'{treap_name}_join_new( void * * alloc_mem, ulong num ) {{', file=header)
+        print(f'  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow', file=header)
+        print(f'  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, {treap_name}_align() );', file=header)
+        print(f'  void * treap_mem = *alloc_mem;', file=header)
+        print(f'  *alloc_mem = (uchar *)*alloc_mem + {treap_name}_footprint( num );', file=header)
+        print(f'  return {treap_name}_join( {treap_name}_new( treap_mem, num ) );', file=header)
         print("}", file=header)
 
     def emitPostamble(self):
@@ -1297,17 +1280,15 @@ class TreapMember(TypeNode):
         print(f'         !{treap_name}_fwd_iter_done( iter );', file=body);
         print(f'         iter = {treap_name}_fwd_iter_next( iter, self->pool ) ) {{', file=body);
         print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)
-        print(f'      {treap_t.rstrip("_t")}_destroy( ele, ctx );', file=body)
+        print(f'      {treap_t.rstrip("_t")}_destroy( ele );', file=body)
         print('    }', file=body)
-        print(f'  fd_valloc_free( ctx->valloc, {treap_name}_delete({treap_name}_leave( self->treap) ) );', file=body)
-        print(f'  fd_valloc_free( ctx->valloc, {pool}_delete({pool}_leave( self->pool) ) );', file=body)
         print(f'  self->pool = NULL;', file=body)
         print(f'  self->treap = NULL;', file=body)
 
-    def emitDecodePreflight(self, archival):
+    def emitDecodeFootprint(self):
         treap_name = self.name + '_treap'
+        pool_name = self.name + '_pool'
         treap_t = self.treap_t
-        atag = ('_archival' if archival else '')
 
         if self.compact:
             print(f'  ushort {treap_name}_len;', file=body)
@@ -1317,19 +1298,19 @@ class TreapMember(TypeNode):
             print(f'  err = fd_bincode_uint64_decode( &{treap_name}_len, ctx );', file=body)
         print('  if( FD_UNLIKELY( err ) ) return err;', file=body)
 
+        print(f'  ulong {treap_name}_max = fd_ulong_max( fd_ulong_max( {treap_name}_len, {self.min_name} ), 1UL );', file=body)
+        print(f'  *total_sz += {pool_name}_align() + {pool_name}_footprint( {treap_name}_max );', file=body)
+        print(f'  *total_sz += {treap_name}_align() + {treap_name}_footprint( {treap_name}_max );', file=body)
+
         print(f'  for( ulong i=0; i < {treap_name}_len; i++ ) {{', file=body)
-        print(f'    err = {treap_t.rstrip("_t")}_decode{atag}_preflight( ctx );', file=body)
+        print(f'    err = {treap_t.rstrip("_t")}_decode_footprint_inner( ctx, total_sz );', file=body)
         print(f'    if( FD_UNLIKELY ( err ) ) return err;', file=body)
         print('  }', file=body)
 
-    def emitDecodeUnsafe(self, archival):
+    def emitDecodeInner(self):
         treap_name = self.name + '_treap'
         treap_t = self.treap_t
         pool_name = self.name + '_pool'
-        atag = ('_archival' if archival else '')
-
-        if self.upsert:
-            print('  fd_bincode_destroy_ctx_t destroy_ctx = { .valloc = ctx->valloc };', file=body)
 
         if self.compact:
             print(f'  ushort {treap_name}_len;', file=body)
@@ -1338,34 +1319,29 @@ class TreapMember(TypeNode):
             print(f'  ulong {treap_name}_len;', file=body)
             print(f'  fd_bincode_uint64_decode_unsafe( &{treap_name}_len, ctx );', file=body)
 
-        # We use this special allocator to indicate that the data
-        # structure has already been constructed in its final memory layout */
-        print('  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {', file=body)
-        print(f'    ulong {treap_name}_max = fd_ulong_max( {treap_name}_len, {self.min_name} );', file=body)
-        print(f'    self->pool = {pool_name}_alloc( ctx->valloc, {treap_name}_max );', file=body)
-        print(f'    self->treap = {treap_name}_alloc( ctx->valloc, {treap_name}_max );', file=body)
-        print('  }', file=body)
+        print(f'  ulong {treap_name}_max = fd_ulong_max( {treap_name}_len, {self.min_name} );', file=body)
+        print(f'  self->pool = {pool_name}_join_new( alloc_mem, {treap_name}_max );', file=body)
+        print(f'  self->treap = {treap_name}_join_new( alloc_mem, {treap_name}_max );', file=body)
         print(f'  for( ulong i=0; i < {treap_name}_len; i++ ) {{', file=body)
         print(f'    {treap_t} * ele = {pool_name}_ele_acquire( self->pool );', file=body)
         print(f'    {treap_t.rstrip("_t")}_new( ele );', file=body)
-        print(f'    {treap_t.rstrip("_t")}_decode{atag}_unsafe( ele, ctx );', file=body)
+        print(f'    {treap_t.rstrip("_t")}_decode_inner( ele, alloc_mem, ctx );', file=body)
 
         if self.upsert:
             print(f'    {treap_t} * repeated_entry = {treap_name}_ele_query( self->treap, ele->epoch, self->pool );', file=body)
             print(f'    if( repeated_entry ) {{', file=body)
             print(f'        {treap_name}_ele_remove( self->treap, repeated_entry, self->pool ); // Remove the element before inserting it back to avoid duplication', file=body)
-            print(f'        {treap_t.rstrip("_t")}_destroy( repeated_entry, &destroy_ctx );', file=body)
+            #print(f'        {treap_t.rstrip("_t")}_destroy( repeated_entry, &destroy_ctx );', file=body)
             print(f'        {pool_name}_ele_release( self->pool, repeated_entry );', file=body)
             print(f'    }}', file=body)
 
         print(f'    {treap_name}_ele_insert( self->treap, ele, self->pool ); /* this cannot fail */', file=body)
         print('  }', file=body)
 
-    def emitEncode(self, archival):
+    def emitEncode(self):
         name = self.name
         treap_name = name + '_treap'
         treap_t = self.treap_t
-        atag = ('_archival' if archival else '')
 
         print(f'  if( self->treap ) {{', file=body)
         if self.compact:
@@ -1381,7 +1357,7 @@ class TreapMember(TypeNode):
             print(f'         !{treap_name}_rev_iter_done( iter );', file=body);
             print(f'         iter = {treap_name}_rev_iter_next( iter, self->pool ) ) {{', file=body);
             print(f'      {treap_t} * ele = {treap_name}_rev_iter_ele( iter, self->pool );', file=body)
-            print(f'      err = {treap_t.rstrip("_t")}_encode{atag}( ele, ctx );', file=body)
+            print(f'      err = {treap_t.rstrip("_t")}_encode( ele, ctx );', file=body)
             print('      if( FD_UNLIKELY( err ) ) return err;', file=body)
             print('    }', file=body)
             print('  } else {', file=body)
@@ -1390,7 +1366,7 @@ class TreapMember(TypeNode):
             print(f'         !{treap_name}_fwd_iter_done( iter );', file=body);
             print(f'         iter = {treap_name}_fwd_iter_next( iter, self->pool ) ) {{', file=body);
             print(f'      {treap_t} * ele = {treap_name}_fwd_iter_ele( iter, self->pool );', file=body)
-            print(f'      err = {treap_t.rstrip("_t")}_encode{atag}( ele, ctx );', file=body)
+            print(f'      err = {treap_t.rstrip("_t")}_encode( ele, ctx );', file=body)
             print('      if( FD_UNLIKELY( err ) ) return err;', file=body)
             print('    }', file=body)
             print('  } else {', file=body)
@@ -1452,14 +1428,6 @@ class OptionMember(TypeNode):
         self.flat = json.get("flat", False)
         self.ignore_underflow = (bool(json["ignore_underflow"]) if "ignore_underflow" in json else False)
 
-    def propogateArchival(self, nametypes):
-        fulltype = f'{namespace}_{self.element}'
-        if fulltype in nametypes:
-            nametypes[fulltype].propogateArchival(nametypes)
-
-    def metaTag(self):
-        return "FD_ARCHIVE_META_OPTION"
-
     def emitPreamble(self):
         pass
 
@@ -1489,36 +1457,40 @@ class OptionMember(TypeNode):
         if self.flat:
             print(f'  if( self->has_{self.name} ) {{', file=body)
             if self.element not in simpletypes:
-                print(f'    {namespace}_{self.element}_destroy( &self->{self.name}, ctx );', file=body)
+                print(f'    {namespace}_{self.element}_destroy( &self->{self.name} );', file=body)
             print(f'    self->has_{self.name} = 0;', file=body)
             print('  }', file=body)
         else:
             print(f'  if( self->{self.name} ) {{', file=body)
             if self.element not in simpletypes:
-                print(f'    {namespace}_{self.element}_destroy( self->{self.name}, ctx );', file=body)
-            print(f'    fd_valloc_free( ctx->valloc, self->{self.name} );', file=body)
+                print(f'    {namespace}_{self.element}_destroy( self->{self.name} );', file=body)
             print(f'    self->{self.name} = NULL;', file=body)
             print('  }', file=body)
 
-    def emitDecodePreflight(self, archival):
-        atag = ('_archival' if archival else '')
+    def emitDecodeFootprint(self):
         print('  {', file=body)
         print('    uchar o;', file=body)
         print('    err = fd_bincode_bool_decode( &o, ctx );', file=body)
         print('    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
         print('    if( o ) {', file=body)
+        if not self.flat:
+          if self.element in simpletypes:
+              print(f'    *total_sz += 8UL + sizeof({self.element});', file=body)
+          else:
+              el = f'{namespace}_{self.element}'
+              el = el.upper()
+              print(f'    *total_sz += {el}_ALIGN + {el}_FOOTPRINT;', file=body)
         if self.element in simpletypes:
-            print(f'      err = fd_bincode_{simpletypes[self.element]}_decode_preflight( ctx );', file=body)
+            print(f'      err = fd_bincode_{simpletypes[self.element]}_decode_footprint( ctx );', file=body)
         else:
             el = f'{namespace}_{self.element}'
             el = el.upper()
-            print(f'      err = {namespace}_{self.element}_decode{atag}_preflight( ctx );', file=body)
+            print(f'      err = {namespace}_{self.element}_decode_footprint_inner( ctx, total_sz );', file=body)
         print('      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
         print('    }', file=body)
         print('  }', file=body)
 
-    def emitDecodeUnsafe(self, archival):
-        atag = ('_archival' if archival else '')
+    def emitDecodeInner(self):
         print('  {', file=body)
         print('    uchar o;', file=body)
         print('    fd_bincode_bool_decode_unsafe( &o, ctx );', file=body)
@@ -1531,25 +1503,29 @@ class OptionMember(TypeNode):
                 el = f'{namespace}_{self.element}'
                 el = el.upper()
                 print(f'      {namespace}_{self.element}_new( &self->{self.name} );', file=body)
-                print(f'      {namespace}_{self.element}_decode{atag}_unsafe( &self->{self.name}, ctx );', file=body)
+                print(f'      {namespace}_{self.element}_decode_inner( &self->{self.name}, alloc_mem, ctx );', file=body)
             print('    }', file=body)
         else:
             print('    if( o ) {', file=body)
             if self.element in simpletypes:
-                print(f'      self->{self.name} = fd_valloc_malloc( ctx->valloc, 8, sizeof({self.element}) );', file=body)
+                print(f'      *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, 8UL );', file=body)
+                print(f'      self->{self.name} = *alloc_mem;', file=body)
+                print(f'      *alloc_mem = (uchar *)*alloc_mem + sizeof({self.element});', file=body)
                 print(f'      fd_bincode_{simpletypes[self.element]}_decode_unsafe( self->{self.name}, ctx );', file=body)
             else:
                 el = f'{namespace}_{self.element}'
                 el = el.upper()
-                print(f'      self->{self.name} = ({namespace}_{self.element}_t *)fd_valloc_malloc( ctx->valloc, {el}_ALIGN, {el}_FOOTPRINT );', file=body)
+                print(f'      *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, {el}_ALIGN );', file=body)
+                print(f'      self->{self.name} = *alloc_mem;', file=body)
+                print(f'      *alloc_mem = (uchar *)*alloc_mem + {el}_FOOTPRINT;', file=body)
                 print(f'      {namespace}_{self.element}_new( self->{self.name} );', file=body)
-                print(f'      {namespace}_{self.element}_decode{atag}_unsafe( self->{self.name}, ctx );', file=body)
-            print('    } else', file=body)
+                print(f'      {namespace}_{self.element}_decode_inner( self->{self.name}, alloc_mem, ctx );', file=body)
+            print('    } else {', file=body)
             print(f'      self->{self.name} = NULL;', file=body)
+            print('    }', file=body)
         print('  }', file=body)
 
-    def emitEncode(self, archival):
-        atag = ('_archival' if archival else '')
+    def emitEncode(self):
         if self.flat:
             print(f'  err = fd_bincode_bool_encode( self->has_{self.name}, ctx );', file=body)
             print('  if( FD_UNLIKELY( err ) ) return err;', file=body)
@@ -1557,7 +1533,7 @@ class OptionMember(TypeNode):
             if self.element in simpletypes:
                 print(f'    err = fd_bincode_{simpletypes[self.element]}_encode( self->{self.name}, ctx );', file=body)
             else:
-                print(f'    err = {namespace}_{self.element}_encode{atag}( &self->{self.name}, ctx );', file=body)
+                print(f'    err = {namespace}_{self.element}_encode( &self->{self.name}, ctx );', file=body)
             print('    if( FD_UNLIKELY( err ) ) return err;', file=body)
             print('  }', file=body)
         else:
@@ -1567,7 +1543,7 @@ class OptionMember(TypeNode):
             if self.element in simpletypes:
                 print(f'    err = fd_bincode_{simpletypes[self.element]}_encode( self->{self.name}[0], ctx );', file=body)
             else:
-                print(f'    err = {namespace}_{self.element}_encode{atag}( self->{self.name}, ctx );', file=body)
+                print(f'    err = {namespace}_{self.element}_encode( self->{self.name}, ctx );', file=body)
             print('    if( FD_UNLIKELY( err ) ) return err;', file=body)
             print('  } else {', file=body)
             print('    err = fd_bincode_bool_encode( 0, ctx );', file=body)
@@ -1632,14 +1608,6 @@ class ArrayMember(TypeNode):
         self.element = json["element"]
         self.length = int(json["length"])
 
-    def propogateArchival(self, nametypes):
-        fulltype = f'{namespace}_{self.element}'
-        if fulltype in nametypes:
-            nametypes[fulltype].propogateArchival(nametypes)
-
-    def metaTag(self):
-        return "FD_ARCHIVE_META_ARRAY"
-
     def isFixedSize(self):
         return self.element in fixedsizetypes
 
@@ -1679,27 +1647,25 @@ class ArrayMember(TypeNode):
             pass
         else:
             print(f'  for( ulong i=0; i<{length}; i++ )', file=body)
-            print(f'    {namespace}_{self.element}_destroy( self->{self.name} + i, ctx );', file=body)
+            print(f'    {namespace}_{self.element}_destroy( self->{self.name} + i );', file=body)
 
-    def emitDecodePreflight(self, archival):
-        atag = ('_archival' if archival else '')
+    def emitDecodeFootprint(self):
         length = self.length
 
         if self.element == "uchar":
-            print(f'  err = fd_bincode_bytes_decode_preflight( {length}, ctx );', file=body)
+            print(f'  err = fd_bincode_bytes_decode_footprint( {length}, ctx );', file=body)
             print(f'  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
             return
 
         print(f'  for( ulong i=0; i<{length}; i++ ) {{', file=body)
         if self.element in simpletypes:
-            print(f'    err = fd_bincode_{simpletypes[self.element]}_decode_preflight( ctx );', file=body)
+            print(f'    err = fd_bincode_{simpletypes[self.element]}_decode_footprint( ctx );', file=body)
         else:
-            print(f'    err = {namespace}_{self.element}_decode{atag}_preflight( ctx );', file=body)
+            print(f'    err = {namespace}_{self.element}_decode_footprint_inner( ctx, total_sz );', file=body)
         print('    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
         print('  }', file=body)
 
-    def emitDecodeUnsafe(self, archival):
-        atag = ('_archival' if archival else '')
+    def emitDecodeInner(self):
         length = self.length
 
         if self.element == "uchar":
@@ -1710,11 +1676,10 @@ class ArrayMember(TypeNode):
         if self.element in simpletypes:
             print(f'    fd_bincode_{simpletypes[self.element]}_decode_unsafe( self->{self.name} + i, ctx );', file=body)
         else:
-            print(f'    {namespace}_{self.element}_decode{atag}_unsafe( self->{self.name} + i, ctx );', file=body)
+            print(f'    {namespace}_{self.element}_decode_inner( self->{self.name} + i, alloc_mem, ctx );', file=body)
         print('  }', file=body)
 
-    def emitEncode(self, archival):
-        atag = ('_archival' if archival else '')
+    def emitEncode(self):
         length = self.length
 
         if self.element == "uchar":
@@ -1726,7 +1691,7 @@ class ArrayMember(TypeNode):
         if self.element in simpletypes:
             print(f'    err = fd_bincode_{simpletypes[self.element]}_encode( self->{self.name}[i], ctx );', file=body)
         else:
-            print(f'    err = {namespace}_{self.element}_encode{atag}( self->{self.name} + i, ctx );', file=body)
+            print(f'    err = {namespace}_{self.element}_encode( self->{self.name} + i, ctx );', file=body)
         print('    if( FD_UNLIKELY( err ) ) return err;', file=body)
         print('  }', file=body)
 
@@ -1788,9 +1753,6 @@ class OpaqueType(TypeNode):
         self.size = (int(json["size"]) if "size" in json else None)
         self.emitprotos = (bool(json["emitprotos"]) if "emitprotos" in json else True)
 
-    def propogateArchival(self, nametypes):
-        self.archival = True
-
     def emitHeader(self):
         pass
 
@@ -1805,15 +1767,16 @@ class OpaqueType(TypeNode):
             return
         n = self.fullname
         print(f"void {n}_new( {n}_t * self );", file=header)
-        print(f"int {n}_decode( {n}_t * self, fd_bincode_decode_ctx_t * ctx );", file=header)
-        print(f"int {n}_decode_preflight( fd_bincode_decode_ctx_t * ctx );", file=header)
-        print(f"void {n}_decode_unsafe( {n}_t * self, fd_bincode_decode_ctx_t * ctx );", file=header)
         print(f"int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx );", file=header)
-        print(f"void {n}_destroy( {n}_t * self, fd_bincode_destroy_ctx_t * ctx );", file=header)
+        print(f"void {n}_destroy( {n}_t * self );", file=header)
         print(f"void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char * name, uint level );", file=header)
         print(f"ulong {n}_size( {n}_t const * self );", file=header)
         print(f'ulong {n}_footprint( void );', file=header)
         print(f'ulong {n}_align( void );', file=header)
+        print(f'int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
+        print(f'int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
+        print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
+        print(f'void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );', file=header)
         print("", file=header)
 
     def emitImpls(self):
@@ -1821,27 +1784,9 @@ class OpaqueType(TypeNode):
             return
         n = self.fullname
 
-        print(f'int {n}_decode( {n}_t * self, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
-        print(f'  void const * data = ctx->data;', file=body)
-        print(f'  int err = {n}_decode_preflight( ctx );', file=body)
-        print(f'  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-        print(f'  ctx->data = data;', file=body)
-        print(f'  {n}_new( self );', file=body)
-        print(f'  {n}_decode_unsafe( self, ctx );', file=body)
-        print(f'  return FD_BINCODE_SUCCESS;', file=body)
-        print(f'}}', file=body)
-
-        print(f'int {n}_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {{', file=body)
-        print(f'  return fd_bincode_bytes_decode_preflight( sizeof({n}_t), ctx );', file=body)
-        print("}", file=body)
-
-        print(f'void {n}_decode_unsafe( {n}_t * self, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
-        print(f'  fd_bincode_bytes_decode_unsafe( (uchar*)self, sizeof({n}_t), ctx );', file=body)
-        print("}", file=body)
-
         print(f'void {n}_new( {n}_t * self ) {{ }}', file=body)
 
-        print(f'void {n}_destroy( {n}_t * self, fd_bincode_destroy_ctx_t * ctx ) {{ }}', file=body)
+        print(f'void {n}_destroy( {n}_t * self ) {{ }}', file=body)
 
         print(f'ulong {n}_footprint( void ) {{ return sizeof({n}_t); }}', file=body)
         print(f'ulong {n}_align( void ) {{ return alignof({n}_t); }}', file=body)
@@ -1856,6 +1801,28 @@ class OpaqueType(TypeNode):
             print(f"void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {{", file=body)
             print(f'  fun( w, (uchar const *)self, name, {self.walktype}, name, level );', file=body)
             print("}", file=body)
+
+        print(f'int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=body)
+        print(f'  *total_sz += sizeof({n}_t);', file=body)
+        print(f'  void const * start_data = ctx->data;', file=body)
+        print(f'  int err = {n}_decode_footprint_inner( ctx, total_sz );', file=body)
+        print(f'  ctx->data = start_data;', file=body)
+        print(f'  return err;', file=body)
+        print(f'}}', file=body)
+
+        print(f'int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=body)
+        print(f'  return fd_bincode_bytes_decode_footprint( sizeof({n}_t), ctx );', file=body)
+        print(f'}}', file=body)
+
+        print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        print(f'  fd_bincode_bytes_decode_unsafe( mem, sizeof({n}_t), ctx );', file=body)
+        print(f'  return mem;', file=body)
+        print(f'}}', file=body)
+
+        print(f'void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        print(f'  fd_bincode_bytes_decode_unsafe( struct_mem, sizeof({n}_t), ctx );', file=body)
+        print(f'  return;', file=body)
+        print(f'}}', file=body)
 
         print("", file=body)
 
@@ -1874,7 +1841,6 @@ class StructType(TypeNode):
                 m = parseMember(self.fullname, f)
                 self.fields.append(m)
                 m.arch_index = (int(f["tag"]) if "tag" in f else index)
-            # Increment the index even for removed members to preserve archive compat
             index = index + 1
         self.comment = (json["comment"] if "comment" in json else None)
         self.nomethods = ("attribute" in json)
@@ -1888,12 +1854,6 @@ class StructType(TypeNode):
         else:
             self.attribute = f'__attribute__((aligned(8UL))) '
             self.alignment = 8
-        self.archival = (bool(json["archival"]) if "archival" in json else False)
-
-    def propogateArchival(self, nametypes):
-        self.archival = True
-        for f in self.fields:
-            f.propogateArchival(nametypes)
 
     def isFixedSize(self):
         for f in self.fields:
@@ -1953,151 +1913,42 @@ class StructType(TypeNode):
             return
         n = self.fullname
         print(f"void {n}_new( {n}_t * self );", file=header)
-        print(f"int {n}_decode( {n}_t * self, fd_bincode_decode_ctx_t * ctx );", file=header)
-        print(f"int {n}_decode_preflight( fd_bincode_decode_ctx_t * ctx );", file=header)
-        print(f"void {n}_decode_unsafe( {n}_t * self, fd_bincode_decode_ctx_t * ctx );", file=header)
-        print(f"int {n}_decode_offsets( {n}_off_t * self, fd_bincode_decode_ctx_t * ctx );", file=header)
         print(f"int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx );", file=header)
-        print(f"void {n}_destroy( {n}_t * self, fd_bincode_destroy_ctx_t * ctx );", file=header)
+        print(f"void {n}_destroy( {n}_t * self );", file=header)
         print(f"void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );", file=header)
         print(f"ulong {n}_size( {n}_t const * self );", file=header)
         print(f'ulong {n}_footprint( void );', file=header)
         print(f'ulong {n}_align( void );', file=header)
-        if self.archival:
-            print(f"int {n}_decode_archival( {n}_t * self, fd_bincode_decode_ctx_t * ctx );", file=header)
-            print(f"int {n}_decode_archival_preflight( fd_bincode_decode_ctx_t * ctx );", file=header)
-            print(f"void {n}_decode_archival_unsafe( {n}_t * self, fd_bincode_decode_ctx_t * ctx );", file=header)
-            print(f"int {n}_encode_archival( {n}_t const * self, fd_bincode_encode_ctx_t * ctx );", file=header)
+        print(f'int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
+        print(f'int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
+        print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
+        print(f'void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );', file=header)
         print("", file=header)
 
-    def emitEncodeDecode(self, archival):
+    def emitEncodes(self):
         n = self.fullname
-        atag = ('_archival' if archival else '')
-        if archival:
-            self.emitArchiveTags(n)
-        self.emitDecode(archival, n, atag)
-        if self.name in fuzzytypes and not archival:
-            self.emitDecodePreflightFixedSize(n)
-        else:
-            self.emitDecodePreflightComplex(archival, n, atag)
-        self.emitDecodeUnsafe(archival, n, atag)
-        self.emitEncode(archival, n, atag)
+        self.emitEncode(n)
 
-    def emitArchiveTags(self, n):
-        print("enum {", file=body)
-        for f in self.fields:
-            print(f'  {n}_{f.name}_TAG = ({f.arch_index} << 6) | {f.metaTag()},', file=body)
-        print("};", file=body)
-
-    def emitDecode(self, archival, n, atag):
-        print(f'int {n}_decode{atag}( {n}_t * self, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+    def emitDecode(self, n):
+        print(f'int {n}_decode( {n}_t * self, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
         print(f'  void const * data = ctx->data;', file=body)
-        print(f'  int err = {n}_decode{atag}_preflight( ctx );', file=body)
+        print(f'  int err = {n}_decode_footprint( ctx );', file=body)
         print(f'  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
         print(f'  ctx->data = data;', file=body)
         print('  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {', file=body)
         print(f'    {n}_new( self );', file=body)
         print('  }', file=body)
-        print(f'  {n}_decode{atag}_unsafe( self, ctx );', file=body)
+        print(f'  {n}_decode_unsafe( self, ctx );', file=body)
         print(f'  return FD_BINCODE_SUCCESS;', file=body)
         print(f'}}', file=body)
 
-    def emitDecodePreflightFixedSize(self, n):
-        size = fixedsizetypes[self.name]
-        print(f'int {n}_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {{', file=body)
-        print(f'  return fd_bincode_bytes_decode_preflight( {size}, ctx );', file=body)
-        print('}', file=body)
-
-    def emitDecodePreflightComplex(self, archival, n, atag):
-        print(f'int {n}_decode{atag}_preflight( fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+    def emitEncode(self, n):
+        print(f'int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx ) {{', file=body)
         print('  int err;', file=body)
-        if archival:
-            print('  ushort tag = FD_ARCHIVE_META_SENTINAL;', file=body)
-            print('  void * offset = NULL;', file=body)
-            print('  for(;;) {', file=body)
-            print('  err = fd_bincode_uint16_decode( &tag, ctx );', file=body)
-            print('  if( FD_UNLIKELY( err ) ) return err;', file=body)
-            print('  if( FD_UNLIKELY( tag == FD_ARCHIVE_META_SENTINAL ) ) break;', file=body)
-            print('  switch( tag ) {', file=body)
-        for f in self.fields:
-            if hasattr(f, 'decode') and not f.decode:
-                continue
-            if hasattr(f, "ignore_underflow") and f.ignore_underflow:
-                print('  if( ctx->data == ctx->dataend ) return FD_BINCODE_SUCCESS;', file=body)
-            if archival:
-                print(f'  case (ushort){n}_{f.name}_TAG: {{', file=body)
-                if not isinstance(f, PrimitiveMember):
-                    print(f'  err = fd_archive_decode_setup_length( ctx, &offset );', file=body),
-                    print(f'  if( FD_UNLIKELY( err ) ) return err;', file=body)
-            f.emitDecodePreflight(archival)
-            if archival:
-                if not isinstance(f, PrimitiveMember):
-                    print(f'  err = fd_archive_decode_check_length( ctx, offset );', file=body),
-                    print(f'  if( FD_UNLIKELY( err ) ) return err;', file=body)
-                print('  break;', file=body)
-                print('  }', file=body)
-        if archival:
-            print('  default:', file=body)
-            print('    err = fd_archive_decode_skip_field( ctx, tag );', file=body)
-            print('    if( FD_UNLIKELY( err ) ) return err;', file=body)
-            print('    break;', file=body)
-            print('  }', file=body)
-            print('  }', file=body)
-        print('  return FD_BINCODE_SUCCESS;', file=body)
-        print("}", file=body)
-
-    def emitDecodeUnsafe(self, archival, n, atag):
-        print(f'void {n}_decode{atag}_unsafe( {n}_t * self, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
-        if archival:
-            print('  ushort tag = FD_ARCHIVE_META_SENTINAL;', file=body)
-            print('  void * offset = NULL;', file=body)
-            print('  for(;;) {', file=body)
-            print('  fd_bincode_uint16_decode( &tag, ctx );', file=body)
-            print('  if( FD_UNLIKELY( tag == FD_ARCHIVE_META_SENTINAL ) ) break;', file=body)
-            print('  switch( tag ) {', file=body)
-        for f in self.fields:
-            if hasattr(f, 'decode') and not f.decode:
-                continue
-            if hasattr(f, "ignore_underflow") and f.ignore_underflow:
-                print('  if( ctx->data == ctx->dataend ) return;', file=body)
-            if archival:
-                print(f'  case (ushort){n}_{f.name}_TAG: {{', file=body)
-                if not isinstance(f, PrimitiveMember):
-                    print(f'  fd_archive_decode_setup_length( ctx, &offset );', file=body),
-            f.emitDecodeUnsafe(archival)
-            if archival:
-                print('  break;', file=body)
-                print('  }', file=body)
-        if archival:
-            print('  default:', file=body)
-            print('    fd_archive_decode_skip_field( ctx, tag );', file=body)
-            print('    break;', file=body)
-            print('  }', file=body)
-            print('  }', file=body)
-        print("}", file=body)
-
-    def emitEncode(self, archival, n, atag):
-        print(f'int {n}_encode{atag}( {n}_t const * self, fd_bincode_encode_ctx_t * ctx ) {{', file=body)
-        print('  int err;', file=body)
-        if archival:
-            print('  void * offset = NULL;', file=body)
         for f in self.fields:
             if hasattr(f, 'encode') and not f.encode:
                 continue
-            if archival:
-                print(f'  err = fd_bincode_uint16_encode( (ushort){n}_{f.name}_TAG, ctx );', file=body),
-                print(f'  if( FD_UNLIKELY( err ) ) return err;', file=body)
-                if not isinstance(f, PrimitiveMember):
-                    print(f'  err = fd_archive_encode_setup_length( ctx, &offset );', file=body),
-                    print(f'  if( FD_UNLIKELY( err ) ) return err;', file=body)
-            f.emitEncode(archival)
-            if archival:
-                if not isinstance(f, PrimitiveMember):
-                    print(f'  err = fd_archive_encode_set_length( ctx, offset );', file=body),
-                    print(f'  if( FD_UNLIKELY( err ) ) return err;', file=body)
-        if archival:
-            print(f'  err = fd_bincode_uint16_encode( FD_ARCHIVE_META_SENTINAL, ctx );', file=body),
-            print(f'  if( FD_UNLIKELY( err ) ) return err;', file=body)
+            f.emitEncode()
         print('  return FD_BINCODE_SUCCESS;', file=body)
         print("}", file=body)
 
@@ -2107,20 +1958,42 @@ class StructType(TypeNode):
         n = self.fullname
 
         if self.encoders is not False:
-            self.emitEncodeDecode(False)
-            if self.archival:
-                self.emitEncodeDecode(True)
+            self.emitEncodes()
 
-            print(f'int {n}_decode_offsets( {n}_off_t * self, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
-            print('  uchar const * data = ctx->data;', file=body)
-            print('  int err;', file=body)
+        if self.encoders is not False:
+            print(f'int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=body)
+            print(f'  *total_sz += sizeof({n}_t);', file=body)
+            print(f'  void const * start_data = ctx->data;', file=body)
+            print(f'  int err = {n}_decode_footprint_inner( ctx, total_sz );', file=body)
+            print(f'  ctx->data = start_data;', file=body)
+            print(f'  return err;', file=body)
+            print(f'}}', file=body)
+
+            print(f'int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=body)
+            print(f'  int err = 0;', file=body)
             for f in self.fields:
-                print(f'  self->{f.name}_off = (uint)( (ulong)ctx->data - (ulong)data );', file=body)
                 if hasattr(f, "ignore_underflow") and f.ignore_underflow:
                     print('  if( ctx->data == ctx->dataend ) return FD_BINCODE_SUCCESS;', file=body)
-                f.emitDecodePreflight(False)
-            print('  return FD_BINCODE_SUCCESS;', file=body)
-            print("}", file=body)
+                f.emitDecodeFootprint()
+            print(f'  return 0;', file=body)
+            print(f'}}', file=body)
+
+            print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+            print(f'  {n}_t * self = ({n}_t *)mem;', file=body)
+            print(f'  {n}_new( self );', file=body)
+            print(f'  void * alloc_region = (uchar *)mem + sizeof({n}_t);', file=body)
+            print(f'  void * * alloc_mem = &alloc_region;', file=body)
+            print(f'  {n}_decode_inner( mem, alloc_mem, ctx );', file=body)
+            print(f'  return self;', file=body)
+            print(f'}}', file=body)
+
+            print(f'void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+            print(f'  {n}_t * self = ({n}_t *)struct_mem;', file=body)
+            for f in self.fields:
+                if hasattr(f, "ignore_underflow") and f.ignore_underflow:
+                    print('  if( ctx->data == ctx->dataend ) return;', file=body)
+                f.emitDecodeInner()
+            print(f'}}', file=body)
 
         print(f'void {n}_new({n}_t * self) {{', file=body)
         print(f'  fd_memset( self, 0, sizeof({n}_t) );', file=body)
@@ -2128,7 +2001,7 @@ class StructType(TypeNode):
             f.emitNew()
         print("}", file=body)
 
-        print(f'void {n}_destroy( {n}_t * self, fd_bincode_destroy_ctx_t * ctx ) {{', file=body)
+        print(f'void {n}_destroy( {n}_t * self ) {{', file=body)
         for f in self.fields:
             f.emitDestroy()
         print("}", file=body)
@@ -2180,7 +2053,6 @@ class EnumType:
             self.attribute = ''
             self.alignment = 8
         self.compact = (json["compact"] if "compact" in json else False)
-        self.archival = (bool(json["archival"]) if "archival" in json else False)
 
         # Current supported repr types for enum are uint and ulong
         self.repr = (json["repr"] if "repr" in json else "uint")
@@ -2190,12 +2062,6 @@ class EnumType:
         if self.repr == "ulong":
             self.repr_codec_stem = "uint64"
             self.repr_max_val = "ULONG_MAX"
-
-    def propogateArchival(self, nametypes):
-        self.archival = True
-        for v in self.variants:
-            if not isinstance(v, str):
-                v.propogateArchival(nametypes)
 
     def isFixedSize(self):
         all_simple = True
@@ -2274,17 +2140,17 @@ class EnumType:
         n = self.fullname
         print(f"void {n}_new_disc( {n}_t * self, {self.repr} discriminant );", file=header)
         print(f"void {n}_new( {n}_t * self );", file=header)
-        print(f"int {n}_decode( {n}_t * self, fd_bincode_decode_ctx_t * ctx );", file=header)
-        print(f"int {n}_decode_preflight( fd_bincode_decode_ctx_t * ctx );", file=header)
-        print(f"void {n}_decode_unsafe( {n}_t * self, fd_bincode_decode_ctx_t * ctx );", file=header)
-        if self.zerocopy:
-            print(f"int {n}_decode_offsets( {n}_off_t * self, fd_bincode_decode_ctx_t * ctx );", file=header)
         print(f"int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx );", file=header)
-        print(f"void {n}_destroy( {n}_t * self, fd_bincode_destroy_ctx_t * ctx );", file=header)
+        print(f"void {n}_destroy( {n}_t * self );", file=header)
         print(f"void {n}_walk( void * w, {n}_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );", file=header)
         print(f"ulong {n}_size( {n}_t const * self );", file=header)
         print(f'ulong {n}_footprint( void );', file=header)
         print(f'ulong {n}_align( void );', file=header)
+        print(f'int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
+        print(f'int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );', file=header)
+        print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
+        print(f'void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );', file=header)
+
         print("", file=header)
 
         for i, v in enumerate(self.variants):
@@ -2295,14 +2161,13 @@ class EnumType:
         for i, v in enumerate(self.variants):
             name = (v if isinstance(v, str) else v.name)
             print(f'{n}_enum_{name} = {i},', file=header)
-        print("}; ", file=header)
+        print("};", file=header)
 
     def emitImpls(self):
         global indent
 
         n = self.fullname
         indent = '  '
-        archival = False
 
         for i, v in enumerate(self.variants):
             name = (v if isinstance(v, str) else v.name)
@@ -2312,45 +2177,28 @@ class EnumType:
 
         print(f'void {n}_inner_new( {n}_inner_t * self, {self.repr} discriminant );', file=body)
 
-        print(f'int {n}_inner_decode_preflight( {self.repr} discriminant, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        print(f'int {n}_inner_decode_footprint( {self.repr} discriminant, fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=body)
         print('  int err;', file=body)
         print('  switch (discriminant) {', file=body)
         for i, v in enumerate(self.variants):
             print(f'  case {i}: {{', file=body)
             if not isinstance(v, str):
-                v.emitDecodePreflight(archival)
+                v.emitDecodeFootprint()
             print('    return FD_BINCODE_SUCCESS;', file=body)
             print('  }', file=body)
-        print('  default: return FD_BINCODE_ERR_ENCODING;', file=body);
+        print('  default: return FD_BINCODE_ERR_ENCODING;', file=body)
         print('  }', file=body)
         print("}", file=body)
 
-        print(f'void {n}_inner_decode_unsafe( {n}_inner_t * self, {self.repr} discriminant, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
-        print('  switch (discriminant) {', file=body)
-        for i, v in enumerate(self.variants):
-            print(f'  case {i}: {{', file=body)
-            if not isinstance(v, str):
-                v.emitDecodeUnsafe(archival)
-            print('    break;', file=body)
-            print('  }', file=body)
-        print('  }', file=body)
+        print(f'int {n}_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=body)
+        print(f'  *total_sz += sizeof({n}_t);', file=body)
+        print(f'  void const * start_data = ctx->data;', file=body)
+        print(f'  int err =  {n}_decode_footprint_inner( ctx, total_sz );', file=body)
+        print(f'  ctx->data = start_data;', file=body)
+        print(f'  return err;', file=body)
         print("}", file=body)
 
-        print(f'int {n}_decode( {n}_t * self, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
-        print(f'  void const * data = ctx->data;', file=body)
-        print(f'  int err = {n}_decode_preflight( ctx );', file=body)
-        print(f'  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-        print(f'  ctx->data = data;', file=body)
-        # We use this special allocator to indicate that the data
-        # structure has already been constructed in its final memory layout */
-        print('  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {', file=body)
-        print(f'    {n}_new( self );', file=body)
-        print('  }', file=body)
-        print(f'  {n}_decode_unsafe( self, ctx );', file=body)
-        print(f'  return FD_BINCODE_SUCCESS;', file=body)
-        print(f'}}', file=body)
-
-        print(f'int {n}_decode_preflight( fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        print(f'int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=body)
         if self.compact:
             print('  ushort discriminant = 0;', file=body)
             print('  int err = fd_bincode_compact_u16_decode( &discriminant, ctx );', file=body)
@@ -2358,18 +2206,39 @@ class EnumType:
             print(f'  {self.repr} discriminant = 0;', file=body)
             print(f'  int err = fd_bincode_{self.repr_codec_stem}_decode( &discriminant, ctx );', file=body)
         print('  if( FD_UNLIKELY( err ) ) return err;', file=body)
-        print(f'  return {n}_inner_decode_preflight( discriminant, ctx );', file=body)
+        print(f'  return {n}_inner_decode_footprint( discriminant, ctx, total_sz );', file=body)
         print("}", file=body)
 
-        print(f'void {n}_decode_unsafe( {n}_t * self, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        print(f'void {n}_inner_decode_inner( {n}_inner_t * self, void * * alloc_mem, {self.repr} discriminant, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        print('  switch (discriminant) {', file=body)
+        for i, v in enumerate(self.variants):
+            print(f'  case {i}: {{', file=body)
+            if not isinstance(v, str):
+                v.emitDecodeInner()
+            print('    break;', file=body)
+            print('  }', file=body)
+        print('  }', file=body)
+        print("}", file=body)
+
+        print(f'void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        print(f'  {n}_t * self = ({n}_t *)struct_mem; /* #goated */', file=body)
         if self.compact:
             print('  ushort tmp = 0;', file=body)
             print('  fd_bincode_compact_u16_decode_unsafe( &tmp, ctx );', file=body)
             print('  self->discriminant = tmp;', file=body)
         else:
             print(f'  fd_bincode_{self.repr_codec_stem}_decode_unsafe( &self->discriminant, ctx );', file=body)
-        print(f'  {n}_inner_decode_unsafe( &self->inner, self->discriminant, ctx );', file=body)
-        print("}", file=body)
+        print(f'  {n}_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );', file=body)
+        print(f'}}', file=body)
+
+        print(f'void * {n}_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        print(f'  {n}_t * self = ({n}_t *)mem;', file=body)
+        print(f'  {n}_new( self );', file=body)
+        print(f'  void * alloc_region = (uchar *)mem + sizeof({n}_t);', file=body)
+        print(f'  void * * alloc_mem = &alloc_region; /* #goated */', file=body)
+        print(f'  {n}_decode_inner( mem, alloc_mem, ctx );', file=body)
+        print(f'  return self;', file=body)
+        print(f'}}', file=body)
 
         print(f'void {n}_inner_new( {n}_inner_t * self, {self.repr} discriminant ) {{', file=body)
         print('  switch( discriminant ) {', file=body)
@@ -2393,7 +2262,7 @@ class EnumType:
         print(f'  {n}_new_disc( self, {self.repr_max_val} );', file=body) # Invalid by default
         print("}", file=body)
 
-        print(f'void {n}_inner_destroy( {n}_inner_t * self, {self.repr} discriminant, fd_bincode_destroy_ctx_t * ctx ) {{', file=body)
+        print(f'void {n}_inner_destroy( {n}_inner_t * self, {self.repr} discriminant ) {{', file=body)
         print('  switch( discriminant ) {', file=body)
         for i, v in enumerate(self.variants):
             if not isinstance(v, str):
@@ -2405,8 +2274,8 @@ class EnumType:
         print('  }', file=body)
         print("}", file=body)
 
-        print(f'void {n}_destroy( {n}_t * self, fd_bincode_destroy_ctx_t * ctx ) {{', file=body)
-        print(f'  {n}_inner_destroy( &self->inner, self->discriminant, ctx );', file=body)
+        print(f'void {n}_destroy( {n}_t * self ) {{', file=body)
+        print(f'  {n}_inner_destroy( &self->inner, self->discriminant );', file=body)
         print("}", file=body)
         print("", file=body)
 
@@ -2454,7 +2323,7 @@ class EnumType:
                     print('  switch (discriminant) {', file=body)
                     first = False
                 print(f'  case {i}: {{', file=body)
-                v.emitEncode(archival)
+                v.emitEncode()
                 print('    break;', file=body)
                 print('  }', file=body)
         if not first:
@@ -2490,9 +2359,6 @@ def main():
     for t in alltypes:
         if hasattr(t, 'fullname') and not (hasattr(t, 'nomethods') and t.nomethods):
             nametypes[t.fullname] = t
-    for key,val in nametypes.items():
-        if hasattr(val, 'archival') and val.archival:
-            val.propogateArchival(nametypes)
 
     global fixedsizetypes
     global fuzzytypes

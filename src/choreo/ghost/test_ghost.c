@@ -349,7 +349,7 @@ test_ghost_print( fd_wksp_t * wksp ) {
          /    \
     slot 11    |
        |    slot 12
-    slot 13    
+    slot 13
 */
 
 void
@@ -402,7 +402,7 @@ void test_ghost_vote_leaves( fd_wksp_t * wksp ){
                                     fd_ghost_align(),
                                     fd_ghost_footprint( node_max ),
                                     1UL );
-  FD_TEST( mem ); 
+  FD_TEST( mem );
   fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( mem, 0UL, node_max ) );
 
   fd_ghost_init( ghost, 0 );
@@ -468,6 +468,52 @@ void test_ghost_vote_leaves( fd_wksp_t * wksp ){
 }
 
 void
+test_ghost_old_vote_pruned( fd_wksp_t * wksp ){
+  ulong node_max = 16;
+  void * mem      = fd_wksp_alloc_laddr( wksp,
+    fd_ghost_align(),
+    fd_ghost_footprint( node_max ),
+    1UL );
+  FD_TEST( mem );
+  fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( mem, 0UL, node_max ) );
+  fd_epoch_t * epoch = mock_epoch( wksp, 0, 0 );
+
+  fd_ghost_init( ghost, 0 );
+  for ( ulong i = 1; i < node_max - 1; i++ ) {
+    fd_ghost_insert( ghost, (i-1)/2, i );
+    fd_voter_t v = { .key = { { (uchar)i } }, .stake = i, .replay_vote = FD_SLOT_NULL };
+    fd_ghost_replay_vote( ghost, &v, i );
+  }
+
+  fd_ghost_publish( ghost, 1);
+  fd_ghost_print( ghost, epoch, fd_ghost_root( ghost ) );
+
+  fd_voter_t switch_voter = { .key = { { 5 } }, .stake = 5, .replay_vote = 5 };
+  fd_ghost_replay_vote( ghost, &switch_voter, 9 );
+  /* switching to vote 9, from voting 5, that is > than the root */
+  fd_ghost_print( ghost, epoch, fd_ghost_root( ghost ) );
+
+  FD_TEST( fd_ghost_query( ghost, 9 )->weight == 14 );
+  FD_TEST( fd_ghost_query( ghost, 3 )->weight == 18 );
+  FD_TEST( fd_ghost_query( ghost, 4 )->weight == 28 );
+  FD_TEST( fd_ghost_query( ghost, 1 )->weight == 47 ); /* full tree */
+
+  FD_TEST( !fd_ghost_verify( ghost ) );
+
+  fd_ghost_publish( ghost, 3 ); /* cut down to nodes 3,7,8 */
+  /* now previously voted 2 ( < the root ) votes for 7 */
+  fd_voter_t switch_voter2 = { .key = { { 2 } }, .stake = 2, .replay_vote = 2 };
+  fd_ghost_replay_vote( ghost, &switch_voter2, 7 );
+
+  fd_ghost_print( ghost, epoch, fd_ghost_root( ghost ) );
+  FD_TEST( fd_ghost_query( ghost, 7 )->weight == 9 );
+  FD_TEST( fd_ghost_query( ghost, 8 )->weight == 8 );
+  FD_TEST( fd_ghost_query( ghost, 3 )->weight == 20 );
+
+  FD_TEST( !fd_ghost_verify( ghost ) );
+}
+
+void
 test_ghost_head_full_tree( fd_wksp_t * wksp ){
   ulong  node_max = 16;
   void * mem      = fd_wksp_alloc_laddr( wksp,
@@ -476,9 +522,9 @@ test_ghost_head_full_tree( fd_wksp_t * wksp ){
                                     1UL );
   FD_TEST( mem );
   fd_ghost_t * ghost = fd_ghost_join( fd_ghost_new( mem, 0UL, node_max ) );
-  
+
   fd_epoch_t * epoch = mock_epoch( wksp, 120, 0 );
-  
+
   fd_ghost_init( ghost, 0 );
   FD_LOG_NOTICE(( "ghost node max: %lu", fd_ghost_node_pool_max( fd_ghost_node_pool( ghost ) ) ));
 
@@ -517,9 +563,9 @@ test_ghost_head_full_tree( fd_wksp_t * wksp ){
   // adding one more node would fail.
 }
 
-void 
+void
 test_rooted_vote( fd_wksp_t * wksp ){
-  ulong node_max = 16; 
+  ulong node_max = 16;
   void * mem = fd_wksp_alloc_laddr( wksp,
                                     fd_ghost_align(),
                                     fd_ghost_footprint( node_max ),
@@ -575,6 +621,7 @@ main( int argc, char ** argv ) {
   test_ghost_head_full_tree( wksp );
   test_ghost_head( wksp );
   test_rooted_vote( wksp );
+  test_ghost_old_vote_pruned( wksp );
 
   fd_halt();
   return 0;

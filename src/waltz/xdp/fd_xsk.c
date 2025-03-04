@@ -120,7 +120,7 @@ fd_xsk_fini( fd_xsk_t * xsk ) {
 
 /* fd_xsk_setup_umem: Initializes xdp_umem_reg and hooks up XSK with
    UMEM rings via setsockopt(). Retrieves xdp_mmap_offsets via
-   getsockopt().  Returns 1 on success, 0 on failure. */
+   getsockopt().  Returns 0 on success, -1 on failure. */
 static int
 fd_xsk_setup_umem( fd_xsk_t *              xsk,
                    fd_xsk_params_t const * params ) {
@@ -231,8 +231,8 @@ fd_xsk_init( fd_xsk_t *              xsk,
     .sxdp_family   = PF_XDP,
     .sxdp_ifindex  = xsk->if_idx,
     .sxdp_queue_id = xsk->if_queue_id,
-    /* See extended commentary below for details on on
-       XDP_USE_NEED_WAKEUP flag. */
+    /* See extended commentary below for details on XDP_USE_NEED_WAKEUP
+       flag. */
     .sxdp_flags    = (ushort)flags
   };
 

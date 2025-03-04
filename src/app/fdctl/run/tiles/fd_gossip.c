@@ -314,16 +314,25 @@ verify_vote_txn( fd_gossip_vote_t const * vote ) {
     return -1;
   }
 
-  fd_vote_instruction_t vote_instr = { 0 };
   fd_bincode_decode_ctx_t decode = {
-                                    .data    = instr_data,
-                                    .dataend = instr_data + instr_data_sz,
-                                    .valloc  = fd_scratch_virtual()
+    .data    = instr_data,
+    .dataend = instr_data + instr_data_sz
   };
-  int decode_result = fd_vote_instruction_decode( &vote_instr, &decode );
-  if( decode_result != FD_BINCODE_SUCCESS) {
+
+  ulong total_sz      = 0UL;
+  int   decode_result = fd_vote_instruction_decode_footprint( &decode, &total_sz );
+  if( FD_UNLIKELY( decode_result != FD_BINCODE_SUCCESS ) ) {
     return -1;
-  } else if ( !is_vote_state_update_instr( vote_instr.discriminant ) ) {
+  }
+
+  uchar * mem = fd_scratch_alloc( fd_vote_instruction_align(), total_sz );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "Unable to allocate memory for vote instruction" ));
+  }
+
+  fd_vote_instruction_t * vote_instr = fd_vote_instruction_decode( mem, &decode );
+
+  if( !is_vote_state_update_instr( vote_instr->discriminant ) ) {
     return -1;
   }
 
@@ -1111,8 +1120,10 @@ fd_gossip_update_gossip_metrics( fd_gossip_metrics_t * metrics ) {
   FD_MCNT_ENUM_COPY( GOSSIP, RECEIVED_GOSSIP_MESSAGES, metrics->recv_message );
   FD_MCNT_SET( GOSSIP, RECEIVED_UNKNOWN_MESSAGE, metrics->recv_unknown_message );
 
-  FD_MCNT_ENUM_COPY( GOSSIP, RECEIVED_CRDS, metrics->recv_crds );
-  FD_MCNT_ENUM_COPY( GOSSIP, RECEIVED_CRDS_DUPLICATE_MESSAGE, metrics->recv_crds_duplicate_message );
+  FD_MCNT_ENUM_COPY( GOSSIP, RECEIVED_CRDS_PUSH, metrics->recv_crds[ FD_GOSSIP_CRDS_ROUTE_PUSH ] );
+  FD_MCNT_ENUM_COPY( GOSSIP, RECEIVED_CRDS_PULL, metrics->recv_crds[ FD_GOSSIP_CRDS_ROUTE_PULL_RESP ] );
+  FD_MCNT_ENUM_COPY( GOSSIP, RECEIVED_CRDS_DUPLICATE_MESSAGE_PUSH, metrics->recv_crds_duplicate_message[ FD_GOSSIP_CRDS_ROUTE_PUSH ] );
+  FD_MCNT_ENUM_COPY( GOSSIP, RECEIVED_CRDS_DUPLICATE_MESSAGE_PULL, metrics->recv_crds_duplicate_message[ FD_GOSSIP_CRDS_ROUTE_PULL_RESP ] );
   FD_MCNT_ENUM_COPY( GOSSIP, RECEIVED_CRDS_DROP, metrics->recv_crds_drop_reason );
 
   FD_MCNT_ENUM_COPY( GOSSIP, PUSH_CRDS, metrics->push_crds );

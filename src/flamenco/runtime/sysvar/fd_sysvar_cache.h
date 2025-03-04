@@ -122,7 +122,7 @@ fd_sysvar_cache_restore( fd_sysvar_cache_t * cache,
 void                                                                   \
 fd_sysvar_cache_restore_##name( fd_sysvar_cache_t * cache,             \
                          fd_acc_mgr_t *      acc_mgr,                  \
-                         fd_funk_txn_t *     funk_txn ); 
+                         fd_funk_txn_t *     funk_txn );
   FD_SYSVAR_CACHE_ITER(X)
 # undef X
 
@@ -177,7 +177,7 @@ fd_sol_sysvar_last_restart_slot_t const * fd_sysvar_from_instr_acct_last_restart
 
 /* fd_check_sysvar_account does a check on if an instruction account index
    matches the expected pubkey of a specific sysvar. */
-   
+
 int
 fd_check_sysvar_account( fd_exec_instr_ctx_t const * ctx,
                          ulong                       insn_acc_idx,

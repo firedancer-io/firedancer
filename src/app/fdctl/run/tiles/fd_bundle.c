@@ -435,6 +435,7 @@ fd_topo_run_tile_t fd_tile_bundle = {
   .rlimit_address_space     = RLIM_INFINITY,
   .rlimit_data              = RLIM_INFINITY,
   .keep_host_networking     = 1,      /* We need to use the NIC to connect(2) to the block producer endpoint */
+  .allow_connect            = 1,      /* We need to use connect(2) to connect to the block producer endpoint */
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,

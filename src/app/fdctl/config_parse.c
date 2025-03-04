@@ -96,7 +96,7 @@ fdctl_cfg_get_bool( int *                 out,
     return 0;
   }
   ulong u; fd_ulong_svw_dec( (uchar const *)info->val, &u );
-  *out = (int)u;
+  *out = fd_int_zz_dec( (uint)u );
   return 1;
 }
 
@@ -336,6 +336,7 @@ fdctl_pod_to_cfg( config_t * config,
 
   CFG_POP      ( bool,   development.sandbox                              );
   CFG_POP      ( bool,   development.no_clone                             );
+  CFG_POP      ( bool,   development.core_dump                            );
   CFG_POP      ( bool,   development.no_agave                             );
   CFG_POP      ( bool,   development.bootstrap                            );
 

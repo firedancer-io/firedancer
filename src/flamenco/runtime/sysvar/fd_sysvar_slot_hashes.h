@@ -8,7 +8,7 @@
 
 /* FD_SYSVAR_SLOT_HASHES_CAP is the max number of entries that the
    "slot hashes" sysvar will include.
-   
+
    https://github.com/anza-xyz/agave/blob/6398ddf6ab8a8f81017bf675ab315a70067f0bf0/sdk/program/src/slot_hashes.rs#L19 */
 
 #define FD_SYSVAR_SLOT_HASHES_CAP (512UL)
@@ -27,8 +27,7 @@ fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime
    value into *result.  On failure, returns the bincode/acc_mgr error
    code. */
 fd_slot_hashes_t *
-fd_sysvar_slot_hashes_read( fd_slot_hashes_t *   result,
-                            fd_exec_slot_ctx_t * slot_ctx,
+fd_sysvar_slot_hashes_read( fd_exec_slot_ctx_t * slot_ctx,
                             fd_spad_t *          runtime_spad );
 
 FD_PROTOTYPES_END

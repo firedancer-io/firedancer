@@ -148,6 +148,15 @@ argument is required and must be the path to an Agave style
 `identity.json` keypair file. If the path is specified as `-` the key
 will instead be read from `stdin`.
 
+::: warning WARNING
+
+`set-identity` must be called with the configuration file you started
+the validator with, like `fdctl set-identity --config <config.toml>`,
+if the `config` argument is not provided, the command may not update
+the key on all tiles and your validator may start skipping slots.
+
+:::
+
 It is not generally safe to call `set-identity`, as another validator
 might be running with the same identity, and if they both produce a
 block or vote concurrently, the validator may violate consensus and be

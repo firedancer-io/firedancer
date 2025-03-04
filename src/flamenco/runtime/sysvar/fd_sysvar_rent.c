@@ -9,14 +9,12 @@
 #define ACCOUNT_STORAGE_OVERHEAD (128)
 
 fd_rent_t *
-fd_sysvar_rent_read( fd_rent_t *                result,
-                     fd_exec_slot_ctx_t const * slot_ctx,
+fd_sysvar_rent_read( fd_exec_slot_ctx_t const * slot_ctx,
                      fd_spad_t *                runtime_spad ) {
 
   fd_rent_t const * ret = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
-  if( FD_UNLIKELY( NULL != ret ) ) {
-    fd_memcpy(result, ret, sizeof(fd_rent_t));
-    return result;
+  if( FD_UNLIKELY( ret ) ) {
+    return (fd_rent_t*)ret;
   }
 
   FD_BORROWED_ACCOUNT_DECL(rent_rec);
@@ -29,16 +27,22 @@ fd_sysvar_rent_read( fd_rent_t *                result,
 
   fd_bincode_decode_ctx_t decode = {
     .data    = rent_rec->const_data,
-    .dataend = rent_rec->const_data + rent_rec->const_meta->dlen,
-    .valloc  = fd_spad_virtual( runtime_spad )
+    .dataend = rent_rec->const_data + rent_rec->const_meta->dlen
   };
-  err = fd_rent_decode( result, &decode );
+
+  ulong total_sz = 0UL;
+  err = fd_rent_decode_footprint( &decode, &total_sz );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "fd_rent_decode failed" ));
     return NULL;
   }
 
-  return result;
+  uchar * mem = fd_spad_alloc( runtime_spad, fd_rent_align(), total_sz );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "failed to allocate memory for rent" ));
+  }
+
+  return fd_rent_decode( mem, &decode );
 }
 
 static void

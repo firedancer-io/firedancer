@@ -252,9 +252,9 @@ FD_VM_MEM_HADDR_ST_( fd_vm_t const *vm, ulong vaddr, ulong align, ulong sz, int 
 }))
 
 /* FIXME: use overlap logic from runtime? */
-#define FD_VM_MEM_CHECK_NON_OVERLAPPING( vm, vaddr0, sz0, vaddr1, sz1 ) do {                                    \
-  if( FD_UNLIKELY( ((vaddr0> vaddr1) && ((vaddr0-vaddr1)<sz1)) ||                                               \
-                   ((vaddr1>=vaddr0) && ((vaddr1-vaddr0)<sz0)) ) ) {                                            \
+#define FD_VM_MEM_CHECK_NON_OVERLAPPING( vm, addr0, sz0, addr1, sz1 ) do {                                      \
+  if( FD_UNLIKELY(( ((addr0> addr1) && (fd_ulong_sat_sub(addr0, addr1) < sz1)) ) ||                             \
+                  ( ((addr1>=addr0) && (fd_ulong_sat_sub(addr1, addr0) < sz0)) ) )) {                           \
     FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_COPY_OVERLAPPING );                                        \
     return FD_VM_SYSCALL_ERR_COPY_OVERLAPPING;                                                                  \
   }                                                                                                             \

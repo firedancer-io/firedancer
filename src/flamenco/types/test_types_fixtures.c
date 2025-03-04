@@ -52,6 +52,10 @@ TEST_VECTOR( X )
    technically U.B. !!!  The compiler checks for actual ABI violations. */
 
 typedef int
+(* fd_types_decode_footprint_vfn_t)( fd_bincode_decode_ctx_t * d,
+                                     ulong *                   total_sz );
+
+typedef void *
 (* fd_types_decode_vfn_t)( void *                    self,
                            fd_bincode_decode_ctx_t * d );
 
@@ -73,23 +77,25 @@ struct test_fixture {
   ulong const * yml_sz;
   ulong         struct_sz;  /* size of outer struct */
 
-  fd_types_decode_vfn_t decode;
-  fd_types_walk_vfn_t   walk;
+  fd_types_decode_footprint_vfn_t decode_footprint;
+  fd_types_decode_vfn_t           decode;
+  fd_types_walk_vfn_t             walk;
 };
 
 typedef struct test_fixture test_fixture_t;
 
 static const test_fixture_t test_vector[] = {
-# define X( id, type )                                                 \
-  { .name      = #id,                                                  \
-    .dump_path = "src/flamenco/types/fixtures/" #id ".actual.yml",     \
-    .bin       = test_##id##_bin,                                      \
-    .bin_sz    = &test_##id##_bin_sz,                                  \
-    .yml       = (char const *)test_##id##_yml,                        \
-    .yml_sz    = &test_##id##_yml_sz,                                  \
-    .struct_sz = sizeof( fd_##type##_t ),                              \
-    .decode    = ( fd_types_decode_vfn_t )fd_##type##_decode,          \
-    .walk      = ( fd_types_walk_vfn_t   )fd_##type##_walk },
+# define X( id, type )                                                                   \
+  { .name             = #id,                                                             \
+    .dump_path        = "src/flamenco/types/fixtures/" #id ".actual.yml",                \
+    .bin              = test_##id##_bin,                                                 \
+    .bin_sz           = &test_##id##_bin_sz,                                             \
+    .yml              = (char const *)test_##id##_yml,                                   \
+    .yml_sz           = &test_##id##_yml_sz,                                             \
+    .struct_sz        = sizeof( fd_##type##_t ),                                         \
+    .decode_footprint = ( fd_types_decode_footprint_vfn_t )fd_##type##_decode_footprint, \
+    .decode           = ( fd_types_decode_vfn_t )fd_##type##_decode,                     \
+    .walk             = ( fd_types_walk_vfn_t   )fd_##type##_walk },
 TEST_VECTOR( X )
 # undef X
   {0}
@@ -110,14 +116,17 @@ test_yaml( test_fixture_t const * t ) {
     ulong bin_sz = *t->bin_sz;
     fd_bincode_decode_ctx_t decode[1] = {{
         .data    = t->bin,
-        .dataend = t->bin + bin_sz,
-        .valloc  = fd_scratch_virtual()
-      }};
+        .dataend = t->bin + bin_sz
+    }};
 
-    void * decoded = fd_scratch_alloc( 64UL, t->struct_sz );
-    int err = t->decode( decoded, decode );
+    ulong  total_sz = 0UL;
+    int err = t->decode_footprint( decode, &total_sz );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) )
       FD_LOG_ERR(( "Test '%s' failed: Bincode decode err (%d)", t->name, err ));
+
+    void * decoded = fd_scratch_alloc( 64UL, total_sz );
+
+    t->decode( decoded, decode );
 
     /* Encode YAML */
 

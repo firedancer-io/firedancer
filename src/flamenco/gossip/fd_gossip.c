@@ -987,7 +987,7 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
       npackets = 1U<<nmaskbits;
     } while (1);
   }
-  FD_LOG_DEBUG(("making bloom filter for %lu items with %lu packets and %lu keys %g error", nitems, npackets, nkeys, e));
+  FD_LOG_DEBUG(("making bloom filter for %lu items with %lu packets, %u maskbits and %lu keys %g error", nitems, npackets, nmaskbits, nkeys, e));
 
   /* Generate random keys */
   ulong keys[FD_BLOOM_MAX_KEYS];
@@ -1000,7 +1000,7 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
 
   /* Bloom filter set sampling
 
-    This effectively translates to sending out 1/8
+    This effectively translates to sending out 1/(SAMPLE_RATE)
     of the full bloom filter set every new pull request
     loop.
 
@@ -1331,7 +1331,7 @@ fd_crds_insert( fd_gossip_t * glob, fd_crds_value_processed_t * crd_p ) {
    This only fails on a crds value encode failure, which is impossible if
    the value was derived from a gossip message decode. */
 static void
-fd_gossip_recv_crds_array( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, fd_crds_value_t * crds, ulong crds_len ) {
+fd_gossip_recv_crds_array( fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, fd_crds_value_t * crds, ulong crds_len, fd_gossip_crds_route_t route ) {
   FD_SCRATCH_SCOPE_BEGIN{
     fd_crds_value_processed_t * filtered_crds = (fd_crds_value_processed_t *)fd_scratch_alloc( alignof(fd_crds_value_processed_t), sizeof(fd_crds_value_processed_t) * crds_len );
     ulong num_filtered_crds = 0;
@@ -1349,7 +1349,7 @@ fd_gossip_recv_crds_array( fd_gossip_t * glob, const fd_gossip_peer_addr_t * fro
       if( FD_UNLIKELY( tmp->crd->data.discriminant>=FD_KNOWN_CRDS_ENUM_MAX ) ) {
         INC_RECV_CRDS_DROP_METRIC( UNKNOWN_DISCRIMINANT );
       } else {
-        glob->metrics.recv_crds[ tmp->crd->data.discriminant ] += 1UL;
+        glob->metrics.recv_crds[ route ][ tmp->crd->data.discriminant ] += 1UL;
       }
       switch (tmp->crd->data.discriminant) {
       case fd_crds_data_enum_contact_info_v1:
@@ -1440,7 +1440,7 @@ fd_gossip_recv_crds_array( fd_gossip_t * glob, const fd_gossip_peer_addr_t * fro
       if ( fd_crds_dup_check( glob, &tmp->val_hash, from, tmp->pubkey ) ) {
         msg_stat->dups_cnt++;
         glob->recv_dup_cnt++;
-        glob->metrics.recv_crds_duplicate_message[ tmp->crd->data.discriminant ]++;
+        glob->metrics.recv_crds_duplicate_message[ route ][ tmp->crd->data.discriminant ]++;
         continue; /* skip this entry */
       }
 
@@ -1977,12 +1977,12 @@ fd_gossip_recv(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, fd_gossip
     break;
   case fd_gossip_msg_enum_pull_resp: {
     fd_gossip_pull_resp_t * pull_resp = &gmsg->inner.pull_resp;
-    fd_gossip_recv_crds_array( glob, NULL, pull_resp->crds, pull_resp->crds_len );
+    fd_gossip_recv_crds_array( glob, NULL, pull_resp->crds, pull_resp->crds_len, FD_GOSSIP_CRDS_ROUTE_PULL_RESP );
     break;
   }
   case fd_gossip_msg_enum_push_msg: {
     fd_gossip_push_msg_t * push_msg = &gmsg->inner.push_msg;
-    fd_gossip_recv_crds_array( glob, from, push_msg->crds, push_msg->crds_len );
+    fd_gossip_recv_crds_array( glob, from, push_msg->crds, push_msg->crds_len, FD_GOSSIP_CRDS_ROUTE_PUSH );
     break;
   }
   case fd_gossip_msg_enum_prune_msg:
@@ -2145,6 +2145,7 @@ fd_gossip_push( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
       }
       glob->push_cnt++;
       npush++;
+      glob->metrics.push_crds[ (uint)msg->data[sizeof(fd_signature_t)] ]++; /* discriminant */
 
       ulong * crds_len = (ulong *)(s->packet_end_init - sizeof(ulong));
       /* Add the value in already encoded form */
@@ -2459,28 +2460,37 @@ fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_g
     glob->recv_pkt_cnt++;
     glob->metrics.recv_pkt_cnt++;
     /* Deserialize the message */
-    fd_gossip_msg_t gmsg;
-    fd_bincode_decode_ctx_t ctx;
-    ctx.data    = msg;
-    ctx.dataend = msg + msglen;
-    ctx.valloc  = fd_scratch_virtual();
-    if (fd_gossip_msg_decode(&gmsg, &ctx)) {
+    fd_bincode_decode_ctx_t ctx = {
+      .data    = msg,
+      .dataend = msg + msglen,
+    };
+
+    ulong total_sz = 0UL;
+    if( FD_UNLIKELY( fd_gossip_msg_decode_footprint( &ctx, &total_sz ) ) ) {
       glob->metrics.recv_pkt_corrupted_msg += 1UL;
-      FD_LOG_WARNING(("corrupt gossip message"));
+      FD_LOG_WARNING(( "corrupt gossip message" ));
       fd_gossip_unlock( glob );
       return -1;
     }
-    if (ctx.data != ctx.dataend) {
+
+    uchar * mem = fd_scratch_alloc( fd_gossip_msg_align(), total_sz );
+    if( FD_UNLIKELY( !mem ) ) {
+      FD_LOG_ERR(( "Unable to allocate memory for gossip msg" ));
+    }
+
+    fd_gossip_msg_t * gmsg = fd_gossip_msg_decode( mem, &ctx );
+
+    if( FD_UNLIKELY( ctx.data != ctx.dataend ) ) {
       glob->metrics.recv_pkt_corrupted_msg += 1UL;
-      FD_LOG_WARNING(("corrupt gossip message"));
+      FD_LOG_WARNING(( "corrupt gossip message" ));
       fd_gossip_unlock( glob );
       return -1;
     }
 
     char tmp[100];
 
-    FD_LOG_DEBUG(("recv msg type %u from %s", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from)));
-    fd_gossip_recv(glob, from, &gmsg);
+    FD_LOG_DEBUG(( "recv msg type %u from %s", gmsg->discriminant, fd_gossip_addr_str( tmp, sizeof(tmp), from ) ));
+    fd_gossip_recv( glob, from, gmsg );
 
     fd_gossip_unlock( glob );
   } FD_SCRATCH_SCOPE_END;

@@ -62,9 +62,9 @@ typedef void (*fd_geyser_execute_fun)(fd_replay_notif_msg_t const * msg, void * 
        uchar     reference_tick;    the tick when the leader prepared the block.
        long      ts;                the wallclock time when we finished receiving the block.
    };
-   typedef struct fd_block_map fd_block_map_t;
+   typedef struct fd_block_map fd_block_meta_t;
 */
-typedef void (*fd_geyser_block_fun)(ulong slot, fd_block_map_t const * meta, fd_hash_t const * parent_hash, uchar const * data, ulong data_sz, void * arg);
+typedef void (*fd_geyser_block_fun)(ulong slot, fd_block_meta_t const * meta, fd_hash_t const * parent_hash, uchar const * data, ulong data_sz, void * arg);
 
 /* This callback is invoked for each entry or microblock within a
  * block. The useful fields are:

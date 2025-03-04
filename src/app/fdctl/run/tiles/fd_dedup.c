@@ -229,6 +229,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->bundle_id     = 0UL;
   ctx->bundle_idx    = 0UL;
 
+  memset( &ctx->metrics, 0, sizeof( ctx->metrics ) );
+
   ctx->tcache_depth   = fd_tcache_depth       ( tcache );
   ctx->tcache_map_cnt = fd_tcache_map_cnt     ( tcache );
   ctx->tcache_sync    = fd_tcache_oldest_laddr( tcache );

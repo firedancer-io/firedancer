@@ -16,6 +16,8 @@
 #define FD_SYSTEM_PROGRAM_ERR_NONCE_BLOCKHASH_NOT_EXPIRED      (7)  /* SystemError::NonceBlockhashNotExpired */
 #define FD_SYSTEM_PROGRAM_ERR_NONCE_UNEXPECTED_BLOCKHASH_VALUE (8)  /* SystemError::NonceUnexpectedBlockhashValue */
 
+#define FD_SYSTEM_PROGRAM_NONCE_DLEN (80UL)
+
 FD_PROTOTYPES_BEGIN
 
 /* fd_system_program_execute is the entrypoint for the system program */
@@ -40,19 +42,6 @@ int fd_system_program_exec_upgrade_nonce_account   ( fd_exec_instr_ctx_t * ctx  
 
 /* User APIs */
 
-/* fd_load_nonce_account loads the state of a nonce account associated
-   with a transaction (txn_ctx).  Attempts to create a new
-   fd_nonce_state_versions_t object at *state, using spad as the bump
-   allocator.  Returns 1 on success and transfers ownership of the new
-   state object to the caller.  On failure, returns zero and does not
-   create a new state object.  *perr is set to an executor error code. */
-
-int
-fd_load_nonce_account( fd_exec_txn_ctx_t const *   txn_ctx,
-                       fd_nonce_state_versions_t * state,
-                       fd_spad_t *                 spad,
-                       int *                       perr );
-                       
 /* fd_check_transaction_age returns 0 if the transactions age is
    valid, returns non-zero otherwise. This is determined by the age of
    the blockhash provided in the transaction message or by the

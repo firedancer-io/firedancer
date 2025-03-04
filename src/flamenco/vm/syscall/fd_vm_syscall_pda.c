@@ -302,7 +302,7 @@ fd_vm_syscall_sol_try_find_program_address( void *  _vm,
       }
 
       /* Do the overlap check, which is only included for this syscall */
-      FD_VM_MEM_CHECK_NON_OVERLAPPING( vm, out_vaddr, 32UL, out_bump_seed_vaddr, 1UL );
+      FD_VM_MEM_CHECK_NON_OVERLAPPING( vm, (ulong)out_haddr, 32UL, (ulong)out_bump_seed_haddr, 1UL );
 
       memcpy( out_haddr, derived, sizeof(fd_pubkey_t) );
       *out_bump_seed_haddr = (uchar)*bump_seed;

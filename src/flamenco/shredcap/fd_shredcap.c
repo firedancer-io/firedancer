@@ -178,8 +178,7 @@ fd_shredcap_ingest_rocksdb_to_capture( const char * rocksdb_dir,
       file_end_slot = metadata.slot;
       ++file_block_count;
 
-      fd_bincode_destroy_ctx_t ctx = { .valloc = valloc };
-      fd_slot_meta_destroy( &metadata, &ctx );
+      fd_slot_meta_destroy( &metadata );
 
       /* Get next slot and handle case where end_slot is larger than the last
          slot in the rocksdb */
@@ -363,9 +362,7 @@ fd_shredcap_verify_slot( fd_shredcap_slot_hdr_t * slot_hdr,
   }
 
   /* Ensure that a block exists for the given slot */
-  fd_blockstore_start_read( blockstore );
   bool block_complete = fd_blockstore_shreds_complete( blockstore, slot );
-  fd_blockstore_end_read( blockstore );
   if ( FD_UNLIKELY( !block_complete ) ) {
     FD_LOG_ERR(( "block doesn't exist for slot=%lu", slot ));
   }
@@ -1073,11 +1070,12 @@ fd_shredcap_populate_blockstore( const char *      capture_dir,
       }
 
       fd_shredcap_bank_hash_entry_t * entry = (fd_shredcap_bank_hash_entry_t*)bank_hash_buf;
-      fd_blockstore_start_read( blockstore );
-      fd_block_map_t * block = fd_blockstore_block_map_query( blockstore, cur_slot );
-      fd_blockstore_end_read( blockstore );
-      if ( FD_LIKELY( block ) ) {
+      if ( FD_LIKELY( fd_blockstore_block_meta_test( blockstore, cur_slot ) ) ) {
+        fd_block_map_query_t query[1] = {0};
+        fd_block_map_prepare( blockstore->block_map, &cur_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+        fd_block_meta_t * block = fd_block_map_query_ele( query );
         fd_memcpy( block->bank_hash.hash, &entry->bank_hash.hash, 32UL );
+        fd_block_map_publish( query );
       }
 
       ++cur_bank_hash_slot_idx;

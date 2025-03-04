@@ -87,7 +87,6 @@ fd_geyser_new( void * mem, fd_geyser_args_t * args ) {
     FD_LOG_ERR(( "failed to join a blockstore" ));
   }
   self->blockstore_fd = args->blockstore_fd;
-  FD_LOG_NOTICE(( "blockstore has slot root=%lu", self->blockstore->shmem->smr ));
   fd_wksp_mprotect( wksp, 1 );
 
   fd_pubkey_t identity_key[1]; /* Just the public key */
@@ -182,7 +181,7 @@ void
 fd_geyser_replay_block( fd_geyser_t * ctx, ulong slotn ) {
   if( ctx->block_fun != NULL || ctx->entry_fun != NULL || ctx->txn_fun != NULL ) {
     FD_SCRATCH_SCOPE_BEGIN {
-      fd_block_map_t meta[1];
+      fd_block_meta_t meta[1];
       fd_block_rewards_t rewards[1];
       fd_hash_t parent_hash;
       uchar * blk_data;

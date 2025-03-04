@@ -106,7 +106,7 @@ fd_ghost_delete( void * ghost ) {
     FD_LOG_WARNING(( "misaligned ghost" ));
     return NULL;
   }
-  
+
   // TODO: zero out mem?
 
   return ghost;
@@ -248,7 +248,7 @@ fd_ghost_insert( fd_ghost_t * ghost, ulong parent_slot, ulong slot ) {
   if( FD_UNLIKELY( !parent_ele ) ) { /* parent_slot not in ghost */
     FD_LOG_WARNING(( "[%s] missing `parent_slot` %lu.", __func__, parent_slot ));
     return NULL;
-  } 
+  }
 
   if( FD_UNLIKELY( !fd_ghost_node_pool_free( node_pool ) ) ) { /* ghost full */
     FD_LOG_WARNING(( "[%s] ghost full.", __func__ ));
@@ -256,7 +256,7 @@ fd_ghost_insert( fd_ghost_t * ghost, ulong parent_slot, ulong slot ) {
   }
 
   if( FD_UNLIKELY( slot <= root->slot ) ) { /* slot must > root */
-    FD_LOG_WARNING(( "[%s] slot %lu <= root %lu", __func__, slot, root->slot )); 
+    FD_LOG_WARNING(( "[%s] slot %lu <= root %lu", __func__, slot, root->slot ));
     return NULL;
   }
   #endif
@@ -283,7 +283,7 @@ fd_ghost_insert( fd_ghost_t * ghost, ulong parent_slot, ulong slot ) {
   /* Link parent->node and sibling->node. */
 
   if( FD_LIKELY( parent_ele->child_idx == null_idx ) ) {
-  
+
     /* No children yet so set as left-most child. */
 
     parent_ele->child_idx = node_idx;
@@ -359,29 +359,49 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, fd_voter_t * voter, ulong slot ) {
   if( FD_UNLIKELY( slot < root->slot ) ) FD_LOG_ERR(( "[%s] illegal argument. vote slot: %lu, root: %lu", __func__, slot, root->slot ));
   #endif
 
-  /* Return early if the vote slot <= the voter's last tower vote. It is
-     important that the vote slots are monotonically increasing, because
-     the order we receive blocks is non-deterministic (due to network
-     propagation variance), so we may process forks in a different order
-     from the sender of this vote.
+  do {
+    /* LMD-rule: subtract the voter's stake from previous vote. There
+       are several cases where we skip this subtraction. */
 
-     For example, if a validator votes on A then switches to B, we might
-     instead process B then A. In this case, the validator's tower on B
-     would contain a strictly higher vote slot than A (due to lockout),
-     so we would observe while processing A, that the vote slot < the
-     last vote slot we have saved for that validator. */
-  
-  if( FD_UNLIKELY( vote != FD_SLOT_NULL && slot <= vote ) ) return;
+    /* Case 1: It's the first vote we have seen from this pubkey. */
 
-  /* LMD-rule: subtract the voter's stake from previous vote. */
+    if( FD_UNLIKELY( vote == FD_SLOT_NULL ) ) break;
 
-  if( FD_LIKELY( vote != FD_SLOT_NULL && vote >= root->slot ) ) {
-    FD_LOG_DEBUG(( "[%s] removing (%s, %lu, %lu)", __func__, FD_BASE58_ENC_32_ALLOCA( &voter->key ), voter->stake, vote ));
+    /* Case 2: Return early if the vote slot <= the voter's last tower
+       vote. It is important that the vote slots are monotonically
+       increasing, because the order we receive blocks is
+       non-deterministic (due to network propagation variance), so we
+       may process forks in a different order from the sender of this
+       vote.
+
+       For example, if a validator votes on A then switches to B, we
+       might instead process B then A. In this case, the validator's
+       tower on B would contain a strictly higher vote slot than A (due
+       to lockout), so we would observe while processing A, that the
+       vote slot < the last vote slot we have saved for that validator.
+    */
+
+    if( FD_UNLIKELY( slot <= vote ) ) return;
+
+    /* Case 3: Previous vote slot was pruned when the SMR moved. */
+
+    if( FD_UNLIKELY( vote < root->slot ) ) break;
+
+    /* Case 4: When a node has been stuck on a minority fork for a
+       while, and we end up pruning that fork when we update the SMR.
+       In this case, we need to re-add their stake to the fork they are
+       now voting for. In this case, it's possible that the previously
+       saved vote slot is > than our root, but has been pruned. */
 
     fd_ghost_node_t * node = fd_ghost_node_map_ele_query( node_map, &vote, NULL, node_pool );
-    #if FD_GHOST_USE_HANDHOLDING
-    if( FD_UNLIKELY( !node ) ) FD_LOG_ERR(( "missing ghost node" )); /* slot must be in ghost. */
-    #endif
+    if( FD_UNLIKELY( !node ) ){
+      FD_LOG_WARNING(( "missing/pruned ghost node for previous vote %lu; now voting for slot %lu", vote, slot ));
+      break;
+    }
+
+    /* Do stake subtraction */
+
+    FD_LOG_DEBUG(( "[%s] removing (%s, %lu, %lu)", __func__, FD_BASE58_ENC_32_ALLOCA( &voter->key ), voter->stake, vote ));
 
     #if FD_GHOST_USE_HANDHOLDING
     int cf = __builtin_usubl_overflow( node->replay_stake, voter->stake, &node->replay_stake );
@@ -400,10 +420,13 @@ fd_ghost_replay_vote( fd_ghost_t * ghost, fd_voter_t * voter, ulong slot ) {
       #endif
       ancestor = fd_ghost_node_pool_ele( node_pool, ancestor->parent_idx );
     }
-  }
+  } while ( 0 );
 
   /* Add voter's stake to the ghost node keyed by `slot`.  Propagate the
-     vote stake up the ancestry. */
+     vote stake up the ancestry. We do this for all cases we exited
+     above: this vote is the first vote we've seen from a pubkey,
+     this vote is switched from a previous vote that was on a missing
+     node (pruned), or the regular case */
 
   FD_LOG_DEBUG(( "[%s] adding (%s, %lu, %lu)", __func__, FD_BASE58_ENC_32_ALLOCA( &voter->key ), voter->stake, slot ));
 

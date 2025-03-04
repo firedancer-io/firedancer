@@ -156,24 +156,39 @@ fd_executor_is_system_nonce_account( fd_borrowed_account_t * account, fd_spad_t 
   if( memcmp( account->const_meta->info.owner, fd_solana_system_program_id.uc, sizeof(fd_pubkey_t) ) == 0 ) {
     if( !account->const_meta->dlen ) {
       return 0;
-    } else if( account->const_meta->dlen==80UL ) { // TODO: nonce size macro
-      fd_bincode_decode_ctx_t decode = { .data    = account->const_data,
-                                         .dataend = account->const_data + account->const_meta->dlen,
-                                         .valloc  = fd_spad_virtual( exec_spad ) };
-      fd_nonce_state_versions_t nonce_versions;
-      if( fd_nonce_state_versions_decode( &nonce_versions, &decode ) != 0 ) {
+    } else {
+      fd_bincode_decode_ctx_t decode = {
+        .data    = account->const_data,
+        .dataend = account->const_data + account->const_meta->dlen
+      };
+
+      if( account->const_meta->dlen!=FD_SYSTEM_PROGRAM_NONCE_DLEN ) {
         return -1;
       }
-      fd_nonce_state_t * state;
-      if( fd_nonce_state_versions_is_current( &nonce_versions ) ) {
-        state = &nonce_versions.inner.current;
+
+      ulong total_sz = 0UL;
+      int   err      = fd_nonce_state_versions_decode_footprint( &decode, &total_sz );
+      if( FD_UNLIKELY( err ) ) {
+        return -1;
+      }
+
+      uchar * mem = fd_spad_alloc( exec_spad, fd_nonce_state_versions_align(), total_sz );
+      if( FD_UNLIKELY( !mem ) ) {
+        FD_LOG_ERR(( "Unable to allocate memory" ));
+      }
+
+      fd_nonce_state_versions_t * versions = fd_nonce_state_versions_decode( mem, &decode );
+      fd_nonce_state_t *          state    = NULL;
+      if( fd_nonce_state_versions_is_current( versions ) ) {
+        state = &versions->inner.current;
       } else {
-        state = &nonce_versions.inner.legacy;
+        state = &versions->inner.legacy;
       }
 
       if( fd_nonce_state_is_initialized( state ) ) {
         return 1;
       }
+
     }
   }
 
@@ -486,11 +501,14 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
          https://github.com/anza-xyz/agave/blob/v2.1.11/svm/src/program_loader.rs#L172-L175 */
       FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
         if( FD_LIKELY( !memcmp( acct->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
-          fd_bpf_upgradeable_loader_state_t state = {0};
-          if( FD_LIKELY( !fd_bpf_loader_v3_program_get_state( txn_ctx, acct, &state ) &&
-                         fd_bpf_upgradeable_loader_state_is_program( &state ) ) ) {
+           fd_bpf_upgradeable_loader_state_t * state = fd_bpf_loader_program_get_state( acct, txn_ctx->spad, &err );
+
+          if( FD_LIKELY( !err && fd_bpf_upgradeable_loader_state_is_program( state ) ) ) {
             FD_BORROWED_ACCOUNT_DECL( programdata_account );
-            err = fd_acc_mgr_view( txn_ctx->slot_ctx->acc_mgr, txn_ctx->slot_ctx->funk_txn, &state.inner.program.programdata_address, programdata_account );
+            err = fd_acc_mgr_view( txn_ctx->slot_ctx->acc_mgr,
+                                   txn_ctx->slot_ctx->funk_txn,
+                                   &state->inner.program.programdata_address,
+                                   programdata_account );
             if( FD_LIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
               acc_size += programdata_account->const_meta->dlen;
             }
@@ -861,7 +879,10 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
 }
 
 static int
-fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
+fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx,
+                                             fd_spad_t *         spad ) {
+
+  FD_SPAD_FRAME_BEGIN( spad ) {
 
   fd_pubkey_t * tx_accs = (fd_pubkey_t *)((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->acct_addr_off);
 
@@ -870,7 +891,7 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     txn_ctx->accounts[i] = tx_accs[i];
   }
 
-  txn_ctx->accounts_cnt += (uchar) txn_ctx->txn_descriptor->acct_addr_cnt;
+  txn_ctx->accounts_cnt += (uchar)txn_ctx->txn_descriptor->acct_addr_cnt;
 
   if( txn_ctx->txn_descriptor->transaction_version == FD_TXN_V0 ) {
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/runtime/src/bank/address_lookup_table.rs#L44-L48 */
@@ -880,7 +901,7 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     }
 
     fd_pubkey_t readonly_lut_accs[128];
-    ulong readonly_lut_accs_cnt = 0UL;
+    ulong       readonly_lut_accs_cnt = 0UL;
     // Set up accounts in the account look up tables.
     fd_txn_acct_addr_lut_t const * addr_luts = fd_txn_get_address_tables_const( txn_ctx->txn_descriptor );
     for( ulong i = 0UL; i < txn_ctx->txn_descriptor->addr_table_lookup_cnt; i++ ) {
@@ -888,8 +909,11 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)((uchar *)txn_ctx->_txn_raw->raw + addr_lut->addr_off);
 
       /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94 */
-      FD_BORROWED_ACCOUNT_DECL(addr_lut_rec);
-      int err = fd_acc_mgr_view(txn_ctx->slot_ctx->acc_mgr, txn_ctx->slot_ctx->funk_txn, (fd_pubkey_t *) addr_lut_acc, addr_lut_rec);
+      FD_BORROWED_ACCOUNT_DECL( addr_lut_rec );
+      int err = fd_acc_mgr_view( txn_ctx->slot_ctx->acc_mgr,
+                                 txn_ctx->slot_ctx->funk_txn,
+                                 (fd_pubkey_t *) addr_lut_acc,
+                                 addr_lut_rec );
       if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
         return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
       }
@@ -906,20 +930,27 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       }
 
       /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/accounts-db/src/accounts.rs#L141-L142 */
-      fd_address_lookup_table_state_t addr_lookup_table_state;
       fd_bincode_decode_ctx_t decode_ctx = {
         .data    = addr_lut_rec->const_data,
-        .dataend = &addr_lut_rec->const_data[FD_LOOKUP_TABLE_META_SIZE],
-        .valloc  = fd_spad_virtual( txn_ctx->spad ),
+        .dataend = &addr_lut_rec->const_data[FD_LOOKUP_TABLE_META_SIZE]
       };
 
-      /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L197-L214 */
-      if( FD_UNLIKELY( fd_address_lookup_table_state_decode( &addr_lookup_table_state, &decode_ctx ) ) ) {
+      ulong total_sz = 0UL;
+      err = fd_address_lookup_table_state_decode_footprint( &decode_ctx, &total_sz );
+      if( FD_UNLIKELY( err ) ) {
         return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
       }
 
+      uchar * mem = fd_spad_alloc( spad, fd_address_lookup_table_state_align(), total_sz );
+      if( FD_UNLIKELY( !mem ) ) {
+        FD_LOG_ERR(( "Unable to allocate memory for address lookup table state" ));
+      }
+
+      /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L197-L214 */
+      fd_address_lookup_table_state_t * addr_lookup_table_state = fd_address_lookup_table_state_decode( mem, &decode_ctx );
+
       /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L200-L203 */
-      if( FD_UNLIKELY( addr_lookup_table_state.discriminant != fd_address_lookup_table_state_enum_lookup_table ) ) {
+      if( FD_UNLIKELY( addr_lookup_table_state->discriminant != fd_address_lookup_table_state_enum_lookup_table ) ) {
         return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
       }
 
@@ -935,7 +966,7 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
       /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L175-L176 */
       ulong active_addresses_len;
-      err = fd_get_active_addresses_len( &addr_lookup_table_state.inner.lookup_table,
+      err = fd_get_active_addresses_len( &addr_lookup_table_state->inner.lookup_table,
                                           txn_ctx->slot_ctx->slot_bank.slot,
                                           slot_hashes->hashes,
                                           lookup_addrs_cnt,
@@ -968,6 +999,8 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     txn_ctx->accounts_cnt += readonly_lut_accs_cnt;
   }
   return FD_RUNTIME_EXECUTE_SUCCESS;
+
+  } FD_SPAD_FRAME_END;
 }
 
 /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L319-L357 */
@@ -1305,19 +1338,19 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     }
 
     if( FD_UNLIKELY( memcmp( meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) ) {
-      fd_bpf_upgradeable_loader_state_t program_loader_state = {0};
       int err = 0;
-      if( FD_UNLIKELY( !read_bpf_upgradeable_loader_state_for_program( txn_ctx, (uchar) i, &program_loader_state, &err ) ) ) {
+      fd_bpf_upgradeable_loader_state_t * program_loader_state = read_bpf_upgradeable_loader_state_for_program( txn_ctx, (uchar)i, &err );
+      if( FD_UNLIKELY( !program_loader_state ) ) {
         continue;
       }
 
-      if( !fd_bpf_upgradeable_loader_state_is_program( &program_loader_state ) ) {
+      if( !fd_bpf_upgradeable_loader_state_is_program( program_loader_state ) ) {
         continue;
       }
 
-      fd_pubkey_t * programdata_acc = &program_loader_state.inner.program.programdata_address;
+      fd_pubkey_t * programdata_acc = &program_loader_state->inner.program.programdata_address;
       fd_borrowed_account_t * executable_account = fd_borrowed_account_init( &txn_ctx->executable_accounts[j] );
-      fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, programdata_acc, executable_account);
+      fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, programdata_acc, executable_account );
       j++;
     }
   }
@@ -1329,14 +1362,15 @@ int
 fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
                               fd_exec_txn_ctx_t *        txn_ctx,
                               fd_txn_t const *           txn_descriptor,
-                              fd_rawtxn_b_t const *      txn_raw ) {
+                              fd_rawtxn_b_t const *      txn_raw,
+                              fd_spad_t *                spad ) {
   /* Init txn ctx */
   fd_exec_txn_ctx_new( txn_ctx );
   fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx, txn_ctx );
   fd_exec_txn_ctx_setup( txn_ctx, txn_descriptor, txn_raw );
 
   /* Unroll accounts from aluts and place into correct spots */
-  int res = fd_executor_setup_accessed_accounts_for_txn( txn_ctx );
+  int res = fd_executor_setup_accessed_accounts_for_txn( txn_ctx, spad );
 
   return res;
 }

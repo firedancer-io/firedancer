@@ -191,22 +191,16 @@ slot_ctx_restore( ulong                 slot,
                   fd_blockstore_t *     blockstore,
                   fd_exec_epoch_ctx_t * epoch_ctx,
                   fd_funk_t *           funk,
-                  fd_valloc_t           valloc,
+                  fd_spad_t *           runtime_spad,
                   fd_exec_slot_ctx_t *  slot_ctx_out ) {
   fd_funk_txn_t *  txn_map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
-
-  fd_blockstore_start_read( blockstore );
-  fd_block_map_t const * block = fd_blockstore_block_map_query( blockstore, slot );
   bool block_exists = fd_blockstore_shreds_complete( blockstore, slot );
-  fd_blockstore_end_read( blockstore );
 
   FD_LOG_DEBUG( ( "Current slot %lu", slot ) );
   if( !block_exists )
     FD_LOG_ERR( ( "missing block at slot we're trying to restore" ) );
 
-  fd_funk_txn_xid_t xid;
-  memcpy( xid.uc, block->block_hash.uc, sizeof( fd_funk_txn_xid_t ) );
-  xid.ul[0]             = slot;
+  fd_funk_txn_xid_t xid        = { .ul = { slot, slot } };
   fd_funk_rec_key_t id  = fd_runtime_slot_bank_key();
   fd_funk_txn_t *   txn = fd_funk_txn_query( &xid, txn_map );
   if( !txn ) {
@@ -223,29 +217,33 @@ slot_ctx_restore( ulong                 slot,
 
   uint magic = *(uint *)val;
 
-  fd_bincode_decode_ctx_t decode_ctx;
-  decode_ctx.data    = (uchar *)val + sizeof( uint );
-  decode_ctx.dataend = (uchar *)val + fd_funk_val_sz( rec );
-  decode_ctx.valloc  = valloc;
+  fd_bincode_decode_ctx_t decode_ctx = {
+    .data    = (uchar *)val + sizeof(uint),
+    .dataend = (uchar *)val + fd_funk_val_sz( rec )
+  };
 
   FD_TEST( slot_ctx_out->magic == FD_EXEC_SLOT_CTX_MAGIC );
 
-  slot_ctx_out->funk_txn = txn;
-
+  slot_ctx_out->funk_txn   = txn;
   slot_ctx_out->acc_mgr    = acc_mgr;
   slot_ctx_out->blockstore = blockstore;
   slot_ctx_out->epoch_ctx  = epoch_ctx;
 
-  fd_bincode_destroy_ctx_t destroy_ctx = {
-      .valloc = valloc,
-  };
+  if( FD_LIKELY( magic==FD_RUNTIME_ENC_BINCODE ) ) {
+    ulong total_sz = 0UL;
+    int err = fd_slot_bank_decode_footprint( &decode_ctx, &total_sz );
+    if( FD_UNLIKELY( err != FD_BINCODE_SUCCESS ) ) {
+      FD_LOG_ERR( ( "failed to decode banks record" ) );
+    }
 
-  fd_slot_bank_destroy( &slot_ctx_out->slot_bank, &destroy_ctx );
-  if( magic == FD_RUNTIME_ENC_BINCODE ) {
-    FD_TEST( fd_slot_bank_decode( &slot_ctx_out->slot_bank, &decode_ctx ) == FD_BINCODE_SUCCESS );
-  } else if( magic == FD_RUNTIME_ENC_ARCHIVE ) {
-    FD_TEST( fd_slot_bank_decode_archival( &slot_ctx_out->slot_bank, &decode_ctx ) ==
-             FD_BINCODE_SUCCESS );
+    uchar * mem = fd_spad_alloc( runtime_spad, fd_slot_bank_align(), total_sz );
+    if( FD_UNLIKELY( !mem ) ) {
+      FD_LOG_ERR( ( "failed to allocate memory for slot bank" ) );
+    }
+
+    fd_slot_bank_t * slot_bank = fd_slot_bank_decode( mem, &decode_ctx );
+
+    fd_memcpy( &slot_ctx_out->slot_bank, slot_bank, sizeof(fd_slot_bank_t) );
   } else {
     FD_LOG_ERR( ( "failed to read banks record: invalid magic number" ) );
   }
@@ -285,11 +283,9 @@ fd_forks_prepare( fd_forks_t const *    forks,
 
   /* Check the parent block is present in the blockstore and executed. */
 
-  fd_blockstore_start_read( blockstore );
   if( FD_UNLIKELY( !fd_blockstore_shreds_complete( blockstore, parent_slot ) ) ) {
     FD_LOG_WARNING( ( "fd_forks_prepare missing parent_slot %lu", parent_slot ) );
   }
-  fd_blockstore_end_read( blockstore );
 
   /* Query for parent_slot in the frontier. */
 
@@ -318,7 +314,7 @@ fd_forks_prepare( fd_forks_t const *    forks,
 
     /* Restore and decode w/ funk */
 
-    slot_ctx_restore( fork->slot, acc_mgr, blockstore, epoch_ctx, funk, fd_spad_virtual( runtime_spad ), slot_ctx );
+    slot_ctx_restore( fork->slot, acc_mgr, blockstore, epoch_ctx, funk, runtime_spad, slot_ctx );
 
     /* Add to frontier */
 
@@ -360,8 +356,11 @@ fd_forks_update( fd_forks_t *      forks,
 
       fd_ghost_node_t const * node = fd_ghost_query( ghost, vote );
 
-      fd_blockstore_start_write( blockstore );
-      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, vote );
+
+      fd_block_map_query_t query[1] = { 0 };
+      int err = fd_block_map_prepare( blockstore->block_map, &vote, NULL, query, FD_MAP_FLAG_BLOCKING );
+      fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
+      if( FD_UNLIKELY( err || block_map_entry->slot != vote ) ) FD_LOG_ERR(( "failed to prepare block map query" ));
 
       int eqvocsafe = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_EQVOCSAFE );
       if( FD_UNLIKELY( !eqvocsafe ) ) {
@@ -369,7 +368,6 @@ fd_forks_update( fd_forks_t *      forks,
         if( FD_UNLIKELY( pct > FD_EQVOCSAFE_PCT ) ) {
           FD_LOG_DEBUG(( "eqvocsafe %lu", block_map_entry->slot ));
           block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_EQVOCSAFE );
-          blockstore->shmem->hcs = fd_ulong_max( blockstore->shmem->hcs, block_map_entry->slot );
         }
       }
 
@@ -379,11 +377,11 @@ fd_forks_update( fd_forks_t *      forks,
         if( FD_UNLIKELY( pct > FD_CONFIRMED_PCT ) ) {
           FD_LOG_DEBUG(( "confirmed %lu", block_map_entry->slot ));
           block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_CONFIRMED );
-          blockstore->shmem->hcs = fd_ulong_max( blockstore->shmem->hcs, block_map_entry->slot );
+          forks->confirmed_wmark = fd_ulong_max( forks->confirmed_wmark, block_map_entry->slot );
+          blockstore->shmem->hcs = fd_ulong_max( blockstore->shmem->hcs, vote );
         }
       }
-
-      fd_blockstore_end_write( blockstore );
+      fd_block_map_publish( query );
     }
 
     /* Check if this voter's root >= ghost root. We can't process
@@ -406,23 +404,37 @@ fd_forks_update( fd_forks_t *      forks,
 
       /* Check if it has crossed finalized threshold. */
 
-      fd_blockstore_start_write( blockstore );
-      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( blockstore, root );
-      int finalized = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_FINALIZED );
+      /* Doing a blocking read because of nested if/loops, and it's
+         easier to reason about than if we had to loop for non-blocking
+         writes. Every prepare is followed by publish/cancel. */
+      fd_block_map_query_t query[1] = { 0 };
+      int err = fd_block_map_prepare( blockstore->block_map, &root, NULL, query, FD_MAP_FLAG_BLOCKING );
+      fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
+      if( FD_UNLIKELY( err || block_map_entry->slot != root ) ) FD_LOG_ERR(( "failed to prepare block map query" ));
+      int               finalized       = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_FINALIZED );
       if( FD_UNLIKELY( !finalized ) ) {
         double pct = (double)node->rooted_stake / (double)epoch->total_stake;
         if( FD_UNLIKELY( pct > FD_FINALIZED_PCT ) ) {
-          ulong smr       = block_map_entry->slot;
-          blockstore->shmem->smr = fd_ulong_max( blockstore->shmem->smr, smr );
           FD_LOG_DEBUG(( "finalized %lu", block_map_entry->slot ));
-          fd_block_map_t * ancestor = block_map_entry;
+          forks->finalized_wmark = block_map_entry->slot;
+          fd_block_meta_t * ancestor = block_map_entry;
+          /* block_map_entry ptr is still valid because we haven't published yet. */
           while( ancestor ) {
             ancestor->flags = fd_uchar_set_bit( ancestor->flags, FD_BLOCK_FLAG_FINALIZED );
-            ancestor        = fd_blockstore_block_map_query( blockstore, ancestor->parent_slot );
+            ulong ancestor_slot = ancestor->parent_slot;
+            fd_block_map_publish( query );
+
+            fd_block_map_prepare( blockstore->block_map, &ancestor_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+            ancestor = fd_block_map_query_ele( query );
+            if( FD_UNLIKELY( !ancestor || ancestor->slot != ancestor_slot) ) {
+              break;
+            }
           }
         }
       }
-      fd_blockstore_end_write( blockstore );
+      /* cancel the last prepare for non-existent ancestor*/
+      fd_block_map_cancel( query );
+      FD_TEST(fd_block_map_verify( blockstore->block_map ) == FD_MAP_SUCCESS);
     }
   }
 }

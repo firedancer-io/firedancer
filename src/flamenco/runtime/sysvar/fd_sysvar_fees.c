@@ -32,13 +32,18 @@ fd_sysvar_fees_read( fd_sysvar_fees_t *         result,
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
     return NULL;
 
-  fd_bincode_decode_ctx_t decode =
-    { .data    = acc->const_data,
-      .dataend = acc->const_data + acc->const_meta->dlen,
-      .valloc  = {0}  /* valloc not required */ };
+  fd_bincode_decode_ctx_t decode = {
+    .data    = acc->const_data,
+    .dataend = acc->const_data + acc->const_meta->dlen
+  };
 
-  if( FD_UNLIKELY( fd_sysvar_fees_decode( result, &decode )!=FD_BINCODE_SUCCESS ) )
+  ulong total_sz = 0UL;
+  err = fd_sysvar_fees_decode_footprint( &decode, &total_sz );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
     return NULL;
+  }
+
+  fd_sysvar_fees_decode( result, &decode );
   return result;
 }
 

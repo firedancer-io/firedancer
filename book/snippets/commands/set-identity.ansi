@@ -1,2 +1,2 @@
-$ sudo fdctl set-identity ~/keys/validator-keypair.json
+$ sudo fdctl set-identity --config ~/config.toml ~/keys/validator-keypair.json
 [32mNOTICE [0m Validator identity key switched to `4UCZB7zfquCVN7GafWETFVLTceNH3nm2mndyHeDuSggC`

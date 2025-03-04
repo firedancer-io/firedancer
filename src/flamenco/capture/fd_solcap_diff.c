@@ -244,8 +244,7 @@ fd_solcap_account_pretty_print( uchar const   pubkey[ static 32 ],
 
     fd_bincode_decode_ctx_t decode = {
       .data    = data,
-      .dataend = data + data_sz,
-      .valloc  = fd_scratch_virtual()
+      .dataend = data + data_sz
     };
 
     fd_flamenco_yaml_t * yaml =
@@ -264,40 +263,65 @@ fd_solcap_account_pretty_print( uchar const   pubkey[ static 32 ],
     uchar _sysvar_stake_history[ 32 ];
     fd_base58_decode_32( "SysvarStakeHistory1111111111111111111111111", _sysvar_stake_history );
 
+    ulong total_sz = 0UL;
     if( 0==memcmp( owner, _vote_program_address, 32UL ) ) {
-      fd_vote_state_versioned_t vote_state[1];
-      int err = fd_vote_state_versioned_decode( vote_state, &decode );
+      int err = fd_vote_state_versioned_decode_footprint( &decode, &total_sz );
       if( FD_UNLIKELY( err!=0 ) ) return err;
+
+      uchar * mem = fd_scratch_alloc( fd_vote_state_versioned_align(), total_sz );
+      if( FD_UNLIKELY( !mem ) ) return -ENOMEM;
+
+      fd_vote_state_versioned_t * vote_state = fd_vote_state_versioned_decode( mem, &decode );
 
       fd_vote_state_versioned_walk( yaml, vote_state, fd_flamenco_yaml_walk, NULL, 0U );
     } else if( 0==memcmp( owner, _stake_program_address, 32UL ) ) {
-      fd_stake_state_v2_t stake_state[1];
-      int err = fd_stake_state_v2_decode( stake_state, &decode );
+      int err = fd_stake_state_v2_decode_footprint( &decode, &total_sz );
       if( FD_UNLIKELY( err!=0 ) ) return err;
+
+      uchar * mem = fd_scratch_alloc( fd_stake_state_v2_align(), total_sz );
+      if( FD_UNLIKELY( !mem ) ) return -ENOMEM;
+
+      fd_stake_state_v2_t * stake_state = fd_stake_state_v2_decode( mem, &decode );
 
       fd_stake_state_v2_walk( yaml, stake_state, fd_flamenco_yaml_walk, NULL, 0U );
     } else if( 0==memcmp( pubkey, _sysvar_clock, 32UL ) ) {
-      fd_sol_sysvar_clock_t clock[1];
-      int err = fd_sol_sysvar_clock_decode( clock, &decode );
+      int err = fd_sol_sysvar_clock_decode_footprint( &decode, &total_sz );
       if( FD_UNLIKELY( err!=0 ) ) return err;
+
+      uchar * mem = fd_scratch_alloc( fd_sol_sysvar_clock_align(), total_sz );
+      if( FD_UNLIKELY( !mem ) ) return -ENOMEM;
+
+      fd_sol_sysvar_clock_t * clock = fd_sol_sysvar_clock_decode( mem, &decode );
 
       fd_sol_sysvar_clock_walk( yaml, clock, fd_flamenco_yaml_walk, NULL, 0U );
     } else if( 0==memcmp( pubkey, _sysvar_rent, 32UL ) ) {
-      fd_rent_t rent[1];
-      int err = fd_rent_decode( rent, &decode );
+      int err = fd_rent_decode_footprint( &decode, &total_sz );
       if( FD_UNLIKELY( err!=0 ) ) return err;
+
+      uchar * mem = fd_scratch_alloc( fd_rent_align(), total_sz );
+      if( FD_UNLIKELY( !mem ) ) return -ENOMEM;
+
+      fd_rent_t * rent = fd_rent_decode( mem, &decode );
 
       fd_rent_walk( yaml, rent, fd_flamenco_yaml_walk, NULL, 0U );
     } else if( 0==memcmp( pubkey, _sysvar_epoch_rewards, 32UL ) ) {
-      fd_sysvar_epoch_rewards_t epoch_rewards[1];
-      int err = fd_sysvar_epoch_rewards_decode( epoch_rewards, &decode );
+      int err = fd_sysvar_epoch_rewards_decode_footprint( &decode, &total_sz );
       if( FD_UNLIKELY( err!=0 ) ) return err;
+
+      uchar * mem = fd_scratch_alloc( fd_sysvar_epoch_rewards_align(), total_sz );
+      if( FD_UNLIKELY( !mem ) ) return -ENOMEM;
+
+      fd_sysvar_epoch_rewards_t * epoch_rewards = fd_sysvar_epoch_rewards_decode( mem, &decode );
 
       fd_sysvar_epoch_rewards_walk( yaml, epoch_rewards, fd_flamenco_yaml_walk, NULL, 0U );
     } else if( 0==memcmp( pubkey, _sysvar_stake_history, 32UL ) ) {
-      fd_stake_history_t stake_history[1];
-      int err = fd_stake_history_decode( stake_history, &decode );
+      int err = fd_stake_history_decode_footprint( &decode, &total_sz );
       if( FD_UNLIKELY( err!=0 ) ) return err;
+
+      uchar * mem = fd_scratch_alloc( fd_stake_history_align(), total_sz );
+      if( FD_UNLIKELY( !mem ) ) return -ENOMEM;
+
+      fd_stake_history_t * stake_history = fd_stake_history_decode( mem, &decode );
 
       fd_stake_history_walk( yaml, stake_history, fd_flamenco_yaml_walk, NULL, 0U );
     }

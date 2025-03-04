@@ -273,7 +273,7 @@ struct fd_replay_tile_ctx {
   ulong root; /* the root slot is the most recent slot to have reached
                  max lockout in the tower  */
 
-  ulong * wmk; /* publish watermark. The watermark is defined as the
+  ulong * published_wmark; /* publish watermark. The watermark is defined as the
                   minimum of the tower root (root above) and blockstore
                   smr (blockstore->smr). The watermark is used to
                   publish our fork-aware structures eg. blockstore,
@@ -291,11 +291,13 @@ struct fd_replay_tile_ctx {
   uint poh_init_done;
   int  snapshot_init_done;
 
-  int            in_wen_restart;
-  fd_restart_t * restart;
-  int            tower_checkpt_fileno;
-  fd_pubkey_t    restart_coordinator;
-  void *         restart_gossip_msg[ FD_RESTART_LINK_BYTES_MAX+sizeof(uint) ];
+  int              in_wen_restart;
+  fd_restart_t *   restart;
+  int              tower_checkpt_fileno;
+  fd_slot_pair_t * restart_hard_forks;
+  ulong            restart_hard_forks_len;
+  fd_pubkey_t      restart_coordinator, restart_genesis_hash;
+  void *           restart_gossip_msg[ FD_RESTART_LINK_BYTES_MAX+sizeof(uint) ];
 
   int         vote;
   fd_pubkey_t validator_identity_pubkey[ 1 ];
@@ -463,7 +465,7 @@ during_frag( fd_replay_tile_ctx_t * ctx,
        Microblock as a list of fd_txn_p_t (sz * sizeof(fd_txn_p_t)) */
 
     ctx->curr_slot = fd_disco_replay_sig_slot( sig );
-    if( FD_UNLIKELY( ctx->curr_slot < fd_fseq_query( ctx->wmk ) ) ) {
+    if( FD_UNLIKELY( ctx->curr_slot < fd_fseq_query( ctx->published_wmark ) ) ) {
       FD_LOG_WARNING(( "store sent slot %lu before our root.", ctx->curr_slot ));
     }
     ctx->flags = fd_disco_replay_sig_flags( sig );
@@ -489,8 +491,8 @@ during_frag( fd_replay_tile_ctx_t * ctx,
        Microblock bank trailer
     */
     ctx->curr_slot = fd_disco_poh_sig_slot( sig );
-    if( FD_UNLIKELY( ctx->curr_slot < fd_fseq_query( ctx->wmk ) ) ) {
-      FD_LOG_WARNING(( "pack sent slot %lu before our watermark %lu.", ctx->curr_slot, fd_fseq_query( ctx->wmk ) ));
+    if( FD_UNLIKELY( ctx->curr_slot < fd_fseq_query( ctx->published_wmark ) ) ) {
+      FD_LOG_WARNING(( "pack sent slot %lu before our watermark %lu.", ctx->curr_slot, fd_fseq_query( ctx->published_wmark ) ));
     }
     if( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) {
       ulong bank_idx = fd_disco_poh_sig_bank_tile( sig );
@@ -542,20 +544,26 @@ during_frag( fd_replay_tile_ctx_t * ctx,
   //   ctx->parent_slot = max_slot;
   // }
 
-  fd_blockstore_start_read( ctx->blockstore );
-  fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, ctx->curr_slot );
-  if( FD_LIKELY( block_map_entry ) ) {
-    if( FD_UNLIKELY( fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED ) ) ) {
-      FD_LOG_WARNING(( "block already processed - slot: %lu", ctx->curr_slot ));
-      ctx->skip_frag = 1;
-    }
-    if( FD_UNLIKELY( fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_DEADBLOCK ) ) ) {
-      FD_LOG_WARNING(( "block already dead - slot: %lu", ctx->curr_slot ));
-      ctx->skip_frag = 1;
-    }
+  uchar block_flags = 0;
+  int err = FD_MAP_ERR_AGAIN;
+  while( err == FD_MAP_ERR_AGAIN ){
+    fd_block_map_query_t quer[1] = { 0 };
+    err = fd_block_map_query_try( ctx->blockstore->block_map, &ctx->curr_slot, NULL, quer, 0 );
+    fd_block_meta_t * block_map_entry = fd_block_map_query_ele( quer );
+    if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
+    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY )) break;
+    block_flags = block_map_entry->flags;
+    err = fd_block_map_query_test( quer );
   }
 
-  fd_blockstore_end_read( ctx->blockstore );
+  if( FD_UNLIKELY( fd_uchar_extract_bit( block_flags, FD_BLOCK_FLAG_PROCESSED ) ) ) {
+    FD_LOG_WARNING(( "block already processed - slot: %lu", ctx->curr_slot ));
+    ctx->skip_frag = 1;
+  }
+  if( FD_UNLIKELY( fd_uchar_extract_bit( block_flags, FD_BLOCK_FLAG_DEADBLOCK ) ) ) {
+    FD_LOG_WARNING(( "block already dead - slot: %lu", ctx->curr_slot ));
+    ctx->skip_frag = 1;
+  }
 }
 
 static void
@@ -575,16 +583,10 @@ checkpt( fd_replay_tile_ctx_t * ctx ) {
 
 static void
 funk_cancel( fd_replay_tile_ctx_t * ctx, ulong mismatch_slot ) {
-  fd_blockstore_start_read( ctx->blockstore );
-  fd_hash_t const * root_block_hash = fd_blockstore_block_hash_query( ctx->blockstore, mismatch_slot );
-  fd_funk_txn_xid_t xid;
-  memcpy( xid.uc, root_block_hash, sizeof( fd_funk_txn_xid_t ) );
-  fd_blockstore_end_read( ctx->blockstore );
-
-  fd_funk_start_write( ctx->funk );
-  xid.ul[0]                    = mismatch_slot;
+  fd_funk_txn_xid_t xid        = { .ul = { mismatch_slot, mismatch_slot } };
   fd_funk_txn_t * txn_map      = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
   fd_funk_txn_t * mismatch_txn = fd_funk_txn_query( &xid, txn_map );
+  fd_funk_start_write( ctx->funk );
   FD_TEST( fd_funk_txn_cancel( ctx->funk, mismatch_txn, 1 ) );
   fd_funk_end_write( ctx->funk );
 }
@@ -595,13 +597,6 @@ struct fd_status_check_ctx {
   ulong current_slot;
 };
 typedef struct fd_status_check_ctx fd_status_check_ctx_t;
-
-static void
-blockstore_publish( fd_replay_tile_ctx_t * ctx, ulong wmk ) {
-  fd_blockstore_start_write( ctx->blockstore );
-  fd_blockstore_publish( ctx->blockstore, ctx->blockstore_fd, wmk );
-  fd_blockstore_end_write( ctx->blockstore );
-}
 
 static void
 txncache_publish( fd_replay_tile_ctx_t * ctx,
@@ -1116,7 +1111,7 @@ static void
 publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
                             fd_stem_context_t *    stem,
                             fd_fork_t *            fork,
-                            fd_block_map_t const * block_map_entry,
+                            ulong                  block_entry_block_height,
                             ulong                  curr_slot ) {
   long notify_time_ns = -fd_log_wallclock();
 #define NOTIFY_START msg = fd_chunk_to_laddr( ctx->notif_out_mem, ctx->notif_out_chunk )
@@ -1136,8 +1131,8 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
     msg->type = FD_REPLAY_SLOT_TYPE;
     msg->slot_exec.slot = curr_slot;
     msg->slot_exec.parent = ctx->parent_slot;
-    msg->slot_exec.root = ctx->blockstore->shmem->smr;
-    msg->slot_exec.height = ( block_map_entry ? block_map_entry->block_height : 0UL );
+    msg->slot_exec.root = fd_fseq_query( ctx->published_wmark );
+    msg->slot_exec.height = block_entry_block_height;
     msg->slot_exec.transaction_count = fork->slot_ctx.slot_bank.transaction_count;
     memcpy( &msg->slot_exec.bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
     memcpy( &msg->slot_exec.block_hash, &ctx->blockhash, sizeof( fd_hash_t ) );
@@ -1171,23 +1166,12 @@ send_tower_sync( fd_replay_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( !ctx->vote ) ) return;
   FD_LOG_NOTICE( ( "sending tower sync" ) );
   ulong vote_slot = fd_tower_votes_peek_tail_const( ctx->tower )->slot;
-  fd_blockstore_start_read( ctx->blockstore );
-  fd_hash_t const * vote_bank_hash  = fd_blockstore_bank_hash_query( ctx->blockstore, vote_slot );
-  fd_hash_t const * vote_block_hash = fd_blockstore_block_hash_query( ctx->blockstore, vote_slot );
-
-  if( vote_bank_hash==NULL ) {
-    FD_LOG_WARNING(("no vote bank hash found"));
-    fd_blockstore_end_read( ctx->blockstore );
-    return;
-  }
-
-  if( vote_block_hash==NULL ) {
-    FD_LOG_WARNING(("no vote block hash found"));
-    fd_blockstore_end_read( ctx->blockstore );
-    return;
-  }
-
-  fd_blockstore_end_read( ctx->blockstore );
+  fd_hash_t vote_bank_hash[1]  = { 0 };
+  fd_hash_t vote_block_hash[1] = { 0 };
+  int err = fd_blockstore_bank_hash_query( ctx->blockstore, vote_slot, vote_bank_hash );
+  if( err ) FD_LOG_ERR(( "invariant violation: missing bank hash for tower vote" ));
+  err = fd_blockstore_block_hash_query( ctx->blockstore, vote_slot, vote_block_hash );
+  if( err ) FD_LOG_ERR(( "invariant violation: missing block hash for tower vote" ));
 
   /* Build a vote state update based on current tower votes. */
 
@@ -1220,7 +1204,7 @@ send_tower_sync( fd_replay_tile_ctx_t * ctx ) {
                                                   ctx->sender_out_wmark );
 
   /* Dump the latest sent tower into the tower checkpoint file */
-  if( FD_LIKELY( ctx->tower_checkpt_fileno > 0 ) ) fd_restart_tower_checkpt( vote_bank_hash, ctx->tower, ctx->root, ctx->tower_checkpt_fileno );
+  if( FD_LIKELY( ctx->tower_checkpt_fileno > 0 ) ) fd_restart_tower_checkpt( vote_bank_hash, ctx->tower, ctx->ghost, ctx->root, ctx->tower_checkpt_fileno );
 }
 
 static fd_fork_t *
@@ -1258,10 +1242,13 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
     is_new_epoch_in_new_block = (int)fd_runtime_is_epoch_boundary( epoch_bank, fork->slot_ctx.slot_bank.slot, fork->slot_ctx.slot_bank.prev_slot );
   }
 
-  fd_blockstore_start_write( ctx->blockstore );
-  fd_block_map_t * curr_block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, ctx->curr_slot );
+  fd_block_map_query_t query[1] = { 0 };
+  int err = fd_block_map_prepare( ctx->blockstore->block_map, &curr_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+  fd_block_meta_t * curr_block_map_entry = fd_block_map_query_ele( query );
+  if( FD_UNLIKELY( err == FD_MAP_ERR_FULL ) ) FD_LOG_ERR(("Block map prepare failed, likely corrupt."));
+  if( FD_UNLIKELY( curr_slot != curr_block_map_entry->slot ) ) FD_LOG_ERR(("Block map prepare failed, likely corrupt."));
   curr_block_map_entry->in_poh_hash = fork->slot_ctx.slot_bank.poh;
-  fd_blockstore_end_write( ctx->blockstore );
+  fd_block_map_publish( query );
 
   fork->slot_ctx.slot_bank.prev_slot   = fork->slot_ctx.slot_bank.slot;
   fork->slot_ctx.slot_bank.slot        = curr_slot;
@@ -1296,7 +1283,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   if( flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
     memset( xid.uc, 0, sizeof(fd_funk_txn_xid_t) );
   } else {
-    fd_memcpy(xid.uc, ctx->blockhash.uc, sizeof(fd_funk_txn_xid_t));
+    xid.ul[1] = fork->slot_ctx.slot_bank.slot;
   }
   xid.ul[0] = fork->slot_ctx.slot_bank.slot;
   /* push a new transaction on the stack */
@@ -1327,11 +1314,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   }
 
   /* Read slot history into slot ctx */
-  res = fd_sysvar_slot_history_read( &fork->slot_ctx, ctx->runtime_spad, fork->slot_ctx.slot_history );
-
-  if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
-    FD_LOG_ERR(( "slot history read failed" ));
-  }
+  fork->slot_ctx.slot_history = fd_sysvar_slot_history_read( &fork->slot_ctx, ctx->runtime_spad );
 
   if( is_new_epoch_in_new_block ) {
     publish_stake_weights( ctx, stem, &fork->slot_ctx );
@@ -1382,10 +1365,17 @@ process_and_exec_mbatch( fd_replay_tile_ctx_t * ctx,
       return -1; \
     }
 
-  fd_blockstore_start_read( ctx->blockstore );
-  fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, ctx->curr_slot );
-  fd_hash_t *      in_poh_hash     = &block_map_entry->in_poh_hash;
-  fd_blockstore_end_read( ctx->blockstore );
+  fd_hash_t in_poh_hash;
+  fd_block_map_query_t query[1] = { 0 } ;
+  int err = FD_MAP_ERR_AGAIN;
+  while( err == FD_MAP_ERR_AGAIN ) {
+    err = fd_block_map_query_try( ctx->blockstore->block_map, &ctx->curr_slot, NULL, query, 0 );
+    fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
+    if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
+    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY )) { FD_LOG_ERR(( "Failed to query block map" )); }
+    in_poh_hash = block_map_entry->in_poh_hash;
+    err = fd_block_map_query_test( query );
+  }
 
   ulong micro_cnt = FD_LOAD( ulong, ctx->mbatch );
 
@@ -1395,10 +1385,12 @@ process_and_exec_mbatch( fd_replay_tile_ctx_t * ctx,
   }
 
   fd_poh_verifier_t     poh_info         = {0};
+  (void)poh_info;
+
   fd_microblock_hdr_t * hdr              = NULL;
   ulong                 off              = sizeof(ulong);
   for( ulong i=0UL; i<micro_cnt; i++ ){
-    hdr     = (fd_microblock_hdr_t *)fd_type_pun( ctx->mbatch + off );
+    hdr = (fd_microblock_hdr_t *)fd_type_pun( ctx->mbatch + off );
     int res = fd_runtime_microblock_verify_ticks( ctx->slot_ctx,
                                                   ctx->curr_slot,
                                                   hdr,
@@ -1413,20 +1405,22 @@ process_and_exec_mbatch( fd_replay_tile_ctx_t * ctx,
     }
 
     poh_info.success         = 0;
-    poh_info.in_poh_hash     = in_poh_hash;
+    poh_info.in_poh_hash     = &in_poh_hash;
     poh_info.microblock.hdr  = hdr;
     poh_info.spad            = ctx->runtime_spad;
     poh_info.microblk_max_sz = mbatch_sz - off;
 
     off += sizeof(fd_microblock_hdr_t);
 
-    fd_runtime_poh_verify( &poh_info );
-    if( poh_info.success==-1 ) {
-      FD_LOG_WARNING(( "Failed to verify poh hash" ));
-      return -1;
-    }
+    /* FIXME: This needs to be multithreaded. This will be reintroduced when
+       the execution model changes are made */
+    // fd_runtime_poh_verify( &poh_info );
+    // if( poh_info.success==-1 ) {
+    //   FD_LOG_WARNING(( "Failed to verify poh hash" ));
+    //   return -1;
+    // }
 
-    in_poh_hash = (fd_hash_t *)&hdr->hash;
+    in_poh_hash = *(fd_hash_t *)fd_type_pun( hdr->hash );
 
     /* seek past txns */
     fd_txn_p_t * txn_p  = fd_spad_alloc( ctx->runtime_spad, alignof(fd_txn_p_t*), sizeof(fd_txn_p_t) * hdr->txn_cnt );
@@ -1462,7 +1456,8 @@ process_and_exec_mbatch( fd_replay_tile_ctx_t * ctx,
     if( FD_UNLIKELY( !fork ) ) {
       FD_LOG_ERR(( "Unable to select a fork" ));
     }
-    res = fd_runtime_process_txns_in_microblock_stream( &fork->slot_ctx,
+
+    err = fd_runtime_process_txns_in_microblock_stream( &fork->slot_ctx,
                                                         ctx->capture_ctx,
                                                         txn_p,
                                                         hdr->txn_cnt,
@@ -1471,30 +1466,35 @@ process_and_exec_mbatch( fd_replay_tile_ctx_t * ctx,
                                                         ctx->exec_spad_cnt,
                                                         ctx->runtime_spad );
 
-    if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
+    fd_block_map_query_t query[1] = { 0 };
+    fd_block_map_prepare( ctx->blockstore->block_map, &ctx->curr_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+    fd_block_meta_t * block_meta = fd_block_map_query_ele( query );
+    if( FD_UNLIKELY( !block_meta || block_meta->slot != ctx->curr_slot ) ) FD_LOG_ERR(( "[%s] invariant violation: missing block_meta %lu", __func__, ctx->curr_slot ));
+
+    if( err != FD_RUNTIME_EXECUTE_SUCCESS ) {
       FD_LOG_WARNING(( "microblk process: block invalid - slot: %lu", ctx->curr_slot ));
-
-      fd_blockstore_start_write( ctx->blockstore );
-
-      fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, ctx->curr_slot );
-      if( FD_LIKELY( block_map_entry ) ) {
-        block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_DEADBLOCK );
-        FD_COMPILER_MFENCE();
-        block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
-        memcpy( &block_map_entry->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof(fd_hash_t) );
-      }
-
-      fd_blockstore_end_write( ctx->blockstore );
+      block_meta->flags = fd_uchar_set_bit( block_meta->flags, FD_BLOCK_FLAG_DEADBLOCK );
+      FD_COMPILER_MFENCE();
+      block_meta->flags = fd_uchar_clear_bit( block_meta->flags, FD_BLOCK_FLAG_REPLAYING );
+      fd_block_map_publish( query );
       return -1;
-    } else {
-      /* Push notifications for account updates */
-      publish_account_notifications( ctx, fork, ctx->curr_slot, txn_p, hdr->txn_cnt );
     }
-  }
 
-  fd_blockstore_start_write( ctx->blockstore );
-  block_map_entry->in_poh_hash = *(fd_hash_t *)fd_type_pun( hdr->hash );
-  fd_blockstore_end_write( ctx->blockstore );
+    if( last_batch && i == micro_cnt - 1 ) {
+
+      // Copy block hash to slot_bank poh for updating the sysvars
+
+      memcpy( fork->slot_ctx.slot_bank.poh.uc, hdr->hash, sizeof(fd_hash_t) );
+
+      block_meta->flags = fd_uchar_set_bit( block_meta->flags, FD_BLOCK_FLAG_PROCESSED );
+      FD_COMPILER_MFENCE();
+      block_meta->flags = fd_uchar_clear_bit( block_meta->flags, FD_BLOCK_FLAG_REPLAYING );
+      memcpy( &block_meta->block_hash, hdr->hash, sizeof(fd_hash_t) );
+      memcpy( &block_meta->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof(fd_hash_t) );
+    }
+    publish_account_notifications( ctx, fork, ctx->curr_slot, txn_p, hdr->txn_cnt );
+    fd_block_map_publish( query );
+  }
   return 0;
 }
 
@@ -1503,20 +1503,17 @@ prepare_first_batch_execution( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * s
   ulong curr_slot   = ctx->curr_slot;
   ulong parent_slot = ctx->parent_slot;
   ulong flags       = ctx->flags;
-  if( FD_UNLIKELY( curr_slot < fd_fseq_query( ctx->wmk ) ) ) {
-    FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). earlier than our watermark %lu.", curr_slot, parent_slot, fd_fseq_query( ctx->wmk ) ));
+  if( FD_UNLIKELY( curr_slot < fd_fseq_query( ctx->published_wmark ) ) ) {
+    FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). earlier than our watermark %lu.", curr_slot, parent_slot, fd_fseq_query( ctx->published_wmark ) ));
     return;
   }
 
-  if( FD_UNLIKELY( parent_slot < fd_fseq_query( ctx->wmk ) ) ) {
-    FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). parent slot is earlier than our watermark %lu.", curr_slot, parent_slot, fd_fseq_query( ctx->wmk ) ) );
+  if( FD_UNLIKELY( parent_slot < fd_fseq_query( ctx->published_wmark ) ) ) {
+    FD_LOG_WARNING(( "ignoring replay of slot %lu (parent: %lu). parent slot is earlier than our watermark %lu.", curr_slot, parent_slot, fd_fseq_query( ctx->published_wmark ) ) );
     return;
   }
 
-  fd_blockstore_start_read( ctx->blockstore );
-  fd_block_map_t * parent_block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, parent_slot );
-  fd_blockstore_end_read( ctx->blockstore );
-  if( FD_UNLIKELY( !parent_block_map_entry ) ) {
+  if( FD_UNLIKELY( !fd_blockstore_block_meta_test( ctx->blockstore, parent_slot ) ) ) {
     FD_LOG_WARNING(( "[%s] unable to find slot %lu's parent block_map_entry", __func__, curr_slot ));
     return;
   }
@@ -1602,19 +1599,33 @@ after_frag( fd_replay_tile_ctx_t * ctx,
        First pass is to block on the microblock boundary. Eventually, a DAG
        should be continuously be updated. */
 
-    fd_blockstore_start_read( ctx->blockstore );
-    fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, ctx->curr_slot );\
-    if( FD_UNLIKELY( !block_map_entry ) ) {
-      FD_LOG_ERR(( "Unable to query block map entry from blockstore" ));
-    }
-    fd_blockstore_end_read( ctx->blockstore );
+    fd_block_map_query_t query[1] = { 0 };
+    uint consumed_idx      = FD_SHRED_IDX_NULL;
+    uint data_complete_idx = FD_SHRED_IDX_NULL;
+    uint slot_complete_idx = FD_SHRED_IDX_NULL;
+    fd_block_set_t data_complete_idxs[FD_SHRED_MAX_PER_SLOT / sizeof(ulong)];
+    int err = FD_MAP_ERR_AGAIN;
+    while( err == FD_MAP_ERR_AGAIN ){
+      err = fd_block_map_query_try( ctx->blockstore->block_map, &ctx->curr_slot, NULL, query, 0 );
+      fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
 
-    if( FD_LIKELY( block_map_entry->data_complete_idx != FD_SHRED_IDX_NULL ) ) {
-      uint i = block_map_entry->consumed_idx + 1;
-      uint j = block_map_entry->data_complete_idx;
+      if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
+      if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) FD_LOG_ERR(( "Unable to query block map entry from blockstore" ));
+
+      consumed_idx      = block_map_entry->consumed_idx;
+      data_complete_idx = block_map_entry->data_complete_idx;
+      slot_complete_idx = block_map_entry->slot_complete_idx;
+      fd_memcpy( data_complete_idxs, block_map_entry->data_complete_idxs, sizeof(data_complete_idxs) );
+
+      err = fd_block_map_query_test( query );
+    }
+
+    if( FD_LIKELY( data_complete_idx != FD_SHRED_IDX_NULL ) ) {
+      uint i = consumed_idx + 1;
+      uint j = data_complete_idx;
 
       /* If this is the first batch being verified of this block, need to populate the slot_bank's tick height for tick verification */
-      if( FD_UNLIKELY( block_map_entry->consumed_idx + 1 == 0 ) ){
+      if( FD_UNLIKELY( consumed_idx + 1 == 0 ) ){
         FD_LOG_NOTICE(("Preparing first batch execution of slot %lu", ctx->curr_slot));
         prepare_first_batch_execution( ctx, stem );
       }
@@ -1622,7 +1633,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       /* End setup */
 
       for( uint idx = i; idx <= j; idx++ ) {
-        if( FD_UNLIKELY( fd_block_set_test( block_map_entry->data_complete_idxs, idx ) ) ) {
+        if( FD_UNLIKELY( fd_block_set_test( data_complete_idxs, idx ) ) ) {
           /* FIXME: potential backpressure. Consumer will need to make sure they
              aren't being overrun. */
 
@@ -1632,7 +1643,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
 
           int err = fd_blockstore_slice_query( ctx->blockstore,
                                                ctx->curr_slot,
-                                               block_map_entry->consumed_idx + 1,
+                                               consumed_idx + 1,
                                                FD_SLICE_MAX,
                                                ctx->mbatch,
                                                &mbatch_sz );
@@ -1641,21 +1652,27 @@ after_frag( fd_replay_tile_ctx_t * ctx,
             FD_LOG_ERR(( "Failed to assemble microblock batch" ));
           }
 
-          int res = process_and_exec_mbatch( ctx, stem, mbatch_sz, idx == block_map_entry->slot_complete_idx );
+          int res = process_and_exec_mbatch( ctx, stem, mbatch_sz, idx == slot_complete_idx );
           if( FD_UNLIKELY( res ) ){
             // TODO: handle invalid batch how & do thread handling
             FD_LOG_ERR(( "Failed to process microblock batch" ));
           }
-          if( FD_UNLIKELY( idx == block_map_entry->slot_complete_idx ) ) {
-            for( uint idx = 0; idx <= block_map_entry->slot_complete_idx; idx++ ) {
+          if( FD_UNLIKELY( idx == slot_complete_idx ) ) {
+            for( uint idx = 0; idx <= slot_complete_idx; idx++ ) {
               fd_blockstore_shred_remove( ctx->blockstore, ctx->curr_slot, idx );
             }
           }
-          //replay_mbatch( ctx, block_map_entry->replayed_idx + 1 );
-          block_map_entry->consumed_idx = idx;
+          consumed_idx = idx;
         }
       }
     }
+
+    /* set block map entry consumed idx */
+    err = fd_block_map_prepare( ctx->blockstore->block_map, &ctx->curr_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+    fd_block_meta_t * blk_entry = fd_block_map_query_ele( query );
+    if( FD_UNLIKELY( err || blk_entry->slot != ctx->curr_slot ) ) FD_LOG_ERR(( "Failed to prepare block map entry, shouldn't be possible" ));
+    blk_entry->consumed_idx = consumed_idx;
+    fd_block_map_publish( query );
   }
 
   /**********************************************************************/
@@ -1730,25 +1747,14 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     /* Call fd_runtime_block_execute_finalize_tpool which updates sysvar and cleanup some other stuff */
     /**************************************************************************************************/
 
-    // Copy over latest blockhash to slot_bank poh for updating the sysvars
-    fd_memcpy( fork->slot_ctx.slot_bank.poh.uc, ctx->blockhash.uc, sizeof(fd_hash_t) );
     fd_block_info_t block_info[1];
     block_info->signature_cnt = fork->slot_ctx.signature_cnt;
 
     /* Destroy the slot history */
-    fd_bincode_destroy_ctx_t destroy_ctx = {
-      .valloc = fd_spad_virtual( ctx->runtime_spad )
-    };
-    fd_slot_history_destroy( fork->slot_ctx.slot_history, &destroy_ctx );
+    fd_slot_history_destroy( fork->slot_ctx.slot_history );
     for( ulong i = 0UL; i<ctx->bank_cnt; i++ ) {
       fd_tpool_wait( ctx->tpool, i+1 );
     }
-
-    fd_blockstore_start_read( ctx->blockstore );
-    fd_block_map_t * block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, curr_slot );
-    fd_block_t * block_ = fd_blockstore_block_query( ctx->blockstore, curr_slot );  /* can't be removed atm, used for txn metadata & blk rewards */
-    fd_blockstore_end_read( ctx->blockstore );
-    fork->slot_ctx.block = block_;
 
     int res = fd_runtime_block_execute_finalize_tpool( &fork->slot_ctx, ctx->capture_ctx, block_info, ctx->tpool, ctx->runtime_spad );
     if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
@@ -1761,16 +1767,21 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     /* Push notifications for slot updates and reset block_map_entry flag */
     /**********************************************************************/
 
-    publish_slot_notifications( ctx, stem, fork, block_map_entry, curr_slot );
+    fd_block_map_query_t query[1] = { 0 };
+    int err = fd_block_map_prepare( ctx->blockstore->block_map, &curr_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+    fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
+    if( FD_UNLIKELY( err == FD_MAP_ERR_FULL || curr_slot != block_map_entry->slot ) ) FD_LOG_ERR(( "Block map gone terribly wrong." ));
 
-    fd_blockstore_start_write( ctx->blockstore );
-    if( FD_LIKELY( block_ ) ) {
-      block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED );
-      block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
-      ctx->blockstore->shmem->lps   = block_map_entry->slot;
-      memcpy( &block_map_entry->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
-    }
-    fd_blockstore_end_write( ctx->blockstore );
+    block_map_entry->flags   = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED );
+    block_map_entry->flags   = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
+    ulong block_entry_height = block_map_entry->block_height;
+    memcpy( &block_map_entry->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof( fd_hash_t ) );
+
+    fd_block_map_publish( query );
+
+    publish_slot_notifications( ctx, stem, fork, block_entry_height, curr_slot );
+
+    ctx->blockstore->shmem->lps = curr_slot;
 
     /**********************************************************************/
     /* Unlock the fork meaning that execution of the fork is now complete */
@@ -1813,26 +1824,24 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       /* FIXME. We need a more efficient way to compute the ancestor chain. */
       uchar msg[4098*8] __attribute__( ( aligned( 8U ) ) );
       fd_memset( msg, 0, sizeof(msg) );
-      fd_blockstore_start_read( ctx->blockstore );
       ulong s = reset_fork->slot_ctx.slot_bank.slot;
       *(ulong*)(msg + 16U) = s;
       ulong i = 0;
       do {
-        block_map_entry = fd_blockstore_block_map_query( ctx->blockstore, s );
-        if( block_map_entry == NULL ) {
+        if( !fd_blockstore_block_meta_test( ctx->blockstore, s ) ) {
           break;
         }
-        s = block_map_entry->parent_slot;
-        if( s < ctx->blockstore->shmem->smr ) {
+        s = fd_blockstore_parent_slot_query( ctx->blockstore, s );
+        if( s < ctx->blockstore->shmem->wmk ) {
           break;
         }
+
         *(ulong*)(msg + 24U + i*8U) = s;
         if( ++i == 4095U ) {
           break;
         }
       } while( 1 );
       *(ulong*)(msg + 8U) = i;
-      fd_blockstore_end_read( ctx->blockstore );
       replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_SLOT_RESET, msg, sizeof(msg) );
     }
 
@@ -1930,6 +1939,30 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     /**********************************************************************/
 
     if( FD_UNLIKELY( ctx->in_wen_restart && curr_slot==ctx->restart->heaviest_fork_slot ) ) {
+      /* Insert a hard fork for wen-restart, leading to a new shred version */
+      ulong old_len               = ctx->slot_ctx->slot_bank.hard_forks.hard_forks_len;
+      ctx->restart_hard_forks_len = old_len + 1;
+      ctx->restart_hard_forks     = fd_spad_alloc( ctx->runtime_spad, 8, ctx->restart_hard_forks_len*sizeof(fd_slot_pair_t) );
+
+      fd_memcpy( ctx->restart_hard_forks, ctx->slot_ctx->slot_bank.hard_forks.hard_forks, old_len*sizeof(fd_slot_pair_t) );
+      ctx->restart_hard_forks[ old_len ].slot            = curr_slot;
+      ctx->restart_hard_forks[ old_len ].val             = 1;
+      ctx->slot_ctx->slot_bank.hard_forks.hard_forks_len = ctx->restart_hard_forks_len;
+      ctx->slot_ctx->slot_bank.hard_forks.hard_forks     = ctx->restart_hard_forks;
+
+      fd_funk_start_write( ctx->funk );
+      int result = fd_runtime_save_slot_bank( ctx->slot_ctx );
+      if( FD_UNLIKELY( result!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+        FD_LOG_ERR(( "Wen-restart fails at saving slot bank" ));
+      }
+
+      /* Publish the heaviest fork slot in funk */
+      fd_fseq_update( ctx->published_wmark, curr_slot );
+      if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk, ctx->slot_ctx->funk_txn, 1 ) ) ) {
+        FD_LOG_ERR(( "Wen-restart fails at funk txn publish" ));
+      }
+      fd_funk_end_write( ctx->funk );
+
       fd_hash_t const * bank_hash = &child->slot_ctx.slot_bank.banks_hash;
       fd_memcpy( &ctx->restart->heaviest_fork_bank_hash, bank_hash, sizeof(fd_hash_t) );
       ctx->restart->heaviest_fork_ready = 1;
@@ -2048,12 +2081,10 @@ tpool_boot( fd_topo_t * topo, ulong total_thread_count ) {
 static void
 kickoff_repair_orphans( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
-  fd_blockstore_start_write( ctx->slot_ctx->blockstore );
   fd_blockstore_init( ctx->slot_ctx->blockstore, ctx->blockstore_fd, FD_BLOCKSTORE_ARCHIVE_MIN_SIZE, &ctx->slot_ctx->slot_bank );
-  fd_blockstore_end_write( ctx->slot_ctx->blockstore );
 
   publish_stake_weights( ctx, stem, ctx->slot_ctx );
-  fd_fseq_update( ctx->wmk, ctx->slot_ctx->slot_bank.slot );
+  fd_fseq_update( ctx->published_wmark, ctx->slot_ctx->slot_bank.slot );
 
 }
 
@@ -2204,12 +2235,10 @@ read_snapshot( void *              _ctx,
   fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
   FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
-  fd_blockstore_start_write( ctx->slot_ctx->blockstore );
   fd_blockstore_init( ctx->slot_ctx->blockstore,
                       ctx->blockstore_fd,
                       FD_BLOCKSTORE_ARCHIVE_MIN_SIZE,
                       &ctx->slot_ctx->slot_bank );
-  fd_blockstore_end_write( ctx->slot_ctx->blockstore );
 }
 
 static void
@@ -2369,11 +2398,20 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
     fd_bincode_decode_ctx_t dec_ctx = {
       .data    = n->elem.value.data,
       .dataend = n->elem.value.data + n->elem.value.data_len,
-      .valloc  = fd_spad_virtual( ctx->runtime_spad )
     };
 
-    fd_vote_state_versioned_t vsv[1];
-    fd_vote_state_versioned_decode( vsv, &dec_ctx );
+    ulong total_sz = 0UL;
+    int err = fd_vote_state_versioned_decode_footprint( &dec_ctx, &total_sz );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_ERR(( "Unexpected failure in decoding vote state" ));
+    }
+
+    uchar * mem = fd_spad_alloc( ctx->runtime_spad, fd_vote_state_versioned_align(), total_sz );
+    if( FD_UNLIKELY( !mem ) ) {
+      FD_LOG_ERR(( "Unable to allocate memory for memory" ));
+    }
+
+    fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( mem, &dec_ctx );
 
     fd_pubkey_t node_pubkey;
     ulong       last_ts_slot;
@@ -2383,11 +2421,11 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
         last_ts_slot = vsv->inner.v0_23_5.last_timestamp.slot;
         break;
       case fd_vote_state_versioned_enum_v1_14_11:
-        node_pubkey = vsv->inner.v1_14_11.node_pubkey;
+        node_pubkey  = vsv->inner.v1_14_11.node_pubkey;
         last_ts_slot = vsv->inner.v1_14_11.last_timestamp.slot;
         break;
       case fd_vote_state_versioned_enum_current:
-        node_pubkey = vsv->inner.current.node_pubkey;
+        node_pubkey  = vsv->inner.current.node_pubkey;
         last_ts_slot = vsv->inner.current.last_timestamp.slot;
         break;
       default:
@@ -2436,13 +2474,12 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     if( FD_UNLIKELY( ctx->in_wen_restart ) ) {
       ulong buf_len = 0;
       uchar * buf = fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk );
-      fd_sysvar_slot_history_read( ctx->slot_ctx,
-                                   ctx->runtime_spad,
-                                   ctx->slot_ctx->slot_history );
+      ctx->slot_ctx->slot_history = fd_sysvar_slot_history_read( ctx->slot_ctx,
+                                                                 ctx->runtime_spad );
 
       fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
-      fd_vote_accounts_t const * epoch_stakes[ RESTART_EPOCHS_MAX ] = { &epoch_bank->stakes.vote_accounts,
-                                                                        &epoch_bank->next_epoch_stakes };
+      fd_vote_accounts_t const * epoch_stakes[ FD_RESTART_EPOCHS_MAX ] = { &epoch_bank->stakes.vote_accounts,
+                                                                           &epoch_bank->next_epoch_stakes };
       fd_restart_init( ctx->restart,
                        ctx->slot_ctx->slot_bank.slot,
                        &ctx->slot_ctx->slot_bank.banks_hash,
@@ -2455,6 +2492,8 @@ after_credit( fd_replay_tile_ctx_t * ctx,
                        buf+sizeof(uint),
                        &buf_len,
                        ctx->runtime_spad );
+      publish_stake_weights( ctx, stem, ctx->slot_ctx );
+      fd_fseq_update( ctx->published_wmark, ctx->slot_ctx->slot_bank.slot );
 
       /* Send the restart_last_voted_fork_slots message to gossip tile */
       buf_len += sizeof(uint);
@@ -2477,7 +2516,13 @@ after_credit( fd_replay_tile_ctx_t * ctx,
   if( FD_UNLIKELY( ctx->in_wen_restart ) ) {
     ulong send  = 0;
     uchar * buf = fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk );
-    fd_restart_verify_heaviest_fork( ctx->restart, buf+sizeof(uint), &send );
+    fd_restart_verify_heaviest_fork( ctx->restart,
+                                     ctx->is_constipated,
+                                     ctx->restart_hard_forks,
+                                     ctx->restart_hard_forks_len,
+                                     &ctx->restart_genesis_hash,
+                                     buf+sizeof(uint),
+                                     &send );
 
     if( FD_UNLIKELY( send ) ) {
       /* Send the restart_heaviest_fork message to gossip tile */
@@ -2504,31 +2549,23 @@ during_housekeeping( void * _ctx ) {
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
 
   /* Update watermark. The publish watermark is the minimum of the tower
-     root and blockstore smr. */
+     root and supermajority root. */
 
-  fd_blockstore_start_read( ctx->blockstore );
-  ulong wmk = fd_ulong_min( ctx->root, ctx->blockstore->shmem->smr );
-  fd_blockstore_end_read( ctx->blockstore );
+  ulong wmark = fd_ulong_min( ctx->root, ctx->forks->finalized_wmark );
 
-  if ( FD_LIKELY( wmk <= fd_fseq_query( ctx->wmk ) ) ) return;
-  FD_LOG_NOTICE(( "wmk %lu => %lu", fd_fseq_query( ctx->wmk ), wmk ));
+  if ( FD_LIKELY( wmark <= fd_fseq_query( ctx->published_wmark ) ) ) return;
+  FD_LOG_NOTICE(( "wmk %lu => %lu", fd_fseq_query( ctx->published_wmark ), wmark ));
 
-  fd_blockstore_start_read( ctx->blockstore );
-  fd_hash_t const * root_block_hash = fd_blockstore_block_hash_query( ctx->blockstore, wmk );
-  fd_funk_txn_xid_t xid;
-  memcpy( xid.uc, root_block_hash, sizeof( fd_funk_txn_xid_t ) );
-  fd_blockstore_end_read( ctx->blockstore );
-  xid.ul[0] = wmk;
-
-  if( FD_LIKELY( ctx->blockstore ) ) blockstore_publish( ctx, wmk );
-  if( FD_LIKELY( ctx->forks ) ) fd_forks_publish( ctx->forks, wmk, ctx->ghost );
-  if( FD_LIKELY( ctx->funk ) ) funk_and_txncache_publish( ctx, wmk, &xid );
+  fd_funk_txn_xid_t xid = { .ul = { wmark, wmark } };
+  if( FD_LIKELY( ctx->blockstore ) ) fd_blockstore_publish( ctx->blockstore, ctx->blockstore_fd, wmark );
+  if( FD_LIKELY( ctx->forks ) ) fd_forks_publish( ctx->forks, wmark, ctx->ghost );
+  if( FD_LIKELY( ctx->funk ) ) funk_and_txncache_publish( ctx, wmark, &xid );
   if( FD_LIKELY( ctx->ghost ) ) {
-    fd_epoch_forks_publish( ctx->epoch_forks, ctx->ghost, wmk );
-    fd_ghost_publish( ctx->ghost, wmk );
+    fd_epoch_forks_publish( ctx->epoch_forks, ctx->ghost, wmark );
+    fd_ghost_publish( ctx->ghost, wmark );
   }
 
-  fd_fseq_update( ctx->wmk, wmk );
+  fd_fseq_update( ctx->published_wmark, wmark );
 
 
   // fd_mcache_seq_update( ctx->store_out_sync, ctx->store_out_seq );
@@ -2676,9 +2713,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   ulong root_slot_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "root_slot" );
   FD_TEST( root_slot_obj_id!=ULONG_MAX );
-  ctx->wmk = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
-  if( FD_UNLIKELY( !ctx->wmk ) ) FD_LOG_ERR(( "replay tile has no root_slot fseq" ));
-  FD_TEST( ULONG_MAX==fd_fseq_query( ctx->wmk ) );
+  ctx->published_wmark = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
+  if( FD_UNLIKELY( !ctx->published_wmark ) ) FD_LOG_ERR(( "replay tile has no root_slot fseq" ));
+  FD_TEST( ULONG_MAX==fd_fseq_query( ctx->published_wmark ) );
 
   /**********************************************************************/
   /* constipated fseq                                                   */
@@ -2926,10 +2963,11 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_UNLIKELY( ctx->in_wen_restart ) ) {
     fd_base58_decode_32( tile->replay.wen_restart_coordinator, ctx->restart_coordinator.key );
+    fd_base58_decode_32( tile->replay.expected_genesis_hash, ctx->restart_genesis_hash.key );
     void *     restart_mem = fd_wksp_alloc_laddr( ctx->wksp,
                                                   fd_restart_align(),
                                                   fd_restart_footprint(),
-                                                  RESTART_MAGIC_TAG );
+                                                  FD_RESTART_MAGIC_TAG );
     ctx->restart           = fd_restart_join( fd_restart_new( restart_mem ) );
   } else {
     ctx->restart           = NULL;

@@ -59,7 +59,7 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   if( args->blockstore == NULL ) {
     FD_LOG_ERR(( "failed to join a blockstore" ));
   }
-  FD_LOG_NOTICE(( "blockstore has slot root=%lu", args->blockstore->shmem->smr ));
+  FD_LOG_NOTICE(( "blockstore has slot root=%lu", args->blockstore->shmem->wmk ));
   fd_wksp_mprotect( wksp, 1 );
 
   fd_pubkey_t identity_key[1]; /* Just the public key */
@@ -139,7 +139,7 @@ init_args_offline( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   if( args->blockstore == NULL ) {
     FD_LOG_ERR(( "failed to join a blockstore" ));
   }
-  FD_LOG_NOTICE(( "blockstore has slot root=%lu", args->blockstore->shmem->smr ));
+  FD_LOG_NOTICE(( "blockstore has slot root=%lu", args->blockstore->shmem->wmk ));
   fd_wksp_mprotect( wksp, 1 );
 
   args->port = (ushort)fd_env_strip_cmdline_ulong( argc, argv, "--port", NULL, 8899 );

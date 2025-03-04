@@ -67,8 +67,7 @@ fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_
   history.next_slot = slot_ctx->slot_bank.slot + 1;
 
   fd_sysvar_slot_history_write_history( slot_ctx, &history );
-  fd_bincode_destroy_ctx_t ctx = { .valloc = fd_spad_virtual( runtime_spad ) };
-  fd_slot_history_destroy( &history, &ctx );
+  fd_slot_history_destroy( &history );
 }
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2345 */
@@ -83,13 +82,24 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtim
   if (err)
     FD_LOG_CRIT(( "fd_acc_mgr_view(slot_history) failed: %d", err ));
 
-  fd_bincode_decode_ctx_t ctx;
-  ctx.data    = rec->const_data;
-  ctx.dataend = rec->const_data + rec->const_meta->dlen;
-  ctx.valloc  = fd_spad_virtual( runtime_spad );
-  fd_slot_history_t history[1];
-  if( fd_slot_history_decode( history, &ctx ) )
-    FD_LOG_ERR(("fd_slot_history_decode failed"));
+  fd_bincode_decode_ctx_t ctx = {
+    .data    = rec->const_data,
+    .dataend = rec->const_data + rec->const_meta->dlen
+  };
+
+  ulong total_sz = 0UL;
+  err = fd_slot_history_decode_footprint( &ctx, &total_sz );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_ERR(( "fd_slot_history_decode_footprint failed" ));
+  }
+
+  uchar * mem = fd_spad_alloc( runtime_spad, fd_slot_history_align(), total_sz );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "Unable to allocate memory for slot history" ));
+  }
+
+
+  fd_slot_history_t * history = fd_slot_history_decode( mem, &ctx );
 
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L48 */
   fd_sysvar_slot_history_set( history, slot_ctx->slot_bank.slot );
@@ -116,33 +126,41 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtim
   rec->meta->dlen = sz;
   fd_memcpy( rec->meta->info.owner, fd_sysvar_owner_id.key, sizeof(fd_pubkey_t) );
 
-  fd_bincode_destroy_ctx_t ctx_d = { .valloc = fd_spad_virtual( runtime_spad ) };
-  fd_slot_history_destroy( history, &ctx_d );
+  fd_slot_history_destroy( history );
 
   return 0;
 }
 
-int
+fd_slot_history_t *
 fd_sysvar_slot_history_read( fd_exec_slot_ctx_t * slot_ctx,
-                             fd_spad_t *          runtime_spad,
-                             fd_slot_history_t *  out_history ) {
+                             fd_spad_t *          runtime_spad ) {
   /* Set current_slot, and update next_slot */
 
   fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
 
   FD_BORROWED_ACCOUNT_DECL(rec);
   int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, key, rec);
-  if (err)
+  if( err ) {
     FD_LOG_CRIT(( "fd_acc_mgr_view(slot_history) failed: %d", err ));
+  }
 
-  fd_bincode_decode_ctx_t ctx;
-  ctx.data    = rec->const_data;
-  ctx.dataend = rec->const_data + rec->const_meta->dlen;
-  ctx.valloc  = fd_spad_virtual( runtime_spad );
-  if( fd_slot_history_decode( out_history, &ctx ) )
-    FD_LOG_ERR(("fd_slot_history_decode failed"));
+  fd_bincode_decode_ctx_t ctx = {
+    .data    = rec->const_data,
+    .dataend = rec->const_data + rec->const_meta->dlen
+  };
 
-  return 0;
+  ulong total_sz = 0UL;
+  err = fd_slot_history_decode_footprint( &ctx, &total_sz );
+  if( err ) {
+    FD_LOG_ERR(( "fd_slot_history_decode_footprint failed" ));
+  }
+
+  uchar * mem = fd_spad_alloc( runtime_spad, fd_slot_history_align(), total_sz );
+  if( !mem ) {
+    FD_LOG_ERR(( "Unable to allocate memory for slot history" ));
+  }
+
+  return fd_slot_history_decode( mem, &ctx );
 }
 
 int

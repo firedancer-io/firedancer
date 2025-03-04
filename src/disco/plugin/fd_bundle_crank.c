@@ -393,3 +393,20 @@ fd_bundle_crank_generate( fd_bundle_crank_gen_t                       * gen,
     return sizeof(gen->crank2);
   }
 }
+
+void
+fd_bundle_crank_apply( fd_bundle_crank_gen_t                       * gen,
+                       fd_bundle_crank_tip_payment_config_t        * tip_payment_config,
+                       fd_acct_addr_t                       const  * new_block_builder,
+                       fd_acct_addr_t                              * tip_receiver_owner,
+                       ulong                                         epoch,
+                       ulong                                         block_builder_commission ) {
+
+  if( FD_UNLIKELY( epoch!=gen->configured_epoch ) ) fd_bundle_crank_update_epoch( gen, epoch );
+
+  memcpy( tip_receiver_owner,                gen->crank3->tip_distribution_program, sizeof(fd_acct_addr_t) );
+  memcpy( tip_payment_config->tip_receiver,  gen->crank3->new_tip_receiver,         sizeof(fd_acct_addr_t) );
+  memcpy( tip_payment_config->block_builder, new_block_builder,                     sizeof(fd_acct_addr_t) );
+
+  tip_payment_config->commission_pct = block_builder_commission;
+}

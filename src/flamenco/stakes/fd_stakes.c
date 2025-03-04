@@ -36,11 +36,20 @@ fd_stakes_accum_by_node( fd_vote_accounts_t const *    in,
     fd_bincode_decode_ctx_t ctx = {
       .data    = n->elem.value.data,
       .dataend = n->elem.value.data + n->elem.value.data_len,
-      .valloc  = fd_spad_virtual( runtime_spad )
     };
 
-    fd_vote_state_versioned_t vsv[1];
-    fd_vote_state_versioned_decode( vsv, &ctx );
+    ulong total_sz = 0UL;
+    int   err      = fd_vote_state_versioned_decode_footprint( &ctx, &total_sz );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_ERR(( "Failed to decode vote account %s (%d)", FD_BASE58_ENC_32_ALLOCA( n->elem.key.key ), err ));
+    }
+
+    uchar * mem = fd_spad_alloc( runtime_spad, fd_vote_state_versioned_align(), total_sz );
+    if( FD_UNLIKELY( !mem ) ) {
+      FD_LOG_ERR(( "Failed to allocate memory for vote account %s", FD_BASE58_ENC_32_ALLOCA( n->elem.key.key ) ));
+    }
+
+    fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( mem, &ctx );
 
     fd_pubkey_t node_pubkey;
     switch( vsv->discriminant ) {
@@ -67,7 +76,10 @@ fd_stakes_accum_by_node( fd_vote_accounts_t const *    in,
     }
     /* Check if node identity was previously visited */
     fd_stake_weight_t_mapnode_t * query = fd_stake_weight_t_map_acquire( out_pool );
-    FD_TEST( query );
+    if( FD_UNLIKELY( !query ) ) {
+      FD_LOG_ERR(( "fd_stakes_accum_by_node() failed" ));
+    }
+
     query->elem.key = node_pubkey;
     fd_stake_weight_t_mapnode_t * node = fd_stake_weight_t_map_find( out_pool, out_root, query );
 
@@ -162,35 +174,38 @@ fd_stake_weights_by_node( fd_vote_accounts_t const * accs,
 
 /* Helper function to deserialize a vote account. If successful, populates vote account info in `elem`
    and saves the decoded vote state in `vote_state` */
-static uchar
+static fd_vote_state_versioned_t *
 deserialize_and_update_vote_account( fd_exec_slot_ctx_t *                slot_ctx,
                                      fd_vote_accounts_pair_t_mapnode_t * elem,
                                      fd_stake_weight_t_mapnode_t *       stake_delegations_root,
                                      fd_stake_weight_t_mapnode_t *       stake_delegations_pool,
                                      fd_pubkey_t const *                 vote_account_pubkey,
-                                     fd_vote_state_versioned_t *         vote_state,
                                      fd_spad_t *                         runtime_spad ) {
-
-  (void)elem;
-  (void)stake_delegations_root;
-  (void)stake_delegations_pool;
 
   FD_BORROWED_ACCOUNT_DECL( vote_account );
   if( FD_UNLIKELY( fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, vote_account_pubkey, vote_account ) ) ) {
     FD_LOG_DEBUG(( "Vote account not found" ));
-    return 1;
+    return NULL;
   }
 
   // Deserialize the vote account and ensure its in the correct state
   fd_bincode_decode_ctx_t decode = {
     .data    = vote_account->const_data,
     .dataend = vote_account->const_data + vote_account->const_meta->dlen,
-    .valloc  = fd_spad_virtual( runtime_spad ),
   };
 
-  if( FD_UNLIKELY( fd_vote_state_versioned_decode( vote_state, &decode ) ) ) {
-    return 1;
+  ulong total_sz = 0UL;
+  int   err      = fd_vote_state_versioned_decode_footprint( &decode, &total_sz );
+  if( FD_UNLIKELY( err ) ) {
+    return NULL;
   }
+
+  uchar * mem = fd_spad_alloc( runtime_spad, fd_vote_state_versioned_align(), total_sz );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "Unable to allocate memory" ));
+  }
+
+  fd_vote_state_versioned_decode( mem, &decode );
 
   // Get the stake amount from the stake delegations map
   fd_stake_weight_t_mapnode_t temp;
@@ -198,7 +213,7 @@ deserialize_and_update_vote_account( fd_exec_slot_ctx_t *                slot_ct
   fd_stake_weight_t_mapnode_t * entry = fd_stake_weight_t_map_find( stake_delegations_pool, stake_delegations_root, &temp );
   elem->elem.stake = ( entry==NULL ) ? 0UL : entry->elem.stake;
 
-  return 0;
+  return (fd_vote_state_versioned_t *)mem;
 }
 
 static void
@@ -342,9 +357,14 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
   for( fd_vote_accounts_pair_t_mapnode_t * elem = fd_vote_accounts_pair_t_map_minimum( stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root );
         elem;
         elem = fd_vote_accounts_pair_t_map_successor( stakes->vote_accounts.vote_accounts_pool, elem ) ) {
-    fd_pubkey_t const * vote_account_pubkey = &elem->elem.key;
-    fd_vote_state_versioned_t vote_state[1] = {0};
-    if( FD_LIKELY( !deserialize_and_update_vote_account( slot_ctx, elem, root, pool, vote_account_pubkey, vote_state, runtime_spad ) ) ) {
+    fd_pubkey_t const *         vote_account_pubkey = &elem->elem.key;
+    fd_vote_state_versioned_t * vote_state          = deserialize_and_update_vote_account( slot_ctx,
+                                                                                           elem,
+                                                                                           root,
+                                                                                           pool,
+                                                                                           vote_account_pubkey,
+                                                                                           runtime_spad );
+    if( FD_LIKELY( vote_state ) ) {
       total_epoch_stake += elem->elem.stake;
       // Insert into the temporary vote states cache
       fd_vote_info_pair_t_mapnode_t * new_vote_state_node = fd_vote_info_pair_t_map_acquire( temp_info->vote_states_pool );
@@ -362,7 +382,6 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
         n = fd_account_keys_pair_t_map_successor( slot_bank->vote_account_keys.account_keys_pool, n ) ) {
 
     fd_pubkey_t const * vote_account_pubkey = &n->elem.key;
-    fd_vote_state_versioned_t vote_state[1] = {0};
     fd_vote_accounts_pair_t_mapnode_t key;
     fd_memcpy( &key.elem.key, vote_account_pubkey, sizeof(fd_pubkey_t) );
 
@@ -374,7 +393,14 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
     }
 
     fd_vote_accounts_pair_t_mapnode_t * new_vote_node = fd_vote_accounts_pair_t_map_acquire( stakes->vote_accounts.vote_accounts_pool );
-    if( FD_UNLIKELY( deserialize_and_update_vote_account( slot_ctx, new_vote_node, root, pool, vote_account_pubkey, vote_state, runtime_spad ) ) ) {
+    fd_vote_state_versioned_t *         vote_state    = deserialize_and_update_vote_account( slot_ctx,
+                                                                                             new_vote_node,
+                                                                                             root,
+                                                                                             pool,
+                                                                                             vote_account_pubkey,
+                                                                                             runtime_spad );
+
+    if( FD_UNLIKELY( !vote_state ) ) {
       fd_vote_accounts_pair_t_map_release( stakes->vote_accounts.vote_accounts_pool, new_vote_node );
       continue;
     }
@@ -432,7 +458,7 @@ accumulate_stake_cache_delegations_tpool( void  *tpool,
       }
 
       fd_stake_state_v2_t stake_state;
-      rc = fd_stake_get_state( acc, spad, &stake_state );
+      rc = fd_stake_get_state( acc, &stake_state );
       if( FD_UNLIKELY( rc != 0 ) ) {
         continue;
       }
@@ -536,7 +562,7 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
     }
 
     fd_stake_state_v2_t stake_state;
-    rc = fd_stake_get_state( acc, runtime_spad, &stake_state );
+    rc = fd_stake_get_state( acc, &stake_state );
     if( FD_UNLIKELY( rc != 0) ) {
       continue;
     }
@@ -569,9 +595,6 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
                           fd_spad_t * *         exec_spads,
                           ulong                 exec_spad_cnt,
                           fd_spad_t *           runtime_spad ) {
-  (void)tpool;
-  (void)exec_spads;
-  (void)exec_spad_cnt;
 
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   fd_stakes_t *     stakes     = &epoch_bank->stakes;
@@ -622,8 +645,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
 
   /* Refresh the sysvar cache stake history entry after updating the sysvar.
       We need to do this here because it is used in subsequent places in the epoch boundary. */
-  fd_bincode_destroy_ctx_t sysvar_cache_destroy_ctx = { .valloc = fd_spad_virtual( slot_ctx->sysvar_cache->runtime_spad ) };
-  fd_stake_history_destroy( slot_ctx->sysvar_cache->val_stake_history, &sysvar_cache_destroy_ctx );
+  fd_stake_history_destroy( slot_ctx->sysvar_cache->val_stake_history );
   fd_sysvar_cache_restore_stake_history( slot_ctx->sysvar_cache, slot_ctx->acc_mgr, slot_ctx->funk_txn );
 
 }

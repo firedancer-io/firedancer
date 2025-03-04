@@ -597,6 +597,7 @@ poh_link_t replay_plugin;
 poh_link_t gossip_plugin;
 poh_link_t start_progress_plugin;
 poh_link_t vote_listener_plugin;
+poh_link_t validator_info_plugin;
 
 static void
 poh_link_wait_credit( poh_link_t * link ) {
@@ -2056,6 +2057,13 @@ fd_ext_plugin_publish_vote_listener( ulong   sig,
 }
 
 void
+fd_ext_plugin_publish_validator_info( ulong   sig,
+                                      uchar * data,
+                                      ulong   data_len ) {
+  poh_link_publish( &validator_info_plugin, sig, data, data_len );
+}
+
+void
 fd_ext_plugin_publish_periodic( ulong   sig,
                                 uchar * data,
                                 ulong   data_len ) {
@@ -2162,6 +2170,7 @@ unprivileged_init( fd_topo_t *      topo,
     poh_link_init( &gossip_plugin,         topo, tile, out1( topo, tile, "gossip_plugi" ).idx );
     poh_link_init( &start_progress_plugin, topo, tile, out1( topo, tile, "startp_plugi" ).idx );
     poh_link_init( &vote_listener_plugin,  topo, tile, out1( topo, tile, "votel_plugin" ).idx );
+    poh_link_init( &validator_info_plugin, topo, tile, out1( topo, tile, "valcfg_plugi" ).idx );
   } else {
     /* Mark these mcaches as "available", so the system boots, but the
        memory is not set so nothing will actually get published via.
@@ -2171,6 +2180,7 @@ unprivileged_init( fd_topo_t *      topo,
     gossip_plugin.mcache = (fd_frag_meta_t*)1;
     start_progress_plugin.mcache = (fd_frag_meta_t*)1;
     vote_listener_plugin.mcache = (fd_frag_meta_t*)1;
+    validator_info_plugin.mcache = (fd_frag_meta_t*)1;
     FD_COMPILER_MFENCE();
   }
 

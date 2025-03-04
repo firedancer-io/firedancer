@@ -72,7 +72,8 @@ int
 fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
                               fd_exec_txn_ctx_t *        txn_ctx,
                               fd_txn_t const *           txn_descriptor,
-                              fd_rawtxn_b_t const *      txn_raw );
+                              fd_rawtxn_b_t const *      txn_raw,
+                              fd_spad_t *                spad );
 
 /*
   Execute the given transaction.

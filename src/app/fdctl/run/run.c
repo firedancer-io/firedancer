@@ -334,6 +334,8 @@ main_pid_namespace( void * _args ) {
                       config->gid,
                       0,
                       0,
+                      0,
+                      0,
                       1UL+child_cnt, /* RLIMIT_NOFILE needs to be set to the nfds argument of poll() */
                       0UL,
                       0UL,
@@ -344,6 +346,12 @@ main_pid_namespace( void * _args ) {
   } else {
     fd_sandbox_switch_uid_gid( config->uid, config->gid );
   }
+
+  /* The supervsior process should not share the log lock, because a
+     child process might die while holding it and we still need to
+     reap and print errors. */
+  int lock = 0;
+  fd_log_private_shared_lock = &lock;
 
   /* Reap child process PIDs so they don't show up in `ps` etc.  All of
      these children should have exited immediately after clone(2)'ing
@@ -356,12 +364,6 @@ main_pid_namespace( void * _args ) {
     } else if( FD_UNLIKELY( child_pids[ i ]!=exited_pid ) ) {
       FD_LOG_ERR(( "pidns wait4() returned unexpected pid %d %d", child_pids[ i ], exited_pid ));
     } else if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
-      /* If the tile died with a signal like SIGSEGV or SIGSYS it might
-         still be holding the lock, which would cause us to hang when
-         writing out the error, so don't require the lock here. */
-      int lock = 0;
-      fd_log_private_shared_lock = &lock;
-
       FD_LOG_ERR_NOEXIT(( "tile %lu (%s) exited while booting with signal %d (%s)\n", i, child_names[ i ], WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
       exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
     }
@@ -722,7 +724,7 @@ fdctl_check_configure( config_t * config ) {
 
   check = fd_cfg_stage_hyperthreads.check( config );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
-    FD_LOG_ERR(( "Hyperthreading is not configured correctly: %s. You can run `fdctl configure init hyperthread` "
+    FD_LOG_ERR(( "Hyperthreading is not configured correctly: %s. You can run `fdctl configure init hyperthreads` "
                  "to configure hyperthreading correctly.", check.message ));
 }
 
@@ -849,7 +851,9 @@ run_firedancer( config_t * const config,
     fd_sandbox_enter( config->uid,
                       config->gid,
                       0,
+                      0,
                       1, /* Keep controlling terminal for main so it can receive Ctrl+C */
+                      0,
                       0UL,
                       0UL,
                       0UL,
@@ -860,6 +864,12 @@ run_firedancer( config_t * const config,
   } else {
     fd_sandbox_switch_uid_gid( config->uid, config->gid );
   }
+
+  /* The supervsior process should not share the log lock, because a
+     child process might die while holding it and we still need to
+     reap and print errors. */
+  int lock = 0;
+  fd_log_private_shared_lock = &lock;
 
   /* the only clean way to exit is SIGINT or SIGTERM on this parent process,
      so if wait4() completes, it must be an error */

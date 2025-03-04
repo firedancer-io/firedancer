@@ -46,6 +46,9 @@ int fd_flamenco_type_lookup(const char *type, fd_types_funcs_t * t) {
   sprintf(fp, "%s_decode", type);
   t->decode_fun =  dlsym(RTLD_DEFAULT, fp);
 
+  sprintf(fp, "%s_decode_footprint", type);
+  t->decode_footprint_fun =  dlsym(RTLD_DEFAULT, fp);
+
   sprintf(fp, "%s_walk", type);
   t->walk_fun =  dlsym(RTLD_DEFAULT, fp);
 
@@ -62,6 +65,7 @@ int fd_flamenco_type_lookup(const char *type, fd_types_funcs_t * t) {
       (  t->align_fun == NULL) ||
       (  t->new_fun == NULL) ||
       (  t->decode_fun == NULL) ||
+      (  t->decode_footprint_fun == NULL) ||
       (  t->walk_fun == NULL) ||
       (  t->encode_fun == NULL) ||
       (  t->destroy_fun == NULL) ||
@@ -137,7 +141,6 @@ main( int     argc,
   fd_bincode_decode_ctx_t decode = {
     .data    = data,
     .dataend = data + data_sz,
-    .valloc  = fd_scratch_virtual()
   };
 
   fd_flamenco_yaml_t * yaml =
@@ -149,13 +152,13 @@ main( int     argc,
   if (fd_flamenco_type_lookup(type, &f) != 0)
     FD_LOG_ERR (( "lookup for %s failed", type));
 
-  char *d = fd_valloc_malloc( decode.valloc, f.align_fun(), f.footprint_fun() );
-  if (NULL == d)
-    FD_LOG_ERR (( "valloc_malloc failed for %lu", f.footprint_fun()));
-
-  f.new_fun(d);
-  int err = f.decode_fun( d, &decode );
+  ulong total_sz = 0UL;
+  int err = f.decode_footprint_fun( &decode, &total_sz );
   if( FD_UNLIKELY( err!=0 ) ) return err;
+
+  uchar * d = fd_scratch_alloc( f.align_fun(), total_sz );
+
+  f.decode_fun( d, &decode );
 
   f.walk_fun(yaml, d, fd_flamenco_yaml_walk, NULL, 0U );
 
