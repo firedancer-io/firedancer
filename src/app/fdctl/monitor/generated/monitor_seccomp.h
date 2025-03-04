@@ -45,8 +45,8 @@ static void populate_sock_filter_policy_monitor( ulong out_cnt, struct sock_filt
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_read, /* check_read */ 11, 0 ),
     /* allow ioctl based on expression */
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_ioctl, /* check_ioctl */ 14, 0 ),
-    /* allow fcntl based on expression */
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_fcntl, /* check_fcntl */ 15, 0 ),
+    /* allow pselect6 based on expression */
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, SYS_pselect6, /* check_pselect6 */ 15, 0 ),
     /* none of the syscalls matched */
     { BPF_JMP | BPF_JA, 0, 0, /* RET_KILL_PROCESS */ 16 },
 //  check_write:
@@ -77,10 +77,10 @@ static void populate_sock_filter_policy_monitor( ulong out_cnt, struct sock_filt
     /* load syscall argument 0 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
     BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0, /* RET_ALLOW */ 3, /* RET_KILL_PROCESS */ 2 ),
-//  check_fcntl:
+//  check_pselect6:
     /* load syscall argument 0 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 0, /* RET_ALLOW */ 1, /* RET_KILL_PROCESS */ 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 1, /* RET_ALLOW */ 1, /* RET_KILL_PROCESS */ 0 ),
 //  RET_KILL_PROCESS:
     /* KILL_PROCESS is placed before ALLOW since it's the fallthrough case. */
     BPF_STMT( BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS ),

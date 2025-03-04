@@ -1,4 +1,6 @@
 #include "helper.h"
+#include <bits/types/struct_timeval.h>
+#include <sys/select.h>
 #include <termios.h>
 #include <fcntl.h>
 #include <stdio.h>
@@ -193,26 +195,33 @@ fd_getchar( void ) {
     FD_LOG_WARNING(( "tcsetattr(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  /* Terminal also set to non blocking in case the user doesn't send any input. */
-  int terminal_flag = fcntl( STDIN_FILENO, F_GETFL, 0 );
-  if( FD_UNLIKELY( -1==terminal_flag ) ) { 
-    FD_LOG_ERR(( "fcntl(STDIN_FILENO,F_GETFL) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
-  if( FD_UNLIKELY( -1==fcntl(STDIN_FILENO, F_SETFL, terminal_flag | O_NONBLOCK ) ) ) {
-    FD_LOG_ERR(( "fcntl(STDIN_FILENO,F_SETFL) failed (%i-%s)", errno, fd_io_strerror( errno ) )); 
-  }
-  long bytes = read( STDIN_FILENO, ch, 1 );
+  
+  fd_set stdin_status;
+  FD_ZERO( &stdin_status );
+  FD_SET( STDIN_FILENO, &stdin_status );
 
+  struct timeval timeout;
+  timeout.tv_sec = 0;
+  timeout.tv_usec = 0;
+
+  if( FD_UNLIKELY( -1==select( 1, &stdin_status, NULL, NULL,  &timeout ) ) ) 
+  {
+    FD_LOG_ERR(( "select(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  long bytes = 0;
+  if( FD_UNLIKELY( FD_ISSET( STDIN_FILENO, &stdin_status ) ) )
+  {
+    bytes = read( STDIN_FILENO, ch, 1 );
+  }
   /* Check if the read was not successfull, lack of input and being set to non blocking would result in EAGAIN(11) */
   if( FD_UNLIKELY( -1==bytes && errno!=EAGAIN ) ) {
     FD_LOG_ERR(( "read(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
+
   /* Set the terminal back to the original configuration */
   if( FD_UNLIKELY( 0!=tcsetattr( STDIN_FILENO, TCSANOW, &term_old ) ) ) {
     FD_LOG_WARNING(( "tcsetattr(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
-  if( FD_UNLIKELY( -1==fcntl( STDIN_FILENO, F_SETFL, terminal_flag ) ) ) {
-    FD_LOG_ERR(( "fcntl(STDIN_FILENO, F_SETFL) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   
   return (int)*ch;

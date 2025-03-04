@@ -70,7 +70,7 @@ read: (or (eq (arg 0) drain_output_fd)
 # echo and canonical mode so the input is processed immediatly.
 ioctl: (eq (arg 0) 0)
 
-# monitor: set stdin to be nonblocking
-# The monitor must not be blocked when reading stdin if there is no
-# input from the user. This syscall is used to set the O_NONBLOCK flag.
-fcntl: (eq (arg 0) 0)
+# monitor: check if stdin has data
+# The monitor must not be blocked when reading stdin. This syscall allows
+# the monitor to know if new data is available to be read from STDIN.
+pselect6: (eq (arg 0) 1)
