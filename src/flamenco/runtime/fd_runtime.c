@@ -1914,7 +1914,7 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
                                               fd_spad_t *          runtime_spad,
                                               fd_cost_tracker_t *  cost_tracker_opt ) {
 
-  int res      = 0;
+  int res = 0;
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     txns[i].flags = FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
