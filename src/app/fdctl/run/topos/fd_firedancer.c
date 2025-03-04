@@ -5,6 +5,7 @@
 #include "../tiles/fd_replay_notif.h"
 #include "../../../../disco/net/fd_net_tile.h"
 #include "../../../../disco/quic/fd_tpu.h"
+#include "../../../../disco/store/util.h"
 #include "../../../../disco/tiles.h"
 #include "../../../../disco/topo/fd_topob.h"
 #include "../../../../disco/topo/fd_cpu_topo.h"
@@ -185,7 +186,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "replay_store", "replay_store", 128UL,                                    sizeof(ulong) * 2,             1UL );
   FOR(exec_tile_cnt)   fd_topob_link( topo, "replay_exec",  "replay_exec",  128UL,                                   sizeof(fd_txn_p_t),            FD_TXN_MAX_PER_SLOT );
 
-  /**/                 fd_topob_link( topo, "replay_rpair", "replay_rpair", 4096UL,                                   sizeof(ulong) * 2,            1UL );
+  /**/                 fd_topob_link( topo, "replay_rpair", "replay_rpair", 1024UL,                                   FD_REEDSOL_DATA_SHREDS_MAX*sizeof(fd_repair_request_t),                    1UL );
 
   /**/                 fd_topob_link( topo, "gossip_verif", "gossip_verif", config->tiles.verify.receive_buffer_size, FD_TPU_MTU,                    1UL );
   /**/                 fd_topob_link( topo, "gossip_eqvoc", "gossip_eqvoc", 128UL,                                    FD_TPU_MTU,                    1UL );
