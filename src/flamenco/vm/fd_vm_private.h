@@ -542,7 +542,7 @@ static inline void fd_vm_mem_st_multi( fd_vm_t const * vm, uint sz, ulong vaddr,
   ulong   region_idx          = fd_vm_get_input_mem_region_idx( vm, offset );
   ulong   bytes_in_cur_region = fd_uint_sat_sub( vm->input_mem_regions[ region_idx ].region_sz,
                                                  (uint)fd_ulong_sat_sub( offset, vm->input_mem_regions[ region_idx ].vaddr_offset ) );
-  uchar * dst                 = (uchar*)haddr;
+  uchar * dst                 = (uchar *)haddr;
 
   while( sz-- ) {
     if( !bytes_in_cur_region ) {
@@ -597,6 +597,31 @@ static inline void fd_vm_mem_st_8( fd_vm_t const * vm,
   }
 }
 
+/* fd_vm_mem_st_try is strictly not required for correctness and in
+   fact just slows down the performance of the firedancer vm. However,
+   this emulates the behavior of the agave client, where a store will
+   be attempted partially until it fails. This is useful for debugging
+   and fuzzing conformance. */
+static inline void fd_vm_mem_st_try( fd_vm_t const * vm,
+                                     ulong           vaddr,
+                                     ulong           sz,
+                                     uchar *         val ) {
+  uchar is_multi_region = 0;
+  for( ulong i=0UL; i<sz; i++ ) {
+    ulong haddr = fd_vm_mem_haddr( vm,
+                                   vaddr+i,
+                                   sizeof(uchar),
+                                   vm->region_haddr,
+                                   vm->region_st_sz,
+                                   1,
+                                   0UL,
+                                   &is_multi_region );
+    if( !haddr ) {
+      return;
+    }
+    *(uchar *)haddr = *(val+i);
+  }
+}
 
 FD_PROTOTYPES_END
 

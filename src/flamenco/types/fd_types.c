@@ -4728,7 +4728,7 @@ void fd_reward_type_inner_decode_inner( fd_reward_type_inner_t * self, void * * 
   }
 }
 void fd_reward_type_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_reward_type_t * self = (fd_reward_type_t *)struct_mem; /* #goated */
+  fd_reward_type_t * self = (fd_reward_type_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_reward_type_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -4736,7 +4736,7 @@ void * fd_reward_type_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_reward_type_t * self = (fd_reward_type_t *)mem;
   fd_reward_type_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_reward_type_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_reward_type_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -5200,7 +5200,7 @@ void fd_versioned_epoch_stakes_inner_decode_inner( fd_versioned_epoch_stakes_inn
   }
 }
 void fd_versioned_epoch_stakes_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_versioned_epoch_stakes_t * self = (fd_versioned_epoch_stakes_t *)struct_mem; /* #goated */
+  fd_versioned_epoch_stakes_t * self = (fd_versioned_epoch_stakes_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_versioned_epoch_stakes_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -5208,7 +5208,7 @@ void * fd_versioned_epoch_stakes_decode( void * mem, fd_bincode_decode_ctx_t * c
   fd_versioned_epoch_stakes_t * self = (fd_versioned_epoch_stakes_t *)mem;
   fd_versioned_epoch_stakes_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_versioned_epoch_stakes_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_versioned_epoch_stakes_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -8257,7 +8257,7 @@ void fd_vote_state_versioned_inner_decode_inner( fd_vote_state_versioned_inner_t
   }
 }
 void fd_vote_state_versioned_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_vote_state_versioned_t * self = (fd_vote_state_versioned_t *)struct_mem; /* #goated */
+  fd_vote_state_versioned_t * self = (fd_vote_state_versioned_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_vote_state_versioned_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -8265,7 +8265,7 @@ void * fd_vote_state_versioned_decode( void * mem, fd_bincode_decode_ctx_t * ctx
   fd_vote_state_versioned_t * self = (fd_vote_state_versioned_t *)mem;
   fd_vote_state_versioned_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_vote_state_versioned_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_vote_state_versioned_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -10691,7 +10691,7 @@ void fd_cluster_type_inner_decode_inner( fd_cluster_type_inner_t * self, void * 
   }
 }
 void fd_cluster_type_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_cluster_type_t * self = (fd_cluster_type_t *)struct_mem; /* #goated */
+  fd_cluster_type_t * self = (fd_cluster_type_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_cluster_type_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -10699,7 +10699,7 @@ void * fd_cluster_type_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_cluster_type_t * self = (fd_cluster_type_t *)mem;
   fd_cluster_type_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_cluster_type_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_cluster_type_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -11594,7 +11594,7 @@ void fd_vote_authorize_inner_decode_inner( fd_vote_authorize_inner_t * self, voi
   }
 }
 void fd_vote_authorize_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_vote_authorize_t * self = (fd_vote_authorize_t *)struct_mem; /* #goated */
+  fd_vote_authorize_t * self = (fd_vote_authorize_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_vote_authorize_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -11602,7 +11602,7 @@ void * fd_vote_authorize_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_vote_authorize_t * self = (fd_vote_authorize_t *)mem;
   fd_vote_authorize_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_vote_authorize_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_vote_authorize_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -12263,7 +12263,7 @@ void fd_vote_instruction_inner_decode_inner( fd_vote_instruction_inner_t * self,
   }
 }
 void fd_vote_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_vote_instruction_t * self = (fd_vote_instruction_t *)struct_mem; /* #goated */
+  fd_vote_instruction_t * self = (fd_vote_instruction_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_vote_instruction_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -12271,7 +12271,7 @@ void * fd_vote_instruction_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_vote_instruction_t * self = (fd_vote_instruction_t *)mem;
   fd_vote_instruction_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_vote_instruction_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_vote_instruction_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -13292,7 +13292,7 @@ void fd_system_program_instruction_inner_decode_inner( fd_system_program_instruc
   }
 }
 void fd_system_program_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_system_program_instruction_t * self = (fd_system_program_instruction_t *)struct_mem; /* #goated */
+  fd_system_program_instruction_t * self = (fd_system_program_instruction_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_system_program_instruction_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -13300,7 +13300,7 @@ void * fd_system_program_instruction_decode( void * mem, fd_bincode_decode_ctx_t
   fd_system_program_instruction_t * self = (fd_system_program_instruction_t *)mem;
   fd_system_program_instruction_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_system_program_instruction_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_system_program_instruction_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -13711,7 +13711,7 @@ void fd_system_error_inner_decode_inner( fd_system_error_inner_t * self, void * 
   }
 }
 void fd_system_error_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_system_error_t * self = (fd_system_error_t *)struct_mem; /* #goated */
+  fd_system_error_t * self = (fd_system_error_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_system_error_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -13719,7 +13719,7 @@ void * fd_system_error_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_system_error_t * self = (fd_system_error_t *)mem;
   fd_system_error_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_system_error_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_system_error_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -14175,7 +14175,7 @@ void fd_stake_authorize_inner_decode_inner( fd_stake_authorize_inner_t * self, v
   }
 }
 void fd_stake_authorize_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_stake_authorize_t * self = (fd_stake_authorize_t *)struct_mem; /* #goated */
+  fd_stake_authorize_t * self = (fd_stake_authorize_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_stake_authorize_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -14183,7 +14183,7 @@ void * fd_stake_authorize_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_stake_authorize_t * self = (fd_stake_authorize_t *)mem;
   fd_stake_authorize_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_stake_authorize_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_stake_authorize_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -15031,7 +15031,7 @@ void fd_stake_instruction_inner_decode_inner( fd_stake_instruction_inner_t * sel
   }
 }
 void fd_stake_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_stake_instruction_t * self = (fd_stake_instruction_t *)struct_mem; /* #goated */
+  fd_stake_instruction_t * self = (fd_stake_instruction_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_stake_instruction_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -15039,7 +15039,7 @@ void * fd_stake_instruction_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) 
   fd_stake_instruction_t * self = (fd_stake_instruction_t *)mem;
   fd_stake_instruction_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_stake_instruction_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_stake_instruction_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -15688,7 +15688,7 @@ void fd_stake_state_v2_inner_decode_inner( fd_stake_state_v2_inner_t * self, voi
   }
 }
 void fd_stake_state_v2_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_stake_state_v2_t * self = (fd_stake_state_v2_t *)struct_mem; /* #goated */
+  fd_stake_state_v2_t * self = (fd_stake_state_v2_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_stake_state_v2_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -15696,7 +15696,7 @@ void * fd_stake_state_v2_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_stake_state_v2_t * self = (fd_stake_state_v2_t *)mem;
   fd_stake_state_v2_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_stake_state_v2_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_stake_state_v2_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -15926,7 +15926,7 @@ void fd_nonce_state_inner_decode_inner( fd_nonce_state_inner_t * self, void * * 
   }
 }
 void fd_nonce_state_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_nonce_state_t * self = (fd_nonce_state_t *)struct_mem; /* #goated */
+  fd_nonce_state_t * self = (fd_nonce_state_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_nonce_state_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -15934,7 +15934,7 @@ void * fd_nonce_state_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_nonce_state_t * self = (fd_nonce_state_t *)mem;
   fd_nonce_state_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_nonce_state_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_nonce_state_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -16067,7 +16067,7 @@ void fd_nonce_state_versions_inner_decode_inner( fd_nonce_state_versions_inner_t
   }
 }
 void fd_nonce_state_versions_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_nonce_state_versions_t * self = (fd_nonce_state_versions_t *)struct_mem; /* #goated */
+  fd_nonce_state_versions_t * self = (fd_nonce_state_versions_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_nonce_state_versions_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -16075,7 +16075,7 @@ void * fd_nonce_state_versions_decode( void * mem, fd_bincode_decode_ctx_t * ctx
   fd_nonce_state_versions_t * self = (fd_nonce_state_versions_t *)mem;
   fd_nonce_state_versions_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_nonce_state_versions_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_nonce_state_versions_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -16317,7 +16317,7 @@ void fd_compute_budget_program_instruction_inner_decode_inner( fd_compute_budget
   }
 }
 void fd_compute_budget_program_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_compute_budget_program_instruction_t * self = (fd_compute_budget_program_instruction_t *)struct_mem; /* #goated */
+  fd_compute_budget_program_instruction_t * self = (fd_compute_budget_program_instruction_t *)struct_mem;
   ushort tmp = 0;
   fd_bincode_compact_u16_decode_unsafe( &tmp, ctx );
   self->discriminant = tmp;
@@ -16327,7 +16327,7 @@ void * fd_compute_budget_program_instruction_decode( void * mem, fd_bincode_deco
   fd_compute_budget_program_instruction_t * self = (fd_compute_budget_program_instruction_t *)mem;
   fd_compute_budget_program_instruction_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_compute_budget_program_instruction_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_compute_budget_program_instruction_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -16700,7 +16700,7 @@ void fd_bpf_loader_program_instruction_inner_decode_inner( fd_bpf_loader_program
   }
 }
 void fd_bpf_loader_program_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_bpf_loader_program_instruction_t * self = (fd_bpf_loader_program_instruction_t *)struct_mem; /* #goated */
+  fd_bpf_loader_program_instruction_t * self = (fd_bpf_loader_program_instruction_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_bpf_loader_program_instruction_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -16708,7 +16708,7 @@ void * fd_bpf_loader_program_instruction_decode( void * mem, fd_bincode_decode_c
   fd_bpf_loader_program_instruction_t * self = (fd_bpf_loader_program_instruction_t *)mem;
   fd_bpf_loader_program_instruction_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_bpf_loader_program_instruction_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_bpf_loader_program_instruction_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -17008,7 +17008,7 @@ void fd_loader_v4_program_instruction_inner_decode_inner( fd_loader_v4_program_i
   }
 }
 void fd_loader_v4_program_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_loader_v4_program_instruction_t * self = (fd_loader_v4_program_instruction_t *)struct_mem; /* #goated */
+  fd_loader_v4_program_instruction_t * self = (fd_loader_v4_program_instruction_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_loader_v4_program_instruction_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -17016,7 +17016,7 @@ void * fd_loader_v4_program_instruction_decode( void * mem, fd_bincode_decode_ct
   fd_loader_v4_program_instruction_t * self = (fd_loader_v4_program_instruction_t *)mem;
   fd_loader_v4_program_instruction_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_loader_v4_program_instruction_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_loader_v4_program_instruction_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -17431,7 +17431,7 @@ void fd_bpf_upgradeable_loader_program_instruction_inner_decode_inner( fd_bpf_up
   }
 }
 void fd_bpf_upgradeable_loader_program_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_bpf_upgradeable_loader_program_instruction_t * self = (fd_bpf_upgradeable_loader_program_instruction_t *)struct_mem; /* #goated */
+  fd_bpf_upgradeable_loader_program_instruction_t * self = (fd_bpf_upgradeable_loader_program_instruction_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_bpf_upgradeable_loader_program_instruction_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -17439,7 +17439,7 @@ void * fd_bpf_upgradeable_loader_program_instruction_decode( void * mem, fd_binc
   fd_bpf_upgradeable_loader_program_instruction_t * self = (fd_bpf_upgradeable_loader_program_instruction_t *)mem;
   fd_bpf_upgradeable_loader_program_instruction_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_bpf_upgradeable_loader_program_instruction_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_bpf_upgradeable_loader_program_instruction_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -17903,7 +17903,7 @@ void fd_bpf_upgradeable_loader_state_inner_decode_inner( fd_bpf_upgradeable_load
   }
 }
 void fd_bpf_upgradeable_loader_state_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_bpf_upgradeable_loader_state_t * self = (fd_bpf_upgradeable_loader_state_t *)struct_mem; /* #goated */
+  fd_bpf_upgradeable_loader_state_t * self = (fd_bpf_upgradeable_loader_state_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_bpf_upgradeable_loader_state_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -17911,7 +17911,7 @@ void * fd_bpf_upgradeable_loader_state_decode( void * mem, fd_bincode_decode_ctx
   fd_bpf_upgradeable_loader_state_t * self = (fd_bpf_upgradeable_loader_state_t *)mem;
   fd_bpf_upgradeable_loader_state_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_bpf_upgradeable_loader_state_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_bpf_upgradeable_loader_state_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -18203,7 +18203,7 @@ void fd_frozen_hash_versioned_inner_decode_inner( fd_frozen_hash_versioned_inner
   }
 }
 void fd_frozen_hash_versioned_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_frozen_hash_versioned_t * self = (fd_frozen_hash_versioned_t *)struct_mem; /* #goated */
+  fd_frozen_hash_versioned_t * self = (fd_frozen_hash_versioned_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_frozen_hash_versioned_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -18211,7 +18211,7 @@ void * fd_frozen_hash_versioned_decode( void * mem, fd_bincode_decode_ctx_t * ct
   fd_frozen_hash_versioned_t * self = (fd_frozen_hash_versioned_t *)mem;
   fd_frozen_hash_versioned_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_frozen_hash_versioned_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_frozen_hash_versioned_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -18496,7 +18496,7 @@ void fd_address_lookup_table_state_inner_decode_inner( fd_address_lookup_table_s
   }
 }
 void fd_address_lookup_table_state_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_address_lookup_table_state_t * self = (fd_address_lookup_table_state_t *)struct_mem; /* #goated */
+  fd_address_lookup_table_state_t * self = (fd_address_lookup_table_state_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_address_lookup_table_state_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -18504,7 +18504,7 @@ void * fd_address_lookup_table_state_decode( void * mem, fd_bincode_decode_ctx_t
   fd_address_lookup_table_state_t * self = (fd_address_lookup_table_state_t *)mem;
   fd_address_lookup_table_state_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_address_lookup_table_state_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_address_lookup_table_state_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -19041,7 +19041,7 @@ void fd_gossip_ip_addr_inner_decode_inner( fd_gossip_ip_addr_inner_t * self, voi
   }
 }
 void fd_gossip_ip_addr_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_ip_addr_t * self = (fd_gossip_ip_addr_t *)struct_mem; /* #goated */
+  fd_gossip_ip_addr_t * self = (fd_gossip_ip_addr_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_gossip_ip_addr_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -19049,7 +19049,7 @@ void * fd_gossip_ip_addr_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_gossip_ip_addr_t * self = (fd_gossip_ip_addr_t *)mem;
   fd_gossip_ip_addr_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_gossip_ip_addr_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_gossip_ip_addr_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -19712,7 +19712,7 @@ void fd_gossip_socket_addr_inner_decode_inner( fd_gossip_socket_addr_inner_t * s
   }
 }
 void fd_gossip_socket_addr_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_socket_addr_t * self = (fd_gossip_socket_addr_t *)struct_mem; /* #goated */
+  fd_gossip_socket_addr_t * self = (fd_gossip_socket_addr_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_gossip_socket_addr_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -19720,7 +19720,7 @@ void * fd_gossip_socket_addr_decode( void * mem, fd_bincode_decode_ctx_t * ctx )
   fd_gossip_socket_addr_t * self = (fd_gossip_socket_addr_t *)mem;
   fd_gossip_socket_addr_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_gossip_socket_addr_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_gossip_socket_addr_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -20488,7 +20488,7 @@ void fd_gossip_slots_enum_inner_decode_inner( fd_gossip_slots_enum_inner_t * sel
   }
 }
 void fd_gossip_slots_enum_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_slots_enum_t * self = (fd_gossip_slots_enum_t *)struct_mem; /* #goated */
+  fd_gossip_slots_enum_t * self = (fd_gossip_slots_enum_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_gossip_slots_enum_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -20496,7 +20496,7 @@ void * fd_gossip_slots_enum_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) 
   fd_gossip_slots_enum_t * self = (fd_gossip_slots_enum_t *)mem;
   fd_gossip_slots_enum_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_gossip_slots_enum_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_gossip_slots_enum_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -22035,7 +22035,7 @@ void fd_restart_slots_offsets_inner_decode_inner( fd_restart_slots_offsets_inner
   }
 }
 void fd_restart_slots_offsets_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_restart_slots_offsets_t * self = (fd_restart_slots_offsets_t *)struct_mem; /* #goated */
+  fd_restart_slots_offsets_t * self = (fd_restart_slots_offsets_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_restart_slots_offsets_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -22043,7 +22043,7 @@ void * fd_restart_slots_offsets_decode( void * mem, fd_bincode_decode_ctx_t * ct
   fd_restart_slots_offsets_t * self = (fd_restart_slots_offsets_t *)mem;
   fd_restart_slots_offsets_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_restart_slots_offsets_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_restart_slots_offsets_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -22517,7 +22517,7 @@ void fd_crds_data_inner_decode_inner( fd_crds_data_inner_t * self, void * * allo
   }
 }
 void fd_crds_data_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_crds_data_t * self = (fd_crds_data_t *)struct_mem; /* #goated */
+  fd_crds_data_t * self = (fd_crds_data_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_crds_data_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -22525,7 +22525,7 @@ void * fd_crds_data_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_crds_data_t * self = (fd_crds_data_t *)mem;
   fd_crds_data_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_crds_data_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_crds_data_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -23534,7 +23534,7 @@ void fd_gossip_msg_inner_decode_inner( fd_gossip_msg_inner_t * self, void * * al
   }
 }
 void fd_gossip_msg_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_msg_t * self = (fd_gossip_msg_t *)struct_mem; /* #goated */
+  fd_gossip_msg_t * self = (fd_gossip_msg_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_gossip_msg_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -23542,7 +23542,7 @@ void * fd_gossip_msg_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_gossip_msg_t * self = (fd_gossip_msg_t *)mem;
   fd_gossip_msg_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_gossip_msg_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_gossip_msg_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -23952,7 +23952,7 @@ void fd_addrlut_instruction_inner_decode_inner( fd_addrlut_instruction_inner_t *
   }
 }
 void fd_addrlut_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_addrlut_instruction_t * self = (fd_addrlut_instruction_t *)struct_mem; /* #goated */
+  fd_addrlut_instruction_t * self = (fd_addrlut_instruction_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_addrlut_instruction_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -23960,7 +23960,7 @@ void * fd_addrlut_instruction_decode( void * mem, fd_bincode_decode_ctx_t * ctx 
   fd_addrlut_instruction_t * self = (fd_addrlut_instruction_t *)mem;
   fd_addrlut_instruction_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_addrlut_instruction_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_addrlut_instruction_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -24567,7 +24567,7 @@ void fd_repair_protocol_inner_decode_inner( fd_repair_protocol_inner_t * self, v
   }
 }
 void fd_repair_protocol_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_repair_protocol_t * self = (fd_repair_protocol_t *)struct_mem; /* #goated */
+  fd_repair_protocol_t * self = (fd_repair_protocol_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_repair_protocol_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -24575,7 +24575,7 @@ void * fd_repair_protocol_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_repair_protocol_t * self = (fd_repair_protocol_t *)mem;
   fd_repair_protocol_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_repair_protocol_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_repair_protocol_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -24826,7 +24826,7 @@ void fd_repair_response_inner_decode_inner( fd_repair_response_inner_t * self, v
   }
 }
 void fd_repair_response_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_repair_response_t * self = (fd_repair_response_t *)struct_mem; /* #goated */
+  fd_repair_response_t * self = (fd_repair_response_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_repair_response_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -24834,7 +24834,7 @@ void * fd_repair_response_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_repair_response_t * self = (fd_repair_response_t *)mem;
   fd_repair_response_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_repair_response_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_repair_response_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -25437,7 +25437,7 @@ void fd_instr_error_enum_inner_decode_inner( fd_instr_error_enum_inner_t * self,
   }
 }
 void fd_instr_error_enum_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_instr_error_enum_t * self = (fd_instr_error_enum_t *)struct_mem; /* #goated */
+  fd_instr_error_enum_t * self = (fd_instr_error_enum_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_instr_error_enum_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -25445,7 +25445,7 @@ void * fd_instr_error_enum_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_instr_error_enum_t * self = (fd_instr_error_enum_t *)mem;
   fd_instr_error_enum_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_instr_error_enum_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_instr_error_enum_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -26339,7 +26339,7 @@ void fd_txn_error_enum_inner_decode_inner( fd_txn_error_enum_inner_t * self, voi
   }
 }
 void fd_txn_error_enum_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_txn_error_enum_t * self = (fd_txn_error_enum_t *)struct_mem; /* #goated */
+  fd_txn_error_enum_t * self = (fd_txn_error_enum_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_txn_error_enum_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -26347,7 +26347,7 @@ void * fd_txn_error_enum_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_txn_error_enum_t * self = (fd_txn_error_enum_t *)mem;
   fd_txn_error_enum_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_txn_error_enum_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_txn_error_enum_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -26761,7 +26761,7 @@ void fd_txn_result_inner_decode_inner( fd_txn_result_inner_t * self, void * * al
   }
 }
 void fd_txn_result_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_txn_result_t * self = (fd_txn_result_t *)struct_mem; /* #goated */
+  fd_txn_result_t * self = (fd_txn_result_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_txn_result_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -26769,7 +26769,7 @@ void * fd_txn_result_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_txn_result_t * self = (fd_txn_result_t *)mem;
   fd_txn_result_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_txn_result_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_txn_result_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
