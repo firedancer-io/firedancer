@@ -739,78 +739,100 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
 static void
 fd_gui_handle_validator_info_update( fd_gui_t *    gui,
                                      uchar const * msg ) {
-  uchar const * data = (uchar const *)fd_type_pun_const( msg );
+  ulong const * header = (ulong const *)fd_type_pun_const( msg );
+  ulong peer_cnt = header[ 0 ];
+
+  FD_TEST( peer_cnt<=40200UL );
 
   ulong added_cnt = 0UL;
-  ulong added[ 1 ] = {0};
+  ulong added[ 40200 ] = {0};
 
   ulong update_cnt = 0UL;
-  ulong updated[ 1 ] = {0};
+  ulong updated[ 40200 ] = {0};
 
   ulong removed_cnt = 0UL;
-  /* Unlike gossip or vote account updates, validator info messages come
-     in as info is disovered, and may contain as little as 1 validator
-     per message.  Therefore it doesn't make sense to use the remove
-     mechanism.  */
+  fd_pubkey_t removed[ 40200 ] = {0};
 
-  ulong before_peer_cnt = gui->validator_info.info_cnt;
-  int found = 0;
-  ulong found_idx;
-  for( ulong j=0UL; j<gui->validator_info.info_cnt; j++ ) {
-    if( FD_UNLIKELY( !memcmp( gui->validator_info.info[ j ].pubkey, data, 32UL ) ) ) {
-      found_idx = j;
-      found = 1;
-      break;
+  uchar const * data = (uchar const *)(header+1UL);
+  for( ulong i=0UL; i<gui->validator_info.info_cnt; i++ ) {
+    int found = 0;
+    for( ulong j=0UL; j<peer_cnt; j++ ) {
+      if( FD_UNLIKELY( !memcmp( gui->validator_info.info[ i ].pubkey, data+j*608UL, 32UL ) ) ) {
+        found = 1;
+        break;
+      }
+    }
+
+    if( FD_UNLIKELY( !found ) ) {
+      fd_memcpy( removed[ removed_cnt++ ].uc, gui->validator_info.info[ i ].pubkey->uc, 32UL );
+      if( FD_LIKELY( i+1UL!=gui->validator_info.info_cnt ) ) {
+        fd_memcpy( &gui->validator_info.info[ i ], &gui->validator_info.info[ gui->validator_info.info_cnt-1UL ], sizeof(struct fd_gui_validator_info) );
+        gui->validator_info.info_cnt--;
+        i--;
+      }
     }
   }
 
-  if( FD_UNLIKELY( !found ) ) {
-    fd_memcpy( gui->validator_info.info[ gui->validator_info.info_cnt ].pubkey->uc, data, 32UL );
+  ulong before_peer_cnt = gui->validator_info.info_cnt;
+  for( ulong i=0UL; i<peer_cnt; i++ ) {
+    int found = 0;
+    ulong found_idx;
+    for( ulong j=0UL; j<gui->validator_info.info_cnt; j++ ) {
+      if( FD_UNLIKELY( !memcmp( gui->validator_info.info[ j ].pubkey, data+i*608UL, 32UL ) ) ) {
+        found_idx = j;
+        found = 1;
+        break;
+      }
+    }
 
-    strncpy( gui->validator_info.info[ gui->validator_info.info_cnt ].name, (char const *)(data+32UL), 64 );
-    gui->validator_info.info[ gui->validator_info.info_cnt ].name[ 63 ] = '\0';
+    if( FD_UNLIKELY( !found ) ) {
+      fd_memcpy( gui->validator_info.info[ gui->validator_info.info_cnt ].pubkey->uc, data+i*608UL, 32UL );
 
-    strncpy( gui->validator_info.info[ gui->validator_info.info_cnt ].website, (char const *)(data+96UL), 128 );
-    gui->validator_info.info[ gui->validator_info.info_cnt ].website[ 127 ] = '\0';
+      strncpy( gui->validator_info.info[ gui->validator_info.info_cnt ].name, (char const *)(data+i*608UL+32UL), 64 );
+      gui->validator_info.info[ gui->validator_info.info_cnt ].name[ 63 ] = '\0';
 
-    strncpy( gui->validator_info.info[ gui->validator_info.info_cnt ].details, (char const *)(data+224UL), 256 );
-    gui->validator_info.info[ gui->validator_info.info_cnt ].details[ 255 ] = '\0';
+      strncpy( gui->validator_info.info[ gui->validator_info.info_cnt ].website, (char const *)(data+i*608UL+96UL), 128 );
+      gui->validator_info.info[ gui->validator_info.info_cnt ].website[ 127 ] = '\0';
 
-    strncpy( gui->validator_info.info[ gui->validator_info.info_cnt ].icon_uri, (char const *)(data+480UL), 128 );
-    gui->validator_info.info[ gui->validator_info.info_cnt ].icon_uri[ 127 ] = '\0';
+      strncpy( gui->validator_info.info[ gui->validator_info.info_cnt ].details, (char const *)(data+i*608UL+224UL), 256 );
+      gui->validator_info.info[ gui->validator_info.info_cnt ].details[ 255 ] = '\0';
 
-    gui->validator_info.info_cnt++;
-  } else {
-    int peer_updated =
-      memcmp( gui->validator_info.info[ found_idx ].pubkey->uc, data, 32UL ) ||
-      strncmp( gui->validator_info.info[ found_idx ].name, (char const *)(data+32UL), 64 ) ||
-      strncmp( gui->validator_info.info[ found_idx ].website, (char const *)(data+96UL), 128 ) ||
-      strncmp( gui->validator_info.info[ found_idx ].details, (char const *)(data+224UL), 256 ) ||
-      strncmp( gui->validator_info.info[ found_idx ].icon_uri, (char const *)(data+480UL), 128 );
+      strncpy( gui->validator_info.info[ gui->validator_info.info_cnt ].icon_uri, (char const *)(data+i*608UL+480UL), 128 );
+      gui->validator_info.info[ gui->validator_info.info_cnt ].icon_uri[ 127 ] = '\0';
 
-    if( FD_UNLIKELY( peer_updated ) ) {
-      updated[ update_cnt++ ] = found_idx;
+      gui->validator_info.info_cnt++;
+    } else {
+      int peer_updated =
+        memcmp( gui->validator_info.info[ found_idx ].pubkey->uc, data+i*608UL, 32UL ) ||
+        strncmp( gui->validator_info.info[ found_idx ].name, (char const *)(data+i*608UL+32UL), 64 ) ||
+        strncmp( gui->validator_info.info[ found_idx ].website, (char const *)(data+i*608UL+96UL), 128 ) ||
+        strncmp( gui->validator_info.info[ found_idx ].details, (char const *)(data+i*608UL+224UL), 256 ) ||
+        strncmp( gui->validator_info.info[ found_idx ].icon_uri, (char const *)(data+i*608UL+480UL), 128 );
 
-      fd_memcpy( gui->validator_info.info[ found_idx ].pubkey->uc, data, 32UL );
+      if( FD_UNLIKELY( peer_updated ) ) {
+        updated[ update_cnt++ ] = found_idx;
 
-      strncpy( gui->validator_info.info[ found_idx ].name, (char const *)(data+32UL), 64 );
-      gui->validator_info.info[ found_idx ].name[ 63 ] = '\0';
+        fd_memcpy( gui->validator_info.info[ found_idx ].pubkey->uc, data+i*608UL, 32UL );
 
-      strncpy( gui->validator_info.info[ found_idx ].website, (char const *)(data+96UL), 128 );
-      gui->validator_info.info[ found_idx ].website[ 127 ] = '\0';
+        strncpy( gui->validator_info.info[ found_idx ].name, (char const *)(data+i*608UL+32UL), 64 );
+        gui->validator_info.info[ found_idx ].name[ 63 ] = '\0';
 
-      strncpy( gui->validator_info.info[ found_idx ].details, (char const *)(data+224UL), 256 );
-      gui->validator_info.info[ found_idx ].details[ 255 ] = '\0';
+        strncpy( gui->validator_info.info[ found_idx ].website, (char const *)(data+i*608UL+96UL), 128 );
+        gui->validator_info.info[ found_idx ].website[ 127 ] = '\0';
 
-      strncpy( gui->validator_info.info[ found_idx ].icon_uri, (char const *)(data+480UL), 128 );
-      gui->validator_info.info[ found_idx ].icon_uri[ 127 ] = '\0';
+        strncpy( gui->validator_info.info[ found_idx ].details, (char const *)(data+i*608UL+224UL), 256 );
+        gui->validator_info.info[ found_idx ].details[ 255 ] = '\0';
+
+        strncpy( gui->validator_info.info[ found_idx ].icon_uri, (char const *)(data+i*608UL+480UL), 128 );
+        gui->validator_info.info[ found_idx ].icon_uri[ 127 ] = '\0';
+      }
     }
   }
 
   added_cnt = gui->validator_info.info_cnt - before_peer_cnt;
   for( ulong i=before_peer_cnt; i<gui->validator_info.info_cnt; i++ ) added[ i-before_peer_cnt ] = i;
 
-  fd_gui_printf_peers_validator_info_update( gui, updated, update_cnt, NULL, removed_cnt, added, added_cnt );
+  fd_gui_printf_peers_validator_info_update( gui, updated, update_cnt, removed, removed_cnt, added, added_cnt );
   fd_http_server_ws_broadcast( gui->http );
 }
 

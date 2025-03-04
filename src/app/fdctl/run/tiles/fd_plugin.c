@@ -13,7 +13,6 @@
 #define IN_KIND_STARTP (5)
 #define IN_KIND_VOTEL  (6)
 #define IN_KIND_BUNDLE (7)
-#define IN_KIND_VALCFG (8)
 
 typedef struct {
   fd_wksp_t * mem;
@@ -58,7 +57,7 @@ during_frag( fd_plugin_ctx_t * ctx,
   ulong * dst = (ulong *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
 
   /* ... todo... sigh, sz is not correct since it's too big */
-  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP && sig==FD_PLUGIN_MSG_GOSSIP_UPDATE ) ) {
+  if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_GOSSIP ) && FD_LIKELY( sig==FD_PLUGIN_MSG_GOSSIP_UPDATE || sig==FD_PLUGIN_MSG_VALIDATOR_INFO ) ) {
     ulong peer_cnt = ((ulong *)src)[ 0 ];
     FD_TEST( peer_cnt<=40200 );
     sz = 8UL + peer_cnt*FD_GOSSIP_LINK_MSG_SIZE;
@@ -98,7 +97,7 @@ after_frag( fd_plugin_ctx_t *   ctx,
       break;
     }
     case IN_KIND_GOSSIP: {
-      FD_TEST( sig==FD_PLUGIN_MSG_GOSSIP_UPDATE || sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE || sig==FD_PLUGIN_MSG_BALANCE );
+      FD_TEST( sig==FD_PLUGIN_MSG_GOSSIP_UPDATE || sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE || sig==FD_PLUGIN_MSG_VALIDATOR_INFO || sig==FD_PLUGIN_MSG_BALANCE );
       break;
     }
     case IN_KIND_STAKE: {
@@ -123,10 +122,6 @@ after_frag( fd_plugin_ctx_t *   ctx,
     }
     case IN_KIND_BUNDLE: {
       FD_TEST( sig==FD_PLUGIN_MSG_BLOCK_ENGINE_UPDATE );
-      break;
-    }
-    case IN_KIND_VALCFG: {
-      FD_TEST( sig==FD_PLUGIN_MSG_VALIDATOR_INFO );
       break;
     }
     default: FD_LOG_ERR(( "bad in_idx" ));
@@ -168,7 +163,6 @@ unprivileged_init( fd_topo_t *      topo,
     else if( FD_UNLIKELY( !strcmp( link->name, "startp_plugi" ) ) ) ctx->in_kind[ i ] = IN_KIND_STARTP;
     else if( FD_UNLIKELY( !strcmp( link->name, "votel_plugin" ) ) ) ctx->in_kind[ i ] = IN_KIND_VOTEL;
     else if( FD_UNLIKELY( !strcmp( link->name, "bundle_plugi" ) ) ) ctx->in_kind[ i ] = IN_KIND_BUNDLE;
-    else if( FD_UNLIKELY( !strcmp( link->name, "valcfg_plugi" ) ) ) ctx->in_kind[ i ] = IN_KIND_VALCFG;
     else FD_LOG_ERR(( "unexpected link name %s", link->name ));
   }
 

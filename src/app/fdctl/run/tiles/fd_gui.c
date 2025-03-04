@@ -146,7 +146,7 @@ during_frag( fd_gui_ctx_t * ctx,
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in_mem, chunk );
 
    /* ... todo... sigh, sz is not correct since it's too big */
-  if( FD_LIKELY( sig==FD_PLUGIN_MSG_GOSSIP_UPDATE ) ) {
+  if( FD_LIKELY( sig==FD_PLUGIN_MSG_GOSSIP_UPDATE || sig==FD_PLUGIN_MSG_VALIDATOR_INFO ) ) {
     ulong peer_cnt = ((ulong *)src)[ 0 ];
     FD_TEST( peer_cnt<=40200 );
     sz = 8UL + peer_cnt*FD_GOSSIP_LINK_MSG_SIZE;
