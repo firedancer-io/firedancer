@@ -635,7 +635,6 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
 
   /* Add accounts to bpf program cache */
-  fd_funkier_start_write( runner->funk );
   fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn, runner->spad );
 
   /* Default slot */
@@ -786,8 +785,6 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
     fd_sysvar_recent_hashes_update( slot_ctx, runner->spad );
   }
   fd_sysvar_cache_restore_recent_block_hashes( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
-
-  fd_funkier_end_write( runner->funk );
 
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
   uchar * txn_raw_begin = fd_spad_alloc( runner->spad, alignof(uchar), 10000 ); // max txn size is 1232 but we allocate extra for safety

@@ -130,7 +130,7 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_bincode_decode_ctx_t ctx = {
       .data    = (uchar*)val + sizeof(uint),
-      .dataend = (uchar*)val + fd_funk_val_sz( rec )
+      .dataend = (uchar*)val + fd_funkier_val_sz( rec )
     };
     if( magic==FD_RUNTIME_ENC_BINCODE ) {
 
@@ -162,12 +162,13 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
     if( delete_first ) {
       fd_slot_bank_destroy( &slot_ctx->slot_bank );
     }
-    fd_funk_rec_key_t     id  = fd_runtime_slot_bank_key();
-    fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, txn, &id, NULL );
+    fd_funkier_rec_key_t     id  = fd_runtime_slot_bank_key();
+    fd_funkier_rec_query_t   query[1];
+    fd_funkier_rec_t const * rec = fd_funkier_rec_query_try_global( funk, txn, &id, NULL, query );
     if( FD_UNLIKELY( !rec ) ) {
       FD_LOG_ERR(( "failed to read banks record: missing record" ));
     }
-    void * val = fd_funk_val( rec, fd_funk_wksp( funk ) );
+    void * val = fd_funkier_val( rec, fd_funkier_wksp( funk ) );
 
     if( fd_funkier_val_sz( rec ) < sizeof(uint) ) {
       FD_LOG_ERR(( "failed to read banks record: empty record" ));
@@ -176,7 +177,7 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_bincode_decode_ctx_t ctx = {
       .data    = (uchar*)val + sizeof(uint),
-      .dataend = (uchar*)val + fd_funk_val_sz( rec ),
+      .dataend = (uchar*)val + fd_funkier_val_sz( rec ),
     };
     if( magic == FD_RUNTIME_ENC_BINCODE ) {
 
