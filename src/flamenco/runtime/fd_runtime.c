@@ -3864,6 +3864,7 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
                                                           runtime_spad,
                                                           cost_tracker );
       if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+        FD_LOG_WARNING(( "Block limits exceeded!" ));
         return res;
       }
     }

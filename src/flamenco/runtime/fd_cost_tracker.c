@@ -34,7 +34,6 @@ get_signature_cost( fd_exec_txn_ctx_t const * txn_ctx ) {
 	ulong num_ed25519_instruction_signatures   = 0UL;
 	ulong num_secp256r1_instruction_signatures = 0UL;
 
-
 	for( ushort i=0; i<txn->instr_cnt; i++ ) {
 		fd_txn_instr_t const * instr = &txn->instr[ i ];
 		if( instr->data_sz==0UL ) continue;
