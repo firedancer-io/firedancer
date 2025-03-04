@@ -3,7 +3,7 @@
 #include "../fdctl/run/run.h" /* fdctl_check_configure */
 #include "../../disco/net/fd_net_tile.h"
 #include "../../disco/topo/fd_topob.h"
-#include "../../util/shmem/fd_shmem_private.h" /* fd_numa_cpu_cnt */
+#include "../../disco/topo/fd_cpu_topo.h"
 #include "../../util/tile/fd_tile_private.h" /* fd_tile_private_cpus_parse */
 
 #include <stdio.h> /* printf */
@@ -19,16 +19,19 @@ pktgen_topo( config_t * const config ) {
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
   for( ulong i=0UL; i<FD_TILE_MAX; i++ ) parsed_tile_to_cpu[ i ] = USHORT_MAX;
 
+  fd_topo_cpus_t cpus[1];
+  fd_topo_cpus_init( cpus );
+
   ulong affinity_tile_cnt = 0UL;
   if( FD_LIKELY( !is_auto_affinity ) ) affinity_tile_cnt = fd_tile_private_cpus_parse( affinity, parsed_tile_to_cpu );
 
   ulong tile_to_cpu[ FD_TILE_MAX ] = {0};
   for( ulong i=0UL; i<affinity_tile_cnt; i++ ) {
-    if( FD_UNLIKELY( parsed_tile_to_cpu[ i ]!=USHORT_MAX && parsed_tile_to_cpu[ i ]>=fd_numa_cpu_cnt() ) )
+    if( FD_UNLIKELY( parsed_tile_to_cpu[ i ]!=USHORT_MAX && parsed_tile_to_cpu[ i ]>=cpus->cpu_cnt ) )
       FD_LOG_ERR(( "The CPU affinity string in the configuration file under [development.pktgen.affinity] specifies a CPU index of %hu, but the system "
                    "only has %lu CPUs. You should either change the CPU allocations in the affinity string, or increase the number of CPUs "
                    "in the system.",
-                   parsed_tile_to_cpu[ i ], fd_numa_cpu_cnt() ));
+                   parsed_tile_to_cpu[ i ], cpus->cpu_cnt ));
     tile_to_cpu[ i ] = fd_ulong_if( parsed_tile_to_cpu[ i ]==USHORT_MAX, ULONG_MAX, (ulong)parsed_tile_to_cpu[ i ] );
   }
   if( FD_LIKELY( !is_auto_affinity ) ) {

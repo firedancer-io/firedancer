@@ -157,6 +157,9 @@ struct fd_store_tile_ctx {
 
   /* Metrics */
   fd_store_tile_metrics_t metrics;
+
+  ulong turbine_cnt;
+  ulong repair_cnt;
 };
 typedef struct fd_store_tile_ctx fd_store_tile_ctx_t;
 
@@ -281,6 +284,7 @@ after_frag( fd_store_tile_ctx_t * ctx,
         FD_LOG_ERR( ( "failed at archiving repair shred to file" ) );
       }
     }
+    ctx->repair_cnt++;
     return;
   }
 
@@ -320,6 +324,7 @@ after_frag( fd_store_tile_ctx_t * ctx,
         FD_LOG_ERR(( "failed at archiving turbine shred to file" ));
       }
     }
+    ctx->turbine_cnt++;
 
     fd_store_shred_update_with_shred_from_turbine( ctx->store, shred );
   }
@@ -411,12 +416,8 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
 
     FD_STORE( ulong, out_buf, parent_slot );
     out_buf += sizeof(ulong);
-    int err = fd_blockstore_block_hash_copy( ctx->blockstore, slot, out_buf, sizeof(fd_hash_t) );
-
-    if( FD_UNLIKELY( err ) ){
-      FD_LOG_ERR(( "could not find slot meta" ));
-    }
-
+    int err = fd_blockstore_block_hash_query( ctx->blockstore, slot, (fd_hash_t *)fd_type_pun( out_buf ) );
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "could not find slot meta" ));
     out_buf += sizeof(fd_hash_t);
 
     FD_SCRATCH_SCOPE_BEGIN {
@@ -741,8 +742,8 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->sim                           = 1;
     ctx->sim_end_slot                  = tile->store_int.shred_cap_end_slot;
     FD_LOG_WARNING(( "simulating to slot %lu", ctx->sim_end_slot ));
-    ctx->store->blockstore->shmem->smr = 0UL;
-    while( ctx->store->blockstore->shmem->smr==0UL ) {
+    ctx->store->blockstore->shmem->wmk = 0UL;
+    while( ctx->store->blockstore->shmem->wmk==0UL ) {
       FD_LOG_DEBUG(( "Waiting for blockstore to be initialized" ));
     }
     FD_TEST( fd_shred_cap_replay( tile->store_int.shred_cap_replay, ctx->store ) == FD_SHRED_CAP_OK );

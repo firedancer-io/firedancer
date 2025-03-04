@@ -33,23 +33,32 @@ static void print_data(fd_crds_data_t* data, void* arg) {
     fd_txn_t * txn = v->txn.txn;
     for ( ushort i = 0; i < txn->instr_cnt; ++i ) {
       fd_txn_instr_t const * txn_instr = &txn->instr[i];
-      uchar * data = v->txn.raw + txn_instr->data_off;
-      ushort data_sz = txn_instr->data_sz;
-      fd_bincode_decode_ctx_t decode_ctx;
-      decode_ctx.data    = data;
-      decode_ctx.dataend = data + data_sz;
-      decode_ctx.valloc  = fd_libc_alloc_virtual();
-      fd_vote_instruction_t vinstruction;
-      int rc = fd_vote_instruction_decode( &vinstruction, &decode_ctx );
-      if ( rc || decode_ctx.data != decode_ctx.dataend ) {
-        FD_LOG_WARNING(("failed to decode vote instruction"));
-      } else {
-        fd_vote_instruction_walk(yamldump, &vinstruction, fd_flamenco_yaml_walk, NULL, 1U);
+      uchar * data    = v->txn.raw + txn_instr->data_off;
+      ushort  data_sz = txn_instr->data_sz;
+      fd_bincode_decode_ctx_t decode_ctx = {
+        .data    = data,
+        .dataend = data + data_sz
+      };
+
+      ulong total_sz = 0UL;
+      if( FD_UNLIKELY( fd_vote_instruction_decode_footprint( &decode_ctx, &total_sz ) ) ) {
+        FD_LOG_WARNING(( "failed to decode vote instruction" ));
+        return;
       }
+
+      uchar * mem = malloc( total_sz );
+
+      fd_vote_instruction_t * vinsn = fd_vote_instruction_decode( mem, &decode_ctx );
+      if( FD_UNLIKELY( decode_ctx.data != decode_ctx.dataend ) ) {
+        FD_LOG_WARNING(("failed to decode vote instruction"));
+        return;
+      }
+
+      fd_vote_instruction_walk( yamldump, vinsn, fd_flamenco_yaml_walk, NULL, 1U );
     }
   }
 
-  fflush(dumpfile);
+  fflush( dumpfile );
 }
 
 // SIGINT signal handler

@@ -50,10 +50,10 @@
 
 FD_PROTOTYPES_BEGIN
 
-int
-fd_bpf_loader_v3_program_get_state( fd_exec_txn_ctx_t const *           txn_ctx,
-                                    fd_borrowed_account_t const *       borrowed_acc,
-                                    fd_bpf_upgradeable_loader_state_t * state );
+fd_bpf_upgradeable_loader_state_t *
+fd_bpf_loader_program_get_state( fd_borrowed_account_t const * acc,
+                                 fd_spad_t *                   spad,
+                                 int *                         err );
 
 int
 fd_deploy_program( fd_exec_instr_ctx_t * instr_ctx,
@@ -67,13 +67,13 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
 int
 fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * instr_ctx );
 
-/* TODO: add comment here */
+/* read_bpf_upgradeable_loader_state_for_program allocates and returns the
+   bpf loader state for a given program id account within the scope of a txn. */
 
-fd_account_meta_t const *
-read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t * txn_ctx,
-                                               uchar program_id,
-                                               fd_bpf_upgradeable_loader_state_t * result,
-                                               int * opt_err );
+fd_bpf_upgradeable_loader_state_t *
+read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t *                 txn_ctx,
+                                               uchar                               program_id,
+                                               int *                               opt_err );
 
 /* Public APIs */
 

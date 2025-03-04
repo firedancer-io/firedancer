@@ -403,13 +403,13 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
         block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
         block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED );
 
-        ulong slot_complete_idx = block_map_entry->slot_complete_idx;
         fd_block_map_publish( query );
 
         /* Remove the old block from the blockstore */
-        for( uint idx = 0; idx <= slot_complete_idx; idx++ ) {
+        /*for( uint idx = 0; idx <= slot_complete_idx; idx++ ) {
           fd_blockstore_shred_remove( blockstore, block_slot, idx );
-        }
+        }*/
+        fd_blockstore_block_allocs_remove( blockstore, block_slot );
         fd_blockstore_slot_remove( blockstore, block_slot );
       }
       /* Mark the new block as replaying */
@@ -423,12 +423,11 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       block_slot = slot;
     }
 
-    fd_block_t * blk = fd_blockstore_block_query( blockstore, slot ); /* can't be removed atm, populating slot_ctx->block below */
+    fd_block_t * blk = fd_blockstore_block_query( blockstore, slot );
     if( blk == NULL ) {
       FD_LOG_WARNING(( "failed to read slot %lu", slot ));
       continue;
     }
-    ledger_args->slot_ctx->block = blk;
 
     ledger_args->slot_ctx->slot_bank.tick_height = ledger_args->slot_ctx->slot_bank.max_tick_height;
     if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_compute_max_tick_height( ledger_args->epoch_ctx->epoch_bank.ticks_per_slot, slot, &ledger_args->slot_ctx->slot_bank.max_tick_height ) ) ) {
@@ -480,6 +479,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     ulong blk_txn_cnt = 0UL;
     FD_LOG_NOTICE(( "Used memory in spad before slot=%lu %lu", ledger_args->slot_ctx->slot_bank.slot, ledger_args->runtime_spad->mem_used ));
     FD_TEST( fd_runtime_block_eval_tpool( ledger_args->slot_ctx,
+                                          blk,
                                           ledger_args->capture_ctx,
                                           ledger_args->tpool,
                                           1,
@@ -490,9 +490,8 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     txn_cnt += blk_txn_cnt;
     slot_cnt++;
 
-    fd_blockstore_start_read( blockstore );
     fd_hash_t expected;
-    int err = fd_blockstore_block_hash_copy( blockstore, slot, expected.hash, 32UL );
+    int err = fd_blockstore_block_hash_query( blockstore, slot, &expected );
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR( ( "slot %lu is missing its hash", slot ) );
     else if( FD_UNLIKELY( 0 != memcmp( ledger_args->slot_ctx->slot_bank.poh.hash, expected.hash, 32UL ) ) ) {
       char expected_hash[ FD_BASE58_ENCODED_32_SZ ];
@@ -520,14 +519,13 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
         fd_create_snapshot_task( NULL, (ulong)&snapshot_ctx, (ulong)ledger_args, NULL, NULL, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
       }
       if( ledger_args->abort_on_mismatch ) {
-        fd_blockstore_end_read( blockstore );
         ret = 1;
         aborted = 1U;
         break;
       }
     }
 
-    err = fd_blockstore_bank_hash_copy( blockstore, slot, &expected );
+    err = fd_blockstore_bank_hash_query( blockstore, slot, &expected );
     if( FD_UNLIKELY( err) ) {
       FD_LOG_ERR(( "slot %lu is missing its bank hash", slot ));
     } else if( FD_UNLIKELY( 0 != memcmp( ledger_args->slot_ctx->slot_bank.banks_hash.hash,
@@ -560,12 +558,10 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
         fd_create_snapshot_task( NULL, (ulong)&snapshot_ctx, (ulong)ledger_args, NULL, NULL, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
       }
       if( ledger_args->abort_on_mismatch ) {
-        fd_blockstore_end_read( blockstore );
         ret = 1;
         break;
       }
     }
-    fd_blockstore_end_read( blockstore );
 
     prev_slot = slot;
 
@@ -795,9 +791,15 @@ ingest_rocksdb( char const *      file,
   fd_slot_meta_t slot_meta = {0};
   fd_memset( &slot_meta, 0, sizeof(slot_meta) );
 
-  int ret = fd_rocksdb_root_iter_seek( &iter, &rocks_db, start_slot, &slot_meta, valloc );
-  if( ret < 0 ) {
-    FD_LOG_ERR(( "fd_rocksdb_root_iter_seek returned %d", ret ));
+  int block_found = -1;
+  while ( block_found!=0 && start_slot<=end_slot ) {
+    block_found = fd_rocksdb_root_iter_seek( &iter, &rocks_db, start_slot, &slot_meta, valloc );
+    if ( block_found!=0 ) {
+      start_slot++;
+    }
+  }
+  if( FD_UNLIKELY( block_found!=0 ) ) {
+    FD_LOG_ERR(( "unable to seek to any slot" ));
   }
 
   uchar trash_hash_buf[32];
@@ -827,10 +829,9 @@ ingest_rocksdb( char const *      file,
 
     ++blk_cnt;
 
-    fd_bincode_destroy_ctx_t ctx = { .valloc = valloc };
-    fd_slot_meta_destroy( &slot_meta, &ctx );
+    fd_slot_meta_destroy( &slot_meta );
 
-    ret = fd_rocksdb_root_iter_next( &iter, &slot_meta, valloc );
+    int ret = fd_rocksdb_root_iter_next( &iter, &slot_meta, valloc );
     if( ret < 0 ) {
       // FD_LOG_WARNING(("Failed for slot %lu", slot + 1));
       ret = fd_rocksdb_get_meta( &rocks_db, slot + 1, &slot_meta, valloc );
@@ -1157,7 +1158,7 @@ ingest( fd_ledger_args_t * args ) {
   }
   fd_blockstore_t * blockstore = args->blockstore;
   if( blockstore ) {
-    blockstore->shmem->lps = blockstore->shmem->hcs = blockstore->shmem->smr = slot_ctx->slot_bank.slot;
+    blockstore->shmem->lps = blockstore->shmem->hcs = blockstore->shmem->wmk = slot_ctx->slot_bank.slot;
   }
 
   if( args->funk_only ) {

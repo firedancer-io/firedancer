@@ -123,27 +123,34 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
     /* Deserialize the ComputeBudgetInstruction enum */
     uchar * data = (uchar *)txn_raw->raw + instr->data_off;
 
-    fd_compute_budget_program_instruction_t instruction;
     fd_bincode_decode_ctx_t decode_ctx = {
       .data    = data,
       .dataend = &data[ instr->data_sz ],
-      .valloc  = fd_spad_virtual( ctx->spad ),
     };
 
-    int ret = fd_compute_budget_program_instruction_decode( &instruction, &decode_ctx );
-    if ( ret ) {
+    ulong total_sz = 0UL;
+    int   ret      = fd_compute_budget_program_instruction_decode_footprint( &decode_ctx, &total_sz );
+    if( FD_UNLIKELY( ret ) ) {
       FD_TXN_ERR_FOR_LOG_INSTR( ctx, FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA, i );
       return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
     }
 
-    switch( instruction.discriminant ) {
+    uchar * mem = fd_spad_alloc( ctx->spad, fd_compute_budget_program_instruction_align(), total_sz );
+    if( FD_UNLIKELY( !mem ) ) {
+      FD_LOG_ERR(( "Unable to allocate memory for ComputeBudgetInstruction" ));
+    }
+
+    fd_compute_budget_program_instruction_t * instruction =
+      fd_compute_budget_program_instruction_decode( mem, &decode_ctx );
+
+    switch( instruction->discriminant ) {
       case fd_compute_budget_program_instruction_enum_request_heap_frame: {
         if( FD_UNLIKELY( has_requested_heap_size ) ) {
           return FD_RUNTIME_TXN_ERR_DUPLICATE_INSTRUCTION;
         }
 
         has_requested_heap_size     = 1U;
-        updated_requested_heap_size = instruction.inner.request_heap_frame;
+        updated_requested_heap_size = instruction->inner.request_heap_frame;
         requested_heap_size_instr_index = i;
 
         break;
@@ -154,7 +161,7 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
         }
 
         has_compute_units_limit_update  = 1U;
-        updated_compute_unit_limit      = instruction.inner.set_compute_unit_limit;
+        updated_compute_unit_limit      = instruction->inner.set_compute_unit_limit;
 
         break;
       }
@@ -165,7 +172,7 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
 
         has_compute_units_price_update = 1U;
         prioritization_fee_type        = FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_COMPUTE_UNIT_PRICE;
-        updated_compute_unit_price     = instruction.inner.set_compute_unit_price;
+        updated_compute_unit_price     = instruction->inner.set_compute_unit_price;
 
         break;
       }
@@ -175,7 +182,7 @@ fd_executor_compute_budget_program_execute_instructions( fd_exec_txn_ctx_t * ctx
           }
 
           has_loaded_accounts_data_size_limit_update = 1U;
-          updated_loaded_accounts_data_size_limit    = instruction.inner.set_loaded_accounts_data_size_limit;
+          updated_loaded_accounts_data_size_limit    = instruction->inner.set_loaded_accounts_data_size_limit;
 
           break;
       }

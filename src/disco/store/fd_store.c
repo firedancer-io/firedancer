@@ -237,13 +237,6 @@ fd_store_shred_insert( fd_store_t * store,
 
   fd_blockstore_t * blockstore = store->blockstore;
 
-  fd_blockstore_start_read( blockstore );
-  if (shred->slot < blockstore->shmem->smr) {
-    fd_blockstore_end_read( blockstore );
-    return FD_BLOCKSTORE_SUCCESS;
-  }
-  fd_blockstore_end_read( blockstore );
-
   uchar shred_type = fd_shred_type( shred->variant );
   if( shred_type != FD_SHRED_TYPE_LEGACY_DATA
       && shred_type != FD_SHRED_TYPE_MERKLE_DATA
@@ -251,6 +244,11 @@ fd_store_shred_insert( fd_store_t * store,
       && shred_type != FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED ) {
     return FD_BLOCKSTORE_SUCCESS;
   }
+
+
+  /* Check this shred > root. We ignore shreds before the root because
+     we either already replayed them (ie. the slot is an ancestor of the
+     SMR) or it is a pruned fork. */
 
   if( store->root!=FD_SLOT_NULL && shred->slot<store->root ) {
     FD_LOG_WARNING(( "shred slot is behind root, dropping shred - root: %lu, shred_slot: %lu", store->root, shred->slot ));

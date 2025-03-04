@@ -423,25 +423,31 @@ produce_eah( fd_snapshot_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong batch
   FD_SPAD_FRAME_BEGIN( ctx->spad ) {
     fd_bincode_decode_ctx_t slot_decode_ctx = {
       .data    = (uchar*)slot_val + sizeof(uint),
-      .dataend = (uchar*)slot_val + fd_funkier_val_sz( slot_rec ),
-      .valloc  = fd_spad_virtual( ctx->spad )
+      .dataend = (uchar*)slot_val + fd_funk_val_sz( slot_rec )
     };
 
     if( FD_UNLIKELY( slot_magic!=FD_RUNTIME_ENC_BINCODE ) ) {
       FD_LOG_ERR(( "Slot bank record has wrong magic" ));
     }
 
-    fd_slot_bank_t slot_bank = {0};
-    int err = fd_slot_bank_decode( &slot_bank, &slot_decode_ctx );
-    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
-      FD_LOG_ERR(( "Failed to decode slot bank" ));
+    ulong total_sz = 0UL;
+    int   err      = fd_slot_bank_decode_footprint( &slot_decode_ctx, &total_sz );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_ERR(( "Failed to read slot bank record: invalid decode" ));
     }
+
+    uchar * mem = fd_spad_alloc( ctx->spad, fd_slot_bank_align(), total_sz );
+    if( FD_UNLIKELY( !mem ) ) {
+      FD_LOG_ERR(( "Failed to read slot bank record: unable to allocate memory" ));
+    }
+
+    fd_slot_bank_t * slot_bank = fd_slot_bank_decode( mem, &slot_decode_ctx );
 
     /* At this point, calculate the epoch account hash. */
 
     fd_hash_t epoch_account_hash = {0};
 
-    fd_accounts_hash( funk, &slot_bank, ctx->tpool, &epoch_account_hash, ctx->spad );
+    fd_accounts_hash( funk, slot_bank, ctx->tpool, &epoch_account_hash, ctx->spad );
 
     FD_LOG_NOTICE(( "Done computing epoch account hash (%s)", FD_BASE58_ENC_32_ALLOCA( &epoch_account_hash ) ));
 

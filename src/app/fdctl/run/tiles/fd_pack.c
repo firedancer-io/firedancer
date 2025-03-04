@@ -487,6 +487,11 @@ after_credit( fd_pack_ctx_t *     ctx,
         (fd_fseq_query( ctx->bank_current[poll_cursor] )==ctx->bank_expect[poll_cursor]) ) ) {
       *charge_busy = 1;
       ctx->bank_idle_bitset |= 1UL<<poll_cursor;
+
+      long complete_duration = -fd_tickcount();
+      int completed = fd_pack_microblock_complete( ctx->pack, (ulong)poll_cursor );
+      complete_duration      += fd_tickcount();
+      if( FD_LIKELY( completed ) ) fd_histf_sample( ctx->complete_duration, (ulong)complete_duration );
     }
 
     ctx->poll_cursor = poll_cursor;
@@ -594,12 +599,25 @@ after_credit( fd_pack_ctx_t *     ctx,
         int retval = fd_pack_insert_bundle_fini( ctx->pack, bundle, 1UL, ctx->leader_slot-1UL, 1, NULL );
         if( FD_UNLIKELY( retval<0 ) ) FD_LOG_WARNING(( "inserting initializer bundle returned %i", retval ));
         else {
-          /* Update the cached copy of the on-chain state. It won't be read
-             again until after scheduling the initializer bundle we just
-             inserted because peek_bundle_meta will return NULL */
+          /* Update the cached copy of the on-chain state.  This seems a
+             little dangerous, since we're updating it as if the bundle
+             succeeded without knowing if that's true, but here's why
+             it's safe:
 
-          *(ctx->crank->prev_config->block_builder) = *(top_meta->commission_pubkey);
-          ctx->crank->prev_config->commission_pct   = top_meta->commission;
+             From now until we get the rebate call for this initializer
+             bundle (which lets us know if it succeeded or failed), pack
+             will be in [Pending] state, which means peek_bundle_meta
+             will return NULL, so we won't read this state.
+
+             Then, if the initializer bundle failed, we'll go into
+             [Failed] IB state until the end of the block, which will
+             cause top_meta to remain NULL so we don't read these values
+             again.
+
+             Otherwise, the initializer bundle succeeded, which means
+             that these are the right values to use. */
+          fd_bundle_crank_apply( ctx->crank->gen, ctx->crank->prev_config, top_meta->commission_pubkey,
+                                 ctx->crank->tip_receiver_owner, ctx->crank->epoch, top_meta->commission );
         }
       } else {
         /* Already logged a warning in this case */
@@ -613,15 +631,7 @@ after_credit( fd_pack_ctx_t *     ctx,
   if( FD_LIKELY( ctx->bank_idle_bitset & fd_ulong_mask_lsb( pacing_bank_cnt ) ) ) { /* Optimize for schedule */
     any_ready = 1;
 
-    int i               = fd_ulong_find_lsb( ctx->bank_idle_bitset );
-
-    /* You can maybe make the case that this should happen as soon
-       as we detect the bank has become idle, but doing it now probably
-       helps with account locality. */
-    long complete_duration = -fd_tickcount();
-    int completed = fd_pack_microblock_complete( ctx->pack, (ulong)i );
-    complete_duration      += fd_tickcount();
-    if( FD_LIKELY( completed ) ) fd_histf_sample( ctx->complete_duration, (ulong)complete_duration );
+    int i = fd_ulong_find_lsb( ctx->bank_idle_bitset );
 
     fd_txn_p_t * microblock_dst = fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
     long schedule_duration = -fd_tickcount();

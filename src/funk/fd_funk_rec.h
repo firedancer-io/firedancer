@@ -11,7 +11,7 @@
    multiple of align.  These are provided to facilitate compile time
    declarations. */
 
-#define FD_FUNK_REC_ALIGN     (32UL)
+#define FD_FUNK_REC_ALIGN     (64UL)
 
 /* FD_FUNK_REC_FLAG_* are flags that can be bit-ored together to specify
    how records are to be interpreted.  The 5 most significant bytes of a
@@ -28,10 +28,6 @@
    NULL.  This value also set a limit on how large rec_max can be. */
 
 #define FD_FUNK_REC_IDX_NULL (ULONG_MAX)
-
-/* FD_FUNK_PART_NULL is the partition number of records that are not
-   in a partition */
-#define FD_FUNK_PART_NULL (UINT_MAX)
 
 /* A fd_funk_rec_t describes a funk record. */
 
@@ -61,18 +57,12 @@ struct __attribute__((aligned(FD_FUNK_REC_ALIGN))) fd_funk_rec {
                       If non-zero, the region [val_gaddr,val_gaddr+val_max) will be a current fd_alloc allocation (such that it is
                       has tag wksp_tag) and the owner of the region will be the record.  IMPORTANT! HAS NO GUARANTEED ALIGNMENT! */
 
-  ulong prev_part_idx;  /* Record map index of previous record in partition chain */
-  ulong next_part_idx;  /* Record map index of next record in partition chain */
-  uint  part;           /* Partition number, FD_FUNK_PART_NULL if none */
-
-  /* Padding to FD_FUNK_REC_ALIGN here (TODO: consider using self index
-     in the structures to accelerate indexing computations if padding
-     permits as this structure is currently has 8 bytes of padding) */
+  /* Padding to FD_FUNK_REC_ALIGN here  */
 };
 
 typedef struct fd_funk_rec fd_funk_rec_t;
 
-FD_STATIC_ASSERT( sizeof(fd_funk_rec_t) == 5U*32U, record size is wrong );
+FD_STATIC_ASSERT( sizeof(fd_funk_rec_t) == 2U*FD_FUNK_REC_ALIGN, record size is wrong );
 
 /* fd_funk_rec_map allows for indexing records by their (xid,key) pair.
    It is used to store all records of the last published transaction and

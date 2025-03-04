@@ -87,7 +87,6 @@ fd_geyser_new( void * mem, fd_geyser_args_t * args ) {
     FD_LOG_ERR(( "failed to join a blockstore" ));
   }
   self->blockstore_fd = args->blockstore_fd;
-  FD_LOG_NOTICE(( "blockstore has slot root=%lu", self->blockstore->shmem->smr ));
   fd_wksp_mprotect( wksp, 1 );
 
   fd_pubkey_t identity_key[1]; /* Just the public key */

@@ -159,13 +159,24 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L34 */
 
-  fd_nonce_state_versions_t versions[1] = {{0}};
-  fd_bincode_decode_ctx_t decode =
-    { .data    = account->const_data,
-      .dataend = account->const_data + account->const_meta->dlen,
-      .valloc  = fd_spad_virtual( ctx->txn_ctx->spad ) };
-  if( FD_UNLIKELY( fd_nonce_state_versions_decode( versions, &decode )!=FD_BINCODE_SUCCESS ) )
+  fd_bincode_decode_ctx_t decode = {
+    .data    = account->const_data,
+    .dataend = account->const_data + account->const_meta->dlen
+  };
+
+  ulong total_sz = 0UL;
+  int   err      = fd_nonce_state_versions_decode_footprint( &decode, &total_sz );
+
+  if( FD_UNLIKELY( err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
+
+  uchar * mem = fd_spad_alloc( ctx->txn_ctx->spad, fd_nonce_state_versions_align(), total_sz );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "Unable to allocate nonce state versions" ));
+  }
+
+  fd_nonce_state_versions_t * versions = fd_nonce_state_versions_decode( mem, &decode );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L35 */
 
@@ -326,13 +337,24 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L93 */
 
-  fd_nonce_state_versions_t versions[1] = {{0}};
-  fd_bincode_decode_ctx_t decode =
-    { .data    = from->const_data,
-      .dataend = from->const_data + from->const_meta->dlen,
-      .valloc  = fd_spad_virtual( ctx->txn_ctx->spad ) };
-  if( FD_UNLIKELY( fd_nonce_state_versions_decode( versions, &decode )!=FD_BINCODE_SUCCESS ) )
+  fd_bincode_decode_ctx_t decode = {
+    .data    = from->const_data,
+    .dataend = from->const_data + from->const_meta->dlen
+  };
+
+  ulong total_sz = 0UL;
+  int   err      = fd_nonce_state_versions_decode_footprint( &decode, &total_sz );
+
+  if( FD_UNLIKELY( err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
+
+  uchar * mem = fd_spad_alloc( ctx->txn_ctx->spad, fd_nonce_state_versions_align(), total_sz );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "Unable to allocate nonce state versions" ));
+  }
+
+  fd_nonce_state_versions_t * versions = fd_nonce_state_versions_decode( mem, &decode );
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L94 */
 
@@ -540,13 +562,24 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L168 */
 
-  fd_nonce_state_versions_t versions[1] = {{0}};
-  fd_bincode_decode_ctx_t decode =
-    { .data    = account->const_data,
-      .dataend = account->const_data + account->const_meta->dlen,
-      .valloc  = fd_spad_virtual( ctx->txn_ctx->spad ) };
-  if( FD_UNLIKELY( fd_nonce_state_versions_decode( versions, &decode )!=FD_BINCODE_SUCCESS ) )
+  fd_bincode_decode_ctx_t decode = {
+    .data    = account->const_data,
+    .dataend = account->const_data + account->const_meta->dlen
+  };
+
+  ulong total_sz = 0UL;
+  int   err      = fd_nonce_state_versions_decode_footprint( &decode, &total_sz );
+
+  if( FD_UNLIKELY( err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
+
+  uchar * mem = fd_spad_alloc( ctx->txn_ctx->spad, fd_nonce_state_versions_align(), total_sz );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "Unable to allocate nonce state versions" ));
+  }
+
+  fd_nonce_state_versions_t * versions = fd_nonce_state_versions_decode( mem, &decode );
 
   fd_nonce_state_t * state = NULL;
   switch( versions->discriminant ) {
@@ -705,13 +738,24 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L214-L215 */
 
-  fd_nonce_state_versions_t versions[1] = {{0}};
-  fd_bincode_decode_ctx_t decode =
-    { .data    = account->const_data,
-      .dataend = account->const_data + account->const_meta->dlen,
-      .valloc  = fd_spad_virtual( ctx->txn_ctx->spad ) };
-  if( FD_UNLIKELY( fd_nonce_state_versions_decode( versions, &decode )!=FD_BINCODE_SUCCESS ) )
+  fd_bincode_decode_ctx_t decode = {
+    .data    = account->const_data,
+    .dataend = account->const_data + account->const_meta->dlen
+  };
+
+  ulong total_sz = 0UL;
+  int   err      = fd_nonce_state_versions_decode_footprint( &decode, &total_sz );
+
+  if( FD_UNLIKELY( err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
+
+  uchar * mem = fd_spad_alloc( ctx->txn_ctx->spad, fd_nonce_state_versions_align(), total_sz );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "Unable to allocate nonce state versions" ));
+  }
+
+  fd_nonce_state_versions_t * versions = fd_nonce_state_versions_decode( mem, &decode );
 
   /* Inlining solana_program::nonce::state::Versions::authorize
      https://github.com/solana-labs/solana/blob/v1.17.23/sdk/program/src/nonce/state/mod.rs#L76-L102 */
@@ -847,13 +891,24 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L498 */
 
-  fd_nonce_state_versions_t versions[1] = {{0}};
-  fd_bincode_decode_ctx_t decode =
-    { .data    = account->const_data,
-      .dataend = account->const_data + account->const_meta->dlen,
-      .valloc  = fd_spad_virtual( ctx->txn_ctx->spad ) };
-  if( FD_UNLIKELY( fd_nonce_state_versions_decode( versions, &decode )!=FD_BINCODE_SUCCESS ) )
+  fd_bincode_decode_ctx_t decode = {
+    .data    = account->const_data,
+    .dataend = account->const_data + account->const_meta->dlen
+  };
+
+  ulong total_sz = 0UL;
+  int   err      = fd_nonce_state_versions_decode_footprint( &decode, &total_sz );
+
+  if( FD_UNLIKELY( err ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
+
+  uchar * mem = fd_spad_alloc( ctx->txn_ctx->spad, fd_nonce_state_versions_align(), total_sz );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "Unable to allocate nonce state versions" ));
+  }
+
+  fd_nonce_state_versions_t * versions = fd_nonce_state_versions_decode( mem, &decode );
 
   /* Inlining solana_program::nonce::state::Versions::upgrade
      https://github.com/solana-labs/solana/blob/v1.17.23/sdk/program/src/nonce/state/mod.rs#L55-L73 */
@@ -883,79 +938,6 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
   } FD_BORROWED_ACCOUNT_DROP( account );
 
   return FD_EXECUTOR_INSTR_SUCCESS;
-}
-
-int
-fd_load_nonce_account( fd_exec_txn_ctx_t const *   txn_ctx,
-                       fd_nonce_state_versions_t * state,
-                       fd_spad_t *                 spad,
-                       int *                       perr ) {
-
-  *perr = 0;
-
-  fd_txn_t const *      txn_descriptor = txn_ctx->txn_descriptor;
-  fd_rawtxn_b_t const * txn_raw        = txn_ctx->_txn_raw;
-
-  if( txn_descriptor->instr_cnt == 0 ) {
-    *perr = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
-    return 0;
-  }
-
-  fd_txn_instr_t const * txn_instr = &txn_descriptor->instr[0];
-
-  if( FD_UNLIKELY( txn_instr->program_id >= txn_descriptor->acct_addr_cnt ) )
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-
-  fd_acct_addr_t const * tx_accs = fd_txn_get_acct_addrs( txn_descriptor, txn_raw->raw );
-  fd_acct_addr_t const * prog_id = tx_accs + txn_instr->program_id;
-
-  if( memcmp( prog_id->b, fd_solana_system_program_id.key, sizeof( fd_pubkey_t ) ) ) {
-    return 0;
-  }
-
-  uchar const * instr_data = fd_txn_get_instr_data( txn_instr, txn_raw->raw );
-  uchar const * instr_acct_idxs = fd_txn_get_instr_accts( txn_instr, txn_raw->raw );
-
-  if( FD_UNLIKELY(
-      txn_instr->data_sz != 4UL ||
-      FD_LOAD( uint, instr_data ) != (uint)fd_system_program_instruction_enum_advance_nonce_account ) ) {
-    *perr = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-    return 0;
-  }
-
-  if( FD_UNLIKELY( ( txn_descriptor->acct_addr_cnt < 1 ) |
-                   ( txn_instr->acct_cnt < 1           ) ) ) {
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-  }
-  if( FD_UNLIKELY( instr_acct_idxs[0] >= txn_descriptor->acct_addr_cnt ) ) {
-    *perr = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-    return 0;
-  }
-
-  fd_acct_addr_t const * me = &tx_accs[ instr_acct_idxs[0] ];
-
-  // https://github.com/firedancer-io/solana/blob/ffd63324f988e1b2151dab34983c71d6ff4087f6/runtime/src/nonce_keyed_account.rs#L66
-
-  FD_BORROWED_ACCOUNT_DECL(me_rec);
-  int err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t const *)me, me_rec );
-  if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
-
-    *perr = FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;
-    return 0;
-  }
-
-  fd_bincode_decode_ctx_t decode = {
-    .data    = me_rec->const_data,
-    .dataend = me_rec->const_data + me_rec->const_meta->dlen,
-    .valloc  = fd_spad_virtual( spad )
-  };
-
-  if( fd_nonce_state_versions_decode( state, &decode ) ) {
-    *perr = FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-    return 0;
-  }
-
-  return 1;
 }
 
 /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/runtime/src/bank.rs#L3529-L3554 */
@@ -1036,23 +1018,30 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
   fd_bincode_decode_ctx_t decode = {
     .data    = durable_nonce_rec->const_data,
     .dataend = durable_nonce_rec->const_data + durable_nonce_rec->const_meta->dlen,
-    .valloc  = fd_spad_virtual( txn_ctx->spad )
   };
 
-  fd_nonce_state_versions_t state = {0};
-  if( FD_UNLIKELY( fd_nonce_state_versions_decode( &state, &decode ) ) ) {
+  ulong total_sz = 0UL;
+  err = fd_nonce_state_versions_decode_footprint( &decode, &total_sz );
+  if( FD_UNLIKELY( err ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
+
+  uchar * mem = fd_spad_alloc( txn_ctx->spad, fd_nonce_state_versions_align(), total_sz );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "Unable to allocate nonce state versions" ));
+  }
+
+  fd_nonce_state_versions_t * state = fd_nonce_state_versions_decode( mem, &decode );
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/sdk/program/src/nonce/state/mod.rs#L36-L53 */
   /* verify_recent_blockhash. Thjis checks that the decoded nonce record is
      not a legacy nonce nor uninitialized. If this is the case, then we can
      verify by comparing the decoded durable nonce to the recent blockhash */
-  if( FD_UNLIKELY( fd_nonce_state_versions_is_legacy( &state ) ) ) {
+  if( FD_UNLIKELY( fd_nonce_state_versions_is_legacy( state ) ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
 
-  fd_nonce_state_t nonce_state = state.inner.current;
+  fd_nonce_state_t nonce_state = state->inner.current;
   if( FD_UNLIKELY( fd_nonce_state_is_uninitialized( &nonce_state ) ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
@@ -1065,7 +1054,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
      the nonce instruction are signers. This is a successful exit case. */
   for( ushort i=0; i<txn_instr->acct_cnt; ++i ) {
     if( fd_txn_is_signer( txn_ctx->txn_descriptor, (int)instr_accts[i] ) ) {
-      if( !memcmp( &txn_ctx->accounts[ instr_accts[i] ], &state.inner.current.inner.initialized.authority, sizeof( fd_pubkey_t ) ) ) {
+      if( !memcmp( &txn_ctx->accounts[ instr_accts[i] ], &state->inner.current.inner.initialized.authority, sizeof( fd_pubkey_t ) ) ) {
         /*
            Mark nonce account to make sure that we modify and hash the
            account even if the transaction failed to execute
@@ -1086,7 +1075,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
           .inner = { .current = {
             .discriminant = fd_nonce_state_enum_initialized,
             .inner = { .initialized = {
-              .authority      = state.inner.current.inner.initialized.authority,
+              .authority      = state->inner.current.inner.initialized.authority,
               .durable_nonce  = next_durable_nonce,
               .fee_calculator = {
                 .lamports_per_signature = txn_ctx->slot_ctx->prev_lamports_per_signature

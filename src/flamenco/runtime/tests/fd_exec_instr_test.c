@@ -324,6 +324,8 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   fd_memset( borrowed_accts, 0, test_ctx->accounts_count * sizeof(fd_borrowed_account_t) );
   txn_ctx->accounts_cnt = test_ctx->accounts_count;
 
+  int has_program_id = 0;
+
   for( ulong j=0UL; j < test_ctx->accounts_count; j++ ) {
     memcpy(  &(txn_ctx->accounts[j]), test_ctx->accounts[j].address, sizeof(fd_pubkey_t) );
     if( !_load_account( &borrowed_accts[j], acc_mgr, funk_txn, &test_ctx->accounts[j] ) ) {
@@ -337,6 +339,25 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
       borrowed_accts[j].const_meta = (fd_account_meta_t*)data;
       borrowed_accts[j].const_data = data + sizeof(fd_account_meta_t);
     }
+
+    if( !memcmp( borrowed_accts[j].pubkey, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
+      has_program_id = 1;
+      info->program_id = (uchar)txn_ctx->accounts_cnt;
+    }
+  }
+
+  /* If the program id is not in the set of accounts it must be added to the set of accounts. */
+  if( FD_UNLIKELY( !has_program_id ) ) {
+    fd_borrowed_account_t * program_acc = &borrowed_accts[ test_ctx->accounts_count ];
+    fd_pubkey_t *           program_key = &txn_ctx->accounts[ txn_ctx->accounts_cnt ];
+    fd_borrowed_account_init( program_acc );
+    memcpy( program_key, test_ctx->program_id, sizeof(fd_pubkey_t) );
+    memcpy( program_acc->pubkey, test_ctx->program_id, sizeof(fd_pubkey_t) );
+    program_acc->meta = fd_spad_alloc( txn_ctx->spad, alignof(fd_account_meta_t*), sizeof(fd_account_meta_t*) );
+    program_acc->const_meta = program_acc->meta;
+    fd_account_meta_init( program_acc->meta );
+    info->program_id = (uchar)txn_ctx->accounts_cnt;
+    txn_ctx->accounts_cnt++;
   }
 
   /* Load in executable accounts */
@@ -368,14 +389,17 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
       }
     }
 
-    if ( FD_UNLIKELY( 0 == memcmp(meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) ) ) {
-      fd_bpf_upgradeable_loader_state_t program_loader_state = {0};
+    if( FD_UNLIKELY( 0 == memcmp(meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) ) ) {
       int err = 0;
-      if( FD_UNLIKELY( !read_bpf_upgradeable_loader_state_for_program( txn_ctx, (uchar) i, &program_loader_state, &err ) ) ) {
+      fd_bpf_upgradeable_loader_state_t * program_loader_state = read_bpf_upgradeable_loader_state_for_program( txn_ctx,
+                                                                                                                (uchar)i,
+                                                                                                                &err );
+
+      if( FD_UNLIKELY( !program_loader_state ) ) {
         continue;
       }
 
-      fd_pubkey_t * programdata_acc = &program_loader_state.inner.program.programdata_address;
+      fd_pubkey_t *           programdata_acc    = &program_loader_state->inner.program.programdata_address;
       fd_borrowed_account_t * executable_account = fd_borrowed_account_init( &txn_ctx->executable_accounts[txn_ctx->executable_cnt] );
       fd_acc_mgr_view(txn_ctx->acc_mgr, txn_ctx->funk_txn, programdata_acc, executable_account);
       txn_ctx->executable_cnt++;
@@ -734,7 +758,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
   if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_head_const( rbh->hashes );
-    if( last ) {
+    if( last && last->fee_calculator.lamports_per_signature!=0UL ) {
       slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
       slot_ctx->prev_lamports_per_signature      = last->fee_calculator.lamports_per_signature;
     }

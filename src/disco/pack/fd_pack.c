@@ -2693,18 +2693,39 @@ delete_transaction( fd_pack_t              * pack,
 
 
   if( FD_UNLIKELY( move_from_penalty_treap & (root==pack->pending) ) ) {
-    /* TODO */ (void)move_from_penalty_treap;
+
+    fd_pack_ord_txn_t       * best         = NULL;
+    fd_pack_penalty_treap_t * best_penalty = NULL;
+
+    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
+        iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
+      fd_pack_penalty_treap_t * p_trp = penalty_map_query( pack->penalty_treaps, *ACCT_ITER_TO_PTR( iter ), NULL );
+      if( FD_UNLIKELY( p_trp ) ) {
+        fd_pack_ord_txn_t * best_in_trp = treap_rev_iter_ele( treap_rev_iter_init( p_trp->penalty_treap, pack->pool ), pack->pool );
+        if( FD_UNLIKELY( !best || COMPARE_WORSE( best, best_in_trp ) ) ) {
+          best         = best_in_trp;
+          best_penalty = p_trp;
+        }
+      }
+    }
+
+    if( FD_LIKELY( best ) ) {
+      /* move best to the main treap */
+      treap_ele_remove( best_penalty->penalty_treap, best, pack->pool );
+      best->root = FD_ORD_TXN_ROOT_PENDING;
+      treap_ele_insert( pack->pending,               best, pack->pool );
+
+      pack->pending_smallest->cus   = fd_ulong_min( pack->pending_smallest->cus,   best->compute_est             );
+      pack->pending_smallest->bytes = fd_ulong_min( pack->pending_smallest->bytes, best->txn_e->txnp->payload_sz );
+
+      if( FD_UNLIKELY( !treap_ele_cnt( best_penalty->penalty_treap ) ) ) {
+        treap_delete( treap_leave( best_penalty->penalty_treap ) );
+        penalty_map_remove( pack->penalty_treaps, best_penalty );
+      }
+    }
   }
 
-  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_WRITABLE );
-      iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
-
-    release_result_t ret = release_bit_reference( pack, ACCT_ITER_TO_PTR( iter ) );
-    FD_PACK_BITSET_CLEARN( pack->bitset_rw_in_use, ret.clear_rw_bit );
-    FD_PACK_BITSET_CLEARN( pack->bitset_w_in_use,  ret.clear_w_bit  );
-  }
-
-  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_READONLY );
+  for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( txn, FD_TXN_ACCT_CAT_ALL );
       iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
     if( FD_UNLIKELY( fd_pack_unwritable_contains( ACCT_ITER_TO_PTR( iter ) ) ) ) continue;
 

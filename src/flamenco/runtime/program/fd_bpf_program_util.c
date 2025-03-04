@@ -90,32 +90,42 @@ fd_bpf_get_executable_program_content_for_upgradeable_loader( fd_exec_slot_ctx_t
   fd_bincode_decode_ctx_t ctx = {
     .data    = program_acc->const_data,
     .dataend = program_acc->const_data + program_acc->const_meta->dlen,
-    .valloc  = fd_spad_virtual( runtime_spad ),
   };
 
-  fd_bpf_upgradeable_loader_state_t program_account_state = {0};
-  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode( &program_account_state, &ctx ) ) ) {
+  ulong total_sz = 0UL;
+  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode_footprint( &ctx, &total_sz ) ) ) {
     return -1;
   }
 
-  if( !fd_bpf_upgradeable_loader_state_is_program( &program_account_state ) ) {
+  uchar * mem = fd_spad_alloc( runtime_spad, fd_bpf_upgradeable_loader_state_align(), total_sz );
+  if( FD_UNLIKELY( !mem ) ) {
+    FD_LOG_ERR(( "Unable to allocate memory for bpf upgradeable loader state" ));
+  }
+
+  fd_bpf_upgradeable_loader_state_t * program_account_state =
+    fd_bpf_upgradeable_loader_state_decode( mem, &ctx );
+
+  if( !fd_bpf_upgradeable_loader_state_is_program( program_account_state ) ) {
     return -1;
   }
 
-  fd_pubkey_t * programdata_address = &program_account_state.inner.program.programdata_address;
+  fd_pubkey_t * programdata_address = &program_account_state->inner.program.programdata_address;
 
-  if( fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, programdata_address, programdata_acc ) != FD_ACC_MGR_SUCCESS ) {
+  if( fd_acc_mgr_view( slot_ctx->acc_mgr,
+                       slot_ctx->funk_txn,
+                       programdata_address,
+                       programdata_acc ) != FD_ACC_MGR_SUCCESS ) {
     return -1;
   }
 
+  /* We don't actually need to decode here, just make sure that the account
+     can be decoded successfully. */
   fd_bincode_decode_ctx_t ctx_programdata = {
     .data    = programdata_acc->const_data,
     .dataend = programdata_acc->const_data + programdata_acc->const_meta->dlen,
-    .valloc  = fd_spad_virtual( runtime_spad ),
   };
 
-  fd_bpf_upgradeable_loader_state_t program_data_account_state = {0};
-  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode( &program_data_account_state, &ctx_programdata ) ) ) {
+  if( FD_UNLIKELY( fd_bpf_upgradeable_loader_state_decode_footprint( &ctx_programdata, &total_sz ) ) ) {
     return -1;
   }
 

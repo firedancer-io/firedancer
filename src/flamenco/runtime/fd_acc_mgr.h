@@ -228,14 +228,6 @@ fd_acc_mgr_lock( fd_acc_mgr_t * acc_mgr );
 void
 fd_acc_mgr_unlock( fd_acc_mgr_t * acc_mgr );
 
-/* fd_acc_mgr_set_slots_per_epoch updates the slots_per_epoch setting
-   and rebalances rent partitions.  No-op unless 'skip_rent_rewrites'
-   feature is activated or 'slots_per_epoch' changes. */
-
-void
-fd_acc_mgr_set_slots_per_epoch( fd_exec_slot_ctx_t * slot_ctx,
-                                ulong                slots_per_epoch );
-
 /* fd_acc_mgr_strerror converts an fd_acc_mgr error code into a human
    readable cstr.  The lifetime of the returned pointer is infinite and
    the call itself is thread safe.  The returned pointer is always to a

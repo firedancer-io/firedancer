@@ -22,7 +22,9 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
 
   fd_acc_mgr_t *              acc_mgr;
   fd_blockstore_t *           blockstore;
-  fd_block_t *                block;
+  fd_block_rewards_t          block_rewards;
+  ulong                       txns_meta_gaddr;
+  ulong                       txns_meta_sz;
   fd_exec_epoch_ctx_t *       epoch_ctx;
 
   fd_slot_bank_t              slot_bank;
@@ -46,7 +48,7 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   fd_sysvar_cache_t *         sysvar_cache;
 
   fd_txncache_t *             status_cache;
-  fd_slot_history_t           slot_history[1];
+  fd_slot_history_t *         slot_history;
 
   int                         enable_exec_recording; /* Enable/disable execution metadata
                                                      recording, e.g. txn logs.  Analogue

@@ -30,6 +30,9 @@ int fd_flamenco_type_lookup(const char *type, fd_types_funcs_t * t) {
   sprintf(fp, "%s_new", type);
   t->new_fun =  dlsym(RTLD_DEFAULT, fp);
 
+  sprintf(fp, "%s_decode_footprint", type);
+  t->decode_footprint_fun =  dlsym(RTLD_DEFAULT, fp);
+
   sprintf(fp, "%s_decode", type);
   t->decode_fun =  dlsym(RTLD_DEFAULT, fp);
 
@@ -48,6 +51,7 @@ int fd_flamenco_type_lookup(const char *type, fd_types_funcs_t * t) {
   if ((  t->footprint_fun == NULL) ||
       (  t->align_fun == NULL) ||
       (  t->new_fun == NULL) ||
+      (  t->decode_footprint_fun == NULL) ||
       (  t->decode_fun == NULL) ||
       (  t->walk_fun == NULL) ||
       (  t->encode_fun == NULL) ||
@@ -95,14 +99,18 @@ fd_decode_fuzz_data( char  const * type_name,
     fd_bincode_decode_ctx_t decode_ctx = {
       .data    = data,
       .dataend = data + size,
-      .valloc  = fd_scratch_virtual()
     };
-    void * decoded = fd_scratch_alloc( type_meta.align_fun(), type_meta.footprint_fun() );
+
+    ulong total_sz = 0UL;
+    int   err      = type_meta.decode_footprint_fun( &decode_ctx, &total_sz );
+    __asm__ volatile( "" : "+m,r"(err) : : "memory" ); /* prevent optimization */
+
+    void * decoded = fd_scratch_alloc( type_meta.align_fun(), total_sz );
     if( FD_UNLIKELY( decoded == NULL ) ) {
       FD_LOG_ERR (( "Failed to alloc memory for decoded type %s", type_name ));
     }
-    int err = type_meta.decode_fun( decoded, &decode_ctx );
-    __asm__ volatile( "" : "+m,r"(err) : : "memory" ); /* prevent optimization */
+
+    type_meta.decode_fun( decoded, &decode_ctx );
 
   } FD_SCRATCH_SCOPE_END;
 }

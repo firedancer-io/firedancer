@@ -177,7 +177,7 @@ get_slot_from_commitment_level( struct json_values * values, fd_rpc_ctx_t * ctx 
   } else if( MATCH_STRING( commit_str, commit_str_sz, "processed" ) ) {
     return ctx->global->blockstore->shmem->lps;
   } else if( MATCH_STRING( commit_str, commit_str_sz, "finalized" ) ) {
-    return ctx->global->blockstore->shmem->smr;
+    return ctx->global->blockstore->shmem->wmk;
   } else {
     fd_method_error( ctx, -1, "invalid commitment %s", (const char *)commit_str );
     return FD_SLOT_NULL;
@@ -196,9 +196,7 @@ read_epoch_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
     }
 
     if( glob->epoch_bank != NULL ) {
-      fd_bincode_destroy_ctx_t binctx;
-      binctx.valloc = glob->valloc;
-      fd_epoch_bank_destroy( glob->epoch_bank, &binctx );
+      fd_epoch_bank_destroy( glob->epoch_bank );
       fd_valloc_free( glob->valloc, glob->epoch_bank );
       glob->epoch_bank = NULL;
     }
@@ -215,30 +213,31 @@ read_epoch_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
       return NULL;
     }
     uint magic = *(uint*)val;
-    fd_epoch_bank_t * epoch_bank = fd_valloc_malloc( glob->valloc, fd_epoch_bank_align(), fd_epoch_bank_footprint() );
-    fd_epoch_bank_new( epoch_bank );
     fd_bincode_decode_ctx_t binctx;
-    binctx.data = (uchar*)val + sizeof(uint);
+    binctx.data    = (uchar*)val + sizeof(uint);
     binctx.dataend = (uchar*)val + vallen;
-    binctx.valloc  = glob->valloc;
+
+    fd_epoch_bank_t * epoch_bank = NULL;
     if( magic == FD_RUNTIME_ENC_BINCODE ) {
-      if( fd_epoch_bank_decode( epoch_bank, &binctx )!=FD_BINCODE_SUCCESS ) {
+      ulong total_sz = 0UL;
+      if( fd_epoch_bank_decode_footprint( &binctx, &total_sz )!=FD_BINCODE_SUCCESS ) {
         FD_LOG_WARNING(( "failed to decode epoch_bank" ));
-        fd_valloc_free( glob->valloc, epoch_bank );
         return NULL;
       }
-    } else if( magic == FD_RUNTIME_ENC_ARCHIVE ) {
-      if( fd_epoch_bank_decode_archival( epoch_bank, &binctx )!=FD_BINCODE_SUCCESS ) {
-        FD_LOG_WARNING(( "failed to decode epoch_bank" ));
-        fd_valloc_free( glob->valloc, epoch_bank );
+
+      uchar * mem = fd_scratch_alloc( fd_epoch_bank_align(), total_sz );
+      if( FD_UNLIKELY( !mem ) ) {
+        FD_LOG_ERR(( "Unable to allocate memory for epoch bank" ));
         return NULL;
       }
+
+      epoch_bank = fd_epoch_bank_decode( mem, &binctx );
     } else {
       FD_LOG_ERR(("failed to read banks record: invalid magic number"));
     }
 
-    glob->epoch_bank = epoch_bank;
-    glob->epoch_bank_epoch = fd_slot_to_epoch(&epoch_bank->epoch_schedule, slot, NULL);
+    glob->epoch_bank       = epoch_bank;
+    glob->epoch_bank_epoch = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot, NULL );
   } FD_SCRATCH_SCOPE_END;
 }
 
@@ -269,22 +268,25 @@ read_slot_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
   }
 
   uint magic = *(uint*)val;
-  fd_slot_bank_t * slot_bank = fd_scratch_alloc( fd_slot_bank_align(), fd_slot_bank_footprint() );
-  fd_slot_bank_new( slot_bank );
   fd_bincode_decode_ctx_t binctx;
   binctx.data = (uchar*)val + sizeof(uint);
   binctx.dataend = (uchar*)val + vallen;
-  binctx.valloc  = fd_scratch_virtual();
+
+  fd_slot_bank_t * slot_bank = NULL;
   if( magic == FD_RUNTIME_ENC_BINCODE ) {
-    if( fd_slot_bank_decode( slot_bank, &binctx )!=FD_BINCODE_SUCCESS ) {
+    ulong total_sz = 0UL;
+    if( fd_slot_bank_decode_footprint( &binctx, &total_sz )!=FD_BINCODE_SUCCESS ) {
       FD_LOG_WARNING(( "failed to decode slot_bank" ));
       return NULL;
     }
-  } else if( magic == FD_RUNTIME_ENC_ARCHIVE ) {
-    if( fd_slot_bank_decode_archival( slot_bank, &binctx )!=FD_BINCODE_SUCCESS ) {
-      FD_LOG_WARNING(( "failed to decode slot_bank" ));
+
+    uchar * mem = fd_scratch_alloc( fd_slot_bank_align(), total_sz );
+    if( FD_UNLIKELY( !mem ) ) {
+      FD_LOG_ERR(( "Unable to allocate memory for slot bank" ));
       return NULL;
     }
+
+    slot_bank = fd_slot_bank_decode( mem, &binctx );
   } else {
     FD_LOG_ERR(( "failed to read banks record: invalid magic number" ));
   }
@@ -593,7 +595,7 @@ method_getBlockProduction(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_webserver_t * ws = &glob->ws;
   fd_blockstore_t * blockstore = glob->blockstore;
   FD_SCRATCH_SCOPE_BEGIN {
-    ulong startslot = blockstore->shmem->smr;
+    ulong startslot = blockstore->shmem->wmk;
     ulong endslot = blockstore->shmem->lps;
     fd_per_epoch_info_t const * ei = glob->stake_ci->epoch_info;
     startslot = fd_ulong_max( startslot, fd_ulong_min( ei[0].start_slot, ei[1].start_slot ) );
@@ -673,8 +675,8 @@ method_getBlocks(struct json_values* values, fd_rpc_ctx_t * ctx) {
   ulong endslotn = (endslot == NULL ? ULONG_MAX : (ulong)(*(long*)endslot));
 
   fd_blockstore_t * blockstore = ctx->global->blockstore;
-  if (startslotn < blockstore->shmem->smr) /* FIXME query archival file */
-    startslotn = blockstore->shmem->smr;
+  if (startslotn < blockstore->shmem->wmk) /* FIXME query archival file */
+    startslotn = blockstore->shmem->wmk;
   if (endslotn > blockstore->shmem->hcs)
     endslotn = blockstore->shmem->hcs;
 
@@ -725,8 +727,8 @@ method_getBlocksWithLimit(struct json_values* values, fd_rpc_ctx_t * ctx) {
   ulong limitn = (ulong)(*(long*)limit);
 
   fd_blockstore_t * blockstore = ctx->global->blockstore;
-  if (startslotn < blockstore->shmem->smr)  /* FIXME query archival file */
-    startslotn = blockstore->shmem->smr;
+  if (startslotn < blockstore->shmem->wmk)  /* FIXME query archival file */
+    startslotn = blockstore->shmem->wmk;
   if (limitn > 500000)
     limitn = 500000;
 
@@ -892,7 +894,7 @@ method_getFirstAvailableBlock(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_blockstore_t * blockstore = ctx->global->blockstore;
   fd_webserver_t * ws = &ctx->global->ws;
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
-                       blockstore->shmem->smr, ctx->call_id); /* FIXME archival file */
+                       blockstore->shmem->wmk, ctx->call_id); /* FIXME archival file */
   return 0;
 }
 
@@ -1121,7 +1123,7 @@ method_getMaxShredInsertSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_blockstore_t * blockstore = ctx->global->blockstore;
   fd_webserver_t * ws = &ctx->global->ws;
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
-                       blockstore->shmem->smr, ctx->call_id); /* FIXME archival file */
+                       blockstore->shmem->wmk, ctx->call_id); /* FIXME archival file */
   return 0;
 }
 
@@ -1839,7 +1841,7 @@ method_minimumLedgerSlot(struct json_values* values, fd_rpc_ctx_t * ctx) {
   fd_rpc_global_ctx_t * glob = ctx->global;
   fd_webserver_t * ws = &ctx->global->ws;
   fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":%lu,\"id\":%s}" CRLF,
-                       glob->blockstore->shmem->smr, ctx->call_id); /* FIXME archival file */
+                       glob->blockstore->shmem->wmk, ctx->call_id); /* FIXME archival file */
   return 0;
 }
 
@@ -2504,8 +2506,8 @@ fd_rpc_start_service(fd_rpcserver_args_t * args, fd_rpc_ctx_t * ctx) {
 
   fd_replay_notif_msg_t * msg = &gctx->last_slot_notify;
   msg->type = FD_REPLAY_SLOT_TYPE;
-  msg->slot_exec.slot = args->blockstore->shmem->smr;
-  msg->slot_exec.root = args->blockstore->shmem->smr;
+  msg->slot_exec.slot = args->blockstore->shmem->wmk;
+  msg->slot_exec.root = args->blockstore->shmem->wmk;
 }
 
 void
@@ -2516,17 +2518,15 @@ fd_rpc_stop_service(fd_rpc_ctx_t * ctx) {
   if (fd_webserver_stop(valloc, &glob->ws))
     FD_LOG_ERR(("fd_webserver_stop failed"));
   if( ctx->global->epoch_bank != NULL ) {
-    fd_bincode_destroy_ctx_t binctx;
-    binctx.valloc = valloc;
-    fd_epoch_bank_destroy( glob->epoch_bank, &binctx );
+    fd_epoch_bank_destroy( glob->epoch_bank );
     fd_valloc_free( valloc, glob->epoch_bank );
     glob->epoch_bank = NULL;
   }
   if ( FD_LIKELY( glob->perf_samples ) ) {
     fd_valloc_free( valloc, fd_perf_sample_deque_delete( fd_perf_sample_deque_leave( glob->perf_samples ) ) );
   }
-  fd_valloc_free(valloc, ctx->global);
-  fd_valloc_free(valloc, ctx);
+  fd_valloc_free( valloc, ctx->global );
+  fd_valloc_free( valloc, ctx );
 }
 
 int

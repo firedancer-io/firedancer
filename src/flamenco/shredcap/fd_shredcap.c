@@ -178,8 +178,7 @@ fd_shredcap_ingest_rocksdb_to_capture( const char * rocksdb_dir,
       file_end_slot = metadata.slot;
       ++file_block_count;
 
-      fd_bincode_destroy_ctx_t ctx = { .valloc = valloc };
-      fd_slot_meta_destroy( &metadata, &ctx );
+      fd_slot_meta_destroy( &metadata );
 
       /* Get next slot and handle case where end_slot is larger than the last
          slot in the rocksdb */
