@@ -2221,7 +2221,7 @@ class EnumType:
         print("}", file=body)
 
         print(f'void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
-        print(f'  {n}_t * self = ({n}_t *)struct_mem; /* #goated */', file=body)
+        print(f'  {n}_t * self = ({n}_t *)struct_mem;', file=body)
         if self.compact:
             print('  ushort tmp = 0;', file=body)
             print('  fd_bincode_compact_u16_decode_unsafe( &tmp, ctx );', file=body)
@@ -2235,7 +2235,7 @@ class EnumType:
         print(f'  {n}_t * self = ({n}_t *)mem;', file=body)
         print(f'  {n}_new( self );', file=body)
         print(f'  void * alloc_region = (uchar *)mem + sizeof({n}_t);', file=body)
-        print(f'  void * * alloc_mem = &alloc_region; /* #goated */', file=body)
+        print(f'  void * * alloc_mem = &alloc_region;', file=body)
         print(f'  {n}_decode_inner( mem, alloc_mem, ctx );', file=body)
         print(f'  return self;', file=body)
         print(f'}}', file=body)
