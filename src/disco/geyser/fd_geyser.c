@@ -68,7 +68,7 @@ fd_geyser_new( void * mem, fd_geyser_args_t * args ) {
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   FD_TEST( scratch_top <= (ulong)mem + fd_geyser_footprint() );
 
-  self->funk = fd_funkier_open_file( args->funk_file, 1, 0, 0, 0, 0, FD_FUNK_READONLY, NULL );
+  self->funk = fd_funkier_open_file( args->funk_file, 1, 0, 0, 0, 0, FD_FUNKIER_READONLY, NULL );
   if( self->funk == NULL ) {
     FD_LOG_ERR(( "failed to join a funky" ));
   }
@@ -222,13 +222,19 @@ replay_sham_link_after_frag(fd_geyser_t * ctx, fd_replay_notif_msg_t * msg) {
 
   } else if( msg->type == FD_REPLAY_ACCTS_TYPE ) {
     if( ctx->acct_fun != NULL ) {
+      fd_funkier_rec_map_t rec_map = fd_funkier_rec_map( ctx->funk, fd_funkier_wksp( ctx->funk ) );
       for( uint i = 0; i < msg->accts.accts_cnt; ++i ) {
         FD_SCRATCH_SCOPE_BEGIN {
           fd_pubkey_t addr;
           fd_memcpy(&addr, msg->accts.accts[i].id, 32U );
           fd_funkier_rec_key_t key = fd_acc_funk_key( &addr );
-          ulong datalen;
-          void * data = fd_funkier_rec_query_xid_safe( ctx->funk, &key, &msg->accts.funk_xid, fd_scratch_virtual(), &datalen );
+          fd_funkier_xid_key_pair_t pair[1];
+          fd_funkier_txn_xid_copy( pair->xid, &msg->accts.funk_xid );
+          fd_funkier_rec_key_copy( pair->key, &key );
+          fd_funkier_rec_query_t query[1];
+          int err = fd_funkier_rec_map_query_try( &rec_map, pair, NULL, query );
+          if( err ) continue;
+          void const * data = fd_funkier_val_const( fd_funkier_rec_map_query_ele_const( query ), fd_funkier_wksp( ctx->funk ) );
           if( data ) {
             fd_account_meta_t const * meta = fd_type_pun_const( data );
             (*ctx->acct_fun)( msg->accts.funk_xid.ul[0], msg->accts.sig, &addr, meta, (uchar*)data + meta->hlen, meta->dlen, ctx->fun_arg );

@@ -211,9 +211,7 @@ fd_restart_find_heaviest_fork_bank_hash( fd_restart_t * restart,
     *out_need_repair = 0;
   } else {
     /* Cancel any leftover in-preparation transactions from funk */
-    fd_funkier_start_write( funk );
     fd_funkier_txn_cancel_all( funk, 1 );
-    fd_funkier_end_write( funk );
 
     *out_need_repair = 1;
   }

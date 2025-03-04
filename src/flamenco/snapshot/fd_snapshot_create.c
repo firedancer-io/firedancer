@@ -55,10 +55,10 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
      since the last full snapshot which can quickly grow to be severalgigabytes
      or more. In the normal case, this won't require dynamic resizing. */
   #define FD_INCREMENTAL_KEY_INIT_BOUND (100000UL)
-  ulong                       incremental_key_bound = FD_INCREMENTAL_KEY_INIT_BOUND;
-  ulong                       incremental_key_cnt   = 0UL;
-  fd_funk_rec_key_t const * * incremental_keys      = snapshot_ctx->is_incremental ?
-                                                      fd_spad_alloc( snapshot_ctx->spad, alignof(fd_funk_rec_key_t*), sizeof(fd_funk_rec_key_t*) * incremental_key_bound ) :
+  ulong                          incremental_key_bound = FD_INCREMENTAL_KEY_INIT_BOUND;
+  ulong                          incremental_key_cnt   = 0UL;
+  fd_funkier_rec_key_t const * * incremental_keys      = snapshot_ctx->is_incremental ?
+                                                      fd_spad_alloc( snapshot_ctx->spad, alignof(fd_funkier_rec_key_t*), sizeof(fd_funkier_rec_key_t*) * incremental_key_bound ) :
                                                       NULL;
 
   #undef FD_INCREMENTAL_KEY_INIT_BOUND
@@ -78,9 +78,9 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
 
     tombstones_cnt++;
 
-    int                 is_tombstone = rec->flags & FD_FUNK_REC_FLAG_ERASE;
-    uchar const *       raw          = fd_funk_val( rec, fd_funk_wksp( funk ) );
-    fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funk_rec_get_erase_data( rec ) ) :
+    int                 is_tombstone = rec->flags & FD_FUNKIER_REC_FLAG_ERASE;
+    uchar const *       raw          = fd_funkier_val( rec, fd_funkier_wksp( funk ) );
+    fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funkier_rec_get_erase_data( rec ) ) :
                                                       (fd_account_meta_t*)raw;
 
     if( !metadata ) {
@@ -106,10 +106,10 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
       if( FD_UNLIKELY( incremental_key_cnt==incremental_key_bound ) ) {
         /* Dynamically resize if needed. */
         incremental_key_bound *= 2UL;
-        fd_funk_rec_key_t const * * new_incremental_keys = fd_spad_alloc( snapshot_ctx->spad,
-                                                                          alignof(fd_funk_rec_key_t*),
-                                                                          sizeof(fd_funk_rec_key_t*) * incremental_key_bound );
-        fd_memcpy( new_incremental_keys, incremental_keys, sizeof(fd_funk_rec_key_t*) * incremental_key_cnt );
+        fd_funkier_rec_key_t const * * new_incremental_keys = fd_spad_alloc( snapshot_ctx->spad,
+                                                                             alignof(fd_funkier_rec_key_t*),
+                                                                             sizeof(fd_funkier_rec_key_t*) * incremental_key_bound );
+        fd_memcpy( new_incremental_keys, incremental_keys, sizeof(fd_funkier_rec_key_t*) * incremental_key_cnt );
         fd_valloc_free( fd_spad_virtual( snapshot_ctx->spad ), incremental_keys );
         incremental_keys = new_incremental_keys;
       }
@@ -276,8 +276,8 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
     FD_LOG_ERR(( "Unable to create previous accounts file" ));
   }
 
-  fd_funk_rec_t * * tombstones = snapshot_ctx->is_incremental ? NULL :
-                                 fd_spad_alloc( snapshot_ctx->spad, alignof(fd_funk_rec_t*), sizeof(fd_funk_rec_t*) * tombstones_cnt );
+  fd_funkier_rec_t * * tombstones = snapshot_ctx->is_incremental ? NULL :
+    fd_spad_alloc( snapshot_ctx->spad, alignof(fd_funkier_rec_t*), sizeof(fd_funkier_rec_t*) * tombstones_cnt );
   tombstones_cnt = 0UL;
 
   for( fd_funkier_rec_t const * rec = fd_funkier_txn_first_rec( funk, NULL ); NULL != rec; rec = fd_funkier_txn_next_rec( funk, rec ) ) {
@@ -289,9 +289,9 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
     }
 
     fd_pubkey_t const * pubkey       = fd_type_pun_const( rec->pair.key[0].uc );
-    int                 is_tombstone = rec->flags & FD_FUNK_REC_FLAG_ERASE;
-    uchar const *       raw          = fd_funk_val( rec, fd_funk_wksp( funk ) );
-    fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funk_rec_get_erase_data( rec ) ) :
+    int                 is_tombstone = rec->flags & FD_FUNKIER_REC_FLAG_ERASE;
+    uchar const *       raw          = fd_funkier_val( rec, fd_funkier_wksp( funk ) );
+    fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funkier_rec_get_erase_data( rec ) ) :
                                                       (fd_account_meta_t*)raw;
 
     if( !snapshot_ctx->is_incremental && is_tombstone ) {
@@ -416,9 +416,6 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
   for( ulong i=0UL; i<snapshot_slot_key_cnt; i++ ) {
 
     fd_pubkey_t const * pubkey = snapshot_slot_keys[i];
-    fd_funk_rec_key_t key = fd_acc_funk_key( pubkey );
-
-    fd_pubkey_t const * pubkey = snapshot_slot_keys[i];
     fd_funkier_rec_key_t key = fd_acc_funk_key( pubkey );
 
     fd_funkier_rec_query_t query[1];
@@ -427,7 +424,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
       FD_LOG_ERR(( "Previously found record can no longer be found" ));
     }
 
-    int                 is_tombstone = rec->flags & FD_FUNK_REC_FLAG_ERASE;
+    int                 is_tombstone = rec->flags & FD_FUNKIER_REC_FLAG_ERASE;
     uchar       const * raw          = fd_funk_val( rec, fd_funk_wksp( funk ) );
     fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funk_rec_get_erase_data( rec ) ) :
                                                       (fd_account_meta_t*)raw;

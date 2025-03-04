@@ -940,9 +940,7 @@ fd_exec_test_instr_context_destroy( fd_exec_instr_test_runner_t * runner,
 
   fd_acc_mgr_delete( acc_mgr );
 
-  fd_funkier_start_write( runner->funk );
   fd_funkier_txn_cancel( runner->funk, funk_txn, 1 );
-  fd_funkier_end_write( runner->funk );
 
   ctx->slot_ctx = NULL;
 }
@@ -956,9 +954,7 @@ _txn_context_destroy( fd_exec_instr_test_runner_t * runner,
 
   fd_acc_mgr_delete( acc_mgr );
 
-  fd_funkier_start_write( runner->funk );
   fd_funkier_txn_cancel( runner->funk, funk_txn, 1 );
-  fd_funkier_end_write( runner->funk );
 }
 
 static fd_sbpf_syscalls_t *

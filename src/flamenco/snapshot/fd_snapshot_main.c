@@ -227,13 +227,12 @@ fd_snapshot_dumper_release( fd_snapshot_dumper_t * d ) {
   fd_funkier_txn_t *      funk_txn = d->restore->funk_txn;
   fd_funkier_txn_xid_t    txn_xid  = funk_txn->xid;
   fd_funkier_t *          funk     = d->funk;
-  fd_wksp_t *          wksp     = fd_funkier_wksp( funk );
-  fd_funkier_rec_t *      rec_map  = fd_funkier_rec_map( funk, wksp );
+  fd_wksp_t *             wksp     = fd_funkier_wksp( funk );
 
   /* Dump all the records */
-  for( fd_funkier_rec_t const * rec = fd_funkier_txn_rec_head( funk_txn, rec_map );
-                             rec;
-                             rec = fd_funkier_rec_next( rec, rec_map ) ) {
+  for( fd_funkier_rec_t const * rec = fd_funkier_txn_first_rec( funk, funk_txn );
+       rec;
+       rec = fd_funkier_txn_next_rec( funk, rec ) ) {
     if( FD_UNLIKELY( !fd_funkier_key_is_acc( rec->pair.key ) ) ) continue;
     fd_snapshot_dumper_record( d, rec, wksp );
   }
@@ -334,9 +333,8 @@ do_dump( fd_snapshot_dumper_t *    d,
   ulong const rec_max = 1024UL;  /* we evict records as we go */
 
   ulong funk_tag = 42UL;
-  d->funk = fd_funkier_join( fd_funkier_new( fd_wksp_alloc_laddr( wksp, fd_funkier_align(), fd_funkier_footprint(), funk_tag ), funk_tag, funk_seed, txn_max, rec_max ) );
+  d->funk = fd_funkier_join( fd_funkier_new( fd_wksp_alloc_laddr( wksp, fd_funkier_align(), fd_funkier_footprint(txn_max, rec_max), funk_tag ), funk_tag, funk_seed, txn_max, rec_max ) );
   if( FD_UNLIKELY( !d->funk ) ) { FD_LOG_WARNING(( "Failed to create fd_funkier_t" )); return EXIT_FAILURE; }
-  fd_funkier_start_write( d->funk );
 
   /* Create a new processing context */
 
@@ -452,7 +450,7 @@ cmd_dump( int     argc,
   if( FD_UNLIKELY( !spad ) ) {
     FD_LOG_ERR(( "Failed to allocate spad" ));
   }
-  fd_spad_push( spad );  
+  fd_spad_push( spad );
 
   /* With dump context */
 

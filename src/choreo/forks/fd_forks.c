@@ -190,28 +190,29 @@ slot_ctx_restore( ulong                 slot,
                   fd_acc_mgr_t *        acc_mgr,
                   fd_blockstore_t *     blockstore,
                   fd_exec_epoch_ctx_t * epoch_ctx,
-                  fd_funk_t *           funk,
+                  fd_funkier_t *        funk,
                   fd_spad_t *           runtime_spad,
                   fd_exec_slot_ctx_t *  slot_ctx_out ) {
-  fd_funkier_txn_map_t txn_map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
+  fd_funkier_txn_map_t txn_map = fd_funkier_txn_map( funk, fd_funkier_wksp( funk ) );
   bool block_exists = fd_blockstore_shreds_complete( blockstore, slot );
 
   FD_LOG_DEBUG( ( "Current slot %lu", slot ) );
   if( !block_exists )
     FD_LOG_ERR( ( "missing block at slot we're trying to restore" ) );
 
-  fd_funk_txn_xid_t xid        = { .ul = { slot, slot } };
-  fd_funk_rec_key_t id  = fd_runtime_slot_bank_key();
-  fd_funk_txn_t *   txn = fd_funk_txn_query( &xid, txn_map );
+  fd_funkier_txn_xid_t xid = { .ul = { slot, slot } };
+  fd_funkier_rec_key_t id  = fd_runtime_slot_bank_key();
+  fd_funkier_txn_t *   txn = fd_funkier_txn_query( &xid, &txn_map );
   if( !txn ) {
     memset( xid.uc, 0, sizeof( fd_funkier_txn_xid_t ) );
     xid.ul[0] = slot;
-    txn       = fd_funkier_txn_query( &xid, txn_map );
+    txn       = fd_funkier_txn_query( &xid, &txn_map );
     if( !txn ) {
       FD_LOG_ERR( ( "missing txn, parent slot %lu", slot ) );
     }
   }
-  fd_funkier_rec_t const * rec = fd_funkier_rec_query_global( funk, txn, &id, NULL );
+  fd_funkier_rec_query_t query[1];
+  fd_funkier_rec_t const * rec = fd_funkier_rec_query_try_global( funk, txn, &id, NULL, query );
   if( rec == NULL ) FD_LOG_ERR( ( "failed to read banks record" ) );
   void * val = fd_funkier_val( rec, fd_funkier_wksp( funk ) );
 
@@ -219,7 +220,7 @@ slot_ctx_restore( ulong                 slot,
 
   fd_bincode_decode_ctx_t decode_ctx = {
     .data    = (uchar *)val + sizeof(uint),
-    .dataend = (uchar *)val + fd_funk_val_sz( rec )
+    .dataend = (uchar *)val + fd_funkier_val_sz( rec )
   };
 
   FD_TEST( slot_ctx_out->magic == FD_EXEC_SLOT_CTX_MAGIC );

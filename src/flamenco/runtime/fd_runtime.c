@@ -1038,8 +1038,6 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t *    slot_ctx,
                                          fd_tpool_t *            tpool,
                                          fd_spad_t *             runtime_spad ) {
 
-  fd_funkier_start_write( slot_ctx->acc_mgr->funk );
-
   fd_sysvar_slot_history_update( slot_ctx, runtime_spad );
 
   /* This slot is now "frozen" and can't be changed anymore. */

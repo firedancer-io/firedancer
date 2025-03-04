@@ -5,8 +5,10 @@
 
 fd_voter_state_t const *
 fd_voter_state( fd_funkier_t * funk, fd_funkier_txn_t const * txn, fd_funkier_rec_key_t const * key ) {
-  fd_funkier_rec_t const * rec = fd_funkier_rec_query_global( funk, txn, key, NULL );
-  if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) ) {
+  /* Doing a query without a test isn't safe, but we are returning a pointer to funk memory. TODO: fix this */
+  fd_funkier_rec_query_t query[1];
+  fd_funkier_rec_t const * rec = fd_funkier_rec_query_try_global( funk, txn, key, NULL, query );
+  if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNKIER_REC_FLAG_ERASE ) ) ) {
     return NULL;
   }
   fd_account_meta_t const * meta = fd_funkier_val_const( rec, fd_funkier_wksp(funk) );
