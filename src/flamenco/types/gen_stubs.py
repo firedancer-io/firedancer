@@ -1184,11 +1184,11 @@ class DlistMember(TypeNode):
     def __init__(self, container, json):
         super().__init__(json)
         self.dlist_t = json["dlist_t"]
-        self.dlist_name = json["dlist_name"]
+        self.dlist_n = json["dlist_n"]
 
     def emitPreamble(self):
-        pool_name = self.name + "_pool"
-        dlist_name = self.name + "_dlist"
+        pool_name = self.dlist_n + "_pool"
+        dlist_name = self.dlist_n + "_dlist"
 
         print(f"#define POOL_NAME {pool_name}", file=header)
         print(f"#define POOL_T {self.dlist_t}", file=header)
@@ -1208,12 +1208,12 @@ class DlistMember(TypeNode):
         pass
 
     def emitMember(self):
-        print(f'  ulong {self.dlist_name}_len;', file=header)
-        print(f'  {self.name}_dlist_t * {self.dlist_name};', file=header)
-        print(f'  {self.name}_t * pool;', file=header)
+        print(f'  ulong {self.name}_len;', file=header)
+        print(f'  {self.dlist_n}_dlist_t * {self.name};', file=header)
+        print(f'  {self.dlist_t} * pool;', file=header)
 
     def emitOffsetMember(self):
-        print(f'  uint {self.name}_off;', file=header)
+        print(f'  uint {self.dlist_n}_off;', file=header)
 
     def emitNew(self):
         pass

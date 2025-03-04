@@ -2786,14 +2786,14 @@ typedef struct fd_point_value_off fd_point_value_off_t;
 #define FD_POINT_VALUE_OFF_FOOTPRINT sizeof(fd_point_value_off_t)
 #define FD_POINT_VALUE_OFF_ALIGN (8UL)
 
-#define POOL_NAME fd_stake_reward_pool
+#define POOL_NAME fd_partitioned_stake_rewards_pool
 #define POOL_T fd_stake_reward_t
 #define POOL_NEXT parent
 #include "../../util/tmpl/fd_pool.c"
 #undef POOL_NAME
 #undef POOL_T
 #undef POOL_NEXT
-#define DLIST_NAME fd_stake_reward_dlist
+#define DLIST_NAME fd_partitioned_stake_rewards_dlist
 #define DLIST_ELE_T fd_stake_reward_t
 #include "../../util/tmpl/fd_dlist.c"
 #undef DLIST_NAME
@@ -2802,7 +2802,7 @@ typedef struct fd_point_value_off fd_point_value_off_t;
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_partitioned_stake_rewards {
   ulong partitions_len;
-  fd_stake_reward_dlist_t * partitions;
+  fd_partitioned_stake_rewards_dlist_t * partitions;
   fd_stake_reward_t * pool;
 };
 typedef struct fd_partitioned_stake_rewards fd_partitioned_stake_rewards_t;
@@ -2810,7 +2810,7 @@ typedef struct fd_partitioned_stake_rewards fd_partitioned_stake_rewards_t;
 #define FD_PARTITIONED_STAKE_REWARDS_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_partitioned_stake_rewards_off {
-  uint fd_stake_reward_off;
+  uint fd_partitioned_stake_rewards_off;
 };
 typedef struct fd_partitioned_stake_rewards_off fd_partitioned_stake_rewards_off_t;
 #define FD_PARTITIONED_STAKE_REWARDS_OFF_FOOTPRINT sizeof(fd_partitioned_stake_rewards_off_t)
@@ -2834,23 +2834,23 @@ typedef struct fd_stake_reward_calculation_partitioned_off fd_stake_reward_calcu
 #define FD_STAKE_REWARD_CALCULATION_PARTITIONED_OFF_FOOTPRINT sizeof(fd_stake_reward_calculation_partitioned_off_t)
 #define FD_STAKE_REWARD_CALCULATION_PARTITIONED_OFF_ALIGN (8UL)
 
-// #define POOL_NAME fd_stake_reward_pool
-// #define POOL_T fd_stake_reward_t
-// #define POOL_NEXT parent
-// #include "../../util/tmpl/fd_pool.c"
-// #undef POOL_NAME
-// #undef POOL_T
-// #undef POOL_NEXT
-// #define DLIST_NAME fd_stake_reward_dlist
-// #define DLIST_ELE_T fd_stake_reward_t
-// #include "../../util/tmpl/fd_dlist.c"
-// #undef DLIST_NAME
-// #undef DLIST_ELE_T
+#define POOL_NAME fd_stake_reward_calculation_pool
+#define POOL_T fd_stake_reward_t
+#define POOL_NEXT parent
+#include "../../util/tmpl/fd_pool.c"
+#undef POOL_NAME
+#undef POOL_T
+#undef POOL_NEXT
+#define DLIST_NAME fd_stake_reward_calculation_dlist
+#define DLIST_ELE_T fd_stake_reward_t
+#include "../../util/tmpl/fd_dlist.c"
+#undef DLIST_NAME
+#undef DLIST_ELE_T
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L94 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_stake_reward_calculation {
   ulong stake_rewards_len;
-  fd_stake_reward_dlist_t * stake_rewards;
+  fd_stake_reward_calculation_dlist_t * stake_rewards;
   fd_stake_reward_t * pool;
   ulong total_stake_rewards_lamports;
 };
@@ -2859,7 +2859,7 @@ typedef struct fd_stake_reward_calculation fd_stake_reward_calculation_t;
 #define FD_STAKE_REWARD_CALCULATION_ALIGN (8UL)
 
 struct __attribute__((aligned(8UL))) fd_stake_reward_calculation_off {
-  uint fd_stake_reward_off;
+  uint fd_stake_reward_calculation_off;
   uint total_stake_rewards_lamports_off;
 };
 typedef struct fd_stake_reward_calculation_off fd_stake_reward_calculation_off_t;

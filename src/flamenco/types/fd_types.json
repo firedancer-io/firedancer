@@ -1208,7 +1208,7 @@
       "type": "struct",
       "alignment": "8",
       "fields": [
-          { "name": "fd_stake_reward", "type": "dlist", "dlist_t": "fd_stake_reward_t", "dlist_name": "partitions" }
+          { "name": "partitions", "type": "dlist", "dlist_t": "fd_stake_reward_t", "dlist_n": "fd_partitioned_stake_rewards" }
       ],
       "comment": "https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L56"
     },
@@ -1227,7 +1227,7 @@
       "type": "struct",
       "alignment": "8",
       "fields": [
-          { "name": "fd_stake_reward",              "type": "dlist", "dlist_t": "fd_stake_reward_t", "dlist_name": "stake_rewards" },
+          { "name": "stake_rewards",  "type": "dlist", "dlist_t": "fd_stake_reward_t", "dlist_n": "fd_stake_reward_calculation" },
           { "name": "total_stake_rewards_lamports", "type": "ulong" }
       ],
       "comment": "https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L94"
