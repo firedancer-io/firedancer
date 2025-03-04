@@ -916,11 +916,11 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
 static void
 set_epoch_reward_status_inactive( fd_exec_slot_ctx_t * slot_ctx,
                                   fd_spad_t *          runtime_spad ) {
-  if( slot_ctx->epoch_reward_status.discriminant == fd_epoch_reward_status_enum_Active ) {
+  if( slot_ctx->slot_bank.epoch_reward_status.discriminant == fd_epoch_reward_status_enum_Active ) {
     FD_LOG_NOTICE(( "Done partitioning rewards for current epoch" ));
     fd_spad_pop( runtime_spad );
   }
-  slot_ctx->epoch_reward_status.discriminant = fd_epoch_reward_status_enum_Inactive;
+  slot_ctx->slot_bank.epoch_reward_status.discriminant = fd_epoch_reward_status_enum_Inactive;
 }
 
 /* Sets the epoch reward status to active.
@@ -933,10 +933,10 @@ set_epoch_reward_status_active( fd_exec_slot_ctx_t *             slot_ctx,
                                 fd_partitioned_stake_rewards_t * partitioned_rewards ) {
 
   FD_LOG_NOTICE(( "Setting epoch reward status as active" ));
-  slot_ctx->epoch_reward_status.discriminant                                    = fd_epoch_reward_status_enum_Active;
-  slot_ctx->epoch_reward_status.inner.Active.distribution_starting_block_height = distribution_starting_block_height;
+  slot_ctx->slot_bank.epoch_reward_status.discriminant                                    = fd_epoch_reward_status_enum_Active;
+  slot_ctx->slot_bank.epoch_reward_status.inner.Active.distribution_starting_block_height = distribution_starting_block_height;
 
-  fd_memcpy( &slot_ctx->epoch_reward_status.inner.Active.partitioned_stake_rewards, partitioned_rewards, FD_PARTITIONED_STAKE_REWARDS_FOOTPRINT );
+  fd_memcpy( &slot_ctx->slot_bank.epoch_reward_status.inner.Active.partitioned_stake_rewards, partitioned_rewards, FD_PARTITIONED_STAKE_REWARDS_FOOTPRINT );
 }
 
 /*  Process reward credits for a partition of rewards.
@@ -991,11 +991,11 @@ fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx,
   (void)exec_spads;
   (void)exec_spad_cnt;
 
-  if( slot_ctx->epoch_reward_status.discriminant == fd_epoch_reward_status_enum_Inactive ) {
+  if( slot_ctx->slot_bank.epoch_reward_status.discriminant == fd_epoch_reward_status_enum_Inactive ) {
     return;
   }
 
-  fd_start_block_height_and_rewards_t * status = &slot_ctx->epoch_reward_status.inner.Active;
+  fd_start_block_height_and_rewards_t * status = &slot_ctx->slot_bank.epoch_reward_status.inner.Active;
 
   fd_slot_bank_t *        slot_bank  = &slot_ctx->slot_bank;
   ulong                   height     = slot_bank->block_height;
