@@ -1180,6 +1180,62 @@ class MapMember(TypeNode):
         print(f'    }}', file=body)
         print(f'  }}', file=body)
 
+class DlistMember(TypeNode):
+    def __init__(self, container, json):
+        super().__init__(json)
+        self.dlist_t = json["dlist_t"]
+        self.dlist_name = json["dlist_name"]
+
+    def emitPreamble(self):
+        pool_name = self.name + "_pool"
+        dlist_name = self.name + "_dlist"
+
+        print(f"#define POOL_NAME {pool_name}", file=header)
+        print(f"#define POOL_T {self.dlist_t}", file=header)
+        print(f"#define POOL_NEXT parent", file=header)
+        print(f"#include \"../../util/tmpl/fd_pool.c\"", file=header)
+        print(f"#undef POOL_NAME", file=header)
+        print(f"#undef POOL_T", file=header)
+        print(f"#undef POOL_NEXT", file=header)
+        print(f"#define DLIST_NAME {dlist_name}", file=header)
+        print(f"#define DLIST_ELE_T {self.dlist_t}", file=header)
+        print(f'#include "../../util/tmpl/fd_dlist.c"', file=header)
+        print(f"#undef DLIST_NAME", file=header)
+        print(f"#undef DLIST_ELE_T", file=header)
+
+
+    def emitPostamble(self):
+        pass
+
+    def emitMember(self):
+        print(f'  ulong {self.dlist_name}_len;', file=header)
+        print(f'  {self.name}_dlist_t * {self.dlist_name};', file=header)
+        print(f'  {self.name}_t * pool;', file=header)
+
+    def emitOffsetMember(self):
+        print(f'  uint {self.name}_off;', file=header)
+
+    def emitNew(self):
+        pass
+
+    def emitDestroy(self):
+        pass
+
+    def emitDecodeFootprint(self):
+        pass
+
+    def emitDecodeInner(self):
+        pass
+
+    def emitEncode(self):
+        pass
+
+    def emitSize(self, inner):
+        pass
+
+    def emitWalk(self, inner):
+        pass
+
 
 class TreapMember(TypeNode):
     def __init__(self, container, json):
@@ -1727,6 +1783,7 @@ memberTypeMap = {
     "vector" :    VectorMember,
     "string" :    StringMember,
     "deque" :     DequeMember,
+    "dlist" :     DlistMember,
     "array" :     ArrayMember,
     "option" :    OptionMember,
     "map" :       MapMember,
