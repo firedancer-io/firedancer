@@ -91,6 +91,7 @@ fd_decode_fuzz_data( char  const * type_name,
                      ulong         size ) {
 
   FD_SCRATCH_SCOPE_BEGIN {
+
     fd_types_funcs_t type_meta;
     if( fd_flamenco_type_lookup( type_name, &type_meta ) != 0 ) {
       FD_LOG_ERR (( "Failed to lookup type %s", type_name ));
@@ -104,6 +105,10 @@ fd_decode_fuzz_data( char  const * type_name,
     ulong total_sz = 0UL;
     int   err      = type_meta.decode_footprint_fun( &decode_ctx, &total_sz );
     __asm__ volatile( "" : "+m,r"(err) : : "memory" ); /* prevent optimization */
+
+    if( err ) {
+      return;
+    }
 
     void * decoded = fd_scratch_alloc( type_meta.align_fun(), total_sz );
     if( FD_UNLIKELY( decoded == NULL ) ) {
