@@ -582,7 +582,11 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
                                                                                                               fd_stake_reward_pool_align(),
                                                                                                               fd_stake_reward_pool_footprint( rewards_max_count ) ),
                                                                      rewards_max_count ) );
-  fd_stake_reward_dlist_new( &result->stake_reward_calculation.stake_rewards );
+  result->stake_reward_calculation.stake_rewards     = fd_spad_alloc( runtime_spad,
+                                                                      fd_stake_reward_dlist_align(),
+                                                                      fd_stake_reward_dlist_footprint() );
+
+  fd_stake_reward_dlist_new( result->stake_reward_calculation.stake_rewards );
   result->stake_reward_calculation.stake_rewards_len = 0UL;
 
   /* Create the vote rewards map. This will be destroyed after the vote rewards have been distributed. */
