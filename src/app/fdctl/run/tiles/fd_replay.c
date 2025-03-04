@@ -277,6 +277,12 @@ struct fd_replay_tile_ctx {
   ulong   exec_out_idx;
   fd_replay_out_ctx_t exec_out[ FD_PACK_MAX_BANK_TILES ]; /* Sending to exec unexecuted txns */
 
+  ulong repair_out_idx;
+  fd_wksp_t * repair_out_mem;
+  ulong       repair_out_chunk0;
+  ulong       repair_out_wmark;
+  ulong       repair_out_chunk;
+
   ulong root; /* the root slot is the most recent slot to have reached
                  max lockout in the tower  */
 
@@ -3003,6 +3009,20 @@ unprivileged_init( fd_topo_t *      topo,
     exec_out->wmark            = fd_dcache_compact_wmark( exec_out->mem, exec_out_link->dcache, exec_out_link->mtu );
     exec_out->chunk            = exec_out->chunk0;
   }
+
+  /**********************************************************************/
+  /* repair                                                             */
+  /**********************************************************************/
+
+  ctx->repair_out_idx = fd_topo_find_tile_out_link( topo, tile, "replay_rpair", 0 );
+  fd_topo_link_t * repair_out_link = &topo->links[ tile->out_link_id[ ctx->repair_out_idx ] ];
+  if( strcmp( repair_out_link->name, "replay_rpair" ) ) {
+    FD_LOG_ERR(("output link confusion for output %lu: %s", ctx->repair_out_idx, repair_out_link->name ));
+  }
+  ctx->repair_out_mem    = topo->workspaces[ topo->objs[ repair_out_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->repair_out_chunk0 = fd_dcache_compact_chunk0( ctx->repair_out_mem, repair_out_link->dcache );
+  ctx->repair_out_wmark  = fd_dcache_compact_wmark( ctx->repair_out_mem, repair_out_link->dcache, repair_out_link->mtu );
+  ctx->repair_out_chunk  = ctx->repair_out_chunk0;
 
   /* set up vote related items */
   ctx->vote                           = tile->replay.vote;

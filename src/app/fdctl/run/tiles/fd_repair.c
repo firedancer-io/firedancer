@@ -29,6 +29,7 @@
 #define STAKE_IN_IDX    2
 #define STORE_IN_IDX    3
 #define SIGN_IN_IDX     4
+#define REPLAY_IN_IDX   5
 
 #define STORE_OUT_IDX 0
 #define NET_OUT_IDX   1
@@ -484,12 +485,13 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( tile->in_cnt != 5 ||
-                   strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "net_repair")     ||
+  if( FD_UNLIKELY( tile->in_cnt != 6 ||
+                   strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "net_repair")    ||
                    strcmp( topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].name, "gossip_repai" ) ||
-                   strcmp( topo->links[ tile->in_link_id[ STAKE_IN_IDX ] ].name,   "stake_out" )     ||
-                   strcmp( topo->links[ tile->in_link_id[ STORE_IN_IDX ] ].name,   "store_repair" ) ||
-                   strcmp( topo->links[ tile->in_link_id[ SIGN_IN_IDX ] ].name,    "sign_repair" ) ) ) {
+                   strcmp( topo->links[ tile->in_link_id[ STAKE_IN_IDX   ] ].name, "stake_out" )    ||
+                   strcmp( topo->links[ tile->in_link_id[ STORE_IN_IDX  ] ].name,  "store_repair" ) ||
+                   strcmp( topo->links[ tile->in_link_id[ SIGN_IN_IDX   ] ].name,  "sign_repair" )  ||
+                   strcmp( topo->links[ tile->in_link_id[ REPLAY_IN_IDX ] ].name,  "replay_rpair" ) ) ) {
     FD_LOG_ERR(( "repair tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
   }

@@ -472,6 +472,7 @@ fd_store_slot_repair( fd_store_t * store,
 
       if( repair_req_cnt == out_repair_reqs_sz ) {
         backoff->last_backoff_duration += backoff->last_backoff_duration>>2;
+        /* means you've run out of repair req spaace for this batch */
         FD_LOG_INFO( ( "[repair] MAX need %lu [%u, %u], sent %lu requests (backoff: %ld ms)", slot, buffered_idx + 1, complete_idx, repair_req_cnt, backoff->last_backoff_duration/(long)1e6 ) );
         return repair_req_cnt;
       }

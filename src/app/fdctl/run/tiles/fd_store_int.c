@@ -480,6 +480,8 @@ after_credit( fd_store_tile_ctx_t * ctx,
 
   for( ulong i = 0; i<fd_txn_iter_map_slot_cnt(); i++ ) {
     if( ctx->txn_iter_map[i].slot != FD_SLOT_NULL ) {
+      FD_LOG_ERR(( "WHAT IS THIS txn_iter_map slot: %lu", ctx->txn_iter_map[i].slot ));
+      /* Sends out repair requests on mcache dcache */
       fd_store_tile_slot_prepare( ctx, stem, FD_STORE_SLOT_PREPARE_CONTINUE, ctx->txn_iter_map[i].slot );
     }
   }
@@ -491,6 +493,7 @@ after_credit( fd_store_tile_ctx_t * ctx,
 
     ulong slot = repair_slot == 0 ? i : repair_slot;
     FD_LOG_DEBUG(( "store slot - mode: %d, slot: %lu, repair_slot: %lu", store_slot_prepare_mode, i, repair_slot ));
+    /* Sends out repair requests on mcache dcache */
     fd_store_tile_slot_prepare( ctx, stem, store_slot_prepare_mode, slot );
 
     if( FD_UNLIKELY( ctx->in_wen_restart ) ) {
