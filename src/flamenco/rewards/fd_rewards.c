@@ -616,7 +616,7 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
       return;
     }
     stake_reward->valid = 0;
-    fd_stake_reward_dlist_ele_push_tail( &result->stake_reward_calculation.stake_rewards, stake_reward, result->stake_reward_calculation.pool );
+    fd_stake_reward_dlist_ele_push_tail( result->stake_reward_calculation.stake_rewards, stake_reward, result->stake_reward_calculation.pool );
   }
 
   fd_calculate_stake_vote_rewards_task_args_t task_args = {
@@ -724,12 +724,12 @@ hash_rewards_into_partitions( fd_exec_slot_ctx_t *                        slot_c
   /* Iterate over all the stake rewards, moving references to them into the appropiate partitions.
       IMPORTANT: after this, we cannot use the original stake rewards dlist anymore. */
   fd_stake_reward_dlist_iter_t next_iter;
-  for( fd_stake_reward_dlist_iter_t iter = fd_stake_reward_dlist_iter_fwd_init( &stake_reward_calculation->stake_rewards, stake_reward_calculation->pool );
-        !fd_stake_reward_dlist_iter_done( iter, &stake_reward_calculation->stake_rewards, stake_reward_calculation->pool );
+  for( fd_stake_reward_dlist_iter_t iter = fd_stake_reward_dlist_iter_fwd_init( stake_reward_calculation->stake_rewards, stake_reward_calculation->pool );
+        !fd_stake_reward_dlist_iter_done( iter, stake_reward_calculation->stake_rewards, stake_reward_calculation->pool );
         iter = next_iter ) {
-    fd_stake_reward_t * stake_reward = fd_stake_reward_dlist_iter_ele( iter, &stake_reward_calculation->stake_rewards, stake_reward_calculation->pool );
+    fd_stake_reward_t * stake_reward = fd_stake_reward_dlist_iter_ele( iter, stake_reward_calculation->stake_rewards, stake_reward_calculation->pool );
     /* Cache the next iter here, as we will overwrite the DLIST_NEXT value further down in the loop iteration. */
-    next_iter = fd_stake_reward_dlist_iter_fwd_next( iter, &stake_reward_calculation->stake_rewards, stake_reward_calculation->pool );
+    next_iter = fd_stake_reward_dlist_iter_fwd_next( iter, stake_reward_calculation->stake_rewards, stake_reward_calculation->pool );
 
     if( FD_UNLIKELY( !stake_reward->valid ) ) {
       continue;

@@ -29014,7 +29014,7 @@ long fd_clock_timestamp_vote_t_map_compare( fd_clock_timestamp_vote_t_mapnode_t 
 #define REDBLK_IMPL_STYLE 2
 #include "../../util/tmpl/fd_redblack.c"
 long fd_vote_reward_t_map_compare( fd_vote_reward_t_mapnode_t * left, fd_vote_reward_t_mapnode_t * right ) {
-  return memcmp( left->elem.key.uc, right->elem.key.uc, sizeof(right->elem.key) );
+  return memcmp( left->elem.pubkey.uc, right->elem.pubkey.uc, sizeof(right->elem.pubkey) );
 }
 #define REDBLK_T fd_vote_info_pair_t_mapnode_t
 #define REDBLK_NAME fd_vote_info_pair_t_map

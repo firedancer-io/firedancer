@@ -1237,7 +1237,7 @@
       "type": "struct",
       "fields": [
         { "name": "stake_reward_calculation", "type": "stake_reward_calculation" },
-        { "name": "vote_reward_map", "type": "map", "element": "vote_reward", "key": "key", "minalloc":15000 }
+        { "name": "vote_reward_map", "type": "map", "element": "vote_reward", "key": "pubkey", "minalloc":15000 }
       ]
     },
     {
