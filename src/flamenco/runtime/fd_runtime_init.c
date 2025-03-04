@@ -109,8 +109,8 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
   fd_exec_epoch_ctx_t * epoch_ctx    = slot_ctx->epoch_ctx;
   {
     fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
-    fd_funk_rec_t const *rec = fd_funk_rec_query_global(funk, txn, &id, NULL);
-    if (rec == NULL)
+    fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id, NULL);
+    if ( rec == NULL )
       FD_LOG_ERR(("failed to read banks record: missing record"));
     void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
 
