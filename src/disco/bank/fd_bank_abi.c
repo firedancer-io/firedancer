@@ -306,7 +306,7 @@ fd_bank_abi_resolve_address_lookup_tables( void const *     bank,
     result = fd_address_lookup_table_state_decode_footprint( &bincode, &total_sz );
     if( FD_UNLIKELY( result!=FD_BINCODE_SUCCESS ) ) return FD_BANK_ABI_TXN_INIT_ERR_INVALID_ACCOUNT_DATA;
 
-    if( FD_UNLIKELY( total_sz!=data_sz ) ) return FD_BANK_ABI_TXN_INIT_ERR_INVALID_ACCOUNT_DATA;
+    if( FD_UNLIKELY( total_sz!=56UL ) ) return FD_BANK_ABI_TXN_INIT_ERR_INVALID_ACCOUNT_DATA;
 
     fd_address_lookup_table_state_t table[1];
     fd_address_lookup_table_state_decode( table, &bincode );
