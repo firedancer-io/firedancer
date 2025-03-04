@@ -226,20 +226,22 @@ fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *          acc_mgr,
 
   fd_funkier_rec_key_t key = fd_acc_funk_key( account->pubkey );
   fd_funkier_t * funk = acc_mgr->funk;
-  fd_funkier_rec_t * rec = (fd_funkier_rec_t *)fd_funkier_rec_query( funk, txn, &key );
-  if( rec == NULL ) {
-    int err;
-    rec = (fd_funkier_rec_t *)fd_funkier_rec_insert( funk, txn, &key, &err );
-    if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %d", err ));
-  }
+
+  fd_funkier_rec_prepare_t prepare[1];
+  int err;
+  fd_funkier_rec_t * rec = fd_funkier_rec_prepare( funk, txn, &key, prepare, &err );
+  if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %d", err ));
+
   account->rec = rec;
   ulong reclen = sizeof(fd_account_meta_t)+account->const_meta->dlen;
   fd_wksp_t * wksp = fd_funkier_wksp( acc_mgr->funk );
-  int err;
-  if( fd_funkier_val_truncate( account->rec, reclen, fd_funkier_alloc( acc_mgr->funk, wksp ), wksp, &err ) == NULL ) {
+  if( fd_funkier_val_truncate( rec, reclen, fd_funkier_alloc( acc_mgr->funk, wksp ), wksp, &err ) == NULL ) {
     FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
   }
   err = fd_acc_mgr_save( acc_mgr, account );
+
+  fd_funkier_rec_publish( prepare );
+
   return err;
 }
 
@@ -257,6 +259,7 @@ fd_acc_mgr_unlock( fd_acc_mgr_t * acc_mgr ) {
 
 struct fd_acc_mgr_save_task_args {
   fd_acc_mgr_t * acc_mgr;
+  fd_funkier_txn_t * txn;
 };
 typedef struct fd_acc_mgr_save_task_args fd_acc_mgr_save_task_args_t;
 
@@ -277,13 +280,31 @@ fd_acc_mgr_save_task( void *tpool,
                       ulong n0 FD_PARAM_UNUSED, ulong n1 FD_PARAM_UNUSED ) {
   fd_acc_mgr_save_task_args_t * task_args = (fd_acc_mgr_save_task_args_t *)args;
   fd_acc_mgr_save_task_info_t * task_info = (fd_acc_mgr_save_task_info_t *)tpool + m0;
+  fd_acc_mgr_t * acc_mgr = task_args->acc_mgr;
 
   for( ulong i = 0; i < task_info->accounts_cnt; i++ ) {
-    int err = fd_acc_mgr_save(task_args->acc_mgr,task_info->accounts[i] );
+    fd_borrowed_account_t * account = task_info->accounts[i];
+    fd_funkier_rec_key_t key = fd_acc_funk_key( account->pubkey );
+    fd_funkier_t * funk = acc_mgr->funk;
+
+    fd_funkier_rec_prepare_t prepare[1];
+    int err;
+    fd_funkier_rec_t * rec = fd_funkier_rec_prepare( funk, task_args->txn, &key, prepare, &err );
+    if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %d", err ));
+
+    account->rec = rec;
+    ulong reclen = sizeof(fd_account_meta_t)+account->const_meta->dlen;
+    fd_wksp_t * wksp = fd_funkier_wksp( acc_mgr->funk );
+    if( fd_funkier_val_truncate( rec, reclen, fd_funkier_alloc( acc_mgr->funk, wksp ), wksp, &err ) == NULL ) {
+      FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
+    }
+    err = fd_acc_mgr_save( acc_mgr, account );
     if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
       task_info->result = err;
       return;
     }
+
+    fd_funkier_rec_publish( prepare );
   }
   task_info->result = FD_ACC_MGR_SUCCESS;
 }
@@ -298,11 +319,7 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *            acc_mgr,
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
-  fd_funkier_t *  funk    = acc_mgr->funk;
-  fd_wksp_t *     wksp    = fd_funkier_wksp( funk );
-
   ulong batch_cnt = fd_ulong_pow2_up( fd_tpool_worker_cnt( tpool ) );
-  );
   ulong batch_mask = (batch_cnt - 1UL);
 
   ulong * batch_szs = fd_spad_alloc( runtime_spad, 8UL, batch_cnt * sizeof(ulong) );
@@ -332,40 +349,14 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *            acc_mgr,
 
   for( ulong i = 0; i < accounts_cnt; i++ ) {
     fd_borrowed_account_t * account = accounts[i];
-
     ulong batch_idx = i & batch_mask;
     fd_acc_mgr_save_task_info_t * task_info = &task_infos[batch_idx];
     task_info->accounts[task_info->accounts_cnt++] = account;
-    fd_funkier_rec_key_t key = fd_acc_funk_key( account->pubkey );
-    fd_funkier_rec_t * rec = (fd_funkier_rec_t *)fd_funkier_rec_query( funk, txn, &key );
-    if( rec == NULL ) {
-      int err;
-      rec = (fd_funkier_rec_t *)fd_funkier_rec_insert( funk, txn, &key, &err );
-      if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %d", err ));
-    }
-    account->rec = rec;
-
-    /* This check is to prevent a seg fault in the case where an account with
-        null data tries to get saved. This notably happens if firedancer is
-        attemping to execute a bad block. This should NEVER happen in the case
-        of a proper replay. */
-    if( FD_UNLIKELY( !account->const_meta ) ) {
-      FD_LOG_ERR(( "An account likely does not exist. This block could be invalid." ));
-    }
-
-    ulong reclen = sizeof(fd_account_meta_t)+account->const_meta->dlen;
-    int err;
-    if( FD_UNLIKELY( NULL == fd_funkier_val_truncate( account->rec,
-                                                   reclen,
-                                                   fd_funkier_alloc( acc_mgr->funk, wksp ),
-                                                   wksp,
-                                                   &err ) ) ) {
-      FD_LOG_ERR(( "unable to allocate account value, err %d", err ));
-    }
   }
 
   fd_acc_mgr_save_task_args_t task_args = {
-    .acc_mgr = acc_mgr
+    .acc_mgr = acc_mgr,
+    .txn = txn
   };
 
   /* Save accounts in a thread pool */
