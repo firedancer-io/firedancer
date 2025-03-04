@@ -140,6 +140,7 @@ typedef uchar fd_shred_merkle_t[FD_SHRED_MERKLE_NODE_SZ];
 
 /* Mask of the "reference tick"    field in shred.data.flags */
 #define FD_SHRED_DATA_REF_TICK_MASK      ((uchar)0x3f)
+#define FD_SHRED_DATA_REF_TICK_BITS      (6UL)
 /* Mask of the "slot complete"       bit in shred.data.flags
    Indicates the last shred in a slot. */
 #define FD_SHRED_DATA_FLAG_SLOT_COMPLETE ((uchar)0x80)

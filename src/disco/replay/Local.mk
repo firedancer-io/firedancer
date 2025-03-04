@@ -1,4 +1,7 @@
+ifdef FD_HAS_INT128
 $(call add-hdrs,fd_replay.h)
 $(call add-objs,fd_replay,fd_disco)
-$(call make-unit-test,test_replay,test_replay,fd_disco fd_flamenco fd_tango fd_util)
-$(call make-bin,fd_replay_tile,fd_replay_tile,fd_disco fd_flamenco fd_tango fd_util)
+ifdef FD_HAS_HOSTED
+$(call make-unit-test,test_replay,test_replay,fd_choreo fd_flamenco fd_tango fd_ballet fd_util)
+endif
+endif
