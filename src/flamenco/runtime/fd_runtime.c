@@ -1790,8 +1790,10 @@ static int
 fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
                                     fd_txn_p_t *                 txn,
                                     fd_execute_txn_task_info_t * task_info,
-                                    fd_spad_t *                  exec_spad ) {
+                                    fd_spad_t *                  exec_spad,
+                                    fd_capture_ctx_t *           capture_ctx ) {
 
+  int dump_txn = capture_ctx && slot_ctx->slot_bank.slot >= capture_ctx->dump_proto_start_slot && capture_ctx->dump_txn_to_pb;
   int res = 0;
 
   fd_exec_txn_ctx_t * txn_ctx     = task_info->txn_ctx;
@@ -1806,6 +1808,13 @@ fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
   if( FD_UNLIKELY( res ) ) {
     txn->flags = 0U;
     return -1;
+  }
+
+  /* Dump txns if necessary */
+  task_info->txn_ctx->capture_ctx = capture_ctx;
+  if( FD_UNLIKELY( dump_txn ) ) {
+    /* Manual push/pop on the spad within the callee. */
+    fd_dump_txn_to_protobuf( task_info->txn_ctx, exec_spad );
   }
 
   if( FD_UNLIKELY( fd_executor_txn_verify( txn_ctx )!=0 ) ) {
@@ -1838,7 +1847,7 @@ fd_runtime_prepare_execute_finalize_txn_task( void * tpool,
                                               ulong  t1,
                                               void * args,
                                               void * reduce,
-                                              ulong  stride,
+                                              ulong  stride FD_PARAM_UNUSED,
                                               ulong  l0     FD_PARAM_UNUSED,
                                               ulong  l1     FD_PARAM_UNUSED,
                                               ulong  m0     FD_PARAM_UNUSED,
@@ -1851,21 +1860,14 @@ fd_runtime_prepare_execute_finalize_txn_task( void * tpool,
   fd_txn_p_t *                 txn          = (fd_txn_p_t *)t1;
   fd_execute_txn_task_info_t * task_info    = (fd_execute_txn_task_info_t *)args;
   fd_spad_t *                  exec_spad    = (fd_spad_t *)reduce;
-  ulong                        dump_txn     = stride;
-
-  /* Dump txns. TODO: Confirm that this still works. */
-  if( FD_UNLIKELY( dump_txn ) ) {
-    /* Manual push/pop on the spad within the callee. */
-    fd_dump_txn_to_protobuf( task_info->txn_ctx, exec_spad );
-  }
 
   fd_runtime_prepare_and_execute_txn( slot_ctx,
                                       txn,
                                       task_info,
-                                      exec_spad );
+                                      exec_spad,
+                                      capture_ctx );
 
   fd_runtime_finalize_txn( slot_ctx, capture_ctx, task_info );
-
 }
 
 /* fd_executor_txn_verify and fd_runtime_pre_execute_check are responisble
@@ -1909,9 +1911,9 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
                                               fd_tpool_t *         tpool,
                                               fd_spad_t * *        exec_spads,
                                               ulong                exec_spad_cnt,
-                                              fd_spad_t *          runtime_spad ) {
+                                              fd_spad_t *          runtime_spad,
+                                              fd_cost_tracker_t *  cost_tracker_opt ) {
 
-  int dump_txn = capture_ctx && slot_ctx->slot_bank.slot >= capture_ctx->dump_proto_start_slot && capture_ctx->dump_txn_to_pb;
   int res      = 0;
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
@@ -1921,11 +1923,6 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
   fd_execute_txn_task_info_t * task_infos   = fd_spad_alloc( runtime_spad,
                                                              alignof(fd_execute_txn_task_info_t),
                                                              txn_cnt * sizeof(fd_execute_txn_task_info_t) );
-  fd_cost_tracker_t *          cost_tracker = fd_spad_alloc( runtime_spad,
-                                                             FD_COST_TRACKER_ALIGN,
-                                                             FD_COST_TRACKER_FOOTPRINT );
-  fd_cost_tracker_init( cost_tracker, slot_ctx, runtime_spad );
-
 
   ulong curr_exec_idx = 0UL;
   while( curr_exec_idx<txn_cnt ) {
@@ -1953,7 +1950,7 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
 
       fd_tpool_exec( tpool, worker_idx, fd_runtime_prepare_execute_finalize_txn_task,
                      slot_ctx, (ulong)capture_ctx, (ulong)task_infos[curr_exec_idx].txn,
-                     &task_infos[ curr_exec_idx ], exec_spads[ worker_idx ], (ulong)dump_txn,
+                     &task_infos[ curr_exec_idx ], exec_spads[ worker_idx ], 0UL,
                      0UL, 0UL, 0UL, 0UL, 0UL, 0UL );
 
       curr_exec_idx++;
@@ -1964,9 +1961,9 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
       fd_tpool_wait( tpool, worker_idx );
     }
 
-    /* Verify cost tracker limits
+    /* Verify cost tracker limits (only for offline replay)
        https://github.com/anza-xyz/agave/blob/v2.2.0/ledger/src/blockstore_processor.rs#L284-L299 */
-    if( FD_FEATURE_ACTIVE( slot_ctx, apply_cost_tracker_during_replay ) ) {
+    if( cost_tracker_opt!=NULL && FD_FEATURE_ACTIVE( slot_ctx, apply_cost_tracker_during_replay ) ) {
       for( ulong i=exec_idx_start; i<curr_exec_idx; i++ ) {
 
         /* Skip any transactions that were not processed */
@@ -1978,7 +1975,7 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
                                                                                                  runtime_spad );
 
         /* https://github.com/anza-xyz/agave/blob/v2.2.0/ledger/src/blockstore_processor.rs#L302-L307 */
-        res |= fd_cost_tracker_try_add( cost_tracker, txn_ctx, &transaction_cost );
+        res |= fd_cost_tracker_try_add( cost_tracker_opt, txn_ctx, &transaction_cost );
         if( FD_UNLIKELY( res ) ) break;
       }
     }
@@ -3842,6 +3839,10 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
 
   fd_runtime_block_collect_txns( block_info, txn_ptrs );
 
+  /* Initialize the cost tracker */
+  fd_cost_tracker_t * cost_tracker = fd_spad_alloc( runtime_spad, FD_COST_TRACKER_ALIGN, FD_COST_TRACKER_FOOTPRINT );
+  fd_cost_tracker_init( cost_tracker, slot_ctx, runtime_spad );
+
   /* We want to emulate microblock-by-microblock execution */
   ulong to_exec_idx = 0UL;
   for( ulong i=0UL; i<block_info->microblock_batch_cnt; i++ ) {
@@ -3860,7 +3861,8 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
                                                           tpool,
                                                           exec_spads,
                                                           exec_spad_cnt,
-                                                          runtime_spad );
+                                                          runtime_spad,
+                                                          cost_tracker );
       if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
         return res;
       }

@@ -23,8 +23,9 @@ get_instructions_data_cost( fd_exec_txn_ctx_t const * txn_ctx ) {
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L152-L187 */
 FD_FN_PURE static inline ulong
 get_signature_cost( fd_exec_txn_ctx_t const * txn_ctx ) {
-	fd_txn_t const *      txn     = txn_ctx->txn_descriptor;
-	fd_rawtxn_b_t const * txn_raw = txn_ctx->_txn_raw;
+	fd_txn_t const *       txn      = txn_ctx->txn_descriptor;
+	void const *           payload  = txn_ctx->_txn_raw->raw;
+	fd_acct_addr_t const * accounts = fd_txn_get_acct_addrs( txn, payload );
 
 	/* Compute signature counts (both normal + precompile)
 	   TODO: Factor this logic out into a shared function that can be used both here and in fd_pack_cost.h */
@@ -33,13 +34,13 @@ get_signature_cost( fd_exec_txn_ctx_t const * txn_ctx ) {
 	ulong num_ed25519_instruction_signatures   = 0UL;
 	ulong num_secp256r1_instruction_signatures = 0UL;
 
+
 	for( ushort i=0; i<txn->instr_cnt; i++ ) {
 		fd_txn_instr_t const * instr = &txn->instr[ i ];
 		if( instr->data_sz==0UL ) continue;
 
-    fd_acct_addr_t const * accounts   = fd_txn_get_acct_addrs( txn, txn_raw );
 		fd_acct_addr_t const * prog_id    = accounts + instr->program_id;
-		uchar const *          instr_data = fd_txn_get_instr_data( instr, txn_raw );
+		uchar const *          instr_data = fd_txn_get_instr_data( instr, payload );
 
 		if( fd_memeq( prog_id, fd_solana_ed25519_sig_verify_program_id.key, sizeof(fd_pubkey_t) ) ) {
 			num_ed25519_instruction_signatures += (ulong)instr_data[ 0 ];
@@ -88,15 +89,15 @@ static inline ulong
 calculate_allocated_accounts_data_size( fd_exec_txn_ctx_t const * txn_ctx,
 																				fd_spad_t * 							spad ) {
   FD_SPAD_FRAME_BEGIN( spad ) {
-		fd_txn_t const *      txn     = txn_ctx->txn_descriptor;
-		fd_rawtxn_b_t const * txn_raw = txn_ctx->_txn_raw;
+		fd_txn_t const *  txn     = txn_ctx->txn_descriptor;
+		void const *      payload = txn_ctx->_txn_raw->raw;
 
 		ulong allocated_accounts_data_size = 0UL;
 		for( ushort i=0UL; i<txn->instr_cnt; i++ ) {
 			fd_txn_instr_t const * instr      = &txn->instr[ i ];
-			fd_acct_addr_t const * accounts   = fd_txn_get_acct_addrs( txn, txn_raw );
+			fd_acct_addr_t const * accounts   = fd_txn_get_acct_addrs( txn, payload );
 			fd_acct_addr_t const * prog_id    = accounts + instr->program_id;
-			uchar const *          instr_data = fd_txn_get_instr_data( instr, txn_raw );
+			uchar const *          instr_data = fd_txn_get_instr_data( instr, payload );
 
 			if( instr->data_sz==0UL || !fd_memeq( prog_id, &fd_solana_system_program_id, sizeof(fd_pubkey_t) ) ) continue;
 
@@ -223,13 +224,13 @@ would_fit( fd_cost_tracker_t const *     self,
 					 fd_exec_txn_ctx_t const *     txn_ctx,
 	         fd_transaction_cost_t const * tx_cost ) {
 	fd_txn_t const * txn_descriptor = txn_ctx->txn_descriptor;
-	uchar const *    payload        = txn_ctx->_txn_raw->raw;
+	void const *     payload        = txn_ctx->_txn_raw->raw;
 
 	/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L281 */
   ulong cost = transaction_cost_sum( tx_cost );
 
 	/* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L283-L288 */
-	if( tx_cost->discriminant==fd_transaction_cost_enum_simple_vote ) {
+	if( fd_transaction_cost_is_simple_vote( tx_cost ) ) {
 		if( FD_UNLIKELY( fd_ulong_sat_add( self->vote_cost, cost )>self->vote_cost_limit ) ) {
 			return FD_COST_TRACKER_ERROR_WOULD_EXCEED_VOTE_MAX_LIMIT;
 		}
@@ -284,11 +285,11 @@ add_transaction_execution_cost( fd_cost_tracker_t * 				  self,
 																fd_transaction_cost_t const * tx_cost,
 															  ulong                         adjustment ) {
 
-	fd_txn_t const * 									  txn_descriptor = txn_ctx->txn_descriptor;
-	uchar const *    									  payload        = txn_ctx->_txn_raw->raw;
-	fd_account_costs_pair_t_mapnode_t * pool           = self->cost_by_writable_accounts.account_costs_pool;
-	fd_account_costs_pair_t_mapnode_t * root           = self->cost_by_writable_accounts.account_costs_root;
-	fd_acct_addr_t const * 							account_keys   = fd_txn_get_acct_addrs( txn_descriptor, payload );
+	fd_txn_t const * 									   txn_descriptor = txn_ctx->txn_descriptor;
+	void const *    									   payload        = txn_ctx->_txn_raw->raw;
+	fd_account_costs_pair_t_mapnode_t *  pool           = self->cost_by_writable_accounts.account_costs_pool;
+	fd_account_costs_pair_t_mapnode_t ** root           = &self->cost_by_writable_accounts.account_costs_root;
+	fd_acct_addr_t const * 							 account_keys   = fd_txn_get_acct_addrs( txn_descriptor, payload );
 
 	for( fd_txn_acct_iter_t i=fd_txn_acct_iter_init( txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE );
 													i!=fd_txn_acct_iter_end();
@@ -297,12 +298,12 @@ add_transaction_execution_cost( fd_cost_tracker_t * 				  self,
 		fd_account_costs_pair_t_mapnode_t elem;
 		fd_memcpy( &elem.elem.key, writable_acc, sizeof(fd_pubkey_t) );
 
-		fd_account_costs_pair_t_mapnode_t * account_cost = fd_account_costs_pair_t_map_find( pool, root, &elem );
+		fd_account_costs_pair_t_mapnode_t * account_cost = fd_account_costs_pair_t_map_find( pool, *root, &elem );
 		if( account_cost==NULL ) {
 			account_cost = fd_account_costs_pair_t_map_acquire( pool );
 			fd_memcpy( &account_cost->elem.key, writable_acc, sizeof(fd_pubkey_t) );
 			account_cost->elem.cost = adjustment;
-			fd_account_costs_pair_t_map_insert( pool, &root, account_cost );
+			fd_account_costs_pair_t_map_insert( pool, root, account_cost );
 		} else {
 			account_cost->elem.cost = fd_ulong_sat_add( account_cost->elem.cost, adjustment );
 		}
@@ -337,10 +338,12 @@ fd_cost_tracker_init( fd_cost_tracker_t *  		   self,
 	self->block_cost_limit   = FD_FEATURE_ACTIVE( slot_ctx, raise_block_limits_to_50m ) ? MAX_BLOCK_UNITS_SIMD_0207 : MAX_BLOCK_UNITS;
 	self->vote_cost_limit    = MAX_VOTE_UNITS;
 
-	// Init cost tracker map
+	/* Init cost tracker map
+	   TODO: The maximum number of accounts within a block needs to be bounded out properly. It's currently
+		 hardcoded here at 4096*1024 accounts. */
 	self->cost_by_writable_accounts.account_costs_root = NULL;
 	self->cost_by_writable_accounts.account_costs_pool = fd_account_costs_pair_t_map_alloc( fd_spad_virtual( spad ),
-																																													WRITABLE_ACCOUNTS_PER_BLOCK );
+																																													WRITABLE_ACCOUNTS_PER_BLOCK * 1024UL );
 
 	// Reset aggregated stats for new block
 	self->block_cost                            = 0UL;
