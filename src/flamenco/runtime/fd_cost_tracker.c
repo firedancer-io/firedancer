@@ -151,9 +151,9 @@ calculate_allocated_accounts_data_size( fd_exec_txn_ctx_t const * txn_ctx,
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L123-L149 */
 static inline fd_transaction_cost_t
 calculate_non_vote_transaction_cost( fd_exec_txn_ctx_t const * txn_ctx,
-                                     ulong 										 loaded_accounts_data_size_cost,
-                                     ulong 										 data_bytes_cost,
-                                     fd_spad_t * 							 spad ) {
+                                     ulong                     loaded_accounts_data_size_cost,
+                                     ulong                     data_bytes_cost,
+                                     fd_spad_t *               spad ) {
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L132 */
   ulong signature_cost = get_signature_cost( txn_ctx );
 
