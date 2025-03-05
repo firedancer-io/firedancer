@@ -1,28 +1,63 @@
 #include "fd_replay.h"
 
-// fd_replay_fec_t *
-// fd_replay_fec_insert( fd_replay_t * replay, fd_shred_t * shred ) {
-// }
+void *
+fd_replay_new( void * shmem, ulong fec_max, ulong slice_max ) {
+  int lg_fec_max = fd_ulong_find_msb( fd_ulong_pow2_up( fec_max ) );
 
-// void *
-// fd_replay_new( void * shmem, ulong seed, ulong slice_max ) {
+  FD_SCRATCH_ALLOC_INIT( l, shmem );
+  fd_replay_t * replay   = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_align(),             sizeof(fd_replay_t) );
+  void * fec_map         = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_fec_map_align(),     fd_replay_fec_map_footprint( lg_fec_max ) );
+  void * fec_deque       = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_fec_deque_align(),   fd_replay_fec_deque_footprint( fec_max ) );
+  void * slice_deque     = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_slice_deque_align(), fd_replay_slice_deque_footprint( fec_max ) );
+  void * slice_buf       = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                         FD_SLICE_MAX );
+  FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_replay_align() ) == (ulong)shmem + fd_replay_footprint( fec_max, slice_max ) );
 
-// }
+  replay->fec_map     = fd_replay_fec_map_new( fec_map, lg_fec_max );
+  replay->fec_deque   = fd_replay_fec_deque_new( fec_deque, fec_max );
+  replay->slice_deque = fd_replay_slice_deque_new( slice_deque, slice_max );
+  replay->slice_buf   = slice_buf;
+
+  return replay;
+}
 
 fd_replay_t *
 fd_replay_join( void * shreplay ) {
-  return shreplay;
+  fd_replay_t * replay     = (fd_replay_t *)shreplay;
+  replay->fec_map     = fd_replay_fec_map_join( replay->fec_map );
+  replay->fec_deque   = fd_replay_fec_deque_join( replay->fec_deque );
+  replay->slice_deque = fd_replay_slice_deque_join( replay->slice_deque );
+  /* slice mem does not require join */
+  return replay;
 }
 
-// void *
-// fd_replay_leave( fd_replay_t const * replay ) {
+void *
+fd_replay_leave( fd_replay_t const * replay ) {
 
-// }
+  if( FD_UNLIKELY( !replay ) ) {
+    FD_LOG_WARNING(( "NULL replay" ));
+    return NULL;
+  }
 
-// void *
-// fd_replay_delete( void * replay ) {
+  return (void *)replay;
+}
 
-// }
+void *
+fd_replay_delete( void * replay ) {
+
+  if( FD_UNLIKELY( !replay ) ) {
+    FD_LOG_WARNING(( "NULL replay" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( !fd_ulong_is_aligned((ulong)replay, fd_replay_align() ) ) ) {
+    FD_LOG_WARNING(( "misaligned replay" ));
+    return NULL;
+  }
+
+  // TODO: zero out mem?
+
+  return replay;
+}
 
 // void
 // fd_replay_init( fd_replay_t * replay, ulong root ) {

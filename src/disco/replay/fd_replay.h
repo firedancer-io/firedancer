@@ -82,19 +82,15 @@ FD_STATIC_ASSERT( FD_REEDSOL_DATA_SHREDS_MAX % sizeof(ulong) != 0, fd_replay_fec
 struct fd_replay_fec {
   ulong key;  /* map key. 32 msb = slot, 32 lsb = fec_set_idx */
   ulong prev; /* internal use by dlist */
-  ulong next; /* internal use by dlist and pool */
-  ulong hash; /* internal use by map_chain */
+  uint  hash; /* internal use by map */
 
   long ts;   /* timestamp upon receiving the first shred */
 
-  /* On the first shred that completes the FEC set, either data_cnt or
-     last_idx must be populated with the correct value because one of
-     the following must be true: we received at least one coding shred
-     and therefore have the data_cnt or we received all the data shreds
-     in the FEC set and therefore know the last data shred idx. */
+  /* On the first shred that completes the FEC set, data_cnt must be
+     populated because every FEC set must have received at least one
+     coding shred before it can complete. */
 
   ulong data_cnt; /* count of data shreds in the FEC set */
-  ulong last_idx; /* last data shred idx in the FEC set */
 
   /* This set is used to track which data shred indices to request if
      needing repairs. */
@@ -103,17 +99,13 @@ struct fd_replay_fec {
  };
  typedef struct fd_replay_fec fd_replay_fec_t;
 
-#define POOL_NAME fd_replay_fec_pool
-#define POOL_T    fd_replay_fec_t
-#include "../../util/tmpl/fd_pool.c"
+#define DEQUE_NAME  fd_replay_fec_deque
+#define DEQUE_T     fd_replay_fec_t
+#include "../../util/tmpl/fd_deque_dynamic.c"
 
 #define MAP_NAME  fd_replay_fec_map
-#define MAP_ELE_T fd_replay_fec_t
-#include "../../util/tmpl/fd_map_chain.c"
-
-#define DLIST_NAME  fd_replay_fec_dlist
-#define DLIST_ELE_T fd_replay_fec_t
-#include "../../util/tmpl/fd_dlist.c"
+#define MAP_T     fd_replay_fec_t
+#include "../../util/tmpl/fd_map_dynamic.c"
 
 /* fd_replay_slice_t describes a replayable slice of a block which is
    a group of one or more completed entry batches. */
@@ -137,10 +129,22 @@ typedef struct fd_replay_slice fd_replay_slice_t;
    also be the first to attempt replay. */
 
 struct __attribute__((aligned(128UL))) fd_replay {
-  fd_replay_fec_t *       fec_pool;
-  fd_replay_fec_map_t *   fec_map;
-  fd_replay_fec_dlist_t * fec_dlist;
-  fd_replay_slice_t *     slice_deque;
+  ulong fec_max;
+  ulong slice_max;
+
+  /* Track in-progress FEC sets to repair if they don't complete in a
+     timely way. */
+
+  fd_replay_fec_t *   fec_map;
+  fd_replay_fec_t *   fec_deque; /* FIFO */
+
+  /* Track block slices to be replayed. */
+
+  fd_replay_slice_t * slice_deque; /* FIFO */
+
+  /* Buffer to hold the block slice. */
+
+  uchar *             slice_buf;
 };
 typedef struct fd_replay fd_replay_t;
 
@@ -159,6 +163,7 @@ fd_replay_align( void ) {
 
 FD_FN_CONST static inline ulong
 fd_replay_footprint( ulong fec_max, ulong slice_max ) {
+  int lg_fec_max = fd_ulong_find_msb( fd_ulong_pow2_up( fec_max ) );
   return FD_LAYOUT_FINI(
     FD_LAYOUT_APPEND(
     FD_LAYOUT_APPEND(
@@ -167,10 +172,10 @@ fd_replay_footprint( ulong fec_max, ulong slice_max ) {
     FD_LAYOUT_APPEND(
     FD_LAYOUT_INIT,
       alignof(fd_replay_t),          sizeof(fd_replay_t) ),
-      fd_replay_fec_pool_align(),    fd_replay_fec_pool_footprint( fec_max ) ),
-      fd_replay_fec_map_align(),     fd_replay_fec_map_footprint( fec_max ) ),
-      fd_replay_fec_dlist_align(),   fd_replay_fec_dlist_footprint() ),
+      fd_replay_fec_map_align(),     fd_replay_fec_map_footprint( lg_fec_max ) ),
+      fd_replay_fec_deque_align(),   fd_replay_fec_deque_footprint( fec_max ) ),
       fd_replay_slice_deque_align(), fd_replay_slice_deque_footprint( slice_max ) ),
+      128UL,                         FD_SLICE_MAX ),
     fd_replay_align() );
 }
 
@@ -221,25 +226,24 @@ fd_replay_init( fd_replay_t * replay, ulong root );
 FD_FN_PURE static inline fd_replay_fec_t *
 fd_replay_fec_query( fd_replay_t * replay, ulong slot, uint fec_set_idx ) {
   ulong key = slot << 32 | (ulong)fec_set_idx;
-  return fd_replay_fec_map_ele_query( replay->fec_map, &key, NULL, replay->fec_pool );
+  return fd_replay_fec_map_query( replay->fec_map, key, NULL );
 }
 
 static inline fd_replay_fec_t *
 fd_replay_fec_insert( fd_replay_t * replay, ulong slot, uint fec_set_idx ) {
-  fd_replay_fec_t * fec = fd_replay_fec_pool_ele_acquire( replay->fec_pool );
-  memset( fec, 0, sizeof( fd_replay_fec_t ) );
-  fec->key = slot << 32 | (ulong)fec_set_idx;
+  FD_TEST( fd_replay_fec_map_key_cnt( replay->fec_map ) < fd_replay_fec_map_key_max( replay->fec_map ) );
+  ulong             key = slot << 32 | (ulong)fec_set_idx;
+  fd_replay_fec_t * fec = fd_replay_fec_map_insert( replay->fec_map, key ); /* cannot fail */
   fec->ts  = fd_log_wallclock();
-  fd_replay_fec_map_ele_insert( replay->fec_map, fec, replay->fec_pool ); /* cannot fail */
   return fec;
 }
 
 static inline void
 fd_replay_fec_remove( fd_replay_t * replay, ulong slot, uint fec_set_idx ) {
   ulong             key = slot << 32 | (ulong)fec_set_idx;
-  fd_replay_fec_t * fec = fd_replay_fec_map_ele_remove( replay->fec_map, &key, NULL, replay->fec_pool ); /* cannot fail */
+  fd_replay_fec_t * fec = fd_replay_fec_map_query( replay->fec_map, key, NULL );
   FD_TEST( fec );
-  fd_replay_fec_pool_ele_release( replay->fec_pool, fec ); /* cannot fail */
+  fd_replay_fec_map_remove( replay->fec_map, fec ); /* cannot fail */
 }
 
 FD_PROTOTYPES_END

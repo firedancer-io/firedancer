@@ -41,8 +41,18 @@
 #define FD_BLOCKSTORE_CHILD_SLOT_MAX    (32UL)        /* the maximum # of children a slot can have */
 #define FD_BLOCKSTORE_ARCHIVE_MIN_SIZE  (1UL << 26UL) /* 64MB := ceil(MAX_DATA_SHREDS_PER_SLOT*1228) */
 
-/* Maximum size of an entry batch is the entire block */
+/* FD_SLICE_ALIGN specifies the alignment needed for a block slice.
+   ALIGN is double x86 cache line to mitigate various kinds of false
+   sharing (eg. ACLPF adjacent cache line prefetch). */
+
+#define FD_SLICE_ALIGN (128UL)
+
+/* FD_SLICE_MAX specifies the maximum size of an entry batch. This is
+   equivalent to the maximum size of a block (ie. a block with a single
+   entry batch). */
+
 #define FD_SLICE_MAX (FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT)
+
 /* 64 ticks per slot, and then one min size transaction per microblock
    for all the remaining microblocks.
    This bound should be used along with the transaction parser and tick
@@ -50,6 +60,7 @@
    This is NOT a standalone conservative bound against malicious
    validators.
    A tighter bound could probably be derived if necessary. */
+
 #define FD_MICROBLOCK_MAX_PER_SLOT ((FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT - 64UL*sizeof(fd_microblock_hdr_t)) / (sizeof(fd_microblock_hdr_t)+FD_TXN_MIN_SERIALIZED_SZ) + 64UL) /* 200,796 */
 /* 64 ticks per slot, and a single gigantic microblock containing min
    size transactions. */
