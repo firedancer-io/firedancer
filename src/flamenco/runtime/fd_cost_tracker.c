@@ -167,8 +167,8 @@ calculate_non_vote_transaction_cost( fd_exec_txn_ctx_t const * txn_ctx,
                                   .inner = {
                                     .transaction = {
                                       .signature_cost                 = signature_cost,
-                                      .write_lock_cost   		          = write_lock_cost,
-                                      .data_bytes_cost 				        = data_bytes_cost,
+                                      .write_lock_cost                = write_lock_cost,
+                                      .data_bytes_cost                = data_bytes_cost,
                                       .programs_execution_cost        = fd_ulong_sat_sub( txn_ctx->compute_unit_limit,
                                                                                           txn_ctx->compute_meter ),
                                       .loaded_accounts_data_size_cost = loaded_accounts_data_size_cost,
@@ -260,7 +260,7 @@ would_fit( fd_cost_tracker_t const *     self,
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L308-L319 */
   fd_account_costs_pair_t_mapnode_t * pool         = self->cost_by_writable_accounts.account_costs_pool;
   fd_account_costs_pair_t_mapnode_t * root         = self->cost_by_writable_accounts.account_costs_root;
-  fd_acct_addr_t const * 							account_keys = fd_txn_get_acct_addrs( txn_descriptor, payload );
+  fd_acct_addr_t const *              account_keys = fd_txn_get_acct_addrs( txn_descriptor, payload );
 
   for( fd_txn_acct_iter_t i=fd_txn_acct_iter_init( txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE );
                           i!=fd_txn_acct_iter_end();
