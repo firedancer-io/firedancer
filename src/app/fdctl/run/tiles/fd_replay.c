@@ -1420,7 +1420,8 @@ process_and_exec_mbatch( fd_replay_tile_ctx_t * ctx,
                                                         ctx->tpool,
                                                         ctx->exec_spads,
                                                         ctx->exec_spad_cnt,
-                                                        ctx->runtime_spad );
+                                                        ctx->runtime_spad,
+                                                        NULL );
 
     fd_block_map_query_t query[1] = { 0 };
     fd_block_map_prepare( ctx->blockstore->block_map, &ctx->curr_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
@@ -1643,7 +1644,8 @@ after_frag( fd_replay_tile_ctx_t * ctx,
                                                   ctx->tpool,
                                                   ctx->exec_spads,
                                                   ctx->exec_spad_cnt,
-                                                  ctx->runtime_spad );
+                                                  ctx->runtime_spad,
+                                                  NULL );
 
     fd_microblock_trailer_t * microblock_trailer = (fd_microblock_trailer_t *)(txns + txn_cnt);
 
