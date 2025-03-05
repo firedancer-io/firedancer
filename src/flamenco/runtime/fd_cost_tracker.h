@@ -4,11 +4,7 @@
 /* Combined logic from Agave's `cost_model.rs` and `cost_tracker.rs` for validating
    block limits, specifically during replay. */
 
-#include "../fd_flamenco.h"
-#include "../fd_flamenco_base.h"
 #include "../vm/fd_vm_base.h"
-#include "context/fd_exec_txn_ctx.h"
-#include "context/fd_exec_slot_ctx.h"
 #include "fd_system_ids.h"
 #include "fd_executor.h"
 #include "../../disco/pack/fd_pack.h"
