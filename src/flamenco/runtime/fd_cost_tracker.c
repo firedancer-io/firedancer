@@ -282,7 +282,7 @@ would_fit( fd_cost_tracker_t const *     self,
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L352-L372 */
 static inline void
-add_transaction_execution_cost( fd_cost_tracker_t * 				  self,
+add_transaction_execution_cost( fd_cost_tracker_t *           self,
                                 fd_exec_txn_ctx_t const *     txn_ctx,
                                 fd_transaction_cost_t const * tx_cost,
                                 ulong                         adjustment ) {
