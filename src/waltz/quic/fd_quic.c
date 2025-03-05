@@ -78,7 +78,7 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   ulong  inflight_pkt_cnt = limits->inflight_pkt_cnt;
   ulong  tx_buf_sz        = limits->tx_buf_sz;
   ulong  stream_pool_cnt  = limits->stream_pool_cnt;
-
+  ulong  pkt_meta_cnt     = inflight_pkt_cnt * conn_cnt;
   if( FD_UNLIKELY( conn_cnt        ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( handshake_cnt   ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( inflight_pkt_cnt==0UL ) ) return 0UL;
@@ -132,6 +132,17 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
     offs                   += stream_pool_footprint;
   } else {
     layout->stream_pool_off = 0UL;
+  }
+
+  /* allocate space for pkt_meta_pool */
+  if( pkt_meta_cnt ) {
+    offs                      = fd_ulong_align_up( offs, fd_quic_pkt_meta_pool_align() );
+    layout->pkt_meta_pool_off = offs;
+    ulong pkt_meta_footprint  = fd_quic_pkt_meta_pool_footprint( pkt_meta_cnt );
+    if( FD_UNLIKELY( !pkt_meta_footprint ) ) { FD_LOG_WARNING(( "invalid fd_quic_pkt_meta_pool_footprint" )); return 0UL; }
+    offs += pkt_meta_footprint;
+  } else {
+    layout->pkt_meta_pool_off = 0UL;
   }
 
   /* allocate space for quic_log_buf */
@@ -538,6 +549,14 @@ fd_quic_init( fd_quic_t * quic ) {
     ulong tx_buf_sz       = limits->tx_buf_sz;
     ulong stream_pool_laddr = (ulong)quic + layout.stream_pool_off;
     state->stream_pool = fd_quic_stream_pool_new( (void*)stream_pool_laddr, stream_pool_cnt, tx_buf_sz );
+  }
+
+  if( layout.pkt_meta_pool_off ) {
+    ulong pkt_meta_cnt                 = limits->inflight_pkt_cnt * limits->conn_cnt;
+    ulong pkt_meta_laddr               = (ulong)quic + layout.pkt_meta_pool_off;
+    fd_quic_pkt_meta_t * pkt_meta_pool = fd_quic_pkt_meta_pool_new( (void*)pkt_meta_laddr, pkt_meta_cnt );
+    state->pkt_meta_pool               = fd_quic_pkt_meta_pool_join( pkt_meta_pool );
+    fd_quic_pkt_meta_tracker_init_pool( pkt_meta_pool, pkt_meta_cnt);
   }
 
   /* generate a secure random number as seed for fd_rng */
@@ -1318,11 +1337,12 @@ fd_quic_abandon_enc_level( fd_quic_conn_t * conn,
   fd_quic_ack_gen_abandon_enc_level( conn->ack_gen, enc_level );
 
   fd_quic_pkt_meta_tracker_t * tracker = &conn->pkt_meta_tracker;
+  fd_quic_pkt_meta_t * pool = fd_quic_get_state(conn->quic)->pkt_meta_pool;
+
   for( uint j = 0; j <= enc_level; ++j ) {
     conn->keys_avail = fd_uint_clear_bit( conn->keys_avail, (int)j );
     /* treat all packets as ACKed (freeing handshake data, etc.) */
     fd_quic_pkt_meta_ds_t * sent  =  &tracker->sent_pkt_metas[j];
-    fd_quic_pkt_meta_t    * pool  =  tracker->pkt_meta_pool_join;
 
     fd_quic_pkt_meta_t * prev = NULL;
     for( fd_quic_pkt_meta_ds_fwd_iter_t iter = fd_quic_pkt_meta_treap_fwd_iter_init( sent, pool );
@@ -3536,7 +3556,7 @@ fd_quic_conn_tx( fd_quic_t      * quic,
 
   fd_quic_state_t            * state   = fd_quic_get_state( quic );
   fd_quic_pkt_meta_tracker_t * tracker = &conn->pkt_meta_tracker;
-  fd_quic_pkt_meta_t         * pool    = tracker->pkt_meta_pool_join;
+  fd_quic_pkt_meta_t         * pool    = state->pkt_meta_pool;
 
   /* used for encoding frames into before encrypting */
   uchar *  crypt_scratch    = state->crypt_scratch;
@@ -4465,7 +4485,7 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
   ulong cnt_freed = 0u;
 
   fd_quic_pkt_meta_tracker_t * tracker = &conn->pkt_meta_tracker;
-  fd_quic_pkt_meta_t         * pool    = tracker->pkt_meta_pool_join;
+  fd_quic_pkt_meta_t * pool = fd_quic_get_state( quic )->pkt_meta_pool;
 
   while(1) {
     /* find earliest expiring pkt_meta, over smallest pkt number at each enc_level */
@@ -4885,9 +4905,9 @@ fd_quic_reclaim_pkt_meta( fd_quic_conn_t *     conn,
 void
 fd_quic_process_lost( fd_quic_conn_t * conn, uint enc_level, ulong cnt ) {
   /* start at oldest sent */
+  fd_quic_pkt_meta_t         * pool     = fd_quic_get_state( conn->quic )->pkt_meta_pool;
   fd_quic_pkt_meta_tracker_t * tracker  = &conn->pkt_meta_tracker;
   fd_quic_pkt_meta_ds_t      * sent     = &tracker->sent_pkt_metas[enc_level];
-  fd_quic_pkt_meta_t         * pool     = tracker->pkt_meta_pool_join;
   ulong                        j        = 0;
 
   for( fd_quic_pkt_meta_ds_fwd_iter_t iter = fd_quic_pkt_meta_ds_fwd_iter_init( sent, pool );
@@ -4926,11 +4946,11 @@ fd_quic_process_ack_range( fd_quic_conn_t      * conn,
   ulong lo = largest_ack - ack_range;
   FD_DTRACE_PROBE_4( quic_process_ack_range, conn->our_conn_id, enc_level, lo, hi );
 
-  /* start at oldest sent */
+  fd_quic_pkt_meta_t         * pool     =  fd_quic_get_state( conn->quic )->pkt_meta_pool;
   fd_quic_pkt_meta_tracker_t * tracker  =  &conn->pkt_meta_tracker;
   fd_quic_pkt_meta_ds_t      * sent     =  &tracker->sent_pkt_metas[enc_level];
-  fd_quic_pkt_meta_t         * pool     =  tracker->pkt_meta_pool_join;
 
+  /* start at oldest sent */
   for( fd_quic_pkt_meta_ds_fwd_iter_t iter = fd_quic_pkt_meta_ds_idx_ge( sent, lo, pool );
                                              !fd_quic_pkt_meta_ds_fwd_iter_done( iter );
                                              iter = fd_quic_pkt_meta_ds_fwd_iter_next( iter, pool ) ) {
@@ -5052,9 +5072,9 @@ fd_quic_handle_ack_frame( fd_quic_frame_ctx_t * context,
 
   /* process lost packets */
   {
+    fd_quic_pkt_meta_t         * pool     = state->pkt_meta_pool;
     fd_quic_pkt_meta_tracker_t * tracker  = &conn->pkt_meta_tracker;
     fd_quic_pkt_meta_ds_t      * sent     = &tracker->sent_pkt_metas[enc_level];
-    fd_quic_pkt_meta_t         * pool     = tracker->pkt_meta_pool_join;
     fd_quic_pkt_meta_t         * min_meta = fd_quic_pkt_meta_min( sent, pool );
 
     if( FD_UNLIKELY( min_meta && min_meta->pkt_number < low_ack_pkt_number ) ) {

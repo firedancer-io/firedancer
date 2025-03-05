@@ -125,14 +125,15 @@ typedef struct fd_quic_limits fd_quic_limits_t;
    an fd_quic_t object.  It is deived from fd_quic_limits_t. */
 
 struct fd_quic_layout {
-  ulong meta_sz;         /* size of this struct */
-  ulong log_off;         /* offset to quic_log */
-  ulong conns_off;       /* offset of connection mem region  */
-  ulong conn_footprint;  /* sizeof a conn                    */
-  ulong conn_map_off;    /* offset of conn map mem region    */
-  int   lg_slot_cnt;     /* see conn_map_new                 */
-  ulong hs_pool_off;     /* offset of the handshake pool     */
-  ulong stream_pool_off; /* offset of the stream pool        */
+  ulong meta_sz;           /* size of this struct */
+  ulong log_off;           /* offset to quic_log */
+  ulong conns_off;         /* offset of connection mem region  */
+  ulong conn_footprint;    /* sizeof a conn                    */
+  ulong conn_map_off;      /* offset of conn map mem region    */
+  int   lg_slot_cnt;       /* see conn_map_new                 */
+  ulong hs_pool_off;       /* offset of the handshake pool     */
+  ulong stream_pool_off;   /* offset of the stream pool        */
+  ulong pkt_meta_pool_off; /* offset of the pkt_meta pool      */
 };
 
 typedef struct fd_quic_layout fd_quic_layout_t;
