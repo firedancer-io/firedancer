@@ -1,4 +1,9 @@
 #include "../fd_util.h"
+#if FD_HAS_HOSTED
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 #define CIDX_T uchar
 #define VAL_T  schar
@@ -10,6 +15,11 @@ struct ele {
 };
 
 typedef struct ele ele_t;
+
+#ifndef FD_TMPL_USE_HANDHOLDING
+#define FD_UNDEF_HANDHOLDING
+#define FD_TMPL_USE_HANDHOLDING 1
+#endif
 
 #define POOL_NAME  pool
 #define POOL_T     ele_t
@@ -41,7 +51,7 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Testing with --max %lu --seed %lu", ele_max, seed ));
 
-  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) ); 
+  fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, 0U, 0UL ) );
 
   ulong align     = pool_align();
   ulong footprint = pool_footprint( ele_max );
@@ -176,6 +186,38 @@ main( int     argc,
 
   FD_TEST( !heap_verify( heap, pool ) );
 
+  /* test handholding */
+#if FD_HAS_HOSTED && FD_TMPL_USE_HANDHOLDING
+  #define FD_EXPECT_LOG_ERR( CALL ) do {                           \
+    FD_LOG_DEBUG(( "Testing that "#CALL" triggers exit( 1 )" ));   \
+    pid_t pid = fork();                                            \
+    FD_TEST( pid >= 0 );                                           \
+    if( pid == 0 ) {                                               \
+      fd_log_level_logfile_set( 5 );                               \
+      __typeof__(CALL) res = (CALL);                               \
+      __asm__("" : "+r"(res));                                     \
+      _exit( 0 );                                                  \
+    }                                                              \
+    int status = 0;                                                \
+    wait( &status );                                               \
+                                                                   \
+    FD_TEST( WIFEXITED(status) && (WEXITSTATUS(status) == 1) );    \
+  } while( 0 )
+
+  ele_t f = { 0, 0, 0 };
+
+  FD_EXPECT_LOG_ERR( heap_ele_insert( heap, &f, pool ) );
+  ulong min = heap_idx_peek_min( heap );
+  FD_TEST( heap_idx_null() != min );
+  FD_EXPECT_LOG_ERR( heap_ele_insert( heap, &pool[ min ], pool ) );
+  while( heap_idx_peek_min( heap ) != heap_idx_null() ) {
+    heap_ele_remove_min( heap, pool );
+  }
+  FD_EXPECT_LOG_ERR( heap_ele_remove_min( heap, pool ) );
+#else
+  FD_LOG_WARNING(( "skip: testing handholding, requires hosted" ));
+#endif
+
   /* Test leave */
 
   FD_TEST( !heap_leave( NULL ) );
@@ -196,3 +238,7 @@ main( int     argc,
   return 0;
 }
 
+#ifdef FD_UNDEF_HANDHOLDING
+#undef FD_TMPL_USE_HANDHOLDING
+#undef FD_UNDEF_HANDHOLDING
+#endif

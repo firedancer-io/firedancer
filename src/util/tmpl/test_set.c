@@ -1,4 +1,14 @@
 #include "../fd_util.h"
+#if FD_HAS_HOSTED
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
+
+#ifndef FD_TMPL_USE_HANDHOLDING
+#define FD_UNDEF_HANDHOLDING
+#define FD_TMPL_USE_HANDHOLDING 1
+#endif
 
 #define MAX 12345
 
@@ -284,6 +294,34 @@ main( int     argc,
   FD_TEST( set_is_null( n0 ) ); FD_TEST( set_is_null( n1 ) );
   FD_TEST( set_is_full( f0 ) ); FD_TEST( set_is_full( f1 ) );
 
+#if FD_HAS_HOSTED && FD_TMPL_USE_HANDHOLDING
+#define FD_EXPECT_LOG_ERR( CALL ) do {                             \
+    FD_LOG_DEBUG(( "Testing that "#CALL" triggers exit( 1 )" ));   \
+    pid_t pid = fork();                                            \
+    FD_TEST( pid >= 0 );                                           \
+    if( pid == 0 ) {                                               \
+      fd_log_level_logfile_set( 5 );                               \
+      __typeof__(CALL) res = (CALL);                               \
+      __asm__("" : "+r"(res));                                     \
+      _exit( 0 );                                                  \
+    }                                                              \
+    int status = 0;                                                \
+    wait( &status );                                               \
+                                                                   \
+    FD_TEST( WIFEXITED(status) && (WEXITSTATUS(status) == 1) );    \
+  } while( 0 )
+
+  FD_EXPECT_LOG_ERR( set_new( (void*)((char*)_t+1) ) );
+
+  FD_EXPECT_LOG_ERR( set_insert   ( t,    MAX ) );
+  FD_EXPECT_LOG_ERR( set_remove   ( t,    MAX ) );
+  FD_EXPECT_LOG_ERR( set_insert_if( t, 1, MAX ) );
+  FD_EXPECT_LOG_ERR( set_remove_if( t, 1, MAX ) );
+  FD_EXPECT_LOG_ERR( set_test     ( t,    MAX ) );
+#else
+  FD_LOG_WARNING(( "skip: testing handholding, requires hosted" ));
+#endif
+
   set_delete( set_leave( t    ) );
   set_delete( set_leave( ebar ) );
   set_delete( set_leave( e    ) );
@@ -301,3 +339,7 @@ main( int     argc,
   return 0;
 }
 
+#ifdef FD_UNDEF_HANDHOLDING
+#undef FD_TMPL_USE_HANDHOLDING
+#undef FD_UNDEF_HANDHOLDING
+#endif
