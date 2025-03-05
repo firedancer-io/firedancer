@@ -1536,12 +1536,6 @@ fd_feature_id_t const ids[] = {
     .name                      = "raise_block_limits_to_50m",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
-  { .index                     = offsetof(fd_features_t, memmove_syscall_check_reverse)>>3,
-    .id                        = {"\x03\xae\x50\xa3\x81\xb2\xa9\xbd\x32\xab\x05\x2d\x6a\xbb\x8f\xe1\x29\xd9\x5c\x69\xcf\xa5\x2a\x48\x59\x12\x28\xad\x33\xcc\x58\x2b"},
-                                 /* FNPWmNbHbYy1R8JWVZgCPqsoRBcRu4F6ezSnq5o97Px */
-    .name                      = "memmove_syscall_check_reverse",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
-
   { .index                     = offsetof(fd_features_t, move_precompile_verification_to_svm)>>3,
     .id                        = {"\x85\x6c\x3d\xbc\xfd\xf4\xf4\x8e\x9f\xfa\xe7\xd0\xf8\xfc\x84\xda\x5a\x8b\x15\x32\x54\xe0\xe1\xa2\xe4\x64\x57\x89\x94\x0b\x38\x47"},
                                  /* 9ypxGLzkMxi89eDerRKXWDXe44UY2z4hBig4mDhNq5Dp */
@@ -1788,9 +1782,8 @@ fd_feature_id_query( ulong prefix ) {
   case 0x56b57bbf5f6afc04: return &ids[ 222 ];
   case 0xc66648576f67b1a5: return &ids[ 223 ];
   case 0x08dc7e6d724d4e47: return &ids[ 224 ];
-  case 0xbda9b281a350ae03: return &ids[ 225 ];
-  case 0x8ef4f4fdbc3d6c85: return &ids[ 226 ];
-  case 0xd571e3dc9532c905: return &ids[ 227 ];
+  case 0x8ef4f4fdbc3d6c85: return &ids[ 225 ];
+  case 0xd571e3dc9532c905: return &ids[ 226 ];
   default: break;
   }
 
@@ -2024,8 +2017,7 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, remove_accounts_delta_hash           
 FD_STATIC_ASSERT( offsetof( fd_features_t, snapshots_lt_hash                                       )>>3==222UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, reserve_minimal_cus_for_builtin_instructions            )>>3==223UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, raise_block_limits_to_50m                               )>>3==224UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, memmove_syscall_check_reverse                           )>>3==225UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, move_precompile_verification_to_svm                     )>>3==226UL, layout );
-FD_STATIC_ASSERT( offsetof( fd_features_t, enable_transaction_loading_failure_fees                 )>>3==227UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, move_precompile_verification_to_svm                     )>>3==225UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_transaction_loading_failure_fees                 )>>3==226UL, layout );
 
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
