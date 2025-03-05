@@ -109,11 +109,11 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
 
 /*
    Executes several transactions within a single slot. A few things to know when using this harness...
-   - Any sysvars provided will override any initial values set from `fd_runtime_init_program`
-   - This does not test sigverify
-   - Epoch boundaries are NOT tested
+   - All sysvars must be provided
+   - This does not test sigverify or POH
+   - Epoch boundaries are tested
    - Tested Firedancer code is `fd_runtime_block_execute_tpool`
-   - Associated entrypoint tested in Agave is `confirm_slot_entries` (except sigverify is removed and verify_ticks is included)
+   - Associated entrypoint tested in Agave is `confirm_slot_entries` (except sigverify and verify_ticks are removed)
    - (idk about this yet) Recent blockhashes sysvar account must NOT be provided in the input account states. Instead, the sysvar is populated through the input blockhash queue.
 */
 ulong

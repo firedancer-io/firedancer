@@ -984,7 +984,6 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   slot_ctx->acc_mgr               = acc_mgr;
   slot_ctx->enable_exec_recording = 0;
   slot_ctx->epoch_ctx = epoch_ctx;
-  slot_ctx->prev_lamports_per_signature = test_ctx->slot_ctx.prev_lps;
   fd_memcpy( &slot_ctx->slot_bank.banks_hash, test_ctx->slot_ctx.parent_bank_hash, sizeof( fd_hash_t ) );
 
   /* Set up slot bank */
@@ -1191,11 +1190,21 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
 
   fd_funk_start_write( runner->funk );
 
+  // Use the latest lamports per signature
+  fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
+  if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
+    fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_head_const( rbh->hashes );
+    if( last && last->fee_calculator.lamports_per_signature!=0UL ) {
+      slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
+      slot_ctx->prev_lamports_per_signature      = last->fee_calculator.lamports_per_signature;
+    }
+  }
+
   // Populate blockhash queue and recent blockhashes sysvar
   for( ushort i=0; i<test_ctx->blockhash_queue_count; ++i ) {
     fd_block_block_hash_entry_t blockhash_entry;
     memcpy( &blockhash_entry.blockhash, test_ctx->blockhash_queue[i]->bytes, sizeof(fd_hash_t) );
-    slot_ctx->slot_bank.poh = blockhash_entry.blockhash;
+    slot_bank->poh = blockhash_entry.blockhash;
     fd_sysvar_recent_hashes_update( slot_ctx, runner->spad );
   }
 
