@@ -615,6 +615,8 @@ fd_topo_initialize( config_t * config ) {
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {
 
+      tile->replay.fec_max = config->tiles.shred.max_pending_shred_sets;
+
       /* specified by [tiles.replay] */
 
       strncpy( tile->replay.blockstore_file, config->blockstore.file, sizeof(tile->replay.blockstore_file) );

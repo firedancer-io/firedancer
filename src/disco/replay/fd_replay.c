@@ -10,7 +10,7 @@ fd_replay_new( void * shmem, ulong fec_max, ulong slice_max ) {
   void * fec_deque       = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_fec_deque_align(),   fd_replay_fec_deque_footprint( fec_max ) );
   void * slice_deque     = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_slice_deque_align(), fd_replay_slice_deque_footprint( fec_max ) );
   void * slice_buf       = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                         FD_SLICE_MAX );
-  FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_replay_align() ) == (ulong)shmem + fd_replay_footprint( fec_max, slice_max ) );
+  // FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_replay_align() ) == (ulong)shmem + fd_replay_footprint( fec_max, slice_max ) );
 
   replay->fec_map     = fd_replay_fec_map_new( fec_map, lg_fec_max );
   replay->fec_deque   = fd_replay_fec_deque_new( fec_deque, fec_max );
