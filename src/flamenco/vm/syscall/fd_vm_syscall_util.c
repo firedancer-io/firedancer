@@ -471,11 +471,9 @@ fd_vm_memmove( fd_vm_t * vm,
         } else if( FD_LIKELY( reverse &&
                               dst_region_idx>0UL &&
                               vm->input_mem_regions[ dst_region_idx-1UL ].is_writable ) ) {
-          if( FD_LIKELY( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, memmove_syscall_check_reverse ) ) ) {
-            if( FD_UNLIKELY( vm->input_mem_regions[ dst_region_idx-1UL ].is_acct_data != vm->input_mem_regions[ dst_region_idx ].is_acct_data ) ) {
-              FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
-              return FD_VM_SYSCALL_ERR_SEGFAULT;
-            }
+          if( FD_UNLIKELY( vm->input_mem_regions[ dst_region_idx-1UL ].is_acct_data != vm->input_mem_regions[ dst_region_idx ].is_acct_data ) ) {
+            FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
+            return FD_VM_SYSCALL_ERR_SEGFAULT;
           }
           /* Note that when reverse iterating, we set the haddr to the END of the PREVIOUS region. */
           dst_region_idx--;
@@ -499,11 +497,9 @@ fd_vm_memmove( fd_vm_t * vm,
           src_region_idx++;
           src_haddr = (uchar*)vm->input_mem_regions[ src_region_idx ].haddr;
         } else if( FD_LIKELY( reverse && src_region_idx>0UL ) ) {
-          if( FD_LIKELY( FD_FEATURE_ACTIVE( vm->instr_ctx->slot_ctx, memmove_syscall_check_reverse ) ) ) {
-            if( FD_UNLIKELY( vm->input_mem_regions[ src_region_idx-1UL ].is_acct_data != vm->input_mem_regions[ src_region_idx ].is_acct_data ) ) {
-              FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
-              return FD_VM_SYSCALL_ERR_SEGFAULT;
-            }
+          if( FD_UNLIKELY( vm->input_mem_regions[ src_region_idx-1UL ].is_acct_data != vm->input_mem_regions[ src_region_idx ].is_acct_data ) ) {
+            FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
+            return FD_VM_SYSCALL_ERR_SEGFAULT;
           }
           src_region_idx--;
           src_haddr = (uchar*)vm->input_mem_regions[ src_region_idx ].haddr + vm->input_mem_regions[ src_region_idx ].region_sz - 1UL;
