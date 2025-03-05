@@ -1,5 +1,5 @@
 #include "fd_sysvar_instructions.h"
-#include "../fd_account.h"
+#include "../fd_borrowed_account.h"
 #include "../fd_system_ids.h"
 
 static ulong
@@ -38,8 +38,8 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
                                           ushort                   instrs_cnt ) {
   ulong serialized_sz = instructions_serialized_size( instrs, instrs_cnt );
 
-  fd_borrowed_account_t * rec = NULL;
-  int err = fd_exec_txn_ctx_get_txn_acct_view( txn_ctx, &fd_sysvar_instructions_id, &rec );
+  fd_txn_account_t * rec = NULL;
+  int err = fd_exec_txn_ctx_get_account_view( txn_ctx, &fd_sysvar_instructions_id, &rec );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS && rec == NULL ) ) {
     /* The way we use this, this should NEVER hit since the borrowed accounts should be set up
        before this is called, and this is only called if the sysvar instructions account is in
@@ -129,8 +129,8 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
 int
 fd_sysvar_instructions_update_current_instr_idx( fd_exec_txn_ctx_t * txn_ctx,
                                                  ushort              current_instr_idx ) {
-  fd_borrowed_account_t * rec = NULL;
-  int err = fd_exec_txn_ctx_get_txn_acct_modify( txn_ctx, &fd_sysvar_instructions_id, 0, &rec );
+  fd_txn_account_t * rec = NULL;
+  int err = fd_exec_txn_ctx_get_account_modify( txn_ctx, &fd_sysvar_instructions_id, 0, &rec );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return FD_ACC_MGR_ERR_READ_FAILED;
 

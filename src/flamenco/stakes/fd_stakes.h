@@ -74,7 +74,7 @@ stake_activating_and_deactivating( fd_delegation_t const * delegation,
                                    ulong *                 new_rate_activation_epoch );
 
 int
-write_stake_state( fd_borrowed_account_t * stake_acc_rec,
+write_stake_state( fd_txn_account_t * stake_acc_rec,
                    fd_stake_state_v2_t *   stake_state );
 
 void

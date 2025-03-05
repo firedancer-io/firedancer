@@ -3,7 +3,7 @@
 #include "../fd_acc_mgr.h"
 #include "../fd_executor.h"
 #include "../../vm/fd_vm.h"
-#include "../fd_account.h"
+#include "../fd_borrowed_account.h"
 
 void *
 fd_exec_txn_ctx_new( void * mem ) {
@@ -82,10 +82,9 @@ fd_exec_txn_ctx_delete( void * mem ) {
 
   return mem;
 }
-/* these should return txn_acct, not borrowed account
-   Also these should use borrowing semantics from txn_acct to check if it's ok to read/write to the account */
+
 int
-fd_exec_txn_ctx_get_acct_view_idx( fd_exec_txn_ctx_t * ctx,
+fd_exec_txn_ctx_get_account_view_idx( fd_exec_txn_ctx_t * ctx,
                                   uchar idx,
                                   fd_txn_account_t * * account ) {
   if( FD_UNLIKELY( idx>=ctx->accounts_cnt ) ) {
@@ -103,7 +102,7 @@ fd_exec_txn_ctx_get_acct_view_idx( fd_exec_txn_ctx_t * ctx,
 }
 
 int
-fd_exec_txn_ctx_get_acct_view_idx_allow_dead( fd_exec_txn_ctx_t * ctx,
+fd_exec_txn_ctx_get_account_view_idx_allow_dead( fd_exec_txn_ctx_t * ctx,
                                              uchar idx,
                                              fd_txn_account_t * * account ) {
   if( FD_UNLIKELY( idx>=ctx->accounts_cnt ) ) {
@@ -117,11 +116,11 @@ fd_exec_txn_ctx_get_acct_view_idx_allow_dead( fd_exec_txn_ctx_t * ctx,
 }
 
 int
-fd_exec_txn_ctx_get_acct_view( fd_exec_txn_ctx_t * ctx,
+fd_exec_txn_ctx_get_account_view( fd_exec_txn_ctx_t * ctx,
                               fd_pubkey_t const *      pubkey,
                               fd_txn_account_t * * account ) {
   for( ulong i = 0; i < ctx->accounts_cnt; i++ ) {
-    if( memcmp( pubkey->uc, ctx->acct_keys[i].uc, sizeof(fd_pubkey_t) )==0 ) {
+    if( memcmp( pubkey->uc, ctx->account_keys[i].uc, sizeof(fd_pubkey_t) )==0 ) {
       // TODO: check if readable???
       fd_txn_account_t * txn_account = &ctx->accounts[i];
       *account = txn_account;
@@ -138,7 +137,7 @@ fd_exec_txn_ctx_get_acct_view( fd_exec_txn_ctx_t * ctx,
 }
 
 int
-fd_exec_txn_ctx_get_acct_executable_view( fd_exec_txn_ctx_t * ctx,
+fd_exec_txn_ctx_get_account_executable_view( fd_exec_txn_ctx_t * ctx,
                                          fd_pubkey_t const *      pubkey,
                                          fd_txn_account_t * * account ) {
   /* First try to fetch the executable account from the existing borrowed accounts.
@@ -146,7 +145,7 @@ fd_exec_txn_ctx_get_acct_executable_view( fd_exec_txn_ctx_t * ctx,
      borrowed account since it reflects changes from prior instructions. Referencing the
      read-only executable accounts list is incorrect behavior when the program
      data account is written to in a prior instruction (e.g. program upgrade + invoke within the same txn) */
-  int err = fd_exec_txn_ctx_get_acct_view( ctx, pubkey, account );
+  int err = fd_exec_txn_ctx_get_account_view( ctx, pubkey, account );
   if( FD_UNLIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
     return FD_ACC_MGR_SUCCESS;
   }
@@ -168,7 +167,7 @@ fd_exec_txn_ctx_get_acct_executable_view( fd_exec_txn_ctx_t * ctx,
 }
 
 int
-fd_exec_txn_ctx_get_acct_modify_fee_payer( fd_exec_txn_ctx_t *       ctx,
+fd_exec_txn_ctx_get_account_modify_fee_payer( fd_exec_txn_ctx_t *       ctx,
                                           fd_txn_account_t * * account ) {
 
   *account = &ctx->accounts[ FD_FEE_PAYER_TXN_IDX ];
@@ -180,7 +179,7 @@ fd_exec_txn_ctx_get_acct_modify_fee_payer( fd_exec_txn_ctx_t *       ctx,
 }
 
 int
-fd_exec_txn_ctx_get_acct_modify_idx( fd_exec_txn_ctx_t *        ctx,
+fd_exec_txn_ctx_get_account_modify_idx( fd_exec_txn_ctx_t *        ctx,
                                     uchar                      idx,
                                     ulong                      min_data_sz,
                                     fd_txn_account_t * *  account ) {
@@ -202,12 +201,12 @@ fd_exec_txn_ctx_get_acct_modify_idx( fd_exec_txn_ctx_t *        ctx,
 }
 
 int
-fd_exec_txn_ctx_get_acct_modify( fd_exec_txn_ctx_t *       ctx,
+fd_exec_txn_ctx_get_account_modify( fd_exec_txn_ctx_t *       ctx,
                                 fd_pubkey_t const *       pubkey,
                                 ulong                     min_data_sz,
                                 fd_txn_account_t * * account ) {
   for( ulong i = 0; i < ctx->accounts_cnt; i++ ) {
-    if( memcmp( pubkey->uc, ctx->acct_keys[i].uc, sizeof(fd_pubkey_t) )==0 ) {
+    if( memcmp( pubkey->uc, ctx->account_keys[i].uc, sizeof(fd_pubkey_t) )==0 ) {
       // TODO: check if writable???
       fd_txn_account_t * txn_account = &ctx->accounts[i];
       if( min_data_sz > txn_account->const_meta->dlen ) {
@@ -298,7 +297,7 @@ fd_txn_account_is_demotion( fd_exec_txn_ctx_t const * txn_ctx, int idx )
 
   uint bpf_upgradeable_in_txn = 0U;
   for( ulong j = 0; j < txn_ctx->accounts_cnt; j++ ) {
-    const fd_pubkey_t * acc = &txn_ctx->acct_keys[j];
+    const fd_pubkey_t * acc = &txn_ctx->account_keys[j];
     if ( memcmp( acc->uc, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) {
       bpf_upgradeable_in_txn = 1U;
       break;
@@ -321,11 +320,11 @@ fd_txn_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, int idx ) {
 
   /* See comments in fd_system_ids.h.
      https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L44 */
-  if( fd_pubkey_is_active_reserved_key(&txn_ctx->acct_keys[idx] ) ||
+  if( fd_pubkey_is_active_reserved_key(&txn_ctx->account_keys[idx] ) ||
       ( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, add_new_reserved_account_keys ) &&
-                           fd_pubkey_is_pending_reserved_key( &txn_ctx->acct_keys[idx] ) ) ||
+                           fd_pubkey_is_pending_reserved_key( &txn_ctx->account_keys[idx] ) ) ||
       ( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, enable_secp256r1_precompile ) &&
-                           fd_pubkey_is_secp256r1_key( &txn_ctx->acct_keys[idx] ) ) ) {
+                           fd_pubkey_is_secp256r1_key( &txn_ctx->account_keys[idx] ) ) ) {
     return 0;
   }
 

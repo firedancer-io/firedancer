@@ -1,10 +1,12 @@
 #ifndef HEADER_fd_src_flamenco_runtime_fd_borrowed_account_h
 #define HEADER_fd_src_flamenco_runtime_fd_borrowed_account_h
 
-#include "fd_txn_account.h"
-#include "program/fd_program_util.h"
+#include "fd_executor_err.h"
+#include "fd_system_ids.h"
 #include "context/fd_exec_epoch_ctx.h"
+#include "context/fd_exec_txn_ctx.h"
 #include "sysvar/fd_sysvar_rent.h"
+
 /* FD_ACC_SZ_MAX is the hardcoded size limit of a Solana account. */
 
 #define MAX_PERMITTED_DATA_LENGTH                 (10UL<<20) /* 10MiB */
@@ -26,7 +28,7 @@ FD_PROTOTYPES_BEGIN
 
 /* Constructor */
 
-static inline int
+static inline void
 fd_borrowed_account_init(fd_borrowed_account_t * borrowed_acct, fd_txn_account_t * acct, fd_exec_instr_ctx_t const * instr_ctx, int instr_acc_idx ) {
   borrowed_acct->acct = acct;
   borrowed_acct->instr_ctx = instr_ctx;
@@ -44,9 +46,8 @@ fd_borrowed_account_drop( fd_borrowed_account_t * borrowed_acct ) {
 /* Destructor  */
 
 static inline void
-fd_borrowed_account_destroy( fd_borrowed_account_t ** borrowed_acct ) {
-  /* Ensure drop was called beforehand to release the acquired write (mutable borrow) */
-  fd_txn_account_release_write_private( (*borrowed_acct)->acct );
+fd_borrowed_account_destroy( fd_borrowed_account_t * borrowed_acct ) {
+  fd_txn_account_release_write_private( borrowed_acct->acct );
   borrowed_acct = NULL;
 }
 
@@ -93,8 +94,7 @@ fd_borrowed_account_get_owner( fd_borrowed_account_t * borrowed_acct ) {
 
 static inline ulong
 fd_borrowed_account_get_lamports( fd_borrowed_account_t * borrowed_acct ) {
-  if( FD_UNLIKELY( !borrowed_acct->acct->const_meta ) ) return 0UL;  /* (!meta) considered an internal error */
-  return borrowed_acct->acct->const_meta->info.lamports;
+  return fd_txn_account_get_lamports( borrowed_acct->acct );
 }
 
 /* fd_borrowed_account_get_rent_epoch mirrors Agave function
@@ -233,7 +233,7 @@ fd_borrowed_account_is_rent_exempt_at_data_length( fd_borrowed_account_t const *
   FD_TEST( acct->const_meta != NULL );
 
   fd_rent_t rent    = borrowed_acct->instr_ctx->epoch_ctx->epoch_bank.rent;
-  ulong min_balance = fd_rent_exempt_minimum_balance( &rent, meta->dlen );
+  ulong min_balance = fd_rent_exempt_minimum_balance( &rent, acct->const_meta->dlen );
   return acct->const_meta->info.lamports >= min_balance;
 }
 
@@ -276,7 +276,7 @@ fd_borrowed_account_is_signer( fd_borrowed_account_t const * borrowed_acct ) {
   }
   /* TODO rename without idx */
   /* TODO instruction acct should just store whether it is a signer */
-  return fd_instr_acc_is_signer_idx( borrowed_acct->instr_ctx->instr, borrowed_acct->instr_acc_idx );
+  return fd_instr_acc_is_signer_idx( borrowed_acct->instr_ctx->instr, (ulong)borrowed_acct->instr_acc_idx );
 }
 
 /* fd_borrowed_account_is_writer mirror the Agave functions
@@ -415,10 +415,11 @@ return -1;
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L241 */
 
 static inline int
-fd_borrowed_account_find_index_of_program_account( fd_exec_txn_ctx_t const * ctx,
-                                          fd_pubkey_t *             pubkey ) {
-  for( ulong i=ctx->accounts_cnt; i>0UL; i-- ) {
-    if( 0==memcmp( pubkey, &ctx->accounts[ i-1UL ], sizeof(fd_pubkey_t) ) ) {
+fd_borrowed_account_find_index_of_program_account( fd_borrowed_account_t const * borrowed_acct,
+                                                   fd_pubkey_t *             pubkey ) {
+  fd_exec_txn_ctx_t const * txn_ctx = borrowed_acct->instr_ctx->txn_ctx;
+  for( ulong i=txn_ctx->accounts_cnt; i>0UL; i-- ) {
+    if( 0==memcmp( pubkey, &txn_ctx->account_keys[ i-1UL ], sizeof(fd_pubkey_t) ) ) {
       return (int)((ushort)i);
     }
   }

@@ -44,6 +44,21 @@ fd_txn_account_init_data( fd_txn_account_t * acct, void * buf ) {
   return new_raw_data;
 }
 
+void
+fd_txn_account_resize( fd_txn_account_t * acct,
+                       ulong              dlen ) {
+  /* Because the memory for an account is preallocated for the transaction
+     up to the max account size, we only need to zero out bytes (for the case
+     where the account grew) and update the account dlen. */
+
+  ulong old_sz    = acct->meta->dlen; 
+  ulong new_sz    = dlen;
+  ulong memset_sz = fd_ulong_sat_sub( new_sz, old_sz );
+  fd_memset( acct->data+old_sz, 0, memset_sz );
+
+  acct->meta->dlen = dlen;
+}
+
 fd_txn_account_t *
 fd_txn_account_make_readonly( fd_txn_account_t * acct, void * buf ) {
   ulong dlen           = ( acct->const_meta != NULL ) ? acct->const_meta->dlen : 0;

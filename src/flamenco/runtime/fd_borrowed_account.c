@@ -6,7 +6,8 @@ fd_borrowed_account_get_data_mut( fd_borrowed_account_t * borrowed_acct,
                                   ulong *                 dlen_out ) {
   fd_txn_account_t * acct = borrowed_acct->acct;
 
-  int err = fd_borrowed_account_can_data_be_changed( borrowed_acct );
+  int err;
+  fd_borrowed_account_can_data_be_changed( borrowed_acct, &err );
   if ( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -79,18 +80,18 @@ fd_borrowed_account_set_lamports( fd_borrowed_account_t * borrowed_acct,
   }
 
   /* Don't copy the account if the lamports do not change */
-  if( acct->const_meta->info.lamports == lamports ) {
+  if( fd_txn_account_get_lamports( acct ) == lamports ) {
     return FD_EXECUTOR_INSTR_SUCCESS;
   }
 
   /* Agave self.touch() is a no-op */
 
-  acct->meta->info.lamports = lamports;
+  fd_txn_account_set_lamports( acct, lamports );
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 int
-fd_account_set_data_from_slice( fd_borrowed_account_t * borrowed_acct,
+fd_borrowed_account_set_data_from_slice( fd_borrowed_account_t * borrowed_acct,
                                 uchar const *           data,
                                 ulong                   data_sz ) {
   fd_txn_account_t * acct = borrowed_acct->acct;
@@ -208,4 +209,3 @@ fd_borrowed_account_update_accounts_resize_delta( fd_borrowed_account_t * borrow
   *err = FD_EXECUTOR_INSTR_SUCCESS;
   return 1;
 }
-

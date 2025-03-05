@@ -37,7 +37,7 @@ fd_setup_vm_acc_region_metas( fd_vm_acc_region_meta_t * acc_regions_meta,
   uint cur_region = 0UL;
   for( ulong i=0UL; i<instr_ctx->instr->acct_cnt; i++ ) {
     cur_region++;
-    fd_borrowed_account_t const * acc = instr_ctx->instr->accounts[i];
+    fd_txn_account_t const * acc = instr_ctx->instr->accounts[i];
     acc_regions_meta[i].region_idx          = cur_region;
     acc_regions_meta[i].has_data_region     = acc->const_meta->dlen>0UL;
     acc_regions_meta[i].has_resizing_region = !vm->is_deprecated;

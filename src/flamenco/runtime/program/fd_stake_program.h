@@ -34,7 +34,7 @@ void
 fd_stake_program_config_init( fd_exec_slot_ctx_t * global );
 
 int
-fd_stake_get_state( fd_borrowed_account_t const * self,
+fd_stake_get_state( fd_txn_account_t const * self,
                     fd_stake_state_v2_t *         out );
 
 fd_stake_history_entry_t
@@ -45,7 +45,7 @@ fd_stake_activating_and_deactivating( fd_delegation_t const *    self,
 
 void
 fd_store_stake_delegation( fd_exec_slot_ctx_t *    slot_ctx,
-                           fd_borrowed_account_t * stake_account );
+                           fd_txn_account_t * stake_account );
 
 FD_PROTOTYPES_END
 

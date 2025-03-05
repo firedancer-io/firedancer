@@ -1,10 +1,12 @@
 #ifndef HEADER_fd_src_flamenco_runtime_context_fd_exec_instr_ctx_h
 #define HEADER_fd_src_flamenco_runtime_context_fd_exec_instr_ctx_h
 
-#include "../../fd_flamenco_base.h"
 #include "../info/fd_instr_info.h"
-#include "../fd_borrowed_account.h"
 #include "../fd_executor_err.h"
+#include "../../../funk/fd_funk.h"
+
+struct fd_borrowed_account;
+typedef struct fd_borrowed_account fd_borrowed_account_t;
 
 /* fd_exec_instr_ctx_t is the context needed to execute a single
    instruction (program invocation). */
@@ -80,7 +82,7 @@ fd_exec_instr_ctx_check_num_insn_accounts( fd_exec_instr_ctx_t * ctx,
 
 int
 fd_exec_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t const * ctx,
-                                      int                         idx,
+                                      ulong                       idx,
                                       fd_borrowed_account_t *     account );
 
 /* A wrapper around fd_exec_instr_ctx_try_borrow_account that accepts an account pubkey.
@@ -91,6 +93,10 @@ int
 fd_exec_instr_ctx_try_borrow_account_with_key( fd_exec_instr_ctx_t *   ctx,
                                                fd_pubkey_t const *     pubkey,
                                                fd_borrowed_account_t * account );
+
+int
+fd_exec_instr_ctx_find_idx_of_instr_account( fd_exec_instr_ctx_t const * ctx,
+                                             fd_pubkey_t const *     pubkey );
 
 FD_PROTOTYPES_END
 

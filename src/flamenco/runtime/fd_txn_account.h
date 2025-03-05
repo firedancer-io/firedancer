@@ -4,9 +4,10 @@
 #include "../../ballet/txn/fd_txn.h"
 #include "../types/fd_types.h"
 #include "../../funk/fd_funk_rec.h"
-#include "fd_acc_mgr.h"
-#include "../context/fd_exec_txn_ctx.h"
-#include <cstdint>
+#include "program/fd_program_util.h"
+
+struct fd_acc_mgr;
+typedef struct fd_acc_mgr fd_acc_mgr_t;
 
 struct __attribute__((aligned(8UL))) fd_txn_account {
   ulong                       magic;
@@ -46,6 +47,8 @@ typedef struct fd_txn_account fd_txn_account_t;
 
 #define FD_TXN_ACCOUNT_DECL(_x)  fd_txn_account_t _x[1]; fd_txn_account_init(_x);
 
+FD_PROTOTYPES_BEGIN
+
 /* Initializes an fd_txn_account from a pointer to a region of memory */
 fd_txn_account_t *
 fd_txn_account_init( void * ptr );
@@ -55,7 +58,7 @@ fd_txn_account_init( void * ptr );
 /* Resizes the account data */
 void
 fd_txn_account_resize( fd_txn_account_t * acct,
-                    ulong           dlen );
+                       ulong              dlen );
 
 /* Returns the total size of the account shared data */
 FD_FN_PURE static inline ulong
@@ -65,7 +68,7 @@ fd_txn_account_raw_size( fd_txn_account_t const * acct ) {
 }
 
 static inline int
-fd_txn_account_is_executable( fd_txn_account_t * acct ) {
+fd_txn_account_is_executable( fd_txn_account_t const * acct ) {
   return !!acct->const_meta->info.executable;
 }
 
@@ -97,6 +100,29 @@ fd_txn_account_make_readonly( fd_txn_account_t * acct,
    otherwise returns null. */
 void *
 fd_txn_account_restore( fd_txn_account_t * acct );
+
+static inline void
+fd_txn_account_set_lamports( fd_txn_account_t * acct, ulong lamports ) {
+  acct->meta->info.lamports = lamports;
+}
+
+static inline int
+fd_txn_account_checked_add_lamports( fd_txn_account_t * acct, ulong lamports ) {
+  ulong balance_post = 0UL;
+  int err = fd_ulong_checked_add( acct->const_meta->info.lamports, lamports, &balance_post );
+  if( FD_UNLIKELY( err ) ) {
+    return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;
+  }
+
+  fd_txn_account_set_lamports( acct, balance_post );
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
+static inline ulong
+fd_txn_account_get_lamports( fd_txn_account_t * acct ) {
+  if( FD_UNLIKELY( !acct->const_meta ) ) return 0UL; /* (!meta) considered an internal error */
+  return acct->const_meta->info.lamports;
+}
 
 /* read/write mutual exclusion */
 
@@ -142,5 +168,7 @@ fd_txn_account_release_write_private(fd_txn_account_t * acct ) {
 /* Factory constructors */
 int
 fd_txn_account_create_from_funk( fd_txn_account_t * acct_ptr, fd_pubkey_t * acc_pubkey, fd_acc_mgr_t * acc_mgr, fd_funk_txn_t * funk_txn );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_txn_account_h */

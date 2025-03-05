@@ -5,7 +5,7 @@
 #include "fd_pubkey_utils.h"
 
 #include "fd_executor.h"
-#include "fd_account.h"
+#include "fd_borrowed_account.h"
 #include "fd_hashes.h"
 #include "fd_txncache.h"
 #include "sysvar/fd_sysvar_cache.h"
@@ -206,7 +206,7 @@ fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off, ulon
     }
 
     fd_pubkey_t const *key = fd_type_pun_const( rec_ro->pair.key[0].uc );
-    FD_BORROWED_ACCOUNT_DECL( rec );
+    FD_TXN_ACCOUNT_DECL( rec );
     int err = fd_acc_mgr_view( acc_mgr, txn, key, rec );
 
     /* Account might not exist anymore in the current world */
@@ -369,7 +369,7 @@ fd_runtime_collect_rent( fd_exec_slot_ctx_t * slot_ctx ) {
    Returns the amount to burn(==fee) on failure */
 static ulong
 fd_runtime_validate_fee_collector( fd_exec_slot_ctx_t    const * slot_ctx,
-                                   fd_borrowed_account_t const * collector,
+                                   fd_txn_account_t const * collector,
                                    ulong                         fee ) {
   if( FD_UNLIKELY( fee<=0UL ) ) {
     FD_LOG_ERR(( "expected fee(%lu) to be >0UL", fee ));
@@ -540,7 +540,7 @@ fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
     if( rent_to_be_paid > 0 ) {
       fd_pubkey_t pubkey = validator_stakes[i].pubkey;
 
-      FD_BORROWED_ACCOUNT_DECL(rec);
+      FD_TXN_ACCOUNT_DECL(rec);
 
       int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &pubkey, rec );
       if( FD_UNLIKELY(err) ) {
@@ -596,7 +596,7 @@ fd_runtime_distribute_rent( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_s
 
 static int
 fd_runtime_run_incinerator( fd_exec_slot_ctx_t * slot_ctx ) {
-  FD_BORROWED_ACCOUNT_DECL( rec );
+  FD_TXN_ACCOUNT_DECL( rec );
 
   int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_incinerator_id, 0, 0UL, rec );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
@@ -636,7 +636,7 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   }
   if( FD_LIKELY( fees ) ) {
     // Look at collect_fees... I think this was where I saw the fee payout..
-    FD_BORROWED_ACCOUNT_DECL(rec);
+    FD_TXN_ACCOUNT_DECL(rec);
 
     do {
       /* do_create=1 because we might wanna pay fees to a leader
@@ -875,7 +875,7 @@ fd_runtime_write_transaction_status( fd_capture_ctx_t * capture_ctx,
 
       fd_exec_instr_ctx_t const * failed_instr = txn_ctx->failed_instr;
       if( failed_instr ) {
-        assert( failed_instr->depth < 4 );
+        FD_TEST( failed_instr->depth < 4 );
         txn.instr_err               = failed_instr->instr_err;
         txn.failed_instr_path_count = failed_instr->depth + 1;
         for( long j = failed_instr->depth; j>=0L; j-- ) {
@@ -1675,7 +1675,7 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
        the lamport balance has to change. */
     fd_txn_account_t * acct = fd_txn_account_init( &txn_ctx->accounts[0] );
 
-    fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->accounts[0], acct );
+    fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->account_keys[0], acct );
     memcpy( acct->pubkey->key, &txn_ctx->accounts[0], sizeof(fd_pubkey_t) );
 
     void * acct_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
@@ -2068,7 +2068,7 @@ fd_update_next_epoch_stakes( fd_exec_slot_ctx_t * slot_ctx ) {
 static int
 fd_new_target_program_account( fd_exec_slot_ctx_t *    slot_ctx,
                                const fd_pubkey_t *     target_program_data_address,
-                               fd_borrowed_account_t * out_rec ) {
+                               fd_txn_account_t * out_rec ) {
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/sdk/account/src/lib.rs#L471 */
   out_rec->meta->info.rent_epoch = 0UL;
 
@@ -2117,8 +2117,8 @@ fd_new_target_program_account( fd_exec_slot_ctx_t *    slot_ctx,
 static int
 fd_new_target_program_data_account( fd_exec_slot_ctx_t *    slot_ctx,
                                     fd_pubkey_t *           config_upgrade_authority_address,
-                                    fd_borrowed_account_t * buffer_acc_rec,
-                                    fd_borrowed_account_t * new_target_program_data_account,
+                                    fd_txn_account_t * buffer_acc_rec,
+                                    fd_txn_account_t * new_target_program_data_account,
                                     fd_spad_t *             runtime_spad ) {
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
@@ -2227,7 +2227,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
   /* These checks will fail if the core program has already been migrated to BPF, since the account will exist + the program owner
      will no longer be the native loader.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L23-L50 */
-  FD_BORROWED_ACCOUNT_DECL( target_program_account );
+  FD_TXN_ACCOUNT_DECL( target_program_account );
   uchar program_exists = ( fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, builtin_program_id, target_program_account )==FD_ACC_MGR_SUCCESS );
   if( !stateless ) {
     /* The program account should exist.
@@ -2266,7 +2266,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_ERR(( "Unable to find a viable program address bump seed" )); // Solana panics, error code is undefined
     return;
   }
-  FD_BORROWED_ACCOUNT_DECL( program_data_account );
+  FD_TXN_ACCOUNT_DECL( program_data_account );
   if( FD_UNLIKELY( fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, target_program_data_address, program_data_account )==FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_WARNING(( "Program data account %s already exists, skipping migration...", FD_BASE58_ENC_32_ALLOCA( target_program_data_address ) ));
     return;
@@ -2280,7 +2280,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
 
   /* The buffer account should exist.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/source_buffer.rs#L26-L29 */
-  FD_BORROWED_ACCOUNT_DECL( source_buffer_account );
+  FD_TXN_ACCOUNT_DECL( source_buffer_account );
   if( FD_UNLIKELY( fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, source_buffer_address, 0, 0UL, source_buffer_account )!=FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_WARNING(( "Buffer account %s does not exist, skipping migration...", FD_BASE58_ENC_32_ALLOCA( source_buffer_address ) ));
     return;
@@ -2311,7 +2311,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
   /* Attempt serialization of program account. If the program is stateless, we want to create the account. Otherwise,
      we want a writable handle to modify the existing account.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L246-L249 */
-  FD_BORROWED_ACCOUNT_DECL( new_target_program_account );
+  FD_TXN_ACCOUNT_DECL( new_target_program_account );
   err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, builtin_program_id, stateless, SIZE_OF_PROGRAM, new_target_program_account );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "Builtin program ID %s does not exist", FD_BASE58_ENC_32_ALLOCA( builtin_program_id ) ));
@@ -2329,7 +2329,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Create a new target program data account. */
   ulong new_target_program_data_account_sz = PROGRAMDATA_METADATA_SIZE - BUFFER_METADATA_SIZE + source_buffer_account->const_meta->dlen;
-  FD_BORROWED_ACCOUNT_DECL( new_target_program_data_account );
+  FD_TXN_ACCOUNT_DECL( new_target_program_data_account );
   err = fd_acc_mgr_modify( slot_ctx->acc_mgr,
                            slot_ctx->funk_txn,
                            target_program_data_address,
@@ -2454,7 +2454,7 @@ fd_feature_activate( fd_exec_slot_ctx_t *   slot_ctx,
     return;
   }
 
-  FD_BORROWED_ACCOUNT_DECL( acct_rec );
+  FD_TXN_ACCOUNT_DECL( acct_rec );
   int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t*)acct, acct_rec );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     return;
@@ -2488,7 +2488,7 @@ fd_feature_activate( fd_exec_slot_ctx_t *   slot_ctx,
   } else {
     FD_LOG_INFO(( "Feature %s not activated at %lu, activating", FD_BASE58_ENC_32_ALLOCA( acct ), feature->activated_at ));
 
-    FD_BORROWED_ACCOUNT_DECL( modify_acct_rec );
+    FD_TXN_ACCOUNT_DECL( modify_acct_rec );
     err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t *)acct, 0, 0UL, modify_acct_rec );
     if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
       return;
@@ -3245,7 +3245,7 @@ fd_runtime_init_bank_from_genesis( fd_exec_slot_ctx_t *  slot_ctx,
       /* stake program account */
       fd_stake_state_v2_t   stake_state   = {0};
       fd_account_meta_t     meta          = { .dlen = acc->account.data_len };
-      fd_borrowed_account_t stake_account = {
+      fd_txn_account_t stake_account = {
         .const_data = acc->account.data,
         .const_meta = &meta,
         .data = acc->account.data,
@@ -3469,7 +3469,7 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
     for( ulong i=0; i<genesis_block.accounts_len; i++ ) {
       fd_pubkey_account_pair_t * a = &genesis_block.accounts[i];
 
-      FD_BORROWED_ACCOUNT_DECL( rec );
+      FD_TXN_ACCOUNT_DECL( rec );
 
       int err = fd_acc_mgr_modify( slot_ctx->acc_mgr,
                                    slot_ctx->funk_txn,

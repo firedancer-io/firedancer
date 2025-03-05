@@ -1,6 +1,5 @@
 #include "fd_exec_instr_ctx.h"
-#include "fd_exec_txn_ctx.h"
-#include "../fd_acc_mgr.h"
+#include "../fd_borrowed_account.h"
 
 void *
 fd_exec_instr_ctx_new( void * mem ) {
@@ -84,7 +83,7 @@ fd_exec_instr_ctx_delete( void * mem ) {
 
 int
 fd_exec_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t const * ctx,
-                                      int                         idx,
+                                      ulong                       idx,
                                       fd_borrowed_account_t *     account ) {
   /* Return a MissingAccount error if the idx is out of bounds.
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L603 */
@@ -103,17 +102,29 @@ fd_exec_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t const * ctx,
 
   /* Return a BorrowedAccount upon success.
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L606 */
-  fd_borrowed_account_init( account, instr_account, ctx, idx );
+  fd_borrowed_account_init( account, instr_account, ctx, (int)idx );
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-int fd_exec_instr_ctx_try_borrow_account_with_key(fd_exec_instr_ctx_t *   ctx,
-                                                  fd_pubkey_t const *     pubkey,
-                                                  fd_borrowed_account_t * account ) {
+int
+fd_exec_instr_ctx_try_borrow_account_with_key( fd_exec_instr_ctx_t *   ctx,
+                                               fd_pubkey_t const *     pubkey,
+                                               fd_borrowed_account_t * account ) {
   for( ulong i = 0; i < ctx->instr->acct_cnt; i++ ) {
     if( memcmp( pubkey->uc, ctx->instr->acct_pubkeys[i].uc, sizeof(fd_pubkey_t) )==0 ) {
       return fd_exec_instr_ctx_try_borrow_account( ctx, i, account );
     }
   }
   return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
+}
+
+int
+fd_exec_instr_ctx_find_idx_of_instr_account( fd_exec_instr_ctx_t const * ctx,
+                                             fd_pubkey_t const *         pubkey ) {
+  for( int i = 0; i < ctx->instr->acct_cnt; i++ ) {
+    if( memcmp( pubkey->uc, ctx->instr->acct_pubkeys[i].uc, sizeof(fd_pubkey_t) )==0 ) {
+      return i;
+    }
+  }
+  return -1;
 }

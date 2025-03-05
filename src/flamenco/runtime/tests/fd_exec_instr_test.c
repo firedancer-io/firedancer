@@ -4,7 +4,7 @@
 #define FD_SPAD_USE_HANDHOLDING 1
 #include "fd_exec_instr_test.h"
 #include "../fd_acc_mgr.h"
-#include "../fd_account.h"
+#include "../fd_borrowed_account.h"
 #include "../fd_executor.h"
 #include "../fd_runtime.h"
 #include "../program/fd_bpf_loader_serialization.h"
@@ -137,11 +137,11 @@ fd_double_is_normal( double dbl ) {
 }
 
 static int
-_load_account( fd_borrowed_account_t *           acc,
+_load_account( fd_txn_account_t *           acc,
                fd_acc_mgr_t *                    acc_mgr,
                fd_funk_txn_t *                   funk_txn,
                fd_exec_test_acct_state_t const * state ) {
-  fd_borrowed_account_init( acc );
+  fd_txn_account_init( acc );
   ulong size = 0UL;
   if( state->data ) size = state->data->size;
 
@@ -181,7 +181,7 @@ _load_account( fd_borrowed_account_t *           acc,
 }
 
 static int
-_load_txn_account( fd_borrowed_account_t *           acc,
+_load_txn_account( fd_txn_account_t *           acc,
                    fd_acc_mgr_t *                    acc_mgr,
                    fd_funk_txn_t *                   funk_txn,
                    fd_exec_test_acct_state_t const * state ) {
@@ -320,24 +320,24 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   assert( acc_mgr->funk );
 
-  fd_borrowed_account_t * borrowed_accts = txn_ctx->accounts;
-  fd_memset( borrowed_accts, 0, test_ctx->accounts_count * sizeof(fd_borrowed_account_t) );
+  fd_txn_account_t * accts = txn_ctx->accounts;
+  fd_memset( accts, 0, test_ctx->accounts_count * sizeof(fd_txn_account_t) );
   txn_ctx->accounts_cnt = test_ctx->accounts_count;
 
   int has_program_id = 0;
 
   for( ulong j=0UL; j < test_ctx->accounts_count; j++ ) {
     memcpy(  &(txn_ctx->accounts[j]), test_ctx->accounts[j].address, sizeof(fd_pubkey_t) );
-    if( !_load_account( &borrowed_accts[j], acc_mgr, funk_txn, &test_ctx->accounts[j] ) ) {
+    if( !_load_account( &accts[j], acc_mgr, funk_txn, &test_ctx->accounts[j] ) ) {
       return 0;
     }
 
-    if( borrowed_accts[j].const_meta ) {
+    if( accts[j].const_meta ) {
       uchar * data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
-      ulong   dlen = borrowed_accts[j].const_meta->dlen;
-      fd_memcpy( data, borrowed_accts[j].const_meta, sizeof(fd_account_meta_t)+dlen );
-      borrowed_accts[j].const_meta = (fd_account_meta_t*)data;
-      borrowed_accts[j].const_data = data + sizeof(fd_account_meta_t);
+      ulong   dlen = accts[j].const_meta->dlen;
+      fd_memcpy( data, accts[j].const_meta, sizeof(fd_account_meta_t)+dlen );
+      accts[j].const_meta = (fd_account_meta_t*)data;
+      accts[j].const_data = data + sizeof(fd_account_meta_t);
     }
 
     if( !memcmp( borrowed_accts[j].pubkey, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
@@ -362,30 +362,30 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Load in executable accounts */
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
-    if ( memcmp( borrowed_accts[i].const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) != 0
-      && memcmp( borrowed_accts[i].const_meta->info.owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) != 0
-      && memcmp( borrowed_accts[i].const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) != 0
-      && memcmp( borrowed_accts[i].const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) != 0
+    if ( memcmp( accts[i].const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) != 0
+      && memcmp( accts[i].const_meta->info.owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) != 0
+      && memcmp( accts[i].const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) != 0
+      && memcmp( accts[i].const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) != 0
     ) {
       continue;
     }
 
-    fd_account_meta_t const * meta = borrowed_accts[i].const_meta ? borrowed_accts[i].const_meta : borrowed_accts[i].meta;
+    fd_account_meta_t const * meta = accts[i].const_meta ? accts[i].const_meta : accts[i].meta;
     if (meta == NULL) {
       static const fd_account_meta_t sentinel = { .magic = FD_ACCOUNT_META_MAGIC };
-      borrowed_accts[i].const_meta        = &sentinel;
-      borrowed_accts[i].starting_lamports = 0UL;
-      borrowed_accts[i].starting_dlen     = 0UL;
+      accts[i].const_meta        = &sentinel;
+      accts[i].starting_lamports = 0UL;
+      accts[i].starting_dlen     = 0UL;
       continue;
     }
 
     if( meta->info.executable ) {
-      FD_BORROWED_ACCOUNT_DECL(owner_borrowed_account);
+      FD_TXN_ACCOUNT_DECL(owner_borrowed_account);
       int err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t *)meta->info.owner, owner_borrowed_account );
       if( FD_UNLIKELY( err ) ) {
-        borrowed_accts[i].starting_owner_dlen = 0;
+        accts[i].starting_owner_dlen = 0;
       } else {
-        borrowed_accts[i].starting_owner_dlen = owner_borrowed_account->const_meta->dlen;
+        accts[i].starting_owner_dlen = owner_borrowed_account->const_meta->dlen;
       }
     }
 
@@ -400,7 +400,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
       }
 
       fd_pubkey_t *           programdata_acc    = &program_loader_state->inner.program.programdata_address;
-      fd_borrowed_account_t * executable_account = fd_borrowed_account_init( &txn_ctx->executable_accounts[txn_ctx->executable_cnt] );
+      fd_txn_account_t * executable_account = fd_txn_account_init( &txn_ctx->executable_accounts[txn_ctx->executable_cnt] );
       fd_acc_mgr_view(txn_ctx->acc_mgr, txn_ctx->funk_txn, programdata_acc, executable_account);
       txn_ctx->executable_cnt++;
     }
@@ -503,7 +503,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
       return 0;
     }
 
-    fd_borrowed_account_t * acc = &borrowed_accts[ index ];
+    fd_txn_account_t * acc = &accts[ index ];
     uint flags = 0;
     flags |= test_ctx->instr_accounts[j].is_writable ? FD_INSTR_ACCT_FLAGS_IS_WRITABLE : 0;
     flags |= test_ctx->instr_accounts[j].is_signer   ? FD_INSTR_ACCT_FLAGS_IS_SIGNER   : 0;
@@ -633,7 +633,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   for( ulong i = 0; i < test_ctx->account_shared_data_count; i++ ) {
     /* Load the accounts into the account manager
        Borrowed accounts get reset anyways - we just need to load the account somewhere */
-    FD_BORROWED_ACCOUNT_DECL(acc);
+    FD_TXN_ACCOUNT_DECL( acc );
     _load_txn_account( acc, acc_mgr, funk_txn, &test_ctx->account_shared_data[i] );
   }
 
@@ -1052,7 +1052,7 @@ fd_exec_instr_test_run( fd_exec_instr_test_runner_t * runner,
   /* Capture borrowed accounts */
 
   for( ulong j=0UL; j < ctx->txn_ctx->accounts_cnt; j++ ) {
-    fd_borrowed_account_t * acc = &ctx->txn_ctx->accounts[j];
+    fd_txn_account_t * acc = &ctx->txn_ctx->accounts[j];
     if( !acc->const_meta ) {
       continue;
     }
@@ -1228,7 +1228,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
 
     /* Capture borrowed accounts */
     for( ulong j=0UL; j < txn_ctx->accounts_cnt; j++ ) {
-      fd_borrowed_account_t * acc = &txn_ctx->accounts[j];
+      fd_txn_account_t * acc = &txn_ctx->accounts[j];
 
       /* For fees-only transactions, only save the fee payer (and potentially the nonce) only */
       if( task_info->txn->flags & FD_TXN_P_FLAGS_FEES_ONLY ) {
@@ -1723,7 +1723,7 @@ __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
       uchar idx_in_txn = instr_info->acct_txn_idxs[i];
       fd_pubkey_t * acct_pubkey = &instr_info->acct_pubkeys[i];
 
-      fd_borrowed_account_t * acct = NULL;
+      fd_txn_account_t * acct = NULL;
       /* Find (first) account in cpi_exec_effects->modified_accounts that matches pubkey */
       for( uint j = 0UL; j < cpi_exec_effects->modified_accounts_count; ++j ) {
         fd_exec_test_acct_state_t * acct_state = &cpi_exec_effects->modified_accounts[j];
@@ -1734,7 +1734,7 @@ __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
            TODO: Once direct mapping is enabled we _technically_ don't need
                  this check */
 
-        if( fd_exec_txn_ctx_get_txn_acct_view_idx( txn_ctx, idx_in_txn, &acct ) ) {
+        if( fd_exec_txn_ctx_get_account_view_idx( txn_ctx, idx_in_txn, &acct ) ) {
           break;
         }
         if( acct->meta == NULL ){
@@ -1742,7 +1742,7 @@ __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
         }
 
         /* Now borrow mutably (with resize) */
-        int err = fd_exec_txn_ctx_get_txn_acct_modify_idx( txn_ctx,
+        int err = fd_exec_txn_ctx_get_account_modify_idx( txn_ctx,
                                                       idx_in_txn,
                                                       /* Do not reallocate if data is not going to be modified */
                                                       acct_state->data ? acct_state->data->size : 0UL,

@@ -5,8 +5,6 @@
 #include "../../../util/fd_util_base.h"
 #include "../../log_collector/fd_log_collector_base.h"
 
-#include "../fd_txn_account.h"
-
 #include "../../../ballet/txn/fd_txn.h"
 
 /* Return data for syscalls */
@@ -86,7 +84,7 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118
      That is the limit we are going to use here. */
   ulong                 accounts_cnt;                                /* Number of account pubkeys accessed by this transaction. */
-  fd_pubkey_t           acct_keys[ MAX_TX_ACCOUNT_LOCKS ];            /* Array of account pubkeys accessed by this transaction. */
+  fd_pubkey_t           account_keys[ MAX_TX_ACCOUNT_LOCKS ];            /* Array of account pubkeys accessed by this transaction. */
   ulong                 executable_cnt;                              /* Number of BPF upgradeable loader accounts. */
   fd_txn_account_t         executable_accounts[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of BPF upgradeable loader program data accounts */
   fd_txn_account_t         accounts[ MAX_TX_ACCOUNT_LOCKS ];            /* Array of borrowed accounts accessed by this transaction. */
@@ -203,7 +201,7 @@ void
 fd_exec_txn_ctx_teardown( fd_exec_txn_ctx_t * txn_ctx );
 
 int
-fd_exec_txn_ctx_get_txn_acct_view_idx( fd_exec_txn_ctx_t * ctx,
+fd_exec_txn_ctx_get_account_view_idx( fd_exec_txn_ctx_t * ctx,
                                   uchar idx,
                                   fd_txn_account_t * * account );
 
@@ -214,17 +212,17 @@ fd_exec_txn_ctx_get_txn_acct_view_idx( fd_exec_txn_ctx_t * ctx,
    https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/program-runtime/src/invoke_context.rs#L453
    This function allows us to more closely emulate that behavior. */
 int
-fd_exec_txn_ctx_get_txn_acct_view_idx_allow_dead( fd_exec_txn_ctx_t * ctx,
+fd_exec_txn_ctx_get_account_view_idx_allow_dead( fd_exec_txn_ctx_t * ctx,
                                              uchar idx,
                                              fd_txn_account_t * * account );
 
 int
-fd_exec_txn_ctx_get_txn_acct_view( fd_exec_txn_ctx_t * ctx,
+fd_exec_txn_ctx_get_account_view( fd_exec_txn_ctx_t * ctx,
                               fd_pubkey_t const *      pubkey,
                               fd_txn_account_t * * account );
 
 int
-fd_exec_txn_ctx_get_txn_acct_executable_view( fd_exec_txn_ctx_t * ctx,
+fd_exec_txn_ctx_get_account_executable_view( fd_exec_txn_ctx_t * ctx,
                               fd_pubkey_t const *      pubkey,
                               fd_txn_account_t * * account );
 
@@ -234,16 +232,16 @@ fd_exec_txn_ctx_get_txn_acct_executable_view( fd_exec_txn_ctx_t * ctx,
    Agave and Firedancer will reject the fee payer if the transaction message
    doesn't have a writable signature. */
 int
-fd_exec_txn_ctx_get_txn_acct_modify_fee_payer( fd_exec_txn_ctx_t *       ctx,
+fd_exec_txn_ctx_get_account_modify_fee_payer( fd_exec_txn_ctx_t *       ctx,
                                           fd_txn_account_t * * account );
 
 int
-fd_exec_txn_ctx_get_txn_acct_modify_idx( fd_exec_txn_ctx_t * ctx,
+fd_exec_txn_ctx_get_account_modify_idx( fd_exec_txn_ctx_t * ctx,
                                     uchar idx,
                                     ulong min_data_sz,
                                     fd_txn_account_t * * account );
 int
-fd_exec_txn_ctx_get_txn_acct_modify( fd_exec_txn_ctx_t * ctx,
+fd_exec_txn_ctx_get_account_modify( fd_exec_txn_ctx_t * ctx,
                                 fd_pubkey_t const * pubkey,
                                 ulong min_data_sz,
                                 fd_txn_account_t * * account );

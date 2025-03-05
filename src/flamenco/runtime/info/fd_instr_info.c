@@ -1,6 +1,6 @@
 #include "fd_instr_info.h"
 
-#include "../fd_account.h"
+#include "../fd_borrowed_account.h"
 #include "../../../util/bits/fd_uwide.h"
 
 void
@@ -11,7 +11,7 @@ fd_convert_txn_instr_to_instr( fd_exec_txn_ctx_t *     txn_ctx,
 
   fd_txn_t const *      txn_descriptor = txn_ctx->txn_descriptor;
   fd_rawtxn_b_t const * txn_raw = txn_ctx->_txn_raw;
-  const fd_pubkey_t *   accounts = txn_ctx->accounts;
+  const fd_pubkey_t *   accounts = txn_ctx->account_keys;
 
   instr->program_id        = txn_instr->program_id;
   instr->program_id_pubkey = accounts[txn_instr->program_id];

@@ -3,8 +3,7 @@
 
 #include "../../fd_flamenco_base.h"
 #include "../../types/fd_types.h"
-#include "../fd_borrowed_account.h"
-
+#include "../fd_txn_account.h"
 // TODO: rename to _MASK
 #define FD_INSTR_ACCT_FLAGS_IS_SIGNER   (0x01U)
 #define FD_INSTR_ACCT_FLAGS_IS_WRITABLE (0x02U)
@@ -25,7 +24,7 @@ struct fd_instr_info {
   uchar                   is_duplicate[FD_INSTR_ACCT_MAX];
 
   /* Indexed by index in instruction, not by index in transaction. */
-  fd_txn_account_t * accounts[FD_INSTR_ACCT_MAX];
+  fd_txn_account_t *      accounts[FD_INSTR_ACCT_MAX];
 
   /* fd_uwide representation of uint_128 */
   ulong                   starting_lamports_h;
@@ -39,7 +38,7 @@ FD_PROTOTYPES_BEGIN
 void
 fd_convert_txn_instr_to_instr( fd_exec_txn_ctx_t *     txn_ctx,
                                fd_txn_instr_t const *  txn_instr,
-                               fd_txn_account_t * accts,
+                               fd_txn_account_t *      accts,
                                fd_instr_info_t *       instr );
 
 FD_FN_PURE static inline int

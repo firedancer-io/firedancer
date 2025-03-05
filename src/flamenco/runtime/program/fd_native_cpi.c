@@ -1,5 +1,5 @@
 #include "fd_native_cpi.h"
-#include "../fd_account.h"
+#include "../fd_borrowed_account.h"
 #include "../fd_executor.h"
 #include "../../vm/syscall/fd_vm_syscall.h"
 #include "../../../util/bits/fd_uwide.h"
@@ -20,7 +20,7 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
   instr_info->program_id = UCHAR_MAX;
 
   for( ulong i = 0UL; i < ctx->txn_ctx->accounts_cnt; i++ ) {
-    if( !memcmp( fd_solana_system_program_id.key, ctx->txn_ctx->accounts[i].key, sizeof(fd_pubkey_t) ) ) {
+    if( !memcmp( fd_solana_system_program_id.key, ctx->txn_ctx->account_keys[i].key, sizeof(fd_pubkey_t) ) ) {
       instr_info->program_id = (uchar)i;
       break;
     }
