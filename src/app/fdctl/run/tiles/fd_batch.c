@@ -407,7 +407,8 @@ produce_eah( fd_snapshot_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong batch
   fd_funkier_t *           funk     = ctx->funk;
   fd_funkier_txn_t *       eah_txn  = get_eah_txn( funk, eah_slot );
   fd_funkier_rec_key_t     slot_id  = fd_runtime_slot_bank_key();
-  fd_funkier_rec_t const * slot_rec = fd_funkier_rec_query( funk, eah_txn, &slot_id );
+  fd_funkier_rec_query_t   query[1];
+  fd_funkier_rec_t const * slot_rec = fd_funkier_rec_query_try( funk, eah_txn, &slot_id, query );
   if( FD_UNLIKELY( !slot_rec ) ) {
     FD_LOG_ERR(( "Failed to read slot bank record: missing record" ));
   }
@@ -421,7 +422,7 @@ produce_eah( fd_snapshot_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong batch
   FD_SPAD_FRAME_BEGIN( ctx->spad ) {
     fd_bincode_decode_ctx_t slot_decode_ctx = {
       .data    = (uchar*)slot_val + sizeof(uint),
-      .dataend = (uchar*)slot_val + fd_funk_val_sz( slot_rec )
+      .dataend = (uchar*)slot_val + fd_funkier_val_sz( slot_rec )
     };
 
     if( FD_UNLIKELY( slot_magic!=FD_RUNTIME_ENC_BINCODE ) ) {
@@ -488,7 +489,7 @@ after_credit( fd_snapshot_tile_ctx_t * ctx,
                                    0UL,
                                    0UL,
                                    0UL,
-                                   FD_FUNK_READ_WRITE,
+                                   FD_FUNKIER_READ_WRITE,
                                    NULL );
     if( FD_UNLIKELY( !ctx->funk ) ) {
       FD_LOG_ERR(( "failed to join a funky" ));
