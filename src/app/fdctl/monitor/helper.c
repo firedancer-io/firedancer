@@ -211,15 +211,12 @@ fd_getchar( void ) {
     FD_LOG_ERR(( "select(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  long bytes = 0;
   if( FD_UNLIKELY( FD_ISSET( STDIN_FILENO, &stdin_status ) ) )
   {
-    bytes = read( STDIN_FILENO, ch, 1 );
-  }
-  /* Check if the read was not successfull, lack of input and being set to non blocking would result in EAGAIN(11) */
-  if( FD_UNLIKELY( -1==bytes && errno!=EAGAIN ) )
-  {
-    FD_LOG_ERR(( "read(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( read( STDIN_FILENO, ch, 1 )<0 ) )
+    {
+      FD_LOG_ERR(( "read(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    }
   }
 
   /* Set the terminal back to the original configuration */
