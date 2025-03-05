@@ -8,6 +8,104 @@
 #include "../../ballet/json/cJSON.h"
 #include "../../flamenco/genesis/fd_genesis_cluster.h"
 
+#define SORT_NAME        fd_sort_gui_gossip_peer
+#define SORT_KEY_T       fd_gui_gossip_peer_t
+#define SORT_BEFORE(a,b) memcmp( a.pubkey, b.pubkey, 32UL )<0
+#include "../../util/tmpl/fd_sort.c"
+
+#define SORT_NAME        fd_sort_gui_vote_account
+#define SORT_KEY_T       fd_gui_vote_account_t
+#define SORT_BEFORE(a,b) memcmp( a.vote_account, b.vote_account, 32UL )<0
+#include "../../util/tmpl/fd_sort.c"
+
+#define SORT_NAME        fd_sort_gui_validator_info
+#define SORT_KEY_T       fd_gui_validator_info_t
+#define SORT_BEFORE(a,b) memcmp( a.pubkey, b.pubkey, 32UL )<0
+#include "../../util/tmpl/fd_sort.c"
+
+#define SORT_NAME        fd_sort_gui_stakes
+#define SORT_KEY_T       fd_pubkey_t
+#define SORT_BEFORE(a,b) memcmp( &(a), &(b), 32UL )<0
+#include "../../util/tmpl/fd_sort.c"
+
+/* fd_gui_*_contains functions check if the provided pubkey is in the
+   set of peers designated by the function name.  They return the index
+   into a corresponding buffer of peer objects or ULONG_MAX if a match
+   is not found.
+
+   Peer arrays must be sorted any time they are updated, otherwise these
+   functions may return incorrect results. */
+
+static ulong
+fd_gui_gossip_contains( fd_gui_t *    gui,
+                        uchar const * pubkey ) {
+  fd_gui_gossip_peer_t query;
+  fd_memcpy( query.pubkey, pubkey, 32UL );
+  ulong pubkey_idx = fd_sort_gui_gossip_peer_search_geq( gui->gossip.peers, gui->gossip.peer_cnt, query );
+
+  if( FD_UNLIKELY( !memcmp( gui->gossip.peers[ pubkey_idx ].pubkey->uc, pubkey, 32UL ) ) ) return pubkey_idx;
+  else                                                                                     return ULONG_MAX;
+}
+
+static ulong
+fd_gui_vote_acct_contains( fd_gui_t *    gui,
+                           uchar const * pubkey ) {
+  fd_gui_vote_account_t query;
+  fd_memcpy( query.vote_account, pubkey, 32UL );
+  ulong pubkey_idx = fd_sort_gui_vote_account_search_geq( gui->vote_account.vote_accounts, gui->vote_account.vote_account_cnt, query );
+
+  if( FD_UNLIKELY( !memcmp( gui->vote_account.vote_accounts[ pubkey_idx ].vote_account->uc, pubkey, 32UL ) ) ) return pubkey_idx;
+  else                                                                                                         return ULONG_MAX;
+}
+
+static ulong
+fd_gui_validator_info_contains( fd_gui_t *    gui,
+                                uchar const * pubkey ) {
+  fd_gui_validator_info_t query;
+  fd_memcpy( query.pubkey, pubkey, 32UL );
+  ulong pubkey_idx = fd_sort_gui_validator_info_search_geq( gui->validator_info.info, gui->validator_info.info_cnt, query );
+
+  if( FD_UNLIKELY( !memcmp( gui->validator_info.info[ pubkey_idx ].pubkey->uc, pubkey, 32UL ) ) ) return pubkey_idx;
+  else                                                                                            return ULONG_MAX;
+}
+
+int
+fd_gui_staked_nodes_contains( fd_gui_t *    gui,
+                              uchar const * pubkey ) {
+  int found = 0;
+  for (ulong i=0UL; i<3UL; i++) {
+    if( FD_UNLIKELY( !gui->epoch.has_epoch[ i ] ) ) continue;
+
+    fd_pubkey_t query;
+    fd_memcpy( &query, pubkey, 32UL );
+    ulong pubkey_idx = fd_sort_gui_stakes_search_geq( gui->epoch.epochs[ i ].stakes_sorted, gui->epoch.epochs[ i ].lsched->pub_cnt, query );
+
+    if( FD_UNLIKELY( !memcmp( gui->epoch.epochs[ i ].stakes_sorted[ pubkey_idx ].uc, pubkey, 32UL ) ) ) found = 1;
+  }
+
+  return found;
+}
+
+/* A peer is sent to the frontend only if it falls into any of these
+   categories:
+   - has active stake in the current epoch
+   - had active stake in the previous epoch
+   - will have active stake in the next epoch
+   - is this validator
+
+   We determine that a node is an rpc node if it has at least one vote
+   account and its also has zero vote accounts with active stake this
+   epoch. */
+
+static int
+fd_gui_send_to_frontend( fd_gui_t *    gui,
+                         uchar const * pubkey ) {
+  if( FD_UNLIKELY( fd_gui_staked_nodes_contains( gui, pubkey ) ) )            return 1;
+  if( FD_UNLIKELY( !memcmp( gui->summary.identity_key->uc, pubkey, 32UL ) ) ) return 1;
+
+  return 0;
+}
+
 FD_FN_CONST ulong
 fd_gui_align( void ) {
   return 128UL;
@@ -54,13 +152,13 @@ fd_gui_new( void *             shmem,
   gui->next_sample_100millis = gui->next_sample_400millis;
   gui->next_sample_10millis  = gui->next_sample_400millis;
 
-  memcpy( gui->summary.identity_key->uc, identity_key, 32UL );
+  fd_memcpy( gui->summary.identity_key->uc, identity_key, 32UL );
   fd_base58_encode_32( identity_key, NULL, gui->summary.identity_key_base58 );
   gui->summary.identity_key_base58[ FD_BASE58_ENCODED_32_SZ-1UL ] = '\0';
 
-  gui->summary.version                       = version;
-  gui->summary.cluster                       = cluster;
-  gui->summary.startup_time_nanos            = gui->next_sample_400millis;
+  gui->summary.version            = version;
+  gui->summary.cluster            = cluster;
+  gui->summary.startup_time_nanos = gui->next_sample_400millis;
 
   gui->summary.startup_progress                       = FD_GUI_START_PROGRESS_TYPE_INITIALIZING;
   gui->summary.startup_got_full_snapshot              = 0;
@@ -109,6 +207,7 @@ fd_gui_new( void *             shmem,
 
   gui->epoch.has_epoch[ 0 ] = 0;
   gui->epoch.has_epoch[ 1 ] = 0;
+  gui->epoch.has_epoch[ 2 ] = 0;
 
   gui->gossip.peer_cnt               = 0UL;
   gui->vote_account.vote_account_cnt = 0UL;
@@ -127,7 +226,7 @@ fd_gui_join( void * shmem ) {
 void
 fd_gui_set_identity( fd_gui_t *    gui,
                      uchar const * identity_pubkey ) {
-  memcpy( gui->summary.identity_key->uc, identity_pubkey, 32UL );
+  fd_memcpy( gui->summary.identity_key->uc, identity_pubkey, 32UL );
   fd_base58_encode_32( identity_pubkey, NULL, gui->summary.identity_key_base58 );
   gui->summary.identity_key_base58[ FD_BASE58_ENCODED_32_SZ-1UL ] = '\0';
 
@@ -158,6 +257,7 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_completed_slot,
     fd_gui_printf_estimated_slot,
     fd_gui_printf_live_tile_timers,
+    fd_gui_printf_rpc_count,
   };
 
   ulong printers_len = sizeof(printers) / sizeof(printers[0]);
@@ -171,7 +271,16 @@ fd_gui_ws_open( fd_gui_t * gui,
     FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
   }
 
-  for( ulong i=0UL; i<2UL; i++ ) {
+  ulong epoch_prev = ULONG_MAX;
+  ulong epoch_count = 0;
+  for( ulong i=0UL; i<3UL; i++ ) {
+    if( FD_UNLIKELY( !gui->epoch.has_epoch[ i ] ) ) continue;
+    epoch_count++;
+    epoch_prev = fd_ulong_min( epoch_prev, gui->epoch.epochs[ i ].epoch );
+  }
+
+  for( ulong i=0UL; i<3UL; i++ ) {
+    if( FD_UNLIKELY( epoch_count==3UL && epoch_prev==gui->epoch.epochs[ i ].epoch ) ) continue;
     if( FD_LIKELY( gui->epoch.has_epoch[ i ] ) ) {
       fd_gui_printf_skip_rate( gui, i );
       FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
@@ -180,9 +289,34 @@ fd_gui_ws_open( fd_gui_t * gui,
     }
   }
 
-  /* Print peers last because it's the largest message and would
-     block other information. */
-  fd_gui_printf_peers_all( gui );
+  ulong action[ 40200 ];
+  fd_pubkey_t peers[ 40200 ];
+  ulong peer_cnt = 0UL;
+
+  /* Send this validator as as peer */
+  action[ 0 ] = FD_GUI_PEERS_ACTION_ADD;
+  peers[ 0 ]  = *gui->summary.identity_key;
+  peer_cnt++;
+
+  /* Send all staked peers in all three epochs */
+  for( ulong i=0UL; i<3UL; i++ ) {
+    if( FD_UNLIKELY( !gui->epoch.has_epoch[ i ] ) ) continue;
+    for( ulong j=0UL; j<gui->epoch.epochs[ i ].lsched->pub_cnt; j++ ) {
+      int previously_sent = 0;
+      for ( ulong k=0UL; k<peer_cnt; k++ ) {
+        previously_sent |= !memcmp( peers[ k ].uc,  gui->epoch.epochs[ i ].stakes_sorted[ j ].uc, 32UL );
+        if( FD_UNLIKELY( previously_sent ) ) break;
+      }
+
+      if( FD_UNLIKELY( !previously_sent ) ) {
+        action[ peer_cnt ] = FD_GUI_PEERS_ACTION_ADD;
+        peers[ peer_cnt ] = gui->epoch.epochs[ i ].stakes_sorted[ j ];
+        peer_cnt++;
+      }
+    }
+  }
+
+  fd_gui_printf_peers( gui, peer_cnt, peers, action );
   FD_TEST( !fd_http_server_ws_send( gui->http, ws_conn_id ) );
 }
 
@@ -513,7 +647,7 @@ fd_gui_poll( fd_gui_t * gui ) {
     fd_gui_printf_live_txn_waterfall( gui, gui->summary.txn_waterfall_reference, gui->summary.txn_waterfall_current, 0UL /* TODO: REAL NEXT LEADER SLOT */ );
     fd_http_server_ws_broadcast( gui->http );
 
-    memcpy( gui->summary.tile_stats_reference, gui->summary.tile_stats_current, sizeof(struct fd_gui_tile_stats) );
+    fd_memcpy( gui->summary.tile_stats_reference, gui->summary.tile_stats_current, sizeof(struct fd_gui_tile_stats) );
     fd_gui_tile_stats_snap( gui, gui->summary.txn_waterfall_current, gui->summary.tile_stats_current );
     fd_gui_printf_live_tile_stats( gui, gui->summary.tile_stats_reference, gui->summary.tile_stats_current );
     fd_http_server_ws_broadcast( gui->http );
@@ -543,14 +677,9 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
 
   FD_TEST( peer_cnt<=40200UL );
 
-  ulong added_cnt = 0UL;
-  ulong added[ 40200 ] = {0};
-
-  ulong update_cnt = 0UL;
-  ulong updated[ 40200 ] = {0};
-
-  ulong removed_cnt = 0UL;
-  fd_pubkey_t removed[ 40200 ] = {0};
+  fd_pubkey_t modified_pubkeys[ 40200 ] = {0};
+  ulong modified_cnt = 0UL;
+  ulong action[ 40200 ] = {0};
 
   uchar const * data = (uchar const *)(header+1UL);
   for( ulong i=0UL; i<gui->gossip.peer_cnt; i++ ) {
@@ -563,7 +692,16 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
     }
 
     if( FD_UNLIKELY( !found ) ) {
-      fd_memcpy( removed[ removed_cnt++ ].uc, gui->gossip.peers[ i ].pubkey->uc, 32UL );
+      /* Remove gossip data. If no info is left after removing gossip data, publish remove to the gui */
+      if( FD_UNLIKELY( fd_gui_send_to_frontend( gui, gui->gossip.peers[ i ].pubkey->uc ) ) ) {
+        int actually_remove = !fd_gui_vote_acct_contains( gui, gui->gossip.peers[ i ].pubkey->uc ) &&
+                              !fd_gui_validator_info_contains( gui, gui->gossip.peers[ i ].pubkey->uc );
+        if( FD_UNLIKELY( actually_remove ) ) {
+          action[ modified_cnt ] = FD_GUI_PEERS_ACTION_REMOVE;
+          fd_memcpy( modified_pubkeys[ modified_cnt++ ].uc, gui->gossip.peers[ i ].pubkey->uc, 32UL );
+        }
+      }
+
       if( FD_LIKELY( i+1UL!=gui->gossip.peer_cnt ) ) {
         fd_memcpy( &gui->gossip.peers[ i ], &gui->gossip.peers[ gui->gossip.peer_cnt-1UL ], sizeof(struct fd_gui_gossip_peer) );
         gui->gossip.peer_cnt--;
@@ -572,7 +710,6 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
     }
   }
 
-  ulong before_peer_cnt = gui->gossip.peer_cnt;
   for( ulong i=0UL; i<peer_cnt; i++ ) {
     int found = 0;
     ulong found_idx = 0;
@@ -605,6 +742,14 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
         gui->gossip.peers[ gui->gossip.peer_cnt ].sockets[ j ].port = *(ushort const *)(data+i*(58UL+12UL*6UL)+58UL+j*6UL+4UL);
       }
 
+      if( FD_UNLIKELY( fd_gui_send_to_frontend( gui, gui->gossip.peers[ i ].pubkey->uc ) ) ) {
+        int actually_updated = fd_gui_vote_acct_contains( gui, gui->gossip.peers[ i ].pubkey->uc ) ||
+                               fd_gui_validator_info_contains( gui, gui->gossip.peers[ i ].pubkey->uc );
+        if( FD_LIKELY( actually_updated ) ) action[ modified_cnt ] = FD_GUI_PEERS_ACTION_UPDATE;
+        else action[ modified_cnt ] = FD_GUI_PEERS_ACTION_ADD;
+        fd_memcpy( modified_pubkeys[ modified_cnt++ ].uc, gui->gossip.peers[ i ].pubkey->uc, 32UL );
+      }
+
       gui->gossip.peer_cnt++;
     } else {
       int peer_updated = gui->gossip.peers[ found_idx ].shred_version!=*(ushort const *)(data+i*(58UL+12UL*6UL)+40UL) ||
@@ -629,7 +774,11 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
       }
 
       if( FD_UNLIKELY( peer_updated ) ) {
-        updated[ update_cnt++ ] = found_idx;
+        if( FD_UNLIKELY( fd_gui_send_to_frontend( gui, gui->gossip.peers[ i ].pubkey->uc ) ) ) {
+          action[ modified_cnt ] = FD_GUI_PEERS_ACTION_UPDATE;
+          fd_memcpy( modified_pubkeys[ modified_cnt++ ].uc, gui->gossip.peers[ i ].pubkey->uc, 32UL );
+        }
+
         gui->gossip.peers[ found_idx ].shred_version = *(ushort const *)(data+i*(58UL+12UL*6UL)+40UL);
         gui->gossip.peers[ found_idx ].wallclock = *(ulong const *)(data+i*(58UL+12UL*6UL)+32UL);
         gui->gossip.peers[ found_idx ].has_version = *(data+i*(58UL+12UL*6UL)+42UL);
@@ -652,11 +801,15 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
     }
   }
 
-  added_cnt = gui->gossip.peer_cnt - before_peer_cnt;
-  for( ulong i=before_peer_cnt; i<gui->gossip.peer_cnt; i++ ) added[ i-before_peer_cnt ] = i;
+  fd_sort_gui_gossip_peer_insert( gui->gossip.peers, gui->gossip.peer_cnt );
 
-  fd_gui_printf_peers_gossip_update( gui, updated, update_cnt, removed, removed_cnt, added, added_cnt );
-  fd_http_server_ws_broadcast( gui->http );
+  if( FD_LIKELY( modified_cnt>0 )) {
+    fd_gui_printf_peers( gui, modified_cnt, modified_pubkeys, action );
+    fd_http_server_ws_broadcast( gui->http );
+
+    fd_gui_printf_rpc_count( gui );
+    fd_http_server_ws_broadcast( gui->http );
+  }
 }
 
 static void
@@ -667,14 +820,9 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
 
   FD_TEST( peer_cnt<=40200UL );
 
-  ulong added_cnt = 0UL;
-  ulong added[ 40200 ] = {0};
-
-  ulong update_cnt = 0UL;
-  ulong updated[ 40200 ] = {0};
-
-  ulong removed_cnt = 0UL;
-  fd_pubkey_t removed[ 40200 ] = {0};
+  fd_pubkey_t modified_pubkeys[ 40200 ] = {0};
+  ulong modified_cnt = 0UL;
+  ulong action[ 40200 ] = {0};
 
   uchar const * data = (uchar const *)(header+1UL);
   for( ulong i=0UL; i<gui->vote_account.vote_account_cnt; i++ ) {
@@ -687,7 +835,15 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
     }
 
     if( FD_UNLIKELY( !found ) ) {
-      fd_memcpy( removed[ removed_cnt++ ].uc, gui->vote_account.vote_accounts[ i ].vote_account->uc, 32UL );
+      if( FD_UNLIKELY( fd_gui_send_to_frontend( gui, gui->vote_account.vote_accounts[ i ].pubkey->uc ) ) ) {
+        int actually_remove = !fd_gui_vote_acct_contains( gui, gui->vote_account.vote_accounts[ i ].pubkey->uc ) &&
+                              !fd_gui_validator_info_contains( gui, gui->vote_account.vote_accounts[ i ].pubkey->uc );
+        if( FD_UNLIKELY( actually_remove ) ) {
+          action[ modified_cnt ] = FD_GUI_PEERS_ACTION_REMOVE;
+          fd_memcpy( modified_pubkeys[ modified_cnt++ ].uc, gui->vote_account.vote_accounts[ i ].pubkey->uc, 32UL );
+        }
+      }
+
       if( FD_LIKELY( i+1UL!=gui->vote_account.vote_account_cnt ) ) {
         fd_memcpy( &gui->vote_account.vote_accounts[ i ], &gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt-1UL ], sizeof(struct fd_gui_vote_account) );
         gui->vote_account.vote_account_cnt--;
@@ -696,7 +852,6 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
     }
   }
 
-  ulong before_peer_cnt = gui->vote_account.vote_account_cnt;
   for( ulong i=0UL; i<peer_cnt; i++ ) {
     int found = 0;
     ulong found_idx;
@@ -719,6 +874,14 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
       gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].commission = *(data+i*112UL+96UL);
       gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].delinquent = *(data+i*112UL+97UL);
 
+      if( FD_UNLIKELY( fd_gui_send_to_frontend( gui, gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].pubkey->uc ) ) ) {
+        int actually_updated = fd_gui_vote_acct_contains( gui, gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].pubkey->uc ) ||
+                               fd_gui_validator_info_contains( gui, gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].pubkey->uc );
+        if( FD_LIKELY( actually_updated ) ) action[ modified_cnt ] = FD_GUI_PEERS_ACTION_UPDATE;
+        else action[ modified_cnt ] = FD_GUI_PEERS_ACTION_ADD;
+        fd_memcpy( modified_pubkeys[ modified_cnt++ ].uc, gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].pubkey->uc, 32UL );
+      }
+
       gui->vote_account.vote_account_cnt++;
     } else {
       int peer_updated =
@@ -731,9 +894,12 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
         gui->vote_account.vote_accounts[ found_idx ].delinquent      != *(data+i*112UL+97UL);
 
       if( FD_UNLIKELY( peer_updated ) ) {
-        updated[ update_cnt++ ] = found_idx;
-
         fd_memcpy( gui->vote_account.vote_accounts[ found_idx ].pubkey->uc, data+i*112UL+32UL, 32UL );
+        if( FD_UNLIKELY( fd_gui_send_to_frontend( gui, gui->vote_account.vote_accounts[ found_idx ].pubkey->uc ) ) ) {
+          action[ modified_cnt ] = FD_GUI_PEERS_ACTION_UPDATE;
+          fd_memcpy( modified_pubkeys[ modified_cnt++ ].uc, gui->vote_account.vote_accounts[ found_idx ].pubkey->uc, 32UL );
+        }
+
         gui->vote_account.vote_accounts[ found_idx ].activated_stake = *(ulong const *)(data+i*112UL+64UL);
         gui->vote_account.vote_accounts[ found_idx ].last_vote = *(ulong const *)(data+i*112UL+72UL);
         gui->vote_account.vote_accounts[ found_idx ].root_slot = *(ulong const *)(data+i*112UL+80UL);
@@ -744,11 +910,11 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
     }
   }
 
-  added_cnt = gui->vote_account.vote_account_cnt - before_peer_cnt;
-  for( ulong i=before_peer_cnt; i<gui->vote_account.vote_account_cnt; i++ ) added[ i-before_peer_cnt ] = i;
-
-  fd_gui_printf_peers_vote_account_update( gui, updated, update_cnt, removed, removed_cnt, added, added_cnt );
-  fd_http_server_ws_broadcast( gui->http );
+  fd_sort_gui_vote_account_insert( gui->vote_account.vote_accounts, gui->vote_account.vote_account_cnt );
+  if( FD_LIKELY( modified_cnt>0 )) {
+    fd_gui_printf_peers( gui, modified_cnt, modified_pubkeys, action );
+    fd_http_server_ws_broadcast( gui->http );
+  }
 }
 
 static void
@@ -756,30 +922,17 @@ fd_gui_handle_validator_info_update( fd_gui_t *    gui,
                                      uchar const * msg ) {
   uchar const * data = (uchar const *)fd_type_pun_const( msg );
 
-  ulong added_cnt = 0UL;
-  ulong added[ 1 ] = {0};
-
-  ulong update_cnt = 0UL;
-  ulong updated[ 1 ] = {0};
-
-  ulong removed_cnt = 0UL;
   /* Unlike gossip or vote account updates, validator info messages come
-     in as info is disovered, and may contain as little as 1 validator
+     in as info is disovered, and will contain only 1 validator
      per message.  Therefore it doesn't make sense to use the remove
      mechanism.  */
+  fd_pubkey_t modified_pubkeys[ 1 ] = {0};
+  ulong modified_cnt = 0UL;
+  ulong action[ 1 ] = {0};
 
-  ulong before_peer_cnt = gui->validator_info.info_cnt;
-  int found = 0;
-  ulong found_idx;
-  for( ulong j=0UL; j<gui->validator_info.info_cnt; j++ ) {
-    if( FD_UNLIKELY( !memcmp( gui->validator_info.info[ j ].pubkey, data, 32UL ) ) ) {
-      found_idx = j;
-      found = 1;
-      break;
-    }
-  }
+  ulong found_idx = fd_gui_validator_info_contains( gui, data );
 
-  if( FD_UNLIKELY( !found ) ) {
+  if( FD_UNLIKELY( ULONG_MAX==found_idx ) ) {
     fd_memcpy( gui->validator_info.info[ gui->validator_info.info_cnt ].pubkey->uc, data, 32UL );
 
     strncpy( gui->validator_info.info[ gui->validator_info.info_cnt ].name, (char const *)(data+32UL), 64 );
@@ -794,6 +947,14 @@ fd_gui_handle_validator_info_update( fd_gui_t *    gui,
     strncpy( gui->validator_info.info[ gui->validator_info.info_cnt ].icon_uri, (char const *)(data+480UL), 128 );
     gui->validator_info.info[ gui->validator_info.info_cnt ].icon_uri[ 127 ] = '\0';
 
+    if( FD_UNLIKELY( fd_gui_send_to_frontend( gui, gui->validator_info.info[ gui->validator_info.info_cnt ].pubkey->uc ) ) ) {
+      int actually_updated = fd_gui_vote_acct_contains( gui, gui->validator_info.info[ gui->validator_info.info_cnt ].pubkey->uc ) ||
+                             fd_gui_validator_info_contains( gui, gui->validator_info.info[ gui->validator_info.info_cnt ].pubkey->uc );
+      if( FD_LIKELY( actually_updated ) ) action[ modified_cnt ] = FD_GUI_PEERS_ACTION_UPDATE;
+      else action[ modified_cnt ] = FD_GUI_PEERS_ACTION_ADD;
+      fd_memcpy( modified_pubkeys[ modified_cnt++ ].uc, gui->validator_info.info[ gui->validator_info.info_cnt ].pubkey->uc, 32UL );
+    }
+
     gui->validator_info.info_cnt++;
   } else {
     int peer_updated =
@@ -804,9 +965,11 @@ fd_gui_handle_validator_info_update( fd_gui_t *    gui,
       strncmp( gui->validator_info.info[ found_idx ].icon_uri, (char const *)(data+480UL), 128 );
 
     if( FD_UNLIKELY( peer_updated ) ) {
-      updated[ update_cnt++ ] = found_idx;
-
       fd_memcpy( gui->validator_info.info[ found_idx ].pubkey->uc, data, 32UL );
+      if( FD_UNLIKELY( fd_gui_send_to_frontend( gui, gui->validator_info.info[ found_idx ].pubkey->uc ) ) ) {
+        action[ modified_cnt ] = FD_GUI_PEERS_ACTION_UPDATE;
+        fd_memcpy( modified_pubkeys[ modified_cnt++ ].uc, gui->validator_info.info[ found_idx ].pubkey->uc, 32UL );
+      }
 
       strncpy( gui->validator_info.info[ found_idx ].name, (char const *)(data+32UL), 64 );
       gui->validator_info.info[ found_idx ].name[ 63 ] = '\0';
@@ -822,11 +985,11 @@ fd_gui_handle_validator_info_update( fd_gui_t *    gui,
     }
   }
 
-  added_cnt = gui->validator_info.info_cnt - before_peer_cnt;
-  for( ulong i=before_peer_cnt; i<gui->validator_info.info_cnt; i++ ) added[ i-before_peer_cnt ] = i;
-
-  fd_gui_printf_peers_validator_info_update( gui, updated, update_cnt, NULL, removed_cnt, added, added_cnt );
-  fd_http_server_ws_broadcast( gui->http );
+  fd_sort_gui_validator_info_insert( gui->validator_info.info, gui->validator_info.info_cnt );
+  if( FD_LIKELY( modified_cnt>0 )) {
+    fd_gui_printf_peers( gui, modified_cnt, modified_pubkeys, action );
+    fd_http_server_ws_broadcast( gui->http );
+  }
 }
 
 int
@@ -943,8 +1106,8 @@ fd_gui_clear_slot( fd_gui_t * gui,
 
   int mine = 0;
   ulong epoch_idx = 0UL;
-  for( ulong i=0UL; i<2UL; i++) {
-    if( FD_UNLIKELY( !gui->epoch.has_epoch[ i ] ) ) continue;
+  for( ulong i=0UL; i<3UL; i++) {
+    if( FD_LIKELY( !gui->epoch.has_epoch[ i ] ) ) continue;
     if( FD_LIKELY( _slot>=gui->epoch.epochs[ i ].start_slot && _slot<=gui->epoch.epochs[ i ].end_slot ) ) {
       fd_pubkey_t const * slot_leader = fd_epoch_leaders_get( gui->epoch.epochs[ i ].lsched, _slot );
       mine = !memcmp( slot_leader->uc, gui->summary.identity_key->uc, 32UL );
@@ -980,7 +1143,7 @@ fd_gui_clear_slot( fd_gui_t * gui,
   slot->cus.reference_nanos    = LONG_MAX;
   for( ulong i=0UL; i<65UL; i++ ) slot->cus.has_offset[ i ]   = 0;
 
-  if( FD_LIKELY( slot->mine ) ) {
+  if( FD_LIKELY( slot->mine && gui->epoch.has_epoch[ epoch_idx ] ) ) {
     /* All slots start off not skipped, until we see it get off the reset
        chain. */
     gui->epoch.epochs[ epoch_idx ].my_total_slots++;
@@ -1001,12 +1164,72 @@ fd_gui_handle_leader_schedule( fd_gui_t *    gui,
   ulong slot_cnt            = msg[ 3 ];
   ulong excluded_stake      = msg[ 4 ];
 
+  fd_stake_weight_t const * stakes = (fd_stake_weight_t const *)fd_type_pun_const( msg+5UL );
+
+  /* idx is the index of the previous previous epoch, which will
+     be replaced by the incoming epoch. */
+  ulong idx = epoch % 3UL;
+
+  fd_pubkey_t modified_pubkeys[ 40200 ] = {0};
+  ulong modified_cnt = 0UL;
+  ulong action[ 40200 ] = {0};
+
+  /* The incoming message contains validators that have activate stake
+     used to compute the leader schedule for the next next epoch.  Any
+     new validators are added here.
+
+     Note that it is possible for a validator to be in the leader
+     schedule for the upcoming epoch even if they have zero active stake
+     in this epoch.  This is because the leader schedule for this epoch
+     is generated from the active stake amounts of the previous epoch.
+     This means, however, that an 0-stake leaders this epoch must have
+     been staked last epoch.  We send the fronted staked peers from the
+     previous epoch, so the frontend should still receive updates for
+     this epoch's 0-stake leaders. */
+  for ( ulong i=0UL; i<staked_cnt; i++ ) {
+    int available = fd_gui_vote_acct_contains( gui, stakes[ i ].key.uc ) ||
+                    fd_gui_validator_info_contains( gui, stakes[ i ].key.uc ) ||
+                    fd_gui_gossip_contains( gui, stakes[ i ].key.uc );
+    if( FD_UNLIKELY( !available ) ) continue;
+
+    if( FD_UNLIKELY( !fd_gui_staked_nodes_contains( gui, stakes[ i ].key.uc ) ) ) {
+      action[ modified_cnt ] = FD_GUI_PEERS_ACTION_ADD;
+      fd_memcpy( modified_pubkeys[ modified_cnt++ ].uc, stakes[ i ].key.uc, 32UL );
+      break;
+    }
+  }
+
+  /* We also want to remove any validators we included that had active
+     stake two epochs ago but have zero stake in the incoming epoch. */
+  if( FD_UNLIKELY( gui->epoch.has_epoch[ idx ] ) ) {
+    for ( ulong i=0UL; i<gui->epoch.epochs[ idx ].lsched->pub_cnt; i++ ) {
+      int available = fd_gui_vote_acct_contains( gui, stakes[ i ].key.uc ) ||
+                      fd_gui_validator_info_contains( gui, stakes[ i ].key.uc ) ||
+                      fd_gui_gossip_contains( gui, stakes[ i ].key.uc );
+      if( FD_UNLIKELY( !available ) ) continue; /* This peer is already not in the frontend */
+
+      int in_incoming_epoch = 0;
+      for ( ulong j=0UL; j<staked_cnt; j++ ) {
+        in_incoming_epoch |= !memcmp( gui->epoch.epochs[ idx ].stakes_sorted[ i ].uc, stakes[ j ].key.uc, 32UL );
+        if( FD_UNLIKELY( in_incoming_epoch ) ) break;
+      }
+
+      if( FD_UNLIKELY( !in_incoming_epoch ) ) {
+        action[ modified_cnt ] = FD_GUI_PEERS_ACTION_REMOVE;
+        fd_memcpy( modified_pubkeys[ modified_cnt++ ].uc, stakes[ i ].key.uc, 32UL );
+        break;
+      }
+    }
+  }
+
+
+  fd_gui_printf_peers( gui, modified_cnt, modified_pubkeys, action );
+  fd_http_server_ws_broadcast( gui->http );
+
   FD_TEST( staked_cnt<=50000UL );
   FD_TEST( slot_cnt<=432000UL );
 
-  ulong idx = epoch % 2UL;
   gui->epoch.has_epoch[ idx ] = 1;
-
 
   gui->epoch.epochs[ idx ].epoch            = epoch;
   gui->epoch.epochs[ idx ].start_slot       = start_slot;
@@ -1015,14 +1238,18 @@ fd_gui_handle_leader_schedule( fd_gui_t *    gui,
   gui->epoch.epochs[ idx ].my_total_slots   = 0UL;
   gui->epoch.epochs[ idx ].my_skipped_slots = 0UL;
   fd_epoch_leaders_delete( fd_epoch_leaders_leave( gui->epoch.epochs[ idx ].lsched ) );
-  gui->epoch.epochs[idx].lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( gui->epoch.epochs[ idx ]._lsched,
-                                                                               epoch,
-                                                                               gui->epoch.epochs[ idx ].start_slot,
-                                                                               slot_cnt,
-                                                                               staked_cnt,
-                                                                               fd_type_pun_const( msg+5UL ),
-                                                                               excluded_stake ) );
-  fd_memcpy( gui->epoch.epochs[ idx ].stakes, fd_type_pun_const( msg+5UL ), staked_cnt*sizeof(gui->epoch.epochs[ idx ].stakes[ 0 ]) );
+  gui->epoch.epochs[ idx ].lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( gui->epoch.epochs[ idx ]._lsched,
+                                                                                 epoch,
+                                                                                 gui->epoch.epochs[ idx ].start_slot,
+                                                                                 slot_cnt,
+                                                                                 staked_cnt,
+                                                                                 stakes,
+                                                                                 excluded_stake ) );
+  fd_memcpy( gui->epoch.epochs[ idx ].stakes, stakes, staked_cnt*sizeof(fd_stake_weight_t) );
+  for( ulong i=0UL; i<gui->epoch.epochs[ idx ].lsched->pub_cnt; i++ ) {
+    fd_memcpy( gui->epoch.epochs[ idx ].stakes_sorted[ i ].uc, gui->epoch.epochs[ idx ].stakes[ i ].key.uc, 32UL );
+  }
+  fd_sort_gui_stakes_insert( gui->epoch.epochs[ idx ].stakes_sorted, gui->epoch.epochs[ idx ].lsched->pub_cnt );
 
   if( FD_UNLIKELY( start_slot==0UL ) ) {
     gui->epoch.epochs[ 0 ].start_time = fd_log_wallclock();
@@ -1032,7 +1259,7 @@ fd_gui_handle_leader_schedule( fd_gui_t *    gui,
     for( ulong i=0UL; i<fd_ulong_min( start_slot-1UL, FD_GUI_SLOTS_CNT ); i++ ) {
       fd_gui_slot_t * slot = gui->slots[ (start_slot-i) % FD_GUI_SLOTS_CNT ];
       if( FD_UNLIKELY( slot->slot!=(start_slot-i) ) ) break;
-      else if( FD_UNLIKELY( slot->skipped ) ) continue;
+      else if( FD_UNLIKELY( slot->skipped ) )         continue;
 
       gui->epoch.epochs[ idx ].start_time = slot->completed_time;
       break;
@@ -1092,7 +1319,7 @@ fd_gui_handle_slot_end( fd_gui_t * gui,
   gui->summary.tile_timers_leader_history_slot_sample_cnt[ gui->summary.tile_timers_history_idx ] = end-gui->summary.tile_timers_snap_idx_slot_start;
   ulong stride = fd_ulong_max( 1UL, (end-gui->summary.tile_timers_snap_idx_slot_start) / FD_GUI_TILE_TIMER_LEADER_DOWNSAMPLE_CNT );
   for( ulong sample_snap_idx=gui->summary.tile_timers_snap_idx_slot_start, i=0UL; sample_snap_idx<end; sample_snap_idx+=stride, i++ ) {
-    memcpy( gui->summary.tile_timers_leader_history[ gui->summary.tile_timers_history_idx ][ i ], gui->summary.tile_timers_snap[ sample_snap_idx%FD_GUI_TILE_TIMER_SNAP_CNT ], sizeof(gui->summary.tile_timers_leader_history[ gui->summary.tile_timers_history_idx ][ i ]) );
+    fd_memcpy( gui->summary.tile_timers_leader_history[ gui->summary.tile_timers_history_idx ][ i ], gui->summary.tile_timers_snap[ sample_snap_idx%FD_GUI_TILE_TIMER_SNAP_CNT ], sizeof(gui->summary.tile_timers_leader_history[ gui->summary.tile_timers_history_idx ][ i ]) );
   }
   gui->summary.tile_timers_history_idx = (gui->summary.tile_timers_history_idx+1UL)%FD_GUI_TILE_TIMER_LEADER_CNT;
 
@@ -1101,8 +1328,8 @@ fd_gui_handle_slot_end( fd_gui_t * gui,
      slot. */
 
   fd_gui_txn_waterfall_snap( gui, slot->waterfall_end );
-  memcpy( slot->waterfall_begin, gui->summary.txn_waterfall_reference, sizeof(slot->waterfall_begin) );
-  memcpy( gui->summary.txn_waterfall_reference, slot->waterfall_end, sizeof(gui->summary.txn_waterfall_reference) );
+  fd_memcpy( slot->waterfall_begin, gui->summary.txn_waterfall_reference, sizeof(slot->waterfall_begin) );
+  fd_memcpy( gui->summary.txn_waterfall_reference, slot->waterfall_end, sizeof(gui->summary.txn_waterfall_reference) );
 
   fd_gui_tile_stats_snap( gui, slot->waterfall_end, slot->tile_stats_end );
 }
@@ -1177,8 +1404,8 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
         slot->skipped = 1;
         should_republish = 1;
         if( FD_LIKELY( slot->mine ) ) {
-          for( ulong i=0UL; i<2UL; i++ ) {
-            if( FD_LIKELY( parent_slot>=gui->epoch.epochs[ i ].start_slot && parent_slot<=gui->epoch.epochs[ i ].end_slot ) ) {
+          for( ulong i=0UL; i<3UL; i++ ) {
+            if( FD_LIKELY( gui->epoch.has_epoch[ i ] && parent_slot>=gui->epoch.epochs[ i ].start_slot && parent_slot<=gui->epoch.epochs[ i ].end_slot ) ) {
               gui->epoch.epochs[ i ].my_skipped_slots++;
               republish_skip_rate[ i ] = 1;
               break;
@@ -1192,8 +1419,8 @@ fd_gui_handle_reset_slot( fd_gui_t * gui,
         slot->skipped = 0;
         should_republish = 1;
         if( FD_LIKELY( slot->mine ) ) {
-          for( ulong i=0UL; i<2UL; i++ ) {
-            if( FD_LIKELY( parent_slot>=gui->epoch.epochs[ i ].start_slot && parent_slot<=gui->epoch.epochs[ i ].end_slot ) ) {
+          for( ulong i=0UL; i<3UL; i++ ) {
+            if( FD_LIKELY( gui->epoch.has_epoch[ i ] && parent_slot>=gui->epoch.epochs[ i ].start_slot && parent_slot<=gui->epoch.epochs[ i ].end_slot ) ) {
               gui->epoch.epochs[ i ].my_skipped_slots--;
               republish_skip_rate[ i ] = 1;
               break;
@@ -1301,16 +1528,17 @@ fd_gui_handle_completed_slot( fd_gui_t * gui,
     slot->compute_units   = compute_units;
   }
 
-  if( FD_UNLIKELY( gui->epoch.has_epoch[ 0 ] && _slot==gui->epoch.epochs[ 0 ].end_slot ) ) {
-    gui->epoch.epochs[ 0 ].end_time = slot->completed_time;
-  } else if( FD_UNLIKELY( gui->epoch.has_epoch[ 1 ] && _slot==gui->epoch.epochs[ 1 ].end_slot ) ) {
-    gui->epoch.epochs[ 1 ].end_time = slot->completed_time;
+  for( ulong i=0UL; i<3UL; i++ ) {
+    if( FD_LIKELY( gui->epoch.has_epoch[ i ] && _slot==gui->epoch.epochs[ i ].end_slot ) ) {
+      gui->epoch.epochs[ i ].end_time = slot->completed_time;
+      break;
+    }
   }
 
   /* Broadcast new skip rate if one of our slots got completed. */
   if( FD_LIKELY( slot->mine ) ) {
-    for( ulong i=0UL; i<2UL; i++ ) {
-      if( FD_LIKELY( _slot>=gui->epoch.epochs[ i ].start_slot && _slot<=gui->epoch.epochs[ i ].end_slot ) ) {
+    for( ulong i=0UL; i<3UL; i++ ) {
+      if( FD_LIKELY( gui->epoch.has_epoch[ i ] && _slot>=gui->epoch.epochs[ i ].start_slot && _slot<=gui->epoch.epochs[ i ].end_slot ) ) {
         fd_gui_printf_skip_rate( gui, i );
         fd_http_server_ws_broadcast( gui->http );
         break;

@@ -42,6 +42,10 @@
 #define FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY          (11)
 #define FD_GUI_START_PROGRESS_TYPE_RUNNING                            (12)
 
+#define FD_GUI_PEERS_ACTION_ADD    (0)
+#define FD_GUI_PEERS_ACTION_UPDATE (1)
+#define FD_GUI_PEERS_ACTION_REMOVE (2)
+
 struct fd_gui_gossip_peer {
   fd_pubkey_t pubkey[ 1 ];
   ulong       wallclock;
@@ -65,6 +69,8 @@ struct fd_gui_gossip_peer {
   } sockets[ 12 ];
 };
 
+typedef struct fd_gui_gossip_peer fd_gui_gossip_peer_t;
+
 struct fd_gui_vote_account {
   fd_pubkey_t pubkey[ 1 ];
   fd_pubkey_t vote_account[ 1 ];
@@ -76,6 +82,7 @@ struct fd_gui_vote_account {
   uchar       commission;
   int         delinquent;
 };
+typedef struct fd_gui_vote_account fd_gui_vote_account_t;
 
 struct fd_gui_validator_info {
   fd_pubkey_t pubkey[ 1 ];
@@ -85,6 +92,8 @@ struct fd_gui_validator_info {
   char details[ 256 ];
   char icon_uri[ 128 ];
 };
+
+typedef struct fd_gui_validator_info fd_gui_validator_info_t;
 
 struct fd_gui_txn_waterfall {
   struct {
@@ -222,7 +231,6 @@ struct fd_gui_slot {
 };
 
 typedef struct fd_gui_slot fd_gui_slot_t;
-
 struct fd_gui {
   fd_http_server_t * http;
   fd_topo_t * topo;
@@ -332,38 +340,37 @@ struct fd_gui {
   } block_engine;
 
   struct {
-    int has_epoch[ 2 ];
-
+    int has_epoch[ 3 ];
     struct {
-      ulong epoch;
-      long start_time;
-      long end_time;
+    ulong epoch;
+    long start_time;
+    long end_time;
 
-      ulong my_total_slots;
-      ulong my_skipped_slots;
+    ulong my_total_slots;
+    ulong my_skipped_slots;
 
-      ulong start_slot;
-      ulong end_slot;
-      ulong excluded_stake;
-      fd_epoch_leaders_t * lsched;
-      uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(50000UL, 432000UL) ];
-      fd_stake_weight_t stakes[ 50000UL ];
-    } epochs[ 2 ];
+    ulong start_slot;
+    ulong end_slot;
+    ulong excluded_stake;
+    fd_epoch_leaders_t * lsched;
+    uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(50000UL, 432000UL) ];
+    fd_stake_weight_t stakes[ 50000UL ]; /* All pubkeys with active stake, sorted by (stake, pubkey) */
+    fd_pubkey_t stakes_sorted[ 50000UL ]; /* All pubkeys in stakes, sorted by pubkey value ascending. */
+    } epochs[ 3 ];
   } epoch;
-
   struct {
-    ulong                     peer_cnt;
-    struct fd_gui_gossip_peer peers[ 40200 ];
+    ulong                peer_cnt;
+    fd_gui_gossip_peer_t peers[ 40200 ];
   } gossip;
 
   struct {
-    ulong                      vote_account_cnt;
-    struct fd_gui_vote_account vote_accounts[ 40200 ];
+    ulong                 vote_account_cnt;
+    fd_gui_vote_account_t vote_accounts[ 40200 ];
   } vote_account;
 
   struct {
-    ulong                        info_cnt;
-    struct fd_gui_validator_info info[ 40200 ];
+    ulong                   info_cnt;
+    fd_gui_validator_info_t info[ 40200 ];
   } validator_info;
 };
 
@@ -388,6 +395,10 @@ fd_gui_new( void *             shmem,
 
 fd_gui_t *
 fd_gui_join( void * shmem );
+
+int
+fd_gui_staked_nodes_contains( fd_gui_t *    gui,
+                              uchar const * pubkey );
 
 void
 fd_gui_set_identity( fd_gui_t *    gui,
