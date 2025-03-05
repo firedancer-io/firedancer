@@ -581,7 +581,7 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
   result->stake_reward_calculation.pool = fd_stake_reward_calculation_pool_join( fd_stake_reward_calculation_pool_new( fd_spad_alloc( runtime_spad,
                                                                                                                                       fd_stake_reward_calculation_pool_align(),
                                                                                                                                       fd_stake_reward_calculation_pool_footprint( rewards_max_count ) ),
-                                                                                                                                      ewards_max_count ) );
+                                                                                                                                      rewards_max_count ) );
   result->stake_reward_calculation.stake_rewards = fd_spad_alloc( runtime_spad,
                                                                   fd_stake_reward_calculation_dlist_align(),
                                                                   fd_stake_reward_calculation_dlist_footprint() );
