@@ -38,7 +38,6 @@ main( int argc, char ** argv ) {
   fd_replay_t * replay = fd_replay_join( fd_replay_new( replay_mem, fec_max, slice_max, block_max ) );
   FD_TEST( replay );
 
-  fd_replay_init( replay, 0 );
   FD_TEST( fd_replay_slice_map_key_cnt( replay->slice_map ) == 0 );
   FD_TEST( fd_replay_verify_init_map( replay ) );
 

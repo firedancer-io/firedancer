@@ -86,18 +86,11 @@ struct fd_replay_fec {
   ulong prev; /* internal use by dlist */
   uint  hash; /* internal use by map */
 
-  long ts;   /* timestamp upon receiving the first shred */
-
-  /* On the first shred that completes the FEC set, data_cnt must be
-     populated because every FEC set must have received at least one
-     coding shred before it can complete. */
-
-  ulong data_cnt; /* count of data shreds in the FEC set */
-
-  /* Think we need these actually if we want to do selective repair
-     requests */
-  uint rx_data_cnt;
-  uint rx_code_cnt;
+  ulong slot;        /* slot of the block this fec set is part of  */
+  uint  fec_set_idx; /* index of the first data shred */
+  long  ts;          /* timestamp upon receiving the first shred */
+  ulong recv_cnt;    /* count of shreds received so far data + coding */
+  ulong data_cnt;    /* count of total data shreds in the FEC set */
 
   /* This set is used to track which data shred indices to request if
      needing repairs. */
@@ -261,7 +254,12 @@ fd_replay_fec_insert( fd_replay_t * replay, ulong slot, uint fec_set_idx ) {
   if( FD_UNLIKELY( fd_replay_fec_map_key_cnt( replay->fec_map ) == fd_replay_fec_map_key_max( replay->fec_map ) ) ) return NULL;
   ulong             key = slot << 32 | (ulong)fec_set_idx;
   fd_replay_fec_t * fec = fd_replay_fec_map_insert( replay->fec_map, key ); /* cannot fail */
-  fec->ts  = fd_log_wallclock();
+  fec->slot             = slot;
+  fec->fec_set_idx      = fec_set_idx;
+  fec->ts               = fd_log_wallclock();
+  fec->recv_cnt         = 0;
+  fec->data_cnt         = 0;
+  fd_replay_fec_idxs_null( fec->idxs );
   return fec;
 }
 
