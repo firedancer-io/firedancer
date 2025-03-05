@@ -61,8 +61,8 @@ fd_calculate_cost_for_executed_transaction( fd_exec_txn_ctx_t const * txn_ctx,
 	 https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L163-L173 */
 int
 fd_cost_tracker_try_add( fd_cost_tracker_t *  				 self,
-		   								 	 fd_exec_txn_ctx_t const *     txn_ctx,
-												 fd_transaction_cost_t const * tx_cost );
+                         fd_exec_txn_ctx_t const *     txn_ctx,
+                         fd_transaction_cost_t const * tx_cost );
 
 FD_PROTOTYPES_END
 
