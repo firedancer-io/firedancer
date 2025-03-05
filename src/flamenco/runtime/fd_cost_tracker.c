@@ -86,7 +86,7 @@ get_write_lock_cost( ulong num_write_locks ) {
    https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L367-L386 */
 static inline ulong
 calculate_allocated_accounts_data_size( fd_exec_txn_ctx_t const * txn_ctx,
-                                        fd_spad_t * 							spad ) {
+                                        fd_spad_t *               spad ) {
   FD_SPAD_FRAME_BEGIN( spad ) {
     fd_txn_t const * txn     = txn_ctx->txn_descriptor;
     void const *     payload = txn_ctx->_txn_raw->raw;
@@ -189,11 +189,14 @@ transaction_cost_sum( fd_transaction_cost_t const * self ) {
     case fd_transaction_cost_enum_transaction: {
       /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L164-L171 */
       fd_usage_cost_details_t const * usage_cost = &self->inner.transaction;
-      ulong                           cost = usage_cost->signature_cost;
-      cost 																 = fd_ulong_sat_add( cost, usage_cost->write_lock_cost );
-      cost 																 = fd_ulong_sat_add( cost, usage_cost->data_bytes_cost );
-      cost 																 = fd_ulong_sat_add( cost, usage_cost->programs_execution_cost );
-      cost 																 = fd_ulong_sat_add( cost, usage_cost->loaded_accounts_data_size_cost );
+      ulong                           cost = 0UL;
+
+      cost = fd_ulong_sat_add( cost, usage_cost->signature_cost );
+      cost = fd_ulong_sat_add( cost, usage_cost->write_lock_cost );
+      cost = fd_ulong_sat_add( cost, usage_cost->data_bytes_cost );
+      cost = fd_ulong_sat_add( cost, usage_cost->programs_execution_cost );
+      cost = fd_ulong_sat_add( cost, usage_cost->loaded_accounts_data_size_cost );
+
       return cost;
     }
     default: {
