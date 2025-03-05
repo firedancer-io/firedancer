@@ -3010,3 +3010,6 @@ dump/test-vectors/txn/fixtures/programs/e8e647c255e74eadb162a0d4912753163cca983d
 dump/test-vectors/txn/fixtures/programs/ead9a360b9fe6cbbb5cb355b93fab0688aecbdf2_2371838.fix
 dump/test-vectors/txn/fixtures/programs/f4c0c1e5d6c427188f8158a077f8cf2a61ec47e8_1576433.fix
 dump/test-vectors/txn/fixtures/programs/f9ddcabf1339d1863b76341e2a2a5a7bea577ca0_1576134.fix
+dump/test-vectors/txn/fixtures/programs/5d50e47d7b6ca34bd302e53d355009252dea8f1e_2080038.fix
+dump/test-vectors/txn/fixtures/programs/9d45f7478d50b40dd4883e5eb4970b075a5deb45_2042655.fix
+dump/test-vectors/txn/fixtures/programs/c00520e8914e5dccc9c87c106f42f742de3ec96d_2117728.fix
