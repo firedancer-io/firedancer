@@ -26,7 +26,7 @@
   } while(0)
 
 // https://github.com/anza-xyz/agave/blob/2e6ca8c1f62db62c1db7f19c9962d4db43d0d550/sdk/src/fee.rs#L82
-#define ACCOUNT_DATA_COST_PAGE_SIZE ( 32UL * 1024UL )
+#define FD_ACCOUNT_DATA_COST_PAGE_SIZE ( 32UL * 1024UL )
 
 FD_PROTOTYPES_BEGIN
 

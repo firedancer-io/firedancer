@@ -4,9 +4,9 @@
 FD_FN_PURE static inline ulong
 calculate_loaded_accounts_data_size_cost( fd_exec_txn_ctx_t const * txn_ctx ) {
   ulong cost = fd_ulong_sat_sub( fd_ulong_sat_add( txn_ctx->loaded_accounts_data_size,
-                                                   ACCOUNT_DATA_COST_PAGE_SIZE ),
+                                                   FD_ACCOUNT_DATA_COST_PAGE_SIZE ),
                                  1UL );
-  cost /= ACCOUNT_DATA_COST_PAGE_SIZE;
+  cost /= FD_ACCOUNT_DATA_COST_PAGE_SIZE;
   return fd_ulong_sat_mul( cost, FD_VM_HEAP_COST );
 }
 

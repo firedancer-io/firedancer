@@ -32,7 +32,7 @@
 #define FD_WRITABLE_ACCOUNTS_PER_BLOCK ( 4096UL )
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L18-L33 */
-#define FD_COST_TRACKER_SUCCESS								                      ( 0 )
+#define FD_COST_TRACKER_SUCCESS                                     ( 0 )
 #define FD_COST_TRACKER_ERROR_WOULD_EXCEED_BLOCK_MAX_LIMIT          ( 1 )
 #define FD_COST_TRACKER_ERROR_WOULD_EXCEED_VOTE_MAX_LIMIT           ( 2 )
 #define FD_COST_TRACKER_ERROR_WOULD_EXCEED_ACCOUNT_MAX_LIMIT        ( 3 )
