@@ -43,9 +43,9 @@ FD_PROTOTYPES_BEGIN
 
 /* Initializes the cost tracker and allocates enough memory for the map */
 void
-fd_cost_tracker_init( fd_cost_tracker_t *  	     self,
+fd_cost_tracker_init( fd_cost_tracker_t *        self,
                       fd_exec_slot_ctx_t const * slot_ctx,
-                      fd_spad_t * 		     	     spad );
+                      fd_spad_t *                spad );
 
 /* Modeled after `CostModel::calculate_cost_for_executed_transaction()`.
    Used to compute transaction cost information for executed transactions.
@@ -53,14 +53,14 @@ fd_cost_tracker_init( fd_cost_tracker_t *  	     self,
    https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L69-L95 */
 fd_transaction_cost_t
 fd_calculate_cost_for_executed_transaction( fd_exec_txn_ctx_t const * txn_ctx,
-                                            fd_spad_t * 							spad );
+                                            fd_spad_t *               spad );
 
 /* Modeled after `CostTracker::try_add()`. Checks to see if the transaction cost
    would fit in this block. Returns an error on failure.
 
     https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L163-L173 */
 int
-fd_cost_tracker_try_add( fd_cost_tracker_t *  				 self,
+fd_cost_tracker_try_add( fd_cost_tracker_t *           self,
                          fd_exec_txn_ctx_t const *     txn_ctx,
                          fd_transaction_cost_t const * tx_cost );
 
