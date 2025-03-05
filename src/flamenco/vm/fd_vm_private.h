@@ -461,7 +461,7 @@ fd_vm_mem_haddr( fd_vm_t const *    vm,
   return fd_ulong_if( sz<=sz_max, vm_region_haddr[ region ] + offset, sentinel );
 }
 
-FD_FN_PURE static inline ulong
+static inline ulong
 fd_vm_mem_haddr_fast( fd_vm_t const * vm,
                       ulong           vaddr,
                       ulong   const * vm_region_haddr ) { /* indexed [0,6) */
