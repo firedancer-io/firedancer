@@ -37,7 +37,7 @@ typedef struct fd_snapshot_load_ctx fd_snapshot_load_ctx_t;
 
 static void
 fd_hashes_load( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
-  FD_BORROWED_ACCOUNT_DECL( block_hashes_rec );
+  FD_TXN_ACCOUNT_DECL( block_hashes_rec );
   int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_recent_block_hashes_id, block_hashes_rec );
 
   if( err != FD_ACC_MGR_SUCCESS ) {
@@ -165,10 +165,10 @@ fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx,
                                           acc_mgr,
                                           funk_txn,
                                           ctx->runtime_spad,
-                                          ctx->slot_ctx, 
+                                          ctx->slot_ctx,
                                           (restore_manifest_flags & FD_SNAPSHOT_RESTORE_MANIFEST) ? restore_manifest : NULL,
                                           (restore_manifest_flags & FD_SNAPSHOT_RESTORE_STATUS_CACHE) ? restore_status_cache : NULL );
-  
+
   ctx->loader  = fd_snapshot_loader_new ( loader_mem, ZSTD_WINDOW_SZ );
 
   if( FD_UNLIKELY( !ctx->restore || !ctx->loader ) ) {
@@ -361,7 +361,7 @@ fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx ) {
   fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
 }
 
-ulong 
+ulong
 fd_snapshot_get_slot( fd_snapshot_load_ctx_t * ctx ) {
   return fd_snapshot_restore_get_slot( ctx->restore );
 }

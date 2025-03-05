@@ -8,7 +8,7 @@
 #include "../../runtime/sysvar/fd_sysvar_fees.h"
 #include "../../runtime/context/fd_exec_txn_ctx.h"
 #include "../../runtime/context/fd_exec_instr_ctx.h"
-#include "../../runtime/fd_account.h"
+#include "../../runtime/fd_borrowed_account.h"
 
 int
 fd_vm_syscall_abort( FD_PARAM_UNUSED void *  _vm,

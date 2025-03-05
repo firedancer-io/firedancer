@@ -52,7 +52,7 @@ ulong
 fd_query_pubkey_stake( fd_pubkey_t const * pubkey, fd_vote_accounts_t const * vote_accounts );
 
 int
-fd_vote_get_state( fd_borrowed_account_t const * self,
+fd_vote_get_state( fd_txn_account_t const * self,
                    fd_spad_t *                   spad,
                    fd_vote_state_versioned_t * * versioned /* out */ );
 
@@ -80,7 +80,7 @@ fd_vote_commission_split( fd_vote_state_versioned_t * vote_state_versioned,
 
 void
 fd_vote_store_account( fd_exec_slot_ctx_t *    slot_ctx,
-                       fd_borrowed_account_t * vote_account );
+                       fd_txn_account_t * vote_account );
 
 FD_PROTOTYPES_END
 

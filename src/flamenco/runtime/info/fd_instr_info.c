@@ -1,17 +1,17 @@
 #include "fd_instr_info.h"
 
-#include "../fd_account.h"
+#include "../fd_borrowed_account.h"
 #include "../../../util/bits/fd_uwide.h"
 
 void
 fd_convert_txn_instr_to_instr( fd_exec_txn_ctx_t *     txn_ctx,
                                fd_txn_instr_t const *  txn_instr,
-                               fd_borrowed_account_t * borrowed_accounts,
+                               fd_txn_account_t *         accts,
                                fd_instr_info_t *       instr ) {
 
   fd_txn_t const *      txn_descriptor = txn_ctx->txn_descriptor;
   fd_rawtxn_b_t const * txn_raw = txn_ctx->_txn_raw;
-  const fd_pubkey_t *   accounts = txn_ctx->accounts;
+  const fd_pubkey_t *   accounts = txn_ctx->account_keys;
 
   instr->program_id        = txn_instr->program_id;
   instr->program_id_pubkey = accounts[txn_instr->program_id];
@@ -23,10 +23,10 @@ fd_convert_txn_instr_to_instr( fd_exec_txn_ctx_t *     txn_ctx,
   memset(acc_idx_seen, 0, 256);
   uchar * instr_acc_idxs = (uchar *)txn_raw->raw + txn_instr->acct_off;
   for( ulong i = 0; i < instr->acct_cnt; i++ ) {
-    if( borrowed_accounts != NULL ) {
-      instr->borrowed_accounts[i] = &borrowed_accounts[instr_acc_idxs[i]];
+    if( accts != NULL ) {
+      instr->accounts[i] = &accts[instr_acc_idxs[i]];
     } else {
-      instr->borrowed_accounts[i] = NULL;
+      instr->accounts[i] = NULL;
     }
 
     uchar acc_idx = instr_acc_idxs[i];
@@ -62,15 +62,15 @@ fd_instr_any_signed( fd_instr_info_t const * info,
 
 /* https://github.com/anza-xyz/agave/blob/9706a6464665f7ebd6ead47f0d12f853ccacbab9/sdk/src/transaction_context.rs#L40 */
 int
-fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr, 
-                                    ulong *                 total_lamports_h, 
+fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr,
+                                    ulong *                 total_lamports_h,
                                     ulong *                 total_lamports_l ) {
   *total_lamports_h = 0UL;
   *total_lamports_l = 0UL;
   for( ulong i=0UL; i<instr->acct_cnt; ++i ) {
-    if( instr->borrowed_accounts[i] == NULL || 
-        instr->is_duplicate[i]              || 
-        instr->borrowed_accounts[i]->const_meta == NULL ) {
+    if( instr->accounts[i] == NULL ||
+        instr->is_duplicate[i]              ||
+        instr->accounts[i]->const_meta == NULL ) {
       continue;
     }
 
@@ -79,8 +79,8 @@ fd_instr_info_sum_account_lamports( fd_instr_info_t const * instr,
     ulong tmp_total_lamports_l = 0UL;
 
     fd_uwide_inc( &tmp_total_lamports_h, &tmp_total_lamports_l, *total_lamports_h, *total_lamports_l,
-                  instr->borrowed_accounts[i]->const_meta->info.lamports );
-    
+                  instr->accounts[i]->const_meta->info.lamports );
+
     if( tmp_total_lamports_h < *total_lamports_h ) {
       return FD_EXECUTOR_INSTR_ERR_ARITHMETIC_OVERFLOW;
     }
