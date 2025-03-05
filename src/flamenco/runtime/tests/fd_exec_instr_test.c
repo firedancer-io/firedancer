@@ -1199,6 +1199,9 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
     fd_sysvar_recent_hashes_update( slot_ctx, runner->spad );
   }
 
+  // Set the current poh from the input (we skip POH verification in this fuzzing target)
+  fd_memcpy( slot_ctx->slot_bank.poh.uc, test_ctx->slot_ctx.poh, FD_HASH_FOOTPRINT );
+
   /* Make a new funk transaction since we're done loading in accounts for context */
   fd_funk_txn_xid_t fork_xid;
   fd_memcpy( fork_xid.uc, slot_bank->block_hash_queue.last_hash, FD_HASH_FOOTPRINT );

@@ -23,7 +23,7 @@
    account data for the recent blockhashes sysvar. */
 static void
 encode_rbh_from_blockhash_queue( fd_exec_slot_ctx_t * slot_ctx, uchar * enc ) {
-  /* recent_blockhashes_account::update_account's `take` call takes at most 150 elements 
+  /* recent_blockhashes_account::update_account's `take` call takes at most 150 elements
      https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/bank/recent_blockhashes_account.rs#L15-L28 */
   fd_block_hash_queue_t const * queue = &slot_ctx->slot_bank.block_hash_queue;
   ulong queue_sz                      = fd_hash_hash_age_pair_t_map_size( queue->ages_pool, queue->ages_root );
@@ -50,7 +50,7 @@ encode_rbh_from_blockhash_queue( fd_exec_slot_ctx_t * slot_ctx, uchar * enc ) {
 }
 
 // https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/fee_calculator.rs#L110
-void 
+void
 fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx,
                               fd_spad_t *          runtime_spad ) {
 
@@ -66,7 +66,7 @@ fd_sysvar_recent_hashes_init( fd_exec_slot_ctx_t * slot_ctx,
   encode_rbh_from_blockhash_queue( slot_ctx, enc );
   fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_recent_block_hashes_id, enc, sz, slot_ctx->slot_bank.slot );
 
-  } FD_SPAD_FRAME_END; 
+  } FD_SPAD_FRAME_END;
 }
 
 // https://github.com/anza-xyz/agave/blob/e8750ba574d9ac7b72e944bc1227dc7372e3a490/accounts-db/src/blockhash_queue.rs#L113
@@ -106,7 +106,7 @@ register_blockhash( fd_exec_slot_ctx_t * slot_ctx, fd_hash_t const * hash ) {
    2. Take the first 150 blockhashes from the queue (or fewer if there are)
    3. Manually serialize the recent blockhashes
    4. Set the sysvar account with the new data */
-void 
+void
 fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
   /* Update the blockhash queue */
@@ -125,10 +125,8 @@ fd_sysvar_recent_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runti
   fd_sysvar_set( slot_ctx,
                  fd_sysvar_owner_id.key,
                  &fd_sysvar_recent_block_hashes_id,
-                 enc_start, 
+                 enc_start,
                  sz,
                  slot_ctx->slot_bank.slot );
   } FD_SPAD_FRAME_END;
 }
-
-#undef UNCHECKED_ENC
