@@ -20,6 +20,8 @@ jobs:
           submodules: recursive
 
       - uses: ./.github/actions/deps
+        with:
+          extras: +dev
 
       - name: 'Authenticate to Google Cloud'
         uses: 'google-github-actions/auth@v2'
