@@ -210,6 +210,36 @@ replay_sham_link_during_frag( fd_geyser_t * ctx, fd_replay_notif_msg_t * state, 
   fd_memcpy(state, msg, sizeof(fd_replay_notif_msg_t));
 }
 
+static void *
+read_account_with_xid( fd_geyser_t * ctx, fd_funkier_rec_key_t * recid, fd_funkier_txn_xid_t * xid, ulong * result_len ) {
+  fd_funkier_t * funk = ctx->funk;
+  fd_funkier_rec_map_t rec_map = fd_funkier_rec_map( funk, fd_funkier_wksp( funk ) );
+  fd_funkier_xid_key_pair_t pair[1];
+  fd_funkier_txn_xid_copy( pair->xid, xid );
+  fd_funkier_rec_key_copy( pair->key, recid );
+  void * last_copy = NULL;
+  ulong last_copy_sz = 0;
+  for(;;) {
+    fd_funkier_rec_query_t query[1];
+    int err = fd_funkier_rec_map_query_try( &rec_map, pair, NULL, query );
+    if( err == FD_MAP_ERR_KEY )   return NULL;
+    if( err == FD_MAP_ERR_AGAIN ) continue;
+    if( err != FD_MAP_SUCCESS )   FD_LOG_CRIT(( "query returned err %d", err ));
+    fd_funkier_rec_t const * rec = fd_funkier_rec_map_query_ele_const( query );
+    ulong sz = fd_funkier_val_sz( rec );
+    void * copy;
+    if( sz <= last_copy_sz ) {
+      copy = last_copy;
+    } else {
+      copy = last_copy = fd_scratch_alloc( 1, sz );
+      last_copy_sz = sz;
+    }
+    memcpy( copy, fd_funkier_val( rec, fd_funkier_wksp( funk ) ), sz );
+    *result_len = sz;
+    if( fd_funkier_rec_query_test( query ) ) return copy;
+  }
+}
+
 static void
 replay_sham_link_after_frag(fd_geyser_t * ctx, fd_replay_notif_msg_t * msg) {
   (void)ctx;
@@ -222,22 +252,18 @@ replay_sham_link_after_frag(fd_geyser_t * ctx, fd_replay_notif_msg_t * msg) {
 
   } else if( msg->type == FD_REPLAY_ACCTS_TYPE ) {
     if( ctx->acct_fun != NULL ) {
-      fd_funkier_rec_map_t rec_map = fd_funkier_rec_map( ctx->funk, fd_funkier_wksp( ctx->funk ) );
       for( uint i = 0; i < msg->accts.accts_cnt; ++i ) {
         FD_SCRATCH_SCOPE_BEGIN {
           fd_pubkey_t addr;
           fd_memcpy(&addr, msg->accts.accts[i].id, 32U );
           fd_funkier_rec_key_t key = fd_acc_funk_key( &addr );
-          fd_funkier_xid_key_pair_t pair[1];
-          fd_funkier_txn_xid_copy( pair->xid, &msg->accts.funk_xid );
-          fd_funkier_rec_key_copy( pair->key, &key );
-          fd_funkier_rec_query_t query[1];
-          int err = fd_funkier_rec_map_query_try( &rec_map, pair, NULL, query );
-          if( err ) continue;
-          void const * data = fd_funkier_val_const( fd_funkier_rec_map_query_ele_const( query ), fd_funkier_wksp( ctx->funk ) );
+          ulong datalen;
+          void * data = read_account_with_xid( ctx, &key, &msg->accts.funk_xid, &datalen );
           if( data ) {
             fd_account_meta_t const * meta = fd_type_pun_const( data );
-            (*ctx->acct_fun)( msg->accts.funk_xid.ul[0], msg->accts.sig, &addr, meta, (uchar*)data + meta->hlen, meta->dlen, ctx->fun_arg );
+            if( datalen >= meta->hlen + meta->dlen ) {
+              (*ctx->acct_fun)( msg->accts.funk_xid.ul[0], msg->accts.sig, &addr, meta, (uchar*)data + meta->hlen, meta->dlen, ctx->fun_arg );
+            }
           }
         } FD_SCRATCH_SCOPE_END;
       }

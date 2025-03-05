@@ -135,7 +135,7 @@ after_frag( fd_rpcserv_tile_ctx_t * ctx,
     if( FD_UNLIKELY( !ctx->activated ) ) {
       fd_rpcserver_args_t * args = &ctx->args;
       args->funk = fd_funkier_open_file(
-        ctx->funk_file, 1, 0, 0, 0, 0, FD_FUNK_READ_WRITE, NULL );
+        ctx->funk_file, 1, 0, 0, 0, 0, FD_FUNKIER_READ_WRITE, NULL );
       if( FD_UNLIKELY( args->funk == NULL ) ) {
         FD_LOG_ERR(( "failed to join a funky" ));
       }

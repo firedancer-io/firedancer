@@ -272,7 +272,7 @@ fdctl_obj_align( fd_topo_t const *     topo,
   } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
     return fd_blockstore_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
-    return fd_funk_align();
+    return fd_funkier_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
     return fd_txncache_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "neigh4_hmap" ) ) ) {
@@ -323,7 +323,7 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
   } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
     return fd_blockstore_footprint( VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) + VAL("alloc_max");
   } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
-    return fd_funk_footprint();
+    return fd_funkier_footprint( VAL("txn_max"), VAL("rec_max") );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
     return fd_txncache_footprint( VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "neigh4_hmap" ) ) ) {

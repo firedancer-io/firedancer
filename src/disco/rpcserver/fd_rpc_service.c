@@ -133,13 +133,6 @@ struct fd_rpc_ctx {
   fd_rpc_global_ctx_t * global;
 };
 
-static void *
-read_account( fd_rpc_ctx_t * ctx, fd_pubkey_t * acct, ulong * result_len ) {
-  fd_funkier_rec_key_t recid = fd_acc_funk_key(acct);
-  fd_funkier_t * funk = ctx->global->funk;
-  return fd_funkier_rec_query_safe(funk, &recid, fd_scratch_virtual(), result_len);
-}
-
 static void
 fd_method_simple_error( fd_rpc_ctx_t * ctx, int errcode, const char* text ) {
   fd_web_reply_error( &ctx->global->ws, errcode, text, ctx->call_id );
@@ -159,14 +152,42 @@ fd_method_error( fd_rpc_ctx_t * ctx, int errcode, const char* format, ... ) {
   fd_method_simple_error(ctx, errcode, text);
 }
 
-
 static void *
-read_account_with_xid( fd_rpc_ctx_t * ctx, fd_pubkey_t * acct, fd_funkier_txn_xid_t * xid, ulong * result_len ) {
-  fd_funkier_rec_key_t recid = fd_acc_funk_key(acct);
+read_account_with_xid( fd_rpc_ctx_t * ctx, fd_funkier_rec_key_t * recid, fd_funkier_txn_xid_t * xid, ulong * result_len ) {
   fd_funkier_t * funk = ctx->global->funk;
-  return fd_funkier_rec_query_xid_safe(funk, &recid, xid, fd_scratch_virtual(), result_len);
+  fd_funkier_rec_map_t rec_map = fd_funkier_rec_map( funk, fd_funkier_wksp( funk ) );
+  fd_funkier_xid_key_pair_t pair[1];
+  fd_funkier_txn_xid_copy( pair->xid, xid );
+  fd_funkier_rec_key_copy( pair->key, recid );
+  void * last_copy = NULL;
+  ulong last_copy_sz = 0;
+  for(;;) {
+    fd_funkier_rec_query_t query[1];
+    int err = fd_funkier_rec_map_query_try( &rec_map, pair, NULL, query );
+    if( err == FD_MAP_ERR_KEY )   return NULL;
+    if( err == FD_MAP_ERR_AGAIN ) continue;
+    if( err != FD_MAP_SUCCESS )   FD_LOG_CRIT(( "query returned err %d", err ));
+    fd_funkier_rec_t const * rec = fd_funkier_rec_map_query_ele_const( query );
+    ulong sz = fd_funkier_val_sz( rec );
+    void * copy;
+    if( sz <= last_copy_sz ) {
+      copy = last_copy;
+    } else {
+      copy = last_copy = fd_scratch_alloc( 1, sz );
+      last_copy_sz = sz;
+    }
+    memcpy( copy, fd_funkier_val( rec, fd_funkier_wksp( funk ) ), sz );
+    *result_len = sz;
+    if( fd_funkier_rec_query_test( query ) ) return copy;
+  }
 }
 
+static void *
+read_account( fd_rpc_ctx_t * ctx, fd_funkier_rec_key_t * recid, ulong * result_len ) {
+  fd_funkier_txn_xid_t xid;
+  fd_funkier_txn_xid_set_root( &xid );
+  return read_account_with_xid( ctx, recid, &xid, result_len );
+}
 
 static ulong
 get_slot_from_commitment_level( struct json_values * values, fd_rpc_ctx_t * ctx ) {
@@ -203,11 +224,10 @@ read_epoch_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
 
     fd_funkier_rec_key_t recid = fd_runtime_epoch_bank_key();
     ulong vallen;
-    fd_funkier_t * funk = ctx->global->funk;
 
     /* FIXME always uses the root's epoch bank because we don't serialize it */
 
-    void * val = fd_funkier_rec_query_safe(funk, &recid, fd_scratch_virtual(), &vallen);
+    void * val = read_account( ctx, &recid, &vallen );
     if( val == NULL ) {
       FD_LOG_WARNING(( "failed to decode epoch_bank" ));
       return NULL;
@@ -247,7 +267,6 @@ read_slot_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
   ulong vallen;
 
   fd_rpc_global_ctx_t * glob = ctx->global;
-  fd_funkier_t * funk = ctx->global->funk;
 
   fd_block_meta_t block_map_entry = { 0 };
   fd_blockstore_block_map_query_volatile( glob->blockstore, glob->blockstore_fd, slot, &block_map_entry );
@@ -258,9 +277,9 @@ read_slot_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
   fd_funkier_txn_xid_t xid = { 0 };
   memcpy( xid.uc, &block_map_entry.block_hash, sizeof( fd_funkier_txn_xid_t ) );
   xid.ul[0] = slot;
-  void * val = fd_funkier_rec_query_xid_safe(funk, &recid, &xid, fd_scratch_virtual(), &vallen);
+  void * val = read_account_with_xid(ctx, &recid, &xid, &vallen);
   if( FD_UNLIKELY( !val ) ) {
-    val = fd_funkier_rec_query_safe(funk, &recid, fd_scratch_virtual(), &vallen);
+    val = read_account(ctx, &recid, &vallen);
     if( FD_UNLIKELY( !val ) ) {
       FD_LOG_WARNING(( "failed to decode slot_bank" ));
       return NULL;
@@ -351,7 +370,8 @@ method_getAccountInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
     }
 
     ulong val_sz;
-    void * val = read_account(ctx, &acct, &val_sz);
+    fd_funkier_rec_key_t recid = fd_acc_funk_key(&acct);
+    void * val = read_account(ctx, &recid, &val_sz);
     if (val == NULL) {
       fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":null},\"id\":%s}" CRLF,
                            ctx->global->last_slot_notify.slot_exec.slot, ctx->call_id);
@@ -418,7 +438,8 @@ method_getBalance(struct json_values* values, fd_rpc_ctx_t * ctx) {
       return 0;
     }
     ulong val_sz;
-    void * val = read_account(ctx, &acct, &val_sz);
+    fd_funkier_rec_key_t recid = fd_acc_funk_key(&acct);
+    void * val = read_account(ctx, &recid, &val_sz);
     if (val == NULL) {
       fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":0},\"id\":%s}" CRLF,
                          ctx->global->last_slot_notify.slot_exec.slot, ctx->call_id);
@@ -1212,7 +1233,8 @@ method_getMultipleAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
       }
       FD_SCRATCH_SCOPE_BEGIN {
         ulong val_sz;
-        void * val = read_account(ctx, &acct, &val_sz);
+        fd_funkier_rec_key_t recid = fd_acc_funk_key(&acct);
+        void * val = read_account(ctx, &recid, &val_sz);
         if (val == NULL) {
           fd_web_reply_sprintf(ws, "null");
           continue;
@@ -2321,7 +2343,8 @@ ws_method_accountSubscribe_update(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * ms
 
   FD_SCRATCH_SCOPE_BEGIN {
     ulong val_sz;
-    void * val = read_account_with_xid(ctx, &sub->acct_subscribe.acct, &msg->accts.funk_xid, &val_sz);
+    fd_funkier_rec_key_t recid = fd_acc_funk_key(&sub->acct_subscribe.acct);
+    void * val = read_account_with_xid(ctx, &recid, &msg->accts.funk_xid, &val_sz);
     if (val == NULL) {
       fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":null},\"subscription\":%lu}" CRLF,
                            msg->accts.funk_xid.ul[0], sub->subsc_id);

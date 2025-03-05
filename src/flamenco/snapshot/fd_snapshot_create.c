@@ -425,8 +425,8 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
     }
 
     int                 is_tombstone = rec->flags & FD_FUNKIER_REC_FLAG_ERASE;
-    uchar       const * raw          = fd_funk_val( rec, fd_funk_wksp( funk ) );
-    fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funk_rec_get_erase_data( rec ) ) :
+    uchar       const * raw          = fd_funkier_val( rec, fd_funkier_wksp( funk ) );
+    fd_account_meta_t * metadata     = is_tombstone ? fd_snapshot_create_get_default_meta( fd_funkier_rec_get_erase_data( rec ) ) :
                                                       (fd_account_meta_t*)raw;
 
     if( FD_UNLIKELY( !metadata ) ) {
@@ -747,7 +747,7 @@ fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
 
   fd_bincode_decode_ctx_t epoch_decode_ctx = {
     .data    = (uchar*)epoch_val + sizeof(uint),
-    .dataend = (uchar*)epoch_val + fd_funk_val_sz( epoch_rec ),
+    .dataend = (uchar*)epoch_val + fd_funkier_val_sz( epoch_rec ),
   };
 
   if( FD_UNLIKELY( epoch_magic!=FD_RUNTIME_ENC_BINCODE ) ) {
@@ -786,7 +786,7 @@ fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
 
   fd_bincode_decode_ctx_t slot_decode_ctx = {
     .data    = (uchar*)slot_val + sizeof(uint),
-    .dataend = (uchar*)slot_val + fd_funk_val_sz( slot_rec ),
+    .dataend = (uchar*)slot_val + fd_funkier_val_sz( slot_rec ),
   };
 
   if( FD_UNLIKELY( slot_magic!=FD_RUNTIME_ENC_BINCODE ) ) {

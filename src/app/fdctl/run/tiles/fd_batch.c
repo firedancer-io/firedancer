@@ -377,11 +377,11 @@ produce_snapshot( fd_snapshot_tile_ctx_t * ctx, ulong batch_fseq ) {
 static fd_funkier_txn_t*
 get_eah_txn( fd_funkier_t * funk, ulong slot ) {
 
-  fd_funkier_txn_t * txn_map = fd_funkier_txn_map( funk, fd_funkier_wksp( funk ) );
-  for( fd_funkier_txn_map_iter_t iter = fd_funkier_txn_map_iter_init( txn_map );
-         !fd_funkier_txn_map_iter_done( txn_map, iter );
-         iter = fd_funkier_txn_map_iter_next( txn_map, iter ) ) {
-    fd_funkier_txn_t * txn = fd_funkier_txn_map_iter_ele( txn_map, iter );
+  fd_funkier_txn_map_t txn_map = fd_funkier_txn_map( funk, fd_funkier_wksp( funk ) );
+  for( fd_funkier_txn_map_iter_t iter = fd_funkier_txn_map_iter_init( &txn_map );
+         !fd_funkier_txn_map_iter_done( &txn_map, iter );
+         iter = fd_funkier_txn_map_iter_next( &txn_map, iter ) ) {
+    fd_funkier_txn_t * txn = fd_funkier_txn_map_iter_ele( &txn_map, iter );
     if( txn->xid.ul[0]==slot ) {
       FD_LOG_NOTICE(( "Found transaction for eah" ));
       return txn;

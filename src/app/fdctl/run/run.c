@@ -556,7 +556,7 @@ fdctl_obj_new( fd_topo_t const *     topo,
   } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
     FD_TEST( fd_blockstore_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
-    FD_TEST( fd_funk_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("txn_max"), VAL("rec_max") ) );
+    FD_TEST( fd_funkier_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("txn_max"), VAL("rec_max") ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
     FD_TEST( fd_txncache_new( laddr, VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "neigh4_hmap" ) ) )  {
