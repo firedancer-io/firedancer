@@ -311,7 +311,7 @@ run_monitor( config_t * const config,
 
     
     /* move to beginning of line, n lines ago */
-    PRINT( "\033[2J\033[H");
+    PRINT( "\033[2J\033[H" );
 
     /* drain any firedancer log messages into the terminal */
     if( FD_UNLIKELY( drain_output_fd >= 0 ) ) drain_to_buffer( &buf, &buf_sz, drain_output_fd );

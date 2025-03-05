@@ -107,9 +107,11 @@ printf_pct( char ** buf,
             ulong  den_then,
             double lhopital_den );
 
-/* fd_getchar will read a key press from stdin and return the ASCII
-   integer of the character. */
+/* fd_getchar does a non-blocking read of one byte from stdin.
+   Temporarily disables canonical and echo mode while doing the read.
+   Returns the byte in [1,256) on success. Returns 0 if stdin was not
+   ready for reading (select(2)) or a null byte was read. */
 int
-fd_getchar(void);
+fd_getchar( void );
 
 #endif /* HEADER_fd_src_app_fdctl_monitor_helper_h */

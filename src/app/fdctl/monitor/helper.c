@@ -186,12 +186,14 @@ fd_getchar( void ) {
   int ch[1] = {0};
 
   /* Disables character echo and canonical mode since we want the input to be processes immediately.*/
-  if( FD_UNLIKELY( 0!=tcgetattr( STDIN_FILENO, &term_old ) ) ) {
+  if( FD_UNLIKELY( 0!=tcgetattr( STDIN_FILENO, &term_old ) ) )
+  {
     FD_LOG_ERR(( "tcgetattr(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   term_new = term_old;
   term_new.c_lflag &= (tcflag_t)~(ICANON | ECHO); 
-  if( FD_UNLIKELY( 0!=tcsetattr( STDIN_FILENO, TCSANOW, &term_new ) ) ) {
+  if( FD_UNLIKELY( 0!=tcsetattr( STDIN_FILENO, TCSANOW, &term_new ) ) )
+  {
     FD_LOG_WARNING(( "tcsetattr(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
@@ -204,7 +206,7 @@ fd_getchar( void ) {
   timeout.tv_sec = 0;
   timeout.tv_usec = 0;
 
-  if( FD_UNLIKELY( -1==select( 1, &stdin_status, NULL, NULL,  &timeout ) ) ) 
+  if( FD_UNLIKELY( -1==select( 1, &stdin_status, NULL, NULL,  &timeout ) ) )
   {
     FD_LOG_ERR(( "select(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
@@ -215,12 +217,14 @@ fd_getchar( void ) {
     bytes = read( STDIN_FILENO, ch, 1 );
   }
   /* Check if the read was not successfull, lack of input and being set to non blocking would result in EAGAIN(11) */
-  if( FD_UNLIKELY( -1==bytes && errno!=EAGAIN ) ) {
+  if( FD_UNLIKELY( -1==bytes && errno!=EAGAIN ) )
+  {
     FD_LOG_ERR(( "read(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
   /* Set the terminal back to the original configuration */
-  if( FD_UNLIKELY( 0!=tcsetattr( STDIN_FILENO, TCSANOW, &term_old ) ) ) {
+  if( FD_UNLIKELY( 0!=tcsetattr( STDIN_FILENO, TCSANOW, &term_old ) ) )
+  {
     FD_LOG_WARNING(( "tcsetattr(STDIN_FILENO) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   
