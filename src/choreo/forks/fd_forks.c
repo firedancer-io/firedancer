@@ -245,6 +245,7 @@ slot_ctx_restore( ulong                 slot,
     }
 
     fd_slot_bank_t * slot_bank = fd_slot_bank_decode( mem, &decode_ctx );
+    FD_LOG_WARNING(("ON FORK KUNAL slot_bank->slot %lu", slot_bank->slot));
 
     fd_memcpy( &slot_ctx_out->slot_bank, slot_bank, sizeof(fd_slot_bank_t) );
   } else {

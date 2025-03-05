@@ -1185,6 +1185,7 @@ class DlistMember(TypeNode):
         super().__init__(json)
         self.dlist_t = json["dlist_t"]
         self.dlist_n = json["dlist_n"]
+        self.compact = ("modifier" in json and json["modifier"] == "compact")
 
     def emitPreamble(self):
         pool_name = self.dlist_n + "_pool"
@@ -1194,21 +1195,57 @@ class DlistMember(TypeNode):
         print(f"#define POOL_T {self.dlist_t}", file=header)
         print(f"#define POOL_NEXT parent", file=header)
         print(f"#include \"../../util/tmpl/fd_pool.c\"", file=header)
-        print(f"#undef POOL_NAME", file=header)
-        print(f"#undef POOL_T", file=header)
-        print(f"#undef POOL_NEXT", file=header)
+
+        print(f'static inline {self.dlist_t} *', file=header)
+        print(f'{pool_name}_alloc( fd_valloc_t valloc, ulong num ) {{', file=header)
+        print(f'  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow', file=header)
+        print(f'  return {pool_name}_join( {pool_name}_new(', file=header)
+        print(f'      fd_valloc_malloc( valloc,', file=header)
+        print(f'                        {pool_name}_align(),', file=header)
+        print(f'                        {pool_name}_footprint( num ) ),', file=header)
+        print(f'      num ) );', file=header)
+        print("}", file=header)
+        print(f'static inline {self.dlist_t} *', file=header)
+        print(f'{pool_name}_join_new( void * * alloc_mem, ulong num ) {{', file=header)
+        print(f'  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow', file=header)
+        print(f'  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, {pool_name}_align() );', file=header)
+        print(f'  void * pool_mem = *alloc_mem;', file=header)
+        print(f'  *alloc_mem = (uchar *)*alloc_mem + {pool_name}_footprint( num );', file=header)
+        print(f'  return {pool_name}_join( {pool_name}_new( pool_mem, num ) );', file=header)
+        print("}", file=header)
+        # print(f"#undef POOL_NAME", file=header)
+        # print(f"#undef POOL_T", file=header)
+        # print(f"#undef POOL_NEXT", file=header)
         print(f"#define DLIST_NAME {dlist_name}", file=header)
         print(f"#define DLIST_ELE_T {self.dlist_t}", file=header)
         print(f'#include "../../util/tmpl/fd_dlist.c"', file=header)
-        print(f"#undef DLIST_NAME", file=header)
-        print(f"#undef DLIST_ELE_T", file=header)
-
+        print(f'static inline {dlist_name}_t *', file=header)
+        print(f'{dlist_name}_alloc( fd_valloc_t valloc, ulong num ) {{', file=header)
+        print(f'  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow', file=header)
+        print(f'  return {dlist_name}_join( {dlist_name}_new(', file=header)
+        print(f'      fd_valloc_malloc( valloc,', file=header)
+        print(f'                        {dlist_name}_align(),', file=header)
+        print(f'                        {dlist_name}_footprint() ) ) );', file=header)
+        print("}", file=header)
+        print(f'static inline {dlist_name}_t *', file=header)
+        print(f'{dlist_name}_join_new( void * * alloc_mem, ulong num ) {{', file=header)
+        print(f'  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow', file=header)
+        print(f'  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, {dlist_name}_align() );', file=header)
+        print(f'  void * dlist_mem = *alloc_mem;', file=header)
+        print(f'  *alloc_mem = (uchar *)*alloc_mem + {dlist_name}_footprint();', file=header)
+        print(f'  return {dlist_name}_join( {dlist_name}_new( dlist_mem ) );', file=header)
+        print("}", file=header)
+        # print(f"#undef DLIST_NAME", file=header)
+        # print(f"#undef DLIST_ELE_T", file=header)
 
     def emitPostamble(self):
         pass
 
     def emitMember(self):
-        print(f'  ulong {self.name}_len;', file=header)
+        if self.compact:
+            print(f'  ushort {self.name}_len;', file=header)
+        else:
+            print(f'  ulong {self.name}_len;', file=header)
         print(f'  {self.dlist_n}_dlist_t * {self.name};', file=header)
         print(f'  {self.dlist_t} * pool;', file=header)
 
@@ -1219,21 +1256,130 @@ class DlistMember(TypeNode):
         pass
 
     def emitDestroy(self):
-        pass
+        dlist_name = self.dlist_n + "_dlist"
+        dlist_t = self.dlist_t
+        pool_name = self.dlist_n + "_pool"
+
+        print(f'  if( !self->{self.name} || !self->pool ) return;', file=body)
+        print(f'  for( {dlist_name}_iter_t iter = {dlist_name}_iter_fwd_init( self->{self.name}, self->pool );', file=body);
+        print(f'         !{dlist_name}_iter_done( iter, self->{self.name}, self->pool );', file=body);
+        print(f'         iter = {dlist_name}_iter_fwd_next( iter, self->{self.name}, self->pool ) ) {{', file=body);
+        print(f'      {dlist_t} * ele = {dlist_name}_iter_ele( iter, self->{self.name}, self->pool );', file=body)
+        print(f'      {dlist_t.rstrip("_t")}_destroy( ele );', file=body)
+        print('    }', file=body)
+        print(f'  self->pool = NULL;', file=body)
+        print(f'  self->{self.name} = NULL;', file=body)
 
     def emitDecodeFootprint(self):
-        pass
+        dlist_name = self.dlist_n + "_dlist"
+        dlist_t = self.dlist_t
+        pool_name = self.dlist_n + "_pool"
+        if self.compact:
+            print(f'  ushort {self.name}_len;', file=body)
+            print(f'  err = fd_bincode_compact_u16_decode( &{self.name}_len, ctx );', file=body)
+        else:
+            print(f'  ulong {self.name}_len;', file=body)
+            print(f'  err = fd_bincode_uint64_decode( &{self.name}_len, ctx );', file=body)
+        print('  if( FD_UNLIKELY( err ) ) return err;', file=body)
+
+
+        print(f'  *total_sz += {pool_name}_align() + {pool_name}_footprint( {self.name}_len );', file=body)
+        print(f'  *total_sz += {dlist_name}_align() + {dlist_name}_footprint();', file=body)
+
+        print(f'  for( ulong i=0; i < {self.name}_len; i++ ) {{', file=body)
+        print(f'    err = {dlist_t.rstrip("_t")}_decode_footprint_inner( ctx, total_sz );', file=body)
+        print(f'    if( FD_UNLIKELY ( err ) ) return err;', file=body)
+        print('  }', file=body)
 
     def emitDecodeInner(self):
-        pass
+        dlist_name = self.dlist_n + "_dlist"
+        dlist_t = self.dlist_t
+        pool_name = self.dlist_n + "_pool"
+
+        if self.compact:
+            print(f'  fd_bincode_compact_u16_decode_unsafe( &self->{self.name}_len, ctx );', file=body)
+        else:
+            print(f'  fd_bincode_uint64_decode_unsafe( &self->{self.name}_len, ctx );', file=body)
+
+        print(f'  self->pool = {pool_name}_join_new( alloc_mem, self->{self.name}_len );', file=body)
+        print(f'  self->{self.name} = {dlist_name}_join_new( alloc_mem, self->{self.name}_len );', file=body)
+
+        print(f'  for( ulong i=0; i < self->{self.name}_len; i++ ) {{', file=body)
+        print(f'    {dlist_t} * ele = {pool_name}_ele_acquire( self->pool );', file=body)
+        print(f'    {dlist_t.rstrip("_t")}_new( ele );', file=body)
+        print(f'    {dlist_t.rstrip("_t")}_decode_inner( ele, alloc_mem, ctx );', file=body)
+        print(f'    {dlist_name}_ele_push_tail( &self->{self.name}[ i ], ele, self->pool ); /* this cannot fail */', file=body)
+        print('  }', file=body)
 
     def emitEncode(self):
-        pass
+        name = self.name
+        dlist_name = self.dlist_n + "_dlist"
+        dlist_t = self.dlist_t
+
+        print(f'  if( self->{name} ) {{', file=body)
+        if self.compact:
+            print(f'    err = fd_bincode_compact_u16_encode( &self->{self.name}_len, ctx );', file=body)
+        else:
+            print(f'    err = fd_bincode_uint64_encode( self->{self.name}_len, ctx );', file=body)
+
+        print(f'    for( {dlist_name}_iter_t iter = {dlist_name}_iter_fwd_init( self->{self.name}, self->pool );', file=body)
+        print(f'         !{dlist_name}_iter_done( iter, self->{self.name}, self->pool );', file=body);
+        print(f'         iter = {dlist_name}_iter_fwd_next( iter, self->{self.name}, self->pool ) ) {{', file=body);
+        print(f'      {dlist_t} * ele = {dlist_name}_iter_ele( iter, self->{self.name}, self->pool );', file=body)
+        print(f'      err = {dlist_t.rstrip("_t")}_encode( ele, ctx );', file=body)
+        print('      if( FD_UNLIKELY( err ) ) return err;', file=body)
+        print('    }', file=body)
+        print('  } else {', file=body)
+
+        if self.compact:
+            print(f'    err = fd_bincode_compact_u16_encode( &self->{self.name}_len, ctx );', file=body)
+        else:
+            print(f'    err = fd_bincode_uint64_encode( self->{self.name}_len, ctx );', file=body)
+        print('    if( FD_UNLIKELY( err ) ) return err;', file=body)
+        print('  }', file=body)
 
     def emitSize(self, inner):
-        pass
+        name = self.name
+        dlist_name = self.dlist_n + "_dlist"
+        dlist_t = self.dlist_t
+        pool = self.dlist_n + "_pool"
+
+        if self.compact:
+            print(f'  ushort {name}_len = (ushort){pool}_used( self->pool );', file=body)
+            print(f'  size += fd_bincode_compact_u16_size( &{name}_len );', file=body)
+        else:
+            print('  size += sizeof(ulong);', file=body)
+        print(f'  if( self->{name} ) {{', file=body)
+        print(f'    for( {dlist_name}_iter_t iter = {dlist_name}_iter_fwd_init( self->{self.name}, self->pool );', file=body)
+        print(f'         !{dlist_name}_iter_done( iter, self->{self.name}, self->pool );', file=body);
+        print(f'         iter = {dlist_name}_iter_fwd_next( iter, self->{self.name}, self->pool ) ) {{', file=body);
+        print(f'      {dlist_t} * ele = {dlist_name}_iter_ele( iter, self->{self.name}, self->pool );', file=body)
+        print(f'      size += {dlist_t.rstrip("_t")}_size( ele );', file=body)
+        print('    }', file=body)
+        print('  }', file=body)
 
     def emitWalk(self, inner):
+        name = self.name
+        dlist_name = self.dlist_n + "_dlist"
+        dlist_t = self.dlist_t
+
+        print(f'  if( self->{name} ) {{', file=body)
+        print(f'    for( {dlist_name}_iter_t iter = {dlist_name}_iter_fwd_init( self->{self.name}, self->pool );', file=body)
+        print(f'         !{dlist_name}_iter_done( iter, self->{self.name}, self->pool );', file=body);
+        print(f'         iter = {dlist_name}_iter_fwd_next( iter, self->{self.name}, self->pool ) ) {{', file=body);
+        print(f'      {dlist_t} * ele = {dlist_name}_iter_ele( iter, self->{self.name}, self->pool );', file=body)
+
+        if dlist_t == "uchar":
+            print('      fun( w, ele, "ele", FD_FLAMENCO_TYPE_UCHAR, "uchar", level );', file=body),
+        elif dlist_t == "ulong":
+            print('      fun( w, ele, "ele", FD_FLAMENCO_TYPE_ULONG, "long",  level );', file=body),
+        elif dlist_t == "uint":
+            print('      fun( w, ele, "ele", FD_FLAMENCO_TYPE_UINT,  "uint",  level );', file=body),
+        else:
+            print(f'      {dlist_t.rstrip("_t")}_walk( w, ele, fun, "{dlist_t}", level );', file=body)
+        print(f'    }}', file=body)
+        print(f'  }}', file=body)
+
         pass
 
 

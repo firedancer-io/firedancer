@@ -2790,14 +2790,42 @@ typedef struct fd_point_value_off fd_point_value_off_t;
 #define POOL_T fd_stake_reward_t
 #define POOL_NEXT parent
 #include "../../util/tmpl/fd_pool.c"
-#undef POOL_NAME
-#undef POOL_T
-#undef POOL_NEXT
+static inline fd_stake_reward_t *
+fd_partitioned_stake_rewards_pool_alloc( fd_valloc_t valloc, ulong num ) {
+  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
+  return fd_partitioned_stake_rewards_pool_join( fd_partitioned_stake_rewards_pool_new(
+      fd_valloc_malloc( valloc,
+                        fd_partitioned_stake_rewards_pool_align(),
+                        fd_partitioned_stake_rewards_pool_footprint( num ) ),
+      num ) );
+}
+static inline fd_stake_reward_t *
+fd_partitioned_stake_rewards_pool_join_new( void * * alloc_mem, ulong num ) {
+  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_partitioned_stake_rewards_pool_align() );
+  void * pool_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + fd_partitioned_stake_rewards_pool_footprint( num );
+  return fd_partitioned_stake_rewards_pool_join( fd_partitioned_stake_rewards_pool_new( pool_mem, num ) );
+}
 #define DLIST_NAME fd_partitioned_stake_rewards_dlist
 #define DLIST_ELE_T fd_stake_reward_t
 #include "../../util/tmpl/fd_dlist.c"
-#undef DLIST_NAME
-#undef DLIST_ELE_T
+static inline fd_partitioned_stake_rewards_dlist_t *
+fd_partitioned_stake_rewards_dlist_alloc( fd_valloc_t valloc, ulong num ) {
+  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
+  return fd_partitioned_stake_rewards_dlist_join( fd_partitioned_stake_rewards_dlist_new(
+      fd_valloc_malloc( valloc,
+                        fd_partitioned_stake_rewards_dlist_align(),
+                        fd_partitioned_stake_rewards_dlist_footprint() ) ) );
+}
+static inline fd_partitioned_stake_rewards_dlist_t *
+fd_partitioned_stake_rewards_dlist_join_new( void * * alloc_mem, ulong num ) {
+  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_partitioned_stake_rewards_dlist_align() );
+  void * dlist_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + fd_partitioned_stake_rewards_dlist_footprint();
+  return fd_partitioned_stake_rewards_dlist_join( fd_partitioned_stake_rewards_dlist_new( dlist_mem ) );
+}
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L56 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_partitioned_stake_rewards {
@@ -2838,14 +2866,42 @@ typedef struct fd_stake_reward_calculation_partitioned_off fd_stake_reward_calcu
 #define POOL_T fd_stake_reward_t
 #define POOL_NEXT parent
 #include "../../util/tmpl/fd_pool.c"
-#undef POOL_NAME
-#undef POOL_T
-#undef POOL_NEXT
+static inline fd_stake_reward_t *
+fd_stake_reward_calculation_pool_alloc( fd_valloc_t valloc, ulong num ) {
+  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
+  return fd_stake_reward_calculation_pool_join( fd_stake_reward_calculation_pool_new(
+      fd_valloc_malloc( valloc,
+                        fd_stake_reward_calculation_pool_align(),
+                        fd_stake_reward_calculation_pool_footprint( num ) ),
+      num ) );
+}
+static inline fd_stake_reward_t *
+fd_stake_reward_calculation_pool_join_new( void * * alloc_mem, ulong num ) {
+  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_stake_reward_calculation_pool_align() );
+  void * pool_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + fd_stake_reward_calculation_pool_footprint( num );
+  return fd_stake_reward_calculation_pool_join( fd_stake_reward_calculation_pool_new( pool_mem, num ) );
+}
 #define DLIST_NAME fd_stake_reward_calculation_dlist
 #define DLIST_ELE_T fd_stake_reward_t
 #include "../../util/tmpl/fd_dlist.c"
-#undef DLIST_NAME
-#undef DLIST_ELE_T
+static inline fd_stake_reward_calculation_dlist_t *
+fd_stake_reward_calculation_dlist_alloc( fd_valloc_t valloc, ulong num ) {
+  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
+  return fd_stake_reward_calculation_dlist_join( fd_stake_reward_calculation_dlist_new(
+      fd_valloc_malloc( valloc,
+                        fd_stake_reward_calculation_dlist_align(),
+                        fd_stake_reward_calculation_dlist_footprint() ) ) );
+}
+static inline fd_stake_reward_calculation_dlist_t *
+fd_stake_reward_calculation_dlist_join_new( void * * alloc_mem, ulong num ) {
+  if( FD_UNLIKELY( 0 == num ) ) num = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_stake_reward_calculation_dlist_align() );
+  void * dlist_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + fd_stake_reward_calculation_dlist_footprint();
+  return fd_stake_reward_calculation_dlist_join( fd_stake_reward_calculation_dlist_new( dlist_mem ) );
+}
 /* https://github.com/anza-xyz/agave/blob/7117ed9653ce19e8b2dea108eff1f3eb6a3378a7/runtime/src/bank/partitioned_epoch_rewards/mod.rs#L94 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_stake_reward_calculation {
