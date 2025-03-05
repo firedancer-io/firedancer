@@ -1,5 +1,5 @@
 #include "helper.h"
-#include <bits/types/struct_timeval.h>
+#include <sys/time.h>
 #include <sys/select.h>
 #include <termios.h>
 #include <fcntl.h>
