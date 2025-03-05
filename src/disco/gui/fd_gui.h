@@ -41,6 +41,10 @@
 #define FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY          (11)
 #define FD_GUI_START_PROGRESS_TYPE_RUNNING                            (12)
 
+#define FD_GUI_PEERS_ACTION_ADD    (0)
+#define FD_GUI_PEERS_ACTION_UPDATE (1)
+#define FD_GUI_PEERS_ACTION_REMOVE (2)
+
 struct fd_gui_gossip_peer {
   fd_pubkey_t pubkey[ 1 ];
   ulong       wallclock;
@@ -336,6 +340,28 @@ fd_gui_new( void *             shmem,
             uchar const *      identity_key,
             int                is_voting,
             fd_topo_t *        topo );
+
+/* fd_gui_{gossip|vote_acct|validator_infoleader_schedule}_contains
+   check if the provided pubkey is in the set of peers designated by
+   the function name. they return the index into a buffer of peer
+   objects or ULONG_MAX if they pubkey is not found. */
+
+ulong
+fd_gui_gossip_contains( fd_gui_t const * gui,
+                        uchar const *    pubkey );
+
+ulong
+fd_gui_vote_acct_contains( fd_gui_t const * gui,
+                           uchar const *    pubkey );
+
+ulong
+fd_gui_validator_info_contains( fd_gui_t const * gui,
+                                uchar const *    pubkey );
+
+ulong
+fd_gui_leader_schedule_contains( fd_gui_t const * gui,
+                                 uchar const *    pubkey,
+                                 ulong            epoch_idx );
 
 fd_gui_t *
 fd_gui_join( void * shmem );
