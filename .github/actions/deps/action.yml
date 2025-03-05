@@ -9,6 +9,10 @@ inputs:
     description: 'Path of deps-bundle.sh script'
     required: true
     default: './contrib/deps-bundle.sh'
+  extras:
+    description: Extra flags
+    required: true
+    default: ''
   compiler:
     description: 'The compiler to use'
     required: true
@@ -48,9 +52,9 @@ runs:
       with:
         base: "${{ runner.tool_cache }}/cache"
         path: deps-bundle.tar.zst
-        key: deps-sh-${{ runner.os }}-${{ runner.arch }}-${{ inputs.compiler }}-${{ inputs.compiler-version }}-${{ steps.deps-sh-hash.outputs.HASH }}
+        key: deps-sh-${{ runner.os }}-${{ runner.arch }}-${{ inputs.compiler }}-${{ inputs.compiler-version }}-${{ inputs.extras }}-${{ steps.deps-sh-hash.outputs.HASH }}
         clean-key: deps-sh
-        
+
     - name: Install system level dependencies
       shell: bash
       run: FD_AUTO_INSTALL_PACKAGES=1 '${{ inputs.deps-script-path }}' check
@@ -69,6 +73,6 @@ runs:
         CC='${{ inputs.compiler }}' \
         CXX='${{ inputs.compiler == 'gcc' && 'g++' || 'clang++' }}' \
         FD_AUTO_INSTALL_PACKAGES=1 \
-        '${{ inputs.deps-script-path }}' +dev fetch install
+        '${{ inputs.deps-script-path }}' ${{ inputs.extras }} fetch install
         '${{ inputs.deps-bundle-path }}'
       if: steps.deps-sh-cache.outputs.cache-hit != 'true'
