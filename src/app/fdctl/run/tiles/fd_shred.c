@@ -536,6 +536,8 @@ after_frag( fd_shred_ctx_t *    ctx,
   (void)sz;
   (void)tsorig;
 
+  if( FD_UNLIKELY( ctx->skip_frag ) ) return;
+
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_CONTACT ) ) {
     finalize_new_cluster_contact_info( ctx );
     return;
