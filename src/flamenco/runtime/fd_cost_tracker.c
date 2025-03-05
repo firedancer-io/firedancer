@@ -287,11 +287,11 @@ add_transaction_execution_cost( fd_cost_tracker_t * 				  self,
                                 fd_transaction_cost_t const * tx_cost,
                                 ulong                         adjustment ) {
 
-  fd_txn_t const * 									   txn_descriptor = txn_ctx->txn_descriptor;
-  void const *    									   payload        = txn_ctx->_txn_raw->raw;
+  fd_txn_t const *                     txn_descriptor = txn_ctx->txn_descriptor;
+  void const *                         payload        = txn_ctx->_txn_raw->raw;
   fd_account_costs_pair_t_mapnode_t *  pool           = self->cost_by_writable_accounts.account_costs_pool;
   fd_account_costs_pair_t_mapnode_t ** root           = &self->cost_by_writable_accounts.account_costs_root;
-  fd_acct_addr_t const * 							 account_keys   = fd_txn_get_acct_addrs( txn_descriptor, payload );
+  fd_acct_addr_t const *               account_keys   = fd_txn_get_acct_addrs( txn_descriptor, payload );
 
   for( fd_txn_acct_iter_t i=fd_txn_acct_iter_init( txn_descriptor, FD_TXN_ACCT_CAT_WRITABLE );
                           i!=fd_txn_acct_iter_end();
@@ -323,7 +323,6 @@ add_transaction_cost( fd_cost_tracker_t *           self,
                       fd_exec_txn_ctx_t const *     txn_ctx,
                        fd_transaction_cost_t const * tx_cost ) {
   /* Note: We purposely omit signature counts updates since they're not relevant to cost calculations right now. */
-
   self->allocated_accounts_data_size += get_allocated_accounts_data_size( tx_cost );
   self->transaction_count++;
   add_transaction_execution_cost( self, txn_ctx, tx_cost, transaction_cost_sum( tx_cost ) );
@@ -332,9 +331,9 @@ add_transaction_cost( fd_cost_tracker_t *           self,
 /** PUBLIC FUNCTIONS ***/
 
 void
-fd_cost_tracker_init( fd_cost_tracker_t *  		   self,
+fd_cost_tracker_init( fd_cost_tracker_t *        self,
                       fd_exec_slot_ctx_t const * slot_ctx,
-                      fd_spad_t * 				  		 spad ) {
+                      fd_spad_t *                spad ) {
   // Set limits appropriately
   self->account_cost_limit = FD_MAX_WRITABLE_ACCOUNT_UNITS;
   self->block_cost_limit   = FD_FEATURE_ACTIVE( slot_ctx, raise_block_limits_to_50m ) ? FD_MAX_BLOCK_UNITS_SIMD_0207 : FD_MAX_BLOCK_UNITS;
@@ -377,7 +376,7 @@ fd_calculate_cost_for_executed_transaction( fd_exec_txn_ctx_t const * txn_ctx,
 }
 
 int
-fd_cost_tracker_try_add( fd_cost_tracker_t *  				 self,
+fd_cost_tracker_try_add( fd_cost_tracker_t *           self,
                          fd_exec_txn_ctx_t const *     txn_ctx,
                          fd_transaction_cost_t const * tx_cost ) {
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L167 */
