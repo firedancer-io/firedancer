@@ -525,7 +525,16 @@ before_frag( fd_replay_tile_ctx_t * ctx,
         if( FD_UNLIKELY( fd_block_map_query_test( query ) == FD_MAP_SUCCESS ) ) break;
       } /* finish speculate */
 
-      if( FD_LIKELY( end_idx > start_idx ) ) fd_replay_slice_deque_push_tail( ctx->replay->slice_deque, (fd_replay_slice_t){ start_idx, end_idx } ); /* queue up slice for replay */
+      if( FD_LIKELY( end_idx > start_idx ) ) {
+        fd_replay_slice_t * slice_deque = NULL;
+        if(( slice_deque = fd_replay_slice_map_query( ctx->replay->slice_map, slot, NULL ) )){
+          /* we already have completed slices for this slot*/
+        } else {
+          /* create new map entry for this slot */
+          slice_deque = fd_replay_slice_map_insert( ctx->replay->slice_map, slot );
+        }
+        fd_replay_slice_deque_push_tail( slice_deque->deque, fd_replay_slice_key( start_idx, end_idx ) );
+      }
       return 1; /* skip after frag */
     }
 
@@ -2599,15 +2608,16 @@ repair_fecs( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
   /* Iterate over in-progress FEC sets. */
 
+  /* iterate over the fecs that are incomplete */
+  fd_replay_t replay[1] = { 0 };
   fd_repair_request_t * repair_reqs = (fd_repair_request_t *)fd_type_pun( fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk ));
 
-  for( fd_replay_fec_dlist_iter_t iter = fd_replay_fec_dlist_iter_rev_init( replay->fec_dlist, replay->fec_pool );
-       !fd_replay_fec_dlist_iter_done( iter, replay->fec_dlist, replay->fec_pool );
-       iter = fd_replay_fec_dlist_iter_rev_next( iter, replay->fec_dlist, replay->fec_pool ) ) {
-    ulong fec_ele_idx = fd_replay_fec_dlist_iter_idx( iter, replay->fec_dlist, replay->fec_pool );
-    fd_replay_fec_t * fec_info = fd_replay_fec_pool_ele( replay->fec_pool, fec_ele_idx );
+  for( fd_replay_fec_deque_iter_t iter = fd_replay_fec_deque_iter_init( replay->fec_deque );
+       !fd_replay_fec_deque_iter_done( replay->fec_deque, iter );
+       iter = fd_replay_fec_deque_iter_next( replay->fec_deque, iter ) ) {
+    fd_replay_fec_t * fec_info = fd_replay_fec_deque_iter_ele( replay->fec_deque, iter );
     ulong slot = fd_ulong_extract( fec_info->key, 32, 63 );
-    uint total_rx_shred_cnt  = fec_info->rx_data_cnt + fec_info->rx_code_cnt;
+    uint total_rx_shred_cnt   = fec_info->rx_data_cnt + fec_info->rx_code_cnt;
     uint remaining_shreds_req = (uint) ( fec_info->data_cnt - total_rx_shred_cnt );
 
     if( remaining_shreds_req <= 0 ) {
@@ -3036,8 +3046,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 42UL, FD_BLOCK_MAX ) );
   ctx->tower = fd_tower_join( fd_tower_new( tower_mem ) );
 
-  ctx->replay = fd_replay_join( fd_replay_new( replay_mem, tile->replay.fec_max, FD_BLOCK_MAX * FD_SHRED_MAX_PER_SLOT ) );
-
+  ctx->replay = fd_replay_join( fd_replay_new( replay_mem, tile->replay.fec_max, FD_SHRED_MAX_PER_SLOT, FD_BLOCK_MAX ) );
+  fd_replay_init( ctx->replay, 0 );
   /**********************************************************************/
   /* voter                                                              */
   /**********************************************************************/

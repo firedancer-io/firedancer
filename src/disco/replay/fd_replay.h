@@ -117,15 +117,37 @@ struct fd_replay_fec {
 /* fd_replay_slice_t describes a replayable slice of a block which is
    a group of one or more completed entry batches. */
 
-struct fd_replay_slice {
+/*struct fd_replay_slice {
   uint  start_idx;
   uint  end_idx;
+};
+typedef struct fd_replay_slice fd_replay_slice_t;*/
+
+static inline FD_FN_CONST
+uint fd_replay_slice_start_idx( ulong key ){
+  return (uint)( key >> 32 );
+}
+
+static inline
+ulong fd_replay_slice_key( uint start_idx, uint end_idx ) {
+  return (ulong)start_idx << 32 | (ulong)end_idx;
+}
+
+struct fd_replay_slice {
+  ulong   slot;
+  ulong * deque;
 };
 typedef struct fd_replay_slice fd_replay_slice_t;
 
 #define DEQUE_NAME fd_replay_slice_deque
-#define DEQUE_T    fd_replay_slice_t
+#define DEQUE_T    ulong
 #include "../../util/tmpl/fd_deque_dynamic.c"
+
+#define MAP_NAME    fd_replay_slice_map
+#define MAP_T       fd_replay_slice_t
+#define MAP_KEY     slot
+#define MAP_MEMOIZE 0
+#include "../../util/tmpl/fd_map_dynamic.c"
 
 #define FD_REPLAY_MAGIC (0xf17eda2ce77e91a70UL) /* firedancer replay version 0 */
 
@@ -138,6 +160,7 @@ typedef struct fd_replay_slice fd_replay_slice_t;
 struct __attribute__((aligned(128UL))) fd_replay {
   ulong fec_max;
   ulong slice_max;
+  ulong block_max;
 
   /* Track in-progress FEC sets to repair if they don't complete in a
      timely way. */
@@ -147,7 +170,8 @@ struct __attribute__((aligned(128UL))) fd_replay {
 
   /* Track block slices to be replayed. */
 
-  fd_replay_slice_t * slice_deque; /* FIFO */
+  fd_replay_slice_t * slice_map;
+  void *              slice_deques; /* buffer of contiguous deques of ulongs */
 
   /* Buffer to hold the block slice. */
 
@@ -191,7 +215,7 @@ fd_replay_footprint( ulong fec_max, ulong slice_max ) {
    with the required footprint and alignment. */
 
 void *
-fd_replay_new( void * shmem, ulong fec_max, ulong slice_max );
+fd_replay_new( void * shmem, ulong fec_max, ulong slice_max, ulong block_max );
 
 /* fd_replay_join joins the caller to the replay.  replay points to the
    first byte of the memory region backing the replay in the caller's
