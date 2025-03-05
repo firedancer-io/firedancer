@@ -298,6 +298,10 @@ before_frag( fd_repair_tile_ctx_t * ctx,
   (void)seq;
 
   if( FD_LIKELY( in_idx==NET_IN_IDX ) ) return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR;
+  if( in_idx==REPLAY_IN_IDX ) {
+    FD_LOG_WARNING(("Received replay request to repair for slot %lu", sig));
+    return 1;
+  }
   return 0;
 }
 

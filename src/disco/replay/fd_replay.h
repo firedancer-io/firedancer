@@ -1,6 +1,8 @@
 #ifndef HEADER_fd_src_choreo_replay_fd_replay_h
 #define HEADER_fd_src_choreo_replay_fd_replay_h
 
+#include "../../ballet/reedsol/fd_reedsol.h"
+
 /* This provides APIs for orchestrating replay of blocks as they are
    received from the cluster.
 
@@ -91,6 +93,11 @@ struct fd_replay_fec {
      coding shred before it can complete. */
 
   ulong data_cnt; /* count of data shreds in the FEC set */
+
+  /* Think we need these actually if we want to do selective repair
+     requests */
+  uint rx_data_cnt;
+  uint rx_code_cnt;
 
   /* This set is used to track which data shred indices to request if
      needing repairs. */

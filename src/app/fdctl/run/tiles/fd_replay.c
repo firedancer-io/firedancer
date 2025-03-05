@@ -287,7 +287,7 @@ struct fd_replay_tile_ctx {
   ulong   exec_out_idx;
   fd_replay_out_ctx_t exec_out[ FD_PACK_MAX_BANK_TILES ]; /* Sending to exec unexecuted txns */
 
-  ulong repair_out_idx;
+  ulong       repair_out_idx;
   fd_wksp_t * repair_out_mem;
   ulong       repair_out_chunk0;
   ulong       repair_out_wmark;
@@ -493,11 +493,19 @@ before_frag( fd_replay_tile_ctx_t * ctx,
 
     /* Optimize for |code shreds| >= |data shreds|. */
 
-    if( FD_UNLIKELY( !is_code ) ) fd_replay_fec_idxs_insert( fec->idxs, shred_idx - fec_set_idx ); /* mark data shred idx as received*/
+    if( FD_UNLIKELY( !is_code ) ) {
+      fd_replay_fec_idxs_insert( fec->idxs, shred_idx - fec_set_idx ); /* mark data shred idx as received*/
+      fec->rx_data_cnt++;
+    }
 
     /* If the FEC set is complete we don't need to track it anymore. */
 
     if( FD_UNLIKELY( completes ) ) {
+      /*
+        if( completes )
+        query de blockstore for de parent
+        if not, gotta repair
+      */
       fd_replay_fec_remove( ctx->replay, slot, fec_set_idx );
 
       /* Search for the longest block slice that has completed.  */
@@ -526,7 +534,10 @@ before_frag( fd_replay_tile_ctx_t * ctx,
        we're receiving. We know it's the first if data_cnt is 0 because
        that is not a valid cnt and means it's uninitialized. */
 
-    if( FD_LIKELY( is_code ) ) return fec->data_cnt == 0;
+    if( FD_LIKELY( is_code ) ) {
+      fec->rx_code_cnt++;
+      return fec->data_cnt != 0; /* don't skip after_frag */
+    }
 
     return 1; /* otherwise skip */
   }
@@ -638,7 +649,6 @@ during_frag( fd_replay_tile_ctx_t * ctx,
     fd_memcpy( ctx->slot_ctx->slot_bank.epoch_account_hash.uc, src, sizeof(fd_hash_t) );
     FD_LOG_NOTICE(( "Epoch account hash calculated to be %s", FD_BASE58_ENC_32_ALLOCA( ctx->slot_ctx->slot_bank.epoch_account_hash.uc ) ));
   }
-
   // if( ctx->flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
   //   /* We do not know the parent slot, pick one from fork selection */
   //   ulong max_slot = 0; /* FIXME: default to snapshot slot/smr */
@@ -1714,6 +1724,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     }
     return;
   }
+  /* when you have a batch completed to replay, */
 
   if( FD_UNLIKELY( in_idx == STORE_IN_IDX ) ) {
 
@@ -2571,6 +2582,64 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
   ctx->votes_plugin_out_chunk = fd_dcache_compact_next( ctx->votes_plugin_out_chunk, 8UL + 40200UL*(58UL+12UL*34UL), ctx->votes_plugin_out_chunk0, ctx->votes_plugin_out_wmark );
 }
 
+static void FD_FN_UNUSED
+make_orphan_requests( fd_replay_tile_ctx_t * ctx,
+                      fd_stem_context_t *    stem,
+                      ulong repair_slot ){
+
+  fd_repair_request_t * repair_reqs = (fd_repair_request_t *)fd_type_pun( fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk ));
+  fd_repair_request_t * repair_req = &repair_reqs[0];
+  repair_req->slot = repair_slot;
+  repair_req->shred_index = UINT_MAX;
+  repair_req->type = FD_REPAIR_REQ_TYPE_NEED_ORPHAN;
+
+  fd_stem_publish( stem, ctx->repair_out_idx, 0, ctx->repair_out_chunk, sizeof(fd_repair_request_t), 0UL, 0UL, 0UL );
+  ctx->repair_out_chunk = fd_dcache_compact_next( ctx->repair_out_chunk, sizeof(fd_repair_request_t), ctx->repair_out_chunk0, ctx->repair_out_wmark );
+}
+
+static void FD_FN_UNUSED
+make_repair_requests( fd_replay_tile_ctx_t * ctx,
+                      fd_stem_context_t *    stem ) {
+
+  /* iterate over the fecs that are incomplete */
+  fd_replay_t replay[1];
+  fd_repair_request_t * repair_reqs = (fd_repair_request_t *)fd_type_pun( fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk ));
+
+  for( fd_replay_fec_dlist_iter_t iter = fd_replay_fec_dlist_iter_rev_init( replay->fec_dlist, replay->fec_pool );
+       !fd_replay_fec_dlist_iter_done( iter, replay->fec_dlist, replay->fec_pool );
+       iter = fd_replay_fec_dlist_iter_rev_next( iter, replay->fec_dlist, replay->fec_pool ) ) {
+    ulong fec_ele_idx = fd_replay_fec_dlist_iter_idx( iter, replay->fec_dlist, replay->fec_pool );
+    fd_replay_fec_t * fec_info = fd_replay_fec_pool_ele( replay->fec_pool, fec_ele_idx );
+    ulong slot = fd_ulong_extract( fec_info->key, 32, 63 );
+    uint total_rx_shred_cnt  = fec_info->rx_data_cnt + fec_info->rx_code_cnt;
+    uint remaining_shreds_req = (uint) ( fec_info->data_cnt - total_rx_shred_cnt );
+
+    if( remaining_shreds_req <= 0 ) {
+      // T^T what are you doing here
+      continue;
+    }
+   // dcache is sized so that we know we can write FD_REEDSOL_DATA_SHREDS_MAX repair requests
+   // but we could potentially size it more efficiently and use fd_dcache_compact_is_safe
+    uint req_cnt = remaining_shreds_req > 32 ? remaining_shreds_req : (uint) fd_shredder_data_to_parity_cnt[ remaining_shreds_req ];
+    req_cnt = fd_uint_min( req_cnt, (uint)(fec_info->data_cnt - fec_info->rx_data_cnt) );
+    uint req_idx = 0;
+
+    for( uint i = 0; i < FD_REEDSOL_DATA_SHREDS_MAX; i++ ) {
+      if( !fd_replay_fec_idxs_test( fec_info->idxs, i ) ){
+        // add to repair req
+        fd_repair_request_t * repair_req = &repair_reqs[req_idx++];
+        repair_req->slot        = slot;
+        repair_req->shred_index = i;
+        repair_req->type        = FD_REPAIR_REQ_TYPE_NEED_WINDOW_INDEX;
+        if( req_idx == req_cnt ) break;
+      }
+    }
+
+    fd_stem_publish( stem, ctx->repair_out_idx, slot, ctx->repair_out_chunk, req_cnt * sizeof(fd_repair_request_t), 0UL, 0UL, 0UL );
+    ctx->repair_out_chunk = fd_dcache_compact_next( ctx->repair_out_chunk, req_cnt * sizeof(fd_repair_request_t), ctx->repair_out_chunk0, ctx->repair_out_wmark );
+  }
+}
+
 /* after_credit runs on every iteration of the replay tile loop except
    when backpressured.
 
@@ -2588,6 +2657,8 @@ after_credit( fd_replay_tile_ctx_t * ctx,
               int *                  opt_poll_in,
               int *                  charge_busy ) {
   (void)opt_poll_in;
+
+  // TODO: iterate slice queue and get transactions, send to exec tile
 
   if( FD_UNLIKELY( ctx->snapshot_init_done==0 ) ) {
     init_snapshot( ctx, stem );
@@ -2663,6 +2734,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     publish_votes_to_plugin( ctx, stem );
   }
 
+  make_repair_requests( ctx, stem );
 }
 
 static void
@@ -2689,52 +2761,7 @@ during_housekeeping( void * _ctx ) {
 
   fd_fseq_update( ctx->published_wmark, wmark );
 
-
   // fd_mcache_seq_update( ctx->store_out_sync, ctx->store_out_seq );
-}
-
-
-static void FD_FN_UNUSED
-make_repair_requests( fd_replay_tile_ctx_t * ctx,
-                      fd_stem_context_t *    stem ) {
-
-  /* iterate over the fecs that are incomplete */
-  fd_replay_t replay[1];
-  fd_repair_request_t * repair_reqs = (fd_repair_request_t *)fd_type_pun( fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk ));
-
-  for( fd_replay_fec_dlist_iter_t iter = fd_replay_fec_dlist_iter_rev_init( replay->fec_dlist, replay->fec_pool );
-       !fd_replay_fec_dlist_iter_done( iter, replay->fec_dlist, replay->fec_pool );
-       iter = fd_replay_fec_dlist_iter_rev_next( iter, replay->fec_dlist, replay->fec_pool ) ) {
-    ulong fec_ele_idx = fd_replay_fec_dlist_iter_idx( iter, replay->fec_dlist, replay->fec_pool );
-    fd_replay_fec_t * fec_info = fd_replay_fec_pool_ele( replay->fec_pool, fec_ele_idx );
-    ulong slot = fd_ulong_extract(fec_info->key, 32, 63);
-    uint total_rx_shred_cnt  = fec_info->rx_data_cnt + fec_info->rx_code_cnt;
-    uint remaining_shreds_req = fec_info->data_cnt - total_rx_shred_cnt;
-
-    if( remaining_shreds_req <= 0 ) {
-      // what are you doing here
-      continue;
-    }
-   // dcache is sized so that we know we can write FD_REEDSOL_DATA_SHREDS_MAX repair requests
-   // but we could potentially size it more efficiently and use fd_dcache_compact_is_safe
-    uint req_cnt = remaining_shreds_req > 32 ? remaining_shreds_req : (uint) fd_shredder_data_to_parity_cnt[ remaining_shreds_req ];
-    req_cnt = fd_uint_min( req_cnt, fec_info->data_cnt - fec_info->rx_data_cnt );
-    uint req_idx = 0;
-
-    for( uint i = 0; i < FD_REEDSOL_DATA_SHREDS_MAX; i++ ) {
-      if( !fd_replay_fec_idxs_test( fec_info->idxs, i ) ){
-        // add to repair req
-        fd_repair_request_t * repair_req = &repair_reqs[req_idx++];
-        repair_req->slot        = slot;
-        repair_req->shred_index = i;
-        repair_req->type        = FD_REPAIR_REQ_TYPE_NEED_WINDOW_INDEX;
-        if( req_idx == req_cnt ) break;
-      }
-    }
-
-    fd_stem_publish( stem, ctx->repair_out_idx, 0, ctx->repair_out_chunk, req_cnt * sizeof(fd_repair_request_t), 0UL, 0UL, 0UL );
-    ctx->repair_out_chunk = fd_dcache_compact_next( ctx->repair_out_chunk, req_cnt * sizeof(fd_repair_request_t), ctx->repair_out_chunk0, ctx->repair_out_wmark );
-  }
 }
 
 static void
@@ -3112,6 +3139,7 @@ unprivileged_init( fd_topo_t *      topo,
   /**********************************************************************/
   /* repair                                                             */
   /**********************************************************************/
+
 
   ctx->repair_out_idx = fd_topo_find_tile_out_link( topo, tile, "replay_rpair", 0 );
   fd_topo_link_t * repair_out_link = &topo->links[ tile->out_link_id[ ctx->repair_out_idx ] ];
