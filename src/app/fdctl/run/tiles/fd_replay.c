@@ -541,9 +541,7 @@ before_frag( fd_replay_tile_ctx_t * ctx,
     return 1; /* otherwise skip */
   }
 
-  /* non-shred msgs don't skip */
-
-  return 0;
+  return 0; /* non-shred msgs don't skip */
 }
 
 static void
@@ -2597,11 +2595,10 @@ make_orphan_requests( fd_replay_tile_ctx_t * ctx,
 }
 
 static void FD_FN_UNUSED
-make_repair_requests( fd_replay_tile_ctx_t * ctx,
-                      fd_stem_context_t *    stem ) {
+repair_fecs( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
 
-  /* iterate over the fecs that are incomplete */
-  fd_replay_t replay[1];
+  /* Iterate over in-progress FEC sets. */
+
   fd_repair_request_t * repair_reqs = (fd_repair_request_t *)fd_type_pun( fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk ));
 
   for( fd_replay_fec_dlist_iter_t iter = fd_replay_fec_dlist_iter_rev_init( replay->fec_dlist, replay->fec_pool );
@@ -2733,7 +2730,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     publish_votes_to_plugin( ctx, stem );
   }
 
-  make_repair_requests( ctx, stem );
+  repair_fecs( ctx, stem );
 }
 
 static void

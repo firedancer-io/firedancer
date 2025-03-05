@@ -219,16 +219,8 @@ fd_replay_leave( fd_replay_t const * replay );
 void *
 fd_replay_delete( void * replay );
 
-/* fd_replay_init initializes a replay.  Assumes replay is a valid local
-   join and no one else is joined.  root is the initial root replay will
-   use.  This is the snapshot slot if booting from a snapshot, 0 if the
-   genesis slot.
-
-   In general, this should be called by the same process that formatted
-   replay's memory, ie. the caller of fd_replay_new. */
-
-void
-fd_replay_init( fd_replay_t * replay, ulong root );
+/* fd_replay_fec_query returns a pointer to the in-progress FEC keyed
+   by slot and fec_set_idx.  Returns NULL if not found. */
 
 FD_FN_PURE static inline fd_replay_fec_t *
 fd_replay_fec_query( fd_replay_t * replay, ulong slot, uint fec_set_idx ) {
@@ -236,14 +228,21 @@ fd_replay_fec_query( fd_replay_t * replay, ulong slot, uint fec_set_idx ) {
   return fd_replay_fec_map_query( replay->fec_map, key, NULL );
 }
 
+/* fd_replay_fec_query inserts and returns a new in-progress FEC set
+   keyed by slot and fec_set_idx into the map.  Returns NULL if the map
+   is full. */
+
 static inline fd_replay_fec_t *
 fd_replay_fec_insert( fd_replay_t * replay, ulong slot, uint fec_set_idx ) {
-  FD_TEST( fd_replay_fec_map_key_cnt( replay->fec_map ) < fd_replay_fec_map_key_max( replay->fec_map ) );
+  if( FD_UNLIKELY( fd_replay_fec_map_key_cnt( replay->fec_map ) == fd_replay_fec_map_key_max( replay->fec_map ) ) ) return NULL;
   ulong             key = slot << 32 | (ulong)fec_set_idx;
   fd_replay_fec_t * fec = fd_replay_fec_map_insert( replay->fec_map, key ); /* cannot fail */
   fec->ts  = fd_log_wallclock();
   return fec;
 }
+
+/* fd_replay_fec_query removes an in-progress FEC set from the map.
+   Returns NULL if no fec set keyed by slot and fec_set_idx is found. */
 
 static inline void
 fd_replay_fec_remove( fd_replay_t * replay, ulong slot, uint fec_set_idx ) {
