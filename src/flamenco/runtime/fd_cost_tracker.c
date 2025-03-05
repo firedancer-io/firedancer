@@ -88,8 +88,8 @@ static inline ulong
 calculate_allocated_accounts_data_size( fd_exec_txn_ctx_t const * txn_ctx,
                                         fd_spad_t * 							spad ) {
   FD_SPAD_FRAME_BEGIN( spad ) {
-    fd_txn_t const *  txn     = txn_ctx->txn_descriptor;
-    void const *      payload = txn_ctx->_txn_raw->raw;
+    fd_txn_t const * txn     = txn_ctx->txn_descriptor;
+    void const *     payload = txn_ctx->_txn_raw->raw;
 
     ulong allocated_accounts_data_size = 0UL;
     for( ushort i=0UL; i<txn->instr_cnt; i++ ) {
@@ -116,7 +116,7 @@ calculate_allocated_accounts_data_size( fd_exec_txn_ctx_t const * txn_ctx,
 
       /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_model.rs#L330-L346 */
       fd_system_program_instruction_t * instruction = fd_system_program_instruction_decode( mem, &decode );
-      ulong 														space				= 0UL;
+      ulong                             space       = 0UL;
 
       switch( instruction->discriminant ) {
         case fd_system_program_instruction_enum_create_account: {
