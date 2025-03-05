@@ -1199,6 +1199,12 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
     fd_sysvar_recent_hashes_update( slot_ctx, runner->spad );
   }
 
+  /* Make a new funk transaction since we're done loading in accounts for context */
+  fd_funk_txn_xid_t fork_xid;
+  fd_memcpy( fork_xid.uc, slot_bank->block_hash_queue.last_hash, FD_HASH_FOOTPRINT );
+  fork_xid.ul[0]     = slot_bank->slot;
+  slot_ctx->funk_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &fork_xid, 1 );
+
   /* Calculate epoch account hash values. This sets epoch_bank.eah_{start_slot, stop_slot, interval} */
   fd_calculate_epoch_accounts_hash_values( slot_ctx );
 
