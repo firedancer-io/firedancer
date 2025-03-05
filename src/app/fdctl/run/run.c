@@ -12,9 +12,11 @@
 #include "../../../disco/topo/fd_pod_format.h"
 #include "../../../disco/keyguard/fd_keyswitch.h"
 #include "../../../waltz/xdp/fd_xdp1.h"
+#if FD_HAS_NO_AGAVE
 #include "../../../flamenco/runtime/fd_blockstore.h"
 #include "../../../flamenco/runtime/fd_txncache.h"
 #include "../../../flamenco/runtime/fd_runtime.h"
+#endif
 #include "../../../funk/fd_funk_filemap.h"
 #include "../../../funk/fd_funk.h"
 #include "../../../waltz/ip/fd_fib4.h"
@@ -546,8 +548,6 @@ fdctl_obj_new( fd_topo_t const *     topo,
     FD_TEST( fd_cnc_new( laddr, 0UL, 0, fd_tickcount() ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "fseq" ) ) ) {
     FD_TEST( fd_fseq_new( laddr, ULONG_MAX ) );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "replay_pub" ) ) ) {
-    FD_TEST( fd_runtime_public_new( laddr ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "metrics" ) ) ) {
     FD_TEST( fd_metrics_new( laddr, VAL("in_cnt"), VAL("cons_cnt") ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "opaque" ) ) ) {
@@ -556,18 +556,22 @@ fdctl_obj_new( fd_topo_t const *     topo,
     *(ulong*)laddr = 0;
   } else if( FD_UNLIKELY( !strcmp( obj->name, "dbl_buf" ) ) ) {
     FD_TEST( fd_dbl_buf_new( laddr, VAL("mtu"), 1UL ) );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
-    FD_TEST( fd_blockstore_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
     FD_TEST( fd_funk_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("txn_max"), VAL("rec_max") ) );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
-    FD_TEST( fd_txncache_new( laddr, VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "neigh4_hmap" ) ) )  {
     FD_TEST( fd_neigh4_hmap_new( laddr, VAL("ele_max"), VAL("lock_cnt"), VAL("probe_max"), VAL("seed") ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "fib4" ) ) ) {
     FD_TEST( fd_fib4_new( laddr, VAL("route_max") ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "keyswitch" ) ) ) {
     FD_TEST( fd_keyswitch_new( laddr, FD_KEYSWITCH_STATE_UNLOCKED ) );
+#if FD_HAS_NO_AGAVE
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "replay_pub" ) ) ) {
+    FD_TEST( fd_runtime_public_new( laddr ) );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
+    FD_TEST( fd_blockstore_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
+    FD_TEST( fd_txncache_new( laddr, VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
+#endif /* FD_HAS_NO_AGAVE */
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
   }
