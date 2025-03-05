@@ -26,10 +26,13 @@
 
 /* This is a relatively arbitrary constant. The max size of a snapshot append
    vec file is 16MiB but this value can cause problems in practice according
-   to the Agave team. 
-   
+   to the Agave team.
+
    TODO: Figure out exactly what those problems are. */
 #define FD_SNAPSHOT_APPEND_VEC_SZ_MAX     (2UL * 1024UL * 1024UL * 1024UL) /* 2 MiB */
+
+union fd_features;
+typedef union fd_features fd_features_t;
 
 FD_PROTOTYPES_BEGIN
 
@@ -75,7 +78,7 @@ struct fd_snapshot_ctx {
   fd_slot_bank_t    slot_bank;  /* Obtained from funk. */
   fd_epoch_bank_t   epoch_bank; /* Obtained from funk. */
   fd_acc_mgr_t *    acc_mgr;    /* Wrapper for funk. */
-
+  fd_features_t *   features;
 };
 typedef struct fd_snapshot_ctx fd_snapshot_ctx_t;
 
@@ -89,19 +92,19 @@ typedef struct fd_snapshot_ctx fd_snapshot_ctx_t;
    shoudl be incremental. The other bytes represent the slot that the snapshot
    will be created for. The most significant 8 bits determine if the snapshot
    is incremental and the least significant 56 bits are reserved for the slot.
-   
+
    These functions are used for snapshot creation in the full client.
 
    fd_batch_fseq_pack, fd_batch_fseq_is_snapshot, fd_batch_fseq_is_eah,
    fd_batch_fseq_is_incremental, and fd_batch_fseq_get_slot are helpers used
-   by the replay tile and the batch tile to communicate what work the 
-   batch tile should do. At the moment of this writing, the batch tile can 
-   either calculate the epoch account hash or create a snapshot. 
+   by the replay tile and the batch tile to communicate what work the
+   batch tile should do. At the moment of this writing, the batch tile can
+   either calculate the epoch account hash or create a snapshot.
 
    The msb is used to determine if the batch tile should calculate the epoch
    account hash or produce a snapshot. The next msb is used to determine if
    the snapshot is incremental, this bit is ignored if the epoch account
-   hash is being calculated. The remaining 62 bits are used to store the slot 
+   hash is being calculated. The remaining 62 bits are used to store the slot
    at which the snapshot/hash should be calculated for. */
 
 static ulong FD_FN_UNUSED

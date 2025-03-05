@@ -448,7 +448,8 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
         .funk           = ledger_args->slot_ctx->acc_mgr->funk,
         .status_cache   = ledger_args->slot_ctx->status_cache,
         .tpool          = ledger_args->snapshot_tpool,
-        .spad           = ledger_args->runtime_spad
+        .spad           = ledger_args->runtime_spad,
+        .features       = &ledger_args->slot_ctx->epoch_ctx->features
       };
 
       fd_tpool_exec( ledger_args->snapshot_bg_tpool, 1UL, fd_create_snapshot_task, NULL,
@@ -460,6 +461,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       ledger_args->is_snapshotting = 1;
 
       fd_snapshot_ctx_t snapshot_ctx = {
+        .features                 = &ledger_args->slot_ctx->epoch_ctx->features,
         .slot                     = ledger_args->slot_ctx->root_slot,
         .out_dir                  = ledger_args->snapshot_dir,
         .is_incremental           = 1,
@@ -1272,7 +1274,6 @@ replay( fd_ledger_args_t * args ) {
 
   fd_runtime_ctx_t runtime_ctx[1];
   fd_runtime_ctx_new(runtime_ctx);
-  runtime_ctx->private_valloc = args->valloc;
   runtime_ctx->public = fd_runtime_public_join( runtime_public_mem );
   g_runtime_ctx = runtime_ctx;
 

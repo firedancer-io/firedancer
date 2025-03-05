@@ -309,6 +309,7 @@ produce_snapshot( fd_snapshot_tile_ctx_t * ctx, ulong batch_fseq ) {
   FD_LOG_WARNING(( "Creating snapshot incremental=%lu slot=%lu", is_incremental, snapshot_slot ));
 
   fd_snapshot_ctx_t snapshot_ctx = {
+    .features                 = &ctx->replay_public->features,
     .slot                     = snapshot_slot,
     .out_dir                  = ctx->out_dir,
     .is_incremental           = (uchar)is_incremental,
