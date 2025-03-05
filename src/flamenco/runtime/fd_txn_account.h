@@ -94,7 +94,7 @@ fd_txn_account_t *
 fd_txn_account_make_readonly( fd_txn_account_t * acct,
                             void *          buf );
 
-/* Restores the original contents of the account shared data into 
+/* Restores the original contents of the account shared data into
    its read-only fields (const_meta, const_data, const_rec).
    If the account metadata was modified, returns a pointer to metadata,
    otherwise returns null. */
@@ -156,7 +156,7 @@ fd_txn_account_release_write( fd_txn_account_t * acct ) {
   FD_TEST( acct->refcnt_excl==1U );
   acct->refcnt_excl = (ushort)0;
 }
-   
+
 static inline void
 fd_txn_account_release_write_private(fd_txn_account_t * acct ) {
   /* Only release if it is not yet released */

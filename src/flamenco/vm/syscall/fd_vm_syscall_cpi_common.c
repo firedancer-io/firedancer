@@ -560,7 +560,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
     if( FD_UNLIKELY( err && ( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) ) {
       return 1;
     }
-    
+
     fd_txn_account_t * callee_acc = borrowed_callee_acc.acct;
     /* Update the caller account lamports with the value from the callee */
     *(caller_account->lamports) = callee_acc->const_meta->info.lamports;

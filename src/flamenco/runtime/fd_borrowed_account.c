@@ -56,7 +56,7 @@ fd_borrowed_account_set_owner( fd_borrowed_account_t * borrowed_acct,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* Overwrites the number of lamports of this account (transaction wide) 
+/* Overwrites the number of lamports of this account (transaction wide)
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L773 */
 int
 fd_borrowed_account_set_lamports( fd_borrowed_account_t * borrowed_acct,

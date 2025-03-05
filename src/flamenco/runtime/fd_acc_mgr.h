@@ -102,7 +102,7 @@ fd_acc_funk_key( fd_pubkey_t const * pubkey ) {
 
 /* fd_funk_key_is_acc returns 1 if given fd_funk key is an account
    managed by fd_acc_mgr_t, and 0 otherwise. */
-  
+
 FD_FN_PURE static inline int
 fd_funk_key_is_acc( fd_funk_rec_key_t const * id ) {
   return id->c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] == FD_FUNK_KEY_TYPE_ACC;

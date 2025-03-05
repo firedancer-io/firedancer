@@ -35,7 +35,7 @@ fd_borrowed_account_init(fd_borrowed_account_t * borrowed_acct, fd_txn_account_t
   borrowed_acct->instr_acc_idx = instr_acc_idx;
 }
 
-/* Drop mirrors the behavior of rust's std::mem::drop on mutable borrows. 
+/* Drop mirrors the behavior of rust's std::mem::drop on mutable borrows.
    Releases the acquired write to the borrowed account object. */
 
 static inline void
@@ -239,7 +239,7 @@ fd_borrowed_account_is_rent_exempt_at_data_length( fd_borrowed_account_t const *
 
 /* fd_borrowed_account_is_executable mirrors Agave function
    solana_sdk::transaction_context::BorrowedAccount::is_executable.
-   
+
    Returns 1 if the given account has the
    executable flag set.  Otherwise, returns 0.
 
@@ -391,7 +391,7 @@ fd_borrowed_account_is_zeroed( fd_borrowed_account_t const * borrowed_acct ) {
 
 /* fd_borrowed_account_find_idx_of_account mirrors Agave function
    solana_sdk::transaction_context:BorrowedAccount::find_index_of_account
-   
+
    Returns the idx of the instruction account or -1 if the account is not found
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L233 */
 
@@ -409,7 +409,7 @@ return -1;
 
  /* fd_borrowed_account_find_index_of_program_account mirrors Agave function
     solana_sdk::transaction_context::BorrowedAccount::find_index_of_program_account.
-    
+
    Backward scan over transaction accounts.
    Returns -1 if not found.
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L241 */

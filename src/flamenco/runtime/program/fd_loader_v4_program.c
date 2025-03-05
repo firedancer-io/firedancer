@@ -234,7 +234,7 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
   } else {
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L154-L159 */
     fd_loader_v4_state_t state = {0};
-    err = check_program_account( instr_ctx, &program, authority_address, &state ); 
+    err = check_program_account( instr_ctx, &program, authority_address, &state );
     if( FD_UNLIKELY( err ) ) {
       return err;
     }
@@ -254,8 +254,8 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
 
   /* Note that this new_program_dlen is only relevant when new_size > 0 */
   ulong new_program_dlen = fd_ulong_sat_add( LOADER_V4_PROGRAM_DATA_OFFSET, new_size );
-  ulong required_lamports = ( new_size==0UL ) ? 
-                              0UL : 
+  ulong required_lamports = ( new_size==0UL ) ?
+                              0UL :
                               fd_ulong_max( fd_rent_exempt_minimum_balance( rent, new_program_dlen ),
                                             1UL );
 
@@ -327,7 +327,7 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
       }
     }
   }
-  
+
   /* program is dropped when it goes out of scope */
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -375,8 +375,8 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
   /* Here Agave tries to acquire the source buffer account but does not fail if it is not present.
       We will only try to borrow the account when we need it.
 
-      https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L220-L222 
-      
+      https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L220-L222
+
       No-op for us... */
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L223-L228 */
@@ -392,9 +392,9 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
   ulong current_slot = clock->slot;
 
   /* `current_slot == 0` indicates that the program hasn't been deployed yet, so a cooldown check
-      is not needed. Otherwise, a cooldown of 750 slots is applied before being able to 
-      redeploy or retract the program. 
-      
+      is not needed. Otherwise, a cooldown of 750 slots is applied before being able to
+      redeploy or retract the program.
+
       https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L231-L240 */
   if( FD_UNLIKELY( current_slot>0UL && fd_ulong_sat_add( program_state.slot, LOADER_V4_DEPLOYMENT_COOLDOWN_IN_SLOTS )>current_slot ) ) {
     fd_log_collector_msg_literal( instr_ctx, "Program was deployed recently, cooldown still in effect" );
@@ -433,7 +433,7 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
   uchar const * programdata = buffer->acct->const_data + LOADER_V4_PROGRAM_DATA_OFFSET;
 
   /* Our program cache is fundamentally different from Agave's. Here, they would perform verifications and
-      add the program to their cache, but we only perform verifications now and defer cache population to the 
+      add the program to their cache, but we only perform verifications now and defer cache population to the
       end of the slot. Since programs cannot be invoked until the next slot anyways, doing this is okay.
 
       https://github.com/anza-xyz/agave/blob/09ef71223b24e30e59eaeaf5eb95e85f222c7de1/programs/loader-v4/src/lib.rs#L262-L269 */
@@ -452,13 +452,13 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
       if( FD_UNLIKELY( rent==NULL ) ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
       }
-      
+
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L297 */
       ulong required_lamports = fd_rent_exempt_minimum_balance( rent, buffer->acct->const_meta->dlen );
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L298 */
       ulong transfer_lamports = fd_ulong_sat_sub( required_lamports, program.acct->const_meta->info.lamports );
-      
+
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L299 */
       err = fd_borrowed_account_set_data_from_slice( &program, buffer->acct->const_data, buffer->acct->const_meta->dlen );
       if( FD_UNLIKELY( err ) ) {
@@ -580,10 +580,10 @@ fd_loader_v4_program_instruction_transfer_authority( fd_exec_instr_ctx_t * instr
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L378-L380 */
   fd_pubkey_t const * authority_address = &instr_ctx->instr->acct_pubkeys[ 1UL ];
-  
+
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L381-L383 */
   fd_pubkey_t const * new_authority_address = &instr_ctx->instr->acct_pubkeys[ 2UL ];
-  
+
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L384-L389 */
   fd_loader_v4_state_t state = {0};
   err = check_program_account( instr_ctx, &program, authority_address, &state );
@@ -645,7 +645,7 @@ fd_loader_v4_program_instruction_finalize( fd_exec_instr_ctx_t * instr_ctx ) {
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L413-L418 */
-  
+
   err = check_program_account( instr_ctx, &program, authority_address, &state );
   if( FD_UNLIKELY( err ) ) {
     return err;

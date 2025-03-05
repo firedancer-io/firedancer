@@ -9,7 +9,7 @@
 #include "../fd_borrowed_account.h"
 #include "fd_bpf_loader_program.h"
 
-/* 
+/*
   Notes about loader v4 since it differs slightly from the previous BPF v3 loader...
     - There are three possible states for a loader v4 program:
       - Retracted

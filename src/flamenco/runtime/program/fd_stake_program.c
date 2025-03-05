@@ -2726,7 +2726,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L138
     if( FD_UNLIKELY( ctx->instr->acct_cnt<5 ) )
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-    
+
     fd_borrowed_account_drop( &me );
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L140

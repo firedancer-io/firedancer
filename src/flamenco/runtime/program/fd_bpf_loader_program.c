@@ -1040,7 +1040,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
 
         uchar *   dst_slice = programdata_data + PROGRAMDATA_METADATA_SIZE;
         ulong dst_slice_len = buffer_data_len;
-        
+
         fd_guarded_borrowed_account_t buffer;
         err = fd_exec_instr_ctx_try_borrow_account( instr_ctx, 3UL, &buffer );
         if( FD_UNLIKELY( err ) ) {
@@ -1351,7 +1351,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* buffer is dropped when it goes out of scope */
       /* spill is dropped when it goes out of scope */
       /* programdata is dropped when it goes out of scope */
-      
+
       /* Max msg_sz: 19 - 2 + 45 = 62 < 127 => we can use printf */
       //TODO: this is likely the incorrect program_id, do we have new_program_id?
       fd_log_collector_printf_dangerous_max_127( instr_ctx, "Upgraded program %s", FD_BASE58_ENC_32_ALLOCA( program_id ) );
@@ -1823,7 +1823,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
          be a no-op because these values shouldn't change. These can probably be
          removed, but can help to mirror against Agave client's implementation.
          The set_state function also contains an ownership check. */
-      
+
       err = fd_exec_instr_ctx_try_borrow_account( instr_ctx, 0UL, &programdata_account );
       if( FD_UNLIKELY( err ) ) {
         return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
@@ -1841,7 +1841,7 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       /* Max msg_sz: 41 - 2 + 20 = 57 < 127 => we can use printf */
       fd_log_collector_printf_dangerous_max_127( instr_ctx,
         "Extended ProgramData account by %u bytes", additional_bytes );
-      
+
       /* programdata account is dropped when it goes out of scope */
 
       break;

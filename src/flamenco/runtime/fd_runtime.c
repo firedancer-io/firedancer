@@ -1799,7 +1799,6 @@ fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
   task_info->txn                  = txn;
   fd_txn_t const * txn_descriptor = (fd_txn_t const *) txn->_;
   task_info->txn_ctx->spad        = exec_spad;
-  
 
   fd_rawtxn_b_t raw_txn = { .raw = txn->payload, .txn_sz = (ushort)txn->payload_sz };
 

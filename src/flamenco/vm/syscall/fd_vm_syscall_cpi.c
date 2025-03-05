@@ -219,9 +219,9 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
-    
+
     /* Caller is in charge of setting an appropriate sentinel value (i.e., UCHAR_MAX) for callee_instr->program_id if not found. */
-    /* We allow dead accounts to be borrowed here because that's what agave currently does. 
+    /* We allow dead accounts to be borrowed here because that's what agave currently does.
        https://github.com/anza-xyz/agave/blob/v2.1.14/program-runtime/src/invoke_context.rs#L436-L437 */
     fd_guarded_borrowed_account_t borrowed_program_account;
     int err = fd_exec_instr_ctx_try_borrow_account( instr_ctx, (ulong)program_idx, &borrowed_program_account );
