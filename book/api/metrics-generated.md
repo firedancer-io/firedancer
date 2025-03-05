@@ -494,6 +494,10 @@
 | gossip_&#8203;pull_&#8203;req_&#8203;fail_&#8203;encoding_&#8203;failed | `counter` | Number of PullReq messages that failed (Number of PullReq messages skipped due to message encoding failed) |
 | gossip_&#8203;pull_&#8203;req_&#8203;bloom_&#8203;filter_&#8203;hit | `counter` | Result of the bloom filter check for a PullReq (Number of PullReq messages that hit the bloom filter) |
 | gossip_&#8203;pull_&#8203;req_&#8203;bloom_&#8203;filter_&#8203;miss | `counter` | Result of the bloom filter check for a PullReq (Number of PullReq messages that missed the bloom filter) |
+| gossip_&#8203;fd_&#8203;epoch_&#8203;slot_&#8203;filter_&#8203;hit | `counter` | Number of CRDS values filtered by the epoch slot filter (Number of PullReq messages that hit the bloom filter) |
+| gossip_&#8203;fd_&#8203;epoch_&#8203;slot_&#8203;filter_&#8203;miss | `counter` | Number of CRDS values filtered by the epoch slot filter (Number of PullReq messages that missed the bloom filter) |
+| gossip_&#8203;ag_&#8203;epoch_&#8203;slot_&#8203;filter_&#8203;hit | `counter` | Number of CRDS values that were not filtered by the epoch slot filter (Number of PullReq messages that hit the bloom filter) |
+| gossip_&#8203;ag_&#8203;epoch_&#8203;slot_&#8203;filter_&#8203;miss | `counter` | Number of CRDS values that were not filtered by the epoch slot filter (Number of PullReq messages that missed the bloom filter) |
 | gossip_&#8203;pull_&#8203;req_&#8203;resp_&#8203;packets | `gauge` | Number of packets used to respond to a PullReq |
 | gossip_&#8203;prune_&#8203;fail_&#8203;count_&#8203;not_&#8203;for_&#8203;me | `counter` | Number of Prune messages that failed (Prune message not for me) |
 | gossip_&#8203;prune_&#8203;fail_&#8203;count_&#8203;sign_&#8203;encoding_&#8203;failed | `counter` | Number of Prune messages that failed (Prune message sign encoding failed) |

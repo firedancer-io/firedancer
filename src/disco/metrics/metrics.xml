@@ -608,6 +608,8 @@ metric introduced.
 
     <counter name="PullReqFail"             enum="PullReqFailReason"        clickhouse_exclude="true" summary="Number of PullReq messages that failed" />
     <counter name="PullReqBloomFilter"      enum="PullReqBloomFilterResult" clickhouse_exclude="true" summary="Result of the bloom filter check for a PullReq" />
+    <counter name="FdEpochSlotFilter"       enum="PullReqBloomFilterResult" clickhouse_exclude="true" summary="Number of CRDS values filtered by the epoch slot filter" />
+    <counter name="AgEpochSlotFilter"       enum="PullReqBloomFilterResult" clickhouse_exclude="true" summary="Number of CRDS values that were not filtered by the epoch slot filter" />
     <gauge   name="PullReqRespPackets"                                      clickhouse_exclude="true" summary="Number of packets used to respond to a PullReq" />
 
     <counter name="PruneFailCount"           enum="PruneFailureReason"      clickhouse_exclude="true" summary="Number of Prune messages that failed" />

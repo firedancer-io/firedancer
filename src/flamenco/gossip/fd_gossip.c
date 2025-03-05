@@ -1840,6 +1840,11 @@ fd_gossip_push_updated_contact(fd_gossip_t * glob) {
   }
 }
 
+#define FD_PUBKEY_TEST 0x93,0xa1,0x93,0xbb,0x8d,0xf5,0xf9,0xcb,0x9d,0xd1,0x15,0x8a,0x12,0x66,0xfe,0xd1,0x99,0x92,0x21,0x50,0xf2,0xf0,0x93,0x00,0x2c,0x18,0x5e,0x62,0xbb,0xb3,0xa9,0x3f // AwHqD2JntK9BK6aMnGrhEB5NbPQAHjRB1yLAyumvQTUJ
+#define AG_PUBKEY_TEST 0xf4,0xd1,0xc2,0xd8,0x22,0x40,0xf2,0xcd,0x4b,0x1d,0xdc,0x1b,0x27,0x6d,0xf4,0xb7,0xbe,0x7e,0x26,0xa0,0x68,0xf9,0xdc,0x1a,0xd4,0x16,0x2a,0x97,0xec,0xe6,0x55,0xe1 // HUfzYEXe5sLnWs4FmMfzqTTyP87WnyFM5a3ex6169Rmz
+const fd_pubkey_t fd_log_hm = { .uc = { FD_PUBKEY_TEST } };
+const fd_pubkey_t ag_log_hm = { .uc = { AG_PUBKEY_TEST } };
+
 /* Respond to a pull request */
 static void
 fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, fd_gossip_pull_req_t * msg) {
@@ -1898,6 +1903,10 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
   ulong hits = 0;
   ulong misses = 0;
   uint npackets = 0;
+
+  uchar log_fd_hm = !memcmp( val->id.uc, fd_log_hm.uc, 32U );
+  uchar log_ag_hm = !memcmp( val->id.uc, ag_log_hm.uc, 32U );
+
   for( fd_value_table_iter_t iter = fd_value_table_iter_init( glob->values );
        !fd_value_table_iter_done( glob->values, iter );
        iter = fd_value_table_iter_next( glob->values, iter ) ) {
@@ -1921,6 +1930,11 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
         break;
       }
     }
+
+    uchar is_epoch = ele->data[sizeof(fd_signature_t)] == fd_crds_data_enum_epoch_slots;
+    glob->metrics.epoch_slot_ag[ miss ] += log_ag_hm && is_epoch;
+    glob->metrics.epoch_slot_fd[ miss ] += log_fd_hm && is_epoch;
+
     if (!miss) {
       hits++;
       continue;

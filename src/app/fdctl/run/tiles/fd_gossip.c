@@ -1156,6 +1156,9 @@ fd_gossip_update_gossip_metrics( fd_gossip_metrics_t * metrics ) {
   FD_MCNT_ENUM_COPY( GOSSIP, RECV_PONG_EVENT, metrics->recv_pong_events );
 
   FD_MGAUGE_ENUM_COPY( GOSSIP, GOSSIP_PEER_COUNTS, metrics->gossip_peer_cnt );
+
+  FD_MCNT_ENUM_COPY( GOSSIP, AG_EPOCH_SLOT_FILTER, metrics->epoch_slot_ag );
+  FD_MCNT_ENUM_COPY( GOSSIP, FD_EPOCH_SLOT_FILTER, metrics->epoch_slot_fd );
 }
 
 static inline void

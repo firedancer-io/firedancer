@@ -190,6 +190,9 @@ struct fd_gossip_metrics {
   ulong handle_pull_req_bloom_filter_result[FD_METRICS_COUNTER_GOSSIP_PULL_REQ_BLOOM_FILTER_CNT]; /* TODO: per host? */
   ulong handle_pull_req_npackets; /* TODO: per host? */
 
+  ulong epoch_slot_fd[FD_METRICS_ENUM_PULL_REQ_BLOOM_FILTER_RESULT_CNT];
+  ulong epoch_slot_ag[FD_METRICS_ENUM_PULL_REQ_BLOOM_FILTER_RESULT_CNT];
+
   /* Receive Prune Messages */
   ulong handle_prune_fails[FD_METRICS_COUNTER_GOSSIP_PRUNE_FAIL_COUNT_CNT];
 
