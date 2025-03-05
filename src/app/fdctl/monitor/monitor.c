@@ -1,10 +1,11 @@
 #include "../fdctl.h"
-#include "generated/monitor_seccomp.h"
 #include "helper.h"
 #include <stdio.h>
 #include <signal.h>
 #include <sys/syscall.h>
 #include <linux/capability.h>
+#include <sys/ioctl.h>
+#include "generated/monitor_seccomp.h"
 
 void
 monitor_cmd_args( int *    pargc,

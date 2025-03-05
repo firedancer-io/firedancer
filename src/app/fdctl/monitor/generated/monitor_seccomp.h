@@ -80,11 +80,11 @@ static void populate_sock_filter_policy_monitor( ulong out_cnt, struct sock_filt
 //  lbl_4:
     /* load syscall argument 1 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 21505, /* RET_ALLOW */ 9, /* lbl_5 */ 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, TCGETS, /* RET_ALLOW */ 9, /* lbl_5 */ 0 ),
 //  lbl_5:
     /* load syscall argument 1 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[1])),
-    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, 21506, /* RET_ALLOW */ 7, /* RET_KILL_PROCESS */ 6 ),
+    BPF_JUMP( BPF_JMP | BPF_JEQ | BPF_K, TCSETS, /* RET_ALLOW */ 7, /* RET_KILL_PROCESS */ 6 ),
 //  check_pselect6:
     /* load syscall argument 0 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),

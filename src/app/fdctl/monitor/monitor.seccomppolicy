@@ -67,11 +67,9 @@ read: (or (eq (arg 0) drain_output_fd)
 
 # monitor: set and get terminal attributes
 # The monitor uses tcgetattr and tcsetattr to run a curses-like UI.
-# TCGETS 0x5401
-# TCSETS 0x5402
 ioctl: (and (eq (arg 0) 0)
-            (or (eq (arg 1) 0x5401)
-                (eq (arg 1) 0x5402)))
+            (or (eq (arg 1) TCGETS)
+                (eq (arg 1) TCSETS)))
 
 # monitor: check if stdin has data
 # The monitor must not be blocked when reading stdin. This syscall allows
