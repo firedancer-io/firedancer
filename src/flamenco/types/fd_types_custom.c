@@ -18,6 +18,7 @@ fd_flamenco_txn_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_s
 
 int
 fd_flamenco_txn_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( FD_UNLIKELY( ctx->data>=ctx->dataend ) ) { return FD_BINCODE_ERR_OVERFLOW; }
   ulong bufsz = (ulong)ctx->dataend - (ulong)ctx->data;
   fd_flamenco_txn_t self;
   ulong sz  = 0UL;
@@ -106,18 +107,20 @@ int fd_tower_sync_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
 int fd_tower_sync_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
   /* This is a modified version of fd_compact_tower_sync_decode_footprint_inner() */
   int err = 0;
+  if( FD_UNLIKELY( ctx->data>ctx->dataend ) ) { return FD_BINCODE_ERR_OVERFLOW; }
   err = fd_bincode_uint64_decode_footprint( ctx );
 
   /* The first modification is that we want to grab the value fo the root. */
   ulong root = 0UL;
   fd_bincode_decode_ctx_t root_ctx = { .data = (uchar*)ctx->data - sizeof(ulong), .dataend = ctx->data };
+  if( FD_UNLIKELY( ((ulong)ctx->data)+sizeof(ulong)>(ulong)ctx->dataend ) ) { return FD_BINCODE_ERR_OVERFLOW; }
   fd_bincode_uint64_decode_unsafe( &root, &root_ctx );
   root = root != ULONG_MAX ? root : 0UL;
-  /* Done with first modificiation */
-
+  /* Done with first modification */
 
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
   ushort lockout_offsets_len;
+  if( FD_UNLIKELY( ctx->data>=ctx->dataend ) ) { return FD_BINCODE_ERR_OVERFLOW; }
   err = fd_bincode_compact_u16_decode( &lockout_offsets_len, ctx );
 
   if( FD_UNLIKELY( err ) ) return err;
@@ -127,6 +130,7 @@ int fd_tower_sync_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong *
   for( ulong i = 0; i < lockout_offsets_len; ++i ) {
 
     uchar const * start_data = ctx->data;
+    if( FD_UNLIKELY( ctx->data>=ctx->dataend ) ) { return FD_BINCODE_ERR_OVERFLOW; }
     err = fd_lockout_offset_decode_footprint_inner( ctx, total_sz );
     if( FD_UNLIKELY( err ) ) {
       return err;
@@ -136,6 +140,7 @@ int fd_tower_sync_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong *
     the deque to make sure that we can do a checked add successfully. */
     fd_lockout_offset_t lockout_offset = {0};
     fd_bincode_decode_ctx_t lockout_ctx = { .data = start_data, .dataend = start_data+sizeof(fd_lockout_offset_t) };
+    if( FD_UNLIKELY( ctx->data>=ctx->dataend ) ) { return FD_BINCODE_ERR_OVERFLOW; }
     fd_lockout_offset_decode_inner( &lockout_offset, NULL, &lockout_ctx );
     err = __builtin_uaddl_overflow( root, lockout_offset.offset, &root );
     if( FD_UNLIKELY( err ) ) {
@@ -144,17 +149,21 @@ int fd_tower_sync_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong *
     /* Done with second modification. */
   }
 
+  if( FD_UNLIKELY( ctx->data>=ctx->dataend ) ) { return FD_BINCODE_ERR_OVERFLOW; }
   err = fd_hash_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
   {
     uchar o;
+    if( FD_UNLIKELY( ctx->data>=ctx->dataend ) ) { return FD_BINCODE_ERR_OVERFLOW; }
     err = fd_bincode_bool_decode( &o, ctx );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     if( o ) {
+      if( FD_UNLIKELY( ctx->data>=ctx->dataend ) ) { return FD_BINCODE_ERR_OVERFLOW; }
       err = fd_bincode_int64_decode_footprint( ctx );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
     }
   }
+  if( FD_UNLIKELY( ctx->data>=ctx->dataend ) ) { return FD_BINCODE_ERR_OVERFLOW; }
   err = fd_hash_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
   return 0;
@@ -208,56 +217,6 @@ void fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_binco
     }
   }
   fd_hash_decode_inner( &self->block_id, alloc_mem, ctx );
-}
-
-int fd_archive_decode_skip_field( fd_bincode_decode_ctx_t * ctx, ushort tag ) {
-  /* Extract the meta tag */
-  tag = tag & (ushort)((1<<6)-1);
-  uint len;
-  switch( tag ) {
-  case FD_ARCHIVE_META_CHAR:      len = sizeof(uchar);   break;
-  case FD_ARCHIVE_META_CHAR32:    len = 32;              break;
-  case FD_ARCHIVE_META_DOUBLE:    len = sizeof(double);  break;
-  case FD_ARCHIVE_META_LONG:      len = sizeof(long);    break;
-  case FD_ARCHIVE_META_UINT:      len = sizeof(uint);    break;
-  case FD_ARCHIVE_META_UINT128:   len = sizeof(uint128); break;
-  case FD_ARCHIVE_META_BOOL:      len = 1;               break;
-  case FD_ARCHIVE_META_UCHAR:     len = sizeof(uchar);   break;
-  case FD_ARCHIVE_META_UCHAR32:   len = 32;              break;
-  case FD_ARCHIVE_META_UCHAR128:  len = 128;             break;
-  case FD_ARCHIVE_META_UCHAR2048: len = 2048;            break;
-  case FD_ARCHIVE_META_ULONG:     len = sizeof(ulong);   break;
-  case FD_ARCHIVE_META_USHORT:    len = sizeof(ushort);  break;
-
-  case FD_ARCHIVE_META_STRING: {
-    ulong slen;
-    int err = fd_bincode_uint64_decode( &slen, ctx );
-    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    len = (uint)slen;
-    break;
-  }
-
-  case FD_ARCHIVE_META_STRUCT:
-  case FD_ARCHIVE_META_VECTOR:
-  case FD_ARCHIVE_META_DEQUE:
-  case FD_ARCHIVE_META_MAP:
-  case FD_ARCHIVE_META_TREAP:
-  case FD_ARCHIVE_META_OPTION:
-  case FD_ARCHIVE_META_ARRAY: {
-    int err = fd_bincode_uint32_decode( &len, ctx );
-    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
-    break;
-  }
-
-  default:
-    return FD_BINCODE_ERR_ENCODING;
-  }
-
-  uchar * ptr = (uchar *)ctx->data;
-  if ( FD_UNLIKELY((void *)(ptr + len) > ctx->dataend ) )
-    return FD_BINCODE_ERR_UNDERFLOW;
-  ctx->data = ptr + len;
-  return FD_BINCODE_SUCCESS;
 }
 
 #define REDBLK_T fd_vote_reward_t_mapnode_t
