@@ -458,9 +458,7 @@ fd_vm_memmove( fd_vm_t * vm,
             - The next input memory region is writable
            Fail otherwise. */
         if( FD_LIKELY( !reverse &&
-                        dst_is_input_mem_region &&
-                        dst_region_idx+1UL<vm->input_mem_regions_cnt &&
-                        vm->input_mem_regions[ dst_region_idx+1UL ].is_writable ) ) {
+                        dst_region_idx+1UL<vm->input_mem_regions_cnt ) ) {
           if( FD_UNLIKELY( vm->input_mem_regions[ dst_region_idx+1UL ].is_acct_data != vm->input_mem_regions[ dst_region_idx ].is_acct_data ) ) {
             FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
             return FD_VM_SYSCALL_ERR_SEGFAULT;
@@ -490,7 +488,6 @@ fd_vm_memmove( fd_vm_t * vm,
       if( FD_UNLIKELY( src_bytes_rem_in_cur_region==0UL ) ) {
         /* Same as above, except no writable checks. */
         if( FD_LIKELY( !reverse &&
-                        src_is_input_mem_region &&
                         src_region_idx+1UL<vm->input_mem_regions_cnt ) ) {
           if( FD_UNLIKELY( vm->input_mem_regions[ src_region_idx+1UL ].is_acct_data != vm->input_mem_regions[ src_region_idx ].is_acct_data ) ) {
             FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
