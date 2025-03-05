@@ -1181,6 +1181,10 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   slot_bank->block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_alloc( fd_spad_virtual( runner->spad ), 301UL );
   slot_bank->block_hash_queue.last_hash = fd_valloc_malloc( fd_spad_virtual( runner->spad ), FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
 
+  /* TODO: Restore this from input */
+  slot_bank->timestamp_votes.votes_root = NULL;
+  slot_bank->timestamp_votes.votes_pool = fd_clock_timestamp_vote_t_map_alloc( fd_spad_virtual( runner->spad ), 10000 );
+
   // Set genesis hash to {0}
   fd_memset( &epoch_bank->genesis_hash, 0, sizeof(fd_hash_t) );
   fd_memset( slot_bank->block_hash_queue.last_hash, 0, sizeof(fd_hash_t) );
@@ -1291,9 +1295,15 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   void *      exec_spad_mem     = fd_spad_alloc( runtime_spad, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( exec_spad_mem_max ) );
   fd_spad_t * exec_spad         = fd_spad_join( fd_spad_new( exec_spad_mem, exec_spad_mem_max ) );
 
+  /* Put a sentinel spad for worker 0 */
+  fd_spad_t * exec_spads[] = { NULL, exec_spad };
+
   // Prepare. Execute. Finalize.
-  fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, tpool, &exec_spad, 1UL, runtime_spad );
-  int res = fd_runtime_block_execute_tpool( slot_ctx, NULL, block_info, tpool, &exec_spad, 1UL, runtime_spad );
+  int res = 0UL;
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+    fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, tpool, &exec_spad, 1UL, runtime_spad );
+    res = fd_runtime_block_execute_tpool( slot_ctx, NULL, block_info, tpool, exec_spads, 2UL, runtime_spad );
+  } FD_SPAD_FRAME_END;
 
   return res;
 }

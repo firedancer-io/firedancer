@@ -674,15 +674,17 @@ sol_compat_block_execute_v1( uchar *       out,
     return 0;
   }
 
+  int ok = 0;
+  FD_SPAD_FRAME_BEGIN( runner->spad ) {
   // Execute
   void * output = NULL;
   sol_compat_execute_wrapper( runner, input, &output, fd_exec_block_test_run );
 
   // Encode effects
-  int ok = 0;
   if( output ) {
     ok = !!sol_compat_encode( out, out_sz, output, &fd_exec_test_block_effects_t_msg );
   }
+  } FD_SPAD_FRAME_END;
 
   // Cleanup
   pb_release( &fd_exec_test_block_context_t_msg, input );
