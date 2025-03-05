@@ -192,6 +192,8 @@ typedef struct {
      increases, we expire old transactions. */
   ulong highest_observed_slot;
 
+  ulong transaction_expired;
+
   /* microblock_duration_ns, and wait_duration
      respectively scaled to be in ticks instead of nanoseconds */
   ulong microblock_duration_ticks;
@@ -203,6 +205,9 @@ typedef struct {
      full.  This is an fd_deque. */
   fd_txn_e_t * extra_txn_deq;
   int          insert_to_extra; /* whether the last insert was into pack or the extra deq */
+  ulong        transaction_dropped_from_extra;,
+  ulong        transaction_inserted_from_extra;,
+  ulong        transaction_inserted_to_extra;
 #endif
 
   fd_pack_in_ctx_t in[ 32 ];
@@ -249,6 +254,8 @@ typedef struct {
     fd_txn_e_t * _txn[ FD_PACK_MAX_TXN_PER_BUNDLE ];
     fd_txn_e_t * const * bundle; /* points to _txn when non-NULL */
   } current_bundle[1];
+
+  ulong partial_bundle_dropped_txn_cnt;
 
   block_builder_info_t blk_engine_cfg[1];
 
@@ -358,15 +365,29 @@ log_end_block_metrics( fd_pack_ctx_t * ctx,
 
 static inline void
 metrics_write( fd_pack_ctx_t * ctx ) {
-  FD_MCNT_ENUM_COPY( PACK, TRANSACTION_INSERTED,          ctx->insert_result  );
   FD_MCNT_ENUM_COPY( PACK, METRIC_TIMING,        ((ulong*)ctx->metric_timing) );
-  FD_MCNT_ENUM_COPY( PACK, BUNDLE_CRANK_STATUS,           ctx->crank->metrics );
   FD_MHIST_COPY( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS, ctx->schedule_duration );
   FD_MHIST_COPY( PACK, NO_SCHED_MICROBLOCK_DURATION_SECONDS, ctx->no_sched_duration );
   FD_MHIST_COPY( PACK, INSERT_TRANSACTION_DURATION_SECONDS,  ctx->insert_duration   );
   FD_MHIST_COPY( PACK, COMPLETE_MICROBLOCK_DURATION_SECONDS, ctx->complete_duration );
 
   fd_pack_metrics_write( ctx->pack );
+}
+
+static inline void
+metrics_write_fixed_interval( fd_pack_ctx_t * ctx ) {
+  FD_MCNT_ENUM_COPY( PACK, TRANSACTION_INSERTED,               ctx->insert_result                  );
+  FD_MCNT_SET(       PACK, TRANSACTION_EXPIRED,                ctx->transaction_expired            );
+  FD_MCNT_ENUM_COPY( PACK, BUNDLE_CRANK_STATUS,                ctx->crank->metrics                 );
+  FD_MCNT_SET(       PACK, TRANSACTION_DROPPED_PARTIAL_BUNDLE, ctx->partial_bundle_dropped_txn_cnt );
+
+#if FD_PACK_USE_EXTRA_STORAGE
+  FD_MCNT_SET( PACK, TRANSACTION_DROPPED_FROM_EXTRA,  ctx->transaction_dropped_from_extra  );
+  FD_MCNT_SET( PACK, TRANSACTION_INSERTED_FROM_EXTRA, ctx->transaction_inserted_from_extra );
+  FD_MCNT_SET( PACK, TRANSACTION_INSERTED_TO_EXTRA,   ctx->transaction_inserted_to_extra  );
+#endif
+
+  fd_pack_metrics_fixed_int_write(ctx->pack);
 }
 
 static inline void
@@ -428,7 +449,7 @@ insert_from_extra( fd_pack_ctx_t * ctx ) {
   insert_duration      += fd_tickcount();
   ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
   fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
-  FD_MCNT_INC( PACK, TRANSACTION_INSERTED_FROM_EXTRA, 1UL );
+  ctx->transaction_inserted_from_extra++;
   return result;
 }
 #endif
@@ -747,8 +768,7 @@ during_frag( fd_pack_ctx_t * ctx,
     }
     ctx->leader_slot = fd_disco_poh_sig_slot( sig );
 
-    ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->leader_slot, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
-    FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
+    ctx->transaction_expired += fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->leader_slot, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
 
     fd_became_leader_t * became_leader = (fd_became_leader_t *)dcache_entry;
     ctx->leader_bank          = became_leader->bank;
@@ -817,8 +837,7 @@ during_frag( fd_pack_ctx_t * ctx,
          with expired but high-fee-paying transactions.  That can only
          happen if we are getting transactions. */
       ctx->highest_observed_slot = sig;
-      ulong exp_cnt = fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->highest_observed_slot, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
-      FD_MCNT_INC( PACK, TRANSACTION_EXPIRED, exp_cnt );
+      ctx->transaction_expired += fd_pack_expire_before( ctx->pack, fd_ulong_max( ctx->highest_observed_slot, TRANSACTION_LIFETIME_SLOTS )-TRANSACTION_LIFETIME_SLOTS );
     }
 
 
@@ -826,7 +845,7 @@ during_frag( fd_pack_ctx_t * ctx,
       ctx->is_bundle = 1;
       if( FD_LIKELY( txnm->block_engine.bundle_id!=ctx->current_bundle->id ) ) {
         if( FD_UNLIKELY( ctx->current_bundle->bundle ) ) {
-          FD_MCNT_INC( PACK, TRANSACTION_DROPPED_PARTIAL_BUNDLE, ctx->current_bundle->txn_received );
+          ctx->partial_bundle_dropped_txn_cnt += ctx->current_bundle->txn_received;
           fd_pack_insert_bundle_cancel( ctx->pack, ctx->current_bundle->bundle, ctx->current_bundle->txn_cnt );
         }
         ctx->current_bundle->id                 = txnm->block_engine.bundle_id;
@@ -835,7 +854,7 @@ during_frag( fd_pack_ctx_t * ctx,
         ctx->current_bundle->txn_received       = 0UL;
 
         if( FD_UNLIKELY( ctx->current_bundle->txn_cnt==0UL ) ) {
-          FD_MCNT_INC( PACK, TRANSACTION_DROPPED_PARTIAL_BUNDLE, 1UL );
+          ctx->partial_bundle_dropped_txn_cnt++;
           ctx->current_bundle->id = 0UL;
           return;
         }
@@ -855,7 +874,7 @@ during_frag( fd_pack_ctx_t * ctx,
       } else {
         if( FD_UNLIKELY( extra_txn_deq_full( ctx->extra_txn_deq ) ) ) {
           extra_txn_deq_remove_head( ctx->extra_txn_deq );
-          FD_MCNT_INC( PACK, TRANSACTION_DROPPED_FROM_EXTRA, 1UL );
+          ctx->transaction_dropped_from_extra++;
         }
         ctx->cur_spot = extra_txn_deq_peek_tail( extra_txn_deq_insert_tail( ctx->extra_txn_deq ) );
         /* We want to store the current time in cur_spot so that we can
@@ -863,7 +882,7 @@ during_frag( fd_pack_ctx_t * ctx,
            fields, since those aren't important right now. */
         ctx->cur_spot->txnp->blockhash_slot = sig;
         ctx->insert_to_extra                = 1;
-        FD_MCNT_INC( PACK, TRANSACTION_INSERTED_TO_EXTRA, 1UL );
+        ctx->transaction_inserted_to_extra++;
       }
 #else
       ctx->cur_spot = fd_pack_insert_txn_init( ctx->pack );
@@ -1092,9 +1111,12 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->ticks_per_ns                  = fd_tempo_tick_per_ns( NULL );
   ctx->last_successful_insert        = 0L;
   ctx->highest_observed_slot         = 0UL;
+  ctx->transaction_expired           = 0UL;
   ctx->microblock_duration_ticks     = (ulong)(fd_tempo_tick_per_ns( NULL )*(double)MICROBLOCK_DURATION_NS  + 0.5);
 #if FD_PACK_USE_EXTRA_STORAGE
   ctx->insert_to_extra               = 0;
+  ctx->transaction_dropped_from_extra= 0UL;
+  ctx->transaction_inserted_to_extra = 0UL;
 #endif
   ctx->use_consumed_cus              = tile->pack.use_consumed_cus;
   ctx->crank->enabled                = tile->pack.bundle.enabled;
@@ -1202,12 +1224,13 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_pack_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_pack_ctx_t)
 
-#define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
-#define STEM_CALLBACK_BEFORE_CREDIT       before_credit
-#define STEM_CALLBACK_AFTER_CREDIT        after_credit
-#define STEM_CALLBACK_DURING_FRAG         during_frag
-#define STEM_CALLBACK_AFTER_FRAG          after_frag
-#define STEM_CALLBACK_METRICS_WRITE       metrics_write
+#define STEM_CALLBACK_DURING_HOUSEKEEPING          during_housekeeping
+#define STEM_CALLBACK_BEFORE_CREDIT                before_credit
+#define STEM_CALLBACK_AFTER_CREDIT                 after_credit
+#define STEM_CALLBACK_DURING_FRAG                  during_frag
+#define STEM_CALLBACK_AFTER_FRAG                   after_frag
+#define STEM_CALLBACK_FIXED_METRICS_WRITE_INTERVAL metrics_write_fixed_interval
+#define STEM_CALLBACK_METRICS_WRITE                metrics_write
 
 #include "../../../../disco/stem/fd_stem.c"
 
