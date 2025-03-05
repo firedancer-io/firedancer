@@ -136,9 +136,9 @@ status=$?
 rm -rf fd-identity-keypair.json
 rm -rf fd-vote-keypair.json
 
-last_line=$(tail -n 1 $LOG)
-echo "Last Log Line: $last_line"
-if [[ $last_line == *"Finished simulation to slot"* ]]; then
+simulation_finished=$(grep "Finished simulation" $LOG)
+echo "Simulation Finished Line: $simulation_finished"
+if [[ $simulation_finished == *"Finished simulation to slot"* ]]; then
   status=0
   echo "Simulation Completed Successfully"
 else
