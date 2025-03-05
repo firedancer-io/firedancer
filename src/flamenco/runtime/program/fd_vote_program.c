@@ -1342,9 +1342,8 @@ process_new_vote_state( fd_vote_state_t *           vote_state,
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L696
     if( FD_LIKELY( current_vote->lockout.slot < new_vote->lockout.slot ) ) {
-      ulong last_locked_out_slot =
-          current_vote->lockout.slot +
-          (ulong)pow( INITIAL_LOCKOUT, current_vote->lockout.confirmation_count );
+      ulong last_locked_out_slot = fd_ulong_sat_add( current_vote->lockout.slot,
+                                                     fd_ulong_pow2_up( current_vote->lockout.confirmation_count ) );
       // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L697
       if( last_locked_out_slot >= new_vote->lockout.slot ) {
         // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L698
