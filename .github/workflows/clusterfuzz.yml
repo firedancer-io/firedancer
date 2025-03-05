@@ -21,7 +21,7 @@ jobs:
       - uses: ./.github/actions/deps
         with:
           compiler: clang
-
+          extras: +dev
 
       - run: sudo apt update && sudo apt install -y zip
 
@@ -97,6 +97,8 @@ jobs:
           submodules: recursive
 
       - uses: ./.github/actions/deps
+        with:
+          extras: +dev
 
       - run: sudo apt update && sudo apt install -y zip
 
