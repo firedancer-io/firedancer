@@ -233,10 +233,10 @@ struct __attribute__((packed)) fd_shred {
 
     /* Common coding shred header */
     struct __attribute__((packed)) {
-      /* Total number of data shreds in slot. Must be positive. */
+      /* Total number of data shreds in FEC set. Must be positive <= FD_REEDSOL_DATA_SHREDS_MAX. */
       /* 0x53 */ ushort data_cnt;
 
-      /* Total number of coding shreds in slot. Must be positive. */
+      /* Total number of coding shreds in FEC set. Must be positive <= FD_REEDSOL_CODE_SHREDS_MAX. */
       /* 0x55 */ ushort code_cnt;
 
       /* Index within the vector of coding shreds in slot. In [0,

@@ -527,7 +527,12 @@ interp_exec:
     ulong vaddr           = reg_dst + offset;
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
-    if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+    if( FD_UNLIKELY( sigsegv ) ) {
+      vm->segv_store_vaddr = vaddr;
+      ushort val = (ushort)imm;
+      fd_vm_mem_st_try( vm, vaddr, sizeof(ushort), (uchar*)&val );
+      goto sigsegv;
+    } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     fd_vm_mem_st_2( vm, vaddr, haddr, (ushort)imm, is_multi_region );
   }
   FD_VM_INTERP_INSTR_END;
@@ -551,7 +556,12 @@ interp_exec:
     ulong vaddr           = reg_dst + offset;
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ushort), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
-    if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus/rdonly */
+    if( FD_UNLIKELY( sigsegv ) ) {
+      vm->segv_store_vaddr = vaddr;
+      ushort val = (ushort)reg_src;
+      fd_vm_mem_st_try( vm, vaddr, sizeof(ushort), (uchar*)&val );
+      goto sigsegv;
+    } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     fd_vm_mem_st_2( vm, vaddr, haddr, (ushort)reg_src, is_multi_region );
   }
   FD_VM_INTERP_INSTR_END;
@@ -804,7 +814,12 @@ interp_exec:
     ulong vaddr           = reg_dst + offset;
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
-    if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+    if( FD_UNLIKELY( sigsegv ) ) {
+      vm->segv_store_vaddr = vaddr;
+      uint val = (uint)imm;
+      fd_vm_mem_st_try( vm, vaddr, sizeof(uint), (uchar*)&val );
+      goto sigsegv;
+    } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     fd_vm_mem_st_4( vm, vaddr, haddr, imm, is_multi_region );
   } FD_VM_INTERP_INSTR_END;
 
@@ -869,7 +884,12 @@ interp_exec:
     ulong vaddr           = reg_dst + offset;
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(uint), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
-    if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus/rdonly */
+    if( FD_UNLIKELY( sigsegv ) ) {
+      vm->segv_store_vaddr = vaddr;
+      uint val = (uint)reg_src;
+      fd_vm_mem_st_try( vm, vaddr, sizeof(uint), (uchar*)&val );
+      goto sigsegv;
+    } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     fd_vm_mem_st_4( vm, vaddr, haddr, (uint)reg_src, is_multi_region );
   }
   FD_VM_INTERP_INSTR_END;
@@ -904,7 +924,12 @@ interp_exec:
     ulong vaddr           = reg_dst + offset;
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
-    if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
+    if( FD_UNLIKELY( sigsegv ) ) {
+      vm->segv_store_vaddr = vaddr;
+      ulong val = (ulong)(long)(int)imm;
+      fd_vm_mem_st_try( vm, vaddr, sizeof(ulong), (uchar*)&val );
+      goto sigsegv;
+    } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     fd_vm_mem_st_8( vm, vaddr, haddr, (ulong)(long)(int)imm, is_multi_region );
   }
   FD_VM_INTERP_INSTR_END;
@@ -944,7 +969,11 @@ interp_exec:
     ulong vaddr           = reg_dst + offset;
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
-    if( FD_UNLIKELY( sigsegv ) ) { vm->segv_store_vaddr = vaddr; goto sigsegv; } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus/rdonly */
+    if( FD_UNLIKELY( sigsegv ) ) {
+      vm->segv_store_vaddr = vaddr;;
+      fd_vm_mem_st_try( vm, vaddr, sizeof(ulong), (uchar*)&reg_src );
+      goto sigsegv;
+    } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     fd_vm_mem_st_8( vm, vaddr, haddr, reg_src, is_multi_region );
   }
   FD_VM_INTERP_INSTR_END;

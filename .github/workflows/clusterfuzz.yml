@@ -37,14 +37,13 @@ jobs:
           EXTRAS: fuzz llvm-cov
           MACHINE: linux_clang_haswell
         with:
-          command: make -j -Otarget lib
+          command: cd src && pwd > buildpwd && cd - && make -j -Otarget lib && llvm-config --version | cut -d '.' -f 1 > llvm_version
 
 
       - name: List Artifacts, copy sources
         run: |
           ls ${{ env.OBJ_DIR }}/lib
           ls ${{ env.COV_OBJ_DIR}}/lib
-          cd src && pwd > buildpwd && cd -
           git config --global --add safe.directory /github/workspace/${{ env.OBJ_DIR}}/lib
           sudo mkdir -p build/cov/lib
           sudo chmod -R 777 build/cov/lib
@@ -56,7 +55,7 @@ jobs:
           # also the stubbed target
           mv ${{ env.COV_OBJ_DIR }}/lib/libfd_exec_sol_compat_stubbed.so ${{ env.COV_OBJ_DIR }}/lib/libfd_exec_sol_compat_stubbed_cov.so
           ls ${{ env.COV_OBJ_DIR}}/lib
-  
+
 
       - name: upload so artifacts
         uses: actions/upload-artifact@v4
@@ -110,7 +109,7 @@ jobs:
         run: |
           ls ${{ matrix.artifact_dir }}/fuzz-test
           ls ${{ matrix.artifact_dir }}/lib
-      
+
       - uses: actions/upload-artifact@v4
         name: Zip and upload to GitHub Artifacts
         id: artifact-zip-m1

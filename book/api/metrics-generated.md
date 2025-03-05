@@ -225,6 +225,7 @@
 | pack_&#8203;transaction_&#8203;inserted_&#8203;to_&#8203;extra | `counter` | Transactions inserted into the extra transaction storage because pack's primary storage was full |
 | pack_&#8203;transaction_&#8203;inserted_&#8203;from_&#8203;extra | `counter` | Transactions pulled from the extra transaction storage and inserted into pack's primary storage |
 | pack_&#8203;transaction_&#8203;expired | `counter` | Transactions deleted from pack because their TTL expired |
+| pack_&#8203;transaction_&#8203;dropped_&#8203;partial_&#8203;bundle | `counter` | Transactions dropped from pack because they were part of a partial bundle |
 | pack_&#8203;available_&#8203;transactions_&#8203;all | `gauge` | The total number of pending transactions in pack's pool that are available to be scheduled (All transactions in any treap) |
 | pack_&#8203;available_&#8203;transactions_&#8203;regular | `gauge` | The total number of pending transactions in pack's pool that are available to be scheduled (Non-votes in the main treap) |
 | pack_&#8203;available_&#8203;transactions_&#8203;votes | `gauge` | The total number of pending transactions in pack's pool that are available to be scheduled (Simple votes) |
@@ -241,6 +242,10 @@
 | pack_&#8203;transaction_&#8203;schedule_&#8203;write_&#8203;cost | `counter` | Result of trying to consider a transaction for scheduling (Pack skipped the transaction because it would have caused a writable account to exceed the per-account block write cost limit) |
 | pack_&#8203;transaction_&#8203;schedule_&#8203;slow_&#8203;path | `counter` | Result of trying to consider a transaction for scheduling (Pack skipped the transaction because of account conflicts using the full slow check) |
 | pack_&#8203;transaction_&#8203;schedule_&#8203;defer_&#8203;skip | `counter` | Result of trying to consider a transaction for scheduling (Pack skipped the transaction it previously exceeded the per-account block write cost limit too many times) |
+| pack_&#8203;bundle_&#8203;crank_&#8203;status_&#8203;not_&#8203;needed | `counter` | Result of considering whether bundle cranks are needed (On-chain state in the correct state) |
+| pack_&#8203;bundle_&#8203;crank_&#8203;status_&#8203;inserted | `counter` | Result of considering whether bundle cranks are needed (Inserted an initializer bundle to update the on-chain state) |
+| pack_&#8203;bundle_&#8203;crank_&#8203;status_&#8203;creation_&#8203;failed | `counter` | Result of considering whether bundle cranks are needed (Tried to insert an initializer bundle to update the on-chain state, but creation failed) |
+| pack_&#8203;bundle_&#8203;crank_&#8203;status_&#8203;insertion_&#8203;failed | `counter` | Result of considering whether bundle cranks are needed (Tried to insert an initializer bundle to update the on-chain state, but insertion failed) |
 | pack_&#8203;cus_&#8203;consumed_&#8203;in_&#8203;block | `gauge` | The number of cost units consumed in the current block, or 0 if pack is not currently packing a block |
 | pack_&#8203;cus_&#8203;scheduled | `histogram` | The number of cost units scheduled for each block pack produced.  This can be higher than the block limit because of returned CUs. |
 | pack_&#8203;cus_&#8203;rebated | `histogram` | The number of compute units rebated for each block pack produced.  Compute units are rebated when a transaction fails prior to execution or requests more compute units than it uses. |

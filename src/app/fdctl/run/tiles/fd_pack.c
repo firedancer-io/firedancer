@@ -266,6 +266,8 @@ typedef struct {
 
     fd_keyswitch_t *      keyswitch;
     fd_keyguard_client_t  keyguard_client[1];
+
+    ulong                 metrics[4];
   } crank[1];
 
 
@@ -358,6 +360,7 @@ static inline void
 metrics_write( fd_pack_ctx_t * ctx ) {
   FD_MCNT_ENUM_COPY( PACK, TRANSACTION_INSERTED,          ctx->insert_result  );
   FD_MCNT_ENUM_COPY( PACK, METRIC_TIMING,        ((ulong*)ctx->metric_timing) );
+  FD_MCNT_ENUM_COPY( PACK, BUNDLE_CRANK_STATUS,           ctx->crank->metrics );
   FD_MHIST_COPY( PACK, SCHEDULE_MICROBLOCK_DURATION_SECONDS, ctx->schedule_duration );
   FD_MHIST_COPY( PACK, NO_SCHED_MICROBLOCK_DURATION_SECONDS, ctx->no_sched_duration );
   FD_MHIST_COPY( PACK, INSERT_TRANSACTION_DURATION_SECONDS,  ctx->insert_duration   );
@@ -567,10 +570,7 @@ after_credit( fd_pack_ctx_t *     ctx,
 
   *charge_busy = 1;
 
-  /* Consider creating initializer bundles to crank the tip programs.
-     Craning requires inserting a bundle, which can't be done while
-     another insert is in progress. */
-  if( FD_LIKELY( ctx->crank->enabled && !ctx->current_bundle->bundle ) ) {
+  if( FD_LIKELY( ctx->crank->enabled ) ) {
     block_builder_info_t const * top_meta = fd_pack_peek_bundle_meta( ctx->pack );
     if( FD_UNLIKELY( top_meta ) ) {
       /* Have bundles, in a reasonable state to crank. */
@@ -585,6 +585,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       if( FD_LIKELY( txn_sz==0UL ) ) { /* Everything in good shape! */
         fd_pack_insert_bundle_cancel( ctx->pack, bundle, 1UL );
         fd_pack_set_initializer_bundles_ready( ctx->pack );
+        ctx->crank->metrics[ 0 ]++;
       }
       else if( FD_LIKELY( txn_sz<ULONG_MAX ) ) {
         bundle[0]->txnp->payload_sz = (ushort)txn_sz;
@@ -597,8 +598,11 @@ after_credit( fd_pack_ctx_t *     ctx,
 
         ctx->crank->ib_inserted = 1;
         int retval = fd_pack_insert_bundle_fini( ctx->pack, bundle, 1UL, ctx->leader_slot-1UL, 1, NULL );
-        if( FD_UNLIKELY( retval<0 ) ) FD_LOG_WARNING(( "inserting initializer bundle returned %i", retval ));
-        else {
+        ctx->insert_result[ retval + FD_PACK_INSERT_RETVAL_OFF ]++;
+        if( FD_UNLIKELY( retval<0 ) ) {
+          ctx->crank->metrics[ 3 ]++;
+          FD_LOG_WARNING(( "inserting initializer bundle returned %i", retval ));
+        } else {
           /* Update the cached copy of the on-chain state.  This seems a
              little dangerous, since we're updating it as if the bundle
              succeeded without knowing if that's true, but here's why
@@ -618,10 +622,12 @@ after_credit( fd_pack_ctx_t *     ctx,
              that these are the right values to use. */
           fd_bundle_crank_apply( ctx->crank->gen, ctx->crank->prev_config, top_meta->commission_pubkey,
                                  ctx->crank->tip_receiver_owner, ctx->crank->epoch, top_meta->commission );
+          ctx->crank->metrics[ 1 ]++;
         }
       } else {
         /* Already logged a warning in this case */
         fd_pack_insert_bundle_cancel( ctx->pack, bundle, 1UL );
+        ctx->crank->metrics[ 2 ]++;
       }
     }
   }
@@ -820,6 +826,7 @@ during_frag( fd_pack_ctx_t * ctx,
       ctx->is_bundle = 1;
       if( FD_LIKELY( txnm->block_engine.bundle_id!=ctx->current_bundle->id ) ) {
         if( FD_UNLIKELY( ctx->current_bundle->bundle ) ) {
+          FD_MCNT_INC( PACK, TRANSACTION_DROPPED_PARTIAL_BUNDLE, ctx->current_bundle->txn_received );
           fd_pack_insert_bundle_cancel( ctx->pack, ctx->current_bundle->bundle, ctx->current_bundle->txn_cnt );
         }
         ctx->current_bundle->id                 = txnm->block_engine.bundle_id;
@@ -828,7 +835,8 @@ during_frag( fd_pack_ctx_t * ctx,
         ctx->current_bundle->txn_received       = 0UL;
 
         if( FD_UNLIKELY( ctx->current_bundle->txn_cnt==0UL ) ) {
-          FD_LOG_WARNING(( "pack got a partial bundle" ));
+          FD_MCNT_INC( PACK, TRANSACTION_DROPPED_PARTIAL_BUNDLE, 1UL );
+          ctx->current_bundle->id = 0UL;
           return;
         }
         ctx->blk_engine_cfg->commission = txnm->block_engine.commission;
@@ -838,8 +846,6 @@ during_frag( fd_pack_ctx_t * ctx,
       }
       ctx->cur_spot                           = ctx->current_bundle->bundle[ ctx->current_bundle->txn_received ];
       ctx->current_bundle->min_blockhash_slot = fd_ulong_min( ctx->current_bundle->min_blockhash_slot, sig );
-
-
     } else {
       ctx->is_bundle = 0;
 #if FD_PACK_USE_EXTRA_STORAGE
@@ -933,7 +939,7 @@ after_frag( fd_pack_ctx_t *     ctx,
         long insert_duration = -fd_tickcount();
         int result = fd_pack_insert_bundle_fini( ctx->pack, ctx->current_bundle->bundle, ctx->current_bundle->txn_cnt, ctx->current_bundle->min_blockhash_slot, 0, ctx->blk_engine_cfg );
         insert_duration      += fd_tickcount();
-        ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ]++;
+        ctx->insert_result[ result + FD_PACK_INSERT_RETVAL_OFF ] += ctx->current_bundle->txn_received;
         fd_histf_sample( ctx->insert_duration, (ulong)insert_duration );
         ctx->current_bundle->bundle = NULL;
       }
@@ -992,7 +998,7 @@ unprivileged_init( fd_topo_t *      topo,
     .max_microblocks_per_block = (ulong)UINT_MAX, /* Limit not known yet */
   }};
 
-  if( FD_UNLIKELY( tile->pack.max_pending_transactions >= USHORT_MAX-5UL ) ) FD_LOG_ERR(( "pack tile supports up to %lu pending transactions", USHORT_MAX-6UL ));
+  if( FD_UNLIKELY( tile->pack.max_pending_transactions >= USHORT_MAX-10UL ) ) FD_LOG_ERR(( "pack tile supports up to %lu pending transactions", USHORT_MAX-11UL ));
 
   ulong pack_footprint = fd_pack_footprint( tile->pack.max_pending_transactions, BUNDLE_META_SZ, tile->pack.bank_tile_count, limits );
 

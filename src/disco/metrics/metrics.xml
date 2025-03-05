@@ -296,6 +296,13 @@ metric introduced.
   <int value="4" name="Bundles" label="Transactions that are part of a bundle" />
 </enum>
 
+<enum name="BundleCrankResult">
+  <int value="0" name="NotNeeded" label="On-chain state in the correct state" />
+  <int value="1" name="Inserted" label="Inserted an initializer bundle to update the on-chain state" />
+  <int value="2" name="CreationFailed" label="Tried to insert an initializer bundle to update the on-chain state, but creation failed" />
+  <int value="3" name="InsertionFailed" label="Tried to insert an initializer bundle to update the on-chain state, but insertion failed" />
+</enum>
+
 <tile name="pack">
     <histogram name="ScheduleMicroblockDurationSeconds" min="0.00000001" max="0.1" converter="seconds">
         <summary>Duration of scheduling one microblock</summary>
@@ -323,6 +330,7 @@ metric introduced.
     <counter name="TransactionInsertedToExtra" summary="Transactions inserted into the extra transaction storage because pack's primary storage was full" />
     <counter name="TransactionInsertedFromExtra" summary="Transactions pulled from the extra transaction storage and inserted into pack's primary storage" />
     <counter name="TransactionExpired" summary="Transactions deleted from pack because their TTL expired" />
+    <counter name="TransactionDroppedPartialBundle" summary="Transactions dropped from pack because they were part of a partial bundle" />
 
     <gauge name="AvailableTransactions" enum="AvailTxnType" summary="The total number of pending transactions in pack's pool that are available to be scheduled" />
     <gauge name="PendingTransactionsHeapSize" summary="The maximum number of pending transactions that pack can consider.  This value is fixed at Firedancer startup but is a useful reference for AvailableTransactions." />
@@ -332,6 +340,8 @@ metric introduced.
     <counter name="MicroblockPerBlockLimit" summary="The number of times pack did not pack a microblock because the limit on microblocks/block had been reached" />
     <counter name="DataPerBlockLimit" summary="The number of times pack did not pack a microblock because it reached reached the data per block limit at the start of trying to schedule a microblock" />
     <counter name="TransactionSchedule" enum="PackTxnSchedule" summary="Result of trying to consider a transaction for scheduling" />
+
+    <counter name="BundleCrankStatus" enum="BundleCrankResult" summary="Result of considering whether bundle cranks are needed" />
 
     <gauge name="CusConsumedInBlock" summary="The number of cost units consumed in the current block, or 0 if pack is not currently packing a block" />
     <histogram name="CusScheduled" min="1000000" max="192000000">

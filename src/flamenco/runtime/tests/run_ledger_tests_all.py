@@ -53,7 +53,7 @@ def worker(command_queue, available_params, error_occurred, error_event):
 
 
 def main(file_path):
-    cpu_batches = group_cpus_by_num_batches(num_batches=5)
+    cpu_batches = group_cpus_by_batch_size(batch_size=10)[:5]
     print("CPU Batches:", cpu_batches)
     # Define parameter ranges
     parameter_ranges = [ f'--tile-cpus {b[0]}-{b[-1]}' for b in cpu_batches ]
