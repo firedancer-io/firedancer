@@ -505,14 +505,22 @@ fn produce_bundles(
 async fn refresh_block_builder_info(
     client: &mut BlockEngineValidatorClient<InterceptedService<Channel, AuthInterceptor>>,
 ) -> crate::Result<([u8; 32], u64)> {
+    info!("Refreshing block builder info");
     let block_builder_info = timeout(
         Duration::from_secs(5),
         client.get_block_builder_fee_info(BlockBuilderFeeInfoRequest {}),
     )
     .await
-    .map_err(|_| ProxyError::MethodTimeout("get_block_builder_fee_info".to_string()))?
-    .map_err(|e| ProxyError::MethodError(e.to_string()))?
+    .map_err(|_| {
+        warn!("block engine method timeout: get_block_builder_fee_info");
+        ProxyError::MethodTimeout("get_block_builder_fee_info".to_string())
+    })?
+    .map_err(|e| {
+        warn!("block engine method error: get_block_builder_fee_info: {:?}", e);
+        ProxyError::MethodError(e.to_string())
+    })?
     .into_inner();
+    info!("Got block builder info");
 
     let block_builder_pubkey = bs58::decode(&block_builder_info.pubkey)
         .into_vec()
