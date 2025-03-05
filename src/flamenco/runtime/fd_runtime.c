@@ -439,7 +439,7 @@ fd_validator_stake_pair_compare_before( fd_validator_stake_pair_t const * a,
 #include "../../util/tmpl/fd_sort.c"
 #undef SORT_NAME
 #undef SORT_KEY_T
-#undef SORT_BERFORE
+#undef SORT_BEFORE
 
 static void
 fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
