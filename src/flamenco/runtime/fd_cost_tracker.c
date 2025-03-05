@@ -321,7 +321,7 @@ add_transaction_execution_cost( fd_cost_tracker_t *           self,
 static inline void
 add_transaction_cost( fd_cost_tracker_t *           self,
                       fd_exec_txn_ctx_t const *     txn_ctx,
-                       fd_transaction_cost_t const * tx_cost ) {
+                      fd_transaction_cost_t const * tx_cost ) {
   /* Note: We purposely omit signature counts updates since they're not relevant to cost calculations right now. */
   self->allocated_accounts_data_size += get_allocated_accounts_data_size( tx_cost );
   self->transaction_count++;
@@ -359,7 +359,7 @@ fd_cost_tracker_init( fd_cost_tracker_t *        self,
 
 fd_transaction_cost_t
 fd_calculate_cost_for_executed_transaction( fd_exec_txn_ctx_t const * txn_ctx,
-                                            fd_spad_t * 							spad ) {
+                                            fd_spad_t *               spad ) {
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/cost-model/src/cost_model.rs#L83-L85 */
   if( fd_txn_is_simple_vote_transaction( txn_ctx->txn_descriptor, txn_ctx->_txn_raw->raw ) ) {
     return (fd_transaction_cost_t){ .discriminant = fd_transaction_cost_enum_simple_vote };
