@@ -6,21 +6,28 @@
 
 
 fd_quic_conn_t conn;
+fd_quic_pkt_meta_t* pkt_meta_alloc;
 fd_quic_pkt_meta_t* pkt_meta_mem;
+fd_quic_t* quic;
 
 static void
 init_tracker( ulong max_inflight ) {
-  if( !fd_quic_pkt_meta_tracker_init( &conn.pkt_meta_tracker, pkt_meta_mem, max_inflight ) ) {
+
+  fd_quic_pkt_meta_t * pool = fd_quic_get_state( quic )->pkt_meta_pool;
+  fd_quic_pkt_meta_tracker_init_pool( pool, max_inflight );
+
+  if( !fd_quic_pkt_meta_tracker_init( &conn.pkt_meta_tracker, max_inflight ) ) {
     FD_LOG_ERR(( "Failed to initialize tracker" ));
     return;
   }
 
   fd_quic_pkt_meta_t * pkt_meta = NULL;
   for( ulong i = 0; i < max_inflight; i++ ) {
-    pkt_meta = fd_quic_pkt_meta_pool_ele_acquire( conn.pkt_meta_tracker.pkt_meta_pool_join );
+    pkt_meta = fd_quic_pkt_meta_pool_ele_acquire( pool );
+    memset( pkt_meta, 0, sizeof(fd_quic_pkt_meta_t) );
     pkt_meta->pkt_number = i;
     fd_quic_pkt_meta_insert( &conn.pkt_meta_tracker.sent_pkt_metas[fd_quic_enc_level_appdata_id],
-                            pkt_meta, conn.pkt_meta_tracker.pkt_meta_pool_join );
+                            pkt_meta, pool );
   }
   FD_TEST( fd_quic_pkt_meta_ds_ele_cnt( &conn.pkt_meta_tracker.sent_pkt_metas[fd_quic_enc_level_appdata_id] ) == max_inflight );
 }
@@ -33,12 +40,41 @@ main( int argc, char ** argv ) {
   ulong        max_inflight = fd_env_strip_cmdline_ulong ( &argc, &argv, "--max-inflight",  NULL, 100UL );
   ulong        range_sz     = fd_env_strip_cmdline_ulong ( &argc, &argv, "--range-sz",      NULL, 10UL );
 
+  FD_LOG_NOTICE(("booted"));
+
   ulong cpu_idx = fd_tile_cpu_id( fd_tile_idx() );
   if( cpu_idx>fd_shmem_cpu_cnt() ) cpu_idx = 0UL;
   fd_quic_frame_ctx_t context;
   fd_quic_pkt_t pkt;
   context.pkt = &pkt;
-  pkt_meta_mem = malloc( sizeof(fd_quic_pkt_meta_t) * (max_inflight + 1) );
+
+  fd_quic_limits_t limits[1];
+  limits->inflight_pkt_cnt = max_inflight;
+  limits->conn_id_cnt      = 4;
+  limits->conn_cnt         = 1;
+  limits->handshake_cnt    = 1;
+  limits->log_depth        = 1;
+  limits->tx_buf_sz        = 256;
+  limits->stream_pool_cnt  = 100;
+  limits->stream_id_cnt    = 10;
+
+  quic         = malloc( fd_quic_footprint( limits ) );
+  FD_TEST( quic );
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+
+  pkt_meta_alloc = malloc( sizeof(fd_quic_pkt_meta_t) * (max_inflight + 1) );
+  pkt_meta_mem = (fd_quic_pkt_meta_t*)fd_ulong_align_up( (ulong)pkt_meta_alloc, fd_quic_pkt_meta_pool_align() );
+  FD_TEST( pkt_meta_alloc );
+  FD_TEST( pkt_meta_mem );
+
+  FD_LOG_NOTICE(("allocated space"));
+
+  fd_quic_pkt_meta_t * pkt_meta_pool = fd_quic_pkt_meta_pool_new( (void*)pkt_meta_mem, max_inflight );
+  state->pkt_meta_pool = fd_quic_pkt_meta_pool_join( pkt_meta_pool );
+
+  FD_LOG_NOTICE(("joined pool"));
+
+  conn.quic = quic;
 
   /* Very adversarial */
   do {
@@ -94,7 +130,7 @@ main( int argc, char ** argv ) {
   do {
     init_tracker( max_inflight );
     fd_quic_pkt_meta_ds_t * sent_pkt_metas = &conn.pkt_meta_tracker.sent_pkt_metas[fd_quic_enc_level_appdata_id];
-    fd_quic_pkt_meta_t    * pool           = conn.pkt_meta_tracker.pkt_meta_pool_join;
+    fd_quic_pkt_meta_t    * pool           = fd_quic_get_state( quic )->pkt_meta_pool;
 
     long start = fd_tickcount();
     ulong cnt;
@@ -137,7 +173,7 @@ main( int argc, char ** argv ) {
   do {
     init_tracker( max_inflight );
     fd_quic_pkt_meta_ds_t * sent_pkt_metas = &conn.pkt_meta_tracker.sent_pkt_metas[fd_quic_enc_level_appdata_id];
-    fd_quic_pkt_meta_t    * pool           = conn.pkt_meta_tracker.pkt_meta_pool_join;
+    fd_quic_pkt_meta_t    * pool           = fd_quic_get_state( conn.quic )->pkt_meta_pool;
 
     long start = fd_tickcount();
     ulong cnt;
@@ -163,7 +199,8 @@ main( int argc, char ** argv ) {
       FD_LOG_NOTICE(( "Happy case: Time taken: %ld us", (end - start) / 1000 ));
   } while(0);
 
-  free( pkt_meta_mem );
+  free( pkt_meta_alloc );
+  free( quic );
 
   FD_LOG_NOTICE(( "pass" ));
   return 0;

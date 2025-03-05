@@ -1,6 +1,6 @@
 #include "fd_quic_pkt_meta.h"
 
-#define FD_QUIC_MAX_INFLIGHT_LOW_ENC 20
+#define FD_QUIC_MAX_INFLIGHT_LOW_ENC 5
 static void *
 fd_quic_pkt_meta_ds_init( fd_quic_pkt_meta_ds_t * sent_pkt_metas,
                           ulong                  appdata_max_ele ) {
@@ -15,23 +15,20 @@ fd_quic_pkt_meta_ds_init( fd_quic_pkt_meta_ds_t * sent_pkt_metas,
   return sent_pkt_metas;
 }
 
+void
+fd_quic_pkt_meta_tracker_init_pool( fd_quic_pkt_meta_t * pool,
+                                    ulong               total_meta_cnt ) {
+  fd_quic_pkt_meta_treap_seed( pool, total_meta_cnt, (ulong)fd_log_wallclock() );
+}
 
 void *
 fd_quic_pkt_meta_tracker_init( fd_quic_pkt_meta_tracker_t *  tracker,
-                               fd_quic_pkt_meta_t         *  pkt_meta_mem,
                                ulong                         total_meta_cnt ) {
-  fd_memset( pkt_meta_mem, 0, total_meta_cnt*sizeof(fd_quic_pkt_meta_t) );
-  tracker->pkt_meta_mem = (void *)fd_ulong_align_up( (ulong)pkt_meta_mem, fd_quic_pkt_meta_pool_align() );
-
-  fd_quic_pkt_meta_t * shpool  = fd_quic_pkt_meta_pool_new( tracker->pkt_meta_mem, total_meta_cnt );
-  tracker->pkt_meta_pool_join = fd_quic_pkt_meta_pool_join( shpool );
-  fd_quic_pkt_meta_treap_seed( tracker->pkt_meta_pool_join, total_meta_cnt, (ulong)fd_log_wallclock() );
-  if( FD_UNLIKELY( !tracker->pkt_meta_pool_join ) ) return NULL;
 
   /* everything not saved for lower encryption levels goes to appdata */
   ulong appdata_max_ele = total_meta_cnt - 3*FD_QUIC_MAX_INFLIGHT_LOW_ENC;
   if( FD_UNLIKELY( !fd_quic_pkt_meta_ds_init( tracker->sent_pkt_metas, appdata_max_ele ) ) ) return NULL;
-  return shpool;
+  return tracker;
 }
 #undef FD_QUIC_MAX_INFLIGHT_LOW_ENC
 

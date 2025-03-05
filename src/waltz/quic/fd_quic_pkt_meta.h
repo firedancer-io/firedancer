@@ -193,23 +193,29 @@ fd_quic_pkt_meta_ds_ele_cnt( fd_quic_pkt_meta_ds_t * ds ) {
 
 struct fd_quic_pkt_meta_tracker {
   fd_quic_pkt_meta_ds_t       sent_pkt_metas[4];
-  fd_quic_pkt_meta_t     *    pkt_meta_mem;    /* owns the memory for pool */
-  fd_quic_pkt_meta_t     *    pkt_meta_pool_join;
 };
 
+
+/* fd_quic_pkt_meta_tracker_init_pool does any data structure-particular setup
+   on the entire pool at once. Useful for e.g. treap randomness
+   @arguments:
+   - pool: pointer pkt_meta pool
+   - total_meta_cnt: total pool size */
+void
+fd_quic_pkt_meta_tracker_init_pool( fd_quic_pkt_meta_t * pool,
+                                    ulong                total_meta_cnt );
+
+
 /* fd_quic_pkt_meta_tracker_init initializes the metadata tracker
-  In particular, it turns pkt_meta_mem into a pool of size total_meta_cnt
   For each encoding level, it initializes the pkt_meta data structure
   @arguments:
   - tracker: pointer to the pkt_meta tracker
-  - pkt_meta_mem: pointer to the memory for the pool
-  - total_meta_cnt: total number of pkt_meta entries in the pool
+  - total_meta_cnt: total number of max pkt_meta entries in this tracker
     (shared across all encoding levels)
   @returns:
-  - pointer to the pool if successful, NULL otherwise */
+  - pointer to tracker if successful, NULL otherwise */
 void *
 fd_quic_pkt_meta_tracker_init( fd_quic_pkt_meta_tracker_t *  tracker,
-                               fd_quic_pkt_meta_t         *  pkt_meta_mem,
                                ulong                         total_meta_cnt );
 
 /* fd_quic_pkt_meta_insert inserts a pkt_meta into the ds

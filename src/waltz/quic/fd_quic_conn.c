@@ -16,16 +16,12 @@
 struct fd_quic_conn_layout {
   int   stream_map_lg;
   ulong stream_map_off;
-  ulong pkt_meta_off;
 };
 typedef struct fd_quic_conn_layout fd_quic_conn_layout_t;
 
-/* TODO maybe introduce a separate parameter for size of pkt_meta
-   pool? */
 ulong
 fd_quic_conn_align( void ) {
   ulong align = fd_ulong_max( alignof( fd_quic_conn_t ), alignof( fd_quic_stream_t ) );
-  align = fd_ulong_max( align, alignof( fd_quic_pkt_meta_t ) );
   align = fd_ulong_max( align, fd_quic_stream_map_align() );
   return align;
 }
@@ -33,9 +29,6 @@ fd_quic_conn_align( void ) {
 static ulong
 fd_quic_conn_footprint_ext( fd_quic_limits_t const * limits,
                             fd_quic_conn_layout_t *  layout ) {
-
-  ulong inflight_pkt_cnt = limits->inflight_pkt_cnt;
-  if( FD_UNLIKELY( inflight_pkt_cnt==0UL ) ) return 0UL;
 
   ulong stream_id_cnt = limits->stream_id_cnt;
 
@@ -60,12 +53,7 @@ fd_quic_conn_footprint_ext( fd_quic_limits_t const * limits,
     layout->stream_map_off = 0UL;
   }
 
-  /* allocate space for packet metadata */
-  off                   = fd_ulong_align_up( off, alignof(fd_quic_pkt_meta_t) );
-  layout->pkt_meta_off  = off;
-  off                  += inflight_pkt_cnt * sizeof(fd_quic_pkt_meta_t);
-
-  return off;
+  return fd_ulong_align_up( off, fd_quic_conn_align() );
 }
 
 ulong
@@ -132,8 +120,7 @@ fd_quic_conn_new( void *                   mem,
 
   /* Initialize packet meta pool */
   fd_quic_pkt_meta_tracker_init( &conn->pkt_meta_tracker,
-                                  (fd_quic_pkt_meta_t *)((ulong)mem + layout.pkt_meta_off),
-                                  limits->inflight_pkt_cnt );
+                                 limits->inflight_pkt_cnt );
 
   return conn;
 }
