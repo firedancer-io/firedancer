@@ -191,7 +191,7 @@ fd_replay_footprint( ulong fec_max, ulong slice_max ) {
    with the required footprint and alignment. */
 
 void *
-fd_replay_new( void * shmem, ulong seed, ulong slice_max );
+fd_replay_new( void * shmem, ulong fec_max, ulong slice_max );
 
 /* fd_replay_join joins the caller to the replay.  replay points to the
    first byte of the memory region backing the replay in the caller's

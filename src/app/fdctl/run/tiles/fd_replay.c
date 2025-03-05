@@ -222,7 +222,7 @@ struct fd_replay_tile_ctx {
   fd_forks_t *          forks;
   fd_ghost_t *          ghost;
   fd_tower_t *          tower;
-  fd_replay_t * replay;
+  fd_replay_t *         replay;
 
   fd_pubkey_t validator_identity[1];
   fd_pubkey_t vote_authority[1];
@@ -385,6 +385,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BLOCK_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_tower_align(), fd_tower_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_replay_align(), fd_replay_footprint( tile->replay.fec_max, FD_BLOCK_MAX * FD_SHRED_MAX_PER_SLOT ) );
   l = FD_LAYOUT_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
@@ -477,8 +478,6 @@ before_frag( fd_replay_tile_ctx_t * ctx,
   if( in_idx == SHRED_IN_IDX ) {
     ctx->before_frag_cnt++;
 
-    FD_LOG_NOTICE(( "%lu", sig ));
-
     ulong slot        = fd_disco_replay_sig_slot       ( sig );
     uint  shred_idx   = fd_disco_replay_sig_shred_idx  ( sig );
     uint  fec_set_idx = fd_disco_replay_sig_fec_set_idx( sig );
@@ -513,7 +512,7 @@ before_frag( fd_replay_tile_ctx_t * ctx,
       fd_block_map_query_t query[1] = { 0 };
       uint start_idx, end_idx;
       for(;;) { /* speculate */
-        int err = fd_block_map_query_try( ctx->blockstore->block_map, &ctx->curr_slot, NULL, query, 0 );
+        int err = fd_block_map_query_try( ctx->blockstore->block_map, &slot, NULL, query, 0 );
         if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
         if( FD_UNLIKELY( err == FD_MAP_ERR_KEY   ) ) FD_LOG_ERR(( "[%s] completed shred %lu %u missing from blockstore", __func__, slot, shred_idx ));
         fd_block_info_t * block_info = fd_block_map_query_ele( query );
@@ -526,7 +525,7 @@ before_frag( fd_replay_tile_ctx_t * ctx,
         if( FD_UNLIKELY( fd_block_map_query_test( query ) == FD_MAP_SUCCESS ) ) break;
       } /* finish speculate */
 
-      if ( FD_LIKELY ( end_idx > start_idx ) ) fd_replay_slice_deque_push_tail( ctx->replay->slice_deque, (fd_replay_slice_t){ start_idx, end_idx } ); /* queue up slice for replay */
+      if( FD_LIKELY( end_idx > start_idx ) ) fd_replay_slice_deque_push_tail( ctx->replay->slice_deque, (fd_replay_slice_t){ start_idx, end_idx } ); /* queue up slice for replay */
       return 1; /* skip after frag */
     }
 
@@ -2814,6 +2813,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * forks_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BLOCK_MAX ) );
   void * ghost_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ) );
   void * tower_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(), fd_tower_footprint() );
+  void * replay_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_align(), fd_replay_footprint( tile->replay.fec_max, FD_BLOCK_MAX * FD_SHRED_MAX_PER_SLOT ) );
   void * bank_hash_cmp_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     ctx->bmtree[i]           = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
@@ -3038,6 +3038,8 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->forks = fd_forks_join( fd_forks_new( forks_mem, FD_BLOCK_MAX, 42UL ) );
   ctx->ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 42UL, FD_BLOCK_MAX ) );
   ctx->tower = fd_tower_join( fd_tower_new( tower_mem ) );
+
+  ctx->replay = fd_replay_join( fd_replay_new( replay_mem, tile->replay.fec_max, FD_BLOCK_MAX * FD_SHRED_MAX_PER_SLOT ) );
 
   /**********************************************************************/
   /* voter                                                              */
