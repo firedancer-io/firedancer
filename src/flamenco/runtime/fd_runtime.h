@@ -256,7 +256,11 @@ FD_STATIC_ASSERT( FD_RUNTIME_MERKLE_VERIFICATION_FOOTPRINT <= FD_RUNTIME_TRANSAC
 
 /* definition of the public/readable workspace */
 struct fd_runtime_public {
-  ulong         epoch;
+  // FIXME:  This is a non-fork-aware copy of the currently active
+  // features.  Once the epoch_ctx and the slot_ctx get moved into
+  // this workspace AND we make the epoch_ctx properly fork aware at
+  // the epoch boundary, we can remove this copy of the features map
+  // and just use the epoch_ctx (or slot_ctx) copy directly.
   fd_features_t features;
 };
 typedef struct fd_runtime_public fd_runtime_public_t;

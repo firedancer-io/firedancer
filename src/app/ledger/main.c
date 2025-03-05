@@ -1272,7 +1272,6 @@ replay( fd_ledger_args_t * args ) {
 
   fd_runtime_ctx_t runtime_ctx[1];
   fd_runtime_ctx_new(runtime_ctx);
-  runtime_ctx->private_valloc = args->valloc;
   runtime_ctx->public = fd_runtime_public_join( runtime_public_mem );
   g_runtime_ctx = runtime_ctx;
 

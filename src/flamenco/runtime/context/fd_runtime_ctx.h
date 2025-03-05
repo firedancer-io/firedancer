@@ -14,12 +14,11 @@ typedef struct fd_runtime_public fd_runtime_public_t;
  */
 
 struct fd_runtime_ctx {
-  fd_valloc_t                 private_valloc;
   fd_runtime_public_t        *public;
 };
 typedef struct fd_runtime_ctx fd_runtime_ctx_t;
 
-// FIXME: get rid of this...
+// FIXME: Eliminating this global is a huge API code change so we want to make that a separate PR.
 extern fd_runtime_ctx_t * g_runtime_ctx;
 
 FD_PROTOTYPES_BEGIN
