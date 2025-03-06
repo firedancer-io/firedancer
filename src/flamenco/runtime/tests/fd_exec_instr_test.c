@@ -1365,19 +1365,15 @@ _block_context_destroy( fd_exec_instr_test_runner_t * runner,
                         fd_wksp_t *                     wksp,
                         fd_alloc_t *                    alloc ) {
   if( !slot_ctx ) return; // This shouldn't be false either
-  fd_acc_mgr_t *        acc_mgr   = slot_ctx->acc_mgr;
-  fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
+  fd_acc_mgr_t * acc_mgr = slot_ctx->acc_mgr;
 
   fd_acc_mgr_delete( acc_mgr );
-
-  // TODO: remove this once funk fix is merged
-  fd_alloc_free( fd_funk_alloc( runner->funk, wksp ), fd_funk_get_partvec( runner->funk, wksp ) );
 
   fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
   fd_wksp_detach( wksp );
 
   fd_funk_start_write( runner->funk );
-  fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
+  fd_funk_txn_cancel_all( runner->funk, 1 );
   fd_funk_end_write( runner->funk );
 }
 
