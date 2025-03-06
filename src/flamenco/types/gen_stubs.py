@@ -1308,7 +1308,7 @@ class DlistMember(TypeNode):
         print(f'    {dlist_t} * ele = {pool_name}_ele_acquire( self->pool );', file=body)
         print(f'    {dlist_t.rstrip("_t")}_new( ele );', file=body)
         print(f'    {dlist_t.rstrip("_t")}_decode_inner( ele, alloc_mem, ctx );', file=body)
-        print(f'    {dlist_name}_ele_push_tail( &self->{self.name}[ i ], ele, self->pool ); /* this cannot fail */', file=body)
+        print(f'    {dlist_name}_ele_push_tail( self->{self.name}, ele, self->pool );', file=body)
         print('  }', file=body)
 
     def emitEncode(self):
@@ -1379,8 +1379,6 @@ class DlistMember(TypeNode):
             print(f'      {dlist_t.rstrip("_t")}_walk( w, ele, fun, "{dlist_t}", level );', file=body)
         print(f'    }}', file=body)
         print(f'  }}', file=body)
-
-        pass
 
 
 class TreapMember(TypeNode):

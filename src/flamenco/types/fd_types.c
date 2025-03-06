@@ -11253,7 +11253,7 @@ void fd_partitioned_stake_rewards_decode_inner( void * struct_mem, void * * allo
     fd_stake_reward_t * ele = fd_partitioned_stake_rewards_pool_ele_acquire( self->pool );
     fd_stake_reward_new( ele );
     fd_stake_reward_decode_inner( ele, alloc_mem, ctx );
-    fd_partitioned_stake_rewards_dlist_ele_push_tail( &self->partitions[ i ], ele, self->pool ); /* this cannot fail */
+    fd_partitioned_stake_rewards_dlist_ele_push_tail( self->partitions, ele, self->pool );
   }
 }
 void fd_partitioned_stake_rewards_new(fd_partitioned_stake_rewards_t * self) {
@@ -11418,7 +11418,7 @@ void fd_stake_reward_calculation_decode_inner( void * struct_mem, void * * alloc
     fd_stake_reward_t * ele = fd_stake_reward_calculation_pool_ele_acquire( self->pool );
     fd_stake_reward_new( ele );
     fd_stake_reward_decode_inner( ele, alloc_mem, ctx );
-    fd_stake_reward_calculation_dlist_ele_push_tail( &self->stake_rewards[ i ], ele, self->pool ); /* this cannot fail */
+    fd_stake_reward_calculation_dlist_ele_push_tail( self->stake_rewards, ele, self->pool );
   }
   fd_bincode_uint64_decode_unsafe( &self->total_stake_rewards_lamports, ctx );
 }
