@@ -62,9 +62,12 @@ fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
   if( NULL != orec )
     *orec = rec;
 
-  /* This is a work around until we can call fd_funkier_rec_query_test in all the right spots */
+  /* This is a work around until we can call fd_funkier_rec_query_test
+     in all the right spots. query_test should be called after the
+     data is actually consumed. TODO: fix this. */
   if( *txn_out ) FD_TEST( fd_funkier_txn_is_frozen( *txn_out ) );
   else           FD_TEST( fd_funkier_last_publish_is_frozen( funk ) );
+  FD_TEST( fd_funkier_rec_query_test( query ) );
 
   void const * raw = fd_funkier_val( rec, fd_funkier_wksp(funk) );
   // TODO/FIXME: this check causes issues with some metadata writes

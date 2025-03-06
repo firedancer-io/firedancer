@@ -564,7 +564,7 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
     }
 
     /* All removed recs should be stored with the slot from the funk txn. */
-    fd_funkier_rec_remove( funk, txn, task_info->rec->pair.key, NULL, 0 );
+    fd_funkier_rec_remove( funk, txn, task_info->rec->pair.key, NULL, task_info->rec->pair.xid->ul[0] );
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
@@ -1122,6 +1122,8 @@ fd_accounts_hash_inc_no_txn( fd_funkier_t *                 funk,
     pairs[ num_pairs ].rec = rec;
     pairs[ num_pairs ].hash = (fd_hash_t const *)metadata->hash;
     num_pairs++;
+
+    FD_TEST( fd_funkier_rec_query_test( query ) );
   }
 
   sort_pubkey_hash_pair_inplace( pairs, num_pairs );
