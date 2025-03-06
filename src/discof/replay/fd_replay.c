@@ -15,8 +15,8 @@ fd_replay_new( void * shmem, ulong fec_max, ulong slice_max, ulong block_max ) {
     void * slice_deque = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_slice_deque_align(), fd_replay_slice_deque_footprint( slice_max ) );
     fd_replay_slice_deque_new( slice_deque, slice_max );
   }
-  FD_SCRATCH_ALLOC_FINI( l, fd_replay_align() );
-  // FD_TEST(  == (ulong)shmem + fd_replay_footprint( fec_max, slice_max ) );
+  ulong top = FD_SCRATCH_ALLOC_FINI( l, fd_replay_align() );
+  FD_TEST( top == (ulong)shmem + fd_replay_footprint( fec_max, slice_max, block_max ) );
 
   fd_replay_fec_map_new( fec_map, lg_fec_max );
   fd_replay_fec_deque_new( fec_deque, fec_max );
