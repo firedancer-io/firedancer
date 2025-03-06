@@ -486,6 +486,12 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
   // FD_LOG_NOTICE(( "[%s] slot %lu idx %u", __func__, shred->slot, shred->idx ));
 
   ulong slot = shred->slot;
+
+  if( FD_UNLIKELY( slot < blockstore->shmem->wmk ) ) {
+    FD_LOG_DEBUG(( "[%s] slot %lu < wmk %lu. not inserting shred", __func__, slot, blockstore->shmem->wmk ));
+    return;
+  }
+
   fd_shred_key_t key = { slot, .idx = shred->idx };
 
   /* Test if the blockstore already contains this shred key. */
@@ -624,7 +630,17 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
                block_info->slot_complete_idx ));
   fd_block_map_publish( query );
 
-  /* Update ancestry metadata: parent_slot, is_connected, next_slot. */
+  /* Update ancestry metadata: parent_slot, is_connected, next_slot.
+
+     If the parent_slot happens to be very old, there's a chance that
+     it's hash probe could collide with an existing slot in the block
+     map, and cause what looks like an OOM. Instead of using map_prepare
+     and hitting this collision, we can either check that the
+     parent_slot lives in the map with a block_info_test, or use the
+     shmem wmk value as a more general guard against querying for
+     parents that are too old. */
+
+  if( FD_LIKELY( parent_slot < blockstore->shmem->wmk ) ) return;
 
   err = fd_block_map_prepare( blockstore->block_map, &parent_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
   fd_block_info_t * parent_block_info = fd_block_map_query_ele( query );
@@ -648,7 +664,16 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
       parent_block_info->child_slots[parent_block_info->child_slot_cnt++] = slot;
     }
   }
-  fd_block_map_publish( query );
+  if( FD_LIKELY( err == FD_MAP_SUCCESS ) ) {
+    fd_block_map_publish( query );
+  } else {
+    /* err is FD_MAP_ERR_FULL. Not in a valid prepare. Can happen if we
+       are about to OOM, or if the parents are so far away that it just
+       happens to chain longer than the probe_max. Somewhat covered by
+       the early return, but there are some edge cases where we reach
+       here, and it shouldn't be a LOG_ERR */
+    FD_LOG_WARNING(( "block info not found for parent slot %lu. Have we seen it before?", parent_slot ));
+  }
 
   //FD_TEST( fd_block_map_verify( blockstore->block_map ) == FD_MAP_SUCCESS );
 }
@@ -797,16 +822,16 @@ fd_blockstore_slice_query( fd_blockstore_t * blockstore,
   for(uint idx = start_idx; idx <= end_idx; idx++) {
     ulong payload_sz = 0;
 
-    for(;;) { /* speculative copy */
+    for(;;) { /* speculative copy one shred */
       fd_shred_key_t key = { slot, idx };
       fd_buf_shred_map_query_t query[1] = { 0 };
       int err = fd_buf_shred_map_query_try( blockstore->shred_map, &key, NULL, query );
-      if( FD_UNLIKELY( err == FD_MAP_ERR_CORRUPT ) ) {
-        FD_LOG_WARNING(( "[%s] key: (%lu, %u) %s", __func__, slot, start_idx, fd_buf_shred_map_strerror( err ) ));
+      if( FD_UNLIKELY( err == FD_MAP_ERR_CORRUPT ) ){
+        FD_LOG_WARNING(( "[%s] key: (%lu, %u) %s", __func__, slot, idx, fd_buf_shred_map_strerror( err ) ));
         return FD_BLOCKSTORE_ERR_CORRUPT;
       }
-      if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) {
-        FD_LOG_WARNING(( "[%s] key: (%lu, %u) %s", __func__, slot, start_idx, fd_buf_shred_map_strerror( err ) ));
+      if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ){
+        FD_LOG_WARNING(( "[%s] key: (%lu, %u) %s", __func__, slot, idx, fd_buf_shred_map_strerror( err ) ));
         return FD_BLOCKSTORE_ERR_KEY;
       }
       if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;

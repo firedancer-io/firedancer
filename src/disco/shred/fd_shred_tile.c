@@ -558,11 +558,11 @@ after_frag( fd_shred_ctx_t *    ctx,
   const ulong fanout = 200UL;
   fd_shred_dest_idx_t _dests[ 200*(FD_REEDSOL_DATA_SHREDS_MAX+FD_REEDSOL_PARITY_SHREDS_MAX) ];
 
-  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
-    uchar * shred_buffer    = ctx->shred_buffer;
-    ulong   shred_buffer_sz = ctx->shred_buffer_sz;
+  uchar * shred_buffer     = ctx->shred_buffer;
+  ulong   shred_buffer_sz  = ctx->shred_buffer_sz;
+  fd_shred_t const * shred = fd_shred_parse( shred_buffer, shred_buffer_sz );
 
-    fd_shred_t const * shred = fd_shred_parse( shred_buffer, shred_buffer_sz );
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
     if( FD_UNLIKELY( !shred       ) ) { ctx->metrics->shred_processing_result[ 1 ]++; return; }
 
     fd_epoch_leaders_t const * lsched = fd_stake_ci_get_lsched_for_slot( ctx->stake_ci, shred->slot );
@@ -598,12 +598,15 @@ after_frag( fd_shred_ctx_t *    ctx,
       } while( 0 );
 
       if( FD_LIKELY( ctx->blockstore ) ) { /* optimize for the compiler - branch predictor will still be correct */
-        uchar * buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
-        ulong   sz  = fd_shred_header_sz( shred->variant );
-        fd_memcpy( buf, shred, sz );
-        ulong tspub       = fd_frag_meta_ts_comp( fd_tickcount() );
-        ulong replay_sig  = fd_disco_shred_replay_sig( shred->slot, shred->fec_set_idx, shred->idx, fd_shred_is_code( fd_shred_type( shred->variant ) ), rv == FD_FEC_RESOLVER_SHRED_COMPLETES );
-        fd_stem_publish( stem, REPLAY_OUT_IDX, replay_sig, ctx->replay_out_chunk, sz, 0UL, ctx->tsorig, tspub );
+        if( rv!=FD_FEC_RESOLVER_SHRED_COMPLETES ) { /* only want to notify if not completes bc we want shreds in the blockstore when completes on replay side happens*/
+          uchar * buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
+          ulong   sz  = fd_shred_header_sz( shred->variant );
+          fd_memcpy( buf, shred, sz );
+          ulong tspub       = fd_frag_meta_ts_comp( fd_tickcount() );
+          ulong replay_sig  = fd_disco_shred_replay_sig( shred->slot, shred->idx, shred->fec_set_idx, fd_shred_is_code( fd_shred_type( shred->variant ) ), 0 );
+          fd_stem_publish( stem, REPLAY_OUT_IDX, replay_sig, ctx->replay_out_chunk, sz, 0UL, ctx->tsorig, tspub );
+          ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sz, ctx->replay_out_chunk0, ctx->replay_out_wmark );
+        }
       }
     }
     if( FD_LIKELY( rv!=FD_FEC_RESOLVER_SHRED_COMPLETES ) ) return;
@@ -637,7 +640,27 @@ after_frag( fd_shred_ctx_t *    ctx,
   /* Add whatever is left to the last shred34 */
   s34[ fd_ulong_if( s34[ 3 ].shred_cnt>0UL, 3, 2 ) ].est_txn_cnt += ctx->shredded_txn_cnt - txn_per_s34*s34_cnt;
 
+  if( FD_LIKELY( ctx->blockstore ) ) {
+    /* Store shreds to blockstore. Do this before sending 'completes'
+       signals to the the replay tile, because replay tile will poll for
+       shreds with the assumption they live in the blockstore */
+    for( ulong i=0UL; i<set->data_shred_cnt; i++ ) {
+      fd_shred_t const * data_shred = (fd_shred_t const *)fd_type_pun( set->data_shreds[ i ] );
+      /* missing the shred variant checks done in store_shred_insert */
+      fd_blockstore_shred_insert( ctx->blockstore, data_shred );
+    }
+
+    uchar * buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
+    fd_memcpy( buf, shred, fd_shred_header_sz( shred->variant ) );
+    ulong tspub       = fd_frag_meta_ts_comp( fd_tickcount() );
+    ulong replay_sig  = fd_disco_shred_replay_sig( shred->slot, shred->idx, shred->fec_set_idx, fd_shred_is_code( fd_shred_type( shred->variant ) ), 1 );
+    fd_stem_publish( stem, REPLAY_OUT_IDX, replay_sig, ctx->replay_out_chunk, fd_shred_header_sz( shred->variant ), 0UL, ctx->tsorig, tspub );
+
+    ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, fd_shred_header_sz( shred->variant ), ctx->replay_out_chunk0, ctx->replay_out_wmark );
+  }
+
   /* Set the sz field so that metrics are more accurate. */
+
   ulong sz0 = sizeof(fd_shred34_t) - (34UL - s34[ 0 ].shred_cnt)*FD_SHRED_MAX_SZ;
   ulong sz1 = sizeof(fd_shred34_t) - (34UL - s34[ 1 ].shred_cnt)*FD_SHRED_MAX_SZ;
   ulong sz2 = sizeof(fd_shred34_t) - (34UL - s34[ 2 ].shred_cnt)*FD_SHRED_MAX_SZ;

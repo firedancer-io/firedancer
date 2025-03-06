@@ -53,7 +53,7 @@
      entry batch.  However, replay of the txns within an entry can
      happen out-of-order (see fd_replay). */
 
-#include "../fd_disco_base.h"
+#include "../../disco/fd_disco_base.h"
 #include "../../ballet/reedsol/fd_reedsol.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../tango/fseq/fd_fseq.h"
@@ -186,21 +186,26 @@ fd_replay_align( void ) {
 }
 
 FD_FN_CONST static inline ulong
-fd_replay_footprint( ulong fec_max, ulong slice_max ) {
-  int lg_fec_max = fd_ulong_find_msb( fd_ulong_pow2_up( fec_max ) );
-  return FD_LAYOUT_FINI(
-    FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
-    FD_LAYOUT_APPEND(
-    FD_LAYOUT_INIT,
-      alignof(fd_replay_t),          sizeof(fd_replay_t) ),
-      fd_replay_fec_map_align(),     fd_replay_fec_map_footprint( lg_fec_max ) ),
-      fd_replay_fec_deque_align(),   fd_replay_fec_deque_footprint( fec_max ) ),
-      fd_replay_slice_deque_align(), fd_replay_slice_deque_footprint( slice_max ) ),
-      128UL,                         FD_SLICE_MAX ),
-    fd_replay_align() );
+fd_replay_footprint( ulong fec_max, ulong slice_max, ulong block_max ) {
+  int lg_fec_max   = fd_ulong_find_msb( fd_ulong_pow2_up( fec_max ) );
+  int lg_block_max = fd_ulong_find_msb( fd_ulong_pow2_up( block_max ) );
+  ulong footprint =
+      FD_LAYOUT_APPEND(
+      FD_LAYOUT_APPEND(
+      FD_LAYOUT_APPEND(
+      FD_LAYOUT_APPEND(
+      FD_LAYOUT_APPEND(
+      FD_LAYOUT_INIT,
+        alignof(fd_replay_t),          sizeof(fd_replay_t) ),
+        fd_replay_fec_map_align(),     fd_replay_fec_map_footprint( lg_fec_max ) ),
+        fd_replay_fec_deque_align(),   fd_replay_fec_deque_footprint( fec_max ) ),
+        128UL,                         FD_SLICE_MAX ),
+        fd_replay_slice_map_align(),   fd_replay_slice_map_footprint( lg_block_max) );
+
+    for( ulong i = 0UL; i < block_max; i++ ) {
+      footprint = FD_LAYOUT_APPEND( footprint, fd_replay_slice_deque_align(), fd_replay_slice_deque_footprint( slice_max ) );
+    }
+    return FD_LAYOUT_FINI(footprint, fd_replay_align());
 }
 
 /* fd_replay_new formats an unused memory region for use as a replay.
