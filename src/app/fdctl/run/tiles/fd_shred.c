@@ -496,11 +496,11 @@ during_frag( fd_shred_ctx_t * ctx,
 }
 
 static inline void
-send_shred( fd_shred_ctx_t *      ctx,
-            fd_shred_t const    * shred,
-            fd_shred_dest_t     * sdest,
-            fd_shred_dest_idx_t   dest_idx,
-            ulong                 tsorig ) {
+send_shred( fd_shred_ctx_t *    ctx,
+            fd_shred_t const *  shred,
+            fd_shred_dest_t *   sdest,
+            fd_shred_dest_idx_t dest_idx,
+            ulong               tsorig ) {
   fd_shred_dest_weighted_t * dest = fd_shred_dest_idx_to_dest( sdest, dest_idx );
 
   if( FD_UNLIKELY( !dest->ip4 ) ) return;
@@ -535,7 +535,6 @@ send_shred( fd_shred_ctx_t *      ctx,
   ctx->net_out_seq   = fd_seq_inc( ctx->net_out_seq, 1UL );
   ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, pkt_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
 }
-
 
 static void
 after_frag( fd_shred_ctx_t *    ctx,
@@ -609,9 +608,9 @@ after_frag( fd_shred_ctx_t *    ctx,
         for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, *out_shred, sdest, dests[ j ], ctx->tsorig );
       } while( 0 );
 
-      /* send this validated shred signature to the replay tile --
-         but do not store to blockstore (that happens when the fec
-         set is resolved )*/
+      /* send this validated shred signature to the replay tile -- but
+         do not insert in blockstore (that happens when the fec set
+         completes). */
 #     if FD_HAS_NO_AGAVE
       uchar * buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
       ulong   sz  = fd_shred_header_sz( shred->variant );

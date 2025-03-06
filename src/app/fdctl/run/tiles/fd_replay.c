@@ -493,14 +493,13 @@ before_frag( fd_replay_tile_ctx_t * ctx,
     /* If the FEC set is complete we don't need to track it anymore. */
 
     if( FD_UNLIKELY( completes ) ) {
-      fd_replay_fec_remove( ctx->replay, slot, fec_set_idx );
       ulong slice_key = fd_blockstore_slice_poll( ctx->blockstore, slot );
-
-      if( FD_LIKELY( slice_key ) ) {
+      if( FD_UNLIKELY( slice_key ) ) { /* optimize for FEC set completes a new entry batch */
         fd_replay_slice_t * slice_deque = fd_replay_slice_map_query( ctx->replay->slice_map, slot, NULL );
         if( FD_UNLIKELY( !slice_deque ) ) slice_deque = fd_replay_slice_map_insert( ctx->replay->slice_map, slot ); /* create new map entry for this slot */
         fd_replay_slice_deque_push_tail( slice_deque->deque, slice_key );
       }
+      fd_replay_fec_remove( ctx->replay, slot, fec_set_idx );
       return 1; /* skip frag */
     }
 
@@ -1654,14 +1653,15 @@ after_frag( fd_replay_tile_ctx_t * ctx,
 
   if( FD_LIKELY( in_idx == SHRED_IN_IDX ) ) {
 
-    /* after_frag only called if it's the first code shred we've
-       received for the FEC set */
+    /* after_frag only called if it's the first code shred we're
+       receiving for the FEC set */
 
     ulong slot        = fd_disco_replay_sig_slot( sig );
     uint  fec_set_idx = fd_disco_replay_sig_fec_set_idx( sig );
 
     fd_replay_fec_t * fec = fd_replay_fec_query( ctx->replay, slot, fec_set_idx );
     fec->data_cnt         = ctx->shred->code.data_cnt;
+
     return;
   }
 
@@ -1706,7 +1706,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     uint slot_complete_idx = FD_SHRED_IDX_NULL;
     fd_block_set_t data_complete_idxs[FD_SHRED_MAX_PER_SLOT / sizeof(ulong)];
     int err = FD_MAP_ERR_AGAIN;
-    while( err == FD_MAP_ERR_AGAIN ){
+    while( err == FD_MAP_ERR_AGAIN ) {
       err = fd_block_map_query_try( ctx->blockstore->block_map, &ctx->curr_slot, NULL, query, 0 );
       fd_block_info_t * block_info = fd_block_map_query_ele( query );
 
@@ -1749,7 +1749,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
                                                ctx->mbatch,
                                                &mbatch_sz );
 
-          if( FD_UNLIKELY( err ) ){
+          if( FD_UNLIKELY( err ) ) {
             FD_LOG_ERR(( "Failed to assemble microblock batch" ));
           }
 
@@ -1962,16 +1962,11 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     }
 
     fd_forks_print( ctx->forks );
-    fd_ghost_print( ctx->ghost, ctx->epoch, fd_ghost_root( ctx-> ghost ) );
+    fd_ghost_print( ctx->ghost, ctx->epoch, fd_ghost_root( ctx->ghost ) );
     fd_tower_print( ctx->tower, ctx->root );
 
     fd_fork_t * child = fd_fork_frontier_ele_query( ctx->forks->frontier, &fork->slot, NULL, ctx->forks->pool );
-    ulong vote_slot = fd_tower_vote_slot( ctx->tower,
-                                          ctx->epoch,
-                                          ctx->funk,
-                                          child->slot_ctx.funk_txn,
-                                          ctx->ghost,
-                                          ctx->runtime_spad );
+    ulong vote_slot   = fd_tower_vote_slot( ctx->tower, ctx->epoch, ctx->funk, child->slot_ctx.funk_txn, ctx->ghost, ctx->runtime_spad );
 
     FD_LOG_NOTICE( ( "\n\n[Fork Selection]\n"
                      "# of vote accounts: %lu\n"
@@ -2606,6 +2601,7 @@ repair_fecs( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
         memcpy( buf, &req, sizeof(fd_repair_request_t) );
         ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
         ulong tspub  = fd_frag_meta_ts_comp( fd_tickcount() );
+        FD_LOG_NOTICE(( "repair request %lu %u", req.slot, req.shred_index ));
         fd_stem_publish( stem, ctx->repair_out_idx, fec->slot, ctx->repair_out_chunk, sizeof(fd_repair_request_t), 0UL, tsorig, tspub );
         ctx->repair_out_chunk = fd_dcache_compact_next( ctx->repair_out_chunk, sizeof(fd_repair_request_t), ctx->repair_out_chunk0, ctx->repair_out_wmark );
       };
@@ -2637,7 +2633,6 @@ repair_fecs( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
   //   }
 
   //   fd_stem_publish( stem, ctx->repair_out_idx, slot, ctx->repair_out_chunk, req_cnt * sizeof(fd_repair_request_t), 0UL, 0UL, 0UL );
-    ctx->repair_out_chunk = fd_dcache_compact_next( ctx->repair_out_chunk, sizeof(fd_repair_request_t), ctx->repair_out_chunk0, ctx->repair_out_wmark );
   }
 }
 

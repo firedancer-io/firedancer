@@ -87,6 +87,7 @@ struct fd_replay_fec {
   uint  hash; /* internal use by map */
 
   ulong slot;        /* slot of the block this fec set is part of  */
+  ulong parent_slot; /* parent slot of `slot` */
   uint  fec_set_idx; /* index of the first data shred */
   long  ts;          /* timestamp upon receiving the first shred */
   ulong recv_cnt;    /* count of shreds received so far data + coding */
