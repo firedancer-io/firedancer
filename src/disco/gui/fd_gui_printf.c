@@ -411,9 +411,16 @@ fd_gui_printf_tiles( fd_gui_t * gui ) {
 
 
 void
-fd_gui_printf_balance( fd_gui_t * gui ) {
-  jsonp_open_envelope( gui, "summary", "balance" );
-    jsonp_ulong( gui, "value", gui->summary.balance );
+fd_gui_printf_identity_balance( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "identity_balance" );
+    jsonp_ulong( gui, "value", gui->summary.identity_account_balance );
+  jsonp_close_envelope( gui );
+}
+
+void
+fd_gui_printf_vote_balance( fd_gui_t * gui ) {
+  jsonp_open_envelope( gui, "summary", "vote_balance" );
+    jsonp_ulong( gui, "value", gui->summary.vote_account_balance );
   jsonp_close_envelope( gui );
 }
 

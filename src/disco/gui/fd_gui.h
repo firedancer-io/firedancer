@@ -239,7 +239,8 @@ struct fd_gui {
     ulong startup_waiting_for_supermajority_slot;
     ulong startup_waiting_for_supermajority_stake_pct;
 
-    ulong balance;
+    ulong identity_account_balance;
+    ulong vote_account_balance;
     ulong estimated_slot_duration_nanos;
 
     ulong net_tile_cnt;
