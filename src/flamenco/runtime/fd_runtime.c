@@ -1115,7 +1115,7 @@ fd_runtime_finalize_txns_update_blockstore_meta( fd_exec_slot_ctx_t *         sl
 /* Block-Level Execution Preparation/Finalization                             */
 /******************************************************************************/
 
-static int
+static void
 fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx,
                                             fd_spad_t *          runtime_spad ) {
   // let (fee_rate_governor, fee_components_time_us) = measure_us!(
@@ -1140,8 +1140,18 @@ fd_runtime_block_sysvar_update_pre_execute( fd_exec_slot_ctx_t * slot_ctx,
     fd_sysvar_slot_hashes_update( slot_ctx, runtime_spad );
   }
   fd_sysvar_last_restart_slot_update( slot_ctx );
+}
 
-  return 0;
+int
+fd_runtime_sysvar_cache_update( fd_exec_slot_ctx_t * slot_ctx,
+                                fd_spad_t *          runtime_spad ) {
+  fd_funk_start_write( slot_ctx->acc_mgr->funk );
+  fd_runtime_block_sysvar_update_pre_execute( slot_ctx, runtime_spad );
+  fd_funk_end_write( slot_ctx->acc_mgr->funk );
+
+  /* Load sysvars into cache */
+  return fd_runtime_sysvar_cache_load( slot_ctx );
+
 }
 
 int
@@ -1392,9 +1402,8 @@ fd_runtime_poh_verify( fd_poh_verifier_t * poh_info ) {
   }
 }
 
-int
-fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
-                                  fd_spad_t *          runtime_spad ) {
+void
+fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx ) {
 
   if( slot_ctx->blockstore && slot_ctx->slot_bank.slot != 0UL ) {
     fd_blockstore_block_height_update( slot_ctx->blockstore,
@@ -1412,22 +1421,6 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
   slot_ctx->failed_txn_count                   = 0UL;
   slot_ctx->nonvote_failed_txn_count           = 0UL;
   slot_ctx->total_compute_units_used           = 0UL;
-
-  fd_funk_start_write( slot_ctx->acc_mgr->funk );
-  int result = fd_runtime_block_sysvar_update_pre_execute( slot_ctx, runtime_spad );
-  fd_funk_end_write( slot_ctx->acc_mgr->funk );
-  if( FD_UNLIKELY( result != 0 ) ) {
-    FD_LOG_WARNING(("updating sysvars failed"));
-    return result;
-  }
-
-  /* Load sysvars into cache */
-  if( FD_UNLIKELY( result = fd_runtime_sysvar_cache_load( slot_ctx ) ) ) {
-    /* non-zero error */
-    return result;
-  }
-
-  return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
 int
@@ -3811,13 +3804,15 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
 
   long block_execute_time = -fd_log_wallclock();
 
-  int res = fd_runtime_block_execute_prepare( slot_ctx, runtime_spad );
-  if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
-    return res;
-  }
+  fd_runtime_block_execute_prepare( slot_ctx );
 
   if( dump_block ) {
     fd_dump_block_to_protobuf( block_info, slot_ctx, capture_ctx, runtime_spad );
+  }
+
+  int res = fd_runtime_sysvar_cache_update( slot_ctx, runtime_spad );
+  if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    return res;
   }
 
   ulong        txn_cnt  = block_info->txn_cnt;
@@ -3847,13 +3842,13 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
     }
   }
 
-  if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
+  if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return res;
   }
 
   long block_finalize_time = -fd_log_wallclock();
   res = fd_runtime_block_execute_finalize_tpool( slot_ctx, capture_ctx, block_info, tpool, runtime_spad );
-  if( res != FD_RUNTIME_EXECUTE_SUCCESS ) {
+  if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     return res;
   }
 

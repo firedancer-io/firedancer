@@ -354,6 +354,11 @@ fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
                                ulong             max_tick_height,
                                ulong             hashes_per_tick );
 
+/* Updates the sysvar cache in preparation of executing a new block. */
+int
+fd_runtime_sysvar_cache_update( fd_exec_slot_ctx_t * slot_ctx,
+                                fd_spad_t *          runtime_spad );
+
 /* The following microblock-level functions are exposed and non-static due to also being used for fd_replay.
    The block-level equivalent functions, on the other hand, are mostly static as they are only used
    for offline replay */
@@ -374,9 +379,8 @@ fd_runtime_microblock_verify_ticks( fd_exec_slot_ctx_t *        slot_ctx,
 void
 fd_runtime_poh_verify( fd_poh_verifier_t * poh_info );
 
-int
-fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
-                                  fd_spad_t *          runtime_spad );
+void
+fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx );
 
 int
 fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t *    slot_ctx,

@@ -1195,8 +1195,8 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_head_const( rbh->hashes );
     if( last && last->fee_calculator.lamports_per_signature!=0UL ) {
-      slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
-      slot_ctx->prev_lamports_per_signature      = last->fee_calculator.lamports_per_signature;
+      slot_bank->lamports_per_signature     = last->fee_calculator.lamports_per_signature;
+      slot_ctx->prev_lamports_per_signature = last->fee_calculator.lamports_per_signature;
     }
   }
 
