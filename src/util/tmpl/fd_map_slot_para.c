@@ -1433,7 +1433,7 @@ MAP_(iter_init)( MAP_(t) *      join,
 MAP_STATIC MAP_(iter_t) *
 MAP_(iter_next)( MAP_(iter_t) * iter );
 
-MAP_STATIC FD_FN_PURE int MAP_(verify)( MAP_(t) const * join );
+MAP_STATIC int MAP_(verify)( MAP_(t) const * join );
 
 MAP_STATIC FD_FN_CONST char const * MAP_(strerror)( int err );
 

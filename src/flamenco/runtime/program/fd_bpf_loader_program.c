@@ -467,13 +467,13 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
   fd_vm_t * vm = fd_vm_join( fd_vm_new( _vm ) );
 
   ulong pre_insn_cus = instr_ctx->txn_ctx->compute_meter;
-  ulong heap_max = true ? instr_ctx->txn_ctx->heap_size : FD_VM_HEAP_DEFAULT; /* TODO:FIXME: fix this */
+  ulong heap_max     = instr_ctx->txn_ctx->heap_size;
 
   /* TODO: (topointon): correctly set check_size in vm setup */
   vm = fd_vm_init(
     /* vm                    */ vm,
     /* instr_ctx             */ instr_ctx,
-    /* heap_max              */ heap_max, /* TODO configure heap allocator */
+    /* heap_max              */ heap_max, /* TODO: configure heap allocator */
     /* entry_cu              */ instr_ctx->txn_ctx->compute_meter,
     /* rodata                */ prog->rodata,
     /* rodata_sz             */ prog->rodata_sz,
@@ -492,7 +492,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
     /* acc_region_metas      */ acc_region_metas,
     /* is_deprecated         */ is_deprecated,
     /* direct_mapping        */ direct_mapping );
-  if ( FD_UNLIKELY( vm == NULL ) ) {
+  if( FD_UNLIKELY( !vm ) ) {
     /* We throw an error here because it could be the case that the given heap_size > HEAP_MAX.
        In this case, Agave fails the transaction but does not error out.
 

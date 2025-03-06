@@ -505,6 +505,7 @@ fd_gui_printf_waterfall( fd_gui_t *               gui,
                          fd_gui_txn_waterfall_t const * cur ) {
   jsonp_open_object( gui, "waterfall" );
     jsonp_open_object( gui, "in" );
+      jsonp_ulong( gui, "pack_cranked",    cur->in.pack_cranked - prev->in.pack_cranked );
       jsonp_ulong( gui, "pack_retained",   prev->out.pack_retained );
       jsonp_ulong( gui, "resolv_retained", prev->out.resolv_retained );
       jsonp_ulong( gui, "quic",            cur->in.quic   - prev->in.quic );

@@ -14,7 +14,8 @@
 #include "context/fd_exec_slot_ctx.h"
 #include "context/fd_capture_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
-#include "info/fd_runtime_block_info.h"
+#include "context/fd_runtime_ctx.h"
+#include "info/fd_block_info.h"
 #include "info/fd_instr_info.h"
 #include "../gossip/fd_gossip.h"
 #include "../repair/fd_repair.h"
@@ -39,11 +40,15 @@
 
 #define FD_RUNTIME_NUM_ROOT_BLOCKS (32UL)
 
-#define FD_FEATURE_ACTIVE(_slot_ctx, _feature_name)  (_slot_ctx->slot_bank.slot >= _slot_ctx->epoch_ctx->features. _feature_name)
-#define FD_FEATURE_JUST_ACTIVATED(_slot_ctx, _feature_name)  (_slot_ctx->slot_bank.slot == _slot_ctx->epoch_ctx->features. _feature_name)
-#define FD_FEATURE_ACTIVE_OFFSET(_slot_ctx, _offset)  (_slot_ctx->slot_bank.slot >= _slot_ctx->epoch_ctx->features.f[_offset>>3] )
-#define FD_FEATURE_JUST_ACTIVATED_OFFSET(_slot_ctx, _offset)  (_slot_ctx->slot_bank.slot == _slot_ctx->epoch_ctx->features.f[_offset>>3] )
+#define FD_FEATURE_ACTIVE_(_slot, _features, _feature_name)               (_slot >= _features. _feature_name)
+#define FD_FEATURE_JUST_ACTIVATED_(_slot, _features, _feature_name)       (_slot == _features. _feature_name)
+#define FD_FEATURE_ACTIVE_OFFSET_(_slot, _features, _offset)              (_slot >= _features.f[_offset>>3])
+#define FD_FEATURE_JUST_ACTIVATED_OFFSET_(_slot, _features, _offset)      (_slot == _features.f[_offset>>3] )
 
+#define FD_FEATURE_ACTIVE(_slot_ctx, _feature_name)                       FD_FEATURE_ACTIVE_( _slot_ctx->slot_bank.slot, _slot_ctx->epoch_ctx->features, _feature_name )
+#define FD_FEATURE_JUST_ACTIVATED(_slot_ctx, _feature_name)               FD_FEATURE_JUST_ACTIVATED_( _slot_ctx->slot_bank.slot, _slot_ctx->epoch_ctx->features, _feature_name )
+#define FD_FEATURE_ACTIVE_OFFSET(_slot_ctx, _offset)                      FD_FEATURE_ACTIVE_OFFSET_( _slot_ctx->slot_bank.slot, _slot_ctx->epoch_ctx->features, _offset )
+#define FD_FEATURE_JUST_ACTIVATED_OFFSET(_slot_ctx, _offset)              FD_FEATURE_JUST_ACTIVATED_OFFSET_( _slot_ctx->slot_bank.slot, _slot_ctx->epoch_ctx->features, _offset )
 
 #define FD_BLOCKHASH_QUEUE_MAX_ENTRIES    (300UL)
 #define FD_RECENT_BLOCKHASHES_MAX_ENTRIES (150UL)
@@ -249,6 +254,15 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
 
 FD_STATIC_ASSERT( FD_RUNTIME_MERKLE_VERIFICATION_FOOTPRINT <= FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT, merkle verify footprint exceeds txn execution footprint );
 
+/* definition of the public/readable workspace */
+struct fd_runtime_public {
+  ulong         epoch;
+  fd_features_t features;
+};
+typedef struct fd_runtime_public fd_runtime_public_t;
+
+/* Helpers for runtime public frame management. */
+
 /* Helpers for runtime spad frame management. */
 struct fd_runtime_spad_verify_handle_private {
   fd_spad_t *         spad;
@@ -424,7 +438,8 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
                                               fd_tpool_t *         tpool,
                                               fd_spad_t * *        exec_spads,
                                               ulong                exec_spad_cnt,
-                                              fd_spad_t *          runtime_spad );
+                                              fd_spad_t *          runtime_spad,
+                                              fd_cost_tracker_t *  cost_tracker_opt );
 
 /* fd_runtime_process_txns and fd_runtime_execute_txns_in_waves_tpool are
    both entrypoints for executing transactions. Currently, the former is used
@@ -503,6 +518,20 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
                          fd_capture_ctx_t *   capture_ctx,
                          fd_tpool_t *         tpool,
                          fd_spad_t *          spad );
+
+ulong
+fd_runtime_public_footprint ( void );
+
+fd_runtime_public_t *
+fd_runtime_public_join ( void * ptr ) ;
+
+void *
+fd_runtime_public_new ( void * ptr ) ;
+
+FD_FN_CONST static inline ulong
+fd_runtime_public_align( void ) {
+  return alignof(fd_runtime_public_t);
+}
 
 FD_PROTOTYPES_END
 

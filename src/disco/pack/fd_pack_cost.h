@@ -81,11 +81,13 @@ typedef struct fd_pack_builtin_prog_cost fd_pack_builtin_prog_cost_t;
                              a16,a17,a18,a19,a20,a21,a22,a23,a24,a25,a26,a27,a28,a29,a30,a31) \
                                           PERFECT_HASH( ((uint)a08 | ((uint)a09<<8) | ((uint)a10<<16) | ((uint)a11<<24)) )
 
-#define FD_PACK_COST_PER_SIGNATURE           (  720UL)
-#define FD_PACK_COST_PER_ED25519_SIGNATURE   ( 2400UL)
-#define FD_PACK_COST_PER_SECP256K1_SIGNATURE ( 6690UL)
-#define FD_PACK_COST_PER_WRITABLE_ACCT       (  300UL)
-#define FD_PACK_INV_COST_PER_INSTR_DATA_BYTE (    4UL)
+#define FD_PACK_COST_PER_SIGNATURE                    (  720UL)
+#define FD_PACK_COST_PER_NON_STRICT_ED25519_SIGNATURE ( 2280UL)
+#define FD_PACK_COST_PER_ED25519_SIGNATURE            ( 2400UL)
+#define FD_PACK_COST_PER_SECP256K1_SIGNATURE          ( 6690UL)
+#define FD_PACK_COST_PER_SECP256R1_SIGNATURE          ( 4800UL)
+#define FD_PACK_COST_PER_WRITABLE_ACCT                (  300UL)
+#define FD_PACK_INV_COST_PER_INSTR_DATA_BYTE          (    4UL)
 
 /* The computation here is similar to the computation for the max
    fd_txn_t size.  There are various things a transaction can include

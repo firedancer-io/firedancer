@@ -51,7 +51,7 @@ scratch_align( void ) {
   return fd_ulong_max( alignof(fd_quic_ctx_t), fd_quic_align() );
 }
 
-FD_FN_PURE static inline ulong
+static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong out_depth = tile->quic.out_depth;
   ulong reasm_max = tile->quic.reasm_cnt;

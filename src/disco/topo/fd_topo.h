@@ -270,10 +270,7 @@ typedef struct {
       char  status_cache[ PATH_MAX ];
       ulong tpool_thread_count;
       char  cluster_version[ 32 ];
-      int   in_wen_restart;
       char  tower_checkpt[ PATH_MAX ];
-      char  expected_genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
-      char  wen_restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
       int   plugins_enabled;
 
       /* not specified in TOML */
@@ -291,6 +288,16 @@ typedef struct {
       char  blockstore_file[ PATH_MAX ];
       char  blockstore_checkpt[ PATH_MAX ];
     } replay;
+
+    struct {
+      int   in_wen_restart;
+      int   tower_checkpt_fileno;
+      char  funk_file[ PATH_MAX ];
+      char  tower_checkpt[ PATH_MAX ];
+      char  identity_key_path[ PATH_MAX ];
+      char  genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
+      char  restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
+    } restart;
 
     struct {
       ulong dummy;
@@ -360,8 +367,6 @@ typedef struct {
       char  shred_cap_archive[ PATH_MAX ];
       char  shred_cap_replay[ PATH_MAX ];
       ulong shred_cap_end_slot;
-
-      int   in_wen_restart;
 
       char  blockstore_file[ PATH_MAX ];
       char  blockstore_restore[ PATH_MAX ];

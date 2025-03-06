@@ -39,11 +39,12 @@
 
 #define STAKE_IN_IDX    0
 #define REPAIR_IN_IDX   1
-#define REPLAY_IN_IDX   2
+#define RESTART_IN_IDX  2
 #define NON_SHRED_LINKS 3 /* stake, repair, and replay are the 3 links not from shred tile */
 
 #define REPLAY_OUT_IDX  0
 #define REPAIR_OUT_IDX  1
+#define RESTART_OUT_IDX 2
 
 /* TODO: Determine/justify optimal number of repair requests */
 #define MAX_REPAIR_REQS  ( (ulong)USHORT_MAX / sizeof(fd_repair_request_t) )
@@ -104,9 +105,9 @@ struct fd_store_tile_ctx {
   ulong       repair_in_chunk0;
   ulong       repair_in_wmark;
 
-  fd_wksp_t * replay_in_mem;
-  ulong       replay_in_chunk0;
-  ulong       replay_in_wmark;
+  fd_wksp_t * restart_in_mem;
+  ulong       restart_in_chunk0;
+  ulong       restart_in_wmark;
 
   ulong             shred_in_cnt;
   fd_store_in_ctx_t shred_in[ 32 ];
@@ -131,6 +132,16 @@ struct fd_store_tile_ctx {
   ulong       replay_out_wmark;
   ulong       replay_out_chunk;
 
+  fd_frag_meta_t * restart_out_mcache;
+  ulong *          restart_out_sync;
+  ulong            restart_out_depth;
+  ulong            restart_out_seq;
+
+  fd_wksp_t * restart_out_mem;
+  ulong       restart_out_chunk0;
+  ulong       restart_out_wmark;
+  ulong       restart_out_chunk;
+
   fd_shred34_t s34_buffer[1];
   uchar shred_buffer[FD_SHRED_MAX_SZ];
   fd_txn_p_t pack_buffer[MAX_TXN_PER_MICROBLOCK];
@@ -151,7 +162,6 @@ struct fd_store_tile_ctx {
 
   fd_txn_iter_t * txn_iter_map;
 
-  int   in_wen_restart;
   ulong restart_funk_root;
   ulong restart_heaviest_fork_slot;
 
@@ -217,16 +227,16 @@ during_frag( fd_store_tile_ctx_t * ctx,
     return;
   }
 
-  if( FD_UNLIKELY( in_idx==REPLAY_IN_IDX && ctx->in_wen_restart ) ) {
-    if( FD_UNLIKELY( chunk<ctx->replay_in_chunk0 || chunk>ctx->replay_in_wmark || sz>sizeof(ulong)*2 ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->replay_in_chunk0, ctx->replay_in_wmark ));
+  if( FD_UNLIKELY( in_idx==RESTART_IN_IDX ) ) {
+    if( FD_UNLIKELY( chunk<ctx->restart_in_chunk0 || chunk>ctx->restart_in_wmark || sz>sizeof(ulong)*2 ) ) {
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->restart_in_chunk0, ctx->restart_in_wmark ));
     }
 
     FD_TEST( sz==sizeof(ulong)*2 );
     if( FD_UNLIKELY( ctx->restart_heaviest_fork_slot!=0 ) ) {
       FD_LOG_ERR(( "Store tile should only receive heaviest_fork_slot once during wen-restart. Something may have corrupted." ));
     }
-    const uchar * buf               = fd_chunk_to_laddr_const( ctx->replay_in_mem, chunk );
+    const uchar * buf               = fd_chunk_to_laddr_const( ctx->restart_in_mem, chunk );
     ctx->restart_heaviest_fork_slot = FD_LOAD( ulong, buf );
     ctx->restart_funk_root          = FD_LOAD( ulong, buf+sizeof(ulong) );
 
@@ -288,7 +298,7 @@ after_frag( fd_store_tile_ctx_t * ctx,
     return;
   }
 
-  if( FD_UNLIKELY( in_idx==REPLAY_IN_IDX && ctx->in_wen_restart ) ) {
+  if( FD_UNLIKELY( in_idx==RESTART_IN_IDX ) ) {
     FD_LOG_NOTICE(( "Store tile starts to repair backwards from slot%lu, which should be on the same fork as slot%lu",
                     ctx->restart_heaviest_fork_slot, ctx->restart_funk_root ));
     fd_store_add_pending( ctx->store, ctx->restart_heaviest_fork_slot, (long)5e6, 0, 0 );
@@ -496,14 +506,30 @@ after_credit( fd_store_tile_ctx_t * ctx,
     /* Sends out repair requests on mcache dcache */
     fd_store_tile_slot_prepare( ctx, stem, store_slot_prepare_mode, slot );
 
-    if( FD_UNLIKELY( ctx->in_wen_restart ) ) {
-      if( FD_UNLIKELY( slot<ctx->restart_funk_root ) ) {
-        FD_LOG_ERR(( "Halting wen-restart because the fork repaired from heaviest_fork_slot(%lu) to %lu is different from the fork for funk root(%lu)",
-                     ctx->restart_heaviest_fork_slot, slot, ctx->restart_funk_root ));
-      }
-      if( FD_UNLIKELY( i==ctx->restart_heaviest_fork_slot &&
-                       store_slot_prepare_mode!=FD_STORE_SLOT_PREPARE_ALREADY_EXECUTED ) ) {
+    if( FD_UNLIKELY( ctx->restart_heaviest_fork_slot &&
+                     i==ctx->restart_heaviest_fork_slot ) ) {
+      if( FD_LIKELY( store_slot_prepare_mode!=FD_STORE_SLOT_PREPARE_ALREADY_EXECUTED ) ) {
         fd_store_add_pending( ctx->store, ctx->restart_heaviest_fork_slot, (long)5e6, 0, 0 );
+      } else {
+        fd_hash_t blk_hash;
+        int err = fd_blockstore_block_hash_query( ctx->blockstore,
+                                                  ctx->restart_heaviest_fork_slot,
+                                                  &blk_hash );
+        if( FD_UNLIKELY( err ) ){
+          FD_LOG_ERR(( "Wen-restart cannot get the block hash of HeaviestForkSlot %lu", ctx->restart_heaviest_fork_slot ));
+        }
+        fd_funk_txn_xid_t xid;
+        fd_memcpy( &xid, &blk_hash, sizeof(fd_funk_txn_xid_t) );
+        xid.ul[0] = ctx->restart_heaviest_fork_slot;
+
+        /* Send xid to restart tile */
+        uchar * buf   = fd_chunk_to_laddr( ctx->restart_out_mem, ctx->restart_out_chunk );
+        ulong buf_len = sizeof(fd_funk_txn_xid_t);
+        fd_memcpy( buf, &xid, sizeof(fd_funk_txn_xid_t) );
+        fd_mcache_publish( ctx->restart_out_mcache, ctx->restart_out_depth, ctx->restart_out_seq, 1UL, ctx->restart_out_chunk,
+                           buf_len, 0UL, 0, 0 );
+        ctx->restart_out_seq   = fd_seq_inc( ctx->restart_out_seq, 1UL );
+        ctx->restart_out_chunk = fd_dcache_compact_next( ctx->restart_out_chunk, buf_len, ctx->restart_out_chunk0, ctx->restart_out_wmark );
       }
     }
   }
@@ -538,13 +564,14 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->in_cnt < 3 ||
                    strcmp( topo->links[ tile->in_link_id[ STAKE_IN_IDX  ] ].name, "stake_out" )   ||
                    strcmp( topo->links[ tile->in_link_id[ REPAIR_IN_IDX ] ].name, "repair_store") ||
-                   strcmp( topo->links[ tile->in_link_id[ REPLAY_IN_IDX ] ].name, "replay_store") ) )
+                   strcmp( topo->links[ tile->in_link_id[ RESTART_IN_IDX ] ].name,"rstart_store") ) )
     FD_LOG_ERR(( "store tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
 
-  if( FD_UNLIKELY( tile->out_cnt != 2 ||
+  if( FD_UNLIKELY( tile->out_cnt != 3 ||
                    strcmp( topo->links[ tile->out_link_id[ REPLAY_OUT_IDX ] ].name, "store_replay" ) ||
-                   strcmp( topo->links[ tile->out_link_id[ REPAIR_OUT_IDX ] ].name, "store_repair" ) ) )
+                   strcmp( topo->links[ tile->out_link_id[ REPAIR_OUT_IDX ] ].name, "store_repair" ) ||
+                   strcmp( topo->links[ tile->out_link_id[ RESTART_OUT_IDX ] ].name, "store_rstart" )) )
     FD_LOG_ERR(( "store tile has none or unexpected output links %lu %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name ));
 
@@ -648,15 +675,14 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->repair_in_wmark  = fd_dcache_compact_wmark( ctx->repair_in_mem, repair_in_link->dcache, repair_in_link->mtu );
 
   /* Set up replay tile input (for wen-restart) */
-  fd_topo_link_t * replay_in_link = &topo->links[ tile->in_link_id[ REPLAY_IN_IDX ] ];
-  ctx->replay_in_mem    = topo->workspaces[ topo->objs[ replay_in_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->replay_in_chunk0 = fd_dcache_compact_chunk0( ctx->replay_in_mem, replay_in_link->dcache );
-  ctx->replay_in_wmark  = fd_dcache_compact_wmark( ctx->replay_in_mem, replay_in_link->dcache, replay_in_link->mtu );
+  fd_topo_link_t * restart_in_link = &topo->links[ tile->in_link_id[ RESTART_IN_IDX ] ];
+  ctx->restart_in_mem    = topo->workspaces[ topo->objs[ restart_in_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->restart_in_chunk0 = fd_dcache_compact_chunk0( ctx->restart_in_mem, restart_in_link->dcache );
+  ctx->restart_in_wmark  = fd_dcache_compact_wmark( ctx->restart_in_mem, restart_in_link->dcache, restart_in_link->mtu );
 
   /* Set up ctx states for wen-restart */
   ctx->restart_funk_root          = 0;
   ctx->restart_heaviest_fork_slot = 0;
-  ctx->in_wen_restart             = tile->store_int.in_wen_restart;
 
   /* Set up shred tile inputs */
   ctx->shred_in_cnt = tile->in_cnt-NON_SHRED_LINKS;
@@ -688,6 +714,17 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->replay_out_chunk0 = fd_dcache_compact_chunk0( ctx->replay_out_mem, replay_out->dcache );
   ctx->replay_out_wmark  = fd_dcache_compact_wmark ( ctx->replay_out_mem, replay_out->dcache, replay_out->mtu );
   ctx->replay_out_chunk  = ctx->replay_out_chunk0;
+
+  /* Set up replay output */
+  fd_topo_link_t * restart_out = &topo->links[ tile->out_link_id[ RESTART_OUT_IDX ] ];
+  ctx->restart_out_mcache = restart_out->mcache;
+  ctx->restart_out_sync   = fd_mcache_seq_laddr( ctx->restart_out_mcache );
+  ctx->restart_out_depth  = fd_mcache_depth( ctx->restart_out_mcache );
+  ctx->restart_out_seq    = fd_mcache_seq_query( ctx->restart_out_sync );
+  ctx->restart_out_mem    = topo->workspaces[ topo->objs[ restart_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->restart_out_chunk0 = fd_dcache_compact_chunk0( ctx->restart_out_mem, restart_out->dcache );
+  ctx->restart_out_wmark  = fd_dcache_compact_wmark ( ctx->restart_out_mem, restart_out->dcache, restart_out->mtu );
+  ctx->restart_out_chunk  = ctx->restart_out_chunk0;
 
   void * smem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_SMAX ) );
   void * fmem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_SDEPTH ) );

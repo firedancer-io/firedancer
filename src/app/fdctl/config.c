@@ -9,8 +9,11 @@
 #include "../../disco/topo/fd_pod_format.h"
 #include "../../flamenco/genesis/fd_genesis_cluster.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
+#if FD_HAS_NO_AGAVE
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_txncache.h"
+#include "../../flamenco/runtime/fd_runtime.h"
+#endif
 #include "../../funk/fd_funk.h"
 #include "../../waltz/ip/fd_fib4.h"
 #include "../../waltz/mib/fd_dbl_buf.h"
@@ -269,18 +272,22 @@ fdctl_obj_align( fd_topo_t const *     topo,
     return align;
   } else if( FD_UNLIKELY( !strcmp( obj->name, "dbl_buf" ) ) ) {
     return fd_dbl_buf_align();
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
-    return fd_blockstore_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
     return fd_funk_align();
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
-    return fd_txncache_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "neigh4_hmap" ) ) ) {
     return fd_neigh4_hmap_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "fib4" ) ) ) {
     return fd_fib4_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "keyswitch" ) ) ) {
     return fd_keyswitch_align();
+#if FD_HAS_NO_AGAVE
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "replay_pub" ) ) ) {
+    return fd_runtime_public_align();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
+    return fd_blockstore_align();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
+    return fd_txncache_align();
+#endif /* FD_HAS_NO_AGAVE */
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
     return 0UL;
@@ -320,18 +327,22 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
     return VAL("footprint");
   } else if( FD_UNLIKELY( !strcmp( obj->name, "dbl_buf" ) ) ) {
     return fd_dbl_buf_footprint( VAL("mtu") );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
-    return fd_blockstore_footprint( VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) + VAL("alloc_max");
   } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
     return fd_funk_footprint();
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
-    return fd_txncache_footprint( VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "neigh4_hmap" ) ) ) {
     return fd_neigh4_hmap_footprint( VAL("ele_max"), VAL("lock_cnt"), VAL("probe_max") );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "fib4" ) ) ) {
     return fd_fib4_footprint( VAL("route_max") );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "keyswitch" ) ) ) {
     return fd_keyswitch_footprint();
+#if FD_HAS_NO_AGAVE
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "replay_pub" ) ) ) {
+    return fd_runtime_public_footprint();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
+    return fd_blockstore_footprint( VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) + VAL("alloc_max");
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
+    return fd_txncache_footprint( VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS );
+#endif /* FD_HAS_NO_AGAVE */
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
     return 0UL;
@@ -680,7 +691,7 @@ fdctl_cfg_from_env( int *      pargc,
 
   strcpy( config->cluster, fd_genesis_cluster_name( cluster ) );
 
-#ifdef FD_HAS_NO_AGAVE
+#if FD_HAS_NO_AGAVE
   if( FD_UNLIKELY( config->is_live_cluster && cluster!=FD_CLUSTER_TESTNET ) )
     FD_LOG_ERR(( "Attempted to start against live cluster `%s`. Firedancer is not "
                  "ready for production deployment, has not been tested, and is "
@@ -689,7 +700,7 @@ fdctl_cfg_from_env( int *      pargc,
                  "can start against the testnet cluster by specifying the testnet "
                  "entrypoints from https://docs.solana.com/clusters under "
                  "[gossip.entrypoints] in your configuration file.", fd_genesis_cluster_name( cluster ) ));
-#endif
+#endif /* FD_HAS_NO_AGAVE */
 
   if( FD_LIKELY( config->is_live_cluster) ) {
     if( FD_UNLIKELY( !config->development.sandbox ) )

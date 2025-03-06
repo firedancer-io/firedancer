@@ -22,7 +22,7 @@ typedef struct myele myele_t;
 #define MAP_MEMOIZE          0
 #define MAP_MEMO             mymemo
 #define MAP_KEY_EQ_IS_SLOW   0
-#define MAP_ELE_IS_FREE(c,e) (__extension__({ FD_TEST( *(ulong *)c==0x0123456789abcdefUL ); !e->used; }))
+#define MAP_ELE_IS_FREE(c,e) (!e->used)
 #define MAP_ELE_FREE(c,e)    FD_TEST( *(ulong *)c==0x0123456789abcdefUL ); e->used = 0
 #define MAP_ELE_MOVE(c,d,s)  FD_TEST( *(ulong *)c==0x0123456789abcdefUL ); *d = *s; s->used = 0
 #define MAP_IMPL_STYLE       0

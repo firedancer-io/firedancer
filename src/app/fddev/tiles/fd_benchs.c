@@ -257,7 +257,7 @@ populate_quic_config( fd_quic_config_t * config ) {
   config->net.dscp = 0;
 }
 
-FD_FN_PURE static inline ulong
+static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   (void)tile;
   ulong l = FD_LAYOUT_INIT;
