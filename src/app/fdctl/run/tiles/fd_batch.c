@@ -144,7 +144,7 @@ privileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
 
   tile->batch.tmp_inc_fd = open( tmp_inc_dir_buf, O_CREAT | O_RDWR | O_TRUNC, 0644 );
   if( FD_UNLIKELY( tile->batch.tmp_inc_fd==-1 ) ) {
-    FD_LOG_ERR(( "Failed to open and create tarball for file=%s (%i-%s)", tmp_dir_buf, errno, fd_io_strerror( errno ) ));
+    FD_LOG_ERR(( "Failed to open and create tarball for file=%s (%i-%s)", tmp_inc_dir_buf, errno, fd_io_strerror( errno ) ));
   }
 
   tile->batch.full_snapshot_fd = open( zstd_dir_buf, O_RDWR | O_CREAT | O_TRUNC, 0644 );
