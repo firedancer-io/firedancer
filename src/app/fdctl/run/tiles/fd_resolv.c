@@ -189,7 +189,6 @@ before_frag( fd_resolv_ctx_t * ctx,
              ulong             in_idx,
              ulong             seq,
              ulong             sig ) {
-  (void)in_idx;
   (void)sig;
 
   if( FD_UNLIKELY( ctx->in[in_idx].kind==FD_RESOLV_IN_KIND_BANK ) ) return 0;
@@ -308,7 +307,6 @@ after_frag( fd_resolv_ctx_t *   ctx,
             ulong               tsorig,
             fd_stem_context_t * stem ) {
   (void)seq;
-  (void)sig;
   (void)sz;
 
   if( FD_UNLIKELY( ctx->in[in_idx].kind==FD_RESOLV_IN_KIND_BANK ) ) {

@@ -22,9 +22,9 @@
 /* } */
 
 int
-fd_shred_cap_archive( fd_shred_cap_ctx_t * ctx FD_PARAM_UNUSED,
+fd_shred_cap_archive( fd_shred_cap_ctx_t * ctx,
                       fd_shred_t const *   shred,
-                      uchar                flags  FD_PARAM_UNUSED) {
+                      uchar                flags ) {
   ulong  wsz;
   ulong  shred_len = fd_shred_sz( shred );
   ushort hdr_len = sizeof( fd_shred_cap_hdr_t );

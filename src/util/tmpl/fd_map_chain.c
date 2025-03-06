@@ -561,7 +561,7 @@ FD_FN_CONST static inline MAP_ELE_T *
 MAP_(iter_ele)( MAP_(iter_t)    iter,
                 MAP_(t) const * join,
                 MAP_ELE_T *     pool ) {
-  (void)join; (void)pool;
+  (void)join;
   return pool + iter.ele_idx;
 }
 
@@ -569,7 +569,7 @@ FD_FN_CONST static inline MAP_ELE_T const *
 MAP_(iter_ele_const) ( MAP_(iter_t)      iter,
                        MAP_(t) const *   join,
                        MAP_ELE_T const * pool ) {
-  (void)join; (void)pool;
+  (void)join;
   return pool + iter.ele_idx;
 }
 

@@ -1279,7 +1279,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
 
 
 ulong
-fd_sbpf_program_load_test_run( FD_PARAM_UNUSED fd_exec_instr_test_runner_t * runner,
+fd_sbpf_program_load_test_run( fd_exec_instr_test_runner_t * runner,
                                void const *                  input_,
                                void **                       output_,
                                void *                        output_buf,

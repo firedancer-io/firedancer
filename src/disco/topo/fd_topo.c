@@ -188,8 +188,6 @@ fd_topo_fill( fd_topo_t * topo ) {
 
 FD_FN_CONST static ulong
 fd_topo_tile_extra_huge_pages( fd_topo_tile_t const * tile ) {
-  (void)tile;
-
   /* Every tile maps an additional set of pages for the stack. */
   ulong extra_pages = (FD_TILE_PRIVATE_STACK_SZ/FD_SHMEM_HUGE_PAGE_SZ)+2UL;
 

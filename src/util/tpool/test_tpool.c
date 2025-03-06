@@ -21,7 +21,7 @@ tile_self_push_main( int     argc,
 static int
 tile_spin_main( int     argc,
                 char ** argv ) {
-  (void)argc; (void)argv;
+  (void)argc;
   ulong const * done = (ulong const *)argv;
   while( !FD_VOLATILE_CONST( *done ) ) FD_SPIN_PAUSE();
   return 0;

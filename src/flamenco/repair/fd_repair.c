@@ -725,7 +725,6 @@ fd_repair_continue( fd_repair_t * glob ) {
 
 static void
 fd_repair_recv_ping(fd_repair_t * glob, fd_gossip_ping_t const * ping, fd_gossip_peer_addr_t const * from) {
-  (void)from;
   fd_repair_protocol_t protocol;
   fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_pong);
   fd_gossip_ping_t * pong = &protocol.inner.pong;

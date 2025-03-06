@@ -293,9 +293,6 @@ before_frag( fd_shred_ctx_t * ctx,
              ulong            in_idx,
              ulong            seq,
              ulong            sig ) {
-  (void)ctx;
-  (void)seq;
-
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) ctx->poh_in_expect_seq = seq+1UL;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) )     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED;

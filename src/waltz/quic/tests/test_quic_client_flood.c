@@ -43,7 +43,6 @@ void my_handshake_complete( fd_quic_conn_t * conn, void * vp_context ) {
 
 /* Connection closed */
 void my_connection_closed( fd_quic_conn_t * conn, void * vp_context ) {
-  (void)conn;
   (void)vp_context;
 
   FD_LOG_INFO(( "client conn closed (code=%u)", conn->reason ));
