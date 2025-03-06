@@ -897,7 +897,8 @@ fd_blockstore_slice_poll( fd_blockstore_t * blockstore, ulong slot );
 int
 fd_blockstore_slice_query( fd_blockstore_t * blockstore,
                            ulong             slot,
-                           uint              idx,
+                           uint              start_idx,
+                           uint              end_idx,
                            ulong             max,
                            uchar *           buf,
                            ulong *           buf_sz );

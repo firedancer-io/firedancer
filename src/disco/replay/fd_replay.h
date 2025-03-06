@@ -113,7 +113,12 @@ struct fd_replay_fec {
 
 static inline FD_FN_CONST
 uint fd_replay_slice_start_idx( ulong key ){
-  return (uint)( key >> 32 );
+  return (uint)fd_ulong_extract( key, 32, 63 );
+}
+
+static inline FD_FN_CONST
+uint fd_replay_slice_end_idx( ulong key ){
+  return (uint)fd_ulong_extract( key, 0, 31 );
 }
 
 static inline

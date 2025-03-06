@@ -99,6 +99,14 @@ struct fd_replay_tile_metrics {
 typedef struct fd_replay_tile_metrics fd_replay_tile_metrics_t;
 #define FD_REPLAY_TILE_METRICS_FOOTPRINT ( sizeof( fd_replay_tile_metrics_t ) )
 
+struct fd_slice_exec_ctx {
+  ulong wmark;  /* offset to start executing from. Will be on a transaction or microblock boundary. */
+  ulong sz;     /* total bytes occupied in the mbatch memory. Queried slices should be placed at this offset */
+  ulong microblocks_rem; /* microblocks remaining in the current batch iteration. If 0, the next batch can be read. */
+  ulong txns_rem;    /* txns remaining in current microblock iteration. If 0, the next microblock can be read. */
+};
+typedef struct fd_slice_exec_ctx fd_slice_exec_ctx_t;
+
 struct fd_replay_tile_ctx {
   fd_wksp_t * wksp;
   fd_wksp_t * blockstore_wksp;
@@ -238,6 +246,7 @@ struct fd_replay_tile_ctx {
   /* Microblock (entry) batch buffer for replay. */
 
   uchar * mbatch;
+  fd_slice_exec_ctx_t slice_exec_ctx;
   fd_shred_t shred[1];
 
   /* Tpool */
@@ -494,7 +503,9 @@ before_frag( fd_replay_tile_ctx_t * ctx,
 
     if( FD_UNLIKELY( completes ) ) {
       ulong slice_key = fd_blockstore_slice_poll( ctx->blockstore, slot );
-      if( FD_UNLIKELY( slice_key ) ) { /* optimize for FEC set completes a new entry batch */
+
+      if( FD_LIKELY( slice_key ) ) { /* optimize for FEC set completes a new entry batch */
+        FD_LOG_INFO(( "adding slice replay: slot %lu, slice start: %u, slice end: %u", slot, fd_replay_slice_start_idx( slice_key ), fd_replay_slice_end_idx( slice_key ) ));
         fd_replay_slice_t * slice_deque = fd_replay_slice_map_query( ctx->replay->slice_map, slot, NULL );
         if( FD_UNLIKELY( !slice_deque ) ) slice_deque = fd_replay_slice_map_insert( ctx->replay->slice_map, slot ); /* create new map entry for this slot */
         fd_replay_slice_deque_push_tail( slice_deque->deque, slice_key );
@@ -541,6 +552,11 @@ during_frag( fd_replay_tile_ctx_t * ctx,
        Microblock as a list of fd_txn_p_t (sz * sizeof(fd_txn_p_t)) */
 
     ctx->curr_slot = fd_disco_replay_old_sig_slot( sig );
+    /* slot changes */
+    ctx->slice_exec_ctx.sz = 0;
+    ctx->slice_exec_ctx.microblocks_rem = 0;
+    ctx->slice_exec_ctx.txns_rem = 0;
+    ctx->slice_exec_ctx.wmark = 0;
     if( FD_UNLIKELY( ctx->curr_slot < fd_fseq_query( ctx->published_wmark ) ) ) {
       FD_LOG_WARNING(( "store sent slot %lu before our root.", ctx->curr_slot ));
     }
@@ -1745,6 +1761,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
           int err = fd_blockstore_slice_query( ctx->blockstore,
                                                ctx->curr_slot,
                                                consumed_idx + 1,
+                                               idx,
                                                FD_SLICE_MAX,
                                                ctx->mbatch,
                                                &mbatch_sz );
@@ -2561,12 +2578,89 @@ make_orphan_requests( fd_replay_tile_ctx_t * ctx,
 }
 
 static void
-exec_slices( FD_PARAM_UNUSED fd_replay_tile_ctx_t * ctx, FD_PARAM_UNUSED fd_stem_context_t * stem ) {
-  // for( fd_replay_slice_deque_iter_t iter = fd_replay_slice_deque_iter_init( ctx->replay->slice_deque );
-  //      !fd_replay_slice_deque_iter_done( ctx->replay->slice_deque, iter );
-  //      iter = fd_replay_slice_deque_iter_next( ctx->replay->slice_deque, iter ) ) {
-  //   fd_replay_slice_t * slice = fd_replay_slice_deque_iter_ele( ctx->replay->slice_deque, iter );
-  // }
+exec_slices( fd_replay_tile_ctx_t * ctx,
+             fd_stem_context_t * stem,
+             ulong slot ) {
+  /* buffer up to a certain number of slices ( configurable ). Then, for
+     each microblock, round robin dispatch the transactions in that
+     microblock to the exec tile. Once exec tile signifies with a
+     retcode, we can continue dispatching transactions. Have to
+     synchronize at the boundary of every microblock. after we dispatch
+     one to each exec tile, we watermark (ctx->mbatch_wmark) where we
+     are, and then continue on the following after_frag. If we still
+     have thingies to execute start from there, pausing everytime we hit
+     the microblock boundaries */
+  // TODO: iterate slice queue and get transactions, send to exec tile
+
+  fd_replay_slice_t * slice = fd_replay_slice_map_query( ctx->replay->slice_map, slot, NULL );
+  if( !slice ){
+    FD_LOG_INFO(( "Failed to query slice deque for slot %lu", slot ));
+    return;
+  }
+
+ /* for now we will pop off everything we have in the queue, and insert
+    it at the end of ctx->mbatch. We only need to execute one slot at a
+    time, so the mbatch only holds one slots data at a time. */
+  while( fd_replay_slice_deque_cnt( slice->deque ) > 0 ){
+    ulong key = fd_replay_slice_deque_pop_head( slice->deque );
+    uint  start_idx = fd_replay_slice_start_idx( key );
+    uint  end_idx   = fd_replay_slice_end_idx  ( key );
+    FD_LOG_WARNING(( "executing slice %u %u", start_idx, end_idx ));
+    ulong slice_sz;
+    int err = fd_blockstore_slice_query( ctx->slot_ctx->blockstore,
+                                                     slot,
+                                                     start_idx,
+                                                     end_idx,
+                                                    FD_SLICE_MAX - ctx->slice_exec_ctx.sz,
+                                                    ctx->mbatch + ctx->slice_exec_ctx.sz,
+                                                    &slice_sz );
+    if( err ) FD_LOG_ERR(("Failed to query blockstore for slot %lu", slot));
+    ctx->slice_exec_ctx.sz += slice_sz;
+  }
+
+  ulong free_exec_tiles = ctx->exec_cnt;
+
+  while( free_exec_tiles > 0 ){ /* change to whatever condition handles if(exec free)*/
+    if( ctx->slice_exec_ctx.txns_rem > 0 ){
+      ulong pay_sz = 0UL;
+      fd_replay_out_ctx_t * exec_out = &ctx->exec_out[ ctx->exec_cnt - free_exec_tiles ];
+      fd_txn_p_t * txn_p = (fd_txn_p_t *) fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+      ulong txn_sz = fd_txn_parse_core( ctx->mbatch + ctx->slice_exec_ctx.wmark,
+                                        fd_ulong_min( FD_TXN_MTU, ctx->slice_exec_ctx.sz - ctx->slice_exec_ctx.wmark ),
+                                        TXN( txn_p ),
+                                        NULL,
+                                        &pay_sz );
+
+      if( FD_UNLIKELY( !pay_sz || !txn_sz || txn_sz > FD_TXN_MTU ) ) {
+        FD_LOG_ERR(( "failed to parse transaction in replay" ));
+      }
+      fd_memcpy( txn_p->payload, ctx->mbatch + ctx->slice_exec_ctx.wmark, pay_sz );
+      txn_p->payload_sz = pay_sz;
+      ctx->slice_exec_ctx.wmark += pay_sz;
+
+      /* dispatch dcache */
+      fd_stem_publish( stem, exec_out->idx, slot, exec_out->chunk, sizeof(fd_txn_p_t), 0UL, 0UL, 0UL );
+      exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_txn_p_t), exec_out->chunk0, exec_out->wmark );
+
+      ctx->slice_exec_ctx.txns_rem--;
+      free_exec_tiles--;
+      continue;
+    }
+    else if( ctx->slice_exec_ctx.txns_rem == 0 && ctx->slice_exec_ctx.microblocks_rem > 0){
+      /* microblock done, read another microblock */
+      fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( ctx->mbatch + ctx->slice_exec_ctx.wmark );
+      ctx->slice_exec_ctx.txns_rem = hdr->txn_cnt;
+      ctx->slice_exec_ctx.wmark += sizeof(fd_microblock_hdr_t);
+      ctx->slice_exec_ctx.microblocks_rem--;
+      break; /* have to synchronize & wait for exec tiles to finish the prev microblock */
+    }
+    else if( ctx->slice_exec_ctx.microblocks_rem == 0 ){
+      /* time to read a new batch */
+      ctx->slice_exec_ctx.microblocks_rem = FD_LOAD( ulong, ctx->mbatch + ctx->slice_exec_ctx.wmark );
+      ctx->slice_exec_ctx.wmark += sizeof(ulong);
+      break;
+    }
+  }
 }
 
 static void
@@ -2654,7 +2748,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
               int *                  charge_busy ) {
   (void)opt_poll_in;
 
-  exec_slices( ctx, stem );
+  exec_slices( ctx, stem, ctx->curr_slot );
   repair_fecs( ctx, stem );
 
   // TODO: iterate slice queue and get transactions, send to exec tile
