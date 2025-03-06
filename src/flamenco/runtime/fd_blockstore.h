@@ -812,6 +812,7 @@ fd_blockstore_block_map_query_volatile( fd_blockstore_t * blockstore,
 
    IMPORTANT!  Caller MUST hold the read lock when calling this
    function. */
+
 fd_txn_map_t *
 fd_blockstore_txn_query( fd_blockstore_t * blockstore, uchar const sig[static FD_ED25519_SIG_SZ] );
 
@@ -853,15 +854,15 @@ fd_blockstore_slot_remove( fd_blockstore_t * blockstore, ulong slot );
 
 /* Operations */
 
-  /* fd_blockstore_shred_insert inserts shred into the blockstore, fast
-     O(1).  Returns the current `consumed_idx` for the shred's slot if
-     insert is successful, otherwise returns FD_SHRED_IDX_NULL on error.
-     Reasons for error include this shred is already in the blockstore or
-     the blockstore is full.
+/* fd_blockstore_shred_insert inserts shred into the blockstore, fast
+   O(1).  Returns the current `consumed_idx` for the shred's slot if
+   insert is successful, otherwise returns FD_SHRED_IDX_NULL on error.
+   Reasons for error include this shred is already in the blockstore or
+   the blockstore is full.
 
-     fd_blockstore_shred_insert will manage locking, so the caller
-     should NOT be acquiring the blockstore read/write lock before
-     calling this function. */
+   fd_blockstore_shred_insert will manage locking, so the caller
+   should NOT be acquiring the blockstore read/write lock before
+   calling this function. */
 
 void
 fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shred );
@@ -870,6 +871,16 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
    for a slot */
 void
 fd_blockstore_shred_remove( fd_blockstore_t * blockstore, ulong slot, uint idx );
+
+/* fd_blockstore_slice_poll polls for a new block slice for `slot` that
+   is available for querying.  Returns 0 if no slice is available or the
+   slot is not found, otherwise the start_idx and end_idx of the slice.
+
+   The start_idx and end_idx are encoded as a ulong where the 32 msb
+   are the start_idx and the 32 lsb are the end_idx. */
+
+ulong
+fd_blockstore_slice_poll( fd_blockstore_t * blockstore, ulong slot );
 
 /* fd_blockstore_slice_query queries for the block slice beginning from
    shred `idx`.  Copies at most `max` bytes of the shred payloads

@@ -762,6 +762,29 @@ fd_blockstore_parent_slot_query( fd_blockstore_t * blockstore, ulong slot ) {
   return parent_slot;
 }
 
+ulong
+fd_blockstore_slice_poll( fd_blockstore_t * blockstore, ulong slot ) {
+  uint start_idx, end_idx;
+
+  for(;;) { /* speculative query */
+    fd_block_map_query_t query[1] = { 0 };
+    int err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, query, 0 );
+    fd_block_info_t * block_info = fd_block_map_query_ele( query );
+
+    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY   ) ) return 0;
+    if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
+
+    start_idx = block_info->consumed_idx + 1;
+    end_idx   = block_info->consumed_idx + 1;
+    for( uint idx = block_info->consumed_idx + 1; idx < block_info->buffered_idx; idx++ ) {
+      if( FD_UNLIKELY( fd_block_set_test( block_info->data_complete_idxs, idx ) ) ) end_idx = idx;
+    }
+    if( FD_UNLIKELY( fd_block_map_query_test( query ) == FD_MAP_SUCCESS ) ) break;
+  }
+
+  return ((ulong)start_idx << 32) | ((ulong)end_idx);
+}
+
 int
 fd_blockstore_slice_query( fd_blockstore_t * blockstore,
                            ulong             slot,

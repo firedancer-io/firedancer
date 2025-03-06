@@ -110,12 +110,6 @@ struct fd_replay_fec {
 /* fd_replay_slice_t describes a replayable slice of a block which is
    a group of one or more completed entry batches. */
 
-/*struct fd_replay_slice {
-  uint  start_idx;
-  uint  end_idx;
-};
-typedef struct fd_replay_slice fd_replay_slice_t;*/
-
 static inline FD_FN_CONST
 uint fd_replay_slice_start_idx( ulong key ){
   return (uint)( key >> 32 );

@@ -490,71 +490,44 @@ before_frag( fd_replay_tile_ctx_t * ctx,
       return 1;
     }
 
-    /* Optimize for |code shreds| >= |data shreds|. */
-
-    if( FD_UNLIKELY( !is_code ) ) {
-      fd_replay_fec_idxs_insert( fec->idxs, shred_idx - fec_set_idx ); /* mark data shred idx as received*/
-    }
-
     /* If the FEC set is complete we don't need to track it anymore. */
 
     if( FD_UNLIKELY( completes ) ) {
-      FD_LOG_NOTICE(( "completed FEC %lu %u", slot, fec_set_idx ));
       fd_replay_fec_remove( ctx->replay, slot, fec_set_idx );
+      ulong slice_key = fd_blockstore_slice_poll( ctx->blockstore, slot );
 
-      /* Search for the longest block slice that has completed.  */
-
-      fd_block_map_query_t query[1] = { 0 };
-      uint start_idx, end_idx;
-      for(;;) { /* speculate */
-        int err = fd_block_map_query_try( ctx->blockstore->block_map, &slot, NULL, query, 0 );
-        if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
-        if( FD_UNLIKELY( err == FD_MAP_ERR_KEY   ) ) FD_LOG_ERR(( "[%s] completed shred %lu %u missing from blockstore", __func__, slot, shred_idx ));
-        fd_block_info_t * block_info = fd_block_map_query_ele( query );
-
-        start_idx = block_info->consumed_idx + 1;
-        end_idx   = block_info->consumed_idx + 1;
-        for( uint idx = block_info->consumed_idx + 1; idx < block_info->buffered_idx; idx++ ) {
-          if( FD_UNLIKELY( fd_block_set_test( block_info->data_complete_idxs, idx ) ) ) end_idx = idx;
-        }
-        if( FD_UNLIKELY( fd_block_map_query_test( query ) == FD_MAP_SUCCESS ) ) break;
-      } /* finish speculate */
-
-      FD_LOG_NOTICE(( "block %lu %u %u", slot, start_idx, end_idx ));
-      if( FD_LIKELY( end_idx > start_idx ) ) {
-        fd_replay_slice_t * slice_deque = NULL;
-        if(( slice_deque = fd_replay_slice_map_query( ctx->replay->slice_map, slot, NULL ) )){
-          /* we already have completed slices for this slot*/
-        } else {
-          /* create new map entry for this slot */
-          slice_deque = fd_replay_slice_map_insert( ctx->replay->slice_map, slot );
-        }
-        fd_replay_slice_deque_push_tail( slice_deque->deque, fd_replay_slice_key( start_idx, end_idx ) );
+      if( FD_LIKELY( slice_key ) ) {
+        fd_replay_slice_t * slice_deque = fd_replay_slice_map_query( ctx->replay->slice_map, slot, NULL );
+        if( FD_UNLIKELY( !slice_deque ) ) slice_deque = fd_replay_slice_map_insert( ctx->replay->slice_map, slot ); /* create new map entry for this slot */
+        fd_replay_slice_deque_push_tail( slice_deque->deque, slice_key );
       }
-      return 1; /* skip after frag */
+      return 1; /* skip frag */
     }
 
     /* If it is a coding shred, check if it is the first coding shred
        we're receiving. We know it's the first if data_cnt is 0 because
        that is not a valid cnt and means it's uninitialized. */
 
-    if( FD_LIKELY( is_code ) ) return fec->data_cnt != 0; /* don't skip after_frag */
-
-    return 1; /* otherwise skip */
+    if( FD_LIKELY( is_code ) ) { /* optimize for |code| >= |data| */
+      return fec->data_cnt != 0; /* process frag (shred hdr) if it's the first coding shred */
+    } else {
+      uint i = shred_idx - fec_set_idx;
+      fd_replay_fec_idxs_insert( fec->idxs, i ); /* mark ith data shred as received */
+      return 1; /* skip frag */
+    }
   }
 
-  return 0; /* non-shred msgs don't skip */
+  return 0; /* non-shred in - don't skip */
 }
 
 static void
 during_frag( fd_replay_tile_ctx_t * ctx,
              ulong                  in_idx,
-             ulong                  seq,
+             ulong                  seq FD_PARAM_UNUSED,
              ulong                  sig,
              ulong                  chunk,
              ulong                  sz,
              ulong                  ctl FD_PARAM_UNUSED ) {
-
 
   ctx->skip_frag = 0;
 
@@ -594,11 +567,6 @@ during_frag( fd_replay_tile_ctx_t * ctx,
     uchar * src = (uchar *)fd_chunk_to_laddr( ctx->shred_in_mem, chunk );
     fd_memcpy( (uchar *)ctx->shred, src, sz ); /* copy the hdr to read the code_cnt & data_cnt */
 
-    /* shred currently produces at a far higher rate than replay, and
-       the link could get overrun */
-    if( FD_UNLIKELY( fd_seq_diff( seq, ctx->shred_in_seq ) != 1 ) ) {
-      FD_LOG_WARNING(( "shred link overrun: seq %lu, expected %lu", seq, ctx->shred_in_seq + 1 ));
-    }
     return;
   } else if( in_idx == PACK_IN_IDX ) {
     if( FD_UNLIKELY( chunk<ctx->pack_in_chunk0 || chunk>ctx->pack_in_wmark || sz>USHORT_MAX ) ) {
