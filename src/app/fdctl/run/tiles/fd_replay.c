@@ -1777,7 +1777,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
           }
           if( FD_UNLIKELY( idx == slot_complete_idx ) ) {
             for( uint idx = 0; idx <= slot_complete_idx; idx++ ) {
-              fd_blockstore_shred_remove( ctx->blockstore, ctx->curr_slot, idx );
+              //fd_blockstore_shred_remove( ctx->blockstore, ctx->curr_slot, idx );
             }
           }
           consumed_idx = idx;
@@ -2614,13 +2614,13 @@ exec_slices( fd_replay_tile_ctx_t * ctx,
                                                     FD_SLICE_MAX - ctx->slice_exec_ctx.sz,
                                                     ctx->mbatch + ctx->slice_exec_ctx.sz,
                                                     &slice_sz );
-    if( err ) FD_LOG_ERR(("Failed to query blockstore for slot %lu", slot));
+    if( err ) FD_LOG_ERR(( "Failed to query blockstore for slot %lu", slot ));
     ctx->slice_exec_ctx.sz += slice_sz;
   }
 
   ulong free_exec_tiles = ctx->exec_cnt;
 
-  while( free_exec_tiles > 0 ){ /* change to whatever condition handles if(exec free)*/
+  while( free_exec_tiles > 0 && ctx->slice_exec_ctx.wmark < ctx->slice_exec_ctx.sz ){ /* change to whatever condition handles if(exec free)*/
     if( ctx->slice_exec_ctx.txns_rem > 0 ){
       ulong pay_sz = 0UL;
       fd_replay_out_ctx_t * exec_out = &ctx->exec_out[ ctx->exec_cnt - free_exec_tiles ];
@@ -2632,6 +2632,7 @@ exec_slices( fd_replay_tile_ctx_t * ctx,
                                         &pay_sz );
 
       if( FD_UNLIKELY( !pay_sz || !txn_sz || txn_sz > FD_TXN_MTU ) ) {
+        __asm__("int $3");
         FD_LOG_ERR(( "failed to parse transaction in replay" ));
       }
       fd_memcpy( txn_p->payload, ctx->mbatch + ctx->slice_exec_ctx.wmark, pay_sz );
