@@ -1324,6 +1324,8 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
     res = fd_runtime_block_execute_tpool( slot_ctx, NULL, block_info, tpool, exec_spads, 2UL, runtime_spad );
   } FD_SPAD_FRAME_END;
 
+  fd_tpool_worker_pop( tpool );
+
   return res;
 }
 
