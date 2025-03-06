@@ -41,7 +41,7 @@ struct fd_restart_tile_ctx {
   fd_wksp_t *           gossip_in_mem;
   ulong                 gossip_in_chunk0;
   ulong                 gossip_in_wmark;
-  void *                restart_gossip_msg[ FD_RESTART_LINK_BYTES_MAX+sizeof(uint) ];
+  uchar                 restart_gossip_msg[ FD_RESTART_LINK_BYTES_MAX+sizeof(uint) ];
 
   // Store tile output
   fd_frag_meta_t *      store_out_mcache;
