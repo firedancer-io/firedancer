@@ -268,6 +268,9 @@ fd_ghost_insert( fd_ghost_t * ghost, ulong parent_slot, ulong slot ) {
   node_ele->slot        = slot;
   node_ele->next        = null_idx;
   node_ele->valid       = 1;
+  node_ele->processed   = 0;
+  node_ele->confirmed   = 0;
+  node_ele->finalized   = 0;
   node_ele->parent_idx  = null_idx;
   node_ele->child_idx   = null_idx;
   node_ele->sibling_idx = null_idx;
