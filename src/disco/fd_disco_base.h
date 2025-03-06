@@ -131,8 +131,8 @@ fd_disco_shred_replay_sig( ulong slot,
                            int   is_code,
                            int   completes ) {
 
-  /* | 32 LSB of slot | 15 LSB of fec_idx | 15 LSB of shred_idx | 1 bit of shred data/code type | 1 bit if shred completes the fec set |
-     | slot[32,63]    | fec_idx[17,32]    | shred_idx[2,16]     | is_parity[1]                  | is_complete[0]                       | */
+  /* | 32 LSB of slot | 15 LSB of shred_idx | 15 LSB of fec_idx | 1 bit of shred data/code type | 1 bit if shred completes the fec set |
+     | slot[32,63]    | shred_idx[17,32]     | fec_idx[2,16]    | is_parity[1]                  | is_complete[0]                       | */
 
   ulong slot_ul        = fd_ulong_min( (ulong)slot,        (ulong)UINT_MAX              );
   ulong shred_idx_ul   = fd_ulong_min( (ulong)shred_idx,   (ulong)FD_SHRED_MAX_PER_SLOT );
