@@ -325,10 +325,6 @@ produce_snapshot( fd_snapshot_tile_ctx_t * ctx, ulong batch_fseq ) {
     .spad                     = ctx->spad
   };
 
-  if( !is_incremental ) {
-    ctx->last_full_snap_slot = snapshot_slot;
-  }
-
   /* If this isn't the first snapshot that this tile is creating, the
       permissions should be made to not acessible by users and should be
       renamed to the constant file that is expected. */
