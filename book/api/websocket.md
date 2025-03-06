@@ -368,12 +368,20 @@ tiles in the system.
 
 :::
 
-#### `summary.balance`
+#### `summary.identity_balance`
 | frequency      | type     | example    |
 |----------------|----------|------------|
 | *Once* + *60s* | `number` | `21125572` |
 
-Account balance of this validators identity key in lamports. The balance
+Account balance of this validators identity account in lamports. The
+balance is on the highest slot of the currently active fork of the validator.
+
+#### `summary.vote_balance`
+| frequency      | type     | example    |
+|----------------|----------|------------|
+| *Once* + *60s* | `number` | `21125572` |
+
+Account balance of this validators vote account in lamports. The balance
 is on the highest slot of the currently active fork of the validator.
 
 #### `summary.root_slot`
