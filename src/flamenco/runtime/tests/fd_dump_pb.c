@@ -493,15 +493,15 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
 
   /* BlockContext -> EpochContext */
   // TODO: Other epoch bank fields that are missing from the definitions
-  fd_exec_epoch_ctx_t const * epoch_ctx               = slot_ctx->epoch_ctx;
-  block_context->has_epoch_ctx                        = true;
-  block_context->epoch_ctx.has_features               = true;
+  fd_exec_epoch_ctx_t const * epoch_ctx    = slot_ctx->epoch_ctx;
+  block_context->has_epoch_ctx             = true;
+  block_context->epoch_ctx.has_features    = true;
   dump_sorted_features( &epoch_ctx->features, &block_context->epoch_ctx.features, spad );
-  block_context->epoch_ctx.hashes_per_tick            = epoch_ctx->epoch_bank.hashes_per_tick;
-  block_context->epoch_ctx.ticks_per_slot             = epoch_ctx->epoch_bank.ticks_per_slot;
-  block_context->epoch_ctx.slots_per_year             = epoch_ctx->epoch_bank.slots_per_year;
-  block_context->epoch_ctx.has_inflation              = true;
-  block_context->epoch_ctx.inflation                  = (fd_exec_test_inflation_t) {
+  block_context->epoch_ctx.hashes_per_tick = epoch_ctx->epoch_bank.hashes_per_tick;
+  block_context->epoch_ctx.ticks_per_slot  = epoch_ctx->epoch_bank.ticks_per_slot;
+  block_context->epoch_ctx.slots_per_year  = epoch_ctx->epoch_bank.slots_per_year;
+  block_context->epoch_ctx.has_inflation   = true;
+  block_context->epoch_ctx.inflation       = (fd_exec_test_inflation_t) {
     .initial         = epoch_ctx->epoch_bank.inflation.initial,
     .terminal        = epoch_ctx->epoch_bank.inflation.terminal,
     .taper           = epoch_ctx->epoch_bank.inflation.taper,
