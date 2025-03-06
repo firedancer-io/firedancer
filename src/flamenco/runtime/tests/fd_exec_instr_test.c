@@ -1001,6 +1001,7 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
     .max_lamports_per_signature    = 100000UL,
     .burn_percent                  = 50,
   };
+  slot_bank->capitalization        = test_ctx->slot_ctx.prev_epoch_capitalization;
   // slot_bank->last_restart_slot = ...; // get this from sysvar cache
 
   /* Set up epoch context and epoch bank */
@@ -1009,9 +1010,16 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
 
   // self.max_tick_height = (self.slot + 1) * self.ticks_per_slot;
   epoch_bank->hashes_per_tick       = test_ctx->epoch_ctx.hashes_per_tick;
-  epoch_bank->genesis_creation_time = test_ctx->epoch_ctx.genesis_creation_time;
   epoch_bank->ticks_per_slot        = test_ctx->epoch_ctx.ticks_per_slot;
-  epoch_bank->slots_per_year        = SECONDS_PER_YEAR * (1000000000.0 / (double)6250000) / (double)epoch_bank->ticks_per_slot;
+  epoch_bank->slots_per_year        = test_ctx->epoch_ctx.slots_per_year;
+  epoch_bank->inflation             = (fd_inflation_t) {
+    .initial         = test_ctx->epoch_ctx.inflation.initial,
+    .terminal        = test_ctx->epoch_ctx.inflation.terminal,
+    .taper           = test_ctx->epoch_ctx.inflation.taper,
+    .foundation      = test_ctx->epoch_ctx.inflation.foundation,
+    .foundation_term = test_ctx->epoch_ctx.inflation.foundation_term
+  };
+  epoch_bank->genesis_creation_time = test_ctx->epoch_ctx.genesis_creation_time;
 
   /* Initialize runtime */
   fd_funk_start_write( runner->funk );

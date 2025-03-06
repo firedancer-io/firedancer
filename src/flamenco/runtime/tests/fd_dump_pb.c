@@ -481,14 +481,15 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   dump_blockhash_queue( slot_ctx, spad, block_context->blockhash_queue, &block_context->blockhash_queue_count );
 
   /* BlockContext -> SlotContext */
-  block_context->has_slot_ctx                = true;
-  block_context->slot_ctx.slot               = slot_ctx->slot_bank.slot;
-  block_context->slot_ctx.block_height       = slot_ctx->slot_bank.block_height;
+  block_context->has_slot_ctx                       = true;
+  block_context->slot_ctx.slot                      = slot_ctx->slot_bank.slot;
+  block_context->slot_ctx.block_height              = slot_ctx->slot_bank.block_height;
   fd_memcpy( block_context->slot_ctx.poh, &slot_ctx->slot_bank.poh, sizeof(fd_pubkey_t) );
   fd_memcpy( block_context->slot_ctx.parent_bank_hash, &slot_ctx->slot_bank.banks_hash, sizeof(fd_pubkey_t) );
   fd_memcpy( block_context->slot_ctx.parent_lt_hash, &slot_ctx->slot_bank.lthash.lthash, FD_LTHASH_LEN_BYTES );
-  block_context->slot_ctx.prev_slot          = slot_ctx->slot_bank.prev_slot;
-  block_context->slot_ctx.prev_lps           = slot_ctx->prev_lamports_per_signature;
+  block_context->slot_ctx.prev_slot                 = slot_ctx->slot_bank.prev_slot;
+  block_context->slot_ctx.prev_lps                  = slot_ctx->prev_lamports_per_signature;
+  block_context->slot_ctx.prev_epoch_capitalization = slot_ctx->slot_bank.capitalization;
 
   /* BlockContext -> EpochContext */
   // TODO: Other epoch bank fields that are missing from the definitions
@@ -498,6 +499,15 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   dump_sorted_features( &epoch_ctx->features, &block_context->epoch_ctx.features, spad );
   block_context->epoch_ctx.hashes_per_tick            = epoch_ctx->epoch_bank.hashes_per_tick;
   block_context->epoch_ctx.ticks_per_slot             = epoch_ctx->epoch_bank.ticks_per_slot;
+  block_context->epoch_ctx.slots_per_year             = epoch_ctx->epoch_bank.slots_per_year;
+  block_context->epoch_ctx.has_inflation              = true;
+  block_context->epoch_ctx.inflation                  = (fd_exec_test_inflation_t) {
+    .initial         = epoch_ctx->epoch_bank.inflation.initial,
+    .terminal        = epoch_ctx->epoch_bank.inflation.terminal,
+    .taper           = epoch_ctx->epoch_bank.inflation.taper,
+    .foundation      = epoch_ctx->epoch_bank.inflation.foundation,
+    .foundation_term = epoch_ctx->epoch_bank.inflation.foundation_term,
+  };
   block_context->epoch_ctx.genesis_creation_time      = epoch_ctx->epoch_bank.genesis_creation_time;
 
   /* Dumping stake accounts */
