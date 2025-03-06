@@ -854,8 +854,6 @@ static void
 before_credit( fd_net_ctx_t *      ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
-  (void)stem;
-
   /* A previous send attempt was overrun.  A corrupt copy of the packet was
      placed into an XDP frame, but the frame was not yet submitted to the
      TX ring.  Return the tx buffer to the free list. */

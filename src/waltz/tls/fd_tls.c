@@ -1252,8 +1252,6 @@ fd_tls_client_hs_wait_ee( fd_tls_t const *      const client,
                           ulong                 const record_sz,
                           uint                  const encryption_level ) {
 
-  (void)client;
-
   if( FD_UNLIKELY( encryption_level != FD_TLS_LEVEL_HANDSHAKE ) )
     return fd_tls_alert( &handshake->base, FD_TLS_ALERT_INTERNAL_ERROR, FD_TLS_REASON_WRONG_ENC_LVL );
 
@@ -1357,7 +1355,7 @@ fd_tls_client_handle_cert_req( fd_tls_estate_cli_t * const handshake,
 
   /* For now, just ignore the content of the certificate request.
      TODO: This is obviously not compliant. */
-  (void)req; (void)req_sz;
+  (void)req;
 
   handshake->client_cert = 1;
   handshake->base.state  = FD_TLS_HS_WAIT_CERT;

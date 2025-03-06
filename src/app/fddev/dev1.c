@@ -65,8 +65,6 @@ dev1_cmd_perm( args_t *         args,
 void
 dev1_cmd_fn( args_t *         args,
              config_t * const config ) {
-  (void)args;
-
   if( FD_LIKELY( !args->dev1.no_configure ) ) {
     args_t configure_args = {
       .configure.command = CONFIGURE_CMD_INIT,

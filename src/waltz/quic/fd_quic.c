@@ -1982,7 +1982,6 @@ ulong
 fd_quic_handle_v1_zero_rtt( fd_quic_t * quic, fd_quic_conn_t * conn, fd_quic_pkt_t const * pkt, uchar const * cur_ptr, ulong cur_sz ) {
   (void)pkt;
   (void)quic;
-  (void)conn;
   (void)cur_ptr;
   (void)cur_sz;
   /* since we do not support zero-rtt, simply fail the packet */
@@ -5134,7 +5133,6 @@ fd_quic_handle_reset_stream_frame(
     uchar const *                  p    FD_PARAM_UNUSED,
     ulong                          p_sz FD_PARAM_UNUSED ) {
   /* TODO implement */
-  (void)data;
   FD_DTRACE_PROBE_4( quic_handle_reset_stream_frame, context->conn->our_conn_id, data->stream_id, data->app_proto_err_code, data->final_size );
   return 0UL;
 }
@@ -5145,7 +5143,6 @@ fd_quic_handle_stop_sending_frame(
     fd_quic_stop_sending_frame_t * data,
     uchar const *                  p    FD_PARAM_UNUSED,
     ulong                          p_sz FD_PARAM_UNUSED ) {
-  (void)data;
   FD_DTRACE_PROBE_3( quic_handle_stop_sending_frame, context->conn->our_conn_id, data->stream_id, data->app_proto_err_code );
   return 0UL;
 }
@@ -5157,8 +5154,8 @@ fd_quic_handle_new_token_frame(
     uchar const *               p    FD_PARAM_UNUSED,
     ulong                       p_sz FD_PARAM_UNUSED ) {
   /* FIXME A server MUST treat receipt of a NEW_TOKEN frame as a connection error of type PROTOCOL_VIOLATION. */
-  FD_DTRACE_PROBE_1( quic_handle_new_token_frame, context->conn->our_conn_id );
   (void)data;
+  FD_DTRACE_PROBE_1( quic_handle_new_token_frame, context->conn->our_conn_id );
   return 0UL;
 }
 
@@ -5347,7 +5344,6 @@ fd_quic_handle_data_blocked_frame(
 
   /* Since we do not do runtime allocations, we will not attempt
      to find more memory in the case of DATA_BLOCKED. */
-  (void)data;
   return 0;
 }
 
@@ -5378,7 +5374,6 @@ fd_quic_handle_streams_blocked_frame(
      value
      We can support this in the future, but as of 2024-Dec, the
      Agave TPU client does not currently use it */
-  (void)data;
   return 0;
 }
 

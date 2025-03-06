@@ -129,7 +129,7 @@ fd_quic_trace_stream_e_frame(
     fd_quic_trace_frame_ctx_t * context,
     fd_quic_stream_e_frame_t *  data,
     uchar const *               p    FD_PARAM_UNUSED,
-    ulong                       p_sz FD_PARAM_UNUSED ) {
+    ulong                       p_sz ) {
   if( data->length > p_sz ) return FD_QUIC_PARSE_FAIL;
   printf( "ts=%20ld conn_id=%016lx src_ip=%08x src_port=%5hu pktnum=%8lu sid=%8lu off=%4lu (e) len=%4lu (e) fin=%i\n",
           fd_log_wallclock(),

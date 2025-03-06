@@ -11,7 +11,7 @@
 #include "../../runtime/fd_account.h"
 
 int
-fd_vm_syscall_abort( FD_PARAM_UNUSED void *  _vm,
+fd_vm_syscall_abort( /**/            void *  _vm,
                      FD_PARAM_UNUSED ulong   r1,
                      FD_PARAM_UNUSED ulong   r2,
                      FD_PARAM_UNUSED ulong   r3,

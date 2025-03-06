@@ -284,7 +284,6 @@ quic_pcap_iter_deliver_initial(
 ) {
   (void)iter;
   (void)ip4_saddr;
-  (void)out_pkt_sz;
 
   fd_quic_initial_t initial[1];
   ulong rc = fd_quic_decode_initial( initial, data, data_sz );
