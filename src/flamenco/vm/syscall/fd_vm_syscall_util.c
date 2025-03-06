@@ -451,6 +451,30 @@ fd_vm_memmove( fd_vm_t * vm,
     /* Copy over the bytes from each region in chunks. */
     while( sz>0UL ) {
       /* End of region case */
+      if( FD_UNLIKELY( src_bytes_rem_in_cur_region==0UL ) ) {
+        /* Same as above, except no writable checks. */
+        if( FD_LIKELY( !reverse &&
+                        src_is_input_mem_region &&
+                        src_region_idx+1UL<vm->input_mem_regions_cnt ) ) {
+          if( FD_UNLIKELY( vm->input_mem_regions[ src_region_idx+1UL ].is_acct_data != vm->input_mem_regions[ src_region_idx ].is_acct_data ) ) {
+            FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
+            return FD_VM_SYSCALL_ERR_SEGFAULT;
+          }
+          src_region_idx++;
+          src_haddr = (uchar*)vm->input_mem_regions[ src_region_idx ].haddr;
+        } else if( FD_LIKELY( reverse && src_region_idx>0UL ) ) {
+          if( FD_UNLIKELY( vm->input_mem_regions[ src_region_idx-1UL ].is_acct_data != vm->input_mem_regions[ src_region_idx ].is_acct_data ) ) {
+            FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
+            return FD_VM_SYSCALL_ERR_SEGFAULT;
+          }
+          src_region_idx--;
+          src_haddr = (uchar*)vm->input_mem_regions[ src_region_idx ].haddr + vm->input_mem_regions[ src_region_idx ].region_sz - 1UL;
+        } else {
+          FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
+          return FD_VM_SYSCALL_ERR_SEGFAULT;
+        }
+        src_bytes_rem_in_cur_region = vm->input_mem_regions[ src_region_idx ].region_sz;
+      }
       if( FD_UNLIKELY( dst_bytes_rem_in_cur_region==0UL ) ) {
         /* Only proceed if:
             - We are in the input memory region
@@ -483,31 +507,6 @@ fd_vm_memmove( fd_vm_t * vm,
           return FD_VM_SYSCALL_ERR_SEGFAULT;
         }
         dst_bytes_rem_in_cur_region = vm->input_mem_regions[ dst_region_idx ].region_sz;
-      }
-
-      if( FD_UNLIKELY( src_bytes_rem_in_cur_region==0UL ) ) {
-        /* Same as above, except no writable checks. */
-        if( FD_LIKELY( !reverse &&
-                        src_is_input_mem_region &&
-                        src_region_idx+1UL<vm->input_mem_regions_cnt ) ) {
-          if( FD_UNLIKELY( vm->input_mem_regions[ src_region_idx+1UL ].is_acct_data != vm->input_mem_regions[ src_region_idx ].is_acct_data ) ) {
-            FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
-            return FD_VM_SYSCALL_ERR_SEGFAULT;
-          }
-          src_region_idx++;
-          src_haddr = (uchar*)vm->input_mem_regions[ src_region_idx ].haddr;
-        } else if( FD_LIKELY( reverse && src_region_idx>0UL ) ) {
-          if( FD_UNLIKELY( vm->input_mem_regions[ src_region_idx-1UL ].is_acct_data != vm->input_mem_regions[ src_region_idx ].is_acct_data ) ) {
-            FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_INVALID_LENGTH );
-            return FD_VM_SYSCALL_ERR_SEGFAULT;
-          }
-          src_region_idx--;
-          src_haddr = (uchar*)vm->input_mem_regions[ src_region_idx ].haddr + vm->input_mem_regions[ src_region_idx ].region_sz - 1UL;
-        } else {
-          FD_VM_ERR_FOR_LOG_EBPF( vm, FD_VM_ERR_EBPF_ACCESS_VIOLATION );
-          return FD_VM_SYSCALL_ERR_SEGFAULT;
-        }
-        src_bytes_rem_in_cur_region = vm->input_mem_regions[ src_region_idx ].region_sz;
       }
 
       /* Number of bytes to operate on in this iteration is the min of:

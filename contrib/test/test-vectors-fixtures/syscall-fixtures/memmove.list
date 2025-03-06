@@ -49,3 +49,6 @@ dump/test-vectors/syscall/fixtures/memmove/eed885b35e7bebdacd5eba3b68334c512c7bd
 dump/test-vectors/syscall/fixtures/memmove/f0d9bc458582616f2c6c0e64d2393baf3698360d_856000.fix
 dump/test-vectors/syscall/fixtures/memmove/f328a3d7474e6f07491536ac3762377303297f28_4138657.fix
 dump/test-vectors/syscall/fixtures/memmove/faab0f1d8f10c5ba7743ae26102723dc0cec917c_855179.fix
+dump/test-vectors/syscall/fixtures/memmove/5cdc7593ba1103292a7488022ec095b120311f16_1776085.fix
+dump/test-vectors/syscall/fixtures/memmove/b498b708d53459c8bfb60198c3d79e6bef46abef_1800091.fix
+dump/test-vectors/syscall/fixtures/memmove/fe236dc29ab564266730eb847b18ac91cc1609ca_1824410.fix
