@@ -3873,9 +3873,6 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                                 ulong                exec_spad_cnt,
                                                 fd_spad_t *          runtime_spad ) {
 
-  /* Update block height. */
-  slot_ctx->slot_bank.block_height += 1UL;
-
   if( slot_ctx->slot_bank.slot != 0UL ) {
     ulong             slot_idx;
     fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
@@ -3954,6 +3951,9 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
       slot_ctx->funk_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &xid, 1 );
       fd_funk_end_write( funk );
     }
+
+    /* Update block height. */
+    slot_ctx->slot_bank.block_height += 1UL;
 
     fd_runtime_block_pre_execute_process_new_epoch( slot_ctx,
                                                     tpool,

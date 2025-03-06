@@ -992,6 +992,7 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
 
   fd_memcpy( slot_bank->lthash.lthash, test_ctx->slot_ctx.parent_lt_hash, FD_LTHASH_LEN_BYTES );
   slot_bank->slot                  = slot;
+  slot_bank->block_height          = test_ctx->slot_ctx.block_height;
   slot_bank->prev_slot             = test_ctx->slot_ctx.prev_slot;
   slot_bank->fee_rate_governor     = (fd_fee_rate_governor_t) {
     .target_lamports_per_signature = 10000UL,
@@ -1000,7 +1001,6 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
     .max_lamports_per_signature    = 100000UL,
     .burn_percent                  = 50,
   };
-  // slot_bank->block_height = test_ctx->prev_slot + 1UL; // do we need this?
   // slot_bank->last_restart_slot = ...; // get this from sysvar cache
 
   /* Set up epoch context and epoch bank */
@@ -1308,19 +1308,27 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
 
   fd_spad_t * runtime_spad = runner->spad;
 
-  /* Format a small chunk of memory for the exec spads
+  /* Format chunks of memory for the exec spads
      TODO: This memory needs a better bound. */
-  ulong       exec_spad_mem_max = 1UL << 30;
-  void *      exec_spad_mem     = fd_spad_alloc( runtime_spad, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( exec_spad_mem_max ) );
-  fd_spad_t * exec_spad         = fd_spad_join( fd_spad_new( exec_spad_mem, exec_spad_mem_max ) );
-
-  /* Put a sentinel spad for worker 0 */
-  fd_spad_t * exec_spads[] = { NULL, exec_spad };
+  fd_spad_t * exec_spads[2] = { 0 };
+  ulong exec_spad_mem_max = 1UL << 30;
+  for( ulong i=0UL; i<worker_max; i++ ) {
+    void *      exec_spad_mem = fd_spad_alloc( runtime_spad, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( exec_spad_mem_max ) );
+    fd_spad_t * exec_spad     = fd_spad_join( fd_spad_new( exec_spad_mem, exec_spad_mem_max ) );
+    exec_spads[i] = exec_spad;
+  }
 
   // Prepare. Execute. Finalize.
   int res = 0UL;
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-    fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, tpool, &exec_spad, 1UL, runtime_spad );
+    /* Process new epoch may push a new spad frame onto the runtime spad. We should make sure this frame gets
+       cleared (if it was allocated) before executing the block. */
+    ulong spad_frame_ct = fd_spad_frame_used( runtime_spad );
+    fd_runtime_block_pre_execute_process_new_epoch( slot_ctx, tpool, exec_spads, 2UL, runtime_spad );
+    while( fd_spad_frame_used( runtime_spad )>spad_frame_ct ) {
+      fd_spad_pop( runtime_spad );
+    }
+
     res = fd_runtime_block_execute_tpool( slot_ctx, NULL, block_info, tpool, exec_spads, 2UL, runtime_spad );
   } FD_SPAD_FRAME_END;
 

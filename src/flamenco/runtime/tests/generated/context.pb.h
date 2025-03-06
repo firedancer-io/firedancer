@@ -110,6 +110,7 @@ typedef struct fd_exec_test_epoch_context {
 typedef struct fd_exec_test_slot_context {
     /* Current slot number */
     uint64_t slot;
+    uint64_t block_height;
     /* POH hash */
     pb_byte_t poh[32];
     /* Parent bank hash */
@@ -134,14 +135,14 @@ extern "C" {
 #define FD_EXEC_TEST_VOTE_ACCOUNT_INIT_DEFAULT   {false, FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT, 0}
 #define FD_EXEC_TEST_STAKE_ACCOUNT_INIT_DEFAULT  {false, FD_EXEC_TEST_ACCT_STATE_INIT_DEFAULT, {0}, 0, 0, 0, 0}
 #define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_DEFAULT  {false, FD_EXEC_TEST_FEATURE_SET_INIT_DEFAULT, 0, 0, 0, 0, 0, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL}
-#define FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT   {0, {0}, {0}, {0}, 0, 0}
+#define FD_EXEC_TEST_SLOT_CONTEXT_INIT_DEFAULT   {0, 0, {0}, {0}, {0}, 0, 0}
 #define FD_EXEC_TEST_FEATURE_SET_INIT_ZERO       {0, NULL}
 #define FD_EXEC_TEST_SEED_ADDRESS_INIT_ZERO      {{{NULL}, NULL}, {{NULL}, NULL}, {{NULL}, NULL}}
 #define FD_EXEC_TEST_ACCT_STATE_INIT_ZERO        {{0}, 0, NULL, 0, 0, {0}, false, FD_EXEC_TEST_SEED_ADDRESS_INIT_ZERO}
 #define FD_EXEC_TEST_VOTE_ACCOUNT_INIT_ZERO      {false, FD_EXEC_TEST_ACCT_STATE_INIT_ZERO, 0}
 #define FD_EXEC_TEST_STAKE_ACCOUNT_INIT_ZERO     {false, FD_EXEC_TEST_ACCT_STATE_INIT_ZERO, {0}, 0, 0, 0, 0}
 #define FD_EXEC_TEST_EPOCH_CONTEXT_INIT_ZERO     {false, FD_EXEC_TEST_FEATURE_SET_INIT_ZERO, 0, 0, 0, 0, 0, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL, 0, NULL}
-#define FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO      {0, {0}, {0}, {0}, 0, 0}
+#define FD_EXEC_TEST_SLOT_CONTEXT_INIT_ZERO      {0, 0, {0}, {0}, {0}, 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define FD_EXEC_TEST_FEATURE_SET_FEATURES_TAG    1
@@ -176,11 +177,12 @@ extern "C" {
 #define FD_EXEC_TEST_EPOCH_CONTEXT_VOTE_ACCOUNTS_T_1_TAG 11
 #define FD_EXEC_TEST_EPOCH_CONTEXT_VOTE_ACCOUNTS_T_2_TAG 12
 #define FD_EXEC_TEST_SLOT_CONTEXT_SLOT_TAG       1
-#define FD_EXEC_TEST_SLOT_CONTEXT_POH_TAG        2
-#define FD_EXEC_TEST_SLOT_CONTEXT_PARENT_BANK_HASH_TAG 3
-#define FD_EXEC_TEST_SLOT_CONTEXT_PARENT_LT_HASH_TAG 4
-#define FD_EXEC_TEST_SLOT_CONTEXT_PREV_SLOT_TAG  5
-#define FD_EXEC_TEST_SLOT_CONTEXT_PREV_LPS_TAG   6
+#define FD_EXEC_TEST_SLOT_CONTEXT_BLOCK_HEIGHT_TAG 2
+#define FD_EXEC_TEST_SLOT_CONTEXT_POH_TAG        3
+#define FD_EXEC_TEST_SLOT_CONTEXT_PARENT_BANK_HASH_TAG 4
+#define FD_EXEC_TEST_SLOT_CONTEXT_PARENT_LT_HASH_TAG 5
+#define FD_EXEC_TEST_SLOT_CONTEXT_PREV_SLOT_TAG  6
+#define FD_EXEC_TEST_SLOT_CONTEXT_PREV_LPS_TAG   7
 
 /* Struct field encoding specification for nanopb */
 #define FD_EXEC_TEST_FEATURE_SET_FIELDLIST(X, a) \
@@ -250,11 +252,12 @@ X(a, POINTER,  REPEATED, MESSAGE,  vote_accounts_t_2,  12)
 
 #define FD_EXEC_TEST_SLOT_CONTEXT_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, FIXED64,  slot,              1) \
-X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, poh,               2) \
-X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, parent_bank_hash,   3) \
-X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, parent_lt_hash,    4) \
-X(a, STATIC,   SINGULAR, FIXED64,  prev_slot,         5) \
-X(a, STATIC,   SINGULAR, UINT64,   prev_lps,          6)
+X(a, STATIC,   SINGULAR, FIXED64,  block_height,      2) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, poh,               3) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, parent_bank_hash,   4) \
+X(a, STATIC,   SINGULAR, FIXED_LENGTH_BYTES, parent_lt_hash,    5) \
+X(a, STATIC,   SINGULAR, FIXED64,  prev_slot,         6) \
+X(a, STATIC,   SINGULAR, UINT64,   prev_lps,          7)
 #define FD_EXEC_TEST_SLOT_CONTEXT_CALLBACK NULL
 #define FD_EXEC_TEST_SLOT_CONTEXT_DEFAULT NULL
 
@@ -282,7 +285,7 @@ extern const pb_msgdesc_t fd_exec_test_slot_context_t_msg;
 /* fd_exec_test_VoteAccount_size depends on runtime parameters */
 /* fd_exec_test_StakeAccount_size depends on runtime parameters */
 /* fd_exec_test_EpochContext_size depends on runtime parameters */
-#define FD_EXEC_TEST_SLOT_CONTEXT_SIZE           2148
+#define FD_EXEC_TEST_SLOT_CONTEXT_SIZE           2157
 #define ORG_SOLANA_SEALEVEL_V1_CONTEXT_PB_H_MAX_SIZE FD_EXEC_TEST_SLOT_CONTEXT_SIZE
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
