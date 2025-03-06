@@ -15,7 +15,6 @@
 #include "context/fd_capture_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
 #include "context/fd_runtime_ctx.h"
-#include "info/fd_block_info.h"
 #include "info/fd_instr_info.h"
 #include "../gossip/fd_gossip.h"
 #include "../repair/fd_repair.h"
@@ -23,6 +22,7 @@
 #include "info/fd_microblock_info.h"
 #include "../../ballet/bmtree/fd_wbmtree.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h"
+#include "info/fd_runtime_block_info.h"
 /* Various constant values used by the runtime. */
 
 #define MICRO_LAMPORTS_PER_LAMPORT (1000000UL)
