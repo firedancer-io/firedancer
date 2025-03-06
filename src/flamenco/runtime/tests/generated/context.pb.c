@@ -24,7 +24,7 @@ PB_BIND(FD_EXEC_TEST_STAKE_ACCOUNT, fd_exec_test_stake_account_t, AUTO)
 PB_BIND(FD_EXEC_TEST_EPOCH_CONTEXT, fd_exec_test_epoch_context_t, AUTO)
 
 
-PB_BIND(FD_EXEC_TEST_SLOT_CONTEXT, fd_exec_test_slot_context_t, AUTO)
+PB_BIND(FD_EXEC_TEST_SLOT_CONTEXT, fd_exec_test_slot_context_t, 2)
 
 
 

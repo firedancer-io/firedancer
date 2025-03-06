@@ -53,6 +53,7 @@
 #include "../fd_system_ids.h"
 #include "../fd_runtime.h"
 #include "../fd_executor.h"
+#include "../fd_hashes.h"
 #include "../../vm/fd_vm.h"
 #include "../../../util/log/fd_log.h"
 #include "../program/fd_address_lookup_table_program.h"

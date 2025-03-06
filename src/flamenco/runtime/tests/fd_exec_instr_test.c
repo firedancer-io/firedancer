@@ -990,6 +990,7 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   ulong slot = test_ctx->slot_ctx.slot;
   fd_slot_bank_t * slot_bank = &slot_ctx->slot_bank;
 
+  fd_memcpy( slot_bank->lthash.lthash, test_ctx->slot_ctx.parent_lt_hash, FD_LTHASH_LEN_BYTES );
   slot_bank->slot                  = slot;
   slot_bank->prev_slot             = test_ctx->slot_ctx.prev_slot;
   slot_bank->fee_rate_governor     = (fd_fee_rate_governor_t) {

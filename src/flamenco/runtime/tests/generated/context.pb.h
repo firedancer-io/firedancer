@@ -115,7 +115,7 @@ typedef struct fd_exec_test_slot_context {
     /* Parent bank hash */
     pb_byte_t parent_bank_hash[32];
     /* Parent LT hash */
-    pb_byte_t parent_lt_hash[32];
+    pb_byte_t parent_lt_hash[2048];
     /* The last executed slot */
     uint64_t prev_slot;
     /* Last slot lamports per signature */
@@ -282,7 +282,7 @@ extern const pb_msgdesc_t fd_exec_test_slot_context_t_msg;
 /* fd_exec_test_VoteAccount_size depends on runtime parameters */
 /* fd_exec_test_StakeAccount_size depends on runtime parameters */
 /* fd_exec_test_EpochContext_size depends on runtime parameters */
-#define FD_EXEC_TEST_SLOT_CONTEXT_SIZE           131
+#define FD_EXEC_TEST_SLOT_CONTEXT_SIZE           2148
 #define ORG_SOLANA_SEALEVEL_V1_CONTEXT_PB_H_MAX_SIZE FD_EXEC_TEST_SLOT_CONTEXT_SIZE
 
 /* Mapping from canonical names (mangle_names or overridden package name) */
