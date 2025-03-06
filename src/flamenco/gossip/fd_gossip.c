@@ -1927,14 +1927,6 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     }
     misses++;
 
-    /* Record the ratio of hits to misses
-
-       These metrics are imprecise as the numbers will vary
-       per pull request. We keep them to surface
-       obvious issues like 100% miss rate.*/
-    glob->metrics.handle_pull_req_bloom_filter_result[ FD_METRICS_ENUM_PULL_REQ_BLOOM_FILTER_RESULT_V_HIT_IDX ] += hits;
-    glob->metrics.handle_pull_req_bloom_filter_result[ FD_METRICS_ENUM_PULL_REQ_BLOOM_FILTER_RESULT_V_MISS_IDX ] += misses;
-
     /* Add the value in already encoded form */
     if (newend + ele->datalen - buf > PACKET_DATA_SIZE) {
       /* Packet is getting too large. Flush it */
@@ -1951,6 +1943,13 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     newend += ele->datalen;
     (*crds_len)++;
   }
+      /* Record the number of hits and misses
+
+       These metrics are imprecise as the numbers will vary
+       per pull request. We keep them to surface
+       obvious issues like 100% miss rate. */
+       glob->metrics.handle_pull_req_bloom_filter_result[ FD_METRICS_ENUM_PULL_REQ_BLOOM_FILTER_RESULT_V_HIT_IDX ] += hits;
+       glob->metrics.handle_pull_req_bloom_filter_result[ FD_METRICS_ENUM_PULL_REQ_BLOOM_FILTER_RESULT_V_MISS_IDX ] += misses;
 
   /* Flush final packet */
   if (newend > (uchar *)ctx.data) {
