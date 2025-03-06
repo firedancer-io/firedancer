@@ -234,6 +234,7 @@ during_frag( fd_store_tile_ctx_t * ctx,
   }
 
   /* everything else is shred tiles */
+  // FD_LOG_NOTICE(( "in_idx %lu seq %lu", in_idx, seq ));
   fd_store_in_ctx_t * shred_in = &ctx->shred_in[ in_idx-NON_SHRED_LINKS ];
   if( FD_UNLIKELY( chunk<shred_in->chunk0 || chunk>shred_in->wmark || sz > sizeof(fd_shred34_t) ) ) {
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, shred_in->chunk0 , shred_in->wmark ));
@@ -265,6 +266,7 @@ after_frag( fd_store_tile_ctx_t * ctx,
   }
 
   if( FD_UNLIKELY( in_idx==REPAIR_IN_IDX ) ) {
+    // FD_LOG_NOTICE(( "repair seq %lu", seq ));
     fd_shred_t const * shred = (fd_shred_t const *)fd_type_pun_const( ctx->shred_buffer );
     if( !fd_pending_slots_check( ctx->store->pending_slots, shred->slot ) ) {
       FD_LOG_WARNING(("received repair shred %lu that would overrun pending queue. skipping.", shred->slot));

@@ -107,6 +107,13 @@ struct fd_slice_exec_ctx {
 };
 typedef struct fd_slice_exec_ctx fd_slice_exec_ctx_t;
 
+struct fd_shred_in_ctx {
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+};
+typedef struct fd_shred_in_ctx fd_shred_in_ctx_t;
+
 struct fd_replay_tile_ctx {
   fd_wksp_t * wksp;
   fd_wksp_t * blockstore_wksp;
@@ -134,10 +141,8 @@ struct fd_replay_tile_ctx {
   ulong       batch_in_wmark;
 
   // Shred tile input
-  ulong       shred_in_seq;
-  fd_wksp_t * shred_in_mem;
-  ulong       shred_in_chunk0;
-  ulong       shred_in_wmark;
+  ulong             shred_in_cnt;
+  fd_shred_in_ctx_t shred_in[ 32 ];
 
   // Notification output defs
   fd_frag_meta_t * notif_out_mcache;
@@ -407,7 +412,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   return l;
 }
 
-static void
+FD_FN_UNUSED static void
 hash_transactions( void *       mem,
                    fd_txn_p_t * txns,
                    ulong        txn_cnt,
@@ -476,7 +481,7 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
   }
 }
 
-static int
+FD_FN_UNUSED static int
 before_frag( fd_replay_tile_ctx_t * ctx,
              ulong                  in_idx,
              ulong                  seq,
@@ -484,7 +489,11 @@ before_frag( fd_replay_tile_ctx_t * ctx,
   (void)ctx;
   (void)seq;
 
-  if( in_idx == SHRED_IN_IDX ) {
+  if (in_idx <= BATCH_IN_IDX ) return 0;
+  // FD_LOG_NOTICE(( "in_idx %lu seq %lu", in_idx, seq ));
+  return 0;
+
+  // if( in_idx == SHRED_IN_IDX ) {
     ctx->before_frag_cnt++;
 
     ulong slot        = fd_disco_replay_sig_slot       ( sig );
@@ -496,7 +505,7 @@ before_frag( fd_replay_tile_ctx_t * ctx,
     fd_replay_fec_t * fec = fd_replay_fec_query( ctx->replay, slot, fec_set_idx );
     if( FD_UNLIKELY( !fec ) ) { /* first time receiving a shred for this FEC set */
       fec = fd_replay_fec_insert( ctx->replay, slot, fec_set_idx );
-      return 1;
+      // return 1;
     }
 
     /* If the FEC set is complete we don't need to track it anymore. */
@@ -505,13 +514,13 @@ before_frag( fd_replay_tile_ctx_t * ctx,
       ulong slice_key = fd_blockstore_slice_poll( ctx->blockstore, slot );
 
       if( FD_LIKELY( slice_key ) ) { /* optimize for FEC set completes a new entry batch */
-        FD_LOG_INFO(( "adding slice replay: slot %lu, slice start: %u, slice end: %u", slot, fd_replay_slice_start_idx( slice_key ), fd_replay_slice_end_idx( slice_key ) ));
+        // FD_LOG_NOTICE(( "adding slice replay: slot %lu %u %u, slice start: %u, slice end: %u", slot, shred_idx, fec_set_idx, fd_replay_slice_start_idx( slice_key ), fd_replay_slice_end_idx( slice_key ) ));
         fd_replay_slice_t * slice_deque = fd_replay_slice_map_query( ctx->replay->slice_map, slot, NULL );
         if( FD_UNLIKELY( !slice_deque ) ) slice_deque = fd_replay_slice_map_insert( ctx->replay->slice_map, slot ); /* create new map entry for this slot */
         fd_replay_slice_deque_push_tail( slice_deque->deque, slice_key );
       }
       fd_replay_fec_remove( ctx->replay, slot, fec_set_idx );
-      return 1; /* skip frag */
+      // return 1; /* skip frag */
     }
 
     /* If it is a coding shred, check if it is the first coding shred
@@ -519,13 +528,14 @@ before_frag( fd_replay_tile_ctx_t * ctx,
        that is not a valid cnt and means it's uninitialized. */
 
     if( FD_LIKELY( is_code ) ) { /* optimize for |code| >= |data| */
-      return fec->data_cnt != 0; /* process frag (shred hdr) if it's the first coding shred */
+      // return fec->data_cnt != 0; /* process frag (shred hdr) if it's the first coding shred */
     } else {
       uint i = shred_idx - fec_set_idx;
       fd_replay_fec_idxs_insert( fec->idxs, i ); /* mark ith data shred as received */
-      return 1; /* skip frag */
     }
-  }
+
+    // return 0; /* skip frag */
+  // }
 
   return 0; /* non-shred in - don't skip */
 }
@@ -542,6 +552,7 @@ during_frag( fd_replay_tile_ctx_t * ctx,
   ctx->skip_frag = 0;
 
   if( in_idx == STORE_IN_IDX ) {
+    FD_LOG_NOTICE(( "in_idx %lu seq %lu", in_idx, seq ));
     if( FD_UNLIKELY( chunk<ctx->store_in_chunk0 || chunk>ctx->store_in_wmark || sz>MAX_TXNS_PER_REPLAY ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->store_in_chunk0, ctx->store_in_wmark ));
     }
@@ -573,15 +584,6 @@ during_frag( fd_replay_tile_ctx_t * ctx,
     fd_memcpy( dst_poh, src, sz * sizeof(fd_txn_p_t) );
 
     FD_LOG_INFO(( "other microblock - slot: %lu, parent_slot: %lu, txn_cnt: %lu", ctx->curr_slot, ctx->parent_slot, sz ));
-  } else if ( in_idx == SHRED_IN_IDX ) {
-    ctx->during_frag_cnt++;
-
-    if( FD_UNLIKELY( chunk<ctx->shred_in_chunk0 || chunk>ctx->shred_in_wmark || sz>FD_SHRED_CODE_HEADER_SZ ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->shred_in_chunk0, ctx->shred_in_wmark ));
-    }
-    uchar * src = (uchar *)fd_chunk_to_laddr( ctx->shred_in_mem, chunk );
-    fd_memcpy( (uchar *)ctx->shred, src, sz ); /* copy the hdr to read the code_cnt & data_cnt */
-
     return;
   } else if( in_idx == PACK_IN_IDX ) {
     if( FD_UNLIKELY( chunk<ctx->pack_in_chunk0 || chunk>ctx->pack_in_wmark || sz>USHORT_MAX ) ) {
@@ -615,6 +617,7 @@ during_frag( fd_replay_tile_ctx_t * ctx,
     }
 
     FD_LOG_DEBUG(( "packed microblock - slot: %lu, parent_slot: %lu, txn_cnt: %lu", ctx->curr_slot, ctx->parent_slot, ctx->txn_cnt ));
+    return;
   } else if( in_idx==GOSSIP_IN_IDX ) {
     if( FD_UNLIKELY( chunk<ctx->gossip_in_chunk0 || chunk>ctx->gossip_in_wmark || sz>FD_RESTART_LINK_BYTES_MAX+sizeof(uint) ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->gossip_in_chunk0, ctx->gossip_in_wmark ));
@@ -630,7 +633,10 @@ during_frag( fd_replay_tile_ctx_t * ctx,
     uchar * src = (uchar *)fd_chunk_to_laddr( ctx->batch_in_mem, chunk );
     fd_memcpy( ctx->slot_ctx->slot_bank.epoch_account_hash.uc, src, sizeof(fd_hash_t) );
     FD_LOG_NOTICE(( "Epoch account hash calculated to be %s", FD_BASE58_ENC_32_ALLOCA( ctx->slot_ctx->slot_bank.epoch_account_hash.uc ) ));
+    return;
   }
+  // FD_LOG_NOTICE(( "in_idx %lu seq %lu", in_idx, seq ));
+  return;
   // if( ctx->flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
   //   /* We do not know the parent slot, pick one from fork selection */
   //   ulong max_slot = 0; /* FIXME: default to snapshot slot/smr */
@@ -645,29 +651,29 @@ during_frag( fd_replay_tile_ctx_t * ctx,
   //   ctx->parent_slot = max_slot;
   // }
 
-  uchar block_flags = 0;
-  int err = FD_MAP_ERR_AGAIN;
-  while( err == FD_MAP_ERR_AGAIN ){
-    fd_block_map_query_t quer[1] = { 0 };
-    err = fd_block_map_query_try( ctx->blockstore->block_map, &ctx->curr_slot, NULL, quer, 0 );
-    fd_block_info_t * block_info = fd_block_map_query_ele( quer );
-    if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
-    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY )) break;
-    block_flags = block_info->flags;
-    err = fd_block_map_query_test( quer );
-  }
+  // uchar block_flags = 0;
+  // int err = FD_MAP_ERR_AGAIN;
+  // while( err == FD_MAP_ERR_AGAIN ){
+  //   fd_block_map_query_t quer[1] = { 0 };
+  //   err = fd_block_map_query_try( ctx->blockstore->block_map, &ctx->curr_slot, NULL, quer, 0 );
+  //   fd_block_info_t * block_info = fd_block_map_query_ele( quer );
+  //   if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
+  //   if( FD_UNLIKELY( err == FD_MAP_ERR_KEY )) break;
+  //   block_flags = block_info->flags;
+  //   err = fd_block_map_query_test( quer );
+  // }
 
-  if( FD_UNLIKELY( fd_uchar_extract_bit( block_flags, FD_BLOCK_FLAG_PROCESSED ) ) ) {
-    FD_LOG_WARNING(( "block already processed - slot: %lu, from %lu", ctx->curr_slot, in_idx ));
-    ctx->skip_frag = 1;
-  }
-  if( FD_UNLIKELY( fd_uchar_extract_bit( block_flags, FD_BLOCK_FLAG_DEADBLOCK ) ) ) {
-    FD_LOG_WARNING(( "block already dead - slot: %lu", ctx->curr_slot ));
-    ctx->skip_frag = 1;
-  }
+  // if( FD_UNLIKELY( fd_uchar_extract_bit( block_flags, FD_BLOCK_FLAG_PROCESSED ) ) ) {
+  //   FD_LOG_WARNING(( "block already processed - slot: %lu, from %lu", ctx->curr_slot, in_idx ));
+  //   ctx->skip_frag = 1;
+  // }
+  // if( FD_UNLIKELY( fd_uchar_extract_bit( block_flags, FD_BLOCK_FLAG_DEADBLOCK ) ) ) {
+  //   FD_LOG_WARNING(( "block already dead - slot: %lu", ctx->curr_slot ));
+  //   ctx->skip_frag = 1;
+  // }
 }
 
-static void
+FD_FN_UNUSED static void
 checkpt( fd_replay_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( ctx->slots_replayed_file ) ) fclose( ctx->slots_replayed_file );
   if( FD_UNLIKELY( strcmp( ctx->blockstore_checkpt, "" ) ) ) {
@@ -682,7 +688,7 @@ checkpt( fd_replay_tile_ctx_t * ctx ) {
   }
 }
 
-static void
+FD_FN_UNUSED static void
 funk_cancel( fd_replay_tile_ctx_t * ctx, ulong mismatch_slot ) {
   fd_funk_txn_xid_t xid        = { .ul = { mismatch_slot, mismatch_slot } };
   fd_funk_txn_t * txn_map      = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
@@ -1208,7 +1214,7 @@ replay_plugin_publish( fd_replay_tile_ctx_t * ctx,
   ctx->replay_plugin_out_chunk = fd_dcache_compact_next( ctx->replay_plugin_out_chunk, data_sz, ctx->replay_plugin_out_chunk0, ctx->replay_plugin_out_wmark );
 }
 
-static void
+FD_FN_UNUSED static void
 publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
                             fd_stem_context_t *    stem,
                             fd_fork_t *            fork,
@@ -1262,7 +1268,7 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
   }
 }
 
-static void
+FD_FN_UNUSED static void
 send_tower_sync( fd_replay_tile_ctx_t * ctx ) {
   if( FD_UNLIKELY( !ctx->vote ) ) return;
   FD_LOG_NOTICE( ( "sending tower sync" ) );
@@ -1452,7 +1458,7 @@ init_poh( fd_replay_tile_ctx_t * ctx ) {
 
 /* Verifies a microblock batch validity. */
 
-static int
+FD_FN_UNUSED static int
 process_and_exec_mbatch( fd_replay_tile_ctx_t * ctx,
                          fd_stem_context_t *    stem,
                          ulong                  mbatch_sz,
@@ -1599,7 +1605,7 @@ process_and_exec_mbatch( fd_replay_tile_ctx_t * ctx,
   return 0;
 }
 
-static void
+FD_FN_UNUSED static void
 prepare_first_batch_execution( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ){
   ulong curr_slot   = ctx->curr_slot;
   ulong parent_slot = ctx->parent_slot;
@@ -1655,33 +1661,35 @@ prepare_first_batch_execution( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * s
 
 }
 
-static void
+FD_FN_UNUSED static void
 after_frag( fd_replay_tile_ctx_t * ctx,
-            ulong                  in_idx,
+            FD_PARAM_UNUSED ulong                  in_idx,
             ulong                  seq,
             ulong                  sig,
             ulong                  sz,
-            ulong                  tsorig,
-            fd_stem_context_t *    stem ) {
+            FD_PARAM_UNUSED ulong                  tsorig,
+            FD_PARAM_UNUSED fd_stem_context_t *    stem ) {
   (void)sig;
   (void)sz;
   (void)seq;
+  // FD_LOG_NOTICE(( "seq %lu", seq ));
 
-  if( FD_LIKELY( in_idx == SHRED_IN_IDX ) ) {
+  if( FD_UNLIKELY( ctx->skip_frag ) ) return;
+
+  // if( FD_LIKELY( in_idx == SHRED_IN_IDX ) ) {
+  //   FD_LOG_NOTICE(( "seq %lu", seq ));
 
     /* after_frag only called if it's the first code shred we're
        receiving for the FEC set */
 
-    ulong slot        = fd_disco_replay_sig_slot( sig );
-    uint  fec_set_idx = fd_disco_replay_sig_fec_set_idx( sig );
+    // ulong slot        = fd_disco_replay_sig_slot( sig );
+    // uint  fec_set_idx = fd_disco_replay_sig_fec_set_idx( sig );
 
-    fd_replay_fec_t * fec = fd_replay_fec_query( ctx->replay, slot, fec_set_idx );
-    fec->data_cnt         = ctx->shred->code.data_cnt;
+    // fd_replay_fec_t * fec = fd_replay_fec_query( ctx->replay, slot, fec_set_idx );
+    // fec->data_cnt         = ctx->shred->code.data_cnt;
 
-    return;
-  }
-
-  if( FD_UNLIKELY( ctx->skip_frag ) ) return;
+  //   return;
+  // }
 
   /**********************************************************************/
   /* Handle gossip messages for wen-restart                             */
@@ -1708,6 +1716,8 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     }
     return;
   }
+
+#if 0
   /* when you have a batch completed to replay, */
 
   if( FD_UNLIKELY( in_idx == STORE_IN_IDX ) ) {
@@ -2162,6 +2172,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     FD_LOG_ERR( ( "stopping at %lu (#define STOP_SLOT %lu). shutting down.", STOP_SLOT, STOP_SLOT ) );
   }
 #endif
+#endif
 }
 
 void
@@ -2602,18 +2613,13 @@ exec_slices( fd_replay_tile_ctx_t * ctx,
     it at the end of ctx->mbatch. We only need to execute one slot at a
     time, so the mbatch only holds one slots data at a time. */
   while( fd_replay_slice_deque_cnt( slice->deque ) > 0 ){
-    ulong key = fd_replay_slice_deque_pop_head( slice->deque );
+    ulong key       = fd_replay_slice_deque_pop_head( slice->deque );
     uint  start_idx = fd_replay_slice_start_idx( key );
-    uint  end_idx   = fd_replay_slice_end_idx  ( key );
+    uint  end_idx   = fd_replay_slice_end_idx( key );
+
     FD_LOG_WARNING(( "executing slice %u %u", start_idx, end_idx ));
     ulong slice_sz;
-    int err = fd_blockstore_slice_query( ctx->slot_ctx->blockstore,
-                                                     slot,
-                                                     start_idx,
-                                                     end_idx,
-                                                    FD_SLICE_MAX - ctx->slice_exec_ctx.sz,
-                                                    ctx->mbatch + ctx->slice_exec_ctx.sz,
-                                                    &slice_sz );
+    int err = fd_blockstore_slice_query( ctx->slot_ctx->blockstore, slot, start_idx, end_idx, FD_SLICE_MAX - ctx->slice_exec_ctx.sz, ctx->mbatch + ctx->slice_exec_ctx.sz, &slice_sz );
     if( err ) FD_LOG_ERR(("Failed to query blockstore for slot %lu", slot));
     ctx->slice_exec_ctx.sz += slice_sz;
   }
@@ -3303,10 +3309,14 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->batch_in_chunk0           = fd_dcache_compact_chunk0( ctx->batch_in_mem, batch_in_link->dcache );
   ctx->batch_in_wmark            = fd_dcache_compact_wmark( ctx->batch_in_mem, batch_in_link->dcache, batch_in_link->mtu );
 
-  fd_topo_link_t * shred_in_link = &topo->links[ tile->in_link_id[ SHRED_IN_IDX ] ];
-  ctx->shred_in_mem              = topo->workspaces[ topo->objs[ shred_in_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->shred_in_chunk0           = fd_dcache_compact_chunk0( ctx->shred_in_mem, shred_in_link->dcache );
-  ctx->shred_in_wmark            = fd_dcache_compact_wmark( ctx->shred_in_mem, shred_in_link->dcache, shred_in_link->mtu );
+  /* Set up shred tile inputs */
+  ctx->shred_in_cnt = tile->in_cnt-4;
+  for( ulong i = 0; i<ctx->shred_in_cnt; i++ ) {
+    fd_topo_link_t * shred_in_link = &topo->links[ tile->in_link_id[ i+4 ] ];
+    ctx->shred_in[ i ].mem    = topo->workspaces[ topo->objs[ shred_in_link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->shred_in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->shred_in[ i ].mem, shred_in_link->dcache );
+    ctx->shred_in[ i ].wmark  = fd_dcache_compact_wmark( ctx->shred_in[ i ].mem, shred_in_link->dcache, shred_in_link->mtu );
+  }
 
   fd_topo_link_t * notif_out = &topo->links[ tile->out_link_id[ NOTIF_OUT_IDX ] ];
   ctx->notif_out_mcache      = notif_out->mcache;
@@ -3437,9 +3447,9 @@ metrics_write( fd_replay_tile_ctx_t * ctx ) {
 
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
 #define STEM_CALLBACK_AFTER_CREDIT        after_credit
-#define STEM_CALLBACK_BEFORE_FRAG         before_frag
+// #define STEM_CALLBACK_BEFORE_FRAG         before_frag
 #define STEM_CALLBACK_DURING_FRAG         during_frag
-#define STEM_CALLBACK_AFTER_FRAG          after_frag
+// #define STEM_CALLBACK_AFTER_FRAG          after_frag
 #define STEM_CALLBACK_METRICS_WRITE       metrics_write
 
 #include "../../../../disco/stem/fd_stem.c"
