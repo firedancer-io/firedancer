@@ -455,11 +455,11 @@ fd_quic_calc_expiry( fd_quic_conn_t * conn, ulong now ) {
 
   fd_quic_conn_rtt_t * rtt = conn->rtt;
 
-  ulong calc_value = now + (ulong)( rtt->smoothed_rtt
-                         + fmaxf( 4.0f * rtt->var_rtt, rtt->sched_granularity_ticks )
-                         + rtt->peer_max_ack_delay_ticks );
+  ulong duration = (ulong)( rtt->smoothed_rtt
+                        + fmaxf( 4.0f * rtt->var_rtt, rtt->sched_granularity_ticks )
+                        + rtt->peer_max_ack_delay_ticks );
 
-  FD_DTRACE_PROBE_2( quic_calc_expiry, conn->our_conn_id, calc_value );
+  FD_DTRACE_PROBE_2( quic_calc_expiry, conn->our_conn_id, duration );
 
   return now + (ulong)500e6; /* 500ms */
 }
