@@ -48,11 +48,15 @@ typedef struct fd_shred_cap_hdr fd_shred_cap_hdr_t;
 // }
 
 static void
-replay_slice( fd_blockstore_t * blockstore, uchar * slice, ulong slot, uint idx ) {
-  FD_LOG_NOTICE(( "replay_batch: slot: %lu, idx: %u", slot, idx ));
+replay_slice( fd_blockstore_t * blockstore, uchar * slice, ulong slot, uint start_idx, uint end_idx ) {
+  FD_LOG_NOTICE(( "replay_batch: slot: %lu, idx: %u", slot, start_idx ));
 
   ulong slice_sz;
-  int err = fd_blockstore_slice_query( blockstore, slot, idx, FD_SLICE_MAX, slice, &slice_sz );
+  int err = fd_blockstore_slice_query( blockstore, slot, start_idx, end_idx, FD_SLICE_MAX, slice, &slice_sz );
+  if( slice_sz >= FD_SLICE_MAX  || err != FD_BLOCKSTORE_SUCCESS ){
+      __asm__("int $3");
+  }
+
   FD_TEST( slice_sz < FD_SLICE_MAX );
   FD_TEST( err == FD_BLOCKSTORE_SUCCESS );
 
@@ -90,6 +94,7 @@ main( int argc, char ** argv ) {
 
   void * mem = fd_wksp_alloc_laddr( wksp, fd_blockstore_align(), fd_blockstore_footprint( shred_max, 4096, 4096, shred_max ), 1UL );
   FD_TEST( mem );
+
   void * shblockstore = fd_blockstore_new( mem, 1UL, 42UL, shred_max, 4096, 4096, shred_max );
   FD_TEST( shblockstore );
   fd_blockstore_t   blockstore_ljoin;
@@ -137,7 +142,7 @@ main( int argc, char ** argv ) {
 
               /* FIXME: backpressure? consumer will need to make sure they aren't overrun */
 
-              replay_slice( blockstore, slice, shred->slot, block_info->consumed_idx + 1 );
+              replay_slice( blockstore, slice, shred->slot, block_info->consumed_idx + 1, idx );
               block_info->consumed_idx = idx;
             }
             idx++;

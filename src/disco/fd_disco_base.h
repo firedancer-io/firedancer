@@ -137,7 +137,7 @@ fd_disco_replay_sig( ulong  slot,
   ulong fec_set_idx_ul = fd_ulong_min( (ulong)fec_set_idx, (ulong)FD_SHRED_MAX_PER_SLOT );
   ulong is_code_ul     = (ulong)is_code;
   ulong completes_ul   = (ulong)completes;
-  return slot_ul << 32 | shred_idx_ul << 17 | fec_set_idx_ul << 2 | is_code_ul << 1 | completes_ul;
+  return slot_ul << 32 | fec_set_idx_ul << 17 | shred_idx_ul << 2 | is_code_ul << 1 | completes_ul;
 }
 
 FD_FN_CONST static inline ulong fd_disco_replay_sig_slot       ( ulong sig ) { return       fd_ulong_extract    ( sig, 32, 63 ); }

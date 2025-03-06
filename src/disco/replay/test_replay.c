@@ -1,3 +1,4 @@
+#if 0
 #include "fd_replay.h"
 #include <sys/resource.h>
 
@@ -62,3 +63,4 @@ main( int argc, char ** argv ) {
   fd_halt();
   return 0;
 }
+#endif
