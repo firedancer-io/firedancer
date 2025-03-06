@@ -502,6 +502,8 @@ fd_bpf_load_cache_entry( fd_exec_slot_ctx_t const *     slot_ctx,
 
     *valid_prog = (fd_sbpf_validated_program_t *)data;
 
+    /* This test is actually too early. It should happen after the
+       data is actually consumed. TODO: fix this. */
     if( fd_funkier_rec_query_test( query ) ) return 0;
 
     /* Try again */
