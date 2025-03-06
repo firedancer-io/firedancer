@@ -139,12 +139,12 @@ fd_disco_shred_replay_sig( ulong slot,
   ulong fec_set_idx_ul = fd_ulong_min( (ulong)fec_set_idx, (ulong)FD_SHRED_MAX_PER_SLOT );
   ulong is_code_ul     = (ulong)is_code;
   ulong completes_ul   = (ulong)completes;
-  return slot_ul << 32 | shred_idx_ul << 17 | fec_set_idx_ul << 2 | is_code_ul << 1 | completes_ul;
+  return slot_ul << 32 | fec_set_idx_ul << 17 | shred_idx_ul << 2 | is_code_ul << 1 | completes_ul;
 }
 
 FD_FN_CONST static inline ulong fd_disco_shred_replay_sig_slot       ( ulong sig ) { return       fd_ulong_extract    ( sig, 32, 63 ); }
-FD_FN_CONST static inline uint  fd_disco_shred_replay_sig_shred_idx  ( ulong sig ) { return (uint)fd_ulong_extract    ( sig, 17, 31 ); }
-FD_FN_CONST static inline uint  fd_disco_shred_replay_sig_fec_set_idx( ulong sig ) { return (uint)fd_ulong_extract    ( sig, 2, 16  ); }
+FD_FN_CONST static inline uint  fd_disco_shred_replay_sig_fec_set_idx( ulong sig ) { return (uint)fd_ulong_extract    ( sig, 17, 31 ); }
+FD_FN_CONST static inline uint  fd_disco_shred_replay_sig_shred_idx  ( ulong sig ) { return (uint)fd_ulong_extract    ( sig, 2, 16  ); }
 FD_FN_CONST static inline int   fd_disco_shred_replay_sig_is_code    ( ulong sig ) { return       fd_ulong_extract_bit( sig, 1      ); }
 FD_FN_CONST static inline int   fd_disco_shred_replay_sig_completes  ( ulong sig ) { return       fd_ulong_extract_bit( sig, 0      ); }
 

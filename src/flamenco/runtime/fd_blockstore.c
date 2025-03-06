@@ -762,6 +762,7 @@ fd_blockstore_parent_slot_query( fd_blockstore_t * blockstore, ulong slot ) {
   return parent_slot;
 }
 
+
 int
 fd_blockstore_slice_query( fd_blockstore_t * blockstore,
                            ulong             slot,
@@ -789,24 +790,26 @@ fd_blockstore_slice_query( fd_blockstore_t * blockstore,
     err = fd_block_map_query_test( quer );
   }
   if( FD_UNLIKELY( invalid_idx ) ) {
+    __asm__("int $3");
     FD_LOG_WARNING(( "[%s] invalid idxs: (%lu, %u, %u)", __func__, slot, start_idx, end_idx ));
     return FD_BLOCKSTORE_ERR_SHRED_INVALID;
   }
+
 
   ulong off = 0;
   for(uint idx = start_idx; idx <= end_idx; idx++) {
     ulong payload_sz = 0;
 
-    for(;;) { /* speculative copy */
+    for(;;) { /* speculative copy one shred */
       fd_shred_key_t key = { slot, idx };
       fd_buf_shred_map_query_t query[1] = { 0 };
       int err = fd_buf_shred_map_query_try( blockstore->shred_map, &key, NULL, query );
-      if( FD_UNLIKELY( err == FD_MAP_ERR_CORRUPT ) ) {
-        FD_LOG_WARNING(( "[%s] key: (%lu, %u) %s", __func__, slot, start_idx, fd_buf_shred_map_strerror( err ) ));
+      if( FD_UNLIKELY( err == FD_MAP_ERR_CORRUPT ) ){
+        FD_LOG_WARNING(( "[%s] key: (%lu, %u) %s", __func__, slot, idx, fd_buf_shred_map_strerror( err ) ));
         return FD_BLOCKSTORE_ERR_CORRUPT;
       }
-      if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) {
-        FD_LOG_WARNING(( "[%s] key: (%lu, %u) %s", __func__, slot, start_idx, fd_buf_shred_map_strerror( err ) ));
+      if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ){
+        FD_LOG_WARNING(( "[%s] key: (%lu, %u) %s", __func__, slot, idx, fd_buf_shred_map_strerror( err ) ));
         return FD_BLOCKSTORE_ERR_KEY;
       }
       if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
@@ -820,7 +823,6 @@ fd_blockstore_slice_query( fd_blockstore_t * blockstore,
       }
 
       if( FD_UNLIKELY( payload_sz > FD_SHRED_DATA_PAYLOAD_MAX ) ) return FD_BLOCKSTORE_ERR_SHRED_INVALID;
-      if( FD_UNLIKELY( off + payload_sz > max ) ) return FD_BLOCKSTORE_ERR_NO_MEM;
       fd_memcpy( buf + off, payload, payload_sz );
       err = fd_buf_shred_map_query_test( query );
       if( FD_LIKELY( err == FD_MAP_SUCCESS ) ) break;
