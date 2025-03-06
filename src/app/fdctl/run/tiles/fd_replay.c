@@ -845,7 +845,7 @@ funk_publish( fd_replay_tile_ctx_t * ctx,
 
 static fd_funkier_txn_t*
 get_rooted_txn( fd_replay_tile_ctx_t * ctx,
-                fd_funkier_txn_t *        to_root_txn,
+                fd_funkier_txn_t *     to_root_txn,
                 uchar                  is_constipated ) {
 
   /* We need to get the rooted transaction that we are publishing into. This
@@ -885,10 +885,10 @@ get_rooted_txn( fd_replay_tile_ctx_t * ctx,
     if( FD_UNLIKELY( !ctx->false_root ) ) {
 
       fd_funkier_txn_t * txn        = to_root_txn;
-      fd_funkier_txn_t * parent_txn = fd_funkier_txn_parent( txn, txn_map );
+      fd_funkier_txn_t * parent_txn = fd_funkier_txn_parent( txn, &txn_pool );
       while( parent_txn ) {
         txn        = parent_txn;
-        parent_txn = fd_funkier_txn_parent( txn, txn_map );
+        parent_txn = fd_funkier_txn_parent( txn, &txn_pool );
       }
 
       ctx->false_root = txn;
@@ -999,13 +999,13 @@ funk_and_txncache_publish( fd_replay_tile_ctx_t * ctx, ulong wmk, fd_funkier_txn
 
   /* Handle updates to funk and the status cache. */
 
-  fd_funkier_txn_t * txn_map     = fd_funkier_txn_map( ctx->funk, fd_funkier_wksp( ctx->funk ) );
-  fd_funkier_txn_t * to_root_txn = fd_funkier_txn_query( xid, txn_map );
-  fd_funkier_txn_t * rooted_txn  = get_rooted_txn( ctx, to_root_txn, txn_map, is_constipated );
+  fd_funkier_txn_map_t txn_map     = fd_funkier_txn_map( ctx->funk, fd_funkier_wksp( ctx->funk ) );
+  fd_funkier_txn_t *   to_root_txn = fd_funkier_txn_query( xid, &txn_map );
+  fd_funkier_txn_t *   rooted_txn  = get_rooted_txn( ctx, to_root_txn, is_constipated );
 
-  txncache_publish( ctx, txn_map, to_root_txn, rooted_txn );
+  txncache_publish( ctx, to_root_txn, rooted_txn );
 
-  funk_publish( ctx, to_root_txn, txn_map, wmk, is_constipated );
+  funk_publish( ctx, to_root_txn, wmk, is_constipated );
 
   /* Update the snapshot state and determine if one is ready to be created. */
 
@@ -1281,9 +1281,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   }
   xid.ul[0] = fork->slot_ctx.slot_bank.slot;
   /* push a new transaction on the stack */
-  fd_funkier_start_write( ctx->funk );
   fork->slot_ctx.funk_txn = fd_funkier_txn_prepare(ctx->funk, fork->slot_ctx.funk_txn, &xid, 1);
-  fd_funkier_end_write( ctx->funk );
 
   if( FD_UNLIKELY( FD_RUNTIME_EXECUTE_SUCCESS != fd_runtime_block_pre_execute_process_new_epoch( &fork->slot_ctx,
                                                                                                  ctx->tpool,
@@ -1944,7 +1942,6 @@ after_frag( fd_replay_tile_ctx_t * ctx,
       ctx->slot_ctx->slot_bank.hard_forks.hard_forks_len = ctx->restart_hard_forks_len;
       ctx->slot_ctx->slot_bank.hard_forks.hard_forks     = ctx->restart_hard_forks;
 
-      fd_funk_start_write( ctx->funk );
       int result = fd_runtime_save_slot_bank( ctx->slot_ctx );
       if( FD_UNLIKELY( result!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
         FD_LOG_ERR(( "Wen-restart fails at saving slot bank" ));
@@ -1952,10 +1949,9 @@ after_frag( fd_replay_tile_ctx_t * ctx,
 
       /* Publish the heaviest fork slot in funk */
       fd_fseq_update( ctx->published_wmark, curr_slot );
-      if( FD_UNLIKELY( !fd_funk_txn_publish( ctx->funk, ctx->slot_ctx->funk_txn, 1 ) ) ) {
+      if( FD_UNLIKELY( !fd_funkier_txn_publish( ctx->funk, ctx->slot_ctx->funk_txn, 1 ) ) ) {
         FD_LOG_ERR(( "Wen-restart fails at funk txn publish" ));
       }
-      fd_funk_end_write( ctx->funk );
 
       fd_hash_t const * bank_hash = &child->slot_ctx.slot_bank.banks_hash;
       fd_memcpy( &ctx->restart->heaviest_fork_bank_hash, bank_hash, sizeof(fd_hash_t) );
@@ -2221,12 +2217,10 @@ read_snapshot( void *              _ctx,
                              ctx->slot_ctx->slot_bank.slot,
                              ctx->runtime_spad );
   FD_LOG_NOTICE(( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
-  fd_funkier_start_write( ctx->slot_ctx->acc_mgr->funk );
   fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( ctx->slot_ctx,
                                                         ctx->slot_ctx->funk_txn,
                                                         ctx->tpool,
                                                         ctx->runtime_spad );
-  fd_funkier_end_write( ctx->slot_ctx->acc_mgr->funk );
   FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
   fd_blockstore_init( ctx->slot_ctx->blockstore,
@@ -2280,12 +2274,10 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
     snapshot_slot                      = 1UL;
 
     FD_LOG_NOTICE(( "starting fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
-    fd_funkier_start_write( ctx->slot_ctx->acc_mgr->funk );
     fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( ctx->slot_ctx,
                                                           ctx->slot_ctx->funk_txn,
                                                           ctx->tpool,
                                                           ctx->runtime_spad );
-    fd_funkier_end_write( ctx->slot_ctx->acc_mgr->funk );
     FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
 
   }
@@ -2306,7 +2298,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
 
   fd_funkier_rec_key_t key = { 0 };
   fd_memcpy( key.c, ctx->vote_acc, sizeof(fd_pubkey_t) );
-  key.c[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
+  key.c[FD_FUNKIER_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
   fd_tower_from_vote_acc( ctx->tower, ctx->funk, snapshot_fork->slot_ctx.funk_txn, &key );
   FD_LOG_NOTICE(( "vote account: %s", FD_BASE58_ENC_32_ALLOCA( key.c ) ));
   fd_tower_print( ctx->tower, ctx->root );
@@ -2550,7 +2542,7 @@ during_housekeeping( void * _ctx ) {
   if ( FD_LIKELY( wmark <= fd_fseq_query( ctx->published_wmark ) ) ) return;
   FD_LOG_NOTICE(( "wmk %lu => %lu", fd_fseq_query( ctx->published_wmark ), wmark ));
 
-  fd_funk_txn_xid_t xid = { .ul = { wmark, wmark } };
+  fd_funkier_txn_xid_t xid = { .ul = { wmark, wmark } };
   if( FD_LIKELY( ctx->blockstore ) ) fd_blockstore_publish( ctx->blockstore, ctx->blockstore_fd, wmark );
   if( FD_LIKELY( ctx->forks ) ) fd_forks_publish( ctx->forks, wmark, ctx->ghost );
   if( FD_LIKELY( ctx->funk ) ) funk_and_txncache_publish( ctx, wmark, &xid );
@@ -2678,7 +2670,7 @@ unprivileged_init( fd_topo_t *      topo,
     funk = fd_funkier_open_file(
       tile->replay.funk_file, 1, ctx->funk_seed, tile->replay.funk_txn_max,
         tile->replay.funk_rec_max, tile->replay.funk_sz_gb * (1UL<<30),
-        FD_FUNK_READ_WRITE, NULL );
+        FD_FUNKIER_READ_WRITE, NULL );
   } else if( strncmp( snapshot, "wksp:", 5 ) == 0) {
     /* Recover funk database from a checkpoint. */
     funk = fd_funkier_recover_checkpoint( tile->replay.funk_file, 1, snapshot+5, NULL );
@@ -2687,7 +2679,7 @@ unprivileged_init( fd_topo_t *      topo,
     funk = fd_funkier_open_file(
       tile->replay.funk_file, 1, ctx->funk_seed, tile->replay.funk_txn_max,
         tile->replay.funk_rec_max, tile->replay.funk_sz_gb * (1UL<<30),
-        FD_FUNK_OVERWRITE, NULL );
+        FD_FUNKIER_OVERWRITE, NULL );
     FD_LOG_NOTICE(( "Opened funk file at %s", tile->replay.funk_file ));
   }
   if( FD_UNLIKELY( funk == NULL ) ) {
