@@ -543,3 +543,12 @@
 | netlnk_&#8203;neigh_&#8203;probe_&#8203;fails | `counter` | Number of neighbor solicit requests that failed to send (kernel too slow) |
 | netlnk_&#8203;neigh_&#8203;probe_&#8203;rate_&#8203;limit_&#8203;host | `counter` | Number of neighbor solicit that exceeded the per-host rate limit |
 | netlnk_&#8203;neigh_&#8203;probe_&#8203;rate_&#8203;limit_&#8203;global | `counter` | Number of neighbor solicit that exceeded the global rate limit |
+
+## Sock Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| sock_&#8203;syscalls_&#8203;sendmmsg | `counter` | Number of sendmmsg syscalls dispatched |
+| sock_&#8203;syscalls_&#8203;recvmmsg | `counter` | Number of recvmsg syscalls dispatched |
+| sock_&#8203;rx_&#8203;pkt_&#8203;cnt | `counter` | Number of packets received |
+| sock_&#8203;tx_&#8203;pkt_&#8203;cnt | `counter` | Number of packets sent |
+| sock_&#8203;tx_&#8203;drop_&#8203;cnt | `counter` | Number of packets failed to send |

@@ -24,6 +24,7 @@ class Tile(Enum):
     STOREI = 18
     GOSSIP = 19
     NETLNK = 20
+    SOCK = 21
 
 class MetricType(Enum):
     COUNTER = 0

@@ -63,7 +63,7 @@ pktgen_topo( config_t * const config ) {
   fd_topob_tile_out( topo, "net", 0UL, "net_quic", 0UL );
   fd_topob_tile_in( topo, "pktgen", 0UL, "metric_in", "net_quic", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
 
-  fd_topos_net_tile_umem( topo, 0UL );
+  fd_topos_net_tile_finish( topo, 0UL );
   if( FD_UNLIKELY( is_auto_affinity ) ) fd_topob_auto_layout( topo );
   topo->agave_affinity_cnt = 0;
   fd_topob_finish( topo, fdctl_obj_align, fdctl_obj_footprint, fdctl_obj_loose );

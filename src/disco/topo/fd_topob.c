@@ -348,6 +348,7 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "benchg",
     "benchs",
     "net",
+    "sock",
     "quic",
     "bundle",
     "verify",

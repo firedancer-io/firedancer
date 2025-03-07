@@ -409,7 +409,7 @@ run_monitor( config_t * const config,
 
     if( FD_UNLIKELY( with_sankey ) ) {
       /* We only need to count from one of the benchs, since they both receive
-        all of the transactions. */
+         all of the transactions. */
       fd_topo_tile_t const * benchs = &topo->tiles[ fd_topo_find_tile( topo, "benchs", 0UL ) ];
       ulong fseq_sum = 0UL;
       for( ulong i=0UL; i<benchs->in_cnt; i++ ) {
@@ -417,7 +417,10 @@ run_monitor( config_t * const config,
         fseq_sum += fd_fseq_query( fseq );
       }
 
-      fd_topo_tile_t const * net = &topo->tiles[ fd_topo_find_tile( topo, "net", 0UL ) ];
+      ulong net_tile_idx = fd_topo_find_tile( topo, "net", 0UL );
+      if( FD_UNLIKELY( net_tile_idx==ULONG_MAX ) ) FD_LOG_ERR(( "net tile not found" ));
+
+      fd_topo_tile_t const * net = &topo->tiles[ net_tile_idx ];
       ulong net_sent = fd_mcache_seq_query( fd_mcache_seq_laddr( topo->links[ net->out_link_id[ 0 ] ].mcache ) );
       net_sent      += fd_mcache_seq_query( fd_mcache_seq_laddr( topo->links[ net->out_link_id[ 1 ] ].mcache ) );
       net_sent = fseq_sum;
