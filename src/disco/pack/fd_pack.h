@@ -9,6 +9,7 @@
 #include "../../ballet/txn/fd_txn.h"
 #include "fd_est_tbl.h"
 #include "fd_microblock.h"
+#include "fd_pack_rebate_sum.h"
 
 #define FD_PACK_ALIGN     (128UL)
 
@@ -546,19 +547,8 @@ ulong fd_pack_schedule_next_microblock( fd_pack_t * pack, ulong total_cus, float
    all the requested CUs, this function "rebates" them to pack so that
    they can be consumed by a different transaction in the block.
 
-   pack must be a valid local join of a pack object.  txns, indexed [0,
-   txn_cnt), should point to the first of txn_cnt transactions scheduled
-   in a microblock by pack.  Although txns does not need to be the same
-   specific pointer passed to out in a call to schedule_next_microblock,
-   it should point to the same data as returned by a call to
-   schedule_next_microblock, other than flags and executed_cus fields.
-   Similarly, txn_cnt should be the return value of the corresponding
-   prior call to schedule_next_microblock.  txn_cnt==0 is okay and a
-   no-op.  txns==NULL is okay if txn_cnt==0.
-
-   This function reads the requested_cus and executed_cus fields of the
-   transactions in txns.  It expects that both refer to just execution
-   CUs, and do not include e.g. write lock cost units.
+   pack must be a valid local join of a pack object.  rebate must point
+   to a valid rebate report produced by fd_pack_rebate_sum_t.
 
    IMPORTANT: CU limits are reset at the end of each block, so this
    should not be called for transactions from a prior block.
@@ -573,7 +563,7 @@ ulong fd_pack_schedule_next_microblock( fd_pack_t * pack, ulong total_cus, float
    constraints.  The restriction about intervening calls to end_block
    and that this must come after schedule_next_microblock are the only
    ordering constraints. */
-void fd_pack_rebate_cus( fd_pack_t * pack, fd_txn_p_t const * txns, ulong txn_cnt );
+void fd_pack_rebate_cus( fd_pack_t * pack, fd_pack_rebate_t const * rebate );
 
 /* fd_pack_microblock_complete signals that the bank_tile with index
    bank_tile has completed its previously scheduled microblock.  This

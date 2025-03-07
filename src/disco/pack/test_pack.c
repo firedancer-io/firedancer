@@ -905,6 +905,11 @@ static void
 test_limits( void ) {
   FD_LOG_NOTICE(( "TEST LIMITS" ));
 
+  fd_pack_rebate_sum_t _rebater[1];
+  union{ fd_pack_rebate_t rebate[1]; uchar footprint[USHORT_MAX]; } report[1];
+  fd_pack_rebate_sum_t * rebater = fd_pack_rebate_sum_join( fd_pack_rebate_sum_new( _rebater ) );
+  fd_acct_addr_t const * rebate_alt[1] = { NULL };
+
   /* Test the max txn per microblock limit */
   for( ulong max=1UL; max<=15UL; max++ ) {
     fd_pack_t * pack = init_all( 1024UL, 1UL, max, &outcome );
@@ -984,7 +989,9 @@ test_limits( void ) {
     FD_TEST( fd_pack_avail_txn_cnt( pack )==1UL );
 
     outcome.results->bank_cu.rebated_cus = (uint)((total_cus + (total_cus*FD_PACK_MAX_COST_PER_BLOCK/(4*total_cus))) - FD_PACK_MAX_WRITE_COST_PER_ACCT);
-    fd_pack_rebate_cus( pack, outcome.results, 1UL );
+    fd_pack_rebate_sum_add_txn( rebater, outcome.results, rebate_alt, 1UL );
+    fd_pack_rebate_sum_report( rebater, report->rebate );
+    fd_pack_rebate_cus( pack, report->rebate );
     /* Now consumed CUs is 12M - total_cus, so it just fits. */
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 1UL, 0UL, 0UL, &outcome );
 
@@ -1028,7 +1035,9 @@ test_limits( void ) {
 
     /* rebate just enough cus to have the total_cus needed for one more */
     outcome.results[ 0 ].bank_cu.rebated_cus = (uint)(total_cus - (FD_PACK_MAX_COST_PER_BLOCK - almost_full_iter*8UL*total_cus - 7UL*total_cus));
-    fd_pack_rebate_cus( pack, outcome.results, 1UL );
+    fd_pack_rebate_sum_add_txn( rebater, outcome.results, rebate_alt, 1UL );
+    fd_pack_rebate_sum_report( rebater, report->rebate );
+    fd_pack_rebate_cus( pack, report->rebate );
     schedule_validate_microblock( pack, FD_PACK_MAX_COST_PER_BLOCK, 0.0f, 1UL, 0UL, 0UL, &outcome );
 
     fd_pack_end_block( pack );

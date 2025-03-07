@@ -7,6 +7,7 @@
 #include "../../../../disco/metrics/fd_metrics.h"
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../disco/bank/fd_bank_abi.h"
+#include "../../../../disco/pack/fd_pack_rebate_sum.h"
 #include "../../../../disco/metrics/generated/fd_metrics_bank.h"
 
 #define FD_BANK_TRANSACTION_LANDED    1
@@ -35,6 +36,14 @@ typedef struct {
   ulong       out_chunk0;
   ulong       out_wmark;
   ulong       out_chunk;
+
+  fd_wksp_t * rebate_mem;
+  ulong       rebate_chunk0;
+  ulong       rebate_wmark;
+  ulong       rebate_chunk;
+  long        next_rebate_ticks;
+  ulong       rebates_for_slot;
+  fd_pack_rebate_sum_t rebater[ 1 ];
 
   struct {
     ulong slot_acquire[ 3 ];
@@ -157,6 +166,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
   ulong slot = fd_disco_poh_sig_slot( sig );
   ulong txn_cnt = (sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
 
+  fd_acct_addr_t const * writable_alt[ MAX_TXN_PER_MICROBLOCK ] = { NULL };
+
   ulong sanitized_txn_cnt = 0UL;
   ulong sidecar_footprint_bytes = 0UL;
   for( ulong i=0UL; i<txn_cnt; i++ ) {
@@ -176,6 +187,7 @@ handle_microblock( fd_bank_ctx_t *     ctx,
       continue;
     }
 
+    writable_alt[ i ] = fd_bank_abi_get_lookup_addresses( (fd_bank_abi_txn_t *)abi_txn );
     txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
     fd_txn_t * txn1 = TXN(txn);
@@ -288,6 +300,9 @@ handle_microblock( fd_bank_ctx_t *     ctx,
      it can pack new microblocks using these accounts. */
   fd_fseq_update( ctx->busy_fseq, seq );
 
+  /* Prepare the rebate */
+  fd_pack_rebate_sum_add_txn( ctx->rebater, (fd_txn_p_t const *)dst, writable_alt, txn_cnt );
+
   /* Now produce the merkle hash of the transactions for inclusion
      (mixin) to the PoH hash.  This is done on the bank tile because
      it shards / scales horizontally here, while PoH does not. */
@@ -332,6 +347,8 @@ handle_bundle( fd_bank_ctx_t *     ctx,
   ulong slot = fd_disco_poh_sig_slot( sig );
   ulong txn_cnt = (sz-sizeof(fd_microblock_bank_trailer_t))/sizeof(fd_txn_p_t);
 
+  fd_acct_addr_t const * writable_alt[ MAX_TXN_PER_MICROBLOCK ] = { NULL };
+
   int execution_success = 1;
 
   ulong sidecar_footprint_bytes = 0UL;
@@ -356,6 +373,7 @@ handle_bundle( fd_bank_ctx_t *     ctx,
       continue;
     }
 
+    writable_alt[ i ] = fd_bank_abi_get_lookup_addresses( (fd_bank_abi_txn_t *)abi_txn );
     txn->flags |= FD_TXN_P_FLAGS_SANITIZE_SUCCESS;
 
     fd_txn_t * txn1 = TXN(txn);
@@ -431,6 +449,8 @@ handle_bundle( fd_bank_ctx_t *     ctx,
     }
   }
 
+  fd_pack_rebate_sum_add_txn( ctx->rebater, txns, writable_alt, txn_cnt );
+
   /* We need to publish each transaction separately into its own
      microblock, so make a temporary copy on the stack so we can move
      all the data around. */
@@ -470,9 +490,28 @@ after_frag( fd_bank_ctx_t *     ctx,
   (void)in_idx;
   (void)tsorig;
   (void)tspub;
+  ulong slot = fd_disco_poh_sig_slot( sig );
+  if( FD_UNLIKELY( slot!=ctx->rebates_for_slot ) ) {
+    /* If pack has already moved on to a new slot, the rebates are no
+       longer useful. */
+    fd_pack_rebate_sum_clear( ctx->rebater );
+    ctx->rebates_for_slot = slot;
+  }
 
   if( FD_UNLIKELY( ctx->_is_bundle ) ) handle_bundle( ctx, seq, sig, sz, stem );
   else                                 handle_microblock( ctx, seq, sig, sz, stem );
+
+  /* TODO: Use fancier logic to coalesce rebates e.g.
+     if( FD_UNLIKELY( fd_pack_rebate_sum_add_txn( ctx->rebater, NULL, NULL, 0UL ) || fd_tickcount()>ctx->next_rebate_ticks ) )
+     ctx->next_rebate_ticks = fd_tickcount()+(long)(fd_tempo_tick_per_ns( NULL )*1000000.0);
+     Probably need to move this to after_credit then though
+    */
+  ulong written_sz = 0UL;
+  while( 0UL!=(written_sz=fd_pack_rebate_sum_report( ctx->rebater, fd_chunk_to_laddr( ctx->rebate_mem, ctx->rebate_chunk ) )) ) {
+    ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_stem_publish( stem, 1UL, slot, ctx->rebate_chunk, written_sz, 0UL, tsorig, tspub );
+    ctx->rebate_chunk = fd_dcache_compact_next( ctx->rebate_chunk, written_sz, ctx->rebate_chunk0, ctx->rebate_wmark );
+  }
 }
 
 static void
@@ -496,6 +535,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->blake3 = NONNULL( fd_blake3_join( fd_blake3_new( blake3 ) ) );
   ctx->bmtree = NONNULL( bmtree );
 
+  NONNULL( fd_pack_rebate_sum_join( fd_pack_rebate_sum_new( ctx->rebater ) ) );
+  ctx->next_rebate_ticks = fd_tickcount();
+  ctx->rebates_for_slot  = 0UL;
+
   ulong busy_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "bank_busy.%lu", tile->kind_id );
   FD_TEST( busy_obj_id!=ULONG_MAX );
   ctx->busy_fseq = fd_fseq_join( fd_topo_obj_laddr( topo, busy_obj_id ) );
@@ -511,6 +554,12 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->out_chunk0 = fd_dcache_compact_chunk0( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache );
   ctx->out_wmark  = fd_dcache_compact_wmark ( ctx->out_mem, topo->links[ tile->out_link_id[ 0 ] ].dcache, topo->links[ tile->out_link_id[ 0 ] ].mtu );
   ctx->out_chunk  = ctx->out_chunk0;
+
+
+  ctx->rebate_mem    = topo->workspaces[ topo->objs[ topo->links[ tile->out_link_id[ 1 ] ].dcache_obj_id ].wksp_id ].wksp;
+  ctx->rebate_chunk0 = fd_dcache_compact_chunk0( ctx->rebate_mem, topo->links[ tile->out_link_id[ 1 ] ].dcache );
+  ctx->rebate_wmark  = fd_dcache_compact_wmark ( ctx->rebate_mem, topo->links[ tile->out_link_id[ 1 ] ].dcache, topo->links[ tile->out_link_id[ 1 ] ].mtu );
+  ctx->rebate_chunk  = ctx->rebate_chunk0;
 }
 
 /* For a bundle, one bundle might burst into at most 5 separate PoH mixins, since the
