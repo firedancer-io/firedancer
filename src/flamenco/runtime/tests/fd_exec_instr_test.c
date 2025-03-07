@@ -1049,7 +1049,7 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
     double                      warmup_cooldown_rate = test_ctx->epoch_ctx.stake_accounts[i].warmup_cooldown_rate;
 
     // Load in the stake account
-    _load_txn_account( acc, acc_mgr, funk_txn, stake_account, 0 );
+    _load_txn_account( acc, acc_mgr, funk_txn, stake_account, 1 );
 
     fd_delegation_pair_t_mapnode_t * stake_node = fd_delegation_pair_t_map_acquire( epoch_bank->stakes.stake_delegations_pool );
     fd_memcpy( &stake_node->elem.account, &stake_account->address, sizeof(fd_pubkey_t) );
@@ -1072,7 +1072,7 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
     ulong                       stake        = test_ctx->epoch_ctx.vote_accounts_t[i].stake;
 
     // Load in the vote account
-    _load_txn_account( acc, acc_mgr, funk_txn, vote_account, 0 );
+    _load_txn_account( acc, acc_mgr, funk_txn, vote_account, 1 );
 
     fd_vote_accounts_pair_t_mapnode_t * vote_node = fd_vote_accounts_pair_t_map_acquire( epoch_bank->stakes.vote_accounts.vote_accounts_pool );
     vote_node->elem.stake = stake;
