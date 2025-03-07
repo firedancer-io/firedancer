@@ -128,6 +128,17 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,       /* Memory to place the 
                       fd_txn_t *          txn,           /* The Firedancer parsed transaction representation. */
                       int                 is_simple_vote /* If the transaction is a "simple vote" or not. */ );
 
+/* This function takes a pointer to an fd_bank_abi_txn_t as constucted
+   by fd_bank_abi_txn_init and returns a pointer to the expanded address
+   lookup tables, with the writable accounts being first.  If the
+   transaction does not load any accounts from an address lookup table
+   (for example, if it's a legacy transaction), the return values is
+   undefined and may be NULL.  Otherwise, returns a pointer to somewhere
+   within the sidecar region for the transaction; as such, the returned
+   pointer has the same lifetime as the sidecar memory region. */
+fd_acct_addr_t const *
+fd_bank_abi_get_lookup_addresses( fd_bank_abi_txn_t const * txn );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_discoh_fd_bank_abi_h */

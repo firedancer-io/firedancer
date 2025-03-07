@@ -2244,6 +2244,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
 
     pack->cumulative_block_cost += cur->compute_est;
     pack->data_bytes_consumed   += cur->txn->payload_sz + MICROBLOCK_DATA_OVERHEAD;
+    pack->microblock_cnt        += 1UL;
 
     sig2txn_ele_remove_fast( pack->signature_map, cur, pack->pool );
 
@@ -2398,63 +2399,26 @@ fd_pack_set_block_limits( fd_pack_t * pack,
 }
 
 void
-fd_pack_rebate_cus( fd_pack_t        * pack,
-                    fd_txn_p_t const * txns,
-                    ulong              txn_cnt ) {
+fd_pack_rebate_cus( fd_pack_t              * pack,
+                    fd_pack_rebate_t const * rebate ) {
+  if( FD_UNLIKELY( (rebate->ib_result!=0) & (pack->initializer_bundle_state==FD_PACK_IB_STATE_PENDING ) ) ) {
+    pack->initializer_bundle_state = fd_int_if( rebate->ib_result==1, FD_PACK_IB_STATE_READY, FD_PACK_IB_STATE_FAILED );
+  }
+
+  pack->cumulative_block_cost  -= rebate->total_cost_rebate;
+  pack->cumulative_vote_cost   -= rebate->vote_cost_rebate;
+  pack->data_bytes_consumed    -= rebate->data_bytes_rebate;
+  pack->microblock_cnt         -= rebate->microblock_cnt_rebate;
+  pack->cumulative_rebated_cus += rebate->total_cost_rebate;
+
   fd_pack_addr_use_t * writer_costs = pack->writer_costs;
-
-  ulong cumulative_vote_cost   = pack->cumulative_vote_cost;
-  ulong cumulative_block_cost  = pack->cumulative_block_cost;
-  ulong data_bytes_consumed    = pack->data_bytes_consumed;
-  ulong cumulative_rebated_cus = pack->cumulative_rebated_cus;
-
-  /* make sure rebate with txn_cnt==0 is a no-op */
-  int is_initializer_bundle = txn_cnt>0UL;
-  int ib_success            = 1;
-
-  for( ulong i=0UL; i<txn_cnt; i++ ) {
-    fd_txn_p_t const * txn = txns+i;
-    ulong rebated_cus   = txn->bank_cu.rebated_cus;
-    int   in_block      = !!(txn->flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS);
-
-    /* For IB purposes, treat AlreadyProcessed (7) as success.  If one
-       transaction is an initializer bundle, they all must be, so it's
-       unclear if the first line should be an |= or an &=, but &= seems
-       more right. */
-    is_initializer_bundle &= !!(txn->flags & FD_TXN_P_FLAGS_INITIALIZER_BUNDLE);
-    ib_success            &= in_block | ((txn->flags&FD_TXN_P_FLAGS_RESULT_MASK)==(7U<<24));
-
-    cumulative_block_cost  -= rebated_cus;
-    cumulative_vote_cost   -= fd_ulong_if( txn->flags & FD_TXN_P_FLAGS_IS_SIMPLE_VOTE, rebated_cus,     0UL );
-    data_bytes_consumed    -= fd_ulong_if( !in_block,                                  txn->payload_sz, 0UL );
-    cumulative_rebated_cus += rebated_cus;
-
-    fd_acct_addr_t const * accts = fd_txn_get_acct_addrs( TXN(txn), txn->payload );
-    /* TODO: For now, we don't have a way to rebate writer costs for ALT
-       accounts.  We've thrown away the ALT expansion at this point.
-       The rebate system is going to be rewritten soon for performance,
-       so it's okay. */
-    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( TXN(txn), FD_TXN_ACCT_CAT_WRITABLE & FD_TXN_ACCT_CAT_IMM );
-        iter!=fd_txn_acct_iter_end(); iter=fd_txn_acct_iter_next( iter ) ) {
-
-      ulong i=fd_txn_acct_iter_idx( iter );
-
-      fd_pack_addr_use_t * in_wcost_table = acct_uses_query( writer_costs, accts[i], NULL );
-      if( FD_UNLIKELY( !in_wcost_table ) ) FD_LOG_ERR(( "Rebate to unknown written account" ));
-      in_wcost_table->total_cost -= rebated_cus;
-      /* Important: Even if this is 0, don't delete it from the table so
-         that the insert order doesn't get messed up. */
-    }
+  for( ulong i=0UL; i<rebate->writer_cnt; i++ ) {
+    fd_pack_addr_use_t * in_wcost_table = acct_uses_query( writer_costs, rebate->writer_rebates[i].key, NULL );
+    if( FD_UNLIKELY( !in_wcost_table ) ) FD_LOG_ERR(( "Rebate to unknown written account" ));
+    in_wcost_table->total_cost -= rebate->writer_rebates[i].rebate_cus;
+    /* Important: Even if this is 0, don't delete it from the table so
+       that the insert order doesn't get messed up. */
   }
-
-  if( FD_UNLIKELY( is_initializer_bundle & (pack->initializer_bundle_state==FD_PACK_IB_STATE_PENDING ) ) ) {
-    pack->initializer_bundle_state = fd_int_if( ib_success, FD_PACK_IB_STATE_READY, FD_PACK_IB_STATE_FAILED );
-  }
-
-  pack->cumulative_vote_cost   = cumulative_vote_cost;
-  pack->cumulative_block_cost  = cumulative_block_cost;
-  pack->data_bytes_consumed    = data_bytes_consumed;
-  pack->cumulative_rebated_cus = cumulative_rebated_cus;
 }
 
 
