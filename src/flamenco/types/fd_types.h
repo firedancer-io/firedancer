@@ -7,6 +7,7 @@
 #include "fd_types_custom.h"
 #define FD_ACCOUNT_META_MAGIC 9823
 
+#include "../fd_flamenco_base.h"
 /* sdk/program/src/feature.rs#L22 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_feature {
@@ -2830,6 +2831,7 @@ fd_partitioned_stake_rewards_dlist_join_new( void * * alloc_mem, ulong num ) {
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_partitioned_stake_rewards {
   ulong partitions_len;
+  ulong partitions_lengths[4096];
   fd_partitioned_stake_rewards_dlist_t * partitions;
   fd_stake_reward_t * pool;
 };
@@ -2906,6 +2908,7 @@ fd_stake_reward_calculation_dlist_join_new( void * * alloc_mem, ulong num ) {
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_stake_reward_calculation {
   ulong stake_rewards_len;
+  ulong stake_rewards_lengths[1];
   fd_stake_reward_calculation_dlist_t * stake_rewards;
   fd_stake_reward_t * pool;
   ulong total_stake_rewards_lamports;
