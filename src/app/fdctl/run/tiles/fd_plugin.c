@@ -86,11 +86,8 @@ after_frag( fd_plugin_ctx_t *   ctx,
             ulong               sz,
             ulong               tsorig,
             fd_stem_context_t * stem ) {
-  (void)in_idx;
   (void)seq;
-  (void)sz;
   (void)tsorig;
-  (void)stem;
 
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_REPLAY: {

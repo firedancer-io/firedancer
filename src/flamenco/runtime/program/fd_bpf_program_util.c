@@ -304,8 +304,8 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
 static void FD_FN_UNUSED
 fd_bpf_scan_task( void * tpool,
                   ulong t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
-                  void * args FD_PARAM_UNUSED,
-                  void * reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
+                  void * args,
+                  void * reduce , ulong stride FD_PARAM_UNUSED,
                   ulong l0 FD_PARAM_UNUSED, ulong l1 FD_PARAM_UNUSED,
                   ulong m0, ulong m1 FD_PARAM_UNUSED,
                   ulong n0 FD_PARAM_UNUSED, ulong n1 FD_PARAM_UNUSED  ) {

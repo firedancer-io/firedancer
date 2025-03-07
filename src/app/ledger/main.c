@@ -24,6 +24,7 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../flamenco/types/fd_solana_block.pb.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
+#include "../../flamenco/runtime/context/fd_runtime_ctx.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/program/fd_builtin_programs.h"
 #include "../../flamenco/shredcap/fd_shredcap.h"
@@ -175,7 +176,7 @@ init_spads( fd_ledger_args_t * args, int has_tpool ) {
 
 static void
 fd_create_snapshot_task( void FD_PARAM_UNUSED *tpool,
-                         ulong t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
+                         ulong t0, ulong t1,
                          void *args FD_PARAM_UNUSED,
                          void *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
                          ulong l0 FD_PARAM_UNUSED, ulong l1 FD_PARAM_UNUSED,
@@ -1258,8 +1259,20 @@ replay( fd_ledger_args_t * args ) {
   args->epoch_ctx->epoch_bank.cluster_version[1] = args->cluster_version[1];
   args->epoch_ctx->epoch_bank.cluster_version[2] = args->cluster_version[2];
 
+  void * runtime_public_mem = fd_wksp_alloc_laddr( args->wksp, fd_runtime_public_align(), fd_runtime_public_footprint( ), FD_EXEC_EPOCH_CTX_MAGIC );
+  fd_memset( runtime_public_mem, 0, fd_runtime_public_footprint( ) );
+
+  fd_runtime_ctx_t runtime_ctx[1];
+  fd_runtime_ctx_new(runtime_ctx);
+  runtime_ctx->private_valloc = args->valloc;
+  runtime_ctx->public = fd_runtime_public_join( runtime_public_mem );
+  g_runtime_ctx = runtime_ctx;
+
   fd_features_enable_cleaned_up( &args->epoch_ctx->features, args->epoch_ctx->epoch_bank.cluster_version );
   fd_features_enable_one_offs( &args->epoch_ctx->features, args->one_off_features, args->one_off_features_cnt, 0UL );
+
+  // activate them
+  fd_memcpy( &g_runtime_ctx->public->features, &args->epoch_ctx->features, sizeof(fd_features_t) );
 
   void * slot_ctx_mem        = fd_spad_alloc( spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
   args->slot_ctx             = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, spad ) );

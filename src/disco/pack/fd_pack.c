@@ -651,7 +651,7 @@ fd_pack_footprint( ulong                    pack_depth,
 
   int enable_bundles = !!bundle_meta_sz;
   ulong l;
-  ulong extra_depth        = fd_ulong_if( enable_bundles, 1UL+FD_PACK_MAX_TXN_PER_BUNDLE, 1UL ); /* space for use between init and fini */
+  ulong extra_depth        = fd_ulong_if( enable_bundles, 1UL+2UL*FD_PACK_MAX_TXN_PER_BUNDLE, 1UL ); /* space for use between init and fini */
   ulong max_acct_in_treap  = pack_depth * FD_TXN_ACCT_ADDR_MAX;
   ulong max_txn_per_mblk   = fd_ulong_max( limits->max_txn_per_microblock,
                                            fd_ulong_if( enable_bundles, FD_PACK_MAX_TXN_PER_BUNDLE, 0UL ) );
@@ -697,7 +697,7 @@ fd_pack_new( void                   * mem,
              fd_rng_t                * rng           ) {
 
   int enable_bundles = !!bundle_meta_sz;
-  ulong extra_depth        = fd_ulong_if( enable_bundles, 1UL+FD_PACK_MAX_TXN_PER_BUNDLE, 1UL );
+  ulong extra_depth        = fd_ulong_if( enable_bundles, 1UL+2UL*FD_PACK_MAX_TXN_PER_BUNDLE, 1UL );
   ulong max_acct_in_treap  = pack_depth * FD_TXN_ACCT_ADDR_MAX;
   ulong max_txn_per_mblk   = fd_ulong_max( limits->max_txn_per_microblock,
                                            fd_ulong_if( enable_bundles, FD_PACK_MAX_TXN_PER_BUNDLE, 0UL ) );
@@ -831,7 +831,7 @@ fd_pack_join( void * mem ) {
 
   int enable_bundles = !!pack->bundle_meta_sz;
   ulong pack_depth             = pack->pack_depth;
-  ulong extra_depth            = fd_ulong_if( enable_bundles, 1UL+FD_PACK_MAX_TXN_PER_BUNDLE, 1UL );
+  ulong extra_depth            = fd_ulong_if( enable_bundles, 1UL+2UL*FD_PACK_MAX_TXN_PER_BUNDLE, 1UL );
   ulong bank_tile_cnt          = pack->bank_tile_cnt;
   ulong max_txn_per_microblock = fd_ulong_max( pack->lim->max_txn_per_microblock,
                                                fd_ulong_if( enable_bundles, FD_PACK_MAX_TXN_PER_BUNDLE, 0UL ) );
@@ -1011,27 +1011,39 @@ delete_worst( fd_pack_t * pack,
        it does happen, find the first one that isn't free. */
     while( FD_UNLIKELY( sample->root==FD_ORD_TXN_ROOT_FREE ) ) sample = &pack->pool[ (++sample_i)%pool_max ];
 
-    int       root_idx = sample->root;
-    float     score    = 0.0f;
+    int       root_idx   = sample->root;
+    float     multiplier = 0.0f; /* The smaller this is, the more biased we'll be to deleting it */
+    treap_t * treap;
     switch( root_idx & FD_ORD_TXN_ROOT_TAG_MASK ) {
+      default:
       case FD_ORD_TXN_ROOT_FREE: {
         FD_TEST( 0 );
-        break;
+        return -1; /* Can't be hit */
       }
       case FD_ORD_TXN_ROOT_PENDING: {
+        treap = pack->pending;
         ulong vote_cnt = treap_ele_cnt( pack->pending_votes );
-        if( FD_LIKELY( !is_vote || (vote_cnt>=pack->pack_depth/4UL ) ) ) score = (float)sample->rewards / (float)sample->compute_est;
+        if( FD_LIKELY( !is_vote || (vote_cnt>=pack->pack_depth/4UL ) ) ) multiplier = 1.0f;
         break;
       }
       case FD_ORD_TXN_ROOT_PENDING_VOTE: {
+        treap = pack->pending_votes;
         ulong vote_cnt = treap_ele_cnt( pack->pending_votes );
-        if( FD_LIKELY( is_vote || (vote_cnt<=3UL*pack->pack_depth/4UL ) ) ) score = (float)sample->rewards / (float)sample->compute_est;
+        if( FD_LIKELY( is_vote || (vote_cnt<=3UL*pack->pack_depth/4UL ) ) ) multiplier = 1.0f;
         break;
       }
       case FD_ORD_TXN_ROOT_PENDING_BUNDLE: {
         /* We don't have a way to tell how much these actually pay in
            rewards, so we just assume they are very high. */
-        score = FLT_MAX;
+        treap = pack->pending_bundles;
+        /* We cap rewards at UINT_MAX lamports for estimation, and min
+           CUs is about 1000, which means rewards/compute < 5e6.
+           FLT_MAX is around 3e38. That means, 1e20*rewards/compute is
+           much less than FLT_MAX, so we won't have any issues with
+           overflow.  On the other hand, if rewards==1 lamport and
+           compute is 2 million CUs, 1e20*1/2e6 is still higher than any
+           normal transaction. */
+        multiplier = 1e20f;
         break;
       }
       case FD_ORD_TXN_ROOT_PENALTY( 0 ): {
@@ -1042,10 +1054,18 @@ delete_worst( fd_pack_t * pack,
         fd_pack_penalty_treap_t * q = penalty_map_query( pack->penalty_treaps, penalty_acct, NULL );
         FD_TEST( q );
         ulong cnt = treap_ele_cnt( q->penalty_treap );
-        score = (float)sample->rewards / (float)sample->compute_est * sqrtf( 100.0f / (float)cnt );
+        treap = q->penalty_treap;
+
+        multiplier = sqrtf( 100.0f / (float)fd_ulong_max( 100UL, cnt ) );
         break;
       }
     }
+    /* Get the worst from the sampled treap */
+    treap_fwd_iter_t _cur=treap_fwd_iter_init( treap, pack->pool );
+    FD_TEST( !treap_fwd_iter_done( _cur ) ); /* It can't be empty because we just sampled an element from it. */
+    sample = treap_fwd_iter_ele( _cur, pack->pool );
+
+    float score = multiplier * (float)sample->rewards / (float)sample->compute_est;
     worst = fd_ptr_if( score<worst_score, sample, worst );
     worst_score = fd_float_if( worst_score<score, worst_score, score );
   }
@@ -1054,7 +1074,7 @@ delete_worst( fd_pack_t * pack,
   if( FD_UNLIKELY( threshold_score<worst_score ) ) return 0;
 
   fd_ed25519_sig_t const * worst_sig = fd_txn_get_signatures( TXN( worst->txn ), worst->txn->payload );
-  delete_transaction( pack, worst_sig, 0, 0 );
+  delete_transaction( pack, worst_sig, 1, 1 );
   return 1;
 }
 
@@ -1225,7 +1245,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
     replaces = 1;
   }
 
-  ord->txn->flags &= ~FD_TXN_P_FLAGS_BUNDLE;
+  ord->txn->flags &= ~(FD_TXN_P_FLAGS_BUNDLE | FD_TXN_P_FLAGS_INITIALIZER_BUNDLE);
   ord->skip = FD_PACK_SKIP_CNT;
 
   /* At this point, we know we have space to insert the transaction and

@@ -30,7 +30,6 @@ cb_conn_new( fd_quic_conn_t  * conn,
 void
 cb_conn_handshake_complete( fd_quic_conn_t * conn,
                             void *           quic_ctx ) {
-  (void)conn;
   (void)quic_ctx;
   FD_LOG_NOTICE(( "cb_conn_handshake_complete %lu", conn->tx_max_data ));
   g_handshake_complete = 1;
@@ -54,8 +53,6 @@ cb_stream_notify( fd_quic_stream_t * stream,
                   int                notify_type ) {
   (void)stream;
   (void)stream_ctx;
-
-  stream = NULL;
 
   if( notify_type == FD_QUIC_STREAM_NOTIFY_END ) {
     sent_cnt++;

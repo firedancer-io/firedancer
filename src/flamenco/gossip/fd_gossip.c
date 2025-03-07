@@ -20,7 +20,7 @@
 /* Maximum size of a network packet */
 #define PACKET_DATA_SIZE 1232
 /* How long do we remember values (in millisecs) */
-#define FD_GOSSIP_VALUE_EXPIRE ((ulong)(60e3))   /* 1 minute */
+#define FD_GOSSIP_VALUE_EXPIRE ((ulong)(3600e3))   /* 1 hr */
 /* Max age that values can be pushed/pulled (in millisecs) */
 #define FD_GOSSIP_PULL_TIMEOUT ((ulong)(15e3))   /* 15 seconds */
 /* Max number of validators that can be actively pinged */
@@ -1445,8 +1445,16 @@ fd_gossip_recv_crds_array( fd_gossip_t * glob, const fd_gossip_peer_addr_t * fro
       }
 
       glob->recv_nondup_cnt++;
-      /* Sigverify */
-      if( fd_crds_sigverify( tmp->encoded_val, tmp->encoded_len, tmp->pubkey ) ) {
+      /* Sigverify step
+         Skip verifying epoch slots because they:
+          - are not used anywhere within the client
+            - still store them in table for forwarding +
+              prune message construction
+          - represent a significant portion of inbound CRDS
+            traffic (~90%)
+          - will be deprecated soon */
+      if( tmp->crd->data.discriminant != fd_crds_data_enum_epoch_slots &&
+          fd_crds_sigverify( tmp->encoded_val, tmp->encoded_len, tmp->pubkey ) ) {
         INC_RECV_CRDS_DROP_METRIC( INVALID_SIGNATURE );
         /* drop full packet on bad signature
            https://github.com/anza-xyz/agave/commit/d68b5de6c0fc07d60cf9749ae82c2651a549e81b */
@@ -1919,14 +1927,6 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     }
     misses++;
 
-    /* Record the ratio of hits to misses
-
-       These metrics are imprecise as the numbers will vary
-       per pull request. We keep them to surface
-       obvious issues like 100% miss rate.*/
-    glob->metrics.handle_pull_req_bloom_filter_result[ FD_METRICS_ENUM_PULL_REQ_BLOOM_FILTER_RESULT_V_HIT_IDX ] += hits;
-    glob->metrics.handle_pull_req_bloom_filter_result[ FD_METRICS_ENUM_PULL_REQ_BLOOM_FILTER_RESULT_V_MISS_IDX ] += misses;
-
     /* Add the value in already encoded form */
     if (newend + ele->datalen - buf > PACKET_DATA_SIZE) {
       /* Packet is getting too large. Flush it */
@@ -1943,6 +1943,13 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     newend += ele->datalen;
     (*crds_len)++;
   }
+      /* Record the number of hits and misses
+
+       These metrics are imprecise as the numbers will vary
+       per pull request. We keep them to surface
+       obvious issues like 100% miss rate. */
+       glob->metrics.handle_pull_req_bloom_filter_result[ FD_METRICS_ENUM_PULL_REQ_BLOOM_FILTER_RESULT_V_HIT_IDX ] += hits;
+       glob->metrics.handle_pull_req_bloom_filter_result[ FD_METRICS_ENUM_PULL_REQ_BLOOM_FILTER_RESULT_V_MISS_IDX ] += misses;
 
   /* Flush final packet */
   if (newend > (uchar *)ctx.data) {

@@ -242,7 +242,6 @@ read_account_with_xid( fd_geyser_t * ctx, fd_funkier_rec_key_t * recid, fd_funki
 
 static void
 replay_sham_link_after_frag(fd_geyser_t * ctx, fd_replay_notif_msg_t * msg) {
-  (void)ctx;
   if( msg->type == FD_REPLAY_SLOT_TYPE ) {
     ulong slotn = msg->slot_exec.slot;
     if( ctx->execute_fun != NULL ) {

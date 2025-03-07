@@ -181,7 +181,7 @@ fd_funk_rec_query_safe( fd_funk_t *               funk,
                         fd_valloc_t               valloc,
                         ulong *                   result_len );
 
-FD_FN_PURE void *
+void *
 fd_funk_rec_query_xid_safe( fd_funk_t *               funk,
                             fd_funk_rec_key_t const * key,
                             fd_funk_txn_xid_t const * xid,

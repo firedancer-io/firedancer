@@ -19,10 +19,12 @@ int fd_hash_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) 
   *total_sz += sizeof(fd_hash_t);
   void const * start_data = ctx->data;
   int err = fd_hash_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_hash_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   return fd_bincode_bytes_decode_footprint( sizeof(fd_hash_t), ctx );
 }
 void * fd_hash_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
@@ -49,10 +51,12 @@ int fd_signature_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_
   *total_sz += sizeof(fd_signature_t);
   void const * start_data = ctx->data;
   int err = fd_signature_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_signature_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   return fd_bincode_bytes_decode_footprint( sizeof(fd_signature_t), ctx );
 }
 void * fd_signature_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
@@ -76,10 +80,12 @@ int fd_gossip_ip4_addr_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   *total_sz += sizeof(fd_gossip_ip4_addr_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_ip4_addr_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_ip4_addr_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   return fd_bincode_bytes_decode_footprint( sizeof(fd_gossip_ip4_addr_t), ctx );
 }
 void * fd_gossip_ip4_addr_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
@@ -103,10 +109,12 @@ int fd_gossip_ip6_addr_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   *total_sz += sizeof(fd_gossip_ip6_addr_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_ip6_addr_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_ip6_addr_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   return fd_bincode_bytes_decode_footprint( sizeof(fd_gossip_ip6_addr_t), ctx );
 }
 void * fd_gossip_ip6_addr_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
@@ -132,10 +140,12 @@ int fd_feature_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz
   *total_sz += sizeof(fd_feature_t);
   void const * start_data = ctx->data;
   int err = fd_feature_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_feature_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   {
     uchar o;
@@ -207,10 +217,12 @@ int fd_fee_calculator_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   *total_sz += sizeof(fd_fee_calculator_t);
   void const * start_data = ctx->data;
   int err = fd_fee_calculator_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_fee_calculator_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -262,10 +274,12 @@ int fd_hash_age_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_s
   *total_sz += sizeof(fd_hash_age_t);
   void const * start_data = ctx->data;
   int err = fd_hash_age_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_hash_age_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_fee_calculator_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -327,10 +341,12 @@ int fd_hash_hash_age_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   *total_sz += sizeof(fd_hash_hash_age_pair_t);
   void const * start_data = ctx->data;
   int err = fd_hash_hash_age_pair_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_hash_hash_age_pair_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_hash_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -406,10 +422,12 @@ int fd_block_hash_vec_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   *total_sz += sizeof(fd_block_hash_vec_t);
   void const * start_data = ctx->data;
   int err = fd_block_hash_vec_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_block_hash_vec_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -559,10 +577,12 @@ int fd_block_hash_queue_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong *
   *total_sz += sizeof(fd_block_hash_queue_t);
   void const * start_data = ctx->data;
   int err = fd_block_hash_queue_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_block_hash_queue_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -696,10 +716,12 @@ int fd_fee_rate_governor_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   *total_sz += sizeof(fd_fee_rate_governor_t);
   void const * start_data = ctx->data;
   int err = fd_fee_rate_governor_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_fee_rate_governor_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -769,10 +791,12 @@ int fd_slot_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_
   *total_sz += sizeof(fd_slot_pair_t);
   void const * start_data = ctx->data;
   int err = fd_slot_pair_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_slot_pair_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -831,10 +855,12 @@ int fd_hard_forks_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   *total_sz += sizeof(fd_hard_forks_t);
   void const * start_data = ctx->data;
   int err = fd_hard_forks_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_hard_forks_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong hard_forks_len;
   err = fd_bincode_uint64_decode( &hard_forks_len, ctx );
@@ -924,10 +950,12 @@ int fd_inflation_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_
   *total_sz += sizeof(fd_inflation_t);
   void const * start_data = ctx->data;
   int err = fd_inflation_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_inflation_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_double_decode_footprint( ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -1004,10 +1032,12 @@ int fd_rent_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) 
   *total_sz += sizeof(fd_rent_t);
   void const * start_data = ctx->data;
   int err = fd_rent_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_rent_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -1073,10 +1103,12 @@ int fd_epoch_schedule_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   *total_sz += sizeof(fd_epoch_schedule_t);
   void const * start_data = ctx->data;
   int err = fd_epoch_schedule_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_epoch_schedule_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -1150,10 +1182,12 @@ int fd_rent_collector_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   *total_sz += sizeof(fd_rent_collector_t);
   void const * start_data = ctx->data;
   int err = fd_rent_collector_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_rent_collector_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -1226,10 +1260,12 @@ int fd_stake_history_entry_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
   *total_sz += sizeof(fd_stake_history_entry_t);
   void const * start_data = ctx->data;
   int err = fd_stake_history_entry_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_stake_history_entry_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -1298,10 +1334,12 @@ int fd_stake_history_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * to
   *total_sz += sizeof(fd_stake_history_t);
   void const * start_data = ctx->data;
   int err = fd_stake_history_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_stake_history_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong fd_stake_history_len;
   err = fd_bincode_uint64_decode( &fd_stake_history_len, ctx );
@@ -1385,10 +1423,12 @@ int fd_solana_account_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   *total_sz += sizeof(fd_solana_account_t);
   void const * start_data = ctx->data;
   int err = fd_solana_account_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_solana_account_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -1480,10 +1520,12 @@ int fd_vote_accounts_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   *total_sz += sizeof(fd_vote_accounts_pair_t);
   void const * start_data = ctx->data;
   int err = fd_vote_accounts_pair_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_accounts_pair_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -1549,10 +1591,12 @@ int fd_vote_accounts_pair_serializable_decode_footprint( fd_bincode_decode_ctx_t
   *total_sz += sizeof(fd_vote_accounts_pair_serializable_t);
   void const * start_data = ctx->data;
   int err = fd_vote_accounts_pair_serializable_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_accounts_pair_serializable_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -1625,10 +1669,12 @@ int fd_vote_accounts_serializable_decode_footprint( fd_bincode_decode_ctx_t * ct
   *total_sz += sizeof(fd_vote_accounts_serializable_t);
   void const * start_data = ctx->data;
   int err = fd_vote_accounts_serializable_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_accounts_serializable_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong vote_accounts_len = 0UL;
   err = fd_bincode_uint64_decode( &vote_accounts_len, ctx );
@@ -1719,10 +1765,12 @@ int fd_vote_accounts_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * to
   *total_sz += sizeof(fd_vote_accounts_t);
   void const * start_data = ctx->data;
   int err = fd_vote_accounts_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_accounts_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong vote_accounts_len = 0UL;
   err = fd_bincode_uint64_decode( &vote_accounts_len, ctx );
@@ -1804,10 +1852,12 @@ int fd_account_keys_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   *total_sz += sizeof(fd_account_keys_pair_t);
   void const * start_data = ctx->data;
   int err = fd_account_keys_pair_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_account_keys_pair_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -1873,10 +1923,12 @@ int fd_account_keys_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
   *total_sz += sizeof(fd_account_keys_t);
   void const * start_data = ctx->data;
   int err = fd_account_keys_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_account_keys_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong account_keys_len = 0UL;
   err = fd_bincode_uint64_decode( &account_keys_len, ctx );
@@ -1958,10 +2010,12 @@ int fd_stake_weight_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
   *total_sz += sizeof(fd_stake_weight_t);
   void const * start_data = ctx->data;
   int err = fd_stake_weight_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_stake_weight_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -2027,10 +2081,12 @@ int fd_stake_weights_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * to
   *total_sz += sizeof(fd_stake_weights_t);
   void const * start_data = ctx->data;
   int err = fd_stake_weights_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_stake_weights_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong stake_weights_len = 0UL;
   err = fd_bincode_uint64_decode( &stake_weights_len, ctx );
@@ -2118,10 +2174,12 @@ int fd_delegation_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   *total_sz += sizeof(fd_delegation_t);
   void const * start_data = ctx->data;
   int err = fd_delegation_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_delegation_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -2193,10 +2251,12 @@ int fd_delegation_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   *total_sz += sizeof(fd_delegation_pair_t);
   void const * start_data = ctx->data;
   int err = fd_delegation_pair_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_delegation_pair_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -2255,10 +2315,12 @@ int fd_stake_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz )
   *total_sz += sizeof(fd_stake_t);
   void const * start_data = ctx->data;
   int err = fd_stake_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_stake_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_delegation_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -2315,10 +2377,12 @@ int fd_stake_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   *total_sz += sizeof(fd_stake_pair_t);
   void const * start_data = ctx->data;
   int err = fd_stake_pair_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_stake_pair_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -2394,10 +2458,12 @@ int fd_stakes_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz 
   *total_sz += sizeof(fd_stakes_t);
   void const * start_data = ctx->data;
   int err = fd_stakes_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_stakes_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_vote_accounts_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -2520,10 +2586,12 @@ int fd_stakes_serializable_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
   *total_sz += sizeof(fd_stakes_serializable_t);
   void const * start_data = ctx->data;
   int err = fd_stakes_serializable_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_stakes_serializable_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_vote_accounts_serializable_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -2646,10 +2714,12 @@ int fd_stakes_stake_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
   *total_sz += sizeof(fd_stakes_stake_t);
   void const * start_data = ctx->data;
   int err = fd_stakes_stake_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_stakes_stake_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_vote_accounts_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -2761,10 +2831,12 @@ int fd_bank_incremental_snapshot_persistence_decode_footprint( fd_bincode_decode
   *total_sz += sizeof(fd_bank_incremental_snapshot_persistence_t);
   void const * start_data = ctx->data;
   int err = fd_bank_incremental_snapshot_persistence_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_bank_incremental_snapshot_persistence_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -2844,10 +2916,12 @@ int fd_node_vote_accounts_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   *total_sz += sizeof(fd_node_vote_accounts_t);
   void const * start_data = ctx->data;
   int err = fd_node_vote_accounts_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_node_vote_accounts_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong vote_accounts_len;
   err = fd_bincode_uint64_decode( &vote_accounts_len, ctx );
@@ -2934,10 +3008,12 @@ int fd_pubkey_node_vote_accounts_pair_decode_footprint( fd_bincode_decode_ctx_t 
   *total_sz += sizeof(fd_pubkey_node_vote_accounts_pair_t);
   void const * start_data = ctx->data;
   int err = fd_pubkey_node_vote_accounts_pair_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_pubkey_node_vote_accounts_pair_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -2996,10 +3072,12 @@ int fd_pubkey_pubkey_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   *total_sz += sizeof(fd_pubkey_pubkey_pair_t);
   void const * start_data = ctx->data;
   int err = fd_pubkey_pubkey_pair_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_pubkey_pubkey_pair_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -3074,10 +3152,12 @@ int fd_epoch_stakes_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
   *total_sz += sizeof(fd_epoch_stakes_t);
   void const * start_data = ctx->data;
   int err = fd_epoch_stakes_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_epoch_stakes_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_stakes_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -3208,10 +3288,12 @@ int fd_epoch_epoch_stakes_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, 
   *total_sz += sizeof(fd_epoch_epoch_stakes_pair_t);
   void const * start_data = ctx->data;
   int err = fd_epoch_epoch_stakes_pair_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_epoch_epoch_stakes_pair_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -3268,10 +3350,12 @@ int fd_pubkey_u64_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   *total_sz += sizeof(fd_pubkey_u64_pair_t);
   void const * start_data = ctx->data;
   int err = fd_pubkey_u64_pair_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_pubkey_u64_pair_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -3348,10 +3432,12 @@ int fd_unused_accounts_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   *total_sz += sizeof(fd_unused_accounts_t);
   void const * start_data = ctx->data;
   int err = fd_unused_accounts_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_unused_accounts_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong unused1_len;
   err = fd_bincode_uint64_decode( &unused1_len, ctx );
@@ -3586,10 +3672,12 @@ int fd_deserializable_versioned_bank_decode_footprint( fd_bincode_decode_ctx_t *
   *total_sz += sizeof(fd_deserializable_versioned_bank_t);
   void const * start_data = ctx->data;
   int err = fd_deserializable_versioned_bank_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_deserializable_versioned_bank_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_block_hash_vec_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -3990,10 +4078,12 @@ int fd_serializable_versioned_bank_decode_footprint( fd_bincode_decode_ctx_t * c
   *total_sz += sizeof(fd_serializable_versioned_bank_t);
   void const * start_data = ctx->data;
   int err = fd_serializable_versioned_bank_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_serializable_versioned_bank_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_block_hash_vec_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -4321,10 +4411,12 @@ int fd_bank_hash_stats_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   *total_sz += sizeof(fd_bank_hash_stats_t);
   void const * start_data = ctx->data;
   int err = fd_bank_hash_stats_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_bank_hash_stats_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -4396,10 +4488,12 @@ int fd_bank_hash_info_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   *total_sz += sizeof(fd_bank_hash_info_t);
   void const * start_data = ctx->data;
   int err = fd_bank_hash_info_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_bank_hash_info_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_hash_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -4465,10 +4559,12 @@ int fd_slot_map_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * to
   *total_sz += sizeof(fd_slot_map_pair_t);
   void const * start_data = ctx->data;
   int err = fd_slot_map_pair_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_slot_map_pair_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -4525,10 +4621,12 @@ int fd_snapshot_acc_vec_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong *
   *total_sz += sizeof(fd_snapshot_acc_vec_t);
   void const * start_data = ctx->data;
   int err = fd_snapshot_acc_vec_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_snapshot_acc_vec_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -4589,10 +4687,12 @@ int fd_snapshot_slot_acc_vecs_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   *total_sz += sizeof(fd_snapshot_slot_acc_vecs_t);
   void const * start_data = ctx->data;
   int err = fd_snapshot_slot_acc_vecs_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_snapshot_slot_acc_vecs_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -4702,10 +4802,12 @@ int fd_reward_type_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   *total_sz += sizeof(fd_reward_type_t);
   void const * start_data = ctx->data;
   int err =  fd_reward_type_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_reward_type_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -4728,7 +4830,7 @@ void fd_reward_type_inner_decode_inner( fd_reward_type_inner_t * self, void * * 
   }
 }
 void fd_reward_type_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_reward_type_t * self = (fd_reward_type_t *)struct_mem; /* #goated */
+  fd_reward_type_t * self = (fd_reward_type_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_reward_type_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -4736,7 +4838,7 @@ void * fd_reward_type_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_reward_type_t * self = (fd_reward_type_t *)mem;
   fd_reward_type_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_reward_type_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_reward_type_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -4853,10 +4955,12 @@ int fd_solana_accounts_db_fields_decode_footprint( fd_bincode_decode_ctx_t * ctx
   *total_sz += sizeof(fd_solana_accounts_db_fields_t);
   void const * start_data = ctx->data;
   int err = fd_solana_accounts_db_fields_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_solana_accounts_db_fields_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong storages_len;
   err = fd_bincode_uint64_decode( &storages_len, ctx );
@@ -5041,10 +5145,12 @@ int fd_versioned_epoch_stakes_current_decode_footprint( fd_bincode_decode_ctx_t 
   *total_sz += sizeof(fd_versioned_epoch_stakes_current_t);
   void const * start_data = ctx->data;
   int err = fd_versioned_epoch_stakes_current_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_versioned_epoch_stakes_current_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_stakes_stake_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -5182,10 +5288,12 @@ int fd_versioned_epoch_stakes_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   *total_sz += sizeof(fd_versioned_epoch_stakes_t);
   void const * start_data = ctx->data;
   int err =  fd_versioned_epoch_stakes_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_versioned_epoch_stakes_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -5200,7 +5308,7 @@ void fd_versioned_epoch_stakes_inner_decode_inner( fd_versioned_epoch_stakes_inn
   }
 }
 void fd_versioned_epoch_stakes_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_versioned_epoch_stakes_t * self = (fd_versioned_epoch_stakes_t *)struct_mem; /* #goated */
+  fd_versioned_epoch_stakes_t * self = (fd_versioned_epoch_stakes_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_versioned_epoch_stakes_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -5208,7 +5316,7 @@ void * fd_versioned_epoch_stakes_decode( void * mem, fd_bincode_decode_ctx_t * c
   fd_versioned_epoch_stakes_t * self = (fd_versioned_epoch_stakes_t *)mem;
   fd_versioned_epoch_stakes_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_versioned_epoch_stakes_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_versioned_epoch_stakes_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -5297,10 +5405,12 @@ int fd_versioned_epoch_stakes_pair_decode_footprint( fd_bincode_decode_ctx_t * c
   *total_sz += sizeof(fd_versioned_epoch_stakes_pair_t);
   void const * start_data = ctx->data;
   int err = fd_versioned_epoch_stakes_pair_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_versioned_epoch_stakes_pair_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -5361,10 +5471,12 @@ int fd_reward_info_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   *total_sz += sizeof(fd_reward_info_t);
   void const * start_data = ctx->data;
   int err = fd_reward_info_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_reward_info_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_reward_type_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -5429,10 +5541,12 @@ int fd_slot_lthash_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   *total_sz += sizeof(fd_slot_lthash_t);
   void const * start_data = ctx->data;
   int err = fd_slot_lthash_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_slot_lthash_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_bytes_decode_footprint( 2048, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -5519,10 +5633,12 @@ int fd_solana_manifest_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   *total_sz += sizeof(fd_solana_manifest_t);
   void const * start_data = ctx->data;
   int err = fd_solana_manifest_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_solana_manifest_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_deserializable_versioned_bank_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -5767,10 +5883,12 @@ int fd_solana_manifest_serializable_decode_footprint( fd_bincode_decode_ctx_t * 
   *total_sz += sizeof(fd_solana_manifest_serializable_t);
   void const * start_data = ctx->data;
   int err = fd_solana_manifest_serializable_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_solana_manifest_serializable_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_serializable_versioned_bank_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -5949,10 +6067,12 @@ int fd_rust_duration_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * to
   *total_sz += sizeof(fd_rust_duration_t);
   void const * start_data = ctx->data;
   int err = fd_rust_duration_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_rust_duration_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -6020,10 +6140,12 @@ int fd_poh_config_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   *total_sz += sizeof(fd_poh_config_t);
   void const * start_data = ctx->data;
   int err = fd_poh_config_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_poh_config_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_rust_duration_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -6142,10 +6264,12 @@ int fd_string_pubkey_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   *total_sz += sizeof(fd_string_pubkey_pair_t);
   void const * start_data = ctx->data;
   int err = fd_string_pubkey_pair_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_string_pubkey_pair_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong string_len;
   err = fd_bincode_uint64_decode( &string_len, ctx );
@@ -6222,10 +6346,12 @@ int fd_pubkey_account_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
   *total_sz += sizeof(fd_pubkey_account_pair_t);
   void const * start_data = ctx->data;
   int err = fd_pubkey_account_pair_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_pubkey_account_pair_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -6324,10 +6450,12 @@ int fd_genesis_solana_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   *total_sz += sizeof(fd_genesis_solana_t);
   void const * start_data = ctx->data;
   int err = fd_genesis_solana_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_genesis_solana_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -6549,10 +6677,12 @@ int fd_sol_sysvar_clock_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong *
   *total_sz += sizeof(fd_sol_sysvar_clock_t);
   void const * start_data = ctx->data;
   int err = fd_sol_sysvar_clock_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_sol_sysvar_clock_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -6620,10 +6750,12 @@ int fd_sol_sysvar_last_restart_slot_decode_footprint( fd_bincode_decode_ctx_t * 
   *total_sz += sizeof(fd_sol_sysvar_last_restart_slot_t);
   void const * start_data = ctx->data;
   int err = fd_sol_sysvar_last_restart_slot_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_sol_sysvar_last_restart_slot_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -6673,10 +6805,12 @@ int fd_vote_lockout_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
   *total_sz += sizeof(fd_vote_lockout_t);
   void const * start_data = ctx->data;
   int err = fd_vote_lockout_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_lockout_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -6731,10 +6865,12 @@ int fd_lockout_offset_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   *total_sz += sizeof(fd_lockout_offset_t);
   void const * start_data = ctx->data;
   int err = fd_lockout_offset_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_lockout_offset_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_varint_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -6789,10 +6925,12 @@ int fd_vote_authorized_voter_decode_footprint( fd_bincode_decode_ctx_t * ctx, ul
   *total_sz += sizeof(fd_vote_authorized_voter_t);
   void const * start_data = ctx->data;
   int err = fd_vote_authorized_voter_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_authorized_voter_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -6851,10 +6989,12 @@ int fd_vote_prior_voter_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong *
   *total_sz += sizeof(fd_vote_prior_voter_t);
   void const * start_data = ctx->data;
   int err = fd_vote_prior_voter_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_prior_voter_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -6920,10 +7060,12 @@ int fd_vote_prior_voter_0_23_5_decode_footprint( fd_bincode_decode_ctx_t * ctx, 
   *total_sz += sizeof(fd_vote_prior_voter_0_23_5_t);
   void const * start_data = ctx->data;
   int err = fd_vote_prior_voter_0_23_5_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_prior_voter_0_23_5_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -6992,10 +7134,12 @@ int fd_vote_epoch_credits_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   *total_sz += sizeof(fd_vote_epoch_credits_t);
   void const * start_data = ctx->data;
   int err = fd_vote_epoch_credits_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_epoch_credits_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -7055,10 +7199,12 @@ int fd_vote_block_timestamp_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulo
   *total_sz += sizeof(fd_vote_block_timestamp_t);
   void const * start_data = ctx->data;
   int err = fd_vote_block_timestamp_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_block_timestamp_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -7117,10 +7263,12 @@ int fd_vote_prior_voters_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   *total_sz += sizeof(fd_vote_prior_voters_t);
   void const * start_data = ctx->data;
   int err = fd_vote_prior_voters_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_prior_voters_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   for( ulong i=0; i<32; i++ ) {
     err = fd_vote_prior_voter_decode_footprint_inner( ctx, total_sz );
@@ -7194,10 +7342,12 @@ int fd_vote_prior_voters_0_23_5_decode_footprint( fd_bincode_decode_ctx_t * ctx,
   *total_sz += sizeof(fd_vote_prior_voters_0_23_5_t);
   void const * start_data = ctx->data;
   int err = fd_vote_prior_voters_0_23_5_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_prior_voters_0_23_5_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   for( ulong i=0; i<32; i++ ) {
     err = fd_vote_prior_voter_0_23_5_decode_footprint_inner( ctx, total_sz );
@@ -7264,10 +7414,12 @@ int fd_landed_vote_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   *total_sz += sizeof(fd_landed_vote_t);
   void const * start_data = ctx->data;
   int err = fd_landed_vote_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_landed_vote_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint8_decode_footprint( ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -7368,10 +7520,12 @@ int fd_vote_state_0_23_5_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   *total_sz += sizeof(fd_vote_state_0_23_5_t);
   void const * start_data = ctx->data;
   int err = fd_vote_state_0_23_5_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_state_0_23_5_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -7598,10 +7752,12 @@ int fd_vote_authorized_voters_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   *total_sz += sizeof(fd_vote_authorized_voters_t);
   void const * start_data = ctx->data;
   int err = fd_vote_authorized_voters_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_authorized_voters_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong fd_vote_authorized_voters_treap_len;
   err = fd_bincode_uint64_decode( &fd_vote_authorized_voters_treap_len, ctx );
@@ -7740,10 +7896,12 @@ int fd_vote_state_1_14_11_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   *total_sz += sizeof(fd_vote_state_1_14_11_t);
   void const * start_data = ctx->data;
   int err = fd_vote_state_1_14_11_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_state_1_14_11_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -7995,10 +8153,12 @@ int fd_vote_state_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   *total_sz += sizeof(fd_vote_state_t);
   void const * start_data = ctx->data;
   int err = fd_vote_state_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_state_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -8231,10 +8391,12 @@ int fd_vote_state_versioned_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulo
   *total_sz += sizeof(fd_vote_state_versioned_t);
   void const * start_data = ctx->data;
   int err =  fd_vote_state_versioned_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_state_versioned_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -8257,7 +8419,7 @@ void fd_vote_state_versioned_inner_decode_inner( fd_vote_state_versioned_inner_t
   }
 }
 void fd_vote_state_versioned_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_vote_state_versioned_t * self = (fd_vote_state_versioned_t *)struct_mem; /* #goated */
+  fd_vote_state_versioned_t * self = (fd_vote_state_versioned_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_vote_state_versioned_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -8265,7 +8427,7 @@ void * fd_vote_state_versioned_decode( void * mem, fd_bincode_decode_ctx_t * ctx
   fd_vote_state_versioned_t * self = (fd_vote_state_versioned_t *)mem;
   fd_vote_state_versioned_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_vote_state_versioned_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_vote_state_versioned_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -8422,10 +8584,12 @@ int fd_vote_state_update_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   *total_sz += sizeof(fd_vote_state_update_t);
   void const * start_data = ctx->data;
   int err = fd_vote_state_update_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_state_update_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong lockouts_len;
   err = fd_bincode_uint64_decode( &lockouts_len, ctx );
@@ -8597,10 +8761,12 @@ int fd_compact_vote_state_update_decode_footprint( fd_bincode_decode_ctx_t * ctx
   *total_sz += sizeof(fd_compact_vote_state_update_t);
   void const * start_data = ctx->data;
   int err = fd_compact_vote_state_update_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_compact_vote_state_update_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -8724,10 +8890,12 @@ int fd_compact_vote_state_update_switch_decode_footprint( fd_bincode_decode_ctx_
   *total_sz += sizeof(fd_compact_vote_state_update_switch_t);
   void const * start_data = ctx->data;
   int err = fd_compact_vote_state_update_switch_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_compact_vote_state_update_switch_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_compact_vote_state_update_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -8808,10 +8976,12 @@ int fd_compact_tower_sync_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   *total_sz += sizeof(fd_compact_tower_sync_t);
   void const * start_data = ctx->data;
   int err = fd_compact_tower_sync_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_compact_tower_sync_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -9035,10 +9205,12 @@ int fd_tower_sync_switch_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   *total_sz += sizeof(fd_tower_sync_switch_t);
   void const * start_data = ctx->data;
   int err = fd_tower_sync_switch_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_tower_sync_switch_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_tower_sync_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -9100,10 +9272,12 @@ int fd_slot_history_inner_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   *total_sz += sizeof(fd_slot_history_inner_t);
   void const * start_data = ctx->data;
   int err = fd_slot_history_inner_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_slot_history_inner_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong blocks_len;
   err = fd_bincode_uint64_decode( &blocks_len, ctx );
@@ -9188,10 +9362,12 @@ int fd_slot_history_bitvec_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
   *total_sz += sizeof(fd_slot_history_bitvec_t);
   void const * start_data = ctx->data;
   int err = fd_slot_history_bitvec_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_slot_history_bitvec_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   {
     uchar o;
@@ -9277,10 +9453,12 @@ int fd_slot_history_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
   *total_sz += sizeof(fd_slot_history_t);
   void const * start_data = ctx->data;
   int err = fd_slot_history_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_slot_history_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_slot_history_bitvec_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -9337,10 +9515,12 @@ int fd_slot_hash_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_
   *total_sz += sizeof(fd_slot_hash_t);
   void const * start_data = ctx->data;
   int err = fd_slot_hash_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_slot_hash_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -9407,10 +9587,12 @@ int fd_slot_hashes_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   *total_sz += sizeof(fd_slot_hashes_t);
   void const * start_data = ctx->data;
   int err = fd_slot_hashes_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_slot_hashes_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong hashes_len;
   err = fd_bincode_uint64_decode( &hashes_len, ctx );
@@ -9503,10 +9685,12 @@ int fd_block_block_hash_entry_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   *total_sz += sizeof(fd_block_block_hash_entry_t);
   void const * start_data = ctx->data;
   int err = fd_block_block_hash_entry_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_block_block_hash_entry_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_hash_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -9575,10 +9759,12 @@ int fd_recent_block_hashes_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
   *total_sz += sizeof(fd_recent_block_hashes_t);
   void const * start_data = ctx->data;
   int err = fd_recent_block_hashes_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_recent_block_hashes_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong hashes_len;
   err = fd_bincode_uint64_decode( &hashes_len, ctx );
@@ -9695,10 +9881,12 @@ int fd_slot_meta_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_
   *total_sz += sizeof(fd_slot_meta_t);
   void const * start_data = ctx->data;
   int err = fd_slot_meta_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_slot_meta_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -9846,10 +10034,12 @@ int fd_clock_timestamp_vote_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulo
   *total_sz += sizeof(fd_clock_timestamp_vote_t);
   void const * start_data = ctx->data;
   int err = fd_clock_timestamp_vote_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_clock_timestamp_vote_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -9920,10 +10110,12 @@ int fd_clock_timestamp_votes_decode_footprint( fd_bincode_decode_ctx_t * ctx, ul
   *total_sz += sizeof(fd_clock_timestamp_votes_t);
   void const * start_data = ctx->data;
   int err = fd_clock_timestamp_votes_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_clock_timestamp_votes_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong votes_len = 0UL;
   err = fd_bincode_uint64_decode( &votes_len, ctx );
@@ -10003,10 +10195,12 @@ int fd_sysvar_fees_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   *total_sz += sizeof(fd_sysvar_fees_t);
   void const * start_data = ctx->data;
   int err = fd_sysvar_fees_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_sysvar_fees_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_fee_calculator_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -10068,10 +10262,12 @@ int fd_sysvar_epoch_rewards_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulo
   *total_sz += sizeof(fd_sysvar_epoch_rewards_t);
   void const * start_data = ctx->data;
   int err = fd_sysvar_epoch_rewards_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_sysvar_epoch_rewards_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -10153,10 +10349,12 @@ int fd_config_keys_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong *
   *total_sz += sizeof(fd_config_keys_pair_t);
   void const * start_data = ctx->data;
   int err = fd_config_keys_pair_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_config_keys_pair_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -10221,10 +10419,12 @@ int fd_stake_config_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
   *total_sz += sizeof(fd_stake_config_t);
   void const * start_data = ctx->data;
   int err = fd_stake_config_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_stake_config_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ushort config_keys_len;
   err = fd_bincode_compact_u16_decode( &config_keys_len, ctx );
@@ -10323,10 +10523,12 @@ int fd_feature_entry_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * to
   *total_sz += sizeof(fd_feature_entry_t);
   void const * start_data = ctx->data;
   int err = fd_feature_entry_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_feature_entry_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -10452,10 +10654,12 @@ int fd_firedancer_bank_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   *total_sz += sizeof(fd_firedancer_bank_t);
   void const * start_data = ctx->data;
   int err = fd_firedancer_bank_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_firedancer_bank_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_stakes_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -10665,10 +10869,12 @@ int fd_cluster_type_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
   *total_sz += sizeof(fd_cluster_type_t);
   void const * start_data = ctx->data;
   int err =  fd_cluster_type_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_cluster_type_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -10691,7 +10897,7 @@ void fd_cluster_type_inner_decode_inner( fd_cluster_type_inner_t * self, void * 
   }
 }
 void fd_cluster_type_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_cluster_type_t * self = (fd_cluster_type_t *)struct_mem; /* #goated */
+  fd_cluster_type_t * self = (fd_cluster_type_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_cluster_type_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -10699,7 +10905,7 @@ void * fd_cluster_type_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_cluster_type_t * self = (fd_cluster_type_t *)mem;
   fd_cluster_type_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_cluster_type_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_cluster_type_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -10825,10 +11031,12 @@ int fd_epoch_bank_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   *total_sz += sizeof(fd_epoch_bank_t);
   void const * start_data = ctx->data;
   int err = fd_epoch_bank_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_epoch_bank_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_stakes_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -11036,10 +11244,12 @@ int fd_slot_bank_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_
   *total_sz += sizeof(fd_slot_bank_t);
   void const * start_data = ctx->data;
   int err = fd_slot_bank_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_slot_bank_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_clock_timestamp_votes_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -11268,10 +11478,12 @@ int fd_prev_epoch_inflation_rewards_decode_footprint( fd_bincode_decode_ctx_t * 
   *total_sz += sizeof(fd_prev_epoch_inflation_rewards_t);
   void const * start_data = ctx->data;
   int err = fd_prev_epoch_inflation_rewards_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_prev_epoch_inflation_rewards_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -11356,10 +11568,12 @@ int fd_vote_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) 
   *total_sz += sizeof(fd_vote_t);
   void const * start_data = ctx->data;
   int err = fd_vote_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong slots_len;
   err = fd_bincode_uint64_decode( &slots_len, ctx );
@@ -11489,10 +11703,12 @@ int fd_vote_init_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_
   *total_sz += sizeof(fd_vote_init_t);
   void const * start_data = ctx->data;
   int err = fd_vote_init_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_init_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -11574,10 +11790,12 @@ int fd_vote_authorize_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   *total_sz += sizeof(fd_vote_authorize_t);
   void const * start_data = ctx->data;
   int err =  fd_vote_authorize_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_authorize_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -11594,7 +11812,7 @@ void fd_vote_authorize_inner_decode_inner( fd_vote_authorize_inner_t * self, voi
   }
 }
 void fd_vote_authorize_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_vote_authorize_t * self = (fd_vote_authorize_t *)struct_mem; /* #goated */
+  fd_vote_authorize_t * self = (fd_vote_authorize_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_vote_authorize_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -11602,7 +11820,7 @@ void * fd_vote_authorize_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_vote_authorize_t * self = (fd_vote_authorize_t *)mem;
   fd_vote_authorize_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_vote_authorize_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_vote_authorize_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -11680,10 +11898,12 @@ int fd_vote_authorize_pubkey_decode_footprint( fd_bincode_decode_ctx_t * ctx, ul
   *total_sz += sizeof(fd_vote_authorize_pubkey_t);
   void const * start_data = ctx->data;
   int err = fd_vote_authorize_pubkey_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_authorize_pubkey_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -11742,10 +11962,12 @@ int fd_vote_switch_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   *total_sz += sizeof(fd_vote_switch_t);
   void const * start_data = ctx->data;
   int err = fd_vote_switch_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_switch_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_vote_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -11804,10 +12026,12 @@ int fd_update_vote_state_switch_decode_footprint( fd_bincode_decode_ctx_t * ctx,
   *total_sz += sizeof(fd_update_vote_state_switch_t);
   void const * start_data = ctx->data;
   int err = fd_update_vote_state_switch_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_update_vote_state_switch_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_vote_state_update_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -11874,10 +12098,12 @@ int fd_vote_authorize_with_seed_args_decode_footprint( fd_bincode_decode_ctx_t *
   *total_sz += sizeof(fd_vote_authorize_with_seed_args_t);
   void const * start_data = ctx->data;
   int err = fd_vote_authorize_with_seed_args_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_authorize_with_seed_args_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_vote_authorize_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -11974,10 +12200,12 @@ int fd_vote_authorize_checked_with_seed_args_decode_footprint( fd_bincode_decode
   *total_sz += sizeof(fd_vote_authorize_checked_with_seed_args_t);
   void const * start_data = ctx->data;
   int err = fd_vote_authorize_checked_with_seed_args_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_authorize_checked_with_seed_args_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_vote_authorize_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -12186,10 +12414,12 @@ int fd_vote_instruction_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong *
   *total_sz += sizeof(fd_vote_instruction_t);
   void const * start_data = ctx->data;
   int err =  fd_vote_instruction_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_instruction_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -12263,7 +12493,7 @@ void fd_vote_instruction_inner_decode_inner( fd_vote_instruction_inner_t * self,
   }
 }
 void fd_vote_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_vote_instruction_t * self = (fd_vote_instruction_t *)struct_mem; /* #goated */
+  fd_vote_instruction_t * self = (fd_vote_instruction_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_vote_instruction_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -12271,7 +12501,7 @@ void * fd_vote_instruction_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_vote_instruction_t * self = (fd_vote_instruction_t *)mem;
   fd_vote_instruction_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_vote_instruction_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_vote_instruction_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -12673,10 +12903,12 @@ int fd_system_program_instruction_create_account_decode_footprint( fd_bincode_de
   *total_sz += sizeof(fd_system_program_instruction_create_account_t);
   void const * start_data = ctx->data;
   int err = fd_system_program_instruction_create_account_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_system_program_instruction_create_account_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -12748,10 +12980,12 @@ int fd_system_program_instruction_create_account_with_seed_decode_footprint( fd_
   *total_sz += sizeof(fd_system_program_instruction_create_account_with_seed_t);
   void const * start_data = ctx->data;
   int err = fd_system_program_instruction_create_account_with_seed_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_system_program_instruction_create_account_with_seed_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -12853,10 +13087,12 @@ int fd_system_program_instruction_allocate_with_seed_decode_footprint( fd_bincod
   *total_sz += sizeof(fd_system_program_instruction_allocate_with_seed_t);
   void const * start_data = ctx->data;
   int err = fd_system_program_instruction_allocate_with_seed_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_system_program_instruction_allocate_with_seed_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -12951,10 +13187,12 @@ int fd_system_program_instruction_assign_with_seed_decode_footprint( fd_bincode_
   *total_sz += sizeof(fd_system_program_instruction_assign_with_seed_t);
   void const * start_data = ctx->data;
   int err = fd_system_program_instruction_assign_with_seed_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_system_program_instruction_assign_with_seed_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -13044,10 +13282,12 @@ int fd_system_program_instruction_transfer_with_seed_decode_footprint( fd_bincod
   *total_sz += sizeof(fd_system_program_instruction_transfer_with_seed_t);
   void const * start_data = ctx->data;
   int err = fd_system_program_instruction_transfer_with_seed_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_system_program_instruction_transfer_with_seed_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -13228,10 +13468,12 @@ int fd_system_program_instruction_decode_footprint( fd_bincode_decode_ctx_t * ct
   *total_sz += sizeof(fd_system_program_instruction_t);
   void const * start_data = ctx->data;
   int err =  fd_system_program_instruction_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_system_program_instruction_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -13292,7 +13534,7 @@ void fd_system_program_instruction_inner_decode_inner( fd_system_program_instruc
   }
 }
 void fd_system_program_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_system_program_instruction_t * self = (fd_system_program_instruction_t *)struct_mem; /* #goated */
+  fd_system_program_instruction_t * self = (fd_system_program_instruction_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_system_program_instruction_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -13300,7 +13542,7 @@ void * fd_system_program_instruction_decode( void * mem, fd_bincode_decode_ctx_t
   fd_system_program_instruction_t * self = (fd_system_program_instruction_t *)mem;
   fd_system_program_instruction_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_system_program_instruction_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_system_program_instruction_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -13670,10 +13912,12 @@ int fd_system_error_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
   *total_sz += sizeof(fd_system_error_t);
   void const * start_data = ctx->data;
   int err =  fd_system_error_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_system_error_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -13711,7 +13955,7 @@ void fd_system_error_inner_decode_inner( fd_system_error_inner_t * self, void * 
   }
 }
 void fd_system_error_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_system_error_t * self = (fd_system_error_t *)struct_mem; /* #goated */
+  fd_system_error_t * self = (fd_system_error_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_system_error_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -13719,7 +13963,7 @@ void * fd_system_error_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_system_error_t * self = (fd_system_error_t *)mem;
   fd_system_error_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_system_error_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_system_error_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -13846,10 +14090,12 @@ int fd_stake_authorized_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong *
   *total_sz += sizeof(fd_stake_authorized_t);
   void const * start_data = ctx->data;
   int err = fd_stake_authorized_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_stake_authorized_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -13910,10 +14156,12 @@ int fd_stake_lockup_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
   *total_sz += sizeof(fd_stake_lockup_t);
   void const * start_data = ctx->data;
   int err = fd_stake_lockup_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_stake_lockup_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -13975,10 +14223,12 @@ int fd_stake_instruction_initialize_decode_footprint( fd_bincode_decode_ctx_t * 
   *total_sz += sizeof(fd_stake_instruction_initialize_t);
   void const * start_data = ctx->data;
   int err = fd_stake_instruction_initialize_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_stake_instruction_initialize_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_stake_authorized_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -14046,10 +14296,12 @@ int fd_stake_lockup_custodian_args_decode_footprint( fd_bincode_decode_ctx_t * c
   *total_sz += sizeof(fd_stake_lockup_custodian_args_t);
   void const * start_data = ctx->data;
   int err = fd_stake_lockup_custodian_args_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_stake_lockup_custodian_args_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_stake_lockup_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -14155,10 +14407,12 @@ int fd_stake_authorize_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   *total_sz += sizeof(fd_stake_authorize_t);
   void const * start_data = ctx->data;
   int err =  fd_stake_authorize_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_stake_authorize_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -14175,7 +14429,7 @@ void fd_stake_authorize_inner_decode_inner( fd_stake_authorize_inner_t * self, v
   }
 }
 void fd_stake_authorize_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_stake_authorize_t * self = (fd_stake_authorize_t *)struct_mem; /* #goated */
+  fd_stake_authorize_t * self = (fd_stake_authorize_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_stake_authorize_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -14183,7 +14437,7 @@ void * fd_stake_authorize_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_stake_authorize_t * self = (fd_stake_authorize_t *)mem;
   fd_stake_authorize_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_stake_authorize_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_stake_authorize_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -14261,10 +14515,12 @@ int fd_stake_instruction_authorize_decode_footprint( fd_bincode_decode_ctx_t * c
   *total_sz += sizeof(fd_stake_instruction_authorize_t);
   void const * start_data = ctx->data;
   int err = fd_stake_instruction_authorize_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_stake_instruction_authorize_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -14331,10 +14587,12 @@ int fd_authorize_with_seed_args_decode_footprint( fd_bincode_decode_ctx_t * ctx,
   *total_sz += sizeof(fd_authorize_with_seed_args_t);
   void const * start_data = ctx->data;
   int err = fd_authorize_with_seed_args_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_authorize_with_seed_args_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -14431,10 +14689,12 @@ int fd_authorize_checked_with_seed_args_decode_footprint( fd_bincode_decode_ctx_
   *total_sz += sizeof(fd_authorize_checked_with_seed_args_t);
   void const * start_data = ctx->data;
   int err = fd_authorize_checked_with_seed_args_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_authorize_checked_with_seed_args_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_stake_authorize_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -14532,10 +14792,12 @@ int fd_lockup_checked_args_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
   *total_sz += sizeof(fd_lockup_checked_args_t);
   void const * start_data = ctx->data;
   int err = fd_lockup_checked_args_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_lockup_checked_args_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   {
     uchar o;
@@ -14671,10 +14933,12 @@ int fd_lockup_args_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   *total_sz += sizeof(fd_lockup_args_t);
   void const * start_data = ctx->data;
   int err = fd_lockup_args_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_lockup_args_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   {
     uchar o;
@@ -14952,10 +15216,12 @@ int fd_stake_instruction_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   *total_sz += sizeof(fd_stake_instruction_t);
   void const * start_data = ctx->data;
   int err =  fd_stake_instruction_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_stake_instruction_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -15031,7 +15297,7 @@ void fd_stake_instruction_inner_decode_inner( fd_stake_instruction_inner_t * sel
   }
 }
 void fd_stake_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_stake_instruction_t * self = (fd_stake_instruction_t *)struct_mem; /* #goated */
+  fd_stake_instruction_t * self = (fd_stake_instruction_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_stake_instruction_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -15039,7 +15305,7 @@ void * fd_stake_instruction_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) 
   fd_stake_instruction_t * self = (fd_stake_instruction_t *)mem;
   fd_stake_instruction_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_stake_instruction_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_stake_instruction_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -15391,10 +15657,12 @@ int fd_stake_meta_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   *total_sz += sizeof(fd_stake_meta_t);
   void const * start_data = ctx->data;
   int err = fd_stake_meta_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_stake_meta_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -15456,10 +15724,12 @@ int fd_stake_flags_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   *total_sz += sizeof(fd_stake_flags_t);
   void const * start_data = ctx->data;
   int err = fd_stake_flags_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_stake_flags_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint8_decode_footprint( ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -15507,10 +15777,12 @@ int fd_stake_state_v2_initialized_decode_footprint( fd_bincode_decode_ctx_t * ct
   *total_sz += sizeof(fd_stake_state_v2_initialized_t);
   void const * start_data = ctx->data;
   int err = fd_stake_state_v2_initialized_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_stake_state_v2_initialized_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_stake_meta_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -15564,10 +15836,12 @@ int fd_stake_state_v2_stake_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulo
   *total_sz += sizeof(fd_stake_state_v2_stake_t);
   void const * start_data = ctx->data;
   int err = fd_stake_state_v2_stake_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_stake_state_v2_stake_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_stake_meta_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -15660,10 +15934,12 @@ int fd_stake_state_v2_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   *total_sz += sizeof(fd_stake_state_v2_t);
   void const * start_data = ctx->data;
   int err =  fd_stake_state_v2_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_stake_state_v2_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -15688,7 +15964,7 @@ void fd_stake_state_v2_inner_decode_inner( fd_stake_state_v2_inner_t * self, voi
   }
 }
 void fd_stake_state_v2_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_stake_state_v2_t * self = (fd_stake_state_v2_t *)struct_mem; /* #goated */
+  fd_stake_state_v2_t * self = (fd_stake_state_v2_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_stake_state_v2_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -15696,7 +15972,7 @@ void * fd_stake_state_v2_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_stake_state_v2_t * self = (fd_stake_state_v2_t *)mem;
   fd_stake_state_v2_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_stake_state_v2_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_stake_state_v2_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -15823,10 +16099,12 @@ int fd_nonce_data_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   *total_sz += sizeof(fd_nonce_data_t);
   void const * start_data = ctx->data;
   int err = fd_nonce_data_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_nonce_data_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -15905,10 +16183,12 @@ int fd_nonce_state_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   *total_sz += sizeof(fd_nonce_state_t);
   void const * start_data = ctx->data;
   int err =  fd_nonce_state_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_nonce_state_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -15926,7 +16206,7 @@ void fd_nonce_state_inner_decode_inner( fd_nonce_state_inner_t * self, void * * 
   }
 }
 void fd_nonce_state_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_nonce_state_t * self = (fd_nonce_state_t *)struct_mem; /* #goated */
+  fd_nonce_state_t * self = (fd_nonce_state_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_nonce_state_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -15934,7 +16214,7 @@ void * fd_nonce_state_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_nonce_state_t * self = (fd_nonce_state_t *)mem;
   fd_nonce_state_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_nonce_state_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_nonce_state_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -16045,10 +16325,12 @@ int fd_nonce_state_versions_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulo
   *total_sz += sizeof(fd_nonce_state_versions_t);
   void const * start_data = ctx->data;
   int err =  fd_nonce_state_versions_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_nonce_state_versions_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -16067,7 +16349,7 @@ void fd_nonce_state_versions_inner_decode_inner( fd_nonce_state_versions_inner_t
   }
 }
 void fd_nonce_state_versions_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_nonce_state_versions_t * self = (fd_nonce_state_versions_t *)struct_mem; /* #goated */
+  fd_nonce_state_versions_t * self = (fd_nonce_state_versions_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_nonce_state_versions_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -16075,7 +16357,7 @@ void * fd_nonce_state_versions_decode( void * mem, fd_bincode_decode_ctx_t * ctx
   fd_nonce_state_versions_t * self = (fd_nonce_state_versions_t *)mem;
   fd_nonce_state_versions_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_nonce_state_versions_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_nonce_state_versions_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -16186,10 +16468,12 @@ int fd_compute_budget_program_instruction_request_units_deprecated_decode_footpr
   *total_sz += sizeof(fd_compute_budget_program_instruction_request_units_deprecated_t);
   void const * start_data = ctx->data;
   int err = fd_compute_budget_program_instruction_request_units_deprecated_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_compute_budget_program_instruction_request_units_deprecated_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint32_decode_footprint( ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -16283,10 +16567,12 @@ int fd_compute_budget_program_instruction_decode_footprint( fd_bincode_decode_ct
   *total_sz += sizeof(fd_compute_budget_program_instruction_t);
   void const * start_data = ctx->data;
   int err =  fd_compute_budget_program_instruction_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_compute_budget_program_instruction_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ushort discriminant = 0;
   int err = fd_bincode_compact_u16_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -16317,7 +16603,7 @@ void fd_compute_budget_program_instruction_inner_decode_inner( fd_compute_budget
   }
 }
 void fd_compute_budget_program_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_compute_budget_program_instruction_t * self = (fd_compute_budget_program_instruction_t *)struct_mem; /* #goated */
+  fd_compute_budget_program_instruction_t * self = (fd_compute_budget_program_instruction_t *)struct_mem;
   ushort tmp = 0;
   fd_bincode_compact_u16_decode_unsafe( &tmp, ctx );
   self->discriminant = tmp;
@@ -16327,7 +16613,7 @@ void * fd_compute_budget_program_instruction_decode( void * mem, fd_bincode_deco
   fd_compute_budget_program_instruction_t * self = (fd_compute_budget_program_instruction_t *)mem;
   fd_compute_budget_program_instruction_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_compute_budget_program_instruction_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_compute_budget_program_instruction_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -16500,10 +16786,12 @@ int fd_config_keys_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   *total_sz += sizeof(fd_config_keys_t);
   void const * start_data = ctx->data;
   int err = fd_config_keys_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_config_keys_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ushort keys_len;
   err = fd_bincode_compact_u16_decode( &keys_len, ctx );
@@ -16590,10 +16878,12 @@ int fd_bpf_loader_program_instruction_write_decode_footprint( fd_bincode_decode_
   *total_sz += sizeof(fd_bpf_loader_program_instruction_write_t);
   void const * start_data = ctx->data;
   int err = fd_bpf_loader_program_instruction_write_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_bpf_loader_program_instruction_write_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint32_decode_footprint( ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -16679,10 +16969,12 @@ int fd_bpf_loader_program_instruction_decode_footprint( fd_bincode_decode_ctx_t 
   *total_sz += sizeof(fd_bpf_loader_program_instruction_t);
   void const * start_data = ctx->data;
   int err =  fd_bpf_loader_program_instruction_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_bpf_loader_program_instruction_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -16700,7 +16992,7 @@ void fd_bpf_loader_program_instruction_inner_decode_inner( fd_bpf_loader_program
   }
 }
 void fd_bpf_loader_program_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_bpf_loader_program_instruction_t * self = (fd_bpf_loader_program_instruction_t *)struct_mem; /* #goated */
+  fd_bpf_loader_program_instruction_t * self = (fd_bpf_loader_program_instruction_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_bpf_loader_program_instruction_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -16708,7 +17000,7 @@ void * fd_bpf_loader_program_instruction_decode( void * mem, fd_bincode_decode_c
   fd_bpf_loader_program_instruction_t * self = (fd_bpf_loader_program_instruction_t *)mem;
   fd_bpf_loader_program_instruction_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_bpf_loader_program_instruction_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_bpf_loader_program_instruction_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -16808,10 +17100,12 @@ int fd_loader_v4_program_instruction_write_decode_footprint( fd_bincode_decode_c
   *total_sz += sizeof(fd_loader_v4_program_instruction_write_t);
   void const * start_data = ctx->data;
   int err = fd_loader_v4_program_instruction_write_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_loader_v4_program_instruction_write_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint32_decode_footprint( ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -16882,10 +17176,12 @@ int fd_loader_v4_program_instruction_truncate_decode_footprint( fd_bincode_decod
   *total_sz += sizeof(fd_loader_v4_program_instruction_truncate_t);
   void const * start_data = ctx->data;
   int err = fd_loader_v4_program_instruction_truncate_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_loader_v4_program_instruction_truncate_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint32_decode_footprint( ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -16974,10 +17270,12 @@ int fd_loader_v4_program_instruction_decode_footprint( fd_bincode_decode_ctx_t *
   *total_sz += sizeof(fd_loader_v4_program_instruction_t);
   void const * start_data = ctx->data;
   int err =  fd_loader_v4_program_instruction_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_loader_v4_program_instruction_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -17008,7 +17306,7 @@ void fd_loader_v4_program_instruction_inner_decode_inner( fd_loader_v4_program_i
   }
 }
 void fd_loader_v4_program_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_loader_v4_program_instruction_t * self = (fd_loader_v4_program_instruction_t *)struct_mem; /* #goated */
+  fd_loader_v4_program_instruction_t * self = (fd_loader_v4_program_instruction_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_loader_v4_program_instruction_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -17016,7 +17314,7 @@ void * fd_loader_v4_program_instruction_decode( void * mem, fd_bincode_decode_ct
   fd_loader_v4_program_instruction_t * self = (fd_loader_v4_program_instruction_t *)mem;
   fd_loader_v4_program_instruction_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_loader_v4_program_instruction_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_loader_v4_program_instruction_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -17159,10 +17457,12 @@ int fd_bpf_upgradeable_loader_program_instruction_write_decode_footprint( fd_bin
   *total_sz += sizeof(fd_bpf_upgradeable_loader_program_instruction_write_t);
   void const * start_data = ctx->data;
   int err = fd_bpf_upgradeable_loader_program_instruction_write_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_bpf_upgradeable_loader_program_instruction_write_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint32_decode_footprint( ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -17233,10 +17533,12 @@ int fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_decod
   *total_sz += sizeof(fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_t);
   void const * start_data = ctx->data;
   int err = fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_bpf_upgradeable_loader_program_instruction_deploy_with_max_data_len_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -17284,10 +17586,12 @@ int fd_bpf_upgradeable_loader_program_instruction_extend_program_decode_footprin
   *total_sz += sizeof(fd_bpf_upgradeable_loader_program_instruction_extend_program_t);
   void const * start_data = ctx->data;
   int err = fd_bpf_upgradeable_loader_program_instruction_extend_program_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_bpf_upgradeable_loader_program_instruction_extend_program_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint32_decode_footprint( ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -17390,10 +17694,12 @@ int fd_bpf_upgradeable_loader_program_instruction_decode_footprint( fd_bincode_d
   *total_sz += sizeof(fd_bpf_upgradeable_loader_program_instruction_t);
   void const * start_data = ctx->data;
   int err =  fd_bpf_upgradeable_loader_program_instruction_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_bpf_upgradeable_loader_program_instruction_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -17431,7 +17737,7 @@ void fd_bpf_upgradeable_loader_program_instruction_inner_decode_inner( fd_bpf_up
   }
 }
 void fd_bpf_upgradeable_loader_program_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_bpf_upgradeable_loader_program_instruction_t * self = (fd_bpf_upgradeable_loader_program_instruction_t *)struct_mem; /* #goated */
+  fd_bpf_upgradeable_loader_program_instruction_t * self = (fd_bpf_upgradeable_loader_program_instruction_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_bpf_upgradeable_loader_program_instruction_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -17439,7 +17745,7 @@ void * fd_bpf_upgradeable_loader_program_instruction_decode( void * mem, fd_binc
   fd_bpf_upgradeable_loader_program_instruction_t * self = (fd_bpf_upgradeable_loader_program_instruction_t *)mem;
   fd_bpf_upgradeable_loader_program_instruction_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_bpf_upgradeable_loader_program_instruction_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_bpf_upgradeable_loader_program_instruction_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -17612,10 +17918,12 @@ int fd_bpf_upgradeable_loader_state_buffer_decode_footprint( fd_bincode_decode_c
   *total_sz += sizeof(fd_bpf_upgradeable_loader_state_buffer_t);
   void const * start_data = ctx->data;
   int err = fd_bpf_upgradeable_loader_state_buffer_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_bpf_upgradeable_loader_state_buffer_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   {
     uchar o;
@@ -17694,10 +18002,12 @@ int fd_bpf_upgradeable_loader_state_program_decode_footprint( fd_bincode_decode_
   *total_sz += sizeof(fd_bpf_upgradeable_loader_state_program_t);
   void const * start_data = ctx->data;
   int err = fd_bpf_upgradeable_loader_state_program_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_bpf_upgradeable_loader_state_program_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -17756,10 +18066,12 @@ int fd_bpf_upgradeable_loader_state_program_data_decode_footprint( fd_bincode_de
   *total_sz += sizeof(fd_bpf_upgradeable_loader_state_program_data_t);
   void const * start_data = ctx->data;
   int err = fd_bpf_upgradeable_loader_state_program_data_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_bpf_upgradeable_loader_state_program_data_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -17874,10 +18186,12 @@ int fd_bpf_upgradeable_loader_state_decode_footprint( fd_bincode_decode_ctx_t * 
   *total_sz += sizeof(fd_bpf_upgradeable_loader_state_t);
   void const * start_data = ctx->data;
   int err =  fd_bpf_upgradeable_loader_state_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_bpf_upgradeable_loader_state_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -17903,7 +18217,7 @@ void fd_bpf_upgradeable_loader_state_inner_decode_inner( fd_bpf_upgradeable_load
   }
 }
 void fd_bpf_upgradeable_loader_state_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_bpf_upgradeable_loader_state_t * self = (fd_bpf_upgradeable_loader_state_t *)struct_mem; /* #goated */
+  fd_bpf_upgradeable_loader_state_t * self = (fd_bpf_upgradeable_loader_state_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_bpf_upgradeable_loader_state_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -17911,7 +18225,7 @@ void * fd_bpf_upgradeable_loader_state_decode( void * mem, fd_bincode_decode_ctx
   fd_bpf_upgradeable_loader_state_t * self = (fd_bpf_upgradeable_loader_state_t *)mem;
   fd_bpf_upgradeable_loader_state_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_bpf_upgradeable_loader_state_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_bpf_upgradeable_loader_state_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -18053,10 +18367,12 @@ int fd_loader_v4_state_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   *total_sz += sizeof(fd_loader_v4_state_t);
   void const * start_data = ctx->data;
   int err = fd_loader_v4_state_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_loader_v4_state_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -18118,10 +18434,12 @@ int fd_frozen_hash_status_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   *total_sz += sizeof(fd_frozen_hash_status_t);
   void const * start_data = ctx->data;
   int err = fd_frozen_hash_status_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_frozen_hash_status_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_hash_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -18185,10 +18503,12 @@ int fd_frozen_hash_versioned_decode_footprint( fd_bincode_decode_ctx_t * ctx, ul
   *total_sz += sizeof(fd_frozen_hash_versioned_t);
   void const * start_data = ctx->data;
   int err =  fd_frozen_hash_versioned_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_frozen_hash_versioned_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -18203,7 +18523,7 @@ void fd_frozen_hash_versioned_inner_decode_inner( fd_frozen_hash_versioned_inner
   }
 }
 void fd_frozen_hash_versioned_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_frozen_hash_versioned_t * self = (fd_frozen_hash_versioned_t *)struct_mem; /* #goated */
+  fd_frozen_hash_versioned_t * self = (fd_frozen_hash_versioned_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_frozen_hash_versioned_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -18211,7 +18531,7 @@ void * fd_frozen_hash_versioned_decode( void * mem, fd_bincode_decode_ctx_t * ct
   fd_frozen_hash_versioned_t * self = (fd_frozen_hash_versioned_t *)mem;
   fd_frozen_hash_versioned_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_frozen_hash_versioned_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_frozen_hash_versioned_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -18310,10 +18630,12 @@ int fd_lookup_table_meta_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   *total_sz += sizeof(fd_lookup_table_meta_t);
   void const * start_data = ctx->data;
   int err = fd_lookup_table_meta_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_lookup_table_meta_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -18407,10 +18729,12 @@ int fd_address_lookup_table_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulo
   *total_sz += sizeof(fd_address_lookup_table_t);
   void const * start_data = ctx->data;
   int err = fd_address_lookup_table_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_address_lookup_table_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_lookup_table_meta_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -18475,10 +18799,12 @@ int fd_address_lookup_table_state_decode_footprint( fd_bincode_decode_ctx_t * ct
   *total_sz += sizeof(fd_address_lookup_table_state_t);
   void const * start_data = ctx->data;
   int err =  fd_address_lookup_table_state_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_address_lookup_table_state_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -18496,7 +18822,7 @@ void fd_address_lookup_table_state_inner_decode_inner( fd_address_lookup_table_s
   }
 }
 void fd_address_lookup_table_state_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_address_lookup_table_state_t * self = (fd_address_lookup_table_state_t *)struct_mem; /* #goated */
+  fd_address_lookup_table_state_t * self = (fd_address_lookup_table_state_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_address_lookup_table_state_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -18504,7 +18830,7 @@ void * fd_address_lookup_table_state_decode( void * mem, fd_bincode_decode_ctx_t
   fd_address_lookup_table_state_t * self = (fd_address_lookup_table_state_t *)mem;
   fd_address_lookup_table_state_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_address_lookup_table_state_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_address_lookup_table_state_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -18602,10 +18928,12 @@ int fd_gossip_bitvec_u8_inner_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   *total_sz += sizeof(fd_gossip_bitvec_u8_inner_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_bitvec_u8_inner_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_bitvec_u8_inner_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong vec_len;
   err = fd_bincode_uint64_decode( &vec_len, ctx );
@@ -18677,10 +19005,12 @@ int fd_gossip_bitvec_u8_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong *
   *total_sz += sizeof(fd_gossip_bitvec_u8_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_bitvec_u8_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_bitvec_u8_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   {
     uchar o;
@@ -18764,10 +19094,12 @@ int fd_gossip_bitvec_u64_inner_decode_footprint( fd_bincode_decode_ctx_t * ctx, 
   *total_sz += sizeof(fd_gossip_bitvec_u64_inner_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_bitvec_u64_inner_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_bitvec_u64_inner_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong vec_len;
   err = fd_bincode_uint64_decode( &vec_len, ctx );
@@ -18849,10 +19181,12 @@ int fd_gossip_bitvec_u64_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   *total_sz += sizeof(fd_gossip_bitvec_u64_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_bitvec_u64_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_bitvec_u64_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   {
     uchar o;
@@ -18935,10 +19269,12 @@ int fd_gossip_ping_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   *total_sz += sizeof(fd_gossip_ping_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_ping_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_ping_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -19019,10 +19355,12 @@ int fd_gossip_ip_addr_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   *total_sz += sizeof(fd_gossip_ip_addr_t);
   void const * start_data = ctx->data;
   int err =  fd_gossip_ip_addr_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_ip_addr_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -19041,7 +19379,7 @@ void fd_gossip_ip_addr_inner_decode_inner( fd_gossip_ip_addr_inner_t * self, voi
   }
 }
 void fd_gossip_ip_addr_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_ip_addr_t * self = (fd_gossip_ip_addr_t *)struct_mem; /* #goated */
+  fd_gossip_ip_addr_t * self = (fd_gossip_ip_addr_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_gossip_ip_addr_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -19049,7 +19387,7 @@ void * fd_gossip_ip_addr_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_gossip_ip_addr_t * self = (fd_gossip_ip_addr_t *)mem;
   fd_gossip_ip_addr_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_gossip_ip_addr_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_gossip_ip_addr_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -19172,10 +19510,12 @@ int fd_gossip_prune_data_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   *total_sz += sizeof(fd_gossip_prune_data_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_prune_data_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_prune_data_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -19293,10 +19633,12 @@ int fd_gossip_prune_sign_data_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   *total_sz += sizeof(fd_gossip_prune_sign_data_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_prune_sign_data_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_prune_sign_data_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -19401,10 +19743,12 @@ int fd_gossip_prune_sign_data_with_prefix_decode_footprint( fd_bincode_decode_ct
   *total_sz += sizeof(fd_gossip_prune_sign_data_with_prefix_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_prune_sign_data_with_prefix_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_prune_sign_data_with_prefix_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong prefix_len;
   err = fd_bincode_uint64_decode( &prefix_len, ctx );
@@ -19481,10 +19825,12 @@ int fd_gossip_socket_addr_old_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   *total_sz += sizeof(fd_gossip_socket_addr_old_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_socket_addr_old_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_socket_addr_old_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_gossip_ip_addr_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -19541,10 +19887,12 @@ int fd_gossip_socket_addr_ip4_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   *total_sz += sizeof(fd_gossip_socket_addr_ip4_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_socket_addr_ip4_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_socket_addr_ip4_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_gossip_ip4_addr_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -19605,10 +19953,12 @@ int fd_gossip_socket_addr_ip6_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   *total_sz += sizeof(fd_gossip_socket_addr_ip6_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_socket_addr_ip6_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_socket_addr_ip6_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_gossip_ip6_addr_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -19690,10 +20040,12 @@ int fd_gossip_socket_addr_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   *total_sz += sizeof(fd_gossip_socket_addr_t);
   void const * start_data = ctx->data;
   int err =  fd_gossip_socket_addr_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_socket_addr_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -19712,7 +20064,7 @@ void fd_gossip_socket_addr_inner_decode_inner( fd_gossip_socket_addr_inner_t * s
   }
 }
 void fd_gossip_socket_addr_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_socket_addr_t * self = (fd_gossip_socket_addr_t *)struct_mem; /* #goated */
+  fd_gossip_socket_addr_t * self = (fd_gossip_socket_addr_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_gossip_socket_addr_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -19720,7 +20072,7 @@ void * fd_gossip_socket_addr_decode( void * mem, fd_bincode_decode_ctx_t * ctx )
   fd_gossip_socket_addr_t * self = (fd_gossip_socket_addr_t *)mem;
   fd_gossip_socket_addr_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_gossip_socket_addr_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_gossip_socket_addr_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -19853,10 +20205,12 @@ int fd_gossip_contact_info_v1_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   *total_sz += sizeof(fd_gossip_contact_info_v1_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_contact_info_v1_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_contact_info_v1_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -19992,10 +20346,12 @@ int fd_gossip_vote_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   *total_sz += sizeof(fd_gossip_vote_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_vote_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_vote_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint8_decode_footprint( ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -20079,10 +20435,12 @@ int fd_gossip_lowest_slot_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   *total_sz += sizeof(fd_gossip_lowest_slot_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_lowest_slot_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_lowest_slot_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint8_decode_footprint( ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -20200,10 +20558,12 @@ int fd_gossip_slot_hashes_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   *total_sz += sizeof(fd_gossip_slot_hashes_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_slot_hashes_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_slot_hashes_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -20299,10 +20659,12 @@ int fd_gossip_slots_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
   *total_sz += sizeof(fd_gossip_slots_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_slots_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_slots_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -20370,10 +20732,12 @@ int fd_gossip_flate2_slots_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
   *total_sz += sizeof(fd_gossip_flate2_slots_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_flate2_slots_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_flate2_slots_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -20466,10 +20830,12 @@ int fd_gossip_slots_enum_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   *total_sz += sizeof(fd_gossip_slots_enum_t);
   void const * start_data = ctx->data;
   int err =  fd_gossip_slots_enum_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_slots_enum_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -20488,7 +20854,7 @@ void fd_gossip_slots_enum_inner_decode_inner( fd_gossip_slots_enum_inner_t * sel
   }
 }
 void fd_gossip_slots_enum_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_slots_enum_t * self = (fd_gossip_slots_enum_t *)struct_mem; /* #goated */
+  fd_gossip_slots_enum_t * self = (fd_gossip_slots_enum_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_gossip_slots_enum_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -20496,7 +20862,7 @@ void * fd_gossip_slots_enum_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) 
   fd_gossip_slots_enum_t * self = (fd_gossip_slots_enum_t *)mem;
   fd_gossip_slots_enum_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_gossip_slots_enum_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_gossip_slots_enum_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -20617,10 +20983,12 @@ int fd_gossip_epoch_slots_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong
   *total_sz += sizeof(fd_gossip_epoch_slots_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_epoch_slots_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_epoch_slots_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint8_decode_footprint( ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -20731,10 +21099,12 @@ int fd_gossip_version_v1_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   *total_sz += sizeof(fd_gossip_version_v1_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_version_v1_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_version_v1_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -20849,10 +21219,12 @@ int fd_gossip_version_v2_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   *total_sz += sizeof(fd_gossip_version_v2_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_version_v2_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_version_v2_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -20966,10 +21338,12 @@ int fd_gossip_version_v3_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong 
   *total_sz += sizeof(fd_gossip_version_v3_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_version_v3_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_version_v3_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   do { ushort _tmp; err = fd_bincode_compact_u16_decode( &_tmp, ctx ); } while(0);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -21048,10 +21422,12 @@ int fd_gossip_node_instance_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulo
   *total_sz += sizeof(fd_gossip_node_instance_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_node_instance_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_node_instance_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -21136,10 +21512,12 @@ int fd_gossip_duplicate_shred_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   *total_sz += sizeof(fd_gossip_duplicate_shred_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_duplicate_shred_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_duplicate_shred_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint16_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -21259,10 +21637,12 @@ int fd_gossip_incremental_snapshot_hashes_decode_footprint( fd_bincode_decode_ct
   *total_sz += sizeof(fd_gossip_incremental_snapshot_hashes_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_incremental_snapshot_hashes_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_incremental_snapshot_hashes_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -21365,10 +21745,12 @@ int fd_gossip_socket_entry_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
   *total_sz += sizeof(fd_gossip_socket_entry_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_socket_entry_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_socket_entry_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint8_decode_footprint( ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -21457,10 +21839,12 @@ int fd_gossip_contact_info_v2_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   *total_sz += sizeof(fd_gossip_contact_info_v2_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_contact_info_v2_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_contact_info_v2_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -21642,10 +22026,12 @@ int fd_restart_run_length_encoding_inner_decode_footprint( fd_bincode_decode_ctx
   *total_sz += sizeof(fd_restart_run_length_encoding_inner_t);
   void const * start_data = ctx->data;
   int err = fd_restart_run_length_encoding_inner_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_restart_run_length_encoding_inner_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   do { ushort _tmp; err = fd_bincode_compact_u16_decode( &_tmp, ctx ); } while(0);
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -21699,10 +22085,12 @@ int fd_restart_run_length_encoding_decode_footprint( fd_bincode_decode_ctx_t * c
   *total_sz += sizeof(fd_restart_run_length_encoding_t);
   void const * start_data = ctx->data;
   int err = fd_restart_run_length_encoding_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_restart_run_length_encoding_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong offsets_len;
   err = fd_bincode_uint64_decode( &offsets_len, ctx );
@@ -21786,10 +22174,12 @@ int fd_restart_raw_offsets_bitvec_u8_inner_decode_footprint( fd_bincode_decode_c
   *total_sz += sizeof(fd_restart_raw_offsets_bitvec_u8_inner_t);
   void const * start_data = ctx->data;
   int err = fd_restart_raw_offsets_bitvec_u8_inner_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_restart_raw_offsets_bitvec_u8_inner_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong bits_len;
   err = fd_bincode_uint64_decode( &bits_len, ctx );
@@ -21861,10 +22251,12 @@ int fd_restart_raw_offsets_bitvec_decode_footprint( fd_bincode_decode_ctx_t * ct
   *total_sz += sizeof(fd_restart_raw_offsets_bitvec_t);
   void const * start_data = ctx->data;
   int err = fd_restart_raw_offsets_bitvec_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_restart_raw_offsets_bitvec_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   {
     uchar o;
@@ -21943,10 +22335,12 @@ int fd_restart_raw_offsets_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
   *total_sz += sizeof(fd_restart_raw_offsets_t);
   void const * start_data = ctx->data;
   int err = fd_restart_raw_offsets_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_restart_raw_offsets_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_restart_raw_offsets_bitvec_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -22013,10 +22407,12 @@ int fd_restart_slots_offsets_decode_footprint( fd_bincode_decode_ctx_t * ctx, ul
   *total_sz += sizeof(fd_restart_slots_offsets_t);
   void const * start_data = ctx->data;
   int err =  fd_restart_slots_offsets_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_restart_slots_offsets_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -22035,7 +22431,7 @@ void fd_restart_slots_offsets_inner_decode_inner( fd_restart_slots_offsets_inner
   }
 }
 void fd_restart_slots_offsets_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_restart_slots_offsets_t * self = (fd_restart_slots_offsets_t *)struct_mem; /* #goated */
+  fd_restart_slots_offsets_t * self = (fd_restart_slots_offsets_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_restart_slots_offsets_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -22043,7 +22439,7 @@ void * fd_restart_slots_offsets_decode( void * mem, fd_bincode_decode_ctx_t * ct
   fd_restart_slots_offsets_t * self = (fd_restart_slots_offsets_t *)mem;
   fd_restart_slots_offsets_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_restart_slots_offsets_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_restart_slots_offsets_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -22162,10 +22558,12 @@ int fd_gossip_restart_last_voted_fork_slots_decode_footprint( fd_bincode_decode_
   *total_sz += sizeof(fd_gossip_restart_last_voted_fork_slots_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_restart_last_voted_fork_slots_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_restart_last_voted_fork_slots_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -22254,10 +22652,12 @@ int fd_gossip_restart_heaviest_fork_decode_footprint( fd_bincode_decode_ctx_t * 
   *total_sz += sizeof(fd_gossip_restart_heaviest_fork_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_restart_heaviest_fork_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_restart_heaviest_fork_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -22447,10 +22847,12 @@ int fd_crds_data_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_
   *total_sz += sizeof(fd_crds_data_t);
   void const * start_data = ctx->data;
   int err =  fd_crds_data_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_crds_data_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -22517,7 +22919,7 @@ void fd_crds_data_inner_decode_inner( fd_crds_data_inner_t * self, void * * allo
   }
 }
 void fd_crds_data_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_crds_data_t * self = (fd_crds_data_t *)struct_mem; /* #goated */
+  fd_crds_data_t * self = (fd_crds_data_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_crds_data_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -22525,7 +22927,7 @@ void * fd_crds_data_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_crds_data_t * self = (fd_crds_data_t *)mem;
   fd_crds_data_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_crds_data_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_crds_data_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -22907,10 +23309,12 @@ int fd_crds_bloom_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   *total_sz += sizeof(fd_crds_bloom_t);
   void const * start_data = ctx->data;
   int err = fd_crds_bloom_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_crds_bloom_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong keys_len;
   err = fd_bincode_uint64_decode( &keys_len, ctx );
@@ -23002,10 +23406,12 @@ int fd_crds_filter_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   *total_sz += sizeof(fd_crds_filter_t);
   void const * start_data = ctx->data;
   int err = fd_crds_filter_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_crds_filter_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_crds_bloom_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -23067,10 +23473,12 @@ int fd_crds_value_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   *total_sz += sizeof(fd_crds_value_t);
   void const * start_data = ctx->data;
   int err = fd_crds_value_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_crds_value_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_signature_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -23129,10 +23537,12 @@ int fd_gossip_pull_req_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   *total_sz += sizeof(fd_gossip_pull_req_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_pull_req_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_pull_req_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_crds_filter_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -23197,10 +23607,12 @@ int fd_gossip_pull_resp_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong *
   *total_sz += sizeof(fd_gossip_pull_resp_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_pull_resp_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_pull_resp_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -23295,10 +23707,12 @@ int fd_gossip_push_msg_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   *total_sz += sizeof(fd_gossip_push_msg_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_push_msg_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_push_msg_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -23387,10 +23801,12 @@ int fd_gossip_prune_msg_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong *
   *total_sz += sizeof(fd_gossip_prune_msg_t);
   void const * start_data = ctx->data;
   int err = fd_gossip_prune_msg_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_prune_msg_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -23496,10 +23912,12 @@ int fd_gossip_msg_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   *total_sz += sizeof(fd_gossip_msg_t);
   void const * start_data = ctx->data;
   int err =  fd_gossip_msg_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_gossip_msg_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -23534,7 +23952,7 @@ void fd_gossip_msg_inner_decode_inner( fd_gossip_msg_inner_t * self, void * * al
   }
 }
 void fd_gossip_msg_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_gossip_msg_t * self = (fd_gossip_msg_t *)struct_mem; /* #goated */
+  fd_gossip_msg_t * self = (fd_gossip_msg_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_gossip_msg_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -23542,7 +23960,7 @@ void * fd_gossip_msg_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_gossip_msg_t * self = (fd_gossip_msg_t *)mem;
   fd_gossip_msg_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_gossip_msg_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_gossip_msg_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -23741,10 +24159,12 @@ int fd_addrlut_create_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   *total_sz += sizeof(fd_addrlut_create_t);
   void const * start_data = ctx->data;
   int err = fd_addrlut_create_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_addrlut_create_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -23803,10 +24223,12 @@ int fd_addrlut_extend_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   *total_sz += sizeof(fd_addrlut_extend_t);
   void const * start_data = ctx->data;
   int err = fd_addrlut_extend_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_addrlut_extend_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong new_addrs_len;
   err = fd_bincode_uint64_decode( &new_addrs_len, ctx );
@@ -23921,10 +24343,12 @@ int fd_addrlut_instruction_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
   *total_sz += sizeof(fd_addrlut_instruction_t);
   void const * start_data = ctx->data;
   int err =  fd_addrlut_instruction_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_addrlut_instruction_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -23952,7 +24376,7 @@ void fd_addrlut_instruction_inner_decode_inner( fd_addrlut_instruction_inner_t *
   }
 }
 void fd_addrlut_instruction_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_addrlut_instruction_t * self = (fd_addrlut_instruction_t *)struct_mem; /* #goated */
+  fd_addrlut_instruction_t * self = (fd_addrlut_instruction_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_addrlut_instruction_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -23960,7 +24384,7 @@ void * fd_addrlut_instruction_decode( void * mem, fd_bincode_decode_ctx_t * ctx 
   fd_addrlut_instruction_t * self = (fd_addrlut_instruction_t *)mem;
   fd_addrlut_instruction_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_addrlut_instruction_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_addrlut_instruction_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -24098,10 +24522,12 @@ int fd_repair_request_header_decode_footprint( fd_bincode_decode_ctx_t * ctx, ul
   *total_sz += sizeof(fd_repair_request_header_t);
   void const * start_data = ctx->data;
   int err = fd_repair_request_header_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_repair_request_header_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_signature_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -24179,10 +24605,12 @@ int fd_repair_window_index_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulon
   *total_sz += sizeof(fd_repair_window_index_t);
   void const * start_data = ctx->data;
   int err = fd_repair_window_index_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_repair_window_index_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_repair_request_header_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -24246,10 +24674,12 @@ int fd_repair_highest_window_index_decode_footprint( fd_bincode_decode_ctx_t * c
   *total_sz += sizeof(fd_repair_highest_window_index_t);
   void const * start_data = ctx->data;
   int err = fd_repair_highest_window_index_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_repair_highest_window_index_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_repair_request_header_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -24311,10 +24741,12 @@ int fd_repair_orphan_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * to
   *total_sz += sizeof(fd_repair_orphan_t);
   void const * start_data = ctx->data;
   int err = fd_repair_orphan_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_repair_orphan_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_repair_request_header_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -24371,10 +24803,12 @@ int fd_repair_ancestor_hashes_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   *total_sz += sizeof(fd_repair_ancestor_hashes_t);
   void const * start_data = ctx->data;
   int err = fd_repair_ancestor_hashes_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_repair_ancestor_hashes_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_repair_request_header_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -24512,10 +24946,12 @@ int fd_repair_protocol_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   *total_sz += sizeof(fd_repair_protocol_t);
   void const * start_data = ctx->data;
   int err =  fd_repair_protocol_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_repair_protocol_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -24567,7 +25003,7 @@ void fd_repair_protocol_inner_decode_inner( fd_repair_protocol_inner_t * self, v
   }
 }
 void fd_repair_protocol_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_repair_protocol_t * self = (fd_repair_protocol_t *)struct_mem; /* #goated */
+  fd_repair_protocol_t * self = (fd_repair_protocol_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_repair_protocol_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -24575,7 +25011,7 @@ void * fd_repair_protocol_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_repair_protocol_t * self = (fd_repair_protocol_t *)mem;
   fd_repair_protocol_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_repair_protocol_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_repair_protocol_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -24808,10 +25244,12 @@ int fd_repair_response_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   *total_sz += sizeof(fd_repair_response_t);
   void const * start_data = ctx->data;
   int err =  fd_repair_response_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_repair_response_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -24826,7 +25264,7 @@ void fd_repair_response_inner_decode_inner( fd_repair_response_inner_t * self, v
   }
 }
 void fd_repair_response_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_repair_response_t * self = (fd_repair_response_t *)struct_mem; /* #goated */
+  fd_repair_response_t * self = (fd_repair_response_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_repair_response_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -24834,7 +25272,7 @@ void * fd_repair_response_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_repair_response_t * self = (fd_repair_response_t *)mem;
   fd_repair_response_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_repair_response_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_repair_response_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -25254,10 +25692,12 @@ int fd_instr_error_enum_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong *
   *total_sz += sizeof(fd_instr_error_enum_t);
   void const * start_data = ctx->data;
   int err =  fd_instr_error_enum_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_instr_error_enum_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -25437,7 +25877,7 @@ void fd_instr_error_enum_inner_decode_inner( fd_instr_error_enum_inner_t * self,
   }
 }
 void fd_instr_error_enum_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_instr_error_enum_t * self = (fd_instr_error_enum_t *)struct_mem; /* #goated */
+  fd_instr_error_enum_t * self = (fd_instr_error_enum_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_instr_error_enum_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -25445,7 +25885,7 @@ void * fd_instr_error_enum_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_instr_error_enum_t * self = (fd_instr_error_enum_t *)mem;
   fd_instr_error_enum_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_instr_error_enum_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_instr_error_enum_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -25921,10 +26361,12 @@ int fd_txn_instr_error_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   *total_sz += sizeof(fd_txn_instr_error_t);
   void const * start_data = ctx->data;
   int err = fd_txn_instr_error_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_txn_instr_error_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint8_decode_footprint( ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -26210,10 +26652,12 @@ int fd_txn_error_enum_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   *total_sz += sizeof(fd_txn_error_enum_t);
   void const * start_data = ctx->data;
   int err =  fd_txn_error_enum_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_txn_error_enum_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -26339,7 +26783,7 @@ void fd_txn_error_enum_inner_decode_inner( fd_txn_error_enum_inner_t * self, voi
   }
 }
 void fd_txn_error_enum_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_txn_error_enum_t * self = (fd_txn_error_enum_t *)struct_mem; /* #goated */
+  fd_txn_error_enum_t * self = (fd_txn_error_enum_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_txn_error_enum_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -26347,7 +26791,7 @@ void * fd_txn_error_enum_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_txn_error_enum_t * self = (fd_txn_error_enum_t *)mem;
   fd_txn_error_enum_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_txn_error_enum_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_txn_error_enum_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -26740,10 +27184,12 @@ int fd_txn_result_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   *total_sz += sizeof(fd_txn_result_t);
   void const * start_data = ctx->data;
   int err =  fd_txn_result_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_txn_result_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   uint discriminant = 0;
   int err = fd_bincode_uint32_decode( &discriminant, ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -26761,7 +27207,7 @@ void fd_txn_result_inner_decode_inner( fd_txn_result_inner_t * self, void * * al
   }
 }
 void fd_txn_result_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  fd_txn_result_t * self = (fd_txn_result_t *)struct_mem; /* #goated */
+  fd_txn_result_t * self = (fd_txn_result_t *)struct_mem;
   fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
   fd_txn_result_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
 }
@@ -26769,7 +27215,7 @@ void * fd_txn_result_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_txn_result_t * self = (fd_txn_result_t *)mem;
   fd_txn_result_new( self );
   void * alloc_region = (uchar *)mem + sizeof(fd_txn_result_t);
-  void * * alloc_mem = &alloc_region; /* #goated */
+  void * * alloc_mem = &alloc_region;
   fd_txn_result_decode_inner( mem, alloc_mem, ctx );
   return self;
 }
@@ -26865,10 +27311,12 @@ int fd_cache_status_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
   *total_sz += sizeof(fd_cache_status_t);
   void const * start_data = ctx->data;
   int err = fd_cache_status_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_cache_status_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_bytes_decode_footprint( 20, ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -26931,10 +27379,12 @@ int fd_status_value_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tot
   *total_sz += sizeof(fd_status_value_t);
   void const * start_data = ctx->data;
   int err = fd_status_value_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_status_value_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -27021,10 +27471,12 @@ int fd_status_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * tota
   *total_sz += sizeof(fd_status_pair_t);
   void const * start_data = ctx->data;
   int err = fd_status_pair_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_status_pair_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_hash_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -27091,10 +27543,12 @@ int fd_slot_delta_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   *total_sz += sizeof(fd_slot_delta_t);
   void const * start_data = ctx->data;
   int err = fd_slot_delta_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_slot_delta_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -27190,10 +27644,12 @@ int fd_bank_slot_deltas_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong *
   *total_sz += sizeof(fd_bank_slot_deltas_t);
   void const * start_data = ctx->data;
   int err = fd_bank_slot_deltas_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_bank_slot_deltas_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong slot_deltas_len;
   err = fd_bincode_uint64_decode( &slot_deltas_len, ctx );
@@ -27275,10 +27731,12 @@ int fd_pubkey_rewardinfo_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, u
   *total_sz += sizeof(fd_pubkey_rewardinfo_pair_t);
   void const * start_data = ctx->data;
   int err = fd_pubkey_rewardinfo_pair_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_pubkey_rewardinfo_pair_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -27342,10 +27800,12 @@ int fd_optional_account_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong *
   *total_sz += sizeof(fd_optional_account_t);
   void const * start_data = ctx->data;
   int err = fd_optional_account_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_optional_account_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   {
     uchar o;
@@ -27428,10 +27888,12 @@ int fd_calculated_stake_points_decode_footprint( fd_bincode_decode_ctx_t * ctx, 
   *total_sz += sizeof(fd_calculated_stake_points_t);
   void const * start_data = ctx->data;
   int err = fd_calculated_stake_points_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_calculated_stake_points_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint128_decode_footprint( ctx );
   if( FD_UNLIKELY( err ) ) return err;
@@ -27493,10 +27955,12 @@ int fd_calculated_stake_rewards_decode_footprint( fd_bincode_decode_ctx_t * ctx,
   *total_sz += sizeof(fd_calculated_stake_rewards_t);
   void const * start_data = ctx->data;
   int err = fd_calculated_stake_rewards_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_calculated_stake_rewards_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_bincode_uint64_decode_footprint( ctx );
   if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
@@ -27564,10 +28028,12 @@ int fd_duplicate_slot_proof_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulo
   *total_sz += sizeof(fd_duplicate_slot_proof_t);
   void const * start_data = ctx->data;
   int err = fd_duplicate_slot_proof_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_duplicate_slot_proof_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong shred1_len;
   err = fd_bincode_uint64_decode( &shred1_len, ctx );
@@ -27658,10 +28124,12 @@ int fd_epoch_info_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * 
   *total_sz += sizeof(fd_epoch_info_pair_t);
   void const * start_data = ctx->data;
   int err = fd_epoch_info_pair_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_epoch_info_pair_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -27720,10 +28188,12 @@ int fd_vote_info_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * t
   *total_sz += sizeof(fd_vote_info_pair_t);
   void const * start_data = ctx->data;
   int err = fd_vote_info_pair_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_vote_info_pair_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
   if( FD_UNLIKELY( err ) ) return err;
@@ -27801,10 +28271,12 @@ int fd_epoch_info_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total
   *total_sz += sizeof(fd_epoch_info_t);
   void const * start_data = ctx->data;
   int err = fd_epoch_info_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   ctx->data = start_data;
   return err;
 }
 int fd_epoch_info_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
   int err = 0;
   ulong stake_infos_len;
   err = fd_bincode_uint64_decode( &stake_infos_len, ctx );
@@ -27916,6 +28388,514 @@ ulong fd_epoch_info_size( fd_epoch_info_t const * self ) {
   return size;
 }
 
+int fd_usage_cost_details_encode( fd_usage_cost_details_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->signature_cost, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->write_lock_cost, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->data_bytes_cost, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->programs_execution_cost, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->loaded_accounts_data_size_cost, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->allocated_accounts_data_size, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_usage_cost_details_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_usage_cost_details_t);
+  void const * start_data = ctx->data;
+  int err = fd_usage_cost_details_decode_footprint_inner( ctx, total_sz );
+  ctx->data = start_data;
+  return err;
+}
+int fd_usage_cost_details_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  int err = 0;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return 0;
+}
+void * fd_usage_cost_details_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_usage_cost_details_t * self = (fd_usage_cost_details_t *)mem;
+  fd_usage_cost_details_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_usage_cost_details_t);
+  void * * alloc_mem = &alloc_region;
+  fd_usage_cost_details_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_usage_cost_details_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_usage_cost_details_t * self = (fd_usage_cost_details_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->signature_cost, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->write_lock_cost, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->data_bytes_cost, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->programs_execution_cost, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->loaded_accounts_data_size_cost, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->allocated_accounts_data_size, ctx );
+}
+void fd_usage_cost_details_new(fd_usage_cost_details_t * self) {
+  fd_memset( self, 0, sizeof(fd_usage_cost_details_t) );
+}
+void fd_usage_cost_details_destroy( fd_usage_cost_details_t * self ) {
+}
+
+ulong fd_usage_cost_details_footprint( void ){ return FD_USAGE_COST_DETAILS_FOOTPRINT; }
+ulong fd_usage_cost_details_align( void ){ return FD_USAGE_COST_DETAILS_ALIGN; }
+
+void fd_usage_cost_details_walk( void * w, fd_usage_cost_details_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_usage_cost_details", level++ );
+  fun( w, &self->signature_cost, "signature_cost", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->write_lock_cost, "write_lock_cost", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->data_bytes_cost, "data_bytes_cost", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->programs_execution_cost, "programs_execution_cost", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->loaded_accounts_data_size_cost, "loaded_accounts_data_size_cost", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->allocated_accounts_data_size, "allocated_accounts_data_size", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_usage_cost_details", level-- );
+}
+ulong fd_usage_cost_details_size( fd_usage_cost_details_t const * self ) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  return size;
+}
+
+FD_FN_PURE uchar fd_transaction_cost_is_simple_vote(fd_transaction_cost_t const * self) {
+  return self->discriminant == 0;
+}
+FD_FN_PURE uchar fd_transaction_cost_is_transaction(fd_transaction_cost_t const * self) {
+  return self->discriminant == 1;
+}
+void fd_transaction_cost_inner_new( fd_transaction_cost_inner_t * self, uint discriminant );
+int fd_transaction_cost_inner_decode_footprint( uint discriminant, fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  int err;
+  switch (discriminant) {
+  case 0: {
+    return FD_BINCODE_SUCCESS;
+  }
+  case 1: {
+    err = fd_usage_cost_details_decode_footprint_inner( ctx, total_sz );
+    if( FD_UNLIKELY( err ) ) return err;
+    return FD_BINCODE_SUCCESS;
+  }
+  default: return FD_BINCODE_ERR_ENCODING;
+  }
+}
+int fd_transaction_cost_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_transaction_cost_t);
+  void const * start_data = ctx->data;
+  int err =  fd_transaction_cost_decode_footprint_inner( ctx, total_sz );
+  ctx->data = start_data;
+  return err;
+}
+int fd_transaction_cost_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  uint discriminant = 0;
+  int err = fd_bincode_uint32_decode( &discriminant, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return fd_transaction_cost_inner_decode_footprint( discriminant, ctx, total_sz );
+}
+void fd_transaction_cost_inner_decode_inner( fd_transaction_cost_inner_t * self, void * * alloc_mem, uint discriminant, fd_bincode_decode_ctx_t * ctx ) {
+  switch (discriminant) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    fd_usage_cost_details_decode_inner( &self->transaction, alloc_mem, ctx );
+    break;
+  }
+  }
+}
+void fd_transaction_cost_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_transaction_cost_t * self = (fd_transaction_cost_t *)struct_mem; /* #goated */
+  fd_bincode_uint32_decode_unsafe( &self->discriminant, ctx );
+  fd_transaction_cost_inner_decode_inner( &self->inner, alloc_mem, self->discriminant, ctx );
+}
+void * fd_transaction_cost_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_transaction_cost_t * self = (fd_transaction_cost_t *)mem;
+  fd_transaction_cost_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_transaction_cost_t);
+  void * * alloc_mem = &alloc_region; /* #goated */
+  fd_transaction_cost_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_transaction_cost_inner_new( fd_transaction_cost_inner_t * self, uint discriminant ) {
+  switch( discriminant ) {
+  case 0: {
+    break;
+  }
+  case 1: {
+    fd_usage_cost_details_new( &self->transaction );
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type"));
+  }
+}
+void fd_transaction_cost_new_disc( fd_transaction_cost_t * self, uint discriminant ) {
+  self->discriminant = discriminant;
+  fd_transaction_cost_inner_new( &self->inner, self->discriminant );
+}
+void fd_transaction_cost_new( fd_transaction_cost_t * self ) {
+  fd_memset( self, 0, sizeof(fd_transaction_cost_t) );
+  fd_transaction_cost_new_disc( self, UINT_MAX );
+}
+void fd_transaction_cost_inner_destroy( fd_transaction_cost_inner_t * self, uint discriminant ) {
+  switch( discriminant ) {
+  case 1: {
+    fd_usage_cost_details_destroy( &self->transaction );
+    break;
+  }
+  default: break; // FD_LOG_ERR(( "unhandled type" ));
+  }
+}
+void fd_transaction_cost_destroy( fd_transaction_cost_t * self ) {
+  fd_transaction_cost_inner_destroy( &self->inner, self->discriminant );
+}
+
+ulong fd_transaction_cost_footprint( void ){ return FD_TRANSACTION_COST_FOOTPRINT; }
+ulong fd_transaction_cost_align( void ){ return FD_TRANSACTION_COST_ALIGN; }
+
+void fd_transaction_cost_walk( void * w, fd_transaction_cost_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun(w, self, name, FD_FLAMENCO_TYPE_ENUM, "fd_transaction_cost", level++);
+  switch( self->discriminant ) {
+  case 0: {
+    fun( w, self, "simple_vote", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    break;
+  }
+  case 1: {
+    fun( w, self, "transaction", FD_FLAMENCO_TYPE_ENUM_DISC, "discriminant", level );
+    fd_usage_cost_details_walk( w, &self->inner.transaction, fun, "transaction", level );
+    break;
+  }
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_ENUM_END, "fd_transaction_cost", level-- );
+}
+ulong fd_transaction_cost_size( fd_transaction_cost_t const * self ) {
+  ulong size = 0;
+  size += sizeof(uint);
+  switch (self->discriminant) {
+  case 1: {
+    size += fd_usage_cost_details_size( &self->inner.transaction );
+    break;
+  }
+  }
+  return size;
+}
+
+int fd_transaction_cost_inner_encode( fd_transaction_cost_inner_t const * self, uint discriminant, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  switch (discriminant) {
+  case 1: {
+    err = fd_usage_cost_details_encode( &self->transaction, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    break;
+  }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_transaction_cost_encode( fd_transaction_cost_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err = fd_bincode_uint32_encode( self->discriminant, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return fd_transaction_cost_inner_encode( &self->inner, self->discriminant, ctx );
+}
+
+int fd_account_costs_pair_encode( fd_account_costs_pair_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_pubkey_encode( &self->key, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->cost, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_account_costs_pair_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_account_costs_pair_t);
+  void const * start_data = ctx->data;
+  int err = fd_account_costs_pair_decode_footprint_inner( ctx, total_sz );
+  ctx->data = start_data;
+  return err;
+}
+int fd_account_costs_pair_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  int err = 0;
+  err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return 0;
+}
+void * fd_account_costs_pair_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_account_costs_pair_t * self = (fd_account_costs_pair_t *)mem;
+  fd_account_costs_pair_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_account_costs_pair_t);
+  void * * alloc_mem = &alloc_region;
+  fd_account_costs_pair_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_account_costs_pair_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_account_costs_pair_t * self = (fd_account_costs_pair_t *)struct_mem;
+  fd_pubkey_decode_inner( &self->key, alloc_mem, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->cost, ctx );
+}
+void fd_account_costs_pair_new(fd_account_costs_pair_t * self) {
+  fd_memset( self, 0, sizeof(fd_account_costs_pair_t) );
+  fd_pubkey_new( &self->key );
+}
+void fd_account_costs_pair_destroy( fd_account_costs_pair_t * self ) {
+  fd_pubkey_destroy( &self->key );
+}
+
+ulong fd_account_costs_pair_footprint( void ){ return FD_ACCOUNT_COSTS_PAIR_FOOTPRINT; }
+ulong fd_account_costs_pair_align( void ){ return FD_ACCOUNT_COSTS_PAIR_ALIGN; }
+
+void fd_account_costs_pair_walk( void * w, fd_account_costs_pair_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_account_costs_pair", level++ );
+  fd_pubkey_walk( w, &self->key, fun, "key", level );
+  fun( w, &self->cost, "cost", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_account_costs_pair", level-- );
+}
+ulong fd_account_costs_pair_size( fd_account_costs_pair_t const * self ) {
+  ulong size = 0;
+  size += fd_pubkey_size( &self->key );
+  size += sizeof(ulong);
+  return size;
+}
+
+int fd_account_costs_encode( fd_account_costs_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  if( self->account_costs_root ) {
+    ulong account_costs_len = fd_account_costs_pair_t_map_size( self->account_costs_pool, self->account_costs_root );
+    err = fd_bincode_uint64_encode( account_costs_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    for( fd_account_costs_pair_t_mapnode_t * n = fd_account_costs_pair_t_map_minimum( self->account_costs_pool, self->account_costs_root ); n; n = fd_account_costs_pair_t_map_successor( self->account_costs_pool, n ) ) {
+      err = fd_account_costs_pair_encode( &n->elem, ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  } else {
+    ulong account_costs_len = 0;
+    err = fd_bincode_uint64_encode( account_costs_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_account_costs_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_account_costs_t);
+  void const * start_data = ctx->data;
+  int err = fd_account_costs_decode_footprint_inner( ctx, total_sz );
+  ctx->data = start_data;
+  return err;
+}
+int fd_account_costs_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  int err = 0;
+  ulong account_costs_len = 0UL;
+  err = fd_bincode_uint64_decode( &account_costs_len, ctx );
+  ulong account_costs_cnt = fd_ulong_max( account_costs_len, 4096 );
+  *total_sz += fd_account_costs_pair_t_map_align() + fd_account_costs_pair_t_map_footprint( account_costs_cnt );
+  if( FD_UNLIKELY( err ) ) return err;
+  for( ulong i=0; i < account_costs_len; i++ ) {
+    err = fd_account_costs_pair_decode_footprint_inner( ctx, total_sz );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  return 0;
+}
+void * fd_account_costs_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_account_costs_t * self = (fd_account_costs_t *)mem;
+  fd_account_costs_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_account_costs_t);
+  void * * alloc_mem = &alloc_region;
+  fd_account_costs_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_account_costs_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_account_costs_t * self = (fd_account_costs_t *)struct_mem;
+  ulong account_costs_len;
+  fd_bincode_uint64_decode_unsafe( &account_costs_len, ctx );
+  self->account_costs_pool = fd_account_costs_pair_t_map_join_new( alloc_mem, fd_ulong_max( account_costs_len, 4096 ) );
+  self->account_costs_root = NULL;
+  for( ulong i=0; i < account_costs_len; i++ ) {
+    fd_account_costs_pair_t_mapnode_t * node = fd_account_costs_pair_t_map_acquire( self->account_costs_pool );
+    fd_account_costs_pair_new( &node->elem );
+    fd_account_costs_pair_decode_inner( &node->elem, alloc_mem, ctx );
+    fd_account_costs_pair_t_map_insert( self->account_costs_pool, &self->account_costs_root, node );
+  }
+}
+void fd_account_costs_new(fd_account_costs_t * self) {
+  fd_memset( self, 0, sizeof(fd_account_costs_t) );
+}
+void fd_account_costs_destroy( fd_account_costs_t * self ) {
+  for( fd_account_costs_pair_t_mapnode_t * n = fd_account_costs_pair_t_map_minimum(self->account_costs_pool, self->account_costs_root ); n; n = fd_account_costs_pair_t_map_successor(self->account_costs_pool, n) ) {
+    fd_account_costs_pair_destroy( &n->elem );
+  }
+  self->account_costs_pool = NULL;
+  self->account_costs_root = NULL;
+}
+
+ulong fd_account_costs_footprint( void ){ return FD_ACCOUNT_COSTS_FOOTPRINT; }
+ulong fd_account_costs_align( void ){ return FD_ACCOUNT_COSTS_ALIGN; }
+
+void fd_account_costs_walk( void * w, fd_account_costs_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_account_costs", level++ );
+  if( self->account_costs_root ) {
+    for( fd_account_costs_pair_t_mapnode_t * n = fd_account_costs_pair_t_map_minimum(self->account_costs_pool, self->account_costs_root ); n; n = fd_account_costs_pair_t_map_successor( self->account_costs_pool, n ) ) {
+      fd_account_costs_pair_walk(w, &n->elem, fun, "account_costs", level );
+    }
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_account_costs", level-- );
+}
+ulong fd_account_costs_size( fd_account_costs_t const * self ) {
+  ulong size = 0;
+  if( self->account_costs_root ) {
+    size += sizeof(ulong);
+    for( fd_account_costs_pair_t_mapnode_t * n = fd_account_costs_pair_t_map_minimum( self->account_costs_pool, self->account_costs_root ); n; n = fd_account_costs_pair_t_map_successor( self->account_costs_pool, n ) ) {
+      size += fd_account_costs_pair_size( &n->elem );
+    }
+  } else {
+    size += sizeof(ulong);
+  }
+  return size;
+}
+
+int fd_cost_tracker_encode( fd_cost_tracker_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->account_cost_limit, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->block_cost_limit, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->vote_cost_limit, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_account_costs_encode( &self->cost_by_writable_accounts, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->block_cost, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->vote_cost, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->transaction_count, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->allocated_accounts_data_size, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->transaction_signature_count, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->secp256k1_instruction_signature_count, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->ed25519_instruction_signature_count, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->secp256r1_instruction_signature_count, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  return FD_BINCODE_SUCCESS;
+}
+int fd_cost_tracker_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_cost_tracker_t);
+  void const * start_data = ctx->data;
+  int err = fd_cost_tracker_decode_footprint_inner( ctx, total_sz );
+  ctx->data = start_data;
+  return err;
+}
+int fd_cost_tracker_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  int err = 0;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_account_costs_decode_footprint_inner( ctx, total_sz );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  return 0;
+}
+void * fd_cost_tracker_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_cost_tracker_t * self = (fd_cost_tracker_t *)mem;
+  fd_cost_tracker_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_cost_tracker_t);
+  void * * alloc_mem = &alloc_region;
+  fd_cost_tracker_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_cost_tracker_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_cost_tracker_t * self = (fd_cost_tracker_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->account_cost_limit, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->block_cost_limit, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->vote_cost_limit, ctx );
+  fd_account_costs_decode_inner( &self->cost_by_writable_accounts, alloc_mem, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->block_cost, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->vote_cost, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->transaction_count, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->allocated_accounts_data_size, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->transaction_signature_count, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->secp256k1_instruction_signature_count, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->ed25519_instruction_signature_count, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->secp256r1_instruction_signature_count, ctx );
+}
+void fd_cost_tracker_new(fd_cost_tracker_t * self) {
+  fd_memset( self, 0, sizeof(fd_cost_tracker_t) );
+  fd_account_costs_new( &self->cost_by_writable_accounts );
+}
+void fd_cost_tracker_destroy( fd_cost_tracker_t * self ) {
+  fd_account_costs_destroy( &self->cost_by_writable_accounts );
+}
+
+ulong fd_cost_tracker_footprint( void ){ return FD_COST_TRACKER_FOOTPRINT; }
+ulong fd_cost_tracker_align( void ){ return FD_COST_TRACKER_ALIGN; }
+
+void fd_cost_tracker_walk( void * w, fd_cost_tracker_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_cost_tracker", level++ );
+  fun( w, &self->account_cost_limit, "account_cost_limit", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->block_cost_limit, "block_cost_limit", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->vote_cost_limit, "vote_cost_limit", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fd_account_costs_walk( w, &self->cost_by_writable_accounts, fun, "cost_by_writable_accounts", level );
+  fun( w, &self->block_cost, "block_cost", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->vote_cost, "vote_cost", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->transaction_count, "transaction_count", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->allocated_accounts_data_size, "allocated_accounts_data_size", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->transaction_signature_count, "transaction_signature_count", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->secp256k1_instruction_signature_count, "secp256k1_instruction_signature_count", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->ed25519_instruction_signature_count, "ed25519_instruction_signature_count", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, &self->secp256r1_instruction_signature_count, "secp256r1_instruction_signature_count", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_cost_tracker", level-- );
+}
+ulong fd_cost_tracker_size( fd_cost_tracker_t const * self ) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += fd_account_costs_size( &self->cost_by_writable_accounts );
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  size += sizeof(ulong);
+  return size;
+}
+
 #define REDBLK_T fd_hash_hash_age_pair_t_mapnode_t
 #define REDBLK_NAME fd_hash_hash_age_pair_t_map
 #define REDBLK_IMPL_STYLE 2
@@ -27978,4 +28958,11 @@ long fd_clock_timestamp_vote_t_map_compare( fd_clock_timestamp_vote_t_mapnode_t 
 #include "../../util/tmpl/fd_redblack.c"
 long fd_vote_info_pair_t_map_compare( fd_vote_info_pair_t_mapnode_t * left, fd_vote_info_pair_t_mapnode_t * right ) {
   return memcmp( left->elem.account.uc, right->elem.account.uc, sizeof(right->elem.account) );
+}
+#define REDBLK_T fd_account_costs_pair_t_mapnode_t
+#define REDBLK_NAME fd_account_costs_pair_t_map
+#define REDBLK_IMPL_STYLE 2
+#include "../../util/tmpl/fd_redblack.c"
+long fd_account_costs_pair_t_map_compare( fd_account_costs_pair_t_mapnode_t * left, fd_account_costs_pair_t_mapnode_t * right ) {
+  return memcmp( left->elem.key.uc, right->elem.key.uc, sizeof(right->elem.key) );
 }

@@ -275,22 +275,23 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
   volatile ulong const * pack_metrics = fd_metrics_tile( pack->metrics );
 
   cur->out.pack_invalid =
-      pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_BUNDLE_BLACKLIST ) ] +
-      pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_WRITE_SYSVAR ) ] +
-    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_ESTIMATION_FAIL ) ] +
-    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_DUPLICATE_ACCOUNT ) ] +
-    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_TOO_MANY_ACCOUNTS ) ] +
-    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_TOO_LARGE ) ] +
-    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_ADDR_LUT ) ] +
-    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_UNAFFORDABLE ) ] +
+      pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_DROPPED_PARTIAL_BUNDLE ) ]
+    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_BUNDLE_BLACKLIST ) ]
+    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_WRITE_SYSVAR ) ]
+    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_ESTIMATION_FAIL ) ]
+    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_DUPLICATE_ACCOUNT ) ]
+    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_TOO_MANY_ACCOUNTS ) ]
+    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_TOO_LARGE ) ]
+    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_ADDR_LUT ) ]
+    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_UNAFFORDABLE ) ]
     + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_DUPLICATE ) ];
 
   cur->out.pack_expired = pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_EXPIRED ) ] +
                           pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_EXPIRED ) ];
 
   cur->out.pack_leader_slow =
-    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_PRIORITY ) ] +
-    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_NONVOTE_REPLACE ) ] +
+      pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_PRIORITY ) ]
+    + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_NONVOTE_REPLACE ) ]
     + pack_metrics[ MIDX( COUNTER, PACK, TRANSACTION_INSERTED_VOTE_REPLACE ) ];
 
   cur->out.pack_wait_full =
@@ -407,6 +408,7 @@ fd_gui_txn_waterfall_snap( fd_gui_t *               gui,
     bundle_txns_received = bundle_metrics[ MIDX( COUNTER, BUNDLE, TRANSACTION_RECEIVED ) ];
   }
 
+  cur->in.pack_cranked = pack_metrics[ MIDX( COUNTER, PACK, BUNDLE_CRANK_STATUS_INSERTED ) ];
   cur->in.gossip   = dedup_metrics[ MIDX( COUNTER, DEDUP, GOSSIPED_VOTES_RECEIVED ) ];
   cur->in.quic     = cur->out.tpu_quic_invalid +
                      cur->out.quic_overrun +
@@ -1356,8 +1358,6 @@ fd_gui_handle_balance_update( fd_gui_t * gui,
 static void
 fd_gui_handle_start_progress( fd_gui_t *    gui,
                               uchar const * msg ) {
-  (void)gui;
-
   uchar type = msg[ 0 ];
 
   switch (type) {

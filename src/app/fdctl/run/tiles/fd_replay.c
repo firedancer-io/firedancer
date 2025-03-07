@@ -57,15 +57,12 @@
 
 #define STORE_IN_IDX   (0UL)
 #define PACK_IN_IDX    (1UL)
-#define GOSSIP_IN_IDX  (2UL)
-#define BATCH_IN_IDX   (3UL)
+#define BATCH_IN_IDX   (2UL)
 
 #define STAKE_OUT_IDX  (0UL)
 #define NOTIF_OUT_IDX  (1UL)
 #define SENDER_OUT_IDX (2UL)
-#define GOSSIP_OUT_IDX (3UL)
-#define STORE_OUT_IDX  (4UL)
-#define POH_OUT_IDX    (5UL)
+#define POH_OUT_IDX    (3UL)
 
 #define VOTE_ACC_MAX   (2000000UL)
 
@@ -100,6 +97,9 @@ struct fd_replay_tile_ctx {
   fd_wksp_t * funk_wksp;
   fd_wksp_t * status_cache_wksp;
 
+  fd_wksp_t  * replay_public_wksp;
+  fd_runtime_public_t * replay_public;
+
   // Store tile input
   fd_wksp_t * store_in_mem;
   ulong       store_in_chunk0;
@@ -109,11 +109,6 @@ struct fd_replay_tile_ctx {
   fd_wksp_t * pack_in_mem;
   ulong       pack_in_chunk0;
   ulong       pack_in_wmark;
-
-  // Gossip tile input for wen-restart
-  fd_wksp_t * gossip_in_mem;
-  ulong       gossip_in_chunk0;
-  ulong       gossip_in_wmark;
 
   // Batch tile input for epoch account hash
   fd_wksp_t * batch_in_mem;
@@ -141,28 +136,6 @@ struct fd_replay_tile_ctx {
   ulong       sender_out_chunk0;
   ulong       sender_out_wmark;
   ulong       sender_out_chunk;
-
-  // Gossip tile output defs for wen-restart
-  fd_frag_meta_t * gossip_out_mcache;
-  ulong *          gossip_out_sync;
-  ulong            gossip_out_depth;
-  ulong            gossip_out_seq;
-
-  fd_wksp_t * gossip_out_mem;
-  ulong       gossip_out_chunk0;
-  ulong       gossip_out_wmark;
-  ulong       gossip_out_chunk;
-
-  // Store tile output defs for wen-restart
-  fd_frag_meta_t * store_out_mcache;
-  ulong *          store_out_sync;
-  ulong            store_out_depth;
-  ulong            store_out_seq;
-
-  fd_wksp_t * store_out_mem;
-  ulong       store_out_chunk0;
-  ulong       store_out_wmark;
-  ulong       store_out_chunk;
 
   // Stake weights output link defs
   fd_frag_meta_t * stake_weights_out_mcache;
@@ -291,13 +264,7 @@ struct fd_replay_tile_ctx {
   uint poh_init_done;
   int  snapshot_init_done;
 
-  int              in_wen_restart;
-  fd_restart_t *   restart;
-  int              tower_checkpt_fileno;
-  fd_slot_pair_t * restart_hard_forks;
-  ulong            restart_hard_forks_len;
-  fd_pubkey_t      restart_coordinator, restart_genesis_hash;
-  void *           restart_gossip_msg[ FD_RESTART_LINK_BYTES_MAX+sizeof(uint) ];
+  int         tower_checkpt_fileno;
 
   int         vote;
   fd_pubkey_t validator_identity_pubkey[ 1 ];
@@ -513,17 +480,6 @@ during_frag( fd_replay_tile_ctx_t * ctx,
     }
 
     FD_LOG_DEBUG(( "packed microblock - slot: %lu, parent_slot: %lu, txn_cnt: %lu", ctx->curr_slot, ctx->parent_slot, ctx->txn_cnt ));
-  } else if( in_idx==GOSSIP_IN_IDX ) {
-    if( FD_UNLIKELY( chunk<ctx->gossip_in_chunk0 || chunk>ctx->gossip_in_wmark || sz>FD_RESTART_LINK_BYTES_MAX+sizeof(uint) ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->gossip_in_chunk0, ctx->gossip_in_wmark ));
-    }
-
-    if( FD_LIKELY( ctx->in_wen_restart ) ) {
-      fd_memcpy( ctx->restart_gossip_msg, fd_chunk_to_laddr( ctx->gossip_in_mem, chunk ), sz );
-    } else {
-      FD_LOG_WARNING(( "Received a gossip message for wen-restart while FD is not in wen-restart mode" ));
-    }
-    return;
   } else if( in_idx==BATCH_IN_IDX ) {
     uchar * src = (uchar *)fd_chunk_to_laddr( ctx->batch_in_mem, chunk );
     fd_memcpy( ctx->slot_ctx->slot_bank.epoch_account_hash.uc, src, sizeof(fd_hash_t) );
@@ -1456,7 +1412,8 @@ process_and_exec_mbatch( fd_replay_tile_ctx_t * ctx,
                                                         ctx->tpool,
                                                         ctx->exec_spads,
                                                         ctx->exec_spad_cnt,
-                                                        ctx->runtime_spad );
+                                                        ctx->runtime_spad,
+                                                        NULL );
 
     fd_block_map_query_t query[1] = { 0 };
     fd_block_map_prepare( ctx->blockstore->block_map, &ctx->curr_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
@@ -1557,32 +1514,6 @@ after_frag( fd_replay_tile_ctx_t * ctx,
   (void)sig;
   (void)sz;
   (void)seq;
-
-  /**********************************************************************/
-  /* Handle gossip messages for wen-restart                             */
-  /**********************************************************************/
-
-  if( FD_UNLIKELY( in_idx==GOSSIP_IN_IDX ) ) {
-    if( FD_UNLIKELY( !ctx->in_wen_restart ) ) return;
-
-    ulong heaviest_fork_found = 0;
-    fd_restart_recv_gossip_msg( ctx->restart, ctx->restart_gossip_msg, &heaviest_fork_found );
-    if( FD_UNLIKELY( heaviest_fork_found ) ) {
-      ulong need_repair = 0;
-      fd_restart_find_heaviest_fork_bank_hash( ctx->restart, ctx->funk, &need_repair );
-      if( FD_LIKELY( need_repair ) ) {
-        /* Send the heaviest fork slot to the store tile for repair and replay */
-        uchar * buf = fd_chunk_to_laddr( ctx->store_out_mem, ctx->store_out_chunk );
-        FD_STORE( ulong, buf, ctx->restart->heaviest_fork_slot );
-        FD_STORE( ulong, buf+sizeof(ulong), ctx->restart->funk_root );
-        fd_mcache_publish( ctx->store_out_mcache, ctx->store_out_depth, ctx->store_out_seq, 1UL, ctx->store_out_chunk,
-                           sizeof(ulong)*2, 0UL, 0, 0 );
-        ctx->store_out_seq   = fd_seq_inc( ctx->store_out_seq, 1UL );
-        ctx->store_out_chunk = fd_dcache_compact_next( ctx->store_out_chunk, sizeof(ulong)*2, ctx->store_out_chunk0, ctx->store_out_wmark );
-      }
-    }
-    return;
-  }
 
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
   if( FD_UNLIKELY( in_idx == STORE_IN_IDX ) ) {
@@ -1705,7 +1636,8 @@ after_frag( fd_replay_tile_ctx_t * ctx,
                                                   ctx->tpool,
                                                   ctx->exec_spads,
                                                   ctx->exec_spad_cnt,
-                                                  ctx->runtime_spad );
+                                                  ctx->runtime_spad,
+                                                  NULL );
 
     fd_microblock_trailer_t * microblock_trailer = (fd_microblock_trailer_t *)(txns + txn_cnt);
 
@@ -1927,38 +1859,6 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     }
 
     /**********************************************************************/
-    /* Wen-restart: check whether the HeaviestForkSlot has been replayed  */
-    /**********************************************************************/
-
-    if( FD_UNLIKELY( ctx->in_wen_restart && curr_slot==ctx->restart->heaviest_fork_slot ) ) {
-      /* Insert a hard fork for wen-restart, leading to a new shred version */
-      ulong old_len               = ctx->slot_ctx->slot_bank.hard_forks.hard_forks_len;
-      ctx->restart_hard_forks_len = old_len + 1;
-      ctx->restart_hard_forks     = fd_spad_alloc( ctx->runtime_spad, 8, ctx->restart_hard_forks_len*sizeof(fd_slot_pair_t) );
-
-      fd_memcpy( ctx->restart_hard_forks, ctx->slot_ctx->slot_bank.hard_forks.hard_forks, old_len*sizeof(fd_slot_pair_t) );
-      ctx->restart_hard_forks[ old_len ].slot            = curr_slot;
-      ctx->restart_hard_forks[ old_len ].val             = 1;
-      ctx->slot_ctx->slot_bank.hard_forks.hard_forks_len = ctx->restart_hard_forks_len;
-      ctx->slot_ctx->slot_bank.hard_forks.hard_forks     = ctx->restart_hard_forks;
-
-      int result = fd_runtime_save_slot_bank( ctx->slot_ctx );
-      if( FD_UNLIKELY( result!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-        FD_LOG_ERR(( "Wen-restart fails at saving slot bank" ));
-      }
-
-      /* Publish the heaviest fork slot in funk */
-      fd_fseq_update( ctx->published_wmark, curr_slot );
-      if( FD_UNLIKELY( !fd_funkier_txn_publish( ctx->funk, ctx->slot_ctx->funk_txn, 1 ) ) ) {
-        FD_LOG_ERR(( "Wen-restart fails at funk txn publish" ));
-      }
-
-      fd_hash_t const * bank_hash = &child->slot_ctx.slot_bank.banks_hash;
-      fd_memcpy( &ctx->restart->heaviest_fork_bank_hash, bank_hash, sizeof(fd_hash_t) );
-      ctx->restart->heaviest_fork_ready = 1;
-    }
-
-    /**********************************************************************/
     /* Bank hash comparison, and halt if there's a mismatch after replay  */
     /**********************************************************************/
 
@@ -2105,6 +2005,8 @@ read_snapshot( void *              _ctx,
     /* Funk already has a snapshot loaded */
     fd_runtime_recover_banks( ctx->slot_ctx, 1, 1, ctx->runtime_spad );
     base_slot = ctx->slot_ctx->slot_bank.slot;
+    publish_stake_weights( ctx, stem, ctx->slot_ctx );
+    fd_fseq_update( ctx->published_wmark, ctx->slot_ctx->slot_bank.slot );
   } else {
 
     /* If we have an incremental snapshot try to prefetch the snapshot slot
@@ -2360,6 +2262,10 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
 
   fd_fork_t * fork = fd_forks_query( ctx->forks, ctx->curr_slot );
   ctx->slot_ctx = &fork->slot_ctx;
+
+  // Tell the world about the current activate features
+  fd_memcpy ( &ctx->replay_public->features,  &ctx->slot_ctx->epoch_ctx->features, sizeof(ctx->replay_public->features) );
+
   FD_TEST( ctx->slot_ctx );
 }
 
@@ -2457,67 +2363,12 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     init_snapshot( ctx, stem );
     ctx->snapshot_init_done = 1;
     *charge_busy = 1;
-    if( FD_UNLIKELY( ctx->in_wen_restart ) ) {
-      ulong buf_len = 0;
-      uchar * buf = fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk );
-      ctx->slot_ctx->slot_history = fd_sysvar_slot_history_read( ctx->slot_ctx,
-                                                                 ctx->runtime_spad );
-
-      fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( ctx->slot_ctx->epoch_ctx );
-      fd_vote_accounts_t const * epoch_stakes[ FD_RESTART_EPOCHS_MAX ] = { &epoch_bank->stakes.vote_accounts,
-                                                                           &epoch_bank->next_epoch_stakes };
-      fd_restart_init( ctx->restart,
-                       ctx->slot_ctx->slot_bank.slot,
-                       &ctx->slot_ctx->slot_bank.banks_hash,
-                       epoch_stakes,
-                       &epoch_bank->epoch_schedule,
-                       ctx->tower_checkpt_fileno,
-                       ctx->slot_ctx->slot_history,
-                       ctx->validator_identity_pubkey,
-                       &ctx->restart_coordinator,
-                       buf+sizeof(uint),
-                       &buf_len,
-                       ctx->runtime_spad );
-      publish_stake_weights( ctx, stem, ctx->slot_ctx );
-      fd_fseq_update( ctx->published_wmark, ctx->slot_ctx->slot_bank.slot );
-
-      /* Send the restart_last_voted_fork_slots message to gossip tile */
-      buf_len += sizeof(uint);
-      FD_STORE( uint, buf, fd_crds_data_enum_restart_last_voted_fork_slots );
-      fd_mcache_publish( ctx->gossip_out_mcache, ctx->gossip_out_depth, ctx->gossip_out_seq, 1UL, ctx->gossip_out_chunk,
-                          buf_len, 0UL, 0, 0 );
-      ctx->gossip_out_seq   = fd_seq_inc( ctx->gossip_out_seq, 1UL );
-      ctx->gossip_out_chunk = fd_dcache_compact_next( ctx->gossip_out_chunk, buf_len, ctx->gossip_out_chunk0, ctx->gossip_out_wmark );
-    }
-
     if( ctx->replay_plugin_out_mem ) {
       // ValidatorStartProgress::Running
       uchar msg[56];
       fd_memset( msg, 0, sizeof(msg) );
       msg[0] = 11;
       replay_plugin_publish( ctx, stem, FD_PLUGIN_MSG_START_PROGRESS, msg, sizeof(msg) );
-    }
-  }
-
-  if( FD_UNLIKELY( ctx->in_wen_restart ) ) {
-    ulong send  = 0;
-    uchar * buf = fd_chunk_to_laddr( ctx->gossip_out_mem, ctx->gossip_out_chunk );
-    fd_restart_verify_heaviest_fork( ctx->restart,
-                                     ctx->is_constipated,
-                                     ctx->restart_hard_forks,
-                                     ctx->restart_hard_forks_len,
-                                     &ctx->restart_genesis_hash,
-                                     buf+sizeof(uint),
-                                     &send );
-
-    if( FD_UNLIKELY( send ) ) {
-      /* Send the restart_heaviest_fork message to gossip tile */
-      ulong buf_len = sizeof(uint) + sizeof(fd_gossip_restart_heaviest_fork_t);
-      FD_STORE( uint, buf, fd_crds_data_enum_restart_heaviest_fork );
-      fd_mcache_publish( ctx->gossip_out_mcache, ctx->gossip_out_depth, ctx->gossip_out_seq, 1UL, ctx->gossip_out_chunk,
-                         buf_len, 0UL, 0, 0 );
-      ctx->gossip_out_seq   = fd_seq_inc( ctx->gossip_out_seq, 1UL );
-      ctx->gossip_out_chunk = fd_dcache_compact_next( ctx->gossip_out_chunk, buf_len, ctx->gossip_out_chunk0, ctx->gossip_out_wmark );
     }
   }
 
@@ -2583,10 +2434,9 @@ unprivileged_init( fd_topo_t *      topo,
   FD_LOG_NOTICE(("finished unprivileged init"));
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( tile->in_cnt < 4 ||
+  if( FD_UNLIKELY( tile->in_cnt < 3 ||
                    strcmp( topo->links[ tile->in_link_id[ STORE_IN_IDX  ] ].name, "store_replay" ) ||
                    strcmp( topo->links[ tile->in_link_id[ PACK_IN_IDX ] ].name, "pack_replay")   ||
-                   strcmp( topo->links[ tile->in_link_id[ GOSSIP_IN_IDX ] ].name, "gossip_repla")  ||
                    strcmp( topo->links[ tile->in_link_id[ BATCH_IN_IDX  ] ].name, "batch_replay" ) ) ) {
     FD_LOG_ERR(( "replay tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
@@ -2935,28 +2785,14 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->vote_acct_addr[ 0 ]            = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.vote_account_path, 1 ) );
 
   /**********************************************************************/
-  /* wen-restart                                                        */
+  /* tower checkpointing for wen-restart                                */
   /**********************************************************************/
-  ctx->in_wen_restart       = tile->replay.in_wen_restart;
+  ctx->tower_checkpt_fileno = -1;
   if( FD_LIKELY( strlen( tile->replay.tower_checkpt )>0 ) ) {
     ctx->tower_checkpt_fileno = open( tile->replay.tower_checkpt,
                                       O_RDWR | O_CREAT,
                                       S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH );
     if( ctx->tower_checkpt_fileno<0 ) FD_LOG_ERR(( "Failed at opening the tower checkpoint file" ));
-  } else {
-    ctx->tower_checkpt_fileno = -1;
-  }
-
-  if( FD_UNLIKELY( ctx->in_wen_restart ) ) {
-    fd_base58_decode_32( tile->replay.wen_restart_coordinator, ctx->restart_coordinator.key );
-    fd_base58_decode_32( tile->replay.expected_genesis_hash, ctx->restart_genesis_hash.key );
-    void *     restart_mem = fd_wksp_alloc_laddr( ctx->wksp,
-                                                  fd_restart_align(),
-                                                  fd_restart_footprint(),
-                                                  FD_RESTART_MAGIC_TAG );
-    ctx->restart           = fd_restart_join( fd_restart_new( restart_mem ) );
-  } else {
-    ctx->restart           = NULL;
   }
 
   /**********************************************************************/
@@ -2974,12 +2810,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->pack_in_mem              = topo->workspaces[ topo->objs[ pack_in_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->pack_in_chunk0           = fd_dcache_compact_chunk0( ctx->pack_in_mem, pack_in_link->dcache );
   ctx->pack_in_wmark            = fd_dcache_compact_wmark( ctx->pack_in_mem, pack_in_link->dcache, pack_in_link->mtu );
-
-  /* Setup gossip tile input for wen-restart */
-  fd_topo_link_t * gossip_in_link = &topo->links[ tile->in_link_id[ GOSSIP_IN_IDX ] ];
-  ctx->gossip_in_mem              = topo->workspaces[ topo->objs[ gossip_in_link->dcache_obj_id ].wksp_id ].wksp;
-  ctx->gossip_in_chunk0           = fd_dcache_compact_chunk0( ctx->gossip_in_mem, gossip_in_link->dcache );
-  ctx->gossip_in_wmark            = fd_dcache_compact_wmark( ctx->gossip_in_mem, gossip_in_link->dcache, gossip_in_link->mtu );
 
   /* Setup batch tile input for epoch account hash */
   fd_topo_link_t * batch_in_link = &topo->links[ tile->in_link_id[ BATCH_IN_IDX ] ];
@@ -3006,26 +2836,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->sender_out_chunk0      = fd_dcache_compact_chunk0( ctx->sender_out_mem, sender_out->dcache );
   ctx->sender_out_wmark       = fd_dcache_compact_wmark ( ctx->sender_out_mem, sender_out->dcache, sender_out->mtu );
   ctx->sender_out_chunk       = ctx->sender_out_chunk0;
-
-  fd_topo_link_t * gossip_out = &topo->links[ tile->out_link_id[ GOSSIP_OUT_IDX ] ];
-  ctx->gossip_out_mcache      = gossip_out->mcache;
-  ctx->gossip_out_sync        = fd_mcache_seq_laddr( ctx->gossip_out_mcache );
-  ctx->gossip_out_depth       = fd_mcache_depth( ctx->gossip_out_mcache );
-  ctx->gossip_out_seq         = fd_mcache_seq_query( ctx->gossip_out_sync );
-  ctx->gossip_out_chunk0      = fd_dcache_compact_chunk0( fd_wksp_containing( gossip_out->dcache ), gossip_out->dcache );
-  ctx->gossip_out_mem         = topo->workspaces[ topo->objs[ gossip_out->dcache_obj_id ].wksp_id ].wksp;
-  ctx->gossip_out_wmark       = fd_dcache_compact_wmark( ctx->gossip_out_mem, gossip_out->dcache, gossip_out->mtu );
-  ctx->gossip_out_chunk       = ctx->gossip_out_chunk0;
-
-  fd_topo_link_t * store_out = &topo->links[ tile->out_link_id[ STORE_OUT_IDX ] ];
-  ctx->store_out_mcache      = store_out->mcache;
-  ctx->store_out_sync        = fd_mcache_seq_laddr( ctx->store_out_mcache );
-  ctx->store_out_depth       = fd_mcache_depth( ctx->store_out_mcache );
-  ctx->store_out_seq         = fd_mcache_seq_query( ctx->store_out_sync );
-  ctx->store_out_chunk0      = fd_dcache_compact_chunk0( fd_wksp_containing( store_out->dcache ), store_out->dcache );
-  ctx->store_out_mem         = topo->workspaces[ topo->objs[ store_out->dcache_obj_id ].wksp_id ].wksp;
-  ctx->store_out_wmark       = fd_dcache_compact_wmark( ctx->store_out_mem, store_out->dcache, store_out->mtu );
-  ctx->store_out_chunk       = ctx->store_out_chunk0;
 
   /* Set up stake weights tile output */
   fd_topo_link_t * stake_weights_out = &topo->links[ tile->out_link_id[ STAKE_OUT_IDX] ];
@@ -3064,6 +2874,18 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->slots_replayed_file = fopen( tile->replay.slots_replayed, "w" );
     FD_TEST( ctx->slots_replayed_file );
   }
+
+  /* replay public setup */
+  ulong replay_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "replay_pub" );
+  FD_TEST( replay_obj_id!=ULONG_MAX );
+  ctx->replay_public_wksp = topo->workspaces[ topo->objs[ replay_obj_id ].wksp_id ].wksp;
+
+  if( ctx->replay_public_wksp==NULL ) {
+    FD_LOG_ERR(( "no replay_public workspace" ));
+  }
+
+  ctx->replay_public = fd_runtime_public_join( fd_topo_obj_laddr( topo, replay_obj_id ) );
+  FD_TEST( ctx->replay_public!=NULL );
 }
 
 static ulong

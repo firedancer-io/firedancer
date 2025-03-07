@@ -309,7 +309,6 @@ after_frag( fd_poh_ctx_t *      ctx,
             ulong               sz,
             ulong               tsorig,
             fd_stem_context_t * stem ) {
-  (void)in_idx;
   (void)seq;
   (void)tsorig;
   (void)stem;

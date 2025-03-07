@@ -122,9 +122,6 @@ static int
 fd_snapshot_dumper_on_manifest( void *                 _d,
                                 fd_solana_manifest_t * manifest,
                                 fd_spad_t *            spad ) {
-
-  (void)spad;
-
   fd_snapshot_dumper_t * d = _d;
   if( !d->want_manifest ) return 0;
   d->want_manifest = 0;

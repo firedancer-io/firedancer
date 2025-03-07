@@ -1342,9 +1342,14 @@ process_new_vote_state( fd_vote_state_t *           vote_state,
 
     // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L696
     if( FD_LIKELY( current_vote->lockout.slot < new_vote->lockout.slot ) ) {
-      ulong last_locked_out_slot =
-          current_vote->lockout.slot +
-          (ulong)pow( INITIAL_LOCKOUT, current_vote->lockout.confirmation_count );
+      /* The agave implementation of calculating the last locked out
+         slot does not calculate a min between the current vote's
+         confirmation count and max lockout history. The reason we do
+         this is to make sure that the fuzzers continue working:
+         the max lockout history can not be > MAX_LOCKOUT_HISTORY. */
+      ulong confirmation_count   = fd_ulong_min( current_vote->lockout.confirmation_count, MAX_LOCKOUT_HISTORY );
+      ulong last_locked_out_slot = fd_ulong_sat_add( current_vote->lockout.slot,
+                                                     (ulong)pow( INITIAL_LOCKOUT, (double)confirmation_count ) );
       // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L697
       if( last_locked_out_slot >= new_vote->lockout.slot ) {
         // https://github.com/anza-xyz/agave/blob/v2.0.1/programs/vote/src/vote_state/mod.rs#L698

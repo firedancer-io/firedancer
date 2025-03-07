@@ -905,7 +905,8 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   fd_execute_txn_task_info_t * task_info = fd_spad_alloc( runner->spad, alignof(fd_execute_txn_task_info_t), sizeof(fd_execute_txn_task_info_t) );
   memset( task_info, 0, sizeof(fd_execute_txn_task_info_t) );
-  task_info->txn = txn;
+  task_info->txn     = txn;
+  task_info->txn_ctx = fd_spad_alloc( runner->spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
 
   fd_tpool_t tpool[1];
   tpool->worker_cnt = 1;
@@ -1265,7 +1266,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
 
 
 ulong
-fd_sbpf_program_load_test_run( FD_PARAM_UNUSED fd_exec_instr_test_runner_t * runner,
+fd_sbpf_program_load_test_run( fd_exec_instr_test_runner_t * runner,
                                void const *                  input_,
                                void **                       output_,
                                void *                        output_buf,

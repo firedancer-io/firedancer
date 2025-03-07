@@ -7,6 +7,7 @@
 #include "../runtime/fd_system_ids.h"
 #include "../runtime/context/fd_exec_epoch_ctx.h"
 #include "../runtime/context/fd_exec_slot_ctx.h"
+#include "../runtime/context/fd_runtime_ctx.h"
 #include "../rewards/fd_rewards.h"
 
 #include <assert.h>
@@ -244,7 +245,7 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
     if( ctx->snapshot_type==FD_SNAPSHOT_TYPE_FULL ) {
       fd_hash_t accounts_hash;
       FD_SPAD_FRAME_BEGIN( ctx->runtime_spad ) {
-      fd_snapshot_hash( ctx->slot_ctx, ctx->tpool, &accounts_hash, ctx->check_hash, ctx->runtime_spad );
+        fd_snapshot_hash( ctx->slot_ctx, ctx->tpool, &accounts_hash, ctx->check_hash, ctx->runtime_spad );
       } FD_SPAD_FRAME_END;
 
       if( memcmp( fhash->uc, accounts_hash.uc, sizeof(fd_hash_t) ) ) {

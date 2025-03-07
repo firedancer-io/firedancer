@@ -26,9 +26,6 @@ void
 bench_cmd_args( int *    pargc,
                 char *** pargv,
                 args_t * args ) {
-  (void)pargc;
-  (void)pargv;
-  (void)args;
   args->load.no_quic = fd_env_strip_cmdline_contains( pargc, pargv, "--no-quic" );
 }
 

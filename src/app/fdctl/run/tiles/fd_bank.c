@@ -322,9 +322,6 @@ handle_bundle( fd_bank_ctx_t *     ctx,
                ulong               sig,
                ulong               sz,
                fd_stem_context_t * stem ) {
-  (void)seq;
-  (void)stem;
-
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   fd_txn_p_t * txns = (fd_txn_p_t *)dst;
 

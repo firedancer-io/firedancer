@@ -349,8 +349,6 @@ err:
 static void FD_FN_SENSITIVE
 set_identity( args_t *         args,
               config_t * const config ) {
-  (void)args;
-
   uchar check_public_key[ 32 ];
   fd_sha512_t sha512[1];
   FD_TEST( fd_sha512_join( fd_sha512_new( sha512 ) ) );

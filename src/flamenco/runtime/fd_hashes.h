@@ -64,7 +64,8 @@ fd_accounts_hash( fd_funkier_t *      funk,
                   fd_slot_bank_t * slot_bank,
                   fd_tpool_t *     tpool,
                   fd_hash_t *      accounts_hash,
-                  fd_spad_t *      runtime_spad );
+                  fd_spad_t *      runtime_spad,
+                  int lthash_enabled );
 
 /* Generate a non-incremental hash of the entire account database, conditionally including in the epoch account hash. */
 int

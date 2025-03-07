@@ -26,7 +26,6 @@ static void
 my_hs_complete( fd_quic_tls_hs_t *           hs,
                 void *                       context ) {
   (void)hs;
-  (void)context;
 
   FD_LOG_DEBUG(( "callback handshake complete" ));
 

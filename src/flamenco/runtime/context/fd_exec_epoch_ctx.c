@@ -1,6 +1,7 @@
 #include "fd_exec_epoch_ctx.h"
 #include <assert.h>
 #include "../sysvar/fd_sysvar_stake_history.h"
+#include "../fd_runtime.h"
 
 /* TODO remove this */
 #define MAX_LG_SLOT_CNT   10UL
@@ -229,6 +230,8 @@ fd_exec_epoch_ctx_from_prev( fd_exec_epoch_ctx_t * self,
                              fd_exec_epoch_ctx_t * prev,
                              fd_spad_t *           runtime_spad ) {
   fd_memcpy( &self->features, &prev->features, sizeof(fd_features_t) );
+  fd_memcpy( &g_runtime_ctx->public->features, &prev->features, sizeof(fd_features_t) );
+
   self->bank_hash_cmp     = prev->bank_hash_cmp;
   self->total_epoch_stake = 0UL;
 
@@ -236,14 +239,14 @@ fd_exec_epoch_ctx_from_prev( fd_exec_epoch_ctx_t * self,
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
-  ulong   sz  = fd_epoch_bank_size( old_epoch_bank );
-  uchar * buf = fd_spad_alloc( runtime_spad, fd_epoch_bank_align(), sz );
+    ulong   sz  = fd_epoch_bank_size( old_epoch_bank );
+    uchar * buf = fd_spad_alloc( runtime_spad, fd_epoch_bank_align(), sz );
 
-  fd_bincode_encode_ctx_t encode = {.data = buf, .dataend = buf + sz };
-  fd_epoch_bank_encode( old_epoch_bank, &encode );
+    fd_bincode_encode_ctx_t encode = {.data = buf, .dataend = buf + sz };
+    fd_epoch_bank_encode( old_epoch_bank, &encode );
 
-  sz = fd_ulong_align_up( fd_epoch_leaders_footprint( MAX_PUB_CNT, MAX_SLOTS_CNT ), fd_epoch_leaders_align() );
-  fd_memcpy( fd_exec_epoch_ctx_leaders( self ), fd_exec_epoch_ctx_leaders( prev ), sz );
+    sz = fd_ulong_align_up( fd_epoch_leaders_footprint( MAX_PUB_CNT, MAX_SLOTS_CNT ), fd_epoch_leaders_align() );
+    fd_memcpy( fd_exec_epoch_ctx_leaders( self ), fd_exec_epoch_ctx_leaders( prev ), sz );
 
   } FD_SPAD_FRAME_END;
 }

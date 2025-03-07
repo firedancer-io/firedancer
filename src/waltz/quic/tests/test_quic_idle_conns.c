@@ -35,7 +35,6 @@ cb_conn_new( fd_quic_conn_t  * conn,
 void
 cb_conn_handshake_complete( fd_quic_conn_t * conn,
                             void *           quic_ctx ) {
-  (void)conn;
   (void)quic_ctx;
 
   conn_meta_t * conn_meta = &g_conn_meta[conn->conn_idx];
@@ -49,7 +48,6 @@ cb_conn_handshake_complete( fd_quic_conn_t * conn,
 void
 cb_conn_final( fd_quic_conn_t * conn,
                void *           quic_ctx ) {
-  (void)conn;
   (void)quic_ctx;
 
   conn_meta_t * conn_meta = &g_conn_meta[conn->conn_idx];

@@ -41,9 +41,6 @@ before_frag( fd_verify_ctx_t * ctx,
              ulong             in_idx,
              ulong             seq,
              ulong             sig ) {
-  (void)in_idx;
-  (void)sig;
-
   /* Bundle tile can produce both "bundles" and "packets", a packet is a
      regular transaction and should be round-robined between verify
      tiles, while bundles need to go through verify:0 currently to
@@ -148,8 +145,8 @@ after_frag( fd_verify_ctx_t *   ctx,
 }
 
 static void
-privileged_init( FD_PARAM_UNUSED fd_topo_t *      topo,
-                 FD_PARAM_UNUSED fd_topo_tile_t * tile ) {
+privileged_init( fd_topo_t *      topo,
+                 fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );

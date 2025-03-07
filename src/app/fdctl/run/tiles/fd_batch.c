@@ -53,6 +53,9 @@ struct fd_snapshot_tile_ctx {
   fd_wksp_t *     replay_out_mem;
   ulong           replay_out_chunk;
 
+  fd_wksp_t  *    replay_public_wksp;
+  fd_runtime_public_t * replay_public;
+
   /* Bump allocator */
   fd_spad_t *     spad;
 };
@@ -141,7 +144,7 @@ privileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
 
   tile->batch.tmp_inc_fd = open( tmp_inc_dir_buf, O_CREAT | O_RDWR | O_TRUNC, 0644 );
   if( FD_UNLIKELY( tile->batch.tmp_inc_fd==-1 ) ) {
-    FD_LOG_ERR(( "Failed to open and create tarball for file=%s (%i-%s)", tmp_dir_buf, errno, fd_io_strerror( errno ) ));
+    FD_LOG_ERR(( "Failed to open and create tarball for file=%s (%i-%s)", tmp_inc_dir_buf, errno, fd_io_strerror( errno ) ));
   }
 
   tile->batch.full_snapshot_fd = open( zstd_dir_buf, O_RDWR | O_CREAT | O_TRUNC, 0644 );
@@ -280,6 +283,18 @@ unprivileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
   fd_topo_link_t * replay_out = &topo->links[ tile->out_link_id[ REPLAY_OUT_IDX ] ];
   ctx->replay_out_mem         = topo->workspaces[ topo->objs[ replay_out->dcache_obj_id ].wksp_id ].wksp;
   ctx->replay_out_chunk       = fd_dcache_compact_chunk0( ctx->replay_out_mem, replay_out->dcache );;
+
+  /* replay public setup */
+  ulong replay_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "replay_pub" );
+  FD_TEST( replay_obj_id!=ULONG_MAX );
+  ctx->replay_public_wksp = topo->workspaces[ topo->objs[ replay_obj_id ].wksp_id ].wksp;
+
+  if( ctx->replay_public_wksp==NULL ) {
+    FD_LOG_ERR(( "no replay_public workspace" ));
+  }
+
+  ctx->replay_public = fd_runtime_public_join( fd_topo_obj_laddr( topo, replay_obj_id ) );
+  FD_TEST( ctx->replay_public!=NULL );
 }
 
 static void
@@ -309,10 +324,6 @@ produce_snapshot( fd_snapshot_tile_ctx_t * ctx, ulong batch_fseq ) {
     .last_snap_capitalization = ctx->last_capitalization,
     .spad                     = ctx->spad
   };
-
-  if( !is_incremental ) {
-    ctx->last_full_snap_slot = snapshot_slot;
-  }
 
   /* If this isn't the first snapshot that this tile is creating, the
       permissions should be made to not acessible by users and should be
@@ -391,8 +402,10 @@ get_eah_txn( fd_funkier_t * funk, ulong slot ) {
 
 static void
 produce_eah( fd_snapshot_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong batch_fseq ) {
-
   ulong eah_slot = fd_batch_fseq_get_slot( batch_fseq );
+
+  if( FD_FEATURE_ACTIVE_( eah_slot, ctx->replay_public->features, accounts_lt_hash ) )
+    return;
 
   ulong tsorig = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
 
@@ -446,7 +459,7 @@ produce_eah( fd_snapshot_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong batch
 
     fd_hash_t epoch_account_hash = {0};
 
-    fd_accounts_hash( funk, slot_bank, ctx->tpool, &epoch_account_hash, ctx->spad );
+    fd_accounts_hash( funk, slot_bank, ctx->tpool, &epoch_account_hash, ctx->spad, 0 );
 
     FD_LOG_NOTICE(( "Done computing epoch account hash (%s)", FD_BASE58_ENC_32_ALLOCA( &epoch_account_hash ) ));
 

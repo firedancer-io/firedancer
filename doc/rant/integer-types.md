@@ -67,7 +67,7 @@ So developers get sloppy and silent implicit conversions start appearing
 everywhere. And nobody can turn on things like `-Wconversion` to clean
 it up because its false positive rate is too high. Worse, nobody is
 really sure which are false positives because the documentation isn't
-there to make it straightforward to tell a narrowing conversion is safe
+there to make it straightforward to tell whether a narrowing conversion is safe
 and/or necessary for an API / ABI or is actually a latent bug.
 
 So what FD is doing is my current thinking. Cut through the BS and

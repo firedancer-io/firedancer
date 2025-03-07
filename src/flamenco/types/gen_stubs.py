@@ -1806,11 +1806,13 @@ class OpaqueType(TypeNode):
         print(f'  *total_sz += sizeof({n}_t);', file=body)
         print(f'  void const * start_data = ctx->data;', file=body)
         print(f'  int err = {n}_decode_footprint_inner( ctx, total_sz );', file=body)
+        print(f'  if( ctx->data>ctx->dataend ) {{ return FD_BINCODE_ERR_OVERFLOW; }};', file=body)
         print(f'  ctx->data = start_data;', file=body)
         print(f'  return err;', file=body)
         print(f'}}', file=body)
 
         print(f'int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=body)
+        print(f'  if( ctx->data>=ctx->dataend ) {{ return FD_BINCODE_ERR_OVERFLOW; }};', file=body)
         print(f'  return fd_bincode_bytes_decode_footprint( sizeof({n}_t), ctx );', file=body)
         print(f'}}', file=body)
 
@@ -1929,19 +1931,6 @@ class StructType(TypeNode):
         n = self.fullname
         self.emitEncode(n)
 
-    def emitDecode(self, n):
-        print(f'int {n}_decode( {n}_t * self, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
-        print(f'  void const * data = ctx->data;', file=body)
-        print(f'  int err = {n}_decode_footprint( ctx );', file=body)
-        print(f'  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;', file=body)
-        print(f'  ctx->data = data;', file=body)
-        print('  if( !fd_is_null_alloc_virtual( ctx->valloc ) ) {', file=body)
-        print(f'    {n}_new( self );', file=body)
-        print('  }', file=body)
-        print(f'  {n}_decode_unsafe( self, ctx );', file=body)
-        print(f'  return FD_BINCODE_SUCCESS;', file=body)
-        print(f'}}', file=body)
-
     def emitEncode(self, n):
         print(f'int {n}_encode( {n}_t const * self, fd_bincode_encode_ctx_t * ctx ) {{', file=body)
         print('  int err;', file=body)
@@ -1965,11 +1954,13 @@ class StructType(TypeNode):
             print(f'  *total_sz += sizeof({n}_t);', file=body)
             print(f'  void const * start_data = ctx->data;', file=body)
             print(f'  int err = {n}_decode_footprint_inner( ctx, total_sz );', file=body)
+            print(f'  if( ctx->data>ctx->dataend ) {{ return FD_BINCODE_ERR_OVERFLOW; }};', file=body)
             print(f'  ctx->data = start_data;', file=body)
             print(f'  return err;', file=body)
             print(f'}}', file=body)
 
             print(f'int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=body)
+            print(f'  if( ctx->data>=ctx->dataend ) {{ return FD_BINCODE_ERR_OVERFLOW; }};', file=body)
             print(f'  int err = 0;', file=body)
             for f in self.fields:
                 if hasattr(f, "ignore_underflow") and f.ignore_underflow:
@@ -2194,11 +2185,13 @@ class EnumType:
         print(f'  *total_sz += sizeof({n}_t);', file=body)
         print(f'  void const * start_data = ctx->data;', file=body)
         print(f'  int err =  {n}_decode_footprint_inner( ctx, total_sz );', file=body)
+        print(f'  if( ctx->data>ctx->dataend ) {{ return FD_BINCODE_ERR_OVERFLOW; }};', file=body)
         print(f'  ctx->data = start_data;', file=body)
         print(f'  return err;', file=body)
         print("}", file=body)
 
         print(f'int {n}_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {{', file=body)
+        print(f'  if( ctx->data>=ctx->dataend ) {{ return FD_BINCODE_ERR_OVERFLOW; }};', file=body)
         if self.compact:
             print('  ushort discriminant = 0;', file=body)
             print('  int err = fd_bincode_compact_u16_decode( &discriminant, ctx );', file=body)
@@ -2221,7 +2214,7 @@ class EnumType:
         print("}", file=body)
 
         print(f'void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
-        print(f'  {n}_t * self = ({n}_t *)struct_mem; /* #goated */', file=body)
+        print(f'  {n}_t * self = ({n}_t *)struct_mem;', file=body)
         if self.compact:
             print('  ushort tmp = 0;', file=body)
             print('  fd_bincode_compact_u16_decode_unsafe( &tmp, ctx );', file=body)
@@ -2235,7 +2228,7 @@ class EnumType:
         print(f'  {n}_t * self = ({n}_t *)mem;', file=body)
         print(f'  {n}_new( self );', file=body)
         print(f'  void * alloc_region = (uchar *)mem + sizeof({n}_t);', file=body)
-        print(f'  void * * alloc_mem = &alloc_region; /* #goated */', file=body)
+        print(f'  void * * alloc_mem = &alloc_region;', file=body)
         print(f'  {n}_decode_inner( mem, alloc_mem, ctx );', file=body)
         print(f'  return self;', file=body)
         print(f'}}', file=body)
