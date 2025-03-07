@@ -371,10 +371,17 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad 
   long ancestor_timestamp = clock->unix_timestamp;
 
   if( slot_ctx->slot_bank.slot != 0 ) {
+    long new_timestamp = 0L;
     fd_calculate_stake_weighted_timestamp( slot_ctx,
-                                           &clock->unix_timestamp,
+                                           &new_timestamp,
                                            FD_FEATURE_ACTIVE( slot_ctx, warp_timestamp_again ),
                                            runtime_spad );
+
+    /* If the timestamp was successfully calculated, use it. It not keep the old one.
+       https://github.com/anza-xyz/agave/blob/v2.1.14/runtime/src/bank.rs#L1947-L1954 */
+    if( FD_LIKELY( new_timestamp ) ) {
+      clock->unix_timestamp = new_timestamp;
+    }
   }
 
   if( FD_UNLIKELY( !clock->unix_timestamp ) ) {
