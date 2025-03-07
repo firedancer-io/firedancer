@@ -60,6 +60,7 @@
 #include "../program/fd_bpf_loader_program.h"
 
 #include "../../nanopb/pb_encode.h"
+#include "../../nanopb/pb_decode.h"
 #include "generated/elf.pb.h"
 #include "generated/invoke.pb.h"
 #include "generated/txn.pb.h"
@@ -79,11 +80,23 @@ fd_dump_instr_to_protobuf( fd_exec_txn_ctx_t * txn_ctx,
 void
 fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t *txn_ctx, fd_spad_t * spad );
 
+/* Block dumping is a little bit special because the scope of the block fuzzer handles both block + new
+   epoch processing. Therefore, we have to dump a decent amount of state before an epoch boundary may be
+   crossed, and then dump the individual transactions within the block once the block has been fetched
+   from the blockstore. Therefore, dumping is split up into two functions. `fd_dump_block_to_protobuf`
+   will create an initial BlockContext type that saves the slot and epoch context, as well as any current
+   builtins and sysvar accounts. In the rare case of a new epoch, it will save all accounts from funk `fd_dump_block_to_protobuf_tx_only`
+   will reopen the file  */
 void
-fd_dump_block_to_protobuf( fd_block_info_t const *    block_info,
-                           fd_exec_slot_ctx_t const * slot_ctx,
+fd_dump_block_to_protobuf( fd_exec_slot_ctx_t const * slot_ctx,
                            fd_capture_ctx_t const *   capture_ctx,
                            fd_spad_t *                spad );
+
+void
+fd_dump_block_to_protobuf_tx_only( fd_block_info_t const *    block_info,
+                                   fd_exec_slot_ctx_t const * slot_ctx,
+                                   fd_capture_ctx_t const *   capture_ctx,
+                                   fd_spad_t *                spad );
 
 /* Captures the state of the VM (including the instruction context).
    Meant to be invoked at the start of the VM_SYSCALL_CPI_ENTRYPOINT like so:

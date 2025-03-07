@@ -1021,11 +1021,6 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   };
   epoch_bank->genesis_creation_time = test_ctx->epoch_ctx.genesis_creation_time;
 
-  /* Initialize runtime */
-  fd_funk_start_write( runner->funk );
-  fd_builtin_programs_init( slot_ctx );
-  fd_funk_end_write( runner->funk );
-
   /* Load in the txn accounts; accounts are loaded in the same way as the txn harness, where 0-lamport accounts are 0-set */
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
     FD_BORROWED_ACCOUNT_DECL(acc);

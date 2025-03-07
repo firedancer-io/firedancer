@@ -9,6 +9,10 @@
 
 /** GENERAL UTILITY FUNCTIONS AND MACROS **/
 
+/** CUSTOM PB RELEASE FUNCTIONS **/
+// static void
+// release_
+
 /** VOTE ACCOUNTS DUMPING **/
 static void
 dump_vote_accounts( fd_vote_accounts_t const *     vote_accounts,
@@ -367,70 +371,11 @@ dump_blockhash_queue( fd_exec_slot_ctx_t const * slot_ctx,
 
 static void
 create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_context,
-                                          fd_block_info_t const *        block_info,
                                           fd_exec_slot_ctx_t const *     slot_ctx,
                                           fd_spad_t *                    spad ) {
-  /* BlockContext -> microblocks */
-  block_context->microblocks_count = 0;
-  block_context->microblocks       = fd_spad_alloc( spad, alignof(fd_exec_test_microblock_t), block_info->microblock_cnt * sizeof(fd_exec_test_microblock_t) );
 
-  /* Keep track of all account keys to dump so we don't save duplicates */
-  block_context->acct_states_count = 0;
-  block_context->acct_states       = fd_spad_alloc( spad, alignof(fd_exec_test_acct_state_t), block_info->txn_cnt * MAX_TX_ACCOUNT_LOCKS * sizeof(fd_exec_test_acct_state_t) );
-
-  /* When iterating over microblocks batches and microblocks, we flatten the batches for the output block context (essentially just one big batch with several microblocks) */
-  for( ulong i=0UL; i<block_info->microblock_batch_cnt; i++ ) {
-    fd_microblock_batch_info_t const * microblock_batch = &block_info->microblock_batch_infos[i];
-
-    for( ulong j=0UL; j<microblock_batch->microblock_cnt; j++ ) {
-      fd_microblock_info_t const * microblock_info = &microblock_batch->microblock_infos[j];
-      fd_exec_test_microblock_t * out_block        = &block_context->microblocks[block_context->microblocks_count++];
-      ulong txn_cnt                                = microblock_info->microblock.hdr->txn_cnt;
-
-      out_block->txns_count = (pb_size_t)txn_cnt;
-      out_block->txns       = fd_spad_alloc( spad, alignof(fd_exec_test_sanitized_transaction_t), txn_cnt * sizeof(fd_exec_test_sanitized_transaction_t) );
-
-      /* BlockContext -> microblocks -> txns */
-      for( ulong k=0UL; k<txn_cnt; k++ ) {
-        fd_txn_p_t const * txn_ptr      = &microblock_info->txns[k];
-        fd_txn_t const * txn_descriptor = TXN( txn_ptr );
-        dump_sanitized_transaction( slot_ctx, txn_descriptor, txn_ptr->payload, spad, &out_block->txns[k] );
-
-        /* BlockContext -> acct_states */
-        /* Dump account + alut + programdata accounts (if applicable). There's a lot more brute force work since none of the borrowed accounts are set up yet. We have to:
-           1. Dump the raw txn account keys
-           2. Dump the ALUT accounts
-           3. Dump all referenced accounts in the ALUTs
-           4. Dump any executable accounts
-           5. Dump any sysvars + builtin accounts (occurs outside of this loop) */
-
-        // 1. Dump any account keys that are referenced by transactions
-        fd_acct_addr_t const * account_keys = fd_txn_get_acct_addrs( txn_descriptor, txn_ptr->payload );
-        for( ushort l=0; l<txn_descriptor->acct_addr_cnt; l++ ) {
-          fd_pubkey_t const * account_key = fd_type_pun_const( &account_keys[l] );
-          dump_account_if_not_already_dumped( slot_ctx, account_key, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
-        }
-
-        // 2 + 3. Dump any ALUT accounts + any accounts referenced in the ALUTs
-        fd_txn_acct_addr_lut_t const * txn_lookup_tables = fd_txn_get_address_tables_const( txn_descriptor );
-        for( ushort l=0; l<txn_descriptor->addr_table_lookup_cnt; l++ ) {
-          fd_txn_acct_addr_lut_t const * lookup_table = &txn_lookup_tables[l];
-          dump_lut_account_and_contained_accounts( slot_ctx, txn_ptr->payload, lookup_table, spad, block_context->acct_states, &block_context->acct_states_count );
-        }
-
-        // 4. Go through all dumped accounts and dump any executable accounts
-        ulong dumped_accounts = block_context->acct_states_count;
-        for( ulong l=0; l<dumped_accounts; l++ ) {
-          fd_exec_test_acct_state_t const * maybe_program_account = &block_context->acct_states[l];
-          dump_executable_account_if_exists( slot_ctx, maybe_program_account, spad, block_context->acct_states, &block_context->acct_states_count );
-        }
-      }
-    }
-  }
-
-  /* BlockContext -> acct_states (continued) */
-
-  // 5. Dump sysvars + builtins
+  /* BlockContext -> acct_states */
+  // Dump sysvars + builtins
   fd_pubkey_t const fd_relevant_sysvar_ids[] = {
     fd_sysvar_recent_block_hashes_id,
     fd_sysvar_clock_id,
@@ -465,6 +410,12 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   const ulong num_sysvar_entries = (sizeof(fd_relevant_sysvar_ids) / sizeof(fd_pubkey_t));
   const ulong num_loaded_builtins = (sizeof(loaded_builtins) / sizeof(fd_pubkey_t));
 
+  block_context->acct_states_count = 0;
+  block_context->acct_states       = fd_spad_alloc( spad,
+                                                    alignof(fd_exec_test_acct_state_t),
+                                                    ( num_sysvar_entries + num_loaded_builtins ) * sizeof(fd_exec_test_acct_state_t) );
+
+
   for( ulong i=0UL; i<num_sysvar_entries; i++ ) {
     dump_account_if_not_already_dumped( slot_ctx, &fd_relevant_sysvar_ids[i], spad, block_context->acct_states, &block_context->acct_states_count, NULL );
   }
@@ -484,7 +435,7 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   block_context->has_slot_ctx                       = true;
   block_context->slot_ctx.slot                      = slot_ctx->slot_bank.slot;
   block_context->slot_ctx.block_height              = slot_ctx->slot_bank.block_height;
-  fd_memcpy( block_context->slot_ctx.poh, &slot_ctx->slot_bank.poh, sizeof(fd_pubkey_t) );
+  // fd_memcpy( block_context->slot_ctx.poh, &slot_ctx->slot_bank.poh, sizeof(fd_pubkey_t) ); // TODO: dump here when process epoch happens after poh verification
   fd_memcpy( block_context->slot_ctx.parent_bank_hash, &slot_ctx->slot_bank.banks_hash, sizeof(fd_pubkey_t) );
   fd_memcpy( block_context->slot_ctx.parent_lt_hash, &slot_ctx->slot_bank.lthash.lthash, FD_LTHASH_LEN_BYTES );
   block_context->slot_ctx.prev_slot                 = slot_ctx->slot_bank.prev_slot;
@@ -619,6 +570,81 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
                       spad,
                       &block_context->epoch_ctx.vote_accounts_t_2,
                       &block_context->epoch_ctx.vote_accounts_t_2_count );
+}
+
+static void
+create_block_context_protobuf_from_block_tx_only( fd_exec_test_block_context_t * block_context,
+                                                  fd_block_info_t const *        block_info,
+                                                  fd_exec_slot_ctx_t const *     slot_ctx,
+                                                  fd_spad_t *                    spad ) {
+  /* BlockContext -> microblocks */
+  block_context->microblocks_count = 0;
+  block_context->microblocks       = fd_spad_alloc( spad, alignof(fd_exec_test_microblock_t), block_info->microblock_cnt * sizeof(fd_exec_test_microblock_t) );
+
+  /* BlockContext -> acct_states */
+  // Copy over the existing account states
+  fd_exec_test_acct_state_t * current_accounts = block_context->acct_states;
+  ulong current_accounts_count                 = block_context->acct_states_count;
+  block_context->acct_states                   = fd_spad_alloc( spad,
+                                                                alignof(fd_exec_test_acct_state_t),
+                                                                block_info->txn_cnt * MAX_TX_ACCOUNT_LOCKS * sizeof(fd_exec_test_acct_state_t) );
+  fd_memcpy( block_context->acct_states, current_accounts, current_accounts_count * sizeof(fd_exec_test_acct_state_t) );
+
+  /* TODO: Free the old account states */
+
+  /* BlockContext -> slot_ctx -> poh
+     This currently needs to be done because POH verification is done after epoch boundary processing. That should probably be changed */
+  fd_memcpy( block_context->slot_ctx.poh, &slot_ctx->slot_bank.poh, sizeof(fd_pubkey_t) );
+
+  /* When iterating over microblocks batches and microblocks, we flatten the batches for the output block context (essentially just one big batch with several microblocks) */
+  for( ulong i=0UL; i<block_info->microblock_batch_cnt; i++ ) {
+    fd_microblock_batch_info_t const * microblock_batch = &block_info->microblock_batch_infos[i];
+
+    for( ulong j=0UL; j<microblock_batch->microblock_cnt; j++ ) {
+      fd_microblock_info_t const * microblock_info = &microblock_batch->microblock_infos[j];
+      fd_exec_test_microblock_t * out_block        = &block_context->microblocks[block_context->microblocks_count++];
+      ulong txn_cnt                                = microblock_info->microblock.hdr->txn_cnt;
+
+      out_block->txns_count = (pb_size_t)txn_cnt;
+      out_block->txns       = fd_spad_alloc( spad, alignof(fd_exec_test_sanitized_transaction_t), txn_cnt * sizeof(fd_exec_test_sanitized_transaction_t) );
+
+      /* BlockContext -> microblocks -> txns */
+      for( ulong k=0UL; k<txn_cnt; k++ ) {
+        fd_txn_p_t const * txn_ptr      = &microblock_info->txns[k];
+        fd_txn_t const * txn_descriptor = TXN( txn_ptr );
+        dump_sanitized_transaction( slot_ctx, txn_descriptor, txn_ptr->payload, spad, &out_block->txns[k] );
+
+        /* BlockContext -> acct_states */
+        /* Dump account + alut + programdata accounts (if applicable). There's a lot more brute force work since none of the borrowed accounts are set up yet. We have to:
+           1. Dump the raw txn account keys
+           2. Dump the ALUT accounts
+           3. Dump all referenced accounts in the ALUTs
+           4. Dump any executable accounts
+           5. Dump any sysvars + builtin accounts (occurs outside of this loop) */
+
+        // 1. Dump any account keys that are referenced by transactions
+        fd_acct_addr_t const * account_keys = fd_txn_get_acct_addrs( txn_descriptor, txn_ptr->payload );
+        for( ushort l=0; l<txn_descriptor->acct_addr_cnt; l++ ) {
+          fd_pubkey_t const * account_key = fd_type_pun_const( &account_keys[l] );
+          dump_account_if_not_already_dumped( slot_ctx, account_key, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
+        }
+
+        // 2 + 3. Dump any ALUT accounts + any accounts referenced in the ALUTs
+        fd_txn_acct_addr_lut_t const * txn_lookup_tables = fd_txn_get_address_tables_const( txn_descriptor );
+        for( ushort l=0; l<txn_descriptor->addr_table_lookup_cnt; l++ ) {
+          fd_txn_acct_addr_lut_t const * lookup_table = &txn_lookup_tables[l];
+          dump_lut_account_and_contained_accounts( slot_ctx, txn_ptr->payload, lookup_table, spad, block_context->acct_states, &block_context->acct_states_count );
+        }
+
+        // 4. Go through all dumped accounts and dump any executable accounts
+        ulong dumped_accounts = block_context->acct_states_count;
+        for( ulong l=0; l<dumped_accounts; l++ ) {
+          fd_exec_test_acct_state_t const * maybe_program_account = &block_context->acct_states[l];
+          dump_executable_account_if_exists( slot_ctx, maybe_program_account, spad, block_context->acct_states, &block_context->acct_states_count );
+        }
+      }
+    }
+  }
 }
 
 static void
@@ -979,11 +1005,9 @@ fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t * txn_ctx, fd_spad_t * spad ) {
   } FD_SPAD_FRAME_END;
 }
 
-void
-fd_dump_block_to_protobuf( fd_block_info_t const *    block_info,
-                           fd_exec_slot_ctx_t const * slot_ctx,
-                           fd_capture_ctx_t const *   capture_ctx,
-                           fd_spad_t *                spad ) {
+void fd_dump_block_to_protobuf( fd_exec_slot_ctx_t const * slot_ctx,
+                                fd_capture_ctx_t const *   capture_ctx,
+                                fd_spad_t *                spad ) {
   FD_SPAD_FRAME_BEGIN( spad ) {
     if( FD_UNLIKELY( capture_ctx==NULL ) ) {
       FD_LOG_WARNING(( "Capture context may not be NULL when dumping blocks." ));
@@ -991,7 +1015,7 @@ fd_dump_block_to_protobuf( fd_block_info_t const *    block_info,
     }
 
     fd_exec_test_block_context_t block_context_msg = FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT;
-    create_block_context_protobuf_from_block( &block_context_msg, block_info, slot_ctx, spad );
+    create_block_context_protobuf_from_block( &block_context_msg, slot_ctx, spad );
 
     /* Output to file */
     ulong out_buf_size = 3UL<<30UL; /* 3 GB */
@@ -1009,6 +1033,65 @@ fd_dump_block_to_protobuf( fd_block_info_t const *    block_info,
         fclose( file );
       }
     }
+  } FD_SPAD_FRAME_END;
+}
+
+void
+fd_dump_block_to_protobuf_tx_only( fd_block_info_t const *    block_info,
+                                   fd_exec_slot_ctx_t const * slot_ctx,
+                                   fd_capture_ctx_t const *   capture_ctx,
+                                   fd_spad_t *                spad ) {
+  FD_SPAD_FRAME_BEGIN( spad ) {
+    if( FD_UNLIKELY( capture_ctx==NULL ) ) {
+      FD_LOG_WARNING(( "Capture context may not be NULL when dumping blocks." ));
+      return;
+    }
+
+    fd_exec_test_block_context_t block_context_msg[1] = { FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT };
+    // Recover block_context_msg from disk
+    char filepath[256];
+    fd_memset( filepath, 0, sizeof(filepath) );
+    char * pos = fd_cstr_init( filepath );
+    pos = fd_cstr_append_printf( pos, "%s/block-%lu.bin", capture_ctx->dump_proto_output_dir, slot_ctx->slot_bank.slot );
+    fd_cstr_fini( pos );
+
+    FILE * in_file = fopen( filepath, "rb" );
+    if( !in_file ) {
+      FD_LOG_ERR(( "Failed to open file: %s", filepath ));
+      return;
+    }
+
+    fseek( in_file, 0, SEEK_END );
+    long file_size = ftell( in_file );
+    fseek( in_file, 0, SEEK_SET );
+
+    uint8_t * in_buffer = fd_spad_alloc( spad, alignof(uint8_t), (ulong)file_size );
+    if( fread( in_buffer, 1, (size_t)file_size, in_file ) != (size_t)file_size ) {
+      FD_LOG_ERR(( "Failed to read file: %s", filepath ));
+      fclose( in_file );
+      return;
+    }
+    fclose( in_file );
+
+    pb_istream_t istream = pb_istream_from_buffer( in_buffer, (ulong)file_size );
+    if( !pb_decode( &istream, FD_EXEC_TEST_BLOCK_CONTEXT_FIELDS, block_context_msg ) ) {
+      FD_LOG_ERR(( "Decoding failed: %s", PB_GET_ERROR( &istream ) ));
+    }
+    create_block_context_protobuf_from_block_tx_only( block_context_msg, block_info, slot_ctx, spad );
+
+    /* Output to file */
+    ulong out_buf_size = 3UL<<30UL; /* 3 GB */
+    uint8_t * out = fd_spad_alloc( spad, alignof(uint8_t), out_buf_size );
+    pb_ostream_t stream = pb_ostream_from_buffer( out, out_buf_size );
+    if( pb_encode( &stream, FD_EXEC_TEST_BLOCK_CONTEXT_FIELDS, block_context_msg ) ) {
+      FILE * file = fopen(filepath, "wb");
+      if( file ) {
+        fwrite( out, 1, stream.bytes_written, file );
+        fclose( file );
+      }
+    }
+
+    /* TODO: There is a BEEEEG memory leak here. Make functions to discard fields from the old message */
   } FD_SPAD_FRAME_END;
 }
 
