@@ -1,4 +1,9 @@
 #include "../fd_util.h"
+#if FD_HAS_HOSTED
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 struct event {
   long timeout;
@@ -7,6 +12,11 @@ struct event {
 };
 
 typedef struct event event_t;
+
+#ifndef FD_TMPL_USE_HANDHOLDING
+#define FD_UNDEF_HANDHOLDING
+#define FD_TMPL_USE_HANDHOLDING 1
+#endif
 
 #define PRQ_NAME eventq
 #define PRQ_T    event_t
@@ -299,6 +309,39 @@ main( int     argc,
     FD_TEST( implq_remove_min( heap )==heap );
     if( FD_UNLIKELY( test_implicit_heap( heap, keep_cnt-1UL-i, max ) ) ) return 1;
   }
+
+#if FD_HAS_HOSTED && FD_TMPL_USE_HANDHOLDING
+  #define FD_EXPECT_LOG_ERR( CALL ) do {                           \
+    FD_LOG_NOTICE(( "Testing that "#CALL" triggers exit( 1 )" ));  \
+    pid_t pid = fork();                                            \
+    FD_TEST( pid >= 0 );                                           \
+    if( pid == 0 ) {                                               \
+      fd_log_level_logfile_set( 5 );                               \
+      __typeof__(CALL) res = (CALL);                               \
+      __asm__("" : "+r"(res));                                     \
+      _exit( 0 );                                                  \
+    }                                                              \
+    int status = 0;                                                \
+    wait( &status );                                               \
+                                                                   \
+    FD_TEST( WIFEXITED(status) && (WEXITSTATUS(status) == 1) );    \
+  } while( 0 )
+
+  FD_EXPECT_LOG_ERR( eventq_new( (void*)((char*)mem+1), max ) );
+  FD_EXPECT_LOG_ERR( eventq_new( NULL,                  max ) );
+
+  eventq_remove_all( heap );
+  FD_EXPECT_LOG_ERR( eventq_remove    ( heap, 0 ) );
+  FD_EXPECT_LOG_ERR( eventq_remove_min( heap    ) );
+
+  for(ulong i=0; i<max; i++) {
+    FD_TEST( eventq_insert( heap, &heap[i] ) );
+  }
+  FD_EXPECT_LOG_ERR( eventq_insert( heap, &heap[0] ) );
+#else
+  FD_LOG_WARNING(( "skip: testing handholding, requires hosted" ));
+#endif
+
   FD_TEST( implq_leave ( heap     )==sheventq );
   FD_TEST( implq_delete( sheventq )==mem      );
 
@@ -309,3 +352,7 @@ main( int     argc,
   return 0;
 }
 
+#ifdef FD_UNDEF_HANDHOLDING
+#undef FD_TMPL_USE_HANDHOLDING
+#undef FD_UNDEF_HANDHOLDING
+#endif
