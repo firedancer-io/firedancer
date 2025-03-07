@@ -522,3 +522,9 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
     FD_LOG_ERR(( "unknown transaction version %u", txn->transaction_version ));
   }
 }
+
+fd_acct_addr_t const *
+fd_bank_abi_get_lookup_addresses( fd_bank_abi_txn_t const * txn ) {
+  return txn->message.tag==9223372036854775808UL ? NULL :
+    (fd_acct_addr_t const *) txn->message.v0.loaded_addresses.owned.writable;
+}
