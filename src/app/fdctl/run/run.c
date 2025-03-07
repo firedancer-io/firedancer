@@ -293,18 +293,25 @@ main_pid_namespace( void * _args ) {
   int save_priority = getpriority( PRIO_PROCESS, 0 );
   if( FD_UNLIKELY( -1==save_priority && errno ) ) FD_LOG_ERR(( "getpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  fd_xdp_fds_t xdp_fds = fd_topo_install_xdp( &config->topo );
+  int need_xdp = 0==strcmp( config->development.net.provider, "xdp" );
+  fd_xdp_fds_t xdp_fds = {0};
+  if( need_xdp ) {
+    xdp_fds = fd_topo_install_xdp( &config->topo );
+  }
 
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &config->topo.tiles[ i ];
     if( FD_UNLIKELY( tile->is_agave ) ) continue;
 
-    if( FD_UNLIKELY( strcmp( tile->name, "net" ) ) ) {
-      if( FD_UNLIKELY( -1==fcntl( xdp_fds.xsk_map_fd,   F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      if( FD_UNLIKELY( -1==fcntl( xdp_fds.prog_link_fd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    } else {
-      if( FD_UNLIKELY( -1==fcntl( xdp_fds.xsk_map_fd,   F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      if( FD_UNLIKELY( -1==fcntl( xdp_fds.prog_link_fd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( need_xdp ) {
+      if( FD_UNLIKELY( strcmp( tile->name, "net" ) ) ) {
+        /* close XDP related file descriptors */
+        if( FD_UNLIKELY( -1==fcntl( xdp_fds.xsk_map_fd,   F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        if( FD_UNLIKELY( -1==fcntl( xdp_fds.prog_link_fd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      } else {
+        if( FD_UNLIKELY( -1==fcntl( xdp_fds.xsk_map_fd,   F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        if( FD_UNLIKELY( -1==fcntl( xdp_fds.prog_link_fd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      }
     }
 
     int pipefd[ 2 ];
@@ -322,8 +329,10 @@ main_pid_namespace( void * _args ) {
 
   if( FD_UNLIKELY( close( config_memfd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( close( xdp_fds.xsk_map_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( close( xdp_fds.prog_link_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( need_xdp ) {
+    if( FD_UNLIKELY( close( xdp_fds.xsk_map_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( close( xdp_fds.prog_link_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   int allow_fds[ 4+FD_TOPO_MAX_TILES ];
   ulong allow_fds_cnt = 0;
@@ -712,7 +721,7 @@ fdctl_check_configure( config_t * config ) {
                  "to create the mounts correctly. This must be done after every system restart before running "
                  "Firedancer.", check.message ));
 
-  if( FD_LIKELY( !config->development.netns.enabled ) ) {
+  if( FD_LIKELY( !config->development.netns.enabled && 0==strcmp( config->development.net.provider, "xdp" ) ) ) {
     check = fd_cfg_stage_ethtool_channels.check( config );
     if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
       FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-channels` to set the number of channels on the "

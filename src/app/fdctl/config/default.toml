@@ -1281,6 +1281,17 @@ dynamic_port_range = "8900-9000"
     # if [gossip.entrypoints] is non-empty.
     bootstrap = false
 
+    # Experimental network stack options.
+    [development.net]
+        # Firedancer supports multiple network provider APIs.
+        # Valid options:
+        # - "xdp" (default) uses Linux XDP APIs for high performance
+        #   networking.
+        # - "socket" uses Linux UDP sockets. Useful as a slow but more
+        #   widely compatible fallback.  Known to break CLI tools such
+        #   as the monitor.  Not recommended for production/mainnet.
+        provider = "xdp"
+
     # It can be convenient during development to use a network namespace
     # for running Firedancer.  This allows us to send packets at a local
     # Firedancer instance and have them go through more of the kernel

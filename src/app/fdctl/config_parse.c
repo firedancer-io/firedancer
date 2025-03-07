@@ -340,6 +340,8 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( bool,   development.no_agave                             );
   CFG_POP      ( bool,   development.bootstrap                            );
 
+  CFG_POP      ( cstr,   development.net.provider                         );
+
   CFG_POP      ( bool,   development.netns.enabled                        );
   CFG_POP      ( cstr,   development.netns.interface0                     );
   CFG_POP      ( cstr,   development.netns.interface0_mac                 );
@@ -505,6 +507,11 @@ fdctl_cfg_validate( config_t * cfg ) {
   CFG_HAS_NON_ZERO( tiles.metric.prometheus_listen_port );
 
   CFG_HAS_NON_ZERO( tiles.gui.gui_listen_port );
+
+  if( strcmp( cfg->development.net.provider, "xdp" ) &&
+      strcmp( cfg->development.net.provider, "socket" ) ) {
+    FD_LOG_ERR(( "invalid `development.net.provider`: must be \"xdp\" or \"socket\"" ));
+  }
 
   CFG_HAS_NON_EMPTY( development.netns.interface0 );
   CFG_HAS_NON_EMPTY( development.netns.interface0_mac );

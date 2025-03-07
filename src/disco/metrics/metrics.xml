@@ -81,6 +81,14 @@ metric introduced.
     <counter name="XdpTxRingEmptyDescs" summary="xdp_statistics_v1.tx_ring_empty_descs: Failed to retrieve item from tx ring" />
 </tile>
 
+<tile name="sock">
+    <counter name="SyscallsSendmmsg" summary="Number of sendmmsg syscalls dispatched" />
+    <counter name="SyscallsRecvmmsg" summary="Number of recvmsg syscalls dispatched" />
+    <counter name="RxPktCnt" summary="Number of packets received" />
+    <counter name="TxPktCnt" summary="Number of packets sent" />
+    <counter name="TxDropCnt" summary="Number of packets failed to send" />
+</tile>
+
 <enum name="TpuRecvType">
     <int value="0" name="Udp" label="TPU/UDP" />
     <int value="1" name="QuicFast" label="TPU/QUIC unfragmented" />

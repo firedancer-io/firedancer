@@ -173,6 +173,10 @@ struct fdctl_config {
     uint debug_tile;
 
     struct {
+      char provider[ 8 ];
+    } net;
+
+    struct {
       int  enabled;
       char interface0     [ 16 ];
       char interface0_mac [ 32 ];

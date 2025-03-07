@@ -18,9 +18,15 @@
 
 static int
 enabled( config_t const * config ) {
+
   /* if we're running in a network namespace, we configure ethtool on
-      the virtual device as part of netns setup, not here */
-  return !config->development.netns.enabled;
+     the virtual device as part of netns setup, not here */
+  if( config->development.netns.enabled ) return 0;
+
+  /* only enable if network stack is XDP */
+  if( 0!=strcmp( config->development.net.provider, "xdp" ) ) return 0;
+
+  return 1;
 }
 
 static void
