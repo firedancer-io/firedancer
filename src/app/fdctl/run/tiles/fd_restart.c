@@ -277,7 +277,12 @@ after_frag( fd_restart_tile_ctx_t * ctx,
     fd_funk_txn_t *   txn_map = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
     fd_funk_txn_t *  funk_txn = fd_funk_txn_query( &ctx->store_xid_msg, txn_map );
     if( FD_UNLIKELY( !funk_txn ) ) {
-      FD_LOG_ERR(( "Wen-restart fails due to NULL funk_txn" ));
+      /* Try again with xid.ul[1] being the slot number instead of the block hash */
+      ctx->store_xid_msg.ul[1] = ctx->restart->heaviest_fork_slot;
+      funk_txn = fd_funk_txn_query( &ctx->store_xid_msg, txn_map );
+      if( FD_UNLIKELY( !funk_txn ) ) {
+        FD_LOG_ERR(( "Wen-restart fails due to NULL funk_txn" ));
+      }
     }
     fd_funk_rec_t const * rec = fd_funk_rec_query( ctx->funk, funk_txn, &id );
     void *                val = fd_funk_val( rec, fd_funk_wksp( ctx->funk ) );
