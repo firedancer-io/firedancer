@@ -1,9 +1,9 @@
 /**
  * @name Const/Pure violation
- * @description A function is declared as const or pure, but access a pointer in a illegal way.
+ * @description A function is attributed with const or pure, but accesses a pointer in an illegal way.
  * @id asymmetric-research/const-pure-violation
  * @kind problem
- * @precision medium
+ * @precision high
  * @problem.severity warning
  */
 
@@ -12,8 +12,8 @@ import cpp
 predicate isDref(Parameter p) {
   exists(Expr e | e = p.getAnAccess().getQualifier())
   or
-  // not 100% accurate but code has to be very weird to tigger an fp
-  exists(PointerDereferenceExpr e | p.getAnAccess() = e.getAChild*()) 
+  // not 100% accurate but code has to be very weird to tigger an FP
+  exists(PointerDereferenceExpr e | p.getAnAccess() = e.getAChild*())
   or
   exists(ArrayExpr a | a.getArrayBase() = p.getAnAccess())
 }
@@ -46,4 +46,4 @@ class PureFunc extends RestrictedFunc {
 
 from RestrictedFunc f
 where f.isViolated()
-select f, "Function declared as " + f.getAnAttribute().getName() + " but access a pointer in a illegal way."
+select f, "Function is attributed with " + f.getAnAttribute().getName() + " but accesses a pointer in an illegal way."
