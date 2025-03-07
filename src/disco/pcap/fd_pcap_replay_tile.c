@@ -2,7 +2,7 @@
 
 #if FD_HAS_HOSTED
 
-FD_STATIC_ASSERT( FD_REPLAY_TILE_SCRATCH_ALIGN<=FD_SHMEM_HUGE_PAGE_SZ, alignment );
+FD_STATIC_ASSERT( FD_PCAP_REPLAY_TILE_SCRATCH_ALIGN<=FD_SHMEM_HUGE_PAGE_SZ, alignment );
 
 int
 main( int     argc,
@@ -58,8 +58,8 @@ main( int     argc,
   fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, seed, 0UL ) );
 
   FD_LOG_NOTICE(( "Creating scratch" ));
-  ulong footprint = fd_replay_tile_scratch_footprint( out_cnt );
-  if( FD_UNLIKELY( !footprint ) ) FD_LOG_ERR(( "fd_replay_tile_scratch_footprint failed" ));
+  ulong footprint = fd_pcap_replay_tile_scratch_footprint( out_cnt );
+  if( FD_UNLIKELY( !footprint ) ) FD_LOG_ERR(( "fd_pcap_replay_tile_scratch_footprint failed" ));
   ulong  page_sz  = FD_SHMEM_HUGE_PAGE_SZ;
   ulong  page_cnt = fd_ulong_align_up( footprint, page_sz ) / page_sz;
   ulong  cpu_idx  = fd_tile_cpu_id( fd_tile_idx() );
@@ -69,8 +69,8 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Run" ));
 
-  int err = fd_replay_tile( cnc, _pcap, pkt_max, orig, mcache, dcache, out_cnt, out_fseq, cr_max, lazy, rng, scratch );
-  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_replay_tile failed (%i)", err ));
+  int err = fd_pcap_replay_tile( cnc, _pcap, pkt_max, orig, mcache, dcache, out_cnt, out_fseq, cr_max, lazy, rng, scratch );
+  if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "fd_pcap_replay_tile failed (%i)", err ));
 
   FD_LOG_NOTICE(( "Fini" ));
 
@@ -97,4 +97,3 @@ main( int     argc,
 }
 
 #endif
-

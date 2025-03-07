@@ -71,7 +71,10 @@ struct __attribute__((aligned(128UL))) fd_ghost_node {
   ulong             replay_stake; /* amount of stake that has voted (via replay) for this slot */
   ulong             gossip_stake; /* amount of stake that has voted (via gossip) for this slot */
   ulong             rooted_stake; /* amount of stake that has rooted this slot */
-  int               valid;        /* whether this node is valid for fork choice (fd_ghost_head) */
+  int               valid;        /* whether this node (and its descendants) are valid candidates for the ghost head */
+  int               processed;    /* whether this node has been processed by replay */
+  int               confirmed;    /* whether this node has been optimistically confirmed */
+  int               finalized;    /* whether this node (or any descendant) has been super-majority rooted */
   ulong             parent_idx;   /* index of the parent in the node pool */
   ulong             child_idx;    /* index of the left-child in the node pool */
   ulong             sibling_idx;  /* index of the right-sibling in the node pool */

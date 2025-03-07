@@ -140,6 +140,7 @@ typedef uchar fd_shred_merkle_t[FD_SHRED_MERKLE_NODE_SZ];
 
 /* Mask of the "reference tick"    field in shred.data.flags */
 #define FD_SHRED_DATA_REF_TICK_MASK      ((uchar)0x3f)
+#define FD_SHRED_DATA_REF_TICK_BITS      (6UL)
 /* Mask of the "slot complete"       bit in shred.data.flags
    Indicates the last shred in a slot. */
 #define FD_SHRED_DATA_FLAG_SLOT_COMPLETE ((uchar)0x80)
@@ -147,7 +148,7 @@ typedef uchar fd_shred_merkle_t[FD_SHRED_MERKLE_NODE_SZ];
 #define FD_SHRED_DATA_FLAG_DATA_COMPLETE ((uchar)0x40)
 
 /* Maximum number of data shreds in a slot, also maximum number of parity shreds in a slot */
-#define FD_SHRED_MAX_PER_SLOT (1 << 15UL) /* 32,768 shreds */
+#define FD_SHRED_MAX_PER_SLOT (1UL << 15UL) /* 32,768 shreds */
 
 /* 36,536,320 bytes per slot */
 #define FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT (FD_SHRED_DATA_PAYLOAD_MAX * FD_SHRED_MAX_PER_SLOT)

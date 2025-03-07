@@ -436,15 +436,15 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
 
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
       ulong caught_up_flag = (ctx->store->curr_turbine_slot - slot)<4 ? 0UL : REPLAY_FLAG_CATCHING_UP;
-      ulong replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_MICROBLOCK | caught_up_flag );
+      ulong replay_sig = fd_disco_replay_old_sig( slot, REPLAY_FLAG_MICROBLOCK | caught_up_flag );
 
       ulong txn_cnt = 0;
       if( FD_UNLIKELY( fd_trusted_slots_find( ctx->trusted_slots, slot ) ) ) {
         /* if is caught up and is leader */
-        replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK );
+        replay_sig = fd_disco_replay_old_sig( slot, REPLAY_FLAG_FINISHED_BLOCK );
         FD_LOG_INFO(( "packed block prepared - slot: %lu", slot ));
       } else {
-        replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
+        replay_sig = fd_disco_replay_old_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
       }
 
       out_buf += sizeof(ulong);
@@ -461,7 +461,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
     ulong repair_req_sz = repair_req_cnt * sizeof(fd_repair_request_t);
     FD_TEST( repair_req_sz<=USHORT_MAX );
     fd_mcache_publish( ctx->repair_req_out_mcache, ctx->repair_req_out_depth, ctx->repair_req_out_seq, repair_req_sig, ctx->repair_req_out_chunk,
-      repair_req_sz, 0UL, tsorig, tspub );
+                       repair_req_sz, 0UL, tsorig, tspub );
     ctx->repair_req_out_seq   = fd_seq_inc( ctx->repair_req_out_seq, 1UL );
     ctx->repair_req_out_chunk = fd_dcache_compact_next( ctx->repair_req_out_chunk, repair_req_sz, ctx->repair_req_out_chunk0, ctx->repair_req_out_wmark );
   }
@@ -490,6 +490,8 @@ after_credit( fd_store_tile_ctx_t * ctx,
 
   for( ulong i = 0; i<fd_txn_iter_map_slot_cnt(); i++ ) {
     if( ctx->txn_iter_map[i].slot != FD_SLOT_NULL ) {
+      FD_LOG_ERR(( "WHAT IS THIS txn_iter_map slot: %lu", ctx->txn_iter_map[i].slot ));
+      /* Sends out repair requests on mcache dcache */
       fd_store_tile_slot_prepare( ctx, stem, FD_STORE_SLOT_PREPARE_CONTINUE, ctx->txn_iter_map[i].slot );
     }
   }
@@ -501,6 +503,7 @@ after_credit( fd_store_tile_ctx_t * ctx,
 
     ulong slot = repair_slot == 0 ? i : repair_slot;
     FD_LOG_DEBUG(( "store slot - mode: %d, slot: %lu, repair_slot: %lu", store_slot_prepare_mode, i, repair_slot ));
+    /* Sends out repair requests on mcache dcache */
     fd_store_tile_slot_prepare( ctx, stem, store_slot_prepare_mode, slot );
 
     if( FD_UNLIKELY( ctx->restart_heaviest_fork_slot &&
@@ -748,18 +751,18 @@ unprivileged_init( fd_topo_t *      topo,
     char   buf[20]; /* max # of digits for a ulong */
 
     ulong cnt = 1;
-    FD_TEST( fd_blockstore_block_meta_remove( ctx->blockstore, snapshot_slot ) );
+    FD_TEST( fd_blockstore_block_info_remove( ctx->blockstore, snapshot_slot ) );
 
     while( fgets( buf, sizeof( buf ), file ) ) {
       char *       endptr;
       ulong        slot  = strtoul( buf, &endptr, 10 );
       fd_block_map_query_t query[1] = { 0 };
       int err = fd_block_map_prepare( ctx->blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
-      fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
-      if( err || block_map_entry->slot != slot ) {
-        FD_LOG_ERR(( "init: slot %lu does not match block_map_entry->slot %lu", slot, block_map_entry->slot ));
+      fd_block_info_t * block_info = fd_block_map_query_ele( query );
+      if( err || block_info->slot != slot ) {
+        FD_LOG_ERR(( "init: slot %lu does not match block_info->slot %lu", slot, block_info->slot ));
       }
-      block_map_entry->flags = 0;
+      block_info->flags = 0;
       fd_block_map_publish( query );
       fd_store_add_pending( ctx->store, slot, (long)cnt++, 0, 0 );
     }

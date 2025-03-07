@@ -283,7 +283,7 @@ during_frag( fd_poh_ctx_t * ctx,
     if( FD_UNLIKELY( chunk<ctx->bank_in[ in_idx ].chunk0 || chunk>ctx->bank_in[ in_idx ].wmark || sz>USHORT_MAX ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->bank_in[ in_idx ].chunk0, ctx->bank_in[ in_idx ].wmark ));
 
-    if( !ctx->is_initialized && fd_disco_replay_sig_flags( sig )==REPLAY_FLAG_INIT ) {
+    if( !ctx->is_initialized && fd_disco_replay_old_sig_flags( sig )==REPLAY_FLAG_INIT ) {
       FD_LOG_INFO(( "init msg rx" ));
       fd_poh_init_msg_t * init_msg = (fd_poh_init_msg_t *)fd_chunk_to_laddr( ctx->bank_in[ in_idx ].mem, chunk );
       fd_poh_initialize( ctx, init_msg->tick_duration_ns, init_msg->hashcnt_per_tick, init_msg->ticks_per_slot, init_msg->tick_height, init_msg->last_entry_hash );
@@ -327,8 +327,8 @@ after_frag( fd_poh_ctx_t *      ctx,
     fd_histf_sample( ctx->poh_tile_ctx->first_microblock_delay, (ulong)((double)(fd_log_wallclock()-ctx->poh_tile_ctx->reset_slot_start_ns)/tick_per_ns) );
   }
 
-  ulong target_flags = fd_disco_replay_sig_flags( sig );
-  ulong target_slot = fd_disco_replay_sig_slot( sig );
+  ulong target_flags = fd_disco_replay_old_sig_flags( sig );
+  ulong target_slot = fd_disco_replay_old_sig_slot( sig );
 
   ulong is_packed_microblock = target_flags & REPLAY_FLAG_PACKED_MICROBLOCK;
   ulong is_finalized_block = target_flags & REPLAY_FLAG_FINISHED_BLOCK;

@@ -395,7 +395,7 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
 int
 fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t *    slot_ctx,
                                          fd_capture_ctx_t *      capture_ctx,
-                                         fd_block_info_t const * block_info,
+                                         fd_runtime_block_info_t const * block_info,
                                          fd_tpool_t *            tpool,
                                          fd_spad_t *             runtime_spad );
 

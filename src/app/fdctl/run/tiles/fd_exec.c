@@ -49,7 +49,7 @@ during_frag( fd_exec_tile_ctx_t * ctx,
     }
     uchar * txn = fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
     fd_memcpy( &ctx->txn, txn, sz );
-    FD_LOG_HEXDUMP_DEBUG(( "exec tile recieved txn: ", txn, sz ));
+    FD_LOG_HEXDUMP_NOTICE(( "exec tile recieved txn: ", txn, sz ));
   }
 }
 
