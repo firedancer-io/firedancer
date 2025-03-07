@@ -248,6 +248,8 @@ struct fd_quic_conn {
   uchar token[ FD_QUIC_RETRY_MAX_TOKEN_SZ ];
 
   fd_quic_conn_stream_rx_t srx[1];
+
+  ulong used_pkt_meta;
 };
 
 inline static void

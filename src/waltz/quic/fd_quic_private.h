@@ -74,6 +74,8 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 
   fd_quic_transport_params_t transport_params;
 
+  ulong max_inflight_pkt_cnt_conn; /* per-conn max, computed from limits */
+
   /* Various internal state */
 
   fd_quic_log_tx_t        log_tx[1];

@@ -14,9 +14,9 @@ static void
 init_tracker( ulong max_inflight ) {
 
   fd_quic_pkt_meta_t * pool = fd_quic_get_state( quic )->pkt_meta_pool;
-  fd_quic_pkt_meta_tracker_init_pool( pool, max_inflight );
+  fd_quic_pkt_meta_ds_init_pool( pool, max_inflight );
 
-  if( !fd_quic_pkt_meta_tracker_init( &conn.pkt_meta_tracker, max_inflight ) ) {
+  if( !fd_quic_pkt_meta_ds_init( conn.pkt_meta_tracker.sent_pkt_metas, max_inflight ) ) {
     FD_LOG_ERR(( "Failed to initialize tracker" ));
     return;
   }
@@ -48,21 +48,29 @@ main( int argc, char ** argv ) {
   fd_quic_pkt_t pkt;
   context.pkt = &pkt;
 
-  fd_quic_limits_t limits[1];
-  limits->inflight_pkt_cnt = max_inflight;
-  limits->conn_id_cnt      = 4;
-  limits->conn_cnt         = 1;
-  limits->handshake_cnt    = 1;
-  limits->log_depth        = 1;
-  limits->tx_buf_sz        = 256;
-  limits->stream_pool_cnt  = 100;
-  limits->stream_id_cnt    = 10;
+  fd_quic_limits_t limits = {
+    .inflight_pkt_cnt = max_inflight,
+    .conn_id_cnt      = 4,
+    .conn_cnt         = 1,
+    .handshake_cnt    = 1,
+    .log_depth        = 1,
+    .tx_buf_sz        = 256,
+    .stream_pool_cnt  = 100,
+    .stream_id_cnt    = 10
+  };
 
-  quic         = malloc( fd_quic_footprint( limits ) );
+  ulong footprint = fd_quic_footprint( &limits );
+  FD_TEST( footprint );
+  quic            = malloc( footprint );
   FD_TEST( quic );
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
-  pkt_meta_alloc = malloc( sizeof(fd_quic_pkt_meta_t) * (max_inflight + 1) );
+  /* pool alloc is max(128, alignof(pkt_meta_t)) so we may need extra space */
+  ulong extra = fd_quic_pkt_meta_pool_align() / alignof(fd_quic_pkt_meta_t) + 1;
+  FD_LOG_NOTICE(("meta align was %lu but pool align is %lu so we need %lu extra",
+    alignof(fd_quic_pkt_meta_t), fd_quic_pkt_meta_pool_align(), extra));
+
+  pkt_meta_alloc = malloc( sizeof(fd_quic_pkt_meta_t) * (max_inflight + extra) );
   pkt_meta_mem = (fd_quic_pkt_meta_t*)fd_ulong_align_up( (ulong)pkt_meta_alloc, fd_quic_pkt_meta_pool_align() );
   FD_TEST( pkt_meta_alloc );
   FD_TEST( pkt_meta_mem );

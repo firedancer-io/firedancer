@@ -196,27 +196,25 @@ struct fd_quic_pkt_meta_tracker {
 };
 
 
-/* fd_quic_pkt_meta_tracker_init_pool does any data structure-particular setup
+/* fd_quic_pkt_meta_ds_init_pool does any data structure-particular setup
    on the entire pool at once. Useful for e.g. treap randomness
    @arguments:
    - pool: pointer pkt_meta pool
    - total_meta_cnt: total pool size */
 void
-fd_quic_pkt_meta_tracker_init_pool( fd_quic_pkt_meta_t * pool,
-                                    ulong                total_meta_cnt );
+fd_quic_pkt_meta_ds_init_pool( fd_quic_pkt_meta_t * pool,
+                               ulong                total_meta_cnt );
 
-
-/* fd_quic_pkt_meta_tracker_init initializes the metadata tracker
-  For each encoding level, it initializes the pkt_meta data structure
+/* fd_quic_pkt_meta_ds_init initializes the metadata tracker for each enc level
   @arguments:
-  - tracker: pointer to the pkt_meta tracker
+  - sent_pkt_metas: pointer to ds array
   - total_meta_cnt: total number of max pkt_meta entries in this tracker
     (shared across all encoding levels)
   @returns:
-  - pointer to tracker if successful, NULL otherwise */
+  - pointer to ds array if successful, NULL otherwise */
 void *
-fd_quic_pkt_meta_tracker_init( fd_quic_pkt_meta_tracker_t *  tracker,
-                               ulong                         total_meta_cnt );
+fd_quic_pkt_meta_ds_init( fd_quic_pkt_meta_ds_t * sent_pkt_metas,
+                          ulong                   total_meta_cnt );
 
 /* fd_quic_pkt_meta_insert inserts a pkt_meta into the ds
   @arguments:
@@ -240,8 +238,10 @@ fd_quic_pkt_meta_insert( fd_quic_pkt_meta_ds_t * ds,
   - ds: pointer to the ds
   - pool: pointer to the backing pool
   - pkt_number_lo: lower bound of the range
-  - pkt_number_hi: upper bound of the range */
-void
+  - pkt_number_hi: upper bound of the range
+  @returns:
+  - number of pkt_meta removed */
+ulong
 fd_quic_pkt_meta_remove_range( fd_quic_pkt_meta_ds_t * ds,
                                fd_quic_pkt_meta_t    * pool,
                                ulong                   pkt_number_lo,

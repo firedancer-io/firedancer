@@ -110,7 +110,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
     .conn_cnt         = 2,
     .handshake_cnt    = 2,
     .conn_id_cnt      = 4,
-    .inflight_pkt_cnt = 8UL,
+    .inflight_pkt_cnt = 8UL * 2,
     .stream_pool_cnt  = 8UL
   };
 
