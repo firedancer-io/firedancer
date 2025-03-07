@@ -515,14 +515,14 @@ after_credit( fd_store_tile_ctx_t * ctx,
         if( FD_UNLIKELY( err ) ){
           FD_LOG_ERR(( "Wen-restart cannot get the block hash of HeaviestForkSlot %lu", ctx->restart_heaviest_fork_slot ));
         }
-        fd_funk_txn_xid_t xid;
-        fd_memcpy( &xid, &blk_hash, sizeof(fd_funk_txn_xid_t) );
+        fd_funkier_txn_xid_t xid;
+        fd_memcpy( &xid, &blk_hash, sizeof(fd_funkier_txn_xid_t) );
         xid.ul[0] = ctx->restart_heaviest_fork_slot;
 
         /* Send xid to restart tile */
         uchar * buf   = fd_chunk_to_laddr( ctx->restart_out_mem, ctx->restart_out_chunk );
-        ulong buf_len = sizeof(fd_funk_txn_xid_t);
-        fd_memcpy( buf, &xid, sizeof(fd_funk_txn_xid_t) );
+        ulong buf_len = sizeof(fd_funkier_txn_xid_t);
+        fd_memcpy( buf, &xid, sizeof(fd_funkier_txn_xid_t) );
         fd_mcache_publish( ctx->restart_out_mcache, ctx->restart_out_depth, ctx->restart_out_seq, 1UL, ctx->restart_out_chunk,
                            buf_len, 0UL, 0, 0 );
         ctx->restart_out_seq   = fd_seq_inc( ctx->restart_out_seq, 1UL );
