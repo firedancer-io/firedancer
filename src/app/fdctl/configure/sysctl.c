@@ -38,6 +38,15 @@ static const sysctl_param_t params[] = {
     ENFORCE_MINIMUM,
   },
   {
+    "/proc/sys/kernel/numa_balancing",
+    0,
+    WARN_EXACT,
+  },
+  {0}
+};
+
+static const sysctl_param_t xdp_params[] = {
+  {
     "/proc/sys/net/ipv4/conf/lo/rp_filter",
     2,
     ENFORCE_MINIMUM,
@@ -52,11 +61,7 @@ static const sysctl_param_t params[] = {
     1,
     WARN_MINIMUM,
   },
-  {
-    "/proc/sys/kernel/numa_balancing",
-    0,
-    WARN_EXACT,
-  }
+  {0}
 };
 
 static const char * ERR_MSG = "system might not support configuring sysctl,";
@@ -67,15 +72,14 @@ static const char * ERR_MSG = "system might not support configuring sysctl,";
    for users. */
 
 static void
-init( config_t * const config ) {
-  (void)config;
-  for( ulong i=0; i<sizeof( params ) / sizeof( params[ 0 ] ); i++ ) {
-    uint param = read_uint_file( params[ i ].path, ERR_MSG );
-    switch( params[ i ].mode ) {
+init_param_list( sysctl_param_t const * list ) {
+  for( sysctl_param_t const * p=list; p->path; p++ ) {
+    uint param = read_uint_file( p->path, ERR_MSG );
+    switch( p->mode ) {
       case ENFORCE_MINIMUM:
-        if( FD_UNLIKELY( param<params[ i ].value ) ) {
-          FD_LOG_NOTICE(( "RUN: `echo \"%u\" > %s`", params[ i ].value, params[ i ].path ) );
-          write_uint_file( params[ i ].path, params[ i ].value );
+        if( FD_UNLIKELY( param<(p->value) ) ) {
+          FD_LOG_NOTICE(( "RUN: `echo \"%u\" > %s`", p->value, p->path ) );
+          write_uint_file( p->path, p->value );
         }
         break;
       default:
@@ -84,29 +88,52 @@ init( config_t * const config ) {
   }
 }
 
+static void
+init( config_t * const config ) {
+  init_param_list( params );
+  if( 0==strcmp( config->development.net.provider, "xdp" ) ) {
+    init_param_list( xdp_params );
+  }
+}
+
 static configure_result_t
-check( config_t const * config FD_PARAM_UNUSED ) {
+check_param_list( sysctl_param_t const * list ) {
   static int has_warned = 0;
 
-  for( ulong i=0; i<sizeof( params ) / sizeof( params[ 0 ] ); i++ ) {
-    uint param = read_uint_file( params[ i ].path, ERR_MSG );
-    switch( params[ i ].mode ) {
+  for( sysctl_param_t const * p=list; p->path; p++ ) {
+    uint param = read_uint_file( p->path, ERR_MSG );
+    switch( p->mode ) {
       case ENFORCE_MINIMUM:
-        if( FD_UNLIKELY( param<params[ i ].value ) )
-          NOT_CONFIGURED( "kernel parameter `%s` is too low (got %u but expected at least %u)", params[ i ].path, param, params[ i ].value );
+        if( FD_UNLIKELY( param<(p->value) ) )
+          NOT_CONFIGURED( "kernel parameter `%s` is too low (got %u but expected at least %u)", p->path, param, p->value );
         break;
       case WARN_MINIMUM:
-        if( FD_UNLIKELY( !has_warned && param<params[ i ].value ) )
-          FD_LOG_WARNING(( "kernel parameter `%s` is too low (got %u but expected at least %u). Proceeding but performance may be reduced.", params[ i ].path, param, params[ i ].value ));
+        if( FD_UNLIKELY( !has_warned && param<(p->value) ) )
+          FD_LOG_WARNING(( "kernel parameter `%s` is too low (got %u but expected at least %u). Proceeding but performance may be reduced.", p->path, param, p->value ));
         break;
       case WARN_EXACT:
-        if( FD_UNLIKELY( !has_warned && param!=params[ i ].value ) )
-          FD_LOG_WARNING(( "kernel parameter `%s` is set to %u, not the expected value of %u. Proceeding but performance may be reduced.", params[ i ].path, param, params[ i ].value ));
+        if( FD_UNLIKELY( !has_warned && param!=(p->value) ) )
+          FD_LOG_WARNING(( "kernel parameter `%s` is set to %u, not the expected value of %u. Proceeding but performance may be reduced.", p->path, param, p->value ));
         break;
     }
   }
 
   has_warned = 1;
+
+  CONFIGURE_OK();
+}
+
+static configure_result_t
+check( config_t const * config ) {
+  configure_result_t r;
+
+  r = check_param_list( params );
+  if( r.result!=CONFIGURE_OK ) return r;
+
+  if( 0==strcmp( config->development.net.provider, "xdp" ) ) {
+    check_param_list( xdp_params );
+    if( r.result!=CONFIGURE_OK ) return r;
+  }
 
   CONFIGURE_OK();
 }

@@ -85,20 +85,22 @@ fd_topos_net_rx_link( fd_topo_t *  topo,
                       ulong        net_kind_id,
                       ulong        depth );
 
-/* fd_topos_net_tile_umem calculates RX/TX frame buffer sizes for a net
-   tile.  All these buffers are in the same shared memory region called
-   'UMEM' allocated via a dcache object.
+/* fd_topob_tile_in_net registers a net TX link with all net tiles. */
 
-   The size of the UMEM depends on the following things:
-   - The number RX and TX mcache rings and their depths
-   - The depth of the XDP (FILL, RX, TX, COMP) rings
+void
+fd_topos_tile_in_net( fd_topo_t *  topo,
+                      char const * fseq_wksp,
+                      char const * link_name,
+                      ulong        link_kind_id,
+                      int          reliable,
+                      int          polled );
 
-   This should be called *after* all app<->net tile links have been
+/* This should be called *after* all app<->net tile links have been
    created.  Should be called once per net tile. */
 
 void
-fd_topos_net_tile_umem( fd_topo_t * topo,
-                        ulong       net_kind_id );
+fd_topos_net_tile_finish( fd_topo_t * topo,
+                          ulong       net_kind_id );
 
 FD_PROTOTYPES_END
 
