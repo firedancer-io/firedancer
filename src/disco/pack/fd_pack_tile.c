@@ -271,8 +271,8 @@ typedef struct {
 
 
   /* Used between during_frag and after_frag */
-  ulong pending_rebate_cnt;
-  fd_txn_p_t pending_rebate[ MAX_TXN_PER_MICROBLOCK ]; /* indexed [0, pending_rebate_cnt) */
+  ulong pending_rebate_sz;
+  union{ fd_pack_rebate_t rebate[1]; uchar footprint[USHORT_MAX]; } rebate[1];
 } fd_pack_ctx_t;
 
 #define BUNDLE_META_SZ 40UL
@@ -787,14 +787,14 @@ during_frag( fd_pack_ctx_t * ctx,
   case IN_KIND_BANK: {
     FD_TEST( ctx->use_consumed_cus );
       /* For a previous slot */
-    if( FD_UNLIKELY( fd_disco_bank_sig_slot( sig )!=ctx->leader_slot ) ) return;
+    if( FD_UNLIKELY( sig!=ctx->leader_slot ) ) return;
 
-    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz<sizeof(fd_microblock_trailer_t)
-          || sz>sizeof(fd_microblock_trailer_t)+sizeof(fd_txn_p_t)*MAX_TXN_PER_MICROBLOCK ) )
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz<FD_PACK_REBATE_MIN_SZ
+          || sz>FD_PACK_REBATE_MAX_SZ ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-    ctx->pending_rebate_cnt = (sz-sizeof(fd_microblock_trailer_t))/sizeof(fd_txn_p_t);
-    fd_memcpy( ctx->pending_rebate, dcache_entry, sz-sizeof(fd_microblock_trailer_t) );
+    ctx->pending_rebate_sz = sz;
+    fd_memcpy( ctx->rebate, dcache_entry, sz );
     return;
   }
   case IN_KIND_RESOLV: {
@@ -921,10 +921,10 @@ after_frag( fd_pack_ctx_t *     ctx,
   }
   case IN_KIND_BANK: {
     /* For a previous slot */
-    if( FD_UNLIKELY( fd_disco_bank_sig_slot( sig )!=ctx->leader_slot ) ) return;
+    if( FD_UNLIKELY( sig!=ctx->leader_slot ) ) return;
 
-    fd_pack_rebate_cus( ctx->pack, ctx->pending_rebate, ctx->pending_rebate_cnt );
-    ctx->pending_rebate_cnt = 0UL;
+    fd_pack_rebate_cus( ctx->pack, ctx->rebate->rebate );
+    ctx->pending_rebate_sz = 0UL;
     fd_pack_pacing_update_consumed_cus( ctx->pacer, fd_pack_current_block_cost( ctx->pack ), now );
     break;
   }
@@ -1022,7 +1022,7 @@ unprivileged_init( fd_topo_t *      topo,
     if( FD_LIKELY(      !strcmp( link->name, "resolv_pack" ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
     else if( FD_LIKELY( !strcmp( link->name, "dedup_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_RESOLV;
     else if( FD_LIKELY( !strcmp( link->name, "poh_pack"    ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
-    else if( FD_LIKELY( !strcmp( link->name, "bank_poh"    ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK;
+    else if( FD_LIKELY( !strcmp( link->name, "bank_pack"   ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK;
     else if( FD_LIKELY( !strcmp( link->name, "sign_pack"   ) ) ) ctx->in_kind[ i ] = IN_KIND_SIGN;
     else FD_LOG_ERR(( "pack tile has unexpected input link %lu %s", i, link->name ));
   }
