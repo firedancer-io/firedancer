@@ -14,9 +14,9 @@ static void
 init_tracker( ulong max_inflight ) {
 
   fd_quic_pkt_meta_t * pool = fd_quic_get_state( quic )->pkt_meta_pool;
-  fd_quic_pkt_meta_tracker_init_pool( pool, max_inflight );
+  fd_quic_pkt_meta_ds_init_pool( pool, max_inflight );
 
-  if( !fd_quic_pkt_meta_tracker_init( &conn.pkt_meta_tracker, max_inflight ) ) {
+  if( !fd_quic_pkt_meta_ds_init( conn.pkt_meta_tracker.sent_pkt_metas, max_inflight ) ) {
     FD_LOG_ERR(( "Failed to initialize tracker" ));
     return;
   }
@@ -49,6 +49,7 @@ main( int argc, char ** argv ) {
   context.pkt = &pkt;
 
   fd_quic_limits_t limits[1];
+  memset( limits, 0, sizeof(fd_quic_limits_t) );
   limits->inflight_pkt_cnt = max_inflight;
   limits->conn_id_cnt      = 4;
   limits->conn_cnt         = 1;
@@ -58,11 +59,18 @@ main( int argc, char ** argv ) {
   limits->stream_pool_cnt  = 100;
   limits->stream_id_cnt    = 10;
 
-  quic         = malloc( fd_quic_footprint( limits ) );
+  ulong footprint = fd_quic_footprint( limits );
+  FD_TEST( footprint );
+  quic            = malloc( footprint );
   FD_TEST( quic );
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
-  pkt_meta_alloc = malloc( sizeof(fd_quic_pkt_meta_t) * (max_inflight + 1) );
+  /* pool alloc is max(128, alignof(pkt_meta_t)) so we may need extra space */
+  ulong extra = fd_quic_pkt_meta_pool_align() / alignof(fd_quic_pkt_meta_t) + 1;
+  FD_LOG_NOTICE(("meta align was %lu but pool align is %lu so we need %lu extra",
+    alignof(fd_quic_pkt_meta_t), fd_quic_pkt_meta_pool_align(), extra));
+
+  pkt_meta_alloc = malloc( sizeof(fd_quic_pkt_meta_t) * (max_inflight + extra) );
   pkt_meta_mem = (fd_quic_pkt_meta_t*)fd_ulong_align_up( (ulong)pkt_meta_alloc, fd_quic_pkt_meta_pool_align() );
   FD_TEST( pkt_meta_alloc );
   FD_TEST( pkt_meta_mem );

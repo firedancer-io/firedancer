@@ -2,7 +2,7 @@
 #include "fd_quic_common.h"
 #include "fd_quic_enum.h"
 #include "fd_quic_pkt_meta.h"
-
+#include "fd_quic_private.h"
 /* define a map for stream_id -> stream* */
 #define MAP_NAME              fd_quic_stream_map
 #define MAP_KEY               stream_id
@@ -118,9 +118,9 @@ fd_quic_conn_new( void *                   mem,
     if( FD_UNLIKELY( !conn->stream_map ) ) return NULL;
   }
 
-  /* Initialize packet meta pool */
-  fd_quic_pkt_meta_tracker_init( &conn->pkt_meta_tracker,
-                                 limits->inflight_pkt_cnt );
+  /* Initialize packet meta tracker */
+  fd_quic_pkt_meta_ds_init( conn->pkt_meta_tracker.sent_pkt_metas,
+                            fd_quic_get_state( quic )->max_inflight_pkt_cnt_conn );
 
   return conn;
 }

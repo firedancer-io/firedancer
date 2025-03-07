@@ -78,10 +78,12 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   ulong  inflight_pkt_cnt = limits->inflight_pkt_cnt;
   ulong  tx_buf_sz        = limits->tx_buf_sz;
   ulong  stream_pool_cnt  = limits->stream_pool_cnt;
-  ulong  pkt_meta_cnt     = inflight_pkt_cnt * conn_cnt;
+  ulong  inflight_res_cnt = limits->min_inflight_pkt_cnt_conn * conn_cnt;
   if( FD_UNLIKELY( conn_cnt        ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( handshake_cnt   ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( inflight_pkt_cnt==0UL ) ) return 0UL;
+
+  if( FD_UNLIKELY( inflight_res_cnt > inflight_pkt_cnt ) ) return 0UL;
 
   if( FD_UNLIKELY( conn_id_cnt < FD_QUIC_MIN_CONN_ID_CNT ))
     return 0UL;
@@ -135,10 +137,10 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   }
 
   /* allocate space for pkt_meta_pool */
-  if( pkt_meta_cnt ) {
+  if( inflight_pkt_cnt ) {
     offs                      = fd_ulong_align_up( offs, fd_quic_pkt_meta_pool_align() );
     layout->pkt_meta_pool_off = offs;
-    ulong pkt_meta_footprint  = fd_quic_pkt_meta_pool_footprint( pkt_meta_cnt );
+    ulong pkt_meta_footprint  = fd_quic_pkt_meta_pool_footprint( inflight_pkt_cnt );
     if( FD_UNLIKELY( !pkt_meta_footprint ) ) { FD_LOG_WARNING(( "invalid fd_quic_pkt_meta_pool_footprint" )); return 0UL; }
     offs += pkt_meta_footprint;
   } else {
@@ -247,12 +249,12 @@ fd_quic_limits_from_env( int  *   pargc,
 
   if( FD_UNLIKELY( !limits ) ) return NULL;
 
-  limits->conn_cnt         = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-conns",         "QUIC_CONN_CNT",           512UL );
-  limits->conn_id_cnt      = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-conn-ids",      "QUIC_CONN_ID_CNT",         16UL );
-  limits->stream_pool_cnt  = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-streams",       "QUIC_STREAM_CNT",           8UL );
-  limits->handshake_cnt    = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-handshakes",    "QUIC_HANDSHAKE_CNT",      512UL );
-  limits->inflight_pkt_cnt = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-inflight-pkts", "QUIC_MAX_INFLIGHT_PKTS", 2500UL );
-  limits->tx_buf_sz        = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-tx-buf-sz",     "QUIC_TX_BUF_SZ",         4096UL );
+  limits->conn_cnt         = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-conns",         "QUIC_CONN_CNT",           512UL    );
+  limits->conn_id_cnt      = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-conn-ids",      "QUIC_CONN_ID_CNT",         16UL    );
+  limits->stream_pool_cnt  = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-streams",       "QUIC_STREAM_CNT",           8UL    );
+  limits->handshake_cnt    = fd_env_strip_cmdline_uint ( pargc, pargv, "--quic-handshakes",    "QUIC_HANDSHAKE_CNT",      512UL    );
+  limits->inflight_pkt_cnt = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-inflight-pkts", "QUIC_MAX_INFLIGHT_PKTS", 1280000UL );
+  limits->tx_buf_sz        = fd_env_strip_cmdline_ulong( pargc, pargv, "--quic-tx-buf-sz",     "QUIC_TX_BUF_SZ",         4096UL    );
 
   return limits;
 }
@@ -552,11 +554,11 @@ fd_quic_init( fd_quic_t * quic ) {
   }
 
   if( layout.pkt_meta_pool_off ) {
-    ulong pkt_meta_cnt                 = limits->inflight_pkt_cnt * limits->conn_cnt;
+    ulong pkt_meta_cnt                 = limits->inflight_pkt_cnt;
     ulong pkt_meta_laddr               = (ulong)quic + layout.pkt_meta_pool_off;
     fd_quic_pkt_meta_t * pkt_meta_pool = fd_quic_pkt_meta_pool_new( (void*)pkt_meta_laddr, pkt_meta_cnt );
     state->pkt_meta_pool               = fd_quic_pkt_meta_pool_join( pkt_meta_pool );
-    fd_quic_pkt_meta_tracker_init_pool( pkt_meta_pool, pkt_meta_cnt);
+    fd_quic_pkt_meta_ds_init_pool( pkt_meta_pool, pkt_meta_cnt);
   }
 
   /* generate a secure random number as seed for fd_rng */
@@ -609,6 +611,9 @@ fd_quic_init( fd_quic_t * quic ) {
 
   /* Initialize next ephemeral udp port */
   state->next_ephem_udp_port = config->net.ephem_udp_port.lo;
+
+  /* Compute max inflight pkt cnt per conn */
+  state->max_inflight_pkt_cnt_conn = limits->inflight_pkt_cnt - limits->min_inflight_pkt_cnt_conn * (limits->conn_cnt-1);
 
   return quic;
 }
@@ -1359,7 +1364,8 @@ fd_quic_abandon_enc_level( fd_quic_conn_t * conn,
       fd_quic_pkt_meta_pool_ele_release( pool, prev );
     }
 
-    freed += fd_quic_pkt_meta_ds_ele_cnt( sent );
+    freed               += fd_quic_pkt_meta_ds_ele_cnt( sent );
+    conn->used_pkt_meta -= fd_quic_pkt_meta_ds_ele_cnt( sent );
     fd_quic_pkt_meta_ds_clear( tracker, j );
   }
 
@@ -2905,6 +2911,7 @@ fd_quic_svc_poll( fd_quic_t *      quic,
     }
   }
 
+  /* TODO - this should probs be inside conn_service */
   if( now > conn->last_ack + (ulong)conn->rtt->rtt_period_ticks ) {
     /* send PING */
     if( !( conn->flags & ( FD_QUIC_CONN_FLAGS_PING | FD_QUIC_CONN_FLAGS_PING_SENT ) )
@@ -3608,7 +3615,8 @@ fd_quic_conn_tx( fd_quic_t      * quic,
 
     /* do we have space for pkt_meta? */
     if( !pkt_meta ) {
-      if( FD_UNLIKELY( !fd_quic_pkt_meta_pool_free( pool ) ) ) {
+      if( FD_UNLIKELY( !fd_quic_pkt_meta_pool_free( pool ) ||
+                        conn->used_pkt_meta >= state->max_inflight_pkt_cnt_conn) ) {
         /* when there is no pkt_meta, it's best to keep processing acks
            until some pkt_meta are returned */
         FD_DEBUG( FD_LOG_DEBUG(( "Failed to alloc pkt_meta" )); )
@@ -3616,6 +3624,7 @@ fd_quic_conn_tx( fd_quic_t      * quic,
         return;
       }
       pkt_meta = fd_quic_pkt_meta_pool_ele_acquire( pool );
+      conn->used_pkt_meta++;
     } else {
       /* reuse packet number */
       conn->pkt_number[pkt_meta->pn_space] = pkt_meta->pkt_number;
@@ -3915,6 +3924,7 @@ fd_quic_conn_tx( fd_quic_t      * quic,
   if( FD_UNLIKELY( pkt_meta ) ) {
     conn->pkt_number[pkt_meta->pn_space] = pkt_meta->pkt_number;
     fd_quic_pkt_meta_pool_ele_release( pool, pkt_meta );
+    conn->used_pkt_meta--;
     pkt_meta = NULL;
   }
 
@@ -4650,6 +4660,7 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
                                     pkt_meta->pkt_number,
                                     pkt_meta->pkt_number );
 
+    conn->used_pkt_meta -= 1;
     cnt_freed++;
   }
 }
@@ -4964,7 +4975,7 @@ fd_quic_process_ack_range( fd_quic_conn_t      * conn,
     fd_quic_reclaim_pkt_meta( conn, e, enc_level );
   }
 
-  fd_quic_pkt_meta_remove_range( sent, pool, lo, hi );
+  conn->used_pkt_meta -= fd_quic_pkt_meta_remove_range( sent, pool, lo, hi );
 }
 
 static ulong

@@ -1,13 +1,13 @@
 #include "fd_quic_pkt_meta.h"
 
 #define FD_QUIC_MAX_INFLIGHT_LOW_ENC 5
-static void *
+void *
 fd_quic_pkt_meta_ds_init( fd_quic_pkt_meta_ds_t * sent_pkt_metas,
-                          ulong                  appdata_max_ele ) {
+                          ulong                   total_meta_cnt ) {
 
   for( ulong enc_level=0; enc_level<4; enc_level++ ) {
     void* mem = fd_quic_pkt_meta_treap_new( &sent_pkt_metas[enc_level],
-                                            enc_level == 3 ? appdata_max_ele : FD_QUIC_MAX_INFLIGHT_LOW_ENC );
+                                            total_meta_cnt );
     mem = fd_quic_pkt_meta_treap_join( mem );
     if( FD_UNLIKELY( !mem ) ) return NULL;
   }
@@ -16,20 +16,11 @@ fd_quic_pkt_meta_ds_init( fd_quic_pkt_meta_ds_t * sent_pkt_metas,
 }
 
 void
-fd_quic_pkt_meta_tracker_init_pool( fd_quic_pkt_meta_t * pool,
+fd_quic_pkt_meta_ds_init_pool( fd_quic_pkt_meta_t * pool,
                                     ulong               total_meta_cnt ) {
   fd_quic_pkt_meta_treap_seed( pool, total_meta_cnt, (ulong)fd_log_wallclock() );
 }
 
-void *
-fd_quic_pkt_meta_tracker_init( fd_quic_pkt_meta_tracker_t *  tracker,
-                               ulong                         total_meta_cnt ) {
-
-  /* everything not saved for lower encryption levels goes to appdata */
-  ulong appdata_max_ele = total_meta_cnt - 3*FD_QUIC_MAX_INFLIGHT_LOW_ENC;
-  if( FD_UNLIKELY( !fd_quic_pkt_meta_ds_init( tracker->sent_pkt_metas, appdata_max_ele ) ) ) return NULL;
-  return tracker;
-}
 #undef FD_QUIC_MAX_INFLIGHT_LOW_ENC
 
 void
@@ -40,7 +31,7 @@ fd_quic_pkt_meta_insert( fd_quic_pkt_meta_ds_t * ds,
 }
 
 
-void
+ulong
 fd_quic_pkt_meta_remove_range( fd_quic_pkt_meta_ds_t * ds,
                                fd_quic_pkt_meta_t    * pool,
                                ulong                   pkt_number_lo,
@@ -48,6 +39,7 @@ fd_quic_pkt_meta_remove_range( fd_quic_pkt_meta_ds_t * ds,
 
   fd_quic_pkt_meta_ds_fwd_iter_t    l_iter =  fd_quic_pkt_meta_treap_idx_ge( ds, pkt_number_lo, pool );
   fd_quic_pkt_meta_t              * prev   =  NULL;
+  ulong                        cnt_removed =  0;
 
   for( fd_quic_pkt_meta_ds_fwd_iter_t iter = l_iter;
                                             !fd_quic_pkt_meta_ds_fwd_iter_done( iter );
@@ -57,13 +49,16 @@ fd_quic_pkt_meta_remove_range( fd_quic_pkt_meta_ds_t * ds,
     if( FD_LIKELY( prev ) ) {
       fd_quic_pkt_meta_treap_ele_remove( ds, prev, pool );
       fd_quic_pkt_meta_pool_ele_release( pool, prev );
+      cnt_removed++;
     }
     prev = e;
   }
   if( FD_LIKELY( prev ) ) {
     fd_quic_pkt_meta_treap_ele_remove( ds, prev, pool );
     fd_quic_pkt_meta_pool_ele_release( pool, prev );
+    cnt_removed++;
   }
+  return cnt_removed;
 }
 
 fd_quic_pkt_meta_t *
