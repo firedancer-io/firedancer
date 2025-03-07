@@ -23,6 +23,7 @@ clone_labs_memory_space_tiles( config_t * const config ) {
                    !strcmp( wksp->name, "shred_store" ) ) ) {
       fd_topo_join_workspace( &config->topo, wksp, FD_SHMEM_JOIN_MODE_READ_ONLY );
     } else if( FD_LIKELY( !strcmp( wksp->name, "bank_poh" ) ||
+                          !strcmp( wksp->name, "bank_pack" ) ||
                           !strcmp( wksp->name, "bank_busy" ) ||
                           !strcmp( wksp->name, "poh_shred" ) ||
                           !strcmp( wksp->name, "gossip_dedup" ) ||
