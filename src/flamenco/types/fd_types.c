@@ -11203,12 +11203,19 @@ int fd_partitioned_stake_rewards_encode( fd_partitioned_stake_rewards_t const * 
   int err;
   if( self->partitions ) {
     err = fd_bincode_uint64_encode( self->partitions_len, ctx );
-    for( fd_partitioned_stake_rewards_dlist_iter_t iter = fd_partitioned_stake_rewards_dlist_iter_fwd_init( self->partitions, self->pool );
-         !fd_partitioned_stake_rewards_dlist_iter_done( iter, self->partitions, self->pool );
-         iter = fd_partitioned_stake_rewards_dlist_iter_fwd_next( iter, self->partitions, self->pool ) ) {
-      fd_stake_reward_t * ele = fd_partitioned_stake_rewards_dlist_iter_ele( iter, self->partitions, self->pool );
-      err = fd_stake_reward_encode( ele, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    for( ulong i=0; i < 4096; i++ ) {
+      err = fd_bincode_uint64_encode( self->partitions_lengths[ i ], ctx );
       if( FD_UNLIKELY( err ) ) return err;
+    }
+    for( ulong i=0; i < self->partitions_len; i++ ) {
+      for( fd_partitioned_stake_rewards_dlist_iter_t iter = fd_partitioned_stake_rewards_dlist_iter_fwd_init( &self->partitions[ i ], self->pool );
+           !fd_partitioned_stake_rewards_dlist_iter_done( iter, &self->partitions[ i ], self->pool );
+           iter = fd_partitioned_stake_rewards_dlist_iter_fwd_next( iter, &self->partitions[ i ], self->pool ) ) {
+        fd_stake_reward_t * ele = fd_partitioned_stake_rewards_dlist_iter_ele( iter, &self->partitions[ i ], self->pool );
+        err = fd_stake_reward_encode( ele, ctx );
+        if( FD_UNLIKELY( err ) ) return err;
+      }
     }
   } else {
     err = fd_bincode_uint64_encode( self->partitions_len, ctx );
@@ -11228,8 +11235,15 @@ int fd_partitioned_stake_rewards_decode_footprint_inner( fd_bincode_decode_ctx_t
   ulong partitions_len;
   err = fd_bincode_uint64_decode( &partitions_len, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  *total_sz += fd_partitioned_stake_rewards_pool_align() + fd_partitioned_stake_rewards_pool_footprint( partitions_len );
-  *total_sz += fd_partitioned_stake_rewards_dlist_align() + fd_partitioned_stake_rewards_dlist_footprint();
+  ulong total_count = 0UL;
+  ulong partitions_lengths[4096];
+  for( ulong i=0; i<4096; i++ ) {
+    err = fd_bincode_uint64_decode( partitions_lengths + i, ctx );
+    total_count+=partitions_lengths[ i ];
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  }
+  *total_sz += fd_partitioned_stake_rewards_pool_align() + fd_partitioned_stake_rewards_pool_footprint( total_count );
+  *total_sz += fd_partitioned_stake_rewards_dlist_align() + fd_partitioned_stake_rewards_dlist_footprint()*partitions_len;
   for( ulong i=0; i < partitions_len; i++ ) {
     err = fd_stake_reward_decode_footprint_inner( ctx, total_sz );
     if( FD_UNLIKELY ( err ) ) return err;
@@ -11247,13 +11261,20 @@ void * fd_partitioned_stake_rewards_decode( void * mem, fd_bincode_decode_ctx_t 
 void fd_partitioned_stake_rewards_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_partitioned_stake_rewards_t * self = (fd_partitioned_stake_rewards_t *)struct_mem;
   fd_bincode_uint64_decode_unsafe( &self->partitions_len, ctx );
-  self->pool = fd_partitioned_stake_rewards_pool_join_new( alloc_mem, self->partitions_len );
-  self->partitions = fd_partitioned_stake_rewards_dlist_join_new( alloc_mem, self->partitions_len );
+  ulong total_count = 0UL;
+  for( ulong i=0; i < 4096; i++ ) {
+    fd_bincode_uint64_decode_unsafe( self->partitions_lengths + i, ctx );
+    total_count += self->partitions_lengths[ i ];
+  }
+  self->pool = fd_partitioned_stake_rewards_pool_join_new( alloc_mem, total_count );
   for( ulong i=0; i < self->partitions_len; i++ ) {
-    fd_stake_reward_t * ele = fd_partitioned_stake_rewards_pool_ele_acquire( self->pool );
-    fd_stake_reward_new( ele );
-    fd_stake_reward_decode_inner( ele, alloc_mem, ctx );
-    fd_partitioned_stake_rewards_dlist_ele_push_tail( self->partitions, ele, self->pool );
+    self->partitions[ i ] = fd_partitioned_stake_rewards_dlist_join_new( alloc_mem, self->partitions_len );
+  for( ulong j=0; j < self->partitions_lengths[ i ]; j++ ) {
+      fd_stake_reward_t * ele = fd_partitioned_stake_rewards_pool_ele_acquire( self->pool );
+      fd_stake_reward_new( ele );
+      fd_stake_reward_decode_inner( ele, alloc_mem, ctx );
+      fd_partitioned_stake_rewards_dlist_ele_push_tail( &self->partitions[ i ], ele, self->pool );
+    }
   }
 }
 void fd_partitioned_stake_rewards_new(fd_partitioned_stake_rewards_t * self) {
@@ -11261,14 +11282,16 @@ void fd_partitioned_stake_rewards_new(fd_partitioned_stake_rewards_t * self) {
 }
 void fd_partitioned_stake_rewards_destroy( fd_partitioned_stake_rewards_t * self ) {
   if( !self->partitions || !self->pool ) return;
-  for( fd_partitioned_stake_rewards_dlist_iter_t iter = fd_partitioned_stake_rewards_dlist_iter_fwd_init( self->partitions, self->pool );
-         !fd_partitioned_stake_rewards_dlist_iter_done( iter, self->partitions, self->pool );
-         iter = fd_partitioned_stake_rewards_dlist_iter_fwd_next( iter, self->partitions, self->pool ) ) {
-      fd_stake_reward_t * ele = fd_partitioned_stake_rewards_dlist_iter_ele( iter, self->partitions, self->pool );
-      fd_stake_reward_destroy( ele );
+  for( ulong i=0; i < self->partitions_len; i++ ) {
+    for( fd_partitioned_stake_rewards_dlist_iter_t iter = fd_partitioned_stake_rewards_dlist_iter_fwd_init( &self->partitions[ i ], self->pool );
+           !fd_partitioned_stake_rewards_dlist_iter_done( iter, &self->partitions[ i ], self->pool );
+           iter = fd_partitioned_stake_rewards_dlist_iter_fwd_next( iter, &self->partitions[ i ], self->pool ) ) {
+        fd_stake_reward_t * ele = fd_partitioned_stake_rewards_dlist_iter_ele( iter, &self->partitions[ i ], self->pool );
+        fd_stake_reward_destroy( ele );
+      }
     }
-  self->pool = NULL;
   self->partitions = NULL;
+  self->pool = NULL;
 }
 
 ulong fd_partitioned_stake_rewards_footprint( void ){ return FD_PARTITIONED_STAKE_REWARDS_FOOTPRINT; }
@@ -11277,11 +11300,13 @@ ulong fd_partitioned_stake_rewards_align( void ){ return FD_PARTITIONED_STAKE_RE
 void fd_partitioned_stake_rewards_walk( void * w, fd_partitioned_stake_rewards_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_partitioned_stake_rewards", level++ );
   if( self->partitions ) {
-    for( fd_partitioned_stake_rewards_dlist_iter_t iter = fd_partitioned_stake_rewards_dlist_iter_fwd_init( self->partitions, self->pool );
-         !fd_partitioned_stake_rewards_dlist_iter_done( iter, self->partitions, self->pool );
-         iter = fd_partitioned_stake_rewards_dlist_iter_fwd_next( iter, self->partitions, self->pool ) ) {
-      fd_stake_reward_t * ele = fd_partitioned_stake_rewards_dlist_iter_ele( iter, self->partitions, self->pool );
-      fd_stake_reward_walk( w, ele, fun, "fd_stake_reward_t", level );
+  for( ulong i=0; i < self->partitions_len; i++ ) {
+      for( fd_partitioned_stake_rewards_dlist_iter_t iter = fd_partitioned_stake_rewards_dlist_iter_fwd_init( &self->partitions[ i ], self->pool );
+             !fd_partitioned_stake_rewards_dlist_iter_done( iter, &self->partitions[ i ], self->pool );
+             iter = fd_partitioned_stake_rewards_dlist_iter_fwd_next( iter, &self->partitions[ i ], self->pool ) ) {
+          fd_stake_reward_t * ele = fd_partitioned_stake_rewards_dlist_iter_ele( iter, &self->partitions[ i ], self->pool );
+        fd_stake_reward_walk( w, ele, fun, "fd_stake_reward_t", level );
+      }
     }
   }
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_partitioned_stake_rewards", level-- );
@@ -11289,12 +11314,15 @@ void fd_partitioned_stake_rewards_walk( void * w, fd_partitioned_stake_rewards_t
 ulong fd_partitioned_stake_rewards_size( fd_partitioned_stake_rewards_t const * self ) {
   ulong size = 0;
   size += sizeof(ulong);
+  size += 4096 * sizeof(ulong);
   if( self->partitions ) {
-    for( fd_partitioned_stake_rewards_dlist_iter_t iter = fd_partitioned_stake_rewards_dlist_iter_fwd_init( self->partitions, self->pool );
-         !fd_partitioned_stake_rewards_dlist_iter_done( iter, self->partitions, self->pool );
-         iter = fd_partitioned_stake_rewards_dlist_iter_fwd_next( iter, self->partitions, self->pool ) ) {
-      fd_stake_reward_t * ele = fd_partitioned_stake_rewards_dlist_iter_ele( iter, self->partitions, self->pool );
-      size += fd_stake_reward_size( ele );
+  for( ulong i=0; i < self->partitions_len; i++ ) {
+      for( fd_partitioned_stake_rewards_dlist_iter_t iter = fd_partitioned_stake_rewards_dlist_iter_fwd_init( &self->partitions[ i ], self->pool );
+           !fd_partitioned_stake_rewards_dlist_iter_done( iter, &self->partitions[ i ], self->pool );
+           iter = fd_partitioned_stake_rewards_dlist_iter_fwd_next( iter, &self->partitions[ i ], self->pool ) ) {
+        fd_stake_reward_t * ele = fd_partitioned_stake_rewards_dlist_iter_ele( iter, &self->partitions[ i ], self->pool );
+        size += fd_stake_reward_size( ele );
+      }
     }
   }
   return size;
@@ -11364,12 +11392,19 @@ int fd_stake_reward_calculation_encode( fd_stake_reward_calculation_t const * se
   int err;
   if( self->stake_rewards ) {
     err = fd_bincode_uint64_encode( self->stake_rewards_len, ctx );
-    for( fd_stake_reward_calculation_dlist_iter_t iter = fd_stake_reward_calculation_dlist_iter_fwd_init( self->stake_rewards, self->pool );
-         !fd_stake_reward_calculation_dlist_iter_done( iter, self->stake_rewards, self->pool );
-         iter = fd_stake_reward_calculation_dlist_iter_fwd_next( iter, self->stake_rewards, self->pool ) ) {
-      fd_stake_reward_t * ele = fd_stake_reward_calculation_dlist_iter_ele( iter, self->stake_rewards, self->pool );
-      err = fd_stake_reward_encode( ele, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    for( ulong i=0; i < 1; i++ ) {
+      err = fd_bincode_uint64_encode( self->stake_rewards_lengths[ i ], ctx );
       if( FD_UNLIKELY( err ) ) return err;
+    }
+    for( ulong i=0; i < self->stake_rewards_len; i++ ) {
+      for( fd_stake_reward_calculation_dlist_iter_t iter = fd_stake_reward_calculation_dlist_iter_fwd_init( &self->stake_rewards[ i ], self->pool );
+           !fd_stake_reward_calculation_dlist_iter_done( iter, &self->stake_rewards[ i ], self->pool );
+           iter = fd_stake_reward_calculation_dlist_iter_fwd_next( iter, &self->stake_rewards[ i ], self->pool ) ) {
+        fd_stake_reward_t * ele = fd_stake_reward_calculation_dlist_iter_ele( iter, &self->stake_rewards[ i ], self->pool );
+        err = fd_stake_reward_encode( ele, ctx );
+        if( FD_UNLIKELY( err ) ) return err;
+      }
     }
   } else {
     err = fd_bincode_uint64_encode( self->stake_rewards_len, ctx );
@@ -11391,8 +11426,15 @@ int fd_stake_reward_calculation_decode_footprint_inner( fd_bincode_decode_ctx_t 
   ulong stake_rewards_len;
   err = fd_bincode_uint64_decode( &stake_rewards_len, ctx );
   if( FD_UNLIKELY( err ) ) return err;
-  *total_sz += fd_stake_reward_calculation_pool_align() + fd_stake_reward_calculation_pool_footprint( stake_rewards_len );
-  *total_sz += fd_stake_reward_calculation_dlist_align() + fd_stake_reward_calculation_dlist_footprint();
+  ulong total_count = 0UL;
+  ulong stake_rewards_lengths[1];
+  for( ulong i=0; i<1; i++ ) {
+    err = fd_bincode_uint64_decode( stake_rewards_lengths + i, ctx );
+    total_count+=stake_rewards_lengths[ i ];
+    if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  }
+  *total_sz += fd_stake_reward_calculation_pool_align() + fd_stake_reward_calculation_pool_footprint( total_count );
+  *total_sz += fd_stake_reward_calculation_dlist_align() + fd_stake_reward_calculation_dlist_footprint()*stake_rewards_len;
   for( ulong i=0; i < stake_rewards_len; i++ ) {
     err = fd_stake_reward_decode_footprint_inner( ctx, total_sz );
     if( FD_UNLIKELY ( err ) ) return err;
@@ -11412,13 +11454,20 @@ void * fd_stake_reward_calculation_decode( void * mem, fd_bincode_decode_ctx_t *
 void fd_stake_reward_calculation_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_stake_reward_calculation_t * self = (fd_stake_reward_calculation_t *)struct_mem;
   fd_bincode_uint64_decode_unsafe( &self->stake_rewards_len, ctx );
-  self->pool = fd_stake_reward_calculation_pool_join_new( alloc_mem, self->stake_rewards_len );
-  self->stake_rewards = fd_stake_reward_calculation_dlist_join_new( alloc_mem, self->stake_rewards_len );
+  ulong total_count = 0UL;
+  for( ulong i=0; i < 1; i++ ) {
+    fd_bincode_uint64_decode_unsafe( self->stake_rewards_lengths + i, ctx );
+    total_count += self->stake_rewards_lengths[ i ];
+  }
+  self->pool = fd_stake_reward_calculation_pool_join_new( alloc_mem, total_count );
   for( ulong i=0; i < self->stake_rewards_len; i++ ) {
-    fd_stake_reward_t * ele = fd_stake_reward_calculation_pool_ele_acquire( self->pool );
-    fd_stake_reward_new( ele );
-    fd_stake_reward_decode_inner( ele, alloc_mem, ctx );
-    fd_stake_reward_calculation_dlist_ele_push_tail( self->stake_rewards, ele, self->pool );
+    fd_stake_reward_calculation_dlist_join_new( alloc_mem, self->stake_rewards_len );
+    for( ulong j=0; j < self->stake_rewards_lengths[ i ]; j++ ) {
+      fd_stake_reward_t * ele = fd_stake_reward_calculation_pool_ele_acquire( self->pool );
+      fd_stake_reward_new( ele );
+      fd_stake_reward_decode_inner( ele, alloc_mem, ctx );
+      fd_stake_reward_calculation_dlist_ele_push_tail( &self->stake_rewards[ i ], ele, self->pool );
+    }
   }
   fd_bincode_uint64_decode_unsafe( &self->total_stake_rewards_lamports, ctx );
 }
@@ -11427,14 +11476,16 @@ void fd_stake_reward_calculation_new(fd_stake_reward_calculation_t * self) {
 }
 void fd_stake_reward_calculation_destroy( fd_stake_reward_calculation_t * self ) {
   if( !self->stake_rewards || !self->pool ) return;
-  for( fd_stake_reward_calculation_dlist_iter_t iter = fd_stake_reward_calculation_dlist_iter_fwd_init( self->stake_rewards, self->pool );
-         !fd_stake_reward_calculation_dlist_iter_done( iter, self->stake_rewards, self->pool );
-         iter = fd_stake_reward_calculation_dlist_iter_fwd_next( iter, self->stake_rewards, self->pool ) ) {
-      fd_stake_reward_t * ele = fd_stake_reward_calculation_dlist_iter_ele( iter, self->stake_rewards, self->pool );
-      fd_stake_reward_destroy( ele );
+  for( ulong i=0; i < self->stake_rewards_len; i++ ) {
+    for( fd_stake_reward_calculation_dlist_iter_t iter = fd_stake_reward_calculation_dlist_iter_fwd_init( &self->stake_rewards[ i ], self->pool );
+           !fd_stake_reward_calculation_dlist_iter_done( iter, &self->stake_rewards[ i ], self->pool );
+           iter = fd_stake_reward_calculation_dlist_iter_fwd_next( iter, &self->stake_rewards[ i ], self->pool ) ) {
+        fd_stake_reward_t * ele = fd_stake_reward_calculation_dlist_iter_ele( iter, &self->stake_rewards[ i ], self->pool );
+        fd_stake_reward_destroy( ele );
+      }
     }
-  self->pool = NULL;
   self->stake_rewards = NULL;
+  self->pool = NULL;
 }
 
 ulong fd_stake_reward_calculation_footprint( void ){ return FD_STAKE_REWARD_CALCULATION_FOOTPRINT; }
@@ -11443,11 +11494,13 @@ ulong fd_stake_reward_calculation_align( void ){ return FD_STAKE_REWARD_CALCULAT
 void fd_stake_reward_calculation_walk( void * w, fd_stake_reward_calculation_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
   fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_stake_reward_calculation", level++ );
   if( self->stake_rewards ) {
-    for( fd_stake_reward_calculation_dlist_iter_t iter = fd_stake_reward_calculation_dlist_iter_fwd_init( self->stake_rewards, self->pool );
-         !fd_stake_reward_calculation_dlist_iter_done( iter, self->stake_rewards, self->pool );
-         iter = fd_stake_reward_calculation_dlist_iter_fwd_next( iter, self->stake_rewards, self->pool ) ) {
-      fd_stake_reward_t * ele = fd_stake_reward_calculation_dlist_iter_ele( iter, self->stake_rewards, self->pool );
-      fd_stake_reward_walk( w, ele, fun, "fd_stake_reward_t", level );
+  for( ulong i=0; i < self->stake_rewards_len; i++ ) {
+      for( fd_stake_reward_calculation_dlist_iter_t iter = fd_stake_reward_calculation_dlist_iter_fwd_init( &self->stake_rewards[ i ], self->pool );
+             !fd_stake_reward_calculation_dlist_iter_done( iter, &self->stake_rewards[ i ], self->pool );
+             iter = fd_stake_reward_calculation_dlist_iter_fwd_next( iter, &self->stake_rewards[ i ], self->pool ) ) {
+          fd_stake_reward_t * ele = fd_stake_reward_calculation_dlist_iter_ele( iter, &self->stake_rewards[ i ], self->pool );
+        fd_stake_reward_walk( w, ele, fun, "fd_stake_reward_t", level );
+      }
     }
   }
   fun( w, &self->total_stake_rewards_lamports, "total_stake_rewards_lamports", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
@@ -11456,12 +11509,15 @@ void fd_stake_reward_calculation_walk( void * w, fd_stake_reward_calculation_t c
 ulong fd_stake_reward_calculation_size( fd_stake_reward_calculation_t const * self ) {
   ulong size = 0;
   size += sizeof(ulong);
+  size += 1 * sizeof(ulong);
   if( self->stake_rewards ) {
-    for( fd_stake_reward_calculation_dlist_iter_t iter = fd_stake_reward_calculation_dlist_iter_fwd_init( self->stake_rewards, self->pool );
-         !fd_stake_reward_calculation_dlist_iter_done( iter, self->stake_rewards, self->pool );
-         iter = fd_stake_reward_calculation_dlist_iter_fwd_next( iter, self->stake_rewards, self->pool ) ) {
-      fd_stake_reward_t * ele = fd_stake_reward_calculation_dlist_iter_ele( iter, self->stake_rewards, self->pool );
-      size += fd_stake_reward_size( ele );
+  for( ulong i=0; i < self->stake_rewards_len; i++ ) {
+      for( fd_stake_reward_calculation_dlist_iter_t iter = fd_stake_reward_calculation_dlist_iter_fwd_init( &self->stake_rewards[ i ], self->pool );
+           !fd_stake_reward_calculation_dlist_iter_done( iter, &self->stake_rewards[ i ], self->pool );
+           iter = fd_stake_reward_calculation_dlist_iter_fwd_next( iter, &self->stake_rewards[ i ], self->pool ) ) {
+        fd_stake_reward_t * ele = fd_stake_reward_calculation_dlist_iter_ele( iter, &self->stake_rewards[ i ], self->pool );
+        size += fd_stake_reward_size( ele );
+      }
     }
   }
   size += sizeof(ulong);

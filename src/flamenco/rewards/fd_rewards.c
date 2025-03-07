@@ -587,7 +587,8 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
                                                                   fd_stake_reward_calculation_dlist_footprint() );
 
   fd_stake_reward_calculation_dlist_new( result->stake_reward_calculation.stake_rewards );
-  result->stake_reward_calculation.stake_rewards_len = 0UL;
+  result->stake_reward_calculation.stake_rewards_len = 1UL;
+  result->stake_reward_calculation.stake_rewards_lengths[0] = 0;
 
   /* Create the vote rewards map. This will be destroyed after the vote rewards have been distributed. */
   ulong vote_account_cnt       = fd_vote_info_pair_t_map_size( temp_info->vote_states_pool, temp_info->vote_states_root );
@@ -756,6 +757,7 @@ hash_rewards_into_partitions( fd_exec_slot_ctx_t *                        slot_c
     /* Move the stake reward to the partition's dlist */
     fd_partitioned_stake_rewards_dlist_t * partition = &result->partitioned_stake_rewards.partitions[ partition_index ];
     fd_partitioned_stake_rewards_dlist_ele_push_tail( partition, stake_reward, stake_reward_calculation->pool );
+    result->partitioned_stake_rewards.partitions_lengths[ partition_index ]++;
   }
 }
 
@@ -1016,6 +1018,7 @@ fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx,
 
   if( (height>=distribution_starting_block_height) && (height < distribution_end_exclusive) ) {
     ulong partition_index = height - distribution_starting_block_height;
+    FD_LOG_WARNING(( "Distributing rewards for partition %lu", partition_index ));
     distribute_epoch_rewards_in_partition( &status->partitioned_stake_rewards.partitions[ partition_index ],
                                            status->partitioned_stake_rewards.pool,
                                            slot_ctx );
