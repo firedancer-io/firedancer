@@ -2,10 +2,10 @@
 #define HEADER_fd_src_app_fdctl_fdctl_h
 
 #include "config.h"
-#include "caps.h"
 #include "utility.h"
 
 #include "../../disco/topo/fd_topo.h"
+#include "../shared/fd_cap_chk.h"
 
 #include <unistd.h>
 #include <errno.h>
@@ -104,15 +104,13 @@ union fdctl_args {
 
 typedef union fdctl_args args_t;
 
-typedef struct fd_caps_ctx fd_caps_ctx_t;
-
 typedef struct {
   const char * name;
   const char * description;
   uchar        is_diagnostic;  /* 1 implies action should be allowed for prod debugging */
 
   void       (*args)( int * pargc, char *** pargv, args_t * args );
-  void       (*perm)( args_t * args, fd_caps_ctx_t * caps, config_t const * config );
+  void       (*perm)( args_t * args, fd_cap_chk_t * chk, config_t const * config );
   void       (*fn  )( args_t * args, config_t * config );
 } action_t;
 
@@ -153,10 +151,10 @@ void monitor_cmd_args     ( int * pargc, char *** pargv, args_t * args );
 void keys_cmd_args        ( int * pargc, char *** pargv, args_t * args );
 void set_identity_cmd_args( int * pargc, char *** pargv, args_t * args );
 
-void configure_cmd_perm   ( args_t * args, fd_caps_ctx_t * caps, config_t const * config );
-void run_cmd_perm         ( args_t * args, fd_caps_ctx_t * caps, config_t const * config );
-void monitor_cmd_perm     ( args_t * args, fd_caps_ctx_t * caps, config_t const * config );
-void set_identity_cmd_perm( args_t * args, fd_caps_ctx_t * caps, config_t const * config );
+void configure_cmd_perm   ( args_t * args, fd_cap_chk_t * chk, config_t const * config );
+void run_cmd_perm         ( args_t * args, fd_cap_chk_t * chk, config_t const * config );
+void monitor_cmd_perm     ( args_t * args, fd_cap_chk_t * chk, config_t const * config );
+void set_identity_cmd_perm( args_t * args, fd_cap_chk_t * chk, config_t const * config );
 
 void configure_cmd_fn   ( args_t * args, config_t * config );
 void run_cmd_fn         ( args_t * args, config_t * config );

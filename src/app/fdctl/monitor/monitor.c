@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <signal.h>
 #include <sys/syscall.h>
+#include <sys/resource.h>
 #include <linux/capability.h>
 
 void
@@ -29,18 +30,18 @@ monitor_cmd_args( int *    pargc,
 
 void
 monitor_cmd_perm( args_t *         args FD_PARAM_UNUSED,
-                  fd_caps_ctx_t *  caps,
+                  fd_cap_chk_t *   chk,
                   config_t const * config ) {
   ulong mlock_limit = fd_topo_mlock( &config->topo );
 
-  fd_caps_check_resource(     caps, "monitor", RLIMIT_MEMLOCK, mlock_limit, "call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`" );
+  fd_cap_chk_raise_rlimit( chk, "monitor", RLIMIT_MEMLOCK, mlock_limit, "call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`" );
 
   if( fd_sandbox_requires_cap_sys_admin( config->uid, config->gid ) )
-    fd_caps_check_capability( caps, "monitor", CAP_SYS_ADMIN,               "call `unshare(2)` with `CLONE_NEWUSER` to sandbox the process in a user namespace" );
+    fd_cap_chk_cap( chk, "monitor", CAP_SYS_ADMIN,               "call `unshare(2)` with `CLONE_NEWUSER` to sandbox the process in a user namespace" );
   if( FD_LIKELY( getuid() != config->uid ) )
-    fd_caps_check_capability( caps, "monitor", CAP_SETUID,                  "call `setresuid(2)` to switch uid to the sanbox user" );
+    fd_cap_chk_cap( chk, "monitor", CAP_SETUID,                  "call `setresuid(2)` to switch uid to the sanbox user" );
   if( FD_LIKELY( getgid() != config->gid ) )
-    fd_caps_check_capability( caps, "monitor", CAP_SETGID,                  "call `setresgid(2)` to switch gid to the sandbox user" );
+    fd_cap_chk_cap( chk, "monitor", CAP_SETGID,                  "call `setresgid(2)` to switch gid to the sandbox user" );
 }
 
 typedef struct {

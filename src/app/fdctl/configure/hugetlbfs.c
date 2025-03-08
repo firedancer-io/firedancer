@@ -7,17 +7,17 @@
 #include <linux/capability.h>
 
 static void
-init_perm( fd_caps_ctx_t *  caps,
+init_perm( fd_cap_chk_t *   chk,
            config_t const * config FD_PARAM_UNUSED ) {
-  fd_caps_check_root( caps, "hugetlbfs", "increase `/proc/sys/vm/nr_hugepages`" );
-  fd_caps_check_capability( caps, "hugetlbfs", CAP_SYS_ADMIN, "mount hugetlbfs filesystems" );
+  fd_cap_chk_root( chk, "hugetlbfs", "increase `/proc/sys/vm/nr_hugepages`" );
+  fd_cap_chk_cap(  chk, "hugetlbfs", CAP_SYS_ADMIN, "mount hugetlbfs filesystems" );
 }
 
 static void
-fini_perm( fd_caps_ctx_t *  caps,
+fini_perm( fd_cap_chk_t *   chk,
            config_t const * config FD_PARAM_UNUSED ) {
-  fd_caps_check_root( caps, "hugetlbfs", "remove directories from `/mnt`" );
-  fd_caps_check_capability( caps, "hugetlbfs", CAP_SYS_ADMIN, "unmount hugetlbfs filesystems" );
+  fd_cap_chk_root( chk, "hugetlbfs", "remove directories from `/mnt`" );
+  fd_cap_chk_cap(  chk, "hugetlbfs", CAP_SYS_ADMIN, "unmount hugetlbfs filesystems" );
 }
 
 static const char * ERR_MSG = "please confirm your host is configured for gigantic pages,";

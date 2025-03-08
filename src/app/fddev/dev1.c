@@ -57,9 +57,9 @@ dev1_cmd_args( int *    pargc,
 
 void
 dev1_cmd_perm( args_t *         args,
-               fd_caps_ctx_t *  caps,
+               fd_cap_chk_t *   chk,
                config_t * const config ) {
-  dev_cmd_perm( args, caps, config );
+  dev_cmd_perm( args, chk, config );
 }
 
 void

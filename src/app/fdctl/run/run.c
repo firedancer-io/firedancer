@@ -31,6 +31,7 @@
 #include <poll.h>
 #include <fcntl.h>
 #include <sys/prctl.h>
+#include <sys/resource.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <linux/capability.h>
@@ -41,31 +42,31 @@
 #define NAME "run"
 
 void
-run_cmd_perm( args_t *         args FD_PARAM_UNUSED,
-              fd_caps_ctx_t *  caps,
-              config_t const * config ) {
+run_cmd_perm( args_t *         args,
+              fd_cap_chk_t *   chk,
+              config_t * const config ) {
   (void)args;
 
   ulong mlock_limit = fd_topo_mlock_max_tile( &config->topo );
 
-  fd_caps_check_resource(     caps, NAME, RLIMIT_MEMLOCK, mlock_limit, "call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`" );
-  fd_caps_check_resource(     caps, NAME, RLIMIT_NICE,    40,          "call `setpriority(2)` to increase thread priorities" );
-  fd_caps_check_resource(     caps, NAME, RLIMIT_NOFILE,  CONFIGURE_NR_OPEN_FILES,
+  fd_cap_chk_raise_rlimit( chk, NAME, RLIMIT_MEMLOCK, mlock_limit, "call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`" );
+  fd_cap_chk_raise_rlimit( chk, NAME, RLIMIT_NICE,    40,          "call `setpriority(2)` to increase thread priorities" );
+  fd_cap_chk_raise_rlimit( chk, NAME, RLIMIT_NOFILE,  CONFIGURE_NR_OPEN_FILES,
                                                                        "call `rlimit(2)  to increase `RLIMIT_NOFILE` to allow more open files for Agave" );
-  fd_caps_check_capability(   caps, NAME, CAP_NET_RAW,                 "call `socket(2)` to bind to a raw socket for use by XDP" );
-  fd_caps_check_capability(   caps, NAME, CAP_SYS_ADMIN,               "call `bpf(2)` with the `BPF_OBJ_GET` command to initialize XDP" );
+  fd_cap_chk_cap(          chk, NAME, CAP_NET_RAW,                 "call `socket(2)` to bind to a raw socket for use by XDP" );
+  fd_cap_chk_cap(          chk, NAME, CAP_SYS_ADMIN,               "call `bpf(2)` with the `BPF_OBJ_GET` command to initialize XDP" );
   if( fd_sandbox_requires_cap_sys_admin( config->uid, config->gid ) )
-    fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN,               "call `unshare(2)` with `CLONE_NEWUSER` to sandbox the process in a user namespace" );
+    fd_cap_chk_cap(        chk, NAME, CAP_SYS_ADMIN,               "call `unshare(2)` with `CLONE_NEWUSER` to sandbox the process in a user namespace" );
   if( FD_LIKELY( getuid() != config->uid ) )
-    fd_caps_check_capability( caps, NAME, CAP_SETUID,                  "call `setresuid(2)` to switch uid to the sandbox user" );
+    fd_cap_chk_cap(        chk, NAME, CAP_SETUID,                  "call `setresuid(2)` to switch uid to the sandbox user" );
   if( FD_LIKELY( getgid()!=config->gid ) )
-    fd_caps_check_capability( caps, NAME, CAP_SETGID,                  "call `setresgid(2)` to switch gid to the sandbox user" );
+    fd_cap_chk_cap(        chk, NAME, CAP_SETGID,                  "call `setresgid(2)` to switch gid to the sandbox user" );
   if( FD_UNLIKELY( config->development.netns.enabled ) )
-    fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN,               "call `setns(2)` to enter a network namespace" );
+    fd_cap_chk_cap(        chk, NAME, CAP_SYS_ADMIN,               "call `setns(2)` to enter a network namespace" );
   if( FD_UNLIKELY( config->tiles.metric.prometheus_listen_port<1024 ) )
-    fd_caps_check_capability( caps, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving metrics" );
+    fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving metrics" );
   if( FD_UNLIKELY( config->tiles.gui.gui_listen_port<1024 ) )
-    fd_caps_check_capability( caps, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving the GUI" );
+    fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving the GUI" );
 }
 
 struct pidns_clone_args {

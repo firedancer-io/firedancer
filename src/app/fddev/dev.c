@@ -30,7 +30,7 @@ dev_cmd_args( int *    pargc,
 
 void
 dev_cmd_perm( args_t *         args,
-              fd_caps_ctx_t *  caps,
+              fd_cap_chk_t *   chk,
               config_t const * config ) {
   if( FD_LIKELY( !args->dev.no_configure ) ) {
     args_t configure_args = {
@@ -38,10 +38,10 @@ dev_cmd_perm( args_t *         args,
     };
     for( ulong i=0; i<CONFIGURE_STAGE_COUNT; i++ )
       configure_args.configure.stages[ i ] = STAGES[ i ];
-    configure_cmd_perm( &configure_args, caps, config );
+    configure_cmd_perm( &configure_args, chk, config );
   }
 
-  run_cmd_perm( NULL, caps, config );
+  run_cmd_perm( NULL, chk, config );
 }
 
 pid_t firedancer_pid, monitor_pid;

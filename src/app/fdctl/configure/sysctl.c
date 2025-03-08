@@ -6,9 +6,9 @@
 #include <linux/capability.h>
 
 static void
-init_perm( fd_caps_ctx_t *  caps,
+init_perm( fd_cap_chk_t *   chk,
            config_t const * config FD_PARAM_UNUSED ) {
-  fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN, "set kernel parameters in `/proc/sys`" );
+  fd_cap_chk_cap( chk, NAME, CAP_SYS_ADMIN, "set kernel parameters in `/proc/sys`" );
 }
 
 #define ENFORCE_MINIMUM 0

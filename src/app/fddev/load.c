@@ -9,7 +9,7 @@
 
 void
 load_cmd_perm( args_t *         args FD_PARAM_UNUSED,
-               fd_caps_ctx_t *  caps,
+               fd_cap_chk_t *   chk,
                config_t const * config ) {
   args_t configure_args = {
     .configure.command = CONFIGURE_CMD_INIT,
@@ -22,7 +22,7 @@ load_cmd_perm( args_t *         args FD_PARAM_UNUSED,
     }
   }
   configure_args.configure.stages[ 2 ] = NULL;
-  configure_cmd_perm( &configure_args, caps, config );
+  configure_cmd_perm( &configure_args, chk, config );
 }
 
 void

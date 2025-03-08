@@ -30,9 +30,9 @@ install_parent_signals( void ) {
 
 void
 flame_cmd_perm( args_t *         args   FD_PARAM_UNUSED,
-                fd_caps_ctx_t *  caps,
+                fd_cap_chk_t *   chk,
                 config_t const * config FD_PARAM_UNUSED ) {
-  fd_caps_check_root( caps, "flame", "read system performance counters with `/usr/bin/perf`" );
+  fd_cap_chk_root( chk, "flame", "read system performance counters with `/usr/bin/perf`" );
 }
 
 void

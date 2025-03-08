@@ -56,8 +56,8 @@ typedef struct configure_stage {
   const char *       name;
   int                always_recreate;
   int                (*enabled)  ( config_t const * config );
-  void               (*init_perm)( fd_caps_ctx_t * caps, config_t const * config );
-  void               (*fini_perm)( fd_caps_ctx_t * caps, config_t const * config );
+  void               (*init_perm)( fd_cap_chk_t * chk, config_t const * config );
+  void               (*fini_perm)( fd_cap_chk_t * chk, config_t const * config );
   void               (*init)     ( config_t * const config );
   void               (*fini)     ( config_t * const config, int pre_init );
   configure_result_t (*check)    ( config_t const * config );
