@@ -2,7 +2,7 @@
    bpf(2) syscall in BPF_PROG_TEST_RUN mode. */
 
 #if !defined(__linux__)
-#error "fd_xdp_steer requires Linux operating system with XDP support"
+#error "test_xdp_ebpf requires Linux operating system with XDP support"
 #endif
 
 #define _DEFAULT_SOURCE
@@ -10,7 +10,6 @@
 #include <unistd.h>
 #include <sys/socket.h>
 
-#include "fd_xdp_redirect_user.h"
 #include "fd_xdp_redirect_prog.h"
 #include "../../util/fd_util.h"
 #include "../../util/net/fd_ip4.h"
@@ -73,6 +72,12 @@ fd_bpf_map_clear( int map_fd ) {
   }
 
   return 0;
+}
+
+static inline ulong
+fd_xdp_udp_dst_key( uint ip4_addr,
+                    uint udp_port ) {
+  return ( (ulong)( ip4_addr )<<16 ) | fd_ushort_bswap( (ushort)udp_port );
 }
 
 static void
