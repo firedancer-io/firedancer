@@ -10,7 +10,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include "../../disco/rpcserver/fd_rpc_service.h"
-#include "../../funk/fd_funk_filemap.h"
+#include "../../funkier/fd_funkier_filemap.h"
 
 #define SHAM_LINK_CONTEXT fd_rpc_ctx_t
 #define SHAM_LINK_STATE   fd_replay_notif_msg_t
@@ -31,7 +31,7 @@ init_args( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
   char const * funk_file = fd_env_strip_cmdline_cstr( argc, argv, "--funk-file", NULL, NULL );
   if( FD_UNLIKELY( !funk_file ))
     FD_LOG_ERR(( "--funk-file argument is required" ));
-  args->funk = fd_funk_open_file( funk_file, 1, 0, 0, 0, 0, FD_FUNK_READONLY, NULL );
+  args->funk = fd_funkier_open_file( funk_file, 1, 0, 0, 0, 0, FD_FUNKIER_READONLY, NULL );
   if( args->funk == NULL ) {
     FD_LOG_ERR(( "failed to join a funky" ));
   }
@@ -107,9 +107,9 @@ init_args_offline( int * argc, char *** argv, fd_rpcserver_args_t * args ) {
     FD_LOG_ERR(( "--funk-file argument is required" ));
   char const * restore = fd_env_strip_cmdline_cstr ( argc, argv, "--restore-funk", NULL, NULL );
   if( restore != NULL )
-    args->funk = fd_funk_recover_checkpoint( funk_file, 1, restore, NULL );
+    args->funk = fd_funkier_recover_checkpoint( funk_file, 1, restore, NULL );
   else
-    args->funk = fd_funk_open_file( funk_file, 1, 0, 0, 0, 0, FD_FUNK_READONLY, NULL );
+    args->funk = fd_funkier_open_file( funk_file, 1, 0, 0, 0, 0, FD_FUNKIER_READONLY, NULL );
 
   fd_wksp_t * wksp;
   const char * wksp_name = fd_env_strip_cmdline_cstr ( argc, argv, "--wksp-name-blockstore", NULL, NULL );

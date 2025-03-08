@@ -5,7 +5,7 @@
    runtime environment.  This file must not depend on fd_executor.h. */
 
 #include "../fd_flamenco_base.h"
-#include "../../funk/fd_funk_rec.h"
+#include "../../funkier/fd_funkier_rec.h"
 
 /* FD_BLOCK_SLOT_BANK_TYPE stores fd_slot_bank_t bincode encoded */
 #define FD_BLOCK_SLOT_BANK_TYPE ((uchar)6)
@@ -18,10 +18,10 @@
 
 FD_PROTOTYPES_BEGIN
 
-fd_funk_rec_key_t
+fd_funkier_rec_key_t
 fd_runtime_epoch_bank_key( void );
 
-fd_funk_rec_key_t
+fd_funkier_rec_key_t
 fd_runtime_slot_bank_key( void );
 
 int

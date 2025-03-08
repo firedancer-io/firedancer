@@ -19,7 +19,7 @@
 #include "../sysvar/fd_sysvar_slot_hashes.h"
 #include "../sysvar/fd_sysvar_stake_history.h"
 #include "../sysvar/fd_sysvar_epoch_rewards.h"
-#include "../../../funk/fd_funk.h"
+#include "../../../funkier/fd_funkier.h"
 #include "../../../util/bits/fd_float.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
 #include "../../../ballet/elf/fd_elf.h"
@@ -70,9 +70,12 @@ fd_exec_instr_test_runner_align( void ) {
 
 ulong
 fd_exec_instr_test_runner_footprint( void ) {
+  ulong txn_max = 4+fd_tile_cnt();
+  ulong rec_max = 1024UL;
+
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, fd_exec_instr_test_runner_align(), sizeof(fd_exec_instr_test_runner_t) );
-  l = FD_LAYOUT_APPEND( l, fd_funk_align(),                   fd_funk_footprint()                 );
+  l = FD_LAYOUT_APPEND( l, fd_funkier_align(),                   fd_funkier_footprint( txn_max, rec_max)                 );
   return FD_LAYOUT_FINI( l, fd_exec_instr_test_runner_align() );
 }
 
@@ -80,16 +83,17 @@ fd_exec_instr_test_runner_t *
 fd_exec_instr_test_runner_new( void * mem,
                                void * spad_mem,
                                ulong  wksp_tag ) {
-  FD_SCRATCH_ALLOC_INIT( l, mem );
-  void * runner_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_instr_test_runner_align(), sizeof(fd_exec_instr_test_runner_t) );
-  void * funk_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_funk_align(),                   fd_funk_footprint()                 );
-  FD_SCRATCH_ALLOC_FINI( l, fd_exec_instr_test_runner_align() );
-
   ulong txn_max = 4+fd_tile_cnt();
   ulong rec_max = 1024UL;
-  fd_funk_t * funk = fd_funk_join( fd_funk_new( funk_mem, wksp_tag, (ulong)fd_tickcount(), txn_max, rec_max ) );
+
+  FD_SCRATCH_ALLOC_INIT( l, mem );
+  void * runner_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_exec_instr_test_runner_align(), sizeof(fd_exec_instr_test_runner_t) );
+  void * funk_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_funkier_align(),                   fd_funkier_footprint( txn_max, rec_max) );
+  FD_SCRATCH_ALLOC_FINI( l, fd_exec_instr_test_runner_align() );
+
+  fd_funkier_t * funk = fd_funkier_join( fd_funkier_new( funk_mem, wksp_tag, (ulong)fd_tickcount(), txn_max, rec_max ) );
   if( FD_UNLIKELY( !funk ) ) {
-    FD_LOG_WARNING(( "fd_funk_new() failed" ));
+    FD_LOG_WARNING(( "fd_funkier_new() failed" ));
     return NULL;
   }
 
@@ -104,7 +108,7 @@ fd_exec_instr_test_runner_new( void * mem,
 void *
 fd_exec_instr_test_runner_delete( fd_exec_instr_test_runner_t * runner ) {
   if( FD_UNLIKELY( !runner ) ) return NULL;
-  fd_funk_delete( fd_funk_leave( runner->funk ) );
+  fd_funkier_delete( fd_funkier_leave( runner->funk ) );
   runner->funk = NULL;
   if( FD_UNLIKELY( fd_spad_verify( runner->spad ) ) ) {
     FD_LOG_ERR(( "fd_spad_verify() failed" ));
@@ -139,7 +143,7 @@ fd_double_is_normal( double dbl ) {
 static int
 _load_account( fd_borrowed_account_t *           acc,
                fd_acc_mgr_t *                    acc_mgr,
-               fd_funk_txn_t *                   funk_txn,
+               fd_funkier_txn_t *                   funk_txn,
                fd_exec_test_acct_state_t const * state ) {
   fd_borrowed_account_init( acc );
   ulong size = 0UL;
@@ -152,8 +156,7 @@ _load_account( fd_borrowed_account_t *           acc,
     return 0;
 
   assert( acc_mgr->funk );
-  assert( acc_mgr->funk->magic == FD_FUNK_MAGIC );
-  fd_funk_start_write( acc_mgr->funk );
+  assert( acc_mgr->funk->magic == FD_FUNKIER_MAGIC );
   int err = fd_acc_mgr_modify( /* acc_mgr     */ acc_mgr,
                                /* txn         */ funk_txn,
                                /* pubkey      */ pubkey,
@@ -175,7 +178,6 @@ _load_account( fd_borrowed_account_t *           acc,
   acc->meta = NULL;
   acc->data = NULL;
   acc->rec  = NULL;
-  fd_funk_end_write( acc_mgr->funk );
 
   return 1;
 }
@@ -183,7 +185,7 @@ _load_account( fd_borrowed_account_t *           acc,
 static int
 _load_txn_account( fd_borrowed_account_t *           acc,
                    fd_acc_mgr_t *                    acc_mgr,
-                   fd_funk_txn_t *                   funk_txn,
+                   fd_funkier_txn_t *                   funk_txn,
                    fd_exec_test_acct_state_t const * state ) {
   // In the Agave transaction fuzzing harness, accounts with 0 lamports are not saved in the accounts db.
   // When they are fetched for transactions, the fields of the account are 0-set.
@@ -222,18 +224,16 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
                                    bool                                 is_syscall ) {
   memset( ctx, 0, sizeof(fd_exec_instr_ctx_t) );
 
-  fd_funk_t * funk = runner->funk;
+  fd_funkier_t * funk = runner->funk;
 
   /* Generate unique ID for funk txn */
 
-  fd_funk_txn_xid_t xid[1] = {0};
-  xid[0] = fd_funk_generate_xid();
+  fd_funkier_txn_xid_t xid[1] = {0};
+  xid[0] = fd_funkier_generate_xid();
 
   /* Create temporary funk transaction and scratch contexts */
 
-  fd_funk_start_write( funk );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
-  fd_funk_end_write( funk );
+  fd_funkier_txn_t * funk_txn = fd_funkier_txn_prepare( funk, NULL, xid, 1 );
 
   ulong vote_acct_max = MAX_TX_ACCOUNT_LOCKS;
 
@@ -407,9 +407,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   }
 
   /* Add accounts to bpf program cache */
-  fd_funk_start_write( acc_mgr->funk );
   fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn, runner->spad );
-  fd_funk_end_write( acc_mgr->funk );
 
   /* Restore sysvar cache */
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
@@ -577,18 +575,16 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
                               fd_exec_slot_ctx_t *               slot_ctx,
                               fd_exec_test_txn_context_t const * test_ctx ) {
   uchar empty_bytes[64] = { 0 };
-  fd_funk_t * funk = runner->funk;
+  fd_funkier_t * funk = runner->funk;
 
   /* Generate unique ID for funk txn */
 
-  fd_funk_txn_xid_t xid[1] = {0};
-  xid[0] = fd_funk_generate_xid();
+  fd_funkier_txn_xid_t xid[1] = {0};
+  xid[0] = fd_funkier_generate_xid();
 
   /* Create temporary funk transaction and spad contexts */
 
-  fd_funk_start_write( runner->funk );
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 1 );
-  fd_funk_end_write( runner->funk );
+  fd_funkier_txn_t * funk_txn = fd_funkier_txn_prepare( funk, NULL, xid, 1 );
 
   ulong vote_acct_max = MAX_TX_ACCOUNT_LOCKS;
 
@@ -623,9 +619,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_slot_bank_new( &slot_ctx->slot_bank );
 
   /* Initialize builtin accounts */
-  fd_funk_start_write( runner->funk );
   fd_builtin_programs_init( slot_ctx );
-  fd_funk_end_write( runner->funk );
 
   /* Load account states into funk (note this is different from the account keys):
     Account state = accounts to populate Funk
@@ -641,7 +635,6 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
 
   /* Add accounts to bpf program cache */
-  fd_funk_start_write( runner->funk );
   fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn, runner->spad );
 
   /* Default slot */
@@ -746,7 +739,6 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
       ( rent->exemption_threshold     >    999.0 ) |
       ( rent->lamports_per_uint8_year > UINT_MAX ) |
       ( rent->burn_percent            >      100 ) ) {
-    fd_funk_end_write( runner->funk );
     return NULL;
   }
 
@@ -793,8 +785,6 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
     fd_sysvar_recent_hashes_update( slot_ctx, runner->spad );
   }
   fd_sysvar_cache_restore_recent_block_hashes( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
-
-  fd_funk_end_write( runner->funk );
 
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
   uchar * txn_raw_begin = fd_spad_alloc( runner->spad, alignof(uchar), 10000 ); // max txn size is 1232 but we allocate extra for safety
@@ -947,13 +937,11 @@ fd_exec_test_instr_context_destroy( fd_exec_instr_test_runner_t * runner,
   fd_exec_slot_ctx_t *  slot_ctx  = (fd_exec_slot_ctx_t *)ctx->slot_ctx;
   if( !slot_ctx ) return;
   fd_acc_mgr_t *        acc_mgr   = slot_ctx->acc_mgr;
-  fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
+  fd_funkier_txn_t *       funk_txn  = slot_ctx->funk_txn;
 
   fd_acc_mgr_delete( acc_mgr );
 
-  fd_funk_start_write( runner->funk );
-  fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
-  fd_funk_end_write( runner->funk );
+  fd_funkier_txn_cancel( runner->funk, funk_txn, 1 );
 
   ctx->slot_ctx = NULL;
 }
@@ -963,13 +951,11 @@ _txn_context_destroy( fd_exec_instr_test_runner_t * runner,
                       fd_exec_slot_ctx_t *          slot_ctx ) {
   if( !slot_ctx ) return; // This shouldn't be false either
   fd_acc_mgr_t *        acc_mgr   = slot_ctx->acc_mgr;
-  fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
+  fd_funkier_txn_t *       funk_txn  = slot_ctx->funk_txn;
 
   fd_acc_mgr_delete( acc_mgr );
 
-  fd_funk_start_write( runner->funk );
-  fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
-  fd_funk_end_write( runner->funk );
+  fd_funkier_txn_cancel( runner->funk, funk_txn, 1 );
 }
 
 static fd_sbpf_syscalls_t *

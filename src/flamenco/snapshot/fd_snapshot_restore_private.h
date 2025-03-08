@@ -63,7 +63,7 @@ typedef struct fd_snapshot_accv_map fd_snapshot_accv_map_t;
 
 struct fd_snapshot_restore {
   fd_acc_mgr_t *    acc_mgr;
-  fd_funk_txn_t *   funk_txn;
+  fd_funkier_txn_t *   funk_txn;
   fd_spad_t *       spad;
 
   ulong slot;  /* Slot number the snapshot was taken at */
