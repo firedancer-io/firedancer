@@ -1,6 +1,6 @@
-#include "../../../../disco/metrics/fd_metrics.h"
-#include "../../../../disco/stem/fd_stem.h"
-#include "../../../../disco/topo/fd_topo.h"
+#include "../metrics/fd_metrics.h"
+#include "../stem/fd_stem.h"
+#include "../topo/fd_topo.h"
 
 #include <fcntl.h>
 #include <errno.h>
@@ -8,6 +8,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "fd_proc_interrupts.h"
 #include "generated/cswtch_seccomp.h"
 
 #define REPORT_INTERVAL_MILLIS (100L)
@@ -18,20 +19,24 @@ typedef struct {
   ulong            tile_cnt;
   long             first_seen_died[ FD_TILE_MAX ];
   int              status_fds[ FD_TILE_MAX ];
-  volatile ulong * metrics[ FD_TILE_MAX ];
+
+  ulong            irq_cnt[ 3 ][ FD_TILE_MAX ];
+  ulong            fixed_tile_bitmap[ (FD_TILE_MAX+63)/64 ]; /* fixed tiles that should not be handling IRQs */
+  int              proc_interrupts_fd;
+  int              proc_softirqs_fd;
+
+  ulong volatile * metrics[ FD_TILE_MAX ];
+  ulong volatile * self_metrics;
 } fd_cswtch_ctx_t;
 
 FD_FN_CONST static inline ulong
 scratch_align( void ) {
-  return 128UL;
+  return alignof(fd_cswtch_ctx_t);
 }
 
 FD_FN_PURE static inline ulong
-scratch_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
-  ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( fd_cswtch_ctx_t ), sizeof( fd_cswtch_ctx_t ) );
-  return FD_LAYOUT_FINI( l, scratch_align() );
+scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+  return sizeof(fd_cswtch_ctx_t);
 }
 
 static void
@@ -130,15 +135,43 @@ before_credit( fd_cswtch_ctx_t *   ctx,
     if( FD_UNLIKELY( !found_voluntary   ) ) FD_LOG_ERR(( "voluntary_ctxt_switches not found" ));
     if( FD_UNLIKELY( !found_involuntary ) ) FD_LOG_ERR(( "nonvoluntary_ctxt_switches not found" ));
   }
+
+  if( FD_UNLIKELY( -1==lseek( ctx->proc_softirqs_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
+  ulong cpu_cnt = fd_proc_softirqs_sum( ctx->proc_softirqs_fd, ctx->irq_cnt );
+  for( ulong j=0UL; j<3UL; j++ ) {
+    ulong tot_cnt       = 0UL;
+    ulong undesired_cnt = 0UL;
+    for( ulong i=0UL; i<cpu_cnt; i++ ) {
+      tot_cnt += ctx->irq_cnt[ j ][ i ];
+      if( ctx->fixed_tile_bitmap[ i/64 ] & (1UL<<(i%64)) ) {
+        undesired_cnt += ctx->irq_cnt[ j ][ i ];
+      }
+    }
+    FD_VOLATILE( ctx->self_metrics[ FD_METRICS_COUNTER_CSWTCH_SOFTIRQS_TOTAL_OFF+j     ] ) = tot_cnt;
+    FD_VOLATILE( ctx->self_metrics[ FD_METRICS_COUNTER_CSWTCH_SOFTIRQS_UNDESIRED_OFF+j ] ) = undesired_cnt;
+  }
+
+  if( FD_UNLIKELY( -1==lseek( ctx->proc_interrupts_fd, 0, SEEK_SET ) ) ) FD_LOG_ERR(( "lseek failed (%i-%s)", errno, strerror( errno ) ));
+  cpu_cnt = fd_proc_interrupts_colwise( ctx->proc_interrupts_fd, ctx->irq_cnt[0] );
+  do {
+    ulong tot_cnt       = 0UL;
+    ulong undesired_cnt = 0UL;
+    for( ulong i=0UL; i<cpu_cnt; i++ ) {
+      tot_cnt += ctx->irq_cnt[ 0 ][ i ];
+      if( ctx->fixed_tile_bitmap[ i/64 ] & (1UL<<(i%64)) ) {
+        undesired_cnt += ctx->irq_cnt[ 0 ][ i ];
+      }
+    }
+    FD_VOLATILE( ctx->self_metrics[ FD_METRICS_COUNTER_CSWTCH_DEVICE_IRQS_TOTAL_OFF     ] ) = tot_cnt;
+    FD_VOLATILE( ctx->self_metrics[ FD_METRICS_COUNTER_CSWTCH_DEVICE_IRQS_UNDESIRED_OFF ] ) = undesired_cnt;
+  } while(0);
 }
 
 static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
-  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_cswtch_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_cswtch_ctx_t ), sizeof( fd_cswtch_ctx_t ) );
+  fd_cswtch_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  ctx->self_metrics = fd_metrics_tile( fd_topo_obj_laddr( topo, tile->metrics_obj_id ) );
 
   FD_TEST( topo->tile_cnt<FD_TILE_MAX );
 
@@ -164,36 +197,43 @@ privileged_init( fd_topo_t *      topo,
       FD_TEST( fd_cstr_printf_check( path, sizeof( path ), NULL, "/proc/%lu/task/%lu/status", pid, tid ) );
       ctx->status_fds[ i ] = open( path, O_RDONLY );
       ctx->metrics[ i ] = fd_metrics_tile( metrics );
-      if( FD_UNLIKELY( -1==ctx->status_fds[ i ] ) ) FD_LOG_ERR(( "open failed (%i-%s)", errno, strerror( errno ) ));
+      if( FD_UNLIKELY( -1==ctx->status_fds[ i ] ) ) FD_LOG_ERR(( "open failed (%i-%s)", errno, fd_io_strerror( errno ) ));
       break;
     }
   }
+
+  ctx->proc_interrupts_fd = open( "/proc/interrupts", O_RDONLY );
+  if( FD_UNLIKELY( -1==ctx->proc_interrupts_fd ) ) FD_LOG_ERR(( "open(/proc/interrupts) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+
+  ctx->proc_softirqs_fd = open( "/proc/softirqs", O_RDONLY );
+  if( FD_UNLIKELY( -1==ctx->proc_softirqs_fd   ) ) FD_LOG_ERR(( "open(/proc/softirqs) failed (%i-%s)",   errno, fd_io_strerror( errno ) ));
 }
 
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
-  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_cswtch_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_cswtch_ctx_t ), sizeof( fd_cswtch_ctx_t ) );
-
-  memset( ctx->first_seen_died, 0, sizeof( ctx->first_seen_died ) );
+  fd_cswtch_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  memset( ctx->first_seen_died,   0, sizeof(ctx->first_seen_died)   );
+  memset( ctx->irq_cnt,           0, sizeof(ctx->irq_cnt)           );
+  memset( ctx->fixed_tile_bitmap, 0, sizeof(ctx->fixed_tile_bitmap) );
   ctx->next_report_nanos = fd_log_wallclock();
 
-  ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
-  if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
-    FD_LOG_ERR(( "scratch overflow %lu %lu %lu", scratch_top - (ulong)scratch - scratch_footprint( tile ), scratch_top, (ulong)scratch + scratch_footprint( tile ) ));
+  for( ulong i=0UL; i<(topo->tile_cnt); i++ ) {
+    if( !strcmp( topo->tiles[ i ].name, "net"  ) ||
+        !strcmp( topo->tiles[ i ].name, "sock" ) ) {
+      continue; /* net tiles should handle IRQs */
+    }
+    ulong cpu_idx = topo->tiles[ i ].cpu_idx;
+    if( cpu_idx>=FD_TILE_MAX ) continue;
+    ctx->fixed_tile_bitmap[ cpu_idx/64 ] |= (1<<(cpu_idx%64));
+  }
 }
 
 static ulong
-populate_allowed_seccomp( fd_topo_t const *      topo,
-                          fd_topo_tile_t const * tile,
+populate_allowed_seccomp( fd_topo_t const *      topo FD_PARAM_UNUSED,
+                          fd_topo_tile_t const * tile FD_PARAM_UNUSED,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  (void)topo;
-  (void)tile;
-
   populate_sock_filter_policy_cswtch( out_cnt, out, (uint)fd_log_private_logfile_fd() );
   return sock_filter_policy_cswtch_instr_cnt;
 }
@@ -203,19 +243,18 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       fd_topo_tile_t const * tile,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
-  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  fd_cswtch_ctx_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  FD_SCRATCH_ALLOC_INIT( l, scratch );
-  fd_cswtch_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_cswtch_ctx_t ), sizeof( fd_cswtch_ctx_t ) );
-
-  if( FD_UNLIKELY( out_fds_cnt<2UL+ctx->tile_cnt ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
+  if( FD_UNLIKELY( out_fds_cnt<4UL+ctx->tile_cnt ) ) FD_LOG_ERR(( "out_fds_cnt %lu", out_fds_cnt ));
 
   ulong out_cnt = 0UL;
   out_fds[ out_cnt++ ] = 2; /* stderr */
   if( FD_LIKELY( -1!=fd_log_private_logfile_fd() ) )
     out_fds[ out_cnt++ ] = fd_log_private_logfile_fd(); /* logfile */
   for( ulong i=0UL; i<ctx->tile_cnt; i++ )
-    out_fds[ out_cnt++ ] = ctx->status_fds[ i ]; /* /proc/<pid>/task/<tid>/status descriptor */
+    out_fds[ out_cnt++ ] = ctx->status_fds[ i ];  /* /proc/<pid>/task/<tid>/status */
+  out_fds[ out_cnt++ ] = ctx->proc_interrupts_fd; /* /proc/interrupts */
+  out_fds[ out_cnt++ ] = ctx->proc_softirqs_fd;   /* /proc/softirqs */
   return out_cnt;
 }
 
@@ -227,7 +266,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 #define STEM_CALLBACK_BEFORE_CREDIT before_credit
 
-#include "../../../../disco/stem/fd_stem.c"
+#include "../stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_cswtch = {
   .name                     = "cswtch",
