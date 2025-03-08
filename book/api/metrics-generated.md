@@ -1197,10 +1197,18 @@
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| <span class="metrics-name">diag_&#8203;bundle_&#8203;health</span> | gauge | 0=unhealthy, 1=healthy, 2=disabled. A healthy bundle subsystem means at least one bundle tile currently zhas an active connection to the block engine server |
+| <span class="metrics-name">diag_&#8203;bundle_&#8203;health</span> | gauge | 0=unhealthy, 1=healthy, 2=disabled. A healthy bundle subsystem means at least one bundle tile currently has an active connection to the block engine server |
 | <span class="metrics-name">diag_&#8203;vote_&#8203;health</span> | gauge | 0=unhealthy, 1=healthy, 2=disabled. A healthy vote subsystem means the client has cast at least one vote in both the last 60 seconds and last 150 slots (before the currently replay slot) |
 | <span class="metrics-name">diag_&#8203;replay_&#8203;health</span> | gauge | 0=unhealthy, 1=healthy, 2=disabled. A healthy replay subsystem means that the largest fully-processed replay slot on the chosen consensus fork is within 12 slots of the current turbine slot |
 | <span class="metrics-name">diag_&#8203;turbine_&#8203;health</span> | gauge | 0=unhealthy, 1=healthy, 2=disabled. A healthy turbine subsystem means that the largest slot associated with received turbine shreds has not stalled for 12 seconds, and also that the average replay ingress traffic exceeds the average ingress repair traffic over the past 12 seconds |
+| <span class="metrics-name">diag_&#8203;device_&#8203;irqs_&#8203;total</span> | counter | Number of device IRQs across all CPUs |
+| <span class="metrics-name">diag_&#8203;device_&#8203;irqs_&#8203;undesired</span> | counter | Number of device hard IRQs that stole CPU time from fixed tiles |
+| <span class="metrics-name">diag_&#8203;softirqs_&#8203;total</span><br/>{softirq="<span class="metrics-enum">net</span>"} | counter | Number of soft-IRQs across all CPUs (NET_TX, NET_RX) |
+| <span class="metrics-name">diag_&#8203;softirqs_&#8203;total</span><br/>{softirq="<span class="metrics-enum">disk</span>"} | counter | Number of soft-IRQs across all CPUs (BLOCK) |
+| <span class="metrics-name">diag_&#8203;softirqs_&#8203;total</span><br/>{softirq="<span class="metrics-enum">other</span>"} | counter | Number of soft-IRQs across all CPUs (e.g. TIMER, HRTIMER, IRQ_POLL, TASKLET, SCHED, RCU, ...) |
+| <span class="metrics-name">diag_&#8203;softirqs_&#8203;undesired</span><br/>{softirq="<span class="metrics-enum">net</span>"} | counter | Number of soft-IRQs that stole CPU time from fixed tiles (NET_TX, NET_RX) |
+| <span class="metrics-name">diag_&#8203;softirqs_&#8203;undesired</span><br/>{softirq="<span class="metrics-enum">disk</span>"} | counter | Number of soft-IRQs that stole CPU time from fixed tiles (BLOCK) |
+| <span class="metrics-name">diag_&#8203;softirqs_&#8203;undesired</span><br/>{softirq="<span class="metrics-enum">other</span>"} | counter | Number of soft-IRQs that stole CPU time from fixed tiles (e.g. TIMER, HRTIMER, IRQ_POLL, TASKLET, SCHED, RCU, ...) |
 
 </div>
 
