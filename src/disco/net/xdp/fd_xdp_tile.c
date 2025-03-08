@@ -1011,6 +1011,7 @@ privileged_init( fd_topo_t *      topo,
   /* Init XSK */
   if( FD_UNLIKELY( !fd_xsk_init( &ctx->xsk[ 0 ], &params0 ) ) )       FD_LOG_ERR(( "failed to bind xsk for net tile %lu", tile->kind_id ));
   if( FD_UNLIKELY( !fd_xsk_activate( &ctx->xsk[ 0 ], xsk_map_fd ) ) ) FD_LOG_ERR(( "failed to activate xsk for net tile %lu", tile->kind_id ));
+  ctx->xsk_cnt = 1;
 
   if( FD_UNLIKELY( fd_sandbox_gettid()==fd_sandbox_getpid() ) ) {
     /* Kind of gross.. in single threaded mode we don't want to close the xsk_map_fd
@@ -1067,6 +1068,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_net_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_net_ctx_t), sizeof(fd_net_ctx_t) );
+  FD_TEST( ctx->xsk_cnt!=0 );
 
   ctx->net_tile_id  = (uint)tile->kind_id;
   ctx->net_tile_cnt = (uint)fd_topo_tile_name_cnt( topo, tile->name );
