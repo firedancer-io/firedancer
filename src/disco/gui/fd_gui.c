@@ -115,6 +115,45 @@ fd_gui_new( void *             shmem,
   return gui;
 }
 
+ulong
+fd_gui_gossip_contains( fd_gui_t const * gui,
+                        uchar const *    pubkey ) {
+  for( ulong i=0UL; i<gui->gossip.peer_cnt; i++ ) {
+    if( FD_UNLIKELY( !memcmp( gui->gossip.peers[ i ].pubkey->uc, pubkey, 32 ) ) ) return i;
+  }
+  return ULONG_MAX;
+}
+
+ulong
+fd_gui_vote_acct_contains( fd_gui_t const * gui,
+                           uchar const *    pubkey ) {
+  for( ulong i=0UL; i<gui->vote_account.vote_account_cnt; i++ ) {
+    if( FD_UNLIKELY( !memcmp( gui->vote_account.vote_accounts[ i ].pubkey, pubkey, 32 ) ) ) return i;
+  }
+  return ULONG_MAX;
+}
+
+ulong
+fd_gui_validator_info_contains( fd_gui_t const * gui,
+                                uchar const *    pubkey ) {
+  for( ulong i=0UL; i<gui->validator_info.info_cnt; i++ ) {
+    if( FD_UNLIKELY( !memcmp( gui->validator_info.info[ i ].pubkey, pubkey, 32 ) ) ) return i;
+  }
+  return ULONG_MAX;
+}
+
+ulong
+fd_gui_leader_schedule_contains( fd_gui_t const * gui,
+                                 uchar const *    pubkey,
+                                 ulong            epoch_idx ) {
+  if( !gui->epoch.has_epoch[ epoch_idx ] ) return ULONG_MAX;
+  for( ulong i=0UL; i<gui->epoch.epochs[ epoch_idx ].lsched->pub_cnt; i++ ) {
+    if( FD_UNLIKELY( !memcmp( gui->epoch.epochs[ epoch_idx ].lsched->pub[ i ].uc, pubkey, 32 ) ) ) return i;
+  }
+
+  return ULONG_MAX;
+}
+
 fd_gui_t *
 fd_gui_join( void * shmem ) {
   return (fd_gui_t *)shmem;
@@ -561,17 +600,8 @@ fd_gui_handle_gossip_update( fd_gui_t *    gui,
 
   ulong before_peer_cnt = gui->gossip.peer_cnt;
   for( ulong i=0UL; i<peer_cnt; i++ ) {
-    int found = 0;
-    ulong found_idx = 0;
-    for( ulong j=0UL; j<gui->gossip.peer_cnt; j++ ) {
-      if( FD_UNLIKELY( !memcmp( gui->gossip.peers[ j ].pubkey, data+i*(58UL+12UL*6UL), 32UL ) ) ) {
-        found_idx = j;
-        found = 1;
-        break;
-      }
-    }
-
-    if( FD_UNLIKELY( !found ) ) {
+    ulong found_idx = fd_gui_gossip_contains( gui, data+i*(58UL+12UL*6UL) );
+    if( FD_UNLIKELY( ULONG_MAX==found_idx ) ) {
       fd_memcpy( gui->gossip.peers[ gui->gossip.peer_cnt ].pubkey->uc, data+i*(58UL+12UL*6UL), 32UL );
       gui->gossip.peers[ gui->gossip.peer_cnt ].wallclock = *(ulong const *)(data+i*(58UL+12UL*6UL)+32UL);
       gui->gossip.peers[ gui->gossip.peer_cnt ].shred_version = *(ushort const *)(data+i*(58UL+12UL*6UL)+40UL);
@@ -685,17 +715,8 @@ fd_gui_handle_vote_account_update( fd_gui_t *    gui,
 
   ulong before_peer_cnt = gui->vote_account.vote_account_cnt;
   for( ulong i=0UL; i<peer_cnt; i++ ) {
-    int found = 0;
-    ulong found_idx;
-    for( ulong j=0UL; j<gui->vote_account.vote_account_cnt; j++ ) {
-      if( FD_UNLIKELY( !memcmp( gui->vote_account.vote_accounts[ j ].vote_account, data+i*112UL, 32UL ) ) ) {
-        found_idx = j;
-        found = 1;
-        break;
-      }
-    }
-
-    if( FD_UNLIKELY( !found ) ) {
+    ulong found_idx = fd_gui_vote_acct_contains( gui, data+i*112UL );
+    if( FD_UNLIKELY( ULONG_MAX==found_idx ) ) {
       fd_memcpy( gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].vote_account->uc, data+i*112UL, 32UL );
       fd_memcpy( gui->vote_account.vote_accounts[ gui->vote_account.vote_account_cnt ].pubkey->uc, data+i*112UL+32UL, 32UL );
 
@@ -756,17 +777,9 @@ fd_gui_handle_validator_info_update( fd_gui_t *    gui,
      mechanism.  */
 
   ulong before_peer_cnt = gui->validator_info.info_cnt;
-  int found = 0;
-  ulong found_idx;
-  for( ulong j=0UL; j<gui->validator_info.info_cnt; j++ ) {
-    if( FD_UNLIKELY( !memcmp( gui->validator_info.info[ j ].pubkey, data, 32UL ) ) ) {
-      found_idx = j;
-      found = 1;
-      break;
-    }
-  }
+  ulong found_idx = fd_gui_validator_info_contains( gui, data );
 
-  if( FD_UNLIKELY( !found ) ) {
+  if( FD_UNLIKELY( ULONG_MAX==found_idx ) ) {
     fd_memcpy( gui->validator_info.info[ gui->validator_info.info_cnt ].pubkey->uc, data, 32UL );
 
     strncpy( gui->validator_info.info[ gui->validator_info.info_cnt ].name, (char const *)(data+32UL), 64 );
@@ -946,6 +959,30 @@ fd_gui_handle_leader_schedule( fd_gui_t *    gui,
   ulong slot_cnt            = msg[ 3 ];
   ulong excluded_stake      = msg[ 4 ];
 
+  fd_stake_weight_t const * stake = (fd_stake_weight_t const *)fd_type_pun_const( msg+5UL );
+
+  for ( ulong i=0UL; i<staked_cnt; i++ ) {
+    ulong prev_epoch_idx = fd_gui_leader_schedule_contains( gui, stake[ i ].key.uc, 1 );
+    ulong upcoming_epoch_idx = fd_gui_leader_schedule_contains( gui, stake[ i ].key.uc, 0 );
+    if( FD_UNLIKELY( ULONG_MAX==prev_epoch_idx && ULONG_MAX==upcoming_epoch_idx ) ) {
+      fd_gui_printf_peers( gui, 1UL, &stake[ i ].key, FD_GUI_PEERS_ACTION_ADD );
+      fd_http_server_ws_broadcast( gui->http );
+      break;
+    }
+  }
+
+  if( gui->epoch.has_epoch[ 1 ] ) {
+    for ( ulong i=0UL; i<gui->epoch.epochs[ 1 ].lsched->pub_cnt; i++ ) {
+      for ( ulong j=0UL; j<staked_cnt; j++ ) {
+        if( FD_UNLIKELY( !memcmp( stake[ j ].key.uc, gui->epoch.epochs[ 1 ].lsched->pub[ i ].uc, 32 ) ) ) {
+          fd_gui_printf_peers( gui, 1UL, &stake[ i ].key, FD_GUI_PEERS_ACTION_REMOVE );
+          fd_http_server_ws_broadcast( gui->http );
+          break;
+        }
+      }
+    }
+  }
+
   FD_TEST( staked_cnt<=50000UL );
   FD_TEST( slot_cnt<=432000UL );
 
@@ -965,9 +1002,9 @@ fd_gui_handle_leader_schedule( fd_gui_t *    gui,
                                                                                gui->epoch.epochs[ idx ].start_slot,
                                                                                slot_cnt,
                                                                                staked_cnt,
-                                                                               fd_type_pun_const( msg+5UL ),
+                                                                               stake,
                                                                                excluded_stake ) );
-  fd_memcpy( gui->epoch.epochs[ idx ].stakes, fd_type_pun_const( msg+5UL ), staked_cnt*sizeof(gui->epoch.epochs[ idx ].stakes[ 0 ]) );
+  fd_memcpy( gui->epoch.epochs[ idx ].stakes, stake, staked_cnt*sizeof(gui->epoch.epochs[ idx ].stakes[ 0 ]) );
 
   if( FD_UNLIKELY( start_slot==0UL ) ) {
     gui->epoch.epochs[ 0 ].start_time = fd_log_wallclock();

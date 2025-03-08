@@ -668,33 +668,6 @@ fd_gui_printf_estimated_tps( fd_gui_t * gui ) {
   jsonp_close_envelope( gui );
 }
 
-static int
-fd_gui_gossip_contains( fd_gui_t const * gui,
-                        uchar const *    pubkey ) {
-  for( ulong i=0UL; i<gui->gossip.peer_cnt; i++ ) {
-    if( FD_UNLIKELY( !memcmp( gui->gossip.peers[ i ].pubkey->uc, pubkey, 32 ) ) ) return 1;
-  }
-  return 0;
-}
-
-static int
-fd_gui_vote_acct_contains( fd_gui_t const * gui,
-                           uchar const *    pubkey ) {
-  for( ulong i=0UL; i<gui->vote_account.vote_account_cnt; i++ ) {
-    if( FD_UNLIKELY( !memcmp( gui->vote_account.vote_accounts[ i ].pubkey, pubkey, 32 ) ) ) return 1;
-  }
-  return 0;
-}
-
-static int
-fd_gui_validator_info_contains( fd_gui_t const * gui,
-                                uchar const *    pubkey ) {
-  for( ulong i=0UL; i<gui->validator_info.info_cnt; i++ ) {
-    if( FD_UNLIKELY( !memcmp( gui->validator_info.info[ i ].pubkey, pubkey, 32 ) ) ) return 1;
-  }
-  return 0;
-}
-
 static void
 fd_gui_printf_peer( fd_gui_t *    gui,
                     uchar const * identity_pubkey ) {
@@ -797,6 +770,16 @@ fd_gui_printf_peer( fd_gui_t *    gui,
   jsonp_close_object( gui );
 }
 
+static ulong
+fd_gui_cur_and_next_lsched_contains( fd_gui_t const * gui,
+                                     uchar const *    pubkey ) {
+  for (ulong i=0UL; i<2; i++) {
+    ulong found_idx = fd_gui_leader_schedule_contains( gui, pubkey, i );
+    if( FD_UNLIKELY( found_idx!=ULONG_MAX ) ) return found_idx;
+  }
+  return ULONG_MAX;
+}
+
 void
 fd_gui_printf_peers_gossip_update( fd_gui_t *          gui,
                                    ulong const *       updated,
@@ -809,6 +792,7 @@ fd_gui_printf_peers_gossip_update( fd_gui_t *          gui,
     jsonp_open_object( gui, "value" );
       jsonp_open_array( gui, "add" );
         for( ulong i=0UL; i<added_cnt; i++ ) {
+          if( FD_LIKELY( ULONG_MAX==fd_gui_cur_and_next_lsched_contains( gui, gui->gossip.peers[ added[ i ] ].pubkey->uc ) ) ) continue;
           int actually_added = !fd_gui_vote_acct_contains( gui, gui->gossip.peers[ added[ i ] ].pubkey->uc ) &&
                                !fd_gui_validator_info_contains( gui, gui->gossip.peers[ added[ i ] ].pubkey->uc );
           if( FD_LIKELY( !actually_added ) ) continue;
@@ -819,6 +803,7 @@ fd_gui_printf_peers_gossip_update( fd_gui_t *          gui,
 
       jsonp_open_array( gui, "update" );
         for( ulong i=0UL; i<added_cnt; i++ ) {
+          if( FD_LIKELY( ULONG_MAX==fd_gui_cur_and_next_lsched_contains( gui, gui->gossip.peers[ added[ i ] ].pubkey->uc ) ) ) continue;
           int actually_added = !fd_gui_vote_acct_contains( gui, gui->gossip.peers[ added[ i ] ].pubkey->uc ) &&
                               !fd_gui_validator_info_contains( gui, gui->gossip.peers[ added[ i ] ].pubkey->uc );
           if( FD_LIKELY( actually_added ) ) continue;
@@ -826,12 +811,14 @@ fd_gui_printf_peers_gossip_update( fd_gui_t *          gui,
           fd_gui_printf_peer( gui, gui->gossip.peers[ added[ i ] ].pubkey->uc );
         }
         for( ulong i=0UL; i<updated_cnt; i++ ) {
+          if( FD_LIKELY( ULONG_MAX==fd_gui_cur_and_next_lsched_contains( gui, gui->gossip.peers[ updated[ i ] ].pubkey->uc ) ) ) continue;
           fd_gui_printf_peer( gui, gui->gossip.peers[ updated[ i ] ].pubkey->uc );
         }
       jsonp_close_array( gui );
 
       jsonp_open_array( gui, "remove" );
         for( ulong i=0UL; i<removed_cnt; i++ ) {
+          if( FD_LIKELY( ULONG_MAX==fd_gui_cur_and_next_lsched_contains( gui, removed[ i ].uc ) ) ) continue;
           int actually_removed = !fd_gui_vote_acct_contains( gui, removed[ i ].uc ) &&
                                  !fd_gui_validator_info_contains( gui, removed[ i ].uc );
           if( FD_UNLIKELY( !actually_removed ) ) continue;
@@ -859,6 +846,7 @@ fd_gui_printf_peers_vote_account_update( fd_gui_t *          gui,
     jsonp_open_object( gui, "value" );
       jsonp_open_array( gui, "add" );
       for( ulong i=0UL; i<added_cnt; i++ ) {
+        if( FD_LIKELY( ULONG_MAX==fd_gui_cur_and_next_lsched_contains( gui, gui->vote_account.vote_accounts[ added[ i ] ].pubkey->uc ) ) ) continue;
         int actually_added = !fd_gui_gossip_contains( gui, gui->vote_account.vote_accounts[ added[ i ] ].pubkey->uc ) &&
                              !fd_gui_validator_info_contains( gui, gui->vote_account.vote_accounts[ added[ i ] ].pubkey->uc );
         if( FD_LIKELY( !actually_added ) ) continue;
@@ -869,6 +857,7 @@ fd_gui_printf_peers_vote_account_update( fd_gui_t *          gui,
 
       jsonp_open_array( gui, "update" );
       for( ulong i=0UL; i<added_cnt; i++ ) {
+        if( FD_LIKELY( ULONG_MAX==fd_gui_cur_and_next_lsched_contains( gui, gui->vote_account.vote_accounts[ added[ i ] ].pubkey->uc ) ) ) continue;
         int actually_added = !fd_gui_gossip_contains( gui, gui->vote_account.vote_accounts[ added[ i ] ].pubkey->uc ) &&
                              !fd_gui_validator_info_contains( gui, gui->vote_account.vote_accounts[ added[ i ] ].pubkey->uc );
         if( FD_LIKELY( actually_added ) ) continue;
@@ -876,12 +865,14 @@ fd_gui_printf_peers_vote_account_update( fd_gui_t *          gui,
         fd_gui_printf_peer( gui, gui->vote_account.vote_accounts[ added[ i ] ].pubkey->uc );
       }
       for( ulong i=0UL; i<updated_cnt; i++ ) {
+        if( FD_LIKELY( ULONG_MAX==fd_gui_cur_and_next_lsched_contains( gui, gui->vote_account.vote_accounts[ updated[ i ] ].pubkey->uc ) ) ) continue;
         fd_gui_printf_peer( gui, gui->vote_account.vote_accounts[ updated[ i ] ].pubkey->uc );
       }
       jsonp_close_array( gui );
 
       jsonp_open_array( gui, "remove" );
       for( ulong i=0UL; i<removed_cnt; i++ ) {
+        if( FD_LIKELY( ULONG_MAX==fd_gui_cur_and_next_lsched_contains( gui, gui->vote_account.vote_accounts[ added[ i ] ].pubkey->uc ) ) ) continue;
         int actually_removed = !fd_gui_gossip_contains( gui, gui->vote_account.vote_accounts[ added[ i ] ].pubkey->uc ) &&
                                !fd_gui_validator_info_contains( gui, gui->vote_account.vote_accounts[ added[ i ] ].pubkey->uc );
         if( FD_UNLIKELY( !actually_removed ) ) continue;
@@ -909,6 +900,7 @@ fd_gui_printf_peers_validator_info_update( fd_gui_t *          gui,
     jsonp_open_object( gui, "value" );
       jsonp_open_array( gui, "add" );
       for( ulong i=0UL; i<added_cnt; i++ ) {
+        if( FD_LIKELY( ULONG_MAX==fd_gui_cur_and_next_lsched_contains( gui, gui->validator_info.info[ added[ i ] ].pubkey->uc ) ) ) continue;
         int actually_added = !fd_gui_gossip_contains( gui, gui->validator_info.info[ added[ i ] ].pubkey->uc ) &&
                              !fd_gui_vote_acct_contains( gui, gui->validator_info.info[ added[ i ] ].pubkey->uc );
         if( FD_LIKELY( !actually_added ) ) continue;
@@ -919,6 +911,7 @@ fd_gui_printf_peers_validator_info_update( fd_gui_t *          gui,
 
       jsonp_open_array( gui, "update" );
       for( ulong i=0UL; i<added_cnt; i++ ) {
+        if( FD_LIKELY( ULONG_MAX==fd_gui_cur_and_next_lsched_contains( gui, gui->validator_info.info[ added[ i ] ].pubkey->uc ) ) ) continue;
         int actually_added = !fd_gui_gossip_contains( gui, gui->validator_info.info[ added[ i ] ].pubkey->uc ) &&
                              !fd_gui_vote_acct_contains( gui, gui->validator_info.info[ added[ i ] ].pubkey->uc );
         if( FD_LIKELY( actually_added ) ) continue;
@@ -926,12 +919,14 @@ fd_gui_printf_peers_validator_info_update( fd_gui_t *          gui,
         fd_gui_printf_peer( gui, gui->validator_info.info[ added[ i ] ].pubkey->uc );
       }
       for( ulong i=0UL; i<updated_cnt; i++ ) {
+        if( FD_LIKELY( ULONG_MAX==fd_gui_cur_and_next_lsched_contains( gui, gui->validator_info.info[ updated[ i ] ].pubkey->uc ) ) ) continue;
         fd_gui_printf_peer( gui, gui->validator_info.info[ updated[ i ] ].pubkey->uc );
       }
       jsonp_close_array( gui );
 
       jsonp_open_array( gui, "remove" );
       for( ulong i=0UL; i<removed_cnt; i++ ) {
+        if( FD_LIKELY( ULONG_MAX==fd_gui_cur_and_next_lsched_contains( gui, gui->validator_info.info[ added[ i ] ].pubkey->uc ) ) ) continue;
         int actually_removed = !fd_gui_gossip_contains( gui, gui->validator_info.info[ added[ i ] ].pubkey->uc ) &&
                                !fd_gui_vote_acct_contains( gui, gui->validator_info.info[ added[ i ] ].pubkey->uc );
         if( FD_UNLIKELY( !actually_removed ) ) continue;
@@ -953,20 +948,43 @@ fd_gui_printf_peers_all( fd_gui_t * gui ) {
     jsonp_open_object( gui, "value" );
       jsonp_open_array( gui, "add" );
       for( ulong i=0UL; i<gui->gossip.peer_cnt; i++ ) {
+        if( FD_LIKELY( ULONG_MAX==fd_gui_cur_and_next_lsched_contains( gui, gui->gossip.peers[ i ].pubkey->uc ) ) ) continue;
         fd_gui_printf_peer( gui, gui->gossip.peers[ i ].pubkey->uc );
       }
       for( ulong i=0UL; i<gui->vote_account.vote_account_cnt; i++ ) {
+        if( FD_LIKELY( ULONG_MAX==fd_gui_cur_and_next_lsched_contains( gui, gui->vote_account.vote_accounts[ i ].pubkey->uc ) ) ) continue;
         int actually_added = !fd_gui_gossip_contains( gui, gui->vote_account.vote_accounts[ i ].pubkey->uc );
         if( FD_UNLIKELY( actually_added ) ) {
           fd_gui_printf_peer( gui, gui->vote_account.vote_accounts[ i ].pubkey->uc );
         }
       }
       for( ulong i=0UL; i<gui->validator_info.info_cnt; i++ ) {
+        if( FD_LIKELY( ULONG_MAX==fd_gui_cur_and_next_lsched_contains( gui, gui->validator_info.info[ i ].pubkey->uc ) ) ) continue;
         int actually_added = !fd_gui_gossip_contains( gui, gui->validator_info.info[ i ].pubkey->uc ) &&
                              !fd_gui_vote_acct_contains( gui, gui->validator_info.info[ i ].pubkey->uc );
         if( FD_UNLIKELY( actually_added ) ) {
           fd_gui_printf_peer( gui, gui->validator_info.info[ i ].pubkey->uc );
         }
+      }
+      jsonp_close_array( gui );
+    jsonp_close_object( gui );
+  jsonp_close_envelope( gui );
+}
+
+void
+fd_gui_printf_peers( fd_gui_t *          gui,
+                     ulong               peer_cnt,
+                     fd_pubkey_t const * peers,
+                     ulong               action ) {
+  jsonp_open_envelope( gui, "peers", "update" );
+    jsonp_open_object( gui, "value" );
+      if( FD_LIKELY( action==FD_GUI_PEERS_ACTION_ADD ) ) jsonp_open_array( gui, "add" );
+      else if( FD_LIKELY( action==FD_GUI_PEERS_ACTION_REMOVE ) ) jsonp_open_array( gui, "remove" );
+      else if( FD_LIKELY( action==FD_GUI_PEERS_ACTION_UPDATE ) ) jsonp_open_array( gui, "update" );
+
+      for( ulong i=0UL; i<peer_cnt; i++ ) {
+        if( FD_LIKELY( ULONG_MAX==fd_gui_cur_and_next_lsched_contains( gui, peers[ i ].uc ) ) ) continue;
+        fd_gui_printf_peer( gui, peers[ i ].uc );
       }
       jsonp_close_array( gui );
     jsonp_close_object( gui );

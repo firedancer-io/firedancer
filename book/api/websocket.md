@@ -782,13 +782,15 @@ completed, rather than rooted, but no speculative epoch information is
 published until the epoch is finalized by rooting the slot.
 
 ### peers
-Information about validator peers from the cluster. Peer data is sourced
-from gossip, the accounts database, and the on-chain configuration
-program. All peer information is authenticated meaning it can only be
-reported from the holder of the private key, however not all peer data
-is validated or checked for correctness. In particular, data from the
-gossip network and the config program is self reported by the validator
-and could be empty, corrupt, filled with garbage, or malicious.
+Information about validator peers from the cluster. Only validator peers
+with leader slots on for the current or subsequent epoch will sent on
+on this message channel. Peer data is sourced from gossip, the accounts
+database, and the on-chain configuration program. All peer information
+is authenticated meaning it can only be reported from the holder of the
+private key, however not all peer data is validated or checked for
+correctness. In particular, data from the gossip network and the config
+program is self reported by the validator and could be empty, corrupt,
+filled with garbage, or malicious.
 
 Peer information is keyed by the validator identity key. Multiple vote
 accounts could in theory use the same identity keypair, although it is

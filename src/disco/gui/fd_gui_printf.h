@@ -69,6 +69,12 @@ void
 fd_gui_printf_peers_all( fd_gui_t * gui );
 
 void
+fd_gui_printf_peers( fd_gui_t *          gui,
+                     ulong               peer_cnt,
+                     fd_pubkey_t const * peers,
+                     ulong               action );
+
+void
 fd_gui_printf_slot( fd_gui_t * gui,
                     ulong      slot );
 
