@@ -35,7 +35,7 @@ dev_cmd_args( int *    pargc,
 
 void
 dev_cmd_perm( args_t *         args,
-              fd_caps_ctx_t *  caps,
+              fd_cap_chk_t *   chk,
               config_t const * config );
 
 void
@@ -44,7 +44,7 @@ dev_cmd_fn( args_t *   args,
 
 void
 wksp_cmd_perm( args_t *         args,
-               fd_caps_ctx_t *  caps,
+               fd_cap_chk_t *   chk,
                config_t const * config );
 
 void
@@ -62,7 +62,7 @@ dev1_cmd_fn( args_t *   args,
 
 void
 txn_cmd_perm( args_t *         args,
-              fd_caps_ctx_t *  caps,
+              fd_cap_chk_t *   chk,
               config_t const * config );
 
 void
@@ -90,7 +90,7 @@ load_cmd_args( int *    pargc,
 
 void
 load_cmd_perm( args_t *         args,
-               fd_caps_ctx_t *  caps,
+               fd_cap_chk_t *   chk,
                config_t const * config );
 
 void
@@ -108,7 +108,7 @@ dump_cmd_fn( args_t *   args,
 
 void
 flame_cmd_perm( args_t *         args,
-                fd_caps_ctx_t *  caps,
+                fd_cap_chk_t *   chk,
                 config_t const * config );
 
 void

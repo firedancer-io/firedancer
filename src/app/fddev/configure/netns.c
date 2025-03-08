@@ -11,15 +11,15 @@ enabled( config_t const * config ) {
 }
 
 static void
-init_perm( fd_caps_ctx_t *  caps,
+init_perm( fd_cap_chk_t *   chk,
            config_t const * config FD_PARAM_UNUSED ) {
-  fd_caps_check_root( caps, NAME, "create and enter network namespaces" );
+  fd_cap_chk_root( chk, NAME, "create and enter network namespaces" );
 }
 
 static void
-fini_perm( fd_caps_ctx_t *  caps,
+fini_perm( fd_cap_chk_t *   chk,
            config_t const * config FD_PARAM_UNUSED ) {
-  fd_caps_check_root( caps, NAME, "remove network namespaces" );
+  fd_cap_chk_root( chk, NAME, "remove network namespaces" );
 }
 
 static void
