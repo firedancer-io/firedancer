@@ -1,12 +1,14 @@
 #define _GNU_SOURCE
 #include "fddev.h"
 
+#include <sys/resource.h>
+
 void
 initialize_workspaces( config_t * const config );
 
 void
 wksp_cmd_perm( args_t *         args FD_PARAM_UNUSED,
-               fd_caps_ctx_t *  caps,
+               fd_cap_chk_t *   chk,
                config_t const * config ) {
   ulong mlock_limit = 0UL;
   for( ulong i=0UL; i<config->topo.wksp_cnt; i++ ) {
@@ -14,7 +16,7 @@ wksp_cmd_perm( args_t *         args FD_PARAM_UNUSED,
     mlock_limit = fd_ulong_max( mlock_limit, wksp->page_cnt * wksp->page_sz );
   }
   /* One 4K page is used by the logging lock */
-  fd_caps_check_resource( caps, "wksp", RLIMIT_MEMLOCK, mlock_limit+4096UL, "call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`" );
+  fd_cap_chk_raise_rlimit( chk, "wksp", RLIMIT_MEMLOCK, mlock_limit+4096UL, "call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`" );
 }
 
 void

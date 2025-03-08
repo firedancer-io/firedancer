@@ -31,9 +31,9 @@ enabled( config_t const * config ) {
 }
 
 static void
-init_perm( fd_caps_ctx_t *  caps,
+init_perm( fd_cap_chk_t *   chk,
            config_t const * config FD_PARAM_UNUSED ) {
-  fd_caps_check_root( caps, NAME, "disable loopback " UDPSEG_FEATURE " with `ethtool --offload lo " UDPSEG_FEATURE " off`" );
+  fd_cap_chk_root( chk, NAME, "disable loopback " UDPSEG_FEATURE " with `ethtool --offload lo " UDPSEG_FEATURE " off`" );
 }
 
 /* ethtool_ioctl wraps ioctl(sock,SIOCETHTOOL,"lo",*) */

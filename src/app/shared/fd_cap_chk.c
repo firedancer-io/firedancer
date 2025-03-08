@@ -1,37 +1,58 @@
 #define _GNU_SOURCE
-#include "caps.h"
+#include "fd_cap_chk.h"
 
-#include "configure/configure.h"
+#include "fd_file_util.h"
+#include "../../util/fd_util.h"
 
-#include <stdio.h>
-#include <stdarg.h>
 #include <unistd.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <errno.h>
 #include <sys/syscall.h>
+#include <sys/resource.h>
 #include <linux/capability.h>
+
+#define MAX_ERROR_ENTRIES (16UL)
+#define MAX_ERROR_MSG_LEN (256UL)
+
+struct fd_cap_chk_private {
+  ulong err_cnt;
+  char  err[ MAX_ERROR_ENTRIES ][ MAX_ERROR_MSG_LEN ];
+};
 
 __attribute__ ((format (printf, 2, 3)))
 static void
-fd_caps_private_add_error( fd_caps_ctx_t * ctx,
-                           char const *    fmt,
-                           ... ) {
-  if( FD_UNLIKELY( ctx->err_cnt >= MAX_ERROR_ENTRIES ) )
-    FD_LOG_ERR(( "too many capability checks failed" ));
+fd_cap_chk_add_error( fd_cap_chk_t * chk,
+                      char const *   fmt,
+                      ... ) {
+  if( FD_UNLIKELY( chk->err_cnt>=MAX_ERROR_ENTRIES ) ) FD_LOG_ERR(( "too many capability checks failed" ));
 
   va_list ap;
   va_start( ap, fmt );
-  int result = vsnprintf( ctx->err[ ctx->err_cnt++ ], MAX_ERROR_MSG_LEN, fmt, ap );
-  if( FD_UNLIKELY( result < 0 ) ) FD_LOG_ERR(( "vsnprintf failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  else if ( FD_UNLIKELY( (ulong)result >= MAX_ERROR_MSG_LEN ) ) FD_LOG_ERR(( "vsnprintf truncated message" ));
+  int result = vsnprintf( chk->err[ chk->err_cnt++ ], MAX_ERROR_MSG_LEN, fmt, ap );
+  if( FD_UNLIKELY( result<0 ) ) FD_LOG_ERR(( "vsnprintf failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  else if ( FD_UNLIKELY( (ulong)result>=MAX_ERROR_MSG_LEN ) ) FD_LOG_ERR(( "vsnprintf truncated message" ));
   va_end( ap );
 }
 
-void
-fd_caps_check_root( fd_caps_ctx_t * ctx,
-                    char const *    name,
-                    char const *    reason ) {
-  if( FD_LIKELY( !getuid() ) ) return;
+void *
+fd_cap_chk_new( void * shmem ) {
+  fd_cap_chk_t * chk = (fd_cap_chk_t *)shmem;
+  chk->err_cnt = 0UL;
+  return chk;
+}
 
-  fd_caps_private_add_error( ctx, "%s ... process requires root to %s", name, reason );
+fd_cap_chk_t *
+fd_cap_chk_join( void * shchk ) {
+  return (fd_cap_chk_t *)shchk;
+}
+
+void
+fd_cap_chk_root( fd_cap_chk_t * chk,
+                 char const *   name,
+                 char const *   reason ) {
+  if( FD_LIKELY( !getuid() ) ) return;
+  fd_cap_chk_add_error( chk, "%s ... process requires root to %s", name, reason );
 }
 
 static int
@@ -42,13 +63,12 @@ has_capability( uint capability ) {
     .version = _LINUX_CAPABILITY_VERSION_3
   };
 
-  if( FD_UNLIKELY( syscall( SYS_capget, &capheader, capdata ) ) )
-    FD_LOG_ERR(( "capget syscall failed (%i-%s)", errno, fd_io_strerror( errno ) ) );
+  if( FD_UNLIKELY( syscall( SYS_capget, &capheader, capdata ) ) ) FD_LOG_ERR(( "capget syscall failed (%i-%s)", errno, fd_io_strerror( errno ) ) );
   return !!(capdata[ 0 ].effective & (1U << capability));
 }
 
-FD_FN_CONST static char *
-fd_caps_str( uint capability ) {
+FD_FN_CONST static char const *
+cap_cstr( uint capability ) {
   switch( capability ) {
     case CAP_CHOWN:              return "CAP_CHOWN";
     case CAP_DAC_OVERRIDE:       return "CAP_DAC_OVERRIDE";
@@ -102,17 +122,16 @@ fd_caps_str( uint capability ) {
 }
 
 void
-fd_caps_check_capability( fd_caps_ctx_t * ctx,
-                          char const *    name,
-                          uint            capability,
-                          char const *    reason ) {
+fd_cap_chk_cap( fd_cap_chk_t * chk,
+                char const *    name,
+                uint            capability,
+                char const *    reason ) {
   if( FD_LIKELY( has_capability( capability ) ) ) return;
-
-  fd_caps_private_add_error( ctx, "%s ... process requires capability `%s` to %s", name, fd_caps_str( capability ), reason );
+  fd_cap_chk_add_error( chk, "%s ... process requires capability `%s` to %s", name, cap_cstr( capability ), reason );
 }
 
 FD_FN_CONST static char *
-fd_caps_resource_str( fd_rlimit_res_t resource ) {
+rlimit_cstr( int resource ) {
   switch( resource ) {
     case RLIMIT_CPU:        return "RLIMIT_CPU";
     case RLIMIT_FSIZE:      return "RLIMIT_FSIZE";
@@ -135,44 +154,56 @@ fd_caps_resource_str( fd_rlimit_res_t resource ) {
   }
 }
 
+#ifdef __GLIBC__
+typedef __rlimit_resource_t fd_rlimit_res_t;
+#else /* non-glibc */
+typedef int fd_rlimit_res_t;
+#endif /* __GLIBC__ */
+
 void
-fd_caps_check_resource( fd_caps_ctx_t * ctx,
-                        char const *    name,
-                        fd_rlimit_res_t resource,
-                        ulong           limit,
-                        char const *    reason ) {
+fd_cap_chk_raise_rlimit( fd_cap_chk_t *  chk,
+                         char const *    name,
+                         int             _resource,
+                         ulong           limit,
+                         char const *    reason ) {
+  fd_rlimit_res_t resource = (fd_rlimit_res_t)_resource;
+
   struct rlimit rlim;
-  if( FD_UNLIKELY( getrlimit( resource, &rlim ) ) )
-    FD_LOG_ERR(( "getrlimit failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_LIKELY( rlim.rlim_cur >= limit ) ) return;
+  if( FD_UNLIKELY( getrlimit( resource, &rlim ) ) ) FD_LOG_ERR(( "getrlimit failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( FD_LIKELY( rlim.rlim_cur>=limit ) ) return;
 
   if( FD_LIKELY( !has_capability( CAP_SYS_RESOURCE ) ) ) {
-    if( FD_LIKELY( resource == RLIMIT_NICE && has_capability( CAP_SYS_NICE ) ) ) {
-        /* special case, if we have CAP_SYS_NICE we can set any nice
+    if( FD_LIKELY( resource==RLIMIT_NICE && has_capability( CAP_SYS_NICE ) ) ) {
+        /* Special case, if we have CAP_SYS_NICE we can set any nice
            value without raising the limit with CAP_SYS_RESOURCE. */
         return;
     }
 
-    if( FD_UNLIKELY( resource == RLIMIT_NICE ) )
-      fd_caps_private_add_error( ctx,
-                                "%s ... process requires capability `%s` or `%s` to %s",
-                                name,
-                                fd_caps_str( CAP_SYS_RESOURCE ),
-                                fd_caps_str( CAP_SYS_NICE ),
-                                reason );
-    else
-      fd_caps_private_add_error( ctx,
-                                "%s ... process requires capability `%s` to %s",
-                                name,
-                                fd_caps_str( CAP_SYS_RESOURCE ),
-                                reason );
+    if( FD_UNLIKELY( resource==RLIMIT_NICE ) ) {
+      fd_cap_chk_add_error( chk,
+                            "%s ... process requires capability `%s` or `%s` to %s",
+                            name,
+                            cap_cstr( CAP_SYS_RESOURCE ),
+                            cap_cstr( CAP_SYS_NICE ),
+                            reason );
+    } else {
+      fd_cap_chk_add_error( chk,
+                            "%s ... process requires capability `%s` to %s",
+                            name,
+                            cap_cstr( CAP_SYS_RESOURCE ),
+                            reason );
+    }
   } else {
     if( FD_UNLIKELY( resource==RLIMIT_NOFILE ) ) {
       /* If we have CAP_SYS_RESOURCE, it may not be enough to increase
          RLIMIT_NOFILE.  Will still result in EPERM if /proc/sys/fs/nr_open
          is below the desired number. */
-      uint file_nr = read_uint_file( "/proc/sys/fs/nr_open", "system might not support configuring sysctl," );
-      if( FD_UNLIKELY( file_nr < limit ) )
+      uint file_nr;
+      if( FD_UNLIKELY( -1==fd_file_util_read_uint( "/proc/sys/fs/nr_open", &file_nr ) ) ) {
+        FD_LOG_ERR(( "failed to read `/proc/sys/fs/nr_open` (%i-%s)", errno, fd_io_strerror( errno ) ));
+      }
+
+      if( FD_UNLIKELY( file_nr<limit ) )
         FD_LOG_ERR(( "Firedancer requires `/proc/sys/fs/nr_open` to be at least %lu "
                      "to raise RLIMIT_NOFILE, but it is %u. Please either increase "
                      "the sysctl or run `fdctl configure init sysctl` which will do "
@@ -180,7 +211,17 @@ fd_caps_check_resource( fd_caps_ctx_t * ctx,
     }
     rlim.rlim_cur = limit;
     rlim.rlim_max = limit;
-    if( FD_UNLIKELY( setrlimit( resource, &rlim ) ) )
-      FD_LOG_ERR(( "setrlimit failed (%i-%s) for resource %s", errno, fd_io_strerror( errno ), fd_caps_resource_str( resource ) ));
+    if( FD_UNLIKELY( setrlimit( resource, &rlim ) ) ) FD_LOG_ERR(( "setrlimit failed (%i-%s) for resource %s", errno, fd_io_strerror( errno ), rlimit_cstr( resource ) ));
   }
+}
+
+ulong
+fd_cap_chk_err_cnt( fd_cap_chk_t const * chk ) {
+  return chk->err_cnt;
+}
+
+char const *
+fd_cap_chk_err( fd_cap_chk_t const * chk,
+                ulong                idx ) {
+  return chk->err[ idx ];
 }
