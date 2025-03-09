@@ -4,18 +4,14 @@
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../disco/keyguard/fd_keyguard.h"
-#include "../../util/net/fd_eth.h"
 #include "../../util/rng/fd_rng.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
-#include <math.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <sys/socket.h>
-
-#pragma GCC diagnostic ignored "-Wstrict-aliasing"
 
 /* Max number of validators that can be actively queried */
 #define FD_ACTIVE_KEY_MAX (1<<12)
