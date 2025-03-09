@@ -134,7 +134,6 @@ typedef struct {
       long   tx_flush_timeout_ns;
       char   xdp_mode[8];
       int    zero_copy;
-      uint   src_ip_addr;
       uchar  src_mac_addr[6];
 
       ushort shred_listen_port;

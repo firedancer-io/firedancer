@@ -1,5 +1,5 @@
-#ifndef HEADER_fd_src_net_xdp_fd_xdp_redirect_user_h
-#define HEADER_fd_src_net_xdp_fd_xdp_redirect_user_h
+#ifndef HEADER_fd_src_waltz_xdp_fd_xdp_redirect_user_h
+#define HEADER_fd_src_waltz_xdp_fd_xdp_redirect_user_h
 
 #include "fd_xsk.h"
 #include "../../util/fd_util.h"
@@ -33,4 +33,4 @@ fd_xsk_deactivate( fd_xsk_t * xsk,
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_net_xdp_fd_xdp_redirect_user_h */
+#endif /* HEADER_fd_src_waltz_xdp_fd_xdp_redirect_user_h */

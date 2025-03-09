@@ -10,31 +10,19 @@
 #include <unistd.h>
 #include <sys/socket.h>
 
-#include "fd_xdp_redirect_prog.h"
 #include "../../util/fd_util.h"
-#include "../../util/net/fd_ip4.h"
-#include "../ebpf/fd_ebpf.h"
+#include "../ebpf/fd_linux_bpf.h"
+#include "fd_xdp1.h"
 
 /* Test support *******************************************************/
 
-/* fd_xdp_redirect_prog is eBPF ELF object containing the XDP program.
-   It is embedded into this program. */
-
-FD_IMPORT_BINARY( fd_xdp_redirect_prog, "src/waltz/xdp/fd_xdp_redirect_prog.o" );
-
-static uchar tmp_prog[ 2048UL ];
-
-/* Kernel file descriptors */
-
 int prog_fd     = -1; /* BPF program */
-int udp_dsts_fd = -1; /* UDP destinations */
 int xsks_fd     = -1; /* Queue-to-XSK map */
 int xsk_fd      = -1; /* AF_XDP socket */
 
 /* Test harness *******************************************************/
 
 typedef struct { ulong k; int v; } fd_udp_dst_kv_t;
-typedef struct { int   k; int v; } fd_xsks_kv_t;
 
 struct fd_xdp_redirect_test {
   /* Input ****************/
@@ -43,12 +31,7 @@ struct fd_xdp_redirect_test {
   uchar const * packet;    /* Packet content (starting at Ethernet) */
   ulong const * packet_sz; /* Pointer to size */
 
-  /* Note: Relies on little-endian addressing */
-  fd_udp_dst_kv_t *udp_dsts_kv; /* Null-delimited key-value pairs in UDP dsts map */
-  fd_xsks_kv_t    *xsks_kv;     /* Null-delimited key-value pairs in XSKs map     */
-
   /* Output ***************/
-
   uint xdp_action;
 };
 typedef struct fd_xdp_redirect_test fd_xdp_redirect_test_t;
@@ -73,33 +56,11 @@ fd_bpf_map_clear( int map_fd ) {
 
   return 0;
 }
-
-static inline ulong
-fd_xdp_udp_dst_key( uint ip4_addr,
-                    uint udp_port ) {
-  return ( (ulong)( ip4_addr )<<16 ) | fd_ushort_bswap( (ushort)udp_port );
-}
-
 static void
 fd_run_xdp_redirect_test( fd_xdp_redirect_test_t const * test ) {
-  fd_bpf_map_clear( udp_dsts_fd );
-  fd_bpf_map_clear( xsks_fd     );
+  fd_bpf_map_clear( xsks_fd );
 
 # define FD_XDP_TEST(c) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ERR(( "FAIL (%s): %s", test->name, #c )); } while(0)
-
-  if( test->udp_dsts_kv ) {
-    for( fd_udp_dst_kv_t *kv=test->udp_dsts_kv; kv->k; kv++ ) {
-      if( FD_UNLIKELY( 0!=fd_bpf_map_update_elem( udp_dsts_fd, &kv->k, &kv->v, 0UL ) ) ) {
-        FD_LOG_ERR(( "fd_bpf_map_update_elem(%d,%#lx,%#x,0) failed (%i-%s)",
-                     udp_dsts_fd, kv->k, (uint)kv->v, errno, fd_io_strerror( errno ) ));
-      }
-    }
-  } else {
-    /* Add 127.0.0.1:8001 to map by default */
-    ulong k=fd_xdp_udp_dst_key( FD_IP4_ADDR( 127, 0, 0, 1), 8001U );
-    uint  v=0U;
-    FD_TEST( 0==fd_bpf_map_update_elem( udp_dsts_fd, &k, &v, 0UL ) );
-  }
 
   /* Hook up to XSK */
   int rx_queue = 0;
@@ -163,25 +124,6 @@ int main( int     argc,
   /* Create maps */
 
   union bpf_attr attr = {
-    .map_type    = BPF_MAP_TYPE_HASH,
-    .map_name    = "fd_xdp_udp_dsts",
-    .key_size    = 8U,
-    .value_size  = 4U,
-    .max_entries = FD_XDP_UDP_MAP_CNT,
-  };
-  udp_dsts_fd = (int)bpf( BPF_MAP_CREATE, &attr, sizeof(union bpf_attr) );
-  if( FD_UNLIKELY( udp_dsts_fd<0 ) ) {
-    if( FD_UNLIKELY( errno==EPERM ) ) {
-      FD_LOG_WARNING(( "skip: insufficient perms" ));
-      fd_halt();
-      return 0;
-    }
-    FD_LOG_WARNING(( "bpf_map_create(BPF_MAP_TYPE_HASH,\"fd_xdp_udp_dsts\",8U,4U,%u) failed (%i-%s)",
-                     FD_XDP_UDP_MAP_CNT, errno, fd_io_strerror( errno ) ));
-    return -1;
-  }
-
-  attr = (union bpf_attr) {
     .map_type    = BPF_MAP_TYPE_XSKMAP,
     .key_size    = 4U,
     .value_size  = 4U,
@@ -190,37 +132,34 @@ int main( int     argc,
   };
   xsks_fd = (int)bpf( BPF_MAP_CREATE, &attr, sizeof(union bpf_attr) );
   if( FD_UNLIKELY( xsks_fd<0 ) ) {
+    if( FD_UNLIKELY( errno==EPERM ) ) {
+      FD_LOG_WARNING(( "skip: insufficient perms" ));
+      fd_halt();
+      return 0;
+    }
     FD_LOG_WARNING(( "Failed to create XSKMAP (%i-%s)", errno, fd_io_strerror( errno ) ));
     return -1;
   }
 
   /* Link program */
 
-  fd_ebpf_sym_t syms[ 2 ] = {
-    { .name = "fd_xdp_udp_dsts", .value = (ulong)udp_dsts_fd },
-    { .name = "fd_xdp_xsks",     .value = (ulong)xsks_fd     }
-  };
-
-  fd_ebpf_link_opts_t link_opts = {
-    .section = "xdp",
-    .sym     = syms,
-    .sym_cnt = 2UL
-  };
-
-  FD_TEST( fd_xdp_redirect_prog_sz<=sizeof(tmp_prog) );
-  fd_memcpy( tmp_prog, fd_xdp_redirect_prog, fd_xdp_redirect_prog_sz );
-
-  fd_ebpf_link_opts_t * res =
-    fd_ebpf_static_link( &link_opts, tmp_prog, fd_xdp_redirect_prog_sz );
+  ushort ports[1] = {8001};
+  ulong code_buf[ 512 ];
+  ulong code_cnt = fd_xdp_gen_program( code_buf, xsks_fd, ports, 1UL );
 
   /* Load object into kernel */
 
+  char ebpf_kern_log[ 32768UL ];
+  ebpf_kern_log[0] = 0;
   attr = (union bpf_attr) {
     .prog_type = BPF_PROG_TYPE_XDP,
-    .insn_cnt  = (uint)(res->bpf_sz / 8UL),
-    .insns     = (ulong)res->bpf,
+    .insn_cnt  = (uint)code_cnt,
+    .insns     = (ulong)code_buf,
     .license   = (ulong)"Apache-2.0",
-    .prog_name = "fd_redirect"
+    .prog_name = "fd_redirect",
+    .log_level = 6,
+    .log_size  = 32768UL,
+    .log_buf   = (ulong)ebpf_kern_log
   };
   prog_fd = (int)bpf( BPF_PROG_LOAD, &attr, sizeof(union bpf_attr) );
   if( FD_UNLIKELY( prog_fd<0 ) ) {
@@ -229,6 +168,7 @@ int main( int     argc,
       fd_halt();
       return 0;
     }
+    FD_LOG_WARNING(( "eBPF verifier log:\n%s", ebpf_kern_log ));
     FD_LOG_ERR(( "BPF_PROG_LOAD failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 

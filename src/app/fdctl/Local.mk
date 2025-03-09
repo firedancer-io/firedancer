@@ -95,7 +95,6 @@ $(call make-unit-test,test_tiles_verify,run/tiles/test_verify,fd_ballet fd_tango
 $(call run-unit-test,test_tiles_verify)
 $(call make-unit-test,test_config_parse,test_config_parse,fd_fdctl fd_ballet fd_util)
 
-$(OBJDIR)/obj/app/fdctl/configure/xdp.o: src/waltz/xdp/fd_xdp_redirect_prog.o
 $(OBJDIR)/obj/app/fdctl/config_parse.o: src/app/fdctl/config/default.toml
 $(OBJDIR)/obj/app/fdctl/config_parse.o: src/app/fdctl/config/default-firedancer.toml
 $(OBJDIR)/obj/app/fdctl/run/tiles/fd_gui.o: book/public/fire.svg
