@@ -4,7 +4,6 @@
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../disco/keyguard/fd_keyguard.h"
-#include "../../util/net/fd_eth.h"
 #include "../../util/rng/fd_rng.h"
 #include <string.h>
 #include <stdio.h>
@@ -14,8 +13,6 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/random.h>
-
-#pragma GCC diagnostic ignored "-Wstrict-aliasing"
 
 /* Maximum size of a network packet */
 #define PACKET_DATA_SIZE 1232
