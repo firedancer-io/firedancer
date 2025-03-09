@@ -299,10 +299,12 @@ main1( int     argc,
 
   /* check if we are appropriate permissioned to run the desired command */
   if( FD_LIKELY( action->perm ) ) {
-    fd_caps_ctx_t caps[1] = {0};
-    action->perm( &args, caps, &config );
-    if( FD_UNLIKELY( caps->err_cnt ) ) {
-      for( ulong i=0; i<caps->err_cnt; i++ ) FD_LOG_WARNING(( "%s", caps->err[ i ] ));
+    fd_cap_chk_t * chk = fd_cap_chk_join( fd_cap_chk_new( __builtin_alloca_with_align( fd_cap_chk_footprint(), FD_CAP_CHK_ALIGN ) ) );
+    action->perm( &args, chk, &config );
+    ulong err_cnt = fd_cap_chk_err_cnt( chk );
+    if( FD_UNLIKELY( err_cnt ) ) {
+      for( ulong i=0UL; i<err_cnt; i++ ) FD_LOG_WARNING(( "%s", fd_cap_chk_err( chk, i ) ));
+
       if( FD_LIKELY( !strcmp( action->name, "run" ) ) ) {
         FD_LOG_ERR(( "insufficient permissions to execute command `%s`. It is recommended "
                      "to start Firedancer as the root user, but you can also start it "

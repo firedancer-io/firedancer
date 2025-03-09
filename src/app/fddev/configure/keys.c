@@ -1,13 +1,14 @@
 #include "../../fdctl/configure/configure.h"
 
+#include "../../shared/fd_file_util.h"
 #include <sys/stat.h>
 
 #define NAME "keys"
 
-
 static void
 init( config_t * config ) {
-  mkdir_all( config->scratch_directory, config->uid, config->gid );
+  if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( config->scratch_directory, config->uid, config->gid ) ) )
+    FD_LOG_ERR(( "could not create scratch directory `%s` (%i-%s)", config->scratch_directory, errno, fd_io_strerror( errno ) ));
 
   struct stat st;
   if( FD_UNLIKELY( stat( config->consensus.identity_path, &st ) && errno==ENOENT ) )

@@ -9,6 +9,7 @@
 #include "../../disco/keyguard/fd_keyload.h"
 
 #include <strings.h>
+#include <sys/resource.h>
 
 /* The process of switching identity of the validator is somewhat
    involved, to prevent it from producing torn data (for example,
@@ -119,11 +120,11 @@
 
 void
 set_identity_cmd_perm( args_t *         args   FD_PARAM_UNUSED,
-                       fd_caps_ctx_t *  caps,
+                       fd_cap_chk_t *   chk,
                        config_t const * config FD_PARAM_UNUSED ) {
   /* 5 huge pages for the key storage area */
   ulong mlock_limit = 5UL * FD_SHMEM_NORMAL_PAGE_SZ;
-  fd_caps_check_resource( caps, "set-identity", RLIMIT_MEMLOCK, mlock_limit, "call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`" );
+  fd_cap_chk_raise_rlimit( chk, "set-identity", RLIMIT_MEMLOCK, mlock_limit, "call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`" );
 }
 
 fd_keyswitch_t *

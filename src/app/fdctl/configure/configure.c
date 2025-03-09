@@ -49,14 +49,14 @@ configure_cmd_args( int *    pargc,
 
 void
 configure_cmd_perm( args_t *         args,
-                    fd_caps_ctx_t *  caps,
+                    fd_cap_chk_t *   chk,
                     config_t const * config ) {
   for( configure_stage_t ** stage = args->configure.stages; *stage; stage++ ) {
     switch( args->configure.command ) {
       case CONFIGURE_CMD_INIT: {
         int enabled = !(*stage)->enabled || (*stage)->enabled( config );
         if( FD_LIKELY( enabled && (*stage)->check( config ).result != CONFIGURE_OK ) )
-          if( FD_LIKELY( (*stage)->init_perm ) ) (*stage)->init_perm( caps, config );
+          if( FD_LIKELY( (*stage)->init_perm ) ) (*stage)->init_perm( chk, config );
         break;
       }
       case CONFIGURE_CMD_CHECK:
@@ -64,7 +64,7 @@ configure_cmd_perm( args_t *         args,
       case CONFIGURE_CMD_FINI: {
         int enabled = !(*stage)->enabled || (*stage)->enabled( config );
         if( FD_LIKELY( enabled && (*stage)->check( config ).result != CONFIGURE_NOT_CONFIGURED ) )
-          if( FD_LIKELY( (*stage)->fini_perm ) ) (*stage)->fini_perm( caps, config );
+          if( FD_LIKELY( (*stage)->fini_perm ) ) (*stage)->fini_perm( chk, config );
         break;
       }
     }
