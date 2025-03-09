@@ -211,7 +211,7 @@ fd_cap_chk_raise_rlimit( fd_cap_chk_t *  chk,
     }
     rlim.rlim_cur = limit;
     rlim.rlim_max = limit;
-    if( FD_UNLIKELY( setrlimit( resource, &rlim ) ) ) FD_LOG_ERR(( "setrlimit failed (%i-%s) for resource %s", errno, fd_io_strerror( errno ), rlimit_cstr( resource ) ));
+    if( FD_UNLIKELY( setrlimit( resource, &rlim ) ) ) FD_LOG_ERR(( "setrlimit failed (%i-%s) for resource %s", errno, fd_io_strerror( errno ), rlimit_cstr( _resource ) ));
   }
 }
 

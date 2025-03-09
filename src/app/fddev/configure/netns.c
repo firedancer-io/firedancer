@@ -22,6 +22,25 @@ fini_perm( fd_cap_chk_t *   chk,
   fd_cap_chk_root( chk, NAME, "remove network namespaces" );
 }
 
+/* RUN() executes the given string and formatting arguments as a
+   subprocess, and waits for the child to complete.  If the child does
+   not exit successfully with code 0, the calling program is aborted. */
+
+#define RUN(...) do {                                                  \
+    char cmd[ 4096 ];                                                  \
+    FD_TEST( fd_cstr_printf_check( cmd,                                \
+                                   sizeof(cmd),                        \
+                                   NULL,                               \
+                                   __VA_ARGS__ ) );                    \
+    int ret = system( cmd );                                           \
+    if( FD_UNLIKELY( ret ) )                                           \
+      FD_LOG_ERR(( "running command `%s` failed exit code=%d (%i-%s)", \
+                   cmd,                                                \
+                   ret,                                                \
+                   errno,                                              \
+                   fd_io_strerror( errno ) ));                         \
+  } while( 0 )
+
 static void
 init( config_t * config ) {
   uint tiles              = config->layout.net_tile_count;

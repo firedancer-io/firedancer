@@ -3,6 +3,7 @@
 
 #include "genesis_hash.h"
 
+#include "../shared/fd_sys_util.h"
 #include "../fdctl/configure/configure.h"
 #include "../fdctl/run/run.h"
 
@@ -63,8 +64,8 @@ parent_signal( int sig ) {
   if( -1!=fd_log_private_logfile_fd() ) FD_LOG_ERR_NOEXIT(( "Received signal %s\nLog at \"%s\"", fd_io_strsignal( sig ), fd_log_private_path ));
   else                                  FD_LOG_ERR_NOEXIT(( "Received signal %s",                fd_io_strsignal( sig ) ));
 
-  if( FD_LIKELY( sig==SIGINT ) ) exit_group( 128+SIGINT );
-  else                           exit_group( 0          );
+  if( FD_LIKELY( sig==SIGINT ) ) fd_sys_util_exit_group( 128+SIGINT );
+  else                           fd_sys_util_exit_group( 0          );
 }
 
 static void
@@ -203,12 +204,6 @@ dev_cmd_fn( args_t *         args,
   update_config_for_dev( config );
   if( FD_UNLIKELY( args->dev.no_agave ) ) config->development.no_agave = 1;
 
-  if( FD_UNLIKELY( config->development.netns.enabled ) ) {
-    /* if we entered a network namespace during configuration, leave it
-       so that `run_firedancer` starts from a clean namespace */
-    leave_network_namespace();
-  }
-
   if( FD_UNLIKELY( strcmp( "", args->dev.debug_tile ) ) ) {
     if( FD_LIKELY( config->development.sandbox ) ) {
       FD_LOG_WARNING(( "disabling sandbox to debug tile `%s`", args->dev.debug_tile ));
@@ -281,6 +276,6 @@ dev_cmd_fn( args_t *         args,
       if( FD_UNLIKELY( kill( monitor_pid, SIGKILL ) ) )
         FD_LOG_ERR(( "failed to kill all processes (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
-    exit_group( exit_code );
+    fd_sys_util_exit_group( exit_code );
   }
 }

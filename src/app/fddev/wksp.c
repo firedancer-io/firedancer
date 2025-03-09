@@ -1,6 +1,8 @@
 #define _GNU_SOURCE
 #include "fddev.h"
 
+#include "../shared/fd_sys_util.h"
+
 #include <sys/resource.h>
 
 void
@@ -25,5 +27,5 @@ wksp_cmd_fn( args_t *         args,
   (void)args;
 
   initialize_workspaces( config );
-  exit_group( 0 );
+  fd_sys_util_exit_group( 0 );
 }

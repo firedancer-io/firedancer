@@ -1,5 +1,7 @@
 #include "fddev.h"
 
+#include "../shared/fd_sys_util.h"
+#include "../shared/fd_net_util.h"
 #include "../fdctl/configure/configure.h"
 #include "../../ballet/base64/fd_base64.h"
 #include "../../waltz/quic/fd_quic.h"
@@ -133,8 +135,10 @@ send_quic_transactions( fd_quic_t *         quic,
 void
 txn_cmd_fn( args_t *         args,
             config_t * const config ) {
-  if( FD_UNLIKELY( config->development.netns.enabled ) )
-    enter_network_namespace( config->development.netns.interface1 );
+  if( FD_UNLIKELY( config->development.netns.enabled ) ) {
+    if( FD_UNLIKELY( -1==fd_net_util_netns_enter( config->development.netns.interface1, NULL ) ) )
+      FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", config->development.netns.interface1, errno, fd_io_strerror( errno ) ));
+  }
 
   /* wait until validator is ready to receive txns before sending */
   ready_cmd_fn( args, config );
@@ -216,5 +220,5 @@ txn_cmd_fn( args_t *         args,
   FD_LOG_NOTICE(( "sending %lu transactions to "FD_IP4_ADDR_FMT":%hu", args->txn.count, FD_IP4_ADDR_FMT_ARGS(dst_ip), dst_port ));
 
   send_quic_transactions( quic, udpsock, args->txn.count, dst_ip, dst_port, pkt );
-  exit_group( 0 );
+  fd_sys_util_exit_group( 0 );
 }
