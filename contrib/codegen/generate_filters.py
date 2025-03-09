@@ -276,16 +276,16 @@ def gen_cmp(filt, op1, op2, label_t, label_f, cmp_instr):
     else:
         # This is unsupported because I didn't pick a calling convention and this means that accu and x should be saved to scratch.
         # It's very easy to achieve but there's no need for it yet. It's basically register allocation over BPF scratch.
-        raise("unsupported")    
+        raise("unsupported")
 
 def eval_equal(filt, op1, op2, label_t, label_f):
     gen_cmp(filt, op1, op2, label_t, label_f, "BPF_JEQ")
 
 def eval_less(filt, op1, op2, label_t, label_f):
-    gen_cmp(filt, op1, op2, label_t, label_f, "BPF_JLT")
+    gen_cmp(filt, op1, op2, label_f, label_t, "BPF_JGT")
 
 def eval_less_or_equal(filt, op1, op2, label_t, label_f):
-    gen_cmp(filt, op1, op2, label_t, label_f, "BPF_JLE")
+    gen_cmp(filt, op1, op2, label_f, label_t, "BPF_JGE")
 
 def eval_greater(filt, op1, op2, label_t, label_f):
     gen_cmp(filt, op1, op2, label_t, label_f, "BPF_JGT")

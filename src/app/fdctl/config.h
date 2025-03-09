@@ -173,6 +173,10 @@ struct fdctl_config {
     uint debug_tile;
 
     struct {
+      char provider[ 8 ];
+    } net;
+
+    struct {
       int  enabled;
       char interface0     [ 16 ];
       char interface0_mac [ 32 ];
@@ -216,7 +220,6 @@ struct fdctl_config {
     struct {
       char   interface[ IF_NAMESIZE ];
       uint   ip_addr;
-      uchar  mac_addr[6];
       char   xdp_mode[ 8 ];
       int    xdp_zero_copy;
 

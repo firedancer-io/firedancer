@@ -7,7 +7,6 @@
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../disco/plugin/fd_plugin.h"
 #include "../../../../util/tile/fd_tile_private.h"
-#include "../../../../util/shmem/fd_shmem_private.h"
 
 void
 fd_topo_initialize( config_t * config ) {
@@ -127,12 +126,10 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile( topo, "cswtch",  "cswtch",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
 
   /*                                      topo, tile_name, tile_kind_id, fseq_wksp,   link_name,      link_kind_id, reliable,            polled */
-  FOR(net_tile_cnt) for( ulong j=0UL; j<quic_tile_cnt; j++ )
-                       fd_topob_tile_in(  topo, "net",     i,            "metric_in", "quic_net",     j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  FOR(net_tile_cnt) for( ulong j=0UL; j<shred_tile_cnt; j++ )
-                       fd_topob_tile_in(  topo, "net",     i,            "metric_in", "shred_net",    j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  FOR(net_tile_cnt)    fd_topob_tile_out( topo, "net",     i,                         "net_quic",     i                                                  );
-  FOR(net_tile_cnt)    fd_topob_tile_out( topo, "net",     i,                         "net_shred",    i                                                  );
+  for( ulong j=0UL; j<quic_tile_cnt; j++ )
+                   fd_topos_tile_in_net(  topo,                          "metric_in", "quic_net",     j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  for( ulong j=0UL; j<shred_tile_cnt; j++ )
+                   fd_topos_tile_in_net(  topo,                          "metric_in", "shred_net",    j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
 
   FOR(quic_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ )
                        fd_topob_tile_in(  topo, "quic",    i,            "metric_in", "net_quic",     j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
@@ -343,12 +340,12 @@ fd_topo_initialize( config_t * config ) {
   }
   FD_TEST( fd_pod_insertf_ulong( topo->props, poh_shred_obj->id, "poh_shred" ) );
 
-  FOR(net_tile_cnt) fd_topos_net_tile_umem( topo, i );
+  FOR(net_tile_cnt) fd_topos_net_tile_finish( topo, i );
 
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ i ];
 
-    if( FD_UNLIKELY( !strcmp( tile->name, "net" ) ) ) {
+    if( FD_UNLIKELY( !strcmp( tile->name, "net" ) || !strcmp( tile->name, "sock" ) ) ) {
 
       tile->net.shred_listen_port              = config->tiles.shred.shred_listen_port;
       tile->net.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;
@@ -359,7 +356,6 @@ fd_topo_initialize( config_t * config ) {
       /* already configured */
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "quic" ) ) ) {
-      fd_memcpy( tile->quic.src_mac_addr, config->tiles.net.mac_addr, 6 );
 
       tile->quic.reasm_cnt                      = config->tiles.quic.txn_reassembly_count;
       tile->quic.out_depth                      = config->tiles.verify.receive_buffer_size;
@@ -425,7 +421,6 @@ fd_topo_initialize( config_t * config ) {
       }
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ) ) {
-      fd_memcpy( tile->shred.src_mac_addr, config->tiles.net.mac_addr, 6 );
       strncpy( tile->shred.identity_key_path, config->consensus.identity_path, sizeof(tile->shred.identity_key_path) );
 
       tile->shred.depth                         = topo->links[ tile->out_link_id[ 0 ] ].depth;

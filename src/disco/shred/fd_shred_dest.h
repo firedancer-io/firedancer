@@ -30,11 +30,6 @@ struct fd_shred_dest_weighted {
   ulong  stake_lamports; /* Stake, measured in lamports, or 0 for an unstaked validator */
   uint   ip4;            /* The validator's IP address, in host byte order */
   ushort port;           /* The TVU port, in host byte order */
-  uchar  mac_addr[6]; /* The mac address that should be used as the
-                         destination field in the ethernet header.  This is
-                         typically the gateway mac address, not the validator's
-                         mac address (which is neither easy nor helpful to
-                         know). */
 };
 typedef struct fd_shred_dest_weighted fd_shred_dest_weighted_t;
 

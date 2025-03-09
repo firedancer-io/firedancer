@@ -127,6 +127,7 @@ typedef struct {
      total size of Firedancer in memory. */
   union {
     struct {
+      char   provider[ 8 ]; /* "xdp" or "socket" */
       char   interface[ 16 ];
       ulong  xdp_rx_queue_size;
       ulong  xdp_tx_queue_size;
@@ -134,7 +135,6 @@ typedef struct {
       long   tx_flush_timeout_ns;
       char   xdp_mode[8];
       int    zero_copy;
-      uchar  src_mac_addr[6];
 
       ushort shred_listen_port;
       ushort quic_transaction_listen_port;
@@ -166,7 +166,6 @@ typedef struct {
       ulong  max_concurrent_connections;
       ulong  max_concurrent_handshakes;
       uint   ip_addr;
-      uchar  src_mac_addr[ 6 ];
       ushort quic_transaction_listen_port;
       ulong  idle_timeout_millis;
       uint   ack_delay_millis;
@@ -220,7 +219,6 @@ typedef struct {
     struct {
       ulong  depth;
       uint   ip_addr;
-      uchar  src_mac_addr[ 6 ];
       ulong  fec_resolver_depth;
       char   identity_key_path[ PATH_MAX ];
       ushort shred_listen_port;
@@ -273,7 +271,6 @@ typedef struct {
 
       char  identity_key_path[ PATH_MAX ];
       uint  ip_addr;
-      uchar src_mac_addr[ 6 ];
       int   vote;
       char  vote_account_path[ PATH_MAX ];
       ulong bank_tile_count;
@@ -328,7 +325,6 @@ typedef struct {
       ushort  peer_ports[16];
 
       uint    ip_addr;
-      uchar   src_mac_addr[ 6 ];
       char    identity_key_path[ PATH_MAX ];
       ushort  tvu_port;
       ushort  tvu_fwd_port;
@@ -347,7 +343,6 @@ typedef struct {
       /* non-config */
 
       uint    ip_addr;
-      uchar   src_mac_addr[ 6 ];
       int     good_peer_cache_file_fd;
       char    identity_key_path[ PATH_MAX ];
     } repair;
@@ -374,7 +369,6 @@ typedef struct {
       /* non-config */
 
       uint    ip_addr;
-      uchar   src_mac_addr[ 6 ];
       char  identity_key_path[ PATH_MAX ];
     } sender;
 
