@@ -118,12 +118,9 @@
 #define FD_SET_IDENTITY_STATE_POH_UNHALT_REQUESTED  (8UL)
 
 void
-set_identity_cmd_perm( args_t *         args,
+set_identity_cmd_perm( args_t *         args   FD_PARAM_UNUSED,
                        fd_caps_ctx_t *  caps,
-                       config_t * const config ) {
-  (void)args;
-  (void)config;
-
+                       config_t const * config FD_PARAM_UNUSED ) {
   /* 5 huge pages for the key storage area */
   ulong mlock_limit = 5UL * FD_SHMEM_NORMAL_PAGE_SZ;
   fd_caps_check_resource( caps, "set-identity", RLIMIT_MEMLOCK, mlock_limit, "call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`" );

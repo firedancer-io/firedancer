@@ -55,12 +55,12 @@ typedef struct {
 typedef struct configure_stage {
   const char *       name;
   int                always_recreate;
-  int                (*enabled)  ( config_t * const config );
-  void               (*init_perm)( fd_caps_ctx_t * caps, config_t * const config );
-  void               (*fini_perm)( fd_caps_ctx_t * caps, config_t * const config );
+  int                (*enabled)  ( config_t const * config );
+  void               (*init_perm)( fd_caps_ctx_t * caps, config_t const * config );
+  void               (*fini_perm)( fd_caps_ctx_t * caps, config_t const * config );
   void               (*init)     ( config_t * const config );
   void               (*fini)     ( config_t * const config, int pre_init );
-  configure_result_t (*check)    ( config_t * const config );
+  configure_result_t (*check)    ( config_t const * config );
 } configure_stage_t;
 
 extern configure_stage_t fd_cfg_stage_hugetlbfs;

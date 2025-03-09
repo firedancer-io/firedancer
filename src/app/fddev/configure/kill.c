@@ -11,8 +11,7 @@
 
 static void
 init_perm( fd_caps_ctx_t *  caps,
-           config_t * const config ) {
-  (void)config;
+           config_t const * config FD_PARAM_UNUSED ) {
   fd_caps_check_root( caps, NAME, "check all open file descriptors in `/proc/`" );
 }
 
@@ -38,8 +37,8 @@ cmdline( char * buf,
 }
 
 static int
-maybe_kill( config_t * const config,
-            ulong            pid ) {
+maybe_kill( config_t * config,
+            ulong      pid ) {
   int killed = 0;
 
   char proc_cmdline[ PATH_MAX ];
@@ -122,7 +121,7 @@ wait_dead( long  started,
 }
 
 static void
-init( config_t * const config ) {
+init( config_t * config ) {
   DIR * dir = opendir( "/proc" );
   if( FD_UNLIKELY( !dir ) ) FD_LOG_ERR(( "error opening `/proc` (%i-%s)", errno, fd_io_strerror( errno ) ));
 
@@ -150,9 +149,7 @@ init( config_t * const config ) {
 }
 
 static configure_result_t
-check( config_t * const config ) {
-  (void)config;
-
+check( config_t const * config FD_PARAM_UNUSED ) {
   PARTIALLY_CONFIGURED( "kill existing instances" );
 }
 

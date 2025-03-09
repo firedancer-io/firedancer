@@ -183,8 +183,8 @@ render_status( ulong volatile const * net_metrics ) {
 /* FIXME fixup screen on window size changes */
 
 void
-pktgen_cmd_fn( args_t *         args,
-               config_t * const config ) {
+pktgen_cmd_fn( args_t *   args,
+               config_t * config ) {
   pktgen_topo( config );
   fd_topo_t *      topo        = &config->topo;
   fd_topo_tile_t * net_tile    = &topo->tiles[ fd_topo_find_tile( topo, "net",    0UL ) ];

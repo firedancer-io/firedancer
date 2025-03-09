@@ -7,8 +7,7 @@
 
 static void
 init_perm( fd_caps_ctx_t *  caps,
-           config_t * const config ) {
-  (void)config;
+           config_t const * config FD_PARAM_UNUSED ) {
   fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN, "set kernel parameters in `/proc/sys`" );
 }
 
@@ -86,10 +85,9 @@ init( config_t * const config ) {
 }
 
 static configure_result_t
-check( config_t * const config ) {
+check( config_t const * config FD_PARAM_UNUSED ) {
   static int has_warned = 0;
 
-  (void)config;
   for( ulong i=0; i<sizeof( params ) / sizeof( params[ 0 ] ); i++ ) {
     uint param = read_uint_file( params[ i ].path, ERR_MSG );
     switch( params[ i ].mode ) {
