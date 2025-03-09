@@ -7,12 +7,7 @@
 #include "generated/store_int_seccomp.h"
 
 #include "../../../../disco/metrics/fd_metrics.h"
-#include "../../../../flamenco/repair/fd_repair.h"
 #include "../../../../flamenco/runtime/fd_blockstore.h"
-#include "../../../../flamenco/leaders/fd_leaders.h"
-#include "../../../../flamenco/fd_flamenco.h"
-#include "../../../../util/fd_util.h"
-#include "../../../../choreo/fd_choreo.h"
 #include "../../../../disco/store/fd_trusted_slots.h"
 
 #include <fcntl.h>
@@ -24,16 +19,11 @@
 #include <netinet/in.h>
 #include <sys/socket.h>
 
-#include "../../../../util/net/fd_eth.h"
-#include "../../../../util/net/fd_ip4.h"
-#include "../../../../util/net/fd_udp.h"
 #include "../../../../disco/shred/fd_stake_ci.h"
 #include "../../../../disco/shred/fd_shred_cap.h"
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../disco/store/fd_store.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
-#include "../../../../disco/restart/fd_restart.h"
-#include "../../../../flamenco/leaders/fd_leaders.h"
 #include "../../../../flamenco/runtime/fd_runtime.h"
 #include "../../../../disco/metrics/fd_metrics.h"
 
@@ -258,17 +248,11 @@ during_frag( fd_store_tile_ctx_t * ctx,
 static void
 after_frag( fd_store_tile_ctx_t * ctx,
             ulong                 in_idx,
-            ulong                 seq,
-            ulong                 sig,
-            ulong                 sz,
-            ulong                 tsorig,
-            fd_stem_context_t *   stem ) {
-  (void)seq;
-  (void)sig;
-  (void)sz;
-  (void)tsorig;
-  (void)stem;
-
+            ulong                 seq    FD_PARAM_UNUSED,
+            ulong                 sig    FD_PARAM_UNUSED,
+            ulong                 sz     FD_PARAM_UNUSED,
+            ulong                 tsorig FD_PARAM_UNUSED,
+            fd_stem_context_t *   stem   FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
     fd_stake_ci_stake_msg_fini( ctx->stake_ci );
     return;
@@ -472,10 +456,8 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
 static void
 after_credit( fd_store_tile_ctx_t * ctx,
               fd_stem_context_t *   stem,
-              int *                 opt_poll_in,
+              int *                 opt_poll_in FD_PARAM_UNUSED,
               int *                 charge_busy ) {
-  (void)opt_poll_in;
-
   /* TODO: Don't charge the tile as busy if after_credit isn't actually
      doing any work. */
   *charge_busy = 1;
@@ -793,9 +775,6 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
-  (void)topo;
-  (void)tile;
-
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_store_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_store_tile_ctx_t), sizeof(fd_store_tile_ctx_t) );
