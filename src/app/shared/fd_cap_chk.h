@@ -68,18 +68,18 @@ fd_cap_chk_cap( fd_cap_chk_t * chk,
 /* fd_cap_chk_raise_rlimit() checks if the current process is running
    with the provided resource, a RLIMIT_* constant, at or above the
    desired limit.
-   
+
    If it is not, but the limit can be raised to the required level
    because the user is root or has the CAP_SYS_RESOURCE capability, then
    the limit will be increased within this function and the check will
    still succeed, no error entry will be accumulated.  Only if the
    calling process does not have the resource limit desired, and cannot
-   increase it to get there, an error entry will be accumulated. 
-   
+   increase it to get there, an error entry will be accumulated.
+
    If the resource is RLIMIT_NICE, the check will also succeed if the
    process has the CAP_SYS_NICE capability, and it successfully
    increases the NICE value on its own.
-   
+
    name and reason are strings which are used to format the diagnostic
    error missage, in case the caller is not running as the root user. */
 

@@ -2,7 +2,6 @@
 #define HEADER_fd_src_app_fdctl_fdctl_h
 
 #include "config.h"
-#include "utility.h"
 
 #include "../../disco/topo/fd_topo.h"
 #include "../shared/fd_cap_chk.h"

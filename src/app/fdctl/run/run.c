@@ -9,6 +9,10 @@
 #include "generated/pidns_seccomp.h"
 #endif
 
+#include "../../shared/fd_sys_util.h"
+#include "../../shared/fd_file_util.h"
+#include "../../shared/fd_net_util.h"
+
 #include "../../../disco/topo/fd_pod_format.h"
 #include "../../../disco/keyguard/fd_keyswitch.h"
 #include "../../../waltz/xdp/fd_xdp1.h"
@@ -44,7 +48,7 @@
 void
 run_cmd_perm( args_t *         args,
               fd_cap_chk_t *   chk,
-              config_t * const config ) {
+              config_t const * config ) {
   (void)args;
 
   ulong mlock_limit = fd_topo_mlock_max_tile( &config->topo );
@@ -98,8 +102,8 @@ parent_signal( int sig ) {
   if( -1!=fd_log_private_logfile_fd() ) FD_LOG_ERR_NOEXIT(( "Received signal %s\nLog at \"%s\"", fd_io_strsignal( sig ), fd_log_private_path ));
   else                                  FD_LOG_ERR_NOEXIT(( "Received signal %s",                fd_io_strsignal( sig ) ));
 
-  if( FD_LIKELY( sig==SIGINT ) ) exit_group( 128+SIGINT );
-  else                           exit_group( 0          );
+  if( FD_LIKELY( sig==SIGINT ) ) fd_sys_util_exit_group( 128+SIGINT );
+  else                           fd_sys_util_exit_group( 0          );
 }
 
 static void
@@ -157,7 +161,7 @@ execve_agave( int config_memfd,
   if( FD_UNLIKELY( -1==child ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_LIKELY( !child ) ) {
     char _current_executable_path[ PATH_MAX ];
-    current_executable_path( _current_executable_path );
+    FD_TEST( -1!=fd_file_util_self_exe( _current_executable_path ) );
 
     char config_fd[ 32 ];
     FD_TEST( fd_cstr_printf_check( config_fd, sizeof( config_fd ), NULL, "%d", config_memfd ) );
@@ -213,7 +217,7 @@ execve_tile( fd_topo_tile_t * tile,
   if( FD_UNLIKELY( -1==child ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_LIKELY( !child ) ) {
     char _current_executable_path[ PATH_MAX ];
-    current_executable_path( _current_executable_path );
+    FD_TEST( -1!=fd_file_util_self_exe( _current_executable_path ) );
 
     char kind_id[ 32 ], config_fd[ 32 ], pipe_fd[ 32 ];
     FD_TEST( fd_cstr_printf_check( kind_id,   sizeof( kind_id ),   NULL, "%lu", tile->kind_id ) );
@@ -281,8 +285,8 @@ main_pid_namespace( void * _args ) {
   }
 
   if( FD_UNLIKELY( config->development.netns.enabled ) ) {
-    enter_network_namespace( config->tiles.net.interface );
-    close_network_namespace_original_fd();
+    if( FD_UNLIKELY( -1==fd_net_util_netns_enter( config->tiles.net.interface, NULL ) ) )
+      FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", config->tiles.net.interface, errno, fd_io_strerror( errno ) ));
   }
 
   errno = 0;
@@ -369,11 +373,11 @@ main_pid_namespace( void * _args ) {
       FD_LOG_ERR(( "pidns wait4() returned unexpected pid %d %d", child_pids[ i ], exited_pid ));
     } else if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
       FD_LOG_ERR_NOEXIT(( "tile %lu (%s) exited while booting with signal %d (%s)\n", i, child_names[ i ], WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
-      exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
+      fd_sys_util_exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
     }
     if( FD_UNLIKELY( WEXITSTATUS( wstatus ) ) ) {
       FD_LOG_ERR_NOEXIT(( "tile %lu (%s) exited while booting with code %d\n", i, child_names[ i ], WEXITSTATUS( wstatus ) ));
-      exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
+      fd_sys_util_exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
     }
   }
 
@@ -393,7 +397,7 @@ main_pid_namespace( void * _args ) {
         /* Must have been POLLHUP, POLLERR and POLLNVAL are not possible. */
         if( FD_UNLIKELY( i==child_cnt ) ) {
           /* Parent process died, probably SIGINT, exit gracefully. */
-          exit_group( 0 );
+          fd_sys_util_exit_group( 0 );
         }
 
         char * tile_name = child_names[ i ];
@@ -413,10 +417,10 @@ main_pid_namespace( void * _args ) {
 
         if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
           FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with signal %d (%s)", tile_name, tile_id, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
-          exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
+          fd_sys_util_exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
         } else {
           FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with code %d", tile_name, tile_id, WEXITSTATUS( wstatus ) ));
-          exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
+          fd_sys_util_exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
         }
       }
     }
@@ -758,12 +762,17 @@ run_firedancer_init( config_t * config,
 void
 fdctl_setup_netns( config_t * config ) {
   if( config->development.netns.enabled ) {
-    enter_network_namespace( config->tiles.net.interface );
-    close_network_namespace_original_fd();
+
+    int original_netns;
+    if( FD_UNLIKELY( -1==fd_net_util_netns_enter( config->tiles.net.interface, &original_netns ) ) )
+      FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", config->tiles.net.interface, errno, fd_io_strerror( errno ) ));
 
     fd_cfg_stage_ethtool_channels.init( config );
     fd_cfg_stage_ethtool_gro     .init( config );
     fd_cfg_stage_ethtool_loopback.init( config );
+
+    if( FD_UNLIKELY( -1==fd_net_util_netns_restore( original_netns ) ) )
+      FD_LOG_ERR(( "failed to restore network namespace `%s` (%i-%s)", config->tiles.net.interface, errno, fd_io_strerror( errno ) ));
   }
 }
 
@@ -885,8 +894,8 @@ run_firedancer( config_t * const config,
   if( FD_UNLIKELY( -1==wait4( pid_namespace, &wstatus, (int)__WALL, NULL ) ) )
     FD_LOG_ERR(( "main wait4() failed (%i-%s)\nLog at \"%s\"", errno, fd_io_strerror( errno ), fd_log_private_path ));
 
-  if( FD_UNLIKELY( WIFSIGNALED( wstatus ) ) ) exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
-  else exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
+  if( FD_UNLIKELY( WIFSIGNALED( wstatus ) ) ) fd_sys_util_exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
+  else fd_sys_util_exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
 }
 
 void

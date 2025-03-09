@@ -3,6 +3,8 @@
 #include "../../fdctl/fdctl.h"
 #include "../../fdctl/configure/configure.h"
 
+#include "../../shared/fd_sys_util.h"
+
 #include <poll.h>
 #include <fcntl.h>
 #include <sched.h>
@@ -103,7 +105,7 @@ fork_child( char const * name,
   if( !pid ) {
     if( FD_UNLIKELY( -1==close( pipefd[ 0 ] ) ) ) FD_LOG_ERR(( "close failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     int result = child( config, pipefd[ 1 ] );
-    exit_group( result );
+    fd_sys_util_exit_group( result );
   }
   if( FD_UNLIKELY( -1==close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   return (struct child_info){ .name = name, .pipefd = pipefd[ 0 ], .pid = pid };

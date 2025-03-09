@@ -16,7 +16,7 @@ ulong const fdctl_major_version     = FDCTL_MAJOR_VERSION;
 ulong const fdctl_minor_version     = FDCTL_MINOR_VERSION;
 ulong const fdctl_patch_version     = FDCTL_PATCH_VERSION;
 uint  const fdctl_commit_ref        = FDCTL_COMMIT_REF_U32;
-char  const  fdctl_version_string[] = FD_EXPAND_THEN_STRINGIFY(FDCTL_MAJOR_VERSION) "." FD_EXPAND_THEN_STRINGIFY(FDCTL_MINOR_VERSION) "." FD_EXPAND_THEN_STRINGIFY(FDCTL_PATCH_VERSION);
+char  const fdctl_version_string[]  = FD_EXPAND_THEN_STRINGIFY(FDCTL_MAJOR_VERSION) "." FD_EXPAND_THEN_STRINGIFY(FDCTL_MINOR_VERSION) "." FD_EXPAND_THEN_STRINGIFY(FDCTL_PATCH_VERSION);
 
 
 void

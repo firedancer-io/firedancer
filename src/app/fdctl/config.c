@@ -5,6 +5,9 @@
 
 #include "run/topos/topos.h"
 
+#include "../shared/fd_sys_util.h"
+#include "../shared/fd_net_util.h"
+
 #include "../../ballet/toml/fd_toml.h"
 #include "../../disco/topo/fd_pod_format.h"
 #include "../../flamenco/genesis/fd_genesis_cluster.h"
@@ -215,7 +218,7 @@ username_to_id( config_t * config ) {
     if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", config->user ));
     results[ 0 ] = pwd.pw_uid;
     results[ 1 ] = pwd.pw_gid;
-    exit_group( 0 );
+    fd_sys_util_exit_group( 0 );
   } else {
     int wstatus;
     if( FD_UNLIKELY( waitpid( pid, &wstatus, 0 )==-1 ) ) FD_LOG_ERR(( "waitpid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -525,8 +528,10 @@ fdctl_cfg_from_env( int *      pargc,
   config->hostname[ sizeof(config->hostname)-1UL ] = '\0'; /* Just truncate the name if it's too long to fit */
 
   if( FD_UNLIKELY( !strcmp( config->tiles.net.interface, "" ) && !config->development.netns.enabled ) ) {
-    int ifindex = internet_routing_interface();
-    if( FD_UNLIKELY( ifindex == -1 ) )
+    uint ifindex;
+    int result = fd_net_util_internet_ifindex( &ifindex );
+    if( FD_UNLIKELY( -1==result && errno!=ENODEV ) ) FD_LOG_ERR(( "could not get network device index (%i-%s)", errno, fd_io_strerror( errno ) ));
+    else if( FD_UNLIKELY( -1==result ) )
       FD_LOG_ERR(( "no network device found which routes to 8.8.8.8. If no network "
                    "interface is specified in the configuration file, Firedancer "
                    "tries to use the first network interface found which routes to "
@@ -534,8 +539,8 @@ fdctl_cfg_from_env( int *      pargc,
                    "You can fix this error by specifying a network interface to bind to in "
                    "your configuration file under [net.interface]" ));
 
-    if( FD_UNLIKELY( !if_indextoname( (uint)ifindex, config->tiles.net.interface ) ) )
-      FD_LOG_ERR(( "could not get name of interface with index %d", ifindex ));
+    if( FD_UNLIKELY( !if_indextoname( ifindex, config->tiles.net.interface ) ) )
+      FD_LOG_ERR(( "could not get name of interface with index %u", ifindex ));
   }
 
   ulong cluster = fd_genesis_cluster_identify( config->consensus.expected_genesis_hash );

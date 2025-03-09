@@ -2,6 +2,8 @@
 
 #define NAME "sysctl"
 
+#include "../../shared/fd_file_util.h"
+
 #include <stdio.h>
 #include <linux/capability.h>
 
@@ -59,9 +61,6 @@ static const sysctl_param_t params[] = {
   }
 };
 
-static const char * ERR_MSG = "system might not support configuring sysctl,";
-
-
 /* Some of these sysctl limits are needed for the Agave client, not
    Firedancer.  We set them on their behalf to make configuration easier
    for users. */
@@ -70,12 +69,15 @@ static void
 init( config_t * const config ) {
   (void)config;
   for( ulong i=0; i<sizeof( params ) / sizeof( params[ 0 ] ); i++ ) {
-    uint param = read_uint_file( params[ i ].path, ERR_MSG );
+    uint param;
+    if( FD_UNLIKELY( -1==fd_file_util_read_uint( params[ i ].path, &param ) ) )
+      FD_LOG_ERR(( "could not read kernel parameter `%s`, system might not support configuring sysctl (%i-%s)", params[ i ].path, errno, fd_io_strerror( errno ) ));
     switch( params[ i ].mode ) {
       case ENFORCE_MINIMUM:
         if( FD_UNLIKELY( param<params[ i ].value ) ) {
           FD_LOG_NOTICE(( "RUN: `echo \"%u\" > %s`", params[ i ].value, params[ i ].path ) );
-          write_uint_file( params[ i ].path, params[ i ].value );
+          if( FD_UNLIKELY( -1==fd_file_util_write_uint( params[ i ].path, params[ i ].value ) ) )
+            FD_LOG_ERR(( "could not set kernel parameter `%s` to %u (%i-%s)", params[ i ].path, params[ i ].value, errno, fd_io_strerror( errno ) ));
         }
         break;
       default:
@@ -89,7 +91,9 @@ check( config_t const * config FD_PARAM_UNUSED ) {
   static int has_warned = 0;
 
   for( ulong i=0; i<sizeof( params ) / sizeof( params[ 0 ] ); i++ ) {
-    uint param = read_uint_file( params[ i ].path, ERR_MSG );
+    uint param;
+    if( FD_UNLIKELY( -1==fd_file_util_read_uint( params[ i ].path, &param ) ) )
+      FD_LOG_ERR(( "could not read kernel parameter `%s`, system might not support configuring sysctl (%i-%s)", params[ i ].path, errno, fd_io_strerror( errno ) ));
     switch( params[ i ].mode ) {
       case ENFORCE_MINIMUM:
         if( FD_UNLIKELY( param<params[ i ].value ) )

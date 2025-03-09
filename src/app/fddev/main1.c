@@ -2,6 +2,7 @@
 #include "fddev.h"
 
 #include "../fdctl/configure/configure.h"
+#include "../shared/fd_file_util.h"
 
 #include <unistd.h>
 #include <stdlib.h>
@@ -140,7 +141,7 @@ static void
 execve_as_root( int     argc,
                 char ** argv ) {
   char _current_executable_path[ PATH_MAX ];
-  current_executable_path( _current_executable_path );
+  FD_TEST( -1!=fd_file_util_self_exe( _current_executable_path ) );
 
   char * args[ MAX_ARGC+4 ];
   for( int i=1; i<argc; i++ ) args[i+2] = argv[i];

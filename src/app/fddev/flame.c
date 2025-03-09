@@ -1,6 +1,8 @@
 #define _GNU_SOURCE
 #include "fddev.h"
 
+#include "../shared/fd_sys_util.h"
+
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -177,5 +179,5 @@ flame_cmd_fn( args_t *         args,
     break;
   }
 
-  exit_group( 0 );
+  fd_sys_util_exit_group( 0 );
 }

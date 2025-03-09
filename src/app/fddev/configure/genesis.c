@@ -2,6 +2,8 @@
 #define FD_SCRATCH_USE_HANDHOLDING 1
 #include "../../fdctl/configure/configure.h"
 
+#include "../../shared/fd_file_util.h"
+
 #include <stdio.h>
 #include <unistd.h>
 #include <dirent.h>
@@ -213,7 +215,8 @@ create_genesis( config_t * const config,
 
 static void
 init( config_t * const config ) {
-  mkdir_all( config->ledger.path, config->uid, config->gid );
+  if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( config->ledger.path, config->uid, config->gid ) ) )
+    FD_LOG_ERR(( "could not create ledger directory `%s` (%i-%s)", config->ledger.path, errno, fd_io_strerror( errno ) ));
 
   static uchar blob[ 16<<20UL ];
   ulong blob_sz = create_genesis( config, blob, sizeof(blob) );
