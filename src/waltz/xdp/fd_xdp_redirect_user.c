@@ -4,7 +4,7 @@
 
 #define _DEFAULT_SOURCE
 #include "fd_xdp_redirect_user.h"
-#include "../ebpf/fd_ebpf.h"
+#include "../ebpf/fd_linux_bpf.h"
 #include <errno.h>
 
 fd_xsk_t *
