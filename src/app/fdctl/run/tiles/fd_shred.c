@@ -732,8 +732,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_UNLIKELY( !tile->shred.fec_resolver_depth ) ) FD_LOG_ERR(( "fec_resolver_depth not set" ));
 
-  uchar zero_mac_addr[6] = {0};
-  if( FD_UNLIKELY( fd_memeq( tile->shred.src_mac_addr, zero_mac_addr, sizeof(zero_mac_addr ) ) ) ) FD_LOG_ERR(( "src_mac_addr not set" ));
   if( FD_UNLIKELY( !tile->shred.ip_addr ) ) FD_LOG_ERR(( "ip_addr not set" ));
   if( FD_UNLIKELY( !tile->shred.shred_listen_port ) ) FD_LOG_ERR(( "shred_listen_port not set" ));
 
@@ -818,8 +816,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->net_id   = (ushort)0;
 
-  fd_net_create_packet_header_template( ctx->data_shred_net_hdr,   FD_SHRED_MIN_SZ, tile->shred.ip_addr, tile->shred.src_mac_addr, tile->shred.shred_listen_port );
-  fd_net_create_packet_header_template( ctx->parity_shred_net_hdr, FD_SHRED_MAX_SZ, tile->shred.ip_addr, tile->shred.src_mac_addr, tile->shred.shred_listen_port );
+  fd_net_create_packet_header_template( ctx->data_shred_net_hdr,   FD_SHRED_MIN_SZ, tile->shred.ip_addr, tile->shred.shred_listen_port );
+  fd_net_create_packet_header_template( ctx->parity_shred_net_hdr, FD_SHRED_MAX_SZ, tile->shred.ip_addr, tile->shred.shred_listen_port );
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];

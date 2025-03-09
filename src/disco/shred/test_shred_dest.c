@@ -1,10 +1,10 @@
 #include "fd_shred_dest.h"
 
-FD_IMPORT_BINARY( t1_pubkey,           "src/disco/shred/fixtures/cluster_info_pubkey.bin" );
-FD_IMPORT_BINARY( t1_dest_info,        "src/disco/shred/fixtures/cluster_info.bin"        );
-FD_IMPORT_BINARY( t1_broadcast_peers,  "src/disco/shred/fixtures/broadcast_peers.bin"     );
-FD_IMPORT_BINARY( t1_retransmit_peers, "src/disco/shred/fixtures/retransmit_peers.bin"    );
-FD_IMPORT_BINARY( testnet_dest_info,   "src/disco/shred/fixtures/testnet.bin"             );
+FD_IMPORT_BINARY( t1_pubkey,           "src/disco/shred/fixtures/cluster_info_pubkey.bin" );  /* fd_pubkey[] */
+FD_IMPORT_BINARY( t1_dest_info,        "src/disco/shred/fixtures/cluster_info.bin"        );  /* fd_shred_dest_weighted_t[] */
+FD_IMPORT_BINARY( t1_broadcast_peers,  "src/disco/shred/fixtures/broadcast_peers.bin"     );  /* fd_pubkey[] */
+FD_IMPORT_BINARY( t1_retransmit_peers, "src/disco/shred/fixtures/retransmit_peers.bin"    );  /* ulong[] */
+FD_IMPORT_BINARY( testnet_dest_info,   "src/disco/shred/fixtures/testnet.bin"             );  /* fd_shred_dest_weighted_t[] */
 
 #define TEST_MAX_FOOTPRINT (4UL*1024UL*1024UL)
 uchar _sd_footprint[ TEST_MAX_FOOTPRINT ] __attribute__((aligned(FD_SHRED_DEST_ALIGN)));
@@ -14,7 +14,7 @@ uchar _l_footprint[ TEST_MAX_FOOTPRINT ] __attribute__((aligned(FD_EPOCH_LEADERS
 fd_stake_weight_t stakes[ TEST_MAX_VALIDATORS ];
 FD_STATIC_ASSERT( FD_SHRED_DEST_ALIGN==alignof(fd_shred_dest_t), shred_dest_align );
 
-FD_STATIC_ASSERT( sizeof(fd_shred_dest_weighted_t)==56UL, dest_info_construction );
+FD_STATIC_ASSERT( sizeof(fd_shred_dest_weighted_t)==48UL, dest_info_construction );
 
 static void
 test_compute_first_matches_agave( void ) {
@@ -33,8 +33,10 @@ test_compute_first_matches_agave( void ) {
   FD_TEST( fd_epoch_leaders_footprint( cnt, 10000UL       ) <= TEST_MAX_FOOTPRINT );
 
   fd_epoch_leaders_t * lsched = fd_epoch_leaders_join( fd_epoch_leaders_new( _l_footprint, 0UL, 0UL, 10000UL, staked, stakes, 0UL ) );
+  FD_TEST( lsched );
 
   fd_shred_dest_t * sdest = fd_shred_dest_join( fd_shred_dest_new( _sd_footprint, info, cnt, lsched, src_key, 0UL ) );
+  FD_TEST( sdest );
 
   fd_shred_dest_idx_t result[1];
   fd_shred_t shred[1];

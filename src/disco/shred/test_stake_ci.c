@@ -323,18 +323,14 @@ test_changing_contact_info( void ) {
   destinations[ 0 ].port = 0x2222;
   destinations[ 1 ].ip4  = 0x33333333U;
   destinations[ 1 ].port = 0x5555;
-  memset( destinations[ 0 ].mac_addr, 0x66, 6UL );
-  memset( destinations[ 1 ].mac_addr, 0x77, 6UL );
 
   fd_stake_ci_dest_add_fini( info, 2UL );
 
   fd_shred_dest_t * sdest = fd_stake_ci_get_sdest_for_slot( info, 0UL );
-  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 0 )->ip4         == 0x11111111U );
-  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 0 )->port        == 0x2222      );
-  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 0 )->mac_addr[0] == 0x66        );
-  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 1 )->ip4         == 0x33333333U );
-  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 1 )->port        == 0x5555      );
-  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 1 )->mac_addr[0] == 0x77        );
+  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 0 )->ip4  == 0x11111111U );
+  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 0 )->port == 0x2222      );
+  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 1 )->ip4  == 0x33333333U );
+  FD_TEST( fd_shred_dest_idx_to_dest( sdest, 1 )->port == 0x5555      );
 
   fd_stake_ci_delete( fd_stake_ci_leave( info ) );
 }

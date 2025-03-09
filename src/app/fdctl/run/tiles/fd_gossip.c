@@ -201,7 +201,6 @@ struct fd_gossip_tile_ctx {
   uchar gossip_buffer[ FD_NET_MTU ];
 
   ushort net_id;
-  uchar src_mac_addr[6];
   fd_net_hdrs_t hdr[1];
 
   fd_keyguard_client_t  keyguard_client[1];
@@ -903,9 +902,8 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( ctx->gossip_listen_port!=0 );
 
   ctx->net_id = (ushort)0;
-  fd_memcpy( ctx->src_mac_addr, tile->gossip.src_mac_addr, 6 );
 
-  fd_net_create_packet_header_template( ctx->hdr, FD_NET_MTU, ctx->gossip_my_addr.addr, ctx->src_mac_addr, ctx->gossip_listen_port );
+  fd_net_create_packet_header_template( ctx->hdr, FD_NET_MTU, ctx->gossip_my_addr.addr, ctx->gossip_listen_port );
 
   ctx->last_shred_dest_push_time    = 0;
   ctx->restart_last_push_time       = 0;

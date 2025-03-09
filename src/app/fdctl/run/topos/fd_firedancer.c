@@ -556,7 +556,6 @@ fd_topo_initialize( config_t * config ) {
       /* already configured */
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "quic" ) ) ) {
-      fd_memcpy( tile->quic.src_mac_addr, config->tiles.net.mac_addr, 6 );
 
       tile->quic.reasm_cnt                      = config->tiles.quic.txn_reassembly_count;
       tile->quic.out_depth                      = config->tiles.verify.receive_buffer_size;
@@ -575,7 +574,6 @@ fd_topo_initialize( config_t * config ) {
       tile->dedup.tcache_depth = config->tiles.dedup.signature_cache_size;
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ) ) {
-      fd_memcpy( tile->shred.src_mac_addr, config->tiles.net.mac_addr, 6 );
       strncpy( tile->shred.identity_key_path, config->consensus.identity_path, sizeof(tile->shred.identity_key_path) );
 
       tile->shred.depth                         = topo->links[ tile->out_link_id[ 0 ] ].depth;
@@ -597,7 +595,6 @@ fd_topo_initialize( config_t * config ) {
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "gossip" ) ) ) {
       tile->gossip.ip_addr = config->tiles.net.ip_addr;
-      memcpy( tile->gossip.src_mac_addr, config->tiles.net.mac_addr, 6UL );
       strncpy( tile->gossip.identity_key_path, config->consensus.identity_path, sizeof(tile->gossip.identity_key_path) );
       tile->gossip.gossip_listen_port =  config->gossip.port;
       FD_TEST( config->gossip.port == config->tiles.gossip.gossip_listen_port );
@@ -625,7 +622,6 @@ fd_topo_initialize( config_t * config ) {
       tile->repair.ip_addr = config->tiles.net.ip_addr;
       strncpy( tile->repair.good_peer_cache_file, config->tiles.repair.good_peer_cache_file, sizeof(tile->repair.good_peer_cache_file) );
 
-      memcpy( tile->repair.src_mac_addr, config->tiles.net.mac_addr, 6 );
       strncpy( tile->repair.identity_key_path, config->consensus.identity_path, sizeof(tile->repair.identity_key_path) );
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "replay" ) )) {
@@ -667,7 +663,6 @@ fd_topo_initialize( config_t * config ) {
 
       strncpy( tile->replay.identity_key_path, config->consensus.identity_path, sizeof(tile->replay.identity_key_path) );
       tile->replay.ip_addr = config->tiles.net.ip_addr;
-      memcpy( tile->replay.src_mac_addr, config->tiles.net.mac_addr, 6UL );
       tile->replay.vote = config->consensus.vote;
       strncpy( tile->replay.vote_account_path, config->consensus.vote_account_path, sizeof(tile->replay.vote_account_path) );
       tile->replay.full_interval        = config->tiles.batch.full_interval;
@@ -703,7 +698,6 @@ fd_topo_initialize( config_t * config ) {
       tile->sender.tpu_listen_port = config->tiles.quic.regular_transaction_listen_port;
       tile->sender.ip_addr = config->tiles.net.ip_addr;
 
-      memcpy( tile->sender.src_mac_addr, config->tiles.net.mac_addr, 6UL );
       strncpy( tile->sender.identity_key_path, config->consensus.identity_path, sizeof(tile->sender.identity_key_path) );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "eqvoc" ) ) ) {
       strncpy( tile->eqvoc.identity_key_path, config->consensus.identity_path, sizeof(tile->eqvoc.identity_key_path) );

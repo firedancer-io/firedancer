@@ -18,12 +18,11 @@ FD_PROTOTYPES_BEGIN
 
 static inline fd_net_hdrs_t *
 fd_net_create_packet_header_template( fd_net_hdrs_t * pkt,
-                                 ulong          payload_sz,
-                                 uint           src_ip,
-                                 uchar const *  src_mac,
-                                 ushort         src_port ) {
-  memset( pkt->eth->dst, 0,       6UL );
-  memcpy( pkt->eth->src, src_mac, 6UL );
+                                      ulong           payload_sz,
+                                      uint            src_ip,
+                                      ushort          src_port ) {
+  memset( pkt->eth->dst, 0, 6UL );
+  memset( pkt->eth->src, 0, 6UL );
   pkt->eth->net_type  = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP );
 
   pkt->ip4->verihl       = FD_IP4_VERIHL( 4U, 5U );

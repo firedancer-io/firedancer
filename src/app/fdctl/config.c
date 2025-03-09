@@ -172,20 +172,6 @@ listen_address( const char * interface ) {
 }
 
 static void
-mac_address( const char * interface,
-             uchar *      mac ) {
-  int fd = socket( AF_INET, SOCK_DGRAM, IPPROTO_IP );
-  struct ifreq ifr;
-  ifr.ifr_addr.sa_family = AF_INET;
-  strncpy( ifr.ifr_name, interface, IFNAMSIZ );
-  if( FD_UNLIKELY( ioctl( fd, SIOCGIFHWADDR, &ifr ) ) )
-    FD_LOG_ERR(( "could not get MAC address of interface `%s`: (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( close(fd) ) )
-    FD_LOG_ERR(( "could not close socket (%i-%s)", errno, fd_io_strerror( errno ) ));
-  fd_memcpy( mac, ifr.ifr_hwaddr.sa_data, 6 );
-}
-
-static void
 username_to_id( config_t * config ) {
   uint * results = mmap( NULL, 4096, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_SHARED, -1, 0 );
   if( FD_UNLIKELY( results==MAP_FAILED ) ) FD_LOG_ERR(( "mmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -564,8 +550,6 @@ fdctl_cfg_from_env( int *      pargc,
 
     if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->development.netns.interface0_addr, &config->tiles.net.ip_addr ) ) )
       FD_LOG_ERR(( "configuration specifies invalid netns IP address `%s`", config->development.netns.interface0_addr ));
-    if( FD_UNLIKELY( !fd_cstr_to_mac_addr( config->development.netns.interface0_mac, config->tiles.net.mac_addr ) ) )
-      FD_LOG_ERR(( "configuration specifies invalid netns MAC address `%s`", config->development.netns.interface0_mac ));
   } else {
     if( FD_UNLIKELY( !if_nametoindex( config->tiles.net.interface ) ) )
       FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", config->tiles.net.interface ));
@@ -593,7 +577,6 @@ fdctl_cfg_from_env( int *      pargc,
     }
 
     config->tiles.net.ip_addr = iface_ip;
-    mac_address( config->tiles.net.interface, config->tiles.net.mac_addr );
 
   }
 
