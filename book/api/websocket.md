@@ -178,7 +178,7 @@ genesis hash of the chain and comparing it to known cluster genesis
 hashes. The cluster cannot change once the validator is running, but
 because it may not be known when the validator first starts, you
 might get two cluster messages. One `unknown` immediately when the
-validator is booted, and then an a message with `mainnet` (or other
+validator is booted, and then a message with `mainnet` (or other
 known cluster) when the validator learns its cluster from a downloaded
 snapshot.
 
