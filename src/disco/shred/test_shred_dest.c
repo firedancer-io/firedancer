@@ -14,7 +14,7 @@ uchar _l_footprint[ TEST_MAX_FOOTPRINT ] __attribute__((aligned(FD_EPOCH_LEADERS
 fd_stake_weight_t stakes[ TEST_MAX_VALIDATORS ];
 FD_STATIC_ASSERT( FD_SHRED_DEST_ALIGN==alignof(fd_shred_dest_t), shred_dest_align );
 
-FD_STATIC_ASSERT( sizeof(fd_shred_dest_weighted_t)==56UL, dest_info_construction );
+FD_STATIC_ASSERT( sizeof(fd_shred_dest_weighted_t)==48UL, dest_info_construction );
 
 static void
 test_compute_first_matches_agave( void ) {

@@ -19,6 +19,8 @@
 #include "../../../util/log/fd_dtrace.h"
 
 #include <unistd.h>
+#include <linux/if.h> /* struct ifreq */
+#include <sys/ioctl.h>
 #include <linux/unistd.h>
 
 #include "generated/xdp_seccomp.h"
@@ -918,6 +920,22 @@ net_xsk_bootstrap( fd_net_ctx_t * ctx,
   return frame_off;
 }
 
+/* FIXME source MAC address from netlnk tile instead */
+
+static void
+mac_address( const char * interface,
+             uchar *      mac ) {
+  int fd = socket( AF_INET, SOCK_DGRAM, 0 );
+  struct ifreq ifr;
+  ifr.ifr_addr.sa_family = AF_INET;
+  strncpy( ifr.ifr_name, interface, IFNAMSIZ );
+  if( FD_UNLIKELY( ioctl( fd, SIOCGIFHWADDR, &ifr ) ) )
+    FD_LOG_ERR(( "could not get MAC address of interface `%s`: (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close(fd) ) )
+    FD_LOG_ERR(( "could not close socket (%i-%s)", errno, fd_io_strerror( errno ) ));
+  fd_memcpy( mac, ifr.ifr_hwaddr.sa_data, 6 );
+}
+
 /* privileged_init does the following initialization steps:
 
    - Create an AF_XDP socket
@@ -1073,7 +1091,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_tile_id  = (uint)tile->kind_id;
   ctx->net_tile_cnt = (uint)fd_topo_tile_name_cnt( topo, tile->name );
 
-  memcpy( ctx->src_mac_addr, tile->net.src_mac_addr, 6UL );
+  mac_address( tile->net.interface, ctx->src_mac_addr );
 
   ctx->shred_listen_port              = tile->net.shred_listen_port;
   ctx->quic_transaction_listen_port   = tile->net.quic_transaction_listen_port;

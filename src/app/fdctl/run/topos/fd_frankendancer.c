@@ -356,7 +356,6 @@ fd_topo_initialize( config_t * config ) {
       /* already configured */
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "quic" ) ) ) {
-      fd_memcpy( tile->quic.src_mac_addr, config->tiles.net.mac_addr, 6 );
 
       tile->quic.reasm_cnt                      = config->tiles.quic.txn_reassembly_count;
       tile->quic.out_depth                      = config->tiles.verify.receive_buffer_size;
@@ -422,7 +421,6 @@ fd_topo_initialize( config_t * config ) {
       }
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "shred" ) ) ) {
-      fd_memcpy( tile->shred.src_mac_addr, config->tiles.net.mac_addr, 6 );
       strncpy( tile->shred.identity_key_path, config->consensus.identity_path, sizeof(tile->shred.identity_key_path) );
 
       tile->shred.depth                         = topo->links[ tile->out_link_id[ 0 ] ].depth;
