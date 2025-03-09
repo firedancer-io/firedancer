@@ -1,5 +1,8 @@
 #include "configure.h"
 
+#include "../../shared/fd_file_util.h"
+#include "../../shared/fd_sys_util.h"
+
 #include <stdio.h>
 #include <dirent.h>
 #include <sys/stat.h>
@@ -19,8 +22,6 @@ fini_perm( fd_cap_chk_t *   chk,
   fd_cap_chk_root( chk, "hugetlbfs", "remove directories from `/mnt`" );
   fd_cap_chk_cap(  chk, "hugetlbfs", CAP_SYS_ADMIN, "unmount hugetlbfs filesystems" );
 }
-
-static const char * ERR_MSG = "please confirm your host is configured for gigantic pages,";
 
 static char const * TOTAL_HUGE_PAGE_PATH[ 2 ] = {
   "/sys/devices/system/node/node%lu/hugepages/hugepages-2048kB/nr_hugepages",
@@ -59,7 +60,9 @@ init( config_t * const config ) {
     for( ulong j=0UL; j<2UL; j++ ) {
       char free_page_path[ PATH_MAX ];
       FD_TEST( fd_cstr_printf_check( free_page_path, PATH_MAX, NULL, FREE_HUGE_PAGE_PATH[ j ], i ) );
-      ulong free_pages = read_uint_file( free_page_path, ERR_MSG );
+      uint free_pages;
+      if( FD_UNLIKELY( -1==fd_file_util_read_uint( free_page_path, &free_pages ) ) )
+        FD_LOG_ERR(( "could not read `%s`, please confirm your host is configured for gigantic pages (%i-%s)", free_page_path, errno, fd_io_strerror( errno ) ));
 
       /* There is a TOCTOU race condition here, but it's not avoidable. There's
          no way to atomically increment the page count. */
@@ -67,12 +70,20 @@ init( config_t * const config ) {
       if( FD_UNLIKELY( free_pages<required_pages[ j ] ) ) {
         char total_page_path[ PATH_MAX ];
         FD_TEST( fd_cstr_printf_check( total_page_path, PATH_MAX, NULL, TOTAL_HUGE_PAGE_PATH[ j ], i ) );
-        ulong total_pages = read_uint_file( total_page_path, ERR_MSG );
+        uint total_pages;
+        if( FD_UNLIKELY( -1==fd_file_util_read_uint( total_page_path, &total_pages ) ) )
+          FD_LOG_ERR(( "could not read `%s`, please confirm your host is configured for gigantic pages (%i-%s)", total_page_path, errno, fd_io_strerror( errno ) ));
+
         ulong additional_pages_needed = required_pages[ j ]-free_pages;
 
         FD_LOG_NOTICE(( "RUN: `echo \"%u\" > %s`", (uint)(total_pages+additional_pages_needed), total_page_path ));
-        write_uint_file( total_page_path, (uint)(total_pages+additional_pages_needed) );
-        uint raised_free_pages = read_uint_file( free_page_path, ERR_MSG );
+        if( FD_UNLIKELY( -1==fd_file_util_write_uint( total_page_path, (uint)(total_pages+additional_pages_needed) ) ) )
+          FD_LOG_ERR(( "could not increase the number of %s pages on NUMA node %lu (%i-%s)", PAGE_NAMES[ j ], i, errno, fd_io_strerror( errno ) ));
+
+        uint raised_free_pages;
+        if( FD_UNLIKELY( -1==fd_file_util_read_uint( free_page_path, &raised_free_pages ) ) )
+          FD_LOG_ERR(( "could not read `%s`, please confirm your host is configured for gigantic pages (%i-%s)", free_page_path, errno, fd_io_strerror( errno ) ));
+
         if( FD_UNLIKELY( raised_free_pages<required_pages[ j ] ) ) {
           /* Well.. usually this is due to memory being fragmented,
              rather than not having enough memory.  See something like
@@ -82,25 +93,30 @@ init( config_t * const config ) {
                            PAGE_NAMES[ j ],
                            i ));
           FD_LOG_NOTICE(( "RUN: `echo \"1\" > /proc/sys/vm/compact_memory" ));
-          write_uint_file( "/proc/sys/vm/compact_memory", 1 );
+          if( FD_UNLIKELY( -1==fd_file_util_write_uint( "/proc/sys/vm/compact_memory", 1 ) ) )
+            FD_LOG_ERR(( "could not write to `%s` (%i-%s)", "/proc/sys/vm/compact_memory", errno, fd_io_strerror( errno ) ));
           /* Sleep a little to give the OS some time to perform the
              compaction. */
-          nanosleep1( 0, 500000000 /* 500 millis */ );
+          FD_TEST( -1!=fd_sys_util_nanosleep( 0, 500000000 /* 500 millis */ ) );
           FD_LOG_NOTICE(( "RUN: `echo \"3\" > /proc/sys/vm/drop_caches" ));
-          write_uint_file( "/proc/sys/vm/drop_caches", 3 );
-          nanosleep1( 0, 500000000 /* 500 millis */ );
+          if( FD_UNLIKELY( -1==fd_file_util_write_uint( "/proc/sys/vm/drop_caches", 3 ) ) )
+            FD_LOG_ERR(( "could not write to `%s` (%i-%s)", "/proc/sys/vm/drop_caches", errno, fd_io_strerror( errno ) ));
+          FD_TEST( -1!=fd_sys_util_nanosleep( 0, 500000000 /* 500 millis */ ) );
           FD_LOG_NOTICE(( "RUN: `echo \"1\" > /proc/sys/vm/compact_memory" ));
-          write_uint_file( "/proc/sys/vm/compact_memory", 1 );
-          nanosleep1( 0, 500000000 /* 500 millis */ );
+          if( FD_UNLIKELY( -1==fd_file_util_write_uint( "/proc/sys/vm/compact_memory", 1 ) ) )
+            FD_LOG_ERR(( "could not write to `%s` (%i-%s)", "/proc/sys/vm/compact_memory", errno, fd_io_strerror( errno ) ));
+          FD_TEST( -1!=fd_sys_util_nanosleep( 0, 500000000 /* 500 millis */ ) );
         }
 
         FD_LOG_NOTICE(( "RUN: `echo \"%u\" > %s`", (uint)(total_pages+additional_pages_needed), total_page_path ));
-        write_uint_file( total_page_path, (uint)(total_pages+additional_pages_needed) );
-        raised_free_pages = read_uint_file( free_page_path, ERR_MSG );
+        if( FD_UNLIKELY( -1==fd_file_util_write_uint( total_page_path, (uint)(total_pages+additional_pages_needed) ) ) )
+          FD_LOG_ERR(( "could not increase the number of %s pages on NUMA node %lu (%i-%s)", PAGE_NAMES[ j ], i, errno, fd_io_strerror( errno ) ));
+        if( FD_UNLIKELY( -1==fd_file_util_read_uint( free_page_path, &raised_free_pages ) ) )
+          FD_LOG_ERR(( "could not read `%s`, please confirm your host is configured for gigantic pages (%i-%s)", free_page_path, errno, fd_io_strerror( errno ) ));
         if( FD_UNLIKELY( raised_free_pages<required_pages[ j ] ) ) {
           FD_LOG_ERR(( "ENOMEM-Out of memory when trying to reserve %s pages for Firedancer on NUMA node %lu. Your Firedancer "
                        "configuration requires %lu GiB of memory total consisting of %lu gigantic (1GiB) pages and %lu huge (2MiB) "
-                       "pages on this NUMA node but only %u %s pages were available according to `%s` (raised from %lu). If your "
+                       "pages on this NUMA node but only %u %s pages were available according to `%s` (raised from %u). If your "
                        "system has the required amount of memory, this can be because it is not configured with %s page support, or "
                        "Firedancer cannot increase the value of `%s` at runtime. You might need to enable huge pages in grub at boot "
                        "time. This error can also happen because system uptime is high and memory is fragmented. You can fix this by "
@@ -140,7 +156,10 @@ init( config_t * const config ) {
 
   for( ulong i=0UL; i<2UL; i++ ) {
     FD_LOG_NOTICE(( "RUN: `mkdir -p %s`", mount_path[ i ] ));
-    mkdir_all( mount_path[ i ], config->uid, config->gid );
+    if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( mount_path[ i ], config->uid, config->gid ) ) ) {
+      FD_LOG_ERR(( "could not create hugetlbfs mount directory `%s` (%i-%s)", mount_path[ i ], errno, fd_io_strerror( errno ) ));
+    }
+
     char options[ 256 ];
     FD_TEST( fd_cstr_printf_check( options, sizeof(options), NULL, "pagesize=%lu,min_size=%lu", PAGE_SIZE[ i ], min_size[ i ] ) );
     FD_LOG_NOTICE(( "RUN: `mount -t hugetlbfs none %s -o %s`", mount_path[ i ], options ));

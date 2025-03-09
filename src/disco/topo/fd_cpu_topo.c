@@ -88,7 +88,7 @@ fd_topo_cpus_online( ulong cpu_idx ) {
   if( FD_UNLIKELY( cpu_idx==0UL ) ) return 1; /* Cannot set cpu0 to offline */
 
   char path[ PATH_MAX ];
-  fd_cstr_printf_check( path, sizeof( path ), NULL, "/sys/devices/system/cpu/cpu%lu/online", cpu_idx );
+  FD_TEST( fd_cstr_printf_check( path, sizeof( path ), NULL, "/sys/devices/system/cpu/cpu%lu/online", cpu_idx ) );
   return (int)read_uint_file( path, "error reading cpu online status" );
 }
 

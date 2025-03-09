@@ -1,6 +1,9 @@
 #define _GNU_SOURCE
 #include "../../fdctl/configure/configure.h"
 
+#include "../../shared/fd_sys_util.h"
+#include "../../shared/fd_file_util.h"
+
 #include "../../../ballet/shred/fd_shred.h"
 #include "../../../disco/shred/fd_shredder.h"
 #include "../../../ballet/poh/fd_poh.h"
@@ -112,7 +115,7 @@ init( config_t * const config ) {
 
     fd_ext_blockstore_create_block0( config->ledger.path, fec.data_shred_cnt, (uchar const *)data.pkts, FD_SHRED_MIN_SZ, FD_SHRED_MAX_SZ );
 
-    exit_group( 0 );
+    fd_sys_util_exit_group( 0 );
   } else {
     int wstatus;
     if( FD_UNLIKELY( waitpid( pid, &wstatus, 0 )==-1 ) ) FD_LOG_ERR(( "waitpid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -151,7 +154,7 @@ fini( config_t * config,
     }
 
     if( FD_UNLIKELY( S_ISDIR( st.st_mode ) ) ) {
-      rmtree( path1, 1 );
+      if( FD_UNLIKELY( -1==fd_file_util_rmtree( path1, 1 ) ) ) FD_LOG_ERR(( "rmtree `%s` failed (%i-%s)", path1, errno, fd_io_strerror( errno ) ));
     } else {
       if( FD_UNLIKELY( unlink( path1 ) && errno != ENOENT ) )
         FD_LOG_ERR(( "unlink `%s` failed (%i-%s)", path1, errno, fd_io_strerror( errno ) ));

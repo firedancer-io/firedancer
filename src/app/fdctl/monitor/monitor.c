@@ -1,6 +1,9 @@
 #include "../fdctl.h"
 
 #include "generated/monitor_seccomp.h"
+
+#include "../../shared/fd_sys_util.h"
+
 #include "helper.h"
 
 #include <stdio.h>
@@ -509,7 +512,7 @@ run_monitor( config_t * const config,
 static void
 signal1( int sig ) {
   (void)sig;
-  exit_group( 0 );
+  fd_sys_util_exit_group( 0 );
 }
 
 void
@@ -604,5 +607,5 @@ monitor_cmd_fn( args_t *         args,
                args->monitor.seed,
                args->monitor.ns_per_tic );
 
-  exit_group( 0 );
+  fd_sys_util_exit_group( 0 );
 }
