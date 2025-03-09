@@ -1,5 +1,5 @@
-#include "../../../../disco/tiles.h"
 #include "../../../../disco/restart/fd_restart.h"
+#include "../../../../disco/topo/fd_topo.h"
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../funk/fd_funk_filemap.h"
@@ -81,7 +81,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 
 static void
 privileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
-                 fd_topo_tile_t * tile FD_PARAM_UNUSED ) {
+                 fd_topo_tile_t * tile ) {
   /* TODO: not launching the restart tile if in_wen_restart is false */
   if( FD_LIKELY( !tile->restart.in_wen_restart ) ) return;
 
@@ -98,8 +98,8 @@ privileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
 }
 
 static void
-unprivileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
-                   fd_topo_tile_t * tile FD_PARAM_UNUSED ) {
+unprivileged_init( fd_topo_t      * topo,
+                   fd_topo_tile_t * tile ) {
   /* TODO: not launching the restart tile if in_wen_restart is false */
   if( FD_LIKELY( !tile->restart.in_wen_restart ) ) {
     void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
