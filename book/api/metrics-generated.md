@@ -346,6 +346,18 @@
 |--------|------|-------------|
 | store_&#8203;transactions_&#8203;inserted | `counter` | Count of transactions produced while we were leader in the shreds that have been inserted so far |
 
+## Cswtch Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| cswtch_&#8203;device_&#8203;irqs_&#8203;total | `counter` | Number of device IRQs across all CPUs |
+| cswtch_&#8203;device_&#8203;irqs_&#8203;undesired | `counter` | Number of device hard IRQs that stole CPU time from fixed tiles |
+| cswtch_&#8203;softirqs_&#8203;total_&#8203;net | `counter` | Number of soft-IRQs across all CPUs (NET_TX, NET_RX) |
+| cswtch_&#8203;softirqs_&#8203;total_&#8203;disk | `counter` | Number of soft-IRQs across all CPUs (BLOCK) |
+| cswtch_&#8203;softirqs_&#8203;total_&#8203;other | `counter` | Number of soft-IRQs across all CPUs (e.g. TIMER, HRTIMER, IRQ_POLL, TASKLET, SCHED, RCU, ...) |
+| cswtch_&#8203;softirqs_&#8203;undesired_&#8203;net | `counter` | Number of soft-IRQs that stole CPU time from fixed tiles (NET_TX, NET_RX) |
+| cswtch_&#8203;softirqs_&#8203;undesired_&#8203;disk | `counter` | Number of soft-IRQs that stole CPU time from fixed tiles (BLOCK) |
+| cswtch_&#8203;softirqs_&#8203;undesired_&#8203;other | `counter` | Number of soft-IRQs that stole CPU time from fixed tiles (e.g. TIMER, HRTIMER, IRQ_POLL, TASKLET, SCHED, RCU, ...) |
+
 ## Replay Tile
 | Metric | Type | Description |
 |--------|------|-------------|

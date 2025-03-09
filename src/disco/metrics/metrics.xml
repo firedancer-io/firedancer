@@ -666,4 +666,17 @@ metric introduced.
     <counter name="NeighProbeRateLimitGlobal" summary="Number of neighbor solicit that exceeded the global rate limit" />
 </tile>
 
+<enum name="Softirq">
+    <int value="0" name="Net" label="NET_TX, NET_RX" />
+    <int value="1" name="Disk" label="BLOCK" />
+    <int value="3" name="Other" label="e.g. TIMER, HRTIMER, IRQ_POLL, TASKLET, SCHED, RCU, ..." />
+</enum>
+
+<tile name="cswtch">
+    <counter name="DeviceIrqsTotal" summary="Number of device IRQs across all CPUs" />
+    <counter name="DeviceIrqsUndesired" summary="Number of device hard IRQs that stole CPU time from fixed tiles" />
+    <counter name="SoftirqsTotal" enum="Softirq" summary="Number of soft-IRQs across all CPUs" />
+    <counter name="SoftirqsUndesired" enum="Softirq" summary="Number of soft-IRQs that stole CPU time from fixed tiles" />
+</tile>
+
 </metrics>
