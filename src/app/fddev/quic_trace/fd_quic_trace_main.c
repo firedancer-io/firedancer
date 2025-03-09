@@ -47,8 +47,8 @@ quic_trace_cmd_args( int *    pargc,
 }
 
 void
-quic_trace_cmd_fn( args_t *         args,
-                   config_t * const config ) {
+quic_trace_cmd_fn( args_t *   args,
+                   config_t * config ) {
   fd_topo_t * topo = &config->topo;
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_ONLY );
   fd_topo_fill( topo );

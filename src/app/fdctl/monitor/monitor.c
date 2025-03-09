@@ -28,11 +28,9 @@ monitor_cmd_args( int *    pargc,
 }
 
 void
-monitor_cmd_perm( args_t *         args,
+monitor_cmd_perm( args_t *         args FD_PARAM_UNUSED,
                   fd_caps_ctx_t *  caps,
-                  config_t * const config ) {
-  (void)args;
-
+                  config_t const * config ) {
   ulong mlock_limit = fd_topo_mlock( &config->topo );
 
   fd_caps_check_resource(     caps, "monitor", RLIMIT_MEMLOCK, mlock_limit, "call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`" );

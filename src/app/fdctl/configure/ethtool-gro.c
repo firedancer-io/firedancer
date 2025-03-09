@@ -17,7 +17,7 @@
 #define NAME "ethtool-gro"
 
 static int
-enabled( config_t * const config ) {
+enabled( config_t const * config ) {
   /* if we're running in a network namespace, we configure ethtool on
       the virtual device as part of netns setup, not here */
   return !config->development.netns.enabled;
@@ -25,8 +25,7 @@ enabled( config_t * const config ) {
 
 static void
 init_perm( fd_caps_ctx_t *  caps,
-           config_t * const config ) {
-  (void)config;
+           config_t const * config FD_PARAM_UNUSED ) {
   fd_caps_check_root( caps, NAME, "disable network device generic-receive-offload (gro) with `ethtool --offload generic-receive-offload off`" );
 }
 
@@ -167,7 +166,7 @@ check_device( const char * device ) {
 }
 
 static configure_result_t
-check( config_t * const config ) {
+check( config_t const * config ) {
   if( FD_UNLIKELY( device_is_bonded( config->tiles.net.interface ) ) ) {
     char line[ 4096 ];
     device_read_slaves( config->tiles.net.interface, line );

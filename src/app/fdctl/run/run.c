@@ -41,9 +41,9 @@
 #define NAME "run"
 
 void
-run_cmd_perm( args_t *         args,
+run_cmd_perm( args_t *         args FD_PARAM_UNUSED,
               fd_caps_ctx_t *  caps,
-              config_t * const config ) {
+              config_t const * config ) {
   (void)args;
 
   ulong mlock_limit = fd_topo_mlock_max_tile( &config->topo );
