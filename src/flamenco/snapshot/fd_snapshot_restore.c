@@ -2,7 +2,7 @@
 #include "fd_snapshot_restore_private.h"
 #include "../../util/archive/fd_tar.h"
 #include "../runtime/fd_acc_mgr.h"
-#include "../runtime/fd_account.h"
+#include "../runtime/fd_borrowed_account.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -160,7 +160,7 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
   fd_acc_mgr_t *      acc_mgr  = restore->acc_mgr;
   fd_funk_txn_t *     funk_txn = restore->funk_txn;
   fd_pubkey_t const * key      = fd_type_pun_const( hdr->meta.pubkey );
-  fd_borrowed_account_t rec[1]; fd_borrowed_account_init( rec );
+  FD_TXN_ACCOUNT_DECL( rec );
   char key_cstr[ FD_BASE58_ENCODED_32_SZ ];
 
   /* Sanity checks */

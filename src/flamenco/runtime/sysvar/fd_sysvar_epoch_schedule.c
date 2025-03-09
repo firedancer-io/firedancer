@@ -58,7 +58,7 @@ fd_sysvar_epoch_schedule_read( fd_epoch_schedule_t *      result,
     return result;
   }
 
-  FD_BORROWED_ACCOUNT_DECL(acc);
+  FD_TXN_ACCOUNT_DECL( acc );
   int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_epoch_schedule_id, acc );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return NULL;

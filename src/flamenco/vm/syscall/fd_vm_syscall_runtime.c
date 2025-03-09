@@ -221,7 +221,7 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
     return FD_VM_SUCCESS;
   }
 
-  FD_BORROWED_ACCOUNT_DECL( sysvar_account );
+  FD_TXN_ACCOUNT_DECL( sysvar_account );
   err = fd_acc_mgr_view( vm->instr_ctx->slot_ctx->acc_mgr, vm->instr_ctx->slot_ctx->funk_txn, sysvar_id, sysvar_account );
   if( FD_UNLIKELY( err ) ) {
     *_ret = 2UL;
@@ -561,7 +561,7 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
       fd_memcpy( result_data_haddr, instr_info->data, instr_info->data_sz );
       for( ulong i = 0UL; i < instr_info->acct_cnt; i++ ) {
         fd_memcpy( result_accounts_haddr[ i ].pubkey,
-                   vm->instr_ctx->txn_ctx->accounts[ instr_info->acct_txn_idxs[ i ] ].key,
+                   vm->instr_ctx->txn_ctx->account_keys[ instr_info->acct_txn_idxs[ i ] ].key,
                    FD_PUBKEY_FOOTPRINT );
         result_accounts_haddr[ i ].is_signer   = !!(instr_info->acct_flags[ i ] & FD_INSTR_ACCT_FLAGS_IS_SIGNER);
         result_accounts_haddr[ i ].is_writable = !!(instr_info->acct_flags[ i ] & FD_INSTR_ACCT_FLAGS_IS_WRITABLE);

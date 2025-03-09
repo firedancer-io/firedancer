@@ -24,7 +24,7 @@ write_stake_history( fd_exec_slot_ctx_t * slot_ctx,
 static fd_stake_history_t *
 fd_sysvar_stake_history_read( fd_exec_slot_ctx_t * slot_ctx,
                               fd_spad_t *          runtime_spad ) {
-  FD_BORROWED_ACCOUNT_DECL( stake_rec );
+  FD_TXN_ACCOUNT_DECL( stake_rec );
   int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_stake_history_id, stake_rec );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
     return NULL;

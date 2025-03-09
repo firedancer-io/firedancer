@@ -79,7 +79,7 @@ fd_sysvar_slot_hashes_read( fd_exec_slot_ctx_t *  slot_ctx,
 
 //  FD_LOG_INFO(( "SysvarS1otHashes111111111111111111111111111 at slot %lu: " FD_LOG_HEX16_FMT, slot_ctx->slot_bank.slot, FD_LOG_HEX16_FMT_ARGS(     metadata.hash    ) ));
 
-  FD_BORROWED_ACCOUNT_DECL( rec );
+  FD_TXN_ACCOUNT_DECL( rec );
   int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t const *)&fd_sysvar_slot_hashes_id, rec );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
     return NULL;

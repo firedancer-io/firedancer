@@ -57,7 +57,7 @@ fd_sysvar_clock_read( fd_sol_sysvar_clock_t *    result,
     return result;
   }
 
-  FD_BORROWED_ACCOUNT_DECL(acc);
+  FD_TXN_ACCOUNT_DECL( acc );
   int rc = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_clock_id, acc );
   if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) )
     return NULL;
@@ -344,7 +344,7 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad 
 
   fd_pubkey_t const * key = &fd_sysvar_clock_id;
 
-  FD_BORROWED_ACCOUNT_DECL( rec );
+  FD_TXN_ACCOUNT_DECL( rec );
   int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, key, rec );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "fd_acc_mgr_view(clock) failed: %d", err ));
@@ -436,7 +436,7 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad 
   FD_LOG_DEBUG(( "clock.unix_timestamp: %ld", clock->unix_timestamp ));
 
   ulong sz = fd_sol_sysvar_clock_size( clock );
-  FD_BORROWED_ACCOUNT_DECL( acc );
+  FD_TXN_ACCOUNT_DECL( acc );
   err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, key, 1, sz, acc );
   if( err ) {
     FD_LOG_CRIT(( "fd_acc_mgr_modify(clock) failed: %d", err ));
