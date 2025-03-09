@@ -143,7 +143,6 @@
 //#include "fd_funk_txn.h"  /* Includes fd_funk_base.h */
 //#include "fd_funk_rec.h"  /* Includes fd_funk_txn.h */
 #include "fd_funk_val.h"    /* Includes fd_funk_rec.h */
-#include "fd_funk_part.h"
 
 /* FD_FUNK_{ALIGN,FOOTPRINT} describe the alignment and footprint needed
    for a funk.  ALIGN should be a positive integer power of 2.
@@ -242,8 +241,6 @@ struct __attribute__((aligned(FD_FUNK_ALIGN))) fd_funk_private {
                           rec_max==fd_funk_rec_map_key_max(rec_map) */
   ulong rec_head_idx;  /* Record map index of the first record, FD_FUNK_REC_IDX_NULL if none (from oldest to youngest) */
   ulong rec_tail_idx;  /* "                       last          " */
-
-  ulong partvec_gaddr; /* Address of partition header vector */
 
   /* The funk alloc is used for allocating wksp resources for record
      values.  This is a fd_alloc and more details are given in

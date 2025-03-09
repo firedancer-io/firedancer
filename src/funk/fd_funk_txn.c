@@ -192,7 +192,6 @@ fd_funk_txn_cancel_childless( fd_funk_t *     funk,
   fd_wksp_t *     wksp    = fd_funk_wksp   ( funk );
   fd_alloc_t *    alloc   = fd_funk_alloc  ( funk, wksp );
   fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
-  fd_funk_partvec_t * partvec = fd_funk_get_partvec( funk, wksp );
   ulong           rec_max = funk->rec_max;
 
   ulong rec_idx = map[ txn_idx ].rec_head_idx;
@@ -206,8 +205,6 @@ fd_funk_txn_cancel_childless( fd_funk_t *     funk,
     rec_map[ rec_idx ].txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
 
     fd_funk_val_flush( &rec_map[ rec_idx ], alloc, wksp );
-    fd_funk_part_set_intern( partvec, rec_map, &rec_map[ rec_idx ], FD_FUNK_PART_NULL );
-
     fd_funk_rec_map_remove( rec_map, fd_funk_rec_pair( &rec_map[ rec_idx ] ) );
 
     rec_idx = next_idx;
@@ -514,7 +511,6 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
                     ulong                     rec_max,           /* ==funk->rec_max */
                     fd_funk_txn_t *           txn_map,           /* ==fd_funk_rec_map( funk, wksp ) */
                     fd_funk_rec_t *           rec_map,           /* ==fd_funk_rec_map( funk, wksp ) */
-                    fd_funk_partvec_t *       partvec,           /* ==fd_funk_get_partvec( funk, wksp ) */
                     fd_alloc_t *              alloc,             /* ==fd_funk_alloc( funk, wksp ) */
                     fd_wksp_t *               wksp ) {           /* ==fd_funk_wksp( funk ) */
   /* We don't need to do all the individual removal pointer updates
@@ -560,7 +556,6 @@ fd_funk_txn_update( ulong *                   _dst_rec_head_idx, /* Pointer to t
         /* Clean up value */
         fd_funk_val_flush( ele, alloc, wksp );
         ele->txn_cidx = fd_funk_txn_cidx( FD_FUNK_TXN_IDX_NULL );
-        fd_funk_part_set_intern( partvec, rec_map, ele, FD_FUNK_PART_NULL );
         /* Remove from record map */
         fd_funk_rec_map_private_t * priv = fd_funk_rec_map_private( rec_map );
         *next = ele->map_next;
@@ -619,7 +614,7 @@ fd_funk_txn_publish_funk_child( fd_funk_t *     funk,
 
   fd_wksp_t * wksp = fd_funk_wksp( funk );
   fd_funk_txn_update( &funk->rec_head_idx, &funk->rec_tail_idx, FD_FUNK_TXN_IDX_NULL, fd_funk_root( funk ),
-                      txn_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ), fd_funk_get_partvec( funk, wksp ),
+                      txn_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ),
                       fd_funk_alloc( funk, wksp ), wksp );
 
   /* Cancel all competing transaction histories */
@@ -756,7 +751,7 @@ fd_funk_txn_publish_into_parent( fd_funk_t *     funk,
     if( fd_funk_txn_idx( funk->child_head_cidx ) != txn_idx || fd_funk_txn_idx( funk->child_tail_cidx ) != txn_idx )
       FD_LOG_CRIT(( "memory corruption detected (cycle or bad idx)" ));
     fd_funk_txn_update( &funk->rec_head_idx, &funk->rec_tail_idx, FD_FUNK_TXN_IDX_NULL, fd_funk_root( funk ),
-                        txn_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ), fd_funk_get_partvec( funk, wksp ),
+                        txn_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ),
                         fd_funk_alloc( funk, wksp ), wksp );
     /* Inherit the children */
     funk->child_head_cidx = txn->child_head_cidx;
@@ -766,7 +761,7 @@ fd_funk_txn_publish_into_parent( fd_funk_t *     funk,
     if( fd_funk_txn_idx( parent_txn->child_head_cidx ) != txn_idx || fd_funk_txn_idx( parent_txn->child_tail_cidx ) != txn_idx )
       FD_LOG_CRIT(( "memory corruption detected (cycle or bad idx)" ));
     fd_funk_txn_update( &parent_txn->rec_head_idx, &parent_txn->rec_tail_idx, parent_idx, &parent_txn->xid,
-                        txn_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ), fd_funk_get_partvec( funk, wksp ),
+                        txn_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ),
                         fd_funk_alloc( funk, wksp ), wksp );
     /* Inherit the children */
     parent_txn->child_head_cidx = txn->child_head_cidx;
@@ -839,7 +834,7 @@ fd_funk_txn_merge_all_children( fd_funk_t *     funk,
     }
 
     fd_funk_txn_update( rec_head_idx, rec_tail_idx, parent_idx, parent_xid,
-                        child_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ), fd_funk_get_partvec( funk, wksp ),
+                        child_idx, funk->rec_max, map, fd_funk_rec_map( funk, wksp ),
                         fd_funk_alloc( funk, wksp ), wksp );
 
     child_idx = fd_funk_txn_idx( txn->sibling_next_cidx );
