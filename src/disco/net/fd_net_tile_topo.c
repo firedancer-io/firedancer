@@ -22,8 +22,7 @@ setup_xdp_tile( fd_topo_t *      topo,
   fd_topob_tile_uses( topo, tile, umem_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_pod_insertf_ulong( topo->props, umem_obj->id, "net.%lu.umem", i );
 
-  strncpy( tile->net.interface,    config->tiles.net.interface, sizeof(tile->net.interface) );
-  memcpy(  tile->net.src_mac_addr, config->tiles.net.mac_addr,  6UL );
+  strncpy( tile->net.interface, config->tiles.net.interface, sizeof(tile->net.interface) );
 
   strcpy( tile->net.provider, "xdp" );
   tile->net.tx_flush_timeout_ns = (long)config->tiles.net.flush_timeout_micros * 1000L;

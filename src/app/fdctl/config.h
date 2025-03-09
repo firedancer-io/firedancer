@@ -220,7 +220,6 @@ struct fdctl_config {
     struct {
       char   interface[ IF_NAMESIZE ];
       uint   ip_addr;
-      uchar  mac_addr[6];
       char   xdp_mode[ 8 ];
       int    xdp_zero_copy;
 
