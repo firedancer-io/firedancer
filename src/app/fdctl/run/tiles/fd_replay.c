@@ -1,31 +1,20 @@
 #define _GNU_SOURCE
 
-#include "../../../../disco/fd_disco.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../disco/tiles.h"
-#include "../../../../disco/shred/fd_shred_dest.h"
 #include "../../../../disco/topo/fd_pod_format.h"
-#include "../../../../flamenco/fd_flamenco.h"
 #include "../../../../flamenco/runtime/fd_txncache.h"
 #include "../../../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../../../flamenco/runtime/context/fd_exec_epoch_ctx.h"
 #include "../../../../flamenco/runtime/context/fd_exec_slot_ctx.h"
-#include "../../../../flamenco/runtime/fd_borrowed_account.h"
-#include "../../../../flamenco/runtime/fd_executor.h"
-#include "../../../../flamenco/runtime/fd_hashes.h"
 #include "../../../../flamenco/runtime/program/fd_bpf_program_util.h"
-#include "../../../../flamenco/runtime/program/fd_builtin_programs.h"
 #include "../../../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 #include "../../../../flamenco/runtime/sysvar/fd_sysvar_slot_history.h"
-#include "../../../../flamenco/runtime/sysvar/fd_sysvar_recent_hashes.h"
 #include "../../../../flamenco/runtime/fd_runtime_init.h"
 #include "../../../../flamenco/snapshot/fd_snapshot.h"
 #include "../../../../flamenco/stakes/fd_stakes.h"
 #include "../../../../flamenco/runtime/fd_runtime.h"
 #include "../../../../flamenco/rewards/fd_rewards.h"
-#include "../../../../util/fd_util.h"
-#include "../../../../util/tile/fd_tile_private.h"
-#include "../../../../util/net/fd_net_headers.h"
 #include "fd_replay_notif.h"
 #include "generated/replay_seccomp.h"
 #include "../../../../disco/restart/fd_restart.h"
@@ -35,7 +24,6 @@
 #include "../../../../funk/fd_funk_filemap.h"
 #include "../../../../flamenco/snapshot/fd_snapshot_create.h"
 #include "../../../../disco/plugin/fd_plugin.h"
-#include "../../../../ballet/bmtree/fd_wbmtree.h"
 
 #include <arpa/inet.h>
 #include <errno.h>
@@ -1309,11 +1297,9 @@ init_poh( fd_replay_tile_ctx_t * ctx ) {
 
 static int
 process_and_exec_mbatch( fd_replay_tile_ctx_t * ctx,
-                         fd_stem_context_t *    stem,
+                         fd_stem_context_t *    stem FD_PARAM_UNUSED,
                          ulong                  mbatch_sz,
                          bool                   last_batch ) {
-  (void)stem;
-
   #define wait_and_check_success( worker_idx )         \
     fd_tpool_wait( ctx->tpool, worker_idx );           \
     if( poh_info[ worker_idx ].success ) {             \
@@ -1453,6 +1439,7 @@ process_and_exec_mbatch( fd_replay_tile_ctx_t * ctx,
     fd_block_map_publish( query );
   }
   return 0;
+# undef wait_and_check_success
 }
 
 static void
@@ -1515,13 +1502,10 @@ static void
 after_frag( fd_replay_tile_ctx_t * ctx,
             ulong                  in_idx,
             ulong                  seq,
-            ulong                  sig,
-            ulong                  sz,
+            ulong                  sig FD_PARAM_UNUSED,
+            ulong                  sz  FD_PARAM_UNUSED,
             ulong                  tsorig,
             fd_stem_context_t *    stem ) {
-  (void)sig;
-  (void)sz;
-  (void)seq;
 
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
   if( FD_UNLIKELY( in_idx == STORE_IN_IDX ) ) {
@@ -2367,10 +2351,8 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
 static void
 after_credit( fd_replay_tile_ctx_t * ctx,
               fd_stem_context_t *    stem,
-              int *                  opt_poll_in,
+              int *                  opt_poll_in FD_PARAM_UNUSED,
               int *                  charge_busy ) {
-  (void)opt_poll_in;
-
   if( FD_UNLIKELY( ctx->snapshot_init_done==0 ) ) {
     init_snapshot( ctx, stem );
     ctx->snapshot_init_done = 1;
