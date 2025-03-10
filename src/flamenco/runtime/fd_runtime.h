@@ -14,8 +14,7 @@
 #include "context/fd_exec_slot_ctx.h"
 #include "context/fd_capture_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
-#include "context/fd_runtime_ctx.h"
-#include "info/fd_block_info.h"
+#include "info/fd_runtime_block_info.h"
 #include "info/fd_instr_info.h"
 #include "../gossip/fd_gossip.h"
 #include "../repair/fd_repair.h"
@@ -397,11 +396,11 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
                                   fd_spad_t *          runtime_spad );
 
 int
-fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t *    slot_ctx,
-                                         fd_capture_ctx_t *      capture_ctx,
-                                         fd_block_info_t const * block_info,
-                                         fd_tpool_t *            tpool,
-                                         fd_spad_t *             runtime_spad );
+fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t            * slot_ctx,
+                                         fd_capture_ctx_t              * capture_ctx,
+                                         fd_runtime_block_info_t const * block_info,
+                                         fd_tpool_t                    * tpool,
+                                         fd_spad_t                     * runtime_spad );
 
 /* Transaction Level Execution Management *************************************/
 

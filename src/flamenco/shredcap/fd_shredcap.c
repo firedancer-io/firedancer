@@ -1070,10 +1070,10 @@ fd_shredcap_populate_blockstore( const char *      capture_dir,
       }
 
       fd_shredcap_bank_hash_entry_t * entry = (fd_shredcap_bank_hash_entry_t*)bank_hash_buf;
-      if ( FD_LIKELY( fd_blockstore_block_meta_test( blockstore, cur_slot ) ) ) {
+      if ( FD_LIKELY( fd_blockstore_block_info_test( blockstore, cur_slot ) ) ) {
         fd_block_map_query_t query[1] = {0};
         fd_block_map_prepare( blockstore->block_map, &cur_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
-        fd_block_meta_t * block = fd_block_map_query_ele( query );
+        fd_block_info_t * block = fd_block_map_query_ele( query );
         fd_memcpy( block->bank_hash.hash, &entry->bank_hash.hash, 32UL );
         fd_block_map_publish( query );
       }

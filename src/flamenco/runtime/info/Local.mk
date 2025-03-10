@@ -1,5 +1,5 @@
 ifdef FD_HAS_INT128
-$(call add-hdrs,fd_block_info.h)
+$(call add-hdrs,fd_runtime_block_info.h)
 $(call add-hdrs,fd_instr_info.h)
 $(call add-hdrs,fd_microblock_batch_info.h)
 $(call add-hdrs,fd_microblock_info.h)
