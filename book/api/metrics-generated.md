@@ -552,6 +552,8 @@
 | sock_&#8203;rx_&#8203;pkt_&#8203;cnt | `counter` | Number of packets received |
 | sock_&#8203;tx_&#8203;pkt_&#8203;cnt | `counter` | Number of packets sent |
 | sock_&#8203;tx_&#8203;drop_&#8203;cnt | `counter` | Number of packets failed to send |
+| sock_&#8203;tx_&#8203;bytes_&#8203;total | `counter` | Total number of bytes transmitted (including Ethernet header). |
+| sock_&#8203;rx_&#8203;bytes_&#8203;total | `counter` | Total number of bytes received (including Ethernet header). |
 
 ## Repair Tile
 | Metric | Type | Description |
