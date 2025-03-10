@@ -41,6 +41,10 @@
 #define FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY          (11)
 #define FD_GUI_START_PROGRESS_TYPE_RUNNING                            (12)
 
+#define FD_GUI_PEERS_ACTION_ADD    (0)
+#define FD_GUI_PEERS_ACTION_UPDATE (1)
+#define FD_GUI_PEERS_ACTION_REMOVE (2)
+
 struct fd_gui_gossip_peer {
   fd_pubkey_t pubkey[ 1 ];
   ulong       wallclock;
@@ -64,6 +68,8 @@ struct fd_gui_gossip_peer {
   } sockets[ 12 ];
 };
 
+typedef struct fd_gui_gossip_peer fd_gui_gossip_peer_t;
+
 struct fd_gui_vote_account {
   fd_pubkey_t pubkey[ 1 ];
   fd_pubkey_t vote_account[ 1 ];
@@ -75,6 +81,7 @@ struct fd_gui_vote_account {
   uchar       commission;
   int         delinquent;
 };
+typedef struct fd_gui_vote_account fd_gui_vote_account_t;
 
 struct fd_gui_validator_info {
   fd_pubkey_t pubkey[ 1 ];
@@ -84,6 +91,8 @@ struct fd_gui_validator_info {
   char details[ 256 ];
   char icon_uri[ 128 ];
 };
+
+typedef struct fd_gui_validator_info fd_gui_validator_info_t;
 
 struct fd_gui_txn_waterfall {
   struct {
@@ -299,22 +308,23 @@ struct fd_gui {
       fd_epoch_leaders_t * lsched;
       uchar __attribute__((aligned(FD_EPOCH_LEADERS_ALIGN))) _lsched[ FD_EPOCH_LEADERS_FOOTPRINT(50000UL, 432000UL) ];
       fd_stake_weight_t stakes[ 50000UL ];
+      fd_pubkey_t sched_pubkey_sorted[ 50000UL ];
     } epochs[ 2 ];
   } epoch;
 
   struct {
     ulong                     peer_cnt;
-    struct fd_gui_gossip_peer peers[ 40200 ];
+    fd_gui_gossip_peer_t peers[ 40200 ];
   } gossip;
 
   struct {
     ulong                      vote_account_cnt;
-    struct fd_gui_vote_account vote_accounts[ 40200 ];
+    fd_gui_vote_account_t vote_accounts[ 40200 ];
   } vote_account;
 
   struct {
     ulong                        info_cnt;
-    struct fd_gui_validator_info info[ 40200 ];
+    fd_gui_validator_info_t info[ 40200 ];
   } validator_info;
 };
 
@@ -336,6 +346,28 @@ fd_gui_new( void *             shmem,
             uchar const *      identity_key,
             int                is_voting,
             fd_topo_t *        topo );
+
+/* fd_gui_{gossip|vote_acct|validator_infoleader_schedule}_contains
+   check if the provided pubkey is in the set of peers designated by
+   the function name. they return the index into a buffer of peer
+   objects or ULONG_MAX if they pubkey is not found. */
+
+ulong
+fd_gui_gossip_contains( fd_gui_t * gui,
+                        uchar const *    pubkey );
+
+ulong
+fd_gui_vote_acct_contains( fd_gui_t * gui,
+                           uchar const *    pubkey );
+
+ulong
+fd_gui_validator_info_contains( fd_gui_t * gui,
+                                uchar const *    pubkey );
+
+ulong
+fd_gui_leader_schedule_contains( fd_gui_t * gui,
+                                 uchar const *    pubkey,
+                                 ulong            epoch_idx );
 
 fd_gui_t *
 fd_gui_join( void * shmem );
