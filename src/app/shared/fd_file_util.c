@@ -10,10 +10,10 @@
 #include <sys/stat.h>
 
 int
-fd_file_util_read_uint( char const * path,
-                        uint *       value ) {
+fd_file_util_read_ulong( char const * path,
+                         ulong *      value ) {
   int fd = open( path, O_RDONLY );
-  if( FD_UNLIKELY( -1==fd) ) return -1;
+  if( FD_UNLIKELY( -1==fd ) ) return -1;
 
   char buf[ 32UL ];
   long bytes_read = read(fd, buf, sizeof(buf)-1UL );
@@ -30,28 +30,43 @@ fd_file_util_read_uint( char const * path,
 
   buf[ bytes_read ] = '\0';
 
+  if( FD_UNLIKELY( -1==close( fd ) ) ) return -1;
+
   char *endptr;
+  errno = 0;
   ulong _value = strtoul( buf, &endptr, 10 );
-  if( FD_UNLIKELY( (*endptr!='\n' && *endptr!='\0') || _value>UINT_MAX ) ) {
-    errno = ERANGE;
-    close(fd);
+  if( FD_UNLIKELY( errno==ERANGE ) ) return -1;
+  if( FD_UNLIKELY( *endptr!='\n' && *endptr!='\0' ) ) {
+    errno = EINVAL;
     return -1;
   }
 
-  if( FD_UNLIKELY( -1==close( fd ) ) ) return -1;
+  *value = _value;
+  return 0;
+}
 
+int
+fd_file_util_read_uint( char const * path,
+                        uint *       value ) {
+  ulong _value;
+  int rc = fd_file_util_read_ulong( path, &_value );
+  if( FD_UNLIKELY( -1==rc ) ) return -1;
+  if( FD_UNLIKELY( _value>UINT_MAX ) ) {
+    errno = ERANGE;
+    return -1;
+  }
   *value = (uint)_value;
   return 0;
 }
 
 int
-fd_file_util_write_uint( char const * path,
-                         uint         value ) {
+fd_file_util_write_ulong( char const * path,
+                          ulong        value ) {
   int fd = open( path, O_WRONLY | O_CREAT | O_TRUNC, S_IRUSR | S_IWUSR );
   if( FD_UNLIKELY( -1==fd ) ) return -1;
 
   char buf[ 32UL ];
-  int len = snprintf( buf, sizeof(buf), "%u\n", value );
+  int len = snprintf( buf, sizeof(buf), "%lu\n", value );
   FD_TEST( len>=0 && (ulong)len<sizeof(buf) );
 
   long written = write( fd, buf, (ulong)len );

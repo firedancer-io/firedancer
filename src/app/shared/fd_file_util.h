@@ -12,6 +12,10 @@
    be ERANGE. */
 
 int
+fd_file_util_read_ulong( char const * path,
+                         ulong *      value );
+
+int
 fd_file_util_read_uint( char const * path,
                         uint *       value );
 
@@ -19,8 +23,14 @@ fd_file_util_read_uint( char const * path,
    On failure, -1 is returned and errno is set appropriately.  */
 
 int
+fd_file_util_write_ulong( char const * path,
+                          ulong        value );
+
+static inline int
 fd_file_util_write_uint( char const * path,
-                         uint         value );
+                         uint         value ) {
+  return fd_file_util_write_ulong( path, value );
+}
 
 /* fd_file_util_mkdir_all() recursively creates directories such that
    the full path provided can exist.  Directories that already exist are
