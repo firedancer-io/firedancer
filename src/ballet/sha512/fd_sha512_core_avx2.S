@@ -4,12 +4,15 @@
 # to extract only the version needed and named appropriately for
 # interfacing the existing API and exposing for library use.
 
-.text	
+# Make stack non-executable
+.section .note.GNU-stack,"",@progbits
+
+.text
 .globl	fd_sha512_core_avx2
 .type	fd_sha512_core_avx2,@function
 .align	64
 fd_sha512_core_avx2:
-.cfi_startproc	
+.cfi_startproc
 	movq	%rsp,%rax
 .cfi_def_cfa_register	%rax
 	pushq	%rbx
@@ -1383,7 +1386,7 @@ fd_sha512_core_avx2:
 .cfi_def_cfa_register	%rsp
 .Lepilogue_avx2:
 	.byte	0xf3,0xc3
-.cfi_endproc	
+.cfi_endproc
 .size	fd_sha512_core_avx2,.-fd_sha512_core_avx2
 
 .align	128
