@@ -336,7 +336,7 @@ tiles in the system.
 **`Tile`**
 | Field   | Type    | Description
 |---------|---------|------------
-| kind    | `string` | What kind of tile it is. One of `net`, `quic`, `verify`, `dedup`, `pack`, `bank`, `poh`, `shred`, `store`, `sign`, `plugin`, or `http`.
+| kind    | `string` | What kind of tile it is. One of `net`, `sock`, `quic`, `verify`, `dedup`, `pack`, `bank`, `poh`, `shred`, `store`, `sign`, `plugin`, or `http`.
 | kind_id | `number` | The index of the tile in its kind. For example, if there are four `verify` tiles they have `kind_id` values of 0, 1, 2, and 3 respectively.
 
 ::: details Example
@@ -638,13 +638,13 @@ potential underflow.
 **`TilePrimaryMetric`**
 | Field   | Type     | Description |
 |---------|----------|-------------|
-| net_in  | `number` | Ingress bytes per second (W) |
+| net_in  | `number` | Network ingress bytes per second (W) |
 | quic    | `number` | Active QUIC connections (P) |
 | verify  | `number` | Fraction of transactions that failed sigverify (W) |
 | dedup   | `number` | Fraction of transactions deduplicated (W) |
 | pack    | `number` | Fraction of pack buffer filled (P) |
 | bank    | `number` | Execution TPS (W) |
-| net_out | `number` | Egress bytes per second (W) |
+| net_out | `number` | Network egress bytes per second (W) |
 
 
 #### `summary.live_tile_timers`

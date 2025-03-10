@@ -101,7 +101,7 @@ SOFTWARE.
 ---
 
 Name: @radix-ui/react-compose-refs
-Version: 1.1.0
+Version: 1.1.1
 License: MIT
 Private: false
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -110,7 +110,7 @@ Homepage: https://radix-ui.com/primitives
 ---
 
 Name: @radix-ui/react-slot
-Version: 1.1.0
+Version: 1.1.2
 License: MIT
 Private: false
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -119,7 +119,7 @@ Homepage: https://radix-ui.com/primitives
 ---
 
 Name: @radix-ui/react-primitive
-Version: 2.0.0
+Version: 2.0.2
 License: MIT
 Private: false
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -128,7 +128,7 @@ Homepage: https://radix-ui.com/primitives
 ---
 
 Name: @radix-ui/react-visually-hidden
-Version: 1.1.0
+Version: 1.1.2
 License: MIT
 Private: false
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -136,42 +136,17 @@ Homepage: https://radix-ui.com/primitives
 
 ---
 
-Name: classnames
-Version: 2.3.2
+Name: @radix-ui/react-context
+Version: 1.1.1
 License: MIT
 Private: false
-Description: A simple utility for conditionally joining classNames together
-Repository: https://github.com/JedWatson/classnames.git
-Author: Jed Watson
-License Copyright:
-===
-
-The MIT License (MIT)
-
-Copyright (c) 2018 Jed Watson
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+Repository: git+https://github.com/radix-ui/primitives.git
+Homepage: https://radix-ui.com/primitives
 
 ---
 
-Name: @radix-ui/react-context
-Version: 1.1.0
+Name: @radix-ui/react-collection
+Version: 1.1.2
 License: MIT
 Private: false
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -180,25 +155,7 @@ Homepage: https://radix-ui.com/primitives
 ---
 
 Name: @radix-ui/primitive
-Version: 1.1.0
-License: MIT
-Private: false
-Repository: git+https://github.com/radix-ui/primitives.git
-Homepage: https://radix-ui.com/primitives
-
----
-
-Name: @radix-ui/react-use-layout-effect
-Version: 1.1.0
-License: MIT
-Private: false
-Repository: git+https://github.com/radix-ui/primitives.git
-Homepage: https://radix-ui.com/primitives
-
----
-
-Name: @radix-ui/react-id
-Version: 1.1.0
+Version: 1.1.1
 License: MIT
 Private: false
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -224,6 +181,42 @@ Homepage: https://radix-ui.com/primitives
 
 ---
 
+Name: @radix-ui/react-use-layout-effect
+Version: 1.1.0
+License: MIT
+Private: false
+Repository: git+https://github.com/radix-ui/primitives.git
+Homepage: https://radix-ui.com/primitives
+
+---
+
+Name: @radix-ui/react-presence
+Version: 1.1.2
+License: MIT
+Private: false
+Repository: git+https://github.com/radix-ui/primitives.git
+Homepage: https://radix-ui.com/primitives
+
+---
+
+Name: @radix-ui/react-id
+Version: 1.1.0
+License: MIT
+Private: false
+Repository: git+https://github.com/radix-ui/primitives.git
+Homepage: https://radix-ui.com/primitives
+
+---
+
+Name: @radix-ui/react-direction
+Version: 1.1.0
+License: MIT
+Private: false
+Repository: git+https://github.com/radix-ui/primitives.git
+Homepage: https://radix-ui.com/primitives
+
+---
+
 Name: @radix-ui/react-use-escape-keydown
 Version: 1.1.0
 License: MIT
@@ -234,7 +227,7 @@ Homepage: https://radix-ui.com/primitives
 ---
 
 Name: @radix-ui/react-dismissable-layer
-Version: 1.1.0
+Version: 1.1.5
 License: MIT
 Private: false
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -243,7 +236,7 @@ Homepage: https://radix-ui.com/primitives
 ---
 
 Name: @radix-ui/react-focus-scope
-Version: 1.1.0
+Version: 1.1.2
 License: MIT
 Private: false
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -252,16 +245,7 @@ Homepage: https://radix-ui.com/primitives
 ---
 
 Name: @radix-ui/react-portal
-Version: 1.1.1
-License: MIT
-Private: false
-Repository: git+https://github.com/radix-ui/primitives.git
-Homepage: https://radix-ui.com/primitives
-
----
-
-Name: @radix-ui/react-presence
-Version: 1.1.0
+Version: 1.1.4
 License: MIT
 Private: false
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -270,7 +254,7 @@ Homepage: https://radix-ui.com/primitives
 ---
 
 Name: @radix-ui/react-focus-guards
-Version: 1.1.0
+Version: 1.1.1
 License: MIT
 Private: false
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -279,7 +263,7 @@ Homepage: https://radix-ui.com/primitives
 ---
 
 Name: tslib
-Version: 2.7.0
+Version: 2.8.1
 License: 0BSD
 Private: false
 Description: Runtime library for TypeScript helper functions
@@ -305,7 +289,7 @@ PERFORMANCE OF THIS SOFTWARE.
 ---
 
 Name: react-remove-scroll-bar
-Version: 2.3.4
+Version: 2.3.8
 License: MIT
 Private: false
 Description: Removes body scroll without content _shake_
@@ -315,7 +299,7 @@ Author: Anton Korzunov <thekashey@gmail.com>
 ---
 
 Name: use-callback-ref
-Version: 1.3.2
+Version: 1.3.3
 License: MIT
 Private: false
 Description: The same useRef, but with callback
@@ -349,7 +333,7 @@ SOFTWARE.
 ---
 
 Name: use-sidecar
-Version: 1.1.2
+Version: 1.1.3
 License: MIT
 Private: false
 Description: Sidecar code splitting utils
@@ -384,7 +368,7 @@ SOFTWARE.
 ---
 
 Name: react-remove-scroll
-Version: 2.5.7
+Version: 2.6.3
 License: MIT
 Private: false
 Description: Disables scroll outside of `children` node.
@@ -453,12 +437,37 @@ SOFTWARE.
 ---
 
 Name: react-style-singleton
-Version: 2.2.1
+Version: 2.2.3
 License: MIT
 Private: false
 Description: Just create a single stylesheet...
+Repository: https://github.com/theKashey/react-style-singleton
 Homepage: https://github.com/theKashey/react-style-singleton#readme
 Author: Anton Korzunov (thekashey@gmail.com)
+License Copyright:
+===
+
+MIT License
+
+Copyright (c) 2017 Anton Korzunov
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ---
 
@@ -497,17 +506,26 @@ SOFTWARE.
 
 ---
 
-Name: @radix-ui/themes
-Version: 3.1.3
+Name: @radix-ui/react-use-previous
+Version: 1.1.0
 License: MIT
 Private: false
-Repository: git+https://github.com/radix-ui/themes.git
-Homepage: https://radix-ui.com/themes
+Repository: git+https://github.com/radix-ui/primitives.git
+Homepage: https://radix-ui.com/primitives
+
+---
+
+Name: @radix-ui/react-use-size
+Version: 1.1.0
+License: MIT
+Private: false
+Repository: git+https://github.com/radix-ui/primitives.git
+Homepage: https://radix-ui.com/primitives
 
 ---
 
 Name: @floating-ui/utils
-Version: 0.2.8
+Version: 0.2.9
 License: MIT
 Private: false
 Description: Utilities for Floating UI
@@ -541,7 +559,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ---
 
 Name: @floating-ui/core
-Version: 1.6.8
+Version: 1.6.9
 License: MIT
 Private: false
 Description: Positioning library for floating elements: tooltips, popovers, dropdowns, and more
@@ -575,7 +593,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ---
 
 Name: @floating-ui/dom
-Version: 1.6.11
+Version: 1.6.13
 License: MIT
 Private: false
 Description: Floating UI for the web
@@ -643,16 +661,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ---
 
 Name: @radix-ui/react-arrow
-Version: 1.1.0
-License: MIT
-Private: false
-Repository: git+https://github.com/radix-ui/primitives.git
-Homepage: https://radix-ui.com/primitives
-
----
-
-Name: @radix-ui/react-use-size
-Version: 1.1.0
+Version: 1.1.2
 License: MIT
 Private: false
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -661,43 +670,7 @@ Homepage: https://radix-ui.com/primitives
 ---
 
 Name: @radix-ui/react-popper
-Version: 1.2.0
-License: MIT
-Private: false
-Repository: git+https://github.com/radix-ui/primitives.git
-Homepage: https://radix-ui.com/primitives
-
----
-
-Name: @radix-ui/react-tooltip
-Version: 1.1.1
-License: MIT
-Private: false
-Repository: git+https://github.com/radix-ui/primitives.git
-Homepage: https://radix-ui.com/primitives
-
----
-
-Name: @radix-ui/react-direction
-Version: 1.1.0
-License: MIT
-Private: false
-Repository: git+https://github.com/radix-ui/primitives.git
-Homepage: https://radix-ui.com/primitives
-
----
-
-Name: @radix-ui/react-use-previous
-Version: 1.1.0
-License: MIT
-Private: false
-Repository: git+https://github.com/radix-ui/primitives.git
-Homepage: https://radix-ui.com/primitives
-
----
-
-Name: @radix-ui/react-collection
-Version: 1.1.0
+Version: 1.2.2
 License: MIT
 Private: false
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -706,7 +679,7 @@ Homepage: https://radix-ui.com/primitives
 ---
 
 Name: @radix-ui/react-roving-focus
-Version: 1.1.0
+Version: 1.1.2
 License: MIT
 Private: false
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -715,7 +688,43 @@ Homepage: https://radix-ui.com/primitives
 ---
 
 Name: @radix-ui/react-menu
-Version: 2.1.1
+Version: 2.1.6
+License: MIT
+Private: false
+Repository: git+https://github.com/radix-ui/primitives.git
+Homepage: https://radix-ui.com/primitives
+
+---
+
+Name: @radix-ui/react-dropdown-menu
+Version: 2.1.6
+License: MIT
+Private: false
+Repository: git+https://github.com/radix-ui/primitives.git
+Homepage: https://radix-ui.com/primitives
+
+---
+
+Name: @radix-ui/react-popover
+Version: 1.1.6
+License: MIT
+Private: false
+Repository: git+https://github.com/radix-ui/primitives.git
+Homepage: https://radix-ui.com/primitives
+
+---
+
+Name: @radix-ui/react-progress
+Version: 1.1.2
+License: MIT
+Private: false
+Repository: git+https://github.com/radix-ui/primitives.git
+Homepage: https://radix-ui.com/primitives
+
+---
+
+Name: @radix-ui/react-radio-group
+Version: 1.2.3
 License: MIT
 Private: false
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -732,35 +741,8 @@ Homepage: https://radix-ui.com/primitives
 
 ---
 
-Name: @radix-ui/react-dropdown-menu
-Version: 2.1.1
-License: MIT
-Private: false
-Repository: git+https://github.com/radix-ui/primitives.git
-Homepage: https://radix-ui.com/primitives
-
----
-
-Name: @radix-ui/react-popover
-Version: 1.1.1
-License: MIT
-Private: false
-Repository: git+https://github.com/radix-ui/primitives.git
-Homepage: https://radix-ui.com/primitives
-
----
-
-Name: @radix-ui/react-progress
-Version: 1.1.0
-License: MIT
-Private: false
-Repository: git+https://github.com/radix-ui/primitives.git
-Homepage: https://radix-ui.com/primitives
-
----
-
-Name: @radix-ui/react-radio-group
-Version: 1.2.0
+Name: @radix-ui/react-slider
+Version: 1.2.3
 License: MIT
 Private: false
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -769,7 +751,7 @@ Homepage: https://radix-ui.com/primitives
 ---
 
 Name: @radix-ui/react-toggle
-Version: 1.1.0
+Version: 1.1.2
 License: MIT
 Private: false
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -778,7 +760,7 @@ Homepage: https://radix-ui.com/primitives
 ---
 
 Name: @radix-ui/react-toggle-group
-Version: 1.1.0
+Version: 1.1.2
 License: MIT
 Private: false
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -786,8 +768,8 @@ Homepage: https://radix-ui.com/primitives
 
 ---
 
-Name: @radix-ui/react-slider
-Version: 1.2.0
+Name: @radix-ui/react-tooltip
+Version: 1.1.8
 License: MIT
 Private: false
 Repository: git+https://github.com/radix-ui/primitives.git
@@ -795,20 +777,52 @@ Homepage: https://radix-ui.com/primitives
 
 ---
 
-Name: @tanstack/history
-Version: 1.57.6
+Name: classnames
+Version: 2.5.1
 License: MIT
 Private: false
-Description: Modern and scalable routing for React applications
-Repository: https://github.com/TanStack/router.git
-Homepage: https://tanstack.com/router
-Author: Tanner Linsley
+Description: A simple utility for conditionally joining classNames together
+Repository: git+https://github.com/JedWatson/classnames.git
+Author: Jed Watson
+License Copyright:
+===
+
+The MIT License (MIT)
+
+Copyright (c) 2018 Jed Watson
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+Name: @radix-ui/themes
+Version: 3.2.1
+License: MIT
+Private: false
+Repository: git+https://github.com/radix-ui/themes.git
+Homepage: https://radix-ui.com/themes
 License Copyright:
 ===
 
 MIT License
 
-Copyright (c) 2021-present Tanner Linsley
+Copyright (c) 2023 WorkOS
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -898,8 +912,113 @@ SOFTWARE.
 
 ---
 
+Name: @tanstack/store
+Version: 0.7.0
+License: MIT
+Private: false
+Description: Framework agnostic type-safe store w/ reactive framework adapters
+Repository: git+https://github.com/TanStack/store.git
+Homepage: https://tanstack.com/store
+Author: Tanner Linsley
+License Copyright:
+===
+
+MIT License
+
+Copyright (c) 2021 Tanner Linsley
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+Name: @tanstack/history
+Version: 1.114.22
+License: MIT
+Private: false
+Description: Modern and scalable routing for React applications
+Repository: https://github.com/TanStack/router.git
+Homepage: https://tanstack.com/router
+Author: Tanner Linsley
+License Copyright:
+===
+
+MIT License
+
+Copyright (c) 2021-present Tanner Linsley
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+Name: @tanstack/router-core
+Version: 1.114.25
+License: MIT
+Private: false
+Description: Modern and scalable routing for React applications
+Repository: https://github.com/TanStack/router.git
+Homepage: https://tanstack.com/router
+Author: Tanner Linsley
+License Copyright:
+===
+
+MIT License
+
+Copyright (c) 2021-present Tanner Linsley
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
 Name: @tanstack/react-router
-Version: 1.58.9
+Version: 1.114.25
 License: MIT
 Private: false
 Description: Modern and scalable routing for React applications
@@ -934,7 +1053,7 @@ SOFTWARE.
 ---
 
 Name: use-sync-external-store
-Version: 1.2.2
+Version: 1.4.0
 License: MIT
 Private: false
 Description: Backwards compatible shim for React's useSyncExternalStore. Works with any React that supports hooks.
@@ -944,42 +1063,7 @@ License Copyright:
 
 MIT License
 
-Copyright (c) Facebook, Inc. and its affiliates.
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
----
-
-Name: @tanstack/store
-Version: 0.5.5
-License: MIT
-Private: false
-Description: Framework agnostic type-safe store w/ reactive framework adapters
-Repository: https://github.com/TanStack/store.git
-Homepage: https://tanstack.com/store
-Author: Tanner Linsley
-License Copyright:
-===
-
-MIT License
-
-Copyright (c) 2021 Tanner Linsley
+Copyright (c) Meta Platforms, Inc. and affiliates.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -1002,7 +1086,7 @@ SOFTWARE.
 ---
 
 Name: @tanstack/react-store
-Version: 0.5.5
+Version: 0.7.0
 License: MIT
 Private: false
 Description: Framework agnostic type-safe store w/ reactive framework adapters
@@ -1036,8 +1120,42 @@ SOFTWARE.
 
 ---
 
+Name: jsesc
+Version: 3.1.0
+License: MIT
+Private: false
+Description: Given some data, jsesc returns the shortest possible stringified & ASCII-safe representation of that data.
+Repository: https://github.com/mathiasbynens/jsesc.git
+Homepage: https://mths.be/jsesc
+Author: Mathias Bynens (https://mathiasbynens.be/)
+License Copyright:
+===
+
+Copyright Mathias Bynens <https://mathiasbynens.be/>
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+---
+
 Name: jotai
-Version: 2.10.0
+Version: 2.12.2
 License: MIT
 Private: false
 Description: 👻 Primitive and flexible state management for React
@@ -1049,7 +1167,7 @@ License Copyright:
 
 MIT License
 
-Copyright (c) 2020-2023 Poimandres
+Copyright (c) 2020 Poimandres
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -1296,7 +1414,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 ---
 
 Name: micro-memoize
-Version: 4.1.2
+Version: 4.1.3
 License: MIT
 Private: false
 Description: A tiny, crazy fast memoization library for the 95% use-case
@@ -1331,7 +1449,7 @@ SOFTWARE.
 ---
 
 Name: react-use
-Version: 17.5.1
+Version: 17.6.0
 License: Unlicense
 Private: false
 Description: Collection of React Hooks
@@ -1413,7 +1531,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 ---
 
 Name: @radix-ui/react-icons
-Version: 1.3.0
+Version: 1.3.2
 License: MIT
 Private: false
 Description: Radix UI React Icon Set
@@ -1445,12 +1563,12 @@ SOFTWARE.
 ---
 
 Name: byte-size
-Version: 9.0.0
+Version: 9.0.1
 License: MIT
 Private: false
 Description: Convert a bytes or octets value (e.g. 34565346) to a human-readable string ('34.6 MB'). Choose between metric or IEC units.
-Repository: undefined
-Author: Lloyd Brookes <75pound@gmail.com>
+Repository: git+https://github.com/75lb/byte-size.git
+Author: Lloyd Brookes <opensource@75lb.com>
 Contributors:
   Raul Perez <repejota@gmail.com> (http://repejota.com)
 License Copyright:
@@ -1458,7 +1576,7 @@ License Copyright:
 
 The MIT License (MIT)
 
-Copyright (c) 2014-24 Lloyd Brookes <75pound@gmail.com>
+Copyright (c) 2014-25 Lloyd Brookes <75pound@gmail.com>
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -1481,7 +1599,7 @@ SOFTWARE.
 ---
 
 Name: @react-spring/rafz
-Version: 9.7.4
+Version: 9.7.5
 License: MIT
 Private: false
 Description: react-spring's fork of rafz one frameloop to rule them all
@@ -1516,7 +1634,7 @@ SOFTWARE.
 ---
 
 Name: @react-spring/shared
-Version: 9.7.4
+Version: 9.7.5
 License: MIT
 Private: false
 Description: Globals and shared modules
@@ -1551,7 +1669,7 @@ SOFTWARE.
 ---
 
 Name: @react-spring/animated
-Version: 9.7.4
+Version: 9.7.5
 License: MIT
 Private: false
 Description: Animated component props for React
@@ -1586,7 +1704,7 @@ SOFTWARE.
 ---
 
 Name: @react-spring/core
-Version: 9.7.4
+Version: 9.7.5
 License: MIT
 Private: false
 Repository: undefined
@@ -1620,7 +1738,7 @@ SOFTWARE.
 ---
 
 Name: @react-spring/web
-Version: 9.7.4
+Version: 9.7.5
 License: MIT
 Private: false
 Repository: undefined
@@ -1689,7 +1807,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 ---
 
 Name: zod
-Version: 3.23.8
+Version: 3.24.2
 License: MIT
 Private: false
 Description: TypeScript-first schema declaration and validation library with static type inference
@@ -1724,7 +1842,7 @@ SOFTWARE.
 ---
 
 Name: use-debounce
-Version: 10.0.3
+Version: 10.0.4
 License: MIT
 Private: false
 Description: Debounce hook for react
@@ -1759,7 +1877,7 @@ SOFTWARE.
 ---
 
 Name: react-circular-progressbar
-Version: 2.1.0
+Version: 2.2.0
 License: MIT
 Private: false
 Description: A circular progress indicator component
@@ -1793,7 +1911,7 @@ SOFTWARE.
 ---
 
 Name: react-intersection-observer
-Version: 9.13.1
+Version: 9.16.0
 License: MIT
 Private: false
 Description: Monitor if a component is inside the viewport, using IntersectionObserver API
@@ -1864,8 +1982,43 @@ THE SOFTWARE.
 
 ---
 
+Name: @tanstack/zod-adapter
+Version: 1.114.25
+License: MIT
+Private: false
+Description: Modern and scalable routing for React applications
+Repository: https://github.com/TanStack/router.git
+Homepage: https://tanstack.com/router
+Author: Tanner Linsley
+License Copyright:
+===
+
+MIT License
+
+Copyright (c) 2021-present Tanner Linsley
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
 Name: react-virtualized-auto-sizer
-Version: 1.0.24
+Version: 1.0.25
 License: MIT
 Private: false
 Description: Standalone version of the AutoSizer component from react-virtualized
@@ -2047,7 +2200,7 @@ THIS SOFTWARE.
 ---
 
 Name: internmap
-Version: 1.0.1
+Version: 2.0.3
 License: ISC
 Private: false
 Description: Map and Set with automatic key interning
@@ -2705,7 +2858,7 @@ SOFTWARE.
 ---
 
 Name: @ag-grid-community/core
-Version: 32.2.0
+Version: 32.3.4
 License: MIT
 Private: false
 Description: Advanced Data Grid / Data Table supporting Javascript / Typescript / React / Angular / Vue
@@ -2716,7 +2869,7 @@ Author: Sean Landsman <sean@thelandsmans.com>
 ---
 
 Name: @ag-grid-community/react
-Version: 32.2.0
+Version: 32.3.4
 License: MIT
 Private: false
 Description: AG Grid React Component
@@ -2727,7 +2880,7 @@ Author: Niall Crosby <niall.crosby@ag-grid.com>
 ---
 
 Name: @ag-grid-community/client-side-row-model
-Version: 32.2.0
+Version: 32.3.4
 License: MIT
 Private: false
 Description: Advanced Data Grid / Data Table supporting Javascript / Typescript / React / Angular / Vue
@@ -2738,7 +2891,7 @@ Author: Sean Landsman <sean@thelandsmans.com>
 ---
 
 Name: @ag-grid-community/csv-export
-Version: 32.2.0
+Version: 32.3.4
 License: MIT
 Private: false
 Description: Advanced Data Grid / Data Table supporting Javascript / Typescript / React / Angular / Vue
