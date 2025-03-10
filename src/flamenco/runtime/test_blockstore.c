@@ -48,11 +48,11 @@ typedef struct fd_shred_cap_hdr fd_shred_cap_hdr_t;
 // }
 
 static void
-replay_slice( fd_blockstore_t * blockstore, uchar * slice, ulong slot, uint idx ) {
+replay_slice( fd_blockstore_t * blockstore, uchar * slice, ulong slot, uint idx, uint end_idx ) {
   FD_LOG_NOTICE(( "replay_batch: slot: %lu, idx: %u", slot, idx ));
 
   ulong slice_sz;
-  int err = fd_blockstore_slice_query( blockstore, slot, idx, FD_SLICE_MAX, slice, &slice_sz );
+  int err = fd_blockstore_slice_query( blockstore, slot, idx, end_idx, FD_SLICE_MAX, slice, &slice_sz );
   FD_TEST( slice_sz < FD_SLICE_MAX );
   FD_TEST( err == FD_BLOCKSTORE_SUCCESS );
 
@@ -126,7 +126,7 @@ main( int argc, char ** argv ) {
 
         if ( fd_blockstore_shreds_complete( blockstore, shred->slot ) ) {
           // fd_blockstore_start_read( blockstore );
-          fd_block_meta_t * block_map_entry = fd_blockstore_block_map_query( blockstore, shred->slot );
+          fd_block_info_t * block_map_entry = fd_blockstore_block_map_query( blockstore, shred->slot );
           // fd_blockstore_end_read( blockstore );
           FD_LOG_NOTICE(( "slot %lu block_map_entry->consumed_idx: %u, block_map_entry->buffered_idx: %u", shred->slot, block_map_entry->consumed_idx, block_map_entry->buffered_idx ));
 
@@ -137,7 +137,7 @@ main( int argc, char ** argv ) {
 
               /* FIXME: backpressure? consumer will need to make sure they aren't overrun */
 
-              replay_slice( blockstore, slice, shred->slot, block_map_entry->consumed_idx + 1 );
+              replay_slice( blockstore, slice, shred->slot, block_map_entry->consumed_idx + 1, idx );
               block_map_entry->consumed_idx = idx;
             }
             idx++;
