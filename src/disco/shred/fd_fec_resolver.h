@@ -1,6 +1,7 @@
 #ifndef HEADER_fd_src_disco_shred_fd_fec_resolver_h
 #define HEADER_fd_src_disco_shred_fd_fec_resolver_h
 #include "../../ballet/shred/fd_fec_set.h"
+#include "../../ballet/bmtree/fd_bmtree.h"
 
 /* This header defines several methods for building and validating FEC
    sets from received shreds.  It's designed just for use by the shred
@@ -160,31 +161,39 @@ fd_fec_resolver_t * fd_fec_resolver_join( void * shmem );
    shred is a pointer to the new shred that should be added.  shred_sz
    is the size of the shred in bytes.
 
-   On success (SHRED_OKAY or SHRED_COMPLETES), a pointer to the
-   fd_fec_set_t structure representing the FEC set of which the shred is
-   a part will be written to out_fec_set.  Additionally, on success a
-   pointer to a copy of shred will be written to the location pointed to
-   by out_shred.  See the long explanation above about the lifetimes of
-   these pointers.
+   On success ie. SHRED_{OKAY,COMPLETES}, a pointer to the fd_fec_set_t
+   structure representing the FEC set of which the shred is a part will
+   be written to out_fec_set.  Additionally, on success a pointer to a
+   copy of shred will be written to the location pointed to by
+   out_shred.  See the long explanation above about the lifetimes of
+   these pointers.  Finally, on success the merkle root of the shred
+   (reconstructed from the merkle proof) will be written to
+   out_merkle_root.  Unlike out_{fec_set,shred}, caller owns and
+   provides the memory for out_merkle_root.  If the out_merkle_root
+   pointer is NULL, the argument will be ignored and merkle root will
+   not be written.
 
-   If the shred fails validation for any reason, SHRED_REJECTED will be
-   returned and nothing will be written to out_fec_set or out_shred.
-   If the shred is a duplicate of a shred that has already been
-   received, SHRED_IGNORED will be returned, and nothing will be written
-   to out_fec_set or out_shred.  Note that only light validation is
-   performed on a duplicate shred, so a shred that is actually invalid
-   but looks like a duplicate of a previously received valid shred may
-   be considered SHRED_IGNORED instead of SHRED_REJECTED.
+   If the shred fails validation for any reason, returns SHRED_REJECTED
+   and does not write to out_{fec_set,shred,merkle_root}.  If the shred
+   is a duplicate of a shred that has already been received (ie. a shred
+   with the same index but a different payload), returns SHRED_IGNORED
+   does not write to out_{fec_set,shred,merkle_root}.
+
+   Note that only light validation is performed on a duplicate shred, so
+   a shred that is actually invalid but looks like a duplicate of a
+   previously received valid shred may be considered SHRED_IGNORED
+   instead of SHRED_REJECTED.
 
    This function returns SHRED_COMPLETES when the received shred is the
    last one and completes the FEC set.  In this case, the function
    populates any missing shreds in the FEC set stored in out_fec_set. */
 int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
-                               fd_shred_t   const   *  shred,
+                               fd_shred_t const     * shred,
                                ulong                  shred_sz,
-                               uchar        const   * leader_pubkey,
+                               uchar const          * leader_pubkey,
                                fd_fec_set_t const * * out_fec_set,
-                               fd_shred_t   const * * out_shred );
+                               fd_shred_t const   * * out_shred,
+                               fd_bmtree_node_t     * out_merkle_root );
 
 void * fd_fec_resolver_leave( fd_fec_resolver_t * resolver );
 void * fd_fec_resolver_delete( void * shmem );

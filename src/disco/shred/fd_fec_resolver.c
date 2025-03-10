@@ -1,6 +1,5 @@
 #include "../../ballet/shred/fd_shred.h"
 #include "../../ballet/shred/fd_fec_set.h"
-#include "../../ballet/bmtree/fd_bmtree.h"
 #include "../../ballet/sha512/fd_sha512.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/reedsol/fd_reedsol.h"
@@ -310,11 +309,12 @@ ctx_ll_insert( set_ctx_t * p, set_ctx_t * c ) {
 
 
 int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
-                               fd_shred_t   const   * shred,
+                               fd_shred_t const     * shred,
                                ulong                  shred_sz,
-                               uchar        const   * leader_pubkey,
+                               uchar const          * leader_pubkey,
                                fd_fec_set_t const * * out_fec_set,
-                               fd_shred_t   const * * out_shred ) {
+                               fd_shred_t const   * * out_shred,
+                               fd_bmtree_node_t     * out_merkle_root ) {
   /* Unpack variables */
   ulong partial_depth = resolver->partial_depth;
   ulong done_depth    = resolver->done_depth;
@@ -457,6 +457,9 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
       FD_MCNT_INC( SHRED, SHRED_REJECTED_INITIAL, 1UL );
       return FD_FEC_RESOLVER_SHRED_REJECTED;
     }
+
+    /* Copy the merkle root into the output arg. */
+    if( FD_LIKELY( out_merkle_root ) ) memcpy( out_merkle_root, _root, sizeof(fd_bmtree_node_t) );
 
     /* This seems like a legitimate FEC set, so we can reserve some
        resources for it. */
