@@ -489,7 +489,11 @@ fd_gui_printf_epoch( fd_gui_t * gui,
 
       jsonp_open_array( gui, "staked_lamports" );
         fd_stake_weight_t * stakes = gui->epoch.epochs[epoch_idx].stakes;
-        for( ulong i=0UL; i<lsched->pub_cnt; i++ ) jsonp_ulong( gui, NULL, stakes[ i ].stake );
+        char staked_lamports_cstr[ 21 ];
+        for( ulong i=0UL; i<lsched->pub_cnt; i++ ) {
+          FD_TEST( fd_cstr_printf_check( staked_lamports_cstr, sizeof( staked_lamports_cstr ), NULL, "%lu", stakes[ i ].stake ) );
+          jsonp_string( gui, NULL, staked_lamports_cstr );
+        }
       jsonp_close_array( gui );
 
       jsonp_open_array( gui, "leader_slots" );
