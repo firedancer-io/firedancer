@@ -124,10 +124,7 @@ main( int argc, char ** argv ) {
   fd_quic_svc_validate( client_quic );
 
   FD_LOG_NOTICE(( "Creating connection" ));
-  fd_quic_conn_t * client_conn = fd_quic_connect(
-      client_quic,
-      server_quic->config.net.ip_addr,
-      server_quic->config.net.listen_udp_port );
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0 );
   FD_TEST( client_conn );
 
   /* do general processing */

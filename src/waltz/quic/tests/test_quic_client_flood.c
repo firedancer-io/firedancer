@@ -80,7 +80,7 @@ run_quic_client(
     FD_LOG_NOTICE(( "Starting QUIC client" ));
 
     /* make a connection from client to the server */
-    client_conn = fd_quic_connect( quic, dst_ip, dst_port );
+    client_conn = fd_quic_connect( quic, dst_ip, dst_port, 0U, 0 );
 
     /* do general processing */
     while ( !client_complete ) {
@@ -269,9 +269,6 @@ main( int argc, char ** argv ) {
   fd_quic_config_t * client_cfg = &quic->config;
   client_cfg->role = FD_QUIC_ROLE_CLIENT;
   FD_TEST( fd_quic_config_from_env( &argc, &argv, client_cfg ) );
-  client_cfg->net.ip_addr         = udpsock->listen_ip;
-  client_cfg->net.ephem_udp_port.lo = (ushort)udpsock->listen_port;
-  client_cfg->net.ephem_udp_port.hi = (ushort)(udpsock->listen_port + 1);
 
   /* loop continually, so that if the connection dies we try again */
   while (1) {

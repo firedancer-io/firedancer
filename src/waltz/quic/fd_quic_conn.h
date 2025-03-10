@@ -129,9 +129,7 @@ struct fd_quic_conn {
    * in the transport parameters as specified in rfc 9000 7.3 */
   fd_quic_conn_id_t  retry_src_conn_id;
 
-  /* Host network endpoint
-     - for server, just a copy of config->net
-     - for client, an allocated ephemeral UDP port */
+  /* Host network endpoint. Used to determine src address and port */
   fd_quic_net_endpoint_t host;
 
   /* Peer network endpoints – have multiple connection ids and ip:port */

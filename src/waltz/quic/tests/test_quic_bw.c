@@ -168,10 +168,7 @@ main( int     argc,
   FD_TEST( fd_quic_init( client_quic ) );
 
   /* make a connection from client to server */
-  fd_quic_conn_t * client_conn = fd_quic_connect(
-      client_quic,
-      server_quic->config.net.ip_addr,
-      server_quic->config.net.listen_udp_port );
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0 );
 
   FD_TEST( conn_final_cnt==0 );
 

@@ -110,7 +110,7 @@ run_quic_client( fd_quic_t *         quic,
       /* if no connection, try making one */
       FD_LOG_NOTICE(( "Creating connection" ));
 
-      gbl_conn = fd_quic_connect( quic, dst_ip, dst_port );
+      gbl_conn = fd_quic_connect( quic, dst_ip, dst_port, 0U, 0 );
 
       continue;
     }
@@ -241,9 +241,6 @@ main( int argc,
   fd_quic_config_t * client_cfg = &quic->config;
   client_cfg->role = FD_QUIC_ROLE_CLIENT;
   FD_TEST( fd_quic_config_from_env( &argc, &argv, client_cfg ) );
-  client_cfg->net.ip_addr         = udpsock->listen_ip;
-  client_cfg->net.ephem_udp_port.lo = (ushort)udpsock->listen_port;
-  client_cfg->net.ephem_udp_port.hi = (ushort)(udpsock->listen_port + 1);
   client_cfg->initial_rx_max_stream_data = 1<<15;
   client_cfg->idle_timeout = (ulong)10000e6;
 

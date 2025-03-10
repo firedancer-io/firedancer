@@ -248,10 +248,6 @@ populate_quic_config( fd_quic_config_t * config ) {
   config->role = FD_QUIC_ROLE_CLIENT;
   config->retry = 0;
   config->initial_rx_max_stream_data = 0; /* we don't expect the server to initiate streams */
-
-  config->net.ephem_udp_port.lo = 12000;
-  config->net.ephem_udp_port.hi = 12100;
-
   config->net.dscp = 0;
 }
 
@@ -310,7 +306,7 @@ during_frag( fd_benchs_ctx_t * ctx,
       uint   dest_ip   = 0;
       ushort dest_port = fd_ushort_bswap( ctx->quic_port );
 
-      ctx->quic_conn = fd_quic_connect( ctx->quic, dest_ip, dest_port );
+      ctx->quic_conn = fd_quic_connect( ctx->quic, dest_ip, dest_port, 0U, 12000 );
 
       /* failed? try later */
       if( FD_UNLIKELY( !ctx->quic_conn ) ) {
@@ -502,11 +498,8 @@ unprivileged_init( fd_topo_t *      topo,
 
     if( FD_UNLIKELY( !quic_tx_aio ) ) FD_LOG_ERR(( "fd_aio_join failed" ));
 
-    uint  quic_ip_addr             = 0;     /* TODO fetch the quic destination ip addr */
     ulong quic_idle_timeout_millis = 10000;  /* idle timeout in milliseconds */
     quic->config.role                       = FD_QUIC_ROLE_CLIENT;
-    quic->config.net.ip_addr                = quic_ip_addr;
-    quic->config.net.listen_udp_port        = 42424; /* should be unused */
     quic->config.idle_timeout               = quic_idle_timeout_millis * 1000000UL;
     quic->config.initial_rx_max_stream_data = 0;
     quic->config.retry                      = 0; /* unused on clients */

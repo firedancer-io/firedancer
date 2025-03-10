@@ -94,7 +94,7 @@ fd_quic_retry_create(
   fd_quic_retry_token_t * retry_token = fd_type_pun( out_ptr );
   assert( out_free >= sizeof(fd_quic_retry_token_t) );
 
-  uint   src_ip4_addr = FD_LOAD( uint, pkt->ip4->saddr_c );  /* net order */
+  uint   src_ip4_addr = pkt->ip4->saddr;  /* net order */
   ushort src_udp_port = (ushort)fd_ushort_bswap( (ushort)pkt->udp->net_sport );
 
   fd_quic_retry_data_new( &retry_token->data, rng );
@@ -176,7 +176,7 @@ fd_quic_retry_server_verify(
   int vfy_res = fd_quic_retry_token_verify( retry_token, aes_gcm, retry_secret, retry_iv );
   memset( aes_gcm, 0, sizeof(fd_aes_gcm_t) );
 
-  uint  pkt_ip4       = FD_LOAD( uint, pkt->ip4->saddr_c               );
+  uint  pkt_ip4       = pkt->ip4->saddr;
   uint  retry_ip4     = FD_LOAD( uint, retry_token->data.ip6_addr + 12 );
   int   is_ip4        = 0==memcmp( retry_token->data.ip6_addr, "\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\xff\xff", 12 );
   uint  pkt_port      = fd_ushort_bswap( (ushort)pkt->udp->net_sport );

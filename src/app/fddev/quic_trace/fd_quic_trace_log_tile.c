@@ -34,7 +34,7 @@ after_frag( void *              _ctx   FD_FN_UNUSED,
   fd_quic_log_error_t const * error = fd_type_pun_const( ctx->buffer );
   printf( "event=conn_close_quic conn_id=%016lx src_ip=%08x enc=%d pktnum=%8lu close_code=0x%lx loc=%.*s(%u)\n",
           error->hdr.conn_id,
-          fd_uint_bswap( FD_LOAD( uint, error->hdr.ip4_saddr ) ),
+          fd_uint_bswap( error->hdr.ip4_saddr ),
           error->hdr.enc_level,
           error->hdr.pkt_num,
           error->code[0],

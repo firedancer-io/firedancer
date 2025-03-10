@@ -155,6 +155,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
     fd_quic_conn_create( quic,
                          our_conn_id, &peer_conn_id,
                          dst_ip_addr,  (ushort)dst_udp_port,
+                         0U, 0U,
                          1  /* we are the server */ );
   assert( conn );
   assert( conn->svc_type == FD_QUIC_SVC_WAIT );
