@@ -728,14 +728,14 @@ unprivileged_init( fd_topo_t *      topo,
     char   buf[20]; /* max # of digits for a ulong */
 
     ulong cnt = 1;
-    FD_TEST( fd_blockstore_block_meta_remove( ctx->blockstore, snapshot_slot ) );
+    FD_TEST( fd_blockstore_block_info_remove( ctx->blockstore, snapshot_slot ) );
 
     while( fgets( buf, sizeof( buf ), file ) ) {
       char *       endptr;
       ulong        slot  = strtoul( buf, &endptr, 10 );
       fd_block_map_query_t query[1] = { 0 };
       int err = fd_block_map_prepare( ctx->blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
-      fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
+      fd_block_info_t * block_map_entry = fd_block_map_query_ele( query );
       if( err || block_map_entry->slot != slot ) {
         FD_LOG_ERR(( "init: slot %lu does not match block_map_entry->slot %lu", slot, block_map_entry->slot ));
       }

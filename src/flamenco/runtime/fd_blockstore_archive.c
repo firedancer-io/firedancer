@@ -20,7 +20,7 @@ static inline void check_read_write_err( int err ) {
 } while(0);
 
 ulong
-fd_blockstore_archiver_lrw_slot( fd_blockstore_t * blockstore, int fd, fd_block_meta_t * lrw_block_meta, fd_block_t * lrw_block_out ) {
+fd_blockstore_archiver_lrw_slot( fd_blockstore_t * blockstore, int fd, fd_block_info_t * lrw_block_info, fd_block_t * lrw_block_out ) {
   fd_block_idx_t * block_idx = fd_blockstore_block_idx( blockstore );
   if ( FD_UNLIKELY ( fd_block_idx_key_cnt( block_idx ) == 0 ) ) {
     return FD_SLOT_NULL;
@@ -28,9 +28,9 @@ fd_blockstore_archiver_lrw_slot( fd_blockstore_t * blockstore, int fd, fd_block_
 
   fd_block_idx_t lrw_block_idx = { 0 };
   lrw_block_idx.off = blockstore->shmem->archiver.head;
-  int err = fd_blockstore_block_meta_restore( &blockstore->shmem->archiver, fd, &lrw_block_idx, lrw_block_meta,  lrw_block_out );
+  int err = fd_blockstore_block_info_restore( &blockstore->shmem->archiver, fd, &lrw_block_idx, lrw_block_info,  lrw_block_out );
   check_read_write_err( err );
-  return lrw_block_meta->slot;
+  return lrw_block_info->slot;
 }
 
 bool
@@ -98,7 +98,7 @@ build_idx( fd_blockstore_t * blockstore, int fd ) {
   FD_LOG_NOTICE(( "[%s] building index of blockstore archival file", __func__ ));
 
   fd_block_idx_t * block_idx = fd_blockstore_block_idx( blockstore );
-  fd_block_meta_t block_map_out = { 0 };
+  fd_block_info_t block_map_out = { 0 };
   fd_block_t      block_out     = { 0 };
 
   off_t sz = lseek( fd, 0, SEEK_END );
@@ -132,19 +132,19 @@ build_idx( fd_blockstore_t * blockstore, int fd ) {
     blocks_read++;
     fd_block_idx_t block_idx_entry = { 0 };
     block_idx_entry.off = off;
-    err = fd_blockstore_block_meta_restore( &blockstore->shmem->archiver, fd, &block_idx_entry, &block_map_out,  &block_out );
+    err = fd_blockstore_block_info_restore( &blockstore->shmem->archiver, fd, &block_idx_entry, &block_map_out,  &block_out );
     check_read_write_err( err );
 
     if( FD_UNLIKELY( fd_block_idx_key_cnt( block_idx ) == fd_block_idx_key_max( block_idx ) )  ) {
       /* evict a block */
-      fd_block_meta_t lrw_block_map;
+      fd_block_info_t lrw_block_map;
       fd_block_t      lrw_block;
       ulong lrw_slot = fd_blockstore_archiver_lrw_slot( blockstore, fd, &lrw_block_map, &lrw_block );
 
       fd_block_idx_t * lrw_block_index = fd_block_idx_query( block_idx, lrw_slot, NULL );
       fd_block_idx_remove( block_idx, lrw_block_index );
 
-      blockstore->shmem->archiver.head = wrap_offset(&blockstore->shmem->archiver, blockstore->shmem->archiver.head + lrw_block.data_sz + sizeof(fd_block_meta_t) + sizeof(fd_block_t));;
+      blockstore->shmem->archiver.head = wrap_offset(&blockstore->shmem->archiver, blockstore->shmem->archiver.head + lrw_block.data_sz + sizeof(fd_block_info_t) + sizeof(fd_block_t));;
       blockstore->shmem->archiver.num_blocks--;
     }
     fd_block_idx_t * idx_entry = fd_block_idx_query( block_idx, block_map_out.slot, NULL );
@@ -162,7 +162,7 @@ build_idx( fd_blockstore_t * blockstore, int fd ) {
     FD_LOG_NOTICE(( "[%s] read block (%lu/%lu) at offset: %lu. slot no: %lu", __func__, blocks_read, total_blocks, off, block_map_out.slot ));
 
     /* seek past data */
-    off = wrap_offset( &blockstore->shmem->archiver, off + sizeof(fd_block_meta_t) + sizeof(fd_block_t) + block_out.data_sz );
+    off = wrap_offset( &blockstore->shmem->archiver, off + sizeof(fd_block_info_t) + sizeof(fd_block_t) + block_out.data_sz );
     check_read_write_err( lseek( fd, (long)off, SEEK_SET ) == -1);
   }
   FD_LOG_NOTICE(( "[%s] successfully indexed blockstore archival file. entries: %lu", __func__, fd_block_idx_key_cnt( block_idx ) ));
@@ -240,7 +240,7 @@ fd_blockstore_lrw_archive_clear( fd_blockstore_t * blockstore, int fd, ulong wsz
     return;
   }
 
-  fd_block_meta_t lrw_block_map;
+  fd_block_info_t lrw_block_map;
   fd_block_t      lrw_block;
 
   ulong lrw_slot = fd_blockstore_archiver_lrw_slot( blockstore, fd, &lrw_block_map, &lrw_block );
@@ -253,7 +253,7 @@ fd_blockstore_lrw_archive_clear( fd_blockstore_t * blockstore, int fd, ulong wsz
     FD_LOG_DEBUG(( "[%s] overwriting lrw block %lu", __func__, lrw_block_map.slot ));
     fd_block_idx_remove( block_idx, lrw_block_index );
 
-    archvr->head = wrap_offset(archvr, archvr->head + lrw_block.data_sz + sizeof(fd_block_meta_t) + sizeof(fd_block_t));
+    archvr->head = wrap_offset(archvr, archvr->head + lrw_block.data_sz + sizeof(fd_block_info_t) + sizeof(fd_block_t));
     archvr->num_blocks--;
 
     lrw_slot        = fd_blockstore_archiver_lrw_slot( blockstore, fd, &lrw_block_map, &lrw_block );
@@ -281,13 +281,13 @@ fd_blockstore_post_checkpt_update( fd_blockstore_t * blockstore,
 
   if ( fd_block_idx_key_cnt( block_idx ) == fd_block_idx_key_max( block_idx ) ){
     /* make space if needed */
-    fd_block_meta_t lrw_block_map_out;
+    fd_block_info_t lrw_block_map_out;
     fd_block_t      lrw_block_out;
     ulong lrw_slot = fd_blockstore_archiver_lrw_slot( blockstore, fd, &lrw_block_map_out, &lrw_block_out );
     fd_block_idx_t * lrw_block_index = fd_block_idx_query(block_idx, lrw_slot, NULL);
     fd_block_idx_remove( block_idx, lrw_block_index );
 
-    archvr->head = wrap_offset(archvr, archvr->head + lrw_block_out.data_sz + sizeof(fd_block_meta_t) + sizeof(fd_block_t));
+    archvr->head = wrap_offset(archvr, archvr->head + lrw_block_out.data_sz + sizeof(fd_block_info_t) + sizeof(fd_block_t));
     archvr->num_blocks--;
   }
 
@@ -316,14 +316,14 @@ fd_blockstore_block_checkpt( fd_blockstore_t * blockstore,
     FD_LOG_ERR(( "[%s] failed to seek to offset %lu", __func__, write_off ));
   }
 
-  ulong total_wsz = sizeof(fd_block_meta_t) + sizeof(fd_block_t) + ser->block->data_sz;
+  ulong total_wsz = sizeof(fd_block_info_t) + sizeof(fd_block_t) + ser->block->data_sz;
 
   /* clear any potential overwrites */
   fd_blockstore_lrw_archive_clear( blockstore, fd, total_wsz, write_off );
 
   start_archive_write( &blockstore->shmem->archiver, fd );
 
-  write_off = write_with_wraparound( &blockstore->shmem->archiver, fd, (uchar*)ser->block_map, sizeof(fd_block_meta_t), write_off );
+  write_off = write_with_wraparound( &blockstore->shmem->archiver, fd, (uchar*)ser->block_map, sizeof(fd_block_info_t), write_off );
   write_off = write_with_wraparound( &blockstore->shmem->archiver, fd, (uchar*)ser->block, sizeof(fd_block_t), write_off );
   write_off = write_with_wraparound( &blockstore->shmem->archiver, fd, ser->data, ser->block->data_sz, write_off );
 
@@ -336,17 +336,17 @@ fd_blockstore_block_checkpt( fd_blockstore_t * blockstore,
 }
 
 int
-fd_blockstore_block_meta_restore( fd_blockstore_archiver_t * archvr,
+fd_blockstore_block_info_restore( fd_blockstore_archiver_t * archvr,
                                   int fd,
-                                  fd_block_idx_t * block_idx_entry,
-                                  fd_block_meta_t * block_map_entry_out,
-                                  fd_block_t * block_out ) {
+                                  fd_block_idx_t  * block_idx_entry,
+                                  fd_block_info_t * block_info_out,
+                                  fd_block_t      * block_out ) {
   ulong rsz;
   ulong read_off = block_idx_entry->off;
   int err = read_with_wraparound( archvr,
                                   fd,
-                                  (uchar *)fd_type_pun(block_map_entry_out),
-                                  sizeof(fd_block_meta_t),
+                                  (uchar *)fd_type_pun(block_info_out),
+                                  sizeof(fd_block_info_t),
                                   &rsz,
                                   &read_off );
   check_read_err_safe( err, "failed to read block map" );
@@ -367,7 +367,7 @@ fd_blockstore_block_data_restore( fd_blockstore_archiver_t * archvr,
                                   uchar * buf_out,
                                   ulong buf_max,
                                   ulong data_sz ) {
-  ulong data_off = wrap_offset(archvr, block_idx_entry->off + sizeof(fd_block_meta_t) + sizeof(fd_block_t));
+  ulong data_off = wrap_offset(archvr, block_idx_entry->off + sizeof(fd_block_info_t) + sizeof(fd_block_t));
   if( FD_UNLIKELY( buf_max < data_sz ) ) {
     FD_LOG_ERR(( "[%s] data_out_sz %lu < data_sz %lu", __func__, buf_max, data_sz ));
     return -1;
