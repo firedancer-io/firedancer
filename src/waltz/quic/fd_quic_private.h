@@ -74,6 +74,8 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
 
   fd_quic_transport_params_t transport_params;
 
+  ulong max_inflight_pkt_cnt_conn; /* per-conn max, computed from limits */
+
   /* Various internal state */
 
   fd_quic_log_tx_t        log_tx[1];
@@ -82,6 +84,7 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   fd_quic_tls_t           tls[1];
   fd_quic_tls_hs_t *      hs_pool;
   fd_quic_stream_pool_t * stream_pool;    /* stream pool, nullable */
+  fd_quic_pkt_meta_t    * pkt_meta_pool;
   fd_rng_t                _rng[1];        /* random number generator */
   fd_quic_svc_queue_t     svc_queue[ FD_QUIC_SVC_CNT ]; /* dlists */
   ulong                   svc_delay[ FD_QUIC_SVC_CNT ]; /* target service delay */
@@ -470,6 +473,16 @@ fd_quic_gen_stream_frames( fd_quic_conn_t *     conn,
                            fd_quic_pkt_meta_t * pkt_meta,
                            ulong                pkt_number,
                            ulong                now );
+
+void
+fd_quic_process_ack_range( fd_quic_conn_t      *      conn,
+                           fd_quic_frame_ctx_t *      context,
+                           uint                       enc_level,
+                           ulong                      largest_ack,
+                           ulong                      ack_range,
+                           int                        is_largest,
+                           ulong                      now,
+                           ulong                      ack_delay );
 
 FD_PROTOTYPES_END
 
