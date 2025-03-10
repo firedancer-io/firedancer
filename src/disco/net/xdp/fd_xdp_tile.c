@@ -17,6 +17,7 @@
 #include "../../../waltz/xdp/fd_xdp_redirect_user.h" /* fd_xsk_activate */
 #include "../../../waltz/xdp/fd_xsk.h"
 #include "../../../util/log/fd_dtrace.h"
+#include "../../../util/net/fd_eth.h"
 
 #include <unistd.h>
 #include <linux/if.h> /* struct ifreq */
@@ -171,6 +172,7 @@ typedef struct {
     uint   if_idx; /* 0: main interface, 1: loopback */
     void * frame;
     uchar  mac_addrs[12]; /* First 12 bytes of Ethernet header */
+    uint   src_ip;
   } tx_op;
 
   /* Round-robin cycle serivce operations */
@@ -461,8 +463,9 @@ net_tx_route( fd_net_ctx_t * ctx,
   fd_fib4_lookup( ctx->fib_main,  hop+1, dst_ip, 0UL );
   fd_fib4_hop_t const * next_hop = fd_fib4_hop_or( hop+0, hop+1 );
 
-  uint rtype  = next_hop->rtype;
-  uint if_idx = next_hop->if_idx;
+  uint rtype   = next_hop->rtype;
+  uint if_idx  = next_hop->if_idx;
+  uint ip4_src = next_hop->ip4_src;
 
   if( FD_UNLIKELY( rtype==FD_FIB4_RTYPE_LOCAL ) ) {
     rtype  = FD_FIB4_RTYPE_UNICAST;
@@ -506,6 +509,7 @@ net_tx_route( fd_net_ctx_t * ctx,
     return 0;
   }
 
+  ctx->tx_op.src_ip = ip4_src;
   memcpy( ctx->tx_op.mac_addrs+0, neigh->mac_addr,   6 );
   memcpy( ctx->tx_op.mac_addrs+6, ctx->src_mac_addr, 6 );
 
@@ -586,7 +590,7 @@ during_frag( fd_net_ctx_t * ctx,
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_NET_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-  if( FD_UNLIKELY( sz<14UL ) )
+  if( FD_UNLIKELY( sz<34UL ) )
     FD_LOG_ERR(( "packet too small %lu (in_idx=%lu)", sz, in_idx ));
 
   void * frame = ctx->tx_op.frame;
@@ -619,7 +623,22 @@ after_frag( fd_net_ctx_t *      ctx,
   uchar *    frame  = ctx->tx_op.frame;
   fd_xsk_t * xsk    = &ctx->xsk[ if_idx ];
 
+  /* Select Ethernet addresses */
   memcpy( frame, ctx->tx_op.mac_addrs, 12 );
+
+  /* Select IPv4 source address */
+  ushort ethertype = FD_LOAD( ushort, frame+12 );
+  uint   ip4_saddr = FD_LOAD( uint,   frame+26 );
+  if( ethertype==fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) && ip4_saddr==0 ) {
+    /* Outgoing IPv4 packet with unknown src IP, use prefsrc from route */
+    if( FD_UNLIKELY( ctx->tx_op.src_ip==0 ) ) {
+      /* Can't determine source address */
+      /* FIXME should select first IPv4 address of device table here */
+      ctx->metrics.tx_route_fail_cnt++;
+      return;
+    }
+    FD_STORE( uint, frame+26, ctx->tx_op.src_ip );
+  }
 
   /* Submit packet TX job
 
