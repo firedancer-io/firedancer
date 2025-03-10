@@ -529,8 +529,17 @@ interp_exec:
     int   sigsegv         = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_store_vaddr = vaddr;
-      ushort val = (ushort)imm;
-      fd_vm_mem_st_try( vm, vaddr, sizeof(ushort), (uchar*)&val );
+
+      if( vm->direct_mapping ) {
+        /* Only execute slow path partial store when direct mapping is enabled.
+           Note that Agave implements direct mapping as an UnalignedMemoryMapping.
+           When account memory regions are not aligned, there are edge cases that require
+           the slow path partial store.
+           https://github.com/anza-xyz/sbpf/blob/410a627313124252ab1abbd3a3b686c03301bb2a/src/memory_region.rs#L388-L419 */
+        ushort val = (ushort)imm;
+        fd_vm_mem_st_try( vm, vaddr, sizeof(ushort), (uchar*)&val );
+      }
+
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     fd_vm_mem_st_2( vm, vaddr, haddr, (ushort)imm, is_multi_region );
@@ -558,8 +567,13 @@ interp_exec:
     int   sigsegv         = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_store_vaddr = vaddr;
-      ushort val = (ushort)reg_src;
-      fd_vm_mem_st_try( vm, vaddr, sizeof(ushort), (uchar*)&val );
+
+      if( vm->direct_mapping ) {
+        /* See FD_SBPF_OP_STH for details */
+        ushort val = (ushort)reg_src;
+        fd_vm_mem_st_try( vm, vaddr, sizeof(ushort), (uchar*)&val );
+      }
+
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     fd_vm_mem_st_2( vm, vaddr, haddr, (ushort)reg_src, is_multi_region );
@@ -816,8 +830,13 @@ interp_exec:
     int   sigsegv         = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_store_vaddr = vaddr;
-      uint val = (uint)imm;
-      fd_vm_mem_st_try( vm, vaddr, sizeof(uint), (uchar*)&val );
+
+      if( vm->direct_mapping ) {
+        /* See FD_SBPF_OP_STH for details */
+        uint val = (uint)imm;
+        fd_vm_mem_st_try( vm, vaddr, sizeof(uint), (uchar*)&val );
+      }
+
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     fd_vm_mem_st_4( vm, vaddr, haddr, imm, is_multi_region );
@@ -886,8 +905,13 @@ interp_exec:
     int   sigsegv         = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_store_vaddr = vaddr;
-      uint val = (uint)reg_src;
-      fd_vm_mem_st_try( vm, vaddr, sizeof(uint), (uchar*)&val );
+
+      if( vm->direct_mapping ) {
+        /* See FD_SBPF_OP_STH for details */
+        uint val = (uint)reg_src;
+        fd_vm_mem_st_try( vm, vaddr, sizeof(uint), (uchar*)&val );
+      }
+
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     fd_vm_mem_st_4( vm, vaddr, haddr, (uint)reg_src, is_multi_region );
@@ -926,8 +950,13 @@ interp_exec:
     int   sigsegv         = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
       vm->segv_store_vaddr = vaddr;
-      ulong val = (ulong)(long)(int)imm;
-      fd_vm_mem_st_try( vm, vaddr, sizeof(ulong), (uchar*)&val );
+
+      if( vm->direct_mapping ) {
+        /* See FD_SBPF_OP_STH for details */
+        ulong val = (ulong)(long)(int)imm;
+        fd_vm_mem_st_try( vm, vaddr, sizeof(ulong), (uchar*)&val );
+      }
+
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     fd_vm_mem_st_8( vm, vaddr, haddr, (ulong)(long)(int)imm, is_multi_region );
@@ -970,8 +999,13 @@ interp_exec:
     ulong haddr           = fd_vm_mem_haddr( vm, vaddr, sizeof(ulong), region_haddr, region_st_sz, 1, 0UL, &is_multi_region );
     int   sigsegv         = !haddr;
     if( FD_UNLIKELY( sigsegv ) ) {
-      vm->segv_store_vaddr = vaddr;;
-      fd_vm_mem_st_try( vm, vaddr, sizeof(ulong), (uchar*)&reg_src );
+      vm->segv_store_vaddr = vaddr;
+
+      if( vm->direct_mapping ) {
+        /* See FD_SBPF_OP_STH for details */
+        fd_vm_mem_st_try( vm, vaddr, sizeof(ulong), (uchar*)&reg_src );
+      }
+
       goto sigsegv;
     } /* Note: untaken branches don't consume BTB */ /* FIXME: sigbus */
     fd_vm_mem_st_8( vm, vaddr, haddr, reg_src, is_multi_region );
