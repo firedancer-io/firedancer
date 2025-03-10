@@ -294,73 +294,130 @@ FD_PROTOTYPES_END
 
 #define FD_VM_SYSCALL_BASE_COST                         (             100UL)
 
-/* FD_VM_CURVE25519_EDWARDS_VALIDATE_POINT_COST is the number of compute
+/* FD_VM_CURVE_EDWARDS_VALIDATE_POINT_COST is the number of compute
    units consumed to validate a curve25519 edwards point */
 
-#define FD_VM_CURVE25519_EDWARDS_VALIDATE_POINT_COST    (             159UL)
+#define FD_VM_CURVE_EDWARDS_VALIDATE_POINT_COST    (             159UL)
 
-/* FD_VM_CURVE25519_EDWARDS_ADD_COST is the number of compute units
+/* FD_VM_CURVE_EDWARDS_ADD_COST is the number of compute units
    consumed to add two curve25519 edwards points */
 
-#define FD_VM_CURVE25519_EDWARDS_ADD_COST               (             473UL)
+#define FD_VM_CURVE_EDWARDS_ADD_COST               (             473UL)
 
-/* FD_VM_CURVE25519_EDWARDS_SUBTRACT_COST is the number of compute units
+/* FD_VM_CURVE_EDWARDS_SUBTRACT_COST is the number of compute units
    consumed to subtract two curve25519 edwards points */
 
-#define FD_VM_CURVE25519_EDWARDS_SUBTRACT_COST          (             475UL)
+#define FD_VM_CURVE_EDWARDS_SUBTRACT_COST          (             475UL)
 
-/* FD_VM_CURVE25519_EDWARDS_MULTIPLY_COST is the number of compute units
+/* FD_VM_CURVE_EDWARDS_MULTIPLY_COST is the number of compute units
    consumed to multiply a curve25519 edwards point */
 
-#define FD_VM_CURVE25519_EDWARDS_MULTIPLY_COST          (            2177UL)
+#define FD_VM_CURVE_EDWARDS_MULTIPLY_COST          (            2177UL)
 
-/* FD_VM_CURVE25519_EDWARDS_MSM_BASE_COST is the number of compute units
+/* FD_VM_CURVE_EDWARDS_MSM_BASE_COST is the number of compute units
    consumed for a multiscalar multiplication (msm) of edwards points.
    The total cost is calculated as
      `msm_base_cost + (length - 1) * msm_incremental_cost` */
 
-#define FD_VM_CURVE25519_EDWARDS_MSM_BASE_COST          (            2273UL)
+#define FD_VM_CURVE_EDWARDS_MSM_BASE_COST          (            2273UL)
 
-/* FD_VM_CURVE25519_EDWARDS_MSM_INCREMENTAL_COST is the number of
+/* FD_VM_CURVE_EDWARDS_MSM_INCREMENTAL_COST is the number of
    compute units consumed for a multiscalar multiplication (msm) of
    edwards points.  The total cost is calculated as
      `msm_base_cost + (length - 1) * msm_incremental_cost` */
 
-#define FD_VM_CURVE25519_EDWARDS_MSM_INCREMENTAL_COST   (             758UL)
+#define FD_VM_CURVE_EDWARDS_MSM_INCREMENTAL_COST   (             758UL)
 
-/* FD_VM_CURVE25519_RISTRETTO_VALIDATE_POINT_COST is the number of
+/* FD_VM_CURVE_RISTRETTO_VALIDATE_POINT_COST is the number of
    compute units consumed to validate a curve25519 ristretto point */
 
-#define FD_VM_CURVE25519_RISTRETTO_VALIDATE_POINT_COST  (             169UL)
+#define FD_VM_CURVE_RISTRETTO_VALIDATE_POINT_COST  (             169UL)
 
-/* FD_VM_CURVE25519_RISTRETTO_ADD_COST is the number of compute units
+/* FD_VM_CURVE_RISTRETTO_ADD_COST is the number of compute units
    consumed to add two curve25519 ristretto points */
 
-#define FD_VM_CURVE25519_RISTRETTO_ADD_COST             (             521UL)
+#define FD_VM_CURVE_RISTRETTO_ADD_COST             (             521UL)
 
-/* FD_VM_CURVE25519_RISTRETTO_SUBTRACT_COST is the number of compute
+/* FD_VM_CURVE_RISTRETTO_SUBTRACT_COST is the number of compute
    units consumed to subtract two curve25519 ristretto points */
 
-#define FD_VM_CURVE25519_RISTRETTO_SUBTRACT_COST        (             519UL)
+#define FD_VM_CURVE_RISTRETTO_SUBTRACT_COST        (             519UL)
 
-/* FD_VM_CURVE25519_RISTRETTO_MULTIPLY_COST is the number of compute
+/* FD_VM_CURVE_RISTRETTO_MULTIPLY_COST is the number of compute
    units consumed to multiply a curve25519 ristretto point */
 
-#define FD_VM_CURVE25519_RISTRETTO_MULTIPLY_COST        (            2208UL)
+#define FD_VM_CURVE_RISTRETTO_MULTIPLY_COST        (            2208UL)
 
-/* FD_VM_CURVE25519_RISTRETTO_MSM_BASE_COST is the number of compute
+/* FD_VM_CURVE_RISTRETTO_MSM_BASE_COST is the number of compute
    units consumed for a multiscalar multiplication (msm) of ristretto
    points.  The total cost is calculated as
      `msm_base_cost + (length - 1) * msm_incremental_cost` */
 
-#define FD_VM_CURVE25519_RISTRETTO_MSM_BASE_COST        (            2303UL)
+#define FD_VM_CURVE_RISTRETTO_MSM_BASE_COST        (            2303UL)
 
-/* FD_VM_CURVE25519_RISTRETTO_MSM_INCREMENTAL_COST is the number of
+/* FD_VM_CURVE_RISTRETTO_MSM_INCREMENTAL_COST is the number of
    compute units consumed for a multiscalar multiplication (msm) of
    ristretto points.  The total cost is calculated as
      `msm_base_cost + (length - 1) * msm_incremental_cost` */
 
-#define FD_VM_CURVE25519_RISTRETTO_MSM_INCREMENTAL_COST (             788UL)
+#define FD_VM_CURVE_RISTRETTO_MSM_INCREMENTAL_COST (             788UL)
+
+/* FD_VM_CURVE_BLS12_381_G1_ADD_COST is the number of compute
+   units consumed for addition in BLS12-381 G1. */
+
+#define FD_VM_CURVE_BLS12_381_G1_ADD_COST          (             128UL)
+
+/* FD_VM_CURVE_BLS12_381_G2_ADD_COST is the number of compute
+   units consumed for addition in BLS12-381 G2. */
+
+#define FD_VM_CURVE_BLS12_381_G2_ADD_COST          (             203UL)
+
+/* FD_VM_CURVE_BLS12_381_G1_SUB_COST is the number of compute
+   units consumed for subtraction in BLS12-381 G1. */
+
+#define FD_VM_CURVE_BLS12_381_G1_SUB_COST          (             129UL)
+
+/* FD_VM_CURVE_BLS12_381_G2_SUB_COST is the number of compute
+   units consumed for subtraction in BLS12-381 G2. */
+
+#define FD_VM_CURVE_BLS12_381_G2_SUB_COST          (             204UL)
+
+/* FD_VM_CURVE_BLS12_381_G1_MUL_COST is the number of compute
+   units consumed for multiplication in BLS12-381 G1. */
+
+#define FD_VM_CURVE_BLS12_381_G1_MUL_COST          (            4627UL)
+
+/* FD_VM_CURVE_BLS12_381_G2_MUL_COST is the number of compute
+   units consumed for multiplication in BLS12-381 G2. */
+
+#define FD_VM_CURVE_BLS12_381_G2_MUL_COST          (            8255UL)
+
+/* FD_VM_CURVE_BLS12_381_G1_DECOMPRESS_COST is the number of compute
+   units consumed for point decompression in BLS12-381 G1. */
+#define FD_VM_CURVE_BLS12_381_G1_DECOMPRESS_COST   (            2100UL)
+
+/* FD_VM_CURVE_BLS12_381_G2_DECOMPRESS_COST is the number of compute
+   units consumed for point decompression in BLS12-381 G2. */
+
+#define FD_VM_CURVE_BLS12_381_G2_DECOMPRESS_COST   (            3050UL)
+
+/* FD_VM_CURVE_BLS12_381_G1_VALIDATE_COST is the number of compute
+   units consumed for point validation in BLS12-381 G1. */
+
+#define FD_VM_CURVE_BLS12_381_G1_VALIDATE_COST     (            1565UL)
+
+/* FD_VM_CURVE_BLS12_381_G2_VALIDATE_COST is the number of compute
+   units consumed for point validation in BLS12-381 G2. */
+
+#define FD_VM_CURVE_BLS12_381_G2_VALIDATE_COST     (            1968UL)
+
+/* FD_VM_CURVE_BLS12_381_PAIRING_*_COST are the number of compute
+   units consumed for calculating a pairing map in BLS12-381.
+   The total cost is calculated as
+     `pairing_base_cost + (length) * pairing_incr_cost` */
+
+#define FD_VM_CURVE_BLS12_381_PAIRING_BASE_COST    (           12422UL)
+#define FD_VM_CURVE_BLS12_381_PAIRING_INCR_COST    (           13023UL)
 
 /* FD_VM_HEAP_SIZE is the program heap region size, default:
    solana_sdk::entrypoint::HEAP_LENGTH */

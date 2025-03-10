@@ -771,7 +771,7 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xe2\x04\x73\xa5\xa7\x6f\x1e\xe2\x8a\xb6\x64\xde\x46\xec\x20\x34\xdf\xdf\x68\xf9\xe7\x11\x5c\x2c\xe1\x6a\xa6\x27\x91\xec\x3d\xda"},
                                  /* GDH5TVdbTPUpRnXaRyQqiKUa7uZAbZ28Q2N9bhbKoMLm */
     .name                      = "loosen_cpi_size_restriction",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .cleaned_up                = {3, 0, 0},
     .hardcode_for_fuzzing = 1 },
 
   { .index                     = offsetof(fd_features_t, use_default_units_in_fee_calculation)>>3,
@@ -1739,6 +1739,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "alt_bn128_little_endian",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
+  { .index                     = offsetof(fd_features_t, enable_bls12_381_syscall)>>3,
+    .id                        = {"\xc5\x13\x40\xbe\xb3\x91\x0a\x1d\x93\xd2\xe9\xa3\xc5\x85\x34\xb9\x67\xd2\xa8\x5e\x0a\x47\x42\x01\x13\x02\x5f\xa1\xd7\x4a\xb4\x83"},
+                                 /* EGJLweNUVskAPEwpjvNB7JT6uUi6h4mFhowNYXVSrimG */
+    .name                      = "enable_bls12_381_syscall",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
   { .index = ULONG_MAX }
 };
 /* TODO replace this with fd_map_perfect */
@@ -2000,6 +2006,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0xdab5b6a991a03e4b: return &ids[ 252 ];
   case 0x8921a3abf23afaec: return &ids[ 253 ];
   case 0x1b4adddc131ee908: return &ids[ 254 ];
+  case 0x1d0a91b3be4013c5: return &ids[ 255 ];
   default: break;
   }
   return NULL;
@@ -2260,4 +2267,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, deprecate_rent_exemption_threshold   
 FD_STATIC_ASSERT( offsetof( fd_features_t, static_instruction_limit                                )>>3==252UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, vote_state_v4                                           )>>3==253UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, alt_bn128_little_endian                                 )>>3==254UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, enable_bls12_381_syscall                                )>>3==255UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );

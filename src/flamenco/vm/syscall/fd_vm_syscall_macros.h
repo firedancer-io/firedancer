@@ -52,6 +52,22 @@ struct fd_vm_haddr_query {
 };
 typedef struct fd_vm_haddr_query fd_vm_haddr_query_t;
 
+/* FD_VM_HADDR_QUERY_U8_ARRAY returns the haddr corresponding to _vaddr,
+   when _vaddr is an u8 array of size _sz.
+   This is a common pattern in cryptographic syscalls, see for example
+   fd_vm_syscall_curve.c and see also:
+   https://github.com/anza-xyz/agave/blob/v2.3.1/programs/bpf_loader/src/syscalls/mod.rs#L1098-L1102 */
+#define FD_VM_HADDR_QUERY_U8_ARRAY(_vm,_vaddr,_sz) (__extension__({ \
+  fd_vm_haddr_query_t _result = {                                   \
+    .vaddr    = (_vaddr),                                           \
+    .align    = FD_VM_ALIGN_RUST_POD_U8_ARRAY,                      \
+    .sz       = (_sz),                                              \
+    .is_slice = 0,                                                  \
+  };                                                                \
+  fd_vm_haddr_query_t * queries[] = { &_result };                   \
+  FD_VM_TRANSLATE_MUT( (_vm), queries );                            \
+  _result.haddr; }));
+
 /* FD_VM_MEM_HADDR_LD returns a read only pointer to the first byte
    in the host address space corresponding to vm's virtual address range
    [vaddr,vaddr+sz).  If the vm has check_align enabled, the vaddr
