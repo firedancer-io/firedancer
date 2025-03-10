@@ -125,14 +125,15 @@ typedef struct fd_quic_limits fd_quic_limits_t;
    an fd_quic_t object.  It is deived from fd_quic_limits_t. */
 
 struct fd_quic_layout {
-  ulong meta_sz;         /* size of this struct */
-  ulong log_off;         /* offset to quic_log */
-  ulong conns_off;       /* offset of connection mem region  */
-  ulong conn_footprint;  /* sizeof a conn                    */
-  ulong conn_map_off;    /* offset of conn map mem region    */
-  int   lg_slot_cnt;     /* see conn_map_new                 */
-  ulong hs_pool_off;     /* offset of the handshake pool     */
-  ulong stream_pool_off; /* offset of the stream pool        */
+  ulong meta_sz;           /* size of this struct */
+  ulong log_off;           /* offset to quic_log */
+  ulong conns_off;         /* offset of connection mem region  */
+  ulong conn_footprint;    /* sizeof a conn                    */
+  ulong conn_map_off;      /* offset of conn map mem region    */
+  int   lg_slot_cnt;       /* see conn_map_new                 */
+  ulong hs_pool_off;       /* offset of the handshake pool     */
+  ulong stream_pool_off;   /* offset of the stream pool        */
+  ulong svc_timers_off;    /* offset of the service timers     */
 };
 
 typedef struct fd_quic_layout fd_quic_layout_t;
@@ -544,13 +545,13 @@ fd_quic_get_next_wakeup( fd_quic_t * quic );
 FD_QUIC_API int
 fd_quic_service( fd_quic_t * quic );
 
-/* fd_quic_svc_validate checks for violations of service queue and free
+/* fd_quic_state_validate checks for violations of service queue and free
    list invariants, such as cycles in linked lists.  Prints to warning/
    error log and exits the process if checks fail.  Intended for use in
    tests. */
 
 void
-fd_quic_svc_validate( fd_quic_t * quic );
+fd_quic_state_validate( fd_quic_t * quic );
 
 /* Stream Send API ****************************************************/
 
