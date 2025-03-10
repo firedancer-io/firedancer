@@ -1159,11 +1159,9 @@ test_reject_writes_to_sysvars( void ) {
     "KeccakSecp256k11111111111111111111111111111",
     "ComputeBudget111111111111111111111111111111",
     "AddressLookupTab1e1111111111111111111111111",
-    "So11111111111111111111111111111111111111112",
-    "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
     "Secp256r1SigVerify1111111111111111111111111"
   };
-  for( ulong i=0UL; i<29UL; i++ ) {
+  for( ulong i=0UL; i<27UL; i++ ) {
     make_transaction( i, 1000001U, 500U, 11.0, "A", "B", NULL, NULL );
     /* Replace A with the sysvar */
     fd_base58_decode_32( sysvars[ i ], payload_scratch[ i ] + 97UL );

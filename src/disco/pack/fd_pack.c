@@ -251,9 +251,7 @@ typedef struct fd_pack_bitset_acct_mapping fd_pack_bitset_acct_mapping_t;
 #define MAP_PERFECT_23 ( KECCAK_SECP_PROG_ID      ),
 #define MAP_PERFECT_24 ( COMPUTE_BUDGET_PROG_ID   ),
 #define MAP_PERFECT_25 ( ADDR_LUT_PROG_ID         ),
-#define MAP_PERFECT_26 ( NATIVE_MINT_ID           ),
-#define MAP_PERFECT_27 ( TOKEN_PROG_ID            ),
-#define MAP_PERFECT_28 ( SECP256R1_PROG_ID        ),
+#define MAP_PERFECT_26 ( SECP256R1_PROG_ID        ),
 
 #include "../../util/tmpl/fd_map_perfect.c"
 
