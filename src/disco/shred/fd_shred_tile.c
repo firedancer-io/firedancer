@@ -567,11 +567,12 @@ after_frag( fd_shred_ctx_t *    ctx,
     fd_pubkey_t const * slot_leader = fd_epoch_leaders_get( lsched, shred->slot );
     if( FD_UNLIKELY( !slot_leader ) ) { ctx->metrics->shred_processing_result[ 0 ]++; return; } /* Count this as bad slot too */
 
-    fd_fec_set_t const * out_fec_set[ 1 ];
-    fd_shred_t   const * out_shred[ 1 ];
+    fd_fec_set_t const * out_fec_set[1];
+    fd_shred_t const   * out_shred[1];
+    fd_bmtree_node_t     out_merkle_root[1];
 
     long add_shred_timing  = -fd_tickcount();
-    int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, slot_leader->uc, out_fec_set, out_shred );
+    int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, slot_leader->uc, out_fec_set, out_shred, out_merkle_root );
     add_shred_timing      +=  fd_tickcount();
 
     fd_histf_sample( ctx->metrics->add_shred_timing, (ulong)add_shred_timing );
