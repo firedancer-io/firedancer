@@ -3,6 +3,9 @@
 # license).  The generated code was modified to extract only the AES-NI
 # accelerated version needed.
 
+# Make stack non-executable
+.section .note.GNU-stack,"",@progbits
+
 .text
 
 .globl	fd_aesni_encrypt

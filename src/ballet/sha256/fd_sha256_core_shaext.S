@@ -8,6 +8,9 @@
 # was also replaced with actual Intel ops codes as modern assemblers
 # should understand these op codes and it makes the code clearer.
 
+# Make stack non-executable
+.section .note.GNU-stack,"",@progbits
+
 .text
 .globl	fd_sha256_core_shaext
 .type	fd_sha256_core_shaext,@function
