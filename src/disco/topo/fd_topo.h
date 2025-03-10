@@ -127,6 +127,7 @@ typedef struct {
      total size of Firedancer in memory. */
   union {
     struct {
+      char   provider[ 8 ]; /* "xdp" or "socket" */
       char   interface[ 16 ];
       ulong  xdp_rx_queue_size;
       ulong  xdp_tx_queue_size;
@@ -134,8 +135,6 @@ typedef struct {
       long   tx_flush_timeout_ns;
       char   xdp_mode[8];
       int    zero_copy;
-      uint   src_ip_addr;
-      uchar  src_mac_addr[6];
 
       ushort shred_listen_port;
       ushort quic_transaction_listen_port;
@@ -167,7 +166,6 @@ typedef struct {
       ulong  max_concurrent_connections;
       ulong  max_concurrent_handshakes;
       uint   ip_addr;
-      uchar  src_mac_addr[ 6 ];
       ushort quic_transaction_listen_port;
       ulong  idle_timeout_millis;
       uint   ack_delay_millis;
@@ -221,7 +219,6 @@ typedef struct {
     struct {
       ulong  depth;
       uint   ip_addr;
-      uchar  src_mac_addr[ 6 ];
       ulong  fec_resolver_depth;
       char   identity_key_path[ PATH_MAX ];
       ushort shred_listen_port;
@@ -267,17 +264,13 @@ typedef struct {
       char  status_cache[ PATH_MAX ];
       ulong tpool_thread_count;
       char  cluster_version[ 32 ];
-      int   in_wen_restart;
       char  tower_checkpt[ PATH_MAX ];
-      char  expected_genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
-      char  wen_restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
       int   plugins_enabled;
 
       /* not specified in TOML */
 
       char  identity_key_path[ PATH_MAX ];
       uint  ip_addr;
-      uchar src_mac_addr[ 6 ];
       int   vote;
       char  vote_account_path[ PATH_MAX ];
       ulong bank_tile_count;
@@ -288,6 +281,16 @@ typedef struct {
       char  blockstore_file[ PATH_MAX ];
       char  blockstore_checkpt[ PATH_MAX ];
     } replay;
+
+    struct {
+      int   in_wen_restart;
+      int   tower_checkpt_fileno;
+      char  funk_file[ PATH_MAX ];
+      char  tower_checkpt[ PATH_MAX ];
+      char  identity_key_path[ PATH_MAX ];
+      char  genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
+      char  restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
+    } restart;
 
     struct {
       ulong dummy;
@@ -322,7 +325,6 @@ typedef struct {
       ushort  peer_ports[16];
 
       uint    ip_addr;
-      uchar   src_mac_addr[ 6 ];
       char    identity_key_path[ PATH_MAX ];
       ushort  tvu_port;
       ushort  tvu_fwd_port;
@@ -341,7 +343,6 @@ typedef struct {
       /* non-config */
 
       uint    ip_addr;
-      uchar   src_mac_addr[ 6 ];
       int     good_peer_cache_file_fd;
       char    identity_key_path[ PATH_MAX ];
     } repair;
@@ -358,8 +359,6 @@ typedef struct {
       char  shred_cap_replay[ PATH_MAX ];
       ulong shred_cap_end_slot;
 
-      int   in_wen_restart;
-
       char  blockstore_file[ PATH_MAX ];
       char  blockstore_restore[ PATH_MAX ];
     } store_int;
@@ -370,7 +369,6 @@ typedef struct {
       /* non-config */
 
       uint    ip_addr;
-      uchar   src_mac_addr[ 6 ];
       char  identity_key_path[ PATH_MAX ];
     } sender;
 
@@ -813,7 +811,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
    to be allocated (for example XSK buffers) is also not included.  The
    actual amount of memory used will not be less than this value. */
 FD_FN_PURE ulong
-fd_topo_mlock_max_tile( fd_topo_t * topo );
+fd_topo_mlock_max_tile( fd_topo_t const * topo );
 
 /* Same as fd_topo_mlock_max_tile, but for loading the entire topology
    into one process, rather than a separate process per tile.  This is
@@ -821,7 +819,7 @@ fd_topo_mlock_max_tile( fd_topo_t * topo );
    workspaces, or the monitor that maps the entire system into one
    address space. */
 FD_FN_PURE ulong
-fd_topo_mlock( fd_topo_t * topo );
+fd_topo_mlock( fd_topo_t const * topo );
 
 /* This returns the number of gigantic pages needed by the topology on
    the provided numa node.  It includes pages needed by the workspaces,
@@ -829,8 +827,8 @@ fd_topo_mlock( fd_topo_t * topo );
    and private key storage. */
 
 FD_FN_PURE ulong
-fd_topo_gigantic_page_cnt( fd_topo_t * topo,
-                           ulong       numa_idx );
+fd_topo_gigantic_page_cnt( fd_topo_t const * topo,
+                           ulong             numa_idx );
 
 /* This returns the number of huge pages in the application needed by
    the topology on the provided numa node.  It includes pages needed by
@@ -839,9 +837,9 @@ fd_topo_gigantic_page_cnt( fd_topo_t * topo,
    are needed but are not placed in the hugetlbfs. */
 
 FD_FN_PURE ulong
-fd_topo_huge_page_cnt( fd_topo_t * topo,
-                       ulong       numa_idx,
-                       int         include_anonymous );
+fd_topo_huge_page_cnt( fd_topo_t const * topo,
+                       ulong             numa_idx,
+                       int               include_anonymous );
 
 /* Check all invariants of the given topology to make sure it is valid.
    An invalid topology will cause the program to abort with an error

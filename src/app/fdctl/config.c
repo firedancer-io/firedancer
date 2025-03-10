@@ -5,12 +5,18 @@
 
 #include "run/topos/topos.h"
 
+#include "../shared/fd_sys_util.h"
+#include "../shared/fd_net_util.h"
+
 #include "../../ballet/toml/fd_toml.h"
 #include "../../disco/topo/fd_pod_format.h"
 #include "../../flamenco/genesis/fd_genesis_cluster.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
+#if FD_HAS_NO_AGAVE
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_txncache.h"
+#include "../../flamenco/runtime/fd_runtime.h"
+#endif
 #include "../../funk/fd_funk.h"
 #include "../../waltz/ip/fd_fib4.h"
 #include "../../waltz/mib/fd_dbl_buf.h"
@@ -166,20 +172,6 @@ listen_address( const char * interface ) {
 }
 
 static void
-mac_address( const char * interface,
-             uchar *      mac ) {
-  int fd = socket( AF_INET, SOCK_DGRAM, IPPROTO_IP );
-  struct ifreq ifr;
-  ifr.ifr_addr.sa_family = AF_INET;
-  strncpy( ifr.ifr_name, interface, IFNAMSIZ );
-  if( FD_UNLIKELY( ioctl( fd, SIOCGIFHWADDR, &ifr ) ) )
-    FD_LOG_ERR(( "could not get MAC address of interface `%s`: (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( close(fd) ) )
-    FD_LOG_ERR(( "could not close socket (%i-%s)", errno, fd_io_strerror( errno ) ));
-  fd_memcpy( mac, ifr.ifr_hwaddr.sa_data, 6 );
-}
-
-static void
 username_to_id( config_t * config ) {
   uint * results = mmap( NULL, 4096, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_SHARED, -1, 0 );
   if( FD_UNLIKELY( results==MAP_FAILED ) ) FD_LOG_ERR(( "mmap() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -212,7 +204,7 @@ username_to_id( config_t * config ) {
     if( FD_UNLIKELY( !result ) ) FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", config->user ));
     results[ 0 ] = pwd.pw_uid;
     results[ 1 ] = pwd.pw_gid;
-    exit_group( 0 );
+    fd_sys_util_exit_group( 0 );
   } else {
     int wstatus;
     if( FD_UNLIKELY( waitpid( pid, &wstatus, 0 )==-1 ) ) FD_LOG_ERR(( "waitpid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
@@ -269,18 +261,22 @@ fdctl_obj_align( fd_topo_t const *     topo,
     return align;
   } else if( FD_UNLIKELY( !strcmp( obj->name, "dbl_buf" ) ) ) {
     return fd_dbl_buf_align();
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
-    return fd_blockstore_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
     return fd_funk_align();
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
-    return fd_txncache_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "neigh4_hmap" ) ) ) {
     return fd_neigh4_hmap_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "fib4" ) ) ) {
     return fd_fib4_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "keyswitch" ) ) ) {
     return fd_keyswitch_align();
+#if FD_HAS_NO_AGAVE
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "replay_pub" ) ) ) {
+    return fd_runtime_public_align();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
+    return fd_blockstore_align();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
+    return fd_txncache_align();
+#endif /* FD_HAS_NO_AGAVE */
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
     return 0UL;
@@ -320,18 +316,22 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
     return VAL("footprint");
   } else if( FD_UNLIKELY( !strcmp( obj->name, "dbl_buf" ) ) ) {
     return fd_dbl_buf_footprint( VAL("mtu") );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
-    return fd_blockstore_footprint( VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) + VAL("alloc_max");
   } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
     return fd_funk_footprint();
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
-    return fd_txncache_footprint( VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "neigh4_hmap" ) ) ) {
     return fd_neigh4_hmap_footprint( VAL("ele_max"), VAL("lock_cnt"), VAL("probe_max") );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "fib4" ) ) ) {
     return fd_fib4_footprint( VAL("route_max") );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "keyswitch" ) ) ) {
     return fd_keyswitch_footprint();
+#if FD_HAS_NO_AGAVE
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "replay_pub" ) ) ) {
+    return fd_runtime_public_footprint();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
+    return fd_blockstore_footprint( VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) + VAL("alloc_max");
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
+    return fd_txncache_footprint( VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS );
+#endif /* FD_HAS_NO_AGAVE */
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
     return 0UL;
@@ -514,8 +514,10 @@ fdctl_cfg_from_env( int *      pargc,
   config->hostname[ sizeof(config->hostname)-1UL ] = '\0'; /* Just truncate the name if it's too long to fit */
 
   if( FD_UNLIKELY( !strcmp( config->tiles.net.interface, "" ) && !config->development.netns.enabled ) ) {
-    int ifindex = internet_routing_interface();
-    if( FD_UNLIKELY( ifindex == -1 ) )
+    uint ifindex;
+    int result = fd_net_util_internet_ifindex( &ifindex );
+    if( FD_UNLIKELY( -1==result && errno!=ENODEV ) ) FD_LOG_ERR(( "could not get network device index (%i-%s)", errno, fd_io_strerror( errno ) ));
+    else if( FD_UNLIKELY( -1==result ) )
       FD_LOG_ERR(( "no network device found which routes to 8.8.8.8. If no network "
                    "interface is specified in the configuration file, Firedancer "
                    "tries to use the first network interface found which routes to "
@@ -523,8 +525,8 @@ fdctl_cfg_from_env( int *      pargc,
                    "You can fix this error by specifying a network interface to bind to in "
                    "your configuration file under [net.interface]" ));
 
-    if( FD_UNLIKELY( !if_indextoname( (uint)ifindex, config->tiles.net.interface ) ) )
-      FD_LOG_ERR(( "could not get name of interface with index %d", ifindex ));
+    if( FD_UNLIKELY( !if_indextoname( ifindex, config->tiles.net.interface ) ) )
+      FD_LOG_ERR(( "could not get name of interface with index %u", ifindex ));
   }
 
   ulong cluster = fd_genesis_cluster_identify( config->consensus.expected_genesis_hash );
@@ -548,8 +550,6 @@ fdctl_cfg_from_env( int *      pargc,
 
     if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->development.netns.interface0_addr, &config->tiles.net.ip_addr ) ) )
       FD_LOG_ERR(( "configuration specifies invalid netns IP address `%s`", config->development.netns.interface0_addr ));
-    if( FD_UNLIKELY( !fd_cstr_to_mac_addr( config->development.netns.interface0_mac, config->tiles.net.mac_addr ) ) )
-      FD_LOG_ERR(( "configuration specifies invalid netns MAC address `%s`", config->development.netns.interface0_mac ));
   } else {
     if( FD_UNLIKELY( !if_nametoindex( config->tiles.net.interface ) ) )
       FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", config->tiles.net.interface ));
@@ -577,7 +577,6 @@ fdctl_cfg_from_env( int *      pargc,
     }
 
     config->tiles.net.ip_addr = iface_ip;
-    mac_address( config->tiles.net.interface, config->tiles.net.mac_addr );
 
   }
 
@@ -680,7 +679,7 @@ fdctl_cfg_from_env( int *      pargc,
 
   strcpy( config->cluster, fd_genesis_cluster_name( cluster ) );
 
-#ifdef FD_HAS_NO_AGAVE
+#if FD_HAS_NO_AGAVE
   if( FD_UNLIKELY( config->is_live_cluster && cluster!=FD_CLUSTER_TESTNET ) )
     FD_LOG_ERR(( "Attempted to start against live cluster `%s`. Firedancer is not "
                  "ready for production deployment, has not been tested, and is "
@@ -689,7 +688,7 @@ fdctl_cfg_from_env( int *      pargc,
                  "can start against the testnet cluster by specifying the testnet "
                  "entrypoints from https://docs.solana.com/clusters under "
                  "[gossip.entrypoints] in your configuration file.", fd_genesis_cluster_name( cluster ) ));
-#endif
+#endif /* FD_HAS_NO_AGAVE */
 
   if( FD_LIKELY( config->is_live_cluster) ) {
     if( FD_UNLIKELY( !config->development.sandbox ) )

@@ -344,11 +344,12 @@ void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn      
    fd_pack_insert_bundle_fini finalizes the bundle insertion process and
    makes the newly-inserted bundle available for scheduling.  Calling
    fd_pack_insert_bundle_cancel aborts the transaction insertion
-   process.  The bundle argument passed to _fini or _cancel must be the
-   return value of the most recent call to _init with the same value of
-   txn_cnt.  However, it is okay to interleave calls to the insert_txn
-   family of functions with calls to the insert_bundle family of
-   functions.
+   process.  There can be at most two outstanding bundles, of which one
+   should be an initializer bundle.  The bundle argument passed to _fini
+   or _cancel must be the return value of a call to _init with the same
+   value of txn_cnt.  Additionally, it is okay to interleave calls to
+   the insert_txn family of functions with calls to the insert_bundle
+   family of functions.
 
    The caller of these methods should not retain any read or write
    interest in the fd_txn_p_t structs that the entries of bundle

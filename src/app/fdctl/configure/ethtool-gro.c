@@ -17,17 +17,22 @@
 #define NAME "ethtool-gro"
 
 static int
-enabled( config_t * const config ) {
+enabled( config_t const * config ) {
+
   /* if we're running in a network namespace, we configure ethtool on
-      the virtual device as part of netns setup, not here */
-  return !config->development.netns.enabled;
+     the virtual device as part of netns setup, not here */
+  if( config->development.netns.enabled ) return 0;
+
+  /* only enable if network stack is XDP */
+  if( 0!=strcmp( config->development.net.provider, "xdp" ) ) return 0;
+
+  return 1;
 }
 
 static void
-init_perm( fd_caps_ctx_t *  caps,
-           config_t * const config ) {
-  (void)config;
-  fd_caps_check_root( caps, NAME, "disable network device generic-receive-offload (gro) with `ethtool --offload generic-receive-offload off`" );
+init_perm( fd_cap_chk_t *   chk,
+           config_t const * config FD_PARAM_UNUSED ) {
+  fd_cap_chk_root( chk, NAME, "disable network device generic-receive-offload (gro) with `ethtool --offload generic-receive-offload off`" );
 }
 
 static int
@@ -167,7 +172,7 @@ check_device( const char * device ) {
 }
 
 static configure_result_t
-check( config_t * const config ) {
+check( config_t const * config ) {
   if( FD_UNLIKELY( device_is_bonded( config->tiles.net.interface ) ) ) {
     char line[ 4096 ];
     device_read_slaves( config->tiles.net.interface, line );

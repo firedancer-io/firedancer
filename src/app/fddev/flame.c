@@ -1,6 +1,8 @@
 #define _GNU_SOURCE
 #include "fddev.h"
 
+#include "../shared/fd_sys_util.h"
+
 #include <stdio.h>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -29,13 +31,10 @@ install_parent_signals( void ) {
 }
 
 void
-flame_cmd_perm( args_t *         args,
-                fd_caps_ctx_t *  caps,
-                config_t * const config ) {
-  (void)args;
-  (void)config;
-
-  fd_caps_check_root( caps, "flame", "read system performance counters with `/usr/bin/perf`" );
+flame_cmd_perm( args_t *         args   FD_PARAM_UNUSED,
+                fd_cap_chk_t *   chk,
+                config_t const * config FD_PARAM_UNUSED ) {
+  fd_cap_chk_root( chk, "flame", "read system performance counters with `/usr/bin/perf`" );
 }
 
 void
@@ -180,5 +179,5 @@ flame_cmd_fn( args_t *         args,
     break;
   }
 
-  exit_group( 0 );
+  fd_sys_util_exit_group( 0 );
 }

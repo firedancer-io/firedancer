@@ -51,7 +51,6 @@ struct fd_sender_tile_ctx {
 
   fd_gossip_peer_addr_t tpu_serve_addr;
   fd_net_hdrs_t         packet_hdr[ 1 ];
-  uchar                 src_mac_addr[6];
   ushort                net_id;
 
   ulong       stake_in_idx;
@@ -358,12 +357,10 @@ unprivileged_init( fd_topo_t *      topo,
   fd_scratch_attach( scratch_smem, scratch_fmem, SCRATCH_MAX, SCRATCH_DEPTH );
 
   ctx->net_id = (ushort)0;
-  fd_memcpy( ctx->src_mac_addr, tile->sender.src_mac_addr, 6 );
 
   ctx->tpu_serve_addr.addr = tile->sender.ip_addr;
   ctx->tpu_serve_addr.port = fd_ushort_bswap( tile->sender.tpu_listen_port );
-  fd_net_create_packet_header_template( ctx->packet_hdr, FD_TXN_MTU, ctx->tpu_serve_addr.addr, ctx->src_mac_addr,
-      ctx->tpu_serve_addr.port );
+  fd_net_create_packet_header_template( ctx->packet_hdr, FD_TXN_MTU, ctx->tpu_serve_addr.addr, ctx->tpu_serve_addr.port );
 
   ulong poh_slot_obj_id = fd_pod_query_ulong( topo->props, "poh_slot", ULONG_MAX );
   FD_TEST( poh_slot_obj_id!=ULONG_MAX );

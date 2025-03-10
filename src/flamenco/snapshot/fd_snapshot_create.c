@@ -193,7 +193,8 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
                                     &snapshot_ctx->epoch_bank,
                                     snapshot_ctx->acc_mgr->funk,
                                     snapshot_ctx->tpool,
-                                    snapshot_ctx->spad );
+                                    snapshot_ctx->spad,
+                                    snapshot_ctx->features );
     accounts_db->bank_hash_info.accounts_hash = snapshot_ctx->acc_hash;
   } else {
     err = fd_snapshot_service_inc_hash( &snapshot_ctx->acc_hash,
@@ -203,7 +204,8 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
                                         snapshot_ctx->acc_mgr->funk,
                                         incremental_keys,
                                         incremental_key_cnt,
-                                        snapshot_ctx->spad );
+                                        snapshot_ctx->spad,
+                                        snapshot_ctx->features );
     fd_valloc_free( fd_spad_virtual( snapshot_ctx->spad ), incremental_keys );
 
     fd_memset( &accounts_db->bank_hash_info.accounts_hash, 0, sizeof(fd_hash_t) );

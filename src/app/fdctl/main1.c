@@ -7,18 +7,18 @@
 #include <sys/mman.h>
 
 action_t ACTIONS[] = {
-  { .name = "run",          .args = NULL,                  .fn = run_cmd_fn,          .perm = run_cmd_perm,       .description = "Start up a Firedancer validator" },
-  { .name = "run1",         .args = run1_cmd_args,         .fn = run1_cmd_fn,         .perm = NULL,               .description = "Start up a single Firedancer tile" },
-  { .name = "run-agave",    .args = NULL,                  .fn = run_agave_cmd_fn,    .perm = NULL,               .description = "Start up the Agave side of a Firedancer validator" },
-  { .name = "configure",    .args = configure_cmd_args,    .fn = configure_cmd_fn,    .perm = configure_cmd_perm, .description = "Configure the local host so it can run Firedancer correctly" },
-  { .name = "monitor",      .args = monitor_cmd_args,      .fn = monitor_cmd_fn,      .perm = monitor_cmd_perm,   .description = "Monitor a locally running Firedancer instance with a terminal GUI" },
-  { .name = "keys",         .args = keys_cmd_args,         .fn = keys_cmd_fn,         .perm = NULL,               .description = "Generate new keypairs for use with the validator or print a public key" },
-  { .name = "ready",        .args = NULL,                  .fn = ready_cmd_fn,        .perm = NULL,               .description = "Wait for all tiles to be running" },
-  { .name = "mem",          .args = NULL,                  .fn = mem_cmd_fn,          .perm = NULL,               .description = "Print workspace memory and tile topology information" },
-  { .name = "netconf",      .args = NULL,                  .fn = netconf_cmd_fn,      .perm = NULL,               .description = "Print network configuration" },
-  { .name = "set-identity", .args = set_identity_cmd_args, .fn = set_identity_cmd_fn, .perm = NULL,               .description = "Change the identity of a running validator" },
-  { .name = "help",         .args = NULL,                  .fn = help_cmd_fn,         .perm = NULL,               .description = "Print this help message" },
-  { .name = "version",      .args = NULL,                  .fn = version_cmd_fn,      .perm = NULL,               .description = "Show the current software version" },
+  { .name = "run",          .args = NULL,                  .fn = run_cmd_fn,          .perm = run_cmd_perm,          .description = "Start up a Firedancer validator" },
+  { .name = "run1",         .args = run1_cmd_args,         .fn = run1_cmd_fn,         .perm = NULL,                  .description = "Start up a single Firedancer tile" },
+  { .name = "run-agave",    .args = NULL,                  .fn = run_agave_cmd_fn,    .perm = NULL,                  .description = "Start up the Agave side of a Firedancer validator" },
+  { .name = "configure",    .args = configure_cmd_args,    .fn = configure_cmd_fn,    .perm = configure_cmd_perm,    .description = "Configure the local host so it can run Firedancer correctly" },
+  { .name = "monitor",      .args = monitor_cmd_args,      .fn = monitor_cmd_fn,      .perm = monitor_cmd_perm,      .description = "Monitor a locally running Firedancer instance with a terminal GUI" },
+  { .name = "keys",         .args = keys_cmd_args,         .fn = keys_cmd_fn,         .perm = NULL,                  .description = "Generate new keypairs for use with the validator or print a public key" },
+  { .name = "ready",        .args = NULL,                  .fn = ready_cmd_fn,        .perm = NULL,                  .description = "Wait for all tiles to be running" },
+  { .name = "mem",          .args = NULL,                  .fn = mem_cmd_fn,          .perm = NULL,                  .description = "Print workspace memory and tile topology information" },
+  { .name = "netconf",      .args = NULL,                  .fn = netconf_cmd_fn,      .perm = NULL,                  .description = "Print network configuration" },
+  { .name = "set-identity", .args = set_identity_cmd_args, .fn = set_identity_cmd_fn, .perm = set_identity_cmd_perm, .description = "Change the identity of a running validator" },
+  { .name = "help",         .args = NULL,                  .fn = help_cmd_fn,         .perm = NULL,                  .description = "Print this help message" },
+  { .name = "version",      .args = NULL,                  .fn = version_cmd_fn,      .perm = NULL,                  .description = "Show the current software version" },
   {0}
 };
 
@@ -299,10 +299,12 @@ main1( int     argc,
 
   /* check if we are appropriate permissioned to run the desired command */
   if( FD_LIKELY( action->perm ) ) {
-    fd_caps_ctx_t caps[1] = {0};
-    action->perm( &args, caps, &config );
-    if( FD_UNLIKELY( caps->err_cnt ) ) {
-      for( ulong i=0; i<caps->err_cnt; i++ ) FD_LOG_WARNING(( "%s", caps->err[ i ] ));
+    fd_cap_chk_t * chk = fd_cap_chk_join( fd_cap_chk_new( __builtin_alloca_with_align( fd_cap_chk_footprint(), FD_CAP_CHK_ALIGN ) ) );
+    action->perm( &args, chk, &config );
+    ulong err_cnt = fd_cap_chk_err_cnt( chk );
+    if( FD_UNLIKELY( err_cnt ) ) {
+      for( ulong i=0UL; i<err_cnt; i++ ) FD_LOG_WARNING(( "%s", fd_cap_chk_err( chk, i ) ));
+
       if( FD_LIKELY( !strcmp( action->name, "run" ) ) ) {
         FD_LOG_ERR(( "insufficient permissions to execute command `%s`. It is recommended "
                      "to start Firedancer as the root user, but you can also start it "

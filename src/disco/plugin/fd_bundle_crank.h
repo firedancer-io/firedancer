@@ -142,6 +142,21 @@ fd_bundle_crank_generate( fd_bundle_crank_gen_t                       * gen,
                           fd_txn_t                                    * out_txn );
 
 
+/* fd_bundle_crank_apply updates tip_payment_config and
+   tip_receiver_owner as if the transaction produced by
+   fd_bundle_crank_generate with the same parameters executed
+   successfully.  Arguments have the same meaning as in _generate with
+   tip_payment_config playing the role of old_tip_payment_config (since
+   it's not old anymore). */
+void
+fd_bundle_crank_apply( fd_bundle_crank_gen_t                       * gen,
+                       fd_bundle_crank_tip_payment_config_t        * tip_payment_config,
+                       fd_acct_addr_t                       const  * new_block_builder,
+                       fd_acct_addr_t                              * tip_receiver_owner,
+                       ulong                                         epoch,
+                       ulong                                         block_builder_commission );
+
+
 /* These are fixed sized transactions, so sizeof() gives you the proper
    size of the payload. */
 typedef struct fd_bundle_crank_3 fd_bundle_crank_3_t; /* init and update */

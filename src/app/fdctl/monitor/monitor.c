@@ -1,11 +1,15 @@
 #include "../fdctl.h"
 
 #include "generated/monitor_seccomp.h"
+
+#include "../../shared/fd_sys_util.h"
+
 #include "helper.h"
 
 #include <stdio.h>
 #include <signal.h>
 #include <sys/syscall.h>
+#include <sys/resource.h>
 #include <linux/capability.h>
 
 void
@@ -28,21 +32,19 @@ monitor_cmd_args( int *    pargc,
 }
 
 void
-monitor_cmd_perm( args_t *         args,
-                  fd_caps_ctx_t *  caps,
-                  config_t * const config ) {
-  (void)args;
-
+monitor_cmd_perm( args_t *         args FD_PARAM_UNUSED,
+                  fd_cap_chk_t *   chk,
+                  config_t const * config ) {
   ulong mlock_limit = fd_topo_mlock( &config->topo );
 
-  fd_caps_check_resource(     caps, "monitor", RLIMIT_MEMLOCK, mlock_limit, "call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`" );
+  fd_cap_chk_raise_rlimit( chk, "monitor", RLIMIT_MEMLOCK, mlock_limit, "call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`" );
 
   if( fd_sandbox_requires_cap_sys_admin( config->uid, config->gid ) )
-    fd_caps_check_capability( caps, "monitor", CAP_SYS_ADMIN,               "call `unshare(2)` with `CLONE_NEWUSER` to sandbox the process in a user namespace" );
+    fd_cap_chk_cap( chk, "monitor", CAP_SYS_ADMIN,               "call `unshare(2)` with `CLONE_NEWUSER` to sandbox the process in a user namespace" );
   if( FD_LIKELY( getuid() != config->uid ) )
-    fd_caps_check_capability( caps, "monitor", CAP_SETUID,                  "call `setresuid(2)` to switch uid to the sanbox user" );
+    fd_cap_chk_cap( chk, "monitor", CAP_SETUID,                  "call `setresuid(2)` to switch uid to the sanbox user" );
   if( FD_LIKELY( getgid() != config->gid ) )
-    fd_caps_check_capability( caps, "monitor", CAP_SETGID,                  "call `setresgid(2)` to switch gid to the sandbox user" );
+    fd_cap_chk_cap( chk, "monitor", CAP_SETGID,                  "call `setresgid(2)` to switch gid to the sandbox user" );
 }
 
 typedef struct {
@@ -407,7 +409,7 @@ run_monitor( config_t * const config,
 
     if( FD_UNLIKELY( with_sankey ) ) {
       /* We only need to count from one of the benchs, since they both receive
-        all of the transactions. */
+         all of the transactions. */
       fd_topo_tile_t const * benchs = &topo->tiles[ fd_topo_find_tile( topo, "benchs", 0UL ) ];
       ulong fseq_sum = 0UL;
       for( ulong i=0UL; i<benchs->in_cnt; i++ ) {
@@ -415,7 +417,10 @@ run_monitor( config_t * const config,
         fseq_sum += fd_fseq_query( fseq );
       }
 
-      fd_topo_tile_t const * net = &topo->tiles[ fd_topo_find_tile( topo, "net", 0UL ) ];
+      ulong net_tile_idx = fd_topo_find_tile( topo, "net", 0UL );
+      if( FD_UNLIKELY( net_tile_idx==ULONG_MAX ) ) FD_LOG_ERR(( "net tile not found" ));
+
+      fd_topo_tile_t const * net = &topo->tiles[ net_tile_idx ];
       ulong net_sent = fd_mcache_seq_query( fd_mcache_seq_laddr( topo->links[ net->out_link_id[ 0 ] ].mcache ) );
       net_sent      += fd_mcache_seq_query( fd_mcache_seq_laddr( topo->links[ net->out_link_id[ 1 ] ].mcache ) );
       net_sent = fseq_sum;
@@ -510,7 +515,7 @@ run_monitor( config_t * const config,
 static void
 signal1( int sig ) {
   (void)sig;
-  exit_group( 0 );
+  fd_sys_util_exit_group( 0 );
 }
 
 void
@@ -605,5 +610,5 @@ monitor_cmd_fn( args_t *         args,
                args->monitor.seed,
                args->monitor.ns_per_tic );
 
-  exit_group( 0 );
+  fd_sys_util_exit_group( 0 );
 }

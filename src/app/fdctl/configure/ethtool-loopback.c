@@ -25,16 +25,22 @@ static char const udpseg_feature[] = UDPSEG_FEATURE;
 #define ETHTOOL_CMD_SZ( base_t, data_t, data_len ) ( sizeof(base_t) + (sizeof(data_t)*(data_len)) )
 
 static int
-enabled( config_t * const config ) {
-  /* FIXME support for netns is missing */
-  return !config->development.netns.enabled;
+enabled( config_t const * config ) {
+
+  /* if we're running in a network namespace, we configure ethtool on
+     the virtual device as part of netns setup, not here */
+  if( config->development.netns.enabled ) return 0;
+
+  /* only enable if network stack is XDP */
+  if( 0!=strcmp( config->development.net.provider, "xdp" ) ) return 0;
+
+  return 1;
 }
 
 static void
-init_perm( fd_caps_ctx_t *  caps,
-           config_t * const config ) {
-  (void)config;
-  fd_caps_check_root( caps, NAME, "disable loopback " UDPSEG_FEATURE " with `ethtool --offload lo " UDPSEG_FEATURE " off`" );
+init_perm( fd_cap_chk_t *   chk,
+           config_t const * config FD_PARAM_UNUSED ) {
+  fd_cap_chk_root( chk, NAME, "disable loopback " UDPSEG_FEATURE " with `ethtool --offload lo " UDPSEG_FEATURE " off`" );
 }
 
 /* ethtool_ioctl wraps ioctl(sock,SIOCETHTOOL,"lo",*) */
@@ -163,7 +169,7 @@ init( config_t * const config FD_PARAM_UNUSED ) {
 }
 
 static configure_result_t
-check( config_t * const config FD_PARAM_UNUSED ) {
+check( config_t const * config FD_PARAM_UNUSED ) {
   int sock = socket( AF_INET, SOCK_DGRAM, 0 );
   if( FD_UNLIKELY( sock < 0 ) )
     FD_LOG_ERR(( "error configuring network device, socket(AF_INET,SOCK_DGRAM,0) failed (%i-%s)",

@@ -8,11 +8,9 @@
 #include "../../util/net/fd_ip4.h"
 
 void
-load_cmd_perm( args_t *         args,
-                  fd_caps_ctx_t *  caps,
-                  config_t * const config ) {
-  (void)args;
-
+load_cmd_perm( args_t *         args FD_PARAM_UNUSED,
+               fd_cap_chk_t *   chk,
+               config_t const * config ) {
   args_t configure_args = {
     .configure.command = CONFIGURE_CMD_INIT,
   };
@@ -24,8 +22,7 @@ load_cmd_perm( args_t *         args,
     }
   }
   configure_args.configure.stages[ 2 ] = NULL;
-  configure_cmd_perm( &configure_args, caps, config );
-
+  configure_cmd_perm( &configure_args, chk, config );
 }
 
 void

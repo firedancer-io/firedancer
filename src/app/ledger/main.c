@@ -24,6 +24,7 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../flamenco/types/fd_solana_block.pb.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
+#include "../../flamenco/runtime/context/fd_runtime_ctx.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/program/fd_builtin_programs.h"
 #include "../../flamenco/shredcap/fd_shredcap.h"
@@ -175,7 +176,7 @@ init_spads( fd_ledger_args_t * args, int has_tpool ) {
 
 static void
 fd_create_snapshot_task( void FD_PARAM_UNUSED *tpool,
-                         ulong t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
+                         ulong t0, ulong t1,
                          void *args FD_PARAM_UNUSED,
                          void *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
                          ulong l0 FD_PARAM_UNUSED, ulong l1 FD_PARAM_UNUSED,
@@ -403,13 +404,13 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
         block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
         block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED );
 
-        ulong slot_complete_idx = block_map_entry->slot_complete_idx;
         fd_block_map_publish( query );
 
         /* Remove the old block from the blockstore */
-        for( uint idx = 0; idx <= slot_complete_idx; idx++ ) {
+        /*for( uint idx = 0; idx <= slot_complete_idx; idx++ ) {
           fd_blockstore_shred_remove( blockstore, block_slot, idx );
-        }
+        }*/
+        fd_blockstore_block_allocs_remove( blockstore, block_slot );
         fd_blockstore_slot_remove( blockstore, block_slot );
       }
       /* Mark the new block as replaying */
@@ -423,7 +424,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       block_slot = slot;
     }
 
-    fd_block_t * blk = fd_blockstore_block_query( blockstore, slot ); /* can't be removed atm, populating slot_ctx->block below */
+    fd_block_t * blk = fd_blockstore_block_query( blockstore, slot );
     if( blk == NULL ) {
       FD_LOG_WARNING(( "failed to read slot %lu", slot ));
       continue;
@@ -447,7 +448,8 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
         .funk           = ledger_args->slot_ctx->acc_mgr->funk,
         .status_cache   = ledger_args->slot_ctx->status_cache,
         .tpool          = ledger_args->snapshot_tpool,
-        .spad           = ledger_args->runtime_spad
+        .spad           = ledger_args->runtime_spad,
+        .features       = &ledger_args->slot_ctx->epoch_ctx->features
       };
 
       fd_tpool_exec( ledger_args->snapshot_bg_tpool, 1UL, fd_create_snapshot_task, NULL,
@@ -459,6 +461,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       ledger_args->is_snapshotting = 1;
 
       fd_snapshot_ctx_t snapshot_ctx = {
+        .features                 = &ledger_args->slot_ctx->epoch_ctx->features,
         .slot                     = ledger_args->slot_ctx->root_slot,
         .out_dir                  = ledger_args->snapshot_dir,
         .is_incremental           = 1,
@@ -491,7 +494,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
     slot_cnt++;
 
     fd_hash_t expected;
-    int err = fd_blockstore_block_hash_copy( blockstore, slot, expected.hash, 32UL );
+    int err = fd_blockstore_block_hash_query( blockstore, slot, &expected );
     if( FD_UNLIKELY( err ) ) FD_LOG_ERR( ( "slot %lu is missing its hash", slot ) );
     else if( FD_UNLIKELY( 0 != memcmp( ledger_args->slot_ctx->slot_bank.poh.hash, expected.hash, 32UL ) ) ) {
       char expected_hash[ FD_BASE58_ENCODED_32_SZ ];
@@ -525,7 +528,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       }
     }
 
-    err = fd_blockstore_bank_hash_copy( blockstore, slot, &expected );
+    err = fd_blockstore_bank_hash_query( blockstore, slot, &expected );
     if( FD_UNLIKELY( err) ) {
       FD_LOG_ERR(( "slot %lu is missing its bank hash", slot ));
     } else if( FD_UNLIKELY( 0 != memcmp( ledger_args->slot_ctx->slot_bank.banks_hash.hash,
@@ -794,9 +797,15 @@ ingest_rocksdb( char const *      file,
   fd_slot_meta_t slot_meta = {0};
   fd_memset( &slot_meta, 0, sizeof(slot_meta) );
 
-  int ret = fd_rocksdb_root_iter_seek( &iter, &rocks_db, start_slot, &slot_meta, valloc );
-  if( ret < 0 ) {
-    FD_LOG_ERR(( "fd_rocksdb_root_iter_seek returned %d", ret ));
+  int block_found = -1;
+  while ( block_found!=0 && start_slot<=end_slot ) {
+    block_found = fd_rocksdb_root_iter_seek( &iter, &rocks_db, start_slot, &slot_meta, valloc );
+    if ( block_found!=0 ) {
+      start_slot++;
+    }
+  }
+  if( FD_UNLIKELY( block_found!=0 ) ) {
+    FD_LOG_ERR(( "unable to seek to any slot" ));
   }
 
   uchar trash_hash_buf[32];
@@ -828,7 +837,7 @@ ingest_rocksdb( char const *      file,
 
     fd_slot_meta_destroy( &slot_meta );
 
-    ret = fd_rocksdb_root_iter_next( &iter, &slot_meta, valloc );
+    int ret = fd_rocksdb_root_iter_next( &iter, &slot_meta, valloc );
     if( ret < 0 ) {
       // FD_LOG_WARNING(("Failed for slot %lu", slot + 1));
       ret = fd_rocksdb_get_meta( &rocks_db, slot + 1, &slot_meta, valloc );
@@ -1260,8 +1269,19 @@ replay( fd_ledger_args_t * args ) {
   args->epoch_ctx->epoch_bank.cluster_version[1] = args->cluster_version[1];
   args->epoch_ctx->epoch_bank.cluster_version[2] = args->cluster_version[2];
 
+  void * runtime_public_mem = fd_wksp_alloc_laddr( args->wksp, fd_runtime_public_align(), fd_runtime_public_footprint( ), FD_EXEC_EPOCH_CTX_MAGIC );
+  fd_memset( runtime_public_mem, 0, fd_runtime_public_footprint( ) );
+
+  fd_runtime_ctx_t runtime_ctx[1];
+  fd_runtime_ctx_new(runtime_ctx);
+  runtime_ctx->public = fd_runtime_public_join( runtime_public_mem );
+  g_runtime_ctx = runtime_ctx;
+
   fd_features_enable_cleaned_up( &args->epoch_ctx->features, args->epoch_ctx->epoch_bank.cluster_version );
   fd_features_enable_one_offs( &args->epoch_ctx->features, args->one_off_features, args->one_off_features_cnt, 0UL );
+
+  // activate them
+  fd_memcpy( &g_runtime_ctx->public->features, &args->epoch_ctx->features, sizeof(fd_features_t) );
 
   void * slot_ctx_mem        = fd_spad_alloc( spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
   args->slot_ctx             = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, spad ) );

@@ -1,13 +1,10 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include "fd_restart.h"
-#include "../../util/fd_util.h"
 #include "../../flamenco/stakes/fd_stakes.h"
 #include "../../flamenco/snapshot/fd_snapshot_create.h"
 #include "../../flamenco/runtime/sysvar/fd_sysvar_epoch_schedule.h"
 
-#pragma GCC diagnostic ignored "-Wformat"
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
 #define BITS_PER_UCHAR ( 8*sizeof(uchar) )
 #define BITS_PER_ULONG ( 8*sizeof(ulong) )
 
@@ -474,7 +471,7 @@ fd_restart_init( fd_restart_t *              restart,
   ulong found = 0;
   fd_memcpy( msg->from.key, my_pubkey->key, sizeof(fd_pubkey_t) );
   fd_restart_recv_last_voted_fork_slots( restart, msg, &found );
-  if( FD_UNLIKELY( found ) ) FD_LOG_WARNING(( "[%s] It seems that this single validator alone has >80% stake", __func__ ));
+  if( FD_UNLIKELY( found ) ) FD_LOG_WARNING(( "[%s] It seems that this single validator alone has >80%% stake", __func__ ));
 }
 
 void

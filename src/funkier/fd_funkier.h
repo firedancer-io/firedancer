@@ -352,7 +352,7 @@ FD_FN_PURE static inline ulong fd_funkier_txn_max( fd_funkier_t * funk ) { retur
 /* fd_funkier_txn_map returns the funk's transaction map join. This
    join can copied by value and is generally stored as a stack variable. */
 
-FD_FN_PURE static inline fd_funkier_txn_map_t
+static inline fd_funkier_txn_map_t
 fd_funkier_txn_map( fd_funkier_t * funk,       /* Assumes current local join */
                     fd_wksp_t * wksp ) {       /* Assumes wksp == fd_funkier_wksp( funk ) */
   fd_funkier_txn_map_t join;
@@ -367,7 +367,7 @@ fd_funkier_txn_map( fd_funkier_t * funk,       /* Assumes current local join */
 /* fd_funkier_txn_pool returns the funk's transaction pool join. This
    join can copied by value and is generally stored as a stack variable. */
 
-FD_FN_PURE static inline fd_funkier_txn_pool_t
+static inline fd_funkier_txn_pool_t
 fd_funkier_txn_pool( fd_funkier_t * funk,    /* Assumes current local join */
                      fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funkier_wksp( funk ) */
   fd_funkier_txn_pool_t join;
@@ -435,7 +435,7 @@ FD_FN_PURE static inline ulong fd_funkier_rec_max( fd_funkier_t * funk ) { retur
 /* fd_funkier_rec_map returns the funk's record map join. This
    join can copied by value and is generally stored as a stack variable. */
 
-FD_FN_PURE static inline fd_funkier_rec_map_t
+static inline fd_funkier_rec_map_t
 fd_funkier_rec_map( fd_funkier_t * funk,    /* Assumes current local join */
                     fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funkier_wksp( funk ) */
   fd_funkier_rec_map_t join;
@@ -450,7 +450,7 @@ fd_funkier_rec_map( fd_funkier_t * funk,    /* Assumes current local join */
 /* fd_funkier_rec_pool returns the funk's record pool join. This
    join can copied by value and is generally stored as a stack variable. */
 
-FD_FN_PURE static inline fd_funkier_rec_pool_t
+static inline fd_funkier_rec_pool_t
 fd_funkier_rec_pool( fd_funkier_t * funk,    /* Assumes current local join */
                      fd_wksp_t * wksp ) {    /* Assumes wksp == fd_funkier_wksp( funk ) */
   fd_funkier_rec_pool_t join;

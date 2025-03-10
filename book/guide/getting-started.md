@@ -136,6 +136,17 @@ $ MACHINE=linux_gcc_x86_64 make -j fdctl solana
 The default target is `native`, and compiled binaries will be placed in
 `./build/native/gcc/bin`.
 
+## Updating
+If you checked out Firedancer using Git, run through these steps to
+check out a newer version, update dependencies, and rebuild binaries.
+
+```sh [bash]
+git fetch --tags
+git checkout v0.404.20113 # replace version number here
+git submodule update
+make -j fdctl solana
+```
+
 ## Running
 
 ### Configuration

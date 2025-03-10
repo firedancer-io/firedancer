@@ -1,6 +1,7 @@
 #include "fd_sysvar_epoch_rewards.h"
 #include "fd_sysvar.h"
 #include "../fd_acc_mgr.h"
+#include "../fd_runtime.h"
 #include "../fd_borrowed_account.h"
 #include "../fd_system_ids.h"
 #include "../context/fd_exec_slot_ctx.h"

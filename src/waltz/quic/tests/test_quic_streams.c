@@ -11,7 +11,7 @@ my_stream_rx_cb( fd_quic_conn_t * conn,
                  uchar const *    data,
                  ulong            data_sz,
                  int              fin ) {
-  (void)conn; (void)fin;
+  (void)conn;
 
   /* Derive expected payload */
 

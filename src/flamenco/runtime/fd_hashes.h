@@ -14,6 +14,9 @@ struct __attribute__((aligned(FD_PUBKEY_HASH_PAIR_ALIGN))) fd_pubkey_hash_pair {
 typedef struct fd_pubkey_hash_pair fd_pubkey_hash_pair_t;
 #define FD_PUBKEY_HASH_PAIR_FOOTPRINT (sizeof(fd_pubkey_hash_pair_t))
 
+union fd_features;
+typedef union fd_features fd_features_t;
+
 FD_PROTOTYPES_BEGIN
 
 int
@@ -64,7 +67,8 @@ fd_accounts_hash( fd_funk_t *      funk,
                   fd_slot_bank_t * slot_bank,
                   fd_tpool_t *     tpool,
                   fd_hash_t *      accounts_hash,
-                  fd_spad_t *      runtime_spad );
+                  fd_spad_t *      runtime_spad,
+                  int lthash_enabled );
 
 /* Generate a non-incremental hash of the entire account database, conditionally including in the epoch account hash. */
 int
@@ -84,13 +88,13 @@ fd_snapshot_inc_hash( fd_exec_slot_ctx_t * slot_ctx,
 
 /* Generate a non-incremental hash of the entire account database, including
    the epoch account hash. It differs from fd_snapshot_hash in that this version
-   is used by the snapshot service which doesn't have access to a slot_ctx 
-   handle. However, it retains a copy of funk, slot_bank, and epoch_bank. 
+   is used by the snapshot service which doesn't have access to a slot_ctx
+   handle. However, it retains a copy of funk, slot_bank, and epoch_bank.
    Do the same for the incremental hash. These functions are also
    responsible for conditionally including the epoch account hash into
    the account hash. These hashes are used by the snapshot service.
    TODO: These should be used to generate the hashes from snapshot loading. */
- 
+
 int
 fd_snapshot_service_hash( fd_hash_t *       accounts_hash,
                           fd_hash_t *       snapshot_hash,
@@ -98,7 +102,8 @@ fd_snapshot_service_hash( fd_hash_t *       accounts_hash,
                           fd_epoch_bank_t * epoch_bank,
                           fd_funk_t *       funk,
                           fd_tpool_t *      tpool,
-                          fd_spad_t *       runtime_spad );
+                          fd_spad_t *       runtime_spad,
+                          fd_features_t    *features );
 
 int
 fd_snapshot_service_inc_hash( fd_hash_t *                 accounts_hash,
@@ -108,7 +113,8 @@ fd_snapshot_service_inc_hash( fd_hash_t *                 accounts_hash,
                               fd_funk_t *                 funk,
                               fd_funk_rec_key_t const * * pubkeys,
                               ulong                       pubkeys_len,
-                              fd_spad_t *                 spad );
+                              fd_spad_t *                 spad,
+                              fd_features_t              *features  );
 
 void
 fd_accounts_check_lthash( fd_funk_t *      funk,

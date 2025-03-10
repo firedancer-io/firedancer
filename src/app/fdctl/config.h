@@ -173,6 +173,10 @@ struct fdctl_config {
     uint debug_tile;
 
     struct {
+      char provider[ 8 ];
+    } net;
+
+    struct {
       int  enabled;
       char interface0     [ 16 ];
       char interface0_mac [ 32 ];
@@ -216,7 +220,6 @@ struct fdctl_config {
     struct {
       char   interface[ IF_NAMESIZE ];
       uint   ip_addr;
-      uchar  mac_addr[6];
       char   xdp_mode[ 8 ];
       int    xdp_zero_copy;
 
@@ -320,9 +323,7 @@ struct fdctl_config {
       char  status_cache[ PATH_MAX ];
       ulong tpool_thread_count;
       char  cluster_version[ 32 ];
-      int   in_wen_restart;
       char  tower_checkpt[ PATH_MAX ];
-      char  wen_restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
     } replay;
 
     struct {
@@ -338,6 +339,12 @@ struct fdctl_config {
       char  out_dir[ PATH_MAX ];
       ulong hash_tpool_thread_count;
     } batch;
+
+    struct {
+      int   in_wen_restart;
+      char  genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
+      char  wen_restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
+    } restart;
 
   } tiles;
 };

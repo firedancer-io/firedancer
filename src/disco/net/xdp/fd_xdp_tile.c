@@ -1,4 +1,4 @@
-/* The net tile translates between AF_XDP and fd_tango
+/* The xdp tile translates between AF_XDP and fd_tango
    traffic.  It is responsible for setting up the XDP and
    XSK socket configuration. */
 
@@ -8,20 +8,22 @@
 #include <sys/socket.h> /* MSG_DONTWAIT needed before importing the net seccomp filter */
 #include <linux/if_xdp.h>
 
-#include "../metrics/fd_metrics.h"
-#include "../netlink/fd_netlink_tile.h" /* neigh4_solicit */
-#include "../topo/fd_topo.h"
+#include "../../metrics/fd_metrics.h"
+#include "../../netlink/fd_netlink_tile.h" /* neigh4_solicit */
+#include "../../topo/fd_topo.h"
 
-#include "../../waltz/ip/fd_fib4.h"
-#include "../../waltz/neigh/fd_neigh4_map.h"
-#include "../../waltz/xdp/fd_xdp_redirect_user.h" /* fd_xsk_activate */
-#include "../../waltz/xdp/fd_xsk.h"
-#include "../../util/log/fd_dtrace.h"
+#include "../../../waltz/ip/fd_fib4.h"
+#include "../../../waltz/neigh/fd_neigh4_map.h"
+#include "../../../waltz/xdp/fd_xdp_redirect_user.h" /* fd_xsk_activate */
+#include "../../../waltz/xdp/fd_xsk.h"
+#include "../../../util/log/fd_dtrace.h"
 
 #include <unistd.h>
+#include <linux/if.h> /* struct ifreq */
+#include <sys/ioctl.h>
 #include <linux/unistd.h>
 
-#include "generated/net_seccomp.h"
+#include "generated/xdp_seccomp.h"
 
 /* MAX_NET_INS controls the max number of TX links that a net tile can
    serve. */
@@ -149,11 +151,10 @@ typedef struct {
   int      prog_link_fds[ 2 ];
 
   /* UMEM frame region within dcache */
-  void *   umem_frame0; /* First UMEM frame (>=umem_base) */
+  void *   umem_frame0; /* First UMEM frame */
   ulong    umem_sz;     /* Usable UMEM size starting at frame0 */
 
   /* UMEM chunk region within workspace */
-  void *   umem_base;   /* UMEM workspace base */
   uint     umem_chunk0; /* Lowest allowed chunk number */
   uint     umem_wmark;  /* Highest allowed chunk number */
 
@@ -178,7 +179,6 @@ typedef struct {
   /* Ring tracking free packet buffers */
   fd_net_free_ring_t free_tx;
 
-  uint   src_ip_addr;
   uchar  src_mac_addr[6];
 
   ushort shred_listen_port;
@@ -855,8 +855,6 @@ static void
 before_credit( fd_net_ctx_t *      ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
-  (void)stem;
-
   /* A previous send attempt was overrun.  A corrupt copy of the packet was
      placed into an XDP frame, but the frame was not yet submitted to the
      TX ring.  Return the tx buffer to the free list. */
@@ -922,6 +920,22 @@ net_xsk_bootstrap( fd_net_ctx_t * ctx,
   return frame_off;
 }
 
+/* FIXME source MAC address from netlnk tile instead */
+
+static void
+mac_address( const char * interface,
+             uchar *      mac ) {
+  int fd = socket( AF_INET, SOCK_DGRAM, 0 );
+  struct ifreq ifr;
+  ifr.ifr_addr.sa_family = AF_INET;
+  strncpy( ifr.ifr_name, interface, IFNAMSIZ );
+  if( FD_UNLIKELY( ioctl( fd, SIOCGIFHWADDR, &ifr ) ) )
+    FD_LOG_ERR(( "could not get MAC address of interface `%s`: (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
+  if( FD_UNLIKELY( close(fd) ) )
+    FD_LOG_ERR(( "could not close socket (%i-%s)", errno, fd_io_strerror( errno ) ));
+  fd_memcpy( mac, ifr.ifr_hwaddr.sa_data, 6 );
+}
+
 /* privileged_init does the following initialization steps:
 
    - Create an AF_XDP socket
@@ -940,9 +954,7 @@ net_xsk_bootstrap( fd_net_ctx_t * ctx,
       |    |
       |    +-> XDP program <-- BPF_PROG file descriptor (prog_fd)
       |
-      +-> XSKMAP object <-- BPF_MAP file descriptor (xsk_map)
-      |
-      +-> BPF_MAP object <-- BPF_MAP file descriptor (udp_dsts) */
+      +-> XSKMAP object <-- BPF_MAP file descriptor (xsk_map) */
 
 static void
 privileged_init( fd_topo_t *      topo,
@@ -957,6 +969,8 @@ privileged_init( fd_topo_t *      topo,
 
   uint if_idx = if_nametoindex( tile->net.interface );
   if( FD_UNLIKELY( !if_idx ) ) FD_LOG_ERR(( "if_nametoindex(%s) failed", tile->net.interface ));
+
+  mac_address( tile->net.interface, ctx->src_mac_addr );
 
   /* Load up dcache containing UMEM */
 
@@ -985,7 +999,6 @@ privileged_init( fd_topo_t *      topo,
 
   ctx->umem_frame0 = umem_frame0;
   ctx->umem_sz     = umem_sz;
-  ctx->umem_base   = dcache_mem;
   ctx->umem_chunk0 = (uint)umem_chunk0;
   ctx->umem_wmark  = (uint)umem_wmark;
 
@@ -1018,6 +1031,7 @@ privileged_init( fd_topo_t *      topo,
   /* Init XSK */
   if( FD_UNLIKELY( !fd_xsk_init( &ctx->xsk[ 0 ], &params0 ) ) )       FD_LOG_ERR(( "failed to bind xsk for net tile %lu", tile->kind_id ));
   if( FD_UNLIKELY( !fd_xsk_activate( &ctx->xsk[ 0 ], xsk_map_fd ) ) ) FD_LOG_ERR(( "failed to activate xsk for net tile %lu", tile->kind_id ));
+  ctx->xsk_cnt = 1;
 
   if( FD_UNLIKELY( fd_sandbox_gettid()==fd_sandbox_getpid() ) ) {
     /* Kind of gross.. in single threaded mode we don't want to close the xsk_map_fd
@@ -1045,7 +1059,6 @@ privileged_init( fd_topo_t *      topo,
 
     /* FIXME move this to fd_topo_run */
     fd_xdp_fds_t lo_fds = fd_xdp_install( lo_idx,
-                                          tile->net.src_ip_addr,
                                           sizeof(udp_port_candidates)/sizeof(udp_port_candidates[0]),
                                           udp_port_candidates,
                                           "skb" );
@@ -1075,12 +1088,10 @@ unprivileged_init( fd_topo_t *      topo,
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_net_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_net_ctx_t), sizeof(fd_net_ctx_t) );
+  FD_TEST( ctx->xsk_cnt!=0 );
 
   ctx->net_tile_id  = (uint)tile->kind_id;
   ctx->net_tile_cnt = (uint)fd_topo_tile_name_cnt( topo, tile->name );
-
-  ctx->src_ip_addr = tile->net.src_ip_addr;
-  memcpy( ctx->src_mac_addr, tile->net.src_mac_addr, 6UL );
 
   ctx->shred_listen_port              = tile->net.shred_listen_port;
   ctx->quic_transaction_listen_port   = tile->net.quic_transaction_listen_port;
@@ -1223,8 +1234,8 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
      two "allow" FD arguments to the net policy, so we just make them both the same. */
   int allow_fd2 = ctx->xsk_cnt>1UL ? ctx->xsk[ 1 ].xsk_fd : ctx->xsk[ 0 ].xsk_fd;
   FD_TEST( ctx->xsk[ 0 ].xsk_fd >= 0 && allow_fd2 >= 0 );
-  populate_sock_filter_policy_net( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->xsk[ 0 ].xsk_fd, (uint)allow_fd2 );
-  return sock_filter_policy_net_instr_cnt;
+  populate_sock_filter_policy_xdp( out_cnt, out, (uint)fd_log_private_logfile_fd(), (uint)ctx->xsk[ 0 ].xsk_fd, (uint)allow_fd2 );
+  return sock_filter_policy_xdp_instr_cnt;
 }
 
 static ulong
@@ -1264,7 +1275,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 
-#include "../stem/fd_stem.c"
+#include "../../stem/fd_stem.c"
 
 fd_topo_run_tile_t fd_tile_net = {
   .name                     = "net",

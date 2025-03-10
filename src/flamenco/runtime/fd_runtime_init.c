@@ -4,6 +4,7 @@
 #include "context/fd_exec_epoch_ctx.h"
 #include "context/fd_exec_slot_ctx.h"
 #include "../../ballet/lthash/fd_lthash.h"
+#include "fd_system_ids.h"
 
 /* This file must not depend on fd_executor.h */
 
@@ -109,8 +110,8 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
   fd_exec_epoch_ctx_t * epoch_ctx    = slot_ctx->epoch_ctx;
   {
     fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
-    fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id, NULL);
-    if ( rec == NULL )
+    fd_funk_rec_t const *rec = fd_funk_rec_query_global(funk, txn, &id, NULL);
+    if (rec == NULL)
       FD_LOG_ERR(("failed to read banks record: missing record"));
     void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
 
@@ -241,8 +242,13 @@ fd_feature_restore( fd_exec_slot_ctx_t *    slot_ctx,
     return;
   }
 
-  // Skip reverted features
-  if( id->reverted ) {
+  /* Skip accounts that are not owned by the feature program */
+  if( FD_UNLIKELY( memcmp( acct_rec->const_meta->info.owner, fd_solana_feature_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+    return;
+  }
+
+  /* Skip reverted features */
+  if( FD_UNLIKELY( id->reverted ) ) {
     return;
   }
 

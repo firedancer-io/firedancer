@@ -34,8 +34,8 @@
 
 union fd_ip4_hdr {
   struct {
-    uchar  verihl;       /* 4 lsb: IP version (==4), assumes little endian */
-                         /* 4 msb: Header length in words (>=5) */
+    uchar  verihl;       /* 4 msb: IP version (==4), assumes little endian */
+                         /* 4 lsb: Header length in words (>=5) */
     uchar  tos;          /* Type of service */
     ushort net_tot_len;  /* Frag size in bytes, incl ip hdr, net order */
     ushort net_id;       /* Frag id, unique from sender for long enough, net order */

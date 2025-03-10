@@ -2,6 +2,7 @@
 #include "fddev.h"
 
 #include "../fdctl/configure/configure.h"
+#include "../shared/fd_file_util.h"
 
 #include <unistd.h>
 #include <stdlib.h>
@@ -36,6 +37,7 @@ configure_stage_t * STAGES[ CONFIGURE_STAGE_COUNT ] = {
 
 extern fd_topo_run_tile_t fd_tile_net;
 extern fd_topo_run_tile_t fd_tile_netlnk;
+extern fd_topo_run_tile_t fd_tile_sock;
 extern fd_topo_run_tile_t fd_tile_quic;
 extern fd_topo_run_tile_t fd_tile_bundle;
 extern fd_topo_run_tile_t fd_tile_verify;
@@ -70,11 +72,13 @@ extern fd_topo_run_tile_t fd_tile_poh_int;
 extern fd_topo_run_tile_t fd_tile_sender;
 extern fd_topo_run_tile_t fd_tile_eqvoc;
 extern fd_topo_run_tile_t fd_tile_rpcserv;
+extern fd_topo_run_tile_t fd_tile_restart;
 #endif
 
 fd_topo_run_tile_t * TILES[] = {
   &fd_tile_net,
   &fd_tile_netlnk,
+  &fd_tile_sock,
   &fd_tile_quic,
   &fd_tile_bundle,
   &fd_tile_verify,
@@ -108,6 +112,7 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_sender,
   &fd_tile_eqvoc,
   &fd_tile_rpcserv,
+  &fd_tile_restart,
 #endif
   NULL,
 };
@@ -138,7 +143,7 @@ static void
 execve_as_root( int     argc,
                 char ** argv ) {
   char _current_executable_path[ PATH_MAX ];
-  current_executable_path( _current_executable_path );
+  FD_TEST( -1!=fd_file_util_self_exe( _current_executable_path ) );
 
   char * args[ MAX_ARGC+4 ];
   for( int i=1; i<argc; i++ ) args[i+2] = argv[i];
@@ -228,11 +233,12 @@ fddev_main( int     argc,
   /* Check if we are appropriately permissioned to run the desired
      command. */
   if( FD_LIKELY( action->perm ) ) {
-    fd_caps_ctx_t caps[1] = {0};
-    action->perm( &args, caps, &config );
-    if( FD_UNLIKELY( caps->err_cnt ) ) {
+    fd_cap_chk_t * chk = fd_cap_chk_join( fd_cap_chk_new( __builtin_alloca_with_align( fd_cap_chk_footprint(), FD_CAP_CHK_ALIGN ) ) );
+    action->perm( &args, chk, &config );
+    ulong err_cnt = fd_cap_chk_err_cnt( chk );
+    if( FD_UNLIKELY( err_cnt ) ) {
       if( FD_UNLIKELY( !geteuid() ) ) {
-        for( ulong i=0; i<caps->err_cnt; i++ ) FD_LOG_WARNING(( "%s", caps->err[ i ] ));
+        for( ulong i=0UL; i<err_cnt; i++ ) FD_LOG_WARNING(( "%s", fd_cap_chk_err( chk, i ) ));
         FD_LOG_ERR(( "insufficient permissions to execute command `%s` when running as root. "
                      "fddev is likely being run with a reduced capability bounding set.", action_name ));
       }

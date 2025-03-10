@@ -13,7 +13,7 @@
 
 /* Define list of test fixtures.
 
-   Each entry is X( name, type ).
+   Each entry is X( name, type, check_idempotent ).
 
    Test fixtures are sourced from the following two files:
      - src/flamenco/types/fixtures/<name>.bin
@@ -23,16 +23,16 @@
 
    type should be set such that fd_<type>_t is defined in fd_types.h. */
 
-#define TEST_VECTOR( X )                                               \
-  X( txn_vote,                         flamenco_txn         )          \
-  X( vote_account,                     vote_state_versioned )          \
-  X( gossip_pull_req,                  gossip_msg           )          \
-  X( gossip_pull_resp_contact_info,    gossip_msg           )          \
-  X( gossip_pull_resp_contact_info_v2, gossip_msg           )          \
-  X( gossip_pull_resp_node_instance,   gossip_msg           )          \
-  X( gossip_pull_resp_snapshot_hashes, gossip_msg           )          \
-  X( gossip_pull_resp_version,         gossip_msg           )          \
-  X( gossip_push_vote,                 gossip_msg           )          \
+#define TEST_VECTOR( X )                                           \
+  X( txn_vote,                         flamenco_txn, 0         )   \
+  X( vote_account,                     vote_state_versioned, 1 )   \
+  X( gossip_pull_req,                  gossip_msg, 0           )   \
+  X( gossip_pull_resp_contact_info,    gossip_msg, 0           )   \
+  X( gossip_pull_resp_contact_info_v2, gossip_msg, 0           )   \
+  X( gossip_pull_resp_node_instance,   gossip_msg, 0           )   \
+  X( gossip_pull_resp_snapshot_hashes, gossip_msg, 0           )   \
+  X( gossip_pull_resp_version,         gossip_msg, 0           )   \
+  X( gossip_push_vote,                 gossip_msg, 0           )   \
   /* Add more fixtures to the end ... */
 
 
@@ -40,7 +40,7 @@
 
 /* Embed test vectors into compile unit */
 
-#define X(id, _) \
+#define X(id, type, check_idempotent ) \
   FD_IMPORT_BINARY( test_##id##_bin, "src/flamenco/types/fixtures/" #id ".bin" ); \
   FD_IMPORT_BINARY( test_##id##_yml, "src/flamenco/types/fixtures/" #id ".yml" );
 TEST_VECTOR( X )
@@ -59,12 +59,22 @@ typedef void *
 (* fd_types_decode_vfn_t)( void *                    self,
                            fd_bincode_decode_ctx_t * d );
 
+typedef void *
+(* fd_types_decode_global_vfn_t)( void *                    self,
+                                  fd_bincode_decode_ctx_t * d );
+
+typedef int
+(* fd_types_encode_vfn_t)( void const *              self,
+                           fd_bincode_encode_ctx_t * e );
 typedef void
 (* fd_types_walk_vfn_t)( void *             walker,
                          void const *       self,
                          fd_types_walk_fn_t fun,
                          char const *       name,
                          uint               level );
+
+typedef ulong
+(* fd_types_align_vfn_t)( void );
 
 /* Define test vector */
 
@@ -76,16 +86,20 @@ struct test_fixture {
   char  const * yml;
   ulong const * yml_sz;
   ulong         struct_sz;  /* size of outer struct */
+  uchar         check_idem;
 
   fd_types_decode_footprint_vfn_t decode_footprint;
   fd_types_decode_vfn_t           decode;
+  fd_types_decode_global_vfn_t    decode_global;
+  fd_types_encode_vfn_t           encode;
   fd_types_walk_vfn_t             walk;
+  fd_types_align_vfn_t            align;
 };
 
 typedef struct test_fixture test_fixture_t;
 
 static const test_fixture_t test_vector[] = {
-# define X( id, type )                                                                   \
+# define X( id, type, check_idempotent )                                                 \
   { .name             = #id,                                                             \
     .dump_path        = "src/flamenco/types/fixtures/" #id ".actual.yml",                \
     .bin              = test_##id##_bin,                                                 \
@@ -93,9 +107,13 @@ static const test_fixture_t test_vector[] = {
     .yml              = (char const *)test_##id##_yml,                                   \
     .yml_sz           = &test_##id##_yml_sz,                                             \
     .struct_sz        = sizeof( fd_##type##_t ),                                         \
+    .check_idem       = check_idempotent,                                                \
     .decode_footprint = ( fd_types_decode_footprint_vfn_t )fd_##type##_decode_footprint, \
     .decode           = ( fd_types_decode_vfn_t )fd_##type##_decode,                     \
-    .walk             = ( fd_types_walk_vfn_t   )fd_##type##_walk },
+    .decode_global    = ( fd_types_decode_global_vfn_t )fd_##type##_decode_global,       \
+    .encode           = ( fd_types_encode_vfn_t )fd_##type##_encode,                     \
+    .align            = ( fd_types_align_vfn_t )fd_##type##_align,                       \
+    .walk             = ( fd_types_walk_vfn_t )fd_##type##_walk },
 TEST_VECTOR( X )
 # undef X
   {0}
@@ -119,8 +137,8 @@ test_yaml( test_fixture_t const * t ) {
         .dataend = t->bin + bin_sz
     }};
 
-    ulong  total_sz = 0UL;
-    int err = t->decode_footprint( decode, &total_sz );
+    ulong total_sz = 0UL;
+    int   err      = t->decode_footprint( decode, &total_sz );
     if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) )
       FD_LOG_ERR(( "Test '%s' failed: Bincode decode err (%d)", t->name, err ));
 
@@ -165,7 +183,42 @@ test_yaml( test_fixture_t const * t ) {
 
 static void
 test_idempotent( test_fixture_t const * t ) {
-  (void)t;  /* TODO */
+  if( !t->check_idem ) return;
+
+  FD_SCRATCH_SCOPE_BEGIN {
+  /* We first need to decode the contents of the fixture. This decoding
+     needs to be done using the local decoder. */
+  ulong bin_sz = *t->bin_sz;
+  fd_bincode_decode_ctx_t decode[1] = {{
+      .data    = t->bin,
+      .dataend = t->bin + bin_sz
+  }};
+
+  ulong  total_sz = 0UL;
+  int err = t->decode_footprint( decode, &total_sz );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+    FD_LOG_ERR(( "Test '%s' failed: Bincode decode err (%d)", t->name, err ));
+  }
+
+  void * decoded = fd_scratch_alloc( t->align(), total_sz );
+
+  t->decode( decoded, decode );
+
+  uchar * encoded_buf = fd_scratch_alloc( t->align(), bin_sz );
+
+  fd_bincode_encode_ctx_t encode[1] = {{
+      .data    = encoded_buf,
+      .dataend = encoded_buf + bin_sz,
+  }};
+
+  err = t->encode( decoded, encode );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+    FD_LOG_ERR(( "Test '%s' failed: Bincode encode err (%d)", t->name, err ));
+  }
+
+  FD_TEST( !memcmp( encoded_buf, t->bin, bin_sz ) );
+
+} FD_SCRATCH_SCOPE_END;
 }
 
 /* Loop through tests */
@@ -179,12 +232,18 @@ main( int     argc,
   static ulong scratch_fmem[ 4UL ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
   fd_scratch_attach( scratch_mem, scratch_fmem, 1UL<<25, 4UL );
 
+  fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ,
+                                            1UL,
+                                            0UL,
+                                            "wksp",
+                                            0UL );
+  (void)wksp;
+
   for( test_fixture_t const * t = test_vector; t->name; t++ ) {
 
     test_yaml      ( t );
     test_idempotent( t );
     /* Add more here ... */
-
   }
 
   FD_LOG_NOTICE(( "pass" ));

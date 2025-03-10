@@ -29,7 +29,7 @@ EOF
 }
 
 send_slack_message "Starting $NETWORK-offline-replay run on \`$(hostname)\` in \`$(pwd)\` with agave tag \`$AGAVE_TAG\` and firedancer cluster version \`$FD_CLUSTER_VERSION\`"
-CURRENT_MISMATCH_COUNT=0    
+CURRENT_MISMATCH_COUNT=0
 CURRENT_FAILURE_COUNT=0
 
 allocated_pages=$($FIREDANCER_REPO/"$OBJDIR"/bin/fd_shmem_cfg query)
@@ -77,7 +77,7 @@ while true; do
 
         SOLANA_BUCKET_PATH=${BUCKET_ENDPOINT}/${NEWEST_BUCKET_SLOT}
         send_slack_message "Downloading rocksdb from \`$SOLANA_BUCKET_PATH\` to \`$LEDGER_DIR/rocksdb\`"
-        
+
         if [ -e "$LEDGER_DIR/rocksdb" ]; then
             send_slack_message "Rocksdb already exists at \`$LEDGER_DIR/rocksdb\`"
         else
@@ -100,7 +100,7 @@ while true; do
         ROCKSDB_ROOTED_MIN=$(echo "$output" | grep "rooted" | awk '{print $6}')
         ROCKSDB_ROOTED_MAX=$(echo "$output" | grep "rooted" | awk '{print $8}')
         echo "RocksDB Bounds: $ROCKSDB_ROOTED_MIN - $ROCKSDB_ROOTED_MAX"
-        
+
         HOURLY_SNAPSHOT_DIR=${SOLANA_BUCKET_PATH}/hourly
         echo "Hourly Snapshot Directory: $HOURLY_SNAPSHOT_DIR"
 
@@ -288,7 +288,7 @@ while true; do
                 LEDGER_REPLAY_SNAPSHOT=$LEDGER_DIR/snapshot-${NEXT_ROOTED_SLOT}*
                 echo "New snapshot created at $LEDGER_REPLAY_SNAPSHOT"
                 # minify a rocksdb for the minimized snapshot
-                
+
                 # create a minimized snapshot for the mismatch slot using the new snapshot
                 MISMATCH_DIR=$LEDGER_DIR/$NETWORK-${MISMATCH_SLOT}
                 mkdir -p $MISMATCH_DIR
@@ -306,7 +306,7 @@ while true; do
                     --start-slot $PREVIOUS_ROOTED_SLOT \
                     --end-slot $MINIMIZED_END_SLOT \
                     --page-cnt $PAGES \
-                    --copy-txn-status 1 >> $LOG 2>&1
+                    --copy-txn-status 0 >> $LOG 2>&1
                 status=$?
                 sleep 10
 
@@ -342,7 +342,7 @@ while true; do
         echo "$NEWEST_BUCKET_SLOT" > $LATEST_RUN_BUCKET_SLOT_FILE
         echo "Updated latest bucket slot to $NEWEST_BUCKET_SLOT"
     fi
-    
+
     echo "Sleeping for 1 hour"
     sleep 3600
 done

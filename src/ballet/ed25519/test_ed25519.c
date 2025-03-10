@@ -714,7 +714,7 @@ test_point_validate( FD_PARAM_UNUSED fd_rng_t * rng ) {
 /**********************************************************************/
 
 void
-test_sc_validate( FD_PARAM_UNUSED fd_rng_t * rng ) {
+test_sc_validate( fd_rng_t * rng ) {
   uchar _in [64]; uchar * in  = _in;
   uchar _out[32]; uchar * out = _out;
 

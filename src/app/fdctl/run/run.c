@@ -9,11 +9,18 @@
 #include "generated/pidns_seccomp.h"
 #endif
 
+#include "../../shared/fd_sys_util.h"
+#include "../../shared/fd_file_util.h"
+#include "../../shared/fd_net_util.h"
+
 #include "../../../disco/topo/fd_pod_format.h"
 #include "../../../disco/keyguard/fd_keyswitch.h"
 #include "../../../waltz/xdp/fd_xdp1.h"
+#if FD_HAS_NO_AGAVE
 #include "../../../flamenco/runtime/fd_blockstore.h"
 #include "../../../flamenco/runtime/fd_txncache.h"
+#include "../../../flamenco/runtime/fd_runtime.h"
+#endif
 #include "../../../funk/fd_funk_filemap.h"
 #include "../../../funk/fd_funk.h"
 #include "../../../waltz/ip/fd_fib4.h"
@@ -28,6 +35,7 @@
 #include <poll.h>
 #include <fcntl.h>
 #include <sys/prctl.h>
+#include <sys/resource.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <linux/capability.h>
@@ -39,30 +47,30 @@
 
 void
 run_cmd_perm( args_t *         args,
-              fd_caps_ctx_t *  caps,
-              config_t * const config ) {
+              fd_cap_chk_t *   chk,
+              config_t const * config ) {
   (void)args;
 
   ulong mlock_limit = fd_topo_mlock_max_tile( &config->topo );
 
-  fd_caps_check_resource(     caps, NAME, RLIMIT_MEMLOCK, mlock_limit, "call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`" );
-  fd_caps_check_resource(     caps, NAME, RLIMIT_NICE,    40,          "call `setpriority(2)` to increase thread priorities" );
-  fd_caps_check_resource(     caps, NAME, RLIMIT_NOFILE,  CONFIGURE_NR_OPEN_FILES,
+  fd_cap_chk_raise_rlimit( chk, NAME, RLIMIT_MEMLOCK, mlock_limit, "call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`" );
+  fd_cap_chk_raise_rlimit( chk, NAME, RLIMIT_NICE,    40,          "call `setpriority(2)` to increase thread priorities" );
+  fd_cap_chk_raise_rlimit( chk, NAME, RLIMIT_NOFILE,  CONFIGURE_NR_OPEN_FILES,
                                                                        "call `rlimit(2)  to increase `RLIMIT_NOFILE` to allow more open files for Agave" );
-  fd_caps_check_capability(   caps, NAME, CAP_NET_RAW,                 "call `socket(2)` to bind to a raw socket for use by XDP" );
-  fd_caps_check_capability(   caps, NAME, CAP_SYS_ADMIN,               "call `bpf(2)` with the `BPF_OBJ_GET` command to initialize XDP" );
+  fd_cap_chk_cap(          chk, NAME, CAP_NET_RAW,                 "call `socket(2)` to bind to a raw socket for use by XDP" );
+  fd_cap_chk_cap(          chk, NAME, CAP_SYS_ADMIN,               "call `bpf(2)` with the `BPF_OBJ_GET` command to initialize XDP" );
   if( fd_sandbox_requires_cap_sys_admin( config->uid, config->gid ) )
-    fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN,               "call `unshare(2)` with `CLONE_NEWUSER` to sandbox the process in a user namespace" );
+    fd_cap_chk_cap(        chk, NAME, CAP_SYS_ADMIN,               "call `unshare(2)` with `CLONE_NEWUSER` to sandbox the process in a user namespace" );
   if( FD_LIKELY( getuid() != config->uid ) )
-    fd_caps_check_capability( caps, NAME, CAP_SETUID,                  "call `setresuid(2)` to switch uid to the sandbox user" );
+    fd_cap_chk_cap(        chk, NAME, CAP_SETUID,                  "call `setresuid(2)` to switch uid to the sandbox user" );
   if( FD_LIKELY( getgid()!=config->gid ) )
-    fd_caps_check_capability( caps, NAME, CAP_SETGID,                  "call `setresgid(2)` to switch gid to the sandbox user" );
+    fd_cap_chk_cap(        chk, NAME, CAP_SETGID,                  "call `setresgid(2)` to switch gid to the sandbox user" );
   if( FD_UNLIKELY( config->development.netns.enabled ) )
-    fd_caps_check_capability( caps, NAME, CAP_SYS_ADMIN,               "call `setns(2)` to enter a network namespace" );
+    fd_cap_chk_cap(        chk, NAME, CAP_SYS_ADMIN,               "call `setns(2)` to enter a network namespace" );
   if( FD_UNLIKELY( config->tiles.metric.prometheus_listen_port<1024 ) )
-    fd_caps_check_capability( caps, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving metrics" );
+    fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving metrics" );
   if( FD_UNLIKELY( config->tiles.gui.gui_listen_port<1024 ) )
-    fd_caps_check_capability( caps, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving the GUI" );
+    fd_cap_chk_cap(        chk, NAME, CAP_NET_BIND_SERVICE,        "call `bind(2)` to bind to a privileged port for serving the GUI" );
 }
 
 struct pidns_clone_args {
@@ -94,8 +102,8 @@ parent_signal( int sig ) {
   if( -1!=fd_log_private_logfile_fd() ) FD_LOG_ERR_NOEXIT(( "Received signal %s\nLog at \"%s\"", fd_io_strsignal( sig ), fd_log_private_path ));
   else                                  FD_LOG_ERR_NOEXIT(( "Received signal %s",                fd_io_strsignal( sig ) ));
 
-  if( FD_LIKELY( sig==SIGINT ) ) exit_group( 128+SIGINT );
-  else                           exit_group( 0          );
+  if( FD_LIKELY( sig==SIGINT ) ) fd_sys_util_exit_group( 128+SIGINT );
+  else                           fd_sys_util_exit_group( 0          );
 }
 
 static void
@@ -153,7 +161,7 @@ execve_agave( int config_memfd,
   if( FD_UNLIKELY( -1==child ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_LIKELY( !child ) ) {
     char _current_executable_path[ PATH_MAX ];
-    current_executable_path( _current_executable_path );
+    FD_TEST( -1!=fd_file_util_self_exe( _current_executable_path ) );
 
     char config_fd[ 32 ];
     FD_TEST( fd_cstr_printf_check( config_fd, sizeof( config_fd ), NULL, "%d", config_memfd ) );
@@ -209,7 +217,7 @@ execve_tile( fd_topo_tile_t * tile,
   if( FD_UNLIKELY( -1==child ) ) FD_LOG_ERR(( "fork() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_LIKELY( !child ) ) {
     char _current_executable_path[ PATH_MAX ];
-    current_executable_path( _current_executable_path );
+    FD_TEST( -1!=fd_file_util_self_exe( _current_executable_path ) );
 
     char kind_id[ 32 ], config_fd[ 32 ], pipe_fd[ 32 ];
     FD_TEST( fd_cstr_printf_check( kind_id,   sizeof( kind_id ),   NULL, "%lu", tile->kind_id ) );
@@ -277,26 +285,33 @@ main_pid_namespace( void * _args ) {
   }
 
   if( FD_UNLIKELY( config->development.netns.enabled ) ) {
-    enter_network_namespace( config->tiles.net.interface );
-    close_network_namespace_original_fd();
+    if( FD_UNLIKELY( -1==fd_net_util_netns_enter( config->tiles.net.interface, NULL ) ) )
+      FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", config->tiles.net.interface, errno, fd_io_strerror( errno ) ));
   }
 
   errno = 0;
   int save_priority = getpriority( PRIO_PROCESS, 0 );
   if( FD_UNLIKELY( -1==save_priority && errno ) ) FD_LOG_ERR(( "getpriority() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
-  fd_xdp_fds_t xdp_fds = fd_topo_install_xdp( &config->topo );
+  int need_xdp = 0==strcmp( config->development.net.provider, "xdp" );
+  fd_xdp_fds_t xdp_fds = {0};
+  if( need_xdp ) {
+    xdp_fds = fd_topo_install_xdp( &config->topo );
+  }
 
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
     fd_topo_tile_t * tile = &config->topo.tiles[ i ];
     if( FD_UNLIKELY( tile->is_agave ) ) continue;
 
-    if( FD_UNLIKELY( strcmp( tile->name, "net" ) ) ) {
-      if( FD_UNLIKELY( -1==fcntl( xdp_fds.xsk_map_fd,   F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      if( FD_UNLIKELY( -1==fcntl( xdp_fds.prog_link_fd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-    } else {
-      if( FD_UNLIKELY( -1==fcntl( xdp_fds.xsk_map_fd,   F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-      if( FD_UNLIKELY( -1==fcntl( xdp_fds.prog_link_fd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( need_xdp ) {
+      if( FD_UNLIKELY( strcmp( tile->name, "net" ) ) ) {
+        /* close XDP related file descriptors */
+        if( FD_UNLIKELY( -1==fcntl( xdp_fds.xsk_map_fd,   F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        if( FD_UNLIKELY( -1==fcntl( xdp_fds.prog_link_fd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      } else {
+        if( FD_UNLIKELY( -1==fcntl( xdp_fds.xsk_map_fd,   F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+        if( FD_UNLIKELY( -1==fcntl( xdp_fds.prog_link_fd, F_SETFD, 0 ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,0) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+      }
     }
 
     int pipefd[ 2 ];
@@ -314,8 +329,10 @@ main_pid_namespace( void * _args ) {
 
   if( FD_UNLIKELY( close( config_memfd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( close( xdp_fds.xsk_map_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  if( FD_UNLIKELY( close( xdp_fds.prog_link_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  if( need_xdp ) {
+    if( FD_UNLIKELY( close( xdp_fds.xsk_map_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    if( FD_UNLIKELY( close( xdp_fds.prog_link_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
 
   int allow_fds[ 4+FD_TOPO_MAX_TILES ];
   ulong allow_fds_cnt = 0;
@@ -347,6 +364,12 @@ main_pid_namespace( void * _args ) {
     fd_sandbox_switch_uid_gid( config->uid, config->gid );
   }
 
+  /* The supervsior process should not share the log lock, because a
+     child process might die while holding it and we still need to
+     reap and print errors. */
+  int lock = 0;
+  fd_log_private_shared_lock = &lock;
+
   /* Reap child process PIDs so they don't show up in `ps` etc.  All of
      these children should have exited immediately after clone(2)'ing
      another child with a huge page based stack. */
@@ -358,18 +381,12 @@ main_pid_namespace( void * _args ) {
     } else if( FD_UNLIKELY( child_pids[ i ]!=exited_pid ) ) {
       FD_LOG_ERR(( "pidns wait4() returned unexpected pid %d %d", child_pids[ i ], exited_pid ));
     } else if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
-      /* If the tile died with a signal like SIGSEGV or SIGSYS it might
-         still be holding the lock, which would cause us to hang when
-         writing out the error, so don't require the lock here. */
-      int lock = 0;
-      fd_log_private_shared_lock = &lock;
-
       FD_LOG_ERR_NOEXIT(( "tile %lu (%s) exited while booting with signal %d (%s)\n", i, child_names[ i ], WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
-      exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
+      fd_sys_util_exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
     }
     if( FD_UNLIKELY( WEXITSTATUS( wstatus ) ) ) {
       FD_LOG_ERR_NOEXIT(( "tile %lu (%s) exited while booting with code %d\n", i, child_names[ i ], WEXITSTATUS( wstatus ) ));
-      exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
+      fd_sys_util_exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
     }
   }
 
@@ -389,7 +406,7 @@ main_pid_namespace( void * _args ) {
         /* Must have been POLLHUP, POLLERR and POLLNVAL are not possible. */
         if( FD_UNLIKELY( i==child_cnt ) ) {
           /* Parent process died, probably SIGINT, exit gracefully. */
-          exit_group( 0 );
+          fd_sys_util_exit_group( 0 );
         }
 
         char * tile_name = child_names[ i ];
@@ -409,10 +426,10 @@ main_pid_namespace( void * _args ) {
 
         if( FD_UNLIKELY( !WIFEXITED( wstatus ) ) ) {
           FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with signal %d (%s)", tile_name, tile_id, WTERMSIG( wstatus ), fd_io_strsignal( WTERMSIG( wstatus ) ) ));
-          exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
+          fd_sys_util_exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
         } else {
           FD_LOG_ERR_NOEXIT(( "tile %s:%lu exited with code %d", tile_name, tile_id, WEXITSTATUS( wstatus ) ));
-          exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
+          fd_sys_util_exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
         }
       }
     }
@@ -553,18 +570,22 @@ fdctl_obj_new( fd_topo_t const *     topo,
     *(ulong*)laddr = 0;
   } else if( FD_UNLIKELY( !strcmp( obj->name, "dbl_buf" ) ) ) {
     FD_TEST( fd_dbl_buf_new( laddr, VAL("mtu"), 1UL ) );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
-    FD_TEST( fd_blockstore_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "funk" ) ) ) {
     FD_TEST( fd_funk_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("txn_max"), VAL("rec_max") ) );
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
-    FD_TEST( fd_txncache_new( laddr, VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "neigh4_hmap" ) ) )  {
     FD_TEST( fd_neigh4_hmap_new( laddr, VAL("ele_max"), VAL("lock_cnt"), VAL("probe_max"), VAL("seed") ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "fib4" ) ) ) {
     FD_TEST( fd_fib4_new( laddr, VAL("route_max") ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "keyswitch" ) ) ) {
     FD_TEST( fd_keyswitch_new( laddr, FD_KEYSWITCH_STATE_UNLOCKED ) );
+#if FD_HAS_NO_AGAVE
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "replay_pub" ) ) ) {
+    FD_TEST( fd_runtime_public_new( laddr ) );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
+    FD_TEST( fd_blockstore_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
+    FD_TEST( fd_txncache_new( laddr, VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
+#endif /* FD_HAS_NO_AGAVE */
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
   }
@@ -700,7 +721,7 @@ fdctl_check_configure( config_t * config ) {
                  "to create the mounts correctly. This must be done after every system restart before running "
                  "Firedancer.", check.message ));
 
-  if( FD_LIKELY( !config->development.netns.enabled ) ) {
+  if( FD_LIKELY( !config->development.netns.enabled && 0==strcmp( config->development.net.provider, "xdp" ) ) ) {
     check = fd_cfg_stage_ethtool_channels.check( config );
     if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
       FD_LOG_ERR(( "Network %s. You can run `fdctl configure init ethtool-channels` to set the number of channels on the "
@@ -750,12 +771,17 @@ run_firedancer_init( config_t * config,
 void
 fdctl_setup_netns( config_t * config ) {
   if( config->development.netns.enabled ) {
-    enter_network_namespace( config->tiles.net.interface );
-    close_network_namespace_original_fd();
+
+    int original_netns;
+    if( FD_UNLIKELY( -1==fd_net_util_netns_enter( config->tiles.net.interface, &original_netns ) ) )
+      FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", config->tiles.net.interface, errno, fd_io_strerror( errno ) ));
 
     fd_cfg_stage_ethtool_channels.init( config );
     fd_cfg_stage_ethtool_gro     .init( config );
     fd_cfg_stage_ethtool_loopback.init( config );
+
+    if( FD_UNLIKELY( -1==fd_net_util_netns_restore( original_netns ) ) )
+      FD_LOG_ERR(( "failed to restore network namespace `%s` (%i-%s)", config->tiles.net.interface, errno, fd_io_strerror( errno ) ));
   }
 }
 
@@ -865,14 +891,20 @@ run_firedancer( config_t * const config,
     fd_sandbox_switch_uid_gid( config->uid, config->gid );
   }
 
+  /* The supervsior process should not share the log lock, because a
+     child process might die while holding it and we still need to
+     reap and print errors. */
+  int lock = 0;
+  fd_log_private_shared_lock = &lock;
+
   /* the only clean way to exit is SIGINT or SIGTERM on this parent process,
      so if wait4() completes, it must be an error */
   int wstatus;
   if( FD_UNLIKELY( -1==wait4( pid_namespace, &wstatus, (int)__WALL, NULL ) ) )
     FD_LOG_ERR(( "main wait4() failed (%i-%s)\nLog at \"%s\"", errno, fd_io_strerror( errno ), fd_log_private_path ));
 
-  if( FD_UNLIKELY( WIFSIGNALED( wstatus ) ) ) exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
-  else exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
+  if( FD_UNLIKELY( WIFSIGNALED( wstatus ) ) ) fd_sys_util_exit_group( WTERMSIG( wstatus ) ? WTERMSIG( wstatus ) : 1 );
+  else fd_sys_util_exit_group( WEXITSTATUS( wstatus ) ? WEXITSTATUS( wstatus ) : 1 );
 }
 
 void

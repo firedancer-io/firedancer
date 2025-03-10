@@ -84,8 +84,8 @@ fd_fseq_delete( void * shfseq );
    join.  fd_cnc_app_laddr_const is for const correctness.  The return
    values are valid for the lifetime of the local join. */
 
-FD_FN_CONST static inline void *       fd_fseq_app_laddr      ( ulong *       fseq ) { return (void       *)&fseq[2]; }
-FD_FN_CONST static inline void const * fd_fseq_app_laddr_const( ulong const * fseq ) { return (void const *)&fseq[2]; }
+FD_FN_CONST static inline void *       fd_fseq_app_laddr      ( ulong *       fseq ) { return (void       *)(fseq+2); }
+FD_FN_CONST static inline void const * fd_fseq_app_laddr_const( ulong const * fseq ) { return (void const *)(fseq+2); }
 
 /* fd_fseq_seq0 returns the sequencer number used when the fseq was
    created.  Assumes fseq is a current local join. */

@@ -3,6 +3,7 @@
 
 #include "genesis_hash.h"
 
+#include "../shared/fd_sys_util.h"
 #include "../fdctl/configure/configure.h"
 #include "../fdctl/run/run.h"
 
@@ -30,18 +31,18 @@ dev_cmd_args( int *    pargc,
 
 void
 dev_cmd_perm( args_t *         args,
-              fd_caps_ctx_t *  caps,
-              config_t * const config ) {
+              fd_cap_chk_t *   chk,
+              config_t const * config ) {
   if( FD_LIKELY( !args->dev.no_configure ) ) {
     args_t configure_args = {
       .configure.command = CONFIGURE_CMD_INIT,
     };
     for( ulong i=0; i<CONFIGURE_STAGE_COUNT; i++ )
       configure_args.configure.stages[ i ] = STAGES[ i ];
-    configure_cmd_perm( &configure_args, caps, config );
+    configure_cmd_perm( &configure_args, chk, config );
   }
 
-  run_cmd_perm( NULL, caps, config );
+  run_cmd_perm( NULL, chk, config );
 }
 
 pid_t firedancer_pid, monitor_pid;
@@ -63,8 +64,8 @@ parent_signal( int sig ) {
   if( -1!=fd_log_private_logfile_fd() ) FD_LOG_ERR_NOEXIT(( "Received signal %s\nLog at \"%s\"", fd_io_strsignal( sig ), fd_log_private_path ));
   else                                  FD_LOG_ERR_NOEXIT(( "Received signal %s",                fd_io_strsignal( sig ) ));
 
-  if( FD_LIKELY( sig==SIGINT ) ) exit_group( 128+SIGINT );
-  else                           exit_group( 0          );
+  if( FD_LIKELY( sig==SIGINT ) ) fd_sys_util_exit_group( 128+SIGINT );
+  else                           fd_sys_util_exit_group( 0          );
 }
 
 static void
@@ -172,8 +173,10 @@ run_firedancer_threaded( config_t * config , int init_workspaces) {
      tiles maps it in as read-only, later tiles will reuse the same cached shmem
      join (the key is only on shmem name, when it should be (name, mode)). */
 
-  fd_xdp_fds_t fds = fd_topo_install_xdp( &config->topo );
-  (void)fds;
+  if( 0==strcmp( config->development.net.provider, "xdp" ) ) {
+    fd_xdp_fds_t fds = fd_topo_install_xdp( &config->topo );
+    (void)fds;
+  }
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run, NULL );
@@ -202,12 +205,6 @@ dev_cmd_fn( args_t *         args,
 
   update_config_for_dev( config );
   if( FD_UNLIKELY( args->dev.no_agave ) ) config->development.no_agave = 1;
-
-  if( FD_UNLIKELY( config->development.netns.enabled ) ) {
-    /* if we entered a network namespace during configuration, leave it
-       so that `run_firedancer` starts from a clean namespace */
-    leave_network_namespace();
-  }
 
   if( FD_UNLIKELY( strcmp( "", args->dev.debug_tile ) ) ) {
     if( FD_LIKELY( config->development.sandbox ) ) {
@@ -281,6 +278,6 @@ dev_cmd_fn( args_t *         args,
       if( FD_UNLIKELY( kill( monitor_pid, SIGKILL ) ) )
         FD_LOG_ERR(( "failed to kill all processes (%i-%s)", errno, fd_io_strerror( errno ) ));
     }
-    exit_group( exit_code );
+    fd_sys_util_exit_group( exit_code );
   }
 }

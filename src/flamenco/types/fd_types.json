@@ -2789,6 +2789,62 @@
         { "name": "vote_states", "type": "map", "element": "vote_info_pair", "key": "account" },
         { "name": "stake_infos_new_keys_start_idx", "type": "ulong" }
       ]
+    },
+    {
+      "name": "usage_cost_details",
+      "type": "struct",
+      "fields": [
+        { "name": "signature_cost", "type": "ulong" },
+        { "name": "write_lock_cost", "type": "ulong" },
+        { "name": "data_bytes_cost", "type": "ulong" },
+        { "name": "programs_execution_cost", "type": "ulong" },
+        { "name": "loaded_accounts_data_size_cost", "type": "ulong" },
+        { "name": "allocated_accounts_data_size", "type": "ulong" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L153-L161"
+    },
+    {
+      "name": "transaction_cost",
+      "type": "enum",
+      "variants": [
+        { "name": "simple_vote" },
+        { "name": "transaction", "type": "usage_cost_details" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/transaction_cost.rs#L20-L23"
+    },
+    {
+      "name": "account_costs_pair",
+      "type": "struct",
+      "fields": [
+        { "name": "key", "type": "pubkey" },
+        { "name": "cost", "type": "ulong" }
+      ]
+    },
+    {
+      "name": "account_costs",
+      "type": "struct",
+      "fields": [
+        { "name": "account_costs", "type": "map", "element": "account_costs_pair", "key": "key", "minalloc":4096 }
+      ]
+    },
+    {
+      "name": "cost_tracker",
+      "type": "struct",
+      "fields": [
+        { "name": "account_cost_limit", "type": "ulong" },
+        { "name": "block_cost_limit", "type": "ulong" },
+        { "name": "vote_cost_limit", "type": "ulong" },
+        { "name": "cost_by_writable_accounts", "type": "account_costs"},
+        { "name": "block_cost", "type": "ulong" },
+        { "name": "vote_cost", "type": "ulong" },
+        { "name": "transaction_count", "type": "ulong" },
+        { "name": "allocated_accounts_data_size", "type": "ulong" },
+        { "name": "transaction_signature_count", "type": "ulong" },
+        { "name": "secp256k1_instruction_signature_count", "type": "ulong" },
+        { "name": "ed25519_instruction_signature_count", "type": "ulong" },
+        { "name": "secp256r1_instruction_signature_count", "type": "ulong" }
+      ],
+      "comment": "https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L62-L79"
     }
   ]
 }

@@ -1,13 +1,14 @@
 #include "../../fdctl/configure/configure.h"
 
+#include "../../shared/fd_file_util.h"
 #include <sys/stat.h>
 
 #define NAME "keys"
 
-
 static void
-init( config_t * const config ) {
-  mkdir_all( config->scratch_directory, config->uid, config->gid );
+init( config_t * config ) {
+  if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( config->scratch_directory, config->uid, config->gid ) ) )
+    FD_LOG_ERR(( "could not create scratch directory `%s` (%i-%s)", config->scratch_directory, errno, fd_io_strerror( errno ) ));
 
   struct stat st;
   if( FD_UNLIKELY( stat( config->consensus.identity_path, &st ) && errno==ENOENT ) )
@@ -28,10 +29,8 @@ init( config_t * const config ) {
 
 
 static void
-fini( config_t * const config,
-      int              pre_init ) {
-  (void)pre_init;
-
+fini( config_t * config,
+      int        pre_init FD_PARAM_UNUSED ) {
   char path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/faucet.json", config->scratch_directory ) );
   if( FD_UNLIKELY( unlink( path ) && errno != ENOENT ) )
@@ -46,7 +45,7 @@ fini( config_t * const config,
 
 
 static configure_result_t
-check( config_t * const config ) {
+check( config_t const * config ) {
   char faucet[ PATH_MAX ], stake[ PATH_MAX ], vote[ PATH_MAX ];
 
   FD_TEST( fd_cstr_printf_check( faucet, PATH_MAX, NULL, "%s/faucet.json", config->scratch_directory ) );

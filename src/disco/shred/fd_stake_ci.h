@@ -22,7 +22,7 @@
    This is asserted in the tests.  The size of fd_shred_dest_t, varies
    based on FD_SHA256_BATCH_FOOTPRINT, which depends on the compiler
    settings. */
-#define MAX_SHRED_DEST_FOOTPRINT (8708224UL + sizeof(fd_shred_dest_t))
+#define MAX_SHRED_DEST_FOOTPRINT (8386688UL + sizeof(fd_shred_dest_t))
 
 #define FD_STAKE_CI_STAKE_MSG_SZ (40UL + MAX_SHRED_DESTS * 40UL)
 

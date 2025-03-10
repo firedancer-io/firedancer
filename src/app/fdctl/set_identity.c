@@ -9,6 +9,7 @@
 #include "../../disco/keyguard/fd_keyload.h"
 
 #include <strings.h>
+#include <sys/resource.h>
 
 /* The process of switching identity of the validator is somewhat
    involved, to prevent it from producing torn data (for example,
@@ -116,6 +117,15 @@
      blocks.  The next state once the PoH tile confirms the leader
      pipeline is unlocked, is UNLOCKED. */
 #define FD_SET_IDENTITY_STATE_POH_UNHALT_REQUESTED  (8UL)
+
+void
+set_identity_cmd_perm( args_t *         args   FD_PARAM_UNUSED,
+                       fd_cap_chk_t *   chk,
+                       config_t const * config FD_PARAM_UNUSED ) {
+  /* 5 huge pages for the key storage area */
+  ulong mlock_limit = 5UL * FD_SHMEM_NORMAL_PAGE_SZ;
+  fd_cap_chk_raise_rlimit( chk, "set-identity", RLIMIT_MEMLOCK, mlock_limit, "call `rlimit(2)` to increase `RLIMIT_MEMLOCK` so all memory can be locked with `mlock(2)`" );
+}
 
 fd_keyswitch_t *
 find_keyswitch( fd_topo_t const * topo,
@@ -337,8 +347,6 @@ err:
 static void FD_FN_SENSITIVE
 set_identity( args_t *         args,
               config_t * const config ) {
-  (void)args;
-
   uchar check_public_key[ 32 ];
   fd_sha512_t sha512[1];
   FD_TEST( fd_sha512_join( fd_sha512_new( sha512 ) ) );

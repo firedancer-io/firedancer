@@ -329,6 +329,58 @@ test_merge( fd_rng_t * rng, int optimize_iteration ) {
   pool_delete ( pool_leave ( pool ) );
 }
 
+static void
+test_duplicate( fd_rng_t * rng ) {
+  ulong ele_max = 254UL;
+
+  treap_t _treap[2];
+  ele_t * pool = pool_join( pool_new( scratch, ele_max ) );
+  treap_t * treap = treap_join( treap_new( _treap, ele_max ) );
+  /* Make them all equal */
+  for( ulong j=0UL; j<ele_max; j++ ) pool[ j ].val = 0;
+
+  for( ulong i=0UL; i<100UL; i++ ) {
+    ulong inserted_order[ 256UL ];
+    ulong free          [ 256UL ];
+    for( ulong j=0UL; j<ele_max; j++ ) free[ j ] = j;
+
+    treap_seed( pool, ele_max, fd_ulong_hash( i ) );
+    for( ulong j=0UL; j<ele_max; j++ ) {
+      ulong selected_idx = fd_rng_ulong_roll( rng, ele_max-j );
+      ulong selected = free[ selected_idx ];
+      free[ selected_idx ] = free[ ele_max-1UL-j ];
+      inserted_order[ j ] = selected;
+
+      treap_idx_insert( treap, selected, pool );
+    }
+
+    FD_TEST( !treap_verify( treap, pool ) );
+
+    ulong j=0UL;
+    for( treap_fwd_iter_t iter = treap_fwd_iter_init( treap, pool );
+        !treap_fwd_iter_done( iter );
+        iter = treap_fwd_iter_next( iter, pool ) ) {
+      ulong idx = treap_fwd_iter_idx( iter );
+      FD_TEST( idx==inserted_order[ j++ ] );
+    }
+    for( ulong j=0UL; j<ele_max; j++ ) treap_idx_remove( treap, j, pool );
+  }
+  treap_delete( treap_leave( treap ) );
+
+
+  treap_t * a = treap_join( treap_new( _treap+0, ele_max ) );
+  treap_t * b = treap_join( treap_new( _treap+1, ele_max ) );
+
+  for( ulong j=0UL; j<ele_max; j++ ) pool[ j ].val = (schar)( (int)fd_rng_uint_roll( rng, 30 )-15 ); /* Lots of duplicates */
+  for( ulong i=0UL; i<100UL; i++ ) {
+    for( ulong j=0UL; j<ele_max; j++ ) treap_idx_insert( fd_ptr_if( !!fd_rng_uint_roll( rng, 2U ), a, b ), j, pool );
+    FD_TEST( !treap_verify( treap_merge( a, b, pool ), pool ) );
+    for( ulong j=0UL; j<ele_max; j++ ) treap_idx_remove( a, j, pool );
+  }
+  treap_delete( treap_leave( a ) );
+  treap_delete( treap_leave( b ) );
+}
+
 
 
 int
@@ -533,6 +585,8 @@ main( int     argc,
 
   test_merge( rng, 1 );
   test_merge( rng, 0 );
+
+  test_duplicate( rng );
 
   fd_rng_delete( fd_rng_leave( rng ) );
 

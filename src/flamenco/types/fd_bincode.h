@@ -479,6 +479,4 @@ static inline int fd_archive_decode_check_length( fd_bincode_decode_ctx_t * ctx,
   return FD_BINCODE_SUCCESS;
 }
 
-int fd_archive_decode_skip_field( fd_bincode_decode_ctx_t * ctx, ushort tag );
-
 #endif /* HEADER_fd_src_util_encoders_fd_bincode_h */

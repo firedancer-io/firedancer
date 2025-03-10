@@ -3,6 +3,8 @@
 #include "../../fdctl/fdctl.h"
 #include "../../fdctl/configure/configure.h"
 
+#include "../../shared/fd_sys_util.h"
+
 #include <poll.h>
 #include <fcntl.h>
 #include <sched.h>
@@ -34,9 +36,10 @@ fddev_configure( config_t * config,
     if( FD_UNLIKELY( !strcmp( "kill", STAGES[ i ]->name ) ) ) continue;
     args.configure.stages[ stage_idx++ ] = STAGES[ i ];
   }
-  fd_caps_ctx_t caps[ 1 ] = {0};
-  configure_cmd_perm( &args, caps, config );
-  FD_TEST( !caps->err_cnt );
+
+  fd_cap_chk_t * chk = fd_cap_chk_join( fd_cap_chk_new( __builtin_alloca_with_align( fd_cap_chk_footprint(), FD_CAP_CHK_ALIGN ) ) );
+  configure_cmd_perm( &args, chk, config );
+  FD_TEST( !fd_cap_chk_err_cnt( chk ) );
   configure_cmd_fn( &args, config );
   return 0;
 }
@@ -48,10 +51,11 @@ fddev_wksp( config_t * config,
 
   fd_log_thread_set( "wksp" );
   args_t args = {0};
-  fd_caps_ctx_t caps[1] = {0};
-  wksp_cmd_perm( &args, caps, config );
-  if( FD_UNLIKELY( caps->err_cnt ) ) {
-    for( ulong i=0; i<caps->err_cnt; i++ ) FD_LOG_WARNING(( "%s", caps->err[ i ] ));
+  fd_cap_chk_t * chk = fd_cap_chk_join( fd_cap_chk_new( __builtin_alloca_with_align( fd_cap_chk_footprint(), FD_CAP_CHK_ALIGN ) ) );
+  wksp_cmd_perm( &args, chk, config );
+  ulong err_cnt = fd_cap_chk_err_cnt( chk );
+  if( FD_UNLIKELY( err_cnt ) ) {
+    for( ulong i=0UL; i<err_cnt; i++ ) FD_LOG_WARNING(( "%s", fd_cap_chk_err( chk, i ) ));
     FD_LOG_ERR(( "insufficient permissions to create workspaces" ));
   }
   wksp_cmd_fn( &args, config );
@@ -81,9 +85,9 @@ fddev_dev( config_t * config,
     .dev.monitor            = 0,
   };
   args.dev.debug_tile[ 0 ] = '\0';
-  fd_caps_ctx_t caps[ 1 ] = {0};
-  dev_cmd_perm( &args, caps, config );
-  FD_TEST( !caps->err_cnt );
+  fd_cap_chk_t * chk = fd_cap_chk_join( fd_cap_chk_new( __builtin_alloca_with_align( fd_cap_chk_footprint(), FD_CAP_CHK_ALIGN ) ) );
+  dev_cmd_perm( &args, chk, config );
+  FD_TEST( !fd_cap_chk_err_cnt( chk ) );
   FD_LOG_WARNING(( "waitpid %lu", fd_sandbox_getpid() ));
   // sleep(15);
   dev_cmd_fn( &args, config );
@@ -101,7 +105,7 @@ fork_child( char const * name,
   if( !pid ) {
     if( FD_UNLIKELY( -1==close( pipefd[ 0 ] ) ) ) FD_LOG_ERR(( "close failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     int result = child( config, pipefd[ 1 ] );
-    exit_group( result );
+    fd_sys_util_exit_group( result );
   }
   if( FD_UNLIKELY( -1==close( pipefd[ 1 ] ) ) ) FD_LOG_ERR(( "close failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   return (struct child_info){ .name = name, .pipefd = pipefd[ 0 ], .pid = pid };

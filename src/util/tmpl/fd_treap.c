@@ -207,7 +207,8 @@
      // storage.  mytreap_ele_query is the same but returns the location
      // in the caller's address space of the found element on success
      // and NULL on failure (lifetime of the returned pointer is until
-     // ele is removed or ele's local lifetime).
+     // ele is removed or ele's local lifetime).  If there are multiple
+     // elements matching q, this returns an arbitrary one of them.
      // mytreap_ele_query_const is a const correct version.
      //
      // These operations have HPC implementations and are O(lg N)
@@ -222,13 +223,11 @@
      // the treap and returns treap.  Assumes treap is a current local
      // join, pool points in the caller's address space to the ele_max
      // element storage used for treap elements, n/d are in [0,ele_max),
-     // n/d are currently out of / in the treap.  Insert further assumes
-     // that n's queries are not in the treap (n's queries are the set
-     // of queries that are covered by n).  Given these assumptions,
-     // these cannot fail.
+     // n/d are currently out of / in the treap.  Given these
+     // assumptions, these cannot fail.
      //
      // For insert, n's query and prio fields should already be
-     // populated (i.e. MYTREAP_LT( ele+n, ele+i ) should return valid
+     // populated (i.e. TREAP_LT( ele+n, ele+i ) should return valid
      // results before this is called and prio should be a suitable
      // value as described above.  On return, n and n's queries will be
      // in the treap.  n's left, right, parent, prio and/or queries
@@ -237,6 +236,13 @@
      // stable while n is in the treap.  The treap does not care about
      // any other fields and these can be modified by the user as
      // necessary.
+     //
+     // When inserting an element that compares equal (i.e.
+     // TREAP_LT( x, y )==0 and TREAP_LT( y, x )==0), the newly inserted
+     // element is treated as if being epsilon larger than all existing
+     // equal elements.  This means that iterating in forward order will
+     // iterate over equal elements in "time" order, with the one
+     // inserted first returned first.
      //
      // For remove, on return d and d's queries are no longer in the
      // treap.  The caller is free to modify all fields of d as
@@ -301,13 +307,14 @@
      myele_t const *    mytreap_rev_iter_ele_const( mytreap_rev_iter_t iter, myele_t const * pool );
 
      // mytreap_merge merges two treaps backed by the same pool into a
-     // single treap.  Merge is equivalent to removing each element from
-     // treap_b and inserting it into treap_a, but merging the heaps is
-     // asymptotically slightly better.  Returns treap_a, which now
-     // additionally contains the elements from treap_b.  Requires that
-     // the treap does not use the maximum priority element (see the
-     // note above about PRIO_MAX).  Assumes the A and B treaps contain
-     // no common keys.
+     // single treap.  If all keys in treap_a and treap_b are distinct,
+     // merge is equivalent to removing each element from treap_b and
+     // inserting it into treap_a, but merging the heaps is
+     // asymptotically slightly better.  If there are some duplicate
+     // elements, they may be interleaved arbitrarily.  Returns treap_a,
+     // which now additionally contains the elements from treap_b.
+     // Requires that the treap does not use the maximum priority
+     // element (see the note above about PRIO_MAX).
 
      mytreap * mytreap_merge( mytreap * treap_a, mytreap * treap_b, myele_t * pool );
 
@@ -873,7 +880,7 @@ TREAP_(private_split)( TREAP_IDX_T   idx_node,         /* Tree to split */
        *_idx_left / *_idx_right are locations where to store the output
        split treaps.) */
 
-    if( TREAP_LT( &pool[ idx_node ], key ) ) {
+    if( TREAP_(lt)( &pool[ idx_node ], key ) ) {
 
       /* node is left of key which, by the BST property, means all
          elements in node's left subtree are also left of key.  We don't
@@ -1410,7 +1417,7 @@ TREAP_(verify)( TREAP_(t) const * treap,
        all elements less than i and l is the last element we visited (or
        NULL if i is the first element we are visiting. */
 
-    if( FD_LIKELY( !TREAP_IDX_IS_NULL( l ) ) ) TREAP_TEST( TREAP_(lt)( pool + l, pool + i ) ); /* Make sure ordering valid */
+    if( FD_LIKELY( !TREAP_IDX_IS_NULL( l ) ) ) TREAP_TEST( !TREAP_(lt)( pool + i, pool + l ) ); /* Make sure ordering valid */
 #if TREAP_OPTIMIZE_ITERATION
     /* Check the l <-> i link */
     if( FD_LIKELY( !TREAP_IDX_IS_NULL( l ) ) ) TREAP_TEST( pool[ l ].TREAP_NEXT==i );

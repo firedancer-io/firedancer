@@ -64,15 +64,6 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
 #define FD_EXEC_SLOT_CTX_FOOTPRINT (sizeof (fd_exec_slot_ctx_t))
 #define FD_EXEC_SLOT_CTX_MAGIC     (0xC2287BA2A5E6FC3DUL) /* random */
 
-/* FD_FEATURE_ACTIVE evalutes to 1 if the given feature is active, 0
-   otherwise.  First arg is the fd_exec_slot_ctx_t.  Second arg is the
-   name of the feature.
-
-   Example usage:   if( FD_FEATURE_ACTIVE( slot_ctx, set_exempt_rent_epoch_max ) ) */
-
-#define FD_FEATURE_ACTIVE(_slot_ctx, _feature_name)  (_slot_ctx->slot_bank.slot >= _slot_ctx->epoch_ctx->features. _feature_name)
-#define FD_FEATURE_ACTIVE_OFFSET(_slot_ctx, _offset)  (_slot_ctx->slot_bank.slot >= _slot_ctx->epoch_ctx->features.f[_offset>>3] )
-
 FD_PROTOTYPES_BEGIN
 
 void *

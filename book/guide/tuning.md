@@ -33,7 +33,7 @@ tile are,
 These tiles communicate with each other via shared memory queues. The
 work each tile performs and how they communicate with each other is
 fixed, but the count of each tile kind and which CPU cores they are
-assigned to is set by your configuration, and this the primary way to
+assigned to is set by your configuration, and this is the primary way to
 tune the performance of Firedancer.
 
 ## Configuration

@@ -4,7 +4,6 @@
 #define FD_SPAD_USE_HANDHOLDING 1
 #include "fd_exec_instr_test.h"
 #include "../fd_acc_mgr.h"
-#include "../fd_account.h"
 #include "../fd_executor.h"
 #include "../fd_runtime.h"
 #include "../program/fd_bpf_loader_serialization.h"
@@ -22,7 +21,6 @@
 #include "../../../funk/fd_funk.h"
 #include "../../../util/bits/fd_float.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
-#include "../../../ballet/elf/fd_elf.h"
 #include "../../vm/fd_vm.h"
 #include <assert.h>
 #include "../sysvar/fd_sysvar_cache.h"
@@ -32,8 +30,6 @@
 #include "fd_vm_test.h"
 #include "../../vm/test_vm_util.h"
 
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 /* LOGFMT_REPORT is the log prefix for instruction processing tests */
 
 #define LOGFMT_REPORT "%s"
@@ -42,7 +38,8 @@ static FD_TL char _report_prefix[100] = {0};
 #define REPORTV( level, fmt, ... ) \
   FD_LOG_##level(( LOGFMT_REPORT fmt, _report_prefix, __VA_ARGS__ ))
 
-#define REPORT( level, fmt ) REPORTV( level, fmt, 0 )
+#define REPORT( level, fmt ) \
+  FD_LOG_##level(( LOGFMT_REPORT fmt, _report_prefix ))
 
 #define REPORT_ACCTV( level, addr, fmt, ... )                                  \
   do {                                                                         \
@@ -324,6 +321,8 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   fd_memset( borrowed_accts, 0, test_ctx->accounts_count * sizeof(fd_borrowed_account_t) );
   txn_ctx->accounts_cnt = test_ctx->accounts_count;
 
+  int has_program_id = 0;
+
   for( ulong j=0UL; j < test_ctx->accounts_count; j++ ) {
     memcpy(  &(txn_ctx->accounts[j]), test_ctx->accounts[j].address, sizeof(fd_pubkey_t) );
     if( !_load_account( &borrowed_accts[j], acc_mgr, funk_txn, &test_ctx->accounts[j] ) ) {
@@ -337,6 +336,25 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
       borrowed_accts[j].const_meta = (fd_account_meta_t*)data;
       borrowed_accts[j].const_data = data + sizeof(fd_account_meta_t);
     }
+
+    if( !memcmp( borrowed_accts[j].pubkey, test_ctx->program_id, sizeof(fd_pubkey_t) ) ) {
+      has_program_id = 1;
+      info->program_id = (uchar)txn_ctx->accounts_cnt;
+    }
+  }
+
+  /* If the program id is not in the set of accounts it must be added to the set of accounts. */
+  if( FD_UNLIKELY( !has_program_id ) ) {
+    fd_borrowed_account_t * program_acc = &borrowed_accts[ test_ctx->accounts_count ];
+    fd_pubkey_t *           program_key = &txn_ctx->accounts[ txn_ctx->accounts_cnt ];
+    fd_borrowed_account_init( program_acc );
+    memcpy( program_key, test_ctx->program_id, sizeof(fd_pubkey_t) );
+    memcpy( program_acc->pubkey, test_ctx->program_id, sizeof(fd_pubkey_t) );
+    program_acc->meta = fd_spad_alloc( txn_ctx->spad, alignof(fd_account_meta_t*), sizeof(fd_account_meta_t*) );
+    program_acc->const_meta = program_acc->meta;
+    fd_account_meta_init( program_acc->meta );
+    info->program_id = (uchar)txn_ctx->accounts_cnt;
+    txn_ctx->accounts_cnt++;
   }
 
   /* Load in executable accounts */
@@ -895,7 +913,8 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   fd_execute_txn_task_info_t * task_info = fd_spad_alloc( runner->spad, alignof(fd_execute_txn_task_info_t), sizeof(fd_execute_txn_task_info_t) );
   memset( task_info, 0, sizeof(fd_execute_txn_task_info_t) );
-  task_info->txn = txn;
+  task_info->txn     = txn;
+  task_info->txn_ctx = fd_spad_alloc( runner->spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
 
   fd_tpool_t tpool[1];
   tpool->worker_cnt = 1;
@@ -1259,7 +1278,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
 
 
 ulong
-fd_sbpf_program_load_test_run( FD_PARAM_UNUSED fd_exec_instr_test_runner_t * runner,
+fd_sbpf_program_load_test_run( fd_exec_instr_test_runner_t * runner,
                                void const *                  input_,
                                void **                       output_,
                                void *                        output_buf,
