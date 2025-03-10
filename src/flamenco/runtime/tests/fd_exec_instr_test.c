@@ -1034,6 +1034,7 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   epoch_bank->epoch_schedule      = *slot_ctx->sysvar_cache->val_epoch_schedule;
   epoch_bank->rent_epoch_schedule = *slot_ctx->sysvar_cache->val_epoch_schedule;
   epoch_bank->rent                = *slot_ctx->sysvar_cache->val_rent;
+  epoch_bank->stakes.epoch        = fd_slot_to_epoch( &epoch_bank->epoch_schedule, slot_bank->prev_slot, NULL );
 
   /* Update stake cache for epoch T */
   for( uint i=0U; i<test_ctx->epoch_ctx.stake_accounts_count; i++ ) {
