@@ -22,7 +22,7 @@
    multiple of align.  These are provided to facilitate compile time
    declarations. */
 
-#define FD_FUNKIER_REC_ALIGN     (32UL)
+#define FD_FUNKIER_REC_ALIGN     (64UL)
 
 /* FD_FUNKIER_REC_FLAG_* are flags that can be bit-ored together to specify
    how records are to be interpreted.  The 5 most significant bytes of a
@@ -75,7 +75,7 @@ struct __attribute__((aligned(FD_FUNKIER_REC_ALIGN))) fd_funkier_rec {
 
 typedef struct fd_funkier_rec fd_funkier_rec_t;
 
-FD_STATIC_ASSERT( sizeof(fd_funkier_rec_t) == 4U*32U, record size is wrong );
+FD_STATIC_ASSERT( sizeof(fd_funkier_rec_t) == 2U*FD_FUNKIER_REC_ALIGN, record size is wrong );
 
 /* fd_funkier_rec_map allows for indexing records by their (xid,key) pair.
    It is used to store all records of the last published transaction and
@@ -296,6 +296,22 @@ fd_funkier_rec_set_erase_data( fd_funkier_rec_t * rec, ulong erase_data );
 ulong
 fd_funkier_rec_get_erase_data( fd_funkier_rec_t const * rec );
 
+/* Remove a list of tombstones from funk, thereby freeing up space in
+   the main index. All the records must be removed and published
+   beforehand. Reasons for failure include:
+
+     FD_FUNKIER_ERR_INVAL - bad inputs (NULL funk, NULL rec, rec is
+       obviously not from funk, etc)
+
+     FD_FUNKIER_ERR_KEY - the record did not appear to be a removed record.
+       Specifically, a record query of funk for rec's (xid,key) pair did
+       not return rec. Also, the record was never published.
+*/
+int
+fd_funkier_rec_forget( fd_funkier_t *      funk,
+                       fd_funkier_rec_t ** recs,
+                       ulong recs_cnt );
+
 /* Iterator which walks all records in all transactions. Usage is:
 
   fd_funkier_all_iter_t iter[1];
@@ -337,4 +353,4 @@ fd_funkier_rec_verify( fd_funkier_t * funk );
 
 FD_PROTOTYPES_END
 
-#endif /* HEADER_fd_src_funk_fd_funkier_rec_h */
+#endif /* HEADER_fd_src_funkier_fd_funkier_rec_h */

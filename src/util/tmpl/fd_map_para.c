@@ -1163,8 +1163,10 @@
 //#define FD_MAP_ERR_FULL    (-5)
 #define FD_MAP_ERR_KEY     (-6)
 
+#ifndef FD_MAP_FLAG_BLOCKING
 #define FD_MAP_FLAG_BLOCKING (1)
 #define FD_MAP_FLAG_ADAPTIVE (2)
+#endif
 
 /* Implementation *****************************************************/
 

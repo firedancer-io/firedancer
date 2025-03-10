@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_appdctl_run_tiles_fd_replay_notif_h
 #define HEADER_fd_src_appdctl_run_tiles_fd_replay_notif_h 1
 
-#include "../../../../funk/fd_funk.h"
+#include "../../../../funkier/fd_funkier.h"
 
 /* Data structure which is passed through replay_notif link */
 
@@ -22,7 +22,7 @@ struct __attribute__((aligned(1))) fd_replay_notif_acct {
 struct __attribute__((aligned(64UL))) fd_replay_notif_msg {
   union {
     struct {
-      fd_funk_txn_xid_t           funk_xid;
+      fd_funkier_txn_xid_t           funk_xid;
       uchar                       sig[64U];           /* Transaction signature */
       struct fd_replay_notif_acct accts[FD_REPLAY_NOTIF_ACCT_MAX];
       uint                        accts_cnt;
