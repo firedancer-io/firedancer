@@ -1,6 +1,7 @@
 #ifndef HEADER_fd_src_disco_shred_fd_fec_resolver_h
 #define HEADER_fd_src_disco_shred_fd_fec_resolver_h
 #include "../../ballet/shred/fd_fec_set.h"
+#include "../../ballet/bmtree/fd_bmtree.h"
 
 /* This header defines several methods for building and validating FEC
    sets from received shreds.  It's designed just for use by the shred
@@ -180,11 +181,12 @@ fd_fec_resolver_t * fd_fec_resolver_join( void * shmem );
    last one and completes the FEC set.  In this case, the function
    populates any missing shreds in the FEC set stored in out_fec_set. */
 int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
-                               fd_shred_t   const   *  shred,
+                               fd_shred_t const     * shred,
                                ulong                  shred_sz,
-                               uchar        const   * leader_pubkey,
+                               uchar const          * leader_pubkey,
                                fd_fec_set_t const * * out_fec_set,
-                               fd_shred_t   const * * out_shred );
+                               fd_shred_t const   * * out_shred,
+                               fd_bmtree_node_t     * out_merkle_root );
 
 void * fd_fec_resolver_leave( fd_fec_resolver_t * resolver );
 void * fd_fec_resolver_delete( void * shmem );
