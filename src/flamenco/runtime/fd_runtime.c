@@ -3108,7 +3108,7 @@ fd_runtime_block_collect_txns( fd_block_info_t const * block_info,
 /* Genesis                                                                    */
 /*******************************************************************************/
 
-void
+static void
 fd_runtime_init_program( fd_exec_slot_ctx_t * slot_ctx,
                          fd_spad_t *          runtime_spad ) {
   fd_sysvar_recent_hashes_init( slot_ctx, runtime_spad );
