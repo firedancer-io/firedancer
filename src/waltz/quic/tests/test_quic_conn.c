@@ -230,10 +230,7 @@ main( int argc, char ** argv ) {
           client_complete = 0;
 
           /* start new connection */
-          client_conn = fd_quic_connect(
-              client_quic,
-              server_quic->config.net.ip_addr,
-              server_quic->config.net.listen_udp_port );
+          client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0 );
 
           if( !client_conn ) {
             FD_LOG_ERR(( "fd_quic_connect failed" ));

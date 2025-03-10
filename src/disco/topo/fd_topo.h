@@ -165,7 +165,6 @@ typedef struct {
       uint   reasm_cnt;
       ulong  max_concurrent_connections;
       ulong  max_concurrent_handshakes;
-      uint   ip_addr;
       ushort quic_transaction_listen_port;
       ulong  idle_timeout_millis;
       uint   ack_delay_millis;

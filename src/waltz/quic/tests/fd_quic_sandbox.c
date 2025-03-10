@@ -212,10 +212,6 @@ fd_quic_sandbox_init( fd_quic_sandbox_t * sandbox,
 
   quic_cfg->role                  = role;
   quic_cfg->idle_timeout          = FD_QUIC_SANDBOX_IDLE_TIMEOUT;
-  quic_cfg->net.ip_addr           = FD_QUIC_SANDBOX_SELF_IP4;
-  quic_cfg->net.listen_udp_port   = FD_QUIC_SANDBOX_SELF_PORT;
-  quic_cfg->net.ephem_udp_port.lo = FD_QUIC_SANDBOX_SELF_PORT;
-  quic_cfg->net.ephem_udp_port.hi = FD_QUIC_SANDBOX_SELF_PORT + 1;
   quic_cfg->initial_rx_max_stream_data = 512UL; /* arbitrary */
   memcpy( quic_cfg->identity_public_key, fd_quic_sandbox_self_ed25519_keypair + 32, 32 );
   memset( &quic->metrics, 0, sizeof(fd_quic_metrics_t) );
@@ -292,6 +288,8 @@ fd_quic_sandbox_new_conn_established( fd_quic_sandbox_t * sandbox,
       /* peer_conn_id */ &peer_conn_id,
       /* dst_ip_addr  */ FD_QUIC_SANDBOX_PEER_IP4,
       /* dst_udp_addr */ FD_QUIC_SANDBOX_PEER_PORT,
+      /* src_ip_addr  */ FD_QUIC_SANDBOX_SELF_IP4,
+      /* src_udp_addr */ FD_QUIC_SANDBOX_SELF_PORT,
       /* server       */ quic->config.role == FD_QUIC_ROLE_SERVER );
   if( FD_UNLIKELY( !conn ) ) {
     FD_LOG_WARNING(( "fd_quic_conn_create failed" ));

@@ -196,17 +196,6 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   /* Network config ****************************************/
 
   struct { /* Internet config */
-    uint   ip_addr;         /* IP address (for outgoing traffic) */
-    ushort listen_udp_port; /* UDP port (server only) */
-
-    struct { /* Ephemeral UDP port range (client only) */
-      ushort lo;
-      ushort hi;
-      /* we need an ephemeral UDP port range for at least two reasons:
-         1. Some network hardware assumes src_ip:src_port:dst_ip:dst_port is a unique connection
-         2. For receive-side scaling, the server will be using the source port for load balancing */
-    } ephem_udp_port;
-
     /* dscp: Differentiated services code point.
        Set on all outgoing IPv4 packets. */
     uchar dscp;
@@ -521,7 +510,9 @@ fd_quic_fini( fd_quic_t * quic );
 FD_QUIC_API fd_quic_conn_t *
 fd_quic_connect( fd_quic_t *  quic,  /* requires exclusive access */
                  uint         dst_ip_addr,
-                 ushort       dst_udp_port );
+                 ushort       dst_udp_port,
+                 uint         src_ip_addr,
+                 ushort       src_udp_port );
 
 /* fd_quic_conn_close asynchronously initiates a shutdown of the conn.
    The given reason code is returned to the peer via a CONNECTION_CLOSE
@@ -614,8 +605,9 @@ fd_quic_tx_buffered_raw( fd_quic_t * quic,
                          uchar *     tx_buf,
                          ushort *    ipv4_id,
                          uint        dst_ipv4_addr,
-                         ushort      src_udp_port,
-                         ushort      dst_udp_port );
+                         ushort      dst_udp_port,
+                         uint        src_ipv4_addr,
+                         ushort      src_udp_port );
 
 FD_PROTOTYPES_END
 

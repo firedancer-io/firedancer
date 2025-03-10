@@ -361,7 +361,6 @@ fd_topo_initialize( config_t * config ) {
       tile->quic.out_depth                      = config->tiles.verify.receive_buffer_size;
       tile->quic.max_concurrent_connections     = config->tiles.quic.max_concurrent_connections;
       tile->quic.max_concurrent_handshakes      = config->tiles.quic.max_concurrent_handshakes;
-      tile->quic.ip_addr                        = config->tiles.net.ip_addr;
       tile->quic.quic_transaction_listen_port   = config->tiles.quic.quic_transaction_listen_port;
       tile->quic.idle_timeout_millis            = config->tiles.quic.idle_timeout_millis;
       tile->quic.ack_delay_millis               = config->tiles.quic.ack_delay_millis;

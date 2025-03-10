@@ -517,13 +517,8 @@ unprivileged_init( fd_topo_t *      topo,
   if( FD_UNLIKELY( tile->quic.ack_delay_millis >= tile->quic.idle_timeout_millis ) ) {
     FD_LOG_ERR(( "Invalid `ack_delay_millis`: must be lower than `idle_timeout_millis`" ));
   }
-  if( FD_UNLIKELY( !tile->quic.ip_addr ) ) {
-    FD_LOG_ERR(( "QUIC IP address not set" ));
-  }
 
   quic->config.role                       = FD_QUIC_ROLE_SERVER;
-  quic->config.net.ip_addr                = tile->quic.ip_addr;
-  quic->config.net.listen_udp_port        = tile->quic.quic_transaction_listen_port;
   quic->config.idle_timeout               = tile->quic.idle_timeout_millis * (ulong)1e6;
   quic->config.ack_delay                  = tile->quic.ack_delay_millis * (ulong)1e6;
   quic->config.initial_rx_max_stream_data = FD_TXN_MTU;

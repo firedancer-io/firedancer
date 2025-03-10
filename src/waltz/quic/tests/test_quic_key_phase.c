@@ -113,8 +113,7 @@ static void
 client_fibre_fn( void * vp_arg ) {
   client_args_t * args = (client_args_t*)vp_arg;
 
-  fd_quic_t * quic        = args->quic;
-  fd_quic_t * server_quic = args->server_quic;
+  fd_quic_t * quic = args->quic;
 
   fd_quic_conn_t *   conn   = NULL;
   fd_quic_stream_t * stream = NULL;
@@ -127,10 +126,7 @@ client_fibre_fn( void * vp_arg ) {
 
   rcvd = sent = 0;
 
-  conn = fd_quic_connect( quic,
-          server_quic->config.net.ip_addr,
-          server_quic->config.net.listen_udp_port );
-
+  conn = fd_quic_connect( quic, 0U, 0, 0U, 0 );
   if( !conn ) {
     FD_LOG_ERR(( "Client unable to obtain a connection. now: %lu", (ulong)now ));
   }

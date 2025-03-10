@@ -22,8 +22,8 @@ typedef struct fd_quic_log_abi fd_quic_log_abi_t;
 struct fd_quic_log_hdr {
   /* 0x00 */ ulong  conn_id;
   /* 0x08 */ ulong  pkt_num;
-  /* 0x10 */ uchar  ip4_saddr[4]; /* big endian */
-  /* 0x14 */ ushort udp_sport;    /* little endian */
+  /* 0x10 */ uint   ip4_saddr; /* big endian */
+  /* 0x14 */ ushort udp_sport; /* little endian */
   /* 0x16 */ uchar  enc_level;
   /* 0x17 */ uchar  flags;
   /* 0x18 */

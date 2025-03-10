@@ -2,7 +2,6 @@
 
 #include "../shared/fd_sys_util.h"
 #include "../shared/fd_net_util.h"
-#include "../fdctl/configure/configure.h"
 #include "../../ballet/base64/fd_base64.h"
 #include "../../waltz/quic/fd_quic.h"
 #include "../../waltz/quic/tests/fd_quic_test_helpers.h"
@@ -88,7 +87,7 @@ send_quic_transactions( fd_quic_t *         quic,
   quic->cb.conn_hs_complete = cb_conn_hs_complete;
   quic->cb.stream_notify    = cb_stream_notify;
 
-  fd_quic_conn_t * conn = fd_quic_connect( quic, dst_ip, dst_port );
+  fd_quic_conn_t * conn = fd_quic_connect( quic, dst_ip, dst_port, 0U, (ushort)udpsock->listen_port );
   while ( FD_LIKELY( !( g_conn_hs_complete || g_conn_final ) ) ) {
     fd_quic_service( quic );
     fd_quic_udpsock_service( udpsock );
@@ -180,9 +179,6 @@ txn_cmd_fn( args_t *         args,
 
   fd_quic_config_t * client_cfg = &quic->config;
   client_cfg->role = FD_QUIC_ROLE_CLIENT;
-  client_cfg->net.ip_addr           = udpsock->listen_ip;
-  client_cfg->net.ephem_udp_port.lo = (ushort)udpsock->listen_port;
-  client_cfg->net.ephem_udp_port.hi = (ushort)(udpsock->listen_port + 1);
   client_cfg->idle_timeout = 200UL * 1000UL * 1000UL; /* 5000 millis */
   client_cfg->initial_rx_max_stream_data = 0; /* doesn't receive */
 

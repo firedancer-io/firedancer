@@ -111,11 +111,6 @@ fd_quic_config_anonymous( fd_quic_t * quic,
 
   /* Generate IP address */
   test_ip_addr_seq = fd_uint_bswap( fd_uint_bswap( test_ip_addr_seq ) + 1 );
-  config->net.ip_addr = test_ip_addr_seq;
-
-  config->net.listen_udp_port   =  9000;
-  config->net.ephem_udp_port.lo = 10000;
-  config->net.ephem_udp_port.hi = 10100;
 
   /* Default settings */
   config->idle_timeout     = FD_QUIC_DEFAULT_IDLE_TIMEOUT;

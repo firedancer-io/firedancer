@@ -357,8 +357,6 @@ unsafe fn fdquic_to_agave() {
 
     let quic = fd_quic_new_anonymous_small(wksp, FD_QUIC_ROLE_CLIENT as i32, &mut rng);
     assert!(!quic.is_null(), "Failed to create fd_quic_t");
-    (*quic).config.net.ephem_udp_port.lo = client_port;
-    (*quic).config.net.ephem_udp_port.hi = client_port;
 
     fd_quic_set_aio_net_tx(quic, fd_udpsock_get_tx(udpsock));
     fd_udpsock_set_rx(udpsock, fd_quic_get_aio_net_rx(quic));
@@ -369,7 +367,7 @@ unsafe fn fdquic_to_agave() {
         "Connecting from 127.0.0.1:{} to 127.0.0.1:{}",
         client_port, listen_port
     );
-    let conn = fd_quic_connect(quic, 0x0100007f, listen_port);
+    let conn = fd_quic_connect(quic, 0x0100007f, listen_port, 0x0100007f, client_port);
     assert!(!conn.is_null());
     let conn_start = Instant::now();
     loop {

@@ -96,9 +96,6 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
   ulong initial_max_data;           /* directly from transport params */
   ulong initial_max_stream_data[4]; /* from 4 transport params indexed by stream type */
 
-  /* next_ephem_udp_port: Next ephemeral UDP port to allocate */
-  ushort next_ephem_udp_port;
-
   /* last arp/routing tables update */
   ulong ip_table_upd;
 
@@ -191,8 +188,10 @@ fd_quic_conn_t *
 fd_quic_conn_create( fd_quic_t *               quic,
                      ulong                     our_conn_id,
                      fd_quic_conn_id_t const * peer_conn_id,
-                     uint                      dst_ip_addr,
-                     ushort                    dst_udp_port,
+                     uint                      peer_ip_addr,
+                     ushort                    peer_udp_port,
+                     uint                      self_ip_addr,
+                     ushort                    self_udp_port,
                      int                       server );
 
 /* fd_quic_conn_free frees up resources related to the connection and

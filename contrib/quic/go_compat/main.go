@@ -130,9 +130,6 @@ func clientTest(fdQuic *C.fd_quic_t) {
 	defer cancel()
 
 	C.fd_quic_config_anonymous(fdQuic, C.FD_QUIC_ROLE_CLIENT)
-	fdQuic.config.net.ip_addr = 0x0100007f
-	fdQuic.config.net.ephem_udp_port.lo = 8000
-	fdQuic.config.net.ephem_udp_port.hi = 8001
 	C.fd_quic_init(fdQuic)
 
 	netFdToGo := make(chan []byte, 128)
@@ -225,7 +222,7 @@ func clientTest(fdQuic *C.fd_quic_t) {
 			return true
 		}
 
-		quicConn := C.fd_quic_connect(fdQuic, 0x0100007f, C.ushort(addrGo.Port))
+		quicConn := C.fd_quic_connect(fdQuic, 0x0100007f, C.ushort(addrGo.Port), 0x0100007f, C.ushort(addrFd.Port))
 		if quicConn == nil {
 			log.Fatal("fd_quic_connect failed")
 		}
@@ -269,8 +266,6 @@ func serverTest(fdQuic *C.fd_quic_t) {
 
 	C.fd_quic_config_anonymous(fdQuic, C.FD_QUIC_ROLE_SERVER)
 	fdQuic.config.retry = 1
-	fdQuic.config.net.ip_addr = 0x0100007f
-	fdQuic.config.net.listen_udp_port = 8000
 	C.fd_quic_init(fdQuic)
 
 	netFdToGo := make(chan []byte, 128)
