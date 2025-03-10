@@ -1148,7 +1148,7 @@ fd_runtime_microblock_verify_ticks( fd_exec_slot_ctx_t *        slot_ctx,
   */
   fd_block_map_query_t quer[1];
   int err = fd_block_map_prepare( slot_ctx->blockstore->block_map, &slot, NULL, quer, FD_MAP_FLAG_BLOCKING );
-  fd_block_meta_t * query = fd_block_map_query_ele( quer );
+  fd_block_info_t * query = fd_block_map_query_ele( quer );
   if( FD_UNLIKELY( err || query->slot != slot ) ) {
     FD_LOG_ERR(( "fd_runtime_microblock_verify_ticks: fd_block_map_prepare on %lu failed", slot ));
   }
@@ -1231,7 +1231,7 @@ fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
   while( err == FD_MAP_ERR_AGAIN ) {
     fd_block_map_query_t quer[1] = {0};
     err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, quer, 0 );
-    fd_block_meta_t * query = fd_block_map_query_ele( quer );
+    fd_block_info_t * query = fd_block_map_query_ele( quer );
     if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) )continue;
     if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) FD_LOG_ERR(( "fd_runtime_block_verify_ticks: fd_block_map_query_try failed" ));
     slot_complete_idx = query->slot_complete_idx;

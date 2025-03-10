@@ -106,7 +106,7 @@ fd_store_slot_prepare( fd_store_t *   store,
   int err = FD_MAP_ERR_AGAIN;
   while( err == FD_MAP_ERR_AGAIN ){
     err = fd_block_map_query_try( store->blockstore->block_map, &slot, NULL, query, 0 );
-    fd_block_meta_t * blk = fd_block_map_query_ele( query );
+    fd_block_info_t * blk = fd_block_map_query_ele( query );
     if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
     if( err == FD_MAP_ERR_KEY ) {
       block_map_entry = 0;
@@ -147,7 +147,7 @@ fd_store_slot_prepare( fd_store_t *   store,
   err = FD_MAP_ERR_AGAIN;
   while( err == FD_MAP_ERR_AGAIN ){
     err = fd_block_map_query_try( store->blockstore->block_map, &parent_slot, NULL, query, 0 );
-    fd_block_meta_t * blk = fd_block_map_query_ele( query );
+    fd_block_info_t * blk = fd_block_map_query_ele( query );
     if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
     if( err == FD_MAP_ERR_KEY ) {
       parent_block_map_entry = 0;
@@ -215,7 +215,7 @@ fd_store_slot_prepare( fd_store_t *   store,
   /* Prepare the replay_slot struct. */
   /* Mark the block as prepared, and thus unsafe to remove. */
   err = fd_block_map_prepare( store->blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
-  fd_block_meta_t * meta = fd_block_map_query_ele( query );
+  fd_block_info_t * meta = fd_block_map_query_ele( query );
   if( FD_UNLIKELY( err || meta->slot != slot ) ) FD_LOG_ERR(( "block map prepare failed" ));
   meta->flags = fd_uchar_set_bit( meta->flags, FD_BLOCK_FLAG_REPLAYING );
   fd_block_map_publish( query );
@@ -388,7 +388,7 @@ fd_store_slot_repair( fd_store_t * store,
   while( err == FD_MAP_ERR_AGAIN ){
     fd_block_map_query_t query[1] = { 0 };
     err = fd_block_map_query_try( store->blockstore->block_map, &slot, NULL, query, 0 );
-    fd_block_meta_t * meta = fd_block_map_query_ele( query );
+    fd_block_info_t * meta = fd_block_map_query_ele( query );
     if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
     if( err == FD_MAP_ERR_KEY ) {
       block_map_entry = 0;
@@ -440,7 +440,7 @@ fd_store_slot_repair( fd_store_t * store,
       while( err == FD_MAP_ERR_AGAIN ){
         fd_block_map_query_t query[1] = { 0 };
         err = fd_block_map_query_try( store->blockstore->block_map, &anc_slot, NULL, query, 0 );
-        fd_block_meta_t * meta = fd_block_map_query_ele( query );
+        fd_block_info_t * meta = fd_block_map_query_ele( query );
         if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
         if( err == FD_MAP_ERR_KEY ) {
           anc_flags = 0;

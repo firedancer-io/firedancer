@@ -41,8 +41,18 @@
 #define FD_BLOCKSTORE_CHILD_SLOT_MAX    (32UL)        /* the maximum # of children a slot can have */
 #define FD_BLOCKSTORE_ARCHIVE_MIN_SIZE  (1UL << 26UL) /* 64MB := ceil(MAX_DATA_SHREDS_PER_SLOT*1228) */
 
-/* Maximum size of an entry batch is the entire block */
+/* FD_SLICE_ALIGN specifies the alignment needed for a block slice.
+   ALIGN is double x86 cache line to mitigate various kinds of false
+   sharing (eg. ACLPF adjacent cache line prefetch). */
+
+#define FD_SLICE_ALIGN (128UL)
+
+/* FD_SLICE_MAX specifies the maximum size of an entry batch. This is
+   equivalent to the maximum size of a block (ie. a block with a single
+   entry batch). */
+
 #define FD_SLICE_MAX (FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT)
+
 /* 64 ticks per slot, and then one min size transaction per microblock
    for all the remaining microblocks.
    This bound should be used along with the transaction parser and tick
@@ -50,6 +60,7 @@
    This is NOT a standalone conservative bound against malicious
    validators.
    A tighter bound could probably be derived if necessary. */
+
 #define FD_MICROBLOCK_MAX_PER_SLOT ((FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT - 64UL*sizeof(fd_microblock_hdr_t)) / (sizeof(fd_microblock_hdr_t)+FD_TXN_MIN_SERIALIZED_SZ) + 64UL) /* 200,796 */
 /* 64 ticks per slot, and a single gigantic microblock containing min
    size transactions. */
@@ -247,7 +258,7 @@ typedef struct fd_block_rewards fd_block_rewards_t;
 #define SET_MAX  FD_SHRED_MAX_PER_SLOT
 #include "../../util/tmpl/fd_set.c"
 
-struct fd_block_meta {
+struct fd_block_info {
   ulong slot; /* map key */
   ulong next; /* reserved for use by fd_map_giant.c */
 
@@ -310,7 +321,7 @@ struct fd_block_meta {
 
   ulong block_gaddr; /* global address to the start of the allocated fd_block_t */
 };
-typedef struct fd_block_meta fd_block_meta_t;
+typedef struct fd_block_info fd_block_info_t;
 
 /* Needed due to redefinition of err codes in slot_para */
 #undef FD_MAP_SUCCESS
@@ -319,16 +330,16 @@ typedef struct fd_block_meta fd_block_meta_t;
 #undef FD_MAP_ERR_KEY
 #undef FD_MAP_FLAG_BLOCKING
 
-#define MAP_NAME        fd_block_map
-#define MAP_ELE_T       fd_block_meta_t
-#define MAP_KEY         slot
+#define MAP_NAME                  fd_block_map
+#define MAP_ELE_T                 fd_block_info_t
+#define MAP_KEY                   slot
 #define MAP_ELE_IS_FREE(ctx, ele) ((ele)->slot == 0)
 #define MAP_ELE_FREE(ctx, ele)    ((ele)->slot = 0)
 #define MAP_KEY_HASH(key, seed)   (void)(seed), (*(key))
 #include "../../util/tmpl/fd_map_slot_para.c"
 
-#define BLOCK_META_LOCK_CNT  1024UL
-#define BLOCK_META_PROBE_CNT 2UL
+#define BLOCK_INFO_LOCK_CNT  1024UL
+#define BLOCK_INFO_PROBE_CNT 2UL
 /*
    Rationale for block_map parameters:
     - each lock manages block_max / lock_cnt elements, so with block_max
@@ -489,7 +500,7 @@ FD_FN_CONST static inline ulong
 fd_blockstore_footprint( ulong shred_max, ulong block_max, ulong idx_max, ulong txn_max ) {
   /* TODO -- when removing, make change in fd_blockstore_new as well */
   block_max      = fd_ulong_pow2_up( block_max );
-  ulong lock_cnt = fd_ulong_min( block_max, BLOCK_META_LOCK_CNT );
+  ulong lock_cnt = fd_ulong_min( block_max, BLOCK_INFO_LOCK_CNT );
 
   int lg_idx_max = fd_ulong_find_msb( fd_ulong_pow2_up( idx_max ) );
   return FD_LAYOUT_FINI(
@@ -508,7 +519,7 @@ fd_blockstore_footprint( ulong shred_max, ulong block_max, ulong idx_max, ulong 
       alignof(fd_buf_shred_t),        sizeof(fd_buf_shred_t) * shred_max ),
       fd_buf_shred_pool_align(),      fd_buf_shred_pool_footprint() ),
       fd_buf_shred_map_align(),       fd_buf_shred_map_footprint( shred_max ) ),
-      alignof(fd_block_meta_t),        sizeof(fd_block_meta_t) * block_max ),
+      alignof(fd_block_info_t),        sizeof(fd_block_info_t) * block_max ),
       fd_block_map_align(),           fd_block_map_footprint( block_max, lock_cnt, BLOCK_META_PROBE_CNT ) ),
       fd_block_idx_align(),           fd_block_idx_footprint( lg_idx_max ) ),
       fd_slot_deque_align(),          fd_slot_deque_footprint( block_max ) ),
@@ -692,7 +703,7 @@ fd_blockstore_bank_hash_query( fd_blockstore_t * blockstore, ulong slot, fd_hash
    use-cases as it does not test the query. Read notes below for
    block_map usage in live. */
 
-fd_block_meta_t *
+fd_block_info_t *
 fd_blockstore_block_map_query( fd_blockstore_t * blockstore, ulong slot );
 
 /* IMPORTANT! NOTES FOR block_map USAGE:
@@ -781,7 +792,7 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
                                          ulong                slot,
                                          fd_valloc_t          alloc,
                                          fd_hash_t *          parent_block_hash_out,
-                                         fd_block_meta_t *    block_map_entry_out,
+                                         fd_block_info_t *    block_map_entry_out,
                                          fd_block_rewards_t * block_rewards_out,
                                          uchar **             block_data_out,
                                          ulong *              block_data_sz_out );
@@ -795,7 +806,7 @@ int
 fd_blockstore_block_map_query_volatile( fd_blockstore_t * blockstore,
                                         int               fd,
                                         ulong             slot,
-                                        fd_block_meta_t *  block_map_entry_out ) ;
+                                        fd_block_info_t *  block_map_entry_out ) ;
 
 /* fd_blockstore_txn_query queries the transaction data for the given
    signature.

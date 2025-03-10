@@ -315,7 +315,7 @@ fd_blockstore_block_query(fd_blockstore_t *blockstore, ulong slot){
   while( err == FD_MAP_ERR_AGAIN ){
     fd_block_map_query_t quer[1] = { 0 };
     err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, quer, 0 );
-    fd_block_meta_t * query = fd_block_map_query_ele( quer );
+    fd_block_info_t * query = fd_block_map_query_ele( quer );
     if ( err == FD_MAP_ERR_KEY ) return NULL;
     if ( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
     /* later change this to all shreds recieved */

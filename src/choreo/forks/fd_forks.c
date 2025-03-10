@@ -359,7 +359,7 @@ fd_forks_update( fd_forks_t *      forks,
 
       fd_block_map_query_t query[1] = { 0 };
       int err = fd_block_map_prepare( blockstore->block_map, &vote, NULL, query, FD_MAP_FLAG_BLOCKING );
-      fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
+      fd_block_info_t * block_map_entry = fd_block_map_query_ele( query );
       if( FD_UNLIKELY( err || block_map_entry->slot != vote ) ) FD_LOG_ERR(( "failed to prepare block map query" ));
 
       int eqvocsafe = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_EQVOCSAFE );
@@ -409,7 +409,7 @@ fd_forks_update( fd_forks_t *      forks,
          writes. Every prepare is followed by publish/cancel. */
       fd_block_map_query_t query[1] = { 0 };
       int err = fd_block_map_prepare( blockstore->block_map, &root, NULL, query, FD_MAP_FLAG_BLOCKING );
-      fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
+      fd_block_info_t * block_map_entry = fd_block_map_query_ele( query );
       if( FD_UNLIKELY( err || block_map_entry->slot != root ) ) FD_LOG_ERR(( "failed to prepare block map query" ));
       int               finalized       = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_FINALIZED );
       if( FD_UNLIKELY( !finalized ) ) {
@@ -417,7 +417,7 @@ fd_forks_update( fd_forks_t *      forks,
         if( FD_UNLIKELY( pct > FD_FINALIZED_PCT ) ) {
           FD_LOG_DEBUG(( "finalized %lu", block_map_entry->slot ));
           forks->finalized_wmark = block_map_entry->slot;
-          fd_block_meta_t * ancestor = block_map_entry;
+          fd_block_info_t * ancestor = block_map_entry;
           /* block_map_entry ptr is still valid because we haven't published yet. */
           while( ancestor ) {
             ancestor->flags = fd_uchar_set_bit( ancestor->flags, FD_BLOCK_FLAG_FINALIZED );

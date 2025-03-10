@@ -1073,7 +1073,7 @@ fd_shredcap_populate_blockstore( const char *      capture_dir,
       if ( FD_LIKELY( fd_blockstore_block_meta_test( blockstore, cur_slot ) ) ) {
         fd_block_map_query_t query[1] = {0};
         fd_block_map_prepare( blockstore->block_map, &cur_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
-        fd_block_meta_t * block = fd_block_map_query_ele( query );
+        fd_block_info_t * block = fd_block_map_query_ele( query );
         fd_memcpy( block->bank_hash.hash, &entry->bank_hash.hash, 32UL );
         fd_block_map_publish( query );
       }

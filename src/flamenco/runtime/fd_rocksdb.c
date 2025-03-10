@@ -449,7 +449,7 @@ fd_rocksdb_copy_over_txn_status_range( fd_rocksdb_t *    src,
 
   for ( ulong slot = start_slot; slot <= end_slot; ++slot ) {
     FD_LOG_NOTICE(( "fd_rocksdb_copy_over_txn_status_range: %lu", slot ));
-    fd_block_meta_t * block_entry = fd_blockstore_block_map_query( blockstore, slot );
+    fd_block_info_t * block_entry = fd_blockstore_block_map_query( blockstore, slot );
     if( FD_LIKELY( block_entry && fd_blockstore_shreds_complete( blockstore, slot) ) ) {
       fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_entry->block_gaddr );
       uchar * data = fd_wksp_laddr_fast( wksp, blk->data_gaddr );
@@ -656,7 +656,7 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
   // TODO make this update non blocking
   fd_block_map_query_t query[1];
   int err = fd_block_map_prepare( blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
-  fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
+  fd_block_info_t * block_map_entry = fd_block_map_query_ele( query );
   FD_TEST( err == FD_MAP_SUCCESS && block_map_entry->slot == slot && block_map_entry->block_gaddr == 0 );
   /* FIXME duplicate blocks are not supported */
 
@@ -784,7 +784,7 @@ fd_blockstore_block_allocs_remove( fd_blockstore_t * blockstore,
     err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, query, 0 );
     if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
     if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return; /* slot not found */
-    fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
+    fd_block_info_t * block_map_entry = fd_block_map_query_ele( query );
     if( FD_UNLIKELY( fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING ) ) ) {
       FD_LOG_WARNING(( "[%s] slot %lu has replay in progress. not removing.", __func__, slot ));
       return;
@@ -899,7 +899,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
 
 
   fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
-  fd_block_meta_t * block_map_entry = fd_blockstore_block_map_query( blockstore, slot );
+  fd_block_info_t * block_map_entry = fd_blockstore_block_map_query( blockstore, slot );
   if( FD_LIKELY( block_map_entry && fd_blockstore_shreds_complete( blockstore, slot ) ) ) {
     deshred( blockstore, slot );
 
