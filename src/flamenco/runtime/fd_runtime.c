@@ -113,11 +113,6 @@ fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx,
   ulong slot0    = fd_epoch_slot0( &schedule, epoch );
   ulong slot_cnt = fd_epoch_slot_cnt( &schedule, epoch );
 
-  FD_LOG_INFO(( "starting rent list init" ));
-
-  fd_acc_mgr_set_slots_per_epoch( slot_ctx, fd_epoch_slot_cnt( &schedule, epoch ) );
-  FD_LOG_INFO(( "rent list init done" ));
-
   ulong               vote_acc_cnt  = fd_vote_accounts_pair_t_map_size( epoch_vaccs->vote_accounts_pool, epoch_vaccs->vote_accounts_root );
   fd_stake_weight_t * epoch_weights = fd_spad_alloc( runtime_spad, alignof(fd_stake_weight_t), vote_acc_cnt * sizeof(fd_stake_weight_t) );
   if( FD_UNLIKELY( !epoch_weights ) ) {
@@ -175,196 +170,6 @@ fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx ) {
 /* Various Private Runtime Helpers                                            */
 /******************************************************************************/
 
-/* NOTE: Rent functions are not being cleaned up due to the fact that they will
-   be entirely torn out of the codebase very soon. */
-
-static void
-fd_runtime_collect_rent_for_slot( fd_exec_slot_ctx_t * slot_ctx, ulong off, ulong epoch ) {
-
-  /* Every known Solana cluster currently has no rent-paying accounts. If
-     this feature is active, that means that there is no condition in which
-     we need to iterate through a rent partition. Put more simply, if this
-     feature is active, rent is NEVER collected. */
-  if( FD_FEATURE_ACTIVE( slot_ctx, skip_rent_rewrites ) ) {
-    return;
-  }
-
-  fd_funk_txn_t * txn     = slot_ctx->funk_txn;
-  fd_acc_mgr_t *  acc_mgr = slot_ctx->acc_mgr;
-  fd_funk_t *     funk    = slot_ctx->acc_mgr->funk;
-  fd_wksp_t *     wksp    = fd_funk_wksp( funk );
-
-  fd_funk_partvec_t * partvec = fd_funk_get_partvec( funk, wksp );
-
-  fd_funk_rec_t * rec_map = fd_funk_rec_map( funk, wksp );
-
-  for( fd_funk_rec_t const *rec_ro = fd_funk_part_head( partvec, (uint)off, rec_map );
-       rec_ro != NULL;
-       rec_ro = fd_funk_part_next( rec_ro, rec_map ) ) {
-
-    if ( FD_UNLIKELY( !fd_funk_key_is_acc( rec_ro->pair.key ) ) ) {
-      continue;
-    }
-
-    fd_pubkey_t const *key = fd_type_pun_const( rec_ro->pair.key[0].uc );
-    FD_BORROWED_ACCOUNT_DECL( rec );
-    int err = fd_acc_mgr_view( acc_mgr, txn, key, rec );
-
-    /* Account might not exist anymore in the current world */
-    if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
-      continue;
-    }
-    if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "fd_runtime_collect_rent: fd_acc_mgr_view failed (%d)", err ));
-      continue;
-    }
-
-    /* Check if latest version in this transaction */
-    if( rec_ro!=rec->const_rec ) {
-      continue;
-    }
-
-    /* Upgrade read-only handle to writable */
-    err = fd_acc_mgr_modify(
-        acc_mgr, txn, key,
-        /* do_create   */ 0,
-        /* min_data_sz */ 0UL,
-        rec);
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "fd_runtime_collect_rent_range: fd_acc_mgr_modify failed (%d)", err ));
-      continue;
-    }
-
-    /* Actually invoke rent collection */
-    slot_ctx->slot_bank.collected_rent += fd_runtime_collect_rent_from_account( slot_ctx, rec->meta, key, epoch );
-  }
-}
-
-/* Yes, this is a real function that exists in Solana. Yes, I am ashamed I have had to replicate it. */
-// https://github.com/firedancer-io/solana/blob/d8292b427adf8367d87068a3a88f6fd3ed8916a5/runtime/src/bank.rs#L5618
-static ulong
-fd_runtime_slot_count_in_two_day( ulong ticks_per_slot ) {
-  return 2UL * FD_SYSVAR_CLOCK_DEFAULT_TICKS_PER_SECOND * 86400UL /* seconds per day */ / ticks_per_slot;
-}
-
-// https://github.com/firedancer-io/solana/blob/d8292b427adf8367d87068a3a88f6fd3ed8916a5/runtime/src/bank.rs#L5594
-static int
-fd_runtime_use_multi_epoch_collection( fd_exec_slot_ctx_t const * slot_ctx, ulong slot ) {
-  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  fd_epoch_schedule_t const * schedule = &epoch_bank->epoch_schedule;
-
-  ulong off;
-  ulong epoch = fd_slot_to_epoch( schedule, slot, &off );
-  ulong slots_per_normal_epoch = fd_epoch_slot_cnt( schedule, schedule->first_normal_epoch );
-
-  ulong slot_count_in_two_day = fd_runtime_slot_count_in_two_day( epoch_bank->ticks_per_slot );
-
-  int use_multi_epoch_collection = ( epoch >= schedule->first_normal_epoch )
-      && ( slots_per_normal_epoch < slot_count_in_two_day );
-
-  return use_multi_epoch_collection;
-}
-
-static ulong
-fd_runtime_num_rent_partitions( fd_exec_slot_ctx_t const * slot_ctx, ulong slot ) {
-  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  fd_epoch_schedule_t const * schedule = &epoch_bank->epoch_schedule;
-
-  ulong off;
-  ulong epoch = fd_slot_to_epoch( schedule, slot, &off );
-  ulong slots_per_epoch = fd_epoch_slot_cnt( schedule, epoch );
-
-  ulong slot_count_in_two_day = fd_runtime_slot_count_in_two_day( epoch_bank->ticks_per_slot );
-
-  int use_multi_epoch_collection = fd_runtime_use_multi_epoch_collection( slot_ctx, slot );
-
-  if( use_multi_epoch_collection ) {
-    ulong epochs_in_cycle = slot_count_in_two_day / slots_per_epoch;
-    return slots_per_epoch * epochs_in_cycle;
-  } else {
-    return slots_per_epoch;
-  }
-}
-
-// https://github.com/anza-xyz/agave/blob/2bdcc838c18d262637524274cbb2275824eb97b8/accounts-db/src/accounts_partition.rs#L30
-static ulong
-fd_runtime_get_rent_partition( fd_exec_slot_ctx_t const * slot_ctx, ulong slot ) {
-  int use_multi_epoch_collection = fd_runtime_use_multi_epoch_collection( slot_ctx, slot );
-
-  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  fd_epoch_schedule_t const * schedule = &epoch_bank->epoch_schedule;
-
-  ulong off;
-  ulong epoch = fd_slot_to_epoch( schedule, slot, &off );
-  ulong slot_count_per_epoch = fd_epoch_slot_cnt( schedule, epoch );
-  ulong slot_count_in_two_day = fd_runtime_slot_count_in_two_day( epoch_bank->ticks_per_slot );
-
-  ulong base_epoch;
-  ulong epoch_count_in_cycle;
-  if( use_multi_epoch_collection ) {
-    base_epoch = schedule->first_normal_epoch;
-    epoch_count_in_cycle = slot_count_in_two_day / slot_count_per_epoch;
-  } else {
-    base_epoch = 0;
-    epoch_count_in_cycle = 1;
-  }
-
-  ulong epoch_offset = epoch - base_epoch;
-  ulong epoch_index_in_cycle = epoch_offset % epoch_count_in_cycle;
-  return off + ( epoch_index_in_cycle * slot_count_per_epoch );
-}
-
-static ulong
-fd_runtime_calculate_rent_burn( ulong             rent_collected,
-                                fd_rent_t const * rent ) {
-  return (rent_collected * rent->burn_percent) / 100UL;
-}
-
-static void
-fd_runtime_collect_rent( fd_exec_slot_ctx_t * slot_ctx ) {
-  // Bank::collect_rent_eagerly (enter)
-
-  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  fd_epoch_schedule_t const * schedule = &epoch_bank->epoch_schedule;
-
-  // Bank::rent_collection_partitions              (enter)
-  // Bank::variable_cycle_partitions               (enter)
-  // Bank::variable_cycle_partitions_between_slots (enter)
-
-  ulong slot0 = slot_ctx->slot_bank.prev_slot;
-  ulong slot1 = slot_ctx->slot_bank.slot;
-
-  /* For genesis, we collect rent for slot 0. */
-  if (slot1 == 0) {
-    ulong s = slot1;
-    ulong off;
-    ulong epoch = fd_slot_to_epoch(schedule, s, &off);
-
-    /* FIXME: This will not necessarily support warmup_epochs */
-    ulong num_partitions = fd_runtime_num_rent_partitions( slot_ctx, s );
-    /* Reconstruct rent lists if the number of slots per epoch changes */
-    fd_acc_mgr_set_slots_per_epoch( slot_ctx, num_partitions );
-    fd_runtime_collect_rent_for_slot( slot_ctx, fd_runtime_get_rent_partition( slot_ctx, s ), epoch );
-    return;
-  }
-
-  FD_TEST(slot0 <= slot1);
-
-  for( ulong s = slot0 + 1; s <= slot1; ++s ) {
-    ulong off;
-    ulong epoch = fd_slot_to_epoch(schedule, s, &off);
-
-    /* FIXME: This will not necessarily support warmup_epochs */
-    ulong num_partitions = fd_runtime_num_rent_partitions( slot_ctx, s );
-    /* Reconstruct rent lists if the number of slots per epoch changes */
-    fd_acc_mgr_set_slots_per_epoch( slot_ctx, num_partitions );
-    fd_runtime_collect_rent_for_slot( slot_ctx, fd_runtime_get_rent_partition( slot_ctx, s ), epoch );
-  }
-
-  // FD_LOG_DEBUG(("rent collected - lamports: %lu", slot_ctx->slot_bank.collected_rent));
-}
-
-
 /* fee to be deposited should be > 0
    Returns 0 if validation succeeds
    Returns the amount to burn(==fee) on failure */
@@ -414,186 +219,6 @@ fd_runtime_validate_fee_collector( fd_exec_slot_ctx_t    const * slot_ctx,
   return 0UL;
 }
 
-struct fd_validator_stake_pair {
-  fd_pubkey_t pubkey;
-  ulong stake;
-};
-typedef struct fd_validator_stake_pair fd_validator_stake_pair_t;
-
-static int
-fd_validator_stake_pair_compare_before( fd_validator_stake_pair_t const * a,
-                                        fd_validator_stake_pair_t const * b ) {
-  if( a->stake > b->stake ) {
-    return 1;
-  } else if (a->stake == b->stake) {
-    return memcmp(&a->pubkey, &b->pubkey, sizeof(fd_pubkey_t)) > 0;
-  }
-  else
-  { // a->stake < b->stake
-    return 0;
-  }
-}
-
-#define SORT_NAME sort_validator_stake_pair
-#define SORT_KEY_T fd_validator_stake_pair_t
-#define SORT_BEFORE(a, b) (fd_validator_stake_pair_compare_before((fd_validator_stake_pair_t const *)&a, (fd_validator_stake_pair_t const *)&b))
-#include "../../util/tmpl/fd_sort.c"
-#undef SORT_NAME
-#undef SORT_KEY_T
-#undef SORT_BEFORE
-
-static void
-fd_runtime_distribute_rent_to_validators( fd_exec_slot_ctx_t * slot_ctx,
-                                          ulong                rent_to_be_distributed,
-                                          fd_spad_t *          runtime_spad ) {
-
-  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-
-  ulong total_staked = 0;
-
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  fd_vote_accounts_pair_t_mapnode_t *vote_accounts_pool = epoch_bank->stakes.vote_accounts.vote_accounts_pool;
-  fd_vote_accounts_pair_t_mapnode_t *vote_accounts_root = epoch_bank->stakes.vote_accounts.vote_accounts_root;
-
-  ulong num_validator_stakes = fd_vote_accounts_pair_t_map_size( vote_accounts_pool, vote_accounts_root );
-  fd_validator_stake_pair_t * validator_stakes = fd_spad_alloc( runtime_spad,
-                                                                alignof(fd_validator_stake_pair_t),
-                                                                sizeof(fd_validator_stake_pair_t) * num_validator_stakes );
-  ulong i = 0;
-
-  for( fd_vote_accounts_pair_t_mapnode_t *n = fd_vote_accounts_pair_t_map_minimum( vote_accounts_pool, vote_accounts_root );
-      n;
-      n = fd_vote_accounts_pair_t_map_successor( vote_accounts_pool, n ), i++) {
-
-    fd_bincode_decode_ctx_t ctx = {
-      .data    = n->elem.value.data,
-      .dataend = n->elem.value.data + n->elem.value.data_len
-    };
-
-    ulong total_sz = 0UL;
-    int err = fd_vote_state_versioned_decode_footprint( &ctx, &total_sz );
-    if( FD_UNLIKELY( err ) ) {
-      FD_LOG_ERR(( "Failed to decode the vote state" ));
-    }
-
-    uchar * mem = fd_spad_alloc( runtime_spad, alignof(fd_vote_state_versioned_t), total_sz );
-    if( FD_UNLIKELY( !mem ) ) {
-      FD_LOG_ERR(( "Unable to allocate memory" ));
-    }
-
-    fd_vote_state_versioned_t * vsv = (fd_vote_state_versioned_t *)mem;
-    fd_vote_state_versioned_decode( vsv, &ctx );
-
-    fd_pubkey_t node_pubkey;
-    switch( vsv->discriminant ) {
-      case fd_vote_state_versioned_enum_v0_23_5:
-        node_pubkey = vsv->inner.v0_23_5.node_pubkey;
-        break;
-      case fd_vote_state_versioned_enum_v1_14_11:
-        node_pubkey = vsv->inner.v1_14_11.node_pubkey;
-        break;
-      case fd_vote_state_versioned_enum_current:
-        node_pubkey = vsv->inner.current.node_pubkey;
-        break;
-      default:
-        __builtin_unreachable();
-    }
-
-    validator_stakes[i].pubkey = node_pubkey;
-    validator_stakes[i].stake  = n->elem.stake;
-
-    total_staked += n->elem.stake;
-
-  }
-
-  sort_validator_stake_pair_inplace( validator_stakes, num_validator_stakes );
-
-  ulong validate_fee_collector_account = FD_FEATURE_ACTIVE( slot_ctx, validate_fee_collector_account );
-
-  ulong rent_distributed_in_initial_round = 0;
-
-  // We now do distribution, reusing the validator stakes array for the rent stares
-  for( i = 0; i < num_validator_stakes; i++ ) {
-    ulong staked = validator_stakes[i].stake;
-    ulong rent_share = (ulong)(((uint128)staked * (uint128)rent_to_be_distributed) / (uint128)total_staked);
-
-    validator_stakes[i].stake = rent_share;
-    rent_distributed_in_initial_round += rent_share;
-  }
-
-  ulong leftover_lamports = rent_to_be_distributed - rent_distributed_in_initial_round;
-
-  for( i = 0; i < num_validator_stakes; i++ ) {
-    if (leftover_lamports == 0) {
-      break;
-    }
-
-    /* Not using saturating sub because Agave doesn't.
-        https://github.com/anza-xyz/agave/blob/c88e6df566c5c17d71e9574785755683a8fb033a/runtime/src/bank/fee_distribution.rs#L207
-      */
-    leftover_lamports--;
-    validator_stakes[i].stake++;
-  }
-
-  for( i = 0; i < num_validator_stakes; i++ ) {
-    ulong rent_to_be_paid = validator_stakes[i].stake;
-
-    if( rent_to_be_paid > 0 ) {
-      fd_pubkey_t pubkey = validator_stakes[i].pubkey;
-
-      FD_BORROWED_ACCOUNT_DECL(rec);
-
-      int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &pubkey, rec );
-      if( FD_UNLIKELY(err) ) {
-        FD_LOG_WARNING(( "cannot view pubkey %s. fd_acc_mgr_view failed (%d)", FD_BASE58_ENC_32_ALLOCA( &pubkey ), err ));
-        leftover_lamports = fd_ulong_sat_add( leftover_lamports, rent_to_be_paid );
-        continue;
-      }
-
-      if( FD_LIKELY( validate_fee_collector_account ) ) {
-        ulong burn;
-        if( FD_UNLIKELY( burn=fd_runtime_validate_fee_collector( slot_ctx, rec, rent_to_be_paid ) ) ) {
-          if( FD_UNLIKELY( burn!=rent_to_be_paid ) ) {
-            FD_LOG_ERR(( "expected burn(%lu)==rent_to_be_paid(%lu)", burn, rent_to_be_paid ));
-          }
-          leftover_lamports = fd_ulong_sat_add( leftover_lamports, rent_to_be_paid );
-          continue;
-        }
-      }
-
-      err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, &pubkey, 0, 0UL, rec );
-      if( FD_UNLIKELY(err) ) {
-        FD_LOG_WARNING(( "cannot modify pubkey %s. fd_acc_mgr_modify failed (%d)", FD_BASE58_ENC_32_ALLOCA( &pubkey ), err ));
-        leftover_lamports = fd_ulong_sat_add( leftover_lamports, rent_to_be_paid );
-        continue;
-      }
-      rec->meta->info.lamports += rent_to_be_paid;
-    }
-  } // end of iteration over validator_stakes
-
-  ulong old = slot_ctx->slot_bank.capitalization;
-  slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub(slot_ctx->slot_bank.capitalization, leftover_lamports);
-  FD_LOG_DEBUG(( "fd_runtime_distribute_rent_to_validators: burn %lu, capitalization %lu->%lu ", leftover_lamports, old, slot_ctx->slot_bank.capitalization ));
-
-  } FD_SPAD_FRAME_END;
-}
-
-
-static void
-fd_runtime_distribute_rent( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
-  ulong total_rent_collected = slot_ctx->slot_bank.collected_rent;
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  ulong burned_portion = fd_runtime_calculate_rent_burn( total_rent_collected, &epoch_bank->rent );
-  slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub( slot_ctx->slot_bank.capitalization, burned_portion );
-  ulong rent_to_be_distributed = total_rent_collected - burned_portion;
-
-  FD_LOG_DEBUG(( "rent distribution - slot: %lu, burned_lamports: %lu, distributed_lamports: %lu, total_rent_collected: %lu", slot_ctx->slot_bank.slot, burned_portion, rent_to_be_distributed, total_rent_collected ));
-  if( rent_to_be_distributed == 0 ) {
-    return;
-  }
-
-  fd_runtime_distribute_rent_to_validators( slot_ctx, rent_to_be_distributed, runtime_spad );
-}
 
 static int
 fd_runtime_run_incinerator( fd_exec_slot_ctx_t * slot_ctx ) {
@@ -613,10 +238,6 @@ fd_runtime_run_incinerator( fd_exec_slot_ctx_t * slot_ctx ) {
 
 static void
 fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
-
-  /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/runtime/src/bank.rs#L2820-L2821 */
-  fd_runtime_collect_rent( slot_ctx );
-  // self.collect_fees();
 
   fd_sysvar_recent_hashes_update( slot_ctx, runtime_spad );
 
@@ -678,7 +299,6 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
     slot_ctx->slot_bank.collected_priority_fees = 0;
   }
 
-  fd_runtime_distribute_rent( slot_ctx, runtime_spad );
   fd_runtime_run_incinerator( slot_ctx );
 
   FD_LOG_DEBUG(( "fd_runtime_freeze: capitalization %lu ", slot_ctx->slot_bank.capitalization));
@@ -1398,9 +1018,7 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
   slot_ctx->nonvote_failed_txn_count           = 0UL;
   slot_ctx->total_compute_units_used           = 0UL;
 
-  fd_funk_start_write( slot_ctx->acc_mgr->funk );
   int result = fd_runtime_block_sysvar_update_pre_execute( slot_ctx, runtime_spad );
-  fd_funk_end_write( slot_ctx->acc_mgr->funk );
   if( FD_UNLIKELY( result != 0 ) ) {
     FD_LOG_WARNING(("updating sysvars failed"));
     return result;
@@ -1422,8 +1040,6 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t *    slot_ctx,
                                          fd_tpool_t *            tpool,
                                          fd_spad_t *             runtime_spad ) {
 
-  fd_funk_start_write( slot_ctx->acc_mgr->funk );
-
   fd_sysvar_slot_history_update( slot_ctx, runtime_spad );
 
   /* This slot is now "frozen" and can't be changed anymore. */
@@ -1432,7 +1048,6 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t *    slot_ctx,
   int result = fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( slot_ctx, slot_ctx->funk_txn, tpool, runtime_spad );
   if( FD_UNLIKELY( result ) ) {
     FD_LOG_WARNING(( "update bpf program cache failed" ));
-    fd_funk_end_write( slot_ctx->acc_mgr->funk );
     return result;
   }
 
@@ -1445,7 +1060,6 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t *    slot_ctx,
 
   if( FD_UNLIKELY( result!=FD_EXECUTOR_INSTR_SUCCESS ) ) {
     FD_LOG_WARNING(( "hashing bank failed" ));
-    fd_funk_end_write( slot_ctx->acc_mgr->funk );
     return result;
   }
 
@@ -1455,11 +1069,8 @@ fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t *    slot_ctx,
   result = fd_runtime_save_slot_bank( slot_ctx );
   if( FD_UNLIKELY( result!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
     FD_LOG_WARNING(( "failed to save slot bank" ));
-    fd_funk_end_write( slot_ctx->acc_mgr->funk );
     return result;
   }
-
-  fd_funk_end_write( slot_ctx->acc_mgr->funk );
 
   slot_ctx->total_compute_units_requested = 0UL;
 
@@ -1518,7 +1129,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
   }
 
   fd_exec_txn_ctx_t * txn_ctx    = task_info->txn_ctx;
-  fd_funk_txn_t *     parent_txn = txn_ctx->slot_ctx->funk_txn;
+  fd_funkier_txn_t *     parent_txn = txn_ctx->slot_ctx->funk_txn;
   txn_ctx->funk_txn              = parent_txn;
   fd_executor_setup_borrowed_accounts_for_txn( txn_ctx );
 
@@ -1644,10 +1255,7 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
 
   /* For ledgers that contain txn status, decode and write out for solcap */
   if( capture_ctx != NULL && capture_ctx->capture && capture_ctx->capture_txns ) {
-    // TODO: probably need to get rid of this lock or special case it to not use funk's lock.
-    fd_funk_start_write( slot_ctx->acc_mgr->funk );
     fd_runtime_write_transaction_status( capture_ctx, slot_ctx, txn_ctx, exec_txn_err );
-    fd_funk_end_write( slot_ctx->acc_mgr->funk );
   }
   FD_ATOMIC_FETCH_AND_ADD( &slot_ctx->signature_cnt, txn_ctx->txn_descriptor->signature_cnt );
 
@@ -1708,7 +1316,6 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
 
       if( dirty_vote_acc && 0==memcmp( acc_rec->const_meta->info.owner, &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
         /* lock for inserting/modifying vote accounts in slot ctx. */
-        fd_funk_start_write( slot_ctx->acc_mgr->funk );
         fd_vote_store_account( slot_ctx, acc_rec );
         FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
           fd_bincode_decode_ctx_t decode_vsv = {
@@ -1751,14 +1358,11 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
                                                    ts->timestamp,
                                                    ts->slot );
         } FD_SPAD_FRAME_END;
-        fd_funk_end_write( slot_ctx->acc_mgr->funk );
       }
 
       if( dirty_stake_acc && 0==memcmp( acc_rec->const_meta->info.owner, &fd_solana_stake_program_id, sizeof(fd_pubkey_t) ) ) {
         // TODO: does this correctly handle stake account close?
-        fd_funk_start_write( slot_ctx->acc_mgr->funk );
         fd_store_stake_delegation( slot_ctx, acc_rec );
-        fd_funk_end_write( slot_ctx->acc_mgr->funk );
       }
 
       fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->borrowed_accounts[i] );
@@ -2345,9 +1949,9 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
   ulong lamports_to_burn = ( stateless ? 0UL : target_program_account->const_meta->info.lamports ) + source_buffer_account->const_meta->info.lamports;
 
   /* Start a funk write txn */
-  fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
-  fd_funk_txn_xid_t migration_xid = fd_funk_generate_xid();
-  slot_ctx->funk_txn = fd_funk_txn_prepare( slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, &migration_xid, 0UL );
+  fd_funkier_txn_t * parent_txn = slot_ctx->funk_txn;
+  fd_funkier_txn_xid_t migration_xid = fd_funkier_generate_xid();
+  slot_ctx->funk_txn = fd_funkier_txn_prepare( slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, &migration_xid, 0UL );
 
   /* Attempt serialization of program account. If the program is stateless, we want to create the account. Otherwise,
      we want a writable handle to modify the existing account.
@@ -2426,13 +2030,13 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
      a BPF cache entry here because the program is technically "delayed visibility", so the program
      should not be invokable until the next slot. The cache entry will be created at the end of the
      block as a part of the finalize routine. */
-  fd_funk_txn_publish_into_parent( slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, 1 );
+  fd_funkier_txn_publish_into_parent( slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, 1 );
   slot_ctx->funk_txn = parent_txn;
   return;
 
 fail:
   /* Cancel the in-preparation transaction and discard any in-progress changes. */
-  fd_funk_txn_cancel( slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, 0UL );
+  fd_funkier_txn_cancel( slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, 0UL );
   slot_ctx->funk_txn = parent_txn;
 }
 
@@ -3495,8 +3099,6 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
   fd_memcpy( epoch_bank->genesis_hash.uc, genesis_hash.uc, sizeof(fd_hash_t) );
   epoch_bank->cluster_type = genesis_block.cluster_type;
 
-  fd_funk_start_write( slot_ctx->acc_mgr->funk );
-
   if( !is_snapshot ) {
     fd_runtime_init_bank_from_genesis( slot_ctx,
                                        &genesis_block,
@@ -3557,8 +3159,6 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
 
   slot_ctx->slot_bank.vote_account_keys.account_keys_root   = NULL;
   slot_ctx->slot_bank.vote_account_keys.account_keys_pool   = fd_account_keys_pair_t_map_alloc( fd_spad_virtual( runtime_spad), 100000UL );
-
-  fd_funk_end_write( slot_ctx->acc_mgr->funk );
 
   fd_genesis_solana_destroy( &genesis_block );
 }
@@ -3756,18 +3356,16 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
                              fd_tpool_t *         tpool,
                              fd_spad_t *          runtime_spad ) {
   /* Publish any transaction older than 31 slots */
-  fd_funk_t *       funk       = slot_ctx->acc_mgr->funk;
-  fd_funk_txn_t *   txnmap     = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
+  fd_funkier_t *       funk       = slot_ctx->acc_mgr->funk;
+  fd_funkier_txn_pool_t txnpool   = fd_funkier_txn_pool( funk, fd_funkier_wksp( funk ) );
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
 
   if( capture_ctx != NULL ) {
-    fd_funk_start_write( funk );
     fd_runtime_checkpt( capture_ctx, slot_ctx, slot_ctx->slot_bank.slot );
-    fd_funk_end_write( funk );
   }
 
   uint depth = 0;
-  for( fd_funk_txn_t * txn = slot_ctx->funk_txn; txn; txn = fd_funk_txn_parent(txn, txnmap) ) {
+  for( fd_funkier_txn_t * txn = slot_ctx->funk_txn; txn; txn = fd_funkier_txn_parent(txn, &txnpool) ) {
     if( ++depth == (FD_RUNTIME_NUM_ROOT_BLOCKS - 1 ) ) {
       FD_LOG_DEBUG(("publishing %s (slot %lu)", FD_BASE58_ENC_32_ALLOCA( &txn->xid ), txn->xid.ul[0]));
 
@@ -3777,13 +3375,12 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
         fd_txncache_register_constipated_slot( slot_ctx->status_cache, txn->xid.ul[0] );
       }
 
-      fd_funk_start_write( funk );
       if( slot_ctx->epoch_ctx->constipate_root ) {
-        fd_funk_txn_t * parent = fd_funk_txn_parent( txn, txnmap );
+        fd_funkier_txn_t * parent = fd_funkier_txn_parent( txn, &txnpool );
         if( parent != NULL ) {
           slot_ctx->root_slot = txn->xid.ul[0];
 
-          if( FD_UNLIKELY( fd_funk_txn_publish_into_parent( funk, txn, 1) != FD_FUNK_SUCCESS ) ) {
+          if( FD_UNLIKELY( fd_funkier_txn_publish_into_parent( funk, txn, 1) != FD_FUNKIER_SUCCESS ) ) {
             FD_LOG_ERR(( "Unable to publish into the parent transaction" ));
           }
         }
@@ -3799,7 +3396,7 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
           fd_txncache_set_is_constipated( slot_ctx->status_cache, 1 );
         }
 
-        if( FD_UNLIKELY( !fd_funk_txn_publish( funk, txn, 1 ) ) ) {
+        if( FD_UNLIKELY( !fd_funkier_txn_publish( funk, txn, 1 ) ) ) {
           FD_LOG_ERR(( "No transactions were published" ));
         }
       }
@@ -3810,8 +3407,6 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
         }
         epoch_bank->eah_start_slot = ULONG_MAX;
       }
-
-      fd_funk_end_write( funk );
 
       break;
     }
@@ -3920,27 +3515,23 @@ fd_runtime_block_pre_execute_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
     if( FD_UNLIKELY( prev_epoch<new_epoch || !slot_idx ) ) {
       FD_LOG_DEBUG(( "Epoch boundary" ));
       /* Epoch boundary! */
-      fd_funk_start_write( slot_ctx->acc_mgr->funk );
       fd_runtime_process_new_epoch( slot_ctx,
                                     new_epoch - 1UL,
                                     tpool,
                                     exec_spads,
                                     exec_spad_cnt,
                                     runtime_spad );
-      fd_funk_end_write( slot_ctx->acc_mgr->funk );
     }
   }
 
   if( slot_ctx->slot_bank.slot != 0UL && (
       FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ||
       FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature ) ) ) {
-    fd_funk_start_write( slot_ctx->acc_mgr->funk );
     fd_distribute_partitioned_epoch_rewards( slot_ctx,
                                              tpool,
                                              exec_spads,
                                              exec_spad_cnt,
                                              runtime_spad );
-    fd_funk_end_write( slot_ctx->acc_mgr->funk );
   }
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
@@ -3965,7 +3556,7 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
     return err;
   }
 
-  fd_funk_t * funk = slot_ctx->acc_mgr->funk;
+  fd_funkier_t * funk = slot_ctx->acc_mgr->funk;
 
   ulong slot = slot_ctx->slot_bank.slot;
 
@@ -3976,10 +3567,8 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
     /* Start a new funk txn. */
 
-    fd_funk_txn_xid_t xid = { .ul = { slot_ctx->slot_bank.slot, slot_ctx->slot_bank.slot } };
-    fd_funk_start_write( funk );
-    slot_ctx->funk_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &xid, 1 );
-    fd_funk_end_write( funk );
+    fd_funkier_txn_xid_t xid = { .ul = { slot_ctx->slot_bank.slot, slot_ctx->slot_bank.slot } };
+    slot_ctx->funk_txn = fd_funkier_txn_prepare( funk, slot_ctx->funk_txn, &xid, 1 );
 
     if( FD_UNLIKELY( (ret = fd_runtime_block_pre_execute_process_new_epoch( slot_ctx,
                                                                             tpool,
@@ -4034,9 +3623,7 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
 
   slot_ctx->slot_bank.transaction_count += block_info.txn_cnt;
 
-  fd_funk_start_write( slot_ctx->acc_mgr->funk );
   fd_runtime_save_slot_bank( slot_ctx );
-  fd_funk_end_write( slot_ctx->acc_mgr->funk );
 
   slot_ctx->slot_bank.prev_slot = slot;
   // FIXME: this shouldn't be doing this, it doesn't work with forking. punting changing it though
@@ -4062,22 +3649,16 @@ fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
   if( capture_ctx->checkpt_path != NULL ) {
     if( !is_abort_slot ) {
       FD_LOG_NOTICE(( "checkpointing at slot=%lu to file=%s", slot, capture_ctx->checkpt_path ));
-      fd_funk_end_write( slot_ctx->acc_mgr->funk );
     } else {
       FD_LOG_NOTICE(( "checkpointing after mismatch to file=%s", capture_ctx->checkpt_path ));
     }
 
     unlink( capture_ctx->checkpt_path );
-    int err = fd_wksp_checkpt( fd_funk_wksp( slot_ctx->acc_mgr->funk ), capture_ctx->checkpt_path, 0666, 0, NULL );
+    int err = fd_wksp_checkpt( fd_funkier_wksp( slot_ctx->acc_mgr->funk ), capture_ctx->checkpt_path, 0666, 0, NULL );
     if ( err ) {
       FD_LOG_ERR(( "backup failed: error %d", err ));
     }
-
-    if( !is_abort_slot ) {
-      fd_funk_start_write( slot_ctx->acc_mgr->funk );
-    }
   }
-
 }
 
 // TODO: add tracking account_state hashes so that we can verify our

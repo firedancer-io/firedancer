@@ -25,7 +25,7 @@
 
 struct fd_snapshot_dumper {
   fd_alloc_t *   alloc;
-  fd_funk_t *    funk;
+  fd_funkier_t *    funk;
   fd_acc_mgr_t * acc_mgr;
 
   fd_exec_epoch_ctx_t * epoch_ctx;
@@ -89,7 +89,7 @@ fd_snapshot_dumper_delete( fd_snapshot_dumper_t * dumper ) {
   }
 
   if( dumper->funk ) {
-    fd_wksp_free_laddr( fd_funk_delete( fd_funk_leave( dumper->funk ) ) );
+    fd_wksp_free_laddr( fd_funkier_delete( fd_funkier_leave( dumper->funk ) ) );
     dumper->funk = NULL;
   }
 
@@ -178,10 +178,10 @@ typedef union fd_snapshot_csv_rec fd_snapshot_csv_rec_t;
 
 static void
 fd_snapshot_dumper_record( fd_snapshot_dumper_t * d,
-                           fd_funk_rec_t const *  rec,
+                           fd_funkier_rec_t const *  rec,
                            fd_wksp_t *            wksp ) {
 
-  uchar const *             rec_val = fd_funk_val_const( rec, wksp );
+  uchar const *             rec_val = fd_funkier_val_const( rec, wksp );
   fd_account_meta_t const * meta    = (fd_account_meta_t const *)rec_val;
   //uchar const *             data    = rec_val + meta->hlen;
 
@@ -190,7 +190,7 @@ fd_snapshot_dumper_record( fd_snapshot_dumper_t * d,
     fd_memset( &csv_rec, ' ', sizeof(csv_rec) );
 
     ulong b58sz;
-    fd_base58_encode_32( fd_funk_key_to_acc( rec->pair.key )->uc, &b58sz, csv_rec.acct_addr );
+    fd_base58_encode_32( fd_funkier_key_to_acc( rec->pair.key )->uc, &b58sz, csv_rec.acct_addr );
     csv_rec.line[ offsetof(fd_snapshot_csv_rec_t,acct_addr)+b58sz ] = ' ';
     csv_rec.comma1 = ',';
 
@@ -221,17 +221,16 @@ fd_snapshot_dumper_record( fd_snapshot_dumper_t * d,
 static int
 fd_snapshot_dumper_release( fd_snapshot_dumper_t * d ) {
 
-  fd_funk_txn_t *      funk_txn = d->restore->funk_txn;
-  fd_funk_txn_xid_t    txn_xid  = funk_txn->xid;
-  fd_funk_t *          funk     = d->funk;
-  fd_wksp_t *          wksp     = fd_funk_wksp( funk );
-  fd_funk_rec_t *      rec_map  = fd_funk_rec_map( funk, wksp );
+  fd_funkier_txn_t *      funk_txn = d->restore->funk_txn;
+  fd_funkier_txn_xid_t    txn_xid  = funk_txn->xid;
+  fd_funkier_t *          funk     = d->funk;
+  fd_wksp_t *             wksp     = fd_funkier_wksp( funk );
 
   /* Dump all the records */
-  for( fd_funk_rec_t const * rec = fd_funk_txn_rec_head( funk_txn, rec_map );
-                             rec;
-                             rec = fd_funk_rec_next( rec, rec_map ) ) {
-    if( FD_UNLIKELY( !fd_funk_key_is_acc( rec->pair.key ) ) ) continue;
+  for( fd_funkier_rec_t const * rec = fd_funkier_txn_first_rec( funk, funk_txn );
+       rec;
+       rec = fd_funkier_txn_next_rec( funk, rec ) ) {
+    if( FD_UNLIKELY( !fd_funkier_key_is_acc( rec->pair.key ) ) ) continue;
     fd_snapshot_dumper_record( d, rec, wksp );
   }
 
@@ -239,10 +238,10 @@ fd_snapshot_dumper_release( fd_snapshot_dumper_t * d ) {
      visited.  We can do this because we know we'll never read them
      again. */
 
-  if( FD_UNLIKELY( fd_funk_txn_cancel( funk, funk_txn, 1 )!=1UL ) )
+  if( FD_UNLIKELY( fd_funkier_txn_cancel( funk, funk_txn, 1 )!=1UL ) )
     FD_LOG_ERR(( "Failed to cancel funk txn" ));  /* unreachable */
 
-  funk_txn = fd_funk_txn_prepare( funk, NULL, &txn_xid, 1 );
+  funk_txn = fd_funkier_txn_prepare( funk, NULL, &txn_xid, 1 );
   if( FD_UNLIKELY( !funk_txn ) )
     FD_LOG_ERR(( "Failed to prepare funk txn" ));  /* unreachable */
 
@@ -331,9 +330,8 @@ do_dump( fd_snapshot_dumper_t *    d,
   ulong const rec_max = 1024UL;  /* we evict records as we go */
 
   ulong funk_tag = 42UL;
-  d->funk = fd_funk_join( fd_funk_new( fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), funk_tag ), funk_tag, funk_seed, txn_max, rec_max ) );
-  if( FD_UNLIKELY( !d->funk ) ) { FD_LOG_WARNING(( "Failed to create fd_funk_t" )); return EXIT_FAILURE; }
-  fd_funk_start_write( d->funk );
+  d->funk = fd_funkier_join( fd_funkier_new( fd_wksp_alloc_laddr( wksp, fd_funkier_align(), fd_funkier_footprint(txn_max, rec_max), funk_tag ), funk_tag, funk_seed, txn_max, rec_max ) );
+  if( FD_UNLIKELY( !d->funk ) ) { FD_LOG_WARNING(( "Failed to create fd_funkier_t" )); return EXIT_FAILURE; }
 
   /* Create a new processing context */
 
@@ -350,10 +348,10 @@ do_dump( fd_snapshot_dumper_t *    d,
   d->slot_ctx->acc_mgr   = d->acc_mgr;
   d->slot_ctx->epoch_ctx = d->epoch_ctx;
 
-  /* funk_txn is destroyed automatically when deleting fd_funk_t. */
+  /* funk_txn is destroyed automatically when deleting fd_funkier_t. */
 
-  fd_funk_txn_xid_t funk_txn_xid = { .ul = { 1UL } };
-  fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( d->funk, NULL, &funk_txn_xid, 1 );
+  fd_funkier_txn_xid_t funk_txn_xid = { .ul = { 1UL } };
+  fd_funkier_txn_t * funk_txn = fd_funkier_txn_prepare( d->funk, NULL, &funk_txn_xid, 1 );
   d->slot_ctx->funk_txn = funk_txn;
 
   void * restore_mem = fd_spad_alloc( spad, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );

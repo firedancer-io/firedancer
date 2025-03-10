@@ -347,6 +347,62 @@ fd_funkier_rec_get_erase_data( fd_funkier_rec_t const * rec ) {
   return (rec->flags >> (sizeof(unsigned long) * 8 - 40)) & 0xFFFFFFFFFFUL;
 }
 
+int
+fd_funkier_rec_forget( fd_funkier_t *      funk,
+                       fd_funkier_rec_t ** recs,
+                       ulong recs_cnt ) {
+#ifdef FD_FUNKIER_HANDHOLDING
+  if( FD_UNLIKELY( !funk ) ) return FD_FUNKIER_ERR_INVAL;
+#endif
+
+  fd_wksp_t * wksp = fd_funkier_wksp( funk );
+  fd_alloc_t * alloc = fd_funkier_alloc( funk, wksp );
+  fd_funkier_rec_map_t rec_map = fd_funkier_rec_map( funk, wksp );
+  fd_funkier_rec_pool_t rec_pool = fd_funkier_rec_pool( funk, wksp );
+
+#ifdef FD_FUNKIER_HANDHOLDING
+  ulong rec_max = funk->rec_max;
+#endif
+
+  for( ulong i = 0; i < recs_cnt; ++i ) {
+    fd_funkier_rec_t * rec = recs[i];
+
+#ifdef FD_FUNKIER_HANDHOLDING
+    ulong rec_idx = (ulong)(rec - rec_pool.ele);
+    if( FD_UNLIKELY( (rec_idx>=rec_max) /* Out of map (incl NULL) */ | (rec!=(rec_pool.ele+rec_idx)) /* Bad alignment */ ) )
+      return FD_FUNKIER_ERR_INVAL;
+#endif
+
+    ulong txn_idx = fd_funkier_txn_idx( rec->txn_cidx );
+    if( FD_UNLIKELY( !fd_funkier_txn_idx_is_null( txn_idx ) || /* Must be published */
+                     !( rec->flags & FD_FUNKIER_REC_FLAG_ERASE ) ) ) { /* Must be removed */
+      return FD_FUNKIER_ERR_KEY;
+    }
+
+    for(;;) {
+      fd_funkier_rec_map_query_t rec_query[1];
+      int err = fd_funkier_rec_map_remove( &rec_map, fd_funkier_rec_pair( rec ), NULL, rec_query, FD_MAP_FLAG_BLOCKING );
+      if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
+      if( err == FD_MAP_ERR_KEY ) return FD_FUNKIER_ERR_KEY;
+      if( FD_UNLIKELY( err != FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "map corruption" ));
+      if( rec != fd_funkier_rec_map_query_ele( rec_query ) ) FD_LOG_CRIT(( "map corruption" ));
+      break;
+    }
+
+    ulong prev_idx = rec->prev_idx;
+    ulong next_idx = rec->next_idx;
+    if( fd_funkier_rec_idx_is_null( prev_idx ) ) funk->rec_head_idx =                next_idx;
+    else                                         rec_pool.ele[ prev_idx ].next_idx = next_idx;
+    if( fd_funkier_rec_idx_is_null( next_idx ) ) funk->rec_tail_idx =                prev_idx;
+    else                                         rec_pool.ele[ next_idx ].prev_idx = prev_idx;
+
+    fd_funkier_val_flush( rec, alloc, wksp );
+    fd_funkier_rec_pool_release( &rec_pool, rec, 1 );
+  }
+
+  return FD_FUNKIER_SUCCESS;
+}
+
 static void
 fd_funkier_all_iter_skip_nulls( fd_funkier_all_iter_t * iter ) {
   if( iter->chain_idx == iter->chain_cnt ) return;

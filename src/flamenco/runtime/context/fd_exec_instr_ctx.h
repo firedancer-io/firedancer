@@ -23,7 +23,7 @@ struct __attribute__((aligned(8UL))) fd_exec_instr_ctx {
   uint child_cnt;  /* number of child instructions */
   uint instr_err;  /* TODO: this is kind of redundant wrt instr_exec */
 
-  fd_funk_txn_t * funk_txn;
+  fd_funkier_txn_t * funk_txn;
   fd_acc_mgr_t *  acc_mgr;
 
   /* Most instructions log the base58 program id multiple times, so it's
