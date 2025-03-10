@@ -129,7 +129,7 @@ test_archive_many_blocks( fd_wksp_t * wksp, int fd, ulong fd_size_max, ulong idx
     fd_block_info_t block_map_entry_out;
     fd_block_t block_out;
     //ulong read_off = block_idx_entry->off;
-    fd_blockstore_block_meta_restore(&blockstore->shmem->archiver, fd, block_idx_entry, &block_map_entry_out, &block_out);
+    fd_blockstore_block_info_restore(&blockstore->shmem->archiver, fd, block_idx_entry, &block_map_entry_out, &block_out);
     //read_off = wrap_offset(&blockstore->shmem->archiver, read_off + sizeof(fd_block_info_t) + sizeof(fd_block_t));
     fd_blockstore_block_data_restore(&blockstore->shmem->archiver, fd, block_idx_entry, buf_out, block_out.data_sz, block_out.data_sz);
 

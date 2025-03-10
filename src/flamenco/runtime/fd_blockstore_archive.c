@@ -20,7 +20,7 @@ static inline void check_read_write_err( int err ) {
 } while(0);
 
 ulong
-fd_blockstore_archiver_lrw_slot( fd_blockstore_t * blockstore, int fd, fd_block_info_t * lrw_block_meta, fd_block_t * lrw_block_out ) {
+fd_blockstore_archiver_lrw_slot( fd_blockstore_t * blockstore, int fd, fd_block_info_t * lrw_block_info, fd_block_t * lrw_block_out ) {
   fd_block_idx_t * block_idx = fd_blockstore_block_idx( blockstore );
   if ( FD_UNLIKELY ( fd_block_idx_key_cnt( block_idx ) == 0 ) ) {
     return FD_SLOT_NULL;
@@ -28,9 +28,9 @@ fd_blockstore_archiver_lrw_slot( fd_blockstore_t * blockstore, int fd, fd_block_
 
   fd_block_idx_t lrw_block_idx = { 0 };
   lrw_block_idx.off = blockstore->shmem->archiver.head;
-  int err = fd_blockstore_block_meta_restore( &blockstore->shmem->archiver, fd, &lrw_block_idx, lrw_block_meta,  lrw_block_out );
+  int err = fd_blockstore_block_info_restore( &blockstore->shmem->archiver, fd, &lrw_block_idx, lrw_block_info,  lrw_block_out );
   check_read_write_err( err );
-  return lrw_block_meta->slot;
+  return lrw_block_info->slot;
 }
 
 bool
@@ -132,7 +132,7 @@ build_idx( fd_blockstore_t * blockstore, int fd ) {
     blocks_read++;
     fd_block_idx_t block_idx_entry = { 0 };
     block_idx_entry.off = off;
-    err = fd_blockstore_block_meta_restore( &blockstore->shmem->archiver, fd, &block_idx_entry, &block_map_out,  &block_out );
+    err = fd_blockstore_block_info_restore( &blockstore->shmem->archiver, fd, &block_idx_entry, &block_map_out,  &block_out );
     check_read_write_err( err );
 
     if( FD_UNLIKELY( fd_block_idx_key_cnt( block_idx ) == fd_block_idx_key_max( block_idx ) )  ) {
@@ -336,7 +336,7 @@ fd_blockstore_block_checkpt( fd_blockstore_t * blockstore,
 }
 
 int
-fd_blockstore_block_meta_restore( fd_blockstore_archiver_t * archvr,
+fd_blockstore_block_info_restore( fd_blockstore_archiver_t * archvr,
                                   int fd,
                                   fd_block_idx_t * block_idx_entry,
                                   fd_block_info_t * block_map_entry_out,
