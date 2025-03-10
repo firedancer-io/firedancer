@@ -3845,9 +3845,11 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
 
   fd_runtime_block_collect_txns( block_info, txn_ptrs );
 
-  /* Initialize the cost tracker */
+  /* Initialize the cost tracker when the feature is active */
   fd_cost_tracker_t * cost_tracker = fd_spad_alloc( runtime_spad, FD_COST_TRACKER_ALIGN, FD_COST_TRACKER_FOOTPRINT );
-  fd_cost_tracker_init( cost_tracker, slot_ctx, runtime_spad );
+  if( FD_FEATURE_ACTIVE( slot_ctx, apply_cost_tracker_during_replay ) ) {
+    fd_cost_tracker_init( cost_tracker, slot_ctx, runtime_spad );
+  }
 
   /* We want to emulate microblock-by-microblock execution */
   ulong to_exec_idx = 0UL;
