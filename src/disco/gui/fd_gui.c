@@ -68,7 +68,8 @@ fd_gui_new( void *             shmem,
   gui->summary.startup_incremental_snapshot_slot      = 0;
   gui->summary.startup_waiting_for_supermajority_slot = ULONG_MAX;
 
-  gui->summary.balance                       = 0UL;
+  gui->summary.identity_account_balance      = 0UL;
+  gui->summary.vote_account_balance          = 0UL;
   gui->summary.estimated_slot_duration_nanos = 0UL;
 
   gui->summary.vote_distance = 0UL;
@@ -146,7 +147,8 @@ fd_gui_ws_open( fd_gui_t * gui,
     fd_gui_printf_skipped_history,
     fd_gui_printf_tps_history,
     fd_gui_printf_tiles,
-    fd_gui_printf_balance,
+    fd_gui_printf_identity_balance,
+    fd_gui_printf_vote_balance,
     fd_gui_printf_estimated_slot_duration_nanos,
     fd_gui_printf_root_slot,
     fd_gui_printf_optimistically_confirmed_slot,
@@ -1348,11 +1350,22 @@ fd_gui_handle_optimistically_confirmed_slot( fd_gui_t * gui,
 }
 
 static void
-fd_gui_handle_balance_update( fd_gui_t * gui,
-                              ulong      balance ) {
-  gui->summary.balance = balance;
-  fd_gui_printf_balance( gui );
-  fd_http_server_ws_broadcast( gui->http );
+fd_gui_handle_balance_update( fd_gui_t *    gui,
+                              ulong const * msg ) {
+  switch( msg[ 0 ] ) {
+    case 0UL:
+      gui->summary.identity_account_balance = msg[ 1 ];
+      fd_gui_printf_identity_balance( gui );
+      fd_http_server_ws_broadcast( gui->http );
+      break;
+    case 1UL:
+      gui->summary.vote_account_balance = msg[ 1 ];
+      fd_gui_printf_vote_balance( gui );
+      fd_http_server_ws_broadcast( gui->http );
+      break;
+    default:
+      FD_LOG_ERR(( "balance: unknown account type: %lu", msg[ 0 ] ));
+}
 }
 
 static void
@@ -1531,7 +1544,7 @@ fd_gui_plugin_message( fd_gui_t *    gui,
       break;
     }
     case FD_PLUGIN_MSG_BALANCE: {
-      fd_gui_handle_balance_update( gui, *(ulong *)msg );
+      fd_gui_handle_balance_update( gui, (ulong *)msg );
       break;
     }
     case FD_PLUGIN_MSG_START_PROGRESS: {
