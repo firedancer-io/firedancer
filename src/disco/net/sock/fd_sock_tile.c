@@ -487,10 +487,11 @@ during_frag( fd_sock_tile_t * ctx,
 
   ulong batch_idx = ctx->batch_cnt;
   assert( batch_idx<STEM_BURST );
-  struct mmsghdr *     msg = ctx->batch_msg + batch_idx;
-  struct sockaddr_in * sa  = ctx->batch_sa  + batch_idx;
-  struct iovec   *     iov = ctx->batch_iov + batch_idx;
-  uchar *              buf = ctx->tx_ptr;
+  struct mmsghdr *     msg  = ctx->batch_msg + batch_idx;
+  struct sockaddr_in * sa   = ctx->batch_sa  + batch_idx;
+  struct iovec   *     iov  = ctx->batch_iov + batch_idx;
+  struct cmsghdr *     cmsg = (void *)( (ulong)ctx->batch_cmsg + batch_idx*FD_SOCK_CMSG_MAX );
+  uchar *              buf  = ctx->tx_ptr;
 
   *iov = (struct iovec) {
     .iov_base = buf,
@@ -499,12 +500,23 @@ during_frag( fd_sock_tile_t * ctx,
   sa->sin_family      = AF_INET;
   sa->sin_addr.s_addr = FD_LOAD( uint, ip_hdr->daddr_c );
   sa->sin_port        = 0; /* ignored */
+
+  cmsg->cmsg_level = IPPROTO_IP;
+  cmsg->cmsg_type  = IP_PKTINFO;
+  cmsg->cmsg_len   = CMSG_LEN( sizeof(struct in_pktinfo) );
+  struct in_pktinfo * pi = (struct in_pktinfo *)CMSG_DATA( cmsg );
+  pi->ipi_ifindex         = 0;
+  pi->ipi_addr.s_addr     = 0;
+  pi->ipi_spec_dst.s_addr = ip_hdr->saddr;
+
   *msg = (struct mmsghdr) {
     .msg_hdr = {
-      .msg_name    = sa,
-      .msg_namelen = sizeof(struct sockaddr_in),
-      .msg_iov     = iov,
-      .msg_iovlen  = 1,
+      .msg_name       = sa,
+      .msg_namelen    = sizeof(struct sockaddr_in),
+      .msg_iov        = iov,
+      .msg_iovlen     = 1,
+      .msg_control    = cmsg,
+      .msg_controllen = CMSG_LEN( sizeof(struct in_pktinfo) )
     }
   };
 
