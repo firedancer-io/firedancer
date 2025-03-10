@@ -19,28 +19,28 @@ init_perm( fd_cap_chk_t *   chk,
 
 typedef struct {
   char const * path;
-  uint         value;
+  ulong        value;
   int          mode;
 } sysctl_param_t;
 
 static const sysctl_param_t params[] = {
   {
-    "/proc/sys/vm/max_map_count",
+    "/proc/sys/vm/max_map_count", /* int */
     1000000,
     ENFORCE_MINIMUM,
   },
   {
-    "/proc/sys/fs/file-max",
+    "/proc/sys/fs/file-max", /* ulong */
     CONFIGURE_NR_OPEN_FILES,
     ENFORCE_MINIMUM,
   },
   {
-    "/proc/sys/fs/nr_open",
+    "/proc/sys/fs/nr_open", /* uint */
     CONFIGURE_NR_OPEN_FILES,
     ENFORCE_MINIMUM,
   },
   {
-    "/proc/sys/kernel/numa_balancing",
+    "/proc/sys/kernel/numa_balancing", /* int? */
     0,
     WARN_EXACT,
   },
@@ -73,15 +73,15 @@ static const sysctl_param_t xdp_params[] = {
 static void
 init_param_list( sysctl_param_t const * list ) {
   for( sysctl_param_t const * p=list; p->path; p++ ) {
-    uint param;
-    if( FD_UNLIKELY( -1==fd_file_util_read_uint( p->path, &param ) ) )
+    ulong param;
+    if( FD_UNLIKELY( -1==fd_file_util_read_ulong( p->path, &param ) ) )
       FD_LOG_ERR(( "could not read kernel parameter `%s`, system might not support configuring sysctl (%i-%s)", p->path, errno, fd_io_strerror( errno ) ));
     switch( p->mode ) {
       case ENFORCE_MINIMUM:
         if( FD_UNLIKELY( param<(p->value) ) ) {
-          FD_LOG_NOTICE(( "RUN: `echo \"%u\" > %s`", p->value, p->path ) );
-          if( FD_UNLIKELY( -1==fd_file_util_write_uint( p->path, p->value ) ) )
-            FD_LOG_ERR(( "could not set kernel parameter `%s` to %u (%i-%s)", p->path, p->value, errno, fd_io_strerror( errno ) ));
+          FD_LOG_NOTICE(( "RUN: `echo \"%lu\" > %s`", p->value, p->path ) );
+          if( FD_UNLIKELY( -1==fd_file_util_write_ulong( p->path, p->value ) ) )
+            FD_LOG_ERR(( "could not set kernel parameter `%s` to %lu (%i-%s)", p->path, p->value, errno, fd_io_strerror( errno ) ));
         }
         break;
       default:
@@ -103,21 +103,21 @@ check_param_list( sysctl_param_t const * list ) {
   static int has_warned = 0;
 
   for( sysctl_param_t const * p=list; p->path; p++ ) {
-    uint param;
-    if( FD_UNLIKELY( -1==fd_file_util_read_uint( p->path, &param ) ) )
+    ulong param;
+    if( FD_UNLIKELY( -1==fd_file_util_read_ulong( p->path, &param ) ) )
       FD_LOG_ERR(( "could not read kernel parameter `%s`, system might not support configuring sysctl (%i-%s)", p->path, errno, fd_io_strerror( errno ) ));
     switch( p->mode ) {
       case ENFORCE_MINIMUM:
         if( FD_UNLIKELY( param<(p->value) ) )
-          NOT_CONFIGURED( "kernel parameter `%s` is too low (got %u but expected at least %u)", p->path, param, p->value );
+          NOT_CONFIGURED( "kernel parameter `%s` is too low (got %lu but expected at least %lu)", p->path, param, p->value );
         break;
       case WARN_MINIMUM:
         if( FD_UNLIKELY( !has_warned && param<(p->value) ) )
-          FD_LOG_WARNING(( "kernel parameter `%s` is too low (got %u but expected at least %u). Proceeding but performance may be reduced.", p->path, param, p->value ));
+          FD_LOG_WARNING(( "kernel parameter `%s` is too low (got %lu but expected at least %lu). Proceeding but performance may be reduced.", p->path, param, p->value ));
         break;
       case WARN_EXACT:
         if( FD_UNLIKELY( !has_warned && param!=(p->value) ) )
-          FD_LOG_WARNING(( "kernel parameter `%s` is set to %u, not the expected value of %u. Proceeding but performance may be reduced.", p->path, param, p->value ));
+          FD_LOG_WARNING(( "kernel parameter `%s` is set to %lu, not the expected value of %lu. Proceeding but performance may be reduced.", p->path, param, p->value ));
         break;
     }
   }
