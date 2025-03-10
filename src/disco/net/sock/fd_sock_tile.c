@@ -23,6 +23,10 @@
 /* Place RX socket file descriptors in contiguous integer range. */
 #define RX_SOCK_FD_MIN (128)
 
+/* Controls max ancillary data size.
+   Must be aligned by alignof(struct cmsghdr) */
+#define FD_SOCK_CMSG_MAX (64UL)
+
 static ulong
 populate_allowed_seccomp( fd_topo_t const *      topo,
                           fd_topo_tile_t const * tile,
@@ -76,6 +80,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof(fd_sock_tile_t),     sizeof(fd_sock_tile_t)                );
   l = FD_LAYOUT_APPEND( l, alignof(struct iovec),       STEM_BURST*sizeof(struct iovec)       );
+  l = FD_LAYOUT_APPEND( l, alignof(struct cmsghdr),     STEM_BURST*FD_SOCK_CMSG_MAX           );
   l = FD_LAYOUT_APPEND( l, alignof(struct sockaddr_in), STEM_BURST*sizeof(struct sockaddr_in) );
   l = FD_LAYOUT_APPEND( l, alignof(struct mmsghdr),     STEM_BURST*sizeof(struct mmsghdr)     );
   l = FD_LAYOUT_APPEND( l, FD_CHUNK_ALIGN,              tx_scratch_footprint()                );
@@ -105,6 +110,13 @@ create_udp_socket( int    sock_fd,
     FD_LOG_ERR(( "setsockopt(SOL_SOCKET,SO_REUSEPORT,1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
+  int ip_pktinfo = 1;
+  if( FD_UNLIKELY( setsockopt( orig_fd, IPPROTO_IP, IP_PKTINFO, &ip_pktinfo, sizeof(int) )<0 ) ) {
+    FD_LOG_ERR(( "setsockopt(IPPROTO_IP,IP_PKTINFO,1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  /* TODO SO_RCVBUF */
+
   struct sockaddr_in saddr = {
     .sin_family      = AF_INET,
     .sin_addr.s_addr = 0,
@@ -113,8 +125,6 @@ create_udp_socket( int    sock_fd,
   if( FD_UNLIKELY( 0!=bind( orig_fd, fd_type_pun_const( &saddr ), sizeof(struct sockaddr_in) ) ) ) {
     FD_LOG_ERR(( "bind(0.0.0.0:%i) failed (%i-%s)", udp_port, errno, fd_io_strerror( errno ) ));
   }
-
-  /* TODO SO_RCVBUF */
 
 # if defined(__linux__)
   int dup_res = dup3( orig_fd, sock_fd, O_CLOEXEC );
@@ -138,6 +148,7 @@ privileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_sock_tile_t *     ctx        = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_sock_tile_t),     sizeof(fd_sock_tile_t)                );
   struct iovec   *     batch_iov  = FD_SCRATCH_ALLOC_APPEND( l, alignof(struct iovec),       STEM_BURST*sizeof(struct iovec)       );
+  void *               batch_cmsg = FD_SCRATCH_ALLOC_APPEND( l, alignof(struct cmsghdr),     STEM_BURST*FD_SOCK_CMSG_MAX           );
   struct sockaddr_in * batch_sa   = FD_SCRATCH_ALLOC_APPEND( l, alignof(struct sockaddr_in), STEM_BURST*sizeof(struct sockaddr_in) );
   struct mmsghdr *     batch_msg  = FD_SCRATCH_ALLOC_APPEND( l, alignof(struct mmsghdr),     STEM_BURST*sizeof(struct mmsghdr)     );
   uchar *              tx_scratch = FD_SCRATCH_ALLOC_APPEND( l, FD_CHUNK_ALIGN,              tx_scratch_footprint()                );
@@ -151,6 +162,7 @@ privileged_init( fd_topo_t *      topo,
 
   ctx->batch_cnt   = 0UL;
   ctx->batch_iov   = batch_iov;
+  ctx->batch_cmsg  = batch_cmsg;
   ctx->batch_sa    = batch_sa;
   ctx->batch_msg   = batch_msg;
   ctx->tx_scratch0 = tx_scratch;
@@ -264,6 +276,9 @@ unprivileged_init( fd_topo_t *      topo,
 /* FIXME Pace RX polling and interleave it with TX jobs to reduce TX
          tail latency */
 
+/* poll_rx_socket does one recvmmsg batch receive on the given socket
+   index.  Returns the number of packets returned by recvmmsg. */
+
 static ulong
 poll_rx_socket( fd_sock_tile_t *    ctx,
                 fd_stem_context_t * stem,
@@ -276,10 +291,11 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
   ushort dport       = ctx->rx_sock_port[ sock_idx ];
 
   fd_sock_link_rx_t * link = ctx->link_rx + rx_link;
-  void * base       = link->base;
-  ulong  chunk0     = link->chunk0;
-  ulong  wmark      = link->wmark;
-  ulong  chunk_next = link->chunk;
+  void *  base       = link->base;
+  ulong   chunk0     = link->chunk0;
+  ulong   wmark      = link->wmark;
+  ulong   chunk_next = link->chunk;
+  uchar * cmsg_next  = ctx->batch_cmsg;
 
   ctx->tx_ptr = ctx->tx_scratch0;
   for( ulong j=0UL; j<STEM_BURST; j++ ) {
@@ -290,8 +306,10 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
       .msg_iovlen     = 1,
       .msg_name       = ctx->batch_sa+j,
       .msg_namelen    = sizeof(struct sockaddr_in),
-      .msg_controllen = 0
+      .msg_control    = cmsg_next,
+      .msg_controllen = FD_SOCK_CMSG_MAX,
     };
+    cmsg_next += FD_SOCK_CMSG_MAX;
     chunk_next = fd_dcache_compact_next( chunk_next, FD_NET_MTU, chunk0, wmark );
   }
   if( FD_UNLIKELY( ctx->tx_ptr > ctx->tx_scratch1 ) ) {
@@ -301,14 +319,38 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
   int msg_cnt = recvmmsg( sock_fd, ctx->batch_msg, STEM_BURST, MSG_DONTWAIT, NULL );
   if( FD_UNLIKELY( msg_cnt<0 ) ) {
     if( FD_LIKELY( errno==EAGAIN ) ) return 0UL;
+    /* unreachable if socket is in a valid state */
     FD_LOG_ERR(( "recvmmsg failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
   long ts = fd_tickcount();
   ctx->metrics.sys_recvmmsg_cnt++;
+
   for( ulong j=0; j<(ulong)msg_cnt; j++ ) {
-    uchar * payload    = ctx->batch_iov[ j ].iov_base;
-    ulong   payload_sz = ctx->batch_msg[ j ].msg_len;
-    struct sockaddr_in * sa = ctx->batch_sa+j;
+    uchar * payload         = ctx->batch_iov[ j ].iov_base;
+    ulong   payload_sz      = ctx->batch_msg[ j ].msg_len;
+    struct sockaddr_in * sa = ctx->batch_msg[ j ].msg_hdr.msg_name;
+    if( FD_UNLIKELY( sa->sin_family!=AF_INET ) ) {
+      /* unreachable */
+      FD_LOG_ERR(( "Received packet with unexpected sin_family %i", sa->sin_family ));
+      continue;
+    }
+
+    long daddr = -1;
+    struct cmsghdr * cmsg = CMSG_FIRSTHDR( &ctx->batch_msg[ j ].msg_hdr );
+    if( FD_LIKELY( cmsg ) ) {
+      do {
+        if( FD_LIKELY( (cmsg->cmsg_level==IPPROTO_IP) &
+                       (cmsg->cmsg_type ==IP_PKTINFO) ) ) {
+          struct in_pktinfo const * pi = (struct in_pktinfo const *)CMSG_DATA( cmsg );
+          daddr = pi->ipi_addr.s_addr;
+        }
+        cmsg = CMSG_NXTHDR( &ctx->batch_msg[ j ].msg_hdr, cmsg );
+      } while( FD_UNLIKELY( cmsg ) ); /* optimize for 1 cmsg */
+    }
+    if( FD_UNLIKELY( daddr<0L ) ) {
+      /* unreachable because IP_PKTINFO was set */
+      FD_LOG_ERR(( "Missing IP_PKTINFO on incoming packet" ));
+    }
 
     ulong          frame_sz   = payload_sz + hdr_sz;
     fd_eth_hdr_t * eth_hdr    = (fd_eth_hdr_t *)( payload-42UL );
@@ -323,7 +365,9 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
       .ttl         = 1,
       .protocol    = FD_IP4_HDR_PROTOCOL_UDP,
     };
+    uint daddr_ = (uint)(ulong)daddr;
     memcpy( ip_hdr->saddr_c, &sa->sin_addr.s_addr, 4 );
+    memcpy( ip_hdr->daddr_c, &daddr_,              4 );
     *udp_hdr = (fd_udp_hdr_t) {
       .net_sport = sa->sin_port,
       .net_dport = (ushort)fd_ushort_bswap( (ushort)dport ),
@@ -331,7 +375,6 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
       .check     = 0
     };
 
-    /* FXIME verify sin_family */
     ctx->metrics.rx_pkt_cnt++;
     ulong chunk = fd_laddr_to_chunk( base, eth_hdr );
     ulong sig   = fd_disco_netmux_sig( sa->sin_addr.s_addr, fd_ushort_bswap( sa->sin_port ), 0U, proto, hdr_sz );
