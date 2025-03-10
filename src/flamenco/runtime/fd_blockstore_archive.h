@@ -8,7 +8,7 @@
    disk. We can remove the rocksdb include once we change the fd_block_t
    serialization member. */
 struct fd_blockstore_ser {
-  fd_block_meta_t * block_map;
+  fd_block_info_t * block_map;
   fd_block_t      * block;
   uchar           * data;
 };
@@ -26,10 +26,10 @@ fd_blockstore_block_checkpt( fd_blockstore_t * blockstore,
 /* Restores a block and block map entry from fd at given offset. As this used by
    rpcserver, it must return an error code instead of throwing an error on failure. */
 int
-fd_blockstore_block_meta_restore( fd_blockstore_archiver_t * archvr,
+fd_blockstore_block_info_restore( fd_blockstore_archiver_t * archvr,
                                   int fd,
                                   fd_block_idx_t * block_idx_entry,
-                                  fd_block_meta_t * block_map_entry_out,
+                                  fd_block_info_t * block_map_entry_out,
                                   fd_block_t * block_out );
 
 /* Reads block data from fd into a given buf. Modifies data_off similarly to
@@ -48,6 +48,6 @@ fd_blockstore_archiver_verify( fd_blockstore_t * blockstore, fd_blockstore_archi
 
 /* Reads from fd a block meta object, and returns the slot number */
 ulong
-fd_blockstore_archiver_lrw_slot( fd_blockstore_t * blockstore, int fd, fd_block_meta_t * lrw_block_meta, fd_block_t * lrw_block );
+fd_blockstore_archiver_lrw_slot( fd_blockstore_t * blockstore, int fd, fd_block_info_t * lrw_block_info, fd_block_t * lrw_block );
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_blockstore_archive_h */

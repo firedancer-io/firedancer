@@ -397,12 +397,12 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
 
         fd_block_map_query_t query[1] = {0};
         int err = fd_block_map_prepare( blockstore->block_map, &block_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
-        fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
+        fd_block_info_t * block_info = fd_block_map_query_ele( query );
 
-        if( FD_UNLIKELY( err || block_map_entry->slot != block_slot ) ) FD_LOG_ERR(( "failed to prepare block map query" ));
+        if( FD_UNLIKELY( err || block_info->slot != block_slot ) ) FD_LOG_ERR(( "failed to prepare block map query" ));
 
-        block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
-        block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_PROCESSED );
+        block_info->flags = fd_uchar_clear_bit( block_info->flags, FD_BLOCK_FLAG_REPLAYING );
+        block_info->flags = fd_uchar_set_bit( block_info->flags, FD_BLOCK_FLAG_PROCESSED );
 
         fd_block_map_publish( query );
 
@@ -416,9 +416,9 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
       /* Mark the new block as replaying */
       fd_block_map_query_t query[1] = {0};
       err = fd_block_map_prepare( blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
-      fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
-      if( FD_UNLIKELY( err || block_map_entry->slot != slot ) ) FD_LOG_ERR(( "failed to prepare block map query" ));
-      block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING );
+      fd_block_info_t * block_info = fd_block_map_query_ele( query );
+      if( FD_UNLIKELY( err || block_info->slot != slot ) ) FD_LOG_ERR(( "failed to prepare block map query" ));
+      block_info->flags = fd_uchar_set_bit( block_info->flags, FD_BLOCK_FLAG_REPLAYING );
       fd_block_map_publish( query );
 
       block_slot = slot;
