@@ -106,7 +106,7 @@ main( int     argc,
     .conn_cnt           = 2,
     .conn_id_cnt        = 4,
     .handshake_cnt      = 10,
-    .inflight_pkt_cnt   = 100,
+    .inflight_pkt_cnt   = 100 * 2,
     .tx_buf_sz          = 1<<15,
     .stream_pool_cnt    = 512
   };
@@ -120,7 +120,7 @@ main( int     argc,
     .conn_id_cnt        = 4,
     .handshake_cnt      = 10,
     .stream_id_cnt      = 20,
-    .inflight_pkt_cnt   = 100,
+    .inflight_pkt_cnt   = 100 * 2,
     .tx_buf_sz          = 1<<15,
     .stream_pool_cnt    = 512
   };
