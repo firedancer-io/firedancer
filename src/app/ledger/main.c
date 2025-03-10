@@ -176,7 +176,7 @@ init_spads( fd_ledger_args_t * args, int has_tpool ) {
 
 static void
 fd_create_snapshot_task( void FD_PARAM_UNUSED *tpool,
-                         ulong t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
+                         ulong t0, ulong t1,
                          void *args FD_PARAM_UNUSED,
                          void *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
                          ulong l0 FD_PARAM_UNUSED, ulong l1 FD_PARAM_UNUSED,

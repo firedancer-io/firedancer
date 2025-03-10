@@ -212,7 +212,6 @@ replay_sham_link_during_frag( fd_geyser_t * ctx, fd_replay_notif_msg_t * state, 
 
 static void
 replay_sham_link_after_frag(fd_geyser_t * ctx, fd_replay_notif_msg_t * msg) {
-  (void)ctx;
   if( msg->type == FD_REPLAY_SLOT_TYPE ) {
     ulong slotn = msg->slot_exec.slot;
     if( ctx->execute_fun != NULL ) {

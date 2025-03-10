@@ -363,7 +363,7 @@ typedef struct fd_acc_mgr_save_task_info fd_acc_mgr_save_task_info_t;
 static void
 fd_acc_mgr_save_task( void *tpool,
                       ulong t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
-                      void *args FD_PARAM_UNUSED,
+                      void *args,
                       void *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
                       ulong l0 FD_PARAM_UNUSED, ulong l1 FD_PARAM_UNUSED,
                       ulong m0, ulong m1 FD_PARAM_UNUSED,

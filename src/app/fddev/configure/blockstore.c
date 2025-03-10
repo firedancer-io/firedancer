@@ -125,10 +125,8 @@ init( config_t * const config ) {
 }
 
 static void
-fini( config_t * const config,
-      int              pre_init ) {
-  (void)pre_init;
-
+fini( config_t * config,
+      int        pre_init FD_PARAM_UNUSED ) {
   DIR * dir = opendir( config->ledger.path );
   if( FD_UNLIKELY( !dir ) ) {
     if( errno == ENOENT ) return;
@@ -165,7 +163,7 @@ fini( config_t * const config,
 }
 
 static configure_result_t
-check( config_t * const config ) {
+check( config_t const * config ) {
   int has_non_genesis = 0;
 
   DIR * dir = opendir( config->ledger.path );

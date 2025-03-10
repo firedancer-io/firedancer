@@ -6,26 +6,24 @@
 #define NAME "netns"
 
 static int
-enabled( config_t * const config ) {
+enabled( config_t const * config ) {
   return config->development.netns.enabled;
 }
 
 static void
 init_perm( fd_caps_ctx_t *  caps,
-           config_t * const config ) {
-  (void)config;
+           config_t const * config FD_PARAM_UNUSED ) {
   fd_caps_check_root( caps, NAME, "create and enter network namespaces" );
 }
 
 static void
 fini_perm( fd_caps_ctx_t *  caps,
-           config_t * const config ) {
-  (void)config;
+           config_t const * config FD_PARAM_UNUSED ) {
   fd_caps_check_root( caps, NAME, "remove network namespaces" );
 }
 
 static void
-init( config_t * const config ) {
+init( config_t * config ) {
   uint tiles              = config->layout.net_tile_count;
   const char * interface0 = config->development.netns.interface0;
   const char * interface1 = config->development.netns.interface1;
@@ -76,10 +74,8 @@ init( config_t * const config ) {
 }
 
 static void
-fini( config_t * const config,
-      int              pre_init ) {
-  (void)pre_init;
-
+fini( config_t * config,
+      int        pre_init FD_PARAM_UNUSED ) {
   const char * interface0 = config->development.netns.interface0;
   const char * interface1 = config->development.netns.interface1;
 
@@ -99,7 +95,7 @@ fini( config_t * const config,
 }
 
 static configure_result_t
-check( config_t * const config ) {
+check( config_t const * config ) {
   const char * interface0 = config->development.netns.interface0;
   const char * interface1 = config->development.netns.interface1;
 

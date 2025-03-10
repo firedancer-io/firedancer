@@ -104,7 +104,6 @@ during_frag_sensitive( void * _ctx,
   (void)seq;
   (void)sig;
   (void)chunk;
-  (void)sz;
 
   fd_sign_ctx_t * ctx = (fd_sign_ctx_t *)_ctx;
   FD_TEST( in_idx<MAX_IN );

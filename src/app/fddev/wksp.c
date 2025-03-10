@@ -5,14 +5,12 @@ void
 initialize_workspaces( config_t * const config );
 
 void
-wksp_cmd_perm( args_t *         args,
+wksp_cmd_perm( args_t *         args FD_PARAM_UNUSED,
                fd_caps_ctx_t *  caps,
-               config_t * const config ) {
-  (void)args;
-
+               config_t const * config ) {
   ulong mlock_limit = 0UL;
   for( ulong i=0UL; i<config->topo.wksp_cnt; i++ ) {
-    fd_topo_wksp_t * wksp = &config->topo.workspaces[ i ];
+    fd_topo_wksp_t const * wksp = &config->topo.workspaces[ i ];
     mlock_limit = fd_ulong_max( mlock_limit, wksp->page_cnt * wksp->page_sz );
   }
   /* One 4K page is used by the logging lock */

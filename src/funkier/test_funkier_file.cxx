@@ -6,8 +6,6 @@ extern "C" {
 #include <stdio.h>
 
 int main(int argc, char** argv) {
-  (void)argc;
-  (void)argv;
   srand(1234);
 
   fake_funk ff(&argc, &argv);

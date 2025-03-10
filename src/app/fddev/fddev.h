@@ -36,20 +36,20 @@ dev_cmd_args( int *    pargc,
 void
 dev_cmd_perm( args_t *         args,
               fd_caps_ctx_t *  caps,
-              config_t * const config );
+              config_t const * config );
 
 void
-dev_cmd_fn( args_t *         args,
-            config_t * const config );
+dev_cmd_fn( args_t *   args,
+            config_t * config );
 
 void
 wksp_cmd_perm( args_t *         args,
                fd_caps_ctx_t *  caps,
-               config_t * const config );
+               config_t const * config );
 
 void
-wksp_cmd_fn( args_t *         args,
-             config_t * const config );
+wksp_cmd_fn( args_t *   args,
+             config_t * config );
 
 void
 dev1_cmd_args( int *    pargc,
@@ -57,13 +57,13 @@ dev1_cmd_args( int *    pargc,
                args_t * args );
 
 void
-dev1_cmd_fn( args_t *         args,
-             config_t * const config );
+dev1_cmd_fn( args_t *   args,
+             config_t * config );
 
 void
 txn_cmd_perm( args_t *         args,
               fd_caps_ctx_t *  caps,
-              config_t * const config );
+              config_t const * config );
 
 void
 txn_cmd_args( int *    pargc,
@@ -71,8 +71,8 @@ txn_cmd_args( int *    pargc,
               args_t * args);
 
 void
-txn_cmd_fn( args_t *         args,
-            config_t * const config );
+txn_cmd_fn( args_t *   args,
+            config_t * config );
 
 void
 bench_cmd_args( int *    pargc,
@@ -80,8 +80,8 @@ bench_cmd_args( int *    pargc,
                 args_t * args);
 
 void
-bench_cmd_fn( args_t *         args,
-              config_t * const config );
+bench_cmd_fn( args_t *   args,
+              config_t * config );
 
 void
 load_cmd_args( int *    pargc,
@@ -91,11 +91,11 @@ load_cmd_args( int *    pargc,
 void
 load_cmd_perm( args_t *         args,
                fd_caps_ctx_t *  caps,
-               config_t * const config );
+               config_t const * config );
 
 void
-load_cmd_fn( args_t *         args,
-             config_t * const config );
+load_cmd_fn( args_t *   args,
+             config_t * config );
 
 void
 dump_cmd_args( int      * argc,
@@ -103,13 +103,13 @@ dump_cmd_args( int      * argc,
                args_t   * args );
 
 void
-dump_cmd_fn( args_t *         args,
-             config_t * const config );
+dump_cmd_fn( args_t *   args,
+             config_t * config );
 
 void
 flame_cmd_perm( args_t *         args,
                 fd_caps_ctx_t *  caps,
-                config_t * const config );
+                config_t const * config );
 
 void
 flame_cmd_args( int *    pargc,

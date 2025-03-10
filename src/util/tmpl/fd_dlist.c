@@ -615,7 +615,7 @@ FD_FN_CONST static inline DLIST_ELE_T *
 DLIST_(iter_ele)( DLIST_(iter_t)    iter,
                   DLIST_(t) const * join,
                   DLIST_ELE_T *     pool ) {
-  (void)join; (void)pool;
+  (void)join;
   return pool + iter;
 }
 
@@ -623,7 +623,7 @@ FD_FN_CONST static inline DLIST_ELE_T const *
 DLIST_(iter_ele_const)( DLIST_(iter_t)      iter,
                         DLIST_(t) const *   join,
                         DLIST_ELE_T const * pool ) {
-  (void)join; (void)pool;
+  (void)join;
   return pool + iter;
 }
 

@@ -266,7 +266,7 @@ fd_bn254_fp2_mul_by_i( fd_bn254_fp2_t * r,
    https://eprint.iacr.org/2010/354, Alg. 8. */
 static inline fd_bn254_fp2_t *
 fd_bn254_fp2_inv( fd_bn254_fp2_t * r,
-                  FD_PARAM_UNUSED fd_bn254_fp2_t const * a ) {
+                  fd_bn254_fp2_t const * a ) {
   fd_bn254_fp_t t0[1], t1[1];
   fd_bn254_fp_sqr( t0, &a->el[0] );
   fd_bn254_fp_sqr( t1, &a->el[1] );

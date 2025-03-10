@@ -1358,8 +1358,6 @@ fd_gui_handle_balance_update( fd_gui_t * gui,
 static void
 fd_gui_handle_start_progress( fd_gui_t *    gui,
                               uchar const * msg ) {
-  (void)gui;
-
   uchar type = msg[ 0 ];
 
   switch (type) {

@@ -125,7 +125,7 @@
      latency for these two threads to communicate (e.g. T_send < T_recv
      is preserved).
 
-   * The range over which the this can be done (i.e. the range of which
+   * The range over which this can be done (i.e. the range of which
      the wallclock can be distributed with good synchronization and
      reasonably cheaply read) is the range over which application
      threads can be distributed.

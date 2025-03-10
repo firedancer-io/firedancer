@@ -325,7 +325,7 @@ fd_account_hash_task( void *tpool,
                       void *reduce FD_PARAM_UNUSED, ulong stride FD_PARAM_UNUSED,
                       ulong l0 FD_PARAM_UNUSED, ulong l1 FD_PARAM_UNUSED,
                       ulong m0, ulong m1 FD_PARAM_UNUSED,
-                      ulong n0 FD_PARAM_UNUSED, ulong n1 FD_PARAM_UNUSED) {
+                      ulong n0, ulong n1 FD_PARAM_UNUSED) {
   fd_accounts_hash_task_info_t * task_info = ((fd_accounts_hash_task_data_t *)tpool)->info + m0;
   fd_exec_slot_ctx_t * slot_ctx = task_info->slot_ctx;
   int err = 0;

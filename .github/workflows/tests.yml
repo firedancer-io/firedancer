@@ -85,6 +85,7 @@ jobs:
             machine: native
             label: 512G
             extras: "no-agave rpath handholding"
+            deps-extras: "+dev"
             targets: "all integration-test fdctl"
             compiler: clang
             compiler-version: 15.0.6
@@ -105,6 +106,7 @@ jobs:
         with:
           compiler: ${{ matrix.compiler }}
           compiler-version: ${{ matrix.compiler-version }}
+          extras: ${{ matrix.deps-extras || '' }}
       - uses: ./.github/actions/hugepages
       - uses: ./.github/actions/cpusonline
       - uses: dtolnay/rust-toolchain@1.73.0
@@ -147,7 +149,7 @@ jobs:
           make run-fuzz-test
 
       - name: run test-vector tests
-        if: ${{ matrix.run-unit-tests }}
+        if: ${{ matrix.run-unit-tests && matrix.test_case == 'native-no-agave' }}
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate

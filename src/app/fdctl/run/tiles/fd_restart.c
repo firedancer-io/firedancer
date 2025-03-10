@@ -1,5 +1,5 @@
-#include "../../../../disco/tiles.h"
 #include "../../../../disco/restart/fd_restart.h"
+#include "../../../../disco/topo/fd_topo.h"
 #include "../../../../disco/topo/fd_pod_format.h"
 #include "../../../../disco/keyguard/fd_keyload.h"
 #include "../../../../funk/fd_funk_filemap.h"
@@ -41,7 +41,7 @@ struct fd_restart_tile_ctx {
   fd_wksp_t *           gossip_in_mem;
   ulong                 gossip_in_chunk0;
   ulong                 gossip_in_wmark;
-  void *                restart_gossip_msg[ FD_RESTART_LINK_BYTES_MAX+sizeof(uint) ];
+  uchar                 restart_gossip_msg[ FD_RESTART_LINK_BYTES_MAX+sizeof(uint) ];
 
   // Store tile output
   fd_frag_meta_t *      store_out_mcache;
@@ -81,7 +81,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 
 static void
 privileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
-                 fd_topo_tile_t * tile FD_PARAM_UNUSED ) {
+                 fd_topo_tile_t * tile ) {
   /* TODO: not launching the restart tile if in_wen_restart is false */
   if( FD_LIKELY( !tile->restart.in_wen_restart ) ) return;
 
@@ -98,8 +98,8 @@ privileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
 }
 
 static void
-unprivileged_init( fd_topo_t      * topo FD_PARAM_UNUSED,
-                   fd_topo_tile_t * tile FD_PARAM_UNUSED ) {
+unprivileged_init( fd_topo_t      * topo,
+                   fd_topo_tile_t * tile ) {
   /* TODO: not launching the restart tile if in_wen_restart is false */
   if( FD_LIKELY( !tile->restart.in_wen_restart ) ) {
     void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
@@ -277,7 +277,12 @@ after_frag( fd_restart_tile_ctx_t * ctx,
     fd_funk_txn_t *   txn_map = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
     fd_funk_txn_t *  funk_txn = fd_funk_txn_query( &ctx->store_xid_msg, txn_map );
     if( FD_UNLIKELY( !funk_txn ) ) {
-      FD_LOG_ERR(( "Wen-restart fails due to NULL funk_txn" ));
+      /* Try again with xid.ul[1] being the slot number instead of the block hash */
+      ctx->store_xid_msg.ul[1] = ctx->restart->heaviest_fork_slot;
+      funk_txn = fd_funk_txn_query( &ctx->store_xid_msg, txn_map );
+      if( FD_UNLIKELY( !funk_txn ) ) {
+        FD_LOG_ERR(( "Wen-restart fails due to NULL funk_txn" ));
+      }
     }
     fd_funk_rec_t const * rec = fd_funk_rec_query( ctx->funk, funk_txn, &id );
     void *                val = fd_funk_val( rec, fd_funk_wksp( ctx->funk ) );

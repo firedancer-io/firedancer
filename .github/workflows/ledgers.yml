@@ -26,6 +26,8 @@ jobs:
           submodules: recursive
 
       - uses: ./.github/actions/deps
+        with:
+          extras: +dev
       - uses: ./.github/actions/cpusonline
       - uses: ./.github/actions/hugepages
         with:
@@ -69,6 +71,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: ./.github/actions/deps
+        with:
+          extras: +dev
       - name: find OBJDIR
         run: |
           echo OBJDIR=$(make help | grep OBJDIR | awk '{print $4}') >> $GITHUB_ENV

@@ -31,7 +31,7 @@ dev_cmd_args( int *    pargc,
 void
 dev_cmd_perm( args_t *         args,
               fd_caps_ctx_t *  caps,
-              config_t * const config ) {
+              config_t const * config ) {
   if( FD_LIKELY( !args->dev.no_configure ) ) {
     args_t configure_args = {
       .configure.command = CONFIGURE_CMD_INIT,

@@ -1699,7 +1699,6 @@ before_frag( fd_poh_ctx_t * ctx,
              ulong          in_idx,
              ulong          seq,
              ulong          sig ) {
-  (void)in_idx;
   (void)seq;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_BANK ) ) {

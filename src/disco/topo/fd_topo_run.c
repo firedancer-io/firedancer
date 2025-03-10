@@ -214,7 +214,6 @@ fd_topo_install_xdp( fd_topo_t * topo ) {
   if( FD_UNLIKELY( !if_idx ) ) FD_LOG_ERR(( "if_nametoindex(%s) failed", net0_tile->net.interface ));
 
   fd_xdp_fds_t xdp_fds = fd_xdp_install( if_idx,
-                                         net0_tile->net.src_ip_addr,
                                          sizeof(udp_port_candidates)/sizeof(udp_port_candidates[0]),
                                          udp_port_candidates,
                                          net0_tile->net.xdp_mode );

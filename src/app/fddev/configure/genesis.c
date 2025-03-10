@@ -267,7 +267,7 @@ fini( config_t * const config,
 }
 
 static configure_result_t
-check( config_t * const config ) {
+check( config_t const * config ) {
   char genesis_path[ PATH_MAX ];
   fd_cstr_printf_check( genesis_path, PATH_MAX, NULL, "%s/genesis.bin", config->ledger.path );
 

@@ -112,8 +112,8 @@ typedef struct {
   uchar        is_diagnostic;  /* 1 implies action should be allowed for prod debugging */
 
   void       (*args)( int * pargc, char *** pargv, args_t * args );
-  void       (*perm)( args_t * args, fd_caps_ctx_t * caps, config_t * const config );
-  void       (*fn  )( args_t * args, config_t * const config );
+  void       (*perm)( args_t * args, fd_caps_ctx_t * caps, config_t const * config );
+  void       (*fn  )( args_t * args, config_t * config );
 } action_t;
 
 ulong
@@ -143,97 +143,32 @@ main1( int     argc,
        char ** _argv );
 
 void FD_FN_SENSITIVE
-generate_keypair( char const *     keyfile,
-                  config_t * const config,
-                  int              use_grnd_random );
+generate_keypair( char const * keyfile,
+                  config_t *   config,
+                  int          use_grnd_random );
 
-void
-configure_cmd_args( int *    pargc,
-                    char *** pargv,
-                    args_t * args );
-void
-configure_cmd_perm( args_t *         args,
-                    fd_caps_ctx_t *  caps,
-                    config_t * const config );
-void
-configure_cmd_fn( args_t *         args,
-                  config_t * const config );
+void configure_cmd_args   ( int * pargc, char *** pargv, args_t * args );
+void run1_cmd_args        ( int * pargc, char *** pargv, args_t * args );
+void monitor_cmd_args     ( int * pargc, char *** pargv, args_t * args );
+void keys_cmd_args        ( int * pargc, char *** pargv, args_t * args );
+void set_identity_cmd_args( int * pargc, char *** pargv, args_t * args );
 
-void
-run_cmd_perm( args_t *         args,
-              fd_caps_ctx_t *  caps,
-              config_t * const config );
+void configure_cmd_perm   ( args_t * args, fd_caps_ctx_t * caps, config_t const * config );
+void run_cmd_perm         ( args_t * args, fd_caps_ctx_t * caps, config_t const * config );
+void monitor_cmd_perm     ( args_t * args, fd_caps_ctx_t * caps, config_t const * config );
+void set_identity_cmd_perm( args_t * args, fd_caps_ctx_t * caps, config_t const * config );
 
-void
-run_cmd_fn( args_t *         args,
-            config_t * const config );
-
-void
-run1_cmd_args( int *    pargc,
-               char *** pargv,
-               args_t * args );
-
-void
-run1_cmd_fn( args_t *         args,
-             config_t * const config );
-
-void
-run_agave_cmd_fn( args_t *         args,
-                  config_t * const config );
-
-void
-monitor_cmd_args( int *    pargc,
-                  char *** pargv,
-                  args_t * args );
-void
-monitor_cmd_perm( args_t *         args,
-                  fd_caps_ctx_t *  caps,
-                  config_t * const config );
-void
-monitor_cmd_fn( args_t *         args,
-                config_t * const config );
-
-void
-keys_cmd_args( int *    pargc,
-               char *** pargv,
-               args_t * args );
-
-void
-keys_cmd_fn( args_t *         args,
-             config_t * const config );
-
-void
-set_identity_cmd_perm( args_t *         args,
-                       fd_caps_ctx_t *  caps,
-                       config_t * const config );
-
-void
-set_identity_cmd_args( int *    pargc,
-                       char *** pargv,
-                       args_t * args );
-
-void
-set_identity_cmd_fn( args_t *         args,
-                     config_t * const config );
-
-void
-ready_cmd_fn( args_t *         args,
-              config_t * const config );
-
-void
-mem_cmd_fn( args_t *         args,
-            config_t * const config );
-
-void
-netconf_cmd_fn( args_t *   args,
-                config_t * config );
-
-void
-help_cmd_fn( args_t *         args,
-             config_t * const config );
-
-void
-version_cmd_fn( args_t *         args,
-                config_t * const config );
+void configure_cmd_fn   ( args_t * args, config_t * config );
+void run_cmd_fn         ( args_t * args, config_t * config );
+void run1_cmd_fn        ( args_t * args, config_t * config );
+void run_agave_cmd_fn   ( args_t * args, config_t * config );
+void monitor_cmd_fn     ( args_t * args, config_t * config );
+void keys_cmd_fn        ( args_t * args, config_t * config );
+void set_identity_cmd_fn( args_t * args, config_t * config );
+void ready_cmd_fn       ( args_t * args, config_t * config );
+void mem_cmd_fn         ( args_t * args, config_t * config );
+void netconf_cmd_fn     ( args_t * args, config_t * config );
+void help_cmd_fn        ( args_t * args, config_t * config );
+void version_cmd_fn     ( args_t * args, config_t * config );
 
 #endif /* HEADER_fd_src_app_fdctl_fdctl_h */

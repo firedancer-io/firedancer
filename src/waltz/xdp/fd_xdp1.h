@@ -10,6 +10,12 @@ struct fd_xdp_fds {
 
 typedef struct fd_xdp_fds fd_xdp_fds_t;
 
+ulong
+fd_xdp_gen_program( ulong          code_buf[ 512 ],
+                    int            xsks_fd,
+                    ushort const * ports,
+                    ulong          ports_cnt );
+
 /* fd_xdp_install installs a BPF program onto the given interface which
    only passes through UDP traffic on the provided ports to rings on an
    XSK map.  The XSK map is created and returned in the fd_xdp_fds_t,
@@ -27,7 +33,6 @@ typedef struct fd_xdp_fds fd_xdp_fds_t;
 
 fd_xdp_fds_t
 fd_xdp_install( uint           if_idx,
-                uint           ip_addr,
                 ulong          ports_cnt,
                 ushort const * ports,
                 char const *   xdp_mode );

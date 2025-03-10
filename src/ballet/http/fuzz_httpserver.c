@@ -221,8 +221,6 @@ void close_callback( ulong conn_id, int reason, void * ctx ) {
 }
 
 fd_http_server_response_t request_callback( fd_http_server_request_t const * request ) {
-    (void)request;
-
     fd_http_server_response_t resp;
     memset(&resp, 0, sizeof(fd_http_server_response_t));
 

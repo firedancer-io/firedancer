@@ -131,9 +131,6 @@ typedef struct {
   fd_keyswitch_t *     keyswitch;
   fd_keyguard_client_t keyguard_client[1];
 
-  uint                 src_ip_addr;
-  uchar                src_mac_addr[ 6 ];
-
   /* shred34 and fec_sets are very related: fec_sets[i] has pointers
      to the shreds in shred34[4*i + k] for k=0,1,2,3. */
   fd_shred34_t       * shred34;
@@ -306,9 +303,6 @@ before_frag( fd_shred_ctx_t * ctx,
              ulong            in_idx,
              ulong            seq,
              ulong            sig ) {
-  (void)ctx;
-  (void)seq;
-
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) ctx->poh_in_expect_seq = seq+1UL;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) )     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED;
@@ -548,6 +542,8 @@ after_frag( fd_shred_ctx_t *    ctx,
   (void)sig;
   (void)sz;
   (void)tsorig;
+
+  if( FD_UNLIKELY( ctx->skip_frag ) ) return;
 
   if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_CONTACT ) ) {
     finalize_new_cluster_contact_info( ctx );
@@ -928,9 +924,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->shred_buffer_sz  = 0UL;
   fd_memset( ctx->shred_buffer, 0xFF, FD_NET_MTU );
-
-  ctx->src_ip_addr = tile->shred.ip_addr;
-  fd_memcpy( ctx->src_mac_addr, tile->shred.src_mac_addr, 6UL );
 
   fd_histf_join( fd_histf_new( ctx->metrics->contact_info_cnt,     FD_MHIST_MIN(         SHRED, CLUSTER_CONTACT_INFO_CNT   ),
                                                                    FD_MHIST_MAX(         SHRED, CLUSTER_CONTACT_INFO_CNT   ) ) );

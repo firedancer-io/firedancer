@@ -2,11 +2,10 @@
 
 #define NAME "hyperthreads"
 
-#include "../../../disco/topo/fd_topob.h"
 #include "../../../disco/topo/fd_cpu_topo.h"
 
 ulong
-determine_ht_pair( config_t * const       config,
+determine_ht_pair( config_t const *       config,
                    fd_topo_cpus_t const * cpus,
                    char const *           kind,
                    ulong                  kind_id ) {
@@ -19,7 +18,7 @@ determine_ht_pair( config_t * const       config,
 }
 
 static int
-determine_cpu_used( config_t * const config,
+determine_cpu_used( config_t const * config,
                     ulong            cpu_idx ) {
   if( FD_UNLIKELY( cpu_idx==ULONG_MAX ) ) return 0;
 
@@ -32,7 +31,7 @@ determine_cpu_used( config_t * const config,
 }
 
 static configure_result_t
-check( config_t * const config ) {
+check( config_t const * config ) {
   static int has_warned = 0;
 
   fd_topo_cpus_t cpus[1];

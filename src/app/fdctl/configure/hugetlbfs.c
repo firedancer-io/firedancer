@@ -8,16 +8,14 @@
 
 static void
 init_perm( fd_caps_ctx_t *  caps,
-           config_t * const config ) {
-  (void)config;
+           config_t const * config FD_PARAM_UNUSED ) {
   fd_caps_check_root( caps, "hugetlbfs", "increase `/proc/sys/vm/nr_hugepages`" );
   fd_caps_check_capability( caps, "hugetlbfs", CAP_SYS_ADMIN, "mount hugetlbfs filesystems" );
 }
 
 static void
 fini_perm( fd_caps_ctx_t *  caps,
-           config_t * const config ) {
-  (void)config;
+           config_t const * config FD_PARAM_UNUSED ) {
   fd_caps_check_root( caps, "hugetlbfs", "remove directories from `/mnt`" );
   fd_caps_check_capability( caps, "hugetlbfs", CAP_SYS_ADMIN, "unmount hugetlbfs filesystems" );
 }
@@ -262,7 +260,7 @@ fini( config_t * const config,
 }
 
 static configure_result_t
-check( config_t * const config ) {
+check( config_t const * config ) {
   char const * mount_path[ 2 ] = {
     config->hugetlbfs.huge_page_mount_path,
     config->hugetlbfs.gigantic_page_mount_path,

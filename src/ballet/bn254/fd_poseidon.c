@@ -32,9 +32,9 @@ fd_poseidon_apply_sbox_partial( fd_bn254_scalar_t state[] ) {
 }
 
 static inline void
-fd_poseidon_apply_mds( FD_FN_UNUSED fd_bn254_scalar_t   state[],
-                       FD_FN_UNUSED ulong const       width,
-                       FD_FN_UNUSED fd_poseidon_par_t const * params ) {
+fd_poseidon_apply_mds( fd_bn254_scalar_t   state[],
+                       ulong const       width,
+                       fd_poseidon_par_t const * params ) {
   fd_bn254_scalar_t x[FD_POSEIDON_MAX_WIDTH+1] = { 0 };
   /* Vector-matrix multiplication (state vector times mds matrix) */
   for( ulong i=0; i<width; i++ ) {

@@ -19,11 +19,9 @@ static ulong g_stream_notify = 0UL;
 #define MAX_TXN_COUNT 128
 
 void
-txn_cmd_perm( args_t *         args,
+txn_cmd_perm( args_t *         args FD_PARAM_UNUSED,
               fd_caps_ctx_t *  caps,
-              config_t * const config ) {
-  (void)args;
-
+              config_t const * config ) {
   if( FD_UNLIKELY( config->development.netns.enabled ) )
     fd_caps_check_capability( caps, "txn", CAP_SYS_ADMIN, "enter a network namespace by calling `setns(2)`" );
 }

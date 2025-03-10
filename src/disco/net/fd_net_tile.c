@@ -177,7 +177,6 @@ typedef struct {
   /* Ring tracking free packet buffers */
   fd_net_free_ring_t free_tx;
 
-  uint   src_ip_addr;
   uchar  src_mac_addr[6];
 
   ushort shred_listen_port;
@@ -854,8 +853,6 @@ static void
 before_credit( fd_net_ctx_t *      ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
-  (void)stem;
-
   /* A previous send attempt was overrun.  A corrupt copy of the packet was
      placed into an XDP frame, but the frame was not yet submitted to the
      TX ring.  Return the tx buffer to the free list. */
@@ -939,9 +936,7 @@ net_xsk_bootstrap( fd_net_ctx_t * ctx,
       |    |
       |    +-> XDP program <-- BPF_PROG file descriptor (prog_fd)
       |
-      +-> XSKMAP object <-- BPF_MAP file descriptor (xsk_map)
-      |
-      +-> BPF_MAP object <-- BPF_MAP file descriptor (udp_dsts) */
+      +-> XSKMAP object <-- BPF_MAP file descriptor (xsk_map) */
 
 static void
 privileged_init( fd_topo_t *      topo,
@@ -1043,7 +1038,6 @@ privileged_init( fd_topo_t *      topo,
 
     /* FIXME move this to fd_topo_run */
     fd_xdp_fds_t lo_fds = fd_xdp_install( lo_idx,
-                                          tile->net.src_ip_addr,
                                           sizeof(udp_port_candidates)/sizeof(udp_port_candidates[0]),
                                           udp_port_candidates,
                                           "skb" );
@@ -1077,7 +1071,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_tile_id  = (uint)tile->kind_id;
   ctx->net_tile_cnt = (uint)fd_topo_tile_name_cnt( topo, tile->name );
 
-  ctx->src_ip_addr = tile->net.src_ip_addr;
   memcpy( ctx->src_mac_addr, tile->net.src_mac_addr, 6UL );
 
   ctx->shred_listen_port              = tile->net.shred_listen_port;

@@ -174,8 +174,6 @@ static void
 quic_stream_notify( fd_quic_stream_t * stream,
                     void *             stream_ctx,
                     int                type ) {
-  (void)stream;
-  (void)stream_ctx;
   (void)type;
 
   fd_benchs_ctx_t * ctx = (fd_benchs_ctx_t*)stream_ctx;
@@ -259,7 +257,6 @@ populate_quic_config( fd_quic_config_t * config ) {
 
 static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
-  (void)tile;
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_benchs_ctx_t ), sizeof( fd_benchs_ctx_t ) );
   if( !tile->benchs.no_quic ) {
@@ -560,11 +557,6 @@ quic_tx_aio_send( void *                    _ctx,
                   ulong                     batch_cnt,
                   ulong *                   opt_batch_idx,
                   int                       flush ) {
-  (void)batch;
-  (void)batch_cnt;
-  (void)opt_batch_idx;
-  (void)flush;
-
   fd_benchs_ctx_t * ctx = _ctx;
 
   /* quic adds ip and udp headers which we don't need */

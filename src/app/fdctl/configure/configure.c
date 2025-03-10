@@ -50,7 +50,7 @@ configure_cmd_args( int *    pargc,
 void
 configure_cmd_perm( args_t *         args,
                     fd_caps_ctx_t *  caps,
-                    config_t * const config ) {
+                    config_t const * config ) {
   for( configure_stage_t ** stage = args->configure.stages; *stage; stage++ ) {
     switch( args->configure.command ) {
       case CONFIGURE_CMD_INIT: {

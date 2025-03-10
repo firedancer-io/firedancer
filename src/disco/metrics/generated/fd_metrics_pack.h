@@ -168,7 +168,7 @@
 #define FD_METRICS_COUNTER_PACK_DATA_PER_BLOCK_LIMIT_OFF  (163UL)
 #define FD_METRICS_COUNTER_PACK_DATA_PER_BLOCK_LIMIT_NAME "pack_data_per_block_limit"
 #define FD_METRICS_COUNTER_PACK_DATA_PER_BLOCK_LIMIT_TYPE (FD_METRICS_TYPE_COUNTER)
-#define FD_METRICS_COUNTER_PACK_DATA_PER_BLOCK_LIMIT_DESC "The number of times pack did not pack a microblock because it reached reached the data per block limit at the start of trying to schedule a microblock"
+#define FD_METRICS_COUNTER_PACK_DATA_PER_BLOCK_LIMIT_DESC "The number of times pack did not pack a microblock because it reached the data per block limit at the start of trying to schedule a microblock"
 #define FD_METRICS_COUNTER_PACK_DATA_PER_BLOCK_LIMIT_CVT  (FD_METRICS_CONVERTER_NONE)
 
 #define FD_METRICS_COUNTER_PACK_TRANSACTION_SCHEDULE_OFF  (164UL)
