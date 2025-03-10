@@ -18,6 +18,7 @@
 #include "fd_metrics_storei.h"
 #include "fd_metrics_gossip.h"
 #include "fd_metrics_netlnk.h"
+#include "fd_metrics_cswtch.h"
 /* Start of LINK OUT metrics */
 
 #define FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF  (0UL)
