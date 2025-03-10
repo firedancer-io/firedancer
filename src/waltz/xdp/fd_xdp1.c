@@ -48,7 +48,7 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
   *(code++) = FD_EBPF( add64_imm, r4, 42       );
   *(code++) = FD_EBPF( jgt_reg, r4, r3, +1     );  // if r2+42 > r3 goto lbl_pass
   *(code++) = FD_EBPF( ldxh, r5, r2, 12        );
-  *(code++) = FD_EBPF( jne_imm, r5, 0x0800, +1 );  // if eth_hdr->net_type != IP4 goto lbl_pass
+  *(code++) = FD_EBPF( jne_imm, r5, 0x0008, +1 );  // if eth_hdr->net_type != IP4 goto lbl_pass
   *(code++) = FD_EBPF( ldxb, r5, r2, 23        );
   *(code++) = FD_EBPF( jne_imm, r5, 17, +1     );  // if ip4_hdr->protocol != UDP goto lbl_pass
   *(code++) = FD_EBPF( ldxb, r5, r2, 14        );

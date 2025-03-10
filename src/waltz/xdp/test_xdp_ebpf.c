@@ -7,10 +7,14 @@
 
 #define _DEFAULT_SOURCE
 #include <errno.h>
+#include <stdio.h>
 #include <unistd.h>
 #include <sys/socket.h>
 
 #include "../../util/fd_util.h"
+#include "../../util/net/fd_eth.h"
+#include "../../util/net/fd_ip4.h"
+#include "../../util/net/fd_udp.h"
 #include "../ebpf/fd_linux_bpf.h"
 #include "fd_xdp1.h"
 
@@ -21,20 +25,6 @@ int xsks_fd     = -1; /* Queue-to-XSK map */
 int xsk_fd      = -1; /* AF_XDP socket */
 
 /* Test harness *******************************************************/
-
-typedef struct { ulong k; int v; } fd_udp_dst_kv_t;
-
-struct fd_xdp_redirect_test {
-  /* Input ****************/
-  char const * name;
-
-  uchar const * packet;    /* Packet content (starting at Ethernet) */
-  ulong const * packet_sz; /* Pointer to size */
-
-  /* Output ***************/
-  uint xdp_action;
-};
-typedef struct fd_xdp_redirect_test fd_xdp_redirect_test_t;
 
 static int
 fd_bpf_map_clear( int map_fd ) {
@@ -56,11 +46,15 @@ fd_bpf_map_clear( int map_fd ) {
 
   return 0;
 }
+
 static void
-fd_run_xdp_redirect_test( fd_xdp_redirect_test_t const * test ) {
+prog_test( uchar const * pkt,
+           ulong         pkt_sz,
+           char const *  name,
+           uint          expected_action ) {
   fd_bpf_map_clear( xsks_fd );
 
-# define FD_XDP_TEST(c) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ERR(( "FAIL (%s): %s", test->name, #c )); } while(0)
+# define FD_XDP_TEST(c) do { if( FD_UNLIKELY( !(c) ) ) FD_LOG_ERR(( "FAIL (%s): %s", name, #c )); } while(0)
 
   /* Hook up to XSK */
   int rx_queue = 0;
@@ -69,15 +63,15 @@ fd_run_xdp_redirect_test( fd_xdp_redirect_test_t const * test ) {
   union bpf_attr attr = {
     .test = {
       .prog_fd      = (uint)prog_fd,
-      .data_in      = (ulong)test->packet,
-      .data_size_in = (uint)*test->packet_sz
+      .data_in      = (ulong)pkt,
+      .data_size_in = (uint)pkt_sz
     }
   };
   FD_XDP_TEST( 0==bpf( BPF_PROG_TEST_RUN, &attr, sizeof(union bpf_attr) ) );
 
-  FD_LOG_INFO(( "bpf test %s returned %#x", test->name, attr.test.retval ));
+  FD_LOG_INFO(( "bpf test %s returned %#x", name, attr.test.retval ));
 
-  FD_XDP_TEST( attr.test.retval == test->xdp_action );
+  FD_XDP_TEST( attr.test.retval == expected_action );
 
 # undef FD_XDP_TEST
 }
@@ -93,29 +87,12 @@ FD_IMPORT_BINARY( icmp_echo_reply, "src/waltz/xdp/fixtures/icmp_echo_reply.bin" 
 FD_IMPORT_BINARY( icmp_echo,       "src/waltz/xdp/fixtures/icmp_echo.bin"       );
 FD_IMPORT_BINARY( dns_query_a,     "src/waltz/xdp/fixtures/dns_query_a.bin"     );
 FD_IMPORT_BINARY( tcp_rst,         "src/waltz/xdp/fixtures/tcp_rst.bin"         );
-
 FD_IMPORT_BINARY( quic_initial,    "src/waltz/xdp/fixtures/quic_initial.bin"    );
 
-fd_xdp_redirect_test_t tests[] = {
-  /* Ensure that program sets XDP_PASS on common packet types that are
-     not part of the Firedancer application layer. */
-  #define TEST(x) .name = #x , .packet = x , .packet_sz = &x##_sz,
+#define PORT0 8001
+#define PORT1 9090
 
-  { TEST( tcp_syn         ) .xdp_action = XDP_PASS },
-  { TEST( tcp_ack         ) .xdp_action = XDP_PASS },
-  { TEST( tcp_syn_ack     ) .xdp_action = XDP_PASS },
-  { TEST( arp_request     ) .xdp_action = XDP_PASS },
-  { TEST( arp_reply       ) .xdp_action = XDP_PASS },
-  { TEST( icmp_echo_reply ) .xdp_action = XDP_PASS },
-  { TEST( icmp_echo       ) .xdp_action = XDP_PASS },
-  { TEST( dns_query_a     ) .xdp_action = XDP_PASS },
-  { TEST( tcp_rst         ) .xdp_action = XDP_PASS },
-
-  { TEST( quic_initial    ) .xdp_action = XDP_REDIRECT },
-
-  #undef TEST
-  {0}
-};
+#define USHORT_BSWAP( v ) ((ushort)(((v>>8)|(v<<8))))
 
 int main( int     argc,
           char ** argv ) {
@@ -143,9 +120,9 @@ int main( int     argc,
 
   /* Link program */
 
-  ushort ports[1] = {8001};
+  ushort ports[2] = { PORT0, PORT1 };
   ulong code_buf[ 512 ];
-  ulong code_cnt = fd_xdp_gen_program( code_buf, xsks_fd, ports, 1UL );
+  ulong code_cnt = fd_xdp_gen_program( code_buf, xsks_fd, ports, 2UL );
 
   /* Load object into kernel */
 
@@ -179,8 +156,80 @@ int main( int     argc,
 
   /* Run tests */
 
-  for( fd_xdp_redirect_test_t * t=tests; t->packet; t++ )
-    fd_run_xdp_redirect_test( t );
+  union {
+    uchar b[ 42 ];
+    struct __attribute__((packed)) {
+      fd_eth_hdr_t eth;
+      fd_ip4_hdr_t ip4;
+      fd_udp_hdr_t udp;
+    };
+  } m = {
+    .eth = { .net_type = USHORT_BSWAP( FD_ETH_HDR_TYPE_IP ) },
+    .ip4 = { .verihl = 0x45, .protocol = FD_IP4_HDR_PROTOCOL_UDP },
+    .udp = { .net_dport = 0 }
+  };
+
+  /* Check UDP dest port */
+  for( uint port=0; port<65536; port++ ) {
+    uint expect = XDP_PASS;
+    if( port==PORT0 ) expect = XDP_REDIRECT;
+    if( port==PORT1 ) expect = XDP_REDIRECT;
+    m.udp.net_dport = (ushort)fd_ushort_bswap( (ushort)port );
+    char test_name[ 16 ];
+    snprintf( test_name, sizeof(test_name), "udp_dport_%u", port );
+    prog_test( m.b, sizeof(m), test_name, expect );
+  }
+  m.udp.net_dport = USHORT_BSWAP( PORT0 );
+
+  /* Check IPv4 proto field */
+  prog_test( m.b, sizeof(m), "sanity", XDP_REDIRECT );
+  m.ip4.protocol = FD_IP4_HDR_PROTOCOL_ICMP;
+  prog_test( m.b, sizeof(m), "icmp", XDP_PASS );
+  m.ip4.protocol = FD_IP4_HDR_PROTOCOL_TCP;
+  prog_test( m.b, sizeof(m), "tcp", XDP_PASS );
+  m.ip4.protocol = FD_IP4_HDR_PROTOCOL_UDP;
+
+  /* Check Ethertype */
+  prog_test( m.b, sizeof(m), "sanity", XDP_REDIRECT );
+  for( uint ethertype=0; ethertype<65536; ethertype++ ) {
+    uint expect = XDP_PASS;
+    if( ethertype==FD_ETH_HDR_TYPE_IP ) expect = XDP_REDIRECT;
+    m.eth.net_type = (ushort)fd_ushort_bswap( (ushort)ethertype );
+    char test_name[ 16 ];
+    snprintf( test_name, sizeof(test_name), "ethertype_%04x", fd_ushort_bswap( (ushort)ethertype ) );
+    prog_test( m.b, sizeof(m), test_name, expect );
+  }
+  m.eth.net_type = USHORT_BSWAP( FD_ETH_HDR_TYPE_IP );
+  prog_test( m.b, sizeof(m), "sanity", XDP_REDIRECT );
+
+  /* Check IHL */
+  union {
+    uchar b[ 46 ];
+    struct __attribute__((packed)) {
+      fd_eth_hdr_t eth;
+      fd_ip4_hdr_t ip4;
+      uint         ip4_opt;
+      fd_udp_hdr_t udp;
+    };
+  } m1 = {
+    .eth = { .net_type = USHORT_BSWAP( FD_ETH_HDR_TYPE_IP ) },
+    .ip4 = { .verihl = 0x46, .protocol = FD_IP4_HDR_PROTOCOL_UDP },
+    .udp = { .net_dport = USHORT_BSWAP( PORT0 ) }
+  };
+  prog_test( m1.b, sizeof(m1), "ihl6", XDP_REDIRECT );
+
+# define TEST_FIXTURE(name) name, name##_sz, #name
+  prog_test( TEST_FIXTURE( tcp_syn         ), XDP_PASS );
+  prog_test( TEST_FIXTURE( tcp_ack         ), XDP_PASS );
+  prog_test( TEST_FIXTURE( tcp_syn_ack     ), XDP_PASS );
+  prog_test( TEST_FIXTURE( arp_request     ), XDP_PASS );
+  prog_test( TEST_FIXTURE( arp_reply       ), XDP_PASS );
+  prog_test( TEST_FIXTURE( icmp_echo_reply ), XDP_PASS );
+  prog_test( TEST_FIXTURE( icmp_echo       ), XDP_PASS );
+  prog_test( TEST_FIXTURE( dns_query_a     ), XDP_PASS );
+  prog_test( TEST_FIXTURE( tcp_rst         ), XDP_PASS );
+  prog_test( TEST_FIXTURE( quic_initial    ), XDP_REDIRECT );
+# undef TEST_FIXTURE
 
   /* Clean up */
 
