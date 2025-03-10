@@ -872,16 +872,6 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
 void
 fd_blockstore_shred_remove( fd_blockstore_t * blockstore, ulong slot, uint idx );
 
-/* fd_blockstore_slice_poll polls for a new block slice for `slot` that
-   is available for querying.  Returns 0 if no slice is available or the
-   slot is not found, otherwise the start_idx and end_idx of the slice.
-
-   The start_idx and end_idx are encoded as a ulong where the 32 msb
-   are the start_idx and the 32 lsb are the end_idx. */
-
-ulong
-fd_blockstore_slice_poll( fd_blockstore_t * blockstore, ulong slot );
-
 /* fd_blockstore_slice_query queries for the block slice beginning from
    shred `idx`.  Copies at most `max` bytes of the shred payloads
    consecutively from `idx` until the first {DATA, SLOT}_COMPLETES.

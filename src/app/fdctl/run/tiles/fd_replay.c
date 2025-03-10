@@ -481,6 +481,61 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
   }
 }
 
+/* Polls the blockstore block info object for newly completed slices of
+   slot. Adds it to the tail of slice_deque (which should be the
+   slice_deque object of the slot, slice_map[slot]) */
+
+int
+slice_poll( fd_replay_tile_ctx_t * ctx,
+            fd_replay_slice_t    * slice_deque,
+            ulong slot ) {
+  uint consumed_idx, slices_added;
+  for(;;) { /* speculative query */
+    fd_block_map_query_t query[1] = { 0 };
+    int err = fd_block_map_query_try( ctx->blockstore->block_map, &slot, NULL, query, 0 );
+    fd_block_info_t * block_info = fd_block_map_query_ele( query );
+
+    if( FD_UNLIKELY( err == FD_MAP_ERR_KEY   ) ) return 0;
+    if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
+
+    consumed_idx = block_info->consumed_idx;
+    FD_LOG_INFO(( "round of adding slices for slot %lu consumed_idx: %u, buffered_idx: %u", slot, consumed_idx, block_info->buffered_idx ));
+    slices_added = 0;
+
+    if( FD_UNLIKELY( block_info->buffered_idx == UINT_MAX ) ) return 1;
+
+    for( uint idx = consumed_idx + 1; idx <= block_info->buffered_idx; idx++ ) {
+      if( FD_UNLIKELY( fd_block_set_test( block_info->data_complete_idxs, idx ) ) ) {
+        slices_added++;
+        fd_replay_slice_deque_push_tail( slice_deque->deque, ((ulong)(consumed_idx + 1) << 32) | ((ulong)idx) );
+        FD_LOG_INFO(( "adding slice replay: slot %lu, slice start: %u, slice end: %u", slot, consumed_idx + 1, idx ));
+        if ( ( consumed_idx + 1 > 0 && !fd_block_set_test( block_info->data_complete_idxs, consumed_idx ))
+            || consumed_idx + 1 > block_info->slot_complete_idx
+            || !fd_block_set_test( block_info->data_complete_idxs, idx ) ) {
+          __asm__("int $3");
+        }
+        consumed_idx = idx;
+      }
+    }
+    if( FD_UNLIKELY( fd_block_map_query_test( query ) == FD_MAP_SUCCESS ) ) break;
+    /* need to dequeue and try again speculatively */
+    for( uint i = 0; i < slices_added; i++ ) {
+      fd_replay_slice_deque_pop_tail( slice_deque->deque );
+    }
+  }
+
+  if( slices_added ){
+    fd_block_map_query_t query[1] = { 0 };
+    fd_block_map_prepare( ctx->blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+    fd_block_info_t * block_info = fd_block_map_query_ele( query );
+    block_info->consumed_idx = consumed_idx;
+    fd_block_map_publish( query );
+    FD_LOG_INFO(( "published consumed_idx: %u for slot %lu", consumed_idx, slot ));
+    return 1;
+  }
+  return 0;
+}
+
 static int
 before_frag( fd_replay_tile_ctx_t * ctx,
              ulong                  in_idx,
@@ -517,40 +572,7 @@ before_frag( fd_replay_tile_ctx_t * ctx,
 
       FD_LOG_INFO(( "removing FEC set %u from slot %lu", fec_set_idx, slot ));
       fd_replay_fec_remove( ctx->replay, slot, fec_set_idx );
-
-      uint consumed_idx, end_idx;
-      for(;;) { /* speculative query */
-        fd_block_map_query_t query[1] = { 0 };
-        int err = fd_block_map_query_try( ctx->blockstore->block_map, &slot, NULL, query, 0 );
-        fd_block_info_t * block_info = fd_block_map_query_ele( query );
-
-        if( FD_UNLIKELY( err == FD_MAP_ERR_KEY   ) ) return 0;
-        if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
-
-        consumed_idx = block_info->consumed_idx;
-        end_idx      = block_info->consumed_idx + 1;
-        uint slices_added = 0;
-        for( uint idx = block_info->consumed_idx + 1; idx <= block_info->buffered_idx; idx++ ) {
-          if( FD_UNLIKELY( fd_block_set_test( block_info->data_complete_idxs, idx ) ) ) {
-            end_idx = idx;
-            slices_added++;
-            fd_replay_slice_deque_push_tail( slice_deque->deque, ((ulong)(consumed_idx + 1) << 32) | ((ulong)end_idx) );
-            FD_LOG_INFO(( "adding slice replay: slot %lu, slice start: %u, slice end: %u", slot, consumed_idx + 1, end_idx ));
-            consumed_idx = idx;
-          }
-        }
-        if( FD_UNLIKELY( fd_block_map_query_test( query ) == FD_MAP_SUCCESS ) ) break;
-        /* need to dequeue and try again speculatively */
-        for( uint i = 0; i < slices_added; i++ ) {
-          fd_replay_slice_deque_pop_tail( slice_deque->deque );
-        }
-      }
-
-      fd_block_map_query_t query[1] = { 0 };
-      fd_block_map_prepare( ctx->blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
-      fd_block_info_t * block_info = fd_block_map_query_ele( query );
-      block_info->consumed_idx = end_idx;
-      fd_block_map_publish( query );
+      slice_poll( ctx, slice_deque, slot );
       return 1; /* skip frag */
     }
 
@@ -1705,8 +1727,6 @@ exec_slices( fd_replay_tile_ctx_t * ctx,
      have txns to execute, start from wmark, pausing everytime we hit
      the microblock boundaries. */
 
-  FD_LOG_INFO(("exec_slices %lu - is shreds complete %d", slot, fd_blockstore_shreds_complete( ctx->blockstore, slot ) ));
-
   fd_replay_slice_t * slice = fd_replay_slice_map_query( ctx->replay->slice_map, slot, NULL );
   if( !slice ) {
     slice = fd_replay_slice_map_insert( ctx->replay->slice_map, slot );
@@ -1721,44 +1741,7 @@ exec_slices( fd_replay_tile_ctx_t * ctx,
 
   if( ctx->last_completed_slot != slot && fd_replay_slice_deque_cnt( slice->deque ) == 0 ) {
     FD_LOG_INFO(( "Failed to query slice deque for slot %lu. Likely shreds were recieved through repair. Manually adding.", slot ));
-
-    uint end_idx, consumed_idx, slices_added;
-    for(;;) { /* speculative query */
-      fd_block_map_query_t query[1] = { 0 };
-      int err = fd_block_map_query_try( ctx->blockstore->block_map, &slot, NULL, query, 0 );
-      fd_block_info_t * block_info = fd_block_map_query_ele( query );
-
-      if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) {
-        FD_LOG_WARNING(( "Failed to query block map %lu, not executing", slot ));
-        return;
-      }
-      if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
-
-      consumed_idx = block_info->consumed_idx;
-      end_idx      = block_info->consumed_idx + 1;
-      slices_added = 0;
-      for( uint idx = consumed_idx + 1; idx <= block_info->buffered_idx; idx++ ) {
-        if( FD_UNLIKELY( fd_block_set_test( block_info->data_complete_idxs, idx ) ) ) {
-          end_idx = idx;
-          slices_added++;
-          fd_replay_slice_deque_push_tail( slice->deque, ((ulong)(consumed_idx + 1) << 32) | ((ulong)end_idx) );
-          consumed_idx = end_idx;
-        }
-      }
-      if( FD_UNLIKELY( fd_block_map_query_test( query ) == FD_MAP_SUCCESS ) ) break;
-      /* need to dequeue and try again speculatively */
-      for( uint i = 0; i < slices_added; i++ ) {
-        fd_replay_slice_deque_pop_tail( slice->deque );
-      }
-    }
-    //FD_LOG_WARNING(("Added %lu slices to slice deque for slot %lu", fd_replay_slice_deque_cnt( slice->deque ), slot ));
-    if( slices_added ) {
-      fd_block_map_query_t query[1] = { 0 };
-      fd_block_map_prepare( ctx->blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
-      fd_block_info_t * block_info = fd_block_map_query_ele( query );
-      block_info->consumed_idx = consumed_idx;
-      fd_block_map_publish( query );
-    }
+    slice_poll( ctx, slice, slot );
   }
 
   //ulong free_exec_tiles = ctx->exec_cnt;
@@ -1850,16 +1833,15 @@ exec_slices( fd_replay_tile_ctx_t * ctx,
       break; /* have to synchronize & wait for exec tiles to finish the prev microblock */
     }
 
-    /* If the current batch is complete, and we still have batches to
-       read. */
+    /* The prev batch is complete, but we have more batches to read. */
 
-    if( ctx->slice_exec_ctx.mblks_rem == 0 && !ctx->slice_exec_ctx.last_batch ){
+    if( ctx->slice_exec_ctx.mblks_rem == 0 && !ctx->slice_exec_ctx.last_batch ) {
 
       /* Waiting on batches to arrive from the shred tile */
 
-      if ( fd_replay_slice_deque_cnt( slice->deque ) == 0 ) break;
+      if( fd_replay_slice_deque_cnt( slice->deque ) == 0 ) break;
 
-      if ( ctx->slice_exec_ctx.sz == 0 ) {
+      if( FD_UNLIKELY( ctx->slice_exec_ctx.sz == 0 ) ) { /* I think maybe can move this out when */
         FD_LOG_NOTICE(("Preparing first batch execution of slot %lu", slot ));
         prepare_first_batch_execution( ctx, stem );
       }
@@ -1897,48 +1879,54 @@ exec_slices( fd_replay_tile_ctx_t * ctx,
       ctx->slice_exec_ctx.mblks_rem = FD_LOAD( ulong, ctx->mbatch + ctx->slice_exec_ctx.sz );
       ctx->slice_exec_ctx.wmark = ctx->slice_exec_ctx.sz + sizeof(ulong);
       ctx->slice_exec_ctx.sz += slice_sz;
-      if ( free_exec_tiles == ctx->exec_cnt ) continue;
+      if ( free_exec_tiles == 512 ) continue;
       break;
-   }
-
-   if( ctx->slice_exec_ctx.last_batch && ctx->slice_exec_ctx.mblks_rem == 0 && ctx->slice_exec_ctx.txns_rem == 0 ){
-     FD_LOG_WARNING(( "[%s] BLOCK EXECUTION COMPLETE", __func__ ));
-
-      /* At this point, the entire block has been executed. */
-      fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier,
-                                                     &slot,
-                                                     NULL,
-                                                     ctx->forks->pool );
-      if( FD_UNLIKELY( !fork ) ) {
-        FD_LOG_ERR(( "Unable to select a fork" ));
-      }
-
-      fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t*)fd_type_pun( ctx->mbatch + ctx->slice_exec_ctx.last_mblk_off );
-
-      // Copy block hash to slot_bank poh for updating the sysvars
-      fd_block_map_query_t query[1] = { 0 };
-      fd_block_map_prepare( ctx->blockstore->block_map, &ctx->curr_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
-      fd_block_info_t * block_info = fd_block_map_query_ele( query );
-
-      memcpy( fork->slot_ctx.slot_bank.poh.uc, hdr->hash, sizeof(fd_hash_t) );
-      block_info->flags = fd_uchar_set_bit( block_info->flags, FD_BLOCK_FLAG_PROCESSED );
-      FD_COMPILER_MFENCE();
-      block_info->flags = fd_uchar_clear_bit( block_info->flags, FD_BLOCK_FLAG_REPLAYING );
-      memcpy( &block_info->block_hash, hdr->hash, sizeof(fd_hash_t) );
-      memcpy( &block_info->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof(fd_hash_t) );
-
-      fd_block_map_publish( query );
-      ctx->flags = fd_disco_replay_old_sig( slot, REPLAY_FLAG_FINISHED_BLOCK );
-
-      ctx->slice_exec_ctx.last_batch = 0;
-      ctx->slice_exec_ctx.txns_rem = 0;
-      ctx->slice_exec_ctx.mblks_rem = 0;
-      ctx->slice_exec_ctx.sz = 0;
-      ctx->slice_exec_ctx.wmark = 0;
-      ctx->slice_exec_ctx.last_mblk_off = 0;
+    }
+    
+    if( FD_UNLIKELY( ctx->slice_exec_ctx.last_batch &&
+                     ctx->slice_exec_ctx.mblks_rem == 0 &&
+                     ctx->slice_exec_ctx.txns_rem == 0 ) ) {
+      /* block done. */
       break;
-   }
- }
+    }
+  }
+
+  if( ctx->slice_exec_ctx.last_batch && ctx->slice_exec_ctx.mblks_rem == 0 && ctx->slice_exec_ctx.txns_rem == 0 ){
+    FD_LOG_WARNING(( "[%s] BLOCK EXECUTION COMPLETE", __func__ ));
+
+     /* At this point, the entire block has been executed. */
+     fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier,
+                                                    &slot,
+                                                    NULL,
+                                                    ctx->forks->pool );
+     if( FD_UNLIKELY( !fork ) ) {
+       FD_LOG_ERR(( "Unable to select a fork" ));
+     }
+
+     fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t*)fd_type_pun( ctx->mbatch + ctx->slice_exec_ctx.last_mblk_off );
+
+     // Copy block hash to slot_bank poh for updating the sysvars
+     fd_block_map_query_t query[1] = { 0 };
+     fd_block_map_prepare( ctx->blockstore->block_map, &ctx->curr_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+     fd_block_info_t * block_info = fd_block_map_query_ele( query );
+
+     memcpy( fork->slot_ctx.slot_bank.poh.uc, hdr->hash, sizeof(fd_hash_t) );
+     block_info->flags = fd_uchar_set_bit( block_info->flags, FD_BLOCK_FLAG_PROCESSED );
+     FD_COMPILER_MFENCE();
+     block_info->flags = fd_uchar_clear_bit( block_info->flags, FD_BLOCK_FLAG_REPLAYING );
+     memcpy( &block_info->block_hash, hdr->hash, sizeof(fd_hash_t) );
+     memcpy( &block_info->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof(fd_hash_t) );
+
+     fd_block_map_publish( query );
+     ctx->flags = fd_disco_replay_old_sig( slot, REPLAY_FLAG_FINISHED_BLOCK );
+
+     ctx->slice_exec_ctx.last_batch = 0;
+     ctx->slice_exec_ctx.txns_rem = 0;
+     ctx->slice_exec_ctx.mblks_rem = 0;
+     ctx->slice_exec_ctx.sz = 0;
+     ctx->slice_exec_ctx.wmark = 0;
+     ctx->slice_exec_ctx.last_mblk_off = 0;
+  }
 }
 
 static void
@@ -2596,7 +2584,6 @@ after_credit( fd_replay_tile_ctx_t * ctx,
               int *                  charge_busy ) {
   (void)opt_poll_in;
 
-  FD_LOG_INFO(("after_credit - curr_slot: %lu", ctx->curr_slot ));
   exec_slices( ctx, stem, ctx->curr_slot );
 
   ulong curr_slot   = ctx->curr_slot;
