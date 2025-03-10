@@ -1,5 +1,5 @@
 #include "fd_sysvar_instructions.h"
-#include "../fd_account.h"
+#include "../fd_borrowed_account.h"
 #include "../fd_system_ids.h"
 
 static ulong
@@ -38,22 +38,22 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
                                           ushort                   instrs_cnt ) {
   ulong serialized_sz = instructions_serialized_size( instrs, instrs_cnt );
 
-  fd_borrowed_account_t * rec = NULL;
-  int err = fd_txn_borrowed_account_view( txn_ctx, &fd_sysvar_instructions_id, &rec );
+  fd_txn_account_t * rec = NULL;
+  int err = fd_exec_txn_ctx_get_account_view( txn_ctx, &fd_sysvar_instructions_id, &rec );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS && rec == NULL ) ) {
     /* The way we use this, this should NEVER hit since the borrowed accounts should be set up
        before this is called, and this is only called if the sysvar instructions account is in
        the borrowed accounts list. */
     FD_LOG_ERR(( "Failed to view sysvar instructions borrowed account. It may not be included in the txn account keys." ));
   }
-  
+
   /* This stays within the FD spad allocation bounds because...
      1. Case 1: rec->meta!=NULL
         - rec->meta was set up in `fd_executor_setup_borrowed_accounts_for_txn()` and data was allocated from the spad
-        - No need to allocate meta and data here 
+        - No need to allocate meta and data here
      2. Case 2: rec->meta==NULL
         - `fd_executor_setup_borrowed_accounts_for_txn()` did not make an spad allocation for this account
-        - spad memory is sized out for allocations for 128 (max number) accounts 
+        - spad memory is sized out for allocations for 128 (max number) accounts
         - sizeof(fd_account_meta_t) + serialized_sz will always be less than FD_ACC_TOT_SZ_MAX
         - at most 127 accounts could be using spad memory right now, so this allocation is safe */
   if( rec->meta==NULL ) {
@@ -129,8 +129,8 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
 int
 fd_sysvar_instructions_update_current_instr_idx( fd_exec_txn_ctx_t * txn_ctx,
                                                  ushort              current_instr_idx ) {
-  fd_borrowed_account_t * rec = NULL;
-  int err = fd_txn_borrowed_account_modify( txn_ctx, &fd_sysvar_instructions_id, 0, &rec );
+  fd_txn_account_t * rec = NULL;
+  int err = fd_exec_txn_ctx_get_account_modify( txn_ctx, &fd_sysvar_instructions_id, 0, &rec );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return FD_ACC_MGR_ERR_READ_FAILED;
 

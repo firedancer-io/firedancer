@@ -77,7 +77,7 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtim
 
   fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
 
-  FD_BORROWED_ACCOUNT_DECL(rec);
+  FD_TXN_ACCOUNT_DECL( rec );
   int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, key, rec);
   if (err)
     FD_LOG_CRIT(( "fd_acc_mgr_view(slot_history) failed: %d", err ));
@@ -138,7 +138,7 @@ fd_sysvar_slot_history_read( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
 
-  FD_BORROWED_ACCOUNT_DECL(rec);
+  FD_TXN_ACCOUNT_DECL( rec );
   int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, key, rec);
   if( err ) {
     FD_LOG_CRIT(( "fd_acc_mgr_view(slot_history) failed: %d", err ));
