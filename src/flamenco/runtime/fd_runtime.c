@@ -1711,20 +1711,10 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
         fd_funk_start_write( slot_ctx->acc_mgr->funk );
         fd_vote_store_account( slot_ctx, acc_rec );
         FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
-          FD_LOG_WARNING(("REACH INTO HERE"));
           fd_bincode_decode_ctx_t decode_vsv = {
             .data    = acc_rec->const_data,
             .dataend = acc_rec->const_data + acc_rec->const_meta->dlen,
           };
-
-          const char * file_path = "/home/ibhatt/firedancer/src/flamenco/types/fixtures/vote_state_versioned.bin";
-          FILE * file = fopen( file_path, "wb" );
-          FD_TEST( file );
-
-          FD_TEST( fwrite( acc_rec->const_data, 1, acc_rec->const_meta->dlen, file ) == acc_rec->const_meta->dlen );
-          fclose( file );
-          FD_LOG_ERR(("WRITE OUT"));
-
 
           ulong total_sz = 0UL;
           int err = fd_vote_state_versioned_decode_footprint( &decode_vsv, &total_sz );
