@@ -67,6 +67,7 @@ struct fd_sock_tile {
      FIXME transpose arrays for better cache locality? */
   ulong                batch_cnt; /* <=STEM_BURST */
   struct iovec *       batch_iov;
+  void *               batch_cmsg;
   struct sockaddr_in * batch_sa;
   struct mmsghdr *     batch_msg;
 
