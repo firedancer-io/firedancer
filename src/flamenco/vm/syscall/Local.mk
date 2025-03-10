@@ -6,11 +6,13 @@ $(call make-unit-test,test_vm_syscall_cpi,test_vm_syscall_cpi,fd_flamenco fd_fun
 $(call run-unit-test,test_vm_syscall_cpi)
 
 ifdef FD_HAS_SECP256K1
+ifdef FD_HAS_BLST
 $(call make-unit-test,test_vm_syscalls,test_vm_syscalls,fd_flamenco fd_funk fd_util fd_ballet)
 $(call run-unit-test,test_vm_syscalls)
 $(call make-unit-test,test_vm_syscall_curve,test_vm_syscall_curve,fd_flamenco fd_funk fd_util fd_ballet)
 $(call run-unit-test,test_vm_syscall_curve)
 $(call make-unit-test,test_vm_increase_cpi_account_info_limit,test_vm_increase_cpi_account_info_limit,fd_flamenco fd_funk fd_util fd_ballet)
 $(call run-unit-test,test_vm_increase_cpi_account_info_limit)
+endif
 endif
 endif
