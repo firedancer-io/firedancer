@@ -99,7 +99,7 @@ fd_store_slot_prepare( fd_store_t *   store,
   /* Slot block map data */
 
   int block_complete  = fd_blockstore_shreds_complete( store->blockstore, slot );
-  int block_map_entry = 0;
+  int block_info = 0;
   ulong parent_slot   = FD_SLOT_NULL;
   uchar flags         = 0;
   fd_block_map_query_t query[1] = { 0 };
@@ -109,12 +109,12 @@ fd_store_slot_prepare( fd_store_t *   store,
     fd_block_info_t * blk = fd_block_map_query_ele( query );
     if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
     if( err == FD_MAP_ERR_KEY ) {
-      block_map_entry = 0;
+      block_info = 0;
       flags           = 0;
       parent_slot     = FD_SLOT_NULL;
       break;
     }
-    block_map_entry = 1;
+    block_info = 1;
     flags           = blk->flags;
     parent_slot     = blk->parent_slot;
     err = fd_block_map_query_test( query );
@@ -131,7 +131,7 @@ fd_store_slot_prepare( fd_store_t *   store,
     goto end;
   }
 
-  if( FD_UNLIKELY( !block_map_entry ) ) {
+  if( FD_UNLIKELY( !block_info ) ) {
     /* I know nothing about this block yet */
     rc = FD_STORE_SLOT_PREPARE_NEED_REPAIR;
     *repair_slot_out = slot;
@@ -142,7 +142,7 @@ fd_store_slot_prepare( fd_store_t *   store,
 
   /* Parent slot block map data */
 
-  int   parent_block_map_entry = 0;
+  int   parent_block_info = 0;
   uchar parent_flags           = 0;
   err = FD_MAP_ERR_AGAIN;
   while( err == FD_MAP_ERR_AGAIN ){
@@ -150,11 +150,11 @@ fd_store_slot_prepare( fd_store_t *   store,
     fd_block_info_t * blk = fd_block_map_query_ele( query );
     if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
     if( err == FD_MAP_ERR_KEY ) {
-      parent_block_map_entry = 0;
+      parent_block_info = 0;
       parent_flags           = 0;
       break;
     } else {
-      parent_block_map_entry = 1;
+      parent_block_info = 1;
       parent_flags           = blk->flags;
     }
     err = fd_block_map_query_test( query );
@@ -162,7 +162,7 @@ fd_store_slot_prepare( fd_store_t *   store,
 
   /* If the parent slot meta is missing, this block is an orphan and the ancestry needs to be
    * repaired before we can replay it. */
-  if( FD_UNLIKELY( !parent_block_map_entry ) ) {
+  if( FD_UNLIKELY( !parent_block_info ) ) {
     rc = FD_STORE_SLOT_PREPARE_NEED_ORPHAN;
     *repair_slot_out = slot;
     re_add_delays[re_adds_cnt] = FD_REPAIR_BACKOFF_TIME;
@@ -380,7 +380,7 @@ fd_store_slot_repair( fd_store_t * store,
 
   ulong repair_req_cnt = 0;
 
-  int block_map_entry = 0;
+  int block_info = 0;
   uint complete_idx   = UINT_MAX;
   uint received_idx   = 0;
   uint buffered_idx   = 0;
@@ -391,10 +391,10 @@ fd_store_slot_repair( fd_store_t * store,
     fd_block_info_t * meta = fd_block_map_query_ele( query );
     if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
     if( err == FD_MAP_ERR_KEY ) {
-      block_map_entry = 0;
+      block_info = 0;
       break;
     }
-    block_map_entry = 1;
+    block_info = 1;
     complete_idx = meta->slot_complete_idx;
     received_idx = meta->received_idx;
     buffered_idx = meta->buffered_idx;
@@ -402,7 +402,7 @@ fd_store_slot_repair( fd_store_t * store,
     err = fd_block_map_query_test( query );
   }
 
-  if( FD_LIKELY( !block_map_entry ) ) {
+  if( FD_LIKELY( !block_info ) ) {
     /* We haven't received any shreds for this slot yet */
 
     fd_repair_request_t * repair_req = &out_repair_reqs[repair_req_cnt++];
