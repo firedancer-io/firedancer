@@ -127,6 +127,9 @@
 //      multi-block processing we use Karatsuba multiplication with a regular
 //      reduction.  For single-block processing, we use the x^64 optimization.
 
+# Make stack non-executable
+.section .note.GNU-stack,"",@progbits
+
 #define SYM_FUNC_START(name)			\
 	.globl name ;				\
 	.balign 16, 0x90 ;			\

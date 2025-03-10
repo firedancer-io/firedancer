@@ -85,6 +85,9 @@
 // 32, masking support, and new instructions such as vpternlogd (which can do a
 // three-argument XOR).  These features are very useful for AES-GCM.
 
+# Make stack non-executable
+.section .note.GNU-stack,"",@progbits
+
 #define SYM_FUNC_START(name)	\
 	.globl name ;				\
 	.balign 16, 0x90 ;			\
