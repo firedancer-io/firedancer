@@ -313,7 +313,7 @@ after_frag( fd_restart_tile_ctx_t * ctx,
       FD_LOG_ERR(("failed to read banks record: invalid magic number"));
     }
 
-    FD_TEST( fd_funkier_rec_query_test( query ) );
+    FD_TEST( !fd_funkier_rec_query_test( query ) );
 
     /* Add a hard fork into the slot bank */
     ulong old_len           = slot_bank.hard_forks.hard_forks_len;
@@ -428,7 +428,7 @@ after_credit( fd_restart_tile_ctx_t * ctx,
         FD_LOG_ERR(("failed to read banks record: invalid magic number"));
       }
 
-      FD_TEST( fd_funkier_rec_query_test( query ) );
+      FD_TEST( !fd_funkier_rec_query_test( query ) );
     }
 
     /* Decode the epoch bank from funk, referencing fd_runtime_recover_banks() in fd_runtime_init.c */
@@ -466,7 +466,7 @@ after_credit( fd_restart_tile_ctx_t * ctx,
         FD_LOG_ERR(( "failed to read banks record: invalid magic number" ));
       }
 
-      FD_TEST( fd_funkier_rec_query_test( query ) );
+      FD_TEST( !fd_funkier_rec_query_test( query ) );
     }
 
     /* Decode the slot history sysvar, referencing fd_sysvar_slot_history_read in fd_sysvar_slot_history.c */

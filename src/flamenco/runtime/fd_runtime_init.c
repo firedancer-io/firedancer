@@ -156,7 +156,7 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
 
     FD_LOG_NOTICE(( "recovered epoch_bank" ));
 
-    if( fd_funkier_rec_query_test( query ) ) break;
+    if( !fd_funkier_rec_query_test( query ) ) break;
   }
 
   for(;;) {
@@ -203,7 +203,7 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
       FD_LOG_ERR(("failed to read banks record: invalid magic number"));
     }
 
-    if( !fd_funkier_rec_query_test( query ) ) {
+    if( fd_funkier_rec_query_test( query ) ) {
       delete_first = 1;
       continue;
     }

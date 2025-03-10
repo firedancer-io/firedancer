@@ -470,7 +470,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
       FD_LOG_ERR(( "Unable to stream out account padding to tar archive" ));
     }
 
-    FD_TEST( fd_funkier_rec_query_test( query ) );
+    FD_TEST( !fd_funkier_rec_query_test( query ) );
   }
 
   err = fd_tar_writer_fini_file( writer );
@@ -771,7 +771,7 @@ fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
 
   fd_memcpy( &snapshot_ctx->epoch_bank, epoch_bank_mem, sizeof(fd_epoch_bank_t) );
 
-  FD_TEST( fd_funkier_rec_query_test( query ) );
+  FD_TEST( !fd_funkier_rec_query_test( query ) );
 
   /* Now the slot bank. */
 
@@ -812,7 +812,7 @@ fd_snapshot_create_setup_and_validate_ctx( fd_snapshot_ctx_t * snapshot_ctx ) {
 
   memcpy( &snapshot_ctx->slot_bank, slot_bank_mem, sizeof(fd_slot_bank_t) );
 
-  FD_TEST( fd_funkier_rec_query_test( query ) );
+  FD_TEST( !fd_funkier_rec_query_test( query ) );
 
   /* Validate that the snapshot context is setup correctly */
 

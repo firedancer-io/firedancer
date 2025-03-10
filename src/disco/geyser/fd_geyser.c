@@ -236,7 +236,7 @@ read_account_with_xid( fd_geyser_t * ctx, fd_funkier_rec_key_t * recid, fd_funki
     }
     memcpy( copy, fd_funkier_val( rec, fd_funkier_wksp( funk ) ), sz );
     *result_len = sz;
-    if( fd_funkier_rec_query_test( query ) ) return copy;
+    if( !fd_funkier_rec_query_test( query ) ) return copy;
   }
 }
 

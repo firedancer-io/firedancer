@@ -1129,7 +1129,7 @@ fd_accounts_hash_inc_no_txn( fd_funkier_t *                 funk,
     pairs[ num_pairs ].hash = (fd_hash_t const *)metadata->hash;
     num_pairs++;
 
-    FD_TEST( fd_funkier_rec_query_test( query ) );
+    FD_TEST( !fd_funkier_rec_query_test( query ) );
   }
 
   sort_pubkey_hash_pair_inplace( pairs, num_pairs );
