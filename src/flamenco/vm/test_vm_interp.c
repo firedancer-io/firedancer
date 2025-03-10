@@ -392,6 +392,10 @@ static const uint FD_VM_SBPF_STATIC_SYSCALLS_LIST[] = {
   0x3b97b73c,
   // 41 = sol_get_rent_sysvar
   0xbf7188f6,
+  // 42 = sol_curve_decompress
+  0x80c98b0,
+  // 42 = sol_curve_pairing_map
+  0xf111a47e,
 };
 #define FD_VM_SBPF_STATIC_SYSCALLS_LIST_SZ (sizeof(FD_VM_SBPF_STATIC_SYSCALLS_LIST) / sizeof(uint))
 
@@ -439,6 +443,8 @@ test_static_syscalls_list( void ) {
     "sol_get_epoch_rewards_sysvar",
     "sol_get_fees_sysvar",
     "sol_get_rent_sysvar",
+    "sol_curve_decompress",
+    "sol_curve_pairing_map",
   };
 
   FD_TEST( FD_VM_SBPF_STATIC_SYSCALLS_LIST[0]==0 );

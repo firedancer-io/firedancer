@@ -33,6 +33,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
   int enable_last_restart_slot_syscall     = 0;
   int enable_get_sysvar_syscall            = 0;
   int enable_get_epoch_stake_syscall       = 0;
+  int enable_bls12_381_syscall             = 0;
 
   if( slot ) {
     enable_blake3_syscall                = FD_FEATURE_ACTIVE( slot, features, blake3_syscall_enabled );
@@ -43,6 +44,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
     enable_last_restart_slot_syscall     = FD_FEATURE_ACTIVE( slot, features, last_restart_slot_sysvar );
     enable_get_sysvar_syscall            = FD_FEATURE_ACTIVE( slot, features, get_sysvar_syscall_enabled );
     enable_get_epoch_stake_syscall       = FD_FEATURE_ACTIVE( slot, features, enable_get_epoch_stake_syscall );
+    enable_bls12_381_syscall             = FD_FEATURE_ACTIVE( slot, features, enable_bls12_381_syscall );
 
   } else { /* enable ALL */
 
@@ -54,6 +56,7 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
     enable_last_restart_slot_syscall     = 1;
     enable_get_sysvar_syscall            = 1;
     enable_get_epoch_stake_syscall       = 1;
+    enable_bls12_381_syscall             = 1;
 
   }
 
@@ -148,6 +151,15 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
 
   if( enable_alt_bn128_compression_syscall )
     REGISTER( "sol_alt_bn128_compression",           fd_vm_syscall_sol_alt_bn128_compression );
+
+#if FD_HAS_BLST
+  if( enable_bls12_381_syscall ) {
+    REGISTER( "sol_curve_decompress",                fd_vm_syscall_sol_curve_decompress );
+    REGISTER( "sol_curve_pairing_map",               fd_vm_syscall_sol_curve_pairing_map );
+  }
+#else
+  (void)enable_bls12_381_syscall;
+#endif /* FD_HAS_BLST */
 
 # undef REGISTER
 
