@@ -348,6 +348,8 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
     uchar * payload         = ctx->batch_iov[ j ].iov_base;
     ulong   payload_sz      = ctx->batch_msg[ j ].msg_len;
     struct sockaddr_in * sa = ctx->batch_msg[ j ].msg_hdr.msg_name;
+    ulong frame_sz          = payload_sz + hdr_sz;
+    ctx->metrics.rx_bytes_total += frame_sz;
     if( FD_UNLIKELY( sa->sin_family!=AF_INET ) ) {
       /* unreachable */
       FD_LOG_ERR(( "Received packet with unexpected sin_family %i", sa->sin_family ));
@@ -371,7 +373,6 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
       FD_LOG_ERR(( "Missing IP_PKTINFO on incoming packet" ));
     }
 
-    ulong          frame_sz   = payload_sz + hdr_sz;
     fd_eth_hdr_t * eth_hdr    = (fd_eth_hdr_t *)( payload-42UL );
     fd_ip4_hdr_t * ip_hdr     = (fd_ip4_hdr_t *)( payload-28UL );
     fd_udp_hdr_t * udp_hdr    = (fd_udp_hdr_t *)( payload- 8UL );
@@ -547,6 +548,7 @@ during_frag( fd_sock_tile_t * ctx,
 
   memcpy( buf, udp_hdr, sizeof(fd_udp_hdr_t) );
   fd_memcpy( buf+sizeof(fd_udp_hdr_t), payload, payload_sz );
+  ctx->metrics.tx_bytes_total += sz;
 }
 
 /* after_frag is called when a frag was copied into a sendmmsg buffer. */
@@ -600,6 +602,8 @@ metrics_write( fd_sock_tile_t * ctx ) {
   FD_MCNT_SET( SOCK, RX_PKT_CNT,        ctx->metrics.rx_pkt_cnt       );
   FD_MCNT_SET( SOCK, TX_PKT_CNT,        ctx->metrics.tx_pkt_cnt       );
   FD_MCNT_SET( SOCK, TX_DROP_CNT,       ctx->metrics.tx_drop_cnt      );
+  FD_MCNT_SET( SOCK, TX_BYTES_TOTAL,    ctx->metrics.tx_bytes_total   );
+  FD_MCNT_SET( SOCK, RX_BYTES_TOTAL,    ctx->metrics.rx_bytes_total   );
 }
 
 static ulong
