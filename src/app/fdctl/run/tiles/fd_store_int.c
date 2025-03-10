@@ -420,15 +420,15 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
 
       ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
       ulong caught_up_flag = (ctx->store->curr_turbine_slot - slot)<4 ? 0UL : REPLAY_FLAG_CATCHING_UP;
-      ulong replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_MICROBLOCK | caught_up_flag );
+      ulong replay_sig = fd_disco_replay_old_sig( slot, REPLAY_FLAG_MICROBLOCK | caught_up_flag );
 
       ulong txn_cnt = 0;
       if( FD_UNLIKELY( fd_trusted_slots_find( ctx->trusted_slots, slot ) ) ) {
         /* if is caught up and is leader */
-        replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK );
+        replay_sig = fd_disco_replay_old_sig( slot, REPLAY_FLAG_FINISHED_BLOCK );
         FD_LOG_INFO(( "packed block prepared - slot: %lu", slot ));
       } else {
-        replay_sig = fd_disco_replay_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
+        replay_sig = fd_disco_replay_old_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
       }
 
       out_buf += sizeof(ulong);

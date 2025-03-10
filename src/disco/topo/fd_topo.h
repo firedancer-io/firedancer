@@ -250,6 +250,9 @@ typedef struct {
     } metric;
 
     struct {
+      ulong fec_max;
+      ulong slice_max;
+
       int   tx_metadata_storage;
       char  capture[ PATH_MAX ];
       char  funk_checkpt[ PATH_MAX ];

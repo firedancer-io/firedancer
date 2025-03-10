@@ -9,7 +9,9 @@
 #include "../../../../disco/keyguard/fd_keyguard.h"
 #include "../../../../disco/keyguard/fd_keyswitch.h"
 #include "../../../../flamenco/leaders/fd_leaders.h"
+#include "../../../../flamenco/runtime/fd_blockstore.h"
 #include "../../../../disco/fd_disco.h"
+#include "../../../../disco/topo/fd_pod_format.h"
 
 #include "../../../../util/net/fd_net_headers.h"
 
@@ -91,6 +93,7 @@
 #define STORE_OUT_IDX   0
 #define NET_OUT_IDX     1
 #define SIGN_OUT_IDX    2
+#define REPLAY_OUT_IDX  3
 
 #define MAX_SLOTS_PER_EPOCH 432000UL
 
@@ -176,6 +179,14 @@ typedef struct {
   ulong       store_out_chunk0;
   ulong       store_out_wmark;
   ulong       store_out_chunk;
+
+  fd_wksp_t * replay_out_mem;
+  ulong       replay_out_chunk0;
+  ulong       replay_out_wmark;
+  ulong       replay_out_chunk;
+
+  fd_blockstore_t   blockstore_ljoin;
+  fd_blockstore_t * blockstore;
 
   struct {
     fd_histf_t contact_info_cnt[ 1 ];
@@ -477,11 +488,11 @@ during_frag( fd_shred_ctx_t * ctx,
 }
 
 static inline void
-send_shred( fd_shred_ctx_t *      ctx,
-            fd_shred_t const    * shred,
-            fd_shred_dest_t     * sdest,
-            fd_shred_dest_idx_t   dest_idx,
-            ulong                 tsorig ) {
+send_shred( fd_shred_ctx_t *    ctx,
+            fd_shred_t const *  shred,
+            fd_shred_dest_t *   sdest,
+            fd_shred_dest_idx_t dest_idx,
+            ulong               tsorig ) {
   fd_shred_dest_weighted_t * dest = fd_shred_dest_idx_to_dest( sdest, dest_idx );
 
   if( FD_UNLIKELY( !dest->ip4 ) ) return;
@@ -588,6 +599,15 @@ after_frag( fd_shred_ctx_t *    ctx,
 
         for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, *out_shred, sdest, dests[ j ], ctx->tsorig );
       } while( 0 );
+
+      if( FD_LIKELY( ctx->blockstore ) ) { /* optimize for the compiler - branch predictor will still be correct */
+        uchar * buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
+        ulong   sz  = fd_shred_header_sz( shred->variant );
+        fd_memcpy( buf, shred, sz );
+        ulong tspub       = fd_frag_meta_ts_comp( fd_tickcount() );
+        ulong replay_sig  = fd_disco_shred_replay_sig( shred->slot, shred->fec_set_idx, shred->idx, fd_shred_is_code( fd_shred_type( shred->variant ) ), rv == FD_FEC_RESOLVER_SHRED_COMPLETES );
+        fd_stem_publish( stem, REPLAY_OUT_IDX, replay_sig, ctx->replay_out_chunk, sz, 0UL, ctx->tsorig, tspub );
+      }
     }
     if( FD_LIKELY( rv!=FD_FEC_RESOLVER_SHRED_COMPLETES ) ) return;
 
@@ -635,7 +655,6 @@ after_frag( fd_shred_ctx_t *    ctx,
   fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+2UL), sz2, 0UL, ctx->tsorig, tspub );
   if( FD_UNLIKELY( s34[ 3 ].shred_cnt ) )
     fd_stem_publish( stem, 0UL, new_sig, fd_laddr_to_chunk( ctx->store_out_mem, s34+3UL ), sz3, 0UL, ctx->tsorig, tspub );
-
 
   /* Compute all the destinations for all the new shreds */
 
@@ -693,13 +712,18 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( tile->out_cnt!=3UL ||
-                   (strcmp( topo->links[ tile->out_link_id[ STORE_OUT_IDX ] ].name, "shred_store" ) &&
-                      strcmp( topo->links[ tile->out_link_id[ STORE_OUT_IDX ] ].name, "shred_storei" ) )  ||
-                   strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].name,   "shred_net"   )  ||
-                   strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ].name,  "shred_sign"  ) ) )
-    FD_LOG_ERR(( "shred tile has none or unexpected output links %lu %s %s",
-                 tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
+  if( FD_LIKELY( tile->out_cnt==3UL ) ) { /* frankendancer */
+    FD_TEST( 0==strcmp( topo->links[tile->out_link_id[STORE_OUT_IDX]].name,  "shred_store"  ) );
+    FD_TEST( 0==strcmp( topo->links[tile->out_link_id[NET_OUT_IDX]].name,    "shred_net"    ) );
+    FD_TEST( 0==strcmp( topo->links[tile->out_link_id[SIGN_OUT_IDX]].name,   "shred_sign"   ) );
+  } else if( FD_LIKELY( tile->out_cnt==4UL ) ) { /* firedancer */
+    FD_TEST( 0==strcmp( topo->links[tile->out_link_id[STORE_OUT_IDX]].name,  "shred_storei"  ) );
+    FD_TEST( 0==strcmp( topo->links[tile->out_link_id[NET_OUT_IDX]].name,    "shred_net"    ) );
+    FD_TEST( 0==strcmp( topo->links[tile->out_link_id[SIGN_OUT_IDX]].name,   "shred_sign"   ) );
+    FD_TEST( 0==strcmp( topo->links[tile->out_link_id[REPLAY_OUT_IDX]].name, "shred_replay" ) );
+  } else {
+    FD_LOG_ERR(( "shred tile has unexpected cnt of output links %lu", tile->out_cnt ));
+  }
 
   if( FD_UNLIKELY( !tile->out_cnt ) )
     FD_LOG_ERR(( "shred tile has no primary output link" ));
@@ -852,6 +876,21 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->store_out_chunk0 = fd_dcache_compact_chunk0( ctx->store_out_mem, store_out->dcache );
   ctx->store_out_wmark  = fd_dcache_compact_wmark ( ctx->store_out_mem, store_out->dcache, store_out->mtu );
   ctx->store_out_chunk  = ctx->store_out_chunk0;
+
+  if( FD_LIKELY( tile->out_cnt==4UL ) ) { /* firedancer */
+    fd_topo_link_t * replay_out = &topo->links[ tile->out_link_id[ REPLAY_OUT_IDX ] ];
+
+    ctx->replay_out_mem    = topo->workspaces[ topo->objs[ replay_out->dcache_obj_id ].wksp_id ].wksp;
+    ctx->replay_out_chunk0 = fd_dcache_compact_chunk0( ctx->replay_out_mem, replay_out->dcache );
+    ctx->replay_out_wmark  = fd_dcache_compact_wmark ( ctx->replay_out_mem, replay_out->dcache, replay_out->mtu );
+    ctx->replay_out_chunk  = ctx->replay_out_chunk0;
+  }
+
+  ulong blockstore_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "blockstore" );
+  if (FD_LIKELY( blockstore_obj_id!=ULONG_MAX )) {
+    ctx->blockstore = fd_blockstore_join( &ctx->blockstore_ljoin, fd_topo_obj_laddr( topo, blockstore_obj_id ) );
+    FD_TEST( ctx->blockstore->shmem->magic == FD_BLOCKSTORE_MAGIC );
+  }
 
   ctx->poh_in_expect_seq = 0UL;
 
