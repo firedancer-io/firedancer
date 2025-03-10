@@ -487,7 +487,7 @@ main( int     argc,
     FD_TEST( !treap_verify( treap, pool ) );
 
     uint r  = fd_rng_uint( rng );
-    int  op = (int)( r & 3U ); r >>= 2;
+    uint  op = r%5;
     switch( op ) {
 
     case 0: { /* Test query */
@@ -564,6 +564,23 @@ main( int     argc,
           FD_TEST( treap_rev_iter_ele      ( iter, pool )==&pool[idx] );
           FD_TEST( treap_rev_iter_ele_const( iter, pool )==&pool[idx] );
         }
+      }
+      break;
+    }
+
+    case 4: { /* Test lower bound */
+      int q = ((int)fd_rng_uint_roll( rng, 1U+(uint)ele_max )); /* q in [0,ele_max] */
+      ulong idx = treap_idx_ge( treap, (schar)q, pool );
+      if( q>=(int)ele_max ) {
+        FD_TEST( treap_idx_is_null( idx ) );
+        break;
+      }
+
+      ulong left_options = ((ulong)(~0UL<<q)) & val_pmap;
+      if( !left_options ) FD_TEST( treap_idx_is_null( idx ) ); /* nothing >= q in map */
+      else {
+        int check_val  = fd_ulong_find_lsb(left_options);
+        FD_TEST( (idx<ele_max) && check_val==(int)pool[idx].val );
       }
       break;
     }

@@ -219,7 +219,7 @@ main( int argc,
      .handshake_cnt      = 256UL,
      .conn_id_cnt        = 16UL,
      .stream_pool_cnt    = 2048UL,
-     .inflight_pkt_cnt   = 64UL,
+     .inflight_pkt_cnt   = 64UL * 1024,
      .tx_buf_sz          = 1UL<<15UL
   };
   ulong quic_footprint = fd_quic_footprint( &quic_limits );
