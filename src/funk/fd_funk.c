@@ -139,18 +139,6 @@ fd_funk_new( void * shmem,
 
   funk->alloc_gaddr = fd_wksp_gaddr_fast( wksp, alloc ); /* Note that this persists the join until delete */
 
-  ulong tmp_max;
-  fd_funk_partvec_t * partvec = (fd_funk_partvec_t *)fd_alloc_malloc_at_least( alloc, fd_funk_partvec_align(), fd_funk_partvec_footprint(0U), &tmp_max );
-  if( FD_UNLIKELY( !partvec ) ) {
-    FD_LOG_WARNING(( "partvec alloc failed" ));
-    fd_wksp_free_laddr( fd_alloc_delete( alloc_shalloc ) );
-    fd_wksp_free_laddr( fd_funk_rec_map_delete( fd_funk_rec_map_leave( rec_map ) ) );
-    fd_wksp_free_laddr( fd_funk_txn_map_delete( fd_funk_txn_map_leave( txn_map ) ) );
-    return NULL;
-  }
-  partvec->num_part = 0U;
-  funk->partvec_gaddr = fd_wksp_gaddr_fast( wksp, partvec );
-
   funk->write_lock = 0UL;
 
   FD_COMPILER_MFENCE();
@@ -227,9 +215,6 @@ fd_funk_delete( void * shfunk ) {
     FD_LOG_WARNING(( "bad magic" ));
     return NULL;
   }
-
-  /* Free all value resources here */
-  fd_alloc_free( fd_funk_alloc( funk, wksp ), fd_funk_get_partvec( funk, wksp ) );
 
   fd_wksp_free_laddr( fd_alloc_delete       ( fd_alloc_leave       ( fd_funk_alloc  ( funk, wksp ) ) ) );
   fd_wksp_free_laddr( fd_funk_rec_map_delete( fd_funk_rec_map_leave( fd_funk_rec_map( funk, wksp ) ) ) );
@@ -342,7 +327,6 @@ fd_funk_verify( fd_funk_t * funk ) {
   if( !rec_max ) TEST( fd_funk_rec_idx_is_null( rec_tail_idx ) );
 
   TEST( !fd_funk_rec_verify( funk ) );
-  TEST( !fd_funk_part_verify( funk ) );
 
   /* Test values */
 
@@ -412,8 +396,6 @@ fd_funk_log_mem_usage( fd_funk_t * funk ) {
                   val_cnt, val_min, avg_size, val_max,
                   fd_smart_size( val_used, tmp1, sizeof(tmp1) ),
                   fd_smart_size( val_alloc, tmp2, sizeof(tmp2) ) ));
-  FD_LOG_NOTICE(( "part vec footprint: %s",
-                  fd_smart_size( fd_funk_partvec_footprint(0U), tmp1, sizeof(tmp1) ) ));
 }
 
 #include "../flamenco/fd_rwlock.h"
