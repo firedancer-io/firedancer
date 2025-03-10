@@ -1021,7 +1021,7 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   };
   epoch_bank->genesis_creation_time = test_ctx->epoch_ctx.genesis_creation_time;
 
-  /* Load in the txn accounts; accounts are loaded in the same way as the txn harness, where 0-lamport accounts are 0-set */
+  /* Load in all accounts provided in the context */
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
     FD_BORROWED_ACCOUNT_DECL(acc);
     _load_txn_account( acc, acc_mgr, funk_txn, &test_ctx->acct_states[i], 0 );
@@ -1037,22 +1037,19 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
 
   /* Update stake cache for epoch T */
   for( uint i=0U; i<test_ctx->epoch_ctx.stake_accounts_count; i++ ) {
-    FD_BORROWED_ACCOUNT_DECL( acc );
-
     fd_pubkey_t voter_pubkey;
     fd_memcpy( &voter_pubkey, test_ctx->epoch_ctx.stake_accounts[i].voter_pubkey, sizeof(fd_pubkey_t) );
 
-    fd_exec_test_acct_state_t * stake_account        = &test_ctx->epoch_ctx.stake_accounts[i].stake_account;
-    ulong                       stake                = test_ctx->epoch_ctx.stake_accounts[i].stake;
-    ulong                       activation_epoch     = test_ctx->epoch_ctx.stake_accounts[i].activation_epoch;
-    ulong                       deactivation_epoch   = test_ctx->epoch_ctx.stake_accounts[i].deactivation_epoch;
-    double                      warmup_cooldown_rate = test_ctx->epoch_ctx.stake_accounts[i].warmup_cooldown_rate;
+    fd_pubkey_t stake_account;
+    fd_memcpy( &stake_account, test_ctx->epoch_ctx.stake_accounts[i].stake_account_pubkey, sizeof(fd_pubkey_t) );
 
-    // Load in the stake account
-    _load_txn_account( acc, acc_mgr, funk_txn, stake_account, 1 );
+    ulong       stake                = test_ctx->epoch_ctx.stake_accounts[i].stake;
+    ulong       activation_epoch     = test_ctx->epoch_ctx.stake_accounts[i].activation_epoch;
+    ulong       deactivation_epoch   = test_ctx->epoch_ctx.stake_accounts[i].deactivation_epoch;
+    double      warmup_cooldown_rate = test_ctx->epoch_ctx.stake_accounts[i].warmup_cooldown_rate;
 
     fd_delegation_pair_t_mapnode_t * stake_node = fd_delegation_pair_t_map_acquire( epoch_bank->stakes.stake_delegations_pool );
-    fd_memcpy( &stake_node->elem.account, &stake_account->address, sizeof(fd_pubkey_t) );
+    fd_memcpy( &stake_node->elem.account, &stake_account, sizeof(fd_pubkey_t) );
     fd_memcpy( &stake_node->elem.delegation.voter_pubkey, &voter_pubkey, sizeof(fd_pubkey_t) );
     stake_node->elem.delegation.stake                = stake;
     stake_node->elem.delegation.activation_epoch     = activation_epoch;
@@ -1066,13 +1063,8 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
 
   /* Update vote cache for epoch T */
   for( uint i=0U; i<test_ctx->epoch_ctx.vote_accounts_t_count; i++ ) {
-    FD_BORROWED_ACCOUNT_DECL( acc );
-
     fd_exec_test_acct_state_t * vote_account = &test_ctx->epoch_ctx.vote_accounts_t[i].vote_account;
     ulong                       stake        = test_ctx->epoch_ctx.vote_accounts_t[i].stake;
-
-    // Load in the vote account
-    _load_txn_account( acc, acc_mgr, funk_txn, vote_account, 1 );
 
     fd_vote_accounts_pair_t_mapnode_t * vote_node = fd_vote_accounts_pair_t_map_acquire( epoch_bank->stakes.vote_accounts.vote_accounts_pool );
     vote_node->elem.stake = stake;
@@ -1092,13 +1084,8 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
 
   /* Update vote cache for epoch T-1 */
   for( uint i=0U; i<test_ctx->epoch_ctx.vote_accounts_t_1_count; i++ ) {
-    FD_BORROWED_ACCOUNT_DECL( acc );
-
     fd_exec_test_acct_state_t * vote_account = &test_ctx->epoch_ctx.vote_accounts_t_1[i].vote_account;
     ulong                       stake        = test_ctx->epoch_ctx.vote_accounts_t_1[i].stake;
-
-    // Load in the vote account
-    _load_txn_account( acc, acc_mgr, funk_txn, vote_account, 0 );
 
     fd_vote_accounts_pair_t_mapnode_t * vote_node = fd_vote_accounts_pair_t_map_acquire( epoch_bank->next_epoch_stakes.vote_accounts_pool );
     vote_node->elem.stake = stake;
@@ -1120,13 +1107,8 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   slot_bank->epoch_stakes.vote_accounts_root = NULL;
   slot_bank->epoch_stakes.vote_accounts_pool = fd_vote_accounts_pair_t_map_alloc( fd_spad_virtual( runner->spad ), vote_acct_max );
   for( uint i=0U; i<test_ctx->epoch_ctx.vote_accounts_t_2_count; i++ ) {
-    FD_BORROWED_ACCOUNT_DECL( acc );
-
     fd_exec_test_acct_state_t * vote_account = &test_ctx->epoch_ctx.vote_accounts_t_2[i].vote_account;
     ulong                       stake        = test_ctx->epoch_ctx.vote_accounts_t_2[i].stake;
-
-    // Load in the vote account
-    _load_txn_account( acc, acc_mgr, funk_txn, vote_account, 0 );
 
     fd_vote_accounts_pair_t_mapnode_t * vote_node = fd_vote_accounts_pair_t_map_acquire( slot_bank->epoch_stakes.vote_accounts_pool );
     vote_node->elem.stake = stake;
@@ -1150,12 +1132,13 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   for( uint i=0U; i<test_ctx->epoch_ctx.new_stake_accounts_count; i++ ) {
     FD_BORROWED_ACCOUNT_DECL( acc );
 
-    fd_exec_test_acct_state_t * stake_account = &test_ctx->epoch_ctx.new_stake_accounts[i].stake_account;
+    fd_pubkey_t stake_pubkey;
+    fd_memcpy( &stake_pubkey, test_ctx->epoch_ctx.new_stake_accounts[i]->bytes, sizeof(fd_pubkey_t) );
 
-    // Load in the txn account
-    // TODO: This is a little bit hacky - this does not ensure that the stake account keys are populated properly
-    int res = _load_txn_account( acc, acc_mgr, funk_txn, stake_account, 0 );
-    if( FD_UNLIKELY( !res ) ) continue;
+    // Fetch and store the stake account using acc mgr
+    if( fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &stake_pubkey, acc ) ) {
+      continue;
+    }
 
     fd_store_stake_delegation( slot_ctx, acc );
   }
@@ -1165,12 +1148,13 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   for( uint i=0U; i<test_ctx->epoch_ctx.new_vote_accounts_count; i++ ) {
     FD_BORROWED_ACCOUNT_DECL( acc );
 
-    fd_exec_test_acct_state_t * vote_account = &test_ctx->epoch_ctx.new_vote_accounts[i].vote_account;
+    fd_pubkey_t vote_pubkey;
+    memcpy( &vote_pubkey, test_ctx->epoch_ctx.new_vote_accounts[i]->bytes, sizeof(fd_pubkey_t) );
 
-    // Load in the txn account
-    // TODO: See note right above
-    int res = _load_txn_account( acc, acc_mgr, funk_txn, vote_account, 0 );
-    if( FD_UNLIKELY( !res ) ) continue;
+    // Fetch and store the vote account from the acc mgr
+    if( fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &vote_pubkey, acc ) ) {
+      continue;
+    }
 
     fd_vote_store_account( slot_ctx, acc );
   }

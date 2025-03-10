@@ -3797,7 +3797,6 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
                                 ulong                   exec_spad_cnt,
                                 fd_spad_t *             runtime_spad ) {
 
-  uchar dump_block = capture_ctx && slot_ctx->slot_bank.slot >= capture_ctx->dump_proto_start_slot && capture_ctx->dump_block_to_pb;
   if ( capture_ctx != NULL && capture_ctx->capture ) {
     fd_solcap_writer_set_slot( capture_ctx->capture, slot_ctx->slot_bank.slot );
   }
@@ -3805,10 +3804,6 @@ fd_runtime_block_execute_tpool( fd_exec_slot_ctx_t *    slot_ctx,
   long block_execute_time = -fd_log_wallclock();
 
   fd_runtime_block_execute_prepare( slot_ctx );
-
-  if( dump_block ) {
-    fd_dump_block_to_protobuf( block_info, slot_ctx, capture_ctx, runtime_spad );
-  }
 
   int res = fd_runtime_sysvar_cache_update( slot_ctx, runtime_spad );
   if( FD_UNLIKELY( res!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
@@ -3955,6 +3950,24 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
     /* Update block height. */
     slot_ctx->slot_bank.block_height += 1UL;
 
+    /* TODO: Add dumping logic here to dump the following BlockContext properties:
+       - All stake accounts
+       - All vote accounts
+       - Sysvars
+       - Features
+       - Slot context
+       - Epoch context */
+
+    /* TODO: We also need logic to dump the epoch reward partition structs */
+    uchar dump_block = capture_ctx && slot_ctx->slot_bank.slot >= capture_ctx->dump_proto_start_slot && capture_ctx->dump_block_to_pb;
+    fd_exec_test_block_context_t * block_ctx = NULL;
+    if( FD_UNLIKELY( dump_block ) ) {
+      /* TODO: This probably should get allocated from a separate spad for the capture ctx */
+      block_ctx = fd_spad_alloc( runtime_spad, alignof(fd_exec_test_block_context_t), sizeof(fd_exec_test_block_context_t) );
+      fd_memset( block_ctx, 0, sizeof(fd_exec_test_block_context_t) );
+      fd_dump_block_to_protobuf( slot_ctx, capture_ctx, runtime_spad, block_ctx );
+    }
+
     fd_runtime_block_pre_execute_process_new_epoch( slot_ctx,
                                                     tpool,
                                                     exec_spads,
@@ -3976,6 +3989,12 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
     if( FD_UNLIKELY( (ret = fd_runtime_block_verify_tpool( slot_ctx, &block_info, &slot_ctx->slot_bank.poh, &slot_ctx->slot_bank.poh, tpool, runtime_spad )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       break;
     }
+
+    /* Dump the remainder of the block after preparation, POH verification, etc */
+    if( dump_block ) {
+      fd_dump_block_to_protobuf_tx_only( &block_info, slot_ctx, capture_ctx, runtime_spad, block_ctx );
+    }
+
     if( FD_UNLIKELY( (ret = fd_runtime_block_execute_tpool( slot_ctx, capture_ctx, &block_info, tpool, exec_spads, exec_spad_cnt, runtime_spad )) != FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       break;
     }

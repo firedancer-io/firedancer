@@ -84,19 +84,20 @@ fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t *txn_ctx, fd_spad_t * spad );
    epoch processing. Therefore, we have to dump a decent amount of state before an epoch boundary may be
    crossed, and then dump the individual transactions within the block once the block has been fetched
    from the blockstore. Therefore, dumping is split up into two functions. `fd_dump_block_to_protobuf`
-   will create an initial BlockContext type that saves the slot and epoch context, as well as any current
-   builtins and sysvar accounts. In the rare case of a new epoch, it will save all accounts from funk `fd_dump_block_to_protobuf_tx_only`
-   will reopen the file  */
-void
-fd_dump_block_to_protobuf( fd_exec_slot_ctx_t const * slot_ctx,
-                           fd_capture_ctx_t const *   capture_ctx,
-                           fd_spad_t *                spad );
+   will create an initial BlockContext type that saves some fields from the slot and epoch context, as well as any current
+   builtins and sysvar accounts.
+   `fd_dump_block_to_protobuf_tx_only` takes an existing block context message */
+void fd_dump_block_to_protobuf( fd_exec_slot_ctx_t const *     slot_ctx,
+                                fd_capture_ctx_t const *       capture_ctx,
+                                fd_spad_t *                    spad,
+                                fd_exec_test_block_context_t * block_context_msg /* output */ );
 
 void
-fd_dump_block_to_protobuf_tx_only( fd_block_info_t const *    block_info,
-                                   fd_exec_slot_ctx_t const * slot_ctx,
-                                   fd_capture_ctx_t const *   capture_ctx,
-                                   fd_spad_t *                spad );
+fd_dump_block_to_protobuf_tx_only( fd_block_info_t const *        block_info,
+                                   fd_exec_slot_ctx_t const *     slot_ctx,
+                                   fd_capture_ctx_t const *       capture_ctx,
+                                   fd_spad_t *                    spad,
+                                   fd_exec_test_block_context_t * block_context_msg );
 
 /* Captures the state of the VM (including the instruction context).
    Meant to be invoked at the start of the VM_SYSCALL_CPI_ENTRYPOINT like so:

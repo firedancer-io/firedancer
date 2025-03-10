@@ -9,49 +9,6 @@
 
 /** GENERAL UTILITY FUNCTIONS AND MACROS **/
 
-/** CUSTOM PB RELEASE FUNCTIONS **/
-// static void
-// release_
-
-/** VOTE ACCOUNTS DUMPING **/
-static void
-dump_vote_accounts( fd_vote_accounts_t const *     vote_accounts,
-                    fd_spad_t *                    spad,
-                    fd_exec_test_vote_account_t ** out_vote_accounts,
-                    pb_size_t *                    out_vote_accounts_count ) {
-  pb_size_t idx            = 0UL;
-  ulong vote_account_t_cnt = fd_vote_accounts_pair_t_map_size( vote_accounts->vote_accounts_pool,
-                                                               vote_accounts->vote_accounts_root );
-  fd_exec_test_vote_account_t * vote_account_out = fd_spad_alloc( spad,
-                                                                  alignof(fd_exec_test_vote_account_t),
-                                                                  vote_account_t_cnt * sizeof(fd_exec_test_vote_account_t) );
-
-  for( fd_vote_accounts_pair_t_mapnode_t const * curr = fd_vote_accounts_pair_t_map_minimum_const(
-          vote_accounts->vote_accounts_pool,
-          vote_accounts->vote_accounts_root );
-       curr;
-       curr = fd_vote_accounts_pair_t_map_successor_const( vote_accounts->vote_accounts_pool, curr ) ) {
-    fd_exec_test_vote_account_t * vote_out = &vote_account_out[idx++];
-
-    vote_out->has_vote_account           = true;
-    vote_out->stake                      = curr->elem.stake;
-    vote_out->vote_account.lamports      = curr->elem.value.lamports;
-    vote_out->vote_account.rent_epoch    = curr->elem.value.rent_epoch;
-    vote_out->vote_account.executable    = curr->elem.value.executable;
-    vote_out->vote_account.has_seed_addr = false;
-
-    fd_memcpy( &vote_out->vote_account.address, &curr->elem.key, sizeof(fd_pubkey_t) );
-    fd_memcpy( &vote_out->vote_account.owner, &curr->elem.value.owner, sizeof(fd_pubkey_t) );
-
-    vote_out->vote_account.data = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( curr->elem.value.data_len ) );
-    vote_out->vote_account.data->size = (pb_size_t) curr->elem.value.data_len;
-    fd_memcpy( &vote_out->vote_account.data->bytes, curr->elem.value.data, curr->elem.value.data_len );
-  }
-
-  *out_vote_accounts       = vote_account_out;
-  *out_vote_accounts_count = idx;
-}
-
 /** FEATURE DUMPING **/
 static void
 dump_sorted_features( fd_features_t const * features,
@@ -198,6 +155,51 @@ dump_executable_account_if_exists( fd_exec_slot_ctx_t const *        slot_ctx,
 
   fd_pubkey_t * programdata_acc = &program_loader_state->inner.program.programdata_address;
   dump_account_if_not_already_dumped( slot_ctx, programdata_acc, spad, out_account_states, out_account_states_count, NULL );
+}
+
+/** VOTE ACCOUNTS DUMPING **/
+static void
+dump_vote_accounts( fd_exec_slot_ctx_t const *     slot_ctx,
+                    fd_vote_accounts_t const *     vote_accounts,
+                    fd_spad_t *                    spad,
+                    fd_exec_test_vote_account_t ** out_vote_accounts,
+                    pb_size_t *                    out_vote_accounts_count,
+                    fd_exec_test_acct_state_t *    out_acct_states,
+                    pb_size_t *                    out_acct_states_cnt ) {
+  pb_size_t idx            = 0UL;
+  ulong vote_account_t_cnt = fd_vote_accounts_pair_t_map_size( vote_accounts->vote_accounts_pool,
+                                                               vote_accounts->vote_accounts_root );
+  fd_exec_test_vote_account_t * vote_account_out = fd_spad_alloc( spad,
+                                                                  alignof(fd_exec_test_vote_account_t),
+                                                                  vote_account_t_cnt * sizeof(fd_exec_test_vote_account_t) );
+
+  for( fd_vote_accounts_pair_t_mapnode_t const * curr = fd_vote_accounts_pair_t_map_minimum_const(
+          vote_accounts->vote_accounts_pool,
+          vote_accounts->vote_accounts_root );
+       curr;
+       curr = fd_vote_accounts_pair_t_map_successor_const( vote_accounts->vote_accounts_pool, curr ) ) {
+    fd_exec_test_vote_account_t * vote_out = &vote_account_out[idx++];
+
+    vote_out->has_vote_account           = true;
+    vote_out->stake                      = curr->elem.stake;
+    vote_out->vote_account.lamports      = curr->elem.value.lamports;
+    vote_out->vote_account.rent_epoch    = curr->elem.value.rent_epoch;
+    vote_out->vote_account.executable    = curr->elem.value.executable;
+    vote_out->vote_account.has_seed_addr = false;
+
+    fd_memcpy( &vote_out->vote_account.address, &curr->elem.key, sizeof(fd_pubkey_t) );
+    fd_memcpy( &vote_out->vote_account.owner, &curr->elem.value.owner, sizeof(fd_pubkey_t) );
+
+    vote_out->vote_account.data = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( curr->elem.value.data_len ) );
+    vote_out->vote_account.data->size = (pb_size_t) curr->elem.value.data_len;
+    fd_memcpy( &vote_out->vote_account.data->bytes, curr->elem.value.data, curr->elem.value.data_len );
+
+    // Dump the vote account
+    dump_account_if_not_already_dumped( slot_ctx, &curr->elem.key, spad, out_acct_states, out_acct_states_cnt, NULL );
+  }
+
+  *out_vote_accounts       = vote_account_out;
+  *out_vote_accounts_count = idx;
 }
 
 /** TRANSACTION DUMPING **/
@@ -373,6 +375,7 @@ static void
 create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_context,
                                           fd_exec_slot_ctx_t const *     slot_ctx,
                                           fd_spad_t *                    spad ) {
+  fd_exec_epoch_ctx_t const * epoch_ctx = slot_ctx->epoch_ctx;
 
   /* BlockContext -> acct_states */
   // Dump sysvars + builtins
@@ -407,13 +410,34 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
     fd_solana_ed25519_sig_verify_program_id,
     fd_solana_spl_native_mint_id,
   };
-  const ulong num_sysvar_entries = (sizeof(fd_relevant_sysvar_ids) / sizeof(fd_pubkey_t));
-  const ulong num_loaded_builtins = (sizeof(loaded_builtins) / sizeof(fd_pubkey_t));
+  ulong num_sysvar_entries    = (sizeof(fd_relevant_sysvar_ids) / sizeof(fd_pubkey_t));
+  ulong num_loaded_builtins   = (sizeof(loaded_builtins) / sizeof(fd_pubkey_t));
+
+  ulong new_stake_account_cnt = fd_account_keys_pair_t_map_size( slot_ctx->slot_bank.stake_account_keys.account_keys_pool,
+                                                                 slot_ctx->slot_bank.stake_account_keys.account_keys_root );
+  ulong stake_account_cnt     = fd_delegation_pair_t_map_size( epoch_ctx->epoch_bank.stakes.stake_delegations_pool,
+                                                               epoch_ctx->epoch_bank.stakes.stake_delegations_root );
+
+  ulong vote_account_t_cnt    = fd_vote_accounts_pair_t_map_size( epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_pool,
+                                                                  epoch_ctx->epoch_bank.stakes.vote_accounts.vote_accounts_root );
+  ulong vote_account_t_1_cnt  = fd_vote_accounts_pair_t_map_size( epoch_ctx->epoch_bank.next_epoch_stakes.vote_accounts_pool,
+                                                                  epoch_ctx->epoch_bank.next_epoch_stakes.vote_accounts_root );
+  ulong vote_account_t_2_cnt  = fd_vote_accounts_pair_t_map_size( slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool,
+                                                                  slot_ctx->slot_bank.epoch_stakes.vote_accounts_root );
+
+  ulong total_num_accounts    = num_sysvar_entries +
+                                num_loaded_builtins +
+                                new_stake_account_cnt +
+                                stake_account_cnt +
+                                stake_account_cnt +
+                                vote_account_t_cnt +
+                                vote_account_t_1_cnt +
+                                vote_account_t_2_cnt;
 
   block_context->acct_states_count = 0;
   block_context->acct_states       = fd_spad_alloc( spad,
                                                     alignof(fd_exec_test_acct_state_t),
-                                                    ( num_sysvar_entries + num_loaded_builtins ) * sizeof(fd_exec_test_acct_state_t) );
+                                                    total_num_accounts * sizeof(fd_exec_test_acct_state_t) );
 
 
   for( ulong i=0UL; i<num_sysvar_entries; i++ ) {
@@ -443,8 +467,6 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   block_context->slot_ctx.prev_epoch_capitalization = slot_ctx->slot_bank.capitalization;
 
   /* BlockContext -> EpochContext */
-  // TODO: Other epoch bank fields that are missing from the definitions
-  fd_exec_epoch_ctx_t const * epoch_ctx               = slot_ctx->epoch_ctx;
   block_context->has_epoch_ctx                        = true;
   block_context->epoch_ctx.has_features               = true;
   dump_sorted_features( &epoch_ctx->features, &block_context->epoch_ctx.features, spad );
@@ -464,12 +486,10 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
   /* Dumping stake accounts */
 
   // BlockContext -> EpochContext -> new_stake_accounts (stake accounts for the current running epoch)
-  ulong new_stake_account_cnt = fd_account_keys_pair_t_map_size( slot_ctx->slot_bank.stake_account_keys.account_keys_pool,
-                                                                 slot_ctx->slot_bank.stake_account_keys.account_keys_root );
   block_context->epoch_ctx.new_stake_accounts_count = 0UL;
   block_context->epoch_ctx.new_stake_accounts       = fd_spad_alloc( spad,
-                                                                    alignof(fd_exec_test_stake_account_t),
-                                                                    new_stake_account_cnt * sizeof(fd_exec_test_stake_account_t) );
+                                                                     alignof(pb_bytes_array_t *),
+                                                                     new_stake_account_cnt * sizeof(pb_bytes_array_t *) );
 
   for( fd_account_keys_pair_t_mapnode_t const * curr = fd_account_keys_pair_t_map_minimum_const(
           slot_ctx->slot_bank.stake_account_keys.account_keys_pool,
@@ -484,21 +504,21 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
       continue;
     }
 
-    // Dump the stake account
-    fd_exec_test_stake_account_t * stake_out = &block_context->epoch_ctx.new_stake_accounts[block_context->epoch_ctx.new_stake_accounts_count++];
+    // Dump the new stake account pubkey
+    pb_bytes_array_t * stake_out = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( sizeof(fd_pubkey_t) ) );
+    stake_out->size = sizeof(fd_pubkey_t);
+    fd_memcpy( stake_out->bytes, &curr->elem.key, sizeof(fd_pubkey_t) );
+    block_context->epoch_ctx.new_stake_accounts[block_context->epoch_ctx.new_stake_accounts_count++] = stake_out;
 
-    // No need to store anything besides the account data
-    stake_out->has_stake_account = true;
-    dump_account_state( account, &stake_out->stake_account, spad );
+    // Dump the account state as well
+    dump_account_if_not_already_dumped( slot_ctx, &curr->elem.key, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
   }
 
   // BlockContext -> EpochContext -> stake_accounts (stake accounts at epoch T)
-  ulong stake_account_cnt = fd_delegation_pair_t_map_size( epoch_ctx->epoch_bank.stakes.stake_delegations_pool,
-                                                           epoch_ctx->epoch_bank.stakes.stake_delegations_root );
   block_context->epoch_ctx.stake_accounts_count = 0UL;
   block_context->epoch_ctx.stake_accounts       = fd_spad_alloc( spad,
-              alignof(fd_exec_test_stake_account_t),
-              stake_account_cnt * sizeof(fd_exec_test_stake_account_t) );
+                                                                 alignof(fd_exec_test_stake_account_t),
+                                                                 stake_account_cnt * sizeof(fd_exec_test_stake_account_t) );
 
   for( fd_delegation_pair_t_mapnode_t const * curr = fd_delegation_pair_t_map_minimum_const(
           epoch_ctx->epoch_bank.stakes.stake_delegations_pool,
@@ -512,14 +532,15 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
 
     fd_exec_test_stake_account_t * stake_out = &block_context->epoch_ctx.stake_accounts[block_context->epoch_ctx.stake_accounts_count++];
 
-    stake_out->has_stake_account    = true;
+    fd_memcpy( stake_out->stake_account_pubkey, &curr->elem.account, sizeof(fd_pubkey_t) );
+    fd_memcpy( stake_out->voter_pubkey, &curr->elem.delegation.voter_pubkey, sizeof(fd_pubkey_t) );
     stake_out->stake                = curr->elem.delegation.stake;
     stake_out->activation_epoch     = curr->elem.delegation.activation_epoch;
     stake_out->deactivation_epoch   = curr->elem.delegation.deactivation_epoch;
     stake_out->warmup_cooldown_rate = curr->elem.delegation.warmup_cooldown_rate;
 
-    fd_memcpy( stake_out->voter_pubkey, &curr->elem.delegation.voter_pubkey, sizeof(fd_pubkey_t) );
-    dump_account_state( account, &stake_out->stake_account, spad );
+    // Dump the account state
+    dump_account_if_not_already_dumped( slot_ctx, &curr->elem.account, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
   }
 
   /* Dumping vote accounts */
@@ -545,31 +566,42 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
       continue;
     }
 
-    // Dump the vote account
-    fd_exec_test_vote_account_t * vote_out = &block_context->epoch_ctx.new_vote_accounts[block_context->epoch_ctx.new_vote_accounts_count++];
+    // Dump the new vote account pubkey
+    pb_bytes_array_t * vote_out = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( sizeof(fd_pubkey_t) ) );
+    vote_out->size = sizeof(fd_pubkey_t);
+    fd_memcpy( vote_out->bytes, &curr->elem.key, sizeof(fd_pubkey_t) );
+    block_context->epoch_ctx.new_vote_accounts[block_context->epoch_ctx.new_vote_accounts_count++] = vote_out;
 
-    // No need to store anything besides the account data
-    vote_out->has_vote_account = true;
-    dump_account_state( account, &vote_out->vote_account, spad );
+    // Dump the account state as well
+    dump_account_if_not_already_dumped( slot_ctx, &curr->elem.key, spad, block_context->acct_states, &block_context->acct_states_count, NULL );
   }
 
   // BlockContext -> EpochContext -> vote_accounts_t (vote accounts at epoch T)
-  dump_vote_accounts( &epoch_ctx->epoch_bank.stakes.vote_accounts,
+  dump_vote_accounts( slot_ctx,
+                      &epoch_ctx->epoch_bank.stakes.vote_accounts,
                       spad,
                       &block_context->epoch_ctx.vote_accounts_t,
-                      &block_context->epoch_ctx.vote_accounts_t_count );
+                      &block_context->epoch_ctx.vote_accounts_t_count,
+                      block_context->acct_states,
+                      &block_context->acct_states_count );
 
   // BlockContext -> EpochContext -> vote_accounts_t_1 (vote accounts at epoch T-1)
-  dump_vote_accounts( &epoch_ctx->epoch_bank.next_epoch_stakes,
+  dump_vote_accounts( slot_ctx,
+                      &epoch_ctx->epoch_bank.next_epoch_stakes,
                       spad,
                       &block_context->epoch_ctx.vote_accounts_t_1,
-                      &block_context->epoch_ctx.vote_accounts_t_1_count );
+                      &block_context->epoch_ctx.vote_accounts_t_1_count,
+                      block_context->acct_states,
+                      &block_context->acct_states_count );
 
   // BlockContext -> EpochContext -> vote_accounts_t_2 (vote accounts at epoch T-2)
-  dump_vote_accounts( &slot_ctx->slot_bank.epoch_stakes,
+  dump_vote_accounts( slot_ctx,
+                      &slot_ctx->slot_bank.epoch_stakes,
                       spad,
                       &block_context->epoch_ctx.vote_accounts_t_2,
-                      &block_context->epoch_ctx.vote_accounts_t_2_count );
+                      &block_context->epoch_ctx.vote_accounts_t_2_count,
+                      block_context->acct_states,
+                      &block_context->acct_states_count );
 }
 
 static void
@@ -1005,23 +1037,42 @@ fd_dump_txn_to_protobuf( fd_exec_txn_ctx_t * txn_ctx, fd_spad_t * spad ) {
   } FD_SPAD_FRAME_END;
 }
 
-void fd_dump_block_to_protobuf( fd_exec_slot_ctx_t const * slot_ctx,
-                                fd_capture_ctx_t const *   capture_ctx,
-                                fd_spad_t *                spad ) {
+void fd_dump_block_to_protobuf( fd_exec_slot_ctx_t const *     slot_ctx,
+                                fd_capture_ctx_t const *       capture_ctx,
+                                fd_spad_t *                    spad,
+                                fd_exec_test_block_context_t * block_context_msg /* output */ ) {
+  /* No spad frame because these allocations must persist beyond the lifetime of this function call */
+  if( FD_UNLIKELY( capture_ctx==NULL ) ) {
+    FD_LOG_WARNING(( "Capture context may not be NULL when dumping blocks." ));
+    return;
+  }
+  create_block_context_protobuf_from_block( block_context_msg, slot_ctx, spad );
+}
+
+void
+fd_dump_block_to_protobuf_tx_only( fd_block_info_t const *        block_info,
+                                   fd_exec_slot_ctx_t const *     slot_ctx,
+                                   fd_capture_ctx_t const *       capture_ctx,
+                                   fd_spad_t *                    spad,
+                                   fd_exec_test_block_context_t * block_context_msg ) {
   FD_SPAD_FRAME_BEGIN( spad ) {
     if( FD_UNLIKELY( capture_ctx==NULL ) ) {
       FD_LOG_WARNING(( "Capture context may not be NULL when dumping blocks." ));
       return;
     }
 
-    fd_exec_test_block_context_t block_context_msg = FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT;
-    create_block_context_protobuf_from_block( &block_context_msg, slot_ctx, spad );
+    if( FD_UNLIKELY( block_info==NULL ) ) {
+      FD_LOG_WARNING(( "Block info may not be NULL when dumping blocks." ));
+      return;
+    }
+
+    create_block_context_protobuf_from_block_tx_only( block_context_msg, block_info, slot_ctx, spad );
 
     /* Output to file */
     ulong out_buf_size = 3UL<<30UL; /* 3 GB */
     uint8_t * out = fd_spad_alloc( spad, alignof(uint8_t), out_buf_size );
     pb_ostream_t stream = pb_ostream_from_buffer( out, out_buf_size );
-    if( pb_encode( &stream, FD_EXEC_TEST_BLOCK_CONTEXT_FIELDS, &block_context_msg ) ) {
+    if( pb_encode( &stream, FD_EXEC_TEST_BLOCK_CONTEXT_FIELDS, block_context_msg ) ) {
       char output_filepath[256]; fd_memset( output_filepath, 0, sizeof(output_filepath) );
       char * position = fd_cstr_init( output_filepath );
       position = fd_cstr_append_printf( position, "%s/block-%lu.bin", capture_ctx->dump_proto_output_dir, slot_ctx->slot_bank.slot );
@@ -1033,65 +1084,6 @@ void fd_dump_block_to_protobuf( fd_exec_slot_ctx_t const * slot_ctx,
         fclose( file );
       }
     }
-  } FD_SPAD_FRAME_END;
-}
-
-void
-fd_dump_block_to_protobuf_tx_only( fd_block_info_t const *    block_info,
-                                   fd_exec_slot_ctx_t const * slot_ctx,
-                                   fd_capture_ctx_t const *   capture_ctx,
-                                   fd_spad_t *                spad ) {
-  FD_SPAD_FRAME_BEGIN( spad ) {
-    if( FD_UNLIKELY( capture_ctx==NULL ) ) {
-      FD_LOG_WARNING(( "Capture context may not be NULL when dumping blocks." ));
-      return;
-    }
-
-    fd_exec_test_block_context_t block_context_msg[1] = { FD_EXEC_TEST_BLOCK_CONTEXT_INIT_DEFAULT };
-    // Recover block_context_msg from disk
-    char filepath[256];
-    fd_memset( filepath, 0, sizeof(filepath) );
-    char * pos = fd_cstr_init( filepath );
-    pos = fd_cstr_append_printf( pos, "%s/block-%lu.bin", capture_ctx->dump_proto_output_dir, slot_ctx->slot_bank.slot );
-    fd_cstr_fini( pos );
-
-    FILE * in_file = fopen( filepath, "rb" );
-    if( !in_file ) {
-      FD_LOG_ERR(( "Failed to open file: %s", filepath ));
-      return;
-    }
-
-    fseek( in_file, 0, SEEK_END );
-    long file_size = ftell( in_file );
-    fseek( in_file, 0, SEEK_SET );
-
-    uint8_t * in_buffer = fd_spad_alloc( spad, alignof(uint8_t), (ulong)file_size );
-    if( fread( in_buffer, 1, (size_t)file_size, in_file ) != (size_t)file_size ) {
-      FD_LOG_ERR(( "Failed to read file: %s", filepath ));
-      fclose( in_file );
-      return;
-    }
-    fclose( in_file );
-
-    pb_istream_t istream = pb_istream_from_buffer( in_buffer, (ulong)file_size );
-    if( !pb_decode( &istream, FD_EXEC_TEST_BLOCK_CONTEXT_FIELDS, block_context_msg ) ) {
-      FD_LOG_ERR(( "Decoding failed: %s", PB_GET_ERROR( &istream ) ));
-    }
-    create_block_context_protobuf_from_block_tx_only( block_context_msg, block_info, slot_ctx, spad );
-
-    /* Output to file */
-    ulong out_buf_size = 3UL<<30UL; /* 3 GB */
-    uint8_t * out = fd_spad_alloc( spad, alignof(uint8_t), out_buf_size );
-    pb_ostream_t stream = pb_ostream_from_buffer( out, out_buf_size );
-    if( pb_encode( &stream, FD_EXEC_TEST_BLOCK_CONTEXT_FIELDS, block_context_msg ) ) {
-      FILE * file = fopen(filepath, "wb");
-      if( file ) {
-        fwrite( out, 1, stream.bytes_written, file );
-        fclose( file );
-      }
-    }
-
-    /* TODO: There is a BEEEEG memory leak here. Make functions to discard fields from the old message */
   } FD_SPAD_FRAME_END;
 }
 
