@@ -180,11 +180,12 @@ fd_fec_resolver_t * fd_fec_resolver_join( void * shmem );
    last one and completes the FEC set.  In this case, the function
    populates any missing shreds in the FEC set stored in out_fec_set. */
 int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
-                               fd_shred_t   const   *  shred,
+                               fd_shred_t   const   * shred,
                                ulong                  shred_sz,
                                uchar        const   * leader_pubkey,
                                fd_fec_set_t const * * out_fec_set,
-                               fd_shred_t   const * * out_shred );
+                               fd_shred_t   const * * out_shred,
+                               uchar                * out_merkle_root );
 
 void * fd_fec_resolver_leave( fd_fec_resolver_t * resolver );
 void * fd_fec_resolver_delete( void * shmem );

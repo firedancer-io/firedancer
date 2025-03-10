@@ -29,6 +29,7 @@
 #define STAKE_IN_IDX    2
 #define STORE_IN_IDX    3
 #define SIGN_IN_IDX     4
+#define REPLAY_IN_IDX   5
 
 #define STORE_OUT_IDX 0
 #define NET_OUT_IDX   1
@@ -297,6 +298,10 @@ before_frag( fd_repair_tile_ctx_t * ctx,
   (void)seq;
 
   if( FD_LIKELY( in_idx==NET_IN_IDX ) ) return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR;
+  if( in_idx==REPLAY_IN_IDX ) {
+    FD_LOG_WARNING(("Received replay request to repair for slot %lu", sig));
+    return 1;
+  }
   return 0;
 }
 
@@ -433,7 +438,7 @@ repair_get_shred( ulong  slot,
     while( err == FD_MAP_ERR_AGAIN ) {
       fd_block_map_query_t query[1] = { 0 };
       err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, query, 0 );
-      fd_block_meta_t * meta = fd_block_map_query_ele( query );
+      fd_block_info_t * meta = fd_block_map_query_ele( query );
       if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return -1L;
       if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
       shred_idx = (uint)meta->slot_complete_idx;
@@ -484,12 +489,13 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( tile->in_cnt != 5 ||
-                   strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "net_repair")     ||
+  if( FD_UNLIKELY( tile->in_cnt != 6 ||
+                   strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "net_repair")    ||
                    strcmp( topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].name, "gossip_repai" ) ||
-                   strcmp( topo->links[ tile->in_link_id[ STAKE_IN_IDX ] ].name,   "stake_out" )     ||
-                   strcmp( topo->links[ tile->in_link_id[ STORE_IN_IDX ] ].name,   "store_repair" ) ||
-                   strcmp( topo->links[ tile->in_link_id[ SIGN_IN_IDX ] ].name,    "sign_repair" ) ) ) {
+                   strcmp( topo->links[ tile->in_link_id[ STAKE_IN_IDX   ] ].name, "stake_out" )    ||
+                   strcmp( topo->links[ tile->in_link_id[ STORE_IN_IDX  ] ].name,  "store_repair" ) ||
+                   strcmp( topo->links[ tile->in_link_id[ SIGN_IN_IDX   ] ].name,  "sign_repair" )  ||
+                   strcmp( topo->links[ tile->in_link_id[ REPLAY_IN_IDX ] ].name,  "replay_rpair" ) ) ) {
     FD_LOG_ERR(( "repair tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
   }

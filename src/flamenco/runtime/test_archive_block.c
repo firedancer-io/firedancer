@@ -11,19 +11,19 @@ ulong shred_max = 128;
 ulong block_max = 128;
 ulong txn_max = 128;
 
-#define GENERATE_BLOCK_DATA( ser, block_map_entry, block, slot, data_sz )              \
+#define GENERATE_BLOCK_DATA( ser, block_info, block, slot, data_sz )              \
   uchar data[data_sz];                                                                 \
   for( ulong i = 0; i < data_sz; i++ ) {                                               \
     data[i] = (uchar) rand();                                                          \
   }                                                                                    \
   fd_block_t block = { .data_gaddr = 0, .data_sz = data_sz, .rewards = { 0 }};         \
   block.rewards.collected_fees = slot; /* used for meaningful check test */            \
-  fd_block_meta_t block_map_entry = { 0 };                                              \
-  block_map_entry.parent_slot = slot;  /* bc query_block needs an existing parent */   \
-  block_map_entry.slot = slot;                                                         \
-  block_map_entry.ts = (long) time(NULL); /* used for meaningful check test */         \
+  fd_block_info_t block_info = { 0 };                                              \
+  block_info.parent_slot = slot;  /* bc query_block needs an existing parent */   \
+  block_info.slot = slot;                                                         \
+  block_info.ts = (long) time(NULL); /* used for meaningful check test */         \
   fd_blockstore_ser_t ser = {                                                          \
-    .block_map = &block_map_entry,                                                     \
+    .block_map = &block_info,                                                     \
     .block = &block,                                                                   \
     .data = data                                                                       \
   };
@@ -64,10 +64,10 @@ blocks_equal(fd_block_t* block1, fd_block_t* block2) {
   return block1->data_sz == block2->data_sz && block1->rewards.collected_fees == block2->rewards.collected_fees;
 }
 
-fd_block_meta_t
+fd_block_info_t
 query_block(bool expect, fd_blockstore_t * blockstore, int fd, ulong slotn){
   ulong blk_sz;
-  fd_block_meta_t meta[1];
+  fd_block_info_t meta[1];
   fd_block_rewards_t rewards[1];
   fd_hash_t parent_hash;
   uchar * blk_data = NULL;
@@ -102,22 +102,22 @@ test_archive_many_blocks( fd_wksp_t * wksp, int fd, ulong fd_size_max, ulong idx
   FD_TEST(fd_blockstore_init(blockstore, fd, fd_size_max,&slot_bank));
 
   /* Store blocks that have been written to compare them later */
-  fd_block_meta_t * block_map_record = fd_alloc_malloc( fd_blockstore_alloc(blockstore),
+  fd_block_info_t * block_map_record = fd_alloc_malloc( fd_blockstore_alloc(blockstore),
                                                       fd_block_map_align(),
-                                                        sizeof(fd_block_meta_t) * (blocks + 1) );
+                                                        sizeof(fd_block_info_t) * (blocks + 1) );
   int max_data_sz_pow = 20;
   uchar buf_out[ (1 << max_data_sz_pow) ];
 
-  fd_block_meta_t block_map_entry;
+  fd_block_info_t block_info;
   fd_block_t     block;
 
   for( ulong slot = 1; slot <= blocks; slot++ ){
     ulong data_sz = (ulong) (1 << (rand() % 18 + 2));
-    ulong prev_lrw_slot = fd_blockstore_archiver_lrw_slot( blockstore, fd, &block_map_entry, &block );
+    ulong prev_lrw_slot = fd_blockstore_archiver_lrw_slot( blockstore, fd, &block_info, &block );
 
-    GENERATE_BLOCK_DATA( ser, block_map_entry, block, slot, data_sz );
+    GENERATE_BLOCK_DATA( ser, block_info, block, slot, data_sz );
     FD_LOG_NOTICE( ( "slot %lu, data_sz %lu", slot, data_sz ) );
-    block_map_record[slot] = block_map_entry;
+    block_map_record[slot] = block_info;
 
     /* Checkpoint the generated data */
 
@@ -126,21 +126,21 @@ test_archive_many_blocks( fd_wksp_t * wksp, int fd, ulong fd_size_max, ulong idx
     /* Read back the data from archive */
 
     fd_block_idx_t * block_idx_entry = fd_block_idx_query( fd_blockstore_block_idx(blockstore), slot, NULL );
-    fd_block_meta_t block_map_entry_out;
+    fd_block_info_t block_info_out;
     fd_block_t block_out;
     //ulong read_off = block_idx_entry->off;
-    fd_blockstore_block_meta_restore(&blockstore->shmem->archiver, fd, block_idx_entry, &block_map_entry_out, &block_out);
-    //read_off = wrap_offset(&blockstore->shmem->archiver, read_off + sizeof(fd_block_meta_t) + sizeof(fd_block_t));
+    fd_blockstore_block_info_restore(&blockstore->shmem->archiver, fd, block_idx_entry, &block_info_out, &block_out);
+    //read_off = wrap_offset(&blockstore->shmem->archiver, read_off + sizeof(fd_block_info_t) + sizeof(fd_block_t));
     fd_blockstore_block_data_restore(&blockstore->shmem->archiver, fd, block_idx_entry, buf_out, block_out.data_sz, block_out.data_sz);
 
     /* Check data read back matches data written */
 
     FD_TEST( memcmp(buf_out, data, block_out.data_sz) == 0 );
     FD_TEST( blocks_equal(&block, &block_out) );
-    FD_TEST( block_map_entry_out.slot == slot );
+    FD_TEST( block_info_out.slot == slot );
 
     /* Check that blocks are evicted or stay in file as expected */
-    ulong lrw_slot = fd_blockstore_archiver_lrw_slot( blockstore, fd, &block_map_entry, &block );
+    ulong lrw_slot = fd_blockstore_archiver_lrw_slot( blockstore, fd, &block_info, &block );
 
     if( lrw_slot != prev_lrw_slot && slot != 1) {
       query_block(false, blockstore, fd, prev_lrw_slot);              // no longer in archive
@@ -152,8 +152,8 @@ test_archive_many_blocks( fd_wksp_t * wksp, int fd, ulong fd_size_max, ulong idx
       // periodically check all blocks in the block_idx match the blocks in the archive
       // and blocks in archive match what we store in memory
       for( ulong s = lrw_slot; s != blockstore->shmem->mrw_slot; s++ ){
-        fd_block_meta_t blk_map = query_block(true, blockstore, fd, s);
-        FD_TEST( memcmp( &blk_map, &block_map_record[s], sizeof(fd_block_meta_t)) == 0 );
+        fd_block_info_t blk_map = query_block(true, blockstore, fd, s);
+        FD_TEST( memcmp( &blk_map, &block_map_record[s], sizeof(fd_block_info_t)) == 0 );
       }
     }
   }
@@ -176,14 +176,14 @@ void test_blockstore_archive_big( fd_wksp_t * wksp, int fd, ulong first_idx_max,
   for( ulong slot = 1; slot <= first_idx_max; slot++ ){
     ulong data_sz = (ulong) (1 << (rand() % 18 + 2));
 
-    GENERATE_BLOCK_DATA( ser, block_map_entry, block, slot, data_sz );
+    GENERATE_BLOCK_DATA( ser, block_info, block, slot, data_sz );
     FD_LOG_NOTICE( ( "slot %lu, data_sz %lu", slot, data_sz ) );
 
     /* Checkpoint the generated data */
 
     fd_blockstore_block_checkpt( blockstore, &ser, fd, slot );
   }
-  fd_block_meta_t lrw_block_map;
+  fd_block_info_t lrw_block_map;
   fd_block_t     lrw_block;
 
   ulong lrw1 = fd_blockstore_archiver_lrw_slot( blockstore, fd, &lrw_block_map, &lrw_block);
@@ -234,7 +234,7 @@ void test_blockstore_archive_small( fd_wksp_t * wksp, int fd, ulong first_idx_ma
 
   /* LRW and MRW slot should be properly populated */
 
-  fd_block_meta_t lrw_block_map;
+  fd_block_info_t lrw_block_map;
   fd_block_t     lrw_block;
   ulong lrw_slot = fd_blockstore_archiver_lrw_slot( blockstore, fd, &lrw_block_map, &lrw_block );
   FD_LOG_NOTICE(("lrw_slot: %lu, mrw_slot: %lu", lrw_slot, blockstore->shmem->mrw_slot));
@@ -245,7 +245,7 @@ void test_blockstore_archive_small( fd_wksp_t * wksp, int fd, ulong first_idx_ma
 
   ulong slot = last_archived + 1;
   ulong data_sz = 1024;
-  GENERATE_BLOCK_DATA( ser, block_map_entry, block, slot, data_sz );
+  GENERATE_BLOCK_DATA( ser, block_info, block, slot, data_sz );
   fd_blockstore_block_checkpt( blockstore, &ser, fd, slot);
 
   /* Check that LRW was evicted, and MRW is updated */
