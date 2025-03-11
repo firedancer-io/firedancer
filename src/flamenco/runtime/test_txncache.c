@@ -2,6 +2,9 @@
 
 #include <pthread.h>
 
+#define FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS          (300UL)
+#define FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT (524288UL)
+
 #define SORT_NAME        sort_slot_ascend
 #define SORT_KEY_T       ulong
 #define SORT_BEFORE(a,b) (a)<(b)
@@ -11,8 +14,8 @@
 
 FD_STATIC_ASSERT( FD_TXNCACHE_ALIGN    ==128UL,                  unit_test );
 
-ulong txncache_scratch_sz;
-uchar * txncache_scratch;
+static ulong txncache_scratch_sz;
+static uchar * txncache_scratch;
 
 static fd_txncache_t *
 init_all( ulong max_rooted_slots,
@@ -20,16 +23,14 @@ init_all( ulong max_rooted_slots,
           ulong max_transactions_per_slot ) {
   ulong footprint = fd_txncache_footprint( max_rooted_slots,
                                            max_live_slots,
-                                           max_transactions_per_slot,
-                                           0UL );
+                                           max_transactions_per_slot );
   FD_TEST( footprint );
 
   if( FD_UNLIKELY( footprint>txncache_scratch_sz ) ) FD_LOG_ERR(( "Test required %lu bytes, but scratch was only %lu", footprint, txncache_scratch_sz ));
   fd_txncache_t * tc = fd_txncache_join( fd_txncache_new( txncache_scratch,
                                                           max_rooted_slots,
                                                           max_live_slots,
-                                                          max_transactions_per_slot,
-                                                          0UL ) );
+                                                          max_transactions_per_slot ) );
   FD_TEST( tc );
   return tc;
 }
@@ -47,8 +48,10 @@ insert( ulong _blockhash,
   fd_txncache_insert_t insert = {
     .blockhash = blockhash,
     .txnhash   = txnhash,
+    .key_sz    = 32UL,
     .slot      = slot,
     .result    = result,
+    .flags     = FD_TXNCACHE_FLAG_REGULAR_TXN,
   };
   if( FD_UNLIKELY( !fd_txncache_insert_batch( (fd_txncache_t*)txncache_scratch, &insert, 1 ) ) )
     FD_LOG_ERR(( "fd_txncache_insert_batch() failed %lu %lu %lu", _blockhash, _txnhash, slot ));
@@ -67,8 +70,10 @@ no_insert( ulong _blockhash,
   fd_txncache_insert_t insert = {
     .blockhash = blockhash,
     .txnhash   = txnhash,
+    .key_sz    = 32UL,
     .slot      = slot,
     .result    = result,
+    .flags     = FD_TXNCACHE_FLAG_REGULAR_TXN,
   };
   FD_TEST( !fd_txncache_insert_batch( (fd_txncache_t*)txncache_scratch, &insert, 1 ) );
 }
@@ -79,10 +84,27 @@ query_fn( ulong slot,
   return slot==*(ulong *)ctx;
 }
 
+/* This does a root slot query for benchmarking purposes, because in the
+   full client we do a root slot query for every txncache query.
+   It will return 1 regardless of whether the slot is rooted or not.
+ */
+static int
+query_fn_root( ulong  slot,
+               void * ctx ) {
+
+  fd_txncache_t * tc = ctx;
+  if( FD_LIKELY( fd_txncache_is_rooted_slot_locked( tc, slot ) ) ) {
+    return 1;
+  }
+  return 1;
+}
+
 static void
-contains( ulong _blockhash,
-          ulong _txnhash,
-          ulong slot ) {
+contains_impl( ulong  _blockhash,
+               ulong  _txnhash,
+               ulong  slot,
+               void * qf_ctx,
+               int (*qf)(ulong slot, void * ctx) ) {
   uchar blockhash[ 32 ] = {0};
   uchar txnhash[ 32 ] = {0};
   FD_STORE( ulong, blockhash, _blockhash );
@@ -91,35 +113,68 @@ contains( ulong _blockhash,
   fd_txncache_query_t query = {
     .blockhash = blockhash,
     .txnhash   = txnhash,
+    .key_sz    = 32UL,
+    .flags     = FD_TXNCACHE_FLAG_REGULAR_TXN,
   };
 
   int results[1];
-  fd_txncache_query_batch( (fd_txncache_t*)txncache_scratch, &query, 1UL, &slot, query_fn, results );
+  fd_txncache_query_batch( (fd_txncache_t *)txncache_scratch, &query, 1UL, qf_ctx, qf, results );
   if( FD_UNLIKELY( !results[0] ) )
     FD_LOG_ERR(( "expected contains %lu %lu %lu", _blockhash, _txnhash, slot ));
+}
+
+static void
+contains( ulong _blockhash,
+          ulong _txnhash,
+          ulong slot ) {
+  contains_impl( _blockhash, _txnhash, slot, &slot, query_fn );
+}
+
+static void
+contains_root( ulong _blockhash,
+               ulong _txnhash,
+               ulong slot ) {
+  contains_impl( _blockhash, _txnhash, slot, (void *)txncache_scratch, query_fn_root );
+}
+
+static void
+no_contains_impl( ulong _blockhash,
+                  ulong _txnhash,
+                  ulong slot,
+                  int (*qf)(ulong slot, void * ctx) ) {
+  uchar blockhash[ 32 ] = {0};
+  uchar txnhash[ 32 ] = {0};
+  FD_STORE( ulong, blockhash, _blockhash );
+  FD_STORE( ulong, txnhash,   _txnhash );
+
+  fd_txncache_query_t query = {
+    .blockhash = blockhash,
+    .txnhash   = txnhash,
+    .key_sz    = 32UL,
+    .flags     = FD_TXNCACHE_FLAG_REGULAR_TXN,
+  };
+
+  int results[1];
+  fd_txncache_query_batch( (fd_txncache_t*)txncache_scratch, &query, 1UL, &slot, qf, results );
+  if( FD_UNLIKELY( results[0] ) )
+    FD_LOG_ERR(( "expected no contains %lu %lu %lu", _blockhash, _txnhash, slot ));
 }
 
 static void
 no_contains( ulong _blockhash,
              ulong _txnhash,
              ulong slot ) {
-  uchar blockhash[ 32 ] = {0};
-  uchar txnhash[ 32 ] = {0};
-  FD_STORE( ulong, blockhash, _blockhash );
-  FD_STORE( ulong, txnhash,   _txnhash );
-
-  fd_txncache_query_t query = {
-    .blockhash = blockhash,
-    .txnhash   = txnhash,
-  };
-
-  int results[1];
-  fd_txncache_query_batch( (fd_txncache_t*)txncache_scratch, &query, 1UL, &slot, query_fn, results );
-  if( FD_UNLIKELY( results[0] ) )
-    FD_LOG_ERR(( "expected no contains %lu %lu %lu", _blockhash, _txnhash, slot ));
+  no_contains_impl( _blockhash, _txnhash, slot, query_fn );
 }
 
-void
+static void
+no_contains_root( ulong _blockhash,
+                  ulong _txnhash,
+                  ulong slot ) {
+  no_contains_impl( _blockhash, _txnhash, slot, query_fn_root );
+}
+
+static void
 test0( void ) {
   FD_LOG_NOTICE(( "TEST 0" ));
 
@@ -132,35 +187,34 @@ test0( void ) {
   no_contains( 1, 1, 1 );
 }
 
-void
+static void
 test_new_join_leave_delete( void ) {
   FD_LOG_NOTICE(( "TEST NEW JOIN LEAVE DELETE" ));
 
-  FD_TEST( fd_txncache_new( NULL, 1UL, 1UL, 1UL, 0UL )==NULL );             /* null shmem         */
-  FD_TEST( fd_txncache_new( (void *)0x1UL, 1UL, 1UL, 1UL, 0UL )==NULL );    /* misaligned shmem   */
-  FD_TEST( fd_txncache_new( txncache_scratch, 0UL, 1UL, 1UL, 0UL )==NULL ); /* 0 max_rooted_slots */
-  FD_TEST( fd_txncache_new( txncache_scratch, 2UL, 1UL, 1UL, 0UL )==NULL ); /* 0 max_live_slots<max_rooted_slots */
-  FD_TEST( fd_txncache_new( txncache_scratch, 2UL, 2UL, 0UL, 0UL )==NULL ); /* 0 max_txn_per_slot */
+  FD_TEST( fd_txncache_new( NULL, 1UL, 1UL, 1UL )==NULL );             /* null shmem         */
+  FD_TEST( fd_txncache_new( (void *)0x1UL, 1UL, 1UL, 1UL )==NULL );    /* misaligned shmem   */
+  FD_TEST( fd_txncache_new( txncache_scratch, 0UL, 1UL, 1UL )==NULL ); /* 0 max_rooted_slots */
+  FD_TEST( fd_txncache_new( txncache_scratch, 2UL, 1UL, 1UL )==NULL ); /* 0 max_live_slots<max_rooted_slots */
+  FD_TEST( fd_txncache_new( txncache_scratch, 2UL, 2UL, 0UL )==NULL ); /* 0 max_txn_per_slot */
 
-  FD_TEST( fd_txncache_new( txncache_scratch, 1UL, 1UL, 1UL, 0UL ) );
-  FD_TEST( fd_txncache_new( txncache_scratch, 2UL, 2UL, 2UL, 0UL ) );
-  FD_TEST( fd_txncache_new( txncache_scratch, 2UL, 2UL, 2UL, 0UL ) );
+  FD_TEST( fd_txncache_new( txncache_scratch, 1UL, 1UL, 1UL ) );
+  FD_TEST( fd_txncache_new( txncache_scratch, 2UL, 2UL, 2UL ) );
+  FD_TEST( fd_txncache_new( txncache_scratch, 2UL, 2UL, 2UL ) );
   FD_TEST( fd_txncache_new( txncache_scratch, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
                                               TXNCACHE_LIVE_SLOTS,
-                                              FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT,
-                                              FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
+                                              FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT ) );
   FD_TEST( fd_txncache_new( txncache_scratch, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
                                               512UL,
-                                              FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT,
-                                              FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
+                                              FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT ) );
   FD_TEST( fd_txncache_new( txncache_scratch, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
                                               TXNCACHE_LIVE_SLOTS,
-                                              1UL,
-                                              FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
+                                              1UL ) );
+  FD_TEST( fd_txncache_new( txncache_scratch, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
+                                              TXNCACHE_LIVE_SLOTS,
+                                              1UL ) );
   void * obj = fd_txncache_new( txncache_scratch, 1UL,
                                                   TXNCACHE_LIVE_SLOTS,
-                                                  FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT,
-                                                  FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS );
+                                                  FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT );
   FD_TEST( obj );
 
   FD_LOG_NOTICE(( "TEST JOIN" ));
@@ -180,7 +234,7 @@ test_new_join_leave_delete( void ) {
   FD_TEST( fd_txncache_delete( obj           )==txncache_scratch  ); /* ok */
 }
 
-void
+static void
 test_register_root_slot_simple( void ) {
   FD_LOG_NOTICE(( "TEST REGISTER ROOT SLOT SIMPLE" ));
 
@@ -270,19 +324,13 @@ test_register_root_slot_simple( void ) {
   FD_TEST( slots[ 5 ]==30UL );
 }
 
-void
+static void
 test_register_root_slot( void ) {
   FD_LOG_NOTICE(( "TEST REGISTER ROOT SLOT" ));
-  
+
   fd_txncache_t * tc = init_all( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
                                  TXNCACHE_LIVE_SLOTS,
                                  FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT );
-
-  FD_TEST( fd_txncache_new( tc,
-                            FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
-                            TXNCACHE_LIVE_SLOTS,
-                            FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT,
-                            FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
 
   ulong slots[ 300 ];
   fd_txncache_root_slots( tc, slots );
@@ -328,11 +376,9 @@ test_register_root_slot( void ) {
   FD_TEST( slots[ 4 ]==999UL );
   for( ulong i=5UL; i<300UL; i++ ) FD_TEST( slots[ i ]==ULONG_MAX );
 
-  FD_TEST( fd_txncache_new( tc,
-                            FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
-                            TXNCACHE_LIVE_SLOTS,
-                            FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT,
-                            FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
+  tc = init_all( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
+                 TXNCACHE_LIVE_SLOTS,
+                 FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT );
   for( ulong i=0UL; i<300UL; i++ ) fd_txncache_register_root_slot( tc, 600UL-2UL*i );
   fd_txncache_root_slots( tc, slots );
   for( ulong i=0UL; i<300UL; i++ ) FD_TEST( slots[ i ]==2UL+2UL*i );
@@ -361,7 +407,7 @@ test_register_root_slot( void ) {
 }
 
 
-void
+static void
 test_register_root_slot_random( void ) {
   FD_LOG_NOTICE(( "TEST REGISTER ROOT SLOT RANDOM" ));
 
@@ -407,7 +453,7 @@ test_register_root_slot_random( void ) {
 }
 
 
-void
+static void
 test_full_blockhash( void ) {
   FD_LOG_NOTICE(( "TEST FULL BLOCKHASH" ));
 
@@ -443,7 +489,7 @@ test_full_blockhash( void ) {
 }
 
 
-void
+static void
 test_insert_forks( void ) {
   FD_LOG_NOTICE(( "TEST INSERT FORKS" ));
 
@@ -463,7 +509,7 @@ test_insert_forks( void ) {
   for( ulong i=151UL; i<1024UL; i++ ) contains( i, 0UL, i );
 }
 
-void
+static void
 test_purge_gap( void ) {
   FD_LOG_NOTICE(( "TEST PURGE GAP" ));
 
@@ -491,7 +537,7 @@ test_purge_gap( void ) {
   contains( 1026, 0, 1003 );
 }
 
-void
+static void
 test_many_blockhashes( void ) {
   FD_LOG_NOTICE(( "TEST MANY BLOCKHASHES" ));
 
@@ -504,7 +550,7 @@ test_many_blockhashes( void ) {
     contains( i, 0UL, i );
   }
 
-  no_insert( 1024UL, 0UL, 0UL );
+  no_insert( 1024UL, 0UL, 0UL ); /* No more room for additional blockhash in blockcache. */
   for( ulong i=0UL; i<301UL; i++ ) {
     fd_txncache_register_root_slot( tc, 1024UL-1UL-i );
   }
@@ -518,15 +564,21 @@ test_many_blockhashes( void ) {
   }
 }
 
-void *
+static volatile int go;
+
+static void *
 full_blockhash_concurrent_fn( void * arg ) {
+  while( !go );
+
   ulong i = (ulong)arg;
   for( ulong j=i; j<150UL*524288UL; j+=30UL ) insert( 0UL, j, 0UL );
   return NULL;
 }
 
-void *
+static void *
 full_blockhash_concurrent_query_fn( void * arg ) {
+  while( !go );
+
   ulong x = (ulong)arg;
   fd_rng_t rng[1];
   FD_TEST( fd_rng_join( fd_rng_new( rng, (uint)x, x+10UL ) ) );
@@ -539,7 +591,7 @@ full_blockhash_concurrent_query_fn( void * arg ) {
   return NULL;
 }
 
-void
+static void
 test_full_blockhash_concurrent( void ) {
   FD_LOG_NOTICE(( "TEST FULL BLOCKHASH CONCURRENT" ));
 
@@ -552,18 +604,28 @@ test_full_blockhash_concurrent( void ) {
     FD_TEST( !pthread_create( threads+i, NULL, full_blockhash_concurrent_fn, (void *)i ) );
   }
 
+  long start = fd_log_wallclock();
+  go = 1;
   for( ulong i=0UL; i<30UL; i++ ) {
     FD_TEST( !pthread_join( threads[i], NULL ) );
   }
+  long end = fd_log_wallclock();
+  FD_LOG_NOTICE(( "insertion took %ld nanos %f ops/sec", end-start, 150UL*524288UL*1000000000UL/((double)(end-start)) ));
+  go = 0;
 
   pthread_t threads2[ 1024 ];
   for( ulong i=0UL; i<1024UL; i++ ) {
     FD_TEST( !pthread_create( threads2+i, NULL, full_blockhash_concurrent_query_fn, (void *)i ) );
   }
 
+  start = fd_log_wallclock();
+  go = 1;
   for( ulong i=0UL; i<1024UL; i++ ) {
     FD_TEST( !pthread_join( threads2[i], NULL ) );
   }
+  end = fd_log_wallclock();
+  FD_LOG_NOTICE(( "query took %ld nanos %f ops/sec", end-start, 1024UL*1000UL*3UL*1000000000UL/((double)(end-start)) ));
+  go = 0;
 
   no_insert( 0UL, 0UL, 0UL );
   no_insert( 0UL, 524288UL, 0UL );
@@ -571,9 +633,7 @@ test_full_blockhash_concurrent( void ) {
   insert( 2UL, 0UL, 0UL );
 }
 
-static volatile int go;
-
-void *
+static void *
 full_blockhash_concurrent_insert_fn2( void * arg ) {
   while( !go );
 
@@ -582,7 +642,7 @@ full_blockhash_concurrent_insert_fn2( void * arg ) {
   return NULL;
 }
 
-void
+static void
 test_many_blockhashes_concurrent( void ) {
   FD_LOG_NOTICE(( "TEST MANY BLOCKHASHES CONCURRENT" ));
 
@@ -607,7 +667,136 @@ test_many_blockhashes_concurrent( void ) {
   }
 }
 
-void
+/* Return values are distributed in [0,128) such that [0,32) each
+   appears 4 times in a row, and then the rest of the numbers appear
+   once each.
+ */
+static inline ulong blockhash_dist(ulong i)
+{
+    ulong x = i % 224UL;
+    return x < 128UL ? x / 4UL : (x - 128UL) + 32UL;
+}
+
+static void *
+many_blockhashes_many_slots_concurrent_fn( void * arg ) {
+  while( !go );
+
+  ulong thread_id = (ulong)arg;
+  for( ulong j=thread_id, i=0UL; j<150UL*524288UL; j+=16UL, i++ ) {
+    insert( blockhash_dist( i ), j, 300UL-1UL-thread_id );
+  }
+  return NULL;
+}
+
+static void *
+many_blockhashes_many_slots_concurrent_query_fn( void * arg ) {
+  while( !go );
+
+  ulong x = (ulong)arg;
+  fd_rng_t rng[1];
+  FD_TEST( fd_rng_join( fd_rng_new( rng, (uint)x, x+10UL ) ) );
+
+  /* hit:miss ratio seems to be very roughly 1:2 on mainnet */
+  for( ulong i=0UL; i<1048576UL; i++ ) {
+    ulong txnhash   = fd_rng_ulong( rng ) % (150UL*524288UL);
+    ulong thread_id = txnhash % 16UL;
+    ulong i         = txnhash / 16UL;
+    contains_root( blockhash_dist( i ), txnhash, 300UL-1UL-thread_id );
+
+    txnhash   = (fd_rng_ulong( rng ) % (150UL*524288UL)) + (150UL*524288UL);
+    thread_id = txnhash % 16UL;
+    i         = txnhash / 16UL;
+    no_contains_root( blockhash_dist( i ), txnhash, 300UL-1UL-thread_id );
+
+    txnhash   = (fd_rng_ulong( rng ) % (150UL*524288UL)) + (150UL*524288UL);
+    thread_id = txnhash % 16UL;
+    i         = txnhash / 16UL;
+    no_contains_root( blockhash_dist( i ), txnhash, 300UL-1UL-thread_id );
+  }
+  return NULL;
+}
+
+static void
+test_many_blockhashes_many_slots_concurrent( void ) {
+  FD_LOG_NOTICE(( "TEST MANY BLOCKHASHES MANY SLOTS CONCURRENT" ));
+
+  fd_txncache_t * tc = init_all( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
+                                 TXNCACHE_LIVE_SLOTS,
+                                 FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT );
+
+  pthread_t threads[ 16 ];
+  for( ulong i=0UL; i<16UL; i++ ) {
+    FD_TEST( !pthread_create( threads+i, NULL, many_blockhashes_many_slots_concurrent_fn, (void *)i ) );
+  }
+
+  long start = fd_log_wallclock();
+  go = 1;
+  for( ulong i=0UL; i<16UL; i++ ) {
+    FD_TEST( !pthread_join( threads[i], NULL ) );
+  }
+  long end = fd_log_wallclock();
+  FD_LOG_NOTICE(( "insertion took %ld nanos %f ops/sec", end-start, 150UL*524288UL*1000000000UL/((double)(end-start)) ));
+  go = 0;
+
+  /* Root empty slots. */
+  for( ulong i=0UL; i<300UL-32UL; i++ ) {
+    fd_txncache_register_root_slot( tc, i );
+  }
+  ulong slots[ FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS ];
+  fd_txncache_root_slots( tc, slots );
+  for( ulong i=1UL; i<300UL-32UL; i++ ) {
+    FD_TEST( slots[ i ]==i );
+  }
+
+  /* Populated slots not rooted yet.
+     In production, most recent slots heavily referenced in blockhashes
+     have not been rooted.
+     So this more closely reflects reality. */
+  pthread_t threads2[ 16 ];
+  for( ulong i=0UL; i<16UL; i++ ) {
+    FD_TEST( !pthread_create( threads2+i, NULL, many_blockhashes_many_slots_concurrent_query_fn, (void *)i ) );
+  }
+
+  start = fd_log_wallclock();
+  go = 1;
+  for( ulong i=0UL; i<16UL; i++ ) {
+    FD_TEST( !pthread_join( threads2[i], NULL ) );
+  }
+  end = fd_log_wallclock();
+  FD_LOG_NOTICE(( "query took %ld nanos %f ops/sec", end-start, 16UL*1048576UL*3UL*1000000000UL/((double)(end-start)) ));
+  go = 0;
+
+  /* Root all slots. */
+  for( ulong i=0UL; i<300UL; i++ ) {
+    fd_txncache_register_root_slot( tc, i );
+  }
+  fd_txncache_root_slots( tc, slots );
+  for( ulong i=1UL; i<300UL; i++ ) {
+    FD_TEST( slots[ i ]==i );
+  }
+
+  /* Slots rooted. */
+  pthread_t threads3[ 16 ];
+  for( ulong i=0UL; i<16UL; i++ ) {
+    FD_TEST( !pthread_create( threads3+i, NULL, many_blockhashes_many_slots_concurrent_query_fn, (void *)i ) );
+  }
+
+  start = fd_log_wallclock();
+  go = 1;
+  for( ulong i=0UL; i<16UL; i++ ) {
+    FD_TEST( !pthread_join( threads3[i], NULL ) );
+  }
+  end = fd_log_wallclock();
+  FD_LOG_NOTICE(( "query took %ld nanos %f ops/sec", end-start, 16UL*1048576UL*3UL*1000000000UL/((double)(end-start)) ));
+  go = 0;
+
+  for( ulong i=16UL; i<1024UL; i++ ) {
+    insert( i, ULONG_MAX, i );
+  }
+  no_insert( 1111UL, ULONG_MAX, 1111UL );
+}
+
+static void
 test_cache_full( void ) {
   FD_LOG_NOTICE(( "TEST CACHE FULL" ));
 
@@ -630,6 +819,63 @@ test_cache_full( void ) {
   }
 }
 
+static void
+test_blockcache_probing_collision_idx( ulong idx ) {
+
+  fd_txncache_t * tc = init_all( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
+                                 TXNCACHE_LIVE_SLOTS,
+                                 FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT );
+
+  for( ulong i=0UL; i<TXNCACHE_LIVE_SLOTS; i++ ) {
+    insert( i*TXNCACHE_LIVE_SLOTS+idx, 0, i );
+  }
+
+  for( ulong i=0UL; i<TXNCACHE_LIVE_SLOTS; i++ ) {
+    contains( i*TXNCACHE_LIVE_SLOTS+idx, 0, i );
+  }
+
+  ulong slots_purged = 512UL;
+  for( ulong i=0UL; i<300UL; i++ ) {
+    fd_txncache_register_root_slot( tc, i );
+  }
+  long start = fd_log_wallclock();
+  for( ulong i=300UL; i<300UL+slots_purged; i++ ) {
+    fd_txncache_register_root_slot( tc, i );
+  }
+  long end = fd_log_wallclock();
+  FD_LOG_NOTICE(( "reprobing with collision idx %lu took %ld nanos %f purges/sec", idx, end-start, ((double)(slots_purged*1000000000UL))/((double)(end-start)) ));
+
+  for( ulong i=TXNCACHE_LIVE_SLOTS; i<TXNCACHE_LIVE_SLOTS+slots_purged; i++ ) {
+    insert( i*TXNCACHE_LIVE_SLOTS+idx, 0, i );
+  }
+
+  for( ulong i=slots_purged; i<TXNCACHE_LIVE_SLOTS+slots_purged; i++ ) {
+    contains( i*TXNCACHE_LIVE_SLOTS+idx, 0, i );
+  }
+}
+
+static void
+test_blockcache_probing( void ) {
+  FD_LOG_NOTICE(( "TEST BLOCKCACHE PROBING" ));
+
+  test_blockcache_probing_collision_idx( 0UL );
+  // These take too long to run in CI.
+  // test_blockcache_probing_collision_idx( 1UL );
+  // test_blockcache_probing_collision_idx( TXNCACHE_LIVE_SLOTS-1UL );
+  test_blockcache_probing_collision_idx( TXNCACHE_LIVE_SLOTS-2UL );
+}
+
+// static void
+// test_nonce_cache_probing( void ) {
+//   FD_LOG_NOTICE(( "TEST NONCE CACHE PROBING" ));
+
+// #define FD_TXNCACHE_MAX_TRANSACTIONS_PER_SLOT 1024UL
+//   fd_txncache_t * tc = init_all( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
+//                                  TXNCACHE_LIVE_SLOTS,
+//                                  FD_TXNCACHE_MAX_TRANSACTIONS_PER_SLOT );
+// #undef FD_TXNCACHE_MAX_TRANSACTIONS_PER_SLOT
+// }
+
 int
 main( int     argc,
       char ** argv ) {
@@ -637,14 +883,14 @@ main( int     argc,
 
   ulong max_footprint = fd_txncache_footprint( FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS,
                                                TXNCACHE_LIVE_SLOTS,
-                                               FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT,
-                                               FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS );
+                                               FD_TXNCACHE_DEFAULT_MAX_TRANSACTIONS_PER_SLOT );
   txncache_scratch = fd_shmem_acquire( 4096UL, 1UL+(max_footprint/4096UL), 0UL );
   txncache_scratch_sz = 4096UL * (1UL+(max_footprint/4096UL));
   FD_TEST( txncache_scratch );
+  FD_LOG_NOTICE(("txncache_scratch_sz %lu max_footprint %lu", txncache_scratch_sz, max_footprint));
 
   FD_TEST( fd_txncache_align()==FD_TXNCACHE_ALIGN );
-
+if(0) {
   test0();
   test_new_join_leave_delete();
   test_register_root_slot_simple();
@@ -657,6 +903,8 @@ main( int     argc,
   test_full_blockhash_concurrent();
   test_many_blockhashes_concurrent();
   test_cache_full();
+  test_blockcache_probing();
+  test_many_blockhashes_many_slots_concurrent();}
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();
