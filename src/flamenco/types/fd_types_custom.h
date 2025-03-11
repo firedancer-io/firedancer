@@ -36,25 +36,27 @@ union fd_signature {
 };
 
 typedef union fd_signature fd_signature_t;
+typedef union fd_signature fd_signature_global_t;
 
 FD_PROTOTYPES_BEGIN
 
 #define fd_hash_check_zero(_x) (!((_x)->ul[0] | (_x)->ul[1] | (_x)->ul[2] | (_x)->ul[3]))
 #define fd_hash_set_zero(_x)   {((_x)->ul[0] = 0); ((_x)->ul[1] = 0); ((_x)->ul[2] = 0); ((_x)->ul[3] = 0);}
 
-#define fd_pubkey_new              fd_hash_new
-#define fd_pubkey_encode           fd_hash_encode
-#define fd_pubkey_decode_archival  fd_hash_decode
-#define fd_pubkey_encode_archival  fd_hash_encode
-#define fd_pubkey_destroy          fd_hash_destroy
-#define fd_pubkey_size             fd_hash_size
-#define fd_pubkey_check_zero       fd_hash_check_zero
-#define fd_pubkey_set_zero         fd_hash_set_zero
-#define fd_pubkey_walk             fd_hash_walk
-#define fd_pubkey_decode_inner     fd_hash_decode_inner
-#define fd_pubkey_decode_footprint fd_hash_decode_footprint
-#define fd_pubkey_decode_footprint_inner fd_hash_decode_footprint_inner
-#define fd_pubkey_decode       fd_hash_decode
+#define fd_pubkey_new                     fd_hash_new
+#define fd_pubkey_encode                  fd_hash_encode
+#define fd_pubkey_destroy                 fd_hash_destroy
+#define fd_pubkey_size                    fd_hash_size
+#define fd_pubkey_check_zero              fd_hash_check_zero
+#define fd_pubkey_set_zero                fd_hash_set_zero
+#define fd_pubkey_walk                    fd_hash_walk
+#define fd_pubkey_decode_inner            fd_hash_decode_inner
+#define fd_pubkey_decode_footprint        fd_hash_decode_footprint
+#define fd_pubkey_decode_footprint_inner  fd_hash_decode_footprint_inner
+#define fd_pubkey_decode                  fd_hash_decode
+#define fd_pubkey_decode_global           fd_hash_decode_global
+#define fd_pubkey_decode_inner_global     fd_hash_decode_inner_global
+#define fd_pubkey_convert_global_to_local fd_hash_convert_global_to_local
 
 struct __attribute__((aligned(8UL))) fd_option_slot {
   uchar is_some;
@@ -75,6 +77,9 @@ typedef struct fd_txnstatusidx fd_txnstatusidx_t;
 typedef uint fd_gossip_ip4_addr_t;
 typedef uint fd_gossip_ip4_addr_t;
 
+typedef uint fd_gossip_ip4_addr_global_t;
+typedef uint fd_gossip_ip4_addr_global_t;
+
 /* IPv6 ***************************************************************/
 
 union fd_gossip_ip6_addr {
@@ -85,6 +90,13 @@ union fd_gossip_ip6_addr {
 
 typedef union fd_gossip_ip6_addr fd_gossip_ip6_addr_t;
 
+union fd_gossip_ip6_addr_global {
+  uchar  uc[ 16 ];
+  ushort us[  8 ];
+  uint   ul[  4 ];
+};
+
+typedef union fd_gossip_ip6_addr_global fd_gossip_ip6_addr_global_t;
 
 int
 fd_solana_vote_account_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
@@ -113,6 +125,8 @@ struct fd_flamenco_txn {
 };
 
 typedef struct fd_flamenco_txn fd_flamenco_txn_t;
+typedef struct fd_flamenco_txn fd_flamenco_txn_global_t;
+
 
 static inline void
 fd_flamenco_txn_new( fd_flamenco_txn_t * self FD_FN_UNUSED ) {}
@@ -121,7 +135,7 @@ static inline void
 fd_flamenco_txn_destroy( fd_flamenco_txn_t const * self FD_FN_UNUSED ) {}
 
 FD_FN_CONST static inline ulong
-fd_flamenco_txn_size( fd_flamenco_txn_t const * self) {
+fd_flamenco_txn_size( fd_flamenco_txn_t const * self ) {
   return self->raw_sz;
 }
 
@@ -149,6 +163,16 @@ fd_flamenco_txn_walk( void *                    w,
   fun( w, sig0, name, FD_FLAMENCO_TYPE_SIG512, "txn", level );
 }
 
+static inline ulong
+fd_flamenco_txn_align( void ) {
+  return alignof(fd_flamenco_txn_t);
+}
+
+static inline ulong
+fd_flamenco_txn_footprint( void ) {
+  return sizeof(fd_flamenco_txn_t);
+}
+
 int
 fd_flamenco_txn_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
 
@@ -161,6 +185,14 @@ fd_flamenco_txn_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
 void
 fd_flamenco_txn_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 
+void
+fd_flamenco_txn_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+
+void *
+fd_flamenco_txn_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
+
+int
+fd_flamenco_txn_convert_global_to_local( void const * global_self, fd_flamenco_txn_t * self, fd_bincode_decode_ctx_t * ctx );
 
 /* Represents the lamport balance associated with an account. */
 typedef ulong fd_acc_lamports_t;

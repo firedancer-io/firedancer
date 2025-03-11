@@ -1,7 +1,7 @@
-src/flamenco/types/fd_types.h linguist-generated=true
-src/flamenco/types/fd_types.c linguist-generated=true
-src/flamenco/vm/jit/fd_vm_compiler.c linguist-generated=true
-contrib/test/test-vectors-fixtures/** linguist-generated=true
-*.pb.h linguist-generated=true
-*.pb.c linguist-generated=true
-corpus/** binary
+src/flamenco/types/fd_types.h -diff linguist-generated
+src/flamenco/types/fd_types.c -diff linguist-generated
+contrib/test/test-vectors-fixtures/** -diff linguist-generated
+src/flamenco/types/fixtures/** -diff binary
+*.pb.h -diff linguist-generated=true
+*.pb.c -diff linguist-generated=true
+corpus/** -diff binary

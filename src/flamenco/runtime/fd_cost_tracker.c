@@ -343,8 +343,8 @@ fd_cost_tracker_init( fd_cost_tracker_t *        self,
      TODO: The maximum number of accounts within a block needs to be bounded out properly. It's currently
      hardcoded here at 4096*1024 accounts. */
   self->cost_by_writable_accounts.account_costs_root = NULL;
-  self->cost_by_writable_accounts.account_costs_pool = fd_account_costs_pair_t_map_alloc( fd_spad_virtual( spad ),
-                                                                                          FD_WRITABLE_ACCOUNTS_PER_BLOCK * 1024UL );
+  uchar * pool_mem                                   = fd_spad_alloc( spad, fd_account_costs_pair_t_map_align(), fd_account_costs_pair_t_map_footprint( FD_WRITABLE_ACCOUNTS_PER_BLOCK * 1024UL ) );
+  self->cost_by_writable_accounts.account_costs_pool = fd_account_costs_pair_t_map_join( fd_account_costs_pair_t_map_new( pool_mem, FD_WRITABLE_ACCOUNTS_PER_BLOCK * 1024UL ) );
   if( FD_UNLIKELY( !self->cost_by_writable_accounts.account_costs_pool ) ) {
     FD_LOG_ERR(( "failed to allocate memory for cost tracker accounts pool" ));
   }

@@ -305,7 +305,8 @@ fd_refresh_vote_accounts( fd_exec_slot_ctx_t *       slot_ctx,
   ulong vote_states_pool_sz   = fd_vote_accounts_pair_t_map_size( stakes->vote_accounts.vote_accounts_pool, stakes->vote_accounts.vote_accounts_root )
                               + fd_account_keys_pair_t_map_size( slot_bank->vote_account_keys.account_keys_pool, slot_bank->vote_account_keys.account_keys_root );
   temp_info->vote_states_root = NULL;
-  temp_info->vote_states_pool = fd_vote_info_pair_t_map_alloc( fd_spad_virtual( runtime_spad ), vote_states_pool_sz );
+  uchar * pool_mem = fd_spad_alloc( runtime_spad, fd_vote_info_pair_t_map_align(), fd_vote_info_pair_t_map_footprint( vote_states_pool_sz ) );
+  temp_info->vote_states_pool = fd_vote_info_pair_t_map_join( fd_vote_info_pair_t_map_new( pool_mem, vote_states_pool_sz ) );
 
   /* Create a map of <pubkey, stake> to store the total stake of each vote account. */
   void * mem = fd_spad_alloc( runtime_spad, fd_stake_weight_t_map_align(), fd_stake_weight_t_map_footprint( vote_states_pool_sz ) );

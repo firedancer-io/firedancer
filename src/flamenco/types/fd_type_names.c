@@ -1,5 +1,5 @@
 // This is an auto-generated file. To add entries, edit fd_types.json
-#define FD_TYPE_NAME_COUNT 243
+#define FD_TYPE_NAME_COUNT 238
 static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_hash",
  "fd_pubkey",
@@ -23,8 +23,6 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_stake_history",
  "fd_solana_account",
  "fd_vote_accounts_pair",
- "fd_vote_accounts_pair_serializable",
- "fd_vote_accounts_serializable",
  "fd_vote_accounts",
  "fd_account_keys_pair",
  "fd_account_keys",
@@ -35,7 +33,6 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_stake",
  "fd_stake_pair",
  "fd_stakes",
- "fd_stakes_serializable",
  "fd_stakes_stake",
  "fd_bank_incremental_snapshot_persistence",
  "fd_node_vote_accounts",
@@ -45,8 +42,7 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_epoch_epoch_stakes_pair",
  "fd_pubkey_u64_pair",
  "fd_unused_accounts",
- "fd_deserializable_versioned_bank",
- "fd_serializable_versioned_bank",
+ "fd_versioned_bank",
  "fd_bank_hash_stats",
  "fd_bank_hash_info",
  "fd_slot_map_pair",
@@ -60,7 +56,6 @@ static char const * fd_type_names[FD_TYPE_NAME_COUNT] = {
  "fd_reward_info",
  "fd_slot_lthash",
  "fd_solana_manifest",
- "fd_solana_manifest_serializable",
  "fd_rust_duration",
  "fd_poh_config",
  "fd_string_pubkey_pair",

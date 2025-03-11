@@ -1,0 +1,430 @@
+current: 
+  node_pubkey: 'D91hS1rccFa5idPr9TpWmhPxfyJCtzHaet2juYzQNrPC'
+  authorized_withdrawer: 'DAqvncuek4qKcC8xrHtXWgnC2XykYASmpLCJJ9iFeAoF'
+  commission: 8
+  votes: 
+    - latency: 0
+      lockout: 
+        slot: 254462400
+        confirmation_count: 31
+    - latency: 0
+      lockout: 
+        slot: 254462401
+        confirmation_count: 30
+    - latency: 0
+      lockout: 
+        slot: 254462402
+        confirmation_count: 29
+    - latency: 0
+      lockout: 
+        slot: 254462403
+        confirmation_count: 28
+    - latency: 0
+      lockout: 
+        slot: 254462404
+        confirmation_count: 27
+    - latency: 0
+      lockout: 
+        slot: 254462405
+        confirmation_count: 26
+    - latency: 0
+      lockout: 
+        slot: 254462406
+        confirmation_count: 25
+    - latency: 0
+      lockout: 
+        slot: 254462407
+        confirmation_count: 24
+    - latency: 0
+      lockout: 
+        slot: 254462408
+        confirmation_count: 23
+    - latency: 0
+      lockout: 
+        slot: 254462409
+        confirmation_count: 22
+    - latency: 0
+      lockout: 
+        slot: 254462410
+        confirmation_count: 21
+    - latency: 0
+      lockout: 
+        slot: 254462411
+        confirmation_count: 20
+    - latency: 0
+      lockout: 
+        slot: 254462412
+        confirmation_count: 19
+    - latency: 0
+      lockout: 
+        slot: 254462413
+        confirmation_count: 18
+    - latency: 0
+      lockout: 
+        slot: 254462414
+        confirmation_count: 17
+    - latency: 0
+      lockout: 
+        slot: 254462415
+        confirmation_count: 16
+    - latency: 0
+      lockout: 
+        slot: 254462416
+        confirmation_count: 15
+    - latency: 0
+      lockout: 
+        slot: 254462417
+        confirmation_count: 14
+    - latency: 0
+      lockout: 
+        slot: 254462418
+        confirmation_count: 13
+    - latency: 0
+      lockout: 
+        slot: 254462419
+        confirmation_count: 12
+    - latency: 0
+      lockout: 
+        slot: 254462420
+        confirmation_count: 11
+    - latency: 0
+      lockout: 
+        slot: 254462421
+        confirmation_count: 10
+    - latency: 0
+      lockout: 
+        slot: 254462428
+        confirmation_count: 9
+    - latency: 0
+      lockout: 
+        slot: 254462429
+        confirmation_count: 8
+    - latency: 0
+      lockout: 
+        slot: 254462430
+        confirmation_count: 7
+    - latency: 0
+      lockout: 
+        slot: 254462431
+        confirmation_count: 6
+    - latency: 0
+      lockout: 
+        slot: 254462432
+        confirmation_count: 5
+    - latency: 0
+      lockout: 
+        slot: 254462433
+        confirmation_count: 4
+    - latency: 0
+      lockout: 
+        slot: 254462434
+        confirmation_count: 3
+    - latency: 0
+      lockout: 
+        slot: 254462435
+        confirmation_count: 2
+    - latency: 0
+      lockout: 
+        slot: 254462436
+        confirmation_count: 1
+  root_slot: 254462399
+  authorized_voters: 
+    fd_vote_authorized_voter_t: 
+      epoch: 589
+      pubkey: 'D91hS1rccFa5idPr9TpWmhPxfyJCtzHaet2juYzQNrPC'
+  prior_voters: 
+    buf: 
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+      - pubkey: '11111111111111111111111111111111'
+        epoch_start: 0
+        epoch_end: 0
+    idx: 31
+    is_empty: true
+  epoch_credits: 
+    - epoch: 526
+      credits: 112476813
+      prev_credits: 112086452
+    - epoch: 527
+      credits: 112879580
+      prev_credits: 112476813
+    - epoch: 528
+      credits: 113291431
+      prev_credits: 112879580
+    - epoch: 529
+      credits: 113699450
+      prev_credits: 113291431
+    - epoch: 530
+      credits: 114082450
+      prev_credits: 113699450
+    - epoch: 531
+      credits: 114469648
+      prev_credits: 114082450
+    - epoch: 532
+      credits: 114852201
+      prev_credits: 114469648
+    - epoch: 533
+      credits: 115239998
+      prev_credits: 114852201
+    - epoch: 534
+      credits: 115646111
+      prev_credits: 115239998
+    - epoch: 535
+      credits: 116037184
+      prev_credits: 115646111
+    - epoch: 536
+      credits: 116427458
+      prev_credits: 116037184
+    - epoch: 537
+      credits: 116827262
+      prev_credits: 116427458
+    - epoch: 538
+      credits: 117217378
+      prev_credits: 116827262
+    - epoch: 539
+      credits: 117569336
+      prev_credits: 117217378
+    - epoch: 540
+      credits: 117960795
+      prev_credits: 117569336
+    - epoch: 541
+      credits: 118349056
+      prev_credits: 117960795
+    - epoch: 542
+      credits: 118722188
+      prev_credits: 118349056
+    - epoch: 543
+      credits: 119095522
+      prev_credits: 118722188
+    - epoch: 544
+      credits: 119466476
+      prev_credits: 119095522
+    - epoch: 545
+      credits: 119830491
+      prev_credits: 119466476
+    - epoch: 546
+      credits: 120189783
+      prev_credits: 119830491
+    - epoch: 547
+      credits: 120555881
+      prev_credits: 120189783
+    - epoch: 548
+      credits: 120924405
+      prev_credits: 120555881
+    - epoch: 549
+      credits: 121297329
+      prev_credits: 120924405
+    - epoch: 550
+      credits: 121671210
+      prev_credits: 121297329
+    - epoch: 551
+      credits: 122044811
+      prev_credits: 121671210
+    - epoch: 552
+      credits: 122415080
+      prev_credits: 122044811
+    - epoch: 553
+      credits: 122781671
+      prev_credits: 122415080
+    - epoch: 554
+      credits: 123151095
+      prev_credits: 122781671
+    - epoch: 555
+      credits: 123520796
+      prev_credits: 123151095
+    - epoch: 556
+      credits: 123888726
+      prev_credits: 123520796
+    - epoch: 557
+      credits: 124261070
+      prev_credits: 123888726
+    - epoch: 558
+      credits: 124648991
+      prev_credits: 124261070
+    - epoch: 559
+      credits: 125035534
+      prev_credits: 124648991
+    - epoch: 560
+      credits: 125422972
+      prev_credits: 125035534
+    - epoch: 561
+      credits: 125817225
+      prev_credits: 125422972
+    - epoch: 562
+      credits: 126219757
+      prev_credits: 125817225
+    - epoch: 563
+      credits: 126624111
+      prev_credits: 126219757
+    - epoch: 564
+      credits: 127036279
+      prev_credits: 126624111
+    - epoch: 565
+      credits: 127447854
+      prev_credits: 127036279
+    - epoch: 566
+      credits: 127864158
+      prev_credits: 127447854
+    - epoch: 567
+      credits: 128271523
+      prev_credits: 127864158
+    - epoch: 568
+      credits: 128673710
+      prev_credits: 128271523
+    - epoch: 569
+      credits: 129083824
+      prev_credits: 128673710
+    - epoch: 570
+      credits: 129493051
+      prev_credits: 129083824
+    - epoch: 571
+      credits: 129910129
+      prev_credits: 129493051
+    - epoch: 572
+      credits: 130308264
+      prev_credits: 129910129
+    - epoch: 573
+      credits: 130712956
+      prev_credits: 130308264
+    - epoch: 574
+      credits: 131126044
+      prev_credits: 130712956
+    - epoch: 575
+      credits: 131538979
+      prev_credits: 131126044
+    - epoch: 576
+      credits: 131952689
+      prev_credits: 131538979
+    - epoch: 577
+      credits: 132360781
+      prev_credits: 131952689
+    - epoch: 578
+      credits: 132767873
+      prev_credits: 132360781
+    - epoch: 579
+      credits: 133183669
+      prev_credits: 132767873
+    - epoch: 580
+      credits: 133594605
+      prev_credits: 133183669
+    - epoch: 581
+      credits: 134007429
+      prev_credits: 133594605
+    - epoch: 582
+      credits: 134421112
+      prev_credits: 134007429
+    - epoch: 583
+      credits: 134833788
+      prev_credits: 134421112
+    - epoch: 584
+      credits: 135242515
+      prev_credits: 134833788
+    - epoch: 585
+      credits: 135641788
+      prev_credits: 135242515
+    - epoch: 586
+      credits: 136034091
+      prev_credits: 135641788
+    - epoch: 587
+      credits: 136421141
+      prev_credits: 136034091
+    - epoch: 588
+      credits: 136795965
+      prev_credits: 136421141
+    - epoch: 589
+      credits: 136808557
+      prev_credits: 136795965
+  last_timestamp: 
+    slot: 254462436
+    timestamp: 1710567087
