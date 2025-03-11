@@ -2278,6 +2278,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
                            ctx->tpool,
                            ctx->runtime_spad );
   ctx->epoch_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
+  ctx->epoch_ctx->replay_public = ctx->replay_public;
   init_after_snapshot( ctx );
 
   /* Redirect ctx->slot_ctx to point to the memory inside forks. */

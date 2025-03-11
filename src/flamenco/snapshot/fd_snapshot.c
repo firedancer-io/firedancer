@@ -7,8 +7,8 @@
 #include "../runtime/fd_system_ids.h"
 #include "../runtime/context/fd_exec_epoch_ctx.h"
 #include "../runtime/context/fd_exec_slot_ctx.h"
-#include "../runtime/context/fd_runtime_ctx.h"
 #include "../rewards/fd_rewards.h"
+#include "../runtime/fd_runtime.h"
 
 #include <assert.h>
 #include <errno.h>
