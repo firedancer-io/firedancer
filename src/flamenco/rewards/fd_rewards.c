@@ -1160,7 +1160,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
     fd_epoch_info_new( &epoch_info );
 
     ulong stake_delegation_sz  = fd_delegation_pair_t_map_size( stakes->stake_delegations_pool, stakes->stake_delegations_root );
-    epoch_info.stake_infos_len = stake_delegation_sz;
+    epoch_info.stake_infos_len = 0UL;
     epoch_info.stake_infos     = fd_spad_alloc( runtime_spad, FD_EPOCH_INFO_PAIR_ALIGN, FD_EPOCH_INFO_PAIR_FOOTPRINT*stake_delegation_sz );
 
     fd_stake_history_entry_t _accumulator = {
