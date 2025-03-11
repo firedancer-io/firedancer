@@ -37,7 +37,7 @@ typedef long (*fd_repair_serv_get_shred_fun)( ulong slot, uint shred_idx, void *
 typedef ulong (*fd_repair_serv_get_parent_fun)( ulong slot, void * arg );
 
 /* Callback for sending a packet. addr is the address of the destination. */
-typedef void (*fd_repair_send_packet_fun)( uchar const * msg, size_t msglen, fd_repair_peer_addr_t const * addr, void * arg );
+typedef void (*fd_repair_send_packet_fun)( uchar const * msg, size_t msglen, fd_repair_peer_addr_t const * dst_addr, uint src_ip4_addr, void * arg );
 
 /* Callback signing */
 typedef void (*fd_repair_sign_fun)( void * ctx, uchar * sig, uchar const * buffer, ulong len, int sign_type );
@@ -86,10 +86,22 @@ int fd_repair_start( fd_repair_t * glob );
 int fd_repair_continue( fd_repair_t * glob );
 
 /* Pass a raw client response packet into the protocol. addr is the address of the sender */
-int fd_repair_recv_clnt_packet( fd_repair_t * glob, uchar const * msg, ulong msglen, fd_repair_peer_addr_t const * addr );
+int
+fd_repair_recv_clnt_packet( fd_repair_t *                 glob,
+                            uchar const *                 msg,
+                            ulong                         msglen,
+                            fd_repair_peer_addr_t const * src_addr,
+                            uint                          dst_ip4_addr );
 
-/* Pass a raw service request packet into the protocol. addr is the address of the sender */
-int fd_repair_recv_serv_packet( fd_repair_t * glob, uchar const * msg, ulong msglen, fd_repair_peer_addr_t const * addr );
+/* Pass a raw service request packet into the protocol.
+   src_addr is the address of the sender
+   dst_ip4_addr is the dst IPv4 address of the incoming packet (i.e. our IP) */
+int
+fd_repair_recv_serv_packet( fd_repair_t *                 glob,
+                            uchar const *                 msg,
+                            ulong                         msglen,
+                            fd_repair_peer_addr_t const * src_addr,
+                            uint                          dst_ip4_addr );
 
 /* Determine if the request queue is full */
 int fd_repair_is_full( fd_repair_t * glob );

@@ -343,7 +343,6 @@ typedef struct {
 
       /* non-config */
 
-      uint    ip_addr;
       int     good_peer_cache_file_fd;
       char    identity_key_path[ PATH_MAX ];
     } repair;
