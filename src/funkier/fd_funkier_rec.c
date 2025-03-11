@@ -130,6 +130,44 @@ fd_funkier_rec_query_try_global( fd_funkier_t *               funk,
   return NULL;
 }
 
+fd_funkier_rec_t const *
+fd_funkier_rec_query_copy( fd_funkier_t *               funk,
+                           fd_funkier_txn_t const *     txn,
+                           fd_funkier_rec_key_t const * key,
+                           fd_valloc_t                  valloc,
+                           ulong *                      sz_out ) {
+  *sz_out = ULONG_MAX;
+  fd_funkier_rec_map_t rec_map = fd_funkier_rec_map( funk, fd_funkier_wksp( funk ) );
+  fd_funkier_xid_key_pair_t pair[1];
+  if( txn == NULL ) {
+    fd_funkier_txn_xid_set_root( pair->xid );
+  } else {
+    fd_funkier_txn_xid_copy( pair->xid, &txn->xid );
+  }
+  fd_funkier_rec_key_copy( pair->key, key );
+  void * last_copy = NULL;
+  ulong last_copy_sz = 0;
+  for(;;) {
+    fd_funkier_rec_query_t query[1];
+    int err = fd_funkier_rec_map_query_try( &rec_map, pair, NULL, query );
+    if( err == FD_MAP_ERR_KEY )   return NULL;
+    if( err == FD_MAP_ERR_AGAIN ) continue;
+    if( err != FD_MAP_SUCCESS )   FD_LOG_CRIT(( "query returned err %d", err ));
+    fd_funkier_rec_t const * rec = fd_funkier_rec_map_query_ele_const( query );
+    ulong sz = fd_funkier_val_sz( rec );
+    void * copy;
+    if( sz <= last_copy_sz ) {
+      copy = last_copy;
+    } else {
+      copy = last_copy = fd_valloc_malloc( valloc, 1, sz );
+      last_copy_sz = sz;
+    }
+    memcpy( copy, fd_funkier_val( rec, fd_funkier_wksp( funk ) ), sz );
+    *sz_out = sz;
+    if( !fd_funkier_rec_query_test( query ) ) return copy;
+  }
+}
+
 int
 fd_funkier_rec_query_test( fd_funkier_rec_query_t * query ) {
   return fd_funkier_rec_map_query_test( query );

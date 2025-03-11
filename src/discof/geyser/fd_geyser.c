@@ -214,34 +214,11 @@ replay_sham_link_during_frag( fd_geyser_t * ctx, fd_replay_notif_msg_t * state, 
   fd_memcpy(state, msg, sizeof(fd_replay_notif_msg_t));
 }
 
-static void *
+static const void *
 read_account_with_xid( fd_geyser_t * ctx, fd_funkier_rec_key_t * recid, fd_funkier_txn_xid_t * xid, ulong * result_len ) {
-  fd_funkier_t * funk = ctx->funk;
-  fd_funkier_rec_map_t rec_map = fd_funkier_rec_map( funk, fd_funkier_wksp( funk ) );
-  fd_funkier_xid_key_pair_t pair[1];
-  fd_funkier_txn_xid_copy( pair->xid, xid );
-  fd_funkier_rec_key_copy( pair->key, recid );
-  void * last_copy = NULL;
-  ulong last_copy_sz = 0;
-  for(;;) {
-    fd_funkier_rec_query_t query[1];
-    int err = fd_funkier_rec_map_query_try( &rec_map, pair, NULL, query );
-    if( err == FD_MAP_ERR_KEY )   return NULL;
-    if( err == FD_MAP_ERR_AGAIN ) continue;
-    if( err != FD_MAP_SUCCESS )   FD_LOG_CRIT(( "query returned err %d", err ));
-    fd_funkier_rec_t const * rec = fd_funkier_rec_map_query_ele_const( query );
-    ulong sz = fd_funkier_val_sz( rec );
-    void * copy;
-    if( sz <= last_copy_sz ) {
-      copy = last_copy;
-    } else {
-      copy = last_copy = fd_scratch_alloc( 1, sz );
-      last_copy_sz = sz;
-    }
-    memcpy( copy, fd_funkier_val( rec, fd_funkier_wksp( funk ) ), sz );
-    *result_len = sz;
-    if( !fd_funkier_rec_query_test( query ) ) return copy;
-  }
+  fd_funkier_txn_map_t txn_map = fd_funkier_txn_map( ctx->funk, fd_funkier_wksp( ctx->funk ) );
+  fd_funkier_txn_t *   txn     = fd_funkier_txn_query( xid, &txn_map );
+  return fd_funkier_rec_query_copy( ctx->funk, txn, recid, fd_scratch_virtual(), result_len );
 }
 
 static void
@@ -261,7 +238,7 @@ replay_sham_link_after_frag(fd_geyser_t * ctx, fd_replay_notif_msg_t * msg) {
           fd_memcpy(&addr, msg->accts.accts[i].id, 32U );
           fd_funkier_rec_key_t key = fd_acc_funk_key( &addr );
           ulong datalen;
-          void * data = read_account_with_xid( ctx, &key, &msg->accts.funk_xid, &datalen );
+          const void * data = read_account_with_xid( ctx, &key, &msg->accts.funk_xid, &datalen );
           if( data ) {
             fd_account_meta_t const * meta = fd_type_pun_const( data );
             if( datalen >= meta->hlen + meta->dlen ) {
