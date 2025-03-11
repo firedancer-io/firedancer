@@ -238,10 +238,7 @@ fd_store_shred_insert( fd_store_t * store,
   fd_blockstore_t * blockstore = store->blockstore;
 
   uchar shred_type = fd_shred_type( shred->variant );
-  if( shred_type != FD_SHRED_TYPE_LEGACY_DATA
-      && shred_type != FD_SHRED_TYPE_MERKLE_DATA
-      && shred_type != FD_SHRED_TYPE_MERKLE_DATA_CHAINED
-      && shred_type != FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED ) {
+  if( !fd_shred_is_data( shred_type ) ) {
     return FD_BLOCKSTORE_SUCCESS;
   }
 
