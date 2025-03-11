@@ -6,7 +6,6 @@
 #include "../../waltz/ip/fd_fib4_netlink.h"
 #include "../../waltz/mib/fd_netdev_netlink.h"
 #include "../../waltz/neigh/fd_neigh4_netlink.h"
-#include "../../app/fdctl/config.h" /* FIXME inverse dependency */
 #include "../../util/log/fd_dtrace.h"
 
 #include <errno.h>
@@ -25,9 +24,11 @@
 #define BOND_MASTER_MAX (256U)
 
 void
-fd_netlink_topo_create( fd_topo_tile_t *            netlink_tile,
-                        fd_topo_t *                 topo,
-                        struct fdctl_config const * config ) {
+fd_netlink_topo_create( fd_topo_tile_t * netlink_tile,
+                        fd_topo_t *      topo,
+                        ulong            netlnk_max_routes,
+                        ulong            netlnk_max_neighbors,
+                        char const *     bind_interface ) {
   fd_topo_obj_t * netdev_dbl_buf_obj = fd_topob_obj( topo, "dbl_buf",     "netbase" );
   fd_topo_obj_t * fib4_main_obj      = fd_topob_obj( topo, "fib4",        "netbase" );
   fd_topo_obj_t * fib4_local_obj     = fd_topob_obj( topo, "fib4",        "netbase" );
@@ -45,12 +46,12 @@ fd_netlink_topo_create( fd_topo_tile_t *            netlink_tile,
   FD_TEST( fd_pod_insertf_ulong( topo->props, netdev_dbl_buf_mtu, "obj.%lu.mtu", netdev_dbl_buf_obj->id ) );
 
   /* Configure route table */
-  FD_TEST( fd_pod_insertf_ulong( topo->props, config->tiles.netlink.max_routes, "obj.%lu.route_max", fib4_main_obj->id  ) );
-  FD_TEST( fd_pod_insertf_ulong( topo->props, config->tiles.netlink.max_routes, "obj.%lu.route_max", fib4_local_obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, netlnk_max_routes, "obj.%lu.route_max", fib4_main_obj->id  ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, netlnk_max_routes, "obj.%lu.route_max", fib4_local_obj->id ) );
 
   /* Configure neighbor hashmap: Open addressed hashmap with 3.0 sparsity
      factor and 16 long probe chain */
-  ulong const neigh_ele_max   = fd_ulong_pow2_up( 3UL * config->tiles.netlink.max_neighbors );
+  ulong const neigh_ele_max   = fd_ulong_pow2_up( 3UL * netlnk_max_neighbors );
   ulong const neigh_ele_align = alignof(fd_neigh4_entry_t);
   ulong const neigh_ele_fp    = neigh_ele_max * sizeof(fd_neigh4_entry_t);
   FD_TEST( fd_pod_insertf_ulong( topo->props, neigh_ele_max,   "obj.%lu.ele_max",   neigh4_obj->id     ) );
@@ -67,7 +68,7 @@ fd_netlink_topo_create( fd_topo_tile_t *            netlink_tile,
   netlink_tile->netlink.netdev_dbl_buf_obj_id = netdev_dbl_buf_obj->id;
   netlink_tile->netlink.fib4_main_obj_id      = fib4_main_obj->id;
   netlink_tile->netlink.fib4_local_obj_id     = fib4_local_obj->id;
-  memcpy( netlink_tile->netlink.neigh_if, config->tiles.net.interface, sizeof(netlink_tile->netlink.neigh_if) );
+  memcpy( netlink_tile->netlink.neigh_if, bind_interface, sizeof(netlink_tile->netlink.neigh_if) );
   netlink_tile->netlink.neigh4_obj_id         = neigh4_obj->id;
   netlink_tile->netlink.neigh4_ele_obj_id     = neigh4_ele_obj->id;
 }

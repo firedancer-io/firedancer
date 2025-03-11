@@ -1,7 +1,8 @@
 #define _GNU_SOURCE
 #include "../fddev.h"
 #include "../../fdctl/fdctl.h"
-#include "../../fdctl/configure/configure.h"
+#include "../../fdctl/topos/topos.h"
+#include "../../shared/commands/configure/configure.h"
 
 #include "../../shared/fd_sys_util.h"
 
@@ -170,6 +171,7 @@ fddev_test_run( int     argc,
 
       static config_t config[1];
       fdctl_cfg_from_env( &argc, &argv, config );
+      fd_topo_initialize( config );
       config->log.log_fd = fd_log_private_logfile_fd();
       config->log.lock_fd = init_log_memfd();
       config->tick_per_ns_mu = fd_tempo_tick_per_ns( &config->tick_per_ns_sigma );

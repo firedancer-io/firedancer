@@ -10,6 +10,7 @@
 #include <sys/socket.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
+#include <netinet/in.h>
 
 static int namespace_original_fd = 0;
 
@@ -132,4 +133,22 @@ fd_net_util_internet_ifindex( uint * ifindex ) {
     errno = ENODEV;
     return -1;
   }
+}
+
+int
+fd_net_util_if_addr( const char * interface,
+                     uint *       addr ) {
+  int fd = socket( AF_INET, SOCK_DGRAM, 0 );
+  if( FD_UNLIKELY( -1==fd ) ) return -1;
+
+  struct ifreq ifr = {0};
+  ifr.ifr_addr.sa_family = AF_INET;
+  strncpy( ifr.ifr_name, interface, IFNAMSIZ );
+  ifr.ifr_name[ IFNAMSIZ-1 ] = '\0';
+
+  if( FD_UNLIKELY( -1==ioctl( fd, SIOCGIFADDR, &ifr ) ) ) return -1;
+  if( FD_UNLIKELY( -1==close( fd ) ) ) return -1;
+
+  *addr = ((struct sockaddr_in *)fd_type_pun( &ifr.ifr_addr ))->sin_addr.s_addr;
+  return 0;
 }
