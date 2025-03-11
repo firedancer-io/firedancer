@@ -668,6 +668,7 @@ extern configure_stage_t fd_cfg_stage_ethtool_gro;
 extern configure_stage_t fd_cfg_stage_ethtool_loopback;
 extern configure_stage_t fd_cfg_stage_sysctl;
 extern configure_stage_t fd_cfg_stage_hyperthreads;
+extern configure_stage_t fd_cfg_stage_ledger;
 
 void
 fdctl_check_configure( config_t const * config ) {
@@ -703,6 +704,10 @@ fdctl_check_configure( config_t const * config ) {
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
     FD_LOG_ERR(( "Hyperthreading is not configured correctly: %s. You can run `fdctl configure init hyperthreads` "
                  "to configure hyperthreading correctly.", check.message ));
+
+  check = fd_cfg_stage_ledger.check( config );
+  if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
+    FD_LOG_ERR(( "Ledger configuration check failed: %s.", check.message ));
 }
 
 void
