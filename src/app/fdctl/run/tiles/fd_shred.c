@@ -501,17 +501,15 @@ send_shred( fd_shred_ctx_t *    ctx,
 
   int is_data = fd_shred_type( shred->variant )==FD_SHRED_TYPE_MERKLE_DATA;
   fd_net_hdrs_t * tmpl = fd_ptr_if( is_data, (fd_net_hdrs_t *)ctx->data_shred_net_hdr,
-                                            (fd_net_hdrs_t *)ctx->parity_shred_net_hdr );
+                                             (fd_net_hdrs_t *)ctx->parity_shred_net_hdr );
   fd_memcpy( packet, tmpl, sizeof(fd_net_hdrs_t) );
 
   fd_net_hdrs_t * hdr = (fd_net_hdrs_t *)packet;
 
-  memset( hdr->eth->dst, 0, 6UL );
-
-  memcpy( hdr->ip4->daddr_c, &dest->ip4, 4UL );
+  hdr->ip4->daddr      = dest->ip4;
   hdr->ip4->net_id     = fd_ushort_bswap( ctx->net_id++ );
   hdr->ip4->check      = 0U;
-  hdr->ip4->check      = fd_ip4_hdr_check( ( fd_ip4_hdr_t const *) FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4 ) );
+  hdr->ip4->check      = fd_ip4_hdr_check_fast( packet+14 );
 
   hdr->udp->net_dport  = fd_ushort_bswap( dest->port );
 
@@ -755,9 +753,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   if( FD_UNLIKELY( !tile->shred.fec_resolver_depth ) ) FD_LOG_ERR(( "fec_resolver_depth not set" ));
-
-  if( FD_UNLIKELY( !tile->shred.ip_addr ) ) FD_LOG_ERR(( "ip_addr not set" ));
-  if( FD_UNLIKELY( !tile->shred.shred_listen_port ) ) FD_LOG_ERR(( "shred_listen_port not set" ));
+  if( FD_UNLIKELY( !tile->shred.shred_listen_port  ) ) FD_LOG_ERR(( "shred_listen_port not set" ));
 
   ulong bank_cnt   = fd_topo_tile_name_cnt( topo, "bank" );
   ulong replay_cnt = fd_topo_tile_name_cnt( topo, "replay" );
@@ -840,8 +836,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->net_id   = (ushort)0;
 
-  fd_net_create_packet_header_template( ctx->data_shred_net_hdr,   FD_SHRED_MIN_SZ, tile->shred.ip_addr, tile->shred.shred_listen_port );
-  fd_net_create_packet_header_template( ctx->parity_shred_net_hdr, FD_SHRED_MAX_SZ, tile->shred.ip_addr, tile->shred.shred_listen_port );
+  fd_net_create_packet_header_template( ctx->data_shred_net_hdr,   FD_SHRED_MIN_SZ, 0, tile->shred.shred_listen_port );
+  fd_net_create_packet_header_template( ctx->parity_shred_net_hdr, FD_SHRED_MAX_SZ, 0, tile->shred.shred_listen_port );
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];

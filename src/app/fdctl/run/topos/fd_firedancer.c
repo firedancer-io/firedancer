@@ -581,7 +581,6 @@ fd_topo_initialize( config_t * config ) {
       strncpy( tile->shred.identity_key_path, config->consensus.identity_path, sizeof(tile->shred.identity_key_path) );
 
       tile->shred.depth                         = topo->links[ tile->out_link_id[ 0 ] ].depth;
-      tile->shred.ip_addr                       = config->tiles.net.ip_addr;
       tile->shred.fec_resolver_depth            = config->tiles.shred.max_pending_shred_sets;
       tile->shred.expected_shred_version        = config->consensus.expected_shred_version;
       tile->shred.shred_listen_port             = config->tiles.shred.shred_listen_port;
