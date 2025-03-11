@@ -1,7 +1,7 @@
 #ifndef HEADER_fd_src_discof_geyser_fd_replay_notif_h
 #define HEADER_fd_src_discof_geyser_fd_replay_notif_h
 
-#include "../../../../funkier/fd_funkier.h"
+#include "../../funkier/fd_funkier.h"
 #include "../../flamenco/types/fd_types.h"
 
 /* Data structure which is passed through replay_notif link */

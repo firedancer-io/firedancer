@@ -1,8 +1,5 @@
 #define _DEFAULT_SOURCE
 
-#include "../../discof/rpcserver/fd_rpc_service.h"
-#include "../../funk/fd_funk_filemap.h"
-
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,7 +10,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include "../../disco/rpcserver/fd_rpc_service.h"
+#include "../../discof/rpcserver/fd_rpc_service.h"
 #include "../../funkier/fd_funkier_filemap.h"
 
 #define SHAM_LINK_CONTEXT fd_rpc_ctx_t

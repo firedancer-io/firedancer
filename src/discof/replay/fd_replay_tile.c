@@ -22,7 +22,7 @@
 #include "../../flamenco/rewards/fd_rewards.h"
 #include "../../disco/metrics/fd_metrics.h"
 #include "../../choreo/fd_choreo.h"
-#include "../../funk/fd_funkier_filemap.h"
+#include "../../funkier/fd_funkier_filemap.h"
 #include "../../flamenco/snapshot/fd_snapshot_create.h"
 #include "../../disco/plugin/fd_plugin.h"
 

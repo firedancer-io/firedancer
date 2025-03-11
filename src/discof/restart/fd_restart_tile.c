@@ -3,7 +3,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/topo/fd_pod_format.h"
 #include "../../disco/keyguard/fd_keyload.h"
-#include "../../funk/fd_funkier_filemap.h"
+#include "../../funkier/fd_funkier_filemap.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 
 #define GOSSIP_IN_IDX  (0UL)
@@ -280,7 +280,7 @@ after_frag( fd_restart_tile_ctx_t * ctx,
     if( FD_UNLIKELY( !funk_txn ) ) {
       /* Try again with xid.ul[1] being the slot number instead of the block hash */
       ctx->store_xid_msg.ul[1] = ctx->restart->heaviest_fork_slot;
-      funk_txn = fd_funk_txn_query( &ctx->store_xid_msg, txn_map );
+      funk_txn = fd_funkier_txn_query( &ctx->store_xid_msg, &txn_map );
       if( FD_UNLIKELY( !funk_txn ) ) {
         FD_LOG_ERR(( "Wen-restart fails due to NULL funk_txn" ));
       }
