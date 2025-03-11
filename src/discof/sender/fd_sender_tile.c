@@ -48,7 +48,7 @@ struct fd_sender_tile_ctx {
   uchar txn_buf[ sizeof(fd_txn_p_t) ] __attribute__((aligned(alignof(fd_txn_p_t))));
 
   fd_gossip_peer_addr_t tpu_serve_addr;
-  fd_net_hdrs_t         packet_hdr[ 1 ];
+  fd_ip4_udp_hdrs_t     packet_hdr[1];
   ushort                net_id;
 
   ulong       stake_in_idx;
@@ -141,26 +141,25 @@ send_packet( fd_sender_tile_ctx_t * ctx,
              ulong                  tsorig ) {
   uchar * packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
 
-  fd_memcpy( packet, ctx->packet_hdr, sizeof(fd_net_hdrs_t) );
-  fd_net_hdrs_t * hdr = (fd_net_hdrs_t *)packet;
+  fd_ip4_udp_hdrs_t * hdr = (fd_ip4_udp_hdrs_t *)packet;
+  *hdr = *ctx->packet_hdr;
 
-  hdr->ip4->daddr  = dst_ip_addr;
-  hdr->ip4->net_id = fd_ushort_bswap( ctx->net_id++ );
-  hdr->ip4->check  = 0U;
-  hdr->ip4->net_tot_len = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)) );
-  hdr->ip4->check  = fd_ip4_hdr_check_fast( hdr->buf+14 );
+  fd_ip4_hdr_t * ip4 = hdr->ip4;
+  ip4->daddr  = dst_ip_addr;
+  ip4->net_id = fd_ushort_bswap( ctx->net_id++ );
+  ip4->check  = 0U;
+  ip4->net_tot_len = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)) );
+  ip4->check  = fd_ip4_hdr_check_fast( ip4 );
 
-  ulong packet_sz = payload_sz + sizeof(fd_net_hdrs_t);
-  fd_memcpy( packet+sizeof(fd_net_hdrs_t), payload, payload_sz );
-  hdr->udp->net_dport = fd_ushort_bswap( dst_port );
-  hdr->udp->net_len   = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
-  hdr->udp->check = fd_ip4_udp_check( hdr->ip4->saddr,
-                                      hdr->ip4->daddr,
-                                      (fd_udp_hdr_t const *)hdr->buf+34,
-                                      packet + sizeof(fd_net_hdrs_t) );
+  fd_udp_hdr_t * udp = hdr->udp;
+  udp->net_dport = fd_ushort_bswap( dst_port );
+  udp->net_len   = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
+  fd_memcpy( packet+sizeof(fd_ip4_udp_hdrs_t), payload, payload_sz );
+  udp->check     = 0U;
 
-  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  ulong sig = fd_disco_netmux_sig( dst_ip_addr, dst_port, dst_ip_addr, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
+  ulong tspub     = fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong sig       = fd_disco_netmux_sig( dst_ip_addr, dst_port, dst_ip_addr, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) );
+  ulong packet_sz = payload_sz + sizeof(fd_ip4_udp_hdrs_t);
   fd_mcache_publish( ctx->net_out_mcache, ctx->net_out_depth, ctx->net_out_seq, sig, ctx->net_out_chunk, packet_sz, 0UL, tsorig, tspub );
   ctx->net_out_seq   = fd_seq_inc( ctx->net_out_seq, 1UL );
   ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, packet_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
@@ -356,7 +355,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->tpu_serve_addr.addr = tile->sender.ip_addr;
   ctx->tpu_serve_addr.port = fd_ushort_bswap( tile->sender.tpu_listen_port );
-  fd_net_create_packet_header_template( ctx->packet_hdr, FD_TXN_MTU, ctx->tpu_serve_addr.addr, ctx->tpu_serve_addr.port );
+  fd_ip4_udp_hdr_init( ctx->packet_hdr, FD_TXN_MTU, ctx->tpu_serve_addr.addr, ctx->tpu_serve_addr.port );
 
   ulong poh_slot_obj_id = fd_pod_query_ulong( topo->props, "poh_slot", ULONG_MAX );
   FD_TEST( poh_slot_obj_id!=ULONG_MAX );

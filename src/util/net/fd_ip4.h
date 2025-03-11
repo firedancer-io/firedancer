@@ -43,12 +43,12 @@ union fd_ip4_hdr {
     uchar  ttl;          /* Frag time to live */
     uchar  protocol;     /* Type of payload */
     ushort check;        /* Header checksum ("invariant" order) */
-    union {              /* Address of sender, technically net order but all APIs below work with this directly */
-      uchar saddr_c[4];
+    union __attribute__((packed)) {
+      uchar saddr_c[4];  /* Address of sender, technically net order but all APIs below work with this directly */
       uint  saddr;
     };
-    union {              /* Address of destination, technically net order but all APIs below work with this directly */
-      uchar daddr_c[4];
+    union __attribute__((packed)) {
+      uchar daddr_c[4];  /* Address of destination, technically net order but all APIs below work with this directly */
       uint  daddr;
     };
     /* Up to 40 bytes of options here */

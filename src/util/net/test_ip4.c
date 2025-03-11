@@ -17,7 +17,8 @@ FD_STATIC_ASSERT( FD_IP4_HDR_PROTOCOL_UDP ==(uchar)17, unit_test );
 FD_STATIC_ASSERT( FD_IP4_OPT_RA ==(uchar)148, unit_test );
 FD_STATIC_ASSERT( FD_IP4_OPT_EOL==(uchar)  0, unit_test );
 
-FD_STATIC_ASSERT( sizeof(fd_ip4_hdr_t)==20UL, unit_test );
+FD_STATIC_ASSERT( alignof(fd_ip4_hdr_t)== 2UL, unit_test );
+FD_STATIC_ASSERT( sizeof (fd_ip4_hdr_t)==20UL, unit_test );
 
 
 static void

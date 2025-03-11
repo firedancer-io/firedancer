@@ -145,8 +145,8 @@ typedef struct {
 
   int skip_frag;
 
-  fd_net_hdrs_t data_shred_net_hdr  [1];
-  fd_net_hdrs_t parity_shred_net_hdr[1];
+  fd_ip4_udp_hdrs_t data_shred_net_hdr  [1];
+  fd_ip4_udp_hdrs_t parity_shred_net_hdr[1];
 
   fd_wksp_t * shred_store_wksp;
 
@@ -499,28 +499,24 @@ send_shred( fd_shred_ctx_t *    ctx,
   uchar * packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
 
   int is_data = fd_shred_type( shred->variant )==FD_SHRED_TYPE_MERKLE_DATA;
-  fd_net_hdrs_t * tmpl = fd_ptr_if( is_data, (fd_net_hdrs_t *)ctx->data_shred_net_hdr,
-                                             (fd_net_hdrs_t *)ctx->parity_shred_net_hdr );
-  fd_memcpy( packet, tmpl, sizeof(fd_net_hdrs_t) );
+  fd_ip4_udp_hdrs_t * hdr  = (fd_ip4_udp_hdrs_t *)packet;
+  *hdr = *( is_data ? ctx->data_shred_net_hdr : ctx->parity_shred_net_hdr );
 
-  fd_net_hdrs_t * hdr = (fd_net_hdrs_t *)packet;
+  fd_ip4_hdr_t * ip4 = hdr->ip4;
+  ip4->daddr  = dest->ip4;
+  ip4->net_id = fd_ushort_bswap( ctx->net_id++ );
+  ip4->check  = 0U;
+  ip4->check  = fd_ip4_hdr_check_fast( ip4 );
 
-  hdr->ip4->daddr      = dest->ip4;
-  hdr->ip4->net_id     = fd_ushort_bswap( ctx->net_id++ );
-  hdr->ip4->check      = 0U;
-  hdr->ip4->check      = fd_ip4_hdr_check_fast( packet+14 );
-
-  hdr->udp->net_dport  = fd_ushort_bswap( dest->port );
+  hdr->udp->net_dport = fd_ushort_bswap( dest->port );
 
   ulong shred_sz = fd_ulong_if( is_data, FD_SHRED_MIN_SZ, FD_SHRED_MAX_SZ );
-  fd_memcpy( packet+sizeof(fd_net_hdrs_t), shred, shred_sz );
+  fd_memcpy( packet+sizeof(fd_ip4_udp_hdrs_t), shred, shred_sz );
 
-  ulong pkt_sz = shred_sz + sizeof(fd_net_hdrs_t);
-
-  ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
-  ulong   sig = fd_disco_netmux_sig( dest->ip4, dest->port, dest->ip4, DST_PROTO_OUTGOING, FD_NETMUX_SIG_MIN_HDR_SZ );
-  fd_mcache_publish( ctx->net_out_mcache, ctx->net_out_depth, ctx->net_out_seq, sig, ctx->net_out_chunk,
-      pkt_sz, 0UL, tsorig, tspub );
+  ulong pkt_sz = shred_sz + sizeof(fd_ip4_udp_hdrs_t);
+  ulong tspub  = fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong sig    = fd_disco_netmux_sig( dest->ip4, dest->port, dest->ip4, DST_PROTO_OUTGOING, sizeof(fd_ip4_udp_hdrs_t) );
+  fd_mcache_publish( ctx->net_out_mcache, ctx->net_out_depth, ctx->net_out_seq, sig, ctx->net_out_chunk, pkt_sz, 0UL, tsorig, tspub );
   ctx->net_out_seq   = fd_seq_inc( ctx->net_out_seq, 1UL );
   ctx->net_out_chunk = fd_dcache_compact_next( ctx->net_out_chunk, pkt_sz, ctx->net_out_chunk0, ctx->net_out_wmark );
 }
@@ -835,8 +831,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->net_id   = (ushort)0;
 
-  fd_net_create_packet_header_template( ctx->data_shred_net_hdr,   FD_SHRED_MIN_SZ, 0, tile->shred.shred_listen_port );
-  fd_net_create_packet_header_template( ctx->parity_shred_net_hdr, FD_SHRED_MAX_SZ, 0, tile->shred.shred_listen_port );
+  fd_ip4_udp_hdr_init( ctx->data_shred_net_hdr,   FD_SHRED_MIN_SZ, 0, tile->shred.shred_listen_port );
+  fd_ip4_udp_hdr_init( ctx->parity_shred_net_hdr, FD_SHRED_MAX_SZ, 0, tile->shred.shred_listen_port );
 
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     fd_topo_link_t const * link = &topo->links[ tile->in_link_id[ i ] ];
