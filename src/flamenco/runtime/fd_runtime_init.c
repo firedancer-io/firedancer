@@ -1,5 +1,6 @@
 #include "fd_runtime_init.h"
 #include "fd_runtime_err.h"
+#include <stdio.h>
 #include "../types/fd_types.h"
 #include "context/fd_exec_epoch_ctx.h"
 #include "context/fd_exec_slot_ctx.h"

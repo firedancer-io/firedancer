@@ -194,7 +194,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
       }
   }
 
-  fd_deserializable_versioned_bank_t * oldbank = &manifest->bank;
+  fd_versioned_bank_t * oldbank = &manifest->bank;
 
   /* Populate the epoch context, using the already-allocated statically allocated memory */
   /* Copy stakes */
@@ -303,7 +303,8 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   slot_bank->block_hash_queue.last_hash_index = oldbank->blockhash_queue.last_hash_index;
   slot_bank->block_hash_queue.max_age = oldbank->blockhash_queue.max_age;
   slot_bank->block_hash_queue.ages_root = NULL;
-  slot_bank->block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_alloc( valloc, 400 );
+  uchar * pool_mem = fd_spad_alloc( runtime_spad, fd_hash_hash_age_pair_t_map_align(), fd_hash_hash_age_pair_t_map_footprint( 400 ) );
+  slot_bank->block_hash_queue.ages_pool = fd_hash_hash_age_pair_t_map_join( fd_hash_hash_age_pair_t_map_new( pool_mem, 400 ) );
   for ( ulong i = 0; i < oldbank->blockhash_queue.ages_len; i++ ) {
     fd_hash_hash_age_pair_t * elem = &oldbank->blockhash_queue.ages[i];
     fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( slot_bank->block_hash_queue.ages_pool );
@@ -313,7 +314,8 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
   /* FIXME: Remove the magic number here. */
   if( !slot_ctx->slot_bank.timestamp_votes.votes_pool ) {
-    slot_ctx->slot_bank.timestamp_votes.votes_pool = fd_clock_timestamp_vote_t_map_alloc( fd_spad_virtual( runtime_spad ),15000UL );
+    pool_mem = fd_spad_alloc( runtime_spad, fd_clock_timestamp_vote_t_map_align(), fd_clock_timestamp_vote_t_map_footprint( 15000UL ) );
+    slot_ctx->slot_bank.timestamp_votes.votes_pool = fd_clock_timestamp_vote_t_map_join( fd_clock_timestamp_vote_t_map_new( pool_mem, 15000UL ) );
   }
   recover_clock( slot_ctx, runtime_spad );
 
@@ -419,9 +421,9 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
     }
 
     /* Move current EpochStakes */
-
+    pool_mem = fd_spad_alloc( runtime_spad, fd_vote_accounts_pair_t_map_align(), fd_vote_accounts_pair_t_map_footprint( 100000 ) );
     slot_ctx->slot_bank.epoch_stakes.vote_accounts_pool =
-      fd_vote_accounts_pair_t_map_alloc( valloc, 100000 );  /* FIXME: remove magic constant */
+      fd_vote_accounts_pair_t_map_join( fd_vote_accounts_pair_t_map_new( pool_mem, 100000 ) ); /* FIXME: Remove magic constant */
     slot_ctx->slot_bank.epoch_stakes.vote_accounts_root = NULL;
 
     for ( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(

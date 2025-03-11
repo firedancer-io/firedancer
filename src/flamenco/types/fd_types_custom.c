@@ -66,6 +66,27 @@ fd_flamenco_txn_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_
   ctx->data = (void *)( (ulong)ctx->data + sz );
 }
 
+void *
+fd_flamenco_txn_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_flamenco_txn_t * self = (fd_flamenco_txn_t *)mem;
+  fd_flamenco_txn_new( self );
+  void *   alloc_region = (uchar *)mem + sizeof(fd_flamenco_txn_t);
+  void * * alloc_mem    = &alloc_region;
+  fd_flamenco_txn_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+
+int
+fd_flamenco_txn_convert_global_to_local( void const * global_self, fd_flamenco_txn_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  FD_LOG_ERR(("TODO: Implement"));
+}
+
+void
+fd_flamenco_txn_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  FD_LOG_ERR(("TODO: Implement"));
+}
+
+
 void
 fd_gossip_ip4_addr_walk( void *                       w,
                          fd_gossip_ip4_addr_t const * self,
@@ -217,6 +238,10 @@ void fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_binco
     }
   }
   fd_hash_decode_inner( &self->block_id, alloc_mem, ctx );
+}
+
+void fd_tower_sync_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  FD_LOG_ERR(("TODO: Implement"));
 }
 
 #define REDBLK_T fd_vote_reward_t_mapnode_t
