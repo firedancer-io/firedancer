@@ -23,82 +23,32 @@ endif
 
 $(OBJDIR)/obj/app/fdctl/version.d: src/app/fdctl/version.h
 
-.PHONY: fdctl cargo-validator cargo-solana cargo-ledger-tool cargo-plugin-bundle rust solana check-agave-hash frontend
+.PHONY: fdctl cargo-validator cargo-solana cargo-ledger-tool cargo-plugin-bundle rust solana check-agave-hash
 
 # fdctl core
-$(call add-objs,main1 config config_parse caps utility keys ready set_identity mem help version,fd_fdctl)
-$(call add-objs,netconf,fd_fdctl)
-$(call add-objs,run/run run/run1 run/run_agave,fd_fdctl)
-$(call add-objs,monitor/monitor monitor/helper,fd_fdctl)
-$(call make-fuzz-test,fuzz_fdctl_config,fuzz_fdctl_config,fd_fdctl fd_ballet fd_util)
-
-# fdctl tiles
-$(call add-objs,run/tiles/fd_verify,fd_fdctl)
-$(call add-objs,run/tiles/fd_dedup,fd_fdctl)
-$(call add-objs,run/tiles/fd_resolv,fd_fdctl)
-$(call add-objs,run/tiles/fd_pack,fd_fdctl)
-$(call add-objs,run/tiles/fd_bank,fd_fdctl)
-$(call add-objs,run/tiles/fd_poh,fd_fdctl)
-$(call add-objs,run/tiles/fd_shred,fd_fdctl)
-$(call add-objs,run/tiles/fd_store,fd_fdctl)
-$(call add-objs,run/tiles/fd_sign,fd_fdctl)
-$(call add-objs,run/tiles/fd_cswtch,fd_fdctl)
-$(call add-objs,run/tiles/fd_metric,fd_fdctl)
-$(call add-objs,run/tiles/fd_gui,fd_fdctl)
-$(call add-objs,run/tiles/fd_plugin,fd_fdctl)
-$(call add-objs,run/tiles/fd_bundle,fd_fdctl)
-$(call add-objs,run/tiles/generated/http_import_dist,fd_fdctl)
-$(call add-objs,run/tiles/fd_blackhole,fd_fdctl)
-
-ifdef FD_HAS_NO_AGAVE
-$(call add-objs,run/tiles/fd_repair,fd_fdctl)
-$(call add-objs,run/tiles/fd_gossip,fd_fdctl)
-$(call add-objs,run/tiles/fd_store_int,fd_fdctl)
-$(call add-objs,run/tiles/fd_replay,fd_fdctl)
-$(call add-objs,run/tiles/fd_replay_thread,fd_fdctl)
-$(call add-objs,run/tiles/fd_poh_int,fd_fdctl)
-$(call add-objs,run/tiles/fd_sender,fd_fdctl)
-$(call add-objs,run/tiles/fd_eqvoc,fd_fdctl)
-$(call add-objs,run/tiles/fd_rpcserv,fd_fdctl)
-$(call add-objs,run/tiles/fd_batch,fd_fdctl)
-$(call add-objs,run/tiles/fd_batch_thread,fd_fdctl)
-$(call add-objs,run/tiles/fd_exec,fd_fdctl)
-$(call add-objs,run/tiles/fd_restart,fd_fdctl)
-endif
+$(call add-objs,main1 config,fd_fdctl)
+$(call add-objs,version,fd_util)
 
 # fdctl topologies
 ifdef FD_HAS_NO_AGAVE
-$(call add-objs,run/topos/fd_firedancer,fd_fdctl)
+$(call add-objs,topos/fd_firedancer,fd_fdctl)
 else
-$(call add-objs,run/topos/fd_frankendancer,fd_fdctl)
+$(call add-objs,topos/fd_frankendancer,fd_fdctl)
 endif
-
-# fdctl configure stages
-$(call add-objs,configure/configure,fd_fdctl)
-$(call add-objs,configure/hugetlbfs,fd_fdctl)
-$(call add-objs,configure/sysctl,fd_fdctl)
-$(call add-objs,configure/hyperthreads,fd_fdctl)
-$(call add-objs,configure/ethtool-channels,fd_fdctl)
-$(call add-objs,configure/ethtool-gro,fd_fdctl)
-$(call add-objs,configure/ethtool-loopback,fd_fdctl)
 
 ifdef FD_HAS_NO_AGAVE
 ifdef FD_HAS_SECP256K1
 $(call make-lib,external_functions)
 $(call add-objs,external_functions,external_functions)
-$(call make-bin-rust,fdctl,main,fd_fdctl fd_choreo fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util external_functions, $(SECP256K1_LIBS))
+$(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util external_functions, $(SECP256K1_LIBS))
 endif
 else
-$(call make-bin-rust,fdctl,main,fd_fdctl fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util agave_validator firedancer_plugin_bundle)
+$(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fd_discoh fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util agave_validator firedancer_plugin_bundle)
 endif
-$(call make-unit-test,test_tiles_verify,run/tiles/test_verify,fd_ballet fd_tango fd_util)
-$(call run-unit-test,test_tiles_verify)
-$(call make-unit-test,test_config_parse,test_config_parse,fd_fdctl fd_ballet fd_util)
 
-$(OBJDIR)/obj/app/fdctl/configure/xdp.o: src/waltz/xdp/fd_xdp_redirect_prog.o
-$(OBJDIR)/obj/app/fdctl/config_parse.o: src/app/fdctl/config/default.toml
-$(OBJDIR)/obj/app/fdctl/config_parse.o: src/app/fdctl/config/default-firedancer.toml
-$(OBJDIR)/obj/app/fdctl/run/tiles/fd_gui.o: book/public/fire.svg
+$(OBJDIR)/obj/app/shared/config_parse.o: src/app/fdctl/config/default.toml
+$(OBJDIR)/obj/app/shared/config_parse.o: src/app/fdctl/config/default-firedancer.toml
+$(OBJDIR)/obj/app/fdctl/commands/run/tiles/fd_gui.o: book/public/fire.svg
 
 check-agave-hash:
 	@$(eval AGAVE_COMMIT_LS_TREE=$(shell git ls-tree HEAD | grep agave | awk '{print $$3}'))
@@ -187,35 +137,6 @@ $(OBJDIR)/bin/agave-ledger-tool: agave/target/$(RUST_PROFILE)/agave-ledger-tool
 	$(MKDIR) -p $(dir $@) && cp agave/target/$(RUST_PROFILE)/agave-ledger-tool $@
 
 agave-ledger-tool: $(OBJDIR)/bin/agave-ledger-tool
-
-frontend:
-	cd frontend && npm ci && npm run build
-	rm -rf src/app/fdctl/dist
-	mkdir -p src/app/fdctl/dist
-	cp -r frontend/dist/* src/app/fdctl/dist
-	> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
-	echo "/* THIS FILE WAS GENERATED BY make frontend. DO NOT EDIT BY HAND! */" >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
-	echo "#include \"http_import_dist.h\"" >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
-	echo "" >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
-	counter=0; \
-	for file in $$(find src/app/fdctl/dist -type f | sort); do \
-		echo "FD_IMPORT_BINARY( file$$counter, \"$$file\" );" >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
-		counter=$$((counter + 1)); \
-	done; \
-	echo "" >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
-	echo "fd_http_static_file_t STATIC_FILES[] = {" >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
-	counter=0; \
-	for file in $$(find src/app/fdctl/dist -type f | sort); do \
-		stripped_file=$$(echo $$file | sed 's|^src/app/fdctl/dist/||'); \
-		echo "    {" >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
-		echo "        .name = \"/$$stripped_file\"," >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
-		echo "        .data = file$$counter," >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
-		echo "        .data_len = &file$${counter}_sz," >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
-		echo "    }," >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
-		counter=$$((counter + 1)); \
-	done; \
-	echo "    {0}" >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
-	echo "};" >> src/app/fdctl/run/tiles/generated/http_import_dist.c; \
 
 endif
 endif

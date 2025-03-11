@@ -67,9 +67,6 @@ main( int argc, char ** argv ) {
   quic_config->retry = 0;
   FD_TEST( fd_quic_config_from_env( &argc, &argv, quic_config ) );
 
-  quic_config->net.ip_addr         = udpsock->listen_ip;
-  quic_config->net.listen_udp_port = udpsock->listen_port;
-
   fd_aio_t const * aio_tx = udpsock->aio;
   if( fd_quic_test_pcap ) {
     static fd_aio_pcapng_t pcap_tx[1];

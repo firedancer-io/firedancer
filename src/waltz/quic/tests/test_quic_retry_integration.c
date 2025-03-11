@@ -1,5 +1,6 @@
 #include "../fd_quic.h"
 #include "fd_quic_test_helpers.h"
+#include "../../../util/net/fd_ip4.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -123,10 +124,7 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_quic_init( client_quic ) );
 
   FD_LOG_NOTICE(( "Creating connection" ));
-  fd_quic_conn_t * client_conn = fd_quic_connect(
-      client_quic,
-      server_quic->config.net.ip_addr,
-      server_quic->config.net.listen_udp_port );
+  fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0 );
   FD_TEST( client_conn );
 
   /* do general processing */

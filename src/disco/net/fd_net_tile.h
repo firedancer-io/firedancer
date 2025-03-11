@@ -10,9 +10,6 @@
 struct fd_topo;
 typedef struct fd_topo fd_topo_t;
 
-struct fdctl_config;
-typedef struct fdctl_config config_t;
-
 /* Helpers for consumers of net tile RX packets */
 
 struct fd_net_rx_bounds {
@@ -71,10 +68,19 @@ FD_PROTOTYPES_BEGIN
 /* fd_topos_net_tiles appends the net and netlnk tiles to the
    topology.  These tiles provide fast XDP networking. */
 
-void
-fd_topos_net_tiles( fd_topo_t *      topo,
-                    config_t const * config,
-                    ulong const      tile_to_cpu[ FD_TILE_MAX ] );
+   void
+   fd_topos_net_tiles( fd_topo_t *      topo,
+                       ulong            net_tile_cnt,
+                       ulong            netlnk_max_routes,
+                       ulong            netlnk_max_neighbors,
+                       char const *     net_provider,
+                       char const       bind_interface[ 16UL ],
+                       long             flush_timeout_micros,
+                       ulong            xdp_rx_queue_size,
+                       ulong            xdp_tx_queue_size,
+                       int              xdp_zero_copy,
+                       char const *     xdp_mode,
+                       ulong const      tile_to_cpu[ FD_TILE_MAX ] );
 
 /* fd_topos_net_rx_link is like fd_topob_link, but for net->app tile
    packet RX links. */
@@ -85,20 +91,22 @@ fd_topos_net_rx_link( fd_topo_t *  topo,
                       ulong        net_kind_id,
                       ulong        depth );
 
-/* fd_topos_net_tile_umem calculates RX/TX frame buffer sizes for a net
-   tile.  All these buffers are in the same shared memory region called
-   'UMEM' allocated via a dcache object.
+/* fd_topob_tile_in_net registers a net TX link with all net tiles. */
 
-   The size of the UMEM depends on the following things:
-   - The number RX and TX mcache rings and their depths
-   - The depth of the XDP (FILL, RX, TX, COMP) rings
+void
+fd_topos_tile_in_net( fd_topo_t *  topo,
+                      char const * fseq_wksp,
+                      char const * link_name,
+                      ulong        link_kind_id,
+                      int          reliable,
+                      int          polled );
 
-   This should be called *after* all app<->net tile links have been
+/* This should be called *after* all app<->net tile links have been
    created.  Should be called once per net tile. */
 
 void
-fd_topos_net_tile_umem( fd_topo_t * topo,
-                        ulong       net_kind_id );
+fd_topos_net_tile_finish( fd_topo_t * topo,
+                          ulong       net_kind_id );
 
 FD_PROTOTYPES_END
 

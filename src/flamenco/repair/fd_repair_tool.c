@@ -55,9 +55,12 @@ repair_from_sockaddr( fd_repair_peer_addr_t * dst, uchar const * src ) {
 }
 
 static void
-send_packet( uchar const * data, size_t sz, fd_repair_peer_addr_t const * addr, void * arg ) {
+send_packet( uchar const * data,
+             size_t        sz,
+             fd_repair_peer_addr_t const * addr,
+             uint          src_ip4_addr FD_PARAM_UNUSED,
+             void *        arg FD_PARAM_UNUSED ) {
   // FD_LOG_HEXDUMP_NOTICE(("send: ", data, sz));
-  (void)arg;
   uchar saddr[sizeof(struct sockaddr_in)];
   int saddrlen = repair_to_sockaddr(saddr, addr);
   if ( sendto(sockfd, data, sz, MSG_DONTWAIT,
@@ -220,7 +223,7 @@ main_loop( int * argc, char *** argv, fd_repair_t * glob, fd_repair_config_t * c
       fd_repair_peer_addr_t from;
       repair_from_sockaddr( &from, msgs[i].msg_hdr.msg_name );
       FD_LOG_HEXDUMP_NOTICE(("recv: ", bufs[i], (ulong)msgs[i].msg_len));
-      fd_repair_recv_clnt_packet(glob, bufs[i], (ulong)msgs[i].msg_len, &from);
+      fd_repair_recv_clnt_packet( glob, bufs[i], (ulong)msgs[i].msg_len, &from, 0 );
     }
   }
 

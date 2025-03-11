@@ -2,6 +2,11 @@
 #define FD_UNALIGNED_ACCESS_STYLE 0
 
 #include "fdctl.h"
+#include "topos/topos.h"
+
+#include "../shared/commands/configure/configure.h"
+#include "../shared/commands/run/run.h"
+#include "../shared/commands/monitor/monitor.h"
 
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -166,6 +171,7 @@ fdctl_boot( int *        pargc,
     fd_tempo_set_tick_per_ns( config->tick_per_ns_mu, config->tick_per_ns_sigma );
   } else {
     fdctl_cfg_from_env( pargc, pargv, config );
+    fd_topo_initialize( config );
     config->tick_per_ns_mu = fd_tempo_tick_per_ns( &config->tick_per_ns_sigma );
     config->log.lock_fd = init_log_memfd();
     config->log.log_fd  = -1;
@@ -299,10 +305,12 @@ main1( int     argc,
 
   /* check if we are appropriate permissioned to run the desired command */
   if( FD_LIKELY( action->perm ) ) {
-    fd_caps_ctx_t caps[1] = {0};
-    action->perm( &args, caps, &config );
-    if( FD_UNLIKELY( caps->err_cnt ) ) {
-      for( ulong i=0; i<caps->err_cnt; i++ ) FD_LOG_WARNING(( "%s", caps->err[ i ] ));
+    fd_cap_chk_t * chk = fd_cap_chk_join( fd_cap_chk_new( __builtin_alloca_with_align( fd_cap_chk_footprint(), FD_CAP_CHK_ALIGN ) ) );
+    action->perm( &args, chk, &config );
+    ulong err_cnt = fd_cap_chk_err_cnt( chk );
+    if( FD_UNLIKELY( err_cnt ) ) {
+      for( ulong i=0UL; i<err_cnt; i++ ) FD_LOG_WARNING(( "%s", fd_cap_chk_err( chk, i ) ));
+
       if( FD_LIKELY( !strcmp( action->name, "run" ) ) ) {
         FD_LOG_ERR(( "insufficient permissions to execute command `%s`. It is recommended "
                      "to start Firedancer as the root user, but you can also start it "

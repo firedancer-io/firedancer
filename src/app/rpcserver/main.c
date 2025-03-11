@@ -1,4 +1,8 @@
 #define _DEFAULT_SOURCE
+
+#include "../../discof/rpcserver/fd_rpc_service.h"
+#include "../../funk/fd_funk_filemap.h"
+
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>

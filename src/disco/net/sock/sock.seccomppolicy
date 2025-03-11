@@ -1,0 +1,34 @@
+# logfile_fd: It can be disabled by configuration, but typically tiles
+#             will open a log file on boot and write all messages there.
+uint logfile_fd, uint tx_fd, uint rx_fd0, uint rx_fd1
+
+# net: check for completions
+poll: (eq (arg 2) 0)
+
+# net: receive packets
+recvmmsg: (and (and (>= (arg 0) rx_fd0)
+                    (<  (arg 0) rx_fd1))
+               (<= (arg 2) 64)
+               (eq (arg 3) MSG_DONTWAIT)
+               (eq (arg 4) 0))
+
+# net: transmit packets
+sendmmsg: (and (eq (arg 0) tx_fd)
+               (<= (arg 2) 64)
+               (eq (arg 3) MSG_DONTWAIT))
+
+# logging: all log messages are written to a file and/or pipe
+#
+# 'WARNING' and above are written to the STDERR pipe, while all messages
+# are always written to the log file.
+#
+# arg 0 is the file descriptor to write to.  The boot process ensures
+# that descriptor 2 is always STDERR and descriptor 4 is the logfile.
+write: (or (eq (arg 0) 2)
+           (eq (arg 0) logfile_fd))
+
+# logging: 'WARNING' and above fsync the logfile to disk immediately
+#
+# arg 0 is the file descriptor to fsync.  The boot process ensures that
+# descriptor 3 is always the logfile.
+fsync: (eq (arg 0) logfile_fd)

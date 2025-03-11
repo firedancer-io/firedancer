@@ -4,18 +4,14 @@
 #include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../disco/keyguard/fd_keyguard.h"
-#include "../../util/net/fd_eth.h"
 #include "../../util/rng/fd_rng.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
-#include <math.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <sys/socket.h>
-
-#pragma GCC diagnostic ignored "-Wstrict-aliasing"
 
 /* Max number of validators that can be actively queried */
 #define FD_ACTIVE_KEY_MAX (1<<12)
@@ -455,7 +451,8 @@ fd_repair_sign_and_send( fd_repair_t *           glob,
   buflen += 64UL;
   fd_memcpy( buf + 4U, &sig, 64U );
 
-  (*glob->clnt_send_fun)( buf, buflen, addr, glob->fun_arg );
+  uint src_ip4_addr = 0U; /* unknown */
+  glob->clnt_send_fun( buf, buflen, addr, src_ip4_addr, glob->fun_arg );
 }
 
 static void
@@ -546,7 +543,7 @@ fd_repair_send_requests( fd_repair_t * glob ) {
       }
     }
 
-    fd_repair_sign_and_send(glob, &protocol, &active->addr);
+    fd_repair_sign_and_send( glob, &protocol, &active->addr );
 
   }
   glob->current_nonce = n;
@@ -724,7 +721,10 @@ fd_repair_continue( fd_repair_t * glob ) {
 }
 
 static void
-fd_repair_recv_ping(fd_repair_t * glob, fd_gossip_ping_t const * ping, fd_gossip_peer_addr_t const * from) {
+fd_repair_handle_ping( fd_repair_t *                 glob,
+                       fd_gossip_ping_t const *      ping,
+                       fd_gossip_peer_addr_t const * peer_addr,
+                       uint                          self_ip4_addr ) {
   fd_repair_protocol_t protocol;
   fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_pong);
   fd_gossip_ping_t * pong = &protocol.inner.pong;
@@ -749,11 +749,15 @@ fd_repair_recv_ping(fd_repair_t * glob, fd_gossip_ping_t const * ping, fd_gossip
   FD_TEST(0 == fd_repair_protocol_encode(&protocol, &ctx));
   ulong buflen = (ulong)((uchar*)ctx.data - buf);
 
-  (*glob->clnt_send_fun)(buf, buflen, from, glob->fun_arg);
+  glob->clnt_send_fun( buf, buflen, peer_addr, self_ip4_addr, glob->fun_arg );
 }
 
 int
-fd_repair_recv_clnt_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, fd_gossip_peer_addr_t const * from) {
+fd_repair_recv_clnt_packet( fd_repair_t *                 glob,
+                            uchar const *                 msg,
+                            ulong                         msglen,
+                            fd_repair_peer_addr_t const * src_addr,
+                            uint                          dst_ip4_addr ) {
   fd_repair_lock( glob );
   FD_SCRATCH_SCOPE_BEGIN {
     while( 1 ) {
@@ -781,7 +785,7 @@ fd_repair_recv_clnt_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, 
 
       switch( gmsg->discriminant ) {
       case fd_repair_response_enum_ping:
-        fd_repair_recv_ping( glob, &gmsg->inner.ping, from );
+        fd_repair_handle_ping( glob, &gmsg->inner.ping, src_addr, dst_ip4_addr );
         break;
       }
 
@@ -814,7 +818,7 @@ fd_repair_recv_clnt_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, 
     if( shred == NULL ) {
       FD_LOG_WARNING(("invalid shread"));
     } else {
-      (*glob->deliver_fun)(shred, shredlen, from, &val->id, glob->fun_arg);
+      glob->deliver_fun(shred, shredlen, src_addr, &val->id, glob->fun_arg);
     }
   } FD_SCRATCH_SCOPE_END;
   return 0;
@@ -1211,7 +1215,10 @@ fd_repair_set_stake_weights( fd_repair_t * repair,
 }
 
 static void
-fd_repair_send_ping(fd_repair_t * glob, fd_gossip_peer_addr_t const * addr, fd_pinged_elem_t * val) {
+fd_repair_send_ping( fd_repair_t *                 glob,
+                     fd_gossip_peer_addr_t const * dst_addr,
+                     uint                          src_ip4_addr,
+                     fd_pinged_elem_t *            val ) {
   fd_repair_response_t gmsg;
   fd_repair_response_new_disc( &gmsg, fd_repair_response_enum_ping );
   fd_gossip_ping_t * ping = &gmsg.inner.ping;
@@ -1223,7 +1230,7 @@ fd_repair_send_ping(fd_repair_t * glob, fd_gossip_peer_addr_t const * addr, fd_p
 
   fd_sha256_hash( pre_image, FD_PING_PRE_IMAGE_SZ, &ping->token );
 
-  (*glob->sign_fun)( glob->sign_arg, ping->signature.uc, pre_image, FD_PING_PRE_IMAGE_SZ, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 );
+  glob->sign_fun( glob->sign_arg, ping->signature.uc, pre_image, FD_PING_PRE_IMAGE_SZ, FD_KEYGUARD_SIGN_TYPE_SHA256_ED25519 );
 
   fd_bincode_encode_ctx_t ctx;
   uchar buf[1024];
@@ -1232,7 +1239,7 @@ fd_repair_send_ping(fd_repair_t * glob, fd_gossip_peer_addr_t const * addr, fd_p
   FD_TEST(0 == fd_repair_response_encode(&gmsg, &ctx));
   ulong buflen = (ulong)((uchar*)ctx.data - buf);
 
-  (*glob->serv_send_fun)(buf, buflen, addr, glob->fun_arg);
+  glob->serv_send_fun( buf, buflen, dst_addr, src_ip4_addr, glob->fun_arg );
 }
 
 static void
@@ -1270,7 +1277,11 @@ fd_repair_recv_pong(fd_repair_t * glob, fd_gossip_ping_t const * pong, fd_gossip
 }
 
 int
-fd_repair_recv_serv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, fd_gossip_peer_addr_t const * from) {
+fd_repair_recv_serv_packet( fd_repair_t *                 glob,
+                            uchar const *                 msg,
+                            ulong                         msglen,
+                            fd_repair_peer_addr_t const * peer_addr,
+                            uint                          self_ip4_addr ) {
   FD_SCRATCH_SCOPE_BEGIN {
     fd_bincode_decode_ctx_t ctx = {
       .data    = msg,
@@ -1299,7 +1310,7 @@ fd_repair_recv_serv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, 
     switch( protocol->discriminant ) {
       case fd_repair_protocol_enum_pong:
         fd_repair_lock( glob );
-        fd_repair_recv_pong( glob, &protocol->inner.pong, from );
+        fd_repair_recv_pong( glob, &protocol->inner.pong, peer_addr );
         fd_repair_unlock( glob );
         return 0;
       case fd_repair_protocol_enum_window_index: {
@@ -1344,7 +1355,7 @@ fd_repair_recv_serv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, 
 
     fd_repair_lock( glob );
 
-    fd_pinged_elem_t * val = fd_pinged_table_query(glob->pinged, from, NULL);
+    fd_pinged_elem_t * val = fd_pinged_table_query( glob->pinged, peer_addr, NULL) ;
     if( val == NULL || !val->good || !fd_hash_eq( &val->id, &header->sender ) ) {
       /* Need to ping this client */
       if( val == NULL ) {
@@ -1353,13 +1364,13 @@ fd_repair_recv_serv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, 
           fd_repair_unlock( glob );
           return 0;
         }
-        val = fd_pinged_table_insert(glob->pinged, from);
+        val = fd_pinged_table_insert( glob->pinged, peer_addr );
         for ( ulong i = 0; i < FD_HASH_FOOTPRINT / sizeof(ulong); i++ )
           val->token.ul[i] = fd_rng_ulong(glob->rng);
       }
       fd_hash_copy( &val->id, &header->sender );
       val->good = 0;
-      fd_repair_send_ping( glob, from, val );
+      fd_repair_send_ping( glob, peer_addr, self_ip4_addr, val );
 
     } else {
       uchar buf[FD_SHRED_MAX_SZ + sizeof(uint)];
@@ -1369,7 +1380,7 @@ fd_repair_recv_serv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, 
           long sz = (*glob->serv_get_shred_fun)( wi->slot, (uint)wi->shred_index, buf, FD_SHRED_MAX_SZ, glob->fun_arg );
           if( sz < 0 ) break;
           *(uint *)(buf + sz) = wi->header.nonce;
-          (*glob->serv_send_fun)( buf, (ulong)sz + sizeof(uint), from, glob->fun_arg );
+          glob->serv_send_fun( buf, (ulong)sz + sizeof(uint), peer_addr, self_ip4_addr, glob->fun_arg );
           break;
         }
 
@@ -1378,7 +1389,7 @@ fd_repair_recv_serv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, 
           long sz = (*glob->serv_get_shred_fun)( wi->slot, UINT_MAX, buf, FD_SHRED_MAX_SZ, glob->fun_arg );
           if( sz < 0 ) break;
           *(uint *)(buf + sz) = wi->header.nonce;
-          (*glob->serv_send_fun)( buf, (ulong)sz + sizeof(uint), from, glob->fun_arg );
+          glob->serv_send_fun( buf, (ulong)sz + sizeof(uint), peer_addr, self_ip4_addr, glob->fun_arg );
           break;
         }
 
@@ -1392,7 +1403,7 @@ fd_repair_recv_serv_packet(fd_repair_t * glob, uchar const * msg, ulong msglen, 
             long sz = (*glob->serv_get_shred_fun)( slot, UINT_MAX, buf, FD_SHRED_MAX_SZ, glob->fun_arg );
             if( sz < 0 ) continue;
             *(uint *)(buf + sz) = wi->header.nonce;
-            (*glob->serv_send_fun)( buf, (ulong)sz + sizeof(uint), from, glob->fun_arg );
+            glob->serv_send_fun( buf, (ulong)sz + sizeof(uint), peer_addr, self_ip4_addr, glob->fun_arg );
           }
           break;
         }

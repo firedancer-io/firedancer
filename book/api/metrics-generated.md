@@ -234,7 +234,7 @@
 | pack_&#8203;pending_&#8203;transactions_&#8203;heap_&#8203;size | `gauge` | The maximum number of pending transactions that pack can consider.  This value is fixed at Firedancer startup but is a useful reference for AvailableTransactions. |
 | pack_&#8203;smallest_&#8203;pending_&#8203;transaction | `gauge` | A lower bound on the smallest non-vote transaction (in cost units) that is immediately available for scheduling |
 | pack_&#8203;microblock_&#8203;per_&#8203;block_&#8203;limit | `counter` | The number of times pack did not pack a microblock because the limit on microblocks/block had been reached |
-| pack_&#8203;data_&#8203;per_&#8203;block_&#8203;limit | `counter` | The number of times pack did not pack a microblock because it reached reached the data per block limit at the start of trying to schedule a microblock |
+| pack_&#8203;data_&#8203;per_&#8203;block_&#8203;limit | `counter` | The number of times pack did not pack a microblock because it reached the data per block limit at the start of trying to schedule a microblock |
 | pack_&#8203;transaction_&#8203;schedule_&#8203;taken | `counter` | Result of trying to consider a transaction for scheduling (Pack included the transaction in the microblock) |
 | pack_&#8203;transaction_&#8203;schedule_&#8203;cu_&#8203;limit | `counter` | Result of trying to consider a transaction for scheduling (Pack skipped the transaction because it would have exceeded the block CU limit) |
 | pack_&#8203;transaction_&#8203;schedule_&#8203;fast_&#8203;path | `counter` | Result of trying to consider a transaction for scheduling (Pack skipped the transaction because of account conflicts using the fast bitvector check) |
@@ -543,3 +543,12 @@
 | netlnk_&#8203;neigh_&#8203;probe_&#8203;fails | `counter` | Number of neighbor solicit requests that failed to send (kernel too slow) |
 | netlnk_&#8203;neigh_&#8203;probe_&#8203;rate_&#8203;limit_&#8203;host | `counter` | Number of neighbor solicit that exceeded the per-host rate limit |
 | netlnk_&#8203;neigh_&#8203;probe_&#8203;rate_&#8203;limit_&#8203;global | `counter` | Number of neighbor solicit that exceeded the global rate limit |
+
+## Sock Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| sock_&#8203;syscalls_&#8203;sendmmsg | `counter` | Number of sendmmsg syscalls dispatched |
+| sock_&#8203;syscalls_&#8203;recvmmsg | `counter` | Number of recvmsg syscalls dispatched |
+| sock_&#8203;rx_&#8203;pkt_&#8203;cnt | `counter` | Number of packets received |
+| sock_&#8203;tx_&#8203;pkt_&#8203;cnt | `counter` | Number of packets sent |
+| sock_&#8203;tx_&#8203;drop_&#8203;cnt | `counter` | Number of packets failed to send |

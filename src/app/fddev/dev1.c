@@ -1,13 +1,17 @@
 #define _GNU_SOURCE
 #include "fddev.h"
 
-#include "../fdctl/configure/configure.h"
-#include "../fdctl/run/run.h"
+#include "../shared/fd_sys_util.h"
+#include "../shared/commands/configure/configure.h"
+#include "../shared/commands/run/run.h"
 
 #include <stdio.h>
 #include <unistd.h>
 #include <sched.h>
 #include <sys/wait.h>
+
+void
+update_config_for_dev( config_t * const config );
 
 extern char fd_log_private_path[ 1024 ]; /* empty string on start */
 
@@ -24,8 +28,8 @@ parent_signal( int sig ) {
   if( -1!=fd_log_private_logfile_fd() ) FD_LOG_ERR_NOEXIT(( "Received signal %s\nLog at \"%s\"", fd_io_strsignal( sig ), fd_log_private_path ));
   else                                  FD_LOG_ERR_NOEXIT(( "Received signal %s",                fd_io_strsignal( sig ) ));
 
-  if( FD_LIKELY( sig==SIGINT ) ) exit_group( 128+SIGINT );
-  else                           exit_group( 0          );
+  if( FD_LIKELY( sig==SIGINT ) ) fd_sys_util_exit_group( 128+SIGINT );
+  else                           fd_sys_util_exit_group( 0          );
 }
 
 static void
@@ -57,9 +61,9 @@ dev1_cmd_args( int *    pargc,
 
 void
 dev1_cmd_perm( args_t *         args,
-               fd_caps_ctx_t *  caps,
+               fd_cap_chk_t *   chk,
                config_t * const config ) {
-  dev_cmd_perm( args, caps, config );
+  dev_cmd_perm( args, chk, config );
 }
 
 void
@@ -96,5 +100,5 @@ dev1_cmd_fn( args_t *         args,
   }
 
   /* main functions should exit_group and never return, but just in case */
-  exit_group( result );
+  fd_sys_util_exit_group( result );
 }

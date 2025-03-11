@@ -4,7 +4,6 @@
 #define FD_SPAD_USE_HANDHOLDING 1
 #include "fd_exec_instr_test.h"
 #include "../fd_acc_mgr.h"
-#include "../fd_account.h"
 #include "../fd_executor.h"
 #include "../fd_runtime.h"
 #include "../program/fd_bpf_loader_serialization.h"
@@ -22,7 +21,6 @@
 #include "../../../funkier/fd_funkier.h"
 #include "../../../util/bits/fd_float.h"
 #include "../../../ballet/sbpf/fd_sbpf_loader.h"
-#include "../../../ballet/elf/fd_elf.h"
 #include "../../vm/fd_vm.h"
 #include <assert.h>
 #include "../sysvar/fd_sysvar_cache.h"
@@ -32,8 +30,6 @@
 #include "fd_vm_test.h"
 #include "../../vm/test_vm_util.h"
 
-#pragma GCC diagnostic ignored "-Wformat-extra-args"
-
 /* LOGFMT_REPORT is the log prefix for instruction processing tests */
 
 #define LOGFMT_REPORT "%s"
@@ -42,7 +38,8 @@ static FD_TL char _report_prefix[100] = {0};
 #define REPORTV( level, fmt, ... ) \
   FD_LOG_##level(( LOGFMT_REPORT fmt, _report_prefix, __VA_ARGS__ ))
 
-#define REPORT( level, fmt ) REPORTV( level, fmt, 0 )
+#define REPORT( level, fmt ) \
+  FD_LOG_##level(( LOGFMT_REPORT fmt, _report_prefix ))
 
 #define REPORT_ACCTV( level, addr, fmt, ... )                                  \
   do {                                                                         \

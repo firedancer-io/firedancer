@@ -2,6 +2,7 @@
 #define HEADER_fd_src_disco_fd_disco_base_h
 
 #include "../tango/fd_tango.h"
+#include "../ballet/shred/fd_shred.h"
 #include "../ballet/txn/fd_txn.h"
 
 #include "../util/wksp/fd_wksp_private.h"
@@ -106,8 +107,10 @@ fd_disco_bank_sig( ulong slot,
 FD_FN_CONST static inline ulong fd_disco_bank_sig_slot( ulong sig ) { return (sig >> 32); }
 FD_FN_CONST static inline ulong fd_disco_bank_sig_microblock_idx( ulong sig ) { return sig & 0xFFFFFFFFUL; }
 
+/* TODO remove with store_int */
+
 FD_FN_CONST static inline ulong
-fd_disco_replay_sig( ulong slot,
+fd_disco_replay_old_sig( ulong slot,
                      ulong flags ) {
    /* The low byte of the signature field is the flags for replay message.
       The higher 7 bytes are the slot number.  These flags indicate the status
@@ -118,8 +121,32 @@ fd_disco_replay_sig( ulong slot,
   return (slot << 8) | (flags & 0xFFUL);
 }
 
-FD_FN_CONST static inline ulong fd_disco_replay_sig_flags( ulong sig ) { return (sig & 0xFFUL); }
-FD_FN_CONST static inline ulong fd_disco_replay_sig_slot( ulong sig ) { return (sig >> 8); }
+FD_FN_CONST static inline ulong fd_disco_replay_old_sig_flags( ulong sig ) { return (sig & 0xFFUL); }
+FD_FN_CONST static inline ulong fd_disco_replay_old_sig_slot( ulong sig ) { return (sig >> 8); }
+
+FD_FN_CONST static inline ulong
+fd_disco_shred_replay_sig( ulong slot,
+                           uint  shred_idx,
+                           uint  fec_set_idx,
+                           int   is_code,
+                           int   completes ) {
+
+  /* | 32 LSB of slot | 15 LSB of fec_idx | 15 LSB of shred_idx | 1 bit of shred data/code type | 1 bit if shred completes the fec set |
+     | slot[32,63]    | fec_idx[17,32]    | shred_idx[2,16]     | is_parity[1]                  | is_complete[0]                       | */
+
+  ulong slot_ul        = fd_ulong_min( (ulong)slot,        (ulong)UINT_MAX              );
+  ulong shred_idx_ul   = fd_ulong_min( (ulong)shred_idx,   (ulong)FD_SHRED_MAX_PER_SLOT );
+  ulong fec_set_idx_ul = fd_ulong_min( (ulong)fec_set_idx, (ulong)FD_SHRED_MAX_PER_SLOT );
+  ulong is_code_ul     = (ulong)is_code;
+  ulong completes_ul   = (ulong)completes;
+  return slot_ul << 32 | shred_idx_ul << 17 | fec_set_idx_ul << 2 | is_code_ul << 1 | completes_ul;
+}
+
+FD_FN_CONST static inline ulong fd_disco_shred_replay_sig_slot       ( ulong sig ) { return       fd_ulong_extract    ( sig, 32, 63 ); }
+FD_FN_CONST static inline uint  fd_disco_shred_replay_sig_shred_idx  ( ulong sig ) { return (uint)fd_ulong_extract    ( sig, 17, 31 ); }
+FD_FN_CONST static inline uint  fd_disco_shred_replay_sig_fec_set_idx( ulong sig ) { return (uint)fd_ulong_extract    ( sig, 2, 16  ); }
+FD_FN_CONST static inline int   fd_disco_shred_replay_sig_is_code    ( ulong sig ) { return       fd_ulong_extract_bit( sig, 1      ); }
+FD_FN_CONST static inline int   fd_disco_shred_replay_sig_completes  ( ulong sig ) { return       fd_ulong_extract_bit( sig, 0      ); }
 
 FD_FN_PURE static inline ulong
 fd_disco_compact_chunk0( void * wksp ) {

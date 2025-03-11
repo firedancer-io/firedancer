@@ -22,7 +22,7 @@ fd_topo_join_workspace( fd_topo_t *      topo,
 }
 
 FD_FN_PURE static int
-tile_needs_wksp( fd_topo_t const * topo, fd_topo_tile_t * tile, ulong wksp_id ) {
+tile_needs_wksp( fd_topo_t const * topo, fd_topo_tile_t const * tile, ulong wksp_id ) {
   int mode = -1;
   for( ulong i=0UL; i<tile->uses_obj_cnt; i++ ) {
     if( FD_UNLIKELY( topo->objs[ tile->uses_obj_id[ i ] ].wksp_id==wksp_id ) ) {
@@ -229,8 +229,8 @@ fd_topo_tile_extra_normal_pages( fd_topo_tile_t const * tile ) {
 }
 
 FD_FN_PURE static ulong
-fd_topo_mlock_max_tile1( fd_topo_t const * topo,
-                         fd_topo_tile_t *  tile ) {
+fd_topo_mlock_max_tile1( fd_topo_t const *      topo,
+                         fd_topo_tile_t const * tile ) {
   ulong tile_mem = 0UL;
 
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
@@ -244,10 +244,10 @@ fd_topo_mlock_max_tile1( fd_topo_t const * topo,
 }
 
 FD_FN_PURE ulong
-fd_topo_mlock_max_tile( fd_topo_t * topo ) {
+fd_topo_mlock_max_tile( fd_topo_t const * topo ) {
   ulong highest_tile_mem = 0UL;
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t * tile = &topo->tiles[ i ];
+    fd_topo_tile_t const * tile = &topo->tiles[ i ];
     highest_tile_mem = fd_ulong_max( highest_tile_mem, fd_topo_mlock_max_tile1( topo, tile ) );
   }
 
@@ -255,8 +255,8 @@ fd_topo_mlock_max_tile( fd_topo_t * topo ) {
 }
 
 FD_FN_PURE ulong
-fd_topo_gigantic_page_cnt( fd_topo_t * topo,
-                           ulong       numa_idx ) {
+fd_topo_gigantic_page_cnt( fd_topo_t const * topo,
+                           ulong             numa_idx ) {
   ulong result = 0UL;
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     fd_topo_wksp_t const * wksp = &topo->workspaces[ i ];
@@ -270,9 +270,9 @@ fd_topo_gigantic_page_cnt( fd_topo_t * topo,
 }
 
 FD_FN_PURE ulong
-fd_topo_huge_page_cnt( fd_topo_t * topo,
-                       ulong       numa_idx,
-                       int         include_anonymous ) {
+fd_topo_huge_page_cnt( fd_topo_t const * topo,
+                       ulong             numa_idx,
+                       int               include_anonymous ) {
   ulong result = 0UL;
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     fd_topo_wksp_t const * wksp = &topo->workspaces[ i ];
@@ -304,7 +304,7 @@ fd_topo_normal_page_cnt( fd_topo_t * topo ) {
 }
 
 FD_FN_PURE ulong
-fd_topo_mlock( fd_topo_t * topo ) {
+fd_topo_mlock( fd_topo_t const * topo ) {
   ulong result = 0UL;
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {
     result += topo->workspaces[ i ].page_cnt * topo->workspaces[ i ].page_sz;

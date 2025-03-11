@@ -14,6 +14,9 @@ struct __attribute__((aligned(FD_PUBKEY_HASH_PAIR_ALIGN))) fd_pubkey_hash_pair {
 typedef struct fd_pubkey_hash_pair fd_pubkey_hash_pair_t;
 #define FD_PUBKEY_HASH_PAIR_FOOTPRINT (sizeof(fd_pubkey_hash_pair_t))
 
+union fd_features;
+typedef union fd_features fd_features_t;
+
 FD_PROTOTYPES_BEGIN
 
 int
@@ -99,7 +102,8 @@ fd_snapshot_service_hash( fd_hash_t *       accounts_hash,
                           fd_epoch_bank_t * epoch_bank,
                           fd_funkier_t *       funk,
                           fd_tpool_t *      tpool,
-                          fd_spad_t *       runtime_spad );
+                          fd_spad_t *       runtime_spad,
+                          fd_features_t    *features );
 
 int
 fd_snapshot_service_inc_hash( fd_hash_t *                 accounts_hash,
@@ -109,7 +113,8 @@ fd_snapshot_service_inc_hash( fd_hash_t *                 accounts_hash,
                               fd_funkier_t *                 funk,
                               fd_funkier_rec_key_t const * * pubkeys,
                               ulong                       pubkeys_len,
-                              fd_spad_t *                 spad );
+                              fd_spad_t *                 spad,
+                              fd_features_t              *features  );
 
 void
 fd_accounts_check_lthash( fd_funkier_t *      funk,

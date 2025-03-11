@@ -81,6 +81,14 @@ metric introduced.
     <counter name="XdpTxRingEmptyDescs" summary="xdp_statistics_v1.tx_ring_empty_descs: Failed to retrieve item from tx ring" />
 </tile>
 
+<tile name="sock">
+    <counter name="SyscallsSendmmsg" summary="Number of sendmmsg syscalls dispatched" />
+    <counter name="SyscallsRecvmmsg" summary="Number of recvmsg syscalls dispatched" />
+    <counter name="RxPktCnt" summary="Number of packets received" />
+    <counter name="TxPktCnt" summary="Number of packets sent" />
+    <counter name="TxDropCnt" summary="Number of packets failed to send" />
+</tile>
+
 <enum name="TpuRecvType">
     <int value="0" name="Udp" label="TPU/UDP" />
     <int value="1" name="QuicFast" label="TPU/QUIC unfragmented" />
@@ -338,7 +346,7 @@ metric introduced.
     <gauge name="SmallestPendingTransaction" summary="A lower bound on the smallest non-vote transaction (in cost units) that is immediately available for scheduling" />
 
     <counter name="MicroblockPerBlockLimit" summary="The number of times pack did not pack a microblock because the limit on microblocks/block had been reached" />
-    <counter name="DataPerBlockLimit" summary="The number of times pack did not pack a microblock because it reached reached the data per block limit at the start of trying to schedule a microblock" />
+    <counter name="DataPerBlockLimit" summary="The number of times pack did not pack a microblock because it reached the data per block limit at the start of trying to schedule a microblock" />
     <counter name="TransactionSchedule" enum="PackTxnSchedule" summary="Result of trying to consider a transaction for scheduling" />
 
     <counter name="BundleCrankStatus" enum="BundleCrankResult" summary="Result of considering whether bundle cranks are needed" />

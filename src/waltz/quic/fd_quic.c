@@ -273,9 +273,6 @@ fd_quic_config_from_env( int  *             pargc,
   cfg->idle_timeout = idle_timeout_ms * (ulong)1e6;
   cfg->initial_rx_max_stream_data = initial_rx_max_stream_data;
 
-  cfg->net.ephem_udp_port.lo = 10000;
-  cfg->net.ephem_udp_port.hi = 11000;
-
   return cfg;
 }
 
@@ -397,15 +394,7 @@ fd_quic_init( fd_quic_t * quic ) {
 
   switch( config->role ) {
   case FD_QUIC_ROLE_SERVER:
-    if( FD_UNLIKELY( !config->net.listen_udp_port ) ) { FD_LOG_WARNING(( "no cfg.net.listen_udp_port" )); return NULL; }
-    break;
   case FD_QUIC_ROLE_CLIENT:
-    if( FD_UNLIKELY( !config->net.ephem_udp_port.lo
-                  || !config->net.ephem_udp_port.hi
-                  || config->net.ephem_udp_port.lo > config->net.ephem_udp_port.hi ) ) {
-      FD_LOG_WARNING(( "invalid cfg.net.ephem_udp_port" ));
-      return NULL;
-    }
     break;
   default:
     FD_LOG_WARNING(( "invalid cfg.role" ));
@@ -587,9 +576,6 @@ fd_quic_init( fd_quic_t * quic ) {
   FD_QUIC_TRANSPORT_PARAM_SET( tp, ack_delay_exponent,                  0                        );
   FD_QUIC_TRANSPORT_PARAM_SET( tp, max_ack_delay,                       max_ack_delay_ms_u       );
   /*                         */tp->disable_active_migration_present =   1;
-
-  /* Initialize next ephemeral udp port */
-  state->next_ephem_udp_port = config->net.ephem_udp_port.lo;
 
   return quic;
 }
@@ -815,11 +801,11 @@ fd_quic_log_full_hdr( fd_quic_conn_t const * conn,
   fd_quic_log_hdr_t hdr = {
     .conn_id   = conn->our_conn_id,
     .pkt_num   = pkt->pkt_number,
+    .ip4_saddr = pkt->ip4->saddr,
     .udp_sport = pkt->udp->net_sport,
     .enc_level = (uchar)pkt->enc_level,
     .flags     = 0
   };
-  memcpy( hdr.ip4_saddr, pkt->ip4->saddr_c, 4 );
   return hdr;
 }
 
@@ -1364,9 +1350,7 @@ fd_quic_send_retry( fd_quic_t *               quic,
                     fd_quic_pkt_t *           pkt,
                     fd_quic_conn_id_t const * odcid,
                     fd_quic_conn_id_t const * scid,
-                    ulong                     new_conn_id,
-                    uint                      dst_ip_addr,
-                    ushort                    dst_udp_port ) {
+                    ulong                     new_conn_id ) {
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
@@ -1385,9 +1369,10 @@ fd_quic_send_retry( fd_quic_t *               quic,
         retry_pkt,
         // encode buffer
         &pkt->ip4->net_id,
-        dst_ip_addr,
-        quic->config.net.listen_udp_port,
-        dst_udp_port ) == FD_QUIC_FAILED ) ) {
+        pkt->ip4->saddr,
+        pkt->udp->net_sport,
+        pkt->ip4->daddr,
+        pkt->udp->net_dport ) == FD_QUIC_FAILED ) ) {
     return FD_QUIC_PARSE_FAIL;
   }
   return 0UL;
@@ -1487,11 +1472,6 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       fd_memcpy( peer_conn_id.conn_id, initial->src_conn_id, FD_QUIC_MAX_CONN_ID_SZ );
       peer_conn_id.sz = initial->src_conn_id_len;
 
-      /* Save peer's network endpoint */
-
-      ushort dst_udp_port = pkt->udp->net_sport;
-      uint   dst_ip_addr  = FD_LOAD( uint, pkt->ip4->saddr_c );
-
       /* Prepare QUIC-TLS transport params object (sent as a TLS extension).
          Take template from state and mutate certain params in-place.
 
@@ -1531,8 +1511,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
           ulong new_conn_id_u64 = fd_rng_ulong( state->_rng );
           if( FD_UNLIKELY( fd_quic_send_retry(
                 quic, pkt,
-                &odcid, peer_scid, new_conn_id_u64,
-                dst_ip_addr, dst_udp_port ) ) ) {
+                &odcid, peer_scid, new_conn_id_u64 ) ) ) {
             return FD_QUIC_FAILED;
           }
           return (initial->pkt_num_pnoff + initial->len);
@@ -1614,8 +1593,10 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       conn = fd_quic_conn_create( quic,
           scid,
           &peer_conn_id,
-          dst_ip_addr,
-          dst_udp_port,
+          pkt->ip4->saddr,
+          pkt->udp->net_sport,
+          pkt->ip4->daddr,
+          pkt->udp->net_dport,
           1 /* server */ );
 
       if( FD_UNLIKELY( !conn ) ) { /* no free connections */
@@ -1713,6 +1694,12 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
 
   if( FD_UNLIKELY( body_sz < pkt_number_sz + FD_QUIC_CRYPTO_TAG_SZ ) ) {
     return FD_QUIC_PARSE_FAIL;
+  }
+
+  if( FD_UNLIKELY( !conn->host.ip_addr ) ) {
+    /* Lock src IP address in place (previously chosen by layer-4 based
+       on the route table) */
+    conn->host.ip_addr = pkt->ip4->daddr;
   }
 
   /* check if reply conn id needs to change */
@@ -2996,8 +2983,9 @@ fd_quic_tx_buffered_raw(
     uchar *          tx_buf,
     ushort *         ipv4_id,
     uint             dst_ipv4_addr,
-    ushort           src_udp_port,
-    ushort           dst_udp_port
+    ushort           dst_udp_port,
+    uint             src_ipv4_addr,
+    ushort           src_udp_port
 ) {
 
   /* TODO leave space at front of tx_buf for header
@@ -3029,18 +3017,13 @@ fd_quic_tx_buffered_raw(
   pkt.ip4->ttl          = 64; /* TODO make configurable */
   pkt.ip4->protocol     = FD_IP4_HDR_PROTOCOL_UDP;
   pkt.ip4->check        = 0;
+  pkt.ip4->saddr        = src_ipv4_addr;
+  pkt.ip4->daddr        = dst_ipv4_addr;
   pkt.udp->net_sport    = src_udp_port;
   pkt.udp->net_dport    = dst_udp_port;
   pkt.udp->net_len      = (ushort)( 8 + payload_sz );
   pkt.udp->check        = 0x0000;
   *ipv4_id = (ushort)( *ipv4_id + 1 );
-
-  /* TODO saddr could be zero -- should use the kernel routing table to
-     determine an appropriate source address */
-
-  /* copy to avoid alignment issues */
-  memcpy( &pkt.ip4->saddr_c, &config->net.ip_addr, 4 );
-  memcpy( &pkt.ip4->daddr_c, &dst_ipv4_addr,       4 );
 
   ulong rc = fd_quic_encode_ip4( cur_ptr, cur_sz, pkt.ip4 );
   if( FD_UNLIKELY( rc == FD_QUIC_PARSE_FAIL ) ) {
@@ -3106,8 +3089,9 @@ fd_quic_tx_buffered( fd_quic_t *      quic,
       conn->tx_buf_conn,
       &conn->ipv4_id,
       endpoint->ip_addr,
-      conn->host.udp_port,
-      endpoint->udp_port );
+      endpoint->udp_port,
+      conn->host.ip_addr,
+      conn->host.udp_port);
 }
 
 static ulong
@@ -4095,7 +4079,9 @@ fd_quic_conn_free( fd_quic_t *      quic,
 fd_quic_conn_t *
 fd_quic_connect( fd_quic_t *  quic,
                  uint         dst_ip_addr,
-                 ushort       dst_udp_port ) {
+                 ushort       dst_udp_port,
+                 uint         src_ip_addr,
+                 ushort       src_udp_port ) {
 
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
@@ -4120,24 +4106,14 @@ fd_quic_connect( fd_quic_t *  quic,
       &peer_conn_id,
       dst_ip_addr,
       dst_udp_port,
+      src_ip_addr,
+      src_udp_port,
       0 /* client */ );
 
   if( FD_UNLIKELY( !conn ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_conn_create failed" )) );
     return NULL;
   }
-
-  /* choose a port from ephemeral range */
-  fd_quic_config_t * config     = &quic->config;
-  ushort             ephem_lo   = config->net.ephem_udp_port.lo;
-  ushort             ephem_hi   = config->net.ephem_udp_port.hi;
-  ushort             next_ephem = state->next_ephem_udp_port;
-  ushort             src_port   = next_ephem;
-  next_ephem++;
-  next_ephem = fd_ushort_if( next_ephem >= ephem_hi, ephem_lo, next_ephem );
-  state->next_ephem_udp_port = next_ephem;
-
-  conn->host.udp_port = src_port;
 
   /* Prepare QUIC-TLS transport params object (sent as a TLS extension).
       Take template from state and mutate certain params in-place.
@@ -4201,8 +4177,10 @@ fd_quic_conn_t *
 fd_quic_conn_create( fd_quic_t *               quic,
                      ulong                     our_conn_id,
                      fd_quic_conn_id_t const * peer_conn_id,
-                     uint                      dst_ip_addr,
-                     ushort                    dst_udp_port,
+                     uint                      peer_ip_addr,
+                     ushort                    peer_udp_port,
+                     uint                      self_ip_addr,
+                     ushort                    self_udp_port,
                      int                       server ) {
 
   fd_quic_config_t * config = &quic->config;
@@ -4253,10 +4231,8 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->svc_time            = LONG_MAX;
   conn->our_conn_id         = 0;
   conn->host                = (fd_quic_net_endpoint_t){
-    .ip_addr  = config->net.ip_addr,
-    .udp_port = fd_ushort_if( server,
-                              config->net.listen_udp_port,
-                              state->next_ephem_udp_port )
+    .ip_addr  = self_ip_addr, /* may be 0, if outgoing */
+    .udp_port = self_udp_port,
   };
   memset( &conn->peer[0], 0, sizeof( conn->peer ) );
   conn->conn_gen++;
@@ -4335,8 +4311,8 @@ fd_quic_conn_create( fd_quic_t *               quic,
 
   /* peer connection id */
   conn->peer_cids[0]     = *peer_conn_id;
-  conn->peer[0].ip_addr  = dst_ip_addr;
-  conn->peer[0].udp_port = dst_udp_port;
+  conn->peer[0].ip_addr  = peer_ip_addr;
+  conn->peer[0].udp_port = peer_udp_port;
 
   fd_quic_ack_gen_init( conn->ack_gen );
   conn->unacked_sz = 0UL;

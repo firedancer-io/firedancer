@@ -1198,10 +1198,11 @@ fd_snapshot_service_hash( fd_hash_t *       accounts_hash,
                           fd_epoch_bank_t * epoch_bank,
                           fd_funkier_t *       funk,
                           fd_tpool_t *      tpool,
-                          fd_spad_t *       runtime_spad ) {
+                          fd_spad_t *       runtime_spad,
+                          fd_features_t    *features ) {
 
   fd_sha256_t h;
-  int lthash_enabled = FD_FEATURE_ACTIVE_( slot_bank->slot, g_runtime_ctx->public->features, snapshots_lt_hash );
+  int lthash_enabled = FD_FEATURE_ACTIVE_( slot_bank->slot, *features, snapshots_lt_hash );
   fd_accounts_hash( funk, slot_bank, tpool, accounts_hash, runtime_spad, lthash_enabled );
 
   int should_include_eah = epoch_bank->eah_stop_slot != ULONG_MAX && epoch_bank->eah_start_slot == ULONG_MAX;
@@ -1226,8 +1227,8 @@ fd_snapshot_service_inc_hash( fd_hash_t *                 accounts_hash,
                               fd_funkier_t *                 funk,
                               fd_funkier_rec_key_t const * * pubkeys,
                               ulong                       pubkeys_len,
-                              fd_spad_t *                 spad ) {
-
+                              fd_spad_t *                 spad,
+                              fd_features_t              *features FD_PARAM_UNUSED  ) {
   fd_sha256_t h;
   fd_accounts_hash_inc_no_txn( funk, accounts_hash, pubkeys, pubkeys_len, 0UL, spad );
 
