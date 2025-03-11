@@ -22,6 +22,8 @@ make -j
 # Run the tests
 make run-runtime-test-nightly > ~/nightly_run.txt
 
+make run-runtime-test-nightly-txncache > ~/nightly_run_txncache.txt
+
 make clean
 EXTRAS="asan deepasan" make -j
 
