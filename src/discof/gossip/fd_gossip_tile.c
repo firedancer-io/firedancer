@@ -166,8 +166,8 @@ struct fd_gossip_tile_ctx {
   fd_wksp_t *     wksp;
   fd_gossip_peer_addr_t gossip_my_addr;
   fd_gossip_peer_addr_t tvu_my_addr;
-  fd_gossip_peer_addr_t tvu_my_fwd_addr;
   fd_gossip_peer_addr_t tpu_my_addr;
+  fd_gossip_peer_addr_t tpu_quic_my_addr;
   fd_gossip_peer_addr_t tpu_vote_my_addr;
   fd_gossip_peer_addr_t repair_serve_addr;
   ushort                gossip_listen_port;
@@ -927,16 +927,15 @@ unprivileged_init( fd_topo_t *      topo,
   FD_LOG_NOTICE(( "gossip my addr - addr: " FD_IP4_ADDR_FMT ":%u",
     FD_IP4_ADDR_FMT_ARGS( ctx->gossip_my_addr.addr ), fd_ushort_bswap( ctx->gossip_my_addr.port ) ));
   ctx->gossip_config.my_addr       = ctx->gossip_my_addr;
-  ctx->gossip_config.my_version = (fd_gossip_version_v2_t){
-    .from = ctx->identity_public_key,
+  ctx->gossip_config.my_version = (fd_gossip_version_v3_t){
     .major = 42U,
     .minor = 42U,
     .patch = 42U,
     .commit = 0U,
-    .has_commit = 0U,
     .feature_set = 0U,
+    .client = 2U
   };
-  ctx->gossip_config.private_key   = ctx->identity_private_key;
+  ctx->gossip_config.node_outset   = fd_log_wallclock() / 1000000; /* in ms */
   ctx->gossip_config.public_key    = &ctx->identity_public_key;
   ctx->gossip_config.deliver_fun   = gossip_deliver_fun;
   ctx->gossip_config.deliver_arg   = ctx;
@@ -956,17 +955,17 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->tvu_my_addr.addr       = tile->gossip.ip_addr;
   ctx->tvu_my_addr.port       = fd_ushort_bswap( tile->gossip.tvu_port );
-  ctx->tvu_my_fwd_addr.addr   = tile->gossip.ip_addr;
-  ctx->tvu_my_fwd_addr.port   = fd_ushort_bswap( tile->gossip.tvu_fwd_port );
   ctx->tpu_my_addr.addr       = tile->gossip.ip_addr;
   ctx->tpu_my_addr.port       = fd_ushort_bswap( tile->gossip.tpu_port );
+  ctx->tpu_quic_my_addr.addr  = tile->gossip.ip_addr;
+  ctx->tpu_quic_my_addr.port  = fd_ushort_bswap( tile->gossip.tpu_quic_port );
   ctx->tpu_vote_my_addr.addr  = tile->gossip.ip_addr;
   ctx->tpu_vote_my_addr.port  = fd_ushort_bswap( tile->gossip.tpu_vote_port );
   ctx->repair_serve_addr.addr = tile->gossip.ip_addr;
   ctx->repair_serve_addr.port = fd_ushort_bswap( tile->gossip.repair_serve_port );
 
-  fd_gossip_update_tvu_addr( ctx->gossip, &ctx->tvu_my_addr, &ctx->tvu_my_fwd_addr );
-  fd_gossip_update_tpu_addr( ctx->gossip, &ctx->tpu_my_addr, &ctx->tpu_my_addr );
+  fd_gossip_update_tvu_addr( ctx->gossip, &ctx->tvu_my_addr );
+  fd_gossip_update_tpu_addr( ctx->gossip, &ctx->tpu_my_addr, &ctx->tpu_quic_my_addr );
   fd_gossip_update_tpu_vote_addr( ctx->gossip, &ctx->tpu_vote_my_addr );
   fd_gossip_update_repair_addr( ctx->gossip, &ctx->repair_serve_addr );
   fd_gossip_settime( ctx->gossip, fd_log_wallclock() );
