@@ -225,7 +225,7 @@ pktgen_cmd_fn( args_t *   args,
   /* FIXME this allocates lots of memory unnecessarily */
   initialize_workspaces( config );
   initialize_stacks( config );
-  fdctl_setup_netns( config );
+  fdctl_setup_netns( config, 1 );
   (void)fd_topo_install_xdp( topo );
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run, NULL );
