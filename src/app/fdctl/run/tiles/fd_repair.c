@@ -143,6 +143,7 @@ send_packet( fd_repair_tile_ctx_t * ctx,
              int                    is_intake,
              uint                   dst_ip_addr,
              ushort                 dst_port,
+             uint                   src_ip_addr,
              uchar const *          payload,
              ulong                  payload_sz,
              ulong                  tsorig ) {
@@ -153,12 +154,12 @@ send_packet( fd_repair_tile_ctx_t * ctx,
 
   hdr->udp->net_dport = dst_port;
 
-  memset( hdr->eth->dst, 0U, 6UL );
-  memcpy( hdr->ip4->daddr_c, &dst_ip_addr, 4UL );
+  hdr->ip4->saddr = src_ip_addr;
+  hdr->ip4->daddr = dst_ip_addr;
   hdr->ip4->net_id = fd_ushort_bswap( ctx->net_id++ );
   hdr->ip4->check  = 0U;
   hdr->ip4->net_tot_len  = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)) );
-  hdr->ip4->check  = fd_ip4_hdr_check( ( fd_ip4_hdr_t const *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4 ) );
+  hdr->ip4->check  = fd_ip4_hdr_check_fast( ( fd_ip4_hdr_t const *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4 ) );
 
   ulong packet_sz = payload_sz + sizeof(fd_net_hdrs_t);
   fd_memcpy( packet+sizeof(fd_net_hdrs_t), payload, payload_sz );
@@ -247,18 +248,20 @@ static void
 repair_send_intake_packet( uchar const *                 msg,
                            size_t                        msglen,
                            fd_gossip_peer_addr_t const * addr,
-                           void * arg ) {
+                           uint                          src_addr,
+                           void *                        arg ) {
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
-  send_packet( arg, 1, addr->addr, addr->port, msg, msglen, tsorig );
+  send_packet( arg, 1, addr->addr, addr->port, src_addr, msg, msglen, tsorig );
 }
 
 static void
 repair_send_serve_packet( uchar const *                 msg,
                           size_t                        msglen,
                           fd_gossip_peer_addr_t const * addr,
-                          void * arg ) {
+                          uint                          src_addr,
+                          void *                        arg ) {
   ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
-  send_packet( arg, 0, addr->addr, addr->port, msg, msglen, tsorig );
+  send_packet( arg, 0, addr->addr, addr->port, src_addr, msg, msglen, tsorig );
 }
 
 static void
@@ -381,14 +384,14 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
   fd_repair_peer_addr_t peer_addr;
   peer_addr.l = 0;
-  peer_addr.addr = FD_LOAD( uint, hdr->ip4->saddr_c );
-  peer_addr.port = hdr->udp->net_sport;
+  peer_addr.addr = hdr->ip4->saddr;
+  peer_addr.port = hdr->udp->net_sport; /* FIXME IP OPTIONS HANDLING */
 
   ushort dport = hdr->udp->net_dport;
   if( ctx->repair_intake_addr.port == dport )
-    fd_repair_recv_clnt_packet( ctx->repair, ctx->buffer + hdr_sz, sz - hdr_sz, &peer_addr );
+    fd_repair_recv_clnt_packet( ctx->repair, ctx->buffer + hdr_sz, sz - hdr_sz, &peer_addr, hdr->ip4->daddr );
   else if( ctx->repair_serve_addr.port == dport )
-    fd_repair_recv_serv_packet( ctx->repair, ctx->buffer + hdr_sz, sz - hdr_sz, &peer_addr );
+    fd_repair_recv_serv_packet( ctx->repair, ctx->buffer + hdr_sz, sz - hdr_sz, &peer_addr, hdr->ip4->daddr );
   else
     FD_LOG_WARNING(( "received packet for port %u, which seems wrong", (uint)fd_ushort_bswap( dport ) ));
 }
@@ -518,11 +521,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
 
-  ctx->repair_intake_addr.addr = tile->repair.ip_addr;
   ctx->repair_intake_addr.port = fd_ushort_bswap( tile->repair.repair_intake_listen_port );
-
-  ctx->repair_serve_addr.addr = tile->repair.ip_addr;
-  ctx->repair_serve_addr.port = fd_ushort_bswap( tile->repair.repair_serve_listen_port );
+  ctx->repair_serve_addr.port  = fd_ushort_bswap( tile->repair.repair_serve_listen_port  );
 
   ctx->repair_intake_listen_port = tile->repair.repair_intake_listen_port;
   ctx->repair_serve_listen_port = tile->repair.repair_serve_listen_port;
@@ -532,8 +532,8 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->net_id = (ushort)0;
 
-  fd_net_create_packet_header_template( ctx->intake_hdr, FD_REPAIR_MAX_PACKET_SIZE, ctx->repair_intake_addr.addr, ctx->repair_intake_listen_port );
-  fd_net_create_packet_header_template( ctx->serve_hdr,  FD_REPAIR_MAX_PACKET_SIZE, ctx->repair_serve_addr.addr,  ctx->repair_serve_listen_port  );
+  fd_net_create_packet_header_template( ctx->intake_hdr, FD_REPAIR_MAX_PACKET_SIZE, 0, ctx->repair_intake_listen_port );
+  fd_net_create_packet_header_template( ctx->serve_hdr,  FD_REPAIR_MAX_PACKET_SIZE, 0, ctx->repair_serve_listen_port  );
 
   /* Keyguard setup */
   fd_topo_link_t * sign_in = &topo->links[ tile->in_link_id[ SIGN_IN_IDX ] ];

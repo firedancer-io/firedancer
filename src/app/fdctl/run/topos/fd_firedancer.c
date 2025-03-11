@@ -623,7 +623,6 @@ fd_topo_initialize( config_t * config ) {
     } else if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
       tile->repair.repair_intake_listen_port =  config->tiles.repair.repair_intake_listen_port;
       tile->repair.repair_serve_listen_port =   config->tiles.repair.repair_serve_listen_port;
-      tile->repair.ip_addr = config->tiles.net.ip_addr;
       strncpy( tile->repair.good_peer_cache_file, config->tiles.repair.good_peer_cache_file, sizeof(tile->repair.good_peer_cache_file) );
 
       strncpy( tile->repair.identity_key_path, config->consensus.identity_path, sizeof(tile->repair.identity_key_path) );
