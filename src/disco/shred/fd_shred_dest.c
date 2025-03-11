@@ -220,7 +220,8 @@ sample_unstaked( fd_shred_dest_t * sdest ) {
 }
 
 
-/* Returns 0 on success */
+/* Returns 0 on success
+   https://github.com/anza-xyz/agave/blob/v2.2.1/ledger/src/shred.rs#L293 */
 static inline int
 compute_seeds( fd_shred_dest_t           * sdest,
                fd_shred_t  const * const * input_shreds,
@@ -239,7 +240,7 @@ compute_seeds( fd_shred_dest_t           * sdest,
 
     uchar shred_type = fd_shred_type( shred->variant );
     h_in->slot = slot;
-    h_in->type = fd_uchar_if( (shred_type==FD_SHRED_TYPE_LEGACY_DATA) | (shred_type==FD_SHRED_TYPE_MERKLE_DATA), 0xA5, 0x5A );
+    h_in->type = fd_uchar_if( fd_shred_is_data( shred_type ), 0xA5, 0x5A );
     h_in->idx  = shred->idx;
     memcpy( h_in->leader_pubkey, leader, 32UL );
 

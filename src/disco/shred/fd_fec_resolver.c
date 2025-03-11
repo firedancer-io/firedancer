@@ -576,7 +576,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
   for( ulong i=0UL; i<set->data_shred_cnt; i++ ) {
     if( !d_rcvd_test( set->data_shred_rcvd, i ) ) {
       fd_memcpy( set->data_shreds[i], shred, sizeof(fd_ed25519_sig_t) );
-      if( FD_UNLIKELY( fd_shred_is_chained( shred_type ) ) ) {
+      if( FD_LIKELY( fd_shred_is_chained( shred_type ) ) ) {
         fd_memcpy( set->data_shreds[i]+fd_shred_chain_off( data_variant ), chained_root, FD_SHRED_MERKLE_ROOT_SZ );
       }
       fd_bmtree_hash_leaf( leaf, set->data_shreds[i]+sizeof(fd_ed25519_sig_t), data_merkle_protected_sz, FD_BMTREE_LONG_PREFIX_SZ );
@@ -603,7 +603,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
       p_shred->code.code_cnt = (ushort)set->parity_shred_cnt;
       p_shred->code.idx      = (ushort)i;
 
-      if( FD_UNLIKELY( fd_shred_is_chained( shred_type ) ) ) {
+      if( FD_LIKELY( fd_shred_is_chained( shred_type ) ) ) {
         fd_memcpy( set->parity_shreds[i]+fd_shred_chain_off( parity_variant ), chained_root, FD_SHRED_MERKLE_ROOT_SZ );
       }
 

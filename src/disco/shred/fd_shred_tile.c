@@ -498,7 +498,7 @@ send_shred( fd_shred_ctx_t *    ctx,
 
   uchar * packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
 
-  int is_data = fd_shred_type( shred->variant )==FD_SHRED_TYPE_MERKLE_DATA;
+  int is_data = fd_shred_is_data( fd_shred_type( shred->variant ) );
   fd_ip4_udp_hdrs_t * hdr  = (fd_ip4_udp_hdrs_t *)packet;
   *hdr = *( is_data ? ctx->data_shred_net_hdr : ctx->parity_shred_net_hdr );
 

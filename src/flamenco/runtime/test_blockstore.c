@@ -117,10 +117,7 @@ main( int argc, char ** argv ) {
 
     fd_shred_t const * shred      = fd_shred_parse( buffer, shred_len );
     uchar              shred_type = fd_shred_type( shred->variant );
-    if( shred_type == FD_SHRED_TYPE_LEGACY_DATA ||
-        shred_type == FD_SHRED_TYPE_MERKLE_DATA ||
-        shred_type == FD_SHRED_TYPE_MERKLE_DATA_CHAINED ||
-        shred_type == FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED ) {
+    if( fd_shred_is_data( shred_type ) ) {
       if( FD_UNLIKELY( !fd_blockstore_shreds_complete( blockstore, shred->slot ) ) ) {
         fd_blockstore_shred_insert( blockstore, shred );
 
