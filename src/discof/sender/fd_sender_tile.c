@@ -144,21 +144,19 @@ send_packet( fd_sender_tile_ctx_t * ctx,
   fd_memcpy( packet, ctx->packet_hdr, sizeof(fd_net_hdrs_t) );
   fd_net_hdrs_t * hdr = (fd_net_hdrs_t *)packet;
 
-  hdr->udp->net_dport = fd_ushort_bswap( dst_port );
-
-  memset( hdr->eth->dst, 0U, 6UL );
-  memcpy( hdr->ip4->daddr_c, &dst_ip_addr, 4UL );
+  hdr->ip4->daddr  = dst_ip_addr;
   hdr->ip4->net_id = fd_ushort_bswap( ctx->net_id++ );
   hdr->ip4->check  = 0U;
-  hdr->ip4->net_tot_len  = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)) );
-  hdr->ip4->check  = fd_ip4_hdr_check( ( fd_ip4_hdr_t const *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4 ) );
+  hdr->ip4->net_tot_len = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)) );
+  hdr->ip4->check  = fd_ip4_hdr_check_fast( hdr->buf+14 );
 
   ulong packet_sz = payload_sz + sizeof(fd_net_hdrs_t);
   fd_memcpy( packet+sizeof(fd_net_hdrs_t), payload, payload_sz );
+  hdr->udp->net_dport = fd_ushort_bswap( dst_port );
   hdr->udp->net_len   = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
-  hdr->udp->check = fd_ip4_udp_check( *(uint *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4->saddr_c ),
-                                      *(uint *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4->daddr_c ),
-                                      (fd_udp_hdr_t const *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->udp ),
+  hdr->udp->check = fd_ip4_udp_check( hdr->ip4->saddr,
+                                      hdr->ip4->daddr,
+                                      (fd_udp_hdr_t const *)hdr->buf+34,
                                       packet + sizeof(fd_net_hdrs_t) );
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
