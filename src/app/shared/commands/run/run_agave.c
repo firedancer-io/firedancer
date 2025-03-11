@@ -5,6 +5,7 @@
 #include "../../../../util/tile/fd_tile_private.h"
 
 #include <sched.h>
+#include <stdlib.h> /* setenv */
 #include <errno.h>
 #include <unistd.h>
 #include <pthread.h>

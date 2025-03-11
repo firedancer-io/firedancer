@@ -1,9 +1,7 @@
+#include "fd_voter.h"
 #include "../../ballet/ed25519/fd_ed25519.h"
-#include "../../choreo/fd_choreo.h"
-#include "../../flamenco/fd_flamenco.h"
-#include "../../flamenco/runtime/fd_system_ids.h"
-#include "../../flamenco/txn/fd_txn_generate.h"
 #include "../../util/fd_util.h"
+#include <stdlib.h> /* malloc */
 #include <sys/random.h>
 
 #define TEST_VOTE_TXN_MAGIC ( 0x7e58UL )

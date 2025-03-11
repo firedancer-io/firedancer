@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h> /* strtoul */
 #include <dirent.h>
 #include <sys/stat.h>
 #include <sys/mount.h>

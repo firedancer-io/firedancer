@@ -3,6 +3,7 @@
 
 #include <pwd.h>
 #include <errno.h>
+#include <stdlib.h> /* getenv */
 #include <time.h>
 #include <unistd.h>
 #include <sys/syscall.h>

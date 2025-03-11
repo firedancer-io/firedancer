@@ -6,9 +6,9 @@
 #include "fd_sys_util.h"
 #include "../../ballet/toml/fd_toml.h"
 #include "../../flamenco/genesis/fd_genesis_cluster.h"
-#include "../../util/net/fd_eth.h"
 
 #include <errno.h>
+#include <stdlib.h> /* strtoul */
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
