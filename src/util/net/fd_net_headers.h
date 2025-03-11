@@ -4,46 +4,54 @@
 #include "fd_udp.h"
 #include "fd_eth.h"
 
-typedef union {
-  struct __attribute__((packed)) {
+/* fd_ip4_udp_hdrs is useful to construct Ethernet+IPv4+UDP network
+   headers. Assumes that the IPv4 header has no options (IHL=5). */
+
+union fd_ip4_udp_hdrs {
+  uchar uc[ 42 ];
+  struct {
     fd_eth_hdr_t eth[1];
     fd_ip4_hdr_t ip4[1];
     fd_udp_hdr_t udp[1];
   };
-  uchar buf[ 42 ];
-} fd_net_hdrs_t;
+};
+
+typedef union fd_ip4_udp_hdrs fd_ip4_udp_hdrs_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* Helper method to populate a header template
-   containing ethernet, UDP and IP headers with
-   default values. Used for pre-staging headers. */
+/* Helper method to populate a header template containing Ethernet,
+   IPv4 (no options), and UDP headers.  Note that IPv4 and UDP header
+   checksums are set to 0. */
 
-static inline fd_net_hdrs_t *
-fd_net_create_packet_header_template( fd_net_hdrs_t * pkt,
-                                      ulong           payload_sz,
-                                      uint            src_ip,
-                                      ushort          src_port ) {
-  memset( pkt->eth->dst, 0, 6UL );
-  memset( pkt->eth->src, 0, 6UL );
-  pkt->eth->net_type  = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP );
+static inline fd_ip4_udp_hdrs_t *
+fd_ip4_udp_hdr_init( fd_ip4_udp_hdrs_t * hdrs,
+                     ulong               payload_sz,
+                     uint                src_ip,
+                     ushort              src_port ) {
+  fd_eth_hdr_t * eth = hdrs->eth;
+  memset( eth->dst, 0, 6UL );
+  memset( eth->src, 0, 6UL );
+  eth->net_type  = fd_ushort_bswap( FD_ETH_HDR_TYPE_IP );
 
-  pkt->ip4->verihl       = FD_IP4_VERIHL( 4U, 5U );
-  pkt->ip4->tos          = (uchar)0;
-  pkt->ip4->net_tot_len  = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)) );
-  pkt->ip4->net_frag_off = fd_ushort_bswap( FD_IP4_HDR_FRAG_OFF_DF );
-  pkt->ip4->ttl          = (uchar)64;
-  pkt->ip4->protocol     = FD_IP4_HDR_PROTOCOL_UDP;
-  pkt->ip4->check        = 0U;
-  memcpy( pkt->ip4->saddr_c, &src_ip, 4UL );
-  memset( pkt->ip4->daddr_c, 0,       4UL );
+  fd_ip4_hdr_t * ip4 = hdrs->ip4;
+  ip4->verihl       = FD_IP4_VERIHL( 4U, 5U );
+  ip4->tos          = (uchar)0;
+  ip4->net_tot_len  = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)) );
+  ip4->net_frag_off = fd_ushort_bswap( FD_IP4_HDR_FRAG_OFF_DF );
+  ip4->ttl          = (uchar)64;
+  ip4->protocol     = FD_IP4_HDR_PROTOCOL_UDP;
+  ip4->check        = 0U;
+  ip4->saddr        = src_ip;
+  ip4->daddr        = 0;
 
-  pkt->udp->net_sport = fd_ushort_bswap( src_port );
-  pkt->udp->net_dport = (ushort)0;
-  pkt->udp->net_len   = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
-  pkt->udp->check     = (ushort)0;
+  fd_udp_hdr_t * udp = hdrs->udp;
+  udp->net_sport = fd_ushort_bswap( src_port );
+  udp->net_dport = (ushort)0;
+  udp->net_len   = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
+  udp->check     = (ushort)0;
 
-  return pkt;
+  return hdrs;
 }
 
 FD_PROTOTYPES_END

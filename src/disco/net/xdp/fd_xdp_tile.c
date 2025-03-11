@@ -18,6 +18,7 @@
 #include "../../../waltz/xdp/fd_xsk.h"
 #include "../../../util/log/fd_dtrace.h"
 #include "../../../util/net/fd_eth.h"
+#include "../../../util/net/fd_ip4.h"
 
 #include <unistd.h>
 #include <linux/if.h> /* struct ifreq */
@@ -627,17 +628,22 @@ after_frag( fd_net_ctx_t *      ctx,
   memcpy( frame, ctx->tx_op.mac_addrs, 12 );
 
   /* Select IPv4 source address */
+  uint   ihl       = frame[ 14 ] & 0x0f;
   ushort ethertype = FD_LOAD( ushort, frame+12 );
   uint   ip4_saddr = FD_LOAD( uint,   frame+26 );
   if( ethertype==fd_ushort_bswap( FD_ETH_HDR_TYPE_IP ) && ip4_saddr==0 ) {
-    /* Outgoing IPv4 packet with unknown src IP, use prefsrc from route */
-    if( FD_UNLIKELY( ctx->tx_op.src_ip==0 ) ) {
-      /* Can't determine source address */
+    if( FD_UNLIKELY( ctx->tx_op.src_ip==0 ||
+                     ihl<5 || (14+(ihl<<2))>sz ) ) {
+      /* Outgoing IPv4 packet with unknown src IP or invalid IHL */
       /* FIXME should select first IPv4 address of device table here */
       ctx->metrics.tx_route_fail_cnt++;
       return;
     }
-    FD_STORE( uint, frame+26, ctx->tx_op.src_ip );
+
+    /* Recompute checksum after changing header */
+    FD_STORE( uint,   frame+26, ctx->tx_op.src_ip );
+    FD_STORE( ushort, frame+24, 0 );
+    FD_STORE( ushort, frame+24, fd_ip4_hdr_check( frame+14 ) );
   }
 
   /* Submit packet TX job

@@ -13,7 +13,7 @@ union fd_udp_hdr {
     ushort check;     /* UDP checksum ("invariant" order), from first byte of pseudo header prepended before this header to last
                          byte of udp payload with zero padding to even length inclusive.  In IP4, 0 indicates no checksum. */
   };
-  uint u[2];
+  uchar uc[8];
 };
 
 typedef union fd_udp_hdr fd_udp_hdr_t;
@@ -48,18 +48,7 @@ FD_PROTOTYPES_BEGIN
    manually compute / validate UDP checksums (e.g. overhead doesn't
    matter or when the hardware sending/receiving the packet doesn't do
    various checksum offload computations and UDP checksums are
-   required).
-
-   WARNING!  With strict aliasing optimizations enabled and having this
-   inline, the caller might need to type pun the dgram value passed to
-   this (e.g. fd_type_pun_const(my_dgram)), wrap their dgram structure
-   in a union like seen above for the udp_hdr_t or play various games
-   with the may_alias attribute.  fd_type_pun_const is the quickest way
-   to handle this but can inhibit various optimizations.  Wrapping in a
-   union type is the fastest and most conformant way to handle this.
-   The compiler is pretty good at catching when this is necessary and
-   warning about it but be careful here.  FIXME: CONSIDER NOT INLINING
-   THIS? */
+   required). */
 
 FD_FN_PURE static inline ushort
 fd_ip4_udp_check( uint                 ip4_saddr,
@@ -70,17 +59,16 @@ fd_ip4_udp_check( uint                 ip4_saddr,
   uint   rem     = (uint)fd_ushort_bswap( net_len ) - (uint)sizeof(fd_udp_hdr_t);
 
   /* Sum the pseudo header and UDP header words */
-  uint const * u = udp->u;
   ulong ul = ((((ulong)FD_IP4_HDR_PROTOCOL_UDP)<<8) | (((ulong)net_len)<<16))
            + ((ulong)ip4_saddr)
            + ((ulong)ip4_daddr)
-           + ((ulong)u[0])
-           + ((ulong)u[1]);
+           + ((ulong)FD_LOAD( uint, udp->uc   ))
+           + ((ulong)FD_LOAD( uint, udp->uc+4 ));
 
   /* Sum the dgram words (reads up to 4 past end of msg) */
-  u = (uint const *)dgram; /* See warning above */
-  for( ; rem>3U; rem-=4U, u++ ) ul += (ulong)u[0];
-  ul += (ulong)( u[0] & ((1U<<(8U*rem))-1U) );
+  uchar const * u = dgram;
+  for( ; rem>3U; rem-=4U, u+=4 ) ul += (ulong)FD_LOAD( uint, u );
+  ul += (ulong)( FD_LOAD( uint, u ) & ((1U<<(8U*rem))-1U) );
 
   /* Reduce the sum to a 16-bit one's complement sum */
   ul  = ( ul>>32            ) +
