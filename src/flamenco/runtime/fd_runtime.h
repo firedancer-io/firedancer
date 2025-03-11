@@ -14,7 +14,6 @@
 #include "context/fd_exec_slot_ctx.h"
 #include "context/fd_capture_ctx.h"
 #include "context/fd_exec_txn_ctx.h"
-#include "context/fd_runtime_ctx.h"
 #include "info/fd_block_info.h"
 #include "info/fd_instr_info.h"
 #include "../gossip/fd_gossip.h"
