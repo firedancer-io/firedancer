@@ -12,33 +12,33 @@
 #include <linux/rtnetlink.h>
 #include <netinet/in.h>
 
-static int namespace_original_fd = 0;
-
 int
 fd_net_util_netns_enter( const char * name,
                          int *        original_netns ) {
-  *original_netns = -1;
-
   char path[ PATH_MAX ];
   if( FD_UNLIKELY( !fd_cstr_printf_check( path, PATH_MAX, NULL, "/var/run/netns/%s", name ) ) ) {
     errno = ENAMETOOLONG;
     return -1;
   }
 
-
   int _original_netns = -1;
   if( FD_LIKELY( original_netns ) ) {
+    *original_netns = -1;
     _original_netns = open( "/proc/self/ns/net", O_RDONLY | O_CLOEXEC );
     if( FD_UNLIKELY( -1==_original_netns ) ) return -1;
   }
 
   int fd = open( path, O_RDONLY | O_CLOEXEC );
   if( FD_UNLIKELY( -1==fd ) ) {
+    int err = errno;
     if( FD_LIKELY( original_netns ) ) close( _original_netns );
+    errno = err;
     return -1;
   }
   if( FD_UNLIKELY( setns( fd, CLONE_NEWNET ) ) ) {
+    int err = errno;
     if( FD_LIKELY( original_netns ) ) close( _original_netns );
+    errno = err;
     return -1;
   }
 
@@ -60,7 +60,7 @@ fd_net_util_netns_enter( const char * name,
 
 int
 fd_net_util_netns_restore( int original_fd ) {
-  if( FD_UNLIKELY( -1==setns( namespace_original_fd, CLONE_NEWNET ) ) ) return -1;
+  if( FD_UNLIKELY( -1==setns( original_fd, CLONE_NEWNET ) ) ) return -1;
   if( FD_UNLIKELY( -1==close( original_fd ) ) ) return -1;
   return 0;
 }

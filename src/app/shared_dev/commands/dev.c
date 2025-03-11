@@ -165,7 +165,7 @@ run_firedancer_threaded( config_t * config , int init_workspaces) {
   fd_topo_print_log( 0, &config->topo );
 
   run_firedancer_init( config, init_workspaces );
-  fdctl_setup_netns( config );
+  fdctl_setup_netns( config, 1 );
 
   if( FD_UNLIKELY( config->development.debug_tile ) ) {
     fd_log_private_shared_lock[ 1 ] = 1;

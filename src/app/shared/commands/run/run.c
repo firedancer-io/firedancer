@@ -772,20 +772,23 @@ run_firedancer_init( config_t * config,
 }
 
 void
-fdctl_setup_netns( config_t * config ) {
-  if( config->development.netns.enabled ) {
+fdctl_setup_netns( config_t * config,
+                   int        stay ) {
+  if( !config->development.netns.enabled ) return;
 
-    int original_netns;
-    if( FD_UNLIKELY( -1==fd_net_util_netns_enter( config->tiles.net.interface, &original_netns ) ) )
-      FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", config->tiles.net.interface, errno, fd_io_strerror( errno ) ));
+  int original_netns_;
+  int * original_netns = stay ? NULL : &original_netns_;
+  if( FD_UNLIKELY( -1==fd_net_util_netns_enter( config->tiles.net.interface, original_netns ) ) )
+    FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", config->tiles.net.interface, errno, fd_io_strerror( errno ) ));
 
+  if( 0==strcmp( config->development.net.provider, "xdp" ) ) {
     fd_cfg_stage_ethtool_channels.init( config );
     fd_cfg_stage_ethtool_gro     .init( config );
     fd_cfg_stage_ethtool_loopback.init( config );
-
-    if( FD_UNLIKELY( -1==fd_net_util_netns_restore( original_netns ) ) )
-      FD_LOG_ERR(( "failed to restore network namespace `%s` (%i-%s)", config->tiles.net.interface, errno, fd_io_strerror( errno ) ));
   }
+
+  if( FD_UNLIKELY( original_netns && -1==fd_net_util_netns_restore( original_netns_ ) ) )
+    FD_LOG_ERR(( "failed to restore network namespace (fd=%d) (%i-%s)", original_netns_, errno, fd_io_strerror( errno ) ));
 }
 
 /* The boot sequence is a little bit involved...

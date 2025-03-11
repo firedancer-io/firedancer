@@ -33,7 +33,8 @@ run_firedancer_init( config_t * const config,
                      int              init_workspaces );
 
 void
-fdctl_setup_netns( config_t * config );
+fdctl_setup_netns( config_t * config,
+                   int        stay );
 
 void
 run_firedancer( config_t * const config,
