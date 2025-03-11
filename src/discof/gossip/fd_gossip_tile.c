@@ -250,24 +250,23 @@ send_packet( fd_gossip_tile_ctx_t * ctx,
              ulong                  tsorig ) {
   uchar * packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
 
-  fd_memcpy( packet, ctx->hdr, sizeof(fd_net_hdrs_t) );
   fd_net_hdrs_t * hdr = (fd_net_hdrs_t *)packet;
-
-  hdr->udp->net_dport = dst_port;
+  fd_memcpy( packet, hdr->buf, sizeof(fd_net_hdrs_t) );
 
   memset( hdr->eth->dst, 0U, 6UL );
   memcpy( hdr->ip4->daddr_c, &dst_ip_addr, 4UL );
   hdr->ip4->net_id      = fd_ushort_bswap( ctx->net_id++ );
   hdr->ip4->check       = 0U;
   hdr->ip4->net_tot_len = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)) );
-  hdr->ip4->check       = fd_ip4_hdr_check_fast( hdr->buf+14 );
+  hdr->ip4->check       = fd_ip4_hdr_check_fast( hdr->ip4 );
 
   ulong packet_sz = payload_sz + sizeof(fd_net_hdrs_t);
-  fd_memcpy( packet+sizeof(fd_net_hdrs_t), payload, payload_sz );
+  hdr->udp->net_dport = dst_port;
   hdr->udp->net_len = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
+  fd_memcpy( packet+sizeof(fd_net_hdrs_t), payload, payload_sz );
   hdr->udp->check = fd_ip4_udp_check( hdr->ip4->saddr,
                                       hdr->ip4->daddr,
-                                      (fd_udp_hdr_t const *)hdr->buf + 34,
+                                      hdr->udp,
                                       packet + sizeof(fd_net_hdrs_t) );
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
@@ -281,7 +280,7 @@ gossip_send_packet( uchar const * msg,
                     size_t msglen,
                     fd_gossip_peer_addr_t const * addr,
                     void * arg ) {
-ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
   send_packet( arg, addr->addr, addr->port, msg, msglen, tsorig );
 }
 

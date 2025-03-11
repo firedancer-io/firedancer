@@ -129,7 +129,7 @@
 
 /* Ethernet header */
 
-struct fd_eth_hdr {
+struct __attribute__((packed)) fd_eth_hdr {
   uchar  dst[6];   /* Destination MAC address */
   uchar  src[6];   /* Source MAC address */
   ushort net_type; /* Type of packet encapsulated, net order */

@@ -148,24 +148,23 @@ send_packet( fd_repair_tile_ctx_t * ctx,
              ulong                  payload_sz,
              ulong                  tsorig ) {
   uchar * packet = fd_chunk_to_laddr( ctx->net_out_mem, ctx->net_out_chunk );
-
-  fd_memcpy( packet, ( is_intake ? ctx->intake_hdr : ctx->serve_hdr ), sizeof(fd_net_hdrs_t) );
   fd_net_hdrs_t * hdr = (fd_net_hdrs_t *)packet;
+  fd_memcpy( hdr->buf, ( is_intake ? ctx->intake_hdr : ctx->serve_hdr ), sizeof(fd_net_hdrs_t) );
 
   hdr->ip4->saddr       = src_ip_addr;
   hdr->ip4->daddr       = dst_ip_addr;
   hdr->ip4->net_id      = fd_ushort_bswap( ctx->net_id++ );
   hdr->ip4->check       = 0U;
   hdr->ip4->net_tot_len = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)) );
-  hdr->ip4->check       = fd_ip4_hdr_check_fast( hdr->buf+14 );
+  hdr->ip4->check       = fd_ip4_hdr_check_fast( hdr->ip4 );
 
   ulong packet_sz = payload_sz + sizeof(fd_net_hdrs_t);
-  fd_memcpy( packet+sizeof(fd_net_hdrs_t), payload, payload_sz );
   hdr->udp->net_dport = dst_port;
   hdr->udp->net_len = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
+  fd_memcpy( packet+sizeof(fd_net_hdrs_t), payload, payload_sz );
   hdr->udp->check = fd_ip4_udp_check( hdr->ip4->saddr,
                                       hdr->ip4->daddr,
-                                      (fd_udp_hdr_t const *)hdr->buf + 34,
+                                      hdr->udp,
                                       packet + sizeof(fd_net_hdrs_t) );
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );

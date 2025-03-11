@@ -5,7 +5,7 @@
 
 /* FIXME: UDP CRASH COURSE HERE */
 
-union fd_udp_hdr {
+union __attribute__((packed)) fd_udp_hdr {
   struct {
     ushort net_sport; /* src port, net order */
     ushort net_dport; /* dst port, net order */

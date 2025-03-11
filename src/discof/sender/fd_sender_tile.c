@@ -151,12 +151,12 @@ send_packet( fd_sender_tile_ctx_t * ctx,
   hdr->ip4->check  = fd_ip4_hdr_check_fast( hdr->buf+14 );
 
   ulong packet_sz = payload_sz + sizeof(fd_net_hdrs_t);
-  fd_memcpy( packet+sizeof(fd_net_hdrs_t), payload, payload_sz );
   hdr->udp->net_dport = fd_ushort_bswap( dst_port );
   hdr->udp->net_len   = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
+  fd_memcpy( packet+sizeof(fd_net_hdrs_t), payload, payload_sz );
   hdr->udp->check = fd_ip4_udp_check( hdr->ip4->saddr,
                                       hdr->ip4->daddr,
-                                      (fd_udp_hdr_t const *)hdr->buf+34,
+                                      hdr->udp,
                                       packet + sizeof(fd_net_hdrs_t) );
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );

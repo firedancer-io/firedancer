@@ -32,7 +32,7 @@
 #define IP4_LOOPBACK_START_NET       FD_IP4_ADDR(127,   0,   0,   0)
 #define IP4_LOOPBACK_END_NET         FD_IP4_ADDR(127, 255, 255, 255)
 
-union fd_ip4_hdr {
+union __attribute__((packed)) fd_ip4_hdr {
   struct {
     uchar  verihl;       /* 4 msb: IP version (==4), assumes little endian */
                          /* 4 lsb: Header length in words (>=5) */

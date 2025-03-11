@@ -5,10 +5,13 @@
 #include "fd_eth.h"
 
 typedef union {
-  struct __attribute__((packed)) {
+  struct {
     fd_eth_hdr_t eth[1];
     fd_ip4_hdr_t ip4[1];
     fd_udp_hdr_t udp[1];
+  };
+  struct {
+    fd_eth_hdr_t eth_ref[1];
   };
   uchar buf[ 42 ];
 } fd_net_hdrs_t;
