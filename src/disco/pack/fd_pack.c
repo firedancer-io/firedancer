@@ -13,6 +13,9 @@
 
 /* Declare a bunch of helper structs used for pack-internal data
    structures. */
+typedef struct {
+  fd_ed25519_sig_t sig;
+} wrapped_sig_t;
 
 /* fd_pack_ord_txn_t: An fd_txn_p_t with information required to order
    it by priority. */
@@ -23,12 +26,17 @@ struct fd_pack_private_ord_txn {
   union {
     fd_txn_p_t   txn[1];  /* txn is an alias for txn_e->txnp */
     fd_txn_e_t   txn_e[1];
+    struct{ uchar _sig_cnt; wrapped_sig_t sig; };
   };
 
   /* Since this struct can be in one of several trees, it's helpful to
      store which tree.  This should be one of the FD_ORD_TXN_ROOT_*
      values. */
   int root;
+
+  /* The sig2txn map_chain fields */
+  ushort sigmap_next;
+  ushort sigmap_prev;
 
   /* Each transaction is inserted with an expiration "time."  This code
      doesn't care about the units (blocks, rdtsc tick, ns, etc.), and
@@ -81,6 +89,7 @@ typedef struct fd_pack_private_ord_txn fd_pack_ord_txn_t;
    properly.  GCC and Clang seem to disagree on the rules of offsetof.
    */
 FD_STATIC_ASSERT( offsetof( fd_pack_ord_txn_t, txn          )==0UL, fd_pack_ord_txn_t );
+FD_STATIC_ASSERT( offsetof( fd_pack_ord_txn_t, sig          )==1UL, fd_pack_ord_txn_t );
 #if FD_USING_CLANG
 FD_STATIC_ASSERT( offsetof( fd_txn_p_t,             payload )==0UL, fd_pack_ord_txn_t );
 #else
@@ -144,17 +153,6 @@ struct fd_pack_private_addr_use_record {
 };
 typedef struct fd_pack_private_addr_use_record fd_pack_addr_use_t;
 
-
-/* fd_pack_sig_to_entry_t: An element of an fd_map that maps the first
-   transaction signature to the corresponding fd_pack_ord_txn_t so that
-   pending transactions can be deleted by signature.  Note: this
-   implicitly relies on the fact that for Solana transactions the
-   signature_offset is always 1.  If that fact changes, this will need
-   to become a real struct. */
-struct fd_pack_sig_to_txn {
-  fd_ed25519_sig_t const * key;
-};
-typedef struct fd_pack_sig_to_txn fd_pack_sig_to_txn_t;
 
 /* fd_pack_expq_t: An element of an fd_prq to sort the transactions by
    timeout.  This structure has several invariants for entries
@@ -303,19 +301,18 @@ typedef struct fd_pack_bitset_acct_mapping fd_pack_bitset_acct_mapping_t;
 #include "../../util/tmpl/fd_treap.c"
 
 
-/* Define a strange map where key and value are kind of the same
-   variable.  Essentially, it maps the contents to which the pointer
-   points to the value of the pointer. */
 #define MAP_NAME              sig2txn
-#define MAP_T                 fd_pack_sig_to_txn_t
-#define MAP_KEY_T             fd_ed25519_sig_t const *
-#define MAP_KEY_NULL          NULL
-#define MAP_KEY_INVAL(k)      !(k)
-#define MAP_MEMOIZE           0
-#define MAP_KEY_EQUAL(k0,k1)  (((!!(k0))&(!!(k1)))&&(!memcmp((k0),(k1), FD_TXN_SIGNATURE_SZ)))
-#define MAP_KEY_EQUAL_IS_SLOW 1
-#define MAP_KEY_HASH(key)     fd_uint_load_4( (key) ) /* first 4 bytes of signature */
-#include "../../util/tmpl/fd_map_dynamic.c"
+#define MAP_OPTIMIZE_RANDOM_ACCESS_REMOVAL 1
+#define MAP_MULTI              1
+#define MAP_ELE_T              fd_pack_ord_txn_t
+#define MAP_PREV               sigmap_prev
+#define MAP_NEXT               sigmap_next
+#define MAP_IDX_T              ushort
+#define MAP_KEY_T              wrapped_sig_t
+#define MAP_KEY                sig
+#define MAP_KEY_EQ(k0,k1)      (!memcmp( (k0),(k1), FD_TXN_SIGNATURE_SZ) )
+#define MAP_KEY_HASH(key,seed) fd_hash( (seed), (key), 64UL )
+#include "../../util/tmpl/fd_map_chain.c"
 
 
 static const fd_acct_addr_t null_addr = { 0 };
@@ -558,7 +555,7 @@ struct fd_pack_private {
   ulong                  written_list_max;
 
 
-  fd_pack_sig_to_txn_t * signature_map; /* Stores pointers into pool for deleting by signature */
+  sig2txn_t * signature_map; /* Stores pointers into pool for deleting by signature */
 
   /* bundle_temp_map: A fd_map_dynamic (although it could be an fd_map)
      used during fd_pack_try_schedule_bundle to store information about
@@ -636,7 +633,7 @@ typedef struct fd_pack_private fd_pack_t;
 FD_STATIC_ASSERT( offsetof(fd_pack_t, pending_txn_cnt)==FD_PACK_PENDING_TXN_CNT_OFF, txn_cnt_off );
 
 /* Forward-declare some helper functions */
-int delete_transaction( fd_pack_t * pack, fd_ed25519_sig_t const * sig0, int delete_full_bundle, int move_from_penalty_treap );
+int delete_transaction( fd_pack_t * pack, fd_pack_ord_txn_t * txn, int delete_full_bundle, int move_from_penalty_treap );
 static inline void insert_bundle_impl( fd_pack_t * pack, ulong bundle_idx, ulong txn_cnt, fd_pack_ord_txn_t * * bundle, ulong expires_at );
 
 FD_FN_PURE ulong
@@ -660,11 +657,11 @@ fd_pack_footprint( ulong                    pack_depth,
                                            max_txn_per_mblk * limits->max_microblocks_per_block * FD_TXN_ACCT_ADDR_MAX );
   ulong written_list_max   = fd_ulong_min( max_w_per_block>>1, DEFAULT_WRITTEN_LIST_MAX );
   ulong bundle_temp_accts  = fd_ulong_if( enable_bundles, FD_PACK_MAX_TXN_PER_BUNDLE*FD_TXN_ACCT_ADDR_MAX, 1UL );
+  ulong sig_chain_cnt      = sig2txn_chain_cnt_est( pack_depth );
 
   /* log base 2, but with a 2* so that the hash table stays sparse */
   int lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_flight                        ) );
   int lg_max_writers = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_w_per_block                           ) );
-  int lg_depth       = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*pack_depth                                ) );
   int lg_acct_in_trp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_treap                         ) );
   int lg_penalty_trp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_treap/PENALTY_TREAP_THRESHOLD ) );
   int lg_bundle_temp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*bundle_temp_accts                         ) );
@@ -677,7 +674,7 @@ fd_pack_footprint( ulong                    pack_depth,
   l = FD_LAYOUT_APPEND( l, acct_uses_align(),   acct_uses_footprint( lg_uses_tbl_sz           ) ); /* acct_in_use    */
   l = FD_LAYOUT_APPEND( l, acct_uses_align(),   acct_uses_footprint( lg_max_writers           ) ); /* writer_costs   */
   l = FD_LAYOUT_APPEND( l, 32UL,                sizeof(fd_pack_addr_use_t*)*written_list_max    ); /* written_list   */
-  l = FD_LAYOUT_APPEND( l, sig2txn_align  (),   sig2txn_footprint  ( lg_depth                 ) ); /* signature_map  */
+  l = FD_LAYOUT_APPEND( l, sig2txn_align  (),   sig2txn_footprint  ( sig_chain_cnt            ) ); /* signature_map  */
   l = FD_LAYOUT_APPEND( l, acct_uses_align(),   acct_uses_footprint( lg_bundle_temp           ) ); /* bundle_temp_map*/
   l = FD_LAYOUT_APPEND( l, 32UL,                sizeof(fd_pack_addr_use_t)*max_acct_in_flight   ); /* use_by_bank    */
   l = FD_LAYOUT_APPEND( l, 32UL,                sizeof(ulong)*max_txn_in_flight                 ); /* use_by_bank_txn*/
@@ -706,11 +703,11 @@ fd_pack_new( void                   * mem,
                                            max_txn_per_mblk * limits->max_microblocks_per_block * FD_TXN_ACCT_ADDR_MAX );
   ulong written_list_max   = fd_ulong_min( max_w_per_block>>1, DEFAULT_WRITTEN_LIST_MAX );
   ulong bundle_temp_accts  = fd_ulong_if( enable_bundles, FD_PACK_MAX_TXN_PER_BUNDLE*FD_TXN_ACCT_ADDR_MAX, 1UL );
+  ulong sig_chain_cnt      = sig2txn_chain_cnt_est( pack_depth );
 
   /* log base 2, but with a 2* so that the hash table stays sparse */
   int lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_flight                        ) );
   int lg_max_writers = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_w_per_block                           ) );
-  int lg_depth       = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*pack_depth                               ) );
   int lg_acct_in_trp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_treap                         ) );
   int lg_penalty_trp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_treap/PENALTY_TREAP_THRESHOLD ) );
   int lg_bundle_temp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*bundle_temp_accts                         ) );
@@ -725,7 +722,7 @@ fd_pack_new( void                   * mem,
   void * _uses        = FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(),   acct_uses_footprint( lg_uses_tbl_sz         ) );
   void * _writer_cost = FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(),   acct_uses_footprint( lg_max_writers         ) );
   void * _written_lst = FD_SCRATCH_ALLOC_APPEND( l,  32UL,                sizeof(fd_pack_addr_use_t*)*written_list_max  );
-  void * _sig_map     = FD_SCRATCH_ALLOC_APPEND( l,  sig2txn_align(),     sig2txn_footprint  ( lg_depth               ) );
+  void * _sig_map     = FD_SCRATCH_ALLOC_APPEND( l,  sig2txn_align(),     sig2txn_footprint  ( sig_chain_cnt          ) );
   void * _bundle_temp = FD_SCRATCH_ALLOC_APPEND( l,  acct_uses_align(),   acct_uses_footprint( lg_bundle_temp         ) );
   void * _use_by_bank = FD_SCRATCH_ALLOC_APPEND( l,  32UL,                sizeof(fd_pack_addr_use_t)*max_acct_in_flight );
   void * _use_by_txn  = FD_SCRATCH_ALLOC_APPEND( l,  32UL,                sizeof(ulong)*max_txn_in_flight               );
@@ -779,7 +776,7 @@ fd_pack_new( void                   * mem,
   pack->written_list_cnt = 0UL;
   pack->written_list_max = written_list_max;
 
-  sig2txn_new(   _sig_map,     lg_depth       );
+  sig2txn_new( _sig_map, sig_chain_cnt, fd_rng_ulong( rng ) );
 
   fd_pack_addr_use_t * use_by_bank     = (fd_pack_addr_use_t *)_use_by_bank;
   ulong *              use_by_bank_txn = (ulong *)_use_by_txn;
@@ -841,10 +838,10 @@ fd_pack_join( void * mem ) {
                                            max_txn_per_microblock * pack->lim->max_microblocks_per_block * FD_TXN_ACCT_ADDR_MAX );
   ulong written_list_max   = fd_ulong_min( max_w_per_block>>1, DEFAULT_WRITTEN_LIST_MAX );
   ulong bundle_temp_accts  = fd_ulong_if( enable_bundles, FD_PACK_MAX_TXN_PER_BUNDLE*FD_TXN_ACCT_ADDR_MAX, 1UL );
+  ulong sig_chain_cnt      = sig2txn_chain_cnt_est( pack_depth );
 
   int lg_uses_tbl_sz = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_flight                        ) );
   int lg_max_writers = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_w_per_block                           ) );
-  int lg_depth       = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*pack_depth                                ) );
   int lg_acct_in_trp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_treap                         ) );
   int lg_penalty_trp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*max_acct_in_treap/PENALTY_TREAP_THRESHOLD ) );
   int lg_bundle_temp = fd_ulong_find_msb( fd_ulong_pow2_up( 2UL*bundle_temp_accts                         ) );
@@ -856,7 +853,7 @@ fd_pack_join( void * mem ) {
   pack->acct_in_use   = acct_uses_join(  FD_SCRATCH_ALLOC_APPEND( l, acct_uses_align(),  acct_uses_footprint  ( lg_uses_tbl_sz          ) ) );
   pack->writer_costs  = acct_uses_join(  FD_SCRATCH_ALLOC_APPEND( l, acct_uses_align(),  acct_uses_footprint  ( lg_max_writers          ) ) );
   /* */                                  FD_SCRATCH_ALLOC_APPEND( l, 32UL,               sizeof(fd_pack_addr_use_t*)*written_list_max       );
-  pack->signature_map = sig2txn_join(    FD_SCRATCH_ALLOC_APPEND( l, sig2txn_align(),    sig2txn_footprint    ( lg_depth                ) ) );
+  pack->signature_map = sig2txn_join(    FD_SCRATCH_ALLOC_APPEND( l, sig2txn_align(),    sig2txn_footprint    ( sig_chain_cnt           ) ) );
   pack->bundle_temp_map=acct_uses_join(  FD_SCRATCH_ALLOC_APPEND( l, acct_uses_align(),  acct_uses_footprint  ( lg_bundle_temp          ) ) );
   /* */                                  FD_SCRATCH_ALLOC_APPEND( l, 32UL,               sizeof(fd_pack_addr_use_t)*max_acct_in_flight      );
   /* */                                  FD_SCRATCH_ALLOC_APPEND( l, 32UL,               sizeof(ulong)*max_txn_in_flight                    );
@@ -1071,8 +1068,7 @@ delete_worst( fd_pack_t * pack,
   if( FD_UNLIKELY( !worst                      ) ) return 0;
   if( FD_UNLIKELY( threshold_score<worst_score ) ) return 0;
 
-  fd_ed25519_sig_t const * worst_sig = fd_txn_get_signatures( TXN( worst->txn ), worst->txn->payload );
-  delete_transaction( pack, worst_sig, 1, 1 );
+  delete_transaction( pack, worst, 1, 1 );
   return 1;
 }
 
@@ -1097,9 +1093,7 @@ validate_transaction( fd_pack_t               * pack,
     }
   }
 
-  uchar          const * payload = ord->txn->payload;
   fd_acct_addr_t const * alt     = ord->txn_e->alt_accts;
-  fd_ed25519_sig_t const * sig = fd_txn_get_signatures( txn, payload );
   fd_chkdup_t * chkdup = pack->chkdup;
   ulong imm_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_IMM );
   ulong alt_cnt = fd_txn_account_cnt( txn, FD_TXN_ACCT_CAT_ALT );
@@ -1115,8 +1109,6 @@ validate_transaction( fd_pack_t               * pack,
   if( FD_UNLIKELY( fd_chkdup_check( chkdup, accts, imm_cnt, alt, alt_cnt ) ) ) return FD_PACK_INSERT_REJECT_DUPLICATE_ACCT;
   /*           ... that try to write to a sysvar */
   if( FD_UNLIKELY( writes_to_sysvar                                        ) ) return FD_PACK_INSERT_REJECT_WRITES_SYSVAR;
-  /*           ... that we already know about */
-  if( FD_UNLIKELY( sig2txn_query( pack->signature_map, sig, NULL         ) ) ) return FD_PACK_INSERT_REJECT_DUPLICATE;
   /*           ... that use an account that violates bundle rules */
   if( FD_UNLIKELY( bundle_blacklist & 1                                    ) ) return FD_PACK_INSERT_REJECT_BUNDLE_BLACKLIST;
 
@@ -1286,7 +1278,7 @@ fd_pack_insert_txn_fini( fd_pack_t  * pack,
 
   pack->pending_txn_cnt++;
 
-  sig2txn_insert( pack->signature_map, fd_txn_get_signatures( txn, payload ) );
+  sig2txn_ele_insert( pack->signature_map, ord, pack->pool );
 
   fd_pack_expq_t temp[ 1 ] = {{ .expires_at = expires_at, .txn = ord }};
   expq_insert( pack->expiration_q, temp );
@@ -1381,8 +1373,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
     int is_ib = !!(cur->txn->flags & FD_TXN_P_FLAGS_INITIALIZER_BUNDLE);
 
     /* Delete the previous IB if there is one */
-    if( FD_UNLIKELY( is_ib && 0UL==RC_TO_REL_BUNDLE_IDX( cur->rewards, cur->compute_est ) ) )
-      delete_transaction( pack, fd_txn_get_signatures( TXN(cur->txn), cur->txn->payload ), 1, 0 );
+    if( FD_UNLIKELY( is_ib && 0UL==RC_TO_REL_BUNDLE_IDX( cur->rewards, cur->compute_est ) ) ) delete_transaction( pack, cur, 1, 0 );
   }
 
   int replaces = 0;
@@ -1545,9 +1536,7 @@ insert_bundle_impl( fd_pack_t           * pack,
     treap_ele_insert( pack->pending_bundles, ord, pack->pool );
     pack->pending_txn_cnt++;
 
-    fd_txn_t const * txn     = TXN(bundle[ txn_cnt-1UL-i ]->txn);
-    uchar    const * payload = bundle[ txn_cnt-1UL-i ]->txn->payload;
-    sig2txn_insert( pack->signature_map, fd_txn_get_signatures( txn, payload ) );
+    sig2txn_ele_insert( pack->signature_map, ord, pack->pool );
 
     fd_pack_expq_t temp[ 1 ] = {{ .expires_at = expires_at, .txn = ord }};
     expq_insert( pack->expiration_q, temp );
@@ -1895,10 +1884,7 @@ fd_pack_schedule_impl( fd_pack_t          * pack,
 
     *(use_by_bank_txn++) = use_by_bank_cnt;
 
-    fd_ed25519_sig_t const * sig0 = fd_txn_get_signatures( txn, cur->txn->payload );
-
-    fd_pack_sig_to_txn_t * in_tbl = sig2txn_query( pack->signature_map, sig0, NULL );
-    sig2txn_remove( pack->signature_map, in_tbl );
+    sig2txn_ele_remove_fast( pack->signature_map, cur, pool );
 
     cur->root = FD_ORD_TXN_ROOT_FREE;
     expq_remove( pack->expiration_q, cur->expq_idx );
@@ -2259,10 +2245,7 @@ fd_pack_try_schedule_bundle( fd_pack_t  * pack,
     pack->cumulative_block_cost += cur->compute_est;
     pack->data_bytes_consumed   += cur->txn->payload_sz + MICROBLOCK_DATA_OVERHEAD;
 
-    fd_ed25519_sig_t const * sig0 = fd_txn_get_signatures( txn, cur->txn->payload );
-    fd_pack_sig_to_txn_t * in_tbl = sig2txn_query( pack->signature_map, sig0, NULL );
-    FD_TEST( in_tbl );
-    sig2txn_remove( pack->signature_map, in_tbl );
+    sig2txn_ele_remove_fast( pack->signature_map, cur, pack->pool );
 
     cur->root = FD_ORD_TXN_ROOT_FREE;
     expq_remove( pack->expiration_q, cur->expq_idx );
@@ -2484,12 +2467,11 @@ fd_pack_expire_before( fd_pack_t * pack,
   while( (expq_cnt( prq )>0UL) & (prq->expires_at<expire_before) ) {
     fd_pack_ord_txn_t * expired = prq->txn;
 
-    fd_ed25519_sig_t const * expired_sig = fd_txn_get_signatures( TXN( expired->txn ), expired->txn->payload );
     /* fd_pack_delete_transaction also removes it from the heap */
     /* All the transactions in the same bundle have the same expiration
        time, so this loop will end up deleting them all, even with
        delete_full_bundle set to 0. */
-    FD_TEST( delete_transaction( pack, expired_sig, 0, 1 ) );
+    FD_TEST( delete_transaction( pack, expired, 0, 1 ) );
     deleted_cnt++;
   }
 
@@ -2567,14 +2549,16 @@ fd_pack_end_block( fd_pack_t * pack ) {
 
 static void
 release_tree( treap_t           * treap,
+              sig2txn_t         * signature_map,
               fd_pack_ord_txn_t * pool ) {
   treap_fwd_iter_t next;
   for( treap_fwd_iter_t it=treap_fwd_iter_init( treap, pool ); !treap_fwd_iter_idx( it ); it=next ) {
     next = treap_fwd_iter_next( it, pool );
     ulong idx = treap_fwd_iter_idx( it );
     pool[ idx ].root = FD_ORD_TXN_ROOT_FREE;
-    treap_idx_remove    ( treap, idx, pool );
-    trp_pool_idx_release( pool,  idx       );
+    treap_idx_remove       ( treap,         idx, pool );
+    sig2txn_idx_remove_fast( signature_map, idx, pool );
+    trp_pool_idx_release   ( pool,          idx       );
   }
 }
 
@@ -2591,11 +2575,12 @@ fd_pack_clear_all( fd_pack_t * pack ) {
   pack->pending_votes_smallest->cus   = ULONG_MAX;
   pack->pending_votes_smallest->bytes = ULONG_MAX;
 
-  release_tree( pack->pending,         pack->pool );
-  release_tree( pack->pending_votes,   pack->pool );
-  release_tree( pack->pending_bundles, pack->pool );
+  release_tree( pack->pending,         pack->signature_map, pack->pool );
+  release_tree( pack->pending_votes,   pack->signature_map, pack->pool );
+  release_tree( pack->pending_bundles, pack->signature_map, pack->pool );
 
-  for( ulong i=0UL; i<pack->pack_depth+1UL; i++ ) {
+  ulong extra_depth = fd_ulong_if( !!pack->bundle_meta_sz, 1UL+2UL*FD_PACK_MAX_TXN_PER_BUNDLE, 1UL );
+  for( ulong i=0UL; i<pack->pack_depth+extra_depth; i++ ) {
     if( FD_UNLIKELY( pack->pool[ i ].root!=FD_ORD_TXN_ROOT_FREE ) ) {
       fd_pack_ord_txn_t * const del = pack->pool + i;
       fd_txn_t * txn = TXN( del->txn );
@@ -2604,7 +2589,7 @@ fd_pack_clear_all( fd_pack_t * pack ) {
       fd_acct_addr_t penalty_acct = *ACCT_IDX_TO_PTR( FD_ORD_TXN_ROOT_PENALTY_ACCT_IDX( del->root ) );
       fd_pack_penalty_treap_t * penalty_treap = penalty_map_query( pack->penalty_treaps, penalty_acct, NULL );
       FD_TEST( penalty_treap );
-      release_tree( penalty_treap->penalty_treap, pack->pool );
+      release_tree( penalty_treap->penalty_treap, pack->signature_map, pack->pool );
     }
   }
 
@@ -2614,8 +2599,6 @@ fd_pack_clear_all( fd_pack_t * pack ) {
 
   acct_uses_clear( pack->acct_in_use  );
   acct_uses_clear( pack->writer_costs );
-
-  sig2txn_clear( pack->signature_map );
 
   penalty_map_clear( pack->penalty_treaps );
 
@@ -2637,20 +2620,10 @@ fd_pack_clear_all( fd_pack_t * pack ) {
    is in the pending treap, move the best transaction in any of the
    conflicting penalty treaps to the pending treap (if there is one). */
 int
-delete_transaction( fd_pack_t              * pack,
-                    fd_ed25519_sig_t const * sig0,
-                    int                      delete_full_bundle,
-                    int                      move_from_penalty_treap ) {
-
-  fd_pack_sig_to_txn_t * in_tbl = sig2txn_query( pack->signature_map, sig0, NULL );
-
-  if( !in_tbl )
-    return 0;
-
-  /* The static asserts enforce that the payload of the transaction is
-     the first element of the fd_pack_ord_txn_t struct.  The signature
-     we insert is 1 byte into the start of the payload. */
-  fd_pack_ord_txn_t * containing = (fd_pack_ord_txn_t *)( (uchar*)in_tbl->key - 1UL );
+delete_transaction( fd_pack_t         * pack,
+                    fd_pack_ord_txn_t * containing,
+                    int                 delete_full_bundle,
+                    int                 move_from_penalty_treap ) {
 
   fd_txn_t * txn = TXN( containing->txn );
   fd_acct_addr_t const * accts   = fd_txn_get_acct_addrs( txn, containing->txn->payload );
@@ -2676,17 +2649,17 @@ delete_transaction( fd_pack_t              * pack,
   if( FD_UNLIKELY( delete_full_bundle & (root==pack->pending_bundles) ) ) {
     /* When we delete, the sturcture of the treap may move around, but
        pointers to inside the pool will remain valid */
-    fd_ed25519_sig_t const * bundle_sigs[ FD_PACK_MAX_TXN_PER_BUNDLE-1UL ];
-    fd_pack_ord_txn_t      * pool       = pack->pool;
-    ulong                    cnt        = 0UL;
-    ulong                    bundle_idx = RC_TO_REL_BUNDLE_IDX( containing->rewards, containing->compute_est );
+    fd_pack_ord_txn_t * bundle_ptrs[ FD_PACK_MAX_TXN_PER_BUNDLE-1UL ];
+    fd_pack_ord_txn_t * pool       = pack->pool;
+    ulong               cnt        = 0UL;
+    ulong               bundle_idx = RC_TO_REL_BUNDLE_IDX( containing->rewards, containing->compute_est );
 
     /* Iterate in both directions from the current transaction */
     for( treap_fwd_iter_t _cur=treap_fwd_iter_next( (treap_fwd_iter_t)treap_idx_fast( containing, pool ), pool );
         !treap_fwd_iter_done( _cur ); _cur=treap_fwd_iter_next( _cur, pool ) ) {
-      fd_pack_ord_txn_t const * cur = treap_fwd_iter_ele_const( _cur, pool );
+      fd_pack_ord_txn_t * cur = treap_fwd_iter_ele( _cur, pool );
       if( FD_LIKELY( bundle_idx==RC_TO_REL_BUNDLE_IDX( cur->rewards, cur->compute_est ) ) ) {
-        bundle_sigs[ cnt++ ] = fd_txn_get_signatures( TXN(cur->txn), cur->txn->payload );
+        bundle_ptrs[ cnt++ ] = cur;
       } else {
         break;
       }
@@ -2695,9 +2668,9 @@ delete_transaction( fd_pack_t              * pack,
 
     for( treap_rev_iter_t _cur=treap_rev_iter_next( (treap_rev_iter_t)treap_idx_fast( containing, pool ), pool );
         !treap_rev_iter_done( _cur ); _cur=treap_rev_iter_next( _cur, pool ) ) {
-      fd_pack_ord_txn_t const * cur = treap_rev_iter_ele_const( _cur, pool );
+      fd_pack_ord_txn_t * cur = treap_rev_iter_ele( _cur, pool );
       if( FD_LIKELY( bundle_idx==RC_TO_REL_BUNDLE_IDX( cur->rewards, cur->compute_est ) ) ) {
-        bundle_sigs[ cnt++ ] = fd_txn_get_signatures( TXN(cur->txn), cur->txn->payload );
+        bundle_ptrs[ cnt++ ] = cur;
       } else {
         break;
       }
@@ -2706,7 +2679,7 @@ delete_transaction( fd_pack_t              * pack,
 
     /* Delete them each, setting delete_full_bundle to 0 to avoid
        infinite recursion. */
-    for( ulong k=0UL; k<cnt; k++ ) delete_transaction( pack, bundle_sigs[ k ], 0, 0 );
+    for( ulong k=0UL; k<cnt; k++ ) delete_transaction( pack, bundle_ptrs[ k ], 0, 0 );
   }
 
 
@@ -2754,8 +2727,9 @@ delete_transaction( fd_pack_t              * pack,
   expq_remove( pack->expiration_q, containing->expq_idx );
   containing->root = FD_ORD_TXN_ROOT_FREE;
   treap_ele_remove( root, containing, pack->pool );
+  sig2txn_ele_remove_fast( pack->signature_map, containing, pack->pool );
   trp_pool_ele_release( pack->pool, containing );
-  sig2txn_remove( pack->signature_map, in_tbl );
+
   pack->pending_txn_cnt--;
 
   if( FD_UNLIKELY( penalty_treap && treap_ele_cnt( root )==0UL ) ) {
@@ -2768,7 +2742,20 @@ delete_transaction( fd_pack_t              * pack,
 int
 fd_pack_delete_transaction( fd_pack_t              * pack,
                             fd_ed25519_sig_t const * sig0 ) {
-  return delete_transaction( pack, sig0, 1, 1 );
+  int cnt = 0;
+  ulong next = ULONG_MAX;
+  for( ulong idx = sig2txn_idx_query_const( pack->signature_map, (wrapped_sig_t const *)sig0, ULONG_MAX, pack->pool );
+      idx!=ULONG_MAX; idx=next ) {
+    /* Iterating while deleting, not just this element, but perhaps the
+       whole bundle, feels a bit dangerous, but is actually fine because
+       a bundle can't contain two transactions with the same signature.
+       That means we know next is not part of the same bundle as idx,
+       which means that deleting idx will not delete next. */
+    next = sig2txn_idx_next_const( idx, ULONG_MAX, pack->pool );
+    cnt += delete_transaction( pack, pack->pool+idx, 1, 1 );
+  }
+
+  return cnt;
 }
 
 
@@ -2858,9 +2845,8 @@ fd_pack_verify( fd_pack_t * pack,
 
       fd_ed25519_sig_t const * sig0 = fd_txn_get_signatures( txn, cur->txn->payload );
 
-      fd_pack_sig_to_txn_t * in_tbl = sig2txn_query( pack->signature_map, sig0, NULL );
+      fd_pack_ord_txn_t const * in_tbl = sig2txn_ele_query_const( pack->signature_map, (wrapped_sig_t const *)sig0, NULL, pool );
       VERIFY_TEST( in_tbl, "signature missing from sig2txn" );
-      VERIFY_TEST( in_tbl->key==sig0, "signature in sig2txn inconsistent" );
       VERIFY_TEST( (ulong)(cur->root)==k+1, "treap element had bad root" );
       VERIFY_TEST( cur->expires_at>=pack->expire_before, "treap element expired" );
 
@@ -2915,7 +2901,13 @@ fd_pack_verify( fd_pack_t * pack,
   bitset_map_leave( bitset_copy );
 
   VERIFY_TEST( total_references==0UL, "extra references in bitset mapping" );
-  VERIFY_TEST( txn_cnt==sig2txn_key_cnt( pack->signature_map ), "extra signatures in sig2txn" );
+  ulong sig2txn_key_cnt = 0UL;
+  for( sig2txn_iter_t iter = sig2txn_iter_init( pack->signature_map, pool );
+      !sig2txn_iter_done( iter, pack->signature_map, pool );
+      iter = sig2txn_iter_next( iter, pack->signature_map, pool ) ) {
+    sig2txn_key_cnt++;
+  }
+  VERIFY_TEST( txn_cnt==sig2txn_key_cnt, "extra signatures in sig2txn" );
 
   bitset_map_join( _bitset_map_orig );
 
