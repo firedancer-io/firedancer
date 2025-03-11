@@ -802,9 +802,14 @@ during_frag( fd_pack_ctx_t * ctx,
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
     fd_txn_m_t * txnm = (fd_txn_m_t *)dcache_entry;
-    FD_TEST( txnm->payload_sz<=FD_TPU_MTU );
-    FD_TEST( txnm->txn_t_sz<=FD_TXN_MAX_SZ );
+    ulong payload_sz = txnm->payload_sz;
+    ulong txn_t_sz   = txnm->txn_t_sz;
+    FD_TEST( payload_sz<=FD_TPU_MTU    );
+    FD_TEST( txn_t_sz  <=FD_TXN_MAX_SZ );
     fd_txn_t * txn  = fd_txn_m_txn_t( txnm );
+
+    ulong addr_table_sz = 32UL*txn->addr_table_adtl_cnt;
+    FD_TEST( addr_table_sz<=32UL*FD_TXN_ACCT_ADDR_MAX );
 
     if( FD_UNLIKELY( (ctx->leader_slot==ULONG_MAX) & (sig>ctx->highest_observed_slot) ) ) {
       /* Using the resolv tile's knowledge of the current slot is a bit
@@ -821,14 +826,15 @@ during_frag( fd_pack_ctx_t * ctx,
     }
 
 
-    if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) {
+    ulong bundle_id = txnm->block_engine.bundle_id;
+    if( FD_UNLIKELY( bundle_id ) ) {
       ctx->is_bundle = 1;
-      if( FD_LIKELY( txnm->block_engine.bundle_id!=ctx->current_bundle->id ) ) {
+      if( FD_LIKELY( bundle_id!=ctx->current_bundle->id ) ) {
         if( FD_UNLIKELY( ctx->current_bundle->bundle ) ) {
           FD_MCNT_INC( PACK, TRANSACTION_DROPPED_PARTIAL_BUNDLE, ctx->current_bundle->txn_received );
           fd_pack_insert_bundle_cancel( ctx->pack, ctx->current_bundle->bundle, ctx->current_bundle->txn_cnt );
         }
-        ctx->current_bundle->id                 = txnm->block_engine.bundle_id;
+        ctx->current_bundle->id                 = bundle_id;
         ctx->current_bundle->txn_cnt            = txnm->block_engine.bundle_txn_cnt;
         ctx->current_bundle->min_blockhash_slot = ULONG_MAX;
         ctx->current_bundle->txn_received       = 0UL;
@@ -874,14 +880,11 @@ during_frag( fd_pack_ctx_t * ctx,
     FD_MCNT_INC( PACK, NORMAL_TRANSACTION_RECEIVED, 1UL );
 
 
-    fd_memcpy( ctx->cur_spot->txnp->payload, fd_txn_m_payload( txnm ), txnm->payload_sz              );
-    fd_memcpy( TXN(ctx->cur_spot->txnp),     txn,                      txnm->txn_t_sz                );
-    fd_memcpy( ctx->cur_spot->alt_accts,     fd_txn_m_alut( txnm ),    32UL*txn->addr_table_adtl_cnt );
-    ctx->cur_spot->txnp->payload_sz = txnm->payload_sz;
+    fd_memcpy( ctx->cur_spot->txnp->payload, fd_txn_m_payload( txnm ), payload_sz    );
+    fd_memcpy( TXN(ctx->cur_spot->txnp),     txn,                      txn_t_sz      );
+    fd_memcpy( ctx->cur_spot->alt_accts,     fd_txn_m_alut( txnm ),    addr_table_sz );
+    ctx->cur_spot->txnp->payload_sz = payload_sz;
 
-  #if DETAILED_LOGGING
-    FD_LOG_NOTICE(( "Pack got a packet. Payload size: %lu, txn footprint: %lu", txnm->payload_sz, txnm->txn_t_sz ));
-  #endif
     break;
   }
   }
