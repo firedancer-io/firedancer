@@ -257,17 +257,17 @@ send_packet( fd_gossip_tile_ctx_t * ctx,
 
   memset( hdr->eth->dst, 0U, 6UL );
   memcpy( hdr->ip4->daddr_c, &dst_ip_addr, 4UL );
-  hdr->ip4->net_id = fd_ushort_bswap( ctx->net_id++ );
-  hdr->ip4->check  = 0U;
-  hdr->ip4->net_tot_len  = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)) );
-  hdr->ip4->check  = fd_ip4_hdr_check( ( fd_ip4_hdr_t const *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4 ) );
+  hdr->ip4->net_id      = fd_ushort_bswap( ctx->net_id++ );
+  hdr->ip4->check       = 0U;
+  hdr->ip4->net_tot_len = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_ip4_hdr_t)+sizeof(fd_udp_hdr_t)) );
+  hdr->ip4->check       = fd_ip4_hdr_check_fast( hdr->buf+14 );
 
   ulong packet_sz = payload_sz + sizeof(fd_net_hdrs_t);
   fd_memcpy( packet+sizeof(fd_net_hdrs_t), payload, payload_sz );
-  hdr->udp->net_len   = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
-  hdr->udp->check = fd_ip4_udp_check( *(uint *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4->saddr_c ),
-                                      *(uint *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->ip4->daddr_c ),
-                                      (fd_udp_hdr_t const *)FD_ADDRESS_OF_PACKED_MEMBER( hdr->udp ),
+  hdr->udp->net_len = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
+  hdr->udp->check = fd_ip4_udp_check( hdr->ip4->saddr,
+                                      hdr->ip4->daddr,
+                                      (fd_udp_hdr_t const *)hdr->buf + 34,
                                       packet + sizeof(fd_net_hdrs_t) );
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
@@ -511,7 +511,7 @@ during_frag( fd_gossip_tile_ctx_t * ctx,
     return;
   }
 
-  if ( in_idx == VOTER_IN_IDX ) {
+  if( in_idx == VOTER_IN_IDX ) {
     if( FD_UNLIKELY( chunk<ctx->voter_in_chunk0 || chunk>ctx->voter_in_wmark || sz>USHORT_MAX ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->voter_in_chunk0, ctx->voter_in_wmark ));
     }
@@ -543,7 +543,7 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
   /* Messages from the replay tile for wen-restart are handled by after_credit periodically */
   if( in_idx==RESTART_IN_IDX ) return;
 
-  if ( in_idx == VOTER_IN_IDX ) {
+  if( in_idx==VOTER_IN_IDX ) {
     fd_crds_data_t vote_txn_crds;
     vote_txn_crds.discriminant          = fd_crds_data_enum_vote;
     vote_txn_crds.inner.vote.txn.raw_sz = ctx->replay_vote_txn_sz;
@@ -561,14 +561,19 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
 
   if( in_idx!=NET_IN_IDX ) return;
 
+  if( FD_UNLIKELY( sz<42 ) ) return;
+
   ctx->stem = stem;
   ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
-  fd_net_hdrs_t * hdr = (fd_net_hdrs_t *)ctx->gossip_buffer;
+  fd_eth_hdr_t const * eth = (fd_eth_hdr_t const *)ctx->gossip_buffer;
+  fd_ip4_hdr_t const * ip4 = (fd_ip4_hdr_t const *)( eth+1 );
+  fd_udp_hdr_t const * udp = (fd_udp_hdr_t const *)( (ulong)ip4 + FD_IP4_GET_LEN( *ip4 ) );
+  if( FD_UNLIKELY( (ulong)(udp+1) > (ulong)eth+sz ) ) return;
 
   fd_gossip_peer_addr_t peer_addr;
   peer_addr.l    = 0;
-  peer_addr.addr = FD_LOAD( uint, hdr->ip4->saddr_c );
-  peer_addr.port = hdr->udp->net_sport;
+  peer_addr.addr = ip4->saddr;
+  peer_addr.port = udp->net_sport;
 
   fd_gossip_recv_packet( ctx->gossip, ctx->gossip_buffer + hdr_sz, ctx->gossip_buffer_sz - hdr_sz, &peer_addr );
 }
