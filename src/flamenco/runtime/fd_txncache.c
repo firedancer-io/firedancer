@@ -1,13 +1,12 @@
 #include "fd_txncache.h"
 #include "../fd_rwlock.h"
+#include "../../ballet/base58/fd_base58.h"
 
 #define SORT_NAME        sort_slot_ascend
 #define SORT_KEY_T       ulong
 #define SORT_BEFORE(a,b) (a)<(b)
 #include "../../util/tmpl/fd_sort.c"
 
-/* TODO: This data structure needs a careful audit and testing. It may need
-   to be reworked to support better fork-aware behavior.  */
 
 /* The number of transactions in each page.  This needs to be high
    enough to amoritze the cost of caller code reserving pages from,
@@ -28,43 +27,61 @@
 
 #define FD_TXNCACHE_SLOTCACHE_MAP_CNT (1024UL)
 
-/* Value for an empty blockcache `max_slot` or empty slotcache
-  `slot` entry. When the entries are set to this value, we can insert
-  to the entry, but stop iterating while running queries. */
+/* The number of unique entries in the hash lookup table for each
+   (slot) in the slotcache.
+   FIXME This is going to fill up fast if there are lots of nonces in a slot
+ */
 
-#define FD_TXNCACHE_EMPTY_ENTRY (ULONG_MAX)
+#define FD_TXNCACHE_SLOTBLOCKCACHE_MAP_CNT (300UL)
 
-/* Value for a deleted cache entry. We can insert to such entries,
-   and keep iterating while running queries. */
+/* Status code for an empty/available entry in one of the probed hash
+   tables.
+   The blockcache, slotcache, and slotblockcache tables are probed.
+   We use the max_slot, slot, and txnhash_offset field respectively to
+   stash this status code.
+ */
 
-#define FD_TXNCACHE_TOMBSTONE_ENTRY (ULONG_MAX-1UL)
+#define FD_TXNCACHE_ENTRY_FREE (ULONG_MAX)
 
-/* Placeholder value used for critical sections. */
+/* Status code for an exclusively busied entry.
+   The entry is in the process of being created and concurrent competing
+   interests should retry until the entry is no longer in this state.
+ */
 
-#define FD_TXNCACHE_TEMP_ENTRY (ULONG_MAX-2UL)
+#define FD_TXNCACHE_ENTRY_XBUSY (ULONG_MAX-1UL)
+
+/* Placeholder max_slot value for a newly created blockcache entry.
+   Will be atomically overwritten with a real value shortly after.
+ */
+
+#define FD_TXNCACHE_ENTRY_NEW (ULONG_MAX-2UL)
 
 struct fd_txncache_private_txn {
-  uint  blockcache_next; /* Pointer to the next element in the blockcache hash chain containing this entry from the pool. */
-  uint  slotblockcache_next;  /* Pointer to the next element in the slotcache hash chain containing this entry from the pool. */
-
-  ulong slot;            /* Slot that the transaction was executed.  A transaction might be in the cache
-                            multiple times if it was executed in a different slot on different forks.  The
-                            same slot will not appear multiple times however. */
-  uchar txnhash[ 20 ];   /* The transaction hash, truncated to 20 bytes.  The hash is not always the first 20
-                            bytes, but is 20 bytes starting at some arbitrary offset given by the key_offset value
-                            of the containing by_blockhash entry. */
-  uchar result;          /* The result of executing the transaction. This is the discriminant of the transaction
-                            result type. 0 means success. */
+  ulong slot;                /* Slot that the transaction was executed.  A transaction might be in the cache
+                                multiple times if it was executed in a different slot on different forks.  The
+                                same slot will not appear multiple times however. */
+  uint  blockcache_next;     /* Pointer to the next element in the blockcache hash chain containing this entry from the pool. */
+  uint  slotblockcache_next; /* Pointer to the next element in the slotcache hash chain containing this entry from the pool. */
+  uchar txnhash[ FD_TXNCACHE_KEY_SIZE ];
+                             /* The transaction hash, truncated to 20 bytes.  The hash is not always the first 20
+                                bytes, but is 20 bytes starting at some arbitrary offset given by the key_offset value
+                                of the containing by_blockhash entry. */
+  uchar result;              /* The result of executing the transaction. This is the discriminant of the transaction
+                                result type. 0 means success. */
+  uchar _pad[ 3 ];           /* The compiler implicitly inserts these anyways. Can be repurposed in the future. */
 };
 
 typedef struct fd_txncache_private_txn fd_txncache_private_txn_t;
 
 struct fd_txncache_private_txnpage {
   ushort                    free; /* The number of free txn entries in this page. */
+  ushort                    _pad[ 3 ]; /* Alignment forced padding.  Could be repurposed. */
   fd_txncache_private_txn_t txns[ FD_TXNCACHE_TXNS_PER_PAGE][ 1 ]; /* The transactions in the page. */
 };
 
 typedef struct fd_txncache_private_txnpage fd_txncache_private_txnpage_t;
+
+FD_STATIC_ASSERT( USHORT_MAX>=FD_TXNCACHE_TXNS_PER_PAGE, bump_size_of_free_cnt );
 
 struct fd_txncache_private_blockcache {
   uchar blockhash[ 32 ]; /* The actual blockhash of these transactions. */
@@ -103,22 +120,36 @@ typedef struct fd_txncache_private_slotblockcache fd_txncache_private_slotblockc
 
 struct fd_txncache_private_slotcache {
   ulong                                slot; /* The slot that this slotcache is for. */
-  fd_txncache_private_slotblockcache_t blockcache[ 300UL ];
+  fd_txncache_private_slotblockcache_t blockcache[ FD_TXNCACHE_SLOTBLOCKCACHE_MAP_CNT ];
+  ushort                               slotblock_pop;
 };
 
 typedef struct fd_txncache_private_slotcache fd_txncache_private_slotcache_t;
 
 struct __attribute__((aligned(FD_TXNCACHE_ALIGN))) fd_txncache_private {
+  ulong magic; /* ==FD_TXNCACHE_MAGIC */
+
   fd_rwlock_t lock[ 1 ]; /* The txncache is a concurrent structure and will be accessed by multiple threads
                             concurrently.  Insertion and querying only take a read lock as they can be done
                             lockless but all other operations will take a write lock internally. */
+  ulong  query_present;
+  ulong  query_absent;
+  ushort block_pop;
+  ushort slot_pop;
+  ushort block_pop_max;
+  ushort slot_pop_max;
+  ushort slotblock_pop_max;
+  ushort constipated_max;
+  ushort _metric_pad[ 2 ];
 
-  ulong  root_slots_max;
-  ulong  live_slots_max;
   ulong  constipated_slots_max; /* The max number of constipated slots that the txncache will support
                                    while in a constipated mode. If this gets exceeded, this means
                                    that the txncache was in a constipated state for too long without
                                    being flushed. */
+
+  ulong  root_slots_max;
+  /* Cache line aligned. */
+  ulong  live_slots_max;
   ushort txnpages_per_blockhash_max;
   uint   txnpages_max;
 
@@ -154,10 +185,6 @@ struct __attribute__((aligned(FD_TXNCACHE_ALIGN))) fd_txncache_private {
 
   ulong blockcache_pages_off; /* The pages for the blockcache entries. */
 
-  ulong probed_entries_off; /* The map of index to number of entries which oveflowed over this index.
-                               Overflow for index i is defined as every entry j > i where j should have
-                               been inserted at k < i. */
-
   ulong constipated_slots_cnt; /* The number of constipated root slots that can be supported and
                                   that are tracked in the below array. */
   ulong constipated_slots_off; /* The highest N slots that should be rooted will be in this
@@ -174,9 +201,6 @@ struct __attribute__((aligned(FD_TXNCACHE_ALIGN))) fd_txncache_private {
      that should be rooted. Once the constipation is removed, all of the
      constipated slots will be registered en masse. */
   int   is_constipated;        /* Is the status cache in a constipated state.*/
-  ulong is_constipated_off;
-
-  ulong magic; /* ==FD_TXNCACHE_MAGIC */
 };
 
 FD_FN_PURE static ulong *
@@ -217,16 +241,6 @@ fd_txncache_get_txnpages_free( fd_txncache_t * tc ) {
 FD_FN_PURE static fd_txncache_private_txnpage_t *
 fd_txncache_get_txnpages( fd_txncache_t * tc ) {
   return (fd_txncache_private_txnpage_t *)( (uchar *)tc + tc->txnpages_off );
-}
-
-FD_FN_PURE static ulong *
-fd_txncache_get_probed_entries( fd_txncache_t * tc ) {
-  return (ulong *)( (uchar *)tc + tc->probed_entries_off );
-}
-
-FD_FN_PURE static ulong *
-fd_txncache_get_probed_entries_const( fd_txncache_t const * tc ) {
-  return (ulong *)( (uchar const *)tc + tc->probed_entries_off );
 }
 
 FD_FN_CONST static ushort
@@ -277,6 +291,12 @@ fd_txncache_max_txnpages( ulong max_live_slots,
 
   ulong result = max_live_slots-1UL+max_live_slots*(1UL+(max_txn_per_slot-1UL)/FD_TXNCACHE_TXNS_PER_PAGE);
   if( FD_UNLIKELY( result>UINT_MAX ) ) return 0;
+
+  /* Transaction index into the pages is stored in a uint.
+   */
+  ulong txn_idx_max = result * FD_TXNCACHE_TXNS_PER_PAGE;
+  if( FD_UNLIKELY( txn_idx_max>UINT_MAX ) ) return 0;
+
   return (uint)result;
 }
 
@@ -312,7 +332,6 @@ fd_txncache_footprint( ulong max_rooted_slots,
   l = FD_LAYOUT_APPEND( l, alignof(fd_txncache_private_slotcache_t),  max_live_slots*sizeof(fd_txncache_private_slotcache_t ) ); /* slotcache */
   l = FD_LAYOUT_APPEND( l, alignof(uint),                             max_txnpages*sizeof(uint)                               ); /* txnpages_free */
   l = FD_LAYOUT_APPEND( l, alignof(fd_txncache_private_txnpage_t),    max_txnpages*sizeof(fd_txncache_private_txnpage_t)      ); /* txnpages */
-  l = FD_LAYOUT_APPEND( l, alignof(ulong),                            max_live_slots*sizeof(ulong)                            ); /* probed entries */
   l = FD_LAYOUT_APPEND( l, alignof(ulong),                            max_constipated_slots*sizeof(ulong)                     ); /* constipated slots */
   return FD_LAYOUT_FINI( l, FD_TXNCACHE_ALIGN );
 }
@@ -355,7 +374,6 @@ fd_txncache_new( void * shmem,
   void * _slotcache         = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_private_slotcache_t),  max_live_slots*sizeof(fd_txncache_private_slotcache_t ) );
   void * _txnpages_free     = FD_SCRATCH_ALLOC_APPEND( l, alignof(uint),                             max_txnpages*sizeof(uint)                               );
   void * _txnpages          = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_txncache_private_txnpage_t),    max_txnpages*sizeof(fd_txncache_private_txnpage_t)      );
-  void * _probed_entries    = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                            max_live_slots*sizeof(ulong)                            );
   void * _constipated_slots = FD_SCRATCH_ALLOC_APPEND( l, alignof(ulong),                            max_constipated_slots*sizeof(ulong)                     );
 
   /* We calculate and store the offsets for these allocations. */
@@ -365,10 +383,17 @@ fd_txncache_new( void * shmem,
   txncache->txnpages_free_off     = (ulong)_txnpages_free - (ulong)txncache;
   txncache->txnpages_off          = (ulong)_txnpages - (ulong)txncache;
   txncache->blockcache_pages_off  = (ulong)_blockcache_pages - (ulong)txncache;
-  txncache->probed_entries_off    = (ulong)_probed_entries - (ulong)txncache;
   txncache->constipated_slots_off = (ulong)_constipated_slots - (ulong)txncache;
 
   tc->lock->value           = 0;
+  tc->query_absent          = 0UL;
+  tc->query_present         = 0UL;
+  tc->block_pop             = 0U;
+  tc->slot_pop              = 0U;
+  tc->block_pop_max         = 0U;
+  tc->slot_pop_max          = 0U;
+  tc->slotblock_pop_max     = 0U;
+  tc->constipated_max       = 0U;
   tc->root_slots_cnt        = 0UL;
   tc->constipated_slots_cnt = 0UL;
 
@@ -386,11 +411,9 @@ fd_txncache_new( void * shmem,
 
   fd_txncache_private_blockcache_t * blockcache = (fd_txncache_private_blockcache_t *)_blockcache;
   fd_txncache_private_slotcache_t  * slotcache  = (fd_txncache_private_slotcache_t *)_slotcache;
-  ulong * probed_entries = (ulong *)_probed_entries;
   for( ulong i=0UL; i<max_live_slots; i++ ) {
-    blockcache[ i ].max_slot = FD_TXNCACHE_EMPTY_ENTRY;
-    slotcache[ i ].slot      = FD_TXNCACHE_EMPTY_ENTRY;
-    probed_entries[ i ]      = 0UL;
+    blockcache[ i ].max_slot = FD_TXNCACHE_ENTRY_FREE;
+    slotcache[ i ].slot      = FD_TXNCACHE_ENTRY_FREE;
   }
 
   tc->txnpages_free_cnt = max_txnpages;
@@ -428,6 +451,13 @@ fd_txncache_join( void * shtc ) {
 
   void * _blockcache_pages = base + tc->blockcache_pages_off;
   for( ulong i=0UL; i<tc->live_slots_max; i++ ) {
+    /* N.B. Writing local pointers into the shared data structure is
+       okay because the pages pointer is only accessed by write
+       operations, including transaction insertion and slot rooting,
+       and we have only a single writer tile.
+       However, with multiple writer tiles and sandboxing, this might
+       lead to firework.
+     */
     blockcache[ i ].pages       = (uint *)_blockcache_pages + i*tc->txnpages_per_blockhash_max;
   }
   return tc;
@@ -437,7 +467,8 @@ void *
 fd_txncache_leave( fd_txncache_t * tc ) {
   if( FD_UNLIKELY( !tc ) ) {
     FD_LOG_WARNING(( "NULL tc" ));
-    return NULL;  }
+    return NULL;
+  }
 
   return (void *)tc;
 }
@@ -469,38 +500,122 @@ fd_txncache_delete( void * shtc ) {
 }
 
 static void
+fd_txncache_print_state( fd_txncache_t const * tc,
+                         char const *          prefix ) {
+  FD_LOG_INFO(( "%s: rooted %lu/%lu slots, txnpages %u/%u free, blockcache pop curr %u peak %u max %lu, slotcache pop curr %u peak %u max %lu, slotblockcache pop peak %u max %lu, query present %lu absent %lu, is_constipated %d, constipated curr %lu peak %u max %lu",
+                prefix,
+                tc->root_slots_cnt, tc->root_slots_max,
+                tc->txnpages_free_cnt, tc->txnpages_max,
+                tc->block_pop, tc->block_pop_max, tc->live_slots_max,
+                tc->slot_pop, tc->slot_pop_max, tc->live_slots_max,
+                tc->slotblock_pop_max, FD_TXNCACHE_SLOTBLOCKCACHE_MAP_CNT,
+                tc->query_present, tc->query_absent,
+                tc->is_constipated,
+                tc->constipated_slots_cnt, tc->constipated_max, tc->constipated_slots_max ));
+}
+
+static void
+fd_txncache_print_insert( fd_txncache_insert_t const * txn,
+                          char const *                 prefix ) {
+
+  FD_BASE58_ENCODE_32_BYTES( txn->blockhash, blockhash );
+  if( txn->key_sz==32UL ) {
+    FD_BASE58_ENCODE_32_BYTES( txn->txnhash, key_str );
+    FD_LOG_NOTICE(( "%s: blockhash %s, slot %lu, key %s, res %u",
+                    prefix,
+                    blockhash,
+                    txn->slot,
+                    key_str,
+                    *(txn->result) ));
+  } else if( txn->key_sz==64UL ) {
+    FD_BASE58_ENCODE_64_BYTES( txn->txnhash, key_str );
+    FD_LOG_NOTICE(( "%s: blockhash %s, slot %lu, key %s, res %u",
+                    prefix,
+                    blockhash,
+                    txn->slot,
+                    key_str,
+                    *(txn->result) ));
+  } else {
+    FD_LOG_NOTICE(( "%s: blockhash %s, slot %lu, key %s, res %u",
+                    prefix,
+                    blockhash,
+                    txn->slot,
+                    "(unsupported key length)",
+                    *(txn->result) ));
+  }
+}
+
+/* Assumes key is at least sizeof(ulong) in size.
+   Inserted keys are either the blockhash or the message hash (blake3)
+   or the signature of a landed transaction.
+   These are hard to forge, so even if we simply take the first 8 bytes
+   without any additional maths, the likelihood of an attacker crafting
+   payloads to cause excessive slowdowns in the txncache is low.
+   Could easily add per-validator randomized maths to make the life of
+   an attacker even harder.
+ */
+static inline ulong
+fd_txncache_key_hash( void const * key, FD_PARAM_UNUSED ulong key_sz ) {
+  return FD_LOAD( ulong, key );
+}
+
+static void
 fd_txncache_remove_blockcache_idx( fd_txncache_t * tc,
-                                   ulong idx ) {
+                                   ulong           idx ) {
   fd_txncache_private_blockcache_t * blockcache = fd_txncache_get_blockcache( tc );
-  ulong * probed_entries = fd_txncache_get_probed_entries( tc );
   uint * txnpages_free = fd_txncache_get_txnpages_free( tc );
 
-  /* Check if removing this element caused there to be no overflow for a hash index. */
-  ulong hash_idx = FD_LOAD( ulong, blockcache[ idx ].blockhash )%tc->live_slots_max;
-
-  ulong j = hash_idx;
-  while( j != idx ) {
-    probed_entries[ j ]--;
-    /* If there is no overflow and the slot is a tombstone, mark it as free. */
-    if( probed_entries[ j ] == 0 && blockcache[ j ].max_slot == FD_TXNCACHE_TOMBSTONE_ENTRY ) {
-      blockcache[ j ].max_slot = FD_TXNCACHE_EMPTY_ENTRY;
-    }
-    j = (j+1)%tc->live_slots_max;
-  }
-
-  /* Remove from block cache. */
-  blockcache[ idx ].max_slot = (probed_entries[ idx ] == 0 ? FD_TXNCACHE_EMPTY_ENTRY : FD_TXNCACHE_TOMBSTONE_ENTRY);
-
+  /* Remove from blockcache and make a hole at idx. */
+  blockcache[ idx ].max_slot = FD_TXNCACHE_ENTRY_FREE;
   /* Free pages. */
   memcpy( txnpages_free+tc->txnpages_free_cnt, blockcache[ idx ].pages, blockcache[ idx ].pages_cnt*sizeof(uint) );
   tc->txnpages_free_cnt += blockcache[ idx ].pages_cnt;
+
+  /* Reprobe the hash table. */
+  for(;;) {
+    ulong hole = idx;
+
+    for(;;) {
+      idx = (idx+1UL) & (tc->live_slots_max-1UL); /* live_slots_max is power of 2. */
+
+      if( blockcache[ idx ].max_slot==FD_TXNCACHE_ENTRY_FREE ) return;
+
+      ulong hash  = fd_txncache_key_hash( blockcache[ idx ].blockhash, 32UL );
+      ulong start = hash & (tc->live_slots_max-1UL);
+      if( !(((hole<start) & (start<=idx)) | ((hole>idx) & ((hole<start) | (start<=idx)))) ) break;
+    }
+
+    blockcache[ hole ] = blockcache[ idx ];
+    /* Make a hole at src of move. */
+    blockcache[ idx ].max_slot = FD_TXNCACHE_ENTRY_FREE;
+  }
 }
 
 static void
 fd_txncache_remove_slotcache_idx( fd_txncache_t * tc,
-                                  ulong idx ) {
+                                  ulong           idx ) {
   fd_txncache_private_slotcache_t * slotcache = fd_txncache_get_slotcache( tc );
-  slotcache[ idx ].slot = FD_TXNCACHE_TOMBSTONE_ENTRY;
+
+  /* Remove from slotcache and make a hole at idx. */
+  slotcache[ idx ].slot = FD_TXNCACHE_ENTRY_FREE;
+
+  /* Reprobe the hash table. */
+  for(;;) {
+    ulong hole = idx;
+
+    for(;;) {
+      idx = (idx+1UL) & (tc->live_slots_max-1UL); /* live_slots_max is power of 2. */
+
+      if( slotcache[ idx ].slot==FD_TXNCACHE_ENTRY_FREE ) return;
+
+      ulong start = slotcache[ idx ].slot & (tc->live_slots_max-1UL);
+      if( !(((hole<start) & (start<=idx)) | ((hole>idx) & ((hole<start) | (start<=idx)))) ) break;
+    }
+
+    slotcache[ hole ] = slotcache[ idx ];
+    /* Make a hole at src of move. */
+    slotcache[ idx ].slot = FD_TXNCACHE_ENTRY_FREE;
+  }
 }
 
 static void
@@ -511,37 +626,41 @@ fd_txncache_purge_slot( fd_txncache_t * tc,
   ulong max_distance = 0;
   ulong sum_distance = 0;
   ulong empty_entry_cnt = 0;
-  ulong tombstone_entry_cnt = 0;
   fd_txncache_private_blockcache_t * blockcache = fd_txncache_get_blockcache( tc );
-  for( ulong i=0UL; i<tc->live_slots_max; i++ ) {
-    if( FD_LIKELY( blockcache[ i ].max_slot==FD_TXNCACHE_EMPTY_ENTRY || blockcache[ i ].max_slot==FD_TXNCACHE_TOMBSTONE_ENTRY || (blockcache[ i ].max_slot)>slot ) ) {
-      if( blockcache[ i ].max_slot==FD_TXNCACHE_EMPTY_ENTRY ) {
+  for( ulong i=0UL; i<tc->live_slots_max; /* manually advance i */ ) {
+    if( FD_LIKELY( blockcache[ i ].max_slot==FD_TXNCACHE_ENTRY_FREE || blockcache[ i ].max_slot>slot ) ) {
+      if( blockcache[ i ].max_slot==FD_TXNCACHE_ENTRY_FREE ) {
         empty_entry_cnt++;
-      } else if ( blockcache[ i ].max_slot==FD_TXNCACHE_TOMBSTONE_ENTRY ) {
-        tombstone_entry_cnt++;
       } else {
         not_purged_cnt++;
         ulong dist = blockcache[ i ].max_slot-slot;
         max_distance = fd_ulong_max( max_distance, dist );
-        sum_distance += blockcache[ i ].max_slot-slot;
+        sum_distance += dist;
       }
+      i++;
       continue;
     }
     fd_txncache_remove_blockcache_idx( tc, i );
+    tc->block_pop--; /* No atomic fetch and add because global lock is held. */
     purged_cnt++;
   }
   ulong avg_distance = (not_purged_cnt==0) ? ULONG_MAX : (sum_distance/not_purged_cnt);
-  FD_LOG_INFO(( "not purging cnt - purge_slot: %lu, purged_cnt: %lu, not_purged_cnt: %lu, empty_entry_cnt: %lu, tombstone_entry_cnt: %lu, max_distance: %lu, avg_distance: %lu",
-      slot, purged_cnt, not_purged_cnt, empty_entry_cnt, tombstone_entry_cnt, max_distance, avg_distance ));
+  FD_LOG_INFO(( "purge_slot: %lu, purged_cnt: %lu, not_purged_cnt: %lu, empty_entry_cnt: %lu, max_distance: %lu, avg_distance: %lu",
+                slot, purged_cnt, not_purged_cnt, empty_entry_cnt, max_distance, avg_distance ));
 
-  /* TODO: figure out how to make slotcache purging work with the max_slot purge for blockcache.
-     The blockcache and slotcache share txnpages and the aggressive purging from the blockcache
-     can lead to corruption in the slotcache. Does it make sense to generate the delta map (as
-     generated by Agave) from the blockcache when producing snapshots? TBD. */
+  /* The whole txncache is write locked, so it is okay for the
+     blockcache and the slotcache to be out of sync for a short while.
+   */
+
   fd_txncache_private_slotcache_t * slotcache = fd_txncache_get_slotcache( tc );
-  for( ulong i=0UL; i<tc->live_slots_max; i++ ) {
-    if( FD_LIKELY( slotcache[ i ].slot==FD_TXNCACHE_EMPTY_ENTRY || slotcache[ i ].slot==FD_TXNCACHE_TOMBSTONE_ENTRY || slotcache[ i ].slot>slot ) ) continue;
+  for( ulong i=0UL; i<tc->live_slots_max; /* manually advance i */ ) {
+    if( FD_LIKELY( slotcache[ i ].slot==FD_TXNCACHE_ENTRY_FREE || slotcache[ i ].slot>slot ) ) {
+      i++;
+      continue;
+    }
+    tc->slotblock_pop_max = fd_ushort_max( tc->slotblock_pop_max, slotcache[ i ].slotblock_pop );
     fd_txncache_remove_slotcache_idx( tc, i );
+    tc->slot_pop--; /* No atomic fetch and add because global lock is held. */
   }
 }
 
@@ -553,20 +672,32 @@ static void
 fd_txncache_register_root_slot_private( fd_txncache_t * tc,
                                         ulong           slot ) {
 
+  FD_TEST( fd_rwlock_iswrite( tc->lock ) );
+
   ulong * root_slots = fd_txncache_get_root_slots( tc );
   ulong idx;
   for( idx=0UL; idx<tc->root_slots_cnt; idx++ ) {
-    if( FD_UNLIKELY( root_slots[ idx ]==slot ) ) return;
-    if( FD_UNLIKELY( root_slots[ idx ]>slot ) ) break;
+    if( FD_UNLIKELY( root_slots[ idx ]==slot ) ) return; /* Slot already registered. */
+    if( FD_UNLIKELY( root_slots[ idx ]>slot ) ) break;   /* Would like to insert at idx if pushing right, and idx-1 if evicting left. */
   }
 
   if( FD_UNLIKELY( tc->root_slots_cnt>=tc->root_slots_max ) ) {
     if( FD_LIKELY( idx ) ) {
+      long start = fd_log_wallclock();
       fd_txncache_purge_slot( tc, root_slots[ 0 ] );
+      long end = fd_log_wallclock();
+      FD_LOG_INFO(( "registering slot %lu at idx %lu triggered a purge of %ld nanos", slot, idx, end-start ));
       memmove( root_slots, root_slots+1UL, (idx-1UL)*sizeof(ulong) );
       root_slots[ (idx-1UL) ] = slot;
     } else {
+      /* Slot number too small to make its way into rooted slots.
+         Purge transactions that have slipped into the txncache
+         since the last purge.
+       */
+      long start = fd_log_wallclock();
       fd_txncache_purge_slot( tc, slot );
+      long end = fd_log_wallclock();
+      FD_LOG_INFO(( "slot %lu too small to be registered and purge took %ld nanos", slot, end-start ));
     }
   } else {
     if( FD_UNLIKELY( idx<tc->root_slots_cnt ) ) {
@@ -583,9 +714,17 @@ fd_txncache_register_root_slot( fd_txncache_t * tc,
 
   fd_rwlock_write( tc->lock );
 
+  /* Update metrics because we might purge and reduce hash table
+     population.
+   */
+  tc->block_pop_max = fd_ushort_max( tc->block_pop_max, tc->block_pop );
+  tc->slot_pop_max  = fd_ushort_max( tc->slot_pop_max,  tc->slot_pop );
+
   fd_txncache_register_root_slot_private( tc, slot );
 
   fd_rwlock_unwrite( tc->lock );
+
+  fd_txncache_print_state( tc, "done register root slot" );
 }
 
 void
@@ -613,25 +752,33 @@ fd_txncache_flush_constipated_slots( fd_txncache_t * tc ) {
 
   fd_rwlock_write( tc->lock );
 
+  /* Update metrics because we might purge and reduce hash table
+     population.
+   */
+  tc->block_pop_max = fd_ushort_max( tc->block_pop_max, tc->block_pop );
+  tc->slot_pop_max  = fd_ushort_max( tc->slot_pop_max,  tc->slot_pop );
+
   ulong * constipated_slots = fd_txncache_get_constipated_slots( tc );
   for( ulong i=0UL; i<tc->constipated_slots_cnt; i++ ) {
     fd_txncache_register_root_slot_private( tc, constipated_slots[ i ] );
   }
-  tc->constipated_slots_cnt = 0UL;
+  tc->constipated_max = fd_ushort_max( tc->constipated_max, (ushort)tc->constipated_slots_max );
 
+  fd_txncache_print_state( tc, "done flush constipated" );
+
+  tc->constipated_slots_cnt = 0UL;
   tc->is_constipated = 0;
 
   fd_rwlock_unwrite( tc->lock );
-
 }
 
 void
 fd_txncache_root_slots( fd_txncache_t * tc,
                         ulong *         out_slots ) {
-  fd_rwlock_write( tc->lock );
+  fd_rwlock_read( tc->lock );
   ulong * root_slots = fd_txncache_get_root_slots( tc );
   memcpy( out_slots, root_slots, tc->root_slots_max*sizeof(ulong) );
-  fd_rwlock_unwrite( tc->lock );
+  fd_rwlock_unread( tc->lock );
 }
 
 #define FD_TXNCACHE_FIND_FOUND      (0)
@@ -641,57 +788,26 @@ fd_txncache_root_slots( fd_txncache_t * tc,
 static int
 fd_txncache_find_blockhash( fd_txncache_t const *               tc,
                             uchar const                         blockhash[ static 32 ],
-                            uint                                is_insert,
                             fd_txncache_private_blockcache_t ** out_blockcache ) {
-  ulong hash = FD_LOAD( ulong, blockhash );
-  fd_txncache_private_blockcache_t * tc_blockcache = fd_txncache_get_blockcache_const( tc );
-  ulong * probed_entries = fd_txncache_get_probed_entries_const( tc );
-  ulong first_tombstone = ULONG_MAX;
 
+  ulong hash = fd_txncache_key_hash( blockhash, 32UL );
+  fd_txncache_private_blockcache_t * tc_blockcache = fd_txncache_get_blockcache_const( tc );
   for( ulong i=0UL; i<tc->live_slots_max; i++ ) {
     ulong blockcache_idx = (hash+i)%tc->live_slots_max;
     fd_txncache_private_blockcache_t * blockcache = &tc_blockcache[ blockcache_idx ];
-
-    if( FD_UNLIKELY( blockcache->max_slot==FD_TXNCACHE_EMPTY_ENTRY ) ) {
-      if( first_tombstone != ULONG_MAX ) {
-        *out_blockcache = &tc_blockcache[ first_tombstone ];
-        return FD_TXNCACHE_FIND_FOUNDEMPTY;
-      }
+    if( FD_UNLIKELY( blockcache->max_slot==FD_TXNCACHE_ENTRY_FREE ) ) {
       *out_blockcache = blockcache;
       return FD_TXNCACHE_FIND_FOUNDEMPTY;
-    } else if ( blockcache->max_slot==FD_TXNCACHE_TOMBSTONE_ENTRY ) {
-      if( is_insert && first_tombstone == ULONG_MAX ) {
-        first_tombstone = blockcache_idx;
-      }
-      continue;
     }
-
-    while( FD_UNLIKELY( blockcache->max_slot==FD_TXNCACHE_TEMP_ENTRY ) ) {
+    while( FD_UNLIKELY( blockcache->max_slot==FD_TXNCACHE_ENTRY_XBUSY ) ) {
       FD_SPIN_PAUSE();
     }
     FD_COMPILER_MFENCE(); /* Prevent reordering of the blockhash read to before the atomic lock
                              (highest_slot) has been fully released by the writer. */
     if( FD_LIKELY( !memcmp( blockcache->blockhash, blockhash, 32UL ) ) ) {
       *out_blockcache = blockcache;
-      if( is_insert ) {
-        /* Undo the probed entry changes since we found the blockhash. */
-        for( ulong j=hash%tc->live_slots_max; j!=fd_ulong_min(first_tombstone, blockcache_idx); ) {
-          probed_entries[ j ]--;
-          j = (j+1)%tc->live_slots_max;
-        }
-      }
       return FD_TXNCACHE_FIND_FOUND;
     }
-    /* If the entry we are passing is full and we haven't seen tombstones,
-       there is an overflow. */
-    if( is_insert && first_tombstone == ULONG_MAX ) {
-      probed_entries[ blockcache_idx ]++;
-    }
-  }
-
-  if( first_tombstone != ULONG_MAX ) {
-    *out_blockcache = &tc_blockcache[ first_tombstone ];
-    return FD_TXNCACHE_FIND_FOUNDEMPTY;
   }
   return FD_TXNCACHE_FIND_FULL;
 }
@@ -699,23 +815,17 @@ fd_txncache_find_blockhash( fd_txncache_t const *               tc,
 static int
 fd_txncache_find_slot( fd_txncache_t const *              tc,
                        ulong                              slot,
-                       uint                               is_insert,
                        fd_txncache_private_slotcache_t ** out_slotcache ) {
+
   fd_txncache_private_slotcache_t * tc_slotcache = fd_txncache_get_slotcache_const( tc );
   for( ulong i=0UL; i<tc->live_slots_max; i++ ) {
     ulong slotcache_idx = (slot+i)%tc->live_slots_max;
     fd_txncache_private_slotcache_t * slotcache = &tc_slotcache[ slotcache_idx ];
-    if( FD_UNLIKELY( slotcache->slot==FD_TXNCACHE_EMPTY_ENTRY ) ) {
+    if( FD_UNLIKELY( slotcache->slot==FD_TXNCACHE_ENTRY_FREE ) ) {
       *out_slotcache = slotcache;
       return FD_TXNCACHE_FIND_FOUNDEMPTY;
-    } else if( FD_UNLIKELY( slotcache->slot==FD_TXNCACHE_TOMBSTONE_ENTRY ) ) {
-      if( is_insert ) {
-        *out_slotcache = slotcache;
-        return FD_TXNCACHE_FIND_FOUNDEMPTY;
-      }
-      continue;
     }
-    while( FD_UNLIKELY( slotcache->slot==FD_TXNCACHE_TEMP_ENTRY ) ) {
+    while( FD_UNLIKELY( slotcache->slot==FD_TXNCACHE_ENTRY_XBUSY ) ) {
       FD_SPIN_PAUSE();
     }
     FD_COMPILER_MFENCE(); /* Prevent reordering of the slot read to before the atomic lock
@@ -732,15 +842,16 @@ static int
 fd_txncache_find_slot_blockhash( fd_txncache_private_slotcache_t *       slotcache,
                                  uchar const                             blockhash[ static 32 ],
                                  fd_txncache_private_slotblockcache_t ** out_slotblockcache ) {
-  ulong hash = FD_LOAD( ulong, blockhash );
-  for( ulong i=0UL; i<300UL; i++ ) {
-    ulong slotblockcache_idx = (hash+i)%300UL;
+
+  ulong hash = fd_txncache_key_hash( blockhash, 32UL );
+  for( ulong i=0UL; i<FD_TXNCACHE_SLOTBLOCKCACHE_MAP_CNT; i++ ) {
+    ulong slotblockcache_idx = (hash+i)%FD_TXNCACHE_SLOTBLOCKCACHE_MAP_CNT;
     fd_txncache_private_slotblockcache_t * slotblockcache = &slotcache->blockcache[ slotblockcache_idx ];
-    if( FD_UNLIKELY( slotblockcache->txnhash_offset==ULONG_MAX ) ) {
+    if( FD_UNLIKELY( slotblockcache->txnhash_offset==FD_TXNCACHE_ENTRY_FREE ) ) {
       *out_slotblockcache = slotblockcache;
       return FD_TXNCACHE_FIND_FOUNDEMPTY;
     }
-    while( FD_UNLIKELY( slotblockcache->txnhash_offset==ULONG_MAX-1UL ) ) {
+    while( FD_UNLIKELY( slotblockcache->txnhash_offset==FD_TXNCACHE_ENTRY_XBUSY ) ) {
       FD_SPIN_PAUSE();
     }
     FD_COMPILER_MFENCE(); /* Prevent reordering of the blockhash read to before the atomic lock
@@ -758,20 +869,19 @@ fd_txncache_ensure_blockcache( fd_txncache_t *                     tc,
                                uchar const                         blockhash[ static 32 ],
                                fd_txncache_private_blockcache_t ** out_blockcache ) {
   for(;;) {
-    int blockcache_find = fd_txncache_find_blockhash( tc, blockhash, 1, out_blockcache );
+    int blockcache_find = fd_txncache_find_blockhash( tc, blockhash, out_blockcache );
     if( FD_LIKELY( blockcache_find==FD_TXNCACHE_FIND_FOUND ) ) return 1;
     else if( FD_UNLIKELY( blockcache_find==FD_TXNCACHE_FIND_FULL ) ) return 0;
 
-    if( FD_LIKELY( FD_ATOMIC_CAS( &(*out_blockcache)->max_slot, FD_TXNCACHE_EMPTY_ENTRY, FD_TXNCACHE_TEMP_ENTRY ) ||
-        FD_ATOMIC_CAS( &(*out_blockcache)->max_slot, FD_TXNCACHE_TOMBSTONE_ENTRY, FD_TXNCACHE_TEMP_ENTRY ) ) ) {
+    if( FD_LIKELY( FD_TXNCACHE_ENTRY_FREE==FD_ATOMIC_CAS( &((*out_blockcache)->max_slot), FD_TXNCACHE_ENTRY_FREE, FD_TXNCACHE_ENTRY_XBUSY ) ) ) {
       memcpy( (*out_blockcache)->blockhash, blockhash, 32UL );
       memset( (*out_blockcache)->heads, 0xFF, FD_TXNCACHE_BLOCKCACHE_MAP_CNT*sizeof(uint) );
       (*out_blockcache)->pages_cnt      = 0;
       (*out_blockcache)->txnhash_offset = 0UL;
       memset( (*out_blockcache)->pages, 0xFF, tc->txnpages_per_blockhash_max*sizeof(uint) );
+      FD_ATOMIC_FETCH_AND_ADD( &tc->block_pop, 1U );
       FD_COMPILER_MFENCE();
-      /* Set it to max unreserved value possible */
-      (*out_blockcache)->max_slot    = ULONG_MAX-3UL;
+      (*out_blockcache)->max_slot       = FD_TXNCACHE_ENTRY_NEW;
       return 1;
     }
     FD_SPIN_PAUSE();
@@ -783,15 +893,16 @@ fd_txncache_ensure_slotcache( fd_txncache_t *                    tc,
                               ulong                              slot,
                               fd_txncache_private_slotcache_t ** out_slotcache ) {
   for(;;) {
-    int slotcache_find = fd_txncache_find_slot( tc, slot, 1, out_slotcache );
+    int slotcache_find = fd_txncache_find_slot( tc, slot, out_slotcache );
     if( FD_LIKELY( slotcache_find==FD_TXNCACHE_FIND_FOUND ) ) return 1;
     else if( FD_UNLIKELY( slotcache_find==FD_TXNCACHE_FIND_FULL ) ) return 0;
 
-    if( FD_LIKELY( FD_ATOMIC_CAS( &(*out_slotcache)->slot, FD_TXNCACHE_EMPTY_ENTRY, FD_TXNCACHE_TEMP_ENTRY ) ||
-        FD_ATOMIC_CAS( &(*out_slotcache)->slot, FD_TXNCACHE_TOMBSTONE_ENTRY, FD_TXNCACHE_TEMP_ENTRY ) ) ) {
-      for( ulong i=0UL; i<300UL; i++ ) {
-        (*out_slotcache)->blockcache[ i ].txnhash_offset = ULONG_MAX;
+    if( FD_LIKELY( FD_TXNCACHE_ENTRY_FREE==FD_ATOMIC_CAS( &(*out_slotcache)->slot, FD_TXNCACHE_ENTRY_FREE, FD_TXNCACHE_ENTRY_XBUSY ) ) ) {
+      for( ulong i=0UL; i<FD_TXNCACHE_SLOTBLOCKCACHE_MAP_CNT; i++ ) {
+        (*out_slotcache)->blockcache[ i ].txnhash_offset = FD_TXNCACHE_ENTRY_FREE; /* Init all */
       }
+      (*out_slotcache)->slotblock_pop = 0U;
+      FD_ATOMIC_FETCH_AND_ADD( &tc->slot_pop, 1U );
       FD_COMPILER_MFENCE();
       (*out_slotcache)->slot = slot;
       return 1;
@@ -809,9 +920,10 @@ fd_txncache_ensure_slotblockcache( fd_txncache_private_slotcache_t *       slotc
     if( FD_LIKELY( slotblockcache_find==FD_TXNCACHE_FIND_FOUND ) ) return 1;
     else if( FD_UNLIKELY( slotblockcache_find==FD_TXNCACHE_FIND_FULL ) ) return 0;
 
-    if( FD_LIKELY( FD_ATOMIC_CAS( &(*out_slotblockcache)->txnhash_offset, ULONG_MAX, ULONG_MAX-1UL ) ) ) {
+    if( FD_LIKELY( FD_TXNCACHE_ENTRY_FREE==FD_ATOMIC_CAS( &(*out_slotblockcache)->txnhash_offset, FD_TXNCACHE_ENTRY_FREE, FD_TXNCACHE_ENTRY_XBUSY ) ) ) {
       memcpy( (*out_slotblockcache)->blockhash, blockhash, 32UL );
       memset( (*out_slotblockcache)->heads, 0xFF, FD_TXNCACHE_SLOTCACHE_MAP_CNT*sizeof(uint) );
+      FD_ATOMIC_FETCH_AND_ADD( &slotcache->slotblock_pop, 1U );
       FD_COMPILER_MFENCE();
       (*out_slotblockcache)->txnhash_offset = 0UL;
       return 1;
@@ -881,8 +993,38 @@ fd_txncache_insert_txn( fd_txncache_t *                        tc,
 
     ulong txn_idx = FD_TXNCACHE_TXNS_PER_PAGE-txnpage_free;
     ulong txnhash_offset = blockcache->txnhash_offset;
-    ulong txnhash = FD_LOAD( ulong, txn->txnhash+txnhash_offset );
-    memcpy( txnpage->txns[ txn_idx ]->txnhash, txn->txnhash+txnhash_offset, 20UL );
+    if( FD_UNLIKELY( txnhash_offset) ) {
+      /* We get these non-zero offset values only for slots loaded from
+         an Agave snapshot.
+         These slots will be gradually evicted over time, and eventually
+         all of our offsets will be 0.
+         Optimize branch for the common case and accept a slow start.
+
+         Also note that Agave doesn't actually propagate key offsets
+         that exceed what's reasonable for a 32-byte transaction message
+         hash.
+         In other words, key offsets in Agave snapshots don't actually
+         exceed 11.
+         This is because Agave inserts the 32-byte transaction message
+         hash first, and the 64-byte transaction signature second.
+         So any new blockcache entry will rng a key offset in [0, 11].
+         However, we still do the following offset capping, which Agave
+         also does, in case things change.
+
+         Why 11 and not 12, you might ask.
+         The max key offset calculation in Agave is off by one.
+         We replicate that here.
+       */
+      ulong max_key_idx = fd_ulong_sat_sub( txn->key_sz, FD_TXNCACHE_KEY_SIZE+1UL );
+      txnhash_offset = fd_ulong_min( txnhash_offset, max_key_idx );
+    }
+    /* We have txn->key_sz-txnhash_offset bytes available for the key
+       hash function.
+       However, we shouldn't feed more than what we actually store,
+       which is 20 bytes.
+     */
+    ulong txnhash = fd_txncache_key_hash( txn->txnhash+txnhash_offset, FD_TXNCACHE_KEY_SIZE );
+    memcpy( txnpage->txns[ txn_idx ]->txnhash, txn->txnhash+txnhash_offset, FD_TXNCACHE_KEY_SIZE );
     txnpage->txns[ txn_idx ]->result = *txn->result;
     txnpage->txns[ txn_idx ]->slot   = txn->slot;
     FD_COMPILER_MFENCE();
@@ -907,8 +1049,7 @@ fd_txncache_insert_txn( fd_txncache_t *                        tc,
 
     for(;;) {
       ulong max_slot = blockcache->max_slot;
-
-      if( FD_UNLIKELY( txn->slot<=max_slot && max_slot != ULONG_MAX-3UL) ) break;
+      if( FD_UNLIKELY( txn->slot<=max_slot && max_slot != FD_TXNCACHE_ENTRY_NEW ) ) break;
       if( FD_LIKELY( FD_ATOMIC_CAS( &blockcache->max_slot, max_slot, txn->slot )==max_slot ) ) break;
       FD_SPIN_PAUSE();
     }
@@ -920,35 +1061,52 @@ int
 fd_txncache_insert_batch( fd_txncache_t *              tc,
                           fd_txncache_insert_t const * txns,
                           ulong                        txns_cnt ) {
+
+  /* TODO metrics: can we somehow ask the caller to indicate whether a
+     blockcache being inserted is nonce or not?  Then we'd be able to
+     track how much of the blockcache table and the slotblockcache
+     tables are being taken up by nonces.
+   */
+
   fd_rwlock_read( tc->lock );
 
   for( ulong i=0UL; i<txns_cnt; i++ ) {
+    fd_txncache_insert_t const * txn = txns + i;
+    if( FD_UNLIKELY( txn->key_sz!=FD_TXNCACHE_KEY_SIZE && txn->key_sz!=32UL && txn->key_sz!=64UL ) ) {
+      FD_LOG_WARNING(( "Unexpected key_sz %lu", txn->key_sz ));
+    }
+
     fd_txncache_private_blockcache_t * blockcache;
-    if( FD_UNLIKELY( !fd_txncache_ensure_blockcache( tc, txns[ i ].blockhash, &blockcache ) ) ) {
-      FD_LOG_WARNING(( "no blockcache found" ));
+    if( FD_UNLIKELY( !fd_txncache_ensure_blockcache( tc, txn->blockhash, &blockcache ) ) ) {
+      // TODO metrics
+      fd_txncache_print_insert( txn, "failed to ensure blockcache entry" );
+      fd_txncache_print_state( tc, "failed to ensure blockcache entry" );
       goto unlock_fail;
     }
 
     fd_txncache_private_slotcache_t * slotcache;
-    if( FD_UNLIKELY( !fd_txncache_ensure_slotcache( tc, txns[ i ].slot, &slotcache ) ) ) {
-      FD_LOG_WARNING(( "no slotcache found" ));
+    if( FD_UNLIKELY( !fd_txncache_ensure_slotcache( tc, txn->slot, &slotcache ) ) ) {
+      fd_txncache_print_insert( txn, "failed to ensure slotcache entry" );
+      fd_txncache_print_state( tc, "failed to ensure slotcache entry" );
       goto unlock_fail;
     }
 
     fd_txncache_private_slotblockcache_t * slotblockcache;
-    if( FD_UNLIKELY( !fd_txncache_ensure_slotblockcache( slotcache, txns[ i ].blockhash, &slotblockcache ) ) ) {
-      FD_LOG_WARNING(( "no slotblockcache found" ));
+    if( FD_UNLIKELY( !fd_txncache_ensure_slotblockcache( slotcache, txn->blockhash, &slotblockcache ) ) ) {
+      fd_txncache_print_insert( txn, "failed to ensure slotblockcache entry" );
+      fd_txncache_print_state( tc, "failed to ensure slotblockcache entry" );
       goto unlock_fail;
     }
 
     for(;;) {
       fd_txncache_private_txnpage_t * txnpage = fd_txncache_ensure_txnpage( tc, blockcache );
       if( FD_UNLIKELY( !txnpage ) ) {
+        fd_txncache_print_insert( txn, "failed to ensure txnpage" );
+        fd_txncache_print_state( tc, "failed to ensure txnpage" );
         goto unlock_fail;
-        FD_LOG_WARNING(( "no txnpage found" ));
       }
 
-      int success = fd_txncache_insert_txn( tc, blockcache, slotblockcache, txnpage, &txns[ i ] );
+      int success = fd_txncache_insert_txn( tc, blockcache, slotblockcache, txnpage, txn );
       if( FD_LIKELY( success ) ) break;
       FD_SPIN_PAUSE();
     }
@@ -969,26 +1127,40 @@ fd_txncache_query_batch( fd_txncache_t *             tc,
                          void *                      query_func_ctx,
                          int ( * query_func )( ulong slot, void * ctx ),
                          int *                       out_results ) {
+
+  ulong query_present = 0UL;
+  ulong query_absent  = 0UL;
+
   fd_rwlock_read( tc->lock );
   fd_txncache_private_txnpage_t * txnpages = fd_txncache_get_txnpages( tc );
   for( ulong i=0UL; i<queries_cnt; i++ ) {
-    out_results[ i ] = 0;
+    out_results[ i ] = FD_TXNCACHE_QUERY_ABSENT;
+    query_absent++;
 
     fd_txncache_query_t const * query = &queries[ i ];
+    if( FD_UNLIKELY( query->key_sz!=32UL && query->key_sz!=64UL ) ) {
+      FD_LOG_WARNING(( "Unexpected key_sz %lu", query->key_sz ));
+    }
     fd_txncache_private_blockcache_t * blockcache;
-    int result = fd_txncache_find_blockhash( tc, query->blockhash, 0, &blockcache );
+    int result = fd_txncache_find_blockhash( tc, query->blockhash, &blockcache );
 
     if( FD_UNLIKELY( result!=FD_TXNCACHE_FIND_FOUND ) ) {
       continue;
     }
 
     ulong txnhash_offset = blockcache->txnhash_offset;
-    ulong head_hash = FD_LOAD( ulong, query->txnhash+txnhash_offset ) % FD_TXNCACHE_BLOCKCACHE_MAP_CNT;
-    for( uint head=blockcache->heads[ head_hash ]; head!=UINT_MAX; head=txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ]->blockcache_next ) {
+    if( FD_UNLIKELY( txnhash_offset) ) {
+      ulong max_key_idx = fd_ulong_sat_sub( query->key_sz, FD_TXNCACHE_KEY_SIZE+1UL );
+      txnhash_offset = fd_ulong_min( txnhash_offset, max_key_idx );
+    }
+    ulong head_idx = fd_txncache_key_hash( query->txnhash+txnhash_offset, FD_TXNCACHE_KEY_SIZE ) % FD_TXNCACHE_BLOCKCACHE_MAP_CNT;
+    for( uint head=blockcache->heads[ head_idx ]; head!=UINT_MAX; head=txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ]->blockcache_next ) {
       fd_txncache_private_txn_t * txn = txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ];
-      if( FD_LIKELY( !memcmp( query->txnhash+txnhash_offset, txn->txnhash, 20UL ) ) ) {
+      if( FD_LIKELY( !memcmp( query->txnhash+txnhash_offset, txn->txnhash, FD_TXNCACHE_KEY_SIZE ) ) ) {
         if( FD_LIKELY( !query_func || query_func( txn->slot, query_func_ctx ) ) ) {
-          out_results[ i ] = 1;
+          out_results[ i ] = FD_TXNCACHE_QUERY_PRESENT;
+          query_present++;
+          query_absent--;
           break;
         }
       }
@@ -996,54 +1168,9 @@ fd_txncache_query_batch( fd_txncache_t *             tc,
   }
 
   fd_rwlock_unread( tc->lock );
-}
 
-int
-fd_txncache_snapshot( fd_txncache_t * tc,
-                      void *          ctx,
-                      int ( * write )( uchar const * data, ulong data_sz, void * ctx ) ) {
-  if( !write ) {
-    FD_LOG_WARNING(("No write method provided to snapshotter"));
-    return 1;
-  }
-  fd_rwlock_read( tc->lock );
-
-  fd_txncache_private_txnpage_t * txnpages = fd_txncache_get_txnpages( tc );
-  ulong * root_slots = fd_txncache_get_root_slots( tc );
-  for( ulong i=0UL; i<tc->root_slots_cnt; i++ ) {
-    ulong slot = root_slots[ i ];
-
-    fd_txncache_private_slotcache_t * slotcache;
-    if( FD_UNLIKELY( FD_TXNCACHE_FIND_FOUND!=fd_txncache_find_slot( tc, slot, 0, &slotcache ) ) ) continue;
-
-    for( ulong j=0UL; j<300UL; j++ ) {
-      fd_txncache_private_slotblockcache_t * slotblockcache = &slotcache->blockcache[ j ];
-      if( FD_UNLIKELY( slotblockcache->txnhash_offset>=ULONG_MAX-1UL ) ) continue;
-
-      for( ulong k=0UL; k<FD_TXNCACHE_SLOTCACHE_MAP_CNT; k++ ) {
-        uint head = slotblockcache->heads[ k ];
-        for( ; head!=UINT_MAX; head=txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ]->slotblockcache_next ) {
-          fd_txncache_private_txn_t * txn = txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ];
-
-          fd_txncache_snapshot_entry_t entry = {
-            .slot      = slot,
-            .txn_idx   = slotblockcache->txnhash_offset,
-            .result    = txn->result
-          };
-          fd_memcpy( entry.blockhash, slotblockcache->blockhash, 32 );
-          fd_memcpy( entry.txnhash, txn->txnhash, 20 );
-          int err = write( (uchar*)&entry, sizeof(fd_txncache_snapshot_entry_t), ctx );
-          if( err ) {
-            fd_rwlock_unread( tc->lock );
-            return err;
-          }
-        }
-      }
-    }
-  }
-
-  fd_rwlock_unread( tc->lock );
-  return 0;
+  FD_ATOMIC_FETCH_AND_ADD( &tc->query_present, query_present );
+  FD_ATOMIC_FETCH_AND_ADD( &tc->query_absent,  query_absent  );
 }
 
 int
@@ -1052,13 +1179,13 @@ fd_txncache_set_txnhash_offset( fd_txncache_t * tc,
                                 uchar blockhash[ 32 ],
                                 ulong txnhash_offset ) {
   fd_rwlock_read( tc->lock );
+
   fd_txncache_private_blockcache_t * blockcache;
   if( FD_UNLIKELY( !fd_txncache_ensure_blockcache( tc, blockhash, &blockcache ) ) ) goto unlock_fail;
-
   blockcache->txnhash_offset = txnhash_offset;
+
   fd_txncache_private_slotcache_t * slotcache;
   if( FD_UNLIKELY( !fd_txncache_ensure_slotcache( tc, slot, &slotcache ) ) ) goto unlock_fail;
-
   fd_txncache_private_slotblockcache_t * slotblockcache;
   if( FD_UNLIKELY( !fd_txncache_ensure_slotblockcache( slotcache, blockhash, &slotblockcache ) ) ) goto unlock_fail;
   slotblockcache->txnhash_offset = txnhash_offset;
@@ -1072,21 +1199,30 @@ unlock_fail:
 }
 
 int
-fd_txncache_is_rooted_slot( fd_txncache_t * tc,
-                            ulong slot ) {
-  fd_rwlock_read( tc->lock );
+fd_txncache_is_rooted_slot_locked( fd_txncache_t * tc,
+                                   ulong           slot ) {
 
   ulong * root_slots = fd_txncache_get_root_slots( tc );
+  /* TODO The root slots array is sorted; might be able to exploit that */
   for( ulong idx=0UL; idx<tc->root_slots_cnt; idx++ ) {
     if( FD_UNLIKELY( root_slots[ idx ]==slot ) ) {
-      fd_rwlock_unread( tc->lock );
       return 1;
     }
     if( FD_UNLIKELY( root_slots[ idx ]>slot ) ) break;
   }
 
-  fd_rwlock_unread( tc->lock );
   return 0;
+}
+
+int
+fd_txncache_is_rooted_slot( fd_txncache_t * tc,
+                            ulong           slot ) {
+  fd_rwlock_read( tc->lock );
+
+  int rv = fd_txncache_is_rooted_slot_locked( tc, slot );
+
+  fd_rwlock_unread( tc->lock );
+  return rv;
 }
 
 int
@@ -1094,6 +1230,7 @@ fd_txncache_get_entries( fd_txncache_t *         tc,
                          fd_bank_slot_deltas_t * slot_deltas,
                          fd_spad_t *             spad ) {
 
+  long start = fd_log_wallclock();
   fd_rwlock_read( tc->lock );
 
   slot_deltas->slot_deltas_len = tc->root_slots_cnt;
@@ -1107,19 +1244,22 @@ fd_txncache_get_entries( fd_txncache_t *         tc,
 
     slot_deltas->slot_deltas[ i ].slot               = slot;
     slot_deltas->slot_deltas[ i ].is_root            = 1;
-    slot_deltas->slot_deltas[ i ].slot_delta_vec     = fd_spad_alloc( spad, FD_STATUS_PAIR_ALIGN, FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS * sizeof(fd_status_pair_t) );
+    slot_deltas->slot_deltas[ i ].slot_delta_vec     = fd_spad_alloc( spad, FD_STATUS_PAIR_ALIGN, FD_TXNCACHE_SLOTBLOCKCACHE_MAP_CNT * sizeof(fd_status_pair_t) );
     slot_deltas->slot_deltas[ i ].slot_delta_vec_len = 0UL;
     ulong slot_delta_vec_len = 0UL;
 
     fd_txncache_private_slotcache_t * slotcache;
-    if( FD_UNLIKELY( FD_TXNCACHE_FIND_FOUND!=fd_txncache_find_slot( tc, slot, 0, &slotcache ) ) ) {
+    if( FD_UNLIKELY( FD_TXNCACHE_FIND_FOUND!=fd_txncache_find_slot( tc, slot, &slotcache ) ) ) {
       continue;
     }
 
-    for( ulong j=0UL; j<FD_TXNCACHE_DEFAULT_MAX_ROOTED_SLOTS; j++ ) {
+    for( ulong j=0UL; j<FD_TXNCACHE_SLOTBLOCKCACHE_MAP_CNT; j++ ) {
       fd_txncache_private_slotblockcache_t * slotblockcache = &slotcache->blockcache[ j ];
-      if( FD_UNLIKELY( slotblockcache->txnhash_offset>=ULONG_MAX-1UL ) ) {
+      if( FD_UNLIKELY( slotblockcache->txnhash_offset==FD_TXNCACHE_ENTRY_FREE ) ) {
         continue;
+      }
+      if( FD_UNLIKELY( slotblockcache->txnhash_offset==FD_TXNCACHE_ENTRY_XBUSY ) ) {
+        FD_LOG_CRIT(( "invariant violation: rooted slots should not have any xbusy entry" ));
       }
       fd_status_pair_t * status_pair = &slot_deltas->slot_deltas[ i ].slot_delta_vec[ slot_delta_vec_len++ ];
       fd_memcpy( &status_pair->hash, slotblockcache->blockhash, sizeof(fd_hash_t) );
@@ -1147,7 +1287,7 @@ fd_txncache_get_entries( fd_txncache_t *         tc,
         uint head = slotblockcache->heads[ k ];
         for( ; head!=UINT_MAX; head=txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ]->slotblockcache_next ) {
           fd_txncache_private_txn_t * txn = txnpages[ head/FD_TXNCACHE_TXNS_PER_PAGE ].txns[ head%FD_TXNCACHE_TXNS_PER_PAGE ];
-          fd_memcpy( status_pair->value.statuses[ num_statuses ].key_slice, txn->txnhash, 20 );
+          fd_memcpy( status_pair->value.statuses[ num_statuses ].key_slice, txn->txnhash, FD_TXNCACHE_KEY_SIZE );
           status_pair->value.statuses[ num_statuses++ ].result.discriminant = txn->result;
         }
       }
@@ -1156,6 +1296,8 @@ fd_txncache_get_entries( fd_txncache_t *         tc,
   }
 
   fd_rwlock_unread( tc->lock );
+  long end = fd_log_wallclock();
+  FD_LOG_INFO(( "serializing slotcache into memory took %ld nanos", end-start ));
 
   return 0;
 
