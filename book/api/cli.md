@@ -41,7 +41,7 @@ monitor by sending Ctrl+C or `SIGINT`.
 
 | Arguments         | Description |
 |-------------------|-------------|
-| `--config <path>` | Path to a configuation TOML file to run the monitor with. This must be the same configuration file the validator was started with |
+| `--config <path>` | Path to a configuration TOML file to run the monitor with. This must be the same configuration file the validator was started with |
 
 ::: details Capabilities
 
@@ -74,7 +74,7 @@ following stages to each configure command:
 
 | Arguments         | Description |
 |-------------------|-------------|
-| `--config <path>` | Path to a configuation TOML file to configiure the validator with. This must be the same configuration file the validator will be started with |
+| `--config <path>` | Path to a configuration TOML file to configure the validator with. This must be the same configuration file the validator will be started with |
 
 ::: code-group
 
@@ -163,14 +163,14 @@ block or vote concurrently, the validator may violate consensus and be
 subject to (future) slashing.
 
 Best practice requires copying the `tower.bin` file from the prior
-to the new validator, to ensure that vote lockouts are repected.
+to the new validator, to ensure that vote lockouts are respected.
 
 The validator will not change identity in the middle of a leader slot,
 and will wait until any in-progress leader slot completes before
 switching to the new identity. It is safe to call during or near a
 leader slot because of this wait.
 
-The command exits sucessfully (with an exit code of 0) if the identity
+The command exits successfully (with an exit code of 0) if the identity
 key was changed, otherwise it will fail and print diagnostic messages to
 `stderr`. Reasons for failure include the validator being unable to open
 or load the tower, when `--require-tower` is specified, or being unable
@@ -185,7 +185,7 @@ partial state and proceed with setting a new key.
 | Arguments         | Description |
 |-------------------|-------------|
 | `<keypair>`       | Path to a `identity.json` keypair file, or `-` to read the JSON formatted key from `stdin` |
-| `--config <path>` | Path to a configuation TOML file of the validator to change identity for. This must be the same configuration file the validator was started with |
+| `--config <path>` | Path to a configuration TOML file of the validator to change identity for. This must be the same configuration file the validator was started with |
 | `--require-tower` | If specified, refuse to set the validator identity if saved tower state is not found |
 | `--force`         | If a `set-identity` operation is abandoned part way through, you will need to specify `--force` to reset the validator key state when trying again |
 
@@ -211,7 +211,7 @@ from the configuration TOML file
 
 | Arguments  | Description |
 |------------|-------------|
-| `--config` | Path to a configuation TOML file which determines where the key is written. Either `[consensus.identity_path]` or `[consensus.vote_account_path]` for `identity` or `vote` arguments respectively
+| `--config` | Path to a configuration TOML file which determines where the key is written. Either `[consensus.identity_path]` or `[consensus.vote_account_path]` for `identity` or `vote` arguments respectively
 
 ::: code-group
 
@@ -236,7 +236,7 @@ use by Firedancer.
 
 | Arguments | Description |
 |----------|-------------|
-| `--config` | Path to a configuation TOML file to print memory usage information with |
+| `--config` | Path to a configuration TOML file to print memory usage information with |
 
 ```sh [bash]
 $ fdctl mem --config config.toml
