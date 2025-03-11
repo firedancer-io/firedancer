@@ -24,4 +24,17 @@ int
 fd_sys_util_nanosleep( uint secs,
                        uint nanos );
 
+/* fd_sys_util_username() returns the best guess at the currently logged
+   in user.  This is not necessarily the same as the user running the
+   process.  The function returns NULL on failure, or the (probable)
+   logged in user on success.  The returned string has static lifetime. */
+
+char const *
+fd_sys_util_login_user( void );
+
+int
+fd_sys_util_user_to_uid( char const * user,
+                         uint *       uid,
+                         uint *       gid );
+
 #endif /* HEADER_fd_src_app_shared_fd_sys_util_h */

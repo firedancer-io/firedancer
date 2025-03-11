@@ -357,18 +357,13 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "pack",
     "bank",
     "poh",
-#ifdef FD_HAS_NO_AGAVE
     "pohi",   /* FIREDANCER only */
-#endif
     "shred",
     "store",
-#ifdef FD_HAS_NO_AGAVE
     "storei", /* FIREDANCER only */
-#endif
     "sign",
     "plugin",
     "gui",
-#ifdef FD_HAS_NO_AGAVE
     "gossip", /* FIREDANCER only */
     "repair", /* FIREDANCER only */
     "replay", /* FIREDANCER only */
@@ -379,7 +374,6 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "rpcsrv", /* FIREDANCER only */
     "batch",  /* FIREDANCER only */
     "btpool", /* FIREDANCER only */
-#endif
     "pktgen",
   };
 

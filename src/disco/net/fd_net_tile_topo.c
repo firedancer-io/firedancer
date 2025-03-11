@@ -4,14 +4,20 @@
 #include "../topo/fd_topob.h"
 #include "../topo/fd_pod_format.h"
 #include "../netlink/fd_netlink_tile.h"
-#include "../../app/fdctl/config.h"
+
+#include <net/if.h>
 
 static void
 setup_xdp_tile( fd_topo_t *      topo,
-                config_t const * config,
                 ulong            i,
                 fd_topo_tile_t * netlink_tile,
-                ulong const *    tile_to_cpu ) {
+                ulong const *    tile_to_cpu,
+                char const       bind_interface[ IF_NAMESIZE ],
+                long             flush_timeout_micros,
+                ulong            xdp_rx_queue_size,
+                ulong            xdp_tx_queue_size,
+                int              xdp_zero_copy,
+                char const *     xdp_mode ) {
   fd_topo_tile_t * tile = fd_topob_tile( topo, "net", "net", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
   fd_topob_link( topo, "net_netlnk", "net_netlnk", 128UL, 0UL, 0UL );
   fd_topob_tile_in(  topo, "netlnk", 0UL, "metric_in", "net_netlnk", i, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
@@ -22,15 +28,15 @@ setup_xdp_tile( fd_topo_t *      topo,
   fd_topob_tile_uses( topo, tile, umem_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
   fd_pod_insertf_ulong( topo->props, umem_obj->id, "net.%lu.umem", i );
 
-  strncpy( tile->net.interface, config->tiles.net.interface, sizeof(tile->net.interface) );
+  strncpy( tile->net.interface, bind_interface, sizeof(tile->net.interface) );
 
   strcpy( tile->net.provider, "xdp" );
-  tile->net.tx_flush_timeout_ns = (long)config->tiles.net.flush_timeout_micros * 1000L;
-  tile->net.xdp_rx_queue_size = config->tiles.net.xdp_rx_queue_size;
-  tile->net.xdp_tx_queue_size = config->tiles.net.xdp_tx_queue_size;
-  tile->net.zero_copy         = config->tiles.net.xdp_zero_copy;
+  tile->net.tx_flush_timeout_ns = (long)flush_timeout_micros * 1000L;
+  tile->net.xdp_rx_queue_size = xdp_rx_queue_size;
+  tile->net.xdp_tx_queue_size = xdp_tx_queue_size;
+  tile->net.zero_copy         = xdp_zero_copy;
   fd_memset( tile->net.xdp_mode, 0, 4 );
-  fd_memcpy( tile->net.xdp_mode, config->tiles.net.xdp_mode, strnlen( config->tiles.net.xdp_mode, 3 ) );  /* GCC complains about strncpy */
+  fd_memcpy( tile->net.xdp_mode, xdp_mode, strnlen( xdp_mode, 3 ) );  /* GCC complains about strncpy */
 
   tile->net.umem_dcache_obj_id    = umem_obj->id;
   tile->net.netdev_dbl_buf_obj_id = netlink_tile->netlink.netdev_dbl_buf_obj_id;
@@ -56,17 +62,24 @@ setup_sock_tile( fd_topo_t *   topo,
 }
 
 void
-fd_topos_net_tiles( fd_topo_t *      topo,
-                    config_t const * config,
-                    ulong const      tile_to_cpu[ FD_TILE_MAX ] ) {
-  ulong net_tile_cnt = config->layout.net_tile_count;
-
+fd_topos_net_tiles( fd_topo_t *  topo,
+                    ulong        net_tile_cnt,
+                    ulong        netlnk_max_routes,
+                    ulong        netlnk_max_neighbors,
+                    char const * net_provider,
+                    char const   bind_interface[ IF_NAMESIZE ],
+                    long         flush_timeout_micros,
+                    ulong        xdp_rx_queue_size,
+                    ulong        xdp_tx_queue_size,
+                    int          xdp_zero_copy,
+                    char const * xdp_mode,
+                    ulong const  tile_to_cpu[ FD_TILE_MAX ] ) {
   /* net_umem: Packet buffers */
   fd_topob_wksp( topo, "net_umem" );
 
   /* Create workspaces */
 
-  if( 0==strcmp( config->development.net.provider, "xdp" ) ) {
+  if( 0==strcmp( net_provider, "xdp" ) ) {
 
     /* net: private working memory of the net tiles */
     fd_topob_wksp( topo, "net" );
@@ -78,13 +91,13 @@ fd_topos_net_tiles( fd_topo_t *      topo,
     fd_topob_wksp( topo, "net_netlnk" );
 
     fd_topo_tile_t * netlink_tile = fd_topob_tile( topo, "netlnk", "netlnk", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
-    fd_netlink_topo_create( netlink_tile, topo, config );
+    fd_netlink_topo_create( netlink_tile, topo, netlnk_max_routes, netlnk_max_neighbors, bind_interface );
 
     for( ulong i=0UL; i<net_tile_cnt; i++ ) {
-      setup_xdp_tile( topo, config, i, netlink_tile, tile_to_cpu );
+      setup_xdp_tile( topo, i, netlink_tile, tile_to_cpu, bind_interface, flush_timeout_micros, xdp_rx_queue_size, xdp_tx_queue_size, xdp_zero_copy, xdp_mode );
     }
 
-  } else if( 0==strcmp( config->development.net.provider, "socket" ) ) {
+  } else if( 0==strcmp( net_provider, "socket" ) ) {
 
     /* sock: private working memory of the sock tiles */
     fd_topob_wksp( topo, "sock" );

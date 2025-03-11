@@ -10,9 +10,6 @@
 struct fd_topo;
 typedef struct fd_topo fd_topo_t;
 
-struct fdctl_config;
-typedef struct fdctl_config config_t;
-
 /* Helpers for consumers of net tile RX packets */
 
 struct fd_net_rx_bounds {
@@ -71,10 +68,19 @@ FD_PROTOTYPES_BEGIN
 /* fd_topos_net_tiles appends the net and netlnk tiles to the
    topology.  These tiles provide fast XDP networking. */
 
-void
-fd_topos_net_tiles( fd_topo_t *      topo,
-                    config_t const * config,
-                    ulong const      tile_to_cpu[ FD_TILE_MAX ] );
+   void
+   fd_topos_net_tiles( fd_topo_t *      topo,
+                       ulong            net_tile_cnt,
+                       ulong            netlnk_max_routes,
+                       ulong            netlnk_max_neighbors,
+                       char const *     net_provider,
+                       char const       bind_interface[ 16UL ],
+                       long             flush_timeout_micros,
+                       ulong            xdp_rx_queue_size,
+                       ulong            xdp_tx_queue_size,
+                       int              xdp_zero_copy,
+                       char const *     xdp_mode,
+                       ulong const      tile_to_cpu[ FD_TILE_MAX ] );
 
 /* fd_topos_net_rx_link is like fd_topob_link, but for net->app tile
    packet RX links. */

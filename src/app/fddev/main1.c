@@ -1,7 +1,7 @@
 #define _GNU_SOURCE
 #include "fddev.h"
 
-#include "../fdctl/configure/configure.h"
+#include "../shared/commands/configure/configure.h"
 #include "../shared/fd_file_util.h"
 
 #include <unistd.h>
@@ -42,18 +42,13 @@ extern fd_topo_run_tile_t fd_tile_quic;
 extern fd_topo_run_tile_t fd_tile_bundle;
 extern fd_topo_run_tile_t fd_tile_verify;
 extern fd_topo_run_tile_t fd_tile_dedup;
-extern fd_topo_run_tile_t fd_tile_resolv;
 extern fd_topo_run_tile_t fd_tile_pack;
-extern fd_topo_run_tile_t fd_tile_bank;
-extern fd_topo_run_tile_t fd_tile_poh;
 extern fd_topo_run_tile_t fd_tile_shred;
-extern fd_topo_run_tile_t fd_tile_store;
 extern fd_topo_run_tile_t fd_tile_sign;
 extern fd_topo_run_tile_t fd_tile_metric;
 extern fd_topo_run_tile_t fd_tile_cswtch;
 extern fd_topo_run_tile_t fd_tile_gui;
 extern fd_topo_run_tile_t fd_tile_plugin;
-extern fd_topo_run_tile_t fd_tile_blackhole;
 extern fd_topo_run_tile_t fd_tile_bencho;
 extern fd_topo_run_tile_t fd_tile_benchg;
 extern fd_topo_run_tile_t fd_tile_benchs;
@@ -73,6 +68,12 @@ extern fd_topo_run_tile_t fd_tile_sender;
 extern fd_topo_run_tile_t fd_tile_eqvoc;
 extern fd_topo_run_tile_t fd_tile_rpcserv;
 extern fd_topo_run_tile_t fd_tile_restart;
+extern fd_topo_run_tile_t fd_tile_blackhole;
+#else
+extern fd_topo_run_tile_t fd_tile_resolv;
+extern fd_topo_run_tile_t fd_tile_poh;
+extern fd_topo_run_tile_t fd_tile_bank;
+extern fd_topo_run_tile_t fd_tile_store;
 #endif
 
 fd_topo_run_tile_t * TILES[] = {
@@ -83,18 +84,13 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_bundle,
   &fd_tile_verify,
   &fd_tile_dedup,
-  &fd_tile_resolv,
   &fd_tile_pack,
-  &fd_tile_bank,
-  &fd_tile_poh,
   &fd_tile_shred,
-  &fd_tile_store,
   &fd_tile_sign,
   &fd_tile_metric,
   &fd_tile_cswtch,
   &fd_tile_gui,
   &fd_tile_plugin,
-  &fd_tile_blackhole,
   &fd_tile_bencho,
   &fd_tile_benchg,
   &fd_tile_benchs,
@@ -113,6 +109,12 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_eqvoc,
   &fd_tile_rpcserv,
   &fd_tile_restart,
+  &fd_tile_blackhole,
+#else
+  &fd_tile_resolv,
+  &fd_tile_poh,
+  &fd_tile_bank,
+  &fd_tile_store,
 #endif
   NULL,
 };

@@ -2,13 +2,16 @@
 #include "fddev.h"
 
 #include "../shared/fd_sys_util.h"
-#include "../fdctl/configure/configure.h"
-#include "../fdctl/run/run.h"
+#include "../shared/commands/configure/configure.h"
+#include "../shared/commands/run/run.h"
 
 #include <stdio.h>
 #include <unistd.h>
 #include <sched.h>
 #include <sys/wait.h>
+
+void
+update_config_for_dev( config_t * const config );
 
 extern char fd_log_private_path[ 1024 ]; /* empty string on start */
 

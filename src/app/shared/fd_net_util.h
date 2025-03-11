@@ -61,4 +61,15 @@ fd_net_util_netns_enter( const char * name,
 int
 fd_net_util_netns_restore( int original_fd );
 
+/* fd_net_util_if_addr() attempts to get the IP address of the provided
+   interface.
+
+   Returns zero on success, and the IP address is written to the provided
+   pointer.  On failure, -1 is returned and errno is set appropriately,
+   the value of addr is undefined. */
+
+int
+fd_net_util_if_addr( const char * interface,
+                     uint *       addr );
+
 #endif /* HEADER_fd_src_app_shared_fd_net_util_h */

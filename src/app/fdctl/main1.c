@@ -2,6 +2,11 @@
 #define FD_UNALIGNED_ACCESS_STYLE 0
 
 #include "fdctl.h"
+#include "topos/topos.h"
+
+#include "../shared/commands/configure/configure.h"
+#include "../shared/commands/run/run.h"
+#include "../shared/commands/monitor/monitor.h"
 
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -166,6 +171,7 @@ fdctl_boot( int *        pargc,
     fd_tempo_set_tick_per_ns( config->tick_per_ns_mu, config->tick_per_ns_sigma );
   } else {
     fdctl_cfg_from_env( pargc, pargv, config );
+    fd_topo_initialize( config );
     config->tick_per_ns_mu = fd_tempo_tick_per_ns( &config->tick_per_ns_sigma );
     config->log.lock_fd = init_log_memfd();
     config->log.log_fd  = -1;

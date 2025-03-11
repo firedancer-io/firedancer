@@ -10,9 +10,6 @@ fddev_main( int     argc,
             char ** argv );
 
 void
-update_config_for_dev( config_t * const config );
-
-void
 add_bench_topo( fd_topo_t  * topo,
                 char const * affinity,
                 ulong        benchg_tile_cnt,
