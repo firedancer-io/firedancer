@@ -1196,12 +1196,39 @@ test_reject( void ) {
   make_transaction( i, 1000001U, 500U, 11.0, "A", "A", NULL, NULL );
   FD_TEST( insert( i, pack )==FD_PACK_INSERT_REJECT_DUPLICATE_ACCT );
 
-  i++;
-  make_transaction( i, 1000001U, 500U, 11.0, "A", "B", NULL, NULL );
-  FD_TEST( insert( i, pack )>=0 );
-  FD_TEST( insert( i, pack )==FD_PACK_INSERT_REJECT_DUPLICATE );
 
   for( ulong j=0UL; j<=i; j++ ) fd_memset( txn_scratch[ j ], (uchar)0, FD_TXN_MAX_SZ );
+}
+
+static inline void
+test_duplicate_sig( void ) {
+  FD_LOG_NOTICE(( "TEST DUPLICATE SIGNATURE" ));
+  fd_pack_t * pack = init_all( 1024UL, 1UL, 128UL, &outcome );
+  ulong i = 0UL;
+
+  make_transaction( i, 1000001U, 500U, 11.0, "A", "B", NULL, NULL );
+  FD_TEST( insert( i, pack )>=0 );
+  FD_TEST( insert( i, pack )>=0 );
+  FD_TEST( insert( i, pack )>=0 );
+
+  FD_TEST( fd_pack_avail_txn_cnt( pack ) == 3UL );
+
+  fd_ed25519_sig_t const * sig0 = fd_txn_get_signatures( (fd_txn_t *)txn_scratch[0], payload_scratch[0] );
+
+  FD_TEST( fd_pack_delete_transaction( pack, sig0 ) );  FD_TEST( !fd_pack_delete_transaction( pack, sig0 ) );
+  FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
+
+  FD_TEST( insert( i, pack )>=0 );
+  fd_memcpy( txn_scratch[1],     txn_scratch[0],     sizeof(txn_scratch[0])     );
+  fd_memcpy( payload_scratch[1], payload_scratch[0], sizeof(payload_scratch[0]) );
+
+  i++;
+  FD_TEST( insert( i, pack )>=0 ); /* inserted with expires_at==1 */
+  FD_TEST( fd_pack_avail_txn_cnt( pack ) == 2UL );
+  FD_TEST( 1UL==fd_pack_expire_before( pack, 1 ) );
+  FD_TEST( fd_pack_avail_txn_cnt( pack ) == 1UL );
+  FD_TEST( fd_pack_delete_transaction( pack, sig0 ) );  FD_TEST( !fd_pack_delete_transaction( pack, sig0 ) );
+  FD_TEST( fd_pack_avail_txn_cnt( pack ) == 0UL );
 }
 
 
@@ -1227,6 +1254,7 @@ main( int     argc,
   if( 0 ) test_vote_qos();
   test_reject_writes_to_sysvars();
   test_reject();
+  test_duplicate_sig();
   performance_test( extra_benchmark );
   performance_test2();
   performance_end_block();
