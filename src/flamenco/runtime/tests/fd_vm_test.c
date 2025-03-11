@@ -110,27 +110,21 @@ do{
   uint                    input_mem_regions_cnt   = 0U;
   int                     direct_mapping          = FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, bpf_account_data_direct_mapping );
 
-  uchar program_id_idx = instr_ctx->instr->program_id;
-  uchar is_deprecated  = ( program_id_idx < instr_ctx->txn_ctx->accounts_cnt ) &&
-                         ( !memcmp( instr_ctx->txn_ctx->accounts[program_id_idx].const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
+  uchar * input_ptr      = NULL;
+  uchar   program_id_idx = instr_ctx->instr->program_id;
+  uchar   is_deprecated  = ( program_id_idx < instr_ctx->txn_ctx->accounts_cnt ) &&
+                           ( !memcmp( instr_ctx->txn_ctx->accounts[program_id_idx].const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
-  if( is_deprecated ) {
-    fd_bpf_loader_input_serialize_unaligned( *instr_ctx,
-                                             &input_sz,
-                                             pre_lens,
-                                             input_mem_regions,
-                                             &input_mem_regions_cnt,
-                                             acc_region_metas,
-                                             !direct_mapping );
-  } else {
-    fd_bpf_loader_input_serialize_aligned( *instr_ctx,
-                                           &input_sz,
-                                           pre_lens,
-                                           input_mem_regions,
-                                           &input_mem_regions_cnt,
-                                           acc_region_metas,
-                                           !direct_mapping );
-  }
+  /* TODO: Check for an error code. Probably unlikely during fuzzing though */
+  fd_bpf_loader_input_serialize_parameters( instr_ctx,
+                                            &input_sz,
+                                            pre_lens,
+                                            input_mem_regions,
+                                            &input_mem_regions_cnt,
+                                            acc_region_metas,
+                                            direct_mapping,
+                                            is_deprecated,
+                                            &input_ptr );
 
   if( input->vm_ctx.heap_max>FD_VM_HEAP_DEFAULT ) {
     break;

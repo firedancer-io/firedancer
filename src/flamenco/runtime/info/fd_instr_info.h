@@ -8,6 +8,21 @@
 #define FD_INSTR_ACCT_FLAGS_IS_SIGNER   (0x01U)
 #define FD_INSTR_ACCT_FLAGS_IS_WRITABLE (0x02U)
 
+/* While the maximum number of instruction accounts allowed for instruction
+   execution is 256, it is entirely possible to have a transaction with more
+   than 256 instruction accounts that passes transaction loading checks and enters
+   `fd_execute_instr` (See mainnet transaction
+   3eDdfZE6HswPxFKrtnQPsEmTkyL1iP57gRPEXwaqNGAqF1paGXCYYMwh7z4uQDUMgFor742sikVSQZW1gFRDhPNh
+   for an example). An instruction that goes into the VM with more than 256 instruction accounts
+   will fail, but you could also theoretically invoke a native program with over 256 random
+   unreferenced instruction accounts that will execute successfully. The true bound for the
+   maximum number of instruction accounts you can pass in is slighly lower than the maximum
+   possible size for a serialized transaction (1232).
+
+   HOWEVER... to keep our memory footprint low, we cap the `acct_cnt` at 256 during setup since
+   any extra accounts should (ideally) have literally 0 impact on program execution, whether
+   or not they are present in the instr info. This keeps the transaction context size from
+   blowing up to around 3MB in size. */
 #define FD_INSTR_ACCT_MAX (256)
 
 struct fd_instr_info {
