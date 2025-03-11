@@ -1487,27 +1487,21 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   uint                    input_mem_regions_cnt   = 0U;
   int                     direct_mapping          = FD_FEATURE_ACTIVE( ctx->slot_ctx, bpf_account_data_direct_mapping );
 
-  uchar program_id_idx = ctx->instr->program_id;
-  uchar is_deprecated  = ( program_id_idx < ctx->txn_ctx->accounts_cnt ) &&
-                         ( !memcmp( ctx->txn_ctx->accounts[program_id_idx].const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
+  uchar * input_ptr      = NULL;
+  uchar   program_id_idx = ctx->instr->program_id;
+  uchar   is_deprecated  = ( program_id_idx < ctx->txn_ctx->accounts_cnt ) &&
+                           ( !memcmp( ctx->txn_ctx->accounts[program_id_idx].const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) );
 
-  if( is_deprecated ) {
-    fd_bpf_loader_input_serialize_unaligned( *ctx,
-                                             &input_sz,
-                                             pre_lens,
-                                             input_mem_regions,
-                                             &input_mem_regions_cnt,
-                                             acc_region_metas,
-                                             !direct_mapping );
-  } else {
-    fd_bpf_loader_input_serialize_aligned( *ctx,
-                                           &input_sz,
-                                           pre_lens,
-                                           input_mem_regions,
-                                           &input_mem_regions_cnt,
-                                           acc_region_metas,
-                                           !direct_mapping );
-  }
+  /* TODO: Check for an error code. Probably unlikely during fuzzing though */
+  fd_bpf_loader_input_serialize_parameters( ctx,
+                                            &input_sz,
+                                            pre_lens,
+                                            input_mem_regions,
+                                            &input_mem_regions_cnt,
+                                            acc_region_metas,
+                                            direct_mapping,
+                                            is_deprecated,
+                                            &input_ptr );
 
   fd_vm_init(
     vm,

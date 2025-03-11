@@ -436,6 +436,7 @@ common_close_account( fd_pubkey_t * authority_address,
 int
 fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * prog, uchar is_deprecated ) {
 
+  int err                       = FD_EXECUTOR_INSTR_SUCCESS;
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_spad_alloc( instr_ctx->txn_ctx->spad,
                                                                        fd_sbpf_syscalls_align(),
                                                                        fd_sbpf_syscalls_footprint() ) );
@@ -453,14 +454,11 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
   int                     direct_mapping          = FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, bpf_account_data_direct_mapping );
 
   uchar * input = NULL;
-  if( FD_UNLIKELY( is_deprecated ) ) {
-    input = fd_bpf_loader_input_serialize_unaligned( *instr_ctx, &input_sz, pre_lens,
-                                                     input_mem_regions, &input_mem_regions_cnt,
-                                                     acc_region_metas, !direct_mapping );
-  } else {
-    input = fd_bpf_loader_input_serialize_aligned( *instr_ctx, &input_sz, pre_lens,
-                                                   input_mem_regions, &input_mem_regions_cnt,
-                                                   acc_region_metas, !direct_mapping );
+  err = fd_bpf_loader_input_serialize_parameters( instr_ctx, &input_sz, pre_lens,
+                                                  input_mem_regions, &input_mem_regions_cnt,
+                                                  acc_region_metas, direct_mapping, is_deprecated, &input );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
   }
 
   if( FD_UNLIKELY( input==NULL ) ) {
@@ -540,7 +538,7 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
   instr_ctx->txn_ctx->compute_meter = vm->cu;
 
   if( FD_UNLIKELY( vm->trace ) ) {
-    int err = fd_vm_trace_printf( vm->trace, vm->syscalls );
+    err = fd_vm_trace_printf( vm->trace, vm->syscalls );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_WARNING(( "fd_vm_trace_printf failed (%i-%s)", err, fd_vm_strerror( err ) ));
     }
@@ -597,7 +595,6 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
 
           /* Found an input mem region!
              https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/programs/bpf_loader/src/lib.rs#L1515-L1528 */
-          int err;
           if( !FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, remove_accounts_executable_flag_checks ) &&
               fd_borrowed_account_is_executable( &instr_acc ) ) {
             err = FD_EXECUTOR_INSTR_ERR_EXECUTABLE_DATA_MODIFIED;
@@ -630,22 +627,14 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
   ulong syscall_err = vm->reg[0];
   if( FD_UNLIKELY( syscall_err ) ) {
     /* https://github.com/anza-xyz/agave/blob/v2.0.9/programs/bpf_loader/src/lib.rs#L1431-L1434 */
-    int err = program_error_to_instr_error( syscall_err, &instr_ctx->txn_ctx->custom_err );
+    err = program_error_to_instr_error( syscall_err, &instr_ctx->txn_ctx->custom_err );
     FD_VM_ERR_FOR_LOG_INSTR( vm, err );
     return err;
   }
 
-  int err;
-  if( FD_UNLIKELY( is_deprecated ) ) {
-    err = fd_bpf_loader_input_deserialize_unaligned( *instr_ctx, pre_lens, input, input_sz, !direct_mapping );
-    if( FD_UNLIKELY( err!=0 ) ) {
-      return err;
-    }
-  } else {
-    err = fd_bpf_loader_input_deserialize_aligned( *instr_ctx, pre_lens, input, input_sz, !direct_mapping );
-    if( FD_UNLIKELY( err!=0 ) ) {
-      return err;
-    }
+  err = fd_bpf_loader_input_deserialize_parameters( instr_ctx, pre_lens, input, input_sz, direct_mapping, is_deprecated );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;

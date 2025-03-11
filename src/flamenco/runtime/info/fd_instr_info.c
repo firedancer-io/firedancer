@@ -15,7 +15,13 @@ fd_convert_txn_instr_to_instr( fd_exec_txn_ctx_t *    txn_ctx,
 
   instr->program_id        = txn_instr->program_id;
   instr->program_id_pubkey = account_keys[txn_instr->program_id];
-  instr->acct_cnt          = txn_instr->acct_cnt;
+
+  /* See note in fd_instr_info.h. TLDR capping this value at 256 should have
+     literally 0 effect on program execution, down to the error codes. This
+     is purely for the sake of not increasing the overall memory footprint of the
+     transaction context. If this change causes issues, we may need to increase
+     the array sizes in the instr info. */
+  instr->acct_cnt          = fd_ushort_min( txn_instr->acct_cnt, FD_INSTR_ACCT_MAX );
   instr->data_sz           = txn_instr->data_sz;
   instr->data              = (uchar *)txn_raw->raw + txn_instr->data_off;
 
