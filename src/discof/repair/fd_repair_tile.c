@@ -165,7 +165,7 @@ send_packet( fd_repair_tile_ctx_t * ctx,
   hdr->udp->net_len = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
   hdr->udp->check = fd_ip4_udp_check( hdr->ip4->saddr,
                                       hdr->ip4->daddr,
-                                      (fd_udp_hdr_t const *)hdr->buf + 34,
+                                      (fd_udp_hdr_t const *)(hdr->buf + 34),
                                       packet + sizeof(fd_net_hdrs_t) );
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
