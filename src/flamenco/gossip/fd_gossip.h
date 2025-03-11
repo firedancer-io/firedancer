@@ -24,6 +24,8 @@
 #define FD_GOSSIP_SOCKET_TAG_TVU                (10)
 #define FD_GOSSIP_SOCKET_TAG_TVU_QUIC           (11)
 
+#define FD_GOSSIP_SOCKET_TAG_MAX                (12)
+
 
 enum fd_gossip_crds_route {
     FD_GOSSIP_CRDS_ROUTE_PULL_RESP,
@@ -83,9 +85,9 @@ typedef void (*fd_gossip_sign_fun)( void * ctx, uchar * sig, uchar const * buffe
 
 struct fd_gossip_config {
     fd_pubkey_t * public_key;
-    uchar * private_key;
+    long node_outset; /* timestamp (in ms) when node's pubkey was set */
     fd_gossip_peer_addr_t my_addr;
-    fd_gossip_version_v2_t my_version;
+    fd_gossip_version_v3_t my_version;
     ushort shred_version;
     fd_gossip_data_deliver_fun deliver_fun;
     void * deliver_arg;
@@ -107,13 +109,14 @@ int fd_gossip_update_repair_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_
 
 /* Update the tvu rx addr */
 int
-fd_gossip_update_tvu_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * tvu, const fd_gossip_peer_addr_t * tvu_fwd );
+fd_gossip_update_tvu_addr( fd_gossip_t * glob,
+                           fd_gossip_peer_addr_t const * tvu );
 
 /* Update the tpu addr */
 int
 fd_gossip_update_tpu_addr( fd_gossip_t * glob,
                            fd_gossip_peer_addr_t const * tpu,
-                           fd_gossip_peer_addr_t const * tpu_fwd );
+                           fd_gossip_peer_addr_t const * tpu_quic );
 
 /* Update the tpu vote addr */
 int fd_gossip_update_tpu_vote_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * tpu_vote );
