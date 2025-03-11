@@ -95,6 +95,8 @@ fdctl_obj_align( fd_topo_t const *     topo,
     return fd_blockstore_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
     return fd_txncache_align();
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "runtime_spad" ) ) ) {
+    return fd_spad_align();
 #endif /* FD_HAS_NO_AGAVE */
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));
@@ -150,6 +152,8 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
     return fd_blockstore_footprint( VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) + VAL("alloc_max");
   } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
     return fd_txncache_footprint( VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "runtime_spad" ) ) ) {
+    return fd_spad_footprint( FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT );
 #endif /* FD_HAS_NO_AGAVE */
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));

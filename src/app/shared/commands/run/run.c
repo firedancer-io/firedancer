@@ -588,6 +588,8 @@ fdctl_obj_new( fd_topo_t const *     topo,
     FD_TEST( fd_blockstore_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
     FD_TEST( fd_txncache_new( laddr, VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "runtime_spad" ) ) ) {
+    FD_TEST( fd_spad_new( laddr, FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT ) );
 #endif /* FD_HAS_NO_AGAVE */
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));

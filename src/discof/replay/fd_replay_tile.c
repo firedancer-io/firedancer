@@ -93,6 +93,7 @@ struct fd_replay_tile_ctx {
   fd_wksp_t * blockstore_wksp;
   fd_wksp_t * funk_wksp;
   fd_wksp_t * status_cache_wksp;
+  fd_wksp_t * runtime_spad_wksp;
 
   fd_wksp_t  * replay_public_wksp;
   fd_runtime_public_t * replay_public;
@@ -2520,6 +2521,11 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "no status cache wksp" ));
   }
 
+  ulong runtime_spad_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "runtime_spad" );
+  FD_TEST( runtime_spad_obj_id != ULONG_MAX );
+  ctx->runtime_spad_wksp    = topo->workspaces[ topo->objs[ blockstore_obj_id ].wksp_id ].wksp;
+  ctx->runtime_spad         = fd_spad_join( fd_topo_obj_laddr( topo, runtime_spad_obj_id ) );
+
   /**********************************************************************/
   /* snapshot                                                           */
   /**********************************************************************/
@@ -2673,7 +2679,6 @@ unprivileged_init( fd_topo_t *      topo,
     spad_mem_cur += fd_ulong_align_up( thread_spad_size, fd_spad_align() );
   }
 
-  ctx->runtime_spad = fd_spad_join( fd_spad_new( spad_mem_cur, FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT ) );
   fd_spad_push( ctx->runtime_spad );
 
   /**********************************************************************/
