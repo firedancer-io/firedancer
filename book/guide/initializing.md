@@ -13,6 +13,7 @@ device.
 device.
 * **ethtool-loopback** Disable tx-udp-segmentation on the loopback
 device.
+* **ledger** Ensures correct ownership and permissions for ledger directories.
 
 The `hugetlbfs` configuration must be performed every time the system
 is rebooted, to remount the `hugetlbfs` filesystems, as do `sysctl`,
@@ -208,3 +209,18 @@ Firedancer. It has no dependencies on any other stage.
 
 Changing device settings with `ethtool-loopback` requires root privileges,
 and cannot be performed with capabilities.
+
+## ledger
+
+The `ledger` stage ensures correct **ownership and permissions** on the directories used by Firedancer to store ledger data.
+
+This stage does **not** create the directories — it only verifies their existence and applies the appropriate ownership (`chown`) and permissions (`chmod`) as defined in your configuration TOML file. These typically include:
+
+- `ledger.path`
+- `ledger.accounts_path`
+- `ledger.accounts_index_path`
+- `ledger.accounts_hash_cache_path`
+
+Changing ownership requires **root privileges** (or the `CAP_CHOWN` capability), and changing permissions may require `CAP_FOWNER` if the user is not the directory owner.
+
+This stage should be run once after the ledger directories are created (e.g., during installation or system provisioning), and does **not** need to be rerun on every boot unless directory ownership is reset externally.

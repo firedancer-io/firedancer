@@ -10,6 +10,7 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_ethtool_gro,
   &fd_cfg_stage_ethtool_loopback,
   NULL,
+  &fd_cfg_stage_ledger,
 };
 
 extern fd_topo_run_tile_t fd_tile_net;
