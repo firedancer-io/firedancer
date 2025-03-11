@@ -71,8 +71,10 @@ size_of_versioned( int is_current ) {
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L104
 static inline ulong
 lockout( fd_vote_lockout_t * self ) {
-  // Assumes INITIAL_LOCKOUT (the base) = 2
-  return self->confirmation_count<64U ? 1UL<<self->confirmation_count : 0UL;
+  /* Confirmation count can never be greater than MAX_LOCKOUT_HISTORY, preventing overflow.
+     Although Agave does not consider overflow, we do for fuzzing conformance. */
+  ulong confirmation_count = fd_ulong_min( self->confirmation_count, MAX_LOCKOUT_HISTORY );
+  return 1UL<<confirmation_count;
 }
 
 // https://github.com/anza-xyz/agave/blob/v2.0.1/sdk/program/src/vote/state/mod.rs#L110
