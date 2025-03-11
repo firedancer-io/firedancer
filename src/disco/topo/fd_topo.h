@@ -217,7 +217,6 @@ typedef struct {
 
     struct {
       ulong  depth;
-      uint   ip_addr;
       ulong  fec_resolver_depth;
       char   identity_key_path[ PATH_MAX ];
       ushort shred_listen_port;
