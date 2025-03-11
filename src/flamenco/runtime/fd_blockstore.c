@@ -486,6 +486,12 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
   // FD_LOG_NOTICE(( "[%s] slot %lu idx %u", __func__, shred->slot, shred->idx ));
 
   ulong slot = shred->slot;
+
+  if( FD_UNLIKELY( slot < blockstore->shmem->wmk ) ) {
+    FD_LOG_DEBUG(( "[%s] slot %lu < wmk %lu. not inserting shred", __func__, slot, blockstore->shmem->wmk ));
+    return;
+  }
+
   fd_shred_key_t key = { slot, .idx = shred->idx };
 
   /* Test if the blockstore already contains this shred key. */
@@ -626,6 +632,17 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
 
   /* Update ancestry metadata: parent_slot, is_connected, next_slot. */
 
+  /* options are:
+      1. do pre-wmk check in here. no prepare or insertion if slot less than wmk
+        a. no prepare of insertion if parent_slot less than wmk
+      2. do pre-wmk check in fd_shred. but then maybe it becomes less pure 👼
+         and more stateful 👿. also it would only do the wmk check for the shred itself,
+         and not actually to the parent_slot, which would be done in here.
+
+      Or the above, but do it with a block_map query. don't think is good if the wmk works fine */
+
+  if( FD_LIKELY( parent_slot < blockstore->shmem->wmk ) ) return;
+
   err = fd_block_map_prepare( blockstore->block_map, &parent_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
   fd_block_info_t * parent_block_info = fd_block_map_query_ele( query );
 
@@ -648,7 +665,16 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
       parent_block_info->child_slots[parent_block_info->child_slot_cnt++] = slot;
     }
   }
-  fd_block_map_publish( query );
+  if( FD_LIKELY( err == FD_MAP_SUCCESS ) ) {
+    fd_block_map_publish( query );
+  } else {
+    /* err is FD_MAP_ERR_FULL. Not in a valid prepare. Can happen if we
+       are about to OOM, or if the parents are so far away that it just
+       happens to chain longer than the probe_max. Somewhat covered by
+       the early return, but there are some edge cases where we reach
+       here, and it shouldn't be a LOG_ERR */
+    FD_LOG_WARNING(( "block info not found for parent slot %lu. Have we seen it before?", parent_slot ));
+  }
 
   //FD_TEST( fd_block_map_verify( blockstore->block_map ) == FD_MAP_SUCCESS );
 }

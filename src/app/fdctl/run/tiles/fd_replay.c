@@ -236,9 +236,9 @@ struct fd_replay_tile_ctx {
   ulong     flags;
   ulong     txn_cnt;
   ulong     bank_idx;
-  uint      blockstore_batch_idx_start;
-  uint      blockstore_batch_idx_end;
 
+  ulong     fecs_inserted;
+  ulong     fecs_removed;
   /* Other metadata */
 
   ulong funk_seed;
@@ -491,7 +491,7 @@ before_frag( fd_replay_tile_ctx_t * ctx,
   (void)seq;
 
   if( in_idx == SHRED_IN_IDX ) {
-    FD_LOG_NOTICE(( "in_idx: %lu, seq: %lu, sig: %lu", in_idx, seq, sig ));
+    //FD_LOG_NOTICE(( "in_idx: %lu, seq: %lu, sig: %lu", in_idx, seq, sig ));
 
     ulong slot        = fd_disco_shred_replay_sig_slot       ( sig );
     uint  shred_idx   = fd_disco_shred_replay_sig_shred_idx  ( sig );
@@ -502,6 +502,10 @@ before_frag( fd_replay_tile_ctx_t * ctx,
     fd_replay_fec_t * fec = fd_replay_fec_query( ctx->replay, slot, fec_set_idx );
     if( FD_UNLIKELY( !fec ) ) { /* first time receiving a shred for this FEC set */
       fec = fd_replay_fec_insert( ctx->replay, slot, fec_set_idx );
+      ctx->fecs_inserted++;
+      if( FD_UNLIKELY( !fec ) ) {
+        __asm__("int $3");
+       }
       //return 1;
       /* We can have batches be size one shred, so they complete themselves.
          Make sure to process it in the completes condition below */
@@ -517,6 +521,7 @@ before_frag( fd_replay_tile_ctx_t * ctx,
 
       FD_LOG_INFO(( "removing FEC set %u from slot %lu", fec_set_idx, slot ));
       fd_replay_fec_remove( ctx->replay, slot, fec_set_idx );
+      ctx->fecs_removed++;
       slice_poll( ctx, slice_deque, slot );
       return 1; /* skip frag */
     }
@@ -612,9 +617,7 @@ during_frag( fd_replay_tile_ctx_t * ctx,
     uchar * src = (uchar *)fd_chunk_to_laddr( ctx->batch_in_mem, chunk );
     fd_memcpy( ctx->slot_ctx->slot_bank.epoch_account_hash.uc, src, sizeof(fd_hash_t) );
     FD_LOG_NOTICE(( "Epoch account hash calculated to be %s", FD_BASE58_ENC_32_ALLOCA( ctx->slot_ctx->slot_bank.epoch_account_hash.uc ) ));
-  } else {
-    /* shred */
-    // FD_LOG_NOTICE(( "%lu %lu", in_idx, seq ));
+  } else if ( in_idx == SHRED_IN_IDX ) {
 
     fd_shred_replay_in_ctx_t * shred_in = &ctx->shred_in[ in_idx-SHRED_IN_IDX ];
     if( FD_UNLIKELY( chunk<shred_in->chunk0 || chunk>shred_in->wmark || sz > sizeof(fd_shred34_t) ) ) {
@@ -1688,7 +1691,7 @@ exec_slices( fd_replay_tile_ctx_t * ctx,
   while( free_exec_tiles > 0 ){
     /* change to whatever condition handles if(exec free). */
     if( ctx->slice_exec_ctx.txns_rem > 0 ){
-      FD_LOG_WARNING(( "[%s] executing txn", __func__ ));
+      //FD_LOG_WARNING(( "[%s] executing txn", __func__ ));
       ulong pay_sz = 0UL;
       fd_replay_out_ctx_t * exec_out = &ctx->exec_out[ ctx->exec_cnt - free_exec_tiles ];
       (void)exec_out;
@@ -1758,7 +1761,7 @@ exec_slices( fd_replay_tile_ctx_t * ctx,
        to read, then advance to the next microblock */
 
     if( ctx->slice_exec_ctx.txns_rem == 0 && ctx->slice_exec_ctx.mblks_rem > 0 ){
-      FD_LOG_WARNING(( "[%s] reading microblock", __func__ ));
+      //FD_LOG_WARNING(( "[%s] reading microblock", __func__ ));
 
       fd_microblock_hdr_t * hdr = (fd_microblock_hdr_t *)fd_type_pun( ctx->mbatch + ctx->slice_exec_ctx.wmark );
       ctx->slice_exec_ctx.txns_rem      = hdr->txn_cnt;
@@ -1788,7 +1791,6 @@ exec_slices( fd_replay_tile_ctx_t * ctx,
       ulong key       = fd_replay_slice_deque_pop_head( slice->deque );
       uint  start_idx = fd_replay_slice_start_idx( key );
       uint  end_idx   = fd_replay_slice_end_idx  ( key );
-      uint  slot_complete_idx = 0;
 
       /* populate last shred idx. Can also do this just once but... */
       for(;;) { /* speculative query */
@@ -1800,10 +1802,10 @@ exec_slices( fd_replay_tile_ctx_t * ctx,
         if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
 
         ctx->slice_exec_ctx.last_batch = block_info->slot_complete_idx == end_idx;
-        slot_complete_idx = block_info->slot_complete_idx;
+        //slot_complete_idx = block_info->slot_complete_idx;
         if( FD_UNLIKELY( fd_block_map_query_test( query ) == FD_MAP_SUCCESS ) ) break;
       }
-      FD_LOG_WARNING(( "[%s] Executing batch %u %u, last: %u", __func__, start_idx, end_idx, slot_complete_idx ));
+      //FD_LOG_WARNING(( "[%s] Executing batch %u %u, last: %u", __func__, start_idx, end_idx, slot_complete_idx ));
 
       ulong slice_sz;
       int err = fd_blockstore_slice_query( ctx->slot_ctx->blockstore,
@@ -3212,6 +3214,8 @@ unprivileged_init( fd_topo_t *      topo,
   }
 
   ctx->replay_public = fd_runtime_public_join( fd_topo_obj_laddr( topo, replay_obj_id ) );
+  ctx->fecs_inserted = 0UL;
+  ctx->fecs_removed  = 0UL;
   FD_TEST( ctx->replay_public!=NULL );
 }
 

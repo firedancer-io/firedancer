@@ -144,6 +144,9 @@ struct __attribute__((aligned(FD_FEC_RESOLVER_ALIGN))) fd_fec_resolver {
   fd_sha512_t   sha512[1];
   fd_reedsol_t  reedsol[1];
 
+  ulong fecs_inserted;
+  ulong fecs_removed;
+
   /* The footprint for the objects follows the struct and is in the same
      order as the pointers, namely:
        curr_map map
@@ -428,6 +431,8 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
       /* Remove from linked list and then from the map */
       ctx_map_remove( curr_map, ctx_ll_remove( victim_ctx ) );
 
+      FD_LOG_WARNING(( "FEC set spilled" ));
+
       FD_MCNT_INC( SHRED, FEC_SET_SPILLED, 1UL );
     }
     /* Now we know |free_list|>partial_depth and |bmtree_free_list|>1 */
@@ -478,6 +483,8 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
     ctx->set->parity_shred_cnt = SHRED_CNT_NOT_SET;
     d_rcvd_join( d_rcvd_new( d_rcvd_delete( d_rcvd_leave( ctx->set->data_shred_rcvd   ) ) ) );
     p_rcvd_join( p_rcvd_new( p_rcvd_delete( p_rcvd_leave( ctx->set->parity_shred_rcvd ) ) ) );
+
+    resolver->fecs_inserted++;
 
   } else {
     /* This is not the first shred in the set */
@@ -690,6 +697,7 @@ int fd_fec_resolver_add_shred( fd_fec_resolver_t    * resolver,
   bmtrlist_push_tail( bmtree_free_list, tree );
   freelist_push_tail( complete_list, set );
   freelist_push_tail( free_list, freelist_pop_head( complete_list ) );
+  resolver->fecs_removed++;
 
   *out_fec_set = set;
 
