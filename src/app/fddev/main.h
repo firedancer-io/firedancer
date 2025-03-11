@@ -54,6 +54,7 @@ configure_stage_t * STAGES[] = {
   &fd_cfg_stage_keys,
   &fd_cfg_stage_genesis,
   &fd_cfg_stage_blockstore,
+  &fd_cfg_stage_ledger,
   NULL,
 };
 
