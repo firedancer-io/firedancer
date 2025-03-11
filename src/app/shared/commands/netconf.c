@@ -7,6 +7,7 @@
 
 #include <net/if.h>
 #include <stdio.h>
+#include <stdlib.h> /* aligned_alloc */
 
 void
 netconf_cmd_fn( args_t *   args,

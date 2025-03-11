@@ -4,6 +4,7 @@
 #include "../../../../util/tile/fd_tile_private.h"
 
 #include <sched.h>
+#include <stdlib.h> /* strtoul */
 #include <errno.h>
 #include <unistd.h>
 #include <sys/wait.h>

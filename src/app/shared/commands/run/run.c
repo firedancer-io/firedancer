@@ -22,7 +22,6 @@
 #include "../../../../flamenco/runtime/fd_txncache.h"
 #include "../../../../flamenco/runtime/fd_runtime.h"
 #endif
-#include "../../../../funk/fd_funk_filemap.h"
 #include "../../../../funk/fd_funk.h"
 #include "../../../../waltz/ip/fd_fib4.h"
 #include "../../../../waltz/mib/fd_dbl_buf.h"
@@ -33,6 +32,7 @@
 #include <dirent.h>
 #include <sched.h>
 #include <stdio.h>
+#include <stdlib.h> /* getenv */
 #include <poll.h>
 #include <unistd.h>
 #include <errno.h>
