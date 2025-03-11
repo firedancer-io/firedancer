@@ -23,7 +23,7 @@ endif
 
 $(OBJDIR)/obj/app/fdctl/version.d: src/app/fdctl/version.h
 
-.PHONY: fdctl cargo-validator cargo-solana cargo-ledger-tool cargo-plugin-bundle rust solana check-agave-hash frontend
+.PHONY: fdctl cargo-validator cargo-solana cargo-ledger-tool cargo-plugin-bundle rust solana check-agave-hash frontend lsched_wasm
 
 # fdctl core
 $(call add-objs,main1 config config_parse keys ready set_identity mem help version,fd_fdctl)
@@ -187,7 +187,18 @@ $(OBJDIR)/bin/agave-ledger-tool: agave/target/$(RUST_PROFILE)/agave-ledger-tool
 
 agave-ledger-tool: $(OBJDIR)/bin/agave-ledger-tool
 
-frontend:
+lsched_wasm:
+	emcc src/flamenco/leaders/fd_leaders_wasm.c src/flamenco/leaders/fd_leaders.c src/ballet/chacha20/fd_chacha20.c src/ballet/chacha20/fd_chacha20rng.c src/ballet/wsample/fd_wsample.c \
+		-sEXPORTED_FUNCTIONS=['_fd_epoch_leaders_wasm_init,_fd_epoch_leaders_wasm_get_pubkeys,_fd_epoch_leaders_wasm_get_stakes,_fd_epoch_leaders_wasm_get_sched_cnt,_fd_epoch_leaders_wasm_get_sched'] \
+		-sMEMORY64=2 \
+		--no-entry \
+		-O3 \
+		-sENVIRONMENT='web,webview,worker' \
+		-sSTACK_SIZE=262144 \
+		-Duint128=__uint128_t \
+		-o frontend/src/assets/lsched.wasm
+
+frontend: lsched_wasm
 	cd frontend && npm ci && npm run build
 	rm -rf src/app/fdctl/dist
 	mkdir -p src/app/fdctl/dist
