@@ -885,6 +885,8 @@ unprivileged_init( fd_topo_t *      topo,
   if (FD_LIKELY( blockstore_obj_id!=ULONG_MAX )) {
     ctx->blockstore = fd_blockstore_join( &ctx->blockstore_ljoin, fd_topo_obj_laddr( topo, blockstore_obj_id ) );
     FD_TEST( ctx->blockstore->shmem->magic == FD_BLOCKSTORE_MAGIC );
+  } else {
+    ctx->blockstore = NULL;
   }
 
   ctx->poh_in_expect_seq = 0UL;
