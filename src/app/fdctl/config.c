@@ -89,7 +89,7 @@ fdctl_obj_align( fd_topo_t const *     topo,
   } else if( FD_UNLIKELY( !strcmp( obj->name, "keyswitch" ) ) ) {
     return fd_keyswitch_align();
 #if FD_HAS_NO_AGAVE
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "replay_pub" ) ) ) {
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "runtime_pub" ) ) ) {
     return fd_runtime_public_align();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
     return fd_blockstore_align();
@@ -144,7 +144,7 @@ fdctl_obj_footprint( fd_topo_t const *     topo,
   } else if( FD_UNLIKELY( !strcmp( obj->name, "keyswitch" ) ) ) {
     return fd_keyswitch_footprint();
 #if FD_HAS_NO_AGAVE
-  } else if( FD_UNLIKELY( !strcmp( obj->name, "replay_pub" ) ) ) {
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "runtime_pub" ) ) ) {
     return fd_runtime_public_footprint();
   } else if( FD_UNLIKELY( !strcmp( obj->name, "blockstore" ) ) ) {
     return fd_blockstore_footprint( VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) + VAL("alloc_max");

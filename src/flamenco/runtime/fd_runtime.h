@@ -253,6 +253,8 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
 
 FD_STATIC_ASSERT( FD_RUNTIME_MERKLE_VERIFICATION_FOOTPRINT <= FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT, merkle verify footprint exceeds txn execution footprint );
 
+/* TODO: Move the runtime public to its own file. */
+#define FD_RUNTIME_PUBLIC_MAGIC (0xF17EDA2C9A7B1C21UL)
 /* definition of the public/readable workspace */
 struct fd_runtime_public {
   // FIXME:  This is a non-fork-aware copy of the currently active
@@ -260,7 +262,9 @@ struct fd_runtime_public {
   // this workspace AND we make the epoch_ctx properly fork aware at
   // the epoch boundary, we can remove this copy of the features map
   // and just use the epoch_ctx (or slot_ctx) copy directly.
+  ulong         magic;
   fd_features_t features;
+  ulong         runtime_spad_gaddr;
 };
 typedef struct fd_runtime_public fd_runtime_public_t;
 
@@ -522,19 +526,26 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
                          fd_tpool_t *         tpool,
                          fd_spad_t *          spad );
 
+
+/* FD Runtime Public **************************************************/
+
 ulong
-fd_runtime_public_footprint ( void );
+fd_runtime_public_footprint( void );
 
 fd_runtime_public_t *
-fd_runtime_public_join ( void * ptr ) ;
+fd_runtime_public_join( void * shmem );
 
 void *
-fd_runtime_public_new ( void * ptr ) ;
+fd_runtime_public_new( void * shmem );
 
 FD_FN_CONST static inline ulong
 fd_runtime_public_align( void ) {
   return alignof(fd_runtime_public_t);
 }
+
+/* Returns a local join of the runtime spad */
+fd_spad_t *
+fd_runtime_public_join_and_get_runtime_spad( fd_runtime_public_t const * runtime_public );
 
 FD_PROTOTYPES_END
 

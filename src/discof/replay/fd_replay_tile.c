@@ -106,8 +106,8 @@ struct fd_replay_tile_ctx {
   fd_wksp_t * funk_wksp;
   fd_wksp_t * status_cache_wksp;
 
-  fd_wksp_t  * replay_public_wksp;
-  fd_runtime_public_t * replay_public;
+  fd_wksp_t  * runtime_public_wksp;
+  fd_runtime_public_t * runtime_public;
 
   // Store tile input
   fd_wksp_t * store_in_mem;
@@ -354,7 +354,6 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, 128UL, FD_SLICE_MAX );
   ulong  thread_spad_size  = fd_spad_footprint( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT );
   l = FD_LAYOUT_APPEND( l, fd_spad_align(), tile->replay.tpool_thread_count * fd_ulong_align_up( thread_spad_size, fd_spad_align() ) );
-  l = FD_LAYOUT_APPEND( l, fd_spad_align(), FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT ); /* FIXME: make this configurable */
   l = FD_LAYOUT_FINI  ( l, scratch_align() );
   return l;
 }
@@ -2307,8 +2306,8 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
                            ctx->capture_ctx,
                            ctx->tpool,
                            ctx->runtime_spad );
-  ctx->epoch_ctx->bank_hash_cmp = ctx->bank_hash_cmp;
-  ctx->epoch_ctx->replay_public = ctx->replay_public;
+  ctx->epoch_ctx->bank_hash_cmp  = ctx->bank_hash_cmp;
+  ctx->epoch_ctx->runtime_public = ctx->runtime_public;
   init_after_snapshot( ctx );
 
   /* Redirect ctx->slot_ctx to point to the memory inside forks. */
@@ -2317,7 +2316,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
   ctx->slot_ctx = &fork->slot_ctx;
 
   // Tell the world about the current activate features
-  fd_memcpy ( &ctx->replay_public->features,  &ctx->slot_ctx->epoch_ctx->features, sizeof(ctx->replay_public->features) );
+  fd_memcpy ( &ctx->runtime_public->features,  &ctx->slot_ctx->epoch_ctx->features, sizeof(ctx->runtime_public->features) );
 
   FD_TEST( ctx->slot_ctx );
 }
@@ -2771,7 +2770,7 @@ unprivileged_init( fd_topo_t *      topo,
   }
   void * mbatch_mem          = FD_SCRATCH_ALLOC_APPEND( l, 128UL, FD_SLICE_MAX );
   ulong  thread_spad_size    = fd_spad_footprint( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT );
-  void * spad_mem            = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), tile->replay.tpool_thread_count * fd_ulong_align_up( thread_spad_size, fd_spad_align() ) + FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT );
+  void * spad_mem            = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), tile->replay.tpool_thread_count * fd_ulong_align_up( thread_spad_size, fd_spad_align() ) );
   ulong  scratch_alloc_mem   = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
 
   if( FD_UNLIKELY( scratch_alloc_mem != ( (ulong)scratch + scratch_footprint( tile ) ) ) ) {
@@ -2804,6 +2803,21 @@ unprivileged_init( fd_topo_t *      topo,
   if( ctx->status_cache_wksp == NULL ) {
     FD_LOG_ERR(( "no status cache wksp" ));
   }
+
+  /**********************************************************************/
+  /* runtime public                                                      */
+  /**********************************************************************/
+
+  ulong replay_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "runtime_pub" );
+  FD_TEST( replay_obj_id!=ULONG_MAX );
+  ctx->runtime_public_wksp = topo->workspaces[ topo->objs[ replay_obj_id ].wksp_id ].wksp;
+
+  if( ctx->runtime_public_wksp==NULL ) {
+    FD_LOG_ERR(( "no runtime_public workspace" ));
+  }
+
+  ctx->runtime_public = fd_runtime_public_join( fd_topo_obj_laddr( topo, replay_obj_id ) );
+  FD_TEST( ctx->runtime_public!=NULL );
 
   /**********************************************************************/
   /* snapshot                                                           */
@@ -2958,7 +2972,11 @@ unprivileged_init( fd_topo_t *      topo,
     spad_mem_cur += fd_ulong_align_up( thread_spad_size, fd_spad_align() );
   }
 
-  ctx->runtime_spad = fd_spad_join( fd_spad_new( spad_mem_cur, FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT ) );
+  /* Now join the spad that was setup in the runtime public topo obj. */
+  ctx->runtime_spad = fd_runtime_public_join_and_get_runtime_spad( ctx->runtime_public );
+  if( FD_UNLIKELY( !ctx->runtime_spad ) ) {
+    FD_LOG_ERR(( "Unable to join the runtime_spad" ));
+  }
   fd_spad_push( ctx->runtime_spad );
 
   /**********************************************************************/
@@ -3193,20 +3211,6 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->slots_replayed_file = fopen( tile->replay.slots_replayed, "w" );
     FD_TEST( ctx->slots_replayed_file );
   }
-
-  /* replay public setup */
-  ulong replay_obj_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "replay_pub" );
-  FD_TEST( replay_obj_id!=ULONG_MAX );
-  ctx->replay_public_wksp = topo->workspaces[ topo->objs[ replay_obj_id ].wksp_id ].wksp;
-
-  if( ctx->replay_public_wksp==NULL ) {
-    FD_LOG_ERR(( "no replay_public workspace" ));
-  }
-
-  ctx->replay_public = fd_runtime_public_join( fd_topo_obj_laddr( topo, replay_obj_id ) );
-  ctx->fecs_inserted = 0UL;
-  ctx->fecs_removed  = 0UL;
-  FD_TEST( ctx->replay_public!=NULL );
 }
 
 static ulong
