@@ -78,7 +78,7 @@ main( int     argc,
   set_memory_region( rodata, rodata_sz );
 
   fd_exec_instr_ctx_t * instr_ctx = test_vm_minimal_exec_instr_ctx( fd_libc_alloc_virtual() );
-  fd_features_enable_all( &((fd_exec_epoch_ctx_t *)instr_ctx->epoch_ctx)->features );
+  fd_features_enable_all( &((fd_exec_txn_ctx_t *)instr_ctx->txn_ctx)->features );
 
   int vm_ok = !!fd_vm_init(
       /* vm               */ vm,
@@ -101,7 +101,7 @@ main( int     argc,
       /* mem_regions_cnt  */ 0UL,
       /* mem_regions_accs */ NULL,
       /* is_deprecated    */ 0,
-      /* direct mapping   */ FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, bpf_account_data_direct_mapping )
+      /* direct mapping   */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot_bank->slot, instr_ctx->txn_ctx->features, bpf_account_data_direct_mapping )
   );
   FD_TEST( vm_ok );
 

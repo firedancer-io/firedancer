@@ -3,7 +3,6 @@
 #include "../fd_system_ids.h"
 #include "../fd_runtime.h"
 #include "../context/fd_exec_epoch_ctx.h"
-#include "../context/fd_exec_slot_ctx.h"
 
 static void
 write_fees( fd_exec_slot_ctx_t* slot_ctx, fd_sysvar_fees_t* fees ) {
@@ -20,16 +19,18 @@ write_fees( fd_exec_slot_ctx_t* slot_ctx, fd_sysvar_fees_t* fees ) {
 }
 
 fd_sysvar_fees_t *
-fd_sysvar_fees_read( fd_sysvar_fees_t *         result,
-                     fd_exec_slot_ctx_t const * slot_ctx ) {
-  fd_sysvar_fees_t const * ret = fd_sysvar_cache_fees( slot_ctx->sysvar_cache );
+fd_sysvar_fees_read( fd_sysvar_fees_t *        result,
+                     fd_sysvar_cache_t const * sysvar_cache,
+                     fd_acc_mgr_t *            acc_mgr,
+                     fd_funk_txn_t *           funk_txn ) {
+  fd_sysvar_fees_t const * ret = fd_sysvar_cache_fees( sysvar_cache );
   if( FD_UNLIKELY( NULL != ret ) ) {
     fd_memcpy(result, ret, sizeof(fd_sysvar_fees_t));
     return result;
   }
 
   FD_TXN_ACCOUNT_DECL( acc );
-  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_fees_id, acc );
+  int err = fd_acc_mgr_view( acc_mgr, funk_txn, &fd_sysvar_fees_id, acc );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
     return NULL;
 
@@ -111,10 +112,13 @@ fd_sysvar_fees_new_derived(
 
 void
 fd_sysvar_fees_update( fd_exec_slot_ctx_t * slot_ctx ) {
-  if ( FD_FEATURE_ACTIVE( slot_ctx, disable_fees_sysvar ))
+  if( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, disable_fees_sysvar ))
     return;
   fd_sysvar_fees_t fees;
-  fd_sysvar_fees_read( &fees, slot_ctx );
+  fd_sysvar_fees_read( &fees,
+                       slot_ctx->sysvar_cache,
+                       slot_ctx->acc_mgr,
+                       slot_ctx->funk_txn );
   /* todo: I need to the lamports_per_signature field */
   fees.fee_calculator.lamports_per_signature = slot_ctx->slot_bank.lamports_per_signature;
   write_fees( slot_ctx, &fees );

@@ -35,7 +35,7 @@ require_acct_rent( fd_exec_instr_ctx_t * ctx,
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  fd_rent_t const * rent = fd_sysvar_cache_rent( ctx->slot_ctx->sysvar_cache );
+  fd_rent_t const * rent = fd_sysvar_cache_rent( ctx->txn_ctx->sysvar_cache );
   if( FD_UNLIKELY( !rent ) )
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
@@ -54,7 +54,7 @@ require_acct_recent_blockhashes(
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( ctx->slot_ctx->sysvar_cache );
+  fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( ctx->txn_ctx->sysvar_cache );
   if( FD_UNLIKELY( !rbh ) )
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
@@ -73,7 +73,7 @@ most_recent_block_hash( fd_exec_instr_ctx_t * ctx,
   /* The environment config blockhash comes from `bank.last_blockhash_and_lamports_per_signature()`,
      which takes the top element from the blockhash queue.
      https://github.com/anza-xyz/agave/blob/v2.1.6/programs/system/src/system_instruction.rs#L47 */
-  fd_hash_t const * last_hash = ctx->slot_ctx->slot_bank.block_hash_queue.last_hash;
+  fd_hash_t const * last_hash = ctx->txn_ctx->slot_bank->block_hash_queue.last_hash;
   if( FD_UNLIKELY( last_hash==NULL ) ) {
     // Agave panics if this blockhash was never set at the start of the txn batch
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
@@ -228,7 +228,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
           .authority      = data->authority,
           .durable_nonce  = next_durable_nonce,
           .fee_calculator = {
-            .lamports_per_signature = ctx->slot_ctx->prev_lamports_per_signature
+            .lamports_per_signature = ctx->txn_ctx->prev_lamports_per_signature
           }
         } }
       } }
@@ -615,7 +615,7 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
           .authority      = *authorized,
           .durable_nonce  = durable_nonce,
           .fee_calculator = {
-            .lamports_per_signature = ctx->slot_ctx->prev_lamports_per_signature
+            .lamports_per_signature = ctx->txn_ctx->prev_lamports_per_signature
           }
         } }
       } }
@@ -934,7 +934,7 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
    Note: We check 151 and not 150 due to a known bug in agave. */
 int
 fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
-  fd_block_hash_queue_t hash_queue         = txn_ctx->slot_ctx->slot_bank.block_hash_queue;
+  fd_block_hash_queue_t hash_queue         = txn_ctx->slot_bank->block_hash_queue;
   fd_hash_t *           last_blockhash     = hash_queue.last_hash;
 
   /* check_transaction_age */
@@ -988,7 +988,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
   }
 
   FD_TXN_ACCOUNT_DECL( durable_nonce_rec );
-  int err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->slot_ctx->funk_txn, &txn_ctx->account_keys[ instr_accts[0] ], durable_nonce_rec );
+  int err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->account_keys[ instr_accts[0] ], durable_nonce_rec );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
   }
@@ -1051,7 +1051,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
            advance to.
          */
         fd_txn_account_t * rollback_nonce_rec = fd_txn_account_init( &txn_ctx->rollback_nonce_account[ 0 ] );
-        int                err                = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->slot_ctx->funk_txn, &txn_ctx->account_keys[ instr_accts[ 0 ] ], rollback_nonce_rec );
+        int                err                = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->account_keys[ instr_accts[ 0 ] ], rollback_nonce_rec );
         if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
           return FD_RUNTIME_TXN_ERR_BLOCKHASH_NOT_FOUND;
         }
@@ -1063,7 +1063,7 @@ fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
               .authority      = state->inner.current.inner.initialized.authority,
               .durable_nonce  = next_durable_nonce,
               .fee_calculator = {
-                .lamports_per_signature = txn_ctx->slot_ctx->prev_lamports_per_signature
+                .lamports_per_signature = txn_ctx->prev_lamports_per_signature
               }
             } }
           } }

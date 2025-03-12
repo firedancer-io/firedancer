@@ -61,8 +61,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
                                       fd_exec_txn_ctx_t *          txn_ctx,
                                       fd_spad_t *                  spad ) {
   fd_txn_t const * txn_descriptor = txn_ctx->txn_descriptor;
-  uchar const * txn_payload = (uchar const *) txn_ctx->_txn_raw->raw;
-  fd_exec_slot_ctx_t const * slot_ctx = txn_ctx->slot_ctx;
+  uchar const *    txn_payload    = (uchar const *) txn_ctx->_txn_raw->raw;
 
   /* We don't want to store builtins in account shared data */
   fd_pubkey_t const loaded_builtins[] = {
@@ -114,7 +113,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
                                                         (txn_ctx->accounts_cnt * 2 + txn_descriptor->addr_table_lookup_cnt + num_sysvar_entries) * sizeof(fd_exec_test_acct_state_t) );
   for( ulong i = 0; i < txn_ctx->accounts_cnt; ++i ) {
     FD_TXN_ACCOUNT_DECL( txn_account );
-    int ret = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->account_keys[i], txn_account );
+    int ret = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->account_keys[i], txn_account );
     if( FD_UNLIKELY(ret != FD_ACC_MGR_SUCCESS) ) {
       continue;
     }
@@ -136,7 +135,6 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   // TODO: Revisit this hacky approach
   txn_ctx->spad = spad;
   fd_spad_push( txn_ctx->spad );
-  txn_ctx->funk_txn = slot_ctx->funk_txn;
   fd_executor_setup_borrowed_accounts_for_txn( txn_ctx );
 
   // Dump executable accounts
@@ -157,7 +155,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   for( ulong i = 0; i < txn_descriptor->addr_table_lookup_cnt; ++i ) {
     FD_TXN_ACCOUNT_DECL( txn_account );
     fd_pubkey_t * alut_key = (fd_pubkey_t *) (txn_payload + address_lookup_tables[i].addr_off);
-    int ret = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, alut_key, txn_account );
+    int ret = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, alut_key, txn_account );
     if( FD_UNLIKELY(ret != FD_ACC_MGR_SUCCESS) ) {
       continue;
     }
@@ -167,7 +165,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   // Dump sysvars
   for( ulong i = 0; i < num_sysvar_entries; i++ ) {
     FD_TXN_ACCOUNT_DECL( txn_account );
-    int ret = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_relevant_sysvar_ids[i], txn_account );
+    int ret = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &fd_relevant_sysvar_ids[i], txn_account );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       continue;
     }
@@ -268,7 +266,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
 
       // Access ALUT account data to access its keys
       FD_TXN_ACCOUNT_DECL( addr_lut_rec );
-      int err = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, alut_key, addr_lut_rec);
+      int err = fd_acc_mgr_view(txn_ctx->acc_mgr, txn_ctx->funk_txn, alut_key, addr_lut_rec);
       if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_ERR(( "addr lut not found" ));
       }
@@ -317,7 +315,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   txn_context_msg->blockhash_queue = output_blockhash_queue;
 
   // Iterate over all block hashes in the queue and save them
-  fd_block_hash_queue_t const * queue = &slot_ctx->slot_bank.block_hash_queue;
+  fd_block_hash_queue_t const * queue = &txn_ctx->slot_bank->block_hash_queue;
   fd_hash_hash_age_pair_t_mapnode_t * nn;
   for ( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( queue->ages_pool, queue->ages_root ); n; n = nn ) {
     nn = fd_hash_hash_age_pair_t_map_successor( queue->ages_pool, n );
@@ -348,11 +346,11 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   /* Transaction Context -> epoch_ctx */
   txn_context_msg->has_epoch_ctx = true;
   txn_context_msg->epoch_ctx.has_features = true;
-  dump_sorted_features( &txn_ctx->epoch_ctx->features, &txn_context_msg->epoch_ctx.features, spad );
+  dump_sorted_features( &txn_ctx->features, &txn_context_msg->epoch_ctx.features, spad );
 
   /* Transaction Context -> slot_ctx */
   txn_context_msg->has_slot_ctx  = true;
-  txn_context_msg->slot_ctx.slot = slot_ctx->slot_bank.slot;
+  txn_context_msg->slot_ctx.slot = txn_ctx->slot_bank->slot;
 }
 
 static void
@@ -461,7 +459,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   /* Epoch Context */
   instr_context->has_epoch_context = true;
   instr_context->epoch_context.has_features = true;
-  dump_sorted_features( &txn_ctx->epoch_ctx->features, &instr_context->epoch_context.features, txn_ctx->spad );
+  dump_sorted_features( &txn_ctx->features, &instr_context->epoch_context.features, txn_ctx->spad );
 }
 
 /***** PUBLIC APIs *****/

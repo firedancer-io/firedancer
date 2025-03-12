@@ -12,6 +12,7 @@
 
 #include "../fd_flamenco_base.h"
 #include "../../ballet/sbpf/fd_sbpf_loader.h" /* FIXME: functionality needed from here probably should be moved here */
+#include "../features/fd_features.h"
 
 /* FD_VM_SUCCESS is zero and returned to indicate that an operation
    completed successfully.  FD_VM_ERR_* are negative integers and
@@ -705,22 +706,23 @@ fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
    makes sense ... may change between Firedancer versions without
    warning).  FIXME: probably better to pass the features for a slot
    than pass the whole slot_ctx.
-   
+
    is_deploy should be 1 if the set of syscalls registered should be that
    used to verify programs before they are deployed, and 0 if it
    should be the set used to execute programs. */
 
 int
-fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
-                             fd_exec_slot_ctx_t const * slot_ctx,
-                             uchar is_deploy );
+fd_vm_syscall_register_slot( fd_sbpf_syscalls_t * syscalls,
+                             ulong                slot,
+                             fd_features_t *      features,
+                             uchar                is_deploy );
 
 /* fd_vm_syscall_register_all is a shorthand for registering all
    syscalls (see register slot). */
 
 static inline int
 fd_vm_syscall_register_all( fd_sbpf_syscalls_t * syscalls, uchar is_deploy ) {
-  return fd_vm_syscall_register_slot( syscalls, NULL, is_deploy );
+  return fd_vm_syscall_register_slot( syscalls, 0UL, NULL, is_deploy );
 }
 
 FD_PROTOTYPES_END

@@ -5,6 +5,10 @@
 #include "../../../util/fd_util_base.h"
 #include "../../log_collector/fd_log_collector_base.h"
 #include "../../../ballet/txn/fd_txn.h"
+#include "../../features/fd_features.h"
+#include "../sysvar/fd_sysvar_cache.h"
+#include "../fd_txncache.h"
+#include "../fd_bank_hash_cmp.h"
 
 /* Return data for syscalls */
 
@@ -56,11 +60,20 @@ typedef struct fd_exec_instr_trace_entry fd_exec_instr_trace_entry_t;
 struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   ulong magic; /* ==FD_EXEC_TXN_CTX_MAGIC */
 
-  fd_exec_epoch_ctx_t const *     epoch_ctx;
-  fd_exec_slot_ctx_t  const *     slot_ctx;
-
+  /* TODO: These are fields borrowed from the slot and epoch ctx. This
+     could be refactored even further. */
+  fd_slot_bank_t const *          slot_bank;
+  fd_epoch_bank_t const *         epoch_bank;
+  fd_features_t                   features;
+  fd_sysvar_cache_t const *       sysvar_cache;
+  fd_txncache_t *                 status_cache;
+  ulong                           prev_lamports_per_signature;
+  int                             enable_exec_recording;
+  ulong                           total_epoch_stake;
+  fd_bank_hash_cmp_t *            bank_hash_cmp;
   fd_funk_txn_t *                 funk_txn;
   fd_acc_mgr_t *                  acc_mgr;
+
   fd_spad_t *                     spad;                                        /* Sized out to handle the worst case footprint of single transaction execution. */
 
   ulong                           paid_fees;

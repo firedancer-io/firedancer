@@ -32,8 +32,8 @@ FD_PROTOTYPES_BEGIN
 
 /* https://github.com/anza-xyz/agave/blob/v2.0.9/runtime/src/bank.rs#L3239-L3251 */
 static inline ulong
-get_transaction_account_lock_limit( fd_exec_slot_ctx_t const * slot_ctx ) {
-  return fd_ulong_if( FD_FEATURE_ACTIVE( slot_ctx, increase_tx_account_lock_limit ), MAX_TX_ACCOUNT_LOCKS, 64UL );
+get_transaction_account_lock_limit( fd_exec_txn_ctx_t const * txn_ctx ) {
+  return fd_ulong_if( FD_FEATURE_ACTIVE( txn_ctx->slot_bank->slot, txn_ctx->features, increase_tx_account_lock_limit ), MAX_TX_ACCOUNT_LOCKS, 64UL );
 }
 
 /* fd_exec_instr_fn_t processes an instruction.  Returns an error code
@@ -99,8 +99,7 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx );
  */
 
 int
-fd_executor_txn_check( fd_exec_slot_ctx_t const * slot_ctx,
-                       fd_exec_txn_ctx_t *        txn );
+fd_executor_txn_check( fd_exec_txn_ctx_t * txn_ctx );
 
 void
 fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx );

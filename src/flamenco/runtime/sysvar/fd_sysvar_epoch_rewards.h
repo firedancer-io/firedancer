@@ -3,24 +3,23 @@
 
 #include "../../fd_flamenco_base.h"
 #include "../../types/fd_types.h"
+#include "../context/fd_exec_slot_ctx.h"
 
 FD_PROTOTYPES_BEGIN
 
 /* Read the current value of the EpochRewards sysvar from Funk. */
 fd_sysvar_epoch_rewards_t *
-fd_sysvar_epoch_rewards_read(
-    fd_sysvar_epoch_rewards_t * result,
-    fd_exec_slot_ctx_t const * slot_ctx
-);
+fd_sysvar_epoch_rewards_read( fd_sysvar_epoch_rewards_t * result,
+                              fd_sysvar_cache_t const *   sysvar_cache,
+                              fd_acc_mgr_t *              acc_mgr,
+                              fd_funk_txn_t *             funk_txn );
 
 /* Update EpochRewards sysvar with distributed rewards
 
    https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/sdk/program/src/epoch_rewards.rs#L44 */
 void
-fd_sysvar_epoch_rewards_distribute(
-    fd_exec_slot_ctx_t * slot_ctx,
-    ulong distributed
-);
+fd_sysvar_epoch_rewards_distribute( fd_exec_slot_ctx_t * slot_ctx,
+                                    ulong                distributed );
 
 /* Set the EpochRewards sysvar to inactive
 

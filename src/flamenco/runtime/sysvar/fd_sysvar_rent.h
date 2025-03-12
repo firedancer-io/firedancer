@@ -19,8 +19,10 @@ fd_sysvar_rent_init( fd_exec_slot_ctx_t * slot_ctx );
    Returns result on success, NULL otherwise. */
 
 fd_rent_t *
-fd_sysvar_rent_read( fd_exec_slot_ctx_t const * slot_ctx,
-                     fd_spad_t *                runtime_spad );
+fd_sysvar_rent_read( fd_sysvar_cache_t const * sysvar_cache,
+                     fd_acc_mgr_t *            acc_mgr,
+                     fd_funk_txn_t *           funk_txn,
+                     fd_spad_t *               spad );
 
 /* fd_rent_exempt_minimum_balance returns the minimum balance needed
    for an account with the given data_len to be rent exempt.  rent

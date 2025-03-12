@@ -38,7 +38,10 @@ fd_vm_syscall_sol_get_clock_sysvar( /**/            void *  _vm,
   /* FIXME: is it possible to do the read in-place? */
   fd_sol_sysvar_clock_t clock[1];
   fd_sol_sysvar_clock_new( clock ); /* FIXME: probably should be init as not a distributed persistent object */
-  fd_sysvar_clock_read( clock, instr_ctx->slot_ctx );
+  fd_sysvar_clock_read( clock,
+                        instr_ctx->txn_ctx->sysvar_cache,
+                        instr_ctx->txn_ctx->acc_mgr,
+                        instr_ctx->txn_ctx->funk_txn );
   /* FIXME: no delete function to match new (probably should be fini for the same reason anyway) */
 
   memcpy( out, clock, FD_SOL_SYSVAR_CLOCK_FOOTPRINT );
@@ -74,7 +77,10 @@ fd_vm_syscall_sol_get_epoch_schedule_sysvar( /**/            void *  _vm,
   /* FIXME: is it possible to do the read in-place? */
   fd_epoch_schedule_t schedule[1];
   fd_epoch_schedule_new( schedule ); /* FIXME: probably should be init as not a distributed persistent object */
-  fd_sysvar_epoch_schedule_read( schedule, instr_ctx->slot_ctx );
+  fd_sysvar_epoch_schedule_read( schedule,
+                                 instr_ctx->txn_ctx->sysvar_cache,
+                                 instr_ctx->txn_ctx->acc_mgr,
+                                 instr_ctx->txn_ctx->funk_txn );
   /* FIXME: no delete function to match new (probably should be fini for the same reason anyway) */
 
   memcpy( out, schedule, FD_EPOCH_SCHEDULE_FOOTPRINT );
@@ -110,7 +116,10 @@ fd_vm_syscall_sol_get_fees_sysvar( /**/            void *  _vm,
   /* FIXME: is it possible to do the read in-place? */
   fd_sysvar_fees_t fees[1];
   fd_sysvar_fees_new( fees ); /* FIXME: probably should be init as not a distributed persistent object */
-  fd_sysvar_fees_read( fees, instr_ctx->slot_ctx );
+  fd_sysvar_fees_read( fees,
+                       instr_ctx->txn_ctx->sysvar_cache,
+                       instr_ctx->txn_ctx->acc_mgr,
+                       instr_ctx->txn_ctx->funk_txn );
   /* FIXME: no delete function to match new (probably should be fini for the same reason anyway) */
 
   memcpy( out, fees, FD_SYSVAR_FEES_FOOTPRINT );
@@ -144,7 +153,10 @@ fd_vm_syscall_sol_get_rent_sysvar( /**/            void *  _vm,
   void * out = FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_RENT, FD_RENT_FOOTPRINT );
 
   /* FIXME: is it possible to do the read in-place? */
-  fd_rent_t * rent = fd_sysvar_rent_read( instr_ctx->slot_ctx, instr_ctx->txn_ctx->spad );
+  fd_rent_t * rent = fd_sysvar_rent_read( instr_ctx->txn_ctx->sysvar_cache,
+                                          instr_ctx->txn_ctx->acc_mgr,
+                                          instr_ctx->txn_ctx->funk_txn,
+                                          instr_ctx->txn_ctx->spad );
   /* FIXME: no delete function to match new (probably should be fini for the same reason anyway) */
 
   memcpy( out, rent, FD_RENT_FOOTPRINT );
@@ -168,7 +180,10 @@ fd_vm_syscall_sol_get_last_restart_slot_sysvar( /**/            void *  _vm,
 
   fd_sol_sysvar_last_restart_slot_t * out =
     FD_VM_MEM_HADDR_ST( vm, out_vaddr, FD_VM_ALIGN_RUST_SYSVAR_LAST_RESTART_SLOT, FD_SOL_SYSVAR_LAST_RESTART_SLOT_FOOTPRINT );
-  if( FD_UNLIKELY( fd_sysvar_last_restart_slot_read( out, vm->instr_ctx->slot_ctx ) == NULL ) ) {
+  if( FD_UNLIKELY( fd_sysvar_last_restart_slot_read( out,
+                                                     vm->instr_ctx->txn_ctx->sysvar_cache,
+                                                     vm->instr_ctx->txn_ctx->acc_mgr,
+                                                     vm->instr_ctx->txn_ctx->funk_txn ) == NULL ) ) {
     return FD_VM_SYSCALL_ERR_ABORT;
   }
 
@@ -222,7 +237,7 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
   }
 
   FD_TXN_ACCOUNT_DECL( sysvar_account );
-  err = fd_acc_mgr_view( vm->instr_ctx->slot_ctx->acc_mgr, vm->instr_ctx->slot_ctx->funk_txn, sysvar_id, sysvar_account );
+  err = fd_acc_mgr_view( vm->instr_ctx->txn_ctx->acc_mgr, vm->instr_ctx->txn_ctx->funk_txn, sysvar_id, sysvar_account );
   if( FD_UNLIKELY( err ) ) {
     *_ret = 2UL;
     return FD_VM_SUCCESS;
@@ -267,7 +282,7 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
     FD_VM_CU_UPDATE( vm, FD_VM_SYSCALL_BASE_COST );
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2074 */
-    *_ret = vm->instr_ctx->epoch_ctx->total_epoch_stake;
+    *_ret = vm->instr_ctx->txn_ctx->total_epoch_stake;
     return FD_VM_SUCCESS;
   }
 
@@ -277,7 +292,7 @@ fd_vm_syscall_sol_get_epoch_stake( /**/            void *  _vm,
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/programs/bpf_loader/src/syscalls/mod.rs#L2103-L2104 */
   const fd_pubkey_t * vote_address = FD_VM_MEM_HADDR_LD( vm, var_addr, FD_VM_ALIGN_RUST_PUBKEY, FD_PUBKEY_FOOTPRINT );
-  *_ret = fd_query_pubkey_stake( vote_address, &vm->instr_ctx->epoch_ctx->epoch_bank.stakes.vote_accounts );
+  *_ret = fd_query_pubkey_stake( vote_address, &vm->instr_ctx->txn_ctx->epoch_bank->stakes.vote_accounts );
 
   return FD_VM_SUCCESS;
 }
@@ -605,7 +620,10 @@ fd_vm_syscall_sol_get_epoch_rewards_sysvar( /**/            void *  _vm,
 
   fd_sysvar_epoch_rewards_t var[1];
   fd_sysvar_epoch_rewards_new ( var );
-  fd_sysvar_epoch_rewards_read( var, instr_ctx->slot_ctx );
+  fd_sysvar_epoch_rewards_read( var,
+                                instr_ctx->txn_ctx->sysvar_cache,
+                                instr_ctx->txn_ctx->acc_mgr,
+                                instr_ctx->txn_ctx->funk_txn );
 
   memcpy( out, var, FD_SYSVAR_EPOCH_REWARDS_FOOTPRINT );
 

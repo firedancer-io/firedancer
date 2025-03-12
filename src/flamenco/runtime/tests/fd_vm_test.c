@@ -99,7 +99,7 @@ do{
 
   /* Enable direct_mapping for SBPF version >= v1 */
   if( input->vm_ctx.sbpf_version >= FD_SBPF_V1 ) {
-    ((fd_exec_epoch_ctx_t *)(instr_ctx->epoch_ctx))->features.bpf_account_data_direct_mapping = 0UL;
+    ((fd_exec_txn_ctx_t *)(instr_ctx->txn_ctx))->features.bpf_account_data_direct_mapping = 0UL;
   }
 
   /* Setup input region */
@@ -108,7 +108,7 @@ do{
   fd_vm_input_region_t    input_mem_regions[1000] = {0}; /* We can have a max of (3 * num accounts + 1) regions */
   fd_vm_acc_region_meta_t acc_region_metas[256]   = {0}; /* instr acc idx to idx */
   uint                    input_mem_regions_cnt   = 0U;
-  int                     direct_mapping          = FD_FEATURE_ACTIVE( instr_ctx->slot_ctx, bpf_account_data_direct_mapping );
+  int                     direct_mapping          = FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot_bank->slot, instr_ctx->txn_ctx->features, bpf_account_data_direct_mapping );
 
   uchar * input_ptr      = NULL;
   uchar   program_id_idx = instr_ctx->instr->program_id;
@@ -150,7 +150,10 @@ do{
 
   /* Setup syscalls. Have them all be no-ops */
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ) );
-  fd_vm_syscall_register_slot( syscalls, instr_ctx->slot_ctx, 0 );
+  fd_vm_syscall_register_slot( syscalls,
+                               instr_ctx->txn_ctx->slot_bank->slot,
+                               &instr_ctx->txn_ctx->features,
+                               0 );
 
   for( ulong i=0; i< fd_sbpf_syscalls_slot_cnt(); i++ ){
     fd_sbpf_syscalls_t * syscall = fd_sbpf_syscalls_query( syscalls, syscalls[i].key, NULL );

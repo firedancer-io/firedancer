@@ -3,6 +3,7 @@
 
 #include "../../fd_flamenco_base.h"
 #include "../../types/fd_types.h"
+#include "../context/fd_exec_slot_ctx.h"
 
 /* The fees sysvar contains the fee calculator for the current slot. */
 
@@ -14,8 +15,10 @@ fd_sysvar_fees_init( fd_exec_slot_ctx_t * slot_ctx );
 
 /* Reads the current value of the fees sysvar */
 fd_sysvar_fees_t *
-fd_sysvar_fees_read( fd_sysvar_fees_t *         result,
-                     fd_exec_slot_ctx_t const * slot_ctx );
+fd_sysvar_fees_read( fd_sysvar_fees_t *        result,
+                     fd_sysvar_cache_t const * sysvar_cache,
+                     fd_acc_mgr_t *            acc_mgr,
+                     fd_funk_txn_t *           funk_txn );
 
 void
 fd_sysvar_fees_new_derived( fd_exec_slot_ctx_t *   slot_ctx,

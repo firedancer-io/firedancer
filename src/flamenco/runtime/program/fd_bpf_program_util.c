@@ -144,15 +144,16 @@ fd_bpf_get_executable_program_content_for_v1_v2_loaders( fd_txn_account_t * prog
 }
 
 void
-fd_bpf_get_sbpf_versions( uint *                     sbpf_min_version,
-                          uint *                     sbpf_max_version,
-                          fd_exec_slot_ctx_t const * slot_ctx ) {
-  int disable_v0  = FD_FEATURE_ACTIVE( slot_ctx, disable_sbpf_v0_execution );
-  int reenable_v0 = FD_FEATURE_ACTIVE( slot_ctx, reenable_sbpf_v0_execution );
+fd_bpf_get_sbpf_versions( uint *                 sbpf_min_version,
+                          uint *                 sbpf_max_version,
+                          fd_slot_bank_t const * slot_bank,
+                          fd_features_t const *  features ) {
+  int disable_v0  = FD_FEATURE_ACTIVE( slot_bank->slot, *features, disable_sbpf_v0_execution );
+  int reenable_v0 = FD_FEATURE_ACTIVE( slot_bank->slot, *features, reenable_sbpf_v0_execution );
   int enable_v0   = !disable_v0 || reenable_v0;
-  int enable_v1   = FD_FEATURE_ACTIVE( slot_ctx, enable_sbpf_v1_deployment_and_execution );
-  int enable_v2   = FD_FEATURE_ACTIVE( slot_ctx, enable_sbpf_v2_deployment_and_execution );
-  int enable_v3   = FD_FEATURE_ACTIVE( slot_ctx, enable_sbpf_v3_deployment_and_execution );
+  int enable_v1   = FD_FEATURE_ACTIVE( slot_bank->slot, *features, enable_sbpf_v1_deployment_and_execution );
+  int enable_v2   = FD_FEATURE_ACTIVE( slot_bank->slot, *features, enable_sbpf_v2_deployment_and_execution );
+  int enable_v3   = FD_FEATURE_ACTIVE( slot_bank->slot, *features, enable_sbpf_v3_deployment_and_execution );
 
   *sbpf_min_version = enable_v0 ? FD_SBPF_V0 : FD_SBPF_V3;
   if( enable_v3 ) {
@@ -199,7 +200,10 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
 
     fd_sbpf_elf_info_t elf_info = {0};
     uint min_sbpf_version, max_sbpf_version;
-    fd_bpf_get_sbpf_versions( &min_sbpf_version, &max_sbpf_version, slot_ctx );
+    fd_bpf_get_sbpf_versions( &min_sbpf_version,
+                              &max_sbpf_version,
+                              &slot_ctx->slot_bank,
+                              &slot_ctx->epoch_ctx->features );
     if( fd_sbpf_elf_peek( &elf_info, program_data, program_data_len, /* deploy checks */ 0, min_sbpf_version, max_sbpf_version ) == NULL ) {
       FD_LOG_DEBUG(( "fd_sbpf_elf_peek() failed: %s", fd_sbpf_strerror() ));
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
@@ -229,7 +233,10 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
       FD_LOG_ERR(( "Call to fd_sbpf_syscalls_new() failed" ));
     }
 
-    fd_vm_syscall_register_slot( syscalls, slot_ctx, 0 );
+    fd_vm_syscall_register_slot( syscalls,
+                                 slot_ctx->slot_bank.slot,
+                                 &slot_ctx->epoch_ctx->features,
+                                 0 );
 
     /* Load program. */
 
@@ -248,7 +255,10 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
       FD_LOG_ERR(( "fd_vm_new() or fd_vm_join() failed" ));
     }
     fd_exec_instr_ctx_t dummy_instr_ctx = {0};
-    dummy_instr_ctx.slot_ctx = slot_ctx;
+    fd_exec_txn_ctx_t   dummy_txn_ctx   = {0};
+    dummy_txn_ctx.slot_bank = &slot_ctx->slot_bank;
+    dummy_txn_ctx.features  = slot_ctx->epoch_ctx->features;
+    dummy_instr_ctx.txn_ctx = &dummy_txn_ctx;
     vm = fd_vm_init( vm,
                      &dummy_instr_ctx,
                      0UL,
@@ -269,7 +279,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
                      0U,
                      NULL,
                      0,
-                     FD_FEATURE_ACTIVE( slot_ctx, bpf_account_data_direct_mapping ) );
+                     FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, bpf_account_data_direct_mapping ) );
 
     if( FD_UNLIKELY( !vm ) ) {
       FD_LOG_ERR(( "fd_vm_init() failed" ));
@@ -477,20 +487,19 @@ fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 int
-fd_bpf_load_cache_entry( fd_exec_slot_ctx_t const *     slot_ctx,
+fd_bpf_load_cache_entry( fd_funk_t *                    funk,
+                         fd_funk_txn_t *                funk_txn,
                          fd_pubkey_t const *            program_pubkey,
                          fd_sbpf_validated_program_t ** valid_prog ) {
-  fd_funk_t * funk = slot_ctx->acc_mgr->funk;
-  fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
-  fd_funk_rec_key_t id   = fd_acc_mgr_cache_key( program_pubkey );
+  fd_funk_rec_key_t id       = fd_acc_mgr_cache_key( program_pubkey );
 
-  fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, funk_txn, &id, NULL);
+  fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, funk_txn, &id, NULL );
 
   if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) ) {
     return -1;
   }
 
-  void const * data = fd_funk_val_const( rec, fd_funk_wksp(funk) );
+  void const * data = fd_funk_val_const( rec, fd_funk_wksp( funk ) );
 
   /* TODO: magic check */
 
