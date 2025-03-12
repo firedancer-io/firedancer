@@ -423,7 +423,7 @@ milliseconds) if leaders are offline and not producing blocks.
 |-----------------|----------|-------------|
 | *Once* + *Live* | `number` | `275138349` |
 
-The estimated slot is the same as the completd slot, except it still
+The estimated slot is the same as the completed slot, except it still
 progresses forward even if the current leaders are skipping (not
 producing) their slot. For example, if the last completed slot was
 `1001` and it has been 800 milliseconds since that slot, the estimated
@@ -489,7 +489,7 @@ the client can calculate it from the stream of new slot data.
 The sum of the non-vote successful and the non-vote failed transactions
 represent the number of non-vote transactions. The sum of the estimated
 vote and non-vote transactions will be equal to the estimated total
-tranasactions per second.
+transactions per second.
 
 ::: details Example
 
@@ -576,7 +576,7 @@ fit into our block, and then successfully place some transactions into
 a block. Transactions can also be received and dropped during the leader
 slot, but it's important to note: the waterfall shows statistics for all
 transactions since the end of our last leader slot. These are
-transactions that are now eligible for palcement into the next one.
+transactions that are now eligible for placement into the next one.
 
 The waterfall is typically useful when viewing what happened in a past
 leader slot: we want to know where transactions came from, and for what
@@ -585,7 +585,7 @@ reasons they didn't make it into the block. For example, if we received
 what happened to the other 94,000?
 
 The live waterfall is a special case: it's for the next slot of the
-validator, rather than one that is in the past. Becuase the slot hasn't
+validator, rather than one that is in the past. Because the slot hasn't
 happened yet, we know certain information: how many transactions we have
 received so far from users that we could pack into our next block, how
 many have expired, how many failed to verify, and so on, but we probably
@@ -595,7 +595,7 @@ the waterfall for a block that has been published.
 The waterfall should generally be balanced: total transactions in and
 total transactions out will be the roughly the same, but not always
 strictly. Transactions in could be more or less than transactions out
-due to sampling jiter. When subtracting, be sure to account for
+due to sampling jitter. When subtracting, be sure to account for
 potential underflow.
 
 #### `summary.live_tile_primary_metric`
@@ -655,7 +655,7 @@ potential underflow.
 Live tile timers is an array, one entry per tile, of how idle the tile
 was in the preceding 10 millisecond sampling window. A value of `-1`
 indicates no sample was taken in the window, typically because the tile
-was contet switched out by the kernel or it is hung.
+was context switched out by the kernel or it is hung.
 
 The tiles appear in the same order here that they are reported when you
 first connect by the `summary.tiles` message.
@@ -779,7 +779,7 @@ once they are confirmed (the prior epoch has fully rooted).
 | excluded_stake_lamports | `number` | This number is almost always zero. Firedancer has a limit of 40,200 for the number of staked peer validators it can keep track of. In the unlikely event that this number is exceeded, the lowest staked peers will be forgotten, and their stake will not appear in the below lists. But is is useful to know the total stake in the epoch, so this value represents the leftover/excluded ("poisoned") amount of stake that we do not know which validator it belongs to
 | staked_pubkeys | `string[]` | A list of all of validator identity keys for validators which have are staked in this epoch.  There will be at most 40,200 staked keys, after which lower staked keys will not be included |
 | staked_lamports | `number[]` | A list with the same length as the `staked_pubkeys` field. `stake_lamports[ i ]` is the number of lamports staked on the pubkey `staked_pubkeys[ i ]` as of this epoch
-| leader_slots | `number[]` | An array, one entry per four slots, of which pubkey in the `leader_pubkeys` array is leader for those slots. On `mainnet-beta` this array will always have a length of 108,000, which is the number of slots in an epoch divded by four.  Leader slots are in groups of four because the leader schedule is generated in such a way as to guarantee each leader gets at least four consecutive slots.  For example, to find the pubkey of the leader in slot 1000 of the epoch, it is `staked_pubkeys[ leader_slots[ 1000/4 ] ]` |
+| leader_slots | `number[]` | An array, one entry per four slots, of which pubkey in the `leader_pubkeys` array is leader for those slots. On `mainnet-beta` this array will always have a length of 108,000, which is the number of slots in an epoch divided by four.  Leader slots are in groups of four because the leader schedule is generated in such a way as to guarantee each leader gets at least four consecutive slots.  For example, to find the pubkey of the leader in slot 1000 of the epoch, it is `staked_pubkeys[ leader_slots[ 1000/4 ] ]` |
 
 On establishing a connection two epochs are sent to the client. The
 current epoch that the cluster is in, and the next epoch. From then on,
@@ -977,10 +977,10 @@ initially replay one but the cluster votes on the other one.
 | skipped    | `boolean` | True if the slot was skipped. The skipped state is the state in the currently active fork of the validator. The skipped state can change if the validator switches active fork |
 | duration_nanos | `number\|null` | A duration in nanoseconds of how long it took us to receive and replay the slot. This is the time as measured since we completed replay of the parent slot locally on this validator, til the time we replayed this slot locally on this validator |
 | completed_time_nanos | `number\|null` |  UNIX timestamp in nanoseconds of when this validator finished replaying the slot locally. If the slot was skipped, this may be `null` which indicates the block for this slot did not finish replaying on this validator. In some cases, a skipped slot will still have a completed time, if we received the data for the block, replayed it, and then decided to use a different fork |
-| level      | `string`  | One of `incomplete`, `completed`, `optimistically_confirmed`, `rooted`, or `finalized` as described above. The state is the state in the currently active fork of this validator. The state can change normally (for example, a completed slot becoming optimisitically confirmed or rooted), or also because the validator switched forks |
+| level      | `string`  | One of `incomplete`, `completed`, `optimistically_confirmed`, `rooted`, or `finalized` as described above. The state is the state in the currently active fork of this validator. The state can change normally (for example, a completed slot becoming optimistically confirmed or rooted), or also because the validator switched forks |
 | transactions | `number\|null` | Total number of transactions (vote and non-vote) in the block. If the slot is not skipped, this will be non-null, but in some cases it will also be non-null even if the slot was skipped. That's because we replayed the block but selected a fork without it, but we still know how many transactions were in it |
 | vote_transactions | `number\|null` | Total number of vote transactions in the block. Will always be less than or equal to `transactions`. The number of non-vote transactions is given by `transactions - vote_transactions`
-| failed_transactions | `number\|null` | Total number of failed transactions (vote and non-vote) in the block. Failed transactions are those which are included in the block and were charged fees, but failed to execute successfully. This is different from dropped transations which do not pay fees and are not included in the block |
+| failed_transactions | `number\|null` | Total number of failed transactions (vote and non-vote) in the block. Failed transactions are those which are included in the block and were charged fees, but failed to execute successfully. This is different from dropped transactions which do not pay fees and are not included in the block |
 | compute_units | `number\|null`       | Total number of compute units used by the slot |
 | transaction_fee | `number\|null`     | Total amount of transaction fees that this slot collects in lamports after any burning |
 | priority_fee    | `number\|null`     | Total amount of priority fees that this slot collects in lamports after any burning |
@@ -1182,11 +1182,11 @@ new validator identity.
 **`TxnWaterfallOut`**
 | Field             | Type     | Description |
 |-------------------|----------|-------------|
-| net_overrun       | `number` | Transactions were dropped because the net tile couldn't keep with incoming network packets. It is unclear how many transactions would have been produced by the packets that were dropped, and this counter (along with the corresponding counter for the `in` side) assumes one tranaction per dropped packet |
-| quic_overrun      | `number` | Transactions were dropped because the QUIC tile couldn't keep with incoming network packets. It is unclear how many transactions would have been produced by the fragments from net that were overrun, and this counter (along with the corresponding counter for the `in` side) assumes one tranaction per dropped packet |
+| net_overrun       | `number` | Transactions were dropped because the net tile couldn't keep with incoming network packets. It is unclear how many transactions would have been produced by the packets that were dropped, and this counter (along with the corresponding counter for the `in` side) assumes one transaction per dropped packet |
+| quic_overrun      | `number` | Transactions were dropped because the QUIC tile couldn't keep with incoming network packets. It is unclear how many transactions would have been produced by the fragments from net that were overrun, and this counter (along with the corresponding counter for the `in` side) assumes one transaction per dropped packet |
 | quic_frag_drop    | `number` | Transactions were dropped because there are more ongoing receive operations than buffer space. |
 | quic_abandoned    | `number` | Transactions were dropped because a connection closed before all bytes were received. |
-| tpu_quic_invalid  | `number` | Transactions were dropped because the QUIC tile decided that incoming QUIC packets were not valid. It is unclear how many transactions would have been produced by the packets that were invalid, and this counter (along with the corresponding counter for the `in` side) assumes one tranaction per invalid packet |
+| tpu_quic_invalid  | `number` | Transactions were dropped because the QUIC tile decided that incoming QUIC packets were not valid. It is unclear how many transactions would have been produced by the packets that were invalid, and this counter (along with the corresponding counter for the `in` side) assumes one transaction per invalid packet |
 | tpu_udp_invalid   | `number` | Transactions were dropped because the QUIC tile decided that incoming non-QUIC (regular UDP) packets were not valid. |
 | verify_overrun    | `number` | Transactions were dropped because the verify tiles could not verify them quickly enough |
 | verify_parse      | `number` | Transactions were dropped because they were malformed and failed to parse |
