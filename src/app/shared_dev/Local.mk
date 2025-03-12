@@ -12,7 +12,6 @@ $(call add-objs,commands/flame,fddev_shared)
 $(call add-objs,commands/load,fddev_shared)
 $(call add-objs,commands/pktgen/pktgen,fddev_shared)
 $(call add-objs,commands/txn,fddev_shared)
-$(call add-objs,commands/spy,fddev_shared)
 $(call add-objs,commands/help,fddev_shared)
 $(call add-objs,commands/wksp,fddev_shared)
 

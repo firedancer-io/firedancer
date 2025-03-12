@@ -468,6 +468,14 @@ fdctl_cfg_from_env( int *      pargc,
 int
 fdctl_cfg_to_memfd( config_t const * config );
 
+/* fdctl_cfg_net_auto attempts to automatically select an interface
+   index and publicly routable IP address based on the current net
+   configuration.  Existing interface/IP address config overrules the
+   auto-selection logic. */
+
+void
+fdctl_cfg_net_auto( config_t * config );
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_app_shared_fd_config_h */

@@ -2,15 +2,8 @@
 
 #include "fdctl.h"
 
-#include "topos/topos.h"
-
-#include "../shared/fd_sys_util.h"
-#include "../shared/fd_net_util.h"
-
-#include "../../ballet/toml/fd_toml.h"
 #include "../../disco/topo/fd_pod_format.h"
 #include "../../disco/metrics/fd_metrics.h"
-#include "../../flamenco/genesis/fd_genesis_cluster.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #if FD_HAS_NO_AGAVE
 #include "../../flamenco/runtime/fd_blockstore.h"
@@ -22,23 +15,6 @@
 #include "../../waltz/mib/fd_dbl_buf.h"
 #undef FD_MAP_FLAG_BLOCKING
 #include "../../waltz/neigh/fd_neigh4_map.h"
-#include "../../util/net/fd_eth.h"
-#include "../../util/net/fd_ip4.h"
-
-#include <fcntl.h>
-#include <pwd.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <net/if.h>
-#include <linux/if.h>
-#include <arpa/inet.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <sys/sysinfo.h>
-#include <sys/ioctl.h>
-#include <sys/utsname.h>
-#include <sys/wait.h>
 
 fd_topo_run_tile_t *
 fd_topo_tile_to_config( fd_topo_tile_t const * tile ) {

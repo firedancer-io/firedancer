@@ -322,7 +322,6 @@ typedef struct {
       ushort  gossip_listen_port;
       ulong   entrypoints_cnt;
       uint    entrypoints[16];
-      ulong   peer_ports_cnt;
       ushort  peer_ports[16];
 
       uint    ip_addr;
@@ -333,7 +332,6 @@ typedef struct {
       ushort  tpu_vote_port;
       ushort  repair_serve_port;
       ulong   expected_shred_version;
-      int     plugins_enabled;
     } gossip;
 
     struct {
