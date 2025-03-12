@@ -85,9 +85,12 @@ after_frag( fd_plugin_ctx_t *   ctx,
             ulong               sig,
             ulong               sz,
             ulong               tsorig,
+            ulong               tspub,
             fd_stem_context_t * stem ) {
   (void)seq;
   (void)tsorig;
+  (void)tspub;
+  (void)stem;
 
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_REPLAY: {
@@ -209,6 +212,9 @@ populate_allowed_fds( fd_topo_t const *      topo,
 }
 
 #define STEM_BURST (1UL)
+
+/* See explanation in fd_pack */
+#define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_plugin_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_plugin_ctx_t)

@@ -252,6 +252,7 @@ after_frag( fd_restart_tile_ctx_t * ctx,
             ulong                  sig FD_PARAM_UNUSED,
             ulong                  sz FD_PARAM_UNUSED,
             ulong                  tsorig FD_PARAM_UNUSED,
+            ulong                  tspub FD_PARAM_UNUSED,
             fd_stem_context_t *    stem FD_PARAM_UNUSED ) {
   if( FD_LIKELY( in_idx==GOSSIP_IN_IDX ) ) {
     ulong heaviest_fork_found = 0, need_repair = 0;

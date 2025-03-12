@@ -308,9 +308,11 @@ after_frag( fd_poh_ctx_t *      ctx,
             ulong               sig,
             ulong               sz,
             ulong               tsorig,
+            ulong               tspub,
             fd_stem_context_t * stem ) {
   (void)seq;
   (void)tsorig;
+  (void)tspub;
   (void)stem;
 
   if( FD_UNLIKELY( ctx->filter_frag ) ) return;

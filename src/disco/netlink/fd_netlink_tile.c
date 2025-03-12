@@ -352,8 +352,9 @@ after_frag( fd_netlink_tile_ctx_t * ctx,
             ulong                   sig,
             ulong                   sz,
             ulong                   tsorig,
+            ulong                   tspub,
             fd_stem_context_t *     stem ) {
-  (void)in_idx; (void)seq; (void)tsorig; (void)stem;
+  (void)in_idx; (void)seq; (void)tsorig; (void)tspub; (void)stem;
 
   long now = fd_tickcount();
   ctx->idle_cnt = -1L;
