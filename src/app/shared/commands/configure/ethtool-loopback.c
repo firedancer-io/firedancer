@@ -152,7 +152,7 @@ change_feature( int   sock,
 }
 
 static void
-init( config_t * const config FD_PARAM_UNUSED ) {
+init( config_t const * config FD_PARAM_UNUSED ) {
   int sock = socket( AF_INET, SOCK_DGRAM, 0 );
   if( FD_UNLIKELY( sock < 0 ) )
     FD_LOG_ERR(( "error configuring network device, socket(AF_INET,SOCK_DGRAM,0) failed (%i-%s)",

@@ -43,7 +43,7 @@ fini_perm( fd_cap_chk_t *   chk,
   } while( 0 )
 
 static void
-init( config_t * config ) {
+init( config_t const * config ) {
   uint tiles              = config->layout.net_tile_count;
   const char * interface0 = config->development.netns.interface0;
   const char * interface1 = config->development.netns.interface1;
@@ -94,8 +94,8 @@ init( config_t * config ) {
 }
 
 static void
-fini( config_t * config,
-      int        pre_init FD_PARAM_UNUSED ) {
+fini( config_t const * config,
+      int              pre_init FD_PARAM_UNUSED ) {
   const char * interface0 = config->development.netns.interface0;
   const char * interface1 = config->development.netns.interface1;
 

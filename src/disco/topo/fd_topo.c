@@ -52,10 +52,8 @@ fd_topo_join_workspaces( fd_topo_t *  topo,
 }
 
 void
-fd_topo_leave_workspace( fd_topo_t *      topo,
+fd_topo_leave_workspace( fd_topo_t *      topo FD_PARAM_UNUSED,
                          fd_topo_wksp_t * wksp ) {
-  (void)topo;
-
   if( FD_LIKELY( wksp->wksp ) ) {
     if( FD_UNLIKELY( fd_wksp_detach( wksp->wksp ) ) ) FD_LOG_ERR(( "fd_wksp_detach failed" ));
     wksp->wksp            = NULL;
@@ -127,11 +125,11 @@ fd_topo_create_workspace( fd_topo_t *      topo,
 }
 
 void
-fd_topo_wksp_apply( fd_topo_t *      topo,
-                    fd_topo_wksp_t * wksp,
+fd_topo_wksp_apply( fd_topo_t const *      topo,
+                    fd_topo_wksp_t const * wksp,
                     void (* fn )( fd_topo_t const * topo, fd_topo_obj_t const * obj ) ) {
   for( ulong i=0UL; i<topo->obj_cnt; i++ ) {
-    fd_topo_obj_t * obj = &topo->objs[ i ];
+    fd_topo_obj_t const * obj = &topo->objs[ i ];
     if( FD_LIKELY( obj->wksp_id!=wksp->id ) ) continue;
     fn( topo, obj );
   }

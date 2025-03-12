@@ -108,7 +108,7 @@ init_device( const char * device ) {
 }
 
 static void
-init( config_t * const config ) {
+init( config_t const * config ) {
   /* we need one channel for both TX and RX on the NIC for each QUIC
      tile, but the interface probably defaults to one channel total */
   if( FD_UNLIKELY( device_is_bonded( config->tiles.net.interface ) ) ) {

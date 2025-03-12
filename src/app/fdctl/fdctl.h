@@ -25,7 +25,7 @@ fdctl_obj_loose( fd_topo_t const *     topo,
                  fd_topo_obj_t const * obj );
 
 fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t * tile );
+fdctl_tile_run( fd_topo_tile_t const * tile );
 
 extern action_t ACTIONS[];
 
@@ -39,9 +39,9 @@ main1( int     argc,
        char ** _argv );
 
 void FD_FN_SENSITIVE
-generate_keypair( char const * keyfile,
-                  config_t *   config,
-                  int          use_grnd_random );
+generate_keypair( char const *     keyfile,
+                  config_t const * config,
+                  int              use_grnd_random );
 
 void run1_cmd_args        ( int * pargc, char *** pargv, args_t * args );
 void keys_cmd_args        ( int * pargc, char *** pargv, args_t * args );

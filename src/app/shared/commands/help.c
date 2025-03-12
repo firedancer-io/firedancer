@@ -5,11 +5,8 @@
 extern action_t * ACTIONS;
 
 void
-help_cmd_fn( args_t *         args,
-             config_t * const config ) {
-  (void)args;
-  (void)config;
-
+help_cmd_fn( args_t *   args   FD_PARAM_UNUSED,
+             config_t * config FD_PARAM_UNUSED ) {
   FD_LOG_STDOUT(( "Firedancer control binary\n\n" ));
   FD_LOG_STDOUT(( "Usage: fdctl [OPTIONS] <SUBCOMMAND>\n\n" ));
   FD_LOG_STDOUT(( "\nOPTIONS:\n" ));

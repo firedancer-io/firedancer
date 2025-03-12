@@ -89,12 +89,12 @@ tile_total_ticks( tile_snap_t * snap ) {
 }
 
 static void
-tile_snap( tile_snap_t * snap_cur,     /* Snapshot for each tile, indexed [0,tile_cnt) */
-           fd_topo_t *   topo ) {
+tile_snap( tile_snap_t *     snap_cur, /* Snapshot for each tile, indexed [0,tile_cnt) */
+           fd_topo_t const * topo ) {
   for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
     tile_snap_t * snap = &snap_cur[ tile_idx ];
 
-    fd_topo_tile_t * tile = &topo->tiles[ tile_idx ];
+    fd_topo_tile_t const * tile = &topo->tiles[ tile_idx ];
     snap->heartbeat = fd_metrics_tile( tile->metrics )[ FD_METRICS_GAUGE_TILE_HEARTBEAT_OFF ];
 
     fd_metrics_register( tile->metrics );
@@ -113,10 +113,10 @@ tile_snap( tile_snap_t * snap_cur,     /* Snapshot for each tile, indexed [0,til
 }
 
 static ulong
-find_producer_out_idx( fd_topo_t *      topo,
-                       fd_topo_tile_t * producer,
-                       fd_topo_tile_t * consumer,
-                       ulong            consumer_in_idx ) {
+find_producer_out_idx( fd_topo_t const *      topo,
+                       fd_topo_tile_t const * producer,
+                       fd_topo_tile_t const * consumer,
+                       ulong                  consumer_in_idx ) {
   /* This finds all reliable consumers of the producers primary output,
      and then returns the position of the consumer (specified by tile
      and index of the in of that tile) in that list. The list ordering
@@ -130,7 +130,7 @@ find_producer_out_idx( fd_topo_t *      topo,
 
   ulong reliable_cons_cnt = 0UL;
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t * consumer_tile = &topo->tiles[ i ];
+    fd_topo_tile_t const * consumer_tile = &topo->tiles[ i ];
     for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) {
       for( ulong k=0UL; k<producer->out_cnt; k++ ) {
         if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==producer->out_link_id[ k ] && consumer_tile->in_link_reliable[ j ] ) ) {
@@ -145,8 +145,8 @@ find_producer_out_idx( fd_topo_t *      topo,
 }
 
 static void
-link_snap( link_snap_t * snap_cur,
-           fd_topo_t *   topo ) {
+link_snap( link_snap_t *     snap_cur,
+           fd_topo_t const * topo ) {
   ulong link_idx = 0UL;
   for( ulong tile_idx=0UL; tile_idx<topo->tile_cnt; tile_idx++ ) {
     for( ulong in_idx=0UL; in_idx<topo->tiles[ tile_idx ].in_cnt; in_idx++ ) {
@@ -163,12 +163,12 @@ link_snap( link_snap_t * snap_cur,
         in_metrics = (ulong const *)fd_metrics_link_in( topo->tiles[ tile_idx ].metrics, in_idx );
       }
 
-      fd_topo_link_t * link = &topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx ] ];
+      fd_topo_link_t const * link = &topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx ] ];
       ulong producer_id = fd_topo_find_link_producer( topo, link );
       FD_TEST( producer_id!=ULONG_MAX );
       volatile ulong const * out_metrics = NULL;
       if( FD_LIKELY( topo->tiles[ tile_idx ].in_link_reliable[ in_idx ] ) ) {
-        fd_topo_tile_t * producer = &topo->tiles[ producer_id ];
+        fd_topo_tile_t const * producer = &topo->tiles[ producer_id ];
         ulong cons_idx = find_producer_out_idx( topo, producer, &topo->tiles[ tile_idx ], in_idx );
 
         out_metrics = fd_metrics_link_out( producer->metrics, cons_idx );
@@ -260,7 +260,7 @@ drain_to_buffer( char ** buf,
 }
 
 void
-run_monitor( config_t * const config,
+run_monitor( config_t const * config,
              int              drain_output_fd,
              int              with_sankey,
              long             dt_min,
@@ -268,7 +268,7 @@ run_monitor( config_t * const config,
              long             duration,
              uint             seed,
              double           ns_per_tic ) {
-  fd_topo_t * topo = &config->topo;
+  fd_topo_t const * topo = &config->topo;
 
   /* Setup local objects used by this app */
   fd_rng_t _rng[1];
@@ -380,7 +380,7 @@ run_monitor( config_t * const config,
         link_snap_t * prv = &link_snap_prv[ link_idx ];
         link_snap_t * cur = &link_snap_cur[ link_idx ];
 
-        fd_topo_link_t * link = &topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx ] ];
+        fd_topo_link_t const * link = &topo->links[ topo->tiles[ tile_idx ].in_link_id[ in_idx ] ];
         ulong producer_tile_id = fd_topo_find_link_producer( topo, link );
         FD_TEST( producer_tile_id != ULONG_MAX );
         char const * producer = topo->tiles[ producer_tile_id ].name;
@@ -526,8 +526,8 @@ signal1( int sig ) {
 }
 
 void
-monitor_cmd_fn( args_t *         args,
-                config_t * const config ) {
+monitor_cmd_fn( args_t *   args,
+                config_t * config ) {
   if( FD_UNLIKELY( args->monitor.with_bench ) ) {
     add_bench_topo( &config->topo,
                     config->development.bench.affinity,

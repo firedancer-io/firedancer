@@ -14,14 +14,14 @@
 #define NAME "run-agave"
 
 fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t * tile );
+fdctl_tile_run( fd_topo_tile_t const * tile );
 
 extern void fd_ext_validator_main( const char ** args );
 
 extern int * fd_log_private_shared_lock;
 
 static void
-clone_labs_memory_space_tiles( config_t * const config ) {
+clone_labs_memory_space_tiles( config_t * config ) {
   /* preload shared memory for all the agave tiles at once */
   for( ulong i=0; i<config->topo.wksp_cnt; i++ ) {
     fd_topo_wksp_t * wksp = &config->topo.workspaces[ i ];
@@ -51,9 +51,9 @@ int fd_ext_larger_shred_limits_per_block( void ) { return _fd_ext_larger_shred_l
 int fd_ext_disable_status_cache         ( void ) { return _fd_ext_disable_status_cache;          }
 
 void
-agave_boot( config_t * config ) {
+agave_boot( config_t const * config ) {
   uint idx = 0;
-  char * argv[ 128 ];
+  char const * argv[ 128 ];
   uint bufidx = 0;
   char buffer[ 32 ][ 16 ];
 #define ADD1( arg ) do { argv[ idx++ ] = arg; } while( 0 )
@@ -90,7 +90,7 @@ agave_boot( config_t * config ) {
     ADDH( "--expected-shred-version", config->consensus.expected_shred_version );
   if( !config->consensus.wait_for_vote_to_start_leader )
     ADD1( "--no-wait-for-vote-to-start-leader");
-  for( uint * p = config->consensus.hard_fork_at_slots; *p; p++ ) ADDU( "--hard-fork", *p );
+  for( uint const * p = config->consensus.hard_fork_at_slots; *p; p++ ) ADDU( "--hard-fork", *p );
   for( ulong i=0; i<config->consensus.known_validators_cnt; i++ )
     ADD( "--known-validator", config->consensus.known_validators[ i ] );
 
@@ -219,7 +219,7 @@ agave_boot( config_t * config ) {
 
 int
 agave_main( void * args ) {
-  config_t * const config = args;
+  config_t * config = args;
 
   if( FD_UNLIKELY( config->development.debug_tile ) ) {
     if( FD_UNLIKELY( config->development.debug_tile==UINT_MAX ) ) {
@@ -247,10 +247,8 @@ agave_main( void * args ) {
 }
 
 void
-run_agave_cmd_fn( args_t *         args,
-                  config_t * const config ) {
-  (void)args;
-
+run_agave_cmd_fn( args_t *   args FD_PARAM_UNUSED,
+                  config_t * config ) {
   fd_log_thread_set( "agave" );
 
   void * stack = create_clone_stack();
