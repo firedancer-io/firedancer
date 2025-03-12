@@ -44,6 +44,7 @@ bench_cmd_args( int *    pargc,
   args->load.no_quic = fd_env_strip_cmdline_contains( pargc, pargv, "--no-quic" );
 }
 
+#if !FD_HAS_NO_AGAVE
 static void *
 agave_thread_main( void * _args ) {
   config_t * config = _args;
@@ -53,6 +54,7 @@ agave_thread_main( void * _args ) {
   FD_LOG_ERR(( "agave_boot() exited" ));
   return NULL;
 }
+#endif
 
 void
 add_bench_topo( fd_topo_t  * topo,
@@ -197,8 +199,11 @@ bench_cmd_fn( args_t *   args,
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run, NULL );
+
+# if !FD_HAS_NO_AGAVE
   pthread_t agave;
   pthread_create( &agave, NULL, agave_thread_main, config );
+# endif
 
   /* Sleep parent thread forever, Ctrl+C will terminate. */
   for(;;) pause();

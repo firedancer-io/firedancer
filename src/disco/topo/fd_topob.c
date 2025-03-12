@@ -476,11 +476,13 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     if( FD_UNLIKELY( !found ) ) FD_LOG_WARNING(( "auto layout cannot affine tile `%s:%lu` because it is unknown. Leaving it floating", tile->name, tile->kind_id ));
   }
 
+# if !FD_HAS_NO_AGAVE
   for( ulong i=cpu_idx; i<cpus->cpu_cnt; i++ ) {
     if( FD_LIKELY( topo->agave_affinity_cnt<sizeof(topo->agave_affinity_cpu_idx)/sizeof(topo->agave_affinity_cpu_idx[0]) ) ) {
       topo->agave_affinity_cpu_idx[ topo->agave_affinity_cnt++ ] = cpu_ordering[ i ];
     }
   }
+# endif
 }
 
 void

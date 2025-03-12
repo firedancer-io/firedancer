@@ -28,7 +28,10 @@ $(call add-objs,commands/configure/hugetlbfs,fdctl_shared)
 $(call add-objs,commands/configure/hyperthreads,fdctl_shared)
 $(call add-objs,commands/configure/sysctl,fdctl_shared)
 $(call add-objs,commands/monitor/monitor commands/monitor/helper,fdctl_shared)
-$(call add-objs,commands/run/run commands/run/run1 commands/run/run_agave,fdctl_shared)
+$(call add-objs,commands/run/run commands/run/run1,fdctl_shared)
+ifndef FD_HAS_NO_AGAVE
+$(call add-objs,commands/run/run_agave,fdctl_shared)
+endif
 
 $(call add-objs,fd_cap_chk,fdctl_shared)
 $(call add-objs,fd_file_util,fdctl_shared)

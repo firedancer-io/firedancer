@@ -88,9 +88,13 @@ dev1_cmd_fn( args_t *   args,
   if( FD_UNLIKELY( close( config->log.lock_fd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   int result = 0;
+#if !FD_HAS_NO_AGAVE
   if( !strcmp( args->dev1.tile_name, "agave" ) ) {
     result = agave_main( config );
   } else {
+#else
+  {
+#endif
     ulong tile_id = fd_topo_find_tile( &config->topo, args->dev1.tile_name, 0UL );
     if( FD_UNLIKELY( tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "tile %s not found in topology", args->dev1.tile_name ));
 

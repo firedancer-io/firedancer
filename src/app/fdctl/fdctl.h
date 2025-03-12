@@ -50,7 +50,6 @@ void set_identity_cmd_args( int * pargc, char *** pargv, args_t * args );
 void set_identity_cmd_perm( args_t * args, fd_cap_chk_t * chk, config_t const * config );
 
 void run1_cmd_fn        ( args_t * args, config_t * config );
-void run_agave_cmd_fn   ( args_t * args, config_t * config );
 void keys_cmd_fn        ( args_t * args, config_t * config );
 void set_identity_cmd_fn( args_t * args, config_t * config );
 void ready_cmd_fn       ( args_t * args, config_t * config );
@@ -58,5 +57,9 @@ void mem_cmd_fn         ( args_t * args, config_t * config );
 void netconf_cmd_fn     ( args_t * args, config_t * config );
 void help_cmd_fn        ( args_t * args, config_t * config );
 void version_cmd_fn     ( args_t * args, config_t * config );
+
+#if !FD_HAS_NO_AGAVE
+void run_agave_cmd_fn( args_t * args, config_t * config );
+#endif
 
 #endif /* HEADER_fd_src_app_fdctl_fdctl_h */
