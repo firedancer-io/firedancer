@@ -58,8 +58,16 @@
    FEC sets, which is no more than mcache_depth+4+fec_resolver_depth.
    Each FEC is paired with 4 fd_shred34_t structs, so that means we need
    to decompose the dcache into 4*mcache_depth + 4*fec_resolver_depth +
-   16 fd_shred34_t structs. */
+   16 fd_shred34_t structs.
 
+   A note on parallelization.  From the network, shreds are distributed
+   to tiles by their signature, so all the shreds for a given FEC set
+   are processed by the same tile.  From bank, the original implementation
+   used to parallelize by batch of microblocks (so within a block, batches
+   were distributed to different tiles).  To support chained merkle shreds,
+   the current implementation processes all the batches on tile 0 -- this
+   should be a temporary state while Solana moves to a newer shred format
+   that support better parallelization. */
 
 /* The memory this tile uses is a bit complicated and has some logical
    aliasing to facilitate zero-copy use.  We have a dcache containing
@@ -104,6 +112,13 @@ FD_STATIC_ASSERT( sizeof(fd_shred34_t) == FD_SHRED_STORE_MTU, shred_34 );
 FD_STATIC_ASSERT( sizeof(fd_entry_batch_meta_t)==24UL, poh_shred_mtu );
 
 #define FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT 2
+
+/* See note on parallelization above. Currently we process all batches in tile 0. */
+#if 1
+#define SHOULD_PROCESS_THESE_SHREDS ctx->round_robin_id==0
+#else
+#define SHOULD_PROCESS_THESE_SHREDS FD_UNLIKELY( ctx->batch_cnt%ctx->round_robin_cnt==ctx->round_robin_id )
+#endif
 
 typedef struct {
   fd_wksp_t * mem;
@@ -393,7 +408,7 @@ during_frag( fd_shred_ctx_t * ctx,
       ctx->batch_cnt = 0UL;
       ctx->slot      = target_slot;
     }
-    if( FD_UNLIKELY( ctx->batch_cnt%ctx->round_robin_cnt==ctx->round_robin_id ) ) {
+    if( SHOULD_PROCESS_THESE_SHREDS ) {
       /* Ugh, yet another memcpy */
       fd_memcpy( ctx->pending_batch.payload + ctx->pending_batch.pos, entry, entry_sz );
     } else {
@@ -408,7 +423,7 @@ during_frag( fd_shred_ctx_t * ctx,
 
     ctx->send_fec_set_idx = ULONG_MAX;
     if( FD_UNLIKELY( last_in_batch )) {
-      if( FD_UNLIKELY( ctx->batch_cnt%ctx->round_robin_cnt==ctx->round_robin_id ) ) {
+      if( SHOULD_PROCESS_THESE_SHREDS ) {
         /* If it's our turn, shred this batch. FD_UNLIKELY because shred tile cnt generally >= 2 */
         ulong batch_sz = sizeof(ulong)+ctx->pending_batch.pos;
 
