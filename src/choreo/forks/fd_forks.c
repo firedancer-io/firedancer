@@ -326,7 +326,6 @@ fd_forks_prepare( fd_forks_t const *    forks,
 
 void
 fd_forks_update( fd_forks_t *      forks,
-                 fd_blockstore_t * blockstore,
                  fd_epoch_t *      epoch,
                  fd_funk_t *       funk,
                  fd_ghost_t *      ghost,
@@ -356,32 +355,17 @@ fd_forks_update( fd_forks_t *      forks,
 
       fd_ghost_node_t const * node = fd_ghost_query( ghost, vote );
 
+      /* Error if the node's vote slot is not in ghost. This is an
+         invariant violation, because we know their tower must be on the
+         same fork as this current one that we're processing, and so by
+         definition their vote slot must be in our ghost (ie. we can't
+         have rooted past it or be on a different fork). */
 
-      fd_block_map_query_t query[1] = { 0 };
-      int err = fd_block_map_prepare( blockstore->block_map, &vote, NULL, query, FD_MAP_FLAG_BLOCKING );
-      fd_block_info_t * block_info = fd_block_map_query_ele( query );
-      if( FD_UNLIKELY( err || block_info->slot != vote ) ) FD_LOG_ERR(( "failed to prepare block map query" ));
+      if( FD_UNLIKELY( !node ) ) FD_LOG_ERR(( "[%s] voter %s's vote slot %lu was not in ghost", __func__, FD_BASE58_ENC_32_ALLOCA(&voter->key), vote ));
 
-      int eqvocsafe = fd_uchar_extract_bit( block_info->flags, FD_BLOCK_FLAG_EQVOCSAFE );
-      if( FD_UNLIKELY( !eqvocsafe ) ) {
-        double pct = (double)node->replay_stake / (double)epoch->total_stake;
-        if( FD_UNLIKELY( pct > FD_EQVOCSAFE_PCT ) ) {
-          FD_LOG_DEBUG(( "eqvocsafe %lu", block_info->slot ));
-          block_info->flags = fd_uchar_set_bit( block_info->flags, FD_BLOCK_FLAG_EQVOCSAFE );
-        }
-      }
-
-      int confirmed = fd_uchar_extract_bit( block_info->flags, FD_BLOCK_FLAG_CONFIRMED );
-      if( FD_UNLIKELY( !confirmed ) ) {
-        double pct = (double)node->replay_stake / (double)epoch->total_stake;
-        if( FD_UNLIKELY( pct > FD_CONFIRMED_PCT ) ) {
-          FD_LOG_DEBUG(( "confirmed %lu", block_info->slot ));
-          block_info->flags = fd_uchar_set_bit( block_info->flags, FD_BLOCK_FLAG_CONFIRMED );
-          forks->confirmed_wmark = fd_ulong_max( forks->confirmed_wmark, block_info->slot );
-          blockstore->shmem->hcs = fd_ulong_max( blockstore->shmem->hcs, vote );
-        }
-      }
-      fd_block_map_publish( query );
+      fd_ghost_replay_vote( ghost, voter, vote );
+      double pct = (double)node->replay_stake / (double)epoch->total_stake;
+      if( FD_UNLIKELY( pct > FD_CONFIRMED_PCT ) ) forks->confirmed = fd_ulong_max( forks->confirmed, node->slot );
     }
 
     /* Check if this voter's root >= ghost root. We can't process
@@ -390,51 +374,18 @@ fd_forks_update( fd_forks_t *      forks,
     ulong root = fd_voter_state_root( state );
     if( FD_LIKELY( root != FD_SLOT_NULL && root >= fd_ghost_root( ghost )->slot ) ) {
       fd_ghost_node_t const * node = fd_ghost_query( ghost, root );
-      if( FD_UNLIKELY( !node ) ) {
 
-        /* Error if the node's root is not in ghost. This is an
-           invariant violation because a node cannot have possibly
-           rooted something that on the current fork that isn't in
-           ghost. */
+      /* Error if the node's root slot is not in ghost. This is an
+         invariant violation, because we know their tower must be on the
+         same fork as this current one that we're processing, and so by
+         definition their root slot must be in our ghost (ie. we can't
+         have rooted past it or be on a different fork). */
 
-        FD_LOG_ERR(( "[%s] node %s's root %lu was not in ghost", __func__, FD_BASE58_ENC_32_ALLOCA(&voter->key), root ));
-      }
+      if( FD_UNLIKELY( !node ) ) FD_LOG_ERR(( "[%s] voter %s's root slot %lu was not in ghost", __func__, FD_BASE58_ENC_32_ALLOCA(&voter->key), root ));
 
       fd_ghost_rooted_vote( ghost, voter, root );
-
-      /* Check if it has crossed finalized threshold. */
-
-      /* Doing a blocking read because of nested if/loops, and it's
-         easier to reason about than if we had to loop for non-blocking
-         writes. Every prepare is followed by publish/cancel. */
-      fd_block_map_query_t query[1] = { 0 };
-      int err = fd_block_map_prepare( blockstore->block_map, &root, NULL, query, FD_MAP_FLAG_BLOCKING );
-      fd_block_info_t * block_info = fd_block_map_query_ele( query );
-      if( FD_UNLIKELY( err || block_info->slot != root ) ) FD_LOG_ERR(( "failed to prepare block map query" ));
-      int               finalized       = fd_uchar_extract_bit( block_info->flags, FD_BLOCK_FLAG_FINALIZED );
-      if( FD_UNLIKELY( !finalized ) ) {
-        double pct = (double)node->rooted_stake / (double)epoch->total_stake;
-        if( FD_UNLIKELY( pct > FD_FINALIZED_PCT ) ) {
-          FD_LOG_DEBUG(( "finalized %lu", block_info->slot ));
-          forks->finalized_wmark = block_info->slot;
-          fd_block_info_t * ancestor = block_info;
-          /* block_map_entry ptr is still valid because we haven't published yet. */
-          while( ancestor ) {
-            ancestor->flags = fd_uchar_set_bit( ancestor->flags, FD_BLOCK_FLAG_FINALIZED );
-            ulong ancestor_slot = ancestor->parent_slot;
-            fd_block_map_publish( query );
-
-            fd_block_map_prepare( blockstore->block_map, &ancestor_slot, NULL, query, FD_MAP_FLAG_BLOCKING );
-            ancestor = fd_block_map_query_ele( query );
-            if( FD_UNLIKELY( !ancestor || ancestor->slot != ancestor_slot) ) {
-              break;
-            }
-          }
-        }
-      }
-      /* cancel the last prepare for non-existent ancestor*/
-      fd_block_map_cancel( query );
-      FD_TEST(fd_block_map_verify( blockstore->block_map ) == FD_MAP_SUCCESS);
+      double pct = (double)node->rooted_stake / (double)epoch->total_stake;
+      if( FD_UNLIKELY( pct > FD_FINALIZED_PCT ) ) forks->finalized = fd_ulong_max( forks->finalized, node->slot );
     }
   }
 }
