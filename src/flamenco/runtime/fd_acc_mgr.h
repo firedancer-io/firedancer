@@ -55,11 +55,6 @@ struct __attribute__((aligned(16UL))) fd_acc_mgr {
 
   ulong part_width;
 
-  /* skip_rent_rewrites is a feature flag controlling rent collection
-     behavior during eager rent collection passes. */
-
-  uchar skip_rent_rewrites : 1;
-
   uint is_locked;
 };
 
@@ -270,6 +265,13 @@ fd_acc_mgr_lock( fd_acc_mgr_t * acc_mgr );
 
 void
 fd_acc_mgr_unlock( fd_acc_mgr_t * acc_mgr );
+
+/* fd_acc_mgr_set_slots_per_epoch updates the slots_per_epoch setting
+   and re-calculates the partition width.  No-op unless 'slots_per_epoch' changes. */
+
+void
+fd_acc_mgr_set_slots_per_epoch( fd_exec_slot_ctx_t * slot_ctx,
+                                ulong                slots_per_epoch );
 
 /* fd_acc_mgr_strerror converts an fd_acc_mgr error code into a human
    readable cstr.  The lifetime of the returned pointer is infinite and

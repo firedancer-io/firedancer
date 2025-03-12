@@ -40,6 +40,14 @@ fd_acc_mgr_delete( fd_acc_mgr_t * acc_mgr ) {
   return acc_mgr;
 }
 
+void
+fd_acc_mgr_set_slots_per_epoch( fd_exec_slot_ctx_t * slot_ctx,
+                                ulong                slots_per_epoch ) {
+  fd_acc_mgr_t * acc_mgr   = slot_ctx->acc_mgr;
+  acc_mgr->slots_per_epoch = slots_per_epoch;
+  acc_mgr->part_width      = fd_rent_partition_width( slots_per_epoch );  
+}
+
 fd_account_meta_t const *
 fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
                      fd_funk_txn_t const *  txn,

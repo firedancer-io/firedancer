@@ -1548,6 +1548,12 @@ fd_feature_id_t const ids[] = {
     .name                      = "enable_transaction_loading_failure_fees",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
+  { .index                     = offsetof(fd_features_t, disable_partitioned_rent_collection)>>3,
+    .id                        = {"\x11\x6d\x1d\xd8\x23\xca\x86\x4d\x30\x4e\x6a\x0b\x8f\xe5\x2b\xd4\xf9\x49\xca\x91\x36\x1f\x39\x34\xc7\x53\x10\xf1\xcf\xfb\x6b\x33"},
+                                 /* 2B2SBNbUcr438LtGXNcJNBP2GBSxjx81F945SdSkUSfC */
+    .name                      = "disable_partitioned_rent_collection",
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+
   { .index = ULONG_MAX }
 };
 /* TODO replace this with fd_map_perfect */
@@ -1781,6 +1787,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0x08dc7e6d724d4e47: return &ids[ 224 ];
   case 0x8ef4f4fdbc3d6c85: return &ids[ 225 ];
   case 0xd571e3dc9532c905: return &ids[ 226 ];
+  case 0x4d86ca23d81d6d11: return &ids[ 227 ];
   default: break;
   }
   return NULL;
@@ -2013,4 +2020,5 @@ FD_STATIC_ASSERT( offsetof( fd_features_t, reserve_minimal_cus_for_builtin_instr
 FD_STATIC_ASSERT( offsetof( fd_features_t, raise_block_limits_to_50m                               )>>3==224UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, move_precompile_verification_to_svm                     )>>3==225UL, layout );
 FD_STATIC_ASSERT( offsetof( fd_features_t, enable_transaction_loading_failure_fees                 )>>3==226UL, layout );
+FD_STATIC_ASSERT( offsetof( fd_features_t, disable_partitioned_rent_collection                     )>>3==227UL, layout );
 FD_STATIC_ASSERT( sizeof( fd_features_t )>>3==FD_FEATURE_ID_CNT, layout );
