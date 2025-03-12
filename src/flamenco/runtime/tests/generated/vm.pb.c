@@ -21,7 +21,7 @@ PB_BIND(FD_EXEC_TEST_SYSCALL_CONTEXT, fd_exec_test_syscall_context_t, 2)
 PB_BIND(FD_EXEC_TEST_SYSCALL_EFFECTS, fd_exec_test_syscall_effects_t, 2)
 
 
-PB_BIND(FD_EXEC_TEST_SYSCALL_FIXTURE, fd_exec_test_syscall_fixture_t, 2)
+PB_BIND(FD_EXEC_TEST_SYSCALL_FIXTURE, fd_exec_test_syscall_fixture_t, 4)
 
 
 PB_BIND(FD_EXEC_TEST_FULL_VM_CONTEXT, fd_exec_test_full_vm_context_t, AUTO)
