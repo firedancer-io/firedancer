@@ -153,7 +153,7 @@ main( int     argc,
     FD_TEST( quic->metrics.net_tx_pkt_cnt <= frame_cnt );
   }
 
-  fd_quic_svc_validate( quic );
+  fd_quic_state_validate( quic );
 
   fd_wksp_free_laddr( conn_list );
   fd_wksp_free_laddr( fd_quic_sandbox_delete( sandbox ) );
