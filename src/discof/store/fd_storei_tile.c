@@ -250,6 +250,7 @@ after_frag( fd_store_tile_ctx_t * ctx,
             ulong                 sig    FD_PARAM_UNUSED,
             ulong                 sz     FD_PARAM_UNUSED,
             ulong                 tsorig FD_PARAM_UNUSED,
+            ulong                 tspub  FD_PARAM_UNUSED,
             fd_stem_context_t *   stem   FD_PARAM_UNUSED ) {
   if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
     fd_stake_ci_stake_msg_fini( ctx->stake_ci );

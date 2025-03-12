@@ -128,11 +128,13 @@ after_frag( fd_rpcserv_tile_ctx_t * ctx,
             ulong                  sig,
             ulong                  sz,
             ulong                  tsorig,
+            ulong                  tspub,
             fd_stem_context_t *    stem ) {
   (void)seq;
   (void)sig;
   (void)sz;
   (void)tsorig;
+  (void)tspub;
   (void)stem;
 
   if( FD_LIKELY( in_idx==REPLAY_NOTIF_IDX ) ) {

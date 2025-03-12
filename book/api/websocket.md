@@ -856,48 +856,48 @@ identity is no longer in these three data sources, it will be removed.
 :::
 
 **`PeerUpdateGossip`**
-| Field         | Type     | Description
-|---------------|----------|------------
-| wallclock     | `number` | Not entirely sure yet TODO |
-| shred_version | `number` | A `u16` representing the shred version the validator is configured to use. The shred version is changed when the cluster restarts, and is used to make sure the validator is talking to nodes that have participated in the same cluster restart |
-| version | `string\|null` | Software version being advertised by the validator. Might be `null` if the validator is not gossiping a version, or we have received the contact information but not the version yet. The version string, if not null, will always be formatted like `major`.`minor`.`patch` where `major`, `minor`, and `patch` are `u16`s |
-| feature_set | `number\|null` | First four bytes of the `FeatureSet` hash interpreted as a little endian `u32`. Might be `null` if the validator is not gossiping a feature set, or we have received the contact information but not the feature set yet |
-| sockets | `[key: string]: string` | A dictionary of sockets that are advertised by the validator. `key` will be one of `gossip`, `repair`, `rpc`, `rpc_pubsub`, `serve_repair`, `serve_repair_quic`, `tpu`, `tpu_forwards`, `tpu_forwards_quic`, `tpu_quic`, `tpu_vote`, `tvu`, or `tvu_forwards`. The value is an address like `<addr>:<port>`: the location to send traffic to for this validator with the given protocol. Address might be either an IPv4 or an IPv6 address |
+| Field         | Type           | Description |
+|---------------|----------------|-------------|
+| wallclock     | `number`       | Not entirely sure yet TODO |
+| shred_version | `number`       | A `u16` representing the shred version the validator is configured to use. The shred version is changed when the cluster restarts, and is used to make sure the validator is talking to nodes that have participated in the same cluster restart |
+| version       | `string\|null` | Software version being advertised by the validator. Might be `null` if the validator is not gossiping a version, or we have received the contact information but not the version yet. The version string, if not null, will always be formatted like `major`.`minor`.`patch` where `major`, `minor`, and `patch` are `u16`s |
+| feature_set   | `number\|null` | First four bytes of the `FeatureSet` hash interpreted as a little endian `u32`. Might be `null` if the validator is not gossiping a feature set, or we have received the contact information but not the feature set yet |
+| sockets       | `[key: string]: string` | A dictionary of sockets that are advertised by the validator. `key` will be one of `gossip`, `repair`, `rpc`, `rpc_pubsub`, `serve_repair`, `serve_repair_quic`, `tpu`, `tpu_forwards`, `tpu_forwards_quic`, `tpu_quic`, `tpu_vote`, `tvu`, or `tvu_forwards`. The value is an address like `<addr>:<port>`: the location to send traffic to for this validator with the given protocol. Address might be either an IPv4 or an IPv6 address |
 
 **`PeerUpdateVoteAccount`**
-| Field       | Type     | Description
-|-------------|----------|------------
-| vote_pubkey | `string` | The public key of vote account, encoded in base58 |
-| activated_stake | `number` | The amount of stake in lamports that is activated on this vote account for the current epoch. Warming up or cooling down stake that was delegating during this epoch is not included |
-| last_vote | `number\|null` | The last vote by the vote account that was landed on chain, as seen by this validator. If the vote account has not yet landed any votes on the chain this will be `null` |
-| root_slot | `number\|null` | The last slot that was rooted by the vote account, based on the vote history. If the vote account has not yet rooted any slots this will be `null` |
-| epoch_credits | `number` | The number of credits earned by the vote account during the current epoch |
-| delinquent | `boolean` | Whether the vote account is delinquent or not. A vote account is considered delinquent if it has not had a vote land on chain for any of the last 127 (inclusive) confirmed slots, according to this validator. If there have been less than 128 confirmed slots on the chain (it is a new chain), a validator is considered delinquent only if it has not voted yet at all |
+| Field           | Type           | Description |
+|-----------------|----------------|-------------|
+| vote_pubkey     | `string`       | The public key of vote account, encoded in base58 |
+| activated_stake | `number`       | The amount of stake in lamports that is activated on this vote account for the current epoch. Warming up or cooling down stake that was delegating during this epoch is not included |
+| last_vote       | `number\|null` | The last vote by the vote account that was landed on chain, as seen by this validator. If the vote account has not yet landed any votes on the chain this will be `null` |
+| root_slot       | `number\|null` | The last slot that was rooted by the vote account, based on the vote history. If the vote account has not yet rooted any slots this will be `null` |
+| epoch_credits   | `number`       | The number of credits earned by the vote account during the current epoch |
+| delinquent      | `boolean`      | Whether the vote account is delinquent or not. A vote account is considered delinquent if it has not had a vote land on chain for any of the last 127 (inclusive) confirmed slots, according to this validator. If there have been less than 128 confirmed slots on the chain (it is a new chain), a validator is considered delinquent only if it has not voted yet at all |
 
 **`PeerUpdateInfo`**
-| Field       | Type     | Description
-|-------------|----------|------------
-| name        | `string\|null` | Self reported name of the validator, could be any string or null if there is no name set |
-| details     | `string\|null` | Self reported detailed description of the validator, could be any string or null if there is no details set |
-| website     | `string\|null` | Self reported website of the validator, could be any string and need not be a valid URI, or could be null if there is no website set |
-| icon_url    | `string\|null` | Self reported URL of the validator icon, could be any string and need not be a valid URI, or could be null if there is no icon URI set |
+| Field    | Type     | Description |
+|----------|----------|-------------|
+| name     | `string\|null` | Self reported name of the validator, could be any string or null if there is no name set |
+| details  | `string\|null` | Self reported detailed description of the validator, could be any string or null if there is no details set |
+| website  | `string\|null` | Self reported website of the validator, could be any string and need not be a valid URI, or could be null if there is no website set |
+| icon_url | `string\|null` | Self reported URL of the validator icon, could be any string and need not be a valid URI, or could be null if there is no icon URI set |
 
 **`PeerUpdate`**
-| Field      | Type   | Description
-|------------|--------|------------
-| identity | `string` | Identity public key of the validator, encoded in base58 |
-| gossip | `PeerUpdateGossip\|null` | Information reported for the validator identity over the gossip network. This is authenticated and the gossip node must have been in possession of the private key to publish gossip data as this identity. Gossip information is not validated or checked for correctness and could be set to any values by the peer |
-| vote | `PeerUpdateVoteAccount[]` | Information about the vote account(s) associated with this identity key, if there are any. It is extremely unusual for multiple vote accounts to report the same identity key. Vote account information like stake and commission is derived from the accounts on chain and cannot be corrupt, invalid, or incorrect |
-| info | `PeerUpdateInfo\|null` | If the validator has published self reported identifying information to the chain. This is authenticated and the operator must have been in possession of the private key to publish info as this identity. Information is not validated or checked for correctness and could be set to any values by the peer |
-
-**`PeerRemove`**
 | Field    | Type   | Description
 |----------|--------|------------
 | identity | `string` | Identity public key of the validator, encoded in base58 |
+| gossip   | `PeerUpdateGossip\|null` | Information reported for the validator identity over the gossip network. This is authenticated and the gossip node must have been in possession of the private key to publish gossip data as this identity. Gossip information is not validated or checked for correctness and could be set to any values by the peer |
+| vote     | `PeerUpdateVoteAccount[]` | Information about the vote account(s) associated with this identity key, if there are any. It is extremely unusual for multiple vote accounts to report the same identity key. Vote account information like stake and commission is derived from the accounts on chain and cannot be corrupt, invalid, or incorrect |
+| info     | `PeerUpdateInfo\|null` | If the validator has published self reported identifying information to the chain. This is authenticated and the operator must have been in possession of the private key to publish info as this identity. Information is not validated or checked for correctness and could be set to any values by the peer |
+
+**`PeerRemove`**
+| Field    | Type   | Description |
+|----------|--------|-------------|
+| identity | `string` | Identity public key of the validator, encoded in base58 |
 
 **`PeersUpdate`**
-| Field      | Type   | Description
-|------------|--------|------------
+| Field  | Type   | Description |
+|--------|--------|-------------|
 | add    | `GossipPeerUpdate[]` | List of peer validators that were added since the last update, or all of the peers for the first update after connecting |
 | update | `GossipPeerUpdate[]` | List of peer validators that were changed since the last update |
 | remove | `GossipPeerRemove[]` | List of peer validators that were removed since the last update |
@@ -920,8 +920,8 @@ them in normal order, starting as `incomplete` and finishing as
 | `incomplete` | The slot does not exist, either because the chain has not yet reached the slot or because it is still in the process of being replayed by our validator |
 | `completed`  | The slot has been fully received and successfully replayed by our validator |
 | `optimistically_confirmed` | The slot has been finished and successfully replayed by our validator, and more than two-thirds of stake have voted to confirm the slot |
-| `rooted` | Our validator has rooted the slot and considers the slot final. This occurs when 32 subsequent slots have been built on top of it |
-| `finalized` | Our validator has rooted the slot, and more than two-thirds of stake has rooted the slot, the network considers it final |
+| `rooted`     | Our validator has rooted the slot and considers the slot final. This occurs when 32 subsequent slots have been built on top of it |
+| `finalized`  | Our validator has rooted the slot, and more than two-thirds of stake has rooted the slot, the network considers it final |
 
 Slots are `incomplete` by default as most slots exist far in the future,
 and the `incomplete` level update is not typically published. A slot
@@ -970,21 +970,21 @@ a leader publishes two different blocks for their leader slot, and we
 initially replay one but the cluster votes on the other one.
 
 **`SlotPublish`**
-| Field      | Type      | Description |
-|------------|-----------|-------------|
-| slot       | `number`  | Identity of the slot, counting up from zero for the first slot in the chain |
-| mine       | `boolean` | True if this validator was the leader for this slot. This will never change for a slot once it has been published, and will be aligned with the epoch information, except in cases where the validator identity is changed while the validator is running |
-| skipped    | `boolean` | True if the slot was skipped. The skipped state is the state in the currently active fork of the validator. The skipped state can change if the validator switches active fork |
-| duration_nanos | `number\|null` | A duration in nanoseconds of how long it took us to receive and replay the slot. This is the time as measured since we completed replay of the parent slot locally on this validator, til the time we replayed this slot locally on this validator |
+| Field                | Type           | Description |
+|----------------------|----------------|-------------|
+| slot                 | `number`       | Identity of the slot, counting up from zero for the first slot in the chain |
+| mine                 | `boolean`      | True if this validator was the leader for this slot. This will never change for a slot once it has been published, and will be aligned with the epoch information, except in cases where the validator identity is changed while the validator is running |
+| skipped              | `boolean`      | True if the slot was skipped. The skipped state is the state in the currently active fork of the validator. The skipped state can change if the validator switches active fork |
+| duration_nanos       | `number\|null` | A duration in nanoseconds of how long it took us to receive and replay the slot. This is the time as measured since we completed replay of the parent slot locally on this validator, til the time we replayed this slot locally on this validator |
 | completed_time_nanos | `number\|null` |  UNIX timestamp in nanoseconds of when this validator finished replaying the slot locally. If the slot was skipped, this may be `null` which indicates the block for this slot did not finish replaying on this validator. In some cases, a skipped slot will still have a completed time, if we received the data for the block, replayed it, and then decided to use a different fork |
-| level      | `string`  | One of `incomplete`, `completed`, `optimistically_confirmed`, `rooted`, or `finalized` as described above. The state is the state in the currently active fork of this validator. The state can change normally (for example, a completed slot becoming optimistically confirmed or rooted), or also because the validator switched forks |
-| transactions | `number\|null` | Total number of transactions (vote and non-vote) in the block. If the slot is not skipped, this will be non-null, but in some cases it will also be non-null even if the slot was skipped. That's because we replayed the block but selected a fork without it, but we still know how many transactions were in it |
-| vote_transactions | `number\|null` | Total number of vote transactions in the block. Will always be less than or equal to `transactions`. The number of non-vote transactions is given by `transactions - vote_transactions`
-| failed_transactions | `number\|null` | Total number of failed transactions (vote and non-vote) in the block. Failed transactions are those which are included in the block and were charged fees, but failed to execute successfully. This is different from dropped transactions which do not pay fees and are not included in the block |
-| compute_units | `number\|null`       | Total number of compute units used by the slot |
-| transaction_fee | `number\|null`     | Total amount of transaction fees that this slot collects in lamports after any burning |
-| priority_fee    | `number\|null`     | Total amount of priority fees that this slot collects in lamports after any burning |
-| tips            | `number\|null`     | Total amount of tips that this slot collects in lamports, across all block builders, after any commission to the block builder is subtracted |
+| level                | `string`  | One of `incomplete`, `completed`, `optimistically_confirmed`, `rooted`, or `finalized` as described above. The state is the state in the currently active fork of this validator. The state can change normally (for example, a completed slot becoming optimisitically confirmed or rooted), or also because the validator switched forks |
+| transactions         | `number\|null` | Total number of transactions (vote and non-vote) in the block. If the slot is not skipped, this will be non-null, but in some cases it will also be non-null even if the slot was skipped. That's because we replayed the block but selected a fork without it, but we still know how many transactions were in it |
+| vote_transactions    | `number\|null` | Total number of vote transactions in the block. Will always be less than or equal to `transactions`. The number of non-vote transactions is given by `transactions - vote_transactions`
+| failed_transactions  | `number\|null` | Total number of failed transactions (vote and non-vote) in the block. Failed transactions are those which are included in the block and were charged fees, but failed to execute successfully. This is different from dropped transactions which do not pay fees and are not included in the block |
+| compute_units        | `number\|null` | Total number of compute units used by the slot |
+| transaction_fee      | `number\|null` | Total amount of transaction fees that this slot collects in lamports after any burning |
+| priority_fee         | `number\|null` | Total amount of priority fees that this slot collects in lamports after any burning |
+| tips                 | `number\|null` | Total amount of tips that this slot collects in lamports, across all block builders, after any commission to the block builder is subtracted |
 
 #### `slot.skipped_history`
 | frequency      | type       | example |
@@ -1044,6 +1044,50 @@ new validator identity.
 {
     "topic": "slot",
     "key": "query",
+    "id": 32,
+    "value": {
+        "publish": {
+            "slot": 289245044,
+            "mine": true,
+            "skipped": false,
+            "level": "rooted",
+            "transactions": 6821,
+            "vote_transactions": 6746,
+            "failed_transactions": 3703,
+            "compute_units": 0
+        }
+    }
+}
+```
+
+:::
+
+#### `slot.query_detailed`
+| frequency   | type           | example |
+|-------------|----------------|---------|
+| *Request*   | `SlotResponse` | below   |
+
+| param | type     | description |
+|-------|----------|-------------|
+| slot  | `number` | The slot to query for information about |
+
+::: details Example
+
+```json
+{
+    "topic": "slot",
+    "key": "query",
+    "id": 32,
+    "params": {
+        "slot": 289245044
+    }
+}
+```
+
+```json
+{
+    "topic": "slot",
+    "key": "query_detailed",
     "id": 32,
     "value": {
         "publish": {
@@ -1147,7 +1191,16 @@ new validator identity.
                 ]
             },
             // ... many more ...
-        ]
+        ],
+        "compute_units": {
+            "max_compute_units": 48000000,
+            "start_timestamp_nanos": 1739657041688346791,
+            "target_end_timestamp_nanos": 1739657042088346880,
+            "compute_unit_timestamps_nanos": [1739657041706960598, 1739657041707477011],
+            "compute_units_deltas": [3428, 0],
+            "bank_count_timestamps_nanos": [1739657041706960598, 1739657041707477011],
+            "active_bank_count": [1, 0]
+        }
     }
 }
 ```
@@ -1161,6 +1214,7 @@ new validator identity.
 | waterfall           | `TxnWaterfall\|null`      | If the slot is not `mine`, will be `null`. Otherwise, a waterfall showing reasons transactions were acquired since the end of the prior leader slot |
 | tile_primary_metric | `TilePrimaryMetric\|null` | If the slot is not `mine`, will be `null`. Otherwise, max value of per-tile-type primary metrics since the end of the prior leader slot |
 | tile_timers         | `TsTileTimers[]\|null`    | If the slot is not `mine`, will be `null`. Otherwise, an array of `TsTileTimers` samples from the slot, sorted earliest to latest. We store this information for the most recently completed 4096 leader slots. This will be `null` for leader slots before that |
+| compute_units       | `ComputeUnits\|null`      | If the slot is not `mine`, will be `null`. Otherwise, a listing of the timestamps when the compute units watermark of the slot changed, and how many banks were active |
 
 **`TxnWaterfall`**
 | Field | Type              | Description |
@@ -1197,7 +1251,7 @@ new validator identity.
 | resolv_lut_failed | `number` | Transactions were dropped because they contained invalid address lookup tables (LUTs) |
 | resolv_expired    | `number` | Transactions were dropped because they contained a transaction that was already expired |
 | resolv_no_ledger  | `number` | Transactions were dropped because they contained a LUT but we didn't yet have a ledger to look them up in |
-| resolv_ancient   | `number` | Transactions were dropped because they referenced a blockhash we didn't recognize, and while waiting to see if the blockhash would arrive, the buffer became full |
+| resolv_ancient    | `number` | Transactions were dropped because they referenced a blockhash we didn't recognize, and while waiting to see if the blockhash would arrive, the buffer became full |
 | pack_invalid      | `number` | Transactions were dropped because pack determined they would never execute. Reasons can include the transaction requested too many compute units, or was too large to fit in a block |
 | pack_expired      | `number` | Transactions were dropped because pack determined that their TTL expired |
 | pack_retained     | `number` | Transactions were retained inside the validator memory because they were not high enough priority to make it into a prior block we produced, but have not yet expired. We might include the transactions in a future block |
@@ -1212,3 +1266,14 @@ new validator identity.
 |-------------------|---------------|-------------|
 | timestamp_nanos   | `number`      | A timestamp of when the tile timers were sampled, nanoseconds since the UNIX epoch |
 | tile_timers       | `TileTimer[]` | A list of all tile timing information at the given sample timestamp |
+
+**`ComputeUnits`**
+| Field                         | Type          | Description |
+|-------------------------------|---------------|-------------|
+| max_compute_units             | `number`      | The maximum number of compute units that can be packed into the slot |
+| start_timestamp_nanos         | `number`      | A UNIX timestamp in nanoseconds, representing the time that we started packing transactions into the slot |
+| target_end_timestamp_nanos    | `number`      | A UNIX timestamp in nanoseconds, representing the target time in nanoeconds that we should stop packing transactions for the slot. Transactions might still finish executing after this end time, if they started executing before it and ran over the deadline |
+| compute_unit_timestamps_nanos | `number[]`    | An array of UNIX timestamps, in nanoseconds. Each timestamp represents the time of when we started executing a microblock, or stopped executing a transaction and rebated it. Timestamps are sorted, and will never decrease |
+| compute_unit_deltas           | `number[]`    | An array, the same length as `compute_unit_timestamps_nanos`. For each timestamp in the above array, this array contains an entry of how many compute units were scheduled for execution at that time. In some cases, the delta will be negative, meaning a microblock completed execution and took less compute units than we thought, so they are rebated back to the available capacity |
+| bank_count_timestamps_nanos   | `number[]`    | An array of UNIX timestamps, in nanoseconds. This array may be a different length than the compute units array, and will typically be much shorter. Each timestamp represents the time when the number of bank tiles actively executing transactions changed. Timestamps are sorted, and will never decrease |
+| active_bank_count             | `number[]`    | An array, the same length as `bank_count_timestamps_nanos`. For each timestamp in the above array, this array contains an entry of how many banks were active at that timestamp |
