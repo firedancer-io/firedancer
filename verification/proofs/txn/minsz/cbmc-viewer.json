@@ -1,7 +1,0 @@
-{ "expected-missing-functions":
-  [
-
-  ],
-  "proof-name": "fd_txn_minsz",
-  "proof-root": "verification/proofs"
-}

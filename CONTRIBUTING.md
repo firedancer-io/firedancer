@@ -356,22 +356,7 @@ Make sure to handle `EINTR` correctly.
 
 ### 8. Security
 
-#### 8.1. CBMC
-
-The `verification` directory contains harnesses for CBMC proofs.
-These proofs validate absence of U.B. and user-defined assertions for
-all possible code paths through a piece of code.
-
-You should write almost any code for future inclusion in a CBMC harness.
-(Except for particularly performance critical code which can be audited
-by hand instead)
-
-Try to:
-- Limit the amount of unique code paths (avoid nested loops, etc.)
-- Provide "private" headers that allow testing of internal components of
-  a larger subsystem
-
-#### 8.2. Fuzzing
+#### 8.1. Fuzzing
 
 Most code should be covered by fuzz tests.
 
@@ -381,7 +366,7 @@ Try to:
 - Provide test APIs for mocking state.  (e.g. encryption keys when
   fuzzing a network protocol)
 
-#### 8.3. Complex Function Exit
+#### 8.2. Complex Function Exit
 
 Sometimes complex control flow is unavoidable.
 

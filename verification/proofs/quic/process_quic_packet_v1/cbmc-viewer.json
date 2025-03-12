@@ -1,5 +1,0 @@
-{
-  "expected-missing-functions": [],
-  "proof-name": "fd_quic_process_quic_packet_v1_harness",
-  "proof-root": "verification/proofs"
-}
