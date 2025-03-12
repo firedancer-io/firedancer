@@ -428,7 +428,9 @@ struct fd_topo {
   fd_topo_obj_t  objs[ FD_TOPO_MAX_OBJS ];
 
   ulong          agave_affinity_cnt;
+# if !FD_HAS_NO_AGAVE
   ulong          agave_affinity_cpu_idx[ FD_TILE_MAX ];
+# endif
 
   ulong          max_page_size; /* 2^21 or 2^30 */
 };

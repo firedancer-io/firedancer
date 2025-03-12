@@ -376,6 +376,7 @@ fd_topo_print_log( int         stdout,
     PRINT("  %23s (NUMA node %lu): %lu\n", "Required Huge Pages", i, fd_topo_huge_page_cnt( topo, i, 0 ) );
   }
 
+# if !FD_HAS_NO_AGAVE
   if( topo->agave_affinity_cnt > 0 ) {
     char agave_affinity[4096];
     ulong offset = 0UL;
@@ -387,6 +388,7 @@ fd_topo_print_log( int         stdout,
     }
     PRINT( "  %23s: %s\n", "Agave Affinity", agave_affinity );
   }
+# endif
 
   PRINT( "\nWORKSPACES\n");
   for( ulong i=0UL; i<topo->wksp_cnt; i++ ) {

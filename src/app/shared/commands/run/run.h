@@ -8,11 +8,15 @@ FD_PROTOTYPES_BEGIN
 void *
 create_clone_stack( void );
 
+#if !FD_HAS_NO_AGAVE
+
 void
 agave_boot( config_t const * config );
 
 int
 agave_main( void * args );
+
+#endif /* !FD_HAS_NO_AGAVE */
 
 int
 clone_firedancer( config_t const * config,
