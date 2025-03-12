@@ -11,7 +11,7 @@
 #include <sys/wait.h>
 
 void
-update_config_for_dev( config_t * const config );
+update_config_for_dev( config_t * config );
 
 extern char fd_log_private_path[ 1024 ]; /* empty string on start */
 
@@ -62,13 +62,13 @@ dev1_cmd_args( int *    pargc,
 void
 dev1_cmd_perm( args_t *         args,
                fd_cap_chk_t *   chk,
-               config_t * const config ) {
+               config_t const * config ) {
   dev_cmd_perm( args, chk, config );
 }
 
 void
-dev1_cmd_fn( args_t *         args,
-             config_t * const config ) {
+dev1_cmd_fn( args_t *   args,
+             config_t * config ) {
   if( FD_LIKELY( !args->dev1.no_configure ) ) {
     args_t configure_args = {
       .configure.command = CONFIGURE_CMD_INIT,

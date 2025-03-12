@@ -10,11 +10,11 @@
 
 void FD_FN_SENSITIVE
 generate_keypair( char const *     keyfile,
-                  config_t * const config,
+                  config_t const * config,
                   int              use_grnd_random );
 
 static void
-init( config_t * config ) {
+init( config_t const * config ) {
   if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( config->scratch_directory, config->uid, config->gid ) ) )
     FD_LOG_ERR(( "could not create scratch directory `%s` (%i-%s)", config->scratch_directory, errno, fd_io_strerror( errno ) ));
 
@@ -37,8 +37,8 @@ init( config_t * config ) {
 
 
 static void
-fini( config_t * config,
-      int        pre_init FD_PARAM_UNUSED ) {
+fini( config_t const * config,
+      int              pre_init FD_PARAM_UNUSED ) {
   char path[ PATH_MAX ];
   FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/faucet.json", config->scratch_directory ) );
   if( FD_UNLIKELY( unlink( path ) && errno != ENOENT ) )

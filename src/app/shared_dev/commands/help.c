@@ -6,8 +6,8 @@ extern action_t ACTIONS[];
 extern action_t DEV_ACTIONS[];
 
 void
-dev_help_cmd_fn( args_t *         args   FD_FN_UNUSED,
-                 config_t * const config FD_FN_UNUSED ) {
+dev_help_cmd_fn( args_t *   args   FD_PARAM_UNUSED,
+                 config_t * config FD_PARAM_UNUSED ) {
   FD_LOG_STDOUT(( "Firedancer development binary\n\n" ));
   FD_LOG_STDOUT(( "Usage: fddev [OPTIONS] <SUBCOMMAND>\n\n" ));
   FD_LOG_STDOUT(( "\nOPTIONS:\n" ));

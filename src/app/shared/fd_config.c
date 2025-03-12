@@ -482,7 +482,7 @@ fdctl_cfg_from_env( int *      pargc,
 }
 
 int
-fdctl_cfg_to_memfd( config_t * config ) {
+fdctl_cfg_to_memfd( config_t const * config ) {
   int config_memfd = memfd_create( "fd_config", 0 );
   if( FD_UNLIKELY( -1==config_memfd ) ) FD_LOG_ERR(( "memfd_create() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   if( FD_UNLIKELY( -1==ftruncate( config_memfd, sizeof( config_t ) ) ) ) FD_LOG_ERR(( "ftruncate() failed (%i-%s)", errno, fd_io_strerror( errno ) ));

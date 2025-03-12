@@ -15,7 +15,7 @@
 #include <sys/wait.h>
 
 fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t * tile );
+fdctl_tile_run( fd_topo_tile_t const * tile );
 
 void
 dev_cmd_args( int *    pargc,
@@ -85,7 +85,7 @@ install_parent_signals( void ) {
 
 
 void
-update_config_for_dev( config_t * const config ) {
+update_config_for_dev( config_t * config ) {
   /* By default only_known is true for validators to ensure secure
      snapshot download, but in development it doesn't matter and
      often the developer does not provide known peers. */
@@ -195,8 +195,8 @@ run_firedancer_threaded( config_t * config , int init_workspaces) {
 }
 
 void
-dev_cmd_fn( args_t *         args,
-            config_t * const config ) {
+dev_cmd_fn( args_t *   args,
+            config_t * config ) {
   if( FD_LIKELY( !args->dev.no_configure ) ) {
     args_t configure_args = {
       .configure.command = CONFIGURE_CMD_INIT,

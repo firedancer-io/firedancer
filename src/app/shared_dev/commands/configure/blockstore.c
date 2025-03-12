@@ -27,7 +27,7 @@ fd_ext_blockstore_create_block0( char const *  ledger_path,
 static inline void zero_signer( void * _1, uchar * sig, uchar const * _2 ) { (void)_1; (void)_2; memset( sig, '\0', 64UL ); }
 
 static void
-init( config_t * const config ) {
+init( config_t const * config ) {
   /* The Agave validator cannot boot without a block 0 existing in the
      blockstore in the ledger directory, so we have to create one.  This
      creates a directory "rocksdb" under which the blockstore with
@@ -129,8 +129,8 @@ init( config_t * const config ) {
 }
 
 static void
-fini( config_t * config,
-      int        pre_init FD_PARAM_UNUSED ) {
+fini( config_t const * config,
+      int              pre_init FD_PARAM_UNUSED ) {
   DIR * dir = opendir( config->ledger.path );
   if( FD_UNLIKELY( !dir ) ) {
     if( errno == ENOENT ) return;

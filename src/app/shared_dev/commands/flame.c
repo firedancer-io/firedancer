@@ -51,8 +51,8 @@ flame_cmd_args( int *    pargc,
 }
 
 void
-flame_cmd_fn( args_t *         args,
-              config_t * const config ) {
+flame_cmd_fn( args_t *   args,
+              config_t * config ) {
   install_parent_signals();
 
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_ONLY );

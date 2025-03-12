@@ -39,8 +39,8 @@ cmdline( char * buf,
 }
 
 static int
-maybe_kill( config_t * config,
-            ulong      pid ) {
+maybe_kill( config_t const * config,
+            ulong            pid ) {
   int killed = 0;
 
   char proc_cmdline[ PATH_MAX ];
@@ -123,7 +123,7 @@ wait_dead( long  started,
 }
 
 static void
-init( config_t * config ) {
+init( config_t const * config ) {
   DIR * dir = opendir( "/proc" );
   if( FD_UNLIKELY( !dir ) ) FD_LOG_ERR(( "error opening `/proc` (%i-%s)", errno, fd_io_strerror( errno ) ));
 

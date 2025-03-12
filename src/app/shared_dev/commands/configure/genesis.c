@@ -114,7 +114,7 @@ estimate_hashes_per_tick( ulong tick_mhz,
    provided buffer is not large enough. */
 
 static ulong
-create_genesis( config_t * const config,
+create_genesis( config_t const * config,
                 uchar *          blob,
                 ulong            blob_sz ) {
 
@@ -213,7 +213,7 @@ create_genesis( config_t * const config,
 }
 
 static void
-init( config_t * const config ) {
+init( config_t const * config ) {
   if( FD_UNLIKELY( -1==fd_file_util_mkdir_all( config->ledger.path, config->uid, config->gid ) ) )
     FD_LOG_ERR(( "could not create ledger directory `%s` (%i-%s)", config->ledger.path, errno, fd_io_strerror( errno ) ));
 
@@ -258,7 +258,7 @@ init( config_t * const config ) {
 }
 
 static void
-fini( config_t * const config,
+fini( config_t const * config,
       int              pre_init ) {
   (void)pre_init;
 

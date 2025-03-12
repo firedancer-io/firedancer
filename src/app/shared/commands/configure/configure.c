@@ -75,7 +75,7 @@ configure_cmd_perm( args_t *         args,
 int
 configure_stage( configure_stage_t * stage,
                  configure_cmd_t     command,
-                 config_t * const    config ) {
+                 config_t const *    config ) {
   if( FD_UNLIKELY( stage->enabled && !stage->enabled( config ) ) ) {
     FD_LOG_NOTICE(( "%s ... skipping .. not enabled", stage->name ));
     return 0;
@@ -156,8 +156,8 @@ configure_stage( configure_stage_t * stage,
 }
 
 void
-configure_cmd_fn( args_t *         args,
-                  config_t * const config ) {
+configure_cmd_fn( args_t *   args,
+                  config_t * config ) {
   int error = 0;
 
   if( FD_LIKELY( (configure_cmd_t)args->configure.command != CONFIGURE_CMD_FINI ) ) {

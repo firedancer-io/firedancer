@@ -32,10 +32,10 @@ fdctl_obj_loose( fd_topo_t const *     topo,
                  fd_topo_obj_t const * obj );
 
 fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t * tile );
+fdctl_tile_run( fd_topo_tile_t const * tile );
 
 void
-update_config_for_dev( config_t * const config );
+update_config_for_dev( config_t * config );
 
 void
 bench_cmd_args( int *    pargc,
@@ -141,8 +141,8 @@ add_bench_topo( fd_topo_t  * topo,
 extern int * fd_log_private_shared_lock;
 
 void
-bench_cmd_fn( args_t *         args,
-              config_t * const config ) {
+bench_cmd_fn( args_t *   args,
+              config_t * config ) {
 
   ushort dest_port = fd_ushort_if( args->load.no_quic,
                                    config->tiles.quic.regular_transaction_listen_port,

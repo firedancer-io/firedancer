@@ -178,10 +178,8 @@ resolve_hostport(const char* str /* host:port */, fd_gossip_peer_addr_t * res) {
 }
 
 void
-spy_cmd_fn( args_t *         args,
-            config_t * const config ) {
-  (void)args;
-
+spy_cmd_fn( args_t *   args FD_PARAM_UNUSED,
+            config_t * config ) {
   fd_valloc_t valloc = fd_libc_alloc_virtual();
 
   fd_gossip_config_t gconfig;

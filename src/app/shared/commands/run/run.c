@@ -77,9 +77,9 @@ run_cmd_perm( args_t *         args,
 }
 
 struct pidns_clone_args {
-  config_t * config;
-  int      * pipefd;
-  int        closefd;
+  config_t const * config;
+  int *            pipefd;
+  int              closefd;
 };
 
 extern char fd_log_private_path[ 1024 ]; /* empty string on start */
@@ -187,11 +187,11 @@ execve_agave( int config_memfd,
 }
 
 static pid_t
-execve_tile( fd_topo_tile_t * tile,
-             fd_cpuset_t *    floating_cpu_set,
-             int              floating_priority,
-             int              config_memfd,
-             int              pipefd ) {
+execve_tile( fd_topo_tile_t const * tile,
+             fd_cpuset_t const *    floating_cpu_set,
+             int                    floating_priority,
+             int                    config_memfd,
+             int                    pipefd ) {
   FD_CPUSET_DECL( cpu_set );
   if( FD_LIKELY( tile->cpu_idx!=ULONG_MAX ) ) {
     /* set the thread affinity before we clone the new process to ensure
@@ -226,8 +226,8 @@ execve_tile( fd_topo_tile_t * tile,
     FD_TEST( fd_cstr_printf_check( kind_id,   sizeof( kind_id ),   NULL, "%lu", tile->kind_id ) );
     FD_TEST( fd_cstr_printf_check( config_fd, sizeof( config_fd ), NULL, "%d",  config_memfd ) );
     FD_TEST( fd_cstr_printf_check( pipe_fd,   sizeof( pipe_fd ),   NULL, "%d",  pipefd ) );
-    char * args[ 9 ] = { _current_executable_path, "run1", tile->name, kind_id, "--pipe-fd", pipe_fd, "--config-fd", config_fd, NULL };
-    if( FD_UNLIKELY( -1==execve( _current_executable_path, args, NULL ) ) ) FD_LOG_ERR(( "execve() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+    char const * args[ 9 ] = { _current_executable_path, "run1", tile->name, kind_id, "--pipe-fd", pipe_fd, "--config-fd", config_fd, NULL };
+    if( FD_UNLIKELY( -1==execve( _current_executable_path, (char **)args, NULL ) ) ) FD_LOG_ERR(( "execve() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   } else {
     if( FD_UNLIKELY( -1==fcntl( pipefd, F_SETFD, FD_CLOEXEC ) ) ) FD_LOG_ERR(( "fcntl(F_SETFD,FD_CLOEXEC) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
     return child;
@@ -245,7 +245,7 @@ main_pid_namespace( void * _args ) {
     if( FD_UNLIKELY( close( args->closefd ) ) ) FD_LOG_ERR(( "close() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  config_t * const config = args->config;
+  config_t const * config = args->config;
 
   fd_log_thread_set( "pidns" );
   ulong pid = fd_sandbox_getpid(); /* Need to read /proc again.. we got a new PID from clone */
@@ -303,7 +303,7 @@ main_pid_namespace( void * _args ) {
   }
 
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
-    fd_topo_tile_t * tile = &config->topo.tiles[ i ];
+    fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
     if( FD_UNLIKELY( tile->is_agave ) ) continue;
 
     if( need_xdp ) {
@@ -441,7 +441,7 @@ main_pid_namespace( void * _args ) {
 }
 
 int
-clone_firedancer( config_t * const config,
+clone_firedancer( config_t const * config,
                   int              close_fd,
                   int *            out_pipe ) {
   /* This pipe is here just so that the child process knows when the
@@ -465,10 +465,10 @@ clone_firedancer( config_t * const config,
 }
 
 static void
-workspace_path( config_t * const config,
-                fd_topo_wksp_t * wksp,
-                char             out[ PATH_MAX ] ) {
-  char * mount_path;
+workspace_path( config_t const *       config,
+                fd_topo_wksp_t const * wksp,
+                char                   out[ PATH_MAX ] ) {
+  char const * mount_path;
   switch( wksp->page_sz ) {
     case FD_SHMEM_HUGE_PAGE_SZ:
       mount_path = config->hugetlbfs.huge_page_mount_path;
@@ -484,7 +484,7 @@ workspace_path( config_t * const config,
 }
 
 static void
-warn_unknown_files( config_t * const config,
+warn_unknown_files( config_t const * config,
                     ulong            mount_type ) {
   char const * mount_path;
   switch( mount_type ) {
@@ -514,7 +514,7 @@ warn_unknown_files( config_t * const config,
 
     int known_file = 0;
     for( ulong i=0UL; i<config->topo.wksp_cnt; i++ ) {
-      fd_topo_wksp_t * wksp = &config->topo.workspaces[ i ];
+      fd_topo_wksp_t const * wksp = &config->topo.workspaces[ i ];
 
       char expected_path[ PATH_MAX ];
       workspace_path( config, wksp, expected_path );
@@ -527,7 +527,7 @@ warn_unknown_files( config_t * const config,
 
     if( mount_type==0UL ) {
       for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
-        fd_topo_tile_t * tile = &config->topo.tiles [ i ];
+        fd_topo_tile_t const * tile = &config->topo.tiles [ i ];
 
         char expected_path[ PATH_MAX ];
         FD_TEST( fd_cstr_printf_check( expected_path, PATH_MAX, NULL, "%s/%s_stack_%s%lu", config->hugetlbfs.huge_page_mount_path, config->name, tile->name, tile->kind_id ) );
@@ -596,7 +596,7 @@ fdctl_obj_new( fd_topo_t const *     topo,
 }
 
 void
-initialize_workspaces( config_t * const config ) {
+initialize_workspaces( config_t * config ) {
   /* Switch to non-root uid/gid for workspace creation.  Permissions
      checks are still done as the current user. */
   uint gid = getgid();
@@ -663,7 +663,7 @@ initialize_workspaces( config_t * const config ) {
 }
 
 void
-initialize_stacks( config_t * const config ) {
+initialize_stacks( config_t const * config ) {
   /* Switch to non-root uid/gid for workspace creation.  Permissions
      checks are still done as the current user. */
   uint gid = getgid();
@@ -674,7 +674,7 @@ initialize_stacks( config_t * const config ) {
     FD_LOG_ERR(( "seteuid() failed (%i-%s)", errno, fd_io_strerror( errno ) ));
 
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {
-    fd_topo_tile_t * tile = &config->topo.tiles[ i ];
+    fd_topo_tile_t const * tile = &config->topo.tiles[ i ];
 
     char path[ PATH_MAX ];
     FD_TEST( fd_cstr_printf_check( path, PATH_MAX, NULL, "%s/%s_stack_%s%lu", config->hugetlbfs.huge_page_mount_path, config->name, tile->name, tile->kind_id ) );
@@ -717,7 +717,7 @@ extern configure_stage_t fd_cfg_stage_sysctl;
 extern configure_stage_t fd_cfg_stage_hyperthreads;
 
 void
-fdctl_check_configure( config_t * config ) {
+fdctl_check_configure( config_t const * config ) {
   configure_result_t check = fd_cfg_stage_hugetlbfs.check( config );
   if( FD_UNLIKELY( check.result!=CONFIGURE_OK ) )
     FD_LOG_ERR(( "Huge pages are not configured correctly: %s. You can run `fdctl configure init hugetlbfs` "
@@ -827,9 +827,9 @@ fdctl_setup_netns( config_t * config,
         died, and it can terminate itself, which due to (a) and (b)
         will kill all other processes. */
 void
-run_firedancer( config_t * const config,
-                int              parent_pipefd,
-                int              init_workspaces ) {
+run_firedancer( config_t * config,
+                int        parent_pipefd,
+                int        init_workspaces ) {
   /* dump the topology we are using to the output log */
   fd_topo_print_log( 0, &config->topo );
 
@@ -914,10 +914,8 @@ run_firedancer( config_t * const config,
 }
 
 void
-run_cmd_fn( args_t *         args,
-            config_t * const config ) {
-  (void)args;
-
+run_cmd_fn( args_t *   args FD_PARAM_UNUSED,
+            config_t * config ) {
   if( FD_UNLIKELY( !config->gossip.entrypoints_cnt && !config->development.bootstrap ) )
     FD_LOG_ERR(( "No entrypoints specified in configuration file under [gossip.entrypoints], but "
                  "at least one is needed to determine how to connect to the Solana cluster. If "

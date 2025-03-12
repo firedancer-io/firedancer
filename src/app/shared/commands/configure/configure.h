@@ -59,8 +59,8 @@ typedef struct configure_stage {
   int                (*enabled)  ( config_t const * config );
   void               (*init_perm)( fd_cap_chk_t * chk, config_t const * config );
   void               (*fini_perm)( fd_cap_chk_t * chk, config_t const * config );
-  void               (*init)     ( config_t * const config );
-  void               (*fini)     ( config_t * const config, int pre_init );
+  void               (*init)     ( config_t const * config );
+  void               (*fini)     ( config_t const * config, int pre_init );
   configure_result_t (*check)    ( config_t const * config );
 } configure_stage_t;
 
@@ -103,7 +103,7 @@ check_file( const char * path,
 int
 configure_stage( configure_stage_t * stage,
                  configure_cmd_t     command,
-                 config_t * const    config );
+                 config_t const *    config );
 
 void configure_cmd_args( int * pargc, char *** pargv, args_t * args );
 void configure_cmd_perm( args_t * args, fd_cap_chk_t * chk, config_t const * config );
