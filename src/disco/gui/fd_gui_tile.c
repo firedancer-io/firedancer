@@ -21,6 +21,7 @@ extern ulong const fdctl_minor_version;
 extern ulong const fdctl_patch_version;
 extern uint  const fdctl_commit_ref;
 
+#include "../../disco/tiles.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/keyguard/fd_keyswitch.h"
 #include "../../disco/gui/fd_gui.h"
@@ -38,6 +39,11 @@ extern uint  const fdctl_commit_ref;
 #define ZSTD_STATIC_LINKING_ONLY
 #include <zstd.h>
 #endif
+
+#define IN_KIND_PLUGIN    (0UL)
+#define IN_KIND_POH_PACK  (1UL)
+#define IN_KIND_PACK_BANK (2UL)
+#define IN_KIND_BANK_POH  (3UL)
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
@@ -57,6 +63,15 @@ derive_http_params( fd_topo_tile_t const * tile ) {
   };
 }
 
+struct fd_gui_in_ctx {
+  fd_wksp_t * mem;
+  ulong       mtu;
+  ulong       chunk0;
+  ulong       wmark;
+};
+
+typedef struct fd_gui_in_ctx fd_gui_in_ctx_t;
+
 typedef struct {
   fd_topo_t * topo;
 
@@ -69,14 +84,16 @@ typedef struct {
 
   fd_http_server_t * gui_server;
 
+  long next_poll_deadline;
+
   char          version_string[ 16UL ];
 
   fd_keyswitch_t * keyswitch;
   uchar const *    identity_key;
 
-  fd_wksp_t * in_mem;
-  ulong       in_chunk0;
-  ulong       in_wmark;
+  ulong           in_kind[ 64UL ];
+  ulong           in_bank_idx[ 64UL ];
+  fd_gui_in_ctx_t in[ 64UL ];
 } fd_gui_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -126,48 +143,60 @@ during_housekeeping( fd_gui_ctx_t * ctx ) {
   }
 }
 
-static int
+static void
 before_credit( fd_gui_ctx_t *      ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
   (void)stem;
 
-  int charge_busy_server = fd_http_server_poll( ctx->gui_server, 0 );
-  int charge_poll        = fd_gui_poll( ctx->gui );
+  int charge_busy_server = 0;
+  long now = fd_tickcount();
+  if( FD_UNLIKELY( now>=ctx->next_poll_deadline ) ) {
+    charge_busy_server = fd_http_server_poll( ctx->gui_server, 0 );
+    ctx->next_poll_deadline = fd_tickcount() + (long)(fd_tempo_tick_per_ns( NULL ) * 128L * 1000L);
+  }
+
+  int charge_poll = fd_gui_poll( ctx->gui );
 
   *charge_busy = charge_busy_server | charge_poll;
-
-  return 0;
 }
 
 static inline void
 during_frag( fd_gui_ctx_t * ctx,
-             ulong          in_idx FD_PARAM_UNUSED,
+             ulong          in_idx,
              ulong          seq    FD_PARAM_UNUSED,
              ulong          sig,
              ulong          chunk,
              ulong          sz,
              ulong          gui    FD_PARAM_UNUSED ) {
 
-  uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in_mem, chunk );
+  uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
 
-   /* ... todo... sigh, sz is not correct since it's too big */
-  if( FD_LIKELY( sig==FD_PLUGIN_MSG_GOSSIP_UPDATE ) ) {
-    ulong peer_cnt = ((ulong *)src)[ 0 ];
-    FD_TEST( peer_cnt<=40200 );
-    sz = 8UL + peer_cnt*FD_GOSSIP_LINK_MSG_SIZE;
-  } else if( FD_LIKELY( sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE ) ) {
-    ulong peer_cnt = ((ulong *)src)[ 0 ];
-    FD_TEST( peer_cnt<=40200 );
-    sz = 8UL + peer_cnt*112UL;
-  } else if( FD_UNLIKELY( sig==FD_PLUGIN_MSG_LEADER_SCHEDULE ) ) {
-    ulong staked_cnt = ((ulong *)src)[ 1 ];
-    FD_TEST( staked_cnt<=50000UL );
-    sz = 40UL + staked_cnt*40UL;
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PLUGIN ) ) {
+    /* ... todo... sigh, sz is not correct since it's too big */
+    if( FD_LIKELY( sig==FD_PLUGIN_MSG_GOSSIP_UPDATE ) ) {
+      ulong peer_cnt = ((ulong *)src)[ 0 ];
+      FD_TEST( peer_cnt<=40200 );
+      sz = 8UL + peer_cnt*FD_GOSSIP_LINK_MSG_SIZE;
+    } else if( FD_LIKELY( sig==FD_PLUGIN_MSG_VOTE_ACCOUNT_UPDATE ) ) {
+      ulong peer_cnt = ((ulong *)src)[ 0 ];
+      FD_TEST( peer_cnt<=40200 );
+      sz = 8UL + peer_cnt*112UL;
+    } else if( FD_UNLIKELY( sig==FD_PLUGIN_MSG_LEADER_SCHEDULE ) ) {
+      ulong staked_cnt = ((ulong *)src)[ 1 ];
+      FD_TEST( staked_cnt<=50000UL );
+      sz = 40UL + staked_cnt*40UL;
+    }
+
+    if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>sizeof( ctx->buf ) ) )
+      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
+
+    fd_memcpy( ctx->buf, src, sz );
+    return;
   }
 
-  if( FD_UNLIKELY( chunk<ctx->in_chunk0 || chunk>ctx->in_wmark || sz>sizeof( ctx->buf ) ) )
-    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_chunk0, ctx->in_wmark ));
+  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>ctx->in[ in_idx ].mtu ) )
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
   fd_memcpy( ctx->buf, src, sz );
 }
@@ -179,14 +208,35 @@ after_frag( fd_gui_ctx_t *      ctx,
             ulong               sig,
             ulong               sz,
             ulong               tsorig,
+            ulong               tspub,
             fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
   (void)sz;
   (void)tsorig;
+  (void)tspub;
   (void)stem;
 
-  fd_gui_plugin_message( ctx->gui, sig, ctx->buf );
+  if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PLUGIN ) ) fd_gui_plugin_message( ctx->gui, sig, ctx->buf );
+  else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH_PACK ) ) {
+    FD_TEST( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_BECAME_LEADER );
+    fd_became_leader_t * became_leader = (fd_became_leader_t *)ctx->buf;
+    fd_gui_became_leader( ctx->gui, fd_disco_poh_sig_slot( sig ), became_leader->slot_start_ns, became_leader->slot_end_ns, FD_PACK_MAX_COST_PER_BLOCK, became_leader->max_microblocks_in_slot );
+  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_BANK ) ) {
+    if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
+      FD_TEST( sz<ULONG_MAX );
+      fd_gui_execution_begin( ctx->gui, fd_frag_meta_ts_decomp( tspub, fd_tickcount() ), fd_disco_poh_sig_slot( sig ), fd_disco_poh_sig_bank_tile( sig ), (sz-sizeof( fd_microblock_bank_trailer_t ))/sizeof( fd_txn_p_t ), (fd_txn_p_t *)ctx->buf );
+    } else if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_DONE_PACKING ) ) {
+      fd_gui_unbecame_leader( ctx->gui, fd_disco_poh_sig_slot( sig ), ((fd_done_packing_t *)ctx->buf)->microblocks_in_slot );
+    } else {
+      FD_LOG_ERR(( "unexpected poh packet type %lu", fd_disco_poh_sig_pkt_type( sig ) ));
+    }
+  } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_BANK_POH ) ) {
+    fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( ctx->buf+sz-sizeof( fd_microblock_trailer_t ) );
+    fd_gui_execution_end( ctx->gui, fd_frag_meta_ts_decomp( tspub, fd_tickcount() ), ctx->in_bank_idx[ in_idx ], trailer->is_last_in_bundle, fd_disco_bank_sig_slot( sig ), (sz-sizeof( fd_microblock_trailer_t ))/sizeof( fd_txn_p_t ), (fd_txn_p_t *)ctx->buf );
+  } else {
+    FD_LOG_ERR(( "unexpected in_kind %lu", ctx->in_kind[ in_idx ] ));
+  }
 }
 
 static fd_http_server_response_t
@@ -433,12 +483,28 @@ unprivileged_init( fd_topo_t *      topo,
   };
   cJSON_InitHooks( &hooks );
 
-  fd_topo_link_t * link = &topo->links[ tile->in_link_id[ 0 ] ];
-  fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+  ctx->next_poll_deadline = fd_tickcount();
 
-  ctx->in_mem    = link_wksp->wksp;
-  ctx->in_chunk0 = fd_dcache_compact_chunk0( ctx->in_mem, link->dcache );
-  ctx->in_wmark  = fd_dcache_compact_wmark ( ctx->in_mem, link->dcache, link->mtu );
+  for( ulong i=0UL; i<tile->in_cnt; i++ ) {
+    fd_topo_link_t * link = &topo->links[ tile->in_link_id[ i ] ];
+    fd_topo_wksp_t * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
+
+    if( FD_LIKELY( !strcmp( link->name, "plugin_out"     ) ) ) ctx->in_kind[ i ] = IN_KIND_PLUGIN;
+    else if( FD_LIKELY( !strcmp( link->name, "poh_pack"  ) ) ) ctx->in_kind[ i ] = IN_KIND_POH_PACK;
+    else if( FD_LIKELY( !strcmp( link->name, "pack_bank" ) ) ) ctx->in_kind[ i ] = IN_KIND_PACK_BANK;
+    else if( FD_LIKELY( !strcmp( link->name, "bank_poh"  ) ) ) ctx->in_kind[ i ] = IN_KIND_BANK_POH;
+    else FD_LOG_ERR(( "gui tile has unexpected input link %lu %s", i, link->name ));
+
+    if( FD_LIKELY( !strcmp( link->name, "bank_poh" ) ) ) {
+      ulong producer = fd_topo_find_link_producer( topo, &topo->links[ tile->in_link_id[ i ] ] );
+      ctx->in_bank_idx[ i ] = topo->tiles[ producer ].kind_id;
+    }
+
+    ctx->in[ i ].mem    = link_wksp->wksp;
+    ctx->in[ i ].mtu    = link->mtu;
+    ctx->in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->in[ i ].mem, link->dcache );
+    ctx->in[ i ].wmark  = fd_dcache_compact_wmark ( ctx->in[ i ].mem, link->dcache, link->mtu );
+  }
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   if( FD_UNLIKELY( scratch_top > (ulong)scratch + scratch_footprint( tile ) ) )
@@ -488,6 +554,9 @@ rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
 }
 
 #define STEM_BURST (1UL)
+
+/* See explanation in fd_pack */
+#define STEM_LAZY  (128L*3000L)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_gui_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_gui_ctx_t)

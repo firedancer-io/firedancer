@@ -323,8 +323,9 @@ after_frag( void * _ctx,
             ulong  sig,
             ulong  sz,
             ulong  tsorig,
+            ulong  tspub,
             fd_stem_context_t * stem ) {
-  (void)in_idx; (void)seq; (void)sig; (void)tsorig; (void)stem;
+  (void)in_idx; (void)seq; (void)sig; (void)tsorig; (void)tspub; (void)stem;
 
   fd_quic_ctx_t * ctx = &fd_quic_trace_ctx;
 
