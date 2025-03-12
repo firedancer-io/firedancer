@@ -200,7 +200,7 @@ render_status( ulong volatile const * net_metrics ) {
 /* FIXME fixup screen on window size changes */
 
 void
-pktgen_cmd_fn( args_t *   args,
+pktgen_cmd_fn( args_t *   args FD_PARAM_UNUSED,
                config_t * config ) {
   pktgen_topo( config );
   fd_topo_t *      topo        = &config->topo;
@@ -214,12 +214,10 @@ pktgen_cmd_fn( args_t *   args,
     FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
   metric_tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
 
-  if( FD_LIKELY( !args->dev.no_configure ) ) {
-    configure_stage( &fd_cfg_stage_sysctl,           CONFIGURE_CMD_INIT, config );
-    configure_stage( &fd_cfg_stage_hugetlbfs,        CONFIGURE_CMD_INIT, config );
-    configure_stage( &fd_cfg_stage_ethtool_channels, CONFIGURE_CMD_INIT, config );
-    configure_stage( &fd_cfg_stage_ethtool_gro,      CONFIGURE_CMD_INIT, config );
-  }
+  configure_stage( &fd_cfg_stage_sysctl,           CONFIGURE_CMD_INIT, config );
+  configure_stage( &fd_cfg_stage_hugetlbfs,        CONFIGURE_CMD_INIT, config );
+  configure_stage( &fd_cfg_stage_ethtool_channels, CONFIGURE_CMD_INIT, config );
+  configure_stage( &fd_cfg_stage_ethtool_gro,      CONFIGURE_CMD_INIT, config );
 
   fdctl_check_configure( config );
   /* FIXME this allocates lots of memory unnecessarily */
@@ -228,6 +226,8 @@ pktgen_cmd_fn( args_t *   args,
   fdctl_setup_netns( config, 1 );
   (void)fd_topo_install_xdp( topo );
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+  /* FIXME allow running sandboxed/multiprocess */
   fd_topo_run_single_process( topo, 2, config->uid, config->gid, fdctl_tile_run, NULL );
 
   ulong volatile const * net_metrics = fd_metrics_tile( net_tile->metrics );

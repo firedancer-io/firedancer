@@ -335,7 +335,6 @@ typedef struct {
       ushort  tpu_vote_port;
       ushort  repair_serve_port;
       ulong   expected_shred_version;
-      int     plugins_enabled;
     } gossip;
 
     struct {
