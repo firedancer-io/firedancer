@@ -4,7 +4,6 @@
 #include "../fd_runtime.h"
 #include "../fd_borrowed_account.h"
 #include "../fd_system_ids.h"
-#include "../context/fd_exec_slot_ctx.h"
 #include "../context/fd_exec_epoch_ctx.h"
 
 static void
@@ -23,18 +22,18 @@ write_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx, fd_sysvar_epoch_rewards_t * 
 }
 
 fd_sysvar_epoch_rewards_t *
-fd_sysvar_epoch_rewards_read(
-    fd_sysvar_epoch_rewards_t * result,
-    fd_exec_slot_ctx_t const * slot_ctx
-) {
-  fd_sysvar_epoch_rewards_t const * ret = fd_sysvar_cache_epoch_rewards( slot_ctx->sysvar_cache );
+fd_sysvar_epoch_rewards_read( fd_sysvar_epoch_rewards_t * result,
+                              fd_sysvar_cache_t const *   sysvar_cache,
+                              fd_acc_mgr_t *              acc_mgr,
+                              fd_funk_txn_t *             funk_txn ) {
+  fd_sysvar_epoch_rewards_t const * ret = fd_sysvar_cache_epoch_rewards( sysvar_cache );
   if( FD_UNLIKELY( NULL != ret ) ) {
     fd_memcpy(result, ret, sizeof(fd_sysvar_epoch_rewards_t));
     return result;
   }
 
   FD_TXN_ACCOUNT_DECL( acc );
-  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_epoch_rewards_id, acc );
+  int err = fd_acc_mgr_view( acc_mgr, funk_txn, &fd_sysvar_epoch_rewards_id, acc );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     return NULL;
   }
@@ -62,12 +61,13 @@ fd_sysvar_epoch_rewards_read(
    we need to ensure that the cache stays updated after each change (versus with other
    sysvars which only get updated once per slot and then synced up after) */
 void
-fd_sysvar_epoch_rewards_distribute(
-    fd_exec_slot_ctx_t * slot_ctx,
-    ulong distributed
-) {
+fd_sysvar_epoch_rewards_distribute( fd_exec_slot_ctx_t * slot_ctx,
+                                    ulong                distributed ) {
     fd_sysvar_epoch_rewards_t epoch_rewards[1];
-    if ( FD_UNLIKELY( fd_sysvar_epoch_rewards_read( epoch_rewards, slot_ctx ) == NULL ) ) {
+    if ( FD_UNLIKELY( fd_sysvar_epoch_rewards_read( epoch_rewards,
+                                                    slot_ctx->sysvar_cache,
+                                                    slot_ctx->acc_mgr,
+                                                    slot_ctx->funk_txn ) == NULL ) ) {
       FD_LOG_ERR(( "failed to read sysvar epoch rewards" ));
     }
     FD_TEST( epoch_rewards->active );
@@ -83,15 +83,16 @@ fd_sysvar_epoch_rewards_distribute(
 }
 
 void
-fd_sysvar_epoch_rewards_set_inactive(
-  fd_exec_slot_ctx_t * slot_ctx
-) {
+fd_sysvar_epoch_rewards_set_inactive( fd_exec_slot_ctx_t * slot_ctx ) {
     fd_sysvar_epoch_rewards_t epoch_rewards[1];
-    if ( FD_UNLIKELY( fd_sysvar_epoch_rewards_read( epoch_rewards, slot_ctx ) == NULL ) ) {
+    if ( FD_UNLIKELY( fd_sysvar_epoch_rewards_read( epoch_rewards,
+                                                    slot_ctx->sysvar_cache,
+                                                    slot_ctx->acc_mgr,
+                                                    slot_ctx->funk_txn ) == NULL ) ) {
       FD_LOG_ERR(( "failed to read sysvar epoch rewards" ));
     }
 
-    if ( FD_LIKELY( FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature ) ) ) {
+    if ( FD_LIKELY( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, partitioned_epoch_rewards_superfeature ) ) ) {
       FD_TEST( epoch_rewards->total_rewards >= epoch_rewards->distributed_rewards );
     } else {
       FD_TEST( epoch_rewards->total_rewards == epoch_rewards->distributed_rewards );
@@ -134,7 +135,7 @@ fd_sysvar_epoch_rewards_init(
        On other clusters, including those where enable_partitioned_epoch_reward is enabled, we should use total_rewards.
 
        https://github.com/anza-xyz/agave/blob/b9c9ecccbb05d9da774d600bdbef2cf210c57fa8/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L36-L43 */
-    if ( FD_LIKELY( FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature ) ) ) {
+    if( FD_LIKELY( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, partitioned_epoch_rewards_superfeature ) ) ) {
       epoch_rewards.total_rewards = point_value.rewards;
     }
 

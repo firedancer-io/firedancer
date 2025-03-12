@@ -10,15 +10,18 @@
    Address: Stake11111111111111111111111111111111111111 */
 
 #include "../context/fd_exec_instr_ctx.h"
+#include "../context/fd_exec_txn_ctx.h"
 
 #define FD_STAKE_STATE_V2_SZ (200UL)
 
 FD_PROTOTYPES_BEGIN
 
 int
-fd_new_warmup_cooldown_rate_epoch( fd_exec_slot_ctx_t const * slot_ctx,
-                                   /* out */ ulong *          epoch,
-                                   int *                      err );
+fd_new_warmup_cooldown_rate_epoch( fd_slot_bank_t const *    slot_bank,
+                                   fd_sysvar_cache_t const * sysvar_cache,
+                                   fd_features_t const *     features,
+                                   /* out */ ulong *         epoch,
+                                   int *                     err );
 
 /* fd_stake_program_execute is the instruction processing entrypoint
    for the stake program.  On return, ctx.txn_ctx->dirty_stake_acc==1 if

@@ -1,7 +1,6 @@
 #include "fd_sysvar_clock.h"
 #include "fd_sysvar_epoch_schedule.h"
 #include "fd_sysvar_rent.h"
-#include "fd_sysvar.h"
 #include "../fd_executor.h"
 #include "../fd_acc_mgr.h"
 #include "../fd_system_ids.h"
@@ -49,16 +48,18 @@ write_clock( fd_exec_slot_ctx_t *    slot_ctx,
 
 
 fd_sol_sysvar_clock_t *
-fd_sysvar_clock_read( fd_sol_sysvar_clock_t *    result,
-                      fd_exec_slot_ctx_t const * slot_ctx ) {
-  fd_sol_sysvar_clock_t const * ret = fd_sysvar_cache_clock( slot_ctx->sysvar_cache );
+fd_sysvar_clock_read( fd_sol_sysvar_clock_t *   result,
+                      fd_sysvar_cache_t const * sysvar_cache,
+                      fd_acc_mgr_t *            acc_mgr,
+                      fd_funk_txn_t *           funk_txn ) {
+  fd_sol_sysvar_clock_t const * ret = fd_sysvar_cache_clock( sysvar_cache );
   if( NULL != ret ) {
     fd_memcpy(result, ret, sizeof(fd_sol_sysvar_clock_t));
     return result;
   }
 
   FD_TXN_ACCOUNT_DECL( acc );
-  int rc = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_clock_id, acc );
+  int rc = fd_acc_mgr_view( acc_mgr, funk_txn, &fd_sysvar_clock_id, acc );
   if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) )
     return NULL;
 
@@ -190,7 +191,10 @@ fd_calculate_stake_weighted_timestamp( fd_exec_slot_ctx_t * slot_ctx,
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   ulong slot_duration = (ulong)( epoch_bank->ns_per_slot );
   fd_sol_sysvar_clock_t clock;
-  fd_sysvar_clock_read( &clock, slot_ctx );
+  fd_sysvar_clock_read( &clock,
+                        slot_ctx->sysvar_cache,
+                        slot_ctx->acc_mgr,
+                        slot_ctx->funk_txn );
   // get the unique timestamps
   /* stake per timestamp */
 
@@ -374,7 +378,7 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad 
     long new_timestamp = 0L;
     fd_calculate_stake_weighted_timestamp( slot_ctx,
                                            &new_timestamp,
-                                           FD_FEATURE_ACTIVE( slot_ctx, warp_timestamp_again ),
+                                           FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, warp_timestamp_again ),
                                            runtime_spad );
 
     /* If the timestamp was successfully calculated, use it. It not keep the old one.
@@ -421,7 +425,7 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad 
     long timestamp_estimate = 0L;
     fd_calculate_stake_weighted_timestamp( slot_ctx,
                                            &timestamp_estimate,
-                                           FD_FEATURE_ACTIVE( slot_ctx, warp_timestamp_again ),
+                                           FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, warp_timestamp_again ),
                                            runtime_spad );
     clock->unix_timestamp        = fd_long_max( timestamp_estimate, ancestor_timestamp );
     clock->epoch_start_timestamp = clock->unix_timestamp;

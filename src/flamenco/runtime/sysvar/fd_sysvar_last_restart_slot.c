@@ -3,13 +3,11 @@
 #include "fd_sysvar.h"
 #include "../fd_system_ids.h"
 #include "../fd_runtime.h"
-#include "../context/fd_exec_epoch_ctx.h"
-#include "../context/fd_exec_slot_ctx.h"
 
 void
 fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {
 
-  if( !FD_FEATURE_ACTIVE( slot_ctx, last_restart_slot_sysvar ) ) {
+  if( !FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, last_restart_slot_sysvar ) ) {
     FD_LOG_INFO(( "sysvar LastRestartSlot not supported by this ledger version!" ));
     return;
   }
@@ -36,15 +34,18 @@ fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {
 
 fd_sol_sysvar_last_restart_slot_t *
 fd_sysvar_last_restart_slot_read( fd_sol_sysvar_last_restart_slot_t * result,
-                                  fd_exec_slot_ctx_t const *          slot_ctx ) {
-  fd_sol_sysvar_last_restart_slot_t const * ret = fd_sysvar_cache_last_restart_slot( slot_ctx->sysvar_cache );
+                                  fd_sysvar_cache_t const *           sysvar_cache,
+                                  fd_acc_mgr_t *                      acc_mgr,
+                                  fd_funk_txn_t *                     funk_txn ) {
+
+  fd_sol_sysvar_last_restart_slot_t const * ret = fd_sysvar_cache_last_restart_slot( sysvar_cache );
   if( FD_UNLIKELY( NULL != ret ) ) {
     fd_memcpy(result, ret, sizeof(fd_sol_sysvar_last_restart_slot_t));
     return result;
   }
 
   FD_TXN_ACCOUNT_DECL( acc );
-  int err = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_last_restart_slot_id, acc);
+  int err = fd_acc_mgr_view(acc_mgr, funk_txn, &fd_sysvar_last_restart_slot_id, acc);
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return NULL;
 
   fd_bincode_decode_ctx_t decode = {
@@ -72,14 +73,17 @@ void
 fd_sysvar_last_restart_slot_update( fd_exec_slot_ctx_t * slot_ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2093-L2095 */
-  if( !FD_FEATURE_ACTIVE( slot_ctx, last_restart_slot_sysvar ) ) return;
+  if( !FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, last_restart_slot_sysvar ) ) return;
 
   int   has_current_last_restart_slot = 0;
   ulong     current_last_restart_slot = 0UL;
 
   /* https://github.com/solana-labs/solana/blob/v1.18.18/runtime/src/bank.rs#L2098-L2106 */
   fd_sol_sysvar_last_restart_slot_t old_account;
-  if( fd_sysvar_last_restart_slot_read( &old_account, slot_ctx ) ) {
+  if( fd_sysvar_last_restart_slot_read( &old_account,
+                                        slot_ctx->sysvar_cache,
+                                        slot_ctx->acc_mgr,
+                                        slot_ctx->funk_txn ) ) {
     has_current_last_restart_slot = 1;
         current_last_restart_slot = old_account.slot;
   }

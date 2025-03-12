@@ -83,7 +83,7 @@ fd_acc_mgr_set_slots_per_epoch( fd_exec_slot_ctx_t * slot_ctx,
   /* Handle feature activation of 'skip_rent_rewrites' or change of
      slots_per_epoch. */
 
-  int skip_rent_rewrites = FD_FEATURE_ACTIVE( slot_ctx, skip_rent_rewrites );
+  int skip_rent_rewrites = FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, skip_rent_rewrites );
 
   if( ( slots_per_epoch    == acc_mgr->slots_per_epoch    ) &
       ( skip_rent_rewrites == acc_mgr->skip_rent_rewrites ) )

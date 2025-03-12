@@ -4,7 +4,6 @@
 #include "../fd_system_ids.h"
 #include "../context/fd_exec_instr_ctx.h"
 #include "../context/fd_exec_txn_ctx.h"
-#include "../context/fd_exec_slot_ctx.h"
 
 #define FD_SYSVAR_CACHE_MAGIC (0x195a0e78828cacd5UL)
 
@@ -152,7 +151,7 @@ fd_sysvar_cache_restore_##name( cache, acc_mgr, funk_txn );
       return NULL;                                                     \
     }                                                                  \
                                                                        \
-    fd_sysvar_cache_t const * cache = ctx->slot_ctx->sysvar_cache;     \
+    fd_sysvar_cache_t const * cache = ctx->txn_ctx->sysvar_cache;      \
     type##_t const * val = fd_sysvar_cache_##name ( cache );           \
                                                                        \
     fd_pubkey_t const * addr_have = &ctx->instr->acct_pubkeys[idx];    \

@@ -1,4 +1,5 @@
 #include "fd_executor.h"
+#include "context/fd_exec_epoch_ctx.h"
 #include "fd_acc_mgr.h"
 #include "fd_hashes.h"
 #include "fd_runtime_err.h"
@@ -258,8 +259,8 @@ fd_validate_fee_payer( fd_txn_account_t * account,
 
 static int
 status_check_tower( ulong slot, void * _ctx ) {
-  fd_exec_slot_ctx_t * ctx = (fd_exec_slot_ctx_t *)_ctx;
-  if( slot==ctx->slot_bank.slot ) {
+  fd_exec_txn_ctx_t * ctx = (fd_exec_txn_ctx_t *)_ctx;
+  if( slot==ctx->slot_bank->slot ) {
     return 1;
   }
 
@@ -267,7 +268,11 @@ status_check_tower( ulong slot, void * _ctx ) {
     return 1;
   }
 
-  if( fd_sysvar_slot_history_find_slot( ctx->slot_history, slot ) == FD_SLOT_HISTORY_SLOT_FOUND ) {
+  fd_slot_history_t * slot_history = fd_sysvar_slot_history_read( ctx->acc_mgr,
+                                                                  ctx->funk_txn,
+                                                                  ctx->spad );
+
+  if( fd_sysvar_slot_history_find_slot( slot_history, slot ) == FD_SLOT_HISTORY_SLOT_FOUND ) {
     return 1;
   }
 
@@ -277,7 +282,7 @@ status_check_tower( ulong slot, void * _ctx ) {
 static int
 fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx ) {
 
-  if( FD_UNLIKELY( !txn_ctx->slot_ctx->status_cache ) ) {
+  if( FD_UNLIKELY( !txn_ctx->status_cache ) ) {
     return FD_RUNTIME_EXECUTE_SUCCESS;
   }
 
@@ -297,7 +302,11 @@ fd_executor_check_status_cache( fd_exec_txn_ctx_t * txn_ctx ) {
 
   // TODO: figure out if it is faster to batch query properly and loop all txns again
   int err;
-  fd_txncache_query_batch( txn_ctx->slot_ctx->status_cache, &curr_query, 1UL, (void *)txn_ctx->slot_ctx, status_check_tower, &err );
+  fd_txncache_query_batch( txn_ctx->status_cache,
+                           &curr_query,
+                           1UL,
+                           (void *)txn_ctx,
+                           status_check_tower, &err );
   return err;
 }
 
@@ -340,7 +349,7 @@ fd_executor_verify_precompiles( fd_exec_txn_ctx_t * txn_ctx ) {
         FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, i );
         return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
       }
-    } else if( !memcmp( program_id, &fd_solana_secp256r1_program_id, sizeof(fd_pubkey_t)) && FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, enable_secp256r1_precompile ) ) {
+    } else if( !memcmp( program_id, &fd_solana_secp256r1_program_id, sizeof(fd_pubkey_t)) && FD_FEATURE_ACTIVE( txn_ctx->slot_bank->slot, txn_ctx->features, enable_secp256r1_precompile ) ) {
       err = fd_precompile_secp256r1_verify( txn_ctx, instr );
       if( FD_UNLIKELY( err ) ) {
         FD_TXN_ERR_FOR_LOG_INSTR( txn_ctx, err, i );
@@ -430,8 +439,8 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
         with a dummy value.
      */
 
-  fd_epoch_schedule_t const * schedule = fd_sysvar_cache_epoch_schedule( txn_ctx->slot_ctx->sysvar_cache );
-  ulong                       epoch    = fd_slot_to_epoch( schedule, txn_ctx->slot_ctx->slot_bank.slot, NULL );
+  fd_epoch_schedule_t const * schedule = fd_sysvar_cache_epoch_schedule( txn_ctx->sysvar_cache );
+  ulong                       epoch    = fd_slot_to_epoch( schedule, txn_ctx->slot_bank->slot, NULL );
 
   /* In `load_transaction_account()`, there are special checks based on the priviledges of each account key.
      We precompute the results here before proceeding with the special casing. Note the start range of 1 since
@@ -480,7 +489,7 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
        `disable_account_loader_special_case` is active.
        https://github.com/anza-xyz/agave/blob/v2.1.0/svm/src/account_loader.rs#L438-L451 */
     if( FD_UNLIKELY( !is_instruction_account && !is_writable &&
-                     !FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, disable_account_loader_special_case ) &&
+                     !FD_FEATURE_ACTIVE( txn_ctx->slot_bank->slot, txn_ctx->features, disable_account_loader_special_case ) &&
                      is_maybe_in_loaded_program_cache( acct ) ) ) {
 
       /* In the corresponding branch in the agave client, if the account is not executable,
@@ -502,8 +511,8 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
           fd_bpf_upgradeable_loader_state_t * state = fd_bpf_loader_program_get_state( acct, txn_ctx->spad, &err );
           if( FD_LIKELY( !err && fd_bpf_upgradeable_loader_state_is_program( state ) ) ) {
             FD_TXN_ACCOUNT_DECL( programdata_account );
-            err = fd_acc_mgr_view( txn_ctx->slot_ctx->acc_mgr,
-                                   txn_ctx->slot_ctx->funk_txn,
+            err = fd_acc_mgr_view( txn_ctx->acc_mgr,
+                                   txn_ctx->funk_txn,
                                    &state->inner.program.programdata_address,
                                    programdata_account );
             if( FD_LIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
@@ -519,7 +528,12 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
       /* If the account exists and is writable, collect rent from it. */
       if( FD_LIKELY( acct->account_found ) ) {
         if( is_writable ) {
-          txn_ctx->collected_rent += fd_runtime_collect_rent_from_account( txn_ctx->slot_ctx, acct->meta, acct->pubkey, epoch );
+          txn_ctx->collected_rent += fd_runtime_collect_rent_from_account( txn_ctx->slot_bank,
+                                                                           txn_ctx->epoch_bank,
+                                                                           &txn_ctx->features,
+                                                                           acct->meta,
+                                                                           acct->pubkey,
+                                                                           epoch );
           acct->starting_lamports = acct->meta->info.lamports;
         }
       }
@@ -561,7 +575,7 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
     /* The above checks from the mirrored `load_transaction_account()` function would promote
        this account to executable if necessary, so this check is sufficient.
        https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/svm/src/account_loader.rs#L493-L500 */
-    if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, remove_accounts_executable_flag_checks ) &&
+    if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( txn_ctx->slot_bank->slot, txn_ctx->features, remove_accounts_executable_flag_checks ) &&
                      !fd_txn_account_is_executable( program_account ) ) ) {
       return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
     }
@@ -582,7 +596,7 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
 
     /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L334-353 */
     FD_TXN_ACCOUNT_DECL( owner_account );
-    err = fd_acc_mgr_view( txn_ctx->slot_ctx->acc_mgr, txn_ctx->slot_ctx->funk_txn, (fd_pubkey_t *) program_account->const_meta->info.owner, owner_account );
+    err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t *) program_account->const_meta->info.owner, owner_account );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
       return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
     }
@@ -597,7 +611,7 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
 
     /* https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/svm/src/account_loader.rs#L537-L545 */
     if( FD_UNLIKELY( memcmp( owner_account->const_meta->info.owner, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) ||
-                     ( !FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, remove_accounts_executable_flag_checks ) &&
+                     ( !FD_FEATURE_ACTIVE( txn_ctx->slot_bank->slot, txn_ctx->features, remove_accounts_executable_flag_checks ) &&
                        !fd_txn_account_is_executable( owner_account ) ) ) ) {
       return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
     }
@@ -623,7 +637,7 @@ int
 fd_executor_validate_account_locks( fd_exec_txn_ctx_t const * txn_ctx ) {
   /* Ensure the number of account keys does not exceed the transaction lock limit
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L123 */
-  ulong tx_account_lock_limit = get_transaction_account_lock_limit( txn_ctx->slot_ctx );
+  ulong tx_account_lock_limit = get_transaction_account_lock_limit( txn_ctx );
   if( FD_UNLIKELY( txn_ctx->accounts_cnt>tx_account_lock_limit ) ) {
     return FD_RUNTIME_TXN_ERR_TOO_MANY_ACCOUNT_LOCKS;
   }
@@ -644,18 +658,18 @@ fd_executor_validate_account_locks( fd_exec_txn_ctx_t const * txn_ctx ) {
 
 /* https://github.com/anza-xyz/agave/blob/89050f3cb7e76d9e273f10bea5e8207f2452f79f/svm/src/account_loader.rs#L101-L126 */
 static int
-fd_should_set_exempt_rent_epoch_max( fd_exec_slot_ctx_t const * slot_ctx,
-                                     fd_txn_account_t *    rec ) {
+fd_should_set_exempt_rent_epoch_max( fd_exec_txn_ctx_t * txn_ctx,
+                                     fd_txn_account_t *  rec ) {
   /* https://github.com/anza-xyz/agave/blob/89050f3cb7e76d9e273f10bea5e8207f2452f79f/svm/src/account_loader.rs#L109-L125 */
-  if( FD_FEATURE_ACTIVE( slot_ctx, disable_rent_fees_collection ) ) {
+  if( FD_FEATURE_ACTIVE( txn_ctx->slot_bank->slot, txn_ctx->features, disable_rent_fees_collection ) ) {
     if( FD_LIKELY( rec->const_meta->info.rent_epoch!=ULONG_MAX
-                && rec->const_meta->info.lamports>=fd_rent_exempt_minimum_balance( &slot_ctx->epoch_ctx->epoch_bank.rent, rec->const_meta->dlen ) ) ) {
+                && rec->const_meta->info.lamports>=fd_rent_exempt_minimum_balance( &txn_ctx->epoch_bank->rent, rec->const_meta->dlen ) ) ) {
       return 1;
     }
     return 0;
   }
 
-  ulong epoch = fd_slot_to_epoch( &slot_ctx->epoch_ctx->epoch_bank.epoch_schedule, slot_ctx->slot_bank.slot, NULL );
+  ulong epoch = fd_slot_to_epoch( &txn_ctx->epoch_bank->epoch_schedule, txn_ctx->slot_bank->slot, NULL );
 
   /* https://github.com/anza-xyz/agave/blob/89050f3cb7e76d9e273f10bea5e8207f2452f79f/sdk/src/rent_collector.rs#L158-L162 */
   if( rec->const_meta->info.rent_epoch==ULONG_MAX || rec->const_meta->info.rent_epoch>epoch ) {
@@ -668,7 +682,7 @@ fd_should_set_exempt_rent_epoch_max( fd_exec_slot_ctx_t const * slot_ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/89050f3cb7e76d9e273f10bea5e8207f2452f79f/sdk/src/rent_collector.rs#L167-L183 */
-  if( rec->const_meta->info.lamports && rec->const_meta->info.lamports<fd_rent_exempt_minimum_balance( &slot_ctx->epoch_ctx->epoch_bank.rent, rec->const_meta->dlen ) ) {
+  if( rec->const_meta->info.lamports && rec->const_meta->info.lamports<fd_rent_exempt_minimum_balance( &txn_ctx->epoch_bank->rent, rec->const_meta->dlen ) ) {
     return 0;
   }
 
@@ -731,7 +745,7 @@ fd_executor_calculate_fee( fd_exec_txn_ctx_t *txn_ctx,
     fd_pubkey_t *          program_id = &txn_ctx->account_keys[txn_instr->program_id];
     if( !memcmp(program_id->uc, fd_solana_keccak_secp_256k_program_id.key, sizeof(fd_pubkey_t)) ||
         !memcmp(program_id->uc, fd_solana_ed25519_sig_verify_program_id.key, sizeof(fd_pubkey_t)) ||
-        (!memcmp(program_id->uc, fd_solana_secp256r1_program_id.key, sizeof(fd_pubkey_t)) && FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, enable_secp256r1_precompile )) ) {
+        (!memcmp(program_id->uc, fd_solana_secp256r1_program_id.key, sizeof(fd_pubkey_t)) && FD_FEATURE_ACTIVE( txn_ctx->slot_bank->slot, txn_ctx->features, enable_secp256r1_precompile )) ) {
       if( !txn_instr->data_sz ) {
         continue;
       }
@@ -740,7 +754,7 @@ fd_executor_calculate_fee( fd_exec_txn_ctx_t *txn_ctx,
     }
   }
 
-  ulong signature_fee = fd_executor_lamports_per_signature(&txn_ctx->slot_ctx->slot_bank) * num_signatures;
+  ulong signature_fee = fd_executor_lamports_per_signature( txn_ctx->slot_bank ) * num_signatures;
 
   // TODO: as far as I can tell, this is always 0
   //
@@ -796,15 +810,14 @@ fd_executor_collect_fees( fd_exec_txn_ctx_t * txn_ctx, fd_txn_account_t * fee_pa
 
   fd_executor_calculate_fee( txn_ctx, txn_ctx->txn_descriptor, txn_ctx->_txn_raw, &execution_fee, &priority_fee );
 
-  fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( txn_ctx->slot_ctx->epoch_ctx );
-  ulong             total_fee  = fd_ulong_sat_add( execution_fee, priority_fee );
+  ulong                   total_fee  = fd_ulong_sat_add( execution_fee, priority_fee );
 
   // https://github.com/anza-xyz/agave/blob/2e6ca8c1f62db62c1db7f19c9962d4db43d0d550/sdk/src/fee.rs#L54
-  if( !FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, remove_rounding_in_fee_calculation ) ) {
+  if( !FD_FEATURE_ACTIVE( txn_ctx->slot_bank->slot, txn_ctx->features, remove_rounding_in_fee_calculation ) ) {
     total_fee = fd_rust_cast_double_to_ulong( round( (double)total_fee ) );
   }
 
-  int err = fd_validate_fee_payer( fee_payer_rec, &epoch_bank->rent, total_fee, txn_ctx->spad );
+  int err = fd_validate_fee_payer( fee_payer_rec, &txn_ctx->epoch_bank->rent, total_fee, txn_ctx->spad );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -828,7 +841,7 @@ fd_executor_collect_fees( fd_exec_txn_ctx_t * txn_ctx, fd_txn_account_t * fee_pa
   fee_payer_rec->starting_lamports    = fee_payer_rec->meta->info.lamports;
 
   /* Update the fee payer's rent epoch to ULONG_MAX if it is rent exempt. */
-  if( fd_should_set_exempt_rent_epoch_max( txn_ctx->slot_ctx, fee_payer_rec ) ) {
+  if( fd_should_set_exempt_rent_epoch_max( txn_ctx, fee_payer_rec ) ) {
     fee_payer_rec->meta->info.rent_epoch = ULONG_MAX;
   }
 
@@ -856,9 +869,14 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* Collect rent from the fee payer and set the starting lamports (to avoid unbalanced lamports issues in instruction execution)
      https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/transaction_processor.rs#L438-L445 */
-  fd_epoch_schedule_t const * schedule = fd_sysvar_cache_epoch_schedule( txn_ctx->slot_ctx->sysvar_cache );
-  ulong                       epoch    = fd_slot_to_epoch( schedule, txn_ctx->slot_ctx->slot_bank.slot, NULL );
-  txn_ctx->collected_rent += fd_runtime_collect_rent_from_account( txn_ctx->slot_ctx, fee_payer_rec->meta, fee_payer_rec->pubkey, epoch );
+  fd_epoch_schedule_t const * schedule = fd_sysvar_cache_epoch_schedule( txn_ctx->sysvar_cache );
+  ulong                       epoch    = fd_slot_to_epoch( schedule, txn_ctx->slot_bank->slot, NULL );
+  txn_ctx->collected_rent += fd_runtime_collect_rent_from_account( txn_ctx->slot_bank,
+                                                                   txn_ctx->epoch_bank,
+                                                                   &txn_ctx->features,
+                                                                   fee_payer_rec->meta,
+                                                                   fee_payer_rec->pubkey,
+                                                                   epoch );
   fee_payer_rec->starting_lamports = fee_payer_rec->meta->info.lamports;
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/transaction_processor.rs#L431-L488 */
@@ -887,7 +905,7 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx,
 
   if( txn_ctx->txn_descriptor->transaction_version == FD_TXN_V0 ) {
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/runtime/src/bank/address_lookup_table.rs#L44-L48 */
-    fd_slot_hashes_t const * slot_hashes = fd_sysvar_cache_slot_hashes( txn_ctx->slot_ctx->sysvar_cache );
+    fd_slot_hashes_t const * slot_hashes = fd_sysvar_cache_slot_hashes( txn_ctx->sysvar_cache );
     if( FD_UNLIKELY( !slot_hashes ) ) {
       return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
     }
@@ -902,8 +920,8 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx,
 
       /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94 */
       FD_TXN_ACCOUNT_DECL( addr_lut_rec );
-      int err = fd_acc_mgr_view( txn_ctx->slot_ctx->acc_mgr,
-                                 txn_ctx->slot_ctx->funk_txn,
+      int err = fd_acc_mgr_view( txn_ctx->acc_mgr,
+                                 txn_ctx->funk_txn,
                                  (fd_pubkey_t *) addr_lut_acc,
                                  addr_lut_rec );
       if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
@@ -959,7 +977,7 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx,
       /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L175-L176 */
       ulong active_addresses_len;
       err = fd_get_active_addresses_len( &addr_lookup_table_state->inner.lookup_table,
-                                          txn_ctx->slot_ctx->slot_bank.slot,
+                                          txn_ctx->slot_bank->slot,
                                           slot_hashes->hashes,
                                           lookup_addrs_cnt,
                                           &active_addresses_len );
@@ -1155,8 +1173,6 @@ fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     *ctx = (fd_exec_instr_ctx_t) {
       .instr     = instr,
       .txn_ctx   = txn_ctx,
-      .epoch_ctx = txn_ctx->epoch_ctx,
-      .slot_ctx  = txn_ctx->slot_ctx,
       .acc_mgr   = txn_ctx->acc_mgr,
       .funk_txn  = txn_ctx->funk_txn,
       .parent    = parent,
@@ -1241,7 +1257,7 @@ fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
       continue;
     }
 
-    acc_rec->meta->slot = txn_ctx->slot_ctx->slot_bank.slot;
+    acc_rec->meta->slot = txn_ctx->slot_bank->slot;
 
     if( acc_rec->meta->info.lamports == 0 ) {
       acc_rec->meta->dlen = 0;
@@ -1305,7 +1321,7 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       /* All new accounts should have their rent epoch set to ULONG_MAX.
          https://github.com/anza-xyz/agave/blob/89050f3cb7e76d9e273f10bea5e8207f2452f79f/svm/src/account_loader.rs#L485-L497 */
       if( !txn_account->account_found ||
-          (i>0UL && fd_should_set_exempt_rent_epoch_max( txn_ctx->slot_ctx, txn_account )) ) {
+          (i>0UL && fd_should_set_exempt_rent_epoch_max( txn_ctx, txn_account )) ) {
         txn_account->meta->info.rent_epoch = ULONG_MAX;
       }
     }
@@ -1413,10 +1429,10 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
   uchar * sig = (uchar *)raw_txn->raw + txn->signature_off;
 #endif
 
-  bool dump_insn = txn_ctx->capture_ctx && txn_ctx->slot_ctx->slot_bank.slot >= txn_ctx->capture_ctx->dump_proto_start_slot && txn_ctx->capture_ctx->dump_insn_to_pb;
+  bool dump_insn = txn_ctx->capture_ctx && txn_ctx->slot_bank->slot >= txn_ctx->capture_ctx->dump_proto_start_slot && txn_ctx->capture_ctx->dump_insn_to_pb;
 
   /* Initialize log collection */
-  fd_log_collector_init( &txn_ctx->log_collector, txn_ctx->slot_ctx->enable_exec_recording );
+  fd_log_collector_init( &txn_ctx->log_collector, txn_ctx->enable_exec_recording );
 
   for ( ushort i = 0; i < txn_ctx->txn_descriptor->instr_cnt; i++ ) {
 #ifdef VLOG
@@ -1447,7 +1463,7 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
         txn_ctx->instr_err_idx = i;
       }
 #ifdef VLOG
-      if ( 257037453 == txn_ctx->slot_ctx->slot_bank.slot ) {
+      if ( 257037453 == txn_ctx->slot_bank->slot ) {
 #endif
         if (instr_exec_result == FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR ) {
 #ifdef VLOG
@@ -1473,7 +1489,7 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
 
   /* TODO: This function needs to be split out of fd_execute_txn and be placed
       into the replay tile once it is implemented. */
-  int err = fd_executor_txn_check( txn_ctx->slot_ctx, txn_ctx );
+  int err = fd_executor_txn_check( txn_ctx );
   if( err != FD_EXECUTOR_INSTR_SUCCESS ) {
     FD_LOG_DEBUG(( "fd_executor_txn_check failed (%d)", err ));
     return err;
@@ -1483,9 +1499,8 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
 }
 
 int
-fd_executor_txn_check( fd_exec_slot_ctx_t const * slot_ctx,
-                       fd_exec_txn_ctx_t *        txn ) {
-  fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+fd_executor_txn_check( fd_exec_txn_ctx_t * txn_ctx ) {
+  fd_rent_t const * rent = fd_sysvar_cache_rent( txn_ctx->sysvar_cache );
 
   ulong starting_lamports_l = 0;
   ulong starting_lamports_h = 0;
@@ -1494,8 +1509,8 @@ fd_executor_txn_check( fd_exec_slot_ctx_t const * slot_ctx,
   ulong ending_lamports_h = 0;
 
   /* https://github.com/anza-xyz/agave/blob/b2c388d6cbff9b765d574bbb83a4378a1fc8af32/svm/src/account_rent_state.rs#L63 */
-  for( ulong idx = 0; idx < txn->accounts_cnt; idx++ ) {
-    fd_txn_account_t * b = &txn->accounts[idx];
+  for( ulong idx = 0; idx < txn_ctx->accounts_cnt; idx++ ) {
+    fd_txn_account_t * b = &txn_ctx->accounts[idx];
 
     // Was this account written to?
     if( NULL != b->meta ) {

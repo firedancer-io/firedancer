@@ -3,6 +3,7 @@
 #include "../fd_executor.h"
 #include "../../vm/fd_vm.h"
 #include "../fd_system_ids.h"
+#include "fd_exec_epoch_ctx.h"
 
 void *
 fd_exec_txn_ctx_new( void * mem ) {
@@ -272,10 +273,19 @@ fd_exec_txn_ctx_teardown( fd_exec_txn_ctx_t * txn_ctx ) {
 void
 fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
                                     fd_exec_txn_ctx_t *        txn_ctx ) {
-  txn_ctx->slot_ctx  = slot_ctx;
-  txn_ctx->epoch_ctx = slot_ctx->epoch_ctx;
-  txn_ctx->funk_txn  = NULL;
-  txn_ctx->acc_mgr   = slot_ctx->acc_mgr;
+  txn_ctx->funk_txn     = slot_ctx->funk_txn;
+  txn_ctx->acc_mgr      = slot_ctx->acc_mgr;
+  txn_ctx->features     = slot_ctx->epoch_ctx->features;
+  txn_ctx->slot_bank    = &slot_ctx->slot_bank;
+  txn_ctx->sysvar_cache = slot_ctx->sysvar_cache;
+  txn_ctx->status_cache = slot_ctx->status_cache;
+  txn_ctx->epoch_bank   = fd_exec_epoch_ctx_epoch_bank_const( slot_ctx->epoch_ctx );
+
+  txn_ctx->bank_hash_cmp = slot_ctx->epoch_ctx->bank_hash_cmp;
+
+  txn_ctx->prev_lamports_per_signature = slot_ctx->prev_lamports_per_signature;
+  txn_ctx->enable_exec_recording       = slot_ctx->enable_exec_recording;
+  txn_ctx->total_epoch_stake           = slot_ctx->epoch_ctx->total_epoch_stake;
 }
 
 void
@@ -321,9 +331,9 @@ fd_txn_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, int idx ) {
   /* See comments in fd_system_ids.h.
      https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L44 */
   if( fd_pubkey_is_active_reserved_key(&txn_ctx->account_keys[idx] ) ||
-      ( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, add_new_reserved_account_keys ) &&
+      ( FD_FEATURE_ACTIVE( txn_ctx->slot_bank->slot, txn_ctx->features, add_new_reserved_account_keys ) &&
                            fd_pubkey_is_pending_reserved_key( &txn_ctx->account_keys[idx] ) ) ||
-      ( FD_FEATURE_ACTIVE( txn_ctx->slot_ctx, enable_secp256r1_precompile ) &&
+      ( FD_FEATURE_ACTIVE( txn_ctx->slot_bank->slot, txn_ctx->features, enable_secp256r1_precompile ) &&
                            fd_pubkey_is_secp256r1_key( &txn_ctx->account_keys[idx] ) ) ) {
     return 0;
   }

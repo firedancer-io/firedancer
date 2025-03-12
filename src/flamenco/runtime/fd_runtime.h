@@ -44,9 +44,9 @@
 #define FD_FEATURE_ACTIVE_OFFSET_(_slot, _features, _offset)              (_slot >= (_features).f[_offset>>3])
 #define FD_FEATURE_JUST_ACTIVATED_OFFSET_(_slot, _features, _offset)      (_slot == (_features).f[_offset>>3] )
 
-#define FD_FEATURE_ACTIVE(_slot_ctx, _feature_name)                       FD_FEATURE_ACTIVE_( _slot_ctx->slot_bank.slot, _slot_ctx->epoch_ctx->features, _feature_name )
+#define FD_FEATURE_ACTIVE(_slot,_features,_feature_name)                  FD_FEATURE_ACTIVE_( _slot,_features,_feature_name )
 #define FD_FEATURE_JUST_ACTIVATED(_slot_ctx, _feature_name)               FD_FEATURE_JUST_ACTIVATED_( _slot_ctx->slot_bank.slot, _slot_ctx->epoch_ctx->features, _feature_name )
-#define FD_FEATURE_ACTIVE_OFFSET(_slot_ctx, _offset)                      FD_FEATURE_ACTIVE_OFFSET_( _slot_ctx->slot_bank.slot, _slot_ctx->epoch_ctx->features, _offset )
+#define FD_FEATURE_ACTIVE_OFFSET(_slot, _features, _offset)               FD_FEATURE_ACTIVE_OFFSET_( _slot, _features, _offset )
 #define FD_FEATURE_JUST_ACTIVATED_OFFSET(_slot_ctx, _offset)              FD_FEATURE_JUST_ACTIVATED_OFFSET_( _slot_ctx->slot_bank.slot, _slot_ctx->epoch_ctx->features, _offset )
 
 #define FD_BLOCKHASH_QUEUE_MAX_ENTRIES    (300UL)
@@ -335,10 +335,12 @@ fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx );
 /* TODO: Invoked by fd_executor: layering violation. Rent logic is deprecated
    and will be torn out entirely very soon. */
 ulong
-fd_runtime_collect_rent_from_account( fd_exec_slot_ctx_t const * slot_ctx,
-                                      fd_account_meta_t  *       acc,
-                                      fd_pubkey_t const  *       key,
-                                      ulong                      epoch );
+fd_runtime_collect_rent_from_account( fd_slot_bank_t const *  slot_bank,
+                                      fd_epoch_bank_t const * epoch_bank,
+                                      fd_features_t *         features,
+                                      fd_account_meta_t *     acc,
+                                      fd_pubkey_t const *     key,
+                                      ulong                   epoch );
 
 /* Block Level Execution Prep/Finalize ****************************************/
 

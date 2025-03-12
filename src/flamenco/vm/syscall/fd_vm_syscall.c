@@ -16,9 +16,10 @@ fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
 }
 
 int
-fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
-                             fd_exec_slot_ctx_t const * slot_ctx,
-                             uchar is_deploy ) {
+fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *      syscalls,
+                             ulong                     slot,
+                             fd_features_t *           features,
+                             uchar                     is_deploy ) {
   if( FD_UNLIKELY( !syscalls ) ) return FD_VM_ERR_INVAL;
 
   int enable_blake3_syscall                = 0;
@@ -33,21 +34,20 @@ fd_vm_syscall_register_slot( fd_sbpf_syscalls_t *       syscalls,
 
   int disable_fees_sysvar                  = 0;
 
-  if( slot_ctx ) {
-
-    enable_blake3_syscall                = FD_FEATURE_ACTIVE( slot_ctx, blake3_syscall_enabled );
-    enable_curve25519_syscall            = FD_FEATURE_ACTIVE( slot_ctx, curve25519_syscall_enabled );
-    enable_poseidon_syscall              = FD_FEATURE_ACTIVE( slot_ctx, enable_poseidon_syscall );
-    enable_alt_bn128_syscall             = FD_FEATURE_ACTIVE( slot_ctx, enable_alt_bn128_syscall );
-    enable_alt_bn128_compression_syscall = FD_FEATURE_ACTIVE( slot_ctx, enable_alt_bn128_compression_syscall );
-    enable_last_restart_slot_syscall     = FD_FEATURE_ACTIVE( slot_ctx, last_restart_slot_sysvar );
-    enable_get_sysvar_syscall            = FD_FEATURE_ACTIVE( slot_ctx, get_sysvar_syscall_enabled );
-    enable_get_epoch_stake_syscall       = FD_FEATURE_ACTIVE( slot_ctx, enable_get_epoch_stake_syscall );
+  if( slot ) {
+    enable_blake3_syscall                = FD_FEATURE_ACTIVE( slot, *features, blake3_syscall_enabled );
+    enable_curve25519_syscall            = FD_FEATURE_ACTIVE( slot, *features, curve25519_syscall_enabled );
+    enable_poseidon_syscall              = FD_FEATURE_ACTIVE( slot, *features, enable_poseidon_syscall );
+    enable_alt_bn128_syscall             = FD_FEATURE_ACTIVE( slot, *features, enable_alt_bn128_syscall );
+    enable_alt_bn128_compression_syscall = FD_FEATURE_ACTIVE( slot, *features, enable_alt_bn128_compression_syscall );
+    enable_last_restart_slot_syscall     = FD_FEATURE_ACTIVE( slot, *features, last_restart_slot_sysvar );
+    enable_get_sysvar_syscall            = FD_FEATURE_ACTIVE( slot, *features, get_sysvar_syscall_enabled );
+    enable_get_epoch_stake_syscall       = FD_FEATURE_ACTIVE( slot, *features, enable_get_epoch_stake_syscall );
     // https://github.com/anza-xyz/agave/blob/v2.1.7/programs/bpf_loader/src/syscalls/mod.rs#L275-L277
-    enable_epoch_rewards_syscall         = FD_FEATURE_ACTIVE( slot_ctx, enable_partitioned_epoch_reward ) ||
-                                           FD_FEATURE_ACTIVE( slot_ctx, partitioned_epoch_rewards_superfeature );
+    enable_epoch_rewards_syscall         = FD_FEATURE_ACTIVE( slot, *features, enable_partitioned_epoch_reward ) ||
+                                           FD_FEATURE_ACTIVE( slot, *features, partitioned_epoch_rewards_superfeature );
 
-    disable_fees_sysvar                  = FD_FEATURE_ACTIVE( slot_ctx, disable_fees_sysvar );
+    disable_fees_sysvar                  = FD_FEATURE_ACTIVE( slot, *features, disable_fees_sysvar );
 
   } else { /* enable ALL */
 

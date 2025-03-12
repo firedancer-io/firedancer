@@ -9,17 +9,19 @@
 #define ACCOUNT_STORAGE_OVERHEAD (128)
 
 fd_rent_t *
-fd_sysvar_rent_read( fd_exec_slot_ctx_t const * slot_ctx,
-                     fd_spad_t *                runtime_spad ) {
+fd_sysvar_rent_read( fd_sysvar_cache_t const * sysvar_cache,
+                     fd_acc_mgr_t *            acc_mgr,
+                     fd_funk_txn_t *           funk_txn,
+                     fd_spad_t *               spad ) {
 
-  fd_rent_t const * ret = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+  fd_rent_t const * ret = fd_sysvar_cache_rent( sysvar_cache );
   if( FD_UNLIKELY( ret ) ) {
     return (fd_rent_t*)ret;
   }
 
   FD_TXN_ACCOUNT_DECL( rent_rec );
 
-  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_rent_id, rent_rec );
+  int err = fd_acc_mgr_view( acc_mgr, funk_txn, &fd_sysvar_rent_id, rent_rec );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_WARNING(( "failed to read rent sysvar: %d", err ));
     return NULL;
@@ -37,7 +39,7 @@ fd_sysvar_rent_read( fd_exec_slot_ctx_t const * slot_ctx,
     return NULL;
   }
 
-  uchar * mem = fd_spad_alloc( runtime_spad, fd_rent_align(), total_sz );
+  uchar * mem = fd_spad_alloc( spad, fd_rent_align(), total_sz );
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_ERR(( "failed to allocate memory for rent" ));
   }

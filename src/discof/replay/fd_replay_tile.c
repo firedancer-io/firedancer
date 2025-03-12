@@ -1284,7 +1284,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
   }
 
   /* Read slot history into slot ctx */
-  fork->slot_ctx.slot_history = fd_sysvar_slot_history_read( &fork->slot_ctx, ctx->runtime_spad );
+  fork->slot_ctx.slot_history = fd_sysvar_slot_history_read( fork->slot_ctx.acc_mgr, fork->slot_ctx.funk_txn, ctx->runtime_spad );
 
   if( is_new_epoch_in_new_block ) {
     publish_stake_weights( ctx, stem, &fork->slot_ctx );

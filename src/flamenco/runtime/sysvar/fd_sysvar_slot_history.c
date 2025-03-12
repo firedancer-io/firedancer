@@ -3,7 +3,6 @@
 #include "fd_sysvar_rent.h"
 #include "../fd_executor_err.h"
 #include "../fd_system_ids.h"
-#include "../context/fd_exec_epoch_ctx.h"
 
 /* FIXME These constants should be header defines */
 
@@ -132,14 +131,15 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtim
 }
 
 fd_slot_history_t *
-fd_sysvar_slot_history_read( fd_exec_slot_ctx_t * slot_ctx,
-                             fd_spad_t *          runtime_spad ) {
+fd_sysvar_slot_history_read( fd_acc_mgr_t *  acc_mgr,
+                             fd_funk_txn_t * funk_txn,
+                             fd_spad_t *     spad ) {
   /* Set current_slot, and update next_slot */
 
   fd_pubkey_t const * key = &fd_sysvar_slot_history_id;
 
   FD_TXN_ACCOUNT_DECL( rec );
-  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, key, rec);
+  int err = fd_acc_mgr_view( acc_mgr, funk_txn, key, rec );
   if( err ) {
     FD_LOG_CRIT(( "fd_acc_mgr_view(slot_history) failed: %d", err ));
   }
@@ -155,7 +155,7 @@ fd_sysvar_slot_history_read( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_ERR(( "fd_slot_history_decode_footprint failed" ));
   }
 
-  uchar * mem = fd_spad_alloc( runtime_spad, fd_slot_history_align(), total_sz );
+  uchar * mem = fd_spad_alloc( spad, fd_slot_history_align(), total_sz );
   if( !mem ) {
     FD_LOG_ERR(( "Unable to allocate memory for slot history" ));
   }
