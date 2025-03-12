@@ -214,16 +214,18 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
      https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L92 */
   if( instr_acc_cnt > accessed_accounts ) {
     fd_pubkey_t                   context_state_authority[1];
-    fd_guarded_borrowed_account_t _acc;
-    fd_guarded_borrowed_account_t proof_context_acc;
 
-    /* Obtain the context_state_authority by borrowing the account.
-       https://github.com/anza-xyz/agave/blob/master/programs/zk-elgamal-proof/src/lib.rs#L95-L100 */
-    FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, accessed_accounts+1, &_acc );
-    fd_memcpy( context_state_authority, _acc.acct->pubkey, sizeof(fd_pubkey_t) );
+    /* Obtain the context_state_authority by borrowing the account temporarily in a local scope.
+       https://github.com/anza-xyz/agave/blob/v2.1.14/programs/zk-elgamal-proof/src/lib.rs#L94-L99 */
+    do {
+      fd_guarded_borrowed_account_t _acc;
+      FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, accessed_accounts+1, &_acc );
+      fd_memcpy( context_state_authority, _acc.acct->pubkey, sizeof(fd_pubkey_t) );
+    } while(0);
 
     /* Borrow the proof context account
-       https://github.com/anza-xyz/agave/blob/master/programs/zk-elgamal-proof/src/lib.rs#L102-L103 */
+       https://github.com/anza-xyz/agave/blob/v2.1.14/programs/zk-elgamal-proof/src/lib.rs#L101-L102 */
+    fd_guarded_borrowed_account_t proof_context_acc;
     FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, accessed_accounts, &proof_context_acc );
 
     /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L103-L105 */
