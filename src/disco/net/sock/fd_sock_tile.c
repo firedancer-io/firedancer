@@ -533,6 +533,7 @@ after_frag( fd_sock_tile_t *    ctx,
             ulong               sig    FD_PARAM_UNUSED,
             ulong               sz,
             ulong               tsorig FD_PARAM_UNUSED,
+            ulong               tspub  FD_PARAM_UNUSED,
             fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
   /* Commit the packet added in during_frag */
 

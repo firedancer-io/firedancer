@@ -136,9 +136,11 @@ after_frag_sensitive( void *              _ctx,
                       ulong               sig,
                       ulong               sz,
                       ulong               tsorig,
+                      ulong               tspub,
                       fd_stem_context_t * stem ) {
   (void)seq;
   (void)tsorig;
+  (void)tspub;
   (void)stem;
 
   fd_sign_ctx_t * ctx = (fd_sign_ctx_t *)_ctx;
@@ -192,8 +194,9 @@ after_frag( void *              _ctx,
             ulong               sig,
             ulong               sz,
             ulong               tsorig,
+            ulong               tspub,
             fd_stem_context_t * stem ) {
-  after_frag_sensitive( _ctx, in_idx, seq, sig, sz, tsorig, stem );
+  after_frag_sensitive( _ctx, in_idx, seq, sig, sz, tsorig, tspub, stem );
 }
 
 static void FD_FN_SENSITIVE

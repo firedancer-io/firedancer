@@ -97,6 +97,11 @@ struct fd_microblock_trailer {
   /* The hash of the transactions in the microblock, ready to be
      mixed into PoH. */
   uchar hash[ 32UL ];
+
+  /* If this is a microblock for the last transaction in a bundle,
+     (or always true, if not a bundle). Useful for monitoring tools to
+     determine when the bank is done executing. */
+  uchar is_last_in_bundle;
 };
 typedef struct fd_microblock_trailer fd_microblock_trailer_t;
 

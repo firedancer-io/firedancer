@@ -68,10 +68,12 @@ after_frag( fd_store_ctx_t *    ctx,
             ulong               sig,
             ulong               sz,
             ulong               tsorig,
+            ulong               tspub,
             fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
   (void)tsorig;
+  (void)tspub;
   (void)stem;
 
   fd_shred34_t * shred34 = (fd_shred34_t *)ctx->mem;

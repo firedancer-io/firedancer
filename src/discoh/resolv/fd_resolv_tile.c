@@ -305,9 +305,11 @@ after_frag( fd_resolv_ctx_t *   ctx,
             ulong               sig,
             ulong               sz,
             ulong               tsorig,
+            ulong               _tspub,
             fd_stem_context_t * stem ) {
   (void)seq;
   (void)sz;
+  (void)_tspub;
 
   if( FD_UNLIKELY( ctx->in[in_idx].kind==FD_RESOLV_IN_KIND_BANK ) ) {
     switch( sig ) {

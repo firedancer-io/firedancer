@@ -31,6 +31,7 @@ after_frag( void *              _ctx   FD_FN_UNUSED,
             ulong               sig    FD_FN_UNUSED,
             ulong               sz     FD_FN_UNUSED,
             ulong               tsorig FD_FN_UNUSED,
+            ulong               tspub  FD_FN_UNUSED,
             fd_stem_context_t * stem   FD_FN_UNUSED ) {
   fd_quic_ctx_t * ctx = &fd_quic_trace_ctx;
   fd_quic_log_error_t const * error = fd_type_pun_const( ctx->buffer );
