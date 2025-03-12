@@ -341,6 +341,7 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "cswtch",
     "bencho",
     "bhole",  /* FIREDANCER only */
+    "rstart", /* FIREDANCER only */
   };
 
   char const * ORDERED[] = {
@@ -352,13 +353,13 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "bundle",
     "verify",
     "dedup",
-    "resolv",
+    "resolv", /* FRANK only */
     "pack",
-    "bank",
-    "poh",
+    "bank",   /* FRANK only */
+    "poh",    /* FRANK only */
     "pohi",   /* FIREDANCER only */
     "shred",
-    "store",
+    "store",  /* FRANK only */
     "storei", /* FIREDANCER only */
     "sign",
     "plugin",

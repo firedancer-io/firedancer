@@ -734,9 +734,6 @@ fd_topo_initialize( config_t * config ) {
       tile->replay.full_interval        = config->tiles.batch.full_interval;
       tile->replay.incremental_interval = config->tiles.batch.incremental_interval;
 
-      FD_LOG_NOTICE(("config->consensus.identity_path: %s", config->consensus.identity_path));
-      FD_LOG_NOTICE(("config->consensus.vote_account_path: %s", config->consensus.vote_account_path));
-
     } else if( FD_UNLIKELY( !strcmp( tile->name, "bhole" ) ) ) {
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "sign" ) ) ) {

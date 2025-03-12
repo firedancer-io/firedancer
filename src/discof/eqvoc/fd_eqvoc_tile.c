@@ -4,31 +4,10 @@
 #include "generated/fd_eqvoc_tile_seccomp.h"
 
 #include "../../choreo/fd_choreo.h"
-#include "../../flamenco/fd_flamenco.h"
-#include "../../flamenco/leaders/fd_leaders.h"
-#include "../../flamenco/repair/fd_repair.h"
-#include "../../flamenco/runtime/fd_blockstore.h"
-#include "../../util/fd_util.h"
 
 #include "../../disco/fd_disco.h"
-#include "../../disco/keyguard/fd_keyguard.h"
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/shred/fd_stake_ci.h"
-#include "../../disco/topo/fd_pod_format.h"
-#include "../../flamenco/leaders/fd_leaders.h"
-#include "../../flamenco/runtime/fd_runtime.h"
-#include "../../util/net/fd_eth.h"
-#include "../../util/net/fd_ip4.h"
-#include "../../util/net/fd_udp.h"
-#include "../../util/net/fd_net_headers.h"
-
-#include <arpa/inet.h>
-#include <linux/unistd.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <sys/random.h>
-#include <sys/socket.h>
-#include <unistd.h>
 
 #define SCRATCH_MAX   ( 4UL /*KiB*/ << 10 )
 #define SCRATCH_DEPTH ( 4UL ) /* 4 scratch frames */
@@ -150,8 +129,7 @@ during_frag( fd_eqvoc_tile_ctx_t * ctx,
                     ctx->shred_net_in_wmark ));
     }
 
-    uchar * packet = fd_chunk_to_laddr( ctx->shred_net_in_mem, chunk );
-    // memcpy( packet + sizeof(fd_net_hdrs_t), packet, sizeof(fd_shred_t) );
+    uchar const * packet = fd_chunk_to_laddr_const( ctx->shred_net_in_mem, chunk );
     fd_shred_t * shred = (fd_shred_t *)( packet + fd_disco_netmux_sig_hdr_sz( sig ) );
     memcpy( &ctx->shred, shred, sizeof(fd_shred_t) );
   }
@@ -227,7 +205,7 @@ privileged_init( fd_topo_t *      topo,
                              fd_type_pun_const( fd_keyload_load( tile->eqvoc.identity_key_path,
                                                                  /* pubkey only: */ 1 ) );
 
-  FD_TEST( sizeof(ulong) == getrandom( &ctx->seed, sizeof(ulong), 0 ) );
+  FD_TEST( fd_rng_secure( &ctx->seed, sizeof(ulong) ) );
 }
 
 static void
