@@ -26,31 +26,29 @@ Firedancer source tree
   │   ├── include/     Third-party dependency headers
   │   └── lib/         Third-party dependency libraries
   │
-  ├── src/             The main Firedancer source tree
-  │   │
-  │   ├── app/         Main binaries
-  │   │
-  │   ├── ballet/      Standalone implementations of various standards
-  │   │                needed for interoperability with the Solana ecosystem
-  │   │                (hash functions, cryptographic algorithms)
-  │   │
-  |   ├── choreo/      Consensus components (fork choice, voting)
-  │   │
-  │   ├── disco/       Tiles running on the tango messaging layer
-  │   │
-  │   ├── flamenco/    Major Solana runtime components
-  │   │
-  │   ├── funk/        Database optimized for storing Solana ledger and
-  │   │                accounts
-  │   │
-  │   ├── tango/       IPC messaging layer
-  │   │
-  │   ├── util/        C language environment, system runtime, common data
-  │   │                structures and various utilities (math, bits, rng ...)
-  │   │
-  │   └── waltz/       Networking
-  │
-  └── verification/    CBMC-based code verification system
+  └── src/             The main Firedancer source tree
+      │
+      ├── app/         Main binaries
+      │
+      ├── ballet/      Standalone implementations of various standards
+      │                needed for interoperability with the Solana ecosystem
+      │                (hash functions, cryptographic algorithms)
+      │
+      ├── choreo/      Consensus components (fork choice, voting)
+      │
+      ├── disco/       Tiles running on the tango messaging layer
+      │
+      ├── flamenco/    Major Solana runtime components
+      │
+      ├── funk/        Database optimized for storing Solana ledger and
+      │                accounts
+      │
+      ├── tango/       IPC messaging layer
+      │
+      ├── util/        C language environment, system runtime, common data
+      │                structures and various utilities (math, bits, rng ...)
+      │
+      └── waltz/       Networking
 
 Important files
 

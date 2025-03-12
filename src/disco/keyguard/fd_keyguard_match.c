@@ -38,9 +38,8 @@
 
    ### Code Verification
 
-   The safety of this module is verified using a number of CBMC proofs
-   composed via deductive reasoning.  These can be found in the
-   verification directory of the repository.
+   The safety of this module can be verified using a number of CBMC
+   proofs composed via deductive reasoning.
 
    - fd_txn_minsz_proof verifies the constant FD_TXN_MIN_SERIALIZED_SZ.
    - fd_txn_ambiguity_gossip_proof verifies that gossip messages cannot
