@@ -979,7 +979,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-#define STEM_BURST (4UL)
+#define STEM_BURST (5UL)
 
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)
