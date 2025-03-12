@@ -646,7 +646,6 @@ after_frag( fd_shred_ctx_t *    ctx,
        shreds with the assumption they live in the blockstore */
     for( ulong i=0UL; i<set->data_shred_cnt; i++ ) {
       fd_shred_t const * data_shred = (fd_shred_t const *)fd_type_pun( set->data_shreds[ i ] );
-      /* missing the shred variant checks done in store_shred_insert */
       fd_blockstore_shred_insert( ctx->blockstore, data_shred );
     }
 
@@ -974,7 +973,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
-#define STEM_BURST (4UL)
+#define STEM_BURST (5UL)
 
 /* See explanation in fd_pack */
 #define STEM_LAZY  (128L*3000L)
