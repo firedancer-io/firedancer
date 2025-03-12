@@ -40,6 +40,14 @@ fd_acc_mgr_delete( fd_acc_mgr_t * acc_mgr ) {
   return acc_mgr;
 }
 
+void
+fd_acc_mgr_set_slots_per_epoch( fd_exec_slot_ctx_t * slot_ctx,
+                                ulong                slots_per_epoch ) {
+  fd_acc_mgr_t * acc_mgr   = slot_ctx->acc_mgr;
+  acc_mgr->slots_per_epoch = slots_per_epoch;
+  acc_mgr->part_width      = fd_rent_partition_width( slots_per_epoch );  
+}
+
 fd_account_meta_t const *
 fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
                      fd_funk_txn_t const *  txn,
@@ -250,16 +258,25 @@ fd_acc_mgr_save( fd_acc_mgr_t *     acc_mgr,
 int
 fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *     acc_mgr,
                            fd_funk_txn_t *    txn,
-                           fd_txn_account_t * account ) {
+                           fd_txn_account_t * account,
+                           int *              new_account ) {
 
   fd_funk_start_write( acc_mgr->funk );
   fd_funk_rec_key_t key = fd_acc_funk_key( account->pubkey );
   fd_funk_t * funk = acc_mgr->funk;
   fd_funk_rec_t * rec = (fd_funk_rec_t *)fd_funk_rec_query( funk, txn, &key );
   if( rec == NULL ) {
+    if( new_account ) {
+      *new_account = 1;
+    }
+
     int err;
     rec = (fd_funk_rec_t *)fd_funk_rec_insert( funk, txn, &key, &err );
     if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %d", err ));
+  } else {
+    if( new_account ) {
+      *new_account = 0;
+    }
   }
   account->rec = rec;
   ulong reclen = sizeof(fd_account_meta_t)+account->const_meta->dlen;

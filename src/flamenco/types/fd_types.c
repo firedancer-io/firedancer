@@ -36979,6 +36979,273 @@ ulong fd_cost_tracker_size( fd_cost_tracker_t const * self ) {
   return size;
 }
 
+int fd_rent_dirty_accounts_partition_encode( fd_rent_dirty_accounts_partition_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->partition, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  err = fd_bincode_uint64_encode( self->accounts_len, ctx );
+  if( FD_UNLIKELY(err) ) return err;
+  if( self->accounts_len ) {
+    for( ulong i=0; i < self->accounts_len; i++ ) {
+      err = fd_pubkey_encode( self->accounts + i, ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_rent_dirty_accounts_partition_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_rent_dirty_accounts_partition_t);
+  void const * start_data = ctx->data;
+  int err = fd_rent_dirty_accounts_partition_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  ctx->data = start_data;
+  return err;
+}
+int fd_rent_dirty_accounts_partition_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  int err = 0;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ulong accounts_len;
+  err = fd_bincode_uint64_decode( &accounts_len, ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  if( accounts_len ) {
+    *total_sz += FD_PUBKEY_ALIGN + FD_PUBKEY_FOOTPRINT*accounts_len;
+    for( ulong i=0; i < accounts_len; i++ ) {
+      err = fd_pubkey_decode_footprint_inner( ctx, total_sz );
+      if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+    }
+  }
+  return 0;
+}
+void * fd_rent_dirty_accounts_partition_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_rent_dirty_accounts_partition_t * self = (fd_rent_dirty_accounts_partition_t *)mem;
+  fd_rent_dirty_accounts_partition_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_rent_dirty_accounts_partition_t);
+  void * * alloc_mem = &alloc_region;
+  fd_rent_dirty_accounts_partition_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_rent_dirty_accounts_partition_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_rent_dirty_accounts_partition_t * self = (fd_rent_dirty_accounts_partition_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->partition, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->accounts_len, ctx );
+  if( self->accounts_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), FD_PUBKEY_ALIGN );
+    self->accounts = *alloc_mem;
+    *alloc_mem = (uchar *)(*alloc_mem) + FD_PUBKEY_FOOTPRINT*self->accounts_len;
+    for( ulong i=0; i < self->accounts_len; i++ ) {
+      fd_pubkey_new( self->accounts + i );
+      fd_pubkey_decode_inner( self->accounts + i, alloc_mem, ctx );
+    }
+  } else
+    self->accounts = NULL;
+}
+void * fd_rent_dirty_accounts_partition_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_rent_dirty_accounts_partition_global_t * self = (fd_rent_dirty_accounts_partition_global_t *)mem;
+  fd_rent_dirty_accounts_partition_new( (fd_rent_dirty_accounts_partition_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_rent_dirty_accounts_partition_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_rent_dirty_accounts_partition_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_rent_dirty_accounts_partition_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_rent_dirty_accounts_partition_global_t * self = (fd_rent_dirty_accounts_partition_global_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->partition, ctx );
+  fd_bincode_uint64_decode_unsafe( &self->accounts_len, ctx );
+  if( self->accounts_len ) {
+    *alloc_mem = (void*)fd_ulong_align_up( (ulong)(*alloc_mem), FD_PUBKEY_ALIGN );
+    self->accounts_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );
+    uchar * cur_mem = (uchar *)(*alloc_mem);
+    *alloc_mem = (uchar *)(*alloc_mem) + FD_PUBKEY_FOOTPRINT*self->accounts_len;
+    for( ulong i=0; i < self->accounts_len; i++ ) {
+      fd_pubkey_new( (fd_pubkey_t *)(cur_mem + FD_PUBKEY_FOOTPRINT * i) );
+      fd_pubkey_decode_inner_global( cur_mem + FD_PUBKEY_FOOTPRINT * i, alloc_mem, ctx );
+    }
+  } else
+    self->accounts_gaddr = 0UL;
+}
+int fd_rent_dirty_accounts_partition_convert_global_to_local( void const * global_self, fd_rent_dirty_accounts_partition_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  int err = 0;
+  fd_rent_dirty_accounts_partition_global_t const * mem = (fd_rent_dirty_accounts_partition_global_t const *)global_self;
+  self->partition = mem->partition;
+  self->accounts_len = mem->accounts_len;
+  self->accounts     = fd_wksp_laddr_fast( ctx->wksp, mem->accounts_gaddr );
+  return FD_BINCODE_SUCCESS;
+}
+void fd_rent_dirty_accounts_partition_new(fd_rent_dirty_accounts_partition_t * self) {
+  fd_memset( self, 0, sizeof(fd_rent_dirty_accounts_partition_t) );
+}
+void fd_rent_dirty_accounts_partition_destroy( fd_rent_dirty_accounts_partition_t * self ) {
+  if( self->accounts ) {
+    for( ulong i=0; i < self->accounts_len; i++ )
+      fd_pubkey_destroy( self->accounts + i );
+    self->accounts = NULL;
+  }
+}
+
+ulong fd_rent_dirty_accounts_partition_footprint( void ){ return FD_RENT_DIRTY_ACCOUNTS_PARTITION_FOOTPRINT; }
+ulong fd_rent_dirty_accounts_partition_align( void ){ return FD_RENT_DIRTY_ACCOUNTS_PARTITION_ALIGN; }
+
+void fd_rent_dirty_accounts_partition_walk( void * w, fd_rent_dirty_accounts_partition_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_rent_dirty_accounts_partition", level++ );
+  fun( w, &self->partition, "partition", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  if( self->accounts_len ) {
+    fun( w, NULL, "accounts", FD_FLAMENCO_TYPE_ARR, "array", level++ );
+    for( ulong i=0; i < self->accounts_len; i++ )
+      fd_pubkey_walk(w, self->accounts + i, fun, "pubkey", level );
+    fun( w, NULL, "accounts", FD_FLAMENCO_TYPE_ARR_END, "array", level-- );
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_rent_dirty_accounts_partition", level-- );
+}
+ulong fd_rent_dirty_accounts_partition_size( fd_rent_dirty_accounts_partition_t const * self ) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  do {
+    size += sizeof(ulong);
+    for( ulong i=0; i < self->accounts_len; i++ )
+      size += fd_pubkey_size( self->accounts + i );
+  } while(0);
+  return size;
+}
+
+int fd_rent_dirty_accounts_encode( fd_rent_dirty_accounts_t const * self, fd_bincode_encode_ctx_t * ctx ) {
+  int err;
+  err = fd_bincode_uint64_encode( self->total_count, ctx );
+  if( FD_UNLIKELY( err ) ) return err;
+  if( self->partitions_root ) {
+    ulong partitions_len = fd_rent_dirty_accounts_partition_t_map_size( self->partitions_pool, self->partitions_root );
+    err = fd_bincode_uint64_encode( partitions_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+    for( fd_rent_dirty_accounts_partition_t_mapnode_t * n = fd_rent_dirty_accounts_partition_t_map_minimum( self->partitions_pool, self->partitions_root ); n; n = fd_rent_dirty_accounts_partition_t_map_successor( self->partitions_pool, n ) ) {
+      err = fd_rent_dirty_accounts_partition_encode( &n->elem, ctx );
+      if( FD_UNLIKELY( err ) ) return err;
+    }
+  } else {
+    ulong partitions_len = 0;
+    err = fd_bincode_uint64_encode( partitions_len, ctx );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  return FD_BINCODE_SUCCESS;
+}
+int fd_rent_dirty_accounts_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  *total_sz += sizeof(fd_rent_dirty_accounts_t);
+  void const * start_data = ctx->data;
+  int err = fd_rent_dirty_accounts_decode_footprint_inner( ctx, total_sz );
+  if( ctx->data>ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  ctx->data = start_data;
+  return err;
+}
+int fd_rent_dirty_accounts_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz ) {
+  if( ctx->data>=ctx->dataend ) { return FD_BINCODE_ERR_OVERFLOW; };
+  int err = 0;
+  err = fd_bincode_uint64_decode_footprint( ctx );
+  if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) return err;
+  ulong partitions_len = 0UL;
+  err = fd_bincode_uint64_decode( &partitions_len, ctx );
+  ulong partitions_cnt = fd_ulong_max( partitions_len, 400 );
+  *total_sz += fd_rent_dirty_accounts_partition_t_map_align() + fd_rent_dirty_accounts_partition_t_map_footprint( partitions_cnt );
+  if( FD_UNLIKELY( err ) ) return err;
+  for( ulong i=0; i < partitions_len; i++ ) {
+    err = fd_rent_dirty_accounts_partition_decode_footprint_inner( ctx, total_sz );
+    if( FD_UNLIKELY( err ) ) return err;
+  }
+  return 0;
+}
+void * fd_rent_dirty_accounts_decode( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_rent_dirty_accounts_t * self = (fd_rent_dirty_accounts_t *)mem;
+  fd_rent_dirty_accounts_new( self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_rent_dirty_accounts_t);
+  void * * alloc_mem = &alloc_region;
+  fd_rent_dirty_accounts_decode_inner( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_rent_dirty_accounts_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_rent_dirty_accounts_t * self = (fd_rent_dirty_accounts_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->total_count, ctx );
+  ulong partitions_len;
+  fd_bincode_uint64_decode_unsafe( &partitions_len, ctx );
+  self->partitions_pool = fd_rent_dirty_accounts_partition_t_map_join_new( alloc_mem, fd_ulong_max( partitions_len, 400 ) );
+  self->partitions_root = NULL;
+  for( ulong i=0; i < partitions_len; i++ ) {
+    fd_rent_dirty_accounts_partition_t_mapnode_t * node = fd_rent_dirty_accounts_partition_t_map_acquire( self->partitions_pool );
+    fd_rent_dirty_accounts_partition_new( &node->elem );
+    fd_rent_dirty_accounts_partition_decode_inner( &node->elem, alloc_mem, ctx );
+    fd_rent_dirty_accounts_partition_t_map_insert( self->partitions_pool, &self->partitions_root, node );
+  }
+}
+void * fd_rent_dirty_accounts_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_rent_dirty_accounts_global_t * self = (fd_rent_dirty_accounts_global_t *)mem;
+  fd_rent_dirty_accounts_new( (fd_rent_dirty_accounts_t *)self );
+  void * alloc_region = (uchar *)mem + sizeof(fd_rent_dirty_accounts_global_t);
+  void * * alloc_mem = &alloc_region;
+  fd_rent_dirty_accounts_decode_inner_global( mem, alloc_mem, ctx );
+  return self;
+}
+void fd_rent_dirty_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  fd_rent_dirty_accounts_global_t * self = (fd_rent_dirty_accounts_global_t *)struct_mem;
+  fd_bincode_uint64_decode_unsafe( &self->total_count, ctx );
+  ulong partitions_len;
+  fd_bincode_uint64_decode_unsafe( &partitions_len, ctx );
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_rent_dirty_accounts_partition_t_map_align() );
+  fd_rent_dirty_accounts_partition_t_mapnode_t * partitions_pool = fd_rent_dirty_accounts_partition_t_map_join_new( alloc_mem, fd_ulong_max( partitions_len, 400 ) );
+  fd_rent_dirty_accounts_partition_t_mapnode_t * partitions_root = NULL;
+  self->partitions_root_gaddr = 0UL;
+  for( ulong i=0; i < partitions_len; i++ ) {
+    fd_rent_dirty_accounts_partition_t_mapnode_t * node = fd_rent_dirty_accounts_partition_t_map_acquire( partitions_pool );
+    fd_rent_dirty_accounts_partition_new( &node->elem );
+    fd_rent_dirty_accounts_partition_decode_inner( &node->elem, alloc_mem, ctx );
+    fd_rent_dirty_accounts_partition_t_map_insert( partitions_pool, &partitions_root, node );
+  }
+  self->partitions_pool_gaddr = fd_wksp_gaddr_fast( ctx->wksp, partitions_pool );
+  self->partitions_root_gaddr = fd_wksp_gaddr_fast( ctx->wksp, partitions_root );
+}
+int fd_rent_dirty_accounts_convert_global_to_local( void const * global_self, fd_rent_dirty_accounts_t * self, fd_bincode_decode_ctx_t * ctx ) {
+  int err = 0;
+  fd_rent_dirty_accounts_global_t const * mem = (fd_rent_dirty_accounts_global_t const *)global_self;
+  self->total_count = mem->total_count;
+  self->partitions_pool = fd_wksp_laddr_fast( ctx->wksp, mem->partitions_pool_gaddr );
+  self->partitions_root = fd_wksp_laddr_fast( ctx->wksp, mem->partitions_root_gaddr );
+  return FD_BINCODE_SUCCESS;
+}
+void fd_rent_dirty_accounts_new(fd_rent_dirty_accounts_t * self) {
+  fd_memset( self, 0, sizeof(fd_rent_dirty_accounts_t) );
+}
+void fd_rent_dirty_accounts_destroy( fd_rent_dirty_accounts_t * self ) {
+  for( fd_rent_dirty_accounts_partition_t_mapnode_t * n = fd_rent_dirty_accounts_partition_t_map_minimum(self->partitions_pool, self->partitions_root ); n; n = fd_rent_dirty_accounts_partition_t_map_successor(self->partitions_pool, n) ) {
+    fd_rent_dirty_accounts_partition_destroy( &n->elem );
+  }
+  self->partitions_pool = NULL;
+  self->partitions_root = NULL;
+}
+
+ulong fd_rent_dirty_accounts_footprint( void ){ return FD_RENT_DIRTY_ACCOUNTS_FOOTPRINT; }
+ulong fd_rent_dirty_accounts_align( void ){ return FD_RENT_DIRTY_ACCOUNTS_ALIGN; }
+
+void fd_rent_dirty_accounts_walk( void * w, fd_rent_dirty_accounts_t const * self, fd_types_walk_fn_t fun, const char *name, uint level ) {
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP, "fd_rent_dirty_accounts", level++ );
+  fun( w, &self->total_count, "total_count", FD_FLAMENCO_TYPE_ULONG, "ulong", level );
+  if( self->partitions_root ) {
+    for( fd_rent_dirty_accounts_partition_t_mapnode_t * n = fd_rent_dirty_accounts_partition_t_map_minimum(self->partitions_pool, self->partitions_root ); n; n = fd_rent_dirty_accounts_partition_t_map_successor( self->partitions_pool, n ) ) {
+      fd_rent_dirty_accounts_partition_walk(w, &n->elem, fun, "partitions", level );
+    }
+  }
+  fun( w, self, name, FD_FLAMENCO_TYPE_MAP_END, "fd_rent_dirty_accounts", level-- );
+}
+ulong fd_rent_dirty_accounts_size( fd_rent_dirty_accounts_t const * self ) {
+  ulong size = 0;
+  size += sizeof(ulong);
+  if( self->partitions_root ) {
+    size += sizeof(ulong);
+    for( fd_rent_dirty_accounts_partition_t_mapnode_t * n = fd_rent_dirty_accounts_partition_t_map_minimum( self->partitions_pool, self->partitions_root ); n; n = fd_rent_dirty_accounts_partition_t_map_successor( self->partitions_pool, n ) ) {
+      size += fd_rent_dirty_accounts_partition_size( &n->elem );
+    }
+  } else {
+    size += sizeof(ulong);
+  }
+  return size;
+}
+
 #define REDBLK_T fd_hash_hash_age_pair_t_mapnode_t
 #define REDBLK_NAME fd_hash_hash_age_pair_t_map
 #define REDBLK_IMPL_STYLE 2
@@ -37041,4 +37308,11 @@ long fd_vote_info_pair_t_map_compare( fd_vote_info_pair_t_mapnode_t * left, fd_v
 #include "../../util/tmpl/fd_redblack.c"
 long fd_account_costs_pair_t_map_compare( fd_account_costs_pair_t_mapnode_t * left, fd_account_costs_pair_t_mapnode_t * right ) {
   return memcmp( left->elem.key.uc, right->elem.key.uc, sizeof(right->elem.key) );
+}
+#define REDBLK_T fd_rent_dirty_accounts_partition_t_mapnode_t
+#define REDBLK_NAME fd_rent_dirty_accounts_partition_t_map
+#define REDBLK_IMPL_STYLE 2
+#include "../../util/tmpl/fd_redblack.c"
+long fd_rent_dirty_accounts_partition_t_map_compare( fd_rent_dirty_accounts_partition_t_mapnode_t * left, fd_rent_dirty_accounts_partition_t_mapnode_t * right ) {
+  return (long)( left->elem.partition - right->elem.partition );
 }

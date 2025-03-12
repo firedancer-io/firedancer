@@ -91,6 +91,86 @@ fd_runtime_compute_max_tick_height( ulong   ticks_per_slot,
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
+static void
+fd_runtime_register_new_account( fd_exec_slot_ctx_t * slot_ctx,
+                                 fd_pubkey_t *        pubkey ) {
+
+  /* Insert the new account into the partition */
+  ulong partition = fd_rent_key_to_partition( pubkey, slot_ctx->acc_mgr->part_width, slot_ctx->acc_mgr->slots_per_epoch );
+  if( FD_UNLIKELY( !fd_rent_dirty_accounts_partition_t_map_free( slot_ctx->rent_dirty_accounts.partitions_pool ) ) ) {
+    FD_LOG_ERR(( "rent_dirty_accounts_partition pool full. try increasing pool size" ));
+  }
+  
+  fd_rent_dirty_accounts_partition_t_mapnode_t key[1] = {0};
+  key->elem.partition = partition;
+  fd_rent_dirty_accounts_partition_t_mapnode_t * node = fd_rent_dirty_accounts_partition_t_map_find(
+    slot_ctx->rent_dirty_accounts.partitions_pool,
+    slot_ctx->rent_dirty_accounts.partitions_root,
+    key );
+  if( FD_UNLIKELY( node == NULL ) ) {
+    FD_LOG_ERR(( "fd_rent_dirty_accounts_partition_t_map_find failed" ));
+  }
+  if( FD_UNLIKELY( node->elem.accounts == NULL ) ) {
+    FD_LOG_ERR(( "node->elem.accounts == NULL" ));
+  }
+  if( FD_UNLIKELY( node->elem.accounts_len == 100 ) ) {
+    FD_LOG_ERR(( "rent_dirty_accounts_partition full - increase the partition size" ));
+  }
+
+  fd_memcpy( &node->elem.accounts[node->elem.accounts_len++], pubkey, FD_PUBKEY_FOOTPRINT );
+  slot_ctx->rent_dirty_accounts.total_count++;
+}
+
+void
+fd_runtime_repartition_dirty_account_partitions( fd_exec_slot_ctx_t * slot_ctx,
+                                                 fd_spad_t *          runtime_spad ) {
+  FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+
+    /* Collect all the dirty pubkeys into one list */
+    ulong dirty_pubkeys_cnt = 0UL;
+    fd_pubkey_t * dirty_pubkeys = fd_spad_alloc( 
+      runtime_spad,
+      FD_PUBKEY_ALIGN,
+      FD_PUBKEY_FOOTPRINT * slot_ctx->rent_dirty_accounts.total_count );
+    if( FD_UNLIKELY( !dirty_pubkeys ) ) {
+      FD_LOG_ERR(( "fd_spad_alloc failed" ));
+    }
+    for( fd_rent_dirty_accounts_partition_t_mapnode_t * n = fd_rent_dirty_accounts_partition_t_map_minimum( 
+            slot_ctx->rent_dirty_accounts.partitions_pool,
+            slot_ctx->rent_dirty_accounts.partitions_root
+          ); 
+          n;
+          n = fd_rent_dirty_accounts_partition_t_map_successor( 
+            slot_ctx->rent_dirty_accounts.partitions_pool,
+            n
+           ) ) {
+      for( ulong i = 0UL; i < n->elem.accounts_len; i++ ) {
+        fd_memcpy( &dirty_pubkeys[dirty_pubkeys_cnt++], &n->elem.accounts[i], FD_PUBKEY_FOOTPRINT );
+      }
+      n->elem.accounts_len = 0UL;
+    }
+
+    /* Register each new account, which will insert it into a new partition */
+    for( ulong i = 0UL; i < dirty_pubkeys_cnt; i++ ) {
+      fd_runtime_register_new_account( slot_ctx, &dirty_pubkeys[i] );
+    }
+
+  } FD_SPAD_FRAME_END;
+}
+
+static void
+fd_runtime_update_slots_per_epoch( fd_exec_slot_ctx_t * slot_ctx,
+                                   ulong                slots_per_epoch,
+                                   fd_spad_t *          runtime_spad ) {
+  if( FD_LIKELY( slots_per_epoch == slot_ctx->acc_mgr->slots_per_epoch ) ) {
+    return;
+  }
+
+  fd_acc_mgr_set_slots_per_epoch( slot_ctx, slots_per_epoch );
+  
+  fd_runtime_repartition_dirty_account_partitions( slot_ctx, runtime_spad );
+}
+
 void
 fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx,
                            ulong                slot,
@@ -111,6 +191,8 @@ fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx,
   ulong epoch    = fd_slot_to_epoch( &schedule, slot, NULL );
   ulong slot0    = fd_epoch_slot0( &schedule, epoch );
   ulong slot_cnt = fd_epoch_slot_cnt( &schedule, epoch );
+
+  fd_runtime_update_slots_per_epoch( slot_ctx, fd_epoch_slot_cnt( &schedule, epoch ), runtime_spad );
 
   ulong               vote_acc_cnt  = fd_vote_accounts_pair_t_map_size( epoch_vaccs->vote_accounts_pool, epoch_vaccs->vote_accounts_root );
   fd_stake_weight_t * epoch_weights = fd_spad_alloc( runtime_spad, alignof(fd_stake_weight_t), vote_acc_cnt * sizeof(fd_stake_weight_t) );
@@ -236,8 +318,153 @@ fd_runtime_run_incinerator( fd_exec_slot_ctx_t * slot_ctx ) {
   return 0;
 }
 
+/* Yes, this is a real function that exists in Solana. Yes, I am ashamed I have had to replicate it. */
+// https://github.com/firedancer-io/solana/blob/d8292b427adf8367d87068a3a88f6fd3ed8916a5/runtime/src/bank.rs#L5618
+static ulong
+fd_runtime_slot_count_in_two_day( ulong ticks_per_slot ) {
+  return 2UL * FD_SYSVAR_CLOCK_DEFAULT_TICKS_PER_SECOND * 86400UL /* seconds per day */ / ticks_per_slot;
+}
+
+// https://github.com/firedancer-io/solana/blob/d8292b427adf8367d87068a3a88f6fd3ed8916a5/runtime/src/bank.rs#L5594
+static int
+fd_runtime_use_multi_epoch_collection( fd_exec_slot_ctx_t const * slot_ctx, ulong slot ) {
+  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  fd_epoch_schedule_t const * schedule = &epoch_bank->epoch_schedule;
+
+  ulong off;
+  ulong epoch = fd_slot_to_epoch( schedule, slot, &off );
+  ulong slots_per_normal_epoch = fd_epoch_slot_cnt( schedule, schedule->first_normal_epoch );
+
+  ulong slot_count_in_two_day = fd_runtime_slot_count_in_two_day( epoch_bank->ticks_per_slot );
+
+  int use_multi_epoch_collection = ( epoch >= schedule->first_normal_epoch )
+      && ( slots_per_normal_epoch < slot_count_in_two_day );
+
+  return use_multi_epoch_collection;
+}
+
+FD_FN_UNUSED static ulong
+fd_runtime_num_rent_partitions( fd_exec_slot_ctx_t const * slot_ctx, ulong slot ) {
+  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  fd_epoch_schedule_t const * schedule = &epoch_bank->epoch_schedule;
+
+  ulong off;
+  ulong epoch = fd_slot_to_epoch( schedule, slot, &off );
+  ulong slots_per_epoch = fd_epoch_slot_cnt( schedule, epoch );
+
+  ulong slot_count_in_two_day = fd_runtime_slot_count_in_two_day( epoch_bank->ticks_per_slot );
+
+  int use_multi_epoch_collection = fd_runtime_use_multi_epoch_collection( slot_ctx, slot );
+
+  if( use_multi_epoch_collection ) {
+    ulong epochs_in_cycle = slot_count_in_two_day / slots_per_epoch;
+    return slots_per_epoch * epochs_in_cycle;
+  } else {
+    return slots_per_epoch;
+  }
+}
+
+// https://github.com/anza-xyz/agave/blob/2bdcc838c18d262637524274cbb2275824eb97b8/accounts-db/src/accounts_partition.rs#L30
+static ulong
+fd_runtime_get_rent_partition( fd_exec_slot_ctx_t const * slot_ctx, ulong slot ) {
+  int use_multi_epoch_collection = fd_runtime_use_multi_epoch_collection( slot_ctx, slot );
+
+  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
+  fd_epoch_schedule_t const * schedule = &epoch_bank->epoch_schedule;
+
+  ulong off;
+  ulong epoch = fd_slot_to_epoch( schedule, slot, &off );
+  ulong slot_count_per_epoch = fd_epoch_slot_cnt( schedule, epoch );
+  ulong slot_count_in_two_day = fd_runtime_slot_count_in_two_day( epoch_bank->ticks_per_slot );
+
+  ulong base_epoch;
+  ulong epoch_count_in_cycle;
+  if( use_multi_epoch_collection ) {
+    base_epoch = schedule->first_normal_epoch;
+    epoch_count_in_cycle = slot_count_in_two_day / slot_count_per_epoch;
+  } else {
+    base_epoch = 0;
+    epoch_count_in_cycle = 1;
+  }
+
+  ulong epoch_offset = epoch - base_epoch;
+  ulong epoch_index_in_cycle = epoch_offset % epoch_count_in_cycle;
+  return off + ( epoch_index_in_cycle * slot_count_per_epoch );
+}
+
+/* Emulate collecting rent from accounts. Since every account is rent exempt, all we have to do
+   is set all rent_epoch fields to ULONG_MAX. By induction, we only need to do this for newly created accounts.
+     
+   The slight complication is that we need to do this at the appropiate time - taking into account
+   the rent partition the account would have fallen into.
+     
+   This code is super hacky, but will be removed soon when disable_partitioned_rent_collection is activated.
+   After that, we will not update any rent_epoch fields.
+     
+   https://github.com/anza-xyz/agave/blob/v2.1.14/runtime/src/bank.rs#L2921 */
+static void
+fd_runtime_update_rent_epoch( fd_exec_slot_ctx_t * slot_ctx ) {
+  if( FD_FEATURE_ACTIVE( slot_ctx, disable_partitioned_rent_collection ) ) {
+    return;
+  }
+
+  ulong slot0 = slot_ctx->slot_bank.prev_slot;
+  ulong slot1 = slot_ctx->slot_bank.slot;
+
+  /* Accomodate skipped slots */
+  for( ulong s = slot0 + 1; s <= slot1; ++s ) {
+    /* Look up the accounts in the partition */
+    fd_rent_dirty_accounts_partition_t_mapnode_t key = {0};
+    key.elem.partition = fd_runtime_get_rent_partition( slot_ctx, s );
+    fd_rent_dirty_accounts_partition_t_mapnode_t * partition = fd_rent_dirty_accounts_partition_t_map_find( 
+      slot_ctx->rent_dirty_accounts.partitions_pool,
+      slot_ctx->rent_dirty_accounts.partitions_root,
+      &key
+    );
+    if( FD_LIKELY( partition == NULL ) ) {
+      FD_LOG_WARNING(( "dirty account partition not found for slot %lu", s ));
+      continue;
+    }
+
+    /* Set the rent epoch field to ULONG_MAX, if it wasn't already */
+    for( ulong i = 0UL; i < partition->elem.accounts_len; i++ ) {
+      fd_pubkey_t * pubkey = fd_type_pun( &partition->elem.accounts[ i ].key );
+      FD_TXN_ACCOUNT_DECL( rec );
+      int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, pubkey, rec );
+
+      /* If the account has been deleted, skip it */
+      if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
+        continue;
+      }
+      if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
+        FD_LOG_WARNING(( "fd_runtime_update_rent_epoch: fd_acc_mgr_view failed (%d)", err ));
+        continue;
+      }
+
+      /* If the account's rent epoch is correct, don't update it */
+      if( rec->meta->info.rent_epoch == FD_RENT_EXEMPT_RENT_EPOCH ) {
+        continue;
+      }
+
+      /* Otherwise, update the rent epoch field */
+      err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, pubkey, 0, 0UL, rec );
+      if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+        FD_LOG_WARNING(( "fd_runtime_update_rent_epoch: fd_acc_mgr_modify failed (%d)", err ));
+        continue;
+      }
+      rec->meta->info.rent_epoch = FD_RENT_EXEMPT_RENT_EPOCH;
+    }
+
+    /* Clear the partition */
+    slot_ctx->rent_dirty_accounts.total_count -= partition->elem.accounts_len;
+    partition->elem.accounts_len               = 0UL;
+  }
+}
+
 static void
 fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
+
+  fd_runtime_update_rent_epoch( slot_ctx );
 
   fd_sysvar_recent_hashes_update( slot_ctx, runtime_spad );
 
@@ -1305,13 +1532,13 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
     fd_txn_account_make_mutable( acct, acct_data );
     acct->meta->info.lamports -= (txn_ctx->execution_fee + txn_ctx->priority_fee);
 
-    fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->accounts[0] );
+    fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->accounts[0], NULL );
 
     if( txn_ctx->nonce_account_idx_in_txn != ULONG_MAX ) {
       if( FD_LIKELY( txn_ctx->nonce_account_advanced ) ) {
-        fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->accounts[ txn_ctx->nonce_account_idx_in_txn ] );
+        fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->accounts[ txn_ctx->nonce_account_idx_in_txn ], NULL );
       } else {
-        fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->rollback_nonce_account[ 0 ] );
+        fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->rollback_nonce_account[ 0 ], NULL );
       }
     }
   } else {
@@ -1383,7 +1610,11 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
         fd_funk_end_write( slot_ctx->acc_mgr->funk );
       }
 
-      fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->accounts[i] );
+      int new_account = 0;
+      fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->accounts[i], &new_account );
+      if( new_account ) {
+        fd_runtime_register_new_account( slot_ctx, txn_ctx->accounts[0].pubkey );
+      }
     }
   }
 
