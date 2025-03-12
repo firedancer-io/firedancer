@@ -40,30 +40,30 @@ typedef struct fd_fork fd_fork_t;
 #include "../../util/tmpl/fd_map_chain.c"
 
 /* fd_forks maintains all the outstanding fork heads known as the
-   "frontier". */
+   frontier.  The memory required for these fork heads is pre-allocated
+   in `pool`.
+
+   {processed, confirmed, finalized} correspond to the highest slots
+   that have achieved each of these cluster commitment levels. This is
+   based on what Firedancer has locally observed, so these values are
+   not atomically synchronized with other nodes in the cluster (ie.
+   other nodes may report higher or lower slot numbers for each of
+   these) but are "eventually consistent" as long as Firedancer is
+   connected to the cluster and replaying blocks. All three values are
+   strictly monotonically increasing.
+
+   processed - a slot has been replayed.
+   confirmed - a slot has been "optimistically confirmed" ie. 2/3 of
+               stake has voted for it.
+   finalized - a slot has been "supermajority rooted" ie. 2/3 of stake
+               has rooted it or any of its descendants. */
 
 struct fd_forks {
   fd_fork_frontier_t * frontier; /* map of slot->fd_fork_t */
   fd_fork_t *          pool;     /* memory pool of fd_fork_t */
-
-  /* {processed, confirmed, finalized}_wmark correspond to the highest
-     slots that have achieved each of these cluster commitment levels.
-     This is based on what Firedancer has locally observed, so these
-     values are not atomically synchronized with other nodes in the
-     cluster (ie. other nodes may report higher or lower slot numbers
-     for each of these) but are "eventually consistent" as long as
-     Firedancer is connected to the cluster and replaying blocks. All
-     three values are strictly monotonically increasing.
-
-     processed - a slot has been replayed.
-     confirmed - a slot has been "optimistically confirmed" ie. 2/3 of
-                 stake has voted for it.
-     finalized - a slot has been "supermajority rooted" ie. 2/3 of stake
-                 has rooted it or any of its descendants. */
-
-  ulong processed_wmark;
-  ulong confirmed_wmark;
-  ulong finalized_wmark;
+  ulong                processed;
+  ulong                confirmed;
+  ulong                finalized;
 };
 typedef struct fd_forks fd_forks_t;
 
@@ -186,7 +186,6 @@ fd_forks_prepare( fd_forks_t const *    forks,
 
 void
 fd_forks_update( fd_forks_t *          forks,
-                 fd_blockstore_t *     blockstore,
                  fd_epoch_t *          epoch,
                  fd_funk_t *           funk,
                  fd_ghost_t *          ghost,
