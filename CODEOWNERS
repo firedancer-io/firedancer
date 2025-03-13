@@ -1,3 +1,5 @@
+/CODEOWNERS @firedancer-admin
+
 /src/ballet/txn/fd_txn_parse.c @ptaffet-jump
 /src/disco/pack @ptaffet-jump @mmcgee-jump
 /src/disco/shred @ptaffet-jump @mmcgee-jump
