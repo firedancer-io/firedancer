@@ -422,3 +422,32 @@ fd_quic_sandbox_send_ping_pkt( fd_quic_sandbox_t * sandbox,
 
   fd_quic_process_quic_packet_v1( sandbox->quic, &pkt, pkt_buf, out_sz );
 }
+
+void
+fd_quic_sandbox_send_raw( fd_quic_sandbox_t * sandbox,
+                          uchar *             data,
+                          ulong               data_sz ) {
+
+  fd_quic_pkt_t pkt = {
+    .ip4 = {{
+      .verihl       = FD_IP4_VERIHL(4,5),
+      .net_tot_len  = 28,
+      .net_frag_off = 0x4000u, /* don't fragment */
+      .ttl          = 64,
+      .protocol     = FD_IP4_HDR_PROTOCOL_UDP,
+    }},
+    .udp = {{
+      .net_sport = FD_QUIC_SANDBOX_PEER_PORT,
+      .net_dport = FD_QUIC_SANDBOX_SELF_PORT,
+      .net_len   = 8,
+    }},
+    .pkt_number = 0,
+    .rcv_time   = sandbox->wallclock,
+    .enc_level  = fd_quic_enc_level_appdata_id,
+  };
+
+  fd_quic_process_quic_packet_v1( sandbox->quic, &pkt, data, data_sz );
+
+  /* Synchronize log seq[0] from tx to rx */
+  fd_quic_log_tx_seq_update( fd_quic_get_state( sandbox->quic )->log_tx );
+}

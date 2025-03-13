@@ -12,14 +12,18 @@
 #define FD_QUIC_CONN_ID_SZ 8
 
 /* pad fd_quic_conn_id struct */
-#define FD_QUIC_CONN_ID_PAD (24 - 1 - FD_QUIC_MAX_CONN_ID_SZ)
+#define FD_QUIC_CONN_ID_PAD (24 - FD_QUIC_MAX_CONN_ID_SZ - 2 - 1)
 
 /* fd_quic_conn_id_t contains a QUIC connection ID with size in [0,20]
    bytes.  The unused conn_id high bytes MUST be zeroed. */
 
 struct fd_quic_conn_id {
-  uchar sz;
-  uchar conn_id[FD_QUIC_MAX_CONN_ID_SZ];
+  uchar  conn_id[FD_QUIC_MAX_CONN_ID_SZ];
+  /* rfc doesn't make any explicit limit on sequence number
+     16-bit seems reasonable, and allows each of these structs to fit in
+     24 bytes */
+  ushort seqnbr;
+  uchar  sz;
 
   /* explicitly pad for alignment */
   uchar pad[FD_QUIC_CONN_ID_PAD];
@@ -31,8 +35,8 @@ FD_PROTOTYPES_BEGIN
 static inline fd_quic_conn_id_t
 fd_quic_conn_id_new( void const * conn_id,
                      ulong        sz /* in [0,20] */ ) {
-  /* TODO debug assertion verifying sz */
-  fd_quic_conn_id_t id = { .sz = (uchar)sz };
+  sz = fd_ulong_min( sz, sizeof( (fd_quic_conn_id_t){0}.conn_id ) ); /* ensure memcpy doesn't overflow */
+  fd_quic_conn_id_t id = { .sz = (uchar)sz, .seqnbr = (ushort)0xffffu };
   fd_memcpy( id.conn_id, conn_id, sz );
   return id;
 }

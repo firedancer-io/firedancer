@@ -492,6 +492,85 @@ test_quic_send_streams( fd_quic_sandbox_t * sandbox,
 
 }
 
+/* test stateless reset
+   construct a server quic connection
+   send it a NEW_CONNECTION_ID frame, with a stateless reset token
+     it should insert the token in the token map
+   send it a STATELESS_RESET
+     it should set the connection to DEAD and update the metrics
+   call service
+     it should clean up the dead connection */
+static __attribute__ ((noinline)) void
+test_quic_stateless_reset( fd_quic_sandbox_t * sandbox,
+                           fd_rng_t *          rng ) {
+# define TOKEN 0x43, 0x1d, 0x6d, 0x74, 0x0a, 0x2b, 0x49, 0x49, 0xf9, 0x7c, 0x12, 0x4d, 0xf3, 0x1d, 0xd1, 0x3d
+
+  fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
+  fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
+
+  /* peer conn id from conn */
+  uchar const * peer_id = conn->peer_cids[0].conn_id;
+
+  /* new connection id */
+  uchar conn_id[sizeof(conn->our_conn_id)] = { 0x29, 0x0b, 0xbe, 0x0f, 0x40, 0xdf, 0x8d, 0x72 };
+
+  FD_TEST( memcmp( peer_id, conn_id, 8 ) != 0 );
+
+  fd_quic_new_conn_id_frame_t new_conn_id_frame[1] = {{
+      .seq_nbr               = 1,
+      .retire_prior_to       = 0,
+      .conn_id_len           = 8,
+      .conn_id               = conn_id,
+      .stateless_reset_token = { TOKEN } }};
+
+  uchar buf[ 1024 ];
+  ulong sz = fd_quic_encode_new_conn_id_frame( buf, sizeof(buf), new_conn_id_frame );
+  FD_TEST( sz!=FD_QUIC_ENCODE_FAIL );
+
+  fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sz );
+  FD_TEST( conn->state  == FD_QUIC_CONN_STATE_ACTIVE );
+
+  /* should have switched to new connection id */
+  FD_TEST( memcmp( peer_id, conn_id, 8 ) == 0 );
+
+  FD_LOG_DEBUG(( "new conn_id: "
+        "%02x " "%02x " "%02x " "%02x " "%02x " "%02x " "%02x " "%02x "
+        " peer_conn_id: "
+        "%02x " "%02x " "%02x " "%02x " "%02x " "%02x " "%02x " "%02x ",
+        conn_id[0], conn_id[1], conn_id[2], conn_id[3],
+        conn_id[4], conn_id[5], conn_id[6], conn_id[7],
+        peer_id[0], peer_id[1], peer_id[2], peer_id[3],
+        peer_id[4], peer_id[5], peer_id[6], peer_id[7] ));
+
+  /* construct a stateless reset packet */
+  /* Stateless Reset {
+       Fixed Bits            (2) = 1,
+       Unpredictable Bits    (38..),
+       Stateless Reset Token (128),
+     } */
+  uchar stateless_reset[] = {
+    0x4c,                         /* first byte must start 01...... */
+    0xdf, 0x93, 0x18, 0x9b, 0xe0, /* random bytes */
+    0x99, 0x45, 0x56, 0x95, 0x1b, /* random bytes */
+    TOKEN                         /* token must be last bytes */
+  };
+
+  /* make the connection process the stateless reset */
+  fd_quic_sandbox_send_raw( sandbox, stateless_reset, sizeof( stateless_reset ) );
+
+  /* verify metrics */
+  fd_quic_metrics_t * metrics = &conn->quic->metrics;
+  FD_TEST( metrics->pkt_stateless_reset_cnt == 1 );
+  FD_TEST( metrics->pkt_no_conn_cnt == 0 );
+
+  /* Test shm log infra */
+  fd_frag_meta_t const * log_rec = fd_quic_log_rx_tail( sandbox->log_rx, 0UL );
+  FD_TEST( fd_quic_log_sig_event( log_rec->sig )==FD_QUIC_EVENT_CONN_QUIC_CLOSE );
+  fd_quic_log_error_t const * error = fd_quic_log_rx_data_const( sandbox->log_rx, log_rec->chunk );
+  FD_TEST( error->code[0] == FD_QUIC_CONN_REASON_INTERNAL_STATELESS_RESET );
+  FD_TEST( 0==memcmp( "fd_quic.c\x00", error->src_file, 10 ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -549,6 +628,7 @@ main( int     argc,
   test_quic_rx_max_streams_frame         ( sandbox, rng );
   test_quic_small_pkt_ping               ( sandbox, rng );
   test_quic_send_streams                 ( sandbox, rng );
+  test_quic_stateless_reset              ( sandbox, rng );
   test_quic_parse_path_challenge();
 
   /* Wind down */

@@ -10,6 +10,7 @@
 #include "fd_quic_proto.c"
 #include "fd_quic_retry.h"
 #include "fd_quic_svc_q.h"
+#include "fd_quic_hash.h"
 
 #define FD_TEMPL_FRAME_CTX fd_quic_frame_ctx_t
 #include "templ/fd_quic_frame_handler_decl.h"
@@ -29,6 +30,8 @@
 #include "../../ballet/hex/fd_hex.h"
 #include "../../tango/tempo/fd_tempo.h"
 #include "../../util/log/fd_dtrace.h"
+
+FD_TL uchar fd_quic_token_map_seed[16] = {0};
 
 /* Declare map type for stream_id -> stream* */
 #define MAP_NAME              fd_quic_stream_map
@@ -79,6 +82,7 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   ulong  inflight_pkt_cnt = limits->inflight_pkt_cnt;
   ulong  tx_buf_sz        = limits->tx_buf_sz;
   ulong  stream_pool_cnt  = limits->stream_pool_cnt;
+  ulong  token_map_cnt    = conn_cnt; /* keeping one token per connection */
 
   if( FD_UNLIKELY( conn_cnt        ==0UL ) ) return 0UL;
   if( FD_UNLIKELY( handshake_cnt   ==0UL ) ) return 0UL;
@@ -116,6 +120,16 @@ fd_quic_footprint_ext( fd_quic_limits_t const * limits,
   ulong conn_map_footprint = fd_quic_conn_map_footprint( lg_slot_cnt );
   if( FD_UNLIKELY( !conn_map_footprint ) ) { FD_LOG_WARNING(( "invalid fd_quic_conn_map_footprint" )); return 0UL; }
   offs                    += conn_map_footprint;
+
+  /* allocate space for stateless reset token map */
+  offs                      = fd_ulong_align_up( offs, fd_quic_token_map_align() );
+  layout->token_map_off     = offs;
+  slot_cnt_bound            = (ulong)( FD_QUIC_DEFAULT_SPARSITY * (double)token_map_cnt );
+  int lg_token_cnt          = fd_ulong_find_msb( slot_cnt_bound - 1 ) + 1;
+  layout->lg_token_cnt      = lg_token_cnt;
+  ulong token_map_footprint = fd_quic_token_map_footprint( lg_token_cnt );
+  if( FD_UNLIKELY( !token_map_footprint ) ) { FD_LOG_WARNING(( "invalid fd_quic_token_map_footprint" )); return 0UL; }
+  offs                     += token_map_footprint;
 
   /* allocate space for handshake pool */
   offs                 = fd_ulong_align_up( offs, fd_quic_tls_hs_pool_align() );
@@ -479,6 +493,15 @@ fd_quic_init( fd_quic_t * quic ) {
     return NULL;
   }
 
+  /* State: Initialize stateless reset token map */
+
+  ulong  token_map_laddr = (ulong)quic + layout.token_map_off;
+  state->token_map = fd_quic_token_map_join( fd_quic_token_map_new( (void *)token_map_laddr, layout.lg_token_cnt ) );
+  if( FD_UNLIKELY( !state->token_map ) ) {
+    FD_LOG_WARNING(( "NULL token_map" ));
+    return NULL;
+  }
+
   /* State: Initialize service queue */
   ulong svc_base    = (ulong)quic + layout.svc_timers_off;
   state->svc_timers = fd_quic_svc_timers_init( (void *)svc_base, limits->conn_cnt );
@@ -553,6 +576,12 @@ fd_quic_init( fd_quic_t * quic ) {
   if( FD_UNLIKELY( !rng1_ok || !rng2_ok ) ) {
     FD_LOG_ERR(( "fd_rng_secure failed" ));
     return NULL;
+  }
+
+  /* generate a secure random number as seed for token_map */
+  int rng_token_map_seed_ok = !!fd_rng_secure( &fd_quic_token_map_seed, sizeof(fd_quic_token_map_seed) );
+  if( FD_UNLIKELY( !rng_token_map_seed_ok ) ) {
+    FD_LOG_ERR(( "fd_rng_secure failed" ));
   }
 
   /* Initialize transport params */
@@ -763,6 +792,35 @@ fd_quic_conn_error( fd_quic_conn_t * conn,
                     uint             error_line ) {
   fd_quic_conn_error1( conn, reason );
 
+  conn->error_line = error_line;
+
+  fd_quic_state_t * state = fd_quic_get_state( conn->quic );
+
+  ulong                 sig   = fd_quic_log_sig( FD_QUIC_EVENT_CONN_QUIC_CLOSE );
+  fd_quic_log_error_t * frame = fd_quic_log_tx_prepare( state->log_tx );
+  *frame = (fd_quic_log_error_t) {
+    .hdr      = fd_quic_log_conn_hdr( conn ),
+    .code     = { reason, 0UL },
+    .src_file = "fd_quic.c",
+    .src_line = error_line,
+  };
+  fd_quic_log_tx_submit( state->log_tx, sizeof(fd_quic_log_error_t), sig, (long)state->now );
+}
+
+static void
+fd_quic_conn_term( fd_quic_conn_t * conn,
+                   uint             reason,
+                   uint             error_line ) {
+  uint alive_states = ( 1U << FD_QUIC_CONN_STATE_HANDSHAKE          ) |
+                      ( 1U << FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE ) |
+                      ( 1U << FD_QUIC_CONN_STATE_ACTIVE             ) |
+                      ( 1U << FD_QUIC_CONN_STATE_PEER_CLOSE         );
+  conn->quic->metrics.conn_aborted_cnt += !!( conn->state & alive_states );
+
+  conn->state      = FD_QUIC_CONN_STATE_DEAD;
+  conn->reason     = reason;
+  conn->error_line = error_line;
+
   fd_quic_state_t * state = fd_quic_get_state( conn->quic );
 
   ulong                 sig   = fd_quic_log_sig( FD_QUIC_EVENT_CONN_QUIC_CLOSE );
@@ -786,6 +844,7 @@ fd_quic_frame_error( fd_quic_frame_ctx_t const * ctx,
   fd_quic_state_t *     state = fd_quic_get_state( quic );
 
   fd_quic_conn_error1( conn, reason );
+  conn->error_line = error_line;
 
   uint tls_reason = 0U;
   if( conn->tls_hs ) tls_reason = conn->tls_hs->hs.base.reason;
@@ -1578,6 +1637,8 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       if( FD_UNLIKELY( !fd_quic_tls_hs_pool_free( state->hs_pool ) ) ) {
         /* try evicting, 0 if oldest is too young so fail */
         if( !fd_quic_tls_hs_cache_evict( quic, conn, state )) {
+          fd_quic_conn_term( conn, FD_QUIC_CONN_REASON_INTERNAL_TLS_HS_POOL_EMPTY, __LINE__ );
+          quic->metrics.hs_err_alloc_fail_cnt++;
           return FD_QUIC_PARSE_FAIL;
         }
       }
@@ -1620,9 +1681,8 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     /* As this is an INITIAL packet, change the status to DEAD, and allow
         it to be reaped */
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt_hdr failed" )) );
-    fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD );
+    fd_quic_conn_term( conn, FD_QUIC_CONN_REASON_INTERNAL_DECRYPT_FAILURE, __LINE__ );
     fd_quic_svc_prep_schedule( conn, state->now );
-    quic->metrics.conn_aborted_cnt++;
     quic->metrics.pkt_decrypt_fail_cnt[ fd_quic_enc_level_initial_id ]++;
     return FD_QUIC_PARSE_FAIL;
   }
@@ -1670,6 +1730,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     /* replace peer 0 connection id */
                conn->peer_cids[0].sz =     initial->src_conn_id_len;
     fd_memcpy( conn->peer_cids[0].conn_id, initial->src_conn_id, FD_QUIC_MAX_CONN_ID_SZ );
+               conn->peer_cids[0].seqnbr++;
 
     /* don't repeat this procedure */
     conn->established = 1;
@@ -1903,6 +1964,7 @@ fd_quic_handle_v1_retry(
 
   /* Update the peer using the retry src conn id */
   conn->peer_cids[0] = conn->retry_src_conn_id;
+  conn->peer_cids[0].seqnbr = 1;
 
   /* Re-send the ClientHello */
   conn->hs_sent_bytes[fd_quic_enc_level_initial_id] = 0;
@@ -1998,17 +2060,50 @@ fd_quic_key_update_complete( fd_quic_conn_t * conn ) {
   FD_DEBUG( FD_LOG_DEBUG(( "key update completed" )); )
 }
 
+int
+fd_quic_stateless_reset( fd_quic_t *      quic,
+                         uchar *          cur_ptr,
+                         ulong            tot_sz ) {
+  if( FD_UNLIKELY( tot_sz < 22 ) ) return 0;
+
+  /* assume stateless reset and look up token */
+  /* if found, cancel associated connection */
+  /* else, check config. If configured to send stateless reset, and
+     we have enough bytes to send a stateless reset, generate one
+     and send it */
+
+  /* token should be the last 16 bytes */
+  uchar * token = cur_ptr + tot_sz - 16;
+
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+
+  /* look up token in token_map */
+  fd_quic_token_map_t * token_map = state->token_map;
+  fd_quic_token_t key;
+  memcpy( &key.l[0], token, sizeof( key.l ) );
+  if( FD_LIKELY( !FD_QUIC_TOKEN_IS_NULL( key ) ) ) {
+    fd_quic_token_map_t * entry = fd_quic_token_map_query( token_map, key, NULL );
+    if( FD_LIKELY( entry ) ) {
+      /* set to dead, as peer has no connection state for this connection */
+      fd_quic_conn_term( entry->conn, FD_QUIC_CONN_REASON_INTERNAL_STATELESS_RESET, __LINE__ );
+      quic->metrics.pkt_stateless_reset_cnt++;
+      return 1;
+    }
+  }
+
+  /* packet ends in 16 nul bytes
+     just ignore it */
+
+  /* returns true if cur_ptr is determined to be a stateless reset */
+  return 0;
+}
+
 ulong
 fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
                            fd_quic_conn_t * conn,
                            fd_quic_pkt_t *  pkt,
                            uchar *    const cur_ptr,
                            ulong      const tot_sz ) {
-  if( !conn ) {
-    quic->metrics.pkt_no_conn_cnt++;
-    return FD_QUIC_PARSE_FAIL;
-  }
-
   if( FD_UNLIKELY( tot_sz < (1+FD_QUIC_CONN_ID_SZ+1) ) ) {
     /* One-RTT header: 1 byte
        DCID:           FD_QUIC_CONN_ID_SZ
@@ -2156,6 +2251,9 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
       return FD_QUIC_PARSE_FAIL;
     }
 
+    /* long_hdr->{src,dst}_conn_id_len are validated to be at most
+       FD_QUIC_MAX_CONN_ID_SZ within fd_quic_decode_long_hdr */
+
     fd_quic_conn_id_t dcid = fd_quic_conn_id_new( long_hdr->dst_conn_id, long_hdr->dst_conn_id_len );
     if( dcid.sz == FD_QUIC_CONN_ID_SZ ) {
       conn = fd_quic_conn_query( state->conn_map, fd_ulong_load_8( dcid.conn_id ) );
@@ -2205,9 +2303,13 @@ fd_quic_process_quic_packet_v1( fd_quic_t *     quic,
     /* find connection id */
     ulong dst_conn_id = fd_ulong_load_8( cur_ptr+1 );
     conn = fd_quic_conn_query( state->conn_map, dst_conn_id );
+
     if( FD_UNLIKELY( !conn ) ) {
+      /* check for stateless reset */
+      int is_stateless_reset = fd_quic_stateless_reset( quic, cur_ptr, cur_sz );
+
       FD_DEBUG( FD_LOG_DEBUG(( "one_rtt failed: no connection found" )) );
-      quic->metrics.pkt_no_conn_cnt++;
+      quic->metrics.pkt_no_conn_cnt += (ulong)!is_stateless_reset;
       return FD_QUIC_PARSE_FAIL;
     }
 
@@ -2812,7 +2914,7 @@ fd_quic_svc_poll( fd_quic_t *      quic,
             conn->server?"SERVER":"CLIENT",
             (void *)conn, conn->conn_idx, (double)conn->idle_timeout / 1e6 )); )
 
-        conn->state = FD_QUIC_CONN_STATE_DEAD;
+        fd_quic_conn_term( conn, FD_QUIC_CONN_REASON_INTERNAL_IDLE_TIMEOUT, __LINE__ );
         quic->metrics.conn_timeout_cnt++;
       }
     } else if( FD_QUIC_KEEP_ALIVE ) {
@@ -3727,8 +3829,9 @@ fd_quic_conn_tx( fd_quic_t *      quic,
 
       /* this situation is unlikely to improve, so kill the connection */
       fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD );
-      fd_quic_svc_prep_schedule_now( conn );
       quic->metrics.conn_aborted_cnt++;
+      fd_quic_conn_term( conn, FD_QUIC_CONN_REASON_INTERNAL_DECRYPT_FAILURE, __LINE__ );
+      fd_quic_svc_prep_schedule_now( conn );
       break;
     }
 
@@ -3862,7 +3965,8 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
         fd_quic_conn_tx( quic, conn );
 
         /* schedule another fd_quic_conn_service to free the conn */
-        conn->state = FD_QUIC_CONN_STATE_DEAD; /* TODO need draining state wait for 3 * TPO */
+        /* state->reason should already be set */
+        conn->state  = FD_QUIC_CONN_STATE_DEAD; /* TODO need draining state wait for 3 * TPO */
         quic->metrics.conn_closed_cnt++;
 
         break;
@@ -3872,6 +3976,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
         fd_quic_conn_tx( quic, conn );
 
         /* schedule another fd_quic_conn_service to free the conn */
+        /* state->reason should already be set */
         conn->state = FD_QUIC_CONN_STATE_DEAD;
         quic->metrics.conn_aborted_cnt++;
 
@@ -3916,6 +4021,19 @@ fd_quic_conn_free( fd_quic_t *      quic,
 
   fd_quic_conn_map_t * entry = fd_quic_conn_map_query( state->conn_map, conn->our_conn_id, NULL );
   if( FD_LIKELY( entry ) ) fd_quic_conn_map_remove( state->conn_map, entry );
+
+  /* remove stateless reset token from token_map, if necessary */
+
+  fd_quic_token_t token;
+  memcpy( &token.l[0], conn->peer_token, sizeof( token ) );
+  fd_quic_token_map_t * token_map = state->token_map;
+  if( FD_LIKELY( !FD_QUIC_TOKEN_IS_NULL( token ) ) ) {
+    fd_quic_token_map_t * entry = fd_quic_token_map_query( token_map, token, NULL );
+    if( FD_LIKELY( entry ) ) {
+      /* if one found, remove it */
+      fd_quic_token_map_remove( token_map, entry );
+    }
+  }
 
   /* no need to remove this connection from the events queue
      free is called from two places:
@@ -4016,7 +4134,8 @@ fd_quic_connect( fd_quic_t *  quic,
   /* create conn ids for us and them
      client creates connection id for the peer, peer immediately replaces it */
   ulong our_conn_id_u64 = fd_rng_ulong( rng );
-  fd_quic_conn_id_t peer_conn_id;  fd_quic_conn_id_rand( &peer_conn_id, rng );
+  fd_quic_conn_id_t peer_conn_id = {0};
+  fd_quic_conn_id_rand( &peer_conn_id, rng );
 
   fd_quic_conn_t * conn = fd_quic_conn_create(
       quic,
@@ -4226,9 +4345,10 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->initial_source_conn_id = our_conn_id;
 
   /* peer connection id */
-  conn->peer_cids[0]     = *peer_conn_id;
-  conn->peer[0].ip_addr  = peer_ip_addr;
-  conn->peer[0].udp_port = peer_udp_port;
+  conn->peer_cids[0]        = *peer_conn_id;
+  conn->peer_cids[0].seqnbr = 0;
+  conn->peer[0].ip_addr     = peer_ip_addr;
+  conn->peer[0].udp_port    = peer_udp_port;
 
   fd_quic_ack_gen_init( conn->ack_gen );
   conn->unacked_sz = 0UL;
@@ -5273,9 +5393,86 @@ fd_quic_handle_new_conn_id_frame(
     fd_quic_new_conn_id_frame_t * data,
     uchar const *                 p    FD_PARAM_UNUSED,
     ulong                         p_sz FD_PARAM_UNUSED ) {
-  /* FIXME This is a mandatory feature but we don't support it yet */
   FD_DTRACE_PROBE_1( quic_handle_new_conn_id_frame, context->conn->our_conn_id );
-  (void)data;
+
+  /* The spec doesn't dictate which of the allowable connection ids to use
+     Our policy is simply to use the one with the largest sequence number */
+
+  uchar const * token = data->stateless_reset_token;
+
+  /* conn_id_len > FD_QUIC_MAX_CONN_ID_SZ is out of spec, so consider a protocol error */
+  if( FD_UNLIKELY( data->conn_id_len > FD_QUIC_MAX_CONN_ID_SZ ) ) {
+    fd_quic_frame_error( context, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    return FD_QUIC_PARSE_FAIL;
+  }
+
+  fd_quic_conn_t * conn = context->conn;
+
+  fd_quic_conn_id_t * peer_conn_id = &conn->peer_cids[0];
+
+  /* should we switch connection id? */
+  if( data->seq_nbr > peer_conn_id->seqnbr && data->seq_nbr < 0xffffUL ) {
+    /* replace peer connection id */
+    peer_conn_id->sz     = data->conn_id_len;
+    peer_conn_id->seqnbr = (ushort)data->seq_nbr;
+    fd_memcpy( peer_conn_id->conn_id, data->conn_id, FD_QUIC_MAX_CONN_ID_SZ );
+
+    /* remove old token from token_map */
+    /* since we're only using the new connection id, we should never see the
+       old token */
+    fd_quic_token_t cur_token;
+    memcpy( &cur_token.l[0], conn->peer_token, sizeof( cur_token ) );
+
+    fd_quic_state_t * state = fd_quic_get_state( context->quic );
+    fd_quic_token_map_t * token_map = state->token_map;
+
+    /* query for current token */
+    if( FD_LIKELY( !FD_QUIC_TOKEN_IS_NULL( cur_token ) ) ) {
+      fd_quic_token_map_t * entry = fd_quic_token_map_query( token_map, cur_token, NULL );
+      if( FD_LIKELY( entry ) ) {
+        /* if one found, remove it */
+        fd_quic_token_map_remove( token_map, entry );
+      }
+    }
+
+    /* if token not all zeros, add it to the token_map */
+    fd_quic_token_t new_token;
+    memcpy( &new_token, token, sizeof( new_token ) );
+    if( FD_LIKELY( !FD_QUIC_TOKEN_IS_NULL( new_token ) ) ) {
+      fd_quic_token_map_t * insert_entry = fd_quic_token_map_insert( token_map, new_token );
+
+      /* if entry already exists or map is full, ignore
+         This should never happen:
+         Map is sized for one token per connection, plus some sparsity for perf
+         Collisions in 16 uniform random bytes has a very low probability
+         As such, collsions are a sign something is wrong */
+      if( FD_UNLIKELY( !insert_entry ) ) {
+        FD_DTRACE_PROBE_1( fd_quic_handle_new_conn_id_frame, new_token.raw );
+
+        /* upon collision we could assume ill intent and close the connection */
+
+        /* clear token so we don't try to remove it from the map in the future */
+        memset( conn->token, 0, sizeof( conn->token ) );
+      } else {
+        /* set entry to point to connection */
+        insert_entry->conn = conn;
+
+        /* copy token into connection for later use */
+        memcpy( conn->peer_token, new_token.l, sizeof( new_token.l ) );
+      }
+    }
+  }
+
+  /* retire? */
+  if( data->retire_prior_to >= peer_conn_id->seqnbr ) {
+    /* the peer requested we retire the only connection id we're using
+       we can't comply, so we tear down the connection
+       Since we're using the highest numbered connection in, this is
+       a protocol violation */
+    fd_quic_conn_error( conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+    return FD_QUIC_PARSE_FAIL;
+  }
+
   return 0;
 }
 
@@ -5283,13 +5480,36 @@ static ulong
 fd_quic_handle_retire_conn_id_frame(
     fd_quic_frame_ctx_t *            context,
     fd_quic_retire_conn_id_frame_t * data,
-    uchar const *                    p    FD_PARAM_UNUSED,
-    ulong                            p_sz FD_PARAM_UNUSED ) {
-  /* FIXME This is a mandatory feature but we don't support it yet */
+    uchar const *                    p,
+    ulong                            p_sz ) {
   FD_DTRACE_PROBE_1( quic_handle_retire_conn_id_frame, context->conn->our_conn_id );
+
   (void)data;
+  (void)p;
+  (void)p_sz;
+
   FD_DEBUG( FD_LOG_DEBUG(( "retire_conn_id requested" )); )
-  return 0;
+
+  /* This is always a protocol violation
+     From the spec (RFC 9000 5.1.1.):
+       The connection ID that a client selects for the first Destination
+       Connection ID field it sends and any connection ID provided by a
+       Retry packet are not assigned sequence numbers.
+     We only supply one connection ID
+
+     Then, from the spec (RFC 9000 19.16.):
+       The sequence number specified in a RETIRE_CONNECTION_ID frame MUST NOT
+       refer to the Destination Connection ID field of the packet in which the
+       frame is contained. The peer MAY treat this as a connection error of
+       type PROTOCOL_VIOLATION
+
+     Since we only have one valid connection ID, whatever sequence is supplied
+     is either the valid sequence number of the only connection ID, and
+     therefore the one on the current packet, OR it's not a valid sequence
+     number. */
+
+  fd_quic_conn_error( context->conn, FD_QUIC_CONN_REASON_PROTOCOL_VIOLATION, __LINE__ );
+  return FD_QUIC_PARSE_FAIL;
 }
 
 static ulong
