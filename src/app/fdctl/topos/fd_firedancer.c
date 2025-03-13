@@ -190,7 +190,7 @@ fd_topo_initialize( config_t * config ) {
 
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_sign",   "shred_sign",   128UL,                                    32UL,                          1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "sign_shred",   "sign_shred",   128UL,                                    64UL,                          1UL );
-  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_replay", "shred_replay", 128UL,                                    128UL,                         config->tiles.shred.max_pending_shred_sets );
+  FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_replay", "shred_replay", 65536UL,                                  128UL,                         config->tiles.shred.max_pending_shred_sets );
 
   /**/                 fd_topob_link( topo, "gossip_sign",  "gossip_sign",  128UL,                                    2048UL,                        1UL );
   /**/                 fd_topob_link( topo, "sign_gossip",  "sign_gossip",  128UL,                                    64UL,                          1UL );
