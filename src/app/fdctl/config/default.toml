@@ -66,7 +66,7 @@ dynamic_port_range = "8900-9000"
 # output or boot errors.  Messages to "stderr" are abbreviated and not
 # as fully detailed as those to the log file.  The log file is intended
 # for long term archival purposes.  The log levels mirror the Linux
-# syslog levels, which are, from lowest priority to highest:
+# syslog levels, which are, from lowest to highest priority:
 #
 #   - DEBUG    Development and diagnostic messages.
 #   - INFO     Less important informational notice.
@@ -102,9 +102,9 @@ dynamic_port_range = "8900-9000"
 # to the permanent log (log file).
 #
 # Firedancer does not support rotating the log file in response to
-# SIGUSR1 or SIGUSR2.  Instead it will silently swallow and ignore these
-# signals.  To perform log rotation, it is suggested to use a mechanism
-# like the `copytruncate` directive of `logrotate`.
+# SIGUSR1 or SIGUSR2.  Instead, it will silently swallow and ignore
+# these signals.  To perform log rotation, it is suggested to use a
+# mechanism like the `copytruncate` directive of `logrotate`.
 [log]
     # Absolute file path of where to place the log file.  It will be
     # appended to, or created if it does not already exist. The
@@ -479,7 +479,7 @@ dynamic_port_range = "8900-9000"
     genesis_fetch = true
 
     # On startup, do some simulations to see how fast the validator can
-    # generate proof of history, and if it too slow to keep up with the
+    # generate proof of history. If it is too slow to keep up with the
     # network, exit out during boot.  It is recommended to leave this on
     # to ensure you can keep up with the network.  This option is passed
     # to the Agave client (inverted) with the
@@ -502,7 +502,7 @@ dynamic_port_range = "8900-9000"
     # If there is a hard fork, it might be required to provide an
     # expected bank hash to ensure the correct fork is being selected.
     # If this is not provided, or we are not waiting for a
-    # supermajority, the bank hash is not checked.  Otherwise we require
+    # supermajority, the bank hash is not checked. Otherwise, we require
     # the bank at the supermajority slot to have this hash.  This option
     # is passed to the Agave client with the
     # `--expected-bank-hash` argument.
@@ -583,7 +583,7 @@ dynamic_port_range = "8900-9000"
 #               database on disk
 #
 #  - metric     Collects monitoring information about other tiles and
-#               serves it on a HTTP endpoint
+#               serves it on an HTTP endpoint
 #
 #  - sign       Holds the validator private key, and receives and
 #               responds to signing requests from other tiles
@@ -611,7 +611,7 @@ dynamic_port_range = "8900-9000"
 # throughput layout will vary depending on the specific hardware
 # available.
 #
-# Tiles communciate with each other using message queues.  If a queue
+# Tiles communicate with each other using message queues.  If a queue
 # between two tiles fills up, the producer will either block, waiting
 # until there is free space to continue which is referred to as
 # backpressure, or it will drop transactions or data and continue.
@@ -660,7 +660,7 @@ dynamic_port_range = "8900-9000"
     affinity = "auto"
 
     # In addition to the Firedancer tiles which use a core each, the
-    # current version of Firedancer hosts a Agave validator as
+    # current version of Firedancer hosts an Agave validator as
     # a subprocess.
     #
     # This affinity controls which logical CPU cores the Agave
@@ -690,20 +690,20 @@ dynamic_port_range = "8900-9000"
     #          agave_cores <  4  =>  agave_cores
     #
     # Increasing the value for this parameter might help during the
-    # start-up phase when the validator is trying to catchup to the
+    # start-up phase when the validator is trying to catch up to the
     # cluster.  It may also help the node stay caught up if it keeps
     # falling behind.
     agave_unified_scheduler_handler_threads = 0
 
     # How many net tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network
-    # conditions but there is no need to run more than 1 net tile given
+    # conditions, but there is no need to run more than 1 net tile given
     # current `mainnet-beta` conditions.
     #
     # Net tiles are responsible for sending and receiving packets from
     # the network device configured in the [tiles.net] section below.
     # Each net tile will service exactly one queue from the device, and
-    # firedancer will error on boot if the number of queues on the
+    # Firedancer will error on boot if the number of queues on the
     # device is not configured correctly.
     #
     # The net tile is designed to scale linearly when adding more tiles.
@@ -714,21 +714,21 @@ dynamic_port_range = "8900-9000"
 
     # How many QUIC tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network
-    # conditions but there is no need to run more then 1 QUIC tile given
+    # conditions. There is no need to run more than 1 QUIC tile given
     # current `mainnet-beta` conditions, unless the validator is the
     # subject of an attack.
     #
     # QUIC tiles are responsible for parsing incoming QUIC protocol
     # messages, managing connections and responding to clients.
     # Connections from the net tiles will be evenly distributed
-    # between the available QUIC tiles round robin style.
+    # between the available QUIC tiles round-robin style.
     #
     # QUIC tiles are designed to scale linearly when adding more tiles,
     quic_tile_count = 1
 
     # How many resolver tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network
-    # conditions but there is no need to run more than 1 resolver tile
+    # conditions. There is no need to run more than 1 resolver tile
     # given current `mainnet-beta` conditions, unless the validator is
     # under a DoS or spam attack.
     #
@@ -766,9 +766,9 @@ dynamic_port_range = "8900-9000"
 
     # How many shred tiles to run.  Should be set to 1.  This is
     # configurable and designed to scale out for future network
-    # conditions but there is no need to run more than 1 shred tile
-    # given current `mainnet-beta` conditions.  There is however
-    # a need to run 2 shred tiles under current `testnet` conditions.
+    # conditions. There is no need to run more than 1 shred tile given
+    # current `mainnet-beta` conditions.  There is however a need to run
+    # 2 shred tiles under current `testnet` conditions.
     #
     # Shred tiles distribute block data to the network when we are
     # leader, and receive and retransmit it to other nodes when we are
@@ -782,8 +782,8 @@ dynamic_port_range = "8900-9000"
     shred_tile_count = 1
 
 # All memory that will be used in Firedancer is pre-allocated in two
-# kinds of pages: huge and gigantic.  Huge pages are 2MB and gigantic
-# pages are 1GB.  This is done to prevent TLB misses which can have a
+# kinds of pages: huge and gigantic.  Huge pages are 2 MiB and gigantic
+# pages are 1 GiB.  This is done to prevent TLB misses which can have a
 # high performance cost.  There are three important steps in this
 # configuration,
 #
@@ -791,43 +791,43 @@ dynamic_port_range = "8900-9000"
 #     certain number of both huge and gigantic pages to a special pool
 #     so that they are reserved for later use by privileged programs.
 #
-#  2. At configuration time, one (pseudo) filesystem of type hugetlbfs
+#  2. At configuration time, one (pseudo) file system of type hugetlbfs
 #     for each of huge and gigantic pages is mounted on a local
-#     directory.  Any file created within these filesystems will be
+#     directory.  Any file created within these file systems will be
 #     backed by in-memory pages of the desired size.
 #
 #  3. At Firedancer initialization time, Firedancer creates a
 #     "workspace" file in one of these mounts.  The workspace is a
 #     single mapped memory region within which the program lays out and
-#     initializes all of the data structures it will need in advance.
+#     initializes all the data structures it will need in advance.
 #     Most Firedancer allocations occur at initialization time, and this
 #     memory is fully managed by special purpose allocators.
 #
 # A typical layout of the mounts looks as follows,
 #
 #  /mnt/.fd                     [Mount parent directory specified below]
-#    +-- .gigantic              [Files created in this mount use 1GiB
+#    +-- .gigantic              [Files created in this mount use 1 GiB
 #                                pages]
 #        +-- firedancer1.wksp
-#    +-- .huge                  [Files created in this mount use 2MiB
+#    +-- .huge                  [Files created in this mount use 2 MiB
 #                                pages]
 #        +-- scratch1.wksp
 #        +-- scratch2.wksp
 [hugetlbfs]
-    # The absolute path to a directory in the filesystem.  Firedancer
-    # will mount the hugetlbfs filesystem for gigantic pages at a
+    # The absolute path to a directory in the file system.  Firedancer
+    # will mount the hugetlbfs file system for gigantic pages at a
     # subdirectory named .gigantic under this path, or if the entire
     # path already exists, will use it as-is.  Firedancer will also
-    # mount the hugetlbfs filesystem for huge pages at a subdirectory
+    # mount the hugetlbfs file system for huge pages at a subdirectory
     # named .huge under this path, or if the entire path already exists,
     # will use it as-is.  If the mount already exists it should be
     # writable by the Firedancer user.
     mount_path = "/mnt/.fd"
 
     # The largest supported page size on the system.  Possible values
-    # are either "huge" (2MiB) or "gigantic" (1GiB).  Larger sizes yield
-    # better performance.  Smaller values may be required on virtualized
-    # environments like cloud providers.
+    # are either "huge" (2 MiB) or "gigantic" (1 GiB).  Larger sizes
+    # yield better performance.  Smaller values may be required on
+    # virtualized environments like cloud providers.
     max_page_size = "gigantic"
 
 # Tiles are described in detail in the layout section above.  While the
@@ -846,7 +846,7 @@ dynamic_port_range = "8900-9000"
     # fanning in from these various network senders to transmit on the
     # queues we have available.
     [tiles.net]
-        # Which interface to bind to for network traffic.  Currently
+        # Which interface to bind to for network traffic.  Currently,
         # only one interface is supported for networking.  If this is
         # empty, the default is the interface used to route to 8.8.8.8,
         # you can check what this is with `ip route get 8.8.8.8`
@@ -862,7 +862,7 @@ dynamic_port_range = "8900-9000"
         #
         # "skb" (default)
         #   XDP provided by the kernel's generic network code.  This is
-        #   the slowest mode but it is well tested and compatible with
+        #   the slowest mode, but it is well tested and compatible with
         #   all Linux network devices and drivers.
         #
         # "drv"
@@ -883,7 +883,7 @@ dynamic_port_range = "8900-9000"
         # supported".
         xdp_mode = "skb"
 
-        # This option helps reducing CPU usage when receiving packets.
+        # This option helps reduce CPU usage when receiving packets.
         # If enabled, the net tile instructs the network device to copy
         # packets directly (DMA) into the working memory of downstream
         # tiles (such as the quic tile).  This allows scaling ingress up
@@ -906,7 +906,7 @@ dynamic_port_range = "8900-9000"
         xdp_tx_queue_size = 32768
 
         # When the oldest packet in a batch has been queued for more than
-        # the specified duration, flushes the batch out to to the network
+        # the specified duration, flushes the batch out to the network
         # device.  Smaller values improve latency, larger values may
         # improve throughput.
         flush_timeout_micros = 20
@@ -946,7 +946,7 @@ dynamic_port_range = "8900-9000"
     # parsing and responding to packets and managing connection timeouts
     # and state machines.  These tiles implement the QUIC protocol,
     # along with receiving regular (non-QUIC) UDP transactions, and
-    # forward well formed (but not necessarily valid) ones to verify
+    # forward well-formed (but not necessarily valid) ones to verify
     # tiles.
     [tiles.quic]
         # Which port to listen on for incoming, regular UDP transactions
@@ -967,7 +967,7 @@ dynamic_port_range = "8900-9000"
         # This must be >= 2 and also a power of 2.
         max_concurrent_connections = 131072
 
-        # Controls how much transactions coming in via TPU can be
+        # Controls how many transactions coming in via TPU can be
         # reassembled at the same time.  Reassembly is required for user
         # transactions larger than ca ~1200 bytes, as these arrive
         # fragmented.  This parameter should scale linearly with line
@@ -1036,7 +1036,7 @@ dynamic_port_range = "8900-9000"
         # transaction spam.
         #
         # The default value here, 2^26 - 2 is a good balance, as it fits
-        # in 1GiB of memory using a single gigantic page.
+        # in 1 GiB of memory using a single gigantic page.
         signature_cache_size = 33554430
 
     # The bundle tile receives bundles from a block producer remote
@@ -1077,12 +1077,12 @@ dynamic_port_range = "8900-9000"
         # their stakers or to any other relevant parties.  Authority is
         # delegated to the public key provided in the
         # tip_distribution_authority to determine the distribution by
-        # uploading a Merkle tree.  This field should be set to the
+        # uploading a hash tree.  This field should be set to the
         # base58 public key.
         tip_distribution_authority = ""
 
         # The standard tip distribution mechanism distributes tips
-        # pro-rata to stakers with the validator optionally taking a
+        # pro rata to stakers with the validator optionally taking a
         # portion as a fee.  The commission set below, measured in basis
         # points (100ths of a percent), determines the validator's
         # portion.
@@ -1098,13 +1098,13 @@ dynamic_port_range = "8900-9000"
         # option determines the maximum number of transactions that
         # will be stored before those with the lowest estimated
         # profitability get dropped.  The maximum allowed, and default
-        # value is 65524 and it is not recommended to change this.
+        # value is 65524. It is not recommended to change this.
         max_pending_transactions = 65524
 
         # When a transaction consumes fewer CUs than it requests, the
         # bank and pack tiles work together to adjust the block limits
-        # so that a different transaction can consmume the unspent CUs.
-        # This is normally desireable, as it typically leads to
+        # so that a different transaction can consume the unspent CUs.
+        # This is normally desirable, as it typically leads to
         # producing blocks with more transactions.
         #
         # In situations where transactions typically do not
@@ -1117,7 +1117,7 @@ dynamic_port_range = "8900-9000"
 
     # The bank tile is what executes transactions and updates the
     # accounting state as a result of any operations performed by the
-    # transactions.  Currently the bank tile is implemented by the
+    # transactions.  Currently, the bank tile is implemented by the
     # Agave execution engine and is not configurable.
     [tiles.bank]
 
@@ -1133,7 +1133,7 @@ dynamic_port_range = "8900-9000"
         #   +-------------+----+----+----+----+-------------+
         #                t0    t1
         #
-        # Leader slots are 400 milliseconds, so in a well behaved
+        # Leader slots are 400 milliseconds, so in a well-behaved
         # validator the start time of slot s1 (t1) will be 400
         # milliseconds after s0 (t0).
         #
@@ -1181,7 +1181,7 @@ dynamic_port_range = "8900-9000"
     # of the tiles and serves them via. a Prometheus compatible HTTP
     # endpoint.
     [tiles.metric]
-        # The address to listen on.  By default metrics are only
+        # The address to listen on.  By default, metrics are only
         # accessible from the local machine.  If you wish to expose them
         # to the network, you can change the listen address.
         #
@@ -1266,13 +1266,13 @@ dynamic_port_range = "8900-9000"
     # with the `--no-agave` argument to `fddev`.
     no_agave = false
 
-    # Sometimes, it may be useful to run a bootstrap firedancer
+    # Sometimes, it may be useful to run a bootstrap Firedancer
     # validator, either for development or for testing purposes.  The
     # `fddev` tool is provided for this purpose, which creates the
     # bootstrap keys and does the cluster genesis using some parameters
     # that are typically useful for development.
     #
-    # Enabling this allows de-coupling the genesis and key creation from
+    # Enabling this allows decoupling the genesis and key creation from
     # the validator startup.  The bootstrap validator can then be
     # started up with `fdctl`.  It will expect the genesis to already
     # exist at [ledger.path].  The keys used during genesis should be
@@ -1363,7 +1363,7 @@ dynamic_port_range = "8900-9000"
         # specified below.
         #
         # This value specifies the initial value for the chain in the
-        # genesis, but it might be overriden at runtime if the related
+        # genesis, but it might be overridden at runtime if the related
         # features which increase this value are enabled. The features
         # are named like `update_hashes_per_tick2`.
         #
@@ -1421,7 +1421,7 @@ dynamic_port_range = "8900-9000"
         # benchs tile can send around 320k packets a second.
         benchs_tile_count = 2
 
-        # Which cores to run the benchmarking tiles on.  By default the
+        # Which cores to run the benchmarking tiles on.  By default, the
         # cores will be floating but to get good performance
         # measurements on your machine, you should create a topology
         # where these generators get their own cores.
@@ -1493,7 +1493,7 @@ dynamic_port_range = "8900-9000"
         #
         # This option should not be used in a production network.  If
         # set to true, Frankendancer will not be able to identify a
-        # transaction it has receieved as a duplicate if it occurred in
+        # transaction it has received as a duplicate if it occurred in
         # another leader's block, causing it to produce invalid blocks.
         # It is only useful for benchmarking when it is known that
         # duplicate transactions will not be submitted and the validator
