@@ -2159,7 +2159,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   /* First, load in the sysvars into the sysvar cache. This is required to
      make the StakeHistory sysvar available to the rewards calculation. */
 
-  fd_runtime_sysvar_cache_load( ctx->slot_ctx );
+  fd_runtime_sysvar_cache_load( ctx->slot_ctx, ctx->runtime_spad );
 
   /* After both snapshots have been loaded in, we can determine if we should
      start distributing rewards. */

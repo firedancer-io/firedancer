@@ -647,7 +647,10 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
   /* Refresh the sysvar cache stake history entry after updating the sysvar.
       We need to do this here because it is used in subsequent places in the epoch boundary. */
   fd_stake_history_destroy( slot_ctx->sysvar_cache->val_stake_history );
-  fd_sysvar_cache_restore_stake_history( slot_ctx->sysvar_cache, slot_ctx->acc_mgr, slot_ctx->funk_txn );
+  fd_sysvar_cache_restore_stake_history( slot_ctx->sysvar_cache,
+                                         slot_ctx->acc_mgr,
+                                         slot_ctx->funk_txn,
+                                         runtime_spad );
 
 }
 

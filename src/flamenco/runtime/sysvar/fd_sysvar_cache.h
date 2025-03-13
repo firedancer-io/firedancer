@@ -57,7 +57,6 @@
 
 struct __attribute__((aligned(16UL))) fd_sysvar_cache_private {
   ulong       magic;  /* ==FD_SYSVAR_CACHE_MAGIC */
-  fd_spad_t * runtime_spad;
 
   /* Declare the val_{...} values */
 # define X( type, name ) \
@@ -93,8 +92,7 @@ fd_sysvar_cache_footprint( void );
    failure. */
 
 fd_sysvar_cache_t *
-fd_sysvar_cache_new( void *      mem,
-                     fd_spad_t * runtime_spad );
+fd_sysvar_cache_new( void * mem );
 
 /* fd_sysvar_cache_delete destroys a given sysvar cache object and any
    heap allocations made.  Detaches from the valloc provided in
@@ -114,15 +112,17 @@ fd_sysvar_cache_delete( fd_sysvar_cache_t * cache );
 void
 fd_sysvar_cache_restore( fd_sysvar_cache_t * cache,
                          fd_acc_mgr_t *      acc_mgr,
-                         fd_funk_txn_t *     funk_txn );
+                         fd_funk_txn_t *     funk_txn,
+                         fd_spad_t *         runtime_spad );
 
 /* fd_sysvar_cache_restore_{name} restores only the given sysvar object from the given slot context */
 
 # define X( type, name )                                               \
 void                                                                   \
 fd_sysvar_cache_restore_##name( fd_sysvar_cache_t * cache,             \
-                         fd_acc_mgr_t *      acc_mgr,                  \
-                         fd_funk_txn_t *     funk_txn );
+                                fd_acc_mgr_t *      acc_mgr,           \
+                                fd_funk_txn_t *     funk_txn,          \
+                                fd_spad_t *         runtime_spad );
   FD_SYSVAR_CACHE_ITER(X)
 # undef X
 

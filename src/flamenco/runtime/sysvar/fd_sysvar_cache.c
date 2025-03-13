@@ -18,8 +18,7 @@ fd_sysvar_cache_footprint( void ) {
 }
 
 fd_sysvar_cache_t *
-fd_sysvar_cache_new( void *      mem,
-                     fd_spad_t * runtime_spad ) {
+fd_sysvar_cache_new( void * mem ) {
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -28,8 +27,6 @@ fd_sysvar_cache_new( void *      mem,
 
   fd_sysvar_cache_t * cache = (fd_sysvar_cache_t *)mem;
   fd_memset( cache, 0, sizeof(fd_sysvar_cache_t) );
-
-  cache->runtime_spad = runtime_spad;
 
   FD_COMPILER_MFENCE();
   cache->magic = FD_SYSVAR_CACHE_MAGIC;
@@ -47,11 +44,6 @@ fd_sysvar_cache_delete( fd_sysvar_cache_t * cache ) {
 
   if( FD_UNLIKELY( cache->magic != FD_SYSVAR_CACHE_MAGIC ) ) {
     FD_LOG_WARNING(( "bad magic" ));
-    return NULL;
-  }
-
-  if( FD_UNLIKELY( !cache->runtime_spad ) ) {
-    FD_LOG_WARNING(( "NULL spad" ));
     return NULL;
   }
 
@@ -88,7 +80,8 @@ void                                                                      \
 fd_sysvar_cache_restore_##name(                                           \
   fd_sysvar_cache_t * cache,                                              \
   fd_acc_mgr_t *      acc_mgr,                                            \
-  fd_funk_txn_t *     funk_txn ) {                                        \
+  fd_funk_txn_t *     funk_txn,                                           \
+  fd_spad_t *         runtime_spad ) {                                    \
   do {                                                                    \
     fd_pubkey_t const * pubkey = &fd_sysvar_##name##_id;                  \
     FD_TXN_ACCOUNT_DECL( account );                                       \
@@ -117,7 +110,7 @@ fd_sysvar_cache_restore_##name(                                           \
       break;                                                              \
     }                                                                     \
                                                                           \
-    type##_t * mem = fd_spad_alloc( cache->runtime_spad,                  \
+    type##_t * mem = fd_spad_alloc( runtime_spad,                         \
                                     type##_align(),                       \
                                     total_sz );                           \
     if( FD_UNLIKELY( !mem ) ) {                                           \
@@ -133,9 +126,10 @@ fd_sysvar_cache_restore_##name(                                           \
 void
 fd_sysvar_cache_restore( fd_sysvar_cache_t * cache,
                          fd_acc_mgr_t *      acc_mgr,
-                         fd_funk_txn_t *     funk_txn ) {
+                         fd_funk_txn_t *     funk_txn,
+                         fd_spad_t *         runtime_spad ) {
 # define X( type, name )                                               \
-fd_sysvar_cache_restore_##name( cache, acc_mgr, funk_txn );
+fd_sysvar_cache_restore_##name( cache, acc_mgr, funk_txn, runtime_spad );
   FD_SYSVAR_CACHE_ITER(X)
 # undef X
 }

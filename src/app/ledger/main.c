@@ -738,7 +738,7 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   /* First, load in the sysvars into the sysvar cache. This is required to
       make the StakeHistory sysvar available to the rewards calculation. */
 
-  fd_runtime_sysvar_cache_load( args->slot_ctx );
+  fd_runtime_sysvar_cache_load( args->slot_ctx, args->runtime_spad );
 
   /* After both snapshots have been loaded in, we can determine if we should
       start distributing rewards. */

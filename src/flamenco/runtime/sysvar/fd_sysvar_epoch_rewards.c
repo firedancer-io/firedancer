@@ -62,7 +62,8 @@ fd_sysvar_epoch_rewards_read( fd_sysvar_epoch_rewards_t * result,
    sysvars which only get updated once per slot and then synced up after) */
 void
 fd_sysvar_epoch_rewards_distribute( fd_exec_slot_ctx_t * slot_ctx,
-                                    ulong                distributed ) {
+                                    ulong                distributed,
+                                    fd_spad_t *          runtime_spad ) {
     fd_sysvar_epoch_rewards_t epoch_rewards[1];
     if ( FD_UNLIKELY( fd_sysvar_epoch_rewards_read( epoch_rewards,
                                                     slot_ctx->sysvar_cache,
@@ -79,11 +80,15 @@ fd_sysvar_epoch_rewards_distribute( fd_exec_slot_ctx_t * slot_ctx,
     write_epoch_rewards( slot_ctx, epoch_rewards );
 
     /* Sync the epoch rewards sysvar cache entry with the account */
-    fd_sysvar_cache_restore_epoch_rewards( slot_ctx->sysvar_cache, slot_ctx->acc_mgr, slot_ctx->funk_txn );
+    fd_sysvar_cache_restore_epoch_rewards( slot_ctx->sysvar_cache,
+                                           slot_ctx->acc_mgr,
+                                           slot_ctx->funk_txn,
+                                           runtime_spad );
 }
 
 void
-fd_sysvar_epoch_rewards_set_inactive( fd_exec_slot_ctx_t * slot_ctx ) {
+fd_sysvar_epoch_rewards_set_inactive( fd_exec_slot_ctx_t * slot_ctx,
+                                      fd_spad_t *          runtime_spad ) {
     fd_sysvar_epoch_rewards_t epoch_rewards[1];
     if ( FD_UNLIKELY( fd_sysvar_epoch_rewards_read( epoch_rewards,
                                                     slot_ctx->sysvar_cache,
@@ -104,7 +109,10 @@ fd_sysvar_epoch_rewards_set_inactive( fd_exec_slot_ctx_t * slot_ctx ) {
     write_epoch_rewards( slot_ctx, epoch_rewards );
 
     /* Sync the epoch rewards sysvar cache entry with the account */
-    fd_sysvar_cache_restore_epoch_rewards( slot_ctx->sysvar_cache, slot_ctx->acc_mgr, slot_ctx->funk_txn );
+    fd_sysvar_cache_restore_epoch_rewards( slot_ctx->sysvar_cache,
+                                           slot_ctx->acc_mgr,
+                                           slot_ctx->funk_txn,
+                                           runtime_spad );
 }
 
 /* Create EpochRewards syavar with calculated rewards

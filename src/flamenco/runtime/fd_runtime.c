@@ -161,12 +161,16 @@ fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx,
 
 /* Loads the sysvar cache. Expects acc_mgr, funk_txn to be non-NULL and valid. */
 int
-fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx ) {
+fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx,
+                              fd_spad_t *          runtime_spad ) {
   if( FD_UNLIKELY( !slot_ctx->acc_mgr ) ) {
     return -1;
   }
 
-  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, slot_ctx->acc_mgr, slot_ctx->funk_txn );
+  fd_sysvar_cache_restore( slot_ctx->sysvar_cache,
+                           slot_ctx->acc_mgr,
+                           slot_ctx->funk_txn,
+                           runtime_spad );
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
@@ -1414,7 +1418,7 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   /* Load sysvars into cache */
-  if( FD_UNLIKELY( result = fd_runtime_sysvar_cache_load( slot_ctx ) ) ) {
+  if( FD_UNLIKELY( result = fd_runtime_sysvar_cache_load( slot_ctx, runtime_spad ) ) ) {
     /* non-zero error */
     return result;
   }

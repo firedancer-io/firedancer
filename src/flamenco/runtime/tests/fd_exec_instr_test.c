@@ -408,7 +408,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   fd_funk_end_write( acc_mgr->funk );
 
   /* Restore sysvar cache */
-  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
+  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn, runner->spad );
 
   /* Fill missing sysvar cache values with defaults */
   /* We create mock accounts for each of the sysvars and hardcode the data fields before loading it into the account manager */
@@ -636,7 +636,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   }
 
   /* Restore sysvar cache */
-  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
+  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn, runner->spad );
 
   /* Add accounts to bpf program cache */
   fd_funk_start_write( runner->funk );
@@ -735,7 +735,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   }
 
   /* Restore sysvar cache (again, since we may need to provide default sysvars) */
-  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
+  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn, runner->spad );
 
   /* A NaN rent exemption threshold is U.B. in Solana Labs */
   fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
@@ -791,7 +791,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
     slot_ctx->slot_bank.poh = blockhash_entry.blockhash;
     fd_sysvar_recent_hashes_update( slot_ctx, runner->spad );
   }
-  fd_sysvar_cache_restore_recent_block_hashes( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
+  fd_sysvar_cache_restore_recent_block_hashes( slot_ctx->sysvar_cache, acc_mgr, funk_txn, runner->spad );
 
   fd_funk_end_write( runner->funk );
 
