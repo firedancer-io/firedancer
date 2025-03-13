@@ -3,53 +3,10 @@
 #include "../../flamenco/runtime/fd_system_ids_pp.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/types/fd_types.h"
+#include "../../disco/pack/fd_pack_unwritable.h"
 
 #define ABI_ALIGN( x ) __attribute__((packed)) __attribute__((aligned(x)))
 
-#define MAP_PERFECT_NAME      fd_bank_abi_builtin_keys_and_sysvars_tbl
-#define MAP_PERFECT_LG_TBL_SZ 5
-#define MAP_PERFECT_T         fd_acct_addr_t
-#define MAP_PERFECT_HASH_C    1402126759U
-#define MAP_PERFECT_KEY       b
-#define MAP_PERFECT_KEY_T     fd_acct_addr_t const *
-#define MAP_PERFECT_ZERO_KEY  (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0)
-#define MAP_PERFECT_COMPLEX_KEY 1
-#define MAP_PERFECT_KEYS_EQUAL(k1,k2) (!memcmp( (k1), (k2), 32UL ))
-
-#define PERFECT_HASH( u ) (((MAP_PERFECT_HASH_C*(u))>>27)&0x1FU)
-
-#define MAP_PERFECT_HASH_PP( a00,a01,a02,a03,a04,a05,a06,a07,a08,a09,a10,a11,a12,a13,a14,a15, \
-                             a16,a17,a18,a19,a20,a21,a22,a23,a24,a25,a26,a27,a28,a29,a30,a31) \
-                                          PERFECT_HASH( (a08 | (a09<<8) | (a10<<16) | (a11<<24)) )
-#define MAP_PERFECT_HASH_R( ptr ) PERFECT_HASH( fd_uint_load_4( (uchar const *)ptr->b + 8UL ) )
-
-/* This list is exactly what Lab's is_builtin_key_or_sysvar checks. */
-/* Sysvars */
-#define MAP_PERFECT_0  ( SYSVAR_CLOCK_ID          ),
-#define MAP_PERFECT_1  ( SYSVAR_EPOCH_SCHED_ID    ),
-#define MAP_PERFECT_2  ( SYSVAR_FEES_ID           ),
-#define MAP_PERFECT_3  ( SYSVAR_RECENT_BLKHASH_ID ),
-#define MAP_PERFECT_4  ( SYSVAR_RENT_ID           ),
-#define MAP_PERFECT_5  ( SYSVAR_REWARDS_ID        ),
-#define MAP_PERFECT_6  ( SYSVAR_SLOT_HASHES_ID    ),
-#define MAP_PERFECT_7  ( SYSVAR_SLOT_HIST_ID      ),
-#define MAP_PERFECT_8  ( SYSVAR_STAKE_HIST_ID     ),
-#define MAP_PERFECT_9  ( SYSVAR_INSTRUCTIONS_ID   ),
-#define MAP_PERFECT_10 ( SYSVAR_EPOCH_REWARDS_ID  ),
-#define MAP_PERFECT_11 ( SYSVAR_LAST_RESTART_ID   ),
-/* Programs */
-#define MAP_PERFECT_12 ( CONFIG_PROG_ID           ),
-#define MAP_PERFECT_13 ( FEATURE_ID               ),
-#define MAP_PERFECT_14 ( NATIVE_LOADER_ID         ),
-#define MAP_PERFECT_15 ( STAKE_PROG_ID            ),
-#define MAP_PERFECT_16 ( STAKE_CONFIG_PROG_ID     ),
-#define MAP_PERFECT_17 ( VOTE_PROG_ID             ),
-#define MAP_PERFECT_18 ( SYS_PROG_ID              ),
-#define MAP_PERFECT_19 ( BPF_LOADER_1_PROG_ID     ),
-#define MAP_PERFECT_20 ( BPF_LOADER_2_PROG_ID     ),
-#define MAP_PERFECT_21 ( BPF_UPGRADEABLE_PROG_ID  ),
-
-#include "../../util/tmpl/fd_map_perfect.c"
 
 typedef struct ABI_ALIGN(1UL) {
   uchar key[ 32UL ];
@@ -381,7 +338,7 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
                         /* Agave does this check, but we don't need to here because pack
                            rejects these transactions before they make it to the bank.
 
-                           !fd_bank_abi_builtin_keys_and_sysvars_tbl_contains( (const fd_acct_addr_t*)(payload + txn->acct_addr_off + i*32UL) ) */
+                           !fd_pack_unwritable_contains( (const fd_acct_addr_t*)(payload + txn->acct_addr_off + i*32UL) ) */
                         (!is_key_called_as_program( txn, i ) || _is_upgradeable_loader_present);
       legacy->is_writable_account_cache[ i ] = !!is_writable;
     }
@@ -450,7 +407,7 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
                         /* Agave does this check, but we don't need to here because pack
                            rejects these transactions before they make it to the bank.
 
-                           !fd_bank_abi_builtin_keys_and_sysvars_tbl_contains( (const fd_acct_addr_t*)(payload + txn->acct_addr_off + i*32UL) ) */
+                           !fd_pack_unwritable_contains( (const fd_acct_addr_t*)(payload + txn->acct_addr_off + i*32UL) ) */
                         (!is_key_called_as_program( txn, i ) || _is_upgradeable_loader_present);
       v0->is_writable_account_cache[ i ] = !!is_writable;
     }
@@ -458,7 +415,7 @@ fd_bank_abi_txn_init( fd_bank_abi_txn_t * out_txn,
       /* We do need to check is_builtin_key_or_sysvar here, because pack
          has not yet loaded the address LUT accounts, so it doesn't
          reject these yet. */
-      int is_writable = !fd_bank_abi_builtin_keys_and_sysvars_tbl_contains( (const fd_acct_addr_t*)(loaded_addresses->writable + i) ) &&
+      int is_writable = !fd_pack_unwritable_contains( (const fd_acct_addr_t*)(loaded_addresses->writable + i) ) &&
                         (!is_key_called_as_program( txn, (ushort)(txn->acct_addr_cnt+i) ) || _is_upgradeable_loader_present);
       v0->is_writable_account_cache[ txn->acct_addr_cnt+i ] = !!is_writable;
     }
