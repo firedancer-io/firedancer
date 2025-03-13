@@ -1404,6 +1404,10 @@ process_and_exec_mbatch( fd_replay_tile_ctx_t * ctx,
         FD_LOG_WARNING(( "failed to parse transaction %lu in replay", t ));
         return -1;
       }
+
+      /* TODO: check whether txns in this mblock do not have R-W/W-W conflicts */
+      /* TODO: check whether txns in this mblock do not have duplicate accounts */
+
       fd_memcpy( txn_p[t].payload, ctx->mbatch + off, pay_sz );
       txn_p[t].payload_sz = pay_sz;
       off                += pay_sz;

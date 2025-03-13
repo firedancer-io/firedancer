@@ -385,6 +385,27 @@ fd_runtime_microblock_verify_ticks( fd_exec_slot_ctx_t *        slot_ctx,
                                     ulong              max_tick_height,
                                     ulong              hashes_per_tick );
 
+/*
+   TODO: locate this logic in Agave and put a URL here
+
+   Verify that a list of txns (e.g., those in a microblock) do not have read-write or write-write conflits
+ */
+struct fd_txn_writes {
+  fd_acct_addr_t key;
+  ulong next;
+};
+typedef struct fd_txn_writes fd_txn_writes_t;
+
+#define FD_TXN_CONFLICT_OK            (0UL)
+#define FD_TXN_CONFLICT_READ_WRITE    (1UL)
+#define FD_TXN_CONFLICT_WRITE_WRITE   (2UL)
+#define FD_TXN_CONFLICT_MAP_TOO_SMALL (3UL)
+
+ulong
+fd_runtime_microblock_verify_read_write_conflicts( fd_txn_p_t *      txns,
+                                                   ulong             txn_cnt,
+                                                   fd_txn_writes_t * acct_map );
+
 /* fd_runtime_poh_verify is responsible for verifying poh hashes while
    streaming in microblocks. */
 
