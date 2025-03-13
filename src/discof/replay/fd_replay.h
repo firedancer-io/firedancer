@@ -101,7 +101,7 @@ struct fd_replay_fec {
  typedef struct fd_replay_fec fd_replay_fec_t;
 
 #define DEQUE_NAME  fd_replay_fec_deque
-#define DEQUE_T     fd_replay_fec_t
+#define DEQUE_T     ulong
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
 #define MAP_NAME  fd_replay_fec_map
@@ -208,7 +208,7 @@ struct __attribute__((aligned(128UL))) fd_replay {
   ulong               block_max;
 
   fd_replay_fec_t *   fec_map;   /* map of slot to in-progress fec */
-  fd_replay_fec_t *   fec_deque; /* deque of in-progress fecs by insert order (FIFO) */
+  ulong *             fec_deque; /* deque of in-progress fec keys by insert order (FIFO) */
   fd_replay_idxs_t *  idxs_map;  /* map of slot to metadata about received shred idxs */
   fd_replay_slice_t * slice_map; /* map of slot to deque of replayable block slices */
 };
@@ -307,6 +307,7 @@ fd_replay_fec_insert( fd_replay_t * replay, ulong slot, uint fec_set_idx ) {
   fec->recv_cnt         = 0;
   fec->data_cnt         = 0;
   fd_replay_fec_idxs_null( fec->idxs );
+  fd_replay_fec_deque_push_tail( replay->fec_deque, key );
   return fec;
 }
 

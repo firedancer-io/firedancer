@@ -438,13 +438,14 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
   }
 
   if( repair_req_cnt != 0 ) {
-    ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
     ulong repair_req_sig = 50UL;
-    ulong repair_req_sz = repair_req_cnt * sizeof(fd_repair_request_t);
-    FD_TEST( repair_req_sz<=USHORT_MAX );
-    fd_mcache_publish( ctx->repair_req_out_mcache, ctx->repair_req_out_depth, ctx->repair_req_out_seq, repair_req_sig, ctx->repair_req_out_chunk,
-      repair_req_sz, 0UL, tsorig, tspub );
-    ctx->repair_req_out_seq   = fd_seq_inc( ctx->repair_req_out_seq, 1UL );
+    ulong repair_req_sz  = repair_req_cnt * sizeof( fd_repair_request_t );
+    ulong tspub          = fd_frag_meta_ts_comp( fd_tickcount() );
+    fd_stem_publish( stem, REPAIR_OUT_IDX, repair_req_sig, ctx->repair_req_out_chunk, repair_req_sz, 0UL, tsorig, tspub );
+    // FD_TEST( repair_req_sz<=USHORT_MAX );
+    // fd_mcache_publish( ctx->repair_req_out_mcache, ctx->repair_req_out_depth, ctx->repair_req_out_seq, repair_req_sig, ctx->repair_req_out_chunk,
+    //   repair_req_sz, 0UL, tsorig, tspub );
+    // ctx->repair_req_out_seq   = fd_seq_inc( ctx->repair_req_out_seq, 1UL );
     ctx->repair_req_out_chunk = fd_dcache_compact_next( ctx->repair_req_out_chunk, repair_req_sz, ctx->repair_req_out_chunk0, ctx->repair_req_out_wmark );
   }
 

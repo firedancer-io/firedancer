@@ -28,7 +28,8 @@
 #define CONTACT_IN_IDX  1
 #define STAKE_IN_IDX    2
 #define STORE_IN_IDX    3
-#define SIGN_IN_IDX     4
+#define REPLAY_IN_IDX   4
+#define SIGN_IN_IDX     5
 
 #define STORE_OUT_IDX 0
 #define NET_OUT_IDX   1
@@ -65,6 +66,10 @@ struct fd_repair_tile_ctx {
   fd_wksp_t * repair_req_in_mem;
   ulong       repair_req_in_chunk0;
   ulong       repair_req_in_wmark;
+
+  fd_wksp_t * replay_in_mem;
+  ulong       replay_in_chunk0;
+  ulong       replay_in_wmark;
 
   fd_net_rx_bounds_t net_in_bounds;
 
@@ -296,6 +301,37 @@ before_frag( fd_repair_tile_ctx_t * ctx,
   (void)seq;
 
   if( FD_LIKELY( in_idx==NET_IN_IDX ) ) return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR;
+  FD_LOG_NOTICE(( "repair before_frag %lu %lu", in_idx, seq ));
+  if( FD_LIKELY( in_idx==REPLAY_IN_IDX ) ) {
+    ulong slot        = fd_disco_replay_repair_sig_slot( sig );
+    uint  fec_set_idx = fd_disco_replay_repair_sig_fec_set_idx( sig );
+    uint  shred_idx   = fd_disco_replay_repair_sig_shred_idx( sig );
+    int   req_type    = fd_disco_replay_repair_sig_req_type( sig );
+
+    FD_LOG_NOTICE(( "repair %lu %u %u %d", slot, fec_set_idx, shred_idx, req_type ));
+
+    // int err;
+    // switch( req_type ) {
+    //   case FD_REPAIR_REQ_TYPE_INDEX: {
+    //     err = fd_repair_need_window_index( ctx->repair, slot,  );
+    //     break;
+    //   }
+    //   case FD_REPAIR_REQ_TYPE_HIGHEST: {
+    //     err = fd_repair_need_highest_window_index( ctx->repair, slot, 0 );
+    //     break;
+    //   }
+    //   case FD_REPAIR_REQ_TYPE_ORPHAN: {
+    //     err = fd_repair_need_orphan( ctx->repair, slot );
+    //     break;
+    //   }
+    //   default: {
+    //     FD_LOG_ERR(( "unhandled req_type" ));
+    //   }
+    // }
+    // FD_TEST( err == 0 );
+
+    return 1;
+  }
   return 0;
 }
 
@@ -372,6 +408,14 @@ after_frag( fd_repair_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( in_idx==STORE_IN_IDX ) ) {
     handle_new_repair_requests( ctx, ctx->buffer, sz );
+    return;
+  }
+
+  if( FD_UNLIKELY( in_idx==REPLAY_IN_IDX ) ) {
+    FD_LOG_NOTICE(( "got replay repair request %lu", in_idx ));
+    ulong slot = fd_disco_replay_repair_sig_slot( sig );
+    int   err  = fd_repair_need_highest_window_index( ctx->repair, slot, 0 );
+    FD_TEST( !err );
     return;
   }
 
@@ -485,22 +529,19 @@ privileged_init( fd_topo_t *      topo,
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
-  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( tile->in_cnt != 5 ||
-                   strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "net_repair")     ||
-                   strcmp( topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].name, "gossip_repai" ) ||
-                   strcmp( topo->links[ tile->in_link_id[ STAKE_IN_IDX ] ].name,   "stake_out" )     ||
-                   strcmp( topo->links[ tile->in_link_id[ STORE_IN_IDX ] ].name,   "store_repair" ) ||
-                   strcmp( topo->links[ tile->in_link_id[ SIGN_IN_IDX ] ].name,    "sign_repair" ) ) ) {
-    FD_LOG_ERR(( "repair tile has none or unexpected input links %lu %s %s",
-                 tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
-  }
+  FD_TEST( tile->in_cnt == 6 );
+  FD_TEST( !strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "net_repair"   ) );
+  FD_TEST( !strcmp( topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].name, "gossip_repai" ) );
+  FD_TEST( !strcmp( topo->links[ tile->in_link_id[ STAKE_IN_IDX ] ].name,   "stake_out"    ) );
+  FD_TEST( !strcmp( topo->links[ tile->in_link_id[ STORE_IN_IDX ] ].name,   "store_repair" ) );
+  FD_TEST( !strcmp( topo->links[ tile->in_link_id[ SIGN_IN_IDX ] ].name,    "sign_repair"  ) );
+  FD_TEST( !strcmp( topo->links[ tile->in_link_id[ REPLAY_IN_IDX ] ].name,  "replay_repai" ) );
 
   if( FD_UNLIKELY( tile->out_cnt != 3 ||
                    strcmp( topo->links[ tile->out_link_id[ STORE_OUT_IDX ] ].name, "repair_store" ) ||
-                   strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].name,   "repair_net" ) ||
-                   strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ].name,  "repair_sign" ) ) ) {
+                   strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX   ] ].name,   "repair_net" ) ||
+                   strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX  ] ].name,  "repair_sign" ) ) ) {
     FD_LOG_ERR(( "repair tile has none or unexpected output links %lu %s %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
   }
@@ -509,6 +550,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   /* Scratch mem setup */
 
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_repair_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_tile_ctx_t), sizeof(fd_repair_tile_ctx_t) );
   ctx->blockstore = &ctx->blockstore_ljoin;
@@ -602,6 +644,11 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->repair_req_in_mem    = topo->workspaces[ topo->objs[ repair_req_in_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->repair_req_in_chunk0 = fd_dcache_compact_chunk0( ctx->repair_req_in_mem, repair_req_in_link->dcache );
   ctx->repair_req_in_wmark  = fd_dcache_compact_wmark ( ctx->repair_req_in_mem, repair_req_in_link->dcache, repair_req_in_link->mtu );
+
+  fd_topo_link_t * replay_in_link = &topo->links[ tile->in_link_id[ REPLAY_IN_IDX ] ];
+  ctx->replay_in_mem    = topo->workspaces[ topo->objs[ replay_in_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->replay_in_chunk0 = fd_dcache_compact_chunk0( ctx->replay_in_mem, replay_in_link->dcache );
+  ctx->replay_in_wmark  = fd_dcache_compact_wmark ( ctx->replay_in_mem, replay_in_link->dcache, replay_in_link->mtu );
 
   /* Repair set up */
 

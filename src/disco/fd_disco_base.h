@@ -39,11 +39,21 @@
 
 /* FD_GOSSIP_MTU is the max sz of a gossip packet which is the same as
    above. */
+
 #define FD_GOSSIP_MTU (FD_TPU_MTU)
 
 /* FD_SHRED_STORE_MTU is the size of an fd_shred34_t (statically
    asserted in fd_shred_tile.c). */
+
 #define FD_SHRED_STORE_MTU (41792UL)
+
+/* FD_SHRED_REPLAY_MTU is the min MTU = 64UL.  Only the first 57 bytes
+   are used in the payload
+
+   57 = coding shred header (89) - signature (64) + merkle root (32). */
+
+#define FD_SHRED_REPLAY_MTU (64UL)
+FD_STATIC_ASSERT( FD_SHRED_REPLAY_MTU >= FD_SHRED_CODE_HEADER_SZ - FD_SHRED_SIGNATURE_SZ + FD_SHRED_MERKLE_ROOT_SZ, update MTU );
 
 #define FD_NETMUX_SIG_MIN_HDR_SZ    ( 42UL) /* The default header size, which means no vlan tags and no IP options. */
 #define FD_NETMUX_SIG_IGNORE_HDR_SZ (102UL) /* Outside the allowable range, but still fits in 4 bits when compressed */
@@ -167,6 +177,31 @@ FD_FN_CONST static inline uint  fd_disco_shred_replay_sig_shred_idx     ( ulong 
 FD_FN_CONST static inline uint  fd_disco_shred_replay_sig_data_cnt      ( ulong sig ) { return (uint)fd_ulong_extract_lsb( sig, 15     ); } /* type 0, is_code 1 */
 FD_FN_CONST static inline uint  fd_disco_shred_replay_sig_parent_off    ( ulong sig ) { return (uint)fd_ulong_extract_lsb( sig, 15     ); } /* type 1 */
 
+/* fd_disco_replay_repair_sig constructs the `sig` of frags on the
+   replay_repair link.  The diagram below describes the encoding.
+
+   | 32 LSB of slot | 15 LSB of shred_idx | 15 LSB of fec_set_idx | 2 bits of req_type |
+   | slot[32,63]    | shred_idx[17,32]    | fec_set_idx[2,16]     | req_type[0,1]      |
+
+*/
+
+FD_FN_CONST static inline ulong
+fd_disco_replay_repair_sig( ulong slot, uint fec_set_idx, uint shred_idx,  int req_type ) {
+  ulong slot_ul        = fd_ulong_min( (ulong)slot,        (ulong)UINT_MAX              );
+  ulong fec_set_idx_ul = fd_ulong_min( (ulong)fec_set_idx, (ulong)FD_SHRED_MAX_PER_SLOT );
+  ulong shred_idx_ul   = fd_ulong_min( (ulong)shred_idx,   (ulong)FD_SHRED_MAX_PER_SLOT );
+  ulong req_type_ul    = (ulong)req_type;
+  return slot_ul << 32 | fec_set_idx_ul << 17 | shred_idx_ul << 2 | req_type_ul;
+}
+
+
+/* fd_disco_replay_repair_sig_{...} are accessors for the fields encoded
+   in the sig described above. */
+
+FD_FN_CONST static inline ulong fd_disco_replay_repair_sig_slot       ( ulong sig ) { return        fd_ulong_extract    ( sig, 32, 63 ); }
+FD_FN_CONST static inline uint  fd_disco_replay_repair_sig_fec_set_idx( ulong sig ) { return  (uint)fd_ulong_extract    ( sig, 17, 31 ); }
+FD_FN_CONST static inline uint  fd_disco_replay_repair_sig_shred_idx  ( ulong sig ) { return  (uint)fd_ulong_extract    ( sig, 2, 16  ); }
+FD_FN_CONST static inline int   fd_disco_replay_repair_sig_req_type   ( ulong sig ) { return   (int)fd_ulong_extract_lsb( sig, 2      ); }
 
 FD_FN_PURE static inline ulong
 fd_disco_compact_chunk0( void * wksp ) {
