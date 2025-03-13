@@ -373,6 +373,10 @@ struct fd_config {
       int    enabled;
       char   gui_listen_address[ 16 ];
       ushort gui_listen_port;
+      ulong  max_http_connections;
+      ulong  max_websocket_connections;
+      ulong  max_http_request_length;
+      ulong  send_buffer_size_mb;
     } gui;
 
     /* Firedancer-only tile configs */

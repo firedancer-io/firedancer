@@ -100,6 +100,11 @@ fd_topo_run_tile( fd_topo_t *          topo,
                                                              seccomp_filter );
   }
 
+  ulong rlimit_file_cnt = tile_run->rlimit_file_cnt;
+  if( tile_run->rlimit_file_cnt_fn ) {
+    rlimit_file_cnt = tile_run->rlimit_file_cnt_fn( topo, tile );
+  }
+
   if( FD_LIKELY( sandbox ) ) {
     fd_sandbox_enter( uid,
                       gid,
@@ -107,7 +112,7 @@ fd_topo_run_tile( fd_topo_t *          topo,
                       tile_run->allow_connect,
                       keep_controlling_terminal,
                       dumpable,
-                      tile_run->rlimit_file_cnt,
+                      rlimit_file_cnt,
                       tile_run->rlimit_address_space,
                       tile_run->rlimit_data,
                       allow_fds_cnt+allow_fds_offset,
