@@ -297,7 +297,8 @@ fd_quic_tls_sendmsg( void const * handshake,
      head >= buf_sz implies wrap around */
   if( head >= buf_sz ) {
     /* wrap around implies entire unused block is contiguous */
-    if( head - tail < alloc_data_sz ) {
+    /* head - tail is bytes used */
+    if( buf_sz - (head - tail) < alloc_data_sz ) {
       /* not enough free */
       return 0;
     } else {
@@ -316,7 +317,7 @@ fd_quic_tls_sendmsg( void const * handshake,
 
       /* since we're skipping some free space at end of buffer,
          we need to free that also, upon pop */
-      alloc_head   = 0;
+      alloc_head   = buf_sz; /* maintain head >= tail */
       free_data_sz = alloc_data_sz + buf_sz - head;
     }
   }
