@@ -77,6 +77,7 @@ struct fd_quic_pkt_meta {
        FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR  max_streams frame (unidir)
        FD_QUIC_PKT_META_FLAGS_CLOSE               close frame
        FD_QUIC_PKT_META_FLAGS_PING                set to send a PING frame
+       FD_QUIC_PKT_META_FLAGS_NEW_CONN_ID         set to send a NEW_CONN_ID frame
 
      some of these flags are mutually exclusive */
   uint                   flags;       /* flags */
@@ -87,6 +88,7 @@ struct fd_quic_pkt_meta {
 # define          FD_QUIC_PKT_META_FLAGS_MAX_STREAMS_UNIDIR (1u<<4u)
 # define          FD_QUIC_PKT_META_FLAGS_CLOSE              (1u<<5u)
 # define          FD_QUIC_PKT_META_FLAGS_PING               (1u<<6u)
+# define          FD_QUIC_PKT_META_FLAGS_NEW_CONN_ID        (1u<<7u)
   fd_quic_range_t        range;       /* CRYPTO data range; FIXME use pkt_meta var instead */
   ulong                  stream_id;   /* if this contains stream data,
                                          the stream id, else zero */
