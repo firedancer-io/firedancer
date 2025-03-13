@@ -1226,6 +1226,7 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
     FD_LOG_ERR(( "couldn't compute tick height/max tick height slot %lu ticks_per_slot %lu", curr_slot, epoch_bank->ticks_per_slot ));
   }
   fork->slot_ctx.enable_exec_recording = ctx->tx_metadata_storage;
+  fork->slot_ctx.runtime_wksp          = fd_wksp_containing( ctx->runtime_spad );
 
   /* NOTE: By commenting this out, we don't support forking at the epoch boundary
      but this code is buggy and leads to crashes. */
