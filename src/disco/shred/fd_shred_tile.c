@@ -223,6 +223,8 @@ typedef struct {
       uchar raw[ 63679UL ]; /* The largest that fits in 1 FEC set */
     };
   } pending_batch;
+
+  uchar chained_merkle_root[ FD_SHRED_MERKLE_ROOT_SZ ];
 } fd_shred_ctx_t;
 
 /* PENDING_BATCH_WMARK: Following along the lines of dcache, batch
@@ -407,6 +409,13 @@ during_frag( fd_shred_ctx_t * ctx,
       /* Reset batch count if we are in a new slot */
       ctx->batch_cnt = 0UL;
       ctx->slot      = target_slot;
+
+      if( SHOULD_PROCESS_THESE_SHREDS ) {
+        /* chained_merkle_root is set as the merkle root of the last FEC set
+           of the parent block */
+        //FIXME
+        memset( ctx->chained_merkle_root, 0, FD_SHRED_MERKLE_ROOT_SZ );
+      }
     }
     if( SHOULD_PROCESS_THESE_SHREDS ) {
       /* Ugh, yet another memcpy */
@@ -446,7 +455,7 @@ during_frag( fd_shred_ctx_t * ctx,
         }
 
         fd_shredder_init_batch( ctx->shredder, ctx->pending_batch.raw, batch_sz, target_slot, entry_meta );
-        FD_TEST( fd_shredder_next_fec_set( ctx->shredder, out ) );
+        FD_TEST( fd_shredder_next_fec_set( ctx->shredder, out, ctx->chained_merkle_root ) );
         fd_shredder_fini_batch( ctx->shredder );
         shredding_timing      +=  fd_tickcount();
 
