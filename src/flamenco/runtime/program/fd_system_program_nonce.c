@@ -283,7 +283,8 @@ fd_system_program_exec_advance_nonce_account( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L427-L432 */
 
-  fd_recent_block_hashes_t const * recent_blockhashes = NULL;
+  fd_recent_block_hashes_t         recent_blockhashes_obj;
+  fd_recent_block_hashes_t const * recent_blockhashes = &recent_blockhashes_obj;
   do {
     err = require_acct_recent_blockhashes( ctx, 1UL, &recent_blockhashes );
     if( FD_UNLIKELY( err ) ) return err;
@@ -504,7 +505,8 @@ fd_system_program_exec_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L445-L449 */
 
-  fd_recent_block_hashes_t const * recent_blockhashes = NULL;
+  fd_recent_block_hashes_t         recent_blockhashes_obj;
+  fd_recent_block_hashes_t const * recent_blockhashes = &recent_blockhashes_obj;
   do {
     int err = require_acct_recent_blockhashes( ctx, 2UL, &recent_blockhashes );
     if( FD_UNLIKELY( err ) ) return err;
@@ -668,7 +670,8 @@ fd_system_program_exec_initialize_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L466-L471 */
 
-  fd_recent_block_hashes_t const * recent_blockhashes = NULL;
+  fd_recent_block_hashes_t         recent_blockhashes_obj;
+  fd_recent_block_hashes_t const * recent_blockhashes = &recent_blockhashes_obj;
   do {
     err = require_acct_recent_blockhashes( ctx, 1UL, &recent_blockhashes );
     if( FD_UNLIKELY( err ) ) return err;
