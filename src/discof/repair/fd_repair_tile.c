@@ -29,10 +29,12 @@
 #define STAKE_IN_IDX    2
 #define STORE_IN_IDX    3
 #define SIGN_IN_IDX     4
+#define REPLAY_IN_IDX   5
 
 #define STORE_OUT_IDX 0
 #define NET_OUT_IDX   1
 #define SIGN_OUT_IDX  2
+#define SHRED_OUT_IDX 3
 
 #define MAX_REPAIR_PEERS 40200UL
 #define MAX_BUFFER_SIZE  ( MAX_REPAIR_PEERS * sizeof(fd_shred_dest_wire_t))
@@ -375,6 +377,13 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     return;
   }
 
+  if( FD_UNLIKELY( in_idx==REPLAY_IN_IDX ) ) {
+    ulong slot = fd_disco_replay_repair_sig_slot( sig );
+    int   err  = fd_repair_need_highest_window_index( ctx->repair, slot, 0 );
+    FD_TEST( !err );
+    return;
+  }
+
   ctx->stem = stem;
   ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
   fd_eth_hdr_t const * eth = (fd_eth_hdr_t const *)ctx->buffer;
@@ -487,20 +496,24 @@ unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
   void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( tile->in_cnt != 5 ||
+  FD_LOG_NOTICE(( "in cnt %lu", tile->in_cnt ));
+  FD_LOG_NOTICE(( "link %s", topo->links[ tile->in_link_id[ REPLAY_IN_IDX ] ].name ));
+  if( FD_UNLIKELY( tile->in_cnt != 6 ||
                    strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "net_repair")     ||
                    strcmp( topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].name, "gossip_repai" ) ||
                    strcmp( topo->links[ tile->in_link_id[ STAKE_IN_IDX ] ].name,   "stake_out" )     ||
                    strcmp( topo->links[ tile->in_link_id[ STORE_IN_IDX ] ].name,   "store_repair" ) ||
-                   strcmp( topo->links[ tile->in_link_id[ SIGN_IN_IDX ] ].name,    "sign_repair" ) ) ) {
+                   strcmp( topo->links[ tile->in_link_id[ SIGN_IN_IDX ] ].name,    "sign_repair" ) ||
+                   strcmp( topo->links[ tile->in_link_id[ REPLAY_IN_IDX ] ].name,  "replay_repai" ) ) ) {
     FD_LOG_ERR(( "repair tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
   }
 
-  if( FD_UNLIKELY( tile->out_cnt != 3 ||
+  if( FD_UNLIKELY( tile->out_cnt != 4 ||
                    strcmp( topo->links[ tile->out_link_id[ STORE_OUT_IDX ] ].name, "repair_store" ) ||
-                   strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].name,   "repair_net" ) ||
-                   strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ].name,  "repair_sign" ) ) ) {
+                   strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX   ] ].name,   "repair_net" ) ||
+                   strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX  ] ].name,  "repair_sign" ) ||
+                   strcmp( topo->links[ tile->out_link_id[ SHRED_OUT_IDX ] ].name, "repair_shred" ) ) ) {
     FD_LOG_ERR(( "repair tile has none or unexpected output links %lu %s %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
   }

@@ -104,7 +104,7 @@ typedef struct fd_eqvoc_fec fd_eqvoc_fec_t;
 
 #define FD_EQVOC_PROOF_VERIFY_ERR_SLOT      (-1) /* different slot */
 #define FD_EQVOC_PROOF_VERIFY_ERR_VERSION   (-2) /* different shred version */
-#define FD_EQVOC_PROOF_VERIFY_ERR_TYPE      (-3) /* wrong shred type (must be chained {resigned} merkle) */
+#define FD_EQVOC_PROOF_VERIFY_ERR_TYPE      (-3) /* wrong shred type (must be chained or chained-resigned merkle) */
 #define FD_EQVOC_PROOF_VERIFY_ERR_MERKLE    (-4) /* merkle root failed */
 #define FD_EQVOC_PROOF_VERIFY_ERR_SIGNATURE (-5) /* sig verify of shred producer failed */
 

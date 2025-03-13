@@ -102,7 +102,7 @@ struct fd_replay_fec {
  typedef struct fd_replay_fec fd_replay_fec_t;
 
 #define DEQUE_NAME  fd_replay_fec_deque
-#define DEQUE_T     fd_replay_fec_t
+#define DEQUE_T     ulong
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
 #define MAP_NAME  fd_replay_fec_map
@@ -278,6 +278,7 @@ fd_replay_fec_insert( fd_replay_t * replay, ulong slot, uint fec_set_idx ) {
   fec->recv_cnt         = 0;
   fec->data_cnt         = 0;
   fd_replay_fec_idxs_null( fec->idxs );
+  fd_replay_fec_deque_push_tail( replay->fec_deque, key );
   return fec;
 }
 

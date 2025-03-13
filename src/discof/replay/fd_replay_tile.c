@@ -1,3 +1,4 @@
+#include "fd_replay.h"
 #define _GNU_SOURCE
 #include "../../disco/tiles.h"
 #include "generated/fd_replay_tile_seccomp.h"
@@ -8,6 +9,7 @@
 
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/topo/fd_pod_format.h"
+#include "../../flamenco/repair/fd_repair.h"
 #include "../../flamenco/runtime/fd_txncache.h"
 #include "../../flamenco/runtime/context/fd_capture_ctx.h"
 #include "../../flamenco/runtime/context/fd_exec_epoch_ctx.h"
@@ -54,6 +56,7 @@
 #define NOTIF_OUT_IDX  (1UL)
 #define SENDER_OUT_IDX (2UL)
 #define POH_OUT_IDX    (3UL)
+#define REPAIR_OUT_IDX (4UL)
 
 #define VOTE_ACC_MAX   (2000000UL)
 
@@ -127,6 +130,17 @@ struct fd_replay_tile_ctx {
   // Shred tile input
   ulong             shred_in_cnt;
   fd_shred_replay_in_ctx_t shred_in[ 32 ];
+
+  /* replay_repair */
+
+  fd_frag_meta_t * repair_out_mcache;
+  ulong *          repair_out_sync;
+  ulong            repair_out_depth;
+  ulong            repair_out_seq;
+  fd_wksp_t *      repair_out_mem;
+  ulong            repair_out_chunk0;
+  ulong            repair_out_wmark;
+  ulong            repair_out_chunk;
 
   // Notification output defs
   fd_frag_meta_t * notif_out_mcache;
@@ -323,6 +337,8 @@ struct fd_replay_tile_ctx {
 
   /* Metrics */
   fd_replay_tile_metrics_t metrics;
+
+  int repair;
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -2499,6 +2515,96 @@ find_executable_slot( fd_replay_tile_ctx_t * ctx ) {
 
   return 0;
 }
+// static void FD_FN_UNUSED
+// make_orphan_requests( fd_replay_tile_ctx_t * ctx,
+//                       fd_stem_context_t *    stem,
+//                       ulong repair_slot ){
+
+//   fd_repair_request_t * repair_reqs = (fd_repair_request_t *)fd_type_pun( fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk ));
+//   fd_repair_request_t * repair_req = &repair_reqs[0];
+//   repair_req->slot = repair_slot;
+//   repair_req->shred_index = UINT_MAX;
+//   repair_req->type = FD_REPAIR_REQ_TYPE_NEED_ORPHAN;
+
+//   fd_stem_publish( stem, ctx->repair_out_idx, repair_slot, ctx->repair_out_chunk, sizeof(fd_repair_request_t), 0UL, 0UL, 0UL );
+//   ctx->repair_out_chunk = fd_dcache_compact_next( ctx->repair_out_chunk, sizeof(fd_repair_request_t), ctx->repair_out_chunk0, ctx->repair_out_wmark );
+// }
+
+FD_FN_UNUSED static void
+repair_fecs( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
+  fd_replay_fec_t   fec_ = { .slot = ctx->curr_slot, .fec_set_idx = 0U };
+  fd_replay_fec_t * fec  = &fec_;
+
+  uint  idx    = 0;
+  ulong sig    = 0; //fd_disco_replay_repair_sig( fec->slot, idx, fec->fec_set_idx, FD_REPAIR_REQ_TYPE_HIGHEST );
+  ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+  ulong tspub  = fd_frag_meta_ts_comp( fd_tickcount() );
+  fd_stem_publish( stem, REPAIR_OUT_IDX, sig, ctx->repair_out_chunk, 0UL, 0UL, tsorig, tspub );
+  // fd_stem_publish( stem, ctx->repair_out_idx, fec->slot, ctx->repair_out_chunk, sizeof( fd_repair_request_t ), 0UL, tsorig, tspub );
+
+  // /* Iterate over in-progress FEC sets. */
+
+  // for( fd_replay_fec_deque_iter_t iter = fd_replay_fec_deque_iter_init( ctx->replay->fec_deque );
+  //      !fd_replay_fec_deque_iter_done( ctx->replay->fec_deque, iter );
+  //      iter = fd_replay_fec_deque_iter_next( ctx->replay->fec_deque, iter ) ) {
+  //   fd_replay_fec_t * fec = fd_replay_fec_deque_iter_ele( ctx->replay->fec_deque, iter );
+
+  //   FD_LOG_NOTICE(( "repairing FEC %lu %u", fec->slot, fec->fec_set_idx ));
+
+  //   /* Check it hasn't been less than 100 ms since we received the first
+  //      shred in the FEC set. During normal conditions, this should be
+  //      more than enough time. */
+
+  //   if( FD_LIKELY( ( fd_log_wallclock() - fec->ts ) < (long)100e8 /* 100 ms */ ) ) continue;
+
+  //   /* Otherwise, turbine is behind schedule so start repairs. */
+
+  //   /* We need to have received at least one coding shred to have the
+  //      data_cnt, so we default data_cnt to 32 (the target data_cnt) if
+  //      we haven't received one yet. */
+
+  //   ulong data_cnt = fd_ulong_if( fec->data_cnt == 0, 32UL, fec->data_cnt );
+  //   for( uint idx = 0; idx < data_cnt - fec->recv_cnt; idx++ ) {
+  //     if( FD_UNLIKELY( fd_replay_fec_idxs_test( fec->idxs, idx ) ) ) {
+  //       fd_repair_request_t req = { .slot = fec->slot, .shred_index = idx, .type = FD_REPAIR_REQ_TYPE_NEED_WINDOW_INDEX };
+
+  //       uchar * buf  = fd_chunk_to_laddr( ctx->repair_out_mem, ctx->repair_out_chunk );
+  //       memcpy( buf, &req, sizeof(fd_repair_request_t) );
+  //       ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
+  //       ulong tspub  = fd_frag_meta_ts_comp( fd_tickcount() );
+  //       FD_LOG_NOTICE(( "repair request %lu %u", req.slot, req.shred_index ));
+  //       fd_stem_publish( stem, ctx->repair_out_idx, fec->slot, ctx->repair_out_chunk, sizeof(fd_repair_request_t), 0UL, tsorig, tspub );
+  //     };
+  //   }
+
+  //   ulong slot = fec->slot;
+  //   uint total_rx_shred_cnt  = fec_info->rx_data_cnt + fec_info->rx_code_cnt;
+  //   uint remaining_shreds_req = (uint) ( fec_info->data_cnt - total_rx_shred_cnt );
+
+  //   if( remaining_shreds_req <= 0 ) {
+  //     // T^T what are you doing here
+  //     continue;
+  //   }
+  //  // dcache is sized so that we know we can write FD_REEDSOL_DATA_SHREDS_MAX repair requests
+  //  // but we could potentially size it more efficiently and use fd_dcache_compact_is_safe
+  //   uint req_cnt = remaining_shreds_req > 32 ? remaining_shreds_req : (uint) fd_shredder_data_to_parity_cnt[ remaining_shreds_req ];
+  //   req_cnt = fd_uint_min( req_cnt, (uint)(fec_info->data_cnt - fec_info->rx_data_cnt) );
+  //   uint req_idx = 0;
+
+  //   for( uint i = 0; i < FD_REEDSOL_DATA_SHREDS_MAX; i++ ) {
+  //     if( !fd_replay_fec_idxs_test( fec_info->idxs, i ) ){
+  //       // add to repair req
+  //       fd_repair_request_t * repair_req = &repair_reqs[req_idx++];
+  //       repair_req->slot        = slot;
+  //       repair_req->shred_index = i;
+  //       repair_req->type        = FD_REPAIR_REQ_TYPE_NEED_WINDOW_INDEX;
+  //       if( req_idx == req_cnt ) break;
+  //     }
+  //   }
+
+  //   fd_stem_publish( stem, ctx->repair_out_idx, slot, ctx->repair_out_chunk, req_cnt * sizeof(fd_repair_request_t), 0UL, 0UL, 0UL );
+  // }
+}
 
 /* after_credit runs on every iteration of the replay tile loop except
    when backpressured.
@@ -3255,6 +3361,20 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->batch_in_mem              = topo->workspaces[ topo->objs[ batch_in_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->batch_in_chunk0           = fd_dcache_compact_chunk0( ctx->batch_in_mem, batch_in_link->dcache );
   ctx->batch_in_wmark            = fd_dcache_compact_wmark( ctx->batch_in_mem, batch_in_link->dcache, batch_in_link->mtu );
+
+  /* Set up replay_repair (out) */
+
+  fd_topo_link_t * repair_out = &topo->links[ tile->out_link_id[ REPAIR_OUT_IDX ] ];
+  ctx->repair_out_mcache = repair_out->mcache;
+  ctx->repair_out_sync   = fd_mcache_seq_laddr( ctx->repair_out_mcache );
+  ctx->repair_out_depth  = fd_mcache_depth( ctx->repair_out_mcache );
+  ctx->repair_out_seq    = fd_mcache_seq_query( ctx->repair_out_sync );
+  ctx->repair_out_mem    = topo->workspaces[ topo->objs[ repair_out->dcache_obj_id ].wksp_id ].wksp;
+  ctx->repair_out_chunk0 = fd_dcache_compact_chunk0( ctx->repair_out_mem, repair_out->dcache );
+  ctx->repair_out_wmark  = fd_dcache_compact_wmark ( ctx->repair_out_mem, repair_out->dcache, repair_out->mtu );
+  ctx->repair_out_chunk  = ctx->repair_out_chunk0;
+
+  /* Set up shred_replay (in) */
 
   ctx->shred_in_cnt = tile->in_cnt-SHRED_IN_IDX;
   for( ulong i = 0; i<ctx->shred_in_cnt; i++ ) {
