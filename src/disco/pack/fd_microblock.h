@@ -29,6 +29,11 @@ struct fd_entry_batch_meta {
      microblock will always be an empty tick with no transactions in
      it. */
   int   block_complete;
+
+  /* Chained merkle root needed by shred tile.  This is the merkle
+     root of the last FEC set of the parent block (that's used as
+     first root in the chain of the current block). */
+  uchar chained_merkle_root[ 32 ];
 };
 typedef struct fd_entry_batch_meta fd_entry_batch_meta_t;
 

@@ -578,7 +578,7 @@ test_merkle_root( void ) {
   fd_fec_set_t const * out_fec[1];
   fd_shred_t const   * out_shred[1];
 
-  fd_fec_set_t *   set = fd_shredder_next_fec_set( shredder, _set );
+  fd_fec_set_t *   set = fd_shredder_next_fec_set( shredder, _set, /* chained */ NULL );
   fd_shred_t *     shred;
 
   /* Test merkle root is written correctly on SUCCESS. */
