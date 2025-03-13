@@ -109,7 +109,7 @@ FD_STATIC_ASSERT( sizeof(fd_shred34_t) < USHORT_MAX, shred_34 );
 FD_STATIC_ASSERT( 34*DCACHE_ENTRIES_PER_FEC_SET >= FD_REEDSOL_DATA_SHREDS_MAX+FD_REEDSOL_PARITY_SHREDS_MAX, shred_34 );
 FD_STATIC_ASSERT( sizeof(fd_shred34_t) == FD_SHRED_STORE_MTU, shred_34 );
 
-FD_STATIC_ASSERT( sizeof(fd_entry_batch_meta_t)==24UL, poh_shred_mtu );
+FD_STATIC_ASSERT( sizeof(fd_entry_batch_meta_t)==56UL, poh_shred_mtu );
 
 #define FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT 2
 
@@ -412,9 +412,8 @@ during_frag( fd_shred_ctx_t * ctx,
 
       if( SHOULD_PROCESS_THESE_SHREDS ) {
         /* chained_merkle_root is set as the merkle root of the last FEC set
-           of the parent block */
-        //FIXME
-        memset( ctx->chained_merkle_root, 0, FD_SHRED_MERKLE_ROOT_SZ );
+           of the parent block (and passed in by POH tile) */
+        memcpy( ctx->chained_merkle_root, entry_meta->chained_merkle_root, FD_SHRED_MERKLE_ROOT_SZ );
       }
     }
     if( SHOULD_PROCESS_THESE_SHREDS ) {
