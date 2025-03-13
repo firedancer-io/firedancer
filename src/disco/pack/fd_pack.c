@@ -266,7 +266,7 @@ typedef struct fd_pack_bitset_acct_mapping fd_pack_bitset_acct_mapping_t;
      could be because of a bug in the code that generated the
      initializer bundle, a lack of fee payer balance, or an expired
      blockhash.
-   * READY: the most recently scheduled initialzation bundle succeeded
+   * READY: the most recently scheduled initialization bundle succeeded
      and normal bundles can be scheduled in this slot. */
 #define FD_PACK_IB_STATE_NOT_INITIALIZED 0
 #define FD_PACK_IB_STATE_PENDING         1
@@ -754,9 +754,11 @@ fd_pack_new( void                   * mem,
 
   penalty_map_new( _penalty_map, lg_penalty_trp );
 
-  treap_new( (void*)pack->pending,         pack_depth );
-  treap_new( (void*)pack->pending_votes,   pack_depth );
-  treap_new( (void*)pack->pending_bundles, pack_depth );
+  /* These treaps can have at most pack_depth elements at any moment,
+     but they come from a pool of size pack_depth+extra_depth. */
+  treap_new( (void*)pack->pending,         pack_depth+extra_depth );
+  treap_new( (void*)pack->pending_votes,   pack_depth+extra_depth );
+  treap_new( (void*)pack->pending_bundles, pack_depth+extra_depth );
 
   pack->pending_smallest->cus         = ULONG_MAX;
   pack->pending_smallest->bytes       = ULONG_MAX;
@@ -1309,7 +1311,7 @@ fd_pack_insert_bundle_cancel( fd_pack_t          * pack,
                               ulong                txn_cnt ) {
   /* There's no real reason these have to be released in reverse, but it
      seems fitting to release them in the opposite order they were
-     aquired. */
+     acquired. */
   for( ulong i=0UL; i<txn_cnt; i++ ) trp_pool_ele_release( pack->pool, (fd_pack_ord_txn_t*)bundle[ txn_cnt-1UL-i ] );
 }
 
@@ -1417,7 +1419,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
      r_5/c_5.  For convenience, we'll impose a slightly stronger
      constraint: we want the kth bundle to obey L*(N-k) <= r_i/c_i <
      L*(N+1-k), for fixed constants L and N, real and integer,
-     resepctively, that we'll determine. For example, this means r_4/c_4
+     respectively, that we'll determine. For example, this means r_4/c_4
      >= L*N > r_5/c_5.  This enables us to group the transactions in the
      same bundle more easily.
 
@@ -1425,7 +1427,7 @@ fd_pack_insert_bundle_fini( fd_pack_t          * pack,
      transactions from the jth bundle c_0, ... c_4.
      From above, we know that Lj <= r_4/c_4.  We'd like to make it as
      close as possible given that r_4 is an integers.  Thus, put
-     r_4 = ceil( c_4 * Lj ).  r_4 is clearly an integer, and it satifies
+     r_4 = ceil( c_4 * Lj ).  r_4 is clearly an integer, and it satisfies
      the required inequality because:
             r_4/c_4 = ceil( c_4 * Lj)/c_4 >= c_4*Lj / c_4 >= Lj.
 
@@ -1966,7 +1968,7 @@ fd_pack_microblock_complete( fd_pack_t * pack,
        BIT_CLEARED.  Then we get two more transactions that read
        accounts C, D, A, B, and they get assigned 0->C, 1->D, 2->A,
        3->B.  We try to schedule a microblock to bank 1 that takes one
-       of those transactions.   This unsets BIT_CLEARED for A, B.
+       of those transactions.  This unsets BIT_CLEARED for A, B.
        Finally, the first microblock completes.  Even though the bitset
        map has the new bits for A and B which are "wrong" compared to
        when the transaction was initially scheduled, those bits have
@@ -1983,7 +1985,7 @@ fd_pack_microblock_complete( fd_pack_t * pack,
       FD_PACK_BITSET_CLEARN( bitset_rw_in_use, q->bit );
 
       /* Because this account is no longer in use, it might be possible
-         to schedule a transaction that writes to it.  Check it's
+         to schedule a transaction that writes to it.  Check its
          penalty treap if it has one, and potentially move it to the
          main treap. */
       fd_pack_penalty_treap_t * p_trp = penalty_map_query( pack->penalty_treaps, base[i].key, NULL );
@@ -2611,7 +2613,7 @@ delete_transaction( fd_pack_t         * pack,
   }
 
   if( FD_UNLIKELY( delete_full_bundle & (root==pack->pending_bundles) ) ) {
-    /* When we delete, the sturcture of the treap may move around, but
+    /* When we delete, the structure of the treap may move around, but
        pointers to inside the pool will remain valid */
     fd_pack_ord_txn_t * bundle_ptrs[ FD_PACK_MAX_TXN_PER_BUNDLE-1UL ];
     fd_pack_ord_txn_t * pool       = pack->pool;
