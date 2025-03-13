@@ -315,7 +315,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   txn_context_msg->blockhash_queue = output_blockhash_queue;
 
   // Iterate over all block hashes in the queue and save them
-  fd_block_hash_queue_t const * queue = &txn_ctx->slot_bank->block_hash_queue;
+  fd_block_hash_queue_t const * queue = &txn_ctx->block_hash_queue;
   fd_hash_hash_age_pair_t_mapnode_t * nn;
   for ( fd_hash_hash_age_pair_t_mapnode_t * n = fd_hash_hash_age_pair_t_map_minimum( queue->ages_pool, queue->ages_root ); n; n = nn ) {
     nn = fd_hash_hash_age_pair_t_map_successor( queue->ages_pool, n );
@@ -350,7 +350,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
 
   /* Transaction Context -> slot_ctx */
   txn_context_msg->has_slot_ctx  = true;
-  txn_context_msg->slot_ctx.slot = txn_ctx->slot_bank->slot;
+  txn_context_msg->slot_ctx.slot = txn_ctx->slot;
 }
 
 static void

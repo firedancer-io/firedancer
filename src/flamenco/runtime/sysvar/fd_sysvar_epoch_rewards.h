@@ -19,15 +19,15 @@ fd_sysvar_epoch_rewards_read( fd_sysvar_epoch_rewards_t * result,
    https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/sdk/program/src/epoch_rewards.rs#L44 */
 void
 fd_sysvar_epoch_rewards_distribute( fd_exec_slot_ctx_t * slot_ctx,
-                                    ulong                distributed );
+                                    ulong                distributed,
+                                    fd_spad_t *          runtime_spad );
 
 /* Set the EpochRewards sysvar to inactive
 
     https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/runtime/src/bank/partitioned_epoch_rewards/sysvar.rs#L82 */
 void
-fd_sysvar_epoch_rewards_set_inactive(
-  fd_exec_slot_ctx_t * slot_ctx
-);
+fd_sysvar_epoch_rewards_set_inactive( fd_exec_slot_ctx_t * slot_ctx,
+                                      fd_spad_t *          runtime_spad );
 
 /* Initialize the EpochRewards sysvar account
 

@@ -57,11 +57,10 @@
 
 struct __attribute__((aligned(16UL))) fd_sysvar_cache_private {
   ulong       magic;  /* ==FD_SYSVAR_CACHE_MAGIC */
-  fd_spad_t * runtime_spad;
 
   /* Declare the val_{...} values */
 # define X( type, name ) \
-  type##_t val_##name[1];
+  type##_global_t val_##name[1];
   FD_SYSVAR_CACHE_ITER(X)
 # undef X
 
@@ -93,8 +92,7 @@ fd_sysvar_cache_footprint( void );
    failure. */
 
 fd_sysvar_cache_t *
-fd_sysvar_cache_new( void *      mem,
-                     fd_spad_t * runtime_spad );
+fd_sysvar_cache_new( void * mem );
 
 /* fd_sysvar_cache_delete destroys a given sysvar cache object and any
    heap allocations made.  Detaches from the valloc provided in
@@ -114,29 +112,33 @@ fd_sysvar_cache_delete( fd_sysvar_cache_t * cache );
 void
 fd_sysvar_cache_restore( fd_sysvar_cache_t * cache,
                          fd_acc_mgr_t *      acc_mgr,
-                         fd_funk_txn_t *     funk_txn );
+                         fd_funk_txn_t *     funk_txn,
+                         fd_spad_t *         runtime_spad,
+                         fd_wksp_t *         wksp );
 
 /* fd_sysvar_cache_restore_{name} restores only the given sysvar object from the given slot context */
 
 # define X( type, name )                                               \
 void                                                                   \
 fd_sysvar_cache_restore_##name( fd_sysvar_cache_t * cache,             \
-                         fd_acc_mgr_t *      acc_mgr,                  \
-                         fd_funk_txn_t *     funk_txn );
+                                fd_acc_mgr_t *      acc_mgr,           \
+                                fd_funk_txn_t *     funk_txn,          \
+                                fd_spad_t *         runtime_spad,      \
+                                fd_wksp_t *         wksp );
   FD_SYSVAR_CACHE_ITER(X)
 # undef X
 
 /* Accessors for sysvars.  May return NULL. */
 
-FD_FN_PURE fd_sol_sysvar_clock_t             const * fd_sysvar_cache_clock              ( fd_sysvar_cache_t const * cache );
-FD_FN_PURE fd_epoch_schedule_t               const * fd_sysvar_cache_epoch_schedule     ( fd_sysvar_cache_t const * cache );
-FD_FN_PURE fd_sysvar_epoch_rewards_t         const * fd_sysvar_cache_epoch_rewards      ( fd_sysvar_cache_t const * cache );
-FD_FN_PURE fd_sysvar_fees_t                  const * fd_sysvar_cache_fees               ( fd_sysvar_cache_t const * cache );
-FD_FN_PURE fd_rent_t                         const * fd_sysvar_cache_rent               ( fd_sysvar_cache_t const * cache );
-FD_FN_PURE fd_slot_hashes_t                  const * fd_sysvar_cache_slot_hashes        ( fd_sysvar_cache_t const * cache );
-FD_FN_PURE fd_recent_block_hashes_t          const * fd_sysvar_cache_recent_block_hashes( fd_sysvar_cache_t const * cache );
-FD_FN_PURE fd_stake_history_t                const * fd_sysvar_cache_stake_history      ( fd_sysvar_cache_t const * cache );
-FD_FN_PURE fd_sol_sysvar_last_restart_slot_t const * fd_sysvar_cache_last_restart_slot  ( fd_sysvar_cache_t const * cache );
+FD_FN_PURE fd_sol_sysvar_clock_global_t             const * fd_sysvar_cache_clock              ( fd_sysvar_cache_t const * cache );
+FD_FN_PURE fd_epoch_schedule_global_t               const * fd_sysvar_cache_epoch_schedule     ( fd_sysvar_cache_t const * cache );
+FD_FN_PURE fd_sysvar_epoch_rewards_global_t         const * fd_sysvar_cache_epoch_rewards      ( fd_sysvar_cache_t const * cache );
+FD_FN_PURE fd_sysvar_fees_global_t                  const * fd_sysvar_cache_fees               ( fd_sysvar_cache_t const * cache );
+FD_FN_PURE fd_rent_global_t                         const * fd_sysvar_cache_rent               ( fd_sysvar_cache_t const * cache );
+FD_FN_PURE fd_slot_hashes_global_t                  const * fd_sysvar_cache_slot_hashes        ( fd_sysvar_cache_t const * cache );
+FD_FN_PURE fd_recent_block_hashes_global_t          const * fd_sysvar_cache_recent_block_hashes( fd_sysvar_cache_t const * cache );
+FD_FN_PURE fd_stake_history_global_t                const * fd_sysvar_cache_stake_history      ( fd_sysvar_cache_t const * cache );
+FD_FN_PURE fd_sol_sysvar_last_restart_slot_global_t const * fd_sysvar_cache_last_restart_slot  ( fd_sysvar_cache_t const * cache );
 
 /* fd_sysvar_from_instr_acct_{...} pretends to read a sysvar from an
    instruction account.  Checks that a given instruction account has
@@ -165,15 +167,15 @@ FD_FN_PURE fd_sol_sysvar_last_restart_slot_t const * fd_sysvar_cache_last_restar
        return value;
      } */
 
-fd_sol_sysvar_clock_t             const * fd_sysvar_from_instr_acct_clock              ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
-fd_epoch_schedule_t               const * fd_sysvar_from_instr_acct_epoch_schedule     ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
-fd_sysvar_epoch_rewards_t         const * fd_sysvar_from_instr_acct_epoch_rewards      ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
-fd_sysvar_fees_t                  const * fd_sysvar_from_instr_acct_fees               ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
-fd_rent_t                         const * fd_sysvar_from_instr_acct_rent               ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
-fd_slot_hashes_t                  const * fd_sysvar_from_instr_acct_slot_hashes        ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
-fd_recent_block_hashes_t          const * fd_sysvar_from_instr_acct_recent_block_hashes( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
-fd_stake_history_t                const * fd_sysvar_from_instr_acct_stake_history      ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
-fd_sol_sysvar_last_restart_slot_t const * fd_sysvar_from_instr_acct_last_restart_slot  ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
+fd_sol_sysvar_clock_global_t             const * fd_sysvar_from_instr_acct_clock              ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
+fd_epoch_schedule_global_t               const * fd_sysvar_from_instr_acct_epoch_schedule     ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
+fd_sysvar_epoch_rewards_global_t         const * fd_sysvar_from_instr_acct_epoch_rewards      ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
+fd_sysvar_fees_global_t                  const * fd_sysvar_from_instr_acct_fees               ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
+fd_rent_global_t                         const * fd_sysvar_from_instr_acct_rent               ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
+fd_slot_hashes_global_t                  const * fd_sysvar_from_instr_acct_slot_hashes        ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
+fd_recent_block_hashes_global_t          const * fd_sysvar_from_instr_acct_recent_block_hashes( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
+fd_stake_history_global_t                const * fd_sysvar_from_instr_acct_stake_history      ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
+fd_sol_sysvar_last_restart_slot_global_t const * fd_sysvar_from_instr_acct_last_restart_slot  ( fd_exec_instr_ctx_t const * ctx, ulong acct_idx, int * err );
 
 /* fd_check_sysvar_account does a check on if an instruction account index
    matches the expected pubkey of a specific sysvar. */

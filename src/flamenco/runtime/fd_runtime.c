@@ -270,12 +270,17 @@ fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx,
 
 /* Loads the sysvar cache. Expects acc_mgr, funk_txn to be non-NULL and valid. */
 int
-fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx ) {
+fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx,
+                              fd_spad_t *          runtime_spad ) {
   if( FD_UNLIKELY( !slot_ctx->acc_mgr ) ) {
     return -1;
   }
 
-  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, slot_ctx->acc_mgr, slot_ctx->funk_txn );
+  fd_sysvar_cache_restore( slot_ctx->sysvar_cache,
+                           slot_ctx->acc_mgr,
+                           slot_ctx->funk_txn,
+                           runtime_spad,
+                           slot_ctx->runtime_wksp );
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
@@ -324,7 +329,7 @@ fd_runtime_validate_fee_collector( fd_exec_slot_ctx_t const * slot_ctx,
      We already know that the post deposit balance is >0 because we are paying a >0 amount.
      So TLDR we just check if the account is rent exempt.
    */
-  ulong minbal = fd_rent_exempt_minimum_balance( fd_sysvar_cache_rent( slot_ctx->sysvar_cache ), collector->const_meta->dlen );
+  ulong minbal = fd_rent_exempt_minimum_balance( (fd_rent_t const *)fd_sysvar_cache_rent( slot_ctx->sysvar_cache ), collector->const_meta->dlen );
   if( FD_UNLIKELY( collector->const_meta->info.lamports + fee < minbal ) ) {
     FD_BASE58_ENCODE_32_BYTES( collector->pubkey->key, _out_key );
     FD_LOG_WARNING(("cannot pay a rent paying account (%s)", _out_key ));
@@ -587,13 +592,11 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
 #define FD_RENT_EXEMPT (-1L)
 
 static long
-fd_runtime_get_rent_due( fd_epoch_bank_t const * epoch_bank,
-                         fd_account_meta_t *     acc,
-                         ulong                   epoch ) {
-
-  fd_epoch_schedule_t const * schedule       = &epoch_bank->rent_epoch_schedule;
-  fd_rent_t const *           rent           = &epoch_bank->rent;
-  double                      slots_per_year = epoch_bank->slots_per_year;
+fd_runtime_get_rent_due( fd_epoch_schedule_t const * schedule,
+                         fd_rent_t const *           rent,
+                         double                      slots_per_year,
+                         fd_account_meta_t *         acc,
+                         ulong                       epoch ) {
 
   fd_solana_account_meta_t *info = &acc->info;
 
@@ -637,18 +640,20 @@ fd_runtime_get_rent_due( fd_epoch_bank_t const * epoch_bank,
 /* https://github.com/anza-xyz/agave/blob/v2.0.10/sdk/src/rent_collector.rs#L117-149 */
 /* Collect rent from an account. Returns the amount of rent collected. */
 static ulong
-fd_runtime_collect_from_existing_account( fd_slot_bank_t const *  slot_bank,
-                                          fd_epoch_bank_t const * epoch_bank,
-                                          fd_account_meta_t *     acc,
-                                          fd_pubkey_t const *     pubkey,
-                                          ulong                   epoch ) {
+fd_runtime_collect_from_existing_account( ulong                       slot,
+                                          fd_epoch_schedule_t const * schedule,
+                                          fd_rent_t const *           rent,
+                                          double                      slots_per_year,
+                                          fd_account_meta_t *         acc,
+                                          fd_pubkey_t const *         pubkey,
+                                          ulong                       epoch ) {
   ulong collected_rent = 0UL;
   #define NO_RENT_COLLECTION_NOW (-1)
   #define EXEMPT                 (-2)
   #define COLLECT_RENT           (-3)
 
   /* An account must be hashed regardless of if rent is collected from it. */
-  acc->slot = slot_bank->slot;
+  acc->slot = slot;
 
   /* Inlining calculate_rent_result
      https://github.com/anza-xyz/agave/blob/v2.0.10/sdk/src/rent_collector.rs#L153-184 */
@@ -669,7 +674,11 @@ fd_runtime_collect_from_existing_account( fd_slot_bank_t const *  slot_bank,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.10/sdk/src/rent_collector.rs#L167-180 */
-  long rent_due = fd_runtime_get_rent_due( epoch_bank, acc, epoch );
+  long rent_due = fd_runtime_get_rent_due( schedule,
+                                           rent,
+                                           slots_per_year,
+                                           acc,
+                                           epoch );
   if( rent_due==FD_RENT_EXEMPT ) {
     calculate_rent_result = EXEMPT;
   } else if( rent_due==0L ) {
@@ -714,18 +723,30 @@ fd_runtime_collect_from_existing_account( fd_slot_bank_t const *  slot_bank,
    needed. Returns the amount of rent collected. */
 /* https://github.com/anza-xyz/agave/blob/v2.0.10/svm/src/account_loader.rs#L71-96 */
 ulong
-fd_runtime_collect_rent_from_account( fd_slot_bank_t const *  slot_bank,
-                                      fd_epoch_bank_t const * epoch_bank,
-                                      fd_features_t *         features,
-                                      fd_account_meta_t *     acc,
-                                      fd_pubkey_t const *     key,
-                                      ulong                   epoch ) {
+fd_runtime_collect_rent_from_account( ulong                       slot,
+                                      fd_epoch_schedule_t const * schedule,
+                                      fd_rent_t const *           rent,
+                                      double                      slots_per_year,
+                                      fd_features_t *             features,
+                                      fd_account_meta_t *         acc,
+                                      fd_pubkey_t const *         key,
+                                      ulong                       epoch ) {
 
-  if( !FD_FEATURE_ACTIVE( slot_bank->slot, *features, disable_rent_fees_collection ) ) {
-    return fd_runtime_collect_from_existing_account( slot_bank, epoch_bank, acc, key, epoch );
+  if( !FD_FEATURE_ACTIVE( slot, *features, disable_rent_fees_collection ) ) {
+    return fd_runtime_collect_from_existing_account( slot,
+                                                     schedule,
+                                                     rent,
+                                                     slots_per_year,
+                                                     acc,
+                                                     key,
+                                                     epoch );
   } else {
     if( FD_UNLIKELY( acc->info.rent_epoch!=FD_RENT_EXEMPT_RENT_EPOCH &&
-                     fd_runtime_get_rent_due( epoch_bank, acc, epoch )==FD_RENT_EXEMPT ) ) {
+                     fd_runtime_get_rent_due( schedule,
+                                              rent,
+                                              slots_per_year,
+                                              acc,
+                                              epoch )==FD_RENT_EXEMPT ) ) {
       acc->info.rent_epoch = ULONG_MAX;
     }
   }
@@ -1310,7 +1331,7 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   /* Load sysvars into cache */
-  if( FD_UNLIKELY( result = fd_runtime_sysvar_cache_load( slot_ctx ) ) ) {
+  if( FD_UNLIKELY( result = fd_runtime_sysvar_cache_load( slot_ctx, runtime_spad ) ) ) {
     /* non-zero error */
     return result;
   }
@@ -1449,7 +1470,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
                               general transaction execution
 
   */
-  if( !FD_FEATURE_ACTIVE_( txn_ctx->slot_bank->slot, txn_ctx->features, move_precompile_verification_to_svm ) ) {
+  if( !FD_FEATURE_ACTIVE_( txn_ctx->slot, txn_ctx->features, move_precompile_verification_to_svm ) ) {
     err = fd_executor_verify_precompiles( txn_ctx );
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       task_info->txn->flags = 0U;
@@ -1489,7 +1510,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
   /* https://github.com/anza-xyz/agave/blob/ced98f1ebe73f7e9691308afa757323003ff744f/svm/src/transaction_processor.rs#L284-L296 */
   err = fd_executor_load_transaction_accounts( txn_ctx );
   if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
-    if( FD_FEATURE_ACTIVE( txn_ctx->slot_bank->slot, txn_ctx->features, enable_transaction_loading_failure_fees ) ) {
+    if( FD_FEATURE_ACTIVE( txn_ctx->slot, txn_ctx->features, enable_transaction_loading_failure_fees ) ) {
       /* Regardless of whether transaction accounts were loaded successfully, the transaction is
          included in the block and transaction fees are collected.
          https://github.com/anza-xyz/agave/blob/v2.1.6/svm/src/transaction_processor.rs#L341-L357 */
@@ -2030,7 +2051,7 @@ fd_new_target_program_account( fd_exec_slot_ctx_t * slot_ctx,
   };
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L89-L90 */
-  const fd_rent_t * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+  fd_rent_t const * rent = (fd_rent_t const *)fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
   if( FD_UNLIKELY( rent==NULL ) ) {
     return -1;
   }
@@ -2103,7 +2124,7 @@ fd_new_target_program_data_account( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L127-L132 */
-  const fd_rent_t * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+  const fd_rent_t * rent = (fd_rent_t const *)fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
   if( FD_UNLIKELY( rent==NULL ) ) {
     return -1;
   }
@@ -2531,7 +2552,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
   int _err[1];
   ulong   new_rate_activation_epoch_val = 0UL;
   ulong * new_rate_activation_epoch     = &new_rate_activation_epoch_val;
-  int     is_some                       = fd_new_warmup_cooldown_rate_epoch( &slot_ctx->slot_bank,
+  int     is_some                       = fd_new_warmup_cooldown_rate_epoch( slot_ctx->slot_bank.slot,
                                                                              slot_ctx->sysvar_cache,
                                                                              &slot_ctx->epoch_ctx->features,
                                                                              new_rate_activation_epoch,
@@ -2566,7 +2587,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Refresh vote accounts in stakes cache using updated stake weights, and merges slot bank vote accounts with the epoch bank vote accounts.
     https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/stakes.rs#L363-L370 */
-  fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
+  fd_stake_history_t const * history = (fd_stake_history_t const *)fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
   if( FD_UNLIKELY( !history ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
   }

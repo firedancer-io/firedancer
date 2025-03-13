@@ -62,8 +62,8 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
 
   /* TODO: These are fields borrowed from the slot and epoch ctx. This
      could be refactored even further. */
-  fd_slot_bank_t const *          slot_bank;
-  fd_epoch_bank_t const *         epoch_bank;
+
+  /* local */
   fd_features_t                   features;
   fd_sysvar_cache_t const *       sysvar_cache;
   fd_txncache_t *                 status_cache;
@@ -73,6 +73,15 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   fd_bank_hash_cmp_t *            bank_hash_cmp;
   fd_funk_txn_t *                 funk_txn;
   fd_acc_mgr_t *                  acc_mgr;
+  fd_wksp_t *                     runtime_pub_wksp;
+  ulong                           slot;
+  fd_fee_rate_governor_t          fee_rate_governor;
+  fd_block_hash_queue_t           block_hash_queue; /* TODO:FIXME: make globally addressable */
+
+  fd_epoch_schedule_t             schedule;
+  fd_rent_t                       rent;
+  double                          slots_per_year;
+  fd_stakes_t                     stakes; /* TODO:FIXME: Handle global addressable stuff */
 
   fd_spad_t *                     spad;                                        /* Sized out to handle the worst case footprint of single transaction execution. */
 
@@ -208,7 +217,13 @@ fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t * txn_ctx,
 
 void
 fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
-                                    fd_exec_txn_ctx_t *        txn_ctx );
+                                    fd_exec_txn_ctx_t *        txn_ctx,
+                                    fd_wksp_t const *          funk_wksp,
+                                    fd_wksp_t const *          runtime_pub_wksp,
+                                    ulong                      funk_txn_gaddr,
+                                    ulong                      acc_mgr_gaddr,
+                                    ulong                      sysvar_cache_gaddr,
+                                    ulong                      funk_gaddr );
 
 void
 fd_exec_txn_ctx_teardown( fd_exec_txn_ctx_t * txn_ctx );
@@ -269,7 +284,7 @@ fd_exec_txn_ctx_reset_return_data( fd_exec_txn_ctx_t * txn_ctx );
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L241 */
 static inline int
 fd_exec_txn_ctx_find_idx_of_program_account( fd_exec_txn_ctx_t const * txn_ctx,
-                                             fd_pubkey_t const * pubkey ) {
+                                             fd_pubkey_t const *       pubkey ) {
   for( ulong i=txn_ctx->accounts_cnt; i>0UL; i-- ) {
     if( 0==memcmp( pubkey, &txn_ctx->account_keys[ i-1UL ], sizeof(fd_pubkey_t) ) ) {
       return (int)((ushort)i);

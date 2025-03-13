@@ -10,7 +10,7 @@
 int
 fd_executor_zk_elgamal_proof_program_execute( fd_exec_instr_ctx_t * ctx ) {
   /* Feature-gate program activation */
-  if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( ctx->txn_ctx->slot_bank->slot, ctx->txn_ctx->features, zk_elgamal_proof_program_enabled ) ) ) {
+  if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, zk_elgamal_proof_program_enabled ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
 
