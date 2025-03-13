@@ -1132,45 +1132,46 @@ static inline void
 test_reject_writes_to_sysvars( void ) {
   FD_LOG_NOTICE(( "TEST SYSVARS" ));
   fd_pack_t * pack = init_all( 1024UL, 1UL, 128UL, &outcome );
-  /* First part of list generated with:
-        for id in ALL_IDS.iter() {
-            println!("{}", id.to_string());
-        }
-        for id in BUILTIN_PROGRAMS_KEYS.iter() {
-            println!("{}", id.to_string());
+  /* list generated with:
+        for x in ReservedAccountKeys::all_keys_iter() {
+            println!("\"{:#?}\",", x);
         }
    */
-  char const * sysvars[] = {
+#define N_ACCTS 31
+  char const * sysvars[ N_ACCTS ] = {
+    "AddressLookupTab1e1111111111111111111111111",
+    "BPFLoader2111111111111111111111111111111111",
+    "BPFLoader1111111111111111111111111111111111",
+    "BPFLoaderUpgradeab1e11111111111111111111111",
+    "ComputeBudget111111111111111111111111111111",
+    "Config1111111111111111111111111111111111111",
+    "Ed25519SigVerify111111111111111111111111111",
+    "Feature111111111111111111111111111111111111",
+    "LoaderV411111111111111111111111111111111111",
+    "KeccakSecp256k11111111111111111111111111111",
+    "Secp256r1SigVerify1111111111111111111111111",
+    "StakeConfig11111111111111111111111111111111",
+    "Stake11111111111111111111111111111111111111",
+    "11111111111111111111111111111111",
+    "Vote111111111111111111111111111111111111111",
+    "ZkE1Gama1Proof11111111111111111111111111111",
+    "ZkTokenProof1111111111111111111111111111111",
     "SysvarC1ock11111111111111111111111111111111",
+    "SysvarEpochRewards1111111111111111111111111",
     "SysvarEpochSchedu1e111111111111111111111111",
     "SysvarFees111111111111111111111111111111111",
+    "Sysvar1nstructions1111111111111111111111111",
+    "SysvarLastRestartS1ot1111111111111111111111",
     "SysvarRecentB1ockHashes11111111111111111111",
     "SysvarRent111111111111111111111111111111111",
     "SysvarRewards111111111111111111111111111111",
     "SysvarS1otHashes111111111111111111111111111",
     "SysvarS1otHistory11111111111111111111111111",
     "SysvarStakeHistory1111111111111111111111111",
-    "Sysvar1nstructions1111111111111111111111111",
-    "SysvarEpochRewards1111111111111111111111111",
-    "SysvarLastRestartS1ot1111111111111111111111",
-    "Config1111111111111111111111111111111111111",
-    "Feature111111111111111111111111111111111111",
     "NativeLoader1111111111111111111111111111111",
-    "Stake11111111111111111111111111111111111111",
-    "StakeConfig11111111111111111111111111111111",
-    "Vote111111111111111111111111111111111111111",
-    "11111111111111111111111111111111",
-    "BPFLoader2111111111111111111111111111111111",
-    "BPFLoader1111111111111111111111111111111111",
-    "BPFLoaderUpgradeab1e11111111111111111111111",
-
-    "Ed25519SigVerify111111111111111111111111111",
-    "KeccakSecp256k11111111111111111111111111111",
-    "ComputeBudget111111111111111111111111111111",
-    "AddressLookupTab1e1111111111111111111111111",
-    "Secp256r1SigVerify1111111111111111111111111"
+    "Sysvar1111111111111111111111111111111111111"
   };
-  for( ulong i=0UL; i<27UL; i++ ) {
+  for( ulong i=0UL; i<N_ACCTS; i++ ) {
     make_transaction( i, 1000001U, 500U, 11.0, "A", "B", NULL, NULL );
     /* Replace A with the sysvar */
     fd_base58_decode_32( sysvars[ i ], payload_scratch[ i ] + 97UL );
@@ -1178,6 +1179,7 @@ test_reject_writes_to_sysvars( void ) {
     FD_TEST( insert( i, pack )==FD_PACK_INSERT_REJECT_WRITES_SYSVAR );
     FD_TEST( fd_pack_avail_txn_cnt( pack )==0UL );
   }
+#undef N_ACCTS
 }
 
 static inline void
