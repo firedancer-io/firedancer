@@ -6,10 +6,11 @@ fd_replay_new( void * shmem, ulong fec_max, ulong slice_max, ulong block_max ) {
   int lg_block_max = fd_ulong_find_msb( fd_ulong_pow2_up( block_max ) );
 
   FD_SCRATCH_ALLOC_INIT( l, shmem );
-  fd_replay_t * replay = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_align(),           sizeof(fd_replay_t) );
-  void * fec_map       = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_fec_map_align(),   fd_replay_fec_map_footprint( lg_fec_max ) );
-  void * fec_deque     = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_fec_deque_align(), fd_replay_fec_deque_footprint( fec_max ) );
-  void * slice_buf     = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                       FD_SLICE_MAX );
+  fd_replay_t * replay = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_align(),           sizeof(fd_replay_t)                           );
+  void * fec_map       = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_fec_map_align(),   fd_replay_fec_map_footprint( lg_fec_max )     );
+  void * fec_deque     = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_fec_deque_align(), fd_replay_fec_deque_footprint( fec_max )      );
+  void * idxs_map      = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_idxs_map_align(),  fd_replay_idxs_map_footprint( lg_block_max )  );
+  void * slice_buf     = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                       FD_SLICE_MAX                                  );
   void * slice_map     = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_slice_map_align(), fd_replay_slice_map_footprint( lg_block_max ) );
   for( ulong i = 0UL; i < block_max; i++ ) {
     void * slice_deque = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_slice_deque_align(), fd_replay_slice_deque_footprint( slice_max ) );
@@ -18,17 +19,15 @@ fd_replay_new( void * shmem, ulong fec_max, ulong slice_max, ulong block_max ) {
   ulong top = FD_SCRATCH_ALLOC_FINI( l, fd_replay_align() );
   FD_TEST( top == (ulong)shmem + fd_replay_footprint( fec_max, slice_max, block_max ) );
 
-  fd_replay_fec_map_new( fec_map, lg_fec_max );
-  fd_replay_fec_deque_new( fec_deque, fec_max );
+  fd_replay_fec_map_new  ( fec_map  , lg_fec_max   );
+  fd_replay_fec_deque_new( fec_deque, fec_max      );
+  fd_replay_idxs_map_new ( idxs_map , lg_block_max );
+  (void)slice_buf;
   fd_replay_slice_map_new( slice_map, lg_block_max );
 
   replay->block_max = block_max;
   replay->fec_max   = fec_max;
   replay->slice_max = slice_max;
-
-  FD_COMPILER_MFENCE();
-  replay->magic = FD_REPLAY_MAGIC;
-  FD_COMPILER_MFENCE();
 
   (void)slice_buf;
 
@@ -44,14 +43,16 @@ fd_replay_join( void * shreplay ) {
   int lg_block_max     = fd_ulong_find_msb( fd_ulong_pow2_up( replay->block_max ) );
 
   FD_SCRATCH_ALLOC_INIT( l, shreplay );
-  replay           = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_align(),             sizeof(fd_replay_t) );
-  void * fec_map   = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_fec_map_align(),     fd_replay_fec_map_footprint( lg_fec_max ) );
+  replay           = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_align(),             sizeof(fd_replay_t)                              );
+  void * fec_map   = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_fec_map_align(),     fd_replay_fec_map_footprint( lg_fec_max )        );
   void * fec_deque = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_fec_deque_align(),   fd_replay_fec_deque_footprint( replay->fec_max ) );
-  void * slice_buf = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                         FD_SLICE_MAX );
-  void * slice_map = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_slice_map_align(),   fd_replay_slice_map_footprint( lg_block_max ) );
+  void * idxs_map  = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_idxs_map_align(),    fd_replay_idxs_map_footprint( lg_block_max )     );
+  void * slice_buf = FD_SCRATCH_ALLOC_APPEND( l, 128UL,                         FD_SLICE_MAX                                     );
+  void * slice_map = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_slice_map_align(),   fd_replay_slice_map_footprint( lg_block_max )    );
 
-  replay->fec_map   = fd_replay_fec_map_join( fec_map );
+  replay->fec_map   = fd_replay_fec_map_join  ( fec_map   );
   replay->fec_deque = fd_replay_fec_deque_join( fec_deque );
+  replay->idxs_map  = fd_replay_idxs_map_join ( idxs_map  );
   (void)slice_buf;
   replay->slice_map = fd_replay_slice_map_join( slice_map );
 
@@ -63,7 +64,7 @@ fd_replay_join( void * shreplay ) {
      is set. Thus the map deque pointer should be valid always, and each
      map slot should have a unique deque pointer always. */
 
-  for( ulong i = 0UL; i < replay->block_max; i++ ) {
+  for( ulong i = 0UL; i < fd_replay_slice_map_slot_cnt( replay->slice_map ); i++ ) {
     fd_replay_slice_t * slice = &replay->slice_map[i];
     void * slice_deque = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_slice_deque_align(), fd_replay_slice_deque_footprint( replay->slice_max ) );
     slice->deque       = fd_replay_slice_deque_join( slice_deque );
@@ -103,11 +104,16 @@ fd_replay_delete( void * shmem ) {
     return NULL;
   }
 
-  FD_COMPILER_MFENCE();
-  replay->magic = 0UL;
-  FD_COMPILER_MFENCE();
-
-  // TODO: zero out mem?
-
   return replay;
 }
+
+// void
+// fd_replay_idxs_insert( fd_replay_t * replay, ulong slot, uint start_idx, uint end_idx ) {
+//   fd_replay_idxs_t * idxs = fd_replay_idxs_map_query( replay->idxs_map, slot, NULL );
+//   if( FD_UNLIKELY( !idxs ) ) {
+//     idxs = fd_replay_idxs_map_insert( replay->idxs_map, slot );
+//   }
+//   for (uint start_idx; start_idx < end_idx; start_idx++) {
+//     fd_replay_idxs_set_insert( idxs->shred_received_idxs, start_idx );
+//   }
+// }
