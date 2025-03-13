@@ -725,6 +725,9 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   args->slot_ctx->last_snapshot_slot = 0UL;
   args->last_snapshot_slot           = 0UL;
 
+  args->slot_ctx->runtime_wksp = fd_wksp_containing( args->runtime_spad );
+  FD_TEST( args->slot_ctx->runtime_wksp );
+
   /* Finish other runtime setup steps */
   fd_features_restore( args->slot_ctx, args->runtime_spad );
   fd_runtime_update_leaders( args->slot_ctx, args->slot_ctx->slot_bank.slot, args->runtime_spad );

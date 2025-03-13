@@ -35,7 +35,7 @@ require_acct_rent( fd_exec_instr_ctx_t * ctx,
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  fd_rent_t const * rent = fd_sysvar_cache_rent( ctx->txn_ctx->sysvar_cache );
+  fd_rent_t const * rent = (fd_rent_t const *)fd_sysvar_cache_rent( ctx->txn_ctx->sysvar_cache );
   if( FD_UNLIKELY( !rent ) )
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
@@ -54,9 +54,12 @@ require_acct_recent_blockhashes(
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( ctx->txn_ctx->sysvar_cache );
-  if( FD_UNLIKELY( !rbh ) )
+  fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( ctx->txn_ctx->sysvar_cache );
+  if( FD_UNLIKELY( !rbh_global ) )
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+  fd_recent_block_hashes_t rbh[1];
+  fd_bincode_decode_ctx_t decode = { .wksp = ctx->txn_ctx->runtime_pub_wksp };
+  fd_recent_block_hashes_convert_global_to_local( rbh_global, rbh, &decode );
 
   *out = rbh;
   return FD_EXECUTOR_INSTR_SUCCESS;

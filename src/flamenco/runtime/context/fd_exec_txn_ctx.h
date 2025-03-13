@@ -62,6 +62,8 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
 
   /* TODO: These are fields borrowed from the slot and epoch ctx. This
      could be refactored even further. */
+
+  /* local */
   fd_slot_bank_t const *          slot_bank;
   fd_epoch_bank_t const *         epoch_bank;
   fd_features_t                   features;
@@ -73,6 +75,7 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   fd_bank_hash_cmp_t *            bank_hash_cmp;
   fd_funk_txn_t *                 funk_txn;
   fd_acc_mgr_t *                  acc_mgr;
+  fd_wksp_t *                     runtime_pub_wksp;
 
   fd_spad_t *                     spad;                                        /* Sized out to handle the worst case footprint of single transaction execution. */
 
@@ -213,6 +216,7 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
                                     fd_wksp_t const *          runtime_pub_wksp,
                                     ulong                      funk_txn_gaddr,
                                     ulong                      acc_mgr_gaddr,
+                                    ulong                      sysvar_cache_gaddr,
                                     ulong                      funk_gaddr );
 
 void
@@ -274,7 +278,7 @@ fd_exec_txn_ctx_reset_return_data( fd_exec_txn_ctx_t * txn_ctx );
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L241 */
 static inline int
 fd_exec_txn_ctx_find_idx_of_program_account( fd_exec_txn_ctx_t const * txn_ctx,
-                                             fd_pubkey_t const * pubkey ) {
+                                             fd_pubkey_t const *       pubkey ) {
   for( ulong i=txn_ctx->accounts_cnt; i>0UL; i-- ) {
     if( 0==memcmp( pubkey, &txn_ctx->account_keys[ i-1UL ], sizeof(fd_pubkey_t) ) ) {
       return (int)((ushort)i);

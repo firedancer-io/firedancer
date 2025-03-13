@@ -53,9 +53,9 @@ fd_sysvar_cache_delete( fd_sysvar_cache_t * cache ) {
 
   /* Call destroy on all objects.
      This is safe even if these objects logically don't exist
-     (destory is safe on zero-initialized values and is idempotent) */
+     (destroy is safe on zero-initialized values and is idempotent) */
 # define X( type, name ) \
-  type##_destroy( cache->val_##name );
+  //type##_destroy( cache->val_##name );
   FD_SYSVAR_CACHE_ITER(X)
 # undef X
 
@@ -65,9 +65,9 @@ fd_sysvar_cache_delete( fd_sysvar_cache_t * cache ) {
 /* Provide accessor methods */
 
 #define X( type, name )                                                \
-  type##_t const *                                                     \
+  type##_global_t const *                                              \
   fd_sysvar_cache_##name( fd_sysvar_cache_t const * cache ) {          \
-    type##_t const * val = cache->val_##name;                          \
+    type##_global_t const * val = cache->val_##name;                   \
     return (cache->has_##name) ? val : NULL;                           \
   }
 FD_SYSVAR_CACHE_ITER(X)
@@ -81,7 +81,8 @@ fd_sysvar_cache_restore_##name(                                           \
   fd_sysvar_cache_t * cache,                                              \
   fd_acc_mgr_t *      acc_mgr,                                            \
   fd_funk_txn_t *     funk_txn,                                           \
-  fd_spad_t *         runtime_spad ) {                                    \
+  fd_spad_t *         runtime_spad,                                       \
+  fd_wksp_t *         wksp ) {                                            \
   do {                                                                    \
     fd_pubkey_t const * pubkey = &fd_sysvar_##name##_id;                  \
     FD_TXN_ACCOUNT_DECL( account );                                       \
@@ -101,7 +102,8 @@ fd_sysvar_cache_restore_##name(                                           \
       type##_decode() does not do heap allocations on failure */          \
     fd_bincode_decode_ctx_t decode = {                                    \
       .data    = account->const_data,                                     \
-      .dataend = account->const_data + account->const_meta->dlen          \
+      .dataend = account->const_data + account->const_meta->dlen,         \
+      .wksp    = wksp                                                     \
     };                                                                    \
     ulong total_sz    = 0UL;                                              \
     int   err         = type##_decode_footprint( &decode, &total_sz );    \
@@ -110,14 +112,14 @@ fd_sysvar_cache_restore_##name(                                           \
       break;                                                              \
     }                                                                     \
                                                                           \
-    type##_t * mem = fd_spad_alloc( runtime_spad,                         \
-                                    type##_align(),                       \
-                                    total_sz );                           \
+    type##_global_t * mem = fd_spad_alloc( runtime_spad,                  \
+                                           type##_align(),                \
+                                           total_sz );                    \
     if( FD_UNLIKELY( !mem ) ) {                                           \
       FD_LOG_ERR(( "memory allocation failed" ));                         \
     }                                                                     \
-    type##_decode( mem, &decode );                                        \
-    fd_memcpy( cache->val_##name, mem, sizeof(type##_t) );                \
+    type##_decode_global( mem, &decode );                                 \
+    fd_memcpy( cache->val_##name, mem, sizeof(type##_global_t) );         \
   } while(0);                                                             \
 }
   FD_SYSVAR_CACHE_ITER(X)
@@ -127,15 +129,16 @@ void
 fd_sysvar_cache_restore( fd_sysvar_cache_t * cache,
                          fd_acc_mgr_t *      acc_mgr,
                          fd_funk_txn_t *     funk_txn,
-                         fd_spad_t *         runtime_spad ) {
+                         fd_spad_t *         runtime_spad,
+                         fd_wksp_t *         wksp ) {
 # define X( type, name )                                               \
-fd_sysvar_cache_restore_##name( cache, acc_mgr, funk_txn, runtime_spad );
+fd_sysvar_cache_restore_##name( cache, acc_mgr, funk_txn, runtime_spad, wksp );
   FD_SYSVAR_CACHE_ITER(X)
 # undef X
 }
 
 # define X( type, name )                                               \
-  type##_t const *                                                     \
+  type##_global_t const *                                              \
   fd_sysvar_from_instr_acct_##name( fd_exec_instr_ctx_t const * ctx,   \
                                     ulong                       idx,   \
                                     int *                       err ) {\
@@ -146,7 +149,7 @@ fd_sysvar_cache_restore_##name( cache, acc_mgr, funk_txn, runtime_spad );
     }                                                                  \
                                                                        \
     fd_sysvar_cache_t const * cache = ctx->txn_ctx->sysvar_cache;      \
-    type##_t const * val = fd_sysvar_cache_##name ( cache );           \
+    type##_global_t const * val = fd_sysvar_cache_##name ( cache );    \
                                                                        \
     fd_pubkey_t const * addr_have = &ctx->instr->acct_pubkeys[idx];    \
     fd_pubkey_t const * addr_want = &fd_sysvar_##name##_id;            \

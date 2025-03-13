@@ -259,8 +259,13 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   ulong derivation_slot = 1UL;
 
   do {
-    fd_slot_hashes_t const * slot_hashes = fd_sysvar_cache_slot_hashes( ctx->txn_ctx->sysvar_cache );
-    if( FD_UNLIKELY( !slot_hashes ) )
+    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_cache_slot_hashes( ctx->txn_ctx->sysvar_cache );
+    fd_slot_hashes_t slot_hashes[1];
+    fd_bincode_decode_ctx_t decode = { .wksp = ctx->txn_ctx->runtime_pub_wksp };
+    fd_slot_hashes_convert_global_to_local( slot_hashes_global, slot_hashes, &decode );
+
+
+    if( FD_UNLIKELY( !&slot_hashes[0] ) )
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
     /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L97 */
@@ -935,8 +940,12 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.4/programs/address-lookup-table/src/processor.rs#L438 */
-  fd_slot_hashes_t const * slot_hashes = fd_sysvar_cache_slot_hashes( ctx->txn_ctx->sysvar_cache );
-  if( FD_UNLIKELY( !slot_hashes ) ) {
+  fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_cache_slot_hashes( ctx->txn_ctx->sysvar_cache );
+  fd_slot_hashes_t slot_hashes[1];
+  fd_bincode_decode_ctx_t decode = { .wksp = ctx->txn_ctx->runtime_pub_wksp };
+  fd_slot_hashes_convert_global_to_local( slot_hashes_global, slot_hashes, &decode );
+
+  if( FD_UNLIKELY( !&slot_hashes[0] ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
 

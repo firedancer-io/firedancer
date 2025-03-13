@@ -26,7 +26,7 @@ fd_sysvar_epoch_rewards_read( fd_sysvar_epoch_rewards_t * result,
                               fd_sysvar_cache_t const *   sysvar_cache,
                               fd_acc_mgr_t *              acc_mgr,
                               fd_funk_txn_t *             funk_txn ) {
-  fd_sysvar_epoch_rewards_t const * ret = fd_sysvar_cache_epoch_rewards( sysvar_cache );
+  fd_sysvar_epoch_rewards_t const * ret = (fd_sysvar_epoch_rewards_t const *)fd_sysvar_cache_epoch_rewards( sysvar_cache );
   if( FD_UNLIKELY( NULL != ret ) ) {
     fd_memcpy(result, ret, sizeof(fd_sysvar_epoch_rewards_t));
     return result;
@@ -83,7 +83,8 @@ fd_sysvar_epoch_rewards_distribute( fd_exec_slot_ctx_t * slot_ctx,
     fd_sysvar_cache_restore_epoch_rewards( slot_ctx->sysvar_cache,
                                            slot_ctx->acc_mgr,
                                            slot_ctx->funk_txn,
-                                           runtime_spad );
+                                           runtime_spad,
+                                           slot_ctx->runtime_wksp );
 }
 
 void
@@ -112,7 +113,8 @@ fd_sysvar_epoch_rewards_set_inactive( fd_exec_slot_ctx_t * slot_ctx,
     fd_sysvar_cache_restore_epoch_rewards( slot_ctx->sysvar_cache,
                                            slot_ctx->acc_mgr,
                                            slot_ctx->funk_txn,
-                                           runtime_spad );
+                                           runtime_spad,
+                                           slot_ctx->runtime_wksp );
 }
 
 /* Create EpochRewards syavar with calculated rewards
