@@ -212,9 +212,9 @@ make_vote_transaction( ulong i ) {
 static int
 insert( ulong i,
         fd_pack_t * pack ) {
-  fd_txn_e_t * slot       = fd_pack_insert_txn_init( pack );
-  fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ i ];
-  slot->txnp->payload_sz  = payload_sz[ i ];
+  fd_txn_e_t * slot      = fd_pack_insert_txn_init( pack );
+  fd_txn_t *   txn       = (fd_txn_t*) txn_scratch[ i ];
+  slot->txnp->payload_sz = payload_sz[ i ];
   fd_memcpy( slot->txnp->payload, payload_scratch[ i ], payload_sz[ i ] );
   fd_memcpy( TXN(slot->txnp),     txn,     fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
@@ -811,9 +811,9 @@ void performance_end_block( void ) {
           payload_scratch[ 0UL ][ 0x01+k ] = (uchar)((i+iter*writers_cnt)>>(8*k));
           payload_scratch[ 0UL ][ 0x45+k ] = (uchar)((i+iter*writers_cnt)>>(8*k));
         }
-        fd_txn_e_t * slot       = fd_pack_insert_txn_init( pack );
-        fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ 0UL ];
-        slot->txnp->payload_sz  = payload_sz[ 0UL ];
+        fd_txn_e_t * slot      = fd_pack_insert_txn_init( pack );
+        fd_txn_t *   txn       = (fd_txn_t*) txn_scratch[ 0UL ];
+        slot->txnp->payload_sz = payload_sz[ 0UL ];
         fd_memcpy( slot->txnp->payload, payload_scratch[ 0UL ], payload_sz[ 0UL ]                                              );
         fd_memcpy( TXN(slot->txnp),     txn,                    fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
@@ -844,9 +844,9 @@ void heap_overflow_test( void ) {
   /* Insert a bunch of low-paying transactions */
   for( ulong j=0UL; j<1024UL; j++ ) {
     make_transaction( j, 800U, 500U, 3.0, "ABC", "DEF", NULL, NULL );  /* 11733 cus */
-    fd_txn_e_t * slot       = fd_pack_insert_txn_init( pack );
-    fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ j ];
-    slot->txnp->payload_sz  = payload_sz[ j ];
+    fd_txn_e_t * slot      = fd_pack_insert_txn_init( pack );
+    fd_txn_t *   txn       = (fd_txn_t*) txn_scratch[ j ];
+    slot->txnp->payload_sz = payload_sz[ j ];
     fd_memcpy( slot->txnp->payload, payload_scratch[ j ], payload_sz[ j ]                                                );
     fd_memcpy( TXN(slot->txnp),     txn,                  fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
@@ -860,9 +860,9 @@ void heap_overflow_test( void ) {
   ulong r_hi;
   for( ulong j=0UL; j<1024UL; j++ ) {
     make_transaction( j, 500U, 500U, 10.0, "GHJ", "KLMNOP", &r_hi, NULL );  /* 11434 cus */
-    fd_txn_e_t * slot       = fd_pack_insert_txn_init( pack );
-    fd_txn_t *   txn        = (fd_txn_t*) txn_scratch[ j ];
-    slot->txnp->payload_sz  = payload_sz[ j ];
+    fd_txn_e_t * slot      = fd_pack_insert_txn_init( pack );
+    fd_txn_t *   txn       = (fd_txn_t*) txn_scratch[ j ];
+    slot->txnp->payload_sz = payload_sz[ j ];
     fd_memcpy( slot->txnp->payload, payload_scratch[ j ], payload_sz[ j ]                                              );
     fd_memcpy( TXN(slot->txnp),     txn,                  fd_txn_footprint( txn->instr_cnt, txn->addr_table_lookup_cnt ) );
 
@@ -872,7 +872,7 @@ void heap_overflow_test( void ) {
   FD_TEST( fd_pack_avail_txn_cnt( pack )==1024UL );
 
   for( ulong j=0UL; j<1024UL; j++ ) {
-    /* 30000 cannot fit more that 1 transaction. */
+    /* 30000 cannot fit more than 1 transaction. */
     schedule_validate_microblock( pack, 12000, 0.0f, j<900UL?1UL:0UL, j<900UL?r_hi:0UL, 0UL, &outcome );
   }
 

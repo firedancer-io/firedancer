@@ -382,7 +382,7 @@ void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn      
    to a metadata region associated with this bundle and can be retrieved
    later with fd_pack_peek_bundle_meta.  The contents of bundle_meta is
    not retrievable if initializer_bundle is non-zero, so you may wish to
-   just pass NULL in that case.  This funtion does not retain any
+   just pass NULL in that case.  This function does not retain any
    interest in the contents of bundle_meta after it returns.
 
    txn_cnt must be in [1, MAX_TXN_PER_BUNDLE].  A txn_cnt of 1 inserts a
