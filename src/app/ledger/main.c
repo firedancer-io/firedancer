@@ -99,7 +99,6 @@ struct fd_ledger_args {
 
   /* These values are setup and maintained before replay */
   fd_capture_ctx_t *    capture_ctx;             /* capture_ctx is used in runtime_replay for various debugging tasks */
-  fd_acc_mgr_t          acc_mgr[ 1UL ];          /* funk wrapper*/
   fd_exec_slot_ctx_t *  slot_ctx;                /* slot_ctx */
   fd_exec_epoch_ctx_t * epoch_ctx;               /* epoch_ctx */
   fd_tpool_t *          tpool;                   /* thread pool for execution */
@@ -1108,8 +1107,8 @@ ingest( fd_ledger_args_t * args ) {
   slot_ctx->epoch_ctx = epoch_ctx;
   args->slot_ctx = slot_ctx;
 
-  fd_acc_mgr_t mgr[1];
-  slot_ctx->acc_mgr = fd_acc_mgr_new( mgr, funk );
+  uchar * acc_mgr_mem  = fd_spad_alloc( args->runtime_spad, alignof(fd_acc_mgr_t), sizeof(fd_acc_mgr_t) );
+  slot_ctx->acc_mgr    = fd_acc_mgr_new( acc_mgr_mem, funk );
   slot_ctx->blockstore = args->blockstore;
 
   if( args->status_cache_wksp ) {
@@ -1282,7 +1281,8 @@ replay( fd_ledger_args_t * args ) {
   void * slot_ctx_mem        = fd_spad_alloc( spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
   args->slot_ctx             = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, spad ) );
   args->slot_ctx->epoch_ctx  = args->epoch_ctx;
-  args->slot_ctx->acc_mgr    = fd_acc_mgr_new( args->acc_mgr, funk );
+  uchar * acc_mgr_mem  = fd_spad_alloc( args->runtime_spad, alignof(fd_acc_mgr_t), sizeof(fd_acc_mgr_t) );
+  args->slot_ctx->acc_mgr    = fd_acc_mgr_new( acc_mgr_mem, funk );
   args->slot_ctx->blockstore = args->blockstore;
 
   void * status_cache_mem = fd_spad_alloc( spad,

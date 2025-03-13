@@ -284,14 +284,19 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Set up txn context */
 
-  ulong funk_txn_gaddr = fd_wksp_gaddr( fd_funk_wksp( funk ), funk_txn );
+  fd_wksp_t * funk_wksp      = fd_funk_wksp( funk );
+  fd_wksp_t * runtime_wksp   = fd_wksp_containing( slot_ctx );
+  ulong       funk_txn_gaddr = fd_wksp_gaddr( funk_wksp, funk_txn );
+  ulong       acc_mgr_gaddr  = fd_wksp_gaddr( runtime_wksp, acc_mgr );
+  ulong       funk_gaddr     = fd_wksp_gaddr( funk_wksp, funk );
 
   fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
                                       txn_ctx,
-                                      fd_funk_wksp( funk ),
-                                      fd_wksp_containing( slot_ctx ),
+                                      funk_wksp,
+                                      runtime_wksp,
                                       funk_txn_gaddr,
-                                      0UL );
+                                      acc_mgr_gaddr,
+                                      funk_gaddr );
   fd_exec_txn_ctx_setup_basic( txn_ctx );
 
   txn_ctx->compute_unit_limit      = test_ctx->cu_avail;
@@ -555,10 +560,11 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   /* Refresh the setup from the updated slot and epoch ctx. */
   fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
                                       txn_ctx,
-                                      fd_funk_wksp( funk ),
-                                      fd_wksp_containing( slot_ctx ),
-                                      fd_wksp_gaddr( fd_funk_wksp( funk ), funk_txn ),
-                                      0UL );
+                                      funk_wksp,
+                                      runtime_wksp,
+                                      funk_txn_gaddr,
+                                      acc_mgr_gaddr,
+                                      funk_gaddr );
 
   fd_log_collector_init( &ctx->txn_ctx->log_collector, 1 );
   fd_base58_encode_32( ctx->instr->program_id_pubkey.uc, NULL, ctx->program_id_base58 );
@@ -689,12 +695,12 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   // Override default values if provided
   if( slot_ctx->sysvar_cache->has_epoch_schedule ) {
-    epoch_bank->epoch_schedule      = *slot_ctx->sysvar_cache->val_epoch_schedule;
-    epoch_bank->rent_epoch_schedule = *slot_ctx->sysvar_cache->val_epoch_schedule;
+    epoch_bank->epoch_schedule      = *(fd_epoch_schedule_t*)slot_ctx->sysvar_cache->val_epoch_schedule;
+    epoch_bank->rent_epoch_schedule = *(fd_epoch_schedule_t*)slot_ctx->sysvar_cache->val_epoch_schedule;
   }
 
   if( slot_ctx->sysvar_cache->has_rent ) {
-    epoch_bank->rent = *slot_ctx->sysvar_cache->val_rent;
+    epoch_bank->rent = *(fd_rent_t*)slot_ctx->sysvar_cache->val_rent;
   }
 
   /* Provide default slot hashes of size 1 if not provided */
