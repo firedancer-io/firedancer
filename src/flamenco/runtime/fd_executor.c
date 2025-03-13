@@ -1371,9 +1371,19 @@ fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
                               fd_txn_t const *           txn_descriptor,
                               fd_rawtxn_b_t const *      txn_raw,
                               fd_spad_t *                spad ) {
+
+  fd_funk_t * funk           = slot_ctx->acc_mgr->funk;
+  fd_wksp_t * funk_wksp      = fd_funk_wksp( funk );
+  ulong       funk_txn_gaddr = fd_wksp_gaddr( funk_wksp, slot_ctx->funk_txn );
+
   /* Init txn ctx */
   fd_exec_txn_ctx_new( txn_ctx );
-  fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx, txn_ctx );
+  fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
+                                      txn_ctx,
+                                      fd_funk_wksp( funk ),
+                                      fd_wksp_containing( slot_ctx ),
+                                      funk_txn_gaddr,
+                                      0UL );
   fd_exec_txn_ctx_setup( txn_ctx, txn_descriptor, txn_raw );
 
   /* Unroll accounts from aluts and place into correct spots */

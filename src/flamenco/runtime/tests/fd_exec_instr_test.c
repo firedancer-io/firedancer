@@ -283,10 +283,17 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   fd_memset( blockhash_queue->last_hash, 0, FD_HASH_FOOTPRINT );
 
   /* Set up txn context */
-  fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx, txn_ctx );
+
+  ulong funk_txn_gaddr = fd_wksp_gaddr( fd_funk_wksp( funk ), funk_txn );
+
+  fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
+                                      txn_ctx,
+                                      fd_funk_wksp( funk ),
+                                      fd_wksp_containing( slot_ctx ),
+                                      funk_txn_gaddr,
+                                      0UL );
   fd_exec_txn_ctx_setup_basic( txn_ctx );
 
-  txn_ctx->funk_txn                = funk_txn;
   txn_ctx->compute_unit_limit      = test_ctx->cu_avail;
   txn_ctx->compute_meter           = test_ctx->cu_avail;
   txn_ctx->vote_accounts_pool      = NULL;
@@ -546,7 +553,12 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   ctx->instr     = info;
 
   /* Refresh the setup from the updated slot and epoch ctx. */
-  fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx, txn_ctx );
+  fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
+                                      txn_ctx,
+                                      fd_funk_wksp( funk ),
+                                      fd_wksp_containing( slot_ctx ),
+                                      fd_wksp_gaddr( fd_funk_wksp( funk ), funk_txn ),
+                                      0UL );
 
   fd_log_collector_init( &ctx->txn_ctx->log_collector, 1 );
   fd_base58_encode_32( ctx->instr->program_id_pubkey.uc, NULL, ctx->program_id_base58 );
