@@ -662,7 +662,7 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 }
 
 /* TODO: This is probably not correct. */
-#define STEM_BURST (1UL)
+#define STEM_BURST (2UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_repair_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_repair_tile_ctx_t)

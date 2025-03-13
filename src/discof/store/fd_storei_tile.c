@@ -258,6 +258,7 @@ after_frag( fd_store_tile_ctx_t * ctx,
 
   if( FD_UNLIKELY( in_idx==REPAIR_IN_IDX ) ) {
     fd_shred_t const * shred = (fd_shred_t const *)fd_type_pun_const( ctx->shred_buffer );
+
     if( !fd_pending_slots_check( ctx->store->pending_slots, shred->slot ) ) {
       FD_LOG_WARNING(("received repair shred %lu that would overrun pending queue. skipping.", shred->slot));
       return;
@@ -267,14 +268,26 @@ after_frag( fd_store_tile_ctx_t * ctx,
       FD_LOG_WARNING(("received repair shred with slot %lu that would overrun pending queue. skipping.", shred->slot));
       return;
     }
-
-    if( fd_store_shred_insert( ctx->store, shred ) < FD_BLOCKSTORE_SUCCESS ) {
+    int ret = fd_store_shred_insert( ctx->store, shred );
+    if( ret < FD_BLOCKSTORE_SUCCESS ) {
       FD_LOG_ERR(( "failed inserting to blockstore" ));
     } else if ( ctx->shred_cap_ctx.is_archive ) {
       uchar shred_cap_flag = FD_SHRED_CAP_FLAG_MARK_REPAIR( 0 );
       if( fd_shred_cap_archive( &ctx->shred_cap_ctx, shred, shred_cap_flag ) < FD_SHRED_CAP_OK ) {
         FD_LOG_ERR( ( "failed at archiving repair shred to file" ) );
       }
+    }
+
+    if( ret == FD_BLOCKSTORE_SUCCESS_SLOT_COMPLETE ){
+      /* forward this to replay just pray 🙏 */
+      uchar * out_buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
+      memcpy( out_buf, ctx->shred_buffer, sz );
+
+      ulong my_whatever_sig = (shred->slot << 32) & 0xFFFFFFFF00000000UL;
+
+      fd_stem_publish( stem, 0UL, my_whatever_sig, ctx->replay_out_chunk, sz, 0UL, tsorig, 0 );
+      ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sz, ctx->replay_out_chunk0, ctx->replay_out_wmark );
+      /* end */
     }
     ctx->repair_cnt++;
     return;
@@ -385,7 +398,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       FD_LOG_ERR(( "Finished simulation to slot %lu", ctx->sim_end_slot ));
     }
 
-    FD_LOG_NOTICE( ( "\n\n[Store]\n"
+    /*FD_LOG_NOTICE( ( "\n\n[Store]\n"
                      "slot:            %lu\n"
                      "current turbine: %lu\n"
                      "first turbine:   %lu\n"
@@ -395,7 +408,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
                      ctx->store->curr_turbine_slot,
                      ctx->store->first_turbine_slot,
                      ctx->store->curr_turbine_slot - slot,
-                     ( ctx->store->curr_turbine_slot - slot ) < 5 ) );
+                     ( ctx->store->curr_turbine_slot - slot ) < 5 ) );*/
 
     uchar * out_buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
 
@@ -403,7 +416,7 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       FD_LOG_ERR(( "could not find block - slot: %lu", slot ));
     }
 
-    ulong parent_slot = fd_blockstore_parent_slot_query( ctx->blockstore, slot );
+    ulong parent_slot = 1; //fd_blockstore_parent_slot_query( ctx->blockstore, slot );
     if ( FD_UNLIKELY( parent_slot == FD_SLOT_NULL ) ) FD_LOG_ERR(( "could not find slot %lu meta", slot ));
 
     FD_STORE( ulong, out_buf, parent_slot );
