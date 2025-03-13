@@ -454,7 +454,11 @@ during_frag( fd_shred_ctx_t * ctx,
         }
 
         fd_shredder_init_batch( ctx->shredder, ctx->pending_batch.raw, batch_sz, target_slot, entry_meta );
+#if FD_HAS_NO_AGAVE
+        FD_TEST( fd_shredder_next_fec_set( ctx->shredder, out, NULL ) );
+#else
         FD_TEST( fd_shredder_next_fec_set( ctx->shredder, out, ctx->chained_merkle_root ) );
+#endif
         fd_shredder_fini_batch( ctx->shredder );
         shredding_timing      +=  fd_tickcount();
 
