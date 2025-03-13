@@ -132,7 +132,8 @@ fd_shredder_init_batch( fd_shredder_t *               shredder,
 
 fd_fec_set_t *
 fd_shredder_next_fec_set( fd_shredder_t * shredder,
-                          fd_fec_set_t * result ) {
+                          fd_fec_set_t *  result,
+                          uchar *         chained_merkle_root ) {
   uchar const * entry_batch = shredder->entry_batch;
   ulong         offset      = shredder->offset;
   ulong         entry_sz    = shredder->sz;
@@ -166,16 +167,20 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
 
   fd_reedsol_t * reedsol = fd_reedsol_encode_init( shredder->reedsol, parity_shred_payload_sz );
 
-
   /* Write headers and copy the data shred payload */
   ulong flags_for_last = ((last_in_batch & (ulong)block_complete)<<7) | (last_in_batch<<6);
+  uchar shred_type = fd_uchar_if( chained_merkle_root!=NULL, fd_uchar_if(
+    block_complete,
+    FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED,
+    FD_SHRED_TYPE_MERKLE_DATA_CHAINED
+  ), FD_SHRED_TYPE_MERKLE_DATA );
   for( ulong i=0UL; i<data_shred_cnt; i++ ) {
     fd_shred_t         * shred = (fd_shred_t *)data_shreds[ i ];
     /* Size in bytes of the payload section of this data shred,
        excluding any zero-padding */
     ulong shred_payload_sz = fd_ulong_min( entry_sz-offset, data_shred_payload_sz );
 
-    shred->variant            = fd_shred_variant( FD_SHRED_TYPE_MERKLE_DATA, (uchar)tree_depth );
+    shred->variant            = fd_shred_variant( shred_type, (uchar)tree_depth );
     shred->slot               = shredder->slot;
     shred->idx                = (uint  )(shredder->data_idx_offset + i);
     shred->version            = (ushort)(shredder->shred_version);
@@ -198,12 +203,23 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
     /* Prepare to generate parity data: data shred starts right after
        signature and goes until start of Merkle proof. */
     fd_reedsol_encode_add_data_shred( reedsol, ((uchar*)shred) + sizeof(fd_ed25519_sig_t) );
+
+    /* Optionally, set chained merkle root */
+    if( FD_LIKELY( chained_merkle_root ) ) {
+      uchar * merkle = ((uchar*)shred) + fd_shred_chain_off( shred->variant );
+      memcpy( merkle, chained_merkle_root, FD_SHRED_MERKLE_ROOT_SZ );
+    }
   }
 
+  shred_type = fd_uchar_if( chained_merkle_root!=NULL, fd_uchar_if(
+    block_complete,
+    FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED,
+    FD_SHRED_TYPE_MERKLE_CODE_CHAINED
+  ), FD_SHRED_TYPE_MERKLE_CODE );
   for( ulong j=0UL; j<parity_shred_cnt; j++ ) {
     fd_shred_t         * shred = (fd_shred_t *)parity_shreds[ j ];
 
-    shred->variant            = fd_shred_variant( FD_SHRED_TYPE_MERKLE_CODE, (uchar)tree_depth );
+    shred->variant            = fd_shred_variant( shred_type, (uchar)tree_depth );
     shred->slot               = shredder->slot;
     shred->idx                = (uint  )(shredder->parity_idx_offset + j);
     shred->version            = (ushort)(shredder->shred_version);
@@ -217,6 +233,12 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
     /* Prepare to generate parity data: parity info starts right after
        signature and goes until start of Merkle proof. */
     fd_reedsol_encode_add_parity_shred( reedsol, parity_shreds[ j ] + FD_SHRED_CODE_HEADER_SZ );
+
+    /* Optionally, set chained merkle root */
+    if( FD_LIKELY( chained_merkle_root ) ) {
+      uchar * merkle = ((uchar*)shred) + fd_shred_chain_off( shred->variant );
+      memcpy( merkle, chained_merkle_root, FD_SHRED_MERKLE_ROOT_SZ );
+    }
   }
 
   /* Generate parity data */
@@ -231,7 +253,6 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
   for( ulong j=0UL; j<parity_shred_cnt; j++ )
     fd_sha256_batch_add( sha256, parity_shreds[j]+sizeof(fd_ed25519_sig_t)-26UL, parity_merkle_sz+26UL, leaves[j+data_shred_cnt].hash );
   fd_sha256_batch_fini( sha256 );
-
 
   /* Generate Merkle Proofs */
   fd_bmtree_commit_t * bmtree = fd_bmtree_commit_init( shredder->_bmtree_footprint, FD_SHRED_MERKLE_NODE_SZ, FD_BMTREE_LONG_PREFIX_SZ, tree_depth+1UL );
@@ -262,6 +283,9 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
   shredder->offset             = offset;
   shredder->data_idx_offset   += data_shred_cnt;
   shredder->parity_idx_offset += parity_shred_cnt;
+  if( FD_LIKELY( chained_merkle_root ) ) {
+    memcpy( chained_merkle_root, root, FD_SHRED_MERKLE_ROOT_SZ );
+  }
 
   result->data_shred_cnt   = data_shred_cnt;
   result->parity_shred_cnt = parity_shred_cnt;
