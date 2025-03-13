@@ -258,7 +258,7 @@ fd_is_migrating_builtin_program( fd_exec_txn_ctx_t const * txn_ctx,
     fd_core_bpf_migration_config_t const * config = migrating_builtins[i];
     if( !memcmp( pubkey->uc, config->builtin_program_id->key, sizeof(fd_pubkey_t) ) ) {
       if( config->enable_feature_offset!=NO_ENABLE_FEATURE_ID &&
-        FD_FEATURE_ACTIVE_OFFSET( txn_ctx->slot_bank->slot, txn_ctx->features, config->enable_feature_offset ) ) {
+        FD_FEATURE_ACTIVE_OFFSET( txn_ctx->slot, txn_ctx->features, config->enable_feature_offset ) ) {
         /* The program has been migrated to BPF. */
         *migrated_yet = 1;
       }

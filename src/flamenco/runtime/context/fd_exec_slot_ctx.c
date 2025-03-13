@@ -25,7 +25,7 @@ fd_exec_slot_ctx_new( void *      mem,
   fd_exec_slot_ctx_t * self = (fd_exec_slot_ctx_t *)mem;
   fd_slot_bank_new( &self->slot_bank );
 
-  self->sysvar_cache = fd_sysvar_cache_new( fd_spad_alloc( runtime_spad, fd_sysvar_cache_align(), fd_sysvar_cache_footprint() ), runtime_spad );
+  self->sysvar_cache = fd_sysvar_cache_new( fd_spad_alloc( runtime_spad, fd_sysvar_cache_align(), fd_sysvar_cache_footprint() ) );
 
   /* This is inactive by default */
   self->epoch_reward_status.discriminant = fd_epoch_reward_status_enum_Inactive;

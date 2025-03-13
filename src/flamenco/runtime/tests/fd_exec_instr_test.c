@@ -283,10 +283,24 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   fd_memset( blockhash_queue->last_hash, 0, FD_HASH_FOOTPRINT );
 
   /* Set up txn context */
-  fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx, txn_ctx );
+
+  fd_wksp_t * funk_wksp          = fd_funk_wksp( funk );
+  fd_wksp_t * runtime_wksp       = fd_wksp_containing( slot_ctx );
+  ulong       funk_txn_gaddr     = fd_wksp_gaddr( funk_wksp, funk_txn );
+  ulong       acc_mgr_gaddr      = fd_wksp_gaddr( runtime_wksp, acc_mgr );
+  ulong       funk_gaddr         = fd_wksp_gaddr( funk_wksp, funk );
+  ulong       sysvar_cache_gaddr = fd_wksp_gaddr( runtime_wksp, slot_ctx->sysvar_cache );
+
+  fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
+                                      txn_ctx,
+                                      funk_wksp,
+                                      runtime_wksp,
+                                      funk_txn_gaddr,
+                                      acc_mgr_gaddr,
+                                      sysvar_cache_gaddr,
+                                      funk_gaddr );
   fd_exec_txn_ctx_setup_basic( txn_ctx );
 
-  txn_ctx->funk_txn                = funk_txn;
   txn_ctx->compute_unit_limit      = test_ctx->cu_avail;
   txn_ctx->compute_meter           = test_ctx->cu_avail;
   txn_ctx->vote_accounts_pool      = NULL;
@@ -408,7 +422,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   fd_funk_end_write( acc_mgr->funk );
 
   /* Restore sysvar cache */
-  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
+  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn, runner->spad, runtime_wksp );
 
   /* Fill missing sysvar cache values with defaults */
   /* We create mock accounts for each of the sysvars and hardcode the data fields before loading it into the account manager */
@@ -468,14 +482,20 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   /* Handle undefined behavior if sysvars are malicious (!!!) */
 
   /* Override epoch bank rent setting */
-  fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+  fd_rent_t const * rent = (fd_rent_t const *)fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
   if( rent ) {
     epoch_bank->rent = *rent;
   }
 
   /* Override most recent blockhash if given */
-  fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
-  if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
+  fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
+  fd_recent_block_hashes_t rbh[1];
+  if( rbh_global ) {
+  fd_bincode_decode_ctx_t decode = { .wksp = runtime_wksp };
+  fd_recent_block_hashes_convert_global_to_local( rbh_global, rbh, &decode );
+  }
+
+  if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_tail_const( rbh->hashes );
     if( last ) {
       *blockhash_queue->last_hash                = last->blockhash;
@@ -546,7 +566,14 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   ctx->instr     = info;
 
   /* Refresh the setup from the updated slot and epoch ctx. */
-  fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx, txn_ctx );
+  fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
+                                      txn_ctx,
+                                      funk_wksp,
+                                      runtime_wksp,
+                                      funk_txn_gaddr,
+                                      acc_mgr_gaddr,
+                                      sysvar_cache_gaddr,
+                                      funk_gaddr );
 
   fd_log_collector_init( &ctx->txn_ctx->log_collector, 1 );
   fd_base58_encode_32( ctx->instr->program_id_pubkey.uc, NULL, ctx->program_id_base58 );
@@ -636,7 +663,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   }
 
   /* Restore sysvar cache */
-  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
+  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn, runner->spad, fd_wksp_containing( slot_ctx ) );
 
   /* Add accounts to bpf program cache */
   fd_funk_start_write( runner->funk );
@@ -677,12 +704,12 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   // Override default values if provided
   if( slot_ctx->sysvar_cache->has_epoch_schedule ) {
-    epoch_bank->epoch_schedule      = *slot_ctx->sysvar_cache->val_epoch_schedule;
-    epoch_bank->rent_epoch_schedule = *slot_ctx->sysvar_cache->val_epoch_schedule;
+    epoch_bank->epoch_schedule      = *(fd_epoch_schedule_t *)fd_type_pun_const( slot_ctx->sysvar_cache->val_epoch_schedule );
+    epoch_bank->rent_epoch_schedule = *(fd_epoch_schedule_t *)fd_type_pun_const( slot_ctx->sysvar_cache->val_epoch_schedule );
   }
 
   if( slot_ctx->sysvar_cache->has_rent ) {
-    epoch_bank->rent = *slot_ctx->sysvar_cache->val_rent;
+    epoch_bank->rent = *(fd_rent_t *)fd_type_pun_const( slot_ctx->sysvar_cache->val_rent );
   }
 
   /* Provide default slot hashes of size 1 if not provided */
@@ -735,10 +762,10 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   }
 
   /* Restore sysvar cache (again, since we may need to provide default sysvars) */
-  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
+  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn, runner->spad, fd_wksp_containing( slot_ctx ) );
 
   /* A NaN rent exemption threshold is U.B. in Solana Labs */
-  fd_rent_t const * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+  fd_rent_t const * rent = (fd_rent_t const *)fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
   if( ( !fd_double_is_normal( rent->exemption_threshold ) ) |
       ( rent->exemption_threshold     <      0.0 ) |
       ( rent->exemption_threshold     >    999.0 ) |
@@ -761,8 +788,14 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   slot_ctx->slot_bank.block_hash_queue.last_hash = fd_spad_alloc( runner->spad, FD_HASH_ALIGN, FD_HASH_FOOTPRINT );
 
   // Save lamports per signature for most recent blockhash, if sysvar cache contains recent block hashes
-  fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
-  if( rbh && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
+  fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( slot_ctx->sysvar_cache );
+  fd_recent_block_hashes_t rbh[1];
+  if( rbh_global ) {
+    fd_bincode_decode_ctx_t decode = { .wksp = fd_wksp_containing( runner->spad ) };
+    fd_recent_block_hashes_convert_global_to_local( rbh_global, rbh, &decode );
+  }
+
+  if( rbh_global && !deq_fd_block_block_hash_entry_t_empty( rbh->hashes ) ) {
     fd_block_block_hash_entry_t const * last = deq_fd_block_block_hash_entry_t_peek_head_const( rbh->hashes );
     if( last && last->fee_calculator.lamports_per_signature!=0UL ) {
       slot_ctx->slot_bank.lamports_per_signature = last->fee_calculator.lamports_per_signature;
@@ -791,7 +824,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
     slot_ctx->slot_bank.poh = blockhash_entry.blockhash;
     fd_sysvar_recent_hashes_update( slot_ctx, runner->spad );
   }
-  fd_sysvar_cache_restore_recent_block_hashes( slot_ctx->sysvar_cache, acc_mgr, funk_txn );
+  fd_sysvar_cache_restore_recent_block_hashes( slot_ctx->sysvar_cache, acc_mgr, funk_txn, runner->spad, fd_wksp_containing( slot_ctx ) );
 
   fd_funk_end_write( runner->funk );
 
@@ -1483,7 +1516,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   fd_vm_input_region_t    input_mem_regions[1000] = {0}; /* We can have a max of (3 * num accounts + 1) regions */
   fd_vm_acc_region_meta_t acc_region_metas[256]   = {0}; /* instr acc idx to idx */
   uint                    input_mem_regions_cnt   = 0U;
-  int                     direct_mapping          = FD_FEATURE_ACTIVE( ctx->txn_ctx->slot_bank->slot, ctx->txn_ctx->features, bpf_account_data_direct_mapping );
+  int                     direct_mapping          = FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, bpf_account_data_direct_mapping );
 
   uchar * input_ptr      = NULL;
   uchar   program_id_idx = ctx->instr->program_id;
@@ -1521,7 +1554,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
               input_mem_regions_cnt,
               acc_region_metas,
               is_deprecated,
-              FD_FEATURE_ACTIVE( ctx->txn_ctx->slot_bank->slot, ctx->txn_ctx->features, bpf_account_data_direct_mapping ) );
+              FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, bpf_account_data_direct_mapping ) );
 
   // Override some execution state values from the syscall fuzzer input
   // This is so we can test if the syscall mutates any of these erroneously

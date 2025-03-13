@@ -144,16 +144,16 @@ fd_bpf_get_executable_program_content_for_v1_v2_loaders( fd_txn_account_t * prog
 }
 
 void
-fd_bpf_get_sbpf_versions( uint *                 sbpf_min_version,
-                          uint *                 sbpf_max_version,
-                          fd_slot_bank_t const * slot_bank,
-                          fd_features_t const *  features ) {
-  int disable_v0  = FD_FEATURE_ACTIVE( slot_bank->slot, *features, disable_sbpf_v0_execution );
-  int reenable_v0 = FD_FEATURE_ACTIVE( slot_bank->slot, *features, reenable_sbpf_v0_execution );
+fd_bpf_get_sbpf_versions( uint *                sbpf_min_version,
+                          uint *                sbpf_max_version,
+                          ulong                 slot,
+                          fd_features_t const * features ) {
+  int disable_v0  = FD_FEATURE_ACTIVE( slot, *features, disable_sbpf_v0_execution );
+  int reenable_v0 = FD_FEATURE_ACTIVE( slot, *features, reenable_sbpf_v0_execution );
   int enable_v0   = !disable_v0 || reenable_v0;
-  int enable_v1   = FD_FEATURE_ACTIVE( slot_bank->slot, *features, enable_sbpf_v1_deployment_and_execution );
-  int enable_v2   = FD_FEATURE_ACTIVE( slot_bank->slot, *features, enable_sbpf_v2_deployment_and_execution );
-  int enable_v3   = FD_FEATURE_ACTIVE( slot_bank->slot, *features, enable_sbpf_v3_deployment_and_execution );
+  int enable_v1   = FD_FEATURE_ACTIVE( slot, *features, enable_sbpf_v1_deployment_and_execution );
+  int enable_v2   = FD_FEATURE_ACTIVE( slot, *features, enable_sbpf_v2_deployment_and_execution );
+  int enable_v3   = FD_FEATURE_ACTIVE( slot, *features, enable_sbpf_v3_deployment_and_execution );
 
   *sbpf_min_version = enable_v0 ? FD_SBPF_V0 : FD_SBPF_V3;
   if( enable_v3 ) {
@@ -202,7 +202,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     uint min_sbpf_version, max_sbpf_version;
     fd_bpf_get_sbpf_versions( &min_sbpf_version,
                               &max_sbpf_version,
-                              &slot_ctx->slot_bank,
+                              slot_ctx->slot_bank.slot,
                               &slot_ctx->epoch_ctx->features );
     if( fd_sbpf_elf_peek( &elf_info, program_data, program_data_len, /* deploy checks */ 0, min_sbpf_version, max_sbpf_version ) == NULL ) {
       FD_LOG_DEBUG(( "fd_sbpf_elf_peek() failed: %s", fd_sbpf_strerror() ));
@@ -256,7 +256,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     }
     fd_exec_instr_ctx_t dummy_instr_ctx = {0};
     fd_exec_txn_ctx_t   dummy_txn_ctx   = {0};
-    dummy_txn_ctx.slot_bank = &slot_ctx->slot_bank;
+    dummy_txn_ctx.slot      = slot_ctx->slot_bank.slot;
     dummy_txn_ctx.features  = slot_ctx->epoch_ctx->features;
     dummy_instr_ctx.txn_ctx = &dummy_txn_ctx;
     vm = fd_vm_init( vm,

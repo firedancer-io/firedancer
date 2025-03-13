@@ -375,7 +375,7 @@ calculate_reward_points_partitioned( fd_exec_slot_ctx_t *       slot_ctx,
   int _err[1];
   ulong   new_warmup_cooldown_rate_epoch_val = 0UL;
   ulong * new_warmup_cooldown_rate_epoch     = &new_warmup_cooldown_rate_epoch_val;
-  int is_some = fd_new_warmup_cooldown_rate_epoch( &slot_ctx->slot_bank,
+  int is_some = fd_new_warmup_cooldown_rate_epoch( slot_ctx->slot_bank.slot,
                                                    slot_ctx->sysvar_cache,
                                                    &slot_ctx->epoch_ctx->features,
                                                    new_warmup_cooldown_rate_epoch,
@@ -575,7 +575,7 @@ calculate_stake_vote_rewards( fd_exec_slot_ctx_t *                       slot_ct
   int _err[1];
   ulong   new_warmup_cooldown_rate_epoch_val = 0UL;
   ulong * new_warmup_cooldown_rate_epoch     = &new_warmup_cooldown_rate_epoch_val;
-  int is_some = fd_new_warmup_cooldown_rate_epoch( &slot_ctx->slot_bank,
+  int is_some = fd_new_warmup_cooldown_rate_epoch( slot_ctx->slot_bank.slot,
                                                    slot_ctx->sysvar_cache,
                                                     &slot_ctx->epoch_ctx->features,
                                                    new_warmup_cooldown_rate_epoch,
@@ -659,7 +659,7 @@ calculate_validator_rewards( fd_exec_slot_ctx_t *                      slot_ctx,
                              ulong                                     exec_spad_cnt,
                              fd_spad_t *                               runtime_spad ) {
     /* https://github.com/firedancer-io/solana/blob/dab3da8e7b667d7527565bddbdbecf7ec1fb868e/runtime/src/bank.rs#L2759-L2786 */
-  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
+  fd_stake_history_t const * stake_history = (fd_stake_history_t const *)fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
   if( FD_UNLIKELY( !stake_history ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
   }
@@ -955,7 +955,8 @@ set_epoch_reward_status_active( fd_exec_slot_ctx_t *             slot_ctx,
 static void
 distribute_epoch_rewards_in_partition( fd_stake_reward_dlist_t * partition,
                                        fd_stake_reward_t *       pool,
-                                       fd_exec_slot_ctx_t *      slot_ctx ) {
+                                       fd_exec_slot_ctx_t *      slot_ctx,
+                                       fd_spad_t *               runtime_spad ) {
 
   ulong lamports_distributed = 0UL;
   ulong lamports_burned      = 0UL;
@@ -978,7 +979,9 @@ distribute_epoch_rewards_in_partition( fd_stake_reward_dlist_t * partition,
   /* Update the epoch rewards sysvar with the amount distributed and burnt */
   if( FD_LIKELY( FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, enable_partitioned_epoch_reward ) ||
                  FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, partitioned_epoch_rewards_superfeature ) ) ) {
-    fd_sysvar_epoch_rewards_distribute( slot_ctx, lamports_distributed + lamports_burned );
+    fd_sysvar_epoch_rewards_distribute( slot_ctx,
+                                        lamports_distributed + lamports_burned,
+                                        runtime_spad );
   }
 
   FD_LOG_DEBUG(( "lamports burned: %lu, lamports distributed: %lu", lamports_burned, lamports_distributed ));
@@ -1023,13 +1026,14 @@ fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx,
     ulong partition_index = height - distribution_starting_block_height;
     distribute_epoch_rewards_in_partition( &status->partitioned_stake_rewards.partitions[ partition_index ],
                                            status->partitioned_stake_rewards.pool,
-                                           slot_ctx );
+                                           slot_ctx,
+                                           runtime_spad );
   }
 
   /* If we have finished distributing rewards, set the status to inactive */
   if( fd_ulong_sat_add( height, 1UL ) >= distribution_end_exclusive ) {
     set_epoch_reward_status_inactive( slot_ctx, runtime_spad );
-    fd_sysvar_epoch_rewards_set_inactive( slot_ctx );
+    fd_sysvar_epoch_rewards_set_inactive( slot_ctx,runtime_spad );
   }
 }
 
@@ -1061,7 +1065,8 @@ fd_update_rewards( fd_exec_slot_ctx_t * slot_ctx,
   for( ulong i = 0UL; i < rewards_result->stake_rewards_by_partition.partitioned_stake_rewards.partitions_len; i++ ) {
     distribute_epoch_rewards_in_partition( &rewards_result->stake_rewards_by_partition.partitioned_stake_rewards.partitions[ i ],
                                            rewards_result->stake_rewards_by_partition.partitioned_stake_rewards.pool,
-                                           slot_ctx );
+                                           slot_ctx,
+                                           runtime_spad );
   }
 }
 
@@ -1153,7 +1158,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
 
     int _err[1] = {0};
     ulong * new_warmup_cooldown_rate_epoch = fd_spad_alloc( runtime_spad, alignof(ulong), sizeof(ulong) );
-    int is_some = fd_new_warmup_cooldown_rate_epoch( &slot_ctx->slot_bank,
+    int is_some = fd_new_warmup_cooldown_rate_epoch( slot_ctx->slot_bank.slot,
                                                      slot_ctx->sysvar_cache,
                                                      &slot_ctx->epoch_ctx->features,
                                                      new_warmup_cooldown_rate_epoch, _err );
@@ -1161,7 +1166,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
       new_warmup_cooldown_rate_epoch = NULL;
     }
 
-    fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
+    fd_stake_history_t const * stake_history = (fd_stake_history_t const *)fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
     if( FD_UNLIKELY( !stake_history ) ) {
       FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
     }

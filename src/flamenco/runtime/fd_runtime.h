@@ -330,17 +330,20 @@ fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx,
                            fd_spad_t *          runtime_spad );
 
 int
-fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx );
+fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx,
+                              fd_spad_t *          runtime_spad );
 
 /* TODO: Invoked by fd_executor: layering violation. Rent logic is deprecated
    and will be torn out entirely very soon. */
 ulong
-fd_runtime_collect_rent_from_account( fd_slot_bank_t const *  slot_bank,
-                                      fd_epoch_bank_t const * epoch_bank,
-                                      fd_features_t *         features,
-                                      fd_account_meta_t *     acc,
-                                      fd_pubkey_t const *     key,
-                                      ulong                   epoch );
+fd_runtime_collect_rent_from_account( ulong                       slot,
+                                      fd_epoch_schedule_t const * schedule,
+                                      fd_rent_t const *           rent,
+                                      double                      slots_per_year,
+                                      fd_features_t *             features,
+                                      fd_account_meta_t *         acc,
+                                      fd_pubkey_t const *         key,
+                                      ulong                       epoch );
 
 void
 fd_runtime_update_slots_per_epoch( fd_exec_slot_ctx_t * slot_ctx,

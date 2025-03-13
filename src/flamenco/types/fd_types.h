@@ -10,8 +10,8 @@
 /* sdk/program/src/feature.rs#L22 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_feature {
-  ulong activated_at; //op0
-  uchar has_activated_at; //op2
+  ulong activated_at;
+  uchar has_activated_at;
 };
 typedef struct fd_feature fd_feature_t;
 #define FD_FEATURE_FOOTPRINT sizeof(fd_feature_t)
@@ -80,7 +80,7 @@ typedef struct fd_hash_hash_age_pair_global fd_hash_hash_age_pair_global_t;
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_block_hash_vec {
   ulong last_hash_index;
-  fd_hash_t * last_hash; //op4
+  fd_hash_t * last_hash;
   ulong ages_len;
   fd_hash_hash_age_pair_t * ages;
   ulong max_age;
@@ -123,7 +123,7 @@ fd_hash_hash_age_pair_t_map_join_new( void * * alloc_mem, ulong len ) {
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_block_hash_queue {
   ulong last_hash_index;
-  fd_hash_t * last_hash; //op4
+  fd_hash_t * last_hash;
   fd_hash_hash_age_pair_t_mapnode_t * ages_pool;
   fd_hash_hash_age_pair_t_mapnode_t * ages_root;
   ulong max_age;
@@ -955,7 +955,7 @@ struct __attribute__((aligned(16UL))) fd_versioned_bank {
   ulong signature_count;
   ulong capitalization;
   ulong max_tick_height;
-  ulong* hashes_per_tick; //op3
+  ulong* hashes_per_tick;
   ulong ticks_per_slot;
   uint128 ns_per_slot;
   ulong genesis_creation_time;
@@ -1285,11 +1285,11 @@ struct __attribute__((aligned(16UL))) fd_solana_manifest {
   fd_versioned_bank_t bank;
   fd_solana_accounts_db_fields_t accounts_db;
   ulong lamports_per_signature;
-  fd_bank_incremental_snapshot_persistence_t * bank_incremental_snapshot_persistence; //op4
-  fd_hash_t * epoch_account_hash; //op4
+  fd_bank_incremental_snapshot_persistence_t * bank_incremental_snapshot_persistence;
+  fd_hash_t * epoch_account_hash;
   ulong versioned_epoch_stakes_len;
   fd_versioned_epoch_stakes_pair_t * versioned_epoch_stakes;
-  fd_slot_lthash_t * lthash; //op4
+  fd_slot_lthash_t * lthash;
 };
 typedef struct fd_solana_manifest fd_solana_manifest_t;
 #define FD_SOLANA_MANIFEST_FOOTPRINT sizeof(fd_solana_manifest_t)
@@ -1329,9 +1329,9 @@ typedef struct fd_rust_duration_global fd_rust_duration_global_t;
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_poh_config {
   fd_rust_duration_t target_tick_duration;
-  ulong* target_tick_count; //op3
-  ulong hashes_per_tick; //op0
-  uchar has_hashes_per_tick; //op2
+  ulong* target_tick_count;
+  ulong hashes_per_tick;
+  uchar has_hashes_per_tick;
 };
 typedef struct fd_poh_config fd_poh_config_t;
 #define FD_POH_CONFIG_FOOTPRINT sizeof(fd_poh_config_t)
@@ -1698,8 +1698,8 @@ struct __attribute__((aligned(8UL))) fd_vote_state_0_23_5 {
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
   fd_vote_lockout_t * votes; /* fd_deque_dynamic (min cnt 32) */
-  ulong root_slot; //op0
-  uchar has_root_slot; //op2
+  ulong root_slot;
+  uchar has_root_slot;
   fd_vote_epoch_credits_t * epoch_credits; /* fd_deque_dynamic (min cnt 64) */
   fd_vote_block_timestamp_t last_timestamp;
 };
@@ -1776,8 +1776,8 @@ struct __attribute__((aligned(8UL))) fd_vote_state_1_14_11 {
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
   fd_vote_lockout_t * votes; /* fd_deque_dynamic (min cnt 32) */
-  ulong root_slot; //op0
-  uchar has_root_slot; //op2
+  ulong root_slot;
+  uchar has_root_slot;
   fd_vote_authorized_voters_t authorized_voters;
   fd_vote_prior_voters_t prior_voters;
   fd_vote_epoch_credits_t * epoch_credits; /* fd_deque_dynamic (min cnt 64) */
@@ -1824,8 +1824,8 @@ struct __attribute__((aligned(8UL))) fd_vote_state {
   fd_pubkey_t authorized_withdrawer;
   uchar commission;
   fd_landed_vote_t * votes; /* fd_deque_dynamic (min cnt 32) */
-  ulong root_slot; //op0
-  uchar has_root_slot; //op2
+  ulong root_slot;
+  uchar has_root_slot;
   fd_vote_authorized_voters_t authorized_voters;
   fd_vote_prior_voters_t prior_voters;
   fd_vote_epoch_credits_t * epoch_credits; /* fd_deque_dynamic (min cnt 64) */
@@ -1885,11 +1885,11 @@ typedef struct fd_vote_state_versioned_global fd_vote_state_versioned_global_t;
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_vote_state_update {
   fd_vote_lockout_t * lockouts; /* fd_deque_dynamic (min cnt 32) */
-  ulong root; //op0
-  uchar has_root; //op2
+  ulong root;
+  uchar has_root;
   fd_hash_t hash;
-  long timestamp; //op0
-  uchar has_timestamp; //op2
+  long timestamp;
+  uchar has_timestamp;
 };
 typedef struct fd_vote_state_update fd_vote_state_update_t;
 #define FD_VOTE_STATE_UPDATE_FOOTPRINT sizeof(fd_vote_state_update_t)
@@ -1913,8 +1913,8 @@ struct __attribute__((aligned(8UL))) fd_compact_vote_state_update {
   ushort lockouts_len;
   fd_lockout_offset_t * lockouts;
   fd_hash_t hash;
-  long timestamp; //op0
-  uchar has_timestamp; //op2
+  long timestamp;
+  uchar has_timestamp;
 };
 typedef struct fd_compact_vote_state_update fd_compact_vote_state_update_t;
 #define FD_COMPACT_VOTE_STATE_UPDATE_FOOTPRINT sizeof(fd_compact_vote_state_update_t)
@@ -1970,8 +1970,8 @@ struct __attribute__((aligned(8UL))) fd_compact_tower_sync {
   ulong root;
   fd_lockout_offset_t * lockout_offsets; /* fd_deque_dynamic (min cnt 32) */
   fd_hash_t hash;
-  long timestamp; //op0
-  uchar has_timestamp; //op2
+  long timestamp;
+  uchar has_timestamp;
   fd_hash_t block_id;
 };
 typedef struct fd_compact_tower_sync fd_compact_tower_sync_t;
@@ -1995,11 +1995,11 @@ typedef struct fd_compact_tower_sync_global fd_compact_tower_sync_global_t;
 struct __attribute__((aligned(8UL))) fd_tower_sync {
   fd_vote_lockout_t * lockouts; /* fd_deque_dynamic */
   ulong lockouts_cnt;
-  ulong root; //op0
-  uchar has_root; //op2
+  ulong root;
+  uchar has_root;
   fd_hash_t hash;
-  long timestamp; //op0
-  uchar has_timestamp; //op2
+  long timestamp;
+  uchar has_timestamp;
   fd_hash_t block_id;
 };
 typedef struct fd_tower_sync fd_tower_sync_t;
@@ -2058,7 +2058,7 @@ typedef struct fd_slot_history_inner_global fd_slot_history_inner_global_t;
 /* https://github.com/tov/bv-rs/blob/107be3e9c45324e55844befa4c4239d4d3d092c6/src/bit_vec/inner.rs#L8 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_slot_history_bitvec {
-  fd_slot_history_inner_t * bits; //op4
+  fd_slot_history_inner_t * bits;
   ulong len;
 };
 typedef struct fd_slot_history_bitvec fd_slot_history_bitvec_t;
@@ -2542,8 +2542,8 @@ struct __attribute__((aligned(128UL))) fd_slot_bank {
   fd_hash_t prev_banks_hash;
   ulong parent_signature_cnt;
   ulong tick_height;
-  ulong use_preceeding_epoch_stakes; //op0
-  uchar has_use_preceeding_epoch_stakes; //op2
+  ulong use_preceeding_epoch_stakes;
+  uchar has_use_preceeding_epoch_stakes;
   fd_hard_forks_t hard_forks;
 };
 typedef struct fd_slot_bank fd_slot_bank_t;
@@ -2623,7 +2623,7 @@ deq_ulong_join_new( void * * alloc_mem, ulong max ) {
 struct __attribute__((aligned(8UL))) fd_vote {
   ulong * slots; /* fd_deque_dynamic */
   fd_hash_t hash;
-  long* timestamp; //op3
+  long* timestamp;
 };
 typedef struct fd_vote fd_vote_t;
 #define FD_VOTE_FOOTPRINT sizeof(fd_vote_t)
@@ -3087,7 +3087,7 @@ typedef struct fd_stake_instruction_initialize_global fd_stake_instruction_initi
 struct __attribute__((aligned(8UL))) fd_stake_lockup_custodian_args {
   fd_stake_lockup_t lockup;
   fd_sol_sysvar_clock_t clock;
-  fd_pubkey_t * custodian; //op4
+  fd_pubkey_t * custodian;
 };
 typedef struct fd_stake_lockup_custodian_args fd_stake_lockup_custodian_args_t;
 #define FD_STAKE_LOCKUP_CUSTODIAN_ARGS_FOOTPRINT sizeof(fd_stake_lockup_custodian_args_t)
@@ -3195,8 +3195,8 @@ typedef struct fd_authorize_checked_with_seed_args_global fd_authorize_checked_w
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L235 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_lockup_checked_args {
-  long* unix_timestamp; //op3
-  ulong* epoch; //op3
+  long* unix_timestamp;
+  ulong* epoch;
 };
 typedef struct fd_lockup_checked_args fd_lockup_checked_args_t;
 #define FD_LOCKUP_CHECKED_ARGS_FOOTPRINT sizeof(fd_lockup_checked_args_t)
@@ -3213,9 +3213,9 @@ typedef struct fd_lockup_checked_args_global fd_lockup_checked_args_global_t;
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/stake/instruction.rs#L228 */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_lockup_args {
-  long* unix_timestamp; //op3
-  ulong* epoch; //op3
-  fd_pubkey_t * custodian; //op4
+  long* unix_timestamp;
+  ulong* epoch;
+  fd_pubkey_t * custodian;
 };
 typedef struct fd_lockup_args fd_lockup_args_t;
 #define FD_LOCKUP_ARGS_FOOTPRINT sizeof(fd_lockup_args_t)
@@ -3715,7 +3715,7 @@ typedef struct fd_bpf_upgradeable_loader_program_instruction_global fd_bpf_upgra
 /*  */
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_bpf_upgradeable_loader_state_buffer {
-  fd_pubkey_t * authority_address; //op4
+  fd_pubkey_t * authority_address;
 };
 typedef struct fd_bpf_upgradeable_loader_state_buffer fd_bpf_upgradeable_loader_state_buffer_t;
 #define FD_BPF_UPGRADEABLE_LOADER_STATE_BUFFER_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_state_buffer_t)
@@ -3748,7 +3748,7 @@ typedef struct fd_bpf_upgradeable_loader_state_program_global fd_bpf_upgradeable
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_bpf_upgradeable_loader_state_program_data {
   ulong slot;
-  fd_pubkey_t * upgrade_authority_address; //op4
+  fd_pubkey_t * upgrade_authority_address;
 };
 typedef struct fd_bpf_upgradeable_loader_state_program_data fd_bpf_upgradeable_loader_state_program_data_t;
 #define FD_BPF_UPGRADEABLE_LOADER_STATE_PROGRAM_DATA_FOOTPRINT sizeof(fd_bpf_upgradeable_loader_state_program_data_t)
@@ -3862,8 +3862,8 @@ struct __attribute__((aligned(8UL))) fd_lookup_table_meta {
   ulong deactivation_slot;
   ulong last_extended_slot;
   uchar last_extended_slot_start_index;
-  fd_pubkey_t authority; //op1
-  uchar has_authority; //op2
+  fd_pubkey_t authority;
+  uchar has_authority;
   ushort _padding;
 };
 typedef struct fd_lookup_table_meta fd_lookup_table_meta_t;
@@ -3943,8 +3943,8 @@ typedef struct fd_gossip_bitvec_u8_inner_global fd_gossip_bitvec_u8_inner_global
 
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_gossip_bitvec_u8 {
-  fd_gossip_bitvec_u8_inner_t bits; //op1
-  uchar has_bits; //op2
+  fd_gossip_bitvec_u8_inner_t bits;
+  uchar has_bits;
   ulong len;
 };
 typedef struct fd_gossip_bitvec_u8 fd_gossip_bitvec_u8_t;
@@ -3979,8 +3979,8 @@ typedef struct fd_gossip_bitvec_u64_inner_global fd_gossip_bitvec_u64_inner_glob
 
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_gossip_bitvec_u64 {
-  fd_gossip_bitvec_u64_inner_t bits; //op1
-  uchar has_bits; //op2
+  fd_gossip_bitvec_u64_inner_t bits;
+  uchar has_bits;
   ulong len;
 };
 typedef struct fd_gossip_bitvec_u64 fd_gossip_bitvec_u64_t;
@@ -4400,8 +4400,8 @@ struct __attribute__((aligned(8UL))) fd_gossip_version_v1 {
   ushort major;
   ushort minor;
   ushort patch;
-  uint commit; //op0
-  uchar has_commit; //op2
+  uint commit;
+  uchar has_commit;
 };
 typedef struct fd_gossip_version_v1 fd_gossip_version_v1_t;
 #define FD_GOSSIP_VERSION_V1_FOOTPRINT sizeof(fd_gossip_version_v1_t)
@@ -4427,8 +4427,8 @@ struct __attribute__((aligned(8UL))) fd_gossip_version_v2 {
   ushort major;
   ushort minor;
   ushort patch;
-  uint commit; //op0
-  uchar has_commit; //op2
+  uint commit;
+  uchar has_commit;
   uint feature_set;
 };
 typedef struct fd_gossip_version_v2 fd_gossip_version_v2_t;
@@ -4656,8 +4656,8 @@ typedef struct fd_restart_raw_offsets_bitvec_u8_inner_global fd_restart_raw_offs
 
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_restart_raw_offsets_bitvec {
-  fd_restart_raw_offsets_bitvec_u8_inner_t bits; //op1
-  uchar has_bits; //op2
+  fd_restart_raw_offsets_bitvec_u8_inner_t bits;
+  uchar has_bits;
   ulong len;
 };
 typedef struct fd_restart_raw_offsets_bitvec fd_restart_raw_offsets_bitvec_t;
@@ -5407,7 +5407,7 @@ typedef struct fd_pubkey_rewardinfo_pair_global fd_pubkey_rewardinfo_pair_global
 
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(8UL))) fd_optional_account {
-  fd_solana_account_t * account; //op4
+  fd_solana_account_t * account;
 };
 typedef struct fd_optional_account fd_optional_account_t;
 #define FD_OPTIONAL_ACCOUNT_FOOTPRINT sizeof(fd_optional_account_t)

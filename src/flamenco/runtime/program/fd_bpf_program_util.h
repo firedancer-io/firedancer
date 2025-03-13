@@ -75,10 +75,10 @@ fd_bpf_load_cache_entry( fd_funk_t *                    funk,
                          fd_sbpf_validated_program_t ** valid_prog );
 
 void
-fd_bpf_get_sbpf_versions( uint *                 sbpf_min_version,
-                          uint *                 sbpf_max_version,
-                          fd_slot_bank_t const * slot_bank,
-                          fd_features_t const *  features );
+fd_bpf_get_sbpf_versions( uint *                sbpf_min_version,
+                          uint *                sbpf_max_version,
+                          ulong                 slot,
+                          fd_features_t const * features );
 
 FD_PROTOTYPES_END
 

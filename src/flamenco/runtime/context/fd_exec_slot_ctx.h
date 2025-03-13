@@ -60,6 +60,8 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                       last_snapshot_slot;
 
   fd_rent_fresh_accounts_t    rent_fresh_accounts;
+  fd_wksp_t *                 runtime_wksp; /* TODO: this should hold wksp for runtime_spad. */
+  fd_wksp_t *                 funk_wksp; /* TODO: this should hold wksp for funk. */
 };
 
 #define FD_EXEC_SLOT_CTX_ALIGN     (alignof(fd_exec_slot_ctx_t))

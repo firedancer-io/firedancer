@@ -259,7 +259,7 @@ fd_borrowed_account_is_rent_exempt_at_data_length( fd_borrowed_account_t const *
 
   /* TODO: Add an is_exempt rent API to better match Agave and clean up code
      https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L990 */
-  fd_rent_t rent    = borrowed_acct->instr_ctx->txn_ctx->epoch_bank->rent;
+  fd_rent_t rent    = borrowed_acct->instr_ctx->txn_ctx->rent;
   ulong min_balance = fd_rent_exempt_minimum_balance( &rent, acct->const_meta->dlen );
   return acct->const_meta->info.lamports >= min_balance;
 }
@@ -286,7 +286,7 @@ fd_borrowed_account_is_executable( fd_borrowed_account_t const * borrowed_acct )
 
 FD_FN_PURE static inline int
 fd_borrowed_account_is_executable_internal( fd_borrowed_account_t const * borrowed_acct ) {
-  return !FD_FEATURE_ACTIVE( borrowed_acct->instr_ctx->txn_ctx->slot_bank->slot, borrowed_acct->instr_ctx->txn_ctx->features, remove_accounts_executable_flag_checks ) &&
+  return !FD_FEATURE_ACTIVE( borrowed_acct->instr_ctx->txn_ctx->slot, borrowed_acct->instr_ctx->txn_ctx->features, remove_accounts_executable_flag_checks ) &&
           fd_borrowed_account_is_executable( borrowed_acct );
 }
 

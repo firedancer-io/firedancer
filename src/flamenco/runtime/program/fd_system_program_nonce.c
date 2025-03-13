@@ -35,7 +35,7 @@ require_acct_rent( fd_exec_instr_ctx_t * ctx,
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  fd_rent_t const * rent = fd_sysvar_cache_rent( ctx->txn_ctx->sysvar_cache );
+  fd_rent_t const * rent = (fd_rent_t const *)fd_sysvar_cache_rent( ctx->txn_ctx->sysvar_cache );
   if( FD_UNLIKELY( !rent ) )
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
@@ -44,21 +44,21 @@ require_acct_rent( fd_exec_instr_ctx_t * ctx,
 }
 
 static int
-require_acct_recent_blockhashes(
-  fd_exec_instr_ctx_t *             ctx,
-  ulong                             idx,
-  fd_recent_block_hashes_t const ** out ) {
+require_acct_recent_blockhashes( fd_exec_instr_ctx_t *             ctx,
+                                 ulong                             idx,
+                                 fd_recent_block_hashes_t const ** out ) {
 
   do {
     int err = require_acct( ctx, idx, &fd_sysvar_recent_block_hashes_id );
     if( FD_UNLIKELY( err ) ) return err;
   } while(0);
 
-  fd_recent_block_hashes_t const * rbh = fd_sysvar_cache_recent_block_hashes( ctx->txn_ctx->sysvar_cache );
-  if( FD_UNLIKELY( !rbh ) )
+  fd_recent_block_hashes_global_t const * rbh_global = fd_sysvar_cache_recent_block_hashes( ctx->txn_ctx->sysvar_cache );
+  if( FD_UNLIKELY( !rbh_global ) )
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
+  fd_bincode_decode_ctx_t decode = { .wksp = ctx->txn_ctx->runtime_pub_wksp };
+  fd_recent_block_hashes_convert_global_to_local( rbh_global, (fd_recent_block_hashes_t*)*out, &decode );
 
-  *out = rbh;
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
@@ -73,7 +73,7 @@ most_recent_block_hash( fd_exec_instr_ctx_t * ctx,
   /* The environment config blockhash comes from `bank.last_blockhash_and_lamports_per_signature()`,
      which takes the top element from the blockhash queue.
      https://github.com/anza-xyz/agave/blob/v2.1.6/programs/system/src/system_instruction.rs#L47 */
-  fd_hash_t const * last_hash = ctx->txn_ctx->slot_bank->block_hash_queue.last_hash;
+  fd_hash_t const * last_hash = ctx->txn_ctx->block_hash_queue.last_hash;
   if( FD_UNLIKELY( last_hash==NULL ) ) {
     // Agave panics if this blockhash was never set at the start of the txn batch
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_NONCE_NO_RECENT_BLOCKHASHES;
@@ -283,7 +283,8 @@ fd_system_program_exec_advance_nonce_account( fd_exec_instr_ctx_t * ctx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L427-L432 */
 
-  fd_recent_block_hashes_t const * recent_blockhashes = NULL;
+  fd_recent_block_hashes_t         recent_blockhashes_obj;
+  fd_recent_block_hashes_t const * recent_blockhashes = &recent_blockhashes_obj;
   do {
     err = require_acct_recent_blockhashes( ctx, 1UL, &recent_blockhashes );
     if( FD_UNLIKELY( err ) ) return err;
@@ -504,7 +505,8 @@ fd_system_program_exec_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L445-L449 */
 
-  fd_recent_block_hashes_t const * recent_blockhashes = NULL;
+  fd_recent_block_hashes_t         recent_blockhashes_obj;
+  fd_recent_block_hashes_t const * recent_blockhashes = &recent_blockhashes_obj;
   do {
     int err = require_acct_recent_blockhashes( ctx, 2UL, &recent_blockhashes );
     if( FD_UNLIKELY( err ) ) return err;
@@ -668,7 +670,8 @@ fd_system_program_exec_initialize_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L466-L471 */
 
-  fd_recent_block_hashes_t const * recent_blockhashes = NULL;
+  fd_recent_block_hashes_t         recent_blockhashes_obj;
+  fd_recent_block_hashes_t const * recent_blockhashes = &recent_blockhashes_obj;
   do {
     err = require_acct_recent_blockhashes( ctx, 1UL, &recent_blockhashes );
     if( FD_UNLIKELY( err ) ) return err;
@@ -934,7 +937,7 @@ fd_system_program_exec_upgrade_nonce_account( fd_exec_instr_ctx_t * ctx ) {
    Note: We check 151 and not 150 due to a known bug in agave. */
 int
 fd_check_transaction_age( fd_exec_txn_ctx_t * txn_ctx ) {
-  fd_block_hash_queue_t hash_queue         = txn_ctx->slot_bank->block_hash_queue;
+  fd_block_hash_queue_t hash_queue         = txn_ctx->block_hash_queue;
   fd_hash_t *           last_blockhash     = hash_queue.last_hash;
 
   /* check_transaction_age */

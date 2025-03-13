@@ -180,7 +180,7 @@ set_state( fd_borrowed_account_t *     borrowed_acct,
 // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/lib.rs#L29
 static inline ulong
 get_minimum_delegation( fd_exec_txn_ctx_t const * txn_ctx /* feature set */ ) {
-  return fd_ulong_if( FD_FEATURE_ACTIVE( txn_ctx->slot_bank->slot, txn_ctx->features, stake_raise_minimum_delegation_to_1_sol ),
+  return fd_ulong_if( FD_FEATURE_ACTIVE( txn_ctx->slot, txn_ctx->features, stake_raise_minimum_delegation_to_1_sol ),
                       MINIMUM_DELEGATION_SOL * LAMPORTS_PER_SOL,
                       1 );
 }
@@ -281,7 +281,7 @@ validate_split_amount( fd_exec_instr_ctx_t const * invoke_context,
   };
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L1042
-  fd_rent_t const * rent = fd_sysvar_cache_rent( invoke_context->txn_ctx->sysvar_cache );
+  fd_rent_t const * rent = (fd_rent_t const *)fd_sysvar_cache_rent( invoke_context->txn_ctx->sysvar_cache );
   if( FD_UNLIKELY( !rent ) )
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
@@ -291,7 +291,7 @@ validate_split_amount( fd_exec_instr_ctx_t const * invoke_context,
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L1048
   if( FD_UNLIKELY(
-           FD_FEATURE_ACTIVE( invoke_context->txn_ctx->slot_bank->slot, invoke_context->txn_ctx->features, require_rent_exempt_split_destination ) &&
+           FD_FEATURE_ACTIVE( invoke_context->txn_ctx->slot, invoke_context->txn_ctx->features, require_rent_exempt_split_destination ) &&
            source_is_active && source_remaining_balance!=0 &&
            destination_lamports<destination_rent_exempt_reserve ) ) {
     return FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS;
@@ -747,20 +747,20 @@ stake_deactivate( fd_stake_t * stake, ulong epoch, uint * custom_err ) {
 
 // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L62
 int
-fd_new_warmup_cooldown_rate_epoch( fd_slot_bank_t const *    slot_bank,
+fd_new_warmup_cooldown_rate_epoch( ulong                     slot,
                                    fd_sysvar_cache_t const * sysvar_cache,
                                    fd_features_t const *     features,
                                    /* out */ ulong *         epoch,
                                    int *                     err ) {
   *err = 0;
-  fd_epoch_schedule_t const * epoch_schedule = fd_sysvar_cache_epoch_schedule( sysvar_cache );
+  fd_epoch_schedule_t const * epoch_schedule = (fd_epoch_schedule_t const *)fd_sysvar_cache_epoch_schedule( sysvar_cache );
   if( FD_UNLIKELY( !epoch_schedule ) ) {
     *epoch = ULONG_MAX;
     *err   = FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
     return 1;
   }
   /* reduce_stake_warmup_cooldown is activated on all clusters, so we shouldn't have a `None` case. */
-  if( FD_LIKELY( FD_FEATURE_ACTIVE( slot_bank->slot, *features, reduce_stake_warmup_cooldown ) ) ) {
+  if( FD_LIKELY( FD_FEATURE_ACTIVE( slot, *features, reduce_stake_warmup_cooldown ) ) ) {
     ulong slot = features->reduce_stake_warmup_cooldown;
     *epoch     = fd_slot_to_epoch( epoch_schedule, slot, NULL );
     return 1;
@@ -830,7 +830,7 @@ get_if_mergeable( fd_exec_instr_ctx_t *         invoke_context, // not const to 
     ulong new_rate_activation_epoch = ULONG_MAX;
     int   err;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L1111
-    int   is_some = fd_new_warmup_cooldown_rate_epoch( invoke_context->txn_ctx->slot_bank,
+    int   is_some = fd_new_warmup_cooldown_rate_epoch( invoke_context->txn_ctx->slot,
                                                        invoke_context->txn_ctx->sysvar_cache,
                                                        &invoke_context->txn_ctx->features,
                                                        &new_rate_activation_epoch,
@@ -1138,12 +1138,12 @@ get_stake_status( fd_exec_instr_ctx_t const *    invoke_context,
                   fd_stake_t *                   stake,
                   fd_sol_sysvar_clock_t const *  clock,
                   fd_stake_activation_status_t * out ) {
-  fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history( invoke_context->txn_ctx->sysvar_cache );
+  fd_stake_history_t const * stake_history = (fd_stake_history_t const *)fd_sysvar_cache_stake_history( invoke_context->txn_ctx->sysvar_cache );
   if( FD_UNLIKELY( !stake_history ) )
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   ulong new_rate_activation_epoch = ULONG_MAX;
   int   err;
-  int   is_some = fd_new_warmup_cooldown_rate_epoch( invoke_context->txn_ctx->slot_bank,
+  int   is_some = fd_new_warmup_cooldown_rate_epoch( invoke_context->txn_ctx->slot,
                                                      invoke_context->txn_ctx->sysvar_cache,
                                                      &invoke_context->txn_ctx->features,
                                                      &new_rate_activation_epoch,
@@ -1182,7 +1182,7 @@ redelegate_stake( fd_exec_instr_ctx_t const *   ctx,
                   uint *                        custom_err ) {
   ulong new_rate_activation_epoch = ULONG_MAX;
   int   err;
-  int   is_some = fd_new_warmup_cooldown_rate_epoch( ctx->txn_ctx->slot_bank,
+  int   is_some = fd_new_warmup_cooldown_rate_epoch( ctx->txn_ctx->slot,
                                                      ctx->txn_ctx->sysvar_cache,
                                                      &ctx->txn_ctx->features,
                                                      &new_rate_activation_epoch,
@@ -1615,9 +1615,9 @@ split( fd_exec_instr_ctx_t const * ctx,
     ulong minimum_delegation = get_minimum_delegation( ctx->txn_ctx );
 
     int is_active;
-    if( FD_UNLIKELY( FD_FEATURE_ACTIVE( ctx->txn_ctx->slot_bank->slot, ctx->txn_ctx->features, require_rent_exempt_split_destination ) ) ) {
+    if( FD_UNLIKELY( FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, require_rent_exempt_split_destination ) ) ) {
       // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L434
-      fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( ctx->txn_ctx->sysvar_cache );
+      fd_sol_sysvar_clock_t const * clock = (fd_sol_sysvar_clock_t const *)fd_sysvar_cache_clock( ctx->txn_ctx->sysvar_cache );
       if( FD_UNLIKELY( !clock ) )
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
@@ -1929,11 +1929,11 @@ move_stake_or_lamports_shared_checks( fd_exec_instr_ctx_t *   invoke_context, //
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
     // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_state.rs#L177-L180
-    fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( invoke_context->txn_ctx->sysvar_cache );
+    fd_sol_sysvar_clock_t const * clock = (fd_sol_sysvar_clock_t const *)fd_sysvar_cache_clock( invoke_context->txn_ctx->sysvar_cache );
     if( FD_UNLIKELY( !clock ) )
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
-    fd_stake_history_t const * stake_history = fd_sysvar_cache_stake_history( invoke_context->txn_ctx->sysvar_cache );
+    fd_stake_history_t const * stake_history = (fd_stake_history_t const *)fd_sysvar_cache_stake_history( invoke_context->txn_ctx->sysvar_cache );
     if( FD_UNLIKELY( !stake_history ) )
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
@@ -2486,7 +2486,7 @@ get_stake_account( fd_exec_instr_ctx_t const * ctx,
 int
 fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
   /* Prevent execution of migrated native programs */
-  if( FD_UNLIKELY( FD_FEATURE_ACTIVE( ctx->txn_ctx->slot_bank->slot, ctx->txn_ctx->features, migrate_stake_program_to_core_bpf ) ) ) {
+  if( FD_UNLIKELY( FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, migrate_stake_program_to_core_bpf ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
   }
 
@@ -2526,7 +2526,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
   /* The EpochRewards sysvar only exists after partitioned epoch rewards is activated.
      If the sysvar exists, check the `active` field */
-  fd_sysvar_epoch_rewards_t const * rewards = fd_sysvar_cache_epoch_rewards( ctx->txn_ctx->sysvar_cache );
+  fd_sysvar_epoch_rewards_t const * rewards = (fd_sysvar_epoch_rewards_t const *)fd_sysvar_cache_epoch_rewards( ctx->txn_ctx->sysvar_cache );
   int epoch_rewards_active = (NULL != rewards) ? rewards->active : false;
 
   if (epoch_rewards_active && instruction->discriminant!=fd_stake_instruction_enum_get_minimum_delegation) {
@@ -2560,7 +2560,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     rc = get_stake_account( ctx, &me );  /* acquire_write */
     if( FD_UNLIKELY( rc ) ) return rc;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L87
-    fd_rent_t const * rent = fd_sysvar_from_instr_acct_rent( ctx, 1, &rc );
+    fd_rent_t const * rent = (fd_rent_t const *)fd_sysvar_from_instr_acct_rent( ctx, 1, &rc );
     if( FD_UNLIKELY( !rent ) ) return rc;
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L88
@@ -2588,7 +2588,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     rc = get_stake_account( ctx, &me );
     if( FD_UNLIKELY( rc ) ) return rc;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L92
-    fd_sol_sysvar_clock_t const * clock = fd_sysvar_from_instr_acct_clock( ctx, 1, &rc );
+    fd_sol_sysvar_clock_t const * clock = (fd_sol_sysvar_clock_t const *)fd_sysvar_from_instr_acct_clock( ctx, 1, &rc );
     if( FD_UNLIKELY( !clock ) ) return rc;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L94
     if( FD_UNLIKELY( ctx->instr->acct_cnt<3 ) )
@@ -2631,7 +2631,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( ctx->instr->acct_cnt<2 )
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L110
-    fd_sol_sysvar_clock_t const * clock = fd_sysvar_from_instr_acct_clock( ctx, 2, &rc );
+    fd_sol_sysvar_clock_t const * clock = (fd_sol_sysvar_clock_t const *)fd_sysvar_from_instr_acct_clock( ctx, 2, &rc );
     if( FD_UNLIKELY( !clock ) ) return rc;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L112
     fd_pubkey_t const * custodian_pubkey = NULL;
@@ -2672,11 +2672,11 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L131
     fd_sol_sysvar_clock_t const * clock =
-      fd_sysvar_from_instr_acct_clock( ctx, 2, &rc );
+    (fd_sol_sysvar_clock_t const *)fd_sysvar_from_instr_acct_clock( ctx, 2, &rc );
     if( FD_UNLIKELY( !clock ) ) return rc;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L133
     fd_stake_history_t const * stake_history =
-      fd_sysvar_from_instr_acct_stake_history( ctx, 3, &rc );
+    (fd_stake_history_t const *)fd_sysvar_from_instr_acct_stake_history( ctx, 3, &rc );
     if( FD_UNLIKELY( !stake_history ) ) return rc;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L138
     if( FD_UNLIKELY( ctx->instr->acct_cnt<5 ) )
@@ -2740,10 +2740,10 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( ctx->instr->acct_cnt<2 ) )
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L169
-    fd_sol_sysvar_clock_t const * clock = fd_sysvar_from_instr_acct_clock( ctx, 2, &rc );
+    fd_sol_sysvar_clock_t const * clock = (fd_sol_sysvar_clock_t const *)fd_sysvar_from_instr_acct_clock( ctx, 2, &rc );
     if( FD_UNLIKELY( rc ) ) return rc;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L171
-    fd_stake_history_t const * stake_history = fd_sysvar_from_instr_acct_stake_history( ctx, 3, &rc );
+    fd_stake_history_t const * stake_history = (fd_stake_history_t const *)fd_sysvar_from_instr_acct_stake_history( ctx, 3, &rc );
     if( FD_UNLIKELY( rc ) ) return rc;
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/stake/src/stake_instruction.rs#L175 */
@@ -2773,10 +2773,10 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( ctx->instr->acct_cnt<2 ) )
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L191
-    fd_sol_sysvar_clock_t const * clock = fd_sysvar_from_instr_acct_clock( ctx, 2, &rc );
+    fd_sol_sysvar_clock_t const * clock = (fd_sol_sysvar_clock_t const *)fd_sysvar_from_instr_acct_clock( ctx, 2, &rc );
     if( FD_UNLIKELY( !clock ) ) return rc;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L193
-    fd_stake_history_t const * stake_history = fd_sysvar_from_instr_acct_stake_history( ctx, 3, &rc );
+    fd_stake_history_t const * stake_history = (fd_stake_history_t const *)fd_sysvar_from_instr_acct_stake_history( ctx, 3, &rc );
     if( FD_UNLIKELY( !stake_history ) ) return rc;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L198
     if( FD_UNLIKELY( ctx->instr->acct_cnt<5 ) )
@@ -2788,7 +2788,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     uchar custodian_index           = 5;
     ulong new_rate_activation_epoch = ULONG_MAX;
     int   err;
-    int   is_some = fd_new_warmup_cooldown_rate_epoch( ctx->txn_ctx->slot_bank,
+    int   is_some = fd_new_warmup_cooldown_rate_epoch( ctx->txn_ctx->slot,
                                                        ctx->txn_ctx->sysvar_cache,
                                                        &ctx->txn_ctx->features,
                                                        &new_rate_activation_epoch,
@@ -2825,7 +2825,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     rc                         = get_stake_account( ctx, &me );
     if( FD_UNLIKELY( rc ) ) return rc;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L219
-    fd_sol_sysvar_clock_t const * clock = fd_sysvar_from_instr_acct_clock( ctx, 1, &rc );
+    fd_sol_sysvar_clock_t const * clock = (fd_sol_sysvar_clock_t const *)fd_sysvar_from_instr_acct_clock( ctx, 1, &rc );
     if( FD_UNLIKELY( !clock ) ) return rc;
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L221
@@ -2851,7 +2851,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     rc = get_stake_account( ctx, &me );
     if( FD_UNLIKELY( rc ) ) return rc;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L225
-    fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( ctx->txn_ctx->sysvar_cache );
+    fd_sol_sysvar_clock_t const * clock = (fd_sol_sysvar_clock_t const *)fd_sysvar_cache_clock( ctx->txn_ctx->sysvar_cache );
     if( FD_UNLIKELY( !clock ) )
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L226
@@ -2886,7 +2886,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     fd_stake_authorized_t authorized = { .staker     = *staker_pubkey,
                                           .withdrawer = *withdrawer_pubkey };
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L246
-    fd_rent_t const * rent = fd_sysvar_from_instr_acct_rent( ctx, 1, &rc );
+    fd_rent_t const * rent = (fd_rent_t const *)fd_sysvar_from_instr_acct_rent( ctx, 1, &rc );
     if( FD_UNLIKELY( !rent ) ) return rc;
 
     fd_stake_lockup_t lockup_default = {0};
@@ -2914,7 +2914,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( rc ) ) return rc;
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L251
-    fd_sol_sysvar_clock_t const * clock = fd_sysvar_from_instr_acct_clock( ctx, 1, &rc );
+    fd_sol_sysvar_clock_t const * clock = (fd_sol_sysvar_clock_t const *)fd_sysvar_from_instr_acct_clock( ctx, 1, &rc );
     if( FD_UNLIKELY( !clock ) ) return rc;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L253
     if( FD_UNLIKELY( ctx->instr->acct_cnt<4 ) )
@@ -2961,7 +2961,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( ctx->instr->acct_cnt<2 ) )
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L276
-    fd_sol_sysvar_clock_t const * clock = fd_sysvar_from_instr_acct_clock( ctx, 2, &rc );
+    fd_sol_sysvar_clock_t const * clock = (fd_sol_sysvar_clock_t const *)fd_sysvar_from_instr_acct_clock( ctx, 2, &rc );
     if( FD_UNLIKELY( !clock ) ) return rc;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L277
     if( FD_UNLIKELY( ctx->instr->acct_cnt<4 ) )
@@ -3015,7 +3015,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
                                 .epoch          = lockup_checked->epoch,
                                 .custodian      = (fd_pubkey_t *)custodian_pubkey }; // FIXME
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L310
-    fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( ctx->txn_ctx->sysvar_cache );
+    fd_sol_sysvar_clock_t const * clock = (fd_sol_sysvar_clock_t const *)fd_sysvar_cache_clock( ctx->txn_ctx->sysvar_cache );
     if( FD_UNLIKELY( !clock ) )
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
@@ -3058,7 +3058,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( ctx->instr->acct_cnt<3 ) )
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L325
-    fd_sol_sysvar_clock_t const * clock = fd_sysvar_cache_clock( ctx->txn_ctx->sysvar_cache );
+    fd_sol_sysvar_clock_t const * clock = (fd_sol_sysvar_clock_t const *)fd_sysvar_cache_clock( ctx->txn_ctx->sysvar_cache );
     if( FD_UNLIKELY( !clock ) )
       return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
@@ -3089,7 +3089,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
    */
   case fd_stake_instruction_enum_move_stake: {
     // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_instruction.rs#L359
-    if( FD_LIKELY( FD_FEATURE_ACTIVE( ctx->txn_ctx->slot_bank->slot, ctx->txn_ctx->features, move_stake_and_move_lamports_ixs ) ) ) {
+    if( FD_LIKELY( FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, move_stake_and_move_lamports_ixs ) ) ) {
       // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_instruction.rs#L361
       if( FD_UNLIKELY( ctx->instr->acct_cnt<3 ) )
         return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
@@ -3118,7 +3118,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
    */
   case fd_stake_instruction_enum_move_lamports: {
     // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_instruction.rs#L378
-    if( FD_LIKELY( FD_FEATURE_ACTIVE( ctx->txn_ctx->slot_bank->slot, ctx->txn_ctx->features, move_stake_and_move_lamports_ixs ) ) ) {
+    if( FD_LIKELY( FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, move_stake_and_move_lamports_ixs ) ) ) {
       // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_instruction.rs#L380
       if( FD_UNLIKELY( ctx->instr->acct_cnt<3 ) )
         return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;

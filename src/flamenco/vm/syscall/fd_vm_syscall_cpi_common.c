@@ -801,7 +801,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Agave consumes CU in translate_instruction
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L445 */
-  if( FD_FEATURE_ACTIVE( vm->instr_ctx->txn_ctx->slot_bank->slot, vm->instr_ctx->txn_ctx->features, loosen_cpi_size_restriction ) ) {
+  if( FD_FEATURE_ACTIVE( vm->instr_ctx->txn_ctx->slot, vm->instr_ctx->txn_ctx->features, loosen_cpi_size_restriction ) ) {
     FD_VM_CU_UPDATE( vm, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) / FD_VM_CPI_BYTES_PER_UNIT );
   }
 
@@ -902,7 +902,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Right after translating, Agave checks the number of account infos:
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/programs/bpf_loader/src/syscalls/cpi.rs#L822 */
-  if( FD_FEATURE_ACTIVE( vm->instr_ctx->txn_ctx->slot_bank->slot, vm->instr_ctx->txn_ctx->features, loosen_cpi_size_restriction ) ) {
+  if( FD_FEATURE_ACTIVE( vm->instr_ctx->txn_ctx->slot, vm->instr_ctx->txn_ctx->features, loosen_cpi_size_restriction ) ) {
     if( FD_UNLIKELY( acct_info_cnt > get_cpi_max_account_infos( vm->instr_ctx->txn_ctx ) ) ) {
       FD_VM_ERR_FOR_LOG_SYSCALL( vm, FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED );
       return FD_VM_SYSCALL_ERR_MAX_INSTRUCTION_ACCOUNT_INFOS_EXCEEDED;

@@ -33,7 +33,7 @@ fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx ) {
   ulong sz = sizeof(uint) + fd_epoch_bank_size(epoch_bank);
   fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
   int opt_err = 0;
-  fd_funk_rec_t *rec = fd_funk_rec_write_prepare(slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, &id, sz, 1, NULL, &opt_err);
+  fd_funk_rec_t * rec = fd_funk_rec_write_prepare( slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, &id, sz, 1, NULL, &opt_err );
   if (NULL == rec)
   {
     FD_LOG_WARNING(("fd_runtime_save_banks failed: %s", fd_funk_strerror(opt_err)));

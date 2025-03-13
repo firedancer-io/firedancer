@@ -244,7 +244,7 @@ main( int     argc,
       /* mem_regions_cnt  */ (uint)mem_regions_cnt,
       /* mem_regions_accs */ NULL,
       /* is_deprecated    */ 0,
-      /* direct mapping   */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot_bank->slot, instr_ctx->txn_ctx->features, bpf_account_data_direct_mapping )
+      /* direct mapping   */ FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, instr_ctx->txn_ctx->features, bpf_account_data_direct_mapping )
   );
   FD_TEST( vm_ok );
 
