@@ -209,6 +209,7 @@ typedef struct {
     fd_histf_t shredding_timing[ 1 ];
     fd_histf_t add_shred_timing[ 1 ];
     ulong shred_processing_result[ FD_FEC_RESOLVER_ADD_SHRED_RETVAL_CNT+FD_SHRED_ADD_SHRED_EXTRA_RETVAL_CNT ];
+    ulong invalid_block_id_cnt;
   } metrics[ 1 ];
 
   struct {
@@ -279,6 +280,8 @@ metrics_write( fd_shred_ctx_t * ctx ) {
   FD_MHIST_COPY( SHRED, BATCH_MICROBLOCK_CNT,       ctx->metrics->batch_microblock_cnt  );
   FD_MHIST_COPY( SHRED, SHREDDING_DURATION_SECONDS, ctx->metrics->shredding_timing      );
   FD_MHIST_COPY( SHRED, ADD_SHRED_DURATION_SECONDS, ctx->metrics->add_shred_timing      );
+
+  FD_MCNT_SET  ( SHRED, INVALID_BLOCK_ID,           ctx->metrics->invalid_block_id_cnt  );
 
   FD_MCNT_ENUM_COPY( SHRED, SHRED_PROCESSED, ctx->metrics->shred_processing_result      );
 }
@@ -413,7 +416,11 @@ during_frag( fd_shred_ctx_t * ctx,
       if( SHOULD_PROCESS_THESE_SHREDS ) {
         /* chained_merkle_root is set as the merkle root of the last FEC set
            of the parent block (and passed in by POH tile) */
-        memcpy( ctx->chained_merkle_root, entry_meta->chained_merkle_root, FD_SHRED_MERKLE_ROOT_SZ );
+        if( FD_LIKELY( entry_meta->parent_block_id_valid ) ) {
+          memcpy( ctx->chained_merkle_root, entry_meta->parent_block_id, FD_SHRED_MERKLE_ROOT_SZ );
+        } else {
+          ctx->metrics->invalid_block_id_cnt++;
+        }
       }
     }
     if( SHOULD_PROCESS_THESE_SHREDS ) {
@@ -457,7 +464,8 @@ during_frag( fd_shred_ctx_t * ctx,
 #if FD_HAS_NO_AGAVE
         FD_TEST( fd_shredder_next_fec_set( ctx->shredder, out, NULL ) );
 #else
-        FD_TEST( fd_shredder_next_fec_set( ctx->shredder, out, ctx->chained_merkle_root ) );
+        uchar * chained_merkle_root = entry_meta->parent_block_id_valid ? ctx->chained_merkle_root : NULL;
+        FD_TEST( fd_shredder_next_fec_set( ctx->shredder, out, chained_merkle_root ) );
 #endif
         fd_shredder_fini_batch( ctx->shredder );
         shredding_timing      +=  fd_tickcount();
@@ -962,6 +970,7 @@ unprivileged_init( fd_topo_t *      topo,
   fd_histf_join( fd_histf_new( ctx->metrics->add_shred_timing,     FD_MHIST_SECONDS_MIN( SHRED, ADD_SHRED_DURATION_SECONDS ),
                                                                    FD_MHIST_SECONDS_MAX( SHRED, ADD_SHRED_DURATION_SECONDS ) ) );
   memset( ctx->metrics->shred_processing_result, '\0', sizeof(ctx->metrics->shred_processing_result) );
+  ctx->metrics->invalid_block_id_cnt = 0UL;
 
   ctx->pending_batch.microblock_cnt = 0UL;
   ctx->pending_batch.txn_cnt        = 0UL;
