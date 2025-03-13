@@ -704,12 +704,12 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
 
   // Override default values if provided
   if( slot_ctx->sysvar_cache->has_epoch_schedule ) {
-    epoch_bank->epoch_schedule      = *(fd_epoch_schedule_t*)slot_ctx->sysvar_cache->val_epoch_schedule;
-    epoch_bank->rent_epoch_schedule = *(fd_epoch_schedule_t*)slot_ctx->sysvar_cache->val_epoch_schedule;
+    epoch_bank->epoch_schedule      = *(fd_epoch_schedule_t *)fd_type_pun_const( slot_ctx->sysvar_cache->val_epoch_schedule );
+    epoch_bank->rent_epoch_schedule = *(fd_epoch_schedule_t *)fd_type_pun_const( slot_ctx->sysvar_cache->val_epoch_schedule );
   }
 
   if( slot_ctx->sysvar_cache->has_rent ) {
-    epoch_bank->rent = *(fd_rent_t*)slot_ctx->sysvar_cache->val_rent;
+    epoch_bank->rent = *(fd_rent_t *)fd_type_pun_const( slot_ctx->sysvar_cache->val_rent );
   }
 
   /* Provide default slot hashes of size 1 if not provided */
