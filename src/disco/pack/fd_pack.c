@@ -3,6 +3,7 @@
 #include "fd_pack_cost.h"
 #include "fd_compute_budget_program.h"
 #include "fd_pack_bitset.h"
+#include "fd_pack_unwritable.h"
 #include "fd_chkdup.h"
 #include "fd_pack_tip_prog_blacklist.h"
 #include <math.h> /* for sqrt */
@@ -195,63 +196,6 @@ struct fd_pack_bitset_acct_mapping {
 };
 typedef struct fd_pack_bitset_acct_mapping fd_pack_bitset_acct_mapping_t;
 
-/* Table of special addresses that are not allowed to be written to.  We
-   immediately reject and refuse to pack any transaction that tries to
-   write to one of these accounts.  Because we reject any writes to any
-   of these accounts, we actually don't need to track reads of them
-   either.  This is nice, because fd_map_dynamic requires a null address
-   that we promise never to insert.  The zero address is a sysvar, so
-   now we meet that part of the fd_map_dynamic contract. */
-#define MAP_PERFECT_NAME      fd_pack_unwritable
-#define MAP_PERFECT_LG_TBL_SZ 5
-#define MAP_PERFECT_T         fd_acct_addr_t
-#define MAP_PERFECT_HASH_C    1227063708U
-#define MAP_PERFECT_KEY       b
-#define MAP_PERFECT_KEY_T     fd_acct_addr_t const *
-#define MAP_PERFECT_ZERO_KEY  (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0)
-#define MAP_PERFECT_COMPLEX_KEY 1
-#define MAP_PERFECT_KEYS_EQUAL(k1,k2) (!memcmp( (k1), (k2), 32UL ))
-
-#define PERFECT_HASH( u ) (((MAP_PERFECT_HASH_C*(u))>>27)&0x1FU)
-
-#define MAP_PERFECT_HASH_PP( a00,a01,a02,a03,a04,a05,a06,a07,a08,a09,a10,a11,a12,a13,a14,a15, \
-                             a16,a17,a18,a19,a20,a21,a22,a23,a24,a25,a26,a27,a28,a29,a30,a31) \
-                                          PERFECT_HASH( (a08 | (a09<<8) | (a10<<16) | (a11<<24)) )
-#define MAP_PERFECT_HASH_R( ptr ) PERFECT_HASH( fd_uint_load_4( (uchar const *)ptr->b + 8UL ) )
-
-/* This list is a superset of what Lab's is_builtin_key_or_sysvar checks. */
-/* Sysvars */
-#define MAP_PERFECT_0  ( SYSVAR_CLOCK_ID          ),
-#define MAP_PERFECT_1  ( SYSVAR_EPOCH_SCHED_ID    ),
-#define MAP_PERFECT_2  ( SYSVAR_FEES_ID           ),
-#define MAP_PERFECT_3  ( SYSVAR_RECENT_BLKHASH_ID ),
-#define MAP_PERFECT_4  ( SYSVAR_RENT_ID           ),
-#define MAP_PERFECT_5  ( SYSVAR_REWARDS_ID        ),
-#define MAP_PERFECT_6  ( SYSVAR_SLOT_HASHES_ID    ),
-#define MAP_PERFECT_7  ( SYSVAR_SLOT_HIST_ID      ),
-#define MAP_PERFECT_8  ( SYSVAR_STAKE_HIST_ID     ),
-#define MAP_PERFECT_9  ( SYSVAR_INSTRUCTIONS_ID   ),
-#define MAP_PERFECT_10 ( SYSVAR_EPOCH_REWARDS_ID  ),
-#define MAP_PERFECT_11 ( SYSVAR_LAST_RESTART_ID   ),
-/* Programs */
-#define MAP_PERFECT_12 ( CONFIG_PROG_ID           ),
-#define MAP_PERFECT_13 ( FEATURE_ID               ),
-#define MAP_PERFECT_14 ( NATIVE_LOADER_ID         ),
-#define MAP_PERFECT_15 ( STAKE_PROG_ID            ),
-#define MAP_PERFECT_16 ( STAKE_CONFIG_PROG_ID     ),
-#define MAP_PERFECT_17 ( VOTE_PROG_ID             ),
-#define MAP_PERFECT_18 ( SYS_PROG_ID              ), /* Do not remove. See above. */
-#define MAP_PERFECT_19 ( BPF_LOADER_1_PROG_ID     ),
-#define MAP_PERFECT_20 ( BPF_LOADER_2_PROG_ID     ),
-#define MAP_PERFECT_21 ( BPF_UPGRADEABLE_PROG_ID  ),
-/* Extras */
-#define MAP_PERFECT_22 ( ED25519_SV_PROG_ID       ),
-#define MAP_PERFECT_23 ( KECCAK_SECP_PROG_ID      ),
-#define MAP_PERFECT_24 ( COMPUTE_BUDGET_PROG_ID   ),
-#define MAP_PERFECT_25 ( ADDR_LUT_PROG_ID         ),
-#define MAP_PERFECT_26 ( SECP256R1_PROG_ID        ),
-
-#include "../../util/tmpl/fd_map_perfect.c"
 
 
 /* pack maintains a small state machine related to initializer bundles.
