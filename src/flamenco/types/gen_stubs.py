@@ -757,7 +757,7 @@ class StaticVectorMember(TypeNode):
         print('  }', file=body)
 
     def emitGlobalLocalConvert(self):
-        print(f'  self->{self.name}_len    = mem->{self.name}_len; //static vector', file=body)
+        print(f'  self->{self.name}_len    = mem->{self.name}_len;', file=body)
         print(f'  self->{self.name}_size   = mem->{self.name}_size;', file=body)
         print(f'  self->{self.name}_offset = mem->{self.name}_offset;', file=body)
         print(f'  for( ulong i=0; i<self->{self.name}_len; i++ ) {{', file=body)
@@ -1621,15 +1621,15 @@ class OptionMember(TypeNode):
     def emitMember(self):
         if self.flat:
             if self.element in simpletypes:
-                print(f'  {self.element} {self.name}; //op0', file=header)
+                print(f'  {self.element} {self.name};', file=header)
             else:
-                print(f'  {namespace}_{self.element}_t {self.name}; //op1', file=header)
-            print(f'  uchar has_{self.name}; //op2', file=header)
+                print(f'  {namespace}_{self.element}_t {self.name};', file=header)
+            print(f'  uchar has_{self.name};', file=header)
         else:
             if self.element in simpletypes:
-                print(f'  {self.element}* {self.name}; //op3', file=header)
+                print(f'  {self.element}* {self.name};', file=header)
             else:
-                print(f'  {namespace}_{self.element}_t * {self.name}; //op4', file=header)
+                print(f'  {namespace}_{self.element}_t * {self.name};', file=header)
 
     def emitMemberGlobal(self):
         if self.flat:
@@ -1919,7 +1919,7 @@ class ArrayMember(TypeNode):
         length = self.length
 
         if self.element == "uchar":
-            print(f'  fd_bincode_bytes_decode_unsafe( self->{self.name}, {length}, ctx ); // array array', file=body)
+            print(f'  fd_bincode_bytes_decode_unsafe( self->{self.name}, {length}, ctx );', file=body)
             return
 
         print(f'  for( ulong i=0; i<{length}; i++ ) {{', file=body)
@@ -1934,7 +1934,7 @@ class ArrayMember(TypeNode):
           print(f'  fd_memcpy( self->{self.name}, mem->{self.name}, {self.length} * sizeof({self.element}) );', file=body)
       else:
           print(f'  for( ulong i=0; i<{self.length}; i++ ) {{', file=body)
-          print(f'    {namespace}_{self.element}_convert_global_to_local( &mem->{self.name}[i], &self->{self.name}[i], ctx );//local', file=body)
+          print(f'    {namespace}_{self.element}_convert_global_to_local( &mem->{self.name}[i], &self->{self.name}[i], ctx );', file=body)
           print(f'  }}', file=body)
 
     def emitEncode(self):

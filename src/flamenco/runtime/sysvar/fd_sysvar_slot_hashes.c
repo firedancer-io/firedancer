@@ -13,7 +13,7 @@ FD_FN_UNUSED static const ulong slot_hashes_max_entries = 512;
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/slot_hashes.rs#L12 */
 static const ulong slot_hashes_min_account_size = 20488;
 
-static void write_slot_hashes( fd_exec_slot_ctx_t * slot_ctx, fd_slot_hashes_t* slot_hashes ) {
+static void write_slot_hashes( fd_exec_slot_ctx_t * slot_ctx, fd_slot_hashes_t * slot_hashes ) {
   ulong sz = fd_slot_hashes_size( slot_hashes );
   if (sz < slot_hashes_min_account_size)
     sz = slot_hashes_min_account_size;
@@ -22,7 +22,7 @@ static void write_slot_hashes( fd_exec_slot_ctx_t * slot_ctx, fd_slot_hashes_t* 
   fd_bincode_encode_ctx_t ctx;
   ctx.data = enc;
   ctx.dataend = enc + sz;
-  if ( fd_slot_hashes_encode( slot_hashes, &ctx ) )
+  if( fd_slot_hashes_encode( slot_hashes, &ctx ) )
     FD_LOG_ERR(("fd_slot_hashes_encode failed"));
 
   fd_sysvar_set( slot_ctx, fd_sysvar_owner_id.key, &fd_sysvar_slot_hashes_id, enc, sz, slot_ctx->slot_bank.slot );
@@ -37,6 +37,7 @@ void
 fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   fd_slot_hashes_t * slot_hashes = fd_sysvar_slot_hashes_read( slot_ctx, runtime_spad );
   if( !slot_hashes ) {
+    FD_LOG_WARNING(("NEVER CREATED THIS MF BEFORE"));
     uchar * deque_mem = fd_spad_alloc( runtime_spad,
                                        deq_fd_slot_hash_t_align(),
                                        deq_fd_slot_hash_t_footprint( FD_SYSVAR_SLOT_HASHES_CAP ) );

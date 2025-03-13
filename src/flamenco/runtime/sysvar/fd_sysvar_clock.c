@@ -52,7 +52,7 @@ fd_sysvar_clock_read( fd_sol_sysvar_clock_t *   result,
                       fd_sysvar_cache_t const * sysvar_cache,
                       fd_acc_mgr_t *            acc_mgr,
                       fd_funk_txn_t *           funk_txn ) {
-  fd_sol_sysvar_clock_t const * ret = fd_sysvar_cache_clock( sysvar_cache );
+  fd_sol_sysvar_clock_t const * ret = (fd_sol_sysvar_clock_t const *)fd_sysvar_cache_clock( sysvar_cache );
   if( NULL != ret ) {
     fd_memcpy(result, ret, sizeof(fd_sol_sysvar_clock_t));
     return result;

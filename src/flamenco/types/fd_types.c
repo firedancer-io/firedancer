@@ -1826,7 +1826,7 @@ void fd_stake_history_decode_inner_global( void * struct_mem, void * * alloc_mem
 int fd_stake_history_convert_global_to_local( void const * global_self, fd_stake_history_t * self, fd_bincode_decode_ctx_t * ctx ) {
   int err = 0;
   fd_stake_history_global_t const * mem = (fd_stake_history_global_t const *)global_self;
-  self->fd_stake_history_len    = mem->fd_stake_history_len; //static vector
+  self->fd_stake_history_len    = mem->fd_stake_history_len;
   self->fd_stake_history_size   = mem->fd_stake_history_size;
   self->fd_stake_history_offset = mem->fd_stake_history_offset;
   for( ulong i=0; i<self->fd_stake_history_len; i++ ) {
@@ -8489,7 +8489,7 @@ int fd_vote_prior_voters_convert_global_to_local( void const * global_self, fd_v
   int err = 0;
   fd_vote_prior_voters_global_t const * mem = (fd_vote_prior_voters_global_t const *)global_self;
   for( ulong i=0; i<32; i++ ) {
-    fd_vote_prior_voter_convert_global_to_local( &mem->buf[i], &self->buf[i], ctx );//local
+    fd_vote_prior_voter_convert_global_to_local( &mem->buf[i], &self->buf[i], ctx );
   }
   self->idx = mem->idx;
   self->is_empty = mem->is_empty;
@@ -8590,7 +8590,7 @@ int fd_vote_prior_voters_0_23_5_convert_global_to_local( void const * global_sel
   int err = 0;
   fd_vote_prior_voters_0_23_5_global_t const * mem = (fd_vote_prior_voters_0_23_5_global_t const *)global_self;
   for( ulong i=0; i<32; i++ ) {
-    fd_vote_prior_voter_0_23_5_convert_global_to_local( &mem->buf[i], &self->buf[i], ctx );//local
+    fd_vote_prior_voter_0_23_5_convert_global_to_local( &mem->buf[i], &self->buf[i], ctx );
   }
   self->idx = mem->idx;
   return FD_BINCODE_SUCCESS;
@@ -34892,7 +34892,7 @@ void * fd_cache_status_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx 
 }
 void fd_cache_status_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_cache_status_global_t * self = (fd_cache_status_global_t *)struct_mem;
-  fd_bincode_bytes_decode_unsafe( self->key_slice, 20, ctx ); // array array
+  fd_bincode_bytes_decode_unsafe( self->key_slice, 20, ctx );
   fd_txn_result_decode_inner_global( &self->result, alloc_mem, ctx );
 }
 int fd_cache_status_convert_global_to_local( void const * global_self, fd_cache_status_t * self, fd_bincode_decode_ctx_t * ctx ) {
