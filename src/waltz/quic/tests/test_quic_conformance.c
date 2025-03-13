@@ -169,6 +169,7 @@ test_quic_server_alpn_fail( fd_quic_sandbox_t * sandbox,
   fd_quic_conn_t * conn = fd_quic_conn_create(
       /* quic         */ quic,
       /* our_conn_id  */ our_conn_id_u64,
+      /* alt_conn_id  */ 0UL,
       /* peer_conn_id */ &peer_conn_id,
       /* dst_ip_addr  */ FD_QUIC_SANDBOX_PEER_IP4,
       /* dst_udp_addr */ FD_QUIC_SANDBOX_PEER_PORT,
@@ -277,7 +278,7 @@ test_quic_conn_initial_limits( fd_quic_sandbox_t * sandbox,
   fd_quic_conn_id_t peer_conn_id = fd_quic_conn_id_new( &our_conn_id, 8UL );
   uint              dst_ip_addr  = FD_IP4_ADDR( 192, 168, 1, 1 );
   ushort            dst_udp_port = 8080;
-  fd_quic_conn_t * conn = fd_quic_conn_create( sandbox->quic, our_conn_id, &peer_conn_id, dst_ip_addr, dst_udp_port, 1 );
+  fd_quic_conn_t * conn = fd_quic_conn_create( sandbox->quic, our_conn_id, 0UL, &peer_conn_id, dst_ip_addr, dst_udp_port, 1 );
   FD_TEST( conn );
   FD_TEST( conn->state == FD_QUIC_CONN_STATE_HANDSHAKE );
 

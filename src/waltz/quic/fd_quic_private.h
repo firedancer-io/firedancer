@@ -20,6 +20,41 @@
 #define POOL_T    fd_quic_tls_hs_t
 #include "../../util/tmpl/fd_pool.c"
 
+struct fd_quic_token {
+  union{ 
+    uchar raw[16];
+    ulong l[2];
+  };
+};
+typedef struct fd_quic_token fd_quic_token_t;
+
+#define FD_QUIC_TOKEN_NULL       ((fd_quic_token_t){0})
+#define FD_QUIC_TOKEN_IS_NULL(k) ( ( (k).l[0] | (k).l[1] ) == 0 )
+
+struct fd_quic_token_map {
+  fd_quic_token_t  token;
+  fd_quic_conn_t * conn;
+};
+typedef struct fd_quic_token_map fd_quic_token_map_t;
+
+/* TODO choose a cheap seeded hash function
+   this version is unsafe, as an external actor can choose the token
+   value to cause probes and hence high overhead
+   optimize map */
+
+#define MAP_NAME              fd_quic_token_map
+#define MAP_T                 fd_quic_token_map_t
+#define MAP_KEY               token
+#define MAP_KEY_T             fd_quic_token_t
+#define MAP_KEY_NULL          FD_QUIC_TOKEN_NULL
+#define MAP_KEY_INVAL(k)      FD_QUIC_TOKEN_IS_NULL(k)
+#define MAP_KEY_EQUAL(k0,k1)  ( ! ( ( (k0).l[0] - (k1).l[0] ) | ( (k0).l[1] - (k1).l[1] ) ) )
+#define MAP_KEY_EQUAL_IS_SLOW 0
+#define MAP_KEY_HASH(k)       ( (uint)fd_ulong_hash( (k).l[0] ^ (k).l[1] ) )
+#define MAP_MEMOIZE           0
+#include "../../util/tmpl/fd_map_dynamic.c"
+
+
 /* FD_QUIC_DISABLE_CRYPTO: set to 1 to disable packet protection and
    encryption.  Only intended for testing. */
 #ifndef FD_QUIC_DISABLE_CRYPTO
@@ -91,6 +126,9 @@ struct __attribute__((aligned(16UL))) fd_quic_state_private {
                                           /* not using fd_quic_conn_t* to avoid confusion */
                                           /* use fd_quic_conn_at_idx instead */
   ulong                   conn_sz;        /* size of one connection element */
+
+  ulong                   token_map_base;
+  fd_quic_token_map_t *   token_map;
 
   /* flow control - configured initial limits */
   ulong initial_max_data;           /* directly from transport params */
@@ -190,6 +228,7 @@ fd_quic_svc_schedule1( fd_quic_conn_t * conn,
 fd_quic_conn_t *
 fd_quic_conn_create( fd_quic_t *               quic,
                      ulong                     our_conn_id,
+                     ulong                     alt_conn_id,
                      fd_quic_conn_id_t const * peer_conn_id,
                      uint                      dst_ip_addr,
                      ushort                    dst_udp_port,

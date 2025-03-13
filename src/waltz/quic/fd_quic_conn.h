@@ -123,6 +123,8 @@ struct fd_quic_conn {
   ulong              svc_time;  /* service may be delayed until this timestamp */
 
   ulong              our_conn_id;
+  ulong              alt_conn_id; /* conn id to switch to for stateless reset */
+                                  /* keep both conn_id's in conn_id map */
 
   /* Save original retry_source_connection_id
    * This is used by clients to compare against the retry_source_connection_id
@@ -138,6 +140,7 @@ struct fd_quic_conn {
   /* TODO: footprint allows specifying conn_id_cnt but hardcoded limit used here */
   fd_quic_net_endpoint_t peer[1];
   fd_quic_conn_id_t      peer_cids[1]; /* FIXME support new/retire conn ID */
+  uchar                  peer_token[16]; /* up to one stateless reset token per connection */
 
   /* initial source connection id */
   ulong              initial_source_conn_id;
@@ -225,6 +228,8 @@ struct fd_quic_conn {
 # define FD_QUIC_CONN_FLAGS_MAX_STREAMS_UNIDIR (1u<<2u)
 # define FD_QUIC_CONN_FLAGS_PING               (1u<<4u)
 # define FD_QUIC_CONN_FLAGS_PING_SENT          (1u<<5u)
+# define FD_QUIC_CONN_FLAGS_NEW_CONN_ID        (1u<<6u)
+# define FD_QUIC_CONN_FLAGS_NEW_CONN_ID_SENT   (1u<<7u)
 
   /* max stream data per stream type */
   ulong                tx_initial_max_stream_data_uni;

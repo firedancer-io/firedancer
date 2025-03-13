@@ -130,7 +130,9 @@ struct fd_quic_layout {
   ulong conns_off;       /* offset of connection mem region  */
   ulong conn_footprint;  /* sizeof a conn                    */
   ulong conn_map_off;    /* offset of conn map mem region    */
+  ulong token_map_off;   /* offset of token map mem region   */
   int   lg_slot_cnt;     /* see conn_map_new                 */
+  int   lg_token_cnt;    /* see conn_map_new                 */
   ulong hs_pool_off;     /* offset of the handshake pool     */
   ulong stream_pool_off; /* offset of the stream pool        */
 };
@@ -192,6 +194,10 @@ struct __attribute__((aligned(16UL))) fd_quic_config {
   char keylog_file[ FD_QUIC_PATH_LEN+1UL ];
 
   ulong initial_rx_max_stream_data; /* per-stream, rx buf sz in bytes, set by the user. */
+
+  /* seed for use in generating stateless resets */
+  /* set to zero for no stateless reset */
+  ulong stateless_reset_seed;
 
   /* Network config ****************************************/
 

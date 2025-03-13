@@ -289,6 +289,7 @@ fd_quic_sandbox_new_conn_established( fd_quic_sandbox_t * sandbox,
   fd_quic_conn_t * conn = fd_quic_conn_create(
       /* quic         */ quic,
       /* our_conn_id  */ our_conn_id_u64,
+      /* alt_conn_id  */ 0,
       /* peer_conn_id */ &peer_conn_id,
       /* dst_ip_addr  */ FD_QUIC_SANDBOX_PEER_IP4,
       /* dst_udp_addr */ FD_QUIC_SANDBOX_PEER_PORT,
