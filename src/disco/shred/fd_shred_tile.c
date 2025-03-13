@@ -554,6 +554,7 @@ after_frag( fd_shred_ctx_t *    ctx,
   const ulong fanout = 200UL;
   fd_shred_dest_idx_t _dests[ 200*(FD_REEDSOL_DATA_SHREDS_MAX+FD_REEDSOL_PARITY_SHREDS_MAX) ];
 
+  fd_bmtree_node_t out_merkle_root[1];
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
     uchar * shred_buffer    = ctx->shred_buffer;
     ulong   shred_buffer_sz = ctx->shred_buffer_sz;
@@ -569,7 +570,6 @@ after_frag( fd_shred_ctx_t *    ctx,
 
     fd_fec_set_t const * out_fec_set[1];
     fd_shred_t const   * out_shred[1];
-    fd_bmtree_node_t     out_merkle_root[1];
 
     long add_shred_timing  = -fd_tickcount();
     int rv = fd_fec_resolver_add_shred( ctx->resolver, shred, shred_buffer_sz, slot_leader->uc, out_fec_set, out_shred, out_merkle_root );
@@ -594,13 +594,25 @@ after_frag( fd_shred_ctx_t *    ctx,
         for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, *out_shred, sdest, dests[ j ], ctx->tsorig );
       } while( 0 );
 
-      if( FD_LIKELY( ctx->blockstore && rv==FD_FEC_RESOLVER_SHRED_OKAY ) ) { /* optimize for the compiler - branch predictor will still be correct */
+      if( FD_LIKELY( ctx->blockstore ) ) { /* always true or false depending on the topo, so hint to the compiler optimize this branch */
+
+        /* Construct the sig. */
+
+        int  is_code               = fd_shred_is_code( fd_shred_type( shred->variant ) );
+        uint shred_idx_or_data_cnt = shred->idx;
+        if( FD_LIKELY( is_code ) ) shred_idx_or_data_cnt = shred->code.data_cnt;  /* optimize for code_cnt >= data_cnt */
+        ulong sig  = fd_disco_shred_replay_sig( 0, is_code, shred->slot, shred->fec_set_idx, shred_idx_or_data_cnt );
+
+        /* Copy the shred header into the frag. */
+
         uchar * buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
         ulong   sz  = fd_shred_header_sz( shred->variant );
         fd_memcpy( buf, shred, sz );
-        ulong tspub       = fd_frag_meta_ts_comp( fd_tickcount() );
-        ulong replay_sig  = fd_disco_shred_replay_sig( shred->slot, shred->idx, shred->fec_set_idx, fd_shred_is_code( fd_shred_type( shred->variant ) ), 0 );
-        fd_stem_publish( stem, REPLAY_OUT_IDX, replay_sig, ctx->replay_out_chunk, sz, 0UL, ctx->tsorig, tspub );
+
+        /* Publish the frag. */
+
+        ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
+        fd_stem_publish( stem, REPLAY_OUT_IDX, sig, ctx->replay_out_chunk, sz, 0UL, ctx->tsorig, tspub );
         ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sz, ctx->replay_out_chunk0, ctx->replay_out_wmark );
       }
     }
@@ -642,28 +654,43 @@ after_frag( fd_shred_ctx_t *    ctx,
   ulong sz3 = sizeof(fd_shred34_t) - (34UL - s34[ 3 ].shred_cnt)*FD_SHRED_MAX_SZ;
 
   if( FD_LIKELY( ctx->blockstore ) ) {
-    /* If the shred has a completes flag, then in the replay tile it
-       will do immediate polling for shreds in that FEC set, under
-       the assumption that they live in the blockstore. When a shred
-       completes a FEC set, we need to add the shreds to the
-       blockstore before we notify replay of a completed FEC set.
-       Replay does not poll the blockstore for shreds on notifies of
-       a regular non-completing shred. */
+
+    /* Insert shreds into the blockstore. Note we do this regardless of
+       whether the shreds are for one of our leader slots or not. Even
+       though there is a separate link that directly connects pack and
+       replay when we are leader, we still need the shreds in the
+       blockstore to, for example, serve repair requests. */
 
     for( ulong i=0UL; i<set->data_shred_cnt; i++ ) {
       fd_shred_t const * data_shred = (fd_shred_t const *)fd_type_pun_const( set->data_shreds[ i ] );
       fd_blockstore_shred_insert( ctx->blockstore, data_shred );
     }
+
     if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
-      /* Shred came from block we didn't produce. This is not our leader
-         slot. */
-      fd_shred_t const * shred = (fd_shred_t const *)fd_type_pun_const( ctx->shred_buffer );
+
+    /* Additionally, if the shreds are not for our leader slot (ie.
+       receiving the shred via net) publish a notification to replay
+       that the FEC set is complete.
+
+       Note we intentionally insert shreds into the blockstore before
+       notifying replay. This is because the replay tile immediately
+       polls for shreds in the blockstore upon receiving a FEC set
+       complete notification. */
+
+      fd_shred_t const * last = (fd_shred_t const *)fd_type_pun_const( set->data_shreds[ set->data_shred_cnt - 1 ] );
+      int   data_completes    = last->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE;
+      ulong sig               = fd_disco_shred_replay_sig( 1, data_completes, last->slot, last->fec_set_idx, last->data.parent_off );
+
+      /* Copy the merkle root and chained merkle root of the FEC set
+         into the frag (64 bytes). */
+
       uchar * buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
-      ulong   sz  = fd_shred_header_sz( shred->variant );
-      fd_memcpy( buf, shred, sz );
-      ulong tspub       = fd_frag_meta_ts_comp( fd_tickcount() );
-      ulong replay_sig  = fd_disco_shred_replay_sig( shred->slot, shred->idx, shred->fec_set_idx, fd_shred_is_code( fd_shred_type( shred->variant ) ), 1 );
-      fd_stem_publish( stem, REPLAY_OUT_IDX, replay_sig, ctx->replay_out_chunk, sz, 0UL, ctx->tsorig, tspub );
+      ulong   sz  = fd_shred_header_sz( last->variant );
+      memcpy( buf, out_merkle_root, FD_SHRED_MERKLE_ROOT_SZ );
+      memcpy( buf + FD_SHRED_MERKLE_ROOT_SZ, (uchar const *)last + fd_shred_chain_off( last->variant ), FD_SHRED_MERKLE_ROOT_SZ );
+
+      ulong tspub          = fd_frag_meta_ts_comp( fd_tickcount() );
+      fd_stem_publish( stem, REPLAY_OUT_IDX, sig, ctx->replay_out_chunk, sz, 0UL, ctx->tsorig, tspub );
       ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sz, ctx->replay_out_chunk0, ctx->replay_out_wmark );
     }
   }
