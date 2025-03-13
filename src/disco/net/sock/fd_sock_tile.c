@@ -186,16 +186,16 @@ privileged_init( fd_topo_t *      topo,
     "net_quic",   /* quic_transaction_listen_port */
     "net_shred",  /* shred_listen_port */
     "net_gossip", /* gossip_listen_port */
-    "net_repair", /* repair_intake_listen_port */
-    "net_repair"  /* repair_intake_listen_port */
+    "net_repair", /* repair_client_listen_port */
+    "net_repair"  /* repair_server_listen_port */
   };
   static uchar const udp_port_protos[] = {
     DST_PROTO_TPU_UDP,  /* legacy_transaction_listen_port */
     DST_PROTO_TPU_QUIC, /* quic_transaction_listen_port */
     DST_PROTO_SHRED,    /* shred_listen_port */
     DST_PROTO_GOSSIP,   /* gossip_listen_port */
-    DST_PROTO_REPAIR,   /* repair_intake_listen_port */
-    DST_PROTO_REPAIR    /* repair_intake_listen_port */
+    DST_PROTO_REPAIR,   /* repair_client_listen_port */
+    DST_PROTO_REPAIR    /* repair_server_listen_port */
   };
   for( uint candidate_idx=0U; candidate_idx<6; candidate_idx++ ) {
     if( !udp_port_candidates[ candidate_idx ] ) continue;
