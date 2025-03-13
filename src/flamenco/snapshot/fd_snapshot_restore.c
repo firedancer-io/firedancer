@@ -190,6 +190,13 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
     rec->meta->slot = restore->accv_slot;
     memcpy( &rec->meta->hash, hdr->hash.uc, 32UL );
     memcpy( &rec->meta->info, &hdr->info, sizeof(fd_solana_account_meta_t) );
+    if( rec->meta->info.rent_epoch != FD_RENT_EXEMPT_RENT_EPOCH ) {
+      if( FD_UNLIKELY( restore->dirty_pubkeys_cnt == 2000UL ) ) {
+        FD_LOG_ERR(( "restore->dirty_pubkeys_cnt == 2000UL" ));
+      }
+      
+      fd_memcpy( &restore->dirty_pubkeys[restore->dirty_pubkeys_cnt++], key, FD_PUBKEY_FOOTPRINT );
+    }
     restore->acc_data = rec->data;
   }
   ulong data_sz    = hdr->meta.data_len;
@@ -519,6 +526,12 @@ fd_snapshot_restore_file( void *                restore_,
 
   else if( 0==strcmp ( meta->name, "snapshots/status_cache" ) )
     return fd_snapshot_restore_status_cache_prepare( restore, sz );
+
+  restore->dirty_pubkeys = fd_spad_alloc( restore->spad, FD_PUBKEY_ALIGN, FD_PUBKEY_FOOTPRINT * 2000UL );
+  if( FD_UNLIKELY( !restore->dirty_pubkeys ) ) {
+    FD_LOG_ERR(( "restore->dirty_pubkeys" ));
+  }
+  restore->dirty_pubkeys_cnt = 0UL;
 
   restore->state = STATE_IGNORE;
   return 0;

@@ -98,6 +98,10 @@ struct fd_snapshot_restore {
   uchar * acc_data;  /* pointer into funk acc data pending write */
   ulong   acc_pad;   /* padding size at end of account */
 
+  /* List of dirty pubkey accounts */
+  ulong         dirty_pubkeys_cnt;
+  fd_pubkey_t * dirty_pubkeys;
+
   /* Consumer callback */
 
   fd_snapshot_restore_cb_manifest_fn_t cb_manifest;

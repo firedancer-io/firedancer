@@ -22,7 +22,7 @@
    multiple of align.  These are provided to facilitate compile time
    declarations. */
 
-#define FD_FUNKIER_REC_ALIGN     (32UL)
+#define FD_FUNKIER_REC_ALIGN     (64UL)
 
 /* FD_FUNKIER_REC_FLAG_* are flags that can be bit-ored together to specify
    how records are to be interpreted.  The 5 most significant bytes of a
@@ -75,7 +75,7 @@ struct __attribute__((aligned(FD_FUNKIER_REC_ALIGN))) fd_funkier_rec {
 
 typedef struct fd_funkier_rec fd_funkier_rec_t;
 
-FD_STATIC_ASSERT( sizeof(fd_funkier_rec_t) == 4U*32U, record size is wrong );
+FD_STATIC_ASSERT( sizeof(fd_funkier_rec_t) == 2U*FD_FUNKIER_REC_ALIGN, record size is wrong );
 
 /* fd_funkier_rec_map allows for indexing records by their (xid,key) pair.
    It is used to store all records of the last published transaction and
