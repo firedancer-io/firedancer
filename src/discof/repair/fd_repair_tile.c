@@ -661,6 +661,19 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
   return out_cnt;
 }
 
+static inline void
+fd_repair_update_repair_metrics( fd_repair_metrics_t * metrics ) {
+  FD_MCNT_SET( REPAIR, SENT_REQUESTS, metrics->send_pkt_cnt );
+  FD_MCNT_SET( REPAIR, RECEIVED_REPLIES, metrics->recv_pkt_cnt );
+  FD_MCNT_SET( REPAIR, CORRUPTED_MESSAGES, metrics->recv_pkt_corrupted_msg );
+}
+
+static inline void
+metrics_write( fd_repair_tile_ctx_t * ctx ) {
+  /* Repair-protocol-specific metrics */
+  fd_repair_update_repair_metrics( fd_repair_get_metrics( ctx->repair ) );
+}
+
 /* TODO: This is probably not correct. */
 #define STEM_BURST (1UL)
 
@@ -672,6 +685,7 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
 
 #include "../../disco/stem/fd_stem.c"
 

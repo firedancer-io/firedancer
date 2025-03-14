@@ -236,6 +236,8 @@ struct fd_repair {
     fd_stake_weight_t * stake_weights;
     /* Path to the file where we write the cache of known good repair peers, to make cold booting faster */
     int good_peer_cache_file_fd;
+    /* Metrics */
+    fd_repair_metrics_t metrics;
 };
 
 FD_FN_CONST ulong
@@ -1416,4 +1418,9 @@ fd_repair_recv_serv_packet( fd_repair_t *                 glob,
     fd_repair_unlock( glob );
   } FD_SCRATCH_SCOPE_END;
   return 0;
+}
+
+fd_repair_metrics_t *
+fd_repair_get_metrics( fd_repair_t * repair ) {
+  return &repair->metrics;
 }

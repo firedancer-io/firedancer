@@ -4,6 +4,8 @@
 #include "../gossip/fd_gossip.h"
 #include "../../ballet/shred/fd_shred.h"
 #include "../runtime/context/fd_exec_epoch_ctx.h"
+#include "../../disco/metrics/generated/fd_metrics_repair.h"
+
 
 #define FD_REPAIR_DELIVER_FAIL_TIMEOUT -1
 #define FD_REPAIR_DELIVER_FAIL_REQ_LIMIT_EXCEEDED -2
@@ -118,5 +120,18 @@ void fd_repair_add_sticky( fd_repair_t * glob, fd_pubkey_t const * id );
 void fd_repair_set_stake_weights( fd_repair_t * repair,
                                   fd_stake_weight_t const * stake_weights,
                                   ulong stake_weights_cnt );
+
+/* Repair Metrics */
+struct fd_repair_metrics {
+  ulong recv_pkt_cnt;
+  ulong recv_pkt_corrupted_msg;
+  ulong send_pkt_cnt;
+};
+typedef struct fd_repair_metrics fd_repair_metrics_t;
+#define FD_REPAIR_METRICS_FOOTPRINT ( sizeof( fd_repair_metrics_t ) )
+
+fd_repair_metrics_t *
+fd_repair_get_metrics( fd_repair_t * repair );
+
 
 #endif /* HEADER_fd_src_flamenco_repair_fd_repair_h */
