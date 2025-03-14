@@ -24,6 +24,7 @@ void fd_gui_printf_optimistically_confirmed_slot( fd_gui_t * gui );
 void fd_gui_printf_completed_slot( fd_gui_t * gui );
 void fd_gui_printf_estimated_slot( fd_gui_t * gui );
 void fd_gui_printf_estimated_tps( fd_gui_t * gui );
+void fd_gui_printf_rpc_count( fd_gui_t * gui );
 
 void
 fd_gui_printf_null_query_response( fd_gui_t *   gui,
@@ -40,34 +41,10 @@ fd_gui_printf_epoch( fd_gui_t * gui,
                      ulong      epoch_idx );
 
 void
-fd_gui_printf_peers_gossip_update( fd_gui_t *          gui,
-                                   ulong const *       updated,
-                                   ulong               updated_cnt,
-                                   fd_pubkey_t const * removed,
-                                   ulong               removed_cnt,
-                                   ulong const *       added,
-                                   ulong               added_cnt );
-
-void
-fd_gui_printf_peers_vote_account_update( fd_gui_t *          gui,
-                                         ulong const *       updated,
-                                         ulong               updated_cnt,
-                                         fd_pubkey_t const * removed,
-                                         ulong               removed_cnt,
-                                         ulong const *       added,
-                                         ulong               added_cnt );
-
-void
-fd_gui_printf_peers_validator_info_update( fd_gui_t *          gui,
-                                           ulong const *       updated,
-                                           ulong               updated_cnt,
-                                           fd_pubkey_t const * removed,
-                                           ulong               removed_cnt,
-                                           ulong const *       added,
-                                           ulong               added_cnt );
-
-void
-fd_gui_printf_peers_all( fd_gui_t * gui );
+fd_gui_printf_peers( fd_gui_t *          gui,
+                     ulong               modified_cnt,
+                     fd_pubkey_t const * modified,
+                     ulong const *       action );
 
 void
 fd_gui_printf_slot( fd_gui_t * gui,
