@@ -109,7 +109,7 @@ jobs:
           extras: ${{ matrix.deps-extras || '' }}
       - uses: ./.github/actions/hugepages
       - uses: ./.github/actions/cpusonline
-      - uses: dtolnay/rust-toolchain@1.73.0
+      - uses: dtolnay/rust-toolchain@1.84.1
 
       - name: clean targets
         run: |
