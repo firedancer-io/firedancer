@@ -120,8 +120,8 @@ main( int argc, char ** argv ) {
   FD_LOG_NOTICE(( "Initializing QUICs" ));
   FD_TEST( fd_quic_init( server_quic ) );
   FD_TEST( fd_quic_init( client_quic ) );
-  fd_quic_svc_validate( server_quic );
-  fd_quic_svc_validate( client_quic );
+  fd_quic_state_validate( server_quic );
+  fd_quic_state_validate( client_quic );
 
   FD_LOG_NOTICE(( "Creating connection" ));
   fd_quic_conn_t * client_conn = fd_quic_connect( client_quic, 0U, 0, 0U, 0 );
@@ -177,8 +177,8 @@ main( int argc, char ** argv ) {
 
   FD_LOG_NOTICE(( "Closing connections" ));
 
-  fd_quic_svc_validate( server_quic );
-  fd_quic_svc_validate( client_quic );
+  fd_quic_state_validate( server_quic );
+  fd_quic_state_validate( client_quic );
   fd_quic_conn_close( client_conn, 0 );
   fd_quic_conn_close( server_conn, 0 );
 
@@ -190,8 +190,8 @@ main( int argc, char ** argv ) {
     fd_quic_service( server_quic );
   }
 
-  fd_quic_svc_validate( server_quic );
-  fd_quic_svc_validate( client_quic );
+  fd_quic_state_validate( server_quic );
+  fd_quic_state_validate( client_quic );
 
   FD_LOG_NOTICE(( "Cleaning up" ));
   fd_quic_virtual_pair_fini( &vp );

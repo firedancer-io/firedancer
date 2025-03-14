@@ -31,4 +31,3 @@ struct __attribute__((aligned(16))) fd_quic_range {
 typedef struct fd_quic_range fd_quic_range_t;
 
 #endif /* HEADER_fd_src_waltz_quic_fd_quic_common_h */
-
