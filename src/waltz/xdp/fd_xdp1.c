@@ -114,6 +114,10 @@ fd_xdp_install( uint           if_idx,
   else if( !strcmp( xdp_mode, "generic" ) ) uxdp_mode = 0U;
   else FD_LOG_ERR(( "unknown XDP mode `%s`", xdp_mode ));
 
+  uint true_port_cnt = 0U;
+  for( ulong i=0UL; i<ports_cnt; i++ ) true_port_cnt += !!ports[ i ];
+  if( FD_UNLIKELY( !true_port_cnt ) ) FD_LOG_ERR(( "XDP program is not listening on any UDP ports" ));
+
   /* Create XSK map */
 
   union bpf_attr attr2 = {
