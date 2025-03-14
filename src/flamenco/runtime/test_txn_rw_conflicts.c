@@ -3,23 +3,26 @@
 #include "fd_runtime.h"
 #include "../../disco/pack/fd_microblock.h"
 
-FD_FN_PURE static int
-fd_acct_addr_eq( fd_acct_addr_t const * key1, fd_acct_addr_t const * key2 ) {
-  return memcmp( key1->b, key2->b, FD_TXN_ACCT_ADDR_SZ ) == 0;
-}
-
-static ulong
-fd_acct_addr_hash( fd_acct_addr_t const * key, ulong seed ) {
-  return fd_hash( seed, key->b, FD_TXN_ACCT_ADDR_SZ );
-}
-
 /* TODO: use may_dynamic instead of map_giant */
-#define MAP_NAME     fd_txn_writes
-#define MAP_KEY_T    fd_acct_addr_t
-#define MAP_KEY_EQ   fd_acct_addr_eq
-#define MAP_KEY_HASH fd_acct_addr_hash
-#define MAP_T        fd_txn_writes_t
-#include "../../util/tmpl/fd_map_giant.c"
+/* #define MAP_NAME     fd_txn_writes */
+/* #define MAP_KEY_T    fd_acct_addr_t */
+/* #define MAP_KEY_EQ   fd_acct_addr_eq */
+/* #define MAP_KEY_HASH fd_acct_addr_hash */
+/* #define MAP_T        fd_txn_writes_t */
+/* #include "../../util/tmpl/fd_map_giant.c" */
+
+extern const fd_acct_addr_t null_acct_addr;
+#define MAP_NAME      fd_txn_writes
+#define MAP_T         fd_txn_writes_t
+#define MAP_KEY_T     fd_acct_addr_t
+#define MAP_KEY_NULL  null_acct_addr
+#define MAP_KEY_EQUAL_IS_SLOW 1
+#define MAP_MEMOIZE           0
+#define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL((k),MAP_KEY_NULL)
+#define MAP_KEY_EQUAL(k0,k1)  (!memcmp( (k0).b, (k1).b, FD_TXN_ACCT_ADDR_SZ ))
+#define MAP_KEY_HASH(key)     ((MAP_HASH_T)( *(MAP_HASH_T *)(key).b ))
+
+#include "../../util/tmpl/fd_map_dynamic.c"
 
 int
 main( int     argc,
@@ -79,16 +82,19 @@ TXN( &txns[i] )->readonly_unsigned_cnt, TXN( &txns[i] )->readonly_signed_cnt, TX
   }
 
   /* Create a map for inserting all accounts written by txns */
-  fd_wksp_t * wksp    = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( "gigantic" ), 2UL, fd_log_cpu_id(), "wksp", 0UL );
+  fd_wksp_t * wksp    = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( "gigantic" ), 10UL, fd_log_cpu_id(), "wksp", 0UL );
   ulong max_naccts    = FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT / FD_TXN_MIN_SERIALIZED_SZ * FD_TXN_ACCT_ADDR_MAX;
-  void * acct_map_mem = fd_wksp_alloc_laddr( wksp, fd_txn_writes_align(), fd_txn_writes_footprint( max_naccts ), 1234UL );
+  int lg_max_naccts   = fd_ulong_find_msb( fd_ulong_pow2_up( max_naccts ) );
+
+  void * acct_map_mem = fd_wksp_alloc_laddr( wksp, fd_txn_writes_align(), fd_txn_writes_footprint( lg_max_naccts ), 1234UL );
   FD_TEST( acct_map_mem );
-  fd_txn_writes_t * acct_map = fd_txn_writes_join( fd_txn_writes_new( acct_map_mem, max_naccts, 0UL ) );
-  FD_LOG_NOTICE(( "Allocating %lu MB for the account map", fd_txn_writes_footprint( max_naccts )/1024/1024 ));
+  fd_txn_writes_t * acct_map = fd_txn_writes_join( fd_txn_writes_new( acct_map_mem, lg_max_naccts ) );
+  FD_LOG_NOTICE(( "Allocating %lu MB for the account map", fd_txn_writes_footprint( lg_max_naccts )/1024/1024 ));
 
   /* Detect conflicts among the txn_cnt transactions in txns */
   FD_LOG_NOTICE(( "Detecting conflicts among %lu transactions", txns_cnt ));
   ulong err = fd_runtime_microblock_verify_read_write_conflicts( txns, txns_cnt, acct_map );
+  FD_TEST( fd_txn_writes_key_cnt( acct_map )==0 );
   if( err==FD_TXN_CONFLICT_MAP_TOO_SMALL ) FD_LOG_ERR(( "The acct_map provided is too small" ));
   if( err==FD_TXN_CONFLICT_READ_WRITE ) FD_LOG_ERR(( "Read-write conflicts detected among %lu txns", txns_cnt ));
   if( err==FD_TXN_CONFLICT_WRITE_WRITE ) FD_LOG_ERR(( "Write-write conflicts detected among %lu txns", txns_cnt ));

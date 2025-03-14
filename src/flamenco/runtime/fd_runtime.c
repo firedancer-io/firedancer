@@ -1315,22 +1315,20 @@ fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
   return FD_BLOCK_OK;
 }
 
-FD_FN_PURE static int
-fd_acct_addr_eq( fd_acct_addr_t const * key1, fd_acct_addr_t const * key2 ) {
-  return memcmp( key1->b, key2->b, FD_TXN_ACCT_ADDR_SZ ) == 0;
-}
+/* TODO: should not redefine the map here, but if we remove the code below, map query/insert/remove
+ * functoins are not declared in this source file during compile time */
+const fd_acct_addr_t null_acct_addr = {{ 0 }};
+#define MAP_NAME      fd_txn_writes
+#define MAP_T         fd_txn_writes_t
+#define MAP_KEY_T     fd_acct_addr_t
+#define MAP_KEY_NULL  null_acct_addr
+#define MAP_KEY_EQUAL_IS_SLOW 0
+#define MAP_MEMOIZE           0
+#define MAP_KEY_INVAL(k)      MAP_KEY_EQUAL((k),MAP_KEY_NULL)
+#define MAP_KEY_EQUAL(k0,k1)  (!memcmp( (k0).b, (k1).b, FD_TXN_ACCT_ADDR_SZ ))
+#define MAP_KEY_HASH(key)     ((MAP_HASH_T)( *(MAP_HASH_T *)(key).b ))
 
-static ulong
-fd_acct_addr_hash( fd_acct_addr_t const * key, ulong seed ) {
-  return fd_hash( seed, key->b, FD_TXN_ACCT_ADDR_SZ );
-}
-
-#define MAP_NAME     fd_txn_writes
-#define MAP_KEY_T    fd_acct_addr_t
-#define MAP_KEY_EQ   fd_acct_addr_eq
-#define MAP_KEY_HASH fd_acct_addr_hash
-#define MAP_T        fd_txn_writes_t
-#include "../../util/tmpl/fd_map_giant.c"
+#include "../../util/tmpl/fd_map_dynamic.c"
 
 ulong
 fd_runtime_microblock_verify_read_write_conflicts( fd_txn_p_t *      txns,
@@ -1348,11 +1346,11 @@ fd_runtime_microblock_verify_read_write_conflicts( fd_txn_p_t *      txns,
       /* TODO: this is not handling address lookup table accounts properly */
       fd_acct_addr_t const * writable_acc = &account_keys[ fd_txn_acct_iter_idx( j ) ];
 
-      if( FD_UNLIKELY( fd_txn_writes_query_const( acct_map, writable_acc, NULL ) ) ) {
+      if( FD_UNLIKELY( fd_txn_writes_query( acct_map, *writable_acc, NULL ) ) ) {
         err = FD_TXN_CONFLICT_WRITE_WRITE;
         goto cleanup;
       }
-      fd_txn_writes_insert( acct_map, writable_acc );
+      fd_txn_writes_insert( acct_map, *writable_acc );
     }
   }
 
@@ -1365,7 +1363,7 @@ fd_runtime_microblock_verify_read_write_conflicts( fd_txn_p_t *      txns,
          j=fd_txn_acct_iter_next( j ) ) {
       fd_acct_addr_t const * readonly_acc = &account_keys[ fd_txn_acct_iter_idx( j ) ];
 
-      if( FD_UNLIKELY( fd_txn_writes_query_const( acct_map, readonly_acc, NULL ) ) ) {
+      if( FD_UNLIKELY( fd_txn_writes_query( acct_map, *readonly_acc, NULL ) ) ) {
         err = FD_TXN_CONFLICT_READ_WRITE;
         goto cleanup;
       }
@@ -1382,7 +1380,7 @@ cleanup:
          j=fd_txn_acct_iter_next( j ) ) {
       /* TODO: this is not handling address lookup table accounts properly */
       fd_acct_addr_t const * writable_acc = &account_keys[ fd_txn_acct_iter_idx( j ) ];
-      fd_txn_writes_remove( acct_map, writable_acc );
+      fd_txn_writes_remove( acct_map, fd_txn_writes_query( acct_map, *writable_acc, NULL ) );
     }
   }
 

@@ -392,6 +392,7 @@ fd_runtime_microblock_verify_ticks( fd_exec_slot_ctx_t *        slot_ctx,
  */
 struct fd_txn_writes {
   fd_acct_addr_t key;
+  ulong hash;
   ulong next;
 };
 typedef struct fd_txn_writes fd_txn_writes_t;
