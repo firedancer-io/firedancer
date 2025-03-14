@@ -20,39 +20,14 @@ class ConstFunc extends RFunc {
   ConstFunc() { this.getAnAttribute().getName() = "const" }
 }
 
-abstract class ShouldBeFunc extends Function { }
 
-class ShouldBePure extends ShouldBeFunc {
-  Function off;
-
-  ShouldBePure() {
-    (
-      off instanceof RFunc or
-      off instanceof ShouldBeFunc
-    ) and
-    not this instanceof RFunc and
-    this.getACallToThisFunction().getEnclosingFunction() = off and
-    this.getLocation().getFile().getRelativePath().matches("src/%")
-  }
-
-  Function getOff() { result = off }
-}
-
-string directOrNot(Function off) {
-  /* alternativly we could make this query a path-query */
-  result = "is" and off instanceof RFunc
-  or
-  result = "is called by a" and off instanceof ShouldBeFunc
-}
-
-from ShouldBePure f, Function off
+from RFunc r, Function f
 where
-  off = f.getOff() and
   (
     /* for a nightly query, we only want known non-const/non-pure functions */
     f.hasName("fd_log_private_1") or
     f.hasName("fd_log_private_2") or
     f.hasName("fd_log_wallclock()") or
     f.getName().matches("fd_valloc_%")
-  )
-select off, f + " is called via " + off + " which " + directOrNot(off) + " const/pure function"
+  ) and r.calls*(f)
+select r, f + " is called (transitively) by " + r + " which is marked as " + r.getAnAttribute().getName()

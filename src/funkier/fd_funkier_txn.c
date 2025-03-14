@@ -735,7 +735,7 @@ fd_funkier_txn_last_rec( fd_funkier_t *           funk,
 /* Return the next record in a transaction. Returns NULL if the
    transaction has no more records. */
 
-FD_FN_PURE fd_funkier_rec_t const *
+fd_funkier_rec_t const *
 fd_funkier_txn_next_rec( fd_funkier_t *           funk,
                          fd_funkier_rec_t const * rec ) {
   ulong rec_idx = rec->next_idx;
@@ -745,7 +745,7 @@ fd_funkier_txn_next_rec( fd_funkier_t *           funk,
   return rec_pool.ele + rec_idx;
 }
 
-FD_FN_PURE fd_funkier_rec_t const *
+fd_funkier_rec_t const *
 fd_funkier_txn_prev_rec( fd_funkier_t *           funk,
                          fd_funkier_rec_t const * rec ) {
   ulong rec_idx = rec->prev_idx;

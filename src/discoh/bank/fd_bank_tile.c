@@ -481,7 +481,6 @@ after_frag( fd_bank_ctx_t *     ctx,
             ulong               tsorig,
             fd_stem_context_t * stem ) {
   (void)in_idx;
-  (void)tsorig;
   ulong slot = fd_disco_poh_sig_slot( sig );
   if( FD_UNLIKELY( slot!=ctx->rebates_for_slot ) ) {
     /* If pack has already moved on to a new slot, the rebates are no

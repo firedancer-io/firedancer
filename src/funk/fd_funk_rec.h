@@ -185,7 +185,7 @@ fd_funk_rec_query_global( fd_funk_t *               funk,
    valloc. NULL is returned if the query fails. The query is always
    against the root transaction. */
 
-FD_FN_PURE void *
+void *
 fd_funk_rec_query_safe( fd_funk_t *               funk,
                         fd_funk_rec_key_t const * key,
                         fd_valloc_t               valloc,

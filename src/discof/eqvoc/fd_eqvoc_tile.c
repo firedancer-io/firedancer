@@ -120,7 +120,7 @@ static void
 during_frag( fd_eqvoc_tile_ctx_t * ctx,
              ulong                 in_idx,
              ulong                 seq FD_PARAM_UNUSED,
-             ulong                 sig FD_PARAM_UNUSED,
+             ulong                 sig,
              ulong                 chunk,
              ulong                 sz,
              ulong                 ctl FD_PARAM_UNUSED ) {
