@@ -425,7 +425,8 @@ metric introduced.
     <int value="36" name="ProgramExecutionTemporarilyRestricted" label="Program execution is temporarily restricted on an account." />
     <int value="37" name="UnbalancedTransaction" label="The total balance before the transaction does not equal the total balance after the transaction." />
     <int value="38" name="ProgramCacheHitMaxLimit" label="The total program cache size hit the maximum allowed limit." />
-    <int value="39" name="BundlePeer" label="Transaction is part of a bundle and one of the peer transactions failed." />
+    <int value="39" name="CommitCancelled" label="The process for comitting the transaction was cancelled internaly." />
+    <int value="40" name="BundlePeer" label="Transaction is part of a bundle and one of the peer transactions failed." />
 </enum>
 
 <tile name="bank">
