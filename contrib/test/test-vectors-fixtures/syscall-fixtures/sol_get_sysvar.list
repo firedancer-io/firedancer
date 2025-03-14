@@ -233,3 +233,4 @@ dump/test-vectors/syscall/fixtures/sol_get_sysvar/fcec260292218da08ba11eb1c32895
 dump/test-vectors/syscall/fixtures/sol_get_sysvar/fe5b10c7c4c937285a58482fff6584fdee4ec40b_369105.fix
 dump/test-vectors/syscall/fixtures/sol_get_sysvar/fe9672b856c0a0b73273144ca508054a00bec84f_369105.fix
 dump/test-vectors/syscall/fixtures/sol_get_sysvar/ff060bdc718940d576da09a55876114ee42b868c_369105.fix
+dump/test-vectors/syscall/fixtures/sol_get_sysvar/dd94f78037944b6e5bc7874fd10614c6acceb6bc_257275.fix

@@ -2295,7 +2295,7 @@ typedef struct fd_sysvar_fees_global fd_sysvar_fees_global_t;
 
 /* https://github.com/anza-xyz/agave/blob/cbc8320d35358da14d79ebcada4dfb6756ffac79/sdk/program/src/epoch_rewards.rs#L14 */
 /* Encoded Size: Fixed (81 bytes) */
-struct __attribute__((aligned(8UL))) fd_sysvar_epoch_rewards {
+struct __attribute__((aligned(16UL))) fd_sysvar_epoch_rewards {
   ulong distribution_starting_block_height;
   ulong num_partitions;
   fd_hash_t parent_blockhash;
@@ -2306,9 +2306,9 @@ struct __attribute__((aligned(8UL))) fd_sysvar_epoch_rewards {
 };
 typedef struct fd_sysvar_epoch_rewards fd_sysvar_epoch_rewards_t;
 #define FD_SYSVAR_EPOCH_REWARDS_FOOTPRINT sizeof(fd_sysvar_epoch_rewards_t)
-#define FD_SYSVAR_EPOCH_REWARDS_ALIGN (8UL)
+#define FD_SYSVAR_EPOCH_REWARDS_ALIGN (16UL)
 
-struct __attribute__((aligned(8UL))) fd_sysvar_epoch_rewards_global {
+struct __attribute__((aligned(16UL))) fd_sysvar_epoch_rewards_global {
   ulong distribution_starting_block_height;
   ulong num_partitions;
   fd_hash_t parent_blockhash;
@@ -2319,7 +2319,7 @@ struct __attribute__((aligned(8UL))) fd_sysvar_epoch_rewards_global {
 };
 typedef struct fd_sysvar_epoch_rewards_global fd_sysvar_epoch_rewards_global_t;
 #define FD_SYSVAR_EPOCH_REWARDS_GLOBAL_FOOTPRINT sizeof(fd_sysvar_epoch_rewards_global_t)
-#define FD_SYSVAR_EPOCH_REWARDS_GLOBAL_ALIGN (8UL)
+#define FD_SYSVAR_EPOCH_REWARDS_GLOBAL_ALIGN (16UL)
 
 /* Encoded Size: Fixed (33 bytes) */
 struct __attribute__((aligned(8UL))) fd_config_keys_pair {

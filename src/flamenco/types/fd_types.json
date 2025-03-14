@@ -980,6 +980,7 @@
     {
       "name": "sysvar_epoch_rewards",
       "type": "struct",
+      "alignment": "16",
       "fields": [
         { "name": "distribution_starting_block_height", "type": "ulong" },
         { "name": "num_partitions", "type": "ulong" },
