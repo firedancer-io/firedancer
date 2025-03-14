@@ -194,6 +194,8 @@ void
 fd_runtime_update_slots_per_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                    ulong                slots_per_epoch,
                                    fd_spad_t *          runtime_spad ) {
+  FD_LOG_WARNING(( "fd_runtime_update_slots_per_epoch slots_per_epoch=%lu", slots_per_epoch ));
+
   if( FD_LIKELY( slots_per_epoch == slot_ctx->acc_mgr->slots_per_epoch ) ) {
     return;
   }
