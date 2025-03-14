@@ -17,26 +17,38 @@
 #define FD_QUIC_CONN_STATE_CLOSE_PENDING      6 /* connection is closing */
 #define FD_QUIC_CONN_STATE_DEAD               7 /* connection about to be freed */
 
+/* Reason codes
+   The first section consists of reason codes defined in RFC9000 and
+   these are sent in CONNECTION_CLOSE frames to the peer.
+   The second section contains TLS errors - the TLS code is added to CRYPTO_BASE
+   These are also sent to the peer in CONNECTION_CLOSE frames.
+   In the third section are internal codes used to indicate a reason to
+   the caller upon connection termination. */
 #define FD_QUIC_REASON_CODES(X,SEP) \
-  X(NO_ERROR                     , 0x00  , "No error"                                  ) SEP \
-  X(INTERNAL_ERROR               , 0x01  , "Implementation error"                      ) SEP \
-  X(CONNECTION_REFUSED           , 0x02  , "Server refuses a connection"               ) SEP \
-  X(FLOW_CONTROL_ERROR           , 0x03  , "Flow control error"                        ) SEP \
-  X(STREAM_LIMIT_ERROR           , 0x04  , "Too many streams opened"                   ) SEP \
-  X(STREAM_STATE_ERROR           , 0x05  , "Frame received in invalid stream state"    ) SEP \
-  X(FINAL_SIZE_ERROR             , 0x06  , "Change to final size"                      ) SEP \
-  X(FRAME_ENCODING_ERROR         , 0x07  , "Frame encoding error"                      ) SEP \
-  X(TRANSPORT_PARAMETER_ERROR    , 0x08  , "Error in transport parameters"             ) SEP \
-  X(CONNECTION_ID_LIMIT_ERROR    , 0x09  , "Too many connection IDs received"          ) SEP \
-  X(PROTOCOL_VIOLATION           , 0x0a  , "Generic protocol violation"                ) SEP \
-  X(INVALID_TOKEN                , 0x0b  , "Invalid Token received"                    ) SEP \
-  X(APPLICATION_ERROR            , 0x0c  , "Application error"                         ) SEP \
-  X(CRYPTO_BUFFER_EXCEEDED       , 0x0d  , "CRYPTO data buffer overflowed"             ) SEP \
-  X(KEY_UPDATE_ERROR             , 0x0e  , "Invalid packet protection update"          ) SEP \
-  X(AEAD_LIMIT_REACHED           , 0x0f  , "Excessive use of packet protection keys"   ) SEP \
-  X(NO_VIABLE_PATH               , 0x10  , "No viable network path exists"             ) SEP \
-  X(CRYPTO_BASE                  , 0x100 , "0x0100-0x01ff CRYPTO_ERROR TLS alert code" ) SEP \
-  X(HANDSHAKE_FAILURE            , 0x128 , "Handshake failed"                          )
+  X(NO_ERROR                     , 0x0000 , "No error"                                    ) SEP \
+  X(INTERNAL_ERROR               , 0x0001 , "Implementation error"                        ) SEP \
+  X(CONNECTION_REFUSED           , 0x0002 , "Server refuses a connection"                 ) SEP \
+  X(FLOW_CONTROL_ERROR           , 0x0003 , "Flow control error"                          ) SEP \
+  X(STREAM_LIMIT_ERROR           , 0x0004 , "Too many streams opened"                     ) SEP \
+  X(STREAM_STATE_ERROR           , 0x0005 , "Frame received in invalid stream state"      ) SEP \
+  X(FINAL_SIZE_ERROR             , 0x0006 , "Change to final size"                        ) SEP \
+  X(FRAME_ENCODING_ERROR         , 0x0007 , "Frame encoding error"                        ) SEP \
+  X(TRANSPORT_PARAMETER_ERROR    , 0x0008 , "Error in transport parameters"               ) SEP \
+  X(CONNECTION_ID_LIMIT_ERROR    , 0x0009 , "Too many connection IDs received"            ) SEP \
+  X(PROTOCOL_VIOLATION           , 0x000a , "Generic protocol violation"                  ) SEP \
+  X(INVALID_TOKEN                , 0x000b , "Invalid Token received"                      ) SEP \
+  X(APPLICATION_ERROR            , 0x000c , "Application error"                           ) SEP \
+  X(CRYPTO_BUFFER_EXCEEDED       , 0x000d , "CRYPTO data buffer overflowed"               ) SEP \
+  X(KEY_UPDATE_ERROR             , 0x000e , "Invalid packet protection update"            ) SEP \
+  X(AEAD_LIMIT_REACHED           , 0x000f , "Excessive use of packet protection keys"     ) SEP \
+  X(NO_VIABLE_PATH               , 0x0010 , "No viable network path exists"               ) SEP \
+  X(CRYPTO_BASE                  , 0x0100 , "0x0100-0x01ff CRYPTO_ERROR TLS alert code"   ) SEP \
+  X(INTERNAL_IDLE_TIMEOUT        , 0x0201 , "Connection was idle for a specific duration" ) SEP \
+  X(INTERNAL_STATELESS_RESET     , 0x0202 , "Stateless reset received from peer"          ) SEP \
+  X(INTERNAL_TLS_HS_POOL_EMPTY   , 0x0203 , "TLS_HS pool is empty"                        ) SEP \
+  X(INTERNAL_DECRYPT_FAILURE     , 0x0204 , "Decryption failure in INITIAL"               ) SEP \
+  X(INTERNAL_ENCRYPT_FAILURE     , 0x0205 , "Encryption failure"                          ) SEP \
+  X(INTERNAL_RESERVED0           , 0x0210 , "Reserved 0"                                  )
 
 enum {
 # define COMMA ,
@@ -202,8 +214,9 @@ struct fd_quic_conn {
   uchar * tx_ptr; /* ptr to free space in tx_buf_conn */
 
   uint state;
-  uint reason;     /* quic reason for closing. see FD_QUIC_CONN_REASON_* */
-  uint app_reason; /* application reason for closing */
+  uint reason;       /* quic reason for closing. see FD_QUIC_CONN_REASON_* */
+  uint app_reason;   /* application reason for closing */
+  uint error_line;   /* the line that caused the termination, if available */
 
   fd_quic_ack_gen_t ack_gen[1];
   ulong             unacked_sz;  /* Number of received stream frame payload bytes pending ACK */

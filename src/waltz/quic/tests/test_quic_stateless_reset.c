@@ -21,7 +21,7 @@ int client_done = 0;
 int server_done = 0;
 
 /* make global so available to client */
-fd_quic_conn_t * server_conn = NULL;
+uint server_final_reason = 0;
 
 /* received count */
 ulong rcvd     = 0;
@@ -73,7 +73,7 @@ my_stream_rx_cb( fd_quic_conn_t * conn,
   //FD_LOG_NOTICE(( "received data from peer.  stream_id: %lu  size: %lu offset: %lu\n",
   //              (ulong)stream->stream_id, data_sz, offset ));
   (void)offset;
-  FD_LOG_HEXDUMP_DEBUG(( "received data", data, data_sz ));
+  FD_LOG_HEXDUMP_NOTICE(( "received data", data, data_sz ));
 
   FD_LOG_DEBUG(( "recv ok" ));
 
@@ -97,6 +97,16 @@ my_cb_conn_final( fd_quic_conn_t * conn,
                   void *           context ) {
   (void)context;
 
+  FD_LOG_NOTICE(( "%s Connection closing with reason: %x - %s",
+        conn->server ? "SERVER" : "CLIENT",
+        (uint)conn->reason,
+        fd_quic_conn_reason_name( conn->reason ) ));
+
+  /* if server, set the reason code in server_final_reason */
+  if( conn->server ) {
+    server_final_reason = conn->reason;
+  }
+
   fd_quic_conn_t ** ppconn = (fd_quic_conn_t**)fd_quic_conn_get_context( conn );
   if( ppconn ) {
     *ppconn = NULL;
@@ -111,6 +121,8 @@ my_connection_new( fd_quic_conn_t * conn,
   (void)vp_context;
 
   server_complete = 1;
+
+  server_final_reason = 0;
 
   (void)conn;
 }
@@ -175,6 +187,7 @@ client_fibre_fn( void * vp_arg ) {
       /* if connection died, stream is invalid */
       stream = NULL;
 
+      FD_LOG_NOTICE(( "CLIENT Connecting..." ));
       conn = fd_quic_connect( quic,
               server_quic->config.net.ip_addr,
               server_quic->config.net.listen_udp_port );
@@ -244,54 +257,46 @@ client_fibre_fn( void * vp_arg ) {
       FD_LOG_ERR(( "stream_id: %lx", stream->stream_id ));
     }
 
+    FD_LOG_NOTICE(( "CLIENT sending stream" ));
     int rc = fd_quic_stream_send( stream, buf, sizeof(buf), 1 /* fin */ );
 
     if( rc == FD_QUIC_SUCCESS ) {
       /* successful - stream will begin closing */
 
+      /* after sending a few times, emulate a restarted client */
       if( ++sent % 15 == 0 ) {
-        /* wait for last sends to complete */
-        /* TODO add callback for this */
-        ulong timeout = now + (ulong)3e6;
-        while( now < timeout ) {
-          fd_quic_service( quic );
+        /* do one service call */
+        fd_quic_service( quic );
 
-          /* allow server to process */
-          ulong next_wakeup = (ulong)fd_quic_get_next_wakeup( quic );
-          fd_fibre_wait_until( (long)fd_ulong_min( next_wakeup, timeout ) );
-        }
-
+        /* reset sent */
         sent = 0;
 
-        /* abort the connection without sending to the peer
+        /* terminate the connection without sending to the peer
            This should result in the server sending a ping or ack etc
            to the missing connection, and the client quic should reply
            with a stateless reset */
         if( conn && conn->state == FD_QUIC_CONN_STATE_ACTIVE ) {
-          conn->state  = FD_QUIC_CONN_STATE_DEAD;
+          FD_LOG_NOTICE(( "CLIENT setting state to FD_QUIC_CONN_STATE_DEAD" ));
+          conn->reason   = FD_QUIC_CONN_REASON_INTERNAL_RESERVED0;
+          conn->state    = FD_QUIC_CONN_STATE_DEAD;
+          conn->svc_time = now;
+          fd_quic_state_t * state = fd_quic_get_state( quic );
+          fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_INSTANT );
 
-          /* wait for connection to be reaped
-             (it's set to NULL in final callback */
-          timeout = now + (ulong)10e9;
-          while( conn && now < timeout ) {
-            /* allow server to process */
-            ulong next_wakeup = (ulong)fd_quic_get_next_wakeup( quic );
-
-            fd_quic_service( quic );
-
-            /* allow other fibre(s) to run */
-            fd_fibre_wait_until( (long)fd_ulong_min( next_wakeup, timeout ) );
-          }
+          /* one service call should reap the connection */
+          fd_quic_service( quic );
 
           /* conn should be null here, since closed callback clears it */
           FD_TEST( !conn );
 
           stream = NULL;
 
+          /* reset server conn final flag */
+          server_final_reason = 0;
+
           /* wait for period at least idle timeout */
-          /* TODO detect token */
-          timeout = now + (ulong)120e9;
-          while( now < timeout ) {
+          ulong timeout = now + (ulong)120e9;
+          while( !server_final_reason && now < timeout ) {
             /* allow server to process */
             ulong next_wakeup = (ulong)fd_quic_get_next_wakeup( quic );
 
@@ -300,6 +305,8 @@ client_fibre_fn( void * vp_arg ) {
             /* allow other fibre(s) to run */
             fd_fibre_wait_until( (long)fd_ulong_min( next_wakeup, timeout ) );
           }
+
+          FD_TEST( server_final_reason == FD_QUIC_CONN_REASON_INTERNAL_STATELESS_RESET );
 
           continue;
         }

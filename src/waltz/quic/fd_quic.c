@@ -38,6 +38,28 @@
 #define MAP_QUERY_OPT         1
 #include "../../util/tmpl/fd_map_dynamic.c"
 
+#define CONN_ID_FMT "%02x%02x%02x%02x%02x%02x%02x%02x"
+#define CONN_ID_ARGS(cid) \
+        (uint)( ( (cid)>>0x00 ) & 0xff ),                        \
+        (uint)( ( (cid)>>0x08 ) & 0xff ),                        \
+        (uint)( ( (cid)>>0x10 ) & 0xff ),                        \
+        (uint)( ( (cid)>>0x18 ) & 0xff ),                        \
+        (uint)( ( (cid)>>0x20 ) & 0xff ),                        \
+        (uint)( ( (cid)>>0x28 ) & 0xff ),                        \
+        (uint)( ( (cid)>>0x30 ) & 0xff ),                        \
+        (uint)( ( (cid)>>0x38 ) & 0xff )
+#define CONN_ID_ARGS1(cid) \
+        (uint)( ( (cid)[0] ) & 0xff ),                        \
+        (uint)( ( (cid)[1] ) & 0xff ),                        \
+        (uint)( ( (cid)[2] ) & 0xff ),                        \
+        (uint)( ( (cid)[3] ) & 0xff ),                        \
+        (uint)( ( (cid)[4] ) & 0xff ),                        \
+        (uint)( ( (cid)[5] ) & 0xff ),                        \
+        (uint)( ( (cid)[6] ) & 0xff ),                        \
+        (uint)( ( (cid)[7] ) & 0xff )
+#define LOG_CONN_ID(cid) \
+  FD_LOG_NOTICE(( "conn_id: " CONN_ID_FMT, CONN_ID_ARGS(cid) ))
+
 /* FD_QUIC_KEEP_ALIVE
  *
  * This compile time option specifies whether the server should use
@@ -867,6 +889,29 @@ fd_quic_conn_error( fd_quic_conn_t * conn,
                     uint             error_line ) {
   fd_quic_conn_error1( conn, reason );
 
+  conn->error_line = error_line;
+
+  fd_quic_state_t * state = fd_quic_get_state( conn->quic );
+
+  ulong                 sig   = fd_quic_log_sig( FD_QUIC_EVENT_CONN_QUIC_CLOSE );
+  fd_quic_log_error_t * frame = fd_quic_log_tx_prepare( state->log_tx );
+  *frame = (fd_quic_log_error_t) {
+    .hdr      = fd_quic_log_conn_hdr( conn ),
+    .code     = { reason, 0UL },
+    .src_file = "fd_quic.c",
+    .src_line = error_line,
+  };
+  fd_quic_log_tx_submit( state->log_tx, sizeof(fd_quic_log_error_t), sig, (long)state->now );
+}
+
+static void
+fd_quic_conn_term( fd_quic_conn_t * conn,
+                   uint             reason,
+                   uint             error_line ) {
+  conn->state      = FD_QUIC_CONN_STATE_DEAD;
+  conn->reason     = reason;
+  conn->error_line = error_line;
+
   fd_quic_state_t * state = fd_quic_get_state( conn->quic );
 
   ulong                 sig   = fd_quic_log_sig( FD_QUIC_EVENT_CONN_QUIC_CLOSE );
@@ -890,6 +935,7 @@ fd_quic_frame_error( fd_quic_frame_ctx_t const * ctx,
   fd_quic_state_t *     state = fd_quic_get_state( quic );
 
   fd_quic_conn_error1( conn, reason );
+  conn->error_line = error_line;
 
   uint tls_reason = 0U;
   if( conn->tls_hs ) tls_reason = conn->tls_hs->hs.base.reason;
@@ -1630,7 +1676,10 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       FD_STORE( ulong, tp->initial_source_connection_id, scid );
 
       /* construct alt_conn_id */
-      ulong alt_conn_id = fd_rng_ulong( state->_rng );
+      ulong alt_conn_id = 0;
+      if( quic->config.stateless_reset_seed ) {
+        alt_conn_id = fd_rng_ulong( state->_rng );
+      }
 
       /* Allocate new conn */
 
@@ -1659,8 +1708,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
       /* Create a TLS handshake */
 
       if( FD_UNLIKELY( !fd_quic_tls_hs_pool_free( state->hs_pool ) ) ) {
-        conn->state = FD_QUIC_CONN_STATE_DEAD;
-        fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_INSTANT );
+        fd_quic_conn_term( conn, FD_QUIC_CONN_REASON_INTERNAL_TLS_HS_POOL_EMPTY, __LINE__ );
         quic->metrics.conn_aborted_cnt++;
         quic->metrics.hs_err_alloc_fail_cnt++;
         FD_DEBUG( FD_LOG_WARNING(( "zero fd_quic_tls_hs_pool_free" )) );
@@ -1702,8 +1750,7 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     /* As this is an INITIAL packet, change the status to DEAD, and allow
         it to be reaped */
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_crypto_decrypt_hdr failed" )) );
-    conn->state = FD_QUIC_CONN_STATE_DEAD;
-    fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_INSTANT );
+    fd_quic_conn_term( conn, FD_QUIC_CONN_REASON_INTERNAL_DECRYPT_FAILURE, __LINE__ );
     quic->metrics.conn_aborted_cnt++;
     quic->metrics.pkt_decrypt_fail_cnt[ fd_quic_enc_level_initial_id ]++;
     return FD_QUIC_PARSE_FAIL;
@@ -2091,12 +2138,9 @@ fd_quic_stateless_reset_send( fd_quic_t *       quic,
 
 int
 fd_quic_stateless_reset( fd_quic_t *      quic,
-                         fd_quic_conn_t * conn,
                          fd_quic_pkt_t *  pkt,
                          uchar *          cur_ptr,
                          ulong            tot_sz ) {
-  (void)conn;
-
   if( FD_UNLIKELY( tot_sz < 22 ) ) return 0;
 
   /* assume stateless reset and look up token */
@@ -2118,8 +2162,8 @@ fd_quic_stateless_reset( fd_quic_t *      quic,
     fd_quic_token_map_t * entry = fd_quic_token_map_query( token_map, key, NULL );
     if( entry ) {
       /* set to dead, as peer has no connection state for this connection */
-      entry->conn->state = FD_QUIC_CONN_STATE_DEAD;
-      quic->metrics.conn_closed_cnt++;
+      fd_quic_conn_term( entry->conn, FD_QUIC_CONN_REASON_INTERNAL_STATELESS_RESET, __LINE__ );
+      quic->metrics.conn_closed_cnt++; /* TODO what metrics to count here */
       return 1;
     }
   } else {
@@ -2134,7 +2178,7 @@ fd_quic_stateless_reset( fd_quic_t *      quic,
 
     /* need the source ip address for generating the token */
     uint ip4_addr;
-    memcpy( &ip4_addr, pkt->ip4->daddr_c, 4 );
+    memcpy( &ip4_addr, pkt->ip4->saddr_c, 4 );
 
     ushort udp_port      = pkt->udp->net_dport;
     ushort peer_udp_port = pkt->udp->net_sport;
@@ -2158,6 +2202,7 @@ fd_quic_stateless_reset_send( fd_quic_t *       quic,
                               ushort            peer_udp_port,
                               ulong             pkt_sz,
                               ulong             conn_id ) {
+  FD_LOG_NOTICE(( "%s fd_quic_stateless_reset_send called", quic->config.role == FD_QUIC_ROLE_SERVER ? "SERVER" : "CLIENT" ));
   /* Stateless Reset {
        Fixed Bits (2) = 1,
        Unpredictable Bits (38..),
@@ -2249,7 +2294,7 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
                            ulong      const tot_sz ) {
   if( FD_UNLIKELY( !conn ) ) {
     /* check for stateless reset */
-    int is_stateless_reset = fd_quic_stateless_reset( quic, conn, pkt, cur_ptr, tot_sz );
+    int is_stateless_reset = fd_quic_stateless_reset( quic, pkt, cur_ptr, tot_sz );
 
     FD_DEBUG( FD_LOG_DEBUG(( "one_rtt failed: no connection found" )) );
     quic->metrics.pkt_no_conn_cnt += (long)!is_stateless_reset;
@@ -3060,7 +3105,7 @@ fd_quic_svc_poll( fd_quic_t *      quic,
             conn->server?"SERVER":"CLIENT",
             (void *)conn, conn->conn_idx, (double)conn->idle_timeout / 1e6 )); )
 
-        conn->state = FD_QUIC_CONN_STATE_DEAD;
+        fd_quic_conn_term( conn, FD_QUIC_CONN_REASON_INTERNAL_IDLE_TIMEOUT, __LINE__ );
         quic->metrics.conn_timeout_cnt++;
       }
     } else if( FD_QUIC_KEEP_ALIVE ) {
@@ -3589,7 +3634,7 @@ fd_quic_gen_new_connection_id( fd_quic_conn_t *     conn,
   new_conn_id.conn_id         = conn_id;
 
   /* generate token */
-  fd_quic_stateless_reset_gen_token( conn->quic, conn->host.ip_addr, conn->alt_conn_id, new_conn_id.stateless_reset_token );
+  fd_quic_stateless_reset_gen_token( conn->quic, conn->peer[0].ip_addr, conn->alt_conn_id, new_conn_id.stateless_reset_token );
 
   ulong frame_sz = fd_quic_encode_new_conn_id_frame( payload_ptr,
       (ulong)( payload_end - payload_ptr ),
@@ -4057,8 +4102,7 @@ fd_quic_conn_tx( fd_quic_t *      quic,
       FD_LOG_WARNING(( "fd_quic_crypto_encrypt failed" ));
 
       /* this situation is unlikely to improve, so kill the connection */
-      conn->state = FD_QUIC_CONN_STATE_DEAD;
-      fd_quic_svc_schedule( state, conn, FD_QUIC_SVC_INSTANT );
+      fd_quic_conn_term( conn, FD_QUIC_CONN_REASON_INTERNAL_DECRYPT_FAILURE, __LINE__ );
       quic->metrics.conn_aborted_cnt++;
       break;
     }
@@ -4197,7 +4241,8 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
         fd_quic_conn_tx( quic, conn );
 
         /* schedule another fd_quic_conn_service to free the conn */
-        conn->state = FD_QUIC_CONN_STATE_DEAD; /* TODO need draining state wait for 3 * TPO */
+        /* state->reason should already be set */
+        conn->state  = FD_QUIC_CONN_STATE_DEAD; /* TODO need draining state wait for 3 * TPO */
         quic->metrics.conn_closed_cnt++;
         fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
 
@@ -4208,6 +4253,7 @@ fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
         fd_quic_conn_tx( quic, conn );
 
         /* schedule another fd_quic_conn_service to free the conn */
+        /* state->reason should already be set */
         conn->state = FD_QUIC_CONN_STATE_DEAD;
         quic->metrics.conn_aborted_cnt++;
         fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
@@ -4382,8 +4428,6 @@ fd_quic_connect( fd_quic_t *  quic,
       dst_udp_port,
       0 /* client */ );
 
-  conn->alt_conn_id = alt_conn_id;
-
   if( FD_UNLIKELY( !conn ) ) {
     FD_DEBUG( FD_LOG_DEBUG(( "fd_quic_conn_create failed" )) );
     return NULL;
@@ -4493,12 +4537,16 @@ fd_quic_conn_create( fd_quic_t *               quic,
     FD_LOG_WARNING(( "fd_quic_conn_create failed: failed to register new conn ID" ));
     return NULL;
   }
+      else {
+        FD_LOG_NOTICE(( "fd_quic_conn_create - successfully inserted org conn id" ));
+        LOG_CONN_ID(our_conn_id);
+      }
 
   /* set connection map insert_entry to new connection */
   insert_entry->conn = conn;
 
   /* if we have an alt_conn_id */
-  if( FD_UNLIKELY( conn->alt_conn_id ) ) {
+  if( FD_UNLIKELY( alt_conn_id ) ) {
     /* insert into connection map */
     /* TODO ensure map has room for an extra conn_id */
     /* TODO remove the extra conn_id */
@@ -4507,12 +4555,18 @@ fd_quic_conn_create( fd_quic_t *               quic,
     /* if insert failed (should be impossible) fail, and do not remove connection
        from free list */
     if( FD_UNLIKELY( insert_entry == NULL ) ) {
-      FD_LOG_WARNING(( "fd_quic_conn_create failed: failed to register new conn ID" ));
-      return NULL;
-    }
+      FD_LOG_WARNING(( "fd_quic_conn_create - failed to insert alt_conn_id in map" ));
 
-    /* set connection map insert_entry to new connection */
-    insert_entry->conn = conn;
+      /* behave as-if we don't have an alt conn_id */
+      conn->alt_conn_id = 0;
+    } else {
+      FD_LOG_NOTICE(( "fd_quic_conn_create - successfully inserted alt conn id" ));
+      LOG_CONN_ID(alt_conn_id);
+
+      /* set connection map insert_entry to new connection */
+      insert_entry->conn        = conn;
+      conn        ->alt_conn_id = alt_conn_id;
+    }
   }
 
   /* remove from free list */
@@ -4533,6 +4587,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->svc_type            = UINT_MAX;
   conn->svc_time            = LONG_MAX;
   conn->our_conn_id         = 0;
+  conn->alt_conn_id         = 0;
   conn->host                = (fd_quic_net_endpoint_t){
     .ip_addr  = config->net.ip_addr,
     .udp_port = fd_ushort_if( server,
