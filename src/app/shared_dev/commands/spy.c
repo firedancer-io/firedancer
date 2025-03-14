@@ -191,8 +191,8 @@ spy_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   fd_pubkey_t public_key;
   FD_TEST( fd_ed25519_public_from_private( public_key.uc, private_key, sha ) );
 
-  gconfig.private_key = private_key;
   gconfig.public_key = &public_key;
+  gconfig.node_outset   = fd_log_wallclock() / 1000000;
 
   char gossiphost[256];
   if ( config->gossip.host[0] == '\0' )

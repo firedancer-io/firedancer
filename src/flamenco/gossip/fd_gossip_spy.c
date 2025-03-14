@@ -233,8 +233,8 @@ main( int     argc,
   fd_pubkey_t public_key;
   FD_TEST( fd_ed25519_public_from_private( public_key.uc, private_key, sha ) );
 
-  config.private_key = private_key;
   config.public_key = &public_key;
+  config.node_outset = fd_log_wallclock() / 1000000;
 
   char hostname[64];
   gethostname(hostname, sizeof(hostname));
