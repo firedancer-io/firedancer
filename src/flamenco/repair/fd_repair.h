@@ -18,6 +18,10 @@
 #define FD_REPAIR_SCRATCH_MAX    (1UL << 30UL)
 #define FD_REPAIR_SCRATCH_DEPTH  (1UL << 11UL)
 
+#define FD_REPAIR_REQ_TYPE_INDEX   (0)
+#define FD_REPAIR_REQ_TYPE_HIGHEST (1)
+#define FD_REPAIR_REQ_TYPE_ORPHAN  (2)
+
 /* Global state of repair protocol */
 typedef struct fd_repair fd_repair_t;
 FD_FN_CONST ulong         fd_repair_align    ( void );
