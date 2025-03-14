@@ -240,6 +240,7 @@ struct fd_replay_tile_ctx {
 
   ulong     fecs_inserted;
   ulong     fecs_removed;
+  fd_shred_t shred[1];
   /* Other metadata */
 
   ulong funk_seed;
@@ -430,13 +431,27 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
 
 /* Polls the blockstore block info object for newly completed slices of
    slot. Adds it to the tail of slice_deque (which should be the
-   slice_deque object of the slot, slice_map[slot]) */
+   slice_deque object of the slot, slice_map[slot]). Currently used as
+   a fallback, as there are shreds that pass through repair but not shred
+   tile before getting added to blockstore, so replay doesn't know of
+   their existence until they poll the block info itself. Typically will
+   be used heavily during repair / catching up, and only occasionally
+   after we are caught up / executing turbine shreds. */
 
 int
-slice_poll( fd_replay_tile_ctx_t * ctx,
+slice_poll_block_info( fd_replay_tile_ctx_t * ctx,
             fd_replay_slice_t    * slice_deque,
             ulong slot ) {
   uint consumed_idx, slices_added;
+
+  fd_replay_idxs_t * shred_idxs = fd_replay_idxs_map_query( ctx->replay->idxs_map, slot, NULL );
+  uint turbine_shred_wmark;
+  if( !shred_idxs ) {
+    turbine_shred_wmark = UINT_MAX;
+  } else {
+    turbine_shred_wmark = (uint)shred_idxs->wmark;
+  }
+
   for(;;) { /* speculative query */
     fd_block_map_query_t query[1] = { 0 };
     int err = fd_block_map_query_try( ctx->blockstore->block_map, &slot, NULL, query, 0 );
@@ -445,7 +460,7 @@ slice_poll( fd_replay_tile_ctx_t * ctx,
     if( FD_UNLIKELY( err == FD_MAP_ERR_KEY   ) ) return 0;
     if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
 
-    consumed_idx = block_info->consumed_idx;
+    consumed_idx = fd_uint_min( block_info->consumed_idx, turbine_shred_wmark );
     slices_added = 0;
 
     if( FD_UNLIKELY( block_info->buffered_idx == UINT_MAX ) ) return 1;
@@ -454,7 +469,7 @@ slice_poll( fd_replay_tile_ctx_t * ctx,
       if( FD_UNLIKELY( fd_block_set_test( block_info->data_complete_idxs, idx ) ) ) {
         slices_added++;
         fd_replay_slice_deque_push_tail( slice_deque->deque, ((ulong)(consumed_idx + 1) << 32) | ((ulong)idx) );
-        FD_LOG_INFO(( "adding slice replay: slot %lu, slice start: %u, slice end: %u", slot, consumed_idx + 1, idx ));
+        FD_LOG_INFO(( "adding slice replay from repair: slot %lu, slice start: %u, slice end: %u", slot, consumed_idx + 1, idx ));
         consumed_idx = idx;
       }
     }
@@ -476,6 +491,33 @@ slice_poll( fd_replay_tile_ctx_t * ctx,
   return 0;
 }
 
+ulong
+slice_poll_shred_idxs( fd_replay_tile_ctx_t * ctx,
+                       fd_replay_slice_t    * slice_deque,
+                       ulong slot ) {
+  fd_replay_idxs_t * shred_idxs = fd_replay_idxs_map_query( ctx->replay->idxs_map, slot, NULL );
+  ulong slices_added = 0;
+  for( ulong idx = shred_idxs->wmark + 1; idx < FD_SHRED_MAX_PER_SLOT; idx++ ) {
+    if( !fd_replay_idxs_set_test( shred_idxs->shred_received_idxs, idx ) ) {
+      /* Contiguous shred not recieved; exit now.
+         There may be ways to exit even earlier; */
+      return slices_added;
+    }
+    if( FD_UNLIKELY( fd_replay_idxs_set_test( shred_idxs->data_completes_idxs, idx ) ) ) {
+      /* Batch completed */
+      slices_added++;
+      fd_replay_slice_deque_push_tail( slice_deque->deque, ((ulong)(shred_idxs->wmark + 1) << 32) | ((ulong)idx) );
+      FD_LOG_INFO(( "adding slice replay: slot %lu, slice start: %lu, slice end: %lu", slot, shred_idxs->wmark + 1, idx ));
+      shred_idxs->wmark = idx;
+    }
+  }
+  /* TODO: how do I know if it's done to evict from the map? We need
+    slot complete idx maybe. */
+  return slices_added;
+}
+
+
+
 static int
 before_frag( fd_replay_tile_ctx_t * ctx,
              ulong                  in_idx,
@@ -483,6 +525,10 @@ before_frag( fd_replay_tile_ctx_t * ctx,
              ulong                  sig ) {
   (void)ctx;
   (void)seq;
+
+  if( in_idx == STORE_IN_IDX ) {
+    FD_LOG_WARNING((" RECEIVE STORE MESSAGE: slot %lu", fd_disco_replay_old_sig_slot( sig )));
+  }
 
   if( in_idx == SHRED_IN_IDX ) {
     // FD_LOG_NOTICE(( "shred in idx: %lu, seq: %lu, sig: %lu", in_idx, seq, sig ));
@@ -505,7 +551,8 @@ before_frag( fd_replay_tile_ctx_t * ctx,
       fd_replay_idxs_t * idxs = fd_replay_idxs_map_query( ctx->replay->idxs_map, slot, NULL );
       if ( FD_UNLIKELY( !idxs ) ) {
         idxs = fd_replay_idxs_map_insert( ctx->replay->idxs_map, slot );
-        idxs->wmark = 0;
+        idxs->wmark = ULONG_MAX;
+        idxs->slot  = slot;
         fd_replay_idxs_set_null( idxs->shred_received_idxs );
         fd_replay_idxs_set_null( idxs->data_completes_idxs );
       }
@@ -519,7 +566,10 @@ before_frag( fd_replay_tile_ctx_t * ctx,
 
       fd_replay_fec_remove( ctx->replay, slot, fec_set_idx );
       ctx->fecs_removed++;
-      slice_poll( ctx, slice_deque, slot );
+      if( FD_UNLIKELY( data_completes ) ) {
+        /* Batch complete flag, potential to get an executable slice. */
+        slice_poll_shred_idxs( ctx, slice_deque, slot );
+      }
       return 0; /* don't skip - contains merkle root and chained merkle root */
     }
 
@@ -531,7 +581,7 @@ before_frag( fd_replay_tile_ctx_t * ctx,
 
     fd_replay_fec_t * fec = fd_replay_fec_query( ctx->replay, slot, fec_set_idx );
     if( FD_UNLIKELY( !fec ) ) { /* first time receiving a shred for this FEC set */
-      FD_LOG_NOTICE(( "inserting FEC set %u from slot %lu", fec_set_idx, slot ));
+      FD_LOG_INFO(( "inserting FEC set %u into slot %lu", fec_set_idx, slot ));
       fec = fd_replay_fec_insert( ctx->replay, slot, fec_set_idx );
       ctx->fecs_inserted++;
       /* TODO implement eviction */
@@ -557,8 +607,6 @@ during_frag( fd_replay_tile_ctx_t * ctx,
              ulong                  chunk,
              ulong                  sz,
              ulong                  ctl FD_PARAM_UNUSED ) {
-  return;
-
   ctx->skip_frag = 0;
 
   if( in_idx == STORE_IN_IDX ) {
@@ -572,6 +620,7 @@ during_frag( fd_replay_tile_ctx_t * ctx,
        Microblock as a list of fd_txn_p_t (sz * sizeof(fd_txn_p_t)) */
 
     ctx->curr_slot = fd_disco_replay_old_sig_slot( sig );
+    FD_LOG_WARNING(("store sent slot %lu", ctx->curr_slot));
     /* slot changes */
     if( FD_UNLIKELY( ctx->curr_slot < fd_fseq_query( ctx->published_wmark ) ) ) {
       FD_LOG_WARNING(( "store sent slot %lu before our root.", ctx->curr_slot ));
@@ -631,8 +680,8 @@ during_frag( fd_replay_tile_ctx_t * ctx,
     if( FD_UNLIKELY( chunk<shred_in->chunk0 || chunk>shred_in->wmark || sz > sizeof(fd_shred34_t) ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, shred_in->chunk0 , shred_in->wmark ));
     }
-    // uchar * src = (uchar *)fd_chunk_to_laddr( shred_in->mem, chunk );
-    // fd_memcpy( (uchar *)ctx->shred, src, sz ); /* copy the hdr to read the code_cnt & data_cnt */
+    uchar * src = (uchar *)fd_chunk_to_laddr( shred_in->mem, chunk );
+    fd_memcpy( (uchar *)ctx->shred, src, sz ); /* copy the hdr to read the code_cnt & data_cnt */
 
     ctx->skip_frag = 1;
 
@@ -1690,7 +1739,7 @@ exec_slices( fd_replay_tile_ctx_t * ctx,
 
   if( ctx->last_completed_slot != slot && fd_replay_slice_deque_cnt( slice->deque ) == 0 ) {
     FD_LOG_INFO(( "Failed to query slice deque for slot %lu. Likely shreds were recieved through repair. Manually adding.", slot ));
-    slice_poll( ctx, slice, slot );
+    slice_poll_block_info( ctx, slice, slot );
   }
 
   //ulong free_exec_tiles = ctx->exec_cnt;
@@ -1889,12 +1938,10 @@ after_frag( fd_replay_tile_ctx_t * ctx,
   (void)sig;
   (void)sz;
   (void)seq;
-  return;
+  //return;
 
-  /*if( FD_LIKELY( in_idx == SHRED_IN_IDX ) ) {
-
-     after_frag only called if it's the first code shred we're
-       receiving for the FEC set
+  if( FD_LIKELY( in_idx == SHRED_IN_IDX ) ) {
+    /* We are here if any of the slot / shred idx numbers have been overrun */
 
     ulong slot        = fd_disco_shred_replay_sig_slot( sig );
     uint  fec_set_idx = fd_disco_shred_replay_sig_fec_set_idx( sig );
@@ -1904,7 +1951,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     fec->data_cnt         = ctx->shred->code.data_cnt;
 
     return;
-  }*/
+  }
 
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
   if( FD_UNLIKELY( in_idx == STORE_IN_IDX ) ) {
@@ -2445,9 +2492,9 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     }
   }
 
-  // exec_slices( ctx, stem, ctx->curr_slot );
+  exec_slices( ctx, stem, ctx->curr_slot );
 
-  return;
+  //return;
 
   ulong curr_slot   = ctx->curr_slot;
   ulong parent_slot = ctx->parent_slot;
@@ -2710,7 +2757,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
 
 static void
 during_housekeeping( void * _ctx ) {
-  return;
+  //return;
 
   fd_replay_tile_ctx_t * ctx = (fd_replay_tile_ctx_t *)_ctx;
 

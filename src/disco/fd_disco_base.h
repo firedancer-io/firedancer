@@ -151,7 +151,7 @@ fd_disco_shred_replay_sig( int type, int is_code_or_data_completes, ulong slot, 
   ulong is_code_or_data_completes_ul           = (ulong)is_code_or_data_completes;
   ulong slot_ul                                = fd_ulong_min( (ulong)slot, (ulong)UINT_MAX );
   ulong fec_set_idx_ul                         = fd_ulong_min( (ulong)fec_set_idx, (ulong)FD_SHRED_MAX_PER_SLOT );
-  ulong shred_idx_or_data_cnt_or_parent_off_ul = fd_ulong_min( (ulong)shred_idx_or_data_cnt_or_parent_off, (ulong)FD_SHRED_MAX_PER_SLOT );
+  ulong shred_idx_or_data_cnt_or_parent_off_ul = fd_ulong_extract( fd_ulong_min( (ulong)shred_idx_or_data_cnt_or_parent_off, (ulong)FD_SHRED_MAX_PER_SLOT ), 0, 14 );
   return type_ul << 63 | is_code_or_data_completes_ul << 62 | slot_ul << 30 | fec_set_idx_ul << 15 | shred_idx_or_data_cnt_or_parent_off_ul;
 }
 

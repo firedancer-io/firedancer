@@ -173,13 +173,24 @@ ulong fd_replay_slice_key( uint start_idx, uint end_idx ) {
    also be the first to attempt replay. */
 
 struct __attribute__((aligned(128UL))) fd_replay {
-  ulong               fec_max;
-  ulong               slice_max;
-  ulong               block_max;
+  ulong fec_max;
+  ulong slice_max;
+  ulong block_max;
+
+  /* Track in-progress FEC sets to repair if they don't complete in a
+     timely way. */
+
   fd_replay_fec_t *   fec_map;   /* map of slot to in-progress fec */
   fd_replay_fec_t *   fec_deque; /* deque of in-progress fecs by insert order (FIFO) */
-  fd_replay_idxs_t *  idxs_map;  /* map of slot to metadata about received shred idxs */
-  fd_replay_slice_t * slice_map; /* map of slot to deque of replayable block slices */
+
+  /* Track shreds stored to blockstore to generate slices */
+
+  fd_replay_idxs_t *   idxs_map; /* map of slot to metadata about received shred idxs */
+
+  /* Track block slices to be replayed. */
+
+  fd_replay_slice_t * slice_map;    /* map of slot to deque of replayable block slices */
+  void *              slice_deques; /* mem for contiguous deques of ulongs */
 };
 typedef struct fd_replay fd_replay_t;
 
@@ -201,22 +212,20 @@ fd_replay_footprint( ulong fec_max, ulong slice_max, ulong block_max ) {
   int lg_fec_max   = fd_ulong_find_msb( fd_ulong_pow2_up( fec_max ) );
   int lg_block_max = fd_ulong_find_msb( fd_ulong_pow2_up( block_max ) );
   return FD_LAYOUT_FINI(
-      FD_LAYOUT_APPEND(
-      FD_LAYOUT_APPEND(
-      FD_LAYOUT_APPEND(
-      FD_LAYOUT_APPEND(
-      FD_LAYOUT_APPEND(
-      FD_LAYOUT_APPEND(
-      FD_LAYOUT_APPEND(
-      FD_LAYOUT_INIT,
-        alignof(fd_replay_t),          sizeof(fd_replay_t)                           ),
-        fd_replay_fec_map_align(),     fd_replay_fec_map_footprint( lg_fec_max )     ),
-        fd_replay_fec_deque_align(),   fd_replay_fec_deque_footprint( fec_max )      ),
-        fd_replay_idxs_map_align(),    fd_replay_idxs_map_footprint( lg_block_max )  ),
-        FD_SLICE_ALIGN,                FD_SLICE_MAX                                  ),
-        fd_replay_slice_map_align(),   fd_replay_slice_map_footprint( lg_block_max ) ),
-        fd_replay_slice_deque_align(), fd_replay_slice_deque_footprint( slice_max ) * block_max ),
-      fd_replay_align() );
+         FD_LAYOUT_APPEND(
+         FD_LAYOUT_APPEND(
+         FD_LAYOUT_APPEND(
+         FD_LAYOUT_APPEND(
+         FD_LAYOUT_APPEND(
+         FD_LAYOUT_APPEND(
+         FD_LAYOUT_INIT,
+           alignof(fd_replay_t),          sizeof(fd_replay_t)                           ),
+           fd_replay_fec_map_align(),     fd_replay_fec_map_footprint( lg_fec_max )     ),
+           fd_replay_fec_deque_align(),   fd_replay_fec_deque_footprint( fec_max )      ),
+           fd_replay_idxs_map_align(),    fd_replay_idxs_map_footprint( lg_block_max )  ),
+           fd_replay_slice_map_align(),   fd_replay_slice_map_footprint( lg_block_max ) ),
+           fd_replay_slice_deque_align(), fd_replay_slice_deque_footprint( slice_max ) * block_max ),
+         fd_replay_align() );
 }
 
 /* fd_replay_new formats an unused memory region for use as a replay.
@@ -279,6 +288,17 @@ fd_replay_fec_insert( fd_replay_t * replay, ulong slot, uint fec_set_idx ) {
   return fec;
 }
 
+static inline fd_replay_idxs_t *
+fd_replay_idxs_insert( fd_replay_t * replay, ulong slot ) {
+  fd_replay_idxs_t * idxs = fd_replay_idxs_map_insert( replay->idxs_map, slot );
+  if ( FD_UNLIKELY( !idxs ) ) return NULL;
+  idxs->slot = slot;
+  idxs->wmark = ULONG_MAX;
+  fd_replay_idxs_set_null( idxs->shred_received_idxs );
+  fd_replay_fec_idxs_null( idxs->data_completes_idxs );
+  return idxs;
+}
+
 /* fd_replay_fec_query removes an in-progress FEC set from the map.
    Returns NULL if no fec set keyed by slot and fec_set_idx is found. */
 
@@ -288,6 +308,14 @@ fd_replay_fec_remove( fd_replay_t * replay, ulong slot, uint fec_set_idx ) {
   fd_replay_fec_t * fec = fd_replay_fec_map_query( replay->fec_map, key, NULL );
   FD_TEST( fec );
   fd_replay_fec_map_remove( replay->fec_map, fec ); /* cannot fail */
+}
+
+static inline void
+fd_replay_idxs_set_range( fd_replay_idxs_set_t * set, uint start_idx, uint end_idx ) {
+  /* TODO: change to better */
+  for( uint i = start_idx; i < end_idx; i++ ) {
+    fd_replay_idxs_set_insert( set, i );
+  }
 }
 
 FD_PROTOTYPES_END

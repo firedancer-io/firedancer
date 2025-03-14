@@ -610,7 +610,6 @@ after_frag( fd_shred_ctx_t *    ctx,
         fd_memcpy( buf, shred, sz );
 
         /* Publish the frag. */
-
         ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
         fd_stem_publish( stem, REPLAY_OUT_IDX, sig, ctx->replay_out_chunk, sz, 0UL, ctx->tsorig, tspub );
         ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sz, ctx->replay_out_chunk0, ctx->replay_out_wmark );
@@ -678,7 +677,7 @@ after_frag( fd_shred_ctx_t *    ctx,
        complete notification. */
 
       fd_shred_t const * last = (fd_shred_t const *)fd_type_pun_const( set->data_shreds[ set->data_shred_cnt - 1 ] );
-      int   data_completes    = last->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE;
+      int   data_completes    = !!( last->data.flags & FD_SHRED_DATA_FLAG_DATA_COMPLETE );
       ulong sig               = fd_disco_shred_replay_sig( 1, data_completes, last->slot, last->fec_set_idx, last->data.parent_off );
 
       /* Copy the merkle root and chained merkle root of the FEC set
@@ -688,7 +687,6 @@ after_frag( fd_shred_ctx_t *    ctx,
       ulong   sz  = fd_shred_header_sz( last->variant );
       memcpy( buf, out_merkle_root, FD_SHRED_MERKLE_ROOT_SZ );
       memcpy( buf + FD_SHRED_MERKLE_ROOT_SZ, (uchar const *)last + fd_shred_chain_off( last->variant ), FD_SHRED_MERKLE_ROOT_SZ );
-
       ulong tspub          = fd_frag_meta_ts_comp( fd_tickcount() );
       fd_stem_publish( stem, REPLAY_OUT_IDX, sig, ctx->replay_out_chunk, sz, 0UL, ctx->tsorig, tspub );
       ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sz, ctx->replay_out_chunk0, ctx->replay_out_wmark );
