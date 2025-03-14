@@ -194,7 +194,7 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
     rec->meta->slot = restore->accv_slot;
     memcpy( &rec->meta->hash, hdr->hash.uc, 32UL );
     memcpy( &rec->meta->info, &hdr->info, sizeof(fd_solana_account_meta_t) );
-    if( rec->meta->info.rent_epoch != FD_RENT_EXEMPT_RENT_EPOCH ) {
+    if( rec->meta && rec->meta->info.lamports && rec->meta->info.rent_epoch != FD_RENT_EXEMPT_RENT_EPOCH ) {
       restore->cb_rent_fresh_account( restore->cb_rent_fresh_account_ctx, key );
     }
     restore->acc_data = rec->data;

@@ -1663,7 +1663,8 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
       }
 
       fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->accounts[i] );
-      int fresh_account = acc_rec->meta && acc_rec->meta->info.rent_epoch != FD_RENT_EXEMPT_RENT_EPOCH;
+      int fresh_account = acc_rec->meta &&
+         acc_rec->meta->info.lamports && acc_rec->meta->info.rent_epoch != FD_RENT_EXEMPT_RENT_EPOCH;
       if( FD_UNLIKELY( fresh_account ) ) {
         fd_runtime_register_new_fresh_account( slot_ctx, txn_ctx->accounts[0].pubkey );
       }
