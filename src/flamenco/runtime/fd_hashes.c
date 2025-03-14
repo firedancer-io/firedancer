@@ -368,7 +368,7 @@ fd_account_hash_task( void *tpool,
     }
   } else {
     uchar *             acc_data = fd_account_meta_get_data((fd_account_meta_t *) acc_meta);
-    fd_pubkey_t const * acc_key  = fd_funk_key_to_acc( task_info->rec->pair.key );
+    fd_pubkey_t const * acc_key  = fd_funkier_key_to_acc( task_info->rec->pair.key );
     fd_lthash_value_t new_lthash_value;
     fd_lthash_zero(&new_lthash_value);
     fd_hash_account_current( task_info->acc_hash->hash, &new_lthash_value, acc_meta, acc_key->key, acc_data );
@@ -381,7 +381,7 @@ fd_account_hash_task( void *tpool,
 
   if( FD_LIKELY(task_info->hash_changed && ((NULL != acc_meta_parent) && (acc_meta_parent->info.lamports != 0) ) ) ) {
     uchar *             acc_data = fd_account_meta_get_data(acc_meta_parent);
-    fd_pubkey_t const * acc_key  = fd_funk_key_to_acc( task_info->rec->pair.key );
+    fd_pubkey_t const * acc_key  = fd_funkier_key_to_acc( task_info->rec->pair.key );
     fd_lthash_value_t old_lthash_value;
     fd_lthash_zero(&old_lthash_value);
     fd_hash_t old_hash;

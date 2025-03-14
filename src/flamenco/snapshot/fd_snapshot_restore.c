@@ -62,24 +62,14 @@ fd_snapshot_restore_footprint( void ) {
 }
 
 fd_snapshot_restore_t *
-<<<<<<< HEAD
-fd_snapshot_restore_new( void *                                   mem,
-                         fd_acc_mgr_t *                           acc_mgr,
-                         fd_funkier_txn_t *                          funk_txn,
-                         fd_spad_t *                              spad,
-                         void *                                   cb_manifest_ctx,
-                         fd_snapshot_restore_cb_manifest_fn_t     cb_manifest,
-                         fd_snapshot_restore_cb_status_cache_fn_t cb_status_cache ) {
-=======
 fd_snapshot_restore_new( void *                                         mem,
                          fd_acc_mgr_t *                                 acc_mgr,
-                         fd_funk_txn_t *                                funk_txn,
+                         fd_funkier_txn_t *                                funk_txn,
                          fd_spad_t *                                    spad,
                          void *                                         cb_manifest_ctx,
                          fd_snapshot_restore_cb_manifest_fn_t           cb_manifest,
                          fd_snapshot_restore_cb_status_cache_fn_t       cb_status_cache,
                          fd_snapshot_restore_cb_rent_fresh_account_fn_t cb_rent_fresh_account ) {
->>>>>>> origin/asiegel/remove-rent
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));

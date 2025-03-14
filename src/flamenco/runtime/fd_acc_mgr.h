@@ -5,13 +5,8 @@
 
 #include "../fd_flamenco_base.h"
 #include "../../ballet/txn/fd_txn.h"
-<<<<<<< HEAD
 #include "../../funkier/fd_funkier.h"
-#include "fd_borrowed_account.h"
-=======
-#include "../../funk/fd_funk.h"
 #include "fd_txn_account.h"
->>>>>>> origin/asiegel/remove-rent
 
 /* FD_ACC_MGR_{SUCCESS,ERR{...}} are fd_acc_mgr_t specific error codes.
    To be stored in an int. */

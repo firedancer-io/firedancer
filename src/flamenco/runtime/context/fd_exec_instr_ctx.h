@@ -3,7 +3,7 @@
 
 #include "../info/fd_instr_info.h"
 #include "../fd_executor_err.h"
-#include "../../../funk/fd_funk.h"
+#include "../../../funkier/fd_funkier.h"
 
 /* Avoid circular include dependency with forward declaration */
 struct fd_borrowed_account;

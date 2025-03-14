@@ -107,7 +107,7 @@ int
 fd_txn_account_create_from_funk( fd_txn_account_t *  acct_ptr,
                                  fd_pubkey_t const * acc_pubkey,
                                  fd_acc_mgr_t *      acc_mgr,
-                                 fd_funk_txn_t *     funk_txn ) {
+                                 fd_funkier_txn_t *  funk_txn ) {
   fd_txn_account_init( acct_ptr );
 
   return fd_acc_mgr_view( acc_mgr, funk_txn, acc_pubkey, acct_ptr );

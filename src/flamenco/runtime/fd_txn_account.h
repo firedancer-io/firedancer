@@ -3,7 +3,7 @@
 
 #include "../../ballet/txn/fd_txn.h"
 #include "../types/fd_types.h"
-#include "../../funk/fd_funk_rec.h"
+#include "../../funkier/fd_funkier_rec.h"
 #include "program/fd_program_util.h"
 
 struct fd_acc_mgr;
@@ -16,15 +16,15 @@ struct __attribute__((aligned(8UL))) fd_txn_account {
 
   fd_account_meta_t const   * const_meta;
   uchar             const   * const_data;
-  fd_funk_rec_t     const   * const_rec;
+  fd_funkier_rec_t     const   * const_rec;
 
   fd_account_meta_t         * meta;
   uchar                     * data;
-  fd_funk_rec_t             * rec;
+  fd_funkier_rec_t             * rec;
 
   fd_account_meta_t const   * orig_meta;
   uchar             const   * orig_data;
-  fd_funk_rec_t     const   * orig_rec;
+  fd_funkier_rec_t     const   * orig_rec;
 
   /* consider making this a struct or removing entirely if not needed */
   ulong                       starting_dlen;
@@ -178,7 +178,7 @@ int
 fd_txn_account_create_from_funk( fd_txn_account_t *  acct_ptr,
                                  fd_pubkey_t const * acc_pubkey,
                                  fd_acc_mgr_t *      acc_mgr,
-                                 fd_funk_txn_t *     funk_txn );
+                                 fd_funkier_txn_t *  funk_txn );
 
 FD_PROTOTYPES_END
 

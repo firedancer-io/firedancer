@@ -40,8 +40,6 @@ fd_acc_mgr_delete( fd_acc_mgr_t * acc_mgr ) {
   return acc_mgr;
 }
 
-<<<<<<< HEAD
-=======
 void
 fd_acc_mgr_set_slots_per_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                 ulong                slots_per_epoch ) {
@@ -50,7 +48,6 @@ fd_acc_mgr_set_slots_per_epoch( fd_exec_slot_ctx_t * slot_ctx,
   acc_mgr->part_width      = fd_rent_partition_width( slots_per_epoch );
 }
 
->>>>>>> origin/asiegel/remove-rent
 fd_account_meta_t const *
 fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
                      fd_funkier_txn_t const *  txn,
@@ -92,17 +89,10 @@ fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
 }
 
 int
-<<<<<<< HEAD
-fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
-                 fd_funkier_txn_t const *   txn,
-                 fd_pubkey_t const *     pubkey,
-                 fd_borrowed_account_t * account) {
-=======
 fd_acc_mgr_view( fd_acc_mgr_t *        acc_mgr,
-                 fd_funk_txn_t const * txn,
+                 fd_funkier_txn_t const * txn,
                  fd_pubkey_t const *   pubkey,
                  fd_txn_account_t *    account) {
->>>>>>> origin/asiegel/remove-rent
   /* TODO: re-add this check after consulting on why this builtin program check.
      Is it the case that the  */
   // if( fd_pubkey_is_builtin_program( pubkey )
@@ -137,86 +127,16 @@ fd_acc_mgr_view( fd_acc_mgr_t *        acc_mgr,
   return FD_ACC_MGR_SUCCESS;
 }
 
-<<<<<<< HEAD
-int
-fd_acc_mgr_modify( fd_acc_mgr_t *          acc_mgr,
-                   fd_funkier_txn_t *      txn,
-                   fd_pubkey_t const *     pubkey,
-                   int                     do_create,
-                   ulong                   min_data_sz,
-                   fd_borrowed_account_t * account ) {
-  fd_funkier_t *       funk = acc_mgr->funk;
-  fd_wksp_t *          wksp = fd_funkier_wksp(funk);
-  fd_funkier_rec_key_t id   = fd_acc_funk_key( pubkey );
-=======
-fd_account_meta_t *
-fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
-                       fd_funk_txn_t *       txn,
-                       fd_pubkey_t const *   pubkey,
-                       int                   do_create,
-                       ulong                 min_data_sz,
-                       fd_funk_rec_t const * opt_con_rec,
-                       fd_funk_rec_t **      opt_out_rec,
-                       int *                 opt_err ) {
-
-  fd_funk_t *       funk = acc_mgr->funk;
-
-  fd_funk_rec_key_t id   = fd_acc_funk_key( pubkey );
-
-//#ifdef VLOG
-//  ulong rec_cnt = 0;
-//  for( fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, txn );
-//       NULL != rec;
-//       rec = fd_funk_txn_next_rec( funk, rec ) ) {
-//
-//    if( !fd_funk_key_is_acc( rec->pair.key  ) ) continue;
-//
-//    FD_LOG_DEBUG(( "fd_acc_mgr_modify_raw: %s create: %s  rec_cnt: %d", FD_BASE58_ENC_32_ALLOCA( rec->pair.key->uc ), do_create ? "true" : "false", rec_cnt));
-//
-//    rec_cnt++;
-//  }
-//
-//  FD_LOG_DEBUG(( "fd_acc_mgr_modify_raw: %s create: %s", FD_BASE58_ENC_32_ALLOCA( pubkey->uc ), do_create ? "true" : "false"));
-//#endif
-
-  int funk_err = FD_FUNK_SUCCESS;
-  fd_funk_rec_t * rec = fd_funk_rec_write_prepare( funk, txn, &id, sizeof(fd_account_meta_t)+min_data_sz, do_create, opt_con_rec, &funk_err );
-
-  if( FD_UNLIKELY( !rec ) )  {
-    if( FD_LIKELY( funk_err==FD_FUNK_ERR_KEY ) ) {
-      fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT );
-      return NULL;
-    }
-    /* Irrecoverable funky internal error [[noreturn]] */
-    FD_LOG_ERR(( "fd_funk_rec_write_prepare(%s) failed (%i-%s)", FD_BASE58_ENC_32_ALLOCA( pubkey->key ), funk_err, fd_funk_strerror( funk_err ) ));
-  }
-
-  if (NULL != opt_out_rec)
-    *opt_out_rec = rec;
-
-  fd_account_meta_t * ret = fd_funk_val( rec, fd_funk_wksp( funk ) );
-
-  if( do_create && ret->magic==0UL ) {
-    fd_account_meta_init( ret );
-  }
-
-  if( ret->magic != FD_ACCOUNT_META_MAGIC ) {
-    fd_int_store_if( !!opt_err, opt_err, FD_ACC_MGR_ERR_WRONG_MAGIC );
-    return NULL;
-  }
-
-  return ret;
-}
-
 int
 fd_acc_mgr_modify( fd_acc_mgr_t *      acc_mgr,
-                   fd_funk_txn_t *     txn,
+                   fd_funkier_txn_t *  txn,
                    fd_pubkey_t const * pubkey,
                    int                 do_create,
                    ulong               min_data_sz,
                    fd_txn_account_t *  account ) {
-  int err = FD_ACC_MGR_SUCCESS;
->>>>>>> origin/asiegel/remove-rent
+  fd_funkier_t *       funk = acc_mgr->funk;
+  fd_wksp_t *          wksp = fd_funkier_wksp(funk);
+  fd_funkier_rec_key_t id   = fd_acc_funk_key( pubkey );
 
   fd_funkier_rec_prepare_t prepare[1];
   int funk_err = 0;
@@ -310,34 +230,14 @@ fd_acc_mgr_save( fd_acc_mgr_t *     acc_mgr,
 }
 
 int
-<<<<<<< HEAD
-fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *          acc_mgr,
-                           fd_funkier_txn_t *         txn,
-                           fd_borrowed_account_t * account ) {
-
-  fd_funkier_rec_key_t key = fd_acc_funk_key( account->pubkey );
-  fd_funkier_t * funk = acc_mgr->funk;
-=======
 fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *     acc_mgr,
-                           fd_funk_txn_t *    txn,
+                           fd_funkier_txn_t *    txn,
                            fd_txn_account_t * account ) {
 
-  fd_funk_start_write( acc_mgr->funk );
-  fd_funk_rec_key_t key = fd_acc_funk_key( account->pubkey );
-  fd_funk_t * funk = acc_mgr->funk;
-  fd_funk_rec_t * rec = (fd_funk_rec_t *)fd_funk_rec_query( funk, txn, &key );
-  if( rec == NULL ) {
-    int err;
-    rec = (fd_funk_rec_t *)fd_funk_rec_insert( funk, txn, &key, &err );
-    if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %d", err ));
-  }
-  account->rec = rec;
-  ulong reclen = sizeof(fd_account_meta_t)+account->const_meta->dlen;
-  fd_wksp_t * wksp = fd_funk_wksp( acc_mgr->funk );
->>>>>>> origin/asiegel/remove-rent
+  fd_funkier_rec_key_t key = fd_acc_funk_key( account->pubkey );
   int err;
   fd_funkier_rec_prepare_t prepare[1];
-  fd_funkier_rec_t * rec = fd_funkier_rec_prepare( funk, txn, &key, prepare, &err );
+  fd_funkier_rec_t * rec = fd_funkier_rec_prepare( acc_mgr->funk, txn, &key, prepare, &err );
   if( rec == NULL ) FD_LOG_ERR(( "unable to insert a new record, error %d", err ));
 
   account->rec = rec;
@@ -391,7 +291,7 @@ fd_acc_mgr_save_task( void *tpool,
   fd_acc_mgr_t * acc_mgr = task_args->acc_mgr;
 
   for( ulong i = 0; i < task_info->accounts_cnt; i++ ) {
-    fd_borrowed_account_t * account = task_info->accounts[i];
+    fd_txn_account_t * account = task_info->accounts[i];
     fd_funkier_rec_key_t key = fd_acc_funk_key( account->pubkey );
     fd_funkier_t * funk = acc_mgr->funk;
 
@@ -418,21 +318,12 @@ fd_acc_mgr_save_task( void *tpool,
 }
 
 int
-<<<<<<< HEAD
-fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *            acc_mgr,
-                            fd_funkier_txn_t *           txn,
-                            fd_borrowed_account_t * * accounts,
-                            ulong                     accounts_cnt,
-                            fd_tpool_t *              tpool,
-                            fd_spad_t *               runtime_spad ) {
-=======
 fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *       acc_mgr,
-                            fd_funk_txn_t *      txn,
+                            fd_funkier_txn_t *   txn,
                             fd_txn_account_t * * accounts,
                             ulong                accounts_cnt,
                             fd_tpool_t *         tpool,
                             fd_spad_t *          runtime_spad ) {
->>>>>>> origin/asiegel/remove-rent
 
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
@@ -465,7 +356,7 @@ fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *       acc_mgr,
   }
 
   for( ulong i = 0; i < accounts_cnt; i++ ) {
-    fd_borrowed_account_t * account = accounts[i];
+    fd_txn_account_t * account = accounts[i];
     ulong batch_idx = i & batch_mask;
     fd_acc_mgr_save_task_info_t * task_info = &task_infos[batch_idx];
     task_info->accounts[task_info->accounts_cnt++] = account;
