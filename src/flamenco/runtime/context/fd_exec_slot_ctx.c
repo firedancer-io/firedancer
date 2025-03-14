@@ -499,8 +499,8 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
 
     new_node->elem.partition     = partition;
     new_node->elem.accounts_root = NULL;
-    new_node->elem.accounts_pool = fd_pubkey_t_map_join( fd_rent_fresh_accounts_partition_t_map_new(
-      fd_spad_alloc( runtime_spad, fd_pubkey_t_map_align(), fd_pubkey_t_map_footprint( 100 ) ),
+    new_node->elem.accounts_pool = fd_pubkey_node_t_map_join( fd_rent_fresh_accounts_partition_t_map_new(
+      fd_spad_alloc( runtime_spad, fd_pubkey_node_t_map_align(), fd_pubkey_node_t_map_footprint( 100 ) ),
       100 
     ) );
     fd_rent_fresh_accounts_partition_t_map_insert( 

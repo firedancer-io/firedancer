@@ -110,13 +110,13 @@ fd_runtime_register_new_fresh_account( fd_exec_slot_ctx_t * slot_ctx,
   if( FD_UNLIKELY( partition_node->elem.accounts_pool == NULL ) ) {
     FD_LOG_ERR(( "node->elem.accounts_pool == NULL" ));
   }
-  if( FD_UNLIKELY( fd_pubkey_t_map_free( partition_node->elem.accounts_pool ) == 0UL ) ) {
+  if( FD_UNLIKELY( fd_pubkey_node_t_map_free( partition_node->elem.accounts_pool ) == 0UL ) ) {
     FD_LOG_ERR(( "rent_fresh_accounts_partition full - increase the partition size" ));
   }
 
-  fd_pubkey_t_mapnode_t account_key[1] = {0};
-  fd_memcpy( &account_key->elem, pubkey, FD_PUBKEY_FOOTPRINT );
-  fd_pubkey_t_mapnode_t * account_node = fd_pubkey_t_map_find( 
+  fd_pubkey_node_t_mapnode_t account_key[1] = {0};
+  fd_memcpy( &account_key->elem.pubkey, pubkey, FD_PUBKEY_FOOTPRINT );
+  fd_pubkey_node_t_mapnode_t * account_node = fd_pubkey_node_t_map_find( 
     partition_node->elem.accounts_pool,
     partition_node->elem.accounts_root,
     account_key
@@ -125,12 +125,12 @@ fd_runtime_register_new_fresh_account( fd_exec_slot_ctx_t * slot_ctx,
    return;
   }
 
-  fd_pubkey_t_mapnode_t * new_account_node = fd_pubkey_t_map_acquire( partition_node->elem.accounts_pool );
+  fd_pubkey_node_t_mapnode_t * new_account_node = fd_pubkey_node_t_map_acquire( partition_node->elem.accounts_pool );
   if( FD_UNLIKELY( new_account_node == NULL ) ) {
     FD_LOG_ERR(( "new_account_node == NULL" ));
   }
-  fd_memcpy( &new_account_node->elem, pubkey, FD_PUBKEY_FOOTPRINT );
-  fd_pubkey_t_map_insert( 
+  fd_memcpy( &new_account_node->elem.pubkey, pubkey, FD_PUBKEY_FOOTPRINT );
+  fd_pubkey_node_t_map_insert( 
     partition_node->elem.accounts_pool,
     &partition_node->elem.accounts_root,
     new_account_node
@@ -143,6 +143,9 @@ void
 fd_runtime_repartition_fresh_account_partitions( fd_exec_slot_ctx_t * slot_ctx,
                                                  fd_spad_t *          runtime_spad ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+
+    FD_LOG_WARNING(( "fd_runtime_repartition_fresh_account_partitions slot_ctx->rent_fresh_accounts.total_count=%lu", 
+      slot_ctx->rent_fresh_accounts.total_count ));
 
     /* Collect all the dirty pubkeys into one list */
     ulong dirty_pubkeys_cnt = 0UL;
@@ -162,23 +165,24 @@ fd_runtime_repartition_fresh_account_partitions( fd_exec_slot_ctx_t * slot_ctx,
             slot_ctx->rent_fresh_accounts.partitions_pool,
             partition_node
            ) ) {
-      fd_pubkey_t_mapnode_t * next_account_node;
-      for( fd_pubkey_t_mapnode_t * account_node = fd_pubkey_t_map_maximum( 
+      fd_pubkey_node_t_mapnode_t * next_account_node;
+      for( fd_pubkey_node_t_mapnode_t * account_node = fd_pubkey_node_t_map_minimum( 
             partition_node->elem.accounts_pool,
             partition_node->elem.accounts_root
           );
           account_node;
           account_node = next_account_node ) {
-        next_account_node = fd_pubkey_t_map_predecessor(
+        next_account_node = fd_pubkey_node_t_map_successor(
           partition_node->elem.accounts_pool,
           account_node );
-        fd_memcpy( &dirty_pubkeys[dirty_pubkeys_cnt++], &account_node->elem, FD_PUBKEY_FOOTPRINT );
+        fd_memcpy( &dirty_pubkeys[dirty_pubkeys_cnt++], &account_node->elem.pubkey, FD_PUBKEY_FOOTPRINT );
+        FD_LOG_WARNING(( "removing elem %s", FD_BASE58_ENC_32_ALLOCA( &account_node->elem ) ));
 
-        fd_pubkey_t_mapnode_t * removed_node = fd_pubkey_t_map_remove( 
+        fd_pubkey_node_t_mapnode_t * removed_node = fd_pubkey_node_t_map_remove( 
           partition_node->elem.accounts_pool,
           &partition_node->elem.accounts_root,
           account_node );
-        fd_pubkey_t_map_release( partition_node->elem.accounts_pool, removed_node );
+        fd_pubkey_node_t_map_release( partition_node->elem.accounts_pool, removed_node );
       }
     }
 
@@ -492,24 +496,24 @@ fd_runtime_update_rent_epoch( fd_exec_slot_ctx_t * slot_ctx ) {
 
     /* Set the rent epoch field of each account to ULONG_MAX, if it wasn't already.
        Clear the partition as we are iterating over it. */
-    fd_pubkey_t_mapnode_t * next_account_node;
-    for( fd_pubkey_t_mapnode_t * account_node = fd_pubkey_t_map_maximum( 
+    fd_pubkey_node_t_mapnode_t * next_account_node;
+    for( fd_pubkey_node_t_mapnode_t * account_node = fd_pubkey_node_t_map_minimum( 
             partition_node->elem.accounts_pool,
             partition_node->elem.accounts_root
           );
           account_node;
           account_node = next_account_node ) {
-      next_account_node = fd_pubkey_t_map_predecessor(
+      next_account_node = fd_pubkey_node_t_map_successor(
         partition_node->elem.accounts_pool,
         account_node );
       
-      fd_runtime_update_rent_epoch_account( slot_ctx, fd_type_pun( &account_node->elem ) );
+      fd_runtime_update_rent_epoch_account( slot_ctx, fd_type_pun( &account_node->elem.pubkey ) );
 
-      fd_pubkey_t_mapnode_t * removed_node = fd_pubkey_t_map_remove( 
+      fd_pubkey_node_t_mapnode_t * removed_node = fd_pubkey_node_t_map_remove( 
         partition_node->elem.accounts_pool,
         &partition_node->elem.accounts_root,
         account_node );
-      fd_pubkey_t_map_release( partition_node->elem.accounts_pool, removed_node );
+      fd_pubkey_node_t_map_release( partition_node->elem.accounts_pool, removed_node );
       slot_ctx->rent_fresh_accounts.total_count -= 1UL;
     }
   }
