@@ -218,12 +218,3 @@ void fd_tower_sync_decode_inner( void * struct_mem, void * * alloc_mem, fd_binco
   }
   fd_hash_decode_inner( &self->block_id, alloc_mem, ctx );
 }
-
-#define REDBLK_T fd_vote_reward_t_mapnode_t
-#define REDBLK_NAME fd_vote_reward_t_map
-#define REDBLK_IMPL_STYLE 2
-#include "../../util/tmpl/fd_redblack.c"
-
-long fd_vote_reward_t_map_compare( fd_vote_reward_t_mapnode_t * left, fd_vote_reward_t_mapnode_t * right ) {
-  return memcmp( left->elem.pubkey.uc, right->elem.pubkey.uc, sizeof(right->elem.pubkey) );
-}
