@@ -535,6 +535,9 @@ typedef struct {
   fd_histf_t first_microblock_delay[ 1 ];
   fd_histf_t slot_done_delay[ 1 ];
   fd_histf_t bundle_init_delay[ 1 ];
+
+  uchar parent_block_id[ 32 ];
+  uchar parent_block_id_valid;
 } fd_poh_ctx_t;
 
 /* The PoH recorder is implemented in Firedancer but for now needs to
@@ -1192,7 +1195,8 @@ no_longer_leader( fd_poh_ctx_t * ctx ) {
 CALLED_FROM_RUST void
 fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successfully produced a block */
                   uchar const * reset_blockhash,     /* The hash of the last tick in the produced block */
-                  ulong         hashcnt_per_tick     /* The hashcnt per tick of the bank that completed */ ) {
+                  ulong         hashcnt_per_tick,    /* The hashcnt per tick of the bank that completed */
+                  uchar const * block_id             /* The block id of the parent block */ ) {
   fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
 
   ulong slot_before_reset = ctx->slot;
@@ -1224,6 +1228,12 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
 
   memcpy( ctx->reset_hash, reset_blockhash, 32UL );
   memcpy( ctx->hash, reset_blockhash, 32UL );
+  if( FD_LIKELY( block_id!=NULL ) ) {
+    ctx->parent_block_id_valid = 1;
+    memcpy( ctx->parent_block_id, block_id, 32UL );
+  } else {
+    ctx->parent_block_id_valid = 0;
+  }
   ctx->slot         = completed_bank_slot+1UL;
   ctx->hashcnt      = 0UL;
   ctx->last_slot    = ctx->slot;
@@ -1814,6 +1824,10 @@ publish_microblock( fd_poh_ctx_t *      ctx,
   meta->parent_offset = 1UL+slot-ctx->reset_slot;
   meta->reference_tick = (ctx->hashcnt/ctx->hashcnt_per_tick) % ctx->ticks_per_slot;
   meta->block_complete = !ctx->hashcnt;
+  meta->parent_block_id_valid = ctx->parent_block_id_valid;
+  if( FD_LIKELY( ctx->parent_block_id_valid ) ) {
+    fd_memcpy( meta->parent_block_id, ctx->parent_block_id, 32UL );
+  }
 
   dst += sizeof(fd_entry_batch_meta_t);
   fd_entry_batch_header_t * header = (fd_entry_batch_header_t *)dst;

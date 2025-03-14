@@ -133,7 +133,7 @@ test_one_batch( void ) {
   /* To complete an FEC set, you need at least (# of data shreds) total
      shreds and at least one parity shred. */
   for( ulong i=0UL; i<7UL; i++ ) {
-    fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, _set );
+    fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, _set, /* chained */ NULL );
 
     for( ulong j=0UL; j<set->data_shred_cnt;       j++ ) ADD_SHRED( r1, set->data_shreds  [ j ], OKAY    );
     ADD_SHRED( r1, set->parity_shreds[ 0 ], COMPLETES );
@@ -182,8 +182,8 @@ test_interleaved( void ) {
   for( ulong i=0UL; i<4UL; i++ ) ptr = allocate_fec_set( out_sets+i, ptr );
 
 
-  fd_fec_set_t * set0 = fd_shredder_next_fec_set( shredder, _set     );
-  fd_fec_set_t * set1 = fd_shredder_next_fec_set( shredder, _set+1UL );
+  fd_fec_set_t * set0 = fd_shredder_next_fec_set( shredder, _set    , /* chained */ NULL );
+  fd_fec_set_t * set1 = fd_shredder_next_fec_set( shredder, _set+1UL, /* chained */ NULL );
   FD_TEST( fd_shredder_fini_batch( shredder ) );
 
   fd_fec_set_t const * out_fec[1];
@@ -231,9 +231,9 @@ test_rolloff( void ) {
   for( ulong i=0UL; i<4UL; i++ ) ptr = allocate_fec_set( out_sets+i, ptr );
 
 
-  fd_fec_set_t * set0 = fd_shredder_next_fec_set( shredder, _set     );
-  fd_fec_set_t * set1 = fd_shredder_next_fec_set( shredder, _set+1UL );
-  fd_fec_set_t * set2 = fd_shredder_next_fec_set( shredder, _set+2UL );
+  fd_fec_set_t * set0 = fd_shredder_next_fec_set( shredder, _set    , /* chained */ NULL );
+  fd_fec_set_t * set1 = fd_shredder_next_fec_set( shredder, _set+1UL, /* chained */ NULL );
+  fd_fec_set_t * set2 = fd_shredder_next_fec_set( shredder, _set+2UL, /* chained */ NULL );
   FD_TEST( fd_shredder_fini_batch( shredder ) );
 
   fd_fec_resolver_t * resolver;
@@ -282,7 +282,7 @@ perf_test( void ) {
 
     ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST_SZ );
     for( ulong j=0UL; j<sets_cnt; j++ ) {
-      fd_shredder_next_fec_set( shredder, _set );
+      fd_shredder_next_fec_set( shredder, _set, /* chained */ NULL );
     }
     fd_shredder_fini_batch( shredder );
   }
@@ -402,7 +402,7 @@ test_shred_version( void ) {
   fd_shred_t const   * out_shred[1];
   fd_bmtree_node_t     out_merkle_root[1];
 
-  fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, _set );
+  fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, _set, /* chained */ NULL );
   fd_shred_t const * shred = fd_shred_parse( set->data_shreds[ 0 ], 2048UL );
   FD_TEST( shred );
   FD_TEST( FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, pubkey, out_fec, out_shred, out_merkle_root ) );
@@ -481,7 +481,7 @@ test_shred_reject( void ) {
   FD_TEST( NULL==fd_shred_parse( (uchar const *)shred, 2048UL ) ||                                                                           \
            FD_FEC_RESOLVER_SHRED_REJECTED==fd_fec_resolver_add_shred( r, shred, 2048UL, pubkey, out_fec, out_shred, out_merkle_root ) );
 
-  fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, _set );
+  fd_fec_set_t * set = fd_shredder_next_fec_set( shredder, _set, /* chained */ NULL );
   fd_shred_t * shred;
   shred = (fd_shred_t *)fd_shred_parse( set->data_shreds[ 0 ], 2048UL );   FD_TEST( shred );
   /* Test basic setup is working. */
@@ -578,7 +578,7 @@ test_merkle_root( void ) {
   fd_fec_set_t const * out_fec[1];
   fd_shred_t const   * out_shred[1];
 
-  fd_fec_set_t *   set = fd_shredder_next_fec_set( shredder, _set );
+  fd_fec_set_t *   set = fd_shredder_next_fec_set( shredder, _set, /* chained */ NULL );
   fd_shred_t *     shred;
 
   /* Test merkle root is written correctly on SUCCESS. */

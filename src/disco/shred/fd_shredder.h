@@ -188,11 +188,19 @@ fd_shredder_t * fd_shredder_skip_batch( fd_shredder_t * shredder,
    to sign the shreds.  It must correspond to the public key passed in
    the shredder constructor.
 
+   chained_merkle_root is either NULL or a pointer to a 32-byte buffer
+   containing the chained merkle root (the merkle root of the previous
+   FEC set). If not NULL, chained_merkle_root is updated with the new
+   root. This also determines the variant of shreds created.
+
    Returns result on success and NULL if all of the entry batch's data
    has been consumed already by previous calls to this function.  On
    success, advances the position of the shredder within the batch
    without finishing the batch. */
-fd_fec_set_t * fd_shredder_next_fec_set( fd_shredder_t * shredder, fd_fec_set_t * result );
+fd_fec_set_t *
+fd_shredder_next_fec_set( fd_shredder_t * shredder,
+                          fd_fec_set_t *  result,
+                          uchar *         chained_merkle_root );
 
 /* fd_shredder_fini_batch finishes the in process batch.  shredder must
    be a valid local join that is currently in a batch.  Upon return,
