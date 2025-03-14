@@ -119,7 +119,7 @@ static inline QUEUE_T *
 QUEUE_(join)( void * shqueue ) {
   QUEUE_(private_t) * hdr = (QUEUE_(private_t) *)shqueue;
   return hdr->queue;
-} 
+}
 
 static inline void * QUEUE_(leave) ( QUEUE_T * queue   ) { return (void *)QUEUE_(private_hdr_from_queue)( queue ); }
 static inline void * QUEUE_(delete)( void *    shqueue ) { return shqueue; }
