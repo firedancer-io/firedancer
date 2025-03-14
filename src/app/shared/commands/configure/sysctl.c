@@ -92,7 +92,7 @@ init_param_list( sysctl_param_t const * list ) {
 }
 
 static void
-init( config_t * const config ) {
+init( config_t const * config ) {
   init_param_list( params );
   if( 0==strcmp( config->development.net.provider, "xdp" ) ) {
     init_param_list( xdp_params );

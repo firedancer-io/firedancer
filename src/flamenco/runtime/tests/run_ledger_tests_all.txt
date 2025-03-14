@@ -80,3 +80,4 @@ src/flamenco/runtime/tests/run_ledger_test.sh -l v213-transaction-loading-failur
 src/flamenco/runtime/tests/run_ledger_test.sh -l reserve-minimal-cus-for-builtins -s snapshot-100-88Gt4ikriNfwToXqzdKj4jVcFoKGVzx6sqyszBftBF87.tar.zst -p 60 -y 16 -m 5000000 -e 850 -c 2.1.13 -o C9oAhLxDBm3ssWtJx1yBGzPY55r2rArHmN1pbQn6HogH
 src/flamenco/runtime/tests/run_ledger_test.sh -l testnet-281546597-no-rent -s snapshot-281546592-5jvGg895YBu829SzrJA4rrExcLSpY1MgVwQshNcJX5EB.tar.zst -p 60 -y 16 -m 5000000 -e 281546597 -c 2.0.23 --tile-cpus 2-11
 src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-324823213-no-rent -s snapshot-324823212-sk3zF16dk7gEsgLf1mGDhj6qRp87kFjJdEWZmhr4Kju.tar.zst -p 60 -y 16 -m 5000000 -e 324823214 -c 2.0.23
+src/flamenco/runtime/tests/run_ledger_test.sh -l mainnet-325467935 -s snapshot-325467934-DDmw2omWPAPKueV2n3ggx3VtesR7h7smx8PMwssWVbBy.tar.zst -p 60 -y 16 -m 5000000 -e 325467936 -c 2.1.11

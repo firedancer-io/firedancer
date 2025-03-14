@@ -1,5 +1,6 @@
 #include "fd_runtime_init.h"
 #include "fd_runtime_err.h"
+#include <stdio.h>
 #include "../types/fd_types.h"
 #include "context/fd_exec_epoch_ctx.h"
 #include "context/fd_exec_slot_ctx.h"
@@ -251,7 +252,7 @@ fd_feature_restore( fd_exec_slot_ctx_t *    slot_ctx,
                     uchar const             acct[ static 32 ],
                     fd_spad_t *             runtime_spad ) {
 
-  FD_BORROWED_ACCOUNT_DECL( acct_rec );
+  FD_TXN_ACCOUNT_DECL( acct_rec );
   int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t *)acct, acct_rec );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return;

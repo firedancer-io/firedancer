@@ -134,8 +134,8 @@ send_quic_transactions( fd_quic_t *         quic,
 }
 
 void
-txn_cmd_fn( args_t *         args,
-            config_t * const config ) {
+txn_cmd_fn( args_t *   args,
+            config_t * config ) {
   if( FD_UNLIKELY( config->development.netns.enabled ) ) {
     if( FD_UNLIKELY( -1==fd_net_util_netns_enter( config->development.netns.interface1, NULL ) ) )
       FD_LOG_ERR(( "failed to enter network namespace `%s` (%i-%s)", config->development.netns.interface1, errno, fd_io_strerror( errno ) ));

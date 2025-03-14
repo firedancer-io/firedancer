@@ -329,6 +329,10 @@ fd_flamenco_yaml_walk( void *       _self,
   case FD_FLAMENCO_TYPE_HASH1024:
     fprintf( file, "'%s%s%s%s'\n", FD_BASE58_ENC_32_ALLOCA( arg ), FD_BASE58_ENC_32_ALLOCA( ((uchar *) arg)+32 ), FD_BASE58_ENC_32_ALLOCA( ((uchar *) arg)+64 ), FD_BASE58_ENC_32_ALLOCA( ((uchar *) arg)+96 ) );
     break;
+  case FD_FLAMENCO_TYPE_HASH16384:
+    /* FIXME: This currently truncates the hash */
+    fprintf( file, "'%s%s%s%s (truncated)'\n", FD_BASE58_ENC_32_ALLOCA( arg ), FD_BASE58_ENC_32_ALLOCA( ((uchar *) arg)+32 ), FD_BASE58_ENC_32_ALLOCA( ((uchar *) arg)+64 ), FD_BASE58_ENC_32_ALLOCA( ((uchar *) arg)+96 ) );
+    break;
   case FD_FLAMENCO_TYPE_SIG512: {
     char buf[ FD_BASE58_ENCODED_64_SZ ];
     fd_base58_encode_64( arg, NULL, buf );

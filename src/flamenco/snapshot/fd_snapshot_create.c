@@ -22,10 +22,10 @@ fd_snapshot_create_get_default_meta( ulong slot ) {
 }
 
 static inline void
-fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapshot_ctx,
-                                      fd_solana_manifest_serializable_t * manifest,
-                                      fd_tar_writer_t                   * writer,
-                                      ulong                             * out_cap ) {
+fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t *    snapshot_ctx,
+                                      fd_solana_manifest_t * manifest,
+                                      fd_tar_writer_t *      writer,
+                                      ulong *                out_cap ) {
 
   /* The append vecs need to be described in an index in the manifest so a
      reader knows what account files to look for. These files are technically
@@ -231,7 +231,7 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
                                                                      sizeof(fd_bank_incremental_snapshot_persistence_t) );
   }
 
-  ulong manifest_sz = fd_solana_manifest_serializable_size( manifest );
+  ulong manifest_sz = fd_solana_manifest_size( manifest );
 
   char buffer[ FD_SNAPSHOT_DIR_MAX ];
   err = snprintf( buffer, FD_SNAPSHOT_DIR_MAX, "snapshots/%lu/%lu", snapshot_ctx->slot, snapshot_ctx->slot );
@@ -497,11 +497,11 @@ fd_snapshot_create_populate_acc_vecs( fd_snapshot_ctx_t                 * snapsh
 }
 
 static void
-fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t        * snapshot_ctx,
-                                       fd_stakes_t              * old_stakes,
-                                       fd_stakes_serializable_t * new_stakes ) {
+fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t * snapshot_ctx,
+                                       fd_stakes_t *       old_stakes,
+                                       fd_stakes_t *       new_stakes ) {
 
-/* The deserialized stakes cache that is used by the runtime can't be
+  /* The deserialized stakes cache that is used by the runtime can't be
      reserialized into the format that Agave uses. For every vote account
      in the stakes struct, the Firedancer client holds a decoded copy of the
      vote state. However, this vote state can't be reserialized back into the
@@ -522,9 +522,9 @@ fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t        * snapshot_ctx,
      vote account data. Instead we will copy over the raw contents of all of
      the vote accounts. */
 
-  ulong vote_accounts_len                      = fd_vote_accounts_pair_t_map_size( old_stakes->vote_accounts.vote_accounts_pool, old_stakes->vote_accounts.vote_accounts_root );
-  new_stakes->vote_accounts.vote_accounts_pool = fd_vote_accounts_pair_serializable_t_map_alloc( fd_spad_virtual( snapshot_ctx->spad ),
-                                                                                                 fd_ulong_max(vote_accounts_len, 15000 ) );
+  ulong   vote_accounts_len                    = fd_vote_accounts_pair_t_map_size( old_stakes->vote_accounts.vote_accounts_pool, old_stakes->vote_accounts.vote_accounts_root );
+  uchar * pool_mem                             = fd_spad_alloc( snapshot_ctx->spad, fd_vote_accounts_pair_t_map_align(), fd_vote_accounts_pair_t_map_footprint( vote_accounts_len ) );
+  new_stakes->vote_accounts.vote_accounts_pool = fd_vote_accounts_pair_t_map_join( fd_vote_accounts_pair_t_map_new( pool_mem, vote_accounts_len ) );
   new_stakes->vote_accounts.vote_accounts_root = NULL;
 
   for( fd_vote_accounts_pair_t_mapnode_t * n = fd_vote_accounts_pair_t_map_minimum(
@@ -533,11 +533,11 @@ fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t        * snapshot_ctx,
        n;
        n = fd_vote_accounts_pair_t_map_successor( old_stakes->vote_accounts.vote_accounts_pool, n ) ) {
 
-    fd_vote_accounts_pair_serializable_t_mapnode_t * new_node = fd_vote_accounts_pair_serializable_t_map_acquire( new_stakes->vote_accounts.vote_accounts_pool );
+    fd_vote_accounts_pair_t_mapnode_t * new_node = fd_vote_accounts_pair_t_map_acquire( new_stakes->vote_accounts.vote_accounts_pool );
     new_node->elem.key   = n->elem.key;
     new_node->elem.stake = n->elem.stake;
     /* Now to populate the value, lookup the account using the acc mgr */
-    FD_BORROWED_ACCOUNT_DECL( vote_acc );
+    FD_TXN_ACCOUNT_DECL( vote_acc );
     int err = fd_acc_mgr_view( snapshot_ctx->acc_mgr, NULL, &n->elem.key, vote_acc );
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_ERR(( "Failed to view vote account from stakes cache %s", FD_BASE58_ENC_32_ALLOCA(&n->elem.key) ));
@@ -550,7 +550,7 @@ fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t        * snapshot_ctx,
     fd_memcpy( &new_node->elem.value.owner, &vote_acc->const_meta->info.owner, sizeof(fd_pubkey_t) );
     new_node->elem.value.executable = vote_acc->const_meta->info.executable;
     new_node->elem.value.rent_epoch = vote_acc->const_meta->info.rent_epoch;
-    fd_vote_accounts_pair_serializable_t_map_insert( new_stakes->vote_accounts.vote_accounts_pool, &new_stakes->vote_accounts.vote_accounts_root, new_node );
+    fd_vote_accounts_pair_t_map_insert( new_stakes->vote_accounts.vote_accounts_pool, &new_stakes->vote_accounts.vote_accounts_root, new_node );
 
   }
 
@@ -559,7 +559,7 @@ fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t        * snapshot_ctx,
      program is migrated to a bpf program. It will likely be replaced by an
      index of stake/vote accounts. */
 
-  FD_BORROWED_ACCOUNT_DECL( stake_acc );
+  FD_TXN_ACCOUNT_DECL( stake_acc );
   fd_delegation_pair_t_mapnode_t *      nn = NULL;
   for( fd_delegation_pair_t_mapnode_t * n  = fd_delegation_pair_t_map_minimum(
       old_stakes->stake_delegations_pool, old_stakes->stake_delegations_root ); n; n=nn ) {
@@ -607,8 +607,8 @@ fd_snapshot_create_serialiable_stakes( fd_snapshot_ctx_t        * snapshot_ctx,
 }
 
 static inline void
-fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *                snapshot_ctx,
-                                  fd_serializable_versioned_bank_t * bank ) {
+fd_snapshot_create_populate_bank( fd_snapshot_ctx_t *   snapshot_ctx,
+                                  fd_versioned_bank_t * bank ) {
 
   fd_slot_bank_t  * slot_bank  = &snapshot_ctx->slot_bank;
   fd_epoch_bank_t * epoch_bank = &snapshot_ctx->epoch_bank;
@@ -934,7 +934,7 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t * snapshot_ctx
                                                 ulong *             out_capitalization ) {
 
 
-  fd_solana_manifest_serializable_t manifest = {0};
+  fd_solana_manifest_t manifest = {0};
 
   /* Copy in all the fields of the bank. */
 
@@ -977,15 +977,15 @@ fd_snapshot_create_write_manifest_and_acc_vecs( fd_snapshot_ctx_t * snapshot_ctx
      in the archive for the manifest. All we need to do now is encode the
      manifest and write it in. */
 
-  ulong   manifest_sz  = fd_solana_manifest_serializable_size( &manifest );
-  uchar * out_manifest = fd_spad_alloc( snapshot_ctx->spad, FD_SOLANA_MANIFEST_SERIALIZABLE_ALIGN, manifest_sz );
+  ulong   manifest_sz  = fd_solana_manifest_size( &manifest );
+  uchar * out_manifest = fd_spad_alloc( snapshot_ctx->spad, fd_solana_manifest_align(), manifest_sz );
 
   fd_bincode_encode_ctx_t encode = {
     .data    = out_manifest,
     .dataend = out_manifest + manifest_sz
   };
 
-  int err = fd_solana_manifest_serializable_encode( &manifest, &encode );
+  int err = fd_solana_manifest_encode( &manifest, &encode );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_ERR(( "Failed to encode the manifest" ));
   }

@@ -360,25 +360,25 @@ fd_forks_update( fd_forks_t *      forks,
 
       fd_block_map_query_t query[1] = { 0 };
       int err = fd_block_map_prepare( blockstore->block_map, &vote, NULL, query, FD_MAP_FLAG_BLOCKING );
-      fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
-      if( FD_UNLIKELY( err || block_map_entry->slot != vote ) ) FD_LOG_ERR(( "failed to prepare block map query" ));
+      fd_block_info_t * block_info = fd_block_map_query_ele( query );
+      if( FD_UNLIKELY( err || block_info->slot != vote ) ) FD_LOG_ERR(( "failed to prepare block map query" ));
 
-      int eqvocsafe = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_EQVOCSAFE );
+      int eqvocsafe = fd_uchar_extract_bit( block_info->flags, FD_BLOCK_FLAG_EQVOCSAFE );
       if( FD_UNLIKELY( !eqvocsafe ) ) {
         double pct = (double)node->replay_stake / (double)epoch->total_stake;
         if( FD_UNLIKELY( pct > FD_EQVOCSAFE_PCT ) ) {
-          FD_LOG_DEBUG(( "eqvocsafe %lu", block_map_entry->slot ));
-          block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_EQVOCSAFE );
+          FD_LOG_DEBUG(( "eqvocsafe %lu", block_info->slot ));
+          block_info->flags = fd_uchar_set_bit( block_info->flags, FD_BLOCK_FLAG_EQVOCSAFE );
         }
       }
 
-      int confirmed = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_CONFIRMED );
+      int confirmed = fd_uchar_extract_bit( block_info->flags, FD_BLOCK_FLAG_CONFIRMED );
       if( FD_UNLIKELY( !confirmed ) ) {
         double pct = (double)node->replay_stake / (double)epoch->total_stake;
         if( FD_UNLIKELY( pct > FD_CONFIRMED_PCT ) ) {
-          FD_LOG_DEBUG(( "confirmed %lu", block_map_entry->slot ));
-          block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_CONFIRMED );
-          forks->confirmed_wmark = fd_ulong_max( forks->confirmed_wmark, block_map_entry->slot );
+          FD_LOG_DEBUG(( "confirmed %lu", block_info->slot ));
+          block_info->flags = fd_uchar_set_bit( block_info->flags, FD_BLOCK_FLAG_CONFIRMED );
+          forks->confirmed_wmark = fd_ulong_max( forks->confirmed_wmark, block_info->slot );
           blockstore->shmem->hcs = fd_ulong_max( blockstore->shmem->hcs, vote );
         }
       }
@@ -410,15 +410,15 @@ fd_forks_update( fd_forks_t *      forks,
          writes. Every prepare is followed by publish/cancel. */
       fd_block_map_query_t query[1] = { 0 };
       int err = fd_block_map_prepare( blockstore->block_map, &root, NULL, query, FD_MAP_FLAG_BLOCKING );
-      fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
-      if( FD_UNLIKELY( err || block_map_entry->slot != root ) ) FD_LOG_ERR(( "failed to prepare block map query" ));
-      int               finalized       = fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_FINALIZED );
+      fd_block_info_t * block_info = fd_block_map_query_ele( query );
+      if( FD_UNLIKELY( err || block_info->slot != root ) ) FD_LOG_ERR(( "failed to prepare block map query" ));
+      int               finalized       = fd_uchar_extract_bit( block_info->flags, FD_BLOCK_FLAG_FINALIZED );
       if( FD_UNLIKELY( !finalized ) ) {
         double pct = (double)node->rooted_stake / (double)epoch->total_stake;
         if( FD_UNLIKELY( pct > FD_FINALIZED_PCT ) ) {
-          FD_LOG_DEBUG(( "finalized %lu", block_map_entry->slot ));
-          forks->finalized_wmark = block_map_entry->slot;
-          fd_block_meta_t * ancestor = block_map_entry;
+          FD_LOG_DEBUG(( "finalized %lu", block_info->slot ));
+          forks->finalized_wmark = block_info->slot;
+          fd_block_info_t * ancestor = block_info;
           /* block_map_entry ptr is still valid because we haven't published yet. */
           while( ancestor ) {
             ancestor->flags = fd_uchar_set_bit( ancestor->flags, FD_BLOCK_FLAG_FINALIZED );

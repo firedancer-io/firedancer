@@ -840,7 +840,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *             
     }
 
     fd_pubkey_t const * vote_pubkey = &vote_reward_node->elem.pubkey;
-    FD_BORROWED_ACCOUNT_DECL( vote_rec );
+    FD_TXN_ACCOUNT_DECL( vote_rec );
 
     if( FD_UNLIKELY( fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, vote_pubkey, 1, 0UL, vote_rec ) != FD_ACC_MGR_SUCCESS ) ) {
       FD_LOG_ERR(( "Unable to modify vote account" ));
@@ -848,7 +848,7 @@ calculate_rewards_and_distribute_vote_rewards( fd_exec_slot_ctx_t *             
 
     vote_rec->meta->slot = slot_ctx->slot_bank.slot;
 
-    if( FD_UNLIKELY( fd_borrowed_account_checked_add_lamports( vote_rec, vote_reward_node->elem.vote_rewards ) ) ) {
+    if( FD_UNLIKELY( fd_txn_account_checked_add_lamports( vote_rec, vote_reward_node->elem.vote_rewards ) ) ) {
       FD_LOG_ERR(( "Adding lamports to vote account would cause overflow" ));
     }
 
@@ -877,7 +877,7 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
                                       ulong                reward_lamports,
                                       ulong                new_credits_observed ) {
 
-  FD_BORROWED_ACCOUNT_DECL( stake_acc_rec );
+  FD_TXN_ACCOUNT_DECL( stake_acc_rec );
 
   if( FD_UNLIKELY( fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, stake_pubkey, 0, 0UL, stake_acc_rec ) != FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_ERR(( "Unable to modify stake account" ));
@@ -896,7 +896,7 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
     return 1;
   }
 
-  if( fd_borrowed_account_checked_add_lamports( stake_acc_rec, reward_lamports ) ) {
+  if( fd_txn_account_checked_add_lamports( stake_acc_rec, reward_lamports ) ) {
     FD_LOG_DEBUG(( "failed to add lamports to stake account" ));
     return 1;
   }
@@ -1160,7 +1160,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
     fd_epoch_info_new( &epoch_info );
 
     ulong stake_delegation_sz  = fd_delegation_pair_t_map_size( stakes->stake_delegations_pool, stakes->stake_delegations_root );
-    epoch_info.stake_infos_len = stake_delegation_sz;
+    epoch_info.stake_infos_len = 0UL;
     epoch_info.stake_infos     = fd_spad_alloc( runtime_spad, FD_EPOCH_INFO_PAIR_ALIGN, FD_EPOCH_INFO_PAIR_FOOTPRINT*stake_delegation_sz );
 
     fd_stake_history_entry_t _accumulator = {

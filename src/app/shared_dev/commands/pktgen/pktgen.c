@@ -25,10 +25,10 @@ fdctl_obj_loose( fd_topo_t const *     topo,
                  fd_topo_obj_t const * obj );
 
 fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t * tile );
+fdctl_tile_run( fd_topo_tile_t const * tile );
 
 static void
-pktgen_topo( config_t * const config ) {
+pktgen_topo( config_t * config ) {
   char const * affinity = config->development.pktgen.affinity;
   int is_auto_affinity = !strcmp( affinity, "auto" );
 

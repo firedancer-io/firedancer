@@ -57,7 +57,7 @@ fd_acc_mgr_cache_key( fd_pubkey_t const * pubkey ) {
    Unlike the v3 loader, the programdata is stored in a single program account. The program must
    NOT be retracted to be added to the cache. */
 static int
-fd_bpf_get_executable_program_content_for_v4_loader( fd_borrowed_account_t * program_acc,
+fd_bpf_get_executable_program_content_for_v4_loader( fd_txn_account_t      * program_acc,
                                                      uchar const          ** program_data,
                                                      ulong                 * program_data_len ) {
   int err;
@@ -81,11 +81,11 @@ fd_bpf_get_executable_program_content_for_v4_loader( fd_borrowed_account_t * pro
 
 static int
 fd_bpf_get_executable_program_content_for_upgradeable_loader( fd_exec_slot_ctx_t *    slot_ctx,
-                                                              fd_borrowed_account_t * program_acc,
+                                                              fd_txn_account_t *      program_acc,
                                                               uchar const **          program_data,
                                                               ulong *                 program_data_len,
                                                               fd_spad_t *             runtime_spad ) {
-  FD_BORROWED_ACCOUNT_DECL( programdata_acc );
+  FD_TXN_ACCOUNT_DECL( programdata_acc );
 
   fd_bincode_decode_ctx_t ctx = {
     .data    = program_acc->const_data,
@@ -135,9 +135,9 @@ fd_bpf_get_executable_program_content_for_upgradeable_loader( fd_exec_slot_ctx_t
 }
 
 static int
-fd_bpf_get_executable_program_content_for_v1_v2_loaders( fd_borrowed_account_t * program_acc,
-                                                         uchar const          ** program_data,
-                                                         ulong                 * program_data_len ) {
+fd_bpf_get_executable_program_content_for_v1_v2_loaders( fd_txn_account_t * program_acc,
+                                                         uchar const     ** program_data,
+                                                         ulong            * program_data_len ) {
   *program_data     = program_acc->const_data;
   *program_data_len = program_acc->const_meta->dlen;
   return 0;
@@ -168,7 +168,7 @@ fd_bpf_get_sbpf_versions( uint *                     sbpf_min_version,
 
 static int
 fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
-                                       fd_borrowed_account_t * program_acc,
+                                       fd_txn_account_t *      program_acc,
                                        fd_spad_t *             runtime_spad ) {
   FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
@@ -320,7 +320,7 @@ fd_bpf_scan_task( void * tpool,
 
   fd_pubkey_t const * pubkey = fd_type_pun_const( recs->pair.key[0].uc );
 
-  FD_BORROWED_ACCOUNT_DECL( exec_rec );
+  FD_TXN_ACCOUNT_DECL( exec_rec );
   if( fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, pubkey, exec_rec ) != FD_ACC_MGR_SUCCESS ) {
     return;
   }
@@ -461,7 +461,7 @@ fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
                                                  fd_funkier_txn_t *      funk_txn,
                                                  fd_pubkey_t const *  pubkey,
                                                  fd_spad_t *          runtime_spad ) {
-  FD_BORROWED_ACCOUNT_DECL( exec_rec );
+  FD_TXN_ACCOUNT_DECL( exec_rec );
   if( fd_acc_mgr_view( slot_ctx->acc_mgr, funk_txn, pubkey, exec_rec ) != FD_ACC_MGR_SUCCESS ) {
     return -1;
   }

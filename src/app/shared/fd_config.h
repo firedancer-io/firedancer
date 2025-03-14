@@ -466,7 +466,7 @@ fdctl_cfg_from_env( int *      pargc,
    same config as we did. */
 
 int
-fdctl_cfg_to_memfd( config_t * config );
+fdctl_cfg_to_memfd( config_t const * config );
 
 FD_PROTOTYPES_END
 

@@ -51,7 +51,7 @@ err:
 
 void FD_FN_SENSITIVE
 generate_keypair( char const *     keyfile,
-                  config_t * const config,
+                  config_t const * config,
                   int              use_grnd_random ) {
   uint flags = use_grnd_random ? GRND_RANDOM : 0U;
 
@@ -125,8 +125,8 @@ keys_pubkey( const char * file_path ) {
 }
 
 void
-keys_cmd_fn( args_t *         args,
-             config_t * const config ) {
+keys_cmd_fn( args_t *   args,
+             config_t * config ) {
   if( FD_LIKELY( args->keys.cmd == CMD_NEW_IDENTITY ) ) {
     generate_keypair( config->consensus.identity_path, config, 1 );
   } else if( FD_LIKELY( args->keys.cmd == CMD_NEW_VOTE_ACCOUNT ) ) {

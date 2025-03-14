@@ -2,7 +2,7 @@
 #include "fd_snapshot_restore_private.h"
 #include "../../util/archive/fd_tar.h"
 #include "../runtime/fd_acc_mgr.h"
-#include "../runtime/fd_account.h"
+#include "../runtime/fd_borrowed_account.h"
 
 #include <assert.h>
 #include <errno.h>
@@ -62,6 +62,7 @@ fd_snapshot_restore_footprint( void ) {
 }
 
 fd_snapshot_restore_t *
+<<<<<<< HEAD
 fd_snapshot_restore_new( void *                                   mem,
                          fd_acc_mgr_t *                           acc_mgr,
                          fd_funkier_txn_t *                          funk_txn,
@@ -69,6 +70,16 @@ fd_snapshot_restore_new( void *                                   mem,
                          void *                                   cb_manifest_ctx,
                          fd_snapshot_restore_cb_manifest_fn_t     cb_manifest,
                          fd_snapshot_restore_cb_status_cache_fn_t cb_status_cache ) {
+=======
+fd_snapshot_restore_new( void *                                         mem,
+                         fd_acc_mgr_t *                                 acc_mgr,
+                         fd_funk_txn_t *                                funk_txn,
+                         fd_spad_t *                                    spad,
+                         void *                                         cb_manifest_ctx,
+                         fd_snapshot_restore_cb_manifest_fn_t           cb_manifest,
+                         fd_snapshot_restore_cb_status_cache_fn_t       cb_status_cache,
+                         fd_snapshot_restore_cb_rent_fresh_account_fn_t cb_rent_fresh_account ) {
+>>>>>>> origin/asiegel/remove-rent
 
   if( FD_UNLIKELY( !mem ) ) {
     FD_LOG_WARNING(( "NULL mem" ));
@@ -99,11 +110,14 @@ fd_snapshot_restore_new( void *                                   mem,
   self->buf_ctr     = 0UL;
   self->buf_cap     = 0UL;
 
-  self->cb_manifest     = cb_manifest;
-  self->cb_manifest_ctx = cb_manifest_ctx;
+  self->cb_manifest            = cb_manifest;
+  self->cb_manifest_ctx        = cb_manifest_ctx;
 
   self->cb_status_cache     = cb_status_cache;
   self->cb_status_cache_ctx = cb_manifest_ctx;
+
+  self->cb_rent_fresh_account     = cb_rent_fresh_account;
+  self->cb_rent_fresh_account_ctx = cb_manifest_ctx;
 
   void * accv_map_mem = FD_SCRATCH_ALLOC_APPEND( l, fd_snapshot_accv_map_align(), fd_snapshot_accv_map_footprint() );
   self->accv_map = fd_snapshot_accv_map_join( fd_snapshot_accv_map_new( accv_map_mem ) );
@@ -160,7 +174,7 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
   fd_acc_mgr_t *      acc_mgr  = restore->acc_mgr;
   fd_funkier_txn_t *     funk_txn = restore->funk_txn;
   fd_pubkey_t const * key      = fd_type_pun_const( hdr->meta.pubkey );
-  fd_borrowed_account_t rec[1]; fd_borrowed_account_init( rec );
+  FD_TXN_ACCOUNT_DECL( rec );
   char key_cstr[ FD_BASE58_ENCODED_32_SZ ];
 
   /* Sanity checks */
@@ -190,6 +204,9 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
     rec->meta->slot = restore->accv_slot;
     memcpy( &rec->meta->hash, hdr->hash.uc, 32UL );
     memcpy( &rec->meta->info, &hdr->info, sizeof(fd_solana_account_meta_t) );
+    if( rec->meta->info.rent_epoch != FD_RENT_EXEMPT_RENT_EPOCH ) {
+      restore->cb_rent_fresh_account( restore->cb_rent_fresh_account_ctx, key );
+    }
     restore->acc_data = rec->data;
   }
   ulong data_sz    = hdr->meta.data_len;

@@ -8,7 +8,7 @@
 #include <unistd.h>
 
 fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t * tile );
+fdctl_tile_run( fd_topo_tile_t const * tile );
 
 void
 load_cmd_perm( args_t *         args FD_PARAM_UNUSED,
@@ -64,8 +64,8 @@ load_cmd_args( int *    pargc,
 }
 
 void
-load_cmd_fn( args_t *         args,
-                config_t * const config ) {
+load_cmd_fn( args_t *   args,
+             config_t * config ) {
 
   /* set defaults */
   if( FD_UNLIKELY( !args->load.tpu_ip ) )

@@ -1,5 +1,5 @@
 #include "fd_zksdk_private.h"
-#include "../../fd_account.h"
+#include "../../fd_borrowed_account.h"
 #include "../../fd_system_ids.h"
 
 /* fd_zksdk_process_close_context_state is equivalent to process_close_proof_context()
@@ -14,73 +14,80 @@ fd_zksdk_process_close_context_state( fd_exec_instr_ctx_t * ctx ) {
   fd_pubkey_t proof_pubkey[1];
   fd_pubkey_t dest_pubkey[1];
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L131-L139 */
-  FD_BORROWED_ACCOUNT_DECL( owner_acc );
-  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, ACC_IDX_OWNER, owner_acc ) {
+  /* Obtain the owner pubkey by borrowing the owner account in local scope
+  https://github.com/anza-xyz/agave/blob/master/programs/zk-elgamal-proof/src/lib.rs#L133-L141 */
+  do {
+    fd_guarded_borrowed_account_t owner_acc;
+    FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_OWNER, &owner_acc );
+
     if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, ACC_IDX_OWNER ) ) ) {
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
-    fd_memcpy( owner_pubkey, owner_acc->pubkey, sizeof(fd_pubkey_t) );
-  } FD_BORROWED_ACCOUNT_DROP( owner_acc );
+    fd_memcpy( owner_pubkey, owner_acc.acct->pubkey, sizeof(fd_pubkey_t) );
+    /* implicit drop of borrowed owner_acc */
+  } while (0);
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L141-L149
-     Note: following exactly Agave's behavior, we can certainly simplify the borrowings. */
-  FD_BORROWED_ACCOUNT_DECL( proof_acc );
-  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, ACC_IDX_PROOF, proof_acc ) {
-    fd_memcpy( proof_pubkey, proof_acc->pubkey, sizeof(fd_pubkey_t) );
-  } FD_BORROWED_ACCOUNT_DROP( proof_acc );
+  /* Allocate space for borrowed accounts */
+  fd_guarded_borrowed_account_t proof_acc;
+  fd_guarded_borrowed_account_t dest_acc;
 
-  FD_BORROWED_ACCOUNT_DECL( dest_acc );
-  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, ACC_IDX_DEST, dest_acc ) {
-    fd_memcpy( dest_pubkey, dest_acc->pubkey, sizeof(fd_pubkey_t) );
-  } FD_BORROWED_ACCOUNT_DROP( dest_acc );
+  /* Obtain the proof account pubkey by borrowing the proof account.
+     https://github.com/anza-xyz/agave/blob/master/programs/zk-elgamal-proof/src/lib.rs#L143-L145 */
+  FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK(ctx, ACC_IDX_PROOF, &proof_acc );
+  fd_memcpy( proof_pubkey, proof_acc.acct->pubkey, sizeof(fd_pubkey_t) );
+  fd_borrowed_account_drop( &proof_acc );
+
+  /* Obtain the dest account pubkey by borrowing the dest account.
+     https://github.com/anza-xyz/agave/blob/master/programs/zk-elgamal-proof/src/lib.rs#L146-L148*/
+  FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_DEST, &dest_acc );
+  fd_memcpy( dest_pubkey, dest_acc.acct->pubkey, sizeof(fd_pubkey_t) );
+  fd_borrowed_account_drop( &dest_acc );
 
   if( FD_UNLIKELY( fd_memeq( proof_pubkey, dest_pubkey, sizeof(fd_pubkey_t) ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L151-L152 */
-  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, ACC_IDX_PROOF, proof_acc ) {
+  /* Re-borrow the proof account
+     https://github.com/anza-xyz/agave/blob/master/programs/zk-elgamal-proof/src/lib.rs#L153-L154 */
+  FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK(ctx, ACC_IDX_PROOF, &proof_acc );
 
-    /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L161-L162
-       Note: data also contains context data, but we only need the initial 33 bytes. */
-    if( FD_UNLIKELY( proof_acc->const_meta->dlen < sizeof(fd_zksdk_proof_ctx_state_meta_t) ) ) {
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-    }
-    fd_zksdk_proof_ctx_state_meta_t const * proof_ctx_state_meta = fd_type_pun_const( proof_acc->const_data );
+  /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L161-L162
+      Note: data also contains context data, but we only need the initial 33 bytes. */
+  if( FD_UNLIKELY( proof_acc.acct->const_meta->dlen < sizeof(fd_zksdk_proof_ctx_state_meta_t) ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+  }
+  fd_zksdk_proof_ctx_state_meta_t const * proof_ctx_state_meta = fd_type_pun_const( proof_acc.acct->const_data );
 
-    /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L155 */
-    fd_pubkey_t const * expected_owner_addr = &proof_ctx_state_meta->ctx_state_authority;
+  /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L155 */
+  fd_pubkey_t const * expected_owner_addr = &proof_ctx_state_meta->ctx_state_authority;
 
-    /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L157-L159 */
-    if( FD_UNLIKELY( !fd_memeq( owner_pubkey, expected_owner_addr, sizeof(fd_pubkey_t) ) ) ) {
-      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
-    }
+  /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L157-L159 */
+  if( FD_UNLIKELY( !fd_memeq( owner_pubkey, expected_owner_addr, sizeof(fd_pubkey_t) ) ) ) {
+    return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+  }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L161-L162 */
-  FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, ACC_IDX_DEST, dest_acc ) {
+  /* Re-borrow the dest account
+     https://github.com/anza-xyz/agave/blob/v2.1.14/programs/zk-elgamal-proof/src/lib.rs#L162-L163 */
+  FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, ACC_IDX_DEST, &dest_acc );
 
-    /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L163-L166 */
-    int err = 0;
-    err = fd_account_checked_add_lamports( ctx, ACC_IDX_DEST, proof_acc->const_meta->info.lamports );
-    if( FD_UNLIKELY( err ) ) {
-      return err;
-    }
-    err = fd_account_set_lamports( ctx, ACC_IDX_PROOF, 0UL );
-    if( FD_UNLIKELY( err ) ) {
-      return err;
-    }
-    err = fd_account_set_data_length( ctx, ACC_IDX_PROOF, 0UL );
-    if( FD_UNLIKELY( err ) ) {
-      return err;
-    }
-    err = fd_account_set_owner( ctx, ACC_IDX_PROOF, &fd_solana_system_program_id );
-    if( FD_UNLIKELY( err ) ) {
-      return err;
-    }
-
-  } FD_BORROWED_ACCOUNT_DROP( dest_acc );
-  } FD_BORROWED_ACCOUNT_DROP( proof_acc );
+  /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L163-L166 */
+  int err = 0;
+  err = fd_borrowed_account_checked_add_lamports( &dest_acc, proof_acc.acct->const_meta->info.lamports );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
+  err = fd_borrowed_account_set_lamports( &proof_acc, 0UL );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
+  err = fd_borrowed_account_set_data_length( &proof_acc, 0UL );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
+  err = fd_borrowed_account_set_owner( &proof_acc, &fd_solana_system_program_id );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
 
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
@@ -91,6 +98,7 @@ fd_zksdk_process_close_context_state( fd_exec_instr_ctx_t * ctx ) {
    https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L32 */
 int
 fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
+  int err;
   uchar const * instr_data = ctx->instr->data;
   ulong instr_acc_cnt      = ctx->instr->acct_cnt;
   uchar instr_id = instr_data[0]; /* instr_data_sz already checked by the caller */
@@ -158,27 +166,28 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
   ulong context_sz = fd_zksdk_context_sz[instr_id];
   ulong proof_data_sz = context_sz + fd_zksdk_proof_sz[instr_id];
 
+  /* if instruction data is exactly 5 bytes, then read proof from an account
+     https://github.com/anza-xyz/agave/blob/v2.1.14/programs/zk-elgamal-proof/src/lib.rs#L46 */
   if( ctx->instr->data_sz == 5UL ) {
     /* Case 1. Proof data from account data. */
 
-    /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L46-L47 */
-    FD_BORROWED_ACCOUNT_DECL( proof_data_acc );
-    FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, 0UL, proof_data_acc ) {
+    /* Borrow the proof data account.
+      https://github.com/anza-xyz/agave/blob/v2.1.14/programs/zk-elgamal-proof/src/lib.rs#L47-L48 */
+    fd_guarded_borrowed_account_t proof_data_acc;
+    FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, 0UL, &proof_data_acc );
 
-      /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L48 */
-      accessed_accounts = 1U;
+    /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L48 */
+    accessed_accounts = 1U;
 
-      /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L50-L61
-         Note: it doesn't look like the ref code can throw any error. */
-      uint proof_data_offset = fd_uint_load_4_fast(&instr_data[1]);
+    /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L50-L61
+        Note: it doesn't look like the ref code can throw any error. */
+    uint proof_data_offset = fd_uint_load_4_fast(&instr_data[1]);
 
-      /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L62-L65 */
-      if( proof_data_offset+proof_data_sz > proof_data_acc->const_meta->dlen ) {
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-      }
-      context = fd_memcpy( buffer+CTX_HEAD_SZ, &proof_data_acc->const_data[proof_data_offset], proof_data_sz );
-
-    } FD_BORROWED_ACCOUNT_DROP( proof_data_acc );
+    /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L62-L65 */
+    if( proof_data_offset+proof_data_sz > proof_data_acc.acct->const_meta->dlen ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    }
+    context = fd_memcpy( buffer+CTX_HEAD_SZ, &proof_data_acc.acct->const_data[proof_data_offset], proof_data_sz );
   } else {
     /* Case 2. Proof data from ix data. */
 
@@ -194,7 +203,7 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
   /* Verify individual ZKP
      https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L83-L86 */
   void const * proof = context + fd_zksdk_context_sz[instr_id];
-  int err = (*fd_zksdk_instr_verify_proof)( context, proof );
+  err = (*fd_zksdk_instr_verify_proof)( context, proof );
   if( FD_UNLIKELY( err ) ) {
     //TODO: full log, including err
     fd_log_collector_msg_literal( ctx, "proof_verification failed" );
@@ -204,49 +213,48 @@ fd_zksdk_process_verify_proof( fd_exec_instr_ctx_t * ctx ) {
   /* Create context state if accounts are provided with the instruction
      https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L92 */
   if( instr_acc_cnt > accessed_accounts ) {
+    fd_pubkey_t                   context_state_authority[1];
+    fd_guarded_borrowed_account_t _acc;
+    fd_guarded_borrowed_account_t proof_context_acc;
 
-    /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L93-L98 */
-    fd_pubkey_t context_state_authority[1];
-    FD_BORROWED_ACCOUNT_DECL( _acc );
-    FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, accessed_accounts+1, _acc ) {
-      fd_memcpy( context_state_authority, _acc->pubkey, sizeof(fd_pubkey_t) );
-    } FD_BORROWED_ACCOUNT_DROP( _acc );
+    /* Obtain the context_state_authority by borrowing the account.
+       https://github.com/anza-xyz/agave/blob/master/programs/zk-elgamal-proof/src/lib.rs#L95-L100 */
+    FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, accessed_accounts+1, &_acc );
+    fd_memcpy( context_state_authority, _acc.acct->pubkey, sizeof(fd_pubkey_t) );
 
-    /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L100-L101 */
-    FD_BORROWED_ACCOUNT_DECL( proof_context_acc );
-    FD_BORROWED_ACCOUNT_TRY_BORROW_IDX( ctx, accessed_accounts, proof_context_acc ) {
+    /* Borrow the proof context account
+       https://github.com/anza-xyz/agave/blob/master/programs/zk-elgamal-proof/src/lib.rs#L102-L103 */
+    FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, accessed_accounts, &proof_context_acc );
 
-      /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L103-L105 */
-      if( FD_UNLIKELY( !fd_memeq( proof_context_acc->const_meta->info.owner, &fd_solana_zk_elgamal_proof_program_id, sizeof(fd_pubkey_t) ) ) ) {
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
-      }
+    /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L103-L105 */
+    if( FD_UNLIKELY( !fd_memeq( proof_context_acc.acct->const_meta->info.owner, &fd_solana_zk_elgamal_proof_program_id, sizeof(fd_pubkey_t) ) ) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_OWNER;
+    }
 
-      /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L107-L112 */
-      if( FD_UNLIKELY( proof_context_acc->const_meta->dlen >= CTX_HEAD_SZ && proof_context_acc->const_data[32] != 0 ) ) {
-        return FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED;
-      }
+    /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L107-L112 */
+    if( FD_UNLIKELY( proof_context_acc.acct->const_meta->dlen >= CTX_HEAD_SZ && proof_context_acc.acct->const_data[32] != 0 ) ) {
+      return FD_EXECUTOR_INSTR_ERR_ACC_ALREADY_INITIALIZED;
+    }
 
-      /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L114-L115
-         Note: nothing to do. */
+    /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L114-L115
+        Note: nothing to do. */
 
-      /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L117-L119 */
-      ulong context_data_sx = CTX_HEAD_SZ + context_sz;
-      if( FD_UNLIKELY( proof_context_acc->const_meta->dlen != context_data_sx ) ) {
-        return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
-      }
+    /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L117-L119 */
+    ulong context_data_sx = CTX_HEAD_SZ + context_sz;
+    if( FD_UNLIKELY( proof_context_acc.acct->const_meta->dlen != context_data_sx ) ) {
+      return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
+    }
 
-      /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L121 */
-      fd_memcpy( buffer, context_state_authority, sizeof(fd_pubkey_t) ); // buffer[0..31]
-      buffer[ 32 ] = instr_id;                                           // buffer[32]
-      if( ctx->instr->data_sz != 5UL ) {                                  // buffer[33..]
-        fd_memcpy( buffer+CTX_HEAD_SZ, context, context_sz );
-      }
-      err = fd_account_set_data_from_slice( ctx, accessed_accounts, buffer, context_data_sx );
-      if( FD_UNLIKELY( err ) ) {
-        return err;
-      }
-
-    } FD_BORROWED_ACCOUNT_DROP( proof_context_acc );
+    /* https://github.com/anza-xyz/agave/blob/v2.0.1/programs/zk-elgamal-proof/src/lib.rs#L121 */
+    fd_memcpy( buffer, context_state_authority, sizeof(fd_pubkey_t) ); // buffer[0..31]
+    buffer[ 32 ] = instr_id;                                           // buffer[32]
+    if( ctx->instr->data_sz != 5UL ) {                                  // buffer[33..]
+      fd_memcpy( buffer+CTX_HEAD_SZ, context, context_sz );
+    }
+    err = fd_borrowed_account_set_data_from_slice( &proof_context_acc, buffer, context_data_sx );
+    if( FD_UNLIKELY( err ) ) {
+      return err;
+    }
   }
 
   return FD_EXECUTOR_INSTR_SUCCESS;

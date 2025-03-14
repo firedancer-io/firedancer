@@ -165,7 +165,7 @@ send_packet( fd_repair_tile_ctx_t * ctx,
   hdr->udp->net_len = fd_ushort_bswap( (ushort)(payload_sz + sizeof(fd_udp_hdr_t)) );
   hdr->udp->check = fd_ip4_udp_check( hdr->ip4->saddr,
                                       hdr->ip4->daddr,
-                                      (fd_udp_hdr_t const *)hdr->buf + 34,
+                                      (fd_udp_hdr_t const *)(hdr->buf + 34),
                                       packet + sizeof(fd_net_hdrs_t) );
 
   ulong tspub = fd_frag_meta_ts_comp( fd_tickcount() );
@@ -438,7 +438,7 @@ repair_get_shred( ulong  slot,
     while( err == FD_MAP_ERR_AGAIN ) {
       fd_block_map_query_t query[1] = { 0 };
       err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, query, 0 );
-      fd_block_meta_t * meta = fd_block_map_query_ele( query );
+      fd_block_info_t * meta = fd_block_map_query_ele( query );
       if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return -1L;
       if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
       shred_idx = (uint)meta->slot_complete_idx;

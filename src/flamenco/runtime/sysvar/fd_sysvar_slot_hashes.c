@@ -37,7 +37,10 @@ void
 fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   fd_slot_hashes_t * slot_hashes = fd_sysvar_slot_hashes_read( slot_ctx, runtime_spad );
   if( !slot_hashes ) {
-    slot_hashes->hashes = deq_fd_slot_hash_t_alloc( fd_spad_virtual( runtime_spad ), FD_SYSVAR_SLOT_HASHES_CAP );
+    uchar * deque_mem = fd_spad_alloc( runtime_spad,
+                                       deq_fd_slot_hash_t_align(),
+                                       deq_fd_slot_hash_t_footprint( FD_SYSVAR_SLOT_HASHES_CAP ) );
+    slot_hashes->hashes = deq_fd_slot_hash_t_join( deq_fd_slot_hash_t_new( deque_mem, FD_SYSVAR_SLOT_HASHES_CAP ) );
     if( FD_UNLIKELY( !slot_hashes->hashes ) ) {
       FD_LOG_ERR(( "Unable to allocate memory for slot hashes" ));
     }
@@ -79,7 +82,7 @@ fd_sysvar_slot_hashes_read( fd_exec_slot_ctx_t *  slot_ctx,
 
 //  FD_LOG_INFO(( "SysvarS1otHashes111111111111111111111111111 at slot %lu: " FD_LOG_HEX16_FMT, slot_ctx->slot_bank.slot, FD_LOG_HEX16_FMT_ARGS(     metadata.hash    ) ));
 
-  FD_BORROWED_ACCOUNT_DECL( rec );
+  FD_TXN_ACCOUNT_DECL( rec );
   int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t const *)&fd_sysvar_slot_hashes_id, rec );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) )
     return NULL;

@@ -19,9 +19,12 @@ fd_rent_partition_width( ulong slots_per_epoch ) {
    partition.  Loosely corresponds to Bank::partition_from_pubkey @*/
 
 static inline ulong
-fd_rent_key_to_partition( ulong key,
-                          ulong part_width,
-                          ulong part_cnt ) {
+fd_rent_key_to_partition( fd_pubkey_t const * pubkey,
+                          ulong               part_width,
+                          ulong               part_cnt ) {
+
+  ulong prefixX_be = pubkey->ul[0];
+  ulong key    = fd_ulong_bswap( prefixX_be );
 
   if( part_cnt==1UL ) return 0UL;
   if( key==0UL      ) return 0UL;

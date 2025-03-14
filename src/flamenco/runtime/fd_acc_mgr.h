@@ -5,8 +5,13 @@
 
 #include "../fd_flamenco_base.h"
 #include "../../ballet/txn/fd_txn.h"
+<<<<<<< HEAD
 #include "../../funkier/fd_funkier.h"
 #include "fd_borrowed_account.h"
+=======
+#include "../../funk/fd_funk.h"
+#include "fd_txn_account.h"
+>>>>>>> origin/asiegel/remove-rent
 
 /* FD_ACC_MGR_{SUCCESS,ERR{...}} are fd_acc_mgr_t specific error codes.
    To be stored in an int. */
@@ -54,11 +59,6 @@ struct __attribute__((aligned(16UL))) fd_acc_mgr {
      account address. */
 
   ulong part_width;
-
-  /* skip_rent_rewrites is a feature flag controlling rent collection
-     behavior during eager rent collection passes. */
-
-  uchar skip_rent_rewrites : 1;
 
   uint is_locked;
 };
@@ -190,43 +190,50 @@ fd_acc_mgr_view_raw( fd_acc_mgr_t *         acc_mgr,
                      fd_funkier_txn_t const ** txn_out   );
 
 int
-fd_acc_mgr_view( fd_acc_mgr_t *          acc_mgr,
-                 fd_funkier_txn_t const *   txn,
-                 fd_pubkey_t const *     pubkey,
-                 fd_borrowed_account_t * account );
+fd_acc_mgr_view( fd_acc_mgr_t *        acc_mgr,
+                 fd_funkier_txn_t const * txn,
+                 fd_pubkey_t const *   pubkey,
+                 fd_txn_account_t *    account );
 
 int
-fd_acc_mgr_modify( fd_acc_mgr_t *          acc_mgr,
+fd_acc_mgr_modify( fd_acc_mgr_t *       acc_mgr,
                    fd_funkier_txn_t *      txn,
-                   fd_pubkey_t const *     pubkey,
-                   int                     do_create,
-                   ulong                   min_data_sz,
-                   fd_borrowed_account_t * account );
+                   fd_pubkey_t const *  pubkey,
+                   int                  do_create,
+                   ulong                min_data_sz,
+                   fd_txn_account_t *   account );
 
 int
-fd_acc_mgr_save( fd_acc_mgr_t *          acc_mgr,
-                 fd_borrowed_account_t * account );
+fd_acc_mgr_save( fd_acc_mgr_t *     acc_mgr,
+                 fd_txn_account_t * account );
 
 /* This version of save is for old code written before tpool integration */
 
 int
-fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *          acc_mgr,
-                           fd_funkier_txn_t *         txn,
-                           fd_borrowed_account_t * account );
+fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *     acc_mgr,
+                           fd_funkier_txn_t *    txn,
+                           fd_txn_account_t * account );
 
 int
-fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *           acc_mgr,
-                            fd_funkier_txn_t *          txn,
-                            fd_borrowed_account_t ** accounts,
-                            ulong                    accounts_cnt,
-                            fd_tpool_t *             tpool,
-                            fd_spad_t *              runtime_spad );
+fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *      acc_mgr,
+                            fd_funkier_txn_t *     txn,
+                            fd_txn_account_t ** accounts,
+                            ulong               accounts_cnt,
+                            fd_tpool_t *        tpool,
+                            fd_spad_t *         runtime_spad );
 
 void
 fd_acc_mgr_lock( fd_acc_mgr_t * acc_mgr );
 
 void
 fd_acc_mgr_unlock( fd_acc_mgr_t * acc_mgr );
+
+/* fd_acc_mgr_set_slots_per_epoch updates the slots_per_epoch setting
+   and re-calculates the partition width.  No-op unless 'slots_per_epoch' changes. */
+
+void
+fd_acc_mgr_set_slots_per_epoch( fd_exec_slot_ctx_t * slot_ctx,
+                                ulong                slots_per_epoch );
 
 /* fd_acc_mgr_strerror converts an fd_acc_mgr error code into a human
    readable cstr.  The lifetime of the returned pointer is infinite and

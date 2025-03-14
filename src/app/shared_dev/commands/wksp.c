@@ -5,7 +5,7 @@
 #include <sys/resource.h>
 
 void
-initialize_workspaces( config_t * const config );
+initialize_workspaces( config_t const * config );
 
 void
 wksp_cmd_perm( args_t *         args FD_PARAM_UNUSED,
@@ -21,10 +21,8 @@ wksp_cmd_perm( args_t *         args FD_PARAM_UNUSED,
 }
 
 void
-wksp_cmd_fn( args_t *         args,
-             config_t * const config ) {
-  (void)args;
-
+wksp_cmd_fn( args_t *   args FD_PARAM_UNUSED,
+             config_t * config ) {
   initialize_workspaces( config );
   fd_sys_util_exit_group( 0 );
 }

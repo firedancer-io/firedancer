@@ -76,8 +76,8 @@ dump_link( void           * out_file,
 }
 
 void
-dump_cmd_fn( args_t *         args,
-             config_t * const config ) {
+dump_cmd_fn( args_t *   args,
+             config_t * config ) {
 
   FILE * out = fopen( args->dump.pcap_path, "w" );
   FD_TEST( fd_pcap_fwrite_hdr( out, FD_PCAP_LINK_LAYER_USER0 ) );

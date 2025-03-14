@@ -137,7 +137,7 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
 
   fd_acc_mgr_t *      acc_mgr = slot_ctx->acc_mgr;
   fd_funkier_txn_t *  txn     = slot_ctx->funk_txn;
-  FD_BORROWED_ACCOUNT_DECL(rec);
+  FD_TXN_ACCOUNT_DECL( rec );
 
   int err = fd_acc_mgr_modify( acc_mgr, txn, &pubkey, 1, sz, rec);
   FD_TEST( !err );
@@ -167,7 +167,7 @@ write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_acc_mgr_t *      acc_mgr = slot_ctx->acc_mgr;
   fd_funkier_txn_t *  txn     = slot_ctx->funk_txn;
   fd_pubkey_t const * key     = (fd_pubkey_t const *)&fd_solana_spl_native_mint_id;
-  FD_BORROWED_ACCOUNT_DECL(rec);
+  FD_TXN_ACCOUNT_DECL( rec );
 
   /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/inline_spl_token.rs#L86-L90 */
   static uchar const data[] = {

@@ -12,7 +12,7 @@
 #define NAME "run1"
 
 fd_topo_run_tile_t
-fdctl_tile_run( fd_topo_tile_t * tile );
+fdctl_tile_run( fd_topo_tile_t const * tile );
 
 void
 run1_cmd_args( int *    pargc,
@@ -61,8 +61,8 @@ tile_main( void * _args ) {
 }
 
 void
-run1_cmd_fn( args_t *         args,
-             config_t * const config ) {
+run1_cmd_fn( args_t *   args,
+             config_t * config ) {
   ulong pid = fd_sandbox_getpid(); /* Need to read /proc again.. we got a new PID from clone */
   fd_log_private_tid_set( pid );
 

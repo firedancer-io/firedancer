@@ -29,28 +29,28 @@ dump_sorted_features( fd_features_t const * features,
 }
 
 static void
-dump_account_state( fd_borrowed_account_t const * borrowed_account,
-                    fd_exec_test_acct_state_t *   output_account,
-                    fd_spad_t *                   spad ) {
+dump_account_state( fd_txn_account_t const *    txn_account,
+                    fd_exec_test_acct_state_t * output_account,
+                    fd_spad_t *                 spad ) {
     // Address
-    fd_memcpy(output_account->address, borrowed_account->pubkey, sizeof(fd_pubkey_t));
+    fd_memcpy(output_account->address, txn_account->pubkey, sizeof(fd_pubkey_t));
 
     // Lamports
-    output_account->lamports = (uint64_t) borrowed_account->const_meta->info.lamports;
+    output_account->lamports = (uint64_t) txn_account->const_meta->info.lamports;
 
     // Data
-    output_account->data = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( borrowed_account->const_meta->dlen ) );
-    output_account->data->size = (pb_size_t) borrowed_account->const_meta->dlen;
-    fd_memcpy(output_account->data->bytes, borrowed_account->const_data, borrowed_account->const_meta->dlen);
+    output_account->data = fd_spad_alloc( spad, alignof(pb_bytes_array_t), PB_BYTES_ARRAY_T_ALLOCSIZE( txn_account->const_meta->dlen ) );
+    output_account->data->size = (pb_size_t) txn_account->const_meta->dlen;
+    fd_memcpy(output_account->data->bytes, txn_account->const_data, txn_account->const_meta->dlen);
 
     // Executable
-    output_account->executable = (bool) borrowed_account->const_meta->info.executable;
+    output_account->executable = (bool) txn_account->const_meta->info.executable;
 
     // Rent epoch
-    output_account->rent_epoch = (uint64_t) borrowed_account->const_meta->info.rent_epoch;
+    output_account->rent_epoch = (uint64_t) txn_account->const_meta->info.rent_epoch;
 
     // Owner
-    fd_memcpy(output_account->owner, borrowed_account->const_meta->info.owner, sizeof(fd_pubkey_t));
+    fd_memcpy(output_account->owner, txn_account->const_meta->info.owner, sizeof(fd_pubkey_t));
 
     // Seed address (not present)
     output_account->has_seed_addr = false;
@@ -113,8 +113,8 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
                                                         alignof(fd_exec_test_acct_state_t),
                                                         (txn_ctx->accounts_cnt * 2 + txn_descriptor->addr_table_lookup_cnt + num_sysvar_entries) * sizeof(fd_exec_test_acct_state_t) );
   for( ulong i = 0; i < txn_ctx->accounts_cnt; ++i ) {
-    FD_BORROWED_ACCOUNT_DECL(borrowed_account);
-    int ret = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->accounts[i], borrowed_account );
+    FD_TXN_ACCOUNT_DECL( txn_account );
+    int ret = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->account_keys[i], txn_account );
     if( FD_UNLIKELY(ret != FD_ACC_MGR_SUCCESS) ) {
       continue;
     }
@@ -122,13 +122,13 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     // Make sure account is not a builtin
     bool is_builtin = false;
     for( ulong j = 0; j < num_loaded_builtins; ++j ) {
-      if( 0 == memcmp( &txn_ctx->accounts[i], &loaded_builtins[j], sizeof(fd_pubkey_t) ) ) {
+      if( 0 == memcmp( &txn_ctx->account_keys[i], &loaded_builtins[j], sizeof(fd_pubkey_t) ) ) {
         is_builtin = true;
         break;
       }
     }
     if( !is_builtin ) {
-      dump_account_state( borrowed_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
+      dump_account_state( txn_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
     }
   }
 
@@ -155,19 +155,19 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
   // Dump LUT accounts
   fd_txn_acct_addr_lut_t const * address_lookup_tables = fd_txn_get_address_tables_const( txn_descriptor );
   for( ulong i = 0; i < txn_descriptor->addr_table_lookup_cnt; ++i ) {
-    FD_BORROWED_ACCOUNT_DECL(borrowed_account);
+    FD_TXN_ACCOUNT_DECL( txn_account );
     fd_pubkey_t * alut_key = (fd_pubkey_t *) (txn_payload + address_lookup_tables[i].addr_off);
-    int ret = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, alut_key, borrowed_account );
+    int ret = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, alut_key, txn_account );
     if( FD_UNLIKELY(ret != FD_ACC_MGR_SUCCESS) ) {
       continue;
     }
-    dump_account_state( borrowed_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
+    dump_account_state( txn_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
   }
 
   // Dump sysvars
   for( ulong i = 0; i < num_sysvar_entries; i++ ) {
-    FD_BORROWED_ACCOUNT_DECL(borrowed_account);
-    int ret = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_relevant_sysvar_ids[i], borrowed_account );
+    FD_TXN_ACCOUNT_DECL( txn_account );
+    int ret = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_relevant_sysvar_ids[i], txn_account );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       continue;
     }
@@ -175,14 +175,14 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     // Make sure the account doesn't exist in the output accounts yet
     int account_exists = 0;
     for( ulong j = 0; j < txn_ctx->accounts_cnt; j++ ) {
-      if ( 0 == memcmp( txn_ctx->accounts[j].key, fd_relevant_sysvar_ids[i].uc, sizeof(fd_pubkey_t) ) ) {
+      if ( 0 == memcmp( txn_ctx->account_keys[j].key, fd_relevant_sysvar_ids[i].uc, sizeof(fd_pubkey_t) ) ) {
         account_exists = true;
         break;
       }
     }
     // Copy it into output
     if (!account_exists) {
-      dump_account_state( borrowed_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
+      dump_account_state( txn_account, &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
     }
   }
 
@@ -267,7 +267,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
       memcpy( message->address_table_lookups[i].account_key, alut_key, sizeof(fd_pubkey_t) );
 
       // Access ALUT account data to access its keys
-      FD_BORROWED_ACCOUNT_DECL(addr_lut_rec);
+      FD_TXN_ACCOUNT_DECL( addr_lut_rec );
       int err = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, alut_key, addr_lut_rec);
       if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
         FD_LOG_ERR(( "addr lut not found" ));
@@ -382,22 +382,22 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   instr_context->accounts = fd_spad_alloc( txn_ctx->spad, alignof(fd_exec_test_acct_state_t), (instr_context->accounts_count + num_sysvar_entries + txn_ctx->executable_cnt) * sizeof(fd_exec_test_acct_state_t));
   for( ulong i = 0; i < txn_ctx->accounts_cnt; i++ ) {
     // Copy account information over
-    fd_borrowed_account_t const * borrowed_account = &txn_ctx->borrowed_accounts[i];
+    fd_txn_account_t const *    txn_account    = &txn_ctx->accounts[i];
     fd_exec_test_acct_state_t * output_account = &instr_context->accounts[i];
-    dump_account_state( borrowed_account, output_account, txn_ctx->spad );
+    dump_account_state( txn_account, output_account, txn_ctx->spad );
   }
 
   /* Add sysvar cache variables */
   for( ulong i = 0; i < num_sysvar_entries; i++ ) {
-    FD_BORROWED_ACCOUNT_DECL(borrowed_account);
-    int ret = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &fd_relevant_sysvar_ids[i], borrowed_account );
+    FD_TXN_ACCOUNT_DECL( txn_account );
+    int ret = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &fd_relevant_sysvar_ids[i], txn_account );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       continue;
     }
     // Make sure the account doesn't exist in the output accounts yet
     int account_exists = 0;
     for( ulong j = 0; j < txn_ctx->accounts_cnt; j++ ) {
-      if ( 0 == memcmp( txn_ctx->accounts[j].key, fd_relevant_sysvar_ids[i].uc, sizeof(fd_pubkey_t) ) ) {
+      if ( 0 == memcmp( txn_ctx->account_keys[j].key, fd_relevant_sysvar_ids[i].uc, sizeof(fd_pubkey_t) ) ) {
         account_exists = true;
         break;
       }
@@ -406,14 +406,14 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
     // Copy it into output
     if (!account_exists) {
       fd_exec_test_acct_state_t * output_account = &instr_context->accounts[instr_context->accounts_count++];
-      dump_account_state( borrowed_account, output_account, txn_ctx->spad );
+      dump_account_state( txn_account, output_account, txn_ctx->spad );
     }
   }
 
   /* Add executable accounts */
   for( ulong i = 0; i < txn_ctx->executable_cnt; i++ ) {
-    FD_BORROWED_ACCOUNT_DECL(borrowed_account);
-    int ret = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, txn_ctx->executable_accounts[i].pubkey, borrowed_account );
+    FD_TXN_ACCOUNT_DECL( txn_account );
+    int ret = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, txn_ctx->executable_accounts[i].pubkey, txn_account );
     if( ret != FD_ACC_MGR_SUCCESS ) {
       continue;
     }
@@ -428,7 +428,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
     // Copy it into output
     if( !account_exists ) {
       fd_exec_test_acct_state_t * output_account = &instr_context->accounts[instr_context->accounts_count++];
-      dump_account_state( borrowed_account, output_account, txn_ctx->spad );
+      dump_account_state( txn_account, output_account, txn_ctx->spad );
     }
   }
 

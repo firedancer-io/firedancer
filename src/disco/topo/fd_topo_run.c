@@ -196,7 +196,7 @@ fd_topo_tile_stack_join( char const * app_name,
 }
 
 fd_xdp_fds_t
-fd_topo_install_xdp( fd_topo_t * topo ) {
+fd_topo_install_xdp( fd_topo_t const * topo ) {
   ulong net0_tile_idx = fd_topo_find_tile( topo, "net", 0UL );
   FD_TEST( net0_tile_idx!=ULONG_MAX );
   fd_topo_tile_t const * net0_tile = &topo->tiles[ net0_tile_idx ];
@@ -284,12 +284,12 @@ run_tile_thread( fd_topo_t *         topo,
 }
 
 void
-fd_topo_run_single_process( fd_topo_t * topo,
-                            int         agave,
-                            uint        uid,
-                            uint        gid,
-                            fd_topo_run_tile_t (* tile_run )( fd_topo_tile_t * tile ),
-                            int *       done_futex ) {
+fd_topo_run_single_process( fd_topo_t *       topo,
+                            int               agave,
+                            uint              uid,
+                            uint              gid,
+                            fd_topo_run_tile_t (* tile_run )( fd_topo_tile_t const * tile ),
+                            int *             done_futex ) {
   /* Save the current affinity, it will be restored after creating any child tiles */
   FD_CPUSET_DECL( floating_cpu_set );
   if( FD_UNLIKELY( fd_cpuset_getaffinity( 0, floating_cpu_set ) ) )

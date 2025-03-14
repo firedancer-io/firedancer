@@ -9,37 +9,37 @@ void *
 create_clone_stack( void );
 
 void
-agave_boot( config_t * config );
+agave_boot( config_t const * config );
 
 int
 agave_main( void * args );
 
 int
-clone_firedancer( config_t * const config,
+clone_firedancer( config_t const * config,
                   int              close_fd,
                   int *            out_pipe );
 
 void
-fdctl_check_configure( config_t * const config );
+fdctl_check_configure( config_t const * config );
 
 void
-initialize_workspaces( config_t * const config );
+initialize_workspaces( config_t * config );
 
 void
-initialize_stacks( config_t * const config );
+initialize_stacks( config_t const * config );
 
 void
-run_firedancer_init( config_t * const config,
-                     int              init_workspaces );
+run_firedancer_init( config_t * config,
+                     int        init_workspaces );
 
 void
 fdctl_setup_netns( config_t * config,
                    int        stay );
 
 void
-run_firedancer( config_t * const config,
-                int              parent_pipefd,
-                int              init_workspaces );
+run_firedancer( config_t * config,
+                int        parent_pipefd,
+                int        init_workspaces );
 
 void run_cmd_perm( args_t * args, fd_cap_chk_t * chk, config_t const * config );
 void run_cmd_fn  ( args_t * args, config_t * config );

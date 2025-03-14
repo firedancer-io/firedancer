@@ -38,7 +38,7 @@ typedef struct fd_snapshot_load_ctx fd_snapshot_load_ctx_t;
 
 static void
 fd_hashes_load( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
-  FD_BORROWED_ACCOUNT_DECL( block_hashes_rec );
+  FD_TXN_ACCOUNT_DECL( block_hashes_rec );
   int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_recent_block_hashes_id, block_hashes_rec );
 
   if( err != FD_ACC_MGR_SUCCESS ) {
@@ -48,10 +48,13 @@ fd_hashes_load( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   /* FIXME: Do not hardcode the number of vote accounts */
 
   slot_ctx->slot_bank.stake_account_keys.account_keys_root = NULL;
-  slot_ctx->slot_bank.stake_account_keys.account_keys_pool = fd_account_keys_pair_t_map_alloc( fd_spad_virtual( runtime_spad ), 100000UL );
+  uchar * pool_mem = fd_spad_alloc( runtime_spad, fd_account_keys_pair_t_map_align(), fd_account_keys_pair_t_map_footprint( 100000UL ) );
+
+  slot_ctx->slot_bank.stake_account_keys.account_keys_pool = fd_account_keys_pair_t_map_join( fd_account_keys_pair_t_map_new( pool_mem, 100000UL ) );
 
   slot_ctx->slot_bank.vote_account_keys.account_keys_root = NULL;
-  slot_ctx->slot_bank.vote_account_keys.account_keys_pool = fd_account_keys_pair_t_map_alloc( fd_spad_virtual( runtime_spad ), 100000UL );
+  pool_mem = fd_spad_alloc( runtime_spad, fd_account_keys_pair_t_map_align(), fd_account_keys_pair_t_map_footprint( 100000UL ) );
+  slot_ctx->slot_bank.vote_account_keys.account_keys_pool = fd_account_keys_pair_t_map_join( fd_account_keys_pair_t_map_new( pool_mem, 100000UL ) );
 
   slot_ctx->slot_bank.collected_execution_fees = 0UL;
   slot_ctx->slot_bank.collected_priority_fees  = 0UL;
@@ -73,6 +76,13 @@ restore_status_cache( void *                  ctx,
                       fd_bank_slot_deltas_t * slot_deltas,
                       fd_spad_t *             spad ) {
   return (!!fd_exec_slot_ctx_recover_status_cache( ctx, slot_deltas, spad ) ? 0 : EINVAL);
+}
+
+static int
+restore_rent_fresh_account( fd_exec_slot_ctx_t * slot_ctx,
+                            fd_pubkey_t const  * pubkey ) {
+  fd_runtime_register_new_fresh_account( slot_ctx, pubkey );
+  return 0;
 }
 
 ulong
@@ -166,7 +176,8 @@ fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx,
                                           ctx->runtime_spad,
                                           ctx->slot_ctx,
                                           (restore_manifest_flags & FD_SNAPSHOT_RESTORE_MANIFEST) ? restore_manifest : NULL,
-                                          (restore_manifest_flags & FD_SNAPSHOT_RESTORE_STATUS_CACHE) ? restore_status_cache : NULL );
+                                          (restore_manifest_flags & FD_SNAPSHOT_RESTORE_STATUS_CACHE) ? restore_status_cache : NULL,
+                                          restore_rent_fresh_account );
 
   ctx->loader  = fd_snapshot_loader_new ( loader_mem, ZSTD_WINDOW_SZ );
 
@@ -312,6 +323,7 @@ fd_snapshot_load_all( const char *         source_cstr,
   fd_snapshot_load_init( ctx );
   fd_snapshot_load_manifest_and_status_cache( ctx, base_slot_override,
     FD_SNAPSHOT_RESTORE_STATUS_CACHE | FD_SNAPSHOT_RESTORE_MANIFEST );
+  fd_runtime_update_slots_per_epoch( slot_ctx, 432000UL, runtime_spad );
   fd_snapshot_load_accounts( ctx );
   fd_snapshot_load_fini( ctx );
 
@@ -335,7 +347,7 @@ fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx ) {
   void * restore_mem = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
   void * loader_mem  = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_loader_align(),  fd_snapshot_loader_footprint( ZSTD_WINDOW_SZ ) );
 
-  ctx->restore = fd_snapshot_restore_new( restore_mem, acc_mgr, funk_txn, ctx->runtime_spad, ctx->slot_ctx, restore_manifest, restore_status_cache );
+  ctx->restore = fd_snapshot_restore_new( restore_mem, acc_mgr, funk_txn, ctx->runtime_spad, ctx->slot_ctx, restore_manifest, restore_status_cache, restore_rent_fresh_account );
   ctx->loader  = fd_snapshot_loader_new( loader_mem, ZSTD_WINDOW_SZ );
 
   if( FD_UNLIKELY( !fd_snapshot_loader_init( ctx->loader, ctx->restore, src, ctx->slot_ctx->slot_bank.slot, 0 ) ) ) {

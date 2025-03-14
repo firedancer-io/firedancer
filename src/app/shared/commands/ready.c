@@ -1,13 +1,10 @@
 #include "run/run.h"
 
 #include "../../../disco/metrics/fd_metrics.h"
-#include "../../../tango/fd_tango.h"
 
 void
-ready_cmd_fn( args_t *         args,
-              config_t * const config ) {
-  (void)args;
-
+ready_cmd_fn( args_t *   args FD_PARAM_UNUSED,
+              config_t * config ) {
   ulong wksp_id = fd_topo_find_wksp( &config->topo, "metric_in" );
   FD_TEST( wksp_id!=ULONG_MAX );
 

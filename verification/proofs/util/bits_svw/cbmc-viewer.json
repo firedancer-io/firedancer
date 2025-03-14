@@ -1,5 +1,0 @@
-{
-  "expected-missing-functions": [],
-  "proof-name": "fd_bits_svw_harness",
-  "proof-root": "verification/proofs"
-}

@@ -449,7 +449,7 @@ fd_rocksdb_copy_over_txn_status_range( fd_rocksdb_t *    src,
 
   for ( ulong slot = start_slot; slot <= end_slot; ++slot ) {
     FD_LOG_NOTICE(( "fd_rocksdb_copy_over_txn_status_range: %lu", slot ));
-    fd_block_meta_t * block_entry = fd_blockstore_block_map_query( blockstore, slot );
+    fd_block_info_t * block_entry = fd_blockstore_block_map_query( blockstore, slot );
     if( FD_LIKELY( block_entry && fd_blockstore_shreds_complete( blockstore, slot) ) ) {
       fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_entry->block_gaddr );
       uchar * data = fd_wksp_laddr_fast( wksp, blk->data_gaddr );
@@ -656,12 +656,12 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
   // TODO make this update non blocking
   fd_block_map_query_t query[1];
   int err = fd_block_map_prepare( blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
-  fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
-  FD_TEST( err == FD_MAP_SUCCESS && block_map_entry->slot == slot && block_map_entry->block_gaddr == 0 );
+  fd_block_info_t * block_info = fd_block_map_query_ele( query );
+  FD_TEST( err == FD_MAP_SUCCESS && block_info->slot == slot && block_info->block_gaddr == 0 );
   /* FIXME duplicate blocks are not supported */
 
-  block_map_entry->ts = fd_log_wallclock();
-  ulong shred_cnt = block_map_entry->slot_complete_idx + 1;
+  block_info->ts = fd_log_wallclock();
+  ulong shred_cnt = block_info->slot_complete_idx + 1;
   fd_block_map_publish( query );
 
   ulong block_sz  = 0UL;
@@ -758,17 +758,17 @@ deshred( fd_blockstore_t * blockstore, ulong slot ) {
 
   // TODO make this non blocking
   err = fd_block_map_prepare( blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
-  block_map_entry = fd_block_map_query_ele( query );
-  FD_TEST( err == FD_MAP_SUCCESS && block_map_entry->slot == slot );
+  block_info = fd_block_map_query_ele( query );
+  FD_TEST( err == FD_MAP_SUCCESS && block_info->slot == slot );
 
-  block_map_entry->block_gaddr     = fd_wksp_gaddr_fast( wksp, block );
+  block_info->block_gaddr          = fd_wksp_gaddr_fast( wksp, block );
   fd_block_micro_t *    micros     = fd_wksp_laddr_fast( wksp, block->micros_gaddr );
   uchar *               data       = fd_wksp_laddr_fast( wksp, block->data_gaddr );
   fd_microblock_hdr_t * last_micro = (fd_microblock_hdr_t *)( data + micros[block->micros_cnt - 1].off );
-  memcpy( &block_map_entry->block_hash, last_micro->hash, sizeof( fd_hash_t ) );
+  memcpy( &block_info->block_hash, last_micro->hash, sizeof( fd_hash_t ) );
 
-  block_map_entry->flags = fd_uchar_clear_bit( block_map_entry->flags, FD_BLOCK_FLAG_RECEIVING );
-  block_map_entry->flags = fd_uchar_set_bit( block_map_entry->flags, FD_BLOCK_FLAG_COMPLETED );
+  block_info->flags = fd_uchar_clear_bit( block_info->flags, FD_BLOCK_FLAG_RECEIVING );
+  block_info->flags = fd_uchar_set_bit( block_info->flags, FD_BLOCK_FLAG_COMPLETED );
   fd_block_map_publish( query );
 
   return FD_BLOCKSTORE_SUCCESS;
@@ -784,12 +784,12 @@ fd_blockstore_block_allocs_remove( fd_blockstore_t * blockstore,
     err = fd_block_map_query_try( blockstore->block_map, &slot, NULL, query, 0 );
     if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
     if( FD_UNLIKELY( err == FD_MAP_ERR_KEY ) ) return; /* slot not found */
-    fd_block_meta_t * block_map_entry = fd_block_map_query_ele( query );
-    if( FD_UNLIKELY( fd_uchar_extract_bit( block_map_entry->flags, FD_BLOCK_FLAG_REPLAYING ) ) ) {
+    fd_block_info_t * block_info = fd_block_map_query_ele( query );
+    if( FD_UNLIKELY( fd_uchar_extract_bit( block_info->flags, FD_BLOCK_FLAG_REPLAYING ) ) ) {
       FD_LOG_WARNING(( "[%s] slot %lu has replay in progress. not removing.", __func__, slot ));
       return;
     }
-    block_gaddr  = block_map_entry->block_gaddr;
+    block_gaddr  = block_info->block_gaddr;
     err = fd_block_map_query_test( query );
   }
 
@@ -803,7 +803,7 @@ fd_blockstore_block_allocs_remove( fd_blockstore_t * blockstore,
 
   /* DO THIS FIRST FOR THREAD SAFETY */
   FD_COMPILER_MFENCE();
-  //block_map_entry->block_gaddr = 0;
+  //block_info->block_gaddr = 0;
 
   uchar *              data = fd_wksp_laddr_fast( wksp, block->data_gaddr );
   fd_block_txn_t * txns = fd_wksp_laddr_fast( wksp, block->txns_gaddr );
@@ -899,8 +899,8 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
 
 
   fd_wksp_t * wksp = fd_blockstore_wksp( blockstore );
-  fd_block_meta_t * block_map_entry = fd_blockstore_block_map_query( blockstore, slot );
-  if( FD_LIKELY( block_map_entry && fd_blockstore_shreds_complete( blockstore, slot ) ) ) {
+  fd_block_info_t * block_info = fd_blockstore_block_map_query( blockstore, slot );
+  if( FD_LIKELY( block_info && fd_blockstore_shreds_complete( blockstore, slot ) ) ) {
     deshred( blockstore, slot );
 
     size_t vallen = 0;
@@ -916,7 +916,7 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
       FD_LOG_WARNING(( "rocksdb: %s", err ));
       free( err );
     } else if(vallen == sizeof(ulong)) {
-      block_map_entry->ts = (*(long*)res)*((long)1e9); /* Convert to nanos */
+      block_info->ts = (*(long*)res)*((long)1e9); /* Convert to nanos */
       free(res);
     }
 
@@ -929,19 +929,19 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
       (char const *)&slot_be, sizeof(ulong),
       &vallen,
       &err );
-    block_map_entry->block_height = 0;
+    block_info->block_height = 0;
     if( FD_UNLIKELY( err ) ) {
       FD_LOG_WARNING(( "rocksdb: %s", err ));
       free( err );
     } else if(vallen == sizeof(ulong)) {
-      block_map_entry->block_height = *(ulong*)res;
+      block_info->block_height = *(ulong*)res;
       free(res);
     }
 
     vallen = 0;
     err = NULL;
     if (NULL != hash_override)
-      fd_memcpy( block_map_entry->bank_hash.hash, hash_override, 32UL );
+      fd_memcpy( block_info->bank_hash.hash, hash_override, 32UL );
     else {
       res = rocksdb_get_cf(
         db->db,
@@ -971,15 +971,15 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
         if( FD_UNLIKELY( decode.data!=decode.dataend    ) ) goto cleanup;
         if( FD_UNLIKELY( versioned->discriminant !=fd_frozen_hash_versioned_enum_current ) ) goto cleanup;
         /* Success */
-        fd_memcpy( block_map_entry->bank_hash.hash, versioned->inner.current.frozen_hash.hash, 32UL );
+        fd_memcpy( block_info->bank_hash.hash, versioned->inner.current.frozen_hash.hash, 32UL );
       cleanup:
         free( res );
       }
     }
   }
 
-  if( txnstatus && FD_LIKELY( block_map_entry && fd_blockstore_shreds_complete( blockstore, slot ) ) ) {
-    fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_map_entry->block_gaddr );
+  if( txnstatus && FD_LIKELY( block_info && fd_blockstore_shreds_complete( blockstore, slot ) ) ) {
+    fd_block_t * blk = fd_wksp_laddr_fast( wksp, block_info->block_gaddr );
     uchar * data = fd_wksp_laddr_fast( wksp, blk->data_gaddr );
     fd_block_txn_t * txns = fd_wksp_laddr_fast( wksp, blk->txns_gaddr );
 
@@ -1048,14 +1048,14 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
   blockstore->shmem->hcs = slot;
   blockstore->shmem->wmk = slot;
 
-  if( FD_LIKELY( block_map_entry ) ) {
-    block_map_entry->flags =
+  if( FD_LIKELY( block_info ) ) {
+    block_info->flags =
       fd_uchar_set_bit(
       fd_uchar_set_bit(
       fd_uchar_set_bit(
       fd_uchar_set_bit(
       fd_uchar_set_bit(
-        block_map_entry->flags,
+        block_info->flags,
         FD_BLOCK_FLAG_COMPLETED ),
         FD_BLOCK_FLAG_PROCESSED ),
         FD_BLOCK_FLAG_EQVOCSAFE ),

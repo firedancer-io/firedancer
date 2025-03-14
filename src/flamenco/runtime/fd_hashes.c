@@ -1,7 +1,7 @@
 #include "fd_hashes.h"
 #include "fd_acc_mgr.h"
 #include "fd_runtime.h"
-#include "fd_account.h"
+#include "fd_borrowed_account.h"
 #include "context/fd_capture_ctx.h"
 #include "sysvar/fd_sysvar_epoch_schedule.h"
 #include "../capture/fd_solcap_writer.h"
@@ -12,6 +12,12 @@
 
 #include <assert.h>
 #include <stdio.h>
+
+/* Internal helper for extracting data from account_meta */
+static inline void *
+fd_account_meta_get_data( fd_account_meta_t * m ) {
+  return ((char *) m) + m->hlen;
+}
 
 #define SORT_NAME sort_pubkey_hash_pair
 #define SORT_KEY_T fd_pubkey_hash_pair_t
@@ -361,8 +367,8 @@ fd_account_hash_task( void *tpool,
       task_info->hash_changed = 1;
     }
   } else {
-    uchar *             acc_data = fd_account_get_data((fd_account_meta_t *) acc_meta);
-    fd_pubkey_t const * acc_key  = fd_funkier_key_to_acc( task_info->rec->pair.key );
+    uchar *             acc_data = fd_account_meta_get_data((fd_account_meta_t *) acc_meta);
+    fd_pubkey_t const * acc_key  = fd_funk_key_to_acc( task_info->rec->pair.key );
     fd_lthash_value_t new_lthash_value;
     fd_lthash_zero(&new_lthash_value);
     fd_hash_account_current( task_info->acc_hash->hash, &new_lthash_value, acc_meta, acc_key->key, acc_data );
@@ -374,8 +380,8 @@ fd_account_hash_task( void *tpool,
   }
 
   if( FD_LIKELY(task_info->hash_changed && ((NULL != acc_meta_parent) && (acc_meta_parent->info.lamports != 0) ) ) ) {
-    uchar *             acc_data = fd_account_get_data(acc_meta_parent);
-    fd_pubkey_t const * acc_key  = fd_funkier_key_to_acc( task_info->rec->pair.key );
+    uchar *             acc_data = fd_account_meta_get_data(acc_meta_parent);
+    fd_pubkey_t const * acc_key  = fd_funk_key_to_acc( task_info->rec->pair.key );
     fd_lthash_value_t old_lthash_value;
     fd_lthash_zero(&old_lthash_value);
     fd_hash_t old_hash;
@@ -483,7 +489,7 @@ fd_update_hash_bank_tpool( fd_exec_slot_ctx_t * slot_ctx,
       continue;
     }
 
-    FD_BORROWED_ACCOUNT_DECL(acc_rec);
+    FD_TXN_ACCOUNT_DECL( acc_rec );
     acc_rec->const_rec = task_info->rec;
 
     fd_pubkey_t const * acc_key = fd_funkier_key_to_acc( task_info->rec->pair.key );
@@ -607,7 +613,7 @@ fd_print_account_hashes( fd_exec_slot_ctx_t * slot_ctx,
       continue;
     }
 
-    FD_BORROWED_ACCOUNT_DECL(acc_rec);
+    FD_TXN_ACCOUNT_DECL( acc_rec );
     acc_rec->const_rec = task_info->rec;
 
     // int err = fd_acc_mgr_modify( acc_mgr, txn, acc_key, 0, 0UL, acc_rec);
@@ -657,7 +663,7 @@ fd_print_account_hashes( fd_exec_slot_ctx_t * slot_ctx,
     if (NULL != raw_acc_data) {
 
       fd_account_meta_t * metadata = (fd_account_meta_t *)raw_acc_data;
-      uchar *             acc_data = fd_account_get_data(metadata);
+      uchar *             acc_data = fd_account_meta_get_data(metadata);
       char *              acc_data_str = fd_spad_alloc( runtime_spad, 8, 5*metadata->dlen + 1 );
 
       char * acc_data_str_cursor = acc_data_str;
@@ -832,7 +838,7 @@ fd_accounts_sorted_subrange_gather( fd_funkier_t *             funk,
     uchar hash[32];
     fd_lthash_value_t new_lthash_value = {0};
 
-    fd_hash_account_current( (uchar *)hash, &new_lthash_value, metadata, rec->pair.key->uc, fd_account_get_data( metadata ) );
+    fd_hash_account_current( (uchar *)hash, &new_lthash_value, metadata, rec->pair.key->uc, fd_account_meta_get_data( metadata ) );
     fd_lthash_add( &accum, &new_lthash_value );
 
     fd_hash_t * h = (fd_hash_t *)metadata->hash;
@@ -1024,12 +1030,12 @@ fd_accounts_hash_inc_only( fd_exec_slot_ctx_t * slot_ctx,
       fd_hash_t *h = (fd_hash_t *) metadata->hash;
       if ((h->ul[0] | h->ul[1] | h->ul[2] | h->ul[3]) == 0) {
         // By the time we fall into this case, we can assume the ignore_slot feature is enabled...
-        fd_hash_account_current( (uchar *) metadata->hash, NULL, metadata, rec->pair.key->uc, fd_account_get_data(metadata) );
+        fd_hash_account_current( (uchar *) metadata->hash, NULL, metadata, rec->pair.key->uc, fd_account_meta_get_data(metadata) );
       } else if( do_hash_verify ) {
         uchar hash[32];
         // ulong old_slot = slot_ctx->slot_bank.slot;
         // slot_ctx->slot_bank.slot = metadata->slot;
-        fd_hash_account_current( (uchar *) &hash, NULL, metadata, rec->pair.key->uc, fd_account_get_data(metadata) );
+        fd_hash_account_current( (uchar *) &hash, NULL, metadata, rec->pair.key->uc, fd_account_meta_get_data(metadata) );
         // slot_ctx->slot_bank.slot = old_slot;
         if ( fd_acc_exists( metadata ) && memcmp( metadata->hash, &hash, 32 ) != 0 ) {
           FD_LOG_WARNING(( "snapshot hash (%s) doesn't match calculated hash (%s)", FD_BASE58_ENC_32_ALLOCA( metadata->hash ), FD_BASE58_ENC_32_ALLOCA( &hash ) ));
@@ -1111,10 +1117,10 @@ fd_accounts_hash_inc_no_txn( fd_funkier_t *                 funk,
       fd_hash_t *h = (fd_hash_t*)metadata->hash;
       if( !(h->ul[ 0 ] | h->ul[ 1 ] | h->ul[ 2 ] | h->ul[ 3 ]) ) {
         // By the time we fall into this case, we can assume the ignore_slot feature is enabled...
-        fd_hash_account_current( (uchar*)metadata->hash, NULL, metadata, rec->pair.key->uc, fd_account_get_data( metadata ) );
+        fd_hash_account_current( (uchar*)metadata->hash, NULL, metadata, rec->pair.key->uc, fd_account_meta_get_data( metadata ) );
       } else if( do_hash_verify ) {
         uchar hash[ FD_HASH_FOOTPRINT ];
-        fd_hash_account_current( (uchar*)&hash, NULL, metadata, rec->pair.key->uc, fd_account_get_data( metadata ) );
+        fd_hash_account_current( (uchar*)&hash, NULL, metadata, rec->pair.key->uc, fd_account_meta_get_data( metadata ) );
         if( fd_acc_exists( metadata ) && memcmp( metadata->hash, &hash, FD_HASH_FOOTPRINT ) ) {
           FD_LOG_WARNING(( "snapshot hash (%s) doesn't match calculated hash (%s)", FD_BASE58_ENC_32_ALLOCA(metadata->hash), FD_BASE58_ENC_32_ALLOCA(&hash) ));
         }
@@ -1320,7 +1326,7 @@ fd_accounts_check_lthash( fd_funkier_t *      funk,
       void const * data = fd_funkier_val_const( slot->key, wksp );
       fd_account_meta_t * metadata = (fd_account_meta_t *)fd_type_pun_const( data );
       if( FD_UNLIKELY(metadata->info.lamports != 0) ) {
-        uchar *             acc_data = fd_account_get_data(metadata);
+        uchar * acc_data = fd_account_meta_get_data(metadata);
         uchar hash  [ 32 ];
         fd_lthash_value_t new_lthash_value;
         fd_lthash_zero(&new_lthash_value);

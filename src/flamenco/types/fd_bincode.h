@@ -35,6 +35,9 @@ struct fd_bincode_decode_ctx {
   void const * data;
   /* End of buffer */
   void const * dataend;
+  /* Wksp for laddr to gaddr conversions */
+  /* TODO: This could be split out into a fd_bincode_global_decode_ctx */
+  fd_wksp_t * wksp;
 };
 typedef struct fd_bincode_decode_ctx fd_bincode_decode_ctx_t;
 
@@ -475,7 +478,5 @@ static inline int fd_archive_decode_check_length( fd_bincode_decode_ctx_t * ctx,
     return FD_BINCODE_ERR_ENCODING;
   return FD_BINCODE_SUCCESS;
 }
-
-int fd_archive_decode_skip_field( fd_bincode_decode_ctx_t * ctx, ushort tag );
 
 #endif /* HEADER_fd_src_util_encoders_fd_bincode_h */
