@@ -236,6 +236,8 @@ struct fd_repair {
     fd_stake_weight_t * stake_weights;
     /* Path to the file where we write the cache of known good repair peers, to make cold booting faster */
     int good_peer_cache_file_fd;
+    /* Metrics */
+    fd_repair_metrics_t metrics;
 };
 
 FD_FN_CONST ulong
@@ -503,10 +505,12 @@ fd_repair_send_requests( fd_repair_t * glob ) {
     }
 
     active->avg_reqs++;
+    glob->metrics.send_pkt_cnt++;
 
     fd_repair_protocol_t protocol;
     switch (ele->dupkey.type) {
       case fd_needed_window_index: {
+        glob->metrics.sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_WINDOW_IDX]++;
         fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_window_index);
         fd_repair_window_index_t * wi = &protocol.inner.window_index;
         fd_hash_copy(&wi->header.sender, glob->public_key);
@@ -520,6 +524,7 @@ fd_repair_send_requests( fd_repair_t * glob ) {
       }
 
       case fd_needed_highest_window_index: {
+        glob->metrics.sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_HIGHEST_WINDOW_IDX]++;
         fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_highest_window_index);
         fd_repair_highest_window_index_t * wi = &protocol.inner.highest_window_index;
         fd_hash_copy(&wi->header.sender, glob->public_key);
@@ -532,6 +537,7 @@ fd_repair_send_requests( fd_repair_t * glob ) {
       }
 
       case fd_needed_orphan: {
+        glob->metrics.sent_pkt_types[FD_METRICS_ENUM_REPAIR_SENT_REQUEST_TYPES_V_NEEDED_ORPHAN_IDX]++;
         fd_repair_protocol_new_disc(&protocol, fd_repair_protocol_enum_orphan);
         fd_repair_orphan_t * wi = &protocol.inner.orphan;
         fd_hash_copy(&wi->header.sender, glob->public_key);
@@ -758,6 +764,8 @@ fd_repair_recv_clnt_packet( fd_repair_t *                 glob,
                             ulong                         msglen,
                             fd_repair_peer_addr_t const * src_addr,
                             uint                          dst_ip4_addr ) {
+  glob->metrics.recv_clnt_pkt++;
+
   fd_repair_lock( glob );
   FD_SCRATCH_SCOPE_BEGIN {
     while( 1 ) {
@@ -1282,6 +1290,9 @@ fd_repair_recv_serv_packet( fd_repair_t *                 glob,
                             ulong                         msglen,
                             fd_repair_peer_addr_t const * peer_addr,
                             uint                          self_ip4_addr ) {
+  //ulong recv_serv_packet;
+  //ulong recv_serv_pkt_types[FD_METRICS_ENUM_SENT_REQUEST_TYPES_CNT];
+
   FD_SCRATCH_SCOPE_BEGIN {
     fd_bincode_decode_ctx_t ctx = {
       .data    = msg,
@@ -1290,9 +1301,12 @@ fd_repair_recv_serv_packet( fd_repair_t *                 glob,
 
     ulong total_sz = 0UL;
     if( FD_UNLIKELY( fd_repair_protocol_decode_footprint( &ctx, &total_sz ) ) ) {
+      glob->metrics.recv_serv_corrupt_pkt++;
       FD_LOG_WARNING(( "Failed to decode repair request packet" ));
       return 0;
     }
+
+    glob->metrics.recv_serv_pkt++;
 
     uchar * mem = fd_scratch_alloc( fd_repair_protocol_align(), total_sz );
     if( FD_UNLIKELY( !mem ) ) {
@@ -1309,26 +1323,31 @@ fd_repair_recv_serv_packet( fd_repair_t *                 glob,
     fd_repair_request_header_t * header;
     switch( protocol->discriminant ) {
       case fd_repair_protocol_enum_pong:
+        glob->metrics.recv_serv_pkt_types[FD_METRICS_ENUM_REPAIR_SERV_PKT_TYPES_V_PONG_IDX]++;
         fd_repair_lock( glob );
         fd_repair_recv_pong( glob, &protocol->inner.pong, peer_addr );
         fd_repair_unlock( glob );
         return 0;
       case fd_repair_protocol_enum_window_index: {
+        glob->metrics.recv_serv_pkt_types[FD_METRICS_ENUM_REPAIR_SERV_PKT_TYPES_V_WINDOW_IDX]++;
         fd_repair_window_index_t * wi = &protocol->inner.window_index;
         header = &wi->header;
         break;
       }
       case fd_repair_protocol_enum_highest_window_index: {
+        glob->metrics.recv_serv_pkt_types[FD_METRICS_ENUM_REPAIR_SERV_PKT_TYPES_V_HIGHEST_WINDOW_IDX]++;
         fd_repair_highest_window_index_t * wi = &protocol->inner.highest_window_index;
         header = &wi->header;
         break;
       }
       case fd_repair_protocol_enum_orphan: {
+        glob->metrics.recv_serv_pkt_types[FD_METRICS_ENUM_REPAIR_SERV_PKT_TYPES_V_ORPHAN_IDX]++;
         fd_repair_orphan_t * wi = &protocol->inner.orphan;
         header = &wi->header;
         break;
       }
       default: {
+        glob->metrics.recv_serv_pkt_types[FD_METRICS_ENUM_REPAIR_SERV_PKT_TYPES_V_UNKNOWN_IDX]++;
         FD_LOG_WARNING(( "received repair request of unknown type: %d", (int)protocol->discriminant ));
         return 0;
       }
@@ -1349,6 +1368,7 @@ fd_repair_recv_serv_packet( fd_repair_t *                 glob,
                            /* sig */ sig.uc,
                            /* public_key */ header->sender.uc,
                            sha2 )) {
+      glob->metrics.recv_serv_invalid_signature++;
       FD_LOG_WARNING(( "received repair request with with invalid signature" ));
       return 0;
     }
@@ -1362,6 +1382,7 @@ fd_repair_recv_serv_packet( fd_repair_t *                 glob,
         if( fd_pinged_table_is_full( glob->pinged ) ) {
           FD_LOG_WARNING(( "pinged table is full" ));
           fd_repair_unlock( glob );
+          glob->metrics.recv_serv_full_ping_table++;
           return 0;
         }
         val = fd_pinged_table_insert( glob->pinged, peer_addr );
@@ -1416,4 +1437,9 @@ fd_repair_recv_serv_packet( fd_repair_t *                 glob,
     fd_repair_unlock( glob );
   } FD_SCRATCH_SCOPE_END;
   return 0;
+}
+
+fd_repair_metrics_t *
+fd_repair_get_metrics( fd_repair_t * repair ) {
+  return &repair->metrics;
 }
