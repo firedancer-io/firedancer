@@ -479,9 +479,9 @@ quic_pcap_iter_run_pcap( quic_pcap_iter_t * iter ) {
     ulong sz = fd_pcap_iter_next( pcap, pkt, sizeof(pkt), &ts );
     if( FD_UNLIKELY( !sz ) ) break;
     if( is_cooked ) {
-      quic_pcap_iter_deliver_ethernet( iter, pkt, sz );
-    } else {
       quic_pcap_iter_deliver_cooked( iter, pkt, sz );
+    } else {
+      quic_pcap_iter_deliver_ethernet( iter, pkt, sz );
     }
   }
 
