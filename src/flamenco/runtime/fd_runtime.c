@@ -129,7 +129,7 @@ fd_runtime_register_new_fresh_account( fd_exec_slot_ctx_t * slot_ctx,
   if( FD_UNLIKELY( new_account_node == NULL ) ) {
     FD_LOG_ERR(( "new_account_node == NULL" ));
   }
-  fd_memcpy( new_account_node->elem.key, pubkey, FD_PUBKEY_FOOTPRINT );
+  fd_memcpy( &new_account_node->elem, pubkey, FD_PUBKEY_FOOTPRINT );
   fd_pubkey_t_map_insert( 
     partition_node->elem.accounts_pool,
     &partition_node->elem.accounts_root,
@@ -172,7 +172,7 @@ fd_runtime_repartition_fresh_account_partitions( fd_exec_slot_ctx_t * slot_ctx,
         next_account_node = fd_pubkey_t_map_predecessor(
           partition_node->elem.accounts_pool,
           account_node );
-        fd_memcpy( &dirty_pubkeys[dirty_pubkeys_cnt++], &account_node->elem.key, FD_PUBKEY_FOOTPRINT );
+        fd_memcpy( &dirty_pubkeys[dirty_pubkeys_cnt++], &account_node->elem, FD_PUBKEY_FOOTPRINT );
 
         fd_pubkey_t_mapnode_t * removed_node = fd_pubkey_t_map_remove( 
           partition_node->elem.accounts_pool,
@@ -501,7 +501,7 @@ fd_runtime_update_rent_epoch( fd_exec_slot_ctx_t * slot_ctx ) {
         partition_node->elem.accounts_pool,
         account_node );
       
-      fd_runtime_update_rent_epoch_account( slot_ctx, fd_type_pun( &account_node->elem.key ) );
+      fd_runtime_update_rent_epoch_account( slot_ctx, fd_type_pun( &account_node->elem ) );
 
       fd_pubkey_t_mapnode_t * removed_node = fd_pubkey_t_map_remove( 
         partition_node->elem.accounts_pool,
