@@ -161,12 +161,17 @@ fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx,
 
 /* Loads the sysvar cache. Expects acc_mgr, funk_txn to be non-NULL and valid. */
 int
-fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx ) {
+fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx,
+                              fd_spad_t *          runtime_spad ) {
   if( FD_UNLIKELY( !slot_ctx->acc_mgr ) ) {
     return -1;
   }
 
-  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, slot_ctx->acc_mgr, slot_ctx->funk_txn );
+  fd_sysvar_cache_restore( slot_ctx->sysvar_cache,
+                           slot_ctx->acc_mgr,
+                           slot_ctx->funk_txn,
+                           runtime_spad,
+                           slot_ctx->runtime_wksp );
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
@@ -407,7 +412,7 @@ fd_runtime_validate_fee_collector( fd_exec_slot_ctx_t const * slot_ctx,
      We already know that the post deposit balance is >0 because we are paying a >0 amount.
      So TLDR we just check if the account is rent exempt.
    */
-  ulong minbal = fd_rent_exempt_minimum_balance( fd_sysvar_cache_rent( slot_ctx->sysvar_cache ), collector->const_meta->dlen );
+  ulong minbal = fd_rent_exempt_minimum_balance( (fd_rent_t const *)fd_sysvar_cache_rent( slot_ctx->sysvar_cache ), collector->const_meta->dlen );
   if( FD_UNLIKELY( collector->const_meta->info.lamports + fee < minbal ) ) {
     FD_BASE58_ENCODE_32_BYTES( collector->pubkey->key, _out_key );
     FD_LOG_WARNING(("cannot pay a rent paying account (%s)", _out_key ));
@@ -1414,7 +1419,7 @@ fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   /* Load sysvars into cache */
-  if( FD_UNLIKELY( result = fd_runtime_sysvar_cache_load( slot_ctx ) ) ) {
+  if( FD_UNLIKELY( result = fd_runtime_sysvar_cache_load( slot_ctx, runtime_spad ) ) ) {
     /* non-zero error */
     return result;
   }
@@ -2129,7 +2134,7 @@ fd_new_target_program_account( fd_exec_slot_ctx_t * slot_ctx,
   };
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L89-L90 */
-  const fd_rent_t * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+  fd_rent_t const * rent = (fd_rent_t const *)fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
   if( FD_UNLIKELY( rent==NULL ) ) {
     return -1;
   }
@@ -2202,7 +2207,7 @@ fd_new_target_program_data_account( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L127-L132 */
-  const fd_rent_t * rent = fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
+  const fd_rent_t * rent = (fd_rent_t const *)fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
   if( FD_UNLIKELY( rent==NULL ) ) {
     return -1;
   }
@@ -2665,7 +2670,7 @@ fd_runtime_process_new_epoch( fd_exec_slot_ctx_t * slot_ctx,
 
   /* Refresh vote accounts in stakes cache using updated stake weights, and merges slot bank vote accounts with the epoch bank vote accounts.
     https://github.com/anza-xyz/agave/blob/v2.1.6/runtime/src/stakes.rs#L363-L370 */
-  fd_stake_history_t const * history = fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
+  fd_stake_history_t const * history = (fd_stake_history_t const *)fd_sysvar_cache_stake_history( slot_ctx->sysvar_cache );
   if( FD_UNLIKELY( !history ) ) {
     FD_LOG_ERR(( "StakeHistory sysvar is missing from sysvar cache" ));
   }

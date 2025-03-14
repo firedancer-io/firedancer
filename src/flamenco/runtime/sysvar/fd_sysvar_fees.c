@@ -23,7 +23,7 @@ fd_sysvar_fees_read( fd_sysvar_fees_t *        result,
                      fd_sysvar_cache_t const * sysvar_cache,
                      fd_acc_mgr_t *            acc_mgr,
                      fd_funk_txn_t *           funk_txn ) {
-  fd_sysvar_fees_t const * ret = fd_sysvar_cache_fees( sysvar_cache );
+  fd_sysvar_fees_t const * ret = (fd_sysvar_fees_t const *)fd_sysvar_cache_fees( sysvar_cache );
   if( FD_UNLIKELY( NULL != ret ) ) {
     fd_memcpy(result, ret, sizeof(fd_sysvar_fees_t));
     return result;

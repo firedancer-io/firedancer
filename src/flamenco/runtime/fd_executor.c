@@ -439,7 +439,7 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
         with a dummy value.
      */
 
-  fd_epoch_schedule_t const * schedule = fd_sysvar_cache_epoch_schedule( txn_ctx->sysvar_cache );
+  fd_epoch_schedule_t const * schedule = (fd_epoch_schedule_t const *)fd_sysvar_cache_epoch_schedule( txn_ctx->sysvar_cache );
   ulong                       epoch    = fd_slot_to_epoch( schedule, txn_ctx->slot_bank->slot, NULL );
 
   /* In `load_transaction_account()`, there are special checks based on the priviledges of each account key.
@@ -869,7 +869,7 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* Collect rent from the fee payer and set the starting lamports (to avoid unbalanced lamports issues in instruction execution)
      https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/transaction_processor.rs#L438-L445 */
-  fd_epoch_schedule_t const * schedule = fd_sysvar_cache_epoch_schedule( txn_ctx->sysvar_cache );
+  fd_epoch_schedule_t const * schedule = (fd_epoch_schedule_t const *)fd_sysvar_cache_epoch_schedule( txn_ctx->sysvar_cache );
   ulong                       epoch    = fd_slot_to_epoch( schedule, txn_ctx->slot_bank->slot, NULL );
   txn_ctx->collected_rent += fd_runtime_collect_rent_from_account( txn_ctx->slot_bank,
                                                                    txn_ctx->epoch_bank,
@@ -905,8 +905,12 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx,
 
   if( txn_ctx->txn_descriptor->transaction_version == FD_TXN_V0 ) {
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/runtime/src/bank/address_lookup_table.rs#L44-L48 */
-    fd_slot_hashes_t const * slot_hashes = fd_sysvar_cache_slot_hashes( txn_ctx->sysvar_cache );
-    if( FD_UNLIKELY( !slot_hashes ) ) {
+    fd_slot_hashes_global_t const * slot_hashes_global = fd_sysvar_cache_slot_hashes( txn_ctx->sysvar_cache );
+    fd_slot_hashes_t slot_hashes[1];
+    fd_bincode_decode_ctx_t decode = { .wksp = txn_ctx->runtime_pub_wksp };
+    fd_slot_hashes_convert_global_to_local( slot_hashes_global, slot_hashes, &decode );
+
+    if( FD_UNLIKELY( !&slot_hashes[0] ) ) {
       return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
     }
 
@@ -1371,9 +1375,25 @@ fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
                               fd_txn_t const *           txn_descriptor,
                               fd_rawtxn_b_t const *      txn_raw,
                               fd_spad_t *                spad ) {
+
+  fd_funk_t * funk               = slot_ctx->acc_mgr->funk;
+  fd_wksp_t * funk_wksp          = fd_funk_wksp( funk );
+  fd_wksp_t * runtime_pub_wksp   = fd_wksp_containing( slot_ctx );
+  ulong       funk_txn_gaddr     = fd_wksp_gaddr( funk_wksp, slot_ctx->funk_txn );
+  ulong       acc_mgr_gaddr      = fd_wksp_gaddr( runtime_pub_wksp, slot_ctx->acc_mgr );
+  ulong       funk_gaddr         = fd_wksp_gaddr( funk_wksp, slot_ctx->acc_mgr->funk );
+  ulong       sysvar_cache_gaddr = fd_wksp_gaddr( runtime_pub_wksp, slot_ctx->sysvar_cache );
+
   /* Init txn ctx */
   fd_exec_txn_ctx_new( txn_ctx );
-  fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx, txn_ctx );
+  fd_exec_txn_ctx_from_exec_slot_ctx( slot_ctx,
+                                      txn_ctx,
+                                      funk_wksp,
+                                      runtime_pub_wksp,
+                                      funk_txn_gaddr,
+                                      acc_mgr_gaddr,
+                                      sysvar_cache_gaddr,
+                                      funk_gaddr );
   fd_exec_txn_ctx_setup( txn_ctx, txn_descriptor, txn_raw );
 
   /* Unroll accounts from aluts and place into correct spots */
@@ -1500,7 +1520,7 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
 
 int
 fd_executor_txn_check( fd_exec_txn_ctx_t * txn_ctx ) {
-  fd_rent_t const * rent = fd_sysvar_cache_rent( txn_ctx->sysvar_cache );
+  fd_rent_t const * rent = (fd_rent_t const *)fd_sysvar_cache_rent( txn_ctx->sysvar_cache );
 
   ulong starting_lamports_l = 0;
   ulong starting_lamports_h = 0;
