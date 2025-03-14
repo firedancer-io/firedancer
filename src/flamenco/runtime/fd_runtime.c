@@ -1321,6 +1321,80 @@ fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
   return FD_BLOCK_OK;
 }
 
+FD_FN_PURE static int
+fd_acct_addr_eq( fd_acct_addr_t const * key1, fd_acct_addr_t const * key2 ) {
+  return memcmp( key1->b, key2->b, FD_TXN_ACCT_ADDR_SZ ) == 0;
+}
+
+static ulong
+fd_acct_addr_hash( fd_acct_addr_t const * key, ulong seed ) {
+  return fd_hash( seed, key->b, FD_TXN_ACCT_ADDR_SZ );
+}
+
+#define MAP_NAME     fd_txn_writes
+#define MAP_KEY_T    fd_acct_addr_t
+#define MAP_KEY_EQ   fd_acct_addr_eq
+#define MAP_KEY_HASH fd_acct_addr_hash
+#define MAP_T        fd_txn_writes_t
+#include "../../util/tmpl/fd_map_giant.c"
+
+ulong
+fd_runtime_microblock_verify_read_write_conflicts( fd_txn_p_t *      txns,
+                                                   ulong             txn_cnt,
+                                                   fd_txn_writes_t * acct_map ) {
+  ulong err=FD_TXN_CONFLICT_OK;
+
+  for( ulong i=0; i<txn_cnt; i++ ) {
+    fd_txn_p_t *                    txn = txns + i;
+    fd_acct_addr_t const * account_keys = fd_txn_get_acct_addrs( TXN(txn), txn->payload );
+
+    for( fd_txn_acct_iter_t j=fd_txn_acct_iter_init( TXN(txn), FD_TXN_ACCT_CAT_WRITABLE );
+         j!=fd_txn_acct_iter_end();
+         j=fd_txn_acct_iter_next( j ) ) {
+      /* TODO: this is not handling address lookup table accounts properly */
+      fd_acct_addr_t const * writable_acc = &account_keys[ fd_txn_acct_iter_idx( j ) ];
+
+      if( FD_UNLIKELY( fd_txn_writes_query_const( acct_map, writable_acc, NULL ) ) ) {
+        err = FD_TXN_CONFLICT_WRITE_WRITE;
+        goto cleanup;
+      }
+      fd_txn_writes_insert( acct_map, writable_acc );
+    }
+  }
+
+  for( ulong i=0; i<txn_cnt; i++ ) {
+    fd_txn_p_t *                    txn = txns + i;
+    fd_acct_addr_t const * account_keys = fd_txn_get_acct_addrs( TXN(txn), txn->payload );
+
+    for( fd_txn_acct_iter_t j=fd_txn_acct_iter_init( TXN(txn), FD_TXN_ACCT_CAT_READONLY );
+         j!=fd_txn_acct_iter_end();
+         j=fd_txn_acct_iter_next( j ) ) {
+      fd_acct_addr_t const * readonly_acc = &account_keys[ fd_txn_acct_iter_idx( j ) ];
+
+      if( FD_UNLIKELY( fd_txn_writes_query_const( acct_map, readonly_acc, NULL ) ) ) {
+        err = FD_TXN_CONFLICT_READ_WRITE;
+        goto cleanup;
+      }
+    }
+  }
+
+cleanup:
+  for( ulong i=0; i<txn_cnt; i++ ) {
+    fd_txn_p_t *                    txn = txns + i;
+    fd_acct_addr_t const * account_keys = fd_txn_get_acct_addrs( TXN(txn), txn->payload );
+
+    for( fd_txn_acct_iter_t j=fd_txn_acct_iter_init( TXN(txn), FD_TXN_ACCT_CAT_WRITABLE );
+         j!=fd_txn_acct_iter_end();
+         j=fd_txn_acct_iter_next( j ) ) {
+      /* TODO: this is not handling address lookup table accounts properly */
+      fd_acct_addr_t const * writable_acc = &account_keys[ fd_txn_acct_iter_idx( j ) ];
+      fd_txn_writes_remove( acct_map, writable_acc );
+    }
+  }
+
+  return err;
+}
+
 void
 fd_runtime_poh_verify( fd_poh_verifier_t * poh_info ) {
 
