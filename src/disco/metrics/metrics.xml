@@ -596,6 +596,12 @@ metric introduced.
 </enum>
 
 
+<tile name="repair">
+    <counter name="SentRequests"       clickhouse_exclude="true" summary="Repair requests sent" />
+    <counter name="ReceivedReplies"    clickhouse_exclude="true" summary="Repair replies received" />
+    <counter name="CorruptedMessages"  clickhouse_exclude="true" summary="Number of corrupted repair messages received" />
+</tile>
+
 <tile name="gossip">
     <gauge   name="LastCrdsPushContactInfoPublishTimestampNanos"                                clickhouse_exclude="true" summary="Time (in nanoseconds) of last CRDS Push ContactInfo message publish" />
     <counter name="MismatchedContactInfoShredVersion"                                           clickhouse_exclude="true" summary="Mismatched Contact Info Shred Version" />

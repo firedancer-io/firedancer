@@ -552,3 +552,10 @@
 | sock_&#8203;rx_&#8203;pkt_&#8203;cnt | `counter` | Number of packets received |
 | sock_&#8203;tx_&#8203;pkt_&#8203;cnt | `counter` | Number of packets sent |
 | sock_&#8203;tx_&#8203;drop_&#8203;cnt | `counter` | Number of packets failed to send |
+
+## Repair Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| repair_&#8203;sent_&#8203;requests | `counter` | Repair requests sent |
+| repair_&#8203;received_&#8203;replies | `counter` | Replies received |
+| repair_&#8203;corrupted_&#8203;messages | `counter` | Number of corrupted repair messages received |
