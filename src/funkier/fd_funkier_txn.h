@@ -191,14 +191,14 @@ typedef struct fd_funkier_rec fd_funkier_rec_t;
 /* Return the first (oldest) record in a transaction. Returns NULL if the
    transaction has no records yet. */
 
-FD_FN_PURE fd_funkier_rec_t const *
+fd_funkier_rec_t const *
 fd_funkier_txn_first_rec( fd_funkier_t *           funk,
                           fd_funkier_txn_t const * txn );
 
 /* Return the last (newest) record in a transaction. Returns NULL if the
    transaction has no records yet. */
 
-FD_FN_PURE fd_funkier_rec_t const *
+fd_funkier_rec_t const *
 fd_funkier_txn_last_rec( fd_funkier_t *           funk,
                          fd_funkier_txn_t const * txn );
 

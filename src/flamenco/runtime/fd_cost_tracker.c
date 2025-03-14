@@ -221,7 +221,7 @@ get_allocated_accounts_data_size( fd_transaction_cost_t const * self ) {
 }
 
 /* https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L277-L322 */
-FD_FN_PURE static inline int
+static inline int
 would_fit( fd_cost_tracker_t const *     self,
            fd_exec_txn_ctx_t const *     txn_ctx,
            fd_transaction_cost_t const * tx_cost ) {
