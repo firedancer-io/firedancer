@@ -595,6 +595,32 @@ metric introduced.
     <int value="2" name="EncodingFailed"        label="Encoding Failure" />
 </enum>
 
+<enum name="RepairSentRequestTypes">
+    <int value="0" name="NeededWindow"          label="Need Window" />
+    <int value="1" name="NeededHighestWindow"   label="Need Highest Window" />
+    <int value="2" name="NeededOrphan"          label="Need Orphans" />
+</enum>
+
+<enum name="RepairServPktTypes">
+    <int value="0" name="Pong"                  label="Pong" />
+    <int value="1" name="Window"                label="Window" />
+    <int value="2" name="HighestWindow"         label="Highest Window" />
+    <int value="3" name="Orphan"                label="Orphan" />
+    <int value="4" name="Unknown"               label="Unknown" />
+</enum>
+
+
+<tile name="repair">
+    <counter name="RecvClntPkt"               clickhouse_exclude="true"                                 summary="Now many client packets have we received" />
+    <counter name="RecvServPkt"               clickhouse_exclude="true"                                 summary="How many server packets have we received" />
+    <counter name="RecvServCorruptPkt"        clickhouse_exclude="true"                                 summary="How many corrupt server packets have we received" />
+    <counter name="RecvServInvalidSignature"  clickhouse_exclude="true"                                 summary="How many invalid signatures have we received" />
+    <counter name="RecvServFullPingTable"     clickhouse_exclude="true"                                 summary="Is our ping table full and causing packet drops" />
+    <counter name="RecvServPktTypes"          clickhouse_exclude="true"  enum="RepairServPktTypes"      summary="Server messages received" />
+    <counter name="RecvPktCorruptedMsg"       clickhouse_exclude="true"                                 summary="How many corrupt messages have we received" />
+    <counter name="SendPktCnt"                clickhouse_exclude="true"                                 summary="How many packets have sent" />
+    <counter name="SentPktTypes"              clickhouse_exclude="true"  enum="RepairSentRequestTypes"  summary="What types of client messages are we sending" />
+</tile>
 
 <tile name="gossip">
     <gauge   name="LastCrdsPushContactInfoPublishTimestampNanos"                                clickhouse_exclude="true" summary="Time (in nanoseconds) of last CRDS Push ContactInfo message publish" />

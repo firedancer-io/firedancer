@@ -552,3 +552,22 @@
 | sock_&#8203;rx_&#8203;pkt_&#8203;cnt | `counter` | Number of packets received |
 | sock_&#8203;tx_&#8203;pkt_&#8203;cnt | `counter` | Number of packets sent |
 | sock_&#8203;tx_&#8203;drop_&#8203;cnt | `counter` | Number of packets failed to send |
+
+## Repair Tile
+| Metric | Type | Description |
+|--------|------|-------------|
+| repair_&#8203;recv_&#8203;clnt_&#8203;pkt | `counter` | Now many client packets have we received |
+| repair_&#8203;recv_&#8203;serv_&#8203;pkt | `counter` | How many server packets have we received |
+| repair_&#8203;recv_&#8203;serv_&#8203;corrupt_&#8203;pkt | `counter` | How many corrupt server packets have we received |
+| repair_&#8203;recv_&#8203;serv_&#8203;invalid_&#8203;signature | `counter` | How many invalid signatures have we received |
+| repair_&#8203;recv_&#8203;serv_&#8203;full_&#8203;ping_&#8203;table | `counter` | Is our ping table full and causing packet drops |
+| repair_&#8203;recv_&#8203;serv_&#8203;pkt_&#8203;types_&#8203;pong | `counter` | Server messages received (Pong) |
+| repair_&#8203;recv_&#8203;serv_&#8203;pkt_&#8203;types_&#8203;window | `counter` | Server messages received (Window) |
+| repair_&#8203;recv_&#8203;serv_&#8203;pkt_&#8203;types_&#8203;highest_&#8203;window | `counter` | Server messages received (Highest Window) |
+| repair_&#8203;recv_&#8203;serv_&#8203;pkt_&#8203;types_&#8203;orphan | `counter` | Server messages received (Orphan) |
+| repair_&#8203;recv_&#8203;serv_&#8203;pkt_&#8203;types_&#8203;unknown | `counter` | Server messages received (Unknown) |
+| repair_&#8203;recv_&#8203;pkt_&#8203;corrupted_&#8203;msg | `counter` | How many corrupt messages have we received |
+| repair_&#8203;send_&#8203;pkt_&#8203;cnt | `counter` | How many packets have sent |
+| repair_&#8203;sent_&#8203;pkt_&#8203;types_&#8203;needed_&#8203;window | `counter` | What types of client messages are we sending (Need Window) |
+| repair_&#8203;sent_&#8203;pkt_&#8203;types_&#8203;needed_&#8203;highest_&#8203;window | `counter` | What types of client messages are we sending (Need Highest Window) |
+| repair_&#8203;sent_&#8203;pkt_&#8203;types_&#8203;needed_&#8203;orphan | `counter` | What types of client messages are we sending (Need Orphans) |
