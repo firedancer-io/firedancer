@@ -333,6 +333,10 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( bool,   tiles.gui.enabled                                );
   CFG_POP      ( cstr,   tiles.gui.gui_listen_address                     );
   CFG_POP      ( ushort, tiles.gui.gui_listen_port                        );
+  CFG_POP      ( ulong,  tiles.gui.max_http_connections                   );
+  CFG_POP      ( ulong,  tiles.gui.max_websocket_connections              );
+  CFG_POP      ( ulong,  tiles.gui.max_http_request_length                );
+  CFG_POP      ( ulong,  tiles.gui.send_buffer_size_mb                    );
 
   CFG_POP      ( bool,   development.sandbox                              );
   CFG_POP      ( bool,   development.no_clone                             );

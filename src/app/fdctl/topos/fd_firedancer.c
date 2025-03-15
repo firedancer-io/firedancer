@@ -731,6 +731,10 @@ fd_topo_initialize( config_t * config ) {
       tile->gui.is_voting = strcmp( config->consensus.vote_account_path, "" );
       strncpy( tile->gui.cluster, config->cluster, sizeof(tile->gui.cluster) );
       strncpy( tile->gui.identity_key_path, config->consensus.identity_path, sizeof(tile->gui.identity_key_path) );
+      tile->gui.max_http_connections      = config->tiles.gui.max_http_connections;
+      tile->gui.max_websocket_connections = config->tiles.gui.max_websocket_connections;
+      tile->gui.max_http_request_length   = config->tiles.gui.max_http_request_length;
+      tile->gui.send_buffer_size_mb       = config->tiles.gui.send_buffer_size_mb;
     } else if( FD_UNLIKELY( !strcmp( tile->name, "plugin" ) ) ) {
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "exec" ) ) ) {

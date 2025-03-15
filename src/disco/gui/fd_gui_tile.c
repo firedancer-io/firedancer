@@ -41,21 +41,21 @@ extern uint  const fdctl_commit_ref;
 
 FD_IMPORT_BINARY( firedancer_svg, "book/public/fire.svg" );
 
-#define FD_HTTP_SERVER_GUI_MAX_CONNS             1024
 #define FD_HTTP_SERVER_GUI_MAX_REQUEST_LEN       8192
-#define FD_HTTP_SERVER_GUI_MAX_WS_CONNS          1024
 #define FD_HTTP_SERVER_GUI_MAX_WS_RECV_FRAME_LEN 8192
 #define FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT 8192
-#define FD_HTTP_SERVER_GUI_OUTGOING_BUFFER_SZ    (5UL<<30UL) /* 5GiB reserved for buffering GUI websockets */
 
-const fd_http_server_params_t GUI_PARAMS = {
-  .max_connection_cnt    = FD_HTTP_SERVER_GUI_MAX_CONNS,
-  .max_ws_connection_cnt = FD_HTTP_SERVER_GUI_MAX_WS_CONNS,
-  .max_request_len       = FD_HTTP_SERVER_GUI_MAX_REQUEST_LEN,
-  .max_ws_recv_frame_len = FD_HTTP_SERVER_GUI_MAX_WS_RECV_FRAME_LEN,
-  .max_ws_send_frame_cnt = FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT,
-  .outgoing_buffer_sz    = FD_HTTP_SERVER_GUI_OUTGOING_BUFFER_SZ,
-};
+fd_http_server_params_t
+derive_http_params( fd_topo_tile_t const * tile ) {
+  return (fd_http_server_params_t) {
+    .max_connection_cnt    = tile->gui.max_http_connections,
+    .max_ws_connection_cnt = tile->gui.max_websocket_connections,
+    .max_request_len       = FD_HTTP_SERVER_GUI_MAX_REQUEST_LEN,
+    .max_ws_recv_frame_len = FD_HTTP_SERVER_GUI_MAX_WS_RECV_FRAME_LEN,
+    .max_ws_send_frame_cnt = FD_HTTP_SERVER_GUI_MAX_WS_SEND_FRAME_CNT,
+    .outgoing_buffer_sz    = tile->gui.send_buffer_size_mb * (1UL<<20UL),
+  };
+}
 
 typedef struct {
   fd_topo_t * topo;
@@ -85,12 +85,15 @@ scratch_align( void ) {
 }
 
 FD_FN_PURE static inline ulong
-scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+scratch_footprint( fd_topo_tile_t const * tile ) {
+  ulong http_fp = fd_http_server_footprint( derive_http_params( tile ) );
+  if( FD_UNLIKELY( !http_fp ) ) FD_LOG_ERR(( "Invalid [tiles.gui] config parameters" ));
+
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_gui_ctx_t ), sizeof( fd_gui_ctx_t ) );
-  l = FD_LAYOUT_APPEND( l, fd_http_server_align(),  fd_http_server_footprint( GUI_PARAMS ) );
-  l = FD_LAYOUT_APPEND( l, fd_gui_align(),          fd_gui_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),        fd_alloc_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_http_server_align(), http_fp );
+  l = FD_LAYOUT_APPEND( l, fd_gui_align(),         fd_gui_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),       fd_alloc_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -290,14 +293,15 @@ privileged_init( fd_topo_t *      topo,
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_gui_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_gui_ctx_t ), sizeof( fd_gui_ctx_t ) );
 
-  fd_http_server_t * _gui = FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(), fd_http_server_footprint( GUI_PARAMS ) );
+  fd_http_server_params_t http_param = derive_http_params( tile );
+  fd_http_server_t * _gui = FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(), fd_http_server_footprint( http_param ) );
 
   fd_http_server_callbacks_t gui_callbacks = {
     .request    = gui_http_request,
     .ws_open    = gui_ws_open,
     .ws_message = gui_ws_message,
   };
-  ctx->gui_server = fd_http_server_join( fd_http_server_new( _gui, GUI_PARAMS, gui_callbacks, ctx ) );
+  ctx->gui_server = fd_http_server_join( fd_http_server_new( _gui, http_param, gui_callbacks, ctx ) );
   fd_http_server_listen( ctx->gui_server, tile->gui.listen_addr, tile->gui.listen_port );
 
   if( FD_UNLIKELY( !strcmp( tile->gui.identity_key_path, "" ) ) )
@@ -408,7 +412,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_gui_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_gui_ctx_t ), sizeof( fd_gui_ctx_t ) );
-                       FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(), fd_http_server_footprint( GUI_PARAMS ) );
+                       FD_SCRATCH_ALLOC_APPEND( l, fd_http_server_align(), fd_http_server_footprint( derive_http_params( tile ) ) );
   void * _gui        = FD_SCRATCH_ALLOC_APPEND( l, fd_gui_align(),         fd_gui_footprint() );
   void * _alloc      = FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(),       fd_alloc_footprint() );
 
@@ -475,6 +479,14 @@ populate_allowed_fds( fd_topo_t const *      topo,
   return out_cnt;
 }
 
+static ulong
+rlimit_file_cnt( fd_topo_t const *      topo FD_PARAM_UNUSED,
+                 fd_topo_tile_t const * tile ) {
+  /* pipefd, socket, stderr, logfile, and one spare for new accept() connections */
+  ulong base = 5UL;
+  return base + tile->gui.max_http_connections + tile->gui.max_websocket_connections;
+}
+
 #define STEM_BURST (1UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_gui_ctx_t
@@ -489,7 +501,7 @@ populate_allowed_fds( fd_topo_t const *      topo,
 
 fd_topo_run_tile_t fd_tile_gui = {
   .name                     = "gui",
-  .rlimit_file_cnt          = FD_HTTP_SERVER_GUI_MAX_CONNS+FD_HTTP_SERVER_GUI_MAX_WS_CONNS+5UL, /* pipefd, socket, stderr, logfile, and one spare for new accept() connections */
+  .rlimit_file_cnt_fn       = rlimit_file_cnt,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,

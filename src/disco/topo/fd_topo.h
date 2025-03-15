@@ -240,6 +240,11 @@ typedef struct {
 
       char   cluster[ 32 ];
       char   identity_key_path[ PATH_MAX ];
+
+      ulong  max_http_connections;
+      ulong  max_websocket_connections;
+      ulong  max_http_request_length;
+      ulong  send_buffer_size_mb;
     } gui;
 
     struct {
@@ -454,6 +459,7 @@ typedef struct {
   void  (*privileged_init         )( fd_topo_t * topo, fd_topo_tile_t * tile );
   void  (*unprivileged_init       )( fd_topo_t * topo, fd_topo_tile_t * tile );
   void  (*run                     )( fd_topo_t * topo, fd_topo_tile_t * tile );
+  ulong (*rlimit_file_cnt_fn      )( fd_topo_t const * topo, fd_topo_tile_t const * tile );
 } fd_topo_run_tile_t;
 
 FD_PROTOTYPES_BEGIN

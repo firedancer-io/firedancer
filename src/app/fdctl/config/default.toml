@@ -1215,6 +1215,28 @@ dynamic_port_range = "8900-9000"
         # The port to listen on.
         gui_listen_port = 80
 
+        # Maximum number of simultaneous HTTP connections which can be
+        # open.  The server closes an HTTP connection after each
+        # request.  When no more connections are free, evicts the oldest
+        # first.
+        max_http_connections = 1024
+
+        # Maximum number of simultaneous WebSocket connections which can
+        # be open.  Every browser tab currently showing the GUI has one
+        # persistent WebSocket connection.  When a new WebSocket is
+        # created but no connections are free, the oldest one is closed.
+        max_websocket_connections = 1024
+
+        # Maximum length of an HTTP request including headers.
+        max_http_request_length = 8192
+
+        # All GUI connections share buffer space for outgoing GUI
+        # WebSocket updates and HTTP response headers.  If this buffer
+        # runs out, the connections with the slowest recipients are
+        # dropped.  Larger values make the GUI server more tolerant to
+        # slow clients but also increase memory usage.
+        send_buffer_size_mb = 5120
+
 # These options can be useful for development, but should not be used
 # when connecting to a live cluster, as they may cause the validator to
 # be unstable or have degraded performance or security.  The program
