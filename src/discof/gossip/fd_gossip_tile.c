@@ -532,10 +532,12 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
             ulong                  sig,
             ulong                  sz,
             ulong                  tsorig,
+            ulong                  tspub,
             fd_stem_context_t *    stem ) {
   (void)seq;
   (void)sz;
   (void)tsorig;
+  (void)tspub;
 
   /* Messages from the replay tile for wen-restart are handled by after_credit periodically */
   if( in_idx==RESTART_IN_IDX ) return;

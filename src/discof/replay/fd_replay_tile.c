@@ -1862,9 +1862,10 @@ static void
 after_frag( fd_replay_tile_ctx_t * ctx,
             ulong                  in_idx,
             ulong                  seq,
-            ulong                  sig FD_PARAM_UNUSED,
-            ulong                  sz  FD_PARAM_UNUSED,
+            ulong                  sig   FD_PARAM_UNUSED,
+            ulong                  sz    FD_PARAM_UNUSED,
             ulong                  tsorig,
+            ulong                  tspub FD_PARAM_UNUSED,
             fd_stem_context_t *    stem FD_PARAM_UNUSED ) {
   (void)sig;
   (void)sz;

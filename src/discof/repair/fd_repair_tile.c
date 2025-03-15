@@ -355,9 +355,11 @@ after_frag( fd_repair_tile_ctx_t * ctx,
             ulong                  sig,
             ulong                  sz,
             ulong                  tsorig,
+            ulong                  tspub,
             fd_stem_context_t *    stem ) {
   (void)seq;
   (void)tsorig;
+  (void)tspub;
 
   if( FD_UNLIKELY( in_idx==CONTACT_IN_IDX ) ) {
     handle_new_cluster_contact_info( ctx, ctx->buffer, sz );
