@@ -1261,7 +1261,7 @@ class MapMember(TypeNode):
         print(f'  for( ulong i=0; i < {self.name}_len; i++ ) {{', file=body)
         print(f'    {nodename} * node = {mapname}_acquire( {self.name}_pool );', file=body)
         print(f'    {namespace}_{self.element}_new( &node->elem );', file=body)
-        print(f'    {namespace}_{self.element}_decode_inner( &node->elem, alloc_mem, ctx );', file=body)
+        print(f'    {namespace}_{self.element}_decode_inner_global( &node->elem, alloc_mem, ctx );', file=body)
         print(f'    {mapname}_insert( {self.name}_pool, &{self.name}_root, node );', file=body)
         print(f'  }}', file=body)
 
@@ -1504,7 +1504,7 @@ class TreapMember(TypeNode):
         print(f'  for( ulong i=0; i < {treap_name}_len; i++ ) {{', file=body)
         print(f'    {treap_t} * ele = {pool_name}_ele_acquire( pool );', file=body)
         print(f'    {treap_t.rstrip("_t")}_new( ele );', file=body)
-        print(f'    {treap_t.rstrip("_t")}_decode_inner( ele, alloc_mem, ctx );', file=body)
+        print(f'    {treap_t.rstrip("_t")}_decode_inner_global( ele, alloc_mem, ctx );', file=body)
 
         if self.upsert:
             print(f'    {treap_t} * repeated_entry = {treap_name}_ele_query( treap, ele->epoch, pool );', file=body)
@@ -1926,7 +1926,7 @@ class ArrayMember(TypeNode):
         if self.element in simpletypes:
             print(f'    fd_bincode_{simpletypes[self.element]}_decode_unsafe( self->{self.name} + i, ctx );', file=body)
         else:
-            print(f'    {namespace}_{self.element}_decode_inner( self->{self.name} + i, alloc_mem, ctx );', file=body)
+            print(f'    {namespace}_{self.element}_decode_inner_global( self->{self.name} + i, alloc_mem, ctx );', file=body)
         print('  }', file=body)
 
     def emitGlobalLocalConvert(self):

@@ -863,7 +863,7 @@ void fd_block_hash_queue_decode_inner_global( void * struct_mem, void * * alloc_
   for( ulong i=0; i < ages_len; i++ ) {
     fd_hash_hash_age_pair_t_mapnode_t * node = fd_hash_hash_age_pair_t_map_acquire( ages_pool );
     fd_hash_hash_age_pair_new( &node->elem );
-    fd_hash_hash_age_pair_decode_inner( &node->elem, alloc_mem, ctx );
+    fd_hash_hash_age_pair_decode_inner_global( &node->elem, alloc_mem, ctx );
     fd_hash_hash_age_pair_t_map_insert( ages_pool, &ages_root, node );
   }
   self->ages_pool_gaddr = fd_wksp_gaddr_fast( ctx->wksp, ages_pool );
@@ -2180,7 +2180,7 @@ void fd_vote_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem
   for( ulong i=0; i < vote_accounts_len; i++ ) {
     fd_vote_accounts_pair_t_mapnode_t * node = fd_vote_accounts_pair_t_map_acquire( vote_accounts_pool );
     fd_vote_accounts_pair_new( &node->elem );
-    fd_vote_accounts_pair_decode_inner( &node->elem, alloc_mem, ctx );
+    fd_vote_accounts_pair_decode_inner_global( &node->elem, alloc_mem, ctx );
     fd_vote_accounts_pair_t_map_insert( vote_accounts_pool, &vote_accounts_root, node );
   }
   self->vote_accounts_pool_gaddr = fd_wksp_gaddr_fast( ctx->wksp, vote_accounts_pool );
@@ -2391,7 +2391,7 @@ void fd_account_keys_decode_inner_global( void * struct_mem, void * * alloc_mem,
   for( ulong i=0; i < account_keys_len; i++ ) {
     fd_account_keys_pair_t_mapnode_t * node = fd_account_keys_pair_t_map_acquire( account_keys_pool );
     fd_account_keys_pair_new( &node->elem );
-    fd_account_keys_pair_decode_inner( &node->elem, alloc_mem, ctx );
+    fd_account_keys_pair_decode_inner_global( &node->elem, alloc_mem, ctx );
     fd_account_keys_pair_t_map_insert( account_keys_pool, &account_keys_root, node );
   }
   self->account_keys_pool_gaddr = fd_wksp_gaddr_fast( ctx->wksp, account_keys_pool );
@@ -2602,7 +2602,7 @@ void fd_stake_weights_decode_inner_global( void * struct_mem, void * * alloc_mem
   for( ulong i=0; i < stake_weights_len; i++ ) {
     fd_stake_weight_t_mapnode_t * node = fd_stake_weight_t_map_acquire( stake_weights_pool );
     fd_stake_weight_new( &node->elem );
-    fd_stake_weight_decode_inner( &node->elem, alloc_mem, ctx );
+    fd_stake_weight_decode_inner_global( &node->elem, alloc_mem, ctx );
     fd_stake_weight_t_map_insert( stake_weights_pool, &stake_weights_root, node );
   }
   self->stake_weights_pool_gaddr = fd_wksp_gaddr_fast( ctx->wksp, stake_weights_pool );
@@ -3116,7 +3116,7 @@ void fd_stakes_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bi
   for( ulong i=0; i < stake_delegations_len; i++ ) {
     fd_delegation_pair_t_mapnode_t * node = fd_delegation_pair_t_map_acquire( stake_delegations_pool );
     fd_delegation_pair_new( &node->elem );
-    fd_delegation_pair_decode_inner( &node->elem, alloc_mem, ctx );
+    fd_delegation_pair_decode_inner_global( &node->elem, alloc_mem, ctx );
     fd_delegation_pair_t_map_insert( stake_delegations_pool, &stake_delegations_root, node );
   }
   self->stake_delegations_pool_gaddr = fd_wksp_gaddr_fast( ctx->wksp, stake_delegations_pool );
@@ -3286,7 +3286,7 @@ void fd_stakes_stake_decode_inner_global( void * struct_mem, void * * alloc_mem,
   for( ulong i=0; i < stake_delegations_len; i++ ) {
     fd_stake_pair_t_mapnode_t * node = fd_stake_pair_t_map_acquire( stake_delegations_pool );
     fd_stake_pair_new( &node->elem );
-    fd_stake_pair_decode_inner( &node->elem, alloc_mem, ctx );
+    fd_stake_pair_decode_inner_global( &node->elem, alloc_mem, ctx );
     fd_stake_pair_t_map_insert( stake_delegations_pool, &stake_delegations_root, node );
   }
   self->stake_delegations_pool_gaddr = fd_wksp_gaddr_fast( ctx->wksp, stake_delegations_pool );
@@ -8480,7 +8480,7 @@ void * fd_vote_prior_voters_decode_global( void * mem, fd_bincode_decode_ctx_t *
 void fd_vote_prior_voters_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_vote_prior_voters_global_t * self = (fd_vote_prior_voters_global_t *)struct_mem;
   for( ulong i=0; i<32; i++ ) {
-    fd_vote_prior_voter_decode_inner( self->buf + i, alloc_mem, ctx );
+    fd_vote_prior_voter_decode_inner_global( self->buf + i, alloc_mem, ctx );
   }
   fd_bincode_uint64_decode_unsafe( &self->idx, ctx );
   fd_bincode_bool_decode_unsafe( &self->is_empty, ctx );
@@ -8582,7 +8582,7 @@ void * fd_vote_prior_voters_0_23_5_decode_global( void * mem, fd_bincode_decode_
 void fd_vote_prior_voters_0_23_5_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
   fd_vote_prior_voters_0_23_5_global_t * self = (fd_vote_prior_voters_0_23_5_global_t *)struct_mem;
   for( ulong i=0; i<32; i++ ) {
-    fd_vote_prior_voter_0_23_5_decode_inner( self->buf + i, alloc_mem, ctx );
+    fd_vote_prior_voter_0_23_5_decode_inner_global( self->buf + i, alloc_mem, ctx );
   }
   fd_bincode_uint64_decode_unsafe( &self->idx, ctx );
 }
@@ -9133,7 +9133,7 @@ void fd_vote_authorized_voters_decode_inner_global( void * struct_mem, void * * 
   for( ulong i=0; i < fd_vote_authorized_voters_treap_len; i++ ) {
     fd_vote_authorized_voter_t * ele = fd_vote_authorized_voters_pool_ele_acquire( pool );
     fd_vote_authorized_voter_new( ele );
-    fd_vote_authorized_voter_decode_inner( ele, alloc_mem, ctx );
+    fd_vote_authorized_voter_decode_inner_global( ele, alloc_mem, ctx );
     fd_vote_authorized_voter_t * repeated_entry = fd_vote_authorized_voters_treap_ele_query( treap, ele->epoch, pool );
     if( repeated_entry ) {
         fd_vote_authorized_voters_treap_ele_remove( treap, repeated_entry, pool ); // Remove the element before inserting it back to avoid duplication
@@ -12171,7 +12171,7 @@ void fd_clock_timestamp_votes_decode_inner_global( void * struct_mem, void * * a
   for( ulong i=0; i < votes_len; i++ ) {
     fd_clock_timestamp_vote_t_mapnode_t * node = fd_clock_timestamp_vote_t_map_acquire( votes_pool );
     fd_clock_timestamp_vote_new( &node->elem );
-    fd_clock_timestamp_vote_decode_inner( &node->elem, alloc_mem, ctx );
+    fd_clock_timestamp_vote_decode_inner_global( &node->elem, alloc_mem, ctx );
     fd_clock_timestamp_vote_t_map_insert( votes_pool, &votes_root, node );
   }
   self->votes_pool_gaddr = fd_wksp_gaddr_fast( ctx->wksp, votes_pool );
@@ -36223,7 +36223,7 @@ void fd_epoch_info_decode_inner_global( void * struct_mem, void * * alloc_mem, f
   for( ulong i=0; i < vote_states_len; i++ ) {
     fd_vote_info_pair_t_mapnode_t * node = fd_vote_info_pair_t_map_acquire( vote_states_pool );
     fd_vote_info_pair_new( &node->elem );
-    fd_vote_info_pair_decode_inner( &node->elem, alloc_mem, ctx );
+    fd_vote_info_pair_decode_inner_global( &node->elem, alloc_mem, ctx );
     fd_vote_info_pair_t_map_insert( vote_states_pool, &vote_states_root, node );
   }
   self->vote_states_pool_gaddr = fd_wksp_gaddr_fast( ctx->wksp, vote_states_pool );
@@ -36757,7 +36757,7 @@ void fd_account_costs_decode_inner_global( void * struct_mem, void * * alloc_mem
   for( ulong i=0; i < account_costs_len; i++ ) {
     fd_account_costs_pair_t_mapnode_t * node = fd_account_costs_pair_t_map_acquire( account_costs_pool );
     fd_account_costs_pair_new( &node->elem );
-    fd_account_costs_pair_decode_inner( &node->elem, alloc_mem, ctx );
+    fd_account_costs_pair_decode_inner_global( &node->elem, alloc_mem, ctx );
     fd_account_costs_pair_t_map_insert( account_costs_pool, &account_costs_root, node );
   }
   self->account_costs_pool_gaddr = fd_wksp_gaddr_fast( ctx->wksp, account_costs_pool );
