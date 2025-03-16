@@ -311,7 +311,6 @@ run_monitor( config_t * const config,
     ulong buf_sz = FD_MONITOR_TEXT_BUF_SZ;
 
     
-    /* move to beginning of line, n lines ago */
     PRINT( "\033[2J\033[H" );
 
     /* drain any firedancer log messages into the terminal */
