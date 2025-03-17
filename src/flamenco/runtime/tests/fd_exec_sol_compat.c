@@ -74,7 +74,7 @@ sol_compat_wksp_init( ulong wksp_page_sz ) {
   }
   FD_TEST( wksp );
 
-  spad_mem = fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ ), WKSP_INIT_ALLOC_TAG ); /* 4738713960 B */
+  spad_mem = fd_wksp_alloc_laddr( wksp, fd_spad_align(), fd_spad_footprint( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ ), WKSP_INIT_ALLOC_TAG ); /* 4738713960 B */
   FD_TEST( spad_mem );
 
   features.struct_size         = sizeof(sol_compat_features_t);
