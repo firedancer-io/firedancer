@@ -977,7 +977,7 @@ dynamic_port_range = "8900-9000"
         # Higher values reduce TPU packet loss over unreliable networks.
         # If this parameter is set too low, packet loss can cause some
         # large transactions to get dropped.  Must be 2 or larger.
-        txn_reassembly_count = 4194304
+        txn_reassembly_count = 131072
 
         # QUIC has a handshake process which establishes a secure
         # connection between two endpoints.  The handshake process is
