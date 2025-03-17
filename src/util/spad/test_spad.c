@@ -3,21 +3,12 @@
 /* Use the debug variant for extra code coverage and test strictness */
 
 #if 1
-#define fd_spad_alloc_max fd_spad_alloc_max_debug
-#define fd_spad_frame_lo  fd_spad_frame_lo_debug
-#define fd_spad_frame_hi  fd_spad_frame_hi_debug
-#define fd_spad_push      fd_spad_push_debug
-#define fd_spad_pop       fd_spad_pop_debug
-#define fd_spad_alloc     fd_spad_alloc_debug
-#define fd_spad_trim      fd_spad_trim_debug
-#define fd_spad_prepare   fd_spad_prepare_debug
-#define fd_spad_cancel    fd_spad_cancel_debug
-#define fd_spad_publish   fd_spad_publish_debug
+#define FD_SPAD_USE_HANDHOLDING 1
 #endif
 
-FD_STATIC_ASSERT( FD_SPAD_LG_ALIGN      ==7,                       unit_test );
-FD_STATIC_ASSERT( FD_SPAD_ALIGN         ==(1UL<<FD_SPAD_LG_ALIGN), unit_test );
-FD_STATIC_ASSERT( FD_SPAD_FOOTPRINT(0UL)==1152UL,                  unit_test );
+FD_STATIC_ASSERT( FD_SPAD_LG_ALIGN          ==7,                       unit_test );
+FD_STATIC_ASSERT( FD_SPAD_ALIGN             ==(1UL<<FD_SPAD_LG_ALIGN), unit_test );
+FD_STATIC_ASSERT( FD_SPAD_FOOTPRINT(0UL,0UL)==1152UL,                  unit_test );
 
 FD_STATIC_ASSERT( FD_SPAD_FRAME_MAX          ==128UL, unit_test );
 FD_STATIC_ASSERT( FD_SPAD_ALLOC_ALIGN_DEFAULT== 16UL, unit_test );
@@ -164,15 +155,20 @@ main( int     argc,
 
     if( FD_UNLIKELY( mem_max>(1UL<<63) ) ) FD_TEST( !footprint );
     else {
-      FD_TEST( footprint==fd_ulong_align_up( sizeof(fd_spad_t) + mem_max, FD_SPAD_ALIGN ) );
-      FD_TEST( footprint==FD_SPAD_FOOTPRINT( mem_max ) );
+      FD_TEST( footprint==fd_ulong_align_up( fd_ulong_align_up( sizeof(fd_spad_t)+sizeof(ulong)*(FD_SPAD_FRAME_MAX+1UL)*1UL, FD_SPAD_ALIGN )+mem_max, FD_SPAD_ALIGN ) );
+      FD_TEST( footprint==FD_SPAD_FOOTPRINT( mem_max, 1UL ) );
     }
 
     footprint = mem_max;
     mem_max   = fd_spad_mem_max_max( footprint );
 
+  #if FD_SPAD_TAG_CHECK
+    ulong meta_footprint = fd_ulong_align_up( sizeof(fd_spad_t) + sizeof(ulong)*(FD_SPAD_FRAME_MAX+1UL)*1UL, FD_SPAD_ALIGN );
+  #else
+    ulong meta_footprint = sizeof(fd_spad_t);
+  #endif
     ulong footprint_dn = fd_ulong_align_dn( footprint, FD_SPAD_ALIGN );
-    if( FD_UNLIKELY( (footprint_dn<sizeof(fd_spad_t)) | ((footprint_dn-sizeof(fd_spad_t))>(1UL<<63)) ) )
+    if( FD_UNLIKELY( (footprint_dn<meta_footprint) | ((footprint_dn-meta_footprint)>(1UL<<63)) ) )
       FD_TEST( !mem_max );
     else
       FD_TEST( fd_spad_footprint( mem_max )==footprint_dn );
