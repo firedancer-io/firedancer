@@ -1879,8 +1879,9 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     return;
   }
   /* Reach into buffer to get the number of values */
+  ulong * crds_len = &pull_resp->crds_len;
+
   uchar * newend = (uchar *)ctx.data;
-  ulong * crds_len = (ulong *)(newend - sizeof(ulong));
 
   /* Push an updated version of my contact info into values */
   fd_gossip_push_updated_contact(glob);
