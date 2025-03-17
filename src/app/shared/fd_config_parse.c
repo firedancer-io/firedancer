@@ -284,6 +284,7 @@ fdctl_pod_to_cfg( config_t * config,
 
   CFG_POP      ( cstr,   hugetlbfs.mount_path                             );
   CFG_POP      ( cstr,   hugetlbfs.max_page_size                          );
+  CFG_POP      ( ulong,  hugetlbfs.gigantic_page_threshold_mib            );
 
   CFG_POP      ( cstr,   tiles.net.interface                              );
   CFG_POP      ( cstr,   tiles.net.xdp_mode                               );

@@ -830,6 +830,12 @@ dynamic_port_range = "8900-9000"
     # virtualized environments like cloud providers.
     max_page_size = "gigantic"
 
+    # Workspaces are either fully backed by "huge" or "gigantic" pages.
+    # Workspaces with footprint equal to or greater than the given value
+    # in MiB are backed by "gigantic" pages unless disabled via
+    # max_page_size.
+    gigantic_page_threshold_mib = 128
+
 # Tiles are described in detail in the layout section above.  While the
 # layout configuration determines how many of each tile to place on
 # which CPU core to create a functioning system, below is the individual
