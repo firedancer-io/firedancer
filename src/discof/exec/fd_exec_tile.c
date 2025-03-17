@@ -151,6 +151,7 @@ unprivileged_init( fd_topo_t *      topo,
 
   ctx->is_funk_active = 0;
   memcpy( ctx->funk_file, tile->replay.funk_file, sizeof(tile->replay.funk_file) );
+  memcpy( ctx->funk_file, "/data/ibhatt/funkfile\0", 22 );
 
 }
 
@@ -160,9 +161,10 @@ after_credit( fd_exec_tile_ctx_t * ctx,
               int *                opt_poll_in FD_PARAM_UNUSED,
               int *                charge_busy FD_PARAM_UNUSED ) {
 
-  if( FD_UNLIKELY( !ctx->is_funk_active ) ) {
+  if( false && FD_UNLIKELY( !ctx->is_funk_active ) ) {
     /* Setting these parameters are not required because we are joining the
       funk that was setup in the replay tile. */
+    FD_LOG_WARNING(( "Trying to join funk at file=%s", ctx->funk_file ));
     ctx->funk = fd_funk_open_file( ctx->funk_file,
                                    1UL,
                                    0UL,

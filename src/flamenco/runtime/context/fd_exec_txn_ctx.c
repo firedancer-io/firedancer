@@ -289,7 +289,7 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
 
   txn_ctx->acc_mgr = fd_wksp_laddr( runtime_pub_wksp, acc_mgr_gaddr );
   if( FD_UNLIKELY( !txn_ctx->acc_mgr ) ) {
-    FD_LOG_ERR(( "Could not find valid account manager" ));
+    FD_LOG_ERR(( "Could not find valid account manager %lu", acc_mgr_gaddr ));
   }
   txn_ctx->acc_mgr->funk = fd_wksp_laddr( funk_wksp, funk_gaddr );
 
