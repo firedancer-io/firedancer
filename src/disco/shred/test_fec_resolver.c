@@ -4,6 +4,7 @@
 #include "../../ballet/shred/fd_shred.h"
 #include "../../ballet/shred/fd_fec_set.h"
 #include "../../ballet/base58/fd_base58.h"
+#include "../../ballet/hex/fd_hex.h"
 #include "../../util/archive/fd_ar.h"
 
 #include "../../disco/metrics/fd_metrics.h"
@@ -89,7 +90,6 @@ allocate_fec_set( fd_fec_set_t * set, uchar * ptr ) {
   FD_TEST( ptr<=fec_set_memory + sizeof(fec_set_memory) );
   return ptr;
 }
-
 
 static void
 test_one_batch( void ) {
@@ -617,6 +617,144 @@ test_merkle_root( void ) {
   FD_TEST( 0==memcmp( &actual, &expected, sizeof(fd_bmtree_node_t) ) );
 }
 
+uchar fec_set_memory_1[ 2048UL * FD_REEDSOL_DATA_SHREDS_MAX   ];
+uchar fec_set_memory_2[ 2048UL * FD_REEDSOL_PARITY_SHREDS_MAX ];
+
+static void
+test_chained_merkle_shreds( void ) {
+  uchar expected_final_chained_merkle_root[ 32 ] = { 0 };
+  uchar chained_merkle_root[ 32 ] = { 0 };
+
+  const uchar canary = 0x42;
+
+  /* Initial and expected final merkle root */
+  fd_hex_decode( chained_merkle_root, "0102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f00", 32 );
+  fd_hex_decode( expected_final_chained_merkle_root, "93bd3baebdc41dde1d97ae6a79fe19d0ab109ecc69fe2d389b8c48f1a4b53397", 32 );
+
+  /* Settings so that we get 32 data + 32 parity shreds */
+  ulong data_sz = 31000;
+  FD_TEST( fd_shredder_count_data_shreds(   data_sz ) == 32 );
+  FD_TEST( fd_shredder_count_parity_shreds( data_sz ) == 32 );
+  FD_TEST( fd_shredder_count_fec_sets(      data_sz ) ==  1 );
+
+  ulong data_cnt   = fd_shredder_count_data_shreds(   data_sz );
+  ulong parity_cnt = fd_shredder_count_parity_shreds( data_sz );
+
+  /* Initialize all the things */
+  for( ulong i=0UL; i<data_sz; i++ )  perf_test_entry_batch[ i ] = (uchar)i;
+
+  fd_entry_batch_meta_t meta[1];
+  fd_memset( meta, 0, sizeof(fd_entry_batch_meta_t) );
+  signer_ctx_t signer_ctx[ 1 ];
+  signer_ctx_init( signer_ctx, test_private_key );
+
+  FD_TEST( _shredder==fd_shredder_new( _shredder, test_signer, signer_ctx, SHRED_VER ) );
+  fd_shredder_t * shredder = fd_shredder_join( _shredder );           FD_TEST( shredder );
+
+  fd_fec_set_t _set[ 1 ];
+  for( ulong j=0UL; j<FD_REEDSOL_DATA_SHREDS_MAX;   j++ ) _set->data_shreds[   j ] = fec_set_memory_1 + 2048UL*j;
+  for( ulong j=0UL; j<FD_REEDSOL_PARITY_SHREDS_MAX; j++ ) _set->parity_shreds[ j ] = fec_set_memory_2 + 2048UL*j;
+
+  /* memset with canary */
+  memset( fec_set_memory_1, canary, sizeof( fec_set_memory_1 ) );
+  memset( fec_set_memory_2, canary, sizeof( fec_set_memory_2 ) );
+
+  /* Resolver */
+  fd_fec_resolver_t * resolver;
+  fd_fec_set_t out_sets[ 10 ];
+  uchar const * pubkey = test_private_key+32UL;
+  fd_fec_set_t const * out_fec[1];
+  fd_shred_t const   * out_shred[1];
+  fd_bmtree_node_t     out_merkle_root[1];
+
+  uchar * ptr = fec_set_memory;
+  // ptr = allocate_fec_set( *out_fec, ptr );    
+  for( ulong i=0UL; i<10UL; i++ )  ptr = allocate_fec_set( out_sets+i, ptr );
+
+#define MAX_SLOTS (4UL)
+#define MAX_SETS (10UL)
+
+  /* Actual test: create shreds for n slots, the same way the shred tile does it */
+  fd_fec_set_t * set = NULL;
+  for( ulong slot=10UL; slot<10UL+MAX_SLOTS; slot++ ) {
+
+    /* Simulate skipping slot #1 */
+    if( slot==1UL ) slot=2UL;
+    meta->parent_offset = slot==2UL ? 2 : 1; 
+
+    for( ulong setid=0UL; setid<MAX_SETS; setid++ ) {
+      meta->block_complete = (setid==(MAX_SETS-1));
+
+      /* Create set like shred tile does.
+         This should take care of numbering shreds correctly, updating chained_merkle_root,
+         etc. */
+      fd_shredder_init_batch( shredder, perf_test_entry_batch, data_sz, slot, meta );
+      set = fd_shredder_next_fec_set( shredder, _set, chained_merkle_root );
+      fd_shredder_fini_batch( shredder );
+
+      /* Per-slot checks */
+      FD_TEST( set );
+      FD_TEST( set->data_shred_cnt==32 );
+      FD_TEST( set->parity_shred_cnt==32 );
+    
+      resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 8UL, out_sets, SHRED_VER, MAX ) );
+
+      for( ulong j=0; j<data_cnt; j++ ) {
+        /* Simple test that we didn't overflow */
+        FD_TEST( *(set->data_shreds[ j ]+FD_SHRED_MIN_SZ) == canary );
+
+        /* Test that data indexes are correct */
+        fd_shred_t const * shred = (fd_shred_t const *)set->data_shreds[ j ];
+
+        FD_TEST( shred->idx==setid*32 + j );
+        FD_TEST( shred->fec_set_idx==setid*32 );
+        FD_TEST( fd_shred_is_resigned( fd_shred_type( shred->variant ) )==(setid==(MAX_SETS-1)) );
+
+        fd_shred_t const * parsed = fd_shred_parse( (const uchar *)shred, FD_SHRED_MIN_SZ );
+        FD_TEST( parsed );
+
+        int retval = fd_fec_resolver_add_shred( resolver, parsed, FD_SHRED_MIN_SZ, pubkey, out_fec, out_shred, out_merkle_root );
+        FD_TEST( retval==((j<data_cnt-1) ? FD_FEC_RESOLVER_SHRED_OKAY : FD_FEC_RESOLVER_SHRED_IGNORED) );
+
+        FD_TEST( fd_memeq( chained_merkle_root, out_merkle_root->hash, 32 ) );
+
+        /* FIXME: currently we need at least 1 coding shred to resolve a set */
+        if(j==data_cnt-2) {
+          int retval = fd_fec_resolver_add_shred( resolver, (fd_shred_t const *)set->parity_shreds[ 0 ], FD_SHRED_MAX_SZ, pubkey, out_fec, out_shred, out_merkle_root );
+          FD_TEST( retval==FD_FEC_RESOLVER_SHRED_COMPLETES );
+        }
+      }
+      FD_TEST( sets_eq( set, *out_fec ) );
+
+      resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 8UL, out_sets, SHRED_VER, MAX ) );
+
+      for( ulong j=0; j<parity_cnt; j++ ) {
+        /* Simple test that we didn't overflow */
+        FD_TEST( *(set->parity_shreds[ j ]+FD_SHRED_MAX_SZ) == canary );
+
+        /* Test that parity indexes are correct */
+        fd_shred_t const * shred = (fd_shred_t const *)set->parity_shreds[ j ];
+        FD_TEST( shred->idx==setid*32 + j );
+        FD_TEST( shred->fec_set_idx==setid*32 );
+        FD_TEST( fd_shred_is_resigned( fd_shred_type( shred->variant ) )==(setid==(MAX_SETS-1)) );
+
+        fd_shred_t const * parsed = fd_shred_parse( (const uchar *)shred, FD_SHRED_MAX_SZ );
+        FD_TEST( parsed );
+        int retval = fd_fec_resolver_add_shred( resolver, parsed, FD_SHRED_MAX_SZ, pubkey, out_fec, out_shred, out_merkle_root );
+        FD_TEST( retval==((j<data_cnt-1) ? FD_FEC_RESOLVER_SHRED_OKAY : FD_FEC_RESOLVER_SHRED_COMPLETES) );
+
+        FD_TEST( fd_memeq( chained_merkle_root, out_merkle_root->hash, 32 ) );
+      }
+      FD_TEST( sets_eq( set, *out_fec ) );
+
+      fd_fec_resolver_delete( fd_fec_resolver_leave( resolver ) );
+    }
+  }
+
+  /* Final checks */
+  FD_TEST( fd_memeq( chained_merkle_root, expected_final_chained_merkle_root, 32 ) );
+}
+
 int
 main( int     argc,
       char ** argv ) {
@@ -632,7 +770,7 @@ main( int     argc,
   test_shred_version();
   test_shred_reject();
   test_merkle_root();
-
+  test_chained_merkle_shreds();
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

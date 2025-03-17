@@ -25,8 +25,6 @@
 
 typedef void (fd_shredder_sign_fn)( void * ctx, uchar * sig, uchar const * merkle_root );
 
-
-
 static ulong const fd_shredder_data_to_parity_cnt[ 33UL ] = {
    0UL, 17UL, 18UL, 19UL, 19UL, 20UL, 21UL, 21UL,
   22UL, 23UL, 23UL, 24UL, 24UL, 25UL, 25UL, 26UL,
@@ -190,8 +188,8 @@ fd_shredder_t * fd_shredder_skip_batch( fd_shredder_t * shredder,
 
    chained_merkle_root is either NULL or a pointer to a 32-byte buffer
    containing the chained merkle root (the merkle root of the previous
-   FEC set). If not NULL, chained_merkle_root is updated with the new
-   root. This also determines the variant of shreds created.
+   FEC set).  If not NULL, chained_merkle_root is updated with the new
+   root.  This determines the variant of shreds created.
 
    Returns result on success and NULL if all of the entry batch's data
    has been consumed already by previous calls to this function.  On

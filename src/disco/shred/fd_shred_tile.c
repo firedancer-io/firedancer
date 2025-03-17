@@ -420,6 +420,7 @@ during_frag( fd_shred_ctx_t * ctx,
           memcpy( ctx->chained_merkle_root, entry_meta->parent_block_id, FD_SHRED_MERKLE_ROOT_SZ );
         } else {
           ctx->metrics->invalid_block_id_cnt++;
+          memset( ctx->chained_merkle_root, 0, FD_SHRED_MERKLE_ROOT_SZ );
         }
       }
     }
@@ -464,8 +465,7 @@ during_frag( fd_shred_ctx_t * ctx,
 #if FD_HAS_NO_AGAVE
         FD_TEST( fd_shredder_next_fec_set( ctx->shredder, out, NULL ) );
 #else
-        uchar * chained_merkle_root = entry_meta->parent_block_id_valid ? ctx->chained_merkle_root : NULL;
-        FD_TEST( fd_shredder_next_fec_set( ctx->shredder, out, chained_merkle_root ) );
+        FD_TEST( fd_shredder_next_fec_set( ctx->shredder, out, ctx->chained_merkle_root ) );
 #endif
         fd_shredder_fini_batch( ctx->shredder );
         shredding_timing      +=  fd_tickcount();

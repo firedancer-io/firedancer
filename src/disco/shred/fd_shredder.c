@@ -152,35 +152,45 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
   ulong chunk_size              = fd_ulong_if( entry_bytes_remaining>=2UL*FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ,
                                                                           FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ,
                                                                           entry_bytes_remaining );
+  ulong last_in_batch           = (chunk_size+offset==entry_sz);
+  int   block_complete          = shredder->meta.block_complete;
+  uchar is_chained              = chained_merkle_root!=NULL;
+  uchar is_resigned             = is_chained && block_complete; /* only chained are resigned */
+
+  uchar data_type = fd_uchar_if( is_chained, fd_uchar_if(
+    is_resigned,
+    FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED,
+    FD_SHRED_TYPE_MERKLE_DATA_CHAINED
+  ), FD_SHRED_TYPE_MERKLE_DATA );
+
+  uchar code_type = fd_uchar_if( is_chained, fd_uchar_if(
+    is_resigned,
+    FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED,
+    FD_SHRED_TYPE_MERKLE_CODE_CHAINED
+  ), FD_SHRED_TYPE_MERKLE_CODE );
+
   ulong data_shred_cnt          = fd_shredder_count_data_shreds( chunk_size );
   ulong parity_shred_cnt        = fd_shredder_count_parity_shreds( chunk_size );
   /* Our notion of tree depth counts the root, while the shred version
      doesn't. */
   ulong tree_depth              = fd_bmtree_depth( data_shred_cnt+parity_shred_cnt )-1UL;
-  ulong data_shred_payload_sz   = 1115UL - 20UL*tree_depth;
-  ulong parity_shred_payload_sz = data_shred_payload_sz + 0x58UL - 0x40UL;
-  ulong data_merkle_sz          = parity_shred_payload_sz;
-  ulong parity_merkle_sz        = parity_shred_payload_sz + 0x59UL - 0x40UL;
-
-  ulong last_in_batch           = (chunk_size+offset==entry_sz);
-  int   block_complete          = shredder->meta.block_complete;
+  ulong data_shred_payload_sz   = 1115UL - 20UL*tree_depth - 32UL*is_chained - 64UL*is_resigned;
+  ulong parity_shred_payload_sz = data_shred_payload_sz + FD_SHRED_DATA_HEADER_SZ - FD_SHRED_SIGNATURE_SZ;
+  ulong data_merkle_sz          = parity_shred_payload_sz + 32UL*is_chained;
+  ulong parity_merkle_sz        = data_merkle_sz + FD_SHRED_CODE_HEADER_SZ - FD_SHRED_SIGNATURE_SZ;
 
   fd_reedsol_t * reedsol = fd_reedsol_encode_init( shredder->reedsol, parity_shred_payload_sz );
 
   /* Write headers and copy the data shred payload */
   ulong flags_for_last = ((last_in_batch & (ulong)block_complete)<<7) | (last_in_batch<<6);
-  uchar shred_type = fd_uchar_if( chained_merkle_root!=NULL, fd_uchar_if(
-    block_complete,
-    FD_SHRED_TYPE_MERKLE_DATA_CHAINED_RESIGNED,
-    FD_SHRED_TYPE_MERKLE_DATA_CHAINED
-  ), FD_SHRED_TYPE_MERKLE_DATA );
   for( ulong i=0UL; i<data_shred_cnt; i++ ) {
     fd_shred_t         * shred = (fd_shred_t *)data_shreds[ i ];
+
     /* Size in bytes of the payload section of this data shred,
        excluding any zero-padding */
     ulong shred_payload_sz = fd_ulong_min( entry_sz-offset, data_shred_payload_sz );
 
-    shred->variant            = fd_shred_variant( shred_type, (uchar)tree_depth );
+    shred->variant            = fd_shred_variant( data_type, (uchar)tree_depth );
     shred->slot               = shredder->slot;
     shred->idx                = (uint  )(shredder->data_idx_offset + i);
     shred->version            = (ushort)(shredder->shred_version);
@@ -211,15 +221,9 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
     }
   }
 
-  shred_type = fd_uchar_if( chained_merkle_root!=NULL, fd_uchar_if(
-    block_complete,
-    FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED,
-    FD_SHRED_TYPE_MERKLE_CODE_CHAINED
-  ), FD_SHRED_TYPE_MERKLE_CODE );
   for( ulong j=0UL; j<parity_shred_cnt; j++ ) {
-    fd_shred_t         * shred = (fd_shred_t *)parity_shreds[ j ];
-
-    shred->variant            = fd_shred_variant( shred_type, (uchar)tree_depth );
+    fd_shred_t        * shred = (fd_shred_t *)parity_shreds[ j ];
+    shred->variant            = fd_shred_variant( code_type, (uchar)tree_depth );
     shred->slot               = shredder->slot;
     shred->idx                = (uint  )(shredder->parity_idx_offset + j);
     shred->version            = (ushort)(shredder->shred_version);
@@ -269,15 +273,22 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
 
     uchar * merkle = data_shreds[ i ] + fd_shred_merkle_off( shred );
     fd_bmtree_get_proof( bmtree, merkle, i );
+
+    if( FD_UNLIKELY( is_resigned ) ) {
+      memset( ((uchar*)shred) + fd_shred_retransmitter_sig_off( shred ), 0, 64UL );
+    }
   }
 
   for( ulong j=0UL; j<parity_shred_cnt; j++ ) {
     fd_shred_t * shred = (fd_shred_t *)parity_shreds[ j ];
-
     fd_memcpy( shred->signature, root_signature, FD_ED25519_SIG_SZ );
 
     uchar * merkle = parity_shreds[ j ] + fd_shred_merkle_off( shred );
     fd_bmtree_get_proof( bmtree, merkle, data_shred_cnt+j );
+
+    if( FD_UNLIKELY( is_resigned ) ) {
+      memset( ((uchar*)shred) + fd_shred_retransmitter_sig_off( shred ), 0, 64UL );
+    }
   }
 
   shredder->offset             = offset;
