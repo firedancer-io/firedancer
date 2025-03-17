@@ -269,25 +269,30 @@ fd_exec_txn_ctx_reset_return_data( fd_exec_txn_ctx_t * txn_ctx ) {
 
 /* https://github.com/anza-xyz/agave/blob/v2.1.1/sdk/program/src/message/versions/v0/loaded.rs#L162 */
 int
-fd_txn_account_is_demotion( fd_exec_txn_ctx_t const * ctx, int idx )
-{
+fd_txn_account_is_demotion( const int        idx,
+                            const fd_txn_t * txn_descriptor,
+                            const uint       bpf_upgradeable_in_txn ) {
   uint is_program = 0U;
-  for( ulong j=0UL; j<ctx->txn_descriptor->instr_cnt; j++ ) {
-    if( ctx->txn_descriptor->instr[j].program_id == idx ) {
+  for( ulong j=0UL; j<txn_descriptor->instr_cnt; j++ ) {
+    if( txn_descriptor->instr[j].program_id == idx ) {
       is_program = 1U;
       break;
     }
   }
 
-  uint bpf_upgradeable_in_txn = 0U;
-  for( ulong j=0; j<ctx->accounts_cnt; j++ ) {
-    const fd_pubkey_t * acc = &ctx->account_keys[j];
+  return (is_program && !bpf_upgradeable_in_txn);
+}
+
+uint
+fd_txn_account_has_bpf_loader_upgradeable( const fd_pubkey_t * account_keys,
+                                           const ulong         accounts_cnt ) {
+  for( ulong j = 0; j < accounts_cnt; j++ ) {
+    const fd_pubkey_t * acc = &account_keys[j];
     if ( memcmp( acc->uc, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) {
-      bpf_upgradeable_in_txn = 1U;
-      break;
+      return 1U;
     }
   }
-  return (is_program && !bpf_upgradeable_in_txn);
+  return 0U;
 }
 
 /* This function aims to mimic the writable accounts check to populate the writable accounts cache, used
@@ -296,24 +301,39 @@ fd_txn_account_is_demotion( fd_exec_txn_ctx_t const * ctx, int idx )
    https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L38-L47 */
 int
 fd_exec_txn_ctx_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, int idx ) {
+  uint bpf_upgradeable = fd_txn_account_has_bpf_loader_upgradeable( txn_ctx->account_keys, txn_ctx->accounts_cnt );
+  return fd_exec_txn_account_is_writable_idx_flat( txn_ctx->slot,
+                                                   idx,
+                                                   &txn_ctx->account_keys[idx],
+                                                   txn_ctx->txn_descriptor,
+                                                   &txn_ctx->features,
+                                                   bpf_upgradeable );
+}
 
+int
+fd_exec_txn_account_is_writable_idx_flat( const ulong           slot,
+                                          const int             idx,
+                                          const fd_pubkey_t *   addr_at_idx,
+                                          const fd_txn_t *      txn_descriptor,
+                                          const fd_features_t * features,
+                                          const uint            bpf_upgradeable_in_txn ) {
   /* https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L43 */
-  if( !fd_txn_is_writable( txn_ctx->txn_descriptor, idx ) ) {
+  if( !fd_txn_is_writable( txn_descriptor, idx ) ) {
     return 0;
   }
 
   /* See comments in fd_system_ids.h.
      https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L44 */
-  if( fd_pubkey_is_active_reserved_key(&txn_ctx->account_keys[idx] ) ||
-      ( FD_FEATURE_ACTIVE( txn_ctx->slot, txn_ctx->features, add_new_reserved_account_keys ) &&
-                           fd_pubkey_is_pending_reserved_key( &txn_ctx->account_keys[idx] ) ) ||
-      ( FD_FEATURE_ACTIVE( txn_ctx->slot, txn_ctx->features, enable_secp256r1_precompile ) &&
-                           fd_pubkey_is_secp256r1_key( &txn_ctx->account_keys[idx] ) ) ) {
+  if( fd_pubkey_is_active_reserved_key( addr_at_idx ) ||
+      ( FD_FEATURE_ACTIVE( slot, *features, add_new_reserved_account_keys ) &&
+                           fd_pubkey_is_pending_reserved_key( addr_at_idx ) ) ||
+      ( FD_FEATURE_ACTIVE( slot, *features, enable_secp256r1_precompile ) &&
+                           fd_pubkey_is_secp256r1_key( addr_at_idx ) ) ) {
+
     return 0;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L45 */
-  if( fd_txn_account_is_demotion( txn_ctx, idx ) ) {
+  if( fd_txn_account_is_demotion( idx, txn_descriptor, bpf_upgradeable_in_txn ) ) {
     return 0;
   }
 
