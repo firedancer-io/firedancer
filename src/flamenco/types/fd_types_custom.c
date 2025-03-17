@@ -77,13 +77,18 @@ fd_flamenco_txn_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx ) {
 }
 
 int
-fd_flamenco_txn_convert_global_to_local( void const * global_self, fd_flamenco_txn_t * self, fd_bincode_decode_ctx_t * ctx ) {
-  FD_LOG_ERR(("TODO: Implement"));
+fd_flamenco_txn_convert_global_to_local( void const * global_self, void * local_self, fd_bincode_decode_ctx_t * ctx ) {
+  FD_LOG_ERR(( "TODO: Implement" ));
+}
+
+int
+fd_flamenco_txn_convert_global_to_local_inner( void const * global_self, void * local_self, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
+  FD_LOG_ERR(( "TODO: Implement" ));
 }
 
 void
 fd_flamenco_txn_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {
-  FD_LOG_ERR(("TODO: Implement"));
+  FD_LOG_ERR(( "TODO: Implement" ));
 }
 
 

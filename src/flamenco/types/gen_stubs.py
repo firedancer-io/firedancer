@@ -98,6 +98,7 @@ class TypeNode:
     def isFuzzy(self):
         return False
 
+
 class PrimitiveMember(TypeNode):
     def __init__(self, container, json):
         super().__init__(json)
@@ -257,20 +258,20 @@ class PrimitiveMember(TypeNode):
             PrimitiveMember.emitDecodeMap[self.type](self.name, self.varint)
 
     emitGlobalLocalConvertMap = {
-        "char" :      lambda n: print(f'{indent}  self->{n} = mem->{n};', file=body),
-        "char*" :     lambda n: print(f'{indent}  strcpy( self->{n}, mem->{n});', file=body),
-        "char[32]" :  lambda n: print(f'{indent}  fd_memcpy( &self->{n}[0], &mem->{n}[0], sizeof(self->{n}) );', file=body),
-        "double" :    lambda n: print(f'{indent}  self->{n} = mem->{n};', file=body),
-        "long" :      lambda n: print(f'{indent}  self->{n} = mem->{n};', file=body),
-        "uint" :      lambda n: print(f'{indent}  self->{n} = mem->{n};', file=body),
-        "uint128" :   lambda n: print(f'{indent}  self->{n} = mem->{n};', file=body),
-        "bool" :      lambda n: print(f'{indent}  self->{n} = mem->{n};', file=body),
-        "uchar" :     lambda n: print(f'{indent}  self->{n} = mem->{n};', file=body),
-        "uchar[32]" : lambda n: print(f'{indent}  fd_memcpy( &self->{n}[0], &mem->{n}[0], sizeof(self->{n}) );', file=body),
-        "uchar[128]" :lambda n: print(f'{indent}  fd_memcpy( &self->{n}[0], &mem->{n}[0], sizeof(self->{n}) );', file=body),
-        "uchar[2048]":lambda n: print(f'{indent}  fd_memcpy( &self->{n}[0], &mem->{n}[0], sizeof(self->{n}) );', file=body),
-        "ulong" :     lambda n: print(f'{indent}  self->{n} = mem->{n};', file=body),
-        "ushort" :    lambda n: print(f'{indent}  self->{n} = mem->{n};', file=body),
+        "char" :      lambda n: print(f'{indent}  local_self->{n} = global_self->{n};', file=body),
+        "char*" :     lambda n: print(f'{indent}  strcpy( local_self->{n}, global_self->{n});', file=body),
+        "char[32]" :  lambda n: print(f'{indent}  fd_memcpy( &local_self->{n}[0], &global_self->{n}[0], sizeof(local_self->{n}) );', file=body),
+        "double" :    lambda n: print(f'{indent}  local_self->{n} = global_self->{n};', file=body),
+        "long" :      lambda n: print(f'{indent}  local_self->{n} = global_self->{n};', file=body),
+        "uint" :      lambda n: print(f'{indent}  local_self->{n} = global_self->{n};', file=body),
+        "uint128" :   lambda n: print(f'{indent}  local_self->{n} = global_self->{n};', file=body),
+        "bool" :      lambda n: print(f'{indent}  local_self->{n} = global_self->{n};', file=body),
+        "uchar" :     lambda n: print(f'{indent}  local_self->{n} = global_self->{n};', file=body),
+        "uchar[32]" : lambda n: print(f'{indent}  fd_memcpy( &local_self->{n}[0], &global_self->{n}[0], sizeof(local_self->{n}) );', file=body),
+        "uchar[128]" :lambda n: print(f'{indent}  fd_memcpy( &local_self->{n}[0], &global_self->{n}[0], sizeof(local_self->{n}) );', file=body),
+        "uchar[2048]":lambda n: print(f'{indent}  fd_memcpy( &local_self->{n}[0], &global_self->{n}[0], sizeof(local_self->{n}) );', file=body),
+        "ulong" :     lambda n: print(f'{indent}  local_self->{n} = global_self->{n};', file=body),
+        "ushort" :    lambda n: print(f'{indent}  local_self->{n} = global_self->{n};', file=body),
     }
 
     def emitGlobalLocalConvert(self):
@@ -358,7 +359,7 @@ class PrimitiveMember(TypeNode):
 
     def emitWalk(self, inner):
         if self.walk:
-            PrimitiveMember.emitWalkMap[self.type](self.name, inner);
+            PrimitiveMember.emitWalkMap[self.type](self.name, inner)
 
 # This is a member which IS a struct, NOT a member OF a struct
 class StructMember(TypeNode):
@@ -378,7 +379,7 @@ class StructMember(TypeNode):
 
     def emitMemberGlobal(self):
         if self.type in fixedsizetypes:
-            print(f'{indent}  {namespace}_{self.type}_t {self.name};', file=header)
+            print(f'{indent}  {namespace}_{self.type}_t {self.name}; // fixed', file=header)
         else:
             print(f'{indent}  {namespace}_{self.type}_global_t {self.name};', file=header)
 
@@ -408,8 +409,11 @@ class StructMember(TypeNode):
         print(f'{indent}  {namespace}_{self.type}_decode_inner_global( &self->{self.name}, alloc_mem, ctx );', file=body)
 
     def emitGlobalLocalConvert(self):
-        print(f'{indent}  err = {namespace}_{self.type}_convert_global_to_local( &mem->{self.name}, &self->{self.name}, ctx );', file=body)
-        print(f'{indent}  if( FD_UNLIKELY( err ) ) return err;', file=body)
+        if self.type in fixedsizetypes:
+            print(f'{indent}  local_self->{self.name} = global_self->{self.name};', file=body)
+        else:
+            print(f'{indent}  err = {namespace}_{self.type}_convert_global_to_local_inner( &global_self->{self.name}, &local_self->{self.name}, alloc_mem, ctx );', file=body)
+            print(f'{indent}  if( FD_UNLIKELY( err ) ) return err;', file=body)
 
     def emitEncode(self):
         print(f'{indent}  err = {namespace}_{self.type}_encode( &self->{self.name}, ctx );', file=body)
@@ -573,8 +577,19 @@ class VectorMember(TypeNode):
         print(f'    self->{self.name}_gaddr = 0UL;', file=body)
 
     def emitGlobalLocalConvert(self):
-        print(f'  self->{self.name}_len = mem->{self.name}_len;', file=body)
-        print(f'  self->{self.name}     = fd_wksp_laddr_fast( ctx->wksp, mem->{self.name}_gaddr );', file=body);
+        el = f'{namespace}_{self.element}'
+        el = el.upper()
+        print(f'  local_self->{self.name}_len = global_self->{self.name}_len;', file=body)
+        if self.element in simpletypes:
+            print(f'  local_self->{self.name} = fd_wksp_laddr_fast( ctx->wksp, global_self->{self.name}_gaddr );', file=body)
+        else:
+            print(f'  *alloc_mem = (void *)fd_ulong_align_up( (ulong)(*alloc_mem), {el}_ALIGN );', file=body)
+            print(f'  local_self->{self.name} = *alloc_mem;', file=body)
+            print(f'  *alloc_mem = (uchar *)(*alloc_mem) + {el}_FOOTPRINT*local_self->{self.name}_len;', file=body)
+            print(f'  {namespace}_{self.element}_global_t * {namespace}_{self.element}_{self.name}_global = fd_wksp_laddr_fast( ctx->wksp, global_self->{self.name}_gaddr );', file=body)
+            print(f'  for( ulong i=0UL; i < local_self->{self.name}_len; i++ ) {{', file=body)
+            print(f'    {namespace}_{self.element}_convert_global_to_local_inner( &{namespace}_{self.element}_{self.name}_global[i], &local_self->{self.name}[i], alloc_mem, ctx );', file=body)
+            print(f'  }}', file=body)
 
     def emitEncode(self):
         if self.compact:
@@ -757,14 +772,14 @@ class StaticVectorMember(TypeNode):
         print('  }', file=body)
 
     def emitGlobalLocalConvert(self):
-        print(f'  self->{self.name}_len    = mem->{self.name}_len; //static vector', file=body)
-        print(f'  self->{self.name}_size   = mem->{self.name}_size;', file=body)
-        print(f'  self->{self.name}_offset = mem->{self.name}_offset;', file=body)
-        print(f'  for( ulong i=0; i<self->{self.name}_len; i++ ) {{', file=body)
+        print(f'  local_self->{self.name}_len = global_self->{self.name}_len; //static vector', file=body)
+        print(f'  local_self->{self.name}_size = global_self->{self.name}_size;', file=body)
+        print(f'  local_self->{self.name}_offset = global_self->{self.name}_offset;', file=body)
+        print(f'  for( ulong i=0UL; i<local_self->{self.name}_len; i++ ) {{', file=body)
         if self.element in simpletypes:
-            print(f'    self->{self.name}[i] = mem->{self.name}[i];', file=body)
+            print(f'    local_self->{self.name}[i] = global_self->{self.name}[i];', file=body)
         else:
-            print(f'    err = {namespace}_{self.element}_convert_global_to_local( &mem->{self.name}[i], &self->{self.name}[i], ctx );', file=body)
+            print(f'    err = {namespace}_{self.element}_convert_global_to_local_inner( &global_self->{self.name}[i], &local_self->{self.name}[i], alloc_mem, ctx );', file=body)
             print(f'    if( FD_UNLIKELY( err ) ) return err;', file=body)
         print(f'  }}', file=body)
 
@@ -867,6 +882,12 @@ class DequeMember(TypeNode):
         else:
             return f'{namespace}_{self.element}_t'
 
+    def elem_type_global(self):
+      if self.element in simpletypes:
+          return self.element
+      else:
+          return f'{namespace}_{self.element}_global_t'
+
     def prefix(self):
         return f'deq_{self.elem_type()}'
 
@@ -883,6 +904,26 @@ class DequeMember(TypeNode):
         print("#undef DEQUE_T", file=header)
         print("#undef DEQUE_MAX", file=header)
         print(f'static inline {element_type} *', file=header)
+        print(f'{dp}_join_new( void * * alloc_mem, ulong max ) {{', file=header)
+        print(f'  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow', file=header)
+        print(f'  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, {dp}_align() );', file=header)
+        print(f'  void * deque_mem = *alloc_mem;', file=header)
+        print(f'  *alloc_mem = (uchar *)*alloc_mem + {dp}_footprint( max );', file=header)
+        print(f'  return {dp}_join( {dp}_new( deque_mem, max ) );', file=header)
+        print("}", file=header)
+
+        if self.element in simpletypes:
+            return
+
+        dp = f'deq_{self.elem_type_global()}'
+        element_type_global = self.elem_type_global()
+        print("#define DEQUE_NAME " + dp, file=header)
+        print("#define DEQUE_T " + element_type_global, file=header)
+        print('#include "../../util/tmpl/fd_deque_dynamic.c"', file=header)
+        print("#undef DEQUE_NAME", file=header)
+        print("#undef DEQUE_T", file=header)
+        print("#undef DEQUE_MAX", file=header)
+        print(f'static inline {element_type_global} *', file=header)
         print(f'{dp}_join_new( void * * alloc_mem, ulong max ) {{', file=header)
         print(f'  if( FD_UNLIKELY( 0 == max ) ) max = 1; // prevent underflow', file=header)
         print(f'  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, {dp}_align() );', file=header)
@@ -983,6 +1024,8 @@ class DequeMember(TypeNode):
         print('  }', file=body)
 
     def emitDecodeInnerGlobal(self):
+        prefix = f'deq_{self.elem_type_global()}'
+
         if self.compact:
             print(f'  ushort {self.name}_len;', file=body)
             print(f'  fd_bincode_compact_u16_decode_unsafe( &{self.name}_len, ctx );', file=body)
@@ -990,31 +1033,45 @@ class DequeMember(TypeNode):
             print(f'  ulong {self.name}_len;', file=body)
             print(f'  fd_bincode_uint64_decode_unsafe( &{self.name}_len, ctx );', file=body)
 
-        print(f'  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, {self.prefix()}_align() );', file=body)
+        print(f'  *alloc_mem = (void *)fd_ulong_align_up( (ulong)*alloc_mem, {prefix}_align() ); //deque', file=body)
 
-        deque_type =  f"{self.element}" if self.element in simpletypes else f"{namespace}_{self.element}_t"
+        deque_type =  f"{self.element}" if self.element in simpletypes else f"{namespace}_{self.element}_global_t"
 
         if self.min:
             print(f'  ulong {self.name}_max = fd_ulong_max( {self.name}_len, {self.min} );', file=body)
             print(f'  self->{self.name}_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );', file=body)
-            print(f'  {deque_type} * {self.name} = {self.prefix()}_join_new( alloc_mem, {self.name}_max );', file=body)
+            print(f'  {deque_type} * {self.name} = {prefix}_join_new( alloc_mem, {self.name}_max );', file=body)
         else:
             print(f'  self->{self.name}_gaddr = fd_wksp_gaddr_fast( ctx->wksp, *alloc_mem );', file=body)
-            print(f'  {deque_type} * {self.name} = {self.prefix()}_join_new( alloc_mem, {self.name}_len );', file=body)
+            print(f'  {deque_type} * {self.name} = {prefix}_join_new( alloc_mem, {self.name}_len );', file=body)
 
         print(f'  for( ulong i=0; i < {self.name}_len; i++ ) {{', file=body)
-        print(f'    {self.elem_type()} * elem = {self.prefix()}_push_tail_nocopy( {self.name} );', file=body);
+        print(f'    {self.elem_type_global()} * elem = {prefix}_push_tail_nocopy( {self.name} );', file=body);
 
         if self.element in simpletypes:
             print(f'    fd_bincode_{simpletypes[self.element]}_decode_unsafe( elem, ctx );', file=body)
         else:
-            print(f'    {namespace}_{self.element}_new( elem );', file=body)
+            print(f'    {namespace}_{self.element}_new( ({self.elem_type()} *)elem );', file=body)
             print(f'    {namespace}_{self.element}_decode_inner_global( elem, alloc_mem, ctx );', file=body)
 
         print('  }', file=body)
 
     def emitGlobalLocalConvert(self):
-        print(f'  self->{self.name} = {self.prefix()}_join( fd_wksp_laddr_fast( ctx->wksp, mem->{self.name}_gaddr ) );', file=body)
+        print(f'  // deque start', file=body)
+        prefix = f'deq_{self.elem_type_global()}'
+        if self.element in simpletypes:
+            print(f'  local_self->{self.name} = {self.prefix()}_join( fd_wksp_laddr_fast( ctx->wksp, global_self->{self.name}_gaddr ) );', file=body)
+        else:
+            print(f'  {namespace}_{self.element}_global_t * {namespace}_{self.element}_global_deque = {prefix}_join( fd_wksp_laddr_fast( ctx->wksp, global_self->{self.name}_gaddr ) );', file=body)
+            print(f'  local_self->{self.name} = {self.prefix()}_join_new( alloc_mem, {prefix}_max( {namespace}_{self.element}_global_deque ) );', file=body)
+            print(f'  *alloc_mem = (void *)fd_ulong_align_up( (ulong)(*alloc_mem), {self.prefix()}_align() );', file=body)
+            print(f'  for( ulong i=0; i < {prefix}_cnt( {namespace}_{self.element}_global_deque ); i++ ) {{', file=body)
+            print(f'    {self.elem_type()} * local_elem = {self.prefix()}_push_tail_nocopy( local_self->{self.name} );', file=body)
+            print(f'    {self.elem_type_global()} * global_elem = {prefix}_peek_index( {namespace}_{self.element}_global_deque, i );', file=body)
+            print(f'    {namespace}_{self.element}_convert_global_to_local_inner( global_elem, local_elem, alloc_mem, ctx );', file=body)
+            print(f'  }}', file=body)
+        print(f'  // deque end', file=body)
+
 
     def emitEncode(self):
         print(f'  if( self->{self.name} ) {{', file=body)
@@ -1119,12 +1176,46 @@ class MapMember(TypeNode):
         else:
             return f'{namespace}_{self.element}_t'
 
+    def elem_type_global(self):
+        if self.element in simpletypes:
+            return self.element
+        else:
+            return f'{namespace}_{self.element}_global_t'
+
     def emitPreamble(self):
         element_type = self.elem_type()
         mapname = element_type + "_map"
         if mapname in preambletypes:
             return
         preambletypes.add(mapname)
+        nodename = element_type + "_mapnode"
+        print(f"typedef struct {nodename} {nodename}_t;", file=header)
+        print(f"#define REDBLK_T {nodename}_t", file=header)
+        print(f"#define REDBLK_NAME {mapname}", file=header)
+        print(f"#define REDBLK_IMPL_STYLE 1", file=header)
+        print(f'#include "../../util/tmpl/fd_redblack.c"', file=header)
+        print(f"struct {nodename} {{", file=header)
+        print(f"    {element_type} elem;", file=header)
+        print(f"    ulong redblack_parent;", file=header)
+        print(f"    ulong redblack_left;", file=header)
+        print(f"    ulong redblack_right;", file=header)
+        print(f"    int redblack_color;", file=header)
+        print("};", file=header)
+        print(f'static inline {nodename}_t *', file=header)
+        print(f'{mapname}_join_new( void * * alloc_mem, ulong len ) {{', file=header)
+        print(f'  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow', file=header)
+        print(f'  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, {mapname}_align() );', file=header)
+        print(f'  void * map_mem = *alloc_mem;', file=header)
+        print(f'  *alloc_mem = (uchar *)*alloc_mem + {mapname}_footprint( len );', file=header)
+        print(f'  return {mapname}_join( {mapname}_new( map_mem, len ) );', file=header)
+        print("}", file=header)
+
+        if self.element in simpletypes:
+            return
+
+        print("", file=header)
+        element_type = self.elem_type_global()
+        mapname = element_type + "_map"
         nodename = element_type + "_mapnode"
         print(f"typedef struct {nodename} {nodename}_t;", file=header)
         print(f"#define REDBLK_T {nodename}_t", file=header)
@@ -1165,6 +1256,26 @@ class MapMember(TypeNode):
         else:
             print(f'  return (long)( left->elem.{key} - right->elem.{key} );', file=body)
         print("}", file=body)
+
+        if self.element in simpletypes:
+            return
+        print("", file=body)
+
+        element_type = self.elem_type_global()
+        mapname = element_type + "_map"
+        nodename = element_type + "_mapnode_t"
+        print(f'#define REDBLK_T {nodename}', file=body)
+        print(f'#define REDBLK_NAME {mapname}', file=body)
+        print(f'#define REDBLK_IMPL_STYLE 2', file=body)
+        print(f'#include "../../util/tmpl/fd_redblack.c"', file=body)
+        print(f'long {mapname}_compare( {nodename} * left, {nodename} * right ) {{', file=body)
+        key = self.key
+        if key == "pubkey" or key == "account" or key == "key":
+            print(f'  return memcmp( left->elem.{key}.uc, right->elem.{key}.uc, sizeof(right->elem.{key}) );', file=body)
+        else:
+            print(f'  return (long)( left->elem.{key} - right->elem.{key} );', file=body)
+        print("}", file=body)
+
 
     def emitMember(self):
         element_type = self.elem_type()
@@ -1239,10 +1350,10 @@ class MapMember(TypeNode):
         print('  }', file=body)
 
     def emitDecodeInnerGlobal(self):
-        element_type = self.elem_type()
+        element_type = self.elem_type_global()
         mapname = element_type + "_map"
         nodename = element_type + "_mapnode_t"
-
+        print(f'  // start map', file=body)
         if self.compact:
             print(f'  ushort {self.name}_len;', file=body)
             print(f'  fd_bincode_compact_u16_decode_unsafe( &{self.name}_len, ctx );', file=body)
@@ -1260,19 +1371,20 @@ class MapMember(TypeNode):
         print(f'  self->{self.name}_root_gaddr = 0UL;', file=body)
         print(f'  for( ulong i=0; i < {self.name}_len; i++ ) {{', file=body)
         print(f'    {nodename} * node = {mapname}_acquire( {self.name}_pool );', file=body)
-        print(f'    {namespace}_{self.element}_new( &node->elem );', file=body)
+        print(f'    {namespace}_{self.element}_new( ({self.elem_type()} *)&node->elem );', file=body)
         print(f'    {namespace}_{self.element}_decode_inner_global( &node->elem, alloc_mem, ctx );', file=body)
         print(f'    {mapname}_insert( {self.name}_pool, &{self.name}_root, node );', file=body)
         print(f'  }}', file=body)
 
         print(f'  self->{self.name}_pool_gaddr = fd_wksp_gaddr_fast( ctx->wksp, {self.name}_pool );', file=body)
         print(f'  self->{self.name}_root_gaddr = fd_wksp_gaddr_fast( ctx->wksp, {self.name}_root );', file=body)
+        print(f'  // end map', file=body)
 
     def emitGlobalLocalConvert(self):
         element_type = self.elem_type()
         mapname = element_type + "_map"
-        print(f'  self->{self.name}_pool = fd_wksp_laddr_fast( ctx->wksp, mem->{self.name}_pool_gaddr );', file=body)
-        print(f'  self->{self.name}_root = fd_wksp_laddr_fast( ctx->wksp, mem->{self.name}_root_gaddr );', file=body)
+        print(f'  local_self->{self.name}_pool = fd_wksp_laddr_fast( ctx->wksp, global_self->{self.name}_pool_gaddr );', file=body)
+        print(f'  local_self->{self.name}_root = fd_wksp_laddr_fast( ctx->wksp, global_self->{self.name}_root_gaddr );', file=body)
 
     def emitEncode(self):
         element_type = self.elem_type()
@@ -1519,8 +1631,8 @@ class TreapMember(TypeNode):
     def emitGlobalLocalConvert(self):
         pool_name = self.name + '_pool'
         treap_name = self.name + '_treap'
-        print(f'  self->pool  = {pool_name}_join( fd_wksp_laddr_fast( ctx->wksp, mem->pool_gaddr ) );', file=body)
-        print(f'  self->treap = {treap_name}_join( fd_wksp_laddr_fast( ctx->wksp, mem->treap_gaddr ) );', file=body)
+        print(f'  local_self->pool  = {pool_name}_join( fd_wksp_laddr_fast( ctx->wksp, global_self->pool_gaddr ) );', file=body)
+        print(f'  local_self->treap = {treap_name}_join( fd_wksp_laddr_fast( ctx->wksp, global_self->treap_gaddr ) );', file=body)
 
     def emitEncode(self):
         name = self.name
@@ -1753,10 +1865,10 @@ class OptionMember(TypeNode):
 
     def emitGlobalLocalConvert(self):
         if self.flat:
-            print(f'  self->{self.name} = mem->{self.name};', file=body)
-            print(f'  self->has_{self.name} = mem->has_{self.name};', file=body)
+            print(f'  local_self->{self.name} = global_self->{self.name};', file=body)
+            print(f'  local_self->has_{self.name} = global_self->has_{self.name};', file=body)
         else:
-            print(f'  self->{self.name} = fd_wksp_laddr_fast( ctx->wksp, mem->{self.name}_gaddr );', file=body)
+            print(f'  local_self->{self.name} = fd_wksp_laddr_fast( ctx->wksp, global_self->{self.name}_gaddr );', file=body)
 
     def emitEncode(self):
         if self.flat:
@@ -1931,10 +2043,10 @@ class ArrayMember(TypeNode):
 
     def emitGlobalLocalConvert(self):
       if self.element in simpletypes:
-          print(f'  fd_memcpy( self->{self.name}, mem->{self.name}, {self.length} * sizeof({self.element}) );', file=body)
+          print(f'  fd_memcpy( local_self->{self.name}, global_self->{self.name}, {self.length} * sizeof({self.element}) );', file=body)
       else:
           print(f'  for( ulong i=0; i<{self.length}; i++ ) {{', file=body)
-          print(f'    {namespace}_{self.element}_convert_global_to_local( &mem->{self.name}[i], &self->{self.name}[i], ctx );//local', file=body)
+          print(f'    {namespace}_{self.element}_convert_global_to_local( &global_self->{self.name}[i], &local_self->{self.name}[i], ctx );', file=body)
           print(f'  }}', file=body)
 
     def emitEncode(self):
@@ -2037,7 +2149,8 @@ class OpaqueType(TypeNode):
         print(f'void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );', file=header)
         print(f'void * {n}_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
         print(f'void {n}_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );', file=header)
-        print(f'int {n}_convert_global_to_local( void const * global_self, {n}_t * self, fd_bincode_decode_ctx_t * ctx );', file=header)
+        print(f'int {n}_convert_global_to_local_inner( {n}_t const * global_self, {n}_t * local_self, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );', file=header)
+        print(f'int {n}_convert_global_to_local( void const * global_self, void * local_self, fd_bincode_decode_ctx_t * ctx );', file=header)
         print("", file=header)
 
     def emitImpls(self):
@@ -2097,8 +2210,13 @@ class OpaqueType(TypeNode):
         print(f'  return;', file=body)
         print(f'}}', file=body)
 
-        print(f'int {n}_convert_global_to_local( void const * global_self, {n}_t * self, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
-        print(f'  fd_memcpy( self, global_self, sizeof({n}_t) );', file=body)
+        print(f'int {n}_convert_global_to_local_inner( {n}_t const * global_self, {n}_t * local_self, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        print(f'  fd_memcpy( local_self, global_self, sizeof({n}_t) );', file=body)
+        print(f'  return FD_BINCODE_SUCCESS;', file=body)
+        print(f'}}', file=body)
+
+        print(f'int {n}_convert_global_to_local( void const * global_self, void * local_self, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        print(f'  fd_memcpy( local_self, global_self, sizeof({n}_t) );', file=body)
         print(f'  return FD_BINCODE_SUCCESS;', file=body)
         print(f'}}', file=body)
 
@@ -2203,7 +2321,8 @@ class StructType(TypeNode):
         print(f'void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );', file=header)
         print(f'void * {n}_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
         print(f'void {n}_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );', file=header)
-        print(f'int {n}_convert_global_to_local( void const * global_self, {n}_t * self, fd_bincode_decode_ctx_t * ctx );', file=header)
+        print(f'int {n}_convert_global_to_local_inner( {n}_global_t const * global_self, {n}_t * local_self, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );', file=header)
+        print(f'int {n}_convert_global_to_local( void const * global_self, void * local_self, fd_bincode_decode_ctx_t * ctx );', file=header)
         print("", file=header)
 
     def emitEncodes(self):
@@ -2282,12 +2401,18 @@ class StructType(TypeNode):
                 f.emitDecodeInnerGlobal()
             print(f'}}', file=body)
 
-        print(f'int {n}_convert_global_to_local( void const * global_self, {n}_t * self, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        print(f'int {n}_convert_global_to_local_inner( {n}_global_t const * global_self, {n}_t * local_self, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
         print(f'  int err = 0;', file=body)
-        print(f'  {n}_global_t const * mem = ({n}_global_t const *)global_self;', file=body)
         for f in self.fields:
             f.emitGlobalLocalConvert()
         print(f'  return FD_BINCODE_SUCCESS;', file=body)
+        print(f'}}', file=body)
+
+        print(f'int {n}_convert_global_to_local( void const * global_self, void * local_self, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        print(f'  {n}_global_t const * global = ({n}_global_t const *)global_self;', file=body)
+        print(f'  {n}_t * local = ({n}_t *)local_self;', file=body)
+        print(f'  void * alloc_mem = (void *)(local + 1UL);', file=body)
+        print(f'  return {n}_convert_global_to_local_inner( global, local, &alloc_mem, ctx );', file=body)
         print(f'}}', file=body)
 
         print(f'void {n}_new({n}_t * self) {{', file=body)
@@ -2440,7 +2565,8 @@ class EnumType:
         print(f'void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );', file=header)
         print(f'void * {n}_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );', file=header)
         print(f'void {n}_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );', file=header)
-        print(f'int {n}_convert_global_to_local( void const * global_self, {n}_t * self, fd_bincode_decode_ctx_t * ctx );', file=header)
+        print(f'int {n}_convert_global_to_local_inner( {n}_global_t const * global_self, {n}_t * local_self, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );', file=header)
+        print(f'int {n}_convert_global_to_local( void const * global_self, void * local_self, fd_bincode_decode_ctx_t * ctx );', file=header)
         print("", file=header)
 
         for i, v in enumerate(self.variants):
@@ -2523,11 +2649,11 @@ class EnumType:
         print('  }', file=body)
         print("}", file=body)
 
-        print(f'int {n}_convert_global_to_local_inner( {n}_inner_global_t const * mem, {n}_inner_t * self, {self.repr} discriminant, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        print(f'int {n}_inner_convert_global_to_local( {n}_inner_global_t const * global_self, {n}_inner_t * local_self, void * * alloc_mem, {self.repr} discriminant, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
         print(f'  int err = 0;', file=body)
         print(f'  switch( discriminant ) {{', file=body)
         for i, v in enumerate(self.variants):
-            print(f'  case {i}: {{', file=body)
+            print(f'  case {i}: {{ // {i} {v}', file=body)
             if not isinstance(v, str):
                 v.emitGlobalLocalConvert()
             print(f'    break;', file=body)
@@ -2536,12 +2662,19 @@ class EnumType:
         print(f'  return FD_BINCODE_SUCCESS;', file=body)
         print(f'}}', file=body)
 
-        print(f'int {n}_convert_global_to_local( void const * global_self, {n}_t * self, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
-        print(f'  {n}_global_t const * mem = ({n}_global_t const *)global_self;', file=body)
-        print(f'  {self.repr} discriminant = mem->discriminant;', file=body)
-        print(f'  self->discriminant = mem->discriminant;', file=body)
-        print(f'  int err = {n}_convert_global_to_local_inner( &mem->inner, &self->inner, discriminant, ctx );', file=body)
-        print(f'  return FD_BINCODE_SUCCESS;', file=body)
+        print(f'int {n}_convert_global_to_local_inner( {n}_global_t const * global_self, {n}_t * local_self, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        print(f'  {self.repr} discriminant = global_self->discriminant;', file=body)
+        print(f'  local_self->discriminant = global_self->discriminant;', file=body)
+        print(f'  int err = {n}_inner_convert_global_to_local( &global_self->inner, &local_self->inner, alloc_mem, discriminant, ctx );', file=body)
+        print(f'  return err;', file=body)
+        print(f'}}', file=body)
+
+        print(f'int {n}_convert_global_to_local( void const * global_self, void * local_self, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
+        print(f'  {n}_global_t const * global = ({n}_global_t const *)global_self;', file=body)
+        print(f'  {n}_t * local = ({n}_t *)local_self;', file=body)
+        print(f'  void * alloc_mem = (void *)(local + 1UL);', file=body)
+        print(f'  int err = {n}_convert_global_to_local_inner( global, local, &alloc_mem, ctx );', file=body)
+        print(f'  return err;', file=body)
         print(f'}}', file=body)
 
         print(f'void {n}_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx ) {{', file=body)
@@ -2612,8 +2745,8 @@ class EnumType:
             if not isinstance(v, str):
                 print(f'  case {i}: {{', file=body)
                 v.emitDestroy()
-                print('    break;', file=body)
-                print('  }', file=body)
+                print(f'    break;', file=body)
+                print(f'  }}', file=body)
         print('  default: break; // FD_LOG_ERR(( "unhandled type" ));', file=body)
         print('  }', file=body)
         print("}", file=body)
