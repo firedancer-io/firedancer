@@ -26,6 +26,10 @@ fd_replay_new( void * shmem, ulong fec_max, ulong slice_max, ulong block_max ) {
   replay->fec_max   = fec_max;
   replay->slice_max = slice_max;
 
+  FD_COMPILER_MFENCE();
+  replay->magic = FD_REPLAY_MAGIC;
+  FD_COMPILER_MFENCE();
+
   (void)slice_buf;
 
   return replay;
@@ -34,6 +38,8 @@ fd_replay_new( void * shmem, ulong fec_max, ulong slice_max, ulong block_max ) {
 fd_replay_t *
 fd_replay_join( void * shreplay ) {
   fd_replay_t * replay = (fd_replay_t *)shreplay;
+  FD_TEST( replay->magic==FD_REPLAY_MAGIC );
+
   int lg_fec_max       = fd_ulong_find_msb( fd_ulong_pow2_up( replay->fec_max ) );
   int lg_block_max     = fd_ulong_find_msb( fd_ulong_pow2_up( replay->block_max ) );
 
@@ -84,7 +90,8 @@ fd_replay_leave( fd_replay_t const * replay ) {
 }
 
 void *
-fd_replay_delete( void * replay ) {
+fd_replay_delete( void * shmem ) {
+  fd_replay_t * replay = (fd_replay_t *)shmem;
 
   if( FD_UNLIKELY( !replay ) ) {
     FD_LOG_WARNING(( "NULL replay" ));
@@ -95,6 +102,10 @@ fd_replay_delete( void * replay ) {
     FD_LOG_WARNING(( "misaligned replay" ));
     return NULL;
   }
+
+  FD_COMPILER_MFENCE();
+  replay->magic = 0UL;
+  FD_COMPILER_MFENCE();
 
   // TODO: zero out mem?
 
