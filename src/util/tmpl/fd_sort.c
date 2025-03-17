@@ -69,9 +69,10 @@
      // list.  Return value is an index into sorted in [0,cnt].  If
      // return value > 0 then it is the largest index where
      // SORT_BEFORE(sorted[index-1],query)==1.   Returns 0 if
-     // SORT_BEFORE(query,elem)==1 for all elements in sorted.  Assumes
-     // SORT_BEFORE defines a total order over sorted, and each element
-     // in sorted is less-or-equal than its successor.  (Returns
+     // SORT_BEFORE(query,elem)==1 for all elements in sorted.  Returns
+     // cnt-1 if SORT_BEFORE(elem,query)==1 for all elements in sorted.
+     // Assumes SORT_BEFORE defines a total order over sorted, and each
+     // element in sorted is less-or-equal than its successor.  (Returns
      // incorrect result otherwise!)   Robust if cnt==0 (in that case,
      // returns 0 and ignores pointer to sorted).
 
