@@ -91,7 +91,7 @@ struct fd_replay_fec {
   uint  fec_set_idx; /* index of the first data shred */
   long  ts;          /* timestamp upon receiving the first shred */
   ulong recv_cnt;    /* count of shreds received so far data + coding */
-  ulong data_cnt;    /* count of total data shreds in the FEC set */
+  uint  data_cnt;    /* count of total data shreds in the FEC set */
 
   /* This set is used to track which data shred indices to request if
      needing repairs. */
@@ -108,8 +108,45 @@ struct fd_replay_fec {
 #define MAP_T     fd_replay_fec_t
 #include "../../util/tmpl/fd_map_dynamic.c"
 
-/* fd_replay_slice_t describes a replayable slice of a block which is
-   a group of one or more completed entry batches. */
+#define SET_NAME    fd_replay_idxs_set
+#define SET_MAX     FD_SHRED_MAX_PER_SLOT
+#include "../../util/tmpl/fd_set.c"
+
+#define FD_REPLAY_IDXS_SET_WORD_CNT (FD_SHRED_MAX_PER_SLOT / 64UL) /* 64 bits per word */
+
+ struct fd_replay_idxs {
+   ulong slot;  /* map key & slot being tracked */
+   ulong wmark; /* we've processed up through this idx */
+
+   fd_replay_idxs_set_t shred_received_idxs[FD_REPLAY_IDXS_SET_WORD_CNT]; /* shred idxs that are received */
+   fd_replay_idxs_set_t data_completes_idxs[FD_REPLAY_IDXS_SET_WORD_CNT]; /* shred idxs marked data completes */
+ };
+ typedef struct fd_replay_idxs fd_replay_idxs_t;
+
+#define MAP_NAME    fd_replay_idxs_map
+#define MAP_T       fd_replay_idxs_t
+#define MAP_KEY     slot
+#define MAP_MEMOIZE 0
+#include "../../util/tmpl/fd_map_dynamic.c"
+
+ /* fd_replay_slice_t describes a replayable slice of a block which is
+    a group of one or more completed entry batches. */
+
+ struct fd_replay_slice {
+   ulong   slot;
+   ulong * deque;
+};
+typedef struct fd_replay_slice fd_replay_slice_t;
+
+#define DEQUE_NAME fd_replay_slice_deque
+#define DEQUE_T    ulong
+#include "../../util/tmpl/fd_deque_dynamic.c"
+
+#define MAP_NAME    fd_replay_slice_map
+#define MAP_T       fd_replay_slice_t
+#define MAP_KEY     slot
+#define MAP_MEMOIZE 0
+#include "../../util/tmpl/fd_map_dynamic.c"
 
 static inline FD_FN_CONST
 uint fd_replay_slice_start_idx( ulong key ){
@@ -126,21 +163,6 @@ ulong fd_replay_slice_key( uint start_idx, uint end_idx ) {
   return (ulong)start_idx << 32 | (ulong)end_idx;
 }
 
-struct fd_replay_slice {
-  ulong   slot;
-  ulong * deque;
-};
-typedef struct fd_replay_slice fd_replay_slice_t;
-
-#define DEQUE_NAME fd_replay_slice_deque
-#define DEQUE_T    ulong
-#include "../../util/tmpl/fd_deque_dynamic.c"
-
-#define MAP_NAME    fd_replay_slice_map
-#define MAP_T       fd_replay_slice_t
-#define MAP_KEY     slot
-#define MAP_MEMOIZE 0
-#include "../../util/tmpl/fd_map_dynamic.c"
 
 #define FD_REPLAY_MAGIC (0xf17eda2ce77e91a70UL) /* firedancer replay version 0 */
 
@@ -158,17 +180,17 @@ struct __attribute__((aligned(128UL))) fd_replay {
   /* Track in-progress FEC sets to repair if they don't complete in a
      timely way. */
 
-  fd_replay_fec_t *   fec_map;
-  fd_replay_fec_t *   fec_deque; /* FIFO */
+  fd_replay_fec_t *   fec_map;   /* map of slot to in-progress fec */
+  fd_replay_fec_t *   fec_deque; /* deque of in-progress fecs by insert order (FIFO) */
+
+  /* Track shreds stored to blockstore to generate slices */
+
+  fd_replay_idxs_t *   idxs_map; /* map of slot to metadata about received shred idxs */
 
   /* Track block slices to be replayed. */
 
-  fd_replay_slice_t * slice_map;
-  void *              slice_deques; /* buffer of contiguous deques of ulongs */
-
-  /* Buffer to hold the block slice. */
-
-  uchar *             slice_buf;
+  fd_replay_slice_t * slice_map;    /* map of slot to deque of replayable block slices */
+  void *              slice_deques; /* mem for contiguous deques of ulongs */
 };
 typedef struct fd_replay fd_replay_t;
 
@@ -189,23 +211,21 @@ FD_FN_CONST static inline ulong
 fd_replay_footprint( ulong fec_max, ulong slice_max, ulong block_max ) {
   int lg_fec_max   = fd_ulong_find_msb( fd_ulong_pow2_up( fec_max ) );
   int lg_block_max = fd_ulong_find_msb( fd_ulong_pow2_up( block_max ) );
-  ulong footprint =
-      FD_LAYOUT_APPEND(
-      FD_LAYOUT_APPEND(
-      FD_LAYOUT_APPEND(
-      FD_LAYOUT_APPEND(
-      FD_LAYOUT_APPEND(
-      FD_LAYOUT_INIT,
-        alignof(fd_replay_t),          sizeof(fd_replay_t) ),
-        fd_replay_fec_map_align(),     fd_replay_fec_map_footprint( lg_fec_max ) ),
-        fd_replay_fec_deque_align(),   fd_replay_fec_deque_footprint( fec_max ) ),
-        128UL,                         FD_SLICE_MAX ),
-        fd_replay_slice_map_align(),   fd_replay_slice_map_footprint( lg_block_max) );
-
-    for( ulong i = 0UL; i < block_max; i++ ) {
-      footprint = FD_LAYOUT_APPEND( footprint, fd_replay_slice_deque_align(), fd_replay_slice_deque_footprint( slice_max ) );
-    }
-    return FD_LAYOUT_FINI(footprint, fd_replay_align());
+  return FD_LAYOUT_FINI(
+         FD_LAYOUT_APPEND(
+         FD_LAYOUT_APPEND(
+         FD_LAYOUT_APPEND(
+         FD_LAYOUT_APPEND(
+         FD_LAYOUT_APPEND(
+         FD_LAYOUT_APPEND(
+         FD_LAYOUT_INIT,
+           alignof(fd_replay_t),          sizeof(fd_replay_t)                           ),
+           fd_replay_fec_map_align(),     fd_replay_fec_map_footprint( lg_fec_max )     ),
+           fd_replay_fec_deque_align(),   fd_replay_fec_deque_footprint( fec_max )      ),
+           fd_replay_idxs_map_align(),    fd_replay_idxs_map_footprint( lg_block_max )  ),
+           fd_replay_slice_map_align(),   fd_replay_slice_map_footprint( lg_block_max ) ),
+           fd_replay_slice_deque_align(), fd_replay_slice_deque_footprint( slice_max ) * block_max ),
+         fd_replay_align() );
 }
 
 /* fd_replay_new formats an unused memory region for use as a replay.
@@ -268,6 +288,17 @@ fd_replay_fec_insert( fd_replay_t * replay, ulong slot, uint fec_set_idx ) {
   return fec;
 }
 
+static inline fd_replay_idxs_t *
+fd_replay_idxs_insert( fd_replay_t * replay, ulong slot ) {
+  fd_replay_idxs_t * idxs = fd_replay_idxs_map_insert( replay->idxs_map, slot );
+  if ( FD_UNLIKELY( !idxs ) ) return NULL;
+  idxs->slot = slot;
+  idxs->wmark = ULONG_MAX;
+  fd_replay_idxs_set_null( idxs->shred_received_idxs );
+  fd_replay_fec_idxs_null( idxs->data_completes_idxs );
+  return idxs;
+}
+
 /* fd_replay_fec_query removes an in-progress FEC set from the map.
    Returns NULL if no fec set keyed by slot and fec_set_idx is found. */
 
@@ -277,6 +308,14 @@ fd_replay_fec_remove( fd_replay_t * replay, ulong slot, uint fec_set_idx ) {
   fd_replay_fec_t * fec = fd_replay_fec_map_query( replay->fec_map, key, NULL );
   FD_TEST( fec );
   fd_replay_fec_map_remove( replay->fec_map, fec ); /* cannot fail */
+}
+
+static inline void
+fd_replay_idxs_set_range( fd_replay_idxs_set_t * set, uint start_idx, uint end_idx ) {
+  /* TODO: change to better */
+  for( uint i = start_idx; i < end_idx; i++ ) {
+    fd_replay_idxs_set_insert( set, i );
+  }
 }
 
 FD_PROTOTYPES_END
