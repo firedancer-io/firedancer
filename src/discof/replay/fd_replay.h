@@ -102,7 +102,7 @@ struct fd_replay_fec {
  typedef struct fd_replay_fec fd_replay_fec_t;
 
 #define DEQUE_NAME  fd_replay_fec_deque
-#define DEQUE_T     ulong
+#define DEQUE_T     fd_replay_fec_t
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
 #define MAP_NAME  fd_replay_fec_map
@@ -278,7 +278,6 @@ fd_replay_fec_insert( fd_replay_t * replay, ulong slot, uint fec_set_idx ) {
   fec->recv_cnt         = 0;
   fec->data_cnt         = 0;
   fd_replay_fec_idxs_null( fec->idxs );
-  fd_replay_fec_deque_push_tail( replay->fec_deque, key );
   return fec;
 }
 
@@ -293,28 +292,54 @@ fd_replay_fec_remove( fd_replay_t * replay, ulong slot, uint fec_set_idx ) {
   fd_replay_fec_map_remove( replay->fec_map, fec ); /* cannot fail */
 }
 
+static inline void
+fd_replay_slot_deque_add( fd_replay_t * replay, ulong slot, int store ) {
+  if( FD_UNLIKELY( fd_replay_slot_deque_cnt( replay->pending_slots ) == 0 ) ) {
+    fd_replay_slot_deque_push_head( replay->pending_slots, slot );
+  } else {
+    /* We want to insert the slot in the pending_slots deque in a
+       way that minimizes the distance to the head or tail of the
+       deque. This is to ensure that the deque on average is
+       increasing, which makes polling for the next slot more
+       effecient */
+    ulong * est_turbine_slot  = fd_replay_slot_deque_peek_tail( replay->pending_slots );
+    ulong * est_earliest_slot = fd_replay_slot_deque_peek_head( replay->pending_slots );
+    ulong dist_to_tail = ( slot > *est_turbine_slot ) ? ( slot - *est_turbine_slot ) : ( *est_turbine_slot - slot );
+    ulong dist_to_head = ( slot > *est_earliest_slot ) ? ( slot - *est_earliest_slot ) : ( *est_earliest_slot - slot );
+    if( slot > *est_turbine_slot || dist_to_tail < dist_to_head ) {
+      FD_LOG_WARNING(("pushing slot %lu to tail, which is %lu. from repair/store? %d", slot, *est_turbine_slot, store ));
+      fd_replay_slot_deque_push_tail( replay->pending_slots, slot );
+    } else {
+      FD_LOG_WARNING(("pushing slot %lu tp head, which is %lu. from repair/store? %d", slot, *est_earliest_slot, store ));
+      fd_replay_slot_deque_push_head( replay->pending_slots, slot );
+    }
+  }
+}
+
+/* TODO remove all calls to print_pending_slots */
 static void FD_FN_UNUSED
 print_pending_slots( fd_replay_t * replay ) {
   char pending_slots[2000];
   char *p = pending_slots;
-  ulong prev_elem = 0UL;
-  ulong ooo = 0UL;
+
+  ulong prev_elem    = 0UL;
+  ulong out_of_order = 0UL;
   for( fd_replay_slot_deque_iter_t iter = fd_replay_slot_deque_iter_init( replay->pending_slots );
        !fd_replay_slot_deque_iter_done( replay->pending_slots, iter );
        iter = fd_replay_slot_deque_iter_next( replay->pending_slots, iter ) ) {
     ulong * ele = fd_replay_slot_deque_iter_ele( replay->pending_slots, iter );
     if( prev_elem != 0 && *ele < prev_elem ) {
-      ooo++;
+      out_of_order++;
     }
     prev_elem = *ele;
-    ulong rem = 1000UL - (ulong)(p - pending_slots);
-    if( rem < 6 ){
+    ulong rem = 2000UL - (ulong)(p - pending_slots);
+    if( FD_UNLIKELY( rem < 12 ) ) {
       snprintf(p, rem, "...");
       break;
     }
     p += snprintf( p, rem, "%lu, ", *ele );
   }
-  FD_LOG_WARNING(( "Pending_slots: %s. %lu/%lu out of order", pending_slots, ooo, fd_replay_slot_deque_cnt( replay->pending_slots ) ));
+  FD_LOG_WARNING(( "Pending slots: %s. %lu/%lu out of order", pending_slots, out_of_order, fd_replay_slot_deque_cnt( replay->pending_slots ) ));
 }
 
 FD_PROTOTYPES_END

@@ -343,8 +343,14 @@ during_frag( fd_repair_tile_ctx_t * ctx,
   } else if ( FD_LIKELY( in_idx == NET_IN_IDX ) ) {
     dcache_entry = fd_net_rx_translate_frag( &ctx->net_in_bounds, chunk, ctl, sz );
     dcache_entry_sz = sz;
+  } else if( in_idx == REPLAY_IN_IDX ) {
+    FD_LOG_WARNING(("Recieve replay request for slot %lu", sig));
+    dcache_entry_sz = 0;
+    return;
   } else {
-    FD_LOG_ERR(("Unknown in_idx %lu for repair", in_idx));
+    FD_LOG_WARNING(("Link mixup? sig is %lu", sig));
+    return;
+    //FD_LOG_ERR(("Unknown in_idx %lu for repair", in_idx));
   }
 
   fd_memcpy( ctx->buffer, dcache_entry, dcache_entry_sz );
@@ -377,10 +383,15 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     return;
   }
 
-  if( FD_UNLIKELY( in_idx==REPLAY_IN_IDX ) ) {
-    ulong slot = fd_disco_replay_repair_sig_slot( sig );
-    int   err  = fd_repair_need_highest_window_index( ctx->repair, slot, 0 );
+  if( FD_UNLIKELY( in_idx==REPLAY_IN_IDX || in_idx==SIGN_IN_IDX ) ) { /* Link mixup? */
+    ulong slot = sig; //fd_disco_replay_repair_sig_slot( sig );
+    int   err  = fd_repair_need_orphan( ctx->repair, slot );
     FD_TEST( !err );
+    err = fd_repair_need_orphan( ctx->repair, slot + 1 );
+    FD_TEST( !err );
+    err = fd_repair_need_highest_window_index( ctx->repair, slot, 0 );
+    FD_TEST( !err );
+    FD_LOG_WARNING(("Making a request on behalf of replay for slots %lu, %lu", slot, slot + 1));
     return;
   }
 
@@ -675,7 +686,7 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 }
 
 /* TODO: This is probably not correct. */
-#define STEM_BURST (2UL)
+#define STEM_BURST (1UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_repair_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_repair_tile_ctx_t)

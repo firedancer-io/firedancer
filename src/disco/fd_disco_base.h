@@ -25,6 +25,10 @@
 #define REPLAY_FLAG_CATCHING_UP         (0x08UL)
 #define REPLAY_FLAG_INIT                (0x10UL)
 
+#define EXEC_FLAG_READY_NEW             (0x20UL)
+#define EXEC_FLAG_EXECUTING_BLOCK       (0x40UL)
+#define EXEC_FLAG_FINISHED_BLOCK        (0x80UL)
+
 
 /* FD_NET_MTU is the max full packet size, with ethernet, IP, and UDP
    headers that can go in or out of the net tile.  2048 is the maximum
