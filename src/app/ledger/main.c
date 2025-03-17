@@ -726,7 +726,6 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   args->last_snapshot_slot           = 0UL;
 
   args->slot_ctx->runtime_wksp = fd_wksp_containing( args->runtime_spad );
-  FD_TEST( args->slot_ctx->runtime_wksp );
 
   /* Finish other runtime setup steps */
   fd_features_restore( args->slot_ctx, args->runtime_spad );
@@ -1273,13 +1272,13 @@ replay( fd_ledger_args_t * args ) {
   void * runtime_public_mem = fd_wksp_alloc_laddr( args->wksp, fd_runtime_public_align(), fd_runtime_public_footprint( ), FD_EXEC_EPOCH_CTX_MAGIC );
   fd_memset( runtime_public_mem, 0, fd_runtime_public_footprint( ) );
 
-  args->epoch_ctx->replay_public = fd_runtime_public_join( runtime_public_mem );
+  args->epoch_ctx->runtime_pub = fd_runtime_public_join( runtime_public_mem );
 
   fd_features_enable_cleaned_up( &args->epoch_ctx->features, args->epoch_ctx->epoch_bank.cluster_version );
   fd_features_enable_one_offs( &args->epoch_ctx->features, args->one_off_features, args->one_off_features_cnt, 0UL );
 
   // activate them
-  fd_memcpy( &args->epoch_ctx->replay_public->features, &args->epoch_ctx->features, sizeof(fd_features_t) );
+  fd_memcpy( &args->epoch_ctx->runtime_pub->features, &args->epoch_ctx->features, sizeof(fd_features_t) );
 
   void * slot_ctx_mem        = fd_spad_alloc( spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
   args->slot_ctx             = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, spad ) );
