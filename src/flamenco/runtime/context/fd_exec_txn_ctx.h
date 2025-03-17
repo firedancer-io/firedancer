@@ -314,6 +314,24 @@ fd_exec_txn_ctx_reset_return_data( fd_exec_txn_ctx_t * ctx );
 int
 fd_exec_txn_ctx_account_is_writable_idx( fd_exec_txn_ctx_t const * ctx, int idx );
 
+/* This flat function does the same as the function above, but uses the
+   exact arguments needed instead of the full fd_exec_txn_ctx_t */
+
+int
+fd_exec_txn_account_is_writable_idx_flat( const ulong           slot,
+                                          const int             idx,
+                                          const fd_pubkey_t *   addr_at_idx,
+                                          const fd_txn_t *      txn_descriptor,
+                                          const fd_features_t * features,
+                                          const uint            bpf_upgradeable_in_txn );
+
+/* The bpf_upgradeable_in_txn argument of the above function can be
+   obtained by the function below */
+uint
+fd_txn_account_has_bpf_loader_upgradeable( const fd_pubkey_t * account_keys,
+                                           const ulong         accounts_cnt );
+
+
 /* Account pre-condition filtering functions
 
    Used to filter accounts based on pre-conditions such as existence, is_writable, etc.
@@ -355,6 +373,7 @@ int
 fd_txn_account_check_borrow_mut( fd_txn_account_t *        acc,
                                  fd_exec_txn_ctx_t const * ctx,
                                  int                       idx );
+
 
 FD_PROTOTYPES_END
 

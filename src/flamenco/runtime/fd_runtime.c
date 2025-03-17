@@ -34,6 +34,7 @@
 #include "program/fd_bpf_program_util.h"
 #include "program/fd_bpf_loader_program.h"
 #include "program/fd_compute_budget_program.h"
+#include "program/fd_address_lookup_table_program.h"
 
 #include "sysvar/fd_sysvar_clock.h"
 #include "sysvar/fd_sysvar_fees.h"
@@ -1167,6 +1168,234 @@ fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
   }
 
   return FD_BLOCK_OK;
+}
+
+int
+fd_runtime_load_txn_address_lookup_tables( fd_txn_t const * txn,
+                                           uchar const *    payload,
+                                           fd_acc_mgr_t *   acc_mgr,
+                                           fd_funk_txn_t *  funk_txn,
+                                           ulong            slot,
+                                           fd_slot_hash_t * hashes,
+                                           fd_acct_addr_t * out_accts_alt ) {
+
+  if( FD_LIKELY( txn->transaction_version!=FD_TXN_V0 ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
+
+  ulong            readonly_lut_accs_cnt = 0UL;
+  ulong            writable_lut_accs_cnt = 0UL;
+  fd_acct_addr_t * readonly_lut_accs     = out_accts_alt+txn->addr_table_adtl_writable_cnt;
+  fd_txn_acct_addr_lut_t const * addr_luts = fd_txn_get_address_tables_const( txn );
+  for( ulong i = 0UL; i < txn->addr_table_lookup_cnt; i++ ) {
+    fd_txn_acct_addr_lut_t const * addr_lut  = &addr_luts[i];
+    fd_pubkey_t const * addr_lut_acc = (fd_pubkey_t *)(payload + addr_lut->addr_off);
+
+    /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94 */
+    FD_TXN_ACCOUNT_DECL( addr_lut_rec );
+    int err = fd_acc_mgr_view( acc_mgr,
+                               funk_txn,
+                               addr_lut_acc,
+                               addr_lut_rec );
+    if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
+      return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
+    }
+
+    /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L96-L114 */
+    if( FD_UNLIKELY( memcmp( addr_lut_rec->const_meta->info.owner, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
+      return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_OWNER;
+    }
+
+    /* Realistically impossible case, but need to make sure we don't cause an OOB data access
+       https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L205-L209 */
+    if( FD_UNLIKELY( addr_lut_rec->const_meta->dlen < FD_LOOKUP_TABLE_META_SIZE ) ) {
+      return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
+    }
+
+    /* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/accounts-db/src/accounts.rs#L141-L142 */
+    fd_bincode_decode_ctx_t decode_ctx = {
+      .data    = addr_lut_rec->const_data,
+      .dataend = &addr_lut_rec->const_data[FD_LOOKUP_TABLE_META_SIZE]
+    };
+
+    ulong total_sz = 0UL;
+    err = fd_address_lookup_table_state_decode_footprint( &decode_ctx, &total_sz );
+    if( FD_UNLIKELY( err ) ) {
+      return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
+    }
+
+    /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L197-L214 */
+    fd_address_lookup_table_state_t table[1];
+    fd_address_lookup_table_state_t * addr_lookup_table_state = fd_address_lookup_table_state_decode( table, &decode_ctx );
+
+    /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L200-L203 */
+    if( FD_UNLIKELY( addr_lookup_table_state->discriminant != fd_address_lookup_table_state_enum_lookup_table ) ) {
+      return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
+    }
+
+    /* Again probably an impossible case, but the ALUT data needs to be 32-byte aligned
+       https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L210-L214 */
+    if( FD_UNLIKELY( (addr_lut_rec->const_meta->dlen - FD_LOOKUP_TABLE_META_SIZE) & 0x1fUL ) ) {
+      return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
+    }
+
+    /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L101-L112 */
+    fd_acct_addr_t * lookup_addrs  = (fd_acct_addr_t *)&addr_lut_rec->const_data[FD_LOOKUP_TABLE_META_SIZE];
+    ulong         lookup_addrs_cnt = (addr_lut_rec->const_meta->dlen - FD_LOOKUP_TABLE_META_SIZE) >> 5UL; // = (dlen - 56) / 32
+
+    /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L175-L176 */
+    ulong active_addresses_len;
+    err = fd_get_active_addresses_len( &addr_lookup_table_state->inner.lookup_table,
+                                       slot,
+                                       hashes,
+                                       lookup_addrs_cnt,
+                                       &active_addresses_len );
+    if( FD_UNLIKELY( err ) ) {
+      return err;
+    }
+
+    /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L169-L182 */
+    uchar * writable_lut_idxs = (uchar *)payload + addr_lut->writable_off;
+    for( ulong j=0; j<addr_lut->writable_cnt; j++ ) {
+      /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L177-L181 */
+      if( writable_lut_idxs[j] >= active_addresses_len ) {
+        return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX;
+      }
+      out_accts_alt[writable_lut_accs_cnt++] = lookup_addrs[writable_lut_idxs[j]];
+    }
+
+    uchar * readonly_lut_idxs = (uchar *)payload + addr_lut->readonly_off;
+    for( ulong j = 0; j < addr_lut->readonly_cnt; j++ ) {
+      /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/sdk/program/src/address_lookup_table/state.rs#L177-L181 */
+      if( readonly_lut_idxs[j] >= active_addresses_len ) {
+        return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_INDEX;
+      }
+      readonly_lut_accs[readonly_lut_accs_cnt++] = lookup_addrs[readonly_lut_idxs[j]];
+    }
+  }
+
+  return FD_RUNTIME_EXECUTE_SUCCESS;
+}
+
+int
+fd_runtime_microblock_verify_read_write_conflicts( fd_txn_p_t *               txns,
+                                                   ulong                      txn_cnt,
+                                                   fd_conflict_detect_ele_t * acct_map,
+                                                   fd_acct_addr_t *           acct_arr,
+                                                   fd_acc_mgr_t *             acc_mgr,
+                                                   fd_funk_txn_t *            funk_txn,
+                                                   ulong                      slot,
+                                                   fd_slot_hash_t *           slot_hashes,
+                                                   fd_features_t *            features,
+                                                   int *                      out_conflict_detected,
+                                                   fd_acct_addr_t *           out_conflict_addr_opt ) {
+  *out_conflict_detected=FD_RUNTIME_NO_CONFLICT_DETECTED;
+#define NO_CONFLICT ( *out_conflict_detected==FD_RUNTIME_NO_CONFLICT_DETECTED )
+
+#define UPDATE_CONFLICT(cond1, cond2, acct) \
+if( FD_UNLIKELY( cond1 ) ) { \
+  if( FD_LIKELY( out_conflict_addr_opt ) ) *out_conflict_addr_opt = acct; \
+  *out_conflict_detected=FD_RUNTIME_WRITE_WRITE_CONFLICT_DETECTED; \
+} else if( FD_UNLIKELY( cond2 ) ) { \
+  if( FD_LIKELY( out_conflict_addr_opt ) ) *out_conflict_addr_opt = acct; \
+  *out_conflict_detected=FD_RUNTIME_READ_WRITE_CONFLICT_DETECTED; \
+}
+
+  ulong curr_idx            = 0;
+  ulong sentinel_is_read    = 0;
+  ulong sentinel_is_written = 0;
+  int runtime_err           = FD_RUNTIME_EXECUTE_SUCCESS;
+  for( ulong i=0; i<txn_cnt && NO_CONFLICT; i++ ) {
+    fd_txn_p_t *           txn = txns+i;
+    fd_acct_addr_t * txn_accts = acct_arr+curr_idx;
+
+    /* Put the immediate & ALT accounts at txn_accts */
+    const fd_acct_addr_t * accts_imm = fd_txn_get_acct_addrs( TXN(txn), txn->payload );
+    ulong              accts_imm_cnt = fd_txn_account_cnt( TXN(txn), FD_TXN_ACCT_CAT_IMM );
+    fd_memcpy( txn_accts, accts_imm, accts_imm_cnt*sizeof(fd_acct_addr_t) );
+    runtime_err = fd_runtime_load_txn_address_lookup_tables( TXN(txn),
+                                                             txn->payload,
+                                                             acc_mgr,
+                                                             funk_txn,
+                                                             slot,
+                                                             slot_hashes,
+                                                             txn_accts+accts_imm_cnt );
+    if( FD_UNLIKELY( runtime_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) break;
+
+    ulong accounts_cnt   = fd_txn_account_cnt( TXN(txn), FD_TXN_ACCT_CAT_ALL );
+    curr_idx            +=accounts_cnt;
+    uint bpf_upgradeable = fd_txn_account_has_bpf_loader_upgradeable( fd_type_pun( txn_accts ), accounts_cnt );
+
+    /* Iterate all writable accounts and detect W-W/R-W conflicts */
+    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( TXN(txn), FD_TXN_ACCT_CAT_WRITABLE );
+         iter!=fd_txn_acct_iter_end() && NO_CONFLICT;
+         iter=fd_txn_acct_iter_next( iter ) ) {
+      int idx                     = (int)fd_txn_acct_iter_idx( iter );
+      fd_acct_addr_t writable_acc = txn_accts[ idx ];
+
+      /* Check whether writable_acc is demoted to a read-only account */
+      if( FD_UNLIKELY( !fd_exec_txn_account_is_writable_idx_flat( slot,
+                                                                  idx,
+                                                                  fd_type_pun( &txn_accts[ idx ] ),
+                                                                  TXN(txn),
+                                                                  features,
+                                                                  bpf_upgradeable ) ) ) {
+        continue;
+      }
+
+      /* writable_acc is the sentinel (fd_acct_addr_null) */
+      if( FD_UNLIKELY( fd_conflict_detect_map_key_inval( writable_acc ) ) ) {
+        UPDATE_CONFLICT( sentinel_is_written, sentinel_is_read, writable_acc );
+        sentinel_is_written = 1;
+        continue;
+      }
+
+      /* writable_acc is not the sentinel (fd_acct_addr_null) */
+      fd_conflict_detect_ele_t * found = fd_conflict_detect_map_query( acct_map, writable_acc, NULL );
+      if( FD_UNLIKELY( found ) ) {
+        UPDATE_CONFLICT( found->writable, !found->writable, writable_acc );
+      } else {
+        fd_conflict_detect_ele_t * entry = fd_conflict_detect_map_insert( acct_map, writable_acc );
+        entry->writable                  = 1;
+      }
+    }
+
+    /* Iterate all readonly accounts and detect R-W conflicts */
+    for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( TXN(txn), FD_TXN_ACCT_CAT_READONLY );
+         iter!=fd_txn_acct_iter_end() && NO_CONFLICT;
+         iter=fd_txn_acct_iter_next( iter ) ) {
+      fd_acct_addr_t readonly_acc = txn_accts[ fd_txn_acct_iter_idx( iter ) ];
+
+      /* readonly_acc is the sentinel (fd_acct_addr_null) */
+      if( FD_UNLIKELY( fd_conflict_detect_map_key_inval( readonly_acc ) ) ) {
+        UPDATE_CONFLICT( 0, sentinel_is_written, readonly_acc );
+        sentinel_is_read = 1;
+        continue;
+      }
+
+      /* readonly_acc is not the sentinel (fd_acct_addr_null) */
+      fd_conflict_detect_ele_t * found = fd_conflict_detect_map_query( acct_map, readonly_acc, NULL );
+      if( FD_UNLIKELY( found ) ) {
+        UPDATE_CONFLICT( 0, found->writable, readonly_acc );
+      } else {
+        fd_conflict_detect_ele_t * entry = fd_conflict_detect_map_insert( acct_map, readonly_acc );
+        entry->writable                  = 0;
+      }
+    }
+  }
+
+  /* Clear all the entries inserted into acct_map */
+  for( ulong i=0; i<curr_idx; i++ ) {
+    if( FD_UNLIKELY( fd_conflict_detect_map_key_inval( acct_arr[i] ) ) ) continue;
+    fd_conflict_detect_ele_t * found = fd_conflict_detect_map_query( acct_map, acct_arr[i], NULL );
+    if( FD_LIKELY( found ) ) fd_conflict_detect_map_remove( acct_map, found );
+  }
+
+  if( FD_UNLIKELY( runtime_err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+    return runtime_err;
+  } else {
+    /* https://github.com/anza-xyz/agave/blob/v2.2.3/accounts-db/src/account_locks.rs#L31 */
+    /* https://github.com/anza-xyz/agave/blob/v2.2.3/accounts-db/src/account_locks.rs#L34 */
+    return NO_CONFLICT? FD_RUNTIME_EXECUTE_SUCCESS : FD_RUNTIME_TXN_ERR_ACCOUNT_IN_USE;
+  }
 }
 
 void
