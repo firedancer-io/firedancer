@@ -399,6 +399,78 @@ fd_runtime_microblock_verify_ticks( fd_exec_slot_ctx_t *        slot_ctx,
                                     ulong              max_tick_height,
                                     ulong              hashes_per_tick );
 
+/*
+   fd_runtime_microblock_verify_read_write_conflicts verifies that a list of txns (e.g., those in a microblock)
+   do not have read-write or write-write conflits; the function requires fd_txn_writes and fd_txn_writes_bitvec,
+   and the usage can be found in unit test test_txn_rw_conflicts.c
+
+   this function corresponds to try_lock_accounts in Agave which detects transaction conflicts:
+   https://github.com/anza-xyz/agave/blob/v2.2.3/runtime/src/bank.rs#L3145
+
+   Specifically, from the replay stage of Agave, the control flow is
+   (1) replay_blockstore_into_bank: https://github.com/anza-xyz/agave/blob/v2.2.3/core/src/replay_stage.rs#L2232
+   (2) confirm_slot: https://github.com/anza-xyz/agave/blob/v2.2.3/ledger/src/blockstore_processor.rs#L1561
+   (3) confirm_slot_entries: https://github.com/anza-xyz/agave/blob/v2.2.3/ledger/src/blockstore_processor.rs#L1609
+   (4) process_entries: https://github.com/anza-xyz/agave/blob/v2.2.3/ledger/src/blockstore_processor.rs#L704
+   (5) queue_batches_with_lock_retry: https://github.com/anza-xyz/agave/blob/v2.2.3/ledger/src/blockstore_processor.rs#L789
+   (6) bank.try_lock_accounts is called at the start of queue_batches_with_lock_retry
+   (7) this try_lock_accounts eventually calls another try_lock_accounts,
+       (see https://github.com/anza-xyz/agave/blob/v2.2.3/accounts-db/src/account_locks.rs#L24),
+       which acquires the locks and returns TransactionError::AccountInUse if read-write or write-write conflict is detected
+
+   txns is an array containing txn_cnt transactions in fd_txn_p_t type; acct_map and acct_map_bitvec are used to
+   detect the conflicts; acc_mgr and funk_txn are used to query Solana accounts in funk for address lookup tables;
+   slot and slot_hashes are needed for checking certain bounds in the address lookup table system program; lastly,
+   if out_conflict_opt is not NULL and a conflict is detected, out_conflict_opt will hold the conflicting address.
+ */
+struct fd_txn_writes {
+  fd_acct_addr_t key;
+  ulong next;
+};
+typedef struct fd_txn_writes fd_txn_writes_t;
+#define FD_TXN_CONFLICT_MAP_SEED        (0UL)
+#define FD_TXN_CONFLICT_MAP_MAX_NACCT   (FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT / FD_TXN_MIN_SERIALIZED_SZ * FD_TXN_ACCT_ADDR_MAX)
+
+static const fd_acct_addr_t fd_acct_addr_null = {.b={0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF,0xFF}};
+#define MAP_NAME              fd_txn_writes
+#define MAP_KEY_T             fd_acct_addr_t
+#define MAP_T                 fd_txn_writes_t
+#define MAP_HASH_T            ulong
+#define MAP_KEY_NULL          (fd_acct_addr_null)
+#define MAP_KEY_EQUAL(k0,k1)  (0==memcmp((k0).b,(k1).b,32))
+#define MAP_KEY_HASH(key)     fd_hash( FD_TXN_CONFLICT_MAP_SEED, key.b, 32 )
+#define MAP_KEY_INVAL(k)      (0==memcmp(&fd_acct_addr_null, (k).b, 32))
+#define MAP_KEY_EQUAL_IS_SLOW 0
+#define MAP_MEMOIZE           0
+
+#include "../../util/tmpl/fd_map_dynamic.c"
+
+#define SET_NAME fd_txn_writes_bitvec
+#define SET_MAX  67108864 //fd_ulong_pow2_up( FD_TXN_CONFLICT_MAP_MAX_NACCT )
+#include "../../util/tmpl/fd_set.c"
+
+int
+fd_runtime_microblock_verify_read_write_conflicts( fd_txn_p_t *             txns,
+                                                   ulong                    txn_cnt,
+                                                   fd_txn_writes_t *        acct_map,
+                                                   fd_txn_writes_bitvec_t * acct_map_bitvec,
+                                                   fd_acc_mgr_t *           acc_mgr,
+                                                   fd_funk_txn_t *          funk_txn,
+                                                   ulong                    slot,
+                                                   fd_slot_hash_t *         slot_hashes,
+                                                   fd_acct_addr_t *         out_conflict_opt );
+
+/* Load the accounts in the address lookup tables of txn into out_accts_alt */
+int
+fd_runtime_load_txn_address_lookup_tables( fd_txn_t const * txn,
+                                           uchar const *    payload,
+                                           fd_acc_mgr_t *   acc_mgr,
+                                           fd_funk_txn_t *  funk_txn,
+                                           ulong            slot,
+                                           fd_slot_hash_t * hashes,
+                                           fd_acct_addr_t * out_accts_alt,
+                                           ulong *          out_accts_cnt_opt );
+
 /* fd_runtime_poh_verify is responsible for verifying poh hashes while
    streaming in microblocks. */
 
