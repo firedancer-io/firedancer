@@ -172,6 +172,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "btpool"      );
   fd_topob_wksp( topo, "constipate"  );
   fd_topob_wksp( topo, "restart"     );
+  fd_topob_wksp( topo, "exec_spad"   );
 
   if( enable_rpc ) fd_topob_wksp( topo, "rpcsrv" );
 
@@ -342,6 +343,13 @@ fd_topo_initialize( config_t * config ) {
     fd_topob_tile_uses( topo, pack_tile, busy_obj, FD_SHMEM_JOIN_MODE_READ_ONLY );
     FD_TEST( fd_pod_insertf_ulong( topo->props, busy_obj->id, "bank_busy.%lu", i ) );
   }
+
+  for( ulong i=0UL; i<replay_tpool_thread_count; i++ ) {
+    fd_topo_obj_t * exec_spad_obj = fd_topob_obj( topo, "exec_spad", "exec_spad" );
+    fd_topob_tile_uses( topo, replay_tile, exec_spad_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+    FD_TEST( fd_pod_insertf_ulong( topo->props, exec_spad_obj->id, "exec_spad.%lu", i ) );
+  }
+
   /* There's another special fseq that's used to communicate the shred
      version from the Agave boot path to the shred tile. */
   fd_topo_obj_t * poh_shred_obj = fd_topob_obj( topo, "fseq", "poh_shred" );

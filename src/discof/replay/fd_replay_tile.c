@@ -351,9 +351,6 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
     l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
   l = FD_LAYOUT_APPEND( l, 128UL, FD_SLICE_MAX );
-  ulong  thread_spad_size  = fd_spad_footprint( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT );
-  l = FD_LAYOUT_APPEND( l, fd_spad_align(), tile->replay.tpool_thread_count * fd_ulong_align_up( thread_spad_size, fd_spad_align() ) );
-  l = FD_LAYOUT_APPEND( l, fd_spad_align(), FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT ); /* FIXME: make this configurable */
   l = FD_LAYOUT_FINI  ( l, scratch_align() );
   return l;
 }
@@ -2768,8 +2765,6 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->bmtree[i]           = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
   void * mbatch_mem          = FD_SCRATCH_ALLOC_APPEND( l, 128UL, FD_SLICE_MAX );
-  ulong  thread_spad_size    = fd_spad_footprint( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT );
-  void * spad_mem            = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), tile->replay.tpool_thread_count * fd_ulong_align_up( thread_spad_size, fd_spad_align() ) + FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT );
   ulong  scratch_alloc_mem   = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
 
   if( FD_UNLIKELY( scratch_alloc_mem != ( (ulong)scratch + scratch_footprint( tile ) ) ) ) {
@@ -2960,18 +2955,17 @@ unprivileged_init( fd_topo_t *      topo,
   /* spad                                                               */
   /**********************************************************************/
 
-  /* TODO: The spad should probably have its own workspace. Eventually each
-     spad allocator should be bound to a transaction executor tile and should
-     be bounded out for the maximum amount of allocations used in the runtime. */
+  /* Join each of the exec spads. */
 
-  uchar * spad_mem_cur = spad_mem;
   for( ulong i=0UL; i<tile->replay.tpool_thread_count; i++ ) {
-    fd_spad_t * spad = fd_spad_join( fd_spad_new( spad_mem_cur, thread_spad_size ) );
+    ulong exec_spad_id = fd_pod_queryf_ulong( topo->props, ULONG_MAX, "exec_spad.%lu", i );
+    fd_spad_t * spad = fd_spad_join( fd_topo_obj_laddr( topo, exec_spad_id ) );
     ctx->exec_spads[ ctx->exec_spad_cnt++ ] = spad;
-    spad_mem_cur += fd_ulong_align_up( thread_spad_size, fd_spad_align() );
+    FD_TEST( spad );
   }
 
   /* Now join the spad that was setup in the runtime public topo obj. */
+
   ctx->runtime_spad = fd_runtime_public_join_and_get_runtime_spad( ctx->runtime_public );
   if( FD_UNLIKELY( !ctx->runtime_spad ) ) {
     FD_LOG_ERR(( "Unable to join the runtime_spad" ));
