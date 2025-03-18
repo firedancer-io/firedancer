@@ -1991,6 +1991,10 @@ after_frag( fd_poh_ctx_t *      ctx,
   ulong executed_txn_cnt = 0UL;
   ulong cus_used         = 0UL;
   for( ulong i=0UL; i<txn_cnt; i++ ) {
+    /* It's important that we check if a transaction is included in the
+       block with FD_TXN_P_FLAGS_EXECUTE_SUCCESS since
+       actual_consumed_cus may have a nonzero value for excluded
+       transactions used for monitoring purposes */
     if( FD_LIKELY( txns[ i ].flags & FD_TXN_P_FLAGS_EXECUTE_SUCCESS ) ) {
       executed_txn_cnt++;
       cus_used += txns[ i ].bank_cu.actual_consumed_cus;
