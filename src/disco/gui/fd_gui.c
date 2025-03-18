@@ -7,6 +7,7 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../ballet/json/cJSON.h"
 #include "../../flamenco/genesis/fd_genesis_cluster.h"
+#include "../../disco/pack/fd_compute_budget_program.h"
 
 FD_FN_CONST ulong
 fd_gui_align( void ) {
@@ -102,8 +103,6 @@ fd_gui_new( void *             shmem,
   gui->summary.tile_timers_history_idx = 0UL;
   for( ulong i=0UL; i<FD_GUI_TILE_TIMER_LEADER_CNT; i++ ) gui->summary.tile_timers_leader_history_slot[ i ] = ULONG_MAX;
 
-  gui->cus.offset = 0UL;
-
   gui->block_engine.has_block_engine = 0;
 
   gui->epoch.has_epoch[ 0 ] = 0;
@@ -114,6 +113,7 @@ fd_gui_new( void *             shmem,
   gui->validator_info.info_cnt       = 0UL;
 
   for( ulong i=0UL; i<FD_GUI_SLOTS_CNT; i++ ) gui->slots[ i ]->slot = ULONG_MAX;
+  gui->pack_txn_idx = 0UL;
 
   return gui;
 }
@@ -961,15 +961,16 @@ fd_gui_clear_slot( fd_gui_t * gui,
   slot->leader_state           = FD_GUI_SLOT_LEADER_UNSTARTED;
   slot->completed_time         = LONG_MAX;
 
-  slot->cus.leader_start_time  = LONG_MAX;
-  slot->cus.leader_end_time    = LONG_MAX;
-  slot->cus.max_compute_units  = UINT_MAX;
-  slot->cus.microblocks_upper_bound = USHORT_MAX;
-  slot->cus.begin_microblocks  = 0U;
-  slot->cus.end_microblocks    = 0U;
-  slot->cus.reference_ticks    = LONG_MAX;
-  slot->cus.reference_nanos    = LONG_MAX;
-  for( ulong i=0UL; i<65UL; i++ ) slot->cus.has_offset[ i ]   = 0;
+  slot->txs.leader_start_time  = LONG_MAX;
+  slot->txs.leader_end_time    = LONG_MAX;
+  slot->txs.max_compute_units  = UINT_MAX;
+  slot->txs.microblocks_upper_bound = USHORT_MAX;
+  slot->txs.begin_microblocks  = 0U;
+  slot->txs.end_microblocks    = 0U;
+  slot->txs.reference_ticks    = LONG_MAX;
+  slot->txs.reference_nanos    = LONG_MAX;
+  slot->txs.start_offset       = ULONG_MAX;
+  slot->txs.end_offset         = ULONG_MAX;
 
   if( FD_LIKELY( slot->mine ) ) {
     /* All slots start off not skipped, until we see it get off the reset
@@ -1619,15 +1620,15 @@ fd_gui_became_leader( fd_gui_t * gui,
   fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
   if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot, ULONG_MAX );
 
-  slot->cus.leader_start_time  = start_time_nanos;
+  slot->txs.leader_start_time  = start_time_nanos;
 
   long tickcount = fd_tickcount();
-  if( FD_LIKELY( slot->cus.reference_ticks==LONG_MAX ) ) slot->cus.reference_ticks = tickcount;
-  slot->cus.reference_nanos = fd_log_wallclock() - (long)((double)(tickcount - slot->cus.reference_ticks) / fd_tempo_tick_per_ns( NULL ));
+  if( FD_LIKELY( slot->txs.reference_ticks==LONG_MAX ) ) slot->txs.reference_ticks = tickcount;
+  slot->txs.reference_nanos = fd_log_wallclock() - (long)((double)(tickcount - slot->txs.reference_ticks) / fd_tempo_tick_per_ns( NULL ));
 
-  slot->cus.leader_end_time   = end_time_nanos;
-  slot->cus.max_compute_units = (uint)max_compute_units;
-  if( FD_LIKELY( slot->cus.microblocks_upper_bound==USHORT_MAX ) ) slot->cus.microblocks_upper_bound = (ushort)max_microblocks;
+  slot->txs.leader_end_time   = end_time_nanos;
+  slot->txs.max_compute_units = (uint)max_compute_units;
+  if( FD_LIKELY( slot->txs.microblocks_upper_bound==USHORT_MAX ) ) slot->txs.microblocks_upper_bound = (ushort)max_microblocks;
 }
 
 void
@@ -1637,68 +1638,88 @@ fd_gui_unbecame_leader( fd_gui_t * gui,
   fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
   if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot, ULONG_MAX );
 
-  slot->cus.microblocks_upper_bound = (ushort)microblocks_in_slot;
+  slot->txs.microblocks_upper_bound = (ushort)microblocks_in_slot;
 }
 
 void
-fd_gui_execution_begin( fd_gui_t *   gui,
-                        long         tickcount,
-                        ulong        _slot,
-                        ulong        bank_idx,
-                        ulong        txn_cnt,
-                        fd_txn_p_t * txns ) {
+fd_gui_microblock_execution_begin( fd_gui_t *   gui,
+                                   long         tickcount,
+                                   ulong        _slot,
+                                   fd_txn_p_t * txns,
+                                   ulong        txn_cnt,
+                                   ulong        pack_txn_idx,
+                                   int          is_bundle ) {
   fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
   if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot, ULONG_MAX );
 
-  if( FD_UNLIKELY( !slot->cus.has_offset[ 64UL ] ) ) slot->cus.start_offset[ 64UL ] = gui->cus.offset;
-  slot->cus.has_offset[ 64UL ] = 1;
-  if( FD_UNLIKELY( slot->cus.reference_ticks==LONG_MAX ) ) slot->cus.reference_ticks = tickcount;
+  if( FD_UNLIKELY( slot->txs.start_offset==ULONG_MAX ) ) slot->txs.start_offset = pack_txn_idx;
+  else slot->txs.start_offset = fd_ulong_min(slot->txs.start_offset, pack_txn_idx);
+
+  if( FD_UNLIKELY( slot->txs.reference_ticks==LONG_MAX ) ) slot->txs.reference_ticks = tickcount;
+
+  gui->pack_txn_idx = fd_ulong_max(gui->pack_txn_idx, pack_txn_idx);
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
-    fd_txn_p_t * txn = &txns[ i ];
+    fd_txn_p_t * txn_p = &txns[ i ];
+    fd_txn_t * txn = TXN(txn_p);
 
-    ulong comp = fd_gui_cu_history_compress( FD_GUI_EXECUTION_TYPE_BEGIN,
-                                             bank_idx,
-                                             txn->pack_cu.non_execution_cus + txn->pack_cu.requested_exec_plus_acct_data_cus,
-                                             i==0UL,
-                                             slot->cus.reference_ticks,
-                                             tickcount );
-    gui->cus.history[ gui->cus.offset%FD_GUI_COMPUTE_UNITS_HISTORY_SZ ] = comp;
-    gui->cus.offset++;
+    fd_compute_budget_program_state_t cbp[ 1 ];
+    fd_compute_budget_program_init( cbp );
+    for( ulong j=0UL; j<txn->instr_cnt; j++ ) {
+      fd_compute_budget_program_parse( txn_p->payload+txn->instr[ j ].data_off, txn->instr[ j ].data_sz, cbp );
+    }
+    ulong fee[1];
+    uint compute[1];
+    ulong loaded_account_data_cost[1];
+    fd_compute_budget_program_finalize( cbp, txn->instr_cnt, fee, compute, loaded_account_data_cost );
+
+    gui->txs[ pack_txn_idx%FD_GUI_TXN_HISTORY_SZ ].compute_units_estimated = (uint)(txn_p->pack_cu.non_execution_cus + txn_p->pack_cu.requested_exec_plus_acct_data_cus);
+    gui->txs[ pack_txn_idx%FD_GUI_TXN_HISTORY_SZ ].compute_units_requested = (uint)(compute[ 0 ]);
+    gui->txs[ pack_txn_idx%FD_GUI_TXN_HISTORY_SZ ].micro_lamports_per_cu = cbp->micro_lamports_per_cu;
+
+    gui->txs[ pack_txn_idx%FD_GUI_TXN_HISTORY_SZ ].timestamp_delta_start_nanos = (uint)((double)(tickcount - slot->txs.reference_ticks) / fd_tempo_tick_per_ns( NULL ));
+
+    gui->txs[ pack_txn_idx%FD_GUI_TXN_HISTORY_SZ ].flags |= FD_GUI_TXN_FLAGS_STARTED;
+    gui->txs[ pack_txn_idx%FD_GUI_TXN_HISTORY_SZ ].flags |= (uchar)fd_txn_is_simple_vote_transaction( txn, txn_p->payload ) * FD_GUI_TXN_FLAGS_IS_SIMPLE_VOTE;
+    gui->txs[ pack_txn_idx%FD_GUI_TXN_HISTORY_SZ ].flags |= (uchar)is_bundle * FD_GUI_TXN_FLAGS_FROM_BUNDLE;
   }
 
-  slot->cus.end_offset[ 64UL ] = gui->cus.offset;
-  slot->cus.begin_microblocks = (ushort)(slot->cus.begin_microblocks + txn_cnt);
+  /* At the moment, bank publishes at most 1 transaction per microblock,
+     even if it received microblocks with multiple transactions
+     (i.e. a bundle). This means that we need to calulate microblock
+     count here based on the transaction count. */
+  slot->txs.begin_microblocks = (ushort)(slot->txs.begin_microblocks + txn_cnt);
 }
 
 void
-fd_gui_execution_end( fd_gui_t *   gui,
-                      long         tickcount,
-                      ulong        bank_idx,
-                      int          is_last_in_bundle,
-                      ulong        _slot,
-                      ulong        txn_cnt,
-                      fd_txn_p_t * txns ) {
+fd_gui_microblock_execution_end( fd_gui_t *   gui,
+                                 long         tickcount,
+                                 ulong        bank_idx,
+                                 uchar         error_code,
+                                 ulong        _slot,
+                                 ulong        txn_cnt,
+                                 fd_txn_p_t * txns,
+                                 ulong        pack_txn_idx ) {
+
   fd_gui_slot_t * slot = gui->slots[ _slot % FD_GUI_SLOTS_CNT ];
   if( FD_UNLIKELY( slot->slot!=_slot ) ) fd_gui_clear_slot( gui, _slot, ULONG_MAX );
 
-  if( FD_UNLIKELY( !slot->cus.has_offset[ bank_idx ] ) ) slot->cus.start_offset[ bank_idx ] = gui->cus.offset;
-  slot->cus.has_offset[ bank_idx ] = 1;
-  if( FD_UNLIKELY( slot->cus.reference_ticks==LONG_MAX ) ) slot->cus.reference_ticks = tickcount;
+  if( FD_UNLIKELY( slot->txs.end_offset==ULONG_MAX ) ) slot->txs.end_offset = pack_txn_idx + txn_cnt;
+  else slot->txs.end_offset = fd_ulong_max(slot->txs.end_offset, pack_txn_idx + txn_cnt);
+
+  if( FD_UNLIKELY( slot->txs.reference_ticks==LONG_MAX ) ) slot->txs.reference_ticks = tickcount;
+
+  gui->pack_txn_idx = fd_ulong_max(gui->pack_txn_idx, pack_txn_idx);
 
   for( ulong i=0UL; i<txn_cnt; i++ ) {
-    fd_txn_p_t * txn = &txns[ i ];
+    fd_txn_p_t * txn_p = &txns[ i ];
 
-    ulong comp = fd_gui_cu_history_compress( FD_GUI_EXECUTION_TYPE_END,
-                                             bank_idx,
-                                             txn->bank_cu.rebated_cus,
-                                             is_last_in_bundle,
-                                             slot->cus.reference_ticks,
-                                             tickcount );
-    gui->cus.history[ gui->cus.offset%FD_GUI_COMPUTE_UNITS_HISTORY_SZ ] = comp;
-    gui->cus.offset++;
+    gui->txs[ pack_txn_idx%FD_GUI_TXN_HISTORY_SZ ].bank_idx = (uchar)bank_idx;
+    gui->txs[ pack_txn_idx%FD_GUI_TXN_HISTORY_SZ ].compute_units_rebated = txn_p->bank_cu.rebated_cus;
+    gui->txs[ pack_txn_idx%FD_GUI_TXN_HISTORY_SZ ].timestamp_delta_end_nanos = (uint)((double)(tickcount - slot->txs.reference_ticks) / fd_tempo_tick_per_ns( NULL ));
+    gui->txs[ pack_txn_idx%FD_GUI_TXN_HISTORY_SZ ].error_code = error_code;
+    gui->txs[ pack_txn_idx%FD_GUI_TXN_HISTORY_SZ ].flags |= FD_GUI_TXN_FLAGS_ENDED;
   }
 
-  slot->cus.end_offset[ bank_idx ] = gui->cus.offset;
-  slot->cus.end_microblocks = (ushort)(slot->cus.end_microblocks + txn_cnt);
+  slot->txs.end_microblocks++;
 }

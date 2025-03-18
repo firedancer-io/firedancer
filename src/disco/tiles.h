@@ -98,10 +98,16 @@ struct fd_microblock_trailer {
      mixed into PoH. */
   uchar hash[ 32UL ];
 
-  /* If this is a microblock for the last transaction in a bundle,
-     (or always true, if not a bundle). Useful for monitoring tools to
-     determine when the bank is done executing. */
-  uchar is_last_in_bundle;
+  /* The error code for the last transaction in this microblock, if it
+     failed, or 0 otherwise. At the moment this is useful because bank
+     sends out at most one transaction per microblock. */
+  uchar error_code;
+
+   /* A sequentially increasing index of the transaction in this, across
+      all slots ever processed by pack. This is used by monitoring tools
+      that maintain an ordered history of transactions. Note that this
+      may overflow arbitrarily. */
+   ulong pack_txn_idx;
 };
 typedef struct fd_microblock_trailer fd_microblock_trailer_t;
 
@@ -122,8 +128,14 @@ struct fd_microblock_bank_trailer {
      in the same order they are executed. */
   ulong microblock_idx;
 
+  /* A sequentially increasing index of the first transaction in the
+     microblock, across all slots ever processed by pack.  This is used
+     by monitoring tools that maintain an ordered history of
+     transactions.  Note that this may overflow arbitrarily. */
+  ulong pack_txn_idx;
+
   /* If the microblock is a bundle, with a set of potentially
-     conflciting transactions that should be executed in order, and
+     conflicting transactions that should be executed in order, and
      all either commit or fail atomically. */
   int is_bundle;
 };
