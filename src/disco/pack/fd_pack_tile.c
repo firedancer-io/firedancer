@@ -210,8 +210,8 @@ typedef struct {
   ulong    bank_cnt;
   ulong    bank_idle_bitset; /* bit i is 1 if we've observed *bank_current[i]==bank_expect[i] */
   int      poll_cursor; /* in [0, bank_cnt), the next bank to poll */
-  int      use_consumed_cus;
-  long     skip_cnt;
+  int      use_consumed_cus; /* Are CU rebates enabled */
+  long     skip_cnt; /* If skip_cnt is positive after_credit will skip the next skip_cnt messages */
   ulong *  bank_current[ FD_PACK_PACK_MAX_OUT ];
   ulong    bank_expect[ FD_PACK_PACK_MAX_OUT  ];
   /* bank_ready_at[x] means don't check bank x until tickcount is at
@@ -313,7 +313,7 @@ scratch_align( void ) {
   return 4096UL;
 }
 
-FD_FN_PURE static inline ulong
+static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   fd_pack_limits_t limits[1] = {{
     .max_cost_per_block        = tile->pack.larger_max_cost_per_block ? LARGER_MAX_COST_PER_BLOCK : FD_PACK_MAX_COST_PER_BLOCK,
@@ -323,14 +323,13 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
     .max_txn_per_microblock    = EFFECTIVE_TXN_PER_MICROBLOCK,
     .max_microblocks_per_block = (ulong)UINT_MAX, /* Limit not known yet */
   }};
-
+  ulong bundle_meta_sz = tile->pack.bundle.enabled ? BUNDLE_META_SZ : 0UL;
+  ulong footprint = fd_pack_footprint( tile->pack.max_pending_transactions, bundle_meta_sz, tile->pack.bank_tile_count, limits );
+  FD_TEST( footprint );
   ulong l = FD_LAYOUT_INIT;
-  l = FD_LAYOUT_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t )                                   );
-  l = FD_LAYOUT_APPEND( l, fd_rng_align(),           fd_rng_footprint()                                        );
-  l = FD_LAYOUT_APPEND( l, fd_pack_align(),          fd_pack_footprint( tile->pack.max_pending_transactions,
-                                                                        BUNDLE_META_SZ,
-                                                                        tile->pack.bank_tile_count,
-                                                                        limits                               ) );
+  l = FD_LAYOUT_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
+  l = FD_LAYOUT_APPEND( l, fd_rng_align(),           fd_rng_footprint()      );
+  l = FD_LAYOUT_APPEND( l, fd_pack_align(),          footprint               );
 #if FD_PACK_USE_EXTRA_STORAGE
   l = FD_LAYOUT_APPEND( l, extra_txn_deq_align(),    extra_txn_deq_footprint()                                 );
 #endif
@@ -435,14 +434,15 @@ insert_from_extra( fd_pack_ctx_t * ctx ) {
 static inline void
 after_credit( fd_pack_ctx_t *     ctx,
               fd_stem_context_t * stem,
-              int *               opt_poll_in,
+              int *               opt_poll_in FD_PARAM_UNUSED,
               int *               charge_busy ) {
-  (void)opt_poll_in;
-
   if( FD_UNLIKELY( (ctx->skip_cnt--)>0L ) ) return; /* It would take ages for this to hit LONG_MIN */
 
   long now = fd_tickcount();
 
+  /* before becoming leader for the first time this function will be
+     called by uninitialized values in pacer, but that is fine for
+     the function (no div by 0 or anything) and our logic here. */
   int pacing_bank_cnt = (int)fd_pack_pacing_enabled_bank_cnt( ctx->pacer, now );
   if( FD_UNLIKELY( !pacing_bank_cnt ) ) return;
 
@@ -725,15 +725,15 @@ during_frag( fd_pack_ctx_t * ctx,
 
   switch( ctx->in_kind[ in_idx ] ) {
   case IN_KIND_POH: {
-      /* Not interested in stamped microblocks, only leader updates. */
+    /* Not interested in stamped microblocks, only leader updates. */
     if( fd_disco_poh_sig_pkt_type( sig )!=POH_PKT_TYPE_BECAME_LEADER ) return;
 
     /* There was a leader transition.  Handle it. */
     if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz!=sizeof(fd_became_leader_t) ) )
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
 
-  long now_ticks = fd_tickcount();
-  long now_ns    = fd_log_wallclock();
+    long now_ticks = fd_tickcount();
+    long now_ns    = fd_log_wallclock();
 
     if( FD_UNLIKELY( ctx->leader_slot!=ULONG_MAX ) ) {
       FD_LOG_WARNING(( "switching to slot %lu while packing for slot %lu. Draining bank tiles.", fd_disco_poh_sig_slot( sig ), ctx->leader_slot ));
@@ -1002,7 +1002,9 @@ unprivileged_init( fd_topo_t *      topo,
 
   if( FD_UNLIKELY( tile->pack.max_pending_transactions >= USHORT_MAX-10UL ) ) FD_LOG_ERR(( "pack tile supports up to %lu pending transactions", USHORT_MAX-11UL ));
 
-  ulong pack_footprint = fd_pack_footprint( tile->pack.max_pending_transactions, BUNDLE_META_SZ, tile->pack.bank_tile_count, limits );
+  ulong bundle_meta_sz = tile->pack.bundle.enabled ? BUNDLE_META_SZ : 0UL;
+  ulong pack_footprint = fd_pack_footprint( tile->pack.max_pending_transactions, bundle_meta_sz, tile->pack.bank_tile_count, limits );
+  FD_TEST( pack_footprint );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_pack_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_pack_ctx_t ), sizeof( fd_pack_ctx_t ) );
