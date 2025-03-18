@@ -280,7 +280,7 @@ perf_test( void ) {
   for( ulong iter=0UL; iter<iterations; iter++ ) {
     fd_shredder_init_batch( shredder, perf_test_entry_batch, PERF_TEST_SZ, 0UL, meta );
 
-    ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST_SZ );
+    ulong sets_cnt = fd_shredder_count_fec_sets( PERF_TEST_SZ, FD_SHRED_TYPE_MERKLE_DATA );
     for( ulong j=0UL; j<sets_cnt; j++ ) {
       fd_shredder_next_fec_set( shredder, _set, /* chained */ NULL );
     }
@@ -629,16 +629,13 @@ test_chained_merkle_shreds( void ) {
 
   /* Initial and expected final merkle root */
   fd_hex_decode( chained_merkle_root, "0102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f00", 32 );
-  fd_hex_decode( expected_final_chained_merkle_root, "93bd3baebdc41dde1d97ae6a79fe19d0ab109ecc69fe2d389b8c48f1a4b53397", 32 );
+  fd_hex_decode( expected_final_chained_merkle_root, "786cf12a476b5e03b0c332e6d92adb2a37ef601766ea56d16dbf99f45829eb04", 32 );
 
   /* Settings so that we get 32 data + 32 parity shreds */
-  ulong data_sz = 31000;
-  FD_TEST( fd_shredder_count_data_shreds(   data_sz ) == 32 );
-  FD_TEST( fd_shredder_count_parity_shreds( data_sz ) == 32 );
-  FD_TEST( fd_shredder_count_fec_sets(      data_sz ) ==  1 );
-
-  ulong data_cnt   = fd_shredder_count_data_shreds(   data_sz );
-  ulong parity_cnt = fd_shredder_count_parity_shreds( data_sz );
+  ulong data_sz = 30000;
+  FD_TEST( fd_shredder_count_data_shreds(   data_sz, FD_SHRED_TYPE_MERKLE_DATA_CHAINED ) == 32 );
+  FD_TEST( fd_shredder_count_parity_shreds( data_sz, FD_SHRED_TYPE_MERKLE_CODE_CHAINED ) == 32 );
+  FD_TEST( fd_shredder_count_fec_sets(      data_sz, FD_SHRED_TYPE_MERKLE_DATA_CHAINED ) ==  1 );
 
   /* Initialize all the things */
   for( ulong i=0UL; i<data_sz; i++ )  perf_test_entry_batch[ i ] = (uchar)i;
@@ -668,7 +665,6 @@ test_chained_merkle_shreds( void ) {
   fd_bmtree_node_t     out_merkle_root[1];
 
   uchar * ptr = fec_set_memory;
-  // ptr = allocate_fec_set( *out_fec, ptr );    
   for( ulong i=0UL; i<10UL; i++ )  ptr = allocate_fec_set( out_sets+i, ptr );
 
 #define MAX_SLOTS (4UL)
@@ -680,7 +676,7 @@ test_chained_merkle_shreds( void ) {
 
     /* Simulate skipping slot #1 */
     if( slot==1UL ) slot=2UL;
-    meta->parent_offset = slot==2UL ? 2 : 1; 
+    meta->parent_offset = slot==2UL ? 2 : 1;
 
     for( ulong setid=0UL; setid<MAX_SETS; setid++ ) {
       meta->block_complete = (setid==(MAX_SETS-1));
@@ -694,12 +690,12 @@ test_chained_merkle_shreds( void ) {
 
       /* Per-slot checks */
       FD_TEST( set );
-      FD_TEST( set->data_shred_cnt==32 );
-      FD_TEST( set->parity_shred_cnt==32 );
-    
+      FD_TEST( set->data_shred_cnt>=32 );
+      FD_TEST( set->parity_shred_cnt>=32 );
+
       resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 8UL, out_sets, SHRED_VER, MAX ) );
 
-      for( ulong j=0; j<data_cnt; j++ ) {
+      for( ulong j=0; j<set->data_shred_cnt; j++ ) {
         /* Simple test that we didn't overflow */
         FD_TEST( *(set->data_shreds[ j ]+FD_SHRED_MIN_SZ) == canary );
 
@@ -714,12 +710,12 @@ test_chained_merkle_shreds( void ) {
         FD_TEST( parsed );
 
         int retval = fd_fec_resolver_add_shred( resolver, parsed, FD_SHRED_MIN_SZ, pubkey, out_fec, out_shred, out_merkle_root );
-        FD_TEST( retval==((j<data_cnt-1) ? FD_FEC_RESOLVER_SHRED_OKAY : FD_FEC_RESOLVER_SHRED_IGNORED) );
+        FD_TEST( retval==((j<set->data_shred_cnt-1) ? FD_FEC_RESOLVER_SHRED_OKAY : FD_FEC_RESOLVER_SHRED_IGNORED) );
 
         FD_TEST( fd_memeq( chained_merkle_root, out_merkle_root->hash, 32 ) );
 
-        /* FIXME: currently we need at least 1 coding shred to resolve a set */
-        if(j==data_cnt-2) {
+        /* We need at least 1 coding shred to resolve a set */
+        if(j==set->data_shred_cnt-2) {
           int retval = fd_fec_resolver_add_shred( resolver, (fd_shred_t const *)set->parity_shreds[ 0 ], FD_SHRED_MAX_SZ, pubkey, out_fec, out_shred, out_merkle_root );
           FD_TEST( retval==FD_FEC_RESOLVER_SHRED_COMPLETES );
         }
@@ -728,7 +724,7 @@ test_chained_merkle_shreds( void ) {
 
       resolver = fd_fec_resolver_join( fd_fec_resolver_new( res_mem, NULL, NULL, 2UL, 1UL, 1UL, 8UL, out_sets, SHRED_VER, MAX ) );
 
-      for( ulong j=0; j<parity_cnt; j++ ) {
+      for( ulong j=0; j<set->parity_shred_cnt; j++ ) {
         /* Simple test that we didn't overflow */
         FD_TEST( *(set->parity_shreds[ j ]+FD_SHRED_MAX_SZ) == canary );
 
@@ -741,7 +737,7 @@ test_chained_merkle_shreds( void ) {
         fd_shred_t const * parsed = fd_shred_parse( (const uchar *)shred, FD_SHRED_MAX_SZ );
         FD_TEST( parsed );
         int retval = fd_fec_resolver_add_shred( resolver, parsed, FD_SHRED_MAX_SZ, pubkey, out_fec, out_shred, out_merkle_root );
-        FD_TEST( retval==((j<data_cnt-1) ? FD_FEC_RESOLVER_SHRED_OKAY : FD_FEC_RESOLVER_SHRED_COMPLETES) );
+        FD_TEST( retval==((j<set->parity_shred_cnt-1) ? FD_FEC_RESOLVER_SHRED_OKAY : FD_FEC_RESOLVER_SHRED_COMPLETES) );
 
         FD_TEST( fd_memeq( chained_merkle_root, out_merkle_root->hash, 32 ) );
       }

@@ -69,8 +69,8 @@ init( config_t const * config ) {
 
   ulong batch_sz = sizeof(ulong)+ticks_per_slot*sizeof(fd_entry_batch_header_t);
 
-  FD_TEST( fd_shredder_count_data_shreds  ( batch_sz )<=34UL );
-  FD_TEST( fd_shredder_count_parity_shreds( batch_sz )<=34UL );
+  FD_TEST( fd_shredder_count_data_shreds  ( batch_sz, FD_SHRED_TYPE_MERKLE_DATA )<=34UL );
+  FD_TEST( fd_shredder_count_parity_shreds( batch_sz, FD_SHRED_TYPE_MERKLE_CODE )<=34UL );
 
   fd_shred34_t data, parity;
   fd_fec_set_t fec;

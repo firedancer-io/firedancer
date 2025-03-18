@@ -85,6 +85,11 @@ void *          fd_shredder_delete( void *          mem      );
    make 31840 B FEC sets until we have less than 63680 bytes left, and
    we make one oddly sized FEC set for the remaining payload.
 
+   (Note: while this is true for the logic of the shredder, the way our
+   shred tile works with watermark implies that this never happens, and
+   the only case that happens in practice is the "oddly sized" FEC set
+   described below.)
+
    Computing this "oddly sized" FEC set is a bit strange because the
    number of shreds in the set depends on the amount of payload in each
    shred, which depends on the depth of the Merkle tree required to
@@ -109,36 +114,67 @@ void *          fd_shredder_delete( void *          mem      );
    There are two legitimate ways to send certain payload sizes.  We
    always pick the larger value of payload_bytes_per_shred. */
 
-#define FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ (31840UL)
+#define FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ   (31840UL)
+#define FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ  (30816UL) /* -32 bytes * 32 shreds */
+#define FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ (28768UL) /* -64 bytes * 32 shreds */
 
 FD_FN_CONST static inline ulong
-fd_shredder_count_fec_sets(      ulong sz_bytes ) {
+fd_shredder_count_fec_sets(      ulong sz_bytes, ulong type ) {
   /* if sz_bytes < 2*31840, we make 1 FEC set.  If sz_bytes is a
      multiple of 31840, we make exactly sz_bytes/31840 sets.  Otherwise,
      we make floor(sz_bytes/31840)-1 normal set + one odd-sized set.
      These cases can be simplified to make it branchless: */
+  if( FD_UNLIKELY( fd_shred_is_resigned( type ) ) ) {
+    return fd_ulong_max( sz_bytes, 2UL*FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ - 1UL ) / FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ;
+  } else if( FD_LIKELY( fd_shred_is_chained( type ) ) ) {
+    return fd_ulong_max( sz_bytes, 2UL*FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ - 1UL ) / FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ;
+  }
   return fd_ulong_max( sz_bytes, 2UL*FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ - 1UL ) / FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ;
 }
 FD_FN_CONST static inline ulong
-fd_shredder_count_data_shreds(   ulong sz_bytes ) {
-  ulong normal_sets = fd_shredder_count_fec_sets( sz_bytes ) - 1UL;
+fd_shredder_count_data_shreds(   ulong sz_bytes, ulong type ) {
+  ulong normal_sets = fd_shredder_count_fec_sets( sz_bytes, type ) - 1UL;
   ulong remaining_bytes = sz_bytes - normal_sets * FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ;
   ulong shreds = normal_sets * 32UL;
-  if(      FD_UNLIKELY( remaining_bytes <=  9135UL ) ) shreds += fd_ulong_max( 1UL, (remaining_bytes + 1014UL)/1015UL );
-  else if( FD_LIKELY(   remaining_bytes <= 31840UL ) ) shreds +=                    (remaining_bytes +  994UL)/ 995UL;
-  else if( FD_LIKELY(   remaining_bytes <= 62400UL ) ) shreds +=                    (remaining_bytes +  974UL)/ 975UL;
-  else                                                 shreds +=                    (remaining_bytes +  954UL)/ 955UL;
+  if( FD_UNLIKELY( fd_shred_is_resigned( type ) ) ) {
+    if(      FD_UNLIKELY( remaining_bytes <=  8271UL ) ) shreds += fd_ulong_max( 1UL, (remaining_bytes +  918UL)/ 919UL );
+    else if( FD_LIKELY(   remaining_bytes <= 28768UL ) ) shreds +=                    (remaining_bytes +  898UL)/ 899UL;
+    else if( FD_LIKELY(   remaining_bytes <= 56256UL ) ) shreds +=                    (remaining_bytes +  878UL)/ 879UL;
+    else                                                 shreds +=                    (remaining_bytes +  858UL)/ 859UL;
+  } else if( FD_LIKELY( fd_shred_is_chained( type ) ) ) {
+    if(      FD_UNLIKELY( remaining_bytes <=  8847UL ) ) shreds += fd_ulong_max( 1UL, (remaining_bytes +  982UL)/ 983UL );
+    else if( FD_LIKELY(   remaining_bytes <= 30816UL ) ) shreds +=                    (remaining_bytes +  962UL)/ 963UL;
+    else if( FD_LIKELY(   remaining_bytes <= 60352UL ) ) shreds +=                    (remaining_bytes +  942UL)/ 943UL;
+    else                                                 shreds +=                    (remaining_bytes +  922UL)/ 923UL;
+  } else {
+    if(      FD_UNLIKELY( remaining_bytes <=  9135UL ) ) shreds += fd_ulong_max( 1UL, (remaining_bytes + 1014UL)/1015UL );
+    else if( FD_LIKELY(   remaining_bytes <= 31840UL ) ) shreds +=                    (remaining_bytes +  994UL)/ 995UL;
+    else if( FD_LIKELY(   remaining_bytes <= 62400UL ) ) shreds +=                    (remaining_bytes +  974UL)/ 975UL;
+    else                                                 shreds +=                    (remaining_bytes +  954UL)/ 955UL;
+  }
   return shreds;
 }
 FD_FN_CONST static inline ulong
-fd_shredder_count_parity_shreds( ulong sz_bytes ) {
-  ulong normal_sets = fd_shredder_count_fec_sets( sz_bytes ) - 1UL;
+fd_shredder_count_parity_shreds( ulong sz_bytes, ulong type ) {
+  ulong normal_sets = fd_shredder_count_fec_sets( sz_bytes, type ) - 1UL;
   ulong remaining_bytes = sz_bytes - normal_sets * FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ;
   ulong shreds = normal_sets * 32UL;
-  if(      FD_UNLIKELY( remaining_bytes <=  9135UL ) ) shreds += fd_shredder_data_to_parity_cnt[ fd_ulong_max( 1UL, (remaining_bytes + 1014UL)/1015UL ) ];
-  else if( FD_LIKELY(   remaining_bytes <= 31840UL ) ) shreds += fd_shredder_data_to_parity_cnt[                    (remaining_bytes +  994UL)/ 995UL   ];
-  else if( FD_LIKELY(   remaining_bytes <= 62400UL ) ) shreds +=                                                    (remaining_bytes +  974UL)/ 975UL;
-  else                                                 shreds +=                                                    (remaining_bytes +  954UL)/ 955UL;
+  if( FD_UNLIKELY( fd_shred_is_resigned( type ) ) ) {
+    if(      FD_UNLIKELY( remaining_bytes <=  8271UL ) ) shreds += fd_shredder_data_to_parity_cnt[ fd_ulong_max( 1UL, (remaining_bytes +  918UL)/ 919UL ) ];
+    else if( FD_LIKELY(   remaining_bytes <= 28768UL ) ) shreds += fd_shredder_data_to_parity_cnt[                    (remaining_bytes +  898UL)/ 899UL   ];
+    else if( FD_LIKELY(   remaining_bytes <= 56256UL ) ) shreds +=                                                    (remaining_bytes +  878UL)/ 879UL;
+    else                                                 shreds +=                                                    (remaining_bytes +  858UL)/ 859UL;
+  } else if( FD_LIKELY( fd_shred_is_chained( type ) ) ) {
+    if(      FD_UNLIKELY( remaining_bytes <=  8847UL ) ) shreds += fd_shredder_data_to_parity_cnt[ fd_ulong_max( 1UL, (remaining_bytes +  982UL)/ 983UL ) ];
+    else if( FD_LIKELY(   remaining_bytes <= 30816UL ) ) shreds += fd_shredder_data_to_parity_cnt[                    (remaining_bytes +  962UL)/ 963UL   ];
+    else if( FD_LIKELY(   remaining_bytes <= 60352UL ) ) shreds +=                                                    (remaining_bytes +  942UL)/ 943UL;
+    else                                                 shreds +=                                                    (remaining_bytes +  922UL)/ 923UL;
+  } else {
+    if(      FD_UNLIKELY( remaining_bytes <=  9135UL ) ) shreds += fd_shredder_data_to_parity_cnt[ fd_ulong_max( 1UL, (remaining_bytes + 1014UL)/1015UL ) ];
+    else if( FD_LIKELY(   remaining_bytes <= 31840UL ) ) shreds += fd_shredder_data_to_parity_cnt[                    (remaining_bytes +  994UL)/ 995UL   ];
+    else if( FD_LIKELY(   remaining_bytes <= 62400UL ) ) shreds +=                                                    (remaining_bytes +  974UL)/ 975UL;
+    else                                                 shreds +=                                                    (remaining_bytes +  954UL)/ 955UL;
+  }
   return shreds;
 }
 
@@ -171,7 +207,8 @@ fd_shredder_t * fd_shredder_init_batch( fd_shredder_t               * shredder,
    exactly fd_shredder_count_fec_sets( entry_batch_sz ) times. */
 fd_shredder_t * fd_shredder_skip_batch( fd_shredder_t * shredder,
                                         ulong           entry_batch_sz,
-                                        ulong           slot );
+                                        ulong           slot,
+                                        ulong           shred_type );
 
 /* fd_shredder_next_fec_set extracts the next FEC set from the in
    progress batch.  Computes the entirety of both data and parity

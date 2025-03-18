@@ -446,7 +446,15 @@ during_frag( fd_shred_ctx_t * ctx,
         /* We sized this so it fits in one FEC set */
         long shredding_timing =  -fd_tickcount();
 
-        if( FD_UNLIKELY( entry_meta->block_complete && batch_sz < FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ ) ) {
+#if FD_HAS_NO_AGAVE
+        uchar * chained_merkle_root = NULL;
+        ulong payload_for_32_shreds = FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ;
+#else
+        uchar * chained_merkle_root = ctx->chained_merkle_root;
+        ulong payload_for_32_shreds = FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ;
+#endif
+
+        if( FD_UNLIKELY( entry_meta->block_complete && batch_sz < payload_for_32_shreds ) ) {
 
           /* Ensure the last batch generates >= 32 data shreds by
              padding with 0s. Because the last FEC set is "oddly sized"
@@ -457,16 +465,12 @@ during_frag( fd_shred_ctx_t * ctx,
              See documentation for FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ
              for further context. */
 
-          fd_memset( ctx->pending_batch.payload + ctx->pending_batch.pos, 0, FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ - batch_sz );
-          batch_sz = FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ;
+          fd_memset( ctx->pending_batch.payload + ctx->pending_batch.pos, 0, payload_for_32_shreds - batch_sz );
+          batch_sz = payload_for_32_shreds;
         }
 
         fd_shredder_init_batch( ctx->shredder, ctx->pending_batch.raw, batch_sz, target_slot, entry_meta );
-#if FD_HAS_NO_AGAVE
-        FD_TEST( fd_shredder_next_fec_set( ctx->shredder, out, NULL ) );
-#else
-        FD_TEST( fd_shredder_next_fec_set( ctx->shredder, out, ctx->chained_merkle_root ) );
-#endif
+        FD_TEST( fd_shredder_next_fec_set( ctx->shredder, out, chained_merkle_root ) );
         fd_shredder_fini_batch( ctx->shredder );
         shredding_timing      +=  fd_tickcount();
 
@@ -482,7 +486,12 @@ during_frag( fd_shred_ctx_t * ctx,
         fd_histf_sample( ctx->metrics->shredding_timing,     (ulong)shredding_timing           );
       } else {
         /* If it's not our turn, update the indices for this slot */
-        fd_shredder_skip_batch( ctx->shredder, sizeof(ulong)+ctx->pending_batch.pos, target_slot );
+#if FD_HAS_NO_AGAVE
+        ulong shred_type = FD_SHRED_TYPE_MERKLE_DATA;
+#else
+        ulong shred_type = FD_SHRED_TYPE_MERKLE_DATA_CHAINED;
+#endif
+        fd_shredder_skip_batch( ctx->shredder, sizeof(ulong)+ctx->pending_batch.pos, target_slot, shred_type );
       }
 
       ctx->pending_batch.slot           = 0UL;
