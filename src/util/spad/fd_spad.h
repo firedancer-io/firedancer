@@ -177,7 +177,8 @@ fd_spad_reset( fd_spad_t * spad );
 
 FD_FN_CONST static inline ulong
 fd_spad_mem_max_max( ulong footprint ) {
-  ulong mem_max = fd_ulong_max( fd_ulong_align_dn( footprint, FD_SPAD_ALIGN ), sizeof(fd_spad_t) ) - sizeof(fd_spad_t);
+  ulong meta_footprint = fd_ulong_align_up( sizeof(fd_spad_t), FD_SPAD_ALIGN );
+  ulong mem_max        = fd_ulong_max( fd_ulong_align_dn( footprint, FD_SPAD_ALIGN ), meta_footprint ) - meta_footprint;
   return fd_ulong_if( mem_max<=(1UL<<63), mem_max, 0UL );
 }
 

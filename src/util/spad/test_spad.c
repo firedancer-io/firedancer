@@ -164,15 +164,16 @@ main( int     argc,
 
     if( FD_UNLIKELY( mem_max>(1UL<<63) ) ) FD_TEST( !footprint );
     else {
-      FD_TEST( footprint==fd_ulong_align_up( sizeof(fd_spad_t) + mem_max, FD_SPAD_ALIGN ) );
+      FD_TEST( footprint==fd_ulong_align_up( fd_ulong_align_up( sizeof(fd_spad_t), FD_SPAD_ALIGN ) + mem_max, FD_SPAD_ALIGN ) );
       FD_TEST( footprint==FD_SPAD_FOOTPRINT( mem_max ) );
     }
 
     footprint = mem_max;
     mem_max   = fd_spad_mem_max_max( footprint );
 
-    ulong footprint_dn = fd_ulong_align_dn( footprint, FD_SPAD_ALIGN );
-    if( FD_UNLIKELY( (footprint_dn<sizeof(fd_spad_t)) | ((footprint_dn-sizeof(fd_spad_t))>(1UL<<63)) ) )
+    ulong footprint_dn   = fd_ulong_align_dn( footprint, FD_SPAD_ALIGN );
+    ulong meta_footprint = fd_ulong_align_up( sizeof(fd_spad_t), FD_SPAD_ALIGN );
+    if( FD_UNLIKELY( (footprint_dn<meta_footprint) | ((footprint_dn-meta_footprint)>(1UL<<63)) ) )
       FD_TEST( !mem_max );
     else
       FD_TEST( fd_spad_footprint( mem_max )==footprint_dn );
