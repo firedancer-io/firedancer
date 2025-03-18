@@ -24,18 +24,25 @@
 #include <errno.h>
 #include <netinet/in.h>
 
-#define NET_IN_IDX      0
-#define CONTACT_IN_IDX  1
-#define STAKE_IN_IDX    2
-#define STORE_IN_IDX    3
-#define SIGN_IN_IDX     4
+#define NET_IN_IDX     (0)
+#define CONTACT_IN_IDX (1)
+#define STAKE_IN_IDX   (2)
+#define STORE_IN_IDX   (3)
+#define SHRED_IN_IDX   (4)
 
-#define STORE_OUT_IDX 0
-#define NET_OUT_IDX   1
-#define SIGN_OUT_IDX  2
+#define STORE_OUT_IDX (0)
+#define NET_OUT_IDX   (1)
+#define SIGN_OUT_IDX  (2)
 
 #define MAX_REPAIR_PEERS 40200UL
 #define MAX_BUFFER_SIZE  ( MAX_REPAIR_PEERS * sizeof(fd_shred_dest_wire_t))
+
+struct fd_shred_repair_in_ctx {
+  fd_wksp_t * mem;
+  ulong       chunk0;
+  ulong       wmark;
+};
+typedef struct fd_shred_repair_in_ctx fd_shred_repair_in_ctx_t;
 
 struct fd_repair_tile_ctx {
   fd_repair_t * repair;
@@ -65,6 +72,9 @@ struct fd_repair_tile_ctx {
   fd_wksp_t * repair_req_in_mem;
   ulong       repair_req_in_chunk0;
   ulong       repair_req_in_wmark;
+
+  ulong                    shred_in_cnt;
+  fd_shred_repair_in_ctx_t shred_in[ 32 ];
 
   fd_net_rx_bounds_t net_in_bounds;
 
@@ -295,7 +305,8 @@ before_frag( fd_repair_tile_ctx_t * ctx,
   (void)ctx;
   (void)seq;
 
-  if( FD_LIKELY( in_idx==NET_IN_IDX ) ) return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR;
+  if( FD_LIKELY( in_idx==NET_IN_IDX   ) ) return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR;
+  if( FD_LIKELY( in_idx==SHRED_IN_IDX ) ) return 1;
   return 0;
 }
 
@@ -487,29 +498,22 @@ privileged_init( fd_topo_t *      topo,
 static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
-  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
-  if( FD_UNLIKELY( tile->in_cnt != 5 ||
-                   strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "net_repair")     ||
-                   strcmp( topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].name, "gossip_repai" ) ||
-                   strcmp( topo->links[ tile->in_link_id[ STAKE_IN_IDX ] ].name,   "stake_out" )     ||
-                   strcmp( topo->links[ tile->in_link_id[ STORE_IN_IDX ] ].name,   "store_repair" ) ||
-                   strcmp( topo->links[ tile->in_link_id[ SIGN_IN_IDX ] ].name,    "sign_repair" ) ) ) {
-    FD_LOG_ERR(( "repair tile has none or unexpected input links %lu %s %s",
-                 tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
-  }
+  FD_TEST( tile->in_cnt >= 6 ); /* multiple shred tiles */
+  FD_TEST( 0==strcmp( topo->links[ tile->in_link_id[ NET_IN_IDX     ] ].name, "net_repair"   ) );
+  FD_TEST( 0==strcmp( topo->links[ tile->in_link_id[ CONTACT_IN_IDX ] ].name, "gossip_repai" ) );
+  FD_TEST( 0==strcmp( topo->links[ tile->in_link_id[ STAKE_IN_IDX   ] ].name, "stake_out"    ) );
+  FD_TEST( 0==strcmp( topo->links[ tile->in_link_id[ STORE_IN_IDX   ] ].name, "store_repair" ) );
+  FD_TEST( 0==strcmp( topo->links[ tile->in_link_id[ SHRED_IN_IDX   ] ].name, "shred_repair" ) );
 
-  if( FD_UNLIKELY( tile->out_cnt != 3 ||
-                   strcmp( topo->links[ tile->out_link_id[ STORE_OUT_IDX ] ].name, "repair_store" ) ||
-                   strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].name,   "repair_net" ) ||
-                   strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ].name,  "repair_sign" ) ) ) {
-    FD_LOG_ERR(( "repair tile has none or unexpected output links %lu %s %s",
-                 tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
-  }
-
-  if( FD_UNLIKELY( !tile->out_cnt ) ) FD_LOG_ERR(( "repair tile has no primary output link" ));
+  FD_TEST( tile->out_cnt == 3 );
+  FD_TEST( 0==strcmp( topo->links[ tile->out_link_id[ STORE_OUT_IDX ] ].name, "repair_store" ));
+  FD_TEST( 0==strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX   ] ].name, "repair_net" ));
+  FD_TEST( 0==strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX  ] ].name, "repair_sign" ));
 
   /* Scratch mem setup */
+
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_repair_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_repair_tile_ctx_t), sizeof(fd_repair_tile_ctx_t) );
@@ -539,7 +543,9 @@ unprivileged_init( fd_topo_t *      topo,
   fd_ip4_udp_hdr_init( ctx->serve_hdr,  FD_REPAIR_MAX_PACKET_SIZE, 0, ctx->repair_serve_listen_port  );
 
   /* Keyguard setup */
-  fd_topo_link_t * sign_in = &topo->links[ tile->in_link_id[ SIGN_IN_IDX ] ];
+  ulong sign_in_idx = fd_topo_find_tile_in_link( topo, tile, "sign_repair", tile->kind_id );
+  FD_TEST( sign_in_idx!=ULONG_MAX );
+  fd_topo_link_t * sign_in = &topo->links[ tile->in_link_id[ sign_in_idx ] ];
   fd_topo_link_t * sign_out = &topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ];
   if( fd_keyguard_client_join( fd_keyguard_client_new( ctx->keyguard_client,
                                                         sign_out->mcache,
@@ -563,8 +569,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   fd_topo_link_t * netmux_link = &topo->links[ tile->in_link_id[ 0 ] ];
   fd_net_rx_bounds_init( &ctx->net_in_bounds, netmux_link->dcache );
-
-  FD_LOG_NOTICE(( "repair starting" ));
 
   fd_topo_link_t * net_out = &topo->links[ tile->out_link_id[ NET_OUT_IDX ] ];
   ctx->net_out_mcache = net_out->mcache;
@@ -604,6 +608,16 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->repair_req_in_mem    = topo->workspaces[ topo->objs[ repair_req_in_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->repair_req_in_chunk0 = fd_dcache_compact_chunk0( ctx->repair_req_in_mem, repair_req_in_link->dcache );
   ctx->repair_req_in_wmark  = fd_dcache_compact_wmark ( ctx->repair_req_in_mem, repair_req_in_link->dcache, repair_req_in_link->mtu );
+
+  /* Set up shred_repair (in) */
+
+  ctx->shred_in_cnt = tile->in_cnt-SHRED_IN_IDX;
+  for( ulong i = 0; i<ctx->shred_in_cnt; i++ ) {
+    fd_topo_link_t * shred_in_link = &topo->links[ tile->in_link_id[ SHRED_IN_IDX + i ] ];
+    ctx->shred_in[ i ].mem    = topo->workspaces[ topo->objs[ shred_in_link->dcache_obj_id ].wksp_id ].wksp;
+    ctx->shred_in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->shred_in[ i ].mem, shred_in_link->dcache );
+    ctx->shred_in[ i ].wmark  = fd_dcache_compact_wmark( ctx->shred_in[ i ].mem, shred_in_link->dcache, shred_in_link->mtu );
+  }
 
   /* Repair set up */
 

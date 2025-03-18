@@ -48,7 +48,6 @@
 #define STORE_IN_IDX   (0UL)
 #define PACK_IN_IDX    (1UL)
 #define BATCH_IN_IDX   (2UL)
-#define SHRED_IN_IDX   (3UL)
 
 #define STAKE_OUT_IDX  (0UL)
 #define NOTIF_OUT_IDX  (1UL)
@@ -58,13 +57,6 @@
 #define VOTE_ACC_MAX   (2000000UL)
 
 #define BANK_HASH_CMP_LG_MAX 16
-
-struct fd_shred_replay_in_ctx {
-  fd_wksp_t * mem;
-  ulong       chunk0;
-  ulong       wmark;
-};
-typedef struct fd_shred_replay_in_ctx fd_shred_replay_in_ctx_t;
 
 struct fd_replay_out_ctx {
   ulong            idx; /* TODO refactor the bank_out to use this */
@@ -123,10 +115,6 @@ struct fd_replay_tile_ctx {
   fd_wksp_t * batch_in_mem;
   ulong       batch_in_chunk0;
   ulong       batch_in_wmark;
-
-  // Shred tile input
-  ulong             shred_in_cnt;
-  fd_shred_replay_in_ctx_t shred_in[ 32 ];
 
   // Notification output defs
   fd_frag_meta_t * notif_out_mcache;
@@ -477,54 +465,11 @@ slice_poll( fd_replay_tile_ctx_t * ctx,
 
 static int
 before_frag( fd_replay_tile_ctx_t * ctx,
-             ulong                  in_idx,
+             ulong                  in_idx FD_PARAM_UNUSED,
              ulong                  seq,
-             ulong                  sig ) {
+             ulong                  sig FD_PARAM_UNUSED ) {
   (void)ctx;
   (void)seq;
-
-  if( in_idx == SHRED_IN_IDX ) {
-    //FD_LOG_NOTICE(( "in_idx: %lu, seq: %lu, sig: %lu", in_idx, seq, sig ));
-
-    ulong slot        = fd_disco_shred_replay_sig_slot       ( sig );
-    uint  shred_idx   = fd_disco_shred_replay_sig_shred_idx  ( sig );
-    uint  fec_set_idx = fd_disco_shred_replay_sig_fec_set_idx( sig );
-    int   is_code     = fd_disco_shred_replay_sig_is_code    ( sig );
-    int   completes   = fd_disco_shred_replay_sig_completes  ( sig );
-
-    fd_replay_fec_t * fec = fd_replay_fec_query( ctx->replay, slot, fec_set_idx );
-    if( FD_UNLIKELY( !fec ) ) { /* first time receiving a shred for this FEC set */
-      fec = fd_replay_fec_insert( ctx->replay, slot, fec_set_idx );
-      ctx->fecs_inserted++;
-      /* TODO implement eviction */
-    }
-
-    /* If the FEC set is complete we don't need to track it anymore. */
-
-    if( FD_UNLIKELY( completes ) ) {
-      fd_replay_slice_t * slice_deque = fd_replay_slice_map_query( ctx->replay->slice_map, slot, NULL );
-
-      if( FD_UNLIKELY( !slice_deque ) ) slice_deque = fd_replay_slice_map_insert( ctx->replay->slice_map, slot ); /* create new map entry for this slot */
-
-      FD_LOG_INFO(( "removing FEC set %u from slot %lu", fec_set_idx, slot ));
-      fd_replay_fec_remove( ctx->replay, slot, fec_set_idx );
-      ctx->fecs_removed++;
-      slice_poll( ctx, slice_deque, slot );
-      return 1; /* skip frag */
-    }
-
-    /* If it is a coding shred, check if it is the first coding shred
-       we're receiving. We know it's the first if data_cnt is 0 because
-       that is not a valid cnt and means it's uninitialized. */
-
-    if( FD_LIKELY( is_code ) ) { /* optimize for |code| >= |data| */
-      return fec->data_cnt != 0; /* process frag (shred hdr) if it's the first coding shred */
-    } else {
-      uint i = shred_idx - fec_set_idx;
-      fd_replay_fec_idxs_insert( fec->idxs, i ); /* mark ith data shred as received */
-      return 1; /* skip frag */
-    }
-  }
 
   return 0; /* non-shred in - don't skip */
 }
@@ -604,19 +549,16 @@ during_frag( fd_replay_tile_ctx_t * ctx,
     uchar * src = (uchar *)fd_chunk_to_laddr( ctx->batch_in_mem, chunk );
     fd_memcpy( ctx->slot_ctx->slot_bank.epoch_account_hash.uc, src, sizeof(fd_hash_t) );
     FD_LOG_NOTICE(( "Epoch account hash calculated to be %s", FD_BASE58_ENC_32_ALLOCA( ctx->slot_ctx->slot_bank.epoch_account_hash.uc ) ));
-  } else if ( in_idx >= SHRED_IN_IDX ) {
-
-    fd_shred_replay_in_ctx_t * shred_in = &ctx->shred_in[ in_idx-SHRED_IN_IDX ];
-    if( FD_UNLIKELY( chunk<shred_in->chunk0 || chunk>shred_in->wmark || sz > sizeof(fd_shred34_t) ) ) {
-      FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, shred_in->chunk0 , shred_in->wmark ));
-    }
-    // uchar * src = (uchar *)fd_chunk_to_laddr( shred_in->mem, chunk );
-    // fd_memcpy( (uchar *)ctx->shred, src, sz ); /* copy the hdr to read the code_cnt & data_cnt */
-
-    ctx->skip_frag = 1;
-
-    return;
   }
+  // } else if ( in_idx>=REPAIR_IN_IDX ) {
+
+  //   // uchar * src = (uchar *)fd_chunk_to_laddr( shred_in->mem, chunk );
+  //   // fd_memcpy( (uchar *)ctx->shred, src, sz ); /* copy the hdr to read the code_cnt & data_cnt */
+
+  //   ctx->skip_frag = 1;
+
+  //   return;
+  // }
   // if( ctx->flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
   //   /* We do not know the parent slot, pick one from fork selection */
   //   ulong max_slot = 0; /* FIXME: default to snapshot slot/smr */
@@ -1876,8 +1818,8 @@ after_frag( fd_replay_tile_ctx_t * ctx,
      after_frag only called if it's the first code shred we're
        receiving for the FEC set
 
-    ulong slot        = fd_disco_shred_replay_sig_slot( sig );
-    uint  fec_set_idx = fd_disco_shred_replay_sig_fec_set_idx( sig );
+    ulong slot        = fd_disco_shred_repair_sig_slot( sig );
+    uint  fec_set_idx = fd_disco_shred_repair_sig_fec_set_idx( sig );
 
     fd_replay_fec_t * fec = fd_replay_fec_query( ctx->replay, slot, fec_set_idx );
     if( !fec ) return; // hack
@@ -2738,23 +2680,18 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
 
-  FD_LOG_NOTICE(("finished unprivileged init"));
-  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
-
-  if( FD_UNLIKELY( tile->in_cnt < 4 ||
-                   strcmp( topo->links[ tile->in_link_id[ STORE_IN_IDX  ] ].name, "store_replay" ) ||
-                   strcmp( topo->links[ tile->in_link_id[ PACK_IN_IDX ] ].name, "pack_replay")   ||
-                   strcmp( topo->links[ tile->in_link_id[ BATCH_IN_IDX  ] ].name, "batch_replay" ) ||
-                   strcmp( topo->links[ tile->in_link_id[ SHRED_IN_IDX  ] ].name, "shred_replay" ) ) ) {
-    FD_LOG_ERR(( "replay tile has none or unexpected input links %lu %s %s",
-                 tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
-  }
+  FD_TEST( tile->in_cnt == 3 );
+  FD_TEST( 0==strcmp( topo->links[ tile->in_link_id[ STORE_IN_IDX ] ].name, "store_replay" ) );
+  FD_TEST( 0==strcmp( topo->links[ tile->in_link_id[ PACK_IN_IDX  ] ].name, "pack_replay"  ) );
+  FD_TEST( 0==strcmp( topo->links[ tile->in_link_id[ BATCH_IN_IDX ] ].name, "batch_replay" ) );
 
   /**********************************************************************/
   /* scratch (bump)-allocate memory owned by the replay tile            */
   /**********************************************************************/
 
   /* Do not modify order! This is join-order in unprivileged_init. */
+
+  void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
   FD_SCRATCH_ALLOC_INIT( l, scratch );
   fd_replay_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_replay_tile_ctx_t), sizeof(fd_replay_tile_ctx_t) );
@@ -3078,10 +3015,7 @@ unprivileged_init( fd_topo_t *      topo,
   for( ulong i = 0UL; i < ctx->exec_cnt; i++ ) {
     ulong idx = fd_topo_find_tile_out_link( topo, tile, "replay_exec", i );
     fd_topo_link_t * exec_out_link = &topo->links[ tile->out_link_id[ idx ] ];
-
-    if( strcmp( exec_out_link->name, "replay_exec" ) ) {
-      FD_LOG_ERR(("output link confusion for output %lu", idx ));
-    }
+    FD_TEST( 0==strcmp( exec_out_link->name, "replay_exec" ) );
 
     fd_replay_out_ctx_t * exec_out = &ctx->exec_out[ i ];
     exec_out->idx              = idx;
@@ -3128,14 +3062,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->batch_in_mem              = topo->workspaces[ topo->objs[ batch_in_link->dcache_obj_id ].wksp_id ].wksp;
   ctx->batch_in_chunk0           = fd_dcache_compact_chunk0( ctx->batch_in_mem, batch_in_link->dcache );
   ctx->batch_in_wmark            = fd_dcache_compact_wmark( ctx->batch_in_mem, batch_in_link->dcache, batch_in_link->mtu );
-
-  ctx->shred_in_cnt = tile->in_cnt-SHRED_IN_IDX;
-  for( ulong i = 0; i<ctx->shred_in_cnt; i++ ) {
-    fd_topo_link_t * shred_in_link = &topo->links[ tile->in_link_id[ i+SHRED_IN_IDX ] ];
-    ctx->shred_in[ i ].mem    = topo->workspaces[ topo->objs[ shred_in_link->dcache_obj_id ].wksp_id ].wksp;
-    ctx->shred_in[ i ].chunk0 = fd_dcache_compact_chunk0( ctx->shred_in[ i ].mem, shred_in_link->dcache );
-    ctx->shred_in[ i ].wmark  = fd_dcache_compact_wmark( ctx->shred_in[ i ].mem, shred_in_link->dcache, shred_in_link->mtu );
-  }
 
   fd_topo_link_t * notif_out = &topo->links[ tile->out_link_id[ NOTIF_OUT_IDX ] ];
   ctx->notif_out_mcache      = notif_out->mcache;
