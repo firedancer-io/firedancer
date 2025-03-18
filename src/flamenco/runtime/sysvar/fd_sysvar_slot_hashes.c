@@ -37,7 +37,6 @@ void
 fd_sysvar_slot_hashes_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
   fd_slot_hashes_t * slot_hashes = fd_sysvar_slot_hashes_read( slot_ctx, runtime_spad );
   if( !slot_hashes ) {
-    FD_LOG_WARNING(("NEVER CREATED THIS MF BEFORE"));
     uchar * deque_mem = fd_spad_alloc( runtime_spad,
                                        deq_fd_slot_hash_t_align(),
                                        deq_fd_slot_hash_t_footprint( FD_SYSVAR_SLOT_HASHES_CAP ) );
