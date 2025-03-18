@@ -1507,8 +1507,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index                     = offsetof(fd_features_t, accounts_lt_hash)>>3,
-    .id                        = {"\x05\x18\x06\x3f\xec\xff\xbd\xaa\x96\xde\x27\x91\x1a\x5d\xe6\x86\x31\x8d\xa4\x24\x9b\x97\xf3\xee\x06\x4d\xb8\x68\x03\x7b\x99\x8d"},
-                                 /* LtHaSHHsUge7EWTPVrmpuexKz6uVHZXZL6cgJa7W7Zn */
+    .id                        = {"\x04\xfb\xc1\xc8\xa2\xa2\xac\xda\x75\xee\xf4\x49\x65\x74\x21\x57\xdc\x0e\x4b\x16\x65\xd4\x98\xd0\x04\x28\x03\xf7\x8b\xa4\x41\xd8"},
+                                 /* LTHasHQX6661DaDD4S6A2TFi6QBuiwXKv66fB1obfHq */
     .name                      = "accounts_lt_hash",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
@@ -1780,7 +1780,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0x8c012a2071caecd9: return &ids[ 217 ];
   case 0x54c5c5132eaae808: return &ids[ 218 ];
   case 0x9e65a24bcb41d3f6: return &ids[ 219 ];
-  case 0xaabdffec3f061805: return &ids[ 220 ];
+  case 0xdaaca2a2c8c1fb04: return &ids[ 220 ];
   case 0x01c747ea6424fc04: return &ids[ 221 ];
   case 0x56b57bbf5f6afc04: return &ids[ 222 ];
   case 0xc66648576f67b1a5: return &ids[ 223 ];
