@@ -203,7 +203,7 @@
   {"name":"move_stake_and_move_lamports_ixs","pubkey":"7bTK6Jis8Xpfrs8ZoUfiMDPazTcdPcTWheZFJTA5Z6X4","activated_on_all_clusters":1},
   {"name":"deprecate_legacy_vote_ixs","pubkey":"depVvnQ2UysGrhwdiwU42tCadZL8GcBb1i2GYhMopQv"},
   {"name":"partitioned_epoch_rewards_superfeature","pubkey":"PERzQrt5gBD1XEe2c9XdFWqwgHY3mr7cYWbm5V772V8","activated_on_all_clusters":1},
-  {"name":"enable_secp256r1_precompile","pubkey":"sr11RdZWgbHTHxSroPALe6zgaT5A1K9LcE4nfsZS4gi"},
+  {"name":"enable_secp256r1_precompile","pubkey":"sryYyFwxzJop1Bh9XpyiVWjZP4nfHExiqNp3Dh71W9i", "old":"sr11RdZWgbHTHxSroPALe6zgaT5A1K9LcE4nfsZS4gi"},
   {"name":"get_sysvar_syscall_enabled", "pubkey": "CLCoTADvV64PSrnR6QXty6Fwrt9Xc6EdxSJE4wLRePjq"},
   {"name":"disable_sbpf_v0_execution", "pubkey": "XTestFeature1111111111111111111111111111111","comment":"IMPORTANT: NEED REKEY"},
   {"name":"reenable_sbpf_v0_execution", "pubkey": "TestFeature21111111111111111111111111111111","comment":"for test only"},
