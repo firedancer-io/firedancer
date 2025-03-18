@@ -159,9 +159,9 @@ fd_pack_footprint( ulong                    pack_depth,
    rng is a local join to a random number generator used to perturb
    estimates.
 
-   Returns `mem` (which will be properly formatted as a pack object) on
-   success and NULL on failure.  Logs details on failure.  The caller
-   will not be joined to the pack object when this function returns. */
+   Returns `mem` (which will be properly formatted as a pack object)
+   caller will not be joined to the pack object when this function
+   returns. */
 void * fd_pack_new( void                   * mem,
                     ulong                    pack_depth,
                     ulong                    bundle_meta_sz,
@@ -179,8 +179,8 @@ fd_pack_t * fd_pack_join( void * mem );
    scheduled yet. pack must be a valid local join.  The return value
    will be in [0, pack_depth). */
 
-/* For performance reasons, implement this here.  The offset is STATIC_ASSERTed
-   in fd_pack.c. */
+/* For performance reasons, implement this here.  The offset is
+   STATIC_ASSERTed in fd_pack.c. */
 #define FD_PACK_PENDING_TXN_CNT_OFF 72
 FD_FN_PURE static inline ulong
 fd_pack_avail_txn_cnt( fd_pack_t const * pack ) {
@@ -228,9 +228,9 @@ void fd_pack_set_block_limits( fd_pack_t * pack, ulong max_microblocks_per_block
    bits:
     * whether the transaction met the criteria for a simple vote or not,
     * whether this transaction replaced a previously accepted, low
-      priority transaction, rather than being accepted in addition to all
-      the previously accepted transactions.  Since pack maintains a heap
-      with a fixed max size of pack_depth, replacing transaction is
+      priority transaction, rather than being accepted in addition to
+      all the previously accepted transactions.  Since pack maintains a
+      heap with a fixed max size of pack_depth, replacing transaction is
       necessary whenever the heap is full.
 
    The negative (failure) codes are a normal enumeration (not a
@@ -399,10 +399,10 @@ void         fd_pack_insert_txn_cancel( fd_pack_t * pack, fd_txn_e_t * txn      
    These functions must not be called if the pack object was initialized
    with bundle_meta_sz==0. */
 
-fd_txn_e_t * const * fd_pack_insert_bundle_init  ( fd_pack_t * pack, fd_txn_e_t *       * bundle, ulong txn_cnt                                        );
+fd_txn_e_t * const * fd_pack_insert_bundle_init  ( fd_pack_t * pack, fd_txn_e_t *       * bundle, ulong txn_cnt       );
 int                  fd_pack_insert_bundle_fini  ( fd_pack_t * pack, fd_txn_e_t * const * bundle, ulong txn_cnt,
                                                    ulong expires_at, int initializer_bundle, void const * bundle_meta );
-void                 fd_pack_insert_bundle_cancel( fd_pack_t * pack, fd_txn_e_t * const * bundle, ulong txn_cnt                                        );
+void                 fd_pack_insert_bundle_cancel( fd_pack_t * pack, fd_txn_e_t * const * bundle, ulong txn_cnt       );
 
 
 /* =========== More details about initializer bundles ===============
@@ -497,7 +497,7 @@ void const * fd_pack_peek_bundle_meta( fd_pack_t const * pack );
 void fd_pack_set_initializer_bundles_ready( fd_pack_t * pack );
 
 /* fd_pack_schedule_next_microblock schedules pending transactions.
-   These transaction either form a microblock, which is a set of
+   These transactions either form a microblock, which is a set of
    non-conflicting transactions, or a bundle.  The semantics of this
    function are a bit different depending on which one it picks, but
    there are some reasons why they both use this function.
