@@ -133,6 +133,8 @@ typedef struct {
      microblocks to expect in the slot. */
   ulong slot_microblock_cnt;
 
+  ulong pack_txn_cnt; /* total num transactions packed since startup */
+
   /* The maximum number of microblocks that can be packed in this slot.
      Provided by the PoH tile when we become leader.*/
   ulong slot_max_microblocks;
@@ -653,6 +655,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t*)(microblock_dst+schedule_cnt);
       trailer->bank = ctx->leader_bank;
       trailer->microblock_idx = ctx->slot_microblock_cnt;
+      trailer->pack_txn_idx = ctx->pack_txn_cnt;
       trailer->is_bundle = !!(microblock_dst->flags & FD_TXN_P_FLAGS_BUNDLE);
 
       ulong sig = fd_disco_poh_sig( ctx->leader_slot, POH_PKT_TYPE_MICROBLOCK, (ulong)i );
@@ -661,6 +664,7 @@ after_credit( fd_pack_ctx_t *     ctx,
       ctx->bank_ready_at[i] = now2 + (long)ctx->microblock_duration_ticks;
       ctx->out_chunk = fd_dcache_compact_next( ctx->out_chunk, msg_sz+sizeof(fd_microblock_bank_trailer_t), ctx->out_chunk0, ctx->out_wmark );
       ctx->slot_microblock_cnt += fd_ulong_if( trailer->is_bundle, schedule_cnt, 1UL );
+      ctx->pack_txn_cnt += schedule_cnt;
 
       ctx->bank_idle_bitset = fd_ulong_pop_lsb( ctx->bank_idle_bitset );
       ctx->skip_cnt         = (long)schedule_cnt * fd_long_if( ctx->use_consumed_cus, (long)bank_cnt/2L, 1L );
@@ -1113,6 +1117,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->leader_slot                   = ULONG_MAX;
   ctx->leader_bank                   = NULL;
   ctx->slot_microblock_cnt           = 0UL;
+  ctx->pack_txn_cnt                  = 0UL;
   ctx->slot_max_microblocks          = 0UL;
   ctx->slot_max_data                 = 0UL;
   ctx->larger_shred_limits_per_block = tile->pack.larger_shred_limits_per_block;
