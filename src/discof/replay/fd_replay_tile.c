@@ -66,6 +66,12 @@ struct fd_shred_replay_in_ctx {
 };
 typedef struct fd_shred_replay_in_ctx fd_shred_replay_in_ctx_t;
 
+/* Temp fix to store storei exec slots when storei and replay are out of
+   sync. */
+#define DEQUE_NAME     fd_store_slot_deque
+#define DEQUE_T        ulong
+#include "../../util/tmpl/fd_deque_dynamic.c"
+
 struct fd_replay_out_ctx {
   ulong            idx; /* TODO refactor the bank_out to use this */
 
@@ -228,6 +234,7 @@ struct fd_replay_tile_ctx {
 
   /* Metadata updated during execution */
 
+  ulong  *  store_slot_deque;   /* temp */
   ulong     curr_slot;
   ulong     parent_slot;
   ulong     snapshot_slot;
@@ -351,6 +358,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
     l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
   l = FD_LAYOUT_APPEND( l, 128UL, FD_SLICE_MAX );
+  l = FD_LAYOUT_APPEND( l, fd_store_slot_deque_align(), fd_store_slot_deque_footprint( FD_BLOCK_MAX ));
   ulong  thread_spad_size  = fd_spad_footprint( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT );
   l = FD_LAYOUT_APPEND( l, fd_spad_align(), tile->replay.tpool_thread_count * fd_ulong_align_up( thread_spad_size, fd_spad_align() ) );
   l = FD_LAYOUT_APPEND( l, fd_spad_align(), FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT ); /* FIXME: make this configurable */
@@ -544,28 +552,32 @@ during_frag( fd_replay_tile_ctx_t * ctx,
     if( FD_UNLIKELY( chunk<ctx->store_in_chunk0 || chunk>ctx->store_in_wmark || sz>MAX_TXNS_PER_REPLAY ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->store_in_chunk0, ctx->store_in_wmark ));
     }
-    uchar * src = (uchar *)fd_chunk_to_laddr( ctx->store_in_mem, chunk );
+    //uchar * src = (uchar *)fd_chunk_to_laddr( ctx->store_in_mem, chunk );
     /* Incoming packet from store tile. Format:
        Parent slot (ulong - 8 bytes)
        Updated block hash/PoH hash (fd_hash_t - 32 bytes)
        Microblock as a list of fd_txn_p_t (sz * sizeof(fd_txn_p_t)) */
+    ulong store_slot = fd_disco_replay_old_sig_slot( sig );
+    fd_store_slot_deque_push_tail( ctx->store_slot_deque, store_slot );
 
-    ctx->curr_slot = fd_disco_replay_old_sig_slot( sig );
-    /* slot changes */
+    /* Do not change the ctx->curr_slot mid execution. Only pop off the
+       head when the execution is done. */
+
+    ctx->curr_slot = *fd_store_slot_deque_peek_head( ctx->store_slot_deque );
     if( FD_UNLIKELY( ctx->curr_slot < fd_fseq_query( ctx->published_wmark ) ) ) {
       FD_LOG_WARNING(( "store sent slot %lu before our root.", ctx->curr_slot ));
     }
     ctx->flags = 0; //fd_disco_replay_old_sig_flags( sig );
-    ctx->txn_cnt = sz;
+    //ctx->txn_cnt = sz;
 
-    ctx->parent_slot = FD_LOAD( ulong, src );
-    src += sizeof(ulong);
-    memcpy( ctx->blockhash.uc, src, sizeof(fd_hash_t) );
-    src += sizeof(fd_hash_t);
+    ctx->parent_slot = fd_blockstore_parent_slot_query( ctx->blockstore, ctx->curr_slot );
+    //src += sizeof(ulong);
+    //memcpy( ctx->blockhash.uc, src, sizeof(fd_hash_t) );
+    // src += sizeof(fd_hash_t);
     ctx->bank_idx = 0UL;
-    fd_replay_out_ctx_t * bank_out = &ctx->bank_out[ ctx->bank_idx ];
+    /*fd_replay_out_ctx_t * bank_out = &ctx->bank_out[ ctx->bank_idx ];
     uchar * dst_poh = fd_chunk_to_laddr( bank_out->mem, bank_out->chunk );
-    fd_memcpy( dst_poh, src, sz * sizeof(fd_txn_p_t) );
+    fd_memcpy( dst_poh, src, sz * sizeof(fd_txn_p_t) );*/
 
     FD_LOG_INFO(( "other microblock - slot: %lu, parent_slot: %lu, txn_cnt: %lu", ctx->curr_slot, ctx->parent_slot, sz ));
   } else if( in_idx == PACK_IN_IDX ) {
@@ -2436,6 +2448,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
                   FD_BASE58_ENC_32_ALLOCA( ctx->blockhash.uc ) ));
     ctx->last_completed_slot = curr_slot;
 
+
     /**************************************************************************************************/
     /* Call fd_runtime_block_execute_finalize_tpool which updates sysvar and cleanup some other stuff */
     /**************************************************************************************************/
@@ -2621,6 +2634,13 @@ after_credit( fd_replay_tile_ctx_t * ctx,
       fd_solcap_writer_flush( ctx->capture_ctx->capture );
     }
 
+    fd_store_slot_deque_pop_head( ctx->store_slot_deque );
+    if( FD_UNLIKELY( fd_store_slot_deque_cnt( ctx->store_slot_deque ) ) ){
+      FD_LOG_WARNING(("====== PREEMPTIVELY EXECUTING STORE SLOT DEQUE ===== "));
+      ctx->curr_slot = *fd_store_slot_deque_peek_head( ctx->store_slot_deque );
+      ctx->parent_slot = fd_blockstore_parent_slot_query( ctx->blockstore, ctx->curr_slot );
+    }
+
     /**********************************************************************/
     /* Bank hash comparison, and halt if there's a mismatch after replay  */
     /**********************************************************************/
@@ -2768,6 +2788,7 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->bmtree[i]           = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
   }
   void * mbatch_mem          = FD_SCRATCH_ALLOC_APPEND( l, 128UL, FD_SLICE_MAX );
+  void * store_slot_deque    = FD_SCRATCH_ALLOC_APPEND( l, fd_store_slot_deque_align(), fd_store_slot_deque_footprint( FD_BLOCK_MAX ) );
   ulong  thread_spad_size    = fd_spad_footprint( FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT );
   void * spad_mem            = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), tile->replay.tpool_thread_count * fd_ulong_align_up( thread_spad_size, fd_spad_align() ) + FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT );
   ulong  scratch_alloc_mem   = FD_SCRATCH_ALLOC_FINI  ( l, scratch_align() );
@@ -2990,6 +3011,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->tower = fd_tower_join( fd_tower_new( tower_mem ) );
 
   ctx->replay = fd_replay_join( fd_replay_new( replay_mem, tile->replay.fec_max, FD_SHRED_MAX_PER_SLOT, FD_BLOCK_MAX ) );
+  ctx->store_slot_deque = fd_store_slot_deque_join( fd_store_slot_deque_new( store_slot_deque, FD_BLOCK_MAX ) );
 
   /**********************************************************************/
   /* voter                                                              */
