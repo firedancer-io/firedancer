@@ -15,12 +15,14 @@ fd_replay_new( void * shmem, ulong fec_max, ulong slice_max, ulong block_max ) {
     void * slice_deque = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_slice_deque_align(), fd_replay_slice_deque_footprint( slice_max ) );
     fd_replay_slice_deque_new( slice_deque, slice_max );
   }
+  void * slot_deque = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_slot_deque_align(), fd_replay_slot_deque_footprint( block_max ) );
   ulong top = FD_SCRATCH_ALLOC_FINI( l, fd_replay_align() );
   FD_TEST( top == (ulong)shmem + fd_replay_footprint( fec_max, slice_max, block_max ) );
 
   fd_replay_fec_map_new( fec_map, lg_fec_max );
   fd_replay_fec_deque_new( fec_deque, fec_max );
   fd_replay_slice_map_new( slice_map, lg_block_max );
+  fd_replay_slot_deque_new( slot_deque, block_max );
 
   replay->block_max = block_max;
   replay->fec_max   = fec_max;
@@ -62,6 +64,8 @@ fd_replay_join( void * shreplay ) {
     void * slice_deque = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_slice_deque_align(), fd_replay_slice_deque_footprint( replay->slice_max ) );
     slice->deque       = fd_replay_slice_deque_join( slice_deque );
   }
+  void * slot_deque = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_slot_deque_align(), fd_replay_slot_deque_footprint( replay->block_max ) );
+  replay->pending_slots = fd_replay_slot_deque_join( slot_deque );
   FD_SCRATCH_ALLOC_FINI( l, fd_replay_align() );
 
   return replay;
@@ -100,3 +104,4 @@ fd_replay_delete( void * replay ) {
 
   return replay;
 }
+

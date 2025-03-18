@@ -25,6 +25,10 @@
 #define REPLAY_FLAG_CATCHING_UP         (0x08UL)
 #define REPLAY_FLAG_INIT                (0x10UL)
 
+#define EXEC_FLAG_READY_NEW             (0x20UL)
+#define EXEC_FLAG_EXECUTING_BLOCK       (0x40UL)
+#define EXEC_FLAG_FINISHED_BLOCK        (0x80UL)
+
 
 /* FD_NET_MTU is the max full packet size, with ethernet, IP, and UDP
    headers that can go in or out of the net tile.  2048 is the maximum
@@ -39,11 +43,21 @@
 
 /* FD_GOSSIP_MTU is the max sz of a gossip packet which is the same as
    above. */
+
 #define FD_GOSSIP_MTU (FD_TPU_MTU)
 
 /* FD_SHRED_STORE_MTU is the size of an fd_shred34_t (statically
    asserted in fd_shred_tile.c). */
+
 #define FD_SHRED_STORE_MTU (41792UL)
+
+/* FD_SHRED_REPLAY_MTU is the min MTU = 64UL.  Only the first 57 bytes
+   are used in the payload
+
+   57 = coding shred header (89) - signature (64) + merkle root (32). */
+
+#define FD_SHRED_REPLAY_MTU (64UL)
+FD_STATIC_ASSERT( FD_SHRED_REPLAY_MTU >= FD_SHRED_CODE_HEADER_SZ - FD_SHRED_SIGNATURE_SZ + FD_SHRED_MERKLE_ROOT_SZ, update MTU );
 
 #define FD_NETMUX_SIG_MIN_HDR_SZ    ( 42UL) /* The default header size, which means no vlan tags and no IP options. */
 #define FD_NETMUX_SIG_IGNORE_HDR_SZ (102UL) /* Outside the allowable range, but still fits in 4 bits when compressed */
