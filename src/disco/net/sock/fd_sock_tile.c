@@ -391,7 +391,10 @@ poll_rx( fd_sock_tile_t *    ctx,
   if( FD_UNLIKELY( ctx->batch_cnt ) ) {
     FD_LOG_ERR(( "Batch is not clean" ));
   }
-  poll( ctx->pollfd, ctx->sock_cnt, 0 );
+  ctx->tx_idle_cnt = 0; /* restart TX polling */
+  if( FD_UNLIKELY( poll( ctx->pollfd, ctx->sock_cnt, 0 )<0 ) ) {
+    FD_LOG_ERR(( "poll failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
   for( uint j=0UL; j<ctx->sock_cnt; j++ ) {
     if( ctx->pollfd[ j ].revents & (POLLIN|POLLERR) ) {
       pkt_cnt += poll_rx_socket(
@@ -404,7 +407,6 @@ poll_rx( fd_sock_tile_t *    ctx,
     }
     ctx->pollfd[ j ].revents = 0;
   }
-  ctx->tx_idle_cnt = 0; /* restart TX polling */
   return pkt_cnt;
 }
 
