@@ -1192,14 +1192,20 @@ new validator identity.
             },
             // ... many more ...
         ],
-        "compute_units": {
+        "transactions": {
             "max_compute_units": 48000000,
             "start_timestamp_nanos": "1739657041688346791",
             "target_end_timestamp_nanos": "1739657042088346880",
-            "compute_unit_timestamps_nanos": ["1739657041706960598", "1739657041707477011"],
-            "compute_units_deltas": [3428, 0],
-            "bank_count_timestamps_nanos": ["1739657041706960598", "1739657041707477011"],
-            "active_bank_count": [1, 0]
+            "txn_start_timestamps_nanos": ["1739657041706960598"],
+            "txn_stop_timestamps_nanos": ["1739657041707477011"],
+            "txn_compute_units_requested": [0],
+            "txn_compute_units_estimated": [3428],
+            "txn_compute_units_rebated": [0],
+            "txn_micro_lamports_per_cu": ["0"],
+            "txn_error_code": [0],
+            "txn_from_bundle": [false],
+            "txn_is_simple_vote": [true],
+            "txn_bank_idx": [0]
         }
     }
 }
@@ -1214,7 +1220,7 @@ new validator identity.
 | waterfall           | `TxnWaterfall\|null`      | If the slot is not `mine`, will be `null`. Otherwise, a waterfall showing reasons transactions were acquired since the end of the prior leader slot |
 | tile_primary_metric | `TilePrimaryMetric\|null` | If the slot is not `mine`, will be `null`. Otherwise, max value of per-tile-type primary metrics since the end of the prior leader slot |
 | tile_timers         | `TsTileTimers[]\|null`    | If the slot is not `mine`, will be `null`. Otherwise, an array of `TsTileTimers` samples from the slot, sorted earliest to latest. We store this information for the most recently completed 4096 leader slots. This will be `null` for leader slots before that |
-| compute_units       | `ComputeUnits\|null`      | If the slot is not `mine`, will be `null`. Otherwise, a listing of the timestamps when the compute units watermark of the slot changed, and how many banks were active |
+| transactions        | `Transactions\|null`      | If the slot is not `mine`, will be `null`. Otherwise, metrics for the transactions in this slot. Arrays have a seperate entry for each transaction that was packed in this slot, and are ordered in the same order the transactions were packed. |
 
 **`TxnWaterfall`**
 | Field | Type              | Description |
@@ -1267,12 +1273,67 @@ new validator identity.
 | timestamp_nanos   | `string`      | A timestamp of when the tile timers were sampled, nanoseconds since the UNIX epoch |
 | tile_timers       | `TileTimer[]` | A list of all tile timing information at the given sample timestamp |
 
-**`ComputeUnits`**
-| Field                         | Type          | Description |
-|-------------------------------|---------------|-------------|
-| max_compute_units             | `number`      | The maximum number of compute units that can be packed into the slot |
-| start_timestamp_nanos         | `string`      | A UNIX timestamp in nanoseconds, representing the time that we started packing transactions into the slot |
-| target_end_timestamp_nanos    | `string`      | A UNIX timestamp in nanoseconds, representing the target time in nanoeconds that we should stop packing transactions for the slot. Transactions might still finish executing after this end time, if they started executing before it and ran over the deadline |
-| compute_unit_timestamps_nanos | `string[]`    | An array of UNIX timestamps, in nanoseconds. Each timestamp represents the time of when we started executing a microblock, or stopped executing a transaction and rebated it. Timestamps are sorted, and will never decrease |
-| compute_unit_deltas           | `number[]`    | An array, the same length as `compute_unit_timestamps_nanos`. For each timestamp in the above array, this array contains an entry of how many compute units were scheduled for execution at that time. In some cases, the delta will be negative, meaning a microblock completed execution and took less compute units than we thought, so they are rebated back to the available capacity |
-| active_bank_count             | `number[]`    | An array, the same length as `compute_unit_timestamps_nanos`. For each timestamp in the above array, this array contains an entry of how many banks were active at that timestamp |
+**`Transactions`**
+| Field                             | Type        | Description |
+|-----------------------------------|-------------|-------------|
+| max_compute_units                 | `number`    | The maximum number of compute units that can be packed into the slot |
+| start_timestamp_nanos             | `string`    | A UNIX timestamp in nanoseconds, representing the time that we started packing transactions into the slot |
+| target_end_timestamp_nanos        | `string`    | A UNIX timestamp in nanoseconds, representing the target time in nanoeconds that we should stop packing transactions for the slot. Transactions might still finish executing after this end time, if they started executing before it and ran over the deadline |
+| txn_start_timestamps_nanos        | `string[]`  | An array of UNIX timestamps, in nanoseconds. `txn_start_timestamps_nanos[i]` is approximatley the time when the microblock for the `i`-th transaction in the slot began executing. |
+| txn_stop_timestamps_nanos         | `string[]`  | An array of UNIX timestamps, in nanoseconds. `txn_stop_timestamps_nanos[i]` is approximatley the time when the microblock for the `i`-th transaction in the slot completed executing. |
+| txn_compute_units_requested       | `number[]`  | `txn_compute_units_requested[i]` is the requested (via computeBudgetInstruction) or default compute units for the `i`-th transaction in the slot. |
+| txn_compute_units_estimated       | `number[]`  | `txn_compute_units_estimated[i]` is the estimated (by pack) cost for the `i`-th transaction in the slot, as determined by its payload contents and compute budget. |
+| txn_compute_units_rebated         | `number[]`  | `txn_compute_units_rebated[i]` is the difference between the cost estimate and the actual cost (which is strictly less than or equal to the estimate) for the `i`-th transaction in the slot. |
+| txn_priority_fee                  | `string[]`  | `txn_priority_fee[i]` is the priority fee in lamports for the `i`-th transaction in the slot. |
+| txn_tips                          | `string[]`  | `txn_tips[i]` is the total tip in lamports for the `i`-th transaction in the slot. Non-bundle transactions have a tip of 0. |
+| txn_error_code                    | `number[]`  | `txn_error_code[i]` is the error code that explains the failure for the `i`-th transaction in the slot. If the error code is 0, then the transaction succeeded. |
+| txn_from_bundle                   | `boolean[]` | `txn_from_bundle[i]` is `true` if the `i`-th transaction in the slot came from a bundle and `false` otherwise. |
+| txn_is_simple_vote                | `boolean[]` | `txn_is_simple_vote[i]` is `true` if the `i`-th transaction in the slot is a simple vote and `false` otherwise. |
+| txn_bank_idx                      | `number[]`  | `txn_priority_fee[i]` is the index of the bank that executed the `i`-th transaction in the slot. |
+| txn_load_end_timstamps_nanos      | `string[]`  | An array of UNIX timestamps, in nanoseconds. `txn_load_end_timstamps_nanos[i]` is the approximate time when the `i`-th transaction in the slot finished loading / started executing. |
+| txn_exec_end_timstamps_nanos      | `string[]`  | An array of UNIX timestamps, in nanoseconds. `txn_exec_end_timstamps_nanos[i]` is the approximate time when the `i`-th transaction in the slot finished executing. |
+
+These are the possible error codes that might be included in `txn_error_code` and their meanings.
+
+| Code Name                             | Code | Description |
+|---------------------------------------|------|-------------|
+Success                                 | 0    | The transaction successfully executed. |
+AccountInUse                            | 1    | Includes a writable account that was already in use at the time this transaction was executed. |
+AccountLoadedTwice                      | 2    | Lists at least one account pubkey more than once. |
+AccountNotFound                         | 3    | Lists at least one account pubkey that was not found in the accounts database. |
+ProgramAccountNotFound                  | 4    | Could not find or parse a listed program account. |
+InsufficientFundsForFee                 | 5    | Lists a fee payer that does not have enough SOL to fund this transaction. |
+InvalidAccountForFee                    | 6    | Lists a fee payer that may not be used to pay transaction fees. |
+AlreadyProcessed                        | 7    | This transaction has been processed before (e.g. the transaction was sent twice). |
+BlockhashNotFound                       | 8    | Provides a block hash of a `recent` block in the chain, `b`, that this validator has not seen yet, or that is so old it has been discarded. |
+InstructionError                        | 9    | Includes an instruction that failed to process. |
+CallChainTooDeep                        | 10   | Includes a cross program invocation (CPI) chain that exceeds the maximum depth allowed. |
+MissingSignatureForFee                  | 11   | Requires a fee but has no signature present. |
+InvalidAccountIndex                     | 12   | Contains an invalid account reference in one of its instructions. |
+SignatureFailure                        | 13   | Includes a signature that did not pass verification. |
+InvalidProgramForExecution              | 14   | Includes a program that may not be used for executing transactions. |
+SanitizeFailure                         | 15   | Failed to parse a portion of the transaction payload. |
+ClusterMaintenance                      | 16   | Cluster is undergoing an active maintenance window. |
+AccountBorrowOutstanding                | 17   | Transaction processing left an account with an outstanding borrowed reference. |
+WouldExceedMaxBlockCostLimit            | 18   | Exceeded the maximum compute unit cost allowed for this slot. |
+UnsupportedVersion                      | 19   | Includes a transaction version that is not supported by this validator. |
+InvalidWritableAccount                  | 20   | Includes an account marked as writable that is not in fact writable. |
+WouldExceedMaxAccountCostLimit          | 21   | Exceeded the maximum per-account compute unit cost allowed for this slot. |
+WouldExceedAccountDataBlockLimit        | 22   | Retreived accounts data size exceeds the limit imposed for this slot. |
+TooManyAccountLocks                     | 23   | Locked too many accounts. |
+AddressLookupTableNotFound              | 24   | Loads an address table account that doesn't exist. |
+InvalidAddressLookupTableOwner          | 25   | Loads an address table account with an invalid owner. |
+InvalidAddressLookupTableData           | 26   | Loads an address table account with invalid data. |
+InvalidAddressLookupTableIndex          | 27   | Address table lookup uses an invalid index. |
+InvalidRentPayingAccount                | 28   | Deprecated. |
+WouldExceedMaxVoteCostLimit             | 29   | Exceeded the maximum vote compute unit cost allowed for this slot. |
+WouldExceedAccountDataTotalLimit        | 30   | Deprecated. |
+DuplicateInstruction                    | 31   | Contains duplicate instructions. |
+InsufficientFundsForRent                | 32   | Deprecated. |
+MaxLoadedAccountsDataSizeExceeded       | 33   | Retreived accounts data size exceeds the limit imposed for this transaction. |
+InvalidLoadedAccountsDataSizeLimit      | 34   | Requested an invalid data size (i.e. 0). |
+ResanitizationNeeded                    | 35   | Sanitized transaction differed before/after feature activiation. Needs to be resanitized. |
+ProgramExecutionTemporarilyRestricted   | 36   | Execution of a program referenced by this transaciton is restricted. |
+UnbalancedTransaction                   | 37   | The total accounts balance before the transaction does not equal the total balance after. |
+ProgramCacheHitMaxLimit                 | 38   | The program cache allocated for transaction batch for this transaction hit its load limit. |
+CommitCancelled                         | 39   | This transaction was part of a bundle that failed. |

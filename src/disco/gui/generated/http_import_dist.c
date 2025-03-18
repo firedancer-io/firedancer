@@ -4,9 +4,9 @@
 FD_IMPORT_BINARY( file0, "src/disco/gui/dist/assets/firedancer-D_J0EzUc.svg" );
 FD_IMPORT_BINARY( file1, "src/disco/gui/dist/assets/firedancer_logo-CrgwxzPk.svg" );
 FD_IMPORT_BINARY( file2, "src/disco/gui/dist/assets/index-7lXsK3i4.css" );
-FD_IMPORT_BINARY( file3, "src/disco/gui/dist/assets/index-Cj7GsX7P.js" );
-FD_IMPORT_BINARY( file4, "src/disco/gui/dist/assets/index-Dobne4Xk.css" );
-FD_IMPORT_BINARY( file5, "src/disco/gui/dist/assets/index-XUDbbDRM.js" );
+FD_IMPORT_BINARY( file3, "src/disco/gui/dist/assets/index-DBE1Akzz.js" );
+FD_IMPORT_BINARY( file4, "src/disco/gui/dist/assets/index-D-ez52k2.js" );
+FD_IMPORT_BINARY( file5, "src/disco/gui/dist/assets/index-Dobne4Xk.css" );
 FD_IMPORT_BINARY( file6, "src/disco/gui/dist/assets/inter-tight-latin-400-normal-BW_APOAv.woff" );
 FD_IMPORT_BINARY( file7, "src/disco/gui/dist/assets/inter-tight-latin-400-normal-CjmW70MP.woff2" );
 FD_IMPORT_BINARY( file8, "src/disco/gui/dist/assets/privateYou-DxC3xn7b.svg" );
@@ -30,17 +30,17 @@ fd_http_static_file_t STATIC_FILES[] = {
         .data_len = &file2_sz,
     },
     {
-        .name = "/assets/index-Cj7GsX7P.js",
+        .name = "/assets/index-DBE1Akzz.js",
         .data = file3,
         .data_len = &file3_sz,
     },
     {
-        .name = "/assets/index-Dobne4Xk.css",
+        .name = "/assets/index-D-ez52k2.js",
         .data = file4,
         .data_len = &file4_sz,
     },
     {
-        .name = "/assets/index-XUDbbDRM.js",
+        .name = "/assets/index-Dobne4Xk.css",
         .data = file5,
         .data_len = &file5_sz,
     },
