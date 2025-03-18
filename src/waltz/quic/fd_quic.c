@@ -4182,6 +4182,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
                      uint                      self_ip_addr,
                      ushort                    self_udp_port,
                      int                       server ) {
+  if( FD_UNLIKELY( !our_conn_id ) ) return NULL;
 
   fd_quic_config_t * config = &quic->config;
   fd_quic_state_t *  state  = fd_quic_get_state( quic );
@@ -4205,6 +4206,8 @@ fd_quic_conn_create( fd_quic_t *               quic,
   /* if insert failed (should be impossible) fail, and do not remove connection
      from free list */
   if( FD_UNLIKELY( insert_entry == NULL ) ) {
+    /* FIXME This has ~1e-6 probability of happening with 10M conns
+       Retry generating our_conn_id instead of logging a warning */
     FD_LOG_WARNING(( "fd_quic_conn_create failed: failed to register new conn ID" ));
     return NULL;
   }
@@ -4229,7 +4232,7 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->called_conn_new     = 0;
   conn->svc_type            = UINT_MAX;
   conn->svc_time            = LONG_MAX;
-  conn->our_conn_id         = 0;
+  conn->our_conn_id         = our_conn_id;
   conn->host                = (fd_quic_net_endpoint_t){
     .ip_addr  = self_ip_addr, /* may be 0, if outgoing */
     .udp_port = self_udp_port,
@@ -4300,8 +4303,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
   conn->flags                = 0;
   conn->upd_pkt_number       = 0;
 
-  /* initialize connection members */
-  conn->our_conn_id = our_conn_id;
   /* start with minimum supported max datagram */
   /* peers may allow more */
   conn->tx_max_datagram_sz = FD_QUIC_INITIAL_PAYLOAD_SZ_MAX;
