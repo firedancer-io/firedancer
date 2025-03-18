@@ -85,7 +85,8 @@ fd_shredder_delete( void *          mem      ) {
 fd_shredder_t *
 fd_shredder_skip_batch( fd_shredder_t * shredder,
                         ulong           entry_batch_sz,
-                        ulong           slot ) {
+                        ulong           slot,
+                        ulong           shred_type ) {
 
   if( FD_UNLIKELY( entry_batch_sz==0UL ) ) return NULL;
 
@@ -94,8 +95,10 @@ fd_shredder_skip_batch( fd_shredder_t * shredder,
     shredder->parity_idx_offset = 0UL;
   }
 
-  ulong data_shred_cnt        =  fd_shredder_count_data_shreds( entry_batch_sz );
-  ulong parity_shred_cnt      =  fd_shredder_count_parity_shreds( entry_batch_sz );
+  /* type of data & parity shreds is consistent (chained or not, resigned or not),
+     so we just need one type. */
+  ulong data_shred_cnt        =  fd_shredder_count_data_shreds(   entry_batch_sz, shred_type );
+  ulong parity_shred_cnt      =  fd_shredder_count_parity_shreds( entry_batch_sz, shred_type );
 
   shredder->data_idx_offset   += data_shred_cnt;
   shredder->parity_idx_offset += parity_shred_cnt;
@@ -169,8 +172,8 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
     FD_SHRED_TYPE_MERKLE_CODE_CHAINED
   ), FD_SHRED_TYPE_MERKLE_CODE );
 
-  ulong data_shred_cnt          = fd_shredder_count_data_shreds( chunk_size );
-  ulong parity_shred_cnt        = fd_shredder_count_parity_shreds( chunk_size );
+  ulong data_shred_cnt          = fd_shredder_count_data_shreds(   chunk_size, data_type );
+  ulong parity_shred_cnt        = fd_shredder_count_parity_shreds( chunk_size, code_type );
   /* Our notion of tree depth counts the root, while the shred version
      doesn't. */
   ulong tree_depth              = fd_bmtree_depth( data_shred_cnt+parity_shred_cnt )-1UL;
