@@ -12,7 +12,7 @@
 #include "generated/txn.pb.h"
 #include "generated/vm.pb.h"
 #include "generated/block.pb.h"
-#include "../../../funk/fd_funk.h"
+#include "../../../funkier/fd_funkier.h"
 #include "../../vm/fd_vm.h"
 #include "../../../ballet/murmur3/fd_murmur3.h"
 
@@ -20,7 +20,7 @@
    test processing of individual instructions. */
 
 struct fd_exec_instr_test_runner {
-  fd_funk_t * funk;
+  fd_funkier_t * funk;
   fd_spad_t * spad;
 };
 typedef struct fd_exec_instr_test_runner fd_exec_instr_test_runner_t;

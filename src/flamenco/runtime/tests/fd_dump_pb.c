@@ -206,7 +206,7 @@ dump_vote_accounts( fd_exec_slot_ctx_t const *     slot_ctx,
 
 static void
 dump_sanitized_transaction( fd_acc_mgr_t *                         acc_mgr,
-                            fd_funk_txn_t const *                  funk_txn,
+                            fd_funkier_txn_t const *               funk_txn,
                             fd_txn_t const *                       txn_descriptor,
                             uchar const *                          txn_payload,
                             fd_spad_t *                            spad,

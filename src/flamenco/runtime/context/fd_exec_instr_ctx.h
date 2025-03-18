@@ -3,7 +3,7 @@
 
 #include "../info/fd_instr_info.h"
 #include "../fd_executor_err.h"
-#include "../../../funk/fd_funk.h"
+#include "../../../funkier/fd_funkier.h"
 
 /* Avoid circular include dependency with forward declaration */
 struct fd_borrowed_account;
@@ -24,7 +24,7 @@ struct __attribute__((aligned(8UL))) fd_exec_instr_ctx {
   uint child_cnt;  /* number of child instructions */
   uint instr_err;  /* TODO: this is kind of redundant wrt instr_exec */
 
-  fd_funk_txn_t * funk_txn;
+  fd_funkier_txn_t * funk_txn;
   fd_acc_mgr_t *  acc_mgr;
 
   /* Most instructions log the base58 program id multiple times, so it's

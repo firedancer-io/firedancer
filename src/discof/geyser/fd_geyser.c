@@ -1,7 +1,7 @@
 
 #include "fd_geyser.h"
 
-#include "../../funk/fd_funk_filemap.h"
+#include "../../funkier/fd_funkier_filemap.h"
 #include "../../tango/mcache/fd_mcache.h"
 #include "../../flamenco/runtime/fd_acc_mgr.h"
 #include "../../util/wksp/fd_wksp_private.h"
@@ -16,6 +16,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include "fd_geyser.h"
 
 #define SHAM_LINK_CONTEXT fd_geyser_t
 #define SHAM_LINK_STATE   fd_replay_notif_msg_t
@@ -28,7 +29,7 @@
 #include "sham_link.h"
 
 struct fd_geyser {
-  fd_funk_t *          funk;
+  fd_funkier_t *          funk;
   fd_blockstore_t      blockstore_ljoin;
   fd_blockstore_t *    blockstore;
   int                  blockstore_fd;
@@ -71,7 +72,7 @@ fd_geyser_new( void * mem, fd_geyser_args_t * args ) {
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );
   FD_TEST( scratch_top <= (ulong)mem + fd_geyser_footprint() );
 
-  self->funk = fd_funk_open_file( args->funk_file, 1, 0, 0, 0, 0, FD_FUNK_READONLY, NULL );
+  self->funk = fd_funkier_open_file( args->funk_file, 1, 0, 0, 0, 0, FD_FUNKIER_READONLY, NULL );
   if( self->funk == NULL ) {
     FD_LOG_ERR(( "failed to join a funky" ));
   }
@@ -213,6 +214,13 @@ replay_sham_link_during_frag( fd_geyser_t * ctx, fd_replay_notif_msg_t * state, 
   fd_memcpy(state, msg, sizeof(fd_replay_notif_msg_t));
 }
 
+static const void *
+read_account_with_xid( fd_geyser_t * ctx, fd_funkier_rec_key_t * recid, fd_funkier_txn_xid_t * xid, ulong * result_len ) {
+  fd_funkier_txn_map_t txn_map = fd_funkier_txn_map( ctx->funk, fd_funkier_wksp( ctx->funk ) );
+  fd_funkier_txn_t *   txn     = fd_funkier_txn_query( xid, &txn_map );
+  return fd_funkier_rec_query_copy( ctx->funk, txn, recid, fd_scratch_virtual(), result_len );
+}
+
 static void
 replay_sham_link_after_frag(fd_geyser_t * ctx, fd_replay_notif_msg_t * msg) {
   if( msg->type == FD_REPLAY_SLOT_TYPE ) {
@@ -228,12 +236,14 @@ replay_sham_link_after_frag(fd_geyser_t * ctx, fd_replay_notif_msg_t * msg) {
         FD_SCRATCH_SCOPE_BEGIN {
           fd_pubkey_t addr;
           fd_memcpy(&addr, msg->accts.accts[i].id, 32U );
-          fd_funk_rec_key_t key = fd_acc_funk_key( &addr );
+          fd_funkier_rec_key_t key = fd_acc_funk_key( &addr );
           ulong datalen;
-          void * data = fd_funk_rec_query_xid_safe( ctx->funk, &key, &msg->accts.funk_xid, fd_scratch_virtual(), &datalen );
+          const void * data = read_account_with_xid( ctx, &key, &msg->accts.funk_xid, &datalen );
           if( data ) {
             fd_account_meta_t const * meta = fd_type_pun_const( data );
-            (*ctx->acct_fun)( msg->accts.funk_xid.ul[0], msg->accts.sig, &addr, meta, (uchar*)data + meta->hlen, meta->dlen, ctx->fun_arg );
+            if( datalen >= meta->hlen + meta->dlen ) {
+              (*ctx->acct_fun)( msg->accts.funk_xid.ul[0], msg->accts.sig, &addr, meta, (uchar*)data + meta->hlen, meta->dlen, ctx->fun_arg );
+            }
           }
         } FD_SCRATCH_SCOPE_END;
       }

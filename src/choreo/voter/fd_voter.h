@@ -2,7 +2,7 @@
 #define HEADER_fd_src_choreo_voter_fd_voter_h
 
 #include "../fd_choreo_base.h"
-#include "../../funk/fd_funk_rec.h"
+#include "../../funkier/fd_funkier_rec.h"
 
 /* FD_VOTER_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */
@@ -32,7 +32,7 @@ FD_STATIC_ASSERT(FD_VOTER_STATE_CURRENT ==fd_vote_state_versioned_enum_current, 
 struct fd_voter {
   union {
     fd_pubkey_t       key; /* vote account address */
-    fd_funk_rec_key_t rec; /* funk record key to query above */
+    fd_funkier_rec_key_t rec; /* funk record key to query above */
   };
   uint hash; /* reserved for fd_map_dynamic.c */
 
@@ -144,7 +144,7 @@ typedef struct fd_voter_state fd_voter_state_t;
    account. */
 
 fd_voter_state_t const *
-fd_voter_state( fd_funk_t * funk, fd_funk_txn_t const * txn, fd_funk_rec_key_t const * key );
+fd_voter_state( fd_funkier_t * funk, fd_funkier_txn_t const * txn, fd_funkier_rec_key_t const * key );
 
 /* fd_voter_state_cnt returns the number of votes in the voter's tower.
    Assumes `state` is a valid fd_voter_state_t. */

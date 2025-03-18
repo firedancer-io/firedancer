@@ -2,7 +2,7 @@
 #define HEADER_fd_src_flamenco_runtime_context_fd_exec_slot_ctx_h
 
 #include "../fd_blockstore.h"
-#include "../../../funk/fd_funk.h"
+#include "../../../funkier/fd_funkier.h"
 #include "../../../util/rng/fd_rng.h"
 #include "../../../util/wksp/fd_wksp.h"
 
@@ -16,7 +16,7 @@
 struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                       magic; /* ==FD_EXEC_SLOT_CTX_MAGIC */
 
-  fd_funk_txn_t *             funk_txn;
+  fd_funkier_txn_t *             funk_txn;
 
   /* External joins, pointers to be set by caller */
 

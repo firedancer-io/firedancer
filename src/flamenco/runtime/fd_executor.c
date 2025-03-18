@@ -1380,8 +1380,7 @@ fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
                               fd_rawtxn_b_t const *      txn_raw,
                               fd_spad_t *                spad ) {
 
-  fd_funk_t * funk               = slot_ctx->acc_mgr->funk;
-  fd_wksp_t * funk_wksp          = fd_funk_wksp( funk );
+  fd_wksp_t * funk_wksp          = fd_funkier_wksp( slot_ctx->acc_mgr->funk );
   fd_wksp_t * runtime_pub_wksp   = fd_wksp_containing( slot_ctx );
   ulong       funk_txn_gaddr     = fd_wksp_gaddr( funk_wksp, slot_ctx->funk_txn );
   ulong       acc_mgr_gaddr      = fd_wksp_gaddr( runtime_pub_wksp, slot_ctx->acc_mgr );

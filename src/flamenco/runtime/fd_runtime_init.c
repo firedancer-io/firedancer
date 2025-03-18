@@ -9,20 +9,20 @@
 
 /* This file must not depend on fd_executor.h */
 
-fd_funk_rec_key_t
+fd_funkier_rec_key_t
 fd_runtime_epoch_bank_key( void ) {
-  fd_funk_rec_key_t id;
+  fd_funkier_rec_key_t id;
   fd_memset(&id, 1, sizeof(id));
-  id.c[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_BLOCK_EPOCH_BANK_TYPE;
+  id.c[FD_FUNKIER_REC_KEY_FOOTPRINT - 1] = FD_BLOCK_EPOCH_BANK_TYPE;
 
   return id;
 }
 
-fd_funk_rec_key_t
+fd_funkier_rec_key_t
 fd_runtime_slot_bank_key( void ) {
-  fd_funk_rec_key_t id;
+  fd_funkier_rec_key_t id;
   fd_memset(&id, 1, sizeof(id));
-  id.c[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_BLOCK_SLOT_BANK_TYPE;
+  id.c[FD_FUNKIER_REC_KEY_FOOTPRINT - 1] = FD_BLOCK_SLOT_BANK_TYPE;
 
   return id;
 }
@@ -31,16 +31,18 @@ int
 fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
   ulong sz = sizeof(uint) + fd_epoch_bank_size(epoch_bank);
-  fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
+  fd_funkier_rec_key_t id = fd_runtime_epoch_bank_key();
   int opt_err = 0;
-  fd_funk_rec_t * rec = fd_funk_rec_write_prepare( slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, &id, sz, 1, NULL, &opt_err );
+  fd_funkier_rec_prepare_t prepare[1];
+  fd_funkier_t * funk = slot_ctx->acc_mgr->funk;
+  fd_funkier_rec_t *rec = fd_funkier_rec_prepare(funk, slot_ctx->funk_txn, &id, prepare, &opt_err);
   if (NULL == rec)
   {
-    FD_LOG_WARNING(("fd_runtime_save_banks failed: %s", fd_funk_strerror(opt_err)));
+    FD_LOG_WARNING(("fd_runtime_save_banks failed: %s", fd_funkier_strerror(opt_err)));
     return opt_err;
   }
 
-  uchar *buf = fd_funk_val(rec, fd_funk_wksp(slot_ctx->acc_mgr->funk));
+  uchar *buf = fd_funkier_val_truncate(rec, sz, fd_funkier_alloc( funk, fd_funkier_wksp(funk) ), fd_funkier_wksp(funk), NULL);
   *(uint*)buf = FD_RUNTIME_ENC_BINCODE;
   fd_bincode_encode_ctx_t ctx = {
       .data = buf + sizeof(uint),
@@ -50,9 +52,12 @@ fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx ) {
   if (FD_UNLIKELY(fd_epoch_bank_encode(epoch_bank, &ctx) != FD_BINCODE_SUCCESS))
   {
     FD_LOG_WARNING(("fd_runtime_save_banks: fd_firedancer_banks_encode failed"));
+    fd_funkier_rec_cancel( prepare );
     return -1;
   }
   FD_TEST(ctx.data == ctx.dataend);
+
+  fd_funkier_rec_publish( prepare );
 
   FD_LOG_DEBUG(( "epoch frozen, slot=%lu bank_hash=%s poh_hash=%s", slot_ctx->slot_bank.slot, FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.banks_hash.hash ), FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.poh.hash ) ));
 
@@ -62,21 +67,17 @@ fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx ) {
 int fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx ) {
   ulong sz = sizeof(uint) + fd_slot_bank_size( &slot_ctx->slot_bank );
 
-  fd_funk_rec_key_t id      = fd_runtime_slot_bank_key();
+  fd_funkier_rec_key_t id      = fd_runtime_slot_bank_key();
   int               opt_err = 0;
-  fd_funk_rec_t *   rec     = fd_funk_rec_write_prepare( slot_ctx->acc_mgr->funk,
-                                                         slot_ctx->funk_txn,
-                                                         &id,
-                                                         sz,
-                                                         1,
-                                                         NULL,
-                                                         &opt_err );
+  fd_funkier_rec_prepare_t prepare[1];
+  fd_funkier_t * funk = slot_ctx->acc_mgr->funk;
+  fd_funkier_rec_t * rec = fd_funkier_rec_prepare(funk, slot_ctx->funk_txn, &id, prepare, &opt_err);
   if( !rec ) {
-    FD_LOG_WARNING(( "fd_runtime_save_banks failed: %s", fd_funk_strerror( opt_err ) ));
+    FD_LOG_WARNING(( "fd_runtime_save_banks failed: %s", fd_funkier_strerror( opt_err ) ));
     return opt_err;
   }
 
-  uchar * buf = fd_funk_val( rec, fd_funk_wksp( slot_ctx->acc_mgr->funk ) );
+  uchar * buf = fd_funkier_val_truncate(rec, sz, fd_funkier_alloc( funk, fd_funkier_wksp(funk) ), fd_funkier_wksp(funk), NULL);
   *(uint*)buf = FD_RUNTIME_ENC_BINCODE;
   fd_bincode_encode_ctx_t ctx = {
       .data    = buf + sizeof(uint),
@@ -85,12 +86,15 @@ int fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx ) {
 
   if( FD_UNLIKELY( fd_slot_bank_encode( &slot_ctx->slot_bank, &ctx ) != FD_BINCODE_SUCCESS ) ) {
     FD_LOG_WARNING(( "fd_runtime_save_banks: fd_firedancer_banks_encode failed" ));
+    fd_funkier_rec_cancel( prepare );
     return -1;
   }
 
   if( FD_UNLIKELY( ctx.data!=ctx.dataend ) ) {
     FD_LOG_ERR(( "Data does not equal to end of buffer" ));
   }
+
+  fd_funkier_rec_publish( prepare );
 
   FD_LOG_DEBUG(( "slot frozen, slot=%lu bank_hash=%s poh_hash=%s",
                  slot_ctx->slot_bank.slot,
@@ -106,17 +110,18 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
                           int                  clear_first,
                           fd_spad_t *          runtime_spad ) {
 
-  fd_funk_t *           funk         = slot_ctx->acc_mgr->funk;
-  fd_funk_txn_t *       txn          = slot_ctx->funk_txn;
+  fd_funkier_t *           funk         = slot_ctx->acc_mgr->funk;
+  fd_funkier_txn_t *       txn          = slot_ctx->funk_txn;
   fd_exec_epoch_ctx_t * epoch_ctx    = slot_ctx->epoch_ctx;
-  {
-    fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
-    fd_funk_rec_t const * rec = fd_funk_rec_query_global(funk, txn, &id, NULL);
-    if ( rec == NULL )
+  for(;;) {
+    fd_funkier_rec_key_t id = fd_runtime_epoch_bank_key();
+    fd_funkier_rec_query_t query[1];
+    fd_funkier_rec_t const *rec = fd_funkier_rec_query_try_global(funk, txn, &id, NULL, query);
+    if (rec == NULL)
       FD_LOG_ERR(("failed to read banks record: missing record"));
-    void * val = fd_funk_val( rec, fd_funk_wksp(funk) );
+    void * val = fd_funkier_val( rec, fd_funkier_wksp(funk) );
 
-    if( fd_funk_val_sz( rec ) < sizeof(uint) ) {
+    if( fd_funkier_val_sz( rec ) < sizeof(uint) ) {
       FD_LOG_ERR(("failed to read banks record: empty record"));
     }
     uint magic = *(uint*)val;
@@ -127,7 +132,7 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
 
     fd_bincode_decode_ctx_t ctx = {
       .data    = (uchar*)val + sizeof(uint),
-      .dataend = (uchar*)val + fd_funk_val_sz( rec )
+      .dataend = (uchar*)val + fd_funkier_val_sz( rec )
     };
     if( magic==FD_RUNTIME_ENC_BINCODE ) {
 
@@ -151,27 +156,30 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
     }
 
     FD_LOG_NOTICE(( "recovered epoch_bank" ));
+
+    if( !fd_funkier_rec_query_test( query ) ) break;
   }
 
-  {
+  for(;;) {
     if( delete_first ) {
       fd_slot_bank_destroy( &slot_ctx->slot_bank );
     }
-    fd_funk_rec_key_t     id  = fd_runtime_slot_bank_key();
-    fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, txn, &id, NULL );
+    fd_funkier_rec_key_t     id  = fd_runtime_slot_bank_key();
+    fd_funkier_rec_query_t   query[1];
+    fd_funkier_rec_t const * rec = fd_funkier_rec_query_try_global( funk, txn, &id, NULL, query );
     if( FD_UNLIKELY( !rec ) ) {
       FD_LOG_ERR(( "failed to read banks record: missing record" ));
     }
-    void * val = fd_funk_val( rec, fd_funk_wksp( funk ) );
+    void * val = fd_funkier_val( rec, fd_funkier_wksp( funk ) );
 
-    if( fd_funk_val_sz( rec ) < sizeof(uint) ) {
+    if( fd_funkier_val_sz( rec ) < sizeof(uint) ) {
       FD_LOG_ERR(( "failed to read banks record: empty record" ));
     }
     uint magic = *(uint*)val;
 
     fd_bincode_decode_ctx_t ctx = {
       .data    = (uchar*)val + sizeof(uint),
-      .dataend = (uchar*)val + fd_funk_val_sz( rec ),
+      .dataend = (uchar*)val + fd_funkier_val_sz( rec ),
     };
     if( magic == FD_RUNTIME_ENC_BINCODE ) {
 
@@ -196,6 +204,11 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
       FD_LOG_ERR(("failed to read banks record: invalid magic number"));
     }
 
+    if( fd_funkier_rec_query_test( query ) ) {
+      delete_first = 1;
+      continue;
+    }
+
     FD_LOG_NOTICE(( "recovered slot_bank for slot=%ld banks_hash=%s poh_hash %s lthash %s",
                     (long)slot_ctx->slot_bank.slot,
                     FD_BASE58_ENC_32_ALLOCA( slot_ctx->slot_bank.banks_hash.hash ),
@@ -210,6 +223,8 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
     slot_ctx->failed_txn_count = 0;
     slot_ctx->nonvote_failed_txn_count = 0;
     slot_ctx->total_compute_units_used = 0;
+
+    break;
   }
 
 }

@@ -64,10 +64,8 @@ main( int     argc,
 
   ulong const funk_seed = 0xeffb398d4552afbcUL;
   ulong const funk_tag  = 42UL;
-  fd_funk_t * funk = fd_funk_join( fd_funk_new( fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), funk_tag ), funk_tag, funk_seed, txn_max, rec_max ) );
+  fd_funkier_t * funk = fd_funkier_join( fd_funkier_new( fd_wksp_alloc_laddr( wksp, fd_funkier_align(), fd_funkier_footprint( txn_max, rec_max ), funk_tag ), funk_tag, funk_seed, txn_max, rec_max ) );
   FD_TEST( funk );
-
-  fd_funk_start_write( funk );
 
   fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( fd_wksp_alloc_laddr( wksp, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT, static_tag ), funk );
   FD_TEST( acc_mgr );
@@ -78,7 +76,7 @@ main( int     argc,
   fd_spad_push( _spad );
   FD_LOG_WARNING(("SPAD %lu", _spad->mem_max));
 
-  fd_funk_txn_xid_t xid[1] = {{ .ul = {4} }};
+  fd_funkier_txn_xid_t xid[1] = {{ .ul = {4} }};
   ulong             restore_slot = 999UL;
 
   uchar _dummy_ctx[1];  /* memory address to serve as the callback context pointer */
@@ -398,7 +396,7 @@ main( int     argc,
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
     restore->manifest_done = MANIFEST_DONE_SEEN;
-    restore->funk_txn      = fd_funk_txn_prepare( funk, NULL, xid, 0 );
+    restore->funk_txn      = fd_funkier_txn_prepare( funk, NULL, xid, 0 );
     FD_TEST( restore->funk_txn );
 
     _set_accv_sz( restore, /* slot */ 1UL, /* id */ 1UL, /* sz */ sizeof(fd_solana_account_hdr_t) );
@@ -417,7 +415,7 @@ main( int     argc,
       FD_TEST( !fd_acc_exists( acc ) );
     } while(0);
 
-    fd_funk_txn_cancel( funk, restore->funk_txn, 0 );
+    fd_funkier_txn_cancel( funk, restore->funk_txn, 0 );
     fd_snapshot_restore_delete( restore );
     fd_spad_pop( _spad );
   } while(0);
@@ -429,17 +427,23 @@ main( int     argc,
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
     restore->manifest_done = MANIFEST_DONE_SEEN;
-    restore->funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 0 );
+    restore->funk_txn = fd_funkier_txn_prepare( funk, NULL, xid, 0 );
 
     /* Insert a dead account (slot 9) */
     fd_pubkey_t key[1] = {{ .ul = {9} }};
     do {
-      fd_funk_rec_t * out_rec;
-      fd_account_meta_t * meta = fd_acc_mgr_modify_raw( acc_mgr, restore->funk_txn, key, 1, 0UL, NULL, &out_rec, NULL );
+      fd_funkier_rec_key_t id   = fd_acc_funk_key( key );
+      fd_wksp_t *          wksp = fd_funkier_wksp(funk);
+      fd_funkier_rec_prepare_t prepare[1];
+      int err;
+      fd_funkier_rec_t * rec = fd_funkier_rec_prepare( funk, restore->funk_txn, &id, prepare, &err );
+      fd_account_meta_t * meta = fd_funkier_val_truncate( rec, sizeof(fd_account_meta_t), fd_funkier_alloc( funk, wksp ), wksp, &err );
       FD_TEST( meta );
+      fd_account_meta_init( meta );
       meta->dlen          = 0UL;
       meta->info.lamports = 0UL;
       meta->slot          = 9UL;
+      fd_funkier_rec_publish( prepare );
       FD_TEST( !fd_acc_exists( meta ) );
     } while(0);
 
@@ -463,7 +467,7 @@ main( int     argc,
       FD_TEST( acc->slot == 9UL );
     } while(0);
 
-    fd_funk_txn_cancel( funk, restore->funk_txn, 0 );
+    fd_funkier_txn_cancel( funk, restore->funk_txn, 0 );
     fd_snapshot_restore_delete( restore );
     fd_spad_pop( _spad );
   } while(0);
@@ -477,17 +481,23 @@ main( int     argc,
     fd_snapshot_restore_t * restore = NEW_RESTORE_POST_MANIFEST();
     FD_TEST( restore );
     restore->manifest_done = MANIFEST_DONE_SEEN;
-    restore->funk_txn = fd_funk_txn_prepare( funk, NULL, xid, 0 );
+    restore->funk_txn = fd_funkier_txn_prepare( funk, NULL, xid, 0 );
 
     /* Insert an account (key 9, slot 9) */
     fd_pubkey_t key[1] = {{ .ul = {9} }};
     do {
-      fd_funk_rec_t * out_rec;
-      fd_account_meta_t * meta = fd_acc_mgr_modify_raw( acc_mgr, restore->funk_txn, key, 1, 4UL, NULL, &out_rec, NULL );
+      fd_funkier_rec_key_t id   = fd_acc_funk_key( key );
+      fd_wksp_t *          wksp = fd_funkier_wksp(funk);
+      fd_funkier_rec_prepare_t prepare[1];
+      int err;
+      fd_funkier_rec_t * rec = fd_funkier_rec_prepare( funk, restore->funk_txn, &id, prepare, &err );
+      fd_account_meta_t * meta = fd_funkier_val_truncate( rec, sizeof(fd_account_meta_t)+4, fd_funkier_alloc( funk, wksp ), wksp, &err );
       FD_TEST( meta );
+      fd_account_meta_init( meta );
       meta->dlen          =  4UL;
       meta->info.lamports = 90UL;
       meta->slot          =  9UL;
+      fd_funkier_rec_publish( prepare );
       FD_TEST( fd_acc_exists( meta ) );
       memcpy( (uchar *)meta + meta->hlen, "ABCD", 4UL );
     } while(0);
@@ -542,7 +552,7 @@ main( int     argc,
       FD_TEST( 0==memcmp( (uchar const *)acc2 + acc2->hlen, "Hi :)", 4UL ) );
     } while(0);
 
-    fd_funk_txn_cancel( funk, restore->funk_txn, 0 );
+    fd_funkier_txn_cancel( funk, restore->funk_txn, 0 );
     fd_snapshot_restore_delete( restore );
     fd_spad_pop( _spad );
   } while(0);
@@ -663,12 +673,10 @@ main( int     argc,
 
   /* Clean up */
 
-  fd_funk_end_write( funk );
-
   fd_wksp_free_laddr( fd_spad_delete( fd_spad_leave( _spad ) ) );
   fd_wksp_free_laddr( restore_mem );
   fd_wksp_free_laddr( fd_acc_mgr_delete( acc_mgr ) );
-  fd_wksp_free_laddr( fd_funk_delete( fd_funk_leave( funk ) ) );
+  fd_wksp_free_laddr( fd_funkier_delete( fd_funkier_leave( funk ) ) );
   fd_wksp_delete_anonymous( wksp );
 
   FD_LOG_NOTICE(( "pass" ));

@@ -7,7 +7,7 @@
 #include "../../disco/topo/fd_topo.h"
 #include "../../disco/shred/fd_stake_ci.h"
 #include "../../util/fd_util.h"
-#include "../../funk/fd_funk.h"
+#include "../../funkier/fd_funkier.h"
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../tango/mcache/fd_mcache.h"
 #include "../../ballet/http/fd_http_server.h"
@@ -20,7 +20,7 @@ typedef struct fd_rpc_ctx fd_rpc_ctx_t;
 struct fd_rpcserver_args {
   fd_valloc_t          valloc;
   int                  offline;
-  fd_funk_t *          funk;
+  fd_funkier_t *          funk;
   fd_blockstore_t      blockstore_ljoin;
   fd_blockstore_t *    blockstore;
   int                  blockstore_fd;

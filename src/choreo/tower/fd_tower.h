@@ -427,7 +427,7 @@
 #include "../../flamenco/runtime/fd_blockstore.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
 #include "../../flamenco/txn/fd_txn_generate.h"
-#include "../../funk/fd_funk.h"
+#include "../../funkier/fd_funkier.h"
 
 /* FD_TOWER_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */
@@ -652,8 +652,8 @@ fd_tower_switch_check( fd_tower_t const * tower,
 int
 fd_tower_threshold_check( fd_tower_t const *    tower,
                           fd_epoch_t const *    epoch,
-                          fd_funk_t *           funk,
-                          fd_funk_txn_t const * txn,
+                          fd_funkier_t *           funk,
+                          fd_funkier_txn_t const * txn,
                           ulong                 slot,
                           fd_spad_t *           runtime_spad );
 
@@ -701,8 +701,8 @@ fd_tower_reset_slot( fd_tower_t const * tower,
 ulong
 fd_tower_vote_slot( fd_tower_t *          tower,
                     fd_epoch_t const *    epoch,
-                    fd_funk_t *           funk,
-                    fd_funk_txn_t const * txn,
+                    fd_funkier_t *           funk,
+                    fd_funkier_txn_t const * txn,
                     fd_ghost_t const *    ghost,
                     fd_spad_t *           runtime_spad );
 
@@ -738,9 +738,9 @@ fd_tower_vote( fd_tower_t * tower, ulong slot );
 
 void
 fd_tower_from_vote_acc( fd_tower_t *              tower,
-                        fd_funk_t *               funk,
-                        fd_funk_txn_t const *     txn,
-                        fd_funk_rec_key_t const * vote_acc );
+                        fd_funkier_t *               funk,
+                        fd_funkier_txn_t const *     txn,
+                        fd_funkier_rec_key_t const * vote_acc );
 
 /* fd_tower_to_tower_sync converts an fd_tower_t into a fd_tower_sync_t
    to be sent out as a vote program ix inside a txn. */
