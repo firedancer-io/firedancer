@@ -292,8 +292,14 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
     FD_LOG_ERR(( "Could not find valid account manager %lu", acc_mgr_gaddr ));
   }
   txn_ctx->acc_mgr->funk = fd_wksp_laddr( funk_wksp, funk_gaddr );
+  if( FD_UNLIKELY( !txn_ctx->acc_mgr->funk ) ) {
+    FD_LOG_ERR(( "Could not find valid account manager %lu", acc_mgr_gaddr ));
+  }
 
   txn_ctx->sysvar_cache = fd_wksp_laddr( runtime_pub_wksp, sysvar_cache_gaddr );
+  if( FD_UNLIKELY( !txn_ctx->sysvar_cache ) ) {
+    FD_LOG_ERR(( "Could not find valid sysvar cache" ));
+  }
 
   txn_ctx->features     = slot_ctx->epoch_ctx->features;
   txn_ctx->status_cache = slot_ctx->status_cache;
