@@ -42,6 +42,22 @@
 #define FD_GUI_START_PROGRESS_TYPE_WAITING_FOR_SUPERMAJORITY          (11)
 #define FD_GUI_START_PROGRESS_TYPE_RUNNING                            (12)
 
+/* Ideally, we would store an entire epoch's worth of transactions.  If
+   we assume any given validator will have at most 5% stake, and average
+   transactions per slot is around 10_000, then an epoch will have about
+   432_000*10_000*0.05 transactions (~2^28).
+
+   Unfortunately, the transaction struct is 40+ bytes.  If we sized the
+   array to 2^28 entries then the memory required would be ~8.5GB.  In
+   order to keep memory usage to a more reasonable level, we'll
+   arbitrarily use a fourth of that size. */
+#define FD_GUI_TXN_HISTORY_SZ (1UL<<26UL)
+
+#define FD_GUI_TXN_FLAGS_STARTED        (1u)
+#define FD_GUI_TXN_FLAGS_ENDED          (2u)
+#define FD_GUI_TXN_FLAGS_IS_SIMPLE_VOTE (4u)
+#define FD_GUI_TXN_FLAGS_FROM_BUNDLE    (8u)
+
 struct fd_gui_gossip_peer {
   fd_pubkey_t pubkey[ 1 ];
   ulong       wallclock;
@@ -190,27 +206,24 @@ struct fd_gui_slot {
                                from poh to pack telling it to become leader. */
     long reference_nanos;   /* The UNIX timestamp in nanoseconds of the reference tick value above. */
 
-    ushort microblocks_upper_bound; /* An upper bound on the number of microblocks in the slot.  If the number of
-                                       microblocks observed is equal to this, the slot can be considered over.
-                                       Generally, the bound is set to a "final" state by a done packing messsage,
-                                       which sets it to the exact number of microblocks, but sometimes this message
-                                       is not sent, if the max upper bound published by poh was already correct. */
-    ushort begin_microblocks; /* The number of microblocks we have seen be started (sent) from pack to banks. */
-    ushort end_microblocks;   /* The number of microblocks we have seen be ended (sent) from banks to poh.  The
-                                 slot is only considered over if the begin and end microblocks seen are both equal
-                                 to the microblock upper bound. */
+    uint microblocks_upper_bound; /* An upper bound on the number of microblocks in the slot.  If the number of
+                                     microblocks observed is equal to this, the slot can be considered over.
+                                     Generally, the bound is set to a "final" state by a done packing message,
+                                     which sets it to the exact number of microblocks, but sometimes this message
+                                     is not sent, if the max upper bound published by poh was already correct. */
+    uint begin_microblocks; /* The number of microblocks we have seen be started (sent) from pack to banks. */
+    uint end_microblocks;   /* The number of microblocks we have seen be ended (sent) from banks to poh.  The
+                               slot is only considered over if the begin and end microblocks seen are both equal
+                               to the microblock upper bound. */
 
     uint   max_compute_units; /* The maximum number of compute units allowed in the slot.  Currently fixed at 48M
                                  but will increase dynamically in future according to some feature gates. */
-    uchar  has_offset[ 65UL ]; /* has_offset[ i ] is 1 if the i-th bank has seen any transactions in this slot,
-                                  but offset 64 is used for if the bank tile has seen any transactions at all. */
-    uint   start_offset[ 65UL ]; /* If has_offset[ i ] is 1, contains the offset into the GUI state compressed
-                                    CUs array where transactions processed by bank i (or sent by pack, for offset
-                                    64) begin in the array. */
-    uint   end_offset[ 65UL ];   /* If has_offset[ i ] is 1, contains the offset into the GUI state compressed
-                                    CUs array where transactions processed by bank i (or sent by pack, for offset
-                                    64) end in the array. */
-  } cus;
+
+    ulong   start_offset; /* The smallest pack transaction index for this slot. The first transaction for this slot will
+                             be written to gui->txs[ start_offset%FD_GUI_TXN_HISTORY_SZ ]. */
+    ulong   end_offset;   /* The largest pack transaction index for this slot, plus 1. The last transaction for this
+                             slot will be written to gui->txs[ (start_offset-1)%FD_GUI_TXN_HISTORY_SZ ]. */
+  } txs;
 
   fd_gui_txn_waterfall_t waterfall_begin[ 1 ];
   fd_gui_txn_waterfall_t waterfall_end[ 1 ];
@@ -222,6 +235,34 @@ struct fd_gui_slot {
 };
 
 typedef struct fd_gui_slot fd_gui_slot_t;
+
+struct __attribute__((packed)) fd_gui_txn {
+  ulong priority_fee               : 64;
+  ulong tips                       : 64;
+  uint compute_units_requested     : 21; /* <= 1.4M */
+  uint compute_units_estimated     : 21; /* <= 1.4M */
+  uint compute_units_rebated       : 21; /* <= 1.4M */
+  uint bank_idx                    :  6; /* in [0, 64) */
+  uint error_code                  :  6; /* in [0, 64) */
+  int timestamp_delta_start_nanos;
+  int timestamp_delta_end_nanos;
+
+  /* txn_{}_pct is used as a fraction of the total microblock
+     duration. For example, txn_exec_start_pct can be used to find the
+     time when this transaction started executing:
+
+     timestamp_delta_start_exec_nanos = (
+       (timestamp_delta_end_nanos-timestamp_delta_start_nanos) *
+       ((double)txn_{}_pct/USHORT_MAX)
+     ) */
+  uchar txn_load_end_pct;
+  uchar txn_exec_end_pct;
+  uchar flags; /* assigned with the FD_GUI_TXN_FLAGS_* macros */
+  uint microblock_idx;
+};
+
+
+typedef struct fd_gui_txn fd_gui_txn_t;
 
 struct fd_gui {
   fd_http_server_t * http;
@@ -310,20 +351,8 @@ struct fd_gui {
 
   fd_gui_slot_t slots[ FD_GUI_SLOTS_CNT ][ 1 ];
 
-#define FD_GUI_COMPUTE_UNITS_HISTORY_SZ (1UL<<28UL)
-  struct {
-    uint offset;
-
-    /* Compacted representation of history of transaction execution,
-
-         bits [0,  0 ]: 0=started, 1=ended
-         bits [1,  1 ]: 0=bank started, 1=bank ended
-         bits [2,  7 ]: bank index
-         bits [8,  29]: compute units delta
-         bits [30, 63]: timestamp delta */
-    ulong history[ FD_GUI_COMPUTE_UNITS_HISTORY_SZ ];
-  } cus;
-
+  ulong pack_txn_idx; /* The pack index of the most recently received transaction */
+  fd_gui_txn_t txs[ FD_GUI_TXN_HISTORY_SZ ][ 1 ];
   struct {
     int has_block_engine;
     char name[ 16 ];
@@ -410,6 +439,7 @@ fd_gui_plugin_message( fd_gui_t *    gui,
 
 void
 fd_gui_became_leader( fd_gui_t * gui,
+                      long       tickcount,
                       ulong      slot,
                       long       start_time_nanos,
                       long       end_time_nanos,
@@ -418,85 +448,35 @@ fd_gui_became_leader( fd_gui_t * gui,
 
 void
 fd_gui_unbecame_leader( fd_gui_t * gui,
+                        long       tickcount,
                         ulong      slot,
                         ulong      microblocks_in_slot );
 
 void
-fd_gui_execution_begin( fd_gui_t *   gui,
-                        long         tickcount,
-                        ulong        slot,
-                        ulong        bank_idx,
-                        ulong        txn_cnt,
-                        fd_txn_p_t * txns );
+fd_gui_microblock_execution_begin( fd_gui_t *   gui,
+                                   long         tickcount,
+                                   ulong        _slot,
+                                   fd_txn_p_t * txns,
+                                   ulong        txn_cnt,
+                                   uint         microblock_idx,
+                                   ulong        pack_txn_idx,
+                                   int          is_bundle );
 
 void
-fd_gui_execution_end( fd_gui_t *   gui,
-                      long         tickcount,
-                      ulong        bank_idx,
-                      int          is_last_in_bundle,
-                      ulong        slot,
-                      ulong        txn_cnt,
-                      fd_txn_p_t * txns );
+fd_gui_microblock_execution_end( fd_gui_t *   gui,
+                                 long         tickcount,
+                                 ulong        bank_idx,
+                                 ulong        _slot,
+                                 ulong        txn_cnt,
+                                 fd_txn_p_t * txns,
+                                 ulong        pack_txn_idx,
+                                 uchar        error_code,
+                                 uchar        txn_load_end_pct,
+                                 uchar        txn_exec_end_pct,
+                                 ulong        tips );
 
 int
 fd_gui_poll( fd_gui_t * gui );
-
-#define FD_GUI_EXECUTION_TYPE_BEGIN (0)
-#define FD_GUI_EXECUTION_TYPE_END   (1)
-
-static inline ulong
-fd_gui_cu_history_compress( int   execution_type,
-                            ulong bank_idx,
-                            uint  compute_units,
-                            int   active_bank_change,
-                            long  reference_ticks,
-                            long  tickcount ) {
-  /* bits [0,  0 ]: 0=started, 1=ended
-     bits [1,  1 ]: 0=bank started, 1=bank ended
-     bits [2,  7 ]: bank index
-     bits [8,  29]: compute units delta
-     bits [30, 30]: timestamp signed-ness from reference
-     bits [31, 63]: timestamp delta from reference in nanoseconds */
-  long nanos_delta = (long)((double)(tickcount - reference_ticks) / fd_tempo_tick_per_ns( NULL ));
-  nanos_delta = fd_long_min( nanos_delta, 0x1FFFFFFFFUL );
-
-  ulong comp = 0UL;
-  comp |= (ulong)((execution_type&1)<<0);
-  comp |= (ulong)((active_bank_change&1)<<1);
-  comp |= (bank_idx&0x3FUL)<<2;
-  comp |= (compute_units&0x3FFFFFUL)<<8;
-  comp |= ((ulong)(nanos_delta<0L)) <<30;
-  comp |= (((ulong)fd_long_abs(nanos_delta)&0x1FFFFFFFFUL))<<31;
-  return comp;
-}
-
-static inline long
-fd_gui_cu_history_decompress_timestamp( long  reference_nanos,
-                                        ulong comp ) {
-  long nanos_sign = (long)((comp>>30)&1UL);
-  long nanos_delta = (long)((comp>>31)&0x1FFFFFFFFUL);
-  return reference_nanos + (nanos_sign ? -nanos_delta : nanos_delta);
-}
-
-static inline int
-fd_gui_cu_history_decompress_type( ulong comp ) {
-  return (int)(comp&1UL);
-}
-
-static inline int
-fd_gui_cu_history_decompress_active_bank_change( ulong comp ) {
-  return (int)((comp>>1)&1UL);
-}
-
-static inline ulong
-fd_gui_cu_history_decompress_bank( ulong comp ) {
-  return (comp>>2)&0x3FUL;
-}
-
-static inline ulong
-fd_gui_cu_history_decompress_compute_units( ulong comp ) {
-  return (comp>>8)&0x3FFFFFUL;
-}
 
 FD_PROTOTYPES_END
 

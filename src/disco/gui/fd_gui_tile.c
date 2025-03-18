@@ -218,19 +218,36 @@ after_frag( fd_gui_ctx_t *      ctx,
   else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH_PACK ) ) {
     FD_TEST( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_BECAME_LEADER );
     fd_became_leader_t * became_leader = (fd_became_leader_t *)ctx->buf;
-    fd_gui_became_leader( ctx->gui, fd_disco_poh_sig_slot( sig ), became_leader->slot_start_ns, became_leader->slot_end_ns, became_leader->limits.slot_max_cost, became_leader->max_microblocks_in_slot );
+    fd_gui_became_leader( ctx->gui, fd_frag_meta_ts_decomp( tspub, fd_tickcount() ), fd_disco_poh_sig_slot( sig ), became_leader->slot_start_ns, became_leader->slot_end_ns, became_leader->limits.slot_max_cost, became_leader->max_microblocks_in_slot );
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PACK_BANK ) ) {
     if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_MICROBLOCK ) ) {
       FD_TEST( sz<ULONG_MAX );
-      fd_gui_execution_begin( ctx->gui, fd_frag_meta_ts_decomp( tspub, fd_tickcount() ), fd_disco_poh_sig_slot( sig ), fd_disco_poh_sig_bank_tile( sig ), (sz-sizeof( fd_microblock_bank_trailer_t ))/sizeof( fd_txn_p_t ), (fd_txn_p_t *)ctx->buf );
+      fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t *)( ctx->buf+sz-sizeof(fd_microblock_bank_trailer_t) );
+      fd_gui_microblock_execution_begin( ctx->gui,
+                                         fd_frag_meta_ts_decomp( tspub, fd_tickcount() ),
+                                         fd_disco_poh_sig_slot( sig ),
+                                         (fd_txn_p_t *)ctx->buf,
+                                         (sz-sizeof( fd_microblock_bank_trailer_t ))/sizeof( fd_txn_p_t ),
+                                         (uint)trailer->microblock_idx,
+                                         trailer->pack_txn_idx,
+                                         trailer->is_bundle );
     } else if( FD_LIKELY( fd_disco_poh_sig_pkt_type( sig )==POH_PKT_TYPE_DONE_PACKING ) ) {
-      fd_gui_unbecame_leader( ctx->gui, fd_disco_poh_sig_slot( sig ), ((fd_done_packing_t *)ctx->buf)->microblocks_in_slot );
+      fd_gui_unbecame_leader( ctx->gui, fd_frag_meta_ts_decomp( tspub, fd_tickcount() ), fd_disco_poh_sig_slot( sig ), ((fd_done_packing_t *)ctx->buf)->microblocks_in_slot );
     } else {
       FD_LOG_ERR(( "unexpected poh packet type %lu", fd_disco_poh_sig_pkt_type( sig ) ));
     }
   } else if( FD_UNLIKELY( ctx->in_kind[ in_idx ]==IN_KIND_BANK_POH ) ) {
     fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( ctx->buf+sz-sizeof( fd_microblock_trailer_t ) );
-    fd_gui_execution_end( ctx->gui, fd_frag_meta_ts_decomp( tspub, fd_tickcount() ), ctx->in_bank_idx[ in_idx ], trailer->is_last_in_bundle, fd_disco_bank_sig_slot( sig ), (sz-sizeof( fd_microblock_trailer_t ))/sizeof( fd_txn_p_t ), (fd_txn_p_t *)ctx->buf );
+    fd_gui_microblock_execution_end( ctx->gui,
+                                     fd_frag_meta_ts_decomp( tspub, fd_tickcount() ),
+                                     ctx->in_bank_idx[ in_idx ], fd_disco_bank_sig_slot( sig ),
+                                     (sz-sizeof( fd_microblock_trailer_t ))/sizeof( fd_txn_p_t ),
+                                     (fd_txn_p_t *)ctx->buf,
+                                     trailer->pack_txn_idx,
+                                     trailer->error_code,
+                                     trailer->txn_load_end_pct,
+                                     trailer->txn_exec_end_pct,
+                                     trailer->tips );
   } else {
     FD_LOG_ERR(( "unexpected in_kind %lu", ctx->in_kind[ in_idx ] ));
   }
