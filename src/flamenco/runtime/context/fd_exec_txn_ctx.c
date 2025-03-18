@@ -314,10 +314,11 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
   txn_ctx->fee_rate_governor           = slot_ctx->slot_bank.fee_rate_governor;
   txn_ctx->block_hash_queue            = slot_ctx->slot_bank.block_hash_queue; /* MAKE GLOBAL */
 
-  txn_ctx->schedule                    = fd_exec_epoch_ctx_epoch_bank_const( slot_ctx->epoch_ctx )->epoch_schedule;
-  txn_ctx->rent                        = fd_exec_epoch_ctx_epoch_bank_const( slot_ctx->epoch_ctx )->rent;
-  txn_ctx->slots_per_year              = fd_exec_epoch_ctx_epoch_bank_const( slot_ctx->epoch_ctx )->slots_per_year;
-  txn_ctx->stakes                      = fd_exec_epoch_ctx_epoch_bank_const( slot_ctx->epoch_ctx )->stakes;
+  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank_const( slot_ctx->epoch_ctx );
+  txn_ctx->schedule                    = epoch_bank->epoch_schedule;
+  txn_ctx->rent                        = epoch_bank->rent;
+  txn_ctx->slots_per_year              = epoch_bank->slots_per_year;
+  txn_ctx->stakes                      = epoch_bank->stakes;
 
 }
 

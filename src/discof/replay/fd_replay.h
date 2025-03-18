@@ -136,10 +136,12 @@ typedef struct fd_replay_slice fd_replay_slice_t;
 #define DEQUE_T    ulong
 #include "../../util/tmpl/fd_deque_dynamic.c"
 
-#define MAP_NAME    fd_replay_slice_map
-#define MAP_T       fd_replay_slice_t
-#define MAP_KEY     slot
-#define MAP_MEMOIZE 0
+#define MAP_NAME         fd_replay_slice_map
+#define MAP_T            fd_replay_slice_t
+#define MAP_KEY          slot
+#define MAP_KEY_NULL     ULONG_MAX
+#define MAP_KEY_INVAL(k) ((k)==ULONG_MAX)
+#define MAP_MEMOIZE      0
 #include "../../util/tmpl/fd_map_dynamic.c"
 
 #define FD_REPLAY_MAGIC (0xf17eda2ce77e91a70UL) /* firedancer replay version 0 */
