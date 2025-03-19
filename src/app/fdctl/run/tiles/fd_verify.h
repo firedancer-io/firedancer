@@ -55,6 +55,7 @@ fd_txn_verify( fd_verify_ctx_t * ctx,
                uchar const *     udp_payload,
                ushort const      payload_sz,
                fd_txn_t const *  txn,
+               int               dedup,
                ulong *           opt_sig ) {
 
   /* We do not want to deref any non-data field from the txn struct more than once */
@@ -72,11 +73,13 @@ fd_txn_verify( fd_verify_ctx_t * ctx,
      So use this to do a quick dedup of ha traffic. */
 
   ulong ha_dedup_tag = fd_hash( ctx->hashmap_seed, signatures, 64UL );
-  int ha_dup;
-  FD_FN_UNUSED ulong tcache_map_idx = 0; /* ignored */
-  FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );
-  if( FD_UNLIKELY( ha_dup ) ) {
-    return FD_TXN_VERIFY_DEDUP;
+  int ha_dup = 0;
+  if( FD_LIKELY( dedup ) ) {
+    FD_FN_UNUSED ulong tcache_map_idx = 0; /* ignored */
+    FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );
+    if( FD_UNLIKELY( ha_dup ) ) {
+      return FD_TXN_VERIFY_DEDUP;
+    }
   }
 
   /* Verify signatures */
@@ -87,9 +90,11 @@ fd_txn_verify( fd_verify_ctx_t * ctx,
 
   /* Insert into the tcache to dedup ha traffic.
      The dedup check is repeated to guard against duped txs verifying signatures at the same time */
-  FD_TCACHE_INSERT( ha_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );
-  if( FD_UNLIKELY( ha_dup ) ) {
-    return FD_TXN_VERIFY_DEDUP;
+  if( FD_LIKELY( dedup ) ) {
+    FD_TCACHE_INSERT( ha_dup, *ctx->tcache_sync, ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );
+    if( FD_UNLIKELY( ha_dup ) ) {
+      return FD_TXN_VERIFY_DEDUP;
+    }
   }
 
   *opt_sig = ha_dedup_tag;
