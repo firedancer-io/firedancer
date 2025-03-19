@@ -55,13 +55,9 @@ name = \"fd2test\"
     verify_tile_count = 16
     shred_tile_count = 1
 [gossip]
+    entrypoints = [\"$1:8700\"]
     port = 8800
 [tiles]
-    [tiles.gossip]
-        entrypoints = [\"$1\"]
-        peer_ports = [8700]
-        gossip_listen_port = 8800
-
     [tiles.repair]
         repair_intake_listen_port = 8801
         repair_serve_listen_port = 8802

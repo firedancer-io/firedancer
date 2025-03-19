@@ -628,6 +628,7 @@ during_frag( fd_replay_tile_ctx_t * ctx,
 
     return;
   } else if( in_idx>=EXEC_IN_IDX ) {
+    ctx->exec_ready[ in_idx-EXEC_IN_IDX ] = 1;
     FD_LOG_DEBUG(("GOT ACK %lu", in_idx - EXEC_IN_IDX));
     return;
   }
@@ -1778,16 +1779,21 @@ exec_slices( fd_replay_tile_ctx_t * ctx,
     slice_poll( ctx, slice, slot );
   }
 
-  //ulong free_exec_tiles = ctx->exec_cnt;
-  ulong free_exec_tiles = 512;
+  uchar to_exec[ FD_PACK_MAX_BANK_TILES ] = { 0 };
+  uchar num_free_exec_tiles               = 0UL;
+  for( uchar i=0; i<ctx->exec_cnt; i++ ) {
+    if( ctx->exec_ready[ i ] ) {
+      to_exec[ num_free_exec_tiles++ ] = i;
+    }
+  }
 
+  ulong free_exec_tiles = 512;
   while( free_exec_tiles > 0 ){
     /* change to whatever condition handles if(exec free). */
     if( ctx->slice_exec_ctx.txns_rem > 0 ){
       //FD_LOG_WARNING(( "[%s] executing txn", __func__ ));
-      ulong pay_sz = 0UL;
-      fd_replay_out_ctx_t * exec_out = &ctx->exec_out[ ctx->slice_exec_ctx.txns_rem % 6 ];
-      fd_txn_p_t * txn_p_send = (fd_txn_p_t *) fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+      ulong                             pay_sz   = 0UL;
+      fd_replay_out_ctx_t *             exec_out = &ctx->exec_out[ 0 ];
       fd_txn_p_t txn_p;
       ulong txn_sz = fd_txn_parse_core( ctx->mbatch + ctx->slice_exec_ctx.wmark,
                                         fd_ulong_min( FD_TXN_MTU, ctx->slice_exec_ctx.sz - ctx->slice_exec_ctx.wmark ),
@@ -1800,14 +1806,20 @@ exec_slices( fd_replay_tile_ctx_t * ctx,
         FD_LOG_ERR(( "failed to parse transaction in replay" ));
       }
       fd_memcpy( txn_p.payload, ctx->mbatch + ctx->slice_exec_ctx.wmark, pay_sz );
-      txn_p.payload_sz = pay_sz;
+      txn_p.payload_sz           = pay_sz;
       ctx->slice_exec_ctx.wmark += pay_sz;
 
-      memcpy( txn_p_send, &txn_p, sizeof(fd_txn_p_t) );
+      fd_runtime_public_to_exec_msg_t * exec_msg = (fd_runtime_public_to_exec_msg_t *)fd_chunk_to_laddr( exec_out->mem, exec_out->chunk );
+      memcpy( &exec_msg->txn, &txn_p, sizeof(fd_txn_p_t) );
 
       /* dispatch dcache */
-      fd_stem_publish( stem, exec_out->idx, EXEC_NEW_TXN_SIG, exec_out->chunk, sizeof(fd_txn_p_t), 0UL, 0UL, 0UL );
-      exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_txn_p_t), exec_out->chunk0, exec_out->wmark );
+      if( ctx->exec_ready[ 0 ] ) {
+        FD_LOG_WARNING(("EXEC TILE READY"));
+        fd_stem_publish( stem, exec_out->idx, EXEC_NEW_TXN_SIG, exec_out->chunk, sizeof(fd_runtime_public_to_exec_msg_t), 0UL, 0UL, 0UL );
+        exec_out->chunk = fd_dcache_compact_next( exec_out->chunk, sizeof(fd_runtime_public_to_exec_msg_t), exec_out->chunk0, exec_out->wmark );
+      } else {
+        FD_LOG_WARNING(("EXEC TILE NOT READY"));
+      }
 
       /* dispatch tpool */
 
@@ -1968,10 +1980,11 @@ static void
 after_frag( fd_replay_tile_ctx_t * ctx,
             ulong                  in_idx,
             ulong                  seq,
-            ulong                  sig FD_PARAM_UNUSED,
-            ulong                  sz  FD_PARAM_UNUSED,
+            ulong                  sig   FD_PARAM_UNUSED,
+            ulong                  sz    FD_PARAM_UNUSED,
             ulong                  tsorig,
-            fd_stem_context_t *    stem FD_PARAM_UNUSED ) {
+            ulong                  tspub FD_PARAM_UNUSED,
+            fd_stem_context_t *    stem  FD_PARAM_UNUSED ) {
   (void)sig;
   (void)sz;
   (void)seq;
@@ -2402,6 +2415,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
   ctx->slot_ctx->blockstore   = ctx->blockstore;
   ctx->slot_ctx->epoch_ctx    = ctx->epoch_ctx;
   ctx->slot_ctx->status_cache = ctx->status_cache;
+  fd_runtime_update_slots_per_epoch( ctx->slot_ctx, FD_DEFAULT_SLOTS_PER_EPOCH, ctx->runtime_spad );
 
   uchar is_snapshot = strlen( ctx->snapshot ) > 0;
   if( is_snapshot ) {

@@ -209,24 +209,9 @@ fdctl_cfg_from_env( int *      pargc,
                     config_t * config ) {
 
   memset( config, 0, sizeof(config_t) );
-#if FD_HAS_NO_AGAVE
-  static uchar pod_mem1[ FD_TOML_POD_SZ ];
-  static uchar pod_mem2[ FD_TOML_POD_SZ ];
-  uchar * pod1 = fd_pod_join( fd_pod_new( pod_mem1, sizeof(pod_mem1) ) );
-  uchar * pod2 = fd_pod_join( fd_pod_new( pod_mem2, sizeof(pod_mem2) ) );
-
-  uchar scratch[ 4096 ];
-  int toml_err = fd_toml_parse( fdctl_default_config, fdctl_default_config_sz, pod1, scratch, sizeof(scratch), NULL );
-  if( FD_UNLIKELY( toml_err!=FD_TOML_SUCCESS ) ) FD_LOG_ERR(( "Invalid config (%s)", "default.toml" ));
-  toml_err = fd_toml_parse( fdctl_default_firedancer_config, fdctl_default_firedancer_config_sz, pod2, scratch, sizeof(scratch), NULL );
-  if( FD_UNLIKELY( toml_err!=FD_TOML_SUCCESS ) ) FD_LOG_ERR(( "Invalid config (%s)", "default-firedancer.toml" ));
-
-  if( FD_UNLIKELY( !fdctl_pod_to_cfg( config, pod1 ) ) ) FD_LOG_ERR(( "Invalid config (%s)", "default.toml" ));
-  if( FD_UNLIKELY( !fdctl_pod_to_cfg( config, pod2 ) ) ) FD_LOG_ERR(( "Invalid config (%s)", "default-firedancer.toml" ));
-  fd_pod_delete( fd_pod_leave( pod1 ) );
-  fd_pod_delete( fd_pod_leave( pod2 ) );
-#else
   fdctl_cfg_load_buf( config, (char const *)fdctl_default_config, fdctl_default_config_sz, "default" );
+#if FD_HAS_NO_AGAVE
+  fdctl_cfg_load_buf( config, (char const *)fdctl_default_firedancer_config, fdctl_default_firedancer_config_sz, "default_firedancer" );
 #endif
 
   const char * user_config = fd_env_strip_cmdline_cstr(
@@ -263,74 +248,10 @@ fdctl_cfg_from_env( int *      pargc,
   strncpy( config->hostname, utsname.nodename, sizeof(config->hostname) );
   config->hostname[ sizeof(config->hostname)-1UL ] = '\0'; /* Just truncate the name if it's too long to fit */
 
-  if( FD_UNLIKELY( !strcmp( config->tiles.net.interface, "" ) && !config->development.netns.enabled ) ) {
-    uint ifindex;
-    int result = fd_net_util_internet_ifindex( &ifindex );
-    if( FD_UNLIKELY( -1==result && errno!=ENODEV ) ) FD_LOG_ERR(( "could not get network device index (%i-%s)", errno, fd_io_strerror( errno ) ));
-    else if( FD_UNLIKELY( -1==result ) )
-      FD_LOG_ERR(( "no network device found which routes to 8.8.8.8. If no network "
-                   "interface is specified in the configuration file, Firedancer "
-                   "tries to use the first network interface found which routes to "
-                   "8.8.8.8. You can see what this is by running `ip route get 8.8.8.8` "
-                   "You can fix this error by specifying a network interface to bind to in "
-                   "your configuration file under [net.interface]" ));
-
-    if( FD_UNLIKELY( !if_indextoname( ifindex, config->tiles.net.interface ) ) )
-      FD_LOG_ERR(( "could not get name of interface with index %u", ifindex ));
-  }
-
   ulong cluster = fd_genesis_cluster_identify( config->consensus.expected_genesis_hash );
   config->is_live_cluster = cluster != FD_CLUSTER_UNKNOWN;
 
-  if( FD_UNLIKELY( config->development.netns.enabled ) ) {
-    if( !strcmp( config->tiles.net.interface, "" ) ) {
-      memcpy( config->tiles.net.interface, config->development.netns.interface0, sizeof(config->tiles.net.interface) );
-    }
-
-    if( !strcmp( config->development.pktgen.fake_dst_ip, "" ) ) {
-      memcpy( config->development.pktgen.fake_dst_ip, config->development.netns.interface1_addr, sizeof(config->development.netns.interface1_addr) );
-    }
-
-    if( FD_UNLIKELY( strcmp( config->development.netns.interface0, config->tiles.net.interface ) ) ) {
-      FD_LOG_ERR(( "netns interface and firedancer interface are different. If you are using the "
-                   "[development.netns] functionality to run Firedancer in a network namespace "
-                   "for development, the configuration file must specify that "
-                   "[development.netns.interface0] is the same as [tiles.net.interface]" ));
-    }
-
-    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->development.netns.interface0_addr, &config->tiles.net.ip_addr ) ) )
-      FD_LOG_ERR(( "configuration specifies invalid netns IP address `%s`", config->development.netns.interface0_addr ));
-  } else {
-    if( FD_UNLIKELY( !if_nametoindex( config->tiles.net.interface ) ) )
-      FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", config->tiles.net.interface ));
-    uint iface_ip;
-    if( FD_UNLIKELY( -1==fd_net_util_if_addr( config->tiles.net.interface, &iface_ip ) ) )
-      FD_LOG_ERR(( "could not get IP address for interface `%s`", config->tiles.net.interface ));
-
-    if( FD_UNLIKELY( strcmp( config->gossip.host, "" ) ) ) {
-      uint gossip_ip_addr = iface_ip;
-      int  has_gossip_ip4 = 0;
-      if( FD_UNLIKELY( strlen( config->gossip.host )<=15UL ) ) {
-        /* Only sets gossip_ip_addr if it's a valid IPv4 address, otherwise assume it's a DNS name */
-        has_gossip_ip4 = fd_cstr_to_ip4_addr( config->gossip.host, &gossip_ip_addr );
-      }
-      if ( FD_UNLIKELY( !fd_ip4_addr_is_public( gossip_ip_addr ) && config->is_live_cluster && has_gossip_ip4 ) )
-        FD_LOG_ERR(( "Trying to use [gossip.host] " FD_IP4_ADDR_FMT " for listening to incoming "
-                     "transactions, but it is part of a private network and will not be routable "
-                     "for other Solana network nodes.",
-                     FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
-    } else if ( FD_UNLIKELY( !fd_ip4_addr_is_public( iface_ip ) && config->is_live_cluster ) ) {
-      FD_LOG_ERR(( "Trying to use network interface `%s` for listening to incoming transactions, "
-                   "but it has IPv4 address " FD_IP4_ADDR_FMT " which is part of a private network "
-                   "and will not be routable for other Solana network nodes. If you are running "
-                   "behind a NAT and this interface is publicly reachable, you can continue by "
-                   "manually specifying the IP address to advertise in your configuration under "
-                   "[gossip.host].",
-                   config->tiles.net.interface, FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
-    }
-
-    config->tiles.net.ip_addr = iface_ip;
-  }
+  fdctl_cfg_net_auto( config );
 
   if( FD_UNLIKELY( -1==fd_sys_util_user_to_uid( config->user, &config->uid, &config->gid ) ) )
     FD_LOG_ERR(( "configuration file wants firedancer to run as user `%s` but it does not exist", config->user ));
@@ -479,6 +400,81 @@ fdctl_cfg_from_env( int *      pargc,
 
   fdctl_cfg_validate( config );
   validate_ports( config );
+}
+
+void
+fdctl_cfg_net_auto( config_t * config ) {
+
+  if( FD_UNLIKELY( !strcmp( config->tiles.net.interface, "" ) && !config->development.netns.enabled ) ) {
+    uint ifindex;
+    int result = fd_net_util_internet_ifindex( &ifindex );
+    if( FD_UNLIKELY( -1==result && errno!=ENODEV ) ) FD_LOG_ERR(( "could not get network device index (%i-%s)", errno, fd_io_strerror( errno ) ));
+    else if( FD_UNLIKELY( -1==result ) )
+      FD_LOG_ERR(( "no network device found which routes to 8.8.8.8. If no network "
+                   "interface is specified in the configuration file, Firedancer "
+                   "tries to use the first network interface found which routes to "
+                   "8.8.8.8. You can see what this is by running `ip route get 8.8.8.8` "
+                   "You can fix this error by specifying a network interface to bind to in "
+                   "your configuration file under [net.interface]" ));
+
+    if( FD_UNLIKELY( !if_indextoname( ifindex, config->tiles.net.interface ) ) )
+      FD_LOG_ERR(( "could not get name of interface with index %u", ifindex ));
+  }
+
+  if( FD_UNLIKELY( config->development.netns.enabled ) ) {
+
+    if( !strcmp( config->tiles.net.interface, "" ) ) {
+      memcpy( config->tiles.net.interface, config->development.netns.interface0, sizeof(config->tiles.net.interface) );
+    }
+
+    if( !strcmp( config->development.pktgen.fake_dst_ip, "" ) ) {
+      memcpy( config->development.pktgen.fake_dst_ip, config->development.netns.interface1_addr, sizeof(config->development.netns.interface1_addr) );
+    }
+
+    if( FD_UNLIKELY( strcmp( config->development.netns.interface0, config->tiles.net.interface ) ) ) {
+      FD_LOG_ERR(( "netns interface and firedancer interface are different. If you are using the "
+                   "[development.netns] functionality to run Firedancer in a network namespace "
+                   "for development, the configuration file must specify that "
+                   "[development.netns.interface0] is the same as [tiles.net.interface]" ));
+    }
+
+    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->development.netns.interface0_addr, &config->tiles.net.ip_addr ) ) )
+      FD_LOG_ERR(( "configuration specifies invalid netns IP address `%s`", config->development.netns.interface0_addr ));
+
+  } else { /* !config->development.netns.enabled */
+
+    if( FD_UNLIKELY( !if_nametoindex( config->tiles.net.interface ) ) )
+      FD_LOG_ERR(( "configuration specifies network interface `%s` which does not exist", config->tiles.net.interface ));
+    uint iface_ip;
+    if( FD_UNLIKELY( -1==fd_net_util_if_addr( config->tiles.net.interface, &iface_ip ) ) )
+      FD_LOG_ERR(( "could not get IP address for interface `%s`", config->tiles.net.interface ));
+
+    if( FD_UNLIKELY( strcmp( config->gossip.host, "" ) ) ) {
+      uint gossip_ip_addr = iface_ip;
+      int  has_gossip_ip4 = 0;
+      if( FD_UNLIKELY( strlen( config->gossip.host )<=15UL ) ) {
+        /* Only sets gossip_ip_addr if it's a valid IPv4 address, otherwise assume it's a DNS name */
+        has_gossip_ip4 = fd_cstr_to_ip4_addr( config->gossip.host, &gossip_ip_addr );
+      }
+      if( FD_UNLIKELY( !fd_ip4_addr_is_public( gossip_ip_addr ) && config->is_live_cluster && has_gossip_ip4 ) )
+        FD_LOG_ERR(( "Trying to use [gossip.host] " FD_IP4_ADDR_FMT " for listening to incoming "
+                     "transactions, but it is part of a private network and will not be routable "
+                     "for other Solana network nodes.",
+                     FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
+    } else if( FD_UNLIKELY( !fd_ip4_addr_is_public( iface_ip ) && config->is_live_cluster ) ) {
+      FD_LOG_ERR(( "Trying to use network interface `%s` for listening to incoming transactions, "
+                   "but it has IPv4 address " FD_IP4_ADDR_FMT " which is part of a private network "
+                   "and will not be routable for other Solana network nodes. If you are running "
+                   "behind a NAT and this interface is publicly reachable, you can continue by "
+                   "manually specifying the IP address to advertise in your configuration under "
+                   "[gossip.host].",
+                   config->tiles.net.interface, FD_IP4_ADDR_FMT_ARGS( iface_ip ) ));
+    }
+
+    config->tiles.net.ip_addr = iface_ip;
+
+  }
+
 }
 
 int

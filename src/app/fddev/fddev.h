@@ -50,9 +50,17 @@ void flame_cmd_fn     ( args_t * args, config_t * config );
 void load_cmd_fn      ( args_t * args, config_t * config );
 void pktgen_cmd_fn    ( args_t * args, config_t * config );
 void quic_trace_cmd_fn( args_t * args, config_t * config );
-void spy_cmd_fn       ( args_t * args, config_t * config );
 void txn_cmd_fn       ( args_t * args, config_t * config );
 void wksp_cmd_fn      ( args_t * args, config_t * config );
 
+#if FD_HAS_NO_AGAVE
+
+void gossip_cmd_args( int * pargc, char *** pargv, args_t * args );
+
+void gossip_cmd_fn( args_t * args, config_t * config );
+
+void gossip_cmd_perm( args_t * args, fd_cap_chk_t * chk, config_t const * config );
+
+#endif /* FD_HAS_NO_AGAVE */
 
 #endif /* HEADER_fd_src_app_fddev_fddev_h */

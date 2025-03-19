@@ -1410,8 +1410,8 @@ fd_feature_id_t const ids[] = {
     .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, enable_secp256r1_precompile)>>3,
-    .id                        = {"\x0d\x06\x71\xf0\x4f\xe3\x38\x2c\x46\xac\x54\x4a\xad\x9b\x98\x50\xa8\xa0\x26\x18\x41\x58\x58\xbf\xe8\xf0\xca\x6c\x04\x32\x18\x93"},
-                                 /* sr11RdZWgbHTHxSroPALe6zgaT5A1K9LcE4nfsZS4gi */
+    .id                        = {"\x0d\x07\x8c\x21\xbe\xd3\x57\x07\x4e\x81\xe0\x14\x2f\x72\x03\x09\x53\xc1\x1d\x7f\xe7\x77\xf2\x7b\x8b\xaa\x1d\x08\x1c\x72\x57\x6d"},
+                                 /* sryYyFwxzJop1Bh9XpyiVWjZP4nfHExiqNp3Dh71W9i */
     .name                      = "enable_secp256r1_precompile",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
@@ -1507,8 +1507,8 @@ fd_feature_id_t const ids[] = {
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
   { .index                     = offsetof(fd_features_t, accounts_lt_hash)>>3,
-    .id                        = {"\x05\x18\x06\x3f\xec\xff\xbd\xaa\x96\xde\x27\x91\x1a\x5d\xe6\x86\x31\x8d\xa4\x24\x9b\x97\xf3\xee\x06\x4d\xb8\x68\x03\x7b\x99\x8d"},
-                                 /* LtHaSHHsUge7EWTPVrmpuexKz6uVHZXZL6cgJa7W7Zn */
+    .id                        = {"\x04\xfb\xc1\xc8\xa2\xa2\xac\xda\x75\xee\xf4\x49\x65\x74\x21\x57\xdc\x0e\x4b\x16\x65\xd4\x98\xd0\x04\x28\x03\xf7\x8b\xa4\x41\xd8"},
+                                 /* LTHasHQX6661DaDD4S6A2TFi6QBuiwXKv66fB1obfHq */
     .name                      = "accounts_lt_hash",
     .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
 
@@ -1764,7 +1764,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0x0b9047b5bb9ef961: return &ids[ 201 ];
   case 0xa5a66405d0ab6309: return &ids[ 202 ];
   case 0x81fcbfa0d0f6b105: return &ids[ 203 ];
-  case 0x2c38e34ff071060d: return &ids[ 204 ];
+  case 0x0757d3be218c070d: return &ids[ 204 ];
   case 0x829062f252ef5ba8: return &ids[ 205 ];
   case 0x1db51f609c8fcd07: return &ids[ 206 ];
   case 0xe5937c9dd5edd306: return &ids[ 207 ];
@@ -1780,7 +1780,7 @@ fd_feature_id_query( ulong prefix ) {
   case 0x8c012a2071caecd9: return &ids[ 217 ];
   case 0x54c5c5132eaae808: return &ids[ 218 ];
   case 0x9e65a24bcb41d3f6: return &ids[ 219 ];
-  case 0xaabdffec3f061805: return &ids[ 220 ];
+  case 0xdaaca2a2c8c1fb04: return &ids[ 220 ];
   case 0x01c747ea6424fc04: return &ids[ 221 ];
   case 0x56b57bbf5f6afc04: return &ids[ 222 ];
   case 0xc66648576f67b1a5: return &ids[ 223 ];

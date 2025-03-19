@@ -2,8 +2,6 @@
 
 #include "fd_pod_format.h"
 #include "fd_cpu_topo.h"
-#include "../../util/shmem/fd_shmem_private.h"
-#include "../../util/tile/fd_tile_private.h"
 
 fd_topo_t *
 fd_topob_new( void * mem,
@@ -27,7 +25,8 @@ fd_topob_new( void * mem,
   if( FD_UNLIKELY( strlen( app_name )>=sizeof(topo->app_name) ) ) FD_LOG_ERR(( "app_name too long: %s", app_name ));
   strncpy( topo->app_name, app_name, sizeof(topo->app_name) );
 
-  topo->max_page_size = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  topo->max_page_size           = FD_SHMEM_GIGANTIC_PAGE_SZ;
+  topo->gigantic_page_threshold = 4 * FD_SHMEM_HUGE_PAGE_SZ;
 
   return topo;
 }
@@ -342,6 +341,7 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "cswtch",
     "bencho",
     "bhole",  /* FIREDANCER only */
+    "rstart", /* FIREDANCER only */
   };
 
   char const * ORDERED[] = {
@@ -353,13 +353,13 @@ fd_topob_auto_layout( fd_topo_t * topo ) {
     "bundle",
     "verify",
     "dedup",
-    "resolv",
+    "resolv", /* FRANK only */
     "pack",
-    "bank",
-    "poh",
+    "bank",   /* FRANK only */
+    "poh",    /* FRANK only */
     "pohi",   /* FIREDANCER only */
     "shred",
-    "store",
+    "store",  /* FRANK only */
     "storei", /* FIREDANCER only */
     "sign",
     "plugin",
@@ -489,7 +489,7 @@ void
 fd_topob_finish( fd_topo_t * topo,
                  ulong (* align    )( fd_topo_t const * topo, fd_topo_obj_t const * obj ),
                  ulong (* footprint)( fd_topo_t const * topo, fd_topo_obj_t const * obj ),
-                 ulong (* loose    )( fd_topo_t const * topo, fd_topo_obj_t const * obj) ) {
+                 ulong (* loose    )( fd_topo_t const * topo, fd_topo_obj_t const * obj ) ) {
   for( ulong z=0UL; z<topo->tile_cnt; z++ ) {
     fd_topo_tile_t * tile = &topo->tiles[ z ];
 
@@ -550,7 +550,7 @@ fd_topob_finish( fd_topo_t * topo,
     ulong total_wksp_footprint = fd_wksp_footprint( part_max, footprint + fd_topo_workspace_align() + loose_sz );
 
     ulong page_sz = topo->max_page_size;
-    if( FD_UNLIKELY( total_wksp_footprint < 4 * FD_SHMEM_HUGE_PAGE_SZ ) ) page_sz = FD_SHMEM_HUGE_PAGE_SZ;
+    if( total_wksp_footprint < topo->gigantic_page_threshold ) page_sz = FD_SHMEM_HUGE_PAGE_SZ;
     if( FD_UNLIKELY( page_sz!=FD_SHMEM_HUGE_PAGE_SZ && page_sz!=FD_SHMEM_GIGANTIC_PAGE_SZ ) ) FD_LOG_ERR(( "invalid page_sz" ));
 
     ulong wksp_aligned_footprint = fd_ulong_align_up( total_wksp_footprint, page_sz );

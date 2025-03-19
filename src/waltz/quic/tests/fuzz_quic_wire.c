@@ -146,7 +146,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   fd_quic_state_t * state = fd_quic_get_state( quic );
 
   /* Create dummy connection */
-  ulong             our_conn_id  = 0UL;
+  ulong             our_conn_id  = ULONG_MAX;
   fd_quic_conn_id_t peer_conn_id = { .sz=8 };
   uint              dst_ip_addr  = 0U;
   ushort            dst_udp_port = (ushort)0;

@@ -38,9 +38,6 @@
    few percent skip rate. */
 #define TRANSACTION_LIFETIME_SLOTS 160UL
 
-/* About 6 kB on the stack */
-#define FD_PACK_PACK_MAX_OUT FD_PACK_MAX_BANK_TILES
-
 /* Time is normally a long, but pack expects a ulong.  Add -LONG_MIN to
    the time values so that LONG_MIN maps to 0, LONG_MAX maps to
    ULONG_MAX, and everything in between maps linearly with a slope of 1.
@@ -212,11 +209,11 @@ typedef struct {
   int      poll_cursor; /* in [0, bank_cnt), the next bank to poll */
   int      use_consumed_cus;
   long     skip_cnt;
-  ulong *  bank_current[ FD_PACK_PACK_MAX_OUT ];
-  ulong    bank_expect[ FD_PACK_PACK_MAX_OUT  ];
+  ulong *  bank_current[ FD_PACK_MAX_BANK_TILES ];
+  ulong    bank_expect[ FD_PACK_MAX_BANK_TILES  ];
   /* bank_ready_at[x] means don't check bank x until tickcount is at
      least bank_ready_at[x]. */
-  long     bank_ready_at[ FD_PACK_PACK_MAX_OUT  ];
+  long     bank_ready_at[ FD_PACK_MAX_BANK_TILES  ];
 
   fd_wksp_t * out_mem;
   ulong       out_chunk0;
@@ -901,10 +898,12 @@ after_frag( fd_pack_ctx_t *     ctx,
             ulong               sig,
             ulong               sz,
             ulong               tsorig,
+            ulong               tspub,
             fd_stem_context_t * stem ) {
   (void)seq;
   (void)sz;
   (void)tsorig;
+  (void)tspub;
   (void)stem;
 
   long now = fd_tickcount();
@@ -1027,11 +1026,18 @@ unprivileged_init( fd_topo_t *      topo,
     else FD_LOG_ERR(( "pack tile has unexpected input link %lu %s", i, link->name ));
   }
 
-  ulong out_cnt = fd_topo_link_consumer_cnt( topo, &topo->links[ tile->out_link_id[ 0 ] ] );
+  ulong bank_cnt = 0UL;
+  for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
+    fd_topo_tile_t const * consumer_tile = &topo->tiles[ i ];
+    if( FD_UNLIKELY( strcmp( consumer_tile->name, "bank" ) && strcmp( consumer_tile->name, "replay" ) ) ) continue;
+    for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) {
+      if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==tile->out_link_id[ 0 ] ) ) bank_cnt++;
+    }
+  }
 
-  if( FD_UNLIKELY( !out_cnt                                ) ) FD_LOG_ERR(( "pack tile connects to no banking tiles" ));
-  if( FD_UNLIKELY( out_cnt>FD_PACK_PACK_MAX_OUT            ) ) FD_LOG_ERR(( "pack tile connects to too many banking tiles" ));
-  if( FD_UNLIKELY( out_cnt!=tile->pack.bank_tile_count+1UL ) ) FD_LOG_ERR(( "pack tile connects to %lu banking tiles, but tile->pack.bank_tile_count is %lu", out_cnt-1UL, tile->pack.bank_tile_count ));
+  if( FD_UNLIKELY( !bank_cnt                            ) ) FD_LOG_ERR(( "pack tile connects to no banking tiles" ));
+  if( FD_UNLIKELY( bank_cnt>FD_PACK_MAX_BANK_TILES      ) ) FD_LOG_ERR(( "pack tile connects to too many banking tiles" ));
+  if( FD_UNLIKELY( bank_cnt!=tile->pack.bank_tile_count ) ) FD_LOG_ERR(( "pack tile connects to %lu banking tiles, but tile->pack.bank_tile_count is %lu", bank_cnt, tile->pack.bank_tile_count ));
 
 
   ctx->crank->enabled = tile->pack.bundle.enabled;

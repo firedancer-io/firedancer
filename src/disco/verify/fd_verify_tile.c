@@ -101,36 +101,46 @@ after_frag( fd_verify_ctx_t *   ctx,
             ulong               sig,
             ulong               sz,
             ulong               tsorig,
+            ulong               _tspub,
             fd_stem_context_t * stem ) {
   (void)in_idx;
   (void)seq;
   (void)sig;
   (void)sz;
+  (void)_tspub;
 
   fd_txn_m_t * txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   fd_txn_t *  txnt = fd_txn_m_txn_t( txnm );
   txnm->txn_t_sz = (ushort)fd_txn_parse( fd_txn_m_payload( txnm ), txnm->payload_sz, txnt, NULL );
 
-  if( FD_UNLIKELY( txnm->block_engine.bundle_id && (txnm->block_engine.bundle_id!=ctx->bundle_id) ) ) {
+  int is_bundle = !!txnm->block_engine.bundle_id;
+
+  if( FD_UNLIKELY( is_bundle & (txnm->block_engine.bundle_id!=ctx->bundle_id) ) ) {
     ctx->bundle_failed = 0;
     ctx->bundle_id     = txnm->block_engine.bundle_id;
   }
 
-  if( FD_UNLIKELY( txnm->block_engine.bundle_id && ctx->bundle_failed ) ) {
+  if( FD_UNLIKELY( is_bundle & (!!ctx->bundle_failed) ) ) {
     ctx->metrics.bundle_peer_fail_cnt++;
     return;
   }
 
   if( FD_UNLIKELY( !txnm->txn_t_sz ) ) {
-    if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
+    if( FD_UNLIKELY( is_bundle ) ) ctx->bundle_failed = 1;
     ctx->metrics.parse_fail_cnt++;
     return;
   }
 
+  /* Users sometimes send transactions as part of a bundle (with a tip)
+     and via the normal path (without a tip).  Regardless of which
+     arrives first, we want to pack the one with the tip.  Thus, we
+     exempt bundles from the normal HA dedup checks.  The dedup tile
+     will still do a full-bundle dedup check to make sure to drop any
+     identical bundles. */
   ulong _txn_sig;
-  int res = fd_txn_verify( ctx, fd_txn_m_payload( txnm ), txnm->payload_sz, txnt, &_txn_sig );
+  int res = fd_txn_verify( ctx, fd_txn_m_payload( txnm ), txnm->payload_sz, txnt, !is_bundle, &_txn_sig );
   if( FD_UNLIKELY( res!=FD_TXN_VERIFY_SUCCESS ) ) {
-    if( FD_UNLIKELY( txnm->block_engine.bundle_id ) ) ctx->bundle_failed = 1;
+    if( FD_UNLIKELY( is_bundle ) ) ctx->bundle_failed = 1;
 
     if( FD_LIKELY( res==FD_TXN_VERIFY_DEDUP ) ) ctx->metrics.dedup_fail_cnt++;
     else                                        ctx->metrics.verify_fail_cnt++;

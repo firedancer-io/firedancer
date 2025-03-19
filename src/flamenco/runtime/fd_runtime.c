@@ -1417,11 +1417,12 @@ fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
 
     fd_rawtxn_b_t raw_txn = { .raw = txn->payload, .txn_sz = (ushort)txn->payload_sz };
 
+
+    task_info[txn_idx].txn_ctx->spad = runtime_spad;
     int err = fd_execute_txn_prepare_start( slot_ctx,
                                             txn_ctx,
                                             txn_descriptor,
-                                            &raw_txn,
-                                            runtime_spad );
+                                            &raw_txn );
     if( FD_UNLIKELY( err ) ) {
       task_info[txn_idx].exec_res = err;
       txn->flags                  = 0U;
@@ -1731,7 +1732,7 @@ fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
 
   fd_rawtxn_b_t raw_txn = { .raw = txn->payload, .txn_sz = (ushort)txn->payload_sz };
 
-  res = fd_execute_txn_prepare_start( slot_ctx, txn_ctx, txn_descriptor, &raw_txn, exec_spad );
+  res = fd_execute_txn_prepare_start( slot_ctx, txn_ctx, txn_descriptor, &raw_txn );
   if( FD_UNLIKELY( res ) ) {
     txn->flags = 0U;
     return -1;
@@ -3745,7 +3746,7 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
 
       if( txn->xid.ul[0] >= epoch_bank->eah_start_slot ) {
         if( !FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, accounts_lt_hash ) ) {
-          fd_accounts_hash( slot_ctx->acc_mgr->funk, &slot_ctx->slot_bank, tpool, &slot_ctx->slot_bank.epoch_account_hash, runtime_spad, 0 );
+          fd_accounts_hash( slot_ctx->acc_mgr->funk, &slot_ctx->slot_bank, tpool, &slot_ctx->slot_bank.epoch_account_hash, runtime_spad, 0, &slot_ctx->epoch_ctx->features );
         }
         epoch_bank->eah_start_slot = ULONG_MAX;
       }

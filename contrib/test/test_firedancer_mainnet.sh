@@ -68,12 +68,9 @@ echo "
     affinity = \"1-32\"
     bank_tile_count = 1
 [gossip]
+    entrypoints = [\"$ENTRYPOINT:$ENTRYPOINT_PORT\"]
     port = 8820
 [tiles]
-    [tiles.gossip]
-        entrypoints = [\"$ENTRYPOINT\"]
-        peer_ports = [$ENTRYPOINT_PORT]
-        gossip_listen_port = 8820
     [tiles.repair]
         repair_intake_listen_port = 8821
         repair_serve_listen_port = 8822

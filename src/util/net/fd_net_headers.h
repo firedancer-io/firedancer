@@ -56,4 +56,14 @@ fd_ip4_udp_hdr_init( fd_ip4_udp_hdrs_t * hdrs,
 
 FD_PROTOTYPES_END
 
+union fd_ip4_port {
+  struct {
+    uint   addr;  /* net order */
+    ushort port;  /* net order */
+  };
+  ulong l;
+};
+
+typedef union fd_ip4_port fd_ip4_port_t;
+
 #endif /* HEADER_fd_src_util_net_headers_h */

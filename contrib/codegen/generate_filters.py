@@ -282,10 +282,10 @@ def eval_equal(filt, op1, op2, label_t, label_f):
     gen_cmp(filt, op1, op2, label_t, label_f, "BPF_JEQ")
 
 def eval_less(filt, op1, op2, label_t, label_f):
-    gen_cmp(filt, op1, op2, label_f, label_t, "BPF_JGT")
+    gen_cmp(filt, op1, op2, label_f, label_t, "BPF_JGE")
 
 def eval_less_or_equal(filt, op1, op2, label_t, label_f):
-    gen_cmp(filt, op1, op2, label_f, label_t, "BPF_JGE")
+    gen_cmp(filt, op1, op2, label_f, label_t, "BPF_JGT")
 
 def eval_greater(filt, op1, op2, label_t, label_f):
     gen_cmp(filt, op1, op2, label_t, label_f, "BPF_JGT")

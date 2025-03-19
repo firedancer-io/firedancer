@@ -3,6 +3,7 @@
 
 #include "fd_cap_chk.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../util/net/fd_net_headers.h" /* fd_ip4_port_t */
 
 #include <net/if.h>
 #include <linux/limits.h>
@@ -89,7 +90,7 @@ union fdctl_args {
     int     transaction_mode;
     float   contending_fraction;
     float   cu_price_spread;
-  } load;
+  } load; /* also used by bench */
 
   struct {
     int event;
@@ -161,8 +162,11 @@ struct fd_config {
   } ledger;
 
   struct {
+#   define FD_CONFIG_GOSSIP_ENTRYPOINTS_MAX 16
     ulong  entrypoints_cnt;
-    char   entrypoints[ 16 ][ 256 ];
+    char   entrypoints[ FD_CONFIG_GOSSIP_ENTRYPOINTS_MAX ][ 262 ];
+    ulong         resolved_entrypoints_cnt;
+    fd_ip4_port_t resolved_entrypoints[ FD_CONFIG_GOSSIP_ENTRYPOINTS_MAX ];
     int    port_check;
     ushort port;
     char   host[ 256 ];
@@ -233,6 +237,7 @@ struct fd_config {
     char huge_page_mount_path[ PATH_MAX ];
     char mount_path[ PATH_MAX ];
     char max_page_size[ 16 ];
+    ulong gigantic_page_threshold_mib;
   } hugetlbfs;
 
   struct {
@@ -382,14 +387,6 @@ struct fd_config {
     /* Firedancer-only tile configs */
 
     struct {
-      ulong  entrypoints_cnt;
-      char   entrypoints[16][256];
-      ushort gossip_listen_port;
-      ulong  peer_ports_cnt;
-      ushort peer_ports[16];
-    } gossip;
-
-    struct {
       ushort repair_intake_listen_port;
       ushort repair_serve_listen_port;
       char   good_peer_cache_file[ PATH_MAX ];
@@ -471,6 +468,14 @@ fdctl_cfg_from_env( int *      pargc,
 
 int
 fdctl_cfg_to_memfd( config_t const * config );
+
+/* fdctl_cfg_net_auto attempts to automatically select an interface
+   index and publicly routable IP address based on the current net
+   configuration.  Existing interface/IP address config overrules the
+   auto-selection logic. */
+
+void
+fdctl_cfg_net_auto( config_t * config );
 
 FD_PROTOTYPES_END
 

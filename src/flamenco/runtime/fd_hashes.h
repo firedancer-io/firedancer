@@ -48,17 +48,26 @@ fd_hash_account( uchar                     hash  [ static 32 ],
                  fd_lthash_value_t       * lthash,
                  fd_account_meta_t const * account,
                  uchar const               pubkey[ static 32 ],
-                 uchar const             * data );
+                 uchar const             * data,
+                 int                       hash_needed,
+                 fd_features_t            *features
+ );
 
 /* fd_hash_account_current chooses the correct account hash function
    based on feature activation state. */
+
+#define FD_HASH_JUST_ACCOUNT_HASH   (1)
+#define FD_HASH_JUST_LTHASH         (2)
+#define FD_HASH_BOTH_HASHES         (3)
 
 void const *
 fd_hash_account_current( uchar                      hash  [ static 32 ],
                          fd_lthash_value_t         *lthash,
                          fd_account_meta_t const   *account,
                          uchar const                pubkey[ static 32 ],
-                         uchar const *              data );
+                         uchar const *              data,
+                         int                        hash_needed,
+                         fd_features_t            *features );
 
 /* Generate a complete accounts_hash of the entire account database. */
 
@@ -68,7 +77,8 @@ fd_accounts_hash( fd_funk_t *      funk,
                   fd_tpool_t *     tpool,
                   fd_hash_t *      accounts_hash,
                   fd_spad_t *      runtime_spad,
-                  int lthash_enabled );
+                  int              lthash_enabled,
+                  fd_features_t   *features );
 
 /* Generate a non-incremental hash of the entire account database, conditionally including in the epoch account hash. */
 int
@@ -120,7 +130,8 @@ void
 fd_accounts_check_lthash( fd_funk_t *      funk,
                           fd_funk_txn_t *  funk_txn,
                           fd_slot_bank_t * slot_bank,
-                          fd_spad_t *      runtime_spad );
+                          fd_spad_t *      runtime_spad,
+                          fd_features_t  * features );
 
 void
 fd_calculate_epoch_accounts_hash_values(fd_exec_slot_ctx_t * slot_ctx);

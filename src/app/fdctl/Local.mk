@@ -40,7 +40,7 @@ ifdef FD_HAS_NO_AGAVE
 ifdef FD_HAS_SECP256K1
 $(call make-lib,external_functions)
 $(call add-objs,external_functions,external_functions)
-$(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util external_functions, $(SECP256K1_LIBS))
+$(call make-bin,fdctl,main,fd_fdctl fdctl_shared fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util external_functions, $(SECP256K1_LIBS))
 endif
 else
 $(call make-bin-rust,fdctl,main,fd_fdctl fdctl_shared fd_discoh fd_disco fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util agave_validator firedancer_plugin_bundle)

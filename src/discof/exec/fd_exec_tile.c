@@ -5,6 +5,7 @@
 #include "../../disco/topo/fd_pod_format.h"
 
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../../flamenco/runtime/fd_executor.h"
 
 #include "../../funk/fd_funk.h"
 #include "../../funk/fd_funk_filemap.h"
@@ -139,10 +140,24 @@ prepare_new_slot_execution( fd_exec_tile_ctx_t *           ctx,
 }
 
 static void FD_FN_UNUSED
-execute_txn( fd_exec_tile_ctx_t *              ctx,
-             fd_runtime_public_to_exec_msg_t * txn_msg ) {
+execute_txn( fd_exec_tile_ctx_t * ctx ) {
   fd_spad_push( ctx->exec_spad );
-  (void)txn_msg;
+
+  fd_execute_txn_task_info_t task_info = {
+    .txn_ctx  = ctx->txn_ctx,
+    .exec_res = 0,
+    .txn      = &ctx->txn,
+  };
+
+  fd_txn_t const * txn_descriptor = (fd_txn_t const *)task_info.txn->_;
+  fd_rawtxn_b_t    raw_txn        = { .raw    = task_info.txn->payload,
+                                      .txn_sz = (ushort)task_info.txn->payload_sz
+  };
+
+  fd_exec_txn_ctx_setup( ctx->txn_ctx, txn_descriptor, &raw_txn );
+
+  fd_executor_setup_accessed_accounts_for_txn( ctx->txn_ctx );
+
 
   fd_spad_pop( ctx->exec_spad );
 }
@@ -169,6 +184,7 @@ during_frag( fd_exec_tile_ctx_t * ctx,
       //FD_LOG_NOTICE(("RECV TXN"));
       uchar * txn = fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
       fd_memcpy( &ctx->txn, txn, sz );
+      execute_txn( ctx );
       FD_LOG_HEXDUMP_DEBUG(( "exec tile recieved txn: ", txn, sz ));
     } else if( sig==EXEC_NEW_SLOT_SIG ) {
       fd_runtime_public_slot_msg_t * msg = fd_chunk_to_laddr( ctx->replay_in_mem, chunk );
@@ -196,6 +212,7 @@ after_frag( fd_exec_tile_ctx_t * ctx    FD_PARAM_UNUSED,
             ulong                sig,
             ulong                sz     FD_PARAM_UNUSED,
             ulong                tsorig FD_PARAM_UNUSED,
+            ulong                tspub  FD_PARAM_UNUSED,
             fd_stem_context_t *  stem ) {
 
   if( sig==EXEC_NEW_SLOT_SIG ) {
@@ -212,7 +229,6 @@ after_frag( fd_exec_tile_ctx_t * ctx    FD_PARAM_UNUSED,
 
   uchar * out_buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk0 );
   fd_memset( out_buf, 0, sizeof(fd_hash_t) );
-  ulong tspub = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
   fd_stem_publish( stem, 0UL, 2UL, ctx->replay_out_chunk0, sizeof(fd_hash_t), 0UL, tsorig, tspub );
 }
 
@@ -360,7 +376,7 @@ unprivileged_init( fd_topo_t *      topo,
   uchar *        acc_mgr_mem = fd_spad_alloc( ctx->exec_spad, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT );
   fd_acc_mgr_t * acc_mgr     = fd_acc_mgr_new( acc_mgr_mem, ctx->funk );
   ctx->txn_ctx->acc_mgr      = acc_mgr;
-
+  ctx->txn_ctx->spad         = ctx->exec_spad;
 
   FD_LOG_NOTICE(( "Done booting exec tile idx=%lu", ctx->tile_idx ));
 }

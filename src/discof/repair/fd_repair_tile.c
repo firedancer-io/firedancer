@@ -355,9 +355,11 @@ after_frag( fd_repair_tile_ctx_t * ctx,
             ulong                  sig,
             ulong                  sz,
             ulong                  tsorig,
+            ulong                  tspub,
             fd_stem_context_t *    stem ) {
   (void)seq;
   (void)tsorig;
+  (void)tspub;
 
   if( FD_UNLIKELY( in_idx==CONTACT_IN_IDX ) ) {
     handle_new_cluster_contact_info( ctx, ctx->buffer, sz );
@@ -661,6 +663,25 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
   return out_cnt;
 }
 
+static inline void
+fd_repair_update_repair_metrics( fd_repair_metrics_t * metrics ) {
+  FD_MCNT_SET( REPAIR, RECV_CLNT_PKT, metrics->recv_clnt_pkt );
+  FD_MCNT_SET( REPAIR, RECV_SERV_PKT, metrics->recv_serv_pkt );
+  FD_MCNT_SET( REPAIR, RECV_SERV_CORRUPT_PKT, metrics->recv_serv_corrupt_pkt );
+  FD_MCNT_SET( REPAIR, RECV_SERV_INVALID_SIGNATURE, metrics->recv_serv_invalid_signature );
+  FD_MCNT_SET( REPAIR, RECV_SERV_FULL_PING_TABLE, metrics->recv_serv_full_ping_table );
+  FD_MCNT_ENUM_COPY( REPAIR, RECV_SERV_PKT_TYPES, metrics->recv_serv_pkt_types );
+  FD_MCNT_SET( REPAIR, RECV_PKT_CORRUPTED_MSG, metrics->recv_pkt_corrupted_msg );
+  FD_MCNT_SET( REPAIR, SEND_PKT_CNT, metrics->send_pkt_cnt );
+  FD_MCNT_ENUM_COPY( REPAIR, SENT_PKT_TYPES, metrics->sent_pkt_types );
+}
+
+static inline void
+metrics_write( fd_repair_tile_ctx_t * ctx ) {
+  /* Repair-protocol-specific metrics */
+  fd_repair_update_repair_metrics( fd_repair_get_metrics( ctx->repair ) );
+}
+
 /* TODO: This is probably not correct. */
 #define STEM_BURST (1UL)
 
@@ -672,6 +693,7 @@ populate_allowed_fds( fd_topo_t const *      topo FD_PARAM_UNUSED,
 #define STEM_CALLBACK_DURING_FRAG         during_frag
 #define STEM_CALLBACK_AFTER_FRAG          after_frag
 #define STEM_CALLBACK_DURING_HOUSEKEEPING during_housekeeping
+#define STEM_CALLBACK_METRICS_WRITE       metrics_write
 
 #include "../../disco/stem/fd_stem.c"
 

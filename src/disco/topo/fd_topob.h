@@ -144,7 +144,7 @@ void
 fd_topob_finish( fd_topo_t * topo,
                  ulong (* align    )( fd_topo_t const * topo, fd_topo_obj_t const * obj ),
                  ulong (* footprint)( fd_topo_t const * topo, fd_topo_obj_t const * obj ),
-                 ulong (* loose    )( fd_topo_t const * topo, fd_topo_obj_t const * obj) );
+                 ulong (* loose    )( fd_topo_t const * topo, fd_topo_obj_t const * obj ) );
 
 FD_PROTOTYPES_END
 

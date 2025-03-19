@@ -175,15 +175,13 @@ bench_cmd_fn( args_t *   args,
                   config->tiles.net.ip_addr,
                   args->load.no_quic );
 
-  if( FD_LIKELY( !args->dev.no_configure ) ) {
-    args_t configure_args = {
-      .configure.command = CONFIGURE_CMD_INIT,
-    };
+  args_t configure_args = {
+    .configure.command = CONFIGURE_CMD_INIT,
+  };
 
-    for( ulong i=0UL; i<CONFIGURE_STAGE_COUNT; i++ )
-      configure_args.configure.stages[ i ] = STAGES[ i ];
-    configure_cmd_fn( &configure_args, config );
-  }
+  for( ulong i=0UL; i<CONFIGURE_STAGE_COUNT; i++ )
+    configure_args.configure.stages[ i ] = STAGES[ i ];
+  configure_cmd_fn( &configure_args, config );
 
   update_config_for_dev( config );
 
@@ -198,6 +196,7 @@ bench_cmd_fn( args_t *   args,
   fd_log_private_shared_lock[ 1 ] = 0;
   fd_topo_join_workspaces( &config->topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
 
+  /* FIXME allow running sandboxed/multiprocess */
   fd_topo_run_single_process( &config->topo, 2, config->uid, config->gid, fdctl_tile_run, NULL );
 
 # if !FD_HAS_NO_AGAVE

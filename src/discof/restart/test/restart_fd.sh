@@ -37,14 +37,11 @@ echo "
     shred_tile_count = 1
     bank_tile_count = 1
 [gossip]
+    entrypoints = [\"$PRIMARY_IP:8001\"]
     port = 8700
 [tiles]
     [tiles.pack]
         use_consumed_cus = false
-    [tiles.gossip]
-        entrypoints = [\"$PRIMARY_IP\"]
-        peer_ports = [8001]
-        gossip_listen_port = 8700
     [tiles.repair]
         repair_intake_listen_port = 9055
         repair_serve_listen_port = 9056

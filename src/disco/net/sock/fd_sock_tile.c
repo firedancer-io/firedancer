@@ -291,11 +291,11 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
   ushort dport       = ctx->rx_sock_port[ sock_idx ];
 
   fd_sock_link_rx_t * link = ctx->link_rx + rx_link;
-  void *  base       = link->base;
-  ulong   chunk0     = link->chunk0;
-  ulong   wmark      = link->wmark;
-  ulong   chunk_next = link->chunk;
-  uchar * cmsg_next  = ctx->batch_cmsg;
+  void * const base       = link->base;
+  ulong  const chunk0     = link->chunk0;
+  ulong  const wmark      = link->wmark;
+  ulong        chunk_next = link->chunk;
+  uchar *      cmsg_next  = ctx->batch_cmsg;
 
   ctx->tx_ptr = ctx->tx_scratch0;
   for( ulong j=0UL; j<STEM_BURST; j++ ) {
@@ -310,6 +310,9 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
       .msg_controllen = FD_SOCK_CMSG_MAX,
     };
     cmsg_next += FD_SOCK_CMSG_MAX;
+    /* Speculatively prepare all chunk indexes for a receive.
+       At function exit, chunks into which a packet was received are
+       committed, all others are freed. */
     chunk_next = fd_dcache_compact_next( chunk_next, FD_NET_MTU, chunk0, wmark );
   }
   if( FD_UNLIKELY( ctx->tx_ptr > ctx->tx_scratch1 ) ) {
@@ -324,6 +327,13 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
   }
   long ts = fd_tickcount();
   ctx->metrics.sys_recvmmsg_cnt++;
+
+  if( FD_UNLIKELY( msg_cnt==0 ) ) return 0UL;
+
+  /* Track the chunk index of the last frag populated, so we can derive
+     the chunk indexes for the next poll_rx_socket call.
+     Guaranteed to be set since msg_cnt>0. */
+  ulong last_chunk;
 
   for( ulong j=0; j<(ulong)msg_cnt; j++ ) {
     uchar * payload         = ctx->batch_iov[ j ].iov_base;
@@ -380,7 +390,11 @@ poll_rx_socket( fd_sock_tile_t *    ctx,
     ulong sig   = fd_disco_netmux_sig( sa->sin_addr.s_addr, fd_ushort_bswap( sa->sin_port ), 0U, proto, hdr_sz );
     ulong tspub = fd_frag_meta_ts_comp( ts );
     fd_stem_publish( stem, rx_link, sig, chunk, frame_sz, 0UL, 0UL, tspub );
+    last_chunk = chunk;
   }
+
+  /* Rewind the chunk index to the first free index. */
+  link->chunk = fd_dcache_compact_next( last_chunk, FD_NET_MTU, chunk0, wmark );
   return (ulong)msg_cnt;
 }
 
@@ -391,7 +405,10 @@ poll_rx( fd_sock_tile_t *    ctx,
   if( FD_UNLIKELY( ctx->batch_cnt ) ) {
     FD_LOG_ERR(( "Batch is not clean" ));
   }
-  poll( ctx->pollfd, ctx->sock_cnt, 0 );
+  ctx->tx_idle_cnt = 0; /* restart TX polling */
+  if( FD_UNLIKELY( poll( ctx->pollfd, ctx->sock_cnt, 0 )<0 ) ) {
+    FD_LOG_ERR(( "poll failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
   for( uint j=0UL; j<ctx->sock_cnt; j++ ) {
     if( ctx->pollfd[ j ].revents & (POLLIN|POLLERR) ) {
       pkt_cnt += poll_rx_socket(
@@ -404,7 +421,6 @@ poll_rx( fd_sock_tile_t *    ctx,
     }
     ctx->pollfd[ j ].revents = 0;
   }
-  ctx->tx_idle_cnt = 0; /* restart TX polling */
   return pkt_cnt;
 }
 
@@ -416,7 +432,7 @@ flush_tx_batch( fd_sock_tile_t * ctx ) {
   int send_cnt = sendmmsg( ctx->tx_sock, ctx->batch_msg, (uint)batch_cnt, MSG_DONTWAIT );
   if( FD_UNLIKELY( send_cnt<(long)batch_cnt ) ) {
     if( FD_UNLIKELY( send_cnt<0 ) ) {
-      if( FD_LIKELY( errno==EAGAIN ) ) {
+      if( FD_LIKELY( (errno==EAGAIN) | (errno==ENOBUFS) ) ) {
         ctx->metrics.tx_drop_cnt += batch_cnt;
         goto done;
       }
@@ -533,6 +549,7 @@ after_frag( fd_sock_tile_t *    ctx,
             ulong               sig    FD_PARAM_UNUSED,
             ulong               sz,
             ulong               tsorig FD_PARAM_UNUSED,
+            ulong               tspub  FD_PARAM_UNUSED,
             fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
   /* Commit the packet added in during_frag */
 

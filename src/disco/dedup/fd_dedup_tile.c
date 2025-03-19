@@ -139,10 +139,12 @@ after_frag( fd_dedup_ctx_t *    ctx,
             ulong               sig,
             ulong               sz,
             ulong               tsorig,
+            ulong               _tspub,
             fd_stem_context_t * stem ) {
   (void)seq;
   (void)sig;
   (void)sz;
+  (void)_tspub;
 
   fd_txn_m_t * txnm = (fd_txn_m_t *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );
   FD_TEST( txnm->payload_sz<=FD_TPU_MTU );
