@@ -54,11 +54,11 @@ static void populate_sock_filter_policy_sock( ulong out_cnt, struct sock_filter 
 //  lbl_2:
     /* load syscall argument 0 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[0])),
-    BPF_JUMP( BPF_JMP | BPF_JGT | BPF_K, rx_fd1, /* RET_KILL_PROCESS */ 18, /* lbl_1 */ 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JGE | BPF_K, rx_fd1, /* RET_KILL_PROCESS */ 18, /* lbl_1 */ 0 ),
 //  lbl_1:
     /* load syscall argument 2 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])),
-    BPF_JUMP( BPF_JMP | BPF_JGE | BPF_K, 64, /* RET_KILL_PROCESS */ 16, /* lbl_3 */ 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JGT | BPF_K, 64, /* RET_KILL_PROCESS */ 16, /* lbl_3 */ 0 ),
 //  lbl_3:
     /* load syscall argument 3 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[3])),
@@ -74,7 +74,7 @@ static void populate_sock_filter_policy_sock( ulong out_cnt, struct sock_filter 
 //  lbl_5:
     /* load syscall argument 2 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])),
-    BPF_JUMP( BPF_JMP | BPF_JGE | BPF_K, 64, /* RET_KILL_PROCESS */ 8, /* lbl_6 */ 0 ),
+    BPF_JUMP( BPF_JMP | BPF_JGT | BPF_K, 64, /* RET_KILL_PROCESS */ 8, /* lbl_6 */ 0 ),
 //  lbl_6:
     /* load syscall argument 3 in accumulator */
     BPF_STMT( BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[3])),
