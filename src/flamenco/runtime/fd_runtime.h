@@ -529,6 +529,37 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
 
 /* definition of the public/readable workspace */
 #define FD_RUNTIME_PUBLIC_MAGIC (0xF17EDA2C9A7B1C21UL)
+
+struct fd_runtime_public_epoch_msg {
+  fd_features_t       features;
+  ulong               total_epoch_stake;
+  fd_epoch_schedule_t epoch_schedule;
+  fd_rent_t           rent;
+  double              slots_per_year;
+  ulong               stakes_encoded_gaddr;
+  ulong               stakes_encoded_sz;
+};
+typedef struct fd_runtime_public_epoch_msg fd_runtime_public_epoch_msg_t;
+
+struct fd_runtime_public_slot_msg {
+  ulong                  slot;
+  ulong                  prev_lamports_per_signature;
+  fd_fee_rate_governor_t fee_rate_governor;
+  ulong                  block_hash_queue_encoded_gaddr;
+  ulong                  block_hash_queue_encoded_sz;
+};
+typedef struct fd_runtime_public_slot_msg fd_runtime_public_slot_msg_t;
+
+struct fd_runtime_public_to_exec_msg {
+  fd_txn_p_t txn;
+};
+typedef struct fd_runtime_public_to_exec_msg fd_runtime_public_to_exec_msg_t;
+
+struct fd_runtime_public_to_replay_msg {
+  int err;
+};
+typedef struct fd_runtime_public_to_replay_msg fd_runtime_public_to_replay_msg_t;
+
 struct fd_runtime_public {
   // FIXME:  This is a non-fork-aware copy of the currently active
   // features.  Once the epoch_ctx and the slot_ctx get moved into

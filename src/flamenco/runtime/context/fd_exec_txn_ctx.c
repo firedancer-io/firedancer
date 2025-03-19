@@ -301,6 +301,9 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
     FD_LOG_ERR(( "Could not find valid sysvar cache" ));
   }
 
+  // FD_LOG_WARNING((" SYSVAR CACHE GADDR %lu LADDR %p", sysvar_cache_gaddr, (void*)txn_ctx->sysvar_cache ));
+  // FD_LOG_WARNING((" WKSP LADDRS %p %p", (void*)fd_wksp_containing( slot_ctx ), (void*)runtime_pub_wksp ));
+
   txn_ctx->features     = slot_ctx->epoch_ctx->features;
   txn_ctx->status_cache = slot_ctx->status_cache;
 

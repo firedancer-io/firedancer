@@ -10,6 +10,26 @@
 
 #define PAGESIZE (1UL<<12)  /* 4 KiB */
 
+static volatile ulong waiting_lock __attribute__((aligned(128UL))) = 0UL;
+
+static void
+fd_funk_map_write_lock( void ) {
+  for(;;) {
+    ulong value = waiting_lock;
+    if( FD_LIKELY( !value ) ) {
+      if( FD_LIKELY( FD_ATOMIC_CAS( &waiting_lock, 0, 0xFFFF )==0 ) ) return;
+    }
+    FD_SPIN_PAUSE();
+  }
+  FD_COMPILER_MFENCE();
+}
+
+static void
+fd_funk_map_write_unlock( void ) {
+  FD_COMPILER_MFENCE();
+  waiting_lock = 0;
+}
+
 fd_funk_t *
 fd_funk_open_file( const char * filename,
                    ulong        wksp_tag,
@@ -19,6 +39,8 @@ fd_funk_open_file( const char * filename,
                    ulong        total_sz,
                    fd_funk_file_mode_t mode,
                    fd_funk_close_file_args_t * close_args_out ) {
+
+  fd_funk_map_write_lock();
 
   /* See if we already have the file open */
 
@@ -52,6 +74,7 @@ fd_funk_open_file( const char * filename,
         close_args_out->fd = -1;
         close_args_out->total_sz = 0;
       }
+      fd_funk_map_write_unlock();
       return funk;
     }
   }
@@ -243,6 +266,7 @@ fd_funk_open_file( const char * filename,
       close_args_out->fd = fd;
       close_args_out->total_sz = total_sz;
     }
+    fd_funk_map_write_unlock();
     return funk;
 
   } else {
@@ -294,6 +318,7 @@ fd_funk_open_file( const char * filename,
       close_args_out->fd = fd;
       close_args_out->total_sz = total_sz;
     }
+    fd_funk_map_write_unlock();
     return funk;
   }
 }
@@ -438,6 +463,7 @@ fd_funk_recover_checkpoint( const char * funk_filename,
     close_args_out->fd = fd;
     close_args_out->total_sz = total_sz;
   }
+  fd_funk_map_write_unlock();
   return funk;
 }
 
