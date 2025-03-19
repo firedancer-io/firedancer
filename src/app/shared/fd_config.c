@@ -209,24 +209,9 @@ fdctl_cfg_from_env( int *      pargc,
                     config_t * config ) {
 
   memset( config, 0, sizeof(config_t) );
-#if FD_HAS_NO_AGAVE
-  static uchar pod_mem1[ FD_TOML_POD_SZ ];
-  static uchar pod_mem2[ FD_TOML_POD_SZ ];
-  uchar * pod1 = fd_pod_join( fd_pod_new( pod_mem1, sizeof(pod_mem1) ) );
-  uchar * pod2 = fd_pod_join( fd_pod_new( pod_mem2, sizeof(pod_mem2) ) );
-
-  uchar scratch[ 4096 ];
-  int toml_err = fd_toml_parse( fdctl_default_config, fdctl_default_config_sz, pod1, scratch, sizeof(scratch), NULL );
-  if( FD_UNLIKELY( toml_err!=FD_TOML_SUCCESS ) ) FD_LOG_ERR(( "Invalid config (%s)", "default.toml" ));
-  toml_err = fd_toml_parse( fdctl_default_firedancer_config, fdctl_default_firedancer_config_sz, pod2, scratch, sizeof(scratch), NULL );
-  if( FD_UNLIKELY( toml_err!=FD_TOML_SUCCESS ) ) FD_LOG_ERR(( "Invalid config (%s)", "default-firedancer.toml" ));
-
-  if( FD_UNLIKELY( !fdctl_pod_to_cfg( config, pod1 ) ) ) FD_LOG_ERR(( "Invalid config (%s)", "default.toml" ));
-  if( FD_UNLIKELY( !fdctl_pod_to_cfg( config, pod2 ) ) ) FD_LOG_ERR(( "Invalid config (%s)", "default-firedancer.toml" ));
-  fd_pod_delete( fd_pod_leave( pod1 ) );
-  fd_pod_delete( fd_pod_leave( pod2 ) );
-#else
   fdctl_cfg_load_buf( config, (char const *)fdctl_default_config, fdctl_default_config_sz, "default" );
+#if FD_HAS_NO_AGAVE
+  fdctl_cfg_load_buf( config, (char const *)fdctl_default_firedancer_config, fdctl_default_firedancer_config_sz, "default_firedancer" );
 #endif
 
   const char * user_config = fd_env_strip_cmdline_cstr(
