@@ -59,7 +59,6 @@ struct __attribute__((aligned(8UL))) fd_exec_slot_ctx {
   ulong                       incremental_freq;
   ulong                       last_snapshot_slot;
 
-  fd_rent_fresh_accounts_t    rent_fresh_accounts;
   fd_wksp_t *                 runtime_wksp; /* TODO: this should hold wksp for runtime_spad. */
   fd_wksp_t *                 funk_wksp; /* TODO: this should hold wksp for funk. */
 };

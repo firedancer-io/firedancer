@@ -239,7 +239,7 @@ FD_STATIC_ASSERT( FD_BPF_ALIGN_OF_U128==FD_ACCOUNT_REC_DATA_ALIGN, input_data_al
 #define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_FUZZ    FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT(64UL, 0)
 #define FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT_DEFAULT FD_RUNTIME_TRANSACTION_EXECUTION_FOOTPRINT(64UL, 0)
 /* TODO: Update this value once the bound is calculated correctly. */
-#define FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT               (45000000000UL)
+#define FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT               (50000000000UL)
 
 /* The below macros aren't used anywhere, but since the spads are used for PoH tick verification,
    we ensure that the default spad size is large enough for the wbmtree and leaves */

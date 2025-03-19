@@ -478,8 +478,8 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
     fd_lthash_zero( (fd_lthash_value_t *) slot_ctx->slot_bank.lthash.lthash );
 
   /* Allocate all the memory for the rent fresh accounts lists */
-  slot_ctx->rent_fresh_accounts.partitions_root = NULL;
-  slot_ctx->rent_fresh_accounts.partitions_pool = fd_rent_fresh_accounts_partition_t_map_join(
+  slot_ctx->slot_bank.rent_fresh_accounts.partitions_root = NULL;
+  slot_ctx->slot_bank.rent_fresh_accounts.partitions_pool = fd_rent_fresh_accounts_partition_t_map_join(
     fd_rent_fresh_accounts_partition_t_map_new(
       fd_spad_alloc(
         runtime_spad,
@@ -491,7 +491,7 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
   for( ulong i = 0; i < 432000UL * 2UL; i++ ) {
     ulong partition = i;
     fd_rent_fresh_accounts_partition_t_mapnode_t * new_node = fd_rent_fresh_accounts_partition_t_map_acquire(
-      slot_ctx->rent_fresh_accounts.partitions_pool
+      slot_ctx->slot_bank.rent_fresh_accounts.partitions_pool
     );
     if( FD_UNLIKELY(( new_node == NULL )) ) {
       FD_LOG_ERR(( "fd_rent_fresh_accounts_partition_t_map_acquire failed" ));
@@ -504,8 +504,8 @@ fd_exec_slot_ctx_recover_( fd_exec_slot_ctx_t *   slot_ctx,
       100
     ) );
     fd_rent_fresh_accounts_partition_t_map_insert(
-      slot_ctx->rent_fresh_accounts.partitions_pool,
-      &slot_ctx->rent_fresh_accounts.partitions_root,
+      slot_ctx->slot_bank.rent_fresh_accounts.partitions_pool,
+      &slot_ctx->slot_bank.rent_fresh_accounts.partitions_root,
       new_node
     );
   }
