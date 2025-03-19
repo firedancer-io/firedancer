@@ -41,7 +41,7 @@ struct __attribute__((aligned(8UL))) fd_exec_instr_ctx {
 /* Be careful when using this macro. There may be places where the error
    will need to be handled differently. */
 #define FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, idx, acc ) do { \
-  int err = fd_exec_instr_ctx_try_borrow_account( ctx, idx, acc );          \
+  int err = fd_exec_instr_ctx_try_borrow_instr_account( ctx, idx, acc );    \
   if( FD_UNLIKELY( err ) ) return err;                                      \
 } while (0)
 
@@ -71,34 +71,14 @@ fd_exec_instr_ctx_delete( void * mem );
 
    https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L490 */
 static inline int
-fd_exec_instr_ctx_check_num_insn_accounts( fd_exec_instr_ctx_t * ctx,
-                                           uint                  expected_accounts ) {
+fd_exec_instr_ctx_check_num_insn_accounts( fd_exec_instr_ctx_t const * ctx,
+                                           uint                        expected_accounts ) {
 
   if( FD_UNLIKELY( ctx->instr->acct_cnt<expected_accounts ) ) {
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
   }
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
-
-/* Mirrors Agave function solana_sdk::transaction_context::InstructionContext::try_borrow_account.
-
-   Borrows an account from the instruction context with a given account index.
-
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L594 */
-
-int
-fd_exec_instr_ctx_try_borrow_account( fd_exec_instr_ctx_t const * ctx,
-                                      ulong                       idx,
-                                      fd_borrowed_account_t *     account );
-
-/* A wrapper around fd_exec_instr_ctx_try_borrow_account that accepts an account pubkey.
-
-   Borrows an account from the instruction context with a given pubkey. */
-
-int
-fd_exec_instr_ctx_try_borrow_account_with_key( fd_exec_instr_ctx_t *   ctx,
-                                               fd_pubkey_t const *     pubkey,
-                                               fd_borrowed_account_t * account );
 
 /* Mirrors Agave function solana_sdk::transaction_context::InstructionContext::find_index_of_instruction_account.
 
@@ -110,6 +90,49 @@ fd_exec_instr_ctx_try_borrow_account_with_key( fd_exec_instr_ctx_t *   ctx,
 int
 fd_exec_instr_ctx_find_idx_of_instr_account( fd_exec_instr_ctx_t const * ctx,
                                              fd_pubkey_t const *         pubkey );
+
+/* Mirrors Agave function solana_sdk::transaction_context::InstructionContext::get_number_of_program_accounts.
+
+   Strictly returns 1, as we only support one program account per instruction.
+
+   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L480-L482 */
+
+static inline ushort
+fd_exec_instr_ctx_get_number_of_program_accounts( fd_exec_instr_ctx_t const * ctx ) {
+  (void) ctx;
+  return 1U;
+}
+
+/* Mirrors Agave function solana_sdk::transaction_context::InstructionContext::try_borrow_account.
+
+   Borrows an account from the instruction context with a given account index.
+
+   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L594 */
+
+int
+fd_exec_instr_ctx_try_borrow_instr_account( fd_exec_instr_ctx_t const * ctx,
+                                            ulong                       idx,
+                                            fd_borrowed_account_t *     account );
+
+/* A wrapper around fd_exec_instr_ctx_try_borrow_account that accepts an account pubkey.
+
+   Borrows an account from the instruction context with a given pubkey. */
+
+int
+fd_exec_instr_ctx_try_borrow_instr_account_with_key( fd_exec_instr_ctx_t const * ctx,
+                                                     fd_pubkey_t const *         pubkey,
+                                                     fd_borrowed_account_t *     account );
+
+/* Mirrors Agave function solana_sdk::transaction_context::InstructionContext::try_borrow_last_program_account
+
+   Borrows the instruction's program account. Since there is only one program account per
+   instruction, this function simply borrows the instruction's only program account, despite the name.
+
+   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L616 */
+
+int
+fd_exec_instr_ctx_try_borrow_last_program_account( fd_exec_instr_ctx_t const * ctx,
+                                                   fd_borrowed_account_t *     account );
 
 FD_PROTOTYPES_END
 

@@ -139,7 +139,7 @@ _process_config_instr( fd_exec_instr_ctx_t * ctx ) {
       /* Intentionally don't use the scoping macro here because Anza maps the
          error to missing required signature if the try borrow fails */
       fd_borrowed_account_t signer_account;
-      int borrow_err = fd_exec_instr_ctx_try_borrow_account( ctx, (uchar)counter, &signer_account );
+      int borrow_err = fd_exec_instr_ctx_try_borrow_instr_account( ctx, (uchar)counter, &signer_account );
       if( FD_UNLIKELY( borrow_err ) ) {
         /* Max msg_sz: 33 - 2 + 45 = 76 < 127 => we can use printf */
         fd_log_collector_printf_dangerous_max_127( ctx,

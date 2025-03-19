@@ -775,15 +775,13 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
       }
     } else {
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L489 */
-      fd_txn_account_t * program = NULL;
-      rc = fd_exec_txn_ctx_get_account_view_idx( instr_ctx->txn_ctx, instr_ctx->instr->program_id, &program );
-      if( FD_UNLIKELY( rc ) ) {
-        return rc;
-      }
+      fd_guarded_borrowed_account_t program;
+      rc = fd_exec_instr_ctx_try_borrow_last_program_account( instr_ctx, &program );
+      if( FD_UNLIKELY( rc ) ) return rc;
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L490 */
       fd_loader_v4_state_t state = {0};
-      rc = fd_loader_v4_get_state( program, &state );
+      rc = fd_loader_v4_get_state( program.acct, &state );
       if( FD_UNLIKELY( rc ) ) {
         return rc;
       }

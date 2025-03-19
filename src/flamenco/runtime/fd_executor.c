@@ -444,10 +444,10 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L429-L443 */
   for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
     fd_txn_account_t * acct = &txn_ctx->accounts[i];
-    uchar unknown_acc = !!( fd_exec_txn_ctx_get_account_view_idx( txn_ctx, (uchar)i, &acct ) ||
-                            acct->const_meta->info.lamports==0UL );
+    uchar unknown_acc = !!(fd_exec_txn_ctx_get_account_at_index( txn_ctx, (uchar)i, &acct, fd_txn_account_check_exists ) ||
+                            acct->const_meta->info.lamports==0UL);
     ulong acc_size    = unknown_acc ? 0UL : acct->const_meta->dlen;
-    uchar is_writable = !!( fd_txn_account_is_writable_idx( txn_ctx, (int)i ) );
+    uchar is_writable = !!( fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (int)i ) );
 
     /* Collect the fee payer account separately
        https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L429-L431 */
@@ -493,7 +493,10 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
     /* Mimicking `load_account()` here with 0-lamport check as well.
        https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L455-L462 */
     fd_txn_account_t * program_account = NULL;
-    int err = fd_exec_txn_ctx_get_account_view_idx( txn_ctx, instr->program_id, &program_account );
+    int err = fd_exec_txn_ctx_get_account_at_index( txn_ctx,
+                                                    instr->program_id,
+                                                    &program_account,
+                                                    fd_txn_account_check_exists );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS || program_account->const_meta->info.lamports==0UL ) ) {
       return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
     }
@@ -787,7 +790,10 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
 
   /* https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/transaction_processor.rs#L431-L436 */
   fd_txn_account_t * fee_payer_rec = NULL;
-  err = fd_exec_txn_ctx_get_account_modify_fee_payer( txn_ctx, &fee_payer_rec );
+  err = fd_exec_txn_ctx_get_account_at_index( txn_ctx,
+                                              FD_FEE_PAYER_TXN_IDX,
+                                              &fee_payer_rec,
+                                              fd_txn_account_check_fee_payer_writable );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
   }
@@ -1185,7 +1191,7 @@ fd_txn_reclaim_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
     /* An account writable iff it is writable AND it is not being
        demoted. If this criteria is not met, the account should not be
        marked as touched via updating its most recent slot. */
-    if( !fd_txn_account_is_writable_idx( txn_ctx, (int)i ) ) {
+    if( !fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (int)i ) ) {
       continue;
     }
 
@@ -1252,7 +1258,7 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
        account which is almost always writable, but doesn't have to be.
 
        TODO: The txn account semantics should better match Agave's. */
-    if( fd_txn_account_is_writable_idx( txn_ctx, (int)i ) || i==FD_FEE_PAYER_TXN_IDX ) {
+    if( fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (int)i ) || i==FD_FEE_PAYER_TXN_IDX ) {
       void * txn_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
       fd_txn_account_make_mutable( txn_account, txn_account_data, txn_ctx->spad_wksp );
       /* All new accounts should have their rent epoch set to ULONG_MAX.
@@ -1395,11 +1401,13 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
 #ifdef VLOG
     FD_LOG_WARNING(( "Start of transaction for %d for %s", i, FD_BASE58_ENC_64_ALLOCA( sig ) ));
 #endif
+    txn_ctx->current_instr_idx = i;
 
     if ( FD_UNLIKELY( use_sysvar_instructions ) ) {
       ret = fd_sysvar_instructions_update_current_instr_idx( txn_ctx, i );
       if( ret != FD_ACC_MGR_SUCCESS ) {
         FD_LOG_WARNING(( "sysvar instructions failed to update instruction index" ));
+        txn_ctx->instr_err_idx = i;
         return FD_RUNTIME_TXN_ERR_INSTRUCTION_ERROR;
       }
     }
@@ -1409,7 +1417,6 @@ fd_execute_txn( fd_execute_txn_task_info_t * task_info ) {
       fd_dump_instr_to_protobuf( txn_ctx, &txn_ctx->instr_infos[i], i );
     }
 
-    txn_ctx->current_instr_idx = i;
     int instr_exec_result = fd_execute_instr( txn_ctx, &txn_ctx->instr_infos[i] );
 #ifdef VLOG
     FD_LOG_WARNING(( "fd_execute_instr result (%d) for %s", exec_result, FD_BASE58_ENC_64_ALLOCA( sig ) ));

@@ -46,7 +46,7 @@ fd_convert_txn_instr_to_instr( fd_exec_txn_ctx_t *    txn_ctx,
     instr->acct_txn_idxs[i] = acc_idx;
     instr->acct_pubkeys[i]  = account_keys[instr_acc_idxs[i]];
     instr->acct_flags[i]    = 0;
-    if( fd_txn_account_is_writable_idx( txn_ctx, (int)instr_acc_idxs[i]) ) {
+    if( fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (int)instr_acc_idxs[i]) ) {
         instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
     }
     if( fd_txn_is_signer( txn_descriptor, instr_acc_idxs[i] ) ) {

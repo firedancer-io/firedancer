@@ -90,9 +90,10 @@ fd_exec_txn_ctx_delete( void * mem ) {
 }
 
 int
-fd_exec_txn_ctx_get_account_view_idx( fd_exec_txn_ctx_t * ctx,
-                                      uchar               idx,
-                                      fd_txn_account_t * * account ) {
+fd_exec_txn_ctx_get_account_at_index( fd_exec_txn_ctx_t *             ctx,
+                                      uchar                           idx,
+                                      fd_txn_account_t * *            account,
+                                      fd_txn_account_condition_fn_t * condition ) {
   if( FD_UNLIKELY( idx>=ctx->accounts_cnt ) ) {
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
@@ -100,111 +101,57 @@ fd_exec_txn_ctx_get_account_view_idx( fd_exec_txn_ctx_t * ctx,
   fd_txn_account_t * txn_account = &ctx->accounts[idx];
   *account = txn_account;
 
-  if( FD_UNLIKELY( !fd_acc_exists( txn_account->const_meta ) ) ) {
-    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+  if( FD_LIKELY( condition != NULL ) ) {
+    if( FD_UNLIKELY( !condition( *account, ctx, idx ) ) ) {
+      return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+    }
   }
 
   return FD_ACC_MGR_SUCCESS;
 }
 
 int
-fd_exec_txn_ctx_get_account_view( fd_exec_txn_ctx_t *  ctx,
-                                  fd_pubkey_t const *  pubkey,
-                                  fd_txn_account_t * * account ) {
-  for( ulong i = 0; i < ctx->accounts_cnt; i++ ) {
-    if( memcmp( pubkey->uc, ctx->account_keys[i].uc, sizeof(fd_pubkey_t) )==0 ) {
-      // TODO: check if readable???
-      fd_txn_account_t * txn_account = &ctx->accounts[i];
-      *account = txn_account;
-
-      if( FD_UNLIKELY( !fd_acc_exists( txn_account->const_meta ) ) ) {
-        return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
-      }
-
-      return FD_ACC_MGR_SUCCESS;
-    }
+fd_exec_txn_ctx_get_account_with_key( fd_exec_txn_ctx_t *             ctx,
+                                      fd_pubkey_t const *             pubkey,
+                                      fd_txn_account_t * *            account,
+                                      fd_txn_account_condition_fn_t * condition ) {
+  int index = fd_exec_txn_ctx_find_index_of_account( ctx, pubkey );
+  if( FD_UNLIKELY( index==-1 ) ) {
+    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
-  return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+  return fd_exec_txn_ctx_get_account_at_index( ctx,
+                                               (uchar)index,
+                                               account,
+                                               condition );
 }
 
 int
-fd_exec_txn_ctx_get_account_executable_view( fd_exec_txn_ctx_t *  ctx,
-                                             fd_pubkey_t const *  pubkey,
-                                             fd_txn_account_t * * account ) {
+fd_exec_txn_ctx_get_executable_account( fd_exec_txn_ctx_t *             ctx,
+                                        fd_pubkey_t const *             pubkey,
+                                        fd_txn_account_t * *            account,
+                                        fd_txn_account_condition_fn_t * condition ) {
   /* First try to fetch the executable account from the existing borrowed accounts.
      If the pubkey is in the account keys, then we want to re-use that
      borrowed account since it reflects changes from prior instructions. Referencing the
      read-only executable accounts list is incorrect behavior when the program
      data account is written to in a prior instruction (e.g. program upgrade + invoke within the same txn) */
-  int err = fd_exec_txn_ctx_get_account_view( ctx, pubkey, account );
+  int err = fd_exec_txn_ctx_get_account_with_key( ctx, pubkey, account, condition );
   if( FD_UNLIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
     return FD_ACC_MGR_SUCCESS;
   }
 
-  for( ulong i = 0; i < ctx->executable_cnt; i++ ) {
+  for( ulong i=0; i<ctx->executable_cnt; i++ ) {
     if( memcmp( pubkey->uc, ctx->executable_accounts[i].pubkey->uc, sizeof(fd_pubkey_t) )==0 ) {
-      // TODO: check if readable???
       fd_txn_account_t * txn_account = &ctx->executable_accounts[i];
       *account = txn_account;
 
-      if( FD_UNLIKELY( !fd_acc_exists( txn_account->const_meta ) ) )
-        return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
-
-      return FD_ACC_MGR_SUCCESS;
-    }
-  }
-
-  return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
-}
-
-int
-fd_exec_txn_ctx_get_account_modify_fee_payer( fd_exec_txn_ctx_t *  ctx,
-                                              fd_txn_account_t * * account ) {
-
-  *account = &ctx->accounts[ FD_FEE_PAYER_TXN_IDX ];
-
-  if( FD_UNLIKELY( !fd_txn_is_writable( ctx->txn_descriptor, FD_FEE_PAYER_TXN_IDX ) ) ) {
-    return FD_ACC_MGR_ERR_WRITE_FAILED;
-  }
-  return FD_ACC_MGR_SUCCESS;
-}
-
-int
-fd_exec_txn_ctx_get_account_modify_idx( fd_exec_txn_ctx_t *   ctx,
-                                        uchar                 idx,
-                                        ulong                 min_data_sz,
-                                        fd_txn_account_t * *  account ) {
-  if( idx >= ctx->accounts_cnt ) {
-    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
-  }
-
-  fd_txn_account_t * txn_account = &ctx->accounts[idx];
-  if( FD_UNLIKELY( !fd_txn_account_is_writable_idx( ctx, (int)idx ) ) ) {
-    return FD_ACC_MGR_ERR_WRITE_FAILED;
-  }
-
-  if( min_data_sz > txn_account->const_meta->dlen ) {
-    fd_txn_account_resize( txn_account, min_data_sz );
-  }
-
-  *account = txn_account;
-  return FD_ACC_MGR_SUCCESS;
-}
-
-int
-fd_exec_txn_ctx_get_account_modify( fd_exec_txn_ctx_t *  ctx,
-                                    fd_pubkey_t const *  pubkey,
-                                    ulong                min_data_sz,
-                                    fd_txn_account_t * * account ) {
-  for( ulong i = 0; i < ctx->accounts_cnt; i++ ) {
-    if( memcmp( pubkey->uc, ctx->account_keys[i].uc, sizeof(fd_pubkey_t) )==0 ) {
-      // TODO: check if writable???
-      fd_txn_account_t * txn_account = &ctx->accounts[i];
-      if( min_data_sz > txn_account->const_meta->dlen ) {
-        fd_txn_account_resize( txn_account, min_data_sz );
+      if( FD_LIKELY( condition != NULL ) ) {
+        if( FD_UNLIKELY( !condition( *account, ctx, (int)i ) ) ) {
+          return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+        }
       }
-      *account = txn_account;
+
       return FD_ACC_MGR_SUCCESS;
     }
   }
@@ -213,59 +160,59 @@ fd_exec_txn_ctx_get_account_modify( fd_exec_txn_ctx_t *  ctx,
 }
 
 void
-fd_exec_txn_ctx_setup_basic( fd_exec_txn_ctx_t * txn_ctx ) {
-  txn_ctx->compute_unit_limit = 200000;
-  txn_ctx->compute_unit_price = 0;
-  txn_ctx->compute_meter      = 200000;
-  txn_ctx->prioritization_fee_type = FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED;
-  txn_ctx->custom_err         = UINT_MAX;
+fd_exec_txn_ctx_setup_basic( fd_exec_txn_ctx_t * ctx ) {
+  ctx->compute_unit_limit = 200000;
+  ctx->compute_unit_price = 0;
+  ctx->compute_meter      = 200000;
+  ctx->prioritization_fee_type = FD_COMPUTE_BUDGET_PRIORITIZATION_FEE_TYPE_DEPRECATED;
+  ctx->custom_err         = UINT_MAX;
 
-  txn_ctx->instr_stack_sz                  = 0;
-  txn_ctx->accounts_cnt                    = 0UL;
-  txn_ctx->executable_cnt                  = 0UL;
-  txn_ctx->paid_fees                       = 0UL;
-  txn_ctx->heap_size                       = FD_VM_HEAP_DEFAULT;
-  txn_ctx->loaded_accounts_data_size_limit = FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
-  txn_ctx->loaded_accounts_data_size       = 0UL;
-  txn_ctx->accounts_resize_delta           = 0UL;
-  txn_ctx->collected_rent                  = 0UL;
+  ctx->instr_stack_sz                  = 0;
+  ctx->accounts_cnt                    = 0UL;
+  ctx->executable_cnt                  = 0UL;
+  ctx->paid_fees                       = 0UL;
+  ctx->heap_size                       = FD_VM_HEAP_DEFAULT;
+  ctx->loaded_accounts_data_size_limit = FD_VM_LOADED_ACCOUNTS_DATA_SIZE_LIMIT;
+  ctx->loaded_accounts_data_size       = 0UL;
+  ctx->accounts_resize_delta           = 0UL;
+  ctx->collected_rent                  = 0UL;
 
-  txn_ctx->num_instructions = 0;
-  memset( txn_ctx->return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
-  txn_ctx->return_data.len = 0;
+  ctx->num_instructions = 0;
+  memset( ctx->return_data.program_id.key, 0, sizeof(fd_pubkey_t) );
+  ctx->return_data.len = 0;
 
-  txn_ctx->dirty_vote_acc  = 0;
-  txn_ctx->dirty_stake_acc = 0;
-  txn_ctx->failed_instr    = NULL;
-  txn_ctx->instr_err_idx   = INT_MAX;
-  txn_ctx->capture_ctx     = NULL;
+  ctx->dirty_vote_acc  = 0;
+  ctx->dirty_stake_acc = 0;
+  ctx->failed_instr    = NULL;
+  ctx->instr_err_idx   = INT_MAX;
+  ctx->capture_ctx     = NULL;
 
-  txn_ctx->instr_info_cnt     = 0UL;
-  txn_ctx->cpi_instr_info_cnt = 0UL;
-  txn_ctx->instr_trace_length = 0UL;
+  ctx->instr_info_cnt     = 0UL;
+  ctx->cpi_instr_info_cnt = 0UL;
+  ctx->instr_trace_length = 0UL;
 
-  txn_ctx->exec_err      = 0;
-  txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_NONE;
+  ctx->exec_err      = 0;
+  ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_NONE;
 }
 
 void
-fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t   * txn_ctx,
+fd_exec_txn_ctx_setup( fd_exec_txn_ctx_t   * ctx,
                        fd_txn_t      const * txn_descriptor,
                        fd_rawtxn_b_t const * txn_raw ) {
-  fd_exec_txn_ctx_setup_basic( txn_ctx );
-  txn_ctx->txn_descriptor   = txn_descriptor;
-  txn_ctx->_txn_raw->raw    = txn_raw->raw;
-  txn_ctx->_txn_raw->txn_sz = txn_raw->txn_sz;
+  fd_exec_txn_ctx_setup_basic( ctx );
+  ctx->txn_descriptor   = txn_descriptor;
+  ctx->_txn_raw->raw    = txn_raw->raw;
+  ctx->_txn_raw->txn_sz = txn_raw->txn_sz;
 }
 
 void
-fd_exec_txn_ctx_teardown( fd_exec_txn_ctx_t * txn_ctx ) {
-  (void)txn_ctx;
+fd_exec_txn_ctx_teardown( fd_exec_txn_ctx_t * ctx ) {
+  (void)ctx;
 }
 
 void
 fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
-                                    fd_exec_txn_ctx_t *        txn_ctx,
+                                    fd_exec_txn_ctx_t *        ctx,
                                     fd_wksp_t const *          funk_wksp,
                                     fd_wksp_t const *          runtime_pub_wksp,
                                     ulong                      funk_txn_gaddr,
@@ -273,45 +220,45 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
                                     ulong                      sysvar_cache_gaddr,
                                     ulong                      funk_gaddr ) {
 
-  txn_ctx->runtime_pub_wksp = (fd_wksp_t *)runtime_pub_wksp;
+  ctx->runtime_pub_wksp = (fd_wksp_t *)runtime_pub_wksp;
 
-  txn_ctx->funk_txn = fd_wksp_laddr( funk_wksp, funk_txn_gaddr );
-  if( FD_UNLIKELY( !txn_ctx->funk_txn ) ) {
+  ctx->funk_txn = fd_wksp_laddr( funk_wksp, funk_txn_gaddr );
+  if( FD_UNLIKELY( !ctx->funk_txn ) ) {
     FD_LOG_ERR(( "Could not find valid funk transaction" ));
   }
 
-  txn_ctx->acc_mgr = fd_wksp_laddr( runtime_pub_wksp, acc_mgr_gaddr );
-  if( FD_UNLIKELY( !txn_ctx->acc_mgr ) ) {
+  ctx->acc_mgr = fd_wksp_laddr( runtime_pub_wksp, acc_mgr_gaddr );
+  if( FD_UNLIKELY( !ctx->acc_mgr ) ) {
     FD_LOG_ERR(( "Could not find valid account manager %lu", acc_mgr_gaddr ));
   }
-  txn_ctx->acc_mgr->funk = fd_wksp_laddr( funk_wksp, funk_gaddr );
-  if( FD_UNLIKELY( !txn_ctx->acc_mgr->funk ) ) {
+  ctx->acc_mgr->funk = fd_wksp_laddr( funk_wksp, funk_gaddr );
+  if( FD_UNLIKELY( !ctx->acc_mgr->funk ) ) {
     FD_LOG_ERR(( "Could not find valid account manager %lu", acc_mgr_gaddr ));
   }
 
-  txn_ctx->sysvar_cache = fd_wksp_laddr( runtime_pub_wksp, sysvar_cache_gaddr );
-  if( FD_UNLIKELY( !txn_ctx->sysvar_cache ) ) {
+  ctx->sysvar_cache = fd_wksp_laddr( runtime_pub_wksp, sysvar_cache_gaddr );
+  if( FD_UNLIKELY( !ctx->sysvar_cache ) ) {
     FD_LOG_ERR(( "Could not find valid sysvar cache" ));
   }
 
-  txn_ctx->features     = slot_ctx->epoch_ctx->features;
-  txn_ctx->status_cache = slot_ctx->status_cache;
+  ctx->features     = slot_ctx->epoch_ctx->features;
+  ctx->status_cache = slot_ctx->status_cache;
 
-  txn_ctx->bank_hash_cmp = slot_ctx->epoch_ctx->bank_hash_cmp;
+  ctx->bank_hash_cmp = slot_ctx->epoch_ctx->bank_hash_cmp;
 
-  txn_ctx->prev_lamports_per_signature = slot_ctx->prev_lamports_per_signature;
-  txn_ctx->enable_exec_recording       = slot_ctx->enable_exec_recording;
-  txn_ctx->total_epoch_stake           = slot_ctx->epoch_ctx->total_epoch_stake;
+  ctx->prev_lamports_per_signature = slot_ctx->prev_lamports_per_signature;
+  ctx->enable_exec_recording       = slot_ctx->enable_exec_recording;
+  ctx->total_epoch_stake           = slot_ctx->epoch_ctx->total_epoch_stake;
 
-  txn_ctx->slot                        = slot_ctx->slot_bank.slot;
-  txn_ctx->fee_rate_governor           = slot_ctx->slot_bank.fee_rate_governor;
-  txn_ctx->block_hash_queue            = slot_ctx->slot_bank.block_hash_queue; /* MAKE GLOBAL */
+  ctx->slot                        = slot_ctx->slot_bank.slot;
+  ctx->fee_rate_governor           = slot_ctx->slot_bank.fee_rate_governor;
+  ctx->block_hash_queue            = slot_ctx->slot_bank.block_hash_queue; /* MAKE GLOBAL */
 
   fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank_const( slot_ctx->epoch_ctx );
-  txn_ctx->schedule                    = epoch_bank->epoch_schedule;
-  txn_ctx->rent                        = epoch_bank->rent;
-  txn_ctx->slots_per_year              = epoch_bank->slots_per_year;
-  txn_ctx->stakes                      = epoch_bank->stakes;
+  ctx->schedule                    = epoch_bank->epoch_schedule;
+  ctx->rent                        = epoch_bank->rent;
+  ctx->slots_per_year              = epoch_bank->slots_per_year;
+  ctx->stakes                      = epoch_bank->stakes;
 
 }
 
@@ -322,19 +269,19 @@ fd_exec_txn_ctx_reset_return_data( fd_exec_txn_ctx_t * txn_ctx ) {
 
 /* https://github.com/anza-xyz/agave/blob/v2.1.1/sdk/program/src/message/versions/v0/loaded.rs#L162 */
 int
-fd_txn_account_is_demotion( fd_exec_txn_ctx_t const * txn_ctx, int idx )
+fd_txn_account_is_demotion( fd_exec_txn_ctx_t const * ctx, int idx )
 {
   uint is_program = 0U;
-  for( ulong j=0UL; j<txn_ctx->txn_descriptor->instr_cnt; j++ ) {
-    if( txn_ctx->txn_descriptor->instr[j].program_id == idx ) {
+  for( ulong j=0UL; j<ctx->txn_descriptor->instr_cnt; j++ ) {
+    if( ctx->txn_descriptor->instr[j].program_id == idx ) {
       is_program = 1U;
       break;
     }
   }
 
   uint bpf_upgradeable_in_txn = 0U;
-  for( ulong j = 0; j < txn_ctx->accounts_cnt; j++ ) {
-    const fd_pubkey_t * acc = &txn_ctx->account_keys[j];
+  for( ulong j=0; j<ctx->accounts_cnt; j++ ) {
+    const fd_pubkey_t * acc = &ctx->account_keys[j];
     if ( memcmp( acc->uc, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) {
       bpf_upgradeable_in_txn = 1U;
       break;
@@ -348,7 +295,7 @@ fd_txn_account_is_demotion( fd_exec_txn_ctx_t const * txn_ctx, int idx )
 
    https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L38-L47 */
 int
-fd_txn_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, int idx ) {
+fd_exec_txn_ctx_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, int idx ) {
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L43 */
   if( !fd_txn_is_writable( txn_ctx->txn_descriptor, idx ) ) {
@@ -371,4 +318,40 @@ fd_txn_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, int idx ) {
   }
 
   return 1;
+}
+
+/* Account pre-condition filtering functions */
+
+int
+fd_txn_account_check_exists( fd_txn_account_t *        acc,
+                             fd_exec_txn_ctx_t const * ctx,
+                             int                       idx ) {
+  (void) ctx;
+  (void) idx;
+  return fd_acc_exists( acc->const_meta );
+}
+
+int
+fd_txn_account_check_is_writable( fd_txn_account_t *        acc,
+                                  fd_exec_txn_ctx_t const * ctx,
+                                  int                       idx ) {
+  (void) acc;
+  return fd_exec_txn_ctx_account_is_writable_idx( ctx, idx );
+}
+
+int
+fd_txn_account_check_fee_payer_writable( fd_txn_account_t *        acc,
+                                         fd_exec_txn_ctx_t const * ctx,
+                                         int                       idx ) {
+  (void) acc;
+  return fd_txn_is_writable( ctx->txn_descriptor, idx );
+}
+
+int
+fd_txn_account_check_borrow_mut( fd_txn_account_t *        acc,
+                                 fd_exec_txn_ctx_t const * ctx,
+                                 int                       idx ) {
+  (void) ctx;
+  (void) idx;
+  return fd_txn_account_is_mutable( acc ) && fd_txn_account_acquire_write( acc );
 }

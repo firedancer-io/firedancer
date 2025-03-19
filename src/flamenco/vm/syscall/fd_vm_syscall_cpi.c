@@ -202,7 +202,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
   }
 
   if( FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, instr_ctx->txn_ctx->features, lift_cpi_caller_restriction ) ) {
-    if( FD_UNLIKELY( -1==fd_exec_txn_ctx_find_idx_of_program_account( instr_ctx->txn_ctx, &callee_instr->program_id_pubkey ) ) ) {
+    if( FD_UNLIKELY( -1==fd_exec_txn_ctx_find_index_of_account( instr_ctx->txn_ctx, &callee_instr->program_id_pubkey ) ) ) {
       FD_BASE58_ENCODE_32_BYTES( callee_instr->program_id_pubkey.uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
@@ -223,7 +223,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
        Borrow the program account here.
        https://github.com/anza-xyz/agave/blob/v2.1.14/program-runtime/src/invoke_context.rs#L436-L437 */
     fd_guarded_borrowed_account_t borrowed_program_account;
-    int err = fd_exec_instr_ctx_try_borrow_account( instr_ctx, (ulong)program_idx, &borrowed_program_account );
+    int err = fd_exec_instr_ctx_try_borrow_instr_account( instr_ctx, (ulong)program_idx, &borrowed_program_account );
     if( FD_UNLIKELY( err ) ) {
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, err, instr_ctx->txn_ctx->instr_err_idx );
       return err;
