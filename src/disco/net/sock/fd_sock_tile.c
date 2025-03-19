@@ -579,6 +579,13 @@ metrics_write( fd_sock_tile_t * ctx ) {
   FD_MCNT_SET( SOCK, TX_DROP_CNT,       ctx->metrics.tx_drop_cnt      );
 }
 
+static ulong
+rlimit_file_cnt( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
+  fd_sock_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  return RX_SOCK_FD_MIN + ctx->sock_cnt;
+}
+
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_sock_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_sock_tile_t)
 
@@ -592,6 +599,7 @@ metrics_write( fd_sock_tile_t * ctx ) {
 
 fd_topo_run_tile_t fd_tile_sock = {
   .name                     = "sock",
+  .rlimit_file_cnt_fn       = rlimit_file_cnt,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,
