@@ -1786,6 +1786,7 @@ exec_slices( fd_replay_tile_ctx_t * ctx,
       to_exec[ num_free_exec_tiles++ ] = i;
     }
   }
+  (void)to_exec;
 
   ulong free_exec_tiles = 512;
   while( free_exec_tiles > 0 ){

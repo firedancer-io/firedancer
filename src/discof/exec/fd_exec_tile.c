@@ -156,7 +156,11 @@ execute_txn( fd_exec_tile_ctx_t * ctx ) {
 
   fd_exec_txn_ctx_setup( ctx->txn_ctx, txn_descriptor, &raw_txn );
 
-  fd_executor_setup_accessed_accounts_for_txn( ctx->txn_ctx );
+  int err = fd_executor_setup_accessed_accounts_for_txn( ctx->txn_ctx );
+  if( FD_UNLIKELY( err ) ) {
+    task_info.txn->flags = 0U;
+    /* Do I need to do anything else here? */
+  }
 
 
   fd_spad_pop( ctx->exec_spad );
