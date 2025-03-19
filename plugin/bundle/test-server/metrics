@@ -1,0 +1,2317 @@
+# HELP tile_pid The process ID of the tile.
+# TYPE tile_pid gauge
+tile_pid{kind="net",kind_id="0"} 2919251
+tile_pid{kind="quic",kind_id="0"} 2919251
+tile_pid{kind="verify",kind_id="0"} 2919251
+tile_pid{kind="verify",kind_id="1"} 2919251
+tile_pid{kind="verify",kind_id="2"} 2919251
+tile_pid{kind="verify",kind_id="3"} 2919251
+tile_pid{kind="verify",kind_id="4"} 2919251
+tile_pid{kind="verify",kind_id="5"} 2919251
+tile_pid{kind="dedup",kind_id="0"} 2919251
+tile_pid{kind="resolv",kind_id="0"} 2919251
+tile_pid{kind="pack",kind_id="0"} 2919251
+tile_pid{kind="bank",kind_id="0"} 2919251
+tile_pid{kind="bank",kind_id="1"} 2919251
+tile_pid{kind="bank",kind_id="2"} 2919251
+tile_pid{kind="bank",kind_id="3"} 2919251
+tile_pid{kind="poh",kind_id="0"} 2919251
+tile_pid{kind="shred",kind_id="0"} 2919251
+tile_pid{kind="shred",kind_id="1"} 2919251
+tile_pid{kind="store",kind_id="0"} 2919251
+tile_pid{kind="sign",kind_id="0"} 2919251
+tile_pid{kind="metric",kind_id="0"} 2919251
+tile_pid{kind="cswtch",kind_id="0"} 2919251
+tile_pid{kind="plugin",kind_id="0"} 2919251
+tile_pid{kind="gui",kind_id="0"} 2919251
+tile_pid{kind="bencho",kind_id="0"} 2919251
+tile_pid{kind="benchg",kind_id="0"} 2919251
+tile_pid{kind="benchg",kind_id="1"} 2919251
+tile_pid{kind="benchg",kind_id="2"} 2919251
+tile_pid{kind="benchg",kind_id="3"} 2919251
+tile_pid{kind="benchs",kind_id="0"} 2919251
+tile_pid{kind="benchs",kind_id="1"} 2919251
+
+# HELP tile_tid The thread ID of the tile. Always the same as the Pid in production, but might be different in development.
+# TYPE tile_tid gauge
+tile_tid{kind="net",kind_id="0"} 2919351
+tile_tid{kind="quic",kind_id="0"} 2919352
+tile_tid{kind="verify",kind_id="0"} 2919353
+tile_tid{kind="verify",kind_id="1"} 2919354
+tile_tid{kind="verify",kind_id="2"} 2919355
+tile_tid{kind="verify",kind_id="3"} 2919356
+tile_tid{kind="verify",kind_id="4"} 2919357
+tile_tid{kind="verify",kind_id="5"} 2919358
+tile_tid{kind="dedup",kind_id="0"} 2919359
+tile_tid{kind="resolv",kind_id="0"} 2919360
+tile_tid{kind="pack",kind_id="0"} 2919361
+tile_tid{kind="bank",kind_id="0"} 2919362
+tile_tid{kind="bank",kind_id="1"} 2919363
+tile_tid{kind="bank",kind_id="2"} 2919364
+tile_tid{kind="bank",kind_id="3"} 2919365
+tile_tid{kind="poh",kind_id="0"} 2919366
+tile_tid{kind="shred",kind_id="0"} 2919367
+tile_tid{kind="shred",kind_id="1"} 2919368
+tile_tid{kind="store",kind_id="0"} 2919369
+tile_tid{kind="sign",kind_id="0"} 2919370
+tile_tid{kind="metric",kind_id="0"} 2919371
+tile_tid{kind="cswtch",kind_id="0"} 2919372
+tile_tid{kind="plugin",kind_id="0"} 2919373
+tile_tid{kind="gui",kind_id="0"} 2919374
+tile_tid{kind="bencho",kind_id="0"} 2919375
+tile_tid{kind="benchg",kind_id="0"} 2919376
+tile_tid{kind="benchg",kind_id="1"} 2919377
+tile_tid{kind="benchg",kind_id="2"} 2919378
+tile_tid{kind="benchg",kind_id="3"} 2919379
+tile_tid{kind="benchs",kind_id="0"} 2919380
+tile_tid{kind="benchs",kind_id="1"} 2919381
+
+# HELP tile_context_switch_involuntary_count The number of involuntary context switches.
+# TYPE tile_context_switch_involuntary_count counter
+tile_context_switch_involuntary_count{kind="net",kind_id="0"} 7
+tile_context_switch_involuntary_count{kind="quic",kind_id="0"} 5
+tile_context_switch_involuntary_count{kind="verify",kind_id="0"} 5
+tile_context_switch_involuntary_count{kind="verify",kind_id="1"} 5
+tile_context_switch_involuntary_count{kind="verify",kind_id="2"} 5
+tile_context_switch_involuntary_count{kind="verify",kind_id="3"} 10
+tile_context_switch_involuntary_count{kind="verify",kind_id="4"} 4
+tile_context_switch_involuntary_count{kind="verify",kind_id="5"} 5
+tile_context_switch_involuntary_count{kind="dedup",kind_id="0"} 4
+tile_context_switch_involuntary_count{kind="resolv",kind_id="0"} 4
+tile_context_switch_involuntary_count{kind="pack",kind_id="0"} 7
+tile_context_switch_involuntary_count{kind="bank",kind_id="0"} 9
+tile_context_switch_involuntary_count{kind="bank",kind_id="1"} 4
+tile_context_switch_involuntary_count{kind="bank",kind_id="2"} 4
+tile_context_switch_involuntary_count{kind="bank",kind_id="3"} 4
+tile_context_switch_involuntary_count{kind="poh",kind_id="0"} 9
+tile_context_switch_involuntary_count{kind="shred",kind_id="0"} 5
+tile_context_switch_involuntary_count{kind="shred",kind_id="1"} 4
+tile_context_switch_involuntary_count{kind="store",kind_id="0"} 9
+tile_context_switch_involuntary_count{kind="sign",kind_id="0"} 4
+tile_context_switch_involuntary_count{kind="metric",kind_id="0"} 4
+tile_context_switch_involuntary_count{kind="cswtch",kind_id="0"} 5
+tile_context_switch_involuntary_count{kind="plugin",kind_id="0"} 4
+tile_context_switch_involuntary_count{kind="gui",kind_id="0"} 243
+tile_context_switch_involuntary_count{kind="bencho",kind_id="0"} 61
+tile_context_switch_involuntary_count{kind="benchg",kind_id="0"} 8
+tile_context_switch_involuntary_count{kind="benchg",kind_id="1"} 6
+tile_context_switch_involuntary_count{kind="benchg",kind_id="2"} 10
+tile_context_switch_involuntary_count{kind="benchg",kind_id="3"} 4
+tile_context_switch_involuntary_count{kind="benchs",kind_id="0"} 4
+tile_context_switch_involuntary_count{kind="benchs",kind_id="1"} 5
+
+# HELP tile_context_switch_voluntary_count The number of voluntary context switches.
+# TYPE tile_context_switch_voluntary_count counter
+tile_context_switch_voluntary_count{kind="net",kind_id="0"} 0
+tile_context_switch_voluntary_count{kind="quic",kind_id="0"} 0
+tile_context_switch_voluntary_count{kind="verify",kind_id="0"} 0
+tile_context_switch_voluntary_count{kind="verify",kind_id="1"} 0
+tile_context_switch_voluntary_count{kind="verify",kind_id="2"} 0
+tile_context_switch_voluntary_count{kind="verify",kind_id="3"} 0
+tile_context_switch_voluntary_count{kind="verify",kind_id="4"} 0
+tile_context_switch_voluntary_count{kind="verify",kind_id="5"} 0
+tile_context_switch_voluntary_count{kind="dedup",kind_id="0"} 0
+tile_context_switch_voluntary_count{kind="resolv",kind_id="0"} 0
+tile_context_switch_voluntary_count{kind="pack",kind_id="0"} 0
+tile_context_switch_voluntary_count{kind="bank",kind_id="0"} 0
+tile_context_switch_voluntary_count{kind="bank",kind_id="1"} 0
+tile_context_switch_voluntary_count{kind="bank",kind_id="2"} 0
+tile_context_switch_voluntary_count{kind="bank",kind_id="3"} 0
+tile_context_switch_voluntary_count{kind="poh",kind_id="0"} 0
+tile_context_switch_voluntary_count{kind="shred",kind_id="0"} 0
+tile_context_switch_voluntary_count{kind="shred",kind_id="1"} 0
+tile_context_switch_voluntary_count{kind="store",kind_id="0"} 0
+tile_context_switch_voluntary_count{kind="sign",kind_id="0"} 0
+tile_context_switch_voluntary_count{kind="metric",kind_id="0"} 3
+tile_context_switch_voluntary_count{kind="cswtch",kind_id="0"} 1
+tile_context_switch_voluntary_count{kind="plugin",kind_id="0"} 0
+tile_context_switch_voluntary_count{kind="gui",kind_id="0"} 4
+tile_context_switch_voluntary_count{kind="bencho",kind_id="0"} 0
+tile_context_switch_voluntary_count{kind="benchg",kind_id="0"} 0
+tile_context_switch_voluntary_count{kind="benchg",kind_id="1"} 0
+tile_context_switch_voluntary_count{kind="benchg",kind_id="2"} 0
+tile_context_switch_voluntary_count{kind="benchg",kind_id="3"} 0
+tile_context_switch_voluntary_count{kind="benchs",kind_id="0"} 0
+tile_context_switch_voluntary_count{kind="benchs",kind_id="1"} 0
+
+# HELP tile_status The current status of the tile. 0 is booting, 1 is running.
+# TYPE tile_status gauge
+tile_status{kind="net",kind_id="0"} 1
+tile_status{kind="quic",kind_id="0"} 1
+tile_status{kind="verify",kind_id="0"} 1
+tile_status{kind="verify",kind_id="1"} 1
+tile_status{kind="verify",kind_id="2"} 1
+tile_status{kind="verify",kind_id="3"} 1
+tile_status{kind="verify",kind_id="4"} 1
+tile_status{kind="verify",kind_id="5"} 1
+tile_status{kind="dedup",kind_id="0"} 1
+tile_status{kind="resolv",kind_id="0"} 1
+tile_status{kind="pack",kind_id="0"} 1
+tile_status{kind="bank",kind_id="0"} 1
+tile_status{kind="bank",kind_id="1"} 1
+tile_status{kind="bank",kind_id="2"} 1
+tile_status{kind="bank",kind_id="3"} 1
+tile_status{kind="poh",kind_id="0"} 1
+tile_status{kind="shred",kind_id="0"} 1
+tile_status{kind="shred",kind_id="1"} 1
+tile_status{kind="store",kind_id="0"} 1
+tile_status{kind="sign",kind_id="0"} 1
+tile_status{kind="metric",kind_id="0"} 1
+tile_status{kind="cswtch",kind_id="0"} 1
+tile_status{kind="plugin",kind_id="0"} 1
+tile_status{kind="gui",kind_id="0"} 1
+tile_status{kind="bencho",kind_id="0"} 1
+tile_status{kind="benchg",kind_id="0"} 1
+tile_status{kind="benchg",kind_id="1"} 1
+tile_status{kind="benchg",kind_id="2"} 1
+tile_status{kind="benchg",kind_id="3"} 1
+tile_status{kind="benchs",kind_id="0"} 1
+tile_status{kind="benchs",kind_id="1"} 1
+
+# HELP tile_heartbeat The last UNIX timestamp in nanoseconds that the tile heartbeated.
+# TYPE tile_heartbeat gauge
+tile_heartbeat{kind="net",kind_id="0"} 1366775751716875
+tile_heartbeat{kind="quic",kind_id="0"} 1366775751700425
+tile_heartbeat{kind="verify",kind_id="0"} 1366775751122375
+tile_heartbeat{kind="verify",kind_id="1"} 1366775751313200
+tile_heartbeat{kind="verify",kind_id="2"} 1366775751406025
+tile_heartbeat{kind="verify",kind_id="3"} 1366775751256550
+tile_heartbeat{kind="verify",kind_id="4"} 1366775751353200
+tile_heartbeat{kind="verify",kind_id="5"} 1366775751396300
+tile_heartbeat{kind="dedup",kind_id="0"} 1366775751568075
+tile_heartbeat{kind="resolv",kind_id="0"} 1366775751468325
+tile_heartbeat{kind="pack",kind_id="0"} 1366775751154500
+tile_heartbeat{kind="bank",kind_id="0"} 1366775751015175
+tile_heartbeat{kind="bank",kind_id="1"} 1366775750928925
+tile_heartbeat{kind="bank",kind_id="2"} 1366775751674300
+tile_heartbeat{kind="bank",kind_id="3"} 1366775750833925
+tile_heartbeat{kind="poh",kind_id="0"} 1366775750901825
+tile_heartbeat{kind="shred",kind_id="0"} 1366775750950850
+tile_heartbeat{kind="shred",kind_id="1"} 1366775751382750
+tile_heartbeat{kind="store",kind_id="0"} 1366775751666425
+tile_heartbeat{kind="sign",kind_id="0"} 1366775751763725
+tile_heartbeat{kind="metric",kind_id="0"} 1366775751486575
+tile_heartbeat{kind="cswtch",kind_id="0"} 1366775751624300
+tile_heartbeat{kind="plugin",kind_id="0"} 1366775751768100
+tile_heartbeat{kind="gui",kind_id="0"} 1366775751586050
+tile_heartbeat{kind="bencho",kind_id="0"} 1366775751745425
+tile_heartbeat{kind="benchg",kind_id="0"} 1366775751689975
+tile_heartbeat{kind="benchg",kind_id="1"} 1366775751553575
+tile_heartbeat{kind="benchg",kind_id="2"} 1366775751759225
+tile_heartbeat{kind="benchg",kind_id="3"} 1366775751007150
+tile_heartbeat{kind="benchs",kind_id="0"} 1366775751777200
+tile_heartbeat{kind="benchs",kind_id="1"} 1366775751779600
+
+# HELP tile_in_backpressure Whether the tile is currently backpressured or not, either 1 or 0.
+# TYPE tile_in_backpressure gauge
+tile_in_backpressure{kind="net",kind_id="0"} 0
+tile_in_backpressure{kind="quic",kind_id="0"} 0
+tile_in_backpressure{kind="verify",kind_id="0"} 0
+tile_in_backpressure{kind="verify",kind_id="1"} 0
+tile_in_backpressure{kind="verify",kind_id="2"} 0
+tile_in_backpressure{kind="verify",kind_id="3"} 0
+tile_in_backpressure{kind="verify",kind_id="4"} 0
+tile_in_backpressure{kind="verify",kind_id="5"} 0
+tile_in_backpressure{kind="dedup",kind_id="0"} 0
+tile_in_backpressure{kind="resolv",kind_id="0"} 0
+tile_in_backpressure{kind="pack",kind_id="0"} 0
+tile_in_backpressure{kind="bank",kind_id="0"} 0
+tile_in_backpressure{kind="bank",kind_id="1"} 0
+tile_in_backpressure{kind="bank",kind_id="2"} 0
+tile_in_backpressure{kind="bank",kind_id="3"} 0
+tile_in_backpressure{kind="poh",kind_id="0"} 0
+tile_in_backpressure{kind="shred",kind_id="0"} 0
+tile_in_backpressure{kind="shred",kind_id="1"} 0
+tile_in_backpressure{kind="store",kind_id="0"} 0
+tile_in_backpressure{kind="sign",kind_id="0"} 0
+tile_in_backpressure{kind="metric",kind_id="0"} 0
+tile_in_backpressure{kind="cswtch",kind_id="0"} 0
+tile_in_backpressure{kind="plugin",kind_id="0"} 0
+tile_in_backpressure{kind="gui",kind_id="0"} 0
+tile_in_backpressure{kind="bencho",kind_id="0"} 0
+tile_in_backpressure{kind="benchg",kind_id="0"} 0
+tile_in_backpressure{kind="benchg",kind_id="1"} 0
+tile_in_backpressure{kind="benchg",kind_id="2"} 0
+tile_in_backpressure{kind="benchg",kind_id="3"} 0
+tile_in_backpressure{kind="benchs",kind_id="0"} 0
+tile_in_backpressure{kind="benchs",kind_id="1"} 0
+
+# HELP tile_backpressure_count Number of times the times the tile has had to wait for one of more consumers to catch up to resume publishing.
+# TYPE tile_backpressure_count counter
+tile_backpressure_count{kind="net",kind_id="0"} 0
+tile_backpressure_count{kind="quic",kind_id="0"} 0
+tile_backpressure_count{kind="verify",kind_id="0"} 0
+tile_backpressure_count{kind="verify",kind_id="1"} 0
+tile_backpressure_count{kind="verify",kind_id="2"} 0
+tile_backpressure_count{kind="verify",kind_id="3"} 0
+tile_backpressure_count{kind="verify",kind_id="4"} 0
+tile_backpressure_count{kind="verify",kind_id="5"} 0
+tile_backpressure_count{kind="dedup",kind_id="0"} 0
+tile_backpressure_count{kind="resolv",kind_id="0"} 0
+tile_backpressure_count{kind="pack",kind_id="0"} 0
+tile_backpressure_count{kind="bank",kind_id="0"} 0
+tile_backpressure_count{kind="bank",kind_id="1"} 0
+tile_backpressure_count{kind="bank",kind_id="2"} 0
+tile_backpressure_count{kind="bank",kind_id="3"} 0
+tile_backpressure_count{kind="poh",kind_id="0"} 0
+tile_backpressure_count{kind="shred",kind_id="0"} 0
+tile_backpressure_count{kind="shred",kind_id="1"} 0
+tile_backpressure_count{kind="store",kind_id="0"} 0
+tile_backpressure_count{kind="sign",kind_id="0"} 0
+tile_backpressure_count{kind="metric",kind_id="0"} 0
+tile_backpressure_count{kind="cswtch",kind_id="0"} 0
+tile_backpressure_count{kind="plugin",kind_id="0"} 0
+tile_backpressure_count{kind="gui",kind_id="0"} 0
+tile_backpressure_count{kind="bencho",kind_id="0"} 0
+tile_backpressure_count{kind="benchg",kind_id="0"} 0
+tile_backpressure_count{kind="benchg",kind_id="1"} 0
+tile_backpressure_count{kind="benchg",kind_id="2"} 0
+tile_backpressure_count{kind="benchg",kind_id="3"} 0
+tile_backpressure_count{kind="benchs",kind_id="0"} 0
+tile_backpressure_count{kind="benchs",kind_id="1"} 0
+
+# HELP tile_regime_duration_nanos Mutually exclusive and exhaustive duration of time the tile spent in each of the regimes.
+# TYPE tile_regime_duration_nanos counter
+tile_regime_duration_nanos{kind="net",kind_id="0",tile_regime="caught_up_housekeeping"} 313532321
+tile_regime_duration_nanos{kind="quic",kind_id="0",tile_regime="caught_up_housekeeping"} 63534149
+tile_regime_duration_nanos{kind="verify",kind_id="0",tile_regime="caught_up_housekeeping"} 19549500
+tile_regime_duration_nanos{kind="verify",kind_id="1",tile_regime="caught_up_housekeeping"} 19359775
+tile_regime_duration_nanos{kind="verify",kind_id="2",tile_regime="caught_up_housekeeping"} 19065800
+tile_regime_duration_nanos{kind="verify",kind_id="3",tile_regime="caught_up_housekeeping"} 18620000
+tile_regime_duration_nanos{kind="verify",kind_id="4",tile_regime="caught_up_housekeeping"} 18474775
+tile_regime_duration_nanos{kind="verify",kind_id="5",tile_regime="caught_up_housekeeping"} 18071875
+tile_regime_duration_nanos{kind="dedup",kind_id="0",tile_regime="caught_up_housekeeping"} 34741975
+tile_regime_duration_nanos{kind="resolv",kind_id="0",tile_regime="caught_up_housekeeping"} 21185675
+tile_regime_duration_nanos{kind="pack",kind_id="0",tile_regime="caught_up_housekeeping"} 21538100
+tile_regime_duration_nanos{kind="bank",kind_id="0",tile_regime="caught_up_housekeeping"} 5729100
+tile_regime_duration_nanos{kind="bank",kind_id="1",tile_regime="caught_up_housekeeping"} 5799000
+tile_regime_duration_nanos{kind="bank",kind_id="2",tile_regime="caught_up_housekeeping"} 5728775
+tile_regime_duration_nanos{kind="bank",kind_id="3",tile_regime="caught_up_housekeeping"} 5578850
+tile_regime_duration_nanos{kind="poh",kind_id="0",tile_regime="caught_up_housekeeping"} 24107275
+tile_regime_duration_nanos{kind="shred",kind_id="0",tile_regime="caught_up_housekeeping"} 11178000
+tile_regime_duration_nanos{kind="shred",kind_id="1",tile_regime="caught_up_housekeeping"} 11098675
+tile_regime_duration_nanos{kind="store",kind_id="0",tile_regime="caught_up_housekeeping"} 5095975
+tile_regime_duration_nanos{kind="sign",kind_id="0",tile_regime="caught_up_housekeeping"} 5076950
+tile_regime_duration_nanos{kind="metric",kind_id="0",tile_regime="caught_up_housekeeping"} 171011025
+tile_regime_duration_nanos{kind="cswtch",kind_id="0",tile_regime="caught_up_housekeeping"} 3185800
+tile_regime_duration_nanos{kind="plugin",kind_id="0",tile_regime="caught_up_housekeeping"} 7664603577
+tile_regime_duration_nanos{kind="gui",kind_id="0",tile_regime="caught_up_housekeeping"} 10305500
+tile_regime_duration_nanos{kind="bencho",kind_id="0",tile_regime="caught_up_housekeeping"} 100753652
+tile_regime_duration_nanos{kind="benchg",kind_id="0",tile_regime="caught_up_housekeeping"} 31403373
+tile_regime_duration_nanos{kind="benchg",kind_id="1",tile_regime="caught_up_housekeeping"} 23603571
+tile_regime_duration_nanos{kind="benchg",kind_id="2",tile_regime="caught_up_housekeeping"} 32755820
+tile_regime_duration_nanos{kind="benchg",kind_id="3",tile_regime="caught_up_housekeeping"} 31519594
+tile_regime_duration_nanos{kind="benchs",kind_id="0",tile_regime="caught_up_housekeeping"} 5174457502
+tile_regime_duration_nanos{kind="benchs",kind_id="1",tile_regime="caught_up_housekeeping"} 5169818933
+tile_regime_duration_nanos{kind="net",kind_id="0",tile_regime="processing_housekeeping"} 16425
+tile_regime_duration_nanos{kind="quic",kind_id="0",tile_regime="processing_housekeeping"} 337999
+tile_regime_duration_nanos{kind="verify",kind_id="0",tile_regime="processing_housekeeping"} 13109050
+tile_regime_duration_nanos{kind="verify",kind_id="1",tile_regime="processing_housekeeping"} 13211899
+tile_regime_duration_nanos{kind="verify",kind_id="2",tile_regime="processing_housekeeping"} 12773024
+tile_regime_duration_nanos{kind="verify",kind_id="3",tile_regime="processing_housekeeping"} 13137276
+tile_regime_duration_nanos{kind="verify",kind_id="4",tile_regime="processing_housekeeping"} 6728451
+tile_regime_duration_nanos{kind="verify",kind_id="5",tile_regime="processing_housekeeping"} 5800026
+tile_regime_duration_nanos{kind="dedup",kind_id="0",tile_regime="processing_housekeeping"} 60000
+tile_regime_duration_nanos{kind="resolv",kind_id="0",tile_regime="processing_housekeeping"} 89050
+tile_regime_duration_nanos{kind="pack",kind_id="0",tile_regime="processing_housekeeping"} 0
+tile_regime_duration_nanos{kind="bank",kind_id="0",tile_regime="processing_housekeeping"} 0
+tile_regime_duration_nanos{kind="bank",kind_id="1",tile_regime="processing_housekeeping"} 0
+tile_regime_duration_nanos{kind="bank",kind_id="2",tile_regime="processing_housekeeping"} 0
+tile_regime_duration_nanos{kind="bank",kind_id="3",tile_regime="processing_housekeeping"} 0
+tile_regime_duration_nanos{kind="poh",kind_id="0",tile_regime="processing_housekeeping"} 17025
+tile_regime_duration_nanos{kind="shred",kind_id="0",tile_regime="processing_housekeeping"} 0
+tile_regime_duration_nanos{kind="shred",kind_id="1",tile_regime="processing_housekeeping"} 0
+tile_regime_duration_nanos{kind="store",kind_id="0",tile_regime="processing_housekeeping"} 775
+tile_regime_duration_nanos{kind="sign",kind_id="0",tile_regime="processing_housekeeping"} 0
+tile_regime_duration_nanos{kind="metric",kind_id="0",tile_regime="processing_housekeeping"} 0
+tile_regime_duration_nanos{kind="cswtch",kind_id="0",tile_regime="processing_housekeeping"} 0
+tile_regime_duration_nanos{kind="plugin",kind_id="0",tile_regime="processing_housekeeping"} 1975
+tile_regime_duration_nanos{kind="gui",kind_id="0",tile_regime="processing_housekeeping"} 8225
+tile_regime_duration_nanos{kind="bencho",kind_id="0",tile_regime="processing_housekeeping"} 0
+tile_regime_duration_nanos{kind="benchg",kind_id="0",tile_regime="processing_housekeeping"} 1700
+tile_regime_duration_nanos{kind="benchg",kind_id="1",tile_regime="processing_housekeeping"} 1750
+tile_regime_duration_nanos{kind="benchg",kind_id="2",tile_regime="processing_housekeeping"} 1675
+tile_regime_duration_nanos{kind="benchg",kind_id="3",tile_regime="processing_housekeeping"} 1600
+tile_regime_duration_nanos{kind="benchs",kind_id="0",tile_regime="processing_housekeeping"} 30310901
+tile_regime_duration_nanos{kind="benchs",kind_id="1",tile_regime="processing_housekeeping"} 31349601
+tile_regime_duration_nanos{kind="net",kind_id="0",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="quic",kind_id="0",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="verify",kind_id="0",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="verify",kind_id="1",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="verify",kind_id="2",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="verify",kind_id="3",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="verify",kind_id="4",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="verify",kind_id="5",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="dedup",kind_id="0",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="resolv",kind_id="0",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="pack",kind_id="0",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="bank",kind_id="0",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="bank",kind_id="1",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="bank",kind_id="2",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="bank",kind_id="3",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="poh",kind_id="0",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="shred",kind_id="0",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="shred",kind_id="1",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="store",kind_id="0",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="sign",kind_id="0",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="metric",kind_id="0",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="cswtch",kind_id="0",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="plugin",kind_id="0",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="gui",kind_id="0",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="bencho",kind_id="0",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="benchg",kind_id="0",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="benchg",kind_id="1",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="benchg",kind_id="2",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="benchg",kind_id="3",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="benchs",kind_id="0",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="benchs",kind_id="1",tile_regime="backpressure_housekeeping"} 0
+tile_regime_duration_nanos{kind="net",kind_id="0",tile_regime="caught_up_prefrag"} 116249900
+tile_regime_duration_nanos{kind="quic",kind_id="0",tile_regime="caught_up_prefrag"} 3032550
+tile_regime_duration_nanos{kind="verify",kind_id="0",tile_regime="caught_up_prefrag"} 0
+tile_regime_duration_nanos{kind="verify",kind_id="1",tile_regime="caught_up_prefrag"} 0
+tile_regime_duration_nanos{kind="verify",kind_id="2",tile_regime="caught_up_prefrag"} 0
+tile_regime_duration_nanos{kind="verify",kind_id="3",tile_regime="caught_up_prefrag"} 0
+tile_regime_duration_nanos{kind="verify",kind_id="4",tile_regime="caught_up_prefrag"} 0
+tile_regime_duration_nanos{kind="verify",kind_id="5",tile_regime="caught_up_prefrag"} 0
+tile_regime_duration_nanos{kind="dedup",kind_id="0",tile_regime="caught_up_prefrag"} 0
+tile_regime_duration_nanos{kind="resolv",kind_id="0",tile_regime="caught_up_prefrag"} 0
+tile_regime_duration_nanos{kind="pack",kind_id="0",tile_regime="caught_up_prefrag"} 319750
+tile_regime_duration_nanos{kind="bank",kind_id="0",tile_regime="caught_up_prefrag"} 0
+tile_regime_duration_nanos{kind="bank",kind_id="1",tile_regime="caught_up_prefrag"} 0
+tile_regime_duration_nanos{kind="bank",kind_id="2",tile_regime="caught_up_prefrag"} 0
+tile_regime_duration_nanos{kind="bank",kind_id="3",tile_regime="caught_up_prefrag"} 0
+tile_regime_duration_nanos{kind="poh",kind_id="0",tile_regime="caught_up_prefrag"} 11472682473
+tile_regime_duration_nanos{kind="shred",kind_id="0",tile_regime="caught_up_prefrag"} 0
+tile_regime_duration_nanos{kind="shred",kind_id="1",tile_regime="caught_up_prefrag"} 0
+tile_regime_duration_nanos{kind="store",kind_id="0",tile_regime="caught_up_prefrag"} 0
+tile_regime_duration_nanos{kind="sign",kind_id="0",tile_regime="caught_up_prefrag"} 0
+tile_regime_duration_nanos{kind="metric",kind_id="0",tile_regime="caught_up_prefrag"} 16152543625
+tile_regime_duration_nanos{kind="cswtch",kind_id="0",tile_regime="caught_up_prefrag"} 15805119325
+tile_regime_duration_nanos{kind="plugin",kind_id="0",tile_regime="caught_up_prefrag"} 0
+tile_regime_duration_nanos{kind="gui",kind_id="0",tile_regime="caught_up_prefrag"} 14004045850
+tile_regime_duration_nanos{kind="bencho",kind_id="0",tile_regime="caught_up_prefrag"} 16097270823
+tile_regime_duration_nanos{kind="benchg",kind_id="0",tile_regime="caught_up_prefrag"} 12913943873
+tile_regime_duration_nanos{kind="benchg",kind_id="1",tile_regime="caught_up_prefrag"} 12924458897
+tile_regime_duration_nanos{kind="benchg",kind_id="2",tile_regime="caught_up_prefrag"} 12912342846
+tile_regime_duration_nanos{kind="benchg",kind_id="3",tile_regime="caught_up_prefrag"} 12913761913
+tile_regime_duration_nanos{kind="benchs",kind_id="0",tile_regime="caught_up_prefrag"} 0
+tile_regime_duration_nanos{kind="benchs",kind_id="1",tile_regime="caught_up_prefrag"} 0
+tile_regime_duration_nanos{kind="net",kind_id="0",tile_regime="processing_prefrag"} 3775
+tile_regime_duration_nanos{kind="quic",kind_id="0",tile_regime="processing_prefrag"} 202850
+tile_regime_duration_nanos{kind="verify",kind_id="0",tile_regime="processing_prefrag"} 0
+tile_regime_duration_nanos{kind="verify",kind_id="1",tile_regime="processing_prefrag"} 0
+tile_regime_duration_nanos{kind="verify",kind_id="2",tile_regime="processing_prefrag"} 0
+tile_regime_duration_nanos{kind="verify",kind_id="3",tile_regime="processing_prefrag"} 0
+tile_regime_duration_nanos{kind="verify",kind_id="4",tile_regime="processing_prefrag"} 0
+tile_regime_duration_nanos{kind="verify",kind_id="5",tile_regime="processing_prefrag"} 0
+tile_regime_duration_nanos{kind="dedup",kind_id="0",tile_regime="processing_prefrag"} 0
+tile_regime_duration_nanos{kind="resolv",kind_id="0",tile_regime="processing_prefrag"} 0
+tile_regime_duration_nanos{kind="pack",kind_id="0",tile_regime="processing_prefrag"} 0
+tile_regime_duration_nanos{kind="bank",kind_id="0",tile_regime="processing_prefrag"} 0
+tile_regime_duration_nanos{kind="bank",kind_id="1",tile_regime="processing_prefrag"} 0
+tile_regime_duration_nanos{kind="bank",kind_id="2",tile_regime="processing_prefrag"} 0
+tile_regime_duration_nanos{kind="bank",kind_id="3",tile_regime="processing_prefrag"} 0
+tile_regime_duration_nanos{kind="poh",kind_id="0",tile_regime="processing_prefrag"} 1541350
+tile_regime_duration_nanos{kind="shred",kind_id="0",tile_regime="processing_prefrag"} 0
+tile_regime_duration_nanos{kind="shred",kind_id="1",tile_regime="processing_prefrag"} 0
+tile_regime_duration_nanos{kind="store",kind_id="0",tile_regime="processing_prefrag"} 0
+tile_regime_duration_nanos{kind="sign",kind_id="0",tile_regime="processing_prefrag"} 0
+tile_regime_duration_nanos{kind="metric",kind_id="0",tile_regime="processing_prefrag"} 0
+tile_regime_duration_nanos{kind="cswtch",kind_id="0",tile_regime="processing_prefrag"} 0
+tile_regime_duration_nanos{kind="plugin",kind_id="0",tile_regime="processing_prefrag"} 0
+tile_regime_duration_nanos{kind="gui",kind_id="0",tile_regime="processing_prefrag"} 9266475
+tile_regime_duration_nanos{kind="bencho",kind_id="0",tile_regime="processing_prefrag"} 0
+tile_regime_duration_nanos{kind="benchg",kind_id="0",tile_regime="processing_prefrag"} 678950
+tile_regime_duration_nanos{kind="benchg",kind_id="1",tile_regime="processing_prefrag"} 991400
+tile_regime_duration_nanos{kind="benchg",kind_id="2",tile_regime="processing_prefrag"} 677600
+tile_regime_duration_nanos{kind="benchg",kind_id="3",tile_regime="processing_prefrag"} 673725
+tile_regime_duration_nanos{kind="benchs",kind_id="0",tile_regime="processing_prefrag"} 0
+tile_regime_duration_nanos{kind="benchs",kind_id="1",tile_regime="processing_prefrag"} 0
+tile_regime_duration_nanos{kind="net",kind_id="0",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="quic",kind_id="0",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="verify",kind_id="0",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="verify",kind_id="1",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="verify",kind_id="2",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="verify",kind_id="3",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="verify",kind_id="4",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="verify",kind_id="5",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="dedup",kind_id="0",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="resolv",kind_id="0",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="pack",kind_id="0",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="bank",kind_id="0",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="bank",kind_id="1",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="bank",kind_id="2",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="bank",kind_id="3",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="poh",kind_id="0",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="shred",kind_id="0",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="shred",kind_id="1",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="store",kind_id="0",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="sign",kind_id="0",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="metric",kind_id="0",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="cswtch",kind_id="0",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="plugin",kind_id="0",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="gui",kind_id="0",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="bencho",kind_id="0",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="benchg",kind_id="0",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="benchg",kind_id="1",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="benchg",kind_id="2",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="benchg",kind_id="3",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="benchs",kind_id="0",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="benchs",kind_id="1",tile_regime="backpressure_prefrag"} 0
+tile_regime_duration_nanos{kind="net",kind_id="0",tile_regime="caught_up_postfrag"} 17212204879
+tile_regime_duration_nanos{kind="quic",kind_id="0",tile_regime="caught_up_postfrag"} 16202196782
+tile_regime_duration_nanos{kind="verify",kind_id="0",tile_regime="caught_up_postfrag"} 4549592975
+tile_regime_duration_nanos{kind="verify",kind_id="1",tile_regime="caught_up_postfrag"} 4484816400
+tile_regime_duration_nanos{kind="verify",kind_id="2",tile_regime="caught_up_postfrag"} 4419889300
+tile_regime_duration_nanos{kind="verify",kind_id="3",tile_regime="caught_up_postfrag"} 4355643075
+tile_regime_duration_nanos{kind="verify",kind_id="4",tile_regime="caught_up_postfrag"} 4288671825
+tile_regime_duration_nanos{kind="verify",kind_id="5",tile_regime="caught_up_postfrag"} 4223673475
+tile_regime_duration_nanos{kind="dedup",kind_id="0",tile_regime="caught_up_postfrag"} 16513860250
+tile_regime_duration_nanos{kind="resolv",kind_id="0",tile_regime="caught_up_postfrag"} 16750449300
+tile_regime_duration_nanos{kind="pack",kind_id="0",tile_regime="caught_up_postfrag"} 16821958575
+tile_regime_duration_nanos{kind="bank",kind_id="0",tile_regime="caught_up_postfrag"} 16898145650
+tile_regime_duration_nanos{kind="bank",kind_id="1",tile_regime="caught_up_postfrag"} 16835118675
+tile_regime_duration_nanos{kind="bank",kind_id="2",tile_regime="caught_up_postfrag"} 16744219000
+tile_regime_duration_nanos{kind="bank",kind_id="3",tile_regime="caught_up_postfrag"} 16679429225
+tile_regime_duration_nanos{kind="poh",kind_id="0",tile_regime="caught_up_postfrag"} 1616383027
+tile_regime_duration_nanos{kind="shred",kind_id="0",tile_regime="caught_up_postfrag"} 16525503725
+tile_regime_duration_nanos{kind="shred",kind_id="1",tile_regime="caught_up_postfrag"} 16463739350
+tile_regime_duration_nanos{kind="store",kind_id="0",tile_regime="caught_up_postfrag"} 15583499275
+tile_regime_duration_nanos{kind="sign",kind_id="0",tile_regime="caught_up_postfrag"} 16354385650
+tile_regime_duration_nanos{kind="metric",kind_id="0",tile_regime="caught_up_postfrag"} 0
+tile_regime_duration_nanos{kind="cswtch",kind_id="0",tile_regime="caught_up_postfrag"} 0
+tile_regime_duration_nanos{kind="plugin",kind_id="0",tile_regime="caught_up_postfrag"} 8631005323
+tile_regime_duration_nanos{kind="gui",kind_id="0",tile_regime="caught_up_postfrag"} 3827925
+tile_regime_duration_nanos{kind="bencho",kind_id="0",tile_regime="caught_up_postfrag"} 0
+tile_regime_duration_nanos{kind="benchg",kind_id="0",tile_regime="caught_up_postfrag"} 3155695529
+tile_regime_duration_nanos{kind="benchg",kind_id="1",tile_regime="caught_up_postfrag"} 3080076782
+tile_regime_duration_nanos{kind="benchg",kind_id="2",tile_regime="caught_up_postfrag"} 3023998434
+tile_regime_duration_nanos{kind="benchg",kind_id="3",tile_regime="caught_up_postfrag"} 2959123043
+tile_regime_duration_nanos{kind="benchs",kind_id="0",tile_regime="caught_up_postfrag"} 8684555374
+tile_regime_duration_nanos{kind="benchs",kind_id="1",tile_regime="caught_up_postfrag"} 8628325073
+tile_regime_duration_nanos{kind="net",kind_id="0",tile_regime="processing_postfrag"} 30572775
+tile_regime_duration_nanos{kind="quic",kind_id="0",tile_regime="processing_postfrag"} 600933920
+tile_regime_duration_nanos{kind="verify",kind_id="0",tile_regime="processing_postfrag"} 12934394400
+tile_regime_duration_nanos{kind="verify",kind_id="1",tile_regime="processing_postfrag"} 12933971301
+tile_regime_duration_nanos{kind="verify",kind_id="2",tile_regime="processing_postfrag"} 12935049126
+tile_regime_duration_nanos{kind="verify",kind_id="3",tile_regime="processing_postfrag"} 12934489699
+tile_regime_duration_nanos{kind="verify",kind_id="4",tile_regime="processing_postfrag"} 12940994249
+tile_regime_duration_nanos{kind="verify",kind_id="5",tile_regime="processing_postfrag"} 12941589199
+tile_regime_duration_nanos{kind="dedup",kind_id="0",tile_regime="processing_postfrag"} 311855275
+tile_regime_duration_nanos{kind="resolv",kind_id="0",tile_regime="processing_postfrag"} 211465200
+tile_regime_duration_nanos{kind="pack",kind_id="0",tile_regime="processing_postfrag"} 292500
+tile_regime_duration_nanos{kind="bank",kind_id="0",tile_regime="processing_postfrag"} 2743800
+tile_regime_duration_nanos{kind="bank",kind_id="1",tile_regime="processing_postfrag"} 14100
+tile_regime_duration_nanos{kind="bank",kind_id="2",tile_regime="processing_postfrag"} 13250
+tile_regime_duration_nanos{kind="bank",kind_id="3",tile_regime="processing_postfrag"} 14100
+tile_regime_duration_nanos{kind="poh",kind_id="0",tile_regime="processing_postfrag"} 517950
+tile_regime_duration_nanos{kind="shred",kind_id="0",tile_regime="processing_postfrag"} 3490075
+tile_regime_duration_nanos{kind="shred",kind_id="1",tile_regime="processing_postfrag"} 323675
+tile_regime_duration_nanos{kind="store",kind_id="0",tile_regime="processing_postfrag"} 13149250
+tile_regime_duration_nanos{kind="sign",kind_id="0",tile_regime="processing_postfrag"} 845600
+tile_regime_duration_nanos{kind="metric",kind_id="0",tile_regime="processing_postfrag"} 0
+tile_regime_duration_nanos{kind="cswtch",kind_id="0",tile_regime="processing_postfrag"} 0
+tile_regime_duration_nanos{kind="plugin",kind_id="0",tile_regime="processing_postfrag"} 186600
+tile_regime_duration_nanos{kind="gui",kind_id="0",tile_regime="processing_postfrag"} 5274300
+tile_regime_duration_nanos{kind="bencho",kind_id="0",tile_regime="processing_postfrag"} 0
+tile_regime_duration_nanos{kind="benchg",kind_id="0",tile_regime="processing_postfrag"} 5000
+tile_regime_duration_nanos{kind="benchg",kind_id="1",tile_regime="processing_postfrag"} 7100
+tile_regime_duration_nanos{kind="benchg",kind_id="2",tile_regime="processing_postfrag"} 6650
+tile_regime_duration_nanos{kind="benchg",kind_id="3",tile_regime="processing_postfrag"} 6450
+tile_regime_duration_nanos{kind="benchs",kind_id="0",tile_regime="processing_postfrag"} 1976488748
+tile_regime_duration_nanos{kind="benchs",kind_id="1",tile_regime="processing_postfrag"} 1972891218
+
+# HELP link_consumed_count The number of times the link reader has consumed a fragment.
+# TYPE link_consumed_count counter
+link_consumed_count{kind="net",kind_id="0",link_kind="quic_net",link_kind_id="0"} 2383
+link_consumed_count{kind="net",kind_id="0",link_kind="shred_net",link_kind_id="0"} 0
+link_consumed_count{kind="net",kind_id="0",link_kind="shred_net",link_kind_id="1"} 0
+link_consumed_count{kind="quic",kind_id="0",link_kind="net_quic",link_kind_id="0"} 187020
+link_consumed_count{kind="verify",kind_id="0",link_kind="quic_verify",link_kind_id="0"} 79294
+link_consumed_count{kind="verify",kind_id="1",link_kind="quic_verify",link_kind_id="0"} 79200
+link_consumed_count{kind="verify",kind_id="2",link_kind="quic_verify",link_kind_id="0"} 79165
+link_consumed_count{kind="verify",kind_id="3",link_kind="quic_verify",link_kind_id="0"} 79144
+link_consumed_count{kind="verify",kind_id="4",link_kind="quic_verify",link_kind_id="0"} 79660
+link_consumed_count{kind="verify",kind_id="5",link_kind="quic_verify",link_kind_id="0"} 79617
+link_consumed_count{kind="dedup",kind_id="0",link_kind="gossip_dedup",link_kind_id="0"} 12
+link_consumed_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="0"} 79294
+link_consumed_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="1"} 79199
+link_consumed_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="2"} 79163
+link_consumed_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="3"} 79142
+link_consumed_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="4"} 79660
+link_consumed_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="5"} 79616
+link_consumed_count{kind="resolv",kind_id="0",link_kind="dedup_resolv",link_kind_id="0"} 476082
+link_consumed_count{kind="resolv",kind_id="0",link_kind="replay_resol",link_kind_id="0"} 12
+link_consumed_count{kind="pack",kind_id="0",link_kind="resolv_pack",link_kind_id="0"} 12
+link_consumed_count{kind="pack",kind_id="0",link_kind="poh_pack",link_kind_id="0"} 13
+link_consumed_count{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="0"} 12
+link_consumed_count{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="1"} 0
+link_consumed_count{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="2"} 0
+link_consumed_count{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="3"} 0
+link_consumed_count{kind="bank",kind_id="0",link_kind="pack_bank",link_kind_id="0"} 12
+link_consumed_count{kind="bank",kind_id="1",link_kind="pack_bank",link_kind_id="0"} 0
+link_consumed_count{kind="bank",kind_id="2",link_kind="pack_bank",link_kind_id="0"} 0
+link_consumed_count{kind="bank",kind_id="3",link_kind="pack_bank",link_kind_id="0"} 0
+link_consumed_count{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="0"} 12
+link_consumed_count{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="1"} 0
+link_consumed_count{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="2"} 0
+link_consumed_count{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="3"} 0
+link_consumed_count{kind="poh",kind_id="0",link_kind="stake_out",link_kind_id="0"} 2
+link_consumed_count{kind="poh",kind_id="0",link_kind="pack_bank",link_kind_id="0"} 24
+link_consumed_count{kind="shred",kind_id="0",link_kind="net_shred",link_kind_id="0"} 0
+link_consumed_count{kind="shred",kind_id="0",link_kind="poh_shred",link_kind_id="0"} 825
+link_consumed_count{kind="shred",kind_id="0",link_kind="stake_out",link_kind_id="0"} 2
+link_consumed_count{kind="shred",kind_id="0",link_kind="crds_shred",link_kind_id="0"} 1
+link_consumed_count{kind="shred",kind_id="1",link_kind="net_shred",link_kind_id="0"} 0
+link_consumed_count{kind="shred",kind_id="1",link_kind="poh_shred",link_kind_id="0"} 825
+link_consumed_count{kind="shred",kind_id="1",link_kind="stake_out",link_kind_id="0"} 2
+link_consumed_count{kind="shred",kind_id="1",link_kind="crds_shred",link_kind_id="0"} 1
+link_consumed_count{kind="store",kind_id="0",link_kind="shred_store",link_kind_id="0"} 24
+link_consumed_count{kind="store",kind_id="0",link_kind="shred_store",link_kind_id="1"} 0
+link_consumed_count{kind="sign",kind_id="0",link_kind="shred_sign",link_kind_id="0"} 12
+link_consumed_count{kind="sign",kind_id="0",link_kind="shred_sign",link_kind_id="1"} 0
+link_consumed_count{kind="plugin",kind_id="0",link_kind="replay_plugi",link_kind_id="0"} 25
+link_consumed_count{kind="plugin",kind_id="0",link_kind="gossip_plugi",link_kind_id="0"} 3
+link_consumed_count{kind="plugin",kind_id="0",link_kind="stake_out",link_kind_id="0"} 2
+link_consumed_count{kind="plugin",kind_id="0",link_kind="poh_plugin",link_kind_id="0"} 25
+link_consumed_count{kind="plugin",kind_id="0",link_kind="startp_plugi",link_kind_id="0"} 7
+link_consumed_count{kind="plugin",kind_id="0",link_kind="votel_plugin",link_kind_id="0"} 12
+link_consumed_count{kind="gui",kind_id="0",link_kind="plugin_out",link_kind_id="0"} 74
+link_consumed_count{kind="benchg",kind_id="0",link_kind="bencho_out",link_kind_id="0"} 13
+link_consumed_count{kind="benchg",kind_id="1",link_kind="bencho_out",link_kind_id="0"} 13
+link_consumed_count{kind="benchg",kind_id="2",link_kind="bencho_out",link_kind_id="0"} 13
+link_consumed_count{kind="benchg",kind_id="3",link_kind="bencho_out",link_kind_id="0"} 13
+link_consumed_count{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="0"} 114278
+link_consumed_count{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="1"} 77903
+link_consumed_count{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="2"} 114101
+link_consumed_count{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="3"} 114484
+link_consumed_count{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="0"} 114277
+link_consumed_count{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="1"} 77903
+link_consumed_count{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="2"} 114101
+link_consumed_count{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="3"} 114484
+
+# HELP link_consumed_size_bytes The total number of bytes read by the link consumer.
+# TYPE link_consumed_size_bytes counter
+link_consumed_size_bytes{kind="net",kind_id="0",link_kind="quic_net",link_kind_id="0"} 200036
+link_consumed_size_bytes{kind="net",kind_id="0",link_kind="shred_net",link_kind_id="0"} 0
+link_consumed_size_bytes{kind="net",kind_id="0",link_kind="shred_net",link_kind_id="1"} 0
+link_consumed_size_bytes{kind="quic",kind_id="0",link_kind="net_quic",link_kind_id="0"} 175676778
+link_consumed_size_bytes{kind="verify",kind_id="0",link_kind="quic_verify",link_kind_id="0"} 14748771
+link_consumed_size_bytes{kind="verify",kind_id="1",link_kind="quic_verify",link_kind_id="0"} 14731277
+link_consumed_size_bytes{kind="verify",kind_id="2",link_kind="quic_verify",link_kind_id="0"} 14725412
+link_consumed_size_bytes{kind="verify",kind_id="3",link_kind="quic_verify",link_kind_id="0"} 14720877
+link_consumed_size_bytes{kind="verify",kind_id="4",link_kind="quic_verify",link_kind_id="0"} 14816760
+link_consumed_size_bytes{kind="verify",kind_id="5",link_kind="quic_verify",link_kind_id="0"} 14808835
+link_consumed_size_bytes{kind="dedup",kind_id="0",link_kind="gossip_dedup",link_kind_id="0"} 3240
+link_consumed_size_bytes{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="0"} 24105448
+link_consumed_size_bytes{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="1"} 24076560
+link_consumed_size_bytes{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="2"} 24066600
+link_consumed_size_bytes{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="3"} 24060160
+link_consumed_size_bytes{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="4"} 24216640
+link_consumed_size_bytes{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="5"} 24203328
+link_consumed_size_bytes{kind="resolv",kind_id="0",link_kind="dedup_resolv",link_kind_id="0"} 144729792
+link_consumed_size_bytes{kind="resolv",kind_id="0",link_kind="replay_resol",link_kind_id="0"} 480
+link_consumed_size_bytes{kind="pack",kind_id="0",link_kind="resolv_pack",link_kind_id="0"} 4512
+link_consumed_size_bytes{kind="pack",kind_id="0",link_kind="poh_pack",link_kind_id="0"} 624
+link_consumed_size_bytes{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="0"} 25728
+link_consumed_size_bytes{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="1"} 0
+link_consumed_size_bytes{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="2"} 0
+link_consumed_size_bytes{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="3"} 0
+link_consumed_size_bytes{kind="bank",kind_id="0",link_kind="pack_bank",link_kind_id="0"} 25632
+link_consumed_size_bytes{kind="bank",kind_id="1",link_kind="pack_bank",link_kind_id="0"} 0
+link_consumed_size_bytes{kind="bank",kind_id="2",link_kind="pack_bank",link_kind_id="0"} 0
+link_consumed_size_bytes{kind="bank",kind_id="3",link_kind="pack_bank",link_kind_id="0"} 0
+link_consumed_size_bytes{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="0"} 25728
+link_consumed_size_bytes{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="1"} 0
+link_consumed_size_bytes{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="2"} 0
+link_consumed_size_bytes{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="3"} 0
+link_consumed_size_bytes{kind="poh",kind_id="0",link_kind="stake_out",link_kind_id="0"} 160
+link_consumed_size_bytes{kind="poh",kind_id="0",link_kind="pack_bank",link_kind_id="0"} 25728
+link_consumed_size_bytes{kind="shred",kind_id="0",link_kind="net_shred",link_kind_id="0"} 0
+link_consumed_size_bytes{kind="shred",kind_id="0",link_kind="poh_shred",link_kind_id="0"} 62640
+link_consumed_size_bytes{kind="shred",kind_id="0",link_kind="stake_out",link_kind_id="0"} 160
+link_consumed_size_bytes{kind="shred",kind_id="0",link_kind="crds_shred",link_kind_id="0"} 8
+link_consumed_size_bytes{kind="shred",kind_id="1",link_kind="net_shred",link_kind_id="0"} 0
+link_consumed_size_bytes{kind="shred",kind_id="1",link_kind="poh_shred",link_kind_id="0"} 62640
+link_consumed_size_bytes{kind="shred",kind_id="1",link_kind="stake_out",link_kind_id="0"} 160
+link_consumed_size_bytes{kind="shred",kind_id="1",link_kind="crds_shred",link_kind_id="0"} 8
+link_consumed_size_bytes{kind="store",kind_id="0",link_kind="shred_store",link_kind_id="0"} 944064
+link_consumed_size_bytes{kind="store",kind_id="0",link_kind="shred_store",link_kind_id="1"} 0
+link_consumed_size_bytes{kind="sign",kind_id="0",link_kind="shred_sign",link_kind_id="0"} 384
+link_consumed_size_bytes{kind="sign",kind_id="0",link_kind="shred_sign",link_kind_id="1"} 0
+link_consumed_size_bytes{kind="plugin",kind_id="0",link_kind="replay_plugi",link_kind_id="0"} 427152
+link_consumed_size_bytes{kind="plugin",kind_id="0",link_kind="gossip_plugi",link_kind_id="0"} 284
+link_consumed_size_bytes{kind="plugin",kind_id="0",link_kind="stake_out",link_kind_id="0"} 160
+link_consumed_size_bytes{kind="plugin",kind_id="0",link_kind="poh_plugin",link_kind_id="0"} 400
+link_consumed_size_bytes{kind="plugin",kind_id="0",link_kind="startp_plugi",link_kind_id="0"} 392
+link_consumed_size_bytes{kind="plugin",kind_id="0",link_kind="votel_plugin",link_kind_id="0"} 96
+link_consumed_size_bytes{kind="gui",kind_id="0",link_kind="plugin_out",link_kind_id="0"} 428484
+link_consumed_size_bytes{kind="benchg",kind_id="0",link_kind="bencho_out",link_kind_id="0"} 416
+link_consumed_size_bytes{kind="benchg",kind_id="1",link_kind="bencho_out",link_kind_id="0"} 416
+link_consumed_size_bytes{kind="benchg",kind_id="2",link_kind="bencho_out",link_kind_id="0"} 416
+link_consumed_size_bytes{kind="benchg",kind_id="3",link_kind="bencho_out",link_kind_id="0"} 416
+link_consumed_size_bytes{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="0"} 21255894
+link_consumed_size_bytes{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="1"} 14490144
+link_consumed_size_bytes{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="2"} 21222972
+link_consumed_size_bytes{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="3"} 21294210
+link_consumed_size_bytes{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="0"} 21255708
+link_consumed_size_bytes{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="1"} 14489958
+link_consumed_size_bytes{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="2"} 21222786
+link_consumed_size_bytes{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="3"} 21294210
+
+# HELP link_filtered_count The number of fragments that were filtered and not consumed.
+# TYPE link_filtered_count counter
+link_filtered_count{kind="net",kind_id="0",link_kind="quic_net",link_kind_id="0"} 0
+link_filtered_count{kind="net",kind_id="0",link_kind="shred_net",link_kind_id="0"} 0
+link_filtered_count{kind="net",kind_id="0",link_kind="shred_net",link_kind_id="1"} 0
+link_filtered_count{kind="quic",kind_id="0",link_kind="net_quic",link_kind_id="0"} 0
+link_filtered_count{kind="verify",kind_id="0",link_kind="quic_verify",link_kind_id="0"} 396392
+link_filtered_count{kind="verify",kind_id="1",link_kind="quic_verify",link_kind_id="0"} 395908
+link_filtered_count{kind="verify",kind_id="2",link_kind="quic_verify",link_kind_id="0"} 395749
+link_filtered_count{kind="verify",kind_id="3",link_kind="quic_verify",link_kind_id="0"} 395630
+link_filtered_count{kind="verify",kind_id="4",link_kind="quic_verify",link_kind_id="0"} 398211
+link_filtered_count{kind="verify",kind_id="5",link_kind="quic_verify",link_kind_id="0"} 397997
+link_filtered_count{kind="dedup",kind_id="0",link_kind="gossip_dedup",link_kind_id="0"} 0
+link_filtered_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="0"} 0
+link_filtered_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="1"} 0
+link_filtered_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="2"} 0
+link_filtered_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="3"} 0
+link_filtered_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="4"} 0
+link_filtered_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="5"} 0
+link_filtered_count{kind="resolv",kind_id="0",link_kind="dedup_resolv",link_kind_id="0"} 0
+link_filtered_count{kind="resolv",kind_id="0",link_kind="replay_resol",link_kind_id="0"} 0
+link_filtered_count{kind="pack",kind_id="0",link_kind="resolv_pack",link_kind_id="0"} 0
+link_filtered_count{kind="pack",kind_id="0",link_kind="poh_pack",link_kind_id="0"} 0
+link_filtered_count{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="0"} 0
+link_filtered_count{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="1"} 0
+link_filtered_count{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="2"} 0
+link_filtered_count{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="3"} 0
+link_filtered_count{kind="bank",kind_id="0",link_kind="pack_bank",link_kind_id="0"} 12
+link_filtered_count{kind="bank",kind_id="1",link_kind="pack_bank",link_kind_id="0"} 24
+link_filtered_count{kind="bank",kind_id="2",link_kind="pack_bank",link_kind_id="0"} 24
+link_filtered_count{kind="bank",kind_id="3",link_kind="pack_bank",link_kind_id="0"} 24
+link_filtered_count{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="0"} 0
+link_filtered_count{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="1"} 0
+link_filtered_count{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="2"} 0
+link_filtered_count{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="3"} 0
+link_filtered_count{kind="poh",kind_id="0",link_kind="stake_out",link_kind_id="0"} 0
+link_filtered_count{kind="poh",kind_id="0",link_kind="pack_bank",link_kind_id="0"} 0
+link_filtered_count{kind="shred",kind_id="0",link_kind="net_shred",link_kind_id="0"} 0
+link_filtered_count{kind="shred",kind_id="0",link_kind="poh_shred",link_kind_id="0"} 0
+link_filtered_count{kind="shred",kind_id="0",link_kind="stake_out",link_kind_id="0"} 0
+link_filtered_count{kind="shred",kind_id="0",link_kind="crds_shred",link_kind_id="0"} 0
+link_filtered_count{kind="shred",kind_id="1",link_kind="net_shred",link_kind_id="0"} 0
+link_filtered_count{kind="shred",kind_id="1",link_kind="poh_shred",link_kind_id="0"} 0
+link_filtered_count{kind="shred",kind_id="1",link_kind="stake_out",link_kind_id="0"} 0
+link_filtered_count{kind="shred",kind_id="1",link_kind="crds_shred",link_kind_id="0"} 0
+link_filtered_count{kind="store",kind_id="0",link_kind="shred_store",link_kind_id="0"} 0
+link_filtered_count{kind="store",kind_id="0",link_kind="shred_store",link_kind_id="1"} 0
+link_filtered_count{kind="sign",kind_id="0",link_kind="shred_sign",link_kind_id="0"} 0
+link_filtered_count{kind="sign",kind_id="0",link_kind="shred_sign",link_kind_id="1"} 0
+link_filtered_count{kind="plugin",kind_id="0",link_kind="replay_plugi",link_kind_id="0"} 0
+link_filtered_count{kind="plugin",kind_id="0",link_kind="gossip_plugi",link_kind_id="0"} 0
+link_filtered_count{kind="plugin",kind_id="0",link_kind="stake_out",link_kind_id="0"} 0
+link_filtered_count{kind="plugin",kind_id="0",link_kind="poh_plugin",link_kind_id="0"} 0
+link_filtered_count{kind="plugin",kind_id="0",link_kind="startp_plugi",link_kind_id="0"} 0
+link_filtered_count{kind="plugin",kind_id="0",link_kind="votel_plugin",link_kind_id="0"} 0
+link_filtered_count{kind="gui",kind_id="0",link_kind="plugin_out",link_kind_id="0"} 0
+link_filtered_count{kind="benchg",kind_id="0",link_kind="bencho_out",link_kind_id="0"} 0
+link_filtered_count{kind="benchg",kind_id="1",link_kind="bencho_out",link_kind_id="0"} 0
+link_filtered_count{kind="benchg",kind_id="2",link_kind="bencho_out",link_kind_id="0"} 0
+link_filtered_count{kind="benchg",kind_id="3",link_kind="bencho_out",link_kind_id="0"} 0
+link_filtered_count{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="0"} 114279
+link_filtered_count{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="1"} 77904
+link_filtered_count{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="2"} 114103
+link_filtered_count{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="3"} 114486
+link_filtered_count{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="0"} 114280
+link_filtered_count{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="1"} 77904
+link_filtered_count{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="2"} 114103
+link_filtered_count{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="3"} 114486
+
+# HELP link_filtered_size_bytes The total number of bytes read by the link consumer that were filtered.
+# TYPE link_filtered_size_bytes counter
+link_filtered_size_bytes{kind="net",kind_id="0",link_kind="quic_net",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="net",kind_id="0",link_kind="shred_net",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="net",kind_id="0",link_kind="shred_net",link_kind_id="1"} 0
+link_filtered_size_bytes{kind="quic",kind_id="0",link_kind="net_quic",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="verify",kind_id="0",link_kind="quic_verify",link_kind_id="0"} 73729414
+link_filtered_size_bytes{kind="verify",kind_id="1",link_kind="quic_verify",link_kind_id="0"} 73639400
+link_filtered_size_bytes{kind="verify",kind_id="2",link_kind="quic_verify",link_kind_id="0"} 73609739
+link_filtered_size_bytes{kind="verify",kind_id="3",link_kind="quic_verify",link_kind_id="0"} 73590466
+link_filtered_size_bytes{kind="verify",kind_id="4",link_kind="quic_verify",link_kind_id="0"} 74067831
+link_filtered_size_bytes{kind="verify",kind_id="5",link_kind="quic_verify",link_kind_id="0"} 74030744
+link_filtered_size_bytes{kind="dedup",kind_id="0",link_kind="gossip_dedup",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="1"} 0
+link_filtered_size_bytes{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="2"} 0
+link_filtered_size_bytes{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="3"} 0
+link_filtered_size_bytes{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="4"} 0
+link_filtered_size_bytes{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="5"} 0
+link_filtered_size_bytes{kind="resolv",kind_id="0",link_kind="dedup_resolv",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="resolv",kind_id="0",link_kind="replay_resol",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="pack",kind_id="0",link_kind="resolv_pack",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="pack",kind_id="0",link_kind="poh_pack",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="1"} 0
+link_filtered_size_bytes{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="2"} 0
+link_filtered_size_bytes{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="3"} 0
+link_filtered_size_bytes{kind="bank",kind_id="0",link_kind="pack_bank",link_kind_id="0"} 96
+link_filtered_size_bytes{kind="bank",kind_id="1",link_kind="pack_bank",link_kind_id="0"} 25728
+link_filtered_size_bytes{kind="bank",kind_id="2",link_kind="pack_bank",link_kind_id="0"} 25728
+link_filtered_size_bytes{kind="bank",kind_id="3",link_kind="pack_bank",link_kind_id="0"} 25728
+link_filtered_size_bytes{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="1"} 0
+link_filtered_size_bytes{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="2"} 0
+link_filtered_size_bytes{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="3"} 0
+link_filtered_size_bytes{kind="poh",kind_id="0",link_kind="stake_out",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="poh",kind_id="0",link_kind="pack_bank",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="shred",kind_id="0",link_kind="net_shred",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="shred",kind_id="0",link_kind="poh_shred",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="shred",kind_id="0",link_kind="stake_out",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="shred",kind_id="0",link_kind="crds_shred",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="shred",kind_id="1",link_kind="net_shred",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="shred",kind_id="1",link_kind="poh_shred",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="shred",kind_id="1",link_kind="stake_out",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="shred",kind_id="1",link_kind="crds_shred",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="store",kind_id="0",link_kind="shred_store",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="store",kind_id="0",link_kind="shred_store",link_kind_id="1"} 0
+link_filtered_size_bytes{kind="sign",kind_id="0",link_kind="shred_sign",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="sign",kind_id="0",link_kind="shred_sign",link_kind_id="1"} 0
+link_filtered_size_bytes{kind="plugin",kind_id="0",link_kind="replay_plugi",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="plugin",kind_id="0",link_kind="gossip_plugi",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="plugin",kind_id="0",link_kind="stake_out",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="plugin",kind_id="0",link_kind="poh_plugin",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="plugin",kind_id="0",link_kind="startp_plugi",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="plugin",kind_id="0",link_kind="votel_plugin",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="gui",kind_id="0",link_kind="plugin_out",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="benchg",kind_id="0",link_kind="bencho_out",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="benchg",kind_id="1",link_kind="bencho_out",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="benchg",kind_id="2",link_kind="bencho_out",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="benchg",kind_id="3",link_kind="bencho_out",link_kind_id="0"} 0
+link_filtered_size_bytes{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="0"} 21256080
+link_filtered_size_bytes{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="1"} 14490144
+link_filtered_size_bytes{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="2"} 21223158
+link_filtered_size_bytes{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="3"} 21294582
+link_filtered_size_bytes{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="0"} 21256266
+link_filtered_size_bytes{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="1"} 14490330
+link_filtered_size_bytes{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="2"} 21223344
+link_filtered_size_bytes{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="3"} 21294582
+
+# HELP link_overrun_polling_count The number of times the link has been overrun while polling.
+# TYPE link_overrun_polling_count counter
+link_overrun_polling_count{kind="net",kind_id="0",link_kind="quic_net",link_kind_id="0"} 0
+link_overrun_polling_count{kind="net",kind_id="0",link_kind="shred_net",link_kind_id="0"} 0
+link_overrun_polling_count{kind="net",kind_id="0",link_kind="shred_net",link_kind_id="1"} 0
+link_overrun_polling_count{kind="quic",kind_id="0",link_kind="net_quic",link_kind_id="0"} 0
+link_overrun_polling_count{kind="verify",kind_id="0",link_kind="quic_verify",link_kind_id="0"} 22
+link_overrun_polling_count{kind="verify",kind_id="1",link_kind="quic_verify",link_kind_id="0"} 22
+link_overrun_polling_count{kind="verify",kind_id="2",link_kind="quic_verify",link_kind_id="0"} 22
+link_overrun_polling_count{kind="verify",kind_id="3",link_kind="quic_verify",link_kind_id="0"} 22
+link_overrun_polling_count{kind="verify",kind_id="4",link_kind="quic_verify",link_kind_id="0"} 22
+link_overrun_polling_count{kind="verify",kind_id="5",link_kind="quic_verify",link_kind_id="0"} 22
+link_overrun_polling_count{kind="dedup",kind_id="0",link_kind="gossip_dedup",link_kind_id="0"} 0
+link_overrun_polling_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="0"} 0
+link_overrun_polling_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="1"} 0
+link_overrun_polling_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="2"} 0
+link_overrun_polling_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="3"} 0
+link_overrun_polling_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="4"} 0
+link_overrun_polling_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="5"} 0
+link_overrun_polling_count{kind="resolv",kind_id="0",link_kind="dedup_resolv",link_kind_id="0"} 0
+link_overrun_polling_count{kind="resolv",kind_id="0",link_kind="replay_resol",link_kind_id="0"} 0
+link_overrun_polling_count{kind="pack",kind_id="0",link_kind="resolv_pack",link_kind_id="0"} 0
+link_overrun_polling_count{kind="pack",kind_id="0",link_kind="poh_pack",link_kind_id="0"} 0
+link_overrun_polling_count{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="0"} 0
+link_overrun_polling_count{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="1"} 0
+link_overrun_polling_count{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="2"} 0
+link_overrun_polling_count{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="3"} 0
+link_overrun_polling_count{kind="bank",kind_id="0",link_kind="pack_bank",link_kind_id="0"} 0
+link_overrun_polling_count{kind="bank",kind_id="1",link_kind="pack_bank",link_kind_id="0"} 0
+link_overrun_polling_count{kind="bank",kind_id="2",link_kind="pack_bank",link_kind_id="0"} 0
+link_overrun_polling_count{kind="bank",kind_id="3",link_kind="pack_bank",link_kind_id="0"} 0
+link_overrun_polling_count{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="0"} 0
+link_overrun_polling_count{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="1"} 0
+link_overrun_polling_count{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="2"} 0
+link_overrun_polling_count{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="3"} 0
+link_overrun_polling_count{kind="poh",kind_id="0",link_kind="stake_out",link_kind_id="0"} 0
+link_overrun_polling_count{kind="poh",kind_id="0",link_kind="pack_bank",link_kind_id="0"} 0
+link_overrun_polling_count{kind="shred",kind_id="0",link_kind="net_shred",link_kind_id="0"} 0
+link_overrun_polling_count{kind="shred",kind_id="0",link_kind="poh_shred",link_kind_id="0"} 0
+link_overrun_polling_count{kind="shred",kind_id="0",link_kind="stake_out",link_kind_id="0"} 0
+link_overrun_polling_count{kind="shred",kind_id="0",link_kind="crds_shred",link_kind_id="0"} 0
+link_overrun_polling_count{kind="shred",kind_id="1",link_kind="net_shred",link_kind_id="0"} 0
+link_overrun_polling_count{kind="shred",kind_id="1",link_kind="poh_shred",link_kind_id="0"} 0
+link_overrun_polling_count{kind="shred",kind_id="1",link_kind="stake_out",link_kind_id="0"} 0
+link_overrun_polling_count{kind="shred",kind_id="1",link_kind="crds_shred",link_kind_id="0"} 0
+link_overrun_polling_count{kind="store",kind_id="0",link_kind="shred_store",link_kind_id="0"} 0
+link_overrun_polling_count{kind="store",kind_id="0",link_kind="shred_store",link_kind_id="1"} 0
+link_overrun_polling_count{kind="sign",kind_id="0",link_kind="shred_sign",link_kind_id="0"} 0
+link_overrun_polling_count{kind="sign",kind_id="0",link_kind="shred_sign",link_kind_id="1"} 0
+link_overrun_polling_count{kind="plugin",kind_id="0",link_kind="replay_plugi",link_kind_id="0"} 0
+link_overrun_polling_count{kind="plugin",kind_id="0",link_kind="gossip_plugi",link_kind_id="0"} 0
+link_overrun_polling_count{kind="plugin",kind_id="0",link_kind="stake_out",link_kind_id="0"} 0
+link_overrun_polling_count{kind="plugin",kind_id="0",link_kind="poh_plugin",link_kind_id="0"} 0
+link_overrun_polling_count{kind="plugin",kind_id="0",link_kind="startp_plugi",link_kind_id="0"} 0
+link_overrun_polling_count{kind="plugin",kind_id="0",link_kind="votel_plugin",link_kind_id="0"} 0
+link_overrun_polling_count{kind="gui",kind_id="0",link_kind="plugin_out",link_kind_id="0"} 0
+link_overrun_polling_count{kind="benchg",kind_id="0",link_kind="bencho_out",link_kind_id="0"} 0
+link_overrun_polling_count{kind="benchg",kind_id="1",link_kind="bencho_out",link_kind_id="0"} 0
+link_overrun_polling_count{kind="benchg",kind_id="2",link_kind="bencho_out",link_kind_id="0"} 0
+link_overrun_polling_count{kind="benchg",kind_id="3",link_kind="bencho_out",link_kind_id="0"} 0
+link_overrun_polling_count{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="0"} 0
+link_overrun_polling_count{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="1"} 0
+link_overrun_polling_count{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="2"} 0
+link_overrun_polling_count{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="3"} 0
+link_overrun_polling_count{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="0"} 0
+link_overrun_polling_count{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="1"} 0
+link_overrun_polling_count{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="2"} 0
+link_overrun_polling_count{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="3"} 0
+
+# HELP link_overrun_polling_frag_count The number of fragments the link has not processed because it was overrun while polling.
+# TYPE link_overrun_polling_frag_count counter
+link_overrun_polling_frag_count{kind="net",kind_id="0",link_kind="quic_net",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="net",kind_id="0",link_kind="shred_net",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="net",kind_id="0",link_kind="shred_net",link_kind_id="1"} 0
+link_overrun_polling_frag_count{kind="quic",kind_id="0",link_kind="net_quic",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="verify",kind_id="0",link_kind="quic_verify",link_kind_id="0"} 360448
+link_overrun_polling_frag_count{kind="verify",kind_id="1",link_kind="quic_verify",link_kind_id="0"} 360448
+link_overrun_polling_frag_count{kind="verify",kind_id="2",link_kind="quic_verify",link_kind_id="0"} 360448
+link_overrun_polling_frag_count{kind="verify",kind_id="3",link_kind="quic_verify",link_kind_id="0"} 360448
+link_overrun_polling_frag_count{kind="verify",kind_id="4",link_kind="quic_verify",link_kind_id="0"} 360448
+link_overrun_polling_frag_count{kind="verify",kind_id="5",link_kind="quic_verify",link_kind_id="0"} 360448
+link_overrun_polling_frag_count{kind="dedup",kind_id="0",link_kind="gossip_dedup",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="1"} 0
+link_overrun_polling_frag_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="2"} 0
+link_overrun_polling_frag_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="3"} 0
+link_overrun_polling_frag_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="4"} 0
+link_overrun_polling_frag_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="5"} 0
+link_overrun_polling_frag_count{kind="resolv",kind_id="0",link_kind="dedup_resolv",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="resolv",kind_id="0",link_kind="replay_resol",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="pack",kind_id="0",link_kind="resolv_pack",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="pack",kind_id="0",link_kind="poh_pack",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="1"} 0
+link_overrun_polling_frag_count{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="2"} 0
+link_overrun_polling_frag_count{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="3"} 0
+link_overrun_polling_frag_count{kind="bank",kind_id="0",link_kind="pack_bank",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="bank",kind_id="1",link_kind="pack_bank",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="bank",kind_id="2",link_kind="pack_bank",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="bank",kind_id="3",link_kind="pack_bank",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="1"} 0
+link_overrun_polling_frag_count{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="2"} 0
+link_overrun_polling_frag_count{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="3"} 0
+link_overrun_polling_frag_count{kind="poh",kind_id="0",link_kind="stake_out",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="poh",kind_id="0",link_kind="pack_bank",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="shred",kind_id="0",link_kind="net_shred",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="shred",kind_id="0",link_kind="poh_shred",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="shred",kind_id="0",link_kind="stake_out",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="shred",kind_id="0",link_kind="crds_shred",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="shred",kind_id="1",link_kind="net_shred",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="shred",kind_id="1",link_kind="poh_shred",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="shred",kind_id="1",link_kind="stake_out",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="shred",kind_id="1",link_kind="crds_shred",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="store",kind_id="0",link_kind="shred_store",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="store",kind_id="0",link_kind="shred_store",link_kind_id="1"} 0
+link_overrun_polling_frag_count{kind="sign",kind_id="0",link_kind="shred_sign",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="sign",kind_id="0",link_kind="shred_sign",link_kind_id="1"} 0
+link_overrun_polling_frag_count{kind="plugin",kind_id="0",link_kind="replay_plugi",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="plugin",kind_id="0",link_kind="gossip_plugi",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="plugin",kind_id="0",link_kind="stake_out",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="plugin",kind_id="0",link_kind="poh_plugin",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="plugin",kind_id="0",link_kind="startp_plugi",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="plugin",kind_id="0",link_kind="votel_plugin",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="gui",kind_id="0",link_kind="plugin_out",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="benchg",kind_id="0",link_kind="bencho_out",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="benchg",kind_id="1",link_kind="bencho_out",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="benchg",kind_id="2",link_kind="bencho_out",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="benchg",kind_id="3",link_kind="bencho_out",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="1"} 0
+link_overrun_polling_frag_count{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="2"} 0
+link_overrun_polling_frag_count{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="3"} 0
+link_overrun_polling_frag_count{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="0"} 0
+link_overrun_polling_frag_count{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="1"} 0
+link_overrun_polling_frag_count{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="2"} 0
+link_overrun_polling_frag_count{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="3"} 0
+
+# HELP link_overrun_reading_count The number of input overruns detected while reading metadata by the consumer.
+# TYPE link_overrun_reading_count counter
+link_overrun_reading_count{kind="net",kind_id="0",link_kind="quic_net",link_kind_id="0"} 0
+link_overrun_reading_count{kind="net",kind_id="0",link_kind="shred_net",link_kind_id="0"} 0
+link_overrun_reading_count{kind="net",kind_id="0",link_kind="shred_net",link_kind_id="1"} 0
+link_overrun_reading_count{kind="quic",kind_id="0",link_kind="net_quic",link_kind_id="0"} 0
+link_overrun_reading_count{kind="verify",kind_id="0",link_kind="quic_verify",link_kind_id="0"} 0
+link_overrun_reading_count{kind="verify",kind_id="1",link_kind="quic_verify",link_kind_id="0"} 0
+link_overrun_reading_count{kind="verify",kind_id="2",link_kind="quic_verify",link_kind_id="0"} 0
+link_overrun_reading_count{kind="verify",kind_id="3",link_kind="quic_verify",link_kind_id="0"} 0
+link_overrun_reading_count{kind="verify",kind_id="4",link_kind="quic_verify",link_kind_id="0"} 0
+link_overrun_reading_count{kind="verify",kind_id="5",link_kind="quic_verify",link_kind_id="0"} 0
+link_overrun_reading_count{kind="dedup",kind_id="0",link_kind="gossip_dedup",link_kind_id="0"} 0
+link_overrun_reading_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="0"} 0
+link_overrun_reading_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="1"} 0
+link_overrun_reading_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="2"} 0
+link_overrun_reading_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="3"} 0
+link_overrun_reading_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="4"} 0
+link_overrun_reading_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="5"} 0
+link_overrun_reading_count{kind="resolv",kind_id="0",link_kind="dedup_resolv",link_kind_id="0"} 0
+link_overrun_reading_count{kind="resolv",kind_id="0",link_kind="replay_resol",link_kind_id="0"} 0
+link_overrun_reading_count{kind="pack",kind_id="0",link_kind="resolv_pack",link_kind_id="0"} 0
+link_overrun_reading_count{kind="pack",kind_id="0",link_kind="poh_pack",link_kind_id="0"} 0
+link_overrun_reading_count{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="0"} 0
+link_overrun_reading_count{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="1"} 0
+link_overrun_reading_count{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="2"} 0
+link_overrun_reading_count{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="3"} 0
+link_overrun_reading_count{kind="bank",kind_id="0",link_kind="pack_bank",link_kind_id="0"} 0
+link_overrun_reading_count{kind="bank",kind_id="1",link_kind="pack_bank",link_kind_id="0"} 0
+link_overrun_reading_count{kind="bank",kind_id="2",link_kind="pack_bank",link_kind_id="0"} 0
+link_overrun_reading_count{kind="bank",kind_id="3",link_kind="pack_bank",link_kind_id="0"} 0
+link_overrun_reading_count{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="0"} 0
+link_overrun_reading_count{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="1"} 0
+link_overrun_reading_count{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="2"} 0
+link_overrun_reading_count{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="3"} 0
+link_overrun_reading_count{kind="poh",kind_id="0",link_kind="stake_out",link_kind_id="0"} 0
+link_overrun_reading_count{kind="poh",kind_id="0",link_kind="pack_bank",link_kind_id="0"} 0
+link_overrun_reading_count{kind="shred",kind_id="0",link_kind="net_shred",link_kind_id="0"} 0
+link_overrun_reading_count{kind="shred",kind_id="0",link_kind="poh_shred",link_kind_id="0"} 0
+link_overrun_reading_count{kind="shred",kind_id="0",link_kind="stake_out",link_kind_id="0"} 0
+link_overrun_reading_count{kind="shred",kind_id="0",link_kind="crds_shred",link_kind_id="0"} 0
+link_overrun_reading_count{kind="shred",kind_id="1",link_kind="net_shred",link_kind_id="0"} 0
+link_overrun_reading_count{kind="shred",kind_id="1",link_kind="poh_shred",link_kind_id="0"} 0
+link_overrun_reading_count{kind="shred",kind_id="1",link_kind="stake_out",link_kind_id="0"} 0
+link_overrun_reading_count{kind="shred",kind_id="1",link_kind="crds_shred",link_kind_id="0"} 0
+link_overrun_reading_count{kind="store",kind_id="0",link_kind="shred_store",link_kind_id="0"} 0
+link_overrun_reading_count{kind="store",kind_id="0",link_kind="shred_store",link_kind_id="1"} 0
+link_overrun_reading_count{kind="sign",kind_id="0",link_kind="shred_sign",link_kind_id="0"} 0
+link_overrun_reading_count{kind="sign",kind_id="0",link_kind="shred_sign",link_kind_id="1"} 0
+link_overrun_reading_count{kind="plugin",kind_id="0",link_kind="replay_plugi",link_kind_id="0"} 0
+link_overrun_reading_count{kind="plugin",kind_id="0",link_kind="gossip_plugi",link_kind_id="0"} 0
+link_overrun_reading_count{kind="plugin",kind_id="0",link_kind="stake_out",link_kind_id="0"} 0
+link_overrun_reading_count{kind="plugin",kind_id="0",link_kind="poh_plugin",link_kind_id="0"} 0
+link_overrun_reading_count{kind="plugin",kind_id="0",link_kind="startp_plugi",link_kind_id="0"} 0
+link_overrun_reading_count{kind="plugin",kind_id="0",link_kind="votel_plugin",link_kind_id="0"} 0
+link_overrun_reading_count{kind="gui",kind_id="0",link_kind="plugin_out",link_kind_id="0"} 0
+link_overrun_reading_count{kind="benchg",kind_id="0",link_kind="bencho_out",link_kind_id="0"} 0
+link_overrun_reading_count{kind="benchg",kind_id="1",link_kind="bencho_out",link_kind_id="0"} 0
+link_overrun_reading_count{kind="benchg",kind_id="2",link_kind="bencho_out",link_kind_id="0"} 0
+link_overrun_reading_count{kind="benchg",kind_id="3",link_kind="bencho_out",link_kind_id="0"} 0
+link_overrun_reading_count{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="0"} 0
+link_overrun_reading_count{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="1"} 0
+link_overrun_reading_count{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="2"} 0
+link_overrun_reading_count{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="3"} 0
+link_overrun_reading_count{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="0"} 0
+link_overrun_reading_count{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="1"} 0
+link_overrun_reading_count{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="2"} 0
+link_overrun_reading_count{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="3"} 0
+
+# HELP link_overrun_reading_frag_count The number of fragments the link has not processed because it was overrun while reading.
+# TYPE link_overrun_reading_frag_count counter
+link_overrun_reading_frag_count{kind="net",kind_id="0",link_kind="quic_net",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="net",kind_id="0",link_kind="shred_net",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="net",kind_id="0",link_kind="shred_net",link_kind_id="1"} 0
+link_overrun_reading_frag_count{kind="quic",kind_id="0",link_kind="net_quic",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="verify",kind_id="0",link_kind="quic_verify",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="verify",kind_id="1",link_kind="quic_verify",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="verify",kind_id="2",link_kind="quic_verify",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="verify",kind_id="3",link_kind="quic_verify",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="verify",kind_id="4",link_kind="quic_verify",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="verify",kind_id="5",link_kind="quic_verify",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="dedup",kind_id="0",link_kind="gossip_dedup",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="1"} 0
+link_overrun_reading_frag_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="2"} 0
+link_overrun_reading_frag_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="3"} 0
+link_overrun_reading_frag_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="4"} 0
+link_overrun_reading_frag_count{kind="dedup",kind_id="0",link_kind="verify_dedup",link_kind_id="5"} 0
+link_overrun_reading_frag_count{kind="resolv",kind_id="0",link_kind="dedup_resolv",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="resolv",kind_id="0",link_kind="replay_resol",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="pack",kind_id="0",link_kind="resolv_pack",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="pack",kind_id="0",link_kind="poh_pack",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="1"} 0
+link_overrun_reading_frag_count{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="2"} 0
+link_overrun_reading_frag_count{kind="pack",kind_id="0",link_kind="bank_poh",link_kind_id="3"} 0
+link_overrun_reading_frag_count{kind="bank",kind_id="0",link_kind="pack_bank",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="bank",kind_id="1",link_kind="pack_bank",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="bank",kind_id="2",link_kind="pack_bank",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="bank",kind_id="3",link_kind="pack_bank",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="1"} 0
+link_overrun_reading_frag_count{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="2"} 0
+link_overrun_reading_frag_count{kind="poh",kind_id="0",link_kind="bank_poh",link_kind_id="3"} 0
+link_overrun_reading_frag_count{kind="poh",kind_id="0",link_kind="stake_out",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="poh",kind_id="0",link_kind="pack_bank",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="shred",kind_id="0",link_kind="net_shred",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="shred",kind_id="0",link_kind="poh_shred",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="shred",kind_id="0",link_kind="stake_out",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="shred",kind_id="0",link_kind="crds_shred",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="shred",kind_id="1",link_kind="net_shred",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="shred",kind_id="1",link_kind="poh_shred",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="shred",kind_id="1",link_kind="stake_out",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="shred",kind_id="1",link_kind="crds_shred",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="store",kind_id="0",link_kind="shred_store",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="store",kind_id="0",link_kind="shred_store",link_kind_id="1"} 0
+link_overrun_reading_frag_count{kind="sign",kind_id="0",link_kind="shred_sign",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="sign",kind_id="0",link_kind="shred_sign",link_kind_id="1"} 0
+link_overrun_reading_frag_count{kind="plugin",kind_id="0",link_kind="replay_plugi",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="plugin",kind_id="0",link_kind="gossip_plugi",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="plugin",kind_id="0",link_kind="stake_out",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="plugin",kind_id="0",link_kind="poh_plugin",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="plugin",kind_id="0",link_kind="startp_plugi",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="plugin",kind_id="0",link_kind="votel_plugin",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="gui",kind_id="0",link_kind="plugin_out",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="benchg",kind_id="0",link_kind="bencho_out",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="benchg",kind_id="1",link_kind="bencho_out",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="benchg",kind_id="2",link_kind="bencho_out",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="benchg",kind_id="3",link_kind="bencho_out",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="1"} 0
+link_overrun_reading_frag_count{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="2"} 0
+link_overrun_reading_frag_count{kind="benchs",kind_id="0",link_kind="benchg_s",link_kind_id="3"} 0
+link_overrun_reading_frag_count{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="0"} 0
+link_overrun_reading_frag_count{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="1"} 0
+link_overrun_reading_frag_count{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="2"} 0
+link_overrun_reading_frag_count{kind="benchs",kind_id="1",link_kind="benchg_s",link_kind_id="3"} 0
+
+# HELP link_slow_count The number of times the consumer was detected as rate limiting consumer by the producer.
+# TYPE link_slow_count counter
+link_slow_count{kind="verify",kind_id="0",link_kind="verify_dedup",link_kind_id="0"} 1
+link_slow_count{kind="verify",kind_id="1",link_kind="verify_dedup",link_kind_id="1"} 1
+link_slow_count{kind="verify",kind_id="2",link_kind="verify_dedup",link_kind_id="2"} 1
+link_slow_count{kind="verify",kind_id="3",link_kind="verify_dedup",link_kind_id="3"} 1
+link_slow_count{kind="verify",kind_id="4",link_kind="verify_dedup",link_kind_id="4"} 1
+link_slow_count{kind="verify",kind_id="5",link_kind="verify_dedup",link_kind_id="5"} 1
+link_slow_count{kind="dedup",kind_id="0",link_kind="dedup_resolv",link_kind_id="0"} 0
+link_slow_count{kind="resolv",kind_id="0",link_kind="resolv_pack",link_kind_id="0"} 1
+link_slow_count{kind="pack",kind_id="0",link_kind="pack_bank",link_kind_id="0"} 0
+link_slow_count{kind="pack",kind_id="0",link_kind="pack_bank",link_kind_id="0"} 1
+link_slow_count{kind="pack",kind_id="0",link_kind="pack_bank",link_kind_id="0"} 0
+link_slow_count{kind="pack",kind_id="0",link_kind="pack_bank",link_kind_id="0"} 0
+link_slow_count{kind="pack",kind_id="0",link_kind="pack_bank",link_kind_id="0"} 0
+link_slow_count{kind="bank",kind_id="0",link_kind="bank_poh",link_kind_id="0"} 1
+link_slow_count{kind="bank",kind_id="1",link_kind="bank_poh",link_kind_id="1"} 1
+link_slow_count{kind="bank",kind_id="2",link_kind="bank_poh",link_kind_id="2"} 1
+link_slow_count{kind="bank",kind_id="3",link_kind="bank_poh",link_kind_id="3"} 1
+link_slow_count{kind="poh",kind_id="0",link_kind="gossip_dedup",link_kind_id="0"} 0
+link_slow_count{kind="poh",kind_id="0",link_kind="replay_resol",link_kind_id="0"} 0
+link_slow_count{kind="poh",kind_id="0",link_kind="stake_out",link_kind_id="0"} 1
+link_slow_count{kind="poh",kind_id="0",link_kind="poh_shred",link_kind_id="0"} 0
+link_slow_count{kind="poh",kind_id="0",link_kind="stake_out",link_kind_id="0"} 0
+link_slow_count{kind="poh",kind_id="0",link_kind="crds_shred",link_kind_id="0"} 0
+link_slow_count{kind="poh",kind_id="0",link_kind="poh_shred",link_kind_id="0"} 0
+link_slow_count{kind="poh",kind_id="0",link_kind="stake_out",link_kind_id="0"} 0
+link_slow_count{kind="poh",kind_id="0",link_kind="crds_shred",link_kind_id="0"} 0
+link_slow_count{kind="poh",kind_id="0",link_kind="replay_plugi",link_kind_id="0"} 0
+link_slow_count{kind="poh",kind_id="0",link_kind="gossip_plugi",link_kind_id="0"} 0
+link_slow_count{kind="poh",kind_id="0",link_kind="stake_out",link_kind_id="0"} 0
+link_slow_count{kind="poh",kind_id="0",link_kind="poh_plugin",link_kind_id="0"} 0
+link_slow_count{kind="poh",kind_id="0",link_kind="startp_plugi",link_kind_id="0"} 0
+link_slow_count{kind="poh",kind_id="0",link_kind="votel_plugin",link_kind_id="0"} 0
+link_slow_count{kind="shred",kind_id="0",link_kind="shred_store",link_kind_id="0"} 1
+link_slow_count{kind="shred",kind_id="1",link_kind="shred_store",link_kind_id="1"} 1
+link_slow_count{kind="plugin",kind_id="0",link_kind="plugin_out",link_kind_id="0"} 1
+link_slow_count{kind="bencho",kind_id="0",link_kind="bencho_out",link_kind_id="0"} 1
+link_slow_count{kind="bencho",kind_id="0",link_kind="bencho_out",link_kind_id="0"} 0
+link_slow_count{kind="bencho",kind_id="0",link_kind="bencho_out",link_kind_id="0"} 0
+link_slow_count{kind="bencho",kind_id="0",link_kind="bencho_out",link_kind_id="0"} 0
+link_slow_count{kind="benchg",kind_id="0",link_kind="benchg_s",link_kind_id="0"} 1
+link_slow_count{kind="benchg",kind_id="0",link_kind="benchg_s",link_kind_id="0"} 0
+link_slow_count{kind="benchg",kind_id="1",link_kind="benchg_s",link_kind_id="1"} 1
+link_slow_count{kind="benchg",kind_id="1",link_kind="benchg_s",link_kind_id="1"} 0
+link_slow_count{kind="benchg",kind_id="2",link_kind="benchg_s",link_kind_id="2"} 1
+link_slow_count{kind="benchg",kind_id="2",link_kind="benchg_s",link_kind_id="2"} 0
+link_slow_count{kind="benchg",kind_id="3",link_kind="benchg_s",link_kind_id="3"} 1
+link_slow_count{kind="benchg",kind_id="3",link_kind="benchg_s",link_kind_id="3"} 0
+
+# HELP net_received_packets Number of IP packets received.
+# TYPE net_received_packets counter
+net_received_packets{kind="net",kind_id="0"} 187032
+
+# HELP net_received_bytes Total bytes received (including IP, UDP headers).
+# TYPE net_received_bytes counter
+net_received_bytes{kind="net",kind_id="0"} 175688052
+
+# HELP net_sent_packets Number of IP packets sent.
+# TYPE net_sent_packets counter
+net_sent_packets{kind="net",kind_id="0"} 2383
+
+# HELP net_sent_bytes Total bytes sent (including IP, UDP headers).
+# TYPE net_sent_bytes counter
+net_sent_bytes{kind="net",kind_id="0"} 200036
+
+# HELP net_xdp_rx_dropped_ring_full Number of packets dropped because the RX completion queue was empty. This is only reported for net tile 0, since the measurement is across all RX queues.
+# TYPE net_xdp_rx_dropped_ring_full counter
+net_xdp_rx_dropped_ring_full{kind="net",kind_id="0"} 0
+
+# HELP net_xdp_rx_dropped_other Number of packets dropped for other reasons. This is only reported for net tile 0, since the measurement is across all RX queues.
+# TYPE net_xdp_rx_dropped_other counter
+net_xdp_rx_dropped_other{kind="net",kind_id="0"} 0
+
+# HELP net_tx_dropped Number of packets dropped because the TX submission queue was empty. This is reported for all net tiles.
+# TYPE net_tx_dropped counter
+net_tx_dropped{kind="net",kind_id="0"} 0
+
+# HELP quic_txns_overrun Count of txns overrun before reassembled (too small txn_reassembly_count).
+# TYPE quic_txns_overrun counter
+quic_txns_overrun{kind="quic",kind_id="0"} 0
+
+# HELP quic_txn_reasms_started Count of fragmented txn receive ops started.
+# TYPE quic_txn_reasms_started counter
+quic_txn_reasms_started{kind="quic",kind_id="0"} 4
+
+# HELP quic_txn_reasms_active Number of fragmented txn receive ops currently active.
+# TYPE quic_txn_reasms_active gauge
+quic_txn_reasms_active{kind="quic",kind_id="0"} 0
+
+# HELP quic_frags_ok Count of txn frags received
+# TYPE quic_frags_ok counter
+quic_frags_ok{kind="quic",kind_id="0"} 8
+
+# HELP quic_frags_gap Count of txn frags dropped due to data gap
+# TYPE quic_frags_gap counter
+quic_frags_gap{kind="quic",kind_id="0"} 0
+
+# HELP quic_frags_dup Count of txn frags dropped due to dup (stream already completed)
+# TYPE quic_frags_dup counter
+quic_frags_dup{kind="quic",kind_id="0"} 0
+
+# HELP quic_txns_received Count of txns received via TPU.
+# TYPE quic_txns_received counter
+quic_txns_received{kind="quic",kind_id="0",tpu_recv_type="udp"} 12
+quic_txns_received{kind="quic",kind_id="0",tpu_recv_type="quic_fast"} 841489
+quic_txns_received{kind="quic",kind_id="0",tpu_recv_type="quic_frag"} 4
+
+# HELP quic_txns_abandoned Count of txns abandoned because a conn was lost.
+# TYPE quic_txns_abandoned counter
+quic_txns_abandoned{kind="quic",kind_id="0"} 0
+
+# HELP quic_txn_undersz Count of txns received via QUIC dropped because they were too small.
+# TYPE quic_txn_undersz counter
+quic_txn_undersz{kind="quic",kind_id="0"} 0
+
+# HELP quic_txn_oversz Count of txns received via QUIC dropped because they were too large.
+# TYPE quic_txn_oversz counter
+quic_txn_oversz{kind="quic",kind_id="0"} 0
+
+# HELP quic_legacy_txn_undersz Count of packets received on the non-QUIC port that were too small to be a valid IP packet.
+# TYPE quic_legacy_txn_undersz counter
+quic_legacy_txn_undersz{kind="quic",kind_id="0"} 0
+
+# HELP quic_legacy_txn_oversz Count of packets received on the non-QUIC port that were too large to be a valid transaction.
+# TYPE quic_legacy_txn_oversz counter
+quic_legacy_txn_oversz{kind="quic",kind_id="0"} 0
+
+# HELP quic_received_packets Number of IP packets received.
+# TYPE quic_received_packets counter
+quic_received_packets{kind="quic",kind_id="0"} 187021
+
+# HELP quic_received_bytes Total bytes received (including IP, UDP, QUIC headers).
+# TYPE quic_received_bytes counter
+quic_received_bytes{kind="quic",kind_id="0"} 175685537
+
+# HELP quic_sent_packets Number of IP packets sent.
+# TYPE quic_sent_packets counter
+quic_sent_packets{kind="quic",kind_id="0"} 2383
+
+# HELP quic_sent_bytes Total bytes sent (including IP, UDP, QUIC headers).
+# TYPE quic_sent_bytes counter
+quic_sent_bytes{kind="quic",kind_id="0"} 166674
+
+# HELP quic_connections_active The number of currently active QUIC connections.
+# TYPE quic_connections_active gauge
+quic_connections_active{kind="quic",kind_id="0"} 3
+
+# HELP quic_connections_created The total number of connections that have been created.
+# TYPE quic_connections_created counter
+quic_connections_created{kind="quic",kind_id="0"} 3
+
+# HELP quic_connections_closed Number of connections gracefully closed.
+# TYPE quic_connections_closed counter
+quic_connections_closed{kind="quic",kind_id="0"} 0
+
+# HELP quic_connections_aborted Number of connections aborted.
+# TYPE quic_connections_aborted counter
+quic_connections_aborted{kind="quic",kind_id="0"} 0
+
+# HELP quic_connections_timed_out Number of connections timed out.
+# TYPE quic_connections_timed_out counter
+quic_connections_timed_out{kind="quic",kind_id="0"} 0
+
+# HELP quic_connections_retried Number of connections established with retry.
+# TYPE quic_connections_retried counter
+quic_connections_retried{kind="quic",kind_id="0"} 3
+
+# HELP quic_connection_error_no_slots Number of connections that failed to create due to lack of slots.
+# TYPE quic_connection_error_no_slots counter
+quic_connection_error_no_slots{kind="quic",kind_id="0"} 0
+
+# HELP quic_connection_error_retry_fail Number of connections that failed during retry (e.g. invalid token).
+# TYPE quic_connection_error_retry_fail counter
+quic_connection_error_retry_fail{kind="quic",kind_id="0"} 0
+
+# HELP quic_pkt_no_conn Number of packets with an unknown connection ID.
+# TYPE quic_pkt_no_conn counter
+quic_pkt_no_conn{kind="quic",kind_id="0"} 0
+
+# HELP quic_pkt_tx_alloc_fail Number of packets failed to send because of metadata alloc fail.
+# TYPE quic_pkt_tx_alloc_fail counter
+quic_pkt_tx_alloc_fail{kind="quic",kind_id="0"} 0
+
+# HELP quic_handshakes_created Number of handshake flows created.
+# TYPE quic_handshakes_created counter
+quic_handshakes_created{kind="quic",kind_id="0"} 3
+
+# HELP quic_handshake_error_alloc_fail Number of handshakes dropped due to alloc fail.
+# TYPE quic_handshake_error_alloc_fail counter
+quic_handshake_error_alloc_fail{kind="quic",kind_id="0"} 0
+
+# HELP quic_stream_received_events Number of stream RX events.
+# TYPE quic_stream_received_events counter
+quic_stream_received_events{kind="quic",kind_id="0"} 841503
+
+# HELP quic_stream_received_bytes Total stream payload bytes received.
+# TYPE quic_stream_received_bytes counter
+quic_stream_received_bytes{kind="quic",kind_id="0"} 156521046
+
+# HELP quic_received_frames Number of QUIC frames received.
+# TYPE quic_received_frames counter
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="unknown"} 0
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="ack"} 7
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="reset_stream"} 0
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="stop_sending"} 0
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="crypto"} 6
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="new_token"} 0
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="stream"} 841515
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="max_data"} 0
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="max_stream_data"} 0
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="max_streams"} 0
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="data_blocked"} 0
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="stream_data_blocked"} 0
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="streams_blocked"} 0
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="new_conn_id"} 1
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="retire_conn_id"} 0
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="path_challenge"} 0
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="path_response"} 0
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="conn_close_quic"} 0
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="conn_close_app"} 0
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="handshake_done"} 0
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="ping"} 8
+quic_received_frames{kind="quic",kind_id="0",quic_frame_type="padding"} 14
+
+# HELP quic_ack_tx ACK events
+# TYPE quic_ack_tx counter
+quic_ack_tx{kind="quic",kind_id="0",quic_ack_tx="noop"} 0
+quic_ack_tx{kind="quic",kind_id="0",quic_ack_tx="new"} 9
+quic_ack_tx{kind="quic",kind_id="0",quic_ack_tx="merged"} 187013
+quic_ack_tx{kind="quic",kind_id="0",quic_ack_tx="drop"} 0
+quic_ack_tx{kind="quic",kind_id="0",quic_ack_tx="cancel"} 0
+
+# HELP quic_service_duration_seconds Duration spent in service
+# TYPE quic_service_duration_seconds histogram
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="9.2174789009632497e-09"} 386
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.0056996416184511e-08"} 139085675
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="9.6182388531790431e-08"} 139088246
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.0577984354065043e-07"} 139090033
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="9.7064060426665188e-07"} 139092455
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.0794394728261571e-06"} 139093225
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="9.7677223153555347e-06"} 139094223
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="3.0979946586137486e-05"} 139094223
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="9.8255920524554952e-05"} 139094223
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.00031162572896362221"} 139094223
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.00098834136983611898"} 139094223
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.0031345868475707158"} 139094223
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.0099415375172708549"} 139094223
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.031530204027128098"} 139094223
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="0.09999999938264148"} 139094223
+quic_service_duration_seconds_bucket{kind="quic",kind_id="0",le="+Inf"} 139094223
+quic_service_duration_seconds_sum{kind="quic",kind_id="0"} 1.5822162936928446
+quic_service_duration_seconds_count{kind="quic",kind_id="0"} 139094223
+
+# HELP quic_receive_duration_seconds Duration spent receiving packets
+# TYPE quic_receive_duration_seconds histogram
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="9.2174789009632497e-09"} 0
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="3.0056996416184511e-08"} 0
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="9.6182388531790431e-08"} 0
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="3.0577984354065043e-07"} 0
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="9.7064060426665188e-07"} 92076
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="3.0794394728261571e-06"} 186824
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="9.7677223153555347e-06"} 187021
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="3.0979946586137486e-05"} 187021
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="9.8255920524554952e-05"} 187022
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.00031162572896362221"} 187024
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.00098834136983611898"} 187024
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.0031345868475707158"} 187024
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.0099415375172708549"} 187024
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.031530204027128098"} 187024
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="0.09999999938264148"} 187024
+quic_receive_duration_seconds_bucket{kind="quic",kind_id="0",le="+Inf"} 187024
+quic_receive_duration_seconds_sum{kind="quic",kind_id="0"} 0.21315256648796987
+quic_receive_duration_seconds_count{kind="quic",kind_id="0"} 187024
+
+# HELP quic_frame_fail_parse Number of QUIC frames failed to parse.
+# TYPE quic_frame_fail_parse counter
+quic_frame_fail_parse{kind="quic",kind_id="0"} 0
+
+# HELP quic_pkt_crypto_failed Number of packets that failed decryption.
+# TYPE quic_pkt_crypto_failed counter
+quic_pkt_crypto_failed{kind="quic",kind_id="0",quic_enc_level="initial"} 0
+quic_pkt_crypto_failed{kind="quic",kind_id="0",quic_enc_level="early"} 0
+quic_pkt_crypto_failed{kind="quic",kind_id="0",quic_enc_level="handshake"} 0
+quic_pkt_crypto_failed{kind="quic",kind_id="0",quic_enc_level="app"} 0
+
+# HELP quic_pkt_no_key Number of packets that failed decryption due to missing key.
+# TYPE quic_pkt_no_key counter
+quic_pkt_no_key{kind="quic",kind_id="0",quic_enc_level="initial"} 0
+quic_pkt_no_key{kind="quic",kind_id="0",quic_enc_level="early"} 0
+quic_pkt_no_key{kind="quic",kind_id="0",quic_enc_level="handshake"} 0
+quic_pkt_no_key{kind="quic",kind_id="0",quic_enc_level="app"} 0
+
+# HELP quic_pkt_net_header_invalid Number of packets dropped due to weird IP or UDP header.
+# TYPE quic_pkt_net_header_invalid counter
+quic_pkt_net_header_invalid{kind="quic",kind_id="0"} 0
+
+# HELP quic_pkt_quic_header_invalid Number of packets dropped due to weird QUIC header.
+# TYPE quic_pkt_quic_header_invalid counter
+quic_pkt_quic_header_invalid{kind="quic",kind_id="0"} 0
+
+# HELP quic_pkt_undersz Number of QUIC packets dropped due to being too small.
+# TYPE quic_pkt_undersz counter
+quic_pkt_undersz{kind="quic",kind_id="0"} 0
+
+# HELP quic_pkt_oversz Number of QUIC packets dropped due to being too large.
+# TYPE quic_pkt_oversz counter
+quic_pkt_oversz{kind="quic",kind_id="0"} 0
+
+# HELP quic_pkt_verneg Number of QUIC version negotiation packets received.
+# TYPE quic_pkt_verneg counter
+quic_pkt_verneg{kind="quic",kind_id="0"} 0
+
+# HELP verify_transaction_bundle_peer_failure Count of transactions that failed to verify because a peer transaction in the bundle failed
+# TYPE verify_transaction_bundle_peer_failure counter
+verify_transaction_bundle_peer_failure{kind="verify",kind_id="0"} 6503784
+verify_transaction_bundle_peer_failure{kind="verify",kind_id="1"} 0
+verify_transaction_bundle_peer_failure{kind="verify",kind_id="2"} 0
+verify_transaction_bundle_peer_failure{kind="verify",kind_id="3"} 0
+verify_transaction_bundle_peer_failure{kind="verify",kind_id="4"} 0
+verify_transaction_bundle_peer_failure{kind="verify",kind_id="5"} 0
+
+# HELP verify_transaction_parse_failure Count of transactions that failed to parse
+# TYPE verify_transaction_parse_failure counter
+verify_transaction_parse_failure{kind="verify",kind_id="0"} 9745149
+verify_transaction_parse_failure{kind="verify",kind_id="1"} 4
+verify_transaction_parse_failure{kind="verify",kind_id="2"} 3
+verify_transaction_parse_failure{kind="verify",kind_id="3"} 2
+verify_transaction_parse_failure{kind="verify",kind_id="4"} 4
+verify_transaction_parse_failure{kind="verify",kind_id="5"} 4
+
+# HELP verify_transaction_dedup_failure Count of transactions that failed to deduplicate in the verify stage
+# TYPE verify_transaction_dedup_failure counter
+verify_transaction_dedup_failure{kind="verify",kind_id="0"} 0
+verify_transaction_dedup_failure{kind="verify",kind_id="1"} 0
+verify_transaction_dedup_failure{kind="verify",kind_id="2"} 0
+verify_transaction_dedup_failure{kind="verify",kind_id="3"} 0
+verify_transaction_dedup_failure{kind="verify",kind_id="4"} 0
+verify_transaction_dedup_failure{kind="verify",kind_id="5"} 0
+
+# HELP verify_transaction_verify_failure Count of transactions that failed to deduplicate in the verify stage
+# TYPE verify_transaction_verify_failure counter
+verify_transaction_verify_failure{kind="verify",kind_id="0"} 0
+verify_transaction_verify_failure{kind="verify",kind_id="1"} 0
+verify_transaction_verify_failure{kind="verify",kind_id="2"} 0
+verify_transaction_verify_failure{kind="verify",kind_id="3"} 0
+verify_transaction_verify_failure{kind="verify",kind_id="4"} 0
+verify_transaction_verify_failure{kind="verify",kind_id="5"} 0
+
+# HELP dedup_transaction_bundle_peer_failure Count of transactions that failed to dedup because a peer transaction in the bundle failed
+# TYPE dedup_transaction_bundle_peer_failure counter
+dedup_transaction_bundle_peer_failure{kind="dedup",kind_id="0"} 0
+
+# HELP dedup_transaction_dedup_failure Count of transactions that failed to deduplicate in the dedup stage
+# TYPE dedup_transaction_dedup_failure counter
+dedup_transaction_dedup_failure{kind="dedup",kind_id="0"} 685
+
+# HELP dedup_gossiped_votes_received Count of simple vote transactions received over gossip instead of via the normal TPU path
+# TYPE dedup_gossiped_votes_received counter
+dedup_gossiped_votes_received{kind="dedup",kind_id="0"} 12
+
+# HELP resolv_no_bank_drop Count of transactions dropped because the bank was not available
+# TYPE resolv_no_bank_drop counter
+resolv_no_bank_drop{kind="resolv",kind_id="0"} 0
+
+# HELP resolv_stash_operation Count of operations that happened on the transaction stash
+# TYPE resolv_stash_operation counter
+resolv_stash_operation{kind="resolv",kind_id="0",resolve_stash_operation="inserted"} 476122
+resolv_stash_operation{kind="resolv",kind_id="0",resolve_stash_operation="overrun"} 410586
+resolv_stash_operation{kind="resolv",kind_id="0",resolve_stash_operation="published"} 0
+resolv_stash_operation{kind="resolv",kind_id="0",resolve_stash_operation="removed"} 0
+
+# HELP resolv_lut_resolved Count of address lookup tables resolved
+# TYPE resolv_lut_resolved counter
+resolv_lut_resolved{kind="resolv",kind_id="0",lut_resolve_result="invalid_lookup_index"} 0
+resolv_lut_resolved{kind="resolv",kind_id="0",lut_resolve_result="account_uninitialized"} 0
+resolv_lut_resolved{kind="resolv",kind_id="0",lut_resolve_result="invalid_account_data"} 0
+resolv_lut_resolved{kind="resolv",kind_id="0",lut_resolve_result="invalid_account_owner"} 0
+resolv_lut_resolved{kind="resolv",kind_id="0",lut_resolve_result="account_not_found"} 0
+resolv_lut_resolved{kind="resolv",kind_id="0",lut_resolve_result="success"} 0
+
+# HELP resolv_blockhash_expired Count of transactions that failed to resolve because the blockhash was expired
+# TYPE resolv_blockhash_expired counter
+resolv_blockhash_expired{kind="resolv",kind_id="0"} 0
+
+# HELP resolv_transaction_bundle_peer_failure Count of transactions that failed to resolve because a peer transaction in the bundle failed
+# TYPE resolv_transaction_bundle_peer_failure counter
+resolv_transaction_bundle_peer_failure{kind="resolv",kind_id="0"} 0
+
+# HELP pack_schedule_microblock_duration_seconds Duration of scheduling one microblock
+# TYPE pack_schedule_microblock_duration_seconds histogram
+pack_schedule_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="9.2174789009632497e-09"} 0
+pack_schedule_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="3.0056996416184511e-08"} 0
+pack_schedule_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="9.6182388531790431e-08"} 0
+pack_schedule_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="3.0577984354065043e-07"} 0
+pack_schedule_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="9.7064060426665188e-07"} 11
+pack_schedule_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="3.0794394728261571e-06"} 11
+pack_schedule_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="9.7677223153555347e-06"} 12
+pack_schedule_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="3.0979946586137486e-05"} 12
+pack_schedule_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="9.8255920524554952e-05"} 12
+pack_schedule_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="0.00031162572896362221"} 12
+pack_schedule_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="0.00098834136983611898"} 12
+pack_schedule_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="0.0031345868475707158"} 12
+pack_schedule_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="0.0099415375172708549"} 12
+pack_schedule_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="0.031530204027128098"} 12
+pack_schedule_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="0.09999999938264148"} 12
+pack_schedule_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="+Inf"} 12
+pack_schedule_microblock_duration_seconds_sum{kind="pack",kind_id="0"} 1.2453615515105782e-05
+pack_schedule_microblock_duration_seconds_count{kind="pack",kind_id="0"} 12
+
+# HELP pack_no_sched_microblock_duration_seconds Duration of discovering that there are no schedulable transactions
+# TYPE pack_no_sched_microblock_duration_seconds histogram
+pack_no_sched_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="9.2174789009632497e-09"} 0
+pack_no_sched_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="3.0056996416184511e-08"} 0
+pack_no_sched_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="9.6182388531790431e-08"} 0
+pack_no_sched_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="3.0577984354065043e-07"} 0
+pack_no_sched_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="9.7064060426665188e-07"} 0
+pack_no_sched_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="3.0794394728261571e-06"} 0
+pack_no_sched_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="9.7677223153555347e-06"} 0
+pack_no_sched_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="3.0979946586137486e-05"} 0
+pack_no_sched_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="9.8255920524554952e-05"} 0
+pack_no_sched_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="0.00031162572896362221"} 0
+pack_no_sched_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="0.00098834136983611898"} 0
+pack_no_sched_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="0.0031345868475707158"} 0
+pack_no_sched_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="0.0099415375172708549"} 0
+pack_no_sched_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="0.031530204027128098"} 0
+pack_no_sched_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="0.09999999938264148"} 0
+pack_no_sched_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="+Inf"} 0
+pack_no_sched_microblock_duration_seconds_sum{kind="pack",kind_id="0"} 0
+pack_no_sched_microblock_duration_seconds_count{kind="pack",kind_id="0"} 0
+
+# HELP pack_insert_transaction_duration_seconds Duration of inserting one transaction into the pool of available transactions
+# TYPE pack_insert_transaction_duration_seconds histogram
+pack_insert_transaction_duration_seconds_bucket{kind="pack",kind_id="0",le="9.2174789009632497e-09"} 0
+pack_insert_transaction_duration_seconds_bucket{kind="pack",kind_id="0",le="3.0056996416184511e-08"} 0
+pack_insert_transaction_duration_seconds_bucket{kind="pack",kind_id="0",le="9.6182388531790431e-08"} 0
+pack_insert_transaction_duration_seconds_bucket{kind="pack",kind_id="0",le="3.0577984354065043e-07"} 0
+pack_insert_transaction_duration_seconds_bucket{kind="pack",kind_id="0",le="9.7064060426665188e-07"} 11
+pack_insert_transaction_duration_seconds_bucket{kind="pack",kind_id="0",le="3.0794394728261571e-06"} 11
+pack_insert_transaction_duration_seconds_bucket{kind="pack",kind_id="0",le="9.7677223153555347e-06"} 12
+pack_insert_transaction_duration_seconds_bucket{kind="pack",kind_id="0",le="3.0979946586137486e-05"} 12
+pack_insert_transaction_duration_seconds_bucket{kind="pack",kind_id="0",le="9.8255920524554952e-05"} 12
+pack_insert_transaction_duration_seconds_bucket{kind="pack",kind_id="0",le="0.00031162572896362221"} 12
+pack_insert_transaction_duration_seconds_bucket{kind="pack",kind_id="0",le="0.00098834136983611898"} 12
+pack_insert_transaction_duration_seconds_bucket{kind="pack",kind_id="0",le="0.0031345868475707158"} 12
+pack_insert_transaction_duration_seconds_bucket{kind="pack",kind_id="0",le="0.0099415375172708549"} 12
+pack_insert_transaction_duration_seconds_bucket{kind="pack",kind_id="0",le="0.031530204027128098"} 12
+pack_insert_transaction_duration_seconds_bucket{kind="pack",kind_id="0",le="0.09999999938264148"} 12
+pack_insert_transaction_duration_seconds_bucket{kind="pack",kind_id="0",le="+Inf"} 12
+pack_insert_transaction_duration_seconds_sum{kind="pack",kind_id="0"} 8.5261679833910059e-06
+pack_insert_transaction_duration_seconds_count{kind="pack",kind_id="0"} 12
+
+# HELP pack_complete_microblock_duration_seconds Duration of the computation associated with marking one microblock as complete
+# TYPE pack_complete_microblock_duration_seconds histogram
+pack_complete_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="9.2174789009632497e-09"} 0
+pack_complete_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="3.0056996416184511e-08"} 0
+pack_complete_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="9.6182388531790431e-08"} 0
+pack_complete_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="3.0577984354065043e-07"} 0
+pack_complete_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="9.7064060426665188e-07"} 0
+pack_complete_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="3.0794394728261571e-06"} 0
+pack_complete_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="9.7677223153555347e-06"} 0
+pack_complete_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="3.0979946586137486e-05"} 0
+pack_complete_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="9.8255920524554952e-05"} 0
+pack_complete_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="0.00031162572896362221"} 0
+pack_complete_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="0.00098834136983611898"} 0
+pack_complete_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="0.0031345868475707158"} 0
+pack_complete_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="0.0099415375172708549"} 0
+pack_complete_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="0.031530204027128098"} 0
+pack_complete_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="0.09999999938264148"} 0
+pack_complete_microblock_duration_seconds_bucket{kind="pack",kind_id="0",le="+Inf"} 0
+pack_complete_microblock_duration_seconds_sum{kind="pack",kind_id="0"} 0
+pack_complete_microblock_duration_seconds_count{kind="pack",kind_id="0"} 0
+
+# HELP pack_total_transactions_per_microblock_count Count of transactions in a scheduled microblock, including both votes and non-votes
+# TYPE pack_total_transactions_per_microblock_count histogram
+pack_total_transactions_per_microblock_count_bucket{kind="pack",kind_id="0",le="0"} 0
+pack_total_transactions_per_microblock_count_bucket{kind="pack",kind_id="0",le="1"} 11
+pack_total_transactions_per_microblock_count_bucket{kind="pack",kind_id="0",le="2"} 11
+pack_total_transactions_per_microblock_count_bucket{kind="pack",kind_id="0",le="3"} 11
+pack_total_transactions_per_microblock_count_bucket{kind="pack",kind_id="0",le="4"} 11
+pack_total_transactions_per_microblock_count_bucket{kind="pack",kind_id="0",le="5"} 11
+pack_total_transactions_per_microblock_count_bucket{kind="pack",kind_id="0",le="7"} 11
+pack_total_transactions_per_microblock_count_bucket{kind="pack",kind_id="0",le="9"} 11
+pack_total_transactions_per_microblock_count_bucket{kind="pack",kind_id="0",le="12"} 11
+pack_total_transactions_per_microblock_count_bucket{kind="pack",kind_id="0",le="16"} 11
+pack_total_transactions_per_microblock_count_bucket{kind="pack",kind_id="0",le="21"} 11
+pack_total_transactions_per_microblock_count_bucket{kind="pack",kind_id="0",le="28"} 11
+pack_total_transactions_per_microblock_count_bucket{kind="pack",kind_id="0",le="37"} 11
+pack_total_transactions_per_microblock_count_bucket{kind="pack",kind_id="0",le="48"} 11
+pack_total_transactions_per_microblock_count_bucket{kind="pack",kind_id="0",le="63"} 11
+pack_total_transactions_per_microblock_count_bucket{kind="pack",kind_id="0",le="+Inf"} 11
+pack_total_transactions_per_microblock_count_sum{kind="pack",kind_id="0"} 11
+pack_total_transactions_per_microblock_count_count{kind="pack",kind_id="0"} 11
+
+# HELP pack_votes_per_microblock_count Count of simple vote transactions in a scheduled microblock
+# TYPE pack_votes_per_microblock_count histogram
+pack_votes_per_microblock_count_bucket{kind="pack",kind_id="0",le="0"} 0
+pack_votes_per_microblock_count_bucket{kind="pack",kind_id="0",le="1"} 11
+pack_votes_per_microblock_count_bucket{kind="pack",kind_id="0",le="2"} 11
+pack_votes_per_microblock_count_bucket{kind="pack",kind_id="0",le="3"} 11
+pack_votes_per_microblock_count_bucket{kind="pack",kind_id="0",le="4"} 11
+pack_votes_per_microblock_count_bucket{kind="pack",kind_id="0",le="5"} 11
+pack_votes_per_microblock_count_bucket{kind="pack",kind_id="0",le="7"} 11
+pack_votes_per_microblock_count_bucket{kind="pack",kind_id="0",le="9"} 11
+pack_votes_per_microblock_count_bucket{kind="pack",kind_id="0",le="12"} 11
+pack_votes_per_microblock_count_bucket{kind="pack",kind_id="0",le="16"} 11
+pack_votes_per_microblock_count_bucket{kind="pack",kind_id="0",le="21"} 11
+pack_votes_per_microblock_count_bucket{kind="pack",kind_id="0",le="28"} 11
+pack_votes_per_microblock_count_bucket{kind="pack",kind_id="0",le="37"} 11
+pack_votes_per_microblock_count_bucket{kind="pack",kind_id="0",le="48"} 11
+pack_votes_per_microblock_count_bucket{kind="pack",kind_id="0",le="63"} 11
+pack_votes_per_microblock_count_bucket{kind="pack",kind_id="0",le="+Inf"} 11
+pack_votes_per_microblock_count_sum{kind="pack",kind_id="0"} 11
+pack_votes_per_microblock_count_count{kind="pack",kind_id="0"} 11
+
+# HELP pack_normal_transaction_received Count of transactions received via the normal TPU path
+# TYPE pack_normal_transaction_received counter
+pack_normal_transaction_received{kind="pack",kind_id="0"} 12
+
+# HELP pack_transaction_inserted Result of inserting a transaction into the pack object
+# TYPE pack_transaction_inserted counter
+pack_transaction_inserted{kind="pack",kind_id="0",pack_txn_insert_return="bundle_blacklist"} 0
+pack_transaction_inserted{kind="pack",kind_id="0",pack_txn_insert_return="write_sysvar"} 0
+pack_transaction_inserted{kind="pack",kind_id="0",pack_txn_insert_return="estimation_fail"} 0
+pack_transaction_inserted{kind="pack",kind_id="0",pack_txn_insert_return="duplicate_account"} 0
+pack_transaction_inserted{kind="pack",kind_id="0",pack_txn_insert_return="too_many_accounts"} 0
+pack_transaction_inserted{kind="pack",kind_id="0",pack_txn_insert_return="too_large"} 0
+pack_transaction_inserted{kind="pack",kind_id="0",pack_txn_insert_return="expired"} 0
+pack_transaction_inserted{kind="pack",kind_id="0",pack_txn_insert_return="addr_lut"} 0
+pack_transaction_inserted{kind="pack",kind_id="0",pack_txn_insert_return="unaffordable"} 0
+pack_transaction_inserted{kind="pack",kind_id="0",pack_txn_insert_return="duplicate"} 0
+pack_transaction_inserted{kind="pack",kind_id="0",pack_txn_insert_return="priority"} 0
+pack_transaction_inserted{kind="pack",kind_id="0",pack_txn_insert_return="nonvote_add"} 0
+pack_transaction_inserted{kind="pack",kind_id="0",pack_txn_insert_return="vote_add"} 12
+pack_transaction_inserted{kind="pack",kind_id="0",pack_txn_insert_return="nonvote_replace"} 0
+pack_transaction_inserted{kind="pack",kind_id="0",pack_txn_insert_return="vote_replace"} 0
+
+# HELP pack_metric_timing Time in nanos spent in each state
+# TYPE pack_metric_timing counter
+pack_metric_timing{kind="pack",kind_id="0",pack_timing_state="no_txn_no_bank_no_leader_no_microblock"} 4146796700
+pack_metric_timing{kind="pack",kind_id="0",pack_timing_state="txn_no_bank_no_leader_no_microblock"} 0
+pack_metric_timing{kind="pack",kind_id="0",pack_timing_state="no_txn_bank_no_leader_no_microblock"} 0
+pack_metric_timing{kind="pack",kind_id="0",pack_timing_state="txn_bank_no_leader_no_microblock"} 0
+pack_metric_timing{kind="pack",kind_id="0",pack_timing_state="no_txn_no_bank_leader_no_microblock"} 3053972050
+pack_metric_timing{kind="pack",kind_id="0",pack_timing_state="txn_no_bank_leader_no_microblock"} 23175
+pack_metric_timing{kind="pack",kind_id="0",pack_timing_state="no_txn_bank_leader_no_microblock"} 0
+pack_metric_timing{kind="pack",kind_id="0",pack_timing_state="txn_bank_leader_no_microblock"} 0
+pack_metric_timing{kind="pack",kind_id="0",pack_timing_state="no_txn_no_bank_no_leader_microblock"} 0
+pack_metric_timing{kind="pack",kind_id="0",pack_timing_state="txn_no_bank_no_leader_microblock"} 0
+pack_metric_timing{kind="pack",kind_id="0",pack_timing_state="no_txn_bank_no_leader_microblock"} 0
+pack_metric_timing{kind="pack",kind_id="0",pack_timing_state="txn_bank_no_leader_microblock"} 0
+pack_metric_timing{kind="pack",kind_id="0",pack_timing_state="no_txn_no_bank_leader_microblock"} 0
+pack_metric_timing{kind="pack",kind_id="0",pack_timing_state="txn_no_bank_leader_microblock"} 0
+pack_metric_timing{kind="pack",kind_id="0",pack_timing_state="no_txn_bank_leader_microblock"} 9100326175
+pack_metric_timing{kind="pack",kind_id="0",pack_timing_state="txn_bank_leader_microblock"} 0
+
+# HELP pack_transaction_dropped_from_extra Transactions dropped from the extra transaction storage because it was full
+# TYPE pack_transaction_dropped_from_extra counter
+pack_transaction_dropped_from_extra{kind="pack",kind_id="0"} 0
+
+# HELP pack_transaction_inserted_to_extra Transactions inserted into the extra transaction storage because pack's primary storage was full
+# TYPE pack_transaction_inserted_to_extra counter
+pack_transaction_inserted_to_extra{kind="pack",kind_id="0"} 0
+
+# HELP pack_transaction_inserted_from_extra Transactions pulled from the extra transaction storage and inserted into pack's primary storage
+# TYPE pack_transaction_inserted_from_extra counter
+pack_transaction_inserted_from_extra{kind="pack",kind_id="0"} 0
+
+# HELP pack_transaction_expired Transactions deleted from pack because their TTL expired
+# TYPE pack_transaction_expired counter
+pack_transaction_expired{kind="pack",kind_id="0"} 0
+
+# HELP pack_available_transactions The total number of pending transactions in pack's pool that are available to be scheduled
+# TYPE pack_available_transactions gauge
+pack_available_transactions{kind="pack",kind_id="0"} 0
+
+# HELP pack_available_vote_transactions The number of pending simple vote transactions in pack's pool that are available to be scheduled
+# TYPE pack_available_vote_transactions gauge
+pack_available_vote_transactions{kind="pack",kind_id="0"} 0
+
+# HELP pack_pending_transactions_heap_size The maximum number of pending transactions that pack can consider.  This value is fixed at Firedancer startup but is a useful reference for AvailableTransactions and AvailableVoteTransactions.
+# TYPE pack_pending_transactions_heap_size gauge
+pack_pending_transactions_heap_size{kind="pack",kind_id="0"} 65529
+
+# HELP pack_conflicting_transactions The number of available transactions that are temporarily not being considered due to account lock conflicts with many higher paying transactions
+# TYPE pack_conflicting_transactions gauge
+pack_conflicting_transactions{kind="pack",kind_id="0"} 0
+
+# HELP pack_smallest_pending_transaction A lower bound on the smallest non-vote transaction (in cost units) that is immediately available for scheduling
+# TYPE pack_smallest_pending_transaction gauge
+pack_smallest_pending_transaction{kind="pack",kind_id="0"} 18446744073709551615
+
+# HELP pack_microblock_per_block_limit The number of times pack did not pack a microblock because the limit on microblocks/block had been reached
+# TYPE pack_microblock_per_block_limit counter
+pack_microblock_per_block_limit{kind="pack",kind_id="0"} 0
+
+# HELP pack_data_per_block_limit The number of times pack did not pack a microblock because it reached reached the data per block limit at the start of trying to schedule a microblock
+# TYPE pack_data_per_block_limit counter
+pack_data_per_block_limit{kind="pack",kind_id="0"} 0
+
+# HELP pack_transaction_schedule Result of trying to consider a transaction for scheduling
+# TYPE pack_transaction_schedule counter
+pack_transaction_schedule{kind="pack",kind_id="0",pack_txn_schedule="taken"} 12
+pack_transaction_schedule{kind="pack",kind_id="0",pack_txn_schedule="cu_limit"} 0
+pack_transaction_schedule{kind="pack",kind_id="0",pack_txn_schedule="fast_path"} 0
+pack_transaction_schedule{kind="pack",kind_id="0",pack_txn_schedule="byte_limit"} 0
+pack_transaction_schedule{kind="pack",kind_id="0",pack_txn_schedule="write_cost"} 0
+pack_transaction_schedule{kind="pack",kind_id="0",pack_txn_schedule="slow_path"} 0
+pack_transaction_schedule{kind="pack",kind_id="0",pack_txn_schedule="defer_skip"} 0
+
+# HELP pack_cus_consumed_in_block The number of cost units consumed in the current block, or 0 if pack is not currently packing a block
+# TYPE pack_cus_consumed_in_block gauge
+pack_cus_consumed_in_block{kind="pack",kind_id="0"} 4339
+
+# HELP pack_cus_scheduled The number of cost units scheduled for each block pack produced.  This can be higher than the block limit because of returned CUs.
+# TYPE pack_cus_scheduled histogram
+pack_cus_scheduled_bucket{kind="pack",kind_id="0",le="999999"} 12
+pack_cus_scheduled_bucket{kind="pack",kind_id="0",le="1455770"} 12
+pack_cus_scheduled_bucket{kind="pack",kind_id="0",le="2119268"} 12
+pack_cus_scheduled_bucket{kind="pack",kind_id="0",le="3085168"} 12
+pack_cus_scheduled_bucket{kind="pack",kind_id="0",le="4491297"} 12
+pack_cus_scheduled_bucket{kind="pack",kind_id="0",le="6538298"} 12
+pack_cus_scheduled_bucket{kind="pack",kind_id="0",le="9518262"} 12
+pack_cus_scheduled_bucket{kind="pack",kind_id="0",le="13856406"} 12
+pack_cus_scheduled_bucket{kind="pack",kind_id="0",le="20171749"} 12
+pack_cus_scheduled_bucket{kind="pack",kind_id="0",le="29365439"} 12
+pack_cus_scheduled_bucket{kind="pack",kind_id="0",le="42749343"} 12
+pack_cus_scheduled_bucket{kind="pack",kind_id="0",le="62233237"} 12
+pack_cus_scheduled_bucket{kind="pack",kind_id="0",le="90597317"} 12
+pack_cus_scheduled_bucket{kind="pack",kind_id="0",le="131888911"} 12
+pack_cus_scheduled_bucket{kind="pack",kind_id="0",le="191999999"} 12
+pack_cus_scheduled_bucket{kind="pack",kind_id="0",le="+Inf"} 12
+pack_cus_scheduled_sum{kind="pack",kind_id="0"} 47699
+pack_cus_scheduled_count{kind="pack",kind_id="0"} 12
+
+# HELP pack_cus_rebated The number of compute units rebated for each block pack produced.  Compute units are rebated when a transaction fails prior to execution or requests more compute units than it uses.
+# TYPE pack_cus_rebated histogram
+pack_cus_rebated_bucket{kind="pack",kind_id="0",le="999999"} 12
+pack_cus_rebated_bucket{kind="pack",kind_id="0",le="1455770"} 12
+pack_cus_rebated_bucket{kind="pack",kind_id="0",le="2119268"} 12
+pack_cus_rebated_bucket{kind="pack",kind_id="0",le="3085168"} 12
+pack_cus_rebated_bucket{kind="pack",kind_id="0",le="4491297"} 12
+pack_cus_rebated_bucket{kind="pack",kind_id="0",le="6538298"} 12
+pack_cus_rebated_bucket{kind="pack",kind_id="0",le="9518262"} 12
+pack_cus_rebated_bucket{kind="pack",kind_id="0",le="13856406"} 12
+pack_cus_rebated_bucket{kind="pack",kind_id="0",le="20171749"} 12
+pack_cus_rebated_bucket{kind="pack",kind_id="0",le="29365439"} 12
+pack_cus_rebated_bucket{kind="pack",kind_id="0",le="42749343"} 12
+pack_cus_rebated_bucket{kind="pack",kind_id="0",le="62233237"} 12
+pack_cus_rebated_bucket{kind="pack",kind_id="0",le="90597317"} 12
+pack_cus_rebated_bucket{kind="pack",kind_id="0",le="131888911"} 12
+pack_cus_rebated_bucket{kind="pack",kind_id="0",le="191999999"} 12
+pack_cus_rebated_bucket{kind="pack",kind_id="0",le="+Inf"} 12
+pack_cus_rebated_sum{kind="pack",kind_id="0"} 9900
+pack_cus_rebated_count{kind="pack",kind_id="0"} 12
+
+# HELP pack_cus_net The net number of cost units (scheduled - rebated) in each block pack produced.
+# TYPE pack_cus_net histogram
+pack_cus_net_bucket{kind="pack",kind_id="0",le="999999"} 12
+pack_cus_net_bucket{kind="pack",kind_id="0",le="1318525"} 12
+pack_cus_net_bucket{kind="pack",kind_id="0",le="1738510"} 12
+pack_cus_net_bucket{kind="pack",kind_id="0",le="2292271"} 12
+pack_cus_net_bucket{kind="pack",kind_id="0",le="3022419"} 12
+pack_cus_net_bucket{kind="pack",kind_id="0",le="3985138"} 12
+pack_cus_net_bucket{kind="pack",kind_id="0",le="5254508"} 12
+pack_cus_net_bucket{kind="pack",kind_id="0",le="6928205"} 12
+pack_cus_net_bucket{kind="pack",kind_id="0",le="9135017"} 12
+pack_cus_net_bucket{kind="pack",kind_id="0",le="12044756"} 12
+pack_cus_net_bucket{kind="pack",kind_id="0",le="15881322"} 12
+pack_cus_net_bucket{kind="pack",kind_id="0",le="20939933"} 12
+pack_cus_net_bucket{kind="pack",kind_id="0",le="27609843"} 12
+pack_cus_net_bucket{kind="pack",kind_id="0",le="36404291"} 12
+pack_cus_net_bucket{kind="pack",kind_id="0",le="47999999"} 12
+pack_cus_net_bucket{kind="pack",kind_id="0",le="+Inf"} 12
+pack_cus_net_sum{kind="pack",kind_id="0"} 37799
+pack_cus_net_count{kind="pack",kind_id="0"} 12
+
+# HELP pack_delete_missed Count of attempts to delete a transaction that wasn't found
+# TYPE pack_delete_missed counter
+pack_delete_missed{kind="pack",kind_id="0"} 0
+
+# HELP pack_delete_hit Count of attempts to delete a transaction that was found and deleted
+# TYPE pack_delete_hit counter
+pack_delete_hit{kind="pack",kind_id="0"} 0
+
+# HELP bank_transaction_sanitize_failure Number of transactions that failed to sanitize.
+# TYPE bank_transaction_sanitize_failure counter
+bank_transaction_sanitize_failure{kind="bank",kind_id="0"} 0
+bank_transaction_sanitize_failure{kind="bank",kind_id="1"} 0
+bank_transaction_sanitize_failure{kind="bank",kind_id="2"} 0
+bank_transaction_sanitize_failure{kind="bank",kind_id="3"} 0
+
+# HELP bank_transaction_not_executed_failure Number of transactions that did not execute. This is different than transactions which fail to execute, which make it onto the chain.
+# TYPE bank_transaction_not_executed_failure counter
+bank_transaction_not_executed_failure{kind="bank",kind_id="0"} 0
+bank_transaction_not_executed_failure{kind="bank",kind_id="1"} 0
+bank_transaction_not_executed_failure{kind="bank",kind_id="2"} 0
+bank_transaction_not_executed_failure{kind="bank",kind_id="3"} 0
+
+# HELP bank_precompile_verify_failure Number of transactions that failed precompile verification and thus will not execute.
+# TYPE bank_precompile_verify_failure counter
+bank_precompile_verify_failure{kind="bank",kind_id="0"} 0
+bank_precompile_verify_failure{kind="bank",kind_id="1"} 0
+bank_precompile_verify_failure{kind="bank",kind_id="2"} 0
+bank_precompile_verify_failure{kind="bank",kind_id="3"} 0
+
+# HELP bank_slot_acquire Result of acquiring a slot.
+# TYPE bank_slot_acquire counter
+bank_slot_acquire{kind="bank",kind_id="0",bank_slot_acquire="success"} 0
+bank_slot_acquire{kind="bank",kind_id="1",bank_slot_acquire="success"} 0
+bank_slot_acquire{kind="bank",kind_id="2",bank_slot_acquire="success"} 0
+bank_slot_acquire{kind="bank",kind_id="3",bank_slot_acquire="success"} 0
+bank_slot_acquire{kind="bank",kind_id="0",bank_slot_acquire="too_high"} 0
+bank_slot_acquire{kind="bank",kind_id="1",bank_slot_acquire="too_high"} 0
+bank_slot_acquire{kind="bank",kind_id="2",bank_slot_acquire="too_high"} 0
+bank_slot_acquire{kind="bank",kind_id="3",bank_slot_acquire="too_high"} 0
+bank_slot_acquire{kind="bank",kind_id="0",bank_slot_acquire="too_low"} 0
+bank_slot_acquire{kind="bank",kind_id="1",bank_slot_acquire="too_low"} 0
+bank_slot_acquire{kind="bank",kind_id="2",bank_slot_acquire="too_low"} 0
+bank_slot_acquire{kind="bank",kind_id="3",bank_slot_acquire="too_low"} 0
+
+# HELP bank_transaction_load_address_tables Result of loading address lookup tables for a transaction. If there are multiple errors for the transaction, only the first one is reported.
+# TYPE bank_transaction_load_address_tables counter
+bank_transaction_load_address_tables{kind="bank",kind_id="0",bank_load_address_lookup_table="success"} 12
+bank_transaction_load_address_tables{kind="bank",kind_id="1",bank_load_address_lookup_table="success"} 0
+bank_transaction_load_address_tables{kind="bank",kind_id="2",bank_load_address_lookup_table="success"} 0
+bank_transaction_load_address_tables{kind="bank",kind_id="3",bank_load_address_lookup_table="success"} 0
+bank_transaction_load_address_tables{kind="bank",kind_id="0",bank_load_address_lookup_table="slot_hashes_sysvar_not_found"} 0
+bank_transaction_load_address_tables{kind="bank",kind_id="1",bank_load_address_lookup_table="slot_hashes_sysvar_not_found"} 0
+bank_transaction_load_address_tables{kind="bank",kind_id="2",bank_load_address_lookup_table="slot_hashes_sysvar_not_found"} 0
+bank_transaction_load_address_tables{kind="bank",kind_id="3",bank_load_address_lookup_table="slot_hashes_sysvar_not_found"} 0
+bank_transaction_load_address_tables{kind="bank",kind_id="0",bank_load_address_lookup_table="account_not_found"} 0
+bank_transaction_load_address_tables{kind="bank",kind_id="1",bank_load_address_lookup_table="account_not_found"} 0
+bank_transaction_load_address_tables{kind="bank",kind_id="2",bank_load_address_lookup_table="account_not_found"} 0
+bank_transaction_load_address_tables{kind="bank",kind_id="3",bank_load_address_lookup_table="account_not_found"} 0
+bank_transaction_load_address_tables{kind="bank",kind_id="0",bank_load_address_lookup_table="invalid_account_owner"} 0
+bank_transaction_load_address_tables{kind="bank",kind_id="1",bank_load_address_lookup_table="invalid_account_owner"} 0
+bank_transaction_load_address_tables{kind="bank",kind_id="2",bank_load_address_lookup_table="invalid_account_owner"} 0
+bank_transaction_load_address_tables{kind="bank",kind_id="3",bank_load_address_lookup_table="invalid_account_owner"} 0
+bank_transaction_load_address_tables{kind="bank",kind_id="0",bank_load_address_lookup_table="invalid_account_data"} 0
+bank_transaction_load_address_tables{kind="bank",kind_id="1",bank_load_address_lookup_table="invalid_account_data"} 0
+bank_transaction_load_address_tables{kind="bank",kind_id="2",bank_load_address_lookup_table="invalid_account_data"} 0
+bank_transaction_load_address_tables{kind="bank",kind_id="3",bank_load_address_lookup_table="invalid_account_data"} 0
+bank_transaction_load_address_tables{kind="bank",kind_id="0",bank_load_address_lookup_table="invalid_index"} 0
+bank_transaction_load_address_tables{kind="bank",kind_id="1",bank_load_address_lookup_table="invalid_index"} 0
+bank_transaction_load_address_tables{kind="bank",kind_id="2",bank_load_address_lookup_table="invalid_index"} 0
+bank_transaction_load_address_tables{kind="bank",kind_id="3",bank_load_address_lookup_table="invalid_index"} 0
+
+# HELP bank_transaction_result Result of loading and executing a transaction.
+# TYPE bank_transaction_result counter
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="success"} 12
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="success"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="success"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="success"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="account_in_use"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="account_in_use"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="account_in_use"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="account_in_use"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="account_loaded_twice"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="account_loaded_twice"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="account_loaded_twice"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="account_loaded_twice"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="account_not_found"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="account_not_found"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="account_not_found"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="account_not_found"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="program_account_not_found"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="program_account_not_found"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="program_account_not_found"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="program_account_not_found"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="insufficient_funds_for_fee"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="insufficient_funds_for_fee"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="insufficient_funds_for_fee"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="insufficient_funds_for_fee"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="invalid_account_for_fee"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="invalid_account_for_fee"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="invalid_account_for_fee"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="invalid_account_for_fee"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="already_processed"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="already_processed"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="already_processed"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="already_processed"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="blockhash_not_found"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="blockhash_not_found"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="blockhash_not_found"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="blockhash_not_found"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="instruction_error"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="instruction_error"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="instruction_error"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="instruction_error"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="call_chain_too_deep"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="call_chain_too_deep"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="call_chain_too_deep"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="call_chain_too_deep"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="missing_signature_for_fee"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="missing_signature_for_fee"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="missing_signature_for_fee"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="missing_signature_for_fee"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="invalid_account_index"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="invalid_account_index"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="invalid_account_index"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="invalid_account_index"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="signature_failure"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="signature_failure"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="signature_failure"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="signature_failure"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="invalid_program_for_execution"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="invalid_program_for_execution"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="invalid_program_for_execution"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="invalid_program_for_execution"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="sanitize_failure"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="sanitize_failure"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="sanitize_failure"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="sanitize_failure"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="cluster_maintenance"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="cluster_maintenance"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="cluster_maintenance"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="cluster_maintenance"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="account_borrow_outstanding"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="account_borrow_outstanding"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="account_borrow_outstanding"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="account_borrow_outstanding"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="would_exceed_max_block_cost_limit"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="would_exceed_max_block_cost_limit"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="would_exceed_max_block_cost_limit"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="would_exceed_max_block_cost_limit"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="unsupported_version"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="unsupported_version"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="unsupported_version"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="unsupported_version"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="invalid_writable_account"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="invalid_writable_account"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="invalid_writable_account"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="invalid_writable_account"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="would_exceed_max_account_cost_limit"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="would_exceed_max_account_cost_limit"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="would_exceed_max_account_cost_limit"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="would_exceed_max_account_cost_limit"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="would_exceed_account_data_block_limit"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="would_exceed_account_data_block_limit"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="would_exceed_account_data_block_limit"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="would_exceed_account_data_block_limit"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="too_many_account_locks"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="too_many_account_locks"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="too_many_account_locks"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="too_many_account_locks"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="address_lookup_table_not_found"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="address_lookup_table_not_found"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="address_lookup_table_not_found"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="address_lookup_table_not_found"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="invalid_address_lookup_table_owner"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="invalid_address_lookup_table_owner"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="invalid_address_lookup_table_owner"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="invalid_address_lookup_table_owner"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="invalid_address_lookup_table_data"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="invalid_address_lookup_table_data"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="invalid_address_lookup_table_data"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="invalid_address_lookup_table_data"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="invalid_address_lookup_table_index"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="invalid_address_lookup_table_index"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="invalid_address_lookup_table_index"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="invalid_address_lookup_table_index"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="invalid_rent_paying_account"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="invalid_rent_paying_account"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="invalid_rent_paying_account"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="invalid_rent_paying_account"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="would_exceed_max_vote_cost_limit"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="would_exceed_max_vote_cost_limit"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="would_exceed_max_vote_cost_limit"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="would_exceed_max_vote_cost_limit"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="would_exceed_account_data_total_limit"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="would_exceed_account_data_total_limit"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="would_exceed_account_data_total_limit"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="would_exceed_account_data_total_limit"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="duplicate_instruction"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="duplicate_instruction"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="duplicate_instruction"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="duplicate_instruction"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="insufficient_funds_for_rent"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="insufficient_funds_for_rent"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="insufficient_funds_for_rent"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="insufficient_funds_for_rent"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="max_loaded_accounts_data_size_exceeded"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="max_loaded_accounts_data_size_exceeded"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="max_loaded_accounts_data_size_exceeded"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="max_loaded_accounts_data_size_exceeded"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="invalid_loaded_accounts_data_size_limit"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="invalid_loaded_accounts_data_size_limit"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="invalid_loaded_accounts_data_size_limit"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="invalid_loaded_accounts_data_size_limit"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="resanitization_needed"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="resanitization_needed"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="resanitization_needed"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="resanitization_needed"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="program_execution_temporarily_restricted"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="program_execution_temporarily_restricted"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="program_execution_temporarily_restricted"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="program_execution_temporarily_restricted"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="unbalanced_transaction"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="unbalanced_transaction"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="unbalanced_transaction"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="unbalanced_transaction"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="program_cache_hit_max_limit"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="program_cache_hit_max_limit"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="program_cache_hit_max_limit"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="program_cache_hit_max_limit"} 0
+bank_transaction_result{kind="bank",kind_id="0",transaction_error="bundle_peer"} 0
+bank_transaction_result{kind="bank",kind_id="1",transaction_error="bundle_peer"} 0
+bank_transaction_result{kind="bank",kind_id="2",transaction_error="bundle_peer"} 0
+bank_transaction_result{kind="bank",kind_id="3",transaction_error="bundle_peer"} 0
+
+# HELP bank_processing_failed Count of transactions for which the processing stage failed and won't land on chain
+# TYPE bank_processing_failed counter
+bank_processing_failed{kind="bank",kind_id="0"} 0
+bank_processing_failed{kind="bank",kind_id="1"} 0
+bank_processing_failed{kind="bank",kind_id="2"} 0
+bank_processing_failed{kind="bank",kind_id="3"} 0
+
+# HELP bank_fee_only_transactions Count of transactions that will land on chain but without executing
+# TYPE bank_fee_only_transactions counter
+bank_fee_only_transactions{kind="bank",kind_id="0"} 0
+bank_fee_only_transactions{kind="bank",kind_id="1"} 0
+bank_fee_only_transactions{kind="bank",kind_id="2"} 0
+bank_fee_only_transactions{kind="bank",kind_id="3"} 0
+
+# HELP bank_executed_failed_transactions Count of transactions that execute on chain but failed
+# TYPE bank_executed_failed_transactions counter
+bank_executed_failed_transactions{kind="bank",kind_id="0"} 0
+bank_executed_failed_transactions{kind="bank",kind_id="1"} 0
+bank_executed_failed_transactions{kind="bank",kind_id="2"} 0
+bank_executed_failed_transactions{kind="bank",kind_id="3"} 0
+
+# HELP bank_successful_transactions Count of transactions that execute on chain and succeed
+# TYPE bank_successful_transactions counter
+bank_successful_transactions{kind="bank",kind_id="0"} 12
+bank_successful_transactions{kind="bank",kind_id="1"} 0
+bank_successful_transactions{kind="bank",kind_id="2"} 0
+bank_successful_transactions{kind="bank",kind_id="3"} 0
+
+# HELP bank_cost_model_undercount Count of transactions that used more CUs than the cost model should have permitted them to
+# TYPE bank_cost_model_undercount counter
+bank_cost_model_undercount{kind="bank",kind_id="0"} 0
+bank_cost_model_undercount{kind="bank",kind_id="1"} 0
+bank_cost_model_undercount{kind="bank",kind_id="2"} 0
+bank_cost_model_undercount{kind="bank",kind_id="3"} 0
+
+# HELP poh_begin_leader_delay_seconds Delay between when we become leader in a slot and when we receive the bank.
+# TYPE poh_begin_leader_delay_seconds histogram
+poh_begin_leader_delay_seconds_bucket{kind="poh",kind_id="0",le="9.2174789009632497e-09"} 0
+poh_begin_leader_delay_seconds_bucket{kind="poh",kind_id="0",le="2.5648636941810782e-08"} 0
+poh_begin_leader_delay_seconds_bucket{kind="poh",kind_id="0",le="6.9732231685548071e-08"} 0
+poh_begin_leader_delay_seconds_bucket{kind="poh",kind_id="0",le="1.8795641758920715e-07"} 0
+poh_begin_leader_delay_seconds_bucket{kind="poh",kind_id="0",le="5.0615981964854714e-07"} 0
+poh_begin_leader_delay_seconds_bucket{kind="poh",kind_id="0",le="1.3613815576770505e-06"} 0
+poh_begin_leader_delay_seconds_bucket{kind="poh",kind_id="0",le="3.6609421634912733e-06"} 0
+poh_begin_leader_delay_seconds_bucket{kind="poh",kind_id="0",le="9.8438667062765351e-06"} 0
+poh_begin_leader_delay_seconds_bucket{kind="poh",kind_id="0",le="2.646819104409208e-05"} 0
+poh_begin_leader_delay_seconds_bucket{kind="poh",kind_id="0",le="7.1166150794576169e-05"} 0
+poh_begin_leader_delay_seconds_bucket{kind="poh",kind_id="0",le="0.00019134604526504834"} 0
+poh_begin_leader_delay_seconds_bucket{kind="poh",kind_id="0",le="0.00051447598941697708"} 7
+poh_begin_leader_delay_seconds_bucket{kind="poh",kind_id="0",le="0.0013832802837459781"} 12
+poh_begin_leader_delay_seconds_bucket{kind="poh",kind_id="0",le="0.0037192479274192449"} 13
+poh_begin_leader_delay_seconds_bucket{kind="poh",kind_id="0",le="0.009999999577580191"} 13
+poh_begin_leader_delay_seconds_bucket{kind="poh",kind_id="0",le="+Inf"} 13
+poh_begin_leader_delay_seconds_sum{kind="poh",kind_id="0"} 0.0077938376816696674
+poh_begin_leader_delay_seconds_count{kind="poh",kind_id="0"} 13
+
+# HELP poh_first_microblock_delay_seconds Delay between when we become leader in a slot and when we receive the first microblock.
+# TYPE poh_first_microblock_delay_seconds histogram
+poh_first_microblock_delay_seconds_bucket{kind="poh",kind_id="0",le="9.2174789009632497e-09"} 0
+poh_first_microblock_delay_seconds_bucket{kind="poh",kind_id="0",le="2.5648636941810782e-08"} 0
+poh_first_microblock_delay_seconds_bucket{kind="poh",kind_id="0",le="6.9732231685548071e-08"} 0
+poh_first_microblock_delay_seconds_bucket{kind="poh",kind_id="0",le="1.8795641758920715e-07"} 0
+poh_first_microblock_delay_seconds_bucket{kind="poh",kind_id="0",le="5.0615981964854714e-07"} 0
+poh_first_microblock_delay_seconds_bucket{kind="poh",kind_id="0",le="1.3613815576770505e-06"} 0
+poh_first_microblock_delay_seconds_bucket{kind="poh",kind_id="0",le="3.6609421634912733e-06"} 0
+poh_first_microblock_delay_seconds_bucket{kind="poh",kind_id="0",le="9.8438667062765351e-06"} 0
+poh_first_microblock_delay_seconds_bucket{kind="poh",kind_id="0",le="2.646819104409208e-05"} 0
+poh_first_microblock_delay_seconds_bucket{kind="poh",kind_id="0",le="7.1166150794576169e-05"} 0
+poh_first_microblock_delay_seconds_bucket{kind="poh",kind_id="0",le="0.00019134604526504834"} 0
+poh_first_microblock_delay_seconds_bucket{kind="poh",kind_id="0",le="0.00051447598941697708"} 0
+poh_first_microblock_delay_seconds_bucket{kind="poh",kind_id="0",le="0.0013832802837459781"} 1
+poh_first_microblock_delay_seconds_bucket{kind="poh",kind_id="0",le="0.0037192479274192449"} 1
+poh_first_microblock_delay_seconds_bucket{kind="poh",kind_id="0",le="0.009999999577580191"} 3
+poh_first_microblock_delay_seconds_bucket{kind="poh",kind_id="0",le="+Inf"} 12
+poh_first_microblock_delay_seconds_sum{kind="poh",kind_id="0"} 0.13250108687456727
+poh_first_microblock_delay_seconds_count{kind="poh",kind_id="0"} 12
+
+# HELP poh_slot_done_delay_seconds Delay between when we become leader in a slot and when we finish the slot.
+# TYPE poh_slot_done_delay_seconds histogram
+poh_slot_done_delay_seconds_bucket{kind="poh",kind_id="0",le="0.00099999947684607641"} 0
+poh_slot_done_delay_seconds_bucket{kind="poh",kind_id="0",le="0.0015792074160248051"} 0
+poh_slot_done_delay_seconds_bucket{kind="poh",kind_id="0",le="0.0024938975226026579"} 0
+poh_slot_done_delay_seconds_bucket{kind="poh",kind_id="0",le="0.0039383834692908407"} 0
+poh_slot_done_delay_seconds_bucket{kind="poh",kind_id="0",le="0.0062195275522609391"} 0
+poh_slot_done_delay_seconds_bucket{kind="poh",kind_id="0",le="0.0098219291064922422"} 0
+poh_slot_done_delay_seconds_bucket{kind="poh",kind_id="0",le="0.015510870920777034"} 0
+poh_slot_done_delay_seconds_bucket{kind="poh",kind_id="0",le="0.024494894325256113"} 0
+poh_slot_done_delay_seconds_bucket{kind="poh",kind_id="0",le="0.038682537638846853"} 0
+poh_slot_done_delay_seconds_bucket{kind="poh",kind_id="0",le="0.06108777980302052"} 0
+poh_slot_done_delay_seconds_bucket{kind="poh",kind_id="0",le="0.096470320931619113"} 12
+poh_slot_done_delay_seconds_bucket{kind="poh",kind_id="0",le="0.15234671890677345"} 12
+poh_slot_done_delay_seconds_bucket{kind="poh",kind_id="0",le="0.24058718294315121"} 12
+poh_slot_done_delay_seconds_bucket{kind="poh",kind_id="0",le="0.37993724457676792"} 12
+poh_slot_done_delay_seconds_bucket{kind="poh",kind_id="0",le="0.5999999995019285"} 12
+poh_slot_done_delay_seconds_bucket{kind="poh",kind_id="0",le="+Inf"} 12
+poh_slot_done_delay_seconds_sum{kind="poh",kind_id="0"} 0.77487512933506975
+poh_slot_done_delay_seconds_count{kind="poh",kind_id="0"} 12
+
+# HELP shred_cluster_contact_info_cnt Number of contact infos in the cluster contact info message
+# TYPE shred_cluster_contact_info_cnt histogram
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="0",le="0"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="0",le="1"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="0",le="3"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="0",le="8"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="0",le="18"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="0",le="40"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="0",le="87"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="0",le="188"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="0",le="405"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="0",le="872"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="0",le="1877"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="0",le="4039"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="0",le="8689"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="0",le="18690"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="0",le="40199"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="0",le="+Inf"} 1
+shred_cluster_contact_info_cnt_sum{kind="shred",kind_id="0"} 0
+shred_cluster_contact_info_cnt_count{kind="shred",kind_id="0"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="1",le="0"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="1",le="1"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="1",le="3"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="1",le="8"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="1",le="18"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="1",le="40"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="1",le="87"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="1",le="188"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="1",le="405"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="1",le="872"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="1",le="1877"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="1",le="4039"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="1",le="8689"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="1",le="18690"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="1",le="40199"} 1
+shred_cluster_contact_info_cnt_bucket{kind="shred",kind_id="1",le="+Inf"} 1
+shred_cluster_contact_info_cnt_sum{kind="shred",kind_id="1"} 0
+shred_cluster_contact_info_cnt_count{kind="shred",kind_id="1"} 1
+
+# HELP shred_microblocks_abandoned The number of microblocks that were abandoned because we switched slots without finishing the current slot
+# TYPE shred_microblocks_abandoned counter
+shred_microblocks_abandoned{kind="shred",kind_id="0"} 0
+shred_microblocks_abandoned{kind="shred",kind_id="1"} 0
+
+# HELP shred_batch_sz The size (in bytes) of each microblock batch that is shredded
+# TYPE shred_batch_sz histogram
+shred_batch_sz_bucket{kind="shred",kind_id="0",le="1023"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="0",le="1377"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="0",le="1854"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="0",le="2496"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="0",le="3360"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="0",le="4522"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="0",le="6086"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="0",le="8191"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="0",le="11025"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="0",le="14839"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="0",le="19972"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="0",le="26880"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="0",le="36178"} 12
+shred_batch_sz_bucket{kind="shred",kind_id="0",le="48692"} 12
+shred_batch_sz_bucket{kind="shred",kind_id="0",le="65535"} 12
+shred_batch_sz_bucket{kind="shred",kind_id="0",le="+Inf"} 12
+shred_batch_sz_sum{kind="shred",kind_id="0"} 382080
+shred_batch_sz_count{kind="shred",kind_id="0"} 12
+shred_batch_sz_bucket{kind="shred",kind_id="1",le="1023"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="1",le="1377"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="1",le="1854"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="1",le="2496"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="1",le="3360"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="1",le="4522"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="1",le="6086"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="1",le="8191"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="1",le="11025"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="1",le="14839"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="1",le="19972"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="1",le="26880"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="1",le="36178"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="1",le="48692"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="1",le="65535"} 0
+shred_batch_sz_bucket{kind="shred",kind_id="1",le="+Inf"} 0
+shred_batch_sz_sum{kind="shred",kind_id="1"} 0
+shred_batch_sz_count{kind="shred",kind_id="1"} 0
+
+# HELP shred_batch_microblock_cnt The number of microblocks in each microblock batch that is shredded
+# TYPE shred_batch_microblock_cnt histogram
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="0",le="1"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="0",le="2"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="0",le="3"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="0",le="5"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="0",le="7"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="0",le="10"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="0",le="15"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="0",le="22"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="0",le="31"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="0",le="44"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="0",le="63"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="0",le="90"} 12
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="0",le="127"} 12
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="0",le="180"} 12
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="0",le="255"} 12
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="0",le="+Inf"} 12
+shred_batch_microblock_cnt_sum{kind="shred",kind_id="0"} 779
+shred_batch_microblock_cnt_count{kind="shred",kind_id="0"} 12
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="1",le="1"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="1",le="2"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="1",le="3"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="1",le="5"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="1",le="7"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="1",le="10"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="1",le="15"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="1",le="22"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="1",le="31"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="1",le="44"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="1",le="63"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="1",le="90"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="1",le="127"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="1",le="180"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="1",le="255"} 0
+shred_batch_microblock_cnt_bucket{kind="shred",kind_id="1",le="+Inf"} 0
+shred_batch_microblock_cnt_sum{kind="shred",kind_id="1"} 0
+shred_batch_microblock_cnt_count{kind="shred",kind_id="1"} 0
+
+# HELP shred_shredding_duration_seconds Duration of producing one FEC set from the shredder
+# TYPE shred_shredding_duration_seconds histogram
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="0",le="9.9993615677362634e-06"} 0
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="0",le="1.6378257727155049e-05"} 0
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="0",le="2.6826069681420783e-05"} 0
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="0",le="4.3938519641035163e-05"} 0
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="0",le="7.1966869179103333e-05"} 0
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="0",le="0.00011787472322532691"} 11
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="0",le="0.00019306690849986294"} 12
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="0",le="0.00031622364789539399"} 12
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="0",le="0.0005179417614837393"} 12
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="0",le="0.00084833507900962705"} 12
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="0",le="0.0013894852500861352"} 12
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="0",le="0.0022758336128432871"} 12
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="0",le="0.0037275801275857634"} 12
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="0",le="0.0061053911178698813"} 12
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="0",le="0.009999999577580191"} 12
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="0",le="+Inf"} 12
+shred_shredding_duration_seconds_sum{kind="shred",kind_id="0"} 0.0012416344839549713
+shred_shredding_duration_seconds_count{kind="shred",kind_id="0"} 12
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="1",le="9.9993615677362634e-06"} 0
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="1",le="1.6378257727155049e-05"} 0
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="1",le="2.6826069681420783e-05"} 0
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="1",le="4.3938519641035163e-05"} 0
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="1",le="7.1966869179103333e-05"} 0
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="1",le="0.00011787472322532691"} 0
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="1",le="0.00019306690849986294"} 0
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="1",le="0.00031622364789539399"} 0
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="1",le="0.0005179417614837393"} 0
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="1",le="0.00084833507900962705"} 0
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="1",le="0.0013894852500861352"} 0
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="1",le="0.0022758336128432871"} 0
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="1",le="0.0037275801275857634"} 0
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="1",le="0.0061053911178698813"} 0
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="1",le="0.009999999577580191"} 0
+shred_shredding_duration_seconds_bucket{kind="shred",kind_id="1",le="+Inf"} 0
+shred_shredding_duration_seconds_sum{kind="shred",kind_id="1"} 0
+shred_shredding_duration_seconds_count{kind="shred",kind_id="1"} 0
+
+# HELP shred_add_shred_duration_seconds Duration of verifying and processing one shred received from the network
+# TYPE shred_add_shred_duration_seconds histogram
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="0",le="9.2174789009632497e-09"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="0",le="2.1641037419652849e-08"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="0",le="4.969423407475839e-08"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="0",le="1.1381582642928535e-07"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="0",le="2.6009320898805e-07"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="0",le="5.9432700913602174e-07"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="0",le="1.3569731982026766e-06"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="0",le="3.0978744306280836e-06"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="0",le="7.0714093568476761e-06"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="0",le="1.61410078354433e-05"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="0",le="3.6842263167150111e-05"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="0",le="8.4093063813248816e-05"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="0",le="0.00019194357835380208"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="0",le="0.00043811358508197095"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="0",le="0.00099999947684607641"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="0",le="+Inf"} 0
+shred_add_shred_duration_seconds_sum{kind="shred",kind_id="0"} 0
+shred_add_shred_duration_seconds_count{kind="shred",kind_id="0"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="1",le="9.2174789009632497e-09"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="1",le="2.1641037419652849e-08"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="1",le="4.969423407475839e-08"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="1",le="1.1381582642928535e-07"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="1",le="2.6009320898805e-07"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="1",le="5.9432700913602174e-07"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="1",le="1.3569731982026766e-06"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="1",le="3.0978744306280836e-06"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="1",le="7.0714093568476761e-06"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="1",le="1.61410078354433e-05"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="1",le="3.6842263167150111e-05"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="1",le="8.4093063813248816e-05"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="1",le="0.00019194357835380208"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="1",le="0.00043811358508197095"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="1",le="0.00099999947684607641"} 0
+shred_add_shred_duration_seconds_bucket{kind="shred",kind_id="1",le="+Inf"} 0
+shred_add_shred_duration_seconds_sum{kind="shred",kind_id="1"} 0
+shred_add_shred_duration_seconds_count{kind="shred",kind_id="1"} 0
+
+# HELP shred_shred_processed The result of processing a thread from the network
+# TYPE shred_shred_processed counter
+shred_shred_processed{kind="shred",kind_id="0",shred_processing_result="bad_slot"} 0
+shred_shred_processed{kind="shred",kind_id="1",shred_processing_result="bad_slot"} 0
+shred_shred_processed{kind="shred",kind_id="0",shred_processing_result="parse_failed"} 0
+shred_shred_processed{kind="shred",kind_id="1",shred_processing_result="parse_failed"} 0
+shred_shred_processed{kind="shred",kind_id="0",shred_processing_result="rejected"} 0
+shred_shred_processed{kind="shred",kind_id="1",shred_processing_result="rejected"} 0
+shred_shred_processed{kind="shred",kind_id="0",shred_processing_result="ignored"} 0
+shred_shred_processed{kind="shred",kind_id="1",shred_processing_result="ignored"} 0
+shred_shred_processed{kind="shred",kind_id="0",shred_processing_result="okay"} 0
+shred_shred_processed{kind="shred",kind_id="1",shred_processing_result="okay"} 0
+shred_shred_processed{kind="shred",kind_id="0",shred_processing_result="completes"} 0
+shred_shred_processed{kind="shred",kind_id="1",shred_processing_result="completes"} 0
+
+# HELP shred_fec_set_spilled The number of FEC sets that were spilled because they didn't complete in time and we needed space
+# TYPE shred_fec_set_spilled counter
+shred_fec_set_spilled{kind="shred",kind_id="0"} 0
+shred_fec_set_spilled{kind="shred",kind_id="1"} 0
+
+# HELP shred_shred_rejected_initial The number shreds that were rejected before any resources were allocated for the FEC set
+# TYPE shred_shred_rejected_initial counter
+shred_shred_rejected_initial{kind="shred",kind_id="0"} 0
+shred_shred_rejected_initial{kind="shred",kind_id="1"} 0
+
+# HELP shred_fec_rejected_fatal The number of FEC sets that were rejected for reasons that cause the whole FEC set to become invalid
+# TYPE shred_fec_rejected_fatal counter
+shred_fec_rejected_fatal{kind="shred",kind_id="0"} 0
+shred_fec_rejected_fatal{kind="shred",kind_id="1"} 0
+
+# HELP store_transactions_inserted Count of transactions produced while we were leader in the shreds that have been inserted so far
+# TYPE store_transactions_inserted counter
+store_transactions_inserted{kind="store",kind_id="0"} 11
