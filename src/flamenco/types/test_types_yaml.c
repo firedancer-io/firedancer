@@ -217,12 +217,12 @@ static const fd_flamenco_yaml_test_t fd_flamenco_yaml_tests[] = {
 };
 
 void
-fd_flamenco_yaml_unit_test( fd_flamenco_yaml_test_t const * test ) {
+fd_flamenco_yaml_unit_test( fd_flamenco_yaml_test_t const * test, fd_spad_t *spad ) {
 
   static char yaml_buf[ 1<<20 ];
   FILE * file = fmemopen( yaml_buf, sizeof(yaml_buf), "w" );
 
-  void * yaml_mem = fd_scratch_alloc( fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() );
+  void * yaml_mem = fd_spad_alloc( spad, fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() );
   fd_flamenco_yaml_t * yaml = fd_flamenco_yaml_init( fd_flamenco_yaml_new( yaml_mem ), file );
 
   for( fd_flamenco_type_step_t const * walk = test->walk;
@@ -251,26 +251,27 @@ main( int     argc,
       char ** argv ) {
   fd_boot( &argc, &argv );
 
-  static uchar scratch_mem [ 1<<25 ];  /* 32 MiB */
-  static ulong scratch_fmem[ 4UL ] __attribute((aligned(FD_SCRATCH_FMEM_ALIGN)));
-  fd_scratch_attach( scratch_mem, scratch_fmem, 1UL<<25, 4UL );
+  ulong spad_mem_sz = 1<<25;
+  uchar *spad_mem_raw = malloc( fd_ulong_align_up(FD_SPAD_FOOTPRINT( spad_mem_sz ),FD_SPAD_ALIGN) );
+  uchar *spad_mem = (uchar *) fd_ulong_align_up( (ulong) spad_mem_raw, FD_SPAD_ALIGN);
+  fd_spad_t * spad         = fd_spad_join( fd_spad_new( spad_mem , spad_mem_sz ) );
 
   /* Run tests */
 
   for( fd_flamenco_yaml_test_t const * test = fd_flamenco_yaml_tests;
        test->walk;
        ++test ) {
-    FD_SCRATCH_SCOPE_BEGIN {
-      fd_flamenco_yaml_unit_test( test );
-    }
-    FD_SCRATCH_SCOPE_END;
+    FD_SPAD_FRAME_BEGIN( spad ) {
+      fd_flamenco_yaml_unit_test( test, spad );
+    } FD_SPAD_FRAME_END;
   }
 
   /* Cleanup */
 
   FD_LOG_NOTICE(( "pass" ));
-  FD_TEST( fd_scratch_frame_used()==0UL );
-  fd_scratch_detach( NULL );
+
+  free(spad_mem_raw);
+
   fd_halt();
   return 0;
 }

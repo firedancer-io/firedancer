@@ -2408,7 +2408,7 @@ fd_apply_builtin_program_feature_transitions( fd_exec_slot_ctx_t * slot_ctx,
     }
   }
 
-  } FD_SCRATCH_SCOPE_END;
+  } FD_SPAD_FRAME_END;
 }
 
 static void
