@@ -106,7 +106,7 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
      https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/accounts-db/src/account_locks.rs#L118
      That is the limit we are going to use here. */
   ulong                           accounts_cnt;                                /* Number of account pubkeys accessed by this transaction. */
-  fd_pubkey_t                     account_keys[ MAX_TX_ACCOUNT_LOCKS ];            /* Array of account pubkeys accessed by this transaction. */
+  fd_pubkey_t                     account_keys[ MAX_TX_ACCOUNT_LOCKS ];        /* Array of account pubkeys accessed by this transaction. */
   ulong                           executable_cnt;                              /* Number of BPF upgradeable loader accounts. */
   fd_txn_account_t                executable_accounts[ MAX_TX_ACCOUNT_LOCKS ]; /* Array of BPF upgradeable loader program data accounts */
   fd_txn_account_t                accounts[ MAX_TX_ACCOUNT_LOCKS ];            /* Array of borrowed accounts accessed by this transaction. */
@@ -228,70 +228,45 @@ fd_exec_txn_ctx_from_exec_slot_ctx( fd_exec_slot_ctx_t const * slot_ctx,
 void
 fd_exec_txn_ctx_teardown( fd_exec_txn_ctx_t * txn_ctx );
 
-int
-fd_exec_txn_ctx_get_account_view_idx( fd_exec_txn_ctx_t *  ctx,
-                                      uchar                idx,
-                                      fd_txn_account_t * * account );
-
-/* Same as above, except that this function doesn't check if the account
-   is dead (0 balance, 0 data, etc.) or not. When agave obtains a
-   borrowed account, it doesn't always check if the account is dead or
-   not. For example
-   https://github.com/anza-xyz/agave/blob/838c1952595809a31520ff1603a13f2c9123aa51/program-runtime/src/invoke_context.rs#L453
-   This function allows us to more closely emulate that behavior. */
-int
-fd_exec_txn_ctx_get_account_view_idx_allow_dead( fd_exec_txn_ctx_t *  ctx,
-                                                 uchar                idx,
-                                                 fd_txn_account_t * * account );
-
-int
-fd_exec_txn_ctx_get_account_view( fd_exec_txn_ctx_t *  ctx,
-                                  fd_pubkey_t const *  pubkey,
-                                  fd_txn_account_t * * account );
-
-int
-fd_exec_txn_ctx_get_account_executable_view( fd_exec_txn_ctx_t *  ctx,
-                                             fd_pubkey_t const *  pubkey,
-                                             fd_txn_account_t * * account );
-
-/* The fee payer is a valid modifiable account if it is passed in as writable
-   in the message via a valid signature. We ignore if the account has been
-   demoted or not (see fd_txn_account_is_writable_idx) for more details.
-   Agave and Firedancer will reject the fee payer if the transaction message
-   doesn't have a writable signature. */
-int
-fd_exec_txn_ctx_get_account_modify_fee_payer( fd_exec_txn_ctx_t *  ctx,
-                                              fd_txn_account_t * * account );
-
-int
-fd_exec_txn_ctx_get_account_modify_idx( fd_exec_txn_ctx_t *  ctx,
-                                        uchar                idx,
-                                        ulong                min_data_sz,
-                                        fd_txn_account_t * * account );
-int
-fd_exec_txn_ctx_get_account_modify( fd_exec_txn_ctx_t *  ctx,
-                                    fd_pubkey_t const *  pubkey,
-                                    ulong                min_data_sz,
-                                    fd_txn_account_t * * account );
-void
-fd_exec_txn_ctx_reset_return_data( fd_exec_txn_ctx_t * txn_ctx );
-
-/* Mirrors Agave function solana_sdk::transaction_context::find_index_of_program_account.
+/* Mirrors Agave function solana_sdk::transaction_context::find_index_of_account
 
    Backward scan over transaction accounts.
    Returns -1 if not found.
 
-   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L241 */
+   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L233-L238 */
+
 static inline int
-fd_exec_txn_ctx_find_idx_of_program_account( fd_exec_txn_ctx_t const * txn_ctx,
-                                             fd_pubkey_t const *       pubkey ) {
-  for( ulong i=txn_ctx->accounts_cnt; i>0UL; i-- ) {
-    if( 0==memcmp( pubkey, &txn_ctx->account_keys[ i-1UL ], sizeof(fd_pubkey_t) ) ) {
+fd_exec_txn_ctx_find_index_of_account( fd_exec_txn_ctx_t * ctx,
+                                      fd_pubkey_t const *  pubkey ) {
+  for( ulong i=ctx->accounts_cnt; i>0UL; i-- ) {
+    if( 0==memcmp( pubkey, &ctx->account_keys[ i-1UL ], sizeof(fd_pubkey_t) ) ) {
       return (int)((ushort)i);
     }
   }
-   return -1;
+  return -1;
 }
+
+/* Mirrors Agave function solana_sdk::transaction_context::get_account_at_index
+
+   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L223-L230 */
+
+int
+fd_exec_txn_ctx_get_account_at_index( fd_exec_txn_ctx_t *  ctx,
+                                      uchar                idx,
+                                      fd_txn_account_t * * account );
+
+int
+fd_exec_txn_ctx_get_account_with_key( fd_exec_txn_ctx_t *  ctx,
+                                      fd_pubkey_t const *  pubkey,
+                                      fd_txn_account_t * * account );
+
+int
+fd_exec_txn_ctx_get_executable_account( fd_exec_txn_ctx_t *  ctx,
+                                        fd_pubkey_t const *  pubkey,
+                                        fd_txn_account_t * * account );
+
+void
+fd_exec_txn_ctx_reset_return_data( fd_exec_txn_ctx_t * txn_ctx );
 
 /* In agave, the writable accounts cache is populated by this below function.
    This cache is then referenced to determine if a transaction account is
@@ -306,7 +281,7 @@ fd_exec_txn_ctx_find_idx_of_program_account( fd_exec_txn_ctx_t const * txn_ctx,
       the set of transaction accounts. */
 /* https://github.com/anza-xyz/agave/blob/v2.1.1/sdk/program/src/message/versions/v0/loaded.rs#L137-L150 */
 int
-fd_txn_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, int idx );
+fd_exec_txn_ctx_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, int idx );
 
 FD_PROTOTYPES_END
 

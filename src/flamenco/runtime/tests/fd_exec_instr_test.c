@@ -1802,7 +1802,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
         }
       }
 
-      if( !( fd_txn_account_is_writable_idx( txn_ctx, (int)j ) || j==FD_FEE_PAYER_TXN_IDX ) ) continue;
+      if( !( fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (int)j ) || j==FD_FEE_PAYER_TXN_IDX ) ) continue;
       assert( acc->meta );
 
       ulong modified_idx = txn_result->resulting_state.acct_states_count;
@@ -2290,7 +2290,7 @@ __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
            TODO: Once direct mapping is enabled we _technically_ don't need
                  this check */
 
-        if( fd_exec_txn_ctx_get_account_view_idx( txn_ctx, idx_in_txn, &acct ) ) {
+        if( fd_exec_txn_ctx_get_account_at_index( txn_ctx, idx_in_txn, &acct ) ) {
           break;
         }
         if( acct->meta == NULL ){
@@ -2298,12 +2298,18 @@ __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
         }
 
         /* Now borrow mutably (with resize) */
-        int err = fd_exec_txn_ctx_get_account_modify_idx( txn_ctx,
+        int err = fd_exec_txn_ctx_get_account_at_index( txn_ctx,
                                                           idx_in_txn,
                                                           /* Do not reallocate if data is not going to be modified */
-                                                          acct_state->data ? acct_state->data->size : 0UL,
                                                           &acct );
         if( err ) break;
+
+        /* resize manually */
+        if( acct_state->data ) {
+          if( acct_state->data->size > acct->const_meta->dlen ) {
+            fd_txn_account_resize( acct, acct_state->data->size );
+          }
+        }
 
         /* Update account state */
         acct->meta->info.lamports = acct_state->lamports;

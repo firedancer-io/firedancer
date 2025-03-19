@@ -84,8 +84,8 @@ fd_exec_txn_ctx_delete( void * mem ) {
 }
 
 int
-fd_exec_txn_ctx_get_account_view_idx( fd_exec_txn_ctx_t * ctx,
-                                      uchar               idx,
+fd_exec_txn_ctx_get_account_at_index( fd_exec_txn_ctx_t *  ctx,
+                                      uchar                idx,
                                       fd_txn_account_t * * account ) {
   if( FD_UNLIKELY( idx>=ctx->accounts_cnt ) ) {
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
@@ -94,111 +94,43 @@ fd_exec_txn_ctx_get_account_view_idx( fd_exec_txn_ctx_t * ctx,
   fd_txn_account_t * txn_account = &ctx->accounts[idx];
   *account = txn_account;
 
-  if( FD_UNLIKELY( !fd_acc_exists( txn_account->const_meta ) ) ) {
-    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
-  }
-
   return FD_ACC_MGR_SUCCESS;
 }
 
 int
-fd_exec_txn_ctx_get_account_view( fd_exec_txn_ctx_t *  ctx,
-                                  fd_pubkey_t const *  pubkey,
-                                  fd_txn_account_t * * account ) {
-  for( ulong i = 0; i < ctx->accounts_cnt; i++ ) {
-    if( memcmp( pubkey->uc, ctx->account_keys[i].uc, sizeof(fd_pubkey_t) )==0 ) {
-      // TODO: check if readable???
-      fd_txn_account_t * txn_account = &ctx->accounts[i];
-      *account = txn_account;
-
-      if( FD_UNLIKELY( !fd_acc_exists( txn_account->const_meta ) ) ) {
-        return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
-      }
-
-      return FD_ACC_MGR_SUCCESS;
-    }
+fd_exec_txn_ctx_get_account_with_key( fd_exec_txn_ctx_t *  ctx,
+                                      fd_pubkey_t const *  pubkey,
+                                      fd_txn_account_t * * account ) {
+  int index = fd_exec_txn_ctx_find_index_of_account( ctx, pubkey );
+  if( FD_UNLIKELY( index==-1 ) ) {
+    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
-  return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+  return fd_exec_txn_ctx_get_account_at_index( ctx, (uchar)index, account );
 }
 
 int
-fd_exec_txn_ctx_get_account_executable_view( fd_exec_txn_ctx_t *  ctx,
-                                             fd_pubkey_t const *  pubkey,
-                                             fd_txn_account_t * * account ) {
+fd_exec_txn_ctx_get_executable_account( fd_exec_txn_ctx_t *  ctx,
+                                        fd_pubkey_t const *  pubkey,
+                                        fd_txn_account_t * * account ) {
   /* First try to fetch the executable account from the existing borrowed accounts.
      If the pubkey is in the account keys, then we want to re-use that
      borrowed account since it reflects changes from prior instructions. Referencing the
      read-only executable accounts list is incorrect behavior when the program
      data account is written to in a prior instruction (e.g. program upgrade + invoke within the same txn) */
-  int err = fd_exec_txn_ctx_get_account_view( ctx, pubkey, account );
+  int err = fd_exec_txn_ctx_get_account_with_key( ctx, pubkey, account );
   if( FD_UNLIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
     return FD_ACC_MGR_SUCCESS;
   }
 
   for( ulong i = 0; i < ctx->executable_cnt; i++ ) {
     if( memcmp( pubkey->uc, ctx->executable_accounts[i].pubkey->uc, sizeof(fd_pubkey_t) )==0 ) {
-      // TODO: check if readable???
       fd_txn_account_t * txn_account = &ctx->executable_accounts[i];
       *account = txn_account;
 
       if( FD_UNLIKELY( !fd_acc_exists( txn_account->const_meta ) ) )
         return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
 
-      return FD_ACC_MGR_SUCCESS;
-    }
-  }
-
-  return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
-}
-
-int
-fd_exec_txn_ctx_get_account_modify_fee_payer( fd_exec_txn_ctx_t *  ctx,
-                                              fd_txn_account_t * * account ) {
-
-  *account = &ctx->accounts[ FD_FEE_PAYER_TXN_IDX ];
-
-  if( FD_UNLIKELY( !fd_txn_is_writable( ctx->txn_descriptor, FD_FEE_PAYER_TXN_IDX ) ) ) {
-    return FD_ACC_MGR_ERR_WRITE_FAILED;
-  }
-  return FD_ACC_MGR_SUCCESS;
-}
-
-int
-fd_exec_txn_ctx_get_account_modify_idx( fd_exec_txn_ctx_t *   ctx,
-                                        uchar                 idx,
-                                        ulong                 min_data_sz,
-                                        fd_txn_account_t * *  account ) {
-  if( idx >= ctx->accounts_cnt ) {
-    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
-  }
-
-  fd_txn_account_t * txn_account = &ctx->accounts[idx];
-  if( FD_UNLIKELY( !fd_txn_account_is_writable_idx( ctx, (int)idx ) ) ) {
-    return FD_ACC_MGR_ERR_WRITE_FAILED;
-  }
-
-  if( min_data_sz > txn_account->const_meta->dlen ) {
-    fd_txn_account_resize( txn_account, min_data_sz );
-  }
-
-  *account = txn_account;
-  return FD_ACC_MGR_SUCCESS;
-}
-
-int
-fd_exec_txn_ctx_get_account_modify( fd_exec_txn_ctx_t *  ctx,
-                                    fd_pubkey_t const *  pubkey,
-                                    ulong                min_data_sz,
-                                    fd_txn_account_t * * account ) {
-  for( ulong i = 0; i < ctx->accounts_cnt; i++ ) {
-    if( memcmp( pubkey->uc, ctx->account_keys[i].uc, sizeof(fd_pubkey_t) )==0 ) {
-      // TODO: check if writable???
-      fd_txn_account_t * txn_account = &ctx->accounts[i];
-      if( min_data_sz > txn_account->const_meta->dlen ) {
-        fd_txn_account_resize( txn_account, min_data_sz );
-      }
-      *account = txn_account;
       return FD_ACC_MGR_SUCCESS;
     }
   }
@@ -335,7 +267,7 @@ fd_txn_account_is_demotion( fd_exec_txn_ctx_t const * txn_ctx, int idx )
 
    https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L38-L47 */
 int
-fd_txn_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, int idx ) {
+fd_exec_txn_ctx_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, int idx ) {
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L43 */
   if( !fd_txn_is_writable( txn_ctx->txn_descriptor, idx ) ) {

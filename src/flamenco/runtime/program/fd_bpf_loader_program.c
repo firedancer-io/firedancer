@@ -130,7 +130,7 @@ read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t *              
                                                uchar                               program_id,
                                                int *                               opt_err ) {
   fd_txn_account_t * rec = NULL;
-  int err = fd_exec_txn_ctx_get_account_view_idx( txn_ctx, program_id, &rec );
+  int err = fd_exec_txn_ctx_get_account_at_index( txn_ctx, program_id, &rec );
   if( FD_UNLIKELY( err ) ) {
     *opt_err = err;
     return NULL;
@@ -1838,10 +1838,9 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L491-L529 */
     fd_txn_account_t * program_account = NULL;
 
-    /* TODO: Agave uses `get_last_program_key`, we should have equivalent semantics:
-       https://github.com//anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L491-L492 */
+    /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L403-L404 */
     fd_pubkey_t const *     program_id      = &ctx->instr->program_id_pubkey;
-    int err = fd_exec_txn_ctx_get_account_view_idx( ctx->txn_ctx, ctx->instr->program_id, &program_account );
+    int err = fd_exec_txn_ctx_get_account_at_index( ctx->txn_ctx, ctx->instr->program_id, &program_account );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
       return err;
     }
@@ -1901,8 +1900,9 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
       Every error that comes out of this block is mapped to an InvalidAccountData instruction error in Agave. */
 
+      /* use try_borrow_last_program_account */
     fd_txn_account_t * program_acc_view = NULL;
-    int                read_result      = fd_exec_txn_ctx_get_account_view_idx( ctx->txn_ctx, ctx->instr->program_id, &program_acc_view );
+    int                read_result      = fd_exec_txn_ctx_get_account_at_index( ctx->txn_ctx, ctx->instr->program_id, &program_acc_view );
     if( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
@@ -1931,7 +1931,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
       fd_txn_account_t * program_data_account = NULL;
       fd_pubkey_t *      programdata_pubkey   = (fd_pubkey_t *)&program_account_state->inner.program.programdata_address;
-      err = fd_exec_txn_ctx_get_account_executable_view( ctx->txn_ctx, programdata_pubkey, &program_data_account );
+      err = fd_exec_txn_ctx_get_executable_account( ctx->txn_ctx, programdata_pubkey, &program_data_account );
       if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
