@@ -3,6 +3,7 @@
 
 #include "fd_cap_chk.h"
 #include "../../disco/topo/fd_topo.h"
+#include "../../util/net/fd_net_headers.h" /* fd_ip4_port_t */
 
 #include <net/if.h>
 #include <linux/limits.h>
@@ -161,8 +162,11 @@ struct fd_config {
   } ledger;
 
   struct {
+#   define FD_CONFIG_GOSSIP_ENTRYPOINTS_MAX 16
     ulong  entrypoints_cnt;
-    char   entrypoints[ 16 ][ 256 ];
+    char   entrypoints[ FD_CONFIG_GOSSIP_ENTRYPOINTS_MAX ][ 262 ];
+    ulong         resolved_entrypoints_cnt;
+    fd_ip4_port_t resolved_entrypoints[ FD_CONFIG_GOSSIP_ENTRYPOINTS_MAX ];
     int    port_check;
     ushort port;
     char   host[ 256 ];
@@ -381,14 +385,6 @@ struct fd_config {
     } gui;
 
     /* Firedancer-only tile configs */
-
-    struct {
-      ulong  entrypoints_cnt;
-      char   entrypoints[16][256];
-      ushort gossip_listen_port;
-      ulong  peer_ports_cnt;
-      ushort peer_ports[16];
-    } gossip;
 
     struct {
       ushort repair_intake_listen_port;

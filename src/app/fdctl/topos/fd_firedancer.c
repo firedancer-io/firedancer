@@ -13,9 +13,11 @@
 #include "../../../flamenco/runtime/fd_runtime.h"
 #include "../../../flamenco/runtime/fd_txncache.h"
 #include "../../../util/tile/fd_tile_private.h"
-#include "../../../util/shmem/fd_shmem_private.h"
 
 #include <sys/random.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
 
 static fd_topo_obj_t *
 setup_topo_blockstore( fd_topo_t *  topo,
@@ -73,8 +75,74 @@ setup_topo_txncache( fd_topo_t *  topo,
   return obj;
 }
 
+static int
+resolve_gossip_entrypoint( char const *    host_port,
+                           fd_ip4_port_t * ip4_port ) {
+
+  /* Split host:port */
+
+  char const * colon = strrchr( host_port, ':' );
+  if( FD_UNLIKELY( !colon ) ) {
+    FD_LOG_ERR(( "invalid [gossip.entrypoints] entry \"%s\": no port number", host_port ));
+  }
+
+  char fqdn[ 255 ];
+  ulong fqdn_len = (ulong)( colon-host_port );
+  if( FD_UNLIKELY( fqdn_len>254 ) ) {
+    FD_LOG_ERR(( "invalid [gossip.entrypoints] entry \"%s\": hostname too long", host_port ));
+  }
+  fd_memcpy( fqdn, host_port, fqdn_len );
+  fqdn[ fqdn_len ] = '\0';
+
+  /* Parse port number */
+
+  char const * port_str = colon+1;
+  char const * endptr   = NULL;
+  ulong port = strtoul( port_str, (char **)&endptr, 10 );
+  if( FD_UNLIKELY( !endptr || !port || port>USHORT_MAX || *endptr!='\0' ) ) {
+    FD_LOG_ERR(( "invalid [gossip.entrypoints] entry \"%s\": invalid port number", host_port ));
+  }
+  ip4_port->port = (ushort)fd_ushort_bswap( (ushort)port );
+
+  /* Resolve hostname */
+
+  struct addrinfo hints = { .ai_family = AF_INET };
+  struct addrinfo * res;
+  int err = getaddrinfo( fqdn, NULL, &hints, &res );
+  if( FD_UNLIKELY( err ) ) {
+    FD_LOG_WARNING(( "cannot resolve [gossip.entrypoints] entry \"%s\": %i-%s", fqdn, err, gai_strerror( err ) ));
+    return 0;
+  }
+
+  int resolved = 0;
+  for( struct addrinfo * cur=res; cur; cur=cur->ai_next ) {
+    if( FD_UNLIKELY( cur->ai_addr->sa_family!=AF_INET ) ) continue;
+    struct sockaddr_in const * addr = (struct sockaddr_in const *)cur->ai_addr;
+    ip4_port->addr = addr->sin_addr.s_addr;
+    resolved = 1;
+    break;
+  }
+
+  freeaddrinfo( res );
+  return resolved;
+}
+
+static void
+resolve_gossip_entrypoints( config_t * config ) {
+  ulong entrypoint_cnt = config->gossip.entrypoints_cnt;
+  ulong resolved_entrypoints = 0UL;
+  for( ulong j=0UL; j<entrypoint_cnt; j++ ) {
+    if( resolve_gossip_entrypoint( config->gossip.entrypoints[j], &config->gossip.resolved_entrypoints[resolved_entrypoints] ) ) {
+      resolved_entrypoints++;
+    }
+  }
+  config->gossip.resolved_entrypoints_cnt = resolved_entrypoints;
+}
+
 void
 fd_topo_initialize( config_t * config ) {
+  resolve_gossip_entrypoints( config );
+
   ulong net_tile_cnt    = config->layout.net_tile_count;
   ulong shred_tile_cnt  = config->layout.shred_tile_count;
   ulong quic_tile_cnt   = config->layout.quic_tile_count;
@@ -602,7 +670,6 @@ fd_topo_initialize( config_t * config ) {
       tile->gossip.ip_addr = config->tiles.net.ip_addr;
       strncpy( tile->gossip.identity_key_path, config->consensus.identity_path, sizeof(tile->gossip.identity_key_path) );
       tile->gossip.gossip_listen_port =  config->gossip.port;
-      FD_TEST( config->gossip.port == config->tiles.gossip.gossip_listen_port );
       tile->gossip.tvu_port = config->tiles.shred.shred_listen_port;
       if( FD_UNLIKELY( tile->gossip.tvu_port>(ushort)(USHORT_MAX-6) ) )
         FD_LOG_ERR(( "shred_listen_port in the config must not be greater than %hu", (ushort)(USHORT_MAX-6) ));
@@ -611,15 +678,8 @@ fd_topo_initialize( config_t * config ) {
       tile->gossip.tpu_quic_port        = config->tiles.quic.quic_transaction_listen_port;
       tile->gossip.tpu_vote_port        = config->tiles.quic.regular_transaction_listen_port; /* TODO: support separate port for tpu vote */
       tile->gossip.repair_serve_port    = config->tiles.repair.repair_serve_listen_port;
-      FD_TEST( config->tiles.gossip.entrypoints_cnt == config->tiles.gossip.peer_ports_cnt );
-      tile->gossip.entrypoints_cnt = config->tiles.gossip.peer_ports_cnt;
-      for (ulong i=0UL; i<config->tiles.gossip.entrypoints_cnt; i++) {
-        if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( config->tiles.gossip.entrypoints[i], &tile->gossip.entrypoints[i] ) ) ) {
-          FD_LOG_ERR(( "configuration specifies invalid gossip peer IP address `%s`", config->tiles.gossip.entrypoints[i] ));
-        }
-        tile->gossip.peer_ports[i] = (ushort)config->tiles.gossip.peer_ports[i];
-      }
-      tile->gossip.plugins_enabled = plugins_enabled;
+      tile->gossip.entrypoints_cnt      = fd_ulong_min( config->gossip.resolved_entrypoints_cnt, FD_TOPO_GOSSIP_ENTRYPOINTS_MAX );
+      fd_memcpy( tile->gossip.entrypoints, config->gossip.resolved_entrypoints, tile->gossip.entrypoints_cnt * sizeof(fd_ip4_port_t) );
 
     } else if( FD_UNLIKELY( !strcmp( tile->name, "repair" ) ) ) {
       tile->repair.repair_intake_listen_port =  config->tiles.repair.repair_intake_listen_port;

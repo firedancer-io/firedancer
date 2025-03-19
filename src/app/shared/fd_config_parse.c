@@ -391,10 +391,6 @@ fdctl_pod_to_cfg( config_t * config,
 
   CFG_POP      ( bool,   consensus.vote                                   );
 
-  CFG_POP_ARRAY( cstr,   tiles.gossip.entrypoints                         );
-  CFG_POP      ( ushort, tiles.gossip.gossip_listen_port                  );
-  CFG_POP_ARRAY( ushort, tiles.gossip.peer_ports                          );
-
   CFG_POP      ( ushort, tiles.repair.repair_intake_listen_port           );
   CFG_POP      ( ushort, tiles.repair.repair_serve_listen_port            );
   CFG_POP      ( cstr,   tiles.repair.good_peer_cache_file                );
