@@ -9,6 +9,10 @@
 #include "generated/metadata.pb.h"
 #include "../../../util/fd_util.h"
 
+/* Fixture executor that dynamically determines
+   which sol_compat harness to execute based on
+   fixture metadata. */
+
 static void * sol_compat_handle = NULL;
 
 #define METADATA_TAG 1
@@ -18,8 +22,10 @@ typedef void (*sol_compat_fini_fn_t)(void);
 typedef int  (*sol_compat_protobuf_call_v1)(uint8_t *out, uint64_t *out_sz,
                                             uint8_t const *in, uint64_t in_sz);
 
+
+/* CSV iterator code. This should probably go in utils */
 typedef struct {
-    char *input_str;     // The input comma-separated string 
+    char *input_str;     // The input comma-separated string
     char *current_pos;   // The current position in the string
     char delimiter;      // Delimiter (space in this case)
 } csv_iter_t;
@@ -101,7 +107,7 @@ setup( int argc, char ** argv ) {
   }
 
   sol_compat_init_fn_t sol_compat_init_fn = (sol_compat_init_fn_t)dlsym( sol_compat_handle, "sol_compat_init" );
-  
+
   if( sol_compat_init_fn == NULL ) {
     FD_LOG_ERR(( "Failed to find sol_compat_init function: %s", dlerror() ));
     return 1;
@@ -129,7 +135,14 @@ teardown( void ) {
   return 0;
 }
 
-/* On success, stream will point to start of field value,
+/* On success, stream will point to start of field value.
+
+   IIRC Protobuf doesn't make guarantees about field ordering
+   based on tag number, so this means you likely need to
+   reset the stream to the start of the buffer before
+   calling this function. Else you might be past the field
+   you want to advance to.
+
    For submsg fields, you can pass the stream to make_string_substream */
 int
 advance_stream_to_field( pb_istream_t* stream, uint32_t tag ) {
@@ -182,13 +195,13 @@ extract_metadata( pb_istream_t* fixture_stream, fd_exec_test_fixture_metadata_t*
     FD_LOG_ERR(( "Failed to close string substream" ));
     return 1;
   }
-  
+
   return 0;
 }
 
-/* TODO: We could do a blind execution, but that sounds extremely unsafe.
-         This function serves the more important purpose of validation, but
-         it is quite slow... a hash table would be nice */
+/* We could do a blind execution, but that sounds extremely unsafe.
+   This function serves the more important purpose of validation.
+   TODO: Look into using FD Perfect Hash here */
 int
 harness_ctx_from_metadata( fd_exec_test_fixture_metadata_t* metadata, const sol_compat_harness_ctx_t** h_ctx ) {
   const char *entrypoint = metadata->fn_entrypoint;
@@ -215,7 +228,7 @@ harness_ctx_from_metadata( fd_exec_test_fixture_metadata_t* metadata, const sol_
 
 int
 compare_effects( pb_istream_t* expected_effects,
-                 pb_istream_t* actual_effects, 
+                 pb_istream_t* actual_effects,
                  sol_compat_harness_ctx_t const* harness_ctx ) {
   /* TODO: use descriptor for more granular diffs */
   (void)harness_ctx;
@@ -310,16 +323,16 @@ exec_fixture( const char *path ) {
   }
 
   // Make istream from out buffer
-  pb_istream_t out_stream = pb_istream_from_buffer( out, out_sz );
+  pb_istream_t out_istream = pb_istream_from_buffer( out, out_sz );
 
   // Compare effects
-  if( compare_effects( &effects_stream, &out_stream, harness_ctx ) ){
+  if( compare_effects( &effects_stream, &out_istream, harness_ctx ) ){
     FD_LOG_ERR(( "Failed to compare effects" ));
     return 1;
   }
-  
+
   pb_close_string_substream( &tmp, &effects_stream );
-  
+
   free( buf );
   free( out );
   return 0;

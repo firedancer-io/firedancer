@@ -2,7 +2,11 @@
 #define SOL_COMPAT_HARNESS_CTX_H
 
 #include "../../nanopb/pb_firedancer.h"
+/* Macros for generating "Harness Contexts"
+   analagous to what we use in Solana Conformance.
 
+   TODO: This might be better served with a
+   Python-based generator approach. */
 
 struct sol_compat_harness_ctx {
     pb_msgdesc_t const* fixture_desc;
@@ -10,7 +14,6 @@ struct sol_compat_harness_ctx {
     uchar effects_submsg_tag;
     pb_msgdesc_t const* context_desc;
     pb_msgdesc_t const* effects_desc;
-
 
     char const ** effects_tags_fieldnames;
 };
@@ -24,13 +27,6 @@ extern const sol_compat_harness_ctx_t syscall_harness_ctx;
 extern const sol_compat_harness_ctx_t vm_validate_harness_ctx;
 extern const sol_compat_harness_ctx_t elf_loader_harness_ctx;
 
-/* TODO: Helper functions */
-
-
-
-/* Harness Generator Macros.
-   TODO: Python-based approach? 
-*/
 
 #define EVAL(x) x
 #define CONCAT(x, y) x ## y
