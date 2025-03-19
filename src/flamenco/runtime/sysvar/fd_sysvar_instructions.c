@@ -39,7 +39,7 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
   ulong serialized_sz = instructions_serialized_size( instrs, instrs_cnt );
 
   fd_txn_account_t * rec = NULL;
-  int err = fd_exec_txn_ctx_get_account_view( txn_ctx, &fd_sysvar_instructions_id, &rec );
+  int err = fd_exec_txn_ctx_get_account_with_key( txn_ctx, &fd_sysvar_instructions_id, &rec );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS && rec == NULL ) ) {
     /* The way we use this, this should NEVER hit since the borrowed accounts should be set up
        before this is called, and this is only called if the sysvar instructions account is in
@@ -130,10 +130,26 @@ int
 fd_sysvar_instructions_update_current_instr_idx( fd_exec_txn_ctx_t * txn_ctx,
                                                  ushort              current_instr_idx ) {
   fd_txn_account_t * rec = NULL;
-  int err = fd_exec_txn_ctx_get_account_modify( txn_ctx, &fd_sysvar_instructions_id, 0, &rec );
+
+  /* Find the index of the sysvar account.
+     https://github.com/anza-xyz/agave/blob/v2.1.14/svm/src/message_processor.rs#L49-L51 */
+  int index = fd_exec_txn_ctx_find_index_of_account( txn_ctx, &fd_sysvar_instructions_id );
+  if( FD_UNLIKELY( index==-1 ) ) {
+    return FD_ACC_MGR_ERR_READ_FAILED;
+  }
+
+  /* https://github.com/anza-xyz/agave/blob/v2.1.14/svm/src/message_processor.rs#L53-L55 */
+  int err = fd_exec_txn_ctx_get_account_at_index( txn_ctx, (uchar)index, &rec );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) )
     return FD_ACC_MGR_ERR_READ_FAILED;
 
+    /* Check if account is writable */
+  if( FD_UNLIKELY( !fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, index ) ) ) {
+    return FD_ACC_MGR_ERR_WRITE_FAILED;
+  }
+
+  /* Store the current instruction index
+     https://github.com/anza-xyz/agave/blob/v2.1.14/svm/src/message_processor.rs#L58-L61 */
   uchar * serialized_current_instr_idx = rec->data + (rec->meta->dlen - sizeof(ushort));
   FD_STORE( ushort, serialized_current_instr_idx, current_instr_idx );
 
