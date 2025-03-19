@@ -175,28 +175,31 @@ test_verify_success( void ) {
   fd_txn_parse( payload, payload_sz, out_buf, NULL );
 
   /* valid txn with 2 signatures */
-  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, &opt_sig );
+  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, 1, &opt_sig );
   FD_TEST( res==FD_TXN_VERIFY_SUCCESS );
 
   /* same txn as before: should dedup */
-  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, &opt_sig );
+  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, 1, &opt_sig );
   FD_TEST( res==FD_TXN_VERIFY_DEDUP );
 
-  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, &opt_sig );
+  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, 1, &opt_sig );
   FD_TEST( res==FD_TXN_VERIFY_DEDUP );
+
+  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, 0, &opt_sig );
+  FD_TEST( res==FD_TXN_VERIFY_SUCCESS );
 
   free(payload);
   payload = load_test_txn( valid_txn_1sig, sizeof(valid_txn_1sig), &payload_sz );
   fd_txn_parse( payload, payload_sz, out_buf, NULL );
 
   /* valid txn with 1 signature */
-  int res1 = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, &opt_sig );
+  int res1 = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, 1, &opt_sig );
   FD_TEST( res1==FD_TXN_VERIFY_SUCCESS );
 
-  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, &opt_sig );
+  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, 1, &opt_sig );
   FD_TEST( res==FD_TXN_VERIFY_DEDUP );
 
-  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, &opt_sig );
+  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, 1, &opt_sig );
   FD_TEST( res==FD_TXN_VERIFY_DEDUP );
 
   free(payload);
@@ -221,11 +224,11 @@ test_verify_invalid_sigs_success( void ) {
   fd_txn_parse( payload, payload_sz, out_buf, NULL );
 
   /* invalid txn with 2 signatures */
-  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, &opt_sig );
+  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, 1, &opt_sig );
   FD_TEST( res==FD_TXN_VERIFY_FAILED );
 
   /* there's no dedup for failed txs */
-  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, &opt_sig );
+  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, 1, &opt_sig );
   FD_TEST( res==FD_TXN_VERIFY_FAILED );
 
   free(payload);
@@ -251,7 +254,7 @@ test_verify_invalid_dedup_success( void ) {
 
   /* invalid txn, with same signature as a valid one. attacker tries to frontrun/DoS a user.
      see: https://github.com/firedancer-io/firedancer/pull/1068 */
-  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, &opt_sig );
+  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, 1, &opt_sig );
   FD_TEST( res==FD_TXN_VERIFY_FAILED );
 
   free(payload);
@@ -259,14 +262,14 @@ test_verify_invalid_dedup_success( void ) {
   fd_txn_parse( payload, payload_sz, out_buf, NULL );
 
   /* valid txn with 1 signature. this should NOT be deduped */
-  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, &opt_sig );
+  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, 1, &opt_sig );
   FD_TEST( res==FD_TXN_VERIFY_SUCCESS );
 
   /* clear to test the other way */
   fd_tcache_reset( ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt );
 
   /* valid txn with 1 signature */
-  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, &opt_sig );
+  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, 1, &opt_sig );
   FD_TEST( res==FD_TXN_VERIFY_SUCCESS );
 
   free(payload);
@@ -274,8 +277,33 @@ test_verify_invalid_dedup_success( void ) {
   fd_txn_parse( payload, payload_sz, out_buf, NULL );
 
   /* invalid txn, with same signature as a valid one. this is deduped */
-  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, &opt_sig );
+  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, 1, &opt_sig );
   FD_TEST( res==FD_TXN_VERIFY_DEDUP );
+
+  /* clear to test with dedup==0 */
+  fd_tcache_reset( ctx->tcache_ring, ctx->tcache_depth, ctx->tcache_map, ctx->tcache_map_cnt );
+
+  free(payload);
+  payload = load_test_txn( valid_txn_1sig, sizeof(valid_txn_1sig), &payload_sz );
+  fd_txn_parse( payload, payload_sz, out_buf, NULL );
+
+  /* valid txn with 1 signature */
+  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, 0, &opt_sig );
+  FD_TEST( res==FD_TXN_VERIFY_SUCCESS );
+
+  free(payload);
+  payload = load_test_txn( invalid_txn_same_1sig, sizeof(invalid_txn_same_1sig), &payload_sz );
+  fd_txn_parse( payload, payload_sz, out_buf, NULL );
+
+  /* invalid txn, with same signature as a valid one. this is deduped */
+  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, 0, &opt_sig );
+  FD_TEST( res==FD_TXN_VERIFY_FAILED );
+
+  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, 1, &opt_sig );
+  FD_TEST( res==FD_TXN_VERIFY_FAILED );
+
+  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, 1, &opt_sig );
+  FD_TEST( res==FD_TXN_VERIFY_FAILED );
 
   free(payload);
   free_verify_ctx( ctx, mem );
@@ -299,7 +327,7 @@ test_verify_invalid_dedup_with_collision_success( void ) {
   fd_txn_parse( payload, payload_sz, out_buf, NULL );
 
   /* valid txn with 1 signature */
-  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, &opt_sig );
+  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, 1, &opt_sig );
   FD_TEST( res==FD_TXN_VERIFY_SUCCESS );
 
   free(payload);
@@ -310,7 +338,7 @@ test_verify_invalid_dedup_with_collision_success( void ) {
      this is NOT deduped... but of course will fail sigverify.
      A better test would be finding valid signature with the same
      low 64-bit, but the effect is the same. */
-  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, &opt_sig );
+  res = fd_txn_verify( ctx, payload, (ushort)payload_sz, txn, 1, &opt_sig );
   FD_TEST( res==FD_TXN_VERIFY_FAILED );
 
   free(payload);
