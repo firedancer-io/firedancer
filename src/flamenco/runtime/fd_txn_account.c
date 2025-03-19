@@ -18,7 +18,6 @@ fd_txn_account_init( void * ptr ) {
   fd_txn_account_t * ret = (fd_txn_account_t *)ptr;
   ret->starting_dlen     = ULONG_MAX;
   ret->starting_lamports = ULONG_MAX;
-  ret->account_found     = 1;
 
   FD_COMPILER_MFENCE();
   ret->magic = FD_TXN_ACCOUNT_MAGIC;
