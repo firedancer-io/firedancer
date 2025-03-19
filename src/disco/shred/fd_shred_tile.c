@@ -596,15 +596,15 @@ after_frag( fd_shred_ctx_t *    ctx,
         for( ulong j=0UL; j<*max_dest_cnt; j++ ) send_shred( ctx, *out_shred, sdest, dests[ j ], ctx->tsorig );
       } while( 0 );
 
-      if( FD_LIKELY( ctx->blockstore && rv==FD_FEC_RESOLVER_SHRED_OKAY ) ) { /* optimize for the compiler - branch predictor will still be correct */
-        uchar * buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
-        ulong   sz  = fd_shred_header_sz( shred->variant );
-        fd_memcpy( buf, shred, sz );
-        ulong tspub       = fd_frag_meta_ts_comp( fd_tickcount() );
-        ulong replay_sig  = fd_disco_shred_replay_sig( shred->slot, shred->idx, shred->fec_set_idx, fd_shred_is_code( fd_shred_type( shred->variant ) ), 0 );
-        fd_stem_publish( stem, REPLAY_OUT_IDX, replay_sig, ctx->replay_out_chunk, sz, 0UL, ctx->tsorig, tspub );
-        ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sz, ctx->replay_out_chunk0, ctx->replay_out_wmark );
-      }
+      // if( FD_LIKELY( ctx->blockstore && rv==FD_FEC_RESOLVER_SHRED_OKAY ) ) { /* optimize for the compiler - branch predictor will still be correct */
+      //   uchar * buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
+      //   ulong   sz  = fd_shred_header_sz( shred->variant );
+      //   fd_memcpy( buf, shred, sz );
+      //   ulong tspub       = fd_frag_meta_ts_comp( fd_tickcount() );
+      //   ulong replay_sig  = fd_disco_shred_replay_sig( shred->slot, shred->idx, shred->fec_set_idx, fd_shred_is_code( fd_shred_type( shred->variant ) ), 0 );
+      //   fd_stem_publish( stem, REPLAY_OUT_IDX, replay_sig, ctx->replay_out_chunk, sz, 0UL, ctx->tsorig, tspub );
+      //   ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sz, ctx->replay_out_chunk0, ctx->replay_out_wmark );
+      // }
     }
     if( FD_LIKELY( rv!=FD_FEC_RESOLVER_SHRED_COMPLETES ) ) return;
 
@@ -643,32 +643,32 @@ after_frag( fd_shred_ctx_t *    ctx,
   ulong sz2 = sizeof(fd_shred34_t) - (34UL - s34[ 2 ].shred_cnt)*FD_SHRED_MAX_SZ;
   ulong sz3 = sizeof(fd_shred34_t) - (34UL - s34[ 3 ].shred_cnt)*FD_SHRED_MAX_SZ;
 
-  if( FD_LIKELY( ctx->blockstore ) ) {
-    /* If the shred has a completes flag, then in the replay tile it
-       will do immediate polling for shreds in that FEC set, under
-       the assumption that they live in the blockstore. When a shred
-       completes a FEC set, we need to add the shreds to the
-       blockstore before we notify replay of a completed FEC set.
-       Replay does not poll the blockstore for shreds on notifies of
-       a regular non-completing shred. */
+  // if( FD_LIKELY( ctx->blockstore ) ) {
+  //   /* If the shred has a completes flag, then in the replay tile it
+  //      will do immediate polling for shreds in that FEC set, under
+  //      the assumption that they live in the blockstore. When a shred
+  //      completes a FEC set, we need to add the shreds to the
+  //      blockstore before we notify replay of a completed FEC set.
+  //      Replay does not poll the blockstore for shreds on notifies of
+  //      a regular non-completing shred. */
 
-    for( ulong i=0UL; i<set->data_shred_cnt; i++ ) {
-      fd_shred_t const * data_shred = (fd_shred_t const *)fd_type_pun_const( set->data_shreds[ i ] );
-      fd_blockstore_shred_insert( ctx->blockstore, data_shred );
-    }
-    if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
-      /* Shred came from block we didn't produce. This is not our leader
-         slot. */
-      fd_shred_t const * shred = (fd_shred_t const *)fd_type_pun_const( ctx->shred_buffer );
-      uchar * buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
-      ulong   sz  = fd_shred_header_sz( shred->variant );
-      fd_memcpy( buf, shred, sz );
-      ulong tspub       = fd_frag_meta_ts_comp( fd_tickcount() );
-      ulong replay_sig  = fd_disco_shred_replay_sig( shred->slot, shred->idx, shred->fec_set_idx, fd_shred_is_code( fd_shred_type( shred->variant ) ), 1 );
-      fd_stem_publish( stem, REPLAY_OUT_IDX, replay_sig, ctx->replay_out_chunk, sz, 0UL, ctx->tsorig, tspub );
-      ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sz, ctx->replay_out_chunk0, ctx->replay_out_wmark );
-    }
-  }
+  //   for( ulong i=0UL; i<set->data_shred_cnt; i++ ) {
+  //     fd_shred_t const * data_shred = (fd_shred_t const *)fd_type_pun_const( set->data_shreds[ i ] );
+  //     fd_blockstore_shred_insert( ctx->blockstore, data_shred );
+  //   }
+  //   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) ) {
+  //     /* Shred came from block we didn't produce. This is not our leader
+  //        slot. */
+  //     fd_shred_t const * shred = (fd_shred_t const *)fd_type_pun_const( ctx->shred_buffer );
+  //     uchar * buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
+  //     ulong   sz  = fd_shred_header_sz( shred->variant );
+  //     fd_memcpy( buf, shred, sz );
+  //     ulong tspub       = fd_frag_meta_ts_comp( fd_tickcount() );
+  //     ulong replay_sig  = fd_disco_shred_replay_sig( shred->slot, shred->idx, shred->fec_set_idx, fd_shred_is_code( fd_shred_type( shred->variant ) ), 1 );
+  //     fd_stem_publish( stem, REPLAY_OUT_IDX, replay_sig, ctx->replay_out_chunk, sz, 0UL, ctx->tsorig, tspub );
+  //     ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, sz, ctx->replay_out_chunk0, ctx->replay_out_wmark );
+  //   }
+  // }
 
   /* Send to the blockstore, skipping any empty shred34_t s. */
   ulong new_sig = ctx->in_kind[ in_idx ]!=IN_KIND_NET; /* sig==0 means the store tile will do extra checks */
