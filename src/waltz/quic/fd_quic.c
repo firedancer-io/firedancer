@@ -4478,15 +4478,21 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
 
     if( enc_level == ~0u ) return;
 
+    int exit = 0;
     if( force ) {
       /* we're forcing, quit when we've freed enough */
-      if( cnt_freed >= min_freed ) return;
+      if( cnt_freed >= min_freed ) exit = 1;
     } else {
       /* not forcing, so quit if nothing has expired */
       if( expiry > now ) {
-        return;
+        exit = 1;
       }
     }
+
+    if( exit ) {
+      if( expiry != ~0ul ) fd_quic_svc_schedule1( conn, FD_QUIC_SVC_WAIT );
+      return;
+    };
 
     fd_quic_pkt_meta_list_t * sent     = &pool->sent_pkt_meta[enc_level];
     fd_quic_pkt_meta_t *      pkt_meta = sent->head;
