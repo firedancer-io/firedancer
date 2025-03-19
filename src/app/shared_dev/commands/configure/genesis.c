@@ -137,7 +137,12 @@ create_genesis( config_t const * config,
   if( FD_UNLIKELY( !stake_pubkey_ ) ) FD_LOG_ERR(( "Failed to load stake account key" ));
   memcpy( options->stake_pubkey.key, stake_pubkey_, 32 );
 
-  FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/vote-account.json", config->scratch_directory ) );
+  if( !strcmp( config->consensus.vote_account_path, "" ) ) {
+    FD_TEST( fd_cstr_printf_check( file_path, PATH_MAX, NULL, "%s/vote-account.json", config->scratch_directory ) );
+  } else {
+    fd_cstr_fini( fd_cstr_append_cstr_safe( fd_cstr_init( file_path ), config->consensus.vote_account_path, PATH_MAX-1 ) );
+  }
+
   uchar const * vote_pubkey_ = fd_keyload_load( file_path, 1 );
   if( FD_UNLIKELY( !vote_pubkey_ ) ) FD_LOG_ERR(( "Failed to load vote account key" ));
   memcpy( options->vote_pubkey.key, vote_pubkey_, 32 );
