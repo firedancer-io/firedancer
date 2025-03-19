@@ -232,10 +232,10 @@ fd_exec_epoch_ctx_from_prev( fd_exec_epoch_ctx_t * self,
   fd_memcpy( &self->features, &prev->features, sizeof(fd_features_t) );
 
   self->bank_hash_cmp     = prev->bank_hash_cmp;
-  self->replay_public    = prev->replay_public;
+  self->runtime_pub       = prev->runtime_pub;
   self->total_epoch_stake = 0UL;
 
-  fd_memcpy( &self->replay_public->features, &prev->features, sizeof(fd_features_t) );
+  fd_memcpy( &self->runtime_pub->features, &prev->features, sizeof(fd_features_t) );
 
   fd_epoch_bank_t * old_epoch_bank = fd_exec_epoch_ctx_epoch_bank( prev );
 

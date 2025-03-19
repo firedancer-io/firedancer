@@ -109,6 +109,7 @@ fd_sysvar_cache_restore_##name(                                           \
     int   err         = type##_decode_footprint( &decode, &total_sz );    \
     cache->has_##name = (err==FD_BINCODE_SUCCESS);                        \
     if( FD_UNLIKELY( err ) ) {                                            \
+      FD_LOG_WARNING(( "failed to decode footprint" ));                   \
       break;                                                              \
     }                                                                     \
                                                                           \

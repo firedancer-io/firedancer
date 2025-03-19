@@ -892,11 +892,10 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-static int
-fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx,
-                                             fd_spad_t *         spad ) {
+int
+fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
-  FD_SPAD_FRAME_BEGIN( spad ) {
+  FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
 
   fd_pubkey_t * tx_accs = (fd_pubkey_t *)((uchar *)txn_ctx->_txn_raw->raw + txn_ctx->txn_descriptor->acct_addr_off);
 
@@ -959,7 +958,7 @@ fd_executor_setup_accessed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx,
         return FD_RUNTIME_TXN_ERR_INVALID_ADDRESS_LOOKUP_TABLE_DATA;
       }
 
-      uchar * mem = fd_spad_alloc( spad, fd_address_lookup_table_state_align(), total_sz );
+      uchar * mem = fd_spad_alloc( txn_ctx->spad, fd_address_lookup_table_state_align(), total_sz );
       if( FD_UNLIKELY( !mem ) ) {
         FD_LOG_ERR(( "Unable to allocate memory for address lookup table state" ));
       }
@@ -1377,12 +1376,11 @@ int
 fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
                               fd_exec_txn_ctx_t *        txn_ctx,
                               fd_txn_t const *           txn_descriptor,
-                              fd_rawtxn_b_t const *      txn_raw,
-                              fd_spad_t *                spad ) {
+                              fd_rawtxn_b_t const *      txn_raw ) {
 
   fd_funk_t * funk               = slot_ctx->acc_mgr->funk;
   fd_wksp_t * funk_wksp          = fd_funk_wksp( funk );
-  fd_wksp_t * runtime_pub_wksp   = fd_wksp_containing( slot_ctx );
+  fd_wksp_t * runtime_pub_wksp   = fd_wksp_containing( slot_ctx->acc_mgr );
   ulong       funk_txn_gaddr     = fd_wksp_gaddr( funk_wksp, slot_ctx->funk_txn );
   ulong       acc_mgr_gaddr      = fd_wksp_gaddr( runtime_pub_wksp, slot_ctx->acc_mgr );
   ulong       funk_gaddr         = fd_wksp_gaddr( funk_wksp, slot_ctx->acc_mgr->funk );
@@ -1401,7 +1399,7 @@ fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
   fd_exec_txn_ctx_setup( txn_ctx, txn_descriptor, txn_raw );
 
   /* Unroll accounts from aluts and place into correct spots */
-  int res = fd_executor_setup_accessed_accounts_for_txn( txn_ctx, spad );
+  int res = fd_executor_setup_accessed_accounts_for_txn( txn_ctx );
 
   return res;
 }

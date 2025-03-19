@@ -1417,11 +1417,12 @@ fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
 
     fd_rawtxn_b_t raw_txn = { .raw = txn->payload, .txn_sz = (ushort)txn->payload_sz };
 
+
+    task_info[txn_idx].txn_ctx->spad = runtime_spad;
     int err = fd_execute_txn_prepare_start( slot_ctx,
                                             txn_ctx,
                                             txn_descriptor,
-                                            &raw_txn,
-                                            runtime_spad );
+                                            &raw_txn );
     if( FD_UNLIKELY( err ) ) {
       task_info[txn_idx].exec_res = err;
       txn->flags                  = 0U;
@@ -1731,7 +1732,7 @@ fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
 
   fd_rawtxn_b_t raw_txn = { .raw = txn->payload, .txn_sz = (ushort)txn->payload_sz };
 
-  res = fd_execute_txn_prepare_start( slot_ctx, txn_ctx, txn_descriptor, &raw_txn, exec_spad );
+  res = fd_execute_txn_prepare_start( slot_ctx, txn_ctx, txn_descriptor, &raw_txn );
   if( FD_UNLIKELY( res ) ) {
     txn->flags = 0U;
     return -1;
@@ -4019,29 +4020,93 @@ fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
 
 }
 
-// TODO: add tracking account_state hashes so that we can verify our
-// banks hash... this has interesting threading implications since we
-// could execute the cryptography in another thread for tracking this
-// but we don't actually have anything to compare it to until we hit
-// another snapshot...  Probably we should just store the results into
-// the slot_ctx state (a slot/hash map)?
-//
-// What slots exactly do cache'd account_updates go into?  how are
-// they hashed (which slot?)?
+/* The layout of fd_runtime_public_t is as follows:
+   1. header (fd_runtime_public_t)
+   2. runtime_spad
+   3. slot_ctx/slot_bank
+   4. epoch_ctx/epoch_bank
+*/
 
 ulong
-fd_runtime_public_footprint ( void ) {
-  return sizeof(fd_runtime_public_t);
+fd_runtime_public_footprint( void ) {
+  return sizeof(fd_runtime_public_t) +
+         fd_spad_align() +
+         fd_spad_footprint( FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT );
 }
 
 fd_runtime_public_t *
-fd_runtime_public_join ( void * ptr )
-{
-  return (fd_runtime_public_t *) ptr;
+fd_runtime_public_join( void * shmem ) {
+  fd_runtime_public_t * pub = (fd_runtime_public_t *)shmem;
+
+  if( FD_UNLIKELY( pub->magic!=FD_RUNTIME_PUBLIC_MAGIC ) ) {
+    FD_LOG_WARNING(( "Bad Magic" ));
+    return NULL;
+  }
+
+  if( FD_UNLIKELY( pub->runtime_spad_gaddr==0UL ) ) {
+    FD_LOG_WARNING(( "Bad runtime spad allocation" ));
+    return NULL;
+  }
+
+  fd_wksp_t * wksp = fd_wksp_containing( shmem );
+  if( FD_UNLIKELY( !wksp ) ) {
+    FD_LOG_WARNING(( "No wksp containing shmem found" ));
+    return NULL;
+  }
+
+  return pub;
 }
 
 void *
-fd_runtime_public_new ( void * ptr )  {
-  fd_memset(ptr, 0, sizeof(fd_runtime_public_t));
-  return ptr;
+fd_runtime_public_new( void * shmem ) {
+  fd_memset( shmem, 0, sizeof(fd_runtime_public_t) );
+
+  fd_runtime_public_t * runtime_public = (fd_runtime_public_t *)shmem;
+
+  fd_wksp_t * wksp = fd_wksp_containing( shmem );
+  if( FD_UNLIKELY( !wksp ) ) {
+    FD_LOG_WARNING(( "No wksp containing shmem found" ));
+    return NULL;
+  }
+
+  runtime_public->magic = FD_RUNTIME_PUBLIC_MAGIC;
+
+  /* The runtime_spad will in the contiguous region after the region's
+     header. */
+  uchar * spad_ptr = (uchar *)fd_ulong_align_up( (ulong)((uchar *)shmem + sizeof(fd_runtime_public_t)), fd_spad_align() );
+  spad_ptr = fd_spad_new( spad_ptr, FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT );
+  if( FD_UNLIKELY( !spad_ptr ) ) {
+    FD_LOG_WARNING(( "Unable to create spad" ));
+    return NULL;
+  }
+
+  runtime_public->runtime_spad_gaddr = fd_wksp_gaddr( wksp, spad_ptr );
+  if( FD_UNLIKELY( !runtime_public->runtime_spad_gaddr ) ) {
+    FD_LOG_WARNING(( "Unable to get runtime spad gaddr" ));
+    return NULL;
+  }
+
+  return shmem;
+}
+
+fd_spad_t *
+fd_runtime_public_join_and_get_runtime_spad( fd_runtime_public_t const * runtime_public ) {
+  if( FD_UNLIKELY( !runtime_public ) )  {
+    FD_LOG_WARNING(( "Invalid runtime_public" ));
+    return NULL;
+  }
+
+  fd_wksp_t * wksp = fd_wksp_containing( runtime_public );
+  if( FD_UNLIKELY( !wksp ) ) {
+    FD_LOG_WARNING(( "No wksp found" ));
+    return NULL;
+  }
+
+  void * spad_laddr = fd_wksp_laddr( wksp, runtime_public->runtime_spad_gaddr );
+  if( FD_UNLIKELY( !spad_laddr ) ) {
+    FD_LOG_WARNING(( "Unable to get spad laddr" ));
+    return NULL;
+  }
+
+  return fd_spad_join( spad_laddr );
 }
