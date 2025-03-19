@@ -148,14 +148,8 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
 
   if( FD_UNLIKELY( (offset==entry_sz) ) ) return NULL;
 
-  /* Compute how many data and parity shreds to generate */
+  /* Set the shred type */
 
-  ulong entry_bytes_remaining = entry_sz - offset;
-  /* how many total payload bytes in this FEC set? */
-  ulong chunk_size              = fd_ulong_if( entry_bytes_remaining>=2UL*FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ,
-                                                                          FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ,
-                                                                          entry_bytes_remaining );
-  ulong last_in_batch           = (chunk_size+offset==entry_sz);
   int   block_complete          = shredder->meta.block_complete;
   uchar is_chained              = chained_merkle_root!=NULL;
   uchar is_resigned             = is_chained && block_complete; /* only chained are resigned */
@@ -171,6 +165,20 @@ fd_shredder_next_fec_set( fd_shredder_t * shredder,
     FD_SHRED_TYPE_MERKLE_CODE_CHAINED_RESIGNED,
     FD_SHRED_TYPE_MERKLE_CODE_CHAINED
   ), FD_SHRED_TYPE_MERKLE_CODE );
+
+  /* Compute how many data and parity shreds to generate */
+
+  ulong entry_bytes_remaining = entry_sz - offset;
+  /* how many total payload bytes in this FEC set? */
+  ulong fec_set_payload_sz = fd_ulong_if( is_chained, fd_ulong_if(
+    is_resigned,
+    FD_SHREDDER_RESIGNED_FEC_SET_PAYLOAD_SZ,
+    FD_SHREDDER_CHAINED_FEC_SET_PAYLOAD_SZ
+  ), FD_SHREDDER_NORMAL_FEC_SET_PAYLOAD_SZ );
+  ulong chunk_size              = fd_ulong_if( entry_bytes_remaining>=2UL*fec_set_payload_sz,
+                                                                          fec_set_payload_sz,
+                                                                          entry_bytes_remaining );
+  ulong last_in_batch           = (chunk_size+offset==entry_sz);
 
   ulong data_shred_cnt          = fd_shredder_count_data_shreds(   chunk_size, data_type );
   ulong parity_shred_cnt        = fd_shredder_count_parity_shreds( chunk_size, code_type );

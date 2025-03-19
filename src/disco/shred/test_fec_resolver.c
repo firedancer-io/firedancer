@@ -629,7 +629,7 @@ test_chained_merkle_shreds( void ) {
 
   /* Initial and expected final merkle root */
   fd_hex_decode( chained_merkle_root, "0102030405060708090a0b0c0d0e0f000102030405060708090a0b0c0d0e0f00", 32 );
-  fd_hex_decode( expected_final_chained_merkle_root, "786cf12a476b5e03b0c332e6d92adb2a37ef601766ea56d16dbf99f45829eb04", 32 );
+  fd_hex_decode( expected_final_chained_merkle_root, "cb030876030cf4d3a1e5b667c08a8c35d3073ab3d1fb19679e29603d75fc2529", 32 );
 
   /* Settings so that we get 32 data + 32 parity shreds */
   ulong data_sz = 30000;
@@ -675,8 +675,8 @@ test_chained_merkle_shreds( void ) {
   for( ulong slot=10UL; slot<10UL+MAX_SLOTS; slot++ ) {
 
     /* Simulate skipping slot #1 */
-    if( slot==1UL ) slot=2UL;
-    meta->parent_offset = slot==2UL ? 2 : 1;
+    if( slot==11UL ) slot=12UL;
+    meta->parent_offset = slot==12UL ? 2 : 1;
 
     for( ulong setid=0UL; setid<MAX_SETS; setid++ ) {
       meta->block_complete = (setid==(MAX_SETS-1));
