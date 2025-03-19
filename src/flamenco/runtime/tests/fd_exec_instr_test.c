@@ -1241,8 +1241,8 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
 
   /* TODO: We might need to load this in from the input. We also need to size this out for worst case, but this also blows up the memory requirement. */
   /* Allocate all the memory for the rent fresh accounts lists */
-  slot_ctx->rent_fresh_accounts.partitions_root = NULL;
-  slot_ctx->rent_fresh_accounts.partitions_pool = fd_rent_fresh_accounts_partition_t_map_join(
+  slot_ctx->slot_bank.rent_fresh_accounts.partitions_root = NULL;
+  slot_ctx->slot_bank.rent_fresh_accounts.partitions_pool = fd_rent_fresh_accounts_partition_t_map_join(
     fd_rent_fresh_accounts_partition_t_map_new(
       fd_spad_alloc(
         runner->spad,
@@ -1254,7 +1254,7 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   for( ulong i = 0; i < 100UL * 2UL; i++ ) {
     ulong partition = i;
     fd_rent_fresh_accounts_partition_t_mapnode_t * new_node = fd_rent_fresh_accounts_partition_t_map_acquire(
-      slot_ctx->rent_fresh_accounts.partitions_pool
+      slot_ctx->slot_bank.rent_fresh_accounts.partitions_pool
     );
     if( FD_UNLIKELY(( new_node == NULL )) ) {
       FD_LOG_ERR(( "fd_rent_fresh_accounts_partition_t_map_acquire failed" ));
@@ -1267,8 +1267,8 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
       100
     ) );
     fd_rent_fresh_accounts_partition_t_map_insert(
-      slot_ctx->rent_fresh_accounts.partitions_pool,
-      &slot_ctx->rent_fresh_accounts.partitions_root,
+      slot_ctx->slot_bank.rent_fresh_accounts.partitions_pool,
+      &slot_ctx->slot_bank.rent_fresh_accounts.partitions_root,
       new_node
     );
   }

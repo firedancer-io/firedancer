@@ -102,8 +102,8 @@ fd_runtime_register_new_fresh_account( fd_exec_slot_ctx_t * slot_ctx,
   fd_rent_fresh_accounts_partition_t_mapnode_t partition_key[1] = {0};
   partition_key->elem.partition = partition;
   fd_rent_fresh_accounts_partition_t_mapnode_t * partition_node = fd_rent_fresh_accounts_partition_t_map_find(
-    slot_ctx->rent_fresh_accounts.partitions_pool,
-    slot_ctx->rent_fresh_accounts.partitions_root,
+    slot_ctx->slot_bank.rent_fresh_accounts.partitions_pool,
+    slot_ctx->slot_bank.rent_fresh_accounts.partitions_root,
     partition_key );
   if( FD_UNLIKELY( partition_node == NULL ) ) {
     FD_LOG_ERR(( "fd_rent_fresh_accounts_partition_t_map_find failed" ));
@@ -137,7 +137,7 @@ fd_runtime_register_new_fresh_account( fd_exec_slot_ctx_t * slot_ctx,
     new_account_node
   );
 
-  slot_ctx->rent_fresh_accounts.total_count++;
+  slot_ctx->slot_bank.rent_fresh_accounts.total_count++;
 }
 
 void
@@ -150,17 +150,17 @@ fd_runtime_repartition_fresh_account_partitions( fd_exec_slot_ctx_t * slot_ctx,
     fd_pubkey_t * dirty_pubkeys = fd_spad_alloc(
       runtime_spad,
       FD_PUBKEY_ALIGN,
-      FD_PUBKEY_FOOTPRINT * slot_ctx->rent_fresh_accounts.total_count );
+      FD_PUBKEY_FOOTPRINT * slot_ctx->slot_bank.rent_fresh_accounts.total_count );
     if( FD_UNLIKELY( !dirty_pubkeys ) ) {
       FD_LOG_ERR(( "fd_spad_alloc failed" ));
     }
     for( fd_rent_fresh_accounts_partition_t_mapnode_t * partition_node = fd_rent_fresh_accounts_partition_t_map_minimum(
-            slot_ctx->rent_fresh_accounts.partitions_pool,
-            slot_ctx->rent_fresh_accounts.partitions_root
+            slot_ctx->slot_bank.rent_fresh_accounts.partitions_pool,
+            slot_ctx->slot_bank.rent_fresh_accounts.partitions_root
           );
           partition_node;
           partition_node = fd_rent_fresh_accounts_partition_t_map_successor(
-            slot_ctx->rent_fresh_accounts.partitions_pool,
+            slot_ctx->slot_bank.rent_fresh_accounts.partitions_pool,
             partition_node
            ) ) {
       fd_pubkey_node_t_mapnode_t * next_account_node;
@@ -484,8 +484,8 @@ fd_runtime_update_rent_epoch( fd_exec_slot_ctx_t * slot_ctx ) {
     fd_rent_fresh_accounts_partition_t_mapnode_t key = {0};
     key.elem.partition = fd_runtime_get_rent_partition( slot_ctx, s );
     fd_rent_fresh_accounts_partition_t_mapnode_t * partition_node = fd_rent_fresh_accounts_partition_t_map_find(
-      slot_ctx->rent_fresh_accounts.partitions_pool,
-      slot_ctx->rent_fresh_accounts.partitions_root,
+      slot_ctx->slot_bank.rent_fresh_accounts.partitions_pool,
+      slot_ctx->slot_bank.rent_fresh_accounts.partitions_root,
       &key
     );
     if( FD_LIKELY( partition_node == NULL ) ) {
@@ -513,7 +513,7 @@ fd_runtime_update_rent_epoch( fd_exec_slot_ctx_t * slot_ctx ) {
         &partition_node->elem.accounts_root,
         account_node );
       fd_pubkey_node_t_map_release( partition_node->elem.accounts_pool, removed_node );
-      slot_ctx->rent_fresh_accounts.total_count -= 1UL;
+      slot_ctx->slot_bank.rent_fresh_accounts.total_count -= 1UL;
     }
   }
 }

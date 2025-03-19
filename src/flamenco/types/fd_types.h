@@ -2467,6 +2467,99 @@ typedef struct fd_cluster_type_global fd_cluster_type_global_t;
 #define FD_CLUSTER_TYPE_GLOBAL_FOOTPRINT sizeof(fd_cluster_type_global_t)
 #define FD_CLUSTER_TYPE_GLOBAL_ALIGN (8UL)
 
+/* Encoded Size: Fixed (32 bytes) */
+struct __attribute__((aligned(8UL))) fd_pubkey_node {
+  fd_pubkey_t pubkey;
+};
+typedef struct fd_pubkey_node fd_pubkey_node_t;
+#define FD_PUBKEY_NODE_FOOTPRINT sizeof(fd_pubkey_node_t)
+#define FD_PUBKEY_NODE_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_pubkey_node_global {
+  fd_pubkey_t pubkey;
+};
+typedef struct fd_pubkey_node_global fd_pubkey_node_global_t;
+#define FD_PUBKEY_NODE_GLOBAL_FOOTPRINT sizeof(fd_pubkey_node_global_t)
+#define FD_PUBKEY_NODE_GLOBAL_ALIGN (8UL)
+
+typedef struct fd_pubkey_node_t_mapnode fd_pubkey_node_t_mapnode_t;
+#define REDBLK_T fd_pubkey_node_t_mapnode_t
+#define REDBLK_NAME fd_pubkey_node_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+struct fd_pubkey_node_t_mapnode {
+    fd_pubkey_node_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_pubkey_node_t_mapnode_t *
+fd_pubkey_node_t_map_join_new( void * * alloc_mem, ulong len ) {
+  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_pubkey_node_t_map_align() );
+  void * map_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + fd_pubkey_node_t_map_footprint( len );
+  return fd_pubkey_node_t_map_join( fd_pubkey_node_t_map_new( map_mem, len ) );
+}
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_rent_fresh_accounts_partition {
+  ulong partition;
+  fd_pubkey_node_t_mapnode_t * accounts_pool;
+  fd_pubkey_node_t_mapnode_t * accounts_root;
+};
+typedef struct fd_rent_fresh_accounts_partition fd_rent_fresh_accounts_partition_t;
+#define FD_RENT_FRESH_ACCOUNTS_PARTITION_FOOTPRINT sizeof(fd_rent_fresh_accounts_partition_t)
+#define FD_RENT_FRESH_ACCOUNTS_PARTITION_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_rent_fresh_accounts_partition_global {
+  ulong partition;
+  ulong accounts_pool_gaddr;
+  ulong accounts_root_gaddr;
+};
+typedef struct fd_rent_fresh_accounts_partition_global fd_rent_fresh_accounts_partition_global_t;
+#define FD_RENT_FRESH_ACCOUNTS_PARTITION_GLOBAL_FOOTPRINT sizeof(fd_rent_fresh_accounts_partition_global_t)
+#define FD_RENT_FRESH_ACCOUNTS_PARTITION_GLOBAL_ALIGN (8UL)
+
+typedef struct fd_rent_fresh_accounts_partition_t_mapnode fd_rent_fresh_accounts_partition_t_mapnode_t;
+#define REDBLK_T fd_rent_fresh_accounts_partition_t_mapnode_t
+#define REDBLK_NAME fd_rent_fresh_accounts_partition_t_map
+#define REDBLK_IMPL_STYLE 1
+#include "../../util/tmpl/fd_redblack.c"
+struct fd_rent_fresh_accounts_partition_t_mapnode {
+    fd_rent_fresh_accounts_partition_t elem;
+    ulong redblack_parent;
+    ulong redblack_left;
+    ulong redblack_right;
+    int redblack_color;
+};
+static inline fd_rent_fresh_accounts_partition_t_mapnode_t *
+fd_rent_fresh_accounts_partition_t_map_join_new( void * * alloc_mem, ulong len ) {
+  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
+  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_rent_fresh_accounts_partition_t_map_align() );
+  void * map_mem = *alloc_mem;
+  *alloc_mem = (uchar *)*alloc_mem + fd_rent_fresh_accounts_partition_t_map_footprint( len );
+  return fd_rent_fresh_accounts_partition_t_map_join( fd_rent_fresh_accounts_partition_t_map_new( map_mem, len ) );
+}
+/* Encoded Size: Dynamic */
+struct __attribute__((aligned(8UL))) fd_rent_fresh_accounts {
+  ulong total_count;
+  fd_rent_fresh_accounts_partition_t_mapnode_t * partitions_pool;
+  fd_rent_fresh_accounts_partition_t_mapnode_t * partitions_root;
+};
+typedef struct fd_rent_fresh_accounts fd_rent_fresh_accounts_t;
+#define FD_RENT_FRESH_ACCOUNTS_FOOTPRINT sizeof(fd_rent_fresh_accounts_t)
+#define FD_RENT_FRESH_ACCOUNTS_ALIGN (8UL)
+
+struct __attribute__((aligned(8UL))) fd_rent_fresh_accounts_global {
+  ulong total_count;
+  ulong partitions_pool_gaddr;
+  ulong partitions_root_gaddr;
+};
+typedef struct fd_rent_fresh_accounts_global fd_rent_fresh_accounts_global_t;
+#define FD_RENT_FRESH_ACCOUNTS_GLOBAL_FOOTPRINT sizeof(fd_rent_fresh_accounts_global_t)
+#define FD_RENT_FRESH_ACCOUNTS_GLOBAL_ALIGN (8UL)
+
 /* Encoded Size: Dynamic */
 struct __attribute__((aligned(16UL)))  fd_epoch_bank {
   fd_stakes_t stakes;
@@ -2545,6 +2638,7 @@ struct __attribute__((aligned(128UL))) fd_slot_bank {
   ulong use_preceeding_epoch_stakes;
   uchar has_use_preceeding_epoch_stakes;
   fd_hard_forks_t hard_forks;
+  fd_rent_fresh_accounts_t rent_fresh_accounts;
 };
 typedef struct fd_slot_bank fd_slot_bank_t;
 #define FD_SLOT_BANK_FOOTPRINT sizeof(fd_slot_bank_t)
@@ -2578,6 +2672,7 @@ struct __attribute__((aligned(128UL))) fd_slot_bank_global {
   ulong use_preceeding_epoch_stakes;
   uchar has_use_preceeding_epoch_stakes;
   fd_hard_forks_global_t hard_forks;
+  fd_rent_fresh_accounts_global_t rent_fresh_accounts;
 };
 typedef struct fd_slot_bank_global fd_slot_bank_global_t;
 #define FD_SLOT_BANK_GLOBAL_FOOTPRINT sizeof(fd_slot_bank_global_t)
@@ -5703,99 +5798,6 @@ typedef struct fd_cost_tracker_global fd_cost_tracker_global_t;
 #define FD_COST_TRACKER_GLOBAL_FOOTPRINT sizeof(fd_cost_tracker_global_t)
 #define FD_COST_TRACKER_GLOBAL_ALIGN (8UL)
 
-/* Encoded Size: Fixed (32 bytes) */
-struct __attribute__((aligned(8UL))) fd_pubkey_node {
-  fd_pubkey_t pubkey;
-};
-typedef struct fd_pubkey_node fd_pubkey_node_t;
-#define FD_PUBKEY_NODE_FOOTPRINT sizeof(fd_pubkey_node_t)
-#define FD_PUBKEY_NODE_ALIGN (8UL)
-
-struct __attribute__((aligned(8UL))) fd_pubkey_node_global {
-  fd_pubkey_t pubkey;
-};
-typedef struct fd_pubkey_node_global fd_pubkey_node_global_t;
-#define FD_PUBKEY_NODE_GLOBAL_FOOTPRINT sizeof(fd_pubkey_node_global_t)
-#define FD_PUBKEY_NODE_GLOBAL_ALIGN (8UL)
-
-typedef struct fd_pubkey_node_t_mapnode fd_pubkey_node_t_mapnode_t;
-#define REDBLK_T fd_pubkey_node_t_mapnode_t
-#define REDBLK_NAME fd_pubkey_node_t_map
-#define REDBLK_IMPL_STYLE 1
-#include "../../util/tmpl/fd_redblack.c"
-struct fd_pubkey_node_t_mapnode {
-    fd_pubkey_node_t elem;
-    ulong redblack_parent;
-    ulong redblack_left;
-    ulong redblack_right;
-    int redblack_color;
-};
-static inline fd_pubkey_node_t_mapnode_t *
-fd_pubkey_node_t_map_join_new( void * * alloc_mem, ulong len ) {
-  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
-  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_pubkey_node_t_map_align() );
-  void * map_mem = *alloc_mem;
-  *alloc_mem = (uchar *)*alloc_mem + fd_pubkey_node_t_map_footprint( len );
-  return fd_pubkey_node_t_map_join( fd_pubkey_node_t_map_new( map_mem, len ) );
-}
-/* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_rent_fresh_accounts_partition {
-  ulong partition;
-  fd_pubkey_node_t_mapnode_t * accounts_pool;
-  fd_pubkey_node_t_mapnode_t * accounts_root;
-};
-typedef struct fd_rent_fresh_accounts_partition fd_rent_fresh_accounts_partition_t;
-#define FD_RENT_FRESH_ACCOUNTS_PARTITION_FOOTPRINT sizeof(fd_rent_fresh_accounts_partition_t)
-#define FD_RENT_FRESH_ACCOUNTS_PARTITION_ALIGN (8UL)
-
-struct __attribute__((aligned(8UL))) fd_rent_fresh_accounts_partition_global {
-  ulong partition;
-  ulong accounts_pool_gaddr;
-  ulong accounts_root_gaddr;
-};
-typedef struct fd_rent_fresh_accounts_partition_global fd_rent_fresh_accounts_partition_global_t;
-#define FD_RENT_FRESH_ACCOUNTS_PARTITION_GLOBAL_FOOTPRINT sizeof(fd_rent_fresh_accounts_partition_global_t)
-#define FD_RENT_FRESH_ACCOUNTS_PARTITION_GLOBAL_ALIGN (8UL)
-
-typedef struct fd_rent_fresh_accounts_partition_t_mapnode fd_rent_fresh_accounts_partition_t_mapnode_t;
-#define REDBLK_T fd_rent_fresh_accounts_partition_t_mapnode_t
-#define REDBLK_NAME fd_rent_fresh_accounts_partition_t_map
-#define REDBLK_IMPL_STYLE 1
-#include "../../util/tmpl/fd_redblack.c"
-struct fd_rent_fresh_accounts_partition_t_mapnode {
-    fd_rent_fresh_accounts_partition_t elem;
-    ulong redblack_parent;
-    ulong redblack_left;
-    ulong redblack_right;
-    int redblack_color;
-};
-static inline fd_rent_fresh_accounts_partition_t_mapnode_t *
-fd_rent_fresh_accounts_partition_t_map_join_new( void * * alloc_mem, ulong len ) {
-  if( FD_UNLIKELY( 0 == len ) ) len = 1; // prevent underflow
-  *alloc_mem = (void*)fd_ulong_align_up( (ulong)*alloc_mem, fd_rent_fresh_accounts_partition_t_map_align() );
-  void * map_mem = *alloc_mem;
-  *alloc_mem = (uchar *)*alloc_mem + fd_rent_fresh_accounts_partition_t_map_footprint( len );
-  return fd_rent_fresh_accounts_partition_t_map_join( fd_rent_fresh_accounts_partition_t_map_new( map_mem, len ) );
-}
-/* Encoded Size: Dynamic */
-struct __attribute__((aligned(8UL))) fd_rent_fresh_accounts {
-  ulong total_count;
-  fd_rent_fresh_accounts_partition_t_mapnode_t * partitions_pool;
-  fd_rent_fresh_accounts_partition_t_mapnode_t * partitions_root;
-};
-typedef struct fd_rent_fresh_accounts fd_rent_fresh_accounts_t;
-#define FD_RENT_FRESH_ACCOUNTS_FOOTPRINT sizeof(fd_rent_fresh_accounts_t)
-#define FD_RENT_FRESH_ACCOUNTS_ALIGN (8UL)
-
-struct __attribute__((aligned(8UL))) fd_rent_fresh_accounts_global {
-  ulong total_count;
-  ulong partitions_pool_gaddr;
-  ulong partitions_root_gaddr;
-};
-typedef struct fd_rent_fresh_accounts_global fd_rent_fresh_accounts_global_t;
-#define FD_RENT_FRESH_ACCOUNTS_GLOBAL_FOOTPRINT sizeof(fd_rent_fresh_accounts_global_t)
-#define FD_RENT_FRESH_ACCOUNTS_GLOBAL_ALIGN (8UL)
-
 
 FD_PROTOTYPES_BEGIN
 
@@ -7320,6 +7322,51 @@ fd_cluster_type_enum_MainnetBeta = 1,
 fd_cluster_type_enum_Devnet = 2,
 fd_cluster_type_enum_Development = 3,
 };
+void fd_pubkey_node_new( fd_pubkey_node_t * self );
+int fd_pubkey_node_encode( fd_pubkey_node_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_pubkey_node_destroy( fd_pubkey_node_t * self );
+void fd_pubkey_node_walk( void * w, fd_pubkey_node_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_pubkey_node_size( fd_pubkey_node_t const * self );
+ulong fd_pubkey_node_footprint( void );
+ulong fd_pubkey_node_align( void );
+int fd_pubkey_node_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+int fd_pubkey_node_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_pubkey_node_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_pubkey_node_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+void * fd_pubkey_node_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_pubkey_node_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+int fd_pubkey_node_convert_global_to_local( void const * global_self, fd_pubkey_node_t * self, fd_bincode_decode_ctx_t * ctx );
+
+void fd_rent_fresh_accounts_partition_new( fd_rent_fresh_accounts_partition_t * self );
+int fd_rent_fresh_accounts_partition_encode( fd_rent_fresh_accounts_partition_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_rent_fresh_accounts_partition_destroy( fd_rent_fresh_accounts_partition_t * self );
+void fd_rent_fresh_accounts_partition_walk( void * w, fd_rent_fresh_accounts_partition_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_rent_fresh_accounts_partition_size( fd_rent_fresh_accounts_partition_t const * self );
+ulong fd_rent_fresh_accounts_partition_footprint( void );
+ulong fd_rent_fresh_accounts_partition_align( void );
+int fd_rent_fresh_accounts_partition_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+int fd_rent_fresh_accounts_partition_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_rent_fresh_accounts_partition_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_rent_fresh_accounts_partition_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+void * fd_rent_fresh_accounts_partition_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_rent_fresh_accounts_partition_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+int fd_rent_fresh_accounts_partition_convert_global_to_local( void const * global_self, fd_rent_fresh_accounts_partition_t * self, fd_bincode_decode_ctx_t * ctx );
+
+void fd_rent_fresh_accounts_new( fd_rent_fresh_accounts_t * self );
+int fd_rent_fresh_accounts_encode( fd_rent_fresh_accounts_t const * self, fd_bincode_encode_ctx_t * ctx );
+void fd_rent_fresh_accounts_destroy( fd_rent_fresh_accounts_t * self );
+void fd_rent_fresh_accounts_walk( void * w, fd_rent_fresh_accounts_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
+ulong fd_rent_fresh_accounts_size( fd_rent_fresh_accounts_t const * self );
+ulong fd_rent_fresh_accounts_footprint( void );
+ulong fd_rent_fresh_accounts_align( void );
+int fd_rent_fresh_accounts_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+int fd_rent_fresh_accounts_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
+void * fd_rent_fresh_accounts_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_rent_fresh_accounts_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+void * fd_rent_fresh_accounts_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
+void fd_rent_fresh_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
+int fd_rent_fresh_accounts_convert_global_to_local( void const * global_self, fd_rent_fresh_accounts_t * self, fd_bincode_decode_ctx_t * ctx );
+
 void fd_epoch_bank_new( fd_epoch_bank_t * self );
 int fd_epoch_bank_encode( fd_epoch_bank_t const * self, fd_bincode_encode_ctx_t * ctx );
 void fd_epoch_bank_destroy( fd_epoch_bank_t * self );
@@ -9950,51 +9997,6 @@ void fd_cost_tracker_decode_inner( void * struct_mem, void * * alloc_mem, fd_bin
 void * fd_cost_tracker_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
 void fd_cost_tracker_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
 int fd_cost_tracker_convert_global_to_local( void const * global_self, fd_cost_tracker_t * self, fd_bincode_decode_ctx_t * ctx );
-
-void fd_pubkey_node_new( fd_pubkey_node_t * self );
-int fd_pubkey_node_encode( fd_pubkey_node_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_pubkey_node_destroy( fd_pubkey_node_t * self );
-void fd_pubkey_node_walk( void * w, fd_pubkey_node_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_pubkey_node_size( fd_pubkey_node_t const * self );
-ulong fd_pubkey_node_footprint( void );
-ulong fd_pubkey_node_align( void );
-int fd_pubkey_node_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-int fd_pubkey_node_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_pubkey_node_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void fd_pubkey_node_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_pubkey_node_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-void fd_pubkey_node_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_pubkey_node_convert_global_to_local( void const * global_self, fd_pubkey_node_t * self, fd_bincode_decode_ctx_t * ctx );
-
-void fd_rent_fresh_accounts_partition_new( fd_rent_fresh_accounts_partition_t * self );
-int fd_rent_fresh_accounts_partition_encode( fd_rent_fresh_accounts_partition_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_rent_fresh_accounts_partition_destroy( fd_rent_fresh_accounts_partition_t * self );
-void fd_rent_fresh_accounts_partition_walk( void * w, fd_rent_fresh_accounts_partition_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_rent_fresh_accounts_partition_size( fd_rent_fresh_accounts_partition_t const * self );
-ulong fd_rent_fresh_accounts_partition_footprint( void );
-ulong fd_rent_fresh_accounts_partition_align( void );
-int fd_rent_fresh_accounts_partition_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-int fd_rent_fresh_accounts_partition_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_rent_fresh_accounts_partition_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void fd_rent_fresh_accounts_partition_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_rent_fresh_accounts_partition_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-void fd_rent_fresh_accounts_partition_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_rent_fresh_accounts_partition_convert_global_to_local( void const * global_self, fd_rent_fresh_accounts_partition_t * self, fd_bincode_decode_ctx_t * ctx );
-
-void fd_rent_fresh_accounts_new( fd_rent_fresh_accounts_t * self );
-int fd_rent_fresh_accounts_encode( fd_rent_fresh_accounts_t const * self, fd_bincode_encode_ctx_t * ctx );
-void fd_rent_fresh_accounts_destroy( fd_rent_fresh_accounts_t * self );
-void fd_rent_fresh_accounts_walk( void * w, fd_rent_fresh_accounts_t const * self, fd_types_walk_fn_t fun, const char *name, uint level );
-ulong fd_rent_fresh_accounts_size( fd_rent_fresh_accounts_t const * self );
-ulong fd_rent_fresh_accounts_footprint( void );
-ulong fd_rent_fresh_accounts_align( void );
-int fd_rent_fresh_accounts_decode_footprint( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-int fd_rent_fresh_accounts_decode_footprint_inner( fd_bincode_decode_ctx_t * ctx, ulong * total_sz );
-void * fd_rent_fresh_accounts_decode( void * mem, fd_bincode_decode_ctx_t * ctx );
-void fd_rent_fresh_accounts_decode_inner( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-void * fd_rent_fresh_accounts_decode_global( void * mem, fd_bincode_decode_ctx_t * ctx );
-void fd_rent_fresh_accounts_decode_inner_global( void * struct_mem, void * * alloc_mem, fd_bincode_decode_ctx_t * ctx );
-int fd_rent_fresh_accounts_convert_global_to_local( void const * global_self, fd_rent_fresh_accounts_t * self, fd_bincode_decode_ctx_t * ctx );
 
 FD_PROTOTYPES_END
 

@@ -28,6 +28,7 @@
   X( vote_account,                     vote_state_versioned, 1 )   \
   X( vote_account_two,                 vote_state_versioned, 1 )   \
   X( slot_bank,                        slot_bank, 1            )   \
+  X( rent_fresh_accounts,              rent_fresh_accounts, 1  )   \
   X( gossip_pull_req,                  gossip_msg, 0           )   \
   X( gossip_pull_resp_contact_info,    gossip_msg, 0           )   \
   X( gossip_pull_resp_contact_info_v2, gossip_msg, 0           )   \
@@ -162,7 +163,7 @@ test_yaml( test_fixture_t const * t, fd_spad_t * spad ) {
 
     /* Encode YAML */
 
-    static char yaml_buf[ 1<<22 ];
+    static char yaml_buf[ 1<<25 ];
     FILE * file = fmemopen( yaml_buf, sizeof(yaml_buf), "w" );
 
     void * yaml_mem = fd_spad_alloc( spad, fd_flamenco_yaml_align(), fd_flamenco_yaml_footprint() );
@@ -275,13 +276,13 @@ main( int     argc,
   fd_boot( &argc, &argv );
 
   fd_wksp_t * wksp = fd_wksp_new_anonymous( FD_SHMEM_GIGANTIC_PAGE_SZ,
-                                            2UL,
+                                            13UL,
                                             0UL,
                                             "wksp",
                                             0UL );
 
-  uchar *     spad_mem = fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_SHMEM_GIGANTIC_PAGE_SZ, 999UL );
-  fd_spad_t * spad     = fd_spad_join( fd_spad_new( spad_mem, FD_SHMEM_GIGANTIC_PAGE_SZ ) );
+  uchar *     spad_mem = fd_wksp_alloc_laddr( wksp, FD_SPAD_ALIGN, FD_SHMEM_GIGANTIC_PAGE_SZ * 12, 999UL );
+  fd_spad_t * spad     = fd_spad_join( fd_spad_new( spad_mem, FD_SHMEM_GIGANTIC_PAGE_SZ * 12 ) );
 
   for( test_fixture_t const * t = test_vector; t->name; t++ ) {
 

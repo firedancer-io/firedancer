@@ -1062,6 +1062,29 @@
       ]
     },
     {
+      "name": "pubkey_node",
+      "type": "struct",
+      "fields": [
+        { "name": "pubkey", "type": "pubkey" }
+      ]
+    },
+    {
+      "name": "rent_fresh_accounts_partition",
+      "type": "struct",
+      "fields": [
+        { "name": "partition", "type": "ulong" },
+        { "name": "accounts", "type": "map", "element": "pubkey_node", "key": "pubkey", "minalloc": 100 }
+      ]
+    },
+    {
+      "name": "rent_fresh_accounts",
+      "type": "struct",
+      "fields": [
+        { "name": "total_count", "type": "ulong" },
+        { "name": "partitions", "type": "map", "element": "rent_fresh_accounts_partition", "key": "partition", "minalloc": 400 }
+      ]
+    },
+    {
       "name": "epoch_bank",
       "type": "struct",
       "archival": "true",
@@ -1118,7 +1141,8 @@
         { "name": "parent_signature_cnt",        "type": "ulong" },
         { "name": "tick_height",                 "type": "ulong" },
         { "name": "use_preceeding_epoch_stakes", "type": "option", "element": "ulong", "flat": true, "comment": "The epoch for which to use the immediately preceeding epoch's stakes for leader schedule calculation. This is necessary due to how Agave's stake caches interact when loading from snapshots." },
-        { "name": "hard_forks",                  "type": "hard_forks" }
+        { "name": "hard_forks",                  "type": "hard_forks" },
+        { "name": "rent_fresh_accounts",   "type": "rent_fresh_accounts", "comment": "TODO: remove this after disable_partitioned_rent_collection is activated everywhere." }
       ]
     },
     {
@@ -2765,29 +2789,6 @@
         { "name": "secp256r1_instruction_signature_count", "type": "ulong" }
       ],
       "comment": "https://github.com/anza-xyz/agave/blob/v2.2.0/cost-model/src/cost_tracker.rs#L62-L79"
-    },
-    {
-      "name": "pubkey_node",
-      "type": "struct",
-      "fields": [
-        { "name": "pubkey", "type": "pubkey" }
-      ]
-    },
-    {
-      "name": "rent_fresh_accounts_partition",
-      "type": "struct",
-      "fields": [
-        { "name": "partition", "type": "ulong" },
-        { "name": "accounts", "type": "map", "element": "pubkey_node", "key": "pubkey", "minalloc": 100 }
-      ]
-    },
-    {
-      "name": "rent_fresh_accounts",
-      "type": "struct",
-      "fields": [
-        { "name": "total_count", "type": "ulong" },
-        { "name": "partitions", "type": "map", "element": "rent_fresh_accounts_partition", "key": "partition", "minalloc": 400 }
-      ]
     }
   ]
 }
