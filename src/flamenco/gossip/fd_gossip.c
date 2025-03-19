@@ -1971,17 +1971,18 @@ fd_gossip_recv(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from, fd_gossip
 
 /* Initiate connection to a peer */
 int
-fd_gossip_add_active_peer( fd_gossip_t * glob, fd_gossip_peer_addr_t * addr ) {
+fd_gossip_add_active_peer( fd_gossip_t *                 glob,
+                           fd_gossip_peer_addr_t const * addr ) {
   fd_gossip_lock( glob );
-  fd_active_elem_t * val = fd_active_table_query(glob->actives, addr, NULL);
-  if (val == NULL) {
-    if (fd_active_table_is_full(glob->actives)) {
-      FD_LOG_WARNING(("too many actives"));
+  fd_active_elem_t * val = fd_active_table_query( glob->actives, addr, NULL );
+  if( val==NULL ) {
+    if( fd_active_table_is_full( glob->actives )) {
+      FD_LOG_WARNING(( "too many actives" ));
       fd_gossip_unlock( glob );
       return -1;
     }
-    val = fd_active_table_insert(glob->actives, addr);
-    fd_active_new_value(val);
+    val = fd_active_table_insert( glob->actives, addr );
+    fd_active_new_value( val );
     val->pingcount = 0; /* Incremented in fd_gossip_make_ping */
   }
   fd_gossip_unlock( glob );
@@ -2516,19 +2517,15 @@ fd_gossip_set_stake_weights( fd_gossip_t * gossip,
 }
 
 void
-fd_gossip_set_entrypoints( fd_gossip_t * gossip,
-                           uint const * entrypoints,
-                           ulong entrypoints_cnt,
-                           ushort const * ports ) {
+fd_gossip_set_entrypoints( fd_gossip_t *         gossip,
+                           fd_ip4_port_t const * entrypoints,
+                           ulong                 entrypoints_cnt ) {
   gossip->entrypoints_cnt = entrypoints_cnt;
-  for( ulong i = 0UL; i<entrypoints_cnt; i++) {
-    fd_gossip_peer_addr_t addr;
-    addr.addr = entrypoints[i];
-    addr.port = fd_ushort_bswap( ports[i] );
+  for( ulong i=0UL; i<entrypoints_cnt; i++ ) {
     FD_LOG_NOTICE(( "gossip initial peer - addr: " FD_IP4_ADDR_FMT ":%u",
-      FD_IP4_ADDR_FMT_ARGS( addr.addr ), fd_ushort_bswap( addr.port ) ));
-    fd_gossip_add_active_peer( gossip, &addr );
-    gossip->entrypoints[i] = addr;
+      FD_IP4_ADDR_FMT_ARGS( entrypoints[i].addr ), fd_ushort_bswap( entrypoints[i].port ) ));
+    fd_gossip_add_active_peer( gossip, &entrypoints[i] );
+    gossip->entrypoints[i] = entrypoints[i];
   }
 }
 

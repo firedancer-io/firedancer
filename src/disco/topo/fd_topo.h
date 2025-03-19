@@ -5,6 +5,7 @@
 #include "../../tango/fd_tango.h"
 #include "../../waltz/xdp/fd_xdp1.h"
 #include "../../ballet/base58/fd_base58.h"
+#include "../../util/net/fd_net_headers.h"
 
 /* Maximum number of workspaces that may be present in a topology. */
 #define FD_TOPO_MAX_WKSPS         (256UL)
@@ -321,15 +322,11 @@ typedef struct {
       float cu_price_spread;
     } benchg;
 
-    /* Firedancer-only tile configs */
-
     struct {
       ushort  gossip_listen_port;
+#     define FD_TOPO_GOSSIP_ENTRYPOINTS_MAX 16
       ulong   entrypoints_cnt;
-      uint    entrypoints[16];
-      ulong   peer_ports_cnt;
-      ushort  peer_ports[16];
-
+      fd_ip4_port_t entrypoints[ FD_TOPO_GOSSIP_ENTRYPOINTS_MAX ];
       uint    ip_addr;
       char    identity_key_path[ PATH_MAX ];
       ushort  tvu_port;
