@@ -60,7 +60,7 @@ extern const fd_pubkey_t fd_solana_stake_program_buffer_address;
    not be writable.
 
    Whenever Agave changes the reserved account keys set, new feature-gated checks will need to be implemented in
-   `fd_txn_account_is_writable_idx()`, and additional functions will need to be added here.
+   `fd_exec_txn_ctx_account_is_writable_idx()`, and additional functions will need to be added here.
 
    Instead of maintaining a map of sysvars and builtins, Agave recommends checking the sysvar owner account, or checking
    the reserved keys below.

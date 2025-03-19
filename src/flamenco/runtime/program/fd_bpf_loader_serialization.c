@@ -174,7 +174,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
       /* Borrow the account without checking the error, as it is guaranteed to exist
          https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/serialization.rs#L225 */
       fd_guarded_borrowed_account_t view_acc;
-      fd_exec_instr_ctx_try_borrow_account( ctx, i, &view_acc );
+      fd_exec_instr_ctx_try_borrow_instr_account( ctx, i, &view_acc );
 
       ulong acc_data_len = view_acc.acct->const_meta->dlen;
 
@@ -236,7 +236,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
       /* Borrow the account without checking the error, as it is guaranteed to exist
          https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/serialization.rs#L225 */
       fd_guarded_borrowed_account_t view_acc;
-      fd_exec_instr_ctx_try_borrow_account( ctx, i, &view_acc );
+      fd_exec_instr_ctx_try_borrow_instr_account( ctx, i, &view_acc );
 
       /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L465 */
       fd_account_meta_t const * metadata = view_acc.acct->const_meta;
@@ -473,7 +473,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
     /* Borrow the account without checking the error, as it is guaranteed to exist
          https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/serialization.rs#L225 */
     fd_guarded_borrowed_account_t view_acc;
-    fd_exec_instr_ctx_try_borrow_account( ctx, i, &view_acc );
+    fd_exec_instr_ctx_try_borrow_instr_account( ctx, i, &view_acc );
 
     ulong acc_data_len = view_acc.acct->const_meta->dlen;
 
@@ -529,7 +529,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
       /* Borrow the account without checking the error, as it is guaranteed to exist
          https://github.com/anza-xyz/agave/blob/v2.1.4/programs/bpf_loader/src/serialization.rs#L225 */
       fd_guarded_borrowed_account_t view_acc;
-      fd_exec_instr_ctx_try_borrow_account( ctx, i, &view_acc );
+      fd_exec_instr_ctx_try_borrow_instr_account( ctx, i, &view_acc );
 
       fd_account_meta_t const * metadata = view_acc.acct->const_meta;
 

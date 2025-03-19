@@ -63,6 +63,12 @@ fd_txn_account_is_executable( fd_txn_account_t const * acct ) {
   return !!acct->const_meta->info.executable;
 }
 
+static inline int
+fd_txn_account_is_mutable( fd_txn_account_t const * acct ) {
+  /* A txn account is mutable if meta is non NULL */
+  return acct->meta != NULL;
+}
+
 /* Setters */
 
 static inline void
@@ -137,7 +143,9 @@ fd_txn_account_acquire_read_is_safe( fd_txn_account_t const * acct ) {
 
 /* fd_txn_account_acquire_write acquires write/exclusive access.
    Causes all other write or read acquire attempts will fail.  Returns 1
-   on success, 0 on failure. */
+   on success, 0 on failure.
+
+   Mirrors a try_borrow_mut() call in Agave. */
 static inline int
 fd_txn_account_acquire_write( fd_txn_account_t * acct ) {
   if( FD_UNLIKELY( !fd_txn_account_acquire_write_is_safe( acct ) ) ) {
@@ -157,7 +165,7 @@ fd_txn_account_release_write( fd_txn_account_t * acct ) {
 }
 
 static inline void
-fd_txn_account_release_write_private(fd_txn_account_t * acct ) {
+fd_txn_account_release_write_private( fd_txn_account_t * acct ) {
   /* Only release if it is not yet released */
   if( !fd_txn_account_acquire_write_is_safe( acct ) ) {
     fd_txn_account_release_write( acct );

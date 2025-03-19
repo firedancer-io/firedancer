@@ -130,7 +130,10 @@ read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t *              
                                                uchar                               program_id,
                                                int *                               opt_err ) {
   fd_txn_account_t * rec = NULL;
-  int err = fd_exec_txn_ctx_get_account_view_idx( txn_ctx, program_id, &rec );
+  int err = fd_exec_txn_ctx_get_account_at_index( txn_ctx,
+                                                  program_id,
+                                                  &rec,
+                                                  fd_txn_account_check_exists );
   if( FD_UNLIKELY( err ) ) {
     *opt_err = err;
     return NULL;
@@ -331,8 +334,6 @@ write_program_data( fd_exec_instr_ctx_t *   instr_ctx,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
-/* solana_sdk::transaction_context::BorrowedAccount::get_state() */
-/* https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L965-L969 */
 fd_bpf_upgradeable_loader_state_t *
 fd_bpf_loader_program_get_state( fd_txn_account_t const * acct,
                                  fd_spad_t *              spad,
@@ -357,8 +358,8 @@ fd_bpf_loader_program_get_state( fd_txn_account_t const * acct,
     return fd_bpf_upgradeable_loader_state_decode( mem, &ctx );
 }
 
-/* set_state() */
-/* https://github.com/anza-xyz/agave/blob/574bae8fefc0ed256b55340b9d87b7689bcdf222/sdk/src/transaction_context.rs#L976-L985 */
+/* Mirrors solana_sdk::transaction_context::BorrowedAccount::set_state()
+   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L973 */
 int
 fd_bpf_loader_v3_program_set_state( fd_borrowed_account_t * borrowed_acct,
                                     fd_bpf_upgradeable_loader_state_t * state ) {
@@ -1834,18 +1835,18 @@ int
 fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
   FD_SPAD_FRAME_BEGIN( ctx->txn_ctx->spad ) {
     /* https://github.com/anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L491-L529 */
-    fd_txn_account_t * program_account = NULL;
 
-    /* TODO: Agave uses `get_last_program_key`, we should have equivalent semantics:
-       https://github.com//anza-xyz/agave/blob/77daab497df191ef485a7ad36ed291c1874596e5/programs/bpf_loader/src/lib.rs#L491-L492 */
-    fd_pubkey_t const *     program_id      = &ctx->instr->program_id_pubkey;
-    int err = fd_exec_txn_ctx_get_account_view_idx( ctx->txn_ctx, ctx->instr->program_id, &program_account );
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+    /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L403-L404 */
+    fd_guarded_borrowed_account_t program_account;
+    int err = fd_exec_instr_ctx_try_borrow_last_program_account( ctx, &program_account );
+    if( FD_UNLIKELY( err ) ) {
       return err;
     }
 
+    fd_pubkey_t const * program_id = &ctx->instr->program_id_pubkey;
+
     /* Program management instruction */
-    if( FD_UNLIKELY( !memcmp( &fd_solana_native_loader_id, program_account->const_meta->info.owner, sizeof(fd_pubkey_t) ) ) ) {
+    if( FD_UNLIKELY( !memcmp( &fd_solana_native_loader_id, program_account.acct->const_meta->info.owner, sizeof(fd_pubkey_t) ) ) ) {
       if( FD_UNLIKELY( !memcmp( &fd_solana_bpf_loader_upgradeable_program_id, program_id, sizeof(fd_pubkey_t) ) ) ) {
         FD_EXEC_CU_UPDATE( ctx, UPGRADEABLE_LOADER_COMPUTE_UNITS );
         return process_loader_upgradeable_instruction( ctx );
@@ -1870,7 +1871,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
     /* https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/programs/bpf_loader/src/lib.rs#L445-L452 */
     /* Program invocation. Any invalid programs will be caught here or at the program load. */
     if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, remove_accounts_executable_flag_checks ) &&
-                     !fd_txn_account_is_executable( program_account ) ) ) {
+                     !fd_borrowed_account_is_executable( &program_account ) ) ) {
       fd_log_collector_msg_literal( ctx, "Program is not executable" );
       return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
     }
@@ -1899,16 +1900,11 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
       Every error that comes out of this block is mapped to an InvalidAccountData instruction error in Agave. */
 
-    fd_txn_account_t * program_acc_view = NULL;
-    int                read_result      = fd_exec_txn_ctx_get_account_view_idx( ctx->txn_ctx, ctx->instr->program_id, &program_acc_view );
-    if( FD_UNLIKELY( read_result != FD_ACC_MGR_SUCCESS ) ) {
-      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
-    }
-    fd_account_meta_t const * metadata = program_acc_view->const_meta;
+    fd_account_meta_t const * metadata = program_account.acct->const_meta;
     uchar is_deprecated = !memcmp( metadata->info.owner, &fd_solana_bpf_loader_deprecated_program_id, sizeof(fd_pubkey_t) );
 
     if( !memcmp( metadata->info.owner, &fd_solana_bpf_loader_upgradeable_program_id, sizeof(fd_pubkey_t) ) ) {
-      fd_bpf_upgradeable_loader_state_t * program_account_state = fd_bpf_loader_program_get_state( program_account, ctx->txn_ctx->spad, &err );
+      fd_bpf_upgradeable_loader_state_t * program_account_state = fd_bpf_loader_program_get_state( program_account.acct, ctx->txn_ctx->spad, &err );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
         if( FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, remove_accounts_executable_flag_checks ) ) {
           return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
@@ -1929,7 +1925,10 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
       fd_txn_account_t * program_data_account = NULL;
       fd_pubkey_t *      programdata_pubkey   = (fd_pubkey_t *)&program_account_state->inner.program.programdata_address;
-      err = fd_exec_txn_ctx_get_account_executable_view( ctx->txn_ctx, programdata_pubkey, &program_data_account );
+      err = fd_exec_txn_ctx_get_executable_account( ctx->txn_ctx,
+                                                    programdata_pubkey,
+                                                    &program_data_account,
+                                                    fd_txn_account_check_exists );
       if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
         if( FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, remove_accounts_executable_flag_checks ) ) {
           return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
@@ -2007,6 +2006,9 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       }
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
+
+    /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/lib.rs#L446 */
+    fd_borrowed_account_drop( &program_account );
 
     return fd_bpf_execute( ctx, prog, is_deprecated );
   } FD_SPAD_FRAME_END;

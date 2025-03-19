@@ -2467,7 +2467,7 @@ get_optional_pubkey( fd_exec_instr_ctx_t *          ctx,
 static int
 get_stake_account( fd_exec_instr_ctx_t const * ctx,
                    fd_borrowed_account_t *     out ) {
-  int err = fd_exec_instr_ctx_try_borrow_account( ctx, 0, out );
+  int err = fd_exec_instr_ctx_try_borrow_instr_account( ctx, 0, out );
   if( FD_UNLIKELY( err ) ) return err;
 
   fd_borrowed_account_t * account = out;
