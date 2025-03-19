@@ -237,7 +237,7 @@ slot_ctx_restore( ulong                 slot,
 
   if( FD_LIKELY( magic==FD_RUNTIME_ENC_BINCODE ) ) {
     ulong total_sz = 0UL;
-    err = fd_slot_bank_decode_footprint( &decode_ctx, &total_sz );
+    int err = fd_slot_bank_decode_footprint( &decode_ctx, &total_sz );
     if( FD_UNLIKELY( err != FD_BINCODE_SUCCESS ) ) {
       FD_LOG_ERR( ( "failed to decode banks record" ) );
     }
