@@ -35,6 +35,7 @@ struct __attribute__((aligned(8))) bpf_link_create {
 ulong
 fd_xdp_gen_program( ulong          code_buf[ 512 ],
                     int            xsks_fd,
+                    uint           listen_ip4_addr,
                     ushort const * ports,
                     ulong          ports_cnt ) {
   if( FD_UNLIKELY( ports_cnt>16UL ) ) {
@@ -49,6 +50,10 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
   *(code++) = FD_EBPF( jgt_reg, r4, r3, +1     );  // if r2+42 > r3 goto lbl_pass
   *(code++) = FD_EBPF( ldxh, r5, r2, 12        );
   *(code++) = FD_EBPF( jne_imm, r5, 0x0008, +1 );  // if eth_hdr->net_type != IP4 goto lbl_pass
+  if( listen_ip4_addr!=0 ) {
+    *(code++) = FD_EBPF( ldxw, r5, r2, 36 );
+    *(code++) = FD_EBPF( jne_imm, r5, listen_ip4_addr, +1 );  // if eth_hdr->daddr != listen_ip4_addr goto lbl_pass
+  }
   *(code++) = FD_EBPF( ldxb, r5, r2, 23        );
   *(code++) = FD_EBPF( jne_imm, r5, 17, +1     );  // if ip4_hdr->protocol != UDP goto lbl_pass
   *(code++) = FD_EBPF( ldxb, r5, r2, 14        );
@@ -102,6 +107,7 @@ fd_xdp_gen_program( ulong          code_buf[ 512 ],
 
 fd_xdp_fds_t
 fd_xdp_install( uint           if_idx,
+                uint           listen_ip4_addr,
                 ulong          ports_cnt,
                 ushort const * ports,
                 char const *   xdp_mode ) {
@@ -133,7 +139,7 @@ fd_xdp_install( uint           if_idx,
   /* Load eBPF program into kernel */
 
   ulong code_buf[ 512 ];
-  ulong code_cnt = fd_xdp_gen_program( code_buf, xsk_map_fd, ports, ports_cnt );
+  ulong code_cnt = fd_xdp_gen_program( code_buf, xsk_map_fd, listen_ip4_addr, ports, ports_cnt );
 
   char ebpf_kern_log[ 32768UL ];
   union bpf_attr attr = {

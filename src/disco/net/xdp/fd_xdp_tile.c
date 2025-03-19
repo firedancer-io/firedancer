@@ -1085,6 +1085,7 @@ privileged_init( fd_topo_t *      topo,
 
     /* FIXME move this to fd_topo_run */
     fd_xdp_fds_t lo_fds = fd_xdp_install( lo_idx,
+                                          0U,
                                           sizeof(udp_port_candidates)/sizeof(udp_port_candidates[0]),
                                           udp_port_candidates,
                                           "skb" );
