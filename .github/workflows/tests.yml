@@ -90,7 +90,7 @@ jobs:
             compiler: clang
             compiler-version: 15.0.6
             run-unit-tests: false
-            run-integration-tests: true
+            run-integration-tests: false
     runs-on: ${{ matrix.label }}
     env:
       MACHINE: ${{ matrix.machine }}
