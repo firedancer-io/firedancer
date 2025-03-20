@@ -119,13 +119,13 @@ test_quic_ping_frame( fd_quic_sandbox_t * sandbox,
   fd_quic_sandbox_init( sandbox, FD_QUIC_ROLE_SERVER );
   fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
   conn->ack_gen->is_elicited = 0;
-  FD_TEST( conn->svc_type == FD_QUIC_SVC_WAIT );
+  FD_TEST( conn->svc_meta.idx[ FD_QUIC_SVC_IDLE ] != FD_QUIC_SVC_IDX_INVAL );
 
   uchar buf[1] = {0x01};
   fd_quic_sandbox_send_lone_frame( sandbox, conn, buf, sizeof(buf) );
   FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
   FD_TEST( conn->ack_gen->is_elicited == 1 );
-  FD_TEST( conn->svc_type == FD_QUIC_SVC_ACK_TX );
+  FD_TEST( conn->svc_meta.idx[ FD_QUIC_SVC_ACK_TX ] != FD_QUIC_SVC_IDX_INVAL );
 }
 
 /* Test an ALPN failure when acting as a server */
@@ -383,7 +383,8 @@ test_quic_small_pkt_ping( fd_quic_sandbox_t * sandbox,
   conn->state = FD_QUIC_CONN_STATE_ACTIVE;
 
   conn->flags |= FD_QUIC_CONN_FLAGS_PING;
-  fd_quic_conn_service( sandbox->quic, conn, 0 );
+  fd_quic_svc_schedule( fd_quic_get_state(sandbox->quic)->svc_timers, conn, FD_QUIC_SVC_INSTANT, 0 );
+  fd_quic_service( sandbox->quic );
 
   /* grab sent packet */
   fd_frag_meta_t const * frag = fd_quic_sandbox_next_packet( sandbox );
