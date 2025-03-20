@@ -57,8 +57,8 @@ verify_seed_address( fd_exec_instr_ctx_t * ctx,
 static int
 fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
                                      ulong                 transfer_amount,
-                                     ulong                 from_acct_idx,
-                                     ulong                 to_acct_idx ) {
+                                     ushort                from_acct_idx,
+                                     ushort                to_acct_idx ) {
   int err;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L191-L192 */
@@ -112,15 +112,16 @@ fd_system_program_transfer_verified( fd_exec_instr_ctx_t * ctx,
 static int
 fd_system_program_transfer( fd_exec_instr_ctx_t * ctx,
                             ulong                 transfer_amount,
-                            ulong                 from_acct_idx,
-                            ulong                 to_acct_idx ) {
+                            ushort                from_acct_idx,
+                            ushort                to_acct_idx ) {
 
   /* https://github.com/anza-xyz/agave/blob/v2.0.9/programs/system/src/system_processor.rs#L222-L232 */
 
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, from_acct_idx ) ) ) {
     /* Max msg_sz: 37 - 2 + 45 = 80 < 127 => we can use printf */
+    ushort idx_in_txn = ctx->instr->accts[from_acct_idx].index_in_transaction;
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Transfer: `from` account %s must sign", FD_BASE58_ENC_32_ALLOCA( &ctx->instr->acct_pubkeys[ from_acct_idx ] ) );
+      "Transfer: `from` account %s must sign", FD_BASE58_ENC_32_ALLOCA( &ctx->txn_ctx->account_keys[ idx_in_txn ] ) );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
@@ -145,7 +146,7 @@ fd_system_program_allocate( fd_exec_instr_ctx_t *   ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L78-L85 */
 
-  if( FD_UNLIKELY( !fd_instr_any_signed( ctx->instr, authority ) ) ) {
+  if( FD_UNLIKELY( !fd_exec_instr_ctx_any_signed( ctx, authority ) ) ) {
     /* Max msg_sz: 35 - 2 + 45 = 78 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
       "Allocate: 'to' account %s must sign", FD_BASE58_ENC_32_ALLOCA( authority ) );
@@ -202,7 +203,7 @@ fd_system_program_assign( fd_exec_instr_ctx_t *   ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L125-L128 */
 
-  if( FD_UNLIKELY( !fd_instr_any_signed( ctx->instr, authority ) ) ) {
+  if( FD_UNLIKELY( !fd_exec_instr_ctx_any_signed( ctx, authority ) ) ) {
     /* Max msg_sz: 28 - 2 + 45 = 71 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
       "Assign: account %s must sign", FD_BASE58_ENC_32_ALLOCA( authority ) );
@@ -238,8 +239,8 @@ fd_system_program_allocate_and_assign( fd_exec_instr_ctx_t *   ctx,
 
 static int
 fd_system_program_create_account( fd_exec_instr_ctx_t * ctx,
-                                  ulong                 from_acct_idx,
-                                  ulong                 to_acct_idx,
+                                  ushort                from_acct_idx,
+                                  ushort                to_acct_idx,
                                   ulong                 lamports,
                                   ulong                 space,
                                   fd_pubkey_t const *   owner,
@@ -295,8 +296,14 @@ fd_system_program_exec_create_account( fd_exec_instr_ctx_t *                    
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L333-L339
      Authorization check is lifted out from 'allocate' to here. */
 
-  ulong const from_acct_idx    = 0UL;
-  ulong const to_acct_idx      = 1UL;
+  ushort const from_acct_idx    = 0UL;
+  ushort const to_acct_idx      = 1UL;
+
+  /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/system/src/system_processor.rs#L317-L320 */
+  fd_pubkey_t const * authority = NULL;
+  int err = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, 1UL, &authority );
+  if( FD_UNLIKELY( err ) ) return err;
+
   return fd_system_program_create_account(
       ctx,
       from_acct_idx,
@@ -304,7 +311,7 @@ fd_system_program_exec_create_account( fd_exec_instr_ctx_t *                    
       create_acc->lamports,
       create_acc->space,
       &create_acc->owner,
-      &ctx->instr->acct_pubkeys[to_acct_idx] );
+      authority );
 }
 
 /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L381-L393
@@ -365,19 +372,22 @@ int
 fd_system_program_exec_create_account_with_seed( fd_exec_instr_ctx_t *                                            ctx,
                                                  fd_system_program_instruction_create_account_with_seed_t const * args ) {
 
-  fd_instr_info_t const * instr = ctx->instr;
-
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L360 */
 
-  if( FD_UNLIKELY( instr->acct_cnt < 2 ) )
+  if( FD_UNLIKELY( fd_exec_instr_ctx_check_num_insn_accounts( ctx, 2UL) ) )
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L361-L367 */
 
+  /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/system/src/system_processor.rs#L345-L348 */
+  fd_pubkey_t const * expected = NULL;
+  int err = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, 1UL, &expected );
+  if( FD_UNLIKELY( err ) ) return err;
+
   do {
     int err = verify_seed_address(
         ctx,
-        &instr->acct_pubkeys[1],
+        expected,
         &args->base,
         (char const *)args->seed,
         args->seed_len,
@@ -387,8 +397,8 @@ fd_system_program_exec_create_account_with_seed( fd_exec_instr_ctx_t *          
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L368-L379 */
 
-  ulong const from_acct_idx    = 0UL;
-  ulong const to_acct_idx      = 1UL;
+  ushort const from_acct_idx    = 0UL;
+  ushort const to_acct_idx      = 1UL;
   return fd_system_program_create_account(
       ctx,
       from_acct_idx,
@@ -528,30 +538,35 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L410 */
 
-  if( FD_UNLIKELY( ctx->instr->acct_cnt < 3 ) )
+  if( FD_UNLIKELY( fd_exec_instr_ctx_check_num_insn_accounts( ctx, 3UL ) ) )
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L411-L421
      Inlined call to system_processor::transfer_with_seed */
 
-  ulong const from_idx      = 0UL;
-  ulong const from_base_idx = 1UL;
-  ulong const to_idx        = 2UL;
+  ushort const from_idx      = 0UL;
+  ushort const from_base_idx = 1UL;
+  ushort const to_idx        = 2UL;
 
   if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, from_base_idx ) ) ) {
     /* Max msg_sz: 37 - 2 + 45 = 80 < 127 => we can use printf */
+    ushort idx_in_txn = ctx->instr->accts[from_base_idx].index_in_transaction;
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Transfer: 'from' account %s must sign", FD_BASE58_ENC_32_ALLOCA( &ctx->instr->acct_pubkeys[ from_base_idx ] ) );
+      "Transfer: 'from' account %s must sign", FD_BASE58_ENC_32_ALLOCA( &ctx->txn_ctx->account_keys[ idx_in_txn ] ) );
     return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
   }
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L283-L290 */
 
+  fd_pubkey_t const * base = NULL;
+  int err = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, 1UL, &base );
+  if( FD_UNLIKELY( err ) ) return err;
+
   fd_pubkey_t address_from_seed[1];
   do {
     int err = fd_pubkey_create_with_seed(
         ctx,
-        ctx->instr->acct_pubkeys[ from_base_idx ].uc,
+        base->uc,
         (char const *)args->from_seed,
         args->from_seed_len,
         args->from_owner.uc,
@@ -560,14 +575,17 @@ fd_system_program_exec_transfer_with_seed( fd_exec_instr_ctx_t *                
   } while(0);
 
   /* https://github.com/solana-labs/solana/blob/v1.17.22/programs/system/src/system_processor.rs#L292-L303 */
+  fd_pubkey_t const * from_key = NULL;
+  err = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, from_idx, &from_key );
+  if( FD_UNLIKELY( err ) ) return err;
 
   if( FD_UNLIKELY( 0!=memcmp( address_from_seed->uc,
-                              ctx->instr->acct_pubkeys[ from_idx ].uc,
+                              from_key->uc,
                               sizeof(fd_pubkey_t) ) ) ) {
     /* Log msg_sz can be more or less than 127 bytes */
     fd_log_collector_printf_inefficient_max_512( ctx,
       "Transfer: 'from' address %s does not match derived address %s",
-      FD_BASE58_ENC_32_ALLOCA( &ctx->instr->acct_pubkeys[ from_idx ] ),
+      FD_BASE58_ENC_32_ALLOCA( from_key ),
       FD_BASE58_ENC_32_ALLOCA( address_from_seed ) );
     ctx->txn_ctx->custom_err = FD_SYSTEM_PROGRAM_ERR_ADDR_WITH_SEED_MISMATCH;
     return FD_EXECUTOR_INSTR_ERR_CUSTOM_ERR;

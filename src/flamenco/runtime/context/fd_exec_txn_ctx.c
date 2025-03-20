@@ -85,7 +85,7 @@ fd_exec_txn_ctx_delete( void * mem ) {
 
 int
 fd_exec_txn_ctx_get_account_at_index( fd_exec_txn_ctx_t *  ctx,
-                                      uchar                idx,
+                                      ushort               idx,
                                       fd_txn_account_t * * account ) {
   if( FD_UNLIKELY( idx>=ctx->accounts_cnt ) ) {
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
@@ -106,7 +106,7 @@ fd_exec_txn_ctx_get_account_with_key( fd_exec_txn_ctx_t *  ctx,
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
-  return fd_exec_txn_ctx_get_account_at_index( ctx, (uchar)index, account );
+  return fd_exec_txn_ctx_get_account_at_index( ctx, (ushort)index, account );
 }
 
 int
@@ -136,6 +136,20 @@ fd_exec_txn_ctx_get_executable_account( fd_exec_txn_ctx_t *  ctx,
   }
 
   return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+}
+
+int
+fd_exec_txn_ctx_get_key_of_account_at_index( fd_exec_txn_ctx_t *  ctx,
+                                             ushort               idx,
+                                             fd_pubkey_t const * * key ) {
+  /* Return a NotEnoughAccountKeys error if idx is out of bounds.
+     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L218 */
+  if( FD_UNLIKELY( idx >= ctx->accounts_cnt ) ) {
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+  }
+  
+  *key = &ctx->account_keys[ idx ];
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 void

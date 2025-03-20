@@ -130,7 +130,9 @@ fd_loader_v4_program_instruction_write( fd_exec_instr_ctx_t *                   
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &program );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L95-L97 */
-  fd_pubkey_t const * authority_address = &instr_ctx->instr->acct_pubkeys[ 1UL ];
+  fd_pubkey_t const * authority_address = NULL;
+  err = fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, 1UL, &authority_address );
+  if( FD_UNLIKELY( err ) ) return err;
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L98-L103 */
   fd_loader_v4_state_t state = {0};
@@ -195,7 +197,9 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &program );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L131-L133 */
-  fd_pubkey_t const * authority_address = &instr_ctx->instr->acct_pubkeys[ 1UL ];
+  fd_pubkey_t const * authority_address = NULL;
+  err = fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, 1UL, &authority_address );
+  if( FD_UNLIKELY( err ) ) return err;
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L134C9-L135 */
   uchar is_initialization = !!( new_size>0UL && program.acct->const_meta->dlen<LOADER_V4_PROGRAM_DATA_OFFSET );
@@ -348,7 +352,9 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
   fd_sol_sysvar_clock_t const * clock                  = (fd_sol_sysvar_clock_t const *)fd_sysvar_cache_clock( instr_ctx->txn_ctx->sysvar_cache );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L217-L219 */
-  fd_pubkey_t const * authority_address = &instr_ctx->instr->acct_pubkeys[ 1UL ];
+  fd_pubkey_t const * authority_address = NULL;
+  err = fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, 1UL, &authority_address );
+  if( FD_UNLIKELY( err ) ) return err;
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L216 */
   fd_guarded_borrowed_account_t program;
@@ -503,7 +509,9 @@ fd_loader_v4_program_instruction_retract( fd_exec_instr_ctx_t * instr_ctx ) {
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &program );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L335-L337 */
-  fd_pubkey_t const * authority_address = &instr_ctx->instr->acct_pubkeys[ 1UL ];
+  fd_pubkey_t const * authority_address = NULL;
+  err = fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, 1UL, &authority_address );
+  if( FD_UNLIKELY( err ) ) return err;
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L338-L343 */
   fd_loader_v4_state_t state = {0};
@@ -560,10 +568,14 @@ fd_loader_v4_program_instruction_transfer_authority( fd_exec_instr_ctx_t * instr
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &program );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L378-L380 */
-  fd_pubkey_t const * authority_address = &instr_ctx->instr->acct_pubkeys[ 1UL ];
+  fd_pubkey_t const * authority_address = NULL;
+  err = fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, 1UL, &authority_address );
+  if( FD_UNLIKELY( err ) ) return err;
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L381-L383 */
-  fd_pubkey_t const * new_authority_address = &instr_ctx->instr->acct_pubkeys[ 2UL ];
+  fd_pubkey_t const * new_authority_address = NULL;
+  err = fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, 2UL, &new_authority_address );
+  if( FD_UNLIKELY( err ) ) return err;
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L384-L389 */
   fd_loader_v4_state_t state = {0};
@@ -615,9 +627,15 @@ fd_loader_v4_program_instruction_finalize( fd_exec_instr_ctx_t * instr_ctx ) {
 
   /* Contains variables that need to be accessed in multiple borrowed account scopes.
      https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L410-L412 */
-  fd_pubkey_t const *  authority_address       = &instr_ctx->instr->acct_pubkeys[ 1UL ];
-  fd_pubkey_t const *  address_of_next_version = &instr_ctx->instr->acct_pubkeys[ 2UL ];
-  fd_loader_v4_state_t state                   = {0};
+  fd_pubkey_t const * authority_address = NULL;
+  err = fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, 1UL, &authority_address );
+  if( FD_UNLIKELY( err ) ) return err;
+
+  fd_pubkey_t const *  address_of_next_version = NULL;
+  err = fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, 2UL, &address_of_next_version );
+  if( FD_UNLIKELY( err ) ) return err;
+
+  fd_loader_v4_state_t state = {0};
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L409 */
   fd_guarded_borrowed_account_t program;

@@ -80,6 +80,24 @@ fd_exec_instr_ctx_check_num_insn_accounts( fd_exec_instr_ctx_t * ctx,
   return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
+/* Mirrors Agave function solana_sdk::transaction_context::InstructionContext::get_index_of_instruction_account_in_transaction
+
+   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L552 */
+
+static inline int
+fd_exec_instr_ctx_get_index_of_instr_account_in_transaction( fd_exec_instr_ctx_t const * ctx,
+                                                                   ushort                      instr_acc_idx,
+                                                                   ushort *                    txn_acc_idx ) {
+  /* Return a NotEnoughAccountKeys error if the idx is out of bounds.
+     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L559 */
+  if( FD_UNLIKELY( instr_acc_idx >= ctx->instr->acct_cnt ) ) {
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+  }
+
+  *txn_acc_idx = ctx->instr->accts[ instr_acc_idx ].index_in_transaction;
+  return FD_EXECUTOR_INSTR_SUCCESS;
+}
+
 /* Mirrors Agave function solana_sdk::transaction_context::InstructionContext::try_borrow_account.
 
    Borrows an account from the instruction context with a given account index.
@@ -88,7 +106,7 @@ fd_exec_instr_ctx_check_num_insn_accounts( fd_exec_instr_ctx_t * ctx,
 
 int
 fd_exec_instr_ctx_try_borrow_instr_account( fd_exec_instr_ctx_t const * ctx,
-                                            ulong                       idx,
+                                            ushort                      idx,
                                             fd_borrowed_account_t *     account );
 
 /* A wrapper around fd_exec_instr_ctx_try_borrow_account that accepts an account pubkey.
@@ -121,6 +139,36 @@ fd_exec_instr_ctx_find_idx_of_instr_account( fd_exec_instr_ctx_t const * ctx,
 int
 fd_exec_instr_ctx_try_borrow_last_program_account( fd_exec_instr_ctx_t const * ctx,
                                                    fd_borrowed_account_t * account );
+
+/* Mirrors Agave function solana_sdk::transaction_context::InstructionContext::get_signers
+
+   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L684 */
+
+int
+fd_exec_instr_ctx_get_signers( fd_exec_instr_ctx_t const * ctx,
+                               fd_pubkey_t const *         signers[static FD_TXN_SIG_MAX] );
+
+/* fd_exec_instr_ctx_any_signed matches
+   solana_system_program::system_processor::Address::is_signer
+
+   Scans instruction accounts for matching signer.
+
+   Returns 1 if *any* instruction account with the given pubkey is a
+   signer and 0 otherwise.  Note that the same account/pubkey can be
+   specified as multiple different instruction accounts that might not
+   all have the signer bit. 
+
+   https://github.com/anza-xyz/agave/blob/v2.1.14/programs/system/src/system_processor.rs#L35-L41 */
+
+FD_FN_PURE int
+fd_exec_instr_ctx_any_signed( fd_exec_instr_ctx_t const * ctx,
+                              fd_pubkey_t const *     pubkey );
+
+/* A helper function to get the pubkey of an account using its instruction context index */
+int
+fd_exec_instr_ctx_get_key_of_account_at_index( fd_exec_instr_ctx_t const * ctx,
+                                               ushort                      instr_acc_idx,
+                                               fd_pubkey_t const * *       key );
 
 FD_PROTOTYPES_END
 

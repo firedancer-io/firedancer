@@ -100,11 +100,12 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
 
     for ( ushort j = 0; j < instr->acct_cnt; j++ ) {
       // flags
-      FD_STORE( uchar, serialized_instructions + offset, instr->acct_flags[j] );
+      FD_STORE( uchar, serialized_instructions + offset, fd_instr_get_acc_flags( instr, j ) );
       offset += sizeof(uchar);
 
       // pubkey
-      FD_STORE( fd_pubkey_t, serialized_instructions + offset, instr->acct_pubkeys[j] );
+      ushort idx_in_txn = instr->accts[j].index_in_transaction;
+      FD_STORE( fd_pubkey_t, serialized_instructions + offset, txn_ctx->account_keys[ idx_in_txn ] );
       offset += sizeof(fd_pubkey_t);
     }
 

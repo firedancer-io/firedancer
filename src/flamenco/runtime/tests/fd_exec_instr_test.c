@@ -661,14 +661,13 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     }
 
     fd_txn_account_t * acc = &accts[ index ];
-    uint flags = 0;
-    flags |= test_ctx->instr_accounts[j].is_writable ? FD_INSTR_ACCT_FLAGS_IS_WRITABLE : 0;
-    flags |= test_ctx->instr_accounts[j].is_signer   ? FD_INSTR_ACCT_FLAGS_IS_SIGNER   : 0;
 
-    info->accounts[j] = acc;
-    info->acct_flags       [j] = (uchar)flags;
-    memcpy( info->acct_pubkeys[j].uc, acc->pubkey, sizeof(fd_pubkey_t) );
-    info->acct_txn_idxs[j]     = (uchar) index;
+    /* Setup instruction accounts */
+    info->accts[j].index_in_transaction = (ushort) index;
+    info->accts[j].index_in_caller      = (ushort) j;
+    info->accts[j].index_in_callee      = (ushort) j;
+    info->accts[j].is_writable          = test_ctx->instr_accounts[j].is_writable;
+    info->accts[j].is_signer            = test_ctx->instr_accounts[j].is_signer;
 
     if( test_ctx->instr_accounts[j].is_writable ) {
       acc->meta = (void *)acc->const_meta;
@@ -684,7 +683,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   info->acct_cnt = (uchar)test_ctx->instr_accounts_count;
 
   //  FIXME: Specifically for CPI syscalls, flag guard this?
-  fd_instr_info_sum_account_lamports( info, &info->starting_lamports_h, &info->starting_lamports_l );
+  fd_instr_info_sum_account_lamports( info, txn_ctx, &info->starting_lamports_h, &info->starting_lamports_l );
 
   /* The remaining checks enforce that the program is in the accounts list. */
   bool found_program_id = false;
@@ -2276,8 +2275,8 @@ __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
 
     // Iterate through instruction accounts
     for( ushort i = 0UL; i < instr_info->acct_cnt; ++i ) {
-      uchar idx_in_txn = instr_info->acct_txn_idxs[i];
-      fd_pubkey_t * acct_pubkey = &instr_info->acct_pubkeys[i];
+      ushort idx_in_txn = instr_info->accts[i].index_in_transaction;
+      fd_pubkey_t * acct_pubkey = &txn_ctx->account_keys[ idx_in_txn ];
 
       fd_txn_account_t * acct = NULL;
       /* Find (first) account in cpi_exec_effects->modified_accounts that matches pubkey */

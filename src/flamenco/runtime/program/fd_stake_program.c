@@ -1349,7 +1349,9 @@ authorize_with_seed( fd_exec_instr_ctx_t const *   ctx,
   if( FD_LIKELY( fd_instr_acc_is_signer_idx( ctx->instr, authority_base_index ) ) ) {
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L289
-    fd_pubkey_t const * base_pubkey = &ctx->instr->acct_pubkeys[authority_base_index];
+    fd_pubkey_t const * base_pubkey = NULL;
+    rc = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, authority_base_index, &base_pubkey );
+    if( FD_UNLIKELY( rc ) ) return rc;
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L293
     rc = fd_pubkey_create_with_seed( ctx,
@@ -1746,7 +1748,10 @@ split( fd_exec_instr_ctx_t const * ctx,
   }
   case fd_stake_state_v2_enum_uninitialized: {
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L523
-    fd_pubkey_t const * stake_pubkey = &ctx->instr->acct_pubkeys[stake_account_index];
+    fd_pubkey_t const * stake_pubkey = NULL;
+    rc = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, stake_account_index, &stake_pubkey );
+    if( FD_UNLIKELY( rc ) ) return rc;
+
     if( FD_UNLIKELY( !fd_instr_signers_contains( signers, stake_pubkey ) ) ) {
       // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L527
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
@@ -1810,8 +1815,18 @@ merge( fd_exec_instr_ctx_t *         ctx, // not const to log
   if( FD_UNLIKELY( memcmp( &source_account.acct->const_meta->info.owner, fd_solana_stake_program_id.key, 32UL ) ) )
     return FD_EXECUTOR_INSTR_ERR_INCORRECT_PROGRAM_ID;
 
-  // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L569
-  if( FD_UNLIKELY( !memcmp( &ctx->instr->acct_pubkeys[stake_account_index], &ctx->instr->acct_pubkeys[source_account_index], sizeof(fd_pubkey_t) ) ) )
+  ushort stake_acc_idx_in_txn;
+  ushort source_acc_idx_in_txn;
+
+  rc = fd_exec_instr_ctx_get_index_of_instr_account_in_transaction( ctx, stake_account_index, &stake_acc_idx_in_txn );
+  if( FD_UNLIKELY( rc ) ) return rc;
+
+  rc = fd_exec_instr_ctx_get_index_of_instr_account_in_transaction( ctx, source_account_index, &source_acc_idx_in_txn );
+  if( FD_UNLIKELY( rc ) ) return rc;
+
+  /* Close the stake_account-reference loophole
+     https://github.com/anza-xyz/agave/blob/v2.1.14/programs/stake/src/stake_state.rs#L569-L574 */
+  if( FD_UNLIKELY( stake_acc_idx_in_txn == source_acc_idx_in_txn ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/stake/src/stake_state.rs#L575 */
@@ -1896,7 +1911,7 @@ move_stake_or_lamports_shared_checks( fd_exec_instr_ctx_t *   invoke_context, //
                                       fd_borrowed_account_t * source_account,
                                       ulong                   lamports,
                                       fd_borrowed_account_t * destination_account,
-                                      ulong                   stake_authority_index,
+                                      ushort                  stake_authority_index,
                                       merge_kind_t *          source_merge_kind,
                                       merge_kind_t *          destination_merge_kind,
                                       uint *                  custom_err ) {
@@ -1907,7 +1922,11 @@ move_stake_or_lamports_shared_checks( fd_exec_instr_ctx_t *   invoke_context, //
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
 
-    fd_pubkey_t const * stake_authority_pubkey = &invoke_context->instr->acct_pubkeys[stake_authority_index];
+    /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/stake/src/stake_state.rs#L132 */
+    fd_pubkey_t const * stake_authority_pubkey = NULL;
+    rc = fd_exec_instr_ctx_get_key_of_account_at_index( invoke_context, stake_authority_index, &stake_authority_pubkey );
+    if( FD_UNLIKELY( rc ) ) return rc;
+
     fd_pubkey_t const * signers[FD_TXN_SIG_MAX] = { stake_authority_pubkey };
 
     // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_state.rs#L158
@@ -1979,10 +1998,10 @@ move_stake_or_lamports_shared_checks( fd_exec_instr_ctx_t *   invoke_context, //
 // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_state.rs#L789
 static int
 move_stake(fd_exec_instr_ctx_t * ctx, // not const to log
-           ulong                 source_account_index,
+           ushort                source_account_index,
            ulong                 lamports,
-           ulong                 destination_account_index,
-           ulong                 stake_authority_index,
+           ushort                destination_account_index,
+           ushort                stake_authority_index,
            uint *                custom_err ) {
   int rc;
 
@@ -2136,10 +2155,10 @@ move_stake(fd_exec_instr_ctx_t * ctx, // not const to log
 // https://github.com/anza-xyz/agave/blob/cdff19c7807b006dd63429114fb1d9573bf74172/programs/stake/src/stake_state.rs#L928
 static int
 move_lamports(fd_exec_instr_ctx_t * ctx, // not const to log
-              ulong                 source_account_index,
+              ushort                source_account_index,
               ulong                 lamports,
-              ulong                 destination_account_index,
-              ulong                 stake_authority_index ) {
+              ushort                destination_account_index,
+              ushort                stake_authority_index ) {
   int rc;
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/stake/src/stake_state.rs#L759 */
@@ -2212,7 +2231,9 @@ withdraw( fd_exec_instr_ctx_t const *   ctx,
 
   int rc;
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L809
-  fd_pubkey_t const * withdraw_authority_pubkey = &ctx->instr->acct_pubkeys[withdraw_authority_index];
+  fd_pubkey_t const * withdraw_authority_pubkey = NULL;
+  rc = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, withdraw_authority_index, &withdraw_authority_pubkey );
+  if( FD_UNLIKELY( rc ) ) return rc;
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L813
   int is_signer = fd_instr_acc_is_signer_idx( ctx->instr, withdraw_authority_index );
@@ -2299,7 +2320,8 @@ withdraw( fd_exec_instr_ctx_t const *   ctx,
   if( custodian_index ) {
     int is_signer = fd_instr_acc_is_signer_idx( ctx->instr, *custodian_index );
     if( is_signer ) {
-      custodian_pubkey = &ctx->instr->acct_pubkeys[*custodian_index];
+      int err = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, *custodian_index, &custodian_pubkey );
+      if( FD_UNLIKELY( err ) ) return err;
     } else {
       custodian_pubkey = NULL;
     }
@@ -2361,15 +2383,16 @@ withdraw( fd_exec_instr_ctx_t const *   ctx,
 static int
 deactivate_delinquent( fd_exec_instr_ctx_t *   ctx,
                        fd_borrowed_account_t * stake_account,
-                       ulong                   delinquent_vote_account_index,
-                       ulong                   reference_vote_account_index,
+                       ushort                  delinquent_vote_account_index,
+                       ushort                  reference_vote_account_index,
                        ulong                   current_epoch,
                        uint *                  custom_err ) {
   int rc;
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L911
-  fd_pubkey_t const * delinquent_vote_account_pubkey =
-      &ctx->instr->acct_pubkeys[delinquent_vote_account_index];
+  fd_pubkey_t const * delinquent_vote_account_pubkey = NULL;
+  rc = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, delinquent_vote_account_index, &delinquent_vote_account_pubkey );
+  if( FD_UNLIKELY( rc ) ) return rc;
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/stake/src/stake_state.rs#L915 */
   fd_guarded_borrowed_account_t delinquent_vote_account;
@@ -2446,7 +2469,7 @@ deactivate_delinquent( fd_exec_instr_ctx_t *   ctx,
 // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L25
 static int
 get_optional_pubkey( fd_exec_instr_ctx_t *          ctx,
-                     ulong                          acc_idx,
+                     ushort                         acc_idx,
                      int                            should_be_signer,
                      /* out */ fd_pubkey_t const ** pubkey ) {
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L32
@@ -2456,7 +2479,8 @@ get_optional_pubkey( fd_exec_instr_ctx_t *          ctx,
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
     }
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L39
-    *pubkey = &ctx->instr->acct_pubkeys[acc_idx];
+    int err = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, acc_idx, pubkey );
+    if( FD_UNLIKELY( err ) ) return err;
   } else {
     *pubkey = NULL;
   }
@@ -2494,7 +2518,7 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
   // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L77
   fd_pubkey_t const * signers[FD_TXN_SIG_MAX] = {0};
-  fd_instr_get_signers( ctx->instr, signers );
+  fd_exec_instr_ctx_get_signers( ctx, signers );
 
   if( FD_UNLIKELY( ctx->instr->data==NULL ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_INSTR_DATA;
@@ -2874,11 +2898,20 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     if( FD_UNLIKELY( rc ) ) return rc;
 
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L230
-    if( FD_UNLIKELY( ctx->instr->acct_cnt<4 ) )
-      return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-    // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L231-L236
-    fd_pubkey_t const * staker_pubkey     = &ctx->instr->acct_pubkeys[2];
-    fd_pubkey_t const * withdrawer_pubkey = &ctx->instr->acct_pubkeys[3];
+    /* FIXME Because we have already verified there are 4 accounts, we shouldn't need to check the error
+       returned by fd_exec_instr_ctx_get_key_of_account_at_index */
+    rc = fd_exec_instr_ctx_check_num_insn_accounts( ctx, 4UL );
+
+    /* https://github.com/anza-xyz/agave/blob/v2.1.14/programs/stake/src/stake_instruction.rs#L230-L236 */
+    fd_pubkey_t const * staker_pubkey     = NULL;
+    fd_pubkey_t const * withdrawer_pubkey = NULL;
+
+    rc = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, 2UL, &staker_pubkey );
+    if( FD_UNLIKELY( rc ) ) return rc;
+
+    rc = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, 3UL, &withdrawer_pubkey );
+    if( FD_UNLIKELY( rc ) ) return rc;
+
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L237
     if( FD_UNLIKELY( !fd_instr_acc_is_signer_idx( ctx->instr, 3 ) ) )
       return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
@@ -2919,8 +2952,12 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L253
     if( FD_UNLIKELY( ctx->instr->acct_cnt<4 ) )
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-    // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L254
-    fd_pubkey_t const * authorized_pubkey = &ctx->instr->acct_pubkeys[3];
+    
+    // https://github.com/anza-xyz/agave/blob/v2.1.14/programs/stake/src/stake_instruction.rs#L253
+    fd_pubkey_t const * authorized_pubkey = NULL;
+    rc = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, 3UL, &authorized_pubkey );
+    if( FD_UNLIKELY( rc ) ) return rc;
+
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L257
     int is_signer = fd_instr_acc_is_signer_idx( ctx->instr, 3 );
     if( FD_UNLIKELY( !is_signer ) ) return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;
@@ -2964,10 +3001,14 @@ fd_stake_program_execute( fd_exec_instr_ctx_t * ctx ) {
     fd_sol_sysvar_clock_t const * clock = (fd_sol_sysvar_clock_t const *)fd_sysvar_from_instr_acct_clock( ctx, 2, &rc );
     if( FD_UNLIKELY( !clock ) ) return rc;
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L277
-    if( FD_UNLIKELY( ctx->instr->acct_cnt<4 ) )
+    if( FD_UNLIKELY( fd_exec_instr_ctx_check_num_insn_accounts( ctx, 4U) ) )
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-    // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L278
-    fd_pubkey_t const * authorized_pubkey = &ctx->instr->acct_pubkeys[3];
+
+    // https://github.com/anza-xyz/agave/blob/v2.1.14/programs/stake/src/stake_instruction.rs#L277-L280
+    fd_pubkey_t const * authorized_pubkey = NULL;
+    rc = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, 3UL, &authorized_pubkey );
+    if( FD_UNLIKELY( rc ) ) return rc;
+
     // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_instruction.rs#L281
     int is_signer = fd_instr_acc_is_signer_idx( ctx->instr, 3 );
     if( FD_UNLIKELY( !is_signer ) ) return FD_EXECUTOR_INSTR_ERR_MISSING_REQUIRED_SIGNATURE;

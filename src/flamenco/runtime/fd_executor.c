@@ -434,7 +434,7 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
   /* Set up the instr infos for the transaction */
   for( ushort i=0; i<instr_cnt; i++ ) {
     fd_txn_instr_t const * instr = &txn_ctx->txn_descriptor->instr[i];
-    fd_convert_txn_instr_to_instr( txn_ctx, instr, txn_ctx->accounts, &txn_ctx->instr_infos[i] );
+    fd_convert_txn_instr_to_instr( txn_ctx, instr, &txn_ctx->instr_infos[i] );
   }
   txn_ctx->instr_info_cnt = txn_ctx->txn_descriptor->instr_cnt;
 
@@ -957,7 +957,7 @@ fd_txn_ctx_push( fd_exec_txn_ctx_t * txn_ctx,
      https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L327-L328 */
   ulong starting_lamports_h = 0UL;
   ulong starting_lamports_l = 0UL;
-  int err = fd_instr_info_sum_account_lamports( instr, &starting_lamports_h, &starting_lamports_l );
+  int err = fd_instr_info_sum_account_lamports( instr, txn_ctx, &starting_lamports_h, &starting_lamports_l );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -977,7 +977,7 @@ fd_txn_ctx_push( fd_exec_txn_ctx_t * txn_ctx,
     /* https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L333-L334 */
     ulong current_caller_lamport_sum_h = 0UL;
     ulong current_caller_lamport_sum_l = 0UL;
-    int err = fd_instr_info_sum_account_lamports( caller_instruction_context->instr, &current_caller_lamport_sum_h, &current_caller_lamport_sum_l );
+    int err = fd_instr_info_sum_account_lamports( caller_instruction_context->instr, caller_instruction_context->txn_ctx, &current_caller_lamport_sum_h, &current_caller_lamport_sum_l );
     if( FD_UNLIKELY( err ) ) {
       return err;
     }
@@ -1066,10 +1066,11 @@ fd_instr_stack_pop( fd_exec_txn_ctx_t *       txn_ctx,
   txn_ctx->instr_stack_sz--;
 
   /* Verify all executable accounts have no outstanding refs
-     https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L369-L374 */
+     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L367-L371 */
   for( ushort i=0; i<instr->acct_cnt; i++ ) {
-    if( FD_UNLIKELY( instr->accounts[i]->const_meta->info.executable &&
-                     instr->accounts[i]->refcnt_excl ) ) {
+    ushort idx_in_txn = instr->accts[i].index_in_transaction;
+    if( FD_UNLIKELY( txn_ctx->accounts[ idx_in_txn ].const_meta->info.executable &&
+                     txn_ctx->accounts[ idx_in_txn ].refcnt_excl ) ) {
       return FD_EXECUTOR_INSTR_ERR_ACC_BORROW_OUTSTANDING;
     }
   }
@@ -1078,7 +1079,7 @@ fd_instr_stack_pop( fd_exec_txn_ctx_t *       txn_ctx,
      https://github.com/anza-xyz/agave/blob/c4b42ab045860d7b13b3912eafb30e6d2f4e593f/sdk/src/transaction_context.rs#L366-L380 */
   ulong ending_lamports_h = 0UL;
   ulong ending_lamports_l = 0UL;
-  int err = fd_instr_info_sum_account_lamports( instr, &ending_lamports_h, &ending_lamports_l );
+  int err = fd_instr_info_sum_account_lamports( instr, txn_ctx, &ending_lamports_h, &ending_lamports_l );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }

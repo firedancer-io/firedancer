@@ -137,32 +137,33 @@ fd_sysvar_cache_restore_##name( cache, acc_mgr, funk_txn, runtime_spad, wksp );
 # undef X
 }
 
-# define X( type, name )                                               \
-  type##_global_t const *                                              \
-  fd_sysvar_from_instr_acct_##name( fd_exec_instr_ctx_t const * ctx,   \
-                                    ulong                       idx,   \
-                                    int *                       err ) {\
-                                                                       \
-    if( FD_UNLIKELY( idx >= ctx->instr->acct_cnt ) ) {                 \
-      *err = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;                \
-      return NULL;                                                     \
-    }                                                                  \
-                                                                       \
-    fd_sysvar_cache_t const * cache = ctx->txn_ctx->sysvar_cache;      \
-    type##_global_t const * val = fd_sysvar_cache_##name ( cache );    \
-                                                                       \
-    fd_pubkey_t const * addr_have = &ctx->instr->acct_pubkeys[idx];    \
-    fd_pubkey_t const * addr_want = &fd_sysvar_##name##_id;            \
-    if( 0!=memcmp( addr_have, addr_want, sizeof(fd_pubkey_t) ) ) {     \
-      *err = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;                        \
-      return NULL;                                                     \
-    }                                                                  \
-                                                                       \
-    *err = val ?                                                       \
-           FD_EXECUTOR_INSTR_SUCCESS :                                 \
-           FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;                   \
-    return val;                                                        \
-                                                                       \
+# define X( type, name )                                                       \
+  type##_global_t const *                                                      \
+  fd_sysvar_from_instr_acct_##name( fd_exec_instr_ctx_t const * ctx,           \
+                                    ulong                       idx,           \
+                                    int *                       err ) {        \
+                                                                               \
+    if( FD_UNLIKELY( idx >= ctx->instr->acct_cnt ) ) {                         \
+      *err = FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;                        \
+      return NULL;                                                             \
+    }                                                                          \
+                                                                               \
+    fd_sysvar_cache_t const * cache = ctx->txn_ctx->sysvar_cache;              \
+    type##_global_t const * val = fd_sysvar_cache_##name ( cache );            \
+                                                                               \
+    ushort idx_in_txn = ctx->instr->accts[idx].index_in_transaction;           \
+    fd_pubkey_t const * addr_have = &ctx->txn_ctx->account_keys[ idx_in_txn ]; \
+    fd_pubkey_t const * addr_want = &fd_sysvar_##name##_id;                    \
+    if( 0!=memcmp( addr_have, addr_want, sizeof(fd_pubkey_t) ) ) {             \
+      *err = FD_EXECUTOR_INSTR_ERR_INVALID_ARG;                                \
+      return NULL;                                                             \
+    }                                                                          \
+                                                                               \
+    *err = val ?                                                               \
+           FD_EXECUTOR_INSTR_SUCCESS :                                         \
+           FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;                           \
+    return val;                                                                \
+                                                                               \
   }
   FD_SYSVAR_CACHE_ITER(X)
 # undef X
@@ -172,14 +173,14 @@ int
 fd_check_sysvar_account( fd_exec_instr_ctx_t const * ctx,
                          ulong                       insn_acc_idx,
                          fd_pubkey_t const *         expected_id ) {
-  uchar const *       instr_acc_idxs = ctx->instr->acct_txn_idxs;
-  fd_pubkey_t const * txn_accs       = ctx->txn_ctx->account_keys;
+  fd_pubkey_t const * txn_accs = ctx->txn_ctx->account_keys;
 
   if( insn_acc_idx>=ctx->instr->acct_cnt ) {
     return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
   }
 
-  fd_pubkey_t const * insn_acc_key = &txn_accs[ instr_acc_idxs[ insn_acc_idx ] ];
+  ushort idx_in_txn = ctx->instr->accts[ insn_acc_idx ].index_in_transaction;
+  fd_pubkey_t const * insn_acc_key = &txn_accs[ idx_in_txn ];
 
   if( memcmp( expected_id, insn_acc_key, sizeof(fd_pubkey_t) ) ) {
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;

@@ -237,7 +237,7 @@ fd_exec_txn_ctx_teardown( fd_exec_txn_ctx_t * txn_ctx );
 
 static inline int
 fd_exec_txn_ctx_find_index_of_account( fd_exec_txn_ctx_t * ctx,
-                                      fd_pubkey_t const *  pubkey ) {
+                                       fd_pubkey_t const *  pubkey ) {
   for( ulong i=ctx->accounts_cnt; i>0UL; i-- ) {
     if( 0==memcmp( pubkey, &ctx->account_keys[ i-1UL ], sizeof(fd_pubkey_t) ) ) {
       return (int)((ushort)i);
@@ -252,7 +252,7 @@ fd_exec_txn_ctx_find_index_of_account( fd_exec_txn_ctx_t * ctx,
 
 int
 fd_exec_txn_ctx_get_account_at_index( fd_exec_txn_ctx_t *  ctx,
-                                      uchar                idx,
+                                      ushort               idx,
                                       fd_txn_account_t * * account );
 
 int
@@ -264,6 +264,15 @@ int
 fd_exec_txn_ctx_get_executable_account( fd_exec_txn_ctx_t *  ctx,
                                         fd_pubkey_t const *  pubkey,
                                         fd_txn_account_t * * account );
+
+/* Mirrors Agave function solana_sdk::transaction_context::get_key_of_account_at_index
+
+   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L212 */
+
+int
+fd_exec_txn_ctx_get_key_of_account_at_index( fd_exec_txn_ctx_t *  ctx,
+                                             ushort               idx,
+                                             fd_pubkey_t const * * key );
 
 void
 fd_exec_txn_ctx_reset_return_data( fd_exec_txn_ctx_t * txn_ctx );

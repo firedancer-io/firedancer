@@ -576,10 +576,10 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
       fd_memcpy( result_data_haddr, instr_info->data, instr_info->data_sz );
       for( ulong i = 0UL; i < instr_info->acct_cnt; i++ ) {
         fd_memcpy( result_accounts_haddr[ i ].pubkey,
-                   vm->instr_ctx->txn_ctx->account_keys[ instr_info->acct_txn_idxs[ i ] ].key,
+                   vm->instr_ctx->txn_ctx->account_keys[ instr_info->accts[ i ].index_in_transaction ].key,
                    FD_PUBKEY_FOOTPRINT );
-        result_accounts_haddr[ i ].is_signer   = !!(instr_info->acct_flags[ i ] & FD_INSTR_ACCT_FLAGS_IS_SIGNER);
-        result_accounts_haddr[ i ].is_writable = !!(instr_info->acct_flags[ i ] & FD_INSTR_ACCT_FLAGS_IS_WRITABLE);
+        result_accounts_haddr[ i ].is_signer   = !!(instr_info->accts[ i ].is_signer );
+        result_accounts_haddr[ i ].is_writable = !!(instr_info->accts[ i ].is_writable );
       }
     }
 

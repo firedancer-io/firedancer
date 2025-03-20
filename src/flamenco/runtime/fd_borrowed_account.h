@@ -19,7 +19,7 @@ struct fd_borrowed_account {
   ulong                       magic;
   fd_txn_account_t *          acct;
   fd_exec_instr_ctx_t const * instr_ctx;
-  int                         instr_acc_idx;
+  ushort                      instr_acc_idx;
 };
 typedef struct fd_borrowed_account fd_borrowed_account_t;
 
@@ -35,7 +35,7 @@ static inline void
 fd_borrowed_account_init( fd_borrowed_account_t *     borrowed_acct,
                           fd_txn_account_t *          acct,
                           fd_exec_instr_ctx_t const * instr_ctx,
-                          int                         instr_acc_idx ) {
+                          ushort                      instr_acc_idx ) {
   borrowed_acct->acct = acct;
   borrowed_acct->instr_ctx = instr_ctx;
   borrowed_acct->instr_acc_idx = instr_acc_idx;
@@ -304,7 +304,7 @@ fd_borrowed_account_is_signer( fd_borrowed_account_t const * borrowed_acct ) {
   }
 
   fd_instr_info_t const * instr = instr_ctx->instr;
-  return fd_instr_acc_is_signer_idx( instr, (ulong)borrowed_acct->instr_acc_idx );
+  return fd_instr_acc_is_signer_idx( instr, borrowed_acct->instr_acc_idx );
 }
 
 /* fd_borrowed_account_is_writer mirror the Agave functions
@@ -321,7 +321,7 @@ fd_borrowed_account_is_writable( fd_borrowed_account_t const * borrowed_acct ) {
   }
 
   fd_instr_info_t const * instr = instr_ctx->instr;
-  return fd_instr_acc_is_writable_idx( instr, (ulong)borrowed_acct->instr_acc_idx );
+  return fd_instr_acc_is_writable_idx( instr, borrowed_acct->instr_acc_idx );
 }
 
 /* fd_borrowed_account_is_owned_by_current_program mirrors Agave's

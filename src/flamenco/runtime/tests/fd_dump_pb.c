@@ -916,13 +916,9 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   for( ushort i = 0; i < instr->acct_cnt; i++ ) {
     fd_exec_test_instr_acct_t * output_instr_account = &instr_context->instr_accounts[i];
 
-    uchar account_flag = instr->acct_flags[i];
-    bool is_writable = account_flag & FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
-    bool is_signer = account_flag & FD_INSTR_ACCT_FLAGS_IS_SIGNER;
-
-    output_instr_account->index = instr->acct_txn_idxs[i];
-    output_instr_account->is_writable = is_writable;
-    output_instr_account->is_signer = is_signer;
+    output_instr_account->index = instr->accts[i].index_in_transaction;
+    output_instr_account->is_writable = instr->accts[i].is_writable;
+    output_instr_account->is_signer = instr->accts[i].is_signer;
   }
 
   /* Data */
