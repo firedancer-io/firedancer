@@ -238,6 +238,7 @@ lreap_to_treap( lreap_t * in,
 
 static void
 test_merge( fd_rng_t * rng, int optimize_iteration ) {
+
 #define MERGE_VERIFY_AND_CLEAR()  do {                                        \
     if( optimize_iteration ) {                                                \
       FD_TEST( !lreap_verify( a, pool ) );                                    \
@@ -372,7 +373,6 @@ test_duplicate( fd_rng_t * rng ) {
   }
   treap_delete( treap_leave( treap ) );
 
-
   treap_t * a = treap_join( treap_new( _treap+0, ele_max ) );
   treap_t * b = treap_join( treap_new( _treap+1, ele_max ) );
 
@@ -385,8 +385,6 @@ test_duplicate( fd_rng_t * rng ) {
   treap_delete( treap_leave( a ) );
   treap_delete( treap_leave( b ) );
 }
-
-
 
 int
 main( int     argc,
@@ -638,4 +636,3 @@ main( int     argc,
   fd_halt();
   return 0;
 }
-
