@@ -10,6 +10,8 @@ CXX:=g++
 CXXFLAGS=-std=c++17
 LD:=g++
 LDFLAGS:=-lm -ldl -L./$(OPT)/lib
+LDFLAGS_EXE:=
+LDFLAGS_SO:=-shared
 AR:=ar
 ARFLAGS:=rv
 RANLIB:=ranlib
