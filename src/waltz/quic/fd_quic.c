@@ -497,7 +497,8 @@ fd_quic_init( fd_quic_t * quic ) {
   fd_quic_svc_timers_init( (void *)( state->svc_timers ), limits->conn_cnt );
   state->svc_timers->default_timeouts[ FD_QUIC_SVC_INSTANT ] = 0UL;
   state->svc_timers->default_timeouts[ FD_QUIC_SVC_ACK_TX  ] = quic->config.ack_delay;
-  state->svc_timers->default_timeouts[ FD_QUIC_SVC_IDLE    ] = quic->config.idle_timeout;
+  state->svc_timers->default_timeouts[ FD_QUIC_SVC_IDLE    ] =
+    quic->config.idle_timeout << fd_ulong_if(FD_QUIC_KEEP_ALIVE, 1, 0);
 
   /* Check TX AIO */
 
@@ -1941,15 +1942,15 @@ fd_quic_lazy_ack_pkt( fd_quic_t *           quic,
     ( !!(pkt->ack_flag & ACK_FLAG_RQD) ) &
     ( ( pkt->enc_level == fd_quic_enc_level_initial_id   ) |
       ( pkt->enc_level == fd_quic_enc_level_handshake_id ) );
-  uint svc_type;
+  ulong delay;
   if( ack_sz_threshold_hit | force_instant_ack ) {
     conn->unacked_sz = 0UL;
-    svc_type = FD_QUIC_SVC_INSTANT;
+    delay = 0UL;
   } else {
-    svc_type = FD_QUIC_SVC_ACK_TX;
+    delay = state->svc_timers->default_timeouts[FD_QUIC_SVC_ACK_TX];
   }
 
-  fd_quic_svc_schedule_default( state->svc_timers, conn, svc_type, state->now );
+  fd_quic_svc_schedule( state->svc_timers, conn, FD_QUIC_SVC_ACK_TX, state->now + delay );
 
   return res;
 }
@@ -2771,104 +2772,77 @@ fd_quic_handle_crypto_frame( fd_quic_frame_ctx_t *    context,
   return rcv_sz;
 }
 
+static inline fd_quic_pkt_meta_t *
+fd_quic_earliest_pkt_meta( fd_quic_pkt_meta_tracker_t * tracker,
+                           fd_quic_pkt_meta_t         * pool,
+                           uint                       * enc_level_out ) {
+  fd_quic_pkt_meta_t * pkt_meta = NULL, * curr = NULL;
+
+  for( uint j = 0u; j < 4u; ++j ) {
+    curr = fd_quic_pkt_meta_min( &tracker->sent_pkt_metas[j], pool );
+    if( !curr ) continue;
+
+    if( !pkt_meta || curr->expiry < pkt_meta->expiry ) {
+      pkt_meta = curr;
+      *enc_level_out = j;
+    }
+  }
+
+  return pkt_meta;
+}
+
 static int
-fd_quic_svc_poll( fd_quic_t *      quic,
-                  fd_quic_conn_t * conn,
-                  ulong            now ) {
-  fd_quic_state_t * state = fd_quic_get_state( quic );
+fd_quic_svc_retx( fd_quic_t * quic, fd_quic_conn_t * conn ) {
+  /* share this state check ?*/
   if( FD_UNLIKELY( conn->state == FD_QUIC_CONN_STATE_INVALID ) ) {
-    /* connection shouldn't have been scheduled,
-       and is now removed, so just continue */
-    // FD_LOG_ERR(( "Invalid conn in schedule (svc_type=%u)", conn->svc_type ));
     return 1;
   }
 
-  //FD_DEBUG( FD_LOG_DEBUG(( "svc_poll conn=%p svc_type=%u", (void *)conn, conn->svc_type )); )
+  fd_quic_pkt_meta_retry( quic, conn, 0, ~0u );
 
-  if( FD_UNLIKELY( now > conn->last_activity + ( conn->idle_timeout / 2 ) ) ) {
-    if( FD_UNLIKELY( now > conn->last_activity + conn->idle_timeout ) ) {
-      if( FD_LIKELY( conn->state != FD_QUIC_CONN_STATE_DEAD ) ) {
-        /* rfc9000 10.1 Idle Timeout
-            "... the connection is silently closed and its state is discarded
-            when it remains idle for longer than the minimum of the
-            max_idle_timeout value advertised by both endpoints." */
-        FD_DEBUG( FD_LOG_WARNING(( "%s  conn %p  conn_idx: %u  closing due to idle timeout (%g ms)",
-            conn->server?"SERVER":"CLIENT",
-            (void *)conn, conn->conn_idx, (double)conn->idle_timeout / 1e6 )); )
-
-        fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD );
-        quic->metrics.conn_timeout_cnt++;
-      }
-    } else if( FD_QUIC_KEEP_ALIVE ) {
-      /* send PING */
-      if( !( conn->flags & FD_QUIC_CONN_FLAGS_PING ) ) {
-        conn->flags         |= FD_QUIC_CONN_FLAGS_PING;
-        conn->flags         &= ~FD_QUIC_CONN_FLAGS_PING_SENT;
-        conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;     /* update to be sent in next packet */
-      }
-    }
+  fd_quic_pkt_meta_t * pool      = fd_quic_get_state( conn->quic )->pkt_meta_pool;
+  uint                 enc_level = ~0u;
+  fd_quic_pkt_meta_t * pkt_meta  = fd_quic_earliest_pkt_meta( &conn->pkt_meta_tracker, pool, &enc_level );
+  if( pkt_meta ) {
+    fd_quic_svc_schedule( fd_quic_get_state( quic )->svc_timers, conn, FD_QUIC_SVC_RETX, pkt_meta->expiry );
   }
 
-  /* TODO - this should probs be inside conn_service */
-  if( now > conn->last_ack + (ulong)conn->rtt->rtt_period_ticks ) {
-    /* send PING */
-    if( !( conn->flags & ( FD_QUIC_CONN_FLAGS_PING | FD_QUIC_CONN_FLAGS_PING_SENT ) )
-        && conn->state == FD_QUIC_CONN_STATE_ACTIVE ) {
+  return 0;
+}
+
+static int
+fd_quic_svc_idle( fd_quic_t * quic, fd_quic_conn_t * conn ) {
+  if( FD_QUIC_KEEP_ALIVE ) {
+    if( !( conn->flags & FD_QUIC_CONN_FLAGS_PING ) ) {
       conn->flags         |= FD_QUIC_CONN_FLAGS_PING;
+      conn->flags         &= ~FD_QUIC_CONN_FLAGS_PING_SENT;
       conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;     /* update to be sent in next packet */
     }
+  } else if( FD_LIKELY( conn->state != FD_QUIC_CONN_STATE_DEAD ) ) {
+    /* rfc9000 10.1 Idle Timeout
+        "... the connection is silently closed and its state is discarded
+        when it remains idle for longer than the minimum of the
+        max_idle_timeout value advertised by both endpoints." */
+    FD_DEBUG( FD_LOG_WARNING(( "%s  conn %p  conn_idx: %u  closing due to idle timeout (%g ms)",
+        conn->server?"SERVER":"CLIENT",
+        (void *)conn, conn->conn_idx, (double)conn->idle_timeout / 1e6 )); )
+
+    conn->state = FD_QUIC_CONN_STATE_DEAD;
+    quic->metrics.conn_timeout_cnt++;
   }
-
-  if( FD_UNLIKELY( conn->state == FD_QUIC_CONN_STATE_DEAD ) ) {
-    fd_quic_cb_conn_final( quic, conn ); /* inform user before freeing */
-    fd_quic_conn_free( quic, conn );
-    return 1; /* do NOT reschedule freed connection */
-  }
-
-  /* state cannot be DEAD here */
-  fd_quic_conn_service( quic, conn, now );
-
-  /* dead? don't reinsert, just clean up */
-  switch( conn->state ) {
-  case FD_QUIC_CONN_STATE_INVALID:
-    /* skip entirely */
-    break;
-  case FD_QUIC_CONN_STATE_DEAD:
-    fd_quic_cb_conn_final( quic, conn ); /* inform user before freeing */
-    fd_quic_conn_free( quic, conn );
-    break;
-  default:
-    fd_quic_svc_schedule_later_default( state->svc_timers, conn, FD_QUIC_SVC_IDLE, state->now );
-    break;
-  }
-
   return 1;
 }
 
-int
-fd_quic_service( fd_quic_t * quic ) {
-  fd_quic_state_t * state = fd_quic_get_state( quic );
-
-  ulong now = fd_quic_now( quic );
-  state->now = now;
-
-  long now_ticks = fd_tickcount();
-
-  fd_quic_svc_timers_t * timers = state->svc_timers;
-  fd_quic_svc_event_t next = fd_quic_svc_timers_next( timers, now, 1 /* pop */);
-  if( next.svc_type == FD_QUIC_SVC_CNT ) {
-    return 0;
+static int
+fd_quic_svc_rtt_sample( fd_quic_t * quic, fd_quic_conn_t * conn ) {
+  (void)quic;
+  /* send PING */
+  if( !( conn->flags & ( FD_QUIC_CONN_FLAGS_PING | FD_QUIC_CONN_FLAGS_PING_SENT ) )
+      && conn->state == FD_QUIC_CONN_STATE_ACTIVE ) {
+    conn->flags         |= FD_QUIC_CONN_FLAGS_PING;
+    conn->upd_pkt_number = FD_QUIC_PKT_NUM_PENDING;     /* update to be sent in next packet */
   }
-
-  int cnt = 0;
-  cnt = fd_quic_svc_poll( quic, next.conn, now );
-
-
-  long delta_ticks = fd_tickcount() - now_ticks;
-
-  fd_histf_sample( quic->metrics.service_duration, (ulong)delta_ticks );
-
-  return cnt;
+  return 1;
 }
 
 static inline ulong
@@ -3383,7 +3357,11 @@ fd_quic_gen_frames( fd_quic_conn_t *     conn,
   }
 
   payload_ptr = fd_quic_gen_ack_frames( conn->ack_gen, payload_ptr, payload_end, enc_level, now, (float)conn->quic->config.tick_per_us );
-  if( conn->ack_gen->head == conn->ack_gen->tail ) conn->unacked_sz = 0UL;
+  if( conn->ack_gen->head == conn->ack_gen->tail ) {
+    conn->unacked_sz = 0UL;
+    /* we've flushed all acks, don't need timer */
+    fd_quic_svc_cancel( fd_quic_get_state( conn->quic )->svc_timers, conn, FD_QUIC_SVC_ACK_TX );
+  }
 
   if( FD_UNLIKELY( closing ) ) {
     payload_ptr += fd_quic_gen_close_frame( conn, payload_ptr, payload_end, pkt_meta, now );
@@ -3790,105 +3768,146 @@ fd_quic_conn_tx( fd_quic_t      * quic,
   fd_quic_tx_buffered( quic, conn );
 }
 
-void
-fd_quic_conn_service( fd_quic_t * quic, fd_quic_conn_t * conn, ulong now ) {
-  (void)now;
 
-  /* handle expiry on pkt_meta */
-  fd_quic_pkt_meta_retry( quic, conn, 0 /* don't force */, ~0u /* enc_level */ );
-
-  /* check state
-       need reset?
-       need close?
-       need acks?
-       replies?
-       data to send?
-       dead */
-  switch( conn->state ) {
-    case FD_QUIC_CONN_STATE_HANDSHAKE:
-    case FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE:
-      {
-        if( conn->tls_hs ) {
-          /* if we're the server, we send "handshake-done" frame */
-          if( conn->state == FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE && conn->server ) {
-            conn->handshake_done_send = 1;
-
-            /* move straight to ACTIVE */
-            fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_ACTIVE );
-
-            /* RFC 9001 4.9.2. Discarding Handshake Keys
-               > An endpoint MUST discard its Handshake keys when the
-               > TLS handshake is confirmed
-               RFC 9001 4.1.2. Handshake Confirmed
-               > [...] the TLS handshake is considered confirmed at the
-               > server when the handshake completes */
-            fd_quic_abandon_enc_level( conn, fd_quic_enc_level_handshake_id );
-
-            /* user callback */
-            fd_quic_cb_conn_new( quic, conn );
-
-            /* clear out hs_data here, as we don't need it anymore */
-            fd_quic_tls_hs_data_t * hs_data = NULL;
-
-            uint enc_level = (uint)fd_quic_enc_level_appdata_id;
-            hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, enc_level );
-            while( hs_data ) {
-              fd_quic_tls_pop_hs_data( conn->tls_hs, enc_level );
-              hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, enc_level );
-            }
-          }
-
-          /* if we're the client, fd_quic_conn_tx will flush the hs
-             buffer so we can receive the HANDSHAKE_DONE frame, and
-             transition from CONN_STATE HANDSHAKE_COMPLETE to ACTIVE. */
-        }
-
-        /* do we have data to transmit? */
-        fd_quic_conn_tx( quic, conn );
-
-        break;
-      }
-
-    case FD_QUIC_CONN_STATE_CLOSE_PENDING:
-    case FD_QUIC_CONN_STATE_PEER_CLOSE:
-        /* user requested close, and may have set a reason code */
-        /* transmit the failure reason */
-        fd_quic_conn_tx( quic, conn );
-
-        /* schedule another fd_quic_conn_service to free the conn */
-        fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD ); /* TODO need draining state wait for 3 * TPO */
-        quic->metrics.conn_closed_cnt++;
-        fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
-
-        break;
-
-    case FD_QUIC_CONN_STATE_ABORT:
-        /* transmit the failure reason */
-        fd_quic_conn_tx( quic, conn );
-
-        /* schedule another fd_quic_conn_service to free the conn */
-        fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD );
-        quic->metrics.conn_aborted_cnt++;
-        fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
-
-        break;
-
-    case FD_QUIC_CONN_STATE_ACTIVE:
-        /* do we have data to transmit? */
-        fd_quic_conn_tx( quic, conn );
-
-        break;
-
-    case FD_QUIC_CONN_STATE_DEAD:
-    case FD_QUIC_CONN_STATE_INVALID:
-      /* fall thru */
-    default:
-      return;
+static void
+fd_quic_conn_handshake_complete( fd_quic_t * quic, fd_quic_conn_t * conn ) {
+  if( !conn->tls_hs ) {
+    return;
   }
 
-  /* check routing and arp for this connection */
+  /* if we're the server, we send "handshake-done" frame */
+  if( conn->state == FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE && conn->server ) {
+    conn->handshake_done_send = 1;
 
+    /* move straight to ACTIVE */
+    conn->state = FD_QUIC_CONN_STATE_ACTIVE;
+
+    /* RFC 9001 4.9.2. Discarding Handshake Keys
+        > An endpoint MUST discard its Handshake keys when the
+        > TLS handshake is confirmed
+        RFC 9001 4.1.2. Handshake Confirmed
+        > [...] the TLS handshake is considered confirmed at the
+        > server when the handshake completes */
+    fd_quic_abandon_enc_level( conn, fd_quic_enc_level_handshake_id );
+
+    /* user callback */
+    fd_quic_cb_conn_new( quic, conn );
+
+    /* clear out hs_data here, as we don't need it anymore */
+    fd_quic_tls_hs_data_t * hs_data = NULL;
+
+    uint enc_level = (uint)fd_quic_enc_level_appdata_id;
+    hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, enc_level );
+    while( hs_data ) {
+      fd_quic_tls_pop_hs_data( conn->tls_hs, enc_level );
+      hs_data = fd_quic_tls_get_hs_data( conn->tls_hs, enc_level );
+    }
+  }
+
+  /* if we're the client, fd_quic_conn_tx will flush the hs
+      buffer so we can receive the HANDSHAKE_DONE frame, and
+      transition from CONN_STATE HANDSHAKE_COMPLETE to ACTIVE. */
 }
+
+/* tx_prep for specific event */
+static inline void
+fd_quic_handle_event( fd_quic_t* quic,
+                      fd_quic_svc_event_t* event,
+                      fd_quic_conn_t* conn ) {
+  switch( event->svc_type ) {
+    case FD_QUIC_SVC_RETX:
+      fd_quic_svc_retx( quic, conn );           break;
+    case FD_QUIC_SVC_IDLE:
+      fd_quic_svc_idle( quic, conn );           break;
+    case FD_QUIC_SVC_RTT_SAMPLE:
+      fd_quic_svc_rtt_sample( quic, conn );     break;
+    case FD_QUIC_SVC_ACK_TX:
+    case FD_QUIC_SVC_INSTANT:
+      /* no extra prep needed */                break;
+  }
+}
+
+int
+fd_quic_conn_service( fd_quic_t           * quic,
+                      fd_quic_conn_t * conn ) {
+  /* for states that require special initial handling */
+  if( !conn ) return 0;
+
+  uint init_conn_state = conn->state;
+  switch( init_conn_state ) {
+    case FD_QUIC_CONN_STATE_HANDSHAKE_COMPLETE:
+      fd_quic_conn_handshake_complete( quic, conn );
+      break;
+    case FD_QUIC_CONN_STATE_DEAD:
+      fd_quic_cb_conn_final( quic, conn ); /* inform user before freeing */
+      fd_quic_conn_free( quic, conn );
+      return 1;
+    case FD_QUIC_CONN_STATE_INVALID:
+      /* skip entirely */
+      return 0;
+    default:
+      break;
+  }
+
+  fd_quic_state_t* state = fd_quic_get_state( conn->quic );
+  fd_quic_svc_timers_t* timers = state->svc_timers;
+  for( uint svc_type = 0; svc_type < FD_QUIC_SVC_CNT; svc_type++ ) {
+    fd_quic_svc_event_t* event = fd_quic_get_svc_event( timers, svc_type, conn );
+    if( event && event->timeout <= state->now ) {
+      /* cancel before handling, in case we requeue in handler
+        but that may clobber event, so make a local copy */
+      fd_quic_svc_event_t e = *event;
+      fd_quic_svc_cancel( timers, conn, svc_type );
+      fd_quic_handle_event( quic, &e, conn );
+    }
+  }
+
+  fd_quic_conn_tx( quic, conn );
+
+  /* post-conn tx handling */
+  switch( init_conn_state ) {
+    case FD_QUIC_CONN_STATE_PEER_CLOSE:
+      conn->state = FD_QUIC_CONN_STATE_DEAD; /* TODO need draining state wait for 3 * TPO */
+      quic->metrics.conn_closed_cnt++;
+      fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
+      break;
+    case FD_QUIC_CONN_STATE_ABORT:
+      conn->state = FD_QUIC_CONN_STATE_DEAD;
+      quic->metrics.conn_aborted_cnt++;
+      fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
+      break;
+    default:
+      break;
+  }
+
+  /* generic post-event handling */
+  fd_quic_svc_schedule_later( state->svc_timers, conn, FD_QUIC_SVC_IDLE, state->now );
+
+  return 1;
+}
+
+int
+fd_quic_service( fd_quic_t * quic ) {
+  fd_quic_state_t * state = fd_quic_get_state( quic );
+
+  ulong now = fd_quic_now( quic );
+  state->now = now;
+  int did_work = 0;
+
+  long now_ticks = fd_tickcount();
+
+  fd_quic_svc_timers_t * timers = state->svc_timers;
+  fd_quic_svc_event_t next = fd_quic_svc_timers_next( timers, now, 1 /* pop */);
+  if( FD_LIKELY( next.svc_type != FD_QUIC_SVC_CNT ) ) {
+    did_work = fd_quic_conn_service( quic, next.conn );
+  }
+
+  long delta_ticks = fd_tickcount() - now_ticks;
+  fd_histf_sample( quic->metrics.service_duration, (ulong)delta_ticks );
+
+  return did_work;
+}
+
 
 void
 fd_quic_conn_free( fd_quic_t *      quic,
@@ -4342,42 +4361,19 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
     uint  enc_level      = arg_enc_level;
     uint  peer_enc_level = conn->peer_enc_level;
     ulong expiry         = ~0ul;
-    if( arg_enc_level == ~0u ) {
-      for( uint j = 0u; j < 4u; ++j ) {
-        /* TODO this only checks smallest pkt number,
-           assuming that pkt numbers are monotonically increasing
-           over time. So it checks in 'sent' time order, but not expiry time. */
-#if 1
-        fd_quic_pkt_meta_t * pkt_meta = fd_quic_pkt_meta_min( &tracker->sent_pkt_metas[j], pool );
-        if( !pkt_meta ) continue;
 
-        if( enc_level == ~0u || pkt_meta->expiry < expiry ) {
-          enc_level = j;
-          expiry    = pkt_meta->expiry;
-        }
-#else
-        fd_quic_pkt_meta_t * pkt_meta = pool->sent_pkt_meta[j].head;
-        while( pkt_meta ) {
-          if( enc_level == ~0u || pkt_meta->expiry < expiry ) {
-            enc_level = j;
-            expiry    = pkt_meta->expiry;
-          }
-          if( enc_level < peer_enc_level ) break;
-          pkt_meta = pkt_meta->next;
-        }
-        if( enc_level != ~0u ) break;
-#endif
+    do{
+      fd_quic_pkt_meta_t * pkt_meta = NULL;
+      if( arg_enc_level == ~0u ) {
+        pkt_meta = fd_quic_earliest_pkt_meta( tracker, pool, &enc_level );
+      } else {
+        pkt_meta = fd_quic_pkt_meta_min( &tracker->sent_pkt_metas[enc_level], pool );
       }
-    } else {
-      fd_quic_pkt_meta_t * pkt_meta = fd_quic_pkt_meta_min( &tracker->sent_pkt_metas[enc_level], pool );
       if( !pkt_meta ) {
         return;
       }
-
       expiry = pkt_meta->expiry;
-    }
-
-    if( enc_level == ~0u ) return;
+    } while( 0 );
 
     if( force ) {
       /* we're forcing, quit when we've freed enough */
@@ -4500,7 +4496,7 @@ fd_quic_pkt_meta_retry( fd_quic_t *          quic,
                                     pkt_meta->pkt_number,
                                     pkt_meta->pkt_number );
 
-    conn->used_pkt_meta -= 1;
+    conn->used_pkt_meta--;
     cnt_freed++;
   }
 }
@@ -4834,6 +4830,7 @@ fd_quic_handle_ack_frame( fd_quic_frame_ctx_t * context,
 
   fd_quic_state_t * state = fd_quic_get_state( context->quic );
   conn->last_ack = state->now;
+  fd_quic_svc_schedule_later_default( state->svc_timers, conn, FD_QUIC_SVC_RTT_SAMPLE, state->now );
 
   /* track lowest packet acked */
   ulong low_ack_pkt_number = data->largest_ack - data->first_ack_range;

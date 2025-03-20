@@ -145,19 +145,6 @@ fd_quic_get_state_const( fd_quic_t const * quic ) {
   return (fd_quic_state_t const *)( (ulong)quic + FD_QUIC_STATE_OFF );
 }
 
-/* fd_quic_conn_service is called periodically to perform pending
-   operations and time based operations.
-
-   args
-     quic        managing quic
-     conn        connection to service
-     now         the current timestamp */
-void
-fd_quic_conn_service( fd_quic_t *      quic,
-                      fd_quic_conn_t * conn,
-                      ulong            now );
-
-
 /* Memory management **************************************************/
 
 fd_quic_conn_t *

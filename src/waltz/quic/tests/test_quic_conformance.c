@@ -523,7 +523,7 @@ test_quic_inflight_pkt_limit( fd_quic_sandbox_t * sandbox,
       FD_TEST( in_stream_list( empty_stream, conn->send_streams ) );
 
       ulong metrics_before = quic->metrics.pkt_tx_alloc_fail_cnt;
-      fd_quic_conn_service( quic, conn, 0 );
+      fd_quic_conn_service( quic, conn );
       ulong metrics_after = quic->metrics.pkt_tx_alloc_fail_cnt;
       if( i==11 ) {
         /* 12th packet should fail */

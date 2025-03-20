@@ -537,6 +537,14 @@ fd_quic_get_next_wakeup( fd_quic_t * quic );
 FD_QUIC_API int
 fd_quic_service( fd_quic_t * quic );
 
+/* fd_quic_conn_service services a particular conn
+   In particular, it fires event handlers for each
+   event that's expired for this conn, and then coalesces
+   the resulting tx */
+FD_QUIC_API int
+fd_quic_conn_service( fd_quic_t * quic,
+                      fd_quic_conn_t * conn );
+
 /* fd_quic_state_validate checks for violations of service queue and free
    list invariants, such as cycles in linked lists.  Prints to warning/
    error log and exits the process if checks fail.  Intended for use in
