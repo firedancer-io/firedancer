@@ -306,7 +306,10 @@ before_frag( fd_repair_tile_ctx_t * ctx,
   (void)seq;
 
   if( FD_LIKELY( in_idx==NET_IN_IDX   ) ) return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR;
-  if( FD_LIKELY( in_idx==SHRED_IN_IDX ) ) return 1;
+  if( FD_LIKELY( in_idx==SHRED_IN_IDX ) ) {
+    int sig_type = fd_disco_shred_repair_sig_type( sig );
+    return !sig_type;
+  }
   return 0;
 }
 

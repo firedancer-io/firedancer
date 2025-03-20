@@ -118,6 +118,7 @@ fd_forks_init( fd_forks_t * forks, fd_exec_slot_ctx_t const * slot_ctx ) {
   fork->slot       = slot_ctx->slot_bank.slot;
   fork->prev       = fd_fork_pool_idx_null( forks->pool );
   fork->lock       = 0;
+  fork->end_idx    = UINT_MAX;
   fork->slot_ctx   = *slot_ctx; /* this shallow copy is only safe if
                                    the lifetimes of slot_ctx's pointers
                                    are as long as fork */
@@ -304,6 +305,7 @@ fd_forks_prepare( fd_forks_t const *    forks,
     fork->prev = fd_fork_pool_idx_null( forks->pool );
     fork->slot = parent_slot;
     fork->lock = 1;
+    fork->end_idx = UINT_MAX;
 
     /* Format and join the slot_ctx */
 
