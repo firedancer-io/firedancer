@@ -2331,6 +2331,7 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
   fd_vote_accounts_pair_t_mapnode_t * pool = accts->vote_accounts_pool;
 
   ulong i = 0;
+  FD_SPAD_FRAME_BEGIN( ctx->runtime_spad ) {
   for( fd_vote_accounts_pair_t_mapnode_t const * n = fd_vote_accounts_pair_t_map_minimum_const( pool, root );
        n && i < FD_CLUSTER_NODE_CNT;
        n = fd_vote_accounts_pair_t_map_successor_const( pool, n ) ) {
@@ -2383,6 +2384,7 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
     msg->is_delinquent   = (uchar)(msg->last_vote == 0);
     ++i;
   }
+  } FD_SPAD_FRAME_END;
 
   *(ulong *)dst = i;
 
