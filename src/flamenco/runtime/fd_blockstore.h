@@ -874,8 +874,10 @@ void
 fd_blockstore_shred_remove( fd_blockstore_t * blockstore, ulong slot, uint idx );
 
 /* fd_blockstore_slice_query queries for the block slice beginning from
-   shred `idx`.  Copies at most `max` bytes of the shred payloads
-   consecutively from `idx` until the first {DATA, SLOT}_COMPLETES.
+   shred `start_idx`, ending at `end_idx`, inclusive. Validates start
+   and end_idx as valid batch boundaries. Copies at most `max` bytes of
+   the shred payloads, and returns FD_BLOCKSTORE_NO_MEM if the buffer is
+   too small.
 
    Returns FD_BLOCKSTORE_SUCCESS (0) on success and a FD_MAP_ERR
    (negative) on failure.  On success, `buf` will be populated with the
