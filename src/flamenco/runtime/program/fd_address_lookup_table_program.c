@@ -318,8 +318,8 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   if( required_lamports>0UL ) {
     // Create account metas
     FD_SPAD_FRAME_BEGIN( ctx->txn_ctx->spad ) {
-      fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t *)
-                                                fd_spad_alloc( ctx->txn_ctx->spad, FD_VM_RUST_ACCOUNT_META_ALIGN, 2 * sizeof(fd_vm_rust_account_meta_t) );
+      fd_vm_account_meta_t * acct_metas = (fd_vm_account_meta_t *)
+                                                fd_spad_alloc( ctx->txn_ctx->spad, FD_VM_RUST_ACCOUNT_META_ALIGN, 2 * sizeof(fd_vm_account_meta_t) );
       fd_native_cpi_create_account_meta( payer_key, 1, 1, &acct_metas[0] );
       fd_native_cpi_create_account_meta( lut_key,   0, 1, &acct_metas[1] );
 
@@ -348,8 +348,8 @@ create_lookup_table( fd_exec_instr_ctx_t *       ctx,
   }
 
   FD_SPAD_FRAME_BEGIN( ctx->txn_ctx->spad ) {
-    fd_vm_rust_account_meta_t * acct_metas = ( fd_vm_rust_account_meta_t * )
-                                              fd_spad_alloc( ctx->txn_ctx->spad, FD_VM_RUST_ACCOUNT_META_ALIGN, sizeof(fd_vm_rust_account_meta_t) );
+    fd_vm_account_meta_t * acct_metas = ( fd_vm_account_meta_t * )
+                                              fd_spad_alloc( ctx->txn_ctx->spad, FD_VM_RUST_ACCOUNT_META_ALIGN, sizeof(fd_vm_account_meta_t) );
     fd_native_cpi_create_account_meta( lut_key, 1, 1, &acct_metas[0] );
 
     // Create signers list
@@ -701,8 +701,8 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
 
     FD_SPAD_FRAME_BEGIN( ctx->txn_ctx->spad ) {
       // Create account metas
-      fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t *)
-                                                fd_spad_alloc( ctx->txn_ctx->spad, FD_VM_RUST_ACCOUNT_META_ALIGN, 2 * sizeof(fd_vm_rust_account_meta_t) );
+      fd_vm_account_meta_t * acct_metas = (fd_vm_account_meta_t *)
+                                                fd_spad_alloc( ctx->txn_ctx->spad, FD_VM_RUST_ACCOUNT_META_ALIGN, 2 * sizeof(fd_vm_account_meta_t) );
       fd_native_cpi_create_account_meta( payer_key, 1, 1, &acct_metas[0] );
       fd_native_cpi_create_account_meta( lut_key,   0, 1, &acct_metas[1] );
 

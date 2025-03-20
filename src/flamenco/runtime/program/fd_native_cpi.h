@@ -7,17 +7,17 @@
 
 FD_PROTOTYPES_BEGIN
 
-int 
+int
 fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
                                                   fd_system_program_instruction_t const * instr,
-                                                  fd_vm_rust_account_meta_t const * acct_metas,
+                                                  fd_vm_account_meta_t const * acct_metas,
                                                   ulong acct_metas_len,
                                                   fd_pubkey_t const * signers,
                                                   ulong signers_cnt );
 
 void
-fd_native_cpi_create_account_meta( fd_pubkey_t const * key, uchar is_signer, 
-                                   uchar is_writable, fd_vm_rust_account_meta_t * meta );
+fd_native_cpi_create_account_meta( fd_pubkey_t const * key, uchar is_signer,
+                                   uchar is_writable, fd_vm_account_meta_t * meta );
 
 FD_PROTOTYPES_END
 

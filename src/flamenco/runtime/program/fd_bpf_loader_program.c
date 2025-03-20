@@ -950,10 +950,10 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
       instr.discriminant         = fd_system_program_instruction_enum_create_account;
       instr.inner.create_account = create_acct;
 
-      fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t*)
+      fd_vm_account_meta_t * acct_metas = (fd_vm_account_meta_t*)
                                                 fd_spad_alloc( instr_ctx->txn_ctx->spad,
                                                                   FD_VM_RUST_ACCOUNT_META_ALIGN,
-                                                                  3UL * sizeof(fd_vm_rust_account_meta_t) );
+                                                                  3UL * sizeof(fd_vm_account_meta_t) );
       fd_native_cpi_create_account_meta( payer_key,       1U, 1U, &acct_metas[ 0UL ] );
       fd_native_cpi_create_account_meta( programdata_key, 1U, 1U, &acct_metas[ 1UL ] );
       fd_native_cpi_create_account_meta( buffer_key,      0U, 1U, &acct_metas[ 2UL ] );
@@ -1761,10 +1761,10 @@ process_loader_upgradeable_instruction( fd_exec_instr_ctx_t * instr_ctx ) {
           .inner.transfer = required_payment
         };
 
-        fd_vm_rust_account_meta_t * acct_metas = (fd_vm_rust_account_meta_t *)
+        fd_vm_account_meta_t * acct_metas = (fd_vm_account_meta_t *)
                                                   fd_spad_alloc( instr_ctx->txn_ctx->spad,
                                                                     FD_VM_RUST_ACCOUNT_META_ALIGN,
-                                                                    2UL * sizeof(fd_vm_rust_account_meta_t) );
+                                                                    2UL * sizeof(fd_vm_account_meta_t) );
         fd_native_cpi_create_account_meta( payer_key,       1UL, 1UL, &acct_metas[ 0UL ] );
         fd_native_cpi_create_account_meta( programdata_key, 0UL, 1UL, &acct_metas[ 1UL ] );
 

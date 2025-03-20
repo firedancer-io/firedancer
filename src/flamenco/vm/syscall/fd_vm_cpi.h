@@ -119,6 +119,9 @@ struct __attribute__((packed)) fd_vm_rust_account_info {
 
 typedef struct fd_vm_rust_account_info fd_vm_rust_account_info_t;
 
+/* Use the rust version for internal representation of account meta */
+typedef fd_vm_rust_account_meta_t fd_vm_account_meta_t;
+
 /* These define the in-memory layout of Rc<Refcell<T>> types to
    facilitate checks on Rust AccountInfo fields.
  */

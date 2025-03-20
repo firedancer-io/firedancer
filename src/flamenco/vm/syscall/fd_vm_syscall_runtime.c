@@ -539,7 +539,7 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
         result_meta_haddr->data_len);
 
       ulong accounts_meta_total_size = fd_ulong_sat_mul( result_meta_haddr->accounts_len, FD_VM_RUST_ACCOUNT_META_SIZE );
-      fd_vm_rust_account_meta_t * result_accounts_haddr = FD_VM_MEM_SLICE_HADDR_ST(
+      fd_vm_account_meta_t * result_accounts_haddr = FD_VM_MEM_SLICE_HADDR_ST(
         vm,
         result_accounts_vaddr,
         FD_VM_RUST_ACCOUNT_META_ALIGN,
