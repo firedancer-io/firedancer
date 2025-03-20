@@ -42,7 +42,7 @@ jobs:
             extras: "rpath fuzz-stubs handholding"
             targets: "all integration-test fdctl"
             compiler: gcc
-            compiler-version: 12.4.0
+            compiler-version: 8.5.0
             run-unit-tests: true
             run-integration-tests: false
           - test-case: linux_gcc_icelake
