@@ -5,14 +5,6 @@
 #include "../../ballet/base58/fd_base58.h"
 #include "../../disco/keyguard/fd_keyguard.h"
 #include "../../util/rng/fd_rng.h"
-#include <string.h>
-#include <stdio.h>
-#include <math.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/random.h>
 
 /* Maximum size of a network packet */
 #define PACKET_DATA_SIZE 1232
@@ -576,7 +568,7 @@ fd_gossip_contact_info_v2_find_proto_ident( fd_gossip_contact_info_v2_t const * 
 int
 fd_gossip_to_soladdr( fd_gossip_socket_addr_t * dst, fd_gossip_peer_addr_t const * src ) {
   fd_gossip_socket_addr_new_disc( dst, fd_gossip_socket_addr_enum_ip4 );
-  dst->inner.ip4.port = ntohs(src->port);
+  dst->inner.ip4.port = fd_ushort_bswap( src->port );
   dst->inner.ip4.addr = src->addr;
   return 0;
 }
@@ -587,7 +579,7 @@ fd_gossip_from_soladdr(fd_gossip_peer_addr_t * dst, fd_gossip_socket_addr_t cons
   FD_STATIC_ASSERT(sizeof(fd_gossip_peer_addr_t) == sizeof(ulong),"messed up size");
   dst->l = 0;
   if (src->discriminant == fd_gossip_socket_addr_enum_ip4) {
-    dst->port = htons(src->inner.ip4.port);
+    dst->port = fd_ushort_bswap( src->inner.ip4.port );
     dst->addr = src->inner.ip4.addr;
     return 0;
   } else {
@@ -596,12 +588,8 @@ fd_gossip_from_soladdr(fd_gossip_peer_addr_t * dst, fd_gossip_socket_addr_t cons
   }
 }
 
-/* Convert an address to a human readable string */
-const char * fd_gossip_addr_str( char * dst, size_t dstlen, fd_gossip_peer_addr_t const * src ) {
-  char tmp[INET_ADDRSTRLEN];
-  snprintf(dst, dstlen, "%s:%u", inet_ntop(AF_INET, &src->addr, tmp, INET_ADDRSTRLEN), (uint)ntohs(src->port));
-  return dst;
-}
+#define GOSSIP_ADDR_FMT FD_IP4_ADDR_FMT ":%u"
+#define GOSSIP_ADDR_FMT_ARGS( k ) FD_IP4_ADDR_FMT_ARGS( (k).addr ), fd_ushort_bswap( (k).port )
 
 static void
 fd_gossip_refresh_contact_info_v2_sockets( fd_gossip_node_addrs_t const * addrs, fd_gossip_node_contact_t * ci_int );
@@ -611,10 +599,9 @@ int
 fd_gossip_set_config( fd_gossip_t * glob, const fd_gossip_config_t * config ) {
   fd_gossip_lock( glob );
 
-  char tmp[100];
   char keystr[ FD_BASE58_ENCODED_32_SZ ];
   fd_base58_encode_32( config->public_key->uc, NULL, keystr );
-  FD_LOG_NOTICE(("configuring address %s id %s", fd_gossip_addr_str(tmp, sizeof(tmp), &config->my_addr), keystr));
+  FD_LOG_NOTICE(("configuring address " GOSSIP_ADDR_FMT " id %s", GOSSIP_ADDR_FMT_ARGS( config->my_addr ), keystr));
 
   fd_gossip_init_node_contact( &glob->my_contact );
 
@@ -742,8 +729,7 @@ fd_gossip_refresh_contact_info_v2_sockets( fd_gossip_node_addrs_t const * addrs,
 
 int
 fd_gossip_update_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * my_addr ) {
-  char tmp[100];
-  FD_LOG_NOTICE(("updating address %s", fd_gossip_addr_str(tmp, sizeof(tmp), my_addr)));
+  FD_LOG_NOTICE(("updating address " GOSSIP_ADDR_FMT, GOSSIP_ADDR_FMT_ARGS( *my_addr ) ));
 
   fd_gossip_lock( glob );
   fd_gossip_peer_addr_copy( &glob->my_node_addrs.gossip, my_addr );
@@ -755,8 +741,7 @@ fd_gossip_update_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * my_addr
 
 int
 fd_gossip_update_repair_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * serve ) {
-  char tmp[100];
-  FD_LOG_NOTICE(("updating repair service address %s", fd_gossip_addr_str(tmp, sizeof(tmp), serve)));
+  FD_LOG_NOTICE(("updating repair service address " GOSSIP_ADDR_FMT, GOSSIP_ADDR_FMT_ARGS( *serve ) ));
 
   fd_gossip_lock( glob );
   fd_gossip_peer_addr_copy( &glob->my_node_addrs.serve_repair, serve );
@@ -768,8 +753,7 @@ fd_gossip_update_repair_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * 
 
 int
 fd_gossip_update_tvu_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * tvu ) {
-  char tmp[100];
-  FD_LOG_NOTICE(("updating tvu service address %s", fd_gossip_addr_str(tmp, sizeof(tmp), tvu)));
+  FD_LOG_NOTICE(("updating tvu service address " GOSSIP_ADDR_FMT, GOSSIP_ADDR_FMT_ARGS( *tvu ) ));
 
   fd_gossip_lock( glob );
   fd_gossip_peer_addr_copy( &glob->my_node_addrs.tvu, tvu );
@@ -783,9 +767,8 @@ int
 fd_gossip_update_tpu_addr( fd_gossip_t * glob,
                            fd_gossip_peer_addr_t const * tpu,
                            fd_gossip_peer_addr_t const * tpu_quic ) {
-  char tmp[100];
-  FD_LOG_NOTICE(("updating tpu service address %s", fd_gossip_addr_str(tmp, sizeof(tmp), tpu) ));
-  FD_LOG_NOTICE(("updating tpu_quic service address %s", fd_gossip_addr_str(tmp, sizeof(tmp), tpu_quic ) ));
+  FD_LOG_NOTICE(("updating tpu service address "      GOSSIP_ADDR_FMT, GOSSIP_ADDR_FMT_ARGS( *tpu      ) ));
+  FD_LOG_NOTICE(("updating tpu_quic service address " GOSSIP_ADDR_FMT, GOSSIP_ADDR_FMT_ARGS( *tpu_quic ) ));
 
   fd_gossip_lock( glob );
   fd_gossip_peer_addr_copy( &glob->my_node_addrs.tpu, tpu );
@@ -799,8 +782,7 @@ fd_gossip_update_tpu_addr( fd_gossip_t * glob,
 
 int
 fd_gossip_update_tpu_vote_addr( fd_gossip_t * glob, const fd_gossip_peer_addr_t * tpu_vote ) {
-  char tmp[100];
-  FD_LOG_NOTICE(("updating tpu vote service address %s", fd_gossip_addr_str(tmp, sizeof(tmp), tpu_vote)));
+  FD_LOG_NOTICE(("updating tpu vote service address " GOSSIP_ADDR_FMT, GOSSIP_ADDR_FMT_ARGS( *tpu_vote ) ));
 
   fd_gossip_lock( glob );
   fd_gossip_peer_addr_copy(&glob->my_node_addrs.tpu_vote, tpu_vote);
@@ -854,8 +836,7 @@ fd_gossip_send( fd_gossip_t * glob, const fd_gossip_peer_addr_t * dest, fd_gossi
   size_t sz = (size_t)((const uchar *)ctx.data - buf);
   fd_gossip_send_raw( glob, dest, buf, sz);
   glob->metrics.send_message[ gmsg->discriminant ] += 1UL;
-  // char tmp[100];
-  // FD_LOG_WARNING(("sent msg type %u to %s size=%lu", gmsg->discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), dest), sz));
+  // FD_LOG_WARNING(("sent msg type %u to " GOSSIP_ADDR_FMT " size=%lu", gmsg->discriminant, GOSSIP_ADDR_FMT_ARGS( *dest ), sz));
 }
 
 /* Initiate the ping/pong protocol to a validator address */
@@ -1898,8 +1879,7 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
       ulong sz = (ulong)(newend - buf);
       fd_gossip_send_raw(glob, from, buf, sz);
       glob->metrics.send_message[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ]++;
-      char tmp[100];
-      FD_LOG_DEBUG(("sent msg type %u to %s size=%lu", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from), sz));
+      FD_LOG_DEBUG(("sent msg type %u to " GOSSIP_ADDR_FMT " size=%lu", gmsg.discriminant, GOSSIP_ADDR_FMT_ARGS( *from ), sz));
       ++npackets;
       newend = (uchar *)ctx.data;
       *crds_len = 0;
@@ -1921,8 +1901,7 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
     ulong sz = (ulong)(newend - buf);
     fd_gossip_send_raw(glob, from, buf, sz);
     glob->metrics.send_message[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PULL_RESPONSE_IDX ]++;
-    char tmp[100];
-    FD_LOG_DEBUG(("sent msg type %u to %s size=%lu", gmsg.discriminant, fd_gossip_addr_str(tmp, sizeof(tmp), from), sz));
+    FD_LOG_DEBUG(("sent msg type %u to " GOSSIP_ADDR_FMT " size=%lu", gmsg.discriminant, GOSSIP_ADDR_FMT_ARGS( *from ), sz));
     ++npackets;
   }
 
@@ -2127,8 +2106,7 @@ fd_gossip_push( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
         ulong sz = (ulong)(s->packet_end - s->packet);
         glob->metrics.send_message[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ]++;
         fd_gossip_send_raw(glob, &s->addr, s->packet, sz);
-        char tmp[100];
-        FD_LOG_DEBUG(("push to %s size=%lu", fd_gossip_addr_str(tmp, sizeof(tmp), &s->addr), sz));
+        FD_LOG_DEBUG(("push to " GOSSIP_ADDR_FMT " size=%lu", GOSSIP_ADDR_FMT_ARGS( s->addr ), sz));
         s->packet_end = s->packet_end_init;
         *crds_len = 0;
       }
@@ -2146,8 +2124,7 @@ fd_gossip_push( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
       ulong sz = (ulong)(s->packet_end - s->packet);
       fd_gossip_send_raw(glob, &s->addr, s->packet, sz);
       glob->metrics.send_message[ FD_METRICS_ENUM_GOSSIP_MESSAGE_V_PUSH_IDX ]++;
-      char tmp[100];
-      FD_LOG_DEBUG(("push to %s size=%lu", fd_gossip_addr_str(tmp, sizeof(tmp), &s->addr), sz));
+      FD_LOG_DEBUG(("push to " GOSSIP_ADDR_FMT " size=%lu", GOSSIP_ADDR_FMT_ARGS( s->addr ), sz));
       s->packet_end = s->packet_end_init;
       *crds_len = 0;
     }
@@ -2354,11 +2331,10 @@ fd_gossip_log_stats( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
       continue;
     }
     fd_active_elem_t * act = fd_active_table_query(glob->actives, &ele->key, NULL);
-    char buf[100];
     char keystr[ FD_BASE58_ENCODED_32_SZ ];
     fd_base58_encode_32( ele->id.uc, NULL, keystr );
-    FD_LOG_DEBUG(("peer at %s id %s age %.3f %s",
-                   fd_gossip_addr_str(buf, sizeof(buf), &ele->key),
+    FD_LOG_DEBUG(( "peer at " GOSSIP_ADDR_FMT " id %s age %.3f %s",
+                   GOSSIP_ADDR_FMT_ARGS( ele->key ),
                    keystr,
                    ((double)(wc - ele->wallclock))*0.001,
                    ((act != NULL && act->pongtime != 0) ? "(active)" : "")));
@@ -2460,9 +2436,8 @@ fd_gossip_recv_packet( fd_gossip_t * glob, uchar const * msg, ulong msglen, fd_g
       return -1;
     }
 
-    char tmp[100];
-
-    FD_LOG_DEBUG(( "recv msg type %u from %s", gmsg->discriminant, fd_gossip_addr_str( tmp, sizeof(tmp), from ) ));
+    FD_LOG_DEBUG(( "recv msg type %u from " GOSSIP_ADDR_FMT,
+                   gmsg->discriminant, GOSSIP_ADDR_FMT_ARGS( *from ) ));
     fd_gossip_recv( glob, from, gmsg );
 
     fd_gossip_unlock( glob );
