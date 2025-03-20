@@ -45,9 +45,10 @@
 
 #define PLUGIN_PUBLISH_TIME_NS ((long)60e9)
 
-#define REPAIR_IN_IDX   (0UL)
-#define PACK_IN_IDX    (1UL)
-#define BATCH_IN_IDX   (2UL)
+#define STORE_IN_IDX  (0UL)
+#define REPAIR_IN_IDX   (1UL)
+#define PACK_IN_IDX    (2UL)
+#define BATCH_IN_IDX   (3UL)
 
 #define STAKE_OUT_IDX  (0UL)
 #define NOTIF_OUT_IDX  (1UL)
@@ -483,6 +484,9 @@ during_frag( fd_replay_tile_ctx_t * ctx,
     if( FD_UNLIKELY( chunk<ctx->repair_in_chunk0 || chunk>ctx->repair_in_wmark || sz>USHORT_MAX ) ) {
       FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->repair_in_chunk0, ctx->repair_in_wmark ));
     }
+    return;
+  } else if ( in_idx==STORE_IN_IDX ) {
+    FD_LOG_WARNING(("Store message recieved with sz: %lu", sz));
     return;
   }
   // if( ctx->flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
@@ -1472,10 +1476,11 @@ exec_slices( fd_replay_tile_ctx_t * ctx,
       break; /* have to synchronize & wait for exec tiles to finish the prev microblock */
     }
 
-    if( FD_UNLIKELY( ctx->slice_exec_ctx.last_batch &&
-                     ctx->slice_exec_ctx.mblks_rem == 0 &&
-                     ctx->slice_exec_ctx.txns_rem == 0 ) ) {
-      /* block done. */
+    if( ctx->slice_exec_ctx.txns_rem == 0 && ctx->slice_exec_ctx.mblks_rem == 0 ){
+      /* If we reach this point, we have finished executing all the
+         microblocks in the slice. */
+      FD_LOG_WARNING(( "[%s] SLICE EXECUTION COMPLETE", __func__ ));
+      ctx->flags = EXEC_FLAG_READY_NEW;
       break;
     }
   }
@@ -1507,7 +1512,7 @@ exec_slices( fd_replay_tile_ctx_t * ctx,
      memcpy( &block_info->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof(fd_hash_t) );
 
      fd_block_map_publish( query );
-     ctx->flags = fd_disco_replay_old_sig( slot, REPLAY_FLAG_FINISHED_BLOCK );
+     ctx->flags = EXEC_FLAG_FINISHED_SLOT;
 
      ctx->slice_exec_ctx.last_batch = 0;
      ctx->slice_exec_ctx.txns_rem = 0;
@@ -1539,7 +1544,8 @@ after_frag( fd_replay_tile_ctx_t * ctx,
      batch). Only when we complete execution of batch is when we poll
      for next frag. */
 
-  if( FD_LIKELY( in_idx == REPAIR_IN_IDX ) ) {
+  if( FD_LIKELY( in_idx == REPAIR_IN_IDX || in_idx == STORE_IN_IDX ) ) {
+    FD_TEST( ctx->flags == EXEC_FLAG_READY_NEW );
     ulong  slot          = fd_disco_repair_replay_sig_slot( sig );
     uint   fec_end_idx   = fd_disco_repair_replay_sig_fec_end_idx( sig );
     ushort parent_off    = fd_disco_repair_replay_sig_parent_off( sig );
@@ -1547,6 +1553,8 @@ after_frag( fd_replay_tile_ctx_t * ctx,
 
     /* options are to keep track of a wmk_fec_end_idx :[ maybe can we do in the fork_t pls :' <
        that would be very epic */
+
+    FD_LOG_WARNING(("REPAIR/STORE - slot: %lu, fec_end_idx: %u, parent_off: %u, slot_complete: %d", slot, fec_end_idx, parent_off, slot_complete));
 
     if( FD_UNLIKELY( slot != ctx->curr_slot ) ) {
       /* We need to switch forks and execution contextx. Either we
@@ -1566,7 +1574,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
     }
 
     /* Prepare batch for execution on following after_credit iteration */
-
+    ctx->flags = EXEC_FLAG_EXECUTING_SLICE;
     fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &slot, NULL, ctx->forks->pool );
     ulong slice_sz;
     int err = fd_blockstore_slice_query( ctx->slot_ctx->blockstore,
@@ -1935,7 +1943,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   ctx->parent_slot   = ctx->slot_ctx->slot_bank.prev_slot;
   ctx->snapshot_slot = snapshot_slot;
   ctx->blockhash     = ( fd_hash_t ){ .hash = { 0 } };
-  ctx->flags         = 0UL;
+  ctx->flags         = EXEC_FLAG_READY_NEW;
   ctx->txn_cnt       = 0UL;
 
   /* Initialize consensus structures post-snapshot */
@@ -2108,9 +2116,14 @@ after_credit( fd_replay_tile_ctx_t * ctx,
               int *                  charge_busy ) {
   (void)opt_poll_in;
 
-  exec_slices( ctx, stem, ctx->curr_slot );
-  // if we mid exectuion then
-  if( 0 ){
+  if( ctx->flags & EXEC_FLAG_EXECUTING_SLICE ){
+    exec_slices( ctx, stem, ctx->curr_slot );
+  }
+
+  // if we are still mid-execution of this slice then
+  if( ctx->flags & EXEC_FLAG_EXECUTING_SLICE ){
+    /* We are not ready to poll for a new frag. Leave it in mcache until
+       we are ready */
     *opt_poll_in = 0;
     return;
   }
@@ -2129,7 +2142,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
   /* Cleanup and handle consensus after replaying the whole block       */
   /**********************************************************************/
 
-  if( FD_UNLIKELY( (flags & REPLAY_FLAG_FINISHED_BLOCK) && ( ctx->last_completed_slot != curr_slot )) ) {
+  if( FD_UNLIKELY( flags & EXEC_FLAG_FINISHED_SLOT ) ){
     fork->slot_ctx.txn_count = fork->slot_ctx.slot_bank.transaction_count-fork->slot_ctx.parent_transaction_count;
     FD_LOG_WARNING(( "finished block - slot: %lu, parent_slot: %lu, txn_cnt: %lu, blockhash: %s",
                   curr_slot,
@@ -2364,6 +2377,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     }
 
     fd_bank_hash_cmp_unlock( bank_hash_cmp );
+    ctx->flags = EXEC_FLAG_READY_NEW;
   } // end of if( FD_UNLIKELY( ( flags & REPLAY_FLAG_FINISHED_BLOCK ) ) )
 
   if( FD_UNLIKELY( ctx->snapshot_init_done==0 ) ) {
@@ -2438,7 +2452,8 @@ static void
 unprivileged_init( fd_topo_t *      topo,
                    fd_topo_tile_t * tile ) {
 
-  FD_TEST( tile->in_cnt == 3 );
+  FD_TEST( tile->in_cnt == 4 );
+  FD_TEST( 0==strcmp( topo->links[ tile->in_link_id[ STORE_IN_IDX ] ].name, "store_replay" ) );
   FD_TEST( 0==strcmp( topo->links[ tile->in_link_id[ REPAIR_IN_IDX ] ].name, "repair_repla" ) );
   FD_TEST( 0==strcmp( topo->links[ tile->in_link_id[ PACK_IN_IDX  ] ].name, "pack_replay"  ) );
   FD_TEST( 0==strcmp( topo->links[ tile->in_link_id[ BATCH_IN_IDX ] ].name, "batch_replay" ) );

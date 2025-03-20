@@ -33,6 +33,7 @@
 #define STORE_OUT_IDX (0)
 #define NET_OUT_IDX   (1)
 #define SIGN_OUT_IDX  (2)
+#define REPLAY_OUT_IDX (3)
 
 #define MAX_REPAIR_PEERS 40200UL
 #define MAX_BUFFER_SIZE  ( MAX_REPAIR_PEERS * sizeof(fd_shred_dest_wire_t))
@@ -307,8 +308,8 @@ before_frag( fd_repair_tile_ctx_t * ctx,
 
   if( FD_LIKELY( in_idx==NET_IN_IDX   ) ) return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR;
   if( FD_LIKELY( in_idx==SHRED_IN_IDX ) ) {
-    int sig_type = fd_disco_shred_repair_sig_type( sig );
-    return !sig_type;
+    //int sig_type = fd_disco_shred_repair_sig_type( sig );
+    return 1;
   }
   return 0;
 }
@@ -355,7 +356,8 @@ during_frag( fd_repair_tile_ctx_t * ctx,
   } else if ( FD_LIKELY( in_idx == NET_IN_IDX ) ) {
     dcache_entry = fd_net_rx_translate_frag( &ctx->net_in_bounds, chunk, ctl, sz );
     dcache_entry_sz = sz;
-  } else {
+  } else { // SHRED_IN_IDX
+    return;
     FD_LOG_ERR(("Unknown in_idx %lu for repair", in_idx));
   }
 
@@ -509,10 +511,11 @@ unprivileged_init( fd_topo_t *      topo,
   FD_TEST( 0==strcmp( topo->links[ tile->in_link_id[ STORE_IN_IDX   ] ].name, "store_repair" ) );
   FD_TEST( 0==strcmp( topo->links[ tile->in_link_id[ SHRED_IN_IDX   ] ].name, "shred_repair" ) );
 
-  FD_TEST( tile->out_cnt == 3 );
+  FD_TEST( tile->out_cnt == 4 );
   FD_TEST( 0==strcmp( topo->links[ tile->out_link_id[ STORE_OUT_IDX ] ].name, "repair_store" ));
   FD_TEST( 0==strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX   ] ].name, "repair_net" ));
   FD_TEST( 0==strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX  ] ].name, "repair_sign" ));
+  FD_TEST( 0==strcmp( topo->links[ tile->out_link_id[ REPLAY_OUT_IDX ] ].name, "repair_repla" ));
 
   /* Scratch mem setup */
 
