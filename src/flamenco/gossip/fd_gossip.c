@@ -1,10 +1,6 @@
-#define _GNU_SOURCE 1
 #include "fd_gossip.h"
-#include "../../ballet/sha256/fd_sha256.h"
-#include "../../ballet/ed25519/fd_ed25519.h"
 #include "../../ballet/base58/fd_base58.h"
 #include "../../disco/keyguard/fd_keyguard.h"
-#include "../../util/rng/fd_rng.h"
 
 /* Maximum size of a network packet */
 #define PACKET_DATA_SIZE 1232
@@ -190,25 +186,30 @@ typedef struct fd_weights_elem fd_weights_elem_t;
 /* Queue of pending timed events, stored as a priority heap */
 union fd_pending_event_arg {
     fd_gossip_peer_addr_t key;
+    ulong                 ul;
 };
 typedef union fd_pending_event_arg fd_pending_event_arg_t;
+
+static inline fd_pending_event_arg_t
+fd_pending_event_arg_null( void ) {
+  return (fd_pending_event_arg_t){ .ul=0 };
+}
+
+static inline fd_pending_event_arg_t
+fd_pending_event_arg_peer_addr( fd_gossip_peer_addr_t key ) {
+  return (fd_pending_event_arg_t){ .key=key };
+}
+
 typedef void (*fd_pending_event_fun)(struct fd_gossip * glob, fd_pending_event_arg_t * arg);
 struct fd_pending_event {
-    ulong left;
-    ulong right;
-    long key;
+    long timeout;
     fd_pending_event_fun fun;
     fd_pending_event_arg_t fun_arg;
 };
 typedef struct fd_pending_event fd_pending_event_t;
-#define POOL_NAME fd_pending_pool
-#define POOL_T    fd_pending_event_t
-#define POOL_NEXT left
-#include "../../util/tmpl/fd_pool.c"
-#define HEAP_NAME      fd_pending_heap
-#define HEAP_T         fd_pending_event_t
-#define HEAP_LT(e0,e1) (e0->key < e1->key)
-#include "../../util/tmpl/fd_heap.c"
+#define PRQ_NAME fd_pending_heap
+#define PRQ_T    fd_pending_event_t
+#include "../../util/tmpl/fd_prq.c"
 
 /* Data structure representing an active push destination. There are
    only a small number of these. */
@@ -357,8 +358,7 @@ struct fd_gossip {
     fd_msg_stats_elem_t msg_stats[FD_KNOWN_CRDS_ENUM_MAX];
 
     /* Heap/queue of pending timed events */
-    fd_pending_event_t * event_pool;
-    fd_pending_heap_t * event_heap;
+    fd_pending_event_t * event_heap;
 
     /* Random number generator */
     fd_rng_t rng[1];
@@ -402,7 +402,6 @@ fd_gossip_footprint( void ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_peer_addr_t), INACTIVES_MAX*sizeof(fd_gossip_peer_addr_t) );
   l = FD_LAYOUT_APPEND( l, alignof(fd_hash_t), FD_NEED_PUSH_MAX*sizeof(fd_hash_t) );
   l = FD_LAYOUT_APPEND( l, fd_value_table_align(), fd_value_table_footprint(FD_VALUE_KEY_MAX) );
-  l = FD_LAYOUT_APPEND( l, fd_pending_pool_align(), fd_pending_pool_footprint(FD_PENDING_MAX) );
   l = FD_LAYOUT_APPEND( l, fd_pending_heap_align(), fd_pending_heap_footprint(FD_PENDING_MAX) );
   l = FD_LAYOUT_APPEND( l, fd_stats_table_align(), fd_stats_table_footprint(FD_STATS_KEY_MAX) );
   l = FD_LAYOUT_APPEND( l, fd_weights_table_align(), fd_weights_table_footprint(MAX_STAKE_WEIGHTS) );
@@ -431,8 +430,6 @@ fd_gossip_new ( void * shmem, ulong seed ) {
   glob->values = fd_value_table_join(fd_value_table_new(shm, FD_VALUE_KEY_MAX, seed));
 
   glob->last_contact_time = 0;
-  shm = FD_SCRATCH_ALLOC_APPEND(l, fd_pending_pool_align(), fd_pending_pool_footprint(FD_PENDING_MAX));
-  glob->event_pool = fd_pending_pool_join(fd_pending_pool_new(shm, FD_PENDING_MAX));
 
   shm = FD_SCRATCH_ALLOC_APPEND(l, fd_pending_heap_align(), fd_pending_heap_footprint(FD_PENDING_MAX));
   glob->event_heap = fd_pending_heap_join(fd_pending_heap_new(shm, FD_PENDING_MAX));
@@ -467,7 +464,6 @@ fd_gossip_delete ( void * shmap ) {
   fd_active_table_delete( fd_active_table_leave( glob->actives ) );
 
   fd_value_table_delete( fd_value_table_leave( glob->values ) );
-  fd_pending_pool_delete( fd_pending_pool_leave( glob->event_pool ) );
   fd_pending_heap_delete( fd_pending_heap_leave( glob->event_heap ) );
   fd_stats_table_delete( fd_stats_table_leave( glob->stats ) );
   fd_weights_table_delete( fd_weights_table_leave( glob->weights ) );
@@ -798,16 +794,17 @@ fd_gossip_set_shred_version( fd_gossip_t * glob, ushort shred_version ) {
   glob->my_contact.ci->shred_version = shred_version;
 }
 
-/* Add an event to the queue of pending timed events. The resulting
-   value needs "fun" and "fun_arg" to be set. */
-static fd_pending_event_t *
-fd_gossip_add_pending( fd_gossip_t * glob, long when ) {
-  if (fd_pending_pool_free( glob->event_pool ) == 0)
-    return NULL;
-  fd_pending_event_t * ev = fd_pending_pool_ele_acquire( glob->event_pool );
-  ev->key = when;
-  fd_pending_heap_ele_insert( glob->event_heap, ev, glob->event_pool );
-  return ev;
+/* Add an event to the queue of pending timed events. */
+static int
+fd_gossip_add_pending( fd_gossip_t *          glob,
+                       fd_pending_event_fun   fun,
+                       fd_pending_event_arg_t fun_arg,
+                       long                   timeout ) {
+  if( FD_UNLIKELY( fd_pending_heap_cnt( glob->event_heap )>=fd_pending_heap_max( glob->event_heap ) ) )
+    return 0;
+  fd_pending_event_t ev = { .fun=fun, .fun_arg=fun_arg, .timeout=timeout };
+  fd_pending_heap_insert( glob->event_heap, &ev );
+  return 1;
 }
 
 /* Send raw data as a UDP packet to an address */
@@ -875,11 +872,9 @@ fd_gossip_make_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   }
 
   /* Keep pinging until we succeed */
-  fd_pending_event_t * ev = fd_gossip_add_pending( glob, glob->now + (long)2e8 /* 200 ms */ );
-  if (ev != NULL) {
-    ev->fun = fd_gossip_make_ping;
-    fd_gossip_peer_addr_copy(&ev->fun_arg.key, key);
-  }
+  fd_gossip_add_pending( glob,
+                         fd_gossip_make_ping, fd_pending_event_arg_peer_addr( *key ),
+                         glob->now + (long)2e8 /* 200 ms */ );
 
   fd_pubkey_t * public_key = glob->public_key;
 
@@ -1083,10 +1078,7 @@ fd_gossip_random_pull( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   (void)arg;
 
   /* Try again in 5 sec */
-  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)100e6);
-  if (ev) {
-    ev->fun = fd_gossip_random_pull;
-  }
+  fd_gossip_add_pending( glob, fd_gossip_random_pull, fd_pending_event_arg_null(), glob->now + (long)100e6 );
 
   /* Pick a random partner */
   fd_active_elem_t * ele = fd_gossip_random_active(glob);
@@ -1312,13 +1304,9 @@ fd_gossip_random_ping( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   (void)arg;
 
   /* Try again in 1 sec */
-  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)100e8);
-  if (ev) {
-    ev->fun = fd_gossip_random_ping;
-  }
-
-  if (fd_pending_pool_free( glob->event_pool ) < 100U)
-    return;
+  fd_gossip_add_pending( glob,
+                         fd_gossip_random_ping, fd_pending_event_arg_null(),
+                         glob->now + (long)100e8 );
 
   ulong cnt = fd_active_table_key_cnt(glob->actives);
   if (cnt == 0 && glob->inactives_cnt == 0)
@@ -1802,7 +1790,7 @@ fd_gossip_handle_pull_req(fd_gossip_t * glob, const fd_gossip_peer_addr_t * from
 
     /* Ping new peers before responding to requests */
     /* TODO: is this the right thing to do here? */
-    if (fd_pending_pool_free( glob->event_pool ) < 100U) {
+    if( fd_pending_heap_cnt( glob->event_heap )+100U > fd_pending_heap_max( glob->event_heap ) ) {
       INC_HANDLE_PULL_REQ_FAIL_METRIC( PENDING_POOL_FULL );
       return;
     }
@@ -1974,10 +1962,7 @@ fd_gossip_refresh_push_states( fd_gossip_t * glob, fd_pending_event_arg_t * arg 
   (void)arg;
 
   /* Try again in 20 sec */
-  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)20e9);
-  if (ev) {
-    ev->fun = fd_gossip_refresh_push_states;
-  }
+  fd_gossip_add_pending( glob, fd_gossip_refresh_push_states, fd_pending_event_arg_null(), glob->now + (long)20e9 );
 
   /* Delete states which no longer have active peers */
   for (ulong i = 0; i < glob->push_states_cnt; ++i) {
@@ -2056,10 +2041,7 @@ fd_gossip_push( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   (void)arg;
 
   /* Try again in 100 msec */
-  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)1e8);
-  if (ev) {
-    ev->fun = fd_gossip_push;
-  }
+  fd_gossip_add_pending( glob, fd_gossip_push, fd_pending_event_arg_null(), glob->now + (long)1e8 );
 
   /* Push an updated version of my contact info into values */
   fd_gossip_push_updated_contact(glob);
@@ -2220,10 +2202,7 @@ fd_gossip_make_prune( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   (void)arg;
 
   /* Try again in 30 sec */
-  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)30e9);
-  if (ev) {
-    ev->fun = fd_gossip_make_prune;
-  }
+  fd_gossip_add_pending( glob, fd_gossip_make_prune, fd_pending_event_arg_null(), glob->now + (long)30e9 );
 
   long expire = glob->now - (long)FD_GOSSIP_VALUE_EXPIRE*((long)1e6);
   for( fd_stats_table_iter_t iter = fd_stats_table_iter_init( glob->stats );
@@ -2298,10 +2277,7 @@ fd_gossip_log_stats( fd_gossip_t * glob, fd_pending_event_arg_t * arg ) {
   (void)arg;
 
   /* Try again in 60 sec */
-  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)60e9);
-  if (ev) {
-    ev->fun = fd_gossip_log_stats;
-  }
+  fd_gossip_add_pending( glob, fd_gossip_log_stats, fd_pending_event_arg_null(), glob->now + (long)60e9 );
 
   if( glob->recv_pkt_cnt == 0 )
     FD_LOG_WARNING(("received no gossip packets!!"));
@@ -2364,21 +2340,13 @@ fd_gossip_gettime( fd_gossip_t * glob ) {
 int
 fd_gossip_start( fd_gossip_t * glob ) {
   fd_gossip_lock( glob );
-  /* Start pulling and pinging on a timer */
-  fd_pending_event_t * ev = fd_gossip_add_pending(glob, glob->now + (long)1e9);
-  ev->fun = fd_gossip_random_pull;
-  ev = fd_gossip_add_pending(glob, glob->now + (long)5e9);
-  ev->fun = fd_gossip_random_ping;
-  ev = fd_gossip_add_pending(glob, glob->now + (long)60e9);
-  ev->fun = fd_gossip_log_stats;
-  ev = fd_gossip_add_pending(glob, glob->now + (long)20e9);
-  ev->fun = fd_gossip_refresh_push_states;
-  ev = fd_gossip_add_pending(glob, glob->now + (long)1e8);
-  ev->fun = fd_gossip_push;
-  ev = fd_gossip_add_pending(glob, glob->now + (long)30e9);
-  ev->fun = fd_gossip_make_prune;
+  fd_gossip_add_pending( glob, fd_gossip_random_pull,         fd_pending_event_arg_null(), glob->now + (long) 1e9 );
+  fd_gossip_add_pending( glob, fd_gossip_random_ping,         fd_pending_event_arg_null(), glob->now + (long) 5e9 );
+  fd_gossip_add_pending( glob, fd_gossip_log_stats,           fd_pending_event_arg_null(), glob->now + (long)60e9 );
+  fd_gossip_add_pending( glob, fd_gossip_refresh_push_states, fd_pending_event_arg_null(), glob->now + (long)20e9 );
+  fd_gossip_add_pending( glob, fd_gossip_push,                fd_pending_event_arg_null(), glob->now + (long) 1e8 );
+  fd_gossip_add_pending( glob, fd_gossip_make_prune,          fd_pending_event_arg_null(), glob->now + (long)30e9 );
   fd_gossip_unlock( glob );
-
   return 0;
 }
 
@@ -2387,16 +2355,12 @@ fd_gossip_start( fd_gossip_t * glob ) {
 int
 fd_gossip_continue( fd_gossip_t * glob ) {
   fd_gossip_lock( glob );
-  do {
-    fd_pending_event_t * ev = fd_pending_heap_ele_peek_min( glob->event_heap, glob->event_pool );
-    if (ev == NULL || ev->key > glob->now)
-      break;
-    fd_pending_event_t evcopy;
-    fd_memcpy(&evcopy, ev, sizeof(evcopy));
-    fd_pending_heap_ele_remove_min( glob->event_heap, glob->event_pool );
-    fd_pending_pool_ele_release( glob->event_pool, ev );
-    (*evcopy.fun)(glob, &evcopy.fun_arg);
-  } while (1);
+  fd_pending_event_t * events = glob->event_heap;
+  while( fd_pending_heap_cnt( events ) ) {
+    if( events[0].timeout > glob->now ) break;
+    (events[0].fun)( glob, &events[0].fun_arg );
+    fd_pending_heap_remove_min( events );
+  }
   fd_gossip_unlock( glob );
   return 0;
 }
