@@ -37,7 +37,11 @@ $(call add-objs,callbacks,fd_firedancer)
 $(call make-lib,firedancer_version)
 $(call add-objs,version,firedancer_version)
 
+ifdef FD_HAS_ROCKSDB
+$(call make-bin-rust,firedancer,main,fd_firedancer fdctl_shared fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util firedancer_version, $(SECP256K1_LIBS) $(ROCKSDB_LIBS))
+else
 $(call make-bin-rust,firedancer,main,fd_firedancer fdctl_shared fd_discof fd_disco fd_choreo fd_flamenco fd_funk fd_quic fd_tls fd_reedsol fd_ballet fd_waltz fd_tango fd_util firedancer_version, $(SECP256K1_LIBS))
+endif
 
 firedancer: $(OBJDIR)/bin/firedancer
 

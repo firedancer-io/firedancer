@@ -79,6 +79,10 @@ fd_bank_hash_cmp_insert( fd_bank_hash_cmp_t * bank_hash_cmp,
 int
 fd_bank_hash_cmp_check( fd_bank_hash_cmp_t * bank_hash_cmp, ulong slot );
 
+int
+fd_bank_hash_rocksdb_cmp_check( fd_bank_hash_cmp_t * bank_hash_cmp, ulong slot, fd_hash_t expected );
+
+
 FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_bank_hash_cmp_h */

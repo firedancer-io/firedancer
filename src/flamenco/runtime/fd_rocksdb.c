@@ -1044,25 +1044,6 @@ fd_rocksdb_import_block_blockstore( fd_rocksdb_t *    db,
     FD_TEST( blk->txns_meta_gaddr + blk->txns_meta_sz == fd_wksp_gaddr_fast( wksp, cur_laddr ) );
   }
 
-  blockstore->shmem->lps = slot;
-  blockstore->shmem->hcs = slot;
-  blockstore->shmem->wmk = slot;
-
-  if( FD_LIKELY( block_info ) ) {
-    block_info->flags =
-      fd_uchar_set_bit(
-      fd_uchar_set_bit(
-      fd_uchar_set_bit(
-      fd_uchar_set_bit(
-      fd_uchar_set_bit(
-        block_info->flags,
-        FD_BLOCK_FLAG_COMPLETED ),
-        FD_BLOCK_FLAG_PROCESSED ),
-        FD_BLOCK_FLAG_EQVOCSAFE ),
-        FD_BLOCK_FLAG_CONFIRMED ),
-        FD_BLOCK_FLAG_FINALIZED );
-  }
-
   return 0;
 }
 
