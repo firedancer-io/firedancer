@@ -26,36 +26,6 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
     }
   }
 
-  uchar acc_idx_seen[256];
-  memset( acc_idx_seen, 0, 256 );
-
-  instr_info->acct_cnt = (ushort)acct_metas_len;
-  for ( ulong j = 0; j < acct_metas_len; j++ ) {
-    fd_vm_rust_account_meta_t const * acct_meta = &acct_metas[j];
-
-    for ( ulong k = 0; k < ctx->instr->acct_cnt; k++ ) {
-      if ( memcmp( acct_meta->pubkey, ctx->instr->acct_pubkeys[k].uc, sizeof(fd_pubkey_t) ) == 0 ) {
-        instr_info->acct_pubkeys[j]  = ctx->instr->acct_pubkeys[k];
-        instr_info->acct_txn_idxs[j] = ctx->instr->acct_txn_idxs[k];
-        instr_info->acct_flags[j]    = 0;
-        instr_info->accounts[j]      = ctx->instr->accounts[k];
-
-        instr_info->is_duplicate[j] = acc_idx_seen[k];
-        if( FD_LIKELY( !acc_idx_seen[k] ) ) {
-          /* This is the first time seeing this account */
-          acc_idx_seen[k] = 1;
-        }
-
-        if( acct_meta->is_writable ) {
-          instr_info->acct_flags[j] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
-        }
-        if( acct_meta->is_signer ) {
-          instr_info->acct_flags[j] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
-        }
-        break;
-      }
-    }
-  }
 
   fd_bincode_encode_ctx_t ctx2;
   uchar buf[4096UL]; // Size that is large enough for the instruction
@@ -68,8 +38,10 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
 
   instr_info->data = buf;
   instr_info->data_sz = sizeof(buf);
-  int exec_err = fd_vm_prepare_instruction( ctx->instr, instr_info, ctx, instruction_accounts,
-                                            &instruction_accounts_cnt, signers, signers_cnt );
+  int exec_err = fd_vm_prepare_instruction( ctx->instr, instr_info, ctx,
+                                            acct_metas, acct_metas_len,
+                                            instruction_accounts, &instruction_accounts_cnt,
+                                            signers, signers_cnt );
   if( exec_err != FD_EXECUTOR_INSTR_SUCCESS ) {
     return exec_err;
   }

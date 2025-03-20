@@ -59,25 +59,29 @@ TODO: is it possible to pass the transaction indexes of the accounts in?
 This would allow us to make some of these algorithms more efficient.
 */
 int
-fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
-                           fd_instr_info_t *        callee_instr,
-                           fd_exec_instr_ctx_t *    instr_ctx,
-                           fd_instruction_account_t instruction_accounts[256],
-                           ulong *                  instruction_accounts_cnt,
-                           fd_pubkey_t const *      signers,
-                           ulong                    signers_cnt ) {
-
+fd_vm_prepare_instruction( fd_instr_info_t const *      caller_instr,
+                           fd_instr_info_t *            callee_instr,
+                           fd_exec_instr_ctx_t *        instr_ctx,
+                           fd_vm_account_meta_t const * cpi_account_metas,
+                           ulong                        cpi_account_metas_cnt,
+                           fd_instruction_account_t     instruction_accounts[256],
+                           ulong *                      instruction_accounts_cnt,
+                           fd_pubkey_t const *          signers,
+                           ulong                        signers_cnt ) {
   /* De-duplicate the instruction accounts, using the same logic as Solana */
   ulong deduplicated_instruction_accounts_cnt = 0;
   fd_instruction_account_t deduplicated_instruction_accounts[256] = {0};
   ulong duplicate_indicies_cnt = 0;
   ulong duplicate_indices[256] = {0};
 
+    /* Calculate summary information for the account list */
+    ulong starting_lamports_h = 0UL;
+    ulong starting_lamports_l = 0UL;
   /* Normalize the privileges of each instruction account in the callee, after de-duping
      the account references.
     https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L540-L595 */
-  for( ulong i=0UL; i<callee_instr->acct_cnt; i++ ) {
-    fd_pubkey_t const * callee_pubkey = &callee_instr->acct_pubkeys[i];
+  for( ulong i=0UL; i<cpi_account_metas_cnt; i++ ) {
+    fd_pubkey_t const * callee_pubkey = (fd_pubkey_t *)&cpi_account_metas[i].pubkey;
 
     /* Find the corresponding transaction account index for this callee instruction account */
     /* TODO: passing in the transaction indicies would mean we didn't have to do this */
@@ -96,6 +100,14 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
+
+    /* Populate entry in callee_instr */
+    fd_memcpy( &callee_instr->acct_pubkeys[i], callee_pubkey, sizeof(fd_pubkey_t) );
+    callee_instr->acct_txn_idxs[i]  = (uchar)index_in_transaction;
+    callee_instr->acct_flags[i]     = (uchar) ( ( !!(cpi_account_metas[i].is_writable) * FD_INSTR_ACCT_FLAGS_IS_WRITABLE ) |
+                                                ( !!(cpi_account_metas[i].is_signer  ) * FD_INSTR_ACCT_FLAGS_IS_SIGNER   ) );
+    callee_instr->accounts[i]       = &instr_ctx->txn_ctx->accounts[index_in_transaction];
+
 
     /* If there was an instruction account before this one which referenced the same
        transaction account index, find it's index in the deduplicated_instruction_accounts
@@ -119,12 +131,19 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
         FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS, instr_ctx->txn_ctx->instr_err_idx );
         return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
       }
-
+      callee_instr->is_duplicate[i] = 1;
       duplicate_indices[duplicate_indicies_cnt++] = duplicate_index;
       fd_instruction_account_t * instruction_account = &deduplicated_instruction_accounts[duplicate_index];
       instruction_account->is_signer   |= !!(callee_instr->acct_flags[i] & FD_INSTR_ACCT_FLAGS_IS_SIGNER);
       instruction_account->is_writable |= !!(callee_instr->acct_flags[i] & FD_INSTR_ACCT_FLAGS_IS_WRITABLE);
     } else {
+
+      if( callee_instr->accounts[i]->const_meta ){
+        fd_uwide_inc(
+          &starting_lamports_h, &starting_lamports_l,
+          starting_lamports_h, starting_lamports_l,
+          callee_instr->accounts[i]->const_meta->info.lamports );
+      }
       /* In the case where the callee instruction is NOT a duplicate, we need to
          create the deduplicated_instruction_accounts fd_instruction_account_t object. */
 
@@ -156,6 +175,9 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
       instruction_account->is_writable          = !!(callee_instr->acct_flags[i] & FD_INSTR_ACCT_FLAGS_IS_WRITABLE);
     }
   }
+  callee_instr->starting_lamports_h = starting_lamports_h;
+  callee_instr->starting_lamports_l = starting_lamports_l;
+  callee_instr->acct_cnt = (ushort)cpi_account_metas_cnt;
 
   /* Check the normalized account permissions for privilege escalation.
      https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L596-L624 */

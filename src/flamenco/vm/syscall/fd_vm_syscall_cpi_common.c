@@ -31,9 +31,12 @@
   }
 
 /* fd_vm_syscall_cpi_instruction_to_instr_{c/rust} takes the translated
-   CPI ABI structures (instruction and account meta list), and uses these
-   to populate a fd_instr_info_t struct. This struct can then be given to the
-   FD runtime for execution.
+   CPI instruction, and uses it to populate the following in a
+  fd_instr_info_t struct:
+    - program_id
+    - program_id_pubkey
+    - data
+    - data_sz
 
 Parameters:
 - vm: handle to the vm
@@ -49,7 +52,6 @@ TODO: return codes/errors?
 static int
 VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
                             VM_SYSCALL_CPI_INSTR_T const * cpi_instr,
-                            VM_SYSCALL_CPI_ACC_META_T const * cpi_acct_metas,
                             fd_pubkey_t const * program_id,
                             uchar const * cpi_instr_data,
                             fd_instr_info_t * out_instr ) {
@@ -66,64 +68,8 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
     }
   }
 
-  /* Calculate summary information for the account list */
-  ulong starting_lamports_h = 0UL;
-  ulong starting_lamports_l = 0UL;
-  uchar acc_idx_seen[256] = {0};
-  for( ulong i=0UL; i<VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instr ); i++ ) {
-    VM_SYSCALL_CPI_ACC_META_T const * cpi_acct_meta = &cpi_acct_metas[i];
-    uchar const * pubkey = VM_SYSCALL_CPI_ACC_META_PUBKEY( vm, cpi_acct_meta );
-
-    int account_found = 0;
-    for( ulong j=0UL; j<vm->instr_ctx->txn_ctx->accounts_cnt; j++ ) {
-      if( !memcmp( pubkey, &txn_accs[j], sizeof(fd_pubkey_t) ) ) {
-        account_found = 1;
-        /* TODO: error if flags are wrong */
-        memcpy( out_instr->acct_pubkeys[i].uc, pubkey, sizeof( fd_pubkey_t ) );
-        out_instr->acct_txn_idxs[i]     = (uchar)j;
-        out_instr->acct_flags[i]        = 0;
-        out_instr->accounts[i] = &vm->instr_ctx->txn_ctx->accounts[j];
-        out_instr->is_duplicate[i]      = acc_idx_seen[j];
-
-        if( FD_LIKELY( !acc_idx_seen[j] ) ) {
-          /* This is the first time seeing this account */
-          acc_idx_seen[j] = 1;
-          if( out_instr->accounts[i]->const_meta ) {
-            /* TODO: what if this account is borrowed as writable? */
-            fd_uwide_inc(
-              &starting_lamports_h, &starting_lamports_l,
-              starting_lamports_h, starting_lamports_l,
-              out_instr->accounts[i]->const_meta->info.lamports );
-          }
-        }
-
-        /* The parent flag(s) for is writable/signer is checked in
-           fd_vm_prepare_instruction. Signer privilege is allowed iff the account
-           is a signer in the caller or if it is a derived signer. */
-        if( VM_SYSCALL_CPI_ACC_META_IS_WRITABLE( cpi_acct_meta ) ) {
-          out_instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
-        }
-
-        if( VM_SYSCALL_CPI_ACC_META_IS_SIGNER( cpi_acct_meta ) ) {
-          out_instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
-        }
-
-        break;
-      }
-    }
-    if( FD_UNLIKELY( !account_found ) ) {
-      FD_BASE58_ENCODE_32_BYTES( pubkey, id_b58 );
-      fd_log_collector_msg_many( vm->instr_ctx, 2, "Instruction references an unknown account ", 42UL, id_b58, id_b58_len );
-      FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_MISSING_ACC );
-      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
-    }
-  }
-
   out_instr->data_sz = (ushort)VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instr );
   out_instr->data = (uchar *)cpi_instr_data;
-  out_instr->acct_cnt = (ushort)VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instr );
-  out_instr->starting_lamports_h = starting_lamports_h;
-  out_instr->starting_lamports_l = starting_lamports_l;
 
   return FD_VM_SUCCESS;
 }
@@ -805,6 +751,10 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
     FD_VM_CU_UPDATE( vm, VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instruction ) / FD_VM_CPI_BYTES_PER_UNIT );
   }
 
+  /* Type-normalized CPI account metas to pass into fd_vm_prepare_instruction */
+  fd_vm_account_meta_t cpi_account_metas_translated[ 256 ];
+  ulong cpi_account_metas_translated_len = 0UL;
+
   /* Final checks for translate_instruction
    */
   for( ulong i=0UL; i<VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instruction ); i++ ) {
@@ -816,9 +766,14 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
       FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_INVALID_ARG );
       return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
     }
+
     /* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L700
      */
-    (void)VM_SYSCALL_CPI_ACC_META_PUBKEY( vm, cpi_acct_meta );
+    cpi_account_metas_translated[ cpi_account_metas_translated_len ].is_signer = cpi_acct_meta->is_signer;
+    cpi_account_metas_translated[ cpi_account_metas_translated_len ].is_writable = cpi_acct_meta->is_writable;
+    uchar const * key =  VM_SYSCALL_CPI_ACC_META_PUBKEY( vm, cpi_acct_meta );
+    fd_memcpy( cpi_account_metas_translated[ cpi_account_metas_translated_len ].pubkey, key, sizeof(fd_pubkey_t) );
+    cpi_account_metas_translated_len++;
   }
 
   /* Derive PDA signers ************************************************/
@@ -866,7 +821,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
      the translated CPI ABI inputs. */
   fd_instr_info_t instruction_to_execute[ 1 ];
 
-  err = VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( vm, cpi_instruction, cpi_account_metas, program_id, data, instruction_to_execute );
+  err = VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( vm, cpi_instruction, program_id, data, instruction_to_execute );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
@@ -875,7 +830,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
      before we can pass an instruction to the executor. */
   fd_instruction_account_t instruction_accounts[256];
   ulong instruction_accounts_cnt;
-  err = fd_vm_prepare_instruction( vm->instr_ctx->instr, instruction_to_execute, vm->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
+  err = fd_vm_prepare_instruction( vm->instr_ctx->instr, instruction_to_execute, vm->instr_ctx, cpi_account_metas_translated, cpi_account_metas_translated_len, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
   /* Errors are propagated in the function itself. */
   if( FD_UNLIKELY( err ) ) return err;
 

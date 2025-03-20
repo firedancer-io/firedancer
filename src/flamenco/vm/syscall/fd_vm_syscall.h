@@ -724,13 +724,15 @@ typedef struct fd_instruction_account fd_instruction_account_t;
 /* FIXME: DOES THIS GO HERE?  MAYBE GROUP WITH ADMIN OR OUTSIDE SYSCALL? */
 
 int
-fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
-                           fd_instr_info_t *        callee_instr,
-                           fd_exec_instr_ctx_t *    instr_ctx,
-                           fd_instruction_account_t instruction_accounts[256],
-                           ulong *                  instruction_accounts_cnt,
-                           fd_pubkey_t const *      signers,
-                           ulong                    signers_cnt );
+fd_vm_prepare_instruction( fd_instr_info_t const *      caller_instr,
+                           fd_instr_info_t *            callee_instr,
+                           fd_exec_instr_ctx_t *        instr_ctx,
+                           fd_vm_account_meta_t const * caller_account_metas,
+                           ulong                        caller_account_metas_cnt,
+                           fd_instruction_account_t     instruction_accounts[256],
+                           ulong *                      instruction_accounts_cnt,
+                           fd_pubkey_t const *          signers,
+                           ulong                        signers_cnt );
 
 /* syscall(a22b9c85) "sol_invoke_signed_c"
    Dispatch a cross program invocation.  Inputs are in C ABI.
