@@ -50,6 +50,12 @@
 
 FD_PROTOTYPES_BEGIN
 
+/* Mirrors solana_sdk::transaction_context::BorrowedAccount::get_state()
+
+   Acts on a fd_txn_account_t for ease of API use.
+
+   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L965-L969 */
+
 fd_bpf_upgradeable_loader_state_t *
 fd_bpf_loader_program_get_state( fd_txn_account_t const * acc,
                                  fd_spad_t *              spad,

@@ -156,7 +156,7 @@ VM_SYCALL_CPI_UPDATE_CALLEE_ACC_FUNC( fd_vm_t *                          vm,
      TODO: Agave borrows before this function call. Consider refactoring to borrow the account at the same place as Agave.
      https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/syscalls/cpi.rs#L893 */
   fd_guarded_borrowed_account_t callee_acc;
-  err = fd_exec_instr_ctx_try_borrow_account( vm->instr_ctx, instr_acc_idx, &callee_acc );
+  err = fd_exec_instr_ctx_try_borrow_instr_account( vm->instr_ctx, instr_acc_idx, &callee_acc );
   if( FD_UNLIKELY( err ) ) {
     /* No need to do anything if the account is missing from the borrowed accounts cache */
     return FD_VM_SUCCESS;
@@ -555,7 +555,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
       TODO: Agave borrows before entering this function. We should consider doing the same.
       https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/syscalls/cpi.rs#L1168-L1169 */
     fd_guarded_borrowed_account_t borrowed_callee_acc;
-    err = fd_exec_instr_ctx_try_borrow_account_with_key( vm->instr_ctx, pubkey, &borrowed_callee_acc );
+    err = fd_exec_instr_ctx_try_borrow_instr_account_with_key( vm->instr_ctx, pubkey, &borrowed_callee_acc );
     if( FD_UNLIKELY( err && ( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) ) {
       return 1;
     }
@@ -611,7 +611,7 @@ VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC( fd_vm_t *                          vm,
        TODO: Agave borrows before entering this function. We should consider doing the same.
        https://github.com/anza-xyz/agave/blob/v2.1.14/programs/bpf_loader/src/syscalls/cpi.rs#L1168-L1169 */
     fd_guarded_borrowed_account_t borrowed_callee_acc;
-    err = fd_exec_instr_ctx_try_borrow_account_with_key( vm->instr_ctx, pubkey, &borrowed_callee_acc );
+    err = fd_exec_instr_ctx_try_borrow_instr_account_with_key( vm->instr_ctx, pubkey, &borrowed_callee_acc );
     if( FD_UNLIKELY( err && ( err != FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) ) {
       return 1;
     }
