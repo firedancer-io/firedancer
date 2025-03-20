@@ -1,13 +1,11 @@
-#if 0
 #include "fd_replay.h"
-#include <sys/resource.h>
 
 int
 fd_replay_verify_init_map( fd_replay_t const * replay ) {
   fd_replay_slice_t * slice_map      = replay->slice_map;
   ulong               prev_deque_loc = 0;
-  for( ulong i = 0; i < replay->block_max; i++ ) {
-    fd_replay_slice_t * slice_map_entry = slice_map + i;
+  for( ulong i = 0; i < fd_replay_slice_map_slot_cnt( replay->slice_map ); i++ ) {
+    fd_replay_slice_t * slice_map_entry = &slice_map[i];
     FD_TEST( fd_replay_slice_deque_cnt( slice_map_entry->deque ) == 0 );
     FD_TEST( fd_replay_slice_deque_max( slice_map_entry->deque ) == replay->slice_max );
     if( i == 0 ) {
@@ -35,7 +33,7 @@ main( int argc, char ** argv ) {
   ulong  fec_max       = 16;
   ulong  slice_max     = 16;
   ulong  block_max     = 16;
-  void * replay_mem    = fd_wksp_alloc_laddr( wksp, fd_replay_align(), fd_replay_footprint( fec_max, slice_max ), 1UL );
+  void * replay_mem    = fd_wksp_alloc_laddr( wksp, fd_replay_align(), fd_replay_footprint( fec_max, slice_max, block_max ), 1UL );
   fd_replay_t * replay = fd_replay_join( fd_replay_new( replay_mem, fec_max, slice_max, block_max ) );
   FD_TEST( replay );
 
@@ -61,10 +59,5 @@ main( int argc, char ** argv ) {
   FD_TEST( fd_replay_fec_query( replay, 42, 84 ) );
 
   fd_halt();
-  return 0;
-}
-#endif
-
-int main( void ) {
   return 0;
 }
