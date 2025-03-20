@@ -261,7 +261,9 @@ fd_replay_fec_query( fd_replay_t * replay, ulong slot, uint fec_set_idx ) {
 
 static inline fd_replay_fec_t *
 fd_replay_fec_insert( fd_replay_t * replay, ulong slot, uint fec_set_idx ) {
-  if( FD_UNLIKELY( fd_replay_fec_map_key_cnt( replay->fec_map ) == fd_replay_fec_map_key_max( replay->fec_map ) ) ) return NULL;
+  if( FD_UNLIKELY( fd_replay_fec_map_key_cnt( replay->fec_map ) == fd_replay_fec_map_key_max( replay->fec_map ) ) ) {
+    FD_LOG_ERR(( "FEC MAP OOM: keys: %lu, adjust [tiles.shred] max_pending_shred_sets to give yourself more breathing room", fd_replay_fec_map_key_max( replay->fec_map )));
+  }
   ulong             key = slot << 32 | (ulong)fec_set_idx;
   fd_replay_fec_t * fec = fd_replay_fec_map_insert( replay->fec_map, key ); /* cannot fail */
   fec->slot             = slot;
