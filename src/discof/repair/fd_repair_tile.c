@@ -25,9 +25,10 @@
 #define IN_KIND_SIGN    (4)
 #define MAX_IN_LINKS    (8)
 
-#define STORE_OUT_IDX 0
-#define NET_OUT_IDX   1
-#define SIGN_OUT_IDX  2
+#define STORE_OUT_IDX (0)
+#define NET_OUT_IDX   (1)
+#define SIGN_OUT_IDX  (2)
+#define REPLAY_OUT_IDX (3)
 
 #define MAX_REPAIR_PEERS 40200UL
 #define MAX_BUFFER_SIZE  ( MAX_REPAIR_PEERS * sizeof(fd_shred_dest_wire_t))
@@ -81,6 +82,11 @@ struct fd_repair_tile_ctx {
   ulong       store_out_chunk0;
   ulong       store_out_wmark;
   ulong       store_out_chunk;
+
+  fd_wksp_t * replay_out_mem;
+  ulong       replay_out_chunk0;
+  ulong       replay_out_wmark;
+  ulong       replay_out_chunk;
 
   ushort net_id;
   /* Includes Ethernet, IP, UDP headers */
@@ -363,7 +369,6 @@ after_frag( fd_repair_tile_ctx_t * ctx,
     handle_new_repair_requests( ctx, ctx->buffer, sz );
     return;
   }
-
   ctx->stem = stem;
   fd_eth_hdr_t const * eth  = (fd_eth_hdr_t const *)ctx->buffer;
   fd_ip4_hdr_t const * ip4  = (fd_ip4_hdr_t const *)( (ulong)eth + sizeof(fd_eth_hdr_t) );
@@ -536,6 +541,13 @@ unprivileged_init( fd_topo_t *      topo,
     } else if( 0==strcmp( link->name, "repair_sign" ) ) {
 
       sign_link_out_idx = out_idx;
+
+    } else if( 0==strcmp( link->name, "repair_repla" ) ) {
+
+      ctx->replay_out_mem    = topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ].wksp;
+      ctx->replay_out_chunk0 = fd_dcache_compact_chunk0( ctx->replay_out_mem, link->dcache );
+      ctx->replay_out_wmark  = fd_dcache_compact_wmark( ctx->replay_out_mem, link->dcache, link->mtu );
+      ctx->replay_out_chunk  = ctx->replay_out_chunk0;
 
     } else {
       FD_LOG_ERR(( "gossip tile has unexpected output link %s", link->name ));
