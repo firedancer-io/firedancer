@@ -229,19 +229,6 @@
 #define FD_HAS_DEEPASAN 0
 #endif
 
-/* FD_HAS_HANDHOLDING indicates if there is any *_HANDHOLDING check
-   enabled.  Unfortunately, there is no wildcard matching in C
-   macros.  Therefore, this lists needs to be kept up to date.*/
-
-#if FD_EQVOC_USE_HANDHOLDING || FD_FORKS_USE_HANDHOLDING || FD_GHOST_USE_HANDHOLDING || \
-FD_SCRATCH_USE_HANDHOLDING || FD_SPAD_USE_HANDHOLDING || FD_TOWER_USE_HANDHOLDING ||    \
-FD_TMPL_USE_HANDHOLDING || FD_TXN_HANDHOLDING || FD_FUNKIER_HANDHOLDING                 \
-|| FD_RUNTIME_ERR_HANDHOLDING
-#define FD_HAS_HANDHOLDING 1
-#else
-#define FD_HAS_HANDHOLDING 0
-#endif
-
 /* Base development environment ***************************************/
 
 /* The functionality provided by these vanilla headers are always
@@ -607,8 +594,6 @@ fd_type_pun_const( void const * p ) {
    replace a call to the function with the result of an earlier call to
    that function provide the inputs and memory used hasn't changed.
 
-   This macro will expand to nothing if HANDHOLDING checks are enabled.
-
    IMPORTANT SAFETY TIP!  Recent compilers seem to take an undocumented
    and debatable stance that pure functions do no writes to memory.
    This is a sufficient condition for the above but not a necessary one.
@@ -641,22 +626,27 @@ fd_type_pun_const( void const * p ) {
    TL;DR To be safe against the above vagaries, recommend using
    FD_FN_PURE to annotate functions that do no memory writes (including
    trivial memory writes) and try to design HPC APIs to avoid returning
-   multiple values as much as possible. */
+   multiple values as much as possible.
 
-#if FD_HAS_HANDHOLDING
+   Followup: FD_FN_PURE expands to nothing by default given additional
+   confusion between how current languages, compilers, CI, fuzzing, and
+   developers interpret this function attribute.  We keep it around
+   given it documents the intent of various APIs and so it can be
+   manually enabled to find implementation surprises during bullet
+   proofing (e.g. under compiler options like "extra-brutality").
+   Hopefully someday, pure function attributes will someday be handled
+   more consistently across the board. */
+
+#ifndef FD_FN_PURE
 #define FD_FN_PURE
-#else
-#define FD_FN_PURE __attribute__((pure))
 #endif
 
 /* FD_FN_CONST is like pure but also, even stronger, indicates that the
-   function does not depend on the state of memory.  This macro will
-   expand to nothing if HANDHOLDING checks are enabled. */
+   function does not depend on the state of memory.  See note above
+   about why this expands to nothing by default. */
 
-#if FD_HAS_HANDHOLDING
+#ifndef FD_FN_CONST
 #define FD_FN_CONST
-#else
-#define FD_FN_CONST __attribute__((const))
 #endif
 
 /* FD_FN_UNUSED indicates that it is okay if the function with static

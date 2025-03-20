@@ -285,7 +285,6 @@
 #include "../log/fd_log.h"
 #endif
 
-
 /* Implementation *****************************************************/
 
 #define MAP_(n)       FD_EXPAND_THEN_CONCAT3(MAP_NAME,_,n)
@@ -309,9 +308,9 @@ FD_FN_CONST static inline ulong MAP_(footprint)( void ) { return sizeof(MAP_T)*M
 
 static inline void *
 MAP_(new)( void *  shmem ) {
-#if FD_TMPL_USE_HANDHOLDING
+# if FD_TMPL_USE_HANDHOLDING
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, MAP_(align)() ) ) ) FD_LOG_CRIT(( "unaligned shmem" ));
-#endif
+# endif
   MAP_T * map = (MAP_T *)shmem;
   for( ulong slot_idx=0UL; slot_idx<MAP_SLOT_CNT; slot_idx++ ) map[ slot_idx ].MAP_KEY = (MAP_KEY_NULL);
   return map;
@@ -324,12 +323,11 @@ static inline void *  MAP_(delete)( void *  shmap ) { return shmap; }
 FD_FN_CONST static inline ulong MAP_(key_max) ( void ) { return MAP_SLOT_MASK; }
 FD_FN_CONST static inline ulong MAP_(slot_cnt)( void ) { return MAP_SLOT_CNT;  }
 
-FD_FN_CONST
-static inline ulong
+FD_FN_CONST static inline ulong
 MAP_(slot_idx)( MAP_T const * map, MAP_T const * entry ) {
-#if FD_TMPL_USE_HANDHOLDING
+# if FD_TMPL_USE_HANDHOLDING
   if( FD_UNLIKELY( ((ulong)(entry-map)>=MAP_SLOT_CNT) | (map>entry) ) ) FD_LOG_CRIT(( "index out of bounds" ));
-#endif
+# endif
   return (ulong)(entry-map);
 }
 
@@ -346,9 +344,9 @@ FD_FN_PURE static inline MAP_HASH_T MAP_(key_hash)( MAP_KEY_T key ) { return (MA
 FD_FN_UNUSED static MAP_T * /* Work around -Winline */
 MAP_(insert)( MAP_T *   map,
               MAP_KEY_T key ) {
-#if FD_TMPL_USE_HANDHOLDING
+# if FD_TMPL_USE_HANDHOLDING
   if( FD_UNLIKELY( MAP_(key_inval)( key ) ) ) FD_LOG_CRIT(( "invalid key" ));
-#endif
+# endif
   MAP_HASH_T hash = MAP_(key_hash)( key );
   ulong slot = MAP_(private_start)( hash );
   MAP_T * m;
@@ -414,7 +412,7 @@ MAP_(remove)( MAP_T * map,
 
     MAP_MOVE( map[hole], map[slot] );
   }
-  __builtin_unreachable();
+  /* never get here */
 }
 
 static inline void
@@ -422,14 +420,13 @@ MAP_(clear)( MAP_T * map ) {
   for( ulong slot_idx=0UL; slot_idx<MAP_SLOT_CNT; slot_idx++ ) map[ slot_idx ].MAP_KEY = (MAP_KEY_NULL);
 }
 
-FD_FN_PURE
-FD_FN_UNUSED static MAP_T * /* Work around -Winline */
+FD_FN_PURE FD_FN_UNUSED static MAP_T * /* Work around -Winline */
 MAP_(query)( MAP_T *   map,
              MAP_KEY_T key,
              MAP_T *   null ) {
-#if FD_TMPL_USE_HANDHOLDING
+# if FD_TMPL_USE_HANDHOLDING
   if( FD_UNLIKELY( MAP_KEY_INVAL( key ) ) ) FD_LOG_CRIT(( "invalid key" ));
-#endif
+# endif
   MAP_HASH_T hash = MAP_(key_hash)( key );
   ulong slot = MAP_(private_start)( hash );
   MAP_T * m;
@@ -465,8 +462,7 @@ MAP_(query)( MAP_T *   map,
   return m;
 }
 
-FD_FN_PURE
-static inline MAP_T const *
+FD_FN_PURE static inline MAP_T const *
 MAP_(query_const)( MAP_T const * map,
                    MAP_KEY_T     key,
                    MAP_T const * null ) {

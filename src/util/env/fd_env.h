@@ -57,13 +57,14 @@ FD_ENV_STRIP_CMDLINE_DECL( double,       double );
 
 #undef FD_ENV_STRIP_CMDLINE_DECL
 
-FD_PROTOTYPES_END
-
 /* returns 1 if the command line contains the given key, and removes
    it from the args, otherwise returns 0. */
+
 int
 fd_env_strip_cmdline_contains( int *        pargc,
                                char ***     pargv,
                                char const * key );
+
+FD_PROTOTYPES_END
 
 #endif /* HEADER_fd_src_env_fd_env_h */

@@ -12,7 +12,7 @@
    element managed by that chain, the chain's version number is
    increased by one (atomic fetch-and-or based) such that other
    potential users of keys managed by that chain detect and react
-   appropriately to a potentially concurrent conflicting operation is in
+   appropriately to a potentially concurrent conflicting operation in
    progress.  When an operation completes, the chain version number is
    increased by one again to notify other users the operation is no
    longer in progress and that the set of keys managed by that chain
