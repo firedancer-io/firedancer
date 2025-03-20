@@ -837,7 +837,7 @@ fd_system_program_exec_authorize_nonce_account( fd_exec_instr_ctx_t * ctx,
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L484-L485 */
 
   fd_guarded_borrowed_account_t account;
-  err = fd_exec_instr_ctx_try_borrow_account( ctx, 0, &account );
+  err = fd_exec_instr_ctx_try_borrow_instr_account( ctx, 0, &account );
   if( FD_UNLIKELY( err ) ) {
     return err;
   }
