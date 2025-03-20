@@ -413,14 +413,24 @@ during_frag( fd_shred_ctx_t * ctx,
       ctx->batch_cnt = 0UL;
       ctx->slot      = target_slot;
 
-      if( SHOULD_PROCESS_THESE_SHREDS ) {
-        /* chained_merkle_root is set as the merkle root of the last FEC set
-           of the parent block (and passed in by POH tile) */
-        if( FD_LIKELY( entry_meta->parent_block_id_valid ) ) {
-          memcpy( ctx->chained_merkle_root, entry_meta->parent_block_id, FD_SHRED_MERKLE_ROOT_SZ );
-        } else {
-          ctx->metrics->invalid_block_id_cnt++;
-          memset( ctx->chained_merkle_root, 0, FD_SHRED_MERKLE_ROOT_SZ );
+      /* For the first slot in a leader sequence, the tile responsible
+         to process the block should initialize the chained merkle root
+         as the block id of the parent block, passed in by the POH tile.
+         Because we compute the chain, we already have the root for the
+         following slots, including the case where we have consecutive
+         slots (e.g., 8, 12...).
+         TODO: evaluate consecutive slots > 4 by querying the leader schedule. */
+      int is_first_slot = (target_slot % 4) == 0;
+      if( FD_UNLIKELY( is_first_slot ) ) {
+        if( SHOULD_PROCESS_THESE_SHREDS ) {
+          /* chained_merkle_root is set as the merkle root of the last FEC set
+            of the parent block (and passed in by POH tile) */
+          if( FD_LIKELY( entry_meta->parent_block_id_valid ) ) {
+            memcpy( ctx->chained_merkle_root, entry_meta->parent_block_id, FD_SHRED_MERKLE_ROOT_SZ );
+          } else {
+            ctx->metrics->invalid_block_id_cnt++;
+            memset( ctx->chained_merkle_root, 0, FD_SHRED_MERKLE_ROOT_SZ );
+          }
         }
       }
     }
