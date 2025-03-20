@@ -24,6 +24,9 @@
 #define REPLAY_FLAG_CATCHING_UP         (0x08UL)
 #define REPLAY_FLAG_INIT                (0x10UL)
 
+#define EXEC_FLAG_READY_NEW             (0x20UL)
+#define EXEC_FLAG_EXECUTING_SLICE       (0x40UL)
+#define EXEC_FLAG_FINISHED_SLOT         (0x80UL)
 
 /* FD_NET_MTU is the max full packet size, with ethernet, IP, and UDP
    headers that can go in or out of the net tile.  2048 is the maximum
@@ -146,6 +149,24 @@ FD_FN_CONST static inline uint  fd_disco_shred_replay_sig_shred_idx  ( ulong sig
 FD_FN_CONST static inline uint  fd_disco_shred_replay_sig_fec_set_idx( ulong sig ) { return (uint)fd_ulong_extract    ( sig, 2, 16  ); }
 FD_FN_CONST static inline int   fd_disco_shred_replay_sig_is_code    ( ulong sig ) { return       fd_ulong_extract_bit( sig, 1      ); }
 FD_FN_CONST static inline int   fd_disco_shred_replay_sig_completes  ( ulong sig ) { return       fd_ulong_extract_bit( sig, 0      ); }
+
+FD_FN_CONST static inline ulong
+fd_disco_repair_replay_sig( ulong slot, uint data_cnt, ushort parent_off, int slot_complete ) {
+  /*
+   | slot (32) | data_cnt (15) | parent_off (15) | slot_complete(1)
+   | [32, 63]  | [17, 31]      | [1, 16]         | [0]
+  */
+  ulong slot_ul          = fd_ulong_min( slot, (ulong)UINT_MAX );
+  ulong data_cnt_ul      = fd_ulong_min( (ulong)data_cnt, (ulong)FD_SHRED_MAX_PER_SLOT );
+  ulong parent_off_ul    = (ulong)parent_off;
+  ulong slot_complete_ul = !!slot_complete;
+  return slot_ul << 32 | data_cnt_ul << 17 | parent_off_ul << 1 | slot_complete_ul;
+}
+
+FD_FN_CONST static inline ulong  fd_disco_repair_replay_sig_slot         ( ulong sig ) { return         fd_ulong_extract    ( sig, 32, 63 ); }
+FD_FN_CONST static inline uint   fd_disco_repair_replay_sig_data_cnt     ( ulong sig ) { return   (uint)fd_ulong_extract    ( sig, 17, 31 ); }
+FD_FN_CONST static inline ushort fd_disco_repair_replay_sig_parent_off   ( ulong sig ) { return (ushort)fd_ulong_extract    ( sig, 1, 16  ); }
+FD_FN_CONST static inline int    fd_disco_repair_replay_sig_slot_complete( ulong sig ) { return         fd_ulong_extract_bit( sig, 0     ); }
 
 FD_FN_PURE static inline ulong
 fd_disco_compact_chunk0( void * wksp ) {
