@@ -429,6 +429,11 @@ struct fd_config {
       char  wen_restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
     } restart;
 
+    struct {
+      int   playback;
+      char  archive_path[ PATH_MAX ];
+    } archiver;
+
   } tiles;
 };
 
