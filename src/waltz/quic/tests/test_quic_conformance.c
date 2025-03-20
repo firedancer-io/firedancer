@@ -491,6 +491,12 @@ test_quic_send_streams( fd_quic_sandbox_t * sandbox,
 
 }
 
+static void pretend_stream( fd_quic_stream_t * stream ) {
+  stream->stream_flags |= FD_QUIC_STREAM_FLAGS_UNSENT;
+  stream->tx_buf.head = 1;
+  stream->tx_sent = 0;
+}
+
 static __attribute__ ((noinline)) void
 test_quic_inflight_pkt_limit( fd_quic_sandbox_t * sandbox,
                               fd_rng_t *          rng ) {
@@ -500,7 +506,7 @@ test_quic_inflight_pkt_limit( fd_quic_sandbox_t * sandbox,
   do {
     fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
     FD_TEST( conn );
-    FD_TEST( conn->used_pkt_meta == 0UL );
+    FD_TEST( conn->state == FD_QUIC_CONN_STATE_ACTIVE );
     FD_TEST( conn->used_pkt_meta == 0UL );
 
     conn->tx_sup_stream_id = 4; /* we'll just use one stream */
@@ -511,6 +517,7 @@ test_quic_inflight_pkt_limit( fd_quic_sandbox_t * sandbox,
 
       /* manually add to send_streams */
       FD_QUIC_STREAM_LIST_REMOVE( empty_stream );
+      pretend_stream( empty_stream );
       FD_QUIC_STREAM_LIST_INSERT_BEFORE( conn->send_streams, empty_stream );
       FD_TEST( in_stream_list( empty_stream, conn->send_streams ) );
 
