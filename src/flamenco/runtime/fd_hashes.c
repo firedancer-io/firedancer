@@ -960,28 +960,32 @@ fd_accounts_hash( fd_funkier_t *      funk,
     /* First calculate how big the list needs to be sized out to be, bump
        allocate the size of the array then caclulate the hash. */
 
-    fd_subrange_task_info_t task_info = {
-      .features      = features,
-      .funk          = funk,
-      .num_lists     = num_lists,
-      .lists         = lists,
-      .lthash_values = lthash_values
-    };
+    FD_SPAD_FRAME_BEGIN( runtime_spad ) {
 
-    fd_tpool_exec_all_rrobin( tpool, 0UL, num_lists, fd_accounts_sorted_subrange_count_task, &task_info,
-                              NULL, NULL, 1, 0, num_lists );
-    for( ulong i=0UL; i<num_lists; i++ ) {
-      task_info.lists[i].pairs     = fd_spad_alloc( runtime_spad, FD_PUBKEY_HASH_PAIR_ALIGN, task_info.lists[i].pairs_len * sizeof(fd_pubkey_hash_pair_t) );
-      task_info.lists[i].pairs_len = 0UL;
-    }
+      fd_subrange_task_info_t task_info = {
+        .features      = features,
+        .funk          = funk,
+        .num_lists     = num_lists,
+        .lists         = lists,
+        .lthash_values = lthash_values
+      };
 
-    fd_tpool_exec_all_rrobin( tpool, 0UL, num_lists, fd_accounts_sorted_subrange_gather_task, &task_info,
-                              NULL, NULL, 1, 0, num_lists );
-    fd_hash_account_deltas( lists, num_lists, accounts_hash );
-    fd_lthash_value_t * acc = (fd_lthash_value_t *)fd_type_pun(slot_bank->lthash.lthash);
-    for( ulong i = 0UL; i < num_lists; i++ ) {
-      fd_lthash_add( acc, &lthash_values[i] );
-    }
+      fd_tpool_exec_all_rrobin( tpool, 0UL, num_lists, fd_accounts_sorted_subrange_count_task, &task_info,
+                                NULL, NULL, 1, 0, num_lists );
+      for( ulong i=0UL; i<num_lists; i++ ) {
+        task_info.lists[i].pairs     = fd_spad_alloc( runtime_spad, FD_PUBKEY_HASH_PAIR_ALIGN, task_info.lists[i].pairs_len * sizeof(fd_pubkey_hash_pair_t) );
+        task_info.lists[i].pairs_len = 0UL;
+      }
+
+      fd_tpool_exec_all_rrobin( tpool, 0UL, num_lists, fd_accounts_sorted_subrange_gather_task, &task_info,
+                                NULL, NULL, 1, 0, num_lists );
+      fd_hash_account_deltas( lists, num_lists, accounts_hash );
+      fd_lthash_value_t * acc = (fd_lthash_value_t *)fd_type_pun(slot_bank->lthash.lthash);
+      for( ulong i = 0UL; i < num_lists; i++ ) {
+        fd_lthash_add( acc, &lthash_values[i] );
+      }
+
+    } FD_SPAD_FRAME_END;
 
   }
 
