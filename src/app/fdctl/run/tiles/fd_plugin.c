@@ -39,10 +39,12 @@ during_frag( fd_plugin_ctx_t * ctx,
              ulong             in_idx,
              ulong             seq,
              ulong             sig,
+             ulong             tspub,
              ulong             chunk,
              ulong             sz ) {
   (void)seq;
   (void)sig;
+  (void)tspub;
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in[ in_idx ].mem, chunk );
   ulong * dst = (ulong *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );

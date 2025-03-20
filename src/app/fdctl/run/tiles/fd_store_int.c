@@ -188,9 +188,11 @@ during_frag( fd_store_tile_ctx_t * ctx,
              ulong                 in_idx,
              ulong                 seq,
              ulong                 sig,
+             ulong                 tspub,
              ulong                 chunk,
              ulong                 sz ) {
   (void)seq;
+  (void)tspub;
 
   if( FD_UNLIKELY( in_idx==STAKE_IN_IDX ) ) {
     if( FD_UNLIKELY( chunk<ctx->stake_in_chunk0 || chunk>ctx->stake_in_wmark ) )
@@ -271,13 +273,17 @@ after_frag( fd_store_tile_ctx_t * ctx,
       return;
     }
 
-    if( fd_store_shred_insert( ctx->store, shred ) < FD_BLOCKSTORE_OK ) {
+    int rc = fd_store_shred_insert( ctx->store, shred );
+    if( rc < FD_BLOCKSTORE_OK ) {
       FD_LOG_ERR(( "failed inserting to blockstore" ));
     } else if ( ctx->shred_cap_ctx.is_archive ) {
         uchar shred_cap_flag = FD_SHRED_CAP_FLAG_MARK_REPAIR(0);
         if ( fd_shred_cap_archive(&ctx->shred_cap_ctx, shred, shred_cap_flag) < FD_SHRED_CAP_OK ) {
           FD_LOG_ERR(( "failed at archiving repair shred to file" ));
         }
+    }
+    if( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) {
+      FD_LOG_WARNING(( "received completed block from repair: %lu", shred->slot ));
     }
     return;
   }
@@ -310,13 +316,17 @@ after_frag( fd_store_tile_ctx_t * ctx,
     }
     // TODO: improve return value of api to not use < OK
 
-    if( fd_store_shred_insert( ctx->store, &ctx->s34_buffer->pkts[i].shred ) < FD_BLOCKSTORE_OK ) {
+    int rc = fd_store_shred_insert( ctx->store, &ctx->s34_buffer->pkts[i].shred );
+    if( rc < FD_BLOCKSTORE_OK ) {
       FD_LOG_ERR(( "failed inserting to blockstore" ));
     } else if ( ctx->shred_cap_ctx.is_archive ) {
       uchar shred_cap_flag = FD_SHRED_CAP_FLAG_MARK_TURBINE(0);
       if ( fd_shred_cap_archive(&ctx->shred_cap_ctx, &ctx->s34_buffer->pkts[i].shred, shred_cap_flag) < FD_SHRED_CAP_OK ) {
         FD_LOG_ERR(( "failed at archiving turbine shred to file" ));
       }
+    }
+    if( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) {
+      FD_LOG_WARNING(( "received completed block from turbine: %lu", ctx->s34_buffer->pkts[i].shred.slot ));
     }
 
     fd_store_shred_update_with_shred_from_turbine( ctx->store, &ctx->s34_buffer->pkts[i].shred );

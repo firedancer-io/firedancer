@@ -1303,17 +1303,17 @@ fd_blockstore_shred_insert( fd_blockstore_t * blockstore, fd_shred_t const * shr
   }
 
   /* Received all shreds, so try to assemble a block. */
-  FD_LOG_DEBUG(( "received all shreds for slot %lu - now building a block", shred->slot ));
+  FD_LOG_WARNING(( "received all shreds for slot %lu - now building a block", shred->slot ));
 
   int rc = deshred( blockstore, shred->slot );
   switch( rc ) {
   case FD_BLOCKSTORE_OK:
     return FD_BLOCKSTORE_OK_SLOT_COMPLETE;
   case FD_BLOCKSTORE_ERR_SLOT_FULL:
-    FD_LOG_DEBUG(( "already deshredded slot %lu. ignoring.", shred->slot ));
+    FD_LOG_WARNING(( "already deshredded slot %lu. ignoring.", shred->slot ));
     return FD_BLOCKSTORE_OK;
   case FD_BLOCKSTORE_ERR_DESHRED_INVALID:
-    FD_LOG_DEBUG(( "failed to deshred slot %lu. ignoring.", shred->slot ));
+    FD_LOG_WARNING(( "failed to deshred slot %lu. ignoring.", shred->slot ));
     return FD_BLOCKSTORE_OK;
   default:
     /* FIXME */

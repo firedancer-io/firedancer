@@ -64,16 +64,19 @@ setup_topo_txncache( fd_topo_t *  topo,
 
 void
 fd_topo_initialize( config_t * config ) {
-  ulong net_tile_cnt    = config->layout.net_tile_count;
-  ulong shred_tile_cnt  = config->layout.shred_tile_count;
-  ulong quic_tile_cnt   = config->layout.quic_tile_count;
-  ulong verify_tile_cnt = config->layout.verify_tile_count;
-  ulong bank_tile_cnt   = config->layout.bank_tile_count;
+  ulong net_tile_cnt             = config->layout.net_tile_count;
+  ulong shred_tile_cnt           = config->layout.shred_tile_count;
+  ulong quic_tile_cnt            = config->layout.quic_tile_count;
+  ulong verify_tile_cnt          = config->layout.verify_tile_count;
+  ulong bank_tile_cnt            = config->layout.bank_tile_count;
+  ulong archiver_feeder_tile_cnt = config->layout.archiver_tile_count;
 
   ulong replay_tpool_thread_count = config->tiles.replay.tpool_thread_count;
   ulong batch_tpool_thread_count  = config->tiles.batch.hash_tpool_thread_count;
 
-  int enable_rpc = ( config->rpc.port != 0 );
+  int enable_rpc               = ( config->rpc.port != 0 );
+  int enable_archiver_playback = ( config->tiles.archiver.playback );
+  int enable_archiver          = ( archiver_feeder_tile_cnt > 0 && !enable_archiver_playback );
 
   fd_topo_t * topo = { fd_topob_new( &config->topo, config->name ) };
 
@@ -154,6 +157,14 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "btpool"     );
   fd_topob_wksp( topo, "constipate" );
 
+  if( enable_archiver ) {
+    fd_topob_wksp( topo, "arch_f" );
+    fd_topob_wksp( topo, "arch_w" );
+  }
+
+  if( enable_archiver_playback ) {
+    fd_topob_wksp( topo, "arch_p" );
+  }
 
   if( enable_rpc ) fd_topob_wksp( topo, "rpcsrv" );
 
@@ -163,8 +174,9 @@ fd_topo_initialize( config_t * config ) {
   FOR(net_tile_cnt)    fd_topob_link( topo, "net_gossip",   "net_gossip",   config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
   FOR(net_tile_cnt)    fd_topob_link( topo, "net_repair",   "net_repair",   config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
   FOR(net_tile_cnt)    fd_topob_link( topo, "net_quic",     "net_quic",     config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
-  FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_net",     "net_quic",     config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
   FOR(net_tile_cnt)    fd_topob_link( topo, "net_shred",    "net_shred",    config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
+
+  FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_net",     "net_quic",     config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
   FOR(shred_tile_cnt)  fd_topob_link( topo, "shred_net",    "net_shred",    config->tiles.net.send_buffer_size,       FD_NET_MTU,                    1UL );
   FOR(quic_tile_cnt)   fd_topob_link( topo, "quic_verify",  "quic_verify",  config->tiles.verify.receive_buffer_size, FD_TPU_REASM_MTU,              config->tiles.quic.txn_reassembly_count );
   FOR(verify_tile_cnt) fd_topob_link( topo, "verify_dedup", "verify_dedup", config->tiles.verify.receive_buffer_size, FD_TPU_PARSED_MTU,             1UL );
@@ -263,6 +275,21 @@ fd_topo_initialize( config_t * config ) {
 
   if( enable_rpc )                 fd_topob_tile( topo, "rpcsrv",  "rpcsrv",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
 
+  /* The archiver feeder and writer tiles */
+  if( enable_archiver ) {
+    /* Several feeder tiles, which will round-robin the input links */
+    FOR(archiver_feeder_tile_cnt) fd_topob_tile( topo, "arch_f", "arch_f", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
+
+    /* One archiver writer tile */
+    fd_topob_tile( topo, "arch_w", "arch_w", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
+  }
+
+  /* The archiver playback tile */
+  if( enable_archiver_playback ) {
+    /* One archiver playback tile might be sufficient for now */
+    fd_topob_tile( topo, "arch_p", "arch_p", "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0 );
+  }
+
   fd_topo_tile_t * store_tile  = &topo->tiles[ fd_topo_find_tile( topo, "storei", 0UL ) ];
   fd_topo_tile_t * replay_tile = &topo->tiles[ fd_topo_find_tile( topo, "replay", 0UL ) ];
   fd_topo_tile_t * repair_tile = &topo->tiles[ fd_topo_find_tile( topo, "repair", 0UL ) ];
@@ -349,7 +376,12 @@ fd_topo_initialize( config_t * config ) {
   /*                                      topo, tile_name, tile_kind_id, fseq_wksp,   link_name,      link_kind_id, reliable,            polled */
   FOR(net_tile_cnt) for( ulong j=0UL; j<shred_tile_cnt; j++ )
                        fd_topob_tile_in(  topo, "net",     i,            "metric_in", "shred_net",    j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
-  FOR(net_tile_cnt)    fd_topob_tile_out( topo, "net",     i,                         "net_shred",    i                                                  );
+  
+  if( !enable_archiver_playback ) {
+    FOR(net_tile_cnt)    fd_topob_tile_out( topo, "net",     i,                         "net_shred",    i                                                  );
+  } else {
+    fd_topob_tile_out( topo, "arch_p", 0UL, "net_shred", 0UL);
+  }
 
   FOR(net_tile_cnt) for( ulong j=0UL; j<quic_tile_cnt; j++ )
                        fd_topob_tile_in(  topo, "net",     i,            "metric_in", "quic_net",     j,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
@@ -368,7 +400,11 @@ fd_topo_initialize( config_t * config ) {
   FOR(net_tile_cnt)    fd_topob_tile_in(  topo, "net",     i,            "metric_in", "gossip_net",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   FOR(net_tile_cnt)    fd_topob_tile_in(  topo, "net",     i,            "metric_in", "repair_net",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
 
-  FOR(net_tile_cnt)    fd_topob_tile_out( topo, "net",     i,                         "net_quic",    i                                                  );
+  if( !enable_archiver_playback ) {
+    FOR(net_tile_cnt)    fd_topob_tile_out( topo, "net",     i,                         "net_quic",    i                                                  );
+  } else {
+    fd_topob_tile_out( topo, "arch_p", 0UL, "net_quic", 0UL);
+  }
 
   FOR(shred_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ )
                        fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "net_shred",     j,            FD_TOPOB_UNRELIABLE,   FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
@@ -400,7 +436,11 @@ fd_topo_initialize( config_t * config ) {
     /**/               fd_topob_tile_out( topo, "sign",   0UL,                        "sign_shred",    i                                                    );
   }
 
-  FOR(net_tile_cnt)    fd_topob_tile_out( topo, "net",      i,                         "net_gossip",   i                                                    );
+  if( !enable_archiver_playback ) {
+    FOR(net_tile_cnt)    fd_topob_tile_out( topo, "net",      i,                         "net_gossip",   i                                                    );
+  } else {
+    fd_topob_tile_out( topo, "arch_p", 0UL, "net_gossip", 0UL);
+  }
   FOR(net_tile_cnt)    fd_topob_tile_in(  topo, "gossip",   0UL,          "metric_in", "net_gossip",   i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "gossip_net",   0UL                                                  );
   /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "crds_shred",   0UL                                                  );
@@ -416,7 +456,11 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "gossip_repla", 0UL                                                  );
   /**/                 fd_topob_tile_out( topo, "gossip",   0UL,                       "gossip_eqvoc", 0UL                                                  );
 
-  FOR(net_tile_cnt)    fd_topob_tile_out( topo, "net",     i,                         "net_repair",    i                                                    );
+  if( !enable_archiver_playback ) {
+    FOR(net_tile_cnt)    fd_topob_tile_out( topo, "net",     i,                         "net_repair",    i                                                    );
+  } else {
+    fd_topob_tile_out( topo, "arch_p", 0UL, "net_repair", 0UL );
+  }
   FOR(net_tile_cnt)    fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "net_repair",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "gossip_repai",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_in(  topo, "repair",  0UL,          "metric_in", "stake_out",     0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
@@ -468,6 +512,38 @@ fd_topo_initialize( config_t * config ) {
   if( enable_rpc ) {
     fd_topob_tile_in(  topo, "rpcsrv", 0UL, "metric_in",  "replay_notif", 0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
     fd_topob_tile_in(  topo, "rpcsrv", 0UL, "metric_in",  "stake_out",    0UL, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   );
+  }
+
+  if ( enable_archiver ) {
+    fd_topob_tile_in(  topo, "arch_f", 0, "metric_in", "net_gossip", 0, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); // 0
+
+    fd_topob_tile_in(  topo, "arch_f", 1, "metric_in", "net_repair", 0, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED ); // 1
+    // fd_topob_tile_in(  topo, "arch_f", 2, "metric_in", "net_repair", 0, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED ); // 2
+    // fd_topob_tile_in(  topo, "arch_f", 3, "metric_in", "net_repair", 0, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED ); // 3
+    // fd_topob_tile_in(  topo, "arch_f", 4, "metric_in", "net_repair", 0, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED ); // 4
+
+    fd_topob_tile_in(  topo, "arch_f", 5, "metric_in", "net_shred", 0, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED ); // 5
+    // fd_topob_tile_in(  topo, "arch_f", 6, "metric_in", "net_shred", 0, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED ); // 6
+    // fd_topob_tile_in(  topo, "arch_f", 7, "metric_in", "net_shred", 0, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED ); // 7
+    // fd_topob_tile_in(  topo, "arch_f", 8, "metric_in", "net_shred", 0, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED ); // 8
+    // fd_topob_tile_in(  topo, "arch_f", 9, "metric_in", "net_shred", 0, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED ); // 9
+
+    /* Each feeder tile is a reliable consumer of all input links */
+    // FOR(archiver_feeder_tile_cnt) {
+    //   for( ulong j=0UL; j<net_tile_cnt; j++ ) fd_topob_tile_in(  topo, "arch_f", i, "metric_in", "net_shred", j, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    //   for( ulong j=0UL; j<net_tile_cnt; j++ ) fd_topob_tile_in(  topo, "arch_f", i, "metric_in", "net_gossip",j, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    //   for( ulong j=0UL; j<net_tile_cnt; j++ ) fd_topob_tile_in(  topo, "arch_f", i, "metric_in", "net_repair", j, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    //   for( ulong j=0UL; j<quic_tile_cnt; j++ ) fd_topob_tile_in(  topo, "arch_f", i, "metric_in", "net_quic", j, FD_TOPOB_RELIABLE, FD_TOPOB_POLLED );
+    // }
+
+    /* The archiver writer tile is a reliable consumer of the archiver feeder tiles */
+    fd_topob_wksp( topo, "arch_f_w" );
+    FOR(archiver_feeder_tile_cnt) {
+      fd_topob_link( topo, "arch_f_w", "arch_f_w", config->tiles.net.send_buffer_size, FD_NET_MTU, 1UL );
+      fd_topob_tile_out( topo, "arch_f", i, "arch_f_w", i );
+      // TODO: making this reliable slows it down?
+      fd_topob_tile_in(  topo, "arch_w", 0UL, "metric_in", "arch_f_w", i, FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED );
+    }
   }
 
   /* For now the only plugin consumer is the GUI */
@@ -529,6 +605,7 @@ fd_topo_initialize( config_t * config ) {
         tile->net.multihome_ip_addrs[j] = config->tiles.net.multihome_ip4_addrs[j];
       }
 
+      tile->net.blackhole = config->tiles.archiver.playback;
     } else if( FD_UNLIKELY( !strcmp( tile->name, "quic" ) ) ) {
       fd_memcpy( tile->quic.src_mac_addr, config->tiles.net.mac_addr, 6 );
 
@@ -711,6 +788,13 @@ fd_topo_initialize( config_t * config ) {
       strncpy( tile->gui.identity_key_path, config->consensus.identity_path, sizeof(tile->gui.identity_key_path) );
     } else if( FD_UNLIKELY( !strcmp( tile->name, "plugin" ) ) ) {
 
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "arch_f" ) ) ) {
+
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "arch_w" ) ) ) {
+      strncpy( tile->archiver.archive_path, config->tiles.archiver.archive_path, sizeof( tile->archiver.archive_path ) );
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "arch_p" ) ) ) {
+      strncpy( tile->archiver.archive_path, config->tiles.archiver.archive_path, sizeof( tile->archiver.archive_path ) );
+      tile->archiver.playback = config->tiles.archiver.playback;
     } else {
       FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
     }

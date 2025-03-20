@@ -105,11 +105,13 @@ during_frag( fd_bank_ctx_t * ctx,
              ulong           in_idx,
              ulong           seq,
              ulong           sig,
+             ulong           tspub,
              ulong           chunk,
              ulong           sz ) {
   (void)in_idx;
   (void)seq;
   (void)sig;
+  (void)tspub;
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->pack_in_mem, chunk );
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->out_mem, ctx->out_chunk );

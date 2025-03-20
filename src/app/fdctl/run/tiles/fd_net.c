@@ -60,15 +60,24 @@ typedef struct {
 
 typedef struct {
   fd_frag_meta_t * mcache;
-  ulong *          sync;
   ulong            depth;
-  ulong            seq;
+  ulong            out_idx;
+  ulong          * seq;
 
   fd_wksp_t * mem;
   ulong       chunk0;
   ulong       wmark;
   ulong       chunk;
 } fd_net_out_ctx_t;
+
+struct fd_net_received_stats {
+  ulong net_shred_in_cnt;
+  ulong quic_verify_in_cnt;
+  ulong net_gossip_in_cnt;
+  ulong net_repair_in_cnt;
+  ulong total_packet_in_cnt;
+};
+typedef struct fd_net_received_stats fd_net_received_stats_t;
 
 typedef struct {
   ulong          xsk_cnt;
@@ -108,6 +117,17 @@ typedef struct {
   struct {
     ulong tx_dropped_cnt;
   } metrics;
+
+  /* Whether to blackhole all outgoing and incoming packets */
+  int blackhole;
+
+  /* Pointer to the cr_avail credit tracker, used to backpressure the net tile.
+     We could also store a pointer to a stem instance here, but that seems worse.
+   */
+  ulong * cr_avail;
+  ulong   cr_decrement_amount;
+
+  fd_net_received_stats_t received_stats;
 } fd_net_ctx_t;
 
 FD_FN_CONST static inline ulong
@@ -153,6 +173,10 @@ net_rx_aio_send( void *                    _ctx,
 
   fd_net_ctx_t * ctx = (fd_net_ctx_t *)_ctx;
 
+  if( FD_UNLIKELY(( ctx->blackhole )) ) {
+    return FD_AIO_SUCCESS;
+  }
+
   for( ulong i=0UL; i<batch_cnt; i++ ) {
     uchar const * packet = batch[i].buf;
     uchar const * packet_end = packet + batch[i].buf_sz;
@@ -187,26 +211,38 @@ net_rx_aio_send( void *                    _ctx,
 
     FD_DTRACE_PROBE_4( net_tile_pkt_rx, ip_srcaddr, udp_srcport, udp_dstport, batch[i].buf_sz );
 
+    /* Don't publish if no credits available */
+    if( *ctx->cr_avail == 0 ) {
+      continue;
+    }
+
     ushort proto;
     fd_net_out_ctx_t * out;
+    ctx->received_stats.total_packet_in_cnt += 1;
     if(      FD_UNLIKELY( udp_dstport==ctx->shred_listen_port ) ) {
       proto = DST_PROTO_SHRED;
       out = ctx->shred_out;
+      ctx->received_stats.net_shred_in_cnt += 1;
     } else if( FD_UNLIKELY( udp_dstport==ctx->quic_transaction_listen_port ) ) {
       proto = DST_PROTO_TPU_QUIC;
       out = ctx->quic_out;
+      ctx->received_stats.quic_verify_in_cnt += 1;
     } else if( FD_UNLIKELY( udp_dstport==ctx->legacy_transaction_listen_port ) ) {
       proto = DST_PROTO_TPU_UDP;
       out = ctx->quic_out;
+      ctx->received_stats.quic_verify_in_cnt += 1;
     } else if( FD_UNLIKELY( udp_dstport==ctx->gossip_listen_port ) ) {
       proto = DST_PROTO_GOSSIP;
       out = ctx->gossip_out;
+      ctx->received_stats.net_gossip_in_cnt += 1;
     } else if( FD_UNLIKELY( udp_dstport==ctx->repair_intake_listen_port ) ) {
       proto = DST_PROTO_REPAIR;
       out = ctx->repair_out;
+      ctx->received_stats.net_repair_in_cnt += 1;
     } else if( FD_UNLIKELY( udp_dstport==ctx->repair_serve_listen_port ) ) {
       proto = DST_PROTO_REPAIR;
       out = ctx->repair_out;
+      ctx->received_stats.net_repair_in_cnt += 1;
     } else {
 
       FD_LOG_ERR(( "Firedancer received a UDP packet on port %hu which was not expected. "
@@ -230,9 +266,15 @@ net_rx_aio_send( void *                    _ctx,
     ulong sig = fd_disco_netmux_sig( ip_srcaddr, udp_srcport, 0U, proto, 14UL+8UL+iplen );
 
     ulong tspub  = (ulong)fd_frag_meta_ts_comp( fd_tickcount() );
-    fd_mcache_publish( out->mcache, out->depth, out->seq, sig, out->chunk, batch[ i ].buf_sz, 0, 0, tspub );
+    ulong * seqp = out->seq;
+    ulong seq    = *seqp;
+    fd_mcache_publish( out->mcache, out->depth, seq, sig, out->chunk, batch[ i ].buf_sz, 0, 0, tspub );
 
-    out->seq = fd_seq_inc( out->seq, 1UL );
+    if( FD_LIKELY( ctx->cr_avail ) ) {
+      *ctx->cr_avail -= ctx->cr_decrement_amount;
+    }
+
+    *seqp = fd_seq_inc( seq, 1UL );
     out->chunk = fd_dcache_compact_next( out->chunk, FD_NET_MTU, out->chunk0, out->wmark );
   }
 
@@ -269,6 +311,27 @@ before_credit( fd_net_ctx_t *      ctx,
                fd_stem_context_t * stem,
                int *               charge_busy ) {
   (void)stem;
+
+  /* If the first time, update all the variables from stem */
+  if( FD_UNLIKELY( !ctx->cr_avail ) ) {
+    ctx->cr_avail = stem->cr_avail;
+    ctx->cr_decrement_amount = stem->cr_decrement_amount;
+
+    ctx->quic_out->seq       = &stem->seqs[ ctx->quic_out->out_idx ];
+    ctx->repair_out->seq     = &stem->seqs[ ctx->repair_out->out_idx ];
+    ctx->shred_out->seq      = &stem->seqs[ ctx->shred_out->out_idx ];
+    ctx->gossip_out->seq     = &stem->seqs[ ctx->gossip_out->out_idx ];
+  }
+
+  /* If not the first time, just update the cr_avail pointer */
+  ctx->cr_avail = stem->cr_avail;
+
+  // if ( FD_UNLIKELY( ctx->received_stats.total_packet_in_cnt > 30000000 ) ) {
+  //   if ( !ctx->blackhole ) {
+  //     FD_LOG_WARNING(( "net tile finished stats: quic=%lu repair=%lu shred=%lu gossip=%lu", ctx->received_stats.quic_verify_in_cnt, ctx->received_stats.net_repair_in_cnt, ctx->received_stats.net_shred_in_cnt, ctx->received_stats.net_gossip_in_cnt ));
+  //     ctx->blackhole = 1;
+  //   }
+  // }
 
   for( ulong i=0UL; i<ctx->xsk_cnt; i++ ) {
     if( FD_LIKELY( fd_xsk_aio_service( ctx->xsk_aio[i] ) ) ) {
@@ -348,6 +411,10 @@ before_frag( fd_net_ctx_t * ctx,
              ulong          sig ) {
   (void)in_idx;
 
+  if( FD_UNLIKELY(( ctx->blackhole )) ) {
+    return 1;
+  }
+
   ulong proto = fd_disco_netmux_sig_proto( sig );
   if( FD_UNLIKELY( proto!=DST_PROTO_OUTGOING ) ) return 1;
 
@@ -366,11 +433,13 @@ during_frag( fd_net_ctx_t * ctx,
              ulong          in_idx,
              ulong          seq,
              ulong          sig,
+             ulong          tspub,
              ulong          chunk,
              ulong          sz ) {
   (void)in_idx;
   (void)seq;
   (void)sig;
+  (void)tspub;
 
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_NET_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
@@ -608,6 +677,9 @@ privileged_init( fd_topo_t *      topo,
   }
 
   ctx->ip = fd_ip_join( fd_ip_new( FD_SCRATCH_ALLOC_APPEND( l, fd_ip_align(), fd_ip_footprint( 0UL, 0UL ) ), 0UL, 0UL ) );
+
+  /* Blackhole all incoming and outgoing traffic if we are in playback mode */
+  ctx->blackhole = tile->net.blackhole;
 }
 
 static void
@@ -663,62 +735,60 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_link_t * out_link = &topo->links[ tile->out_link_id[ i  ] ];
     if( strcmp( out_link->name, "net_quic" ) == 0 ) {
       fd_topo_link_t * quic_out = out_link;
-      ctx->quic_out->mcache = quic_out->mcache;
-      ctx->quic_out->sync   = fd_mcache_seq_laddr( ctx->quic_out->mcache );
-      ctx->quic_out->depth  = fd_mcache_depth( ctx->quic_out->mcache );
-      ctx->quic_out->seq    = fd_mcache_seq_query( ctx->quic_out->sync );
-      ctx->quic_out->chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( quic_out->dcache ), quic_out->dcache );
-      ctx->quic_out->mem    = topo->workspaces[ topo->objs[ quic_out->dcache_obj_id ].wksp_id ].wksp;
-      ctx->quic_out->wmark  = fd_dcache_compact_wmark ( ctx->quic_out->mem, quic_out->dcache, quic_out->mtu );
-      ctx->quic_out->chunk  = ctx->quic_out->chunk0;
+      ctx->quic_out->mcache  = quic_out->mcache;
+      ctx->quic_out->depth   = fd_mcache_depth( ctx->quic_out->mcache );
+      ctx->quic_out->out_idx = i;
+      ctx->quic_out->chunk0  = fd_dcache_compact_chunk0( fd_wksp_containing( quic_out->dcache ), quic_out->dcache );
+      ctx->quic_out->mem     = topo->workspaces[ topo->objs[ quic_out->dcache_obj_id ].wksp_id ].wksp;
+      ctx->quic_out->wmark   = fd_dcache_compact_wmark ( ctx->quic_out->mem, quic_out->dcache, quic_out->mtu );
+      ctx->quic_out->chunk   = ctx->quic_out->chunk0;
     } else if( strcmp( out_link->name, "net_shred" ) == 0 ) {
       fd_topo_link_t * shred_out = out_link;
-      ctx->shred_out->mcache = shred_out->mcache;
-      ctx->shred_out->sync   = fd_mcache_seq_laddr( ctx->shred_out->mcache );
-      ctx->shred_out->depth  = fd_mcache_depth( ctx->shred_out->mcache );
-      ctx->shred_out->seq    = fd_mcache_seq_query( ctx->shred_out->sync );
-      ctx->shred_out->chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( shred_out->dcache ), shred_out->dcache );
-      ctx->shred_out->mem    = topo->workspaces[ topo->objs[ shred_out->dcache_obj_id ].wksp_id ].wksp;
-      ctx->shred_out->wmark  = fd_dcache_compact_wmark ( ctx->shred_out->mem, shred_out->dcache, shred_out->mtu );
-      ctx->shred_out->chunk  = ctx->shred_out->chunk0;
+      ctx->shred_out->mcache     = shred_out->mcache;
+      ctx->shred_out->out_idx    = i;
+      ctx->shred_out->depth      = fd_mcache_depth( ctx->shred_out->mcache );
+      ctx->shred_out->chunk0     = fd_dcache_compact_chunk0( fd_wksp_containing( shred_out->dcache ), shred_out->dcache );
+      ctx->shred_out->mem        = topo->workspaces[ topo->objs[ shred_out->dcache_obj_id ].wksp_id ].wksp;
+      ctx->shred_out->wmark      = fd_dcache_compact_wmark ( ctx->shred_out->mem, shred_out->dcache, shred_out->mtu );
+      ctx->shred_out->chunk      = ctx->shred_out->chunk0;
     } else if( strcmp( out_link->name, "net_gossip" ) == 0 ) {
       fd_topo_link_t * gossip_out = out_link;
-      ctx->gossip_out->mcache = gossip_out->mcache;
-      ctx->gossip_out->sync   = fd_mcache_seq_laddr( ctx->gossip_out->mcache );
-      ctx->gossip_out->depth  = fd_mcache_depth( ctx->gossip_out->mcache );
-      ctx->gossip_out->seq    = fd_mcache_seq_query( ctx->gossip_out->sync );
-      ctx->gossip_out->chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( gossip_out->dcache ), gossip_out->dcache );
-      ctx->gossip_out->mem    = topo->workspaces[ topo->objs[ gossip_out->dcache_obj_id ].wksp_id ].wksp;
-      ctx->gossip_out->wmark  = fd_dcache_compact_wmark ( ctx->gossip_out->mem, gossip_out->dcache, gossip_out->mtu );
-      ctx->gossip_out->chunk  = ctx->gossip_out->chunk0;
+      ctx->gossip_out->mcache     = gossip_out->mcache;
+      ctx->gossip_out->depth      = fd_mcache_depth( ctx->gossip_out->mcache );
+      ctx->gossip_out->out_idx    = i;
+      ctx->gossip_out->chunk0     = fd_dcache_compact_chunk0( fd_wksp_containing( gossip_out->dcache ), gossip_out->dcache );
+      ctx->gossip_out->mem        = topo->workspaces[ topo->objs[ gossip_out->dcache_obj_id ].wksp_id ].wksp;
+      ctx->gossip_out->wmark      = fd_dcache_compact_wmark ( ctx->gossip_out->mem, gossip_out->dcache, gossip_out->mtu );
+      ctx->gossip_out->chunk      = ctx->gossip_out->chunk0;
     } else if( strcmp( out_link->name, "net_repair" ) == 0 ) {
       fd_topo_link_t * repair_out = out_link;
-      ctx->repair_out->mcache = repair_out->mcache;
-      ctx->repair_out->sync   = fd_mcache_seq_laddr( ctx->repair_out->mcache );
-      ctx->repair_out->depth  = fd_mcache_depth( ctx->repair_out->mcache );
-      ctx->repair_out->seq    = fd_mcache_seq_query( ctx->repair_out->sync );
-      ctx->repair_out->chunk0 = fd_dcache_compact_chunk0( fd_wksp_containing( repair_out->dcache ), repair_out->dcache );
-      ctx->repair_out->mem    = topo->workspaces[ topo->objs[ repair_out->dcache_obj_id ].wksp_id ].wksp;
-      ctx->repair_out->wmark  = fd_dcache_compact_wmark ( ctx->repair_out->mem, repair_out->dcache, repair_out->mtu );
-      ctx->repair_out->chunk  = ctx->repair_out->chunk0;
+      ctx->repair_out->mcache     = repair_out->mcache;
+      ctx->repair_out->depth      = fd_mcache_depth( ctx->repair_out->mcache );
+      ctx->repair_out->out_idx    = i;
+      ctx->repair_out->chunk0     = fd_dcache_compact_chunk0( fd_wksp_containing( repair_out->dcache ), repair_out->dcache );
+      ctx->repair_out->mem        = topo->workspaces[ topo->objs[ repair_out->dcache_obj_id ].wksp_id ].wksp;
+      ctx->repair_out->wmark      = fd_dcache_compact_wmark ( ctx->repair_out->mem, repair_out->dcache, repair_out->mtu );
+      ctx->repair_out->chunk      = ctx->repair_out->chunk0;
     } else {
       FD_LOG_ERR(( "unrecognized out link `%s`", out_link->name ));
     }
   }
 
   /* Check if any of the tiles we set a listen port for do not have an outlink. */
-  if( FD_UNLIKELY( ctx->shred_listen_port!=0 && ctx->shred_out->mcache==NULL ) ) {
-    FD_LOG_ERR(( "shred listen port set but no out link was found" ));
-  } else if( FD_UNLIKELY( ctx->quic_transaction_listen_port!=0 && ctx->quic_out->mcache==NULL ) ) {
-    FD_LOG_ERR(( "quic transaction listen port set but no out link was found" ));
-  } else if( FD_UNLIKELY( ctx->legacy_transaction_listen_port!=0 && ctx->quic_out->mcache==NULL ) ) {
-    FD_LOG_ERR(( "legacy transaction listen port set but no out link was found" ));
-  } else if( FD_UNLIKELY( ctx->gossip_listen_port!=0 && ctx->gossip_out->mcache==NULL ) ) {
-    FD_LOG_ERR(( "gossip listen port set but no out link was found" ));
-  } else if( FD_UNLIKELY( ctx->repair_intake_listen_port!=0 && ctx->repair_out->mcache==NULL ) ) {
-    FD_LOG_ERR(( "repair intake port set but no out link was found" ));
-  } else if( FD_UNLIKELY( ctx->repair_serve_listen_port!=0 && ctx->repair_out->mcache==NULL ) ) {
-    FD_LOG_ERR(( "repair serve listen port set but no out link was found" ));
+  if( FD_LIKELY( !ctx->blackhole ) ) {
+    if( FD_UNLIKELY( ctx->shred_listen_port!=0 && ctx->shred_out->mcache==NULL ) ) {
+      FD_LOG_ERR(( "shred listen port set but no out link was found" ));
+    } else if( FD_UNLIKELY( ctx->quic_transaction_listen_port!=0 && ctx->quic_out->mcache==NULL ) ) {
+      FD_LOG_ERR(( "quic transaction listen port set but no out link was found" ));
+    } else if( FD_UNLIKELY( ctx->legacy_transaction_listen_port!=0 && ctx->quic_out->mcache==NULL ) ) {
+      FD_LOG_ERR(( "legacy transaction listen port set but no out link was found" ));
+    } else if( FD_UNLIKELY( ctx->gossip_listen_port!=0 && ctx->gossip_out->mcache==NULL ) ) {
+      FD_LOG_ERR(( "gossip listen port set but no out link was found" ));
+    } else if( FD_UNLIKELY( ctx->repair_intake_listen_port!=0 && ctx->repair_out->mcache==NULL ) ) {
+      FD_LOG_ERR(( "repair intake port set but no out link was found" ));
+    } else if( FD_UNLIKELY( ctx->repair_serve_listen_port!=0 && ctx->repair_out->mcache==NULL ) ) {
+      FD_LOG_ERR(( "repair serve listen port set but no out link was found" ));
+    }
   }
 
   ulong scratch_top = FD_SCRATCH_ALLOC_FINI( l, 1UL );

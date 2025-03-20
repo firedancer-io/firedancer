@@ -288,11 +288,13 @@ during_frag( fd_benchs_ctx_t * ctx,
              ulong             in_idx,
              ulong             seq,
              ulong             sig,
+             ulong             tspub,
              ulong             chunk,
              ulong             sz ) {
   (void)in_idx;
   (void)seq;
   (void)sig;
+  (void)tspub;
 
   if( ctx->no_quic ) {
 

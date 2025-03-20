@@ -564,9 +564,11 @@ during_frag( fd_pack_ctx_t * ctx,
              ulong           in_idx,
              ulong           seq,
              ulong           sig,
+             ulong           tspub,
              ulong           chunk,
              ulong           sz ) {
   (void)seq;
+  (void)tspub;
 
   uchar const * dcache_entry = fd_chunk_to_laddr_const( ctx->in[ in_idx ].mem, chunk );
 

@@ -15,6 +15,7 @@ during_frag( void * _ctx   FD_PARAM_UNUSED,
              ulong  in_idx FD_PARAM_UNUSED,
              ulong  seq    FD_PARAM_UNUSED,
              ulong  sig    FD_PARAM_UNUSED,
+             ulong  tspub  FD_PARAM_UNUSED,
              ulong  chunk,
              ulong  sz ) {
   fd_quic_ctx_t * ctx = &fd_quic_trace_ctx;

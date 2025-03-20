@@ -133,11 +133,13 @@ during_frag( fd_gui_ctx_t * ctx,
              ulong          in_idx,
              ulong          seq,
              ulong          sig,
+             ulong          tspub,
              ulong          chunk,
              ulong          sz ) {
   (void)in_idx;
   (void)seq;
   (void)sig;
+  (void)tspub;
 
   uchar * src = (uchar *)fd_chunk_to_laddr( ctx->in_mem, chunk );
 

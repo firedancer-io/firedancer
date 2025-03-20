@@ -123,10 +123,12 @@ during_frag( fd_eqvoc_tile_ctx_t * ctx,
              ulong                 in_idx,
              ulong                 seq,
              ulong                 sig,
+             ulong                 tspub,
              ulong                 chunk,
              ulong                 sz ) {
   (void)seq;
   (void)sig;
+  (void)tspub;
 
   if( FD_UNLIKELY( in_idx == ctx->contact_in_idx ) ) {
     if( FD_UNLIKELY( chunk < ctx->contact_in_chunk0 || chunk > ctx->contact_in_wmark ) ) {

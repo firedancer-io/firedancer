@@ -194,11 +194,13 @@ during_frag( fd_quic_ctx_t * ctx,
              ulong           in_idx,
              ulong           seq,
              ulong           sig,
+             ulong           tspub,
              ulong           chunk,
              ulong           sz ) {
   (void)in_idx;
   (void)seq;
   (void)sig;
+  (void)tspub;
 
   if( FD_UNLIKELY( chunk<ctx->in_chunk0 || chunk>ctx->in_wmark || sz > FD_NET_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in_chunk0, ctx->in_wmark ));
@@ -471,11 +473,9 @@ unprivileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "quic tile has none or unexpected input links %lu %s %s",
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
 
-  if( FD_UNLIKELY( tile->out_cnt!=2UL ||
-                   strcmp( topo->links[ tile->out_link_id[ 0UL ] ].name, "quic_verify" ) ||
-                   strcmp( topo->links[ tile->out_link_id[ 1UL ] ].name, "quic_net" ) ) )
-    FD_LOG_ERR(( "quic tile has none or unexpected output links %lu %s %s",
-                 tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
+  if( FD_UNLIKELY( tile->out_cnt!=2UL ) )
+    FD_LOG_ERR(( "quic tile has none or unexpected output links %lu",
+                 tile->out_cnt ));
 
   ulong out_depth = topo->links[ tile->out_link_id[ 0 ] ].depth;
   if( FD_UNLIKELY( tile->quic.out_depth != out_depth ) )

@@ -96,10 +96,12 @@ during_frag( fd_dedup_ctx_t * ctx,
              ulong            in_idx,
              ulong            seq,
              ulong            sig,
+             ulong            tspub,
              ulong            chunk,
              ulong            sz ) {
   (void)seq;
   (void)sig;
+  (void)tspub;
 
   if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz>FD_TPU_PARSED_MTU ) )
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));

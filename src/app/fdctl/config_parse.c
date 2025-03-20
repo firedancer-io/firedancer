@@ -279,6 +279,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( uint,   layout.verify_tile_count                         );
   CFG_POP      ( uint,   layout.bank_tile_count                           );
   CFG_POP      ( uint,   layout.shred_tile_count                          );
+  CFG_POP      ( uint,   layout.archiver_tile_count                       );
 
   CFG_POP      ( cstr,   hugetlbfs.mount_path                             );
 
@@ -397,6 +398,9 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( ulong,  tiles.batch.incremental_interval                 );
   CFG_POP      ( cstr,   tiles.batch.out_dir                              );
   CFG_POP      ( ulong,  tiles.batch.hash_tpool_thread_count              );
+
+  CFG_POP      ( bool,   tiles.archiver.playback                          );
+  CFG_POP      ( cstr,   tiles.archiver.archive_path                      );
 
 # undef CFG_POP
 # undef CFG_ARRAY

@@ -202,7 +202,7 @@ STEM_(run1)( ulong                        in_cnt,
              ulong **                     in_fseq,
              ulong                        out_cnt,
              fd_frag_meta_t **            out_mcache,
-             ulong                        cons_cnt,
+             ulong                        cons_cnt, /* number of reliable output links */
              ulong *                      _cons_out,
              ulong **                     _cons_fseq,
              ulong                        burst,
@@ -308,10 +308,10 @@ STEM_(run1)( ulong                        in_cnt,
   if( FD_UNLIKELY( !!cons_cnt && !_cons_fseq ) ) FD_LOG_ERR(( "NULL cons_fseq" ));
   for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) {
     if( FD_UNLIKELY( !_cons_fseq[ cons_idx ] ) ) FD_LOG_ERR(( "NULL cons_fseq[%lu]", cons_idx ));
-    cons_fseq[ cons_idx ] = _cons_fseq[ cons_idx ];
+    cons_fseq[ cons_idx ] = _cons_fseq[ cons_idx ]; /* the fseq of each consumer of the tile */
     cons_out [ cons_idx ] = _cons_out [ cons_idx ];
     cons_slow[ cons_idx ] = (ulong*)(fd_metrics_link_out( fd_metrics_base_tl, cons_idx ) + FD_METRICS_COUNTER_LINK_SLOW_COUNT_OFF);
-    cons_seq [ cons_idx ] = fd_fseq_query( _cons_fseq[ cons_idx ] );
+    cons_seq [ cons_idx ] = fd_fseq_query( _cons_fseq[ cons_idx ] ); /* cons_seq = the value of each output fseq */
   }
 
   /* housekeeping init */
@@ -356,7 +356,7 @@ STEM_(run1)( ulong                        in_cnt,
         ulong cons_idx = event_idx;
 
         /* Receive flow control credits from this out. */
-        cons_seq[ cons_idx ] = fd_fseq_query( cons_fseq[ cons_idx ] );
+        cons_seq[ cons_idx ] = fd_fseq_query( cons_fseq[ cons_idx ] ); /* update the cons_seq of the input link */
 
       } else if( FD_LIKELY( event_idx>cons_cnt ) ) { /* in fctl for in in_idx */
         ulong in_idx = event_idx - cons_cnt - 1UL;
@@ -385,6 +385,10 @@ STEM_(run1)( ulong                        in_cnt,
           ulong slowest_cons = ULONG_MAX;
           cr_avail = cr_max;
           for( ulong cons_idx=0UL; cons_idx<cons_cnt; cons_idx++ ) {
+            /* cr_avail for this output link:
+               out_seq[ cons_out[ cons_idx ] ] - cons_seq[ cons_idx ]
+               out_seq gets incremented when we (the producer) publishes a message
+               cons_seq gets updated at intervals  */
             ulong cons_cr_avail = (ulong)fd_long_max( (long)cr_max-fd_long_max( fd_seq_diff( out_seq[ cons_out[ cons_idx ] ], cons_seq[ cons_idx ] ), 0L ), 0L );
             slowest_cons = fd_ulong_if( cons_cr_avail<cr_avail, cons_idx, slowest_cons );
             cr_avail     = fd_ulong_min( cons_cr_avail, cr_avail );
@@ -466,7 +470,7 @@ STEM_(run1)( ulong                        in_cnt,
      different threads of execution.  We only count the transition
      from not backpressured to backpressured. */
 
-    if( FD_UNLIKELY( cr_avail<burst ) ) {
+    if( FD_UNLIKELY( cr_avail<burst ) ) { // if cr_avail < burst, we are backpressured and shouldn't publish anything
       metric_backp_cnt += (ulong)!metric_in_backp;
       metric_in_backp   = 1UL;
       FD_SPIN_PAUSE();
@@ -603,9 +607,10 @@ STEM_(run1)( ulong                        in_cnt,
     ulong sz       = (ulong)this_in_mline->sz;     (void)sz;
     ulong ctl      = (ulong)this_in_mline->ctl;    (void)ctl;
     ulong tsorig   = (ulong)this_in_mline->tsorig; (void)tsorig;
+    ulong tspub    = (ulong)this_in_mline->tspub;  (void)tspub;
 
 #ifdef STEM_CALLBACK_DURING_FRAG
-    STEM_CALLBACK_DURING_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, chunk, sz );
+    STEM_CALLBACK_DURING_FRAG( ctx, (ulong)this_in->idx, seq_found, sig, tspub, chunk, sz );
 #endif
 
     FD_COMPILER_MFENCE();
@@ -648,11 +653,11 @@ STEM_(run1)( ulong                        in_cnt,
 
 FD_FN_UNUSED static void
 STEM_(run)( fd_topo_t *      topo,
-            fd_topo_tile_t * tile ) {
+            fd_topo_tile_t * tile ) { // runs a single tile in a loop
   const fd_frag_meta_t * in_mcache[ FD_TOPO_MAX_LINKS ];
   ulong * in_fseq[ FD_TOPO_MAX_TILE_IN_LINKS ];
 
-  ulong polled_in_cnt = 0UL;
+  ulong polled_in_cnt = 0UL; // number of input links this tile has
   for( ulong i=0UL; i<tile->in_cnt; i++ ) {
     if( FD_UNLIKELY( !tile->in_link_poll[ i ] ) ) continue;
 
@@ -663,7 +668,7 @@ STEM_(run)( fd_topo_t *      topo,
     polled_in_cnt += 1;
   }
 
-  fd_frag_meta_t * out_mcache[ FD_TOPO_MAX_LINKS ];
+  fd_frag_meta_t * out_mcache[ FD_TOPO_MAX_LINKS ]; // all the output mcaches of this tile
   for( ulong i=0UL; i<tile->out_cnt; i++ ) {
     out_mcache[ i ] = topo->links[ tile->out_link_id[ i ] ].mcache;
     FD_TEST( out_mcache[ i ] );
@@ -671,14 +676,14 @@ STEM_(run)( fd_topo_t *      topo,
 
   ulong   reliable_cons_cnt = 0UL;
   ulong   cons_out[ FD_TOPO_MAX_LINKS ];
-  ulong * cons_fseq[ FD_TOPO_MAX_LINKS ];
+  ulong * cons_fseq[ FD_TOPO_MAX_LINKS ]; /* the fseq of each consumer of the tile */
   for( ulong i=0UL; i<topo->tile_cnt; i++ ) {
-    fd_topo_tile_t * consumer_tile = &topo->tiles[ i ];
-    for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) {
-      for( ulong k=0UL; k<tile->out_cnt; k++ ) {
-        if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==tile->out_link_id[ k ] && consumer_tile->in_link_reliable[ j ] ) ) {
-          cons_out[ reliable_cons_cnt ] = k;
-          cons_fseq[ reliable_cons_cnt ] = consumer_tile->in_link_fseq[ j ];
+    fd_topo_tile_t * consumer_tile = &topo->tiles[ i ]; // each tile I in the topology
+    for( ulong j=0UL; j<consumer_tile->in_cnt; j++ ) { // each input link of tile I
+      for( ulong k=0UL; k<tile->out_cnt; k++ ) { // each output link of the current tile
+        if( FD_UNLIKELY( consumer_tile->in_link_id[ j ]==tile->out_link_id[ k ] && consumer_tile->in_link_reliable[ j ] ) ) { // if we found the link
+          cons_out[ reliable_cons_cnt ] = k; // the index of all reliable consumer links in the current tile
+          cons_fseq[ reliable_cons_cnt ] = consumer_tile->in_link_fseq[ j ]; // the fseq of the link, lives in the consumer tile
           FD_TEST( cons_fseq[ reliable_cons_cnt ] );
           reliable_cons_cnt++;
           /* Need to test this, since each link may connect to many outs,

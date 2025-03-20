@@ -196,6 +196,8 @@ int
 fd_store_shred_insert( fd_store_t * store,
                        fd_shred_t const * shred ) {
 
+  // FD_LOG_WARNING(( "inserting shred slot=%lu idx=%u fec_idx=%u", shred->slot, shred->idx, shred->fec_set_idx ));
+
   if( FD_UNLIKELY( shred->version != store->expected_shred_version ) ) {
     FD_LOG_WARNING(( "received shred version %lu instead of %lu", (ulong)shred->version, store->expected_shred_version ));
     return FD_BLOCKSTORE_OK;
@@ -204,6 +206,7 @@ fd_store_shred_insert( fd_store_t * store,
   fd_blockstore_t * blockstore = store->blockstore;
 
   if (shred->slot < blockstore->smr) {
+    FD_LOG_WARNING(( "received premature shred %lu", shred->slot ));
     return FD_BLOCKSTORE_OK;
   }
   uchar shred_type = fd_shred_type( shred->variant );
@@ -232,6 +235,7 @@ fd_store_shred_insert( fd_store_t * store,
   if( FD_UNLIKELY( rc < FD_BLOCKSTORE_OK ) ) {
     FD_LOG_ERR( ( "failed to insert shred. reason: %d", rc ) );
   } else if ( rc == FD_BLOCKSTORE_OK_SLOT_COMPLETE ) {
+    FD_LOG_WARNING(( "inserted completed slot: %lu", shred->slot ));
     fd_store_add_pending( store, shred->slot, (long)5e6, 0, 1 );
   } else {
     fd_store_add_pending( store, shred->slot, FD_REPAIR_BACKOFF_TIME, 0, 0 );
