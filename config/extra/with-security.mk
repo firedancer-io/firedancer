@@ -1,5 +1,6 @@
 CPPFLAGS+=-fPIC
-LDFLAGS+=-fPIC
+LDFLAGS_EXE+=-pie
+LDFLAGS_SO+=-fPIC
 
 CPPFLAGS+=-Wl,-z,relro,-z,now
 LDFLAGS+=-Wl,-z,relro,-z,now
