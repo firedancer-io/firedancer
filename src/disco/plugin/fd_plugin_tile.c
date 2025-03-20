@@ -90,7 +90,6 @@ after_frag( fd_plugin_ctx_t *   ctx,
   (void)seq;
   (void)tsorig;
   (void)tspub;
-  (void)stem;
 
   switch( ctx->in_kind[ in_idx ] ) {
     case IN_KIND_REPLAY: {

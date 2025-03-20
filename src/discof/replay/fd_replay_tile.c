@@ -480,7 +480,6 @@ before_frag( fd_replay_tile_ctx_t * ctx,
              ulong                  in_idx,
              ulong                  seq,
              ulong                  sig ) {
-  (void)ctx;
   (void)seq;
 
   if( in_idx == SHRED_IN_IDX ) {
@@ -1642,7 +1641,7 @@ prepare_first_batch_execution( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * s
 
 static void
 exec_slices( fd_replay_tile_ctx_t * ctx,
-             fd_stem_context_t * stem FD_PARAM_UNUSED,
+             fd_stem_context_t * stem,
              ulong slot ) {
   /* Buffer up to a certain number of slices (configurable?). Then, for
      each microblock, round robin dispatch the transactions in that
@@ -1867,7 +1866,6 @@ after_frag( fd_replay_tile_ctx_t * ctx,
             fd_stem_context_t *    stem  FD_PARAM_UNUSED ) {
   (void)sig;
   (void)sz;
-  (void)seq;
 
   /*if( FD_LIKELY( in_idx == SHRED_IN_IDX ) ) {
 

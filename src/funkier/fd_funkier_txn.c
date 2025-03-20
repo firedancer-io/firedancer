@@ -704,7 +704,7 @@ fd_funkier_txn_publish_into_parent( fd_funkier_t *     funk,
 /* Return the first record in a transaction. Returns NULL if the
    transaction has no records yet. */
 
-FD_FN_PURE fd_funkier_rec_t const *
+fd_funkier_rec_t const *
 fd_funkier_txn_first_rec( fd_funkier_t *           funk,
                           fd_funkier_txn_t const * txn ) {
   ulong rec_idx;
@@ -718,7 +718,7 @@ fd_funkier_txn_first_rec( fd_funkier_t *           funk,
   return rec_pool.ele + rec_idx;
 }
 
-FD_FN_PURE fd_funkier_rec_t const *
+fd_funkier_rec_t const *
 fd_funkier_txn_last_rec( fd_funkier_t *           funk,
                          fd_funkier_txn_t const * txn ) {
   ulong rec_idx;
