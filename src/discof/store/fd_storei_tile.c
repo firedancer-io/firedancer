@@ -15,6 +15,8 @@
 #include "../../disco/keyguard/fd_keyload.h"
 #include "../../disco/topo/fd_pod_format.h"
 #include "../../flamenco/runtime/fd_runtime.h"
+#include "../../flamenco/runtime/fd_rocksdb.h"
+#include "../../flamenco/shredcap/fd_shredcap.h"
 #include "../../disco/metrics/fd_metrics.h"
 
 #include <fcntl.h>
@@ -142,7 +144,6 @@ struct fd_store_tile_ctx {
   ulong * root_slot_fseq;
 
   int sim;
-  ulong sim_end_slot;
 
   fd_shred_cap_ctx_t shred_cap_ctx;
 
@@ -382,11 +383,6 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
   }
 
   if( store_slot_prepare_mode == FD_STORE_SLOT_PREPARE_CONTINUE ) {
-
-    if ( FD_UNLIKELY( ctx->sim && slot>=ctx->sim_end_slot ) ) {
-      FD_LOG_ERR(( "Finished simulation to slot %lu", ctx->sim_end_slot ));
-    }
-
     FD_LOG_NOTICE( ( "\n\n[Store]\n"
                      "slot:            %lu\n"
                      "current turbine: %lu\n"
@@ -780,15 +776,59 @@ unprivileged_init( fd_topo_t *      topo,
     if( ctx->shred_cap_ctx.shred_cap_fileno==-1 ) FD_LOG_ERR(( "failed at opening the shredcap file" ));
   } else if( strlen( tile->store_int.shred_cap_replay )>0 ) {
     ctx->sim                           = 1;
-    ctx->sim_end_slot                  = tile->store_int.shred_cap_end_slot;
-    FD_LOG_WARNING(( "simulating to slot %lu", ctx->sim_end_slot ));
+    FD_LOG_WARNING(( "simulating to slot %lu", tile->store_int.replay_end_slot ));
     ctx->store->blockstore->shmem->wmk = 0UL;
     while( ctx->store->blockstore->shmem->wmk==0UL ) {
       FD_LOG_DEBUG(( "Waiting for blockstore to be initialized" ));
     }
     FD_TEST( fd_shred_cap_replay( tile->store_int.shred_cap_replay, ctx->store ) == FD_SHRED_CAP_OK );
   }
+  else if( strlen( tile->store_int.rocksdb )>0 ) {
+    ctx->sim                           = 1;
+    ctx->store->blockstore->shmem->wmk = 0UL;
+    while( ctx->store->blockstore->shmem->wmk==0UL ) {
+      FD_LOG_DEBUG(( "Waiting for blockstore to be initialized" ));
+    }
 
+    fd_rocksdb_t           rocks_db         = {0};
+    fd_rocksdb_init( &rocks_db, tile->store_int.rocksdb );
+    fd_rocksdb_root_iter_t iter             = {0};
+    fd_rocksdb_root_iter_new( &iter );
+    fd_slot_meta_t         slot_meta        = {0};
+    fd_valloc_t valloc = fd_libc_alloc_virtual();
+
+    if( FD_UNLIKELY( fd_rocksdb_root_iter_seek( &iter, &rocks_db, ctx->store->blockstore->shmem->wmk, &slot_meta, valloc ) ) ) return;
+
+    do {
+      if( FD_UNLIKELY( fd_rocksdb_root_iter_next( &iter, &slot_meta, valloc ) ) ) break;
+      if( FD_UNLIKELY( fd_rocksdb_get_meta( &rocks_db, slot_meta.slot, &slot_meta, valloc ) ) ) break;
+      if( FD_UNLIKELY( fd_rocksdb_import_block_blockstore( &rocks_db, &slot_meta, ctx->store->blockstore, 1, NULL, valloc ) ) ) break;
+
+      if( FD_UNLIKELY( fd_blockstore_shreds_complete( ctx->store->blockstore, slot_meta.slot ) ) ) {
+        fd_store_add_pending( ctx->store, slot_meta.slot, (long)5e6, 0, 1 );
+      } else {
+        FD_LOG_WARNING(( "slot %lu is not complete", slot_meta.slot ));
+        fd_store_add_pending( ctx->store, slot_meta.slot, FD_REPAIR_BACKOFF_TIME, 0, 0 );
+        fd_repair_backoff_t * backoff = fd_repair_backoff_map_query( ctx->store->repair_backoff_map, slot_meta.slot, NULL );
+        if( FD_LIKELY( backoff==NULL ) ) {
+          /* new backoff entry */
+          backoff = fd_repair_backoff_map_insert( ctx->store->repair_backoff_map, slot_meta.slot );
+          backoff->last_backoff_duration = FD_REPAIR_BACKOFF_TIME;
+          backoff->last_repair_time = ctx->store->now;
+        } else if( ( backoff->last_repair_time+backoff->last_backoff_duration )
+            >( ctx->store->now + FD_REPAIR_BACKOFF_TIME ) ) {
+          backoff->last_backoff_duration = FD_REPAIR_BACKOFF_TIME;
+          backoff->last_repair_time = ctx->store->now;
+        }
+      }
+
+      if ( slot_meta.slot>=( tile->store_int.replay_end_slot+5 ) ) {
+        FD_LOG_WARNING(("Finished importing to slot %lu", tile->store_int.replay_end_slot));
+        break;
+      }
+    } while( 1 );
+
+  }
 }
 
 static ulong
