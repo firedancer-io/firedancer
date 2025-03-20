@@ -188,7 +188,7 @@ test_eqvoc_proof_to_chunks( FD_PARAM_UNUSED fd_eqvoc_t * eqvoc,
   }
 
   fd_eqvoc_proof_t proof = { 0 };
-  proof.producer = producer; 
+  proof.producer = producer;
   fd_memcpy( proof.shreds, shred1, shred1_sz );
   fd_memcpy( proof.shreds + shred1_sz, shred2, shred2_sz );
   fd_eqvoc_proof_to_chunks( &proof, duplicate_shreds );
