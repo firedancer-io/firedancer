@@ -1,5 +1,6 @@
 /* Store tile manages a blockstore and serves requests to repair and replay. */
 #include "fd_store.h"
+#include <string.h>
 #define _GNU_SOURCE
 
 #include "generated/fd_storei_tile_seccomp.h"
@@ -398,20 +399,12 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
                      ctx->store->curr_turbine_slot - slot,
                      ( ctx->store->curr_turbine_slot - slot ) < 5 ) );
 
-    uchar * out_buf = fd_chunk_to_laddr( ctx->replay_out_mem, ctx->replay_out_chunk );
-
     if( !fd_blockstore_shreds_complete( ctx->blockstore, slot ) ) {
       FD_LOG_ERR(( "could not find block - slot: %lu", slot ));
     }
 
     ulong parent_slot = fd_blockstore_parent_slot_query( ctx->blockstore, slot );
     if ( FD_UNLIKELY( parent_slot == FD_SLOT_NULL ) ) FD_LOG_ERR(( "could not find slot %lu meta", slot ));
-
-    FD_STORE( ulong, out_buf, parent_slot );
-    out_buf += sizeof(ulong);
-    int err = fd_blockstore_block_hash_query( ctx->blockstore, slot, (fd_hash_t *)fd_type_pun( out_buf ) );
-    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "could not find slot meta" ));
-    out_buf += sizeof(fd_hash_t);
 
     FD_SCRATCH_SCOPE_BEGIN {
       ctx->metrics.first_turbine_slot = ctx->store->first_turbine_slot;
@@ -421,7 +414,6 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
       ulong caught_up_flag = (ctx->store->curr_turbine_slot - slot)<4 ? 0UL : REPLAY_FLAG_CATCHING_UP;
       ulong replay_sig = fd_disco_replay_old_sig( slot, REPLAY_FLAG_MICROBLOCK | caught_up_flag );
 
-      ulong txn_cnt = 0;
       if( FD_UNLIKELY( fd_trusted_slots_find( ctx->trusted_slots, slot ) ) ) {
         /* if is caught up and is leader */
         replay_sig = fd_disco_replay_old_sig( slot, REPLAY_FLAG_FINISHED_BLOCK );
@@ -430,11 +422,42 @@ fd_store_tile_slot_prepare( fd_store_tile_ctx_t * ctx,
         replay_sig = fd_disco_replay_old_sig( slot, REPLAY_FLAG_FINISHED_BLOCK | REPLAY_FLAG_MICROBLOCK | caught_up_flag );
       }
 
-      out_buf += sizeof(ulong);
+      fd_block_set_t data_complete_idxs[FD_SHRED_MAX_PER_SLOT / sizeof(ulong)] = { 0 };
+      ulong  buffered_idx = 0;
+      ulong  complete_idx = 0;
+      for(;;) { /* speculative query */
+        fd_block_map_query_t query[1] = { 0 };
+        int err = fd_block_map_query_try( ctx->blockstore->block_map, &slot, NULL, query, 0 );
+        fd_block_info_t * block_info = fd_block_map_query_ele( query );
 
-      ulong out_sz = sizeof(ulong) + sizeof(fd_hash_t) + ( txn_cnt * sizeof(fd_txn_p_t) );
-      fd_stem_publish( stem, 0UL, replay_sig, ctx->replay_out_chunk, txn_cnt, 0UL, tsorig, tspub );
-      ctx->replay_out_chunk = fd_dcache_compact_next( ctx->replay_out_chunk, out_sz, ctx->replay_out_chunk0, ctx->replay_out_wmark );
+        if( FD_UNLIKELY( err == FD_MAP_ERR_KEY   ) ) FD_LOG_ERR(( "could not find block - slot: %lu", slot ));
+        if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
+
+        memcpy( data_complete_idxs, block_info->data_complete_idxs, sizeof(data_complete_idxs) );
+        complete_idx = block_info->data_complete_idx;
+        buffered_idx = block_info->buffered_idx;
+
+        if( FD_UNLIKELY( fd_block_map_query_test( query ) == FD_MAP_SUCCESS ) ) break;
+      }
+
+      FD_TEST( complete_idx == buffered_idx );
+
+      /* artificially publishing slices in order :D */
+
+      uint consumed_idx = UINT_MAX;
+      for( uint idx = 0; idx <= buffered_idx; idx++ ) {
+        if( FD_UNLIKELY( fd_block_set_test( data_complete_idxs, idx ) ) ) {
+          FD_LOG_INFO(( "adding slice replay: slot %lu, slice start: %u, slice end: %u", slot, consumed_idx + 1, idx ));
+
+          uint data_cnt = consumed_idx != UINT_MAX ? idx - consumed_idx : idx + 1;
+          replay_sig = fd_disco_repair_replay_sig( slot, data_cnt, (ushort)( slot - parent_slot ), complete_idx == idx );
+          fd_stem_publish( stem, REPLAY_OUT_IDX, replay_sig, ctx->replay_out_chunk, 0, 0UL, tsorig, tspub );
+          FD_LOG_INFO(( "writing seq to store_replay: %lu",  stem->seqs[ REPLAY_OUT_IDX ] ));
+          consumed_idx = idx;
+        }
+      }
+
+
     } FD_SCRATCH_SCOPE_END;
   }
 
@@ -810,7 +833,7 @@ metrics_write( fd_store_tile_ctx_t * ctx ) {
   FD_MGAUGE_SET( STOREI, FIRST_TURBINE_SLOT, ctx->metrics.first_turbine_slot );
 }
 
-#define STEM_BURST (1UL)
+#define STEM_BURST (64UL)
 
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_store_tile_ctx_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_store_tile_ctx_t)
