@@ -399,6 +399,14 @@ typedef struct {
       uint fake_dst_ip;
     } pktgen;
 
+    struct {
+      int  playback;
+      char archive_path[ PATH_MAX ];
+
+      /* Set internally by the archiver tile */
+      int archive_fd;
+    } archiver;
+
   };
 } fd_topo_tile_t;
 
