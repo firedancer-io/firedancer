@@ -667,6 +667,7 @@ POOL_(acquire)( POOL_(t) *   join,
       }
 
       if( FD_UNLIKELY( ele_idx>=ele_max ) ) { /* opt for not corrupt */
+        FD_LOG_ERR(( "POOL_ERR_CORRUPT: %lu>=%lu", ele_idx, ele_max ));
         err = FD_POOL_ERR_CORRUPT;
         break;
       }
@@ -674,6 +675,7 @@ POOL_(acquire)( POOL_(t) *   join,
       ulong ele_nxt = POOL_(private_idx)( ele0[ ele_idx ].POOL_NEXT );
 
       if( FD_UNLIKELY( (ele_nxt>=ele_max) & (!POOL_(idx_is_null)( ele_nxt )) ) ) { /* opt for not corrupt */
+        FD_LOG_ERR(( "POOL_ERR_CORRUPT: %lu>=%lu (2)", ele_nxt, ele_max ));
         err = FD_POOL_ERR_CORRUPT;
         break;
       }
