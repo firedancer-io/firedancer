@@ -245,6 +245,10 @@ fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *     acc_mgr,
                            fd_txn_account_t * account ) {
 
   fd_funkier_rec_key_t key = fd_acc_funk_key( account->pubkey );
+
+  /* Remove previous incarnation of the account's record from the transaction, so that we don't hash it twice */
+  fd_funkier_rec_hard_remove( acc_mgr->funk, txn, &key );
+
   int err;
   fd_funkier_rec_prepare_t prepare[1];
   fd_funkier_rec_t * rec = fd_funkier_rec_prepare( acc_mgr->funk, txn, &key, prepare, &err );

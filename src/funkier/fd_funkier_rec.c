@@ -302,6 +302,46 @@ fd_funkier_rec_is_full( fd_funkier_t * funk ) {
   return fd_funkier_rec_pool_is_empty( &rec_pool );
 }
 
+void
+fd_funkier_rec_hard_remove( fd_funkier_t *               funk,
+                            fd_funkier_txn_t *           txn,
+                            fd_funkier_rec_key_t const * key ) {
+
+  fd_wksp_t * wksp = fd_funkier_wksp( funk );
+  fd_alloc_t * alloc = fd_funkier_alloc( funk, wksp );
+  fd_funkier_rec_map_t rec_map = fd_funkier_rec_map( funk, wksp );
+  fd_funkier_rec_pool_t rec_pool = fd_funkier_rec_pool( funk, wksp );
+
+  fd_funkier_xid_key_pair_t pair[1];
+  if( txn == NULL ) {
+    fd_funkier_txn_xid_set_root( pair->xid );
+  } else {
+    fd_funkier_txn_xid_copy( pair->xid, &txn->xid );
+  }
+  fd_funkier_rec_key_copy( pair->key, key );
+
+  fd_funkier_rec_t * rec = NULL;
+  for(;;) {
+    fd_funkier_rec_map_query_t rec_query[1];
+    int err = fd_funkier_rec_map_remove( &rec_map, pair, NULL, rec_query, FD_MAP_FLAG_BLOCKING );
+    if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
+    if( err == FD_MAP_ERR_KEY ) return;
+    if( FD_UNLIKELY( err != FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "map corruption" ));
+    rec = fd_funkier_rec_map_query_ele( rec_query );
+    break;
+  }
+
+  ulong prev_idx = rec->prev_idx;
+  ulong next_idx = rec->next_idx;
+  if( fd_funkier_rec_idx_is_null( prev_idx ) ) funk->rec_head_idx =                next_idx;
+  else                                         rec_pool.ele[ prev_idx ].next_idx = next_idx;
+  if( fd_funkier_rec_idx_is_null( next_idx ) ) funk->rec_tail_idx =                prev_idx;
+  else                                         rec_pool.ele[ next_idx ].prev_idx = prev_idx;
+
+  fd_funkier_val_flush( rec, alloc, wksp );
+  fd_funkier_rec_pool_release( &rec_pool, rec, 1 );
+}
+
 int
 fd_funkier_rec_remove( fd_funkier_t *               funk,
                        fd_funkier_txn_t *           txn,

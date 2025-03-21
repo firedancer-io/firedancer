@@ -297,6 +297,21 @@ fd_funkier_rec_remove( fd_funkier_t *               funk,
                        fd_funkier_rec_t **          rec_out,
                        ulong                        erase_data );
 
+/*
+fd_funkier_rec_hard_remove completely removes the record from Funk,
+and leaves no tombstone behind.
+
+The record will cease to exist in that transaction and any of
+transaction's subsequently created descendants (again, assuming no
+subsequent insert of key). Any information in an erased record is lost.
+
+Always succeeds.
+*/
+void
+fd_funkier_rec_hard_remove( fd_funkier_t *               funk,
+                            fd_funkier_txn_t *           txn,
+                            fd_funkier_rec_key_t const * key );
+
 
 /* When a record is erased there is metadata stored in the five most
    significant bytes of record flags.  These are helpers to make setting
