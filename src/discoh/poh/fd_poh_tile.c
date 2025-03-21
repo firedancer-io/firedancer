@@ -1357,6 +1357,14 @@ publish_tick( fd_poh_ctx_t *      ctx,
   ulong slot = fd_ulong_if( meta->block_complete, ctx->slot-1UL, ctx->slot );
   meta->parent_offset = 1UL+slot-ctx->reset_slot;
 
+  meta->parent_block_id_valid = ctx->parent_slot == (slot-meta->parent_offset);
+  if( FD_LIKELY( meta->parent_block_id_valid ) ) {
+    FD_LOG_INFO(( "sending tick slot=%lu parent=%lu with block_id", slot, slot-meta->parent_offset ));
+    fd_memcpy( meta->parent_block_id, ctx->parent_block_id, 32UL );
+  } else {
+    FD_LOG_INFO(( "sending tick slot=%lu parent=%lu without block_id parent_slot=%lu", slot, slot-meta->parent_offset, ctx->parent_slot ));
+  }
+
   FD_TEST( hashcnt>ctx->last_hashcnt );
   ulong hash_delta = hashcnt-ctx->last_hashcnt;
 
