@@ -861,7 +861,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Create the instruction to execute (in the input format the FD runtime expects) from
      the translated CPI ABI inputs. */
-  fd_instr_info_t instruction_to_execute[ 1 ];
+  fd_instr_info_t * instruction_to_execute = &vm->instr_ctx->txn_ctx->cpi_instr_infos[ vm->instr_ctx->txn_ctx->cpi_instr_info_cnt++ ];
 
   err = VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( vm, cpi_instruction, cpi_account_metas, program_id, data, instruction_to_execute );
   if( FD_UNLIKELY( err ) ) {
