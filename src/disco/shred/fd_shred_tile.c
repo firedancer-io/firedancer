@@ -417,8 +417,10 @@ during_frag( fd_shred_ctx_t * ctx,
         /* chained_merkle_root is set as the merkle root of the last FEC set
            of the parent block (and passed in by POH tile) */
         if( FD_LIKELY( entry_meta->parent_block_id_valid ) ) {
+          FD_LOG_INFO(( "new slot=%lu parent=%lu with block_id", ctx->slot, ctx->slot-entry_meta->parent_offset ));
           memcpy( ctx->chained_merkle_root, entry_meta->parent_block_id, FD_SHRED_MERKLE_ROOT_SZ );
         } else {
+          FD_LOG_INFO(( "new slot=%lu parent=%lu without block_id", ctx->slot, ctx->slot-entry_meta->parent_offset ));
           ctx->metrics->invalid_block_id_cnt++;
           memset( ctx->chained_merkle_root, 0, FD_SHRED_MERKLE_ROOT_SZ );
         }
