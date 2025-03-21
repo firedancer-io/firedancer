@@ -143,7 +143,7 @@ typedef struct fd_gui_tile_timers fd_gui_tile_timers_t;
 struct fd_gui_tile_stats {
   long  sample_time_nanos;
 
-  ulong net_in_rx_bytes;      /* Number of bytes received by the net tile*/
+  ulong net_in_rx_bytes;      /* Number of bytes received by the net or sock tile*/
   ulong quic_conn_cnt;        /* Number of active QUIC connections */
   ulong verify_drop_cnt;      /* Number of transactions dropped by verify tiles */
   ulong verify_total_cnt;     /* Number of transactions received by verify tiles */
@@ -152,7 +152,7 @@ struct fd_gui_tile_stats {
   ulong pack_buffer_cnt;      /* Number of buffered transactions in the pack tile */
   ulong pack_buffer_capacity; /* Total size of the pack transaction buffer */
   ulong bank_txn_exec_cnt;    /* Number of transactions processed by the bank tile */
-  ulong net_out_tx_bytes;     /* Number of bytes sent by the net tile */
+  ulong net_out_tx_bytes;     /* Number of bytes sent by the net or sock tile */
 };
 
 typedef struct fd_gui_tile_stats fd_gui_tile_stats_t;
@@ -276,6 +276,7 @@ struct fd_gui {
     ulong vote_account_balance;
     ulong estimated_slot_duration_nanos;
 
+    ulong sock_tile_cnt;
     ulong net_tile_cnt;
     ulong quic_tile_cnt;
     ulong verify_tile_cnt;
