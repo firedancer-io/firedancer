@@ -320,3 +320,4 @@ dump/test-vectors/cpi/fixtures/bcd3a29f55d80f60c8cfdd9a1ec186810e9b53d3_360598.f
 dump/test-vectors/cpi/fixtures/d727b3b402bd305343cdbf835a52c8b3cfca28f0_361070.fix
 dump/test-vectors/cpi/fixtures/9254bc1e54b500a9691da4dd41fa062c02649fcc_360354.fix
 dump/test-vectors/cpi/fixtures/8308b515382e9e092078408d9630874f58c39f20_1635052.fix
+dump/test-vectors/cpi/fixtures/cpi_acc_meta_txn_instr_check_one_loop.fix

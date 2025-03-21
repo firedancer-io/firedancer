@@ -35,6 +35,12 @@
    to populate a fd_instr_info_t struct. This struct can then be given to the
    FD runtime for execution.
 
+   WARNING:  out_instr will be partially filled if there are unmatched account
+   metas (i.e,. no corresponding entry in the transaction accounts list). This
+   is not an error condition. fd_vm_prepare_instruction has to handle that case
+   in order to match Agave's behavior of checking presence in both transaction
+   accounts list and caller instruction accounts list in a single loop iteration.
+
 Parameters:
 - vm: handle to the vm
 - cpi_instr: instruction to execute laid out in the CPI ABI format (Rust or C)
@@ -53,7 +59,6 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
                             fd_pubkey_t const * program_id,
                             uchar const * cpi_instr_data,
                             fd_instr_info_t * out_instr ) {
-  /* fd_vm_prepare_instruction will handle the case where pubkey is missing */
   out_instr->program_id_pubkey = *program_id;
   out_instr->program_id = UCHAR_MAX;
 
@@ -73,15 +78,24 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
   for( ulong i=0UL; i<VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instr ); i++ ) {
     VM_SYSCALL_CPI_ACC_META_T const * cpi_acct_meta = &cpi_acct_metas[i];
     uchar const * pubkey = VM_SYSCALL_CPI_ACC_META_PUBKEY( vm, cpi_acct_meta );
+    memcpy( out_instr->acct_pubkeys[i].uc, pubkey, sizeof( fd_pubkey_t ) );
+    out_instr->acct_flags[i]        = 0;
 
-    int account_found = 0;
+  /* The parent flag(s) for is writable/signer is checked in
+      fd_vm_prepare_instruction. Signer privilege is allowed iff the account
+      is a signer in the caller or if it is a derived signer. */
+  /* TODO: error if flags are wrong */
+    if( VM_SYSCALL_CPI_ACC_META_IS_WRITABLE( cpi_acct_meta ) ) {
+      out_instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
+    }
+
+    if( VM_SYSCALL_CPI_ACC_META_IS_SIGNER( cpi_acct_meta ) ) {
+      out_instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
+    }
+
     for( ulong j=0UL; j<vm->instr_ctx->txn_ctx->accounts_cnt; j++ ) {
       if( !memcmp( pubkey, &txn_accs[j], sizeof(fd_pubkey_t) ) ) {
-        account_found = 1;
-        /* TODO: error if flags are wrong */
-        memcpy( out_instr->acct_pubkeys[i].uc, pubkey, sizeof( fd_pubkey_t ) );
         out_instr->acct_txn_idxs[i]     = (uchar)j;
-        out_instr->acct_flags[i]        = 0;
         out_instr->accounts[i] = &vm->instr_ctx->txn_ctx->accounts[j];
         out_instr->is_duplicate[i]      = acc_idx_seen[j];
 
@@ -97,25 +111,8 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
           }
         }
 
-        /* The parent flag(s) for is writable/signer is checked in
-           fd_vm_prepare_instruction. Signer privilege is allowed iff the account
-           is a signer in the caller or if it is a derived signer. */
-        if( VM_SYSCALL_CPI_ACC_META_IS_WRITABLE( cpi_acct_meta ) ) {
-          out_instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
-        }
-
-        if( VM_SYSCALL_CPI_ACC_META_IS_SIGNER( cpi_acct_meta ) ) {
-          out_instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
-        }
-
         break;
       }
-    }
-    if( FD_UNLIKELY( !account_found ) ) {
-      FD_BASE58_ENCODE_32_BYTES( pubkey, id_b58 );
-      fd_log_collector_msg_many( vm->instr_ctx, 2, "Instruction references an unknown account ", 42UL, id_b58, id_b58_len );
-      FD_VM_ERR_FOR_LOG_INSTR( vm, FD_EXECUTOR_INSTR_ERR_MISSING_ACC );
-      return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
   }
 
