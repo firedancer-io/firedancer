@@ -195,3 +195,4 @@ dump/test-vectors/elf_loader/fixtures/9994b7390f6cabbbba4ec1dd2f0aad49.00000532.
 dump/test-vectors/elf_loader/fixtures/d7f6c3e47c2728b762dc6ad701517a06.0000086a.honggfuzz.fix
 dump/test-vectors/elf_loader/fixtures/ffb92cef69b61454f0a9adba40bd553a.0000053a.honggfuzz.fix
 dump/test-vectors/elf_loader/fixtures/8db0b4fdfe6345f79f8e86a8c6e94bfa.00000876.honggfuzz.fix
+dump/test-vectors/elf_loader/fixtures/zero_key_syscall_hash.fix

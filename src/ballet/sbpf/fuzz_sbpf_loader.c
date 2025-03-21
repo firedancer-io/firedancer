@@ -50,7 +50,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
   FD_TEST( syscalls );
 
   for( uint const * x = _syscalls; *x; x++ )
-    fd_sbpf_syscalls_insert( syscalls, *x );
+    fd_sbpf_syscalls_insert( syscalls, (ulong)*x );
 
   /* Load program */
   int res = fd_sbpf_program_load( prog, data, size, syscalls, 0 );
