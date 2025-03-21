@@ -145,7 +145,7 @@ init_spads( fd_ledger_args_t * args, int has_tpool ) {
     args->exec_spad_cnt = fd_tpool_worker_cnt( args->tpool );
     for( ulong i=0UL; i<fd_tpool_worker_cnt( args->tpool ); i++ ) {
       ulong       total_mem_sz = args->thread_mem_bound;
-      uchar *     mem          = fd_wksp_alloc_laddr( args->wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( total_mem_sz ), 999UL );
+      uchar *     mem          = fd_wksp_alloc_laddr( args->wksp, fd_spad_align(), fd_spad_footprint( total_mem_sz ), 999UL );
       fd_spad_t * spad         = fd_spad_join( fd_spad_new( mem, total_mem_sz ) );
       if( FD_UNLIKELY( !spad ) ) {
         FD_LOG_ERR(( "failed to allocate spad" ));
@@ -162,7 +162,7 @@ init_spads( fd_ledger_args_t * args, int has_tpool ) {
      that exist at the slot_ctx/epoch_ctx. It should encapsulate all allocations
      that happen outside of transaction execution. */
 
-  uchar *     mem  = fd_wksp_alloc_laddr( args->wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( args->runtime_mem_bound ), 999UL );
+  uchar *     mem  = fd_wksp_alloc_laddr( args->wksp, fd_spad_align(), fd_spad_footprint( args->runtime_mem_bound ), 999UL );
   fd_spad_t * spad = fd_spad_join( fd_spad_new( mem, args->runtime_mem_bound ) );
   if( FD_UNLIKELY( !spad ) ) {
     FD_LOG_ERR(( "Failed to allocate runtime spad" ));

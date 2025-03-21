@@ -1407,7 +1407,7 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   ulong       exec_spads_cnt = 2UL;
   ulong exec_spad_mem_max = 1UL << 30;
   for( ulong i=0UL; i<worker_max; i++ ) {
-    void *      exec_spad_mem = fd_spad_alloc( runtime_spad, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( exec_spad_mem_max ) );
+    void *      exec_spad_mem = fd_spad_alloc( runtime_spad, fd_spad_align(), fd_spad_footprint( exec_spad_mem_max ) );
     fd_spad_t * exec_spad     = fd_spad_join( fd_spad_new( exec_spad_mem, exec_spad_mem_max ) );
     exec_spads[i] = exec_spad;
   }
@@ -1987,7 +1987,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
 
     /* Need to setup txn_descriptor for txn account write checks (see fd_txn_account_is_writable_idx)
        FIXME: this could probably go in fd_exec_test_instr_context_create? */
-    fd_txn_t * txn_descriptor = (fd_txn_t *)fd_spad_alloc_debug( spad, fd_txn_align(), fd_txn_footprint( ctx->txn_ctx->instr_info_cnt, 0UL ) );
+    fd_txn_t * txn_descriptor = (fd_txn_t *)fd_spad_alloc_debug( spad, fd_txn_align(), fd_txn_footprint( ctx->txn_ctx->instr_info_cnt, 0UL ), 0UL );
     txn_descriptor->transaction_version = FD_TXN_V0;
     txn_descriptor->acct_addr_cnt = (ushort)ctx->txn_ctx->accounts_cnt;
 
