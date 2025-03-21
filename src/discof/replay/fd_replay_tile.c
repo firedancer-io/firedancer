@@ -57,6 +57,10 @@
 
 #define VOTE_ACC_MAX   (2000000UL)
 
+#define REPLAY_TYPE_LIVE     (0UL)
+#define REPLAY_TYPE_ROCKSDB  (1UL)
+#define REPLAY_TYPE_SHREDCAP (2UL)
+
 #define BANK_HASH_CMP_LG_MAX 16
 
 struct fd_shred_replay_in_ctx {
@@ -316,6 +320,10 @@ struct fd_replay_tile_ctx {
   fd_funk_txn_t * second_false_root;
 
   int     is_caught_up;
+
+  /* Replay end slot */
+  ulong replay_type;
+  ulong replay_end_slot;
 
   /* Metrics */
   fd_replay_tile_metrics_t metrics;
@@ -1574,7 +1582,6 @@ process_and_exec_mbatch( fd_replay_tile_ctx_t * ctx,
       FD_COMPILER_MFENCE();
       block_info->flags = fd_uchar_clear_bit( block_info->flags, FD_BLOCK_FLAG_REPLAYING );
       memcpy( &block_info->block_hash, hdr->hash, sizeof(fd_hash_t) );
-      memcpy( &block_info->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof(fd_hash_t) );
     }
     publish_account_notifications( ctx, fork, ctx->curr_slot, txn_p, hdr->txn_cnt );
     fd_block_map_publish( query );
@@ -1841,7 +1848,6 @@ exec_slices( fd_replay_tile_ctx_t * ctx,
      FD_COMPILER_MFENCE();
      block_info->flags = fd_uchar_clear_bit( block_info->flags, FD_BLOCK_FLAG_REPLAYING );
      memcpy( &block_info->block_hash, hdr->hash, sizeof(fd_hash_t) );
-     memcpy( &block_info->bank_hash, &fork->slot_ctx.slot_bank.banks_hash, sizeof(fd_hash_t) );
 
      fd_block_map_publish( query );
      ctx->flags = fd_disco_replay_old_sig( slot, REPLAY_FLAG_FINISHED_BLOCK );
@@ -1881,6 +1887,11 @@ after_frag( fd_replay_tile_ctx_t * ctx,
 
     return;
   }*/
+
+  if( FD_UNLIKELY( ctx->curr_slot>ctx->replay_end_slot ) ) {
+    FD_LOG_WARNING(( "Ignoring replay of slot %lu. Replay end slot is %lu", ctx->curr_slot, ctx->replay_end_slot ));
+    return;
+  }
 
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
   if( FD_UNLIKELY( in_idx == STORE_IN_IDX ) ) {
@@ -2632,7 +2643,22 @@ after_credit( fd_replay_tile_ctx_t * ctx,
 
     /* Try to move the bank hash comparison watermark forward */
     for( ulong cmp_slot = bank_hash_cmp->watermark + 1; cmp_slot < curr_slot; cmp_slot++ ) {
-      int rc = fd_bank_hash_cmp_check( bank_hash_cmp, cmp_slot );
+      int rc;
+      if( FD_LIKELY( ctx->replay_type==REPLAY_TYPE_LIVE )) {
+        rc = fd_bank_hash_cmp_check( bank_hash_cmp, cmp_slot );
+      } else {
+        if( FD_UNLIKELY( bank_hash_cmp->watermark+1>ctx->replay_end_slot ) ) {
+          FD_LOG_ERR(( "Finished simulation to slot %lu", ctx->replay_end_slot ));
+        }
+        if( ctx->replay_type==REPLAY_TYPE_ROCKSDB ) {
+          fd_hash_t expected;
+          fd_blockstore_bank_hash_query( ctx->blockstore, cmp_slot, &expected );
+          rc = fd_bank_hash_rocksdb_cmp_check( bank_hash_cmp, cmp_slot, expected );
+        } else {
+          rc = fd_bank_hash_cmp_check( bank_hash_cmp, cmp_slot );
+        }
+      }
+
       switch ( rc ) {
         case -1:
 
@@ -3041,6 +3067,22 @@ unprivileged_init( fd_topo_t *      topo,
     }
     ctx->capture_ctx->capture_txns = 0;
     fd_solcap_writer_init( ctx->capture_ctx->capture, ctx->capture_file );
+  }
+
+  /**********************************************************************/
+  /* replay                                                             */
+  /**********************************************************************/
+
+  ctx->replay_end_slot = tile->replay.replay_end_slot ? tile->replay.replay_end_slot : ULONG_MAX;
+
+  if ( strlen( tile->replay.replay_type )==0 ) {
+    ctx->replay_type = REPLAY_TYPE_LIVE;
+  } else if( strcmp( tile->replay.replay_type, "rocksdb" )==0 ) {
+    ctx->replay_type = REPLAY_TYPE_ROCKSDB;
+  } else if( strcmp( tile->replay.replay_type, "shredcap" )==0 ) {
+    ctx->replay_type = REPLAY_TYPE_SHREDCAP;
+  } else {
+    FD_LOG_ERR(( "unknown sim type %s", tile->replay.replay_type ));
   }
 
   /**********************************************************************/

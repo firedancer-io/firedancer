@@ -175,9 +175,9 @@ fd_bank_hash_cmp_check( fd_bank_hash_cmp_t * bank_hash_cmp, ulong slot ) {
   if( FD_UNLIKELY( !cmp ) ) return 0;
 
   fd_hash_t null_hash = { 0 };
-  if( FD_LIKELY( 0 == memcmp( &cmp->ours, &null_hash, sizeof( fd_hash_t ) ) ) ) return 0;
+  if( FD_LIKELY( 0==memcmp( &cmp->ours, &null_hash, sizeof( fd_hash_t ) ) ) ) return 0;
 
-  if( FD_UNLIKELY( cmp->cnt == 0 ) ) return 0;
+  if( FD_UNLIKELY( cmp->cnt==0 ) ) return 0;
 
   fd_hash_t * theirs = &cmp->theirs[0];
   ulong       stake  = cmp->stakes[0];
@@ -226,6 +226,47 @@ fd_bank_hash_cmp_check( fd_bank_hash_cmp_t * bank_hash_cmp, ulong slot ) {
     fd_bank_hash_cmp_map_remove( bank_hash_cmp->map, cmp );
     bank_hash_cmp->cnt--;
     return 1;
+  }
+  return 0;
+}
+
+int
+fd_bank_hash_rocksdb_cmp_check( fd_bank_hash_cmp_t * bank_hash_cmp, ulong slot, fd_hash_t expected ) {
+  fd_bank_hash_cmp_entry_t * cmp = fd_bank_hash_cmp_map_query( bank_hash_cmp->map, slot, NULL );
+
+  if( FD_UNLIKELY( !cmp ) ) return 0;
+
+  fd_hash_t null_hash = { 0 };
+  if( FD_LIKELY( 0==memcmp( &cmp->ours, &null_hash, sizeof( fd_hash_t ) ) ) ) return 0;
+
+  if( FD_UNLIKELY( cmp->cnt==0 ) ) return 0;
+
+  if( FD_LIKELY( 0==memcmp( &cmp->ours, &expected, sizeof( fd_hash_t ) ) ) ) {
+    FD_LOG_NOTICE(( "\n\n[Bank Hash Comparison]\n"
+                      "slot:   %lu\n"
+                      "ours:   %s\n"
+                      "theirs: %s\n"
+                      "stake:  %.0lf%%\n"
+                      "result: match!\n",
+                      cmp->slot,
+                      FD_BASE58_ENC_32_ALLOCA( cmp->ours.hash ),
+                      FD_BASE58_ENC_32_ALLOCA( expected.hash ),
+                      100.0 ));
+    fd_bank_hash_cmp_map_remove( bank_hash_cmp->map, cmp );
+    bank_hash_cmp->cnt--;
+    return 1;
+  } else {
+    FD_LOG_WARNING(( "\n\n[Bank Hash Comparison]\n"
+                      "slot:   %lu\n"
+                      "ours:   %s\n"
+                      "theirs: %s\n"
+                      "stake:  %.0lf%%\n"
+                      "result: mismatch!\n",
+                      cmp->slot,
+                      FD_BASE58_ENC_32_ALLOCA( cmp->ours.hash ),
+                      FD_BASE58_ENC_32_ALLOCA( expected.hash ),
+                      100.0 ));
+    return -1;
   }
   return 0;
 }
