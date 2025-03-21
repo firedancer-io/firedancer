@@ -130,12 +130,18 @@ typedef struct {
     struct {
       char   provider[ 8 ]; /* "xdp" or "socket" */
       char   interface[ 16 ];
+
+      /* xdp specific options */
       ulong  xdp_rx_queue_size;
       ulong  xdp_tx_queue_size;
       ulong  free_ring_depth;
       long   tx_flush_timeout_ns;
       char   xdp_mode[8];
       int    zero_copy;
+
+      /* sock specific options */
+      int so_sndbuf;
+      int so_rcvbuf;
 
       ushort shred_listen_port;
       ushort quic_transaction_listen_port;

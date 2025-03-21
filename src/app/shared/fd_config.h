@@ -261,6 +261,8 @@ struct fd_config {
 
     struct {
       char provider[ 8 ];
+      uint sock_receive_buffer_size;
+      uint sock_send_buffer_size;
     } net;
 
     struct {

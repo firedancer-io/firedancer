@@ -63,7 +63,7 @@ pktgen_topo( config_t * config ) {
   fd_topob_wksp( topo, "metric" );
   fd_topob_wksp( topo, "metric_in" );
   fd_topos_net_tiles( topo, config->layout.net_tile_count, config->tiles.netlink.max_routes, config->tiles.netlink.max_neighbors, config->development.net.provider, config->tiles.net.interface, config->tiles.net.flush_timeout_micros,
-                      config->tiles.net.xdp_rx_queue_size, config->tiles.net.xdp_tx_queue_size, config->tiles.net.xdp_zero_copy, config->tiles.net.xdp_mode, tile_to_cpu );
+                      config->tiles.net.xdp_rx_queue_size, config->tiles.net.xdp_tx_queue_size, config->tiles.net.xdp_zero_copy, config->tiles.net.xdp_mode, config->development.net.sock_receive_buffer_size, config->development.net.sock_send_buffer_size, tile_to_cpu );
   fd_topob_tile( topo, "metric",  "metric", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
 
   fd_topob_wksp( topo, "pktgen" );
