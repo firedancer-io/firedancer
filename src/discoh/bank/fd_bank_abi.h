@@ -56,28 +56,32 @@
 #define FD_BANK_ABI_TXN_INIT_ERR_INVALID_LOOKUP_INDEX  (-5)
 
 /* fd_bank_abi_txn_t is a struct that is ABI compatible with
-   `solana_sdk::transaction::sanitized::SanitizedTransaction`.  It is an
-   extremely gross hack, the type has Rust repr, so that layout is
-   unspecified and unstable.  For now though, we need to do this for
+   `RuntimeTransaction<SanitizedTransaction>`
+   It is an extremely gross hack, the type has a relatively complicated
+   Rust repr, so that layout is unspecified and unstable.  Anza has
+   plans to simplify this portion of their code, which would remove the
+   need for this, but for now though, we need to do this for
    performance, as it saves us from various copies.
 
-   The Rust `SanitizedTransaction` returned here is very special, and is
-   extremely unsafe to Rust code.  In particular the internal Vec<>
-   fields are not owned by the type, and are not pointing to memory
-   allocated from the Rust heap, so dropping or attempting to modify
-   them could crash or corrupt memory.  The type overall should never be
-   modified in Rust code, and just about the only thing it can be used
-   for is it will survive being passed around as a
-   &SanitizedTransaction.
+   The Rust `RuntimeTransaction<SanitizedTransaction>` returned here is
+   very special, and is extremely unsafe to Rust code.  In particular
+   the internal Vec<> fields are not owned by the type, and are not
+   pointing to memory allocated from the Rust heap, so dropping or
+   attempting to modify them could crash or corrupt memory.  The type
+   overall should never be modified in Rust code, and just about the
+   only thing it can be used for is it will survive being passed around
+   as a reference.
 
    The only valid way to create such a struct is to use the
    fd_bank_abi_txn_init function below.  Then it should be passed as a
-   pointer to Rust, and treated only as an &SanitizedTransaction.
+   pointer to Rust, and treated only as an
+   &RuntimeTransaction<SanitizedTransaction>.
 
-   Because the fake SanitizedTransaction does not own the underlying
-   Vec objects, and they aren't actually vecs, these fields instead
-   point to a sidecar buffer that is allocated by the caller.  The
-   lifetime of both the transaction and the sidecar must be the same. */
+   Because the fake RuntimeTransaction<SanitizedTransaction> does not
+   own the underlying Vec objects, and they aren't actually vecs, these
+   fields instead point to a sidecar buffer that is allocated by the
+   caller.  The lifetime of both the transaction and the sidecar must be
+   the same. */
 
 struct fd_bank_abi_txn_private;
 typedef struct fd_bank_abi_txn_private fd_bank_abi_txn_t;
