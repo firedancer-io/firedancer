@@ -1320,6 +1320,14 @@ dynamic_port_range = "8900-9000"
         #   as the monitor.  Not recommended for production/mainnet.
         provider = "xdp"
 
+        # Sets the socket receive buffer size via SO_RCVBUF.
+        # Raises net.core.rmem_max accordingly
+        sock_receive_buffer_size = 134217728
+
+        # Sets the socket receive buffer size via SO_SNDBUF.
+        # Raises net.core.wmem_max accordingly
+        sock_send_buffer_size = 134217728
+
     # It can be convenient during development to use a network namespace
     # for running Firedancer.  This allows us to send packets at a local
     # Firedancer instance and have them go through more of the kernel

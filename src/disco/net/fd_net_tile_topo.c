@@ -56,9 +56,16 @@ setup_xdp_tile( fd_topo_t *      topo,
 
 static void
 setup_sock_tile( fd_topo_t *   topo,
-                 ulong const * tile_to_cpu ) {
+                 ulong const * tile_to_cpu,
+                 uint          so_rcvbuf,
+                 uint          so_sndbuf ) {
   fd_topo_tile_t * tile = fd_topob_tile( topo, "sock", "sock", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
   strcpy( tile->net.provider, "socket" );
+
+  if( FD_UNLIKELY( so_rcvbuf>INT_MAX ) ) FD_LOG_ERR(( "invalid [development.net.sock_receive_buffer_size]" ));
+  if( FD_UNLIKELY( so_sndbuf>INT_MAX ) ) FD_LOG_ERR(( "invalid [development.net.sock_send_buffer_size]" ));
+  tile->net.so_rcvbuf = (int)so_rcvbuf;
+  tile->net.so_sndbuf = (int)so_sndbuf;
 }
 
 void
@@ -73,6 +80,8 @@ fd_topos_net_tiles( fd_topo_t *  topo,
                     ulong        xdp_tx_queue_size,
                     int          xdp_zero_copy,
                     char const * xdp_mode,
+                    uint         so_rcvbuf,
+                    uint         so_sndbuf,
                     ulong const  tile_to_cpu[ FD_TILE_MAX ] ) {
   /* net_umem: Packet buffers */
   fd_topob_wksp( topo, "net_umem" );
@@ -103,7 +112,7 @@ fd_topos_net_tiles( fd_topo_t *  topo,
     fd_topob_wksp( topo, "sock" );
 
     for( ulong i=0UL; i<net_tile_cnt; i++ ) {
-      setup_sock_tile( topo, tile_to_cpu );
+      setup_sock_tile( topo, tile_to_cpu, so_rcvbuf, so_sndbuf );
     }
 
   } else {
