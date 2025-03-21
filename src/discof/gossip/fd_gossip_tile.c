@@ -521,6 +521,10 @@ during_frag( fd_gossip_tile_ctx_t * ctx,
 
   if( in_kind!=IN_KIND_NET ) return;
 
+  if( FD_UNLIKELY( chunk<in_ctx->chunk0 || chunk>in_ctx->wmark || sz>FD_NET_MTU  ) ) {
+    FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, in_ctx->chunk0, in_ctx->wmark ));
+  }
+
   void const * src = fd_net_rx_translate_frag( &ctx->in_links[ in_idx ].net_rx, chunk, ctl, sz );
   fd_memcpy( ctx->gossip_buffer, src, sz );
 }
@@ -564,7 +568,10 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
   fd_eth_hdr_t const * eth = (fd_eth_hdr_t const *)ctx->gossip_buffer;
   fd_ip4_hdr_t const * ip4 = (fd_ip4_hdr_t const *)( eth+1 );
   fd_udp_hdr_t const * udp = (fd_udp_hdr_t const *)( (ulong)ip4 + FD_IP4_GET_LEN( *ip4 ) );
-  if( FD_UNLIKELY( (ulong)(udp+1) > (ulong)eth+sz ) ) return;
+
+  if( FD_UNLIKELY( sz<sizeof(fd_eth_hdr_t)+sizeof(fd_ip4_hdr_t) || (ulong)(udp+1) > (ulong)eth+sz || hdr_sz<sz ) ) {
+    FD_LOG_ERR(( "Gossip tile received a corrupt frag from net."));
+  }
 
   fd_gossip_peer_addr_t peer_addr;
   peer_addr.l    = 0;
