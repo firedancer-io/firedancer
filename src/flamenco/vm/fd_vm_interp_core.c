@@ -764,7 +764,7 @@ interp_exec:
 
   FD_VM_INTERP_BRANCH_BEGIN(0x85depr) { /* FD_SBPF_OP_CALL_IMM */
 
-    fd_sbpf_syscalls_t const * syscall = imm!=fd_sbpf_syscalls_key_null() ? fd_sbpf_syscalls_query_const( syscalls, imm, NULL ) : NULL;
+    fd_sbpf_syscalls_t const * syscall = imm!=fd_sbpf_syscalls_key_null() ? fd_sbpf_syscalls_query_const( syscalls, (ulong)imm, NULL ) : NULL;
     if( FD_UNLIKELY( !syscall ) ) { /* Optimize for the syscall case */
 
       /* Note we do the stack push before updating the pc(*). This implies
@@ -927,7 +927,7 @@ interp_exec:
   FD_VM_INTERP_BRANCH_BEGIN(0x95) { /* FD_SBPF_OP_SYSCALL */
     /* imm has already been validated to not overflow */
     uint syscall_key = FD_VM_SBPF_STATIC_SYSCALLS_LIST[ imm ];
-    fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( syscalls, syscall_key, NULL );
+    fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( syscalls, (ulong)syscall_key, NULL );
 
     /* this check is probably useless, as validation includes checking that the
        syscall is active in this epoch.

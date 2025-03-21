@@ -57,8 +57,13 @@ typedef int
 #define FD_SBPF_SYSCALLS_LG_SLOT_CNT (7)
 #define FD_SBPF_SYSCALLS_SLOT_CNT    (1UL<<FD_SBPF_SYSCALLS_LG_SLOT_CNT)
 
+/* The syscalls map keys should technically be of type uint since they are
+   just murmur32 hashes. However, Agave's BTree allows the full range to be
+   used as a key [0, UINT_MAX]. So we need to define a wider key type to
+   allow for a NULL value that is outside this range. We use ulong here. */
+
 struct fd_sbpf_syscalls {
-  uint                   key;  /* Murmur3-32 hash of function name */
+  ulong                  key;  /* Murmur3-32 hash of function name */
   fd_sbpf_syscall_func_t func; /* Function pointer */
   char const *           name; /* Infinite lifetime pointer to function name */
 };
@@ -67,9 +72,9 @@ typedef struct fd_sbpf_syscalls fd_sbpf_syscalls_t;
 
 #define MAP_NAME              fd_sbpf_syscalls
 #define MAP_T                 fd_sbpf_syscalls_t
-#define MAP_KEY_T             uint
-#define MAP_KEY_NULL          0U
-#define MAP_KEY_INVAL(k)      !(k)
+#define MAP_HASH_T            ulong
+#define MAP_KEY_NULL          ULONG_MAX         /* Any number greater than UINT_MAX works */
+#define MAP_KEY_INVAL(k)      ( k > UINT_MAX )  /* Force keys to uint size */
 #define MAP_KEY_EQUAL(k0,k1)  (k0)==(k1)
 #define MAP_KEY_EQUAL_IS_SLOW 0
 #define MAP_KEY_HASH(k)       (k)

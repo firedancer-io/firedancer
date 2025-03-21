@@ -51,7 +51,7 @@ void test_duplicate_entrypoint_entry( void ) {
 
   fd_sbpf_syscalls_t * syscalls = fd_sbpf_syscalls_new( fd_valloc_malloc( valloc, fd_sbpf_syscalls_align(), fd_sbpf_syscalls_footprint() ));
   for( uint const * x = _syscalls; *x; x++ )
-      fd_sbpf_syscalls_insert( syscalls, *x );
+      fd_sbpf_syscalls_insert( syscalls, (ulong)*x );
 
   int res = fd_sbpf_program_load( prog, duplicate_entrypoint_entry_elf, duplicate_entrypoint_entry_elf_sz, syscalls, /* deploy checks */ 1 );
   FD_TEST( res == 0 );

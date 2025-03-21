@@ -6,7 +6,7 @@ fd_vm_syscall_register( fd_sbpf_syscalls_t *   syscalls,
                         fd_sbpf_syscall_func_t func ) {
   if( FD_UNLIKELY( (!syscalls) | (!name) ) ) return FD_VM_ERR_INVAL;
 
-  fd_sbpf_syscalls_t * syscall = fd_sbpf_syscalls_insert( syscalls, fd_murmur3_32( name, strlen( name ), 0U ) );
+  fd_sbpf_syscalls_t * syscall = fd_sbpf_syscalls_insert( syscalls, (ulong)fd_murmur3_32( name, strlen( name ), 0U ) );
   if( FD_UNLIKELY( !syscall ) ) return FD_VM_ERR_INVAL; /* name (or hash of name) already in map */
 
   syscall->func = func;
