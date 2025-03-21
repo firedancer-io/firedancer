@@ -25,7 +25,7 @@ fd_tls_test_rand_read( void * ctx,
   return buf_;
 }
 
-static FD_FN_UNUSED fd_tls_rand_t
+static inline fd_tls_rand_t
 fd_tls_test_rand( fd_rng_t * rng ) {
   return (fd_tls_rand_t) {
     .ctx     = rng,
@@ -49,7 +49,7 @@ fd_tls_test_sign_sign( void *        _ctx,
   fd_ed25519_sign( signature, payload, 130UL, ctx->public_key, ctx->private_key, ctx->sha512 );
 }
 
-static FD_FN_UNUSED void
+static inline void
 fd_tls_test_sign_ctx( fd_tls_test_sign_ctx_t * ctx,
                       fd_rng_t *               rng ) {
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha512 ) ) );
@@ -58,7 +58,7 @@ fd_tls_test_sign_ctx( fd_tls_test_sign_ctx_t * ctx,
 }
 
 
-static FD_FN_UNUSED fd_tls_sign_t
+static inline fd_tls_sign_t
 fd_tls_test_sign( void * ctx ) {
   return (fd_tls_sign_t) {
     .ctx     = ctx,
@@ -86,12 +86,12 @@ struct test_record_buf {
 
 typedef struct test_record_buf test_record_buf_t;
 
-static FD_FN_UNUSED void
+static inline void
 test_record_reset( test_record_buf_t * buf ) {
   buf->recv = buf->send = 0UL;
 }
 
-static FD_FN_UNUSED void
+static inline void
 test_record_send( test_record_buf_t * buf,
                   uint                level,
                   uchar const *       record,
@@ -103,13 +103,13 @@ test_record_send( test_record_buf_t * buf,
   fd_memcpy( r->buf, record, record_sz );
 }
 
-static FD_FN_UNUSED test_record_t *
+static inline test_record_t *
 test_record_recv( test_record_buf_t * buf ) {
   if( buf->recv==buf->send ) return NULL;
   return &buf->records[ buf->recv++ ];
 }
 
-static FD_FN_UNUSED void
+static inline void
 test_record_log( uchar const * record,
                  ulong         record_sz,
                  int           from_server ) {

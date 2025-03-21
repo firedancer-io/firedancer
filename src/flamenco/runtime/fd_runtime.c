@@ -381,27 +381,6 @@ fd_runtime_use_multi_epoch_collection( fd_exec_slot_ctx_t const * slot_ctx, ulon
   return use_multi_epoch_collection;
 }
 
-FD_FN_UNUSED static ulong
-fd_runtime_num_rent_partitions( fd_exec_slot_ctx_t const * slot_ctx, ulong slot ) {
-  fd_epoch_bank_t const * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
-  fd_epoch_schedule_t const * schedule = &epoch_bank->epoch_schedule;
-
-  ulong off;
-  ulong epoch = fd_slot_to_epoch( schedule, slot, &off );
-  ulong slots_per_epoch = fd_epoch_slot_cnt( schedule, epoch );
-
-  ulong slot_count_in_two_day = fd_runtime_slot_count_in_two_day( epoch_bank->ticks_per_slot );
-
-  int use_multi_epoch_collection = fd_runtime_use_multi_epoch_collection( slot_ctx, slot );
-
-  if( use_multi_epoch_collection ) {
-    ulong epochs_in_cycle = slot_count_in_two_day / slots_per_epoch;
-    return slots_per_epoch * epochs_in_cycle;
-  } else {
-    return slots_per_epoch;
-  }
-}
-
 // https://github.com/anza-xyz/agave/blob/2bdcc838c18d262637524274cbb2275824eb97b8/accounts-db/src/accounts_partition.rs#L30
 static ulong
 fd_runtime_get_rent_partition( fd_exec_slot_ctx_t const * slot_ctx, ulong slot ) {

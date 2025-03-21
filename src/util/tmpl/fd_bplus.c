@@ -516,7 +516,7 @@
 #define BPLUS_(name)FD_EXPAND_THEN_CONCAT3(BPLUS_NAME,_,name)
 
 #if BPLUS_IMPL_STYLE==0
-#define BPLUS_STATIC FD_FN_UNUSED static
+#define BPLUS_STATIC static
 #else
 #define BPLUS_STATIC
 #endif

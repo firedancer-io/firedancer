@@ -37,8 +37,8 @@ static inline void gf_stu( uchar * addr, gf_t v ) { *addr = (uchar)v; }
 
 extern uchar const fd_reedsol_arith_consts_generic_mul[]  __attribute__((aligned(128)));
 
-FD_FN_UNUSED static short const * gf_arith_log_tbl    = (short const *)fd_reedsol_arith_consts_generic_mul; /* Indexed [0,256) */
-FD_FN_UNUSED static uchar const * gf_arith_invlog_tbl =
+static short const * gf_arith_log_tbl    = (short const *)fd_reedsol_arith_consts_generic_mul; /* Indexed [0,256) */
+static uchar const * gf_arith_invlog_tbl =
   fd_reedsol_arith_consts_generic_mul + 256UL*sizeof(short) + 512UL*sizeof(uchar); /* Indexed [-512,512) */
 
 FD_PROTOTYPES_END

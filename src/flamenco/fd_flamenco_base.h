@@ -116,7 +116,7 @@ fd_acct_addr_cstr( char        cstr[ static FD_BASE58_ENCODED_32_SZ ],
 
 /* fd_pod utils */
 
-FD_FN_UNUSED static fd_pubkey_t *
+static inline fd_pubkey_t *
 fd_pod_query_pubkey( uchar const * pod,
                      char const *  path,
                      fd_pubkey_t * val ) {

@@ -668,7 +668,7 @@ FD_PROTOTYPES_END
 #else /* need implementations */
 
 #if DLIST_IMPL_STYLE==0 /* local only */
-#define DLIST_IMPL_STATIC FD_FN_UNUSED static
+#define DLIST_IMPL_STATIC static inline
 #else
 #define DLIST_IMPL_STATIC
 #endif

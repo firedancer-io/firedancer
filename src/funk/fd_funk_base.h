@@ -138,7 +138,7 @@ FD_PROTOTYPES_BEGIN
    but not cryptographically secure.  Assumes k is in the caller's
    address space and valid. */
 
-FD_FN_UNUSED FD_FN_PURE static ulong /* Workaround -Winline */
+FD_FN_PURE static inline ulong
 fd_funk_rec_key_hash( fd_funk_rec_key_t const * k,
                       ulong                     seed ) {
   return (fd_ulong_hash( seed ^ (1UL<<0) ^ k->ul[0] ) ^ fd_ulong_hash( seed ^ (1UL<<1) ^ k->ul[1] ) ) ^
@@ -150,7 +150,7 @@ fd_funk_rec_key_hash( fd_funk_rec_key_t const * k,
    equal and 0 otherwise.  Assumes ka and kb are in the caller's address
    space and valid. */
 
-FD_FN_UNUSED FD_FN_PURE static int /* Workaround -Winline */
+FD_FN_PURE static inline int
 fd_funk_rec_key_eq( fd_funk_rec_key_t const * ka,
                     fd_funk_rec_key_t const * kb ) {
   ulong const * a = ka->ul;
@@ -178,7 +178,7 @@ fd_funk_rec_key_copy( fd_funk_rec_key_t *       kd,
    but not cryptographically secure.  Assumes x is in the caller's
    address space and valid. */
 
-FD_FN_UNUSED FD_FN_PURE static ulong /* Work around -Winline */
+FD_FN_PURE static inline ulong
 fd_funk_txn_xid_hash( fd_funk_txn_xid_t const * x,
                       ulong                     seed ) {
   return ( fd_ulong_hash( seed ^ (1UL<<0) ^ x->ul[0] ) ^ fd_ulong_hash( seed ^ (1UL<<1) ^ x->ul[1] ) ); /* tons of ILP */
@@ -246,7 +246,7 @@ fd_funk_xid_key_pair_hash( fd_funk_xid_key_pair_t const * p,
    and pb are equal and 0 otherwise.  Assumes pa and pb are in the
    caller's address space and valid. */
 
-FD_FN_UNUSED FD_FN_PURE static int /* Work around -Winline */
+FD_FN_PURE static inline int
 fd_funk_xid_key_pair_eq( fd_funk_xid_key_pair_t const * pa,
                          fd_funk_xid_key_pair_t const * pb ) {
   return fd_funk_txn_xid_eq( pa->xid, pb->xid ) & fd_funk_rec_key_eq( pa->key, pb->key );

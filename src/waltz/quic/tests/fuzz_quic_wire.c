@@ -28,7 +28,7 @@
 static FD_TL ulong g_clock;
 
 static ulong
-test_clock( void * context FD_FN_UNUSED ) {
+test_clock( void * context FD_PARAM_UNUSED ) {
   return g_clock;
 }
 

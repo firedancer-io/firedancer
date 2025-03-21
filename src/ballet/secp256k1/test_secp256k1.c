@@ -12,7 +12,7 @@ log_bench( char const * descr,
 }
 
 static void
-test_recover( FD_FN_UNUSED fd_rng_t * rng ) {
+test_recover( fd_rng_t * rng FD_PARAM_UNUSED ) {
   // test correctness
   //
   // solana tests

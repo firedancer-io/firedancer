@@ -274,7 +274,7 @@
 /* Implementation *****************************************************/
 
 #if HEAP_IMPL_STYLE==0
-#define HEAP_STATIC static FD_FN_UNUSED
+#define HEAP_STATIC static inline
 #else
 #define HEAP_STATIC
 #endif

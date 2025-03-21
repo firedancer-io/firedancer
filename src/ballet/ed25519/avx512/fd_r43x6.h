@@ -583,7 +583,7 @@ fd_r43x6_pack( fd_r43x6_t r ) {
    fd_r43x6_approx_mod_unpacked(x) does the same for unpacked x.  On
    return y5 will be in [0,2^40+1). */
 
-FD_FN_UNUSED FD_FN_CONST static fd_r43x6_t /* Work around -Winline */
+FD_FN_CONST static fd_r43x6_t
 fd_r43x6_approx_mod( fd_r43x6_t x ) {
   long y0, y1, y2, y3, y4, y5;
   fd_r43x6_extract_limbs( x, y );
@@ -609,7 +609,7 @@ fd_r43x6_approx_mod( fd_r43x6_t x ) {
   return fd_r43x6( y0, y1, y2, y3, y4, y5 );
 }
 
-FD_FN_UNUSED FD_FN_CONST static fd_r43x6_t /* Work around -Winline */
+FD_FN_CONST static fd_r43x6_t
 fd_r43x6_approx_mod_signed( fd_r43x6_t x ) {
   long y0, y1, y2, y3, y4, y5;
   fd_r43x6_extract_limbs( x, y );
@@ -628,7 +628,7 @@ fd_r43x6_approx_mod_signed( fd_r43x6_t x ) {
   return fd_r43x6( y0, y1, y2, y3, y4, y5 );
 }
 
-FD_FN_UNUSED FD_FN_CONST static fd_r43x6_t /* Work around -Winline */
+FD_FN_CONST static fd_r43x6_t
 fd_r43x6_approx_mod_unsigned( fd_r43x6_t x ) {
   long y0, y1, y2, y3, y4, y5;
   fd_r43x6_extract_limbs( x, y );
@@ -670,7 +670,7 @@ fd_r43x6_approx_mod_unsigned( fd_r43x6_t x ) {
 
    fd_r43x6_mod_nearly_reduced(x) does the same for nearly reduced x. */
 
-FD_FN_UNUSED FD_FN_CONST static fd_r43x6_t /* Work around -Winline */
+FD_FN_CONST static fd_r43x6_t
 fd_r43x6_mod( fd_r43x6_t x ) {
   long y0, y1, y2, y3, y4, y5;
   fd_r43x6_extract_limbs( x, y );
@@ -681,7 +681,7 @@ fd_r43x6_mod( fd_r43x6_t x ) {
   return fd_r43x6( y0, y1, y2, y3, y4, y5 );
 }
 
-FD_FN_UNUSED FD_FN_CONST static fd_r43x6_t /* Work around -Winline */
+FD_FN_CONST static fd_r43x6_t
 fd_r43x6_mod_signed( fd_r43x6_t x ) {
   long y0, y1, y2, y3, y4, y5;
   fd_r43x6_extract_limbs( x, y );
@@ -691,7 +691,7 @@ fd_r43x6_mod_signed( fd_r43x6_t x ) {
   return fd_r43x6( y0, y1, y2, y3, y4, y5 );
 }
 
-FD_FN_UNUSED FD_FN_CONST static fd_r43x6_t /* Work around -Winline */
+FD_FN_CONST static fd_r43x6_t
 fd_r43x6_mod_unsigned( fd_r43x6_t x ) {
   long y0, y1, y2, y3, y4, y5;
   fd_r43x6_extract_limbs( x, y );
@@ -704,7 +704,7 @@ fd_r43x6_mod_unsigned( fd_r43x6_t x ) {
 #define fd_r43x6_mod_unreduced fd_r43x6_mod_unsigned /* no difference in impl */
 #define fd_r43x6_mod_unpacked  fd_r43x6_mod_unsigned /* no difference in impl */
 
-FD_FN_UNUSED FD_FN_CONST static fd_r43x6_t /* Work around -Winline */
+FD_FN_CONST static fd_r43x6_t
 fd_r43x6_mod_nearly_reduced( fd_r43x6_t x ) {
   long y0, y1, y2, y3, y4, y5;
   fd_r43x6_extract_limbs( x, y );
@@ -750,7 +750,7 @@ fd_r43x6_mod_nearly_reduced( fd_r43x6_t x ) {
    of y are zero.  More specifically, u44/u45/u46/u47 inputs produce a
    u62/u62/u62/u63 output. */
 
-FD_FN_UNUSED FD_FN_CONST static fd_r43x6_t /* Work around -Winline */
+FD_FN_CONST static fd_r43x6_t
 fd_r43x6_mul_fast( fd_r43x6_t x,
                    fd_r43x6_t y ) {
 
@@ -946,7 +946,7 @@ fd_r43x6_mul_fast( fd_r43x6_t x,
    sqr and reduces the range of the outputs slightly (which can then be
    used to further optimize code using sqr). */
 
-FD_FN_UNUSED FD_FN_CONST static fd_r43x6_t /* Work around -Winline */
+FD_FN_CONST static fd_r43x6_t
 fd_r43x6_sqr_fast( fd_r43x6_t x ) {
   wwl_t const zero = wwl_zero();
 
@@ -1105,7 +1105,7 @@ fd_r43x6_invert( fd_r43x6_t z );
 /* fd_r43x6_is_nonzero(x) reduces a signed fd_r43x6_t x (i.e. in s62)
    and returns 0 if the result is zero and 1 if the result is non-zero. */
 
-FD_FN_UNUSED FD_FN_CONST static int /* Work around -Winline */
+FD_FN_CONST static int
 fd_r43x6_is_nonzero( fd_r43x6_t x ) {
   long l0, l1, l2, l3, l4, l5;
   fd_r43x6_extract_limbs( x, l );                        /* l is signed */
@@ -1118,7 +1118,7 @@ fd_r43x6_is_nonzero( fd_r43x6_t x ) {
    returns -1 if the result is zero and the least significant bit of the
    reduced result otherwise. */
 
-FD_FN_UNUSED FD_FN_CONST static int /* Work around -Winline */
+FD_FN_CONST static int
 fd_r43x6_diagnose( fd_r43x6_t x ) {
   long l0, l1, l2, l3, l4, l5;
   fd_r43x6_extract_limbs( x, l );                               /* l is signed */

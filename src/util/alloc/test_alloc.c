@@ -39,8 +39,8 @@ test_main( int     argc,
   ulong  align_max = FD_VOLATILE_CONST( _align_max );
   ulong  sz_max    = FD_VOLATILE_CONST( _sz_max    );
 
-  ulong print_interval          = (1UL<<fd_ulong_find_msb_w_default( alloc_cnt>>2, 1 ));
-  ulong FD_FN_UNUSED print_mask = (print_interval<<1)-1UL;
+  ulong print_interval = (1UL<<fd_ulong_find_msb_w_default( alloc_cnt>>2, 1 ));
+  ulong print_mask     = (print_interval<<1)-1UL;
 
   fd_rng_t _rng[1]; fd_rng_t * rng = fd_rng_join( fd_rng_new( _rng, (uint)tile_idx, 0UL ) );
 
@@ -75,6 +75,8 @@ test_main( int     argc,
       FD_LOG_DEBUG(( "fd_alloc_fprintf said:\n%*s", (int)(info_sz&INT_MAX), info ));
       free( info );
     }
+    #else
+    (void)print_mask;
     #endif
 
     /* Determine if we should alloc or free this iteration.  If j==0,
@@ -99,7 +101,7 @@ test_main( int     argc,
       #if FD_HAS_DEEPASAN
       /* Enforce 8 byte alignment requirements */
       align = fd_ulong_if( align < FD_ASAN_ALIGN, FD_ASAN_ALIGN, align );
-      sz[j] = fd_ulong_if( sz[j] < FD_ASAN_ALIGN, FD_ASAN_ALIGN, sz[j] ); 
+      sz[j] = fd_ulong_if( sz[j] < FD_ASAN_ALIGN, FD_ASAN_ALIGN, sz[j] );
       #endif
 
       /* Allocate it */

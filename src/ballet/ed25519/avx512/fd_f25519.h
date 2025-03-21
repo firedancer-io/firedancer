@@ -89,7 +89,7 @@ fd_f25519_neg( fd_f25519_t * r,
 /* fd_f25519_add computes r = a * k, k=121666, and returns r. */
 FD_25519_INLINE fd_f25519_t *
 fd_f25519_mul_121666( fd_f25519_t * r,
-                      FD_FN_UNUSED fd_f25519_t const * a ) {
+                      fd_f25519_t const * a ) {
   (r->el) = fd_r43x6_fold_unsigned( fd_r43x6_scale_fast( 121666L, (a->el) ) );
   return r;
 }

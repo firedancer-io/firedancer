@@ -605,7 +605,7 @@ SORT_(stable_fast)( SORT_KEY_T * key,
   return SORT_(private_merge)( key, cnt, tmp );
 }
 
-FD_FN_UNUSED static SORT_KEY_T * /* Work around -Winline */
+static inline SORT_KEY_T *
 SORT_(stable)( SORT_KEY_T * key,
                SORT_IDX_T   cnt,
                void *       scratch ) {

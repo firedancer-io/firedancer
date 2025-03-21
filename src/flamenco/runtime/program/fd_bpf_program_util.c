@@ -307,7 +307,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
   } FD_SPAD_FRAME_END;
 }
 
-static void FD_FN_UNUSED
+static inline void
 fd_bpf_scan_task( void * tpool,
                   ulong t0 FD_PARAM_UNUSED, ulong t1 FD_PARAM_UNUSED,
                   void * args,

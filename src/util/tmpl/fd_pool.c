@@ -241,7 +241,7 @@ POOL_(footprint)( ulong max ) {
   return fd_ulong_if( max > thresh, 0UL, meta_footprint + data_footprint );
 }
 
-FD_FN_UNUSED static void * /* Work around -Winline */
+static inline void *
 POOL_(new)( void * shmem,
             ulong  max ) {
 

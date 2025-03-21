@@ -1068,7 +1068,7 @@
 /* Implementation *****************************************************/
 
 #if MAP_IMPL_STYLE==0 /* local use only */
-#define MAP_STATIC FD_FN_UNUSED static
+#define MAP_STATIC static inline
 #else /* library header and/or implementation */
 #define MAP_STATIC
 #endif

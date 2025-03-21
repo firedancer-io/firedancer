@@ -82,7 +82,7 @@ fd_netlink_iter_msg( fd_netlink_iter_t const * iter ) {
   return fd_type_pun_const( iter->msg0 );
 }
 
-static FD_FN_UNUSED ulong
+static inline ulong
 fd_netlink_iter_drain( fd_netlink_iter_t * iter,
                        fd_netlink_t *      netlink ) {
   ulong cnt;

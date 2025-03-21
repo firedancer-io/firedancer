@@ -90,7 +90,7 @@ FD_PROTOTYPES_BEGIN
    (will be a power of two).  rx_max should be in [0,FCTL_RX_MAX_MAX].
    If not, footprint will silently return 0 (and thus can be used by the
    caller to validate rx_max configuration parameters). */
-   
+
 FD_FN_CONST static inline ulong
 fd_fctl_align( void ) {
   return FD_FCTL_ALIGN;
@@ -112,7 +112,7 @@ fd_fctl_footprint( ulong rx_max ) {
    unconfigured state with zero receivers attached to it on success
    return.  Reasons for failure include an obviously bad shmem region
    and too large rx_max.
-   
+
    fd_fctl_join joins the caller to a memory region holding the state of
    a fctl.  shfctl points to a memory region in the local address space
    that holds a fctl.  Returns an opaque handle of the local join in the
@@ -149,7 +149,7 @@ static inline void *      fd_fctl_delete( void *      shfctl ) { return shfctl; 
    cr_max is how many credits are safe for the transmitter to burst to
    the receiver when this receiver is fully caught up.  Should be in
    [1,LONG_MAX] (not ULONG_MAX).
-   
+
    seq_laddr is the location in the user's local address space where the
    user can query a lower bound of where this receiver is currently at
    in the underlying sequence space.  The user is guaranteed that the
@@ -231,7 +231,7 @@ fd_fctl_cfg_done( fd_fctl_t * fctl,
    rx_seq_laddr, rx_slow_laddr and rx_slow_laddr_const further assume
    rx_idx is in [0,rx_cnt).  slow_laddr_const is a const-correct
    version of rx_slow_laddr.
-   
+
    (FIXME: CONSIDER ACCESSES FOR DISTINGUISHING WHETHER CR_MAX /
    CR_RESUME / CR_REFILL WERE AUTOCONFIGURED.  EXPOSE IN_REFILL?
    GET/SET RX_SEQ_LADDR DYNAMICALLY?  GET/SET IN_REFILL?) */
@@ -298,12 +298,12 @@ fd_fctl_rx_cr_return( ulong * _rx_seq,
    ULONG_MAX if the query result wasn't receiver constrained.
 
    This involves interthread communication so should be used sparingly.
-   
+
    FIXME: DO AS A MULTIPLE RETURN MACRO TO FORCE INLINE AND AVOID
    RX_IDX_SLOW MEMORY USAGE?  DO AS A NON-INLINED CALL?  OPTIMUM
    PROBABLY DEPENDS ON USE CASES. */
 
-FD_FN_UNUSED static ulong /* Work around -Winline */
+static ulong
 fd_fctl_cr_query( fd_fctl_t const * fctl,
                   ulong             tx_seq,
                   ulong *           _rx_idx_slow ) {
@@ -384,16 +384,16 @@ fd_fctl_cr_query( fd_fctl_t const * fctl,
    reliable receivers asymptotically can keep up with the transmitter on
    average (which is implied anyway as otherwise the overall system is
    inherently doomed).
-   
+
    What a flow control credit means depends on usage.  Typical cases
    number of bytes for TCP streaming like protocols, number of packet
    slots for more bounded size packet oriented protocols, etc.)  Each
    flow control credit is good for the transmitter to consume exactly
    one sequence number.
-   
+
    Typically, on initialization / after first housekeeping, the
    transmitter has a huge number of flow control credits.
-   
+
    Usually, while the transmitter is consuming these credits, it is not
    bothering the receivers at all.
 
@@ -465,7 +465,7 @@ fd_fctl_cr_query( fd_fctl_t const * fctl,
        rx_seq = fd_seq_inc( rx_seq, rx_cnt );
 
        ...
-   
+
      Example transmitter init:
 
        ...
@@ -517,12 +517,12 @@ fd_fctl_tx_cr_update( fd_fctl_t * fctl,
        refilling state) or the transmitter is already in the refilling
        state ... query the receivers for the number of credits that
        might be available. */
- 
+
     ulong rx_idx_slow;
     ulong cr_query = fd_fctl_cr_query( fctl, tx_seq, &rx_idx_slow );
 
     if( FD_LIKELY( cr_query>=fctl->cr_resume ) ) { /* Yes, strictly ">=" */
-    
+
       /* We got enough credits to resume.  Update the credits available
          and exit the refilling state. */
 

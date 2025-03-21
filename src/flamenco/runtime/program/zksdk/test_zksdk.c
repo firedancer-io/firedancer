@@ -57,8 +57,8 @@ log_bench( char const * descr,
   FD_LOG_NOTICE(( "%-31s %11.3fK/s/core %10.3f ns/call", descr, (double)khz, (double)tau ));
 }
 
-FD_FN_UNUSED static void
-test_pubkey_validity( FD_FN_UNUSED fd_rng_t * rng ) {
+static void
+test_pubkey_validity( fd_rng_t * rng FD_PARAM_UNUSED ) {
   char ** hex = tx_pubkey_validity;
   ulong hex_sz = sizeof(tx_pubkey_validity);
   ulong offset = instr_offset_pubkey_validity;

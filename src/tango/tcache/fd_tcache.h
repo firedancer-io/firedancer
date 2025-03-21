@@ -303,7 +303,7 @@ FD_FN_CONST static inline ulong fd_tcache_map_next ( ulong idx, ulong map_cnt ) 
    [0,map_cnt) and map_cnt is a positive integer power-of-two.  Does
    nothing if tag is null or if tag is not currently in the map. */
 
-FD_FN_UNUSED static void /* Work around -Winline */
+static inline void
 fd_tcache_remove( ulong * map,
                   ulong   map_cnt,
                   ulong   tag ) {

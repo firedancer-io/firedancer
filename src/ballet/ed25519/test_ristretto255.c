@@ -83,7 +83,7 @@ fd_f25519_print (fd_f25519_t * f) {
   for ( int i=0; i<32; i++ ) { printf("%02x", s[i]); } printf("\n");
 }
 
-FD_FN_UNUSED static void
+__attribute__((unused)) static void /* currently not used */
 fd_ed25519_ge_print (fd_ed25519_point_t * p) {
   fd_f25519_t x[1], y[1], z[1], t[1];
   fd_ed25519_point_to( x, y, z, t, p );
@@ -95,7 +95,7 @@ fd_ed25519_ge_print (fd_ed25519_point_t * p) {
 }
 
 void
-test_point_decompress( FD_FN_UNUSED fd_rng_t * rng ) {
+test_point_decompress( FD_PARAM_UNUSED fd_rng_t * rng ) {
   uchar                   _s[32]; uchar *                   s = _s;
   fd_ristretto255_point_t _h[1];  fd_ristretto255_point_t * h = _h;
 
@@ -193,7 +193,7 @@ test_point_compress( fd_rng_t * rng ) {
 }
 
 void
-test_hash_to_curve( FD_FN_UNUSED fd_rng_t * rng ) {
+test_hash_to_curve( FD_PARAM_UNUSED fd_rng_t * rng ) {
   uchar                   _s[64]; uchar *                   s = _s;
   uchar                   _e[32]; uchar *                   e = _e;
   fd_ristretto255_point_t _h[1];  fd_ristretto255_point_t * h = _h;
@@ -238,7 +238,7 @@ test_hash_to_curve( FD_FN_UNUSED fd_rng_t * rng ) {
 }
 
 static void
-test_point_add_sub( FD_FN_UNUSED fd_rng_t * rng ) {
+test_point_add_sub( FD_PARAM_UNUSED fd_rng_t * rng ) {
   fd_ristretto255_point_t _f[1]; fd_ristretto255_point_t * f = _f;
   fd_ristretto255_point_t _g[1]; fd_ristretto255_point_t * g = _g;
   fd_ristretto255_point_t _h[1]; fd_ristretto255_point_t * h = _h;
@@ -301,7 +301,7 @@ test_point_add_sub( FD_FN_UNUSED fd_rng_t * rng ) {
 }
 
 static void
-test_scalar_validate( FD_FN_UNUSED fd_rng_t * rng ) {
+test_scalar_validate( FD_PARAM_UNUSED fd_rng_t * rng ) {
   uchar _a[32]; uchar * a = _a;
 
   // invalid
@@ -340,7 +340,7 @@ test_scalar_validate( FD_FN_UNUSED fd_rng_t * rng ) {
 }
 
 static void
-test_point_scalarmult( FD_FN_UNUSED fd_rng_t * rng ) {
+test_point_scalarmult( FD_PARAM_UNUSED fd_rng_t * rng ) {
   fd_ristretto255_point_t _f[1]; fd_ristretto255_point_t * f = _f;
   fd_ristretto255_point_t _h[1]; fd_ristretto255_point_t * h = _h;
   uchar _a[32];                  uchar * a = _a;
@@ -374,7 +374,7 @@ test_point_scalarmult( FD_FN_UNUSED fd_rng_t * rng ) {
   }
 }
 
-FD_FN_UNUSED static uchar *
+static uchar *
 fd_rng_b256( fd_rng_t * rng,
              uchar *    r ) {
   ulong * u = (ulong *)r;

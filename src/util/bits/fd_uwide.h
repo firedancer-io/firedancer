@@ -246,7 +246,7 @@ fd_uwide_private_div_approx( ulong n,    /* In [0,d) */
    mul, 1 u128 sub) plus various operations to facilitating shortcutting
    (e.g. when xh is zero, cost is 1 u64/u64 div). */
 
-FD_FN_UNUSED static int /* Work around -Winline */
+static inline int
 fd_uwide_div( ulong * FD_RESTRICT _zh, ulong * FD_RESTRICT _zl,
               ulong               xh,  ulong               xl,
               ulong               y ) {

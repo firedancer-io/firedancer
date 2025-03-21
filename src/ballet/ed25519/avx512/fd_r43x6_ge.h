@@ -49,7 +49,7 @@ FD_PROTOTYPES_BEGIN
 
 #define FD_R43X6_GE_IS_EQ( X, Y ) fd_r43x6_ge_is_eq( X##03,X##14,X##25, Y##03,Y##14,Y##25 )
 
-FD_FN_UNUSED static int /* let compiler decide if worth inlining */
+static int /* let compiler decide if worth inlining */
 fd_r43x6_ge_is_eq( wwl_t X03, wwl_t X14, wwl_t X25,
                    wwl_t Y03, wwl_t Y14, wwl_t Y25 ) {
 
@@ -241,7 +241,7 @@ fd_r43x6_ge_is_eq( wwl_t X03, wwl_t X14, wwl_t X25,
 
 #define FD_R43X6_GE_IS_SMALL_ORDER( P ) fd_r43x6_ge_is_small_order( P##03,P##14,P##25 )
 
-FD_FN_UNUSED static int /* let compiler decide if worth inlining */
+static int /* let compiler decide if worth inlining */
 fd_r43x6_ge_is_small_order( wwl_t P03, wwl_t P14, wwl_t P25 ) {
   for( int i=0; i<3; i++ ) FD_R43X6_GE_DBL( P, P ); /* P = [8]P, in u44|u44|u44|u44 */
 

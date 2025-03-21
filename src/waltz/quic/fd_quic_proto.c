@@ -33,11 +33,9 @@
 #include "templ/fd_quic_frames_templ.h"
 #include "templ/fd_quic_undefs.h"
 
-#include "templ/fd_quic_transport_params.h"
-
 /* fd_quic_encode_stream_frame is an optimized encoder for stream headers. */
 
-FD_FN_UNUSED static ulong
+static inline ulong
 fd_quic_encode_stream_frame( uchar * const buf,
                              uchar * const buf_end,
                              ulong   const stream_id,

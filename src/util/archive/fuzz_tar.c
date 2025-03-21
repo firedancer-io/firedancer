@@ -23,7 +23,7 @@ LLVMFuzzerInitialize( int  *   argc,
 static int
 tar_file( void *                cb_arg,
           fd_tar_meta_t const * meta,
-          ulong FD_FN_UNUSED    sz ) {
+          ulong FD_PARAM_UNUSED sz ) {
   FD_TEST( (ulong)cb_arg == 0x1234UL );
 
   /* Read meta to ensure it is accessible */

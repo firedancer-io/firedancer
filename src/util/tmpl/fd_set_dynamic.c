@@ -230,7 +230,7 @@ SET_(footprint)( ulong max ) {
   return sizeof(SET_(private_t))-sizeof(SET_(t)) + sizeof(SET_(t))*SET_(private_word_cnt)( max );
 }
 
-FD_FN_UNUSED static void * /* Work around -Winline */
+static inline void *
 SET_(new)( void * shmem,
            ulong  max ) {
 #if FD_TMPL_USE_HANDHOLDING
@@ -309,7 +309,7 @@ SET_(first)( SET_(t) const * set ) {
   return ~0UL;
 }
 
-FD_FN_UNUSED static ulong /* Work around -Winline */
+static inline ulong
 SET_(iter_next)( SET_(t) * set,
                  ulong     j ) {                     /* We've considered all bits up to and including j */
   j++;                                               /* Lowest bit we haven't considered */
@@ -326,7 +326,7 @@ SET_(iter_next)( SET_(t) * set,
 static inline ulong SET_(iter_init)( SET_(t) * set ) { return SET_(iter_next)( set, ~0UL ); }
 FD_FN_CONST static inline ulong SET_(iter_done)( ulong j ) { return !~j; }
 
-FD_FN_PURE FD_FN_UNUSED static ulong /* Work around -Winline */
+FD_FN_PURE static inline ulong
 SET_(const_iter_next)( SET_(t) const * set,
                        ulong           j ) {               /* We've considered all bits up to and including j */
   j++;                                                     /* Lowest bit we haven't considered */
@@ -458,7 +458,7 @@ SET_(copy)( SET_(t) *       z,
   return z;
 }
 
-FD_FN_UNUSED static SET_(t) * /* Work around -Winline */
+static inline SET_(t) *
 SET_(complement)( SET_(t) *       z,
                   SET_(t) const * x ) {
   SET_(private_t) * hdr = SET_(private_hdr_from_set)( z );

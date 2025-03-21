@@ -397,7 +397,7 @@ STATIC_SERDE( msg_hdr, fd_tls_msg_hdr_t )
 
 /* Static serde methods for fd_tls_finished_t */
 
-static inline void fd_tls_finished_bswap( fd_tls_finished_t * x FD_FN_UNUSED ) {}
+static inline void fd_tls_finished_bswap( fd_tls_finished_t * x FD_PARAM_UNUSED ) {}
 
 STATIC_SERDE( finished, fd_tls_finished_t )
 

@@ -783,7 +783,7 @@ FD_FN_PURE static inline ulong  fd_ulong_load_7_fast ( void const * p ) { FD_COM
 
 #define FD_ULONG_SVW_ENC_MAX (9UL) /* For compile time use */
 
-FD_FN_UNUSED FD_FN_CONST static ulong /* Work around -Winline */
+FD_FN_CONST static inline ulong
 fd_ulong_svw_enc_sz( ulong x ) {
   /* FIXME: CONSIDER FIND_MSB BASED TABLE LOOKUP? */
   if( FD_LIKELY( x<(1UL<< 6) ) ) return 1UL;
@@ -800,7 +800,7 @@ fd_ulong_svw_enc_sz( ulong x ) {
    fd_ulong_svw_env_sz(x) (note that 9 is sufficient for all possible
    x).  Returns the next location in the byte system. */
 
-FD_FN_UNUSED static uchar * /* Work around -Winline */
+static inline uchar *
 fd_ulong_svw_enc( uchar * b,
                   ulong   x ) {
   if(      FD_LIKELY( x<(1UL<< 6) ) ) {                                                                 b[0] = (uchar)          (x<< 1);  b+=1; } /* 0    | x( 6) |    0 */
@@ -820,7 +820,7 @@ fd_ulong_svw_enc( uchar * b,
    encoded integer to a value that is <= the current value.  Returns
    b+csz. */
 
-FD_FN_UNUSED static uchar * /* Work around -Winline */
+static inline uchar *
 fd_ulong_svw_enc_fixed( uchar * b,
                         ulong   csz,
                         ulong   x ) {
@@ -885,7 +885,7 @@ fd_ulong_svw_dec_tail_sz( uchar const * b ) {
    first byte of the encoded integer and the encoded integer is csz
    byte.  csz is assumed to be in {1,2,3,4,5,8,9}. */
 
-FD_FN_UNUSED static ulong /* Work around -Winline */
+static ulong
 fd_ulong_svw_dec_fixed( uchar const * b,
                         ulong         csz ) {
   if( FD_LIKELY( csz==1UL ) ) return (fd_ulong_load_1( b ) >> 1);

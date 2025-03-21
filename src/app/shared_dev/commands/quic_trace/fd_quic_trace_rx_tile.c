@@ -13,7 +13,7 @@
 #include "../../../../util/net/fd_udp.h"
 
 static int
-before_frag( void * _ctx FD_FN_UNUSED,
+before_frag( void * _ctx FD_PARAM_UNUSED,
              ulong  in_idx,
              ulong  seq,
              ulong  sig ) {

@@ -583,7 +583,7 @@ fd_io_buffered_istream_fini( fd_io_buffered_istream_t * in ) {
    rbuf_sz in size (except possibly a final read to the end-of-file).
    This can be beneficial in various high performance I/O regimes. */
 
-FD_FN_UNUSED static int /* Work around -Winline */
+static inline int
 fd_io_buffered_istream_read( fd_io_buffered_istream_t * in,
                              void *                     dst,
                              ulong                      dst_sz ) {
@@ -675,7 +675,7 @@ fd_io_buffered_istream_seek( fd_io_buffered_istream_t * in,
    IMPORTANT!  See note in fd_io_buffered_istream_read above about the
    impact of fetch on file pointer alignment. */
 
-FD_FN_UNUSED static int /* Work around -Winline */
+static inline int
 fd_io_buffered_istream_fetch( fd_io_buffered_istream_t * in ) {
   uchar * rbuf       = in->rbuf;
   ulong   rbuf_sz    = in->rbuf_sz;
@@ -809,7 +809,7 @@ fd_io_buffered_ostream_seek( fd_io_buffered_ostream_t * out,
    IMPORTANT!  See note in fd_io_buffered_ostream_write below about the
    impact of doing this outside a final flush. */
 
-FD_FN_UNUSED static int /* Work around -Winline */
+static inline int
 fd_io_buffered_ostream_flush( fd_io_buffered_ostream_t * out ) {
   ulong wbuf_used = out->wbuf_used;
   if( FD_UNLIKELY( !wbuf_used ) ) return 0; /* optimize for lots of tiny writes */

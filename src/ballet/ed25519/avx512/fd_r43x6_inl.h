@@ -224,7 +224,7 @@ FD_PROTOTYPES_BEGIN
     FD_R43X6_QUAD_MOV( R, _R );                                                                                  \
   } while(0)
 
-FD_FN_UNUSED static void /* let compiler decide if worth inlining */
+static void /* let compiler decide if worth inlining */
 fd_r43x6_quad_mul_fast( fd_r43x6_t * _z03, fd_r43x6_t * _z14, fd_r43x6_t * _z25,
                         fd_r43x6_t    x03, fd_r43x6_t    x14, fd_r43x6_t    x25,
                         fd_r43x6_t    y03, fd_r43x6_t    y14, fd_r43x6_t    y25 ) {
@@ -399,7 +399,7 @@ fd_r43x6_quad_mul_fast( fd_r43x6_t * _z03, fd_r43x6_t * _z14, fd_r43x6_t * _z25,
     FD_R43X6_QUAD_MOV( R, _R );                                                               \
   } while(0)
 
-FD_FN_UNUSED static void /* let compiler decide if worth inlining */
+static void /* let compiler decide if worth inlining */
 fd_r43x6_quad_sqr_fast( fd_r43x6_t * _z03, fd_r43x6_t * _z14, fd_r43x6_t * _z25,
                         fd_r43x6_t    x03, fd_r43x6_t    x14, fd_r43x6_t    x25 ) {
 

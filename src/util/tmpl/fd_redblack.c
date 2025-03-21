@@ -405,7 +405,7 @@ FD_PROTOTYPES_END
 #endif /* REDBLK_IMPL_STYLE==0 || REDBLK_IMPL_STYLE==1 */
 
 #if REDBLK_IMPL_STYLE==0 /* local only */
-#define REDBLK_IMPL_STATIC FD_FN_UNUSED static
+#define REDBLK_IMPL_STATIC static inline
 #else
 #define REDBLK_IMPL_STATIC
 #endif

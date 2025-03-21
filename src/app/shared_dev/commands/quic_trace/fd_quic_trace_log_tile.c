@@ -5,9 +5,9 @@
 #include <stdio.h>
 
 static int
-before_frag( void * _ctx   FD_FN_UNUSED,
-             ulong  in_idx FD_FN_UNUSED,
-             ulong  seq    FD_FN_UNUSED,
+before_frag( void * _ctx   FD_PARAM_UNUSED,
+             ulong  in_idx FD_PARAM_UNUSED,
+             ulong  seq    FD_PARAM_UNUSED,
              ulong  sig ) {
   return !( fd_quic_log_sig_event( sig )==FD_QUIC_EVENT_CONN_QUIC_CLOSE );
 }
@@ -25,14 +25,14 @@ during_frag( void * _ctx   FD_PARAM_UNUSED,
 }
 
 static void
-after_frag( void *              _ctx   FD_FN_UNUSED,
-            ulong               in_idx FD_FN_UNUSED,
-            ulong               seq    FD_FN_UNUSED,
-            ulong               sig    FD_FN_UNUSED,
-            ulong               sz     FD_FN_UNUSED,
-            ulong               tsorig FD_FN_UNUSED,
-            ulong               tspub  FD_FN_UNUSED,
-            fd_stem_context_t * stem   FD_FN_UNUSED ) {
+after_frag( void *              _ctx   FD_PARAM_UNUSED,
+            ulong               in_idx FD_PARAM_UNUSED,
+            ulong               seq    FD_PARAM_UNUSED,
+            ulong               sig    FD_PARAM_UNUSED,
+            ulong               sz     FD_PARAM_UNUSED,
+            ulong               tsorig FD_PARAM_UNUSED,
+            ulong               tspub  FD_PARAM_UNUSED,
+            fd_stem_context_t * stem   FD_PARAM_UNUSED ) {
   fd_quic_ctx_t * ctx = &fd_quic_trace_ctx;
   fd_quic_log_error_t const * error = fd_type_pun_const( ctx->buffer );
   printf( "event=conn_close_quic conn_id=%016lx src_ip=%08x enc=%d pktnum=%8lu close_code=0x%lx loc=%.*s(%u)\n",

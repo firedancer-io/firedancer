@@ -59,7 +59,7 @@ slot_get_data_const( fd_tpu_reasm_t const * reasm,
   return reasm->dcache + slot_get_offset( slot_idx );
 }
 
-static FD_FN_UNUSED void
+static inline void
 slot_begin( fd_tpu_reasm_slot_t * slot ) {
   memset( slot, 0, sizeof(fd_tpu_reasm_slot_t) );
   slot->k.state     = FD_TPU_REASM_STATE_BUSY;
@@ -75,7 +75,7 @@ slot_begin( fd_tpu_reasm_slot_t * slot ) {
 /* slotq_push_head adds the given slot to the reassembly queue head.
    Assumes queue element count > 2. */
 
-static FD_FN_UNUSED void
+static inline void
 slotq_push_head( fd_tpu_reasm_t *      reasm,
                  fd_tpu_reasm_slot_t * slot ) {
 
@@ -93,7 +93,7 @@ slotq_push_head( fd_tpu_reasm_t *      reasm,
 /* slotq_push_tail adds the given slot to the reassembly queue tail.
    Assumes queue element count > 2. */
 
-static FD_FN_UNUSED void
+static inline void
 slotq_push_tail( fd_tpu_reasm_t *      reasm,
                  fd_tpu_reasm_slot_t * slot ) {
 
@@ -112,7 +112,7 @@ slotq_push_tail( fd_tpu_reasm_t *      reasm,
 /* slotq_pop_tail removes a slot from the reassembly queue tail.
    Assumes queue element count > 2. */
 
-static FD_FN_UNUSED fd_tpu_reasm_slot_t *
+static inline fd_tpu_reasm_slot_t *
 slotq_pop_tail( fd_tpu_reasm_t * reasm ) {
 
   uint                  tail_idx = reasm->tail;
@@ -129,7 +129,7 @@ slotq_pop_tail( fd_tpu_reasm_t * reasm ) {
    reassembly queue.  Aborts the process if the slot is not part of the
    queue.  Assumes queue element count > 2. */
 
-static FD_FN_UNUSED void
+static inline void
 slotq_remove( fd_tpu_reasm_t *      reasm,
               fd_tpu_reasm_slot_t * slot ) {
 
@@ -172,7 +172,7 @@ slotq_remove( fd_tpu_reasm_t *      reasm,
   next->lru_prev = lru_prev;
 }
 
-static FD_FN_UNUSED void
+static inline void
 smap_insert( fd_tpu_reasm_t *      reasm,
              fd_tpu_reasm_slot_t * slot ) {
   fd_tpu_reasm_map_ele_insert(
@@ -182,7 +182,7 @@ smap_insert( fd_tpu_reasm_t *      reasm,
   );
 }
 
-static FD_FN_UNUSED fd_tpu_reasm_slot_t *
+static inline fd_tpu_reasm_slot_t *
 smap_query( fd_tpu_reasm_t * reasm,
             ulong            conn_uid,
             ulong            stream_id ) {
@@ -198,7 +198,7 @@ smap_query( fd_tpu_reasm_t * reasm,
   );
 }
 
-static FD_FN_UNUSED void
+static inline void
 smap_remove( fd_tpu_reasm_t *      reasm,
              fd_tpu_reasm_slot_t * slot ) {
   /* FIXME use a doubly linked list remove */

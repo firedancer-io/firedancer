@@ -657,7 +657,7 @@ STEM_(run1)( ulong                        in_cnt,
   }
 }
 
-FD_FN_UNUSED static void
+static inline void
 STEM_(run)( fd_topo_t *      topo,
             fd_topo_tile_t * tile ) {
   const fd_frag_meta_t * in_mcache[ FD_TOPO_MAX_LINKS ];

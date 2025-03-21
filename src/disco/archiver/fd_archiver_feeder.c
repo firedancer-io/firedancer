@@ -136,8 +136,8 @@ unprivileged_init( fd_topo_t *      topo,
 static inline void
 during_frag( fd_archiver_feeder_tile_ctx_t * ctx,
              ulong                    in_idx,
-             ulong                    seq         FD_PARAM_UNUSED,
-             ulong                    sig         FD_PARAM_UNUSED,
+             ulong                    seq,
+             ulong                    sig,
              ulong                    tspub       FD_PARAM_UNUSED,
              ulong                    chunk,
              ulong                    sz ) {

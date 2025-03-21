@@ -264,7 +264,7 @@ SET_(first)( SET_(t) const * set ) {
   return ~0UL;
 }
 
-FD_FN_UNUSED static ulong /* Work around -Winline */
+static inline ulong
 SET_(iter_next)( SET_(t) * set,
                  ulong     j ) {                     /* We've considered all bits up to and including j */
   j++;                                               /* Lowest bit we haven't considered */
@@ -281,7 +281,7 @@ SET_(iter_next)( SET_(t) * set,
 static inline ulong SET_(iter_init)( SET_(t) * set ) { return SET_(iter_next)( set, ~0UL ); }
 FD_FN_CONST static inline ulong SET_(iter_done)( ulong j ) { return !~j; }
 
-FD_FN_PURE FD_FN_UNUSED static ulong /* Work around -Winline */
+FD_FN_PURE static inline ulong
 SET_(const_iter_next)( SET_(t) const * set,
                        ulong           j ) {               /* We've considered all bits up to and including j */
   j++;                                                     /* Lowest bit we haven't considered */

@@ -18,7 +18,7 @@ fd_ulong_checked_add( ulong a, ulong b, ulong * out ) {
 }
 
 // https://github.com/firedancer-io/solana/blob/v1.17/sdk/program/src/instruction.rs#L519
-static inline int FD_FN_UNUSED
+static inline int
 fd_ulong_checked_sub( ulong a, ulong b, ulong * out ) {
   int cf = __builtin_usubl_overflow( a, b, out );
   return fd_int_if( cf, FD_EXECUTOR_INSTR_ERR_INSUFFICIENT_FUNDS, FD_EXECUTOR_INSTR_SUCCESS );

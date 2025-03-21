@@ -333,7 +333,7 @@ loose_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 }
 
 FD_FN_PURE static inline ulong
-scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
+scratch_footprint( fd_topo_tile_t const * tile ) {
 
   /* Do not modify order! This is join-order in unprivileged_init. */
 
@@ -1436,7 +1436,7 @@ init_poh( fd_replay_tile_ctx_t * ctx ) {
 
 /* Verifies a microblock batch validity. */
 
-static int FD_FN_UNUSED
+__attribute__((unused)) static int /* currently not used */
 process_and_exec_mbatch( fd_replay_tile_ctx_t * ctx,
                          fd_stem_context_t *    stem FD_PARAM_UNUSED,
                          ulong                  mbatch_sz,
@@ -1864,9 +1864,6 @@ after_frag( fd_replay_tile_ctx_t * ctx,
             ulong                  tsorig,
             ulong                  tspub FD_PARAM_UNUSED,
             fd_stem_context_t *    stem  FD_PARAM_UNUSED ) {
-  (void)sig;
-  (void)sz;
-
   /*if( FD_LIKELY( in_idx == SHRED_IN_IDX ) ) {
 
      after_frag only called if it's the first code shred we're
@@ -2409,8 +2406,6 @@ after_credit( fd_replay_tile_ctx_t * ctx,
               fd_stem_context_t *    stem,
               int *                  opt_poll_in FD_PARAM_UNUSED,
               int *                  charge_busy ) {
-  (void)opt_poll_in;
-
   exec_slices( ctx, stem, ctx->curr_slot );
 
   ulong curr_slot   = ctx->curr_slot;

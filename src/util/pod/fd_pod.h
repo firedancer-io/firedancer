@@ -194,13 +194,13 @@ fd_pod_used( uchar const * pod ) {
   return fd_ulong_svw_dec_fixed( pod + csz, csz );
 }
 
-FD_FN_UNUSED FD_FN_PURE static ulong /* Work around -Winline */
+FD_FN_PURE static inline ulong
 fd_pod_cnt( uchar const * pod ) {
   ulong csz = fd_ulong_svw_dec_sz( pod );
   return fd_ulong_svw_dec_fixed( pod + 2UL*csz, csz );
 }
 
-FD_FN_UNUSED FD_FN_PURE static ulong /* Work around -Winline */
+FD_FN_PURE static inline ulong
 fd_pod_avail( uchar const * pod ) {
   ulong csz = fd_ulong_svw_dec_sz( pod );
   return fd_ulong_svw_dec_fixed( pod, csz ) - fd_ulong_svw_dec_fixed( pod + csz, csz );
@@ -336,7 +336,7 @@ typedef struct fd_pod_iter_private fd_pod_iter_t;
    a well-formed static pod for iteration duration in the caller's local
    address space or is NULL. */
 
-FD_FN_UNUSED static fd_pod_iter_t /* Work around -Winline */
+static inline fd_pod_iter_t
 fd_pod_iter_init( uchar const * pod ) {
   if( FD_UNLIKELY( !pod ) ) { fd_pod_iter_t iter; iter.cursor = NULL; iter.stop = NULL; return iter; }
   ulong csz = fd_ulong_svw_dec_sz( pod );
@@ -358,7 +358,7 @@ fd_pod_iter_done( fd_pod_iter_t iter ) {
 /* fd_pod_iter_next advances the iterator to the next key-val pair in
    the pod (if any).  Assumes !fd_pod_iter_done(iter). */
 
-FD_FN_UNUSED static fd_pod_iter_t /* Work around -Winline */
+static inline fd_pod_iter_t
 fd_pod_iter_next( fd_pod_iter_t iter ) {
   uchar const * cursor = iter.cursor;
 
@@ -385,7 +385,7 @@ fd_pod_iter_next( fd_pod_iter_t iter ) {
    is fixed for the iteration duration, mean the lifetime of these
    pointers is at least the iteration).  info.parent will be NULL. */
 
-FD_FN_UNUSED static fd_pod_info_t /* Work around -Winline */
+static inline fd_pod_info_t
 fd_pod_iter_info( fd_pod_iter_t iter ) {
   uchar const * cursor = iter.cursor;
 
@@ -531,7 +531,7 @@ fd_pod_alloc( uchar      * FD_RESTRICT pod,
    space with the val_sz bytes pointed to by val.  Assumes that val_type
    / val_sz / val encoding is sensible. */
 
-FD_FN_UNUSED static ulong /* Work around -Winline */
+static ulong
 fd_pod_insert( uchar      * FD_RESTRICT pod,
                char const * FD_RESTRICT path,
                int                      val_type,
@@ -773,7 +773,7 @@ fd_pod_insert_int128( uchar      * FD_RESTRICT pod,
    failure.  The return pointer's lifetime is the pod's local join
    lifetime or an invalidating operation is done on the pod. */
 
-FD_FN_UNUSED static uchar const * /* Work around -Winline */
+static inline uchar const *
 fd_pod_query_subpod( uchar const * FD_RESTRICT pod,
                      char const  * FD_RESTRICT path ) {
   fd_pod_info_t info[1];
@@ -805,7 +805,7 @@ fd_pod_query_buf( uchar const * FD_RESTRICT pod,
    failure.  The return pointer's lifetime is the pod's local join
    lifetime or an invalidating operation is done on the pod. */
 
-FD_FN_UNUSED FD_FN_PURE static char const * /* Work around -Winline */
+FD_FN_PURE static inline char const *
 fd_pod_query_cstr( uchar const * FD_RESTRICT pod,
                    char const  * FD_RESTRICT path,
                    char const  * FD_RESTRICT def ) {
@@ -819,7 +819,7 @@ fd_pod_query_cstr( uchar const * FD_RESTRICT pod,
    the query result on success or def on failure. */
 
 #define FD_POD_IMPL(type,TYPE)                                            \
-FD_FN_UNUSED FD_FN_PURE static type /* Work around -Winline */            \
+FD_FN_PURE static inline type                                             \
 fd_pod_query_##type( uchar const * FD_RESTRICT pod,                       \
                      char const  * FD_RESTRICT path,                      \
                      type                      def ) {                    \
@@ -836,7 +836,7 @@ FD_POD_IMPL( uchar,  UCHAR  )
 #undef FD_POD_IMPL
 
 #define FD_POD_IMPL(type,TYPE)                                            \
-FD_FN_UNUSED FD_FN_PURE static type /* Work around -Winline */            \
+FD_FN_PURE static inline type                                             \
 fd_pod_query_##type( uchar const * FD_RESTRICT pod,                       \
                      char const  * FD_RESTRICT path,                      \
                      type                      def ) {                    \
@@ -854,7 +854,7 @@ FD_POD_IMPL( double, DOUBLE )
 #undef FD_POD_IMPL
 
 #define FD_POD_IMPL(type,TYPE)                                            \
-FD_FN_UNUSED FD_FN_PURE static type /* Work around -Winline */            \
+FD_FN_PURE static inline type                                             \
 fd_pod_query_##type( uchar const * FD_RESTRICT pod,                       \
                      char const  * FD_RESTRICT path,                      \
                      type                      def ) {                    \
@@ -872,7 +872,7 @@ FD_POD_IMPL( ulong,  ULONG  )
 #undef FD_POD_IMPL
 
 #define FD_POD_IMPL(type,TYPE)                                            \
-FD_FN_UNUSED FD_FN_PURE static type /* Work around -Winline */            \
+FD_FN_PURE static inline type                                             \
 fd_pod_query_##type( uchar const * FD_RESTRICT pod,                       \
                      char const  * FD_RESTRICT path,                      \
                      type                      def ) {                    \
@@ -890,7 +890,7 @@ FD_POD_IMPL( long,  LONG  )
 #undef FD_POD_IMPL
 
 #if FD_HAS_INT128
-FD_FN_UNUSED FD_FN_PURE static uint128 /* Work around -Winline */
+FD_FN_PURE static inline uint128
 fd_pod_query_uint128( uchar const * FD_RESTRICT pod,
                       char const  * FD_RESTRICT path,
                       uint128                   def ) {
@@ -902,7 +902,7 @@ fd_pod_query_uint128( uchar const * FD_RESTRICT pod,
   return tmp.u;
 }
 
-FD_FN_UNUSED FD_FN_PURE static int128 /* Work around -Winline */
+FD_FN_PURE static inline int128
 fd_pod_query_int128( uchar const * FD_RESTRICT pod,
                      char const  * FD_RESTRICT path,
                      int128                    def ) {

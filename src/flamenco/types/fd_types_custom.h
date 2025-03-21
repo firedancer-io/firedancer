@@ -129,10 +129,10 @@ typedef struct fd_flamenco_txn fd_flamenco_txn_global_t;
 
 
 static inline void
-fd_flamenco_txn_new( fd_flamenco_txn_t * self FD_FN_UNUSED ) {}
+fd_flamenco_txn_new( fd_flamenco_txn_t * self FD_PARAM_UNUSED ) {}
 
 static inline void
-fd_flamenco_txn_destroy( fd_flamenco_txn_t const * self FD_FN_UNUSED ) {}
+fd_flamenco_txn_destroy( fd_flamenco_txn_t const * self FD_PARAM_UNUSED ) {}
 
 FD_FN_CONST static inline ulong
 fd_flamenco_txn_size( fd_flamenco_txn_t const * self ) {

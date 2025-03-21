@@ -659,20 +659,11 @@ fd_type_pun_const( void const * p ) {
 #define FD_FN_CONST __attribute__((const))
 #endif
 
-/* FD_FN_UNUSED indicates that it is okay if the function with static
-   linkage is not used.  Allows working around -Winline in header only
-   APIs where the compiler decides not to actually inline the function.
-   (This belief, frequently promulgated by anti-macro cults, that "An
-   Inline Function is As Fast As a Macro" ... an entire section in gcc's
-   documentation devoted to it in fact ... remains among the biggest
-   lies in computer science.  Yes, an inline function is as fast as a
-   macro ... when the compiler actually decides to treat the inline
-   keyword more than just for entertainment purposes only.  Which, as
-   -Winline proves, it frequently doesn't.  Sigh ... force_inline like
-   compiler extensions might be an alternative here but they have their
-   own portability issues.) */
+/* FD_FN_INLINE forces inlining of a function.  Note that the regular
+   'inline' keyword is often used to mark header-only functions but the
+   compiler might choose to not inline those. */
 
-#define FD_FN_UNUSED __attribute__((unused))
+#define FD_FN_INLINE inline __attribute__((always_inline))
 
 /* FD_FN_UNSANITIZED tells the compiler to disable AddressSanitizer and
    UndefinedBehaviorSanitizer instrumentation.  For some functions, this

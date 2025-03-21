@@ -26,7 +26,7 @@ FD_PROTOTYPES_BEGIN
    produced by the net tile.  dcache is a local join to a dcache that
    will carry packet payloads. */
 
-FD_FN_UNUSED static void
+static inline void
 fd_net_rx_bounds_init( fd_net_rx_bounds_t * bounds,
                        void *               dcache ) {
   bounds->base      = (ulong)fd_wksp_containing( dcache );
@@ -43,7 +43,7 @@ fd_net_rx_bounds_init( fd_net_rx_bounds_t * bounds,
    incoming packet.  Terminates the application if the given {chunk,ctl}
    params would produce an out of bounds buffer. */
 
-FD_FN_UNUSED static void const *
+static inline void const *
 fd_net_rx_translate_frag( fd_net_rx_bounds_t const * bounds,
                           ulong                      chunk,
                           ulong                      ctl,

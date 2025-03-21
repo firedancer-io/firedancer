@@ -302,7 +302,7 @@ fd_scratch_reset( void ) {
    error message if used obviously in error).  This is freaky fast (O(5)
    fast asm operations under the hood). */
 
-FD_FN_UNUSED static void /* Work around -Winline */
+static inline void
 fd_scratch_push( void ) {
 # if FD_SCRATCH_USE_HANDHOLDING
   if( FD_UNLIKELY( !fd_scratch_private_frame_max                              ) ) {
@@ -337,7 +337,7 @@ fd_scratch_push( void ) {
    in error).  This is freaky fast (O(5) fast asm operations under the
    hood). */
 
-FD_FN_UNUSED static void /* Work around -Winline */
+static inline void
 fd_scratch_pop( void ) {
 # if FD_SCRATCH_USE_HANDHOLDING
   if( FD_UNLIKELY( !fd_scratch_private_frame_max ) ) FD_LOG_ERR(( "not attached" ));
@@ -409,7 +409,7 @@ fd_scratch_pop( void ) {
    will implicitly cancel any in-progress prepare, including attach /
    detach / push / pop / prepare / alloc / trim. */
 
-FD_FN_UNUSED static void * /* Work around -Winline */
+static inline void *
 fd_scratch_prepare( ulong align ) {
 
 # if FD_SCRATCH_USE_HANDHOLDING
@@ -515,7 +515,7 @@ fd_scratch_cancel( void ) {
 
    This is freaky fast (O(5) fast asm operations under the hood). */
 
-FD_FN_UNUSED static void * /* Work around -Winline */
+static inline void *
 fd_scratch_alloc( ulong align,
                   ulong sz ) {
   ulong smem = (ulong)fd_scratch_prepare( align );
@@ -714,7 +714,7 @@ fd_scratch_virtual( void ) {
    }
    FD_SCRATCH_SCOPE_END; */
 
-FD_FN_UNUSED static inline void
+static inline void
 fd_scratch_scoped_pop_private( void * _unused ) {
   (void)_unused;
   fd_scratch_pop();

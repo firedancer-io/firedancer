@@ -552,7 +552,7 @@ FD_PROTOTYPES_END
 #else /* need implementations */
 
 #if MAP_IMPL_STYLE==0 /* local only */
-#define MAP_IMPL_STATIC FD_FN_UNUSED static
+#define MAP_IMPL_STATIC static inline
 #else
 #define MAP_IMPL_STATIC
 #endif

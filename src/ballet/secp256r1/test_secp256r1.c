@@ -2,7 +2,7 @@
 #include "fd_secp256r1_private.h"
 #include "../hex/fd_hex.h"
 
-FD_FN_UNUSED static void
+static void
 log_bench( char const * descr,
            ulong        iter,
            long         dt ) {
@@ -12,11 +12,11 @@ log_bench( char const * descr,
 }
 
 static void
-test_secp256r1_scalar_frombytes( FD_FN_UNUSED fd_rng_t * rng ) {
+test_secp256r1_scalar_frombytes( FD_PARAM_UNUSED fd_rng_t * rng ) {
   uchar _sig[ 64 ] = { 0 }; uchar * sig = _sig;
   fd_hex_decode( sig, "a940d67c9560a47c5dafb45ab1f39eb68c8fac9b51fc8c4e30b1f0e63e4967d3586569a56364c3b03eefd421aa7fc750f6fa187210c3206c55602f96e0ecaa4d", 64 );
   fd_secp256r1_scalar_t _r[1]; fd_secp256r1_scalar_t * r = _r;
-  
+
   FD_TEST( fd_secp256r1_scalar_frombytes( r, sig )==r );
   FD_TEST( fd_secp256r1_scalar_frombytes_positive( r, sig+32 )==r );
   FD_TEST( fd_secp256r1_scalar_frombytes_positive( r, sig )==NULL );
@@ -45,7 +45,7 @@ test_secp256r1_scalar_frombytes( FD_FN_UNUSED fd_rng_t * rng ) {
 }
 
 static void
-test_secp256r1_scalar_mul( FD_FN_UNUSED fd_rng_t * rng ) {
+test_secp256r1_scalar_mul( FD_PARAM_UNUSED fd_rng_t * rng ) {
   uchar _buf[ 32 ] = { 0 }; uchar * buf = _buf;
   fd_secp256r1_scalar_t _r[1]; fd_secp256r1_scalar_t * r = _r;
   fd_secp256r1_scalar_t a[1], b[1], e[1];
@@ -74,7 +74,7 @@ test_secp256r1_scalar_mul( FD_FN_UNUSED fd_rng_t * rng ) {
 }
 
 static void
-test_secp256r1_scalar_inv( FD_FN_UNUSED fd_rng_t * rng ) {
+test_secp256r1_scalar_inv( FD_PARAM_UNUSED fd_rng_t * rng ) {
   uchar _buf[ 32 ] = { 0 }; uchar * buf = _buf;
   fd_secp256r1_scalar_t _r[1]; fd_secp256r1_scalar_t * r = _r;
   fd_secp256r1_scalar_t a[1], e[1];
@@ -101,11 +101,11 @@ test_secp256r1_scalar_inv( FD_FN_UNUSED fd_rng_t * rng ) {
 }
 
 static void
-test_secp256r1_fp_frombytes( FD_FN_UNUSED fd_rng_t * rng ) {
+test_secp256r1_fp_frombytes( FD_PARAM_UNUSED fd_rng_t * rng ) {
   uchar _buf[ 32 ] = { 0 }; uchar * buf = _buf;
   fd_hex_decode( buf, "d8c82b3791c8b51cfe44aa50226217159596ca26e6075aaf8bf8be2d351b96ae", 32 );
   fd_secp256r1_fp_t _r[1]; fd_secp256r1_fp_t * r = _r;
-  
+
   FD_TEST( fd_secp256r1_fp_frombytes( r, buf )==r );
 
   // bench
@@ -122,14 +122,14 @@ test_secp256r1_fp_frombytes( FD_FN_UNUSED fd_rng_t * rng ) {
 }
 
 static void
-test_secp256r1_fp_sqrt( FD_FN_UNUSED fd_rng_t * rng ) {
+test_secp256r1_fp_sqrt( FD_PARAM_UNUSED fd_rng_t * rng ) {
   uchar _sqrt0[ 32 ] = { 0 }; uchar * sqrt0 = _sqrt0;
   uchar _sqrt1[ 32 ] = { 0 }; uchar * sqrt1 = _sqrt1;
   fd_hex_decode( sqrt0, "d942f2008adaab3a98ad4af432f97b2cc45170a9051574304e12c6b461c012e8", 32 );
   fd_hex_decode( sqrt1, "f942f2008adaab3a98ad4af432f97b2cc45170a9051574304e12c6b461c012e8", 32 );
   fd_secp256r1_fp_t _r[1]; fd_secp256r1_fp_t * r = _r;
   fd_secp256r1_fp_t a[1];
-  
+
   FD_TEST( fd_secp256r1_fp_frombytes( a, sqrt1 )==a );
   FD_TEST( fd_secp256r1_fp_sqrt( r, a )==NULL );
 
@@ -150,7 +150,7 @@ test_secp256r1_fp_sqrt( FD_FN_UNUSED fd_rng_t * rng ) {
 }
 
 static void
-test_secp256r1_point_frombytes( FD_FN_UNUSED fd_rng_t * rng ) {
+test_secp256r1_point_frombytes( FD_PARAM_UNUSED fd_rng_t * rng ) {
 
   uchar _pub[ 33 ] = { 0 }; uchar * pub = _pub;
   fd_secp256r1_point_t _r[1]; fd_secp256r1_point_t * r = _r;
@@ -184,7 +184,7 @@ test_secp256r1_point_frombytes( FD_FN_UNUSED fd_rng_t * rng ) {
 }
 
 static void
-test_secp256r1_point_eq_x( FD_FN_UNUSED fd_rng_t * rng ) {
+test_secp256r1_point_eq_x( FD_PARAM_UNUSED fd_rng_t * rng ) {
 
   uchar _pub[ 33 ] = { 0 }; uchar * pub = _pub;
   fd_secp256r1_point_t _r[1]; fd_secp256r1_point_t * r = _r;
@@ -223,7 +223,7 @@ test_secp256r1_point_eq_x( FD_FN_UNUSED fd_rng_t * rng ) {
 }
 
 static void
-test_secp256r1_verify( FD_FN_UNUSED fd_rng_t * rng ) {
+test_secp256r1_verify( FD_PARAM_UNUSED fd_rng_t * rng ) {
 
   uchar _msg[ 10 ] = { 0 }; uchar * msg = _msg;
   ulong msg_sz;

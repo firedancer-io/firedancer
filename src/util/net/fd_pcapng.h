@@ -121,7 +121,7 @@ fd_pcapng_iter_next( fd_pcapng_iter_t * iter );
 /* fd_pcapng_is_pkt returns 1 if given frame (non-NULL) is a regular
    captured packet and 0 if it is metadata (such as decryption secrets). */
 
-FD_FN_UNUSED FD_FN_PURE static inline int
+FD_FN_PURE static inline int
 fd_pcapng_is_pkt( fd_pcapng_frame_t const * frame ) {
   uint ty = frame->type;
   return (ty==FD_PCAPNG_FRAME_SIMPLE) | (ty==FD_PCAPNG_FRAME_ENHANCED);

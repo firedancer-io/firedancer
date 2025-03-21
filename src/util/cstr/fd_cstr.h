@@ -309,7 +309,7 @@ fd_cstr_append_ushort_as_text( char * p,
    prefix is requested, it will be immediately before the most
    significant converted character. */
 
-FD_FN_UNUSED static char * /* Work around -Winline */
+static inline char *
 fd_cstr_append_fxp10_as_text( char * p,
                               char   ws,
                               char   pm,

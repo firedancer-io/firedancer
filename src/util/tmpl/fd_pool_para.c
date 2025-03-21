@@ -340,7 +340,7 @@
 #define POOL_VER_WIDTH (64-POOL_IDX_WIDTH)
 
 #if POOL_IMPL_STYLE==0 /* local use only */
-#define POOL_STATIC FD_FN_UNUSED static
+#define POOL_STATIC static inline
 #else /* library header and/or implementation */
 #define POOL_STATIC
 #endif

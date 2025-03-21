@@ -84,7 +84,7 @@ main( int argc, char ** argv ) {
   fd_boot( &argc, &argv );
   fd_wksp_t * wksp = fd_wksp_new_anonymous( fd_cstr_to_shmem_page_sz( "gigantic" ), 50, fd_shmem_cpu_idx( fd_shmem_numa_idx( 0 ) ), "wksp", 0UL );
   FD_TEST( wksp );
-  FD_PARAM_UNUSED uchar * slice = fd_wksp_alloc_laddr( wksp, 128UL, FD_SLICE_MAX, 1UL );
+  uchar * slice = fd_wksp_alloc_laddr( wksp, 128UL, FD_SLICE_MAX, 1UL );
 
   ulong shred_max = 1 << 24;
 

@@ -1015,7 +1015,7 @@ stake_weighted_credits_observed( fd_stake_t const * stake,
 
 // https://github.com/anza-xyz/agave/blob/c8685ce0e1bb9b26014f1024de2cd2b8c308cbde/programs/stake/src/stake_state.rs#L1239
 static int
-merge_delegation_stake_and_credits_observed( FD_FN_UNUSED fd_exec_instr_ctx_t const * invoke_context,
+merge_delegation_stake_and_credits_observed( fd_exec_instr_ctx_t const * invoke_context FD_PARAM_UNUSED,
                                              fd_stake_t *                stake,
                                              ulong                       absorbed_lamports,
                                              ulong absorbed_credits_observed ) {

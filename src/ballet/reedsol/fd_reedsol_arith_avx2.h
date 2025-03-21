@@ -19,10 +19,9 @@ FD_PROTOTYPES_BEGIN
 
 extern uchar const fd_reedsol_arith_consts_avx_mul[]  __attribute__((aligned(128)));
 
-/* TODO: This linkage is kinda wonky (maybe use FD_FN_UNUSED) if this
-   include gets used more generally.  The below currently needs to be
-   available at compile time, not link time, to allow the optimizer to
-   use it. */
+/* TODO: This linkage is kinda wonky include gets used more generally.
+   The below currently needs to be available at compile time, not link
+   time, to allow the optimizer to use it. */
 
 static uchar const fd_reedsol_arith_scale4[ 256UL ] = {
     0,  16,  32,  48,  64,  80,  96, 112, 128, 144, 160, 176, 192, 208, 224, 240,

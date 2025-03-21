@@ -115,7 +115,7 @@ fd_groove_key_eq( fd_groove_key_t const * ka,
    space to a valid key for the duration of the call.  Retains no
    interest in ka.  Returns the hash. */
 
-FD_FN_UNUSED FD_FN_PURE static ulong /* Workaround -Winline */
+FD_FN_PURE static inline ulong
 fd_groove_key_hash( fd_groove_key_t const * ka,
                     ulong                   seed ) {
   ulong const * a = ka->ul;

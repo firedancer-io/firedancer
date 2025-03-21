@@ -191,7 +191,7 @@ static inline uchar  fd_rng_uchar ( fd_rng_t * rng ) { return (uchar )fd_ulong_h
 static inline ushort fd_rng_ushort( fd_rng_t * rng ) { return (ushort)fd_ulong_hash( rng->seq ^ (rng->idx++) ); }
 static inline uint   fd_rng_uint  ( fd_rng_t * rng ) { return (uint  )fd_ulong_hash( rng->seq ^ (rng->idx++) ); }
 
-FD_FN_UNUSED static ulong /* Work around -Winline */
+static inline ulong
 fd_rng_ulong( fd_rng_t * rng ) {
   ulong hi = (ulong)fd_rng_uint( rng );
   return (hi<<32) | (ulong)fd_rng_uint( rng );
@@ -203,7 +203,7 @@ static inline int   fd_rng_int  ( fd_rng_t * rng ) { return (int  )( fd_rng_uint
 static inline long  fd_rng_long ( fd_rng_t * rng ) { return (long )( fd_rng_ulong ( rng ) >> 1 ); }
 
 #if FD_HAS_INT128
-FD_FN_UNUSED static uint128 /* Work around -Winline */
+static inline uint128
 fd_rng_uint128( fd_rng_t * rng ) {
   return (((uint128)fd_rng_ulong( rng ))<<64) | ((uint128)fd_rng_ulong( rng ));
 }
@@ -345,7 +345,7 @@ static inline long   fd_rng_long_roll  ( fd_rng_t * rng, long   n ) { return (lo
    probability (~2^-32).  Deterministic slot consumption is possible by
    truncating the maximum number of tosses.  Practically a fast O(1). */
 
-FD_FN_UNUSED static ulong /* Work around -Winline */
+static inline ulong
 fd_rng_coin_tosses( fd_rng_t * rng ) {
   ulong cnt = 1UL;
   ulong u;
@@ -450,15 +450,15 @@ double fd_rng_double_norm  ( fd_rng_t * rng );
    ETC) */
 
 /* fd_rng_secure reads random bytes from a cryptographically secure
-   source provided by the platform.  Features /dev/urandom like entropy.  
+   source provided by the platform.  Features /dev/urandom like entropy.
 
-   On success, returns d and guarantees that [d,d+sz) is filled with 
+   On success, returns d and guarantees that [d,d+sz) is filled with
    unguessable random bytes.  On failure, returns NULL and prints reason
    for failure to warning log.
 
    (!!!) This operation may fail if no secure RNG is available or the
          RNG failed for some reason.  Always check the return code.
-   
+
    Currently available on Linux, FreeBSD, and macOS.
    On Linux and FreeBSD uses getrandom(2).
    On macOS uses CommonCrypto's CommonRandom. */

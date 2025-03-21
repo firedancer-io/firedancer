@@ -1,14 +1,13 @@
 #include "fd_sysvar_slot_hashes.h"
 #include "fd_sysvar.h"
 #include "../fd_acc_mgr.h"
-#include "../fd_borrowed_account.h"
 #include "../fd_system_ids.h"
 #include "../context/fd_exec_slot_ctx.h"
 
 /* FIXME These constants should be header defines */
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_hashes.rs#L11 */
-FD_FN_UNUSED static const ulong slot_hashes_max_entries = 512;
+FD_PARAM_UNUSED static const ulong slot_hashes_max_entries = 512;
 
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/sysvar/slot_hashes.rs#L12 */
 static const ulong slot_hashes_min_account_size = 20488;

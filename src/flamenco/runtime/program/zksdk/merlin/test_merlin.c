@@ -17,7 +17,7 @@ test_strobe128_dbg(fd_merlin_strobe128_t* ctx) {
 */
 
 static void
-test_equivalence_simple( FD_FN_UNUSED fd_rng_t * rng ) {
+test_equivalence_simple( fd_rng_t * rng FD_PARAM_UNUSED ) {
   fd_merlin_transcript_t t[1];
   uchar challenge[ 32 ];
   uchar expected [ 32 ];

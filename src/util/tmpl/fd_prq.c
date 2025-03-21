@@ -247,7 +247,7 @@ PRQ_(private_from_heap_const)( PRQ_T const * heap ) {
    parent has a timeout less than or equal to its children so the
    new_event does too). */
 
-FD_FN_UNUSED static void /* Work around -Winline */
+static inline void
 PRQ_(private_fill_hole_up)( PRQ_T *       heap,     /* Heap, indexed 0:hole+1 */
                             ulong         hole,     /* Location of the hole to fill */
                             PRQ_T const * event ) { /* Event to fill the hole with */
@@ -280,7 +280,7 @@ PRQ_(private_fill_hole_up)( PRQ_T *       heap,     /* Heap, indexed 0:hole+1 */
    equal to the timeout of the heap's last event (i.e. as might happen
    in a cancel). */
 
-FD_FN_UNUSED static void /* Work around -Winline */
+static inline void
 PRQ_(private_fill_hole_dn)( PRQ_T * heap,   /* Heap, half cache line aligned for best perf (assuming 32-byte PRQ_T),
                                                heap[max] and heap[max+1] are dummy slots */
                             ulong   hole,   /* Location of the hole to fill, in [0,cnt] */

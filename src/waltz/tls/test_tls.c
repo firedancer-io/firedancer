@@ -158,10 +158,10 @@ test_tls_server_respond( fd_tls_t *            server,
 }
 
 static void
-test_tls_secrets( void const * handshake        FD_FN_UNUSED,
-                  void const * recv_secret      FD_FN_UNUSED,
-                  void const * send_secret      FD_FN_UNUSED,
-                  uint         encryption_level FD_FN_UNUSED ) {}
+test_tls_secrets( void const * handshake        FD_PARAM_UNUSED,
+                  void const * recv_secret      FD_PARAM_UNUSED,
+                  void const * send_secret      FD_PARAM_UNUSED,
+                  uint         encryption_level FD_PARAM_UNUSED ) {}
 
 static void
 prepare_tls_pair( fd_rng_t * rng,

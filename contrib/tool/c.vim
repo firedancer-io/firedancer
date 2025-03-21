@@ -38,7 +38,7 @@ syn keyword cOperator     FD_IMPORT FD_IMPORT_BINARY FD_IMPORT_CSTR
 syn keyword cStorageClass FD_RESTRICT
 syn keyword cOperator     fd_type_pun fd_type_pun_const
 syn keyword cOperator     FD_LIKELY FD_UNLIKELY
-syn keyword cStorageClass FD_FN_PURE FD_FN_CONST FD_FN_UNUSED
+syn keyword cStorageClass FD_FN_PURE FD_FN_CONST FD_PARAM_UNUSED
 syn keyword cOperator     FD_COMPILER_FORGET FD_COMPILER_UNPREDICTABLE
 
 " Atomic tricks

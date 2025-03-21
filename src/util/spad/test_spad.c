@@ -25,7 +25,9 @@ FD_STATIC_ASSERT( FD_SPAD_ALLOC_ALIGN_DEFAULT== 16UL, unit_test );
 #define FOOTPRINT_MAX 1048576UL
 static uchar mem[ FOOTPRINT_MAX ] __attribute__((aligned(FD_SPAD_ALIGN)));
 
-FD_FN_UNUSED static void
+#if FD_HAS_DEEPASAN
+
+static void
 test_spad_deepasan_allocation(uchar* addr, ulong sz, int is_first_alloc ) {
   /* the first allocation in spad may not have alignment padding */
   if( !is_first_alloc ) {
@@ -38,7 +40,7 @@ test_spad_deepasan_allocation(uchar* addr, ulong sz, int is_first_alloc ) {
   FD_TEST( fd_asan_test( (void*)( addr + sz ) ) == 1 );
 }
 
-FD_FN_UNUSED static void
+static void
 test_spad_deepasan( fd_spad_t * spad ) {
   fd_spad_reset( spad );
   fd_spad_push( spad );
@@ -140,6 +142,8 @@ test_spad_deepasan( fd_spad_t * spad ) {
 
   fd_spad_reset( spad );
 }
+
+#endif /* FD_HAS_DEEPASAN */
 
 int
 main( int     argc,

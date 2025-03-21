@@ -434,7 +434,7 @@
 /* Implementation *****************************************************/
 
 #if TREAP_IMPL_STYLE==0
-#define TREAP_STATIC static FD_FN_UNUSED
+#define TREAP_STATIC static inline
 #else
 #define TREAP_STATIC
 #endif

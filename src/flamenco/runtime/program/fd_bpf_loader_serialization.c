@@ -316,7 +316,7 @@ static int
 fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t * ctx,
                                          ulong const *         pre_lens,
                                          uchar *               buffer,
-                                         ulong FD_FN_UNUSED    buffer_sz,
+                                         ulong                 buffer_sz FD_PARAM_UNUSED,
                                          int                   copy_account_data ) {
   /* TODO: An optimization would be to skip ahead through non-writable accounts */
   /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L507 */

@@ -40,8 +40,7 @@ signer( void *        _ctx,
   fd_ed25519_sign( signature, payload, 130UL, ctx->public_key, ctx->private_key, ctx->sha512 );
 }
 
-static FD_FN_UNUSED
-signer_ctx_t
+static inline signer_ctx_t
 signer_ctx( fd_rng_t * rng ) {
   signer_ctx_t ctx[1];
   FD_TEST( fd_sha512_join( fd_sha512_new( ctx->sha512 ) ) );

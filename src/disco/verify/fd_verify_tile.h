@@ -75,8 +75,9 @@ fd_txn_verify( fd_verify_ctx_t * ctx,
   ulong ha_dedup_tag = fd_hash( ctx->hashmap_seed, signatures, 64UL );
   int ha_dup = 0;
   if( FD_LIKELY( dedup ) ) {
-    FD_FN_UNUSED ulong tcache_map_idx = 0; /* ignored */
+    ulong tcache_map_idx = 0; /* ignored */
     FD_TCACHE_QUERY( ha_dup, tcache_map_idx, ctx->tcache_map, ctx->tcache_map_cnt, ha_dedup_tag );
+    (void)tcache_map_idx;
     if( FD_UNLIKELY( ha_dup ) ) {
       return FD_TXN_VERIFY_DEDUP;
     }

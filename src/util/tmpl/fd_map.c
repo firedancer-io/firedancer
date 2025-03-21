@@ -343,7 +343,7 @@ FD_FN_PURE static inline int MAP_(key_equal)( MAP_KEY_T k0, MAP_KEY_T k1 ) { ret
 
 FD_FN_PURE static inline MAP_HASH_T MAP_(key_hash)( MAP_KEY_T key ) { return (MAP_KEY_HASH(key)); }
 
-FD_FN_UNUSED static MAP_T * /* Work around -Winline */
+static inline MAP_T *
 MAP_(insert)( MAP_T *   map,
               MAP_KEY_T key ) {
 #if FD_TMPL_USE_HANDHOLDING
@@ -422,8 +422,7 @@ MAP_(clear)( MAP_T * map ) {
   for( ulong slot_idx=0UL; slot_idx<MAP_SLOT_CNT; slot_idx++ ) map[ slot_idx ].MAP_KEY = (MAP_KEY_NULL);
 }
 
-FD_FN_PURE
-FD_FN_UNUSED static MAP_T * /* Work around -Winline */
+FD_FN_PURE static inline MAP_T *
 MAP_(query)( MAP_T *   map,
              MAP_KEY_T key,
              MAP_T *   null ) {

@@ -3,7 +3,7 @@
 struct __attribute__((aligned(8UL))) fd_circq_message_private {
   ulong align;
   ulong footprint;
-  
+
   /* Offset withn the circular buffer data region of where the next
      message starts, if there is one.  This is not always the same as
      aligning up this message + footprint, because the next message may
@@ -49,7 +49,7 @@ fd_circq_delete( void * shbuf ) {
   return shbuf;
 }
 
-static inline void FD_FN_UNUSED
+__attribute__((unused)) static void /* currently not used */
 verify( fd_circq_t * circq ) {
   FD_TEST( circq->head<circq->size );
   FD_TEST( circq->tail<circq->size );

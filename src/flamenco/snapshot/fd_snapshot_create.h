@@ -107,27 +107,27 @@ typedef struct fd_snapshot_ctx fd_snapshot_ctx_t;
    hash is being calculated. The remaining 62 bits are used to store the slot
    at which the snapshot/hash should be calculated for. */
 
-static ulong FD_FN_UNUSED
+static inline ulong
 fd_batch_fseq_pack( ulong is_snapshot, ulong is_incremental, ulong smr ) {
   return ((is_snapshot & 0x1UL) << 63UL) | ((is_incremental & 0x1UL) << 62UL) | (smr & 0x3FFFFFFFFFFFFFFUL);
 }
 
-static ulong FD_FN_UNUSED
+static inline ulong
 fd_batch_fseq_is_snapshot( ulong fseq ) {
   return (fseq >> 63UL) & 0x1UL;
 }
 
-static ulong FD_FN_UNUSED
+static inline ulong
 fd_batch_fseq_is_eah( ulong fseq ) {
   return !((fseq >> 63UL) & 0x1UL);
 }
 
-static ulong FD_FN_UNUSED
+static inline ulong
 fd_batch_fseq_is_incremental( ulong fseq ) {
   return (fseq >> 62UL) & 0x1UL;
 }
 
-static ulong FD_FN_UNUSED
+static inline ulong
 fd_batch_fseq_get_slot( ulong fseq ) {
   return fseq & 0x3FFFFFFFFFFFFFFUL;
 }
