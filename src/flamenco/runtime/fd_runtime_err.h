@@ -43,5 +43,8 @@
 #define FD_RUNTIME_TXN_ERR_PROGRAM_EXECUTION_TEMPORARILY_RESTRICTED  -36
 #define FD_RUNTIME_TXN_ERR_UNBALANCED_TRANSACTION                    -37
 #define FD_RUNTIME_TXN_ERR_PROGRAM_CACHE_HIT_MAX_LIMIT               -38
+#define FD_RUNTIME_TXN_ERR_READ_WRITE_CONFLICT                       -39
+#define FD_RUNTIME_TXN_ERR_WRITE_WRITE_CONFLICT                      -40
+#define FD_RUNTIME_TXN_ERR_OUT_OF_MEMORY_WHEN_DETECTING_CONFLICTS    -41
 
 #endif /* HEADER_fd_src_flamenco_runtime_fd_runtime_err_h */
