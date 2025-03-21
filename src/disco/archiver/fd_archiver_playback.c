@@ -82,7 +82,6 @@ populate_allowed_seccomp( fd_topo_t const *      topo,
                           ulong                  out_cnt,
                           struct sock_filter *   out ) {
   (void)topo;
-  (void)tile;
 
   populate_sock_filter_policy_archiver_playback( out_cnt,
                                                  out,
@@ -118,9 +117,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
-    (void)topo;
-    (void)tile;
-
     void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
     FD_SCRATCH_ALLOC_INIT( l, scratch );
