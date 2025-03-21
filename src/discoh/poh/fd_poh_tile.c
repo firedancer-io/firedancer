@@ -536,8 +536,8 @@ typedef struct {
   fd_histf_t slot_done_delay[ 1 ];
   fd_histf_t bundle_init_delay[ 1 ];
 
+  ulong parent_slot;
   uchar parent_block_id[ 32 ];
-  uchar parent_block_id_valid;
 } fd_poh_ctx_t;
 
 /* The PoH recorder is implemented in Firedancer but for now needs to
@@ -1196,7 +1196,8 @@ CALLED_FROM_RUST void
 fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successfully produced a block */
                   uchar const * reset_blockhash,     /* The hash of the last tick in the produced block */
                   ulong         hashcnt_per_tick,    /* The hashcnt per tick of the bank that completed */
-                  uchar const * block_id             /* The block id of the parent block */ ) {
+                  uchar const * parent_block_id,     /* The block id of the parent block */
+                  ulong         parent_slot ) {
   fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
 
   ulong slot_before_reset = ctx->slot;
@@ -1228,11 +1229,10 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
 
   memcpy( ctx->reset_hash, reset_blockhash, 32UL );
   memcpy( ctx->hash, reset_blockhash, 32UL );
-  if( FD_LIKELY( block_id!=NULL ) ) {
-    ctx->parent_block_id_valid = 1;
-    memcpy( ctx->parent_block_id, block_id, 32UL );
-  } else {
-    ctx->parent_block_id_valid = 0;
+  if( FD_LIKELY( parent_block_id!=NULL ) ) {
+    FD_LOG_INFO(( "fd_ext_poh_reset(got block_id,reset_slot=%lu,parent_slot=%lu)", completed_bank_slot, parent_slot ));
+    ctx->parent_slot = parent_slot;
+    memcpy( ctx->parent_block_id, parent_block_id, 32UL );
   }
   ctx->slot         = completed_bank_slot+1UL;
   ctx->hashcnt      = 0UL;
@@ -1824,9 +1824,12 @@ publish_microblock( fd_poh_ctx_t *      ctx,
   meta->parent_offset = 1UL+slot-ctx->reset_slot;
   meta->reference_tick = (ctx->hashcnt/ctx->hashcnt_per_tick) % ctx->ticks_per_slot;
   meta->block_complete = !ctx->hashcnt;
-  meta->parent_block_id_valid = ctx->parent_block_id_valid;
-  if( FD_LIKELY( ctx->parent_block_id_valid ) ) {
+  meta->parent_block_id_valid = ctx->parent_slot == (slot-meta->parent_offset);
+  if( FD_LIKELY( meta->parent_block_id_valid ) ) {
+    FD_LOG_INFO(( "sending microblock slot=%lu parent=%lu with block_id", slot, slot-meta->parent_offset ));
     fd_memcpy( meta->parent_block_id, ctx->parent_block_id, 32UL );
+  } else {
+    FD_LOG_INFO(( "sending microblock slot=%lu parent=%lu without block_id parent_slot=%lu", slot, slot-meta->parent_offset, ctx->parent_slot ));
   }
 
   dst += sizeof(fd_entry_batch_meta_t);
