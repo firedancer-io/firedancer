@@ -1687,14 +1687,15 @@ fd_quic_handle_v1_initial( fd_quic_t *               quic,
     frame_sz  -= rc;
   }
 
-  /* update last activity */
-  conn->last_activity = state->now;
+  /* 'touch' connection, update idle timeout */
+  fd_quic_svc_schedule_later_default( state->svc_timers, conn, FD_QUIC_SVC_IDLE, state->now );
+
   conn->flags &= ~( FD_QUIC_CONN_FLAGS_PING_SENT | FD_QUIC_CONN_FLAGS_PING );
 
   /* update expected packet number */
   conn->exp_pkt_number[0] = fd_ulong_max( conn->exp_pkt_number[0], pkt_number+1UL );
 
-  /* insert into service queue */
+  /* trigger response  */
   fd_quic_svc_schedule_default( state->svc_timers, conn, FD_QUIC_SVC_INSTANT, state->now );
 
   /* return number of bytes consumed */
@@ -1839,7 +1840,9 @@ fd_quic_handle_v1_handshake(
   }
 
   /* update last activity */
-  conn->last_activity = fd_quic_get_state( quic )->now;
+  fd_quic_state_t* state = fd_quic_get_state( quic );
+  fd_quic_svc_schedule_later_default( state->svc_timers, conn, FD_QUIC_SVC_IDLE, state->now );
+
   conn->flags &= ~( FD_QUIC_CONN_FLAGS_PING_SENT | FD_QUIC_CONN_FLAGS_PING );
 
   /* update expected packet number */
@@ -2093,8 +2096,9 @@ fd_quic_handle_v1_one_rtt( fd_quic_t *      quic,
     frame_sz  -= rc;
   }
 
-  /* update last activity */
-  conn->last_activity = fd_quic_get_state( quic )->now;
+  /* 'touch' connection, update idle timeout */
+  fd_quic_state_t* state = fd_quic_get_state( quic );
+  fd_quic_svc_schedule_later_default( state->svc_timers, conn, FD_QUIC_SVC_IDLE, state->now );
 
   /* update expected packet number */
   conn->exp_pkt_number[2] = fd_ulong_max( conn->exp_pkt_number[2], pkt_number+1UL );
@@ -2638,7 +2642,11 @@ fd_quic_tls_cb_peer_params( void *        context,
 
   /* set the max_idle_timeout to the min of our and peer max_idle_timeout */
   if( peer_tp->max_idle_timeout ) {
-    conn->idle_timeout = fd_ulong_min( (ulong)(1e6) * peer_tp->max_idle_timeout, conn->idle_timeout );
+    fd_quic_state_t* state = fd_quic_get_state( conn->quic );
+    ulong* timeout_ptr = &state->svc_timers->default_timeouts[ FD_QUIC_SVC_IDLE ];
+    /* time conversion 1e6, /2 if FD_QUIC_KEEP_ALIVE */
+    ulong factor = fd_ulong_if( FD_QUIC_KEEP_ALIVE, 5e5, 1e6 );
+    *timeout_ptr = fd_ulong_min( factor * peer_tp->max_idle_timeout, *timeout_ptr );
   }
 
   /* set ack_delay_exponent so we can properly interpret peer's ack_delays
@@ -2827,7 +2835,7 @@ fd_quic_svc_idle( fd_quic_t * quic, fd_quic_conn_t * conn ) {
         conn->server?"SERVER":"CLIENT",
         (void *)conn, conn->conn_idx, (double)conn->idle_timeout / 1e6 )); )
 
-    conn->state = FD_QUIC_CONN_STATE_DEAD;
+    fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD );
     quic->metrics.conn_timeout_cnt++;
   }
   return 1;
@@ -3013,6 +3021,7 @@ fd_quic_gen_close_frame( fd_quic_conn_t *     conn,
   /* update packet meta */
   pkt_meta->flags |= FD_QUIC_PKT_META_FLAGS_CLOSE;
   pkt_meta->expiry = fd_ulong_min( pkt_meta->expiry, fd_quic_calc_expiry( conn, now ) );
+
   return frame_sz;
 }
 
@@ -3780,7 +3789,7 @@ fd_quic_conn_handshake_complete( fd_quic_t * quic, fd_quic_conn_t * conn ) {
     conn->handshake_done_send = 1;
 
     /* move straight to ACTIVE */
-    conn->state = FD_QUIC_CONN_STATE_ACTIVE;
+    fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_ACTIVE );
 
     /* RFC 9001 4.9.2. Discarding Handshake Keys
         > An endpoint MUST discard its Handshake keys when the
@@ -3866,13 +3875,15 @@ fd_quic_conn_service( fd_quic_t           * quic,
 
   /* post-conn tx handling */
   switch( init_conn_state ) {
+    case FD_QUIC_CONN_STATE_CLOSE_PENDING:
     case FD_QUIC_CONN_STATE_PEER_CLOSE:
-      conn->state = FD_QUIC_CONN_STATE_DEAD; /* TODO need draining state wait for 3 * TPO */
+      /* TODO need draining state wait for 3 * TPO */
+      fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD );
       quic->metrics.conn_closed_cnt++;
       fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
       break;
     case FD_QUIC_CONN_STATE_ABORT:
-      conn->state = FD_QUIC_CONN_STATE_DEAD;
+      fd_quic_set_conn_state( conn, FD_QUIC_CONN_STATE_DEAD );
       quic->metrics.conn_aborted_cnt++;
       fd_quic_svc_schedule1( conn, FD_QUIC_SVC_INSTANT );
       break;
@@ -3897,7 +3908,7 @@ fd_quic_service( fd_quic_t * quic ) {
   long now_ticks = fd_tickcount();
 
   fd_quic_svc_timers_t * timers = state->svc_timers;
-  fd_quic_svc_event_t next = fd_quic_svc_timers_next( timers, now, 1 /* pop */);
+  fd_quic_svc_event_t next = fd_quic_svc_timers_next( timers, now, 0 /* don't pop*/ );
   if( FD_LIKELY( next.svc_type != FD_QUIC_SVC_CNT ) ) {
     did_work = fd_quic_conn_service( quic, next.conn );
   }
@@ -4115,7 +4126,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
                      int                       server ) {
   if( FD_UNLIKELY( !our_conn_id ) ) return NULL;
 
-  fd_quic_config_t * config = &quic->config;
   fd_quic_state_t *  state  = fd_quic_get_state( quic );
 
   /* fetch top of connection free list */
@@ -4269,10 +4279,6 @@ fd_quic_conn_create( fd_quic_t *               quic,
   /* highest peer encryption level */
   conn->peer_enc_level = 0;
 
-  /* idle timeout */
-  conn->idle_timeout  = config->idle_timeout;
-  conn->last_activity = state->now;
-
   memset( conn->exp_pkt_number, 0, sizeof( conn->exp_pkt_number ) );
   memset( conn->last_pkt_number, 0, sizeof( conn->last_pkt_number ) );
 
@@ -4281,9 +4287,11 @@ fd_quic_conn_create( fd_quic_t *               quic,
   quic->metrics.conn_created_cnt++;
 
   fd_quic_svc_timers_init_conn( conn );
-
-  /* immediately schedule it */
+  /* idle timeout */
   fd_quic_svc_schedule_later_default( state->svc_timers, conn, FD_QUIC_SVC_IDLE, state->now );
+
+  /* immediately schedule to send initial */
+  fd_quic_svc_schedule_default( state->svc_timers, conn, FD_QUIC_SVC_INSTANT, state->now );
 
   /* return connection */
   return conn;

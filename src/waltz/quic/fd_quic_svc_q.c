@@ -125,6 +125,7 @@ fd_quic_svc_schedule_helper( fd_quic_svc_timers_t * timers,
 
   /* if we got to here, insert new element */
   if( FD_LIKELY( use_dlist ) ) {
+    FD_TEST( fd_quic_svc_event_pool_free( priv->pool ) );
     idx                            = fd_quic_svc_event_pool_idx_acquire( priv->pool );
     fd_quic_svc_event_t * e        = priv->pool + idx;
     e->conn                        = conn;
