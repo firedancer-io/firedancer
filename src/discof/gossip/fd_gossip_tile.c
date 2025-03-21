@@ -561,6 +561,7 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
 
   ctx->stem = stem;
   ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
+  FD_TEST( hdr_sz <= sz );
   fd_eth_hdr_t const * eth = (fd_eth_hdr_t const *)ctx->gossip_buffer;
   fd_ip4_hdr_t const * ip4 = (fd_ip4_hdr_t const *)( eth+1 );
   fd_udp_hdr_t const * udp = (fd_udp_hdr_t const *)( (ulong)ip4 + FD_IP4_GET_LEN( *ip4 ) );
