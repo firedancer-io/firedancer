@@ -125,6 +125,7 @@ fd_quic_svc_schedule_helper( fd_quic_svc_timers_t * timers,
 
   /* if we got to here, insert new element */
   if( FD_LIKELY( use_dlist ) ) {
+    FD_TEST( fd_quic_svc_event_pool_free( priv->pool ) );
     idx                            = fd_quic_svc_event_pool_idx_acquire( priv->pool );
     fd_quic_svc_event_t * e        = priv->pool + idx;
     e->conn                        = conn;
@@ -377,4 +378,17 @@ fd_quic_svc_timers_next( fd_quic_svc_timers_t * timers,
   }
 
   return next;
+}
+
+fd_quic_svc_event_t*
+fd_quic_get_svc_event( fd_quic_svc_timers_t * timers   ,
+                             uint                   svc_type ,
+                             fd_quic_conn_t       * conn      ) {
+  ulong idx = conn->svc_meta.idx[svc_type];
+  if( FD_UNLIKELY( idx == FD_QUIC_SVC_IDX_INVAL ) ) return NULL;
+
+  fd_quic_svc_timers_priv_t * priv = fd_quic_svc_timers_get_priv( timers );
+  if( FD_QUIC_SVC_IS_DLIST( svc_type ) ) return priv->pool+idx;
+  /* if prq */
+  return priv->svc_queue[svc_type].prq + idx;
 }

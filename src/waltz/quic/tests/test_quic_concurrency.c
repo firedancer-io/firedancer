@@ -79,8 +79,6 @@ main( int     argc,
   for( ulong j=0UL; j<conn_cnt; j++ ) {
     fd_quic_conn_t * conn = fd_quic_sandbox_new_conn_established( sandbox, rng );
     conn->srx->rx_sup_stream_id = (1UL<<62)-1;
-    conn->last_activity         = state->now;
-    conn->idle_timeout          = (ulong)100000e9;
     conn_list[ j ] = conn;
   }
 

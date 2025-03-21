@@ -20,6 +20,7 @@ typedef struct fd_quic_tls_hs      fd_quic_tls_hs_t;
 typedef struct fd_quic_tls_secret  fd_quic_tls_secret_t;
 typedef struct fd_quic_tls_hs_data fd_quic_tls_hs_data_t;
 typedef struct fd_quic_pkt         fd_quic_pkt_t;
+typedef struct fd_quic_svc_event   fd_quic_svc_event_t;
 
 struct __attribute__((aligned(16))) fd_quic_range {
   /* offset in [ offset_lo, offset_hi ) is considered inside the range */

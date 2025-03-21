@@ -142,5 +142,13 @@ fd_quic_svc_timers_next( fd_quic_svc_timers_t * timers,
                          ulong                  now,
                          int                    pop );
 
+/* fd_quic_get_svc_event is a getter, that provides a
+   pointer to the event for that svc_type and conn. Returns
+   NULL if unscheduled for that conn */
+FD_FN_PURE fd_quic_svc_event_t*
+fd_quic_get_svc_event( fd_quic_svc_timers_t * timers   ,
+                             uint                   svc_type ,
+                             fd_quic_conn_t       * conn      );
+
 
 #endif /* HEADER_fd_src_waltz_quic_fd_quic_svc_q_h */

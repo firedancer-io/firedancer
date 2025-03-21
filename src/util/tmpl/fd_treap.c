@@ -222,6 +222,7 @@
      // my_treap_idx_ge returns the index of the smallest element
      // in the treap that is not less than q. If no such element exists,
      // it returns idx_null
+     // TODO - add similar le, gt, lt functions, and also _ele_ version
 
      ulong mytreap_idx_ge( mytreap_t const * treap, TREAP_QUERY_T * q, myele_t const * pool );
 
