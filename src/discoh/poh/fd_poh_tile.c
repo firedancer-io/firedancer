@@ -1196,8 +1196,7 @@ CALLED_FROM_RUST void
 fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successfully produced a block */
                   uchar const * reset_blockhash,     /* The hash of the last tick in the produced block */
                   ulong         hashcnt_per_tick,    /* The hashcnt per tick of the bank that completed */
-                  uchar const * parent_block_id,     /* The block id of the parent block */
-                  ulong         parent_slot ) {
+                  uchar const * parent_block_id ) {  /* The block id of the parent block */
   fd_poh_ctx_t * ctx = fd_ext_poh_write_lock();
 
   ulong slot_before_reset = ctx->slot;
@@ -1230,9 +1229,11 @@ fd_ext_poh_reset( ulong         completed_bank_slot, /* The slot that successful
   memcpy( ctx->reset_hash, reset_blockhash, 32UL );
   memcpy( ctx->hash, reset_blockhash, 32UL );
   if( FD_LIKELY( parent_block_id!=NULL ) ) {
-    FD_LOG_INFO(( "fd_ext_poh_reset(got block_id,reset_slot=%lu,parent_slot=%lu)", completed_bank_slot, parent_slot ));
-    ctx->parent_slot = parent_slot;
+    FD_LOG_INFO(( "fd_ext_poh_reset(block_id!=null,reset_slot=%lu)", completed_bank_slot ));
+    ctx->parent_slot = completed_bank_slot;
     memcpy( ctx->parent_block_id, parent_block_id, 32UL );
+  } else {
+    FD_LOG_WARNING(( "fd_ext_poh_reset(block_id=null,reset_slot=%lu,parent_slot=%lu) - ignored", completed_bank_slot, ctx->parent_slot ));
   }
   ctx->slot         = completed_bank_slot+1UL;
   ctx->hashcnt      = 0UL;
@@ -1359,10 +1360,10 @@ publish_tick( fd_poh_ctx_t *      ctx,
 
   meta->parent_block_id_valid = ctx->parent_slot == (slot-meta->parent_offset);
   if( FD_LIKELY( meta->parent_block_id_valid ) ) {
-    FD_LOG_INFO(( "sending tick slot=%lu parent=%lu with block_id", slot, slot-meta->parent_offset ));
+    FD_LOG_INFO(( "sending tick slot=%lu parent=%lu block_id!=null", slot, slot-meta->parent_offset ));
     fd_memcpy( meta->parent_block_id, ctx->parent_block_id, 32UL );
   } else {
-    FD_LOG_INFO(( "sending tick slot=%lu parent=%lu without block_id parent_slot=%lu", slot, slot-meta->parent_offset, ctx->parent_slot ));
+    FD_LOG_WARNING(( "sending tick slot=%lu parent=%lu block_id=null parent_slot=%lu", slot, slot-meta->parent_offset, ctx->parent_slot ));
   }
 
   FD_TEST( hashcnt>ctx->last_hashcnt );
@@ -1834,10 +1835,10 @@ publish_microblock( fd_poh_ctx_t *      ctx,
   meta->block_complete = !ctx->hashcnt;
   meta->parent_block_id_valid = ctx->parent_slot == (slot-meta->parent_offset);
   if( FD_LIKELY( meta->parent_block_id_valid ) ) {
-    FD_LOG_INFO(( "sending microblock slot=%lu parent=%lu with block_id", slot, slot-meta->parent_offset ));
+    FD_LOG_INFO(( "sending microblock slot=%lu parent=%lu block_id!=null", slot, slot-meta->parent_offset ));
     fd_memcpy( meta->parent_block_id, ctx->parent_block_id, 32UL );
   } else {
-    FD_LOG_INFO(( "sending microblock slot=%lu parent=%lu without block_id parent_slot=%lu", slot, slot-meta->parent_offset, ctx->parent_slot ));
+    FD_LOG_WARNING(( "sending microblock slot=%lu parent=%lu block_id=null parent_slot=%lu", slot, slot-meta->parent_offset, ctx->parent_slot ));
   }
 
   dst += sizeof(fd_entry_batch_meta_t);
