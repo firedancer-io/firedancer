@@ -234,8 +234,9 @@ fd_exec_txn_ctx_setup_basic( fd_exec_txn_ctx_t * txn_ctx ) {
   txn_ctx->instr_err_idx   = INT_MAX;
   txn_ctx->capture_ctx     = NULL;
 
-  txn_ctx->instr_info_cnt     = 0;
-  txn_ctx->instr_trace_length = 0;
+  txn_ctx->instr_info_cnt     = 0UL;
+  txn_ctx->cpi_instr_info_cnt = 0UL;
+  txn_ctx->instr_trace_length = 0UL;
 
   txn_ctx->exec_err      = 0;
   txn_ctx->exec_err_kind = FD_EXECUTOR_ERR_KIND_NONE;

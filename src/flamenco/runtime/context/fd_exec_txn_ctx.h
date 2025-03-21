@@ -144,6 +144,15 @@ struct __attribute__((aligned(8UL))) fd_exec_txn_ctx {
   fd_instr_info_t             instr_infos[FD_MAX_INSTRUCTION_TRACE_LENGTH];
   ulong                       instr_info_cnt;
 
+  /* These instr infos are statically allocated at the beginning of a transaction
+     and are only written to / referred to within the VM. It's kept
+     at the transaction level because syscalls like `GetProcessedSiblingInstruction()`
+     may refer to instructions processed earlier in the transaction. */
+  fd_instr_info_t             cpi_instr_infos[FD_MAX_INSTRUCTION_TRACE_LENGTH];
+  ulong                       cpi_instr_info_cnt;
+
+  /* Each instr info within `instr_trace` may refer to an `instr_infos` or `cpi_instr_infos`
+     entry. */
   fd_exec_instr_trace_entry_t instr_trace[FD_MAX_INSTRUCTION_TRACE_LENGTH]; /* Instruction trace */
   ulong                       instr_trace_length;                           /* Number of instructions in the trace */
 

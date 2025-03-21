@@ -408,7 +408,6 @@ create_block_context_protobuf_from_block( fd_exec_test_block_context_t * block_c
     fd_solana_secp256r1_program_id,
     fd_solana_zk_elgamal_proof_program_id,
     fd_solana_ed25519_sig_verify_program_id,
-    fd_solana_spl_native_mint_id,
   };
   ulong num_sysvar_entries    = (sizeof(fd_relevant_sysvar_ids) / sizeof(fd_pubkey_t));
   ulong num_loaded_builtins   = (sizeof(loaded_builtins) / sizeof(fd_pubkey_t));
@@ -702,7 +701,6 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     fd_solana_secp256r1_program_id,
     fd_solana_zk_elgamal_proof_program_id,
     fd_solana_ed25519_sig_verify_program_id,
-    fd_solana_spl_native_mint_id,
   };
   const ulong num_loaded_builtins = (sizeof(loaded_builtins) / sizeof(fd_pubkey_t));
 
