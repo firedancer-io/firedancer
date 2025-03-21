@@ -147,7 +147,8 @@ fd_exec_instr_ctx_try_borrow_last_program_account( fd_exec_instr_ctx_t const * c
   fd_txn_account_t * program_account = NULL;
   fd_exec_txn_ctx_get_account_at_index( ctx->txn_ctx, 
                                         ctx->instr->program_id,
-                                        &program_account );
+                                        &program_account, 
+                                        NULL );
 
   return fd_exec_instr_ctx_try_borrow_account( ctx, 
                                                ctx->instr->program_id,

@@ -130,7 +130,7 @@ read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t *              
                                                uchar                               program_id,
                                                int *                               opt_err ) {
   fd_txn_account_t * rec = NULL;
-  int err = fd_exec_txn_ctx_get_account_at_index( txn_ctx, program_id, &rec );
+  int err = fd_exec_txn_ctx_get_account_at_index( txn_ctx, program_id, &rec, &fd_txn_account_exists );
   if( FD_UNLIKELY( err ) ) {
     *opt_err = err;
     return NULL;
@@ -1923,7 +1923,7 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
 
       fd_txn_account_t * program_data_account = NULL;
       fd_pubkey_t *      programdata_pubkey   = (fd_pubkey_t *)&program_account_state->inner.program.programdata_address;
-      err = fd_exec_txn_ctx_get_executable_account( ctx->txn_ctx, programdata_pubkey, &program_data_account );
+      err = fd_exec_txn_ctx_get_executable_account( ctx->txn_ctx, programdata_pubkey, &program_data_account, &fd_txn_account_exists );
       if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }

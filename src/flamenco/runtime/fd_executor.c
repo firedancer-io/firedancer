@@ -444,7 +444,7 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
   /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L429-L443 */
   for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
     fd_txn_account_t * acct = &txn_ctx->accounts[i];
-    uchar unknown_acc = !!( fd_exec_txn_ctx_get_account_at_index( txn_ctx, (uchar)i, &acct ) ||
+    uchar unknown_acc = !!( fd_exec_txn_ctx_get_account_at_index( txn_ctx, (uchar)i, &acct, &fd_txn_account_exists ) ||
                             acct->const_meta->info.lamports==0UL );
     ulong acc_size    = unknown_acc ? 0UL : acct->const_meta->dlen;
     uchar is_writable = !!( fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (int)i ) );
@@ -493,7 +493,7 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
     /* Mimicking `load_account()` here with 0-lamport check as well.
        https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L455-L462 */
     fd_txn_account_t * program_account = NULL;
-    int err = fd_exec_txn_ctx_get_account_at_index( txn_ctx, instr->program_id, &program_account );
+    int err = fd_exec_txn_ctx_get_account_at_index( txn_ctx, instr->program_id, &program_account, &fd_txn_account_exists );
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS || program_account->const_meta->info.lamports==0UL ) ) {
       return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
     }
@@ -792,8 +792,8 @@ fd_executor_validate_transaction_fee_payer( fd_exec_txn_ctx_t * txn_ctx ) {
    doesn't have a writable signature.
    https://github.com/anza-xyz/agave/blob/16de8b75ebcd57022409b422de557dd37b1de8db/svm/src/transaction_processor.rs#L431-L436 */
   fd_txn_account_t * fee_payer_rec = NULL;
-  err = fd_exec_txn_ctx_get_account_at_index( txn_ctx,  FD_FEE_PAYER_TXN_IDX, &fee_payer_rec );
-  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS || !fd_txn_is_writable( txn_ctx->txn_descriptor, FD_FEE_PAYER_TXN_IDX ) ) ) {
+  err = fd_exec_txn_ctx_get_account_at_index( txn_ctx,  FD_FEE_PAYER_TXN_IDX, &fee_payer_rec, &fd_txn_account_fee_payer_writable );
+  if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return FD_RUNTIME_TXN_ERR_ACCOUNT_NOT_FOUND;
   }
 

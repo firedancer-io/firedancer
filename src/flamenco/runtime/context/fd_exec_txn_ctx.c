@@ -86,7 +86,10 @@ fd_exec_txn_ctx_delete( void * mem ) {
 int
 fd_exec_txn_ctx_get_account_at_index( fd_exec_txn_ctx_t *  ctx,
                                       uchar                idx,
-                                      fd_txn_account_t * * account ) {
+                                      fd_txn_account_t * * account,
+                                      int (*condition)( fd_exec_txn_ctx_t * ctx,
+                                                        int                 idx,
+                                                        fd_txn_account_t *  acc) ) {
   if( FD_UNLIKELY( idx>=ctx->accounts_cnt ) ) {
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
@@ -94,31 +97,45 @@ fd_exec_txn_ctx_get_account_at_index( fd_exec_txn_ctx_t *  ctx,
   fd_txn_account_t * txn_account = &ctx->accounts[idx];
   *account = txn_account;
 
+  if( condition != NULL ) {
+    if( FD_UNLIKELY( !condition( ctx, idx, *account ) ) ) 
+      return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+  }
+
   return FD_ACC_MGR_SUCCESS;
 }
 
 int
 fd_exec_txn_ctx_get_account_with_key( fd_exec_txn_ctx_t *  ctx,
                                       fd_pubkey_t const *  pubkey,
-                                      fd_txn_account_t * * account ) {
+                                      fd_txn_account_t * * account,
+                                      int (*condition)( fd_exec_txn_ctx_t * ctx,
+                                                        int                 idx,
+                                                        fd_txn_account_t *  acc) ) {
   int index = fd_exec_txn_ctx_find_index_of_account( ctx, pubkey );
   if( FD_UNLIKELY( index==-1 ) ) {
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
-  return fd_exec_txn_ctx_get_account_at_index( ctx, (uchar)index, account );
+  return fd_exec_txn_ctx_get_account_at_index( ctx, 
+                                               (uchar)index, 
+                                               account, 
+                                               condition );
 }
 
 int
 fd_exec_txn_ctx_get_executable_account( fd_exec_txn_ctx_t *  ctx,
                                         fd_pubkey_t const *  pubkey,
-                                        fd_txn_account_t * * account ) {
+                                        fd_txn_account_t * * account,
+                                        int (*condition)( fd_exec_txn_ctx_t * ctx,
+                                                          int                 idx,
+                                                          fd_txn_account_t *  acc) ) {
   /* First try to fetch the executable account from the existing borrowed accounts.
      If the pubkey is in the account keys, then we want to re-use that
      borrowed account since it reflects changes from prior instructions. Referencing the
      read-only executable accounts list is incorrect behavior when the program
      data account is written to in a prior instruction (e.g. program upgrade + invoke within the same txn) */
-  int err = fd_exec_txn_ctx_get_account_with_key( ctx, pubkey, account );
+  int err = fd_exec_txn_ctx_get_account_with_key( ctx, pubkey, account, condition );
   if( FD_UNLIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
     return FD_ACC_MGR_SUCCESS;
   }
@@ -128,8 +145,10 @@ fd_exec_txn_ctx_get_executable_account( fd_exec_txn_ctx_t *  ctx,
       fd_txn_account_t * txn_account = &ctx->executable_accounts[i];
       *account = txn_account;
 
-      if( FD_UNLIKELY( !fd_acc_exists( txn_account->const_meta ) ) )
-        return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+      if( condition != NULL ) {
+        if( FD_UNLIKELY( !condition( ctx, (int)i, *account ) ) ) 
+          return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+      }
 
       return FD_ACC_MGR_SUCCESS;
     }

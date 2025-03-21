@@ -240,7 +240,7 @@ fd_exec_txn_ctx_find_index_of_account( fd_exec_txn_ctx_t * ctx,
                                       fd_pubkey_t const *  pubkey ) {
   for( ulong i=ctx->accounts_cnt; i>0UL; i-- ) {
     if( 0==memcmp( pubkey, &ctx->account_keys[ i-1UL ], sizeof(fd_pubkey_t) ) ) {
-      return (int)((ushort)i);
+      return (int)(i-1UL);
     }
   }
   return -1;
@@ -253,17 +253,26 @@ fd_exec_txn_ctx_find_index_of_account( fd_exec_txn_ctx_t * ctx,
 int
 fd_exec_txn_ctx_get_account_at_index( fd_exec_txn_ctx_t *  ctx,
                                       uchar                idx,
-                                      fd_txn_account_t * * account );
+                                      fd_txn_account_t * * account,
+                                      int (*condition)( fd_exec_txn_ctx_t * ctx,
+                                                        int                 idx,
+                                                        fd_txn_account_t *  acc) );
 
 int
 fd_exec_txn_ctx_get_account_with_key( fd_exec_txn_ctx_t *  ctx,
                                       fd_pubkey_t const *  pubkey,
-                                      fd_txn_account_t * * account );
+                                      fd_txn_account_t * * account,
+                                      int (*condition)( fd_exec_txn_ctx_t * ctx,
+                                                        int                 idx,
+                                                        fd_txn_account_t *  acc) );
 
 int
 fd_exec_txn_ctx_get_executable_account( fd_exec_txn_ctx_t *  ctx,
                                         fd_pubkey_t const *  pubkey,
-                                        fd_txn_account_t * * account );
+                                        fd_txn_account_t * * account,
+                                        int (*condition)( fd_exec_txn_ctx_t * ctx,
+                                                          int                 idx,
+                                                          fd_txn_account_t *  acc) );
 
 void
 fd_exec_txn_ctx_reset_return_data( fd_exec_txn_ctx_t * txn_ctx );
@@ -282,6 +291,32 @@ fd_exec_txn_ctx_reset_return_data( fd_exec_txn_ctx_t * txn_ctx );
 /* https://github.com/anza-xyz/agave/blob/v2.1.1/sdk/program/src/message/versions/v0/loaded.rs#L137-L150 */
 int
 fd_exec_txn_ctx_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, int idx );
+
+/* Conditional filter functions */
+static inline int
+fd_txn_account_exists( fd_exec_txn_ctx_t * ctx,
+                       int                 idx,
+                       fd_txn_account_t * acc ) {
+  (void) ctx;
+  (void) idx;
+  return fd_acc_exists( acc->const_meta );
+}
+
+static inline int
+fd_txn_account_is_writable( fd_exec_txn_ctx_t * ctx,
+                            int                 idx,
+                            fd_txn_account_t * acc ) {
+  (void) acc;
+  return fd_exec_txn_ctx_account_is_writable_idx( ctx, idx );
+}
+
+static inline int
+fd_txn_account_fee_payer_writable( fd_exec_txn_ctx_t * ctx,
+                                   int                 idx,
+                                   fd_txn_account_t * acc ) {
+  (void) acc;
+  return fd_txn_is_writable( ctx->txn_descriptor, idx );
+}
 
 FD_PROTOTYPES_END
 

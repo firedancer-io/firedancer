@@ -2290,7 +2290,7 @@ __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
            TODO: Once direct mapping is enabled we _technically_ don't need
                  this check */
 
-        if( fd_exec_txn_ctx_get_account_at_index( txn_ctx, idx_in_txn, &acct ) ) {
+        if( fd_exec_txn_ctx_get_account_at_index( txn_ctx, idx_in_txn, &acct, &fd_txn_account_exists ) ) {
           break;
         }
         if( acct->meta == NULL ){
@@ -2301,7 +2301,8 @@ __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
         int err = fd_exec_txn_ctx_get_account_at_index( txn_ctx,
                                                           idx_in_txn,
                                                           /* Do not reallocate if data is not going to be modified */
-                                                          &acct );
+                                                          &acct,
+                                                        &fd_txn_account_is_writable );
         if( err ) break;
 
         /* resize manually */

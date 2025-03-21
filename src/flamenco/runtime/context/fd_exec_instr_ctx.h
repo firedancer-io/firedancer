@@ -41,7 +41,7 @@ struct __attribute__((aligned(8UL))) fd_exec_instr_ctx {
 /* Be careful when using this macro. There may be places where the error
    will need to be handled differently. */
 #define FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( ctx, idx, acc ) do {    \
-  int err = fd_exec_instr_ctx_try_borrow_instr_account( ctx, idx, acc ); \
+  int err = fd_exec_instr_ctx_try_borrow_instr_account( ctx, idx, acc );       \
   if( FD_UNLIKELY( err ) ) return err;                                         \
 } while (0)
 
