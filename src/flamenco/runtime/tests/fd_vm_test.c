@@ -156,11 +156,9 @@ do{
                                0 );
 
   for( ulong i=0; i< fd_sbpf_syscalls_slot_cnt(); i++ ){
-    fd_sbpf_syscalls_t * syscall = fd_sbpf_syscalls_query( syscalls, syscalls[i].key, NULL );
-    if ( !syscall ) {
-      continue;
+    if( !fd_sbpf_syscalls_key_inval( syscalls[i].key ) ) {
+      syscalls[i].func = fd_vm_syscall_noop;
     }
-    syscall->func = fd_vm_syscall_noop;
   }
 
   /* Setup trace */

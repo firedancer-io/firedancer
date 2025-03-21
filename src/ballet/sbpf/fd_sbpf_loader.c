@@ -1009,7 +1009,7 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t   const * loader,
 
     /* Check for collision with syscall ID
        https://github.com/solana-labs/rbpf/blob/57139e9e1fca4f01155f7d99bc55cdcc25b0bc04/src/program.rs#L142-L146 */
-    REQUIRE( !fd_sbpf_syscalls_query( loader->syscalls, hash, NULL ) );
+    REQUIRE( !fd_sbpf_syscalls_query( loader->syscalls, (ulong)hash, NULL ) );
     V = (uint)hash;
   } else {
     /* FIXME Should cache Murmur hashes.
@@ -1020,7 +1020,7 @@ fd_sbpf_r_bpf_64_32( fd_sbpf_loader_t   const * loader,
     /* Ensure that requested syscall ID exists only when deploying
        https://github.com/solana-labs/rbpf/blob/v0.8.0/src/elf.rs#L1097 */
     if ( FD_UNLIKELY( loader->elf_deploy_checks ) ) {
-      REQUIRE( fd_sbpf_syscalls_query( loader->syscalls, hash, NULL ) );
+      REQUIRE( fd_sbpf_syscalls_query( loader->syscalls, (ulong)hash, NULL ) );
     }
 
     V = hash;
@@ -1101,7 +1101,7 @@ fd_sbpf_hash_calls( fd_sbpf_loader_t *    loader,
     uint pc_hash = fd_pchash( (uint)target_pc );
     /* Check for collision with syscall ID
        https://github.com/solana-labs/rbpf/blob/57139e9e1fca4f01155f7d99bc55cdcc25b0bc04/src/program.rs#L142-L146 */
-    REQUIRE( !fd_sbpf_syscalls_query( loader->syscalls, pc_hash, NULL ) );
+    REQUIRE( !fd_sbpf_syscalls_query( loader->syscalls, (ulong)pc_hash, NULL ) );
 
     FD_STORE( uint, ptr+4UL, pc_hash );
   }

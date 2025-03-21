@@ -118,7 +118,7 @@ fd_vm_strerror( int err ) {
   case FD_VM_ERR_SIGCOST:     return "SIGCOST compute unit limit exceeded";
   case FD_VM_ERR_SIGFPE:      return "SIGFPE division by zero";
   case FD_VM_ERR_SIGFPE_OF:   return "SIGFPE division overflow";
-  case FD_VM_ERR_SIGSYSCALL:  return "SIGSYSCALL syscall error"; 
+  case FD_VM_ERR_SIGSYSCALL:  return "SIGSYSCALL syscall error";
   case FD_VM_ERR_SIGABORT:    return "SIGABORT abort error";
 
   /* VM validate error codes */
@@ -443,7 +443,7 @@ fd_vm_validate( fd_vm_t const * vm ) {
       }
       uint syscall_key = FD_VM_SBPF_STATIC_SYSCALLS_LIST[ imm ];
       /* check active syscall */
-      fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( vm->syscalls, syscall_key, NULL );
+      fd_sbpf_syscalls_t const * syscall = fd_sbpf_syscalls_query_const( vm->syscalls, (ulong)syscall_key, NULL );
       if( FD_UNLIKELY( !syscall ) ) {
         return FD_VM_INVALID_SYSCALL;
       }

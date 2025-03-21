@@ -89,7 +89,7 @@ main( int     argc,
   /* Load and reloc program */
 
   for( uint const * x = _syscalls; *x; x++ )
-    fd_sbpf_syscalls_insert( syscalls, *x );
+    fd_sbpf_syscalls_insert( syscalls, (ulong)*x );
 
   int load_err = fd_sbpf_program_load( prog, bin_buf, bin_sz, syscalls, 1 );
 
