@@ -86,7 +86,6 @@ populate_allowed_fds( fd_topo_t const *      topo,
                       ulong                  out_fds_cnt,
                       int *                  out_fds ) {
   (void)topo;
-  (void)tile;
   (void)out_fds_cnt;
 
   ulong out_cnt = 0UL;
@@ -111,9 +110,6 @@ scratch_footprint( fd_topo_tile_t const * tile ) {
 static void
 privileged_init( fd_topo_t *      topo,
                  fd_topo_tile_t * tile ) {
-    (void)topo;
-    (void)tile;
-
     void * scratch = fd_topo_obj_laddr( topo, tile->tile_obj_id );
 
     FD_SCRATCH_ALLOC_INIT( l, scratch );
