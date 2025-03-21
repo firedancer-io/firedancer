@@ -199,7 +199,7 @@ LLVMFuzzerTestOneInput( uchar const * data,
           conn->svc_meta.idx[ FD_QUIC_SVC_ACK_TX ] == FD_QUIC_SVC_IDX_INVAL );
 
   /* Simulate conn timeout */
-  while( FD_QUIC_SVC_IDLE == fd_quic_svc_timers_next(state->svc_timers, ULONG_MAX, 0).svc_type ) {
+  while( conn->svc_meta.idx[FD_QUIC_SVC_IDLE]!=FD_QUIC_SVC_IDX_INVAL ){
     fd_quic_svc_event_t* idle_event = fd_quic_get_svc_event( state->svc_timers , FD_QUIC_SVC_IDLE, conn );
     ulong idle_timeout_ts = idle_event->timeout + 1UL;
     fd_quic_svc_event_t next = fd_quic_svc_timers_next(state->svc_timers, ULONG_MAX, 0);
