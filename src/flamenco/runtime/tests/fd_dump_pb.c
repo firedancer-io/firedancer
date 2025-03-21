@@ -702,7 +702,7 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     fd_solana_secp256r1_program_id,
     fd_solana_zk_elgamal_proof_program_id,
     fd_solana_ed25519_sig_verify_program_id,
-    fd_solana_spl_native_mint_id,
+    // fd_solana_spl_native_mint_id,
   };
   const ulong num_loaded_builtins = (sizeof(loaded_builtins) / sizeof(fd_pubkey_t));
 
