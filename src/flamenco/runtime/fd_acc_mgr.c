@@ -138,23 +138,31 @@ fd_acc_mgr_modify( fd_acc_mgr_t *      acc_mgr,
   fd_wksp_t *          wksp = fd_funkier_wksp(funk);
   fd_funkier_rec_key_t id   = fd_acc_funk_key( pubkey );
 
-  fd_funkier_rec_prepare_t prepare[1];
+  fd_funkier_rec_query_t query[1];
+  fd_funkier_rec_t * rec = (fd_funkier_rec_t *)fd_funkier_rec_query_try( funk, txn, &id, query );
+
+  int do_publish = 0;
+  fd_funkier_rec_prepare_t prepare[1] = {0};
   int funk_err = 0;
-  fd_funkier_rec_t * rec = fd_funkier_rec_clone( funk, txn, &id, prepare, &funk_err );
-  if( rec == NULL ) {
-    if( FD_LIKELY( funk_err==FD_FUNKIER_ERR_KEY ) ) {
-      if( do_create ) {
-        rec = fd_funkier_rec_prepare( funk, txn, &id, prepare, &funk_err );
-        if( rec == NULL ) {
-          /* Irrecoverable funky internal error [[noreturn]] */
-          FD_LOG_ERR(( "fd_funk_rec_write_prepare(%s) failed (%i-%s)", FD_BASE58_ENC_32_ALLOCA( pubkey->key ), funk_err, fd_funkier_strerror( funk_err ) ));
+  if( !rec ) {
+    rec = fd_funkier_rec_clone( funk, txn, &id, prepare, &funk_err );
+    do_publish = 1;
+
+    if( rec == NULL ) {
+      if( FD_LIKELY( funk_err==FD_FUNKIER_ERR_KEY ) ) {
+        if( do_create ) {
+          rec = fd_funkier_rec_prepare( funk, txn, &id, prepare, &funk_err );
+          if( rec == NULL ) {
+            /* Irrecoverable funky internal error [[noreturn]] */
+            FD_LOG_ERR(( "fd_funk_rec_write_prepare(%s) failed (%i-%s)", FD_BASE58_ENC_32_ALLOCA( pubkey->key ), funk_err, fd_funkier_strerror( funk_err ) ));
+          }
+        } else {
+          return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
         }
       } else {
-        return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+        /* Irrecoverable funky internal error [[noreturn]] */
+        FD_LOG_ERR(( "fd_funk_rec_write_prepare(%s) failed (%i-%s)", FD_BASE58_ENC_32_ALLOCA( pubkey->key ), funk_err, fd_funkier_strerror( funk_err ) ));
       }
-    } else {
-      /* Irrecoverable funky internal error [[noreturn]] */
-      FD_LOG_ERR(( "fd_funk_rec_write_prepare(%s) failed (%i-%s)", FD_BASE58_ENC_32_ALLOCA( pubkey->key ), funk_err, fd_funkier_strerror( funk_err ) ));
     }
   }
 
@@ -175,7 +183,9 @@ fd_acc_mgr_modify( fd_acc_mgr_t *      acc_mgr,
 
   /* This is the WRONG place to publish, but fixing it requires
      changes to the acc_mgr api which are out of scope atm. */
-  fd_funkier_rec_publish( prepare );
+  if( do_publish ) {
+    fd_funkier_rec_publish( prepare );
+  }
 
   assert( account->magic == FD_TXN_ACCOUNT_MAGIC );
 
