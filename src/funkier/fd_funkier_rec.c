@@ -88,14 +88,11 @@ fd_funkier_rec_query_try_global( fd_funkier_t *               funk,
   fd_funkier_rec_key_copy( pair->key, key );
   ulong hash  = fd_funkier_rec_map_key_hash( pair, rec_map.map->seed );
   ulong chain_idx = (hash & (rec_map.map->chain_cnt-1UL) );
-  if( fd_funkier_rec_map_iter_lock( &rec_map, &chain_idx, 1, FD_MAP_FLAG_BLOCKING) ) {
-    FD_LOG_CRIT(( "failed to lock hash chain" ));
-  }
 
   fd_funkier_rec_map_shmem_private_chain_t * chain = (fd_funkier_rec_map_shmem_private_chain_t *)(rec_map.map+1) + chain_idx;
   query->ele     = NULL;
   query->chain   = chain;
-  query->ver_cnt = chain->ver_cnt + (1UL<<43U); /* After unlock */
+  query->ver_cnt = chain->ver_cnt; /* After unlock */
 
   for( fd_funkier_rec_map_iter_t iter = fd_funkier_rec_map_iter( &rec_map, chain_idx );
        !fd_funkier_rec_map_iter_done( iter );
@@ -118,7 +115,6 @@ fd_funkier_rec_query_try_global( fd_funkier_t *               funk,
           if( txn_out ) *txn_out = cur_txn;
           query->ele = ( FD_UNLIKELY( ele->flags & FD_FUNKIER_REC_FLAG_ERASE ) ? NULL :
                          (fd_funkier_rec_t *)ele );
-          fd_funkier_rec_map_iter_unlock( &rec_map, &chain_idx, 1 );
           return query->ele;
         }
 
@@ -126,7 +122,6 @@ fd_funkier_rec_query_try_global( fd_funkier_t *               funk,
       }
     }
   }
-  fd_funkier_rec_map_iter_unlock( &rec_map, &chain_idx, 1 );
   return NULL;
 }
 
