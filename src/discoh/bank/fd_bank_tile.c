@@ -24,6 +24,7 @@ typedef struct {
 
   void const * _bank;
   ulong _microblock_idx;
+  ulong _txn_idx;
   int _is_bundle;
 
   ulong * busy_fseq;
@@ -130,6 +131,7 @@ during_frag( fd_bank_ctx_t * ctx,
   fd_microblock_bank_trailer_t * trailer = (fd_microblock_bank_trailer_t *)( src+sz-sizeof(fd_microblock_bank_trailer_t) );
   ctx->_bank = trailer->bank;
   ctx->_microblock_idx = trailer->microblock_idx;
+  ctx->_txn_idx = trailer->pack_txn_idx;
   ctx->_is_bundle = trailer->is_bundle;
 }
 
@@ -211,6 +213,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
                                                                       consumed_exec_cus,
                                                                       consumed_acct_data_cus );
 
+  int last_err_code = 0;
+
   ulong sanitized_idx = 0UL;
   for( ulong i=0UL; i<txn_cnt; i++ ) {
     fd_txn_p_t * txn = (fd_txn_p_t *)( dst + (i*sizeof(fd_txn_p_t)) );
@@ -222,6 +226,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
        block, rebate the non-execution CUs too. */
     txn->bank_cu.rebated_cus = requested_exec_plus_acct_data_cus + non_execution_cus;
     txn->flags               &= ~FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
+    int prev_err_code = last_err_code;
+    last_err_code = transaction_err[ i ];
     if( FD_UNLIKELY( !(txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS) ) ) continue;
 
     sanitized_idx++;
@@ -262,8 +268,12 @@ handle_microblock( fd_bank_ctx_t *     ctx,
 
     if( FD_UNLIKELY( !(processing_results[ sanitized_idx-1UL ] & FD_BANK_TRANSACTION_EXECUTED) ) ) continue;
 
-    if( transaction_err[ sanitized_idx-1UL ] ) ctx->metrics.exec_failed++;
-    else                                       ctx->metrics.success++;
+    if( transaction_err[ sanitized_idx-1UL ] ) {
+      ctx->metrics.exec_failed++;
+    } else {
+      ctx->metrics.success++;
+      last_err_code = prev_err_code; /* On success, reset to error code from previously failed txn */
+    }
 
     /* The VM will stop executing and fail an instruction immediately if
        it exceeds its requested CUs.  A transaction which requests less
@@ -307,7 +317,8 @@ handle_microblock( fd_bank_ctx_t *     ctx,
      it shards / scales horizontally here, while PoH does not. */
   fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst + txn_cnt*sizeof(fd_txn_p_t) );
   hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, txn_cnt, trailer->hash );
-  trailer->is_last_in_bundle = 1;
+  trailer->pack_txn_idx = ctx->_txn_idx;
+  trailer->error_code = (uchar)last_err_code;
 
   /* MAX_MICROBLOCK_SZ - (MAX_TXN_PER_MICROBLOCK*sizeof(fd_txn_p_t)) == 64
      so there's always 64 extra bytes at the end to stash the hash. */
@@ -461,7 +472,8 @@ handle_bundle( fd_bank_ctx_t *     ctx,
 
     fd_microblock_trailer_t * trailer = (fd_microblock_trailer_t *)( dst+sizeof(fd_txn_p_t) );
     hash_transactions( ctx->bmtree, (fd_txn_p_t*)dst, 1UL, trailer->hash );
-    trailer->is_last_in_bundle = (i==txn_cnt-1UL);
+    trailer->pack_txn_idx = ctx->_txn_idx;
+    trailer->error_code = (uchar)transaction_err[ i ];
 
     ulong bank_sig = fd_disco_bank_sig( slot, ctx->_microblock_idx+i );
 
