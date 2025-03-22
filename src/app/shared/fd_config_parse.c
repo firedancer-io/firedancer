@@ -287,6 +287,7 @@ fdctl_pod_to_cfg( config_t * config,
   CFG_POP      ( ulong,  hugetlbfs.gigantic_page_threshold_mib            );
 
   CFG_POP      ( cstr,   tiles.net.interface                              );
+  CFG_POP      ( cstr,   tiles.net.bind_address                           );
   CFG_POP      ( cstr,   tiles.net.xdp_mode                               );
   CFG_POP      ( bool,   tiles.net.xdp_zero_copy                          );
   CFG_POP      ( uint,   tiles.net.xdp_rx_queue_size                      );
@@ -484,6 +485,11 @@ fdctl_cfg_validate( config_t * cfg ) {
   CFG_HAS_NON_EMPTY( hugetlbfs.mount_path );
   CFG_HAS_NON_EMPTY( hugetlbfs.max_page_size );
 
+  if( 0!=strcmp( cfg->tiles.net.bind_address, "" ) ) {
+    if( FD_UNLIKELY( !fd_cstr_to_ip4_addr( cfg->tiles.net.bind_address, &cfg->tiles.net.bind_address_parsed ) ) ) {
+      FD_LOG_ERR(( "`tiles.net.bind_address` is not a valid IPv4 address" ));
+    }
+  }
   CFG_HAS_NON_EMPTY( tiles.net.xdp_mode );
   CFG_HAS_POW2     ( tiles.net.xdp_rx_queue_size );
   CFG_HAS_POW2     ( tiles.net.xdp_tx_queue_size );

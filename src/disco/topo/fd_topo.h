@@ -130,6 +130,7 @@ typedef struct {
     struct {
       char   provider[ 8 ]; /* "xdp" or "socket" */
       char   interface[ 16 ];
+      uint   bind_address;
 
       /* xdp specific options */
       ulong  xdp_rx_queue_size;
@@ -723,10 +724,12 @@ fd_topo_tile_stack_join( char const * app_name,
                          ulong        tile_kind_id );
 
 /* Install the XDP program needed by the net tiles into the local device
-   and return the xsk_map_fd. */
+   and return the xsk_map_fd.  bind_addr is an optional IPv4 address to
+   used for filtering by dst IP. */
 
 fd_xdp_fds_t
-fd_topo_install_xdp( fd_topo_t const * topo );
+fd_topo_install_xdp( fd_topo_t const * topo,
+                     uint              bind_addr );
 
 /* fd_topo_run_single_process runs all the tiles in a single process
    (the calling process).  This spawns a thread for each tile, switches

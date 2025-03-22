@@ -92,6 +92,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 
 static void
 create_udp_socket( int    sock_fd,
+                   uint   bind_addr,
                    ushort udp_port,
                    int    so_rcvbuf ) {
 
@@ -122,7 +123,7 @@ create_udp_socket( int    sock_fd,
 
   struct sockaddr_in saddr = {
     .sin_family      = AF_INET,
-    .sin_addr.s_addr = 0,
+    .sin_addr.s_addr = bind_addr,
     .sin_port        = fd_ushort_bswap( udp_port ),
   };
   if( FD_UNLIKELY( 0!=bind( orig_fd, fd_type_pun_const( &saddr ), sizeof(struct sockaddr_in) ) ) ) {
@@ -221,7 +222,7 @@ privileged_init( fd_topo_t *      topo,
     }
 
     int sock_fd = sock_fd_min + (int)sock_idx;
-    create_udp_socket( sock_fd, port, tile->net.so_rcvbuf );
+    create_udp_socket( sock_fd, tile->net.bind_address, port, tile->net.so_rcvbuf );
     ctx->pollfd[ sock_idx ].fd     = sock_fd;
     ctx->pollfd[ sock_idx ].events = POLLIN;
     ctx->sock_cnt++;
@@ -238,7 +239,8 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "setsockopt(SOL_SOCKET,SO_SNDBUF,%i) failed (%i-%s)", tile->net.so_sndbuf, errno, fd_io_strerror( errno ) ));
   }
 
-  ctx->tx_sock = tx_sock;
+  ctx->tx_sock      = tx_sock;
+  ctx->bind_address = tile->net.bind_address;
 
 }
 
@@ -530,7 +532,7 @@ during_frag( fd_sock_tile_t * ctx,
   struct in_pktinfo * pi = (struct in_pktinfo *)CMSG_DATA( cmsg );
   pi->ipi_ifindex         = 0;
   pi->ipi_addr.s_addr     = 0;
-  pi->ipi_spec_dst.s_addr = ip_hdr->saddr;
+  pi->ipi_spec_dst.s_addr = fd_uint_if( !!ip_hdr->saddr, ip_hdr->saddr, ctx->bind_address );
 
   *msg = (struct mmsghdr) {
     .msg_hdr = {

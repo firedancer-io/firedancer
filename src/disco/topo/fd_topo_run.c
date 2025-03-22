@@ -201,7 +201,8 @@ fd_topo_tile_stack_join( char const * app_name,
 }
 
 fd_xdp_fds_t
-fd_topo_install_xdp( fd_topo_t const * topo ) {
+fd_topo_install_xdp( fd_topo_t const * topo,
+                     uint              bind_addr ) {
   ulong net0_tile_idx = fd_topo_find_tile( topo, "net", 0UL );
   FD_TEST( net0_tile_idx!=ULONG_MAX );
   fd_topo_tile_t const * net0_tile = &topo->tiles[ net0_tile_idx ];
@@ -219,7 +220,7 @@ fd_topo_install_xdp( fd_topo_t const * topo ) {
   if( FD_UNLIKELY( !if_idx ) ) FD_LOG_ERR(( "if_nametoindex(%s) failed", net0_tile->net.interface ));
 
   fd_xdp_fds_t xdp_fds = fd_xdp_install( if_idx,
-                                         0U,
+                                         bind_addr,
                                          sizeof(udp_port_candidates)/sizeof(udp_port_candidates[0]),
                                          udp_port_candidates,
                                          net0_tile->net.xdp_mode );
