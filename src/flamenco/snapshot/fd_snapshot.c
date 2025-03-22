@@ -26,8 +26,8 @@ struct fd_snapshot_load_ctx {
   int                    snapshot_type;
 
   /* Internal state. */
-  fd_funk_txn_t *        par_txn;
-  fd_funk_txn_t *        child_txn;
+  fd_funkier_txn_t *        par_txn;
+  fd_funkier_txn_t *        child_txn;
 
   fd_snapshot_loader_t *  loader;
   fd_snapshot_restore_t * restore;
@@ -138,14 +138,13 @@ fd_snapshot_load_init( fd_snapshot_load_ctx_t * ctx ) {
       break;
   }
 
-  fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
-
   ctx->par_txn   = ctx->slot_ctx->funk_txn;
   ctx->child_txn = ctx->slot_ctx->funk_txn;
-  if( ctx->verify_hash && FD_FEATURE_ACTIVE( ctx->slot_ctx->slot_bank.slot, ctx->slot_ctx->epoch_ctx->features, incremental_snapshot_only_incremental_hash_calculation ) ) {
-    fd_funk_txn_xid_t xid;
+  if( ctx->verify_hash && FD_FEATURE_ACTIVE( ctx->slot_ctx->slot_bank.slot, ctx->slot_ctx->epoch_ctx->features,
+                                             incremental_snapshot_only_incremental_hash_calculation ) ) {
+    fd_funkier_txn_xid_t xid;
     memset( &xid, 0xc3, sizeof(xid) );
-    ctx->child_txn = fd_funk_txn_prepare( ctx->slot_ctx->acc_mgr->funk, ctx->child_txn, &xid, 0 );
+    ctx->child_txn = fd_funkier_txn_prepare( ctx->slot_ctx->acc_mgr->funk, ctx->child_txn, &xid, 0 );
     ctx->slot_ctx->funk_txn = ctx->child_txn;
     }
 }
@@ -167,7 +166,7 @@ fd_snapshot_load_manifest_and_status_cache( fd_snapshot_load_ctx_t * ctx,
   fd_exec_epoch_ctx_bank_mem_clear( ctx->slot_ctx->epoch_ctx );
 
   fd_acc_mgr_t *  acc_mgr  = ctx->slot_ctx->acc_mgr;
-  fd_funk_txn_t * funk_txn = ctx->slot_ctx->funk_txn;
+  fd_funkier_txn_t * funk_txn = ctx->slot_ctx->funk_txn;
 
   void * restore_mem = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
   void * loader_mem  = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_loader_align(),  fd_snapshot_loader_footprint( ZSTD_WINDOW_SZ ) );
@@ -288,7 +287,7 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
   }
 
   if( ctx->child_txn != ctx->par_txn ) {
-    fd_funk_txn_publish( ctx->slot_ctx->acc_mgr->funk, ctx->child_txn, 0 );
+    fd_funkier_txn_publish( ctx->slot_ctx->acc_mgr->funk, ctx->child_txn, 0 );
     ctx->slot_ctx->funk_txn = ctx->par_txn;
   }
 
@@ -296,8 +295,6 @@ fd_snapshot_load_fini( fd_snapshot_load_ctx_t * ctx ) {
 
   /* We don't need to free any of the loader memory since it is allocated
      from a spad. */
-
-  fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
 }
 
 void
@@ -328,6 +325,7 @@ fd_snapshot_load_all( const char *         source_cstr,
   fd_runtime_update_slots_per_epoch( slot_ctx, 432000UL, runtime_spad );
   fd_snapshot_load_manifest_and_status_cache( ctx, base_slot_override,
     FD_SNAPSHOT_RESTORE_STATUS_CACHE | FD_SNAPSHOT_RESTORE_MANIFEST );
+  fd_runtime_update_slots_per_epoch( slot_ctx, 432000UL, runtime_spad );
   fd_snapshot_load_accounts( ctx );
   fd_snapshot_load_fini( ctx );
 
@@ -335,8 +333,6 @@ fd_snapshot_load_all( const char *         source_cstr,
 
 void
 fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx ) {
-
-  fd_funk_start_write( ctx->slot_ctx->acc_mgr->funk );
 
   size_t slen = strlen( ctx->snapshot_file );
   char * snapshot_cstr = fd_spad_alloc( ctx->runtime_spad, 8UL, slen + 1 );
@@ -348,7 +344,7 @@ fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx ) {
   }
 
   fd_acc_mgr_t *  acc_mgr  = ctx->slot_ctx->acc_mgr;
-  fd_funk_txn_t * funk_txn = ctx->slot_ctx->funk_txn;
+  fd_funkier_txn_t * funk_txn = ctx->slot_ctx->funk_txn;
 
   void * restore_mem = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_restore_align(), fd_snapshot_restore_footprint() );
   void * loader_mem  = fd_spad_alloc( ctx->runtime_spad, fd_snapshot_loader_align(),  fd_snapshot_loader_footprint( ZSTD_WINDOW_SZ ) );
@@ -370,8 +366,6 @@ fd_snapshot_load_prefetch_manifest( fd_snapshot_load_ctx_t * ctx ) {
        this is not expected. */
     FD_LOG_ERR(( "Failed to load snapshot (%d-%s)", err, fd_io_strerror( err ) ));
   }
-
-  fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
 }
 
 ulong

@@ -14,7 +14,7 @@
 #include "../../flamenco/fd_flamenco.h"
 #include "../../flamenco/nanopb/pb_decode.h"
 #include "../../flamenco/runtime/fd_hashes.h"
-#include "../../funk/fd_funk_filemap.h"
+#include "../../funkier/fd_funkier_filemap.h"
 #include "../../flamenco/types/fd_types.h"
 #include "../../flamenco/runtime/fd_runtime.h"
 #include "../../flamenco/runtime/fd_borrowed_account.h"
@@ -37,7 +37,7 @@ struct fd_ledger_args {
   fd_wksp_t *           status_cache_wksp;       /* wksp for status cache. */
   fd_blockstore_t       blockstore_ljoin;
   fd_blockstore_t *     blockstore;              /* blockstore for replay */
-  fd_funk_t *           funk;                    /* handle to funk */
+  fd_funkier_t *           funk;                    /* handle to funk */
   fd_alloc_t *          alloc;                   /* handle to alloc */
   char const *          cmd;                     /* user passed command to fd_ledger */
   ulong                 start_slot;              /* start slot for offline replay */
@@ -55,7 +55,7 @@ struct fd_ledger_args {
   ulong                 index_max;               /* size of funk index (same as rec max) */
   char const *          funk_file;               /* path to funk backing store */
   ulong                 funk_page_cnt;
-  fd_funk_close_file_args_t funk_close_args;
+  fd_funkier_close_file_args_t funk_close_args;
   char const *          snapshot;                /* path to agave snapshot */
   char const *          incremental;             /* path to agave incremental snapshot */
   char const *          genesis;                 /* path to agave genesis */
@@ -679,7 +679,6 @@ allocator_setup( fd_wksp_t * wksp ) {
 void
 fd_ledger_main_setup( fd_ledger_args_t * args ) {
   fd_flamenco_boot( NULL, NULL );
-  fd_funk_t * funk = args->funk;
 
   /* Setup capture context */
   int has_solcap           = args->capture_fpath && args->capture_fpath[0] != '\0';
@@ -735,9 +734,7 @@ fd_ledger_main_setup( fd_ledger_args_t * args ) {
   fd_runtime_update_leaders( args->slot_ctx, args->slot_ctx->slot_bank.slot, args->runtime_spad );
   fd_calculate_epoch_accounts_hash_values( args->slot_ctx );
 
-  fd_funk_start_write( funk );
   fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( args->slot_ctx, args->slot_ctx->funk_txn, args->tpool, args->runtime_spad );
-  fd_funk_end_write( funk );
 
   /* First, load in the sysvars into the sysvar cache. This is required to
       make the StakeHistory sysvar available to the rewards calculation. */
@@ -917,21 +914,20 @@ parse_rocksdb_list( fd_ledger_args_t * args,
 
 void
 init_funk( fd_ledger_args_t * args ) {
-  fd_funk_t * funk;
+  fd_funkier_t * funk;
   if( args->restore_funk ) {
-    funk = fd_funk_recover_checkpoint( args->funk_file, 1, args->restore_funk, &args->funk_close_args );
+    funk = fd_funkier_recover_checkpoint( args->funk_file, 1, args->restore_funk, &args->funk_close_args );
   } else  {
-    funk = fd_funk_open_file( args->funk_file, 1, args->hashseed, args->txns_max, args->index_max, args->funk_page_cnt*(1UL<<30), FD_FUNK_OVERWRITE, &args->funk_close_args );
+    funk = fd_funkier_open_file( args->funk_file, 1, args->hashseed, args->txns_max, args->index_max, args->funk_page_cnt*(1UL<<30), FD_FUNKIER_OVERWRITE, &args->funk_close_args );
   }
   args->funk = funk;
-  args->funk_wksp = fd_funk_wksp( funk );
-  FD_LOG_NOTICE(( "funky at global address 0x%016lx with %lu records", fd_wksp_gaddr_fast( args->funk_wksp, funk ),
-                                                                       fd_funk_rec_cnt( fd_funk_rec_map( funk, args->funk_wksp ) ) ));
+  args->funk_wksp = fd_funkier_wksp( funk );
+  FD_LOG_NOTICE(( "funky at global address 0x%016lx", fd_wksp_gaddr_fast( args->funk_wksp, funk ) ));
 }
 
 void
 cleanup_funk( fd_ledger_args_t * args ) {
-  fd_funk_close_file( &args->funk_close_args );
+  fd_funkier_close_file( &args->funk_close_args );
 }
 
 void
@@ -973,13 +969,7 @@ checkpt( fd_ledger_args_t * args ) {
     }
     FD_LOG_NOTICE(( "writing funk checkpt %s", args->checkpt_funk ));
     unlink( args->checkpt_funk );
-#ifdef FD_FUNK_WKSP_PROTECT
-    fd_wksp_mprotect( args->funk_wksp, 0 );
-#endif
     int err = fd_wksp_checkpt( args->funk_wksp, args->checkpt_funk, 0666, 0, NULL );
-#ifdef FD_FUNK_WKSP_PROTECT
-    fd_wksp_mprotect( args->funk_wksp, 1 );
-#endif
     if( err ) {
       FD_LOG_ERR(( "funk checkpt failed: error %d", err ));
     }
@@ -1100,7 +1090,7 @@ ingest( fd_ledger_args_t * args ) {
 
   fd_spad_t * spad = args->runtime_spad;
 
-  fd_funk_t * funk = args->funk;
+  fd_funkier_t * funk = args->funk;
 
   args->valloc = allocator_setup( args->wksp );
   uchar * epoch_ctx_mem = fd_spad_alloc( spad, fd_exec_epoch_ctx_align(), fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
@@ -1144,7 +1134,7 @@ ingest( fd_ledger_args_t * args ) {
                           args->exec_spads,
                           args->exec_spad_cnt,
                           args->runtime_spad );
-    FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
+    FD_LOG_NOTICE(( "imported records from snapshot" ));
   }
   if( args->incremental ) {
     fd_snapshot_load_all( args->incremental,
@@ -1157,7 +1147,7 @@ ingest( fd_ledger_args_t * args ) {
                           args->exec_spads,
                           args->exec_spad_cnt,
                           args->runtime_spad );
-    FD_LOG_NOTICE(( "imported %lu records from incremental snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
+    FD_LOG_NOTICE(( "imported records from incremental snapshot" ));
   }
 
   if( args->genesis ) {
@@ -1200,12 +1190,14 @@ ingest( fd_ledger_args_t * args ) {
     }
   }
 
+#ifdef FD_FUNKIER_HANDHOLDING
   if( args->verify_funk ) {
     FD_LOG_NOTICE(( "verifying funky" ));
-    if( fd_funk_verify( funk ) ) {
+    if( fd_funkier_verify( funk ) ) {
       FD_LOG_ERR(( "verification failed" ));
     }
   }
+#endif
 
   checkpt( args );
 
@@ -1260,7 +1252,7 @@ replay( fd_ledger_args_t * args ) {
 
 
   /* Setup slot_ctx */
-  fd_funk_t * funk = args->funk;
+  fd_funkier_t * funk = args->funk;
 
   void * epoch_ctx_mem = fd_spad_alloc( spad, FD_EXEC_EPOCH_CTX_ALIGN, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
   fd_memset( epoch_ctx_mem, 0, fd_exec_epoch_ctx_footprint( args->vote_acct_max ) );
@@ -1308,22 +1300,19 @@ replay( fd_ledger_args_t * args ) {
   /* Check number of records in funk. If rec_cnt == 0, then it can be assumed
      that you need to load in snapshot(s). */
 
-  ulong rec_cnt = fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) );
-  if( !rec_cnt ) {
-    /* Load in snapshot(s) */
-    if( args->snapshot ) {
-      fd_snapshot_load_all( args->snapshot,
-                            args->slot_ctx,
-                            NULL,
-                            args->tpool,
-                            args->verify_acc_hash,
-                            args->check_acc_hash,
-                            FD_SNAPSHOT_TYPE_FULL,
-                            args->exec_spads,
-                            args->exec_spad_cnt,
-                            args->runtime_spad );
-      FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
-    }
+  /* Load in snapshot(s) */
+  if( args->snapshot ) {
+    fd_snapshot_load_all( args->snapshot,
+                          args->slot_ctx,
+                          NULL,
+                          args->tpool,
+                          args->verify_acc_hash,
+                          args->check_acc_hash,
+                          FD_SNAPSHOT_TYPE_FULL,
+                          args->exec_spads,
+                          args->exec_spad_cnt,
+                          args->runtime_spad );
+    FD_LOG_NOTICE(( "imported from snapshot" ));
     if( args->incremental ) {
       fd_snapshot_load_all( args->incremental,
                             args->slot_ctx,
@@ -1335,13 +1324,11 @@ replay( fd_ledger_args_t * args ) {
                             args->exec_spads,
                             args->exec_spad_cnt,
                             args->runtime_spad );
-      FD_LOG_NOTICE(( "imported %lu records from snapshot", fd_funk_rec_cnt( fd_funk_rec_map( funk, fd_funk_wksp( funk ) ) ) ));
+      FD_LOG_NOTICE(( "imported from snapshot" ));
     }
-    if( args->genesis ) {
-      fd_runtime_read_genesis( args->slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->tpool, args->runtime_spad );
-    }
-  } else {
-    FD_LOG_NOTICE(( "found funk with %lu records", rec_cnt ));
+  }
+  if( args->genesis ) {
+    fd_runtime_read_genesis( args->slot_ctx, args->genesis, args->snapshot != NULL, NULL, args->tpool, args->runtime_spad );
   }
 
   FD_LOG_NOTICE(( "Used memory in spad after loading in snapshot %lu", args->runtime_spad->mem_used ));

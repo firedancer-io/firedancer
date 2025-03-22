@@ -42,13 +42,13 @@ fd_sbpf_validated_program_footprint( fd_sbpf_elf_info_t const * elf_info ) {
   return l;
 }
 
-static inline fd_funk_rec_key_t
+static inline fd_funkier_rec_key_t
 fd_acc_mgr_cache_key( fd_pubkey_t const * pubkey ) {
-  fd_funk_rec_key_t id;
+  fd_funkier_rec_key_t id;
   memcpy( id.uc, pubkey, sizeof(fd_pubkey_t) );
-  memset( id.uc + sizeof(fd_pubkey_t), 0, sizeof(fd_funk_rec_key_t) - sizeof(fd_pubkey_t) );
+  memset( id.uc + sizeof(fd_pubkey_t), 0, sizeof(fd_funkier_rec_key_t) - sizeof(fd_pubkey_t) );
 
-  id.c[ FD_FUNK_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_ELF_CACHE;
+  id.c[ FD_FUNKIER_REC_KEY_FOOTPRINT - 1 ] = FD_FUNK_KEY_TYPE_ELF_CACHE;
 
   return id;
 }
@@ -175,9 +175,9 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
 
     fd_pubkey_t * program_pubkey = program_acc->pubkey;
 
-    fd_funk_t     *   funk             = slot_ctx->acc_mgr->funk;
-    fd_funk_txn_t *   funk_txn         = slot_ctx->funk_txn;
-    fd_funk_rec_key_t id               = fd_acc_mgr_cache_key( program_pubkey );
+    fd_funkier_t     *   funk             = slot_ctx->acc_mgr->funk;
+    fd_funkier_txn_t *   funk_txn         = slot_ctx->funk_txn;
+    fd_funkier_rec_key_t id               = fd_acc_mgr_cache_key( program_pubkey );
 
     uchar const *     program_data     = NULL;
     ulong             program_data_len = 0UL;
@@ -209,20 +209,22 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
       return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
     }
 
-    int funk_err = FD_FUNK_SUCCESS;
-    fd_funk_rec_t const * existing_rec = fd_funk_rec_query_global( funk, funk_txn, &id, NULL );
-    fd_funk_rec_t *       rec          = fd_funk_rec_write_prepare( funk, funk_txn, &id, fd_sbpf_validated_program_footprint( &elf_info ), 1, existing_rec, &funk_err );
-    if( rec == NULL || funk_err != FD_FUNK_SUCCESS ) {
+    int funk_err = FD_FUNKIER_SUCCESS;
+    fd_funkier_rec_prepare_t prepare[1];
+    fd_funkier_rec_t * rec = fd_funkier_rec_prepare( funk, funk_txn, &id, prepare, NULL );
+    if( rec == NULL || funk_err != FD_FUNKIER_SUCCESS ) {
       return -1;
     }
 
-    void * val = fd_funk_val( rec, fd_funk_wksp( funk ) );
+    fd_wksp_t * wksp = fd_funkier_wksp( funk );
+    void * val = fd_funkier_val_truncate( rec, fd_sbpf_validated_program_footprint( &elf_info ), fd_funkier_alloc( funk, wksp ), wksp, NULL );;
     fd_sbpf_validated_program_t * validated_prog = fd_sbpf_validated_program_new( val, &elf_info );
 
     ulong  prog_align     = fd_sbpf_program_align();
     ulong  prog_footprint = fd_sbpf_program_footprint( &elf_info );
     fd_sbpf_program_t * prog = fd_sbpf_program_new(  fd_spad_alloc( runtime_spad, prog_align, prog_footprint ), &elf_info, validated_prog->rodata );
     if( FD_UNLIKELY( !prog ) ) {
+      fd_funkier_rec_cancel( prepare );
       return -1;
     }
 
@@ -243,7 +245,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, false ) ) ) {
       /* Remove pending funk record */
       FD_LOG_DEBUG(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
-      fd_funk_rec_remove( funk, rec, funk_txn->xid.ul[0] );
+      fd_funkier_rec_cancel( prepare );
       return -1;
     }
 
@@ -289,7 +291,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     if( FD_UNLIKELY( res ) ) {
       /* Remove pending funk record */
       FD_LOG_DEBUG(( "fd_vm_validate() failed" ));
-      fd_funk_rec_remove( funk, rec, 0UL );
+      fd_funkier_rec_cancel( prepare );
       return -1;
     }
 
@@ -303,6 +305,8 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     validated_prog->text_sz = prog->text_sz;
     validated_prog->rodata_sz = prog->rodata_sz;
 
+    fd_funkier_rec_publish( prepare );
+
     return 0;
   } FD_SPAD_FRAME_END;
 }
@@ -315,11 +319,11 @@ fd_bpf_scan_task( void * tpool,
                   ulong l0 FD_PARAM_UNUSED, ulong l1 FD_PARAM_UNUSED,
                   ulong m0, ulong m1 FD_PARAM_UNUSED,
                   ulong n0 FD_PARAM_UNUSED, ulong n1 FD_PARAM_UNUSED  ) {
-  fd_funk_rec_t const * recs = ((fd_funk_rec_t const **)tpool)[m0];
+  fd_funkier_rec_t const * recs = ((fd_funkier_rec_t const **)tpool)[m0];
   fd_exec_slot_ctx_t * slot_ctx = (fd_exec_slot_ctx_t *)args;
   uchar * is_bpf_program = (uchar *)reduce + m0;
 
-  if( !fd_funk_key_is_acc( recs->pair.key ) ) {
+  if( !fd_funkier_key_is_acc( recs->pair.key ) ) {
     *is_bpf_program = 0;
     return;
   }
@@ -343,35 +347,35 @@ fd_bpf_scan_task( void * tpool,
 
 int
 fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_ctx,
-                                                      fd_funk_txn_t *      funk_txn,
+                                                      fd_funkier_txn_t *      funk_txn,
                                                       fd_tpool_t *         tpool,
                                                       fd_spad_t *          runtime_spad ) {
   long        elapsed_ns = -fd_log_wallclock();
-  fd_funk_t * funk       = slot_ctx->acc_mgr->funk;
+  fd_funkier_t * funk       = slot_ctx->acc_mgr->funk;
   ulong       cached_cnt = 0UL;
 
   /* Use random-ish xid to avoid concurrency issues */
-  fd_funk_txn_xid_t cache_xid = fd_funk_generate_xid();
+  fd_funkier_txn_xid_t cache_xid = fd_funkier_generate_xid();
 
-  fd_funk_txn_t * cache_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &cache_xid, 1 );
+  fd_funkier_txn_t * cache_txn = fd_funkier_txn_prepare( funk, slot_ctx->funk_txn, &cache_xid, 1 );
   if( !cache_txn ) {
-    FD_LOG_ERR(( "fd_funk_txn_prepare() failed" ));
+    FD_LOG_ERR(( "fd_funkier_txn_prepare() failed" ));
     return -1;
   }
 
-  fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
+  fd_funkier_txn_t * parent_txn = slot_ctx->funk_txn;
   slot_ctx->funk_txn = cache_txn;
 
-  fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, funk_txn );
+  fd_funkier_rec_t const * rec = fd_funkier_txn_first_rec( funk, funk_txn );
   while( rec!=NULL ) {
     FD_SPAD_FRAME_BEGIN( runtime_spad ) {
-      fd_funk_rec_t const * * recs           = fd_spad_alloc( runtime_spad, alignof(fd_funk_rec_t*), 65536UL * sizeof(fd_funk_rec_t const *) );
+      fd_funkier_rec_t const * * recs           = fd_spad_alloc( runtime_spad, alignof(fd_funkier_rec_t*), 65536UL * sizeof(fd_funkier_rec_t const *) );
       uchar *                 is_bpf_program = fd_spad_alloc( runtime_spad, 8UL, 65536UL * sizeof(uchar) );
 
       /* Make a list of rec ptrs to process */
       ulong rec_cnt = 0UL;
-      for( ; NULL != rec; rec = fd_funk_txn_next_rec( funk, rec ) ) {
-        if( rec->flags & FD_FUNK_REC_FLAG_ERASE ) continue;
+      for( ; NULL != rec; rec = fd_funkier_txn_next_rec( funk, rec ) ) {
+        if( rec->flags & FD_FUNKIER_REC_FLAG_ERASE ) continue;
         recs[ rec_cnt ] = rec;
 
         if( rec_cnt==65536UL ) {
@@ -399,8 +403,8 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_
     } FD_SPAD_FRAME_END;
   }
 
-  if( fd_funk_txn_publish_into_parent( funk, cache_txn, 1 ) != FD_FUNK_SUCCESS ) {
-    FD_LOG_ERR(( "fd_funk_txn_publish_into_parent() failed" ));
+  if( fd_funkier_txn_publish_into_parent( funk, cache_txn, 1 ) != FD_FUNKIER_SUCCESS ) {
+    FD_LOG_ERR(( "fd_funkier_txn_publish_into_parent() failed" ));
     return -1;
   }
 
@@ -415,27 +419,27 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_
 
 int
 fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
-                                                fd_funk_txn_t *      funk_txn,
+                                                fd_funkier_txn_t *      funk_txn,
                                                 fd_spad_t *          runtime_spad ) {
-  fd_funk_t * funk = slot_ctx->acc_mgr->funk;
+  fd_funkier_t * funk = slot_ctx->acc_mgr->funk;
   ulong       cnt  = 0UL;
 
   /* Use random-ish xid to avoid concurrency issues */
-  fd_funk_txn_xid_t cache_xid = fd_funk_generate_xid();
+  fd_funkier_txn_xid_t cache_xid = fd_funkier_generate_xid();
 
-  fd_funk_txn_t * cache_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &cache_xid, 1 );
+  fd_funkier_txn_t * cache_txn = fd_funkier_txn_prepare( funk, slot_ctx->funk_txn, &cache_xid, 1 );
   if( !cache_txn ) {
-    FD_LOG_ERR(( "fd_funk_txn_prepare() failed" ));
+    FD_LOG_ERR(( "fd_funkier_txn_prepare() failed" ));
     return -1;
   }
 
-  fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
+  fd_funkier_txn_t * parent_txn = slot_ctx->funk_txn;
   slot_ctx->funk_txn = cache_txn;
 
-  for (fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, funk_txn );
+  for (fd_funkier_rec_t const *rec = fd_funkier_txn_first_rec( funk, funk_txn );
        NULL != rec;
-       rec = fd_funk_txn_next_rec( funk, rec )) {
-    if( !fd_funk_key_is_acc( rec->pair.key ) || ( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) {
+       rec = fd_funkier_txn_next_rec( funk, rec )) {
+    if( !fd_funkier_key_is_acc( rec->pair.key ) || ( rec->flags & FD_FUNKIER_REC_FLAG_ERASE ) ) {
       continue;
     }
 
@@ -453,8 +457,8 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
 
   FD_LOG_DEBUG(( "loaded program cache: %lu", cnt));
 
-  if( fd_funk_txn_publish_into_parent( funk, cache_txn, 1 ) != FD_FUNK_SUCCESS ) {
-    FD_LOG_ERR(( "fd_funk_txn_publish_into_parent() failed" ));
+  if( fd_funkier_txn_publish_into_parent( funk, cache_txn, 1 ) != FD_FUNKIER_SUCCESS ) {
+    FD_LOG_ERR(( "fd_funkier_txn_publish_into_parent() failed" ));
     return -1;
   }
 
@@ -464,7 +468,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
 
 int
 fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
-                                                 fd_funk_txn_t *      funk_txn,
+                                                 fd_funkier_txn_t *      funk_txn,
                                                  fd_pubkey_t const *  pubkey,
                                                  fd_spad_t *          runtime_spad ) {
   FD_TXN_ACCOUNT_DECL( exec_rec );
@@ -487,23 +491,30 @@ fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
 }
 
 int
-fd_bpf_load_cache_entry( fd_funk_t *                    funk,
-                         fd_funk_txn_t *                funk_txn,
+fd_bpf_load_cache_entry( fd_funkier_t *                 funk,
+                         fd_funkier_txn_t *             funk_txn,
                          fd_pubkey_t const *            program_pubkey,
                          fd_sbpf_validated_program_t ** valid_prog ) {
-  fd_funk_rec_key_t id       = fd_acc_mgr_cache_key( program_pubkey );
+  fd_funkier_rec_key_t id   = fd_acc_mgr_cache_key( program_pubkey );
 
-  fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, funk_txn, &id, NULL );
+  for(;;) {
+    fd_funkier_rec_query_t query[1];
+    fd_funkier_rec_t const * rec = fd_funkier_rec_query_try_global(funk, funk_txn, &id, NULL, query);
 
-  if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) ) {
-    return -1;
+    if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNKIER_REC_FLAG_ERASE ) ) ) {
+      return -1;
+    }
+
+    void const * data = fd_funkier_val_const( rec, fd_funkier_wksp(funk) );
+
+    /* TODO: magic check */
+
+    *valid_prog = (fd_sbpf_validated_program_t *)data;
+
+    /* This test is actually too early. It should happen after the
+       data is actually consumed. TODO: fix this. */
+    if( !fd_funkier_rec_query_test( query ) ) return 0;
+
+    /* Try again */
   }
-
-  void const * data = fd_funk_val_const( rec, fd_funk_wksp( funk ) );
-
-  /* TODO: magic check */
-
-  *valid_prog = (fd_sbpf_validated_program_t *)data;
-
-  return 0;
 }
