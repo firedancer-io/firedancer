@@ -184,6 +184,7 @@ typedef struct {
 
   uchar  src_mac_addr[6];
 
+  uint   bind_address;
   ushort shred_listen_port;
   ushort quic_transaction_listen_port;
   ushort legacy_transaction_listen_port;
@@ -510,7 +511,7 @@ net_tx_route( fd_net_ctx_t * ctx,
     return 0;
   }
 
-  ctx->tx_op.src_ip = ip4_src;
+  ctx->tx_op.src_ip = fd_uint_if( !!ctx->bind_address, ctx->bind_address, ip4_src );
   memcpy( ctx->tx_op.mac_addrs+0, neigh->mac_addr,   6 );
   memcpy( ctx->tx_op.mac_addrs+6, ctx->src_mac_addr, 6 );
 
@@ -1085,7 +1086,7 @@ privileged_init( fd_topo_t *      topo,
 
     /* FIXME move this to fd_topo_run */
     fd_xdp_fds_t lo_fds = fd_xdp_install( lo_idx,
-                                          0U,
+                                          tile->net.bind_address,
                                           sizeof(udp_port_candidates)/sizeof(udp_port_candidates[0]),
                                           udp_port_candidates,
                                           "skb" );
@@ -1120,6 +1121,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->net_tile_id  = (uint)tile->kind_id;
   ctx->net_tile_cnt = (uint)fd_topo_tile_name_cnt( topo, tile->name );
 
+  ctx->bind_address                   = tile->net.bind_address;
   ctx->shred_listen_port              = tile->net.shred_listen_port;
   ctx->quic_transaction_listen_port   = tile->net.quic_transaction_listen_port;
   ctx->legacy_transaction_listen_port = tile->net.legacy_transaction_listen_port;

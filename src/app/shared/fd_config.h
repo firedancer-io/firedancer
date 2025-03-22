@@ -308,6 +308,8 @@ struct fd_config {
   struct {
     struct {
       char   interface[ IF_NAMESIZE ];
+      char   bind_address[ 16 ];
+      uint   bind_address_parsed;
       uint   ip_addr;
       char   xdp_mode[ 8 ];
       int    xdp_zero_copy;

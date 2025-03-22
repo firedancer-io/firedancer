@@ -299,7 +299,7 @@ main_pid_namespace( void * _args ) {
   int need_xdp = 0==strcmp( config->development.net.provider, "xdp" );
   fd_xdp_fds_t xdp_fds = {0};
   if( need_xdp ) {
-    xdp_fds = fd_topo_install_xdp( &config->topo );
+    xdp_fds = fd_topo_install_xdp( &config->topo, config->tiles.net.bind_address_parsed );
   }
 
   for( ulong i=0UL; i<config->topo.tile_cnt; i++ ) {

@@ -861,6 +861,15 @@ dynamic_port_range = "8900-9000"
         # this should be the same as [development.netns.interface0].
         interface = ""
 
+        # Optional IPv4 bind address for peer-to-peer traffic.  For
+        # incoming packets, specifies the destination address to listen
+        # on.  For outgoing packets, sets the default source address.
+        # When left unspecified (default), listens on all addresses, and
+        # derives the source address for outgoing packets based on
+        # address and route tables.  Should be an IPv4 address, e.g.
+        # "198.51.100.2"
+        bind_address = ""
+
         # Firedancer uses the Linux XDP API for fast packet processing.
         # XDP is redundantly provided by different parts in the kernel.
         # This option selects the XDP provider.  Possible values for
