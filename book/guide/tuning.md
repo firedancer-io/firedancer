@@ -23,7 +23,7 @@ tile are,
 | `poh`  | Continuously hashes in the background, and mixes the hash in with executed transactions to prove passage of time |
 | `shred` | Distributes block data to the network when leader, and receives and retransmits block data when not leader |
 | `store` | Receives block data when we are leader, or from other nodes when they are leader, and stores it locally in a database on disk |
-| `metric` | Collects monitoring information about other tiles and serves it on a HTTP endpoint |
+| `metric` | Collects monitoring information about other tiles and serves it on an HTTP endpoint |
 | `sign` | Holds the validator private key, and receives and responds to signing requests from other tiles |
 | `resolv` | Resolves address lookup tables before transactions are scheduled |
 | `cswtch` | Counts context switches of other tiles |

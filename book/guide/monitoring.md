@@ -2,7 +2,7 @@
 
 ## Agave CLI
 Because Frankendancer runs the Agave validator, it can be monitored with
-the standard Agave command line tools. First make sure you have buil
+the standard Agave command line tools. First make sure you have built
 the `solana` CLI binary:
 
 ```sh [bash]

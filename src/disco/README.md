@@ -91,7 +91,7 @@
   for quick refactoring into multi-process model if useful.
 
 - Communications path from NIC(s) to Agave validator is reliable for
-  simplicitly / reproducibility.
+  simplicity / reproducibility.
 
 - And, as such, these sub-components could potentially be moved (in part
   or in whole) into FPGA / ASIC / GPU accelerated (as might be useful

@@ -102,13 +102,13 @@ process is fully built into and managed by Firedancer and you do not
 need to start it up or otherwise configure it.
 
 Because of this side by side operation, existing knowledge and processes
-you have from running a Agave validator will likely apply to
+you have from running an Agave validator will likely apply to
 Firedancer too. For example, the monitoring and metrics are left the
 same, and you will run the same `solana` CLI command.
 
 ## This Book
 This book is intended for operators and administrators already familiar
-with running a Agave validator, as Firedancer heavily leans on the
+with running an Agave validator, as Firedancer heavily leans on the
 same concepts and components. To get up to speed there, read the Solana
 Labs [validators guide](https://docs.solana.com/running-validator).
 

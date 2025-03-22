@@ -87,7 +87,7 @@ inputs.
 
    This path is the only direct 'untrusted traffic' -> 'netlink tile'
    data flow, so the internal neighbor solicit message format is kept
-   as simple as possbile for security.
+   as simple as possible for security.
 
 ### Neighbor discovery (ARP)
 
