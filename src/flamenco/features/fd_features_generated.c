@@ -1346,7 +1346,8 @@ fd_feature_id_t const ids[] = {
     .id                        = {"\xa8\x0c\x7c\x9c\x46\xc9\x15\x1d\x98\x48\x72\x27\x55\x41\x17\x88\x22\xad\x13\x7f\x8c\x63\x6f\x91\xf7\x6d\x86\xac\xdd\xbb\xcc\xf5"},
                                  /* CJzY83ggJHqPGDq8VisV3U91jDJLuEaALZooBrXtnnLU */
     .name                      = "disable_rent_fees_collection",
-    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX} },
+    .cleaned_up                = {UINT_MAX, UINT_MAX, UINT_MAX},
+    .activated_on_all_clusters = 1 },
 
   { .index                     = offsetof(fd_features_t, add_new_reserved_account_keys)>>3,
     .id                        = {"\x6e\xf0\xdf\x34\x81\xac\xed\xb6\x4d\x00\x3d\x88\xc9\x5a\x7a\x25\xa0\xd7\x00\x98\x07\xa8\x51\x37\x06\xb3\x0e\x23\xfb\xce\xa9\xcc"},
