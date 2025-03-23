@@ -279,7 +279,7 @@ with this software. If not, see
 
 =======================================================================
 
-'src/flamenco/nanopb' is currently a copy of the Nanopb library at
+'src/ballet/nanopb' is currently a copy of the Nanopb library at
 https://jpa.kapsi.fi/nanopb/ (imported ca 2023-Nov).
 
 Copyright (c) 2011 Petteri Aimonen <jpa at nanopb.mail.kapsi.fi>
