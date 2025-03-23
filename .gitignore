@@ -10,6 +10,7 @@ genhtml/
 target/
 *.lcov
 *.profraw
+*.profdata
 /report
 flamegraph.html
 perf.data
