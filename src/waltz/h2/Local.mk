@@ -1,6 +1,7 @@
 # HPACK
 $(call add-hdrs,fd_hpack.h,fd_waltz)
 $(call add-objs,fd_hpack,fd_waltz)
+$(call add-objs,nghttp2_hd_huffman nghttp2_hd_huffman_data,fd_waltz)
 $(call make-fuzz-test,fuzz_hpack_rd,fuzz_hpack_rd,fd_waltz fd_util)
 
 # HTTP/2
