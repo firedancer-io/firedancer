@@ -27,9 +27,12 @@ LLVMFuzzerTestOneInput( uchar const * data,
   uchar const * prev = data;
   while( !fd_hpack_rd_done( rd ) ) {
     fd_h2_hdr_t hdr[1];
-    if( FD_UNLIKELY( fd_hpack_rd_next( rd, hdr )!=FD_H2_SUCCESS ) ) break;
+    uchar buf[ 128 ];
+    uchar * bufp = buf;
+    if( FD_UNLIKELY( fd_hpack_rd_next( rd, hdr, &bufp, buf+sizeof(buf) )!=FD_H2_SUCCESS ) ) break;
     /* FIXME validate content of hdr */
     assert( rd->src > prev ); /* must advance */
+    assert( bufp>=buf && bufp<=buf+sizeof(buf) );
     prev = rd->src;
   }
   return 0;
