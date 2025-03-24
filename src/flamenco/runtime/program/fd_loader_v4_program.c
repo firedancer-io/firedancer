@@ -130,7 +130,11 @@ fd_loader_v4_program_instruction_write( fd_exec_instr_ctx_t *                   
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &program );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L95-L97 */
-  fd_pubkey_t const * authority_address = &instr_ctx->instr->acct_pubkeys[ 1UL ];
+  fd_pubkey_t const * authority_address = NULL;
+  err = fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, 1UL, &authority_address );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L98-L103 */
   fd_loader_v4_state_t state = {0};
@@ -195,7 +199,11 @@ fd_loader_v4_program_instruction_truncate( fd_exec_instr_ctx_t *                
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &program );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L131-L133 */
-  fd_pubkey_t const * authority_address = &instr_ctx->instr->acct_pubkeys[ 1UL ];
+  fd_pubkey_t const * authority_address = NULL;
+  err = fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, 1UL, &authority_address );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L134C9-L135 */
   uchar is_initialization = !!( new_size>0UL && program.acct->const_meta->dlen<LOADER_V4_PROGRAM_DATA_OFFSET );
@@ -348,7 +356,11 @@ fd_loader_v4_program_instruction_deploy( fd_exec_instr_ctx_t * instr_ctx ) {
   fd_sol_sysvar_clock_t const * clock                  = (fd_sol_sysvar_clock_t const *)fd_sysvar_cache_clock( instr_ctx->txn_ctx->sysvar_cache );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L217-L219 */
-  fd_pubkey_t const * authority_address = &instr_ctx->instr->acct_pubkeys[ 1UL ];
+  fd_pubkey_t const * authority_address = NULL;
+  err = fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, 1UL, &authority_address );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L216 */
   fd_guarded_borrowed_account_t program;
@@ -503,7 +515,11 @@ fd_loader_v4_program_instruction_retract( fd_exec_instr_ctx_t * instr_ctx ) {
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &program );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L335-L337 */
-  fd_pubkey_t const * authority_address = &instr_ctx->instr->acct_pubkeys[ 1UL ];
+  fd_pubkey_t const * authority_address = NULL;
+  err = fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, 1UL, &authority_address );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L338-L343 */
   fd_loader_v4_state_t state = {0};
@@ -560,10 +576,18 @@ fd_loader_v4_program_instruction_transfer_authority( fd_exec_instr_ctx_t * instr
   FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, 0UL, &program );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L378-L380 */
-  fd_pubkey_t const * authority_address = &instr_ctx->instr->acct_pubkeys[ 1UL ];
+  fd_pubkey_t const * authority_address = NULL;
+  err = fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, 1UL, &authority_address );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L381-L383 */
-  fd_pubkey_t const * new_authority_address = &instr_ctx->instr->acct_pubkeys[ 2UL ];
+  fd_pubkey_t const * new_authority_address = NULL;
+  err = fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, 2UL, &new_authority_address );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L384-L389 */
   fd_loader_v4_state_t state = {0};
@@ -615,9 +639,13 @@ fd_loader_v4_program_instruction_finalize( fd_exec_instr_ctx_t * instr_ctx ) {
 
   /* Contains variables that need to be accessed in multiple borrowed account scopes.
      https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L410-L412 */
-  fd_pubkey_t const *  authority_address       = &instr_ctx->instr->acct_pubkeys[ 1UL ];
-  fd_pubkey_t const *  address_of_next_version = &instr_ctx->instr->acct_pubkeys[ 2UL ];
-  fd_loader_v4_state_t state                   = {0};
+  fd_pubkey_t const * authority_address = NULL;
+  err = fd_exec_instr_ctx_get_key_of_account_at_index( instr_ctx, 1UL, &authority_address );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
+
+  fd_loader_v4_state_t state = {0};
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L409 */
   fd_guarded_borrowed_account_t program;
@@ -668,7 +696,10 @@ fd_loader_v4_program_instruction_finalize( fd_exec_instr_ctx_t * instr_ctx ) {
     return FD_EXECUTOR_INSTR_ERR_ACC_IMMUTABLE;
   }
 
-  /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L440 */
+  /* https://github.com/anza-xyz/agave/blob/v2.2.0/programs/loader-v4/src/lib.rs#L463 */
+  fd_pubkey_t * address_of_next_version = next_version.acct->pubkey;
+
+  /* https://github.com/anza-xyz/agave/blob/v2.2.0/programs/loader-v4/src/lib.rs#L464 */
   fd_borrowed_account_drop( &next_version );
 
   /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L441 */
@@ -696,11 +727,16 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
   }
 
   FD_SPAD_FRAME_BEGIN( instr_ctx->txn_ctx->spad ) {
-    /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L470 */
-    fd_pubkey_t const * program_id = &instr_ctx->instr->program_id_pubkey;
+    int rc = FD_EXECUTOR_INSTR_SUCCESS;
+
+    /* https://github.com/anza-xyz/agave/blob/v2.2.0/programs/loader-v4/src/lib.rs#L494 */
+    fd_pubkey_t const * program_id = NULL;
+    rc = fd_exec_instr_ctx_get_last_program_key( instr_ctx, &program_id );
+    if( FD_UNLIKELY( rc ) ) {
+      return rc;
+    }
 
     /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L471-L488 */
-    int rc = FD_EXECUTOR_INSTR_SUCCESS;
     if( !memcmp( program_id, fd_solana_bpf_loader_v4_program_id.key, sizeof(fd_pubkey_t) ) ) {
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L472 */
       FD_EXEC_CU_UPDATE( instr_ctx, LOADER_V4_DEFAULT_COMPUTE_UNITS );
@@ -777,7 +813,9 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L489 */
       fd_guarded_borrowed_account_t program;
       rc = fd_exec_instr_ctx_try_borrow_last_program_account( instr_ctx, &program );
-      if( FD_UNLIKELY( rc ) ) return rc;
+      if( FD_UNLIKELY( rc ) ) {
+        return rc;
+      }
 
       /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L490 */
       fd_loader_v4_state_t state = {0};
@@ -798,12 +836,15 @@ fd_loader_v4_program_execute( fd_exec_instr_ctx_t * instr_ctx ) {
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
       }
 
+      /* https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L508 */
+      fd_borrowed_account_drop( &program );
+
       /* See note in `fd_bpf_loader_program_execute()` as to why we must tie the cache into consensus :(
          https://github.com/anza-xyz/agave/blob/v2.1.4/programs/loader-v4/src/lib.rs#L496-L502 */
       fd_sbpf_validated_program_t * prog = NULL;
       if( FD_UNLIKELY( fd_bpf_load_cache_entry( instr_ctx->txn_ctx->acc_mgr->funk,
                                                 instr_ctx->txn_ctx->funk_txn,
-                                                &instr_ctx->instr->program_id_pubkey,
+                                                program_id,
                                                 &prog )!=0 ) ) {
         fd_log_collector_msg_literal( instr_ctx, "Program is not cached" );
         return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;

@@ -12,48 +12,34 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
                                                   fd_pubkey_t const * signers,
                                                   ulong signers_cnt ) {
   fd_instr_info_t instr_info[ 1 ];
-  fd_instruction_account_t instruction_accounts[256];
+  fd_instruction_account_t instruction_accounts[ FD_INSTR_ACCT_MAX ];
   ulong instruction_accounts_cnt;
 
   /* fd_vm_prepare_instruction will handle missing/invalid account case */
-  instr_info->program_id_pubkey = fd_solana_system_program_id;
   instr_info->program_id = UCHAR_MAX;
-
-  for( ulong i = 0UL; i < ctx->txn_ctx->accounts_cnt; i++ ) {
-    if( !memcmp( fd_solana_system_program_id.key, ctx->txn_ctx->account_keys[i].key, sizeof(fd_pubkey_t) ) ) {
-      instr_info->program_id = (uchar)i;
-      break;
-    }
+  int program_id = fd_exec_txn_ctx_find_index_of_account( ctx->txn_ctx, &fd_solana_system_program_id );
+  if( FD_LIKELY( program_id!=-1 ) ) {
+    instr_info->program_id = (uchar)program_id;
   }
 
   uchar acc_idx_seen[256];
-  memset( acc_idx_seen, 0, 256 );
+  memset( acc_idx_seen, 0, FD_INSTR_ACCT_MAX );
 
   instr_info->acct_cnt = (ushort)acct_metas_len;
-  for ( ulong j = 0; j < acct_metas_len; j++ ) {
-    fd_vm_rust_account_meta_t const * acct_meta = &acct_metas[j];
+  for ( ushort j=0; j<acct_metas_len; j++ ) {
+    fd_vm_rust_account_meta_t const * acct_meta     = &acct_metas[j];
+    fd_pubkey_t const *               acct_key      = fd_type_pun_const( acct_meta->pubkey );
 
-    for ( ulong k = 0; k < ctx->instr->acct_cnt; k++ ) {
-      if ( memcmp( acct_meta->pubkey, ctx->instr->acct_pubkeys[k].uc, sizeof(fd_pubkey_t) ) == 0 ) {
-        instr_info->acct_pubkeys[j]  = ctx->instr->acct_pubkeys[k];
-        instr_info->acct_txn_idxs[j] = ctx->instr->acct_txn_idxs[k];
-        instr_info->acct_flags[j]    = 0;
-        instr_info->accounts[j]      = ctx->instr->accounts[k];
+    int idx_in_caller = fd_exec_instr_ctx_find_idx_of_instr_account( ctx, acct_key );
 
-        instr_info->is_duplicate[j] = acc_idx_seen[k];
-        if( FD_LIKELY( !acc_idx_seen[k] ) ) {
-          /* This is the first time seeing this account */
-          acc_idx_seen[k] = 1;
-        }
-
-        if( acct_meta->is_writable ) {
-          instr_info->acct_flags[j] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
-        }
-        if( acct_meta->is_signer ) {
-          instr_info->acct_flags[j] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
-        }
-        break;
-      }
+    if( FD_LIKELY( idx_in_caller!=-1 ) ) {
+      fd_instr_info_setup_instr_account( instr_info,
+                                         acc_idx_seen,
+                                         ctx->instr->accounts[ idx_in_caller ].index_in_transaction,
+                                         (ushort)idx_in_caller,
+                                         j,
+                                         acct_meta->is_writable,
+                                         acct_meta->is_signer );
     }
   }
 
@@ -68,7 +54,7 @@ fd_native_cpi_execute_system_program_instruction( fd_exec_instr_ctx_t * ctx,
 
   instr_info->data = buf;
   instr_info->data_sz = sizeof(buf);
-  int exec_err = fd_vm_prepare_instruction( ctx->instr, instr_info, ctx, instruction_accounts,
+  int exec_err = fd_vm_prepare_instruction( instr_info, ctx, instruction_accounts,
                                             &instruction_accounts_cnt, signers, signers_cnt );
   if( exec_err != FD_EXECUTOR_INSTR_SUCCESS ) {
     return exec_err;

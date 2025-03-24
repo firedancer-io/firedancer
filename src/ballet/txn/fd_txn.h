@@ -724,7 +724,7 @@ fd_txn_parse( uchar const * payload, ulong payload_sz, void * out_buf, fd_txn_pa
 */
 
 static inline int
-fd_txn_is_writable( fd_txn_t const * txn, int idx ) {
+fd_txn_is_writable( fd_txn_t const * txn, ushort idx ) {
   if (txn->transaction_version == FD_TXN_V0 && idx >= txn->acct_addr_cnt) {
     if (idx < (txn->acct_addr_cnt + txn->addr_table_adtl_writable_cnt)) {
       return 1;

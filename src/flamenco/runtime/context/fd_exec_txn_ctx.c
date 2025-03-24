@@ -91,7 +91,7 @@ fd_exec_txn_ctx_delete( void * mem ) {
 
 int
 fd_exec_txn_ctx_get_account_at_index( fd_exec_txn_ctx_t *             ctx,
-                                      uchar                           idx,
+                                      ushort                          idx,
                                       fd_txn_account_t * *            account,
                                       fd_txn_account_condition_fn_t * condition ) {
   if( FD_UNLIKELY( idx>=ctx->accounts_cnt ) ) {
@@ -141,13 +141,13 @@ fd_exec_txn_ctx_get_executable_account( fd_exec_txn_ctx_t *             ctx,
     return FD_ACC_MGR_SUCCESS;
   }
 
-  for( ulong i=0; i<ctx->executable_cnt; i++ ) {
+  for( ushort i=0; i<ctx->executable_cnt; i++ ) {
     if( memcmp( pubkey->uc, ctx->executable_accounts[i].pubkey->uc, sizeof(fd_pubkey_t) )==0 ) {
       fd_txn_account_t * txn_account = &ctx->executable_accounts[i];
       *account = txn_account;
 
       if( FD_LIKELY( condition != NULL ) ) {
-        if( FD_UNLIKELY( !condition( *account, ctx, (int)i ) ) ) {
+        if( FD_UNLIKELY( !condition( *account, ctx, i ) ) ) {
           return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
         }
       }
@@ -157,6 +157,20 @@ fd_exec_txn_ctx_get_executable_account( fd_exec_txn_ctx_t *             ctx,
   }
 
   return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
+}
+
+int
+fd_exec_txn_ctx_get_key_of_account_at_index( fd_exec_txn_ctx_t *  ctx,
+                                             ushort               idx,
+                                             fd_pubkey_t const * * key ) {
+  /* Return a NotEnoughAccountKeys error if idx is out of bounds.
+     https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L218 */
+  if( FD_UNLIKELY( idx>=ctx->accounts_cnt ) ) {
+    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
+  }
+
+  *key = &ctx->account_keys[ idx ];
+  return FD_EXECUTOR_INSTR_SUCCESS;
 }
 
 void
@@ -286,7 +300,7 @@ fd_txn_account_is_demotion( const int        idx,
 uint
 fd_txn_account_has_bpf_loader_upgradeable( const fd_pubkey_t * account_keys,
                                            const ulong         accounts_cnt ) {
-  for( ulong j = 0; j < accounts_cnt; j++ ) {
+  for( ulong j=0; j<accounts_cnt; j++ ) {
     const fd_pubkey_t * acc = &account_keys[j];
     if ( memcmp( acc->uc, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) {
       return 1U;
@@ -300,7 +314,7 @@ fd_txn_account_has_bpf_loader_upgradeable( const fd_pubkey_t * account_keys,
 
    https://github.com/anza-xyz/agave/blob/v2.1.11/sdk/program/src/message/sanitized.rs#L38-L47 */
 int
-fd_exec_txn_ctx_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, int idx ) {
+fd_exec_txn_ctx_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, ushort idx ) {
   uint bpf_upgradeable = fd_txn_account_has_bpf_loader_upgradeable( txn_ctx->account_keys, txn_ctx->accounts_cnt );
   return fd_exec_txn_account_is_writable_idx_flat( txn_ctx->slot,
                                                    idx,
@@ -312,7 +326,7 @@ fd_exec_txn_ctx_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, int 
 
 int
 fd_exec_txn_account_is_writable_idx_flat( const ulong           slot,
-                                          const int             idx,
+                                          const ushort          idx,
                                           const fd_pubkey_t *   addr_at_idx,
                                           const fd_txn_t *      txn_descriptor,
                                           const fd_features_t * features,
@@ -345,7 +359,7 @@ fd_exec_txn_account_is_writable_idx_flat( const ulong           slot,
 int
 fd_txn_account_check_exists( fd_txn_account_t *        acc,
                              fd_exec_txn_ctx_t const * ctx,
-                             int                       idx ) {
+                             ushort                    idx ) {
   (void) ctx;
   (void) idx;
   return fd_acc_exists( acc->const_meta );
@@ -354,7 +368,7 @@ fd_txn_account_check_exists( fd_txn_account_t *        acc,
 int
 fd_txn_account_check_is_writable( fd_txn_account_t *        acc,
                                   fd_exec_txn_ctx_t const * ctx,
-                                  int                       idx ) {
+                                  ushort                    idx ) {
   (void) acc;
   return fd_exec_txn_ctx_account_is_writable_idx( ctx, idx );
 }
@@ -362,7 +376,7 @@ fd_txn_account_check_is_writable( fd_txn_account_t *        acc,
 int
 fd_txn_account_check_fee_payer_writable( fd_txn_account_t *        acc,
                                          fd_exec_txn_ctx_t const * ctx,
-                                         int                       idx ) {
+                                         ushort                    idx ) {
   (void) acc;
   return fd_txn_is_writable( ctx->txn_descriptor, idx );
 }
@@ -370,7 +384,7 @@ fd_txn_account_check_fee_payer_writable( fd_txn_account_t *        acc,
 int
 fd_txn_account_check_borrow_mut( fd_txn_account_t *        acc,
                                  fd_exec_txn_ctx_t const * ctx,
-                                 int                       idx ) {
+                                 ushort                    idx ) {
   (void) ctx;
   (void) idx;
   return fd_txn_account_is_mutable( acc ) && fd_txn_account_acquire_write( acc );

@@ -9,17 +9,15 @@
 
 static int
 require_acct( fd_exec_instr_ctx_t * ctx,
-              ulong                 idx,
+              ushort                idx,
               fd_pubkey_t const *   pubkey ) {
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.23/program-runtime/src/sysvar_cache.rs#L228-L229 */
+  /* https://github.com/anza-xyz/agave/blob/v2.1.14/program-runtime/src/sysvar_cache.rs#L290-L294 */
+  fd_pubkey_t const * acc_key = NULL;
+  int err = fd_exec_instr_ctx_get_key_of_account_at_index( ctx, idx, &acc_key );
+  if( FD_UNLIKELY( err ) ) return err;
 
-  if( FD_UNLIKELY( ctx->instr->acct_cnt <= idx ) )
-    return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
-
-  /* https://github.com/solana-labs/solana/blob/v1.17.23/program-runtime/src/sysvar_cache.rs#L230-L232 */
-
-  if( FD_UNLIKELY( 0!=memcmp( ctx->instr->acct_pubkeys[idx].uc, pubkey->uc, sizeof(fd_pubkey_t) ) ) )
+  if( FD_UNLIKELY( 0!=memcmp( acc_key, pubkey->uc, sizeof(fd_pubkey_t) ) ) )
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
 
   return FD_EXECUTOR_INSTR_SUCCESS;
@@ -27,7 +25,7 @@ require_acct( fd_exec_instr_ctx_t * ctx,
 
 static int
 require_acct_rent( fd_exec_instr_ctx_t * ctx,
-                   ulong                 idx,
+                   ushort                idx,
                    fd_rent_t const **    out_rent ) {
 
   do {
@@ -45,7 +43,7 @@ require_acct_rent( fd_exec_instr_ctx_t * ctx,
 
 static int
 require_acct_recent_blockhashes( fd_exec_instr_ctx_t *             ctx,
-                                 ulong                             idx,
+                                 ushort                            idx,
                                  fd_recent_block_hashes_t const ** out ) {
 
   do {
@@ -140,14 +138,14 @@ fd_system_program_set_nonce_state( fd_borrowed_account_t *           account,
 static int
 fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
                                          fd_borrowed_account_t * account,
-                                         ulong                   instr_acc_idx ) {
+                                         ushort                  instr_acc_idx ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L25-L32 */
 
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, instr_acc_idx ) ) ) {
     /* Max msg_sz: 52 - 2 + 45 = 95 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Authorize nonce account: Account %s must be writable", FD_BASE58_ENC_32_ALLOCA( &ctx->instr->acct_pubkeys[ instr_acc_idx ] ) );
+      "Authorize nonce account: Account %s must be writable", FD_BASE58_ENC_32_ALLOCA( account->acct->pubkey) );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -193,7 +191,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L37-L44 */
 
-    if( FD_UNLIKELY( !fd_instr_any_signed( ctx->instr, &data->authority ) ) ) {
+    if( FD_UNLIKELY( !fd_exec_instr_ctx_any_signed( ctx, &data->authority ) ) ) {
       /* Max msg_sz: 50 - 2 + 45 = 93 < 127 => we can use printf */
       fd_log_collector_printf_dangerous_max_127( ctx,
         "Advance nonce account: Account %s must be a signer", FD_BASE58_ENC_32_ALLOCA( &data->authority ) );
@@ -252,7 +250,7 @@ fd_system_program_advance_nonce_account( fd_exec_instr_ctx_t *   ctx,
   case fd_nonce_state_enum_uninitialized: {
     /* Max msg_sz: 50 - 2 + 45 = 93 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Advance nonce account: Account %s state is invalid", FD_BASE58_ENC_32_ALLOCA( &ctx->instr->acct_pubkeys[ instr_acc_idx ] ) );
+      "Advance nonce account: Account %s state is invalid", FD_BASE58_ENC_32_ALLOCA( account->acct->pubkey ) );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
 
@@ -327,10 +325,10 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L84-L91 */
 
-  if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, 0 ) ) ) {
+  if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, from_acct_idx ) ) ) {
     /* Max msg_sz: 51 - 2 + 45 = 94 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Withdraw nonce account: Account %s must be writable", FD_BASE58_ENC_32_ALLOCA( &ctx->instr->acct_pubkeys[ 0 ] ) );
+      "Withdraw nonce account: Account %s must be writable", FD_BASE58_ENC_32_ALLOCA( from.acct->pubkey ) );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -460,7 +458,7 @@ fd_system_program_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L135-L142 */
 
-  if( FD_UNLIKELY( !fd_instr_any_signed( ctx->instr, signer ) ) ) {
+  if( FD_UNLIKELY( !fd_exec_instr_ctx_any_signed( ctx, signer ) ) ) {
     /* Max msg_sz: 44 - 2 + 45 = 87 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
       "Withdraw nonce account: Account %s must sign", FD_BASE58_ENC_32_ALLOCA( signer ) );
@@ -533,16 +531,15 @@ fd_system_program_exec_withdraw_nonce_account( fd_exec_instr_ctx_t * ctx,
 static int
 fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
                                             fd_borrowed_account_t * account,
-                                            ulong                   instr_acc_idx,
                                             fd_pubkey_t const *     authorized,
                                             fd_rent_t const *       rent ) {
 
-  /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L159-L166 */
+  /* https://github.com/anza-xyz/agave/blob/v2.2.0/programs/system/src/system_instruction.rs#L167-L174 */
 
   if( FD_UNLIKELY( !fd_borrowed_account_is_writable( account ) ) ) {
     /* Max msg_sz: 53 - 2 + 45 = 96 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Initialize nonce account: Account %s must be writable", FD_BASE58_ENC_32_ALLOCA( &ctx->instr->acct_pubkeys[ instr_acc_idx ] ) );
+      "Initialize nonce account: Account %s must be writable", FD_BASE58_ENC_32_ALLOCA( account->acct->pubkey ) );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -639,7 +636,7 @@ fd_system_program_initialize_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
     /* Max msg_sz: 53 - 2 + 45 = 96 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Initialize nonce account: Account %s state is invalid", FD_BASE58_ENC_32_ALLOCA( &ctx->instr->acct_pubkeys[ instr_acc_idx ] ) );
+      "Initialize nonce account: Account %s state is invalid", FD_BASE58_ENC_32_ALLOCA( account->acct->pubkey ) );
 
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -698,7 +695,7 @@ fd_system_program_exec_initialize_nonce_account( fd_exec_instr_ctx_t * ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_processor.rs#L480 */
 
-  err = fd_system_program_initialize_nonce_account( ctx, &account, instr_acc_idx, authorized, rent );
+  err = fd_system_program_initialize_nonce_account( ctx, &account, authorized, rent );
 
   /* Implicit drop */
 
@@ -712,7 +709,7 @@ fd_system_program_exec_initialize_nonce_account( fd_exec_instr_ctx_t * ctx,
 static int
 fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
                                            fd_borrowed_account_t * account,
-                                           ulong                   instr_acc_idx,
+                                           ushort                  instr_acc_idx,
                                            fd_pubkey_t const *     nonce_authority ) {
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L206-L213 */
@@ -720,7 +717,7 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
   if( FD_UNLIKELY( !fd_instr_acc_is_writable_idx( ctx->instr, instr_acc_idx ) ) ) {
     /* Max msg_sz: 52 - 2 + 45 = 95 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Authorize nonce account: Account %s must be writable", FD_BASE58_ENC_32_ALLOCA( &ctx->instr->acct_pubkeys[ instr_acc_idx ] ) );
+      "Authorize nonce account: Account %s must be writable", FD_BASE58_ENC_32_ALLOCA( account->acct->pubkey ) );
     return FD_EXECUTOR_INSTR_ERR_INVALID_ARG;
   }
 
@@ -769,7 +766,7 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
     /* Max msg_sz: 52 - 2 + 45 = 95 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,
-      "Authorize nonce account: Account %s state is invalid", FD_BASE58_ENC_32_ALLOCA( &ctx->instr->acct_pubkeys[ instr_acc_idx ] ) );
+      "Authorize nonce account: Account %s state is invalid", FD_BASE58_ENC_32_ALLOCA( account->acct->pubkey ) );
 
     return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
   }
@@ -778,7 +775,7 @@ fd_system_program_authorize_nonce_account( fd_exec_instr_ctx_t *   ctx,
 
   /* https://github.com/solana-labs/solana/blob/v1.17.23/sdk/program/src/nonce/state/mod.rs#L85-L89 */
 
-  if( FD_UNLIKELY( !fd_instr_any_signed( ctx->instr, &data->authority ) ) ) {
+  if( FD_UNLIKELY( !fd_exec_instr_ctx_any_signed( ctx, &data->authority ) ) ) {
     /* https://github.com/solana-labs/solana/blob/v1.17.23/programs/system/src/system_instruction.rs#L227-L234 */
     /* Max msg_sz: 45 - 2 + 45 = 88 < 127 => we can use printf */
     fd_log_collector_printf_dangerous_max_127( ctx,

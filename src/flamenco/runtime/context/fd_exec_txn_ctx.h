@@ -262,7 +262,7 @@ fd_exec_txn_ctx_find_index_of_account( fd_exec_txn_ctx_t const * ctx,
 
 typedef int fd_txn_account_condition_fn_t ( fd_txn_account_t *        acc,
                                             fd_exec_txn_ctx_t const * ctx,
-                                            int                       idx );
+                                            ushort                    idx );
 
 /* Mirrors Agave function solana_sdk::transaction_context::get_account_at_index
 
@@ -274,7 +274,7 @@ typedef int fd_txn_account_condition_fn_t ( fd_txn_account_t *        acc,
 
 int
 fd_exec_txn_ctx_get_account_at_index( fd_exec_txn_ctx_t *             ctx,
-                                      uchar                           idx,
+                                      ushort                          idx,
                                       fd_txn_account_t * *            account,
                                       fd_txn_account_condition_fn_t * condition );
 
@@ -295,6 +295,15 @@ fd_exec_txn_ctx_get_executable_account( fd_exec_txn_ctx_t *             ctx,
                                         fd_txn_account_t * *            account,
                                         fd_txn_account_condition_fn_t * condition );
 
+/* Mirrors Agave function solana_sdk::transaction_context::get_key_of_account_at_index
+
+   https://github.com/anza-xyz/agave/blob/v2.1.14/sdk/src/transaction_context.rs#L212 */
+
+int
+fd_exec_txn_ctx_get_key_of_account_at_index( fd_exec_txn_ctx_t *  ctx,
+                                             ushort               idx,
+                                             fd_pubkey_t const * * key );
+
 void
 fd_exec_txn_ctx_reset_return_data( fd_exec_txn_ctx_t * ctx );
 
@@ -312,14 +321,14 @@ fd_exec_txn_ctx_reset_return_data( fd_exec_txn_ctx_t * ctx );
 /* https://github.com/anza-xyz/agave/blob/v2.1.1/sdk/program/src/message/versions/v0/loaded.rs#L137-L150 */
 
 int
-fd_exec_txn_ctx_account_is_writable_idx( fd_exec_txn_ctx_t const * ctx, int idx );
+fd_exec_txn_ctx_account_is_writable_idx( fd_exec_txn_ctx_t const * txn_ctx, ushort idx );
 
 /* This flat function does the same as the function above, but uses the
    exact arguments needed instead of the full fd_exec_txn_ctx_t */
 
 int
 fd_exec_txn_account_is_writable_idx_flat( const ulong           slot,
-                                          const int             idx,
+                                          const ushort          idx,
                                           const fd_pubkey_t *   addr_at_idx,
                                           const fd_txn_t *      txn_descriptor,
                                           const fd_features_t * features,
@@ -340,12 +349,12 @@ fd_txn_account_has_bpf_loader_upgradeable( const fd_pubkey_t * account_keys,
 int
 fd_txn_account_check_exists( fd_txn_account_t *        acc,
                              fd_exec_txn_ctx_t const * ctx,
-                             int                       idx );
+                             ushort                    idx );
 
 int
 fd_txn_account_check_is_writable( fd_txn_account_t *        acc,
                                   fd_exec_txn_ctx_t const * ctx,
-                                  int                       idx );
+                                  ushort                    idx );
 
 /* The fee payer is a valid modifiable account if it is passed in as writable
    in the message via a valid signature. We ignore if the account has been
@@ -356,7 +365,7 @@ fd_txn_account_check_is_writable( fd_txn_account_t *        acc,
 int
 fd_txn_account_check_fee_payer_writable( fd_txn_account_t *        acc,
                                          fd_exec_txn_ctx_t const * ctx,
-                                         int                       idx );
+                                         ushort                    idx );
 
 /* Checks if the account is mutable and borrows the account mutably.
 
@@ -372,7 +381,7 @@ fd_txn_account_check_fee_payer_writable( fd_txn_account_t *        acc,
 int
 fd_txn_account_check_borrow_mut( fd_txn_account_t *        acc,
                                  fd_exec_txn_ctx_t const * ctx,
-                                 int                       idx );
+                                 ushort                    idx );
 
 
 FD_PROTOTYPES_END

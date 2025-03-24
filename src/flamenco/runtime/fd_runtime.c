@@ -1328,7 +1328,7 @@ if( FD_UNLIKELY( cond1 ) ) { \
     for( fd_txn_acct_iter_t iter=fd_txn_acct_iter_init( TXN(txn), FD_TXN_ACCT_CAT_WRITABLE );
          iter!=fd_txn_acct_iter_end() && NO_CONFLICT;
          iter=fd_txn_acct_iter_next( iter ) ) {
-      int idx                     = (int)fd_txn_acct_iter_idx( iter );
+      ushort idx                     = (ushort)fd_txn_acct_iter_idx( iter );
       fd_acct_addr_t writable_acc = txn_accts[ idx ];
 
       /* Check whether writable_acc is demoted to a read-only account */
@@ -1867,10 +1867,10 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
     int dirty_vote_acc  = txn_ctx->dirty_vote_acc;
     int dirty_stake_acc = txn_ctx->dirty_stake_acc;
 
-    for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
+    for( ushort i=0; i<txn_ctx->accounts_cnt; i++ ) {
       /* We are only interested in saving writable accounts and the fee
          payer account. */
-      if( !fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (int)i ) && i!=FD_FEE_PAYER_TXN_IDX ) {
+      if( !fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, i ) && i!=FD_FEE_PAYER_TXN_IDX ) {
         continue;
       }
 

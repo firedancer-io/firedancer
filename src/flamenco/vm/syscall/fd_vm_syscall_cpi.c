@@ -42,7 +42,6 @@ Assumptions:
 - instruction_accounts is a 256-length empty array.
 
 Parameters:
-- caller_instr
 - callee_instr
 - instr_ctx
 - instruction_accounts
@@ -59,8 +58,7 @@ TODO: is it possible to pass the transaction indexes of the accounts in?
 This would allow us to make some of these algorithms more efficient.
 */
 int
-fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
-                           fd_instr_info_t *        callee_instr,
+fd_vm_prepare_instruction( fd_instr_info_t *        callee_instr,
                            fd_exec_instr_ctx_t *    instr_ctx,
                            fd_instruction_account_t instruction_accounts[256],
                            ulong *                  instruction_accounts_cnt,
@@ -77,25 +75,18 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
      the account references.
     https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L540-L595 */
   for( ulong i=0UL; i<callee_instr->acct_cnt; i++ ) {
-    fd_pubkey_t const * callee_pubkey = &callee_instr->acct_pubkeys[i];
+    ushort index_in_transaction = callee_instr->accounts[i].index_in_transaction;
+    ushort index_in_caller      = callee_instr->accounts[i].index_in_caller;
 
-    /* Find the corresponding transaction account index for this callee instruction account */
-    /* TODO: passing in the transaction indicies would mean we didn't have to do this */
-    ushort index_in_transaction = USHORT_MAX;
-    for( ulong j=0UL; j<instr_ctx->txn_ctx->accounts_cnt; j++ ) {
-      if( !memcmp( instr_ctx->txn_ctx->account_keys[j].uc, callee_pubkey->uc, sizeof(fd_pubkey_t) ) ) {
-        index_in_transaction = (ushort)j;
-        break;
-      }
-    }
-    if( index_in_transaction==USHORT_MAX) {
+    if( index_in_transaction==USHORT_MAX ) {
       /* In this case the callee instruction is referencing an unknown account not listed in the
          transactions accounts. */
-      FD_BASE58_ENCODE_32_BYTES( callee_pubkey->uc, id_b58 );
-      fd_log_collector_msg_many( instr_ctx, 2, "Instruction references an unknown account ", 42UL, id_b58, id_b58_len );
+      fd_log_collector_msg_many( instr_ctx, 1, "Instruction references an unknown account with instruction index ", 42UL, i );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
     }
+
+    fd_pubkey_t const * callee_pubkey = &instr_ctx->txn_ctx->account_keys[ index_in_transaction ];
 
     /* If there was an instruction account before this one which referenced the same
        transaction account index, find it's index in the deduplicated_instruction_accounts
@@ -122,22 +113,14 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
 
       duplicate_indices[duplicate_indicies_cnt++] = duplicate_index;
       fd_instruction_account_t * instruction_account = &deduplicated_instruction_accounts[duplicate_index];
-      instruction_account->is_signer   |= !!(callee_instr->acct_flags[i] & FD_INSTR_ACCT_FLAGS_IS_SIGNER);
-      instruction_account->is_writable |= !!(callee_instr->acct_flags[i] & FD_INSTR_ACCT_FLAGS_IS_WRITABLE);
+      instruction_account->is_signer   |= !!(callee_instr->accounts[i].is_signer);
+      instruction_account->is_writable |= !!(callee_instr->accounts[i].is_writable);
     } else {
       /* In the case where the callee instruction is NOT a duplicate, we need to
          create the deduplicated_instruction_accounts fd_instruction_account_t object. */
 
-      /* Find the index of the instruction account in the caller instruction */
-      ushort index_in_caller = USHORT_MAX;
-      for( ulong j=0UL; j<caller_instr->acct_cnt; j++ ) {
-        /* TODO: passing transaction indicies in would also allow us to remove these memcmp's */
-        if( !memcmp( caller_instr->acct_pubkeys[j].uc, callee_instr->acct_pubkeys[i].uc, sizeof(fd_pubkey_t) ) ) {
-          index_in_caller = (ushort)j;
-          break;
-        }
-      }
-      if( index_in_caller==USHORT_MAX ) {
+      /* index_in_caller is set to USHORT_MAX in VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC if not found */
+      if( index_in_caller == USHORT_MAX ) {
         FD_BASE58_ENCODE_32_BYTES( callee_pubkey->uc, id_b58 );
         fd_log_collector_msg_many( instr_ctx, 2, "Instruction references an unknown account ", 42UL, id_b58, id_b58_len );
         FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
@@ -149,11 +132,11 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
 
       /* Initialize the instruction account in the deduplicated_instruction_accounts array */
       fd_instruction_account_t * instruction_account = &deduplicated_instruction_accounts[deduplicated_instruction_accounts_cnt++];
-      instruction_account->index_in_callee      = (ushort)i;
-      instruction_account->index_in_caller      = index_in_caller;
-      instruction_account->index_in_transaction = index_in_transaction;
-      instruction_account->is_signer            = !!(callee_instr->acct_flags[i] & FD_INSTR_ACCT_FLAGS_IS_SIGNER);
-      instruction_account->is_writable          = !!(callee_instr->acct_flags[i] & FD_INSTR_ACCT_FLAGS_IS_WRITABLE);
+      *instruction_account = fd_instruction_account_init( index_in_transaction,
+                                                          index_in_caller,
+                                                          (ushort)i,
+                                                          !!(callee_instr->accounts[i].is_writable),
+                                                          !!(callee_instr->accounts[i].is_signer) );
     }
   }
 
@@ -161,19 +144,22 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
      https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L596-L624 */
   for( ulong i = 0; i < deduplicated_instruction_accounts_cnt; i++ ) {
     fd_instruction_account_t * instruction_account = &deduplicated_instruction_accounts[i];
-    fd_pubkey_t const * pubkey = &caller_instr->acct_pubkeys[instruction_account->index_in_caller];
+
+    /* https://github.com/anza-xyz/agave/blob/v2.1.14/program-runtime/src/invoke_context.rs#L390-L393 */
+    fd_guarded_borrowed_account_t borrowed_caller_acct;
+    FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( instr_ctx, instruction_account->index_in_caller, &borrowed_caller_acct );
 
     /* Check that the account is not read-only in the caller but writable in the callee */
-    if( FD_UNLIKELY( instruction_account->is_writable && !fd_instr_acc_is_writable( instr_ctx->instr, pubkey ) ) ) {
-      FD_BASE58_ENCODE_32_BYTES( pubkey->uc, id_b58 );
+    if( FD_UNLIKELY( instruction_account->is_writable && !fd_borrowed_account_is_writable( &borrowed_caller_acct ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.acct->pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, id_b58, id_b58_len, "'s writable privilege escalated", 31UL );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_ctx->instr_err_idx );
       return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
     }
 
     /* If the account is signed in the callee, it must be signed by the caller or the program */
-    if ( FD_UNLIKELY( instruction_account->is_signer && !( fd_instr_acc_is_signer( instr_ctx->instr, pubkey ) || fd_vm_syscall_cpi_is_signer( pubkey, signers, signers_cnt) ) ) ) {
-      FD_BASE58_ENCODE_32_BYTES( pubkey->uc, id_b58 );
+    if ( FD_UNLIKELY( instruction_account->is_signer && !( fd_borrowed_account_is_signer( &borrowed_caller_acct ) || fd_vm_syscall_cpi_is_signer( borrowed_caller_acct.acct->pubkey, signers, signers_cnt) ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( borrowed_caller_acct.acct->pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, id_b58, id_b58_len, "'s signer privilege escalated", 29UL );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION, instr_ctx->txn_ctx->instr_err_idx );
       return FD_EXECUTOR_INSTR_ERR_PRIVILEGE_ESCALATION;
@@ -191,19 +177,30 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
        https://github.com/solana-labs/solana/blob/dbf06e258ae418097049e845035d7d5502fe1327/program-runtime/src/invoke_context.rs#L625-L633 */
     if ( FD_LIKELY( duplicate_index < deduplicated_instruction_accounts_cnt ) ) {
       instruction_accounts[i] = deduplicated_instruction_accounts[duplicate_index];
-      callee_instr->acct_flags[i] = (uchar)
-        ( ( callee_instr->acct_flags[i] ) |
-          ( !!(instruction_accounts[i].is_writable) * FD_INSTR_ACCT_FLAGS_IS_WRITABLE ) |
-          ( !!(instruction_accounts[i].is_signer  ) * FD_INSTR_ACCT_FLAGS_IS_SIGNER   ) );
+      callee_instr->accounts[i].is_writable = !!(instruction_accounts[i].is_writable);
+      callee_instr->accounts[i].is_signer   = !!(instruction_accounts[i].is_signer);
     } else {
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS, instr_ctx->txn_ctx->instr_err_idx );
       return FD_EXECUTOR_INSTR_ERR_NOT_ENOUGH_ACC_KEYS;
     }
   }
 
+  /* Get the program id pubkey. Note that since we are using the callee instruction's program_id,
+     we directly call fd_exec_txn_ctx_get_key_of_account_at_index because the program_id index
+     is a transaction-wide index.
+     https://github.com/anza-xyz/agave/blob/v2.2.0/program-runtime/src/invoke_context.rs#L426 */
+  fd_pubkey_t const * callee_program_id_pubkey = NULL;
+  int err = fd_exec_txn_ctx_get_key_of_account_at_index(instr_ctx->txn_ctx,
+                                                        callee_instr->program_id,
+                                                        &callee_program_id_pubkey );
+  if( FD_UNLIKELY( err ) ) {
+    FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, err, instr_ctx->txn_ctx->instr_err_idx );
+    return err;
+  }
+
   if( FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, instr_ctx->txn_ctx->features, lift_cpi_caller_restriction ) ) {
-    if( FD_UNLIKELY( -1==fd_exec_txn_ctx_find_index_of_account( instr_ctx->txn_ctx, &callee_instr->program_id_pubkey ) ) ) {
-      FD_BASE58_ENCODE_32_BYTES( callee_instr->program_id_pubkey.uc, id_b58 );
+    if( FD_UNLIKELY( -1==fd_exec_txn_ctx_find_index_of_account( instr_ctx->txn_ctx, callee_program_id_pubkey ) ) ) {
+      FD_BASE58_ENCODE_32_BYTES( callee_program_id_pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
@@ -211,9 +208,9 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
   } else {
     /* Obtain the program account index and return a MissingAccount error if not found.
        https://github.com/anza-xyz/agave/blob/v2.1.14/program-runtime/src/invoke_context.rs#L430-L435 */
-    int program_idx = fd_exec_instr_ctx_find_idx_of_instr_account( instr_ctx, &callee_instr->program_id_pubkey );
+    int program_idx = fd_exec_instr_ctx_find_idx_of_instr_account( instr_ctx, callee_program_id_pubkey );
     if( FD_UNLIKELY( program_idx == -1 ) ) {
-      FD_BASE58_ENCODE_32_BYTES( callee_instr->program_id_pubkey.uc, id_b58 );
+      FD_BASE58_ENCODE_32_BYTES( callee_program_id_pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
@@ -223,7 +220,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
        Borrow the program account here.
        https://github.com/anza-xyz/agave/blob/v2.1.14/program-runtime/src/invoke_context.rs#L436-L437 */
     fd_guarded_borrowed_account_t borrowed_program_account;
-    int err = fd_exec_instr_ctx_try_borrow_instr_account( instr_ctx, (ulong)program_idx, &borrowed_program_account );
+    int err = fd_exec_instr_ctx_try_borrow_instr_account( instr_ctx, (ushort)program_idx, &borrowed_program_account );
     if( FD_UNLIKELY( err ) ) {
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, err, instr_ctx->txn_ctx->instr_err_idx );
       return err;
@@ -231,7 +228,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
 
     if( FD_UNLIKELY( err ) ) {
       /* https://github.com/anza-xyz/agave/blob/a9ac3f55fcb2bc735db0d251eda89897a5dbaaaa/program-runtime/src/invoke_context.rs#L434 */
-      FD_BASE58_ENCODE_32_BYTES( callee_instr->program_id_pubkey.uc, id_b58 );
+      FD_BASE58_ENCODE_32_BYTES( callee_program_id_pubkey->uc, id_b58 );
       fd_log_collector_msg_many( instr_ctx, 2, "Unknown program ", 16UL, id_b58, id_b58_len );
       FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_MISSING_ACC, instr_ctx->txn_ctx->instr_err_idx );
       return FD_EXECUTOR_INSTR_ERR_MISSING_ACC;
@@ -241,7 +238,7 @@ fd_vm_prepare_instruction( fd_instr_info_t const *  caller_instr,
        https://github.com/anza-xyz/agave/blob/v2.1.14/program-runtime/src/invoke_context.rs#L438 */
     if( !FD_FEATURE_ACTIVE( instr_ctx->txn_ctx->slot, instr_ctx->txn_ctx->features, remove_accounts_executable_flag_checks ) ) {
       if( FD_UNLIKELY( !fd_borrowed_account_is_executable( &borrowed_program_account ) ) ) {
-        FD_BASE58_ENCODE_32_BYTES( callee_instr->program_id_pubkey.uc, id_b58 );
+        FD_BASE58_ENCODE_32_BYTES( callee_program_id_pubkey->uc, id_b58 );
         fd_log_collector_msg_many( instr_ctx, 3, "Account ", 8UL, id_b58, id_b58_len, " is not executable", 18UL );
         FD_TXN_ERR_FOR_LOG_INSTR( instr_ctx->txn_ctx, FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE, instr_ctx->txn_ctx->instr_err_idx );
         return FD_EXECUTOR_INSTR_ERR_ACC_NOT_EXECUTABLE;

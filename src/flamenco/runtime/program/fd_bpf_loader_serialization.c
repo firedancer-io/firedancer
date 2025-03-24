@@ -151,8 +151,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
                                        uint *                    input_mem_regions_cnt,
                                        fd_vm_acc_region_meta_t * acc_region_metas,
                                        int                       copy_account_data ) {
-  uchar const * instr_acc_idxs = ctx->instr->acct_txn_idxs;
-  fd_pubkey_t * txn_accs       = ctx->txn_ctx->account_keys;
+  fd_pubkey_t * txn_accs = ctx->txn_ctx->account_keys;
 
   uchar acc_idx_seen[256] = {0};
   ushort dup_acc_idx[256] = {0};
@@ -162,7 +161,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
   serialized_size += sizeof(ulong); // acct_cnt
   /* First pass is to calculate size of buffer to allocate */
   for( ushort i=0; i<ctx->instr->acct_cnt; i++ ) {
-    uchar acc_idx = instr_acc_idxs[i];
+    uchar acc_idx = (uchar)ctx->instr->accounts[i].index_in_transaction;
 
     serialized_size++; // dup byte
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
@@ -209,7 +208,7 @@ fd_bpf_loader_input_serialize_aligned( fd_exec_instr_ctx_t *     ctx,
 
   /* Second pass over the account is to serialize into the buffer. */
   for( ushort i=0; i<ctx->instr->acct_cnt; i++ ) {
-    uchar         acc_idx = instr_acc_idxs[i];
+    uchar         acc_idx = (uchar)ctx->instr->accounts[i].index_in_transaction;
     fd_pubkey_t * acc     = &txn_accs[acc_idx];
 
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] && dup_acc_idx[acc_idx] != i ) ) {
@@ -324,12 +323,10 @@ fd_bpf_loader_input_deserialize_aligned( fd_exec_instr_ctx_t * ctx,
 
   uchar acc_idx_seen[256] = {0};
 
-  uchar const * instr_acc_idxs = ctx->instr->acct_txn_idxs;
-
   start += sizeof(ulong); // number of accounts
   /* https://github.com/anza-xyz/agave/blob/b5f5c3cdd3f9a5859c49ebc27221dc27e143d760/programs/bpf_loader/src/serialization.rs#L508-L600 */
-  for( ulong i=0UL; i<ctx->instr->acct_cnt; i++ ) {
-    uchar acc_idx = instr_acc_idxs[i];
+  for( ushort i=0; i<ctx->instr->acct_cnt; i++ ) {
+    uchar acc_idx = (uchar)ctx->instr->accounts[i].index_in_transaction;
 
     start++; // position
 
@@ -452,7 +449,6 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
                                          fd_vm_acc_region_meta_t * acc_region_metas,
                                          int                       copy_account_data ) {
   ulong               serialized_size = 0UL;
-  uchar const *       instr_acc_idxs  = ctx->instr->acct_txn_idxs;
   fd_pubkey_t const * txn_accs        = ctx->txn_ctx->account_keys;
 
   uchar acc_idx_seen[256] = {0};
@@ -460,7 +456,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
 
   serialized_size += sizeof(ulong);
   for( ushort i=0; i<ctx->instr->acct_cnt; i++ ) {
-    uchar acc_idx = instr_acc_idxs[i];
+    uchar acc_idx = (uchar)ctx->instr->accounts[i].index_in_transaction;
 
     serialized_size++; // dup
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
@@ -504,7 +500,7 @@ fd_bpf_loader_input_serialize_unaligned( fd_exec_instr_ctx_t *     ctx,
   serialized_params += sizeof(ulong);
 
   for( ushort i=0; i<ctx->instr->acct_cnt; i++ ) {
-    uchar               acc_idx = instr_acc_idxs[i];
+    uchar               acc_idx = (uchar)ctx->instr->accounts[i].index_in_transaction;
     fd_pubkey_t const * acc     = &txn_accs[acc_idx];
 
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] && dup_acc_idx[acc_idx] != i ) ) {
@@ -598,12 +594,11 @@ fd_bpf_loader_input_deserialize_unaligned( fd_exec_instr_ctx_t * ctx,
                                            int                   copy_account_data ) {
   uchar *       input_cursor      = input;
   uchar         acc_idx_seen[256] = {0};
-  uchar const * instr_acc_idxs    = ctx->instr->acct_txn_idxs;
 
   input_cursor += sizeof(ulong);
 
-  for( ulong i=0UL; i<ctx->instr->acct_cnt; i++ ) {
-    uchar acc_idx = instr_acc_idxs[i];
+  for( ushort i=0; i<ctx->instr->acct_cnt; i++ ) {
+    uchar acc_idx = (uchar)ctx->instr->accounts[i].index_in_transaction;
 
     input_cursor++; /* is_dup */
     if( FD_UNLIKELY( acc_idx_seen[acc_idx] ) ) {
