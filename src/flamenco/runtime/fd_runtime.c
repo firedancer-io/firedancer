@@ -1436,13 +1436,19 @@ fd_runtime_prepare_txns_start( fd_exec_slot_ctx_t *         slot_ctx,
    transaction sanitization checks. */
 
 void
-fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info ) {
+fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info,
+                              uchar                        dump_txn ) {
   if( FD_UNLIKELY( !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
     return;
   }
 
   fd_exec_txn_ctx_t * txn_ctx = task_info->txn_ctx;
   fd_executor_setup_borrowed_accounts_for_txn( txn_ctx );
+
+  /* Dump transaction to protobuf */
+  if( FD_UNLIKELY( dump_txn ) ) {
+    fd_dump_txn_to_protobuf( task_info->txn_ctx, task_info->txn_ctx->spad );
+  }
 
   int err;
 
@@ -1720,7 +1726,7 @@ fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
                                     fd_spad_t *                  exec_spad,
                                     fd_capture_ctx_t *           capture_ctx ) {
 
-  int dump_txn = capture_ctx && slot_ctx->slot_bank.slot >= capture_ctx->dump_proto_start_slot && capture_ctx->dump_txn_to_pb;
+  uchar dump_txn = !!( capture_ctx && slot_ctx->slot_bank.slot >= capture_ctx->dump_proto_start_slot && capture_ctx->dump_txn_to_pb );
   int res = 0;
 
   fd_exec_txn_ctx_t * txn_ctx     = task_info->txn_ctx;
@@ -1737,12 +1743,7 @@ fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
     return -1;
   }
 
-  /* Dump txns if necessary */
   task_info->txn_ctx->capture_ctx = capture_ctx;
-  if( FD_UNLIKELY( dump_txn ) ) {
-    /* Manual push/pop on the spad within the callee. */
-    fd_dump_txn_to_protobuf( task_info->txn_ctx, exec_spad );
-  }
 
   if( FD_UNLIKELY( fd_executor_txn_verify( txn_ctx )!=0 ) ) {
     FD_LOG_WARNING(( "sigverify failed: %s", FD_BASE58_ENC_64_ALLOCA( (uchar *)txn_ctx->_txn_raw->raw+txn_ctx->txn_descriptor->signature_off ) ));
@@ -1750,7 +1751,7 @@ fd_runtime_prepare_and_execute_txn( fd_exec_slot_ctx_t const *   slot_ctx,
     task_info->exec_res   = FD_RUNTIME_TXN_ERR_SIGNATURE_FAILURE;
   }
 
-  fd_runtime_pre_execute_check( task_info );
+  fd_runtime_pre_execute_check( task_info, dump_txn );
   if( FD_UNLIKELY( !( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) ) ) {
     res  = task_info->exec_res;
     return -1;

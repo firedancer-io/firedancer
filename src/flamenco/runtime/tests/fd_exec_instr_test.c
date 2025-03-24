@@ -989,7 +989,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   /* Setup the spad for account allocation */
   task_info->txn_ctx->spad = runner->spad;
 
-  fd_runtime_pre_execute_check( task_info );
+  fd_runtime_pre_execute_check( task_info, 0 );
 
   if( task_info->txn->flags & FD_TXN_P_FLAGS_SANITIZE_SUCCESS ) {
     task_info->txn->flags |= FD_TXN_P_FLAGS_EXECUTE_SUCCESS;
