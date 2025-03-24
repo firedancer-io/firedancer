@@ -458,8 +458,6 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     info->data    = test_ctx->data->bytes;
   }
 
-  memcpy( info->program_id_pubkey.uc, test_ctx->program_id, sizeof(fd_pubkey_t) );
-
   /* Prepare borrowed account table (correctly handles aliasing) */
 
   if( FD_UNLIKELY( test_ctx->accounts_count > MAX_TX_ACCOUNT_LOCKS ) ) {
@@ -650,7 +648,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     return 0;
   }
 
-  uchar acc_idx_seen[256] = {0};
+  uchar acc_idx_seen[ FD_INSTR_ACCT_MAX ] = {0};
   for( ulong j=0UL; j < test_ctx->instr_accounts_count; j++ ) {
     uint index = test_ctx->instr_accounts[j].index;
     if( index >= test_ctx->accounts_count ) {
@@ -659,30 +657,26 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     }
 
     fd_txn_account_t * acc = &accts[ index ];
-    uint flags = 0;
-    flags |= test_ctx->instr_accounts[j].is_writable ? FD_INSTR_ACCT_FLAGS_IS_WRITABLE : 0;
-    flags |= test_ctx->instr_accounts[j].is_signer   ? FD_INSTR_ACCT_FLAGS_IS_SIGNER   : 0;
 
-    info->accounts[j] = acc;
-    info->acct_flags       [j] = (uchar)flags;
-    memcpy( info->acct_pubkeys[j].uc, acc->pubkey, sizeof(fd_pubkey_t) );
-    info->acct_txn_idxs[j]     = (uchar) index;
+    /* Setup instruction accounts */
+    fd_instr_info_setup_instr_account( info,
+                                       acc_idx_seen,
+                                       (ushort)index,
+                                       (ushort)j,
+                                       (ushort)j,
+                                       test_ctx->instr_accounts[j].is_writable,
+                                       test_ctx->instr_accounts[j].is_signer );
 
     if( test_ctx->instr_accounts[j].is_writable ) {
       acc->meta = (void *)acc->const_meta;
       acc->data = (void *)acc->const_data;
       acc->rec  = (void *)acc->const_rec;
     }
-
-    if (acc_idx_seen[index]) {
-      info->is_duplicate[j] = 1;
-    }
-    acc_idx_seen[index] = 1;
   }
   info->acct_cnt = (uchar)test_ctx->instr_accounts_count;
 
   //  FIXME: Specifically for CPI syscalls, flag guard this?
-  fd_instr_info_sum_account_lamports( info, &info->starting_lamports_h, &info->starting_lamports_l );
+  fd_instr_info_sum_account_lamports( info, txn_ctx, &info->starting_lamports_h, &info->starting_lamports_l );
 
   /* The remaining checks enforce that the program is in the accounts list. */
   bool found_program_id = false;
@@ -715,7 +709,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
                                       funk_gaddr );
 
   fd_log_collector_init( &ctx->txn_ctx->log_collector, 1 );
-  fd_base58_encode_32( ctx->instr->program_id_pubkey.uc, NULL, ctx->program_id_base58 );
+  fd_base58_encode_32( txn_ctx->account_keys[ ctx->instr->program_id ].uc, NULL, ctx->program_id_base58 );
 
   return 1;
 }
@@ -1768,7 +1762,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
     }
 
     /* Capture borrowed accounts */
-    for( ulong j=0UL; j < txn_ctx->accounts_cnt; j++ ) {
+    for( ushort j=0; j < txn_ctx->accounts_cnt; j++ ) {
       fd_txn_account_t * acc = &txn_ctx->accounts[j];
 
       /* For fees-only transactions, only save the fee payer (and potentially the nonce) only */
@@ -1778,7 +1772,7 @@ fd_exec_txn_test_run( fd_exec_instr_test_runner_t * runner, // Runner only conta
         }
       }
 
-      if( !( fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (int)j ) || j==FD_FEE_PAYER_TXN_IDX ) ) continue;
+      if( !( fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, j ) || j==FD_FEE_PAYER_TXN_IDX ) ) continue;
       assert( acc->meta );
 
       ulong modified_idx = txn_result->resulting_state.acct_states_count;
@@ -2251,9 +2245,9 @@ __wrap_fd_execute_instr( fd_exec_txn_ctx_t * txn_ctx,
     }
 
     // Iterate through instruction accounts
-    for( ushort i = 0UL; i < instr_info->acct_cnt; ++i ) {
-      uchar idx_in_txn = instr_info->acct_txn_idxs[i];
-      fd_pubkey_t * acct_pubkey = &instr_info->acct_pubkeys[i];
+    for( ushort i = 0; i < instr_info->acct_cnt; ++i ) {
+      ushort        idx_in_txn  = instr_info->accounts[i].index_in_transaction;
+      fd_pubkey_t * acct_pubkey = &txn_ctx->account_keys[ idx_in_txn ];
 
       fd_txn_account_t * acct = NULL;
       /* Find (first) account in cpi_exec_effects->modified_accounts that matches pubkey */

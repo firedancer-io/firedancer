@@ -397,7 +397,14 @@ fd_vm_syscall_sol_set_return_data( /**/            void *  _vm,
   /* src_sz == 0 is ok */
   void const * src = FD_VM_MEM_SLICE_HADDR_LD( vm, src_vaddr, FD_VM_ALIGN_RUST_U8, src_sz );
 
-  fd_pubkey_t const    * program_id  = &instr_ctx->instr->program_id_pubkey;
+  /* https://github.com/anza-xyz/agave/blob/v2.2.0/programs/bpf_loader/src/syscalls/mod.rs#L1480-L1484 */
+  fd_pubkey_t const * program_id = NULL;
+  int err = fd_exec_instr_ctx_get_last_program_key( vm->instr_ctx, &program_id );
+  if( FD_UNLIKELY( err ) ) {
+    FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+    return err;
+  }
+
   fd_txn_return_data_t * return_data = &instr_ctx->txn_ctx->return_data;
 
   return_data->len = src_sz;
@@ -572,14 +579,27 @@ fd_vm_syscall_sol_get_processed_sibling_instruction(
 
          Note: we assume that the instr accounts are already correct at this point.
          Agave has many error checks. */
-      fd_memcpy( result_program_id_haddr->key, instr_info->program_id_pubkey.key, FD_PUBKEY_FOOTPRINT );
+
+      /* Get the instruction info's program id pubkey. Note we have to use the transaction context's
+         get_key_of_account_at_index function the program_id is a transaction-wide account index.
+         https://github.com/anza-xyz/agave/blob/v2.2.0/programs/bpf_loader/src/syscalls/mod.rs#L1662-L1663 */
+      fd_pubkey_t const * isntr_info_program_id_key = NULL;
+      int err = fd_exec_txn_ctx_get_key_of_account_at_index( vm->instr_ctx->txn_ctx,
+                                                             instr_info->program_id,
+                                                             &isntr_info_program_id_key );
+      if( FD_UNLIKELY( err ) ) {
+        FD_VM_ERR_FOR_LOG_INSTR( vm, err );
+        return err;
+      }
+
+      fd_memcpy( result_program_id_haddr->key, isntr_info_program_id_key->key, FD_PUBKEY_FOOTPRINT );
       fd_memcpy( result_data_haddr, instr_info->data, instr_info->data_sz );
       for( ulong i = 0UL; i < instr_info->acct_cnt; i++ ) {
         fd_memcpy( result_accounts_haddr[ i ].pubkey,
-                   vm->instr_ctx->txn_ctx->account_keys[ instr_info->acct_txn_idxs[ i ] ].key,
+                   vm->instr_ctx->txn_ctx->account_keys[ instr_info->accounts[ i ].index_in_transaction ].key,
                    FD_PUBKEY_FOOTPRINT );
-        result_accounts_haddr[ i ].is_signer   = !!(instr_info->acct_flags[ i ] & FD_INSTR_ACCT_FLAGS_IS_SIGNER);
-        result_accounts_haddr[ i ].is_writable = !!(instr_info->acct_flags[ i ] & FD_INSTR_ACCT_FLAGS_IS_WRITABLE);
+        result_accounts_haddr[ i ].is_signer   = !!(instr_info->accounts[ i ].is_signer );
+        result_accounts_haddr[ i ].is_writable = !!(instr_info->accounts[ i ].is_writable );
       }
     }
 

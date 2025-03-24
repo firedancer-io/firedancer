@@ -340,7 +340,13 @@ fd_borrowed_account_is_writable( fd_borrowed_account_t const * borrowed_acct ) {
 
 FD_FN_PURE static inline int
 fd_borrowed_account_is_owned_by_current_program( fd_borrowed_account_t const * borrowed_acct ) {
-  return memcmp( borrowed_acct->instr_ctx->instr->program_id_pubkey.key,
+  fd_pubkey_t const * program_id_pubkey = NULL;
+  int err = fd_exec_instr_ctx_get_last_program_key( borrowed_acct->instr_ctx, &program_id_pubkey );
+  if( FD_UNLIKELY( err ) ) {
+    return err;
+  }
+
+  return memcmp( program_id_pubkey->key,
                  borrowed_acct->acct->const_meta->info.owner, sizeof(fd_pubkey_t) ) == 0;
 }
 

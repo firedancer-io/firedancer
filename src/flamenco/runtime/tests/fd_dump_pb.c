@@ -840,7 +840,7 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   const ulong num_sysvar_entries = (sizeof(fd_relevant_sysvar_ids) / sizeof(fd_pubkey_t));
 
   /* Program ID */
-  fd_memcpy( instr_context->program_id, instr->program_id_pubkey.uc, sizeof(fd_pubkey_t) );
+  fd_memcpy( instr_context->program_id, txn_ctx->account_keys[ instr->program_id ].uc, sizeof(fd_pubkey_t) );
 
   /* Accounts */
   instr_context->accounts_count = (pb_size_t) txn_ctx->accounts_cnt;
@@ -903,13 +903,9 @@ create_instr_context_protobuf_from_instructions( fd_exec_test_instr_context_t * 
   for( ushort i = 0; i < instr->acct_cnt; i++ ) {
     fd_exec_test_instr_acct_t * output_instr_account = &instr_context->instr_accounts[i];
 
-    uchar account_flag = instr->acct_flags[i];
-    bool is_writable = account_flag & FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
-    bool is_signer = account_flag & FD_INSTR_ACCT_FLAGS_IS_SIGNER;
-
-    output_instr_account->index = instr->acct_txn_idxs[i];
-    output_instr_account->is_writable = is_writable;
-    output_instr_account->is_signer = is_signer;
+    output_instr_account->index       = instr->accounts[i].index_in_transaction;
+    output_instr_account->is_writable = instr->accounts[i].is_writable;
+    output_instr_account->is_signer   = instr->accounts[i].is_signer;
   }
 
   /* Data */
@@ -1081,7 +1077,12 @@ fd_dump_vm_cpi_state( fd_vm_t *    vm,
                       ulong        signers_seeds_cnt ) {
   char filename[100];
   fd_instr_info_t const *instr = vm->instr_ctx->instr;
-  sprintf(filename, "vm_cpi_state/%lu_%lu%lu_%hu.sysctx", fd_tile_id(), instr->program_id_pubkey.ul[0], instr->program_id_pubkey.ul[1], instr->data_sz);
+  sprintf( filename,
+          "vm_cpi_state/%lu_%lu%lu_%hu.sysctx",
+          fd_tile_id(),
+          vm->instr_ctx->txn_ctx->account_keys[ instr->program_id ].ul[0],
+          vm->instr_ctx->txn_ctx->account_keys[ instr->program_id ].ul[1],
+          instr->data_sz );
 
   // Check if file exists
   if( access (filename, F_OK) != -1 ) {

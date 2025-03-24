@@ -92,7 +92,7 @@ calculate_allocated_accounts_data_size( fd_exec_txn_ctx_t const * txn_ctx,
     void const *     payload = txn_ctx->_txn_raw->raw;
 
     ulong allocated_accounts_data_size = 0UL;
-    for( ushort i=0UL; i<txn->instr_cnt; i++ ) {
+    for( ushort i=0; i<txn->instr_cnt; i++ ) {
       fd_txn_instr_t const * instr      = &txn->instr[ i ];
       fd_acct_addr_t const * accounts   = fd_txn_get_acct_addrs( txn, payload );
       fd_acct_addr_t const * prog_id    = accounts + instr->program_id;

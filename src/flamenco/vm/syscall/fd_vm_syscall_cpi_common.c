@@ -59,68 +59,57 @@ VM_SYSCALL_CPI_INSTRUCTION_TO_INSTR_FUNC( fd_vm_t * vm,
                             fd_pubkey_t const * program_id,
                             uchar const * cpi_instr_data,
                             fd_instr_info_t * out_instr ) {
-  out_instr->program_id_pubkey = *program_id;
   out_instr->program_id = UCHAR_MAX;
+  out_instr->data_sz    = (ushort)VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instr );
+  out_instr->data       = (uchar *)cpi_instr_data;
+  out_instr->acct_cnt   = (ushort)VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instr );
 
   /* Find the index of the CPI instruction's program account in the transaction */
-  fd_pubkey_t * txn_accs = vm->instr_ctx->txn_ctx->account_keys;
-  for( ulong i=0UL; i < vm->instr_ctx->txn_ctx->accounts_cnt; i++ ) {
-    if( !memcmp( program_id, &txn_accs[i], sizeof( fd_pubkey_t ) ) ) {
-      out_instr->program_id = (uchar)i;
-      break;
-    }
+  int program_id_idx = fd_exec_txn_ctx_find_index_of_account( vm->instr_ctx->txn_ctx, program_id );
+  if( FD_LIKELY( program_id_idx != -1 ) ) {
+    out_instr->program_id = (uchar)program_id_idx;
   }
+
+  uchar acc_idx_seen[ FD_INSTR_ACCT_MAX ] = {0};
 
   /* Calculate summary information for the account list */
-  ulong starting_lamports_h = 0UL;
-  ulong starting_lamports_l = 0UL;
-  uchar acc_idx_seen[256] = {0};
-  for( ulong i=0UL; i<VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instr ); i++ ) {
+  out_instr->starting_lamports_h = 0UL;
+  out_instr->starting_lamports_l = 0UL;
+
+  for( ushort i=0; i<VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instr ); i++ ) {
     VM_SYSCALL_CPI_ACC_META_T const * cpi_acct_meta = &cpi_acct_metas[i];
-    uchar const * pubkey = VM_SYSCALL_CPI_ACC_META_PUBKEY( vm, cpi_acct_meta );
-    memcpy( out_instr->acct_pubkeys[i].uc, pubkey, sizeof( fd_pubkey_t ) );
-    out_instr->acct_flags[i]        = 0;
+    fd_pubkey_t const * pubkey = fd_type_pun_const( VM_SYSCALL_CPI_ACC_META_PUBKEY( vm, cpi_acct_meta ) );
 
-  /* The parent flag(s) for is writable/signer is checked in
-      fd_vm_prepare_instruction. Signer privilege is allowed iff the account
-      is a signer in the caller or if it is a derived signer. */
-  /* TODO: error if flags are wrong */
-    if( VM_SYSCALL_CPI_ACC_META_IS_WRITABLE( cpi_acct_meta ) ) {
-      out_instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_WRITABLE;
-    }
+    /* The parent flag(s) for is writable/signer is checked in
+       fd_vm_prepare_instruction. Signer privilege is allowed iff the account
+       is a signer in the caller or if it is a derived signer. */
+    /* TODO: error if flags are wrong */
+    out_instr->accounts[i] = fd_instruction_account_init( USHORT_MAX,
+                                                          USHORT_MAX,
+                                                          USHORT_MAX,
+                                                          VM_SYSCALL_CPI_ACC_META_IS_WRITABLE( cpi_acct_meta ),
+                                                          VM_SYSCALL_CPI_ACC_META_IS_SIGNER( cpi_acct_meta ) );
 
-    if( VM_SYSCALL_CPI_ACC_META_IS_SIGNER( cpi_acct_meta ) ) {
-      out_instr->acct_flags[i] |= FD_INSTR_ACCT_FLAGS_IS_SIGNER;
-    }
-
-    for( ulong j=0UL; j<vm->instr_ctx->txn_ctx->accounts_cnt; j++ ) {
-      if( !memcmp( pubkey, &txn_accs[j], sizeof(fd_pubkey_t) ) ) {
-        out_instr->acct_txn_idxs[i]     = (uchar)j;
-        out_instr->accounts[i] = &vm->instr_ctx->txn_ctx->accounts[j];
-        out_instr->is_duplicate[i]      = acc_idx_seen[j];
-
-        if( FD_LIKELY( !acc_idx_seen[j] ) ) {
-          /* This is the first time seeing this account */
-          acc_idx_seen[j] = 1;
-          if( out_instr->accounts[i]->const_meta ) {
-            /* TODO: what if this account is borrowed as writable? */
-            fd_uwide_inc(
-              &starting_lamports_h, &starting_lamports_l,
-              starting_lamports_h, starting_lamports_l,
-              out_instr->accounts[i]->const_meta->info.lamports );
-          }
-        }
-
-        break;
+    int idx_in_txn = fd_exec_txn_ctx_find_index_of_account( vm->instr_ctx->txn_ctx, pubkey );
+    if( FD_LIKELY( idx_in_txn!=-1 ) ) {
+      /* Use USHORT_MAX to indicate account not found
+         https://github.com/anza-xyz/agave/blob/v2.1.14/program-runtime/src/invoke_context.rs#L366-L370 */
+      int index_in_caller = fd_exec_instr_ctx_find_idx_of_instr_account( vm->instr_ctx, pubkey );
+      if( index_in_caller == -1 ) {
+        index_in_caller = USHORT_MAX;
       }
+
+      fd_instr_info_setup_instr_account( out_instr,
+                                         acc_idx_seen,
+                                         (ushort)idx_in_txn,
+                                         (ushort)index_in_caller,
+                                         i,
+                                         VM_SYSCALL_CPI_ACC_META_IS_WRITABLE( cpi_acct_meta ),
+                                         VM_SYSCALL_CPI_ACC_META_IS_SIGNER( cpi_acct_meta ) );
+
+      fd_instr_info_accumulate_starting_lamports( out_instr, vm->instr_ctx->txn_ctx, i, (ushort)idx_in_txn);
     }
   }
-
-  out_instr->data_sz = (ushort)VM_SYSCALL_CPI_INSTR_DATA_LEN( cpi_instr );
-  out_instr->data = (uchar *)cpi_instr_data;
-  out_instr->acct_cnt = (ushort)VM_SYSCALL_CPI_INSTR_ACCS_LEN( cpi_instr );
-  out_instr->starting_lamports_h = starting_lamports_h;
-  out_instr->starting_lamports_l = starting_lamports_l;
 
   return FD_VM_SUCCESS;
 }
@@ -293,8 +282,8 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
                               fd_pubkey_t const * *             account_info_keys, /* same length as account_infos_length */
                               VM_SYSCALL_CPI_ACC_INFO_T const * account_infos,
                               ulong const                       account_infos_length,
-                              ulong *                           out_callee_indices,
-                              ulong *                           out_caller_indices,
+                              ushort *                          out_callee_indices,
+                              ushort *                          out_caller_indices,
                               fd_vm_cpi_caller_account_t *      caller_accounts,
                               ulong *                           out_len ) {
   for( ulong i=0UL; i<instruction_accounts_cnt; i++ ) {
@@ -306,21 +295,29 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
     /* `fd_vm_prepare_instruction()` will always set up a valid index for `index_in_caller`, so we can access the borrowed account directly.
        A borrowed account will always have non-NULL meta (if the account doesn't exist, `fd_executor_setup_borrowed_accounts_for_txn()`
        will set its meta up) */
-    fd_txn_account_t const *  acc_rec     = vm->instr_ctx->instr->accounts[instruction_accounts[i].index_in_caller];
-    fd_pubkey_t const *       account_key = acc_rec->pubkey;
-    fd_account_meta_t const * acc_meta    = acc_rec->const_meta;
+
+    /* https://github.com/solana-labs/solana/blob/2afde1b028ed4593da5b6c735729d8994c4bfac6/programs/bpf_loader/src/syscalls/cpi.rs#L878-L881 */
+    fd_guarded_borrowed_account_t callee_acct;
+    FD_TRY_BORROW_INSTR_ACCOUNT_DEFAULT_ERR_CHECK( vm->instr_ctx, instruction_accounts[i].index_in_caller, &callee_acct );
+
+    fd_pubkey_t const *       account_key = callee_acct.acct->pubkey;
+    fd_account_meta_t const * acc_meta    = callee_acct.acct->const_meta;
 
     /* If the account is known and executable, we only need to consume the compute units.
        Executable accounts can't be modified, so we don't need to update the callee account. */
-    if( fd_txn_account_is_executable( acc_rec ) ) {
+    if( fd_borrowed_account_is_executable( &callee_acct ) ) {
       // FIXME: should this be FD_VM_CU_MEM_UPDATE? Changing this changes the CU behaviour from main (because of the base cost)
       FD_VM_CU_UPDATE( vm, acc_meta->dlen / FD_VM_CPI_BYTES_PER_UNIT );
       continue;
     }
 
+    /* FIXME: we should not need to drop the account here to avoid a double borrow.
+       Instead, we should borrow the account before entering this function. */
+    fd_borrowed_account_drop( &callee_acct );
+
     /* Find the indicies of the account in the caller and callee instructions */
     uint found = 0;
-    for( ulong j=0; (j < account_infos_length) && !found; j++ ) {
+    for( ushort j=0; j<account_infos_length && !found; j++ ) {
       fd_pubkey_t const * acct_addr = account_info_keys[ j ];
       /* https://github.com/anza-xyz/agave/blob/v2.1.6/programs/bpf_loader/src/syscalls/cpi.rs#L912
        */
@@ -343,7 +340,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
        */
       fd_vm_cpi_caller_account_t * caller_account = caller_accounts + *out_len;
       /* Record the indicies of this account */
-      ulong index_in_caller = instruction_accounts[i].index_in_caller;
+      ushort index_in_caller = instruction_accounts[i].index_in_caller;
       if (instruction_accounts[i].is_writable) {
         out_callee_indices[*out_len] = index_in_caller;
         out_caller_indices[*out_len] = j;
@@ -872,7 +869,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
      before we can pass an instruction to the executor. */
   fd_instruction_account_t instruction_accounts[256];
   ulong instruction_accounts_cnt;
-  err = fd_vm_prepare_instruction( vm->instr_ctx->instr, instruction_to_execute, vm->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
+  err = fd_vm_prepare_instruction( instruction_to_execute, vm->instr_ctx, instruction_accounts, &instruction_accounts_cnt, signers, signers_seeds_cnt );
   /* Errors are propagated in the function itself. */
   if( FD_UNLIKELY( err ) ) return err;
 
@@ -925,8 +922,8 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
 
   /* Update the callee accounts with any changes made by the caller prior to this CPI execution */
   fd_vm_cpi_caller_account_t caller_accounts[ 256 ];
-  ulong callee_account_keys[256];
-  ulong caller_accounts_to_update[256];
+  ushort callee_account_keys[256];
+  ushort caller_accounts_to_update[256];
   ulong caller_accounts_to_update_len = 0;
   err = VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
     vm,
@@ -967,7 +964,7 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
      TODO: consider factoring this out */
   if( vm->direct_mapping ) {
     for( ulong i=0UL; i<caller_accounts_to_update_len; i++ ) {
-      ulong acc_instr_idx = callee_account_keys[i];
+      ushort acc_instr_idx = callee_account_keys[i];
 
       /* https://github.com/firedancer-io/solana/blob/508f325e19c0fd8e16683ea047d7c1a85f127e74/programs/bpf_loader/src/syscalls/cpi.rs#L939-L943 */
       /* Anza only even attemps to update the account permissions if it is a
@@ -1004,8 +1001,9 @@ VM_SYSCALL_CPI_ENTRYPOINT( void *  _vm,
     /* We only want to update the writable accounts, because the non-writable
        caller accounts can't be changed during a CPI execution. */
     if( fd_instr_acc_is_writable_idx( vm->instr_ctx->instr, callee_account_keys[i] ) ) {
-      fd_pubkey_t const * callee = &vm->instr_ctx->instr->acct_pubkeys[callee_account_keys[i]];
-      err = VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC(vm, &acc_infos[caller_accounts_to_update[i]], caller_accounts + i, (uchar)callee_account_keys[i], callee);
+      ushort              idx_in_txn = vm->instr_ctx->instr->accounts[ callee_account_keys[i] ].index_in_transaction;
+      fd_pubkey_t const * callee     = &vm->instr_ctx->txn_ctx->account_keys[ idx_in_txn ];
+      err = VM_SYSCALL_CPI_UPDATE_CALLER_ACC_FUNC(vm, &acc_infos[ caller_accounts_to_update[i] ], caller_accounts + i, (uchar)callee_account_keys[i], callee);
       if( FD_UNLIKELY( err ) ) {
         return err;
       }
