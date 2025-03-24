@@ -751,12 +751,6 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     }
   }
 
-  // For executable accounts, we need to set up dummy borrowed accounts by cluttering txn ctx state and resetting it after
-  // TODO: Revisit this hacky approach
-  txn_ctx->spad = spad;
-  fd_spad_push( txn_ctx->spad );
-  fd_executor_setup_borrowed_accounts_for_txn( txn_ctx );
-
   // Dump executable accounts
   for( ulong i = 0; i < txn_ctx->executable_cnt; ++i ) {
     if( !txn_ctx->executable_accounts[i].const_meta ) {
@@ -764,11 +758,6 @@ create_txn_context_protobuf_from_txn( fd_exec_test_txn_context_t * txn_context_m
     }
     dump_account_state( &txn_ctx->executable_accounts[i], &txn_context_msg->account_shared_data[txn_context_msg->account_shared_data_count++], spad );
   }
-
-  // Reset state
-  txn_ctx->funk_txn = NULL;
-  txn_ctx->executable_cnt = 0;
-  fd_spad_pop( txn_ctx->spad );
 
   // Dump LUT accounts
   fd_txn_acct_addr_lut_t const * address_lookup_tables = fd_txn_get_address_tables_const( txn_descriptor );
