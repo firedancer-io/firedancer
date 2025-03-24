@@ -1931,6 +1931,9 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
       fd_pubkey_t *      programdata_pubkey   = (fd_pubkey_t *)&program_account_state->inner.program.programdata_address;
       err = fd_exec_txn_ctx_get_account_executable_view( ctx->txn_ctx, programdata_pubkey, &program_data_account );
       if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+        if( FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, remove_accounts_executable_flag_checks ) ) {
+          return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+        }
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
 
@@ -1946,6 +1949,9 @@ fd_bpf_loader_program_execute( fd_exec_instr_ctx_t * ctx ) {
                                                                                                         ctx->txn_ctx->spad,
                                                                                                         &err );
       if( FD_UNLIKELY( err!=FD_BINCODE_SUCCESS ) ) {
+        if( FD_FEATURE_ACTIVE( ctx->txn_ctx->slot, ctx->txn_ctx->features, remove_accounts_executable_flag_checks ) ) {
+          return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_PROGRAM_ID;
+        }
         return FD_EXECUTOR_INSTR_ERR_INVALID_ACC_DATA;
       }
 
