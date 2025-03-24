@@ -70,6 +70,22 @@ jsonp_double( fd_gui_t *   gui,
 }
 
 static void
+jsonp_ulong_as_str( fd_gui_t *   gui,
+                    char const * key,
+                    ulong        value ) {
+  if( FD_LIKELY( key ) ) fd_http_server_printf( gui->http, "\"%s\":\"%lu\",", key, value );
+  else                   fd_http_server_printf( gui->http, "\"%lu\",", value );
+}
+
+static void
+jsonp_long_as_str( fd_gui_t *   gui,
+                   char const * key,
+                   long         value ) {
+  if( FD_LIKELY( key ) ) fd_http_server_printf( gui->http, "\"%s\":\"%ld\",", key, value );
+  else                   fd_http_server_printf( gui->http, "\"%ld\",", value );
+}
+
+static void
 jsonp_sanitize_str( fd_http_server_t * http,
                     ulong              start_len ) {
   /* escape quotemark, reverse solidus, and control chars U+0000 through U+001F
@@ -198,7 +214,7 @@ fd_gui_printf_identity_key( fd_gui_t * gui ) {
 void
 fd_gui_printf_uptime_nanos( fd_gui_t * gui ) {
   jsonp_open_envelope( gui, "summary", "uptime_nanos" );
-    jsonp_ulong( gui, "value", (ulong)(fd_log_wallclock() - gui->summary.startup_time_nanos ) );
+    jsonp_ulong_as_str( gui, "value", (ulong)(fd_log_wallclock() - gui->summary.startup_time_nanos ) );
   jsonp_close_envelope( gui );
 }
 
@@ -413,14 +429,14 @@ fd_gui_printf_tiles( fd_gui_t * gui ) {
 void
 fd_gui_printf_identity_balance( fd_gui_t * gui ) {
   jsonp_open_envelope( gui, "summary", "identity_balance" );
-    jsonp_ulong( gui, "value", gui->summary.identity_account_balance );
+    jsonp_ulong_as_str( gui, "value", gui->summary.identity_account_balance );
   jsonp_close_envelope( gui );
 }
 
 void
 fd_gui_printf_vote_balance( fd_gui_t * gui ) {
   jsonp_open_envelope( gui, "summary", "vote_balance" );
-    jsonp_ulong( gui, "value", gui->summary.vote_account_balance );
+    jsonp_ulong_as_str( gui, "value", gui->summary.vote_account_balance );
   jsonp_close_envelope( gui );
 }
 
@@ -478,13 +494,13 @@ fd_gui_printf_epoch( fd_gui_t * gui,
   jsonp_open_envelope( gui, "epoch", "new" );
     jsonp_open_object( gui, "value" );
       jsonp_ulong( gui, "epoch",                   gui->epoch.epochs[ epoch_idx ].epoch );
-      if( FD_LIKELY( gui->epoch.epochs[ epoch_idx ].start_time!=LONG_MAX ) ) jsonp_ulong( gui, "start_time", (ulong)gui->epoch.epochs[ epoch_idx ].start_time );
-      else                                                                    jsonp_null( gui, "start_time" );
-      if( FD_LIKELY( gui->epoch.epochs[ epoch_idx ].end_time!=LONG_MAX ) ) jsonp_ulong( gui, "end_time", (ulong)gui->epoch.epochs[ epoch_idx ].end_time );
-      else                                                                  jsonp_null( gui, "end_time" );
+      if( FD_LIKELY( gui->epoch.epochs[ epoch_idx ].start_time!=LONG_MAX ) ) jsonp_ulong_as_str( gui, "start_time_nanos", (ulong)gui->epoch.epochs[ epoch_idx ].start_time );
+      else                                                                    jsonp_null( gui, "start_time_nanos" );
+      if( FD_LIKELY( gui->epoch.epochs[ epoch_idx ].end_time!=LONG_MAX ) ) jsonp_ulong_as_str( gui, "end_time_nanos", (ulong)gui->epoch.epochs[ epoch_idx ].end_time );
+      else                                                                  jsonp_null( gui, "end_time_nanos" );
       jsonp_ulong( gui, "start_slot",              gui->epoch.epochs[ epoch_idx ].start_slot );
       jsonp_ulong( gui, "end_slot",                gui->epoch.epochs[ epoch_idx ].end_slot );
-      jsonp_ulong( gui, "excluded_stake_lamports", gui->epoch.epochs[ epoch_idx ].excluded_stake );
+      jsonp_ulong_as_str( gui, "excluded_stake_lamports", gui->epoch.epochs[ epoch_idx ].excluded_stake );
       jsonp_open_array( gui, "staked_pubkeys" );
         fd_epoch_leaders_t * lsched = gui->epoch.epochs[epoch_idx].lsched;
         for( ulong i=0UL; i<lsched->pub_cnt; i++ ) {
@@ -496,7 +512,7 @@ fd_gui_printf_epoch( fd_gui_t * gui,
 
       jsonp_open_array( gui, "staked_lamports" );
         fd_stake_weight_t * stakes = gui->epoch.epochs[epoch_idx].stakes;
-        for( ulong i=0UL; i<lsched->pub_cnt; i++ ) jsonp_ulong( gui, NULL, stakes[ i ].stake );
+        for( ulong i=0UL; i<lsched->pub_cnt; i++ ) jsonp_ulong_as_str( gui, NULL, stakes[ i ].stake );
       jsonp_close_array( gui );
 
       jsonp_open_array( gui, "leader_slots" );
@@ -780,7 +796,7 @@ fd_gui_printf_peer( fd_gui_t *    gui,
           char vote_account_base58[ FD_BASE58_ENCODED_32_SZ ];
           fd_base58_encode_32( gui->vote_account.vote_accounts[ vote_idxs[ i ] ].vote_account->uc, NULL, vote_account_base58 );
           jsonp_string( gui, "vote_account", vote_account_base58 );
-          jsonp_ulong( gui, "activated_stake", gui->vote_account.vote_accounts[ vote_idxs[ i ] ].activated_stake );
+          jsonp_ulong_as_str( gui, "activated_stake", gui->vote_account.vote_accounts[ vote_idxs[ i ] ].activated_stake );
           jsonp_ulong( gui, "last_vote", gui->vote_account.vote_accounts[ vote_idxs[ i ] ].last_vote );
           jsonp_ulong( gui, "root_slot", gui->vote_account.vote_accounts[ vote_idxs[ i ] ].root_slot );
           jsonp_ulong( gui, "epoch_credits", gui->vote_account.vote_accounts[ vote_idxs[ i ] ].epoch_credits );
@@ -985,7 +1001,7 @@ fd_gui_printf_ts_tile_timers( fd_gui_t *                   gui,
                               fd_gui_tile_timers_t const * prev,
                               fd_gui_tile_timers_t const * cur ) {
   jsonp_open_object( gui, NULL );
-    jsonp_ulong( gui, "timestamp_nanos", 0 );
+    jsonp_ulong_as_str( gui, "timestamp_nanos", 0 );
     jsonp_open_array( gui, "tile_timers" );
       fd_gui_printf_tile_timers( gui, prev, cur );
     jsonp_close_array( gui );
@@ -1024,7 +1040,7 @@ fd_gui_printf_slot( fd_gui_t * gui,
         if( FD_UNLIKELY( duration_nanos==LONG_MAX ) ) jsonp_null( gui, "duration_nanos" );
         else                                          jsonp_long( gui, "duration_nanos", duration_nanos );
         if( FD_UNLIKELY( slot->completed_time==LONG_MAX ) ) jsonp_null( gui, "completed_time_nanos" );
-        else                                                jsonp_long( gui, "completed_time_nanos", slot->completed_time );
+        else                                                jsonp_long_as_str( gui, "completed_time_nanos", slot->completed_time );
         jsonp_string( gui, "level", level );
         if( FD_UNLIKELY( slot->total_txn_cnt==UINT_MAX ) ) jsonp_null( gui, "transactions" );
         else                                               jsonp_ulong( gui, "transactions", slot->total_txn_cnt );
@@ -1035,11 +1051,11 @@ fd_gui_printf_slot( fd_gui_t * gui,
         if( FD_UNLIKELY( slot->compute_units==UINT_MAX ) ) jsonp_null( gui, "compute_units" );
         else                                               jsonp_ulong( gui, "compute_units", slot->compute_units );
         if( FD_UNLIKELY( slot->transaction_fee==ULONG_MAX ) ) jsonp_null( gui, "transaction_fee" );
-        else                                                  jsonp_ulong( gui, "transaction_fee", slot->transaction_fee );
+        else                                                  jsonp_ulong_as_str( gui, "transaction_fee", slot->transaction_fee );
         if( FD_UNLIKELY( slot->priority_fee==ULONG_MAX ) ) jsonp_null( gui, "priority_fee" );
-        else                                               jsonp_ulong( gui, "priority_fee", slot->priority_fee );
+        else                                               jsonp_ulong_as_str( gui, "priority_fee", slot->priority_fee );
         if( FD_UNLIKELY( slot->tips==ULONG_MAX ) ) jsonp_null( gui, "tips" );
-        else                                       jsonp_ulong( gui, "tips", slot->tips );
+        else                                       jsonp_ulong_as_str( gui, "tips", slot->tips );
       jsonp_close_object( gui );
     jsonp_close_object( gui );
   jsonp_close_envelope( gui );
@@ -1252,8 +1268,8 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
       if( FD_LIKELY( !overwritten && processed_all_microblocks ) ) {
         jsonp_open_object( gui, "compute_units" );
           jsonp_ulong( gui, "max_compute_units", slot->cus.max_compute_units );
-          jsonp_long( gui, "start_timestamp_nanos", slot->cus.leader_start_time );
-          jsonp_long( gui, "target_end_timestamp_nanos", slot->cus.leader_end_time );
+          jsonp_long_as_str( gui, "start_timestamp_nanos", slot->cus.leader_start_time );
+          jsonp_long_as_str( gui, "target_end_timestamp_nanos", slot->cus.leader_end_time );
           jsonp_open_array( gui, "compute_unit_timestamps_nanos" );
             uint bank_offset[ 65 ];
             int has_offset[ 65 ];
@@ -1262,7 +1278,7 @@ fd_gui_printf_slot_request_detailed( fd_gui_t * gui,
             ulong offset;
             while( (offset=cus_scan_next( gui, slot, has_offset, bank_offset ))!=ULONG_MAX ) {
               long timestamp = fd_gui_cu_history_decompress_timestamp( slot->cus.reference_nanos, gui->cus.history[ offset%FD_GUI_COMPUTE_UNITS_HISTORY_SZ ] );
-              jsonp_long( gui, NULL, timestamp );
+              jsonp_long_as_str( gui, NULL, timestamp );
             }
           jsonp_close_array( gui );
           jsonp_open_array( gui, "compute_units_deltas" );
