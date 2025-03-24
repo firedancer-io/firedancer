@@ -387,8 +387,9 @@ fd_log_collector_program_invoke( fd_exec_instr_ctx_t * ctx ) {
     return;
   }
 
+  fd_pubkey_t const * program_id_pubkey = &ctx->txn_ctx->account_keys[ ctx->instr->program_id ];
   /* Cache ctx->program_id_base58 */
-  fd_base58_encode_32( ctx->instr->program_id_pubkey.uc, NULL, ctx->program_id_base58 );
+  fd_base58_encode_32( program_id_pubkey->uc, NULL, ctx->program_id_base58 );
   /* Max msg_sz: 22 - 4 + 44 + 10 = 72 < 127 => we can use printf */
   fd_log_collector_printf_dangerous_max_127( ctx, "Program %s invoke [%u]", ctx->program_id_base58, ctx->depth+1 );
 }
