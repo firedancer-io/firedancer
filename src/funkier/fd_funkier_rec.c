@@ -246,12 +246,15 @@ fd_funkier_rec_publish( fd_funkier_rec_prepare_t * prepare ) {
     if( FD_ATOMIC_CAS( rec_tail_idx, rec_prev_idx, rec_idx ) == rec_prev_idx ) break;
     FD_COMPILER_MFENCE(); /* TODO: maybe not necessary */
   }
+
+  fd_funkier_rec_pool_lock( &rec_pool, 1 );
   rec->prev_idx = rec_prev_idx;
   if( fd_funkier_rec_idx_is_null( rec_prev_idx ) ) {
     *rec_head_idx = rec_idx;
   } else {
     rec_pool.ele[ rec_prev_idx ].next_idx = rec_idx;
   }
+  fd_funkier_rec_pool_unlock( &rec_pool );
 
   if( fd_funkier_rec_map_insert( &rec_map, rec, FD_MAP_FLAG_BLOCKING ) ) {
     FD_LOG_CRIT(( "fd_funkier_rec_map_insert failed" ));
@@ -336,6 +339,7 @@ fd_funkier_rec_hard_remove( fd_funkier_t *               funk,
     break;
   }
 
+  fd_funkier_rec_pool_lock( &rec_pool, 1 );
   ulong prev_idx = rec->prev_idx;
   ulong next_idx = rec->next_idx;
   if( txn == NULL ) {
@@ -349,6 +353,7 @@ fd_funkier_rec_hard_remove( fd_funkier_t *               funk,
     if( fd_funkier_rec_idx_is_null( next_idx ) ) txn->rec_tail_idx =                prev_idx;
     else                                         rec_pool.ele[ next_idx ].prev_idx = prev_idx;
   }
+  fd_funkier_rec_pool_unlock( &rec_pool );
 
   fd_funkier_val_flush( rec, alloc, wksp );
   fd_funkier_rec_pool_release( &rec_pool, rec, 1 );
