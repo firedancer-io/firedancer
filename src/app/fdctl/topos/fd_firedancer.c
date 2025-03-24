@@ -9,6 +9,7 @@
 #include "../../../disco/topo/fd_topob.h"
 #include "../../../disco/topo/fd_cpu_topo.h"
 #include "../../../disco/topo/fd_pod_format.h"
+#include "../../../disco/archiver/fd_archiver.h"
 #include "../../../flamenco/runtime/fd_blockstore.h"
 #include "../../../flamenco/runtime/fd_runtime.h"
 #include "../../../flamenco/runtime/fd_txncache.h"
@@ -242,6 +243,13 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "btpool"     );
   fd_topob_wksp( topo, "constipate" );
   fd_topob_wksp( topo, "restart"    );
+  if( config->tiles.archiver.playback ) {
+    fd_topob_wksp( topo, "arch_p"     );
+    fd_topob_wksp( topo, "pb_shred"   );
+  } else {
+    fd_topob_wksp( topo, "arch_f"     );
+    fd_topob_wksp( topo, "arch_w"     );
+  }
 
   if( enable_rpc ) fd_topob_wksp( topo, "rpcsrv" );
 
@@ -301,6 +309,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "rstart_store", "rstart_store", 128UL,                                    sizeof(ulong) * 2,             1UL );
   /**/                 fd_topob_link( topo, "store_rstart", "store_rstart", 128UL,                                    sizeof(fd_funk_txn_xid_t),     1UL );
 
+
   ushort parsed_tile_to_cpu[ FD_TILE_MAX ];
   /* Unassigned tiles will be floating, unless auto topology is enabled. */
   for( ulong i=0UL; i<FD_TILE_MAX; i++ ) parsed_tile_to_cpu[ i ] = USHORT_MAX;
@@ -359,6 +368,13 @@ fd_topo_initialize( config_t * config ) {
   /**/                             fd_topob_tile( topo, "batch",   "batch",   "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
   /* These thread tiles must be defined immediately after the snapshot tile. */
   FOR(batch_tpool_thread_count-1)  fd_topob_tile( topo, "btpool",  "btpool",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+
+  if( config->tiles.archiver.playback ) {
+  /**/                             fd_topob_tile( topo, "arch_p",  "arch_p",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+  } else {
+  /**/                             fd_topob_tile( topo, "arch_f",  "arch_f",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+  /**/                             fd_topob_tile( topo, "arch_w",  "arch_w",  "metric_in",  tile_to_cpu[ topo->tile_cnt ], 0,        0 );
+  }
 
   /* TODO: not launching the restart tile if in_wen_restart is false */
   //if( FD_UNLIKELY( config->tiles.restart.in_wen_restart ) ) {
@@ -476,8 +492,27 @@ fd_topo_initialize( config_t * config ) {
   /**/             fd_topos_tile_in_net(  topo,                          "metric_in", "gossip_net",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/             fd_topos_tile_in_net(  topo,                          "metric_in", "repair_net",   0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
 
-  FOR(shred_tile_cnt) for( ulong j=0UL; j<net_tile_cnt; j++ )
-                       fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "net_shred",     j,            FD_TOPOB_UNRELIABLE,   FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+
+  /* TODO: this does not work if shred_tile_cnt>1 or net_tile_cnt>1 */
+  FD_TEST( shred_tile_cnt==1 );
+  FD_TEST( net_tile_cnt==1 );
+  if( config->tiles.archiver.playback ) {
+    /* playback->shred */
+  /**/                 fd_topob_link( topo, "pb_shred",   "pb_shred",   128UL,                                    FD_NET_MTU+sizeof(fd_archiver_frag_header_t),     1UL );
+  /**/                 fd_topob_tile_out( topo, "arch_p", 0UL,                        "pb_shred",      0UL                                                    );
+                       fd_topob_tile_in(  topo, "shred",  0UL,             "metric_in", "pb_shred",    0UL,            FD_TOPOB_UNRELIABLE,   FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+                       fd_topob_tile_in(  topo, "bhole",   0UL,            "metric_in", "net_shred",  0UL,         FD_TOPOB_UNRELIABLE,   FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  } else {
+    /* net->shred */
+                       fd_topob_tile_in(  topo, "shred",   0UL,             "metric_in", "net_shred",  0UL,         FD_TOPOB_UNRELIABLE,   FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+  /**/                 fd_topob_tile_in(  topo, "arch_f",  0UL,          "metric_in", "net_shred",     0UL,         FD_TOPOB_UNRELIABLE,   FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
+
+  fd_topob_wksp( topo, "arch_f2w_s" );
+  /**/                 fd_topob_link( topo, "arch_f2w_s",   "arch_f2w_s",   128UL,                                    FD_NET_MTU+sizeof(fd_archiver_frag_header_t),     1UL );
+  /**/                 fd_topob_tile_out( topo, "arch_f",  0UL,                       "arch_f2w_s",    0UL                                                 );
+  /**/                 fd_topob_tile_in(  topo, "arch_w",  0UL,          "metric_in", "arch_f2w_s",    0UL,         FD_TOPOB_UNRELIABLE,   FD_TOPOB_POLLED );
+  }
+
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "poh_shred",     0UL,          FD_TOPOB_RELIABLE,     FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "stake_out",     0UL,          FD_TOPOB_RELIABLE,     FD_TOPOB_POLLED );
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "shred",  i,             "metric_in", "crds_shred",    0UL,          FD_TOPOB_RELIABLE,     FD_TOPOB_POLLED );
@@ -809,6 +844,10 @@ fd_topo_initialize( config_t * config ) {
       strncpy( tile->restart.identity_key_path, config->consensus.identity_path, sizeof(tile->restart.identity_key_path) );
       fd_memcpy( tile->restart.genesis_hash, config->tiles.restart.genesis_hash, FD_BASE58_ENCODED_32_SZ );
       fd_memcpy( tile->restart.restart_coordinator, config->tiles.restart.wen_restart_coordinator, FD_BASE58_ENCODED_32_SZ );
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "arch_f" ) ) ) {
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "arch_w" ) || !strcmp( tile->name, "arch_p" )) ) {
+      tile->archiver.playback = config->tiles.archiver.playback;
+      strncpy( tile->archiver.archive_path, config->tiles.archiver.archive_path, sizeof(tile->archiver.archive_path) );
     } else {
       FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
     }

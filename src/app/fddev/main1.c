@@ -69,6 +69,9 @@ extern fd_topo_run_tile_t fd_tile_eqvoc;
 extern fd_topo_run_tile_t fd_tile_rpcserv;
 extern fd_topo_run_tile_t fd_tile_restart;
 extern fd_topo_run_tile_t fd_tile_blackhole;
+extern fd_topo_run_tile_t fd_tile_archiver_feeder;
+extern fd_topo_run_tile_t fd_tile_archiver_writer;
+extern fd_topo_run_tile_t fd_tile_archiver_playback;
 #else
 extern fd_topo_run_tile_t fd_tile_resolv;
 extern fd_topo_run_tile_t fd_tile_poh;
@@ -110,6 +113,9 @@ fd_topo_run_tile_t * TILES[] = {
   &fd_tile_rpcserv,
   &fd_tile_restart,
   &fd_tile_blackhole,
+  &fd_tile_archiver_feeder,
+  &fd_tile_archiver_writer,
+  &fd_tile_archiver_playback,
 #else
   &fd_tile_resolv,
   &fd_tile_poh,

@@ -300,6 +300,7 @@ before_frag( fd_shred_ctx_t * ctx,
              ulong            in_idx,
              ulong            seq,
              ulong            sig ) {
+  FD_LOG_NOTICE(( "shred tile receives from in_idx=%lu, kind=%d", in_idx, ctx->in_kind[ in_idx ] ));
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_POH ) ) ctx->poh_in_expect_seq = seq+1UL;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_NET ) )     return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_SHRED;
@@ -870,6 +871,7 @@ unprivileged_init( fd_topo_t *      topo,
     fd_topo_wksp_t const * link_wksp = &topo->workspaces[ topo->objs[ link->dcache_obj_id ].wksp_id ];
 
     if( FD_LIKELY(      !strcmp( link->name, "net_shred"   ) ) ) ctx->in_kind[ i ] = IN_KIND_NET;
+    else if( FD_LIKELY( !strcmp( link->name, "pb_shred"   ) ) )  ctx->in_kind[ i ] = IN_KIND_NET;
     else if( FD_LIKELY( !strcmp( link->name, "poh_shred"   ) ) ) ctx->in_kind[ i ] = IN_KIND_POH;
     else if( FD_LIKELY( !strcmp( link->name, "stake_out"   ) ) ) ctx->in_kind[ i ] = IN_KIND_STAKE;
     else if( FD_LIKELY( !strcmp( link->name, "crds_shred"  ) ) ) ctx->in_kind[ i ] = IN_KIND_CONTACT;

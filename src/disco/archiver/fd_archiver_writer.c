@@ -118,7 +118,7 @@ privileged_init( fd_topo_t *      topo,
     FD_SCRATCH_ALLOC_APPEND( l, fd_alloc_align(), fd_alloc_footprint() );
     FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
 
-    tile->archiver.archive_fd = open( tile->archiver.archive_path, O_RDWR | O_CREAT | O_DIRECT, 0666 );
+    tile->archiver.archive_fd = open( tile->archiver.archive_path, O_RDWR | O_CREAT, 0666 );
     if ( FD_UNLIKELY( tile->archiver.archive_fd == -1 ) ) {
       FD_LOG_ERR(( "failed to open or create archive file %s %d %d %s", tile->archiver.archive_path, tile->archiver.archive_fd, errno, strerror(errno) ));
     }
@@ -190,10 +190,10 @@ during_frag( fd_archiver_writer_tile_ctx_t * ctx,
              ulong                           in_idx,
              ulong                           seq     FD_PARAM_UNUSED,
              ulong                           sig     FD_PARAM_UNUSED,
-             ulong                           tspub   FD_PARAM_UNUSED,
              ulong                           chunk,
-             ulong                           sz ) {
-  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark ) ) {
+             ulong                           sz,
+             ulong                           ctl FD_PARAM_UNUSED ) {
+  if( FD_UNLIKELY( chunk<ctx->in[ in_idx ].chunk0 || chunk>ctx->in[ in_idx ].wmark || sz<FD_ARCHIVER_FRAG_HEADER_FOOTPRINT ) ) {
     FD_LOG_ERR(( "chunk %lu %lu corrupt, not in range [%lu,%lu]", chunk, sz, ctx->in[ in_idx ].chunk0, ctx->in[ in_idx ].wmark ));
   }
 
@@ -235,6 +235,18 @@ after_frag( fd_archiver_writer_tile_ctx_t * ctx,
   int err = fd_io_buffered_ostream_write( &ctx->archive_ostream, ctx->frag_buf, sz );
   if( FD_UNLIKELY( err != 0 ) ) {
     FD_LOG_WARNING(( "failed to write %lu bytes to output buffer. error: %d", sz, err ));
+  }
+
+  if( FD_UNLIKELY( ctx->stats.net_shred_in_cnt%400==0 ) ) {
+    err = fd_io_buffered_ostream_flush( &ctx->archive_ostream );
+    if( FD_UNLIKELY( err != 0 ) ) {
+      FD_LOG_WARNING(( "failed to flush the output buffer. error: %d", err ));
+    }
+    FD_LOG_NOTICE(( "Yunhao: writer archives repair=%lu, gossip=%lu, shred=%lu, quic=%lu",
+                    ctx->stats.net_repair_in_cnt,
+                    ctx->stats.net_gossip_in_cnt,
+                    ctx->stats.net_shred_in_cnt,
+                    ctx->stats.net_quic_in_cnt ));
   }
 }
 

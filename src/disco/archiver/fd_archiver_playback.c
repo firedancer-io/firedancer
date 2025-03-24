@@ -63,6 +63,9 @@ struct fd_archiver_playback_tile_ctx {
 
   fd_alloc_t * alloc;
   fd_valloc_t  valloc;
+
+  ulong tmp;
+  ulong tmp_finish;
 };
 typedef struct fd_archiver_playback_tile_ctx fd_archiver_playback_tile_ctx_t;
 
@@ -174,6 +177,9 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->out[ i ].wmark  = fd_dcache_compact_wmark( link_wksp->wksp, link->dcache, link->mtu );
     ctx->out[ i ].chunk  = ctx->out[ i ].chunk0;
   }
+
+  ctx->tmp        = 0;
+  ctx->tmp_finish = 0;
 }
 
 static void
@@ -186,6 +192,8 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
               fd_stem_context_t *                   stem,
               int *                                 opt_poll_in FD_PARAM_UNUSED,
               int *                                 charge_busy FD_PARAM_UNUSED ) {
+  if( ctx->tmp_finish ) return;
+
   /* Peek the header without consuming anything, to see if we need to wait */
   char const * peek = fd_io_buffered_istream_peek( &ctx->istream );
   if( FD_UNLIKELY(( !peek )) ) {
@@ -195,13 +203,15 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
   /* Consume the header */
   fd_archiver_frag_header_t * header = fd_type_pun( (char *)peek );
   if( FD_UNLIKELY( header->magic != FD_ARCHIVER_HEADER_MAGIC ) ) {
-    FD_LOG_ERR(( "bad magic in archive header: %lu", header->magic ));
+    FD_LOG_WARNING(( "bad magic in archive header: %lu", header->magic ));
+    ctx->tmp_finish = 1;
+    return;
   }
 
   /* Determine if we should wait before publishing this */
   /* need to delay if now > (when we should publish it)  */
   if( ctx->prev_publish_time != 0UL &&
-    ( ctx->now < ( ctx->prev_publish_time + header->ns_since_prev_fragment - 500000000 ) )) {
+    ( ctx->now < ( ctx->prev_publish_time + header->ns_since_prev_fragment ) )) {
     return;
   }
 
@@ -230,6 +240,7 @@ after_credit( fd_archiver_playback_tile_ctx_t *     ctx,
     FD_LOG_ERR(( "failed to consume header" ));
   }
 
+  FD_LOG_NOTICE(( "Yunhao: playback a net frag, out_link_idx=%lu num=%lu", out_link_idx, ctx->tmp++ ));
   /* Consume the fragment from the stream */
   uchar       * dst      = (uchar *)fd_chunk_to_laddr( ctx->out[ out_link_idx ].mem, ctx->out[ out_link_idx ].chunk );
   fd_io_buffered_istream_read( &ctx->istream, dst, header_tmp.sz );

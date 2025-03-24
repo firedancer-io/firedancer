@@ -310,6 +310,7 @@ after_frag( fd_store_tile_ctx_t * ctx,
     }
     // TODO: improve return value of api to not use < OK
 
+    FD_LOG_NOTICE(( "storei tile inserts shred slot=%lu, idx=%u from shred tile", shred->slot, shred->idx ));
     if( fd_store_shred_insert( ctx->store, shred ) < FD_BLOCKSTORE_SUCCESS ) {
       FD_LOG_ERR(( "failed inserting to blockstore" ));
     } else if ( ctx->shred_cap_ctx.is_archive ) {
