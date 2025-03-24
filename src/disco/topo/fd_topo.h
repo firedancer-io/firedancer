@@ -381,6 +381,10 @@ typedef struct {
     } sender;
 
     struct {
+      char   identity_key_path[ PATH_MAX ];
+    } tower;
+
+    struct {
       char  identity_key_path[ PATH_MAX ];
     } eqvoc;
 

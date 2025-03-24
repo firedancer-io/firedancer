@@ -273,7 +273,7 @@ struct fd_block_info {
   ulong     block_height;
   fd_hash_t block_hash;
   fd_hash_t bank_hash;
-  fd_hash_t merkle_hash;    /* the last FEC set's merkle hash */
+  fd_hash_t block_id;       /* the last FEC set's merkle hash */
   ulong     fec_cnt;        /* the number of FEC sets in the slot */
   uchar     flags;
   long      ts;             /* the wallclock time when we finished receiving the block. */
@@ -936,6 +936,9 @@ fd_blockstore_log_block_status( fd_blockstore_t * blockstore, ulong around_slot 
 
 void
 fd_blockstore_log_mem_usage( fd_blockstore_t * blockstore );
+
+void
+fd_blockstore_block_id_update( fd_blockstore_t * blockstore, ulong slot, fd_hash_t const * merkle_hash );
 
 FD_PROTOTYPES_END
 

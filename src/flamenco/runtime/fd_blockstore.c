@@ -1207,6 +1207,16 @@ fd_blockstore_block_height_update( fd_blockstore_t * blockstore, ulong slot, ulo
 }
 
 void
+fd_blockstore_block_id_update( fd_blockstore_t * blockstore, ulong slot, fd_hash_t const * merkle_hash ){
+  fd_block_map_query_t query[1] = { 0 };
+  int err = fd_block_map_prepare( blockstore->block_map, &slot, NULL, query, FD_MAP_FLAG_BLOCKING );
+  fd_block_info_t * block_info = fd_block_map_query_ele( query );
+  if( FD_UNLIKELY( err || block_info->slot != slot ) ) return;
+  memcpy( &block_info->block_id, merkle_hash, sizeof( fd_hash_t ) );
+  fd_block_map_publish( query );
+}
+
+void
 fd_blockstore_log_block_status( fd_blockstore_t * blockstore, ulong around_slot ) {
   fd_block_map_query_t query[1] = { 0 };
   uint received_idx = 0;
