@@ -7,6 +7,8 @@
 #include "../fd_choreo_base.h"
 #include "../ghost/fd_ghost.h"
 #include "../voter/fd_voter.h"
+#include "../../util/bits/fd_bits.h"
+
 
 /* FD_FORKS_USE_HANDHOLDING:  Define this to non-zero at compile time
    to turn on additional runtime checks and logging. */
@@ -59,8 +61,12 @@ typedef struct fd_fork fd_fork_t;
                has rooted it or any of its descendants. */
 
 struct fd_forks {
-  fd_fork_frontier_t * frontier; /* map of slot->fd_fork_t */
-  fd_fork_t *          pool;     /* memory pool of fd_fork_t */
+  //fd_fork_frontier_t * frontier; /* map of slot->fd_fork_t */
+  //fd_fork_t *          pool;     /* memory pool of fd_fork_t */
+  ulong                forks_gaddr;
+  ulong                fork_pool_gaddr;
+  ulong                frontier_gaddr;
+
   ulong                processed;
   ulong                confirmed;
   ulong                finalized;
@@ -132,8 +138,34 @@ fd_forks_delete( void * forks );
    In general, this should be called by the same process that formatted
    forks' memory, ie. the caller of fd_forks_new. */
 
+FD_FN_PURE static inline fd_wksp_t *
+fd_forks_wksp( fd_forks_t const * forks ) {
+   return (fd_wksp_t *)( ( (ulong)forks ) - forks->forks_gaddr );
+}
+
 fd_fork_t *
 fd_forks_init( fd_forks_t * forks, fd_exec_slot_ctx_t const * slot_ctx );
+
+FD_FN_PURE static inline fd_fork_t *
+fd_forks_pool( fd_forks_t * forks ) {
+  return fd_wksp_laddr_fast( fd_forks_wksp( forks ), forks->fork_pool_gaddr );
+}
+
+FD_FN_PURE static inline fd_fork_t const *
+fd_forks_pool_const( fd_forks_t const * forks ) {
+  return fd_wksp_laddr_fast( fd_forks_wksp( forks ), forks->fork_pool_gaddr );
+}
+
+FD_FN_PURE static inline fd_fork_frontier_t *
+fd_forks_frontier( fd_forks_t * forks ) {
+  return fd_wksp_laddr_fast( fd_forks_wksp( forks ), forks->frontier_gaddr );
+}
+
+FD_FN_PURE static inline fd_fork_frontier_t const *
+fd_forks_frontier_const( fd_forks_t const * forks ) {
+  return fd_wksp_laddr_fast( fd_forks_wksp( forks ), forks->frontier_gaddr );
+}
+
 
 /* fd_forks_query queries for the fork corresponding to slot in the
    frontier.  Returns the fork if found, otherwise NULL. */
@@ -171,7 +203,7 @@ fd_forks_advance( fd_forks_t const * forks, fd_fork_t * fork, ulong slot );
    already rooted past it. */
 
 fd_fork_t *
-fd_forks_prepare( fd_forks_t const *    forks,
+fd_forks_prepare( fd_forks_t *          forks,
                   ulong                 parent_slot,
                   fd_acc_mgr_t *        acc_mgr,
                   fd_blockstore_t *     blockstore,

@@ -26,7 +26,25 @@ fd_forks_new( void * shmem, ulong max, ulong seed ) {
     return NULL;
   }
 
+  fd_wksp_t * wksp = fd_wksp_containing( shmem );
+  if( FD_UNLIKELY( !wksp ) ) {
+    FD_LOG_WARNING(( "shmem must be part of a workspace" ));
+    return NULL;
+  }
+
+
   fd_memset( shmem, 0, footprint );
+
+  FD_SCRATCH_ALLOC_INIT( l, shmem );
+  fd_forks_t * forks = FD_SCRATCH_ALLOC_APPEND( l, alignof( fd_forks_t ), sizeof( fd_forks_t ) );
+  void * pool        = FD_SCRATCH_ALLOC_APPEND( l, fd_fork_pool_align(), fd_fork_pool_footprint( max ) );
+  void * frontier    = FD_SCRATCH_ALLOC_APPEND( l, fd_fork_frontier_align(), fd_fork_frontier_footprint( max ) );
+  FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_forks_align() ) == (ulong)shmem + footprint );
+
+  forks->fork_pool_gaddr = fd_wksp_gaddr_fast( wksp, fd_fork_pool_join( fd_fork_pool_new( pool, max ) ) );
+  forks->frontier_gaddr  = fd_wksp_gaddr_fast( wksp, fd_fork_frontier_join( fd_fork_frontier_new( frontier, max, seed ) ) );
+  forks->forks_gaddr     = fd_wksp_gaddr_fast( wksp, forks );
+  /*
   ulong laddr = (ulong)shmem;
 
   laddr = fd_ulong_align_up( laddr, alignof( fd_forks_t ) );
@@ -38,7 +56,7 @@ fd_forks_new( void * shmem, ulong max, ulong seed ) {
 
   laddr = fd_ulong_align_up( laddr, fd_fork_frontier_align() );
   fd_fork_frontier_new( (void *)laddr, max, seed );
-  laddr += fd_fork_frontier_footprint( max );
+  laddr += fd_fork_frontier_footprint( max );*/
 
   return shmem;
 }
@@ -55,21 +73,6 @@ fd_forks_join( void * shforks ) {
     FD_LOG_WARNING( ( "misaligned forks" ) );
     return NULL;
   }
-
-  ulong        laddr = (ulong)shforks;
-  fd_forks_t * forks = (void *)laddr;
-
-  laddr = fd_ulong_align_up( laddr, alignof( fd_forks_t ) );
-  laddr += sizeof( fd_forks_t );
-
-  laddr       = fd_ulong_align_up( laddr, fd_fork_pool_align() );
-  forks->pool = fd_fork_pool_join( (void *)laddr );
-  ulong max   = fd_fork_pool_max( forks->pool );
-  laddr += fd_fork_pool_footprint( max );
-
-  laddr           = fd_ulong_align_up( laddr, fd_fork_frontier_align() );
-  forks->frontier = fd_fork_frontier_join( (void *)laddr );
-  laddr += fd_fork_frontier_footprint( max );
 
   return (fd_forks_t *)shforks;
 }
@@ -114,14 +117,14 @@ fd_forks_init( fd_forks_t * forks, fd_exec_slot_ctx_t const * slot_ctx ) {
     return NULL;
   }
 
-  fd_fork_t * fork = fd_fork_pool_ele_acquire( forks->pool );
+  fd_fork_t * fork = fd_fork_pool_ele_acquire( fd_forks_pool( forks ) );
   fork->slot       = slot_ctx->slot_bank.slot;
-  fork->prev       = fd_fork_pool_idx_null( forks->pool );
+  fork->prev       = fd_fork_pool_idx_null( fd_forks_pool( forks ) );
   fork->lock       = 0;
   fork->slot_ctx   = *slot_ctx; /* this shallow copy is only safe if
                                    the lifetimes of slot_ctx's pointers
                                    are as long as fork */
-  if( FD_UNLIKELY( !fd_fork_frontier_ele_insert( forks->frontier, fork, forks->pool ) ) ) {
+  if( FD_UNLIKELY( !fd_fork_frontier_ele_insert( fd_forks_frontier( forks ), fork, fd_forks_pool( forks ) ) ) ) {
     FD_LOG_WARNING( ( "Failed to insert fork into frontier" ) );
   }
 
@@ -130,12 +133,12 @@ fd_forks_init( fd_forks_t * forks, fd_exec_slot_ctx_t const * slot_ctx ) {
 
 fd_fork_t *
 fd_forks_query( fd_forks_t * forks, ulong slot ) {
-  return fd_fork_frontier_ele_query( forks->frontier, &slot, NULL, forks->pool );
+  return fd_fork_frontier_ele_query( fd_forks_frontier( forks ), &slot, NULL, fd_forks_pool( forks ) );
 }
 
 fd_fork_t const *
 fd_forks_query_const( fd_forks_t const * forks, ulong slot ) {
-  return fd_fork_frontier_ele_query_const( forks->frontier, &slot, NULL, forks->pool );
+  return fd_fork_frontier_ele_query_const( fd_forks_frontier_const( forks ), &slot, NULL, fd_forks_pool_const( forks ));
 }
 
 // fd_fork_t *
@@ -273,7 +276,7 @@ slot_ctx_restore( ulong                 slot,
 }
 
 fd_fork_t *
-fd_forks_prepare( fd_forks_t const *    forks,
+fd_forks_prepare( fd_forks_t *          forks,
                   ulong                 parent_slot,
                   fd_acc_mgr_t *        acc_mgr,
                   fd_blockstore_t *     blockstore,
@@ -289,7 +292,7 @@ fd_forks_prepare( fd_forks_t const *    forks,
 
   /* Query for parent_slot in the frontier. */
 
-  fd_fork_t * fork = fd_fork_frontier_ele_query( forks->frontier, &parent_slot, NULL, forks->pool );
+  fd_fork_t * fork = fd_fork_frontier_ele_query( fd_forks_frontier( forks ), &parent_slot, NULL, fd_forks_pool( forks ) );
 
   /* If the parent block is both present and executed, but isn't in the
      frontier, that means this block is starting a new fork and needs to
@@ -300,8 +303,8 @@ fd_forks_prepare( fd_forks_t const *    forks,
 
     /* Alloc a new slot_ctx */
 
-    fork       = fd_fork_pool_ele_acquire( forks->pool );
-    fork->prev = fd_fork_pool_idx_null( forks->pool );
+    fork       = fd_fork_pool_ele_acquire( fd_forks_pool( forks ) );
+    fork->prev = fd_fork_pool_idx_null( fd_forks_pool( forks ) );
     fork->slot = parent_slot;
     fork->lock = 1;
 
@@ -318,7 +321,7 @@ fd_forks_prepare( fd_forks_t const *    forks,
 
     /* Add to frontier */
 
-    fd_fork_frontier_ele_insert( forks->frontier, fork, forks->pool );
+    fd_fork_frontier_ele_insert( fd_forks_frontier( forks ), fork, fd_forks_pool( forks ) );
   }
 
   return fork;
@@ -330,7 +333,7 @@ fd_forks_update( fd_forks_t *      forks,
                  fd_funk_t *       funk,
                  fd_ghost_t *      ghost,
                  ulong             slot ) {
-  fd_fork_t *     fork = fd_fork_frontier_ele_query( forks->frontier, &slot, NULL, forks->pool );
+  fd_fork_t *     fork = fd_fork_frontier_ele_query( fd_forks_frontier( forks ), &slot, NULL, fd_forks_pool( forks ) );
   fd_funk_txn_t * txn  = fork->slot_ctx.funk_txn;
 
   fd_voter_t * epoch_voters = fd_epoch_voters( epoch );
@@ -395,10 +398,13 @@ fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost ) {
   fd_fork_t * tail = NULL;
   fd_fork_t * curr = NULL;
 
-  for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( forks->frontier, forks->pool );
-       !fd_fork_frontier_iter_done( iter, forks->frontier, forks->pool );
-       iter = fd_fork_frontier_iter_next( iter, forks->frontier, forks->pool ) ) {
-    fd_fork_t * fork = fd_fork_frontier_iter_ele( iter, forks->frontier, forks->pool );
+  fd_fork_frontier_t * frontier = fd_forks_frontier( forks );
+  fd_fork_t          * pool     = fd_forks_pool( forks );
+
+  for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( frontier, pool );
+       !fd_fork_frontier_iter_done( iter, frontier, pool );
+       iter = fd_fork_frontier_iter_next( iter, frontier, pool ) ) {
+    fd_fork_t * fork = fd_fork_frontier_iter_ele( iter, frontier, pool );
 
     /* Prune any forks not in the ancestry from root.
 
@@ -411,35 +417,35 @@ fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost ) {
         tail = fork;
         curr = fork;
       } else {
-        curr->prev = fd_fork_pool_idx( forks->pool, fork );
-        curr       = fd_fork_pool_ele( forks->pool, curr->prev );
+        curr->prev = fd_fork_pool_idx( pool, fork );
+        curr       = fd_fork_pool_ele( pool, curr->prev );
       }
     }
   }
 
   while( FD_UNLIKELY( tail ) ) {
-    fd_fork_t * fork = fd_fork_frontier_ele_query( forks->frontier,
+    fd_fork_t * fork = fd_fork_frontier_ele_query( frontier,
                                                    &tail->slot,
                                                    NULL,
-                                                   forks->pool );
+                                                   pool );
     if( FD_UNLIKELY( !fd_exec_slot_ctx_delete( fd_exec_slot_ctx_leave( &fork->slot_ctx ) ) ) ) {
       FD_LOG_ERR( ( "could not delete fork slot ctx" ) );
     }
-    ulong remove = fd_fork_frontier_idx_remove( forks->frontier,
+    ulong remove = fd_fork_frontier_idx_remove( frontier,
                                                 &tail->slot,
-                                                fd_fork_pool_idx_null( forks->pool ),
-                                                forks->pool );
+                                                fd_fork_pool_idx_null( fd_forks_pool( forks ) ),
+                                                pool );
 #if FD_FORKS_USE_HANDHOLDING
-    if( FD_UNLIKELY( remove == fd_fork_pool_idx_null( forks->pool ) ) ) {
+    if( FD_UNLIKELY( remove == fd_fork_pool_idx_null( fd_forks_pool( forks ) ) ) ) {
       FD_LOG_ERR( ( "failed to remove fork we added to prune." ) );
     }
 #endif
 
     /* pool_idx_release cannot fail given we just removed this from the
       frontier directly above. */
-    fd_fork_pool_idx_release( forks->pool, remove );
-    tail = fd_ptr_if( tail->prev != fd_fork_pool_idx_null( forks->pool ),
-                      fd_fork_pool_ele( forks->pool, tail->prev ),
+    fd_fork_pool_idx_release( fd_forks_pool( forks ), remove );
+    tail = fd_ptr_if( tail->prev != fd_fork_pool_idx_null( pool ),
+                      fd_fork_pool_ele( pool, tail->prev ),
                       NULL );
   }
 }
@@ -449,10 +455,12 @@ fd_forks_publish( fd_forks_t * forks, ulong slot, fd_ghost_t const * ghost ) {
 void
 fd_forks_print( fd_forks_t const * forks ) {
   FD_LOG_NOTICE( ( "\n\n[Forks]" ) );
-  for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( forks->frontier, forks->pool );
-       !fd_fork_frontier_iter_done( iter, forks->frontier, forks->pool );
-       iter = fd_fork_frontier_iter_next( iter, forks->frontier, forks->pool ) ) {
-    printf( "%lu\n", fd_fork_frontier_iter_ele_const( iter, forks->frontier, forks->pool )->slot );
+  fd_fork_frontier_t const * frontier = fd_forks_frontier_const( forks );
+  fd_fork_t const          * pool     = fd_forks_pool_const( forks );
+  for( fd_fork_frontier_iter_t iter = fd_fork_frontier_iter_init( frontier, pool );
+       !fd_fork_frontier_iter_done( iter, frontier, pool );
+       iter = fd_fork_frontier_iter_next( iter, frontier, pool ) ) {
+    printf( "%lu\n", fd_fork_frontier_iter_ele_const( iter, frontier, pool )->slot );
   }
   printf( "\n" );
 }

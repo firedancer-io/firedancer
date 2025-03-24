@@ -10,6 +10,7 @@
 #include "../../../disco/topo/fd_cpu_topo.h"
 #include "../../../disco/topo/fd_pod_format.h"
 #include "../../../flamenco/runtime/fd_blockstore.h"
+#include "../../../choreo/forks/fd_forks.h"
 #include "../../../flamenco/runtime/fd_runtime.h"
 #include "../../../flamenco/runtime/fd_txncache.h"
 #include "../../../util/tile/fd_tile_private.h"
@@ -47,6 +48,19 @@ setup_topo_blockstore( fd_topo_t *  topo,
 
   return obj;
 }
+
+/*static fd_topo_obj_t * FD_FN_UNUSED
+setup_topo_forks( fd_topo_t  * topo,
+                  char const * wksp_name,
+                  ulong        block_max ){
+  fd_topo_obj_t * obj = fd_topob_obj( topo, "forks", wksp_name );
+  ulong forks_footprint = fd_forks_footprint( block_max );
+
+  FD_TEST( fd_pod_insertf_ulong( topo->props, block_max,    "obj.%lu.block_max",  obj->id ) );
+  FD_TEST( fd_pod_insertf_ulong( topo->props, forks_footprint,  "obj.%lu.loose", obj->id ) );
+
+  return obj;
+}*/
 
 fd_topo_obj_t *
 setup_topo_replay_pub( fd_topo_t *  topo, char const * wksp_name ) {
@@ -238,6 +252,7 @@ fd_topo_initialize( config_t * config ) {
   fd_topob_wksp( topo, "voter"      );
   fd_topob_wksp( topo, "poh_slot"   );
   fd_topob_wksp( topo, "tower"      );
+  //fd_topob_wksp( topo, "forks"      );
   fd_topob_wksp( topo, "eqvoc"      );
   fd_topob_wksp( topo, "batch"      );
   fd_topob_wksp( topo, "btpool"     );
@@ -375,8 +390,9 @@ fd_topo_initialize( config_t * config ) {
   fd_topo_tile_t * repair_tile = &topo->tiles[ fd_topo_find_tile( topo, "repair", 0UL ) ];
   fd_topo_tile_t * snaps_tile  = &topo->tiles[ fd_topo_find_tile( topo, "batch",  0UL ) ];
   fd_topo_tile_t * pack_tile   = &topo->tiles[ fd_topo_find_tile( topo, "pack", 0UL ) ];
+  //fd_topo_tile_t * tower_tile  = &topo->tiles[ fd_topo_find_tile( topo, "tower", 0UL ) ];
 
-  /* Create a shared blockstore to be used by store and replay. */
+  /* Create a shared blockstore to be used by shred and replay. */
   fd_topo_obj_t * blockstore_obj = setup_topo_blockstore( topo,
                                                           "bstore",
                                                           config->blockstore.shred_max,
@@ -393,6 +409,13 @@ fd_topo_initialize( config_t * config ) {
   }
 
   FD_TEST( fd_pod_insertf_ulong( topo->props, blockstore_obj->id, "blockstore" ) );
+
+  /* Create a shared forks to be used by replay and tower. */
+  /*fd_topo_obj_t * forks_obj = setup_topo_forks( topo, "forks", config->blockstore.block_max );
+  fd_topob_tile_uses( topo, replay_tile, forks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+  fd_topob_tile_uses( topo, tower_tile,  forks_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
+
+  FD_TEST( fd_pod_insertf_ulong( topo->props, forks_obj->id, "forks" ) );*/
 
   fd_topo_obj_t *  replay_pub_obj = setup_topo_replay_pub( topo, "replay_pub" );
   fd_topob_tile_uses( topo, replay_tile, replay_pub_obj, FD_SHMEM_JOIN_MODE_READ_WRITE );
@@ -534,9 +557,9 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "pack_replay",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "batch_replay",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_out( topo, "replay",  0UL,                       "replay_voter",  0UL                                                  );
+  /**/                 fd_topob_tile_out( topo, "replay",  0UL,                       "replay_tower",  0UL                                                  );
   FOR(bank_tile_cnt)   fd_topob_tile_out( topo, "replay",  0UL,                       "replay_poh",    i                                                    );
 
-  /**/                 fd_topob_tile_out( topo, "replay",  0UL,                       "replay_tower",  0UL                                                  );
   FOR(exec_tile_cnt)   fd_topob_tile_out( topo, "replay",  0UL,                       "replay_exec",   i                                                  ); /* TODO check order in fd_replay.c macros*/
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "shred_replay",  i,            FD_TOPOB_RELIABLE,     FD_TOPOB_POLLED );
 
@@ -812,6 +835,7 @@ fd_topo_initialize( config_t * config ) {
       strncpy( tile->restart.identity_key_path, config->consensus.identity_path, sizeof(tile->restart.identity_key_path) );
       fd_memcpy( tile->restart.genesis_hash, config->tiles.restart.genesis_hash, FD_BASE58_ENCODED_32_SZ );
       fd_memcpy( tile->restart.restart_coordinator, config->tiles.restart.wen_restart_coordinator, FD_BASE58_ENCODED_32_SZ );
+    } else if( FD_UNLIKELY( !strcmp( tile->name, "tower" ) ) ) {
     } else {
       FD_LOG_ERR(( "unknown tile name %lu `%s`", i, tile->name ));
     }

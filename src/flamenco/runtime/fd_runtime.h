@@ -409,6 +409,7 @@ int
 fd_runtime_block_execute_prepare( fd_exec_slot_ctx_t * slot_ctx,
                                   fd_spad_t *          runtime_spad );
 
+/* Freezes slot and saves the slot_ctx to funk. */
 int
 fd_runtime_block_execute_finalize_tpool( fd_exec_slot_ctx_t            * slot_ctx,
                                          fd_capture_ctx_t              * capture_ctx,

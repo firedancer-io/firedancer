@@ -53,7 +53,8 @@
 #define STAKE_OUT_IDX  (0UL)
 #define NOTIF_OUT_IDX  (1UL)
 #define SENDER_OUT_IDX (2UL)
-#define POH_OUT_IDX    (3UL)
+#define TOWER_OUT_IDX  (3UL)
+#define POH_OUT_IDX    (4UL)
 
 #define VOTE_ACC_MAX   (2000000UL)
 
@@ -160,6 +161,12 @@ struct fd_replay_tile_ctx {
   ulong       stake_weights_out_chunk0;
   ulong       stake_weights_out_wmark;
   ulong       stake_weights_out_chunk;
+
+  // Tower output defs
+  fd_wksp_t * tower_out_mem;
+  ulong       tower_out_chunk0;
+  ulong       tower_out_wmark;
+  ulong       tower_out_chunk;
 
   // Inputs to plugin/gui
   ulong       replay_plug_out_idx;
@@ -1309,13 +1316,14 @@ prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
                                        ctx->funk,
                                        ctx->runtime_spad );
   // Remove slot ctx from frontier
-  fd_fork_t * child = fd_fork_frontier_ele_remove( ctx->forks->frontier, &fork->slot, NULL, ctx->forks->pool );
+  fd_fork_frontier_t * frontier = fd_forks_frontier( ctx->forks );
+  fd_fork_t          * pool     = fd_forks_pool( ctx->forks );
+  fd_fork_t * child = fd_fork_frontier_ele_remove( frontier, &fork->slot, NULL, pool );
   child->slot = curr_slot;
-  if( FD_UNLIKELY( fd_fork_frontier_ele_query(
-      ctx->forks->frontier, &curr_slot, NULL, ctx->forks->pool ) ) ) {
+  if( FD_UNLIKELY( fd_fork_frontier_ele_query( frontier, &curr_slot, NULL, pool ) ) ) {
     FD_LOG_ERR( ( "invariant violation: child slot %lu was already in the frontier", curr_slot ) );
   }
-  fd_fork_frontier_ele_insert( ctx->forks->frontier, child, ctx->forks->pool );
+  fd_fork_frontier_ele_insert( frontier, child, pool );
   fork->lock = 1;
   FD_TEST( fork == child );
 
@@ -1532,10 +1540,10 @@ process_and_exec_mbatch( fd_replay_tile_ctx_t * ctx,
     }
 
     /* Now that we have parsed the mblock, we are ready to execute the whole mblock */
-    fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier,
+    fd_fork_t * fork = fd_fork_frontier_ele_query( fd_forks_frontier( ctx->forks ),
                                                    &ctx->curr_slot,
                                                    NULL,
-                                                   ctx->forks->pool );
+                                                   fd_forks_pool( ctx->forks ) );
     if( FD_UNLIKELY( !fork ) ) {
       FD_LOG_ERR(( "Unable to select a fork" ));
     }
@@ -1614,7 +1622,7 @@ prepare_first_batch_execution( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * s
   /* Prepare the fork in ctx->forks for replaying curr_slot             */
   /**********************************************************************/
 
-  fd_fork_t * parent_fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &ctx->parent_slot, NULL, ctx->forks->pool );
+  fd_fork_t * parent_fork = fd_fork_frontier_ele_query( fd_forks_frontier( ctx->forks ), &ctx->parent_slot, NULL, fd_forks_pool( ctx->forks ) );
   if( FD_UNLIKELY( parent_fork && parent_fork->lock ) ) {
     /* This is an edge case related to pack. The parent fork might
        already be in the frontier and currently executing (ie.
@@ -1624,7 +1632,7 @@ prepare_first_batch_execution( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * s
                  ctx->parent_slot ));
   }
 
-  fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &curr_slot, NULL, ctx->forks->pool );
+  fd_fork_t * fork = fd_fork_frontier_ele_query( fd_forks_frontier( ctx->forks ), &curr_slot, NULL, fd_forks_pool( ctx->forks ) );
   if( fork == NULL ) {
     fork = prepare_new_block_execution( ctx, stem, curr_slot, flags );
   }
@@ -1702,10 +1710,10 @@ exec_slices( fd_replay_tile_ctx_t * ctx,
 
       /* dispatch tpool */
 
-      fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier,
+      fd_fork_t * fork = fd_fork_frontier_ele_query( fd_forks_frontier( ctx->forks ),
                                                      &slot,
                                                      NULL,
-                                                     ctx->forks->pool );
+                                                     fd_forks_pool( ctx->forks ) );
       if( FD_UNLIKELY( !fork ) ) {
         FD_LOG_ERR(( "Unable to select a fork" ));
       }
@@ -1821,10 +1829,10 @@ exec_slices( fd_replay_tile_ctx_t * ctx,
     FD_LOG_WARNING(( "[%s] BLOCK EXECUTION COMPLETE", __func__ ));
 
      /* At this point, the entire block has been executed. */
-     fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier,
+     fd_fork_t * fork = fd_fork_frontier_ele_query( fd_forks_frontier( ctx->forks ),
                                                     &slot,
                                                     NULL,
-                                                    ctx->forks->pool );
+                                                    fd_forks_pool( ctx->forks ) );
      if( FD_UNLIKELY( !fork ) ) {
        FD_LOG_ERR(( "Unable to select a fork" ));
      }
@@ -1896,7 +1904,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
   ulong flags       = ctx->flags;
   ulong bank_idx    = ctx->bank_idx;
 
-  fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &ctx->curr_slot, NULL, ctx->forks->pool );
+  fd_fork_t * fork = fd_fork_frontier_ele_query( fd_forks_frontier( ctx->forks ), &ctx->curr_slot, NULL, fd_forks_pool( ctx->forks ) );
 
   /**********************************************************************/
   /* Execute the transactions which were gathered                       */
@@ -2324,7 +2332,7 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
                          fd_stem_context_t *    stem ) {
   uchar * dst = (uchar *)fd_chunk_to_laddr( ctx->votes_plugin_out_mem, ctx->votes_plugin_out_chunk );
 
-  fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &ctx->curr_slot, NULL, ctx->forks->pool );
+  fd_fork_t * fork = fd_fork_frontier_ele_query( fd_forks_frontier( ctx->forks ), &ctx->curr_slot, NULL, fd_forks_pool( ctx->forks ) );
   if( FD_UNLIKELY ( !fork  ) ) return;
   fd_vote_accounts_t * accts = &fork->slot_ctx.slot_bank.epoch_stakes;
   fd_vote_accounts_pair_t_mapnode_t * root = accts->vote_accounts_root;
@@ -2418,7 +2426,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
   ulong flags       = ctx->flags;
   ulong bank_idx    = ctx->bank_idx;
 
-  fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &ctx->curr_slot, NULL, ctx->forks->pool );
+  fd_fork_t * fork = fd_fork_frontier_ele_query( fd_forks_frontier( ctx->forks ), &ctx->curr_slot, NULL, fd_forks_pool( ctx->forks ) );
 
   ulong                 txn_cnt  = ctx->txn_cnt;
   fd_replay_out_ctx_t * bank_out = &ctx->bank_out[ bank_idx ];
@@ -2556,7 +2564,7 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     fd_ghost_print( ctx->ghost, ctx->epoch, fd_ghost_root( ctx->ghost ) );
     fd_tower_print( ctx->tower, ctx->root );
 
-    fd_fork_t * child = fd_fork_frontier_ele_query( ctx->forks->frontier, &fork->slot, NULL, ctx->forks->pool );
+    fd_fork_t * child = fd_fork_frontier_ele_query( fd_forks_frontier( ctx->forks ), &fork->slot, NULL, fd_forks_pool( ctx->forks ) );
     ulong vote_slot   = fd_tower_vote_slot( ctx->tower, ctx->epoch, ctx->funk, child->slot_ctx.funk_txn, ctx->ghost, ctx->runtime_spad );
 
     FD_LOG_NOTICE( ( "\n\n[Fork Selection]\n"
@@ -3042,6 +3050,19 @@ unprivileged_init( fd_topo_t *      topo,
     ctx->capture_ctx->capture_txns = 0;
     fd_solcap_writer_init( ctx->capture_ctx->capture, ctx->capture_file );
   }
+
+  /**********************************************************************/
+  /* tower/consensus                                                    */
+  /**********************************************************************/
+
+  fd_topo_link_t * tower_out_link = &topo->links[ tile->out_link_id[ TOWER_OUT_IDX ] ];
+  if( strcmp( tower_out_link->name, "replay_tower" ) ) {
+    FD_LOG_ERR(( "output link confusion for tower %lu", TOWER_OUT_IDX ));
+  }
+  ctx->tower_out_mem = topo->workspaces[ topo->objs[ tower_out_link->dcache_obj_id ].wksp_id ].wksp;
+  ctx->tower_out_chunk0 = fd_dcache_compact_chunk0( ctx->tower_out_mem, tower_out_link->dcache );
+  ctx->tower_out_wmark = fd_dcache_compact_wmark( ctx->tower_out_mem, tower_out_link->dcache, tower_out_link->mtu );
+  ctx->tower_out_chunk = ctx->tower_out_chunk0;
 
   /**********************************************************************/
   /* bank                                                               */
