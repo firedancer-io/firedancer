@@ -112,52 +112,52 @@ recover_clock( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
        n;
        n = fd_vote_accounts_pair_t_map_successor( vote_accounts_pool, n ) ) {
 
-   /* Extract vote timestamp of account */
+    FD_SPAD_FRAME_BEGIN( runtime_spad ) {
+    /* Extract vote timestamp of account */
 
-   fd_bincode_decode_ctx_t ctx = {
-    .data    = n->elem.value.data,
-    .dataend = n->elem.value.data + n->elem.value.data_len,
-  };
+    fd_bincode_decode_ctx_t ctx = {
+      .data    = n->elem.value.data,
+      .dataend = n->elem.value.data + n->elem.value.data_len,
+    };
 
-  ulong total_sz = 0UL;
-  int err = fd_vote_state_versioned_decode_footprint( &ctx, &total_sz );
-  if( FD_UNLIKELY( err ) ) {
-    FD_LOG_WARNING(( "vote state decode footprint failed" ));
-    return 0;
-  }
+    ulong total_sz = 0UL;
+    int err = fd_vote_state_versioned_decode_footprint( &ctx, &total_sz );
+    if( FD_UNLIKELY( err ) ) {
+      FD_LOG_WARNING(( "vote state decode footprint failed" ));
+      return 0;
+    }
 
-  uchar * mem = fd_spad_alloc( runtime_spad, fd_vote_state_versioned_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate memory for versioned vote state" ));
-  }
+    uchar * mem = fd_spad_alloc( runtime_spad, fd_vote_state_versioned_align(), total_sz );
+    if( FD_UNLIKELY( !mem ) ) {
+      FD_LOG_ERR(( "Unable to allocate memory for versioned vote state" ));
+    }
 
-  fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( mem, &ctx );
+    fd_vote_state_versioned_t * vsv = fd_vote_state_versioned_decode( mem, &ctx );
 
-  long timestamp = 0;
-  ulong slot = 0;
-  switch( vsv->discriminant ) {
-    case fd_vote_state_versioned_enum_v0_23_5:
-      timestamp = vsv->inner.v0_23_5.last_timestamp.timestamp;
-      slot = vsv->inner.v0_23_5.last_timestamp.slot;
-      break;
-    case fd_vote_state_versioned_enum_v1_14_11:
-      timestamp = vsv->inner.v1_14_11.last_timestamp.timestamp;
-      slot = vsv->inner.v1_14_11.last_timestamp.slot;
-      break;
-    case fd_vote_state_versioned_enum_current:
-      timestamp = vsv->inner.current.last_timestamp.timestamp;
-      slot = vsv->inner.current.last_timestamp.slot;
-      break;
-    default:
-      __builtin_unreachable();
-  }
-
-
+    long timestamp = 0;
+    ulong slot = 0;
+    switch( vsv->discriminant ) {
+      case fd_vote_state_versioned_enum_v0_23_5:
+        timestamp = vsv->inner.v0_23_5.last_timestamp.timestamp;
+        slot = vsv->inner.v0_23_5.last_timestamp.slot;
+        break;
+      case fd_vote_state_versioned_enum_v1_14_11:
+        timestamp = vsv->inner.v1_14_11.last_timestamp.timestamp;
+        slot = vsv->inner.v1_14_11.last_timestamp.slot;
+        break;
+      case fd_vote_state_versioned_enum_current:
+        timestamp = vsv->inner.current.last_timestamp.timestamp;
+        slot = vsv->inner.current.last_timestamp.slot;
+        break;
+      default:
+        __builtin_unreachable();
+    }
 
     /* Record timestamp */
     if( slot != 0 || n->elem.stake != 0 ) {
       fd_vote_record_timestamp_vote_with_slot( slot_ctx, &n->elem.key, timestamp, slot );
     }
+    } FD_SPAD_FRAME_END;
   }
 
   return 1;
