@@ -298,14 +298,15 @@ fd_funkier_rec_remove( fd_funkier_t *               funk,
                        ulong                        erase_data );
 
 /*
-fd_funkier_rec_hard_remove completely removes the record from Funk,
-and leaves no tombstone behind.
+  fd_funkier_rec_hard_remove completely removes the record from Funk,
+  and leaves no tombstone behind.
 
-The record will cease to exist in that transaction and any of
-transaction's subsequently created descendants (again, assuming no
-subsequent insert of key). Any information in an erased record is lost.
+  This is a dangerous API. An older version of the record in a
+  parent transaction might be exposed. In other words, the record may
+  appear to go backwards in time. We are effectively reverting an
+  update. Any information in an removed record is lost.
 
-Always succeeds.
+  Always succeeds.
 */
 void
 fd_funkier_rec_hard_remove( fd_funkier_t *               funk,

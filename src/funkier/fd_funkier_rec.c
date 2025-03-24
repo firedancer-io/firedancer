@@ -145,7 +145,10 @@ fd_funkier_rec_query_copy( fd_funkier_t *               funk,
   for(;;) {
     fd_funkier_rec_query_t query[1];
     int err = fd_funkier_rec_map_query_try( &rec_map, pair, NULL, query );
-    if( err == FD_MAP_ERR_KEY )   return NULL;
+    if( err == FD_MAP_ERR_KEY )   {
+      if( last_copy ) fd_valloc_free( valloc, last_copy );
+      return NULL;
+    }
     if( err == FD_MAP_ERR_AGAIN ) continue;
     if( err != FD_MAP_SUCCESS )   FD_LOG_CRIT(( "query returned err %d", err ));
     fd_funkier_rec_t const * rec = fd_funkier_rec_map_query_ele_const( query );
