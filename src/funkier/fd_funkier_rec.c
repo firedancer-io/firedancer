@@ -242,7 +242,9 @@ fd_funkier_rec_publish( fd_funkier_rec_prepare_t * prepare ) {
   ulong rec_idx = (ulong)( rec - rec_pool.ele );
   for(;;) {
     rec_prev_idx = *rec_tail_idx;
+    FD_COMPILER_MFENCE(); /* TODO: maybe not necessary */
     if( FD_ATOMIC_CAS( rec_tail_idx, rec_prev_idx, rec_idx ) == rec_prev_idx ) break;
+    FD_COMPILER_MFENCE(); /* TODO: maybe not necessary */
   }
   rec->prev_idx = rec_prev_idx;
   if( fd_funkier_rec_idx_is_null( rec_prev_idx ) ) {
