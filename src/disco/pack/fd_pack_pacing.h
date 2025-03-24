@@ -15,7 +15,7 @@ struct fd_pack_pacing_private {
   long t_start;
   long t_end;
   /* Number of CUs in the block */
-  ulong max_cus;
+  float max_cus;
 
   float ticks_per_cu;
   float remaining_cus;
@@ -36,15 +36,19 @@ fd_pack_pacing_init( fd_pack_pacing_t * pacer,
                      ulong              max_cus ) {
 
   pacer->t_start = t_start;
-  pacer->t_end   = t_end - (long)((t_end-t_start)/20L); /* try to finish 95% of the way through */
-  pacer->max_cus = max_cus;
+  pacer->t_end   = t_end;
 
   /* Time per CU depends on the hardware, the transaction mix, what
      fraction of the transactions land, etc.  It's hard to just come up
      with a value, but a small sample says 8 ns/CU is in the right
      ballpark. */
-  pacer->ticks_per_cu = 8.0f * ticks_per_ns;
-  pacer->remaining_cus = (float)max_cus;
+  pacer->ticks_per_cu = 6.0f * ticks_per_ns;
+
+  /* Originally, we had all the lines ending 5% before t_end, but the
+     better thing to do is to adjust max_cus up so that the 1 bank line
+     ends 5% before t_end. */
+  pacer->max_cus = (float)max_cus + 0.05f * (float)(t_end-t_start)/pacer->ticks_per_cu;
+  pacer->remaining_cus = pacer->max_cus;
 }
 
 /* fd_pack_pacing_update_consumed_cus notes that the instantaneous value
@@ -61,7 +65,7 @@ fd_pack_pacing_update_consumed_cus( fd_pack_pacing_t * pacer,
   (void)now;
   /* It's possible (but unlikely) that consumed_cus can be greater than
      max_cus, so clamp the value at 0 */
-  pacer->remaining_cus = (float)(fd_ulong_max( pacer->max_cus, consumed_cus ) - consumed_cus);
+  pacer->remaining_cus = fmaxf( pacer->max_cus-(float)consumed_cus, 0.0f );
 }
 
 
@@ -78,10 +82,11 @@ fd_pack_pacing_enabled_bank_cnt( fd_pack_pacing_t const * pacer,
      milliseconds.  That way we pass up the best transaction because it
      conflicts with something actively running as infrequently as
      possible.  To do that, we draw lines through in the time-CU plane
-     that pass through (400 milliseconds, 48M CUs) with slope k*(single
-     bank speed), where k varies between 1 and the number of bank tiles
-     configured.  This splits the plane into several regions, and the
-     region we are in tells us how many bank tiles to use.
+     that pass through approximately (400 milliseconds, 48M CUs) with
+     slope k*(single bank speed), where k varies between 1 and the
+     number of bank tiles configured.  This splits the plane into
+     several regions, and the region we are in tells us how many bank
+     tiles to use.
 
 
        48M -                                                   / /|
