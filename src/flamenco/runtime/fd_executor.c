@@ -1284,8 +1284,17 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
         continue;
       }
 
+      /* Attempt to load the program data account from funk. This prevents any unknown program
+         data accounts from getting loaded into the executable accounts list. If such a program is
+         invoked, the call will fail at the instruction execution level since the programdata
+         account will not exist within the executable accounts list. */
       fd_pubkey_t * programdata_acc = &program_loader_state->inner.program.programdata_address;
-      fd_txn_account_create_from_funk( &txn_ctx->executable_accounts[j], programdata_acc, txn_ctx->acc_mgr, txn_ctx->funk_txn );
+      if( FD_UNLIKELY( fd_txn_account_create_from_funk( &txn_ctx->executable_accounts[j],
+                                                        programdata_acc,
+                                                        txn_ctx->acc_mgr,
+                                                        txn_ctx->funk_txn ) ) ) {
+        continue;
+      }
       j++;
     }
   }
