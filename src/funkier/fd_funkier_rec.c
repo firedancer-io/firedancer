@@ -336,10 +336,17 @@ fd_funkier_rec_hard_remove( fd_funkier_t *               funk,
 
   ulong prev_idx = rec->prev_idx;
   ulong next_idx = rec->next_idx;
-  if( fd_funkier_rec_idx_is_null( prev_idx ) ) funk->rec_head_idx =                next_idx;
-  else                                         rec_pool.ele[ prev_idx ].next_idx = next_idx;
-  if( fd_funkier_rec_idx_is_null( next_idx ) ) funk->rec_tail_idx =                prev_idx;
-  else                                         rec_pool.ele[ next_idx ].prev_idx = prev_idx;
+  if( txn == NULL ) {
+    if( fd_funkier_rec_idx_is_null( prev_idx ) ) funk->rec_head_idx =                next_idx;
+    else                                         rec_pool.ele[ prev_idx ].next_idx = next_idx;
+    if( fd_funkier_rec_idx_is_null( next_idx ) ) funk->rec_tail_idx =                prev_idx;
+    else                                         rec_pool.ele[ next_idx ].prev_idx = prev_idx;
+  } else {
+    if( fd_funkier_rec_idx_is_null( prev_idx ) ) txn->rec_head_idx =                next_idx;
+    else                                         rec_pool.ele[ prev_idx ].next_idx = next_idx;
+    if( fd_funkier_rec_idx_is_null( next_idx ) ) txn->rec_tail_idx =                prev_idx;
+    else                                         rec_pool.ele[ next_idx ].prev_idx = prev_idx;
+  }
 
   fd_funkier_val_flush( rec, alloc, wksp );
   fd_funkier_rec_pool_release( &rec_pool, rec, 1 );
