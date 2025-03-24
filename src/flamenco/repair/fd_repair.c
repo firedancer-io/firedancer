@@ -1286,7 +1286,7 @@ fd_repair_recv_pong(fd_repair_t * glob, fd_gossip_ping_t const * pong, fd_gossip
 
 int
 fd_repair_recv_serv_packet( fd_repair_t *                 glob,
-                            uchar const *                 msg,
+                            uchar *                       msg,
                             ulong                         msglen,
                             fd_repair_peer_addr_t const * peer_addr,
                             uint                          self_ip4_addr ) {
