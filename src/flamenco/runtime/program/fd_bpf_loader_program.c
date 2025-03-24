@@ -530,18 +530,16 @@ fd_bpf_execute( fd_exec_instr_ctx_t * instr_ctx, fd_sbpf_validated_program_t * p
   }
 #endif
 
-  /* https://github.com/anza-xyz/agave/blob/9b22f28104ec5fd606e4bb39442a7600b38bb671/programs/bpf_loader/src/lib.rs#L288-L298 */
+  /* https://github.com/anza-xyz/agave/blob/v2.2.0/programs/bpf_loader/src/lib.rs#L1440-L1447 */
   ulong heap_size = instr_ctx->txn_ctx->heap_size;
   ulong heap_cost = FD_VM_HEAP_COST;
   int heap_err = 0;
   ulong heap_cost_result = calculate_heap_cost( heap_size, heap_cost, &heap_err );
 
-  if( FD_UNLIKELY( heap_err ) ) {
-    return FD_EXECUTOR_INSTR_ERR_GENERIC_ERR;
+  if( FD_UNLIKELY( heap_err || heap_cost_result>vm->cu ) ) {
+    return FD_EXECUTOR_INSTR_ERR_PROGRAM_ENVIRONMENT_SETUP_FAILURE;
   }
-  if( FD_UNLIKELY( heap_cost_result>vm->cu ) ) {
-    return FD_EXECUTOR_INSTR_ERR_COMPUTE_BUDGET_EXCEEDED;
-  }
+
   vm->cu -= heap_cost_result;
 
   int exec_err = fd_vm_exec( vm );
