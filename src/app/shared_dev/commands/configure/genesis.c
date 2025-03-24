@@ -116,7 +116,7 @@ estimate_hashes_per_tick( ulong tick_mhz,
 static ulong
 create_genesis( config_t const * config,
                 uchar *          blob,
-                ulong            blob_sz ) {
+                ulong            blob_max ) {
 
   fd_genesis_options_t options[1];
 
@@ -204,7 +204,7 @@ create_genesis( config_t const * config,
   fd_scratch_attach( scratch_smem, scratch_fmem,
                      sizeof(scratch_smem), sizeof(scratch_fmem)/sizeof(ulong) );
 
-  ulong blob_len = fd_genesis_create( blob, blob_sz, options );
+  ulong blob_sz = fd_genesis_create( blob, blob_max, options );
   if( FD_UNLIKELY( !blob_sz ) ) FD_LOG_ERR(( "Failed to create genesis blob" ));
 
   fd_scratch_detach( NULL );
@@ -214,7 +214,7 @@ create_genesis( config_t const * config,
   fd_keyload_unload( stake_pubkey_, 1 );
   fd_keyload_unload( vote_pubkey_, 1 );
 
-  return blob_len;
+  return blob_sz;
 }
 
 static void
