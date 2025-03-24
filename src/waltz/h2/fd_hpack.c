@@ -1,5 +1,7 @@
 #include "fd_hpack.h"
+#include "fd_h2_base.h"
 #include "fd_hpack_private.h"
+#include "nghttp2_hd_huffman.h"
 #include "../../util/log/fd_log.h"
 
 fd_hpack_static_entry_t const
@@ -97,9 +99,9 @@ fd_hpack_rd_indexed( fd_h2_hdr_t * hdr,
   return FD_H2_SUCCESS;
 }
 
-int
-fd_hpack_rd_next( fd_hpack_rd_t * rd,
-                  fd_h2_hdr_t *   hdr ) {
+static int
+fd_hpack_rd_next_raw( fd_hpack_rd_t * rd,
+                      fd_h2_hdr_t *   hdr ) {
   uchar const * end = rd->src_end;
   if( FD_UNLIKELY( rd->src >= end ) ) FD_LOG_CRIT(( "fd_hpack_rd_next called out of bounds" ));
 
@@ -173,4 +175,54 @@ fd_hpack_rd_next( fd_hpack_rd_t * rd,
 
   /* Unknown HPACK instruction */
   return FD_H2_ERR_COMPRESSION;
+}
+
+/* fd_hpack_decoded_sz_max returns an upper bound for the number of
+   decoded bytes given an arbitrary HPACK Huffman coding of enc_sz
+   bytes.  The smallest HPACK symbol is 5 bits large.  Therefore, the
+   true bound is closer to (enc_sz*8)/5.  To defend against possible
+   bugs in huff_decode_table, we use a more conservative estimate,
+   namely the greatest amount of bytes that nghttp2_hd_huff_decode can
+   produce regardless of the content of huff_decode_table. */
+
+static inline ulong
+fd_hpack_decoded_sz_max( ulong enc_sz ) {
+  return enc_sz*2UL;
+}
+
+int
+fd_hpack_rd_next( fd_hpack_rd_t * hpack_rd,
+                  fd_h2_hdr_t *   hdr,
+                  uchar **        scratch,
+                  uchar *         scratch_end ) {
+  int err = fd_hpack_rd_next_raw( hpack_rd, hdr );
+  if( FD_UNLIKELY( err ) ) return err;
+
+  uchar * scratch_ = *scratch;
+
+  if( hdr->hint & FD_H2_HDR_HINT_NAME_HUFFMAN ) {
+    if( FD_UNLIKELY( scratch_+fd_hpack_decoded_sz_max( hdr->name_len )>scratch_end ) ) return FD_H2_ERR_COMPRESSION;
+    nghttp2_hd_huff_decode_context ctx[1];
+    nghttp2_hd_huff_decode_context_init( ctx );
+    nghttp2_buf buf = { .last = scratch_ };
+    if( FD_UNLIKELY( nghttp2_hd_huff_decode( ctx, &buf, (uchar const *)hdr->name, hdr->name_len, 1 )<0 ) ) return FD_H2_ERR_COMPRESSION;
+    hdr->name     = (char const *)scratch_;
+    hdr->name_len = (ushort)( buf.last-scratch_ );
+    scratch_      = buf.last;
+  }
+
+  if( hdr->hint & FD_H2_HDR_HINT_VALUE_HUFFMAN ) {
+    if( FD_UNLIKELY( scratch_+fd_hpack_decoded_sz_max( hdr->value_len )>scratch_end ) ) return FD_H2_ERR_COMPRESSION;
+    nghttp2_hd_huff_decode_context ctx[1];
+    nghttp2_hd_huff_decode_context_init( ctx );
+    nghttp2_buf buf = { .last = scratch_ };
+    if( FD_UNLIKELY( nghttp2_hd_huff_decode( ctx, &buf, (uchar const *)hdr->value, hdr->value_len, 1 )<0 ) ) return FD_H2_ERR_COMPRESSION;
+    hdr->value     = (char const *)scratch_;
+    hdr->value_len = (ushort)( buf.last-scratch_ );
+    scratch_       = buf.last;
+  }
+
+  *scratch = scratch_;
+  hdr->hint &= (ushort)~FD_H2_HDR_HINT_HUFFMAN;
+  return FD_H2_SUCCESS;
 }
