@@ -100,7 +100,7 @@ fd_repair_recv_clnt_packet( fd_repair_t *                 glob,
    dst_ip4_addr is the dst IPv4 address of the incoming packet (i.e. our IP) */
 int
 fd_repair_recv_serv_packet( fd_repair_t *                 glob,
-                            uchar const *                 msg,
+                            uchar *                       msg,
                             ulong                         msglen,
                             fd_repair_peer_addr_t const * src_addr,
                             uint                          dst_ip4_addr );

@@ -378,7 +378,7 @@ after_frag( fd_repair_tile_ctx_t * ctx,
   fd_eth_hdr_t const * eth  = (fd_eth_hdr_t const *)ctx->buffer;
   fd_ip4_hdr_t const * ip4  = (fd_ip4_hdr_t const *)( (ulong)eth + sizeof(fd_eth_hdr_t) );
   fd_udp_hdr_t const * udp  = (fd_udp_hdr_t const *)( (ulong)ip4 + FD_IP4_GET_LEN( *ip4 ) );
-  uchar const *        data = (uchar        const *)( (ulong)udp + sizeof(fd_udp_hdr_t) );
+  uchar *              data = (uchar              *)( (ulong)udp + sizeof(fd_udp_hdr_t) );
   if( FD_UNLIKELY( (ulong)udp+sizeof(fd_udp_hdr_t) > (ulong)eth+sz ) ) return;
   ulong udp_sz = fd_ushort_bswap( udp->net_len );
   if( FD_UNLIKELY( udp_sz<sizeof(fd_udp_hdr_t) ) ) return;
