@@ -550,9 +550,17 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
         continue;
       }
 
-      fd_pubkey_t *      programdata_acc         = &program_loader_state->inner.program.programdata_address;
-      fd_txn_account_t * executable_account      = fd_txn_account_init( &txn_ctx->executable_accounts[txn_ctx->executable_cnt] );
-      fd_acc_mgr_view(txn_ctx->acc_mgr, txn_ctx->funk_txn, programdata_acc, executable_account);
+      if( !fd_bpf_upgradeable_loader_state_is_program( program_loader_state ) ) {
+        continue;
+      }
+
+      fd_pubkey_t * programdata_acc = &program_loader_state->inner.program.programdata_address;
+      if( FD_UNLIKELY( fd_txn_account_create_from_funk( &txn_ctx->executable_accounts[txn_ctx->executable_cnt],
+                                                        programdata_acc,
+                                                        txn_ctx->acc_mgr,
+                                                        txn_ctx->funk_txn ) ) ) {
+        continue;
+      }
       txn_ctx->executable_cnt++;
     }
   }
