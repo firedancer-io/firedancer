@@ -69,8 +69,12 @@ int fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx ) {
 
   fd_funkier_rec_key_t id      = fd_runtime_slot_bank_key();
   int               opt_err = 0;
-  fd_funkier_rec_prepare_t prepare[1];
+
   fd_funkier_t * funk = slot_ctx->acc_mgr->funk;
+
+  fd_funkier_rec_hard_remove( funk, slot_ctx->funk_txn, &id );
+
+  fd_funkier_rec_prepare_t prepare[1];
   fd_funkier_rec_t * rec = fd_funkier_rec_prepare(funk, slot_ctx->funk_txn, &id, prepare, &opt_err);
   if( !rec ) {
     FD_LOG_WARNING(( "fd_runtime_save_banks failed: %s", fd_funkier_strerror( opt_err ) ));
