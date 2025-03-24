@@ -30,7 +30,7 @@
 
      // Returns 1 if set appears to be point to a valid set, 0 otherwise
      // (e.g. set is NULL, there's corruption in the set zero padding,
-     // etc). 
+     // etc).
 
      int my_set_valid( my_set_t const * set )
 
@@ -179,6 +179,10 @@
 
 FD_STATIC_ASSERT( 1<=SET_MAX && SET_MAX<=2147483584 /* 2^31-64 */, invalid_set_max );
 
+#if FD_TMPL_USE_HANDHOLDING
+#include "../log/fd_log.h"
+#endif
+
 /* Implementation *****************************************************/
 
 #define SET_(x) FD_EXPAND_THEN_CONCAT3(SET_NAME,_,x)
@@ -201,7 +205,14 @@ SET_(private_full_last_word)( void ) {
 FD_FN_CONST static inline ulong SET_(align)    ( void ) { return alignof(ulong); }
 FD_FN_CONST static inline ulong SET_(footprint)( void ) { return 8UL*(ulong)SET_(word_cnt); }
 
-static inline void    * SET_(new)   ( void *    shmem ) { return fd_memset( shmem, 0, SET_(footprint)() ); }
+static inline void *
+SET_(new)( void * shmem ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)shmem, SET_(align)() ) ) ) FD_LOG_CRIT(( "unaligned shmem" ));
+#endif
+  return fd_memset( shmem, 0, SET_(footprint)() );
+}
+
 static inline SET_(t) * SET_(join)  ( void *    shset ) { return (SET_(t) *)shset; }
 static inline void    * SET_(leave) ( SET_(t) * set   ) { return (void *)set; }
 static inline void    * SET_(delete)( void *    shset ) { return shset; }
@@ -210,7 +221,7 @@ FD_FN_CONST static inline ulong SET_(max)( SET_(t) const * set ) { (void)set; re
 
 FD_FN_PURE static inline int
 SET_(valid)( SET_(t) const * set ) {
-  if( FD_UNLIKELY( !set ) ) return 0; /* FIXME: TEST ALIGNMENT TOO? */
+  if( FD_UNLIKELY( !set | !fd_ulong_is_aligned( (ulong)set, SET_(align)() ) ) ) return 0;
   return !(set[ SET_(word_cnt)-1 ] & ~SET_(private_full_last_word()));
 }
 
@@ -289,6 +300,9 @@ FD_FN_CONST static inline ulong SET_(const_iter_done)( ulong j             ) { r
 static inline SET_(t) *
 SET_(insert)( SET_(t) * set,
               ulong     idx ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( idx>=(ulong)(SET_MAX) ) ) FD_LOG_CRIT(( "idx out of bounds" ));
+#endif
   set[ idx >> 6 ] |= 1UL << (idx & 63UL);
   return set;
 }
@@ -296,6 +310,9 @@ SET_(insert)( SET_(t) * set,
 static inline SET_(t) *
 SET_(remove)( SET_(t) * set,
               ulong     idx ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( idx>=(ulong)(SET_MAX) ) ) FD_LOG_CRIT(( "idx out of bounds" ));
+#endif
   set[ idx >> 6 ] &= ~(1UL << (idx & 63UL));
   return set;
 }
@@ -304,6 +321,9 @@ static inline SET_(t) *
 SET_(insert_if)( SET_(t) * set,
                  int       c,
                  ulong     idx ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( idx>=(ulong)(SET_MAX) ) ) FD_LOG_CRIT(( "idx out of bounds" ));
+#endif
   set[ idx >> 6 ] |= ((ulong)!!c) << (idx & 63UL);
   return set;
 }
@@ -312,13 +332,20 @@ static inline SET_(t) *
 SET_(remove_if)( SET_(t) * set,
                  int       c,
                  ulong     idx ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( idx>=(ulong)(SET_MAX) ) ) FD_LOG_CRIT(( "idx out of bounds" ));
+#endif
   set[ idx >> 6 ] &= ~(((ulong)!!c) << (idx & 63UL));
   return set;
 }
 
-FD_FN_PURE static inline int
+FD_FN_PURE
+static inline int
 SET_(test)( SET_(t) const * set,
             ulong           idx ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( idx>=(ulong)(SET_MAX) ) ) FD_LOG_CRIT(( "idx out of bounds" ));
+#endif
   return (int)((set[ idx >> 6 ] >> (idx & 63UL)) & 1UL);
 }
 
@@ -443,4 +470,3 @@ FD_PROTOTYPES_END
 
 #undef SET_MAX
 #undef SET_NAME
-

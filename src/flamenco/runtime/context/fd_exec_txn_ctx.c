@@ -102,20 +102,6 @@ fd_exec_txn_ctx_get_account_view_idx( fd_exec_txn_ctx_t * ctx,
 }
 
 int
-fd_exec_txn_ctx_get_account_view_idx_allow_dead( fd_exec_txn_ctx_t *  ctx,
-                                                 uchar                idx,
-                                                 fd_txn_account_t * * account ) {
-  if( FD_UNLIKELY( idx>=ctx->accounts_cnt ) ) {
-    return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
-  }
-
-  fd_txn_account_t * txn_account = &ctx->accounts[idx];
-  *account = txn_account;
-
-  return FD_ACC_MGR_SUCCESS;
-}
-
-int
 fd_exec_txn_ctx_get_account_view( fd_exec_txn_ctx_t *  ctx,
                                   fd_pubkey_t const *  pubkey,
                                   fd_txn_account_t * * account ) {

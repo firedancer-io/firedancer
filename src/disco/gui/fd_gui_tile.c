@@ -101,16 +101,16 @@ scratch_align( void ) {
   return 128UL;
 }
 
-FD_FN_PURE static inline ulong
+static inline ulong
 scratch_footprint( fd_topo_tile_t const * tile ) {
   ulong http_fp = fd_http_server_footprint( derive_http_params( tile ) );
   if( FD_UNLIKELY( !http_fp ) ) FD_LOG_ERR(( "Invalid [tiles.gui] config parameters" ));
 
   ulong l = FD_LAYOUT_INIT;
   l = FD_LAYOUT_APPEND( l, alignof( fd_gui_ctx_t ), sizeof( fd_gui_ctx_t ) );
-  l = FD_LAYOUT_APPEND( l, fd_http_server_align(), http_fp );
-  l = FD_LAYOUT_APPEND( l, fd_gui_align(),         fd_gui_footprint() );
-  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),       fd_alloc_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_http_server_align(),  http_fp );
+  l = FD_LAYOUT_APPEND( l, fd_gui_align(),          fd_gui_footprint() );
+  l = FD_LAYOUT_APPEND( l, fd_alloc_align(),        fd_alloc_footprint() );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -210,11 +210,8 @@ after_frag( fd_gui_ctx_t *      ctx,
             ulong               tsorig,
             ulong               tspub,
             fd_stem_context_t * stem ) {
-  (void)in_idx;
   (void)seq;
-  (void)sz;
   (void)tsorig;
-  (void)tspub;
   (void)stem;
 
   if( FD_LIKELY( ctx->in_kind[ in_idx ]==IN_KIND_PLUGIN ) ) fd_gui_plugin_message( ctx->gui, sig, ctx->buf );

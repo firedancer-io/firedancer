@@ -92,7 +92,9 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
 
 static void
 create_udp_socket( int    sock_fd,
-                   ushort udp_port ) {
+                   uint   bind_addr,
+                   ushort udp_port,
+                   int    so_rcvbuf ) {
 
   if( fcntl( sock_fd, F_GETFD, 0 )!=-1 ) {
     FD_LOG_ERR(( "file descriptor %d already exists", sock_fd ));
@@ -115,11 +117,13 @@ create_udp_socket( int    sock_fd,
     FD_LOG_ERR(( "setsockopt(IPPROTO_IP,IP_PKTINFO,1) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  /* TODO SO_RCVBUF */
+  if( FD_UNLIKELY( 0!=setsockopt( orig_fd, SOL_SOCKET, SO_RCVBUF, &so_rcvbuf, sizeof(int) ) ) ) {
+    FD_LOG_ERR(( "setsockopt(SOL_SOCKET,SO_RCVBUF,%i) failed (%i-%s)", so_rcvbuf, errno, fd_io_strerror( errno ) ));
+  }
 
   struct sockaddr_in saddr = {
     .sin_family      = AF_INET,
-    .sin_addr.s_addr = 0,
+    .sin_addr.s_addr = bind_addr,
     .sin_port        = fd_ushort_bswap( udp_port ),
   };
   if( FD_UNLIKELY( 0!=bind( orig_fd, fd_type_pun_const( &saddr ), sizeof(struct sockaddr_in) ) ) ) {
@@ -218,7 +222,7 @@ privileged_init( fd_topo_t *      topo,
     }
 
     int sock_fd = sock_fd_min + (int)sock_idx;
-    create_udp_socket( sock_fd, port );
+    create_udp_socket( sock_fd, tile->net.bind_address, port, tile->net.so_rcvbuf );
     ctx->pollfd[ sock_idx ].fd     = sock_fd;
     ctx->pollfd[ sock_idx ].events = POLLIN;
     ctx->sock_cnt++;
@@ -231,7 +235,12 @@ privileged_init( fd_topo_t *      topo,
     FD_LOG_ERR(( "socket(AF_INET,SOCK_RAW|SOCK_CLOEXEC,17) failed (%i-%s)", errno, fd_io_strerror( errno ) ));
   }
 
-  ctx->tx_sock = tx_sock;
+  if( FD_UNLIKELY( 0!=setsockopt( tx_sock, SOL_SOCKET, SO_SNDBUF, &tile->net.so_sndbuf, sizeof(int) ) ) ) {
+    FD_LOG_ERR(( "setsockopt(SOL_SOCKET,SO_SNDBUF,%i) failed (%i-%s)", tile->net.so_sndbuf, errno, fd_io_strerror( errno ) ));
+  }
+
+  ctx->tx_sock      = tx_sock;
+  ctx->bind_address = tile->net.bind_address;
 
 }
 
@@ -523,7 +532,7 @@ during_frag( fd_sock_tile_t * ctx,
   struct in_pktinfo * pi = (struct in_pktinfo *)CMSG_DATA( cmsg );
   pi->ipi_ifindex         = 0;
   pi->ipi_addr.s_addr     = 0;
-  pi->ipi_spec_dst.s_addr = ip_hdr->saddr;
+  pi->ipi_spec_dst.s_addr = fd_uint_if( !!ip_hdr->saddr, ip_hdr->saddr, ctx->bind_address );
 
   *msg = (struct mmsghdr) {
     .msg_hdr = {
@@ -593,6 +602,13 @@ metrics_write( fd_sock_tile_t * ctx ) {
   FD_MCNT_SET( SOCK, TX_DROP_CNT,       ctx->metrics.tx_drop_cnt      );
 }
 
+static ulong
+rlimit_file_cnt( fd_topo_t const *      topo,
+                 fd_topo_tile_t const * tile ) {
+  fd_sock_tile_t * ctx = fd_topo_obj_laddr( topo, tile->tile_obj_id );
+  return RX_SOCK_FD_MIN + ctx->sock_cnt;
+}
+
 #define STEM_CALLBACK_CONTEXT_TYPE  fd_sock_tile_t
 #define STEM_CALLBACK_CONTEXT_ALIGN alignof(fd_sock_tile_t)
 
@@ -606,6 +622,7 @@ metrics_write( fd_sock_tile_t * ctx ) {
 
 fd_topo_run_tile_t fd_tile_sock = {
   .name                     = "sock",
+  .rlimit_file_cnt_fn       = rlimit_file_cnt,
   .populate_allowed_seccomp = populate_allowed_seccomp,
   .populate_allowed_fds     = populate_allowed_fds,
   .scratch_align            = scratch_align,

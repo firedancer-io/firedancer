@@ -360,29 +360,6 @@ fd_executor_verify_precompiles( fd_exec_txn_ctx_t * txn_ctx ) {
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-
-/* Only accounts in the transaction account keys that are owned by one of the four
-   loaders (bpf v1, v2, v3, v4) are iterated over in Agave's replenish_program_cache()
-   function to be loaded into the program cache. An account may be in the program cache
-   iff the owners match one of the four loaders since `filter_executable_program_accounts()`
-   filters out all other accounts here:
-   https://github.com/anza-xyz/agave/blob/v2.1/svm/src/transaction_processor.rs#L530-L560
-   If this check holds true, the account is promoted to an executable account within
-   `fd_execute_load_transaction_accounts()`, which sadly involves modifying its read-only metadata
-   to set the `executable` flag to true.
-
-   Note that although the v4 loader is not yet activated, Agave still checks that the
-   owner matches one of the four bpf loaders provided in the hyperlink below
-   within `filter_executable_program_accounts()`:
-   https://github.com/anza-xyz/agave/blob/v2.1/sdk/account/src/lib.rs#L800-L806 */
-FD_FN_PURE static inline int
-is_maybe_in_loaded_program_cache( fd_txn_account_t const * acct ) {
-  return !memcmp( acct->const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key,  sizeof(fd_pubkey_t) ) ||
-         !memcmp( acct->const_meta->info.owner, fd_solana_bpf_loader_program_id.key,             sizeof(fd_pubkey_t) ) ||
-         !memcmp( acct->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ||
-         !memcmp( acct->const_meta->info.owner, fd_solana_bpf_loader_v4_program_id.key,          sizeof(fd_pubkey_t) );
-}
-
 /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L410-427 */
 static int
 accumulate_and_check_loaded_account_data_size( ulong   acc_size,
@@ -395,232 +372,178 @@ accumulate_and_check_loaded_account_data_size( ulong   acc_size,
   return FD_RUNTIME_EXECUTE_SUCCESS;
 }
 
-/* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L191-L372 */
-int
-fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
-  ulong                 requested_loaded_accounts_data_size = txn_ctx->loaded_accounts_data_size_limit;
-  fd_rawtxn_b_t const * txn_raw                             = txn_ctx->_txn_raw;
-  ushort                instr_cnt                           = txn_ctx->txn_descriptor->instr_cnt;
-
-  /* https://github.com/anza-xyz/agave/blob/v2.1.0/svm/src/account_loader.rs#L323-L337
-     In the agave client, this big chunk of code is responsible for loading in all of the
-     accounts in the transaction, mimicking each call to `load_transaction_account()`
-     (https://github.com/anza-xyz/agave/blob/v2.1.0/svm/src/account_loader.rs#L406-L497)
-
-     This contains a LOT of special casing as their accounts database and program cache
-     is handled very differently than the FD client.
-
-     The logic is as follows:
+/* This function contains special casing for loading and collecting rent from
+   each transaction account. The logic is as follows:
      1. If the account is the instructions sysvar, then load in the compiled
         instructions from the transactions into the sysvar's data.
      2. If the account is a fee payer, then it is already loaded.
-     3. If the account is an account override, then handle seperately. Account
-        overrides are used for simulating transactions.
-        - This is only used for testing.
-     4. If the account is not writable and not an instruction account and it is
-        in the loaded program cache, then load in a dummy account with the
-        correct owner and the executable flag set to true.
-        - See comments below
-     5. Otherwise load in the account from the accounts DB. If the account is
-        writable try to collect rent from the account.
+     3. Otherwise load in the account from the accounts DB. If the account is
+        writable and exists, try to collect rent from it.
 
-     After the account is loaded, accumulate the data size to make sure the
-     transaction doesn't violate the transaction loading limit.
+   https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L536-L580 */
+static void
+load_transaction_account( fd_exec_txn_ctx_t * txn_ctx,
+                          fd_txn_account_t *  acct,
+                          uchar               is_writable,
+                          ulong               epoch,
+                          uchar               unknown_acc ) {
+  /* Handling the sysvar instructions account explictly.
+     https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L544-L551 */
+  if( FD_UNLIKELY( !memcmp( acct->pubkey->key, fd_sysvar_instructions_id.key, sizeof(fd_pubkey_t) ) ) ) {
+    fd_sysvar_instructions_serialize_account( txn_ctx, (fd_instr_info_t const *)txn_ctx->instr_infos, txn_ctx->txn_descriptor->instr_cnt );
+    return;
+  }
 
-     In the firedancer client only some of these steps are necessary because
-     all of the accounts are loaded in from the accounts db into borrowed
-     accounts already.
-     1. If the account is writable, try to collect fees on the account. Unlike
-        the agave client, this is also done on the fee payer account. The agave
-        client tries to collect rent on the fee payer while the fee is being
-        collected in validate_fees().
-     2. If the account is not writable and it is not an instruction account
-        and would be in the loaded program cache, then it should be replaced
-        with a dummy value.
-     */
+  /* This next block calls `load_account()` which loads the account from the accounts db. If the
+     account exists and is writable, collect rent from it.
+     https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L552-L565 */
+  if( FD_LIKELY( !unknown_acc ) ) {
+    if( is_writable ) {
+      txn_ctx->collected_rent += fd_runtime_collect_rent_from_account( txn_ctx->slot,
+                                                                       &txn_ctx->schedule,
+                                                                       &txn_ctx->rent,
+                                                                       txn_ctx->slots_per_year,
+                                                                       &txn_ctx->features,
+                                                                       acct->meta,
+                                                                       acct->pubkey,
+                                                                       epoch );
+      acct->starting_lamports = acct->meta->info.lamports;
+    }
+    return;
+  }
+
+  /* The rest of this function is a no-op for us since we already set up the transaction accounts
+     for unknown accounts within `fd_executor_setup_borrowed_accounts_for_txn()`.
+     https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L566-L577 */
+}
+
+/* This big function contains a lot of logic and special casing for loading transaction accounts.
+   Because of the `enable_transaction_loading_failure_fees` feature, it is imperative that we
+   are conformant with Agave's logic here and reject / accept transactions here where they do.
+
+   In the firedancer client only some of these steps are necessary because
+   all of the accounts are loaded in from the accounts db into borrowed
+   accounts already.
+
+   https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L393-L534 */
+int
+fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
+  ulong  requested_loaded_accounts_data_size = txn_ctx->loaded_accounts_data_size_limit;
+  ushort instr_cnt                           = txn_ctx->txn_descriptor->instr_cnt;
+
+  /* Set up the instr infos for the transaction */
+  for( ushort i=0; i<instr_cnt; i++ ) {
+    fd_txn_instr_t const * instr = &txn_ctx->txn_descriptor->instr[i];
+    fd_convert_txn_instr_to_instr( txn_ctx, instr, txn_ctx->accounts, &txn_ctx->instr_infos[i] );
+  }
+  txn_ctx->instr_info_cnt = txn_ctx->txn_descriptor->instr_cnt;
 
   fd_epoch_schedule_t const * schedule = (fd_epoch_schedule_t const *)fd_sysvar_cache_epoch_schedule( txn_ctx->sysvar_cache );
   ulong                       epoch    = fd_slot_to_epoch( schedule, txn_ctx->slot, NULL );
 
-  /* In `load_transaction_account()`, there are special checks based on the priviledges of each account key.
-     We precompute the results here before proceeding with the special casing. Note the start range of 1 since
-     `load_transaction_account()` doesn't handle the fee payer. */
-  uchar txn_account_is_instruction_account[MAX_TX_ACCOUNT_LOCKS] = {0};
-  for( ushort i=0UL; i<instr_cnt; i++ ) {
-    /* Set up the instr infos for the transaction */
-    fd_txn_instr_t const * instr = &txn_ctx->txn_descriptor->instr[i];
-    fd_convert_txn_instr_to_instr( txn_ctx, instr, txn_ctx->accounts, &txn_ctx->instr_infos[i] );
-
-    uchar const * instr_acc_idxs = fd_txn_get_instr_accts( instr, txn_raw->raw );
-    for( ushort j=0; j<instr->acct_cnt; j++ ) {
-      uchar txn_acc_idx                               = instr_acc_idxs[j];
-      txn_account_is_instruction_account[txn_acc_idx] = 1;
-    }
-  }
-  txn_ctx->instr_info_cnt = txn_ctx->txn_descriptor->instr_cnt;
-
-  for( ulong i=1UL; i<txn_ctx->accounts_cnt; i++ ) {
+  /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L429-L443 */
+  for( ulong i=0UL; i<txn_ctx->accounts_cnt; i++ ) {
     fd_txn_account_t * acct = &txn_ctx->accounts[i];
+    uchar unknown_acc = !!( fd_exec_txn_ctx_get_account_view_idx( txn_ctx, (uchar)i, &acct ) ||
+                            acct->const_meta->info.lamports==0UL );
+    ulong acc_size    = unknown_acc ? 0UL : acct->const_meta->dlen;
+    uchar is_writable = !!( fd_txn_account_is_writable_idx( txn_ctx, (int)i ) );
 
-    /* https://github.com/anza-xyz/agave/blob/v2.1.0/svm/src/account_loader.rs#L418-L421 */
-    uchar is_instruction_account = txn_account_is_instruction_account[i];
-    uchar is_writable            = !!( fd_txn_account_is_writable_idx( txn_ctx, (int)i ) );
-
-    /* https://github.com/anza-xyz/agave/blob/v2.1.0/svm/src/account_loader.rs#L417 */
-
-    int   err      = fd_exec_txn_ctx_get_account_view_idx( txn_ctx, (uchar)i, &acct );
-    ulong acc_size = err==FD_ACC_MGR_SUCCESS ? acct->const_meta->dlen : 0UL;
-
-    /* `load_transaction_account()`
-        https://github.com/anza-xyz/agave/blob/v2.1.0/svm/src/account_loader.rs#L406-L497 */
-
-    /* First case: checking if the account is the instructions sysvar
-       https://github.com/anza-xyz/agave/blob/v2.1.0/svm/src/account_loader.rs#L422-L429 */
-    if( FD_UNLIKELY( !memcmp( acct->pubkey->key, fd_sysvar_instructions_id.key, sizeof(fd_pubkey_t) ) ) ) {
-      acct->account_found = 1;
-      fd_sysvar_instructions_serialize_account( txn_ctx, (fd_instr_info_t const *)txn_ctx->instr_infos, txn_ctx->txn_descriptor->instr_cnt );
-      /* Continue because this should not be counted towards the total loaded account size.
-         https://github.com/anza-xyz/agave/blob/v2.1.0/svm/src/account_loader.rs#L426 */
+    /* Collect the fee payer account separately
+       https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L429-L431 */
+    if( FD_UNLIKELY( i==FD_FEE_PAYER_TXN_IDX ) ) {
+      /* Note that the dlen for most fee payers is 0, but we want to consider the case where the fee payer
+         is a nonce account. */
+      int err = accumulate_and_check_loaded_account_data_size( acc_size,
+                                                               requested_loaded_accounts_data_size,
+                                                               &txn_ctx->loaded_accounts_data_size );
+      if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
+        return err;
+      }
       continue;
     }
 
-    /* Second case: loading a program account that is not writable, not an instruction account,
-       and may be in the loaded program cache. We bypass this special casing if
-       `disable_account_loader_special_case` is active.
-       https://github.com/anza-xyz/agave/blob/v2.1.0/svm/src/account_loader.rs#L438-L451 */
-    if( FD_UNLIKELY( !is_instruction_account && !is_writable &&
-                     !FD_FEATURE_ACTIVE( txn_ctx->slot, txn_ctx->features, disable_account_loader_special_case ) &&
-                     is_maybe_in_loaded_program_cache( acct ) ) ) {
+    /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L435-L441 */
+    load_transaction_account( txn_ctx, acct, is_writable, epoch, unknown_acc );
 
-      /* In the corresponding branch in the agave client, if the account is not executable,
-         a dummy account is loaded in that has the executable flag set to true. This is a hack
-         to mirror those semantics.
-         https://github.com/anza-xyz/agave/blob/v2.1.0/svm/src/account_loader.rs#L499-L507 */
-      acct->account_found = 1;
-      if( FD_UNLIKELY( !fd_txn_account_is_executable( acct ) ) ) {
-        void * borrowed_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
-        fd_txn_account_make_readonly( acct, borrowed_account_data );
-        fd_account_meta_t * meta = (fd_account_meta_t *)acct->const_meta;
-        meta->info.executable = 1;
-      }
-
-      /* For upgradeable programs, we also have to add the size of the programdata account.
-         https://github.com/anza-xyz/agave/blob/v2.1.11/svm/src/program_loader.rs#L172-L175 */
-      FD_SPAD_FRAME_BEGIN( txn_ctx->spad ) {
-        if( FD_LIKELY( !memcmp( acct->const_meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) ) ) {
-          fd_bpf_upgradeable_loader_state_t * state = fd_bpf_loader_program_get_state( acct, txn_ctx->spad, &err );
-          if( FD_LIKELY( !err && fd_bpf_upgradeable_loader_state_is_program( state ) ) ) {
-            FD_TXN_ACCOUNT_DECL( programdata_account );
-            err = fd_acc_mgr_view( txn_ctx->acc_mgr,
-                                   txn_ctx->funk_txn,
-                                   &state->inner.program.programdata_address,
-                                   programdata_account );
-            if( FD_LIKELY( err==FD_ACC_MGR_SUCCESS ) ) {
-              acc_size += programdata_account->const_meta->dlen;
-            }
-          }
-        }
-      } FD_SPAD_FRAME_END;
-    }
-    /* Third case: Default case
-       https://github.com/anza-xyz/agave/blob/v2.1.0/svm/src/account_loader.rs#L452-L494 */
-    else {
-      /* If the account exists and is writable, collect rent from it. */
-      if( FD_LIKELY( acct->account_found ) ) {
-        if( is_writable ) {
-          txn_ctx->collected_rent += fd_runtime_collect_rent_from_account( txn_ctx->slot,
-                                                                           &txn_ctx->schedule,
-                                                                           &txn_ctx->rent,
-                                                                           txn_ctx->slots_per_year,
-                                                                           &txn_ctx->features,
-                                                                           acct->meta,
-                                                                           acct->pubkey,
-                                                                           epoch );
-          acct->starting_lamports = acct->meta->info.lamports;
-        }
-      }
-    }
-
-    err = accumulate_and_check_loaded_account_data_size( acc_size,
-                                                         requested_loaded_accounts_data_size,
-                                                         &txn_ctx->loaded_accounts_data_size );
+    /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L442 */
+    int err = accumulate_and_check_loaded_account_data_size( acc_size,
+                                                             requested_loaded_accounts_data_size,
+                                                             &txn_ctx->loaded_accounts_data_size );
 
     if( FD_UNLIKELY( err!=FD_RUNTIME_EXECUTE_SUCCESS ) ) {
       return err;
     }
   }
 
-  fd_pubkey_t program_owners[instr_cnt];
-  ushort      program_owners_cnt = 0;
+  /* TODO: Consider using a hash set (if its more performant) */
+  fd_pubkey_t validated_loaders[instr_cnt];
+  ushort      validated_loaders_cnt = 0;
 
   /* The logic below handles special casing with loading instruction accounts.
-     https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L297-L358 */
+     https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L445-L525 */
   for( ushort i=0; i<instr_cnt; i++ ) {
     fd_txn_instr_t const * instr = &txn_ctx->txn_descriptor->instr[i];
-    /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L304-306 */
-    fd_txn_account_t * program_account = NULL;
-    int err = fd_exec_txn_ctx_get_account_view_idx_allow_dead( txn_ctx, instr->program_id, &program_account );
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-      return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
-    }
 
-    /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L307-309 */
-    if( FD_UNLIKELY( !memcmp( program_account->pubkey->key, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) ) ) {
+    /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L449-L451 */
+    if( FD_UNLIKELY( !memcmp( txn_ctx->account_keys[ instr->program_id ].key, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) ) ) {
       continue;
     }
 
-    /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L311-L314 */
-    if( FD_UNLIKELY( !program_account->account_found ) ) {
+    /* Mimicking `load_account()` here with 0-lamport check as well.
+       https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L455-L462 */
+    fd_txn_account_t * program_account = NULL;
+    int err = fd_exec_txn_ctx_get_account_view_idx( txn_ctx, instr->program_id, &program_account );
+    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS || program_account->const_meta->info.lamports==0UL ) ) {
       return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
     }
 
-    /* The above checks from the mirrored `load_transaction_account()` function would promote
-       this account to executable if necessary, so this check is sufficient.
-       https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/svm/src/account_loader.rs#L493-L500 */
+    /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L464-L471 */
     if( FD_UNLIKELY( !FD_FEATURE_ACTIVE( txn_ctx->slot, txn_ctx->features, remove_accounts_executable_flag_checks ) &&
                      !fd_txn_account_is_executable( program_account ) ) ) {
       return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
     }
 
-    /* At this point, program_indices will no longer have 0 length, so we are set this flag to 1 */
-    /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L321 */
-
-    /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L322-325 */
+    /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L474-L477 */
     if( !memcmp( program_account->const_meta->info.owner, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) ) {
       continue;
     }
 
-    /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L326-330
-       The agave client does checks on the program account's owners as well.
-       However, it is important to not do these checks multiple times as the
-       total size of accounts and their owners are accumulated: duplicate owners
-       should be avoided. */
-
-    /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L334-353 */
-    FD_TXN_ACCOUNT_DECL( owner_account );
-    err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t *) program_account->const_meta->info.owner, owner_account );
-    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-      return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
-    }
-
-    for( ushort i=0; i<program_owners_cnt; i++ ) {
-      if( !memcmp( program_owners[i].key, owner_account->pubkey, sizeof(fd_pubkey_t) ) ) {
+    /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L479-L522 */
+    for( ushort i=0; i<validated_loaders_cnt; i++ ) {
+      if( !memcmp( validated_loaders[i].key, program_account->const_meta->info.owner, sizeof(fd_pubkey_t) ) ) {
         /* If the owner account has already been seen, skip the owner checks
            and do not acccumulate the account size. */
         continue;
       }
     }
 
-    /* https://github.com/anza-xyz/agave/blob/89872fdb074e6658646b2b57a299984f0059cc84/svm/src/account_loader.rs#L537-L545 */
+    /* The agave client does checks on the program account's owners as well.
+       However, it is important to not do these checks multiple times as the
+       total size of accounts and their owners are accumulated: duplicate owners
+       should be avoided.
+       https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L496-L517 */
+    FD_TXN_ACCOUNT_DECL( owner_account );
+    err = fd_acc_mgr_view( txn_ctx->acc_mgr,
+                           txn_ctx->funk_txn,
+                           (fd_pubkey_t *)program_account->const_meta->info.owner,
+                           owner_account );
+    if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
+      /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L520 */
+      return FD_RUNTIME_TXN_ERR_PROGRAM_ACCOUNT_NOT_FOUND;
+    }
+
+
+    /* https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L502-L510 */
     if( FD_UNLIKELY( memcmp( owner_account->const_meta->info.owner, fd_solana_native_loader_id.key, sizeof(fd_pubkey_t) ) ||
                      ( !FD_FEATURE_ACTIVE( txn_ctx->slot, txn_ctx->features, remove_accounts_executable_flag_checks ) &&
                        !fd_txn_account_is_executable( owner_account ) ) ) ) {
       return FD_RUNTIME_TXN_ERR_INVALID_PROGRAM_FOR_EXECUTION;
     }
 
-    /* https://github.com/anza-xyz/agave/blob/v2.0.9/svm/src/account_loader.rs#L342-347 */
     /* Count the owner's data in the loaded account size for program accounts.
-       However, it is important to not double count repeated owners. */
+       However, it is important to not double count repeated owners.
+       https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L511-L517 */
     err = accumulate_and_check_loaded_account_data_size( owner_account->const_meta->dlen,
                                                          requested_loaded_accounts_data_size,
                                                          &txn_ctx->loaded_accounts_data_size );
@@ -628,7 +551,7 @@ fd_executor_load_transaction_accounts( fd_exec_txn_ctx_t * txn_ctx ) {
       return err;
     }
 
-    fd_memcpy( &program_owners[ program_owners_cnt++ ], owner_account->pubkey, sizeof(fd_pubkey_t) );
+    fd_memcpy( validated_loaders[ validated_loaders_cnt++ ].key, owner_account->pubkey, sizeof(fd_pubkey_t) );
   }
 
   return FD_RUNTIME_EXECUTE_SUCCESS;
@@ -1314,9 +1237,6 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     }
     uchar is_unknown_account = err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
     memcpy( txn_account->pubkey->key, acc, sizeof(fd_pubkey_t) );
-    if ( FD_UNLIKELY( is_unknown_account ) ) {
-      txn_account->account_found = 0;
-    }
 
     /* Create a txn account for all writable accounts and the fee payer
        account which is almost always writable, but doesn't have to be.
@@ -1328,7 +1248,7 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
 
       /* All new accounts should have their rent epoch set to ULONG_MAX.
          https://github.com/anza-xyz/agave/blob/89050f3cb7e76d9e273f10bea5e8207f2452f79f/svm/src/account_loader.rs#L485-L497 */
-      if( !txn_account->account_found ||
+      if( is_unknown_account ||
           (i>0UL && fd_should_set_exempt_rent_epoch_max( txn_ctx, txn_account )) ) {
         txn_account->meta->info.rent_epoch = ULONG_MAX;
       }

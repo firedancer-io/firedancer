@@ -1680,7 +1680,7 @@ MAP_(prepare)( MAP_(t) *         join,
          previous case because the slot will be marked as used.
 
          On return, the caller can modify the slot's value arbitrarily.
-         IMPORANT SAFETY TIP!  THE CALLER MUST NOT MODIFY THE SLOT'S KEY
+         IMPORTANT SAFETY TIP!  THE CALLER MUST NOT MODIFY THE SLOT'S KEY
          OR MARK THE SLOT AS FREE.  USE REMOVE BELOW TO REMOVE KEYS.
          When done modifying the slot's value, the caller should either
          publish or cancel depending on what the caller did to the

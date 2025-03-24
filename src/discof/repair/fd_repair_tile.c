@@ -351,15 +351,12 @@ during_frag( fd_repair_tile_ctx_t * ctx,
 static void
 after_frag( fd_repair_tile_ctx_t * ctx,
             ulong                  in_idx,
-            ulong                  seq,
-            ulong                  sig,
+            ulong                  seq    FD_PARAM_UNUSED,
+            ulong                  sig    FD_PARAM_UNUSED,
             ulong                  sz,
-            ulong                  tsorig,
-            ulong                  tspub,
+            ulong                  tsorig FD_PARAM_UNUSED,
+            ulong                  tspub  FD_PARAM_UNUSED,
             fd_stem_context_t *    stem ) {
-  (void)seq;
-  (void)tsorig;
-  (void)tspub;
 
   if( FD_UNLIKELY( in_idx==CONTACT_IN_IDX ) ) {
     handle_new_cluster_contact_info( ctx, ctx->buffer, sz );
@@ -378,22 +375,22 @@ after_frag( fd_repair_tile_ctx_t * ctx,
   }
 
   ctx->stem = stem;
-  ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
-  fd_eth_hdr_t const * eth = (fd_eth_hdr_t const *)ctx->buffer;
-  fd_ip4_hdr_t const * ip4 = (fd_ip4_hdr_t const *)( eth+1 );
-  fd_udp_hdr_t const * udp = (fd_udp_hdr_t const *)( (ulong)ip4 + FD_IP4_GET_LEN( *ip4 ) );
-  if( FD_UNLIKELY( (ulong)(udp+1) > (ulong)eth+sz ) ) return;
+  fd_eth_hdr_t const * eth  = (fd_eth_hdr_t const *)ctx->buffer;
+  fd_ip4_hdr_t const * ip4  = (fd_ip4_hdr_t const *)( (ulong)eth + sizeof(fd_eth_hdr_t) );
+  fd_udp_hdr_t const * udp  = (fd_udp_hdr_t const *)( (ulong)ip4 + FD_IP4_GET_LEN( *ip4 ) );
+  uchar const *        data = (uchar        const *)( (ulong)udp + sizeof(fd_udp_hdr_t) );
+  if( FD_UNLIKELY( (ulong)udp+sizeof(fd_udp_hdr_t) > (ulong)eth+sz ) ) return;
+  ulong udp_sz = fd_ushort_bswap( udp->net_len );
+  if( FD_UNLIKELY( udp_sz<sizeof(fd_udp_hdr_t) ) ) return;
+  ulong data_sz = udp_sz-sizeof(fd_udp_hdr_t);
+  if( FD_UNLIKELY( (ulong)data+data_sz > (ulong)eth+sz ) ) return;
 
-  fd_repair_peer_addr_t peer_addr;
-  peer_addr.l    = 0;
-  peer_addr.addr = ip4->saddr;
-  peer_addr.port = udp->net_sport;
-
+  fd_gossip_peer_addr_t peer_addr = { .addr=ip4->saddr, .port=udp->net_sport };
   ushort dport = udp->net_dport;
   if( ctx->repair_intake_addr.port == dport ) {
-    fd_repair_recv_clnt_packet( ctx->repair, ctx->buffer + hdr_sz, sz - hdr_sz, &peer_addr, ip4->daddr );
+    fd_repair_recv_clnt_packet( ctx->repair, data, data_sz, &peer_addr, ip4->daddr );
   } else if( ctx->repair_serve_addr.port == dport ) {
-    fd_repair_recv_serv_packet( ctx->repair, ctx->buffer + hdr_sz, sz - hdr_sz, &peer_addr, ip4->daddr );
+    fd_repair_recv_serv_packet( ctx->repair, data, data_sz, &peer_addr, ip4->daddr );
   } else {
     FD_LOG_ERR(( "Unexpectedly received packet for port %u", (uint)fd_ushort_bswap( dport ) ));
   }

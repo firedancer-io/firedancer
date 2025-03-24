@@ -99,7 +99,7 @@ and configure the number of combined channels on the network device.
 
 | Capability      | Reason |
 |-----------------|--------|
-| `root`          | increase `/proc/sys/vm/nr_hugepages` and mount hugetblfs filesystems. Only applies for the `hugetlbfs` stage |
+| `root`          | increase `/proc/sys/vm/nr_hugepages` and mount hugetlbfs filesystems. Only applies for the `hugetlbfs` stage |
 | `root`          | increase network device channels with `ethtool --set-channels`. Only applies for the `ethtool-channels` stage |
 | `root`          | disable network device generic-receive-offload (gro) with `ethtool --offload IFACE generic-receive-offload off`. Only applies for the `ethtool-gro` stage |
 | `root`          | disable network device tx-udp-segmentation with `ethtool --offload lo tx-udp-segmentation off`. Only applies for the `ethtool-loopback` stage |

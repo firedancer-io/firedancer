@@ -50,7 +50,7 @@
        ... operation.  But this also means that prio field is not
        ... available for use when a myele is not in the treap.
 
-       ... In other situations, the user might chose to generate random
+       ... In other situations, the user might choose to generate random
        ... priorities dynamically (as it done in textbook
        ... implementations) and/or adjust element priorities on the fly
        ... to splay-tree-like adaptively optimize treap queries.
@@ -700,6 +700,11 @@ TREAP_(idx_insert)( TREAP_(t) * treap,
                     ulong       n,
                     TREAP_T *   pool ) {
 
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( n>=treap->ele_max ) ) FD_LOG_CRIT(( "index out of bounds" ));
+  if( FD_UNLIKELY( (treap->ele_cnt!=0xf173da2ce7111111) & (treap->ele_cnt+1>treap->ele_max) ) ) FD_LOG_CRIT(( "treap full" ));
+#endif
+
   /* Find leaf where to insert n */
 
   TREAP_IDX_T * _p_child = &treap->root;
@@ -779,6 +784,9 @@ TREAP_(idx_insert)( TREAP_(t) * treap,
   }
 
   treap->ele_cnt++;
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( (treap->ele_cnt!=0xf173da2ce7111111+1) && TREAP_(verify)( treap, pool )==-1 ) ) FD_LOG_CRIT(( "idx_insert: treap corrupt" ));
+#endif
   return treap;
 }
 
@@ -786,6 +794,10 @@ TREAP_(t) *
 TREAP_(idx_remove)( TREAP_(t) * treap,
                     ulong       d,
                     TREAP_T *   pool ) {
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( (treap->ele_cnt!=0xf173da2ce7111111) & (d>=treap->ele_max) ) ) FD_LOG_CRIT(( "index out of bounds" ));
+  if( FD_UNLIKELY( (treap->ele_cnt!=0xf173da2ce7111111) & (treap->ele_cnt<1)  ) ) FD_LOG_CRIT(( "index out of bounds" ));
+#endif
 
   /* Make a hole at d */
 
@@ -854,6 +866,9 @@ TREAP_(idx_remove)( TREAP_(t) * treap,
   }
 
   treap->ele_cnt--;
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( (treap->ele_cnt!=0xf173da2ce7111111-1) && TREAP_(verify)( treap, pool )==-1 ) ) FD_LOG_CRIT(( "idx_remove: treap corrupt" ));
+#endif
   return treap;
 }
 
@@ -1166,6 +1181,14 @@ TREAP_(merge)( TREAP_(t) * treap_a,
       pool[ idx_a ].TREAP_PARENT = TREAP_IDX_NULL;
       pool[ idx_b ].TREAP_PARENT = TREAP_IDX_NULL;
       do {
+#if FD_TMPL_USE_HANDHOLDING
+        /* The temp treaps are not valid treaps, and are only used
+           internally.  The ele_cnt is never used.  To not trigger
+           handholding, we set it to a magic value, that signals
+           certain handholding checks to ignore it. */
+        temp_treap_a.ele_cnt = 0xf173da2ce7111111;
+        temp_treap_b.ele_cnt = 0xf173da2ce7111111;
+#endif
         TREAP_IDX_T idx_tmp = temp_treap_b.root;
         TREAP_(idx_remove)( &temp_treap_b, idx_tmp, pool );
         TREAP_(idx_insert)( &temp_treap_a, idx_tmp, pool );
@@ -1282,6 +1305,11 @@ TREAP_(merge)( TREAP_(t) * treap_a,
   treap_b->first    = TREAP_IDX_NULL;
   treap_b->last     = TREAP_IDX_NULL;
 # endif
+
+#if FD_TMPL_USE_HANDHOLDING
+  if( FD_UNLIKELY( TREAP_(verify)( treap_a, pool )==-1 ) ) FD_LOG_CRIT(( "merge: treap_a corrupt" ));
+  if( FD_UNLIKELY( TREAP_(verify)( treap_b, pool )==-1 ) ) FD_LOG_CRIT(( "merge: treap_b corrupt" ));
+#endif
 
   return treap_a;
 
@@ -1508,4 +1536,3 @@ TREAP_(verify)( TREAP_(t) const * treap,
 #undef TREAP_QUERY_T
 #undef TREAP_T
 #undef TREAP_NAME
-

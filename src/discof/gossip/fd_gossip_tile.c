@@ -560,18 +560,18 @@ after_frag( fd_gossip_tile_ctx_t * ctx,
   if( FD_UNLIKELY( sz<42 ) ) return;
 
   ctx->stem = stem;
-  ulong hdr_sz = fd_disco_netmux_sig_hdr_sz( sig );
-  fd_eth_hdr_t const * eth = (fd_eth_hdr_t const *)ctx->gossip_buffer;
-  fd_ip4_hdr_t const * ip4 = (fd_ip4_hdr_t const *)( eth+1 );
-  fd_udp_hdr_t const * udp = (fd_udp_hdr_t const *)( (ulong)ip4 + FD_IP4_GET_LEN( *ip4 ) );
-  if( FD_UNLIKELY( (ulong)(udp+1) > (ulong)eth+sz ) ) return;
+  fd_eth_hdr_t const * eth  = (fd_eth_hdr_t const *)ctx->gossip_buffer;
+  fd_ip4_hdr_t const * ip4  = (fd_ip4_hdr_t const *)( (ulong)eth + sizeof(fd_eth_hdr_t) );
+  fd_udp_hdr_t const * udp  = (fd_udp_hdr_t const *)( (ulong)ip4 + FD_IP4_GET_LEN( *ip4 ) );
+  uchar const *        data = (uchar        const *)( (ulong)udp + sizeof(fd_udp_hdr_t) );
+  if( FD_UNLIKELY( (ulong)udp+sizeof(fd_udp_hdr_t) > (ulong)eth+sz ) ) return;
+  ulong udp_sz = fd_ushort_bswap( udp->net_len );
+  if( FD_UNLIKELY( udp_sz<sizeof(fd_udp_hdr_t) ) ) return;
+  ulong data_sz = udp_sz-sizeof(fd_udp_hdr_t);
+  if( FD_UNLIKELY( (ulong)data+data_sz > (ulong)eth+sz ) ) return;
 
-  fd_gossip_peer_addr_t peer_addr;
-  peer_addr.l    = 0;
-  peer_addr.addr = ip4->saddr;
-  peer_addr.port = udp->net_sport;
-
-  fd_gossip_recv_packet( ctx->gossip, ctx->gossip_buffer + hdr_sz, sz-hdr_sz, &peer_addr );
+  fd_gossip_peer_addr_t peer_addr = { .addr=ip4->saddr, .port=udp->net_sport };
+  fd_gossip_recv_packet( ctx->gossip, data, data_sz, &peer_addr );
 }
 
 static void

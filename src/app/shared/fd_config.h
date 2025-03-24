@@ -261,6 +261,8 @@ struct fd_config {
 
     struct {
       char provider[ 8 ];
+      uint sock_receive_buffer_size;
+      uint sock_send_buffer_size;
     } net;
 
     struct {
@@ -306,6 +308,8 @@ struct fd_config {
   struct {
     struct {
       char   interface[ IF_NAMESIZE ];
+      char   bind_address[ 16 ];
+      uint   bind_address_parsed;
       uint   ip_addr;
       char   xdp_mode[ 8 ];
       int    xdp_zero_copy;
@@ -428,6 +432,11 @@ struct fd_config {
       char  genesis_hash[ FD_BASE58_ENCODED_32_SZ ];
       char  wen_restart_coordinator[ FD_BASE58_ENCODED_32_SZ ];
     } restart;
+
+    struct {
+      int   playback;
+      char  archive_path[ PATH_MAX ];
+    } archiver;
 
   } tiles;
 };

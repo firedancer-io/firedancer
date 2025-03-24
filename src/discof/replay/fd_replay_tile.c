@@ -480,7 +480,6 @@ before_frag( fd_replay_tile_ctx_t * ctx,
              ulong                  in_idx,
              ulong                  seq,
              ulong                  sig ) {
-  (void)ctx;
   (void)seq;
 
   if( in_idx == SHRED_IN_IDX ) {
@@ -1634,7 +1633,7 @@ prepare_first_batch_execution( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * s
 
 static void
 exec_slices( fd_replay_tile_ctx_t * ctx,
-             fd_stem_context_t * stem FD_PARAM_UNUSED,
+             fd_stem_context_t * stem,
              ulong slot ) {
   /* Buffer up to a certain number of slices (configurable?). Then, for
      each microblock, round robin dispatch the transactions in that
@@ -1859,7 +1858,6 @@ after_frag( fd_replay_tile_ctx_t * ctx,
             fd_stem_context_t *    stem  FD_PARAM_UNUSED ) {
   (void)sig;
   (void)sz;
-  (void)seq;
 
   /*if( FD_LIKELY( in_idx == SHRED_IN_IDX ) ) {
 
@@ -2321,6 +2319,7 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
   fd_vote_accounts_pair_t_mapnode_t * pool = accts->vote_accounts_pool;
 
   ulong i = 0;
+  FD_SPAD_FRAME_BEGIN( ctx->runtime_spad ) {
   for( fd_vote_accounts_pair_t_mapnode_t const * n = fd_vote_accounts_pair_t_map_minimum_const( pool, root );
        n && i < FD_CLUSTER_NODE_CNT;
        n = fd_vote_accounts_pair_t_map_successor_const( pool, n ) ) {
@@ -2373,6 +2372,7 @@ publish_votes_to_plugin( fd_replay_tile_ctx_t * ctx,
     msg->is_delinquent   = (uchar)(msg->last_vote == 0);
     ++i;
   }
+  } FD_SPAD_FRAME_END;
 
   *(ulong *)dst = i;
 

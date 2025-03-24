@@ -8,6 +8,7 @@
 #define _DEFAULT_SOURCE
 #include <errno.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <sys/socket.h>
 
@@ -45,6 +46,35 @@ fd_bpf_map_clear( int map_fd ) {
   }
 
   return 0;
+}
+
+static int
+load_prog( ulong * code_buf,
+           ulong   code_cnt ) {
+  static char ebpf_kern_log[ 32768UL ];
+  ebpf_kern_log[0] = 0;
+  union bpf_attr attr = {
+    .prog_type = BPF_PROG_TYPE_XDP,
+    .insn_cnt  = (uint)code_cnt,
+    .insns     = (ulong)code_buf,
+    .license   = (ulong)"Apache-2.0",
+    .prog_name = "fd_redirect",
+    .log_level = 6,
+    .log_size  = 32768UL,
+    .log_buf   = (ulong)ebpf_kern_log
+  };
+  prog_fd = (int)bpf( BPF_PROG_LOAD, &attr, sizeof(union bpf_attr) );
+  if( FD_UNLIKELY( prog_fd<0 ) ) {
+    if( errno==EPERM ) {
+      FD_LOG_WARNING(( "skip: insufficient permissions to load BPF object" ));
+      fd_halt();
+      exit( 0 );
+    }
+    FD_LOG_WARNING(( "eBPF verifier log:\n%s", ebpf_kern_log ));
+    FD_LOG_ERR(( "BPF_PROG_LOAD failed (%i-%s)", errno, fd_io_strerror( errno ) ));
+  }
+
+  return prog_fd;
 }
 
 static void
@@ -94,68 +124,8 @@ FD_IMPORT_BINARY( quic_initial,    "src/waltz/xdp/fixtures/quic_initial.bin"    
 
 #define USHORT_BSWAP( v ) ((ushort)(((v>>8)|(v<<8))))
 
-int main( int     argc,
-          char ** argv ) {
-  fd_boot( &argc, &argv );
-
-  /* Create maps */
-
-  union bpf_attr attr = {
-    .map_type    = BPF_MAP_TYPE_XSKMAP,
-    .key_size    = 4U,
-    .value_size  = 4U,
-    .max_entries = 4U,
-    .map_name    = "fd_xdp_xsks"
-  };
-  xsks_fd = (int)bpf( BPF_MAP_CREATE, &attr, sizeof(union bpf_attr) );
-  if( FD_UNLIKELY( xsks_fd<0 ) ) {
-    if( FD_UNLIKELY( errno==EPERM ) ) {
-      FD_LOG_WARNING(( "skip: insufficient perms" ));
-      fd_halt();
-      return 0;
-    }
-    FD_LOG_WARNING(( "Failed to create XSKMAP (%i-%s)", errno, fd_io_strerror( errno ) ));
-    return -1;
-  }
-
-  /* Link program */
-
-  ushort ports[2] = { PORT0, PORT1 };
-  ulong code_buf[ 512 ];
-  ulong code_cnt = fd_xdp_gen_program( code_buf, xsks_fd, ports, 2UL );
-
-  /* Load object into kernel */
-
-  char ebpf_kern_log[ 32768UL ];
-  ebpf_kern_log[0] = 0;
-  attr = (union bpf_attr) {
-    .prog_type = BPF_PROG_TYPE_XDP,
-    .insn_cnt  = (uint)code_cnt,
-    .insns     = (ulong)code_buf,
-    .license   = (ulong)"Apache-2.0",
-    .prog_name = "fd_redirect",
-    .log_level = 6,
-    .log_size  = 32768UL,
-    .log_buf   = (ulong)ebpf_kern_log
-  };
-  prog_fd = (int)bpf( BPF_PROG_LOAD, &attr, sizeof(union bpf_attr) );
-  if( FD_UNLIKELY( prog_fd<0 ) ) {
-    if( errno==EPERM ) {
-      FD_LOG_WARNING(( "skip: insufficient permissions to load BPF object" ));
-      fd_halt();
-      return 0;
-    }
-    FD_LOG_WARNING(( "eBPF verifier log:\n%s", ebpf_kern_log ));
-    FD_LOG_ERR(( "BPF_PROG_LOAD failed (%i-%s)", errno, fd_io_strerror( errno ) ));
-  }
-
-  /* Create new AF_XDP socket. Doesn't actually have to be operational
-     for bpf_redirect_map() to return XDP_REDIRECT. */
-  xsk_fd = socket( AF_XDP, SOCK_RAW, 0 );
-  FD_TEST( xsk_fd>=0 );
-
-  /* Run tests */
-
+static void
+run_tests( uint dst_ip ) {
   union {
     uchar b[ 42 ];
     struct __attribute__((packed)) {
@@ -168,6 +138,7 @@ int main( int     argc,
     .ip4 = { .verihl = 0x45, .protocol = FD_IP4_HDR_PROTOCOL_UDP },
     .udp = { .net_dport = 0 }
   };
+  m.ip4.daddr = dst_ip;
 
   /* Check UDP dest port */
   for( uint port=0; port<65536; port++ ) {
@@ -188,6 +159,14 @@ int main( int     argc,
   m.ip4.protocol = FD_IP4_HDR_PROTOCOL_TCP;
   prog_test( m.b, sizeof(m), "tcp", XDP_PASS );
   m.ip4.protocol = FD_IP4_HDR_PROTOCOL_UDP;
+
+  /* Check IPv4 dst IP */
+  prog_test( m.b, sizeof(m), "sanity", XDP_REDIRECT );
+  m.ip4.daddr++;
+  prog_test( m.b, sizeof(m), "other_dst", dst_ip ? XDP_PASS : XDP_REDIRECT );
+  m.ip4.daddr = 0;
+  prog_test( m.b, sizeof(m), "other_dst", dst_ip ? XDP_PASS : XDP_REDIRECT );
+  m.ip4.daddr = dst_ip;
 
   /* Check Ethertype */
   prog_test( m.b, sizeof(m), "sanity", XDP_REDIRECT );
@@ -230,11 +209,55 @@ int main( int     argc,
   prog_test( TEST_FIXTURE( tcp_rst         ), XDP_PASS );
   prog_test( TEST_FIXTURE( quic_initial    ), XDP_REDIRECT );
 # undef TEST_FIXTURE
+}
+
+int main( int     argc,
+          char ** argv ) {
+  fd_boot( &argc, &argv );
+
+  /* Create maps */
+
+  union bpf_attr attr = {
+    .map_type    = BPF_MAP_TYPE_XSKMAP,
+    .key_size    = 4U,
+    .value_size  = 4U,
+    .max_entries = 4U,
+    .map_name    = "fd_xdp_xsks"
+  };
+  xsks_fd = (int)bpf( BPF_MAP_CREATE, &attr, sizeof(union bpf_attr) );
+  if( FD_UNLIKELY( xsks_fd<0 ) ) {
+    if( FD_UNLIKELY( errno==EPERM ) ) {
+      FD_LOG_WARNING(( "skip: insufficient perms" ));
+      fd_halt();
+      return 0;
+    }
+    FD_LOG_WARNING(( "Failed to create XSKMAP (%i-%s)", errno, fd_io_strerror( errno ) ));
+    return -1;
+  }
+
+  /* Create new AF_XDP socket. Doesn't actually have to be operational
+     for bpf_redirect_map() to return XDP_REDIRECT. */
+  xsk_fd = socket( AF_XDP, SOCK_RAW, 0 );
+  FD_TEST( xsk_fd>=0 );
+
+  /* Load program */
+
+  ushort ports[2] = { PORT0, PORT1 };
+  ulong code_buf[ 512 ];
+  ulong code_cnt = fd_xdp_gen_program( code_buf, xsks_fd, FD_IP4_ADDR( 10,1,2,3 ), ports, 2UL );
+  int prog_fd = load_prog( code_buf, code_cnt );
+  run_tests( FD_IP4_ADDR( 10,1,2,3 ) );
+  close( prog_fd );
+
+  code_cnt = fd_xdp_gen_program( code_buf, xsks_fd, 0U, ports, 2UL );
+  prog_fd = load_prog( code_buf, code_cnt );
+  run_tests( FD_IP4_ADDR( 0,0,0,0 ) );
+  close( prog_fd );
+
 
   /* Clean up */
 
   close( xsk_fd );
-  close( prog_fd );
 
   FD_LOG_NOTICE(( "pass" ));
   fd_halt();

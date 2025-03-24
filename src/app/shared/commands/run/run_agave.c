@@ -65,9 +65,12 @@ agave_boot( config_t const * config ) {
   ADD1( "fdctl" );
   ADD( "--log", "-" );
 
+  /* net */
   if( FD_UNLIKELY( strcmp( config->dynamic_port_range, "" ) ) )
     ADD( "--dynamic-port-range", config->dynamic_port_range );
 
+  if( strcmp( config->tiles.net.bind_address, "" ) )
+    ADD( "--bind-address", config->tiles.net.bind_address );
   ADDU( "--firedancer-tpu-port", config->tiles.quic.regular_transaction_listen_port );
   ADDU( "--firedancer-tvu-port", config->tiles.shred.shred_listen_port              );
 

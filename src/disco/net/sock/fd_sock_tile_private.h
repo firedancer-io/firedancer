@@ -62,6 +62,7 @@ struct fd_sock_tile {
   /* TX SOCK_RAW socket */
   int  tx_sock;
   uint tx_idle_cnt;
+  uint bind_address;
 
   /* RX/TX batches
      FIXME transpose arrays for better cache locality? */

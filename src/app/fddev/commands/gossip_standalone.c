@@ -38,8 +38,8 @@ gossip_topo( config_t * config ) {
     FD_LOG_ERR(( "failed to parse prometheus listen address `%s`", config->tiles.metric.prometheus_listen_address ));
   metric_tile->metric.prometheus_listen_port = config->tiles.metric.prometheus_listen_port;
 
-  fd_topos_net_tiles( topo, 1UL, config->tiles.netlink.max_routes, config->tiles.netlink.max_neighbors, config->development.net.provider, config->tiles.net.interface, config->tiles.net.flush_timeout_micros,
-                      config->tiles.net.xdp_rx_queue_size, config->tiles.net.xdp_tx_queue_size, config->tiles.net.xdp_zero_copy, config->tiles.net.xdp_mode, tile_to_cpu );
+  fd_topos_net_tiles( topo, 1UL, config->tiles.netlink.max_routes, config->tiles.netlink.max_neighbors, config->development.net.provider, config->tiles.net.interface, config->tiles.net.bind_address_parsed, config->tiles.net.flush_timeout_micros,
+                      config->tiles.net.xdp_rx_queue_size, config->tiles.net.xdp_tx_queue_size, config->tiles.net.xdp_zero_copy, config->tiles.net.xdp_mode, config->development.net.sock_receive_buffer_size, config->development.net.sock_send_buffer_size, tile_to_cpu );
   ulong net_tile_id = fd_topo_find_tile( topo, "net", 0UL );
   if( net_tile_id==ULONG_MAX ) net_tile_id = fd_topo_find_tile( topo, "sock", 0UL );
   if( FD_UNLIKELY( net_tile_id==ULONG_MAX ) ) FD_LOG_ERR(( "net tile not found" ));
@@ -114,7 +114,7 @@ gossip_cmd_fn( args_t *   args FD_PARAM_UNUSED,
   initialize_workspaces( config );
   initialize_stacks( config );
   if( 0==strcmp( config->development.net.provider, "xdp" ) ) {
-    fd_topo_install_xdp( topo );
+    fd_topo_install_xdp( topo, config->tiles.net.bind_address_parsed );
   }
   fd_topo_join_workspaces( topo, FD_SHMEM_JOIN_MODE_READ_WRITE );
 

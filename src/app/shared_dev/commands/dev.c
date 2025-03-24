@@ -181,7 +181,7 @@ run_firedancer_threaded( config_t * config , int init_workspaces) {
      join (the key is only on shmem name, when it should be (name, mode)). */
 
   if( 0==strcmp( config->development.net.provider, "xdp" ) ) {
-    fd_xdp_fds_t fds = fd_topo_install_xdp( &config->topo );
+    fd_xdp_fds_t fds = fd_topo_install_xdp( &config->topo, config->tiles.net.bind_address_parsed );
     (void)fds;
   }
 

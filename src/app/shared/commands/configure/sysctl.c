@@ -67,6 +67,20 @@ static const sysctl_param_t xdp_params[] = {
   {0}
 };
 
+static sysctl_param_t sock_params[] = {
+  {
+    "/proc/sys/net/core/rmem_max",
+    0,
+    ENFORCE_MINIMUM
+  },
+  {
+    "/proc/sys/net/core/wmem_max",
+    0,
+    ENFORCE_MINIMUM
+  },
+  {0}
+};
+
 /* Some of these sysctl limits are needed for the Agave client, not
    Firedancer.  We set them on their behalf to make configuration easier
    for users. */
@@ -96,6 +110,10 @@ init( config_t const * config ) {
   init_param_list( params );
   if( 0==strcmp( config->development.net.provider, "xdp" ) ) {
     init_param_list( xdp_params );
+  } else if( 0==strcmp( config->development.net.provider, "socket" ) ) {
+    sock_params[ 0 ].value = config->development.net.sock_receive_buffer_size;
+    sock_params[ 1 ].value = config->development.net.sock_send_buffer_size;
+    init_param_list( sock_params );
   }
 }
 
@@ -136,9 +154,15 @@ check( config_t const * config ) {
   if( r.result!=CONFIGURE_OK ) return r;
 
   if( 0==strcmp( config->development.net.provider, "xdp" ) ) {
-    check_param_list( xdp_params );
-    if( r.result!=CONFIGURE_OK ) return r;
+    r = check_param_list( xdp_params );
+  } else if( 0==strcmp( config->development.net.provider, "socket" ) ) {
+    sock_params[ 0 ].value = config->development.net.sock_receive_buffer_size;
+    sock_params[ 1 ].value = config->development.net.sock_send_buffer_size;
+    r = check_param_list( sock_params );
+  } else {
+    FD_LOG_ERR(( "unknown net provider: %s", config->development.net.provider ));
   }
+  if( r.result!=CONFIGURE_OK ) return r;
 
   CONFIGURE_OK();
 }

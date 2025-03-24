@@ -13,6 +13,7 @@ setup_xdp_tile( fd_topo_t *      topo,
                 fd_topo_tile_t * netlink_tile,
                 ulong const *    tile_to_cpu,
                 char const       bind_interface[ IF_NAMESIZE ],
+                uint             bind_address,
                 long             flush_timeout_micros,
                 ulong            xdp_rx_queue_size,
                 ulong            xdp_tx_queue_size,
@@ -29,8 +30,8 @@ setup_xdp_tile( fd_topo_t *      topo,
   fd_pod_insertf_ulong( topo->props, umem_obj->id, "net.%lu.umem", i );
 
   strncpy( tile->net.interface, bind_interface, sizeof(tile->net.interface) );
+  tile->net.bind_address = bind_address;
 
-  strcpy( tile->net.provider, "xdp" );
   tile->net.tx_flush_timeout_ns = (long)flush_timeout_micros * 1000L;
   tile->net.xdp_rx_queue_size = xdp_rx_queue_size;
   tile->net.xdp_tx_queue_size = xdp_tx_queue_size;
@@ -56,9 +57,17 @@ setup_xdp_tile( fd_topo_t *      topo,
 
 static void
 setup_sock_tile( fd_topo_t *   topo,
-                 ulong const * tile_to_cpu ) {
+                 ulong const * tile_to_cpu,
+                 uint          bind_address,
+                 uint          so_rcvbuf,
+                 uint          so_sndbuf ) {
   fd_topo_tile_t * tile = fd_topob_tile( topo, "sock", "sock", "metric_in", tile_to_cpu[ topo->tile_cnt ], 0, 0 );
-  strcpy( tile->net.provider, "socket" );
+  tile->net.bind_address = bind_address;
+
+  if( FD_UNLIKELY( so_rcvbuf>INT_MAX ) ) FD_LOG_ERR(( "invalid [development.net.sock_receive_buffer_size]" ));
+  if( FD_UNLIKELY( so_sndbuf>INT_MAX ) ) FD_LOG_ERR(( "invalid [development.net.sock_send_buffer_size]" ));
+  tile->net.so_rcvbuf = (int)so_rcvbuf;
+  tile->net.so_sndbuf = (int)so_sndbuf;
 }
 
 void
@@ -68,11 +77,14 @@ fd_topos_net_tiles( fd_topo_t *  topo,
                     ulong        netlnk_max_neighbors,
                     char const * net_provider,
                     char const   bind_interface[ IF_NAMESIZE ],
+                    uint         bind_address,
                     long         flush_timeout_micros,
                     ulong        xdp_rx_queue_size,
                     ulong        xdp_tx_queue_size,
                     int          xdp_zero_copy,
                     char const * xdp_mode,
+                    uint         so_rcvbuf,
+                    uint         so_sndbuf,
                     ulong const  tile_to_cpu[ FD_TILE_MAX ] ) {
   /* net_umem: Packet buffers */
   fd_topob_wksp( topo, "net_umem" );
@@ -94,7 +106,7 @@ fd_topos_net_tiles( fd_topo_t *  topo,
     fd_netlink_topo_create( netlink_tile, topo, netlnk_max_routes, netlnk_max_neighbors, bind_interface );
 
     for( ulong i=0UL; i<net_tile_cnt; i++ ) {
-      setup_xdp_tile( topo, i, netlink_tile, tile_to_cpu, bind_interface, flush_timeout_micros, xdp_rx_queue_size, xdp_tx_queue_size, xdp_zero_copy, xdp_mode );
+      setup_xdp_tile( topo, i, netlink_tile, tile_to_cpu, bind_interface, bind_address, flush_timeout_micros, xdp_rx_queue_size, xdp_tx_queue_size, xdp_zero_copy, xdp_mode );
     }
 
   } else if( 0==strcmp( net_provider, "socket" ) ) {
@@ -103,7 +115,7 @@ fd_topos_net_tiles( fd_topo_t *  topo,
     fd_topob_wksp( topo, "sock" );
 
     for( ulong i=0UL; i<net_tile_cnt; i++ ) {
-      setup_sock_tile( topo, tile_to_cpu );
+      setup_sock_tile( topo, tile_to_cpu, bind_address, so_rcvbuf, so_sndbuf );
     }
 
   } else {
@@ -116,11 +128,7 @@ topo_is_xdp( fd_topo_t * topo ) {
   /* FIXME hacky */
   for( ulong j=0UL; j<(topo->tile_cnt); j++ ) {
     if( 0==strcmp( topo->tiles[ j ].name, "net" ) ) {
-      if( 0==strcmp( topo->tiles[ j ].net.provider, "xdp" ) ) {
-        return 1;
-      } else {
-        return 0;
-      }
+      return 1;
     }
   }
   return 0;
