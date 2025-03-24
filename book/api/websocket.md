@@ -231,9 +231,9 @@ validators fork choice. A distance of more than 150 means the validator
 is considered delinquent.
 
 #### `summary.uptime_nanos`
-| frequency | type     | example           |
-|-----------|----------|-------------------|
-| *Once*    | `number` |  `21785299176204` |
+| frequency | type     | example             |
+|-----------|----------|---------------------|
+| *Once*    | `string` |  `"21785299176204"` |
 
 The length of time in nanoseconds that the validator has been running.
 Running time is approximately measured since application startup, and
@@ -369,17 +369,17 @@ tiles in the system.
 :::
 
 #### `summary.identity_balance`
-| frequency      | type     | example    |
-|----------------|----------|------------|
-| *Once* + *60s* | `number` | `21125572` |
+| frequency      | type     | example      |
+|----------------|----------|--------------|
+| *Once* + *60s* | `string` | `"21125572"` |
 
 Account balance of this validators identity account in lamports. The
 balance is on the highest slot of the currently active fork of the validator.
 
 #### `summary.vote_balance`
-| frequency      | type     | example    |
-|----------------|----------|------------|
-| *Once* + *60s* | `number` | `21125572` |
+| frequency      | type     | example      |
+|----------------|----------|--------------|
+| *Once* + *60s* | `string` | `"21125572"` |
 
 Account balance of this validators vote account in lamports. The balance
 is on the highest slot of the currently active fork of the validator.
@@ -738,11 +738,11 @@ once they are confirmed (the prior epoch has fully rooted).
 ```json
 {
     "epoch": 636,
-    "start_time_nanos": 12412481240412,
-    "ent_time_nanos": 1719910299914232,
+    "start_time_nanos": "12412481240412",
+    "end_time_nanos": "1719910299914232",
     "start_slot": 274752000,
     "end_slot": 275183999,
-    "excluded_stake_lamports": 0,
+    "excluded_stake_lamports": "0",
     "staked_pubkeys": [
         "Fe4StcZSQ228dKK2hni7aCP7ZprNhj8QKWzFe5usGFYF",
         "2CeCyRoYQcctDmbXWrSUfTT4aQkGVCnArAmbdmQ5QGFi",
@@ -751,10 +751,10 @@ once they are confirmed (the prior epoch has fully rooted).
         // ... many more ...
     ],
     "staked_lamports": [
-        360,
-        240,
-        180,
-        9991,
+        "360",
+        "240",
+        "180",
+        "9991",
         // ... many more ...
     ],
     "leader_slots": [
@@ -772,13 +772,13 @@ once they are confirmed (the prior epoch has fully rooted).
 | Field      | Type    | Description
 |------------|---------|------------
 | epoch      | `number` | An identity counter for each epoch, starting at zero for the first epoch and going up |
-| start_time_nanos | `number` | A UNIX timestamp, in nanoseconds, of when the epoch started. This is the time the last non-skipped block of the prior epoch finished replaying locally on this validator, if the validator was online when that happened, otherwise it is null |
-| end_time_nanos | ` number` | A UNIX timestamp, in nanoseconds, of when the epoch ended. This is the time the last non-skipped block of the epoch finished replaying locally on this validator, if the validator was online when that happened, otherwise it is null |
+| start_time_nanos | `string` | A UNIX timestamp, in nanoseconds, of when the epoch started. This is the time the last non-skipped block of the prior epoch finished replaying locally on this validator, if the validator was online when that happened, otherwise it is null |
+| end_time_nanos | ` string` | A UNIX timestamp, in nanoseconds, of when the epoch ended. This is the time the last non-skipped block of the epoch finished replaying locally on this validator, if the validator was online when that happened, otherwise it is null |
 | start_slot | `number` | The first slot (inclusive) in the epoch |
 | end_slot   | `number` | The last slot (inclusive) in the epoch |
-| excluded_stake_lamports | `number` | This number is almost always zero. Firedancer has a limit of 40,200 for the number of staked peer validators it can keep track of. In the unlikely event that this number is exceeded, the lowest staked peers will be forgotten, and their stake will not appear in the below lists. But is is useful to know the total stake in the epoch, so this value represents the leftover/excluded ("poisoned") amount of stake that we do not know which validator it belongs to
+| excluded_stake_lamports | `string` | This number is almost always zero. Firedancer has a limit of 40,200 for the number of staked peer validators it can keep track of. In the unlikely event that this number is exceeded, the lowest staked peers will be forgotten, and their stake will not appear in the below lists. But is is useful to know the total stake in the epoch, so this value represents the leftover/excluded ("poisoned") amount of stake that we do not know which validator it belongs to
 | staked_pubkeys | `string[]` | A list of all of validator identity keys for validators which have are staked in this epoch.  There will be at most 40,200 staked keys, after which lower staked keys will not be included |
-| staked_lamports | `number[]` | A list with the same length as the `staked_pubkeys` field. `stake_lamports[ i ]` is the number of lamports staked on the pubkey `staked_pubkeys[ i ]` as of this epoch
+| staked_lamports | `string[]` | A list with the same length as the `staked_pubkeys` field. `stake_lamports[ i ]` is the number of lamports staked on the pubkey `staked_pubkeys[ i ]` as of this epoch
 | leader_slots | `number[]` | An array, one entry per four slots, of which pubkey in the `leader_pubkeys` array is leader for those slots. On `mainnet-beta` this array will always have a length of 108,000, which is the number of slots in an epoch divided by four.  Leader slots are in groups of four because the leader schedule is generated in such a way as to guarantee each leader gets at least four consecutive slots.  For example, to find the pubkey of the leader in slot 1000 of the epoch, it is `staked_pubkeys[ leader_slots[ 1000/4 ] ]` |
 
 On establishing a connection two epochs are sent to the client. The
@@ -831,7 +831,7 @@ identity is no longer in these three data sources, it will be removed.
             "vote": [
                 {
                     "vote_pubkey": "8ri9HeWZv4Dcf4BD46pVPjmefzJLpbtfdAtyxyeG4enL",
-                    "activated_stake": 5812,
+                    "activated_stake": "5812",
                     "last_vote": 281795801,
                     "root_slot": 281795770,
                     "epoch_credits": 5917,
@@ -868,7 +868,7 @@ identity is no longer in these three data sources, it will be removed.
 | Field           | Type           | Description |
 |-----------------|----------------|-------------|
 | vote_pubkey     | `string`       | The public key of vote account, encoded in base58 |
-| activated_stake | `number`       | The amount of stake in lamports that is activated on this vote account for the current epoch. Warming up or cooling down stake that was delegating during this epoch is not included |
+| activated_stake | `string`       | The amount of stake in lamports that is activated on this vote account for the current epoch. Warming up or cooling down stake that was delegating during this epoch is not included |
 | last_vote       | `number\|null` | The last vote by the vote account that was landed on chain, as seen by this validator. If the vote account has not yet landed any votes on the chain this will be `null` |
 | root_slot       | `number\|null` | The last slot that was rooted by the vote account, based on the vote history. If the vote account has not yet rooted any slots this will be `null` |
 | epoch_credits   | `number`       | The number of credits earned by the vote account during the current epoch |
@@ -976,15 +976,15 @@ initially replay one but the cluster votes on the other one.
 | mine                 | `boolean`      | True if this validator was the leader for this slot. This will never change for a slot once it has been published, and will be aligned with the epoch information, except in cases where the validator identity is changed while the validator is running |
 | skipped              | `boolean`      | True if the slot was skipped. The skipped state is the state in the currently active fork of the validator. The skipped state can change if the validator switches active fork |
 | duration_nanos       | `number\|null` | A duration in nanoseconds of how long it took us to receive and replay the slot. This is the time as measured since we completed replay of the parent slot locally on this validator, til the time we replayed this slot locally on this validator |
-| completed_time_nanos | `number\|null` |  UNIX timestamp in nanoseconds of when this validator finished replaying the slot locally. If the slot was skipped, this may be `null` which indicates the block for this slot did not finish replaying on this validator. In some cases, a skipped slot will still have a completed time, if we received the data for the block, replayed it, and then decided to use a different fork |
+| completed_time_nanos | `string\|null` |  UNIX timestamp in nanoseconds of when this validator finished replaying the slot locally. If the slot was skipped, this may be `null` which indicates the block for this slot did not finish replaying on this validator. In some cases, a skipped slot will still have a completed time, if we received the data for the block, replayed it, and then decided to use a different fork |
 | level                | `string`  | One of `incomplete`, `completed`, `optimistically_confirmed`, `rooted`, or `finalized` as described above. The state is the state in the currently active fork of this validator. The state can change normally (for example, a completed slot becoming optimisitically confirmed or rooted), or also because the validator switched forks |
 | transactions         | `number\|null` | Total number of transactions (vote and non-vote) in the block. If the slot is not skipped, this will be non-null, but in some cases it will also be non-null even if the slot was skipped. That's because we replayed the block but selected a fork without it, but we still know how many transactions were in it |
 | vote_transactions    | `number\|null` | Total number of vote transactions in the block. Will always be less than or equal to `transactions`. The number of non-vote transactions is given by `transactions - vote_transactions`
 | failed_transactions  | `number\|null` | Total number of failed transactions (vote and non-vote) in the block. Failed transactions are those which are included in the block and were charged fees, but failed to execute successfully. This is different from dropped transactions which do not pay fees and are not included in the block |
 | compute_units        | `number\|null` | Total number of compute units used by the slot |
-| transaction_fee      | `number\|null` | Total amount of transaction fees that this slot collects in lamports after any burning |
-| priority_fee         | `number\|null` | Total amount of priority fees that this slot collects in lamports after any burning |
-| tips                 | `number\|null` | Total amount of tips that this slot collects in lamports, across all block builders, after any commission to the block builder is subtracted |
+| transaction_fee      | `string\|null` | Total amount of transaction fees that this slot collects in lamports after any burning |
+| priority_fee         | `string\|null` | Total amount of priority fees that this slot collects in lamports after any burning |
+| tips                 | `string\|null` | Total amount of tips that this slot collects in lamports, across all block builders, after any commission to the block builder is subtracted |
 
 #### `slot.skipped_history`
 | frequency      | type       | example |
@@ -1151,7 +1151,7 @@ new validator identity.
         },
         "tile_timers": [
             {
-                "timestamp_nanos": 0,
+                "timestamp_nanos": "1739657041688242791",
                 "tile_timers": [
                     44.972112412,
                     90.12,
@@ -1171,7 +1171,7 @@ new validator identity.
                 ]
             },
             {
-                "timestamp_nanos": 0,
+                "timestamp_nanos": "1739657041688342791",
                 "tile_timers": [
                     44.972112412,
                     90.12,
@@ -1194,11 +1194,11 @@ new validator identity.
         ],
         "compute_units": {
             "max_compute_units": 48000000,
-            "start_timestamp_nanos": 1739657041688346791,
-            "target_end_timestamp_nanos": 1739657042088346880,
-            "compute_unit_timestamps_nanos": [1739657041706960598, 1739657041707477011],
+            "start_timestamp_nanos": "1739657041688346791",
+            "target_end_timestamp_nanos": "1739657042088346880",
+            "compute_unit_timestamps_nanos": ["1739657041706960598", "1739657041707477011"],
             "compute_units_deltas": [3428, 0],
-            "bank_count_timestamps_nanos": [1739657041706960598, 1739657041707477011],
+            "bank_count_timestamps_nanos": ["1739657041706960598", "1739657041707477011"],
             "active_bank_count": [1, 0]
         }
     }
@@ -1264,16 +1264,15 @@ new validator identity.
 **`TsTileTimers`**
 | Field             | Type          | Description |
 |-------------------|---------------|-------------|
-| timestamp_nanos   | `number`      | A timestamp of when the tile timers were sampled, nanoseconds since the UNIX epoch |
+| timestamp_nanos   | `string`      | A timestamp of when the tile timers were sampled, nanoseconds since the UNIX epoch |
 | tile_timers       | `TileTimer[]` | A list of all tile timing information at the given sample timestamp |
 
 **`ComputeUnits`**
 | Field                         | Type          | Description |
 |-------------------------------|---------------|-------------|
 | max_compute_units             | `number`      | The maximum number of compute units that can be packed into the slot |
-| start_timestamp_nanos         | `number`      | A UNIX timestamp in nanoseconds, representing the time that we started packing transactions into the slot |
-| target_end_timestamp_nanos    | `number`      | A UNIX timestamp in nanoseconds, representing the target time in nanoeconds that we should stop packing transactions for the slot. Transactions might still finish executing after this end time, if they started executing before it and ran over the deadline |
-| compute_unit_timestamps_nanos | `number[]`    | An array of UNIX timestamps, in nanoseconds. Each timestamp represents the time of when we started executing a microblock, or stopped executing a transaction and rebated it. Timestamps are sorted, and will never decrease |
+| start_timestamp_nanos         | `string`      | A UNIX timestamp in nanoseconds, representing the time that we started packing transactions into the slot |
+| target_end_timestamp_nanos    | `string`      | A UNIX timestamp in nanoseconds, representing the target time in nanoeconds that we should stop packing transactions for the slot. Transactions might still finish executing after this end time, if they started executing before it and ran over the deadline |
+| compute_unit_timestamps_nanos | `string[]`    | An array of UNIX timestamps, in nanoseconds. Each timestamp represents the time of when we started executing a microblock, or stopped executing a transaction and rebated it. Timestamps are sorted, and will never decrease |
 | compute_unit_deltas           | `number[]`    | An array, the same length as `compute_unit_timestamps_nanos`. For each timestamp in the above array, this array contains an entry of how many compute units were scheduled for execution at that time. In some cases, the delta will be negative, meaning a microblock completed execution and took less compute units than we thought, so they are rebated back to the available capacity |
-| bank_count_timestamps_nanos   | `number[]`    | An array of UNIX timestamps, in nanoseconds. This array may be a different length than the compute units array, and will typically be much shorter. Each timestamp represents the time when the number of bank tiles actively executing transactions changed. Timestamps are sorted, and will never decrease |
-| active_bank_count             | `number[]`    | An array, the same length as `bank_count_timestamps_nanos`. For each timestamp in the above array, this array contains an entry of how many banks were active at that timestamp |
+| active_bank_count             | `number[]`    | An array, the same length as `compute_unit_timestamps_nanos`. For each timestamp in the above array, this array contains an entry of how many banks were active at that timestamp |
