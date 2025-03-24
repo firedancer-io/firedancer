@@ -231,9 +231,9 @@ validators fork choice. A distance of more than 150 means the validator
 is considered delinquent.
 
 #### `summary.uptime_nanos`
-| frequency | type     | example           |
-|-----------|----------|-------------------|
-| *Once*    | `number` |  `21785299176204` |
+| frequency | type     | example             |
+|-----------|----------|---------------------|
+| *Once*    | `string` |  `"21785299176204"` |
 
 The length of time in nanoseconds that the validator has been running.
 Running time is approximately measured since application startup, and
@@ -369,17 +369,17 @@ tiles in the system.
 :::
 
 #### `summary.identity_balance`
-| frequency      | type     | example    |
-|----------------|----------|------------|
-| *Once* + *60s* | `number` | `21125572` |
+| frequency      | type     | example      |
+|----------------|----------|--------------|
+| *Once* + *60s* | `string` | `"21125572"` |
 
 Account balance of this validators identity account in lamports. The
 balance is on the highest slot of the currently active fork of the validator.
 
 #### `summary.vote_balance`
-| frequency      | type     | example    |
-|----------------|----------|------------|
-| *Once* + *60s* | `number` | `21125572` |
+| frequency      | type     | example      |
+|----------------|----------|--------------|
+| *Once* + *60s* | `string` | `"21125572"` |
 
 Account balance of this validators vote account in lamports. The balance
 is on the highest slot of the currently active fork of the validator.
@@ -738,11 +738,11 @@ once they are confirmed (the prior epoch has fully rooted).
 ```json
 {
     "epoch": 636,
-    "start_time_nanos": 12412481240412,
-    "ent_time_nanos": 1719910299914232,
+    "start_time_nanos": "12412481240412",
+    "end_time_nanos": "1719910299914232",
     "start_slot": 274752000,
     "end_slot": 275183999,
-    "excluded_stake_lamports": 0,
+    "excluded_stake_lamports": "0",
     "staked_pubkeys": [
         "Fe4StcZSQ228dKK2hni7aCP7ZprNhj8QKWzFe5usGFYF",
         "2CeCyRoYQcctDmbXWrSUfTT4aQkGVCnArAmbdmQ5QGFi",
@@ -751,10 +751,10 @@ once they are confirmed (the prior epoch has fully rooted).
         // ... many more ...
     ],
     "staked_lamports": [
-        360,
-        240,
-        180,
-        9991,
+        "360",
+        "240",
+        "180",
+        "9991",
         // ... many more ...
     ],
     "leader_slots": [
@@ -772,13 +772,13 @@ once they are confirmed (the prior epoch has fully rooted).
 | Field      | Type    | Description
 |------------|---------|------------
 | epoch      | `number` | An identity counter for each epoch, starting at zero for the first epoch and going up |
-| start_time_nanos | `number` | A UNIX timestamp, in nanoseconds, of when the epoch started. This is the time the last non-skipped block of the prior epoch finished replaying locally on this validator, if the validator was online when that happened, otherwise it is null |
-| end_time_nanos | ` number` | A UNIX timestamp, in nanoseconds, of when the epoch ended. This is the time the last non-skipped block of the epoch finished replaying locally on this validator, if the validator was online when that happened, otherwise it is null |
+| start_time_nanos | `string` | A UNIX timestamp, in nanoseconds, of when the epoch started. This is the time the last non-skipped block of the prior epoch finished replaying locally on this validator, if the validator was online when that happened, otherwise it is null |
+| end_time_nanos | ` string` | A UNIX timestamp, in nanoseconds, of when the epoch ended. This is the time the last non-skipped block of the epoch finished replaying locally on this validator, if the validator was online when that happened, otherwise it is null |
 | start_slot | `number` | The first slot (inclusive) in the epoch |
 | end_slot   | `number` | The last slot (inclusive) in the epoch |
-| excluded_stake_lamports | `number` | This number is almost always zero. Firedancer has a limit of 40,200 for the number of staked peer validators it can keep track of. In the unlikely event that this number is exceeded, the lowest staked peers will be forgotten, and their stake will not appear in the below lists. But is is useful to know the total stake in the epoch, so this value represents the leftover/excluded ("poisoned") amount of stake that we do not know which validator it belongs to
+| excluded_stake_lamports | `string` | This number is almost always zero. Firedancer has a limit of 40,200 for the number of staked peer validators it can keep track of. In the unlikely event that this number is exceeded, the lowest staked peers will be forgotten, and their stake will not appear in the below lists. But is is useful to know the total stake in the epoch, so this value represents the leftover/excluded ("poisoned") amount of stake that we do not know which validator it belongs to
 | staked_pubkeys | `string[]` | A list of all of validator identity keys for validators which have are staked in this epoch.  There will be at most 40,200 staked keys, after which lower staked keys will not be included |
-| staked_lamports | `number[]` | A list with the same length as the `staked_pubkeys` field. `stake_lamports[ i ]` is the number of lamports staked on the pubkey `staked_pubkeys[ i ]` as of this epoch
+| staked_lamports | `string[]` | A list with the same length as the `staked_pubkeys` field. `stake_lamports[ i ]` is the number of lamports staked on the pubkey `staked_pubkeys[ i ]` as of this epoch
 | leader_slots | `number[]` | An array, one entry per four slots, of which pubkey in the `leader_pubkeys` array is leader for those slots. On `mainnet-beta` this array will always have a length of 108,000, which is the number of slots in an epoch divided by four.  Leader slots are in groups of four because the leader schedule is generated in such a way as to guarantee each leader gets at least four consecutive slots.  For example, to find the pubkey of the leader in slot 1000 of the epoch, it is `staked_pubkeys[ leader_slots[ 1000/4 ] ]` |
 
 On establishing a connection two epochs are sent to the client. The
@@ -831,7 +831,7 @@ identity is no longer in these three data sources, it will be removed.
             "vote": [
                 {
                     "vote_pubkey": "8ri9HeWZv4Dcf4BD46pVPjmefzJLpbtfdAtyxyeG4enL",
-                    "activated_stake": 5812,
+                    "activated_stake": "5812",
                     "last_vote": 281795801,
                     "root_slot": 281795770,
                     "epoch_credits": 5917,
@@ -868,7 +868,7 @@ identity is no longer in these three data sources, it will be removed.
 | Field           | Type           | Description |
 |-----------------|----------------|-------------|
 | vote_pubkey     | `string`       | The public key of vote account, encoded in base58 |
-| activated_stake | `number`       | The amount of stake in lamports that is activated on this vote account for the current epoch. Warming up or cooling down stake that was delegating during this epoch is not included |
+| activated_stake | `string`       | The amount of stake in lamports that is activated on this vote account for the current epoch. Warming up or cooling down stake that was delegating during this epoch is not included |
 | last_vote       | `number\|null` | The last vote by the vote account that was landed on chain, as seen by this validator. If the vote account has not yet landed any votes on the chain this will be `null` |
 | root_slot       | `number\|null` | The last slot that was rooted by the vote account, based on the vote history. If the vote account has not yet rooted any slots this will be `null` |
 | epoch_credits   | `number`       | The number of credits earned by the vote account during the current epoch |
@@ -976,15 +976,15 @@ initially replay one but the cluster votes on the other one.
 | mine                 | `boolean`      | True if this validator was the leader for this slot. This will never change for a slot once it has been published, and will be aligned with the epoch information, except in cases where the validator identity is changed while the validator is running |
 | skipped              | `boolean`      | True if the slot was skipped. The skipped state is the state in the currently active fork of the validator. The skipped state can change if the validator switches active fork |
 | duration_nanos       | `number\|null` | A duration in nanoseconds of how long it took us to receive and replay the slot. This is the time as measured since we completed replay of the parent slot locally on this validator, til the time we replayed this slot locally on this validator |
-| completed_time_nanos | `number\|null` |  UNIX timestamp in nanoseconds of when this validator finished replaying the slot locally. If the slot was skipped, this may be `null` which indicates the block for this slot did not finish replaying on this validator. In some cases, a skipped slot will still have a completed time, if we received the data for the block, replayed it, and then decided to use a different fork |
+| completed_time_nanos | `string\|null` |  UNIX timestamp in nanoseconds of when this validator finished replaying the slot locally. If the slot was skipped, this may be `null` which indicates the block for this slot did not finish replaying on this validator. In some cases, a skipped slot will still have a completed time, if we received the data for the block, replayed it, and then decided to use a different fork |
 | level                | `string`  | One of `incomplete`, `completed`, `optimistically_confirmed`, `rooted`, or `finalized` as described above. The state is the state in the currently active fork of this validator. The state can change normally (for example, a completed slot becoming optimisitically confirmed or rooted), or also because the validator switched forks |
 | transactions         | `number\|null` | Total number of transactions (vote and non-vote) in the block. If the slot is not skipped, this will be non-null, but in some cases it will also be non-null even if the slot was skipped. That's because we replayed the block but selected a fork without it, but we still know how many transactions were in it |
 | vote_transactions    | `number\|null` | Total number of vote transactions in the block. Will always be less than or equal to `transactions`. The number of non-vote transactions is given by `transactions - vote_transactions`
 | failed_transactions  | `number\|null` | Total number of failed transactions (vote and non-vote) in the block. Failed transactions are those which are included in the block and were charged fees, but failed to execute successfully. This is different from dropped transactions which do not pay fees and are not included in the block |
 | compute_units        | `number\|null` | Total number of compute units used by the slot |
-| transaction_fee      | `number\|null` | Total amount of transaction fees that this slot collects in lamports after any burning |
-| priority_fee         | `number\|null` | Total amount of priority fees that this slot collects in lamports after any burning |
-| tips                 | `number\|null` | Total amount of tips that this slot collects in lamports, across all block builders, after any commission to the block builder is subtracted |
+| transaction_fee      | `string\|null` | Total amount of transaction fees that this slot collects in lamports after any burning |
+| priority_fee         | `string\|null` | Total amount of priority fees that this slot collects in lamports after any burning |
+| tips                 | `string\|null` | Total amount of tips that this slot collects in lamports, across all block builders, after any commission to the block builder is subtracted |
 
 #### `slot.skipped_history`
 | frequency      | type       | example |
@@ -1151,7 +1151,7 @@ new validator identity.
         },
         "tile_timers": [
             {
-                "timestamp_nanos": 0,
+                "timestamp_nanos": "1739657041688242791",
                 "tile_timers": [
                     44.972112412,
                     90.12,
@@ -1171,7 +1171,7 @@ new validator identity.
                 ]
             },
             {
-                "timestamp_nanos": 0,
+                "timestamp_nanos": "1739657041688342791",
                 "tile_timers": [
                     44.972112412,
                     90.12,
@@ -1192,14 +1192,20 @@ new validator identity.
             },
             // ... many more ...
         ],
-        "compute_units": {
+        "transactions": {
             "max_compute_units": 48000000,
-            "start_timestamp_nanos": 1739657041688346791,
-            "target_end_timestamp_nanos": 1739657042088346880,
-            "compute_unit_timestamps_nanos": [1739657041706960598, 1739657041707477011],
-            "compute_units_deltas": [3428, 0],
-            "bank_count_timestamps_nanos": [1739657041706960598, 1739657041707477011],
-            "active_bank_count": [1, 0]
+            "start_timestamp_nanos": "1739657041688346791",
+            "target_end_timestamp_nanos": "1739657042088346880",
+            "txn_start_timestamps_nanos": ["1739657041706960598"],
+            "txn_stop_timestamps_nanos": ["1739657041707477011"],
+            "txn_compute_units_requested": [0],
+            "txn_compute_units_estimated": [3428],
+            "txn_compute_units_rebated": [0],
+            "txn_micro_lamports_per_cu": ["0"],
+            "txn_error_code": [0],
+            "txn_from_bundle": [false],
+            "txn_is_simple_vote": [true],
+            "txn_bank_idx": [0]
         }
     }
 }
@@ -1214,7 +1220,7 @@ new validator identity.
 | waterfall           | `TxnWaterfall\|null`      | If the slot is not `mine`, will be `null`. Otherwise, a waterfall showing reasons transactions were acquired since the end of the prior leader slot |
 | tile_primary_metric | `TilePrimaryMetric\|null` | If the slot is not `mine`, will be `null`. Otherwise, max value of per-tile-type primary metrics since the end of the prior leader slot |
 | tile_timers         | `TsTileTimers[]\|null`    | If the slot is not `mine`, will be `null`. Otherwise, an array of `TsTileTimers` samples from the slot, sorted earliest to latest. We store this information for the most recently completed 4096 leader slots. This will be `null` for leader slots before that |
-| compute_units       | `ComputeUnits\|null`      | If the slot is not `mine`, will be `null`. Otherwise, a listing of the timestamps when the compute units watermark of the slot changed, and how many banks were active |
+| transactions        | `Transactions\|null`      | If the slot is not `mine`, will be `null`. Otherwise, metrics for the transactions in this slot. Arrays have a seperate entry for each transaction that was packed in this slot, and are ordered in the same order the transactions were packed. |
 
 **`TxnWaterfall`**
 | Field | Type              | Description |
@@ -1264,16 +1270,67 @@ new validator identity.
 **`TsTileTimers`**
 | Field             | Type          | Description |
 |-------------------|---------------|-------------|
-| timestamp_nanos   | `number`      | A timestamp of when the tile timers were sampled, nanoseconds since the UNIX epoch |
+| timestamp_nanos   | `string`      | A timestamp of when the tile timers were sampled, nanoseconds since the UNIX epoch |
 | tile_timers       | `TileTimer[]` | A list of all tile timing information at the given sample timestamp |
 
-**`ComputeUnits`**
-| Field                         | Type          | Description |
-|-------------------------------|---------------|-------------|
-| max_compute_units             | `number`      | The maximum number of compute units that can be packed into the slot |
-| start_timestamp_nanos         | `number`      | A UNIX timestamp in nanoseconds, representing the time that we started packing transactions into the slot |
-| target_end_timestamp_nanos    | `number`      | A UNIX timestamp in nanoseconds, representing the target time in nanoeconds that we should stop packing transactions for the slot. Transactions might still finish executing after this end time, if they started executing before it and ran over the deadline |
-| compute_unit_timestamps_nanos | `number[]`    | An array of UNIX timestamps, in nanoseconds. Each timestamp represents the time of when we started executing a microblock, or stopped executing a transaction and rebated it. Timestamps are sorted, and will never decrease |
-| compute_unit_deltas           | `number[]`    | An array, the same length as `compute_unit_timestamps_nanos`. For each timestamp in the above array, this array contains an entry of how many compute units were scheduled for execution at that time. In some cases, the delta will be negative, meaning a microblock completed execution and took less compute units than we thought, so they are rebated back to the available capacity |
-| bank_count_timestamps_nanos   | `number[]`    | An array of UNIX timestamps, in nanoseconds. This array may be a different length than the compute units array, and will typically be much shorter. Each timestamp represents the time when the number of bank tiles actively executing transactions changed. Timestamps are sorted, and will never decrease |
-| active_bank_count             | `number[]`    | An array, the same length as `bank_count_timestamps_nanos`. For each timestamp in the above array, this array contains an entry of how many banks were active at that timestamp |
+**`Transactions`**
+| Field                       | Type        | Description |
+|-----------------------------|-------------|-------------|
+| max_compute_units           | `number`    | The maximum number of compute units that can be packed into the slot |
+| start_timestamp_nanos       | `string`    | A UNIX timestamp in nanoseconds, representing the time that we started packing transactions into the slot |
+| target_end_timestamp_nanos  | `string`    | A UNIX timestamp in nanoseconds, representing the target time in nanoeconds that we should stop packing transactions for the slot. Transactions might still finish executing after this end time, if they started executing before it and ran over the deadline |
+| txn_start_timestamps_nanos  | `string[]`  | An array of UNIX timestamps, in nanoseconds. `txn_start_timestamps_nanos[i]` is approximatley the time when the microblock for the `i`-th transaction in the slot began executing. |
+| txn_stop_timestamps_nanos   | `string[]`  | An array of UNIX timestamps, in nanoseconds. `txn_stop_timestamps_nanos[i]` is approximatley the time when the microblock for the `i`-th transaction in the slot completed executing. |
+| txn_compute_units_requested | `number[]`  | `txn_compute_units_requested[i]` is the requested (via computeBudgetInstruction) or default compute units for the `i`-th transaction in the slot. |
+| txn_compute_units_estimated | `number[]`  | `txn_compute_units_estimated[i]` is the estimated (by pack) cost for the `i`-th transaction in the slot, as determined by its payload contents and compute budget. |
+| txn_compute_units_rebated   | `number[]`  | `txn_compute_units_rebated[i]` is the difference between the cost estimate and the actual cost (which is strictly less than or equal to the estimate) for the `i`-th transaction in the slot. |
+| txn_micro_lamports_per_cu   | `string[]`  | `txn_lamports_per_cu[i]` is the lamports per cu used to compute the priority fee for the `i`-th transaction in the slot. |
+| txn_error_code              | `number[]`  | `txn_error_code[i]` is the error code that explains the failure for the `i`-th transaction in the slot. If the error code is 0, then the transaction succeeded. |
+| txn_from_bundle             | `boolean[]` | `txn_from_bundle[i]` is `true` if the `i`-th transaction in the slot came from a bundle and `false` otherwise. |
+| txn_is_simple_vote          | `boolean[]` | `txn_is_simple_vote[i]` is `true` if the `i`-th transaction in the slot is a simple vote and `false` otherwise. |
+| txn_bank_idx                | `number[]`  | `txn_priority_fee[i]` is the index of the bank that executed the `i`-th transaction in the slot. |
+
+These are the possible error codes that might be included in `txn_error_code` and their meanings.
+
+| Code Name                             | Code | Description |
+|---------------------------------------|------|-------------|
+Success                                 | 0    | The transaction successfully executed. |
+AccountInUse                            | 1    | Includes a writable account that was already in use at the time this transaction was executed. |
+AccountLoadedTwice                      | 2    | Lists at least one account pubkey more than once. |
+AccountNotFound                         | 3    | Lists at least one account pubkey that was not found in the accounts database. |
+ProgramAccountNotFound                  | 4    | Could not find or parse a listed program account. |
+InsufficientFundsForFee                 | 5    | Lists a fee payer that does not have enough SOL to fund this transaction. |
+InvalidAccountForFee                    | 6    | Lists a fee payer that may not be used to pay transaction fees. |
+AlreadyProcessed                        | 7    | This transaction has been processed before (e.g. the transaction was sent twice). |
+BlockhashNotFound                       | 8    | Provides a block hash of a `recent` block in the chain, `b`, that this validator has not seen yet, or that is so old it has been discarded. |
+InstructionError                        | 9    | Includes an instruction that failed to process. |
+CallChainTooDeep                        | 10   | Includes a cross program invocation (CPI) chain that exceeds the maximum depth allowed. |
+MissingSignatureForFee                  | 11   | Requires a fee but has no signature present. |
+InvalidAccountIndex                     | 12   | Contains an invalid account reference in one of its instructions. |
+SignatureFailure                        | 13   | Includes a signature that did not pass verification. |
+InvalidProgramForExecution              | 14   | Includes a program that may not be used for executing transactions. |
+SanitizeFailure                         | 15   | Failed to parse a portion of the transaction payload. |
+ClusterMaintenance                      | 16   | Cluster is undergoing an active maintenance window. |
+AccountBorrowOutstanding                | 17   | Transaction processing left an account with an outstanding borrowed reference. |
+WouldExceedMaxBlockCostLimit            | 18   | Exceeded the maximum compute unit cost allowed for this slot. |
+UnsupportedVersion                      | 19   | Includes a transaction version that is not supported by this validator. |
+InvalidWritableAccount                  | 20   | Includes an account marked as writable that is not in fact writable. |
+WouldExceedMaxAccountCostLimit          | 21   | Exceeded the maximum per-account compute unit cost allowed for this slot. |
+WouldExceedAccountDataBlockLimit        | 22   | Retreived accounts data size exceeds the limit imposed for this slot. |
+TooManyAccountLocks                     | 23   | Locked too many accounts. |
+AddressLookupTableNotFound              | 24   | Loads an address table account that doesn't exist. |
+InvalidAddressLookupTableOwner          | 25   | Loads an address table account with an invalid owner. |
+InvalidAddressLookupTableData           | 26   | Loads an address table account with invalid data. |
+InvalidAddressLookupTableIndex          | 27   | Address table lookup uses an invalid index. |
+InvalidRentPayingAccount                | 28   | Deprecated. |
+WouldExceedMaxVoteCostLimit             | 29   | Exceeded the maximum vote compute unit cost allowed for this slot. |
+WouldExceedAccountDataTotalLimit        | 30   | Deprecated. |
+DuplicateInstruction                    | 31   | Contains duplicate instructions. |
+InsufficientFundsForRent                | 32   | Deprecated. |
+MaxLoadedAccountsDataSizeExceeded       | 33   | Retreived accounts data size exceeds the limit imposed for this transaction. |
+InvalidLoadedAccountsDataSizeLimit      | 34   | Requested an invalid data size (i.e. 0). |
+ResanitizationNeeded                    | 35   | Sanitized transaction differed before/after feature activiation. Needs to be resanitized. |
+ProgramExecutionTemporarilyRestricted   | 36   | Execution of a program referenced by this transaciton is restricted. |
+UnbalancedTransaction                   | 37   | The total accounts balance before the transaction does not equal the total balance after. |
+ProgramCacheHitMaxLimit                 | 38   | The program cache allocated for transaction batch for this transaction hit its load limit. |
+CommitCancelled                         | 39   | This transaction was part of a bundle that failed. |

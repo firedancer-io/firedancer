@@ -98,10 +98,31 @@ struct fd_microblock_trailer {
      mixed into PoH. */
   uchar hash[ 32UL ];
 
-  /* If this is a microblock for the last transaction in a bundle,
-     (or always true, if not a bundle). Useful for monitoring tools to
-     determine when the bank is done executing. */
-  uchar is_last_in_bundle;
+   /* A sequentially increasing index of the first transaction in the
+     microblock, across all slots ever processed by pack.  This is used
+     by monitoring tools that maintain an ordered history of
+     transactions. */
+  ulong pack_txn_idx;
+
+  /* Let the duration of the microblock be the different between the
+     publish timestamp of the microblock from pack and the publish
+     timestamp of the microblock in bank. These denote the portion of
+     that duration for when an event started. At the moment this is
+     useful because bank sends out at most one transaction per
+     microblock.
+
+     For example, if a microblock starts at t=10 and ends at t=20, and
+     txn_exec_start_pct is 32768, then this transaction started
+     executing at roughly t=15 */
+  ushort txn_load_start_pct;
+  ushort txn_load_end_pct;
+  ushort txn_exec_start_pct;
+  ushort txn_exec_end_pct;
+
+  /* The error code for the last transaction in this microblock, if it
+     failed, or 0 otherwise. At the moment this is useful because bank
+     sends out at most one transaction per microblock. */
+  uchar error_code;
 };
 typedef struct fd_microblock_trailer fd_microblock_trailer_t;
 
@@ -122,8 +143,14 @@ struct fd_microblock_bank_trailer {
      in the same order they are executed. */
   ulong microblock_idx;
 
+  /* A sequentially increasing index of the first transaction in the
+     microblock, across all slots ever processed by pack.  This is used
+     by monitoring tools that maintain an ordered history of
+     transactions. */
+  ulong pack_txn_idx;
+
   /* If the microblock is a bundle, with a set of potentially
-     conflciting transactions that should be executed in order, and
+     conflicting transactions that should be executed in order, and
      all either commit or fail atomically. */
   int is_bundle;
 };
