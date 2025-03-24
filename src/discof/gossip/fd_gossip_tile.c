@@ -13,6 +13,7 @@
 #include "../../disco/net/fd_net_tile.h"
 #include "../../flamenco/gossip/fd_gossip.h"
 #include "../../flamenco/runtime/fd_system_ids.h"
+#include "../../flamenco/runtime/fd_runtime.h"
 #include "../../util/net/fd_ip4.h"
 #include "../../util/net/fd_udp.h"
 #include "../../util/net/fd_net_headers.h"
@@ -34,13 +35,6 @@
 #define IN_KIND_RESTART (3)
 #define IN_KIND_SIGN    (4)
 #define MAX_IN_LINKS    (8)
-
-/* Scratch space is used for deserializing a gossip message.
-   TODO: update */
-#define SCRATCH_MAX (1<<16UL)
-/* A minimal number of frames
-   TODO: update */
-#define SCRATCH_DEPTH (16UL)
 
 static volatile ulong * fd_shred_version;
 
@@ -228,8 +222,6 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, alignof(fd_gossip_tile_ctx_t), sizeof(fd_gossip_tile_ctx_t) );
   l = FD_LAYOUT_APPEND( l, fd_gossip_align(), fd_gossip_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_contact_info_table_align(), fd_contact_info_table_footprint( FD_PEER_KEY_MAX ) );
-  l = FD_LAYOUT_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX ) );
-  l = FD_LAYOUT_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
   return FD_LAYOUT_FINI( l, scratch_align() );
 }
 
@@ -274,59 +266,6 @@ ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
   send_packet( arg, addr->addr, addr->port, msg, msglen, tsorig );
 }
 
-static int
-is_vote_state_update_instr( uint discriminant ) {
-  return discriminant == fd_vote_instruction_enum_vote ||
-         discriminant == fd_vote_instruction_enum_vote_switch ||
-         discriminant == fd_vote_instruction_enum_update_vote_state ||
-         discriminant == fd_vote_instruction_enum_update_vote_state_switch ||
-         discriminant == fd_vote_instruction_enum_compact_update_vote_state ||
-         discriminant == fd_vote_instruction_enum_compact_update_vote_state_switch;
-}
-
-static int
-verify_vote_txn( fd_gossip_vote_t const * vote ) {
-  fd_txn_t const * parsed_txn = (fd_txn_t const *)fd_type_pun_const( vote->txn.txn );
-  ushort instr_data_sz = parsed_txn->instr[0].data_sz;
-  uchar const * instr_data = vote->txn.raw + parsed_txn->instr[0].data_off;
-
-  fd_pubkey_t const * txn_accounts = (fd_pubkey_t const *)(vote->txn.raw + parsed_txn->acct_addr_off);
-  uchar program_id = parsed_txn->instr[0].program_id;
-
-  if( memcmp( txn_accounts[program_id].uc, &fd_solana_vote_program_id, sizeof(fd_pubkey_t) ) ) {
-    return -1;
-  }
-
-  /* Check that txn only contains one instruction */
-  if( parsed_txn->instr_cnt > 1 ) {
-    return -1;
-  }
-
-  fd_bincode_decode_ctx_t decode = {
-    .data    = instr_data,
-    .dataend = instr_data + instr_data_sz
-  };
-
-  ulong total_sz      = 0UL;
-  int   decode_result = fd_vote_instruction_decode_footprint( &decode, &total_sz );
-  if( FD_UNLIKELY( decode_result != FD_BINCODE_SUCCESS ) ) {
-    return -1;
-  }
-
-  uchar * mem = fd_scratch_alloc( fd_vote_instruction_align(), total_sz );
-  if( FD_UNLIKELY( !mem ) ) {
-    FD_LOG_ERR(( "Unable to allocate memory for vote instruction" ));
-  }
-
-  fd_vote_instruction_t * vote_instr = fd_vote_instruction_decode( mem, &decode );
-
-  if( !is_vote_state_update_instr( vote_instr->discriminant ) ) {
-    return -1;
-  }
-
-  return 0;
-}
-
 static void
 gossip_deliver_fun( fd_crds_data_t * data,
                     void *           arg ) {
@@ -336,9 +275,6 @@ gossip_deliver_fun( fd_crds_data_t * data,
     if( FD_UNLIKELY( !ctx->verify_out_mcache ) ) return;
 
     fd_gossip_vote_t const * gossip_vote = &data->inner.vote;
-    if( verify_vote_txn( gossip_vote ) != 0 ) {
-      return;
-    }
 
     uchar * vote_txn_msg = fd_chunk_to_laddr( ctx->verify_out_mem, ctx->verify_out_chunk );
     ulong vote_txn_sz    = gossip_vote->txn.raw_sz;
@@ -993,12 +929,6 @@ unprivileged_init( fd_topo_t *      topo,
 
   }
   if( FD_UNLIKELY( sign_link_out_idx==UINT_MAX ) ) FD_LOG_ERR(( "Missing gossip_sign link" ));
-
-  void * smem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_smem_align(), fd_scratch_smem_footprint( SCRATCH_MAX ) );
-  void * fmem = FD_SCRATCH_ALLOC_APPEND( l, fd_scratch_fmem_align(), fd_scratch_fmem_footprint( SCRATCH_DEPTH ) );
-
-  FD_TEST( ( !!smem ) & ( !!fmem ) );
-  fd_scratch_attach( smem, fmem, SCRATCH_MAX, SCRATCH_DEPTH );
 
   ctx->wksp = topo->workspaces[ topo->objs[ tile->tile_obj_id ].wksp_id ].wksp;
 
