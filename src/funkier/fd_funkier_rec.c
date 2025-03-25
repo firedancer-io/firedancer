@@ -247,6 +247,8 @@ fd_funkier_rec_publish( fd_funkier_rec_prepare_t * prepare ) {
     FD_COMPILER_MFENCE(); /* TODO: maybe not necessary */
   }
 
+  /* We need to hold the pool lock whilst inserting and removing from the map, to make the updates
+     to the prev_idx/next_idx pointers atomic. */
   fd_funkier_rec_pool_lock( &rec_pool, 1 );
   rec->prev_idx = rec_prev_idx;
   if( fd_funkier_rec_idx_is_null( rec_prev_idx ) ) {
@@ -254,11 +256,11 @@ fd_funkier_rec_publish( fd_funkier_rec_prepare_t * prepare ) {
   } else {
     rec_pool.ele[ rec_prev_idx ].next_idx = rec_idx;
   }
-  fd_funkier_rec_pool_unlock( &rec_pool );
 
   if( fd_funkier_rec_map_insert( &rec_map, rec, FD_MAP_FLAG_BLOCKING ) ) {
     FD_LOG_CRIT(( "fd_funkier_rec_map_insert failed" ));
   }
+  fd_funkier_rec_pool_unlock( &rec_pool );
 }
 
 void
@@ -328,18 +330,22 @@ fd_funkier_rec_hard_remove( fd_funkier_t *               funk,
   }
   fd_funkier_rec_key_copy( pair->key, key );
 
+  fd_funkier_rec_pool_lock( &rec_pool, 1 );
+
   fd_funkier_rec_t * rec = NULL;
   for(;;) {
     fd_funkier_rec_map_query_t rec_query[1];
     int err = fd_funkier_rec_map_remove( &rec_map, pair, NULL, rec_query, FD_MAP_FLAG_BLOCKING );
     if( FD_UNLIKELY( err == FD_MAP_ERR_AGAIN ) ) continue;
-    if( err == FD_MAP_ERR_KEY ) return;
+    if( err == FD_MAP_ERR_KEY ) {
+      fd_funkier_rec_pool_unlock( &rec_pool );
+      return;
+    }
     if( FD_UNLIKELY( err != FD_MAP_SUCCESS ) ) FD_LOG_CRIT(( "map corruption" ));
     rec = fd_funkier_rec_map_query_ele( rec_query );
     break;
   }
 
-  fd_funkier_rec_pool_lock( &rec_pool, 1 );
   ulong prev_idx = rec->prev_idx;
   ulong next_idx = rec->next_idx;
   if( txn == NULL ) {
