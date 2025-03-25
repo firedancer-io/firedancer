@@ -1,3 +1,5 @@
+#define _GNU_SOURCE
+#include <dlfcn.h>
 #include "fd_exec_sol_compat.h"
 #include "../../nanopb/pb_encode.h"
 #include "../../nanopb/pb_decode.h"
@@ -15,6 +17,7 @@
 #include "../../fd_flamenco.h"
 #include "../../../ballet/shred/fd_shred.h"
 #include "../fd_acc_mgr.h"
+#include "fd_types_test.h"
 
 /* FIXME: Spad isn't properly sized out or cleaned up */
 
@@ -876,5 +879,24 @@ sol_compat_pack_compute_budget_v1( uchar *       out,
 
   // Check wksp usage is 0
   sol_compat_check_wksp_usage();
+  return ok;
+}
+
+int
+sol_compat_type_execute_v1( uchar *       out,
+                            ulong *       out_sz,
+                            uchar const * in,
+                            ulong         in_sz ) {
+  if( !in_sz ) {
+    return 0;
+  }
+
+  fd_spad_t *spad = fd_spad_join( fd_spad_new( spad_mem, 1UL << 32 ) );
+
+  int ok = 0;
+  FD_SPAD_FRAME_BEGIN( spad ) {
+    ok = sol_compat_decode_type( spad, in, in_sz, out, out_sz );
+  } FD_SPAD_FRAME_END;
+
   return ok;
 }
