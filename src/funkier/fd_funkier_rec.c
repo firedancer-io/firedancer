@@ -204,6 +204,10 @@ fd_funkier_rec_prepare( fd_funkier_t *               funk,
   prepare->wksp = fd_funkier_wksp( funk );
   fd_funkier_rec_pool_t rec_pool = fd_funkier_rec_pool( funk, prepare->wksp );
   fd_funkier_rec_t * rec = prepare->rec = fd_funkier_rec_pool_acquire( &rec_pool, NULL, 1, opt_err );
+  if( opt_err && *opt_err == FD_POOL_ERR_CORRUPT ) {
+    FD_LOG_ERR(( "corrupt element returned from funkier rec pool" ));
+  }
+
   if( rec != NULL ) {
     if( txn == NULL ) {
       fd_funkier_txn_xid_set_root( rec->pair.xid );
