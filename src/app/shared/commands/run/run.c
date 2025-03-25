@@ -21,6 +21,8 @@
 #include "../../../../flamenco/runtime/fd_blockstore.h"
 #include "../../../../flamenco/runtime/fd_txncache.h"
 #include "../../../../flamenco/runtime/fd_runtime.h"
+#include "../../../../choreo/forks/fd_forks.h"
+#include "../../../../choreo/tower/fd_tower.h"
 #endif
 #include "../../../../funk/fd_funk.h"
 #include "../../../../waltz/ip/fd_fib4.h"
@@ -588,6 +590,10 @@ fdctl_obj_new( fd_topo_t const *     topo,
     FD_TEST( fd_blockstore_new( laddr, VAL("wksp_tag"), VAL("seed"), VAL("shred_max"), VAL("block_max"), VAL("idx_max"), VAL("txn_max") ) );
   } else if( FD_UNLIKELY( !strcmp( obj->name, "txncache" ) ) ) {
     FD_TEST( fd_txncache_new( laddr, VAL("max_rooted_slots"), VAL("max_live_slots"), VAL("max_txn_per_slot"), FD_TXNCACHE_DEFAULT_MAX_CONSTIPATED_SLOTS ) );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "forks" ))){
+    FD_TEST( fd_forks_new( laddr, VAL("block_max"), VAL("seed") ) );
+  } else if( FD_UNLIKELY( !strcmp( obj->name, "tower" )) ){
+    FD_TEST( fd_tower_new( laddr ) );
 #endif /* FD_HAS_NO_AGAVE */
   } else {
     FD_LOG_ERR(( "unknown object `%s`", obj->name ));

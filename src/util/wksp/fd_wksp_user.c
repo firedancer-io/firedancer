@@ -214,7 +214,10 @@ fd_wksp_gaddr( fd_wksp_t const * wksp,
 
   /* See note above about why <= for gaddr_hi */
 
-  if( FD_UNLIKELY( !((wksp->gaddr_lo<=gaddr) & (gaddr<=wksp->gaddr_hi)) ) ) { FD_LOG_WARNING(( "bad laddr" )); return 0UL; }
+  if( FD_UNLIKELY( !((wksp->gaddr_lo<=gaddr) & (gaddr<=wksp->gaddr_hi)) ) ) {
+    __asm__("int $3");
+    FD_LOG_WARNING(( "bad laddr" )); return 0UL;
+  }
 
   return gaddr;
 }

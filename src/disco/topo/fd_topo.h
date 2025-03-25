@@ -382,6 +382,8 @@ typedef struct {
 
     struct {
       char   identity_key_path[ PATH_MAX ];
+      int    vote;
+      char   vote_account_path[ PATH_MAX ];
     } tower;
 
     struct {

@@ -41,6 +41,8 @@ typedef struct fd_fork fd_fork_t;
 #define MAP_KEY   slot
 #include "../../util/tmpl/fd_map_chain.c"
 
+#define FD_FORKS_MAGIC (0xf17eda2ce7f071c0UL) /* firedancer forks version 0 */
+
 /* fd_forks maintains all the outstanding fork heads known as the
    frontier.  The memory required for these fork heads is pre-allocated
    in `pool`.
@@ -63,13 +65,14 @@ typedef struct fd_fork fd_fork_t;
 struct fd_forks {
   //fd_fork_frontier_t * frontier; /* map of slot->fd_fork_t */
   //fd_fork_t *          pool;     /* memory pool of fd_fork_t */
-  ulong                forks_gaddr;
-  ulong                fork_pool_gaddr;
-  ulong                frontier_gaddr;
+  ulong  magic;
+  ulong  forks_gaddr;
+  ulong  fork_pool_gaddr;
+  ulong  frontier_gaddr;
 
-  ulong                processed;
-  ulong                confirmed;
-  ulong                finalized;
+  ulong  processed;
+  ulong  confirmed;
+  ulong  finalized;
 };
 typedef struct fd_forks fd_forks_t;
 

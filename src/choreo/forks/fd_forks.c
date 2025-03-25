@@ -40,7 +40,7 @@ fd_forks_new( void * shmem, ulong max, ulong seed ) {
   void * pool        = FD_SCRATCH_ALLOC_APPEND( l, fd_fork_pool_align(), fd_fork_pool_footprint( max ) );
   void * frontier    = FD_SCRATCH_ALLOC_APPEND( l, fd_fork_frontier_align(), fd_fork_frontier_footprint( max ) );
   FD_TEST( FD_SCRATCH_ALLOC_FINI( l, fd_forks_align() ) == (ulong)shmem + footprint );
-
+  forks->magic = FD_FORKS_MAGIC;
   forks->fork_pool_gaddr = fd_wksp_gaddr_fast( wksp, fd_fork_pool_join( fd_fork_pool_new( pool, max ) ) );
   forks->frontier_gaddr  = fd_wksp_gaddr_fast( wksp, fd_fork_frontier_join( fd_fork_frontier_new( frontier, max, seed ) ) );
   forks->forks_gaddr     = fd_wksp_gaddr_fast( wksp, forks );

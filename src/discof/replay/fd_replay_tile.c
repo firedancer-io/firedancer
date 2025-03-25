@@ -52,9 +52,8 @@
 
 #define STAKE_OUT_IDX  (0UL)
 #define NOTIF_OUT_IDX  (1UL)
-#define SENDER_OUT_IDX (2UL)
-#define TOWER_OUT_IDX  (3UL)
-#define POH_OUT_IDX    (4UL)
+#define TOWER_OUT_IDX  (2UL)
+#define POH_OUT_IDX    (3UL)
 
 #define VOTE_ACC_MAX   (2000000UL)
 
@@ -139,17 +138,6 @@ struct fd_replay_tile_ctx {
   ulong       notif_out_chunk0;
   ulong       notif_out_wmark;
   ulong       notif_out_chunk;
-
-  // Sender output defs
-  fd_frag_meta_t * sender_out_mcache;
-  ulong *          sender_out_sync;
-  ulong            sender_out_depth;
-  ulong            sender_out_seq;
-
-  fd_wksp_t * sender_out_mem;
-  ulong       sender_out_chunk0;
-  ulong       sender_out_wmark;
-  ulong       sender_out_chunk;
 
   // Stake weights output link defs
   fd_frag_meta_t * stake_weights_out_mcache;
@@ -267,8 +255,8 @@ struct fd_replay_tile_ctx {
   ulong   exec_out_idx;
   fd_replay_out_ctx_t exec_out[ FD_PACK_MAX_BANK_TILES ]; /* Sending to exec unexecuted txns */
 
-  ulong root; /* the root slot is the most recent slot to have reached
-                 max lockout in the tower  */
+  ulong * root; /* the root slot is the most recent slot to have reached
+                 max lockout in the tower. Set by tower tile and read by replay */
 
   ulong * published_wmark; /* publish watermark. The watermark is defined as the
                   minimum of the tower root (root above) and blockstore
@@ -292,7 +280,6 @@ struct fd_replay_tile_ctx {
 
   int         vote;
   fd_pubkey_t validator_identity_pubkey[ 1 ];
-  fd_pubkey_t vote_acct_addr[ 1 ];
 
   fd_txncache_t * status_cache;
   void * bmtree[ FD_PACK_MAX_BANK_TILES ];
@@ -352,7 +339,6 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BLOCK_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_replay_align(), fd_replay_footprint( tile->replay.fec_max, FD_SHRED_MAX_PER_SLOT, FD_BLOCK_MAX ) );
-  l = FD_LAYOUT_APPEND( l, fd_tower_align(), fd_tower_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     l = FD_LAYOUT_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
@@ -1254,52 +1240,6 @@ publish_slot_notifications( fd_replay_tile_ctx_t * ctx,
   }
 }
 
-static void
-send_tower_sync( fd_replay_tile_ctx_t * ctx ) {
-  if( FD_UNLIKELY( !ctx->vote ) ) return;
-  FD_LOG_NOTICE( ( "sending tower sync" ) );
-  ulong vote_slot = fd_tower_votes_peek_tail_const( ctx->tower )->slot;
-  fd_hash_t vote_bank_hash[1]  = { 0 };
-  fd_hash_t vote_block_hash[1] = { 0 };
-  int err = fd_blockstore_bank_hash_query( ctx->blockstore, vote_slot, vote_bank_hash );
-  if( err ) FD_LOG_ERR(( "invariant violation: missing bank hash for tower vote" ));
-  err = fd_blockstore_block_hash_query( ctx->blockstore, vote_slot, vote_block_hash );
-  if( err ) FD_LOG_ERR(( "invariant violation: missing block hash for tower vote" ));
-
-  /* Build a vote state update based on current tower votes. */
-
-  fd_txn_p_t * txn = (fd_txn_p_t *)fd_chunk_to_laddr( ctx->sender_out_mem, ctx->sender_out_chunk );
-  fd_tower_to_vote_txn( ctx->tower,
-                        ctx->root,
-                        vote_bank_hash,
-                        vote_block_hash,
-                        ctx->validator_identity,
-                        ctx->vote_authority,
-                        ctx->vote_acc,
-                        txn,
-                        ctx->runtime_spad );
-
-  /* TODO: Can use a smaller size, adjusted for payload length */
-  ulong msg_sz     = sizeof( fd_txn_p_t );
-  fd_mcache_publish( ctx->sender_out_mcache,
-                     ctx->sender_out_depth,
-                     ctx->sender_out_seq,
-                     1UL,
-                     ctx->sender_out_chunk,
-                     msg_sz,
-                     0UL,
-                     0,
-                     0 );
-  ctx->sender_out_seq   = fd_seq_inc( ctx->sender_out_seq, 1UL );
-  ctx->sender_out_chunk = fd_dcache_compact_next( ctx->sender_out_chunk,
-                                                  msg_sz,
-                                                  ctx->sender_out_chunk0,
-                                                  ctx->sender_out_wmark );
-
-  /* Dump the latest sent tower into the tower checkpoint file */
-  if( FD_LIKELY( ctx->tower_checkpt_fileno > 0 ) ) fd_restart_tower_checkpt( vote_bank_hash, ctx->tower, ctx->ghost, ctx->root, ctx->tower_checkpt_fileno );
-}
-
 static fd_fork_t *
 prepare_new_block_execution( fd_replay_tile_ctx_t * ctx,
                              fd_stem_context_t *    stem,
@@ -1958,6 +1898,7 @@ after_frag( fd_replay_tile_ctx_t * ctx,
   /**********************************************************************/
 
   if( FD_UNLIKELY( !(flags & REPLAY_FLAG_CATCHING_UP) && ctx->poh_init_done == 0 && ctx->slot_ctx->blockstore ) ) {
+    __asm__("int $3");
     init_poh( ctx );
   }
 
@@ -2259,7 +2200,7 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
   key.c[FD_FUNK_REC_KEY_FOOTPRINT - 1] = FD_FUNK_KEY_TYPE_ACC;
   fd_tower_from_vote_acc( ctx->tower, ctx->funk, snapshot_fork->slot_ctx.funk_txn, &key );
   FD_LOG_NOTICE(( "vote account: %s", FD_BASE58_ENC_32_ALLOCA( key.c ) ));
-  fd_tower_print( ctx->tower, ctx->root );
+  fd_tower_print( ctx->tower, fd_fseq_query( ctx->root ) );
 
   fd_bank_hash_cmp_t * bank_hash_cmp = ctx->epoch_ctx->bank_hash_cmp;
   bank_hash_cmp->total_stake         = ctx->epoch->total_stake;
@@ -2562,7 +2503,6 @@ after_credit( fd_replay_tile_ctx_t * ctx,
 
     fd_forks_print( ctx->forks );
     fd_ghost_print( ctx->ghost, ctx->epoch, fd_ghost_root( ctx->ghost ) );
-    fd_tower_print( ctx->tower, ctx->root );
 
     fd_fork_t * child = fd_fork_frontier_ele_query( fd_forks_frontier( ctx->forks ), &fork->slot, NULL, fd_forks_pool( ctx->forks ) );
     ulong vote_slot   = fd_tower_vote_slot( ctx->tower, ctx->epoch, ctx->funk, child->slot_ctx.funk_txn, ctx->ghost, ctx->runtime_spad );
@@ -2577,37 +2517,18 @@ after_credit( fd_replay_tile_ctx_t * ctx,
     /* Consensus: send out a new vote by calling send_tower_sync          */
     /**********************************************************************/
 
-    if( FD_UNLIKELY( ctx->vote && fd_fseq_query( ctx->poh ) == ULONG_MAX ) ) {
-      /* Only proceed with voting if we're caught up. */
+    fd_hash_t vote_bank_hash[1]  = { 0 };
+    fd_hash_t vote_block_hash[1] = { 0 };
+    uchar * vote_info = (uchar *)fd_chunk_to_laddr( ctx->tower_out_mem, ctx->tower_out_chunk );
+    int err = fd_blockstore_block_hash_query( ctx->blockstore, vote_slot, vote_block_hash );
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "failed to query blockstore for block hash %lu", vote_slot ));
+    err = fd_blockstore_bank_hash_query( ctx->blockstore, vote_slot, vote_bank_hash );
+    if( FD_UNLIKELY( err ) ) FD_LOG_ERR(( "failed to query blockstore for bank hash %lu", vote_slot ));
 
-      FD_LOG_WARNING(( "still catching up. not voting." ));
-    } else {
-      if( FD_UNLIKELY( !ctx->is_caught_up ) ) {
-        ctx->is_caught_up = 1;
-      }
-
-      /* Proceed according to how local and cluster are synchronized. */
-
-      if( FD_LIKELY( vote_slot != FD_SLOT_NULL ) ) {
-
-        /* Invariant check: the vote_slot must be in the frontier */
-
-        FD_TEST( fd_forks_query_const( ctx->forks, vote_slot ) );
-
-        /* Vote locally */
-
-        ulong root = fd_tower_vote( ctx->tower, vote_slot );
-        ctx->metrics.last_voted_slot = vote_slot;
-
-        /* Update to a new root, if there is one. */
-
-        if ( FD_LIKELY ( root != FD_SLOT_NULL ) ) ctx->root = root; /* optimize for full tower (replay is keeping up) */
-      }
-
-      /* Send our updated tower to the cluster. */
-
-      send_tower_sync( ctx );
-    }
+    memcpy( vote_info, vote_block_hash, sizeof(fd_hash_t) );
+    memcpy( vote_info + sizeof(fd_hash_t), &vote_bank_hash, sizeof(fd_hash_t) );
+    fd_stem_publish( stem, TOWER_OUT_IDX, vote_slot, ctx->tower_out_chunk, 2*sizeof(fd_hash_t), 0, 0, 0 );
+    ctx->tower_out_chunk = fd_dcache_compact_next( ctx->tower_out_chunk, 2*sizeof(fd_hash_t), ctx->tower_out_chunk0, ctx->tower_out_wmark );
 
     /**********************************************************************/
     /* Prepare bank for the next execution and write to debugging files   */
@@ -2701,7 +2622,7 @@ during_housekeeping( void * _ctx ) {
   /* Update watermark. The publish watermark is the minimum of the tower
      root and supermajority root. */
 
-  ulong wmark = fd_ulong_min( ctx->root, ctx->forks->finalized );
+  ulong wmark = fd_ulong_min( fd_fseq_query( ctx->root ), ctx->forks->finalized );
 
   if ( FD_LIKELY( wmark <= fd_fseq_query( ctx->published_wmark ) ) ) return;
   FD_LOG_NOTICE(( "wmk %lu => %lu", fd_fseq_query( ctx->published_wmark ), wmark ));
@@ -2769,7 +2690,6 @@ unprivileged_init( fd_topo_t *      topo,
   void * epoch_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_epoch_align(), fd_epoch_footprint( FD_VOTER_MAX ) );
   void * forks_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BLOCK_MAX ) );
   void * ghost_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ) );
-  void * tower_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(), fd_tower_footprint() );
   void * replay_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_align(), fd_replay_footprint( tile->replay.fec_max, FD_SHRED_MAX_PER_SLOT, FD_BLOCK_MAX ) );
   void * bank_hash_cmp_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
@@ -2866,6 +2786,11 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->published_wmark = fd_fseq_join( fd_topo_obj_laddr( topo, root_slot_obj_id ) );
   if( FD_UNLIKELY( !ctx->published_wmark ) ) FD_LOG_ERR(( "replay tile has no root_slot fseq" ));
   FD_TEST( ULONG_MAX==fd_fseq_query( ctx->published_wmark ) );
+
+  ulong tower_root_obj_id = fd_pod_query_ulong( topo->props, "tower_root", ULONG_MAX );
+  FD_TEST( tower_root_obj_id!=ULONG_MAX );
+  ctx->root = fd_fseq_join( fd_topo_obj_laddr( topo, tower_root_obj_id ) );
+  FD_TEST( ULONG_MAX==fd_fseq_query( ctx->root ) );
 
   /**********************************************************************/
   /* constipated fseq                                                   */
@@ -2995,7 +2920,10 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->epoch = fd_epoch_join( fd_epoch_new( epoch_mem, FD_VOTER_MAX ) );
   ctx->forks = fd_forks_join( fd_forks_new( forks_mem, FD_BLOCK_MAX, 42UL ) );
   ctx->ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 42UL, FD_BLOCK_MAX ) );
-  ctx->tower = fd_tower_join( fd_tower_new( tower_mem ) );
+
+  ulong tower_obj_id = fd_pod_query_ulong( topo->props, "tower",  ULONG_MAX );
+  FD_TEST( tower_obj_id!=ULONG_MAX );
+  ctx->tower = fd_tower_join( fd_topo_obj_laddr( topo, tower_obj_id ));
 
   ctx->replay = fd_replay_join( fd_replay_new( replay_mem, tile->replay.fec_max, FD_SHRED_MAX_PER_SLOT, FD_BLOCK_MAX ) );
 
@@ -3113,7 +3041,6 @@ unprivileged_init( fd_topo_t *      topo,
   /* set up vote related items */
   ctx->vote                           = tile->replay.vote;
   ctx->validator_identity_pubkey[ 0 ] = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.identity_key_path, 1 ) );
-  ctx->vote_acct_addr[ 0 ]            = *(fd_pubkey_t const *)fd_type_pun_const( fd_keyload_load( tile->replay.vote_account_path, 1 ) );
 
   /**********************************************************************/
   /* tower checkpointing for wen-restart                                */
@@ -3165,16 +3092,6 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->notif_out_chunk0      = fd_dcache_compact_chunk0( ctx->notif_out_mem, notif_out->dcache );
   ctx->notif_out_wmark       = fd_dcache_compact_wmark ( ctx->notif_out_mem, notif_out->dcache, notif_out->mtu );
   ctx->notif_out_chunk       = ctx->notif_out_chunk0;
-
-  fd_topo_link_t * sender_out = &topo->links[ tile->out_link_id[ SENDER_OUT_IDX ] ];
-  ctx->sender_out_mcache      = sender_out->mcache;
-  ctx->sender_out_sync        = fd_mcache_seq_laddr( ctx->sender_out_mcache );
-  ctx->sender_out_depth       = fd_mcache_depth( ctx->sender_out_mcache );
-  ctx->sender_out_seq         = fd_mcache_seq_query( ctx->sender_out_sync );
-  ctx->sender_out_mem         = topo->workspaces[ topo->objs[ sender_out->dcache_obj_id ].wksp_id ].wksp;
-  ctx->sender_out_chunk0      = fd_dcache_compact_chunk0( ctx->sender_out_mem, sender_out->dcache );
-  ctx->sender_out_wmark       = fd_dcache_compact_wmark ( ctx->sender_out_mem, sender_out->dcache, sender_out->mtu );
-  ctx->sender_out_chunk       = ctx->sender_out_chunk0;
 
   /* Set up stake weights tile output */
   fd_topo_link_t * stake_weights_out = &topo->links[ tile->out_link_id[ STAKE_OUT_IDX] ];

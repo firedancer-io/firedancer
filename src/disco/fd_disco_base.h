@@ -147,6 +147,13 @@ FD_FN_CONST static inline uint  fd_disco_shred_replay_sig_fec_set_idx( ulong sig
 FD_FN_CONST static inline int   fd_disco_shred_replay_sig_is_code    ( ulong sig ) { return       fd_ulong_extract_bit( sig, 1      ); }
 FD_FN_CONST static inline int   fd_disco_shred_replay_sig_completes  ( ulong sig ) { return       fd_ulong_extract_bit( sig, 0      ); }
 
+FD_FN_CONST static inline ulong
+fd_disco_replay_tower_sig( ulong slot ) {
+  return slot;
+}
+
+FD_FN_CONST static inline ulong fd_disco_replay_tower_sig_slot( ulong sig ) { return sig; }
+
 FD_FN_PURE static inline ulong
 fd_disco_compact_chunk0( void * wksp ) {
   return (((struct fd_wksp_private *)wksp)->gaddr_lo) >> FD_CHUNK_LG_SZ;

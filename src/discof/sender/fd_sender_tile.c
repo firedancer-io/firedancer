@@ -380,7 +380,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->contact_in_wmark  = fd_dcache_compact_wmark( ctx->contact_in_mem, contact_in_link->dcache, contact_in_link->mtu );
 
   /* Set up replay tile input */
-  ctx->replay_in_idx = fd_topo_find_tile_in_link( topo, tile, "replay_voter", 0 );
+  ctx->replay_in_idx = fd_topo_find_tile_in_link( topo, tile, "tower_sender", 0 );
   FD_TEST( ctx->replay_in_idx!=ULONG_MAX );
   fd_topo_link_t * replay_in_link = &topo->links[ tile->in_link_id[ ctx->replay_in_idx ] ];
   ctx->replay_in_mem    = topo->workspaces[ topo->objs[ replay_in_link->dcache_obj_id ].wksp_id ].wksp;
