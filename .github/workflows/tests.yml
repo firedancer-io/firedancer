@@ -84,12 +84,12 @@ jobs:
           - test-case: native-no-agave
             machine: native
             label: 512G
-            extras: "no-agave rpath handholding"
+            extras: "no-agave rpath"
             deps-extras: "+dev"
             targets: "all integration-test fdctl"
             compiler: clang
             compiler-version: 15.0.6
-            run-unit-tests: false
+            run-unit-tests: true
             run-integration-tests: false
     runs-on: ${{ matrix.label }}
     env:
@@ -149,7 +149,7 @@ jobs:
           make run-fuzz-test
 
       - name: run test-vector tests
-        if: ${{ matrix.run-unit-tests && matrix.test_case == 'native-no-agave' }}
+        if: ${{ matrix.run-unit-tests && matrix.test-case == 'native-no-agave' }}
         run: |
           sudo prlimit --pid $$ --memlock=-1:-1
           source /opt/${{ matrix.compiler }}/${{ matrix.compiler }}-${{ matrix.compiler-version }}/activate
