@@ -3,6 +3,23 @@
 
 #include "../../util/bits/fd_bits.h"
 
+/* Enable sockets support? */
+
+#ifndef FD_H2_HAS_SOCKETS
+#if FD_HAS_HOSTED
+#define FD_H2_HAS_SOCKETS 1
+#endif
+#endif
+
+#ifndef FD_H2_HAS_SOCKETS
+#define FD_H2_HAS_SOCKETS 0
+#endif
+
+/* Forward declarations for all objects */
+
+struct fd_h2_rbuf;
+typedef struct fd_h2_rbuf fd_h2_rbuf_t;
+
 /* HTTP/2 error codes
    https://www.iana.org/assignments/http2-parameters/http2-parameters.xhtml#error-code */
 
