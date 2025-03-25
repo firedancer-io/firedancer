@@ -6,5 +6,6 @@ $(call make-fuzz-test,fuzz_hpack_rd,fuzz_hpack_rd,fd_waltz fd_util)
 
 # HTTP/2
 $(call add-hdrs,fd_h2_base.h)
+$(call add-hdrs,fd_h2_rbuf.h fd_h2_rbuf_sock.h)
 $(call make-unit-test,test_h2,test_h2,fd_waltz fd_util)
 $(call run-unit-test,test_h2)
