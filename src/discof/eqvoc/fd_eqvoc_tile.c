@@ -118,6 +118,7 @@ during_frag( fd_eqvoc_tile_ctx_t * ctx,
   } else if( FD_UNLIKELY( in_idx == ctx->gossip_in_idx ) ) {
     uchar * packet = fd_chunk_to_laddr( ctx->gossip_in_mem, chunk );
     memcpy( &ctx->duplicate_shred, packet, FD_GOSSIP_DUPLICATE_SHRED_FOOTPRINT );
+    FD_TEST( ctx->duplicate_shred.chunk_len <= sizeof(ctx->duplicate_shred_chunk) );
     memcpy( ctx->duplicate_shred_chunk, packet + FD_GOSSIP_DUPLICATE_SHRED_FOOTPRINT, ctx->duplicate_shred.chunk_len );
     ctx->duplicate_shred.chunk = ctx->duplicate_shred_chunk;
   } else if ( FD_UNLIKELY( in_idx == ctx->shred_net_in_idx ) ) {
