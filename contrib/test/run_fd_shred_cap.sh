@@ -104,11 +104,12 @@ echo "
         funk_rec_max = 150000000
         funk_txn_max = 2000
         funk_file = \"$DATA_DIR/shredcap_testnet.funk\"
+        replay_end_slot = 317018450
+        replay_type = \"shredcap\"
     [tiles.pack]
         use_consumed_cus = false
     [tiles.store_int]
         shred_cap_replay = \"$SHREDCAP\"
-        shred_cap_end_slot = 317018450
 [consensus]
     vote = false
     expected_shred_version = 64475
