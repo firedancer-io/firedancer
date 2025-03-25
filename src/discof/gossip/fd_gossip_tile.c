@@ -263,6 +263,40 @@ ulong tsorig = fd_frag_meta_ts_comp( fd_tickcount() );
 }
 
 static void
+contact_info_to_update( fd_gossip_contact_info_v2_t const * contact_info,
+                        fd_gossip_update_msg_t * update ) {
+  fd_memcpy( update->pubkey, &contact_info->from, sizeof(fd_pubkey_t) );
+  update->wallclock = contact_info->wallclock;
+  update->shred_version = contact_info->shred_version;
+
+  ushort cur_port = 0;
+  for( ulong i = 0UL; i<contact_info->sockets_len; i++ ) {
+    fd_gossip_socket_entry_t const * socket_entry = &contact_info->sockets[ i ];
+
+    /* We have to update port number before checks since this
+       affects the port number for the next entry... */
+    cur_port += socket_entry->offset;
+
+    if( FD_UNLIKELY( socket_entry->key >= FD_GOSSIP_SOCKET_TAG_MAX ) ){
+      FD_LOG_WARNING(( "Invalid socket entry key %u", socket_entry->key ));
+      continue;
+    }
+
+    if( FD_UNLIKELY( socket_entry->index >= contact_info->addrs_len ) ) {
+      FD_LOG_WARNING(( "Invalid socket entry addr index %u", socket_entry->index ));
+      continue;
+    }
+
+    /* TODO: Profile how often this happens so that we can wrap this with branch hints */
+    if( !fd_gossip_ip_addr_is_ip4( &contact_info->addrs[ socket_entry->index ] ) ){
+      continue;
+    }
+    update->addrs[ socket_entry->key ].ip = contact_info->addrs[ socket_entry->index ].inner.ip4;
+    update->addrs[ socket_entry->key ].port = cur_port;
+  }
+}
+
+static void
 gossip_deliver_fun( fd_crds_data_t * data,
                     void *           arg ) {
   fd_gossip_tile_ctx_t * ctx = (fd_gossip_tile_ctx_t *)arg;
@@ -282,34 +316,21 @@ gossip_deliver_fun( fd_crds_data_t * data,
     ctx->verify_out_seq   = fd_seq_inc( ctx->verify_out_seq, 1UL );
     ctx->verify_out_chunk = fd_dcache_compact_next( ctx->verify_out_chunk, vote_txn_sz, ctx->verify_out_chunk0, ctx->verify_out_wmark );
 
-  } else if( fd_crds_data_is_contact_info_v1( data ) ) {
-    fd_gossip_contact_info_v1_t const * contact_info = &data->inner.contact_info_v1;
-    FD_LOG_DEBUG(("contact info v1 - ip: " FD_IP4_ADDR_FMT ", port: %u", FD_IP4_ADDR_FMT_ARGS( contact_info->gossip.inner.ip4.addr ), contact_info->gossip.inner.ip4.port ));
-
-    fd_contact_info_elem_t * ele = fd_contact_info_table_query( ctx->contact_info_table, &contact_info->id, NULL );
-    if (FD_UNLIKELY(!ele &&
-                    !fd_contact_info_table_is_full(ctx->contact_info_table))) {
-      ele = fd_contact_info_table_insert(ctx->contact_info_table,
-                                         &contact_info->id);
-    }
-    if (ele) {
-      ele->contact_info = *contact_info;
-    }
   } else if( fd_crds_data_is_contact_info_v2( data ) ) {
     fd_gossip_contact_info_v2_t const * contact_info_v2 = &data->inner.contact_info_v2;
 
-    fd_gossip_contact_info_v1_t contact_info;
-    fd_gossip_contact_info_v2_to_v1( contact_info_v2, &contact_info );
-    FD_LOG_DEBUG(("contact info v2 - ip: " FD_IP4_ADDR_FMT ", port: %u", FD_IP4_ADDR_FMT_ARGS( contact_info.gossip.inner.ip4.addr ), contact_info.gossip.inner.ip4.port ));
+    fd_gossip_update_msg_t update_msg;
+    contact_info_to_update( contact_info_v2, &update_msg );
+    FD_LOG_DEBUG(("contact info v2 - ip: " FD_IP4_ADDR_FMT ", port: %u", FD_IP4_ADDR_FMT_ARGS( update_msg.addrs[FD_GOSSIP_SOCKET_TAG_GOSSIP].ip ), update_msg.addrs[FD_GOSSIP_SOCKET_TAG_GOSSIP].port ));
 
-    fd_contact_info_elem_t * ele = fd_contact_info_table_query( ctx->contact_info_table, &contact_info.id, NULL );
+    fd_contact_info_elem_t * ele = fd_contact_info_table_query( ctx->contact_info_table, (fd_pubkey_t*)update_msg.pubkey, NULL );
     if (FD_UNLIKELY(!ele &&
                     !fd_contact_info_table_is_full(ctx->contact_info_table))) {
       ele = fd_contact_info_table_insert(ctx->contact_info_table,
-                                         &contact_info.id);
+                                         (fd_pubkey_t*)update_msg.pubkey);
     }
     if (ele) {
-      ele->contact_info = contact_info;
+      ele->update_msg = update_msg;
     }
   } else if( fd_crds_data_is_duplicate_shred( data ) ) {
     if( FD_UNLIKELY( !ctx->eqvoc_out_mcache ) ) return;
@@ -517,41 +538,7 @@ publish_peers_to_plugin( fd_gossip_tile_ctx_t * ctx,
        iter = fd_contact_info_table_iter_next( ctx->contact_info_table, iter ), ++i ) {
     fd_contact_info_elem_t const * ele = fd_contact_info_table_iter_ele_const( ctx->contact_info_table, iter );
     fd_gossip_update_msg_t * msg = (fd_gossip_update_msg_t *)(dst + sizeof(ulong) + i*FD_GOSSIP_LINK_MSG_SIZE);
-    memset( msg, 0, FD_GOSSIP_LINK_MSG_SIZE );
-    memcpy( msg->pubkey, ele->contact_info.id.key, sizeof(fd_pubkey_t) );
-    msg->wallclock = ele->contact_info.wallclock;
-    msg->shred_version = ele->contact_info.shred_version;
-#define COPY_ADDR( _idx_, _srcname_ )                                                  \
-    if( ele->contact_info._srcname_.discriminant == fd_gossip_socket_addr_enum_ip4 ) { \
-      msg->addrs[ _idx_ ].ip = ele->contact_info._srcname_.inner.ip4.addr;             \
-      msg->addrs[ _idx_ ].port = ele->contact_info._srcname_.inner.ip4.port;           \
-    }
-    /*
-      0:  gossip_socket,
-      1:  rpc_socket,
-      2:  rpc_pubsub_socket,
-      3:  serve_repair_socket_udp,
-      4:  serve_repair_socket_quic,
-      5:  tpu_socket_udp,
-      6:  tpu_socket_quic,
-      7:  tvu_socket_udp,
-      8:  tvu_socket_quic,
-      9:  tpu_forwards_socket_udp,
-      10: tpu_forwards_socket_quic,
-      11: tpu_vote_socket,
-    */
-    COPY_ADDR(0,  gossip);
-    COPY_ADDR(1,  rpc);
-    COPY_ADDR(2,  rpc_pubsub);
-    COPY_ADDR(3,  serve_repair);
-    COPY_ADDR(4,  serve_repair);
-    COPY_ADDR(5,  tpu);
-    COPY_ADDR(6,  tpu);
-    COPY_ADDR(7,  tvu);
-    COPY_ADDR(8,  tvu);
-    COPY_ADDR(9,  tpu_fwd);
-    COPY_ADDR(10, tpu_fwd);
-    COPY_ADDR(11, tpu_vote);
+    fd_memcpy( msg, &ele->update_msg, sizeof(fd_gossip_update_msg_t) );
   }
 
   *(ulong *)dst = i;
@@ -599,64 +586,65 @@ after_credit( fd_gossip_tile_ctx_t * ctx,
          iter = fd_contact_info_table_iter_next( ctx->contact_info_table, iter ) ) {
       fd_contact_info_elem_t const * ele = fd_contact_info_table_iter_ele_const( ctx->contact_info_table, iter );
 
-      if( ele->contact_info.shred_version!=fd_gossip_get_shred_version( ctx->gossip ) ) {
+      if( ele->update_msg.shred_version!=fd_gossip_get_shred_version( ctx->gossip ) ) {
         ctx->metrics.mismatched_contact_info_shred_version += 1UL;
         continue;
       }
 
+      /* THESE SHOULD GO INTO STH ELSE ??*/
       {
-        if( !fd_gossip_socket_addr_is_ip4( &ele->contact_info.tvu ) ){
-          ctx->metrics.ipv6_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_TVU_IDX ] += 1UL;
-          continue;
-        }
+        // if( !fd_gossip_socket_addr_is_ip4( &ele->update_msg.tvu ) ){
+        //   ctx->metrics.ipv6_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_TVU_IDX ] += 1UL;
+        //   continue;
+        // }
 
         // TODO: add a consistency check function for IP addresses
-        if( ele->contact_info.tvu.inner.ip4.addr==0 ) {
+        if( ele->update_msg.addrs[ FD_GOSSIP_SOCKET_TAG_TVU ].ip == 0 ) {
           ctx->metrics.zero_ipv4_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_TVU_IDX ] += 1UL;
           continue;
         }
 
-        tvu_peers[tvu_peer_cnt].ip4_addr = ele->contact_info.tvu.inner.ip4.addr;
-        tvu_peers[tvu_peer_cnt].udp_port = ele->contact_info.tvu.inner.ip4.port;
-        memcpy( tvu_peers[tvu_peer_cnt].pubkey, ele->contact_info.id.key, sizeof(fd_pubkey_t) );
+        tvu_peers[tvu_peer_cnt].ip4_addr = ele->update_msg.addrs[ FD_GOSSIP_SOCKET_TAG_TVU ].ip;
+        tvu_peers[tvu_peer_cnt].udp_port = ele->update_msg.addrs[ FD_GOSSIP_SOCKET_TAG_TVU ].port;
+        memcpy( tvu_peers[tvu_peer_cnt].pubkey, ele->update_msg.pubkey, sizeof(fd_pubkey_t) );
 
         tvu_peer_cnt++;
       }
 
       {
-        if( !fd_gossip_socket_addr_is_ip4( &ele->contact_info.repair ) ) {
-          ctx->metrics.ipv6_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_REPAIR_IDX ] += 1UL;
-          continue;
-        }
+        // if( !fd_gossip_socket_addr_is_ip4( &ele->update_msg.repair ) ) {
+        //   ctx->metrics.ipv6_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_REPAIR_IDX ] += 1UL;
+        //   continue;
+        // }
 
         // TODO: add a consistency check function for IP addresses
-        if( ele->contact_info.serve_repair.inner.ip4.addr == 0 ) {
+        if( ele->update_msg.addrs[ FD_GOSSIP_SOCKET_TAG_SERVE_REPAIR ].ip == 0 ) {
           ctx->metrics.zero_ipv4_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_REPAIR_IDX ] += 1UL;
           continue;
         }
 
-        repair_peers[repair_peers_cnt].ip4_addr = ele->contact_info.serve_repair.inner.ip4.addr;
-        repair_peers[repair_peers_cnt].udp_port = ele->contact_info.serve_repair.inner.ip4.port;
-        memcpy( repair_peers[repair_peers_cnt].pubkey, ele->contact_info.id.key, sizeof(fd_pubkey_t) );
+        repair_peers[repair_peers_cnt].ip4_addr = ele->update_msg.addrs[ FD_GOSSIP_SOCKET_TAG_SERVE_REPAIR ].ip;
+        repair_peers[repair_peers_cnt].udp_port = ele->update_msg.addrs[ FD_GOSSIP_SOCKET_TAG_SERVE_REPAIR ].port;
+        memcpy( repair_peers[repair_peers_cnt].pubkey, ele->update_msg.pubkey, sizeof(fd_pubkey_t) );
 
         repair_peers_cnt++;
       }
 
       {
-        if( !fd_gossip_socket_addr_is_ip4( &ele->contact_info.tpu_vote ) ) {
-          ctx->metrics.ipv6_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_VOTER_IDX ] += 1UL;
-          continue;
-        }
+        // if( !fd_gossip_socket_addr_is_ip4( &ele->update_msg.tpu_vote ) ) {
+        //   ctx->metrics.ipv6_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_VOTER_IDX ] += 1UL;
+        //   continue;
+        // }
 
         // TODO: add a consistency check function for IP addresses
-        if( ele->contact_info.tpu_vote.inner.ip4.addr == 0 ) {
+        if( ele->update_msg.addrs[ FD_GOSSIP_SOCKET_TAG_TPU_VOTE ].ip == 0 ) {
           ctx->metrics.zero_ipv4_contact_info[ FD_METRICS_ENUM_PEER_TYPES_V_VOTER_IDX ] += 1UL;
           continue;
         }
 
-        voter_peers[voter_peers_cnt].ip4_addr = ele->contact_info.tpu_vote.inner.ip4.addr;
-        voter_peers[voter_peers_cnt].udp_port = ele->contact_info.tpu_vote.inner.ip4.port;
-        memcpy( voter_peers[voter_peers_cnt].pubkey, ele->contact_info.id.key, sizeof(fd_pubkey_t) );
+        voter_peers[voter_peers_cnt].ip4_addr = ele->update_msg.addrs[ FD_GOSSIP_SOCKET_TAG_TPU_VOTE ].ip;
+        voter_peers[voter_peers_cnt].udp_port = ele->update_msg.addrs[ FD_GOSSIP_SOCKET_TAG_TPU_VOTE ].port;
+        memcpy( voter_peers[voter_peers_cnt].pubkey, ele->update_msg.pubkey, sizeof(fd_pubkey_t) );
 
         voter_peers_cnt++;
       }

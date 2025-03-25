@@ -3,6 +3,7 @@
 
 #include "../../tango/fd_tango_base.h"
 #include "../../flamenco/repair/fd_repair.h"
+#include "../../disco/plugin/fd_plugin.h"
 
 #define FD_REPAIR_REQ_TYPE_NEED_WINDOW_INDEX          (0U)
 #define FD_REPAIR_REQ_TYPE_NEED_HIGHEST_WINDOW_INDEX  (1U)
@@ -18,7 +19,7 @@ typedef struct fd_repair_request fd_repair_request_t;
 struct fd_contact_info_elem {
   fd_pubkey_t key;
   ulong next;
-  fd_gossip_contact_info_v1_t contact_info;
+  fd_gossip_update_msg_t update_msg;
 };
 typedef struct fd_contact_info_elem fd_contact_info_elem_t;
 
