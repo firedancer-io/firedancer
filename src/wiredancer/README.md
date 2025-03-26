@@ -36,7 +36,7 @@ WD adopts an asynchronous API.  In fact WD uses the same Tango mcache mechanism 
 
 ## AWS-F1 Series ##
 
-+ To build for AWS-F1 series EC2 instances, you need an EC2 build machine.  Detailes to provision such instance are provided in [AWS-FPGA github page](https://github.com/aws/aws-fpga).
++ To build for AWS-F1 series EC2 instances, you need an EC2 build machine.  Details to provision such instance are provided in [AWS-FPGA github page](https://github.com/aws/aws-fpga).
 
 + Inside the build machine, clone AWS-FPGA git repo
   - `git clone https://github.com/aws/aws-fpga`
@@ -96,7 +96,7 @@ WD adopts an asynchronous API.  In fact WD uses the same Tango mcache mechanism 
 #  #
 # WD-SigVerify #
 
-SigVerify is the verification process of [ED25519](https://en.wikipedia.org/wiki/EdDSA).  This is a computationally intesive operation.  In order to match SigVerify's throughput with the rest of the FD system, many high performance cores are required.  However WD.SigVerify uses hardware acceleration to achieve 1Mps throughput using only one FPGA.  Table below shows the throughput of a single core running FD.SigVerify on various architectures, and the number of cores required to reach a throughput of one million per second.
+SigVerify is the verification process of [ED25519](https://en.wikipedia.org/wiki/EdDSA).  This is a computationally intensive operation.  In order to match SigVerify's throughput with the rest of the FD system, many high performance cores are required.  However WD.SigVerify uses hardware acceleration to achieve 1Mps throughput using only one FPGA.  Table below shows the throughput of a single core running FD.SigVerify on various architectures, and the number of cores required to reach a throughput of one million per second.
 
 | Architecture      | Throughput        | Cores/Cards   |
 | -                 | -                 | -             |
@@ -105,10 +105,10 @@ SigVerify is the verification process of [ED25519](https://en.wikipedia.org/wiki
 
 ## WD.SigVerify API ##
 
-WD.SigVerify utilizes an asyncronous API: software pushes requests to the accelerator, and the accelerator pushes results to software.  
+WD.SigVerify utilizes an asynchronous API: software pushes requests to the accelerator, and the accelerator pushes results to software.  
 
 - `wd_ed25519_verify_init_req`
-  - Initializes request API.  By default all signature failures are dropped and no response is sent back to software.  This is feature is programmable here.  All fields pertaining to response's tango.mcache are also provided here.
+  - Initializes request API.  By default all signature failures are dropped and no response is sent back to software.  This feature is programmable here.  All fields pertaining to response's tango.mcache are also provided here.
 - `wd_ed25519_verify_init_resp`
   - Initializes response API.
 - `wd_ed25519_verify_req`
@@ -116,10 +116,10 @@ WD.SigVerify utilizes an asyncronous API: software pushes requests to the accele
 
 ## WD.SigVerify Design ##
 
-In the design of WD.SigVerify, given hard requirements for area and latency, the goal is to maximize throughput.  Due to the nature of FPGA devices, clock speed is, on average, ~1/10 of the host processor (for example 2.4GHz CPU vs 250MHz FPGA).  This leads to higher latency for a single transaction.  However, taking advantage of pipelining and parallelism, WD compensates for the lost latency by overlapping the processing of multiple transactions at the same time, to reach very high (>1Mps) thourghput.
+In the design of WD.SigVerify, given hard requirements for area and latency, the goal is to maximize throughput.  Due to the nature of FPGA devices, clock speed is, on average, ~1/10 of the host processor (for example 2.4GHz CPU vs 250MHz FPGA).  This leads to higher latency for a single transaction.  However, taking advantage of pipelining and parallelism, WD compensates for the lost latency by overlapping the processing of multiple transactions at the same time, to reach very high (>1Mps) throughput.
 
 ### Batchless Parallelism ###
-Unlike GPU-style aceleration, WD.Sigverify does not require multiple transactions to be batched together to reach its maximum throughput.  All requests are processed independently, yet in parallel.  As such, transaction arrival times do not impact system throughput.
+Unlike GPU-style acceleration, WD.Sigverify does not require multiple transactions to be batched together to reach its maximum throughput.  All requests are processed independently, yet in parallel.  As such, transaction arrival times do not impact system throughput.
 
 ### Pipeline Design
 
@@ -165,5 +165,5 @@ Pseudocode below outlines an algorithmically optimized ED25519 verification proc
 
 `SV1`: This step includes the optimized double-scalar double-point multiplication, similar to the algorithm mentioned [here](https://cryptojedi.org/peter/data/eccss-20130911b.pdf).  This algorithm is very regular in terms of dataflow, and all the if-statements can be accommodated with simple multiplexers.  However, the dynamic execution includes many invocations of modular-multiplications, hence creating a fully-pipelined implementation is required to keep latency reasonable.  Our implementation achieves `~96` microseconds of latency at `266MHz`, and a throughput of `1.04` million per second.
 
-`SV2`: This final step includes two modular-multiplcations as is required in point equality checks in twisted-edwards coordinates.  We employ one modular-multiplier unit in this step, and use it in two subsequent cycles, achieving a latency of `72` nano seconds at `250MHz`, and a throughput of `125` million per second.
+`SV2`: This final step includes two modular-multiplications as is required in point equality checks in twisted-edwards coordinates.  We employ one modular-multiplier unit in this step, and use it in two subsequent cycles, achieving a latency of `72` nano seconds at `250MHz`, and a throughput of `125` million per second.
 
