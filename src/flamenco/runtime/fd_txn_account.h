@@ -29,7 +29,6 @@ struct __attribute__((aligned(8UL))) fd_txn_account {
   /* consider making this a struct or removing entirely if not needed */
   ulong                       starting_dlen;
   ulong                       starting_lamports;
-  ulong                       starting_owner_dlen;
 
   /* Provide read/write mutual exclusion semantics.
      Used for single-threaded logic only, thus not comparable to a
