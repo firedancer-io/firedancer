@@ -9,6 +9,9 @@
 #include "../../flamenco/types/fd_types_custom.h"
 #include "generated/fd_tower_tile_seccomp.h"
 
+#define REPLAY_IN_IDX (0UL)
+#define REPAIR_IN_IDX (1UL)
+
 #define SENDER_OUT_IDX (0UL)
 
 struct fd_tower_tile_ctx {
@@ -185,6 +188,13 @@ unprivileged_init( fd_topo_t *      topo,
   fd_tower_tile_ctx_t * ctx = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_tower_tile_ctx_t), sizeof(fd_tower_tile_ctx_t) );
   void * spad_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_spad_align(), FD_RUNTIME_BLOCK_EXECUTION_FOOTPRINT );
   FD_SCRATCH_ALLOC_FINI( l, scratch_align() );
+
+  if( FD_UNLIKELY( tile->in_cnt != 2 ||
+    strcmp( topo->links[ tile->in_link_id[ REPAIR_IN_IDX ] ].name, "repair_tower") ||
+    strcmp( topo->links[ tile->in_link_id[ REPLAY_IN_IDX ] ].name, "replay_tower" ) ) ) {
+    FD_LOG_ERR(( "tower tile has none or unexpected input links %lu %s %s",
+      tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
+  }
 
   ctx->tile_cnt = fd_topo_tile_name_cnt( topo, tile->name );
   ctx->tile_idx = tile->kind_id;

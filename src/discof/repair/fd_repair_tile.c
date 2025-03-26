@@ -33,6 +33,7 @@
 #define STORE_OUT_IDX 0
 #define NET_OUT_IDX   1
 #define SIGN_OUT_IDX  2
+#define TOWER_OUT_IDX 3
 
 #define MAX_REPAIR_PEERS 40200UL
 #define MAX_BUFFER_SIZE  ( MAX_REPAIR_PEERS * sizeof(fd_shred_dest_wire_t))
@@ -496,10 +497,11 @@ unprivileged_init( fd_topo_t *      topo,
                  tile->in_cnt, topo->links[ tile->in_link_id[ 0 ] ].name, topo->links[ tile->in_link_id[ 1 ] ].name ));
   }
 
-  if( FD_UNLIKELY( tile->out_cnt != 3 ||
+  if( FD_UNLIKELY( tile->out_cnt != 4 ||
                    strcmp( topo->links[ tile->out_link_id[ STORE_OUT_IDX ] ].name, "repair_store" ) ||
                    strcmp( topo->links[ tile->out_link_id[ NET_OUT_IDX ] ].name,   "repair_net" ) ||
-                   strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ].name,  "repair_sign" ) ) ) {
+                   strcmp( topo->links[ tile->out_link_id[ SIGN_OUT_IDX ] ].name,  "repair_sign" ) ||
+                   strcmp( topo->links[ tile->out_link_id[ TOWER_OUT_IDX ] ].name,  "repair_tower" )) ) {
     FD_LOG_ERR(( "repair tile has none or unexpected output links %lu %s %s",
                  tile->out_cnt, topo->links[ tile->out_link_id[ 0 ] ].name, topo->links[ tile->out_link_id[ 1 ] ].name ));
   }

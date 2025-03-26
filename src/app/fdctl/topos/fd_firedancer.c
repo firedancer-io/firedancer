@@ -215,6 +215,7 @@ fd_topo_initialize( config_t * config ) {
 
   fd_topob_wksp( topo, "replay_exec"  );
   fd_topob_wksp( topo, "replay_tower" );
+  fd_topob_wksp( topo, "repair_tower" );
   fd_topob_wksp( topo, "tower_sender" );
 
   fd_topob_wksp( topo, "voter_sign" );
@@ -299,7 +300,8 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_link( topo, "sign_gossip",  "sign_gossip",  128UL,                                    64UL,                          1UL );
   FOR(exec_tile_cnt)   fd_topob_link( topo, "replay_exec",  "replay_exec",   128UL,                                   sizeof(fd_txn_p_t),            FD_TXN_MAX_PER_SLOT );
 
-  /**/                 fd_topob_link( topo, "replay_tower", "replay_tower", 128UL,                                    2*sizeof(fd_hash_t),                 1UL );
+  /**/                 fd_topob_link( topo, "replay_tower", "replay_tower", 128UL,                                    2*sizeof(fd_hash_t),           1UL );
+  /**/                 fd_topob_link( topo, "repair_tower", "repair_tower", 128UL,                                    sizeof(ulong),           1UL );
   /**/                 fd_topob_link( topo, "tower_sender", "tower_sender", 128UL,                                    sizeof(fd_txn_p_t),            1UL );
   /**/                 fd_topob_link( topo, "gossip_verif", "gossip_verif", config->tiles.verify.receive_buffer_size, FD_TPU_MTU,                    1UL );
   /**/                 fd_topob_link( topo, "gossip_eqvoc", "gossip_eqvoc", 128UL,                                    FD_TPU_MTU,                    1UL );
@@ -586,7 +588,7 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "pack_replay",   0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_in(  topo, "replay",  0UL,          "metric_in", "batch_replay",  0UL,          FD_TOPOB_RELIABLE,   FD_TOPOB_POLLED   );
   /**/                 fd_topob_tile_out( topo, "replay",  0UL,                       "replay_tower",  0UL                                                  );
-  /**/                 fd_topob_tile_out( topo, "tower",  0UL,                       "tower_sender",  0UL                                                  );
+  /**/                 fd_topob_tile_out( topo, "tower",   0UL,                       "tower_sender",  0UL                                                  );
   FOR(bank_tile_cnt)   fd_topob_tile_out( topo, "replay",  0UL,                       "replay_poh",    i                                                    );
 
   FOR(exec_tile_cnt)   fd_topob_tile_out( topo, "replay",  0UL,                       "replay_exec",   i                                                  ); /* TODO check order in fd_replay.c macros*/
@@ -595,6 +597,7 @@ fd_topo_initialize( config_t * config ) {
   FOR(exec_tile_cnt)   fd_topob_tile_in(  topo, "exec",    i,             "metric_in", "replay_exec",  i,            FD_TOPOB_RELIABLE, FD_TOPOB_POLLED     );
 
   /**/                 fd_topob_tile_in(  topo, "tower",   0UL,          "metric_in", "replay_tower",  0UL,          FD_TOPOB_RELIABLE, FD_TOPOB_POLLED     );
+  /**/                 fd_topob_tile_in(  topo, "tower",   0UL,          "metric_in", "repair_tower",  0UL,          FD_TOPOB_RELIABLE, FD_TOPOB_POLLED     );
   /**/                 fd_topob_tile_in(  topo, "sender",  0UL,          "metric_in",  "stake_out",    0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_in(  topo, "sender",  0UL,          "metric_in",  "gossip_voter", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
   /**/                 fd_topob_tile_in(  topo, "eqvoc",   0UL,          "metric_in",  "gossip_voter", 0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED   ); /* No reliable consumers of networking fragments, may be dropped or overrun */
@@ -623,7 +626,8 @@ fd_topo_initialize( config_t * config ) {
   /**/                 fd_topob_tile_out( topo, "repair",   0UL,                       "repair_sign",  0UL                                                  );
   /**/                 fd_topob_tile_in(  topo, "repair",   0UL,          "metric_in", "sign_repair",  0UL,          FD_TOPOB_UNRELIABLE, FD_TOPOB_UNPOLLED );
   /**/                 fd_topob_tile_out( topo, "sign",     0UL,                       "sign_repair",  0UL                                                  );
-
+  /**/                 fd_topob_tile_out( topo, "repair",  0UL,                       "repair_tower",  0UL                                                  );
+  
   FOR(shred_tile_cnt)  fd_topob_tile_in(  topo, "eqvoc",    0UL,          "metric_in", "shred_net",    i,            FD_TOPOB_UNRELIABLE, FD_TOPOB_POLLED ); /* No reliable consumers of networking fragments, may be dropped or overrun */
 
   /**/                 fd_topob_tile_out( topo, "batch",   0UL,                         "batch_replay",   0UL                                                 );
