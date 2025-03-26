@@ -126,7 +126,7 @@ fd_ghost_init( fd_ghost_t * ghost, ulong root ) {
   }
 
   if( FD_UNLIKELY( fd_fseq_query( fd_ghost_ver( ghost ) ) != ULONG_MAX ) ) {
-    FD_LOG_WARNING(( "ghost already initalized" ));
+    FD_LOG_WARNING(( "ghost already initialized" ));
     return;
   }
 
@@ -189,7 +189,7 @@ fd_ghost_verify( fd_ghost_t const * ghost ) {
   }
 
   if( FD_UNLIKELY( fd_fseq_query( fd_ghost_ver( ghost ) ) == ULONG_MAX ) ) {
-    FD_LOG_WARNING(( "ghost uninitalized or invalid" ));
+    FD_LOG_WARNING(( "ghost uninitialized or invalid" ));
     return -1;
   }
 

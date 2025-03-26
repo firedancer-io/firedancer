@@ -472,7 +472,7 @@ FD_PROTOTYPES_BEGIN
    FD_VM_ERR_FULL - Not enough room in out to hold the result so output
    was truncated.  out buffer and *_out_len updated.
 
-   FD_VM_ERR_IO - An error occured formatting the string to append.  For
+   FD_VM_ERR_IO - An error occurred formatting the string to append.  For
    instr, out_buffer and *_out_len unchanged.  For program, out buffer
    and *_out_len will have been updated up to the point where the error
    occurred.  In both cases, trailing bytes of out might have been

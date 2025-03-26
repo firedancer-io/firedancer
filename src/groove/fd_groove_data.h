@@ -87,7 +87,7 @@ extern fd_groove_data_szc_cfg_t const fd_groove_data_szc_cfg[32];
    the superblock offset needs ~30 bits ...  would have to lose details
    like object sz and align or use a bigger header).
 
-   Note: Consider an alternate design where these headers are seperated
+   Note: Consider an alternate design where these headers are separated
    out (e.g. a mirror header for each data block at the start of the
    volume similar to wksp or a separate mirror header region entirely).
    Advantages would be better isolation / protection of headers, more

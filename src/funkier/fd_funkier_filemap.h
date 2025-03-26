@@ -13,7 +13,7 @@ enum fd_funkier_file_mode {
 typedef enum fd_funkier_file_mode fd_funkier_file_mode_t;
 
 /* fd_funkier_close_file_args_t contains the parameters needed by
- * fd_funkier_close_file. It is initalized in fd_funkier_open_file. */
+ * fd_funkier_close_file. It is initialized in fd_funkier_open_file. */
 
 struct fd_funkier_close_file_args {
   void * shmem;
