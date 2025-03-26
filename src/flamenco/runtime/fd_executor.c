@@ -1263,16 +1263,6 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       continue;
     }
 
-    if( meta->info.executable ) {
-      FD_TXN_ACCOUNT_DECL( owner_txn_account );
-      int err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t *)meta->info.owner, owner_txn_account );
-      if( FD_UNLIKELY( err ) ) {
-        txn_account->starting_owner_dlen = 0UL;
-      } else {
-        txn_account->starting_owner_dlen = owner_txn_account->const_meta->dlen;
-      }
-    }
-
     if( FD_UNLIKELY( memcmp( meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t) ) == 0 ) ) {
       int err = 0;
       fd_bpf_upgradeable_loader_state_t * program_loader_state = read_bpf_upgradeable_loader_state_for_program( txn_ctx, (uchar)i, &err );

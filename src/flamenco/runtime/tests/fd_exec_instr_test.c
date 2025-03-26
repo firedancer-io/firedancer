@@ -530,16 +530,6 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
       continue;
     }
 
-    if( meta->info.executable ) {
-      FD_TXN_ACCOUNT_DECL( owner_borrowed_account );
-      int err = fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, (fd_pubkey_t *)meta->info.owner, owner_borrowed_account );
-      if( FD_UNLIKELY( err ) ) {
-        accts[i].starting_owner_dlen = 0;
-      } else {
-        accts[i].starting_owner_dlen = owner_borrowed_account->const_meta->dlen;
-      }
-    }
-
     if( FD_UNLIKELY( 0 == memcmp(meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) ) ) {
       int err = 0;
       fd_bpf_upgradeable_loader_state_t * program_loader_state = read_bpf_upgradeable_loader_state_for_program( txn_ctx,
