@@ -41,7 +41,7 @@
 
 /* An estimate of the max number of transactions in a block.  If there are more
    transactions, they must be split into multiple sets. */
-#define MAX_TXNS_PER_REPLAY ( ( FD_SHRED_MAX_PER_SLOT * FD_SHRED_MAX_SZ) / FD_TXN_MIN_SERIALIZED_SZ )
+#define MAX_TXNS_PER_REPLAY ( ( FD_SHRED_SLOT_MAX * FD_SHRED_MAX_SZ) / FD_TXN_MIN_SERIALIZED_SZ )
 
 #define PLUGIN_PUBLISH_TIME_NS ((long)60e9)
 
@@ -332,7 +332,7 @@ scratch_footprint( fd_topo_tile_t const * tile FD_PARAM_UNUSED ) {
   l = FD_LAYOUT_APPEND( l, fd_epoch_align(), fd_epoch_footprint( FD_VOTER_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BLOCK_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ) );
-  l = FD_LAYOUT_APPEND( l, fd_replay_align(), fd_replay_footprint( tile->replay.fec_max, FD_SHRED_MAX_PER_SLOT, FD_BLOCK_MAX ) );
+  l = FD_LAYOUT_APPEND( l, fd_replay_align(), fd_replay_footprint( tile->replay.fec_max, FD_SHRED_SLOT_MAX, FD_BLOCK_MAX ) );
   l = FD_LAYOUT_APPEND( l, fd_tower_align(), fd_tower_footprint() );
   l = FD_LAYOUT_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
@@ -2701,7 +2701,7 @@ unprivileged_init( fd_topo_t *      topo,
   void * forks_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_forks_align(), fd_forks_footprint( FD_BLOCK_MAX ) );
   void * ghost_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_ghost_align(), fd_ghost_footprint( FD_BLOCK_MAX ) );
   void * tower_mem           = FD_SCRATCH_ALLOC_APPEND( l, fd_tower_align(), fd_tower_footprint() );
-  void * replay_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_align(), fd_replay_footprint( tile->replay.fec_max, FD_SHRED_MAX_PER_SLOT, FD_BLOCK_MAX ) );
+  void * replay_mem          = FD_SCRATCH_ALLOC_APPEND( l, fd_replay_align(), fd_replay_footprint( tile->replay.fec_max, FD_SHRED_SLOT_MAX, FD_BLOCK_MAX ) );
   void * bank_hash_cmp_mem   = FD_SCRATCH_ALLOC_APPEND( l, fd_bank_hash_cmp_align(), fd_bank_hash_cmp_footprint( ) );
   for( ulong i = 0UL; i<FD_PACK_MAX_BANK_TILES; i++ ) {
     ctx->bmtree[i]           = FD_SCRATCH_ALLOC_APPEND( l, FD_BMTREE_COMMIT_ALIGN, FD_BMTREE_COMMIT_FOOTPRINT(0) );
@@ -2928,7 +2928,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->ghost = fd_ghost_join( fd_ghost_new( ghost_mem, 42UL, FD_BLOCK_MAX ) );
   ctx->tower = fd_tower_join( fd_tower_new( tower_mem ) );
 
-  ctx->replay = fd_replay_join( fd_replay_new( replay_mem, tile->replay.fec_max, FD_SHRED_MAX_PER_SLOT, FD_BLOCK_MAX ) );
+  ctx->replay = fd_replay_join( fd_replay_new( replay_mem, tile->replay.fec_max, FD_SHRED_SLOT_MAX, FD_BLOCK_MAX ) );
 
   /**********************************************************************/
   /* voter                                                              */

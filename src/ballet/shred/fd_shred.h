@@ -147,10 +147,17 @@ typedef uchar fd_shred_merkle_t[FD_SHRED_MERKLE_NODE_SZ];
 #define FD_SHRED_DATA_FLAG_DATA_COMPLETE ((uchar)0x40)
 
 /* Maximum number of data shreds in a slot, also maximum number of parity shreds in a slot */
-#define FD_SHRED_MAX_PER_SLOT (1 << 15UL) /* 32,768 shreds */
+#define FD_SHRED_SLOT_MAX (1 << 15UL) /* 32,768 shreds */
+
+/* Many static bounds are specified around the assumption that this is a
+   protocol limit on the max number of shreds in a slot. If this limit
+   changes, all the relevant usages in other areas of the Firedancer
+   codebase should be updated before modifying this assertion. */
+
+FD_STATIC_ASSERT( FD_SHRED_SLOT_MAX == 32768, check all usages before changing this limit! );
 
 /* 36,536,320 bytes per slot */
-#define FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT (FD_SHRED_DATA_PAYLOAD_MAX * FD_SHRED_MAX_PER_SLOT)
+#define FD_SHRED_DATA_PAYLOAD_MAX_PER_SLOT (FD_SHRED_DATA_PAYLOAD_MAX * FD_SHRED_SLOT_MAX)
 
 /* Offset of the shred variant. Used for parsing. */
 #define FD_SHRED_VARIANT_OFF 0x40

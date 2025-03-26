@@ -1,6 +1,14 @@
 #ifndef HEADER_fd_src_discof_repair_fd_repair_h
 #define HEADER_fd_src_discof_repair_fd_repair_h
 
+/* This provides APIs for conducting shred repair.  The repair modules
+   do two things.  First, they implement the repair protocol for
+   requesting specific shreds from other validators.  Second, they
+   support the shred tile by detecting missing shreds (either at the FEC
+   set level or slot level), validating shreds (detecting merkle
+   chaining conflicts between FEC sets), and requesting repairs (by
+   invoking the repair protocol implementation as an application).  */
+
 #include "../../ballet/reedsol/fd_reedsol.h"
 #include "../../ballet/shred/fd_shred.h"
 
@@ -70,7 +78,7 @@ fd_repair_fec_insert( fd_repair_fec_t     * fec_map,
    an incomplete slot / un-arrived slot.
 
    Thus it's actually impossible for the graph to have more than one
-   level? 
+   level?
 
    */
 struct __attribute__((aligned(128UL))) fd_repair_node {

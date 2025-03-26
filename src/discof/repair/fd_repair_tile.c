@@ -306,7 +306,9 @@ before_frag( fd_repair_tile_ctx_t * ctx,
   (void)seq;
 
   if( FD_LIKELY( in_idx==NET_IN_IDX   ) ) return fd_disco_netmux_sig_proto( sig )!=DST_PROTO_REPAIR;
-  if( FD_LIKELY( in_idx==SHRED_IN_IDX ) ) return 1;
+  if( FD_LIKELY( in_idx==SHRED_IN_IDX ) ) {
+    if ( FD_UNLIKELY( ( !fd_ulong_extract_bit( sig, 63 ) ) ) ) return 0; /* FEC set complete or sig saturated, don't skip */
+  }
   return 0;
 }
 

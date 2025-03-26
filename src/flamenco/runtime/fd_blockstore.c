@@ -983,7 +983,7 @@ fd_blockstore_block_data_query_volatile( fd_blockstore_t *    blockstore,
     ulong blk_data_gaddr = blk->data_gaddr;
     if( FD_UNLIKELY( !blk_data_gaddr ) ) return FD_BLOCKSTORE_ERR_SLOT_MISSING;
     ulong sz = *block_data_sz_out = blk->data_sz;
-    if( sz >= FD_SHRED_MAX_PER_SLOT * FD_SHRED_MAX_SZ ) continue;
+    if( sz >= FD_SHRED_SLOT_MAX * FD_SHRED_MAX_SZ ) continue;
 
     /* batch_query no longer blocking, so no read lock */
 
