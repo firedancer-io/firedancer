@@ -19,15 +19,6 @@
 
 #endif //__cplusplus
 
-/* Versioning macros **************************************************/
-
-/* FD_VERSION_{MAJOR,MINOR,PATCH} programmatically specify the
-   firedancer version. */
-
-#define FD_VERSION_MAJOR (0)
-#define FD_VERSION_MINOR (0)
-#define FD_VERSION_PATCH (0)
-
 /* Build target capabilities ******************************************/
 
 /* Different build targets often have different levels of support for
