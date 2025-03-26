@@ -120,7 +120,7 @@ fd_quic_conn_new( void *                   mem,
 
   /* Initialize packet meta tracker */
   fd_quic_pkt_meta_ds_init( conn->pkt_meta_tracker.sent_pkt_metas,
-                            fd_quic_get_state( quic )->max_inflight_pkt_cnt_conn );
+                            quic->limits.inflight_pkt_cnt );
 
   return conn;
 }

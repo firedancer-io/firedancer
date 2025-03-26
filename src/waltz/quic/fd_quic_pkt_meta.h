@@ -200,21 +200,20 @@ struct fd_quic_pkt_meta_tracker {
    on the entire pool at once. Useful for e.g. treap randomness
    @arguments:
    - pool: pointer pkt_meta pool
-   - total_meta_cnt: total pool size */
+   - pool_max_cnt: total pool size */
 void
 fd_quic_pkt_meta_ds_init_pool( fd_quic_pkt_meta_t * pool,
-                               ulong                total_meta_cnt );
+                               ulong                pool_max_cnt );
 
 /* fd_quic_pkt_meta_ds_init initializes the metadata tracker for each enc level
   @arguments:
   - sent_pkt_metas: pointer to ds array
-  - total_meta_cnt: total number of max pkt_meta entries in this tracker
-    (shared across all encoding levels)
+  - pool_max_cnt: capacity of the pool
   @returns:
   - pointer to ds array if successful, NULL otherwise */
 void *
 fd_quic_pkt_meta_ds_init( fd_quic_pkt_meta_ds_t * sent_pkt_metas,
-                          ulong                   total_meta_cnt );
+                          ulong                   pool_max_cnt );
 
 /* fd_quic_pkt_meta_insert inserts a pkt_meta into the ds
   @arguments:
