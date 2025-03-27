@@ -414,7 +414,7 @@ load_transaction_account( fd_exec_txn_ctx_t * txn_ctx,
   }
 
   /* The rest of this function is a no-op for us since we already set up the transaction accounts
-     for unknown accounts within `fd_executor_setup_borrowed_accounts_for_txn()`.
+     for unknown accounts within `fd_executor_setup_accounts_for_txn()`.
      https://github.com/anza-xyz/agave/blob/v2.2.0/svm/src/account_loader.rs#L566-L577 */
 }
 
@@ -1147,19 +1147,7 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
   fd_memset( txn_ctx->accounts, 0, sizeof(fd_txn_account_t) * txn_ctx->accounts_cnt );
   for( ulong i = 0UL; i < txn_ctx->accounts_cnt; i++ ) {
 
-    fd_pubkey_t * acc = &txn_ctx->account_keys[i];
-
-    txn_ctx->nonce_account_idx_in_txn = ULONG_MAX;
-    txn_ctx->nonce_account_advanced   = 0U;
-
     fd_txn_account_t * txn_account = &txn_ctx->accounts[i];
-    txn_account->const_data = NULL;
-    txn_account->const_meta = NULL;
-    txn_account->meta       = NULL;
-    txn_account->data       = NULL;
-    txn_account->meta_gaddr = 0UL;
-    txn_account->data_gaddr = 0UL;
-
     int err = fd_txn_account_create_from_funk( &txn_ctx->accounts[i], acc, txn_ctx->acc_mgr, txn_ctx->funk_txn );
 
     if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS && err!=FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) ) {
@@ -1168,10 +1156,10 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
     uchar is_unknown_account = err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
     memcpy( txn_account->pubkey->key, acc, sizeof(fd_pubkey_t) );
 
-    /* Create a txn account for all writable accounts and the fee payer
-       account which is almost always writable, but doesn't have to be.
+    /* promote the account to mutable, which requires a memcpy*/
+    fd_txn_account_make_mutable( txn_account, txn_account_data );
 
-       TODO: The txn account semantics should better match Agave's. */
+    /* TODO: The txn account semantics should better match Agave's. */
     if( fd_exec_txn_ctx_account_is_writable_idx( txn_ctx, (int)i ) || i==FD_FEE_PAYER_TXN_IDX ) {
       void * txn_account_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
       fd_txn_account_make_mutable( txn_account, txn_account_data, txn_ctx->spad_wksp );
@@ -1223,7 +1211,6 @@ fd_executor_setup_borrowed_accounts_for_txn( fd_exec_txn_ctx_t * txn_ctx ) {
       j++;
     }
   }
-  txn_ctx->executable_cnt = j;
 }
 
 /* Stuff to be done before multithreading can begin */

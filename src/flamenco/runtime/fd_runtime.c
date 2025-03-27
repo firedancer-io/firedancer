@@ -1688,7 +1688,7 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info,
   }
 
   fd_exec_txn_ctx_t * txn_ctx = task_info->txn_ctx;
-  fd_executor_setup_borrowed_accounts_for_txn( txn_ctx );
+  fd_executor_setup_accounts_for_txn( txn_ctx );
 
   /* Dump transaction to protobuf */
   if( FD_UNLIKELY( dump_txn ) ) {

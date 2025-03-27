@@ -100,25 +100,11 @@ fd_acc_mgr_view( fd_acc_mgr_t *        acc_mgr,
     return FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT;
   }
 
-  if( FD_UNLIKELY( FD_TXN_ACCOUNT_MAGIC != account->magic ) ) {
-    FD_LOG_ERR(( "bad magic for borrowed account - acc: %s, expected: %016lx, got: %016lx", FD_BASE58_ENC_32_ALLOCA( pubkey->uc ), FD_TXN_ACCOUNT_MAGIC, account->magic ));
+  if( FD_UNLIKELY( FD_TXN_ACCOUNT_MAGIC != acct->magic ) ) {
+    FD_LOG_ERR(( "bad magic for borrowed account - acc: %s, expected: %016lx, got: %016lx", FD_BASE58_ENC_32_ALLOCA( pubkey->uc ), FD_TXN_ACCOUNT_MAGIC, acct->magic ));
   }
 
-  fd_memcpy(account->pubkey, pubkey, sizeof(fd_pubkey_t));
-
-  account->const_meta = meta;
-  account->const_data = (uchar const *)meta + meta->hlen;
-
-  fd_wksp_t * funk_wksp = fd_funk_wksp( acc_mgr->funk );
-  account->meta_gaddr   = fd_wksp_gaddr( funk_wksp, account->const_meta );
-  account->data_gaddr   = fd_wksp_gaddr( funk_wksp, account->const_data );
-
-
-  if( ULONG_MAX == account->starting_dlen )
-    account->starting_dlen = meta->dlen;
-
-  if( ULONG_MAX == account->starting_lamports )
-    account->starting_lamports = meta->info.lamports;
+  fd_txn_account_setup_readonly( account, pubkey, meta );
 
   return FD_ACC_MGR_SUCCESS;
 }
@@ -213,15 +199,7 @@ fd_acc_mgr_modify( fd_acc_mgr_t *      acc_mgr,
                  meta->info.rent_epoch, meta->dlen ));
 #endif
 
-  account->const_rec  = account->rec;
-  account->const_meta = account->meta = meta;
-  account->const_data = account->data = (uchar *)meta + meta->hlen;
-
-  if( ULONG_MAX == account->starting_dlen )
-    account->starting_dlen = meta->dlen;
-
-  if( ULONG_MAX == account->starting_lamports )
-    account->starting_lamports = meta->info.lamports;
+  fd_txn_account_setup_mutable( account, pubkey, meta );
 
   return FD_ACC_MGR_SUCCESS;
 }

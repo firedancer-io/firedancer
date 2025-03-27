@@ -45,9 +45,21 @@ typedef struct fd_txn_account fd_txn_account_t;
 
 FD_PROTOTYPES_BEGIN
 
-/* TODO: Initializes an fd_txn_account from a pointer to a region of memory */
+/* Initializes an fd_txn_account from a pointer to a region of memory */
 fd_txn_account_t *
 fd_txn_account_init( void * ptr );
+
+/* Account Manager Constructors */
+
+void
+fd_txn_account_setup_readonly( fd_txn_account_t *        acct,
+                               fd_pubkey_t const *       pubkey,
+                               fd_account_meta_t const * meta );
+
+void
+fd_txn_account_setup_mutable( fd_txn_account_t *        acct,
+                              fd_pubkey_t const *       pubkey,
+                              fd_account_meta_t *       meta );
 
 /* Accessors */
 
@@ -95,20 +107,6 @@ fd_txn_account_t *
 fd_txn_account_make_mutable( fd_txn_account_t * acct,
                              void *             buf,
                              fd_wksp_t *        wksp );
-
-/* In Agave, dummy accounts are sometimes created that contain metadata
-   that differs from what's in the accounts DB.  For example, see
-   handling of the executable bit in
-   fd_executor_load_transaction_accounts().
-   This allows us to emulate that by modifying metadata of read-only
-   borrowed accounts without those modification writing through to
-   funk. */
-
-/* buf is a handle to the account shared data. Sets the account shared
-   data as read only. */
-fd_txn_account_t *
-fd_txn_account_make_readonly( fd_txn_account_t * acct,
-                              void *             buf );
 
 static inline int
 fd_txn_account_checked_add_lamports( fd_txn_account_t * acct, ulong lamports ) {

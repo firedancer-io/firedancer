@@ -304,7 +304,7 @@ VM_SYSCALL_CPI_TRANSLATE_AND_UPDATE_ACCOUNTS_FUNC(
     }
 
     /* `fd_vm_prepare_instruction()` will always set up a valid index for `index_in_caller`, so we can access the borrowed account directly.
-       A borrowed account will always have non-NULL meta (if the account doesn't exist, `fd_executor_setup_borrowed_accounts_for_txn()`
+       A borrowed account will always have non-NULL meta (if the account doesn't exist, `fd_executor_setup_accounts_for_txn()`
        will set its meta up) */
     fd_txn_account_t const *  acc_rec     = vm->instr_ctx->instr->accounts[instruction_accounts[i].index_in_caller];
     fd_pubkey_t const *       account_key = acc_rec->pubkey;

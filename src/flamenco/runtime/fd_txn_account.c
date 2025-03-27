@@ -16,6 +16,12 @@ fd_txn_account_init( void * ptr ) {
   memset( ptr, 0, FD_TXN_ACCOUNT_FOOTPRINT );
 
   fd_txn_account_t * ret = (fd_txn_account_t *)ptr;
+  ret->const_data        = NULL;
+  ret->const_meta        = NULL;
+  ret->meta              = NULL;
+  ret->data              = NULL;
+  ret->meta_gaddr        = 0UL;
+  ret->data_gaddr        = 0UL;
   ret->starting_dlen     = ULONG_MAX;
   ret->starting_lamports = ULONG_MAX;
 
@@ -24,6 +30,58 @@ fd_txn_account_init( void * ptr ) {
   FD_COMPILER_MFENCE();
 
   return ret;
+}
+
+/* A common setup helper function that sets
+   default values for the txn account */
+void
+fd_txn_account_setup_common( fd_txn_account_t * acct ) {
+  fd_account_meta_t const * meta = acct->const_meta ?
+                                   acct->const_meta : acct->meta;
+
+  if( ULONG_MAX == acct->starting_dlen ) {
+    acct->starting_dlen = meta->dlen;
+  }
+
+  if( ULONG_MAX == acct->starting_lamports ) {
+    acct->starting_lamports = meta->info.lamports;
+  }
+
+  if( FD_UNLIKELY( meta==NULL ) ) {
+    static const fd_account_meta_t sentinel = { 
+      .magic = FD_ACCOUNT_META_MAGIC, 
+      .info = { .rent_epoch = ULONG_MAX }
+    };
+    acct->const_meta        = &sentinel;
+    acct->starting_lamports = 0UL;
+    acct->starting_dlen     = 0UL;
+  }
+}
+
+
+void
+fd_txn_account_setup_readonly( fd_txn_account_t *        acct,
+                               fd_pubkey_t const *       pubkey,
+                               fd_account_meta_t const * meta ) {
+  fd_memcpy(acct->pubkey, pubkey, sizeof(fd_pubkey_t));
+
+  acct->const_meta = meta;
+  acct->const_data = (uchar const *)meta + meta->hlen;
+
+  fd_txn_account_setup_common( acct );
+}
+
+void
+fd_txn_account_setup_mutable( fd_txn_account_t *        acct,
+                              fd_pubkey_t const *       pubkey,
+                              fd_account_meta_t *       meta ) {
+  fd_memcpy(acct->pubkey, pubkey, sizeof(fd_pubkey_t));
+
+  acct->const_rec  = acct->rec;
+  acct->const_meta = acct->meta = meta;
+  acct->const_data = acct->data = (uchar *)meta + meta->hlen;
+
+  fd_txn_account_setup_common( acct );
 }
 
 /* Operators impl */
@@ -57,18 +115,6 @@ fd_txn_account_init_data( fd_txn_account_t * acct, void * buf ) {
   }
 
   return new_raw_data;
-}
-
-fd_txn_account_t *
-fd_txn_account_make_readonly( fd_txn_account_t * acct, void * buf ) {
-  ulong dlen           = ( acct->const_meta != NULL ) ? acct->const_meta->dlen : 0;
-  uchar * new_raw_data = fd_txn_account_init_data( acct, buf );
-
-  acct->const_meta = (fd_account_meta_t *)new_raw_data;
-  acct->const_data = new_raw_data + sizeof(fd_account_meta_t);
-  ((fd_account_meta_t *)new_raw_data)->dlen = dlen;
-
-  return acct;
 }
 
 fd_txn_account_t *
