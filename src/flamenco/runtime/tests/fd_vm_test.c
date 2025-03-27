@@ -94,7 +94,7 @@ do{
     break;
   }
   ulong   rodata_sz = input->vm_ctx.rodata->size;
-  uchar * rodata = fd_spad_alloc_debug( spad, 8UL, rodata_sz );
+  uchar * rodata = fd_spad_alloc_debug( spad, 8UL, rodata_sz, 0UL );
   memcpy( rodata, input->vm_ctx.rodata->bytes, rodata_sz );
 
   /* Enable direct_mapping for SBPF version >= v1 */
@@ -338,7 +338,7 @@ fd_setup_vm_input_regions( fd_vm_input_region_t *                   input,
       continue; /* skip empty regions https://github.com/anza-xyz/agave/blob/3072c1a72b2edbfa470ca869f1ea891dfb6517f2/programs/bpf_loader/src/serialization.rs#L136 */
     }
 
-    uchar * haddr = fd_spad_alloc_debug( spad, 8UL, array->size );
+    uchar * haddr = fd_spad_alloc_debug( spad, 8UL, array->size, 0UL );
     fd_memcpy( haddr, array->bytes, array->size );
     input[input_idx].vaddr_offset     = offset;
     input[input_idx].haddr            = (ulong)haddr;

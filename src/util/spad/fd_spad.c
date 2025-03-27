@@ -81,14 +81,39 @@ fd_spad_pop_debug( fd_spad_t * spad ) {
   SELECT_DEBUG_IMPL(fd_spad_pop)( spad );
 }
 
+#if FD_SPAD_TAG_CHECK
+static void
+fd_spad_check_tag( fd_spad_t * spad,
+                   ulong       tag ) {
+
+  ulong * tag_mem_used = (ulong *)(spad+1UL);
+  if( FD_UNLIKELY( tag_mem_used[ spad->frame_free  * spad->tag_max + tag ] >
+                   tag_mem_used[ FD_SPAD_FRAME_MAX * spad->tag_max + tag ] ) ) {
+    FD_LOG_CRIT(( "tag %lu overflow %lu > %lu",
+                  tag,
+                  tag_mem_used[ spad->frame_free  * spad->tag_max + tag ],
+                  tag_mem_used[ FD_SPAD_FRAME_MAX * spad->tag_max + tag ] ));
+  }
+
+}
+#endif
+
 void *
 fd_spad_alloc_debug( fd_spad_t * spad,
                      ulong       align,
-                     ulong       sz ) {
+                     ulong       sz,
+                     ulong       tag ) {
   if( FD_UNLIKELY( !fd_spad_frame_used( spad )               ) ) FD_LOG_CRIT(( "not in a frame"  ));
-  if( FD_UNLIKELY( (!!align) & (!fd_ulong_is_pow2( align ) ) ) ) FD_LOG_CRIT(( "bad align"       ));
-  if( FD_UNLIKELY( fd_spad_alloc_max( spad, align )<sz       ) ) FD_LOG_CRIT(( "bad sz"          ));
-  return SELECT_DEBUG_IMPL(fd_spad_alloc)( spad, align, sz );
+  if( FD_UNLIKELY( (!!align) & (!fd_ulong_is_pow2( align ) ) ) ) FD_LOG_CRIT(( "bad align %lu", align ));
+  if( FD_UNLIKELY( fd_spad_alloc_max( spad, align )<sz       ) ) FD_LOG_CRIT(( "bad sz %lu align %lu max %lu alloc_max %lu", sz, align, fd_spad_mem_max( spad ), fd_spad_alloc_max( spad, align ) ));
+#if FD_SPAD_TAG_CHECK
+  if( FD_UNLIKELY( fd_spad_tag_max( spad )<=tag              ) ) FD_LOG_CRIT(( "bad tag %lu tag_max %lu", tag, fd_spad_tag_max( spad ) ));
+#endif
+  void * rv = SELECT_DEBUG_IMPL(fd_spad_alloc)( spad, align, sz, tag );
+#if FD_SPAD_TAG_CHECK
+  fd_spad_check_tag( spad, tag );
+#endif
+  return rv;
 }
 
 void
@@ -103,11 +128,19 @@ fd_spad_trim_debug( fd_spad_t * spad,
 void *
 fd_spad_prepare_debug( fd_spad_t * spad,
                        ulong       align,
-                       ulong       max ) {
+                       ulong       max,
+                       ulong       tag ) {
   if( FD_UNLIKELY( !fd_spad_frame_used( spad )               ) ) FD_LOG_CRIT(( "not in a frame" ));
-  if( FD_UNLIKELY( (!!align) & (!fd_ulong_is_pow2( align ) ) ) ) FD_LOG_CRIT(( "bad align"      ));
-  if( FD_UNLIKELY( fd_spad_alloc_max( spad, align )<max      ) ) FD_LOG_CRIT(( "bad max of %lu", max        ));
-  return SELECT_DEBUG_IMPL(fd_spad_prepare)( spad, align, max );
+  if( FD_UNLIKELY( (!!align) & (!fd_ulong_is_pow2( align ) ) ) ) FD_LOG_CRIT(( "bad align %lu", align ));
+  if( FD_UNLIKELY( fd_spad_alloc_max( spad, align )<max      ) ) FD_LOG_CRIT(( "bad max %lu align %lu max %lu alloc_max %lu", max, align, fd_spad_mem_max( spad ), fd_spad_alloc_max( spad, align ) ));
+#if FD_SPAD_TAG_CHECK
+  if( FD_UNLIKELY( fd_spad_tag_max( spad )<=tag              ) ) FD_LOG_CRIT(( "bad tag %lu tag_max %lu", tag, fd_spad_tag_max( spad ) ));
+#endif
+  void * rv = SELECT_DEBUG_IMPL(fd_spad_prepare)( spad, align, max, tag );
+#if FD_SPAD_TAG_CHECK
+  fd_spad_check_tag( spad, tag );
+#endif
+  return rv;
 }
 
 void
@@ -126,6 +159,10 @@ fd_spad_publish_debug( fd_spad_t * spad,
   /* FIXME: check if in prepare?  needs extra state and a lot of extra
      tracking that state */
   SELECT_DEBUG_IMPL(fd_spad_publish)( spad, sz );
+
+#if FD_SPAD_TAG_CHECK
+  fd_spad_check_tag( spad, spad->inprep_tag );
+#endif
 }
 
 #undef SELECT_DEBUG_IMPL
@@ -199,7 +236,8 @@ fd_spad_pop_sanitizer_impl( fd_spad_t * spad ) {
 void *
 fd_spad_alloc_sanitizer_impl( fd_spad_t * spad,
                               ulong       align,
-                              ulong       sz ) {
+                              ulong       sz,
+                              ulong       tag ) {
   /* enforce a minimum alignment of FD_ASAN_ALIGN or FD_MSAN_ALIGN when running ASAN or MSAN respectively */
 #if FD_HAS_DEEPASAN
   align = fd_ulong_if( align>0UL, fd_ulong_max( align, FD_ASAN_ALIGN ), FD_SPAD_ALLOC_ALIGN_DEFAULT ); /* typically compile time */
@@ -207,7 +245,7 @@ fd_spad_alloc_sanitizer_impl( fd_spad_t * spad,
   align = fd_ulong_if( align>0UL, fd_ulong_max( align, FD_MSAN_ALIGN ), FD_SPAD_ALLOC_ALIGN_DEFAULT ); /* typically compile time */
 #endif
 
-  void * buf = fd_spad_alloc_impl( spad, align, sz );
+  void * buf = fd_spad_alloc_impl( spad, align, sz, tag );
 
   /* first poison from buf to mem_max to cancel any in-progress prepare.
      buf is guaranteed to be an 8-byte aligned adddress */
@@ -253,7 +291,8 @@ fd_spad_trim_sanitizer_impl( fd_spad_t * spad,
 void *
 fd_spad_prepare_sanitizer_impl( fd_spad_t * spad,
                                 ulong       align,
-                                ulong       max ) {
+                                ulong       max,
+                                ulong       tag ) {
   /* enforce a minimum alignment of FD_ASAN_ALIGN or FD_MSAN_ALIGN when running ASAN or MSAN respectively */
 #if FD_HAS_DEEPASAN
   align = fd_ulong_if( align>0UL, fd_ulong_max( align, FD_ASAN_ALIGN ), FD_SPAD_ALLOC_ALIGN_DEFAULT ); /* typically compile time */
@@ -261,7 +300,7 @@ fd_spad_prepare_sanitizer_impl( fd_spad_t * spad,
   align = fd_ulong_if( align>0UL, fd_ulong_max( align, FD_MSAN_ALIGN ), FD_SPAD_ALLOC_ALIGN_DEFAULT ); /* typically compile time */
 #endif
 
-  void * buf = fd_spad_prepare_impl( spad, align, max );
+  void * buf = fd_spad_prepare_impl( spad, align, max, tag );
 
   /* unpoison memory starting at buf, which is guaranteed to be 8 byte aligned */
   fd_asan_unpoison( buf,  spad->mem_max - spad->mem_used );

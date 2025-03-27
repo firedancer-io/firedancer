@@ -50,11 +50,20 @@
 
 #define FD_SPAD_ALIGN (128)
 
-#define FD_SPAD_FOOTPRINT(mem_max)                                    \
+#if FD_SPAD_TAG_CHECK
+#define FD_SPAD_FOOTPRINT(mem_max,tag_max)                                                \
+  FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT,                     \
+    FD_SPAD_ALIGN, sizeof(fd_spad_t) +                                                    \
+                   sizeof(ulong)*(FD_SPAD_FRAME_MAX+1UL)*(tag_max) ), /* metadata */      \
+    FD_SPAD_ALIGN, (mem_max)                                       ), /* memory region */ \
+    FD_SPAD_ALIGN )
+#else
+#define FD_SPAD_FOOTPRINT(mem_max,tag_max)                            \
   FD_LAYOUT_FINI( FD_LAYOUT_APPEND( FD_LAYOUT_APPEND( FD_LAYOUT_INIT, \
     FD_SPAD_ALIGN, sizeof(fd_spad_t) ), /* metadata */                \
     FD_SPAD_ALIGN, (mem_max)         ), /* memory region */           \
     FD_SPAD_ALIGN )
+#endif
 
 /* A fd_spad_t * is an opaque handle of a scratch pad memory */
 
@@ -117,11 +126,25 @@ struct __attribute__((aligned(FD_SPAD_ALIGN))) fd_spad_private {
   ulong mem_max;    /* byte size of the spad memory region */
   ulong mem_used;   /* number of spad memory bytes used, in [0,mem_max] */
 
+#if FD_SPAD_TAG_CHECK
+  ulong tag_max;    /* number of unique tags for tagged alloc/prepare */
+  ulong inprep_tag; /* the tag that the last prepare was called with */
+  ulong alloc_tag;  /* the tag that the last alloc/publish was for; used to support bookkeeping on trim */
+#endif
+
 #if FD_SPAD_TRACK_USAGE
   ulong mem_wmark;
 #endif
 
   /* Padding to FD_SPAD_ALIGN here */
+
+#if FD_SPAD_TAG_CHECK
+  /* ulong tag_mem_used[ FD_SPAD_FRAME_MAX+1 ][ tag_max ]; here
+     but ISO forbids flexible array member.
+   */
+
+  /* Padding to FD_SPAD_ALIGN here */
+#endif
 
   /* "uchar mem[ mem_max ];" spad memory here.  Grows toward +inf such
      that bytes [0,mem_used) are currently allocated and bytes
@@ -144,7 +167,11 @@ FD_PROTOTYPES_BEGIN
 
 FD_FN_CONST static inline uchar *
 fd_spad_private_mem( fd_spad_t * spad ) {
+#if FD_SPAD_TAG_CHECK
+  return ((uchar *)(spad+1UL)) + fd_ulong_align_up( sizeof(ulong)*(FD_SPAD_FRAME_MAX+1UL)*spad->tag_max, FD_SPAD_ALIGN );
+#else
   return (uchar *)(spad+1UL);
+#endif
 }
 
 FD_PROTOTYPES_END
@@ -176,10 +203,27 @@ fd_spad_reset( fd_spad_t * spad );
    variant? */
 
 FD_FN_CONST static inline ulong
-fd_spad_mem_max_max( ulong footprint ) {
-  ulong mem_max = fd_ulong_max( fd_ulong_align_dn( footprint, FD_SPAD_ALIGN ), sizeof(fd_spad_t) ) - sizeof(fd_spad_t);
+fd_spad_mem_max_max_impl( ulong footprint, ulong tag_max ) {
+#if FD_SPAD_TAG_CHECK
+  ulong meta_footprint = fd_ulong_align_up( sizeof(fd_spad_t) + sizeof(ulong)*(FD_SPAD_FRAME_MAX+1UL)*tag_max, FD_SPAD_ALIGN );
+#else
+  (void)tag_max;
+  ulong meta_footprint = sizeof(fd_spad_t);
+#endif
+  ulong mem_max = fd_ulong_max( fd_ulong_align_dn( footprint, FD_SPAD_ALIGN ), meta_footprint ) - meta_footprint;
   return fd_ulong_if( mem_max<=(1UL<<63), mem_max, 0UL );
 }
+
+#define FD_SPAD_MEM_MAX_MAX_1(footprint)          fd_spad_mem_max_max_impl( (footprint), 1UL )
+#define FD_SPAD_MEM_MAX_MAX_2(footprint, tag_max) fd_spad_mem_max_max_impl( (footprint), (tag_max) )
+#define FD_SPAD_MEM_MAX_MAX_M(...)                too_many_arguments_passed_to_fd_spad_mem_max_max
+/* fd_spad_mem_max_max( ulong footprint );
+   fd_spad_mem_max_max( ulong footprint, ulong tag_max );
+
+   If no tag_max specified, assumes a single tag, the default tag, 0UL,
+   so tag_max==1UL.
+ */
+#define fd_spad_mem_max_max(...) FD_EXPAND_THEN_CONCAT2(FD_SPAD_MEM_MAX_MAX_,FD_VA_ARGS_SELECT(__VA_ARGS__,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,2,1,U))(__VA_ARGS__)
 
 /* fd_spad_{align,footprint} give the required alignment and footprint
    for a spad that can support up mem_max bytes total of allocations.
@@ -193,9 +237,23 @@ fd_spad_align( void ) {
 }
 
 FD_FN_CONST static inline ulong
-fd_spad_footprint( ulong mem_max ) {
-  return fd_ulong_if( mem_max<=(1UL<<63), FD_SPAD_FOOTPRINT( mem_max ), 0UL );
+fd_spad_footprint_impl( ulong mem_max, ulong tag_max ) {
+#if !FD_SPAD_TAG_CHECK
+  (void)tag_max;
+#endif
+  return fd_ulong_if( mem_max<=(1UL<<63), FD_SPAD_FOOTPRINT( mem_max, tag_max ), 0UL );
 }
+
+#define FD_SPAD_FOOTPRINT_1(mem_max)          fd_spad_footprint_impl( (mem_max), 1UL )
+#define FD_SPAD_FOOTPRINT_2(mem_max, tag_max) fd_spad_footprint_impl( (mem_max), (tag_max) )
+#define FD_SPAD_FOOTPRINT_M(...)              too_many_arguments_passed_to_fd_spad_footprint
+/* fd_spad_footprint( ulong mem_max );
+   fd_spad_footprint( ulong mem_max, ulong tag_max );
+
+   If no tag_max specified, assumes a single tag, the default tag, 0UL,
+   so tag_max==1UL.
+ */
+#define fd_spad_footprint(...) FD_EXPAND_THEN_CONCAT2(FD_SPAD_FOOTPRINT_,FD_VA_ARGS_SELECT(__VA_ARGS__,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,2,1,U))(__VA_ARGS__)
 
 /* fd_spad_new formats an unused memory region with the appropriate
    footprint and alignment into a spad.  shmem points in the caller's
@@ -205,15 +263,27 @@ fd_spad_footprint( ulong mem_max ) {
    _not_ joined on return. */
 
 static inline void *
-fd_spad_new( void * shmem,
-             ulong  mem_max ) {
+fd_spad_new_impl( void * shmem,
+                  ulong  mem_max,
+                  ulong  tag_max ) {
   fd_spad_t * spad = (fd_spad_t *)shmem;
 
   if( FD_UNLIKELY( !spad                                              ) ) return NULL;
   if( FD_UNLIKELY( !fd_ulong_is_aligned( (ulong)spad, FD_SPAD_ALIGN ) ) ) return NULL;
-  if( FD_UNLIKELY( !fd_spad_footprint( mem_max )                      ) ) return NULL;
+  if( FD_UNLIKELY( !fd_spad_footprint( mem_max, tag_max )             ) ) return NULL;
 
   spad->mem_max = mem_max;
+
+#if FD_SPAD_TAG_CHECK
+  spad->tag_max = tag_max;
+  for( ulong i=0UL; i<tag_max; i++ ) {
+    /* By default, every tag is allowed to allocate up to mem_max. */
+    ulong * tag_mem_used = (ulong *)(spad+1UL);
+    tag_mem_used[ FD_SPAD_FRAME_MAX * spad->tag_max + i ] = mem_max;
+  }
+#else
+  (void)tag_max;
+#endif
 
   fd_spad_reset( spad );
 
@@ -227,6 +297,18 @@ fd_spad_new( void * shmem,
 
   return spad;
 }
+
+#define FD_SPAD_NEW_F(...)                     too_few_arguments_passed_to_fd_spad_new
+#define FD_SPAD_NEW_2(shmem, mem_max)          fd_spad_new_impl( shmem, mem_max, 1UL )
+#define FD_SPAD_NEW_3(shmem, mem_max, tag_max) fd_spad_new_impl( shmem, mem_max, tag_max )
+#define FD_SPAD_NEW_M(...)                     too_many_arguments_passed_to_fd_spad_new
+/* fd_spad_new( void * shmem, ulong mem_max );
+   fd_spad_new( void * shmem, ulong mem_max, ulong tag_max );
+
+   If no tag_max specified, assumes a single tag, the default tag, 0UL,
+   so tag_max==1UL.
+ */
+#define fd_spad_new(...) FD_EXPAND_THEN_CONCAT2(FD_SPAD_NEW_,FD_VA_ARGS_SELECT(__VA_ARGS__,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,3,2,F))(__VA_ARGS__)
 
 /* fd_spad_join joins a spad.  shspad points in the caller's address
    space to the first byte of the region containing the spad.  Returns a
@@ -287,6 +369,12 @@ FD_FN_PURE static inline ulong fd_spad_mem_max ( fd_spad_t const * spad ) { retu
 FD_FN_PURE static inline ulong fd_spad_mem_used( fd_spad_t const * spad ) { return spad->mem_used;                 }
 FD_FN_PURE static inline ulong fd_spad_mem_free( fd_spad_t const * spad ) { return spad->mem_max - spad->mem_used; }
 
+#if FD_SPAD_TAG_CHECK
+FD_FN_PURE static inline ulong         fd_spad_tag_max         ( fd_spad_t const * spad ) { return spad->tag_max;      }
+FD_FN_PURE static inline ulong const * fd_spad_tag_mem_used    ( fd_spad_t const * spad ) { return ((ulong const *)(spad+1UL))+spad->frame_free*spad->tag_max; }
+FD_FN_PURE static inline ulong const * fd_spad_tag_mem_used_max( fd_spad_t const * spad ) { return ((ulong const *)(spad+1UL))+FD_SPAD_FRAME_MAX*spad->tag_max; }
+#endif
+
 #if FD_SPAD_TRACK_USAGE
 FD_FN_PURE static inline ulong fd_spad_mem_wmark( fd_spad_t const * spad ) { return spad->mem_wmark; }
 #endif
@@ -322,6 +410,25 @@ FD_FN_PURE static inline void *
 fd_spad_frame_hi( fd_spad_t * spad );
 
 /* operations */
+
+/* How much memory should each tag be allowed to allocate.
+   Input array is expected to have at least spad->tag_max elements.
+   This function will copy the first spad->tag_max elements.
+ */
+
+static inline void
+fd_spad_register_tag_mem_used_max( fd_spad_t *   spad,
+                                   ulong const * tag_mem_used_max ) {
+#if FD_SPAD_TAG_CHECK
+  ulong * tag_mem_used = (ulong *)(spad+1UL);
+  fd_memcpy( &tag_mem_used[ FD_SPAD_FRAME_MAX * spad->tag_max ],
+             tag_mem_used_max,
+             sizeof(tag_mem_used[ 0 ]) * spad->tag_max );
+#else
+  (void)spad;
+  (void)tag_mem_used_max;
+#endif
+}
 
 /* fd_spad_push creates a new spad frame and makes it the current frame.
    Assumes spad is a current local join with at least one frame free.
@@ -383,12 +490,35 @@ fd_spad_private_frame_end( fd_spad_t ** _spad ) { /* declared here to avoid a fd
    delete and of the returned pointer until pop, delete or leave.  The
    allocated region will be in the region backing the spad (e.g. if the
    spad is backed by wksp memory, the returned value will be a laddr
-   that can be shared with threads in other processes using that wksp). */
+   that can be shared with threads in other processes using that wksp).
+
+   Each allocation can optionally be annotated with a tag.
+   If no tag is provided, the default tag of 0 will be used.
+   Tags can be used for grouping allocations for debugging purposes.
+   Allocations that logically belong to the same use case would use the
+   same tag.
+   Minimally, allocations will not be permitted to exceed the max amount
+   of memory allowed under the corresponding tag.
+   Additionally, expressive and fine-grained checks could be written by
+   obtaining per-tag memory usage info.
+ */
 
 static inline void *
-fd_spad_alloc( fd_spad_t * spad,
-               ulong       align,
-               ulong       sz );
+fd_spad_alloc_tagged( fd_spad_t * spad,
+                      ulong       align,
+                      ulong       sz,
+                      ulong       tag );
+
+#define FD_SPAD_ALLOC_F(...)                  too_few_arguments_passed_to_fd_spad_alloc
+#define FD_SPAD_ALLOC_3(spad, align, sz)      fd_spad_alloc_tagged( spad, align, sz, 0UL )
+#define FD_SPAD_ALLOC_4(spad, align, sz, tag) fd_spad_alloc_tagged( spad, align, sz, tag )
+#define FD_SPAD_ALLOC_M(...)                  too_many_arguments_passed_to_fd_spad_alloc
+/* fd_spad_alloc( fd_spad_t * spad, ulong align, ulong sz );
+   fd_spad_alloc( fd_spad_t * spad, ulong align, ulong sz, ulong tag );
+
+   If no tag specified, assumes the default tag, 0UL.
+ */
+#define fd_spad_alloc(...) FD_EXPAND_THEN_CONCAT2(FD_SPAD_ALLOC_,FD_VA_ARGS_SELECT(__VA_ARGS__,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,4,3,F,F))(__VA_ARGS__)
 
 /* fd_spad_trim trims trims frame_hi to end at hi where hi is given the
    caller's local address space.  Assumes spad is a current local join
@@ -442,9 +572,21 @@ fd_spad_trim( fd_spad_t * spad,
    over alloc/trim. */
 
 static inline void *
-fd_spad_prepare( fd_spad_t * spad,
-                 ulong       align,
-                 ulong       max );
+fd_spad_prepare_tagged( fd_spad_t * spad,
+                        ulong       align,
+                        ulong       max,
+                        ulong       tag );
+
+#define FD_SPAD_PREPARE_F(...)                   too_few_arguments_passed_to_fd_spad_prepare
+#define FD_SPAD_PREPARE_3(spad, align, max)      fd_spad_prepare_tagged( spad, align, max, 0UL )
+#define FD_SPAD_PREPARE_4(spad, align, max, tag) fd_spad_prepare_tagged( spad, align, max, tag )
+#define FD_SPAD_PREPARE_M(...)                   too_many_arguments_passed_to_fd_spad_prepare
+/* fd_spad_prepare( fd_spad_t * spad, ulong align, ulong max );
+   fd_spad_prepare( fd_spad_t * spad, ulong align, ulong max, ulong tag );
+
+   If no tag specified, assumes the default tag, 0UL.
+ */
+#define fd_spad_prepare(...) FD_EXPAND_THEN_CONCAT2(FD_SPAD_PREPARE_,FD_VA_ARGS_SELECT(__VA_ARGS__,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,M,4,3,F,F))(__VA_ARGS__)
 
 /* fd_spad_cancel cancels the most recent prepare.  Assumes spad is a
    current local join and in a prepare.  On return, spad will be in a
@@ -490,34 +632,34 @@ fd_spad_verify( fd_spad_t const * spad );
    satisfied (they all still assume spad is a current local join).  They
    can only be used if logging services are available. */
 
-void   fd_spad_reset_debug    ( fd_spad_t       * spad                          );
-void * fd_spad_delete_debug   ( void            * shspad                        );
-ulong  fd_spad_alloc_max_debug( fd_spad_t const * spad, ulong  align            );
-void * fd_spad_frame_lo_debug ( fd_spad_t       * spad                          );
-void * fd_spad_frame_hi_debug ( fd_spad_t       * spad                          );
-void   fd_spad_push_debug     ( fd_spad_t       * spad                          );
-void   fd_spad_pop_debug      ( fd_spad_t       * spad                          );
-void * fd_spad_alloc_debug    ( fd_spad_t       * spad, ulong  align, ulong sz  );
-void   fd_spad_trim_debug     ( fd_spad_t       * spad, void * hi               );
-void * fd_spad_prepare_debug  ( fd_spad_t       * spad, ulong  align, ulong max );
-void   fd_spad_cancel_debug   ( fd_spad_t       * spad                          );
-void   fd_spad_publish_debug  ( fd_spad_t       * spad, ulong  sz               );
+void   fd_spad_reset_debug    ( fd_spad_t       * spad                                     );
+void * fd_spad_delete_debug   ( void            * shspad                                   );
+ulong  fd_spad_alloc_max_debug( fd_spad_t const * spad, ulong  align                       );
+void * fd_spad_frame_lo_debug ( fd_spad_t       * spad                                     );
+void * fd_spad_frame_hi_debug ( fd_spad_t       * spad                                     );
+void   fd_spad_push_debug     ( fd_spad_t       * spad                                     );
+void   fd_spad_pop_debug      ( fd_spad_t       * spad                                     );
+void * fd_spad_alloc_debug    ( fd_spad_t       * spad, ulong  align, ulong sz,  ulong tag );
+void   fd_spad_trim_debug     ( fd_spad_t       * spad, void * hi                          );
+void * fd_spad_prepare_debug  ( fd_spad_t       * spad, ulong  align, ulong max, ulong tag );
+void   fd_spad_cancel_debug   ( fd_spad_t       * spad                                     );
+void   fd_spad_publish_debug  ( fd_spad_t       * spad, ulong  sz                          );
 
 /* The sanitizer variants below have additional logic to control memory
    poisoning in ASAN/DEEPASAN and MSAN builds. */
 
-void   fd_spad_reset_sanitizer_impl    ( fd_spad_t       * spad                          );
-void * fd_spad_delete_sanitizer_impl   ( void            * shspad                        );
-ulong  fd_spad_alloc_max_sanitizer_impl( fd_spad_t const * spad, ulong  align            );
-void * fd_spad_frame_lo_sanitizer_impl ( fd_spad_t       * spad                          );
-void * fd_spad_frame_hi_sanitizer_impl ( fd_spad_t       * spad                          );
-void   fd_spad_push_sanitizer_impl     ( fd_spad_t       * spad                          );
-void   fd_spad_pop_sanitizer_impl      ( fd_spad_t       * spad                          );
-void * fd_spad_alloc_sanitizer_impl    ( fd_spad_t       * spad, ulong  align, ulong sz  );
-void   fd_spad_trim_sanitizer_impl     ( fd_spad_t       * spad, void * hi               );
-void * fd_spad_prepare_sanitizer_impl  ( fd_spad_t       * spad, ulong  align, ulong max );
-void   fd_spad_cancel_sanitizer_impl   ( fd_spad_t       * spad                          );
-void   fd_spad_publish_sanitizer_impl  ( fd_spad_t       * spad, ulong  sz               );
+void   fd_spad_reset_sanitizer_impl    ( fd_spad_t       * spad                                     );
+void * fd_spad_delete_sanitizer_impl   ( void            * shspad                                   );
+ulong  fd_spad_alloc_max_sanitizer_impl( fd_spad_t const * spad, ulong  align                       );
+void * fd_spad_frame_lo_sanitizer_impl ( fd_spad_t       * spad                                     );
+void * fd_spad_frame_hi_sanitizer_impl ( fd_spad_t       * spad                                     );
+void   fd_spad_push_sanitizer_impl     ( fd_spad_t       * spad                                     );
+void   fd_spad_pop_sanitizer_impl      ( fd_spad_t       * spad                                     );
+void * fd_spad_alloc_sanitizer_impl    ( fd_spad_t       * spad, ulong  align, ulong sz,  ulong tag );
+void   fd_spad_trim_sanitizer_impl     ( fd_spad_t       * spad, void * hi                          );
+void * fd_spad_prepare_sanitizer_impl  ( fd_spad_t       * spad, ulong  align, ulong max, ulong tag );
+void   fd_spad_cancel_sanitizer_impl   ( fd_spad_t       * spad                                     );
+void   fd_spad_publish_sanitizer_impl  ( fd_spad_t       * spad, ulong  sz                          );
 
 /* fd_valloc virtual function table for spad */
 extern const fd_valloc_vtable_t fd_spad_vtable;
@@ -537,6 +679,10 @@ static inline void
 fd_spad_reset_impl( fd_spad_t * spad ) {
   spad->frame_free = FD_SPAD_FRAME_MAX;
   spad->mem_used   = 0UL;
+#if FD_SPAD_TAG_CHECK
+  spad->inprep_tag = 0UL;
+  spad->alloc_tag  = 0UL;
+#endif
 }
 
 static inline void *
@@ -575,6 +721,20 @@ fd_spad_frame_hi_impl( fd_spad_t * spad ) {
 static inline void
 fd_spad_push_impl( fd_spad_t * spad ) {
   spad->off[ --spad->frame_free ] = spad->mem_used;
+
+#if FD_SPAD_TAG_CHECK
+  ulong * tag_mem_used = (ulong *)(spad+1UL);
+  if( FD_LIKELY( spad->frame_free!=(FD_SPAD_FRAME_MAX-1UL) ) ) {
+    fd_memcpy( &tag_mem_used[  spad->frame_free      * spad->tag_max ],
+               &tag_mem_used[ (spad->frame_free+1UL) * spad->tag_max ],
+               sizeof(tag_mem_used[ 0 ]) * spad->tag_max );
+  }
+  if( FD_UNLIKELY( spad->frame_free==(FD_SPAD_FRAME_MAX-1UL) ) ) {
+    fd_memset( &tag_mem_used[  spad->frame_free      * spad->tag_max ],
+               0,
+               sizeof(tag_mem_used[ 0 ]) * spad->tag_max );
+  }
+#endif
 }
 
 static inline void
@@ -585,11 +745,25 @@ fd_spad_pop_impl( fd_spad_t * spad ) {
 static inline void *
 fd_spad_alloc_impl( fd_spad_t * spad,
                     ulong       align,
-                    ulong       sz ) {
-  align = fd_ulong_if( align>0UL, align, FD_SPAD_ALLOC_ALIGN_DEFAULT ); /* typically compile time */
+                    ulong       sz,
+                    ulong       tag ) {
+  align       = fd_ulong_if( align>0UL, align, FD_SPAD_ALLOC_ALIGN_DEFAULT ); /* typically compile time */
   ulong   off = fd_ulong_align_up( spad->mem_used, align );
   uchar * buf = fd_spad_private_mem( spad ) + off;
+
+#if FD_SPAD_TAG_CHECK
+  ulong used_old  = spad->mem_used;
+  spad->mem_used  = off + sz;
+  ulong used_new  = spad->mem_used;
+  spad->alloc_tag = tag;
+
+  ulong * tag_mem_used = (ulong *)(spad+1UL);
+  tag_mem_used[ spad->frame_free * spad->tag_max + tag ] += used_new - used_old;
+#else
+  (void)tag;
   spad->mem_used = off + sz;
+#endif
+
 #if FD_SPAD_TRACK_USAGE
   if( FD_UNLIKELY( spad->mem_wmark < spad->mem_used ) ) {
     spad->mem_wmark = spad->mem_used;
@@ -601,19 +775,41 @@ fd_spad_alloc_impl( fd_spad_t * spad,
 
 static inline void
 fd_spad_trim_impl( fd_spad_t * spad,
-              void *      hi ) {
+                   void *      hi ) {
+#if FD_SPAD_TAG_CHECK
+  ulong used_old = spad->mem_used;
+#endif
   spad->mem_used = (ulong)hi - (ulong)fd_spad_private_mem( spad );
+#if FD_SPAD_TAG_CHECK
+  ulong used_new = spad->mem_used;
+  ulong tag      = spad->alloc_tag;
+
+  ulong * tag_mem_used = (ulong *)(spad+1UL);
+  tag_mem_used[ spad->frame_free * spad->tag_max + tag ] -= used_old - used_new;
+#endif
 }
 
 static inline void *
 fd_spad_prepare_impl( fd_spad_t * spad,
                       ulong       align,
-                      ulong       max ) {
+                      ulong       max,
+                      ulong       tag ) {
   (void)max;
-  align = fd_ulong_if( align>0UL, align, FD_SPAD_ALLOC_ALIGN_DEFAULT ); /* typically compile time */
+
+  align       = fd_ulong_if( align>0UL, align, FD_SPAD_ALLOC_ALIGN_DEFAULT ); /* typically compile time */
   ulong   off = fd_ulong_align_up( spad->mem_used, align );
   uchar * buf = fd_spad_private_mem( spad ) + off;
+
+#if FD_SPAD_TAG_CHECK
+  ulong * tag_mem_used = (ulong *)(spad+1UL);
+  tag_mem_used[ spad->frame_free * spad->tag_max + tag ] += off - spad->mem_used;
+  spad->inprep_tag = tag;
+#else
+  (void)tag;
+#endif
+
   spad->mem_used = off;
+
   return buf;
 }
 
@@ -625,7 +821,22 @@ fd_spad_cancel_impl( fd_spad_t * spad ) {
 static inline void
 fd_spad_publish_impl( fd_spad_t * spad,
                       ulong       sz ) {
+
+#if FD_SPAD_TAG_CHECK
+  ulong tag       = spad->inprep_tag;
+  spad->alloc_tag = tag;
+
+  ulong * tag_mem_used = (ulong *)(spad+1UL);
+  tag_mem_used[ spad->frame_free * spad->tag_max + tag ] += sz;
+#endif
+
   spad->mem_used += sz;
+
+#if FD_SPAD_TRACK_USAGE
+  if( FD_UNLIKELY( spad->mem_wmark < spad->mem_used ) ) {
+    spad->mem_wmark = spad->mem_used;
+  }
+#endif
 }
 
 /* fn definitions */
@@ -674,10 +885,11 @@ fd_spad_pop(fd_spad_t *spad) {
 }
 
 void *
-fd_spad_alloc( fd_spad_t * spad,
-               ulong       align,
-               ulong       sz ) {
-  return SELECT_IMPL(fd_spad_alloc)(spad, align, sz);
+fd_spad_alloc_tagged( fd_spad_t * spad,
+                      ulong       align,
+                      ulong       sz,
+                      ulong       tag ) {
+  return SELECT_IMPL(fd_spad_alloc)(spad, align, sz, tag);
 }
 
 void
@@ -687,10 +899,11 @@ fd_spad_trim( fd_spad_t * spad,
 }
 
 void *
-fd_spad_prepare( fd_spad_t * spad,
-                 ulong       align,
-                 ulong       max ) {
-  return SELECT_IMPL(fd_spad_prepare)(spad, align, max);
+fd_spad_prepare_tagged( fd_spad_t * spad,
+                        ulong       align,
+                        ulong       max,
+                        ulong       tag ) {
+  return SELECT_IMPL(fd_spad_prepare)(spad, align, max, tag);
 }
 
 void

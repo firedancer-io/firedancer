@@ -444,7 +444,7 @@ cmd_dump( int     argc,
   /* With spad */
 
   ulong       mem_max           = args->zstd_window_sz + (1<<29); /* manifest plus 512 MiB headroom */
-  uchar *     mem               = fd_wksp_alloc_laddr(  wksp, FD_SPAD_ALIGN, FD_SPAD_FOOTPRINT( mem_max ), 1UL );
+  uchar *     mem               = fd_wksp_alloc_laddr(  wksp, fd_spad_align(), fd_spad_footprint( mem_max ), 1UL );
   fd_spad_t * spad              = fd_spad_join( fd_spad_new( mem, mem_max ) );
   if( FD_UNLIKELY( !spad ) ) {
     FD_LOG_ERR(( "Failed to allocate spad" ));
