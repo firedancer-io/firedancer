@@ -347,8 +347,7 @@ fd_runtime_collect_rent_from_account( ulong                       slot,
 
 void
 fd_runtime_update_slots_per_epoch( fd_exec_slot_ctx_t * slot_ctx,
-                                   ulong                slots_per_epoch,
-                                   fd_spad_t *          runtime_spad );
+                                   ulong                slots_per_epoch );
 
 void
 fd_runtime_register_new_fresh_account( fd_exec_slot_ctx_t * slot_ctx,

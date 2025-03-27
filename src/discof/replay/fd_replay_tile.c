@@ -2021,7 +2021,7 @@ init_snapshot( fd_replay_tile_ctx_t * ctx,
   ctx->slot_ctx->blockstore   = ctx->blockstore;
   ctx->slot_ctx->epoch_ctx    = ctx->epoch_ctx;
   ctx->slot_ctx->status_cache = ctx->status_cache;
-  fd_runtime_update_slots_per_epoch( ctx->slot_ctx, FD_DEFAULT_SLOTS_PER_EPOCH, ctx->runtime_spad );
+  fd_runtime_update_slots_per_epoch( ctx->slot_ctx, FD_DEFAULT_SLOTS_PER_EPOCH );
 
   uchar is_snapshot = strlen( ctx->snapshot ) > 0;
   if( is_snapshot ) {

@@ -325,7 +325,7 @@ fd_snapshot_load_all( const char *         source_cstr,
                                                        runtime_spad );
 
   fd_snapshot_load_init( ctx );
-  fd_runtime_update_slots_per_epoch( slot_ctx, 432000UL, runtime_spad );
+  fd_runtime_update_slots_per_epoch( slot_ctx, FD_DEFAULT_SLOTS_PER_EPOCH );
   fd_snapshot_load_manifest_and_status_cache( ctx, base_slot_override,
     FD_SNAPSHOT_RESTORE_STATUS_CACHE | FD_SNAPSHOT_RESTORE_MANIFEST );
   fd_snapshot_load_accounts( ctx );
