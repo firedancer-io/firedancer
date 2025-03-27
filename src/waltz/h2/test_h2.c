@@ -3,6 +3,7 @@
 #include "test_hpack.c"
 #include "test_h2_rbuf.c"
 #include "test_h2_hdr_match.c"
+#include "test_h2_conn.c"
 
 int
 main( int     argc,
@@ -19,6 +20,9 @@ main( int     argc,
 
   FD_LOG_NOTICE(( "Testing h2_hdr_match" ));
   test_h2_hdr_match();
+
+  FD_LOG_NOTICE(( "Testing h2_conn" ));
+  test_h2_conn();
 
   fd_rng_delete( fd_rng_leave( rng ) );
 
