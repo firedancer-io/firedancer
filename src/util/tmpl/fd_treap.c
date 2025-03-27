@@ -190,10 +190,11 @@
      void *      mytreap_leave    ( mytreap_t * treap                 );
      void *      mytreap_delete   ( void *      shtreap               );
 
-     // mytreap_{ele_max,ele_cnt} gives the maximum number of elements
-     // the treap can support / the current number of elements in the
-     // treap.  Assumes treap is a current local join.  These might be
-     // deprecated in the future.
+     // mytreap_ele_max gives the maximum number of elements the underlying
+     // linearly addressable storage can support
+     // mytreap_ele_cnt gives the current number of elements in the treap
+     // mytreap_{ele_max,ele_cnt} assumes treap is a current local join.
+     // These might be deprecated in the future.
 
      ulong mytreap_ele_max( mytreap_t const * treap );
      ulong mytreap_ele_cnt( mytreap_t const * treap );
@@ -457,7 +458,7 @@
    faster bulk ops, concurrency options, simpler constructors, etc) */
 
 struct TREAP_(private) {
-  ulong       ele_max; /* Maximum number of elements in treap, in [0,TREAP_IDX_NULL] */
+  ulong       ele_max; /* Maximum number of elements in underlying storage, in [0,TREAP_IDX_NULL] */
   ulong       ele_cnt; /* Current number of elements in treap, in [0,ele_max] */
 #if TREAP_OPTIMIZE_ITERATION
   TREAP_IDX_T first;   /* Index of the left-most treap element, in [0,ele_max) or TREAP_IDX_NULL */
