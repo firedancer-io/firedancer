@@ -804,7 +804,7 @@ interp_exec:
           goto sigcall;
         }
 
-        if( FD_UNLIKELY( !fd_sbpf_calldests_test( calldests, target_pc ) ) ) {
+        if( FD_UNLIKELY( !fd_sbpf_calldests_valid_idx( calldests, target_pc ) || !fd_sbpf_calldests_test( calldests, target_pc ) ) ) {
           goto sigcall;
         }
 
