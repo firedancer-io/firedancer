@@ -111,10 +111,10 @@ fd_bpf_get_executable_program_content_for_upgradeable_loader( fd_exec_slot_ctx_t
 
   fd_pubkey_t * programdata_address = &program_account_state->inner.program.programdata_address;
 
-  if( fd_acc_mgr_view( slot_ctx->acc_mgr,
-                       slot_ctx->funk_txn,
-                       programdata_address,
-                       programdata_acc ) != FD_ACC_MGR_SUCCESS ) {
+  if( fd_txn_account_init_from_funk_readonly( programdata_acc,
+                                              programdata_address,
+                                              slot_ctx->funk,
+                                              slot_ctx->funk_txn ) != FD_ACC_MGR_SUCCESS ) {
     return -1;
   }
 
@@ -175,7 +175,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
 
     fd_pubkey_t * program_pubkey = program_acc->pubkey;
 
-    fd_funk_t     *   funk             = slot_ctx->acc_mgr->funk;
+    fd_funk_t     *   funk             = slot_ctx->funk;
     fd_funk_txn_t *   funk_txn         = slot_ctx->funk_txn;
     fd_funk_rec_key_t id               = fd_acc_mgr_cache_key( program_pubkey );
 
@@ -331,7 +331,7 @@ fd_bpf_scan_task( void * tpool,
   fd_pubkey_t const * pubkey = fd_type_pun_const( recs->pair.key[0].uc );
 
   FD_TXN_ACCOUNT_DECL( exec_rec );
-  if( fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, pubkey, exec_rec ) != FD_ACC_MGR_SUCCESS ) {
+  if( fd_txn_account_init_from_funk_readonly( exec_rec, pubkey, slot_ctx->funk, slot_ctx->funk_txn ) != FD_ACC_MGR_SUCCESS ) {
     return;
   }
 
@@ -351,7 +351,7 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_
                                                       fd_tpool_t *         tpool,
                                                       fd_spad_t *          runtime_spad ) {
   long        elapsed_ns = -fd_log_wallclock();
-  fd_funk_t * funk       = slot_ctx->acc_mgr->funk;
+  fd_funk_t * funk       = slot_ctx->funk;
   ulong       cached_cnt = 0UL;
 
   /* Use random-ish xid to avoid concurrency issues */
@@ -426,7 +426,7 @@ int
 fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
                                                 fd_funk_txn_t *      funk_txn,
                                                 fd_spad_t *          runtime_spad ) {
-  fd_funk_t * funk = slot_ctx->acc_mgr->funk;
+  fd_funk_t * funk = slot_ctx->funk;
   ulong       cnt  = 0UL;
 
   /* Use random-ish xid to avoid concurrency issues */
@@ -483,7 +483,7 @@ fd_bpf_check_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
                                                  fd_pubkey_t const *  pubkey,
                                                  fd_spad_t *          runtime_spad ) {
   FD_TXN_ACCOUNT_DECL( exec_rec );
-  if( fd_acc_mgr_view( slot_ctx->acc_mgr, funk_txn, pubkey, exec_rec ) != FD_ACC_MGR_SUCCESS ) {
+  if( fd_txn_account_init_from_funk_readonly( exec_rec, pubkey, slot_ctx->funk, funk_txn ) != FD_ACC_MGR_SUCCESS ) {
     return -1;
   }
 

@@ -54,7 +54,7 @@ fd_collect_modified_accounts( fd_exec_slot_ctx_t *           slot_ctx,
                               fd_spad_t *                    runtime_spad );
 
 void
-fd_account_hash( fd_acc_mgr_t *                 acc_mgr,
+fd_account_hash( fd_funk_t *                    funk,
                  fd_funk_txn_t *                funk_txn,
                  fd_accounts_hash_task_info_t * task_info,
                  fd_lthash_value_t *            lt_hash,

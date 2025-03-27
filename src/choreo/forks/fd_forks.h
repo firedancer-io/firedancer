@@ -174,10 +174,9 @@ fd_forks_advance( fd_forks_t const * forks, fd_fork_t * fork, ulong slot );
 fd_fork_t *
 fd_forks_prepare( fd_forks_t const *    forks,
                   ulong                 parent_slot,
-                  fd_acc_mgr_t *        acc_mgr,
+                  fd_funk_t *           funk,
                   fd_blockstore_t *     blockstore,
                   fd_exec_epoch_ctx_t * epoch_ctx,
-                  fd_funk_t *           funk,
                   fd_spad_t *           runtime_spad );
 
 /* fd_forks_update updates `blockstore` and `ghost` with the latest

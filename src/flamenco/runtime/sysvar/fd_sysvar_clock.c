@@ -50,7 +50,7 @@ write_clock( fd_exec_slot_ctx_t *    slot_ctx,
 fd_sol_sysvar_clock_t *
 fd_sysvar_clock_read( fd_sol_sysvar_clock_t *   result,
                       fd_sysvar_cache_t const * sysvar_cache,
-                      fd_acc_mgr_t *            acc_mgr,
+                      fd_funk_t *               funk,
                       fd_funk_txn_t *           funk_txn ) {
   fd_sol_sysvar_clock_t const * ret = (fd_sol_sysvar_clock_t const *)fd_sysvar_cache_clock( sysvar_cache );
   if( NULL != ret ) {
@@ -59,7 +59,7 @@ fd_sysvar_clock_read( fd_sol_sysvar_clock_t *   result,
   }
 
   FD_TXN_ACCOUNT_DECL( acc );
-  int rc = fd_acc_mgr_view( acc_mgr, funk_txn, &fd_sysvar_clock_id, acc );
+  int rc = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_clock_id, funk, funk_txn );
   if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS ) )
     return NULL;
 
@@ -193,7 +193,7 @@ fd_calculate_stake_weighted_timestamp( fd_exec_slot_ctx_t * slot_ctx,
   fd_sol_sysvar_clock_t clock;
   fd_sysvar_clock_read( &clock,
                         slot_ctx->sysvar_cache,
-                        slot_ctx->acc_mgr,
+                        slot_ctx->funk,
                         slot_ctx->funk_txn );
   // get the unique timestamps
   /* stake per timestamp */
@@ -349,9 +349,9 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad 
   fd_pubkey_t const * key = &fd_sysvar_clock_id;
 
   FD_TXN_ACCOUNT_DECL( rec );
-  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, key, rec );
+  int err = fd_txn_account_init_from_funk_readonly( rec, key, slot_ctx->funk, slot_ctx->funk_txn );
   if( FD_UNLIKELY( err ) ) {
-    FD_LOG_ERR(( "fd_acc_mgr_view(clock) failed: %d", err ));
+    FD_LOG_ERR(( "fd_txn_account_init_from_funk_readonly(clock) failed: %d", err ));
   }
 
   fd_bincode_decode_ctx_t ctx = {
@@ -441,9 +441,9 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad 
 
   ulong sz = fd_sol_sysvar_clock_size( clock );
   FD_TXN_ACCOUNT_DECL( acc );
-  err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, key, 1, sz, acc );
+  err = fd_txn_account_init_from_funk_mutable( acc, key, slot_ctx->funk, slot_ctx->funk_txn, 1, sz );
   if( err ) {
-    FD_LOG_CRIT(( "fd_acc_mgr_modify(clock) failed: %d", err ));
+    FD_LOG_CRIT(( "fd_txn_account_init_from_funk_mutable(clock) failed: %d", err ));
   }
 
   fd_bincode_encode_ctx_t e_ctx = {
@@ -461,6 +461,8 @@ fd_sysvar_clock_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad 
 
   acc->meta->dlen = sz;
   fd_memcpy( acc->meta->info.owner, fd_sysvar_owner_id.key, sizeof(fd_pubkey_t) );
+
+  fd_txn_account_mutable_fini( acc, slot_ctx->funk, slot_ctx->funk_txn );
 
   return 0;
 }

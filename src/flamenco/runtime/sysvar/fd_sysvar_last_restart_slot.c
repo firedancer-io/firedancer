@@ -35,8 +35,8 @@ fd_sysvar_last_restart_slot_init( fd_exec_slot_ctx_t * slot_ctx ) {
 fd_sol_sysvar_last_restart_slot_t *
 fd_sysvar_last_restart_slot_read( fd_sol_sysvar_last_restart_slot_t * result,
                                   fd_sysvar_cache_t const *           sysvar_cache,
-                                  fd_acc_mgr_t *                      acc_mgr,
-                                  fd_funk_txn_t *                  funk_txn ) {
+                                  fd_funk_t *                         funk,
+                                  fd_funk_txn_t *                     funk_txn ) {
 
   fd_sol_sysvar_last_restart_slot_t const * ret = (fd_sol_sysvar_last_restart_slot_t const *)fd_sysvar_cache_last_restart_slot( sysvar_cache );
   if( FD_UNLIKELY( NULL != ret ) ) {
@@ -45,7 +45,7 @@ fd_sysvar_last_restart_slot_read( fd_sol_sysvar_last_restart_slot_t * result,
   }
 
   FD_TXN_ACCOUNT_DECL( acc );
-  int err = fd_acc_mgr_view(acc_mgr, funk_txn, &fd_sysvar_last_restart_slot_id, acc);
+  int err = fd_txn_account_init_from_funk_readonly( acc, &fd_sysvar_last_restart_slot_id, funk, funk_txn );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) return NULL;
 
   fd_bincode_decode_ctx_t decode = {
@@ -82,7 +82,7 @@ fd_sysvar_last_restart_slot_update( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_sol_sysvar_last_restart_slot_t old_account;
   if( fd_sysvar_last_restart_slot_read( &old_account,
                                         slot_ctx->sysvar_cache,
-                                        slot_ctx->acc_mgr,
+                                        slot_ctx->funk,
                                         slot_ctx->funk_txn ) ) {
     has_current_last_restart_slot = 1;
         current_last_restart_slot = old_account.slot;

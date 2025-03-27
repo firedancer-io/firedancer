@@ -34,7 +34,7 @@ fd_runtime_save_epoch_bank( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_funk_rec_key_t id = fd_runtime_epoch_bank_key();
   int opt_err = 0;
   fd_funk_rec_prepare_t prepare[1];
-  fd_funk_t * funk   = slot_ctx->acc_mgr->funk;
+  fd_funk_t * funk   = slot_ctx->funk;
   fd_funk_rec_t *rec = fd_funk_rec_prepare(funk, slot_ctx->funk_txn, &id, prepare, &opt_err);
   if (NULL == rec)
   {
@@ -70,7 +70,7 @@ int fd_runtime_save_slot_bank( fd_exec_slot_ctx_t * slot_ctx ) {
   fd_funk_rec_key_t id      = fd_runtime_slot_bank_key();
   int               opt_err = 0;
 
-  fd_funk_t * funk = slot_ctx->acc_mgr->funk;
+  fd_funk_t * funk = slot_ctx->funk;
 
   fd_funk_rec_hard_remove( funk, slot_ctx->funk_txn, &id );
 
@@ -114,7 +114,7 @@ fd_runtime_recover_banks( fd_exec_slot_ctx_t * slot_ctx,
                           int                  clear_first,
                           fd_spad_t *          runtime_spad ) {
 
-  fd_funk_t *           funk         = slot_ctx->acc_mgr->funk;
+  fd_funk_t *           funk         = slot_ctx->funk;
   fd_funk_txn_t *       txn          = slot_ctx->funk_txn;
   fd_exec_epoch_ctx_t * epoch_ctx    = slot_ctx->epoch_ctx;
   for(;;) {
@@ -257,7 +257,10 @@ fd_feature_restore( fd_exec_slot_ctx_t *    slot_ctx,
                     fd_spad_t *             runtime_spad ) {
 
   FD_TXN_ACCOUNT_DECL( acct_rec );
-  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t *)acct, acct_rec );
+  int err = fd_txn_account_init_from_funk_readonly( acct_rec,
+                                                    (fd_pubkey_t *)acct,
+                                                    slot_ctx->funk,
+                                                    slot_ctx->funk_txn );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     return;
   }

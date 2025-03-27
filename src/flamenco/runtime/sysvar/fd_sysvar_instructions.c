@@ -52,10 +52,10 @@ fd_sysvar_instructions_serialize_account( fd_exec_txn_ctx_t *      txn_ctx,
 
   /* This stays within the FD spad allocation bounds because...
      1. Case 1: rec->meta!=NULL
-        - rec->meta was set up in `fd_executor_setup_borrowed_accounts_for_txn()` and data was allocated from the spad
+        - rec->meta was set up in `fd_executor_setup_accounts_for_txn()` and data was allocated from the spad
         - No need to allocate meta and data here
      2. Case 2: rec->meta==NULL
-        - `fd_executor_setup_borrowed_accounts_for_txn()` did not make an spad allocation for this account
+        - `fd_executor_setup_accounts_for_txn()` did not make an spad allocation for this account
         - spad memory is sized out for allocations for 128 (max number) accounts
         - sizeof(fd_account_meta_t) + serialized_sz will always be less than FD_ACC_TOT_SZ_MAX
         - at most 127 accounts could be using spad memory right now, so this allocation is safe */

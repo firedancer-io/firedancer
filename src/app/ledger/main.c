@@ -429,7 +429,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
         .slot           = ledger_args->slot_ctx->root_slot,
         .out_dir        = ledger_args->snapshot_dir,
         .is_incremental = 0,
-        .funk           = ledger_args->slot_ctx->acc_mgr->funk,
+        .funk           = ledger_args->slot_ctx->funk,
         .status_cache   = ledger_args->slot_ctx->status_cache,
         .tpool          = ledger_args->snapshot_tpool,
         .spad           = ledger_args->runtime_spad,
@@ -450,7 +450,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
         .out_dir                  = ledger_args->snapshot_dir,
         .is_incremental           = 1,
         .spad                     = ledger_args->runtime_spad,
-        .funk                     = ledger_args->slot_ctx->acc_mgr->funk,
+        .funk                     = ledger_args->slot_ctx->funk,
         .status_cache             = ledger_args->slot_ctx->status_cache,
         .last_snap_slot           = ledger_args->last_snapshot_slot,
         .tpool                    = ledger_args->snapshot_tpool,
@@ -499,7 +499,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
           .out_dir        = ledger_args->snapshot_dir,
           .is_incremental = 0,
           .spad           = ledger_args->runtime_spad,
-          .funk           = ledger_args->slot_ctx->acc_mgr->funk,
+          .funk           = ledger_args->slot_ctx->funk,
           .status_cache   = ledger_args->slot_ctx->status_cache,
           .tpool          = ledger_args->snapshot_tpool
         };
@@ -538,7 +538,7 @@ runtime_replay( fd_ledger_args_t * ledger_args ) {
           .out_dir        = ledger_args->snapshot_dir,
           .is_incremental = 0,
           .spad           = ledger_args->runtime_spad,
-          .funk           = ledger_args->slot_ctx->acc_mgr->funk,
+          .funk           = ledger_args->slot_ctx->funk,
           .status_cache   = ledger_args->slot_ctx->status_cache,
           .tpool          = ledger_args->snapshot_tpool
         };
@@ -1087,8 +1087,7 @@ ingest( fd_ledger_args_t * args ) {
   slot_ctx->epoch_ctx = epoch_ctx;
   args->slot_ctx = slot_ctx;
 
-  uchar * acc_mgr_mem  = fd_spad_alloc( args->runtime_spad, alignof(fd_acc_mgr_t), sizeof(fd_acc_mgr_t) );
-  slot_ctx->acc_mgr    = fd_acc_mgr_new( acc_mgr_mem, funk );
+  slot_ctx->funk       = funk;
   slot_ctx->blockstore = args->blockstore;
 
   if( args->status_cache_wksp ) {
@@ -1274,8 +1273,7 @@ replay( fd_ledger_args_t * args ) {
   void * slot_ctx_mem        = fd_spad_alloc( spad, FD_EXEC_SLOT_CTX_ALIGN, FD_EXEC_SLOT_CTX_FOOTPRINT );
   args->slot_ctx             = fd_exec_slot_ctx_join( fd_exec_slot_ctx_new( slot_ctx_mem, spad ) );
   args->slot_ctx->epoch_ctx  = args->epoch_ctx;
-  uchar * acc_mgr_mem  = fd_spad_alloc( args->runtime_spad, alignof(fd_acc_mgr_t), sizeof(fd_acc_mgr_t) );
-  args->slot_ctx->acc_mgr    = fd_acc_mgr_new( acc_mgr_mem, funk );
+  args->slot_ctx->funk       = funk;
   args->slot_ctx->blockstore = args->blockstore;
 
   void * status_cache_mem = fd_spad_alloc( spad,
