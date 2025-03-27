@@ -1,11 +1,9 @@
 #ifndef HEADER_fd_src_flamenco_runtime_program_fd_bpf_program_util_h
 #define HEADER_fd_src_flamenco_runtime_program_fd_bpf_program_util_h
 
-#include "../../fd_flamenco_base.h"
-#include "../../../ballet/sbpf/fd_sbpf_loader.h"
-#include "../../../funk/fd_funk_txn.h"
-#include "../../types/fd_types.h"
-#include "../../features/fd_features.h"
+#include "../fd_acc_mgr.h"
+#include "../context/fd_exec_slot_ctx.h"
+#include "../../vm/syscall/fd_vm_syscall.h"
 
 struct fd_sbpf_validated_program {
   ulong magic;

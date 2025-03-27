@@ -170,14 +170,14 @@ fd_forks_query_const( fd_forks_t const * forks, ulong slot ) {
 //   fork->slot_ctx->slot_bank.prev_slot = fork->slot_ctx->slot_bank.slot;
 //   fork->slot_ctx->slot_bank.slot      = curr_slot;
 
-//   fork->slot_ctx->status_cache = status_cache;
+//   fork->slot_ctx.status_cache = status_cache;
 //   fd_funk_txn_xid_t xid;
 
 //   fd_memcpy( xid.uc, blockhash.uc, sizeof( fd_funk_txn_xid_t));
-//   xid.ul[0] = fork->slot_ctx->slot_bank.slot;
+//   xid.ul[0] = fork->slot_ctx.slot_bank.slot;
 //   /* push a new transaction on the stack */
 //   fd_funk_start_write( funk );
-//   fork->slot_ctx->funk_txn = fd_funk_txn_prepare( funk, fork->slot_ctx->funk_txn, &xid, 1 );
+//   fork->slot_ctx.funk_txn = fd_funk_txn_prepare( funk, fork->slot_ctx.funk_txn, &xid, 1 );
 //   fd_funk_end_write( funk );
 
 //   int res = fd_runtime_publish_old_txns( &fork->slot_ctx, capture_ctx );
@@ -191,64 +191,80 @@ slot_ctx_restore( ulong                 slot,
                   fd_acc_mgr_t *        acc_mgr,
                   fd_blockstore_t *     blockstore,
                   fd_exec_epoch_ctx_t * epoch_ctx,
-                  fd_funk_t *           funk,
+                  fd_funk_t *        funk,
                   fd_spad_t *           runtime_spad,
                   fd_exec_slot_ctx_t *  slot_ctx_out ) {
-  fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
+  fd_funk_txn_map_t txn_map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
   bool block_exists = fd_blockstore_shreds_complete( blockstore, slot );
 
   FD_LOG_DEBUG( ( "Current slot %lu", slot ) );
   if( !block_exists )
     FD_LOG_ERR( ( "missing block at slot we're trying to restore" ) );
 
-  fd_funk_txn_xid_t xid        = { .ul = { slot, slot } };
+  fd_funk_txn_xid_t xid = { .ul = { slot, slot } };
   fd_funk_rec_key_t id  = fd_runtime_slot_bank_key();
-  fd_funk_txn_t *   txn = fd_funk_txn_query( &xid, txn_map );
-  if( !txn ) {
-    memset( xid.uc, 0, sizeof( fd_funk_txn_xid_t ) );
-    xid.ul[0] = slot;
-    txn       = fd_funk_txn_query( &xid, txn_map );
+  for( ; ; ) {
+    fd_funk_txn_start_read( funk );
+    fd_funk_txn_t *   txn = fd_funk_txn_query( &xid, &txn_map );
     if( !txn ) {
-      FD_LOG_ERR( ( "missing txn, parent slot %lu", slot ) );
+      memset( xid.uc, 0, sizeof( fd_funk_txn_xid_t ) );
+      xid.ul[0] = slot;
+      txn       = fd_funk_txn_query( &xid, &txn_map );
+      if( !txn ) {
+        FD_LOG_ERR( ( "missing txn, parent slot %lu", slot ) );
+      }
+    }
+    fd_funk_txn_end_read( funk );
+
+    fd_funk_rec_query_t query[1];
+    fd_funk_rec_t const * rec = fd_funk_rec_query_try_global( funk, txn, &id, NULL, query );
+    if( rec == NULL ) FD_LOG_ERR( ( "failed to read banks record" ) );
+    void * val = fd_funk_val( rec, fd_funk_wksp( funk ) );
+
+    uint magic = *(uint *)val;
+
+    fd_bincode_decode_ctx_t decode_ctx = {
+      .data    = (uchar *)val + sizeof(uint),
+      .dataend = (uchar *)val + fd_funk_val_sz( rec )
+    };
+
+    if( slot_ctx_out == NULL || slot_ctx_out->magic != FD_EXEC_SLOT_CTX_MAGIC ) {
+      FD_LOG_WARNING(( "bad slot context" ));
+      continue;
+    }
+
+    FD_TEST( slot_ctx_out->magic == FD_EXEC_SLOT_CTX_MAGIC );
+
+    slot_ctx_out->funk_txn   = txn;
+    slot_ctx_out->acc_mgr    = acc_mgr;
+    slot_ctx_out->blockstore = blockstore;
+    slot_ctx_out->epoch_ctx  = epoch_ctx;
+
+    if( FD_LIKELY( magic==FD_RUNTIME_ENC_BINCODE ) ) {
+      ulong total_sz = 0UL;
+      int err = fd_slot_bank_decode_footprint( &decode_ctx, &total_sz );
+      if( FD_UNLIKELY( err != FD_BINCODE_SUCCESS ) ) {
+        FD_LOG_WARNING( ( "failed to decode banks record" ) );
+        continue;
+      }
+
+      uchar * mem = fd_spad_alloc( runtime_spad, fd_slot_bank_align(), total_sz );
+      if( FD_UNLIKELY( !mem ) ) {
+        FD_LOG_ERR( ( "failed to allocate memory for slot bank" ) );
+      }
+
+      fd_slot_bank_t * slot_bank = fd_slot_bank_decode( mem, &decode_ctx );
+
+      fd_memcpy( &slot_ctx_out->slot_bank, slot_bank, sizeof(fd_slot_bank_t) );
+    } else {
+      FD_LOG_ERR( ( "failed to read banks record: invalid magic number" ) );
+    }
+    FD_TEST( !fd_runtime_sysvar_cache_load( slot_ctx_out, runtime_spad ) );
+
+    if( FD_LIKELY( fd_funk_rec_query_test( query ) == FD_FUNK_SUCCESS ) ) {
+      break;
     }
   }
-  fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, txn, &id, NULL );
-  if( rec == NULL ) FD_LOG_ERR( ( "failed to read banks record" ) );
-  void * val = fd_funk_val( rec, fd_funk_wksp( funk ) );
-
-  uint magic = *(uint *)val;
-
-  fd_bincode_decode_ctx_t decode_ctx = {
-    .data    = (uchar *)val + sizeof(uint),
-    .dataend = (uchar *)val + fd_funk_val_sz( rec )
-  };
-
-  FD_TEST( slot_ctx_out->magic == FD_EXEC_SLOT_CTX_MAGIC );
-
-  slot_ctx_out->funk_txn   = txn;
-  slot_ctx_out->acc_mgr    = acc_mgr;
-  slot_ctx_out->blockstore = blockstore;
-  slot_ctx_out->epoch_ctx  = epoch_ctx;
-
-  if( FD_LIKELY( magic==FD_RUNTIME_ENC_BINCODE ) ) {
-    ulong total_sz = 0UL;
-    int err = fd_slot_bank_decode_footprint( &decode_ctx, &total_sz );
-    if( FD_UNLIKELY( err != FD_BINCODE_SUCCESS ) ) {
-      FD_LOG_ERR( ( "failed to decode banks record" ) );
-    }
-
-    uchar * mem = fd_spad_alloc( runtime_spad, fd_slot_bank_align(), total_sz );
-    if( FD_UNLIKELY( !mem ) ) {
-      FD_LOG_ERR( ( "failed to allocate memory for slot bank" ) );
-    }
-
-    fd_slot_bank_t * slot_bank = fd_slot_bank_decode( mem, &decode_ctx );
-
-    fd_memcpy( &slot_ctx_out->slot_bank, slot_bank, sizeof(fd_slot_bank_t) );
-  } else {
-    FD_LOG_ERR( ( "failed to read banks record: invalid magic number" ) );
-  }
-  FD_TEST( !fd_runtime_sysvar_cache_load( slot_ctx_out, runtime_spad ) );
 
   // TODO how do i get this info, ignoring rewards for now
   // slot_ctx_out->epoch_reward_status = ???
@@ -347,12 +363,27 @@ fd_forks_update( fd_forks_t *      forks,
        rec_query_global traverses all the way back to the root. */
 
     fd_voter_t *             voter = &epoch_voters[i];
-    fd_voter_state_t const * state = fd_voter_state( funk, txn, &voter->rec );
+
+    /* Fetch the vote account's vote slot and root slot from the vote account, re-trying if there is
+       a Funk conflict.
+
+       TODO: factor this out into a convenience function. */
+    ulong vote = 0UL;
+    ulong root = 0UL;
+    for( ; ; ) {
+      fd_funk_rec_query_t query[1];
+      fd_voter_state_t const * state = fd_voter_state( funk, query, txn, &voter->rec );
+      vote = fd_voter_state_vote( state );
+      root = fd_voter_state_root( state );
+
+      if( FD_LIKELY( fd_funk_rec_query_test( query ) == FD_FUNK_SUCCESS ) ) {
+        break;
+      }
+    }
 
     /* Only process votes for slots >= root. Ghost requires vote slot
         to already exist in the ghost tree. */
 
-    ulong vote = fd_voter_state_vote( state );
     if( FD_LIKELY( vote != FD_SLOT_NULL && vote >= fd_ghost_root( ghost )->slot ) ) {
       fd_ghost_replay_vote( ghost, voter, vote );
 
@@ -376,7 +407,6 @@ fd_forks_update( fd_forks_t *      forks,
     /* Check if this voter's root >= ghost root. We can't process
         other voters' roots that precede the ghost root. */
 
-    ulong root = fd_voter_state_root( state );
     if( FD_LIKELY( root != FD_SLOT_NULL && root >= fd_ghost_root( ghost )->slot ) ) {
       fd_ghost_node_t const * node = fd_ghost_query( ghost, root );
 

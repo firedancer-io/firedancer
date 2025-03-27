@@ -190,49 +190,6 @@ fd_acc_mgr_view( fd_acc_mgr_t *        acc_mgr,
                  fd_pubkey_t const *   pubkey,
                  fd_txn_account_t *    account );
 
-/* fd_acc_mgr_modify_raw requests a writable handle to an account.
-   Follows interface of fd_acc_mgr_modify_raw with the following
-   changes:
-
-   - do_create controls behavior if account does not exist.  If set to
-     0, returns error.  If set to 1, creates account with given size
-     and zero-initializes metadata.  Caller must initialize metadata of
-     returned handle in this case.
-   - min_data_sz is the minimum writable data size that the caller will
-     accept.  This parameter will never shrink an existing account.  If
-     do_create, specifies the new account's size.  Otherwise, increases
-     record size if necessary.
-   - When resizing or creating an account, the caller should also always
-     set the account meta's size field.  This is not done automatically.
-   - If caller already has a read-only handle to the requested account,
-     opt_con_rec can be used to skip query by pubkey.
-   - In most cases, account is copied to "dirty cache".
-
-   On success:
-   - If opt_out_rec!=NULL, sets *opt_out_rec to a pointer to writable
-     funk rec.  Suitable as rec parameter to fd_acc_mgr_commit_raw.
-   - Returns pointer to mutable account metadata and data analogous to
-     fd_acc_mgr_view_raw.
-   - IMPORTANT:  Return value may point to the same memory region as a
-     previous calls to fd_acc_mgr_view_raw or fd_acc_mgr_modify_raw do,
-     for the same funk rec (account/txn pair).  fd_acc_mgr only promises
-     that account handles requested for different funk txns will not
-     alias. Generally, for each funk txn, the user should only ever
-     access the latest handle returned by view/modify.
-
-   Caller must eventually commit funk record.  During replay, this is
-   done automatically by slot freeze. */
-
-fd_account_meta_t *
-fd_acc_mgr_modify_raw( fd_acc_mgr_t *        acc_mgr,
-                       fd_funk_txn_t *       txn,
-                       fd_pubkey_t const *   pubkey,
-                       int                   do_create,
-                       ulong                 min_data_sz,
-                       fd_funk_rec_t const * opt_con_rec,
-                       fd_funk_rec_t **      opt_out_rec,
-                       int *                 opt_err );
-
 int
 fd_acc_mgr_modify( fd_acc_mgr_t *       acc_mgr,
                    fd_funk_txn_t *      txn,
@@ -252,14 +209,6 @@ fd_acc_mgr_save_non_tpool( fd_acc_mgr_t *     acc_mgr,
                            fd_funk_txn_t *    txn,
                            fd_txn_account_t * account,
                            fd_wksp_t *        wksp );
-
-int
-fd_acc_mgr_save_many_tpool( fd_acc_mgr_t *      acc_mgr,
-                            fd_funk_txn_t *     txn,
-                            fd_txn_account_t ** accounts,
-                            ulong               accounts_cnt,
-                            fd_tpool_t *        tpool,
-                            fd_spad_t *         runtime_spad );
 
 void
 fd_acc_mgr_lock( fd_acc_mgr_t * acc_mgr );

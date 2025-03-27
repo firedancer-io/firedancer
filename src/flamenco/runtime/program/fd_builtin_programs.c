@@ -136,7 +136,7 @@ fd_write_builtin_account( fd_exec_slot_ctx_t * slot_ctx,
                           ulong                sz ) {
 
   fd_acc_mgr_t *      acc_mgr = slot_ctx->acc_mgr;
-  fd_funk_txn_t *     txn     = slot_ctx->funk_txn;
+  fd_funk_txn_t *  txn        = slot_ctx->funk_txn;
   FD_TXN_ACCOUNT_DECL( rec );
 
   int err = fd_acc_mgr_modify( acc_mgr, txn, &pubkey, 1, sz, rec);
@@ -165,7 +165,7 @@ write_inline_spl_native_mint_program_account( fd_exec_slot_ctx_t * slot_ctx ) {
     return;
 
   fd_acc_mgr_t *      acc_mgr = slot_ctx->acc_mgr;
-  fd_funk_txn_t *     txn     = slot_ctx->funk_txn;
+  fd_funk_txn_t *  txn        = slot_ctx->funk_txn;
   fd_pubkey_t const * key     = (fd_pubkey_t const *)&fd_solana_spl_native_mint_id;
   FD_TXN_ACCOUNT_DECL( rec );
 

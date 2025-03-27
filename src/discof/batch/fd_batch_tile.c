@@ -388,11 +388,9 @@ produce_snapshot( fd_snapshot_tile_ctx_t * ctx, ulong batch_fseq ) {
 static fd_funk_txn_t*
 get_eah_txn( fd_funk_t * funk, ulong slot ) {
 
-  fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, fd_funk_wksp( funk ) );
-  for( fd_funk_txn_map_iter_t iter = fd_funk_txn_map_iter_init( txn_map );
-         !fd_funk_txn_map_iter_done( txn_map, iter );
-         iter = fd_funk_txn_map_iter_next( txn_map, iter ) ) {
-    fd_funk_txn_t * txn = fd_funk_txn_map_iter_ele( txn_map, iter );
+  fd_funk_txn_all_iter_t txn_iter[1];
+  for( fd_funk_txn_all_iter_new( funk, txn_iter ); !fd_funk_txn_all_iter_done( txn_iter ); fd_funk_txn_all_iter_next( txn_iter ) ) {
+    fd_funk_txn_t * txn = fd_funk_txn_all_iter_ele( txn_iter );
     if( txn->xid.ul[0]==slot ) {
       FD_LOG_NOTICE(( "Found transaction for eah" ));
       return txn;
@@ -422,7 +420,8 @@ produce_eah( fd_snapshot_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong batch
   fd_funk_t *           funk     = ctx->funk;
   fd_funk_txn_t *       eah_txn  = get_eah_txn( funk, eah_slot );
   fd_funk_rec_key_t     slot_id  = fd_runtime_slot_bank_key();
-  fd_funk_rec_t const * slot_rec = fd_funk_rec_query( funk, eah_txn, &slot_id );
+  fd_funk_rec_query_t   query[1];
+  fd_funk_rec_t const * slot_rec = fd_funk_rec_query_try( funk, eah_txn, &slot_id, query );
   if( FD_UNLIKELY( !slot_rec ) ) {
     FD_LOG_ERR(( "Failed to read slot bank record: missing record" ));
   }
@@ -478,6 +477,8 @@ produce_eah( fd_snapshot_tile_ctx_t * ctx, fd_stem_context_t * stem, ulong batch
 
     fd_fseq_update( ctx->is_constipated, 0UL );
   } FD_SPAD_FRAME_END;
+
+  FD_TEST( !fd_funk_rec_query_test( query ) );
 }
 
 static void

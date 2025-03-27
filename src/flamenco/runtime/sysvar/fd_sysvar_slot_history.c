@@ -69,6 +69,7 @@ fd_sysvar_slot_history_init( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_
   fd_slot_history_destroy( &history );
 }
 
+/* TODO: maybe use the sysvar cache? is there a reason why it doesn't? */
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/runtime/src/bank.rs#L2345 */
 int
 fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
@@ -130,6 +131,7 @@ fd_sysvar_slot_history_update( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtim
   return 0;
 }
 
+/* TODO: maybe use the sysvar cache? is there a reason why it doesn't? */
 fd_slot_history_t *
 fd_sysvar_slot_history_read( fd_acc_mgr_t *  acc_mgr,
                              fd_funk_txn_t * funk_txn,
