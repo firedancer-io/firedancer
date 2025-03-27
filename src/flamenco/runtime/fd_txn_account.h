@@ -29,6 +29,9 @@ struct __attribute__((aligned(8UL))) fd_txn_account {
   ulong                       starting_dlen;
   ulong                       starting_lamports;
 
+  /* only used when obtaining a mutable fd_txn_account_t from funk */
+  fd_funk_rec_prepare_t       prepared_rec;
+
   /* Provide read/write mutual exclusion semantics.
      Used for single-threaded logic only, thus not comparable to a
      data synchronization lock. */
@@ -41,13 +44,18 @@ typedef struct fd_txn_account fd_txn_account_t;
 #define FD_TXN_ACCOUNT_ALIGN     (8UL)
 #define FD_TXN_ACCOUNT_MAGIC     (0xF15EDF1C51F51AA1UL)
 
-#define FD_TXN_ACCOUNT_DECL(_x)  fd_txn_account_t _x[1]; fd_txn_account_init(_x);
+#define FD_TXN_ACCOUNT_DECL(_x)  fd_txn_account_t _x[1];
 
 FD_PROTOTYPES_BEGIN
 
-/* TODO: Initializes an fd_txn_account from a pointer to a region of memory */
+/* Initializes an fd_txn_account_t from a pointer to a region of memory */
 fd_txn_account_t *
 fd_txn_account_init( void * ptr );
+
+void
+fd_txn_account_setup_sentinel_meta( fd_txn_account_t * acct,
+                                    fd_spad_t *        spad,
+                                    fd_wksp_t *        spad_wksp );
 
 /* Accessors */
 
@@ -95,20 +103,6 @@ fd_txn_account_t *
 fd_txn_account_make_mutable( fd_txn_account_t * acct,
                              void *             buf,
                              fd_wksp_t *        wksp );
-
-/* In Agave, dummy accounts are sometimes created that contain metadata
-   that differs from what's in the accounts DB.  For example, see
-   handling of the executable bit in
-   fd_executor_load_transaction_accounts().
-   This allows us to emulate that by modifying metadata of read-only
-   borrowed accounts without those modification writing through to
-   funk. */
-
-/* buf is a handle to the account shared data. Sets the account shared
-   data as read only. */
-fd_txn_account_t *
-fd_txn_account_make_readonly( fd_txn_account_t * acct,
-                              void *             buf );
 
 static inline int
 fd_txn_account_checked_add_lamports( fd_txn_account_t * acct, ulong lamports ) {
@@ -172,12 +166,51 @@ fd_txn_account_release_write_private( fd_txn_account_t * acct ) {
   }
 }
 
-/* Factory constructor */
+/* Factory constructors from funk (Accounts DB) */
+
+/* Initializes a fd_txn_account_t object with a readonly handle into
+   its funk record.
+
+   IMPORTANT: When we access the account metadata and data pointer later on in the
+     execution pipeline, we assume that nothing else will change these.
+
+     This is safe because we assume that we hold a read lock on the account, since
+     we are inside a Solana transaction. */
 int
-fd_txn_account_create_from_funk( fd_txn_account_t *  acct_ptr,
-                                 fd_pubkey_t const * acc_pubkey,
-                                 fd_acc_mgr_t *      acc_mgr,
-                                 fd_funk_txn_t *     funk_txn );
+fd_txn_account_init_from_funk_readonly( fd_txn_account_t *    acct,
+                                        fd_pubkey_t const *   pubkey,
+                                        fd_funk_t *           funk,
+                                        fd_funk_txn_t const * funk_txn );
+
+/* Initializes a fd_txn_account_t object with a mutable handle into
+   its funk record. Cannot be called in the executor tile. */
+int
+fd_txn_account_init_from_funk_mutable( fd_txn_account_t *  acct,
+                                       fd_pubkey_t const * pubkey,
+                                       fd_funk_t *         funk,
+                                       fd_funk_txn_t *     funk_txn,
+                                       int                 do_create,
+                                       ulong               min_data_sz );
+/* Funk Save and Publish helpers */
+
+/* Save helper into Funk (Accounts DB)
+   Saves the contents of a fd_txn_account_t object obtained from
+   fd_txn_account_init_from_funk_readonly back into funk */
+int
+fd_txn_account_save( fd_txn_account_t * acct,
+                     fd_funk_t *        funk,
+                     fd_funk_txn_t *    txn,
+                     fd_wksp_t *        acc_data_wksp );
+
+/* Publishes the record contents of a mutable fd_txn_account_t object
+   obtained from fd_txn_account_init_from_funk_mutable into funk
+   if the record does not yet exist in the current funk txn.
+   ie. the record was created / cloned from an ancestor funk txn
+   by fd_txn_account_init_from_funk_mutable */
+void
+fd_txn_account_mutable_fini( fd_txn_account_t * acct,
+                             fd_funk_t *        funk,
+                             fd_funk_txn_t *    txn );
 
 FD_PROTOTYPES_END
 

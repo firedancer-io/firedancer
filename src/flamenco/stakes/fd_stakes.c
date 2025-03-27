@@ -183,7 +183,10 @@ deserialize_and_update_vote_account( fd_exec_slot_ctx_t *                slot_ct
                                      fd_spad_t *                         runtime_spad ) {
 
   FD_TXN_ACCOUNT_DECL( vote_account );
-  if( FD_UNLIKELY( fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, vote_account_pubkey, vote_account ) ) ) {
+  if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( vote_account,
+                                                           vote_account_pubkey,
+                                                           slot_ctx->funk,
+                                                           slot_ctx->funk_txn ) ) ) {
     FD_LOG_DEBUG(( "Vote account not found" ));
     return NULL;
   }
@@ -453,7 +456,10 @@ accumulate_stake_cache_delegations_tpool( void  *tpool,
                                           n =  fd_delegation_pair_t_map_successor( delegations_pool, n ) ) {
 
       FD_TXN_ACCOUNT_DECL( acc );
-      int rc = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &n->elem.account, acc );
+      int rc = fd_txn_account_init_from_funk_readonly( acc,
+                                                       &n->elem.account,
+                                                       slot_ctx->funk,
+                                                       slot_ctx->funk_txn );
       if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS || acc->const_meta->info.lamports==0UL ) ) {
         continue;
       }
@@ -557,7 +563,7 @@ fd_accumulate_stake_infos( fd_exec_slot_ctx_t const * slot_ctx,
        n;
        n = fd_account_keys_pair_t_map_successor( slot_ctx->slot_bank.stake_account_keys.account_keys_pool, n ) ) {
     FD_TXN_ACCOUNT_DECL( acc );
-    int rc = fd_acc_mgr_view(slot_ctx->acc_mgr, slot_ctx->funk_txn, &n->elem.key, acc);
+    int rc = fd_txn_account_init_from_funk_readonly(acc, &n->elem.key, slot_ctx->funk, slot_ctx->funk_txn );
     if( FD_UNLIKELY( rc!=FD_ACC_MGR_SUCCESS || acc->const_meta->info.lamports==0UL ) ) {
       continue;
     }
@@ -649,7 +655,7 @@ fd_stakes_activate_epoch( fd_exec_slot_ctx_t *  slot_ctx,
   // fd_stake_history_destroy( slot_ctx->sysvar_cache->val_stake_history );
   /* TODO:FIXME: FIX THIS*/
   fd_sysvar_cache_restore_stake_history( slot_ctx->sysvar_cache,
-                                         slot_ctx->acc_mgr,
+                                         slot_ctx->funk,
                                          slot_ctx->funk_txn,
                                          runtime_spad,
                                          slot_ctx->runtime_wksp );

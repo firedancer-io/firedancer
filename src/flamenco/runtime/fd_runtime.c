@@ -98,7 +98,7 @@ fd_runtime_register_new_fresh_account( fd_exec_slot_ctx_t * slot_ctx,
                                        fd_pubkey_t const  * pubkey ) {
 
   /* Insert the new account into the partition */
-  ulong partition = fd_rent_key_to_partition( pubkey, slot_ctx->acc_mgr->part_width, slot_ctx->acc_mgr->slots_per_epoch );
+ulong partition = fd_rent_key_to_partition( pubkey, slot_ctx->part_width, slot_ctx->slots_per_epoch );
   fd_rent_fresh_accounts_t * rent_fresh_accounts = &slot_ctx->slot_bank.rent_fresh_accounts;
 
   /* See if there is an unused fresh account we can re-use */
@@ -128,10 +128,9 @@ fd_runtime_repartition_fresh_account_partitions( fd_exec_slot_ctx_t * slot_ctx )
   for( ulong i = 0UL; i < rent_fresh_accounts->fresh_accounts_len; i++ ) {
     fd_rent_fresh_account_t * rent_fresh_account = &rent_fresh_accounts->fresh_accounts[ i ];
     if( FD_UNLIKELY( rent_fresh_account->present == 1UL ) ) {
-      rent_fresh_account->partition = fd_rent_key_to_partition(
-        &rent_fresh_account->pubkey,
-        slot_ctx->acc_mgr->part_width,
-        slot_ctx->acc_mgr->slots_per_epoch );
+      rent_fresh_account->partition = fd_rent_key_to_partition( &rent_fresh_account->pubkey,
+                                                                slot_ctx->part_width,
+                                                                slot_ctx->slots_per_epoch );
     }
   }
 }
@@ -139,11 +138,12 @@ fd_runtime_repartition_fresh_account_partitions( fd_exec_slot_ctx_t * slot_ctx )
 void
 fd_runtime_update_slots_per_epoch( fd_exec_slot_ctx_t * slot_ctx,
                                    ulong                slots_per_epoch ) {
-  if( FD_LIKELY( slots_per_epoch == slot_ctx->acc_mgr->slots_per_epoch ) ) {
+  if( FD_LIKELY( slots_per_epoch == slot_ctx->slots_per_epoch ) ) {
     return;
   }
 
-  fd_acc_mgr_set_slots_per_epoch( slot_ctx, slots_per_epoch );
+  slot_ctx->slots_per_epoch = slots_per_epoch;
+  slot_ctx->part_width      = fd_rent_partition_width( slots_per_epoch );
 
   fd_runtime_repartition_fresh_account_partitions( slot_ctx );
 }
@@ -212,16 +212,16 @@ fd_runtime_update_leaders( fd_exec_slot_ctx_t * slot_ctx,
   } FD_SPAD_FRAME_END;
 }
 
-/* Loads the sysvar cache. Expects acc_mgr, funk_txn to be non-NULL and valid. */
+/* Loads the sysvar cache. Expects funk, funk_txn to be non-NULL and valid. */
 int
 fd_runtime_sysvar_cache_load( fd_exec_slot_ctx_t * slot_ctx,
                               fd_spad_t *          runtime_spad ) {
-  if( FD_UNLIKELY( !slot_ctx->acc_mgr ) ) {
+  if( FD_UNLIKELY( !slot_ctx->funk ) ) {
     return -1;
   }
 
   fd_sysvar_cache_restore( slot_ctx->sysvar_cache,
-                           slot_ctx->acc_mgr,
+                           slot_ctx->funk,
                            slot_ctx->funk_txn,
                            runtime_spad,
                            slot_ctx->runtime_wksp );
@@ -287,7 +287,12 @@ static int
 fd_runtime_run_incinerator( fd_exec_slot_ctx_t * slot_ctx ) {
   FD_TXN_ACCOUNT_DECL( rec );
 
-  int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, &fd_sysvar_incinerator_id, 0, 0UL, rec );
+  int err = fd_txn_account_init_from_funk_mutable( rec,
+                                                   &fd_sysvar_incinerator_id,
+                                                   slot_ctx->funk,
+                                                   slot_ctx->funk_txn,
+                                                   0,
+                                                   0UL );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
     // TODO: not really an error! This is fine!
     return -1;
@@ -295,6 +300,8 @@ fd_runtime_run_incinerator( fd_exec_slot_ctx_t * slot_ctx ) {
 
   slot_ctx->slot_bank.capitalization = fd_ulong_sat_sub( slot_ctx->slot_bank.capitalization, rec->const_meta->info.lamports );
   rec->meta->info.lamports           = 0UL;
+
+  fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
 
   return 0;
 }
@@ -377,14 +384,14 @@ static void
 fd_runtime_update_rent_epoch_account( fd_exec_slot_ctx_t * slot_ctx,
                                       fd_pubkey_t        * pubkey ) {
   FD_TXN_ACCOUNT_DECL( rec );
-  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, pubkey, rec );
+  int err = fd_txn_account_init_from_funk_readonly( rec, pubkey, slot_ctx->funk, slot_ctx->funk_txn );
 
   /* If the account has been deleted, skip it */
   if( err==FD_ACC_MGR_ERR_UNKNOWN_ACCOUNT ) {
     return;
   }
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "fd_runtime_update_rent_epoch: fd_acc_mgr_view failed (%d)", err ));
+    FD_LOG_WARNING(( "fd_runtime_update_rent_epoch: fd_txn_account_init_from_funk_readonly failed (%d)", err ));
     return;
   }
 
@@ -394,12 +401,14 @@ fd_runtime_update_rent_epoch_account( fd_exec_slot_ctx_t * slot_ctx,
   }
 
   /* Otherwise, update the rent epoch field */
-  err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, pubkey, 0, 0UL, rec );
+  err = fd_txn_account_init_from_funk_mutable( rec, pubkey, slot_ctx->funk, slot_ctx->funk_txn, 0, 0UL );
   if( FD_UNLIKELY( err!=FD_ACC_MGR_SUCCESS ) ) {
-    FD_LOG_WARNING(( "fd_runtime_update_rent_epoch: fd_acc_mgr_modify failed (%d)", err ));
+    FD_LOG_WARNING(( "fd_runtime_update_rent_epoch: fd_txn_account_init_from_funk_mutable failed (%d)", err ));
     return;
   }
   rec->meta->info.rent_epoch = FD_RENT_EXEMPT_RENT_EPOCH;
+
+  fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
 }
 
 /* Emulate collecting rent from accounts. Since every account is rent exempt, all we have to do
@@ -479,9 +488,9 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
       /* do_create=1 because we might wanna pay fees to a leader
          account that we've purged due to 0 balance. */
       fd_pubkey_t const * leader = fd_epoch_leaders_get( fd_exec_epoch_ctx_leaders( slot_ctx->epoch_ctx ), slot_ctx->slot_bank.slot );
-      int err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, leader, 1, 0UL, rec );
+      int err = fd_txn_account_init_from_funk_mutable( rec, leader, slot_ctx->funk, slot_ctx->funk_txn, 1, 0UL );
       if( FD_UNLIKELY(err) ) {
-        FD_LOG_WARNING(("fd_runtime_freeze: fd_acc_mgr_modify for leader (%s) failed (%d)", FD_BASE58_ENC_32_ALLOCA( leader ), err));
+        FD_LOG_WARNING(("fd_runtime_freeze: fd_txn_account_init_from_funk_mutable for leader (%s) failed (%d)", FD_BASE58_ENC_32_ALLOCA( leader ), err));
         burn = fd_ulong_sat_add( burn, fees );
         break;
       }
@@ -500,6 +509,8 @@ fd_runtime_freeze( fd_exec_slot_ctx_t * slot_ctx, fd_spad_t * runtime_spad ) {
 
       rec->meta->info.lamports += fees;
       rec->meta->slot = slot_ctx->slot_bank.slot;
+
+      fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
 
       slot_ctx->block_rewards.collected_fees = fees;
       slot_ctx->block_rewards.post_balance = rec->meta->info.lamports;
@@ -1170,13 +1181,13 @@ fd_runtime_block_verify_ticks( fd_blockstore_t * blockstore,
 }
 
 int
-fd_runtime_load_txn_address_lookup_tables( fd_txn_t const *   txn,
-                                           uchar const *      payload,
-                                           fd_acc_mgr_t *     acc_mgr,
-                                           fd_funk_txn_t *    funk_txn,
-                                           ulong              slot,
-                                           fd_slot_hash_t *   hashes,
-                                           fd_acct_addr_t *   out_accts_alt ) {
+fd_runtime_load_txn_address_lookup_tables( fd_txn_t const * txn,
+                                           uchar const *    payload,
+                                           fd_funk_t *      funk,
+                                           fd_funk_txn_t *  funk_txn,
+                                           ulong            slot,
+                                           fd_slot_hash_t * hashes,
+                                           fd_acct_addr_t * out_accts_alt ) {
 
   if( FD_LIKELY( txn->transaction_version!=FD_TXN_V0 ) ) return FD_RUNTIME_EXECUTE_SUCCESS;
 
@@ -1190,10 +1201,10 @@ fd_runtime_load_txn_address_lookup_tables( fd_txn_t const *   txn,
 
     /* https://github.com/anza-xyz/agave/blob/368ea563c423b0a85cc317891187e15c9a321521/accounts-db/src/accounts.rs#L90-L94 */
     FD_TXN_ACCOUNT_DECL( addr_lut_rec );
-    int err = fd_acc_mgr_view( acc_mgr,
-                               funk_txn,
-                               addr_lut_acc,
-                               addr_lut_rec );
+    int err = fd_txn_account_init_from_funk_readonly( addr_lut_rec,
+                                                      addr_lut_acc,
+                                                      funk,
+                                                      funk_txn );
     if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
       return FD_RUNTIME_TXN_ERR_ADDRESS_LOOKUP_TABLE_NOT_FOUND;
     }
@@ -1279,7 +1290,7 @@ fd_runtime_microblock_verify_read_write_conflicts( fd_txn_p_t *               tx
                                                    ulong                      txn_cnt,
                                                    fd_conflict_detect_ele_t * acct_map,
                                                    fd_acct_addr_t *           acct_arr,
-                                                   fd_acc_mgr_t *             acc_mgr,
+                                                   fd_funk_t *                funk,
                                                    fd_funk_txn_t *            funk_txn,
                                                    ulong                      slot,
                                                    fd_slot_hash_t *           slot_hashes,
@@ -1312,7 +1323,7 @@ if( FD_UNLIKELY( cond1 ) ) { \
     fd_memcpy( txn_accts, accts_imm, accts_imm_cnt*sizeof(fd_acct_addr_t) );
     runtime_err = fd_runtime_load_txn_address_lookup_tables( TXN(txn),
                                                              txn->payload,
-                                                             acc_mgr,
+                                                             funk,
                                                              funk_txn,
                                                              slot,
                                                              slot_hashes,
@@ -1583,7 +1594,7 @@ fd_account_hash_task( void * tpool,
   fd_exec_slot_ctx_t * slot_ctx = (fd_exec_slot_ctx_t *)reduce;
   for( ulong i=start_idx; i<=stop_idx; i++ ) {
     fd_accounts_hash_task_info_t * task_info = &task_data->info[i];
-    fd_account_hash( slot_ctx->acc_mgr,
+    fd_account_hash( slot_ctx->funk,
                      slot_ctx->funk_txn,
                      task_info,
                      lthash,
@@ -1679,10 +1690,10 @@ fd_runtime_pre_execute_check( fd_execute_txn_task_info_t * task_info,
     return;
   }
 
-  fd_exec_txn_ctx_t * txn_ctx    = task_info->txn_ctx;
-  fd_funk_txn_t *  parent_txn    = txn_ctx->funk_txn;
-  txn_ctx->funk_txn              = parent_txn;
-  fd_executor_setup_borrowed_accounts_for_txn( txn_ctx );
+  fd_exec_txn_ctx_t * txn_ctx = task_info->txn_ctx;
+  fd_funk_txn_t *  parent_txn = txn_ctx->funk_txn;
+  txn_ctx->funk_txn           = parent_txn;
+  fd_executor_setup_accounts_for_txn( txn_ctx );
 
   /* Dump transaction to protobuf */
   if( FD_UNLIKELY( dump_txn ) ) {
@@ -1837,17 +1848,17 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
        the lamport balance has to change. */
     fd_txn_account_t * acct = fd_txn_account_init( &txn_ctx->accounts[0] );
 
-    fd_acc_mgr_view( txn_ctx->acc_mgr, txn_ctx->funk_txn, &txn_ctx->account_keys[0], acct );
+    fd_txn_account_init_from_funk_readonly( acct, &txn_ctx->account_keys[0], txn_ctx->funk, txn_ctx->funk_txn );
     memcpy( acct->pubkey->key, &txn_ctx->account_keys[0], sizeof(fd_pubkey_t) );
 
     void * acct_data = fd_spad_alloc( txn_ctx->spad, FD_ACCOUNT_REC_ALIGN, FD_ACC_TOT_SZ_MAX );
     fd_txn_account_make_mutable( acct, acct_data, txn_ctx->spad_wksp );
     acct->meta->info.lamports -= (txn_ctx->execution_fee + txn_ctx->priority_fee);
 
-    fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->accounts[0], txn_ctx->spad_wksp );
+    fd_txn_account_save( &txn_ctx->accounts[0], slot_ctx->funk, slot_ctx->funk_txn, txn_ctx->spad_wksp );
 
     if( txn_ctx->nonce_account_idx_in_txn != ULONG_MAX ) {
-      fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->rollback_nonce_account[ 0 ], txn_ctx->spad_wksp );
+      fd_txn_account_save( &txn_ctx->rollback_nonce_account[0], slot_ctx->funk, slot_ctx->funk_txn, txn_ctx->spad_wksp );
     }
   } else {
 
@@ -1914,7 +1925,7 @@ fd_runtime_finalize_txn( fd_exec_slot_ctx_t *         slot_ctx,
         fd_store_stake_delegation( slot_ctx, acc_rec );
       }
 
-      fd_acc_mgr_save_non_tpool( slot_ctx->acc_mgr, slot_ctx->funk_txn, &txn_ctx->accounts[i], txn_ctx->spad_wksp );
+      fd_txn_account_save( &txn_ctx->accounts[i], slot_ctx->funk, slot_ctx->funk_txn, txn_ctx->spad_wksp );
       int fresh_account = acc_rec->meta &&
          acc_rec->meta->info.lamports && acc_rec->meta->info.rent_epoch != FD_RENT_EXEMPT_RENT_EPOCH;
       if( FD_UNLIKELY( fresh_account ) ) {
@@ -2427,7 +2438,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
      will no longer be the native loader.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L23-L50 */
   FD_TXN_ACCOUNT_DECL( target_program_account );
-  uchar program_exists = ( fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, builtin_program_id, target_program_account )==FD_ACC_MGR_SUCCESS );
+  uchar program_exists = ( fd_txn_account_init_from_funk_readonly( target_program_account, builtin_program_id, slot_ctx->funk, slot_ctx->funk_txn )==FD_ACC_MGR_SUCCESS );
   if( !stateless ) {
     /* The program account should exist.
        https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/target_builtin.rs#L30-L33 */
@@ -2466,7 +2477,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
     return;
   }
   FD_TXN_ACCOUNT_DECL( program_data_account );
-  if( FD_UNLIKELY( fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, target_program_data_address, program_data_account )==FD_ACC_MGR_SUCCESS ) ) {
+  if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( program_data_account, target_program_data_address, slot_ctx->funk, slot_ctx->funk_txn )==FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_WARNING(( "Program data account %s already exists, skipping migration...", FD_BASE58_ENC_32_ALLOCA( target_program_data_address ) ));
     return;
   }
@@ -2480,7 +2491,7 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
   /* The buffer account should exist.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/source_buffer.rs#L26-L29 */
   FD_TXN_ACCOUNT_DECL( source_buffer_account );
-  if( FD_UNLIKELY( fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, source_buffer_address, 0, 0UL, source_buffer_account )!=FD_ACC_MGR_SUCCESS ) ) {
+  if( FD_UNLIKELY( fd_txn_account_init_from_funk_mutable( source_buffer_account, source_buffer_address, slot_ctx->funk, slot_ctx->funk_txn, 0, 0UL )!=FD_ACC_MGR_SUCCESS ) ) {
     FD_LOG_WARNING(( "Buffer account %s does not exist, skipping migration...", FD_BASE58_ENC_32_ALLOCA( source_buffer_address ) ));
     return;
   }
@@ -2505,15 +2516,15 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
   /* Start a funk write txn */
   fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
   fd_funk_txn_xid_t migration_xid = fd_funk_generate_xid();
-  fd_funk_txn_start_write( slot_ctx->acc_mgr->funk );
-  slot_ctx->funk_txn = fd_funk_txn_prepare( slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, &migration_xid, 0UL );
-  fd_funk_txn_end_write( slot_ctx->acc_mgr->funk );
+  fd_funk_txn_start_write( slot_ctx->funk );
+  slot_ctx->funk_txn = fd_funk_txn_prepare( slot_ctx->funk, slot_ctx->funk_txn, &migration_xid, 0UL );
+  fd_funk_txn_end_write( slot_ctx->funk );
 
   /* Attempt serialization of program account. If the program is stateless, we want to create the account. Otherwise,
      we want a writable handle to modify the existing account.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L246-L249 */
   FD_TXN_ACCOUNT_DECL( new_target_program_account );
-  err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, builtin_program_id, stateless, SIZE_OF_PROGRAM, new_target_program_account );
+  err = fd_txn_account_init_from_funk_mutable( new_target_program_account, builtin_program_id, slot_ctx->funk, slot_ctx->funk_txn, stateless, SIZE_OF_PROGRAM );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "Builtin program ID %s does not exist", FD_BASE58_ENC_32_ALLOCA( builtin_program_id ) ));
     goto fail;
@@ -2528,15 +2539,17 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
     goto fail;
   }
 
+  fd_txn_account_mutable_fini( new_target_program_account, slot_ctx->funk, slot_ctx->funk_txn );
+
   /* Create a new target program data account. */
   ulong new_target_program_data_account_sz = PROGRAMDATA_METADATA_SIZE - BUFFER_METADATA_SIZE + source_buffer_account->const_meta->dlen;
   FD_TXN_ACCOUNT_DECL( new_target_program_data_account );
-  err = fd_acc_mgr_modify( slot_ctx->acc_mgr,
-                           slot_ctx->funk_txn,
-                           target_program_data_address,
-                           1,
-                           new_target_program_data_account_sz,
-                           new_target_program_data_account );
+  err = fd_txn_account_init_from_funk_mutable( new_target_program_data_account,
+                                               target_program_data_address,
+                                               slot_ctx->funk,
+                                               slot_ctx->funk_txn,
+                                               1,
+                                               new_target_program_data_account_sz );
   if( FD_UNLIKELY( err ) ) {
     FD_LOG_WARNING(( "Failed to create new program data account to %s", FD_BASE58_ENC_32_ALLOCA( target_program_data_address ) ));
     goto fail;
@@ -2553,6 +2566,8 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
     FD_LOG_WARNING(( "Failed to write new program data state to %s", FD_BASE58_ENC_32_ALLOCA( target_program_data_address ) ));
     goto fail;
   }
+
+  fd_txn_account_mutable_fini( new_target_program_data_account, slot_ctx->funk, slot_ctx->funk_txn );
 
   /* Deploy the new target Core BPF program.
      https://github.com/anza-xyz/agave/blob/v2.1.0/runtime/src/bank/builtins/core_bpf_migration/mod.rs#L268-L271 */
@@ -2582,21 +2597,23 @@ fd_migrate_builtin_to_core_bpf( fd_exec_slot_ctx_t * slot_ctx,
   source_buffer_account->meta->dlen = 0;
   fd_memset( source_buffer_account->meta->info.owner, 0, sizeof(fd_pubkey_t) );
 
+  fd_txn_account_mutable_fini( source_buffer_account, slot_ctx->funk, slot_ctx->funk_txn );
+
   /* Publish the in-preparation transaction into the parent. We should not have to create
      a BPF cache entry here because the program is technically "delayed visibility", so the program
      should not be invokable until the next slot. The cache entry will be created at the end of the
      block as a part of the finalize routine. */
-  fd_funk_txn_start_write( slot_ctx->acc_mgr->funk );
-  fd_funk_txn_publish_into_parent( slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, 1 );
-  fd_funk_txn_end_write( slot_ctx->acc_mgr->funk );
+  fd_funk_txn_start_write( slot_ctx->funk );
+  fd_funk_txn_publish_into_parent( slot_ctx->funk, slot_ctx->funk_txn, 1 );
+  fd_funk_txn_end_write( slot_ctx->funk );
   slot_ctx->funk_txn = parent_txn;
   return;
 
 fail:
   /* Cancel the in-preparation transaction and discard any in-progress changes. */
-  fd_funk_txn_start_write( slot_ctx->acc_mgr->funk );
-  fd_funk_txn_cancel( slot_ctx->acc_mgr->funk, slot_ctx->funk_txn, 0UL );
-  fd_funk_txn_end_write( slot_ctx->acc_mgr->funk );
+  fd_funk_txn_start_write( slot_ctx->funk );
+  fd_funk_txn_cancel( slot_ctx->funk, slot_ctx->funk_txn, 0UL );
+  fd_funk_txn_end_write( slot_ctx->funk );
   slot_ctx->funk_txn = parent_txn;
 }
 
@@ -2660,7 +2677,7 @@ fd_feature_activate( fd_exec_slot_ctx_t *   slot_ctx,
   }
 
   FD_TXN_ACCOUNT_DECL( acct_rec );
-  int err = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t*)acct, acct_rec );
+  int err = fd_txn_account_init_from_funk_readonly( acct_rec, (fd_pubkey_t*)acct, slot_ctx->funk, slot_ctx->funk_txn );
   if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
     return;
   }
@@ -2694,7 +2711,7 @@ fd_feature_activate( fd_exec_slot_ctx_t *   slot_ctx,
     FD_LOG_INFO(( "Feature %s not activated at %lu, activating", FD_BASE58_ENC_32_ALLOCA( acct ), feature->activated_at ));
 
     FD_TXN_ACCOUNT_DECL( modify_acct_rec );
-    err = fd_acc_mgr_modify( slot_ctx->acc_mgr, slot_ctx->funk_txn, (fd_pubkey_t *)acct, 0, 0UL, modify_acct_rec );
+    err = fd_txn_account_init_from_funk_mutable( modify_acct_rec, (fd_pubkey_t *)acct, slot_ctx->funk, slot_ctx->funk_txn, 0, 0UL );
     if( FD_UNLIKELY( err != FD_ACC_MGR_SUCCESS ) ) {
       return;
     }
@@ -2709,6 +2726,8 @@ fd_feature_activate( fd_exec_slot_ctx_t *   slot_ctx,
     if( FD_UNLIKELY( encode_err != FD_BINCODE_SUCCESS ) ) {
       FD_LOG_ERR(( "Failed to encode feature account %s (%d)", FD_BASE58_ENC_32_ALLOCA( acct ), decode_err ));
     }
+
+    fd_txn_account_mutable_fini( modify_acct_rec, slot_ctx->funk, slot_ctx->funk_txn );
   }
 
   } FD_SPAD_FRAME_END;
@@ -3685,15 +3704,15 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
 
       FD_TXN_ACCOUNT_DECL( rec );
 
-      int err = fd_acc_mgr_modify( slot_ctx->acc_mgr,
-                                   slot_ctx->funk_txn,
-                                   &a->key,
-                                   /* do_create */ 1,
-                                   a->account.data_len,
-                                   rec );
+      int err = fd_txn_account_init_from_funk_mutable( rec,
+                                                       &a->key,
+                                                       slot_ctx->funk,
+                                                       slot_ctx->funk_txn,
+                                                       1, /* do_create */
+                                                       a->account.data_len );
 
       if( FD_UNLIKELY( err ) ) {
-        FD_LOG_ERR(( "fd_acc_mgr_modify failed (%d)", err ));
+        FD_LOG_ERR(( "fd_txn_account_init_from_funk_mutable failed (%d)", err ));
       }
 
       rec->meta->dlen            = a->account.data_len;
@@ -3704,6 +3723,8 @@ fd_runtime_read_genesis( fd_exec_slot_ctx_t * slot_ctx,
       if( a->account.data_len ) {
         memcpy( rec->data, a->account.data, a->account.data_len );
       }
+
+      fd_txn_account_mutable_fini( rec, slot_ctx->funk, slot_ctx->funk_txn );
     }
 
     FD_LOG_DEBUG(( "end genesis accounts" ));
@@ -3930,8 +3951,8 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
                              fd_tpool_t *         tpool,
                              fd_spad_t *          runtime_spad ) {
   /* Publish any transaction older than 31 slots */
-  fd_funk_t *       funk       = slot_ctx->acc_mgr->funk;
-  fd_funk_txn_start_write( slot_ctx->acc_mgr->funk );
+  fd_funk_txn_start_write( slot_ctx->funk );
+  fd_funk_t *        funk      = slot_ctx->funk;
   fd_funk_txn_pool_t txnpool   = fd_funk_txn_pool( funk, fd_funk_wksp( funk ) );
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( slot_ctx->epoch_ctx );
 
@@ -3978,7 +3999,7 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
 
       if( txn->xid.ul[0] >= epoch_bank->eah_start_slot ) {
         if( !FD_FEATURE_ACTIVE( slot_ctx->slot_bank.slot, slot_ctx->epoch_ctx->features, accounts_lt_hash ) ) {
-          fd_accounts_hash( slot_ctx->acc_mgr->funk, &slot_ctx->slot_bank, tpool, &slot_ctx->slot_bank.epoch_account_hash, runtime_spad, 0, &slot_ctx->epoch_ctx->features );
+          fd_accounts_hash( slot_ctx->funk, &slot_ctx->slot_bank, tpool, &slot_ctx->slot_bank.epoch_account_hash, runtime_spad, 0, &slot_ctx->epoch_ctx->features );
         }
         epoch_bank->eah_start_slot = ULONG_MAX;
       }
@@ -3987,7 +4008,7 @@ fd_runtime_publish_old_txns( fd_exec_slot_ctx_t * slot_ctx,
     }
   }
 
-  fd_funk_txn_end_write( slot_ctx->acc_mgr->funk );
+  fd_funk_txn_end_write( slot_ctx->funk );
 
   return 0;
 }
@@ -4131,9 +4152,8 @@ fd_runtime_block_eval_tpool( fd_exec_slot_ctx_t * slot_ctx,
     return err;
   }
 
-  fd_funk_t * funk = slot_ctx->acc_mgr->funk;
-
-  ulong slot = slot_ctx->slot_bank.slot;
+  fd_funk_t * funk = slot_ctx->funk;
+  ulong       slot = slot_ctx->slot_bank.slot;
 
   long block_eval_time = -fd_log_wallclock();
   fd_runtime_block_info_t block_info;
@@ -4245,7 +4265,7 @@ fd_runtime_checkpt( fd_capture_ctx_t *   capture_ctx,
     }
 
     unlink( capture_ctx->checkpt_path );
-    int err = fd_wksp_checkpt( fd_funk_wksp( slot_ctx->acc_mgr->funk ), capture_ctx->checkpt_path, 0666, 0, NULL );
+    int err = fd_wksp_checkpt( fd_funk_wksp( slot_ctx->funk ), capture_ctx->checkpt_path, 0666, 0, NULL );
     if ( err ) {
       FD_LOG_ERR(( "backup failed: error %d", err ));
     }

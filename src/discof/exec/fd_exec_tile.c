@@ -45,7 +45,7 @@ struct fd_exec_tile_ctx {
 
   /* Funk-specific setup.  */
   fd_funk_t *           funk;
-  fd_wksp_t    *           funk_wksp;
+  fd_wksp_t *           funk_wksp;
 
   /* Data structures related to managing and executing the transaction.
      The fd_txn_p_t is refreshed with every transaction and is sent
@@ -268,7 +268,7 @@ hash_accounts( fd_exec_tile_ctx_t *                ctx,
   }
 
   for( ulong i=start_idx; i<=end_idx; i++ ) {
-    fd_account_hash( ctx->txn_ctx->acc_mgr,
+    fd_account_hash( ctx->txn_ctx->funk,
                      ctx->txn_ctx->funk_txn,
                      &task_info[i],
                      &lt_hash,
@@ -482,13 +482,7 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->pending_slot_pop = 0;
   uchar * txn_ctx_mem   = fd_spad_alloc( ctx->exec_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT );
   ctx->txn_ctx          = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( txn_ctx_mem ), ctx->exec_spad, ctx->exec_spad_wksp );
-
-  uchar *        acc_mgr_mem     = fd_spad_alloc( ctx->exec_spad, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT );
-  fd_acc_mgr_t * acc_mgr         = fd_acc_mgr_new( acc_mgr_mem, ctx->funk );
-  ctx->txn_ctx->acc_mgr          = acc_mgr;
-  if( FD_UNLIKELY( !ctx->txn_ctx->acc_mgr ) ) {
-    FD_LOG_ERR(( "Failed to create account manager" ));
-  }
+  ctx->txn_ctx->funk    = ctx->funk;
 
   ctx->txn_ctx->runtime_pub_wksp = ctx->runtime_public_wksp;
   if( FD_UNLIKELY( !ctx->txn_ctx->runtime_pub_wksp ) ) {

@@ -24,9 +24,9 @@
 
 fd_funk_rec_t const *
 fd_funk_rec_query_try( fd_funk_t *               funk,
-                          fd_funk_txn_t const *     txn,
-                          fd_funk_rec_key_t const * key,
-                          fd_funk_rec_query_t *     query ) {
+                       fd_funk_txn_t const *     txn,
+                       fd_funk_rec_key_t const * key,
+                       fd_funk_rec_query_t *     query ) {
 #ifdef FD_FUNK_HANDHOLDING
   if( FD_UNLIKELY( funk==NULL || key==NULL || query==NULL ) ) {
     return NULL;
@@ -57,10 +57,10 @@ fd_funk_rec_query_try( fd_funk_t *               funk,
 
 fd_funk_rec_t const *
 fd_funk_rec_query_try_global( fd_funk_t *               funk,
-                                 fd_funk_txn_t const *     txn,
-                                 fd_funk_rec_key_t const * key,
-                                 fd_funk_txn_t const **    txn_out,
-                                 fd_funk_rec_query_t *     query ) {
+                              fd_funk_txn_t const *     txn,
+                              fd_funk_rec_key_t const * key,
+                              fd_funk_txn_t const **    txn_out,
+                              fd_funk_rec_query_t *     query ) {
 #ifdef FD_FUNK_HANDHOLDING
   if( FD_UNLIKELY( funk==NULL || key==NULL || query==NULL ) ) {
     return NULL;
@@ -127,10 +127,10 @@ fd_funk_rec_query_try_global( fd_funk_t *               funk,
 
 fd_funk_rec_t const *
 fd_funk_rec_query_copy( fd_funk_t *               funk,
-                           fd_funk_txn_t const *     txn,
-                           fd_funk_rec_key_t const * key,
-                           fd_valloc_t                  valloc,
-                           ulong *                      sz_out ) {
+                        fd_funk_txn_t const *     txn,
+                        fd_funk_rec_key_t const * key,
+                        fd_valloc_t               valloc,
+                        ulong *                   sz_out ) {
   *sz_out = ULONG_MAX;
   fd_funk_rec_map_t rec_map = fd_funk_rec_map( funk, fd_funk_wksp( funk ) );
   fd_funk_xid_key_pair_t pair[1];
@@ -173,10 +173,10 @@ fd_funk_rec_query_test( fd_funk_rec_query_t * query ) {
 
 fd_funk_rec_t *
 fd_funk_rec_prepare( fd_funk_t *               funk,
-                        fd_funk_txn_t *           txn,
-                        fd_funk_rec_key_t const * key,
-                        fd_funk_rec_prepare_t *   prepare,
-                        int *                        opt_err ) {
+                     fd_funk_txn_t *           txn,
+                     fd_funk_rec_key_t const * key,
+                     fd_funk_rec_prepare_t *   prepare,
+                     int *                     opt_err ) {
 #ifdef FD_FUNK_HANDHOLDING
   if( FD_UNLIKELY( funk==NULL || key==NULL || prepare==NULL ) ) {
     fd_int_store_if( !!opt_err, opt_err, FD_FUNK_ERR_INVAL );
@@ -272,10 +272,10 @@ fd_funk_rec_cancel( fd_funk_rec_prepare_t * prepare ) {
 
 fd_funk_rec_t *
 fd_funk_rec_clone( fd_funk_t *               funk,
-                      fd_funk_txn_t *           txn,
-                      fd_funk_rec_key_t const * key,
-                      fd_funk_rec_prepare_t *   prepare,
-                      int *                        opt_err ) {
+                   fd_funk_txn_t *           txn,
+                   fd_funk_rec_key_t const * key,
+                   fd_funk_rec_prepare_t *   prepare,
+                   int *                     opt_err ) {
   fd_funk_rec_t * new_rec = fd_funk_rec_prepare( funk, txn, key, prepare, opt_err );
   if( !new_rec ) return NULL;
 
@@ -314,8 +314,8 @@ fd_funk_rec_is_full( fd_funk_t * funk ) {
 
 void
 fd_funk_rec_hard_remove( fd_funk_t *               funk,
-                            fd_funk_txn_t *           txn,
-                            fd_funk_rec_key_t const * key ) {
+                         fd_funk_txn_t *           txn,
+                         fd_funk_rec_key_t const * key ) {
 
   fd_wksp_t * wksp            = fd_funk_wksp( funk );
   fd_alloc_t * alloc          = fd_funk_alloc( funk, wksp );
@@ -367,10 +367,10 @@ fd_funk_rec_hard_remove( fd_funk_t *               funk,
 
 int
 fd_funk_rec_remove( fd_funk_t *               funk,
-                       fd_funk_txn_t *           txn,
-                       fd_funk_rec_key_t const * key,
-                       fd_funk_rec_t **          rec_out,
-                       ulong                        erase_data ) {
+                    fd_funk_txn_t *           txn,
+                    fd_funk_rec_key_t const * key,
+                    fd_funk_rec_t **          rec_out,
+                    ulong                     erase_data ) {
 #ifdef FD_FUNK_HANDHOLDING
   if( FD_UNLIKELY( funk==NULL || key==NULL ) ) {
     return FD_FUNK_ERR_INVAL;
@@ -445,8 +445,8 @@ fd_funk_rec_get_erase_data( fd_funk_rec_t const * rec ) {
 
 int
 fd_funk_rec_forget( fd_funk_t *      funk,
-                       fd_funk_rec_t ** recs,
-                       ulong recs_cnt ) {
+                    fd_funk_rec_t ** recs,
+                    ulong            recs_cnt ) {
 #ifdef FD_FUNK_HANDHOLDING
   if( FD_UNLIKELY( !funk ) ) return FD_FUNK_ERR_INVAL;
 #endif

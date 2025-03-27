@@ -77,7 +77,6 @@ struct fd_snapshot_ctx {
   fd_hash_t         acc_hash;   /* Account hash. */
   fd_slot_bank_t    slot_bank;  /* Obtained from funk. */
   fd_epoch_bank_t   epoch_bank; /* Obtained from funk. */
-  fd_acc_mgr_t *    acc_mgr;    /* Wrapper for funk. */
   fd_features_t *   features;
 };
 typedef struct fd_snapshot_ctx fd_snapshot_ctx_t;

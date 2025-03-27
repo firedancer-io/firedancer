@@ -635,7 +635,7 @@ extend_lookup_table( fd_exec_instr_ctx_t *       ctx,
   fd_sol_sysvar_clock_t clock[1];
   if( FD_UNLIKELY( !fd_sysvar_clock_read( clock,
                                           ctx->txn_ctx->sysvar_cache,
-                                          ctx->txn_ctx->acc_mgr,
+                                          ctx->txn_ctx->funk,
                                           ctx->txn_ctx->funk_txn ) ) )
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
 
@@ -815,7 +815,7 @@ deactivate_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   fd_sol_sysvar_clock_t clock[1];
   if( FD_UNLIKELY( !fd_sysvar_clock_read( clock,
                                           ctx->txn_ctx->sysvar_cache,
-                                          ctx->txn_ctx->acc_mgr,
+                                          ctx->txn_ctx->funk,
                                           ctx->txn_ctx->funk_txn ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }
@@ -937,7 +937,7 @@ close_lookup_table( fd_exec_instr_ctx_t * ctx ) {
   fd_sol_sysvar_clock_t clock[1];
   if( FD_UNLIKELY( !fd_sysvar_clock_read( clock,
                                           ctx->txn_ctx->sysvar_cache,
-                                          ctx->txn_ctx->acc_mgr,
+                                          ctx->txn_ctx->funk,
                                           ctx->txn_ctx->funk_txn ) ) ) {
     return FD_EXECUTOR_INSTR_ERR_UNSUPPORTED_SYSVAR;
   }

@@ -162,7 +162,7 @@ fd_double_is_normal( double dbl ) {
 
 static int
 _load_account( fd_txn_account_t *                acc,
-               fd_acc_mgr_t *                    acc_mgr,
+               fd_funk_t *                       funk,
                fd_funk_txn_t *                   funk_txn,
                fd_exec_test_acct_state_t const * state,
                uchar                             override_acct_state ) {
@@ -173,18 +173,18 @@ _load_account( fd_txn_account_t *                acc,
   fd_pubkey_t pubkey[1];  memcpy( pubkey, state->address, sizeof(fd_pubkey_t) );
 
   /* Account must not yet exist */
-  if( FD_UNLIKELY( !override_acct_state && fd_acc_mgr_view_raw( acc_mgr, funk_txn, pubkey, NULL, NULL, NULL) ) ) {
+  if( FD_UNLIKELY( !override_acct_state && fd_funk_get_acc_meta_readonly( funk, funk_txn, pubkey, NULL, NULL, NULL) ) ) {
     return 0;
   }
 
-  assert( acc_mgr->funk );
-  assert( acc_mgr->funk->magic == FD_FUNK_MAGIC );
-  int err = fd_acc_mgr_modify( /* acc_mgr     */ acc_mgr,
-                               /* txn         */ funk_txn,
-                               /* pubkey      */ pubkey,
-                               /* do_create   */ 1,
-                               /* min_data_sz */ size,
-                               acc );
+  assert( funk );
+  assert( funk->magic == FD_FUNK_MAGIC );
+  int err = fd_txn_account_init_from_funk_mutable( /* acc         */ acc,
+                                                   /* pubkey      */ pubkey,
+                                                   /* funk        */ funk,
+                                                   /* txn         */ funk_txn,
+                                                   /* do_create   */ 1,
+                                                   /* min_data_sz */ size );
   assert( err==FD_ACC_MGR_SUCCESS );
   if( state->data ) fd_memcpy( acc->data, state->data->bytes, size );
 
@@ -201,12 +201,14 @@ _load_account( fd_txn_account_t *                acc,
   acc->data = NULL;
   acc->rec  = NULL;
 
+  fd_txn_account_mutable_fini( acc, funk, funk_txn );
+
   return 1;
 }
 
 static int
 _load_txn_account( fd_txn_account_t *                acc,
-                   fd_acc_mgr_t *                    acc_mgr,
+                   fd_funk_t *                       funk,
                    fd_funk_txn_t *                   funk_txn,
                    fd_exec_test_acct_state_t const * state,
                    uchar                             override_acct_state ) {
@@ -220,7 +222,7 @@ _load_txn_account( fd_txn_account_t *                acc,
     account_state_to_save = *state;
   }
 
-  return _load_account( acc, acc_mgr, funk_txn, &account_state_to_save, override_acct_state );
+  return _load_account( acc, funk, funk_txn, &account_state_to_save, override_acct_state );
 }
 
 static int
@@ -397,16 +399,11 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   epoch_bank->rent.exemption_threshold = 2;
   epoch_bank->rent.burn_percent = 50;
 
-  /* Create account manager */
-
-  fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( fd_spad_alloc( runner->spad, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT ), funk );
-  assert( acc_mgr );
-
   /* Set up slot context */
 
   slot_ctx->epoch_ctx = epoch_ctx;
   slot_ctx->funk_txn  = funk_txn;
-  slot_ctx->acc_mgr   = acc_mgr;
+  slot_ctx->funk      = funk;
 
   /* Restore feature flags */
 
@@ -430,7 +427,6 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   fd_wksp_t * funk_wksp          = fd_funk_wksp( funk );
   fd_wksp_t * runtime_wksp       = fd_wksp_containing( slot_ctx );
   ulong       funk_txn_gaddr     = fd_wksp_gaddr( funk_wksp, funk_txn );
-  ulong       acc_mgr_gaddr      = fd_wksp_gaddr( runtime_wksp, acc_mgr );
   ulong       funk_gaddr         = fd_wksp_gaddr( funk_wksp, funk );
   ulong       sysvar_cache_gaddr = fd_wksp_gaddr( runtime_wksp, slot_ctx->sysvar_cache );
 
@@ -439,7 +435,6 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
                                       funk_wksp,
                                       runtime_wksp,
                                       funk_txn_gaddr,
-                                      acc_mgr_gaddr,
                                       sysvar_cache_gaddr,
                                       funk_gaddr );
   fd_exec_txn_ctx_setup_basic( txn_ctx );
@@ -469,8 +464,6 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   /* Load accounts into database */
 
-  assert( acc_mgr->funk );
-
   fd_txn_account_t * accts = txn_ctx->accounts;
   fd_memset( accts, 0, test_ctx->accounts_count * sizeof(fd_txn_account_t) );
   txn_ctx->accounts_cnt = test_ctx->accounts_count;
@@ -479,7 +472,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
 
   for( ulong j=0UL; j < test_ctx->accounts_count; j++ ) {
     memcpy(  &(txn_ctx->account_keys[j]), test_ctx->accounts[j].address, sizeof(fd_pubkey_t) );
-    if( !_load_account( &accts[j], acc_mgr, funk_txn, &test_ctx->accounts[j], 0 ) ) {
+    if( !_load_account( &accts[j], funk, funk_txn, &test_ctx->accounts[j], 0 ) ) {
       return 0;
     }
 
@@ -533,7 +526,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
     if( FD_UNLIKELY( 0 == memcmp(meta->info.owner, fd_solana_bpf_loader_upgradeable_program_id.key, sizeof(fd_pubkey_t)) ) ) {
       int err = 0;
       fd_bpf_upgradeable_loader_state_t * program_loader_state = read_bpf_upgradeable_loader_state_for_program( txn_ctx,
-                                                                                                                (uchar)i,
+                                                                                                                (ushort)i,
                                                                                                                 &err );
 
       if( FD_UNLIKELY( !program_loader_state ) ) {
@@ -545,10 +538,10 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
       }
 
       fd_pubkey_t * programdata_acc = &program_loader_state->inner.program.programdata_address;
-      if( FD_UNLIKELY( fd_txn_account_create_from_funk( &txn_ctx->executable_accounts[txn_ctx->executable_cnt],
-                                                        programdata_acc,
-                                                        txn_ctx->acc_mgr,
-                                                        txn_ctx->funk_txn ) ) ) {
+      if( FD_UNLIKELY( fd_txn_account_init_from_funk_readonly( &txn_ctx->executable_accounts[txn_ctx->executable_cnt],
+                                                               programdata_acc,
+                                                               txn_ctx->funk,
+                                                               txn_ctx->funk_txn ) ) ) {
         continue;
       }
       txn_ctx->executable_cnt++;
@@ -559,7 +552,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn, runner->spad );
 
   /* Restore sysvar cache */
-  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn, runner->spad, runtime_wksp );
+  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, funk, funk_txn, runner->spad, runtime_wksp );
 
   /* Fill missing sysvar cache values with defaults */
   /* We create mock accounts for each of the sysvars and hardcode the data fields before loading it into the account manager */
@@ -695,7 +688,7 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
   }
 
   ctx->funk_txn  = funk_txn;
-  ctx->acc_mgr   = acc_mgr;
+  ctx->funk      = funk;
   ctx->instr     = info;
 
   /* Refresh the setup from the updated slot and epoch ctx. */
@@ -704,7 +697,6 @@ fd_exec_test_instr_context_create( fd_exec_instr_test_runner_t *        runner,
                                       funk_wksp,
                                       runtime_wksp,
                                       funk_txn_gaddr,
-                                      acc_mgr_gaddr,
                                       sysvar_cache_gaddr,
                                       funk_gaddr );
 
@@ -744,15 +736,11 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   /* Set up epoch context */
   fd_epoch_bank_t * epoch_bank = fd_exec_epoch_ctx_epoch_bank( epoch_ctx );
 
-  /* Create account manager */
-  fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( fd_spad_alloc( runner->spad, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT ), funk );
-  assert( acc_mgr );
-
   /* Set up slot context */
 
   slot_ctx->epoch_ctx = epoch_ctx;
   slot_ctx->funk_txn  = funk_txn;
-  slot_ctx->acc_mgr   = acc_mgr;
+  slot_ctx->funk      = funk;
 
   /* Restore feature flags */
 
@@ -774,11 +762,11 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
     /* Load the accounts into the account manager
        Borrowed accounts get reset anyways - we just need to load the account somewhere */
     FD_TXN_ACCOUNT_DECL(acc);
-    _load_txn_account( acc, acc_mgr, funk_txn, &test_ctx->account_shared_data[i], 0 );
+    _load_txn_account( acc, funk, funk_txn, &test_ctx->account_shared_data[i], 0 );
   }
 
   /* Restore sysvar cache */
-  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn, runner->spad, fd_wksp_containing( slot_ctx ) );
+  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, funk, funk_txn, runner->spad, fd_wksp_containing( slot_ctx ) );
 
   /* Add accounts to bpf program cache */
   fd_bpf_scan_and_create_bpf_program_cache_entry( slot_ctx, funk_txn, runner->spad );
@@ -876,7 +864,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
   }
 
   /* Restore sysvar cache (again, since we may need to provide default sysvars) */
-  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, acc_mgr, funk_txn, runner->spad, fd_wksp_containing( slot_ctx ) );
+  fd_sysvar_cache_restore( slot_ctx->sysvar_cache, funk, funk_txn, runner->spad, fd_wksp_containing( slot_ctx ) );
 
   /* A NaN rent exemption threshold is U.B. in Solana Labs */
   fd_rent_t const * rent = (fd_rent_t const *)fd_sysvar_cache_rent( slot_ctx->sysvar_cache );
@@ -937,7 +925,7 @@ _txn_context_create_and_exec( fd_exec_instr_test_runner_t *      runner,
     slot_ctx->slot_bank.poh = blockhash_entry.blockhash;
     fd_sysvar_recent_hashes_update( slot_ctx, runner->spad );
   }
-  fd_sysvar_cache_restore_recent_block_hashes( slot_ctx->sysvar_cache, acc_mgr, funk_txn, runner->spad, fd_wksp_containing( slot_ctx ) );
+  fd_sysvar_cache_restore_recent_block_hashes( slot_ctx->sysvar_cache, funk, funk_txn, runner->spad, fd_wksp_containing( slot_ctx ) );
 
   /* Create the raw txn (https://solana.com/docs/core/transactions#transaction-size) */
   uchar * txn_raw_begin = fd_spad_alloc( runner->spad, alignof(uchar), 1232 );
@@ -1013,9 +1001,6 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   uchar *               epoch_ctx_mem = fd_spad_alloc( runner->spad, 128UL, fd_exec_epoch_ctx_footprint( vote_acct_max ) );
   fd_exec_epoch_ctx_t * epoch_ctx     = fd_exec_epoch_ctx_join( fd_exec_epoch_ctx_new( epoch_ctx_mem, vote_acct_max ) );
 
-  /* Create account manager */
-  fd_acc_mgr_t * acc_mgr = fd_acc_mgr_new( fd_spad_alloc( runner->spad, FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT ), funk );
-
   /* Restore feature flags */
   if( !_restore_feature_flags( epoch_ctx, &test_ctx->epoch_ctx.features ) ) {
     return 1;
@@ -1023,7 +1008,7 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
 
   /* Set up slot context */
   slot_ctx->funk_txn              = funk_txn;
-  slot_ctx->acc_mgr               = acc_mgr;
+  slot_ctx->funk                  = funk;
   slot_ctx->enable_exec_recording = 0;
   slot_ctx->epoch_ctx             = epoch_ctx;
   slot_ctx->runtime_wksp          = fd_wksp_containing( slot_ctx );
@@ -1066,7 +1051,7 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
   /* Load in all accounts provided in the context */
   for( ushort i=0; i<test_ctx->acct_states_count; i++ ) {
     FD_TXN_ACCOUNT_DECL(acc);
-    _load_txn_account( acc, acc_mgr, funk_txn, &test_ctx->acct_states[i], 0 );
+    _load_txn_account( acc, funk, funk_txn, &test_ctx->acct_states[i], 0 );
   }
 
   /* Restore sysvar cache */
@@ -1185,7 +1170,7 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
     fd_memcpy( &stake_pubkey, test_ctx->epoch_ctx.new_stake_accounts[i]->bytes, sizeof(fd_pubkey_t) );
 
     // Fetch and store the stake account using acc mgr
-    if( fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &stake_pubkey, acc ) ) {
+    if( fd_txn_account_init_from_funk_readonly( acc, &stake_pubkey, slot_ctx->funk, slot_ctx->funk_txn ) ) {
       continue;
     }
 
@@ -1204,7 +1189,7 @@ _block_context_create_and_exec( fd_exec_instr_test_runner_t *        runner,
     memcpy( &vote_pubkey, test_ctx->epoch_ctx.new_vote_accounts[i]->bytes, sizeof(fd_pubkey_t) );
 
     // Fetch and store the vote account from the acc mgr
-    if( fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, &vote_pubkey, acc ) ) {
+    if( fd_txn_account_init_from_funk_readonly( acc, &vote_pubkey, slot_ctx->funk, slot_ctx->funk_txn ) ) {
       continue;
     }
 
@@ -1399,10 +1384,7 @@ void
 fd_exec_test_instr_context_destroy( fd_exec_instr_test_runner_t * runner,
                                     fd_exec_instr_ctx_t *         ctx ) {
   if( !ctx ) return;
-  fd_acc_mgr_t *           acc_mgr = ctx->txn_ctx->acc_mgr;
-  fd_funk_txn_t *       funk_txn   = ctx->txn_ctx->funk_txn;
-
-  fd_acc_mgr_delete( acc_mgr );
+  fd_funk_txn_t * funk_txn = ctx->txn_ctx->funk_txn;
 
   fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
 }
@@ -1411,10 +1393,7 @@ static void
 _txn_context_destroy( fd_exec_instr_test_runner_t * runner,
                       fd_exec_slot_ctx_t *          slot_ctx ) {
   if( !slot_ctx ) return; // This shouldn't be false either
-  fd_acc_mgr_t *        acc_mgr   = slot_ctx->acc_mgr;
   fd_funk_txn_t *       funk_txn  = slot_ctx->funk_txn;
-
-  fd_acc_mgr_delete( acc_mgr );
 
   fd_funk_txn_cancel( runner->funk, funk_txn, 1 );
 }
@@ -1425,9 +1404,6 @@ _block_context_destroy( fd_exec_instr_test_runner_t * runner,
                         fd_wksp_t *                     wksp,
                         fd_alloc_t *                    alloc ) {
   if( !slot_ctx ) return; // This shouldn't be false either
-  fd_acc_mgr_t * acc_mgr = slot_ctx->acc_mgr;
-
-  fd_acc_mgr_delete( acc_mgr );
 
   fd_wksp_free_laddr( fd_alloc_delete( fd_alloc_leave( alloc ) ) );
   fd_wksp_detach( wksp );
@@ -2093,7 +2069,7 @@ fd_exec_vm_syscall_test_run( fd_exec_instr_test_runner_t * runner,
   *instr_ctx = (fd_exec_instr_ctx_t) {
     .instr     = ctx->instr,
     .txn_ctx   = ctx->txn_ctx,
-    .acc_mgr   = ctx->acc_mgr,
+    .funk       = ctx->funk,
     .funk_txn  = ctx->funk_txn,
     .parent    = NULL,
     .index     = 0U,

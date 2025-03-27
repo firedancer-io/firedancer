@@ -72,7 +72,7 @@ When loading snapshots there are surprisingly many edge cases.
   loader.
 - The "deleted"/"dead" state of an account also counts as a revision.
   In order to handle this correctly, the snapshot represents deleted
-  accounts as accounts with most fields zero (see fd_acc_exists for a
+  accounts as accounts with most fields zero (see fd_account_meta_exists for a
   definition of what it means for an account to exist or be deleted).  A
   correct loader MUST remember that an account was deleted after loading
   it because it might see an older, still existing revision of it in the

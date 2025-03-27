@@ -114,11 +114,11 @@ typedef fd_funk_rec_map_query_t fd_funk_rec_query_t;
    fd_funk_rec_prepare. */
 
 struct _fd_funk_rec_prepare {
-  fd_funk_t * funk;
-  fd_wksp_t * wksp;
+  fd_funk_t *     funk;
+  fd_wksp_t *     wksp;
   fd_funk_rec_t * rec;
-  ulong * rec_head_idx;
-  ulong * rec_tail_idx;
+  ulong *         rec_head_idx;
+  ulong *         rec_tail_idx;
 };
 
 typedef struct _fd_funk_rec_prepare fd_funk_rec_prepare_t;
@@ -161,9 +161,9 @@ FD_FN_CONST static inline int fd_funk_rec_idx_is_null( ulong idx ) { return idx=
 
 fd_funk_rec_t const *
 fd_funk_rec_query_try( fd_funk_t *               funk,
-                          fd_funk_txn_t const *     txn,
-                          fd_funk_rec_key_t const * key,
-                          fd_funk_rec_query_t *     query );
+                       fd_funk_txn_t const *     txn,
+                       fd_funk_rec_key_t const * key,
+                       fd_funk_rec_query_t *     query );
 
 /* fd_funk_rec_query_test returns SUCCESS if a prior query still has a
    valid result. The coding pattern is:
@@ -195,10 +195,10 @@ int fd_funk_rec_query_test( fd_funk_rec_query_t * query );
    differs from fd_funk_rec_query_try. */
 fd_funk_rec_t const *
 fd_funk_rec_query_try_global( fd_funk_t *               funk,
-                                 fd_funk_txn_t const *     txn,
-                                 fd_funk_rec_key_t const * key,
-                                 fd_funk_txn_t const **    txn_out,
-                                 fd_funk_rec_query_t *     query );
+                              fd_funk_txn_t const *     txn,
+                              fd_funk_rec_key_t const * key,
+                              fd_funk_txn_t const **    txn_out,
+                              fd_funk_rec_query_t *     query );
 
 /* fd_funk_rec_query_copy queries the in-preparation transaction pointed to
    by txn for the record whose key matches the key pointed to by key.
@@ -210,10 +210,10 @@ fd_funk_rec_query_try_global( fd_funk_t *               funk,
 
 fd_funk_rec_t const *
 fd_funk_rec_query_copy( fd_funk_t *               funk,
-                           fd_funk_txn_t const *     txn,
-                           fd_funk_rec_key_t const * key,
-                           fd_valloc_t                  valloc,
-                           ulong *                      sz_out );
+                        fd_funk_txn_t const *     txn,
+                        fd_funk_rec_key_t const * key,
+                        fd_valloc_t               valloc,
+                        ulong *                   sz_out );
 
 /* fd_funk_rec_{pair,xid,key} returns a pointer in the local address
    space of the {(transaction id,record key) pair,transaction id,record
@@ -234,10 +234,10 @@ FD_FN_CONST static inline fd_funk_rec_key_t const *      fd_funk_rec_key ( fd_fu
 
 fd_funk_rec_t *
 fd_funk_rec_prepare( fd_funk_t *               funk,
-                        fd_funk_txn_t *           txn,
-                        fd_funk_rec_key_t const * key,
-                        fd_funk_rec_prepare_t *   prepare,
-                        int *                        opt_err );
+                     fd_funk_txn_t *           txn,
+                     fd_funk_rec_key_t const * key,
+                     fd_funk_rec_prepare_t *   prepare,
+                     int *                     opt_err );
 
 /* fd_funk_rec_publish inserts a prepared record into the record map. */
 
@@ -256,10 +256,10 @@ fd_funk_rec_cancel( fd_funk_rec_prepare_t * prepare );
 
 fd_funk_rec_t *
 fd_funk_rec_clone( fd_funk_t *               funk,
-                      fd_funk_txn_t *           txn,
-                      fd_funk_rec_key_t const * key,
-                      fd_funk_rec_prepare_t *   prepare,
-                      int *                        opt_err );
+                   fd_funk_txn_t *           txn,
+                   fd_funk_rec_key_t const * key,
+                   fd_funk_rec_prepare_t *   prepare,
+                   int *                     opt_err );
 
 /* fd_funk_rec_is_full returns true if no more records can be
    allocated. */
@@ -292,10 +292,10 @@ fd_funk_rec_is_full( fd_funk_t * funk );
 
 int
 fd_funk_rec_remove( fd_funk_t *               funk,
-                       fd_funk_txn_t *           txn,
-                       fd_funk_rec_key_t const * key,
-                       fd_funk_rec_t **          rec_out,
-                       ulong                        erase_data );
+                    fd_funk_txn_t *           txn,
+                    fd_funk_rec_key_t const * key,
+                    fd_funk_rec_t **          rec_out,
+                    ulong                     erase_data );
 
 /*
   fd_funk_rec_hard_remove completely removes the record from Funk,
@@ -310,8 +310,8 @@ fd_funk_rec_remove( fd_funk_t *               funk,
 */
 void
 fd_funk_rec_hard_remove( fd_funk_t *               funk,
-                            fd_funk_txn_t *           txn,
-                            fd_funk_rec_key_t const * key );
+                         fd_funk_txn_t *           txn,
+                         fd_funk_rec_key_t const * key );
 
 
 /* When a record is erased there is metadata stored in the five most
@@ -340,8 +340,8 @@ fd_funk_rec_get_erase_data( fd_funk_rec_t const * rec );
 */
 int
 fd_funk_rec_forget( fd_funk_t *      funk,
-                       fd_funk_rec_t ** recs,
-                       ulong recs_cnt );
+                    fd_funk_rec_t ** recs,
+                    ulong            recs_cnt );
 
 /* Iterator which walks all records in all transactions. Usage is:
 
@@ -353,9 +353,9 @@ fd_funk_rec_forget( fd_funk_t *      funk,
 */
 
 struct fd_funk_all_iter {
-  fd_funk_rec_map_t rec_map;
-  ulong chain_cnt;
-  ulong chain_idx;
+  fd_funk_rec_map_t      rec_map;
+  ulong                  chain_cnt;
+  ulong                  chain_idx;
   fd_funk_rec_map_iter_t rec_map_iter;
 };
 

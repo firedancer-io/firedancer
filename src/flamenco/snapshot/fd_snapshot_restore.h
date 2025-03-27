@@ -102,15 +102,15 @@ fd_snapshot_restore_footprint( void );
 
    Accounts are restored into the given account manager and funk
    transaction.  (Note that the restore process will leave behind
-   "tombstone" account records that are invisible to fd_acc_mgr_view,
-   but do appear to fd_acc_mgr_view_raw.)
+   "tombstone" account records that are invisible to fd_txn_account_init_from_funk_readonly,
+   but do appear to fd_funk_get_acc_meta_readonly.)
 
    On failure, returns NULL.  Reasons for failure include invalid memory
    region.  Logs reasons for failure. */
 
 fd_snapshot_restore_t *
 fd_snapshot_restore_new( void *                                         mem,
-                         fd_acc_mgr_t *                                 acc_mgr,
+                         fd_funk_t *                                    funk,
                          fd_funk_txn_t *                                txn,
                          fd_spad_t *                                    spad,
                          void *                                         cb_manifest_ctx,

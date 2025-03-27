@@ -63,7 +63,7 @@ fd_snapshot_restore_footprint( void ) {
 
 fd_snapshot_restore_t *
 fd_snapshot_restore_new( void *                                         mem,
-                         fd_acc_mgr_t *                                 acc_mgr,
+                         fd_funk_t *                                    funk,
                          fd_funk_txn_t *                                funk_txn,
                          fd_spad_t *                                    spad,
                          void *                                         cb_manifest_ctx,
@@ -79,8 +79,8 @@ fd_snapshot_restore_new( void *                                         mem,
     FD_LOG_WARNING(( "unaligned mem" ));
     return NULL;
   }
-  if( FD_UNLIKELY( !acc_mgr ) ) {
-    FD_LOG_WARNING(( "NULL acc_mgr" ));
+  if( FD_UNLIKELY( !funk ) ) {
+    FD_LOG_WARNING(( "NULL funk" ));
     return NULL;
   }
   if( FD_UNLIKELY( !spad ) ) {
@@ -91,7 +91,7 @@ fd_snapshot_restore_new( void *                                         mem,
   FD_SCRATCH_ALLOC_INIT( l, mem );
   fd_snapshot_restore_t * self = FD_SCRATCH_ALLOC_APPEND( l, alignof(fd_snapshot_restore_t), sizeof(fd_snapshot_restore_t) );
   fd_memset( self, 0, sizeof(fd_snapshot_restore_t) );
-  self->acc_mgr     = acc_mgr;
+  self->funk        = funk;
   self->funk_txn    = funk_txn;
   self->spad        = spad;
   self->state       = STATE_DONE;
@@ -161,7 +161,7 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
   fd_solana_account_hdr_t const * hdr = fd_type_pun_const( restore->buf );
 
   /* Prepare for account lookup */
-  fd_acc_mgr_t *      acc_mgr  = restore->acc_mgr;
+  fd_funk_t *         funk     = restore->funk;
   fd_funk_txn_t *     funk_txn = restore->funk_txn;
   fd_pubkey_t const * key      = fd_type_pun_const( hdr->meta.pubkey );
   FD_TXN_ACCOUNT_DECL( rec );
@@ -178,16 +178,16 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
   int is_dupe = 0;
 
   /* Check if account exists */
-  rec->const_meta = fd_acc_mgr_view_raw( acc_mgr, funk_txn, key, &rec->const_rec, NULL, NULL );
+  rec->const_meta = fd_funk_get_acc_meta_readonly( funk, funk_txn, key, &rec->const_rec, NULL, NULL );
   if( rec->const_meta )
     if( rec->const_meta->slot > restore->accv_slot )
       is_dupe = 1;
 
   /* Write account */
   if( !is_dupe ) {
-    int write_result = fd_acc_mgr_modify( acc_mgr, funk_txn, key, /* do_create */ 1, hdr->meta.data_len, rec );
+    int write_result = fd_txn_account_init_from_funk_mutable( rec, key, funk, funk_txn, /* do_create */ 1, hdr->meta.data_len );
     if( FD_UNLIKELY( write_result != FD_ACC_MGR_SUCCESS ) ) {
-      FD_LOG_WARNING(( "fd_acc_mgr_modify(%s) failed (%d)", fd_acct_addr_cstr( key_cstr, key->uc ), write_result ));
+      FD_LOG_WARNING(( "fd_txn_account_init_from_funk_mutable(%s) failed (%d)", fd_acct_addr_cstr( key_cstr, key->uc ), write_result ));
       return ENOMEM;
     }
     rec->meta->dlen = hdr->meta.data_len;
@@ -198,6 +198,8 @@ fd_snapshot_restore_account_hdr( fd_snapshot_restore_t * restore ) {
       restore->cb_rent_fresh_account( restore->cb_rent_fresh_account_ctx, key );
     }
     restore->acc_data = rec->data;
+
+    fd_txn_account_mutable_fini( rec, funk, funk_txn );
   }
   ulong data_sz    = hdr->meta.data_len;
   restore->acc_sz  = data_sz;

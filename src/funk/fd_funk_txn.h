@@ -141,7 +141,7 @@ fd_funk_txn_end_write( fd_funk_t * funk );
 
 FD_FN_PURE static inline fd_funk_txn_t *
 fd_funk_txn_query( fd_funk_txn_xid_t const * xid,
-                      fd_funk_txn_map_t * map ) {
+                   fd_funk_txn_map_t * map ) {
   do {
     fd_funk_txn_map_query_t query[1];
     if( FD_UNLIKELY( fd_funk_txn_map_query_try( map, xid, NULL, query ) ) ) return NULL;
@@ -185,11 +185,11 @@ FD_FN_CONST static inline fd_funk_txn_xid_t const * fd_funk_txn_xid( fd_funk_txn
 
 #define FD_FUNK_ACCESSOR(field)                     \
 FD_FN_PURE static inline fd_funk_txn_t *            \
-fd_funk_txn_##field( fd_funk_txn_t const * txn,  \
-                        fd_funk_txn_pool_t * pool ) { \
+fd_funk_txn_##field( fd_funk_txn_t const * txn,     \
+                     fd_funk_txn_pool_t * pool ) {  \
   ulong idx = fd_funk_txn_idx( txn->field##_cidx ); \
   if( idx==FD_FUNK_TXN_IDX_NULL ) return NULL;      \
-  return pool->ele + idx;                              \
+  return pool->ele + idx;                           \
 }
 
 FD_FUNK_ACCESSOR( parent       )
@@ -228,28 +228,28 @@ typedef struct fd_funk_rec fd_funk_rec_t;
 
 fd_funk_rec_t const *
 fd_funk_txn_first_rec( fd_funk_t *           funk,
-                          fd_funk_txn_t const * txn );
+                       fd_funk_txn_t const * txn );
 
 /* Return the last (newest) record in a transaction. Returns NULL if the
    transaction has no records yet. */
 
 fd_funk_rec_t const *
 fd_funk_txn_last_rec( fd_funk_t *           funk,
-                         fd_funk_txn_t const * txn );
+                      fd_funk_txn_t const * txn );
 
 /* Return the next record in a transaction. Returns NULL if the
    transaction has no more records. */
 
 fd_funk_rec_t const *
 fd_funk_txn_next_rec( fd_funk_t *           funk,
-                         fd_funk_rec_t const * rec );
+                      fd_funk_rec_t const * rec );
 
 /* Return the previous record in a transaction. Returns NULL if the
    transaction has no more records. */
 
 fd_funk_rec_t const *
 fd_funk_txn_prev_rec( fd_funk_t *           funk,
-                         fd_funk_rec_t const * rec );
+                      fd_funk_rec_t const * rec );
 
 /* Operations */
 
@@ -290,7 +290,7 @@ fd_funk_txn_prev_rec( fd_funk_t *           funk,
 
 FD_FN_PURE static inline fd_funk_txn_t *
 fd_funk_txn_ancestor( fd_funk_txn_t * txn,
-                         fd_funk_txn_pool_t * pool ) {
+                      fd_funk_txn_pool_t * pool ) {
   for(;;) {
     if( !fd_funk_txn_is_only_child( txn ) ) break;
     fd_funk_txn_t * parent = fd_funk_txn_parent( txn, pool );
@@ -302,7 +302,7 @@ fd_funk_txn_ancestor( fd_funk_txn_t * txn,
 
 FD_FN_PURE static inline fd_funk_txn_t *
 fd_funk_txn_descendant( fd_funk_txn_t * txn,
-                           fd_funk_txn_pool_t * pool ) {
+                        fd_funk_txn_pool_t * pool ) {
   if( !fd_funk_txn_is_only_child( txn ) ) return NULL;
   for(;;) { /* txn is an only child at this point */
     fd_funk_txn_t * child = fd_funk_txn_child_head( txn, pool );
@@ -359,9 +359,9 @@ fd_funk_txn_descendant( fd_funk_txn_t * txn,
 
 fd_funk_txn_t *
 fd_funk_txn_prepare( fd_funk_t *               funk,
-                        fd_funk_txn_t *           parent,
-                        fd_funk_txn_xid_t const * xid,
-                        int                          verbose );
+                     fd_funk_txn_t *           parent,
+                     fd_funk_txn_xid_t const * xid,
+                     int                       verbose );
 
 /* fd_funk_txn_is_full returns true if the transaction map is
    full. No more in-preparation transactions are allowed. */
@@ -401,25 +401,25 @@ fd_funk_txn_is_full( fd_funk_t * funk );
 
 ulong
 fd_funk_txn_cancel( fd_funk_t *     funk,
-                       fd_funk_txn_t * txn,
-                       int                verbose );
+                    fd_funk_txn_t * txn,
+                    int             verbose );
 
 ulong
 fd_funk_txn_cancel_siblings( fd_funk_t *     funk,
-                                fd_funk_txn_t * txn,
-                                int                verbose );
+                             fd_funk_txn_t * txn,
+                             int             verbose );
 
 ulong
 fd_funk_txn_cancel_children( fd_funk_t *     funk,
-                                fd_funk_txn_t * txn,
-                                int                verbose );
+                             fd_funk_txn_t * txn,
+                             int             verbose );
 
 /* fd_funk_txn_cancel_all cancels all in-preparation
    transactions. Only the last published transaction remains. */
 
 ulong
 fd_funk_txn_cancel_all( fd_funk_t *     funk,
-                           int                verbose );
+                        int             verbose );
 
 /* fd_funk_txn_publish publishes in-preparation transaction txn and any
    of txn's in-preparation ancestors.  Returns the number of
@@ -440,8 +440,8 @@ fd_funk_txn_cancel_all( fd_funk_t *     funk,
 
 ulong
 fd_funk_txn_publish( fd_funk_t *     funk,
-                        fd_funk_txn_t * txn,
-                        int                verbose );
+                     fd_funk_txn_t * txn,
+                     int             verbose );
 
 /* This version of publish just combines the transaction with its
    immediate parent. Ancestors will remain unpublished. Any competing
@@ -450,8 +450,8 @@ fd_funk_txn_publish( fd_funk_t *     funk,
    Returns FD_FUNK_SUCCESS on success or an error code on failure. */
 int
 fd_funk_txn_publish_into_parent( fd_funk_t *     funk,
-                                    fd_funk_txn_t * txn,
-                                    int                verbose );
+                                 fd_funk_txn_t * txn,
+                                 int             verbose );
 
 /* Iterator which walks all in-preparation transactions. Usage is:
 
