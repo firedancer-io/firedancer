@@ -64,8 +64,8 @@ fd_txn_account_make_readonly( fd_txn_account_t * acct, void * buf ) {
   ulong dlen           = ( acct->const_meta != NULL ) ? acct->const_meta->dlen : 0;
   uchar * new_raw_data = fd_txn_account_init_data( acct, buf );
 
-  acct->orig_meta = acct->const_meta = (fd_account_meta_t *)new_raw_data;
-  acct->orig_data = acct->const_data = new_raw_data + sizeof(fd_account_meta_t);
+  acct->const_meta = (fd_account_meta_t *)new_raw_data;
+  acct->const_data = new_raw_data + sizeof(fd_account_meta_t);
   ((fd_account_meta_t *)new_raw_data)->dlen = dlen;
 
   return acct;
@@ -83,22 +83,6 @@ fd_txn_account_make_mutable( fd_txn_account_t * acct, void * buf ) {
   acct->meta->dlen = dlen;
 
   return acct;
-}
-
-void *
-fd_txn_account_restore( fd_txn_account_t * acct ) {
-  fd_account_meta_t * meta       = acct->meta;
-  uint                is_changed = meta != acct->orig_meta;
-
-  acct->const_meta = acct->orig_meta;
-  acct->const_data = acct->orig_data;
-  acct->const_rec  = acct->orig_rec;
-
-  if( is_changed ) {
-    return meta;
-  }
-
-  return NULL;
 }
 
 /* Factory constructor impl */

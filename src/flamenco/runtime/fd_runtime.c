@@ -878,7 +878,7 @@ fd_txn_copy_meta( fd_exec_txn_ctx_t * txn_ctx, uchar * dest, ulong dest_sz ) {
 
     pre_balances[idx]  = pre;
     post_balances[idx] = ( acct->meta ? acct->meta->info.lamports :
-                           ( acct->orig_meta ? acct->orig_meta->info.lamports : pre ) );
+                           ( acct->const_meta ? acct->const_meta->info.lamports : pre ) );
   }
 
   if( txn_ctx->return_data.len ) {
