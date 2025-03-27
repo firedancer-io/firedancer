@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <net/if.h>
+#include <netinet/in.h>
 #include <sys/socket.h> /* MSG_DONTWAIT needed before importing the net seccomp filter */
 #include <linux/if_xdp.h>
 
@@ -184,6 +185,7 @@ typedef struct {
 
   uchar  src_mac_addr[6];
 
+  uint   default_address;
   uint   bind_address;
   ushort shred_listen_port;
   ushort quic_transaction_listen_port;
@@ -511,7 +513,9 @@ net_tx_route( fd_net_ctx_t * ctx,
     return 0;
   }
 
-  ctx->tx_op.src_ip = fd_uint_if( !!ctx->bind_address, ctx->bind_address, ip4_src );
+  ip4_src = fd_uint_if( !!ctx->bind_address, ctx->bind_address,    ip4_src );
+  ip4_src = fd_uint_if( !ip4_src,            ctx->default_address, ip4_src );
+  ctx->tx_op.src_ip = ip4_src;
   memcpy( ctx->tx_op.mac_addrs+0, neigh->mac_addr,   6 );
   memcpy( ctx->tx_op.mac_addrs+6, ctx->src_mac_addr, 6 );
 
@@ -950,17 +954,24 @@ net_xsk_bootstrap( fd_net_ctx_t * ctx,
 /* FIXME source MAC address from netlnk tile instead */
 
 static void
-mac_address( const char * interface,
-             uchar *      mac ) {
+interface_addrs( const char * interface,
+                 uchar *      mac,
+                 uint *       ip4_addr ) {
   int fd = socket( AF_INET, SOCK_DGRAM, 0 );
   struct ifreq ifr;
   ifr.ifr_addr.sa_family = AF_INET;
+
   strncpy( ifr.ifr_name, interface, IFNAMSIZ );
   if( FD_UNLIKELY( ioctl( fd, SIOCGIFHWADDR, &ifr ) ) )
     FD_LOG_ERR(( "could not get MAC address of interface `%s`: (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
+  fd_memcpy( mac, ifr.ifr_hwaddr.sa_data, 6 );
+
+  if( FD_UNLIKELY( ioctl( fd, SIOCGIFADDR, &ifr ) ) )
+    FD_LOG_ERR(( "could not get IP address of interface `%s`: (%i-%s)", interface, errno, fd_io_strerror( errno ) ));
+  *ip4_addr = ((struct sockaddr_in *)fd_type_pun( &ifr.ifr_addr ))->sin_addr.s_addr;
+
   if( FD_UNLIKELY( close(fd) ) )
     FD_LOG_ERR(( "could not close socket (%i-%s)", errno, fd_io_strerror( errno ) ));
-  fd_memcpy( mac, ifr.ifr_hwaddr.sa_data, 6 );
 }
 
 /* privileged_init does the following initialization steps:
@@ -997,7 +1008,7 @@ privileged_init( fd_topo_t *      topo,
   uint if_idx = if_nametoindex( tile->net.interface );
   if( FD_UNLIKELY( !if_idx ) ) FD_LOG_ERR(( "if_nametoindex(%s) failed", tile->net.interface ));
 
-  mac_address( tile->net.interface, ctx->src_mac_addr );
+  interface_addrs( tile->net.interface, ctx->src_mac_addr, &ctx->default_address );
 
   /* Load up dcache containing UMEM */
 
