@@ -423,7 +423,8 @@ calculate_stake_vote_rewards_account_tpool( void  *tpool,
   fd_point_value_t *                                  point_value                    = task_args->point_value;
   fd_calculate_stake_vote_rewards_result_t *          result                         = task_args->result; // written to
   fd_spad_t *                                         spad                           = task_args->exec_spads[ fd_tile_idx() ];
-  fd_spad_push(spad);
+
+  FD_SPAD_FRAME_BEGIN( spad ) {
 
   ulong minimum_stake_delegation = get_minimum_stake_delegation( slot_ctx );
   ulong total_stake_rewards      = 0UL;
@@ -543,8 +544,7 @@ calculate_stake_vote_rewards_account_tpool( void  *tpool,
 
   FD_ATOMIC_FETCH_AND_ADD( &result->stake_reward_calculation.total_stake_rewards_lamports, total_stake_rewards );
   FD_ATOMIC_FETCH_AND_ADD( &result->stake_reward_calculation.stake_rewards_len, dlist_additional_cnt );
-  fd_spad_pop(spad);
-
+  } FD_SPAD_FRAME_END;
 }
 
 /* Calculates epoch rewards for stake/vote accounts.
@@ -923,11 +923,10 @@ distribute_epoch_reward_to_stake_acc( fd_exec_slot_ctx_t * slot_ctx,
 
 /* Sets the epoch reward status to inactive, and destroys any allocated state associated with the active state. */
 static void
-set_epoch_reward_status_inactive( fd_exec_slot_ctx_t * slot_ctx,
-                                  fd_spad_t *          runtime_spad ) {
+set_epoch_reward_status_inactive( fd_exec_slot_ctx_t * slot_ctx ) {
   if( slot_ctx->epoch_reward_status.discriminant == fd_epoch_reward_status_enum_Active ) {
     FD_LOG_NOTICE(( "Done partitioning rewards for current epoch" ));
-    fd_spad_pop( runtime_spad );
+    fd_spad_pop( slot_ctx->epoch_ctx->spad );
   }
   slot_ctx->epoch_reward_status.discriminant = fd_epoch_reward_status_enum_Inactive;
 }
@@ -1032,7 +1031,7 @@ fd_distribute_partitioned_epoch_rewards( fd_exec_slot_ctx_t * slot_ctx,
 
   /* If we have finished distributing rewards, set the status to inactive */
   if( fd_ulong_sat_add( height, 1UL ) >= distribution_end_exclusive ) {
-    set_epoch_reward_status_inactive( slot_ctx, runtime_spad );
+    set_epoch_reward_status_inactive( slot_ctx );
     fd_sysvar_epoch_rewards_set_inactive( slot_ctx,runtime_spad );
   }
 }
@@ -1132,7 +1131,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                                  slot_ctx->acc_mgr,
                                                  slot_ctx->funk_txn )==NULL ) ) {
     FD_LOG_NOTICE(( "failed to read sysvar epoch rewards - the sysvar may not have been created yet" ));
-    set_epoch_reward_status_inactive( slot_ctx, runtime_spad );
+    set_epoch_reward_status_inactive( slot_ctx );
     return;
   }
 
@@ -1144,7 +1143,7 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
        so we can start distributing. For the same reason as described in
        fd_runtime_process_new_epoch, we must push on a spad frame at this
        point. */
-    fd_spad_push( runtime_spad );
+    fd_spad_push( slot_ctx->epoch_ctx->spad );
 
     /* If partitioned rewards are active, the rewarded epoch is always the immediately
         preceeding epoch.
@@ -1237,6 +1236,6 @@ fd_rewards_recalculate_partitioned_rewards( fd_exec_slot_ctx_t * slot_ctx,
                                     epoch_rewards->distribution_starting_block_height,
                                     &stake_rewards_by_partition->partitioned_stake_rewards );
   } else {
-    set_epoch_reward_status_inactive( slot_ctx, runtime_spad );
+    set_epoch_reward_status_inactive( slot_ctx );
   }
 }

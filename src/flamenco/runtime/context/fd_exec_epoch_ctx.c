@@ -233,6 +233,7 @@ fd_exec_epoch_ctx_from_prev( fd_exec_epoch_ctx_t * self,
 
   self->bank_hash_cmp     = prev->bank_hash_cmp;
   self->runtime_public    = prev->runtime_public;
+  self->spad              = prev->spad;
   self->total_epoch_stake = 0UL;
 
   fd_memcpy( &self->runtime_public->features, &prev->features, sizeof(fd_features_t) );
