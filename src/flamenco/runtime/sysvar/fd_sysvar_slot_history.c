@@ -11,7 +11,7 @@ static const ulong slot_history_min_account_size = 131097;
 /* https://github.com/solana-labs/solana/blob/8f2c8b8388a495d2728909e30460aa40dcc5d733/sdk/program/src/slot_history.rs#L37 */
 static const ulong slot_history_max_entries = 1024 * 1024;
 
-/* TODO: move into seperate bitvec library */
+/* TODO: move into separate bitvec library */
 static const ulong bits_per_block = 8 * sizeof(ulong);
 
 void

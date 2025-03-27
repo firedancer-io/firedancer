@@ -228,7 +228,7 @@ struct fd_replay_tile_ctx {
   ulong     parent_slot;
   ulong     snapshot_slot;
   ulong     last_completed_slot; /* questionable variable used for making sure we do post-block execution steps only once,
-                                    probably can remove this if after we rip out ctx->curr_slot (recieved from STORE) */
+                                    probably can remove this if after we rip out ctx->curr_slot (received from STORE) */
   fd_hash_t blockhash;
   ulong     flags;
   ulong     txn_cnt;
@@ -424,7 +424,7 @@ publish_stake_weights( fd_replay_tile_ctx_t * ctx,
   }
 }
 
-/* Recieves from store tile (soon to be repair) newly completed slices
+/* Receives from store tile (soon to be repair) newly completed slices
    of executable slots on the frontier. Guaranteed good properties, like
    happiness, in order, executable immediately as long as the mcache
    wasn't overrun. */
@@ -1392,7 +1392,7 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
          repair, and thus aren't processed in SHRED_IN_IDX in before_frag
       2. Repairing shreds after first turbine. Some of the batches will
          be added to the slice_deque through SHRED, but missing shreds
-         are still recieved through repair, and aren't processed in  */
+         are still received through repair, and aren't processed in  */
 
   //ulong free_exec_tiles = ctx->exec_cnt;
   ulong free_exec_tiles = 512;
