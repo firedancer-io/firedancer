@@ -285,7 +285,7 @@ after_frag( fd_store_tile_ctx_t * ctx,
   if( FD_UNLIKELY( in_idx==RESTART_IN_IDX ) ) {
     FD_LOG_NOTICE(( "Store tile starts to repair backwards from slot%lu, which should be on the same fork as slot%lu",
                     ctx->restart_heaviest_fork_slot, ctx->restart_funk_root ));
-    fd_store_add_pending( ctx->store, ctx->restart_heaviest_fork_slot, (long)5e6, 0, 0 );
+    fd_store_add_pending( ctx->store, ctx->restart_heaviest_fork_slot, (long)5e6 );
     return;
   }
 
@@ -508,7 +508,7 @@ after_credit( fd_store_tile_ctx_t * ctx,
     if( FD_UNLIKELY( ctx->restart_heaviest_fork_slot &&
                      i==ctx->restart_heaviest_fork_slot ) ) {
       if( FD_LIKELY( store_slot_prepare_mode!=FD_STORE_SLOT_PREPARE_ALREADY_EXECUTED ) ) {
-        fd_store_add_pending( ctx->store, ctx->restart_heaviest_fork_slot, (long)5e6, 0, 0 );
+        fd_store_add_pending( ctx->store, ctx->restart_heaviest_fork_slot, (long)5e6 );
       } else {
         fd_hash_t blk_hash;
         int err = fd_blockstore_block_hash_query( ctx->blockstore,
@@ -763,7 +763,7 @@ unprivileged_init( fd_topo_t *      topo,
       }
       block_map_entry->flags = 0;
       fd_block_map_publish( query );
-      fd_store_add_pending( ctx->store, slot, (long)cnt++, 0, 0 );
+      fd_store_add_pending( ctx->store, slot, (long)cnt++ );
     }
     fclose( file );
   }

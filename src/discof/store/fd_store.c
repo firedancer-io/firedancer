@@ -222,7 +222,7 @@ fd_store_slot_prepare( fd_store_t *   store,
 
 end:
   for (uint i = 0; i < re_adds_cnt; ++i)
-    fd_store_add_pending( store, re_adds[i], re_add_delays[i], 0, 0 );
+    fd_store_add_pending( store, re_adds[i], re_add_delays[i] );
 
   return rc;
 }
@@ -259,10 +259,10 @@ fd_store_shred_insert( fd_store_t * store,
 
   /* FIXME */
   if( FD_UNLIKELY( fd_blockstore_shreds_complete( blockstore, shred->slot ) ) ) {
-    fd_store_add_pending( store, shred->slot, (long)5e6, 0, 1 );
+    fd_store_add_pending( store, shred->slot, (long)5e6 );
     return FD_BLOCKSTORE_SUCCESS_SLOT_COMPLETE;
   } else {
-    fd_store_add_pending( store, shred->slot, FD_REPAIR_BACKOFF_TIME, 0, 0 );
+    fd_store_add_pending( store, shred->slot, FD_REPAIR_BACKOFF_TIME );
     fd_repair_backoff_t * backoff = fd_repair_backoff_map_query( store->repair_backoff_map, shred->slot, NULL );
     if( FD_LIKELY( backoff==NULL ) ) {
       /* new backoff entry */
@@ -298,11 +298,7 @@ fd_store_shred_update_with_shred_from_turbine( fd_store_t * store,
 void
 fd_store_add_pending( fd_store_t * store,
                       ulong slot,
-                      long delay,
-                      int should_backoff,
-                      int reset_backoff ) {
-                        (void)should_backoff;
-                        (void)reset_backoff;
+                      long delay ) {
   // fd_repair_backoff_t * backoff = fd_repair_backoff_map_query( store->repair_backoff_map, slot, NULL );
   // long existing_when = fd_pending_slots_get( store->pending_slots, slot );
   // if( existing_when!=0L && existing_when!=LONG_MAX ) {

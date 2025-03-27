@@ -102,9 +102,7 @@ fd_store_shred_insert( fd_store_t * store,
 void
 fd_store_add_pending( fd_store_t * store,
                       ulong slot,
-                      long delay,
-                      int should_backoff,
-                      int reset_backoff );
+                      long delay );
 void
 fd_store_set_root( fd_store_t * store,
                    ulong        root );
