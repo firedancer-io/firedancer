@@ -377,7 +377,7 @@ produce_snapshot( fd_snapshot_tile_ctx_t * ctx, ulong batch_fseq ) {
 
   FD_LOG_NOTICE(( "Done creating a snapshot in %s", snapshot_ctx.out_dir ));
 
-  /* At this point the snapshot has been succesfully created, so we can
+  /* At this point the snapshot has been successfully created, so we can
      unconstipate funk and any related data structures in the replay tile. */
 
   fd_fseq_update( ctx->is_constipated, 0UL );

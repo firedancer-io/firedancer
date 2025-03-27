@@ -12,7 +12,7 @@
 
 /* TODO make sure these are serialized consistently with solana_program::InstructionError */
 /* TODO FD_EXECUTOR_INSTR_SUCCESS is used like Ok(()) in Rust. But this is both overloaded and a
-        misnomer, because the instruction hasn't necessarily been executed succesfully yet */
+        misnomer, because the instruction hasn't necessarily been executed successfully yet */
 
 #define FD_EXECUTOR_INSTR_ERR_FATAL                              ( INT_MIN ) /* Unrecoverable error */
 #define FD_EXECUTOR_INSTR_SUCCESS                                (   0 ) /* Instruction executed successfully */
@@ -85,7 +85,7 @@
    https://github.com/anza-xyz/agave/blob/v1.18.12/sdk/src/precompiles.rs#L16
    Agave distinguishes between 5 errors and the returned one depends on
    the order they decided to write their code.
-   These are all fatal errors, so the specific errors doesn't matter for
+   These are all fatal errors, so the specific errors don't matter for
    consensus.
    To simplify our fuzzers, we return the same error code for all errors. */
 #define FD_EXECUTOR_PRECOMPILE_ERR_PUBLIC_KEY                    ( 0 )

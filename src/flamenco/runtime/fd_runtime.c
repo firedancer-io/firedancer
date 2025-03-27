@@ -955,7 +955,7 @@ fd_txn_copy_meta( fd_exec_txn_ctx_t * txn_ctx, uchar * dest, ulong dest_sz ) {
 
    Transaction metadata includes execution result (success/error), balance changes,
    transaction logs, ...  All this info is not part of consensus but can be retrieved,
-   for instace, via RPC getTransaction.  Firedancer stores txn meta in the blockstore,
+   for instance, via RPC getTransaction.  Firedancer stores txn meta in the blockstore,
    in the same binary format as Agave, protobuf TransactionStatusMeta. */
 static void
 fd_runtime_finalize_txns_update_blockstore_meta( fd_exec_slot_ctx_t *         slot_ctx,
@@ -1801,7 +1801,7 @@ fd_runtime_prepare_execute_finalize_txn_task( void * tpool,
 /* fd_executor_txn_verify and fd_runtime_pre_execute_check are responisble
    for the bulk of the pre-transaction execution checks in the runtime.
    They aim to preserve the ordering present in the Agave client to match
-   parity in terms of error codes. Sigverify is kept seperate from the rest
+   parity in terms of error codes. Sigverify is kept separate from the rest
    of the transaction checks for fuzzing convenience.
 
    For reference this is the general code path which contains all relevant

@@ -463,7 +463,7 @@ fd_runtime_process_txns_in_microblock_stream( fd_exec_slot_ctx_t * slot_ctx,
    both entrypoints for executing transactions. Currently, the former is used
    in the leader pipeline as conflict-free microblocks are streamed in from the
    pack tile. The latter is used for replaying non-leader blocks. Currently the
-   entire block must be recieved to start replaying. This allows us to scheedule
+   entire block must be received to start replaying. This allows us to scheedule
    out all of the transactions. Eventually, transactions will be executed in
    a streamed fashion.*/
 

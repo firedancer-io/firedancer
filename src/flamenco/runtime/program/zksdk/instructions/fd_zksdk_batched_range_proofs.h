@@ -45,7 +45,7 @@ batched_range_proof_transcript_init( fd_zksdk_transcript_t *                    
 /* batched_range_proof_init_and_validate implements verify_proof() for range proofs:
    https://github.com/anza-xyz/agave/blob/v2.0.1/zk-sdk/src/zk_elgamal_proof_program/proof_data/batched_range_proof/batched_range_proof_u64.rs#L82
    It validates context, initializes the transcript, and returns the length of
-   commitments / bit_lenghts, i.e. the size of the batch in the batch proof, aka m.
+   commitments / bit_lengths, i.e. the size of the batch in the batch proof, aka m.
    For compatibility with Agave, this is the critical rule:
    https://github.com/anza-xyz/agave/blob/v2.0.1/zk-sdk/src/zk_elgamal_proof_program/proof_data/batched_range_proof/mod.rs#L112
    i.e., the length is determined by the first all-zero commitment.

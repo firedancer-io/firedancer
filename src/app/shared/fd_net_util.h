@@ -32,7 +32,7 @@ fd_net_util_internet_ifindex( uint * ifindex );
 
    On failure, the process might still have successfully entered the
    network namespace.  This can happen if, for example, the process
-   entered succesfully, but failed to close a lingering file descriptor
+   entered successfully, but failed to close a lingering file descriptor
    afterwards.  The caller should not assume any valid state on failure
    and likely needs to abort. */
 
@@ -54,7 +54,7 @@ fd_net_util_netns_enter( const char * name,
 
    On failure, the process might still have successfully entered the
    original network namespace.  This can happen if, for example, the
-   process entered succesfully, but failed to close a lingering file
+   process entered successfully, but failed to close a lingering file
    descriptor afterwards.  The caller should not assume any valid state
    on failure and likely needs to abort. */
 

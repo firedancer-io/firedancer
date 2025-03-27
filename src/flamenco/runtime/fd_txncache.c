@@ -170,7 +170,7 @@ struct __attribute__((aligned(FD_TXNCACHE_ALIGN))) fd_txncache_private {
      operation is usually very fast and only takes a few seconds.
      TODO: Another implementation of this might be to continue rooting slots
      to the same data structure but to temporarily stop evictions. Right now
-     this is implemented such that we maintain a seperate array of all slots
+     this is implemented such that we maintain a separate array of all slots
      that should be rooted. Once the constipation is removed, all of the
      constipated slots will be registered en masse. */
   int   is_constipated;        /* Is the status cache in a constipated state.*/

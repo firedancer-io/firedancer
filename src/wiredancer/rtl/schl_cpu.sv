@@ -604,7 +604,7 @@ module shcl_cpu
     end
   end
 
-  // Scratch Memory write logic (assume simple dual port memory with seperate read/write)
+  // Scratch Memory write logic (assume simple dual port memory with separate read/write)
   always_ff @(posedge clk) begin
     if (rst) begin
       init_done      <= '0;

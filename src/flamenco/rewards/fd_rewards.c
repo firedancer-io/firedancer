@@ -555,7 +555,7 @@ calculate_stake_vote_rewards_account_tpool( void  *tpool,
    the partitions.
    - We use a single dlist to put all the stake rewards during the calculation phase.
    - We then distribute these into partitions (whose size cannot be known in advance), where each
-     partition is a seperate dlist.
+     partition is a separate dlist.
    - The dlist elements are all backed by the same pool, and allocated once.
    This approach optimizes memory usage and reduces copying.
 

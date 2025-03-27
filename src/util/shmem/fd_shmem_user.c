@@ -79,7 +79,7 @@ fd_shmem_private_map_query_by_addr( fd_shmem_join_info_t * map,
  * fd_shmem_private_grab_region will attempt to map a region at the passed 
  * address with the passed size. If the return value of `mmap` equals the 
  * passed address this means the area of memory was unmapped previously and
- * we have succesfully "grabbed" the region. We can then call `mmap` with 
+ * we have successfully "grabbed" the region. We can then call `mmap` with 
  * MAP_FIXED over the region and be certain no corruption occurs. If the 
  * return value of `mmap` does not return the passed address this means that 
  * the passed region is already atleast partially mapped and we cannot grab it.

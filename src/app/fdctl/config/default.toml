@@ -40,7 +40,7 @@ user = ""
 
 # Absolute directory path to place scratch files used during setup and
 # operation.  The ledger and accounts databases will also be placed in
-# here by default, although that can be overriden by other options.
+# here by default, although that can be overridden by other options.
 #
 # Two substitutions will be performed on this string.  If "{user}" is
 # present it will be replaced with the user running Firedancer, as
