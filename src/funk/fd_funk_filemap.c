@@ -10,37 +10,15 @@
 
 #define PAGESIZE (1UL<<12)  /* 4 KiB */
 
-static volatile ulong waiting_lock __attribute__((aligned(128UL))) = 0UL;
-
-static void
-fd_funk_map_write_lock( void ) {
-  for(;;) {
-    ulong value = waiting_lock;
-    if( FD_LIKELY( !value ) ) {
-      if( FD_LIKELY( FD_ATOMIC_CAS( &waiting_lock, 0, 0xFFFF )==0 ) ) return;
-    }
-    FD_SPIN_PAUSE();
-  }
-  FD_COMPILER_MFENCE();
-}
-
-static void
-fd_funk_map_write_unlock( void ) {
-  FD_COMPILER_MFENCE();
-  waiting_lock = 0;
-}
-
 fd_funk_t *
 fd_funk_open_file( const char * filename,
-                   ulong        wksp_tag,
-                   ulong        seed,
-                   ulong        txn_max,
-                   ulong        rec_max,
-                   ulong        total_sz,
-                   fd_funk_file_mode_t mode,
-                   fd_funk_close_file_args_t * close_args_out ) {
-
-  fd_funk_map_write_lock();
+                      ulong        wksp_tag,
+                      ulong        seed,
+                      ulong        txn_max,
+                      ulong        rec_max,
+                      ulong        total_sz,
+                      fd_funk_file_mode_t mode,
+                      fd_funk_close_file_args_t * close_args_out ) {
 
   /* See if we already have the file open */
 
@@ -67,14 +45,11 @@ fd_funk_open_file( const char * filename,
         return NULL;
       }
 
-      FD_LOG_NOTICE(( "reopened funk with %lu records", fd_funk_rec_cnt( fd_funk_rec_map( funk, wksp ) ) ));
-
       if( FD_UNLIKELY( close_args_out != NULL ) ) {
         close_args_out->shmem = shmem;
         close_args_out->fd = -1;
         close_args_out->total_sz = 0;
       }
-      fd_funk_map_write_unlock();
       return funk;
     }
   }
@@ -243,7 +218,7 @@ fd_funk_open_file( const char * filename,
     }
 
     FD_LOG_DEBUG(( "creating funk in %s", (filename ? filename : "(NULL)") ));
-    void * funk_shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), wksp_tag );
+    void * funk_shmem = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), wksp_tag );
     if( FD_UNLIKELY(funk_shmem == NULL ) ) {
       FD_LOG_WARNING(( "failed to allocate a funky" ));
       munmap( shmem, total_sz );
@@ -259,14 +234,13 @@ fd_funk_open_file( const char * filename,
       return NULL;
     }
 
-    FD_LOG_NOTICE(( "opened funk size %f GB, %lu records, backing file %s", ((double)total_sz)/((double)(1LU<<30)), fd_funk_rec_cnt( fd_funk_rec_map( funk, wksp ) ), (filename ? filename : "(NULL)") ));
+    FD_LOG_NOTICE(( "opened funk size %f GB, backing file %s", ((double)total_sz)/((double)(1LU<<30)), (filename ? filename : "(NULL)") ));
 
     if( FD_UNLIKELY( close_args_out != NULL ) ) {
       close_args_out->shmem = shmem;
       close_args_out->fd = fd;
       close_args_out->total_sz = total_sz;
     }
-    fd_funk_map_write_unlock();
     return funk;
 
   } else {
@@ -311,23 +285,22 @@ fd_funk_open_file( const char * filename,
       }
     }
 
-    FD_LOG_NOTICE(( "opened funk size %f GB, %lu records, backing file %s", ((double)total_sz)/((double)(1LU<<30)), fd_funk_rec_cnt( fd_funk_rec_map( funk, wksp ) ), (filename ? filename : "(NULL)") ));
+    FD_LOG_NOTICE(( "opened funk size %f GB, backing file %s", ((double)total_sz)/((double)(1LU<<30)), (filename ? filename : "(NULL)") ));
 
     if( FD_UNLIKELY( close_args_out != NULL ) ) {
       close_args_out->shmem = shmem;
       close_args_out->fd = fd;
       close_args_out->total_sz = total_sz;
     }
-    fd_funk_map_write_unlock();
     return funk;
   }
 }
 
 fd_funk_t *
 fd_funk_recover_checkpoint( const char * funk_filename,
-                            ulong        wksp_tag,
-                            const char * checkpt_filename,
-                            fd_funk_close_file_args_t * close_args_out ) {
+                               ulong        wksp_tag,
+                               const char * checkpt_filename,
+                               fd_funk_close_file_args_t * close_args_out ) {
   /* Make the funk workspace match the parameters used to create the
      checkpoint. */
 
@@ -456,14 +429,13 @@ fd_funk_recover_checkpoint( const char * funk_filename,
     return NULL;
   }
 
-  FD_LOG_NOTICE(( "opened funk size %f GB, %lu records, backing file %s", ((double)total_sz)/((double)(1LU<<30)), fd_funk_rec_cnt( fd_funk_rec_map( funk, wksp ) ), (funk_filename ? funk_filename : "(NULL)") ));
+  FD_LOG_NOTICE(( "opened funk size %f GB, backing file %s", ((double)total_sz)/((double)(1LU<<30)), (funk_filename ? funk_filename : "(NULL)") ));
 
   if( FD_UNLIKELY( close_args_out != NULL ) ) {
     close_args_out->shmem = shmem;
     close_args_out->fd = fd;
     close_args_out->total_sz = total_sz;
   }
-  fd_funk_map_write_unlock();
   return funk;
 }
 

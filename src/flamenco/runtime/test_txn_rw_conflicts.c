@@ -104,7 +104,7 @@ void test_write_write_conflict_sentinel( fd_conflict_detect_ele_t * acct_map,
   FD_LOG_NOTICE(( "Pass test_write_write_conflict_sentinel" ));
 }
 
-void add_address_lookup_table( fd_funk_t *     funk,
+void add_address_lookup_table( fd_funk_t *     funk FD_FN_UNUSED,
                                fd_acc_mgr_t *  acc_mgr,
                                fd_funk_txn_t * funk_txn,
                                fd_pubkey_t *   alt_acct_addr,
@@ -115,7 +115,6 @@ void add_address_lookup_table( fd_funk_t *     funk,
                                fd_txn_p_t *    out_txn,
                                ulong *         out_txn_sz,
                                ulong *         out_pay_sz ) {
-  fd_funk_start_write( funk );
 
   FD_TXN_ACCOUNT_DECL( rec );
   const ulong rec_sz = FD_LOOKUP_TABLE_META_SIZE+alt_acct_data_sz;
@@ -138,8 +137,6 @@ void add_address_lookup_table( fd_funk_t *     funk,
   fd_memcpy( rec->meta->info.owner, fd_solana_address_lookup_table_program_id.key, sizeof(fd_pubkey_t) );
   fd_memcpy( rec->data+FD_LOOKUP_TABLE_META_SIZE, alt_acct_data, alt_acct_data_sz );
   /* other metadata fields (e.g., slot, hash, ...) are ommited */
-
-  fd_funk_end_write( funk );
 
   /* Append an address lookup table after txn_payload */
   fd_txn_acct_addr_lut_t alt = {
@@ -174,11 +171,11 @@ void add_address_lookup_table( fd_funk_t *     funk,
   fd_memcpy( addr_luts, &alt, sizeof(fd_txn_acct_addr_lut_t) );
 }
 
-void test_no_conflict_alt( fd_funk_t *       funk,
-                           fd_acc_mgr_t *    acc_mgr,
-                           fd_funk_txn_t *   funk_txn,
+void test_no_conflict_alt( fd_funk_t *             funk,
+                           fd_acc_mgr_t *             acc_mgr,
+                           fd_funk_txn_t *         funk_txn,
                            fd_conflict_detect_ele_t * acct_map,
-                           fd_acct_addr_t *  acct_arr ) {
+                           fd_acct_addr_t *           acct_arr ) {
   const ulong txns_cnt     = 2UL;
   uchar * raw_txns[]       = { transfer_txn_A_B, transfer_txn_D_E };
   ulong raw_txns_len[]     = { sizeof(transfer_txn_A_B), sizeof(transfer_txn_D_E) };
@@ -210,11 +207,11 @@ void test_no_conflict_alt( fd_funk_t *       funk,
   FD_LOG_NOTICE(( "Pass test_no_conflict_alt" ));
 }
 
-void test_read_write_conflict_alt( fd_funk_t *       funk,
-                                   fd_acc_mgr_t *    acc_mgr,
-                                   fd_funk_txn_t *   funk_txn,
+void test_read_write_conflict_alt( fd_funk_t *                funk,
+                                   fd_acc_mgr_t *             acc_mgr,
+                                   fd_funk_txn_t *            funk_txn,
                                    fd_conflict_detect_ele_t * acct_map,
-                                   fd_acct_addr_t *  acct_arr ) {
+                                   fd_acct_addr_t *           acct_arr ) {
   const ulong txns_cnt     = 2UL;
   uchar * raw_txns[]       = { transfer_txn_A_B, transfer_txn_D_E };
   ulong raw_txns_len[]     = { sizeof(transfer_txn_A_B), sizeof(transfer_txn_D_E) };
@@ -247,11 +244,11 @@ void test_read_write_conflict_alt( fd_funk_t *       funk,
   FD_LOG_NOTICE(( "Pass test_read_write_conflict_alt" ));
 }
 
-void test_write_write_conflict_alt( fd_funk_t *        funk,
-                                     fd_acc_mgr_t *    acc_mgr,
-                                     fd_funk_txn_t *   funk_txn,
-                                     fd_conflict_detect_ele_t * acct_map,
-                                     fd_acct_addr_t *  acct_arr ) {
+void test_write_write_conflict_alt( fd_funk_t *                funk,
+                                    fd_acc_mgr_t *             acc_mgr,
+                                    fd_funk_txn_t *            funk_txn,
+                                    fd_conflict_detect_ele_t * acct_map,
+                                    fd_acct_addr_t *           acct_arr ) {
   const ulong txns_cnt     = 2UL;
   uchar * raw_txns[]       = { transfer_txn_A_B, transfer_txn_D_E };
   ulong raw_txns_len[]     = { sizeof(transfer_txn_A_B), sizeof(transfer_txn_D_E) };
@@ -284,7 +281,7 @@ void test_write_write_conflict_alt( fd_funk_t *        funk,
   FD_LOG_NOTICE(( "Pass test_write_write_conflict_alt" ));
 }
 
-void test_read_write_conflict_alt_sentinel( fd_funk_t *       funk,
+void test_read_write_conflict_alt_sentinel( fd_funk_t *    funk,
                                             fd_acc_mgr_t *    acc_mgr,
                                             fd_funk_txn_t *   funk_txn,
                                             fd_conflict_detect_ele_t * acct_map,
@@ -336,7 +333,7 @@ main( int     argc,
   void * acct_map_mem = fd_wksp_alloc_laddr( wksp, fd_conflict_detect_map_align(), fd_conflict_detect_map_footprint( lg_max_naccts ), 1234UL );
   void * acct_arr_mem = fd_wksp_alloc_laddr( wksp, 32UL, sizeof(fd_acct_addr_t)*FD_TXN_CONFLICT_MAP_MAX_NACCT, 1235UL );
   ulong tag=2345UL, seed=5678UL, txn_max=1024, rec_max=1024;
-  void * funk_mem     = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint(), tag );
+  void * funk_mem     = fd_wksp_alloc_laddr( wksp, fd_funk_align(), fd_funk_footprint( txn_max, rec_max ), tag );
   void * acc_mgr_mem  = fd_wksp_alloc_laddr( wksp,  FD_ACC_MGR_ALIGN, FD_ACC_MGR_FOOTPRINT, 3456UL );
   FD_TEST( funk_mem );
   FD_TEST( acct_arr_mem );
@@ -348,14 +345,12 @@ main( int     argc,
   fd_acc_mgr_t *    acc_mgr = fd_acc_mgr_new( acc_mgr_mem, funk );
   FD_TEST( funk==funk_mem );
 
-  fd_funk_start_write( funk );
   fd_funk_txn_xid_t xid = {.ul={ slot+1, slot+1 }};
   fd_funk_txn_xid_t const * last_publish_xid = fd_funk_last_publish( funk );
-  fd_funk_txn_t * txn_map = fd_funk_txn_map( funk, wksp ); FD_TEST( txn_map );
-  fd_funk_txn_t * last_publish = fd_funk_txn_query( last_publish_xid, txn_map );
+  fd_funk_txn_map_t txn_map = fd_funk_txn_map( funk, wksp );
+  fd_funk_txn_t * last_publish = fd_funk_txn_query( last_publish_xid, &txn_map );
   fd_funk_txn_t * funk_txn = fd_funk_txn_prepare( funk, last_publish, &xid, 1 );
   FD_TEST( funk_txn );
-  fd_funk_end_write( funk );
 
   FD_LOG_NOTICE(( "Allocating %lu MB for the account map", fd_conflict_detect_map_footprint( lg_max_naccts )/1024/1024 ));
 

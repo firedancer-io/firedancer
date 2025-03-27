@@ -45,7 +45,7 @@ struct fd_exec_tile_ctx {
 
   /* Funk-specific setup.  */
   fd_funk_t *           funk;
-  fd_wksp_t *           funk_wksp;
+  fd_wksp_t    *           funk_wksp;
 
   /* Data structures related to managing and executing the transaction.
      The fd_txn_p_t is refreshed with every transaction and is sent
@@ -153,15 +153,17 @@ prepare_new_slot_execution( fd_exec_tile_ctx_t *           ctx,
   fd_spad_push( ctx->exec_spad );
   ctx->pending_slot_pop = 1;
 
-  fd_funk_txn_t * txn_map = fd_funk_txn_map( ctx->funk, ctx->funk_wksp );
-  if( FD_UNLIKELY( !txn_map ) ) {
+  fd_funk_txn_map_t txn_map = fd_funk_txn_map( ctx->funk, ctx->funk_wksp );
+  if( FD_UNLIKELY( !txn_map.map ) ) {
     FD_LOG_ERR(( "Could not find valid funk transaction map" ));
   }
   fd_funk_txn_xid_t xid = { .ul = { slot_msg->slot, slot_msg->slot } };
-  fd_funk_txn_t * funk_txn = fd_funk_txn_query( &xid, txn_map );
+  fd_funk_txn_start_read( ctx->funk );
+  fd_funk_txn_t * funk_txn = fd_funk_txn_query( &xid, &txn_map );
   if( FD_UNLIKELY( !funk_txn ) ) {
     FD_LOG_ERR(( "Could not find valid funk transaction" ));
   }
+  fd_funk_txn_end_read( ctx->funk );
   ctx->txn_ctx->funk_txn = funk_txn;
 
   ctx->txn_ctx->slot                        = slot_msg->slot;
@@ -454,6 +456,7 @@ unprivileged_init( fd_topo_t *      topo,
   /* Setting these parameters are not required because we are joining
      the funk that was setup in the replay tile. */
   FD_LOG_NOTICE(( "Trying to join funk at file=%s", tile->exec.funk_file ));
+  fd_funk_txn_start_write( NULL );
   ctx->funk = fd_funk_open_file( tile->exec.funk_file,
                                   1UL,
                                   0UL,
@@ -462,6 +465,7 @@ unprivileged_init( fd_topo_t *      topo,
                                   0UL,
                                   FD_FUNK_READONLY,
                                   NULL );
+  fd_funk_txn_end_write( NULL );
   ctx->funk_wksp = fd_funk_wksp( ctx->funk );
   if( FD_UNLIKELY( !ctx->funk ) ) {
     FD_LOG_ERR(( "failed to join a funk" ));

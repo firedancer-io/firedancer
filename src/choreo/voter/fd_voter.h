@@ -141,10 +141,17 @@ typedef struct fd_voter_state fd_voter_state_t;
    `key`.  Returns a pointer to the start of the voter's state.  Assumes
    `key` is a vote account address and the record is a voter's state
    (fd_voter_state_t).  U.B. if `key` does not point to a valid vote
-   account. */
+   account.
+
+   It will update the given Funk query with the version at the point of
+   querying. fd_funk_rec_query_test must be called after usage to check
+   that the record has not been modified. */
 
 fd_voter_state_t const *
-fd_voter_state( fd_funk_t * funk, fd_funk_txn_t const * txn, fd_funk_rec_key_t const * key );
+fd_voter_state( fd_funk_t * funk,
+                fd_funk_rec_query_t * query,
+                fd_funk_txn_t const * txn,
+                fd_funk_rec_key_t const * key );
 
 /* fd_voter_state_cnt returns the number of votes in the voter's tower.
    Assumes `state` is a valid fd_voter_state_t. */

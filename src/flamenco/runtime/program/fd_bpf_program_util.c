@@ -210,19 +210,21 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     }
 
     int funk_err = FD_FUNK_SUCCESS;
-    fd_funk_rec_t const * existing_rec = fd_funk_rec_query_global( funk, funk_txn, &id, NULL );
-    fd_funk_rec_t *       rec          = fd_funk_rec_write_prepare( funk, funk_txn, &id, fd_sbpf_validated_program_footprint( &elf_info ), 1, existing_rec, &funk_err );
+    fd_funk_rec_prepare_t prepare[1];
+    fd_funk_rec_t * rec = fd_funk_rec_prepare( funk, funk_txn, &id, prepare, NULL );
     if( rec == NULL || funk_err != FD_FUNK_SUCCESS ) {
       return -1;
     }
 
-    void * val = fd_funk_val( rec, fd_funk_wksp( funk ) );
+    fd_wksp_t * wksp = fd_funk_wksp( funk );
+    void * val = fd_funk_val_truncate( rec, fd_sbpf_validated_program_footprint( &elf_info ), fd_funk_alloc( funk, wksp ), wksp, NULL );;
     fd_sbpf_validated_program_t * validated_prog = fd_sbpf_validated_program_new( val, &elf_info );
 
     ulong  prog_align     = fd_sbpf_program_align();
     ulong  prog_footprint = fd_sbpf_program_footprint( &elf_info );
     fd_sbpf_program_t * prog = fd_sbpf_program_new(  fd_spad_alloc( runtime_spad, prog_align, prog_footprint ), &elf_info, validated_prog->rodata );
     if( FD_UNLIKELY( !prog ) ) {
+      fd_funk_rec_cancel( prepare );
       return -1;
     }
 
@@ -243,7 +245,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     if( FD_UNLIKELY( 0!=fd_sbpf_program_load( prog, program_data, program_data_len, syscalls, false ) ) ) {
       /* Remove pending funk record */
       FD_LOG_DEBUG(( "fd_sbpf_program_load() failed: %s", fd_sbpf_strerror() ));
-      fd_funk_rec_remove( funk, rec, funk_txn->xid.ul[0] );
+      fd_funk_rec_cancel( prepare );
       return -1;
     }
 
@@ -289,7 +291,7 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     if( FD_UNLIKELY( res ) ) {
       /* Remove pending funk record */
       FD_LOG_DEBUG(( "fd_vm_validate() failed" ));
-      fd_funk_rec_remove( funk, rec, 0UL );
+      fd_funk_rec_cancel( prepare );
       return -1;
     }
 
@@ -302,6 +304,8 @@ fd_bpf_create_bpf_program_cache_entry( fd_exec_slot_ctx_t *    slot_ctx,
     validated_prog->text_cnt = prog->text_cnt;
     validated_prog->text_sz = prog->text_sz;
     validated_prog->rodata_sz = prog->rodata_sz;
+
+    fd_funk_rec_publish( prepare );
 
     return 0;
   } FD_SPAD_FRAME_END;
@@ -353,15 +357,18 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_
   /* Use random-ish xid to avoid concurrency issues */
   fd_funk_txn_xid_t cache_xid = fd_funk_generate_xid();
 
+  fd_funk_txn_start_write( funk );
   fd_funk_txn_t * cache_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &cache_xid, 1 );
   if( !cache_txn ) {
     FD_LOG_ERR(( "fd_funk_txn_prepare() failed" ));
     return -1;
   }
+  fd_funk_txn_end_write( funk );
 
   fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
   slot_ctx->funk_txn = cache_txn;
 
+  fd_funk_txn_start_read( funk );
   fd_funk_rec_t const * rec = fd_funk_txn_first_rec( funk, funk_txn );
   while( rec!=NULL ) {
     FD_SPAD_FRAME_BEGIN( runtime_spad ) {
@@ -398,11 +405,13 @@ fd_bpf_scan_and_create_bpf_program_cache_entry_tpool( fd_exec_slot_ctx_t * slot_
 
     } FD_SPAD_FRAME_END;
   }
+  fd_funk_txn_end_read( funk );
 
+  fd_funk_txn_start_write( funk );
   if( fd_funk_txn_publish_into_parent( funk, cache_txn, 1 ) != FD_FUNK_SUCCESS ) {
     FD_LOG_ERR(( "fd_funk_txn_publish_into_parent() failed" ));
-    return -1;
   }
+  fd_funk_txn_end_write( funk );
 
   slot_ctx->funk_txn = parent_txn;
 
@@ -423,15 +432,18 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
   /* Use random-ish xid to avoid concurrency issues */
   fd_funk_txn_xid_t cache_xid = fd_funk_generate_xid();
 
+  fd_funk_txn_start_write( funk );
   fd_funk_txn_t * cache_txn = fd_funk_txn_prepare( funk, slot_ctx->funk_txn, &cache_xid, 1 );
   if( !cache_txn ) {
     FD_LOG_ERR(( "fd_funk_txn_prepare() failed" ));
     return -1;
   }
+  fd_funk_txn_end_write( funk );
 
   fd_funk_txn_t * parent_txn = slot_ctx->funk_txn;
   slot_ctx->funk_txn = cache_txn;
 
+  fd_funk_txn_start_read( funk );
   for (fd_funk_rec_t const *rec = fd_funk_txn_first_rec( funk, funk_txn );
        NULL != rec;
        rec = fd_funk_txn_next_rec( funk, rec )) {
@@ -450,13 +462,16 @@ fd_bpf_scan_and_create_bpf_program_cache_entry( fd_exec_slot_ctx_t * slot_ctx,
       cnt++;
     }
   }
+  fd_funk_txn_end_read( funk );
 
   FD_LOG_DEBUG(( "loaded program cache: %lu", cnt));
 
+  fd_funk_txn_start_write( funk );
   if( fd_funk_txn_publish_into_parent( funk, cache_txn, 1 ) != FD_FUNK_SUCCESS ) {
     FD_LOG_ERR(( "fd_funk_txn_publish_into_parent() failed" ));
     return -1;
   }
+  fd_funk_txn_end_write( funk );
 
   slot_ctx->funk_txn = parent_txn;
   return 0;
@@ -491,19 +506,35 @@ fd_bpf_load_cache_entry( fd_funk_t *                    funk,
                          fd_funk_txn_t *                funk_txn,
                          fd_pubkey_t const *            program_pubkey,
                          fd_sbpf_validated_program_t ** valid_prog ) {
-  fd_funk_rec_key_t id       = fd_acc_mgr_cache_key( program_pubkey );
+  fd_funk_rec_key_t id   = fd_acc_mgr_cache_key( program_pubkey );
 
-  fd_funk_rec_t const * rec = fd_funk_rec_query_global( funk, funk_txn, &id, NULL );
+  for(;;) {
+    fd_funk_rec_query_t query[1];
+    fd_funk_rec_t const * rec = fd_funk_rec_query_try_global(funk, funk_txn, &id, NULL, query);
 
-  if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) ) {
-    return -1;
+    if( FD_UNLIKELY( !rec || !!( rec->flags & FD_FUNK_REC_FLAG_ERASE ) ) ) {
+      if( fd_funk_rec_query_test( query ) == FD_FUNK_SUCCESS ) {
+        return -1;
+      } else {
+        continue;
+      }
+    }
+
+    void const * data = fd_funk_val_const( rec, fd_funk_wksp(funk) );
+
+    /* TODO: magic check */
+
+    *valid_prog = (fd_sbpf_validated_program_t *)data;
+
+    /* This test is actually too early. It should happen after the
+       data is actually consumed.
+
+       TODO: this is likely fine because nothing else is modifying the
+       program cache records at the same time. */
+    if( FD_LIKELY( fd_funk_rec_query_test( query ) == FD_FUNK_SUCCESS ) ) {
+      return 0;
+    }
+
+    /* Try again */
   }
-
-  void const * data = fd_funk_val_const( rec, fd_funk_wksp( funk ) );
-
-  /* TODO: magic check */
-
-  *valid_prog = (fd_sbpf_validated_program_t *)data;
-
-  return 0;
 }

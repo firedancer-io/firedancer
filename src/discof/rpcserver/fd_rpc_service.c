@@ -133,13 +133,6 @@ struct fd_rpc_ctx {
   fd_rpc_global_ctx_t * global;
 };
 
-static void *
-read_account( fd_rpc_ctx_t * ctx, fd_pubkey_t * acct, ulong * result_len ) {
-  fd_funk_rec_key_t recid = fd_acc_funk_key(acct);
-  fd_funk_t * funk = ctx->global->funk;
-  return fd_funk_rec_query_safe(funk, &recid, fd_scratch_virtual(), result_len);
-}
-
 static void
 fd_method_simple_error( fd_rpc_ctx_t * ctx, int errcode, const char* text ) {
   fd_web_reply_error( &ctx->global->ws, errcode, text, ctx->call_id );
@@ -159,14 +152,17 @@ fd_method_error( fd_rpc_ctx_t * ctx, int errcode, const char* format, ... ) {
   fd_method_simple_error(ctx, errcode, text);
 }
 
-
-static void *
-read_account_with_xid( fd_rpc_ctx_t * ctx, fd_pubkey_t * acct, fd_funk_txn_xid_t * xid, ulong * result_len ) {
-  fd_funk_rec_key_t recid = fd_acc_funk_key(acct);
-  fd_funk_t * funk = ctx->global->funk;
-  return fd_funk_rec_query_xid_safe(funk, &recid, xid, fd_scratch_virtual(), result_len);
+static const void *
+read_account_with_xid( fd_rpc_ctx_t * ctx, fd_funk_rec_key_t * recid, fd_funk_txn_xid_t * xid, ulong * result_len ) {
+  fd_funk_txn_map_t txn_map = fd_funk_txn_map( ctx->global->funk, fd_funk_wksp( ctx->global->funk ) );
+  fd_funk_txn_t *   txn     = fd_funk_txn_query( xid, &txn_map );
+  return fd_funk_rec_query_copy( ctx->global->funk, txn, recid, fd_scratch_virtual(), result_len );
 }
 
+static const void *
+read_account( fd_rpc_ctx_t * ctx, fd_funk_rec_key_t * recid, ulong * result_len ) {
+  return fd_funk_rec_query_copy( ctx->global->funk, NULL, recid, fd_scratch_virtual(), result_len );
+}
 
 static ulong
 get_slot_from_commitment_level( struct json_values * values, fd_rpc_ctx_t * ctx ) {
@@ -203,11 +199,10 @@ read_epoch_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
 
     fd_funk_rec_key_t recid = fd_runtime_epoch_bank_key();
     ulong vallen;
-    fd_funk_t * funk = ctx->global->funk;
 
     /* FIXME always uses the root's epoch bank because we don't serialize it */
 
-    void * val = fd_funk_rec_query_safe(funk, &recid, fd_scratch_virtual(), &vallen);
+    const void * val = read_account( ctx, &recid, &vallen );
     if( val == NULL ) {
       FD_LOG_WARNING(( "failed to decode epoch_bank" ));
       return NULL;
@@ -247,7 +242,6 @@ read_slot_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
   ulong vallen;
 
   fd_rpc_global_ctx_t * glob = ctx->global;
-  fd_funk_t * funk = ctx->global->funk;
 
   fd_block_info_t block_info = { 0 };
   fd_blockstore_block_map_query_volatile( glob->blockstore, glob->blockstore_fd, slot, &block_info );
@@ -258,9 +252,9 @@ read_slot_bank( fd_rpc_ctx_t * ctx, ulong slot ) {
   fd_funk_txn_xid_t xid = { 0 };
   memcpy( xid.uc, &block_info.block_hash, sizeof( fd_funk_txn_xid_t ) );
   xid.ul[0] = slot;
-  void * val = fd_funk_rec_query_xid_safe(funk, &recid, &xid, fd_scratch_virtual(), &vallen);
+  const void * val = read_account_with_xid(ctx, &recid, &xid, &vallen);
   if( FD_UNLIKELY( !val ) ) {
-    val = fd_funk_rec_query_safe(funk, &recid, fd_scratch_virtual(), &vallen);
+    val = read_account(ctx, &recid, &vallen);
     if( FD_UNLIKELY( !val ) ) {
       FD_LOG_WARNING(( "failed to decode slot_bank" ));
       return NULL;
@@ -351,7 +345,8 @@ method_getAccountInfo(struct json_values* values, fd_rpc_ctx_t * ctx) {
     }
 
     ulong val_sz;
-    void * val = read_account(ctx, &acct, &val_sz);
+    fd_funk_rec_key_t recid = fd_acc_funk_key(&acct);
+    const void * val        = read_account(ctx, &recid, &val_sz);
     if (val == NULL) {
       fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":null},\"id\":%s}" CRLF,
                            ctx->global->last_slot_notify.slot_exec.slot, ctx->call_id);
@@ -418,7 +413,8 @@ method_getBalance(struct json_values* values, fd_rpc_ctx_t * ctx) {
       return 0;
     }
     ulong val_sz;
-    void * val = read_account(ctx, &acct, &val_sz);
+    fd_funk_rec_key_t recid = fd_acc_funk_key(&acct);
+    const void * val        = read_account(ctx, &recid, &val_sz);
     if (val == NULL) {
       fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":0},\"id\":%s}" CRLF,
                          ctx->global->last_slot_notify.slot_exec.slot, ctx->call_id);
@@ -1212,7 +1208,8 @@ method_getMultipleAccounts(struct json_values* values, fd_rpc_ctx_t * ctx) {
       }
       FD_SCRATCH_SCOPE_BEGIN {
         ulong val_sz;
-        void * val = read_account(ctx, &acct, &val_sz);
+        fd_funk_rec_key_t recid = fd_acc_funk_key(&acct);
+        const void * val        = read_account(ctx, &recid, &val_sz);
         if (val == NULL) {
           fd_web_reply_sprintf(ws, "null");
           continue;
@@ -2321,7 +2318,8 @@ ws_method_accountSubscribe_update(fd_rpc_ctx_t * ctx, fd_replay_notif_msg_t * ms
 
   FD_SCRATCH_SCOPE_BEGIN {
     ulong val_sz;
-    void * val = read_account_with_xid(ctx, &sub->acct_subscribe.acct, &msg->accts.funk_xid, &val_sz);
+    fd_funk_rec_key_t recid = fd_acc_funk_key(&sub->acct_subscribe.acct);
+    const void * val = read_account_with_xid(ctx, &recid, &msg->accts.funk_xid, &val_sz);
     if (val == NULL) {
       fd_web_reply_sprintf(ws, "{\"jsonrpc\":\"2.0\",\"result\":{\"context\":{\"apiVersion\":\"" FIREDANCER_VERSION "\",\"slot\":%lu},\"value\":null},\"subscription\":%lu}" CRLF,
                            msg->accts.funk_xid.ul[0], sub->subsc_id);

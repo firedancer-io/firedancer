@@ -103,27 +103,6 @@ program_error_to_instr_error( ulong  err,
   }
 }
 
-int
-fd_bpf_loader_v2_is_executable( fd_exec_slot_ctx_t * slot_ctx,
-                                fd_pubkey_t const *  pubkey ) {
-  FD_TXN_ACCOUNT_DECL( rec );
-  int read_result = fd_acc_mgr_view( slot_ctx->acc_mgr, slot_ctx->funk_txn, pubkey, rec );
-  if( read_result != FD_ACC_MGR_SUCCESS ) {
-    return -1;
-  }
-
-  if( memcmp( rec->const_meta->info.owner, fd_solana_bpf_loader_program_id.key, sizeof(fd_pubkey_t) ) != 0 &&
-      memcmp( rec->const_meta->info.owner, fd_solana_bpf_loader_deprecated_program_id.key, sizeof(fd_pubkey_t) ) != 0 ) {
-    return -1;
-  }
-
-  if( rec->const_meta->info.executable != 1 ) {
-    return -1;
-  }
-
-  return 0;
-}
-
 /* TODO: This can be combined with the other bpf loader state decode function */
 fd_bpf_upgradeable_loader_state_t *
 read_bpf_upgradeable_loader_state_for_program( fd_exec_txn_ctx_t *                 txn_ctx,
@@ -2125,7 +2104,7 @@ fd_directly_invoke_loader_v3_deploy( fd_exec_slot_ctx_t * slot_ctx,
                                      fd_spad_t *          runtime_spad ) {
   /* Set up a dummy instr and txn context */
   fd_exec_txn_ctx_t * txn_ctx            = fd_exec_txn_ctx_join( fd_exec_txn_ctx_new( fd_spad_alloc( runtime_spad, FD_EXEC_TXN_CTX_ALIGN, FD_EXEC_TXN_CTX_FOOTPRINT ) ), runtime_spad, fd_wksp_containing( runtime_spad ) );
-  fd_funk_t *         funk               = slot_ctx->acc_mgr->funk;
+  fd_funk_t *      funk                  = slot_ctx->acc_mgr->funk;
   fd_wksp_t *         funk_wksp          = fd_funk_wksp( funk );
   fd_wksp_t *         runtime_wksp       = fd_wksp_containing( slot_ctx );
   ulong               funk_txn_gaddr     = fd_wksp_gaddr( funk_wksp, slot_ctx->funk_txn );

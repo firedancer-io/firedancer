@@ -16,6 +16,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include "fd_geyser.h"
 
 #define SHAM_LINK_CONTEXT fd_geyser_t
 #define SHAM_LINK_STATE   fd_replay_notif_msg_t
@@ -213,6 +214,13 @@ replay_sham_link_during_frag( fd_geyser_t * ctx, fd_replay_notif_msg_t * state, 
   fd_memcpy(state, msg, sizeof(fd_replay_notif_msg_t));
 }
 
+static const void *
+read_account_with_xid( fd_geyser_t * ctx, fd_funk_rec_key_t * recid, fd_funk_txn_xid_t * xid, ulong * result_len ) {
+  fd_funk_txn_map_t txn_map = fd_funk_txn_map( ctx->funk, fd_funk_wksp( ctx->funk ) );
+  fd_funk_txn_t *   txn     = fd_funk_txn_query( xid, &txn_map );
+  return fd_funk_rec_query_copy( ctx->funk, txn, recid, fd_scratch_virtual(), result_len );
+}
+
 static void
 replay_sham_link_after_frag(fd_geyser_t * ctx, fd_replay_notif_msg_t * msg) {
   if( msg->type == FD_REPLAY_SLOT_TYPE ) {
@@ -230,10 +238,12 @@ replay_sham_link_after_frag(fd_geyser_t * ctx, fd_replay_notif_msg_t * msg) {
           fd_memcpy(&addr, msg->accts.accts[i].id, 32U );
           fd_funk_rec_key_t key = fd_acc_funk_key( &addr );
           ulong datalen;
-          void * data = fd_funk_rec_query_xid_safe( ctx->funk, &key, &msg->accts.funk_xid, fd_scratch_virtual(), &datalen );
+          const void * data = read_account_with_xid( ctx, &key, &msg->accts.funk_xid, &datalen );
           if( data ) {
             fd_account_meta_t const * meta = fd_type_pun_const( data );
-            (*ctx->acct_fun)( msg->accts.funk_xid.ul[0], msg->accts.sig, &addr, meta, (uchar*)data + meta->hlen, meta->dlen, ctx->fun_arg );
+            if( datalen >= meta->hlen + meta->dlen ) {
+              (*ctx->acct_fun)( msg->accts.funk_xid.ul[0], msg->accts.sig, &addr, meta, (uchar*)data + meta->hlen, meta->dlen, ctx->fun_arg );
+            }
           }
         } FD_SCRATCH_SCOPE_END;
       }

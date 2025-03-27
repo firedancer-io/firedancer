@@ -1250,13 +1250,13 @@ fd_execute_txn_prepare_start( fd_exec_slot_ctx_t const * slot_ctx,
                               fd_txn_t const *           txn_descriptor,
                               fd_rawtxn_b_t const *      txn_raw ) {
 
-  fd_funk_t * funk               = slot_ctx->acc_mgr->funk;
-  fd_wksp_t * funk_wksp          = fd_funk_wksp( funk );
-  fd_wksp_t * runtime_pub_wksp   = fd_wksp_containing( slot_ctx->acc_mgr );
-  ulong       funk_txn_gaddr     = fd_wksp_gaddr( funk_wksp, slot_ctx->funk_txn );
-  ulong       acc_mgr_gaddr      = fd_wksp_gaddr( runtime_pub_wksp, slot_ctx->acc_mgr );
-  ulong       funk_gaddr         = fd_wksp_gaddr( funk_wksp, slot_ctx->acc_mgr->funk );
-  ulong       sysvar_cache_gaddr = fd_wksp_gaddr( runtime_pub_wksp, slot_ctx->sysvar_cache );
+  fd_funk_t * funk                  = slot_ctx->acc_mgr->funk;
+  fd_wksp_t *    funk_wksp          = fd_funk_wksp( funk );
+  fd_wksp_t *    runtime_pub_wksp   = fd_wksp_containing( slot_ctx->acc_mgr );
+  ulong          funk_txn_gaddr     = fd_wksp_gaddr( funk_wksp, slot_ctx->funk_txn );
+  ulong          acc_mgr_gaddr      = fd_wksp_gaddr( runtime_pub_wksp, slot_ctx->acc_mgr );
+  ulong          funk_gaddr         = fd_wksp_gaddr( funk_wksp, slot_ctx->acc_mgr->funk );
+  ulong          sysvar_cache_gaddr = fd_wksp_gaddr( runtime_pub_wksp, slot_ctx->sysvar_cache );
 
   /* Init txn ctx */
   fd_exec_txn_ctx_new( txn_ctx );

@@ -15,12 +15,12 @@ typedef struct fd_pubkey_hash_pair fd_pubkey_hash_pair_t;
 #define FD_PUBKEY_HASH_PAIR_FOOTPRINT (sizeof(fd_pubkey_hash_pair_t))
 
 struct fd_accounts_hash_task_info {
-  fd_exec_slot_ctx_t *  slot_ctx;
-  fd_pubkey_t           acc_pubkey[1];
-  fd_hash_t             acc_hash[1];
-  fd_funk_rec_t const * rec;
-  uint                  should_erase;
-  uint                  hash_changed;
+  fd_exec_slot_ctx_t *     slot_ctx;
+  fd_pubkey_t              acc_pubkey[1];
+  fd_hash_t                acc_hash[1];
+  fd_funk_rec_t const *    rec;
+  uint                     should_erase;
+  uint                     hash_changed;
 };
 typedef struct fd_accounts_hash_task_info fd_accounts_hash_task_info_t;
 
