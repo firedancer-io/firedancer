@@ -39,6 +39,11 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#define DEQUE_NAME fd_exec_slice
+#define DEQUE_T    ulong
+#define DEQUE_MAX  1024UL
+#include "../../util/tmpl/fd_deque.c"
+
 /* An estimate of the max number of transactions in a block.  If there are more
    transactions, they must be split into multiple sets. */
 #define MAX_TXNS_PER_REPLAY ( ( FD_SHRED_MAX_PER_SLOT * FD_SHRED_MAX_SZ) / FD_TXN_MIN_SERIALIZED_SZ )
@@ -316,6 +321,8 @@ struct fd_replay_tile_ctx {
 
   /* Metrics */
   fd_replay_tile_metrics_t metrics;
+
+  ulong * exec_slice_deque; /* Deque to buffer exec slices */
 };
 typedef struct fd_replay_tile_ctx fd_replay_tile_ctx_t;
 
@@ -493,8 +500,12 @@ during_frag( fd_replay_tile_ctx_t * ctx,
     uchar * src = (uchar *)fd_chunk_to_laddr( ctx->batch_in_mem, chunk );
     fd_memcpy( ctx->slot_ctx->slot_bank.epoch_account_hash.uc, src, sizeof(fd_hash_t) );
     FD_LOG_NOTICE(( "Epoch account hash calculated to be %s", FD_BASE58_ENC_32_ALLOCA( ctx->slot_ctx->slot_bank.epoch_account_hash.uc ) ));
-  }  else if ( in_idx==STORE_IN_IDX ) {
-    return;
+  } else if ( in_idx==STORE_IN_IDX ) {
+    /* At this point we have been notified by the store tile that a
+       slice is ready to be executed. If the replay tile is not ready
+       to execute this slice (e.g. if it is executing another slice),
+       then we will queue the notification to be processed later. */
+    fd_exec_slice_push_tail( ctx->exec_slice_deque, sig );
   }
   // if( ctx->flags & REPLAY_FLAG_PACKED_MICROBLOCK ) {
   //   /* We do not know the parent slot, pick one from fork selection */
@@ -1316,7 +1327,8 @@ init_poh( fd_replay_tile_ctx_t * ctx ) {
 }
 
 static void
-prepare_first_batch_execution( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ){
+prepare_first_batch_execution( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * stem ) {
+
   ulong curr_slot   = ctx->curr_slot;
   ulong parent_slot = ctx->parent_slot;
   ulong flags       = ctx->flags;
@@ -1357,7 +1369,7 @@ prepare_first_batch_execution( fd_replay_tile_ctx_t * ctx, fd_stem_context_t * s
   }
 
   fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &curr_slot, NULL, ctx->forks->pool );
-  if( fork == NULL ) {
+  if( fork==NULL ) {
     fork = prepare_new_block_execution( ctx, stem, curr_slot, flags );
   } else {
     FD_LOG_WARNING(("Fork for slot %lu already exists, so we don't make a new one. Restarting execution from batch %u", curr_slot, fork->end_idx ));
@@ -1530,73 +1542,82 @@ exec_slice( fd_replay_tile_ctx_t * ctx,
 }
 
 static void
+handle_slice( fd_replay_tile_ctx_t * ctx,
+              fd_stem_context_t *    stem ) {
+
+  if( fd_exec_slice_cnt( ctx->exec_slice_deque )==0UL ) {
+    return;
+  }
+
+  ulong sig = fd_exec_slice_pop_head( ctx->exec_slice_deque );
+
+  if( FD_UNLIKELY( ctx->flags!=EXEC_FLAG_READY_NEW ) ) {
+    FD_LOG_ERR(( "Replay is in unexpected state" ));
+  }
+
+  ulong  slot          = fd_disco_repair_replay_sig_slot( sig );
+  uint   data_cnt      = fd_disco_repair_replay_sig_data_cnt( sig );
+  ushort parent_off    = fd_disco_repair_replay_sig_parent_off( sig );
+  int    slot_complete = fd_disco_repair_replay_sig_slot_complete( sig );
+
+  if( FD_UNLIKELY( slot != ctx->curr_slot ) ) {
+    /* We need to switch forks and execution contexts. Either we
+        completed execution of the previous slot and are now executing
+        a new slot or we are interleaving batches from different slots
+        - all executable at the fork frontier.
+
+        Going to need to query the frontier for the fork, or create it
+        if its not on the frontier. I think
+        prepare_first_batch_execution already handles this logic. */
+
+    ctx->curr_slot   = slot;
+    ctx->parent_slot = slot - parent_off;
+    prepare_first_batch_execution( ctx, stem );
+  } else {
+    /* continuing execution of the slot we have been doing */
+  }
+
+  /* Prepare batch for execution on following after_credit iteration */
+  ctx->flags = EXEC_FLAG_EXECUTING_SLICE;
+  fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &slot, NULL, ctx->forks->pool );
+  ulong slice_sz;
+  uint start_idx = fork->end_idx + 1;
+  int err = fd_blockstore_slice_query( ctx->slot_ctx->blockstore,
+                                        slot,
+                                        start_idx,
+                                        start_idx + data_cnt - 1,
+                                        FD_SLICE_MAX,
+                                        ctx->mbatch,
+                                        &slice_sz );
+  fork->end_idx += data_cnt;
+  ctx->slice_exec_ctx.sz         = slice_sz;
+  ctx->slice_exec_ctx.last_batch = slot_complete;
+  ctx->slice_exec_ctx.txns_rem   = 0;
+  ctx->slice_exec_ctx.mblks_rem  = FD_LOAD( ulong, ctx->mbatch );
+  ctx->slice_exec_ctx.wmark      = sizeof(ulong);
+  ctx->slice_exec_ctx.last_mblk_off = 0;
+
+  if( FD_UNLIKELY( err ) ) {
+    __asm__("int $3");
+    FD_LOG_ERR(( "Failed to query blockstore for slot %lu", slot ));
+  }
+}
+
+static void
 after_frag( fd_replay_tile_ctx_t * ctx,
-            ulong                  in_idx,
+            ulong                  in_idx FD_PARAM_UNUSED,
             ulong                  seq,
             ulong                  sig   FD_PARAM_UNUSED,
             ulong                  sz    FD_PARAM_UNUSED,
             ulong                  tsorig,
             ulong                  tspub FD_PARAM_UNUSED,
             fd_stem_context_t *    stem  FD_PARAM_UNUSED ) {
+
+  (void)in_idx;
   (void)sig;
   (void)sz;
 
   if( FD_UNLIKELY( ctx->skip_frag ) ) return;
-
-  /* If we reach the current point, this means that we are ready to
-     process another batch. See after_credit; if we are mid-execution of
-     a slice, we will not poll in for a new frag (which signals the next
-     batch). Only when we complete execution of batch is when we poll
-     for next frag. */
-  if( FD_LIKELY( in_idx == STORE_IN_IDX ) ) {
-    FD_TEST( ctx->flags == EXEC_FLAG_READY_NEW );
-    ulong  slot          = fd_disco_repair_replay_sig_slot( sig );
-    uint   data_cnt      = fd_disco_repair_replay_sig_data_cnt( sig );
-    ushort parent_off    = fd_disco_repair_replay_sig_parent_off( sig );
-    int    slot_complete = fd_disco_repair_replay_sig_slot_complete( sig );
-
-    if( FD_UNLIKELY( slot != ctx->curr_slot ) ) {
-      /* We need to switch forks and execution contexts. Either we
-         completed execution of the previous slot and are now executing
-         a new slot or we are interleaving batches from different slots
-         - all executable at the fork frontier.
-
-         Going to need to query the frontier for the fork, or create it
-         if its not on the frontier. I think
-         prepare_first_batch_execution already handles this logic. */
-
-      ctx->curr_slot   = slot;
-      ctx->parent_slot = slot - parent_off;
-      prepare_first_batch_execution( ctx, stem );
-    } else {
-      /* continuing execution of the slot we have been doing */
-    }
-
-    /* Prepare batch for execution on following after_credit iteration */
-    ctx->flags = EXEC_FLAG_EXECUTING_SLICE;
-    fd_fork_t * fork = fd_fork_frontier_ele_query( ctx->forks->frontier, &slot, NULL, ctx->forks->pool );
-    ulong slice_sz;
-    uint start_idx = fork->end_idx + 1;
-    int err = fd_blockstore_slice_query( ctx->slot_ctx->blockstore,
-                                         slot,
-                                         start_idx,
-                                         start_idx + data_cnt - 1,
-                                         FD_SLICE_MAX,
-                                         ctx->mbatch,
-                                         &slice_sz );
-    fork->end_idx += data_cnt;
-    ctx->slice_exec_ctx.sz         = slice_sz;
-    ctx->slice_exec_ctx.last_batch = slot_complete;
-    ctx->slice_exec_ctx.txns_rem   = 0;
-    ctx->slice_exec_ctx.mblks_rem  = FD_LOAD( ulong, ctx->mbatch );
-    ctx->slice_exec_ctx.wmark      = sizeof(ulong);
-    ctx->slice_exec_ctx.last_mblk_off = 0;
-
-    if( FD_UNLIKELY( err ) ) {
-      __asm__("int $3");
-      FD_LOG_ERR(( "Failed to query blockstore for slot %lu", slot ));
-    }
-  }
 
   /**********************************************************************/
   /* The rest of after_frag replays some microblocks in block curr_slot */
@@ -1939,7 +1960,6 @@ init_after_snapshot( fd_replay_tile_ctx_t * ctx ) {
                                                           ctx->runtime_spad );
     fd_funk_end_write( ctx->slot_ctx->acc_mgr->funk );
     FD_LOG_NOTICE(( "finished fd_bpf_scan_and_create_bpf_program_cache_entry..." ));
-
   }
 
   ctx->curr_slot     = snapshot_slot;
@@ -2121,16 +2141,15 @@ after_credit( fd_replay_tile_ctx_t * ctx,
               int *                  charge_busy ) {
   (void)opt_poll_in;
 
-  if( ctx->flags & EXEC_FLAG_EXECUTING_SLICE ){
-    exec_slice( ctx, stem, ctx->curr_slot );
+  /* If we are ready to process a new slice, we will poll for it and try
+     to setup execution for it. */
+  if( ctx->flags & EXEC_FLAG_READY_NEW ) {
+    handle_slice( ctx, stem );
   }
 
-  // if we are still mid-execution of this slice then
-  if( ctx->flags & EXEC_FLAG_EXECUTING_SLICE ){
-    /* We are not ready to poll for a new frag. Leave it in mcache until
-       we are ready */
-    *opt_poll_in = 0;
-    return;
+  /* If we are in a state where we are executing a slice, proceed. */
+  if( ctx->flags & EXEC_FLAG_EXECUTING_SLICE ) {
+    exec_slice( ctx, stem, ctx->curr_slot );
   }
 
   ulong curr_slot   = ctx->curr_slot;
@@ -2918,6 +2937,13 @@ unprivileged_init( fd_topo_t *      topo,
   ctx->fecs_inserted = 0UL;
   ctx->fecs_removed  = 0UL;
   FD_TEST( ctx->replay_public!=NULL );
+
+  uchar * deque_mem = fd_spad_alloc( ctx->runtime_spad, fd_exec_slice_align(), fd_exec_slice_footprint() );
+  ctx->exec_slice_deque = fd_exec_slice_join( fd_exec_slice_new( deque_mem ) );
+  if( FD_UNLIKELY( !ctx->exec_slice_deque ) ) {
+    FD_LOG_ERR(( "failed to join and create exec slice deque" ));
+  }
+
 }
 
 static ulong
