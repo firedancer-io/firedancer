@@ -106,9 +106,8 @@ fd_acc_mgr_view( fd_acc_mgr_t *        acc_mgr,
 
   fd_memcpy(account->pubkey, pubkey, sizeof(fd_pubkey_t));
 
-  account->orig_rec  = account->const_rec;
-  account->orig_meta = account->const_meta = meta;
-  account->orig_data = account->const_data = (uchar const *)meta + meta->hlen;
+  account->const_meta = meta;
+  account->const_data = (uchar const *)meta + meta->hlen;
 
   if( ULONG_MAX == account->starting_dlen )
     account->starting_dlen = meta->dlen;
@@ -207,9 +206,9 @@ fd_acc_mgr_modify( fd_acc_mgr_t *      acc_mgr,
                  meta->info.rent_epoch, meta->dlen ));
 #endif
 
-  account->orig_rec  = account->const_rec  = account->rec;
-  account->orig_meta = account->const_meta = account->meta = meta;
-  account->orig_data = account->const_data = account->data = (uchar *)meta + meta->hlen;
+  account->const_rec  = account->rec;
+  account->const_meta = account->meta = meta;
+  account->const_data = account->data = (uchar *)meta + meta->hlen;
 
   if( ULONG_MAX == account->starting_dlen )
     account->starting_dlen = meta->dlen;

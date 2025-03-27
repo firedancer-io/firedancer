@@ -22,10 +22,6 @@ struct __attribute__((aligned(8UL))) fd_txn_account {
   uchar                     * data;
   fd_funk_rec_t             * rec;
 
-  fd_account_meta_t const   * orig_meta;
-  uchar             const   * orig_data;
-  fd_funk_rec_t     const   * orig_rec;
-
   /* consider making this a struct or removing entirely if not needed */
   ulong                       starting_dlen;
   ulong                       starting_lamports;
@@ -102,13 +98,6 @@ fd_txn_account_make_mutable( fd_txn_account_t * acct,
 fd_txn_account_t *
 fd_txn_account_make_readonly( fd_txn_account_t * acct,
                             void *          buf );
-
-/* Restores the original contents of the account shared data into
-   its read-only fields (const_meta, const_data, const_rec).
-   If the account metadata was modified, returns a pointer to metadata,
-   otherwise returns null. */
-void *
-fd_txn_account_restore( fd_txn_account_t * acct );
 
 static inline int
 fd_txn_account_checked_add_lamports( fd_txn_account_t * acct, ulong lamports ) {
