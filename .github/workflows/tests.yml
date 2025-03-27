@@ -84,7 +84,7 @@ jobs:
           - test-case: native-no-agave
             machine: native
             label: 512G
-            extras: "no-agave rpath"
+            extras: "no-agave rpath handholding"
             deps-extras: "+dev"
             targets: "all integration-test fdctl"
             compiler: clang
