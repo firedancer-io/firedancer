@@ -12,8 +12,8 @@ fd_sysvar_set( fd_exec_slot_ctx_t * slot_ctx,
                ulong                sz,
                ulong                slot ) {
 
-  fd_acc_mgr_t *  acc_mgr  = slot_ctx->acc_mgr;
-  fd_funk_txn_t * funk_txn = slot_ctx->funk_txn;
+  fd_acc_mgr_t *     acc_mgr  = slot_ctx->acc_mgr;
+  fd_funkier_txn_t * funk_txn = slot_ctx->funk_txn;
 
   FD_TXN_ACCOUNT_DECL( rec );
 

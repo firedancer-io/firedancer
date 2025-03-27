@@ -236,6 +236,7 @@ fd_vm_syscall_sol_get_sysvar( /**/            void *  _vm,
     return FD_VM_SUCCESS;
   }
 
+  /* we know that the account data won't be changed for the lifetime of this view, because sysvars don't change inter-block */
   FD_TXN_ACCOUNT_DECL( sysvar_account );
   err = fd_acc_mgr_view( vm->instr_ctx->txn_ctx->acc_mgr, vm->instr_ctx->txn_ctx->funk_txn, sysvar_id, sysvar_account );
   if( FD_UNLIKELY( err ) ) {

@@ -11,7 +11,7 @@
 fd_rent_t *
 fd_sysvar_rent_read( fd_sysvar_cache_t const * sysvar_cache,
                      fd_acc_mgr_t *            acc_mgr,
-                     fd_funk_txn_t *           funk_txn,
+                     fd_funkier_txn_t *        funk_txn,
                      fd_spad_t *               spad ) {
 
   fd_rent_t const * ret = (fd_rent_t const *)fd_sysvar_cache_rent( sysvar_cache );
