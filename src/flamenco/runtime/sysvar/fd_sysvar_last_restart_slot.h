@@ -28,7 +28,7 @@ fd_sol_sysvar_last_restart_slot_t *
 fd_sysvar_last_restart_slot_read( fd_sol_sysvar_last_restart_slot_t * result,
                                   fd_sysvar_cache_t const *           sysvar_cache,
                                   fd_acc_mgr_t *                      acc_mgr,
-                                  fd_funk_txn_t *                     funk_txn );
+                                  fd_funkier_txn_t *                  funk_txn );
 
 FD_PROTOTYPES_END
 
