@@ -3,11 +3,11 @@
 #define FD_QUIC_MAX_INFLIGHT_LOW_ENC 5
 void *
 fd_quic_pkt_meta_ds_init( fd_quic_pkt_meta_ds_t * sent_pkt_metas,
-                          ulong                   total_meta_cnt ) {
+                          ulong                   pool_max_cnt ) {
 
   for( ulong enc_level=0; enc_level<4; enc_level++ ) {
     void* mem = fd_quic_pkt_meta_treap_new( &sent_pkt_metas[enc_level],
-                                            total_meta_cnt );
+                                            pool_max_cnt );
     mem = fd_quic_pkt_meta_treap_join( mem );
     if( FD_UNLIKELY( !mem ) ) return NULL;
   }
@@ -17,8 +17,8 @@ fd_quic_pkt_meta_ds_init( fd_quic_pkt_meta_ds_t * sent_pkt_metas,
 
 void
 fd_quic_pkt_meta_ds_init_pool( fd_quic_pkt_meta_t * pool,
-                                    ulong               total_meta_cnt ) {
-  fd_quic_pkt_meta_treap_seed( pool, total_meta_cnt, (ulong)fd_log_wallclock() );
+                               ulong               pool_max_cnt ) {
+  fd_quic_pkt_meta_treap_seed( pool, pool_max_cnt, (ulong)fd_log_wallclock() );
 }
 
 #undef FD_QUIC_MAX_INFLIGHT_LOW_ENC
